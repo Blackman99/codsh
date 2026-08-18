@@ -146,8 +146,5 @@
   ],
   "engines": {
     "node": ">=22.19"
-  },
-  "publishConfig": {
-    "provenance": true
   }
 }
