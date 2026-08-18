@@ -30,12 +30,16 @@ codsh
 
 ```sh
 pnpm install
+pnpm run dev          # build → 同步进 .dev-home → 启动；秒级迭代
+MOCK=markdown pnpm run dev    # 无 key，对着 e2e mock 模型
 pnpm run build        # tsdown 运行时 bundle + tsc 声明文件，输出到 lib/
 pnpm run typecheck
 pnpm test             # 单测（纯函数模块：editor、markdown、transcript……）
 pnpm run test:e2e     # 打包本仓库、注册进 dsh profile，然后经管道与真实 PTY
                       # 驱动 npm 安装的 dsh 可执行文件
 ```
+
+`pnpm run dev` 在 `.dev-home` 维护一个仓库本地的 dsh home：首次运行对打包后的工作树做一次真实 profile 安装，之后每次只把新构建的 `lib/` 覆盖到 profile 里解包的本包上——改动秒级到达运行中的界面。`MOCK=<write|bash|slow|markdown|reasoning|echo|tall>` 换上 keyless e2e 模型、无 key 调 UI；参数透传（`pnpm run dev -- --resume <id>`）；`INSPECT=1` 在应用进程上打开 Node inspector（`chrome://inspect` 或 VS Code attach）。逻辑问题优先用管道形态单步——`printf 'task\n/exit\n' | MOCK=echo pnpm run dev`——那里没有 raw mode 和重绘区域的干扰；在 TTY 上调试不要用 `console.*` 打点（会撕裂受管理区域），改写文件日志。
 
 e2e 测试的是发布产物：`npm pack` 的输出装进真实 profile，由 npm 上的 dsh launcher 启动，配 keyless mock 模型。那里通过的就是用户装到的。
 

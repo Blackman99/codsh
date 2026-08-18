@@ -44,7 +44,10 @@
     "build": "tsdown && tsc -p tsconfig.build.json",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "test:e2e": "pnpm run build && vitest run --config vitest.e2e.config.ts"
+    "test:e2e": "pnpm run build && vitest run --config vitest.e2e.config.ts",
+    "dev": "node scripts/dev.mjs",
+    "prepublishOnly": "pnpm run build",
+    "release": "pnpm run build && changeset publish"
   },
   "dependencies": {
     "@deepseek-ai/dsh": "^0.1.0-rc.7",
@@ -102,6 +105,7 @@
     "@deepseek-ai/dsh-user-questions": "^0.1.0-rc.7"
   },
   "devDependencies": {
+    "@changesets/cli": "^3.0.0",
     "@deepseek-ai/cordis": "^4.0.1",
     "@deepseek-ai/cordis-plugin-loader": "^1.0.2",
     "@deepseek-ai/dsh-agent": "^0.1.0-rc.7",
@@ -124,5 +128,26 @@
     "tsx": "^4.20.0",
     "typescript": "^5.9.0",
     "vitest": "^4.0.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Blackman99/codsh.git"
+  },
+  "homepage": "https://github.com/Blackman99/codsh#readme",
+  "bugs": "https://github.com/Blackman99/codsh/issues",
+  "keywords": [
+    "cli",
+    "coding-agent",
+    "terminal",
+    "deepseek",
+    "dsh",
+    "ai",
+    "agent"
+  ],
+  "engines": {
+    "node": ">=22.19"
+  },
+  "publishConfig": {
+    "provenance": true
   }
 }

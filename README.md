@@ -30,12 +30,16 @@ Off a TTY (pipes, scripts) the same surface degrades to a line reader: selection
 
 ```sh
 pnpm install
+pnpm run dev          # build → sync into .dev-home → boot; seconds per iteration
+MOCK=markdown pnpm run dev    # keyless, against the e2e mock model
 pnpm run build        # tsdown runtime bundles + tsc declarations into lib/
 pnpm run typecheck
 pnpm test             # unit suites (pure modules: editor, markdown, transcript, …)
 pnpm run test:e2e     # packs this repo, registers it into a dsh profile, and
                       # drives the INSTALLED dsh binary through pipes and a real PTY
 ```
+
+`pnpm run dev` keeps a repo-local dsh home in `.dev-home`: the first run does a real profile install of the packed tree, and every later run just copies the fresh `lib/` over the profile's unpacked package — so edits reach the running surface in seconds. `MOCK=<write|bash|slow|markdown|reasoning|echo|tall>` swaps in the keyless e2e model for UI work without a key, arguments pass through (`pnpm run dev -- --resume <id>`), and `INSPECT=1` opens the Node inspector on the app process (`chrome://inspect` or a VS Code attach). Off-TTY logic is easiest to step through piped — `printf 'task\n/exit\n' | MOCK=echo pnpm run dev` — where raw mode and the repaint region are out of the picture; keep `console.*` out of debug prints on a TTY (they tear the managed region) and log to a file instead.
 
 The e2e suites test the release artifact: `npm pack` output installed into a real profile, booted by the dsh launcher from npm, with a keyless mock model. What passes there is what a user installs.
 
