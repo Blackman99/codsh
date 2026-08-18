@@ -1,0 +1,3 @@
+name: 终端模式
+description: 具备标准模式的全部能力，并增加常驻终端会话与可选的 LSP 代码导航，面向 `dsh code` 的终端界面。
+order: 5
