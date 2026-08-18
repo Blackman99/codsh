@@ -5,7 +5,7 @@
  * Pure state. It takes keys and answers with what changed, so every behaviour
  * here is testable without a terminal — the rendering and the raw-mode plumbing
  * are somebody else's job.
- * @module codsh/src/editor
+ * @module codsh-cli/src/editor
  */
 
 import type { CompletableCommand, CompletionResult } from './completion.ts'

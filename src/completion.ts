@@ -10,7 +10,7 @@
  * Matching is fuzzy, not prefix: the person knows a fragment of the name, not
  * where in the path it starts. A prefix match still ranks first, so the fuzzy
  * fallback never steals an exact intention.
- * @module codsh/src/completion
+ * @module codsh-cli/src/completion
  */
 
 import { readdirSync } from 'node:fs'

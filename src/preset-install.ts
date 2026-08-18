@@ -10,7 +10,7 @@
  * The copy is idempotent and never overwrites: a preset a person edited — or
  * one a newer package version would change — stays as it is, because the user
  * root is theirs. Removing the directory restores the packaged copy.
- * @module codsh/src/preset-install
+ * @module codsh-cli/src/preset-install
  */
 
 import { copyFile, mkdir, readdir } from 'node:fs/promises'

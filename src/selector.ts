@@ -5,7 +5,7 @@
  * Pure state, like the editor: keys in, a verdict and rows out. One widget
  * serves single-select, multi-select, and shortcut keys, because three slightly
  * different pickers is how the same bug ships three times.
- * @module codsh/src/selector
+ * @module codsh-cli/src/selector
  */
 
 import { truncate } from './theme.ts'

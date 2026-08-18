@@ -6,7 +6,7 @@
  * Tool cards come from the registered presenters rather than from tool names:
  * a tool declares its own render intent, and this module switches on the
  * resulting `card` tag.
- * @module codsh/src/transcript
+ * @module codsh-cli/src/transcript
  */
 
 import { structuredPatch } from 'diff'

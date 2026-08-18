@@ -1,5 +1,5 @@
 {
-  "name": "codsh",
+  "name": "codsh-cli",
   "description": "A Claude Code-style coding agent for the terminal, composed on the DeepSeek Harness (dsh): interactive TTY surface, plan mode, approvals, custom commands, and session management over the dsh plugin runtime",
   "version": "0.1.0",
   "type": "module",

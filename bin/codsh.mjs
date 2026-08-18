@@ -29,7 +29,7 @@ function registered() {
   if (!existsSync(manifest)) return false
   try {
     const profile = JSON.parse(readFileSync(manifest, 'utf8'))
-    return 'codsh' in (profile.dependencies ?? {})
+    return 'codsh-cli' in (profile.dependencies ?? {})
   } catch {
     return false
   }

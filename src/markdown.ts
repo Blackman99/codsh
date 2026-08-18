@@ -7,7 +7,7 @@
  * inline code, and fenced blocks — and leaves everything else exactly as it
  * arrived. Anything unrecognised must survive unchanged: mangling prose to
  * decorate it is worse than not decorating it.
- * @module codsh/src/markdown
+ * @module codsh-cli/src/markdown
  */
 
 import { displayWidth } from './theme.ts'

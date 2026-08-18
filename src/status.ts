@@ -4,7 +4,7 @@
  *
  * Every figure is read from a durable projection or a logged fold rather than
  * tracked here, so a resumed session reports the same numbers it ended with.
- * @module codsh/src/status
+ * @module codsh-cli/src/status
  */
 
 import { readFile } from 'node:fs/promises'

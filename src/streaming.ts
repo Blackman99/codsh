@@ -6,7 +6,7 @@
  * that has scrolled. The split is what resolves it — the line being typed lives
  * in the console's one rewritable region as raw text, and the moment it ends it
  * is rendered and written permanently.
- * @module codsh/src/streaming
+ * @module codsh-cli/src/streaming
  */
 
 import { createMarkdownStream } from './markdown.ts'

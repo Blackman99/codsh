@@ -6,7 +6,7 @@
  * This is where the two input shapes meet. On a terminal it drives the editor
  * from decoded keys and owns the bottom region; off one it reads lines from the
  * pipe and draws nothing. Callers ask for the next submission either way.
- * @module codsh/src/prompt
+ * @module codsh-cli/src/prompt
  */
 
 import { Editor } from './editor.ts'

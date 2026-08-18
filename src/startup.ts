@@ -3,7 +3,7 @@
  * positional, the session-continuation flags, the preset override, and
  * `--help`, then publishes {@link CODING_CLI_STARTUP_SERVICE}. The runner is an
  * ordinary consumer whose lazy config waits for that service.
- * @module codsh/startup
+ * @module codsh-cli/startup
  */
 
 import { Command } from 'commander'

@@ -23,7 +23,7 @@ import { createRequire } from 'node:module'
 const require = createRequire(import.meta.url)
 const repo = fileURLToPath(new URL('..', import.meta.url))
 const home = join(repo, '.dev-home')
-const installed = join(home, 'profiles', 'code', 'node_modules', 'codsh')
+const installed = join(home, 'profiles', 'code', 'node_modules', 'codsh-cli')
 
 const dshManifest = require.resolve('@deepseek-ai/dsh/package.json')
 const dshBinField = JSON.parse(readFileSync(dshManifest, 'utf8')).bin

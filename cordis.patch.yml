@@ -152,11 +152,11 @@
         default: code-cli
 
     - id: coding-cli-startup
-      name: 'codsh/startup'
+      name: 'codsh-cli/startup'
 
     # Reads its invocation from the ordinary codingCliStartup provider.
     - id: coding-cli-runner
-      name: 'codsh'
+      name: 'codsh-cli'
       inject: [codingCliStartup]
       config:
         task: !!js ctx.codingCliStartup.task

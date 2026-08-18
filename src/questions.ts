@@ -5,7 +5,7 @@
  * A question may offer options, free text, or both. Selecting by number
  * answers with that option's label; typing anything else answers as `custom`,
  * which is the encoding `ask_user_question` documents for an "Other" reply.
- * @module codsh/src/questions
+ * @module codsh-cli/src/questions
  */
 
 import type {

@@ -8,7 +8,7 @@
  * The decoder is incremental because a terminal splits sequences across reads:
  * an arrow key can arrive as `ESC`, then `[`, then `A`. Anything it cannot yet
  * resolve is held until the next byte rather than guessed at.
- * @module codsh/src/keys
+ * @module codsh-cli/src/keys
  */
 
 /** What one keystroke means to the editor. */

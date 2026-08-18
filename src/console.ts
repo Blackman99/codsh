@@ -10,7 +10,7 @@
  * cursor to manage and every line in a script is a separate instruction. Both
  * shapes answer the same reads, which is what keeps piped runs and tests on the
  * same code path as a person typing.
- * @module codsh/src/console
+ * @module codsh-cli/src/console
  */
 
 import { createInterface } from 'node:readline'

@@ -4,7 +4,7 @@
  *
  * It occupies the console's single live line, so the transcript above it stays
  * append-only and the indicator never survives into a redirected transcript.
- * @module codsh/src/spinner
+ * @module codsh-cli/src/spinner
  */
 
 import type { Theme } from './theme.ts'

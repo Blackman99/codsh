@@ -12,7 +12,7 @@
  * that disagrees with the wrap by one cell is worse than a word split across
  * rows. Text is never truncated here — hiding typed text is how an input box
  * loses a person's work.
- * @module codsh/src/inputbox
+ * @module codsh-cli/src/inputbox
  */
 
 import { displayWidth, truncate } from './theme.ts'

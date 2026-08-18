@@ -6,7 +6,7 @@
  * `rejected`, `cancelled`, and `unavailable` — so "allow every call to this
  * tool" is this surface's own state, kept here and answered as `allowed-once`
  * without asking again.
- * @module codsh/src/approval
+ * @module codsh-cli/src/approval
  */
 
 import type { ApprovalOutcome, ApprovalRequest } from '@deepseek-ai/dsh-user-approval'

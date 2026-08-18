@@ -1,7 +1,7 @@
 /**
  * Terminal styling and display metrics: SGR sequences that degrade to plain
  * text off a TTY, and the display-column width a rendered string occupies.
- * @module codsh/src/theme
+ * @module codsh-cli/src/theme
  */
 
 /** SGR codes applied by {@link Theme}, by role. */

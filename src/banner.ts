@@ -1,6 +1,6 @@
 /**
  * The opening banner: what answered, where, and which keys matter.
- * @module codsh/src/banner
+ * @module codsh-cli/src/banner
  */
 
 import { displayPath } from './status.ts'

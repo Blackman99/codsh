@@ -6,7 +6,7 @@
  * the prompt submitted when the command runs — with `$ARGUMENTS` replaced by
  * whatever followed the name. They are canned prompts, not handlers: execution
  * goes through the same submission path as a typed message.
- * @module codsh/src/custom-commands
+ * @module codsh-cli/src/custom-commands
  */
 
 import { readFile, readdir } from 'node:fs/promises'

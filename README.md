@@ -1,5 +1,7 @@
 # codsh
 
+> npm: [`codsh-cli`](https://www.npmjs.com/package/codsh-cli) · command: `codsh`
+
 English | [中文](README.zh.md)
 
 A Claude Code-style coding agent for the terminal, composed on the [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) (dsh) plugin runtime. codsh is a dsh *bundle*: it ships the interactive TTY surface and a coding agent preset, and everything underneath — the agent loop, tools, sessions, sandboxing, model adapters — is the released dsh packages from npm.
@@ -7,7 +9,7 @@ A Claude Code-style coding agent for the terminal, composed on the [DeepSeek Har
 ## Install
 
 ```sh
-npm install -g codsh
+npm install -g codsh-cli
 codsh
 ```
 

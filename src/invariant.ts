@@ -1,12 +1,12 @@
 /**
- * Package-owned invariant companion for `codsh`.
- * @module codsh/invariant
+ * Package-owned invariant companion for `codsh-cli`.
+ * @module codsh-cli/invariant
  */
 
 import type { Context } from '@deepseek-ai/cordis'
 import type { InvariantInstaller } from '@deepseek-ai/dsh-invariants'
 
-const PACKAGE_NAME = 'codsh'
+const PACKAGE_NAME = 'codsh-cli'
 
 /** Cordis companion plugin name. */
 export const name = 'coding-cli-invariant'

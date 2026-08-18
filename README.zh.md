@@ -1,5 +1,7 @@
 # codsh
 
+> npm 包名：[`codsh-cli`](https://www.npmjs.com/package/codsh-cli) · 命令：`codsh`
+
 [English](README.md) | 中文
 
 面向终端的 Claude Code 风格编码 agent，组合在 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)（dsh）插件运行时之上。codsh 是一个 dsh *bundle*：它携带交互式 TTY 界面与编码 agent preset，其下的一切——agent 循环、工具、会话、沙箱、模型适配器——都是 npm 上已发布的 dsh 包。
@@ -7,7 +9,7 @@
 ## 安装
 
 ```sh
-npm install -g codsh
+npm install -g codsh-cli
 codsh
 ```
 
