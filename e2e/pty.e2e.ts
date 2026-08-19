@@ -551,6 +551,29 @@ describe.skipIf(process.platform === 'win32')('dsh code Escape (real PTY)', () =
     expect(after.some(row => row.includes('CODE_CLI_TALL_44'))).toBe(false)
   }, E2E_TEST_TIMEOUT_MS)
 
+  it('selects with the mouse and copies on release', async () => {
+    const output = await drivePty('write', [
+      ['/help for commands', `create the note${ENTER}`, 300],
+      // Press at the top, drag down over the banner, release: the gesture IS
+      // the copy — no keystroke follows it.
+      ['CODE_CLI_CALL_OK', `${ESCAPE}[<0;1;1M${ESCAPE}[<32;60;6M${ESCAPE}[<32;120;12M${ESCAPE}[<0;120;12m`, 400],
+      ['copied', `/exit${ENTER}`, 500],
+    ])
+
+    // The drag painted a reverse-video span.
+    expect(output).toContain('\u001B[7m')
+    // Release wrote the clipboard through OSC 52, with the banner text in it.
+    const osc = /\u001B\]52;c;([A-Za-z0-9+/=]+)\u0007/.exec(output)
+    expect(osc).not.toBeNull()
+    const copied = Buffer.from(osc?.[1] ?? '', 'base64').toString('utf8')
+    expect(copied).toContain('Welcome to codsh')
+    // Plain text: the styling on screen stayed out of the clipboard.
+    expect(copied).not.toContain('\u001B')
+    // And the toast said so.
+    const frame = screenAt(output, 'copied', 'last')
+    expect(frame.alternate.some(row => /✓ copied \d+ lines/u.test(row))).toBe(true)
+  }, E2E_TEST_TIMEOUT_MS)
+
   it('clears to a fresh session, then resumes the old one through the selector', async () => {
     const output = await drivePty('echo', [
       ['/help for commands', `remember DELTA_ONE${ENTER}`, 300],

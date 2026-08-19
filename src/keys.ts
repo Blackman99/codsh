@@ -40,6 +40,9 @@ export type Key =
   | { kind: 'scroll'; lines: number }
   | { kind: 'scroll-end' }
   | { kind: 'paste'; text: string }
+  | { kind: 'mouse-down'; row: number; column: number }
+  | { kind: 'mouse-drag'; row: number; column: number }
+  | { kind: 'mouse-up'; row: number; column: number }
 
 /** Bracketed paste start, which a terminal wraps pasted text in. */
 const PASTE_START = '\u001B[200~'
@@ -61,6 +64,12 @@ const MOUSE = /^\u001B\[<(\d+);(\d+);(\d+)([Mm])/
 
 /** Wheel-up button code in the SGR encoding; wheel-down is one higher. */
 const WHEEL_UP = 64
+
+/** Modifier bits in an SGR button code: Shift, Meta, and Control. */
+const MOUSE_MODIFIERS = 4 | 8 | 16
+
+/** The motion bit, set on reports sent while a button is held. */
+const MOUSE_MOTION = 32
 
 /** Sequences that resolve to one key, longest first so a prefix never wins. */
 const SEQUENCES: readonly (readonly [string, Key])[] = [
@@ -189,10 +198,18 @@ export class KeyDecoder {
     if (mouse !== null) {
       this.held = this.held.slice(mouse[0].length)
       const button = Number(mouse[1])
-      // Only the wheel moves the transcript; a click is the terminal's own
-      // business, and swallowing it silently is what keeps selection working.
       if (button === WHEEL_UP) return [{ kind: 'scroll', lines: -WHEEL_LINES }]
       if (button === WHEEL_UP + 1) return [{ kind: 'scroll', lines: WHEEL_LINES }]
+      // The left button drives selection: press anchors it, motion extends
+      // it, release copies it. Modified clicks stay the terminal's business —
+      // a Shift-drag keeps reaching the terminal's own selection.
+      const column = Number(mouse[2])
+      const row = Number(mouse[3])
+      if ((button & ~MOUSE_MOTION) === 0 && (button & MOUSE_MODIFIERS) === 0) {
+        if (mouse[4] === 'm') return [{ kind: 'mouse-up', row, column }]
+        if ((button & MOUSE_MOTION) !== 0) return [{ kind: 'mouse-drag', row, column }]
+        return [{ kind: 'mouse-down', row, column }]
+      }
       return []
     }
     // A mouse report still arriving must not be read as an Escape either.

@@ -378,3 +378,98 @@ describe('folds', () => {
     expect(screen.hasFolds).toBe(false)
   })
 })
+
+describe('mouse selection', () => {
+  it('highlights the dragged span and hands over its text on release', () => {
+    const sink = host(8, 40)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['status'], { row: 0, column: 0 }, false)
+    screen.append(['alpha beta', 'gamma delta'])
+    flush(sink)
+
+    // Rows 1-2 hold the two lines (content is top-aligned).
+    screen.mouseDown(1, 7)
+    screen.mouseDrag(2, 5)
+    const frame = flush(sink)
+    expect(frame).toContain('\u001B[7m')
+    const text = screen.mouseUp()
+    // From column 7 of the first row through column 5 of the second.
+    expect(text).toBe('beta\ngamma')
+  })
+
+  it('copies plain text out of styled rows', () => {
+    const sink = host(8, 40)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['status'], { row: 0, column: 0 }, false)
+    screen.append([`\u001B[1mbold words\u001B[0m`])
+    screen.mouseDown(1, 1)
+    screen.mouseDrag(1, 10)
+    expect(screen.mouseUp()).toBe('bold words')
+  })
+
+  it('counts columns by display width, so wide characters stay whole', () => {
+    const sink = host(8, 40)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['status'], { row: 0, column: 0 }, false)
+    screen.append(['中文 text'])
+    screen.mouseDown(1, 1)
+    // Through display column 4: both wide characters, nothing sliced apart.
+    screen.mouseDrag(1, 4)
+    expect(screen.mouseUp()).toBe('中文')
+  })
+
+  it('ignores a bare click, and a click dismisses a standing highlight', () => {
+    const sink = host(8, 40)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['status'], { row: 0, column: 0 }, false)
+    screen.append(['some content here'])
+    screen.mouseDown(1, 2)
+    expect(screen.mouseUp()).toBeUndefined()
+
+    screen.mouseDown(1, 1)
+    screen.mouseDrag(1, 5)
+    expect(screen.mouseUp()).toBe('some ')
+    flush(sink)
+    // The highlight stood after the copy; a fresh click clears it.
+    screen.mouseDown(1, 2)
+    screen.mouseUp()
+    expect(flush(sink)).not.toContain('\u001B[7m')
+  })
+
+  it('clamps a drag that leaves the content, and a resize voids the selection', () => {
+    const sink = host(8, 40)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['status'], { row: 0, column: 0 }, false)
+    screen.append(['only row'])
+    screen.mouseDown(1, 1)
+    // Dragged into the padding far below: the selection ends at the content.
+    screen.mouseDrag(6, 30)
+    expect(screen.mouseUp()).toBe('only row')
+
+    screen.mouseDown(1, 1)
+    screen.mouseDrag(1, 5)
+    sink.size.columns = 30
+    screen.resize()
+    // Reflow voided it: release finds nothing to copy.
+    expect(screen.mouseUp()).toBeUndefined()
+  })
+
+  it('starts nothing from the chrome or an empty transcript', () => {
+    const sink = host(8, 40)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['status'], { row: 0, column: 0 }, false)
+    screen.mouseDown(1, 1)
+    expect(screen.mouseUp()).toBeUndefined()
+    screen.append(['row'])
+    // The chrome row (bottom) is not selectable content.
+    screen.mouseDown(8, 1)
+    screen.mouseDrag(8, 5)
+    expect(screen.mouseUp()).toBeUndefined()
+  })
+})

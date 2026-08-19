@@ -102,6 +102,9 @@ export function resolveLaunch(options: {
       DSH_TELEMETRY_DISABLED: '1',
       DSH_CODE_CLI_MOCK_TOOL: options.mode,
       DEEPSEEK_API_KEY: '',
+      // The escape sequence only: a test run must never overwrite the real
+      // clipboard through the platform helper.
+      CODSH_CLIPBOARD: 'osc52',
     },
   }
 }

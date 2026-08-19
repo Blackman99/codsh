@@ -131,4 +131,29 @@ describe('KeyDecoder', () => {
   it('decodes several keys from one read', () => {
     expect(decode('ab\r')).toEqual([{ kind: 'text', text: 'ab' }, { kind: 'enter' }])
   })
+
+  it('turns the wheel into scroll keys', () => {
+    expect(decode(`${ESC}[<64;10;5M`)).toEqual([{ kind: 'scroll', lines: -1 }])
+    expect(decode(`${ESC}[<65;10;5M`)).toEqual([{ kind: 'scroll', lines: 1 }])
+  })
+
+  it('reports a left-button press, drag, and release with their position', () => {
+    expect(decode(`${ESC}[<0;3;2M`)).toEqual([{ kind: 'mouse-down', row: 2, column: 3 }])
+    expect(decode(`${ESC}[<32;9;4M`)).toEqual([{ kind: 'mouse-drag', row: 4, column: 9 }])
+    expect(decode(`${ESC}[<0;9;4m`)).toEqual([{ kind: 'mouse-up', row: 4, column: 9 }])
+  })
+
+  it('leaves modified and non-left clicks to the terminal', () => {
+    // Shift-click (4), right button (2), and middle (1) are not ours.
+    expect(decode(`${ESC}[<4;3;2M`)).toEqual([])
+    expect(decode(`${ESC}[<2;3;2M`)).toEqual([])
+    expect(decode(`${ESC}[<1;3;2M`)).toEqual([])
+    expect(decode(`${ESC}[<36;3;2M`)).toEqual([])
+  })
+
+  it('holds a split mouse report until it completes', () => {
+    const decoder = new KeyDecoder()
+    expect(decoder.push(`${ESC}[<0;12`)).toEqual([])
+    expect(decoder.push(';7M')).toEqual([{ kind: 'mouse-down', row: 7, column: 12 }])
+  })
 })

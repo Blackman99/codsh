@@ -16,7 +16,7 @@
  * @module codsh/src/screen
  */
 
-import { truncate } from './theme.ts'
+import { displayWidth, truncate } from './theme.ts'
 import { wrapAll, wrapStyled } from './wrap.ts'
 
 /** Logical transcript lines kept before the oldest are dropped. */
@@ -56,6 +56,35 @@ const HIDE_CURSOR = '\u001B[?25l'
 /** Show it again. */
 const SHOW_CURSOR = '\u001B[?25h'
 
+/** Styling escapes, removed before a row is measured or copied. */
+const STYLES = /\u001B\[[0-9;]*m/gu
+
+/** Start reverse video, which is how the selection shows itself. */
+const INVERSE = '\u001B[7m'
+
+/** End reverse video only, leaving any other attributes alone. */
+const INVERSE_OFF = '\u001B[27m'
+
+/**
+ * The string index where a display column begins.
+ *
+ * Columns are what the mouse reports and characters are what strings hold;
+ * this is the bridge. A column landing inside a wide character snaps past it.
+ * @param text - plain text, no escapes.
+ * @param column - display column, 0-based.
+ * @returns the index of the first character at or beyond that column.
+ */
+function columnIndex(text: string, column: number): number {
+  let width = 0
+  let index = 0
+  for (const character of text) {
+    if (width >= column) return index
+    width += displayWidth(character)
+    index += character.length
+  }
+  return text.length
+}
+
 /** Where the cursor belongs within the chrome rows. */
 export interface ChromeCursor {
   row: number
@@ -87,6 +116,8 @@ export class Screen {
   private offset = 0
   /** What to show while scrolled back, drawn over the viewport's top row. */
   private notice = ''
+  /** A mouse selection over the transcript, in physical-row coordinates. */
+  private selection: { anchor: { row: number; column: number }; focus: { row: number; column: number }; dragged: boolean } | undefined
   /** Collapsed blocks in the transcript, in order, with both of their forms. */
   private folds: { at: number; shownLength: number; summary: string[]; full: string[]; expanded: boolean }[] = []
   /** Whether the folds currently show their full form. */
@@ -339,6 +370,106 @@ export class Screen {
     this.render()
   }
 
+  /**
+   * Anchor a selection where the left button went down.
+   *
+   * The terminal cannot select for us while mouse reporting is on, so the
+   * viewport does it: press anchors, motion extends, release copies — the
+   * shape opencode and Claude give the same gesture.
+   * @param row - terminal row, 1-based.
+   * @param column - terminal column, 1-based.
+   */
+  mouseDown(row: number, column: number): void {
+    const had = this.selection !== undefined
+    this.selection = undefined
+    const at = this.locate(row, column, false)
+    if (at !== undefined) this.selection = { anchor: at, focus: at, dragged: false }
+    // A bare click also clears a standing highlight; the row diff repaints
+    // exactly the rows that lost it.
+    if (had) this.render()
+  }
+
+  /**
+   * Extend the selection to where the pointer moved.
+   * @param row - terminal row, 1-based.
+   * @param column - terminal column, 1-based.
+   */
+  mouseDrag(row: number, column: number): void {
+    if (this.selection === undefined) return
+    const at = this.locate(row, column, true)
+    if (at === undefined) return
+    this.selection.focus = at
+    this.selection.dragged = true
+    this.render()
+  }
+
+  /**
+   * Finish the gesture.
+   *
+   * The highlight stays up — the copy already happened, and the marks show
+   * what it took — until the next click or reflow dismisses it.
+   * @returns the selected text, or undefined for a bare click.
+   */
+  mouseUp(): string | undefined {
+    const selection = this.selection
+    if (selection === undefined) return undefined
+    if (!selection.dragged) {
+      this.selection = undefined
+      return undefined
+    }
+    const text = this.selectedText()
+    if (text === '') {
+      this.selection = undefined
+      this.render()
+      return undefined
+    }
+    return text
+  }
+
+  /** The selection's bounds in order, top-left first. */
+  private orderedSelection(): { from: { row: number; column: number }; to: { row: number; column: number } } | undefined {
+    const selection = this.selection
+    // A press that never moved selects nothing — and highlights nothing.
+    if (selection === undefined || !selection.dragged) return undefined
+    const { anchor, focus } = selection
+    const backwards = focus.row < anchor.row || (focus.row === anchor.row && focus.column < anchor.column)
+    const [from, to] = backwards ? [focus, anchor] : [anchor, focus]
+    return { from, to }
+  }
+
+  /** The plain text under the selection, visual rows joined by newlines. */
+  private selectedText(): string {
+    const bounds = this.orderedSelection()
+    if (bounds === undefined) return ''
+    const rows: string[] = []
+    for (let index = bounds.from.row; index <= bounds.to.row; index += 1) {
+      const plain = (this.physical[index] ?? '').replaceAll(STYLES, '')
+      const start = index === bounds.from.row ? columnIndex(plain, bounds.from.column) : 0
+      const end = index === bounds.to.row ? columnIndex(plain, bounds.to.column + 1) : plain.length
+      rows.push(plain.slice(start, end))
+    }
+    return rows.join('\n').replace(/^\n+|\n+$/gu, '') === '' ? '' : rows.join('\n')
+  }
+
+  /**
+   * Map a terminal position to a physical buffer position.
+   * @param row - terminal row, 1-based.
+   * @param column - terminal column, 1-based.
+   * @param clamp - pull an outside position to the nearest content row, the
+   * way dragging past an edge keeps selecting, instead of refusing it.
+   * @returns the position, or undefined when it misses the content.
+   */
+  private locate(row: number, column: number, clamp: boolean): { row: number; column: number } | undefined {
+    if (this.physical.length === 0) return undefined
+    const height = this.viewportHeight()
+    const end = this.physical.length - this.offset
+    const start = Math.max(0, end - height)
+    let index = start + row - 1
+    if (!clamp && (row - 1 >= height || index >= end || index < start)) return undefined
+    index = Math.min(Math.max(index, start), end - 1)
+    return { row: index, column: Math.max(0, column - 1) }
+  }
+
   /** Rows the transcript viewport occupies. */
   private viewportHeight(): number {
     return Math.max(1, this.host.rows() - this.chrome.length)
@@ -351,6 +482,8 @@ export class Screen {
 
   /** Re-wrap every kept line at the current width. */
   private rewrap(): void {
+    // Physical rows are the selection's coordinate system; a reflow voids it.
+    this.selection = undefined
     this.physical = wrapAll(this.logical, this.contentColumns())
     const limit = Math.max(0, this.physical.length - this.viewportHeight())
     this.offset = Math.min(this.offset, limit)
@@ -378,6 +511,22 @@ export class Screen {
     // the top, the gap between it and the chrome — and grows downward until it
     // reaches the chrome and starts scrolling.
     const padding = Array.from({ length: Math.max(0, height - visible.length) }, () => '')
+    const bounds = this.orderedSelection()
+    if (bounds !== undefined) {
+      const first = Math.max(0, end - height)
+      for (let index = 0; index < visible.length; index += 1) {
+        const at = first + index
+        if (at < bounds.from.row || at > bounds.to.row) continue
+        const plain = (visible[index] ?? '').replaceAll(STYLES, '')
+        const start = at === bounds.from.row ? columnIndex(plain, bounds.from.column) : 0
+        const stop = at === bounds.to.row ? columnIndex(plain, bounds.to.column + 1) : plain.length
+        let marked = plain.slice(start, stop)
+        // A selected blank row still shows it belongs to the selection.
+        if (marked === '' && at > bounds.from.row && at < bounds.to.row) marked = ' '
+        if (marked === '' && start >= stop) continue
+        visible[index] = `${plain.slice(0, start)}${INVERSE}${marked}${INVERSE_OFF}${plain.slice(stop)}`
+      }
+    }
     const viewport = [...visible, ...padding]
     // Scrolled back, the top row says so — replacing a row rather than adding
     // one, so the rest of the layout does not shift under the reader.

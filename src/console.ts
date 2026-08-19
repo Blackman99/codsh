@@ -15,6 +15,7 @@
  * @module codsh-cli/src/console
  */
 
+import { spawn } from 'node:child_process'
 import { createInterface } from 'node:readline'
 import type { Interface } from 'node:readline'
 import { DISABLE_PASTE_MARKERS, ENABLE_PASTE_MARKERS, KeyDecoder } from './keys.ts'
@@ -343,6 +344,69 @@ export class TerminalConsole {
    * Swap every collapsible block between summary and full form.
    * @returns false when there is nothing to toggle.
    */
+  /**
+   * Anchor a mouse selection at a terminal position.
+   * @param row - terminal row, 1-based.
+   * @param column - terminal column, 1-based.
+   */
+  mouseDown(row: number, column: number): void {
+    this.screen?.mouseDown(row, column)
+  }
+
+  /**
+   * Extend the mouse selection to a terminal position.
+   * @param row - terminal row, 1-based.
+   * @param column - terminal column, 1-based.
+   */
+  mouseDrag(row: number, column: number): void {
+    this.screen?.mouseDrag(row, column)
+  }
+
+  /**
+   * Finish the mouse selection.
+   * @returns the selected text, or undefined for a bare click.
+   */
+  mouseUp(): string | undefined {
+    return this.screen?.mouseUp()
+  }
+
+  /**
+   * Put text on the clipboard.
+   *
+   * Two channels, because neither is universal: OSC 52 reaches through SSH and
+   * works wherever the terminal permits it, and the platform helper covers the
+   * terminals that refuse the escape. `CODSH_CLIPBOARD` narrows it to `osc52`,
+   * `system`, or `off` — tests use `osc52` so a run never touches the real
+   * clipboard.
+   * @param text - the plain text to copy.
+   * @returns whether a copy was attempted at all.
+   */
+  copyText(text: string): boolean {
+    const mode = process.env['CODSH_CLIPBOARD'] ?? 'both'
+    if (mode === 'off' || text === '') return false
+    if (mode !== 'system') {
+      this.output.write(`\u001B]52;c;${Buffer.from(text, 'utf8').toString('base64')}\u0007`)
+    }
+    if (mode !== 'osc52') {
+      const command = process.platform === 'darwin'
+        ? ['pbcopy']
+        : process.platform === 'win32'
+          ? ['clip']
+          : process.env['WAYLAND_DISPLAY'] === undefined
+            ? ['xclip', '-selection', 'clipboard']
+            : ['wl-copy']
+      try {
+        const child = spawn(command[0] ?? '', command.slice(1), { stdio: ['pipe', 'ignore', 'ignore'] })
+        // A machine without the helper still copied via OSC 52; stay quiet.
+        child.on('error', () => {})
+        child.stdin.end(text)
+      } catch {
+        // Same: the escape sequence is the fallback.
+      }
+    }
+    return true
+  }
+
   /**
    * Make the last `count` written lines a collapsible block after the fact.
    *

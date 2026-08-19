@@ -19,6 +19,9 @@ import type { Key } from './keys.ts'
 import type { SelectOutcome, SelectSpec } from './selector.ts'
 import type { Theme } from './theme.ts'
 
+/** How long a flash notice holds the hint row. */
+const FLASH_MS = 1500
+
 /** What the prompt reports to its owner. */
 export interface PromptHandlers {
   /** Ctrl-C: stop the work, or leave. */
@@ -60,6 +63,9 @@ export class Prompt {
   private readonly queued: string[] = []
   /** The working indicator shown under the box. */
   private hint: string | undefined
+  /** A short-lived notice that borrows the hint row, e.g. the copy toast. */
+  private flash: string | undefined
+  private flashTimer: ReturnType<typeof setTimeout> | undefined
   /** The always-current session facts shown as the region's last row. */
   private status: string | undefined
   /** The assistant line still arriving, shown above the box. */
@@ -137,6 +143,26 @@ export class Prompt {
   setHint(text: string | undefined): void {
     if (text === this.hint) return
     this.hint = text
+    this.render()
+  }
+
+  /**
+   * Show a notice on the hint row briefly, then give the row back.
+   *
+   * The hint row belongs to the working indicator, which repaints itself
+   * continuously — a notice written through setHint would last one tick. The
+   * flash outranks the hint until its moment passes.
+   * @param text - the styled notice.
+   */
+  setFlash(text: string): void {
+    this.flash = text
+    if (this.flashTimer !== undefined) clearTimeout(this.flashTimer)
+    this.flashTimer = setTimeout(() => {
+      this.flash = undefined
+      this.flashTimer = undefined
+      this.render()
+    }, FLASH_MS)
+    this.flashTimer.unref()
     this.render()
   }
 
@@ -293,6 +319,25 @@ export class Prompt {
       this.render()
       return
     }
+    // The terminal cannot select while mouse reporting is on, so the viewport
+    // does: press anchors, motion extends, release copies — automatically, the
+    // way opencode and Claude treat a selection as the intent to copy.
+    if (key.kind === 'mouse-down') {
+      this.console.mouseDown(key.row, key.column)
+      return
+    }
+    if (key.kind === 'mouse-drag') {
+      this.console.mouseDrag(key.row, key.column)
+      return
+    }
+    if (key.kind === 'mouse-up') {
+      const text = this.console.mouseUp()
+      if (text !== undefined && this.console.copyText(text)) {
+        const rows = text.split('\n').length
+        this.setFlash(this.theme.dim(rows > 1 ? `  ✓ copied ${rows} lines` : '  ✓ copied'))
+      }
+      return
+    }
     const selecting = this.select_
     if (selecting !== undefined) {
       const step = selecting.selector.handle(key)
@@ -365,7 +410,8 @@ export class Prompt {
     this.console.setScrollNotice(this.console.scrolledBy > 0
       ? this.theme.dim(truncate(`  ↑ ${this.console.scrolledBy} rows above · PgDn returns to the latest`, columns))
       : '')
-    if (this.hint !== undefined) rows.push(this.hint)
+    const notice = this.flash ?? this.hint
+    if (notice !== undefined) rows.push(notice)
     if (this.status !== undefined) rows.push(this.status)
     if (rows.length === 0) {
       this.console.clearRegion()
