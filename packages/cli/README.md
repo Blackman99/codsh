@@ -4,4 +4,6 @@ The `codsh` command: a **zero-dependency launcher** for [codsh](https://github.c
 
 This package bundles nothing. It finds the dsh you already have (`DSH_BIN`, a resolvable `@deepseek-ai/dsh`, or `dsh` on PATH), registers the [`codsh-bundle`](https://www.npmjs.com/package/codsh-bundle) runtime into a dsh `code` profile on first run, and boots `dsh --profile code`. No dsh yet? `npm install -g @deepseek-ai/dsh` first.
 
+Set `DSH_BIN=/path/to/dsh` to pin a specific dsh; set `CODSH_BUNDLE_SPEC` to register a bundle other than the launcher's paired `codsh-bundle@^<version>` (development installs use a `file:` tarball here, which the launcher never overwrites).
+
 Full documentation: [github.com/Blackman99/codsh](https://github.com/Blackman99/codsh)
