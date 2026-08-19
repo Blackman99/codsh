@@ -198,7 +198,7 @@ if (writeChangeset) {
   if (!existsSync(file)) {
     writeFileSync(
       file,
-      `---\n'codsh-cli': patch\n---\n\nchore: sync \`@deepseek-ai/dsh-*\` (and co-released cordis packages) to ${dshLatest}\n`,
+      `---\n'codsh-bundle': patch\n---\n\nchore: sync \`@deepseek-ai/dsh-*\` (and co-released cordis packages) to ${dshLatest}\n`,
     )
     console.log(`✓ changeset written: .changeset/dsh-sync-${dshLatest}.md`)
   }

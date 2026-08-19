@@ -1,110 +1,16 @@
 {
-  "name": "codsh-cli",
-  "description": "A Claude Code-style coding agent for the terminal, composed on the DeepSeek Harness (dsh): interactive TTY surface, plan mode, approvals, custom commands, and session management over the dsh plugin runtime",
-  "version": "0.2.0",
+  "name": "codsh-workspace",
+  "private": true,
   "type": "module",
   "license": "MIT",
-  "bin": {
-    "codsh": "./bin/codsh.mjs"
-  },
-  "main": "lib/index.js",
-  "types": "lib/types/index.d.ts",
-  "exports": {
-    ".": {
-      "types": "./lib/types/index.d.ts",
-      "default": "./lib/index.js"
-    },
-    "./startup": {
-      "types": "./lib/types/startup.d.ts",
-      "default": "./lib/startup.js"
-    },
-    "./invariant": {
-      "types": "./lib/types/invariant.d.ts",
-      "default": "./lib/invariant.js"
-    },
-    "./cordis.patch.yml": "./cordis.patch.yml",
-    "./package.json": "./package.json",
-    "./agent-presets/*": "./agent-presets/*"
-  },
-  "files": [
-    "lib/index.js",
-    "lib/invariant.js",
-    "lib/startup.js",
-    "bin",
-    "cordis.patch.yml",
-    "agent-presets",
-    "lib/types/**/*.d.ts"
-  ],
-  "dsh": {
-    "bundle": {
-      "patch": "./cordis.patch.yml"
-    }
-  },
   "scripts": {
-    "build": "tsdown && tsc -p tsconfig.build.json",
+    "build": "pnpm --filter codsh-bundle run build",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:e2e": "pnpm run build && vitest run --config vitest.e2e.config.ts",
     "dev": "node scripts/dev.mjs",
     "sync:dsh": "node scripts/sync-dsh.mjs",
-    "prepublishOnly": "pnpm run build",
     "release": "pnpm run build && changeset publish"
-  },
-  "dependencies": {
-    "@deepseek-ai/dsh": "^0.1.0-rc.7",
-    "@deepseek-ai/dsh-agent-instructions": "^0.1.0-rc.7",
-    "@deepseek-ai/dsh-agent-presets": "^0.1.0-rc.7",
-    "@deepseek-ai/dsh-cmdline": "^0.1.0-rc.7",
-    "@deepseek-ai/dsh-code-runtime-worker-thread": "^0.1.0-rc.7",
-    "@deepseek-ai/dsh-command-compact": "^0.1.0-rc.7",
-    "@deepseek-ai/dsh-compaction-basic": "^0.1.0-rc.7",
-    "@deepseek-ai/dsh-compaction-tool-result-pruner": "^0.1.0-rc.7",
-    "@deepseek-ai/dsh-lsp": "^0.1.0-rc.7",
-    "@deepseek-ai/dsh-lsp-stdio": "^0.1.0-rc.7",
-    "@deepseek-ai/dsh-persona": "^0.1.0-rc.7",
-    "@deepseek-ai/dsh-plan-mode": "^0.1.0-rc.7",
-    "@deepseek-ai/dsh-skill-filesystem": "^0.1.0-rc.7",
-    "@deepseek-ai/dsh-terminal": "^0.1.0-rc.7",
-    "@deepseek-ai/dsh-terminal-bash": "^0.1.0-rc.7",
-    "@deepseek-ai/dsh-tool-ask-user": "^0.1.0-rc.7",
-    "@deepseek-ai/dsh-tool-bash": "^0.1.0-rc.7",
-    "@deepseek-ai/dsh-tool-fs": "^0.1.0-rc.7",
-    "@deepseek-ai/dsh-tool-fs-search": "^0.1.0-rc.7",
-    "@deepseek-ai/dsh-tool-goal": "^0.1.0-rc.7",
-    "@deepseek-ai/dsh-tool-jobs": "^0.1.0-rc.7",
-    "@deepseek-ai/dsh-tool-lsp": "^0.1.0-rc.7",
-    "@deepseek-ai/dsh-tool-pwsh": "^0.1.0-rc.7",
-    "@deepseek-ai/dsh-tool-ralph": "^0.1.0-rc.7",
-    "@deepseek-ai/dsh-tool-skill": "^0.1.0-rc.7",
-    "@deepseek-ai/dsh-tool-subagent": "^0.1.0-rc.7",
-    "@deepseek-ai/dsh-tool-subagent-control": "^0.1.0-rc.7",
-    "@deepseek-ai/dsh-tool-terminal": "^0.1.0-rc.7",
-    "@deepseek-ai/dsh-tool-todo": "^0.1.0-rc.7",
-    "@deepseek-ai/dsh-tool-web": "^0.1.0-rc.7",
-    "@deepseek-ai/dsh-tool-workflow": "^0.1.0-rc.7",
-    "@deepseek-ai/dsh-workflow-worker-thread": "^0.1.0-rc.7",
-    "@deepseek-ai/schemastery": "^3.18.1",
-    "commander": "^15.0.0",
-    "diff": "^9.0.0",
-    "string-width": "^8.2.2"
-  },
-  "peerDependencies": {
-    "@deepseek-ai/cordis": "^4.0.1",
-    "@deepseek-ai/cordis-plugin-loader": "^1.0.2",
-    "@deepseek-ai/dsh-agent": "^0.1.0-rc.7",
-    "@deepseek-ai/dsh-agent-default-model": "^0.1.0-rc.7",
-    "@deepseek-ai/dsh-commands": "^0.1.0-rc.7",
-    "@deepseek-ai/dsh-home-paths": "^0.1.0-rc.7",
-    "@deepseek-ai/dsh-invariants": "^0.1.0-rc.7",
-    "@deepseek-ai/dsh-llm": "^0.1.0-rc.7",
-    "@deepseek-ai/dsh-permission-presets": "^0.1.0-rc.7",
-    "@deepseek-ai/dsh-session": "^0.1.0-rc.7",
-    "@deepseek-ai/dsh-session-projection": "^0.1.0-rc.7",
-    "@deepseek-ai/dsh-session-query": "^0.1.0-rc.7",
-    "@deepseek-ai/dsh-token-meter": "^0.1.0-rc.7",
-    "@deepseek-ai/dsh-tools": "^0.1.0-rc.7",
-    "@deepseek-ai/dsh-user-approval": "^0.1.0-rc.7",
-    "@deepseek-ai/dsh-user-questions": "^0.1.0-rc.7"
   },
   "devDependencies": {
     "@changesets/cli": "^3.0.0",
@@ -129,23 +35,9 @@
     "tsdown": "^0.15.0",
     "tsx": "^4.20.0",
     "typescript": "^5.9.0",
-    "vitest": "^4.0.0"
+    "vitest": "^4.0.0",
+    "@deepseek-ai/dsh": "^0.1.0-rc.7"
   },
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/Blackman99/codsh.git"
-  },
-  "homepage": "https://github.com/Blackman99/codsh#readme",
-  "bugs": "https://github.com/Blackman99/codsh/issues",
-  "keywords": [
-    "cli",
-    "coding-agent",
-    "terminal",
-    "deepseek",
-    "dsh",
-    "ai",
-    "agent"
-  ],
   "engines": {
     "node": ">=22.19"
   }

@@ -4,5 +4,11 @@
   "commit": false,
   "access": "public",
   "baseBranch": "main",
-  "updateInternalDependencies": "patch"
+  "updateInternalDependencies": "patch",
+  "fixed": [
+    [
+      "codsh-cli",
+      "codsh-bundle"
+    ]
+  ]
 }

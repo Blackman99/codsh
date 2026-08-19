@@ -9,24 +9,20 @@ A terminal coding agent whose interaction design fuses the best of today's agent
 ## Install
 
 ```sh
-npm install -g codsh-cli
+npm install -g @deepseek-ai/dsh codsh-cli   # already have dsh? just: npm install -g codsh-cli
 codsh
 ```
 
-The first run registers this package into a dsh `code` profile under `$DSH_HOME` (default `~/.dsh`) and installs the packaged `code-cli` agent preset; every later run boots straight into the prompt. The model key is read from `DEEPSEEK_API_KEY` (environment or `.env`).
+[`codsh-cli`](https://www.npmjs.com/package/codsh-cli) is a **zero-dependency launcher, a few kilobytes** — it never bundles the dsh runtime, so a machine carries exactly one dsh however many tools sit on it. The launcher finds your dsh (`DSH_BIN`, a resolvable `@deepseek-ai/dsh`, or `dsh` on PATH), registers the [`codsh-bundle`](https://www.npmjs.com/package/codsh-bundle) runtime into a dsh `code` profile under `$DSH_HOME` (default `~/.dsh`) on first run — the packaged `code-cli` agent preset installs itself on first boot — and every later run boots straight into the prompt. Profiles install through your pnpm store, so the runtime's packages are shared with everything else dsh on the machine. The model key is read from `DEEPSEEK_API_KEY` (environment or `.env`).
 
-`codsh` is exactly `dsh --profile code` — the wrapper only performs the one-time profile registration. Flags after `codsh` reach the app: `codsh --resume <session-id>`, `codsh --continue`, `codsh -p "one-shot task"`.
+`codsh` is exactly `dsh --profile code` — the launcher only performs the one-time registration (and upgrades the bundle when you upgrade the launcher). Flags after `codsh` reach the app: `codsh --resume <session-id>`, `codsh --continue`, `codsh -p "one-shot task"`.
 
-### Already on dsh?
-
-Skip the global package — it bundles its own copy of the dsh runtime (~300MB), which a machine that has dsh doesn't need twice. Add codsh to a profile with the dsh you already have:
+Prefer no launcher at all? The two lines it wraps work directly, with any profile name:
 
 ```sh
-dsh plugin --profile code add codsh-cli
+dsh plugin --profile code add codsh-bundle
 dsh --profile code
 ```
-
-The profile install resolves against your pnpm store, so on a machine with dsh it downloads next to nothing. The first boot installs the `code-cli` agent preset by itself, and every codsh feature works identically — the `codsh` command is only sugar for the two lines above. Any profile name works; only the wrapper hardcodes `code`.
 
 ## What you get
 

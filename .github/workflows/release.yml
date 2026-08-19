@@ -36,19 +36,27 @@ jobs:
           NPM_CONFIG_PROVENANCE: 'true'
       # changesets v3 stopped printing the "New tag:" lines the action parses,
       # so the tag push and the GitHub release silently no-op. This step is the
-      # idempotent backstop: whenever npm already carries the current version,
-      # make sure the tag and the release exist too.
-      - name: Ensure tag and GitHub release exist
+      # idempotent backstop: for every workspace package npm already carries,
+      # make sure the monorepo-style tag and the release exist too.
+      - name: Ensure tags and GitHub releases exist
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          version=$(node -p "require('./package.json').version")
-          npm view "codsh-cli@$version" version >/dev/null 2>&1 || exit 0
-          if ! git ls-remote --exit-code --tags origin "v$version" >/dev/null 2>&1; then
-            git tag "v$version" 2>/dev/null || true
-            git push origin "v$version"
-          fi
-          if ! gh release view "v$version" >/dev/null 2>&1; then
-            awk "/^## $version\$/{flag=1; next} /^## /{flag=0} flag" CHANGELOG.md > /tmp/release-notes.md
-            gh release create "v$version" --title "codsh-cli $version" --notes-file /tmp/release-notes.md
-          fi
+          for dir in packages/*; do
+            name=$(node -p "require('./$dir/package.json').name")
+            version=$(node -p "require('./$dir/package.json').version")
+            tag="$name@$version"
+            npm view "$tag" version >/dev/null 2>&1 || continue
+            if ! git ls-remote --exit-code --tags origin "$tag" >/dev/null 2>&1; then
+              git tag "$tag" 2>/dev/null || true
+              git push origin "$tag"
+            fi
+            if ! gh release view "$tag" >/dev/null 2>&1; then
+              if [ -f "$dir/CHANGELOG.md" ]; then
+                awk "/^## $version\$/{flag=1; next} /^## /{flag=0} flag" "$dir/CHANGELOG.md" > /tmp/release-notes.md
+              else
+                echo "$tag" > /tmp/release-notes.md
+              fi
+              gh release create "$tag" --title "$tag" --notes-file /tmp/release-notes.md
+            fi
+          done

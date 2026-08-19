@@ -23,6 +23,9 @@ export const E2E_TEST_TIMEOUT_MS = 120_000
 
 const repoRoot = fileURLToPath(new URL('..', import.meta.url))
 
+/** The bundle package — what profiles install and these suites pack. */
+export const bundleRoot = join(repoRoot, 'packages', 'bundle')
+
 /** Absolute path of the mock adapter, for `--patch` overlays. */
 export const MOCK_LLM_URL = new URL('./fixtures/mock-llm.mjs', import.meta.url).href
 
@@ -51,7 +54,7 @@ export function ensureTemplateHome(): string {
   const home = join(cache, 'home')
   rmSync(cache, { recursive: true, force: true })
   mkdirSync(cache, { recursive: true })
-  const packed = execFileSync('npm', ['pack', '--pack-destination', cache], { cwd: repoRoot, encoding: 'utf8' })
+  const packed = execFileSync('npm', ['pack', '--pack-destination', cache], { cwd: bundleRoot, encoding: 'utf8' })
     .trim().split('\n').at(-1) ?? ''
   execFileSync(process.execPath, [dshBin(), 'plugin', '--profile', 'code', 'add', join(cache, packed)], {
     env: { ...process.env, DSH_HOME: home },
@@ -90,7 +93,7 @@ export function resolveLaunch(options: {
   home: string
   mode: string
 }): Launch {
-  if (!existsSync(join(repoRoot, 'lib', 'index.js'))) {
+  if (!existsSync(join(bundleRoot, 'lib', 'index.js'))) {
     throw new Error('codsh e2e needs the built lib/ — run `pnpm run build` first (or use `pnpm run test:e2e`)')
   }
   return {

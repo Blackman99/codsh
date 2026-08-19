@@ -1,0 +1,123 @@
+#!/usr/bin/env node
+/**
+ * The `codsh` command: a zero-dependency launcher over the dsh you already
+ * have.
+ *
+ * This package deliberately bundles NOTHING — the ~300MB dsh runtime lives
+ * once on a machine, not once per tool. The wrapper finds a dsh (`DSH_BIN`,
+ * then a resolvable `@deepseek-ai/dsh` install, then `dsh` on PATH), registers
+ * the `codsh-bundle` runtime into the `code` profile on first run, and boots
+ * `dsh --profile code` with the arguments passed through.
+ */
+
+import { spawnSync } from 'node:child_process'
+import { existsSync, readFileSync, writeFileSync } from 'node:fs'
+import { homedir } from 'node:os'
+import { dirname, join } from 'node:path'
+import { createRequire } from 'node:module'
+
+const requireFromHere = createRequire(import.meta.url)
+const own = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'))
+
+/** The bundle package this launcher pairs with, lockstep-versioned. */
+const BUNDLE = 'codsh-bundle'
+
+/**
+ * Locate a dsh launcher without carrying one.
+ * @returns how to spawn it, or undefined when the machine has none.
+ */
+function findDsh() {
+  const pinned = process.env.DSH_BIN
+  if (pinned !== undefined && pinned !== '') {
+    // A JS entry runs through this Node; anything else is an executable.
+    return /\.[cm]?js$/.test(pinned)
+      ? { command: process.execPath, prefix: [pinned] }
+      : { command: pinned, prefix: [] }
+  }
+  try {
+    const manifest = requireFromHere.resolve('@deepseek-ai/dsh/package.json')
+    const bin = JSON.parse(readFileSync(manifest, 'utf8')).bin
+    const entry = join(dirname(manifest), typeof bin === 'string' ? bin : bin.dsh)
+    return { command: process.execPath, prefix: [entry] }
+  } catch {
+    // Not installed beside this package; the PATH is next.
+  }
+  const probe = spawnSync('dsh', ['--version'], { stdio: 'ignore', shell: process.platform === 'win32' })
+  if (probe.error === undefined && probe.status !== null) return { command: 'dsh', prefix: [] }
+  return undefined
+}
+
+const dsh = findDsh()
+if (dsh === undefined) {
+  console.error(`codsh: no dsh runtime found. codsh launches the dsh you already have —
+the runtime is not bundled, so a machine never carries a second copy.
+
+  install one:      npm install -g @deepseek-ai/dsh
+  or point at one:  DSH_BIN=/path/to/dsh codsh`)
+  process.exit(1)
+}
+
+/** Run the found dsh with arguments, inheriting the terminal. */
+function run(args) {
+  const result = spawnSync(dsh.command, [...dsh.prefix, ...args], { stdio: 'inherit' })
+  return result.status ?? 1
+}
+
+/** `a > b` for plain x.y.z versions, which is all this pair publishes. */
+function newer(a, b) {
+  const pa = String(a).split('.').map(Number)
+  const pb = String(b).split('.').map(Number)
+  for (let index = 0; index < 3; index += 1) {
+    if ((pa[index] ?? 0) !== (pb[index] ?? 0)) return (pa[index] ?? 0) > (pb[index] ?? 0)
+  }
+  return false
+}
+
+const home = process.env.DSH_HOME ?? join(homedir(), '.dsh')
+const manifestPath = join(home, 'profiles', 'code', 'package.json')
+
+/** What the code profile currently carries, or undefined before first run. */
+function profile() {
+  if (!existsSync(manifestPath)) return undefined
+  try {
+    return JSON.parse(readFileSync(manifestPath, 'utf8'))
+  } catch {
+    return undefined
+  }
+}
+
+/**
+ * Decide whether — and what — to register into the profile this run.
+ * @returns the spec to `dsh plugin add`, or undefined when nothing is due.
+ */
+function registration() {
+  const spec = process.env.CODSH_BUNDLE_SPEC ?? `${BUNDLE}@^${own.version}`
+  const manifest = profile()
+  const dependencies = manifest?.dependencies ?? {}
+  // The pre-split layout carried the whole runtime under this launcher's own
+  // name; migrate it out so both bundles don't fight over the terminal.
+  if (manifest !== undefined && 'codsh-cli' in dependencies) {
+    console.error('codsh: migrating the profile to the split codsh-bundle runtime')
+    delete manifest.dependencies['codsh-cli']
+    const bundles = manifest?.dsh?.profile?.bundles
+    if (Array.isArray(bundles)) {
+      manifest.dsh.profile.bundles = bundles.filter(name => name !== 'codsh-cli')
+    }
+    writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`)
+    return spec
+  }
+  const current = dependencies[BUNDLE]
+  if (current === undefined) return spec
+  // A file:/link: registration is a development pin; never clobber it.
+  if (!current.startsWith('^')) return undefined
+  return newer(own.version, current.slice(1)) ? spec : undefined
+}
+
+const spec = registration()
+if (spec !== undefined) {
+  console.error(`codsh: registering ${spec} into the dsh code profile`)
+  const status = run(['plugin', '--profile', 'code', 'add', spec])
+  if (status !== 0) process.exit(status)
+}
+
+process.exit(run(['--profile', 'code', ...process.argv.slice(2)]))

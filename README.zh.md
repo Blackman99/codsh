@@ -9,24 +9,20 @@
 ## 安装
 
 ```sh
-npm install -g codsh-cli
+npm install -g @deepseek-ai/dsh codsh-cli   # 已有 dsh？只需：npm install -g codsh-cli
 codsh
 ```
 
-首次运行会把本包注册进 `$DSH_HOME`（默认 `~/.dsh`）下的 dsh `code` profile 并安装自带的 `code-cli` agent preset；之后每次运行直接进入提示符。模型密钥从 `DEEPSEEK_API_KEY` 读取（环境变量或 `.env`）。
+[`codsh-cli`](https://www.npmjs.com/package/codsh-cli) 是一个**零依赖启动器，只有几十 KB**——它从不捆绑 dsh 运行时，一台机器无论装多少工具都只有一份 dsh。启动器自动找到你的 dsh（`DSH_BIN`、可解析的 `@deepseek-ai/dsh`、或 PATH 上的 `dsh`），首次运行把 [`codsh-bundle`](https://www.npmjs.com/package/codsh-bundle) 运行时注册进 `$DSH_HOME`（默认 `~/.dsh`）下的 dsh `code` profile——自带的 `code-cli` agent preset 会在首次启动时自动安装——之后每次运行直接进入提示符。profile 安装走你的 pnpm store，运行时的包与机器上其他 dsh 内容共享。模型密钥从 `DEEPSEEK_API_KEY` 读取（环境变量或 `.env`）。
 
-`codsh` 严格等价于 `dsh --profile code`——包装器只做一次性的 profile 注册。`codsh` 之后的参数直达应用：`codsh --resume <会话 id>`、`codsh --continue`、`codsh -p "一次性任务"`。
+`codsh` 严格等价于 `dsh --profile code`——启动器只做一次性注册（升级启动器时会连带升级 bundle）。`codsh` 之后的参数直达应用：`codsh --resume <会话 id>`、`codsh --continue`、`codsh -p "一次性任务"`。
 
-### 本机已有 dsh？
-
-跳过全局包——它自带一整份 dsh 运行时（约 300MB），已有 dsh 的机器不需要第二份。直接用你现有的 dsh 把 codsh 加进 profile：
+完全不想要启动器？它包装的那两行可以直接用，profile 名任取：
 
 ```sh
-dsh plugin --profile code add codsh-cli
+dsh plugin --profile code add codsh-bundle
 dsh --profile code
 ```
-
-profile 安装会复用你的 pnpm store，已有 dsh 的机器几乎零下载。首次启动会自动安装 `code-cli` agent preset，所有功能与 `codsh` 命令完全一致——`codsh` 只是上面两行的语法糖。profile 名可以任取；只有包装器硬编码了 `code`。
 
 ## 你会得到什么
 

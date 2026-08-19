@@ -22,8 +22,9 @@ import { createRequire } from 'node:module'
 
 const require = createRequire(import.meta.url)
 const repo = fileURLToPath(new URL('..', import.meta.url))
+const bundle = join(repo, 'packages', 'bundle')
 const home = join(repo, '.dev-home')
-const installed = join(home, 'profiles', 'code', 'node_modules', 'codsh-cli')
+const installed = join(home, 'profiles', 'code', 'node_modules', 'codsh-bundle')
 
 const dshManifest = require.resolve('@deepseek-ai/dsh/package.json')
 const dshBinField = JSON.parse(readFileSync(dshManifest, 'utf8')).bin
@@ -37,7 +38,7 @@ if (!existsSync(installed)) {
   // user's. The tarball is what registers; the fast path replaces its files.
   console.error('codsh dev: registering the packed working tree into .dev-home (first run)')
   const scratch = mkdtempSync(join(tmpdir(), 'codsh-dev-pack-'))
-  const packed = execFileSync('npm', ['pack', '--pack-destination', scratch], { cwd: repo, encoding: 'utf8' })
+  const packed = execFileSync('npm', ['pack', '--pack-destination', scratch], { cwd: bundle, encoding: 'utf8' })
     .trim().split('\n').at(-1) ?? ''
   execFileSync(process.execPath, [dshBin, 'plugin', '--profile', 'code', 'add', join(scratch, packed)], {
     env: { ...process.env, DSH_HOME: home },
@@ -47,9 +48,9 @@ if (!existsSync(installed)) {
 } else {
   // Fast path: the profile already carries every dependency; only this
   // package's own artifacts changed.
-  for (const entry of ['lib', 'bin', 'cordis.patch.yml', 'agent-presets', 'package.json']) {
+  for (const entry of ['lib', 'cordis.patch.yml', 'agent-presets', 'package.json']) {
     rmSync(join(installed, entry), { recursive: true, force: true })
-    cpSync(join(repo, entry), join(installed, entry), { recursive: true })
+    cpSync(join(bundle, entry), join(installed, entry), { recursive: true })
   }
   console.error('codsh dev: synced lib/ into .dev-home')
 }
