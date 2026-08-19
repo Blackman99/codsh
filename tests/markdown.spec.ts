@@ -104,21 +104,21 @@ describe('renderMarkdown', () => {
 })
 
 describe('tables', () => {
-  it('lays out a table on display-width columns', () => {
+  it('lays out a table on display-width columns with column rules', () => {
     expect(render('| Name | Count |\n|------|-------|\n| a | 10 |\n| bbbb | 2 |')).toBe(
-      'Name  Count\n────  ─────\na     10\nbbbb  2')
+      'Name │ Count\n─────┼──────\na    │ 10\nbbbb │ 2')
   })
 
   it('pads wide characters by their two-column width', () => {
     const rows = renderMarkdown('| 名字 | n |\n|---|---|\n| 终端 | 1 |\n| a | 2 |', plain)
     // Both body rows put the second column at the same display column.
-    expect(rows[2]).toBe('终端  1')
-    expect(rows[3]).toBe('a     2')
+    expect(rows[2]).toBe('终端 │ 1')
+    expect(rows[3]).toBe('a    │ 2')
   })
 
   it('right-aligns a column whose delimiter ends in a colon, header included', () => {
     expect(render('| n | v |\n|---|---:|\n| a | 1 |\n| b | 1000 |')).toBe(
-      'n     v\n─  ────\na     1\nb  1000')
+      'n │    v\n──┼─────\na │    1\nb │ 1000')
   })
 
   it('prints pipe lines without a delimiter row as prose', () => {
@@ -133,10 +133,10 @@ describe('tables', () => {
     const lines = [...source.split('\n').flatMap(line => narrow.line(line)), ...narrow.flush()]
     // Still a table — no raw pipe rows — and no line exceeds the terminal.
     expect(lines.join('\n')).not.toContain('|')
-    expect(lines.join('\n')).toContain('─')
+    expect(lines.join('\n')).toContain('┼')
     for (const line of lines) expect(displayWidth(line)).toBeLessThanOrEqual(40)
     // The cells wrapped rather than truncated: every character survives.
-    expect(lines.join('').replaceAll(/[\s─]/gu, '').length).toBe('x'.repeat(120).length + 'y'.repeat(120).length)
+    expect(lines.join('').replaceAll(/[\s─│┼]/gu, '').length).toBe('x'.repeat(120).length + 'y'.repeat(120).length)
   })
 
   it('renders inline constructs inside cells, and sizes on the visible text', () => {

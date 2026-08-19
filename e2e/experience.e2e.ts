@@ -231,7 +231,15 @@ describe.skipIf(process.platform === 'win32')('the first five minutes', () => {
     expect(text).not.toContain('|---')
     expect(text).not.toContain('| 维度')
     expect(rows.some(row => row.includes('维度') && row.includes('内容'))).toBe(true)
-    expect(rows.some(row => /─{3,}/u.test(row))).toBe(true)
+    // The head separator crosses the WHOLE table, and every table row —
+    // wrapped continuations included — carries the same column rules: the
+    // sheared-apart layout of the field report cannot re-form silently.
+    expect(rows.some(row => row.includes('┼'))).toBe(true)
+    // Only table rows: blockquotes and the input box also draw │, but always
+    // at the start of the row — a table row starts with its first cell.
+    const ruleCounts = new Set(rows.filter(row => row.includes('│') && !row.trimStart().startsWith('│'))
+      .map(row => row.split('│').length - 1))
+    expect(ruleCounts.size).toBeLessThanOrEqual(1)
     // Bold-wrapped code lost its backticks and its stars.
     expect(text).not.toContain('`screen.ts`')
     expect(text).not.toContain('**')

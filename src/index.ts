@@ -787,10 +787,10 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
     }))
   }
 
-  const stream = new TextStream(theme, () => io.console.columns)
+  const stream = new TextStream(theme, () => io.console.contentColumns)
   // Reasoning gets its own stream: pushed into `stream`, its deltas would mark
   // the answer as already-shown and the visible text would be swallowed.
-  const thinking = new TextStream(theme, () => io.console.columns, true)
+  const thinking = new TextStream(theme, () => io.console.contentColumns, true)
   // Thinking is collapsed by default, the way Claude shows it: while it
   // streams only the current line is live on screen, and when it ends the
   // transcript keeps a one-line summary with the full text behind Ctrl+O —

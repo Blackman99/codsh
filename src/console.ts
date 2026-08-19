@@ -117,6 +117,16 @@ export class TerminalConsole {
     return Math.max(this.output.columns ?? FALLBACK_COLUMNS, MIN_COLUMNS)
   }
 
+  /**
+   * Columns content may be laid out for: one less than the width, because the
+   * viewport wraps at that boundary. Markdown layout MUST use this figure — a
+   * table laid out one column wider is refolded by the viewport, and its rows
+   * shear apart.
+   */
+  get contentColumns(): number {
+    return Math.max(1, this.columns - 1)
+  }
+
   /** Whether the output stream is a terminal. */
   get isTty(): boolean {
     return this.output.isTTY === true

@@ -226,7 +226,9 @@ function layoutTable(rows: readonly string[], theme: Theme, budget: number): str
   const count = Math.max(...styled.map(row => row.length))
   const natural = Array.from({ length: count }, (_, column) =>
     Math.max(1, ...styled.map(row => visible(row[column] ?? ''))))
-  const gaps = 2 * (count - 1)
+  // ` │ ` between columns: with wrapped cells, a bare gap loses which column a
+  // continuation row belongs to; the rule keeps every row legible.
+  const gaps = 3 * (count - 1)
   // A table too wide for the terminal keeps its shape by wrapping inside the
   // cells: columns shrink toward the budget in proportion to their excess over
   // an even share, and a truly hopeless width falls back to the source lines.
@@ -247,8 +249,11 @@ function layoutTable(rows: readonly string[], theme: Theme, budget: number): str
       return base + extra
     })
   }
+  const rule = theme.dim(' │ ')
   const line = (row: readonly string[], style: (text: string) => string): string[] => {
-    // Each cell wraps at its column width; the row is as tall as its tallest.
+    // Each cell wraps at its column width; the row is as tall as its tallest,
+    // and every physical row carries the column rules so a continuation still
+    // reads as part of its column.
     const wrapped = Array.from({ length: count }, (_, column) => wrapStyled(row[column] ?? '', widths[column] ?? 1))
     const height = Math.max(...wrapped.map(cell => cell.length))
     return Array.from({ length: height }, (_, index) =>
@@ -257,11 +262,13 @@ function layoutTable(rows: readonly string[], theme: Theme, budget: number): str
         const alignRight = /^:?-+:$/.test(delimiter[column] ?? '') && !/^:-+:$/.test(delimiter[column] ?? '')
         const pad = ' '.repeat(Math.max(0, (widths[column] ?? 0) - visible(piece)))
         return alignRight ? `${pad}${style(piece)}` : `${style(piece)}${pad}`
-      }).join('  ').trimEnd())
+      }).join(rule).trimEnd())
   }
   return [
     ...line(styled[0] ?? [], text => theme.bold(text)),
-    theme.dim(widths.map(width => '─'.repeat(width)).join('  ')),
+    // One unbroken separator with crossings at the column rules, so the head
+    // is underlined across the WHOLE table rather than only its first column.
+    theme.dim(widths.map(width => '─'.repeat(width)).join('─┼─')),
     ...styled.slice(1).flatMap(row => line(row, text => text)),
   ]
 }
