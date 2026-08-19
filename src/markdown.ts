@@ -264,12 +264,19 @@ function layoutTable(rows: readonly string[], theme: Theme, budget: number): str
         return alignRight ? `${pad}${style(piece)}` : `${style(piece)}${pad}`
       }).join(rule).trimEnd())
   }
+  const separator = theme.dim(widths.map(width => '─'.repeat(width)).join('─┼─'))
+  const groups = styled.slice(1).map(row => line(row, text => text))
+  // Once any row wraps, its continuations would blur into the next record, so
+  // a wrapped table rules BETWEEN rows too; a compact table keeps only the
+  // head rule and stays dense.
+  const ruled = groups.some(group => group.length > 1)
+  const body = groups.flatMap((group, index) => index > 0 && ruled ? [separator, ...group] : group)
   return [
     ...line(styled[0] ?? [], text => theme.bold(text)),
     // One unbroken separator with crossings at the column rules, so the head
     // is underlined across the WHOLE table rather than only its first column.
-    theme.dim(widths.map(width => '─'.repeat(width)).join('─┼─')),
-    ...styled.slice(1).flatMap(row => line(row, text => text)),
+    separator,
+    ...body,
   ]
 }
 

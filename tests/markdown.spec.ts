@@ -105,6 +105,7 @@ describe('renderMarkdown', () => {
 
 describe('tables', () => {
   it('lays out a table on display-width columns with column rules', () => {
+    // Compact — nothing wrapped — so only the head rule: density matters.
     expect(render('| Name | Count |\n|------|-------|\n| a | 10 |\n| bbbb | 2 |')).toBe(
       'Name │ Count\n─────┼──────\na    │ 10\nbbbb │ 2')
   })
@@ -134,9 +135,20 @@ describe('tables', () => {
     // Still a table — no raw pipe rows — and no line exceeds the terminal.
     expect(lines.join('\n')).not.toContain('|')
     expect(lines.join('\n')).toContain('┼')
+    // One body row: just the head rule, there is no between-rows to mark.
+    expect(lines.filter(line => line.includes('┼'))).toHaveLength(1)
     for (const line of lines) expect(displayWidth(line)).toBeLessThanOrEqual(40)
     // The cells wrapped rather than truncated: every character survives.
     expect(lines.join('').replaceAll(/[\s─│┼]/gu, '').length).toBe('x'.repeat(120).length + 'y'.repeat(120).length)
+  })
+
+  it('rules between rows once any cell wraps, so records cannot blur together', () => {
+    const wide = `| a | ${'y'.repeat(60)} |`
+    const source = `| h1 | h2 |\n|---|---|\n${wide}\n${wide}`
+    const narrow = createMarkdownStream(plain, () => 40)
+    const lines = [...source.split('\n').flatMap(line => narrow.line(line)), ...narrow.flush()]
+    // Head rule plus exactly one between the two wrapped body rows.
+    expect(lines.filter(line => line.includes('┼'))).toHaveLength(2)
   })
 
   it('renders inline constructs inside cells, and sizes on the visible text', () => {
