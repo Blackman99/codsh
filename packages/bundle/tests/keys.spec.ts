@@ -156,4 +156,42 @@ describe('KeyDecoder', () => {
     expect(decoder.push(`${ESC}[<0;12`)).toEqual([])
     expect(decoder.push(';7M')).toEqual([{ kind: 'mouse-down', row: 7, column: 12 }])
   })
+
+  it.each([
+    { label: 'Shift+Enter breaks the line', bytes: `${ESC}[13;2u`, keys: [{ kind: 'newline' }] },
+    { label: 'Alt+Enter still breaks the line', bytes: `${ESC}[13;3u`, keys: [{ kind: 'newline' }] },
+    { label: 'plain Enter still submits', bytes: `${ESC}[13u`, keys: [{ kind: 'enter' }] },
+    { label: 'Esc is unambiguous', bytes: `${ESC}[27u`, keys: [{ kind: 'escape' }] },
+    { label: 'Shift+Tab', bytes: `${ESC}[9;2u`, keys: [{ kind: 'shift-tab' }] },
+    { label: 'Ctrl+C interrupts', bytes: `${ESC}[99;5u`, keys: [{ kind: 'interrupt' }] },
+    { label: 'Ctrl+D is EOF', bytes: `${ESC}[100;5u`, keys: [{ kind: 'eof' }] },
+    { label: 'Ctrl+O expands', bytes: `${ESC}[111;5u`, keys: [{ kind: 'expand-output' }] },
+    { label: 'Alt+b steps a word left', bytes: `${ESC}[98;3u`, keys: [{ kind: 'word-left' }] },
+    { label: 'Alt+Backspace kills a word', bytes: `${ESC}[127;3u`, keys: [{ kind: 'kill-word' }] },
+  ])('decodes the kitty report: $label', ({ bytes, keys }) => {
+    expect(decode(bytes)).toEqual(keys)
+  })
+
+  it('masks kitty lock bits, so Caps Lock does not change the key', () => {
+    // mods 66 = 1 + shift(1) + caps_lock(64).
+    expect(decode(`${ESC}[13;66u`)).toEqual([{ kind: 'newline' }])
+  })
+
+  it('takes key presses and repeats, and ignores releases', () => {
+    expect(decode(`${ESC}[13;2:1u`)).toEqual([{ kind: 'newline' }])
+    expect(decode(`${ESC}[13;2:2u`)).toEqual([{ kind: 'newline' }])
+    expect(decode(`${ESC}[13;2:3u`)).toEqual([])
+  })
+
+  it('swallows a kitty chord it has no binding for, instead of typing it', () => {
+    expect(decode(`${ESC}[99;3u`)).toEqual([])
+    expect(decode(`${ESC}[98;5u`)).toEqual([])
+  })
+
+  it('holds a split kitty report until it completes', () => {
+    const decoder = new KeyDecoder()
+    expect(decoder.push(`${ESC}[13;`)).toEqual([])
+    expect(decoder.pending).toBe(true)
+    expect(decoder.push('2u')).toEqual([{ kind: 'newline' }])
+  })
 })

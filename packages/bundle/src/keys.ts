@@ -62,6 +62,26 @@ const WHEEL_LINES = 1
 /** An SGR mouse report: `ESC [ < button ; column ; row (M|m)`. */
 const MOUSE = /^\u001B\[<(\d+);(\d+);(\d+)([Mm])/
 
+/**
+ * A kitty-keyboard-protocol report: `ESC [ code (:alternates) ; mods (:event) u`.
+ *
+ * The viewport pushes the protocol's disambiguate flag on entry (the same
+ * flag Claude Code pushes), so terminals that speak it report Esc and every
+ * modified key unambiguously — which is what makes Shift+Enter a key at all.
+ * Terminals that don't speak it ignore the push and keep sending the legacy
+ * sequences below.
+ */
+const KITTY = /^\u001B\[(\d+)(?::\d+)*(?:;(\d+)(?::(\d+))?)?u/
+
+/** Kitty modifier bits, after the encoded +1 offset is removed. */
+const KITTY_SHIFT = 1
+
+/** The Alt bit. */
+const KITTY_ALT = 2
+
+/** The Control bit. */
+const KITTY_CTRL = 4
+
 /** Wheel-up button code in the SGR encoding; wheel-down is one higher. */
 const WHEEL_UP = 64
 
@@ -212,8 +232,13 @@ export class KeyDecoder {
       }
       return []
     }
-    // A mouse report still arriving must not be read as an Escape either.
-    if (/^\u001B(\[(<\d*(;\d*){0,2})?)?$/.test(this.held)) return undefined
+    const kitty = KITTY.exec(this.held)
+    if (kitty !== null) {
+      this.held = this.held.slice(kitty[0].length)
+      return this.kittyKey(Number(kitty[1]), Number(kitty[2] ?? '1'), Number(kitty[3] ?? '1'))
+    }
+    // A mouse or kitty report still arriving must not be read as an Escape.
+    if (/^\u001B(\[[\d;:<]*)?$/.test(this.held)) return undefined
     for (const [sequence, key] of SEQUENCES) {
       if (this.held.startsWith(sequence)) {
         this.held = this.held.slice(sequence.length)
@@ -243,6 +268,40 @@ export class KeyDecoder {
     }
     this.held = this.held.slice(printable[0].length)
     return [{ kind: 'text', text: printable[0] }]
+  }
+
+  /**
+   * Map one kitty-protocol report onto the same keys the legacy bytes make.
+   * @param code - the key's Unicode code point.
+   * @param mods - the encoded modifiers, offset by one.
+   * @param event - press (1), repeat (2), or release (3).
+   * @returns the keys produced; unknown chords are swallowed, never typed.
+   */
+  private kittyKey(code: number, mods: number, event: number): Key[] {
+    if (event === 3) return []
+    // Lock keys ride along as high bits; only the chord modifiers matter.
+    const bits = Math.max(0, mods - 1)
+    const shift = (bits & KITTY_SHIFT) !== 0
+    const alt = (bits & KITTY_ALT) !== 0
+    const ctrl = (bits & KITTY_CTRL) !== 0
+    if (code === 27) return [{ kind: 'escape' }]
+    // The key this protocol exists for: Shift+Enter breaks the line, exactly
+    // like Alt+Enter always has; Enter alone still submits.
+    if (code === 13) return [shift || alt ? { kind: 'newline' } : { kind: 'enter' }]
+    if (code === 9) return [shift ? { kind: 'shift-tab' } : { kind: 'tab' }]
+    if (code === 127 || code === 8) return [alt || ctrl ? { kind: 'kill-word' } : { kind: 'backspace' }]
+    if (ctrl && code >= 97 && code <= 122) {
+      const control = CONTROLS[String.fromCharCode(code - 96)]
+      return control === undefined ? [] : [control]
+    }
+    if (alt) {
+      if (code === 98) return [{ kind: 'word-left' }]
+      if (code === 102) return [{ kind: 'word-right' }]
+      return []
+    }
+    // A text key that reached the CSI form anyway (Shift or a lock held).
+    if (!ctrl && code >= 32) return [{ kind: 'text', text: String.fromCodePoint(code) }]
+    return []
   }
 
   /**

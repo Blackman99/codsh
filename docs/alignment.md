@@ -35,12 +35,13 @@ in a terminal state.
 
 | Item | Reference behavior | State | Tests / Notes |
 |---|---|---|---|
-| Kitty keyboard protocol | Claude Code & opencode enable progressive enhancement for disambiguated keys | `open` | unlocks Shift+Enter etc. |
-| modifyOtherKeys / Shift+Enter newline | Claude Code: Shift+Enter inserts newline where terminal supports it | `open` | depends on kitty row |
-| Grapheme clustering (mode 2027) | opencode measures by grapheme, not code point | `open` | emoji ZWJ sequences in tables |
-| Focus events (mode 1004) | opencode dims/undims on focus loss | `open` | also gates cursor blink |
-| Theme detection (OSC 10/11) | Claude Code adapts palette to terminal background | `open` | today: NO_COLOR/env only |
-| OSC 8 hyperlinks | gemini-cli & opencode link file paths | `open` | markdown links + file:line |
+| Kitty keyboard protocol | probed 2026-08-19: claude pushes `CSI >1u`/pops `CSI <u` unconditionally; codex pushes `>7u` + queries `?u`; opencode & gemini query | `aligned` | push/pop: screen.spec "pushes the kitty keyboard flag"; decode map: keys.spec "decodes the kitty report" suite; e2e: pty "speaks the kitty keyboard protocol" |
+| Shift+Enter breaks the line | Claude Code: Shift+Enter inserts a newline on kitty-capable terminals | `aligned` | keys.spec 13;2u cases; pty e2e submits a two-line message; legacy terminals keep Alt+Enter |
+| modifyOtherKeys | probed: claude sets `CSI >4;2m`; codex resets `>4;0m`; opencode sets it | `open` | xterm-proper coverage; kitty path already shipped |
+| Grapheme clustering (mode 2027) | probed: only opencode sets 2027 | `open` | emoji ZWJ sequences in tables |
+| Focus events (mode 1004) | probed: claude, codex, gemini all enable 1004 | `open` | dim/undim, cursor blink gating |
+| Theme detection (OSC 10/11) | probed: opencode, codex, gemini query OSC 10/11; claude does not | `open` | today: NO_COLOR/env only |
+| OSC 8 hyperlinks | probed: claude emits OSC 8 at startup; gemini/opencode link paths | `open` | markdown links + file:line |
 
 Completed alignment work before this matrix existed (thinking collapse, `!`
 passthrough, /clear, /resume selector, ESC-ESC recall, todo cards, Ctrl+O

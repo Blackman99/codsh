@@ -41,6 +41,16 @@ const ENABLE_MOUSE = '\u001B[?1002h\u001B[?1006h'
 /** Stop reporting them. */
 const DISABLE_MOUSE = '\u001B[?1006l\u001B[?1002l'
 
+/**
+ * Push the kitty keyboard protocol's disambiguate flag — what Claude Code
+ * pushes — so Shift+Enter, Esc, and control chords report unambiguously on
+ * terminals that speak it. Others ignore the push and keep the legacy bytes.
+ */
+const ENABLE_KITTY_KEYS = '\u001B[>1u'
+
+/** Pop it, restoring whatever the shell had. */
+const DISABLE_KITTY_KEYS = '\u001B[<u'
+
 /** Ask the terminal to paint a frame atomically, so no half-frame is shown. */
 const SYNC_BEGIN = '\u001B[?2026h'
 
@@ -144,7 +154,7 @@ export class Screen {
   enter(): void {
     if (this.active) return
     this.active = true
-    this.host.write(`${ENTER_ALT}${ENABLE_MOUSE}${HIDE_CURSOR}`)
+    this.host.write(`${ENTER_ALT}${ENABLE_MOUSE}${ENABLE_KITTY_KEYS}${HIDE_CURSOR}`)
     this.painted = []
     this.render()
   }
@@ -158,7 +168,7 @@ export class Screen {
   leave(): void {
     if (!this.active) return
     this.active = false
-    this.host.write(`${DISABLE_MOUSE}${SHOW_CURSOR}${LEAVE_ALT}`)
+    this.host.write(`${DISABLE_KITTY_KEYS}${DISABLE_MOUSE}${SHOW_CURSOR}${LEAVE_ALT}`)
     this.painted = []
   }
 

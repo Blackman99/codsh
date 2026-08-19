@@ -551,6 +551,31 @@ describe.skipIf(process.platform === 'win32')('dsh code Escape (real PTY)', () =
     expect(after.some(row => row.includes('CODE_CLI_TALL_44'))).toBe(false)
   }, E2E_TEST_TIMEOUT_MS)
 
+  it('speaks the kitty keyboard protocol: pushed on entry, Shift+Enter breaks the line', async () => {
+    const output = await drivePty('write', [
+      // A kitty-capable terminal sends Shift+Enter as CSI 13;2u.
+      ['/help for commands', `first${ESCAPE}[13;2usecond`, 300],
+      // Both halves in the box; Enter submits them as ONE message.
+      ['second', ENTER, 400],
+      ['CODE_CLI_CALL_OK', `/exit${ENTER}`, 400],
+    ])
+
+    // The flag is pushed inside the session and popped before it ends.
+    const held = output.slice(0, output.indexOf('\u001B[?1049l'))
+    expect(held.indexOf('\u001B[?1049h')).toBeLessThan(held.indexOf('\u001B[>1u'))
+    expect(held).toContain('\u001B[<u')
+    // The report broke the line: both halves stacked in the box...
+    const typing = screenAt(output, 'second').alternate
+    const boxRow = typing.findIndex(row => row.includes('› first'))
+    expect(boxRow).toBeGreaterThanOrEqual(0)
+    expect(typing[boxRow + 1] ?? '').toContain('second')
+    // ...and the transcript echoes the one two-line message.
+    const done = screenAt(output, 'CODE_CLI_CALL_OK').alternate
+    const echo = done.findIndex(row => row.startsWith('› first'))
+    expect(echo).toBeGreaterThanOrEqual(0)
+    expect(done[echo + 1] ?? '').toContain('second')
+  }, E2E_TEST_TIMEOUT_MS)
+
   it('selects with the mouse and copies on release', async () => {
     const output = await drivePty('write', [
       ['/help for commands', `create the note${ENTER}`, 300],

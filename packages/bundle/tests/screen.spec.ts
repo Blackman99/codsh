@@ -35,6 +35,19 @@ function painted(data: string): Map<number, string> {
 const flush = (sink: { out: string[] }): string => sink.out.splice(0).join('')
 
 describe('entering and leaving', () => {
+  it('pushes the kitty keyboard flag on entry and pops it before leaving', () => {
+    const sink = host()
+    const screen = new Screen(sink)
+    screen.enter()
+    const entered = flush(sink)
+    expect(entered).toContain('\u001B[>1u')
+    expect(entered.indexOf('\u001B[?1049h')).toBeLessThan(entered.indexOf('\u001B[>1u'))
+    screen.leave()
+    const left = flush(sink)
+    expect(left).toContain('\u001B[<u')
+    expect(left.indexOf('\u001B[<u')).toBeLessThan(left.indexOf('\u001B[?1049l'))
+  })
+
   it('takes the alternate screen with mouse reporting, and gives both back', () => {
     const sink = host()
     const screen = new Screen(sink)
