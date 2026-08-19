@@ -1,10 +1,12 @@
 /**
  * The process-facing terminal, in two shapes.
  *
- * On a terminal this surface owns the keyboard: raw mode, its own key decoding,
- * and a managed region of rows at the bottom holding the input box. That is what
- * an inline completion menu and a multi-line prompt require — `readline` reports
- * no lone Escape, draws no menu, and decides for itself what Enter means.
+ * On a terminal this surface owns the keyboard AND the screen: raw mode, its own
+ * key decoding, and an alternate-screen viewport ({@link Screen}) that holds the
+ * transcript in a scrollback buffer of its own with the input box pinned below
+ * it. That is what an inline completion menu, a multi-line prompt, and a session
+ * that reads as its own space require — `readline` reports no lone Escape, draws
+ * no menu, and decides for itself what Enter means.
  *
  * Off a terminal it is a line reader over `readline`, because a pipe has no
  * cursor to manage and every line in a script is a separate instruction. Both
@@ -16,7 +18,7 @@
 import { createInterface } from 'node:readline'
 import type { Interface } from 'node:readline'
 import { DISABLE_PASTE_MARKERS, ENABLE_PASTE_MARKERS, KeyDecoder } from './keys.ts'
-import { displayWidth, truncate } from './theme.ts'
+import { Screen } from './screen.ts'
 import type { Key } from './keys.ts'
 
 /** Columns assumed when the output stream reports none (a pipe). */
@@ -31,48 +33,8 @@ const FALLBACK_COLUMNS = 80
  */
 const MIN_COLUMNS = 20
 
-/** Erase the current line from the cursor rightwards. */
-const CLEAR_LINE = '\u001B[K'
-
-/** Erase from the cursor to the end of the screen. */
-const CLEAR_BELOW = '\u001B[0J'
-
-/** Hide the cursor while a region is redrawn, so it does not visibly jump. */
-const HIDE_CURSOR = '\u001B[?25l'
-
-/** Jump to the last screen row (terminals clamp the huge row number). */
-const ANCHOR_BOTTOM = '\u001B[9999;1H'
-
-/**
- * Rows cleared beyond the rewrap estimate when recovering from a resize.
- *
- * The estimate assumes the terminal rewraps like most do; the slack absorbs a
- * cursor left one row off or a terminal that wraps slightly differently. Too
- * little leaves ghost frame rows; too much erases a line of visible transcript
- * once per resize, which is the cheaper mistake.
- */
-const RESIZE_SLACK_ROWS = 2
-
 /** Rows assumed when the output stream reports none. */
 const FALLBACK_ROWS = 24
-
-/**
- * How many physical lines previously drawn rows occupy after a resize.
- *
- * A rewrapping terminal refolds each row at the new width; a truncating one
- * keeps one line per row, which this over-counts — the caller's erase then
- * costs a spare transcript line instead of leaving ghosts.
- * @param widths - display widths of the rows as they were drawn.
- * @param columns - the new terminal width.
- * @returns the estimated physical line count.
- */
-export function rewrappedHeight(widths: readonly number[], columns: number): number {
-  const wrapAt = Math.max(1, columns)
-  return widths.reduce((sum, width) => sum + Math.max(1, Math.ceil(width / wrapAt)), 0)
-}
-
-/** Show the cursor again. */
-const SHOW_CURSOR = '\u001B[?25h'
 
 /**
  * How long a held Escape waits for a successor before it counts as the key.
@@ -120,14 +82,8 @@ export class TerminalConsole {
   private readonly earlyKeys: Key[] = []
   private escapeTimer: NodeJS.Timeout | undefined
   private ended = false
-  /** Rows currently drawn in the bottom region. */
-  private regionRows: string[] = []
-  /** Where among those rows the cursor was left. */
-  private regionCursor: RegionCursor = { row: 0, column: 0 }
-  /** Display widths of the drawn rows, for the resize rewrap estimate. */
-  private regionWidths: number[] = []
-  /** Whether the region currently holds input focus, which shows the cursor. */
-  private regionFocus = true
+  /** The viewport this surface owns on a terminal; absent off one. */
+  private readonly screen: Screen | undefined
 
   constructor(
     private readonly input: InputStream,
@@ -138,9 +94,14 @@ export class TerminalConsole {
       // Asking the terminal to mark pastes is what lets a pasted block enter the
       // buffer whole instead of arriving as a run of Enter presses.
       this.output.write(ENABLE_PASTE_MARKERS)
-      // Registered before any caller's resize handler, so the stale region is
-      // reclaimed before the first redraw at the new size.
-      this.output.on('resize', () => { this.reclaimAfterResize() })
+      this.screen = new Screen({
+        write: data => void this.output.write(data),
+        columns: () => this.columns,
+        rows: () => Math.max(2, this.output.rows ?? FALLBACK_ROWS),
+      })
+      // Registered before any caller's resize handler, so the viewport is
+      // re-laid-out before anything redraws at the new size.
+      this.output.on('resize', () => { this.screen?.resize() })
       input.on('data', (chunk: Buffer | string) => { this.onBytes(chunk) })
       input.on('end', () => { this.end() })
       this.rl = undefined
@@ -190,40 +151,67 @@ export class TerminalConsole {
   }
 
   /**
-   * Clear the visible screen.
-   *
-   * The scrollback survives — this wipes the viewport the way a shell's clear
-   * does. The managed region is forgotten with it, so the caller redraws.
+   * Take the viewport: the transcript and the prompt live on their own screen
+   * from here, and the terminal keeps the buffer the person had.
    */
-  clearScreen(): void {
-    if (!this.readsKeys) return
-    this.output.write('\u001B[2J\u001B[H')
-    this.forgetRegion()
-  }
-
-  /** Drop all region bookkeeping; the next draw starts fresh at the bottom. */
-  private forgetRegion(): void {
-    this.regionRows = []
-    this.regionWidths = []
-    this.regionCursor = { row: 0, column: 0 }
+  enterScreen(): void {
+    this.screen?.enter()
   }
 
   /**
-   * Reclaim the screen after a resize, where relative cursor math is void.
-   *
-   * A resize rewraps what is on screen, so "the region starts N rows above the
-   * cursor" no longer holds and a relative erase leaves ghost frames behind.
-   * Instead the old region's rewrapped footprint is estimated from its rows'
-   * widths and cleared from an absolute position at the bottom; the caller's
-   * own resize handler then redraws, anchored to the bottom again.
+   * Give the terminal back. Idempotent: every exit path calls it.
    */
-  private reclaimAfterResize(): void {
-    if (this.regionRows.length === 0) return
-    const rows = this.output.rows ?? FALLBACK_ROWS
-    const height = rewrappedHeight(this.regionWidths, this.output.columns ?? FALLBACK_COLUMNS) + RESIZE_SLACK_ROWS
-    const top = Math.max(1, rows - height + 1)
-    this.output.write(`\u001B[${top};1H${CLEAR_BELOW}`)
-    this.forgetRegion()
+  leaveScreen(): void {
+    this.screen?.leave()
+  }
+
+  /** Whether this surface currently holds its own screen. */
+  get owningScreen(): boolean {
+    return this.screen?.entered === true
+  }
+
+  /**
+   * Scroll the transcript inside the viewport.
+   * @param delta - rows to move; negative goes back into history.
+   */
+  scrollBy(delta: number): void {
+    this.screen?.scrollBy(delta)
+  }
+
+  /**
+   * Set the notice shown while the transcript is scrolled back.
+   * @param text - the styled line, or the empty string for none.
+   */
+  setScrollNotice(text: string): void {
+    this.screen?.setScrollNotice(text)
+  }
+
+  /**
+   * Scroll the transcript by a whole viewport.
+   * @param direction - -1 for back into history, 1 towards the tail.
+   */
+  scrollPage(direction: -1 | 1): void {
+    this.screen?.scrollPage(direction)
+  }
+
+  /** Return to the tail of the transcript. */
+  scrollToBottom(): void {
+    this.screen?.scrollToBottom()
+  }
+
+  /** Physical rows currently scrolled out of view; zero means at the tail. */
+  get scrolledBy(): number {
+    return this.screen?.scrolledBy ?? 0
+  }
+
+  /**
+   * Clear the transcript this session accumulated.
+   *
+   * On its own screen there is no shell scrollback to preserve, so this empties
+   * the buffer the viewport shows rather than wiping a shared terminal.
+   */
+  clearScreen(): void {
+    this.screen?.clearTranscript()
   }
 
   /**
@@ -295,93 +283,39 @@ export class TerminalConsole {
   }
 
   /**
-   * Write one finished line above the managed region.
+   * Keep one finished transcript line.
    *
-   * The region is erased first and redrawn after, so the transcript stays
-   * append-only while the input box keeps its place at the bottom.
+   * On its own screen the line goes into the viewport's scrollback, which is
+   * what lets the transcript scroll under a prompt that does not move. Off one
+   * it is written straight out, because a pipe's reader wants exactly that.
    * @param line - the line, without its terminator.
    */
   write(line: string): void {
-    if (this.regionRows.length === 0) {
-      this.output.write(`${line}\n`)
+    if (this.screen !== undefined) {
+      this.screen.append([line])
       return
     }
-    const rows = this.regionRows
-    // The cursor returns exactly where it was: a write that reset it to the
-    // row's left edge would park a visible cursor on the box frame.
-    const cursor = this.regionCursor
-    this.eraseRegion()
     this.output.write(`${line}\n`)
-    this.drawRegion(rows, cursor, this.regionFocus)
   }
 
   /**
-   * Replace the managed region at the bottom of the screen.
+   * Replace the rows pinned below the transcript.
    *
    * This is the whole live area: an input box, a completion menu, a working
-   * indicator. Everything the transcript keeps goes through {@link write}
-   * instead, because a terminal cannot revise a row that has scrolled. Off a
-   * terminal the call is ignored — a redirected transcript must not collect
-   * frames of a box nobody can see.
+   * indicator, the status row. Off a terminal the call is ignored — a
+   * redirected transcript must not collect frames of a box nobody can see.
    * @param rows - the rows to display, top to bottom.
    * @param cursor - where to leave the terminal cursor among them.
-   * @param focus - whether the region holds input focus. Without it the cursor
-   *   stays hidden: a block cursor parked on a display row (the status line,
-   *   a streaming line) reads as content colliding with it.
+   * @param focus - whether the rows hold input focus, which is when the cursor
+   *   shows. Parked anywhere else it reads as content colliding with it.
    */
   setRegion(rows: readonly string[], cursor: RegionCursor, focus = true): void {
-    if (!this.readsKeys) return
-    // A fresh region — session start, after a clear, after a resize — anchors
-    // to the last screen rows: the box lives at the bottom, not wherever the
-    // cursor happened to be.
-    if (this.regionRows.length === 0) this.output.write(ANCHOR_BOTTOM)
-    else this.eraseRegion()
-    this.drawRegion(rows, cursor, focus)
-    this.regionRows = [...rows]
-    this.regionCursor = { ...cursor }
-    this.regionFocus = focus
+    this.screen?.setChrome(rows, cursor, focus)
   }
 
-  /** Remove the region, leaving the cursor where the next write will land. */
+  /** Take the pinned rows down, leaving the transcript alone. */
   clearRegion(): void {
-    if (this.regionRows.length === 0) return
-    this.eraseRegion()
-    // The region may have parked the cursor hidden; what follows is ordinary
-    // terminal use again.
-    if (!this.regionFocus) this.output.write(SHOW_CURSOR)
-    this.forgetRegion()
-    this.regionFocus = true
-  }
-
-  /** Move to the region's first row and erase everything from there down. */
-  private eraseRegion(): void {
-    if (this.regionRows.length === 0) return
-    const up = this.regionCursor.row > 0 ? `\u001B[${this.regionCursor.row}A` : ''
-    // Hidden through the whole erase-write-redraw cycle: a visible cursor
-    // travelling across freshly written lines reads as flicker. The redraw
-    // shows it again when the region holds focus.
-    this.output.write(`${HIDE_CURSOR}${up}\r${CLEAR_BELOW}`)
-  }
-
-  /**
-   * Draw rows from the cursor down and place the cursor among them.
-   * @param rows - the rows to draw.
-   * @param cursor - the target position.
-   * @param focus - whether to show the cursor at that position afterwards.
-   */
-  private drawRegion(rows: readonly string[], cursor: RegionCursor, focus = true): void {
-    if (rows.length === 0) return
-    // Every row is cut to one less than the width: a row that exactly fills the
-    // terminal wraps, and a wrapped row breaks the arithmetic that erases it.
-    const fitted = rows.map(row => truncate(row, this.columns - 1))
-    // Visible widths only: styling is zero columns, and the resize estimate
-    // that reads these is about what the terminal will rewrap.
-    this.regionWidths = fitted.map(row => displayWidth(row.replaceAll(/\u001B\[[0-9;?]*[A-Za-z]/gu, '')))
-    const body = fitted.map(row => `${CLEAR_LINE}${row}`).join('\n')
-    const back = fitted.length - 1 - cursor.row
-    const up = back > 0 ? `\u001B[${back}A` : ''
-    const right = cursor.column > 0 ? `\u001B[${cursor.column}C` : ''
-    this.output.write(`${HIDE_CURSOR}${body}${up}\r${right}${focus ? SHOW_CURSOR : ''}`)
+    this.screen?.setChrome([], { row: 0, column: 0 }, false)
   }
 
   /** Ring the terminal bell; a pipe gets nothing to beep with. */
@@ -430,16 +364,28 @@ export class TerminalConsole {
 
   /** Restore the terminal and stop reading. */
   close(): void {
-    this.clearRegion()
     if (this.escapeTimer !== undefined) clearTimeout(this.escapeTimer)
     if (this.readsKeys) {
-      // Whatever state a draw left the cursor in, the shell gets it back.
-      this.output.write(SHOW_CURSOR)
+      // Order matters: the viewport hands back the buffer and the modes it took,
+      // and only then does raw mode go, so the shell inherits nothing of ours.
+      this.screen?.leave()
       this.output.write(DISABLE_PASTE_MARKERS)
       this.input.setRawMode?.(false)
       this.input.pause()
     }
     this.rl?.close()
     this.end()
+  }
+
+  /**
+   * Write one line to the terminal the person keeps, not to our viewport.
+   *
+   * The exit summary is what needs this: the session's own screen disappears
+   * with it, so the few facts worth keeping — the session id, what it cost —
+   * have to land in the buffer that survives.
+   * @param line - the line, without its terminator.
+   */
+  writeAfterScreen(line: string): void {
+    this.output.write(`${line}\n`)
   }
 }

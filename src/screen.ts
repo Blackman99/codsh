@@ -1,0 +1,293 @@
+/**
+ * The session's own screen: an alternate-screen viewport with its own scrollback.
+ *
+ * This is what makes a session feel like a place rather than a run of output.
+ * The terminal's buffer is left exactly as the person had it — their shell
+ * history is neither scrolled away nor interleaved — and everything this
+ * surface shows lives in a buffer it owns: the transcript scrolls inside the
+ * viewport while the input box stays where it is, at the bottom.
+ *
+ * Owning the viewport means doing three jobs the terminal used to do. Lines are
+ * wrapped here ({@link wrapAll}), because a line that overflows would otherwise
+ * overwrite the row below. Scrolling is ours, because the terminal's scrollback
+ * does not exist on the alternate screen. And every frame is painted as a
+ * whole, diffed against the last one — which is what removes the class of bug
+ * that relative erase arithmetic keeps producing.
+ * @module codsh/src/screen
+ */
+
+import { truncate } from './theme.ts'
+import { wrapAll, wrapStyled } from './wrap.ts'
+
+/** Logical transcript lines kept before the oldest are dropped. */
+const MAX_SCROLLBACK = 5000
+
+/** Enter the alternate screen, saving the cursor and the current buffer. */
+const ENTER_ALT = '\u001B[?1049h'
+
+/** Leave it, restoring both. */
+const LEAVE_ALT = '\u001B[?1049l'
+
+/**
+ * Report wheel and button events, in the SGR encoding.
+ *
+ * Button tracking (1002) rather than any-motion (1003): the wheel and clicks
+ * are all this surface reads, and motion reporting floods the input for
+ * nothing. Most terminals still hand a Shift-drag to their own selection, so
+ * copying text keeps working.
+ */
+const ENABLE_MOUSE = '\u001B[?1002h\u001B[?1006h'
+
+/** Stop reporting them. */
+const DISABLE_MOUSE = '\u001B[?1006l\u001B[?1002l'
+
+/** Ask the terminal to paint a frame atomically, so no half-frame is shown. */
+const SYNC_BEGIN = '\u001B[?2026h'
+
+/** End the atomic frame. */
+const SYNC_END = '\u001B[?2026l'
+
+/** Erase the row from the cursor rightwards. */
+const CLEAR_LINE = '\u001B[K'
+
+/** Hide the cursor while a frame is painted. */
+const HIDE_CURSOR = '\u001B[?25l'
+
+/** Show it again. */
+const SHOW_CURSOR = '\u001B[?25h'
+
+/** Where the cursor belongs within the chrome rows. */
+export interface ChromeCursor {
+  row: number
+  column: number
+}
+
+/** What the screen writes to and measures itself against. */
+export interface ScreenHost {
+  /** Emit raw bytes to the terminal. */
+  write(data: string): void
+  /** Display columns currently available. */
+  columns(): number
+  /** Screen rows currently available. */
+  rows(): number
+}
+
+/** An alternate-screen viewport over a scrollback buffer this surface owns. */
+export class Screen {
+  /** Logical transcript lines, unwrapped, oldest first. */
+  private logical: string[] = []
+  /** The same lines wrapped to the current width — what the viewport slices. */
+  private physical: string[] = []
+  /** The bottom rows: input box, menu, indicator, status. */
+  private chrome: string[] = []
+  private chromeCursor: ChromeCursor = { row: 0, column: 0 }
+  /** Whether the chrome holds input focus, which is when the cursor shows. */
+  private chromeFocus = true
+  /** Physical rows hidden below the viewport; zero means following the tail. */
+  private offset = 0
+  /** What to show while scrolled back, drawn over the viewport's top row. */
+  private notice = ''
+  /** The last painted frame, so a repaint only touches rows that changed. */
+  private painted: string[] = []
+  /** Width the current frame was painted at, to detect a resize. */
+  private paintedColumns = 0
+  private active = false
+
+  constructor(private readonly host: ScreenHost) {}
+
+  /** Whether the alternate screen is currently held. */
+  get entered(): boolean {
+    return this.active
+  }
+
+  /** Physical rows scrolled up out of view; zero means the tail is showing. */
+  get scrolledBy(): number {
+    return this.offset
+  }
+
+  /** Take the alternate screen and start reporting the mouse. */
+  enter(): void {
+    if (this.active) return
+    this.active = true
+    this.host.write(`${ENTER_ALT}${ENABLE_MOUSE}${HIDE_CURSOR}`)
+    this.painted = []
+    this.render()
+  }
+
+  /**
+   * Give the terminal back exactly as it was.
+   *
+   * Idempotent, because every exit path calls it — a normal quit, an
+   * interrupt, and a crash handler all have to leave the terminal usable.
+   */
+  leave(): void {
+    if (!this.active) return
+    this.active = false
+    this.host.write(`${DISABLE_MOUSE}${SHOW_CURSOR}${LEAVE_ALT}`)
+    this.painted = []
+  }
+
+  /**
+   * Append finished transcript lines.
+   *
+   * Following the tail is the default; a person who has scrolled up stays
+   * where they are, and the new rows accumulate below them.
+   * @param lines - the lines to keep, already styled.
+   */
+  append(lines: readonly string[]): void {
+    if (lines.length === 0) return
+    const columns = this.contentColumns()
+    for (const line of lines) {
+      this.logical.push(line)
+      this.physical.push(...wrapStyled(line, columns))
+    }
+    if (this.logical.length > MAX_SCROLLBACK) {
+      this.logical.splice(0, this.logical.length - MAX_SCROLLBACK)
+      this.rewrap()
+    }
+    this.render()
+  }
+
+  /**
+   * Replace the bottom rows.
+   * @param rows - the chrome, top to bottom.
+   * @param cursor - where the cursor belongs among them.
+   * @param focus - whether to show the cursor there.
+   */
+  setChrome(rows: readonly string[], cursor: ChromeCursor, focus: boolean): void {
+    // Cut, never wrapped: a box border that wrapped would push the layout down
+    // a row and the frame would disagree with itself.
+    this.chrome = rows.map(row => truncate(row, this.contentColumns()))
+    this.chromeCursor = { ...cursor }
+    this.chromeFocus = focus
+    this.render()
+  }
+
+  /**
+   * Set the line shown while the reader is away from the tail.
+   *
+   * Drawn OVER the viewport's top row rather than added to the chrome: a notice
+   * that changed the chrome's height would move the input box as a side effect
+   * of scrolling, and would make a page up and a page down different sizes.
+   * @param text - the styled notice, already fitted.
+   */
+  setScrollNotice(text: string): void {
+    if (text === this.notice) return
+    this.notice = text
+    if (this.offset > 0) this.render()
+  }
+
+  /**
+   * Scroll the transcript.
+   * @param delta - rows to move; negative scrolls back into history.
+   */
+  scrollBy(delta: number): void {
+    const limit = Math.max(0, this.physical.length - this.viewportHeight())
+    const next = Math.min(limit, Math.max(0, this.offset - delta))
+    if (next === this.offset) return
+    this.offset = next
+    this.render()
+  }
+
+  /**
+   * Scroll by a whole viewport, which is what the page keys mean.
+   * @param direction - -1 for back into history, 1 towards the tail.
+   */
+  scrollPage(direction: -1 | 1): void {
+    // One row of overlap keeps a line of context across the jump.
+    this.scrollBy(direction * Math.max(1, this.viewportHeight() - 1))
+  }
+
+  /** Jump back to the tail, which is also what a new submission does. */
+  scrollToBottom(): void {
+    if (this.offset === 0) return
+    this.offset = 0
+    this.render()
+  }
+
+  /**
+   * Drop the transcript, keeping the chrome.
+   *
+   * Ctrl-L on a shared terminal clears a viewport the person may want back; on
+   * our own screen the buffer IS the session's history, so this empties it.
+   */
+  clearTranscript(): void {
+    this.logical = []
+    this.physical = []
+    this.offset = 0
+    this.painted = []
+    this.render()
+  }
+
+  /** Re-wrap and repaint after the terminal changed size. */
+  resize(): void {
+    this.rewrap()
+    // Nothing on screen can be trusted at a new size; the next frame is full.
+    this.painted = []
+    this.render()
+  }
+
+  /** Rows the transcript viewport occupies. */
+  private viewportHeight(): number {
+    return Math.max(1, this.host.rows() - this.chrome.length)
+  }
+
+  /** Columns content is laid out for, one short of the width so no row wraps. */
+  private contentColumns(): number {
+    return Math.max(1, this.host.columns() - 1)
+  }
+
+  /** Re-wrap every kept line at the current width. */
+  private rewrap(): void {
+    this.physical = wrapAll(this.logical, this.contentColumns())
+    const limit = Math.max(0, this.physical.length - this.viewportHeight())
+    this.offset = Math.min(this.offset, limit)
+  }
+
+  /**
+   * Compose and paint the frame.
+   *
+   * The viewport is padded at the top when the transcript is shorter than the
+   * screen, which is what puts the chrome at the bottom from the first frame
+   * rather than wherever output happened to reach.
+   */
+  private render(): void {
+    if (!this.active) return
+    const columns = this.host.columns()
+    if (columns !== this.paintedColumns) {
+      this.physical = wrapAll(this.logical, this.contentColumns())
+      this.painted = []
+      this.paintedColumns = columns
+    }
+    const height = this.viewportHeight()
+    const end = this.physical.length - this.offset
+    const visible = this.physical.slice(Math.max(0, end - height), Math.max(0, end))
+    const padding = Array.from({ length: Math.max(0, height - visible.length) }, () => '')
+    const viewport = [...padding, ...visible]
+    // Scrolled back, the top row says so — replacing a row rather than adding
+    // one, so the rest of the layout does not shift under the reader.
+    if (this.offset > 0 && this.notice !== '' && viewport.length > 0) {
+      viewport[0] = truncate(this.notice, this.contentColumns())
+    }
+    const frame = [...viewport, ...this.chrome]
+
+    let out = SYNC_BEGIN + HIDE_CURSOR
+    frame.forEach((row, index) => {
+      // Only rows that changed are repainted: a frame that rewrites everything
+      // makes a wide terminal flicker even inside a synchronized update.
+      if (this.painted[index] === row) return
+      out += `\u001B[${index + 1};1H${CLEAR_LINE}${row}`
+    })
+    // A shrunken frame leaves rows behind; clear what the new one does not fill.
+    for (let index = frame.length; index < this.painted.length; index += 1) {
+      out += `\u001B[${index + 1};1H${CLEAR_LINE}`
+    }
+    if (this.chromeFocus) {
+      const row = frame.length - this.chrome.length + this.chromeCursor.row + 1
+      out += `\u001B[${row};${this.chromeCursor.column + 1}H${SHOW_CURSOR}`
+    }
+    out += SYNC_END
+    this.host.write(out)
+    this.painted = frame
+  }
+}

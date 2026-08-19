@@ -36,6 +36,9 @@ export type Key =
   | { kind: 'shift-tab' }
   | { kind: 'clear-screen' }
   | { kind: 'expand-output' }
+  | { kind: 'page'; direction: -1 | 1 }
+  | { kind: 'scroll'; lines: number }
+  | { kind: 'scroll-end' }
   | { kind: 'paste'; text: string }
 
 /** Bracketed paste start, which a terminal wraps pasted text in. */
@@ -44,8 +47,23 @@ const PASTE_START = '\u001B[200~'
 /** Bracketed paste end. */
 const PASTE_END = '\u001B[201~'
 
+/** Rows one wheel notch moves, matching what a terminal scrolls by default. */
+const WHEEL_LINES = 3
+
+/** An SGR mouse report: `ESC [ < button ; column ; row (M|m)`. */
+const MOUSE = /^\u001B\[<(\d+);(\d+);(\d+)([Mm])/
+
+/** Wheel-up button code in the SGR encoding; wheel-down is one higher. */
+const WHEEL_UP = 64
+
 /** Sequences that resolve to one key, longest first so a prefix never wins. */
 const SEQUENCES: readonly (readonly [string, Key])[] = [
+  // Scrolling the transcript: the viewport is ours, so these are ours to read.
+  ['\u001B[5~', { kind: 'page', direction: -1 }],
+  ['\u001B[6~', { kind: 'page', direction: 1 }],
+  ['\u001B[1;2A', { kind: 'scroll', lines: -1 }],
+  ['\u001B[1;2B', { kind: 'scroll', lines: 1 }],
+  ['\u001B[1;5F', { kind: 'scroll-end' }],
   ['\u001B[1;5D', { kind: 'word-left' }],
   ['\u001B[1;5C', { kind: 'word-right' }],
   ['\u001B[1;3D', { kind: 'word-left' }],
@@ -161,6 +179,18 @@ export class KeyDecoder {
     }
     // A partial bracketed-paste marker must not be read as an Escape.
     if (PASTE_START.startsWith(this.held)) return undefined
+    const mouse = MOUSE.exec(this.held)
+    if (mouse !== null) {
+      this.held = this.held.slice(mouse[0].length)
+      const button = Number(mouse[1])
+      // Only the wheel moves the transcript; a click is the terminal's own
+      // business, and swallowing it silently is what keeps selection working.
+      if (button === WHEEL_UP) return [{ kind: 'scroll', lines: -WHEEL_LINES }]
+      if (button === WHEEL_UP + 1) return [{ kind: 'scroll', lines: WHEEL_LINES }]
+      return []
+    }
+    // A mouse report still arriving must not be read as an Escape either.
+    if (/^\u001B(\[(<\d*(;\d*){0,2})?)?$/.test(this.held)) return undefined
     for (const [sequence, key] of SEQUENCES) {
       if (this.held.startsWith(sequence)) {
         this.held = this.held.slice(sequence.length)

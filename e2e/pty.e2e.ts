@@ -14,6 +14,53 @@ import { join } from 'node:path'
 import { execa } from 'execa'
 import { describe, expect, it } from 'vitest'
 import { E2E_TEST_TIMEOUT_MS, makeHome, overlayText, resolveLaunch } from './harness.ts'
+import { Terminal, render } from './vt.ts'
+
+/** The window size the driver gives every run. */
+const PTY_ROWS = 40
+const PTY_COLUMNS = 120
+
+/** Ends one synchronized frame, which is where a capture may safely be cut. */
+const SYNC_END = '\u001B[?2026l'
+
+/** The surface handing the terminal back; nothing after it is session screen. */
+const LEAVE_ALT = '\u001B[?1049l'
+
+/**
+ * The screen as it stood when `marker` was last emitted.
+ *
+ * The surface owns its screen, so its output is frames rather than lines:
+ * replaying them through a terminal is what turns a capture back into what a
+ * person saw at that moment.
+ * @param output - everything the PTY emitted.
+ * @param marker - text to stop at; the whole capture when absent.
+ * @returns the terminal at that point.
+ */
+function screenAt(output: string, marker: string, occurrence: 'first' | 'last' = 'first'): Terminal {
+  // Only what the session showed while it held the screen: the frames after it
+  // hands the terminal back have already torn the chrome down.
+  const handedBack = output.indexOf(LEAVE_ALT)
+  const held = handedBack < 0 ? output : output.slice(0, handedBack)
+  // First occurrence by default: teardown reflows the viewport and re-emits
+  // transcript bytes, so the LAST copy of a transcript marker is usually the
+  // chrome-less exit frame. `last` is for markers that only chrome paints.
+  const at = occurrence === 'first' ? held.indexOf(marker) : held.lastIndexOf(marker)
+  if (at < 0) return render(held, PTY_ROWS, PTY_COLUMNS)
+  // Cut at the end of the frame the marker appeared in, never inside it: a
+  // frame is one synchronized update, and half of one is a torn screen no
+  // terminal would ever show.
+  const frameEnd = held.indexOf(SYNC_END, at)
+  return render(held.slice(0, frameEnd < 0 ? held.length : frameEnd + SYNC_END.length), PTY_ROWS, PTY_COLUMNS)
+}
+
+/**
+ * Rows that start the INPUT box's frame.
+ *
+ * The banner is boxed too, so width is what tells them apart: the input box
+ * spans the terminal, the banner is as wide as its own text.
+ */
+const boxTops = (terminal: Terminal): number[] =>
+  terminal.alternate.flatMap((row, index) => row.startsWith('╭─') && row.length > PTY_COLUMNS / 2 ? [index] : [])
 
 /** The bare Escape byte, which is what a person pressing the key sends. */
 const ESCAPE = '\u001B'
@@ -79,17 +126,29 @@ while time.monotonic() < deadline:
             if found < 0:
                 break
             consumed = found + len(marker)
-        # A settle delay is how a step asserts that NOTHING appears: there is no
-        # marker to wait for when the expected outcome is silence.
-        if delay_ms:
-            time.sleep(delay_ms / 1000)
+        # A settle delay is how a step asserts that NOTHING appears: there is
+        # no marker to wait for when the expected outcome is silence. The PTY
+        # keeps draining while we wait — a paused reader backs the app up and
+        # scrambles the byte-offset bookkeeping the frame replays depend on.
+        settle_until = time.monotonic() + delay_ms / 1000
+        while time.monotonic() < settle_until:
+            ready, _, _ = select.select([fd], [], [], 0.02)
+            if ready:
+                try:
+                    chunk = os.read(fd, 65536)
+                except OSError as error:
+                    if error.errno != errno.EIO:
+                        raise
+                    break
+                if chunk:
+                    output.extend(chunk)
         if payload.startswith(b"@WINSZ:"):
             new_rows, new_cols = payload[7:].split(b"x")
             fcntl.ioctl(fd, termios.TIOCSWINSZ, struct.pack("HHHH", int(new_rows), int(new_cols), 0, 0))
         else:
             os.write(fd, payload)
         step += 1
-        sys.stderr.write(f"step {step}: matched {marker!r}, wrote {payload!r}\n")
+        sys.stderr.write(f"step {step} at {len(output)}: matched {marker!r}, wrote {payload!r}\n")
     waited, candidate = os.waitpid(pid, os.WNOHANG)
     if waited == pid:
         status = candidate
@@ -111,7 +170,18 @@ sys.exit(os.waitstatus_to_exitcode(status))
  * @param script - ordered steps, run in sequence.
  * @returns everything the PTY showed.
  */
+/** A capture plus where in it each scripted step fired. */
+interface Driven {
+  output: string
+  /** Byte offset of the capture when step N (1-based) wrote its payload. */
+  offsets: number[]
+}
+
 async function drivePty(mode: string, script: readonly PtyStep[]): Promise<string> {
+  return (await drivePtySteps(mode, script)).output
+}
+
+async function drivePtySteps(mode: string, script: readonly PtyStep[]): Promise<Driven> {
   const cwd = await mkdtemp(join(tmpdir(), 'codsh-pty-'))
   const home = await makeHome()
   try {
@@ -138,7 +208,8 @@ async function drivePty(mode: string, script: readonly PtyStep[]): Promise<strin
     if (result.exitCode !== 0) {
       throw new Error(`PTY driver exited ${String(result.exitCode)}.\nstdout:\n${result.stdout}\nstderr:\n${result.stderr}`)
     }
-    return result.stdout
+    const offsets = [...result.stderr.matchAll(/step \d+ at (\d+):/gu)].map(match => Number(match[1]))
+    return { output: result.stdout, offsets }
   } finally {
     await rm(cwd, { recursive: true, force: true })
     await rm(home, { recursive: true, force: true })
@@ -192,11 +263,13 @@ describe.skipIf(process.platform === 'win32')('dsh code Escape (real PTY)', () =
       ['CODE_CLI_CALL_OK', `/exit${ENTER}`, 300],
     ])
 
-    // One turn, so one tool call. Line-by-line submission would have run two.
-    expect(output.split('Write note.txt').length - 1).toBe(1)
-    // Both lines reached the model as one prompt.
-    expect(output).toContain('first line of one prompt')
-    expect(output).toContain('second line of it')
+    // Both lines sat in the box together, unsent, before Enter.
+    const held = screenAt(output, 'second line of it').text
+    expect(held).toContain('first line of one prompt')
+    expect(held).toContain('second line of it')
+    // One turn, so one tool card. Line-by-line submission would have run two.
+    const done = screenAt(output, 'CODE_CLI_CALL_OK').alternate
+    expect(done.filter(row => row.includes('Write note.txt'))).toHaveLength(1)
   }, E2E_TEST_TIMEOUT_MS)
 
   it('completes an @ mention on Tab', async () => {
@@ -218,20 +291,18 @@ describe.skipIf(process.platform === 'win32')('dsh code Escape (real PTY)', () =
       ['CODE_CLI_CALL_STREAM_DONE', '/exit\n', 300],
     ])
 
-    // Each delta redraws the line being typed, which is the token-level display;
-    // off a terminal there is no region to repaint and none of this appears.
+    // Each delta repaints the row being typed, which is the token-level display.
     const repaints = output.split('\u001B[K').length - 1
     expect(repaints).toBeGreaterThan(10)
-    // The finished lines still land exactly once.
-    expect(output.split('CODE_CLI_HEADING').length - 1).toBe(1)
-    // The box stays up while the answer streams — type-ahead must be visible —
-    // and the cursor shows only inside it. A shown cursor directly after a bare
-    // carriage return would be parked at column 0 of the region's last row,
-    // which is the status bar: the collision this assertion pins down.
-    const streaming = output.slice(output.indexOf('CODE_CLI_HEADING'), output.indexOf('CODE_CLI_CALL_STREAM_DONE'))
-    expect(streaming).toContain('╭')
-    expect(streaming).not.toContain('\r\u001B[?25h')
-    expect(output).not.toContain('\r\u001B[?25h')
+    // Mid-stream: the answer is on screen once, the box is still up — type-ahead
+    // must stay visible — and the cursor is inside the box, not parked on the
+    // status row, which is the collision this pins down.
+    const mid = screenAt(output, 'CODE_CLI_HEADING')
+    expect(mid.alternate.filter(row => row.includes('CODE_CLI_HEADING'))).toHaveLength(1)
+    const tops = boxTops(mid)
+    expect(tops).toHaveLength(1)
+    expect(mid.cursorRow).toBeGreaterThan(tops[0] ?? 0)
+    expect(mid.cursorRow).toBeLessThan(PTY_ROWS - 1)
   }, E2E_TEST_TIMEOUT_MS)
 
   it('draws a framed input box that closes on itself', async () => {
@@ -240,16 +311,16 @@ describe.skipIf(process.platform === 'win32')('dsh code Escape (real PTY)', () =
       ['typed text', `${CLEAR}/exit${ENTER}`, 300],
     ])
 
-    // A real frame around the real text. Row widths are pinned by the layout's
-    // own suite: a terminal's bytes interleave redraws, so measuring them here
-    // would test the capture rather than the box.
-    // The window-title OSC is `ESC ]`-introduced, so the CSI strip misses it.
-    const rows = output.split('\n').map(row =>
-      row.replaceAll(/\u001B\][^\u0007]*\u0007/gu, '').replaceAll(/\u001B\[[0-9;?]*[A-Za-z]/gu, '').replaceAll('\r', ''))
-    expect(rows.some(row => row.startsWith('╭─'))).toBe(true)
-    expect(rows.some(row => row.startsWith('╰─'))).toBe(true)
-    // The text sits inside the frame, not beside it.
+    // A real frame around the real text, exactly one of it, pinned at the
+    // bottom of the session's own screen.
+    const screen = screenAt(output, 'typed text')
+    const rows = screen.alternate
+    expect(boxTops(screen)).toHaveLength(1)
+    // The typed text sits inside the frame, which closes on itself.
     expect(rows.some(row => row.includes('│ › typed text') && row.endsWith('│'))).toBe(true)
+    // The frame's last row is within the chrome at the screen's foot.
+    const bottom = rows.findLastIndex(row => row.startsWith('╰─') && row.length > PTY_COLUMNS / 2)
+    expect(bottom).toBeGreaterThanOrEqual(PTY_ROWS - 4)
   }, E2E_TEST_TIMEOUT_MS)
 
   it('opens the completion menu as a command is typed', async () => {
@@ -276,18 +347,15 @@ describe.skipIf(process.platform === 'win32')('dsh code Escape (real PTY)', () =
       ['CODE_CLI_CALL_OK', `/exit${ENTER}`, 300],
     ])
 
+    const screen = screenAt(output, 'CODE_CLI_CALL_OK')
     // One turn from two lines: the break did not submit.
-    expect(output.split('Write note.txt').length - 1).toBe(1)
-    // The transcript's echo keeps the block's shape: marker on the first
-    // line, the continuation as its own border-free line below. (The capture
-    // interleaves region repaints between the two, so only order is stable.)
-    const plain = output.replaceAll(/\u001B\[[0-9;?]*[A-Za-z]/gu, '')
-    const lines = plain.split(/[\r\n]+/u).map(line => line.trim())
-    const echo = lines.indexOf('› first')
+    expect(screen.alternate.filter(row => row.includes('Write note.txt'))).toHaveLength(1)
+    // The echo keeps the block's shape: the marker on the first row, the
+    // continuation aligned under it, both outside the box's borders.
+    const rows = screen.alternate.map(row => row.trimEnd())
+    const echo = rows.indexOf('› first')
     expect(echo).toBeGreaterThanOrEqual(0)
-    // Inside the box the text always sits between │ borders; bare `second`
-    // can only be the echoed continuation.
-    expect(lines.indexOf('second', echo)).toBeGreaterThan(echo)
+    expect(rows[echo + 1]).toBe('  second')
   }, E2E_TEST_TIMEOUT_MS)
 
   it('recalls the previous submission with the up arrow', async () => {
@@ -335,16 +403,13 @@ describe.skipIf(process.platform === 'win32')('dsh code Escape (real PTY)', () =
       ['CODE_CLI_CALL_OK', `/exit${ENTER}`, 400],
     ])
 
-    // The always-current facts live at the bottom, not spammed into the
-    // transcript: model, composition, permissions, spend, and place. Each
-    // segment carries its own styling, stripped here before matching.
-    const plain = output.replaceAll(/\u001B\[[0-9;?]*[A-Za-z]/gu, '')
-    expect(plain).toMatch(/cli-mock · code-cli · workspace-write · \d+k? tokens/)
+    const rows = screenAt(output, 'CODE_CLI_CALL_OK').alternate
+    // The always-current facts occupy the screen's last row, not the
+    // transcript: model, composition, permissions, spend, and place.
+    expect(rows.at(-1)).toMatch(/cli-mock · code-cli · workspace-write · \d+k? tokens/)
     // Submitting clears the box, so the transcript's own render is the only
-    // copy of the message that survives. The box always paints the text
-    // between │ borders; a border-free `› message` line proves the render.
-    // The PTY separates lines with bare carriage returns as often as \r\n.
-    expect(plain.split(/[\r\n]+/u).some(line => line.trim() === '› create the note')).toBe(true)
+    // copy of the message that survives — a row outside the box's borders.
+    expect(rows.map(row => row.trimEnd())).toContain('› create the note')
   }, E2E_TEST_TIMEOUT_MS)
 
   it('toggles plan mode with Shift-Tab, both ways', async () => {
@@ -436,10 +501,30 @@ describe.skipIf(process.platform === 'win32')('dsh code Escape (real PTY)', () =
       ['create the note', `${CLEAR}/exit${ENTER}`, 400],
     ])
 
-    const plain = output.replaceAll(/\u001B\[[0-9;?]*[A-Za-z]/gu, '')
-    expect(plain).toContain('ESC again to edit your previous message')
-    // The run never re-submitted it: exactly one write happened.
-    expect(output.split('Write note.txt').length - 1).toBe(1)
+    // The armed hint appeared on screen, and the recalled text is back in the
+    // box rather than submitted: still exactly one tool card.
+    expect(screenAt(output, 'ESC again to edit').text).toContain('ESC again to edit your previous message')
+    // The recall puts the text back INSIDE the box. Chrome-height changes make
+    // the transcript re-emit its rows, so no byte marker is unambiguous here;
+    // replaying frame by frame and watching the screen is.
+    const held = output.slice(0, output.indexOf(LEAVE_ALT))
+    const probe = new Terminal(PTY_ROWS, PTY_COLUMNS)
+    let from = 0
+    let recalled: string[] | undefined
+    for (;;) {
+      const end = held.indexOf(SYNC_END, from)
+      if (end < 0) break
+      probe.feed(held.slice(from, end + SYNC_END.length))
+      from = end + SYNC_END.length
+      if (probe.alternate.some(row => row.includes('│ › create the note'))) {
+        // Keep the LAST such frame: the first is the original typing, before
+        // the tool card existed; the last is the recall.
+        recalled = [...probe.alternate]
+      }
+    }
+    expect(recalled).toBeDefined()
+    // Recalled for editing, not re-submitted: still exactly one tool card.
+    expect(recalled?.filter(row => row.includes('Write note.txt'))).toHaveLength(1)
   }, E2E_TEST_TIMEOUT_MS)
 
   it('expands the last clipped output with Ctrl-O', async () => {
@@ -466,9 +551,10 @@ describe.skipIf(process.platform === 'win32')('dsh code Escape (real PTY)', () =
       ['resumed session-', `/exit${ENTER}`, 500],
     ])
 
-    const plain = output.replaceAll(/\u001B\[[0-9;?]*[A-Za-z]/gu, '')
-    // Resuming replays the retired session's transcript, echo included.
-    expect(plain.split(/[\r\n]+/u).filter(line => line.trim() === '› remember DELTA_ONE').length).toBeGreaterThanOrEqual(2)
+    const rows = screenAt(output, 'resumed session-', 'last').alternate.map(row => row.trimEnd())
+    // Resuming replays the retired session's transcript, echo included: the
+    // original submission and its replay are both on screen.
+    expect(rows.filter(row => row === '› remember DELTA_ONE').length).toBeGreaterThanOrEqual(2)
     // The window title tracks the surface on a real terminal.
     expect(output).toContain('\u001B]2;dsh code —')
   }, E2E_TEST_TIMEOUT_MS)
@@ -485,23 +571,35 @@ describe.skipIf(process.platform === 'win32')('dsh code Escape (real PTY)', () =
     expect(plain).toContain('bang=yes')
   }, E2E_TEST_TIMEOUT_MS)
 
-  it('recovers from a terminal resize with an absolute erase and a bottom re-anchor', async () => {
-    const output = await drivePty('write', [
-      ['/help for commands', '', 0],
-      // The startup anchor follows the banner; consuming it makes the later
-      // match unambiguously the post-resize re-anchor.
-      ['\u001B[9999;1H', '@WINSZ:40x80', 400],
-      // The resize recovery: clear from an absolute row, then a fresh draw
-      // anchored to the bottom — relative erase math is void after a rewrap.
-      ['\u001B[0J', '', 0],
-      ['\u001B[9999;1H', `still alive${ENTER}`, 300],
-      // The surface keeps working at the new size.
+  it('re-lays-out the whole viewport after a terminal resize', async () => {
+    const narrow = 80
+    const { output, offsets } = await drivePtySteps('write', [
+      ['/help for commands', `create the note${ENTER}`, 300],
+      // Shrink the window mid-session: every row has to be laid out again, and
+      // a viewport repaint has no old frame to leave behind.
+      ['CODE_CLI_CALL_OK', `@WINSZ:${PTY_ROWS}x${narrow}`, 600],
+      ['', `still here${ENTER}`, 500],
       ['CODE_CLI_CALL_OK', `/exit${ENTER}`, 400],
     ])
 
-    // The absolute-row erase is the recovery's signature; relative erases
-    // never carry an explicit row.
-    expect(output).toMatch(/\u001B\[\d+;1H\u001B\[0J/u)
-    expect(output).toContain('CODE_CLI_CALL_OK')
+    // Replayed the way the terminal lived it: wide frames at the wide size,
+    // then the emulator resizes exactly where the window did, then the rest.
+    const held = output.slice(0, output.indexOf(LEAVE_ALT))
+    const resizeAt = offsets[1] ?? 0
+    // Raw-byte markers must be style-free: the echo's `›` is styled separately,
+    // so the contiguous bytes are the text alone.
+    const at = held.indexOf('still here', resizeAt)
+    const frameEnd = held.indexOf(SYNC_END, at)
+    const terminal = new Terminal(PTY_ROWS, PTY_COLUMNS)
+    terminal.feed(held.slice(0, resizeAt))
+    terminal.resize(PTY_ROWS, narrow)
+    terminal.feed(held.slice(resizeAt, frameEnd < 0 ? held.length : frameEnd + SYNC_END.length))
+    const rows = terminal.alternate
+    // Exactly one box, still at the foot, and no row overflows the new width.
+    expect(rows.filter(row => row.startsWith('╭─') && row.length > narrow / 2)).toHaveLength(1)
+    expect(rows.findLastIndex(row => row.startsWith('╰─') && row.length > narrow / 2)).toBeGreaterThanOrEqual(PTY_ROWS - 4)
+    for (const row of rows) expect(row.length).toBeLessThanOrEqual(narrow)
+    // The session kept working at the new size.
+    expect(rows.map(row => row.trimEnd())).toContain('› still here')
   }, E2E_TEST_TIMEOUT_MS)
 })

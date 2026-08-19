@@ -940,6 +940,24 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
     return busy
   }
 
+  /**
+   * Hand the terminal back and leave.
+   *
+   * The session's own screen disappears with it, so the few facts a person
+   * still needs — which session this was, what it cost, how to reopen it — are
+   * written to the buffer that survives instead.
+   * @param code - the exit status to request.
+   */
+  const leave = (code: number): void => {
+    prompt.clear()
+    io.console.close()
+    const usage = totalTokens(facts(branch).usage)
+    const spent = usage === undefined || usage === 0 ? '' : ` · ${formatTokens(usage)} tokens`
+    io.console.writeAfterScreen(theme.dim(`codsh session ${live.agent.session.id}${spent}`))
+    io.console.writeAfterScreen(theme.dim(`  reopen with: codsh --resume ${live.agent.session.id}`))
+    io.exit(code)
+  }
+
   let lastInterrupt = 0
   // Escape at a quiet, empty prompt arms recall: the second press inside the
   // window puts the previous message back for editing.
@@ -975,9 +993,7 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
       prompt.write(theme.dim('  Ctrl-C again to exit'))
       return
     }
-    prompt.clear()
-    io.console.close()
-    io.exit(130)
+    leave(130)
   }
 
 
@@ -1009,6 +1025,7 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
   }
 
   if (config.print) {
+    // No viewport in print mode: the caller wants the answer on stdout.
     await turn(live.agent, config.task, spinner)
     if (thinking.streamed) emit([...thinking.flush(), ''])
     if (stream.streamed) emit([...stream.flush(), ''])
@@ -1061,8 +1078,12 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
     }
   }
 
-  // From here the session is interactive: the box stays on screen through
-  // turns, so type-ahead is visible where it will be edited.
+  // From here the session is interactive. The viewport opens first: the banner
+  // lines written above are already in its scrollback, so the first frame shows
+  // them with the box pinned below rather than flashing an unowned screen.
+  io.console.enterScreen()
+  // The box stays on screen through turns, so type-ahead is visible where it
+  // will be edited.
   prompt.setEngaged(true)
   if (config.task !== '') await answer(config.task)
   // Reprinting an unchanged status line before every prompt is noise; a person
@@ -1130,10 +1151,7 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
   }
   for (const dispose of disposers.splice(0)) dispose()
   prompt.setEngaged(false)
-  prompt.clear()
-  io.console.write(theme.dim(`session ${live.agent.session.id}`))
-  io.console.close()
-  io.exit(0)
+  leave(0)
 }
 
 /**
@@ -1142,8 +1160,10 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
  * @param error - the failure.
  */
 function fail(io: CliIo, error: unknown): void {
-  io.console.write(`dsh: ${error instanceof Error ? error.message : String(error)}`)
+  // Close first: a message painted into a viewport that is about to be handed
+  // back would vanish with it.
   io.console.close()
+  io.console.writeAfterScreen(`codsh: ${error instanceof Error ? error.message : String(error)}`)
   io.exit(1)
 }
 
@@ -1160,5 +1180,16 @@ export function apply(ctx: Context, config: Config): void {
     throw new Error('coding-cli-runner: the launcher must provide ctx.appExit before the tree mounts')
   }
   const io: CliIo = { console: new TerminalConsole(internals.input, internals.output), exit }
+  // Last-resort restoration. Signals and crashes bypass every ordinary exit,
+  // and a terminal left on the alternate screen with the mouse reporting is
+  // unusable — a person would have to `reset` it.
+  const restore = (): void => { io.console.leaveScreen() }
+  process.once('exit', restore)
+  for (const signal of ['SIGTERM', 'SIGHUP'] as const) {
+    process.once(signal, () => {
+      restore()
+      process.exit(signal === 'SIGTERM' ? 143 : 129)
+    })
+  }
   void run(ctx, config, io).catch((error: unknown) => { fail(io, error) })
 }

@@ -4,7 +4,7 @@
 
 [English](README.md) | 中文
 
-面向终端的 Claude Code 风格编码 agent，组合在 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)（dsh）插件运行时之上。codsh 是一个 dsh *bundle*：它携带交互式 TTY 界面与编码 agent preset，其下的一切——agent 循环、工具、会话、沙箱、模型适配器——都是 npm 上已发布的 dsh 包。
+一款汲取了当今主流 agent CLI 交互体验精髓的终端编码 agent，组合在 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)（dsh）插件运行时之上。codsh 是一个 dsh *bundle*：它携带交互式 TTY 界面与编码 agent preset，其下的一切——agent 循环、工具、会话、沙箱、模型适配器——都是 npm 上已发布的 dsh 包。
 
 ## 安装
 
@@ -19,7 +19,8 @@ codsh
 
 ## 你会得到什么
 
-- **接管键盘的输入框**：固定在屏幕底部、缩放安全；多行编辑（Alt-Enter）、跨会话历史，命令、参数与 `@` 文件提及（全工作区模糊搜索）的补全随输入自动打开。
+- **会话是自己的空间**：codsh 进入备用屏幕，你的 shell 滚回历史原封不动、退出即恢复。transcript 在会话自有的缓冲里滚动——鼠标滚轮、PgUp/PgDn、Shift+↑/↓——输入框钉在底部从不移动；向上翻阅时视口会标注离尾部多远，新输出继续累积而不把你拽回去。每一帧以同步更新原子绘制；退出时向 shell 留下两行摘要（会话 id、用量、`--resume` 命令）。
+- **接管键盘的输入框**：多行编辑（Alt-Enter）、跨会话历史，命令、参数与 `@` 文件提及（全工作区模糊搜索）的补全随输入自动打开。
 - **流式渲染**：Markdown 带代码高亮与表格排版，推理模型的思考在 `✻ thinking` 下暗色显示，工具调用按 presenter 驱动的卡片渲染（含 diff），Ctrl-O 完整重印最近被截断的输出。
 - **决定用选择**：审批、提问、`/model` 与 `/resume` 都是方向键组件；Shift-Tab 切换 plan 模式并为框着色。
 - **会话流**：`/clear` 原地开新会话，`/resume` 从带标题和时间的会话列表里选，连按两次 Escape 召回上一条消息编辑，`!cmd` 在你自己的 shell 里运行并把结果注入为模型可见上下文——不花回合。

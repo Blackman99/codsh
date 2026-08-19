@@ -9,7 +9,7 @@
 
 import { PassThrough } from 'node:stream'
 import { describe, expect, it } from 'vitest'
-import { TerminalConsole, rewrappedHeight } from '../src/console.ts'
+import { TerminalConsole } from '../src/console.ts'
 import type { Key } from '../src/keys.ts'
 
 /** Collects everything the console writes. */
@@ -152,110 +152,98 @@ describe('terminal input', () => {
   })
 })
 
-describe('the bottom region', () => {
-  it('draws its rows and leaves the cursor among them', () => {
-    const { console: term, output } = build(true, 40)
-    term.setRegion(['top', 'middle', 'bottom'], { row: 1, column: 3 })
-    const drawn = output.text
-    expect(drawn).toContain('top')
-    expect(drawn).toContain('bottom')
-    // One row back up from the last, then three columns across.
-    expect(drawn).toContain('\u001B[1A')
-    expect(drawn).toContain('\u001B[3C')
+describe('the viewport it owns on a terminal', () => {
+  /** Rows a frame painted, keyed by screen row. */
+  function painted(data: string): Map<number, string> {
+    const rows = new Map<number, string>()
+    for (const match of data.matchAll(/\u001B\[(\d+);1H\u001B\[K([^\u001B]*)/gu)) {
+      rows.set(Number(match[1]), match[2] ?? '')
+    }
+    return rows
+  }
+
+  /** A terminal console over in-memory streams, with a screen height. */
+  function tty(rows = 8, columns = 40): { console: TerminalConsole; output: Sink } {
+    const built = build(true, columns)
+    Object.defineProperty(built.output, 'rows', { value: rows })
+    return { console: built.console, output: built.output }
+  }
+
+  it('takes the alternate screen only when asked, and gives it back on close', () => {
+    const { console: term, output } = tty()
+    expect(output.text).not.toContain('\u001B[?1049h')
+    term.enterScreen()
+    expect(output.text).toContain('\u001B[?1049h')
+    expect(term.owningScreen).toBe(true)
+    term.close()
+    // The buffer, the mouse modes, and raw mode all go back.
+    expect(output.text).toContain('\u001B[?1049l')
+    expect(output.text).toContain('\u001B[?1002l')
   })
 
-  it('erases the previous rows before drawing again', () => {
-    const { console: term, output } = build(true, 40)
-    term.setRegion(['one', 'two'], { row: 1, column: 0 })
-    output.chunks.length = 0
-    term.setRegion(['three'], { row: 0, column: 0 })
-    // Back to the region's first row, then clear everything below it.
-    expect(output.text).toContain('\u001B[1A')
-    expect(output.text).toContain('\u001B[0J')
-    expect(output.text).toContain('three')
+  it('keeps transcript lines written before it owns the screen', () => {
+    const { console: term, output } = tty(6, 40)
+    // The banner is written before the viewport opens; nothing may be lost.
+    term.write('banner line')
+    term.enterScreen()
+    const rows = painted(output.text)
+    expect([...rows.values()]).toContain('banner line')
   })
 
-  it('writes a transcript line above the region and puts it back', () => {
-    const { console: term, output } = build(true, 40)
-    term.setRegion(['the box'], { row: 0, column: 0 })
-    output.chunks.length = 0
-    term.write('a finished line')
-    const written = output.text
-    expect(written).toContain('a finished line\n')
-    // The region reappears beneath what was just kept.
-    expect(written.lastIndexOf('the box')).toBeGreaterThan(written.indexOf('a finished line'))
+  it('pins the chrome to the last rows, with the transcript above it', () => {
+    const { console: term, output } = tty(6, 40)
+    term.enterScreen()
+    term.write('older')
+    term.write('newer')
+    term.setRegion(['box', 'status'], { row: 0, column: 2 }, true)
+    const rows = painted(output.text)
+    expect(rows.get(5)).toBe('box')
+    expect(rows.get(6)).toBe('status')
+    // The transcript sits directly above, still following the tail.
+    expect(rows.get(4)).toBe('newer')
+    expect(rows.get(3)).toBe('older')
   })
 
-  it('cuts a row to keep it off the wrap, which would break the erase', () => {
-    const { console: term, output } = build(true, 20)
-    term.setRegion(['x'.repeat(60)], { row: 0, column: 0 })
-    // Escapes and the carriage return occupy no column.
-    const visible = output.text.replaceAll(/\u001B\[[0-9;?]*[A-Za-z]/gu, '').replaceAll('\r', '')
-    for (const line of visible.split('\n')) expect(line.length).toBeLessThanOrEqual(19)
+  it('scrolls the transcript without moving the chrome', () => {
+    const { console: term, output } = tty(4, 40)
+    term.enterScreen()
+    term.setRegion(['status'], { row: 0, column: 0 }, false)
+    for (const line of ['one', 'two', 'three', 'four', 'five']) term.write(line)
+    output.chunks.length = 0
+    term.scrollBy(-2)
+    expect(term.scrolledBy).toBe(2)
+    const rows = painted(output.text)
+    // The viewport moved back; row 4 is the chrome and did not change.
+    expect([rows.get(1), rows.get(2), rows.get(3)]).toEqual(['one', 'two', 'three'])
+    expect(rows.has(4)).toBe(false)
+    term.scrollToBottom()
+    expect(term.scrolledBy).toBe(0)
   })
 
-  it('leaves nothing behind when cleared', () => {
-    const { console: term, output } = build(true, 40)
-    term.setRegion(['the box'], { row: 0, column: 0 })
+  it('clears its own transcript rather than the terminal the person keeps', () => {
+    const { console: term, output } = tty(5, 40)
+    term.enterScreen()
+    term.setRegion(['status'], { row: 0, column: 0 }, false)
+    term.write('forgettable')
     output.chunks.length = 0
-    term.clearRegion()
-    expect(output.text).toContain('\u001B[0J')
-    // With the region gone, a write is a plain append again.
+    term.clearScreen()
+    const rows = painted(output.text)
+    expect([...rows.values()].join('')).not.toContain('forgettable')
+    // A full-screen erase would take the person's buffer with it.
+    expect(output.text).not.toContain('\u001B[2J')
+  })
+
+  it('writes the exit summary to the buffer that survives the session', () => {
+    const { console: term, output } = tty()
+    term.enterScreen()
+    term.close()
     output.chunks.length = 0
-    term.write('plain')
-    expect(output.text).toBe('plain\n')
+    term.writeAfterScreen('session session-1')
+    expect(output.text).toBe('session session-1\n')
   })
 
   it('lays out to a floor when the terminal reports no width', () => {
     const { console: term } = build(true, 0)
     expect(term.columns).toBe(20)
-  })
-})
-
-describe('bottom anchoring and resize recovery', () => {
-  it('anchors a fresh region to the last screen row', () => {
-    const { console: term, output } = build(true, 40)
-    term.setRegion(['the box'], { row: 0, column: 0 })
-    expect(output.text).toContain('\u001B[9999;1H')
-    // A redraw of a live region moves relatively; it must not re-anchor.
-    output.chunks.length = 0
-    term.setRegion(['the box', 'status'], { row: 0, column: 0 })
-    expect(output.text).not.toContain('\u001B[9999;1H')
-  })
-
-  it('re-anchors after a clear, which is how Ctrl-L keeps the box at the bottom', () => {
-    const { console: term, output } = build(true, 40)
-    term.setRegion(['the box'], { row: 0, column: 0 })
-    term.clearScreen()
-    output.chunks.length = 0
-    term.setRegion(['the box'], { row: 0, column: 0 })
-    expect(output.text).toContain('\u001B[9999;1H')
-  })
-
-  it('recovers from a resize with an absolute erase, never a relative one', async () => {
-    const { console: term, output } = build(true, 40)
-    Object.defineProperty(output, 'rows', { value: 30 })
-    term.setRegion(['x'.repeat(35), 'status'], { row: 1, column: 0 })
-    output.chunks.length = 0
-    output.emit('resize')
-    await settle()
-    // Two rows of width ≤39 at the (unchanged) fake width of 40 → estimate 2,
-    // plus 2 slack rows: clear from row 27 of 30 downwards, absolutely.
-    expect(output.text).toContain('\u001B[27;1H\u001B[0J')
-    // The next draw is fresh and anchors to the bottom again.
-    output.chunks.length = 0
-    term.setRegion(['the box'], { row: 0, column: 0 })
-    expect(output.text).toContain('\u001B[9999;1H')
-  })
-})
-
-describe('rewrappedHeight', () => {
-  it('counts the lines rows refold into at a narrower width', () => {
-    // 70 wide at 30 columns → 3 lines; 10 wide → 1; an empty row is still 1.
-    expect(rewrappedHeight([70, 10, 0], 30)).toBe(5)
-  })
-
-  it('never divides by a zero-width terminal', () => {
-    expect(rewrappedHeight([5], 0)).toBe(5)
   })
 })

@@ -259,6 +259,22 @@ export class Prompt {
       this.handlers.expandOutput?.()
       return
     }
+    // Scrolling belongs to the viewport, not to the buffer being edited.
+    if (key.kind === 'page') {
+      this.console.scrollPage(key.direction)
+      this.render()
+      return
+    }
+    if (key.kind === 'scroll') {
+      this.console.scrollBy(-key.lines)
+      this.render()
+      return
+    }
+    if (key.kind === 'scroll-end') {
+      this.console.scrollToBottom()
+      this.render()
+      return
+    }
     const selecting = this.select_
     if (selecting !== undefined) {
       const step = selecting.selector.handle(key)
@@ -282,6 +298,7 @@ export class Prompt {
         }
         waiting.dispose()
         waiting.resolve(action.text)
+        this.console.scrollToBottom()
         break
       }
       case 'escape':
@@ -324,6 +341,12 @@ export class Prompt {
       const more = this.queued.length > 1 ? ` (+${this.queued.length - 1} more)` : ''
       rows.push(this.theme.dim(truncate(`  ↳ queued: ${preview.split('\n')[0] ?? ''}${more}`, columns)))
     }
+    // Detached from the tail the box would look like it had stopped receiving
+    // output, so the viewport says so — over its own top row, never as another
+    // chrome row, which would move the box while scrolling.
+    this.console.setScrollNotice(this.console.scrolledBy > 0
+      ? this.theme.dim(truncate(`  ↑ ${this.console.scrolledBy} rows above · PgDn returns to the latest`, columns))
+      : '')
     if (this.hint !== undefined) rows.push(this.hint)
     if (this.status !== undefined) rows.push(this.status)
     if (rows.length === 0) {

@@ -35,9 +35,16 @@ function fakeConsole(readsKeys: boolean) {
     onKey: (next: (key: Key) => void) => { handler = next; return () => { handler = undefined } },
     onResize: () => () => {},
     clearScreen: () => {},
+    /** Viewport scrolling, recorded so the key routing can be asserted. */
+    scrolls: [] as (number | 'bottom' | -1 | 1)[],
+    scrolledBy: 0,
     write: (line: string) => void written.push(line),
     setRegion: (rows: readonly string[], cursor: RegionCursor) => void draws.push({ rows: [...rows], cursor }),
     clearRegion: () => void draws.push({ rows: [], cursor: { row: 0, column: 0 } }),
+    scrollBy(delta: number) { this.scrolls.push(delta) },
+    scrollPage(direction: -1 | 1) { this.scrolls.push(direction) },
+    scrollToBottom() { this.scrolls.push('bottom') },
+    setScrollNotice() {},
     readLine: () => Promise.resolve(lines.shift()),
   }
 }
