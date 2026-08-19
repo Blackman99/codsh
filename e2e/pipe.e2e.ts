@@ -155,9 +155,14 @@ describe('dsh code (real profile, keyless model)', () => {
 
     // Block constructs are rendered rather than printed as source.
     expect(run.stdout).toContain('CODE_CLI_HEADING')
-    expect(run.stdout).toContain('• first bullet')
+    expect(run.stdout).toContain('• screen.ts: the viewport module')
     expect(run.stdout).toContain('│ a quoted line')
     expect(run.stdout).not.toContain('```')
+    // Bold wrapping a code span consumes both sets of markers.
+    expect(run.stdout).not.toContain('`screen.ts`')
+    // The wide Chinese table wraps inside its cells instead of printing raw.
+    expect(run.stdout).not.toContain('|---')
+    expect(run.stdout).toContain('维度')
     // Emphasis is applied by unwrapping, so the markers must be gone...
     expect(run.stdout).not.toContain('**bold**')
     // ...and everything that only LOOKS like syntax must survive byte-for-byte.

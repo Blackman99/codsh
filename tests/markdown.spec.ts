@@ -7,6 +7,7 @@
 import { describe, expect, it } from 'vitest'
 import { createMarkdownStream, highlightCode, renderInline, renderMarkdown } from '../src/markdown.ts'
 import { createTheme } from '../src/theme.ts'
+import { displayWidth } from '../src/theme.ts'
 
 const plain = createTheme(false, {})
 const colour = createTheme(true, {})
@@ -125,15 +126,33 @@ describe('tables', () => {
     expect(render('| just | prose |\nafter')).toBe('| just | prose |\nafter')
   })
 
-  it('degrades a table wider than the terminal to its source lines', () => {
+  it('keeps a too-wide table in shape by wrapping inside its cells', () => {
     const wide = `| ${'x'.repeat(60)} | ${'y'.repeat(60)} |`
     const source = `${wide}\n|---|---|\n${wide}`
-    const stream = renderMarkdown(source, plain)
-    // Unconstrained rendering lays it out; renderMarkdown has no width, so
-    // constrain through a streaming instance instead.
-    expect(stream.join('\n')).toContain('─')
     const narrow = createMarkdownStream(plain, () => 40)
     const lines = [...source.split('\n').flatMap(line => narrow.line(line)), ...narrow.flush()]
+    // Still a table — no raw pipe rows — and no line exceeds the terminal.
+    expect(lines.join('\n')).not.toContain('|')
+    expect(lines.join('\n')).toContain('─')
+    for (const line of lines) expect(displayWidth(line)).toBeLessThanOrEqual(40)
+    // The cells wrapped rather than truncated: every character survives.
+    expect(lines.join('').replaceAll(/[\s─]/gu, '').length).toBe('x'.repeat(120).length + 'y'.repeat(120).length)
+  })
+
+  it('renders inline constructs inside cells, and sizes on the visible text', () => {
+    const colour = createTheme(true, { TERM: 'xterm-256color' })
+    const rows = renderMarkdown('| a | b |\n|---|---|\n| `code` | **bold** |', colour)
+    const body = rows[2] ?? ''
+    // Backticks and stars are consumed, not printed.
+    expect(body).not.toContain('`')
+    expect(body).not.toContain('**')
+    expect(body).toContain('\u001B[36mcode\u001B[0m')
+  })
+
+  it('falls back to source lines only when the terminal cannot hold columns at all', () => {
+    const source = '| aaaa | bbbb | cccc |\n|---|---|---|\n| a | b | c |'
+    const hopeless = createMarkdownStream(plain, () => 10)
+    const lines = [...source.split('\n').flatMap(line => hopeless.line(line)), ...hopeless.flush()]
     expect(lines.join('\n')).toBe(source)
   })
 
@@ -145,5 +164,26 @@ describe('tables', () => {
 
   it('keeps pipe lines inside a fence as code', () => {
     expect(render('```\n| a | b |\n```')).toBe('  | a | b |')
+  })
+})
+
+describe('nested inline, as models actually write it', () => {
+  it('renders code spans inside bold instead of leaving the backticks', () => {
+    // The exact shape from a real session: a bold heading carrying a path.
+    expect(renderInline('**1. 启动包装层 — `bin/codsh.mjs`**', plain)).toBe('1. 启动包装层 — bin/codsh.mjs')
+  })
+
+  it('keeps the bold open across an embedded code span', () => {
+    const colour256 = createTheme(true, { TERM: 'xterm-256color' })
+    const out = renderInline('**a `b` c**', colour256)
+    // Three bold segments: the reset that closes the code span must not strip
+    // the bold from the tail.
+    const boldOpens = out.split('\u001B[1m').length - 1
+    expect(boldOpens).toBeGreaterThanOrEqual(3)
+    expect(out).not.toContain('`')
+  })
+
+  it('renders a bulleted bold-code label', () => {
+    expect(renderMarkdown('- **`screen.ts`**: 备用屏', plain).join('')).toBe('• screen.ts: 备用屏')
   })
 })

@@ -11,6 +11,7 @@
  */
 
 import { displayWidth } from './theme.ts'
+import { wrapStyled } from './wrap.ts'
 import type { SyntaxTheme, Theme } from './theme.ts'
 
 /** Opens or closes a fenced block, capturing its language. */
@@ -102,6 +103,15 @@ export function highlightCode(line: string, syntax: SyntaxTheme): string {
  * @returns the styled line.
  */
 export function renderInline(text: string, theme: Theme): string {
+  // Emphasis wrapping is applied per segment around any code spans inside it:
+  // one SGR reset ends every open style, so `bold(a + tool(b) + c)` would drop
+  // the bold after `b` — and a single-pass regex would instead leave the
+  // backticks in the text, which is what models' headings actually hit.
+  const emphasized = (inner: string): string =>
+    inner.split(/(`[^`]+`)/u).map(segment =>
+      segment.startsWith('`') && segment.endsWith('`') && segment.length > 1
+        ? theme.bold(theme.tool(segment.slice(1, -1)))
+        : segment === '' ? '' : theme.bold(segment)).join('')
   return text.replace(INLINE, (
     match: string,
     code: string | undefined,
@@ -112,8 +122,8 @@ export function renderInline(text: string, theme: Theme): string {
     underEm: string | undefined,
   ) => {
     if (code !== undefined) return theme.tool(code.slice(1, -1))
-    if (starBold !== undefined) return theme.bold(starBold.slice(2, -2))
-    if (underBold !== undefined) return theme.bold(underBold.slice(2, -2))
+    if (starBold !== undefined) return emphasized(starBold.slice(2, -2))
+    if (underBold !== undefined) return emphasized(underBold.slice(2, -2))
     if (link !== undefined) {
       const parts = /^\[([^\]]*)\]\(([^)]*)\)$/.exec(link)
       if (parts === null) return match
@@ -121,8 +131,8 @@ export function renderInline(text: string, theme: Theme): string {
       // The target is kept: a terminal cannot hide it behind a click.
       return `${theme.bold(label ?? '')} ${theme.dim(`(${target ?? ''})`)}`
     }
-    if (starEm !== undefined) return theme.bold(starEm.slice(1, -1))
-    if (underEm !== undefined) return theme.bold(underEm.slice(1, -1))
+    if (starEm !== undefined) return emphasized(starEm.slice(1, -1))
+    if (underEm !== undefined) return emphasized(underEm.slice(1, -1))
     return match
   })
 }
@@ -203,31 +213,56 @@ export function createMarkdownStream(theme: Theme, columns?: () => number): Mark
  */
 function layoutTable(rows: readonly string[], theme: Theme, budget: number): string[] {
   const asSource = (): string[] => rows.map(row => renderInline(row, theme))
-  const cells = rows.map(row => row.trim().replace(/^\|/, '').replace(/\|$/, '').split('|').map(cell => cell.trim()))
-  const delimiter = cells[1]
+  const raw = rows.map(row => row.trim().replace(/^\|/, '').replace(/\|$/, '').split('|').map(cell => cell.trim()))
+  const delimiter = raw[1]
   // Without a delimiter row this is not a table, just prose with pipes.
-  if (cells.length < 2 || delimiter === undefined || !delimiter.every(cell => TABLE_DELIMITER.test(cell))) {
+  if (raw.length < 2 || delimiter === undefined || !delimiter.every(cell => TABLE_DELIMITER.test(cell))) {
     return asSource()
   }
-  const body = [cells[0] ?? [], ...cells.slice(2)]
-  const count = Math.max(...body.map(row => row.length))
-  const widths = Array.from({ length: count }, (_, column) =>
-    Math.max(...body.map(row => displayWidth(row[column] ?? ''))))
-  const total = widths.reduce((sum, width) => sum + width, 0) + 2 * (count - 1)
-  if (total > budget) return asSource()
-  const aligned = (row: readonly string[]): string => Array.from({ length: count }, (_, column) => {
-    const cell = row[column] ?? ''
-    const pad = ' '.repeat(Math.max(0, (widths[column] ?? 0) - displayWidth(cell)))
-    // Right alignment comes from the delimiter's trailing colon; centring is
-    // collapsed to left because a terminal column reads fine either way.
-    return /^:?-+:$/.test(delimiter[column] ?? '') && !/^:-+:$/.test(delimiter[column] ?? '')
-      ? `${pad}${cell}`
-      : `${cell}${pad}`
-  }).join('  ').trimEnd()
+  // Cells render their inline constructs — a model puts code spans and bold in
+  // tables constantly — and every width below is of the VISIBLE text.
+  const styled = [raw[0] ?? [], ...raw.slice(2)].map(row => row.map(cell => renderInline(cell, theme)))
+  const visible = (cell: string): number => displayWidth(cell.replaceAll(/\u001B\[[0-9;]*m/gu, ''))
+  const count = Math.max(...styled.map(row => row.length))
+  const natural = Array.from({ length: count }, (_, column) =>
+    Math.max(1, ...styled.map(row => visible(row[column] ?? ''))))
+  const gaps = 2 * (count - 1)
+  // A table too wide for the terminal keeps its shape by wrapping inside the
+  // cells: columns shrink toward the budget in proportion to their excess over
+  // an even share, and a truly hopeless width falls back to the source lines.
+  let widths = [...natural]
+  const total = natural.reduce((sum, width) => sum + width, 0)
+  if (total + gaps > budget) {
+    const available = budget - gaps
+    if (available < count * 3) return asSource()
+    const fair = Math.floor(available / count)
+    // Narrow columns keep their natural width; the wide ones split the rest.
+    const kept = natural.map(width => Math.min(width, fair))
+    let spare = available - kept.reduce((sum, width) => sum + width, 0)
+    widths = natural.map((width, column) => {
+      const base = kept[column] ?? 0
+      if (width <= base) return width
+      const extra = Math.min(width - base, spare)
+      spare -= extra
+      return base + extra
+    })
+  }
+  const line = (row: readonly string[], style: (text: string) => string): string[] => {
+    // Each cell wraps at its column width; the row is as tall as its tallest.
+    const wrapped = Array.from({ length: count }, (_, column) => wrapStyled(row[column] ?? '', widths[column] ?? 1))
+    const height = Math.max(...wrapped.map(cell => cell.length))
+    return Array.from({ length: height }, (_, index) =>
+      wrapped.map((cell, column) => {
+        const piece = cell[index] ?? ''
+        const alignRight = /^:?-+:$/.test(delimiter[column] ?? '') && !/^:-+:$/.test(delimiter[column] ?? '')
+        const pad = ' '.repeat(Math.max(0, (widths[column] ?? 0) - visible(piece)))
+        return alignRight ? `${pad}${style(piece)}` : `${style(piece)}${pad}`
+      }).join('  ').trimEnd())
+  }
   return [
-    theme.bold(aligned(cells[0] ?? [])),
+    ...line(styled[0] ?? [], text => theme.bold(text)),
     theme.dim(widths.map(width => '─'.repeat(width)).join('  ')),
-    ...cells.slice(2).map(row => aligned(row)),
+    ...styled.slice(1).flatMap(row => line(row, text => text)),
   ]
 }
 

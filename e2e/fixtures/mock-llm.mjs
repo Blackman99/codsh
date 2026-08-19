@@ -28,8 +28,15 @@ const MARKDOWN = [
   'Prose with **bold**, *em*, `inline_code`, and a [link](https://x.dev).',
   'An identifier like some_helper_name must survive intact.',
   '',
-  '- first bullet',
+  // The shapes real models produce constantly: emphasis wrapping code, and a
+  // table whose Chinese cells are far wider than any terminal.
+  '- **`screen.ts`**: the viewport module',
   '- second bullet',
+  '',
+  '| 维度 | 内容 |',
+  '|---|---|',
+  `| 一句话 | ${'一个很长的中文单元格内容,用来强制表格在任何终端宽度下都必须在单元格内部换行。'.repeat(3)} |`,
+  '| 命令 | `codsh` |',
   '',
   '> a quoted line',
   '',

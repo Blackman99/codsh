@@ -219,4 +219,22 @@ describe.skipIf(process.platform === 'win32')('the first five minutes', () => {
     const costs = screen.alternate.filter(row => /^\s+\d+(?:\.\d+)?s( · .*tokens)?$/u.test(row))
     expect(costs).toHaveLength(1)
   }, E2E_TEST_TIMEOUT_MS)
+
+  it('renders model output faithfully: tables stay tables, emphasis eats its markers', async () => {
+    const output = await drive('markdown', [
+      ['Welcome to codsh', `explain${ENTER}`, 300],
+      ['CODE_CLI_CALL_STREAM_DONE', `/exit${ENTER}`, 600],
+    ])
+    const rows = screenAt(output, 'CODE_CLI_CALL_STREAM_DONE').alternate
+    const text = rows.join('\n')
+    // The wide Chinese table wrapped inside its cells — never raw pipe rows.
+    expect(text).not.toContain('|---')
+    expect(text).not.toContain('| 维度')
+    expect(rows.some(row => row.includes('维度') && row.includes('内容'))).toBe(true)
+    expect(rows.some(row => /─{3,}/u.test(row))).toBe(true)
+    // Bold-wrapped code lost its backticks and its stars.
+    expect(text).not.toContain('`screen.ts`')
+    expect(text).not.toContain('**')
+    expect(text).toContain('screen.ts')
+  }, E2E_TEST_TIMEOUT_MS)
 })
