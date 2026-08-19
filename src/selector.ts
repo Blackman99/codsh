@@ -45,6 +45,9 @@ export type SelectorStep =
   | { kind: 'done'; outcome: SelectOutcome }
 
 /** An in-progress selection. */
+/** Option rows shown at once; the window follows the marked row. */
+const VISIBLE_ROWS = 10
+
 export class Selector {
   private selected = 0
   private readonly checked = new Set<number>()
@@ -140,12 +143,21 @@ export class Selector {
    */
   view(theme: Theme, columns: number): string[] {
     const rows: string[] = [theme.bold(truncate(this.spec.title, columns))]
-    this.spec.options.forEach((option, index) => {
-      rows.push(this.row(index, this.label(option, theme), option.detail, theme, columns))
-    })
-    if (this.spec.custom !== undefined) {
-      rows.push(this.row(this.spec.options.length, theme.dim(this.spec.custom), undefined, theme, columns))
+    // The window follows the mark: a long catalog must scroll under the
+    // arrows, not hide everything past the first page.
+    const total = this.count
+    const first = Math.min(Math.max(0, this.selected - VISIBLE_ROWS + 1), Math.max(0, total - VISIBLE_ROWS))
+    if (first > 0) rows.push(theme.dim(`  ↑ ${first} more`))
+    for (let index = first; index < Math.min(total, first + VISIBLE_ROWS); index += 1) {
+      const option = this.spec.options[index]
+      if (option !== undefined) {
+        rows.push(this.row(index, this.label(option, theme), option.detail, theme, columns))
+      } else if (this.spec.custom !== undefined) {
+        rows.push(this.row(index, theme.dim(this.spec.custom), undefined, theme, columns))
+      }
     }
+    const below = total - first - VISIBLE_ROWS
+    if (below > 0) rows.push(theme.dim(`  ↓ ${below} more`))
     const how = this.spec.multi === true
       ? 'Space toggles · Enter confirms · Esc cancels'
       : '↑↓ move · Enter accepts · Esc cancels'
@@ -181,7 +193,8 @@ export class Selector {
       : ''
     const number = theme.dim(`${index + 1}.`)
     const trail = detail === undefined || detail === '' ? '' : theme.dim(`  ${detail}`)
-    const body = marked ? theme.bold(label) : label
+    // Colour, not merely bold: bold alone barely reads on a dark background.
+    const body = marked ? theme.bold(theme.tool(label)) : label
     return truncate(`${marker} ${number} ${box}${body}${trail}`, columns)
   }
 }

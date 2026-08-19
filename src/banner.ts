@@ -10,6 +10,24 @@ import type { Theme } from './theme.ts'
 /** The product name, shown as the framed headline. */
 const NAME = 'dsh code'
 
+/**
+ * The lettermark, drawn in half-block glyphs.
+ *
+ * Forty columns wide: it fits an eighty-column terminal with room to spare,
+ * and anything narrower falls back to the plain headline anyway.
+ */
+const LOGO = [
+  ' ██████╗ ██████╗ ██████╗ ███████╗██╗  ██╗',
+  '██╔════╝██╔═══██╗██╔══██╗██╔════╝██║  ██║',
+  '██║     ██║   ██║██║  ██║███████╗███████║',
+  '██║     ██║   ██║██║  ██║╚════██║██╔══██║',
+  '╚██████╗╚██████╔╝██████╔╝███████║██║  ██║',
+  ' ╚═════╝ ╚═════╝ ╚═════╝ ╚══════╝╚═╝  ╚═╝',
+]
+
+/** Display width of the widest logo row. */
+const LOGO_WIDTH = 41
+
 /** What the banner reports about the composed session. */
 export interface BannerFacts {
   /** Model route answering this session. */
@@ -60,17 +78,33 @@ export function bannerLines(facts: BannerFacts, theme: Theme, columns: number): 
     ? displayPath(facts.cwd)
     : `${displayPath(facts.cwd)} (${facts.branch})`
   const interrupt = facts.readsKeys ? 'ESC' : 'Ctrl-C'
-  // The frame costs four columns; below that the headline is shown plain rather
-  // than wrapped into a broken box.
   const plain = `${NAME} · ${composition}`
   const headline = `${theme.bold(NAME)}${theme.dim(` · ${composition}`)}`
-  const framing = displayWidth(plain) + 4 <= columns
-  return [
-    ...framing ? framed(headline, displayWidth(plain), theme) : [truncate(plain, columns)],
+  const details = [
     theme.dim(`  ${truncate(where, columns - 2)}`),
     theme.dim(`  session ${facts.session}${facts.resumed ? ' (resumed)' : ''}`),
     '',
     theme.dim(truncate(`  /help for commands · Tab completes · ⇧Tab plan mode · ${interrupt} interrupts · /exit leaves`, columns)),
     '',
+  ]
+  // A terminal wide enough gets the lettermark; a resumed session skips it —
+  // the conversation being continued matters more than the greeting. Off a
+  // terminal (or squeezed) the compact framed headline still says everything.
+  if (facts.readsKeys && !facts.resumed && columns >= LOGO_WIDTH + 2) {
+    return [
+      '',
+      ...LOGO.map(row => theme.user(` ${row}`)),
+      '',
+      ` ${theme.bold('✻ Welcome to codsh')}${theme.dim(` · ${composition}`)}`,
+      '',
+      ...details,
+    ]
+  }
+  // The frame costs four columns; below that the headline is shown plain rather
+  // than wrapped into a broken box.
+  const framing = displayWidth(plain) + 4 <= columns
+  return [
+    ...framing ? framed(headline, displayWidth(plain), theme) : [truncate(plain, columns)],
+    ...details,
   ]
 }

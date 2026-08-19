@@ -21,8 +21,20 @@ const facts: BannerFacts = {
 }
 
 describe('bannerLines', () => {
-  it('frames the headline in a box that closes on itself', () => {
-    const [top, middle, bottom] = bannerLines(facts, theme, 100)
+  it('greets a terminal with the lettermark, composition beneath it', () => {
+    const lines = bannerLines(facts, theme, 100)
+    expect(lines.some(line => line.includes('██████╗'))).toBe(true)
+    expect(lines.some(line => line.includes('✻ Welcome to codsh'))).toBe(true)
+    expect(lines.join('\n')).toContain('deepseek-v4-flash · code-cli')
+  })
+
+  it('skips the greeting for a resumed session, whose transcript matters more', () => {
+    const lines = bannerLines({ ...facts, resumed: true }, theme, 100)
+    expect(lines.some(line => line.includes('██████╗'))).toBe(false)
+  })
+
+  it('frames the headline in a box off a terminal, which gets no lettermark', () => {
+    const [top, middle, bottom] = bannerLines({ ...facts, readsKeys: false }, theme, 100)
     expect(top).toMatch(/^╭─+╮$/)
     expect(bottom).toMatch(/^╰─+╯$/)
     expect(middle).toContain('dsh code · deepseek-v4-flash · code-cli')
@@ -56,7 +68,7 @@ describe('bannerLines', () => {
   })
 
   it('drops the composition segment when no roster resolved one', () => {
-    const lines = bannerLines({ ...facts, preset: undefined }, theme, 100)
+    const lines = bannerLines({ ...facts, preset: undefined, readsKeys: false }, theme, 100)
     expect(lines[1]).toContain('dsh code · deepseek-v4-flash')
     expect(lines[1]).not.toContain('code-cli')
   })

@@ -341,12 +341,15 @@ describe('tool results', () => {
     expect(transcript.render(resultEvent('c1', 'ok'))).toEqual(['+ only', ''])
   })
 
-  it('caps a long body and says how much it dropped', () => {
+  it('collapses a long body behind a count that names the expand key', () => {
     const result = (): ToolResultView => ({ card: 'terminal', title: 'pnpm test', output: Array.from({ length: 30 }, (_, i) => `line ${i}`).join('\n') })
     const transcript = build({ result })
     transcript.render(callEvent('c1', 'bash', {}))
     const lines = transcript.render(resultEvent('c1', 'ok'))
-    expect(lines.at(-2)).toBe('  … 14 more lines')
+    // Five skimmable lines; the rest collapse behind an affordance, not a bare count.
+    expect(lines.join('\n')).toContain('line 4')
+    expect(lines.join('\n')).not.toContain('line 5')
+    expect(lines.at(-2)).toBe('  … +25 lines (Ctrl+O expands)')
   })
 })
 
@@ -357,7 +360,7 @@ describe('expanding clipped output', () => {
     const transcript = build({ result })
     transcript.render(callEvent('c1', 'bash', {}))
     const shown = transcript.render(resultEvent('c1', long))
-    expect(shown.join('\n')).toContain('… 4 more lines')
+    expect(shown.join('\n')).toContain('… +15 lines (Ctrl+O expands)')
     const full = transcript.expandLast() ?? []
     expect(full[0]).toContain('full output')
     expect(full.join('\n')).toContain('line 19')

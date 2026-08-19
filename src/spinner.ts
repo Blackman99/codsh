@@ -69,23 +69,33 @@ export class Spinner {
   /**
    * Start the indicator, or do nothing when it is already running or the
    * surface has no cursor to rewrite.
+   *
+   * The clock keeps running across a pause: the elapsed figure is the whole
+   * turn's, and an indicator that restarted from zero at every tool call would
+   * report each step instead.
    */
   start(): void {
     if (this.timer !== undefined || !this.surface.isTty) return
-    this.startedAt = this.now()
-    this.frame = 0
+    if (this.startedAt === 0) this.startedAt = this.now()
     this.draw()
     // Unref'd so a spinner can never be the reason the process stays alive.
     this.timer = setInterval(() => { this.frame += 1; this.draw() }, TICK_MS)
     this.timer.unref()
   }
 
-  /** Stop the indicator and clear its line. */
-  stop(): void {
+  /** Hide the indicator without forgetting when the turn began. */
+  pause(): void {
     if (this.timer === undefined) return
     clearInterval(this.timer)
     this.timer = undefined
     this.surface.setLive(undefined)
+  }
+
+  /** Stop the indicator: the turn is over, and the next one starts at zero. */
+  stop(): void {
+    this.pause()
+    this.startedAt = 0
+    this.frame = 0
   }
 
   /** Paint the current frame. */

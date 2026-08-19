@@ -530,8 +530,8 @@ describe.skipIf(process.platform === 'win32')('dsh code Escape (real PTY)', () =
   it('expands the last clipped output with Ctrl-O', async () => {
     const output = await drivePty('tall', [
       ['/help for commands', `create the tall note${ENTER}`, 300],
-      // 45 added lines, capped at 40: the card says what it hid...
-      ['more lines', '\u000F', 400],
+      // 45 added lines, capped: the card names the expand key...
+      ['Ctrl+O expands', '\u000F', 400],
       // ...and Ctrl-O prints the full body, clipped tail included.
       ['CODE_CLI_TALL_44', `/exit${ENTER}`, 400],
     ])
@@ -552,9 +552,10 @@ describe.skipIf(process.platform === 'win32')('dsh code Escape (real PTY)', () =
     ])
 
     const rows = screenAt(output, 'resumed session-', 'last').alternate.map(row => row.trimEnd())
-    // Resuming replays the retired session's transcript, echo included: the
-    // original submission and its replay are both on screen.
-    expect(rows.filter(row => row === '› remember DELTA_ONE').length).toBeGreaterThanOrEqual(2)
+    // Switching sessions clears the retired viewport, then replays the resumed
+    // log: exactly one echo, and none of the interim session's chatter.
+    expect(rows.filter(row => row === '› remember DELTA_ONE')).toHaveLength(1)
+    expect(rows.some(row => row.includes('new session session-'))).toBe(false)
     // The window title tracks the surface on a real terminal.
     expect(output).toContain('\u001B]2;dsh code —')
   }, E2E_TEST_TIMEOUT_MS)
@@ -586,10 +587,10 @@ describe.skipIf(process.platform === 'win32')('dsh code Escape (real PTY)', () =
     // then the emulator resizes exactly where the window did, then the rest.
     const held = output.slice(0, output.indexOf(LEAVE_ALT))
     const resizeAt = offsets[1] ?? 0
-    // Raw-byte markers must be style-free: the echo's `›` is styled separately,
-    // so the contiguous bytes are the text alone.
-    const at = held.indexOf('still here', resizeAt)
-    const frameEnd = held.indexOf(SYNC_END, at)
+    // The settled frame after the post-resize turn completes — a mid-typing
+    // frame can catch the chrome one row from where the next frame puts it.
+    const at = held.indexOf('CODE_CLI_CALL_OK', resizeAt)
+    const frameEnd = held.indexOf(SYNC_END, held.indexOf(SYNC_END, at) + 1)
     const terminal = new Terminal(PTY_ROWS, PTY_COLUMNS)
     terminal.feed(held.slice(0, resizeAt))
     terminal.resize(PTY_ROWS, narrow)

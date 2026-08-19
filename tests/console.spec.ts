@@ -190,7 +190,7 @@ describe('the viewport it owns on a terminal', () => {
     expect([...rows.values()]).toContain('banner line')
   })
 
-  it('pins the chrome to the last rows, with the transcript above it', () => {
+  it('pins the chrome to the last rows, with the transcript from the top', () => {
     const { console: term, output } = tty(6, 40)
     term.enterScreen()
     term.write('older')
@@ -199,9 +199,10 @@ describe('the viewport it owns on a terminal', () => {
     const rows = painted(output.text)
     expect(rows.get(5)).toBe('box')
     expect(rows.get(6)).toBe('status')
-    // The transcript sits directly above, still following the tail.
-    expect(rows.get(4)).toBe('newer')
-    expect(rows.get(3)).toBe('older')
+    // Short content reads from the top, the way a fresh terminal does; the
+    // gap sits between it and the chrome.
+    expect(rows.get(1)).toBe('older')
+    expect(rows.get(2)).toBe('newer')
   })
 
   it('scrolls the transcript without moving the chrome', () => {

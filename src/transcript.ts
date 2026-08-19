@@ -20,11 +20,16 @@ import type { Theme } from './theme.ts'
 /** Context lines kept on each side of a rendered hunk. */
 const DIFF_CONTEXT = 3
 
-/** Diff body lines printed for one file before the card summarizes the rest. */
-const MAX_DIFF_LINES = 40
+/** Diff body lines printed for one file before the card collapses the rest. */
+const MAX_DIFF_LINES = 24
 
-/** Result body lines printed for one completed call before the card summarizes the rest. */
-const MAX_RESULT_LINES = 16
+/**
+ * Result body lines printed for one completed call before the card collapses.
+ *
+ * Small on purpose: a long output in the transcript is skimmed, not read, and
+ * the collapsed remainder is one Ctrl+O away in full.
+ */
+const MAX_RESULT_LINES = 5
 
 /** The registered presenters, resolved against the agent's scope by the caller. */
 export interface ToolPresenters {
@@ -113,7 +118,8 @@ function diffBody(diff: FileDiff, theme: Theme): string[] {
  */
 function cap(lines: string[], limit: number, theme: Theme): string[] {
   if (lines.length <= limit) return lines
-  return [...lines.slice(0, limit), theme.dim(`  … ${lines.length - limit} more lines`)]
+  // The collapsed remainder names its key: an affordance, not just a count.
+  return [...lines.slice(0, limit), theme.dim(`  … +${lines.length - limit} lines (Ctrl+O expands)`)]
 }
 
 /** Renders one session's appended events as terminal lines. */

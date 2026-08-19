@@ -142,23 +142,32 @@ export function inputBox(view: EditorView, theme: Theme, columns: number, option
   rows.push(accent(`╰${rule}╯`))
 
   if (view.candidates.length > 0) {
-    const menu = view.candidates.slice(0, MENU_LIMIT)
+    // The window follows the selection: a menu that only ever showed its first
+    // page reads as broken the moment the arrows leave it.
+    const first = Math.min(
+      Math.max(0, view.selected - MENU_LIMIT + 1),
+      Math.max(0, view.candidates.length - MENU_LIMIT),
+    )
+    const menu = view.candidates.slice(first, first + MENU_LIMIT)
     const width = Math.max(...menu.map(candidate => displayWidth(candidate.value)))
+    if (first > 0) rows.push(theme.dim(`  ↑ ${first} more`))
     menu.forEach((candidate, index) => {
-      const chosen = index === view.selected
-      // The part the typing matched keeps the accent colour, so the menu reads
-      // as "your fragment, completed" rather than a list to re-scan.
+      const chosen = first + index === view.selected
+      // The selected row is a colour, not merely bold: bold alone is nearly
+      // invisible against a dark background. The typed fragment keeps the
+      // accent on every row, so the menu reads as "your fragment, completed".
       const matched = view.token !== '' && candidate.value.startsWith(view.token) ? view.token.length : 0
-      const head = theme.tool(candidate.value.slice(0, matched))
+      const head = candidate.value.slice(0, matched)
       const tail = candidate.value.slice(matched)
-      const label = `${head}${chosen ? theme.bold(tail) : tail}`
+      const label = chosen
+        ? theme.bold(theme.tool(candidate.value))
+        : `${theme.tool(head)}${tail}`
       const pad = ' '.repeat(Math.max(0, width - displayWidth(candidate.value)))
       const detail = candidate.detail === '' ? '' : `  ${candidate.detail}`
       rows.push(truncate(`${chosen ? theme.user('❯') : ' '} ${label}${pad}${theme.dim(detail)}`, columns))
     })
-    if (view.candidates.length > menu.length) {
-      rows.push(theme.dim(`  … ${view.candidates.length - menu.length} more`))
-    }
+    const below = view.candidates.length - first - menu.length
+    if (below > 0) rows.push(theme.dim(`  ↓ ${below} more`))
   } else if (options.hint !== undefined) {
     rows.push(theme.dim(truncate(options.hint, columns)))
   }

@@ -262,8 +262,11 @@ export class Screen {
     const height = this.viewportHeight()
     const end = this.physical.length - this.offset
     const visible = this.physical.slice(Math.max(0, end - height), Math.max(0, end))
+    // Content tops the screen the way a fresh terminal reads — the welcome at
+    // the top, the gap between it and the chrome — and grows downward until it
+    // reaches the chrome and starts scrolling.
     const padding = Array.from({ length: Math.max(0, height - visible.length) }, () => '')
-    const viewport = [...padding, ...visible]
+    const viewport = [...visible, ...padding]
     // Scrolled back, the top row says so — replacing a row rather than adding
     // one, so the rest of the layout does not shift under the reader.
     if (this.offset > 0 && this.notice !== '' && viewport.length > 0) {

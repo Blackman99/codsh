@@ -651,6 +651,16 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
         // create costs nothing.
         const next = await composed.createAnother()
         await switchTo(next, false)
+        // A fresh session opens the way the first one did: welcome at the top.
+        for (const line of bannerLines({
+          model,
+          preset: presetId,
+          cwd,
+          branch,
+          session: live.agent.session.id,
+          readsKeys: io.console.readsKeys,
+          resumed: false,
+        }, theme, io.console.columns)) prompt.write(line)
         return { kind: 'success', text: `new session ${live.agent.session.id}` }
       },
     }))
@@ -819,16 +829,17 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
       // whole point, and the indicator stands down because the text itself is
       // better evidence of progress.
       const { chunk } = event.data
+      // The indicator keeps ticking while text streams: it is the turn's one
+      // continuous clock, and hiding it here made the chrome shrink and grow
+      // with every step — a visible flicker.
       if (chunk.type === 'reasoning-delta') {
         if (chunk.text === '') return
-        spinner.stop()
         if (!thinking.streamed) emit([theme.dim('✻ thinking')])
         const step = thinking.push(chunk.text)
         emit(step.lines, step.live)
         return
       }
       if (chunk.type !== 'text-delta') return
-      spinner.stop()
       // The answer starting is what ends the thinking, visibly.
       if (thinking.streamed) emit([...thinking.flush(), ''])
       const step = stream.push(chunk.text)
@@ -843,9 +854,6 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
         // Already shown delta by delta; re-rendering the assembled text would
         // print the answer twice.
         emit([...stream.flush(), ''])
-        // The message ends the text, not the turn: tool calls may follow, and
-        // without the indicator their wait would look like nothing happening.
-        if (live.agent.status === 'running') spinner.start()
         return
       }
     }
@@ -854,7 +862,8 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
 
   /** Pause the indicator around a decision, and resume it if work continues. */
   const whileDeciding = async <T>(decide: () => Promise<T>): Promise<T> => {
-    spinner.stop()
+    // Paused, not stopped: the decision is part of the turn, and its clock.
+    spinner.pause()
     // A decision is the moment a person has to come back to the terminal.
     if (config.bell) io.console.bell()
     try {
@@ -896,6 +905,9 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
     live.handle = next
     live.agent = next.agent
     live.transcript = new Transcript({ theme, columns: io.console.columns, cwd }, presentersFor(ctx, next.agent))
+    // The viewport buffer is the RETIRED session's transcript; left in place,
+    // /clear would clear nothing visible and /resume would replay under it.
+    io.console.clearScreen()
     // Session-scoped state does not follow the person to another session.
     approval.clear()
     turnBaseTokens = 0

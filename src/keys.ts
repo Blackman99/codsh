@@ -47,8 +47,14 @@ const PASTE_START = '\u001B[200~'
 /** Bracketed paste end. */
 const PASTE_END = '\u001B[201~'
 
-/** Rows one wheel notch moves, matching what a terminal scrolls by default. */
-const WHEEL_LINES = 3
+/**
+ * Rows one wheel event moves.
+ *
+ * One, not three: trackpads and hi-res wheels emit a stream of events per
+ * gesture, so a multiplier here compounds into overshoot. The smoothness comes
+ * from coalescing the stream into one repaint, not from bigger steps.
+ */
+const WHEEL_LINES = 1
 
 /** An SGR mouse report: `ESC [ < button ; column ; row (M|m)`. */
 const MOUSE = /^\u001B\[<(\d+);(\d+);(\d+)([Mm])/

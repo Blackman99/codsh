@@ -135,18 +135,36 @@ describe('visual hierarchy', () => {
     expect(typed.rows[1]).not.toContain(`${gray}hello`)
   })
 
-  it('keeps the menu detail gray and the matched prefix accented', () => {
+  it('colours the selected row whole, and the matched prefix on the rest', () => {
     const { rows } = inputBox(view({
-      lines: ['/pl'],
-      column: 3,
-      token: '/pl',
-      candidates: [{ value: '/plan', detail: 'enter plan mode' }],
+      lines: ['/p'],
+      column: 2,
+      token: '/p',
+      candidates: [{ value: '/plan', detail: 'enter plan mode' }, { value: '/permission', detail: 'switch preset' }],
+      selected: 0,
     }), colour, 60)
-    const menu = rows.at(-1) ?? ''
-    // The typed fragment keeps the accent colour inside the candidate...
-    expect(menu).toContain('\u001B[36m/pl\u001B[0m')
-    // ...and the description sits in the secondary gray, never full-strength.
-    expect(menu).toContain(`${gray}  enter plan mode`)
+    const [chosen = '', other = ''] = rows.slice(-2)
+    // The selected row is an accent COLOUR — bold alone barely reads on a
+    // dark background — and its description stays secondary gray.
+    expect(chosen).toContain('\u001B[1m\u001B[36m/plan\u001B[0m')
+    expect(chosen).toContain(`${gray}  enter plan mode`)
+    // Unselected rows keep the typed fragment accented, tail plain.
+    expect(other).toContain('\u001B[36m/p\u001B[0m')
+    expect(other).not.toContain('\u001B[36m/permission')
+  })
+
+  it('windows the menu around the selection instead of pinning the first page', () => {
+    const many = Array.from({ length: 12 }, (_, index) => ({ value: `/c${String(index).padStart(2, '0')}`, detail: '' }))
+    const { rows } = inputBox(view({ lines: ['/c'], column: 2, candidates: many, selected: 10 }), theme, 60)
+    const menu = rows.join('\n')
+    // The selected candidate is visible, with counts for both clipped sides.
+    // Twelve candidates, eight visible: the window slides to 3..10 so the
+    // selection stays one row above the lower edge.
+    expect(menu).toContain('❯ /c10')
+    expect(menu).toContain('↑ 3 more')
+    expect(menu).toContain('↓ 1 more')
+    expect(menu).not.toContain('/c02')
+    expect(menu).toContain('/c03')
   })
 
   it('pads menu labels by display width, so wide names still align', () => {

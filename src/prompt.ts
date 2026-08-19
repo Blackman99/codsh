@@ -68,6 +68,9 @@ export class Prompt {
   private accent: ((text: string) => string) | undefined
   /** Whether a read is outstanding, which decides where a submission goes. */
   private reading = false
+  /** Wheel rows accumulated this tick, painted once — scrolling per event janks. */
+  private pendingScroll = 0
+  private scrollFlushQueued = false
   /**
    * Whether the interactive session is running, which is when the box is worth
    * drawing. The box stays up while the agent works — typing ahead must be
@@ -132,6 +135,7 @@ export class Prompt {
    * @param text - the text, or undefined to drop the row.
    */
   setHint(text: string | undefined): void {
+    if (text === this.hint) return
     this.hint = text
     this.render()
   }
@@ -266,8 +270,22 @@ export class Prompt {
       return
     }
     if (key.kind === 'scroll') {
-      this.console.scrollBy(-key.lines)
-      this.render()
+      // Negative lines scroll back into history — wheel up shows older output,
+      // the direction every terminal scrolls. A gesture arrives as a burst of
+      // events; they coalesce into one repaint after the burst's chunk.
+      this.pendingScroll += key.lines
+      if (!this.scrollFlushQueued) {
+        this.scrollFlushQueued = true
+        queueMicrotask(() => {
+          this.scrollFlushQueued = false
+          const delta = this.pendingScroll
+          this.pendingScroll = 0
+          if (delta !== 0) {
+            this.console.scrollBy(delta)
+            this.render()
+          }
+        })
+      }
       return
     }
     if (key.kind === 'scroll-end') {
