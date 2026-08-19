@@ -249,3 +249,60 @@ describe('resize', () => {
     expect(screen.scrolledBy).toBe(0)
   })
 })
+
+describe('folds', () => {
+  it('shows the summary, swaps to the full form, and back', () => {
+    const sink = host(8, 40)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['status'], { row: 0, column: 0 }, false)
+    screen.append(['before'])
+    screen.appendFold(['summary (Ctrl+O expands)'], ['line 1', 'line 2', 'line 3'])
+    screen.append(['after'])
+    flush(sink)
+
+    expect(screen.hasFolds).toBe(true)
+    expect(screen.toggleFolds()).toBe(true)
+    let rows = painted(flush(sink))
+    const shown = [...rows.values()].join('\n')
+    expect(shown).toContain('line 3')
+    expect(shown).not.toContain('summary')
+
+    screen.collapseFolds()
+    rows = painted(flush(sink))
+    const collapsed = [...rows.values()].join('\n')
+    expect(collapsed).toContain('summary (Ctrl+O expands)')
+    expect(collapsed).not.toContain('line 2')
+  })
+
+  it('toggles every fold, and later content keeps its place', () => {
+    const sink = host(12, 40)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['status'], { row: 0, column: 0 }, false)
+    screen.appendFold(['first summary'], ['first full a', 'first full b'])
+    screen.append(['between'])
+    screen.appendFold(['second summary'], ['second full'])
+    flush(sink)
+    screen.toggleFolds()
+    const text = [...painted(flush(sink)).values()].join('\n')
+    // Both folds expanded; the plain line between them stays between them.
+    expect(text.indexOf('first full b')).toBeLessThan(text.indexOf('between'))
+    expect(text.indexOf('between')).toBeLessThan(text.indexOf('second full'))
+    // Toggling back restores both summaries.
+    screen.toggleFolds()
+    const back = [...painted(flush(sink)).values()].join('\n')
+    expect(back).toContain('first summary')
+    expect(back).toContain('second summary')
+  })
+
+  it('has nothing to toggle without folds, and clearing forgets them', () => {
+    const sink = host(8, 40)
+    const screen = new Screen(sink)
+    screen.enter()
+    expect(screen.toggleFolds()).toBe(false)
+    screen.appendFold(['s'], ['f'])
+    screen.clearTranscript()
+    expect(screen.hasFolds).toBe(false)
+  })
+})

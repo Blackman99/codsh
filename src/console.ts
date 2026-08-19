@@ -323,6 +323,35 @@ export class TerminalConsole {
     this.screen?.setChrome(rows, cursor, focus)
   }
 
+  /**
+   * Keep one collapsible block: summary now, full form behind the toggle.
+   *
+   * Off a terminal only the summary is written — a pipe has no keys to toggle
+   * with, and scripts want the digest.
+   * @param summary - the collapsed lines.
+   * @param full - the expanded lines.
+   */
+  appendFold(summary: readonly string[], full: readonly string[]): void {
+    if (this.screen !== undefined) {
+      this.screen.appendFold(summary, full)
+      return
+    }
+    for (const line of summary) this.output.write(`${line}\n`)
+  }
+
+  /**
+   * Swap every collapsible block between summary and full form.
+   * @returns false when there is nothing to toggle.
+   */
+  toggleFolds(): boolean {
+    return this.screen?.toggleFolds() ?? false
+  }
+
+  /** Return every block to its summary. */
+  collapseFolds(): void {
+    this.screen?.collapseFolds()
+  }
+
   /** Take the pinned rows down, leaving the transcript alone. */
   clearRegion(): void {
     this.screen?.setChrome([], { row: 0, column: 0 }, false)

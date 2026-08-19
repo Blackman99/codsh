@@ -531,18 +531,24 @@ describe.skipIf(process.platform === 'win32')('dsh code Escape (real PTY)', () =
     expect(recalled?.filter(row => row.includes('Write note.txt'))).toHaveLength(1)
   }, E2E_TEST_TIMEOUT_MS)
 
-  it('expands the last clipped output with Ctrl-O', async () => {
+  it('toggles a collapsed output open with Ctrl-O, and folds it on moving on', async () => {
     const output = await drivePty('tall', [
       ['/help for commands', `create the tall note${ENTER}`, 300],
-      // 45 added lines, capped: the card names the expand key...
+      // 45 diff lines, collapsed: the card names the expand key...
       ['Ctrl+O expands', '\u000F', 400],
-      // ...and Ctrl-O prints the full body, clipped tail included.
-      ['CODE_CLI_TALL_44', `/exit${ENTER}`, 400],
+      // ...Ctrl-O swaps the block for its full body, clipped tail included...
+      ['CODE_CLI_TALL_44', `/status${ENTER}`, 400],
+      // ...and the next submission folds it back, like clicking elsewhere.
+      ['permissions', `/exit${ENTER}`, 400],
     ])
 
-    const plain = output.replaceAll(/\u001B\[[0-9;?]*[A-Za-z]/gu, '')
-    expect(plain).toContain('full output')
-    expect(plain).toContain('CODE_CLI_TALL_44')
+    // Expanded: the tail line is on screen where the summary was.
+    const expanded = screenAt(output, 'CODE_CLI_TALL_44').alternate
+    expect(expanded.some(row => row.includes('CODE_CLI_TALL_44'))).toBe(true)
+    // Collapsed again after moving on: summary back, tail gone.
+    const after = screenAt(output, 'permissions').alternate
+    expect(after.some(row => row.includes('Ctrl+O expands'))).toBe(true)
+    expect(after.some(row => row.includes('CODE_CLI_TALL_44'))).toBe(false)
   }, E2E_TEST_TIMEOUT_MS)
 
   it('clears to a fresh session, then resumes the old one through the selector', async () => {

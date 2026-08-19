@@ -201,14 +201,18 @@ export function createMarkdownStream(theme: Theme, columns?: () => number): Mark
 }
 
 /**
- * Lay out one buffered table, or fall back to its source lines.
+ * Lay out one buffered table as a bordered grid.
  *
- * Cells print verbatim — padding is by display width, and styled text would
- * make the two disagree. Only the frame carries styling: the header is bold and
- * the rule under it dim.
+ * Outer borders, one space of padding inside every cell, and a rule between
+ * every pair of rows: the padding keeps text off the rules, and the row rules
+ * are unconditional because a wrapped cell's continuation must never blur into
+ * the record below it. Cells render their inline constructs; every width is of
+ * the VISIBLE text. A table wider than the terminal wraps inside its cells,
+ * shrinking the widest columns toward an even share; only a terminal too
+ * narrow to hold the columns at all falls back to the source lines.
  * @param rows - the raw `|`-delimited lines, in order.
- * @param theme - styling for the frame.
- * @param budget - display columns available; a wider table degrades to source.
+ * @param theme - styling for the borders and the header.
+ * @param budget - display columns available.
  * @returns the rendered table, or the source lines styled as prose.
  */
 function layoutTable(rows: readonly string[], theme: Theme, budget: number): string[] {
@@ -219,24 +223,18 @@ function layoutTable(rows: readonly string[], theme: Theme, budget: number): str
   if (raw.length < 2 || delimiter === undefined || !delimiter.every(cell => TABLE_DELIMITER.test(cell))) {
     return asSource()
   }
-  // Cells render their inline constructs — a model puts code spans and bold in
-  // tables constantly — and every width below is of the VISIBLE text.
   const styled = [raw[0] ?? [], ...raw.slice(2)].map(row => row.map(cell => renderInline(cell, theme)))
   const visible = (cell: string): number => displayWidth(cell.replaceAll(/\u001B\[[0-9;]*m/gu, ''))
   const count = Math.max(...styled.map(row => row.length))
   const natural = Array.from({ length: count }, (_, column) =>
     Math.max(1, ...styled.map(row => visible(row[column] ?? ''))))
-  // ` │ ` between columns: with wrapped cells, a bare gap loses which column a
-  // continuation row belongs to; the rule keeps every row legible.
-  const gaps = 3 * (count - 1)
-  // A table too wide for the terminal keeps its shape by wrapping inside the
-  // cells: columns shrink toward the budget in proportion to their excess over
-  // an even share, and a truly hopeless width falls back to the source lines.
+  // Per row: `│ ` lead, ` │ ` between columns, ` │` tail.
+  const framing = 3 * count + 1
   let widths = [...natural]
   const total = natural.reduce((sum, width) => sum + width, 0)
-  if (total + gaps > budget) {
-    const available = budget - gaps
-    if (available < count * 3) return asSource()
+  if (total + framing > budget) {
+    const available = budget - framing
+    if (available < count * 2) return asSource()
     const fair = Math.floor(available / count)
     // Narrow columns keep their natural width; the wide ones split the rest.
     const kept = natural.map(width => Math.min(width, fair))
@@ -249,34 +247,34 @@ function layoutTable(rows: readonly string[], theme: Theme, budget: number): str
       return base + extra
     })
   }
-  const rule = theme.dim(' │ ')
+  const edge = (left: string, junction: string, right: string): string =>
+    theme.dim(`${left}${widths.map(width => '─'.repeat(width + 2)).join(junction)}${right}`)
+  const bar = theme.dim('│')
   const line = (row: readonly string[], style: (text: string) => string): string[] => {
     // Each cell wraps at its column width; the row is as tall as its tallest,
-    // and every physical row carries the column rules so a continuation still
-    // reads as part of its column.
+    // and every physical row carries the full frame so continuations read as
+    // part of their column.
     const wrapped = Array.from({ length: count }, (_, column) => wrapStyled(row[column] ?? '', widths[column] ?? 1))
     const height = Math.max(...wrapped.map(cell => cell.length))
-    return Array.from({ length: height }, (_, index) =>
-      wrapped.map((cell, column) => {
+    return Array.from({ length: height }, (_, index) => {
+      const cells = wrapped.map((cell, column) => {
         const piece = cell[index] ?? ''
         const alignRight = /^:?-+:$/.test(delimiter[column] ?? '') && !/^:-+:$/.test(delimiter[column] ?? '')
         const pad = ' '.repeat(Math.max(0, (widths[column] ?? 0) - visible(piece)))
-        return alignRight ? `${pad}${style(piece)}` : `${style(piece)}${pad}`
-      }).join(rule).trimEnd())
+        return alignRight ? ` ${pad}${style(piece)} ` : ` ${style(piece)}${pad} `
+      })
+      return `${bar}${cells.join(bar)}${bar}`
+    })
   }
-  const separator = theme.dim(widths.map(width => '─'.repeat(width)).join('─┼─'))
-  const groups = styled.slice(1).map(row => line(row, text => text))
-  // Once any row wraps, its continuations would blur into the next record, so
-  // a wrapped table rules BETWEEN rows too; a compact table keeps only the
-  // head rule and stays dense.
-  const ruled = groups.some(group => group.length > 1)
-  const body = groups.flatMap((group, index) => index > 0 && ruled ? [separator, ...group] : group)
+  const separator = edge('├', '┼', '┤')
+  const body = styled.slice(1).flatMap((row, index) =>
+    index > 0 ? [separator, ...line(row, text => text)] : line(row, text => text))
   return [
+    edge('╭', '┬', '╮'),
     ...line(styled[0] ?? [], text => theme.bold(text)),
-    // One unbroken separator with crossings at the column rules, so the head
-    // is underlined across the WHOLE table rather than only its first column.
     separator,
     ...body,
+    edge('╰', '┴', '╯'),
   ]
 }
 

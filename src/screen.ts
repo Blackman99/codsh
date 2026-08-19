@@ -87,6 +87,10 @@ export class Screen {
   private offset = 0
   /** What to show while scrolled back, drawn over the viewport's top row. */
   private notice = ''
+  /** Collapsed blocks in the transcript, in order, with both of their forms. */
+  private folds: { at: number; shownLength: number; summary: string[]; full: string[] }[] = []
+  /** Whether the folds currently show their full form. */
+  private expanded = false
   /** The last painted frame, so a repaint only touches rows that changed. */
   private painted: string[] = []
   /** Width the current frame was painted at, to detect a resize. */
@@ -142,10 +146,75 @@ export class Screen {
       this.physical.push(...wrapStyled(line, columns))
     }
     if (this.logical.length > MAX_SCROLLBACK) {
-      this.logical.splice(0, this.logical.length - MAX_SCROLLBACK)
+      const dropped = this.logical.length - MAX_SCROLLBACK
+      this.logical.splice(0, dropped)
+      // Folds slide with the buffer; one cut by the trim stops being a fold.
+      this.folds = this.folds.flatMap((fold) => {
+        const at = fold.at - dropped
+        return at >= 0 ? [{ ...fold, at }] : []
+      })
       this.rewrap()
     }
     this.render()
+  }
+
+  /**
+   * Append one collapsible block: its summary now, its full form on demand.
+   *
+   * This is what makes every long block — not merely the latest — expandable:
+   * the buffer keeps both forms, and toggling rebuilds the transcript in
+   * place, exactly like a details/summary element.
+   * @param summary - the collapsed lines, already styled.
+   * @param full - the expanded lines, already styled.
+   */
+  appendFold(summary: readonly string[], full: readonly string[]): void {
+    const shown = this.expanded ? full : summary
+    this.folds.push({ at: this.logical.length, shownLength: shown.length, summary: [...summary], full: [...full] })
+    this.append(shown)
+  }
+
+  /** Whether any collapsible block exists. */
+  get hasFolds(): boolean {
+    return this.folds.length > 0
+  }
+
+  /** Whether the folds currently show their full form. */
+  get foldsExpanded(): boolean {
+    return this.expanded
+  }
+
+  /**
+   * Swap every fold between its summary and its full form.
+   * @returns false when there is nothing to toggle.
+   */
+  toggleFolds(): boolean {
+    if (this.folds.length === 0) return false
+    this.expanded = !this.expanded
+    // Rebuild back to front, so earlier folds' positions stay valid while the
+    // later ones are spliced.
+    for (const fold of [...this.folds].reverse()) {
+      const shown = this.expanded ? fold.full : fold.summary
+      this.logical.splice(fold.at, fold.shownLength, ...shown)
+      fold.shownLength = shown.length
+    }
+    // Positions after each splice shift by the length difference of everything
+    // spliced before them; recompute from the front.
+    let shift = 0
+    for (const fold of this.folds) {
+      fold.at += shift
+      shift += (this.expanded ? fold.full.length : fold.summary.length)
+        - (this.expanded ? fold.summary.length : fold.full.length)
+    }
+    this.rewrap()
+    this.offset = 0
+    this.painted = []
+    this.render()
+    return true
+  }
+
+  /** Return every fold to its summary, the way moving on reads as dismissal. */
+  collapseFolds(): void {
+    if (this.expanded) this.toggleFolds()
   }
 
   /**
@@ -214,6 +283,8 @@ export class Screen {
   clearTranscript(): void {
     this.logical = []
     this.physical = []
+    this.folds = []
+    this.expanded = false
     this.offset = 0
     this.painted = []
     this.render()

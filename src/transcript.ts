@@ -125,8 +125,8 @@ function cap(lines: string[], limit: number, theme: Theme): string[] {
 /** Renders one session's appended events as terminal lines. */
 export class Transcript {
   private readonly calls = new Map<string, PendingCall>()
-  /** The most recent result whose body the cap clipped, kept in full. */
-  private clipped: { title: string; lines: string[] } | undefined
+  /** The full form of the event just rendered, when its body was collapsed. */
+  private fold: string[] | undefined
 
   constructor(
     private readonly options: TranscriptOptions,
@@ -281,13 +281,13 @@ export class Transcript {
       // The call fell outside this surface's window (a resumed page boundary);
       // the raw result still prints rather than vanishing.
       const raw = this.resultText(block.content).split('\n')
-      if (raw.length > MAX_RESULT_LINES) this.clipped = { title: '(result)', lines: raw }
-      return [`${marker} ${theme.dim('(result)')}`, ...cap(raw, MAX_RESULT_LINES, theme), '']
+      const head = `${marker} ${theme.dim('(result)')}`
+      if (raw.length > MAX_RESULT_LINES) this.fold = [head, ...raw, '']
+      return [head, ...cap(raw, MAX_RESULT_LINES, theme), '']
     }
     const view = this.safeResult(pending, block.content, failed, meta)
     const title = view?.title === undefined ? pending.title : this.relativizeIn(view.title)
     const { suffix, body, full } = this.outcome(view, block)
-    if (full !== undefined) this.clipped = { title, lines: full }
     // The pending card already printed this header, and an append-only
     // transcript cannot replace it. Reprinting an unchanged one reads as a
     // stutter, so the header returns only when the call failed or the presenter
@@ -300,35 +300,24 @@ export class Transcript {
       ? [`${marker} ${theme.tool(title)}${suffix === '' ? '' : ` ${suffix}`}`]
       : suffix !== '' ? [`  ${suffix}`]
         : body.length === 0 ? [`  ${theme.success('✓')}`] : []
+    // The fold swaps the WHOLE event's lines, so the expanded form repeats the
+    // same head with the uncapped body under it.
+    if (full !== undefined) this.fold = [...head, ...full, '']
     return [...head, ...body, '']
   }
 
   /**
-   * Register a block collapsed elsewhere — the thinking stream — so Ctrl-O
-   * expands whichever collapse happened last, tool result or thought alike.
-   * @param title - what the expansion header names.
-   * @param lines - the full body, already styled.
+   * The expanded form of the lines {@link render} just returned, when that
+   * event's body was collapsed — the whole event re-rendered without its cap,
+   * because a fold swaps entire blocks, not just the clipped tail. The full
+   * body is kept from the render itself: what a tool truncated before
+   * returning is upstream of the log and unrecoverable everywhere.
+   * @returns the full lines, or undefined when nothing was collapsed.
    */
-  noteClipped(title: string, lines: readonly string[]): void {
-    this.clipped = { title, lines: [...lines] }
-  }
-
-  /**
-   * The last clipped result, rendered without its cap.
-   *
-   * Ctrl-O's answer. The full body is kept from the render itself because a
-   * tool's own output limits are upstream of the log — this is everything the
-   * model saw, which is everything recoverable.
-   * @returns the header and full body, or undefined when nothing was clipped.
-   */
-  expandLast(): string[] | undefined {
-    if (this.clipped === undefined) return undefined
-    const { theme } = this.options
-    return [
-      `${theme.dim('—')} ${theme.tool(this.clipped.title)} ${theme.dim('— full output —')}`,
-      ...this.clipped.lines,
-      '',
-    ]
+  takeFold(): string[] | undefined {
+    const fold = this.fold
+    this.fold = undefined
+    return fold
   }
 
   /**

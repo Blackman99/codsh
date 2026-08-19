@@ -353,20 +353,23 @@ describe('tool results', () => {
   })
 })
 
-describe('expanding clipped output', () => {
-  it('keeps the full body of a clipped result for Ctrl-O', () => {
+describe('folding collapsed output', () => {
+  it('offers the full event lines when the body was collapsed', () => {
     const long = Array.from({ length: 20 }, (_, index) => `line ${index}`).join('\n')
     const result = (): ToolResultView => ({ card: 'terminal', title: 'run', output: long })
     const transcript = build({ result })
     transcript.render(callEvent('c1', 'bash', {}))
     const shown = transcript.render(resultEvent('c1', long))
     expect(shown.join('\n')).toContain('… +15 lines (Ctrl+O expands)')
-    const full = transcript.expandLast() ?? []
-    expect(full[0]).toContain('full output')
+    const full = transcript.takeFold() ?? []
+    // The full form replaces the whole block: same head, uncapped body.
+    expect(full[0]).toContain('run')
     expect(full.join('\n')).toContain('line 19')
+    // Taken once: the fold belongs to the event that produced it.
+    expect(transcript.takeFold()).toBeUndefined()
   })
 
-  it('answers Ctrl-O for a read card with the content the card withheld', () => {
+  it('folds a read card with the content the card withheld', () => {
     const result = (): ToolResultView => ({
       card: 'read',
       path: '/repo/a.ts',
@@ -377,10 +380,10 @@ describe('expanding clipped output', () => {
     const transcript = build({ result })
     transcript.render(callEvent('c1', 'read', {}))
     transcript.render(resultEvent('c1', 'alpha\nbeta'))
-    expect((transcript.expandLast() ?? []).join('\n')).toContain('beta')
+    expect((transcript.takeFold() ?? []).join('\n')).toContain('beta')
   })
 
-  it('has nothing to expand before any result clipped', () => {
-    expect(build().expandLast()).toBeUndefined()
+  it('has no fold before any body collapsed', () => {
+    expect(build().takeFold()).toBeUndefined()
   })
 })

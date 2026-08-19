@@ -231,13 +231,14 @@ describe.skipIf(process.platform === 'win32')('the first five minutes', () => {
     expect(text).not.toContain('|---')
     expect(text).not.toContain('| 维度')
     expect(rows.some(row => row.includes('维度') && row.includes('内容'))).toBe(true)
-    // The head separator crosses the WHOLE table, and every table row —
-    // wrapped continuations included — carries the same column rules: the
+    // The grid is framed and ruled: edges, a head rule, and every table row —
+    // wrapped continuations included — carries the same rule count, so the
     // sheared-apart layout of the field report cannot re-form silently.
+    expect(rows.some(row => row.startsWith('╭') && row.includes('┬'))).toBe(true)
     expect(rows.some(row => row.includes('┼'))).toBe(true)
-    // Only table rows: blockquotes and the input box also draw │, but always
-    // at the start of the row — a table row starts with its first cell.
-    const ruleCounts = new Set(rows.filter(row => row.includes('│') && !row.trimStart().startsWith('│'))
+    // Table rows carry three rules (two columns framed); the input box's
+    // middle row has two and a blockquote one, so ≥3 isolates the table.
+    const ruleCounts = new Set(rows.filter(row => row.split('│').length - 1 >= 3)
       .map(row => row.split('│').length - 1))
     expect(ruleCounts.size).toBeLessThanOrEqual(1)
     // Bold-wrapped code lost its backticks and its stars.
@@ -252,17 +253,15 @@ describe.skipIf(process.platform === 'win32')('the first five minutes', () => {
       ['thought for', '\u000F', 500],
       ['weighing the options carefully', `/exit${ENTER}`, 400],
     ])
-    // The live preview also carries the thought text, so the expansion frame
-    // is found by its own header rather than by the content.
-    // The expansion prints line by line across frames; cut at the LAST copy of
-    // its final line (the live preview carried the same text earlier).
+    // The toggle swaps the summary for the full thought in place: cut at the
+    // LAST copy of its final line (the live preview carried the text earlier).
     const held = output.slice(0, output.indexOf(LEAVE_ALT))
     const at = held.lastIndexOf('weighing the options carefully')
     const frameEnd = held.indexOf(SYNC_END, at)
     const probe = new Terminal(PTY_ROWS, PTY_COLUMNS)
     probe.feed(held.slice(0, frameEnd < 0 ? held.length : frameEnd + SYNC_END.length))
     const rows = probe.alternate
-    expect(rows.some(row => row.includes('thinking') && row.includes('full output'))).toBe(true)
+    expect(rows.some(row => /✻ thought for [\d.]+s/u.test(row))).toBe(true)
     expect(rows.some(row => row.includes('weighing the options carefully'))).toBe(true)
   }, E2E_TEST_TIMEOUT_MS)
 })

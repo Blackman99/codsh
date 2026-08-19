@@ -104,22 +104,29 @@ describe('renderMarkdown', () => {
 })
 
 describe('tables', () => {
-  it('lays out a table on display-width columns with column rules', () => {
-    // Compact — nothing wrapped — so only the head rule: density matters.
-    expect(render('| Name | Count |\n|------|-------|\n| a | 10 |\n| bbbb | 2 |')).toBe(
-      'Name │ Count\n─────┼──────\na    │ 10\nbbbb │ 2')
+  it('lays out a bordered, padded grid with a rule between every row', () => {
+    expect(render('| Name | Count |\n|------|-------|\n| a | 10 |\n| bbbb | 2 |')).toBe([
+      '╭──────┬───────╮',
+      '│ Name │ Count │',
+      '├──────┼───────┤',
+      '│ a    │ 10    │',
+      '├──────┼───────┤',
+      '│ bbbb │ 2     │',
+      '╰──────┴───────╯',
+    ].join('\n'))
   })
 
   it('pads wide characters by their two-column width', () => {
     const rows = renderMarkdown('| 名字 | n |\n|---|---|\n| 终端 | 1 |\n| a | 2 |', plain)
     // Both body rows put the second column at the same display column.
-    expect(rows[2]).toBe('终端 │ 1')
-    expect(rows[3]).toBe('a    │ 2')
+    expect(rows[3]).toBe('│ 终端 │ 1 │')
+    expect(rows[5]).toBe('│ a    │ 2 │')
   })
 
   it('right-aligns a column whose delimiter ends in a colon, header included', () => {
-    expect(render('| n | v |\n|---|---:|\n| a | 1 |\n| b | 1000 |')).toBe(
-      'n │    v\n──┼─────\na │    1\nb │ 1000')
+    const rows = renderMarkdown('| n | v |\n|---|---:|\n| a | 1 |\n| b | 1000 |', plain)
+    expect(rows[3]).toBe('│ a │    1 │')
+    expect(rows[5]).toBe('│ b │ 1000 │')
   })
 
   it('prints pipe lines without a delimiter row as prose', () => {
@@ -135,33 +142,34 @@ describe('tables', () => {
     // Still a table — no raw pipe rows — and no line exceeds the terminal.
     expect(lines.join('\n')).not.toContain('|')
     expect(lines.join('\n')).toContain('┼')
-    // One body row: just the head rule, there is no between-rows to mark.
-    expect(lines.filter(line => line.includes('┼'))).toHaveLength(1)
     for (const line of lines) expect(displayWidth(line)).toBeLessThanOrEqual(40)
     // The cells wrapped rather than truncated: every character survives.
-    expect(lines.join('').replaceAll(/[\s─│┼]/gu, '').length).toBe('x'.repeat(120).length + 'y'.repeat(120).length)
+    expect(lines.join('').replaceAll(/[\s─│┼╭╮╰╯├┤┬┴]/gu, '').length).toBe('x'.repeat(120).length + 'y'.repeat(120).length)
   })
 
-  it('rules between rows once any cell wraps, so records cannot blur together', () => {
+  it('rules between every pair of rows, wrapped or not', () => {
     const wide = `| a | ${'y'.repeat(60)} |`
     const source = `| h1 | h2 |\n|---|---|\n${wide}\n${wide}`
     const narrow = createMarkdownStream(plain, () => 40)
     const lines = [...source.split('\n').flatMap(line => narrow.line(line)), ...narrow.flush()]
-    // Head rule plus exactly one between the two wrapped body rows.
+    // Head rule plus one between the two body rows: records never blur.
     expect(lines.filter(line => line.includes('┼'))).toHaveLength(2)
+    // And the grid is framed: one top edge, one bottom edge.
+    expect(lines.filter(line => line.startsWith('╭'))).toHaveLength(1)
+    expect(lines.filter(line => line.startsWith('╰'))).toHaveLength(1)
   })
 
   it('keeps columns aligned when a cell carries an emoji', () => {
     const rows = renderMarkdown('| a | b |\n|---|---|\n| ⚡ x | 1 |\n| yyyy | 2 |', plain)
     // Both body rows put the second column's rule at the same display column.
-    const ruleAt = (row: string): number => displayWidth(row.slice(0, row.indexOf('│')))
-    expect(ruleAt(rows[2] ?? '')).toBe(ruleAt(rows[3] ?? ''))
+    const ruleAt = (row: string): number => displayWidth(row.slice(0, row.indexOf('│', 1)))
+    expect(ruleAt(rows[3] ?? '')).toBe(ruleAt(rows[5] ?? ''))
   })
 
   it('renders inline constructs inside cells, and sizes on the visible text', () => {
     const colour = createTheme(true, { TERM: 'xterm-256color' })
     const rows = renderMarkdown('| a | b |\n|---|---|\n| `code` | **bold** |', colour)
-    const body = rows[2] ?? ''
+    const body = rows[3] ?? ''
     // Backticks and stars are consumed, not printed.
     expect(body).not.toContain('`')
     expect(body).not.toContain('**')

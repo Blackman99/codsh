@@ -586,15 +586,10 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
       const line = planModeFrom(live.agent.session.events) ? '/plan off' : '/plan'
       void commands?.execute(live.agent, line, new AbortController().signal)
     },
-    // Ctrl-O reprints the last clipped tool output in full — the transcript
-    // kept it from the same render that capped it.
+    // Ctrl-O toggles every collapsed block — tool output and thinking alike —
+    // between its summary and its full form, in place.
     expandOutput: () => {
-      const full = live.transcript.expandLast()
-      if (full === undefined) {
-        prompt.write(theme.dim('  no clipped output to expand'))
-        return
-      }
-      for (const line of full) prompt.write(line)
+      if (!io.console.toggleFolds()) prompt.write(theme.dim('  nothing to expand'))
     },
   }, 'Ask anything · / for commands · @ for files · ⇧Tab plan mode')
   // The baseline the indicator's token figure counts from, reset per turn.
@@ -801,8 +796,11 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
     thinkingLines.push(...thinking.flush())
     if (thinkingLines.length === 0) return
     const seconds = ((performance.now() - thinkingStartedAt) / 1000).toFixed(1)
-    live.transcript.noteClipped('thinking', thinkingLines)
-    emit([theme.dim(`✻ thought for ${seconds}s · +${thinkingLines.length} lines (Ctrl+O expands)`), ''])
+    prompt.setStreaming(undefined)
+    io.console.appendFold(
+      [theme.dim(`✻ thought for ${seconds}s · +${thinkingLines.length} lines (Ctrl+O expands)`), ''],
+      [theme.dim(`✻ thought for ${seconds}s`), ...thinkingLines, ''],
+    )
     thinkingLines = []
     thinkingStartedAt = 0
   }
@@ -874,7 +872,15 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
         return
       }
     }
-    emit(live.transcript.render(event))
+    const lines = live.transcript.render(event)
+    const full = live.transcript.takeFold()
+    if (full === undefined) {
+      emit(lines)
+      return
+    }
+    // A collapsed block: the screen keeps both forms, Ctrl+O swaps them.
+    prompt.setStreaming(undefined)
+    io.console.appendFold(lines, full)
   })
 
   /** Pause the indicator around a decision, and resume it if work continues. */
@@ -1135,6 +1141,9 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
     }
     const line = await prompt.read()
     if (line === undefined) break
+    // Moving on reads as dismissal: whatever was expanded folds back, the way
+    // clicking elsewhere collapses an expanded block in Claude.
+    io.console.collapseFolds()
     const trimmed = line.trim()
     if (trimmed === '') continue
     if (trimmed === '/exit' || trimmed === '/quit') break
