@@ -32,6 +32,12 @@ const MARKDOWN = [
   // table whose Chinese cells are far wider than any terminal.
   '- **`screen.ts`**: the viewport module',
   '- second bullet',
+  '- third bullet keeps the answer long',
+  '- fourth bullet keeps the answer long',
+  '- fifth bullet keeps the answer long',
+  '- sixth bullet keeps the answer long',
+  '- seventh bullet keeps the answer long',
+  '- eighth bullet: past the fold threshold at any test width',
   '',
   '| 维度 | 内容 |',
   '|---|---|',

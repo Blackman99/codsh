@@ -88,7 +88,7 @@ export class Screen {
   /** What to show while scrolled back, drawn over the viewport's top row. */
   private notice = ''
   /** Collapsed blocks in the transcript, in order, with both of their forms. */
-  private folds: { at: number; shownLength: number; summary: string[]; full: string[] }[] = []
+  private folds: { at: number; shownLength: number; summary: string[]; full: string[]; expanded: boolean }[] = []
   /** Whether the folds currently show their full form. */
   private expanded = false
   /** The last painted frame, so a repaint only touches rows that changed. */
@@ -169,8 +169,35 @@ export class Screen {
    */
   appendFold(summary: readonly string[], full: readonly string[]): void {
     const shown = this.expanded ? full : summary
-    this.folds.push({ at: this.logical.length, shownLength: shown.length, summary: [...summary], full: [...full] })
+    this.folds.push({
+      at: this.logical.length,
+      shownLength: shown.length,
+      summary: [...summary],
+      full: [...full],
+      expanded: this.expanded,
+    })
     this.append(shown)
+  }
+
+  /**
+   * Turn the last `count` appended lines into a collapsible block after the
+   * fact.
+   *
+   * This is how a finished answer becomes foldable without ever having been
+   * withheld: it streamed in the open, and only once complete does it grow a
+   * summary form. The block starts expanded — the person is reading it — and
+   * collapses with the rest when the conversation moves on.
+   * @param count - how many trailing lines the block owns.
+   * @param summary - the collapsed lines, already styled.
+   */
+  foldBack(count: number, summary: readonly string[]): void {
+    const at = this.logical.length - count
+    if (count <= 0 || at < 0) return
+    // A block that would overlap an existing fold is not a block: refuse it
+    // rather than corrupt the splice arithmetic.
+    const last = this.folds.at(-1)
+    if (last !== undefined && at < last.at + last.shownLength) return
+    this.folds.push({ at, shownLength: count, summary: [...summary], full: this.logical.slice(at), expanded: true })
   }
 
   /** Whether any collapsible block exists. */
@@ -189,32 +216,46 @@ export class Screen {
    */
   toggleFolds(): boolean {
     if (this.folds.length === 0) return false
-    this.expanded = !this.expanded
-    // Rebuild back to front, so earlier folds' positions stay valid while the
-    // later ones are spliced.
-    for (const fold of [...this.folds].reverse()) {
-      const shown = this.expanded ? fold.full : fold.summary
-      this.logical.splice(fold.at, fold.shownLength, ...shown)
-      fold.shownLength = shown.length
-    }
-    // Positions after each splice shift by the length difference of everything
-    // spliced before them; recompute from the front.
-    let shift = 0
-    for (const fold of this.folds) {
-      fold.at += shift
-      shift += (this.expanded ? fold.full.length : fold.summary.length)
-        - (this.expanded ? fold.summary.length : fold.full.length)
-    }
-    this.rewrap()
-    this.offset = 0
-    this.painted = []
-    this.render()
+    this.setFolds(!this.expanded)
     return true
   }
 
   /** Return every fold to its summary, the way moving on reads as dismissal. */
   collapseFolds(): void {
-    if (this.expanded) this.toggleFolds()
+    // Freshly finished blocks sit expanded even while the global state says
+    // collapsed, so the per-fold flags decide whether work exists.
+    if (this.folds.some(fold => fold.expanded)) this.setFolds(false)
+    else this.expanded = false
+  }
+
+  /** Put every fold into one form, whatever mix of states they are in now. */
+  private setFolds(expanded: boolean): void {
+    this.expanded = expanded
+    // Rebuild back to front, so earlier folds' positions stay valid while the
+    // later ones are spliced; remember each block's growth for the fix-up.
+    const deltas = new Map<object, number>()
+    for (const fold of [...this.folds].reverse()) {
+      if (fold.expanded === expanded) {
+        deltas.set(fold, 0)
+        continue
+      }
+      const shown = expanded ? fold.full : fold.summary
+      this.logical.splice(fold.at, fold.shownLength, ...shown)
+      deltas.set(fold, shown.length - fold.shownLength)
+      fold.shownLength = shown.length
+      fold.expanded = expanded
+    }
+    // Positions after each splice shift by the growth of everything spliced
+    // before them; recompute from the front.
+    let shift = 0
+    for (const fold of this.folds) {
+      fold.at += shift
+      shift += deltas.get(fold) ?? 0
+    }
+    this.rewrap()
+    this.offset = 0
+    this.painted = []
+    this.render()
   }
 
   /**

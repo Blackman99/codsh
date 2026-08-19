@@ -247,6 +247,28 @@ describe.skipIf(process.platform === 'win32')('the first five minutes', () => {
     expect(text).toContain('screen.ts')
   }, E2E_TEST_TIMEOUT_MS)
 
+  it('folds a finished long answer on moving on, and reopens it on Ctrl+O', async () => {
+    const output = await drive('markdown', [
+      ['Welcome to codsh', `explain${ENTER}`, 300],
+      // The whole answer stands while fresh; the next submission collapses it.
+      ['CODE_CLI_CALL_STREAM_DONE', `/status${ENTER}`, 500],
+      // Collapsed to its head lines: Ctrl+O brings the tail back.
+      ['permissions', '\u000F', 400],
+      ['CODE_CLI_CALL_STREAM_DONE', `/exit${ENTER}`, 400],
+    ])
+    // After /status the wall is gone: a head, a count, and no tail marker.
+    const folded = screenAt(output, 'permissions').alternate
+    expect(folded.some(row => row.includes('lines (Ctrl+O expands)'))).toBe(true)
+    expect(folded.some(row => row.includes('CODE_CLI_CALL_STREAM_DONE'))).toBe(false)
+    // Re-expanded: cut at the LAST copy of the tail marker.
+    const held = output.slice(0, output.indexOf(LEAVE_ALT))
+    const at = held.lastIndexOf('CODE_CLI_CALL_STREAM_DONE')
+    const frameEnd = held.indexOf(SYNC_END, at)
+    const probe = new Terminal(PTY_ROWS, PTY_COLUMNS)
+    probe.feed(held.slice(0, frameEnd < 0 ? held.length : frameEnd + SYNC_END.length))
+    expect(probe.alternate.some(row => row.includes('CODE_CLI_CALL_STREAM_DONE'))).toBe(true)
+  }, E2E_TEST_TIMEOUT_MS)
+
   it('collapses thinking by default and expands it on Ctrl+O', async () => {
     const output = await drive('reasoning', [
       ['Welcome to codsh', `think it over${ENTER}`, 300],

@@ -296,6 +296,78 @@ describe('folds', () => {
     expect(back).toContain('second summary')
   })
 
+  it('folds back a finished block: expanded now, summary once moved on', () => {
+    const sink = host(10, 40)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['status'], { row: 0, column: 0 }, false)
+    screen.append(['answer 1', 'answer 2', 'answer 3', 'answer 4', ''])
+    const fresh = [...painted(flush(sink)).values()].join('\n')
+    screen.foldBack(5, ['answer 1', '(more)', ''])
+
+    // Nothing changed visually: the block streamed in the open and stays.
+    expect(screen.hasFolds).toBe(true)
+    expect(fresh).toContain('answer 4')
+    expect(flush(sink)).toBe('')
+
+    // Moving on collapses it even though the global state was never expanded.
+    screen.collapseFolds()
+    const collapsed = [...painted(flush(sink)).values()].join('\n')
+    expect(collapsed).toContain('(more)')
+    expect(collapsed).not.toContain('answer 4')
+
+    // Ctrl+O brings the full text back, and again away.
+    expect(screen.toggleFolds()).toBe(true)
+    expect([...painted(flush(sink)).values()].join('\n')).toContain('answer 4')
+    screen.toggleFolds()
+    expect([...painted(flush(sink)).values()].join('\n')).toContain('(more)')
+  })
+
+  it('keeps positions right with folds in mixed states', () => {
+    const sink = host(14, 40)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['status'], { row: 0, column: 0 }, false)
+    // A collapsed fold (thinking), a plain line, then a fresh expanded block.
+    screen.appendFold(['thought summary'], ['thought a', 'thought b', 'thought c'])
+    screen.append(['between'])
+    screen.append(['long a', 'long b', 'long c'])
+    screen.foldBack(3, ['long head', '(rest)'])
+    flush(sink)
+
+    // One Ctrl+O expands the collapsed one; the fresh one already shows full.
+    screen.toggleFolds()
+    const text = [...painted(flush(sink)).values()].join('\n')
+    expect(text.indexOf('thought c')).toBeLessThan(text.indexOf('between'))
+    expect(text.indexOf('between')).toBeLessThan(text.indexOf('long a'))
+    expect(text).toContain('long c')
+
+    // Collapse both; order still holds and both summaries show.
+    screen.collapseFolds()
+    const back = [...painted(flush(sink)).values()].join('\n')
+    expect(back.indexOf('thought summary')).toBeLessThan(back.indexOf('between'))
+    expect(back.indexOf('between')).toBeLessThan(back.indexOf('long head'))
+    expect(back).toContain('(rest)')
+    expect(back).not.toContain('long c')
+  })
+
+  it('refuses a fold back that would overlap an existing fold', () => {
+    const sink = host(10, 40)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.appendFold(['s'], ['f1', 'f2'])
+    screen.append(['tail'])
+    // Claims two lines but the first belongs to the fold above: refused.
+    screen.foldBack(2, ['bad'])
+    screen.collapseFolds()
+    flush(sink)
+    expect(screen.toggleFolds()).toBe(true)
+    // Only the original fold toggles; 'bad' never entered the transcript.
+    const text = [...painted(flush(sink)).values()].join('\n')
+    expect(text).toContain('f2')
+    expect(text).not.toContain('bad')
+  })
+
   it('has nothing to toggle without folds, and clearing forgets them', () => {
     const sink = host(8, 40)
     const screen = new Screen(sink)

@@ -343,6 +343,18 @@ export class TerminalConsole {
    * Swap every collapsible block between summary and full form.
    * @returns false when there is nothing to toggle.
    */
+  /**
+   * Make the last `count` written lines a collapsible block after the fact.
+   *
+   * Screen-only on purpose: a pipe already carries the full text, and a
+   * summary would subtract from it.
+   * @param count - how many trailing lines the block owns.
+   * @param summary - the collapsed lines, already styled.
+   */
+  foldRecent(count: number, summary: readonly string[]): void {
+    this.screen?.foldBack(count, summary)
+  }
+
   toggleFolds(): boolean {
     return this.screen?.toggleFolds() ?? false
   }

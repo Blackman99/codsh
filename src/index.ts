@@ -271,6 +271,12 @@ const RECALL_WINDOW_MS = 1500
 /** Turns longer than this ring the bell on completion, when the bell is on. */
 const BELL_TURN_MS = 10_000
 
+/** A finished answer longer than this many rendered lines becomes a fold. */
+const ANSWER_FOLD_LINES = 24
+
+/** How many of its head lines a collapsed answer keeps visible. */
+const ANSWER_HEAD_LINES = 8
+
 /**
  * A subprocess's captured outcome: merged output and how it ended.
  */
@@ -783,6 +789,25 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
   }
 
   const stream = new TextStream(theme, () => io.console.contentColumns)
+  // A finished answer is foldable too, the way Claude keeps every long block
+  // collapsible: it streams in the open, and when the block ends anything
+  // longer than a screenful is registered as an expanded fold — read now,
+  // collapsed to its head lines once the conversation moves on.
+  let answerLines: string[] = []
+  const finishAnswer = (): void => {
+    if (!stream.streamed) return
+    const tail = stream.flush()
+    emit([...tail, ''])
+    answerLines.push(...tail)
+    if (answerLines.length > ANSWER_FOLD_LINES) {
+      io.console.foldRecent(answerLines.length + 1, [
+        ...answerLines.slice(0, ANSWER_HEAD_LINES),
+        theme.dim(`  … +${answerLines.length - ANSWER_HEAD_LINES} lines (Ctrl+O expands)`),
+        '',
+      ])
+    }
+    answerLines = []
+  }
   // Reasoning gets its own stream: pushed into `stream`, its deltas would mark
   // the answer as already-shown and the visible text would be swallowed.
   const thinking = new TextStream(theme, () => io.console.contentColumns, true)
@@ -859,6 +884,7 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
       flushThinking()
       const step = stream.push(chunk.text)
       emit(step.lines, step.live)
+      answerLines.push(...step.lines)
       return
     }
     if (event.type === 'assistant/message') {
@@ -868,7 +894,7 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
       if (stream.streamed) {
         // Already shown delta by delta; re-rendering the assembled text would
         // print the answer twice.
-        emit([...stream.flush(), ''])
+        finishAnswer()
         return
       }
     }
@@ -970,7 +996,7 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
     // Text cut off mid-line was already shown; leaving it in the live region
     // would erase it on the next write.
     flushThinking()
-    if (stream.streamed) emit([...stream.flush(), ''])
+    finishAnswer()
     if (busy) prompt.write(theme.dim('  interrupted'))
     return busy
   }
@@ -1063,7 +1089,7 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
     // No viewport in print mode: the caller wants the answer on stdout.
     await turn(live.agent, config.task, spinner)
     flushThinking()
-    if (stream.streamed) emit([...stream.flush(), ''])
+    finishAnswer()
     await sessions.flush(live.agent.session)
     prompt.clear()
     io.console.close()
