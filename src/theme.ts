@@ -4,6 +4,8 @@
  * @module codsh-cli/src/theme
  */
 
+import stringWidth from 'string-width'
+
 /** SGR codes applied by {@link Theme}, by role. */
 const SGR = {
   reset: '\u001B[0m',
@@ -105,53 +107,31 @@ export function createTheme(isTty: boolean, env: Record<string, string | undefin
 }
 
 /**
- * Inclusive code-point ranges rendered two columns wide by a terminal: the
- * East Asian Wide and Fullwidth classes of Unicode TR11, which cover the CJK
- * blocks, Hangul, the fullwidth forms, and the emoji planes this surface
- * prints.
- */
-const WIDE_RANGES: readonly (readonly [number, number])[] = [
-  [0x1100, 0x115F], [0x2E80, 0x303E], [0x3041, 0x33FF],
-  [0x3400, 0x4DBF], [0x4E00, 0x9FFF], [0xA000, 0xA4CF],
-  [0xA960, 0xA97F], [0xAC00, 0xD7A3], [0xF900, 0xFAFF],
-  [0xFE10, 0xFE19], [0xFE30, 0xFE6F], [0xFF00, 0xFF60],
-  [0xFFE0, 0xFFE6], [0x1F300, 0x1F64F], [0x1F900, 0x1F9FF],
-  [0x20000, 0x2FFFD], [0x30000, 0x3FFFD],
-]
-
-/** Matches one SGR sequence, which occupies no display column. */
-const SGR_PATTERN = /\u001B\[[0-9;]*m/gu
-
-/**
- * Whether one code point occupies two display columns.
- * @param code - the code point to classify.
- * @returns true when the terminal renders it double-width.
- */
-function isWide(code: number): boolean {
-  return WIDE_RANGES.some(([low, high]) => code >= low && code <= high)
-}
-
-/**
  * Display columns a string occupies once printed, ignoring styling sequences.
  *
- * Combining marks are counted as zero and East Asian Wide/Fullwidth code
- * points as two, which is what a terminal's own cursor arithmetic does. This
- * covers the alignment and wrapping this surface needs; it is not a complete
- * grapheme segmenter, so a ZWJ emoji sequence still counts each joined code
- * point ({@link ../README.md | Known Limitations}).
+ * Measured by `string-width` — the width authority cli-table3, ink, and every
+ * maintained terminal renderer sit on — so East Asian Wide, emoji presentation
+ * (`⚡` included), combining marks, and ZWJ sequences all match what a
+ * terminal's cursor actually does. A hand-kept range table here mis-sized `⚡`
+ * and sheared a real table's columns; widths are exactly the kind of data
+ * nobody should maintain by hand.
  * @param text - the string to measure, possibly carrying SGR sequences.
  * @returns the number of display columns.
  */
 export function displayWidth(text: string): number {
-  let width = 0
-  for (const character of text.replace(SGR_PATTERN, '')) {
-    const code = character.codePointAt(0)
-    if (code === undefined) continue
-    // Combining marks attach to the preceding cell and advance no column.
-    if (code >= 0x0300 && code <= 0x036F) continue
-    width += isWide(code) ? 2 : 1
+  if (text === '') return 0
+  // Fast path: printable ASCII is one column each, no library call needed —
+  // this sits under per-character wrapping loops.
+  let ascii = true
+  for (let index = 0; index < text.length; index += 1) {
+    const code = text.charCodeAt(index)
+    if (code < 0x20 || code > 0x7E) {
+      ascii = false
+      break
+    }
   }
-  return width
+  if (ascii) return text.length
+  return stringWidth(text)
 }
 
 /** Matches one SGR sequence at the start of a string. */
@@ -186,7 +166,7 @@ export function truncate(text: string, columns: number): string {
     }
     const code = text.codePointAt(at) ?? 0
     const cell = String.fromCodePoint(code)
-    const step = code >= 0x0300 && code <= 0x036F ? 0 : isWide(code) ? 2 : 1
+    const step = displayWidth(cell)
     if (width + step > columns - 1) break
     width += step
     out += cell

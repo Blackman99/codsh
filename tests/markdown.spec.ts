@@ -151,6 +151,13 @@ describe('tables', () => {
     expect(lines.filter(line => line.includes('┼'))).toHaveLength(2)
   })
 
+  it('keeps columns aligned when a cell carries an emoji', () => {
+    const rows = renderMarkdown('| a | b |\n|---|---|\n| ⚡ x | 1 |\n| yyyy | 2 |', plain)
+    // Both body rows put the second column's rule at the same display column.
+    const ruleAt = (row: string): number => displayWidth(row.slice(0, row.indexOf('│')))
+    expect(ruleAt(rows[2] ?? '')).toBe(ruleAt(rows[3] ?? ''))
+  })
+
   it('renders inline constructs inside cells, and sizes on the visible text', () => {
     const colour = createTheme(true, { TERM: 'xterm-256color' })
     const rows = renderMarkdown('| a | b |\n|---|---|\n| `code` | **bold** |', colour)

@@ -81,3 +81,11 @@ describe('truncate', () => {
     expect(truncate('abcdef', 1)).toBe('')
   })
 })
+
+describe('emoji and symbol widths, per string-width', () => {
+  it('sizes emoji-presentation symbols at two columns', () => {
+    // ⚡ mis-sized at one column sheared a real table's fourth column.
+    expect(displayWidth('⚡')).toBe(2)
+    expect(displayWidth('工作中显示 ⚡ 前缀')).toBe(18)
+  })
+})
