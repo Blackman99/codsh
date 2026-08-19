@@ -17,6 +17,17 @@ codsh
 
 `codsh` 严格等价于 `dsh --profile code`——包装器只做一次性的 profile 注册。`codsh` 之后的参数直达应用：`codsh --resume <会话 id>`、`codsh --continue`、`codsh -p "一次性任务"`。
 
+### 本机已有 dsh？
+
+跳过全局包——它自带一整份 dsh 运行时（约 300MB），已有 dsh 的机器不需要第二份。直接用你现有的 dsh 把 codsh 加进 profile：
+
+```sh
+dsh plugin --profile code add codsh-cli
+dsh --profile code
+```
+
+profile 安装会复用你的 pnpm store，已有 dsh 的机器几乎零下载。首次启动会自动安装 `code-cli` agent preset，所有功能与 `codsh` 命令完全一致——`codsh` 只是上面两行的语法糖。profile 名可以任取；只有包装器硬编码了 `code`。
+
 ## 你会得到什么
 
 - **会话是自己的空间**：codsh 进入备用屏幕，你的 shell 滚回历史原封不动、退出即恢复。transcript 在会话自有的缓冲里滚动——鼠标滚轮、PgUp/PgDn、Shift+↑/↓——输入框钉在底部从不移动；向上翻阅时视口会标注离尾部多远，新输出继续累积而不把你拽回去。每一帧以同步更新原子绘制；退出时向 shell 留下两行摘要（会话 id、用量、`--resume` 命令）。

@@ -17,6 +17,17 @@ The first run registers this package into a dsh `code` profile under `$DSH_HOME`
 
 `codsh` is exactly `dsh --profile code` — the wrapper only performs the one-time profile registration. Flags after `codsh` reach the app: `codsh --resume <session-id>`, `codsh --continue`, `codsh -p "one-shot task"`.
 
+### Already on dsh?
+
+Skip the global package — it bundles its own copy of the dsh runtime (~300MB), which a machine that has dsh doesn't need twice. Add codsh to a profile with the dsh you already have:
+
+```sh
+dsh plugin --profile code add codsh-cli
+dsh --profile code
+```
+
+The profile install resolves against your pnpm store, so on a machine with dsh it downloads next to nothing. The first boot installs the `code-cli` agent preset by itself, and every codsh feature works identically — the `codsh` command is only sugar for the two lines above. Any profile name works; only the wrapper hardcodes `code`.
+
 ## What you get
 
 - **A session that is its own space**: codsh takes the alternate screen, so your shell's scrollback is untouched and waiting when you leave. The transcript scrolls in a buffer the session owns — mouse wheel, PgUp/PgDn, Shift+↑/↓ — under an input box that never moves from the bottom; scrolled back, the viewport says how far and new output keeps accumulating without yanking you to it. Every frame paints as one synchronized update, and quitting drops a two-line summary (session id, spend, the `--resume` command) into your shell.
