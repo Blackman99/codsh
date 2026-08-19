@@ -166,6 +166,25 @@ describe('tables', () => {
     expect(ruleAt(rows[3] ?? '')).toBe(ruleAt(rows[5] ?? ''))
   })
 
+  it('ignores stray trailing pipes: the header defines the columns', () => {
+    // Models routinely pad rows with empty cells or over-long delimiters; the
+    // ghosts squeezed real columns into wrapping in the field.
+    const rows = renderMarkdown([
+      '| a | b | c |',
+      '|---|---|---|---|---|---|',
+      '| 1 | 2 | 3 | | | |',
+      '| 4 | 5 | 6 |||',
+    ].join('\n'), plain)
+    // Three columns framed: four │ per row, no empty ghost cells.
+    expect(rows[1]).toBe('│ a │ b │ c │')
+    for (const row of rows) expect(row.split('│').length - 1).toBeLessThanOrEqual(4)
+  })
+
+  it('trims columns that are empty in every row, header included', () => {
+    const rows = renderMarkdown('| a | b | | |\n|---|---|---|---|\n| 1 | 2 | | |', plain)
+    expect(rows[1]).toBe('│ a │ b │')
+  })
+
   it('renders inline constructs inside cells, and sizes on the visible text', () => {
     const colour = createTheme(true, { TERM: 'xterm-256color' })
     const rows = renderMarkdown('| a | b |\n|---|---|\n| `code` | **bold** |', colour)

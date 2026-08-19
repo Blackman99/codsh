@@ -219,13 +219,20 @@ function layoutTable(rows: readonly string[], theme: Theme, budget: number): str
   const asSource = (): string[] => rows.map(row => renderInline(row, theme))
   const raw = rows.map(row => row.trim().replace(/^\|/, '').replace(/\|$/, '').split('|').map(cell => cell.trim()))
   const delimiter = raw[1]
-  // Without a delimiter row this is not a table, just prose with pipes.
-  if (raw.length < 2 || delimiter === undefined || !delimiter.every(cell => TABLE_DELIMITER.test(cell))) {
+  // Without a delimiter row this is not a table, just prose with pipes. Empty
+  // delimiter segments (a model's stray trailing pipes) are ignored, not fatal.
+  const marks = (delimiter ?? []).filter(cell => cell !== '')
+  if (raw.length < 2 || delimiter === undefined || marks.length === 0 || !marks.every(cell => TABLE_DELIMITER.test(cell))) {
     return asSource()
   }
-  const styled = [raw[0] ?? [], ...raw.slice(2)].map(row => row.map(cell => renderInline(cell, theme)))
+  // The header defines the column count (as GFM reads it): a body row's — or
+  // delimiter's — stray trailing pipes must not conjure empty columns that
+  // squeeze the real ones into wrapping.
+  let count = Math.max(1, (raw[0] ?? []).length)
+  const content = [raw[0] ?? [], ...raw.slice(2)]
+  while (count > 1 && content.every(row => (row[count - 1] ?? '') === '')) count -= 1
+  const styled = content.map(row => row.slice(0, count).map(cell => renderInline(cell, theme)))
   const visible = (cell: string): number => displayWidth(cell.replaceAll(/\u001B\[[0-9;]*m/gu, ''))
-  const count = Math.max(...styled.map(row => row.length))
   const natural = Array.from({ length: count }, (_, column) =>
     Math.max(1, ...styled.map(row => visible(row[column] ?? ''))))
   // Per row: `│ ` lead, ` │ ` between columns, ` │` tail.
