@@ -83,7 +83,11 @@ while time.monotonic() < deadline:
         # marker to wait for when the expected outcome is silence.
         if delay_ms:
             time.sleep(delay_ms / 1000)
-        os.write(fd, payload)
+        if payload.startswith(b"@WINSZ:"):
+            new_rows, new_cols = payload[7:].split(b"x")
+            fcntl.ioctl(fd, termios.TIOCSWINSZ, struct.pack("HHHH", int(new_rows), int(new_cols), 0, 0))
+        else:
+            os.write(fd, payload)
         step += 1
         sys.stderr.write(f"step {step}: matched {marker!r}, wrote {payload!r}\n")
     waited, candidate = os.waitpid(pid, os.WNOHANG)
@@ -479,5 +483,25 @@ describe.skipIf(process.platform === 'win32')('dsh code Escape (real PTY)', () =
     const plain = output.replaceAll(/\u001B\[[0-9;?]*[A-Za-z]/gu, '')
     expect(plain).toContain('› !echo BANG_PTY_7')
     expect(plain).toContain('bang=yes')
+  }, E2E_TEST_TIMEOUT_MS)
+
+  it('recovers from a terminal resize with an absolute erase and a bottom re-anchor', async () => {
+    const output = await drivePty('write', [
+      ['/help for commands', '', 0],
+      // The startup anchor follows the banner; consuming it makes the later
+      // match unambiguously the post-resize re-anchor.
+      ['\u001B[9999;1H', '@WINSZ:40x80', 400],
+      // The resize recovery: clear from an absolute row, then a fresh draw
+      // anchored to the bottom — relative erase math is void after a rewrap.
+      ['\u001B[0J', '', 0],
+      ['\u001B[9999;1H', `still alive${ENTER}`, 300],
+      // The surface keeps working at the new size.
+      ['CODE_CLI_CALL_OK', `/exit${ENTER}`, 400],
+    ])
+
+    // The absolute-row erase is the recovery's signature; relative erases
+    // never carry an explicit row.
+    expect(output).toMatch(/\u001B\[\d+;1H\u001B\[0J/u)
+    expect(output).toContain('CODE_CLI_CALL_OK')
   }, E2E_TEST_TIMEOUT_MS)
 })

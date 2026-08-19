@@ -19,7 +19,7 @@ codsh
 
 ## 你会得到什么
 
-- **接管键盘的输入框**：多行编辑（Alt-Enter）、跨会话历史，命令、参数与 `@` 文件提及（全工作区模糊搜索）的补全随输入自动打开。
+- **接管键盘的输入框**：固定在屏幕底部、缩放安全；多行编辑（Alt-Enter）、跨会话历史，命令、参数与 `@` 文件提及（全工作区模糊搜索）的补全随输入自动打开。
 - **流式渲染**：Markdown 带代码高亮与表格排版，推理模型的思考在 `✻ thinking` 下暗色显示，工具调用按 presenter 驱动的卡片渲染（含 diff），Ctrl-O 完整重印最近被截断的输出。
 - **决定用选择**：审批、提问、`/model` 与 `/resume` 都是方向键组件；Shift-Tab 切换 plan 模式并为框着色。
 - **会话流**：`/clear` 原地开新会话，`/resume` 从带标题和时间的会话列表里选，连按两次 Escape 召回上一条消息编辑，`!cmd` 在你自己的 shell 里运行并把结果注入为模型可见上下文——不花回合。
@@ -59,6 +59,16 @@ e2e 测试的是发布产物：`npm pack` 的输出装进真实 profile，由 np
 ```
 
 再执行 `pnpm install`。想进上游的改动以普通 PR 提交到 harness 仓库；本仓库绝不 fork 它。
+
+### 跟随 dsh 发布版本
+
+codsh 消费的是已发布的 `@deepseek-ai/dsh-*` npm 包，所以"与 dsh 同步"跟踪的是 harness 的**发布**，不是合并源码。三层机制让这件事全自动：
+
+1. **发现**——[Renovate](renovate.json) 盯着 `@deepseek-ai/dsh-*`（及同步发布的 cordis 包）自动开依赖 PR；[夜间 sync 工作流](.github/workflows/sync-dsh.yml) 不依赖第三方服务也能做同样的事。
+2. **升级**——`pnpm run sync:dsh` 把所有 `@deepseek-ai/dsh-*` 范围改写到最新发布版、刷新锁文件、写 changeset；`--check` 模式在存在新版本时以退出码 1 报告（夜间任务就靠它判断）。
+3. **验证**——同一命令重新核对 `cordis.patch.yml`：每个被禁用/配置的插件 id 必须仍被已安装的 dsh bundle 声明，每个 insert 的包必须可解析；然后跑 typecheck/build/单测（加 `--e2e` 会真正启动打补丁后的 bundle），CI 在生成的 PR 上再全部跑一遍。
+
+因为所有 dsh 包都是预发布版本（`0.1.0-rc.N`），普通 semver 范围**不会**跨版本浮动——同步命令才是事实来源，`pnpm update` 不是。
 
 ## 许可
 

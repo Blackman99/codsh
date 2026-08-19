@@ -9,7 +9,7 @@
 
 import { PassThrough } from 'node:stream'
 import { describe, expect, it } from 'vitest'
-import { TerminalConsole } from '../src/console.ts'
+import { TerminalConsole, rewrappedHeight } from '../src/console.ts'
 import type { Key } from '../src/keys.ts'
 
 /** Collects everything the console writes. */
@@ -190,7 +190,7 @@ describe('the bottom region', () => {
     const { console: term, output } = build(true, 20)
     term.setRegion(['x'.repeat(60)], { row: 0, column: 0 })
     // Escapes and the carriage return occupy no column.
-    const visible = output.text.replaceAll(/\u001B\[[0-9?]*[A-Za-z]/gu, '').replaceAll('\r', '')
+    const visible = output.text.replaceAll(/\u001B\[[0-9;?]*[A-Za-z]/gu, '').replaceAll('\r', '')
     for (const line of visible.split('\n')) expect(line.length).toBeLessThanOrEqual(19)
   })
 
@@ -209,5 +209,53 @@ describe('the bottom region', () => {
   it('lays out to a floor when the terminal reports no width', () => {
     const { console: term } = build(true, 0)
     expect(term.columns).toBe(20)
+  })
+})
+
+describe('bottom anchoring and resize recovery', () => {
+  it('anchors a fresh region to the last screen row', () => {
+    const { console: term, output } = build(true, 40)
+    term.setRegion(['the box'], { row: 0, column: 0 })
+    expect(output.text).toContain('\u001B[9999;1H')
+    // A redraw of a live region moves relatively; it must not re-anchor.
+    output.chunks.length = 0
+    term.setRegion(['the box', 'status'], { row: 0, column: 0 })
+    expect(output.text).not.toContain('\u001B[9999;1H')
+  })
+
+  it('re-anchors after a clear, which is how Ctrl-L keeps the box at the bottom', () => {
+    const { console: term, output } = build(true, 40)
+    term.setRegion(['the box'], { row: 0, column: 0 })
+    term.clearScreen()
+    output.chunks.length = 0
+    term.setRegion(['the box'], { row: 0, column: 0 })
+    expect(output.text).toContain('\u001B[9999;1H')
+  })
+
+  it('recovers from a resize with an absolute erase, never a relative one', async () => {
+    const { console: term, output } = build(true, 40)
+    Object.defineProperty(output, 'rows', { value: 30 })
+    term.setRegion(['x'.repeat(35), 'status'], { row: 1, column: 0 })
+    output.chunks.length = 0
+    output.emit('resize')
+    await settle()
+    // Two rows of width ≤39 at the (unchanged) fake width of 40 → estimate 2,
+    // plus 2 slack rows: clear from row 27 of 30 downwards, absolutely.
+    expect(output.text).toContain('\u001B[27;1H\u001B[0J')
+    // The next draw is fresh and anchors to the bottom again.
+    output.chunks.length = 0
+    term.setRegion(['the box'], { row: 0, column: 0 })
+    expect(output.text).toContain('\u001B[9999;1H')
+  })
+})
+
+describe('rewrappedHeight', () => {
+  it('counts the lines rows refold into at a narrower width', () => {
+    // 70 wide at 30 columns → 3 lines; 10 wide → 1; an empty row is still 1.
+    expect(rewrappedHeight([70, 10, 0], 30)).toBe(5)
+  })
+
+  it('never divides by a zero-width terminal', () => {
+    expect(rewrappedHeight([5], 0)).toBe(5)
   })
 })

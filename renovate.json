@@ -1,0 +1,21 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["config:recommended"],
+  "rangeStrategy": "bump",
+  "packageRules": [
+    {
+      "matchPackagePrefixes": ["@deepseek-ai/dsh-", "@deepseek-ai/dsh"],
+      "groupName": "deepseek harness (dsh)",
+      "groupSlug": "dsh",
+      "ignoreUnstable": false,
+      "labels": ["dependencies", "dsh"]
+    },
+    {
+      "matchPackagePrefixes": ["@deepseek-ai/cordis", "@deepseek-ai/cordis-plugin-loader"],
+      "groupName": "deepseek harness (cordis)",
+      "groupSlug": "dsh-cordis",
+      "ignoreUnstable": false,
+      "labels": ["dependencies", "dsh"]
+    }
+  ]
+}

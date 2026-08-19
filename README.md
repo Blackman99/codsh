@@ -19,7 +19,7 @@ The first run registers this package into a dsh `code` profile under `$DSH_HOME`
 
 ## What you get
 
-- **An input box that owns the keyboard**: multi-line editing (Alt-Enter), history across sessions, completion for commands, arguments, and `@`-mentioned files (fuzzy, workspace-wide), opened as you type.
+- **An input box that owns the keyboard**: pinned to the bottom of the screen and resize-safe, with multi-line editing (Alt-Enter), history across sessions, and completion for commands, arguments, and `@`-mentioned files (fuzzy, workspace-wide), opened as you type.
 - **Streaming rendering**: Markdown with code highlighting and table layout, reasoning models' thinking dim under `✻ thinking`, tool calls as presenter-driven cards with diffs, and Ctrl-O to reprint the last clipped output in full.
 - **Decisions as selections**: approvals, questions, `/model`, and `/resume` are arrow-key widgets; plan mode toggles on Shift-Tab and tints the box frame.
 - **Session flow**: `/clear` starts fresh in place, `/resume` picks from recorded sessions with titles and ages, Escape twice recalls your previous message for editing, and `!cmd` runs in your shell with the outcome injected as model-visible context — no turn spent.
@@ -59,6 +59,16 @@ Day to day, dsh is an ordinary npm dependency. To step into harness code, clone 
 ```
 
 and re-run `pnpm install`. Changes you want upstream go to the harness repo as ordinary PRs; this repository never forks it.
+
+### Keeping up with dsh releases
+
+codsh consumes the harness as published `@deepseek-ai/dsh-*` packages, so "syncing with dsh" means tracking harness **releases**, not merging source. Three layers keep it automatic:
+
+1. **Detect** — [Renovate](renovate.json) watches `@deepseek-ai/dsh-*` (plus co-released cordis packages) and opens dependency PRs; a nightly [sync workflow](.github/workflows/sync-dsh.yml) does the same without third-party services.
+2. **Bump** — `pnpm run sync:dsh` rewrites every `@deepseek-ai/dsh-*` range to the latest published release, refreshes the lockfile, writes a changeset, and exits `1` from `--check` when newer versions exist (that is what the nightly job keys on).
+3. **Prove** — the same command re-verifies `cordis.patch.yml`: every plugin id it disables or configures must still be declared by an installed dsh bundle, and every package it inserts must resolve. Then it runs typecheck/build/unit (add `--e2e` to boot the real patched bundle), and CI repeats all of that on the resulting PR.
+
+Because every dsh package is a prerelease (`0.1.0-rc.N`), plain semver ranges do **not** float across releases — the sync command is the source of truth, not `pnpm update`.
 
 ## License
 

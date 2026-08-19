@@ -16,7 +16,7 @@
 import { createInterface } from 'node:readline'
 import type { Interface } from 'node:readline'
 import { DISABLE_PASTE_MARKERS, ENABLE_PASTE_MARKERS, KeyDecoder } from './keys.ts'
-import { truncate } from './theme.ts'
+import { displayWidth, truncate } from './theme.ts'
 import type { Key } from './keys.ts'
 
 /** Columns assumed when the output stream reports none (a pipe). */
@@ -40,6 +40,37 @@ const CLEAR_BELOW = '\u001B[0J'
 /** Hide the cursor while a region is redrawn, so it does not visibly jump. */
 const HIDE_CURSOR = '\u001B[?25l'
 
+/** Jump to the last screen row (terminals clamp the huge row number). */
+const ANCHOR_BOTTOM = '\u001B[9999;1H'
+
+/**
+ * Rows cleared beyond the rewrap estimate when recovering from a resize.
+ *
+ * The estimate assumes the terminal rewraps like most do; the slack absorbs a
+ * cursor left one row off or a terminal that wraps slightly differently. Too
+ * little leaves ghost frame rows; too much erases a line of visible transcript
+ * once per resize, which is the cheaper mistake.
+ */
+const RESIZE_SLACK_ROWS = 2
+
+/** Rows assumed when the output stream reports none. */
+const FALLBACK_ROWS = 24
+
+/**
+ * How many physical lines previously drawn rows occupy after a resize.
+ *
+ * A rewrapping terminal refolds each row at the new width; a truncating one
+ * keeps one line per row, which this over-counts — the caller's erase then
+ * costs a spare transcript line instead of leaving ghosts.
+ * @param widths - display widths of the rows as they were drawn.
+ * @param columns - the new terminal width.
+ * @returns the estimated physical line count.
+ */
+export function rewrappedHeight(widths: readonly number[], columns: number): number {
+  const wrapAt = Math.max(1, columns)
+  return widths.reduce((sum, width) => sum + Math.max(1, Math.ceil(width / wrapAt)), 0)
+}
+
 /** Show the cursor again. */
 const SHOW_CURSOR = '\u001B[?25h'
 
@@ -56,6 +87,7 @@ const ESCAPE_FLUSH_MS = 20
 /** The output stream this surface writes to. */
 export interface OutputStream extends NodeJS.WritableStream {
   readonly columns?: number
+  readonly rows?: number
   readonly isTTY?: boolean
 }
 
@@ -92,6 +124,8 @@ export class TerminalConsole {
   private regionRows: string[] = []
   /** Where among those rows the cursor was left. */
   private regionCursor: RegionCursor = { row: 0, column: 0 }
+  /** Display widths of the drawn rows, for the resize rewrap estimate. */
+  private regionWidths: number[] = []
   /** Whether the region currently holds input focus, which shows the cursor. */
   private regionFocus = true
 
@@ -104,6 +138,9 @@ export class TerminalConsole {
       // Asking the terminal to mark pastes is what lets a pasted block enter the
       // buffer whole instead of arriving as a run of Enter presses.
       this.output.write(ENABLE_PASTE_MARKERS)
+      // Registered before any caller's resize handler, so the stale region is
+      // reclaimed before the first redraw at the new size.
+      this.output.on('resize', () => { this.reclaimAfterResize() })
       input.on('data', (chunk: Buffer | string) => { this.onBytes(chunk) })
       input.on('end', () => { this.end() })
       this.rl = undefined
@@ -161,8 +198,32 @@ export class TerminalConsole {
   clearScreen(): void {
     if (!this.readsKeys) return
     this.output.write('\u001B[2J\u001B[H')
+    this.forgetRegion()
+  }
+
+  /** Drop all region bookkeeping; the next draw starts fresh at the bottom. */
+  private forgetRegion(): void {
     this.regionRows = []
+    this.regionWidths = []
     this.regionCursor = { row: 0, column: 0 }
+  }
+
+  /**
+   * Reclaim the screen after a resize, where relative cursor math is void.
+   *
+   * A resize rewraps what is on screen, so "the region starts N rows above the
+   * cursor" no longer holds and a relative erase leaves ghost frames behind.
+   * Instead the old region's rewrapped footprint is estimated from its rows'
+   * widths and cleared from an absolute position at the bottom; the caller's
+   * own resize handler then redraws, anchored to the bottom again.
+   */
+  private reclaimAfterResize(): void {
+    if (this.regionRows.length === 0) return
+    const rows = this.output.rows ?? FALLBACK_ROWS
+    const height = rewrappedHeight(this.regionWidths, this.output.columns ?? FALLBACK_COLUMNS) + RESIZE_SLACK_ROWS
+    const top = Math.max(1, rows - height + 1)
+    this.output.write(`\u001B[${top};1H${CLEAR_BELOW}`)
+    this.forgetRegion()
   }
 
   /**
@@ -270,7 +331,11 @@ export class TerminalConsole {
    */
   setRegion(rows: readonly string[], cursor: RegionCursor, focus = true): void {
     if (!this.readsKeys) return
-    this.eraseRegion()
+    // A fresh region — session start, after a clear, after a resize — anchors
+    // to the last screen rows: the box lives at the bottom, not wherever the
+    // cursor happened to be.
+    if (this.regionRows.length === 0) this.output.write(ANCHOR_BOTTOM)
+    else this.eraseRegion()
     this.drawRegion(rows, cursor, focus)
     this.regionRows = [...rows]
     this.regionCursor = { ...cursor }
@@ -284,8 +349,7 @@ export class TerminalConsole {
     // The region may have parked the cursor hidden; what follows is ordinary
     // terminal use again.
     if (!this.regionFocus) this.output.write(SHOW_CURSOR)
-    this.regionRows = []
-    this.regionCursor = { row: 0, column: 0 }
+    this.forgetRegion()
     this.regionFocus = true
   }
 
@@ -310,6 +374,9 @@ export class TerminalConsole {
     // Every row is cut to one less than the width: a row that exactly fills the
     // terminal wraps, and a wrapped row breaks the arithmetic that erases it.
     const fitted = rows.map(row => truncate(row, this.columns - 1))
+    // Visible widths only: styling is zero columns, and the resize estimate
+    // that reads these is about what the terminal will rewrap.
+    this.regionWidths = fitted.map(row => displayWidth(row.replaceAll(/\u001B\[[0-9;?]*[A-Za-z]/gu, '')))
     const body = fitted.map(row => `${CLEAR_LINE}${row}`).join('\n')
     const back = fitted.length - 1 - cursor.row
     const up = back > 0 ? `\u001B[${back}A` : ''
