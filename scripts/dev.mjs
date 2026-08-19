@@ -33,6 +33,18 @@ const dshBin = join(dirname(dshManifest), typeof dshBinField === 'string' ? dshB
 console.error('codsh dev: building')
 execFileSync('pnpm', ['run', 'build'], { cwd: repo, stdio: 'inherit' })
 
+// A pre-split home registered the runtime under the launcher's old name and
+// pinned a temp-dir tarball that no longer exists; nothing in it is worth
+// keeping — it is a scratch profile — so a shape mismatch rebuilds it whole.
+const manifest = join(home, 'profiles', 'code', 'package.json')
+if (existsSync(manifest)) {
+  const profile = JSON.parse(readFileSync(manifest, 'utf8'))
+  if ('codsh-cli' in (profile.dependencies ?? {})) {
+    console.error('codsh dev: .dev-home predates the launcher/bundle split — rebuilding it')
+    rmSync(home, { recursive: true, force: true })
+  }
+}
+
 if (!existsSync(installed)) {
   // First run: a real profile install, so dependency resolution matches a
   // user's. The tarball is what registers; the fast path replaces its files.
