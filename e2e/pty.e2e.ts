@@ -479,16 +479,20 @@ describe.skipIf(process.platform === 'win32')('dsh code Escape (real PTY)', () =
     expect(output).toMatch(/session session-/)
   }, E2E_TEST_TIMEOUT_MS)
 
-  it('streams thinking dim before the answer', async () => {
+  it('streams thinking as a live line and collapses it to a summary', async () => {
     const output = await drivePty('reasoning', [
       ['/help for commands', `think it over${ENTER}`, 300],
       ['CODE_CLI_ANSWER after thinking', `/exit${ENTER}`, 400],
     ])
 
-    const plain = output.replaceAll(/\u001B\[[0-9;?]*[A-Za-z]/gu, '')
-    expect(plain).toContain('✻ thinking')
-    expect(plain).toContain('CODE_CLI_THINKING about the request')
-    expect(plain.indexOf('✻ thinking')).toBeLessThan(plain.indexOf('CODE_CLI_ANSWER'))
+    // The thought was visible while it streamed...
+    expect(output).toContain('CODE_CLI_THINKING')
+    // ...but the settled screen keeps one summary line, not the pages.
+    const rows = screenAt(output, 'CODE_CLI_ANSWER after thinking').alternate
+    const summary = rows.findIndex(row => /✻ thought for [\d.]+s · \+\d+ lines \(Ctrl\+O expands\)/u.test(row))
+    expect(summary).toBeGreaterThanOrEqual(0)
+    expect(rows.some(row => row.includes('weighing the options'))).toBe(false)
+    expect(summary).toBeLessThan(rows.findIndex(row => row.includes('CODE_CLI_ANSWER')))
   }, E2E_TEST_TIMEOUT_MS)
 
   it('recalls the previous message with a double Escape', async () => {

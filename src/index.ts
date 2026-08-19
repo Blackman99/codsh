@@ -791,6 +791,21 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
   // Reasoning gets its own stream: pushed into `stream`, its deltas would mark
   // the answer as already-shown and the visible text would be swallowed.
   const thinking = new TextStream(theme, () => io.console.columns, true)
+  // Thinking is collapsed by default, the way Claude shows it: while it
+  // streams only the current line is live on screen, and when it ends the
+  // transcript keeps a one-line summary with the full text behind Ctrl+O —
+  // pages of deliberation would otherwise bury the conversation.
+  let thinkingLines: string[] = []
+  let thinkingStartedAt = 0
+  const flushThinking = (): void => {
+    thinkingLines.push(...thinking.flush())
+    if (thinkingLines.length === 0) return
+    const seconds = ((performance.now() - thinkingStartedAt) / 1000).toFixed(1)
+    live.transcript.noteClipped('thinking', thinkingLines)
+    emit([theme.dim(`✻ thought for ${seconds}s · +${thinkingLines.length} lines (Ctrl+O expands)`), ''])
+    thinkingLines = []
+    thinkingStartedAt = 0
+  }
   /**
    * Append the lines an event produced, and show the line still being typed.
    * @param lines - finished lines for the transcript.
@@ -834,22 +849,24 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
       // with every step — a visible flicker.
       if (chunk.type === 'reasoning-delta') {
         if (chunk.text === '') return
-        if (!thinking.streamed) emit([theme.dim('✻ thinking')])
+        if (thinkingStartedAt === 0) thinkingStartedAt = performance.now()
         const step = thinking.push(chunk.text)
-        emit(step.lines, step.live)
+        // Collected, not printed: only the line being thought shows, live.
+        thinkingLines.push(...step.lines)
+        prompt.setStreaming(step.live ?? thinkingLines.at(-1) ?? theme.dim('✻ thinking'))
         return
       }
       if (chunk.type !== 'text-delta') return
-      // The answer starting is what ends the thinking, visibly.
-      if (thinking.streamed) emit([...thinking.flush(), ''])
+      // The answer starting is what collapses the thinking into its summary.
+      flushThinking()
       const step = stream.push(chunk.text)
       emit(step.lines, step.live)
       return
     }
     if (event.type === 'assistant/message') {
       // A reasoning-only step (thinking straight into a tool call) still has
-      // to land its text before the call card prints.
-      if (thinking.streamed) emit([...thinking.flush(), ''])
+      // to land its summary before the call card prints.
+      flushThinking()
       if (stream.streamed) {
         // Already shown delta by delta; re-rendering the assembled text would
         // print the answer twice.
@@ -946,7 +963,7 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
     live.agent.cancel({ kind: 'user' })
     // Text cut off mid-line was already shown; leaving it in the live region
     // would erase it on the next write.
-    if (thinking.streamed) emit([...thinking.flush(), ''])
+    flushThinking()
     if (stream.streamed) emit([...stream.flush(), ''])
     if (busy) prompt.write(theme.dim('  interrupted'))
     return busy
@@ -1039,7 +1056,7 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
   if (config.print) {
     // No viewport in print mode: the caller wants the answer on stdout.
     await turn(live.agent, config.task, spinner)
-    if (thinking.streamed) emit([...thinking.flush(), ''])
+    flushThinking()
     if (stream.streamed) emit([...stream.flush(), ''])
     await sessions.flush(live.agent.session)
     prompt.clear()

@@ -237,4 +237,24 @@ describe.skipIf(process.platform === 'win32')('the first five minutes', () => {
     expect(text).not.toContain('**')
     expect(text).toContain('screen.ts')
   }, E2E_TEST_TIMEOUT_MS)
+
+  it('collapses thinking by default and expands it on Ctrl+O', async () => {
+    const output = await drive('reasoning', [
+      ['Welcome to codsh', `think it over${ENTER}`, 300],
+      ['thought for', '\u000F', 500],
+      ['weighing the options carefully', `/exit${ENTER}`, 400],
+    ])
+    // The live preview also carries the thought text, so the expansion frame
+    // is found by its own header rather than by the content.
+    // The expansion prints line by line across frames; cut at the LAST copy of
+    // its final line (the live preview carried the same text earlier).
+    const held = output.slice(0, output.indexOf(LEAVE_ALT))
+    const at = held.lastIndexOf('weighing the options carefully')
+    const frameEnd = held.indexOf(SYNC_END, at)
+    const probe = new Terminal(PTY_ROWS, PTY_COLUMNS)
+    probe.feed(held.slice(0, frameEnd < 0 ? held.length : frameEnd + SYNC_END.length))
+    const rows = probe.alternate
+    expect(rows.some(row => row.includes('thinking') && row.includes('full output'))).toBe(true)
+    expect(rows.some(row => row.includes('weighing the options carefully'))).toBe(true)
+  }, E2E_TEST_TIMEOUT_MS)
 })

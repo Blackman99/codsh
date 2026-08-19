@@ -188,13 +188,12 @@ describe('dsh code (real profile, keyless model)', () => {
   it('streams the model thinking dim, then the answer, without double-printing either', async () => {
     const run = await runCodeCli({ tool: 'reasoning', input: 'think it over\n/exit\n' })
 
-    expect(run.stdout).toContain('✻ thinking')
-    expect(run.stdout).toContain('CODE_CLI_THINKING about the request')
-    expect(run.stdout).toContain('weighing the options carefully')
-    // Thinking ends before the answer begins, and each prints exactly once.
-    expect(run.stdout.indexOf('CODE_CLI_THINKING')).toBeLessThan(run.stdout.indexOf('CODE_CLI_ANSWER'))
+    // Collapsed by default: the transcript keeps a one-line summary, never the
+    // pages of deliberation, and the summary lands before the answer.
+    expect(run.stdout).toMatch(/✻ thought for [\d.]+s · \+\d+ lines/u)
+    expect(run.stdout).not.toContain('weighing the options carefully')
+    expect(run.stdout.indexOf('✻ thought for')).toBeLessThan(run.stdout.indexOf('CODE_CLI_ANSWER'))
     expect(countOf(run.stdout, 'CODE_CLI_ANSWER after thinking')).toBe(1)
-    expect(countOf(run.stdout, 'weighing the options carefully')).toBe(1)
   }, E2E_TEST_TIMEOUT_MS)
 
   it('runs a ! line locally and the next request sees its outcome', async () => {

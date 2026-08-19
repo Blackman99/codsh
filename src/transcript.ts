@@ -304,6 +304,16 @@ export class Transcript {
   }
 
   /**
+   * Register a block collapsed elsewhere — the thinking stream — so Ctrl-O
+   * expands whichever collapse happened last, tool result or thought alike.
+   * @param title - what the expansion header names.
+   * @param lines - the full body, already styled.
+   */
+  noteClipped(title: string, lines: readonly string[]): void {
+    this.clipped = { title, lines: [...lines] }
+  }
+
+  /**
    * The last clipped result, rendered without its cap.
    *
    * Ctrl-O's answer. The full body is kept from the render itself because a
