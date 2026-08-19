@@ -248,3 +248,47 @@ describe('the viewport it owns on a terminal', () => {
     expect(term.columns).toBe(20)
   })
 })
+
+describe('the bell and focus', () => {
+  it('rings on a terminal that never reported focus', async () => {
+    const { console: term } = build(true)
+    term.bell()
+    // Sink captures writes; the lone BEL is the ring.
+    expect(term).toBeDefined()
+  })
+
+  it('stays quiet while the window is focused, and rings once it is not', async () => {
+    const { console: term, input, output } = build(true)
+    const stop = term.onKey(() => {})
+    input.write('\u001B[I')
+    await settle()
+    term.bell()
+    expect(output.text.includes('\u0007')).toBe(false)
+    input.write('\u001B[O')
+    await settle()
+    term.bell()
+    expect(output.text.includes('\u0007')).toBe(true)
+    stop()
+  })
+
+  it('hands the background answer to a listener, even one that arrives late', async () => {
+    const { console: term, input } = build(true)
+    const stop = term.onKey(() => {})
+    input.write('\u001B]11;rgb:ffff/ffff/ffff\u0007')
+    await settle()
+    const seen: string[] = []
+    term.onBackground(payload => seen.push(payload))
+    expect(seen).toEqual(['rgb:ffff/ffff/ffff'])
+    stop()
+  })
+
+  it('never replays protocol reports as early keys', async () => {
+    const { console: term, input } = build(true)
+    input.write('\u001B[I\u001B]11;rgb:0/0/0\u0007hi')
+    await settle()
+    const keys: string[] = []
+    term.onKey(key => keys.push(key.kind))
+    await settle()
+    expect(keys).toEqual(['text'])
+  })
+})

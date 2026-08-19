@@ -42,9 +42,13 @@ describe('entering and leaving', () => {
     const entered = flush(sink)
     expect(entered).toContain('\u001B[>1u')
     expect(entered.indexOf('\u001B[?1049h')).toBeLessThan(entered.indexOf('\u001B[>1u'))
+    // Focus reporting and the background question ride the same entry.
+    expect(entered).toContain('\u001B[?1004h')
+    expect(entered).toContain('\u001B]11;?\u0007')
     screen.leave()
     const left = flush(sink)
     expect(left).toContain('\u001B[<u')
+    expect(left).toContain('\u001B[?1004l')
     expect(left.indexOf('\u001B[<u')).toBeLessThan(left.indexOf('\u001B[?1049l'))
   })
 

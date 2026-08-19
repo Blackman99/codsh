@@ -37,6 +37,14 @@ export interface Theme {
   path(text: string): string
   /** The user's own echoed input. */
   user(text: string): string
+  /**
+   * Adopt the light- or dark-background palette.
+   *
+   * Base ANSI colors are the terminal theme's to map, but the secondary-text
+   * gray is an absolute palette entry, and the shade that recedes on a dark
+   * background washes out on a light one.
+   */
+  setLight(light: boolean): void
   /** Roles used inside a fenced code block. */
   readonly syntax: SyntaxTheme
 }
@@ -52,6 +60,7 @@ export interface SyntaxTheme {
 /** A theme that emits no sequences, used off a TTY and under `NO_COLOR`. */
 const PLAIN: Theme = {
   colored: false,
+  setLight: () => {},
   dim: text => text,
   bold: text => text,
   error: text => text,
@@ -87,9 +96,15 @@ export function createTheme(isTty: boolean, env: Record<string, string | undefin
   if (!isTty || env.NO_COLOR !== undefined) return PLAIN
   const palette = env.TERM?.includes('256color') === true || env.COLORTERM !== undefined
   const wrap = (code: string) => (text: string): string => `${code}${text}${SGR.reset}`
+  // Mutable on purpose: the background answer arrives moments after the first
+  // frame, and everything rendered from then on picks the readable shade.
+  let gray = '\u001B[38;5;245m'
   return {
     colored: true,
-    dim: wrap(palette ? '\u001B[38;5;245m' : SGR.dim),
+    setLight(light: boolean) {
+      gray = light ? '\u001B[38;5;242m' : '\u001B[38;5;245m'
+    },
+    dim: text => `${palette ? gray : SGR.dim}${text}${SGR.reset}`,
     bold: wrap(SGR.bold),
     error: wrap(SGR.red),
     success: wrap(SGR.green),
@@ -104,6 +119,22 @@ export function createTheme(isTty: boolean, env: Record<string, string | undefin
       comment: wrap(SGR.dim),
     },
   }
+}
+
+/**
+ * Whether an OSC 10/11 color answer names a light color.
+ *
+ * Channels arrive as `rgb:RR/GG/BB` with one to four hex digits each; each is
+ * normalized by its own width before the relative-luminance weighting.
+ * @param payload - the reply payload, e.g. `rgb:ffff/ffff/ffff`.
+ * @returns true for light, false for dark, undefined when unparseable.
+ */
+export function backgroundIsLight(payload: string): boolean | undefined {
+  const match = /^rgba?:([0-9a-f]{1,4})\/([0-9a-f]{1,4})\/([0-9a-f]{1,4})/i.exec(payload.trim())
+  if (match === null) return undefined
+  const channel = (hex: string): number => Number.parseInt(hex, 16) / (16 ** hex.length - 1)
+  const [red, green, blue] = [channel(match[1] ?? '0'), channel(match[2] ?? '0'), channel(match[3] ?? '0')]
+  return 0.2126 * red + 0.7152 * green + 0.0722 * blue > 0.5
 }
 
 /**

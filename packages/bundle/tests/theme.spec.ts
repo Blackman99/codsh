@@ -4,7 +4,7 @@
  */
 
 import { describe, expect, it } from 'vitest'
-import { createTheme, displayWidth, truncate } from '../src/theme.ts'
+import { backgroundIsLight, createTheme, displayWidth, truncate } from '../src/theme.ts'
 
 describe('createTheme', () => {
   it('emits sequences on a colour-capable terminal', () => {
@@ -74,6 +74,25 @@ describe('truncate', () => {
     // The `dim` attribute renders at full brightness on several terminals, and
     // a hierarchy nobody can see is no hierarchy.
     expect(createTheme(true, { TERM: 'xterm-256color' }).dim('x')).toBe('\u001B[38;5;245mx\u001B[0m')
+  })
+
+  it('swaps the secondary-text shade for a light background, and back', () => {
+    const theme = createTheme(true, { TERM: 'xterm-256color' })
+    theme.setLight(true)
+    expect(theme.dim('x')).toBe('\u001B[38;5;242mx\u001B[0m')
+    theme.setLight(false)
+    expect(theme.dim('x')).toBe('\u001B[38;5;245mx\u001B[0m')
+  })
+
+  it('reads lightness out of an OSC color answer', () => {
+    expect(backgroundIsLight('rgb:ffff/ffff/ffff')).toBe(true)
+    expect(backgroundIsLight('rgb:1e1e/1e1e/2e2e')).toBe(false)
+    expect(backgroundIsLight('rgb:ff/ff/ff')).toBe(true)
+    expect(backgroundIsLight('rgb:0/0/0')).toBe(false)
+    // Yellow is light, blue is dark: the channels are weighted, not averaged.
+    expect(backgroundIsLight('rgb:ffff/ffff/0000')).toBe(true)
+    expect(backgroundIsLight('rgb:0000/0000/ffff')).toBe(false)
+    expect(backgroundIsLight('not-a-color')).toBeUndefined()
     expect(createTheme(true, {}).dim('x')).toBe('\u001B[2mx\u001B[0m')
   })
 

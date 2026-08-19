@@ -81,6 +81,11 @@ export class TerminalConsole {
   private keyHandler: ((key: Key) => void) | undefined
   /** Keys decoded before any handler registered — type-ahead is never dropped. */
   private readonly earlyKeys: Key[] = []
+  /** Whether the terminal window has focus; undefined until it reports. */
+  private focused: boolean | undefined
+  /** The terminal's OSC 11 background answer, kept for late listeners. */
+  private background: string | undefined
+  private backgroundHandler: ((payload: string) => void) | undefined
   private escapeTimer: NodeJS.Timeout | undefined
   private ended = false
   /** The viewport this surface owns on a terminal; absent off one. */
@@ -250,6 +255,19 @@ export class TerminalConsole {
 
   /** Hand one key to the handler, or hold it until one registers. */
   private deliver(key: Key): void {
+    // Protocol reports are the console's own: no editor or selector wants
+    // them, and buffering them as "early keys" would replay them as typing.
+    if (key.kind === 'focus') {
+      this.focused = key.focused
+      return
+    }
+    if (key.kind === 'osc-reply') {
+      if (key.code === 11) {
+        this.background = key.payload
+        this.backgroundHandler?.(key.payload)
+      }
+      return
+    }
     if (this.keyHandler === undefined) {
       this.earlyKeys.push(key)
       return
@@ -436,7 +454,23 @@ export class TerminalConsole {
   /** Ring the terminal bell; a pipe gets nothing to beep with. */
   bell(): void {
     if (!this.isTty) return
+    // A person already looking at the terminal needs no bell: on terminals
+    // that report focus (mode 1004) it rings only while they are away. A
+    // terminal that never reported keeps the always-ring behavior.
+    if (this.focused === true) return
     this.output.write('\u0007')
+  }
+
+  /**
+   * Register for the terminal's background-color answer (OSC 11).
+   *
+   * The answer often lands before anyone is ready to hear it — the query goes
+   * out with the first frame — so a buffered reply is delivered immediately.
+   * @param handler - receives the raw payload, e.g. `rgb:1e1e/1e1e/2e2e`.
+   */
+  onBackground(handler: (payload: string) => void): void {
+    this.backgroundHandler = handler
+    if (this.background !== undefined) handler(this.background)
   }
 
   /**

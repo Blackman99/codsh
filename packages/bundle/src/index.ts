@@ -52,7 +52,7 @@ import { Spinner } from './spinner.ts'
 import { TextStream } from './streaming.ts'
 import { formatTokens, gitBranch, statusLine, statusReport, totalTokens } from './status.ts'
 import type { StatusFacts } from './status.ts'
-import { createTheme } from './theme.ts'
+import { backgroundIsLight, createTheme } from './theme.ts'
 import { Transcript } from './transcript.ts'
 import type { Theme } from './theme.ts'
 
@@ -433,6 +433,12 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
   if (sessions === undefined) return
   const cwd = process.cwd()
   const theme = createTheme(io.console.isTty, process.env)
+  // The viewport asks OSC 11 on entry; a light answer swaps in the readable
+  // secondary-text shade for everything rendered from then on.
+  io.console.onBackground((payload) => {
+    const light = backgroundIsLight(payload)
+    if (light !== undefined) theme.setLight(light)
+  })
 
   // Before the roster resolves anything: discovery re-reads its roots on every
   // call, so a preset placed here is visible to the resolve below.

@@ -39,8 +39,8 @@ in a terminal state.
 | Shift+Enter breaks the line | Claude Code: Shift+Enter inserts a newline on kitty-capable terminals | `aligned` | keys.spec 13;2u cases; pty e2e submits a two-line message; legacy terminals keep Alt+Enter |
 | modifyOtherKeys | probed: claude sets `CSI >4;2m`; codex resets `>4;0m`; opencode sets it | `open` | xterm-proper coverage; kitty path already shipped |
 | Grapheme clustering (mode 2027) | probed: only opencode sets 2027 | `open` | emoji ZWJ sequences in tables |
-| Focus events (mode 1004) | probed: claude, codex, gemini all enable 1004 | `open` | dim/undim, cursor blink gating |
-| Theme detection (OSC 10/11) | probed: opencode, codex, gemini query OSC 10/11; claude does not | `open` | today: NO_COLOR/env only |
+| Focus events (mode 1004) | probed: claude, codex, gemini all enable 1004 | `aligned` | keys.spec "reports focus in and out"; console.spec "the bell and focus" suite; pty e2e "focus and background reports". Use: the bell rings only while unfocused; terminals that never report keep always-ring |
+| Theme detection (OSC 11) | probed: opencode, codex, gemini query OSC 10/11; claude does not (opencode decides per ADR-0001) | `aligned` | theme.spec setLight/backgroundIsLight; screen.spec entry query; pty e2e light-palette adoption. Scope: the absolute 256-color secondary gray adapts (245→242); base ANSI colors stay the terminal theme's job |
 | OSC 8 hyperlinks | probed: claude emits OSC 8 at startup; gemini/opencode link paths | `open` | markdown links + file:line |
 
 Completed alignment work before this matrix existed (thinking collapse, `!`

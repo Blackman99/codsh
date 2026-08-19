@@ -194,4 +194,23 @@ describe('KeyDecoder', () => {
     expect(decoder.pending).toBe(true)
     expect(decoder.push('2u')).toEqual([{ kind: 'newline' }])
   })
+
+  it('reports focus in and out', () => {
+    expect(decode(`${ESC}[I`)).toEqual([{ kind: 'focus', focused: true }])
+    expect(decode(`${ESC}[O`)).toEqual([{ kind: 'focus', focused: false }])
+  })
+
+  it('consumes an OSC color answer instead of typing it', () => {
+    expect(decode(`${ESC}]11;rgb:ffff/ffff/ffff\u0007`))
+      .toEqual([{ kind: 'osc-reply', code: 11, payload: 'rgb:ffff/ffff/ffff' }])
+    // ST-terminated answers too, and split across reads.
+    const decoder = new KeyDecoder()
+    expect(decoder.push(`${ESC}]11;rgb:1e1e/1e`)).toEqual([])
+    expect(decoder.push(`1e/2e2e${ESC}`)).toEqual([])
+    expect(decoder.push('\\')).toEqual([{ kind: 'osc-reply', code: 11, payload: 'rgb:1e1e/1e1e/2e2e' }])
+  })
+
+  it('swallows OSC answers it has no use for', () => {
+    expect(decode(`${ESC}]52;c;Zm9v\u0007after`)).toEqual([{ kind: 'text', text: 'after' }])
+  })
 })

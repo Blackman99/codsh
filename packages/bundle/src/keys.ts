@@ -43,6 +43,8 @@ export type Key =
   | { kind: 'mouse-down'; row: number; column: number }
   | { kind: 'mouse-drag'; row: number; column: number }
   | { kind: 'mouse-up'; row: number; column: number }
+  | { kind: 'focus'; focused: boolean }
+  | { kind: 'osc-reply'; code: number; payload: string }
 
 /** Bracketed paste start, which a terminal wraps pasted text in. */
 const PASTE_START = '\u001B[200~'
@@ -91,8 +93,24 @@ const MOUSE_MODIFIERS = 4 | 8 | 16
 /** The motion bit, set on reports sent while a button is held. */
 const MOUSE_MOTION = 32
 
+/**
+ * An OSC reply from the terminal: `ESC ] code ; payload (BEL | ESC \)`.
+ *
+ * The viewport asks for the background color (OSC 11) on entry; the reply
+ * arrives on stdin and must be consumed here — leaked past the decoder it
+ * would be typed into the input box as text.
+ */
+const OSC_REPLY = /^\u001B\](\d+);([^\u0007\u001B]*)(?:\u0007|\u001B\\)/
+
+/** An OSC reply still arriving, its possible ST half included. */
+const OSC_PARTIAL = /^\u001B\](?:\d*(?:;[^\u0007\u001B]*)?)?\u001B?$/
+
 /** Sequences that resolve to one key, longest first so a prefix never wins. */
 const SEQUENCES: readonly (readonly [string, Key])[] = [
+  // Focus reporting (mode 1004), which the viewport enables: the bell policy
+  // reads it — a person already looking at the terminal needs no bell.
+  ['\u001B[I', { kind: 'focus', focused: true }],
+  ['\u001B[O', { kind: 'focus', focused: false }],
   // Scrolling the transcript: the viewport is ours, so these are ours to read.
   ['\u001B[5~', { kind: 'page', direction: -1 }],
   ['\u001B[6~', { kind: 'page', direction: 1 }],
@@ -237,8 +255,18 @@ export class KeyDecoder {
       this.held = this.held.slice(kitty[0].length)
       return this.kittyKey(Number(kitty[1]), Number(kitty[2] ?? '1'), Number(kitty[3] ?? '1'))
     }
-    // A mouse or kitty report still arriving must not be read as an Escape.
-    if (/^\u001B(\[[\d;:<]*)?$/.test(this.held)) return undefined
+    const osc = OSC_REPLY.exec(this.held)
+    if (osc !== null) {
+      this.held = this.held.slice(osc[0].length)
+      const code = Number(osc[1])
+      // Only the color queries this surface sends have interesting answers;
+      // any other terminal report is consumed silently.
+      if (code === 10 || code === 11) return [{ kind: 'osc-reply', code, payload: osc[2] ?? '' }]
+      return []
+    }
+    // A mouse, kitty, or OSC report still arriving must not be read as an
+    // Escape — or worse, typed.
+    if (/^\u001B(\[[\d;:<]*)?$/.test(this.held) || OSC_PARTIAL.test(this.held)) return undefined
     for (const [sequence, key] of SEQUENCES) {
       if (this.held.startsWith(sequence)) {
         this.held = this.held.slice(sequence.length)

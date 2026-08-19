@@ -51,6 +51,19 @@ const ENABLE_KITTY_KEYS = '\u001B[>1u'
 /** Pop it, restoring whatever the shell had. */
 const DISABLE_KITTY_KEYS = '\u001B[<u'
 
+/** Report focus in/out (mode 1004), which the bell policy reads. */
+const ENABLE_FOCUS = '\u001B[?1004h'
+
+/** Stop reporting focus. */
+const DISABLE_FOCUS = '\u001B[?1004l'
+
+/**
+ * Ask the terminal for its background color (OSC 11), the way opencode and
+ * Codex do. The reply decides the light-background palette; a terminal that
+ * never answers leaves the dark default standing.
+ */
+const QUERY_BACKGROUND = '\u001B]11;?\u0007'
+
 /** Ask the terminal to paint a frame atomically, so no half-frame is shown. */
 const SYNC_BEGIN = '\u001B[?2026h'
 
@@ -154,7 +167,7 @@ export class Screen {
   enter(): void {
     if (this.active) return
     this.active = true
-    this.host.write(`${ENTER_ALT}${ENABLE_MOUSE}${ENABLE_KITTY_KEYS}${HIDE_CURSOR}`)
+    this.host.write(`${ENTER_ALT}${ENABLE_MOUSE}${ENABLE_KITTY_KEYS}${ENABLE_FOCUS}${QUERY_BACKGROUND}${HIDE_CURSOR}`)
     this.painted = []
     this.render()
   }
@@ -168,7 +181,7 @@ export class Screen {
   leave(): void {
     if (!this.active) return
     this.active = false
-    this.host.write(`${DISABLE_KITTY_KEYS}${DISABLE_MOUSE}${SHOW_CURSOR}${LEAVE_ALT}`)
+    this.host.write(`${DISABLE_FOCUS}${DISABLE_KITTY_KEYS}${DISABLE_MOUSE}${SHOW_CURSOR}${LEAVE_ALT}`)
     this.painted = []
   }
 

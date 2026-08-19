@@ -576,6 +576,28 @@ describe.skipIf(process.platform === 'win32')('dsh code Escape (real PTY)', () =
     expect(done[echo + 1] ?? '').toContain('second')
   }, E2E_TEST_TIMEOUT_MS)
 
+  it('reads focus and background reports: no bell while focused, light palette adopted', async () => {
+    const output = await drivePty('bash', [
+      // The terminal reports focus, then answers the background question with
+      // white — the decoder must consume both, never type them.
+      ['/help for commands', `${ESCAPE}[I${ESCAPE}]11;rgb:ffff/ffff/ffff\u0007run the command${ENTER}`, 300],
+      ['Allow bash?', 'n', 400],
+      ['CODE_CLI_CALL_DENIED', `/exit${ENTER}`, 400],
+    ])
+
+    const held = output.slice(0, output.indexOf('\u001B[?1049l'))
+    // Every BEL in the run terminates an OSC: the approval rang no bell,
+    // because the person was already looking at the terminal.
+    const bels = (held.match(/\u0007/gu) ?? []).length
+    const oscs = (held.match(/\u001B\]/gu) ?? []).length
+    expect(bels).toBe(oscs)
+    // The light answer swapped the secondary-text shade for later frames.
+    expect(held).toContain('\u001B[38;5;242m')
+    // And nothing of the reports leaked into visible text.
+    const plain = held.replaceAll(/\u001B(?:\[[0-9;?<>:]*[A-Za-z]|\][^\u0007]*\u0007)/gu, '')
+    expect(plain).not.toContain('rgb:')
+  }, E2E_TEST_TIMEOUT_MS)
+
   it('selects with the mouse and copies on release', async () => {
     const output = await drivePty('write', [
       ['/help for commands', `create the note${ENTER}`, 300],
