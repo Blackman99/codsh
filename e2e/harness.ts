@@ -101,6 +101,9 @@ export function resolveLaunch(options: {
     args: [dshBin(), '--profile', 'code', '--patch', options.overlay, ...options.args ?? []],
     env: {
       ...process.env,
+      // Pinned: rendering assertions must not depend on the runner's TERM —
+      // CI machines report no 256-color support and the palette forks on it.
+      TERM: 'xterm-256color',
       DSH_HOME: options.home,
       DSH_TELEMETRY_DISABLED: '1',
       DSH_CODE_CLI_MOCK_TOOL: options.mode,
