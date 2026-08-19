@@ -4,7 +4,7 @@
 
 English | [中文](README.zh.md)
 
-A terminal coding agent whose interaction design fuses the best of today's agent CLIs, composed on the [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) (dsh) plugin runtime. codsh is a dsh *bundle*: it ships the interactive TTY surface and a coding agent preset, and everything underneath — the agent loop, tools, sessions, sandboxing, model adapters — is the released dsh packages from npm.
+A terminal coding agent whose interaction design fuses the best of today's agent CLIs, composed on the [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) (dsh) plugin runtime. codsh is two small packages over your dsh: a zero-dependency launcher (`codsh-cli`) and a dsh *bundle* (`codsh-bundle`) shipping the interactive TTY surface and a coding agent preset. Everything underneath — the agent loop, tools, sessions, sandboxing, model adapters — is the released dsh packages from npm, installed once per machine.
 
 ## Install
 
