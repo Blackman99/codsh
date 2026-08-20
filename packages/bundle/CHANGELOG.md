@@ -1,5 +1,52 @@
 # codsh-bundle
 
+## 0.6.0
+
+### Minor Changes
+
+- b253686: Ctrl+V pastes an image, even into a model that only reads text. The surface
+  reads your system clipboard itself — an image has no way in through the
+  terminal — and attaches it behind an `[Image #N]` token in the box; one
+  backspace removes the token whole, and deleting it drops the image.
+  
+  What happens at submit depends on the route. A model whose catalog declares
+  image input (set `inputModalities: [text, image]` for your model in
+  `$DSH_HOME/settings.yaml`) receives the image as a first-class attachment
+  block through dsh's durable store, downscaled only as far as the store's
+  admission limits demand; `/plan` and `/goal` accept images there too. The
+  default DeepSeek routes are text-only, so there the image is saved to a
+  content-addressed file under `$DSH_HOME/attachments/pasted/` and the model is
+  told its path and dimensions — the agent can still open, commit, or transform
+  it with its tools. And when `CODSH_VISION_BASE_URL` + `CODSH_VISION_MODEL`
+  (plus optional `CODSH_VISION_API_KEY`) name any OpenAI-compatible multimodal
+  endpoint, that sidecar describes the image — everything in it transcribed
+  verbatim — and the description rides the same message, standing in for sight.
+  A sidecar failure never loses the turn: it flashes, and the text still goes.
+  
+  The transcript shows the token and a dim meta line saying what became of each
+  image (`[image #1 · 2880×1800 png · described]`) rather than pages of
+  machine-facing context, on resume as well as live. `CODSH_CLIPBOARD_IMAGE_CMD`
+  overrides the platform clipboard reader, which is how the tests drive the
+  whole path without touching a real clipboard.
+- 6ac05fc: `/ship` now lands reliably, not just intently. The spec file becomes the
+  workflow's durable memory instead of the conversation: the approved plan is
+  written into it as milestone checkboxes, a `Status:` line names the phase, and
+  a bare `/ship` first offers to resume any unfinished spec it finds — an
+  interruption, a `/clear`, or a compacted context loses nothing.
+  
+  Green is grounded rather than asserted. Before any implementation code the
+  working tree is checked clean and the plan's proof commands run once to record
+  the baseline — a suite that was already red surfaces at the gate, not under
+  the diff. Every acceptance criterion must name the exact command that proves
+  it; each milestone is committed when it turns green; and after a fresh-agent
+  Ralph loop returns, the session re-runs every proof command itself — the
+  loop's word is a report, not a verification. The loop is bounded (about three
+  rounds per milestone) and told to stop and report rather than spin past two
+  consecutive rounds of no progress.
+  
+  Pasted images are requirements material now that Ctrl+V exists: a mockup or
+  screenshot riding the `/ship` message is read and cited in the interview.
+
 ## 0.5.0
 
 ### Minor Changes
