@@ -444,23 +444,23 @@
       <ol class="steps">
         <li>
           <b>Interview</b>
-          <p>The agent reads your repo first, then asks one focused question at a time — users, success criteria, scope, non-goals, constraints, edge cases — until answers stop changing the design.</p>
+          <p>The agent reads your repo first, then asks one focused question at a time — users, success criteria, scope, non-goals, constraints, edge cases — until answers stop changing the design. A pasted mockup or screenshot is requirements material.</p>
         </li>
         <li>
           <b>Spec</b> <span class="gate">— gate 1</span>
-          <p>The agreed design lands as a file in your repo, with acceptance criteria that are objectively checkable: named tests, commands with expected output, observable behaviour. You confirm it.</p>
+          <p>The agreed design lands as a file in your repo. Every acceptance criterion names the exact command that proves it, and a <code>Status:</code> line makes the file resumable. You confirm it.</p>
         </li>
         <li>
           <b>Plan</b> <span class="gate">— gate 2</span>
-          <p>Ordered milestones, the tests each one adds, and the commands that prove the whole thing. You approve it. No implementation code is written before this gate passes.</p>
+          <p>Ordered milestones, the tests each one adds, and the commands that prove the whole thing. You approve it — and the plan is then written into the spec as checkboxes, with the proof commands run once to record the baseline before any code. A suite that was already red surfaces here, not under the diff.</p>
         </li>
         <li>
           <b>Landing</b>
-          <p>From here it is autonomous. Small plans run implement→test→fix in-session under the todo list; large ones run a fresh-agent Ralph loop, with the spec file on disk as the memory that survives every round.</p>
+          <p>From here it is autonomous, with the spec file — not the conversation — as the working memory: re-read before each milestone, checkbox ticked and a commit made when it turns green. Small plans run in-session under the todo list; large ones run a bounded fresh-agent Ralph loop that stops and reports rather than spin past two rounds of no progress.</p>
         </li>
         <li>
           <b>Done means verified</b>
-          <p>Every acceptance criterion is checked by actually running the named tests and reading their real output — then an honest report of what shipped and what is still open.</p>
+          <p>Every criterion is checked by running its own command and reading the real output — after a Ralph loop, the session re-runs them all itself — then a report listing criterion, command, and what it printed.</p>
         </li>
       </ol>
 
@@ -469,9 +469,10 @@
 <pre><span class="prompt">›</span> <span class="cmd">/ship let long diffs open in a pager instead of scrolling past</span></pre>
       </div>
       <p style="margin-top:1.2rem">
-        Run it bare and it asks for the sentence first. Mid-flight decision
-        changes go back into the spec file, so the file on disk always states
-        what is being built.
+        Run it bare and it first offers to resume any unfinished spec it finds
+        — interruptions lose nothing — then asks for the sentence. Mid-flight
+        decision changes go back into the spec file, so the file on disk always
+        states what is being built.
       </p>
     </div>
   </div>
