@@ -58,7 +58,7 @@ import { todoReport } from './todos.ts'
 import type { TodoList } from './todos.ts'
 import type { StatusFacts } from './status.ts'
 import { backgroundIsLight, createTheme } from './theme.ts'
-import { Transcript } from './transcript.ts'
+import { Transcript, answerSummary, thinkingFold } from './transcript.ts'
 import type { Theme } from './theme.ts'
 
 /** Stable Cordis plugin name. */
@@ -215,9 +215,38 @@ function todoList(ctx: Context, agent: Agent): TodoList {
  * @param transcript - the renderer, which also learns the pending call table.
  * @param io - the terminal to write to.
  */
-function replay(session: Session, transcript: Transcript, io: CliIo): void {
+function replay(session: Session, transcript: Transcript, io: CliIo, theme: Theme): void {
   for (const event of session.events) {
-    for (const line of transcript.render(event)) io.console.write(line)
+    // Thinking is in the log but not in the renderer's visible text: replay it
+    // the way the turn showed it, one dim line with the deliberation behind
+    // Ctrl+O, so a resumed session is that session rather than a redacted copy.
+    if (event.type === 'assistant/message') {
+      const thought = event.data.message.content
+        .filter(block => block.type === 'reasoning')
+        .map(block => block.text)
+        .join('')
+      if (thought !== '') {
+        const lines = thought.split('\n').map(line => theme.dim(`  ${line}`))
+        const { summary, full } = thinkingFold(lines, theme)
+        io.console.appendFold(summary, full)
+      }
+    }
+    const lines = transcript.render(event)
+    // The renderer collapsed a long body: history keeps both forms, exactly as
+    // the live turn did — the summary promises Ctrl+O, and without the fold the
+    // key would answer nothing and the output would be unreachable for good.
+    const full = transcript.takeFold()
+    if (full !== undefined) {
+      io.console.appendFold(lines, full)
+      continue
+    }
+    for (const line of lines) io.console.write(line)
+    if (event.type !== 'assistant/message') continue
+    // A long answer folds after the fact here too: it was written in the open,
+    // and only then does it grow the summary the conversation moved on from.
+    const body = lines.at(-1) === '' ? lines.slice(0, -1) : lines
+    const summary = answerSummary(body, theme)
+    if (summary !== undefined) io.console.foldRecent(lines.length, summary)
   }
 }
 
@@ -288,12 +317,6 @@ const RECALL_WINDOW_MS = 1500
 
 /** Turns longer than this ring the bell on completion, when the bell is on. */
 const BELL_TURN_MS = 10_000
-
-/** A finished answer longer than this many rendered lines becomes a fold. */
-const ANSWER_FOLD_LINES = 24
-
-/** How many of its head lines a collapsed answer keeps visible. */
-const ANSWER_HEAD_LINES = 8
 
 /**
  * A subprocess's captured outcome: merged output and how it ended.
@@ -485,7 +508,7 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
   // Refreshed once per prompt. A command handler is synchronous, so it reports
   // the branch this session last observed rather than stalling to re-read it.
   let branch = await gitBranch(cwd)
-  if (config.resume !== '') replay(live.agent.session, live.transcript, io)
+  if (config.resume !== '') replay(live.agent.session, live.transcript, io, theme)
   for (const line of bannerLines({
     model,
     preset: presetId,
@@ -836,13 +859,8 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
     const tail = stream.flush()
     emit([...tail, ''])
     answerLines.push(...tail)
-    if (answerLines.length > ANSWER_FOLD_LINES) {
-      io.console.foldRecent(answerLines.length + 1, [
-        ...answerLines.slice(0, ANSWER_HEAD_LINES),
-        theme.dim(`  … +${answerLines.length - ANSWER_HEAD_LINES} lines (Ctrl+O expands)`),
-        '',
-      ])
-    }
+    const summary = answerSummary(answerLines, theme)
+    if (summary !== undefined) io.console.foldRecent(answerLines.length + 1, summary)
     answerLines = []
   }
   // Reasoning gets its own stream: pushed into `stream`, its deltas would mark
@@ -857,12 +875,9 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
   const flushThinking = (): void => {
     thinkingLines.push(...thinking.flush())
     if (thinkingLines.length === 0) return
-    const seconds = ((performance.now() - thinkingStartedAt) / 1000).toFixed(1)
     prompt.setStreaming(undefined)
-    io.console.appendFold(
-      [theme.dim(`✻ thought for ${seconds}s · +${thinkingLines.length} lines (Ctrl+O expands)`), ''],
-      [theme.dim(`✻ thought for ${seconds}s`), ...thinkingLines, ''],
-    )
+    const { summary, full } = thinkingFold(thinkingLines, theme, (performance.now() - thinkingStartedAt) / 1000)
+    io.console.appendFold(summary, full)
     thinkingLines = []
     thinkingStartedAt = 0
   }
@@ -1005,7 +1020,7 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
     approval.clear()
     turnBaseTokens = 0
     prompt.setAccent(planModeFrom(next.agent.session.events) ? text => theme.pending(text) : undefined)
-    if (replayLog) replay(next.agent.session, live.transcript, io)
+    if (replayLog) replay(next.agent.session, live.transcript, io, theme)
     refreshStatus()
   }
 

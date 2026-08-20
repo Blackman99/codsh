@@ -679,6 +679,33 @@ describe.skipIf(process.platform === 'win32')('dsh code Escape (real PTY)', () =
     expect(output).toContain('\u001B]2;dsh code —')
   }, E2E_TEST_TIMEOUT_MS)
 
+  it('replays history as folds, so a resumed long output still opens', async () => {
+    const output = await drivePty('tall', [
+      ['/help for commands', `create the tall note${ENTER}`, 300],
+      // 45 diff lines, collapsed live...
+      ['Ctrl+O expands', `/clear${ENTER}`, 400],
+      ['new session session-', `/resume${ENTER}`, 400],
+      ['Resume session', ENTER, 500],
+      // ...and the replayed card still promises the key...
+      ['resumed session-', '\u000F', 500],
+      // ...which must actually deliver the body, or the promise was a lie and
+      // the output would be unreachable for the rest of the session.
+      ['CODE_CLI_TALL_44', `/exit${ENTER}`, 400],
+    ])
+
+    // Replayed, before the key: the log's own message above a card still
+    // collapsed to its summary — history as the turn left it.
+    const replayed = screenAt(output, 'resumed session-').alternate
+    expect(replayed.map(row => row.trimEnd())).toContain('› create the tall note')
+    expect(replayed.some(row => row.includes('Ctrl+O expands'))).toBe(true)
+    expect(replayed.some(row => row.includes('CODE_CLI_TALL_44'))).toBe(false)
+
+    // After the key: the body the log carried, on screen from a fold that only
+    // exists because replay rebuilt it.
+    const expanded = screenAt(output, 'CODE_CLI_TALL_44', 'last').alternate
+    expect(expanded.some(row => row.includes('CODE_CLI_TALL_44'))).toBe(true)
+  }, E2E_TEST_TIMEOUT_MS)
+
   it('runs a ! line in the shell without spending a turn', async () => {
     const output = await drivePty('echo', [
       ['/help for commands', `!echo BANG_PTY_7${ENTER}`, 300],

@@ -8,7 +8,7 @@ import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import type { ToolCallView, ToolResultView } from '@deepseek-ai/dsh-tools'
 import { describe, expect, it } from 'vitest'
 import { createTheme } from '../src/theme.ts'
-import { Transcript, type ToolPresenters } from '../src/transcript.ts'
+import { ANSWER_FOLD_LINES, ANSWER_HEAD_LINES, Transcript, answerSummary, thinkingFold, type ToolPresenters } from '../src/transcript.ts'
 
 const theme = createTheme(false, {})
 const CWD = '/repo'
@@ -385,5 +385,38 @@ describe('folding collapsed output', () => {
 
   it('has no fold before any body collapsed', () => {
     expect(build().takeFold()).toBeUndefined()
+  })
+})
+
+describe('the forms a long block keeps', () => {
+  /** N rendered answer lines. */
+  const answer = (count: number): string[] => Array.from({ length: count }, (_, at) => `line ${at + 1}`)
+
+  it('leaves a short answer whole, with nothing to fold', () => {
+    expect(answerSummary(answer(ANSWER_FOLD_LINES), theme)).toBeUndefined()
+  })
+
+  it('collapses a long answer to its head and a count', () => {
+    const summary = answerSummary(answer(ANSWER_FOLD_LINES + 10), theme)
+    expect(summary?.slice(0, ANSWER_HEAD_LINES)).toEqual(answer(ANSWER_HEAD_LINES))
+    // The count names what is hidden and the key that shows it — a summary that
+    // promised nothing would read as the answer having been truncated.
+    expect(summary?.at(-2)).toBe(`  … +${ANSWER_FOLD_LINES + 10 - ANSWER_HEAD_LINES} lines (Ctrl+O expands)`)
+    expect(summary?.at(-1)).toBe('')
+  })
+
+  it('times a thinking block when the surface timed it', () => {
+    const { summary, full } = thinkingFold(['  first', '  second'], theme, 3.24)
+    expect(summary[0]).toBe('✻ thought for 3.2s · +2 lines (Ctrl+O expands)')
+    expect(full[0]).toBe('✻ thought for 3.2s')
+    expect(full).toContain('  second')
+  })
+
+  it('says only that it thought when there is no clock to read', () => {
+    // A replayed log carries the reasoning but not its duration; claiming a
+    // time here would be inventing one.
+    const { summary, full } = thinkingFold(['  first'], theme)
+    expect(summary[0]).toBe('✻ thought · +1 lines (Ctrl+O expands)')
+    expect(full[0]).toBe('✻ thought')
   })
 })

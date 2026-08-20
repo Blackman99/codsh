@@ -77,6 +77,56 @@ function visibleText(content: readonly ContentBlock[]): string {
   return content.filter(block => block.type === 'text').map(block => block.text).join('')
 }
 
+/** A finished answer longer than this many rendered lines becomes a fold. */
+export const ANSWER_FOLD_LINES = 24
+
+/** How many of its head lines a collapsed answer keeps visible. */
+export const ANSWER_HEAD_LINES = 8
+
+/**
+ * The collapsed form of a finished answer, when it is long enough to fold.
+ *
+ * Shared by the live turn and by replay: a resumed session must offer the same
+ * summary the turn itself left behind, or history would read as a different
+ * conversation from the one that happened.
+ * @param lines - the answer's rendered lines, without its trailing blank.
+ * @param theme - styling for the count line.
+ * @returns the collapsed lines, or undefined when the answer is short enough
+ *   to stand as it is.
+ */
+export function answerSummary(lines: readonly string[], theme: Theme): string[] | undefined {
+  if (lines.length <= ANSWER_FOLD_LINES) return undefined
+  return [
+    ...lines.slice(0, ANSWER_HEAD_LINES),
+    theme.dim(`  … +${lines.length - ANSWER_HEAD_LINES} lines (Ctrl+O expands)`),
+    '',
+  ]
+}
+
+/**
+ * The two forms of a thinking block: one dim line, and the deliberation behind
+ * it.
+ *
+ * Pages of reasoning would bury the conversation, so the transcript keeps the
+ * summary and hands the rest to Ctrl+O — live and on replay alike.
+ * @param lines - the rendered thinking lines, already styled.
+ * @param theme - styling for the header.
+ * @param seconds - how long the thinking took, when the surface timed it; a
+ *   replayed log carries no clock, so the header simply says it thought.
+ * @returns the collapsed and expanded forms.
+ */
+export function thinkingFold(
+  lines: readonly string[],
+  theme: Theme,
+  seconds?: number,
+): { summary: string[], full: string[] } {
+  const head = seconds === undefined ? '✻ thought' : `✻ thought for ${seconds.toFixed(1)}s`
+  return {
+    summary: [theme.dim(`${head} · +${lines.length} lines (Ctrl+O expands)`), ''],
+    full: [theme.dim(head), ...lines, ''],
+  }
+}
+
 /**
  * Render one file's change as unified-diff body lines.
  *

@@ -30,7 +30,7 @@ dsh --profile code
 - **一句话需求落地——`/ship`**：输入 `/ship <一句话需求>`，agent 先调研你的仓库，再一次只问一个问题地把设计追问到不再变化，写出一份由你确认的 spec，给出一份由你批准的实施计划，然后自主落地——小任务在会话内完成，大任务走 fresh-agent Ralph 循环——直到 spec 的验收标准全部通过、测试变绿。
 - **todo 状态常驻可见**：agent 写下 todo 清单后，一行常驻读数把它钉在状态行之上——进度、正在做的那一项，或者下一项该做什么——不会随那次写入一起滚走。Ctrl+T 展开为完整清单、再按收起；`/todos` 把同一份清单打印到 transcript；`--resume` 恢复时直接接上上次的清单。
 - **接管键盘的输入框**：多行编辑（支持 kitty 键盘协议的终端——Ghostty、kitty、WezTerm、iTerm2、foot——可用 Shift-Enter，其余终端 Alt-Enter）、跨会话历史，命令、参数与 `@` 文件提及（全工作区模糊搜索）的补全随输入自动打开。
-- **流式渲染**：Markdown 带代码高亮与表格排版，推理模型的思考在 `✻ thinking` 下暗色显示，工具调用按 presenter 驱动的卡片渲染（含 diff），Ctrl-O 完整重印最近被截断的输出。
+- **流式渲染**：Markdown 带代码高亮与表格排版，推理模型的思考在 `✻ thinking` 下暗色显示，工具调用按 presenter 驱动的卡片渲染（含 diff）。超过一屏的已完成块——思考、工具输出、长回答——在你继续往下走时折叠成头几行；Ctrl-O 在摘要与完整形态之间整体切换。`--resume` 恢复会话时，历史会以同样的折叠形态重放，昨天那段长输出今天依然能展开。
 - **决定用选择**：审批、提问、`/model` 与 `/resume` 都是方向键组件；Shift-Tab 切换 plan 模式并为框着色。
 - **会话流**：`/clear` 原地开新会话，`/resume` 从带标题和时间的会话列表里选，连按两次 Escape 召回上一条消息编辑，`!cmd` 在你自己的 shell 里运行并把结果注入为模型可见上下文——不花回合。
 - **固定 prompt**：`/init` 起草 `AGENTS.md`；`$DSH_HOME/commands/` 或 `<工作区>/.dsh/commands/` 下的 Markdown 文件即成为斜杠命令，支持 `$ARGUMENTS` 模板。
