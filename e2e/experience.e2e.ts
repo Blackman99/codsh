@@ -29,7 +29,27 @@ const ENTER = '\r'
 type PtyStep = readonly [marker: string, payload: string, delayMs: number]
 
 const PTY_DRIVER = String.raw`
-import errno, fcntl, json, os, pty, select, signal, struct, sys, termios, time
+import errno, fcntl, json, os, pty, re, select, signal, struct, sys, termios, time
+
+# A payload may aim at a line rather than a fixed row: {row:TEXT} becomes the
+# terminal row TEXT was last painted on, which is the only way to click a
+# transcript block whose position depends on how much came before it.
+ROW_AT = re.compile(rb"\{row:([^}]*)\}")
+
+def resolve(payload, output):
+    def row_of(match):
+        target = match.group(1)
+        at = output.rfind(target)
+        if at < 0:
+            sys.stderr.write(f"no painted row holds {target!r}\n")
+            sys.exit(125)
+        moves = re.findall(rb"\x1b\[(\d+);1H", bytes(output[:at]))
+        if not moves:
+            sys.stderr.write(f"nothing positioned the row holding {target!r}\n")
+            sys.exit(125)
+        return moves[-1]
+    return ROW_AT.sub(row_of, payload)
+
 node, launch_args_json, launch_env_json, cwd, timeout_seconds, script_json = sys.argv[1:]
 env = os.environ.copy()
 env.update(json.loads(launch_env_json))
@@ -74,7 +94,7 @@ while time.monotonic() < deadline:
                     break
                 if chunk:
                     output.extend(chunk)
-        os.write(fd, payload)
+        os.write(fd, resolve(payload, output))
         step += 1
         sys.stderr.write(f"step {step} at {len(output)}: matched {marker!r}\n")
     waited, candidate = os.waitpid(pid, os.WNOHANG)
@@ -116,22 +136,42 @@ async function drive(mode: string, script: readonly PtyStep[]): Promise<string> 
   }
 }
 
-/** The screen as of the frame in which `marker` first appears. */
-function screenAt(output: string, marker: string): Terminal {
+/** Everything painted while the session held the alternate screen. */
+function heldOutput(output: string): string {
   const handedBack = output.indexOf(LEAVE_ALT)
-  const held = handedBack < 0 ? output : output.slice(0, handedBack)
-  const at = held.indexOf(marker)
+  return handedBack < 0 ? output : output.slice(0, handedBack)
+}
+
+/** The screen as of the frame containing the byte offset `at`. */
+function screenOf(held: string, at: number): Terminal {
   const frameEnd = at < 0 ? -1 : held.indexOf(SYNC_END, at)
   const terminal = new Terminal(PTY_ROWS, PTY_COLUMNS)
   terminal.feed(held.slice(0, frameEnd < 0 ? held.length : frameEnd + SYNC_END.length))
   return terminal
 }
 
+/** The screen as of the frame in which `marker` first appears. */
+function screenAt(output: string, marker: string): Terminal {
+  const held = heldOutput(output)
+  return screenOf(held, held.indexOf(marker))
+}
+
+/**
+ * The screen as of the frame that painted `marker` LAST.
+ *
+ * What a line was replaced by is the question a toggle raises, and the first
+ * paint of a line rarely answers it: a live preview, a summary, and a fold's
+ * full form can all carry the same text at different moments.
+ */
+function screenAtLast(output: string, marker: string): Terminal {
+  const held = heldOutput(output)
+  return screenOf(held, held.lastIndexOf(marker))
+}
+
 /** The screen at the LAST frame before the terminal is handed back. */
 function finalScreen(output: string): Terminal {
-  const handedBack = output.indexOf(LEAVE_ALT)
   const terminal = new Terminal(PTY_ROWS, PTY_COLUMNS)
-  terminal.feed(handedBack < 0 ? output : output.slice(0, handedBack))
+  terminal.feed(heldOutput(output))
   return terminal
 }
 
@@ -200,13 +240,34 @@ describe.skipIf(process.platform === 'win32')('the first five minutes', () => {
   it('collapses a long result and names the expand key', async () => {
     const output = await drive('tall', [
       ['Welcome to codsh', `make it tall${ENTER}`, 300],
-      ['lines (Ctrl+O expands)', `/exit${ENTER}`, 500],
+      ['lines (click or Ctrl+O expands)', `/exit${ENTER}`, 500],
     ])
     const rows = screenAt(output, 'Ctrl+O expands').alternate
     const body = rows.filter(row => row.includes('CODE_CLI_TALL_'))
     // A skimmable sliver, not a wall; the affordance names the key.
     expect(body.length).toBeLessThanOrEqual(24)
-    expect(rows.some(row => row.includes('(Ctrl+O expands)'))).toBe(true)
+    expect(rows.some(row => row.includes('(click or Ctrl+O expands)'))).toBe(true)
+  }, E2E_TEST_TIMEOUT_MS)
+
+  it('opens the block a click lands on, and folds it back from its head row', async () => {
+    // Where a block sits depends on everything printed above it, so the click
+    // aims at the line itself and the driver resolves the row it was painted
+    // on. Press and release without moving: a drag would copy instead.
+    const clickOn = (line: string): string => `\u001B[<0;6;{row:${line}}M\u001B[<0;6;{row:${line}}m`
+    const output = await drive('reasoning', [
+      ['Welcome to codsh', `think it over${ENTER}`, 300],
+      // Thinking lands collapsed; a click on its summary opens that block.
+      ['thought for', clickOn('thought for'), 600],
+      // A click on the open block's head line folds it back again.
+      ['weighing the options carefully', clickOn('✻ thought for'), 600],
+      ['lines (click or Ctrl+O expands)', `/exit${ENTER}`, 400],
+    ])
+    const opened = screenAtLast(output, 'weighing the options carefully').alternate
+    expect(opened.some(row => row.includes('CODE_CLI_THINKING about the request'))).toBe(true)
+    // Folded back by the second click — before any submission could do it.
+    const shut = screenAtLast(output, 'lines (click or Ctrl+O expands)').alternate
+    expect(shut.some(row => /✻ thought for [\d.]+s · \+\d+ lines/u.test(row))).toBe(true)
+    expect(shut.some(row => row.includes('weighing the options carefully'))).toBe(false)
   }, E2E_TEST_TIMEOUT_MS)
 
   it('reports one continuous clock for the whole turn', async () => {
@@ -258,14 +319,10 @@ describe.skipIf(process.platform === 'win32')('the first five minutes', () => {
     ])
     // After /status the wall is gone: a head, a count, and no tail marker.
     const folded = screenAt(output, 'permissions').alternate
-    expect(folded.some(row => row.includes('lines (Ctrl+O expands)'))).toBe(true)
+    expect(folded.some(row => row.includes('lines (click or Ctrl+O expands)'))).toBe(true)
     expect(folded.some(row => row.includes('CODE_CLI_CALL_STREAM_DONE'))).toBe(false)
-    // Re-expanded: cut at the LAST copy of the tail marker.
-    const held = output.slice(0, output.indexOf(LEAVE_ALT))
-    const at = held.lastIndexOf('CODE_CLI_CALL_STREAM_DONE')
-    const frameEnd = held.indexOf(SYNC_END, at)
-    const probe = new Terminal(PTY_ROWS, PTY_COLUMNS)
-    probe.feed(held.slice(0, frameEnd < 0 ? held.length : frameEnd + SYNC_END.length))
+    // Re-expanded: read the frame that painted the tail marker last.
+    const probe = screenAtLast(output, 'CODE_CLI_CALL_STREAM_DONE')
     expect(probe.alternate.some(row => row.includes('CODE_CLI_CALL_STREAM_DONE'))).toBe(true)
   }, E2E_TEST_TIMEOUT_MS)
 
@@ -275,14 +332,10 @@ describe.skipIf(process.platform === 'win32')('the first five minutes', () => {
       ['thought for', '\u000F', 500],
       ['weighing the options carefully', `/exit${ENTER}`, 400],
     ])
-    // The toggle swaps the summary for the full thought in place: cut at the
-    // LAST copy of its final line (the live preview carried the text earlier).
-    const held = output.slice(0, output.indexOf(LEAVE_ALT))
-    const at = held.lastIndexOf('weighing the options carefully')
-    const frameEnd = held.indexOf(SYNC_END, at)
-    const probe = new Terminal(PTY_ROWS, PTY_COLUMNS)
-    probe.feed(held.slice(0, frameEnd < 0 ? held.length : frameEnd + SYNC_END.length))
-    const rows = probe.alternate
+    // The toggle swaps the summary for the full thought in place: read the
+    // frame that painted its final line last (the live preview carried the
+    // same text earlier).
+    const rows = screenAtLast(output, 'weighing the options carefully').alternate
     expect(rows.some(row => /✻ thought for [\d.]+s/u.test(row))).toBe(true)
     expect(rows.some(row => row.includes('weighing the options carefully'))).toBe(true)
   }, E2E_TEST_TIMEOUT_MS)

@@ -114,6 +114,22 @@ export interface ChromeCursor {
   column: number
 }
 
+/** A collapsible transcript block, kept in both forms so either can show. */
+interface Fold {
+  /** Logical index of the block's first line. */
+  at: number
+  /** Logical lines the form currently on screen occupies. */
+  shownLength: number
+  /** The collapsed form. */
+  summary: string[]
+  /** The expanded form. */
+  full: string[]
+  /** Which of the two is on screen. */
+  expanded: boolean
+  /** The left rule both forms are drawn with. */
+  rule: string
+}
+
 /** What the screen writes to and measures itself against. */
 export interface ScreenHost {
   /** Emit raw bytes to the terminal. */
@@ -152,7 +168,7 @@ export class Screen {
   /** A mouse selection over the transcript, in physical-row coordinates. */
   private selection: { anchor: { row: number; column: number }; focus: { row: number; column: number }; dragged: boolean } | undefined
   /** Collapsed blocks in the transcript, in order, with both of their forms. */
-  private folds: { at: number; shownLength: number; summary: string[]; full: string[]; expanded: boolean; rule: string }[] = []
+  private folds: Fold[] = []
   /** Whether the folds currently show their full form. */
   private expanded = false
   /** The last painted frame, so a repaint only touches rows that changed. */
@@ -294,11 +310,15 @@ export class Screen {
 
   /**
    * Swap every fold between its summary and its full form.
+   *
+   * What the blocks show decides the direction, not what the last Ctrl+O did:
+   * clicking blocks open one at a time would otherwise leave the key pointing
+   * the wrong way, and a press that visibly does nothing reads as broken.
    * @returns false when there is nothing to toggle.
    */
   toggleFolds(): boolean {
     if (this.folds.length === 0) return false
-    this.setFolds(!this.expanded)
+    this.setFolds(!this.folds.every(fold => fold.expanded))
     return true
   }
 
@@ -310,12 +330,86 @@ export class Screen {
     else this.expanded = false
   }
 
+  /**
+   * Work the block a bare click landed on, the way a details element opens.
+   *
+   * Collapsed, the whole summary is the target — the `+N lines` line is what a
+   * person aims at, and the summary is only ever a line or two. Open, only the
+   * block's first row folds it back, so a click inside text being read can
+   * never make it vanish under the pointer.
+   * @param row - physical buffer row the press anchored on.
+   */
+  private clickFold(row: number): void {
+    const hit = this.foldAt(row)
+    if (hit === undefined) return
+    if (hit.fold.expanded && row !== hit.start) return
+    this.setFold(hit.fold, !hit.fold.expanded)
+  }
+
+  /**
+   * The block covering a physical row, and the row it starts at.
+   *
+   * Blocks are recorded in logical lines while the mouse reports physical
+   * rows, so the wrapped height of everything above a block is what bridges
+   * the two. Blocks are kept in buffer order, so the walk stops at the first
+   * one that begins below the row rather than measuring the whole scrollback.
+   * @param row - physical buffer row, 0-based.
+   * @returns the block and its first physical row, or undefined for a miss.
+   */
+  private foldAt(row: number): { fold: Fold; start: number } | undefined {
+    const columns = this.contentColumns()
+    const height = (index: number): number => this.wrapLine(this.logical[index] ?? '', this.rules[index] ?? '', columns).length
+    let physical = 0
+    let index = 0
+    for (const fold of this.folds) {
+      for (; index < fold.at; index += 1) physical += height(index)
+      if (physical > row) return undefined
+      const start = physical
+      for (; index < fold.at + fold.shownLength; index += 1) physical += height(index)
+      if (row < physical) return { fold, start }
+    }
+    return undefined
+  }
+
+  /**
+   * Swap one block, leaving the reader where they were.
+   *
+   * Someone who opened a block halfway up their history did not ask to be
+   * moved to the tail: the rows above the block keep their screen positions,
+   * and the transcript grows or shrinks below them. Following the tail there
+   * is nothing to hold on to, so the frame keeps following it — which is what
+   * Ctrl+O does for every block at once.
+   * @param fold - the block to swap.
+   * @param expanded - the form to put on screen.
+   */
+  private setFold(fold: Fold, expanded: boolean): void {
+    const shown = expanded ? fold.full : fold.summary
+    const delta = shown.length - fold.shownLength
+    this.logical.splice(fold.at, fold.shownLength, ...shown)
+    this.rules.splice(fold.at, fold.shownLength, ...shown.map(() => fold.rule))
+    fold.shownLength = shown.length
+    fold.expanded = expanded
+    // Only what sits after the block moves; the block starts where it started.
+    for (const other of this.folds) if (other.at > fold.at) other.at += delta
+    const before = this.physical.length
+    const offset = this.offset
+    // Re-wrapping clamps the offset to the new height, so the reader's own
+    // distance from the tail is remembered from before it and re-applied.
+    this.rewrap()
+    if (offset > 0) {
+      const limit = Math.max(0, this.physical.length - this.viewportHeight())
+      this.offset = Math.min(limit, Math.max(0, offset + this.physical.length - before))
+    }
+    this.painted = []
+    this.render()
+  }
+
   /** Put every fold into one form, whatever mix of states they are in now. */
   private setFolds(expanded: boolean): void {
     this.expanded = expanded
     // Rebuild back to front, so earlier folds' positions stay valid while the
     // later ones are spliced; remember each block's growth for the fix-up.
-    const deltas = new Map<object, number>()
+    const deltas = new Map<Fold, number>()
     for (const fold of [...this.folds].reverse()) {
       if (fold.expanded === expanded) {
         deltas.set(fold, 0)
@@ -461,7 +555,9 @@ export class Screen {
    * Finish the gesture.
    *
    * The highlight stays up — the copy already happened, and the marks show
-   * what it took — until the next click or reflow dismisses it.
+   * what it took — until the next click or reflow dismisses it. A press that
+   * never moved is not a selection but a click, and a click on a collapsible
+   * block works that one block: open it, or fold it back.
    * @returns the selected text, or undefined for a bare click.
    */
   mouseUp(): string | undefined {
@@ -469,6 +565,7 @@ export class Screen {
     if (selection === undefined) return undefined
     if (!selection.dragged) {
       this.selection = undefined
+      this.clickFold(selection.anchor.row)
       return undefined
     }
     const text = this.selectedText()

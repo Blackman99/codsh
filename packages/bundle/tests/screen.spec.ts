@@ -385,6 +385,112 @@ describe('folds', () => {
     expect(text).not.toContain('bad')
   })
 
+  it('opens the block a click lands on, and leaves its neighbours folded', () => {
+    const sink = host(12, 40)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['status'], { row: 0, column: 0 }, false)
+    screen.appendFold(['first summary', ''], ['first full a', 'first full b', ''])
+    screen.appendFold(['second summary', ''], ['second full a', 'second full b', ''])
+    flush(sink)
+
+    // Row 1 holds the first summary; pressing and releasing without moving is
+    // a click, and a click works that one block.
+    screen.mouseDown(1, 3)
+    expect(screen.mouseUp()).toBeUndefined()
+    const text = [...painted(flush(sink)).values()].join('\n')
+    expect(text).toContain('first full b')
+    expect(text).not.toContain('first summary')
+    // The block below it was not asked for and did not open.
+    expect(text).toContain('second summary')
+    expect(text).not.toContain('second full a')
+  })
+
+  it('folds an open block back from its first row, but not from inside it', () => {
+    const sink = host(12, 40)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['status'], { row: 0, column: 0 }, false)
+    screen.append(['above'])
+    screen.appendFold(['summary', ''], ['head', 'body', 'tail', ''])
+    screen.toggleFolds()
+    flush(sink)
+
+    // Row 3 is inside the open block: text being read never collapses under
+    // the pointer, so nothing at all is painted.
+    screen.mouseDown(3, 2)
+    expect(screen.mouseUp()).toBeUndefined()
+    expect(flush(sink)).toBe('')
+
+    // Row 2 is the block's first row — its summary line — which folds it back.
+    screen.mouseDown(2, 2)
+    screen.mouseUp()
+    const text = [...painted(flush(sink)).values()].join('\n')
+    expect(text).toContain('summary')
+    expect(text).not.toContain('tail')
+  })
+
+  it('still copies a drag that starts on a collapsed block', () => {
+    const sink = host(12, 40)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['status'], { row: 0, column: 0 }, false)
+    screen.appendFold(['summary line', ''], ['full a', 'full b', ''])
+    flush(sink)
+
+    screen.mouseDown(1, 1)
+    screen.mouseDrag(1, 7)
+    expect(screen.mouseUp()).toBe('summary')
+    // A drag is a selection, not a click: the block stayed shut.
+    expect(flush(sink)).not.toContain('full b')
+  })
+
+  it('keeps a scrolled reader in place when a block above the tail opens', () => {
+    const sink = host(6, 40)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['status'], { row: 0, column: 0 }, false)
+    screen.append(['head 1', 'head 2'])
+    screen.appendFold(['summary', ''], ['full a', 'full b', 'full c', ''])
+    screen.append(['tail 1', 'tail 2', 'tail 3', 'tail 4', 'tail 5'])
+    // Scrolled all the way back: the two head lines, then the summary.
+    screen.scrollBy(-9)
+    flush(sink)
+
+    screen.mouseDown(3, 1)
+    screen.mouseUp()
+    const open = painted(flush(sink))
+    // The rows above the block did not move; the block grew where it stood.
+    expect(open.get(1)).toContain('head 1')
+    expect(open.get(2)).toContain('head 2')
+    expect(open.get(3)).toContain('full a')
+
+    // And folding it back puts the reader exactly where they started.
+    screen.mouseDown(3, 1)
+    screen.mouseUp()
+    const shut = painted(flush(sink))
+    expect(shut.get(1)).toContain('head 1')
+    expect(shut.get(3)).toContain('summary')
+    expect(shut.get(5)).toContain('tail 1')
+  })
+
+  it('folds everything back when a click has already opened it all', () => {
+    const sink = host(12, 40)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['status'], { row: 0, column: 0 }, false)
+    screen.appendFold(['summary', ''], ['full a', 'full b', ''])
+    screen.mouseDown(1, 2)
+    screen.mouseUp()
+    flush(sink)
+
+    // Every block is open, so the key closes them rather than doing nothing.
+    expect(screen.toggleFolds()).toBe(true)
+    const text = [...painted(flush(sink)).values()].join('\n')
+    expect(text).toContain('summary')
+    expect(text).not.toContain('full b')
+  })
+
   it('has nothing to toggle without folds, and clearing forgets them', () => {
     const sink = host(8, 40)
     const screen = new Screen(sink)
@@ -546,6 +652,33 @@ describe('the rule down a block\'s edge', () => {
     const rows = painted(flush(sink))
     expect(rows.get(1)).toBe('| full one')
     expect(rows.get(2)).toBe('| full two')
+  })
+
+  it('works a ruled block on a click, under the rule it was drawn with', () => {
+    const sink = host(10, 12)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['status'], { row: 0, column: 0 }, false)
+    // Two of the eleven content columns are the rule's, so this line takes
+    // three rows rather than two — and the block under it starts one row lower
+    // than a measure that forgot the rule would say.
+    screen.append(['x'.repeat(20)], '| ')
+    screen.appendFold(['summary'], ['full one', 'full two'], '| ')
+    flush(sink)
+
+    // Row 4 is where the block starts, so a click there works it — and both
+    // forms come back under the rule the block was drawn with.
+    screen.mouseDown(4, 3)
+    expect(screen.mouseUp()).toBeUndefined()
+    let rows = painted(flush(sink))
+    expect(rows.get(4)).toBe('| full one')
+    expect(rows.get(5)).toBe('| full two')
+
+    // Open, only that same head row folds it back.
+    screen.mouseDown(4, 3)
+    expect(screen.mouseUp()).toBeUndefined()
+    rows = painted(flush(sink))
+    expect(rows.get(4)).toBe('| summary')
   })
 
   it('folds a finished block back under the rule it was drawn with', () => {

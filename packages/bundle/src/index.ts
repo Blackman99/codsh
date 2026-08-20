@@ -869,7 +869,8 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
   const thinking = new TextStream(theme, () => io.console.contentColumns, true)
   // Thinking is collapsed by default, the way Claude shows it: while it
   // streams only the current line is live on screen, and when it ends the
-  // transcript keeps a one-line summary with the full text behind Ctrl+O —
+  // transcript keeps a one-line summary with the full text one click (or
+  // Ctrl+O) away —
   // pages of deliberation would otherwise bury the conversation.
   let thinkingLines: string[] = []
   let thinkingStartedAt = 0
@@ -966,7 +967,8 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
       emit(lines, undefined, rule)
       return
     }
-    // A collapsed block: the screen keeps both forms, Ctrl+O swaps them.
+    // A collapsed block: the screen keeps both forms; a click on it swaps
+    // that one, Ctrl+O swaps them all.
     prompt.setStreaming(undefined)
     io.console.appendFold(lines, full, rule)
   })

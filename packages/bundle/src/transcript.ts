@@ -28,7 +28,7 @@ const MAX_DIFF_LINES = 24
  * Result body lines printed for one completed call before the card collapses.
  *
  * Small on purpose: a long output in the transcript is skimmed, not read, and
- * the collapsed remainder is one Ctrl+O away in full.
+ * the collapsed remainder is one click — or one Ctrl+O — away in full.
  */
 const MAX_RESULT_LINES = 5
 
@@ -118,7 +118,7 @@ export function answerSummary(lines: readonly string[], theme: Theme): string[] 
   if (lines.length <= ANSWER_FOLD_LINES) return undefined
   return [
     ...lines.slice(0, ANSWER_HEAD_LINES),
-    theme.dim(`  … +${lines.length - ANSWER_HEAD_LINES} lines (Ctrl+O expands)`),
+    theme.dim(`  … +${lines.length - ANSWER_HEAD_LINES} lines (click or Ctrl+O expands)`),
     '',
   ]
 }
@@ -142,7 +142,7 @@ export function thinkingFold(
 ): { summary: string[], full: string[] } {
   const head = seconds === undefined ? '✻ thought' : `✻ thought for ${seconds.toFixed(1)}s`
   return {
-    summary: [theme.dim(`${head} · +${lines.length} lines (Ctrl+O expands)`), ''],
+    summary: [theme.dim(`${head} · +${lines.length} lines (click or Ctrl+O expands)`), ''],
     full: [theme.dim(head), ...lines, ''],
   }
 }
@@ -190,7 +190,7 @@ function diffBody(diff: FileDiff, theme: Theme): string[] {
 function cap(lines: string[], limit: number, theme: Theme): string[] {
   if (lines.length <= limit) return lines
   // The collapsed remainder names its key: an affordance, not just a count.
-  return [...lines.slice(0, limit), theme.dim(`  … +${lines.length - limit} lines (Ctrl+O expands)`)]
+  return [...lines.slice(0, limit), theme.dim(`  … +${lines.length - limit} lines (click or Ctrl+O expands)`)]
 }
 
 /** Renders one session's appended events as terminal lines. */

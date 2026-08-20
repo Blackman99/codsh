@@ -349,7 +349,7 @@ describe('tool results', () => {
     // Five skimmable lines; the rest collapse behind an affordance, not a bare count.
     expect(lines.join('\n')).toContain('line 4')
     expect(lines.join('\n')).not.toContain('line 5')
-    expect(lines.at(-2)).toBe('  … +25 lines (Ctrl+O expands)')
+    expect(lines.at(-2)).toBe('  … +25 lines (click or Ctrl+O expands)')
   })
 })
 
@@ -360,7 +360,7 @@ describe('folding collapsed output', () => {
     const transcript = build({ result })
     transcript.render(callEvent('c1', 'bash', {}))
     const shown = transcript.render(resultEvent('c1', long))
-    expect(shown.join('\n')).toContain('… +15 lines (Ctrl+O expands)')
+    expect(shown.join('\n')).toContain('… +15 lines (click or Ctrl+O expands)')
     const full = transcript.takeFold() ?? []
     // The full form replaces the whole block: same head, uncapped body.
     expect(full[0]).toContain('run')
@@ -401,13 +401,13 @@ describe('the forms a long block keeps', () => {
     expect(summary?.slice(0, ANSWER_HEAD_LINES)).toEqual(answer(ANSWER_HEAD_LINES))
     // The count names what is hidden and the key that shows it — a summary that
     // promised nothing would read as the answer having been truncated.
-    expect(summary?.at(-2)).toBe(`  … +${ANSWER_FOLD_LINES + 10 - ANSWER_HEAD_LINES} lines (Ctrl+O expands)`)
+    expect(summary?.at(-2)).toBe(`  … +${ANSWER_FOLD_LINES + 10 - ANSWER_HEAD_LINES} lines (click or Ctrl+O expands)`)
     expect(summary?.at(-1)).toBe('')
   })
 
   it('times a thinking block when the surface timed it', () => {
     const { summary, full } = thinkingFold(['  first', '  second'], theme, 3.24)
-    expect(summary[0]).toBe('✻ thought for 3.2s · +2 lines (Ctrl+O expands)')
+    expect(summary[0]).toBe('✻ thought for 3.2s · +2 lines (click or Ctrl+O expands)')
     expect(full[0]).toBe('✻ thought for 3.2s')
     expect(full).toContain('  second')
   })
@@ -416,7 +416,7 @@ describe('the forms a long block keeps', () => {
     // A replayed log carries the reasoning but not its duration; claiming a
     // time here would be inventing one.
     const { summary, full } = thinkingFold(['  first'], theme)
-    expect(summary[0]).toBe('✻ thought · +1 lines (Ctrl+O expands)')
+    expect(summary[0]).toBe('✻ thought · +1 lines (click or Ctrl+O expands)')
     expect(full[0]).toBe('✻ thought')
   })
 })

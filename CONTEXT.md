@@ -36,8 +36,9 @@ The bottom-pinned rows: input box, menus, hint row, status row. Never scrolls.
 
 **Fold**:
 A transcript block kept in both a summary and a full form, swappable in place
-(Ctrl+O), collapsed when the conversation moves on. Thinking, long tool
-output, and long finished answers are all folds.
+— a click works the one under the pointer, Ctrl+O works them all — and
+collapsed when the conversation moves on. Thinking, long tool output, and
+long finished answers are all folds.
 _Avoid_: collapse block, expandable section
 
 **Rule**:

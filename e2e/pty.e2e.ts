@@ -489,7 +489,7 @@ describe.skipIf(process.platform === 'win32')('dsh code Escape (real PTY)', () =
     expect(output).toContain('CODE_CLI_THINKING')
     // ...but the settled screen keeps one summary line, not the pages.
     const rows = screenAt(output, 'CODE_CLI_ANSWER after thinking').alternate
-    const summary = rows.findIndex(row => /✻ thought for [\d.]+s · \+\d+ lines \(Ctrl\+O expands\)/u.test(row))
+    const summary = rows.findIndex(row => /✻ thought for [\d.]+s · \+\d+ lines \(click or Ctrl\+O expands\)/u.test(row))
     expect(summary).toBeGreaterThanOrEqual(0)
     expect(rows.some(row => row.includes('weighing the options'))).toBe(false)
     expect(summary).toBeLessThan(rows.findIndex(row => row.includes('CODE_CLI_ANSWER')))
