@@ -1,5 +1,6 @@
 ---
 "codsh-bundle": minor
+"codsh-cli": minor
 ---
 
 Collapsed blocks answer the mouse. A click on a fold — a collapsed thought, a

@@ -1,5 +1,6 @@
 ---
 "codsh-bundle": minor
+"codsh-cli": minor
 ---
 
 The transcript answers the pointer resting on it. A collapsible block now
