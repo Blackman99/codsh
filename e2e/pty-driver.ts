@@ -152,6 +152,8 @@ export interface DriveOptions {
   rows?: number
   /** Window width to report. */
   columns?: number
+  /** Extra environment for the app, over the harness's defaults. */
+  env?: Record<string, string>
 }
 
 /**
@@ -177,9 +179,10 @@ export async function drivePtySteps(
     const overlay = join(cwd, 'mock.cordis.patch.yml')
     await writeFile(overlay, overlayText())
     const launch = resolveLaunch({ overlay, home, mode })
+    const env = { ...launch.env, ...options.env ?? {} }
     const result = await execa('python3', [
       '-c', PTY_DRIVER,
-      launch.command, JSON.stringify(launch.args), JSON.stringify(launch.env),
+      launch.command, JSON.stringify(launch.args), JSON.stringify(env),
       cwd, String(timeoutMs / 1000), JSON.stringify(script), String(rows), String(columns),
     ], { stdin: 'ignore', timeout: timeoutMs + 10_000, reject: false, killSignal: 'SIGKILL', stripFinalNewline: false })
     if (result.exitCode !== 0) {

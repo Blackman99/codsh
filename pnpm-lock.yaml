@@ -101,6 +101,9 @@ importers:
       '@deepseek-ai/dsh-agent-presets':
         specifier: ^0.1.0-rc.8
         version: 0.1.0-rc.8(5e397cd5acf66b9b27e57f2ce8f87f5c)
+      '@deepseek-ai/dsh-attachment':
+        specifier: ^0.1.0-rc.8
+        version: 0.1.0-rc.8(@deepseek-ai/cordis@4.0.1)(@deepseek-ai/dsh-brand@0.1.0-rc.8(@deepseek-ai/cordis@4.0.1)(@deepseek-ai/dsh-invariants@0.1.0-rc.8(@deepseek-ai/cordis@4.0.1)))(@deepseek-ai/dsh-invariants@0.1.0-rc.8(@deepseek-ai/cordis@4.0.1))
       '@deepseek-ai/dsh-cmdline':
         specifier: ^0.1.0-rc.8
         version: 0.1.0-rc.8(@deepseek-ai/cordis-plugin-loader@1.0.2)(@deepseek-ai/cordis@4.0.1)(@deepseek-ai/dsh-invariants@0.1.0-rc.8(@deepseek-ai/cordis@4.0.1))
@@ -233,6 +236,9 @@ importers:
       diff:
         specifier: ^9.0.0
         version: 9.0.0
+      sharp:
+        specifier: ^0.35.3
+        version: 0.35.3(@types/node@24.13.3)
       string-width:
         specifier: ^8.2.2
         version: 8.2.2

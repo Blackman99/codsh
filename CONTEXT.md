@@ -61,6 +61,16 @@ with the underline on that block's head row; the readout is what still speaks
 when the head row is off the screen.
 _Avoid_: tooltip, status hint
 
+**Pasted image**:
+The clipboard image Ctrl+V attaches behind an `[Image #N]` token in the box —
+one backspace removes the token whole, and a deleted token drops its image.
+At submit it takes one of three exits by the route's declared modality: an
+image-capable model gets it as a first-class attachment block; a text-only
+model gets it saved to a file under `$DSH_HOME/attachments/pasted/` plus,
+when the `CODSH_VISION_*` sidecar is configured, a verbatim description —
+both riding the same message so they survive `--resume`.
+_Avoid_: upload, embed
+
 **Todo readout**:
 The chrome row that holds the agent's todo list — progress plus the item in
 flight — for as long as a list is live, opened into the full list with Ctrl+T.

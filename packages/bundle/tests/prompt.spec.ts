@@ -62,16 +62,28 @@ const sources = {
  * @param readsKeys - whether the console owns the keyboard.
  * @returns the prompt, its console, and the handler calls it made.
  */
-function build(readsKeys = true) {
+function build(readsKeys = true, clipboard?: () => Promise<{ data: Buffer; mediaType: 'image/png'; width?: number; height?: number } | undefined>) {
   const console = fakeConsole(readsKeys)
   const calls: string[] = []
   const prompt = new Prompt(console as never, theme, sources, {
     interrupt: () => void calls.push('interrupt'),
     escape: () => void calls.push('escape'),
     eof: () => void calls.push('eof'),
+    ...clipboard === undefined ? {} : { readClipboardImage: clipboard },
   })
   return { prompt, console, calls }
 }
+
+/** Wait out the async hop a clipboard read takes. */
+const settled = (): Promise<void> => new Promise(resolve => setTimeout(resolve, 0))
+
+/** A fixture clipboard holding one tiny PNG. */
+const pngClipboard = () => Promise.resolve({
+  data: Buffer.from('fake-png-bytes'),
+  mediaType: 'image/png' as const,
+  width: 12,
+  height: 8,
+})
 
 describe('reading on a terminal', () => {
   it('resolves with the submitted text', async () => {
@@ -271,6 +283,63 @@ describe('the surrounding rows', () => {
     expect(rows.at(-3)).toContain('▶ write the fix')
     expect(rows.at(-2)).toBe('working')
     expect(rows.at(-1)).toBe('model · 12k tokens')
+  })
+
+  it('pastes an image as a token, and hands it over with the submission', async () => {
+    const { prompt, console } = build(true, pngClipboard)
+    const reading = prompt.read()
+    console.press({ kind: 'paste-image' })
+    await settled()
+    // The token in the box, and the flash saying what attached.
+    expect(console.draws.at(-1)?.rows.join('\n')).toContain('[Image #1]')
+    expect(console.draws.at(-1)?.rows.join('\n')).toContain('✓ image #1 attached (12×8 png)')
+    console.press({ kind: 'text', text: ' what is this?' })
+    console.press({ kind: 'enter' })
+    expect(await reading).toBe('[Image #1] what is this?')
+    const images = prompt.takeAttachments()
+    expect(images).toHaveLength(1)
+    expect(images[0]?.id).toBe(1)
+    expect(images[0]?.image.mediaType).toBe('image/png')
+    expect(images[0]?.image.data).toBe(Buffer.from('fake-png-bytes').toString('base64'))
+    // Drained exactly once.
+    expect(prompt.takeAttachments()).toHaveLength(0)
+  })
+
+  it('drops the image whose token was deleted before submitting', async () => {
+    const { prompt, console } = build(true, pngClipboard)
+    const reading = prompt.read()
+    console.press({ kind: 'paste-image' })
+    await settled()
+    // Backspace eats the whole token; its image must not ride along unseen.
+    console.press({ kind: 'backspace' })
+    console.press({ kind: 'text', text: 'plain after all' })
+    console.press({ kind: 'enter' })
+    expect(await reading).toBe('plain after all')
+    expect(prompt.takeAttachments()).toHaveLength(0)
+  })
+
+  it('keeps a queued line paired with its own images', async () => {
+    const { prompt, console } = build(true, pngClipboard)
+    // Nothing is reading yet: paste, submit, then paste again for the next line.
+    console.press({ kind: 'paste-image' })
+    await settled()
+    console.press({ kind: 'enter' })
+    console.press({ kind: 'text', text: 'no image here' })
+    console.press({ kind: 'enter' })
+    expect(await prompt.read()).toBe('[Image #1]')
+    expect(prompt.takeAttachments()).toHaveLength(1)
+    expect(await prompt.read()).toBe('no image here')
+    // The second line pasted nothing; a later paste must not bleed backwards.
+    expect(prompt.takeAttachments()).toHaveLength(0)
+  })
+
+  it('flashes when the clipboard holds no image', async () => {
+    const { prompt, console } = build(true, () => Promise.resolve(undefined))
+    prompt.read()
+    console.press({ kind: 'paste-image' })
+    await settled()
+    expect(console.draws.at(-1)?.rows.join('\n')).toContain('no image in the clipboard')
+    expect(prompt.takeAttachments()).toHaveLength(0)
   })
 
   it('names the block under the pointer, and gives the hint row back after', () => {

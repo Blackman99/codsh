@@ -1,6 +1,6 @@
 {
   "name": "codsh-bundle",
-  "description": "The codsh runtime: the interactive TTY surface and code-cli agent preset, installed into a dsh profile. Users install codsh-cli (the launcher) — this package is what it registers.",
+  "description": "The codsh runtime: the interactive TTY surface and code-cli agent preset, installed into a dsh profile. Users install codsh-cli (the launcher) \u2014 this package is what it registers.",
   "version": "0.5.0",
   "type": "module",
   "license": "MIT",
@@ -44,6 +44,7 @@
   "dependencies": {
     "@deepseek-ai/dsh-agent-instructions": "^0.1.0-rc.8",
     "@deepseek-ai/dsh-agent-presets": "^0.1.0-rc.8",
+    "@deepseek-ai/dsh-attachment": "^0.1.0-rc.8",
     "@deepseek-ai/dsh-cmdline": "^0.1.0-rc.8",
     "@deepseek-ai/dsh-code-runtime-worker-thread": "^0.1.0-rc.8",
     "@deepseek-ai/dsh-command-compact": "^0.1.0-rc.8",
@@ -76,6 +77,7 @@
     "@deepseek-ai/schemastery": "^3.18.1",
     "commander": "^15.0.0",
     "diff": "^9.0.0",
+    "sharp": "^0.35.3",
     "string-width": "^8.2.2"
   },
   "peerDependencies": {

@@ -78,6 +78,35 @@ function visibleText(content: readonly ContentBlock[]): string {
 }
 
 /**
+ * One dim line per image a user message carried, in place of pixels.
+ *
+ * An image block's bytes cannot render here, and a `<pasted-image>` context
+ * block is the pipeline talking to the model — pages of description would
+ * bury the words the person typed. Either becomes a line saying what rode
+ * along and what became of it.
+ * @param content - the message's blocks.
+ * @param theme - styling for the meta lines.
+ * @returns the lines, empty for a text-only message.
+ */
+function imageMetaLines(content: readonly ContentBlock[], theme: Theme): string[] {
+  const lines: string[] = []
+  for (const block of content) {
+    if (block.type === 'image') {
+      const { width, height, mediaType } = block.attachment
+      lines.push(theme.dim(`  [image · ${width}×${height} ${mediaType.slice(6)} · sent to the model]`))
+    } else if (block.type === 'text' && block.text.startsWith('<pasted-image ')) {
+      const id = /id="(\d+)"/u.exec(block.text)?.[1] ?? '?'
+      const dims = /dimensions="(\d+)x(\d+)"/u.exec(block.text)
+      const media = /media="image\/(\w+)"/u.exec(block.text)?.[1] ?? 'image'
+      const size = dims === null ? '' : ` · ${dims[1]}×${dims[2]}`
+      const fate = block.text.includes('<description>') ? 'described' : 'saved to file'
+      lines.push(theme.dim(`  [image #${id}${size} ${media} · ${fate}]`))
+    }
+  }
+  return lines
+}
+
+/**
  * The left rules the transcript draws down a block's edge, one per kind.
  *
  * A rule is how a segment shows where it starts and ends without a frame or a
@@ -265,8 +294,14 @@ export class Transcript {
         // no terminal echo, so this render is the only copy the transcript gets.
         if (event.data.source.kind !== 'user') return []
         this.rule = rules.user
-        const [first = '', ...rest] = visibleText(event.data.content).split('\n')
-        return [`${theme.user('›')} ${first}`, ...rest.map(line => `  ${line}`), '']
+        // Only what the person typed: a trailing <pasted-image> block is the
+        // pipeline's context for the model, summarized by a meta line instead.
+        const typed = event.data.content
+          .filter(block => block.type === 'text')
+          .filter(block => !block.text.startsWith('<pasted-image '))
+        const [first = '', ...rest] = typed.map(block => block.text).join('').split('\n')
+        const meta = imageMetaLines(event.data.content, theme)
+        return [`${theme.user('›')} ${first}`, ...rest.map(line => `  ${line}`), ...meta, '']
       }
       case 'assistant/message': {
         const text = visibleText(event.data.message.content)

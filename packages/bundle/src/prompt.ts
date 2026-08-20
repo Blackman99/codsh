@@ -14,6 +14,8 @@ import { inputBox } from './inputbox.ts'
 import { Selector } from './selector.ts'
 import { truncate } from './theme.ts'
 import { todoReport, todoRow } from './todos.ts'
+import type { EncodedImageAttachment } from '@deepseek-ai/dsh-attachment/types'
+import type { ClipboardImage } from './clipboard-image.ts'
 import type { TerminalConsole } from './console.ts'
 import type { EditorSources } from './editor.ts'
 import type { Key } from './keys.ts'
@@ -44,6 +46,28 @@ export interface PromptHandlers {
   shiftTab?(): void
   /** Ctrl-O: show the last clipped tool output in full. */
   expandOutput?(): void
+  /**
+   * Ctrl-V: the system clipboard's image, or undefined for none.
+   *
+   * Injected rather than imported so the pure-module tests can hand the
+   * prompt a fixture instead of a machine's clipboard.
+   */
+  readClipboardImage?(): Promise<ClipboardImage | undefined>
+}
+
+/**
+ * One pasted image awaiting its submission.
+ *
+ * The wire form the runtime admits, plus the dimensions the paste already
+ * probed — the submission pipeline says them back without re-decoding.
+ */
+export interface PendingImage {
+  /** The number the `[Image #N]` token wears, for context that names it back. */
+  id: number
+  /** Base64 bytes and their sniffed media type. */
+  image: EncodedImageAttachment
+  width?: number
+  height?: number
 }
 
 /** One waiting read. */
@@ -70,7 +94,16 @@ export class Prompt {
    * Typing while the agent works — or in the instant before a read begins — must
    * not be lost; the queue is what a line reader provides for free.
    */
-  private readonly queued: string[] = []
+  private readonly queued: { text: string; images: PendingImage[] }[] = []
+  /** Images pasted into the box, by the number their `[Image #N]` token wears. */
+  private readonly pendingImages = new Map<number, PendingImage>()
+  /** Numbers are never reused within a session: a recalled token must not
+   * silently pick up a different image. */
+  private imageCounter = 0
+  /** The images belonging to the line the last read handed out. */
+  private submittedImages: PendingImage[] = []
+  /** Whether a clipboard read is already in flight; a second Ctrl+V waits. */
+  private pastingImage = false
   /** The working indicator shown under the box. */
   private hint: string | undefined
   /** A short-lived notice that borrows the hint row, e.g. the copy toast. */
@@ -245,7 +278,10 @@ export class Prompt {
   read(signal?: AbortSignal): Promise<string | undefined> {
     if (!this.console.readsKeys) return this.console.readLine(signal)
     const typedAhead = this.queued.shift()
-    if (typedAhead !== undefined) return Promise.resolve(typedAhead)
+    if (typedAhead !== undefined) {
+      this.submittedImages = typedAhead.images
+      return Promise.resolve(typedAhead.text)
+    }
     if (this.console.finished) return Promise.resolve(undefined)
     this.reading = true
     this.render()
@@ -253,6 +289,7 @@ export class Prompt {
       const settle = (text: string | undefined): void => {
         this.pending = undefined
         this.reading = false
+        this.submittedImages = text === undefined ? [] : this.claimImages(text)
         resolve(text)
       }
       const onAbort = (): void => { settle(undefined) }
@@ -405,14 +442,19 @@ export class Prompt {
       this.render()
       return
     }
+    if (key.kind === 'paste-image') {
+      void this.pasteImage()
+      return
+    }
     const action = this.editor.handle(key)
     switch (action.kind) {
       case 'submit': {
         const waiting = this.pending
         if (waiting === undefined) {
           // Nothing is asking yet; hold it for the next read rather than losing
-          // the keystrokes.
-          this.queued.push(action.text)
+          // the keystrokes. Its images are claimed now: a paste made after this
+          // submission belongs to the next line, not retroactively to this one.
+          this.queued.push({ text: action.text, images: this.claimImages(action.text) })
           break
         }
         waiting.dispose()
@@ -436,6 +478,77 @@ export class Prompt {
         break
     }
     this.render()
+  }
+
+  /**
+   * Read the clipboard and attach its image behind an `[Image #N]` token.
+   *
+   * The read shells out and takes real time, so it runs off the key handler;
+   * a second Ctrl+V during it is dropped rather than raced. Numbers count up
+   * for the whole session — a token in a recalled line must never quietly
+   * name a different image than the one it was minted for.
+   */
+  private async pasteImage(): Promise<void> {
+    const read = this.handlers.readClipboardImage
+    if (read === undefined || this.pastingImage) return
+    this.pastingImage = true
+    try {
+      const found = await read()
+      if (found === undefined) {
+        this.setFlash(this.theme.dim('  no image in the clipboard'))
+        return
+      }
+      this.imageCounter += 1
+      const id = this.imageCounter
+      const pending: PendingImage = {
+        id,
+        image: { mediaType: found.mediaType, data: found.data.toString('base64'), name: `Pasted image #${id}` },
+      }
+      if (found.width !== undefined) pending.width = found.width
+      if (found.height !== undefined) pending.height = found.height
+      this.pendingImages.set(id, pending)
+      this.editor.handle({ kind: 'paste', text: `[Image #${id}]` })
+      const size = found.width !== undefined && found.height !== undefined ? ` (${found.width}×${found.height} ${found.mediaType.slice(6)})` : ''
+      this.setFlash(this.theme.dim(`  ✓ image #${id} attached${size}`))
+    } finally {
+      this.pastingImage = false
+      this.render()
+    }
+  }
+
+  /**
+   * The images a submitted line actually references, in token order.
+   *
+   * The tokens are the source of truth: a token the person deleted drops its
+   * image, a token duplicated by editing still names one attachment once.
+   * Claimed images leave the pending pool, so a token recalled from history
+   * later submits as plain text rather than resurrecting consumed bytes.
+   * @param text - the submitted line.
+   * @returns the referenced images, ready to ride the submission.
+   */
+  private claimImages(text: string): PendingImage[] {
+    const images: PendingImage[] = []
+    for (const match of text.matchAll(/\[Image #(\d+)\]/gu)) {
+      const id = Number(match[1])
+      const pending = this.pendingImages.get(id)
+      if (pending === undefined) continue
+      this.pendingImages.delete(id)
+      images.push(pending)
+    }
+    return images
+  }
+
+  /**
+   * The images belonging to the line the last read returned.
+   *
+   * A drain, in the transcript's `take*` idiom: the caller reads the line,
+   * then takes its images exactly once.
+   * @returns the images in token order, empty for a plain line.
+   */
+  takeAttachments(): PendingImage[] {
+    const images = this.submittedImages
+    this.submittedImages = []
+    return images
   }
 
   /**
@@ -470,7 +583,7 @@ export class Prompt {
       rows.push(...box.rows)
     }
     if (this.queued.length > 0) {
-      const preview = this.queued[0] ?? ''
+      const preview = this.queued[0]?.text ?? ''
       const more = this.queued.length > 1 ? ` (+${this.queued.length - 1} more)` : ''
       rows.push(this.theme.dim(truncate(`  ↳ queued: ${preview.split('\n')[0] ?? ''}${more}`, columns)))
     }

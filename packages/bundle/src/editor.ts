@@ -311,9 +311,14 @@ export class Editor {
   private backspace(): EditorAction {
     if (this.column > 0) {
       const cells = points(this.line())
-      cells.splice(this.column - 1, 1)
+      // A pasted-image token is one thing: eaten a character at a time it
+      // would leave a fragment that still looks like a reference but no
+      // longer names its attachment. Same atomicity Claude Code gives it.
+      const token = /\[Image #\d+\]$/u.exec(cells.slice(0, this.column).join(''))
+      const width = token === null ? 1 : points(token[0]).length
+      cells.splice(this.column - width, width)
       this.setLine(cells.join(''))
-      this.column -= 1
+      this.column -= width
     } else if (this.row > 0) {
       const previous = this.lines[this.row - 1] ?? ''
       const current = this.line()

@@ -29,7 +29,10 @@ import type {} from '@deepseek-ai/dsh-session-projection'
 import type {} from '@deepseek-ai/dsh-tool-todo'
 import type {} from '@deepseek-ai/dsh-token-meter'
 import type {} from '@deepseek-ai/dsh-permission-presets'
+import { admitEncodedImages, isImageAdmissionError } from '@deepseek-ai/dsh-attachment'
+import type { EncodedImageAttachment } from '@deepseek-ai/dsh-attachment/types'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
+import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-session-query'
@@ -46,18 +49,21 @@ import { createCompleter, fuzzyScore } from './completion.ts'
 import { expandTemplate, loadCustomCommands } from './custom-commands.ts'
 import type { CompletableCommand } from './completion.ts'
 import { TerminalConsole } from './console.ts'
+import { readClipboardImage } from './clipboard-image.ts'
 import { Prompt } from './prompt.ts'
 import { dshHomePath } from '@deepseek-ai/dsh-home-paths'
 import { installPackagedPreset } from './preset-install.ts'
 import { TerminalQuestions } from './questions.ts'
 import { SHIP_PROMPT } from './ship.ts'
 import { Spinner } from './spinner.ts'
+import { DEFAULT_IMAGE_LIMITS, describeImage, fitWithinLimits, pastedImageBlock, savePastedImage, visionConfigFromEnv } from './vision.ts'
 import { TextStream } from './streaming.ts'
 import { formatTokens, gitBranch, statusLine, statusReport, totalTokens } from './status.ts'
 import { todoReport } from './todos.ts'
+import type { PendingImage } from './prompt.ts'
 import type { TodoList } from './todos.ts'
 import type { StatusFacts } from './status.ts'
-import { backgroundIsLight, createTheme } from './theme.ts'
+import { backgroundIsLight, createTheme, truncate } from './theme.ts'
 import { FOLD_LABELS, Transcript, answerSummary, thinkingFold } from './transcript.ts'
 import type { Theme } from './theme.ts'
 
@@ -263,8 +269,19 @@ type TurnSource = { kind: 'user' } | { kind: 'plugin'; plugin: string }
  * @param source - the message source; a canned prompt is plugin-sourced so the
  *   transcript echoes the command that ran it, not its whole body.
  */
-async function turn(agent: Agent, text: string, working?: Spinner, source: TurnSource = { kind: 'user' }): Promise<void> {
-  agent.followup(createUserMessage({ content: [{ type: 'text', text }], source }))
+/** Content a turn carries around its text: image blocks lead, context trails. */
+interface TurnContent {
+  /** Blocks before the text — the runtime's images-first convention. */
+  leading: ContentBlock[]
+  /** Blocks after the text — e.g. a pasted image's file-and-description. */
+  trailing: ContentBlock[]
+}
+
+async function turn(agent: Agent, text: string, working?: Spinner, source: TurnSource = { kind: 'user' }, extra?: TurnContent): Promise<void> {
+  agent.followup(createUserMessage({
+    content: [...extra?.leading ?? [], { type: 'text', text }, ...extra?.trailing ?? []],
+    source,
+  }))
   working?.start()
   try {
     await agent.whenIdle()
@@ -282,7 +299,7 @@ async function turn(agent: Agent, text: string, working?: Spinner, source: TurnS
  * @param theme - styling for the command's report.
  * @param signal - cancels the command when the person interrupts.
  */
-async function runCommand(ctx: Context, agent: Agent, line: string, io: CliIo, theme: Theme, signal: AbortSignal): Promise<void> {
+async function runCommand(ctx: Context, agent: Agent, line: string, io: CliIo, theme: Theme, signal: AbortSignal, images: readonly EncodedImageAttachment[] = []): Promise<void> {
   const commands = ctx.get('commands')
   if (commands === undefined) {
     io.console.write(theme.error('  commands are unavailable in this composition'))
@@ -298,10 +315,10 @@ async function runCommand(ctx: Context, agent: Agent, line: string, io: CliIo, t
     return
   }
   // The whole line, slash included: `parseCommand` anchors on it, so a stripped
-  // name resolves as nothing and every registry command answers "unknown". No
-  // images: this surface has no composer to attach any, and the registry reads
-  // an empty batch as the plain invocation it is.
-  const execution = await commands.execute(agent, line, [], signal)
+  // name resolves as nothing and every registry command answers "unknown". The
+  // registry does the image admission itself, refusing a batch sent to a
+  // command that does not declare `input.images`.
+  const execution = await commands.execute(agent, line, images, signal)
   if (execution === undefined) {
     io.console.write(theme.error(`  unknown command: ${line}`))
     return
@@ -527,7 +544,7 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
   const commands = ctx.get('commands')
 
   /** The advertised model catalog, fetched once and refreshed per /model call. */
-  let modelCatalog: { provider: string; id: string; name: string }[] = []
+  let modelCatalog: { provider: string; id: string; name: string; inputModalities?: readonly string[] }[] = []
   const refreshModelCatalog = async (): Promise<void> => {
     // Read through the store, not the property proxy: `llm` is not one of this
     // plugin's declared injections.
@@ -542,11 +559,30 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
         return []
       }
     }))
-    modelCatalog = listed.flat().map(entry => ({ provider: entry.provider, id: entry.id, name: entry.name }))
+    modelCatalog = listed.flat().map(entry => ({
+      provider: entry.provider,
+      id: entry.id,
+      name: entry.name,
+      ...entry.inputModalities === undefined ? {} : { inputModalities: entry.inputModalities },
+    }))
   }
   // Fetched in the background: the catalog feeds completion and listing, and
   // neither is worth delaying the first prompt for.
   void refreshModelCatalog()
+
+  /**
+   * Whether the current route explicitly accepts image input.
+   *
+   * The same explicit-true test the adapter applies before throwing
+   * UNSUPPORTED_CONTENT: absent modalities mean unknown, and unknown gets the
+   * text fallback — which degrades, where the block path would crash the turn.
+   */
+  const routeAcceptsImages = (): boolean => {
+    const current = selection.current
+    if (current === undefined) return false
+    const entry = modelCatalog.find(model => model.provider === current.provider && model.id === current.model)
+    return entry?.inputModalities?.includes('image') === true
+  }
 
   /**
    * Resolve a /model argument to a selection.
@@ -649,6 +685,9 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
     expandOutput: () => {
       if (!io.console.toggleFolds()) prompt.write(theme.dim('  nothing to expand'))
     },
+    // Ctrl-V: the prompt owns the token and the pending bytes; the platform
+    // read lives here so the prompt module stays pure enough to test.
+    readClipboardImage: () => readClipboardImage(process.env),
   }, 'Ask anything · / for commands · @ for files · ⇧Tab plan mode')
   // The baseline the indicator's token figure counts from, reset per turn.
   let turnBaseTokens = 0
@@ -1134,13 +1173,68 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
    * than only in the status line.
    * @param text - the person's message.
    */
-  const answer = async (text: string, source?: TurnSource): Promise<void> => {
+  /**
+   * Turn pasted images into what this turn's message can carry.
+   *
+   * Three exits, decided by the route. An image-capable model gets the images
+   * as first-class blocks through the durable store — the runtime's own path.
+   * A text-only model gets each image saved as a file plus, when the vision
+   * sidecar is configured, a description standing in for sight; both ride the
+   * same message so they persist for `--resume`. A failure never loses the
+   * turn: it flashes, and the text still goes.
+   * @param images - the submission's pasted images, in token order.
+   * @returns blocks around the text, or undefined when there is nothing extra.
+   */
+  const prepareImages = async (images: PendingImage[]): Promise<TurnContent | undefined> => {
+    if (images.length === 0) return undefined
+    const store = ctx.get('attachments')
+    const limits = store?.imageLimits ?? DEFAULT_IMAGE_LIMITS
+    if (routeAcceptsImages() && store !== undefined) {
+      try {
+        // Downscaled to what deployed routes stream: a retina screenshot is
+        // over the 2000px side limit as a matter of course.
+        const fitted = await Promise.all(images.map(pending => fitWithinLimits(pending.image, limits)))
+        const refs = await admitEncodedImages(store, fitted)
+        return { leading: refs.map(attachment => ({ type: 'image', attachment })), trailing: [] }
+      } catch (error) {
+        const reason = error instanceof Error ? error.message : String(error)
+        prompt.setFlash(theme.error(truncate(`  image dropped: ${reason}`, io.console.columns)))
+        if (!isImageAdmissionError(error)) return undefined
+        // Admission refused the batch (too big, too many): the file fallback
+        // below still gives the model something rather than nothing.
+      }
+    }
+    const vision = visionConfigFromEnv(process.env)
+    const trailing: ContentBlock[] = []
+    for (const pending of images) {
+      const path = await savePastedImage(pending.image)
+      const at: { path: string; width?: number; height?: number; description?: string } = { path }
+      if (pending.width !== undefined) at.width = pending.width
+      if (pending.height !== undefined) at.height = pending.height
+      if (vision !== undefined) {
+        prompt.setHint(theme.dim(`  ✻ describing image #${pending.id} with ${vision.model}…`))
+        try {
+          at.description = await describeImage(await fitWithinLimits(pending.image, limits), vision)
+        } catch (error) {
+          const reason = error instanceof Error ? error.message : String(error)
+          prompt.setFlash(theme.error(truncate(`  image #${pending.id}: description failed (${reason}) — attached as file only`, io.console.columns)))
+        } finally {
+          prompt.setHint(undefined)
+        }
+      }
+      trailing.push({ type: 'text', text: pastedImageBlock(pending.id, pending.image, at) })
+    }
+    return { leading: [], trailing }
+  }
+
+  const answer = async (text: string, source?: TurnSource, images: PendingImage[] = []): Promise<void> => {
+    const extra = await prepareImages(images)
     const before = totalTokens(facts(branch).usage) ?? 0
     turnBaseTokens = before
     const started = performance.now()
     io.console.setTitle(`⚡ dsh code — ${basename(cwd)}`)
     try {
-      await turn(live.agent, text, spinner, source)
+      await turn(live.agent, text, spinner, source, extra)
     } finally {
       io.console.setTitle(`dsh code — ${basename(cwd)}`)
     }
@@ -1235,6 +1329,8 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
     }
     const line = await prompt.read()
     if (line === undefined) break
+    // The line's pasted images, drained exactly once beside it.
+    const images = prompt.takeAttachments()
     // Moving on reads as dismissal: whatever was expanded folds back, the way
     // clicking elsewhere collapses an expanded block in Claude.
     io.console.collapseFolds()
@@ -1242,6 +1338,9 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
     if (trimmed === '') continue
     if (trimmed === '/exit' || trimmed === '/quit') break
     if (trimmed.startsWith('!')) {
+      // A ! line runs in the shell and spends no turn; there is no message for
+      // an image to ride, so dropping it silently would read as it arriving.
+      if (images.length > 0) prompt.setFlash(theme.dim('  images do not ride ! commands — send them with a prompt'))
       const command = trimmed.slice(1).trim()
       if (command !== '') await passthrough(command)
       continue
@@ -1254,27 +1353,39 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
       // transcript presence, not their page-long body.
       const [, name = '', rest = ''] = /^\/(\S+)\s*([\s\S]*)$/.exec(trimmed) ?? []
       if (name === 'init') {
-        await answer(INIT_PROMPT, { kind: 'plugin', plugin: 'coding-cli' })
+        await answer(INIT_PROMPT, { kind: 'plugin', plugin: 'coding-cli' }, images)
         continue
       }
       if (name === 'ship') {
-        await answer(expandTemplate(SHIP_PROMPT, rest.trim()), { kind: 'plugin', plugin: 'coding-cli' })
+        await answer(expandTemplate(SHIP_PROMPT, rest.trim()), { kind: 'plugin', plugin: 'coding-cli' }, images)
         continue
       }
       const canned = customByName.get(name)
       if (canned !== undefined) {
-        await answer(expandTemplate(canned.template, rest.trim()), { kind: 'plugin', plugin: 'coding-cli' })
+        await answer(expandTemplate(canned.template, rest.trim()), { kind: 'plugin', plugin: 'coding-cli' }, images)
         continue
+      }
+      // Registry commands take images only on an image-capable route: their
+      // handlers steer the blocks straight to the model, where a text-only
+      // adapter refuses the whole request instead of degrading.
+      let batch: EncodedImageAttachment[] = []
+      if (images.length > 0) {
+        if (routeAcceptsImages()) {
+          const limits = ctx.get('attachments')?.imageLimits ?? DEFAULT_IMAGE_LIMITS
+          batch = await Promise.all(images.map(pending => fitWithinLimits(pending.image, limits)))
+        } else {
+          prompt.setFlash(theme.error('  this model does not accept images with commands — they were dropped'))
+        }
       }
       running = new AbortController()
       try {
-        await runCommand(ctx, live.agent, trimmed, io, theme, running.signal)
+        await runCommand(ctx, live.agent, trimmed, io, theme, running.signal, batch)
       } finally {
         running = undefined
       }
       continue
     }
-    await answer(trimmed)
+    await answer(trimmed, undefined, images)
   }
   await sessions.flush(live.agent.session)
   try {

@@ -9,6 +9,7 @@
  * @module codsh/e2e/fixtures/mock-llm
  */
 
+import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { CallId, LlmAdapter, ReasoningEffortId } from '@deepseek-ai/dsh-llm'
 
@@ -105,9 +106,13 @@ const ARGUMENTS = {
 /** Emits one `write` call, then a closing message naming the result. */
 class CodeCliMockAdapter extends LlmAdapter {
   listModels(provider) {
+    // The vision mode declares image input, so the surface's capability gate
+    // opens; every other mode stays text-only, exactly like the real DeepSeek
+    // catalog — which is what the fallback paths are tested against.
+    const modalities = process.env.DSH_CODE_CLI_MOCK_TOOL === 'vision' ? ['text', 'image'] : ['text']
     return Promise.resolve([
-      { provider, id: 'cli-mock', name: 'CLI Mock' },
-      { provider, id: 'cli-mock-pro', name: 'CLI Mock Pro' },
+      { provider, id: 'cli-mock', name: 'CLI Mock', inputModalities: modalities },
+      { provider, id: 'cli-mock-pro', name: 'CLI Mock Pro', inputModalities: modalities },
     ])
   }
 
@@ -124,6 +129,21 @@ class CodeCliMockAdapter extends LlmAdapter {
   }
 
   async * stream(options) {
+    if (process.env.DSH_CODE_CLI_MOCK_TOOL === 'vision') {
+      // Reports the image blocks the request actually carried: id, size, type.
+      // This is the proof the first-class path works — bytes were admitted to
+      // the durable store and rode the message as blocks, not as text.
+      const images = options.messages.flatMap(message =>
+        message.content.filter(block => block.type === 'image').map(block => block.attachment))
+      const shapes = images.map(image => `${image.width}x${image.height}:${image.mediaType}`).join(' ')
+      const reply = `CODE_CLI_VISION img=${images.length}${shapes === '' ? '' : ` ${shapes}`}`
+      yield { type: 'block-start', index: 0, blockType: 'text' }
+      yield { type: 'text-delta', index: 0, text: reply }
+      yield { type: 'block-end', index: 0, block: { type: 'text', text: reply } }
+      yield { type: 'usage', usage: { inputTokens: 3, outputTokens: 4 } }
+      yield { type: 'finish', reason: { kind: 'stop' } }
+      return
+    }
     if (process.env.DSH_CODE_CLI_MOCK_TOOL === 'reasoning') {
       // Reasoning first, text second — the order the real provider emits.
       yield { type: 'block-start', index: 0, blockType: 'reasoning' }
@@ -154,7 +174,17 @@ class CodeCliMockAdapter extends LlmAdapter {
       // /ship dispatched, expanded the typed idea into the template, and the
       // template still names the workflow's tools.
       const ship = texts.some(text => text.includes('SHIP_E2E_IDEA') && text.includes('ask_user_question') && text.includes('ralph')) ? 'yes' : 'no'
-      const reply = `CODE_CLI_CTX bang=${bang} remembered=${remembered} marker=${marker} ship=${ship}`
+      // A pasted image on a text-only route arrives as a <pasted-image> text
+      // block: report the saved path and whether a description came along, so
+      // the fallback and sidecar tests can read the proof off the transcript.
+      const pasted = texts.find(text => text.startsWith('<pasted-image '))
+      const savedAt = pasted === undefined ? undefined : /path="([^"]*)"/.exec(pasted)?.[1]
+      // Existence is checked HERE, while the per-test home still exists: the
+      // harness removes it before a test's own assertions could look.
+      const image = pasted === undefined
+        ? 'image=no'
+        : `image=${savedAt ?? '?'} file=${savedAt !== undefined && existsSync(savedAt) ? 'yes' : 'no'} described=${pasted.includes('<description>') ? 'yes' : 'no'}`
+      const reply = `CODE_CLI_CTX bang=${bang} remembered=${remembered} marker=${marker} ship=${ship} ${image}`
       yield { type: 'block-start', index: 0, blockType: 'text' }
       yield { type: 'text-delta', index: 0, text: reply }
       yield { type: 'block-end', index: 0, block: { type: 'text', text: reply } }

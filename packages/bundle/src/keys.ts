@@ -41,6 +41,7 @@ export type Key =
   | { kind: 'scroll'; lines: number }
   | { kind: 'scroll-end' }
   | { kind: 'paste'; text: string }
+  | { kind: 'paste-image' }
   | { kind: 'mouse-down'; row: number; column: number }
   | { kind: 'mouse-drag'; row: number; column: number }
   | { kind: 'mouse-move'; row: number; column: number }
@@ -183,6 +184,11 @@ const CONTROLS: Readonly<Record<string, Key>> = {
   '\u000F': { kind: 'expand-output' },
   '\u0014': { kind: 'toggle-todos' },
   '\u0015': { kind: 'kill-input' },
+  // Ctrl+V reads the system clipboard for an image — the binding Claude Code
+  // uses. An image never arrives through bracketed paste (that channel is
+  // text by construction), so the surface has to go get the bytes itself.
+  // The kitty form (CSI 118;5u) lands here too, via the Ctrl+letter lookup.
+  '\u0016': { kind: 'paste-image' },
   '\u0017': { kind: 'kill-word' },
 }
 

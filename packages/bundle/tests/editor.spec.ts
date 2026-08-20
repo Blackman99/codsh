@@ -81,6 +81,19 @@ describe('editing', () => {
     expect(editor.text).toBe('line one\nline two')
   })
 
+  it('deletes a pasted-image token as one thing', () => {
+    const editor = build()
+    editor.handle({ kind: 'paste', text: 'fix this ' })
+    editor.handle({ kind: 'paste', text: '[Image #3]' })
+    // One backspace takes the whole token: a fragment like `[Image #` would
+    // still look like a reference while no longer naming its attachment.
+    editor.handle({ kind: 'backspace' })
+    expect(editor.text).toBe('fix this ')
+    // Plain text around it keeps the ordinary one-character behaviour.
+    editor.handle({ kind: 'backspace' })
+    expect(editor.text).toBe('fix this')
+  })
+
   it('backspaces across a line boundary', () => {
     const editor = build()
     type(editor, 'ab')
