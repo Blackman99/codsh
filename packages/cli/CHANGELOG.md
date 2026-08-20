@@ -1,5 +1,56 @@
 # codsh
 
+## 0.5.0
+
+### Minor Changes
+
+- 3563a53: Collapsed blocks answer the mouse. A click on a fold — a collapsed thought, a
+  clipped tool result, a finished answer past a screenful — opens that one block
+  where it stands, and a click anywhere inside it folds it back again; Ctrl+O
+  keeps working every block at once. A click is a press that never moved, so
+  dragging still selects and copies exactly as before: text you sweep over to
+  read or copy is a drag, and never collapses under the pointer.
+  
+  Opening a block no longer throws a reader back to the tail either: the rows
+  above the block keep their screen positions while it grows or shrinks below
+  them, so a block opened halfway up the history stays where it was clicked. The
+  affordance names both gestures now — `… +25 lines (click or Ctrl+O expands)`.
+- 59efe88: A resumed session's history is foldable again. Replay used to write the log out line by line, so a long tool output came back as the summary line that promises `Ctrl+O expands` with no fold behind it — the key answered nothing and the output was unreachable for the rest of the session. Replay now rebuilds the same folds the live turn built: collapsed tool bodies keep their full form behind Ctrl+O, a long answer folds to its head lines and a count, and thinking — which is in the log but not in the transcript's visible text — comes back as the one dim `✻ thought` line it was, with the deliberation behind the key. Live and replayed blocks share one summary builder, so the two paths cannot drift.
+- 12373b9: The transcript answers the pointer resting on it. A collapsible block now
+  marks itself while the pointer is over it — its head row underlined, the way a
+  hovered link reads — and the chrome row under the box names it: what the block
+  is, how many lines it holds, and whether a click would open or fold it
+  (`thinking · 42 lines · click to expand`, `Bash(pnpm test) · 120 lines · click
+  to fold`). Move off and the row goes back to whatever it was saying.
+  
+  The readout is what covers the case the mark cannot: a block taller than the
+  screen has no head row in view, and its name is the only thing that can tell
+  you which segment you are in. Both appear without a click, so a clickable block
+  is no longer a target you find by hitting it.
+  
+  This turns on any-motion mouse reporting (mode 1003) over the button tracking
+  already in use, keeping the drag that selects on terminals that speak only the
+  older mode. Motion is a report per cell crossed, so the frame is touched only
+  when the block under the pointer actually changes.
+- 6aa42ab: Each transcript block now carries a rule down its left edge, so segments are told apart at a glance in a long history: the person's own message gets the heavy mark, a tool block the light one — in the error colour when the call failed — and what a person actually reads, an answer or a thinking summary, stays flush so the rules mark the machinery around it rather than everything equally. The rule repeats on every row a line wraps to, the blank line between blocks stays unmarked, and a selection that sweeps across a rule hands back the text without it: the mark is chrome this surface drew, not something anyone typed. Both references converge on a left border for this (Claude Code's `borderLeft`, opencode's `border: ["left"]`); the background fill opencode layers on top stays out, because the terminal's background is the theme's to decide (ADR-0001).
+- 80c1c5d: A new built-in, `/ship <one-sentence requirement>`, drives an idea from 0 to 1 with exactly two approvals: a research-grounded interview (one ask_user_question at a time) ends in a spec file you confirm, then an implementation plan you approve — and from there the agent lands the feature autonomously, small plans implement→test→fix in-session and large ones through the ralph fresh-agent loop with the spec on disk as cross-round memory, until the spec's acceptance criteria pass with actually-run tests. Run it bare and it asks for the sentence first. `ship` joins the reserved built-in names: a custom `ship.md` command file is now skipped with a startup warning instead of loading.
+- 18bd80f: Todos now have a display that outlives the write that produced them. A pinned readout sits in the chrome directly over the status row for as long as a list is live: progress (`1/3`), the item in flight — or, between items, the one coming next — and `✔ all done` when the list is finished. Ctrl+T opens it into the whole list and closes it again, the way Ctrl+O swaps a fold; `/todos` prints the same list into the transcript, which is how the pipe shape reads it with no chrome and no keys. Both read the session's `todos` projection, so `--resume` reopens on the list it left off with, and one renderer now serves the readout, the transcript card, and `/todos` — the card's header gained the state breakdown (`todos 1/3 · 1 in progress · 1 open`) as a result.
+
+### Patch Changes
+
+- 0d5598f: Plan mode no longer kills the session. `/plan` and Shift-Tab crashed the app
+  outright — `Cannot read properties of undefined (reading 'length')` from inside
+  the harness's plan-mode plugin — for anyone whose profile resolved the newer
+  plugin against an older runtime, which a fresh install did by default.
+  
+  The cause was a version split, not a bug in either half: every
+  `@deepseek-ai/dsh-*` range was a caret on a prerelease, which admits the next
+  `rc`, so a lockfile-free profile install picked up `0.1.0-rc.8` plugins while
+  the launcher found an `rc.7` runtime — and rc.8's command registry passes an
+  image-attachment batch that rc.7 never did. Every dsh range is now on rc.8, so
+  the pair matches, and the surface passes the empty batch a plain slash command
+  carries.
+
 ## 0.4.0
 
 ### Minor Changes
