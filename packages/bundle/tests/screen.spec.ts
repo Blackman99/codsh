@@ -490,3 +490,75 @@ describe('mouse selection', () => {
     expect(screen.mouseUp()).toBeUndefined()
   })
 })
+
+describe('the rule down a block\'s edge', () => {
+  it('repeats the rule on every row a line wraps to', () => {
+    const sink = host(5, 12)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['status'], { row: 0, column: 0 }, false)
+    flush(sink)
+    // Eleven content columns, two of them the rule's, so nine characters fit a
+    // row — and the rule is on the continuation too, or the edge breaks exactly
+    // where a long line made it matter.
+    screen.append(['x'.repeat(20)], '| ')
+    const rows = painted(flush(sink))
+    expect(rows.get(1)).toBe(`| ${'x'.repeat(9)}`)
+    expect(rows.get(2)).toBe(`| ${'x'.repeat(9)}`)
+    expect(rows.get(3)).toBe('| xx')
+  })
+
+  it('leaves the blank line between blocks unmarked', () => {
+    const sink = host(5, 20)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['status'], { row: 0, column: 0 }, false)
+    flush(sink)
+    screen.append(['head', ''], '| ')
+    const rows = painted(flush(sink))
+    expect(rows.get(1)).toBe('| head')
+    // A lone mark hanging under the block it ended would read as a row of it.
+    // An unchanged empty row is not repainted at all, which says the same thing.
+    expect(rows.get(2) ?? '').toBe('')
+  })
+
+  it('hands over the text without the rule it swept across', () => {
+    const sink = host(8, 40)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['status'], { row: 0, column: 0 }, false)
+    screen.append(['alpha beta', 'gamma delta'], '| ')
+    flush(sink)
+    screen.mouseDown(1, 1)
+    screen.mouseDrag(2, 40)
+    // The rule is a mark this surface drew, not text anyone typed.
+    expect(screen.mouseUp()).toBe('alpha beta\ngamma delta')
+  })
+
+  it('keeps a block\'s rule across a fold toggle', () => {
+    const sink = host(8, 40)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['status'], { row: 0, column: 0 }, false)
+    screen.appendFold(['summary'], ['full one', 'full two'], '| ')
+    flush(sink)
+    screen.toggleFolds()
+    const rows = painted(flush(sink))
+    expect(rows.get(1)).toBe('| full one')
+    expect(rows.get(2)).toBe('| full two')
+  })
+
+  it('folds a finished block back under the rule it was drawn with', () => {
+    const sink = host(8, 40)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['status'], { row: 0, column: 0 }, false)
+    screen.append(['one', 'two', ''], '| ')
+    screen.foldBack(3, ['summary', ''])
+    screen.collapseFolds()
+    flush(sink)
+    screen.toggleFolds()
+    const rows = painted(flush(sink))
+    expect(rows.get(1)).toBe('| one')
+  })
+})

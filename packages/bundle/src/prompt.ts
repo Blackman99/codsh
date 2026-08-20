@@ -229,9 +229,10 @@ export class Prompt {
   /**
    * Write one finished transcript line above the region.
    * @param line - the line to keep.
+   * @param rule - a styled left rule marking which block the line belongs to.
    */
-  write(line: string): void {
-    this.console.write(line)
+  write(line: string, rule = ''): void {
+    this.console.write(line, rule)
   }
 
   /**

@@ -8,7 +8,7 @@ import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import type { ToolCallView, ToolResultView } from '@deepseek-ai/dsh-tools'
 import { describe, expect, it } from 'vitest'
 import { createTheme } from '../src/theme.ts'
-import { ANSWER_FOLD_LINES, ANSWER_HEAD_LINES, Transcript, answerSummary, thinkingFold, type ToolPresenters } from '../src/transcript.ts'
+import { ANSWER_FOLD_LINES, ANSWER_HEAD_LINES, Transcript, answerSummary, blockRules, thinkingFold, type ToolPresenters } from '../src/transcript.ts'
 
 const theme = createTheme(false, {})
 const CWD = '/repo'
@@ -418,5 +418,57 @@ describe('the forms a long block keeps', () => {
     const { summary, full } = thinkingFold(['  first'], theme)
     expect(summary[0]).toBe('✻ thought · +1 lines (Ctrl+O expands)')
     expect(full[0]).toBe('✻ thought')
+  })
+})
+
+describe('which block a line belongs to', () => {
+  const rules = blockRules(theme)
+
+  /** A user message event. */
+  const userEvent = (text: string): SessionEvent => ({
+    type: 'user/message',
+    seq: 1,
+    time: 0,
+    data: { source: { kind: 'user' }, content: [{ type: 'text', text }] },
+  }) as unknown as SessionEvent
+
+  it('marks the person\'s own words with the heavy rule', () => {
+    const transcript = build()
+    transcript.render(userEvent('do it'))
+    expect(transcript.takeRule()).toBe(rules.user)
+  })
+
+  it('marks a tool block with the light rule', () => {
+    const transcript = build()
+    transcript.render(callEvent('c1', 'read', { file_path: '/repo/a.ts' }))
+    expect(transcript.takeRule()).toBe(rules.tool)
+  })
+
+  it('re-marks a failed call in the error colour', () => {
+    const transcript = build()
+    transcript.render(callEvent('c1', 'bash', {}))
+    transcript.takeRule()
+    transcript.render(resultEvent('c1', 'boom', true))
+    expect(transcript.takeRule()).toBe(rules.error)
+  })
+
+  it('leaves what a person reads flush', () => {
+    // An answer carries the conversation; ruling it too would mark everything
+    // equally and mark nothing.
+    const transcript = build()
+    transcript.render({
+      type: 'assistant/message',
+      seq: 1,
+      time: 0,
+      data: { message: { content: [{ type: 'text', text: 'here you go' }] } },
+    } as unknown as SessionEvent)
+    expect(transcript.takeRule()).toBe('')
+  })
+
+  it('takes the rule once, like the fold it travels with', () => {
+    const transcript = build()
+    transcript.render(userEvent('do it'))
+    expect(transcript.takeRule()).toBe(rules.user)
+    expect(transcript.takeRule()).toBe('')
   })
 })

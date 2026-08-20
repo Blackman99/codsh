@@ -77,6 +77,26 @@ function visibleText(content: readonly ContentBlock[]): string {
   return content.filter(block => block.type === 'text').map(block => block.text).join('')
 }
 
+/**
+ * The left rules the transcript draws down a block's edge, one per kind.
+ *
+ * A rule is how a segment shows where it starts and ends without a frame or a
+ * background fill: the references converge on a left border (Claude Code's
+ * `borderLeft`, opencode's `border: ["left"]`), and a border costs one column
+ * where a fill costs the terminal's own background — which is the theme's to
+ * decide, not this surface's (ADR-0001).
+ *
+ * The person's own words get the heavy mark; a tool block gets the light one,
+ * in the error colour when the call failed. What a person actually reads — an
+ * answer, a thinking summary — stays flush, so the rules mark the machinery
+ * around it rather than everything equally.
+ * @param theme - styling for the marks.
+ * @returns the rule per block kind.
+ */
+export function blockRules(theme: Theme): { user: string, tool: string, error: string } {
+  return { user: theme.user('┃ '), tool: theme.tool('│ '), error: theme.error('│ ') }
+}
+
 /** A finished answer longer than this many rendered lines becomes a fold. */
 export const ANSWER_FOLD_LINES = 24
 
@@ -178,6 +198,8 @@ export class Transcript {
   private readonly calls = new Map<string, PendingCall>()
   /** The full form of the event just rendered, when its body was collapsed. */
   private fold: string[] | undefined
+  /** The left rule the block {@link render} just returned belongs to. */
+  private rule = ''
 
   constructor(
     private readonly options: TranscriptOptions,
@@ -225,11 +247,14 @@ export class Transcript {
    */
   render(event: SessionEvent): string[] {
     const { theme } = this.options
+    const rules = blockRules(theme)
+    this.rule = ''
     switch (event.type) {
       case 'user/message': {
         // The person's own message: with the box owning the keyboard there is
         // no terminal echo, so this render is the only copy the transcript gets.
         if (event.data.source.kind !== 'user') return []
+        this.rule = rules.user
         const [first = '', ...rest] = visibleText(event.data.content).split('\n')
         return [`${theme.user('›')} ${first}`, ...rest.map(line => `  ${line}`), '']
       }
@@ -238,10 +263,15 @@ export class Transcript {
         return text === '' ? [] : [...renderMarkdown(text, theme), '']
       }
       case 'tool/call':
+        this.rule = rules.tool
         return this.renderCall(event.data.callId, event.data.name, event.data.arguments)
       case 'tool/result':
+        // Set before rendering: a failed call re-marks the block's edge, which
+        // is the renderer's own finding rather than something the type says.
+        this.rule = rules.tool
         return this.renderResult(event.data)
       case 'todo/write': {
+        this.rule = rules.tool
         // The same renderer the pinned readout uses: the card is this write, the
         // readout is the list as it now stands, and they must not disagree.
         const lines = todoReport(event.data.todos, theme, this.options.columns)
@@ -252,9 +282,9 @@ export class Transcript {
           ? [theme.pending('▲ plan mode — exploring only; no files will change until you approve a plan'), '']
           : [theme.dim('▼ plan mode off'), '']
       case 'turn/end':
-        return event.data.reason.kind === 'error'
-          ? [theme.error(`✗ ${event.data.reason.error.code}: ${event.data.reason.error.message}`), '']
-          : []
+        if (event.data.reason.kind !== 'error') return []
+        this.rule = rules.error
+        return [theme.error(`✗ ${event.data.reason.error.code}: ${event.data.reason.error.message}`), '']
       default:
         // Merge-extensible map: an event this surface shows nothing for.
         return []
@@ -319,6 +349,7 @@ export class Transcript {
     const pending = this.calls.get(callId)
     this.calls.delete(callId)
     const failed = error !== undefined || block.isError === true
+    if (failed) this.rule = blockRules(theme).error
     const marker = failed ? theme.error('✗') : theme.success('●')
     if (pending === undefined) {
       // The call fell outside this surface's window (a resumed page boundary);
@@ -361,6 +392,20 @@ export class Transcript {
     const fold = this.fold
     this.fold = undefined
     return fold
+  }
+
+  /**
+   * The left rule for the block {@link render} just returned, `''` when the
+   * block stands flush.
+   *
+   * Paired with the lines rather than baked into them: the rule repeats on
+   * every row the block wraps to, which only the buffer that wraps them knows.
+   * @returns the styled rule, or `''`.
+   */
+  takeRule(): string {
+    const rule = this.rule
+    this.rule = ''
+    return rule
   }
 
   /**

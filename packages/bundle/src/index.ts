@@ -236,11 +236,12 @@ function replay(session: Session, transcript: Transcript, io: CliIo, theme: Them
     // the live turn did — the summary promises Ctrl+O, and without the fold the
     // key would answer nothing and the output would be unreachable for good.
     const full = transcript.takeFold()
+    const rule = transcript.takeRule()
     if (full !== undefined) {
-      io.console.appendFold(lines, full)
+      io.console.appendFold(lines, full, rule)
       continue
     }
-    for (const line of lines) io.console.write(line)
+    for (const line of lines) io.console.write(line, rule)
     if (event.type !== 'assistant/message') continue
     // A long answer folds after the fact here too: it was written in the open,
     // and only then does it grow the summary the conversation moved on from.
@@ -886,11 +887,11 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
    * @param lines - finished lines for the transcript.
    * @param live - the in-progress line, or undefined to release the region.
    */
-  const emit = (lines: readonly string[], live?: string): void => {
+  const emit = (lines: readonly string[], live?: string, rule = ''): void => {
     // Released before writing: the region is redrawn under every written line,
     // so leaving the superseded partial in place would reprint it each time.
     if (lines.length > 0) prompt.setStreaming(undefined)
-    for (const line of lines) prompt.write(line)
+    for (const line of lines) prompt.write(line, rule)
     prompt.setStreaming(live)
   }
 
@@ -959,13 +960,15 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
     }
     const lines = live.transcript.render(event)
     const full = live.transcript.takeFold()
+    // The rule marks which block these lines belong to, down their left edge.
+    const rule = live.transcript.takeRule()
     if (full === undefined) {
-      emit(lines)
+      emit(lines, undefined, rule)
       return
     }
     // A collapsed block: the screen keeps both forms, Ctrl+O swaps them.
     prompt.setStreaming(undefined)
-    io.console.appendFold(lines, full)
+    io.console.appendFold(lines, full, rule)
   })
 
   /** Pause the indicator around a decision, and resume it if work continues. */

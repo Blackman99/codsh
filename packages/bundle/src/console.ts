@@ -318,10 +318,12 @@ export class TerminalConsole {
    * what lets the transcript scroll under a prompt that does not move. Off one
    * it is written straight out, because a pipe's reader wants exactly that.
    * @param line - the line, without its terminator.
+   * @param rule - a styled left rule to draw down the line, `''` for none. Off
+   *   a terminal it is dropped: a pipe's reader wants the text, not the frame.
    */
-  write(line: string): void {
+  write(line: string, rule = ''): void {
     if (this.screen !== undefined) {
-      this.screen.append([line])
+      this.screen.append([line], rule)
       return
     }
     this.output.write(`${line}\n`)
@@ -349,10 +351,11 @@ export class TerminalConsole {
    * with, and scripts want the digest.
    * @param summary - the collapsed lines.
    * @param full - the expanded lines.
+   * @param rule - a styled left rule for the whole block, `''` for none.
    */
-  appendFold(summary: readonly string[], full: readonly string[]): void {
+  appendFold(summary: readonly string[], full: readonly string[], rule = ''): void {
     if (this.screen !== undefined) {
-      this.screen.appendFold(summary, full)
+      this.screen.appendFold(summary, full, rule)
       return
     }
     for (const line of summary) this.output.write(`${line}\n`)

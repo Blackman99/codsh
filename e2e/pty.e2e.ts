@@ -353,9 +353,9 @@ describe.skipIf(process.platform === 'win32')('dsh code Escape (real PTY)', () =
     // The echo keeps the block's shape: the marker on the first row, the
     // continuation aligned under it, both outside the box's borders.
     const rows = screen.alternate.map(row => row.trimEnd())
-    const echo = rows.indexOf('› first')
+    const echo = rows.indexOf('┃ › first')
     expect(echo).toBeGreaterThanOrEqual(0)
-    expect(rows[echo + 1]).toBe('  second')
+    expect(rows[echo + 1]).toBe('┃   second')
   }, E2E_TEST_TIMEOUT_MS)
 
   it('recalls the previous submission with the up arrow', async () => {
@@ -409,7 +409,7 @@ describe.skipIf(process.platform === 'win32')('dsh code Escape (real PTY)', () =
     expect(rows.at(-1)).toMatch(/cli-mock · code-cli · workspace-write · \d+k? tokens/)
     // Submitting clears the box, so the transcript's own render is the only
     // copy of the message that survives — a row outside the box's borders.
-    expect(rows.map(row => row.trimEnd())).toContain('› create the note')
+    expect(rows.map(row => row.trimEnd())).toContain('┃ › create the note')
   }, E2E_TEST_TIMEOUT_MS)
 
   it('toggles plan mode with Shift-Tab, both ways', async () => {
@@ -610,7 +610,7 @@ describe.skipIf(process.platform === 'win32')('dsh code Escape (real PTY)', () =
     expect(typing[boxRow + 1] ?? '').toContain('second')
     // ...and the transcript echoes the one two-line message.
     const done = screenAt(output, 'CODE_CLI_CALL_OK').alternate
-    const echo = done.findIndex(row => row.startsWith('› first'))
+    const echo = done.findIndex(row => row.startsWith('┃ › first'))
     expect(echo).toBeGreaterThanOrEqual(0)
     expect(done[echo + 1] ?? '').toContain('second')
   }, E2E_TEST_TIMEOUT_MS)
@@ -673,10 +673,25 @@ describe.skipIf(process.platform === 'win32')('dsh code Escape (real PTY)', () =
     const rows = screenAt(output, 'resumed session-', 'last').alternate.map(row => row.trimEnd())
     // Switching sessions clears the retired viewport, then replays the resumed
     // log: exactly one echo, and none of the interim session's chatter.
-    expect(rows.filter(row => row === '› remember DELTA_ONE')).toHaveLength(1)
+    expect(rows.filter(row => row === '┃ › remember DELTA_ONE')).toHaveLength(1)
     expect(rows.some(row => row.includes('new session session-'))).toBe(false)
     // The window title tracks the surface on a real terminal.
     expect(output).toContain('\u001B]2;dsh code —')
+  }, E2E_TEST_TIMEOUT_MS)
+
+  it('rules each block down its left edge, by what the block is', async () => {
+    const output = await drivePty('write', [
+      ['/help for commands', `create the note${ENTER}`, 300],
+      ['CODE_CLI_CALL_OK', `/exit${ENTER}`, 400],
+    ])
+
+    const rows = screenAt(output, 'CODE_CLI_CALL_OK').alternate.map(row => row.trimEnd())
+    // The person's own words carry the heavy mark; the tool block the light
+    // one — which is what tells two segments apart without a frame or a fill.
+    expect(rows).toContain('┃ › create the note')
+    expect(rows.some(row => row.startsWith('│ ') && row.includes('note.txt'))).toBe(true)
+    // What a person reads stays flush: the answer is not marked at all.
+    expect(rows.some(row => row.startsWith('CODE_CLI_CALL_OK'))).toBe(true)
   }, E2E_TEST_TIMEOUT_MS)
 
   it('replays history as folds, so a resumed long output still opens', async () => {
@@ -696,7 +711,7 @@ describe.skipIf(process.platform === 'win32')('dsh code Escape (real PTY)', () =
     // Replayed, before the key: the log's own message above a card still
     // collapsed to its summary — history as the turn left it.
     const replayed = screenAt(output, 'resumed session-').alternate
-    expect(replayed.map(row => row.trimEnd())).toContain('› create the tall note')
+    expect(replayed.map(row => row.trimEnd())).toContain('┃ › create the tall note')
     expect(replayed.some(row => row.includes('Ctrl+O expands'))).toBe(true)
     expect(replayed.some(row => row.includes('CODE_CLI_TALL_44'))).toBe(false)
 
@@ -747,6 +762,6 @@ describe.skipIf(process.platform === 'win32')('dsh code Escape (real PTY)', () =
     expect(rows.findLastIndex(row => row.startsWith('╰─') && row.length > narrow / 2)).toBeGreaterThanOrEqual(PTY_ROWS - 4)
     for (const row of rows) expect(row.length).toBeLessThanOrEqual(narrow)
     // The session kept working at the new size.
-    expect(rows.map(row => row.trimEnd())).toContain('› still here')
+    expect(rows.map(row => row.trimEnd())).toContain('┃ › still here')
   }, E2E_TEST_TIMEOUT_MS)
 })

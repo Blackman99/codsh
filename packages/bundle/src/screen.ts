@@ -8,7 +8,7 @@
  * viewport while the input box stays where it is, at the bottom.
  *
  * Owning the viewport means doing three jobs the terminal used to do. Lines are
- * wrapped here ({@link wrapAll}), because a line that overflows would otherwise
+ * wrapped here ({@link wrapStyled}), because a line that overflows would otherwise
  * overwrite the row below. Scrolling is ours, because the terminal's scrollback
  * does not exist on the alternate screen. And every frame is painted as a
  * whole, diffed against the last one — which is what removes the class of bug
@@ -17,7 +17,7 @@
  */
 
 import { displayWidth, truncate } from './theme.ts'
-import { wrapAll, wrapStyled } from './wrap.ts'
+import { wrapStyled } from './wrap.ts'
 
 /** Logical transcript lines kept before the oldest are dropped. */
 const MAX_SCROLLBACK = 5000
@@ -128,8 +128,18 @@ export interface ScreenHost {
 export class Screen {
   /** Logical transcript lines, unwrapped, oldest first. */
   private logical: string[] = []
+  /**
+   * The left rule each logical line carries, `''` for none.
+   *
+   * Kept beside the text rather than inside it: a rule has to repeat on every
+   * row a line wraps to, and it must never reach the clipboard — it is a mark
+   * the surface draws, not something the person wrote.
+   */
+  private rules: string[] = []
   /** The same lines wrapped to the current width — what the viewport slices. */
   private physical: string[] = []
+  /** Display columns the rule occupies on each physical row, for copy and hits. */
+  private ruleWidths: number[] = []
   /** The bottom rows: input box, menu, indicator, status. */
   private chrome: string[] = []
   private chromeCursor: ChromeCursor = { row: 0, column: 0 }
@@ -142,7 +152,7 @@ export class Screen {
   /** A mouse selection over the transcript, in physical-row coordinates. */
   private selection: { anchor: { row: number; column: number }; focus: { row: number; column: number }; dragged: boolean } | undefined
   /** Collapsed blocks in the transcript, in order, with both of their forms. */
-  private folds: { at: number; shownLength: number; summary: string[]; full: string[]; expanded: boolean }[] = []
+  private folds: { at: number; shownLength: number; summary: string[]; full: string[]; expanded: boolean; rule: string }[] = []
   /** Whether the folds currently show their full form. */
   private expanded = false
   /** The last painted frame, so a repaint only touches rows that changed. */
@@ -192,16 +202,24 @@ export class Screen {
    * where they are, and the new rows accumulate below them.
    * @param lines - the lines to keep, already styled.
    */
-  append(lines: readonly string[]): void {
+  append(lines: readonly string[], rule = ''): void {
     if (lines.length === 0) return
     const columns = this.contentColumns()
     for (const line of lines) {
+      // A blank line keeps no rule: the separator between blocks would
+      // otherwise show as a lone mark hanging under the block it ended.
+      const own = line === '' ? '' : rule
       this.logical.push(line)
-      this.physical.push(...wrapStyled(line, columns))
+      this.rules.push(own)
+      for (const row of this.wrapLine(line, own, columns)) {
+        this.physical.push(row)
+        this.ruleWidths.push(displayWidth(own))
+      }
     }
     if (this.logical.length > MAX_SCROLLBACK) {
       const dropped = this.logical.length - MAX_SCROLLBACK
       this.logical.splice(0, dropped)
+      this.rules.splice(0, dropped)
       // Folds slide with the buffer; one cut by the trim stops being a fold.
       this.folds = this.folds.flatMap((fold) => {
         const at = fold.at - dropped
@@ -221,7 +239,7 @@ export class Screen {
    * @param summary - the collapsed lines, already styled.
    * @param full - the expanded lines, already styled.
    */
-  appendFold(summary: readonly string[], full: readonly string[]): void {
+  appendFold(summary: readonly string[], full: readonly string[], rule = ''): void {
     const shown = this.expanded ? full : summary
     this.folds.push({
       at: this.logical.length,
@@ -229,8 +247,9 @@ export class Screen {
       summary: [...summary],
       full: [...full],
       expanded: this.expanded,
+      rule,
     })
-    this.append(shown)
+    this.append(shown, rule)
   }
 
   /**
@@ -251,7 +270,16 @@ export class Screen {
     // rather than corrupt the splice arithmetic.
     const last = this.folds.at(-1)
     if (last !== undefined && at < last.at + last.shownLength) return
-    this.folds.push({ at, shownLength: count, summary: [...summary], full: this.logical.slice(at), expanded: true })
+    this.folds.push({
+      at,
+      shownLength: count,
+      summary: [...summary],
+      full: this.logical.slice(at),
+      expanded: true,
+      // One block, one rule: the summary is drawn with whatever the lines it
+      // replaces were drawn with, skipping the blanks that hold none.
+      rule: this.rules.slice(at).find(rule => rule !== '') ?? '',
+    })
   }
 
   /** Whether any collapsible block exists. */
@@ -295,6 +323,7 @@ export class Screen {
       }
       const shown = expanded ? fold.full : fold.summary
       this.logical.splice(fold.at, fold.shownLength, ...shown)
+      this.rules.splice(fold.at, fold.shownLength, ...shown.map(() => fold.rule))
       deltas.set(fold, shown.length - fold.shownLength)
       fold.shownLength = shown.length
       fold.expanded = expanded
@@ -377,7 +406,9 @@ export class Screen {
    */
   clearTranscript(): void {
     this.logical = []
+    this.rules = []
     this.physical = []
+    this.ruleWidths = []
     this.folds = []
     this.expanded = false
     this.offset = 0
@@ -467,9 +498,14 @@ export class Screen {
     const rows: string[] = []
     for (let index = bounds.from.row; index <= bounds.to.row; index += 1) {
       const plain = (this.physical[index] ?? '').replaceAll(STYLES, '')
-      const start = index === bounds.from.row ? columnIndex(plain, bounds.from.column) : 0
+      // The rule is chrome the surface drew down the block's left edge, not
+      // text anyone typed, so a selection that swept over it hands back the
+      // content and leaves the mark behind.
+      const rule = this.ruleWidths[index] ?? 0
+      const first = index === bounds.from.row ? Math.max(bounds.from.column, rule) : rule
+      const start = columnIndex(plain, first)
       const end = index === bounds.to.row ? columnIndex(plain, bounds.to.column + 1) : plain.length
-      rows.push(plain.slice(start, end))
+      rows.push(plain.slice(start, Math.max(start, end)))
     }
     return rows.join('\n').replace(/^\n+|\n+$/gu, '') === '' ? '' : rows.join('\n')
   }
@@ -503,11 +539,43 @@ export class Screen {
     return Math.max(1, this.host.columns() - 1)
   }
 
+  /**
+   * Wrap one logical line, repeating its rule on every row.
+   *
+   * The rule costs columns, so the text wraps inside what is left of the width;
+   * a continuation row without the rule would break the block's left edge
+   * exactly where a long line made it matter most.
+   * @param line - the styled logical line.
+   * @param rule - the styled left rule, `''` for none.
+   * @param columns - display columns available for rule and text together.
+   * @returns the physical rows, rule included.
+   */
+  private wrapLine(line: string, rule: string, columns: number): string[] {
+    if (rule === '') return wrapStyled(line, columns)
+    const rows = wrapStyled(line, Math.max(1, columns - displayWidth(rule)))
+    return rows.map(row => `${rule}${row}`)
+  }
+
+  /** Re-wrap every kept line at the current width, rules and all. */
+  private wrapBuffer(): void {
+    const columns = this.contentColumns()
+    this.physical = []
+    this.ruleWidths = []
+    for (const [at, line] of this.logical.entries()) {
+      const rule = this.rules[at] ?? ''
+      const width = displayWidth(rule)
+      for (const row of this.wrapLine(line, rule, columns)) {
+        this.physical.push(row)
+        this.ruleWidths.push(width)
+      }
+    }
+  }
+
   /** Re-wrap every kept line at the current width. */
   private rewrap(): void {
     // Physical rows are the selection's coordinate system; a reflow voids it.
     this.selection = undefined
-    this.physical = wrapAll(this.logical, this.contentColumns())
+    this.wrapBuffer()
     const limit = Math.max(0, this.physical.length - this.viewportHeight())
     this.offset = Math.min(this.offset, limit)
   }
@@ -523,7 +591,7 @@ export class Screen {
     if (!this.active) return
     const columns = this.host.columns()
     if (columns !== this.paintedColumns) {
-      this.physical = wrapAll(this.logical, this.contentColumns())
+      this.wrapBuffer()
       this.painted = []
       this.paintedColumns = columns
     }

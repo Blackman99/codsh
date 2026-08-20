@@ -40,6 +40,13 @@ A transcript block kept in both a summary and a full form, swappable in place
 output, and long finished answers are all folds.
 _Avoid_: collapse block, expandable section
 
+**Rule**:
+The mark drawn down a transcript block's left edge to say where the block
+starts and ends — heavy for the person's own message, light for a tool block,
+error-coloured for a failed one, absent for what a person reads. Chrome, not
+content: it repeats on wrapped rows and never reaches the clipboard.
+_Avoid_: border, gutter, sidebar
+
 **Flash**:
 A short-lived notice that borrows the hint row and gives it back (e.g. the
 copy toast).
