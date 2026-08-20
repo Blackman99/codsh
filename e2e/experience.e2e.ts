@@ -249,6 +249,25 @@ describe.skipIf(process.platform === 'win32')('the first five minutes', () => {
     expect(rows.some(row => row.includes('(click or Ctrl+O expands)'))).toBe(true)
   }, E2E_TEST_TIMEOUT_MS)
 
+  it('names the block the pointer rests on, and gives the row back', async () => {
+    // A move with nothing held: button 35 is the motion bit over the no-button
+    // code, which is what any-motion tracking sends.
+    const moveTo = (line: string): string => `\u001B[<35;6;{row:${line}}M`
+    const output = await drive('reasoning', [
+      ['Welcome to codsh', `think it over${ENTER}`, 300],
+      // Resting on the collapsed thought: the chrome says what it is and what
+      // a click would do, before anything is clicked.
+      ['thought for', moveTo('thought for'), 600],
+      // Away from every block — the welcome banner — and the row is given back.
+      ['click to expand', moveTo('Welcome to codsh'), 600],
+      ['thought for', `/exit${ENTER}`, 400],
+    ])
+    const named = screenAtLast(output, 'click to expand').alternate
+    expect(named.some(row => /thinking · \d+ lines · click to expand/u.test(row))).toBe(true)
+    const released = finalScreen(output).alternate
+    expect(released.some(row => row.includes('click to expand'))).toBe(false)
+  }, E2E_TEST_TIMEOUT_MS)
+
   it('opens the block a click lands on, and folds it back from inside it', async () => {
     // Where a block sits depends on everything printed above it, so the click
     // aims at the line itself and the driver resolves the row it was painted

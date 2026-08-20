@@ -43,6 +43,7 @@ export type Key =
   | { kind: 'paste'; text: string }
   | { kind: 'mouse-down'; row: number; column: number }
   | { kind: 'mouse-drag'; row: number; column: number }
+  | { kind: 'mouse-move'; row: number; column: number }
   | { kind: 'mouse-up'; row: number; column: number }
   | { kind: 'focus'; focused: boolean }
   | { kind: 'osc-reply'; code: number; payload: string }
@@ -91,8 +92,17 @@ const WHEEL_UP = 64
 /** Modifier bits in an SGR button code: Shift, Meta, and Control. */
 const MOUSE_MODIFIERS = 4 | 8 | 16
 
-/** The motion bit, set on reports sent while a button is held. */
+/** The motion bit, set on every report the pointer's movement produces. */
 const MOUSE_MOTION = 32
+
+/**
+ * The button code any-motion tracking sends when no button is held.
+ *
+ * Motion with a button reports that button; motion with none reports 3, the
+ * same code a release carries — so a move is the motion bit over this, which
+ * is what tells the surface which block the pointer is merely resting on.
+ */
+const MOUSE_NO_BUTTON = 3
 
 /**
  * An OSC reply from the terminal: `ESC ] code ; payload (BEL | ESC \)`.
@@ -245,6 +255,11 @@ export class KeyDecoder {
       // a Shift-drag keeps reaching the terminal's own selection.
       const column = Number(mouse[2])
       const row = Number(mouse[3])
+      // A bare move, with or without a modifier held: nothing is being
+      // dragged, so it only says where the pointer is.
+      if ((button & ~MOUSE_MODIFIERS) === (MOUSE_MOTION | MOUSE_NO_BUTTON)) {
+        return [{ kind: 'mouse-move', row, column }]
+      }
       if ((button & ~MOUSE_MOTION) === 0 && (button & MOUSE_MODIFIERS) === 0) {
         if (mouse[4] === 'm') return [{ kind: 'mouse-up', row, column }]
         if ((button & MOUSE_MOTION) !== 0) return [{ kind: 'mouse-drag', row, column }]

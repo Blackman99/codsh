@@ -144,6 +144,13 @@ describe('KeyDecoder', () => {
     expect(decode(`${ESC}[<0;9;4m`)).toEqual([{ kind: 'mouse-up', row: 4, column: 9 }])
   })
 
+  it('reports the pointer moving with nothing held', () => {
+    // Any-motion tracking sends 32 (motion) over 3 (no button); a modifier
+    // held while the pointer merely moves is still nothing being dragged.
+    expect(decode(`${ESC}[<35;10;5M`)).toEqual([{ kind: 'mouse-move', row: 5, column: 10 }])
+    expect(decode(`${ESC}[<39;10;5M`)).toEqual([{ kind: 'mouse-move', row: 5, column: 10 }])
+  })
+
   it('leaves modified and non-left clicks to the terminal', () => {
     // Shift-click (4), right button (2), and middle (1) are not ours.
     expect(decode(`${ESC}[<4;3;2M`)).toEqual([])

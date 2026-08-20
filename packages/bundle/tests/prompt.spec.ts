@@ -38,6 +38,9 @@ function fakeConsole(readsKeys: boolean) {
     /** Viewport scrolling, recorded so the key routing can be asserted. */
     scrolls: [] as (number | 'bottom' | -1 | 1)[],
     scrolledBy: 0,
+    /** What the viewport reports the pointer is resting on. */
+    hover: undefined as { label: string; lines: number; expanded: boolean } | undefined,
+    mouseMove(): { label: string; lines: number; expanded: boolean } | undefined { return this.hover },
     write: (line: string) => void written.push(line),
     setRegion: (rows: readonly string[], cursor: RegionCursor) => void draws.push({ rows: [...rows], cursor }),
     clearRegion: () => void draws.push({ rows: [], cursor: { row: 0, column: 0 } }),
@@ -268,6 +271,39 @@ describe('the surrounding rows', () => {
     expect(rows.at(-3)).toContain('▶ write the fix')
     expect(rows.at(-2)).toBe('working')
     expect(rows.at(-1)).toBe('model · 12k tokens')
+  })
+
+  it('names the block under the pointer, and gives the hint row back after', () => {
+    const { prompt, console } = build()
+    prompt.setHint('working')
+    console.hover = { label: 'Bash(pnpm test)', lines: 120, expanded: false }
+    console.press({ kind: 'mouse-move', row: 3, column: 5 })
+    // The readout outranks the working indicator: it answers where the pointer
+    // is right now, and it lasts exactly as long as the pointer rests there.
+    expect(console.draws.at(-1)?.rows.at(-1)).toBe('  Bash(pnpm test) · 120 lines · click to expand')
+
+    // An open block says the click would shut it, not open it again.
+    console.hover = { label: 'thinking', lines: 42, expanded: true }
+    console.press({ kind: 'mouse-move', row: 4, column: 5 })
+    expect(console.draws.at(-1)?.rows.at(-1)).toBe('  thinking · 42 lines · click to fold')
+
+    // Off every block, the indicator has its row back.
+    console.hover = undefined
+    console.press({ kind: 'mouse-move', row: 9, column: 5 })
+    expect(console.draws.at(-1)?.rows.at(-1)).toBe('working')
+  })
+
+  it('repaints nothing while the pointer stays on one block', () => {
+    const { prompt, console } = build()
+    prompt.setHint('working')
+    console.hover = { label: 'thinking', lines: 42, expanded: false }
+    console.press({ kind: 'mouse-move', row: 3, column: 5 })
+    const drawn = console.draws.length
+    // Motion arrives a report per cell crossed; a frame per report would be a
+    // repaint for every pixel of pointer travel.
+    console.press({ kind: 'mouse-move', row: 3, column: 6 })
+    console.press({ kind: 'mouse-move', row: 3, column: 7 })
+    expect(console.draws.length).toBe(drawn)
   })
 
   it('opens the whole list on Ctrl-T and closes it again', () => {

@@ -19,6 +19,7 @@ import { spawn } from 'node:child_process'
 import { createInterface } from 'node:readline'
 import type { Interface } from 'node:readline'
 import { DISABLE_PASTE_MARKERS, ENABLE_PASTE_MARKERS, KeyDecoder } from './keys.ts'
+import type { HoverBlock } from './screen.ts'
 import { Screen } from './screen.ts'
 import type { Key } from './keys.ts'
 
@@ -352,10 +353,12 @@ export class TerminalConsole {
    * @param summary - the collapsed lines.
    * @param full - the expanded lines.
    * @param rule - a styled left rule for the whole block, `''` for none.
+   * @param label - what the block is, for the readout naming what the pointer
+   * is over.
    */
-  appendFold(summary: readonly string[], full: readonly string[], rule = ''): void {
+  appendFold(summary: readonly string[], full: readonly string[], rule = '', label = ''): void {
     if (this.screen !== undefined) {
-      this.screen.appendFold(summary, full, rule)
+      this.screen.appendFold(summary, full, rule, label)
       return
     }
     for (const line of summary) this.output.write(`${line}\n`)
@@ -381,6 +384,17 @@ export class TerminalConsole {
    */
   mouseDrag(row: number, column: number): void {
     this.screen?.mouseDrag(row, column)
+  }
+
+  /**
+   * Note where the pointer is resting, nothing held down.
+   * @param row - terminal row, 1-based.
+   * @param column - terminal column, 1-based.
+   * @returns the block now under the pointer when it changed, undefined
+   * otherwise.
+   */
+  mouseMove(row: number, column: number): HoverBlock | undefined {
+    return this.screen?.mouseMove(row, column)
   }
 
   /**
@@ -435,9 +449,11 @@ export class TerminalConsole {
    * summary would subtract from it.
    * @param count - how many trailing lines the block owns.
    * @param summary - the collapsed lines, already styled.
+   * @param label - what the block is, for the readout naming what the pointer
+   * is over.
    */
-  foldRecent(count: number, summary: readonly string[]): void {
-    this.screen?.foldBack(count, summary)
+  foldRecent(count: number, summary: readonly string[], label = ''): void {
+    this.screen?.foldBack(count, summary, label)
   }
 
   toggleFolds(): boolean {

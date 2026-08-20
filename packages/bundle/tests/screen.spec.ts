@@ -611,6 +611,92 @@ describe('mouse selection', () => {
   })
 })
 
+describe('the block under the pointer', () => {
+  it('underlines the hovered block\'s head row and names it', () => {
+    const sink = host(10, 40)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['status'], { row: 0, column: 0 }, false)
+    screen.append(['above'])
+    screen.appendFold(['summary', ''], ['full one', 'full two', ''], '', 'thinking')
+    flush(sink)
+
+    // Row 2 is the block's summary line.
+    expect(screen.mouseMove(2, 3)).toEqual({ label: 'thinking', lines: 3, expanded: false })
+    expect(flush(sink)).toContain('\u001B[4msummary\u001B[24m')
+  })
+
+  it('marks the head row wherever in the block the pointer is', () => {
+    const sink = host(10, 40)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['status'], { row: 0, column: 0 }, false)
+    screen.appendFold(['summary', ''], ['head', 'body', 'tail', ''], '', 'thinking')
+    screen.toggleFolds()
+    flush(sink)
+
+    // The pointer is on the block's third row; the mark belongs to the block,
+    // not to the row under the pointer.
+    expect(screen.mouseMove(3, 2)?.expanded).toBe(true)
+    const frame = flush(sink)
+    expect(frame).toContain('\u001B[4mhead\u001B[24m')
+    expect(frame).not.toContain('\u001B[4mbody')
+  })
+
+  it('repaints only when the block under the pointer changes', () => {
+    const sink = host(10, 40)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['status'], { row: 0, column: 0 }, false)
+    screen.append(['above'])
+    screen.appendFold(['summary', ''], ['full one', ''], '', 'thinking')
+    flush(sink)
+
+    screen.mouseMove(2, 3)
+    expect(flush(sink)).not.toBe('')
+    // Moving along the same block: nothing on screen has changed, and motion
+    // arrives a report per cell crossed.
+    expect(screen.mouseMove(2, 4)).toEqual({ label: 'thinking', lines: 2, expanded: false })
+    expect(flush(sink)).toBe('')
+
+    // Off the block, the mark goes with it.
+    expect(screen.mouseMove(1, 2)).toBeUndefined()
+    const frame = flush(sink)
+    expect(frame).not.toContain('\u001B[4m')
+    expect(painted(frame).get(2)).toBe('summary')
+  })
+
+  it('still names a block whose head row is off the top of the screen', () => {
+    const sink = host(6, 40)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['status'], { row: 0, column: 0 }, false)
+    // Taller than the viewport once open, which is the case the readout exists
+    // for: there is no head row on screen to mark or to aim a click at.
+    const full = Array.from({ length: 12 }, (_, index) => `line ${index}`)
+    screen.appendFold(['summary'], full, '', 'Bash(pnpm test)')
+    screen.toggleFolds()
+    flush(sink)
+
+    expect(screen.mouseMove(2, 3)).toEqual({ label: 'Bash(pnpm test)', lines: 12, expanded: true })
+    expect(flush(sink)).not.toContain('\u001B[4m')
+  })
+
+  it('forgets the block it was on when the transcript is cleared', () => {
+    const sink = host(10, 40)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['status'], { row: 0, column: 0 }, false)
+    screen.appendFold(['summary', ''], ['full one', ''], '', 'thinking')
+    screen.mouseMove(1, 3)
+    flush(sink)
+    screen.clearTranscript()
+    screen.append(['fresh'])
+    // A mark held over a cleared buffer would point at a block that is gone.
+    expect(flush(sink)).not.toContain('\u001B[4m')
+  })
+})
+
 describe('the rule down a block\'s edge', () => {
   it('repeats the rule on every row a line wraps to', () => {
     const sink = host(5, 12)

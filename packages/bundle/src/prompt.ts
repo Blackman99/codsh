@@ -75,6 +75,8 @@ export class Prompt {
   private hint: string | undefined
   /** A short-lived notice that borrows the hint row, e.g. the copy toast. */
   private flash: string | undefined
+  /** What the pointer is resting on, borrowing the hint row while it rests. */
+  private hover: string | undefined
   private flashTimer: ReturnType<typeof setTimeout> | undefined
   /** The always-current session facts shown as the region's last row. */
   private status: string | undefined
@@ -370,6 +372,20 @@ export class Prompt {
       this.console.mouseDrag(key.row, key.column)
       return
     }
+    // The pointer merely resting somewhere: a block says what it is and what a
+    // click would do to it, so a clickable block is not a target you discover
+    // by hitting it. Reports arrive per cell crossed, and the viewport answers
+    // only when the block under the pointer changed — so this repaints then.
+    if (key.kind === 'mouse-move') {
+      const block = this.console.mouseMove(key.row, key.column)
+      const readout = block === undefined
+        ? undefined
+        : this.theme.dim(`  ${block.label} · ${block.lines} lines · click to ${block.expanded ? 'fold' : 'expand'}`)
+      if (readout === this.hover) return
+      this.hover = readout
+      this.render()
+      return
+    }
     if (key.kind === 'mouse-up') {
       const text = this.console.mouseUp()
       if (text !== undefined && this.console.copyText(text)) {
@@ -467,7 +483,7 @@ export class Prompt {
     this.console.setScrollNotice(this.console.scrolledBy > 0
       ? this.theme.dim(truncate(`  ↑ ${this.console.scrolledBy} rows above · PgDn returns to the latest`, columns))
       : '')
-    const notice = this.flash ?? this.hint
+    const notice = this.flash ?? this.hover ?? this.hint
     if (notice !== undefined) rows.push(notice)
     if (this.status !== undefined) rows.push(this.status)
     if (rows.length === 0) {

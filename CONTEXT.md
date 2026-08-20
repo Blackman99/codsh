@@ -36,9 +36,10 @@ The bottom-pinned rows: input box, menus, hint row, status row. Never scrolls.
 
 **Fold**:
 A transcript block kept in both a summary and a full form, swappable in place
-— a click works the one under the pointer, Ctrl+O works them all — and
-collapsed when the conversation moves on. Thinking, long tool output, and
-long finished answers are all folds.
+— a click anywhere in the one under the pointer works it, Ctrl+O works them
+all — and collapsed when the conversation moves on. Thinking, long tool
+output, and long finished answers are all folds. A fold names itself under the
+pointer, as the **Hover readout**.
 _Avoid_: collapse block, expandable section
 
 **Rule**:
@@ -51,6 +52,14 @@ _Avoid_: border, gutter, sidebar
 **Flash**:
 A short-lived notice that borrows the hint row and gives it back (e.g. the
 copy toast).
+
+**Hover readout**:
+The chrome row naming the fold the pointer rests on — what it is, how many
+lines it holds, whether a click opens or folds it — for as long as it rests
+there. Outranked by a flash, and it outranks the working indicator. Paired
+with the underline on that block's head row; the readout is what still speaks
+when the head row is off the screen.
+_Avoid_: tooltip, status hint
 
 **Todo readout**:
 The chrome row that holds the agent's todo list — progress plus the item in

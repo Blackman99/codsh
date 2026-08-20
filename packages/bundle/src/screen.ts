@@ -29,17 +29,20 @@ const ENTER_ALT = '\u001B[?1049h'
 const LEAVE_ALT = '\u001B[?1049l'
 
 /**
- * Report wheel and button events, in the SGR encoding.
+ * Report wheel, button, and pointer-motion events, in the SGR encoding.
  *
- * Button tracking (1002) rather than any-motion (1003): the wheel and clicks
- * are all this surface reads, and motion reporting floods the input for
- * nothing. Most terminals still hand a Shift-drag to their own selection, so
- * copying text keeps working.
+ * Any-motion tracking (1003) is what lets the surface say which block the
+ * pointer rests on — the blocks are clickable, and a target that gives no
+ * feedback until it is hit is not an affordance. Button tracking (1002) is
+ * pushed under it so terminals that implement only that one keep the drag
+ * that selects. Motion is a report per cell crossed, so the surface repaints
+ * only when the block under the pointer changes, not on every report. Most
+ * terminals still hand a Shift-drag to their own selection either way.
  */
-const ENABLE_MOUSE = '\u001B[?1002h\u001B[?1006h'
+const ENABLE_MOUSE = '\u001B[?1002h\u001B[?1003h\u001B[?1006h'
 
 /** Stop reporting them. */
-const DISABLE_MOUSE = '\u001B[?1006l\u001B[?1002l'
+const DISABLE_MOUSE = '\u001B[?1006l\u001B[?1003l\u001B[?1002l'
 
 /**
  * Push the kitty keyboard protocol's disambiguate flag — what Claude Code
@@ -88,6 +91,28 @@ const INVERSE = '\u001B[7m'
 /** End reverse video only, leaving any other attributes alone. */
 const INVERSE_OFF = '\u001B[27m'
 
+/** Start underline, which is how the block under the pointer shows itself. */
+const UNDERLINE = '\u001B[4m'
+
+/** End underline only, leaving any other attributes alone. */
+const UNDERLINE_OFF = '\u001B[24m'
+
+/** A full SGR reset, which every styled span this surface prints ends with. */
+const RESET = '\u001B[0m'
+
+/**
+ * Underline a whole rendered row.
+ *
+ * Every styled span this surface prints ends in a full reset, which would drop
+ * the underline partway along the row — so the attribute is armed again after
+ * each one, and turned off alone at the end so nothing else is disturbed.
+ * @param row - the styled row.
+ * @returns the row, underlined end to end.
+ */
+function underline(row: string): string {
+  return `${UNDERLINE}${row.replaceAll(RESET, `${RESET}${UNDERLINE}`)}${UNDERLINE_OFF}`
+}
+
 /**
  * The string index where a display column begins.
  *
@@ -128,6 +153,18 @@ interface Fold {
   expanded: boolean
   /** The left rule both forms are drawn with. */
   rule: string
+  /** What the block is, for the readout naming what the pointer is over. */
+  label: string
+}
+
+/** What the pointer is resting on, for a surface that names it. */
+export interface HoverBlock {
+  /** What the block is, e.g. `thinking`. */
+  label: string
+  /** Lines its full form holds. */
+  lines: number
+  /** Whether it is showing that full form now. */
+  expanded: boolean
 }
 
 /** What the screen writes to and measures itself against. */
@@ -169,6 +206,18 @@ export class Screen {
   private selection: { anchor: { row: number; column: number }; focus: { row: number; column: number }; dragged: boolean } | undefined
   /** Collapsed blocks in the transcript, in order, with both of their forms. */
   private folds: Fold[] = []
+  /** The block the pointer rests on, or undefined when it rests on none. */
+  private hovered: Fold | undefined
+  /**
+   * Physical row ranges the blocks occupy, or undefined when they need
+   * measuring again.
+   *
+   * Motion arrives a report per cell crossed, and measuring a block's row from
+   * the wrapped height of everything above it is a walk over the buffer — far
+   * too much to redo per report. The walk happens once after the buffer
+   * changes instead, and every report in between is a lookup.
+   */
+  private ranges: { fold: Fold; from: number; to: number }[] | undefined
   /** Whether the folds currently show their full form. */
   private expanded = false
   /** The last painted frame, so a repaint only touches rows that changed. */
@@ -232,6 +281,7 @@ export class Screen {
         this.ruleWidths.push(displayWidth(own))
       }
     }
+    this.ranges = undefined
     if (this.logical.length > MAX_SCROLLBACK) {
       const dropped = this.logical.length - MAX_SCROLLBACK
       this.logical.splice(0, dropped)
@@ -241,6 +291,8 @@ export class Screen {
         const at = fold.at - dropped
         return at >= 0 ? [{ ...fold, at }] : []
       })
+      // The blocks are rebuilt as new objects, so what was hovered is gone.
+      this.hovered = undefined
       this.rewrap()
     }
     this.render()
@@ -254,8 +306,10 @@ export class Screen {
    * place, exactly like a details/summary element.
    * @param summary - the collapsed lines, already styled.
    * @param full - the expanded lines, already styled.
+   * @param rule - a styled left rule for the whole block, `''` for none.
+   * @param label - what the block is, for the hover readout that names it.
    */
-  appendFold(summary: readonly string[], full: readonly string[], rule = ''): void {
+  appendFold(summary: readonly string[], full: readonly string[], rule = '', label = ''): void {
     const shown = this.expanded ? full : summary
     this.folds.push({
       at: this.logical.length,
@@ -264,6 +318,7 @@ export class Screen {
       full: [...full],
       expanded: this.expanded,
       rule,
+      label,
     })
     this.append(shown, rule)
   }
@@ -278,8 +333,9 @@ export class Screen {
    * collapses with the rest when the conversation moves on.
    * @param count - how many trailing lines the block owns.
    * @param summary - the collapsed lines, already styled.
+   * @param label - what the block is, for the hover readout that names it.
    */
-  foldBack(count: number, summary: readonly string[]): void {
+  foldBack(count: number, summary: readonly string[], label = ''): void {
     const at = this.logical.length - count
     if (count <= 0 || at < 0) return
     // A block that would overlap an existing fold is not a block: refuse it
@@ -295,7 +351,11 @@ export class Screen {
       // One block, one rule: the summary is drawn with whatever the lines it
       // replaces were drawn with, skipping the blanks that hold none.
       rule: this.rules.slice(at).find(rule => rule !== '') ?? '',
+      label,
     })
+    // The block is new even though its lines are not, so where blocks sit has
+    // to be measured again before the pointer can be told it is over one.
+    this.ranges = undefined
   }
 
   /** Whether any collapsible block exists. */
@@ -347,29 +407,38 @@ export class Screen {
   }
 
   /**
-   * The block covering a physical row.
+   * Where each block sits in physical rows.
    *
    * Blocks are recorded in logical lines while the mouse reports physical
    * rows, so the wrapped height of everything above a block is what bridges
    * the two — measured under each line's own rule, which costs columns and so
-   * changes the height. Blocks are kept in buffer order, so the walk stops at
-   * the first one that begins below the row rather than measuring the whole
-   * scrollback.
-   * @param row - physical buffer row, 0-based.
-   * @returns the block, or undefined when the row is not in one.
+   * changes the height.
+   * @returns one range per block, in buffer order.
    */
-  private foldAt(row: number): Fold | undefined {
+  private foldRanges(): { fold: Fold; from: number; to: number }[] {
+    if (this.ranges !== undefined) return this.ranges
     const columns = this.contentColumns()
     const height = (index: number): number => this.wrapLine(this.logical[index] ?? '', this.rules[index] ?? '', columns).length
+    const ranges: { fold: Fold; from: number; to: number }[] = []
     let physical = 0
     let index = 0
     for (const fold of this.folds) {
       for (; index < fold.at; index += 1) physical += height(index)
-      if (physical > row) return undefined
+      const from = physical
       for (; index < fold.at + fold.shownLength; index += 1) physical += height(index)
-      if (row < physical) return fold
+      ranges.push({ fold, from, to: physical - 1 })
     }
-    return undefined
+    this.ranges = ranges
+    return ranges
+  }
+
+  /**
+   * The block covering a physical row.
+   * @param row - physical buffer row, 0-based.
+   * @returns the block, or undefined when the row is not in one.
+   */
+  private foldAt(row: number): Fold | undefined {
+    return this.foldRanges().find(range => row >= range.from && row <= range.to)?.fold
   }
 
   /**
@@ -505,6 +574,8 @@ export class Screen {
     this.physical = []
     this.ruleWidths = []
     this.folds = []
+    this.ranges = undefined
+    this.hovered = undefined
     this.expanded = false
     this.offset = 0
     this.painted = []
@@ -517,6 +588,29 @@ export class Screen {
     // Nothing on screen can be trusted at a new size; the next frame is full.
     this.painted = []
     this.render()
+  }
+
+  /**
+   * Note where the pointer is resting, with nothing held down.
+   *
+   * A block is clickable, so it says so while the pointer is on it rather
+   * than only once it is hit. Reports arrive a cell at a time, so the frame is
+   * only touched when the block under the pointer actually changes — moving
+   * along one block, or across the chrome, costs a lookup and nothing else.
+   * @param row - terminal row, 1-based.
+   * @param column - terminal column, 1-based.
+   * @returns the block under the pointer, or undefined for none — reported
+   * every time, so a caller need not track the changes itself.
+   */
+  mouseMove(row: number, column: number): HoverBlock | undefined {
+    const at = this.locate(row, column, false)
+    const fold = at === undefined ? undefined : this.foldAt(at.row)
+    if (fold !== this.hovered) {
+      this.hovered = fold
+      this.render()
+    }
+    if (fold === undefined) return undefined
+    return { label: fold.label, lines: fold.full.length, expanded: fold.expanded }
   }
 
   /**
@@ -657,6 +751,7 @@ export class Screen {
   /** Re-wrap every kept line at the current width, rules and all. */
   private wrapBuffer(): void {
     const columns = this.contentColumns()
+    this.ranges = undefined
     this.physical = []
     this.ruleWidths = []
     for (const [at, line] of this.logical.entries()) {
@@ -715,6 +810,15 @@ export class Screen {
         if (marked === '' && start >= stop) continue
         visible[index] = `${plain.slice(0, start)}${INVERSE}${marked}${INVERSE_OFF}${plain.slice(stop)}`
       }
+    }
+    const hovered = this.hovered
+    if (hovered !== undefined) {
+      const head = this.foldRanges().find(range => range.fold === hovered)?.from
+      const index = head === undefined ? -1 : head - Math.max(0, end - height)
+      // Only the block's head row is marked. Underlining every row of a long
+      // block would drown the text it is meant to point at, and the readout
+      // in the chrome is what answers a head row scrolled off the top.
+      if (index >= 0 && index < visible.length) visible[index] = underline(visible[index] ?? '')
     }
     const viewport = [...visible, ...padding]
     // Scrolled back, the top row says so — replacing a row rather than adding

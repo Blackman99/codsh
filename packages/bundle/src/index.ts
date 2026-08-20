@@ -58,7 +58,7 @@ import { todoReport } from './todos.ts'
 import type { TodoList } from './todos.ts'
 import type { StatusFacts } from './status.ts'
 import { backgroundIsLight, createTheme } from './theme.ts'
-import { Transcript, answerSummary, thinkingFold } from './transcript.ts'
+import { FOLD_LABELS, Transcript, answerSummary, thinkingFold } from './transcript.ts'
 import type { Theme } from './theme.ts'
 
 /** Stable Cordis plugin name. */
@@ -228,7 +228,7 @@ function replay(session: Session, transcript: Transcript, io: CliIo, theme: Them
       if (thought !== '') {
         const lines = thought.split('\n').map(line => theme.dim(`  ${line}`))
         const { summary, full } = thinkingFold(lines, theme)
-        io.console.appendFold(summary, full)
+        io.console.appendFold(summary, full, '', FOLD_LABELS.thinking)
       }
     }
     const lines = transcript.render(event)
@@ -237,8 +237,9 @@ function replay(session: Session, transcript: Transcript, io: CliIo, theme: Them
     // key would answer nothing and the output would be unreachable for good.
     const full = transcript.takeFold()
     const rule = transcript.takeRule()
+    const label = transcript.takeLabel()
     if (full !== undefined) {
-      io.console.appendFold(lines, full, rule)
+      io.console.appendFold(lines, full, rule, label)
       continue
     }
     for (const line of lines) io.console.write(line, rule)
@@ -247,7 +248,7 @@ function replay(session: Session, transcript: Transcript, io: CliIo, theme: Them
     // and only then does it grow the summary the conversation moved on from.
     const body = lines.at(-1) === '' ? lines.slice(0, -1) : lines
     const summary = answerSummary(body, theme)
-    if (summary !== undefined) io.console.foldRecent(lines.length, summary)
+    if (summary !== undefined) io.console.foldRecent(lines.length, summary, FOLD_LABELS.answer)
   }
 }
 
@@ -861,7 +862,7 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
     emit([...tail, ''])
     answerLines.push(...tail)
     const summary = answerSummary(answerLines, theme)
-    if (summary !== undefined) io.console.foldRecent(answerLines.length + 1, summary)
+    if (summary !== undefined) io.console.foldRecent(answerLines.length + 1, summary, FOLD_LABELS.answer)
     answerLines = []
   }
   // Reasoning gets its own stream: pushed into `stream`, its deltas would mark
@@ -879,7 +880,7 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
     if (thinkingLines.length === 0) return
     prompt.setStreaming(undefined)
     const { summary, full } = thinkingFold(thinkingLines, theme, (performance.now() - thinkingStartedAt) / 1000)
-    io.console.appendFold(summary, full)
+    io.console.appendFold(summary, full, '', FOLD_LABELS.thinking)
     thinkingLines = []
     thinkingStartedAt = 0
   }
@@ -963,6 +964,7 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
     const full = live.transcript.takeFold()
     // The rule marks which block these lines belong to, down their left edge.
     const rule = live.transcript.takeRule()
+    const label = live.transcript.takeLabel()
     if (full === undefined) {
       emit(lines, undefined, rule)
       return
@@ -970,7 +972,7 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
     // A collapsed block: the screen keeps both forms; a click on it swaps
     // that one, Ctrl+O swaps them all.
     prompt.setStreaming(undefined)
-    io.console.appendFold(lines, full, rule)
+    io.console.appendFold(lines, full, rule, label)
   })
 
   /** Pause the indicator around a decision, and resume it if work continues. */

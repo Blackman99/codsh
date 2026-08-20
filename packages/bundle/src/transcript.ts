@@ -97,6 +97,14 @@ export function blockRules(theme: Theme): { user: string, tool: string, error: s
   return { user: theme.user('┃ '), tool: theme.tool('│ '), error: theme.error('│ ') }
 }
 
+/**
+ * What the two nameless block kinds are called when a readout names them.
+ *
+ * A tool block answers with its card's own title, which is already on screen;
+ * thinking and an answer have no title of their own, so these are theirs.
+ */
+export const FOLD_LABELS = { thinking: 'thinking', answer: 'answer' } as const
+
 /** A finished answer longer than this many rendered lines becomes a fold. */
 export const ANSWER_FOLD_LINES = 24
 
@@ -198,6 +206,8 @@ export class Transcript {
   private readonly calls = new Map<string, PendingCall>()
   /** The full form of the event just rendered, when its body was collapsed. */
   private fold: string[] | undefined
+  /** What the block {@link render} just returned is, for a hover readout. */
+  private label = ''
   /** The left rule the block {@link render} just returned belongs to. */
   private rule = ''
 
@@ -356,7 +366,10 @@ export class Transcript {
       // the raw result still prints rather than vanishing.
       const raw = this.resultText(block.content).split('\n')
       const head = `${marker} ${theme.dim('(result)')}`
-      if (raw.length > MAX_RESULT_LINES) this.fold = [head, ...raw, '']
+      if (raw.length > MAX_RESULT_LINES) {
+        this.fold = [head, ...raw, '']
+        this.label = 'tool result'
+      }
       return [head, ...cap(raw, MAX_RESULT_LINES, theme), '']
     }
     const view = this.safeResult(pending, block.content, failed, meta)
@@ -376,7 +389,12 @@ export class Transcript {
         : body.length === 0 ? [`  ${theme.success('✓')}`] : []
     // The fold swaps the WHOLE event's lines, so the expanded form repeats the
     // same head with the uncapped body under it.
-    if (full !== undefined) this.fold = [...head, ...full, '']
+    if (full !== undefined) {
+      this.fold = [...head, ...full, '']
+      // The card's own title, unstyled: what the block is called on screen is
+      // what a readout naming it should say.
+      this.label = title
+    }
     return [...head, ...body, '']
   }
 
@@ -392,6 +410,19 @@ export class Transcript {
     const fold = this.fold
     this.fold = undefined
     return fold
+  }
+
+  /**
+   * What the block {@link takeFold} just described is called.
+   *
+   * The card's title, so the readout that names what the pointer rests on says
+   * the same thing the block's own head line says.
+   * @returns the label, or `''` when the block has no name of its own.
+   */
+  takeLabel(): string {
+    const label = this.label
+    this.label = ''
+    return label
   }
 
   /**
