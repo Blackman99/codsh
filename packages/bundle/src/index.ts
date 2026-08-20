@@ -298,8 +298,10 @@ async function runCommand(ctx: Context, agent: Agent, line: string, io: CliIo, t
     return
   }
   // The whole line, slash included: `parseCommand` anchors on it, so a stripped
-  // name resolves as nothing and every registry command answers "unknown".
-  const execution = await commands.execute(agent, line, signal)
+  // name resolves as nothing and every registry command answers "unknown". No
+  // images: this surface has no composer to attach any, and the registry reads
+  // an empty batch as the plain invocation it is.
+  const execution = await commands.execute(agent, line, [], signal)
   if (execution === undefined) {
     io.console.write(theme.error(`  unknown command: ${line}`))
     return
@@ -640,7 +642,7 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
     // Shift-Tab would do nothing, which reads as a broken key.
     shiftTab: () => {
       const line = planModeFrom(live.agent.session.events) ? '/plan off' : '/plan'
-      void commands?.execute(live.agent, line, new AbortController().signal)
+      void commands?.execute(live.agent, line, [], new AbortController().signal)
     },
     // Ctrl-O toggles every collapsed block — tool output and thinking alike —
     // between its summary and its full form, in place.

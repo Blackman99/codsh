@@ -95,7 +95,7 @@ codsh consumes the harness as published `@deepseek-ai/dsh-*` packages, so "synci
 2. **Bump** — `pnpm run sync:dsh` rewrites every `@deepseek-ai/dsh-*` range to the latest published release, refreshes the lockfile, writes a changeset, and exits `1` from `--check` when newer versions exist (that is what the nightly job keys on).
 3. **Prove** — the same command re-verifies `cordis.patch.yml`: every plugin id it disables or configures must still be declared by an installed dsh bundle, and every package it inserts must resolve. Then it runs typecheck/build/unit (add `--e2e` to boot the real patched bundle), and CI repeats all of that on the resulting PR.
 
-Because every dsh package is a prerelease (`0.1.0-rc.N`), plain semver ranges do **not** float across releases — the sync command is the source of truth, not `pnpm update`.
+Every dsh package is a prerelease (`0.1.0-rc.N`), and a caret on one **does** float: `^0.1.0-rc.7` admits `0.1.0-rc.8`. The lockfile is what holds this repo still, so an install that has no lockfile — the profile install a user gets, and the one the e2e builds — resolves the newest `rc` instead. Keep the ranges synced rather than trusting them to pin: a runtime and a plugin set from different `rc`s load fine and then fail at the first call whose shape changed. The harness also publishes `rc`s without moving its `latest` tag, so `pnpm run sync:dsh` reads the highest *published* version, and `pnpm update` is never the source of truth.
 
 ## License
 

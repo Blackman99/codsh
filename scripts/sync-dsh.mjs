@@ -21,12 +21,38 @@
 
 import { execSync } from 'node:child_process'
 import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
-import { dirname, join } from 'node:path'
+import { dirname, join, relative } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..')
-const pkgPath = join(root, 'package.json')
-const patchPath = join(root, 'cordis.patch.yml')
+
+/**
+ * Every workspace manifest that could hold a harness range, root first.
+ *
+ * The two-package split moved those ranges apart: the e2e harness's own dsh
+ * packages stayed at the root, while the plugins the bundle composes went to
+ * `packages/bundle`. Reading one manifest leaves the other pinned, and a
+ * profile install that resolves one set a release ahead of the other is the
+ * version split that crashes at runtime — so the sync covers all of them.
+ */
+const manifestPaths = [
+  join(root, 'package.json'),
+  ...readdirSync(join(root, 'packages'))
+    .map((dir) => join(root, 'packages', dir, 'package.json'))
+    .filter((path) => existsSync(path)),
+]
+
+/** Where the installed `@deepseek-ai` trees are, one per workspace package. */
+const scopeDirs = () =>
+  [
+    join(root, 'node_modules', '@deepseek-ai'),
+    ...readdirSync(join(root, 'packages')).map((dir) =>
+      join(root, 'packages', dir, 'node_modules', '@deepseek-ai'),
+    ),
+  ].filter((dir) => existsSync(dir))
+
+/** The patch belongs to the bundle, which is the package that composes dsh. */
+const patchPath = join(root, 'packages', 'bundle', 'cordis.patch.yml')
 
 const args = new Set(process.argv.slice(2))
 const checkOnly = args.has('--check')
@@ -89,8 +115,7 @@ function parsePatchIds(file) {
 /** Collect every plugin id any installed dsh bundle patch declares. */
 function declaredPluginIds() {
   const declared = new Set()
-  const scopeDir = join(root, 'node_modules', '@deepseek-ai')
-  if (existsSync(scopeDir)) {
+  for (const scopeDir of scopeDirs()) {
     for (const dir of readdirSync(scopeDir)) {
       const f = join(scopeDir, dir, 'cordis.patch.yml')
       if (!existsSync(f)) continue
@@ -117,7 +142,10 @@ function verifyPatchDrift() {
   }
   for (const name of names) {
     const resolved = name.replace('/', '/node_modules/')
-    if (!existsSync(join(root, 'node_modules', resolved))) {
+    // Hoisting is pnpm's business: an inserted package may sit under any
+    // workspace package's tree, and any one of them satisfies the patch.
+    const anywhere = scopeDirs().some((dir) => existsSync(join(dirname(dir), resolved)))
+    if (!anywhere) {
       problems.push(
         `cordis.patch.yml inserts package "${name}", but it is not installed.`,
       )
@@ -140,9 +168,18 @@ function verifyPatchDrift() {
 const run = (cmd) => execSync(cmd, { cwd: root, stdio: 'inherit' })
 
 // ── 1. What does the harness publish right now? ────────────────────────────
-const pkg = JSON.parse(readFileSync(pkgPath, 'utf8'))
+const manifests = manifestPaths.map((path) => ({ path, pkg: JSON.parse(readFileSync(path, 'utf8')) }))
 const dshMeta = await registry('@deepseek-ai/dsh')
-const dshLatest = dshMeta['dist-tags'].latest
+// The highest version actually published, not the `latest` tag: the harness
+// ships prereleases without always moving its tags — rc.8 was on the registry
+// for every dsh package while `latest` still read rc.7 — and a caret range on
+// a prerelease admits the newer one regardless of tags. What a lockfile-free
+// install would resolve is therefore the only honest target, because that is
+// what a user's profile install actually gets.
+const dshLatest = Object.keys(dshMeta.versions).reduce((a, b) => (compareVersions(a, b) < 0 ? b : a))
+if (dshLatest !== dshMeta['dist-tags'].latest) {
+  console.log(`note: @deepseek-ai/dsh publishes ${dshLatest}, but its latest tag still reads ${dshMeta['dist-tags'].latest}\n`)
+}
 const extra = ['@deepseek-ai/cordis', '@deepseek-ai/cordis-plugin-loader', '@deepseek-ai/schemastery']
 const extraLatest = Object.fromEntries(
   await Promise.all(
@@ -155,17 +192,18 @@ const extraLatest = Object.fromEntries(
 verifyPatchDrift()
 
 // ── 2. Which ranges would change? ──────────────────────────────────────────
-const targets = new Map() // dep name → exact latest version
-for (const section of ['dependencies', 'peerDependencies', 'devDependencies']) {
-  for (const [name, range] of Object.entries(pkg[section] ?? {})) {
-    if (name.startsWith('@deepseek-ai/dsh')) targets.set(name, dshLatest)
-    else if (extraLatest[name]) targets.set(name, extraLatest[name])
-  }
-}
+const SECTIONS = ['dependencies', 'peerDependencies', 'devDependencies']
+/** Every stale range, carrying the manifest and section it lives in. */
 const stale = []
-for (const [name, latest] of targets) {
-  const current = stripRange(pkg.dependencies[name] ?? pkg.peerDependencies[name] ?? pkg.devDependencies[name])
-  if (compareVersions(current, latest) < 0) stale.push([name, current, latest])
+for (const { path, pkg } of manifests) {
+  for (const section of SECTIONS) {
+    for (const [name, range] of Object.entries(pkg[section] ?? {})) {
+      const latest = name.startsWith('@deepseek-ai/dsh') ? dshLatest : extraLatest[name]
+      if (latest === undefined) continue
+      const current = stripRange(range)
+      if (compareVersions(current, latest) < 0) stale.push({ path, pkg, section, name, current, latest })
+    }
+  }
 }
 
 if (!stale.length) {
@@ -174,19 +212,22 @@ if (!stale.length) {
 }
 
 console.log(`dsh harness latest: ${dshLatest}\n`)
-for (const [name, current, latest] of stale) {
-  console.log(`  ${name}: ${current} → ${latest}`)
+for (const { path, name, current, latest } of stale) {
+  console.log(`  ${relative(root, path)} ${name}: ${current} → ${latest}`)
 }
 if (checkOnly) process.exit(1)
 
 // ── 3. Bump the ranges and reinstall ───────────────────────────────────────
-for (const section of ['dependencies', 'peerDependencies', 'devDependencies']) {
-  for (const name of Object.keys(pkg[section] ?? {})) {
-    if (targets.has(name)) pkg[section][name] = `^${targets.get(name)}`
-  }
+const touched = new Set()
+for (const { path, pkg, section, name, latest } of stale) {
+  pkg[section][name] = `^${latest}`
+  touched.add(path)
 }
-writeFileSync(pkgPath, `${JSON.stringify(pkg, null, 2)}\n`)
-console.log('\n↑ package.json ranges bumped')
+for (const { path, pkg } of manifests) {
+  if (!touched.has(path)) continue
+  writeFileSync(path, `${JSON.stringify(pkg, null, 2)}\n`)
+  console.log(`↑ ${relative(root, path)} ranges bumped`)
+}
 run('pnpm install')
 
 // ── 4. Is codsh's bundle patch still coherent on the new tree? ─────────────
@@ -198,7 +239,7 @@ if (writeChangeset) {
   if (!existsSync(file)) {
     writeFileSync(
       file,
-      `---\n'codsh-bundle': patch\n---\n\nchore: sync \`@deepseek-ai/dsh-*\` (and co-released cordis packages) to ${dshLatest}\n`,
+      `---\n'codsh-bundle': patch\n'codsh-cli': patch\n---\n\nchore: sync \`@deepseek-ai/dsh-*\` (and co-released cordis packages) to ${dshLatest}\n`,
     )
     console.log(`✓ changeset written: .changeset/dsh-sync-${dshLatest}.md`)
   }
