@@ -42,6 +42,7 @@ in a terminal state.
 | Focus events (mode 1004) | probed: claude, codex, gemini all enable 1004 | `aligned` | keys.spec "reports focus in and out"; console.spec "the bell and focus" suite; pty e2e "focus and background reports". Use: the bell rings only while unfocused; terminals that never report keep always-ring |
 | Theme detection (OSC 11) | probed: opencode, codex, gemini query OSC 10/11; claude does not (opencode decides per ADR-0001) | `aligned` | theme.spec setLight/backgroundIsLight; screen.spec entry query; pty e2e light-palette adoption. Scope: the absolute 256-color secondary gray adapts (245→242); base ANSI colors stay the terminal theme's job |
 | OSC 8 hyperlinks | probed: claude emits OSC 8 at startup; gemini/opencode link paths | `open` | markdown links + file:line |
+| /ship: one sentence to shipped | none — no reference agent ships an equivalent; recorded as an explicit user-confirmed addition beyond the reference set (ADR-0001 divergence rule) | `aligned` | ship.spec SHIP_PROMPT suite; pipe e2e "runs /ship as a built-in canned prompt carrying the typed idea" |
 
 Completed alignment work before this matrix existed (thinking collapse, `!`
 passthrough, /clear, /resume selector, ESC-ESC recall, todo cards, Ctrl+O

@@ -142,7 +142,10 @@ class CodeCliMockAdapter extends LlmAdapter {
       // can follow the person's message in the request, so "the last text" is
       // not theirs to claim.
       const marker = texts.some(text => text.includes('CODE_CLI_CUSTOM_MARKER')) ? 'yes' : 'no'
-      const reply = `CODE_CLI_CTX bang=${bang} remembered=${remembered} marker=${marker}`
+      // /ship dispatched, expanded the typed idea into the template, and the
+      // template still names the workflow's tools.
+      const ship = texts.some(text => text.includes('SHIP_E2E_IDEA') && text.includes('ask_user_question') && text.includes('ralph')) ? 'yes' : 'no'
+      const reply = `CODE_CLI_CTX bang=${bang} remembered=${remembered} marker=${marker} ship=${ship}`
       yield { type: 'block-start', index: 0, blockType: 'text' }
       yield { type: 'text-delta', index: 0, text: reply }
       yield { type: 'block-end', index: 0, block: { type: 'text', text: reply } }

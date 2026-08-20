@@ -44,6 +44,14 @@ _Avoid_: collapse block, expandable section
 A short-lived notice that borrows the hint row and gives it back (e.g. the
 copy toast).
 
+### Workflows
+
+**Ship gates**:
+The two approvals in the `/ship` workflow — the confirmed spec file (gate 1)
+and the approved implementation plan (gate 2). Everything after gate 2 is
+autonomous.
+_Avoid_: checkpoints, review steps
+
 ### Alignment pipeline
 
 **Reference Agent**:

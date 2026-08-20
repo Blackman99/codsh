@@ -27,6 +27,7 @@ dsh --profile code
 ## What you get
 
 - **A session that is its own space**: codsh takes the alternate screen, so your shell's scrollback is untouched and waiting when you leave. The transcript scrolls in a buffer the session owns — mouse wheel, PgUp/PgDn, Shift+↑/↓ — under an input box that never moves from the bottom; scrolled back, the viewport says how far and new output keeps accumulating without yanking you to it. Every frame paints as one synchronized update, and quitting drops a two-line summary (session id, spend, the `--resume` command) into your shell.
+- **From one sentence to shipped — `/ship`**: type `/ship <one-sentence idea>` and the agent researches your repo, grills you one focused question at a time until the design stops moving, writes a spec you confirm, presents a plan you approve, then lands it autonomously — small work in-session, large work through a fresh-agent Ralph loop — until the spec's acceptance criteria pass with green tests.
 - **Select to copy**: drag with the mouse and the selection is on your clipboard the moment you release — highlighted in place, sent through OSC 52 and the platform clipboard both (`CODSH_CLIPBOARD=osc52|system|off` narrows it). Long finished blocks — thinking, tool output, and answers past a screenful — collapse to their head lines once you move on; Ctrl-O swaps every one of them between summary and full form.
 - **An input box that owns the keyboard**: multi-line editing (Shift-Enter on kitty-protocol terminals — Ghostty, kitty, WezTerm, iTerm2, foot — and Alt-Enter everywhere), history across sessions, and completion for commands, arguments, and `@`-mentioned files (fuzzy, workspace-wide), opened as you type.
 - **Streaming rendering**: Markdown with code highlighting and table layout, reasoning models' thinking dim under `✻ thinking`, tool calls as presenter-driven cards with diffs, and Ctrl-O to reprint the last clipped output in full.
@@ -36,6 +37,22 @@ dsh --profile code
 - Status line (model, preset, permissions, tokens, context left, branch), terminal-title updates, a bell when a decision waits, and a `--print` mode for scripts.
 
 Off a TTY (pipes, scripts) the same surface degrades to a line reader: selections become typed answers, lists replace widgets, and nothing draws.
+
+## From one sentence to shipped
+
+`/ship` drives an idea from 0 to 1 with exactly two approvals and nothing else to babysit:
+
+1. **Interview** — the agent reads your repo first, then asks one focused question at a time (users, success criteria, scope, non-goals, constraints, edge cases) until answers stop changing the design.
+2. **Spec (gate 1)** — the agreed design lands as a file in your repo (`docs/specs/<slug>.md` unless your repo has its own convention), with objectively checkable acceptance criteria; you confirm it.
+3. **Plan (gate 2)** — milestones, tests, and the commands that prove them; you approve it.
+4. **Landing** — from here it is autonomous: small plans run implement→test→fix in-session under the todo list; large ones run a fresh-agent Ralph loop with the spec file on disk as the memory that survives every round.
+5. **Done** — every acceptance criterion verified by actually running the tests, then an honest report.
+
+```sh
+/ship let long diffs open in a pager instead of scrolling past
+```
+
+Run it bare and it asks for the sentence first. Mid-flight decision changes go back into the spec file, so the file always states what is being built.
 
 ## Development
 

@@ -243,4 +243,14 @@ describe('dsh code (real profile, keyless model)', () => {
     expect(run.stdout).toContain('marker=yes')
     expect(run.stdout).not.toContain('unknown command')
   }, E2E_TEST_TIMEOUT_MS)
+
+  it('runs /ship as a built-in canned prompt carrying the typed idea', async () => {
+    const run = await runCodeCli({ tool: 'echo', input: '/ship add a SHIP_E2E_IDEA command\n/exit\n' })
+
+    // The command echoes as typed; the request carries the expanded workflow
+    // with the idea substituted and the tool names the phases hang on.
+    expect(run.stdout).toContain('› /ship add a SHIP_E2E_IDEA command')
+    expect(run.stdout).toContain('ship=yes')
+    expect(run.stdout).not.toContain('unknown command')
+  }, E2E_TEST_TIMEOUT_MS)
 })

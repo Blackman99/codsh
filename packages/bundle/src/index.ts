@@ -48,6 +48,7 @@ import { Prompt } from './prompt.ts'
 import { dshHomePath } from '@deepseek-ai/dsh-home-paths'
 import { installPackagedPreset } from './preset-install.ts'
 import { TerminalQuestions } from './questions.ts'
+import { SHIP_PROMPT } from './ship.ts'
 import { Spinner } from './spinner.ts'
 import { TextStream } from './streaming.ts'
 import { formatTokens, gitBranch, statusLine, statusReport, totalTokens } from './status.ts'
@@ -526,10 +527,10 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
       : `unknown model "${typed}" (available: ${known}); provider/model also works`
   }
   // Canned prompts this surface runs through the ordinary submission path:
-  // `/init` built in, plus whatever command files the person defined.
+  // `/init` and `/ship` built in, plus whatever command files the person defined.
   const custom = await loadCustomCommands(
     [dshHomePath('commands'), join(cwd, '.dsh', 'commands')],
-    new Set([...(commands?.list(live.agent) ?? []).map(entry => entry.name), 'exit', 'quit', 'help', 'init', 'status', 'model', 'clear', 'resume', 'diff']),
+    new Set([...(commands?.list(live.agent) ?? []).map(entry => entry.name), 'exit', 'quit', 'help', 'init', 'ship', 'status', 'model', 'clear', 'resume', 'diff']),
   )
   for (const warning of custom.warnings) io.console.write(theme.dim(`  skipped ${warning}`))
   const customByName = new Map(custom.commands.map(command => [command.name, command]))
@@ -538,6 +539,7 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
   const completable = (): readonly CompletableCommand[] => [
     ...commands?.list(live.agent) ?? [],
     { name: 'init', description: 'analyze the repo and draft AGENTS.md' },
+    { name: 'ship', description: 'take a one-sentence idea to shipped code' },
     ...custom.commands.map(command => ({ name: command.name, description: command.description })),
     { name: 'exit', description: 'leave the session' },
   ]
@@ -1193,6 +1195,10 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
       const [, name = '', rest = ''] = /^\/(\S+)\s*([\s\S]*)$/.exec(trimmed) ?? []
       if (name === 'init') {
         await answer(INIT_PROMPT, { kind: 'plugin', plugin: 'coding-cli' })
+        continue
+      }
+      if (name === 'ship') {
+        await answer(expandTemplate(SHIP_PROMPT, rest.trim()), { kind: 'plugin', plugin: 'coding-cli' })
         continue
       }
       const canned = customByName.get(name)
