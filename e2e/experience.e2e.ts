@@ -249,7 +249,7 @@ describe.skipIf(process.platform === 'win32')('the first five minutes', () => {
     expect(rows.some(row => row.includes('(click or Ctrl+O expands)'))).toBe(true)
   }, E2E_TEST_TIMEOUT_MS)
 
-  it('opens the block a click lands on, and folds it back from its head row', async () => {
+  it('opens the block a click lands on, and folds it back from inside it', async () => {
     // Where a block sits depends on everything printed above it, so the click
     // aims at the line itself and the driver resolves the row it was painted
     // on. Press and release without moving: a drag would copy instead.
@@ -258,8 +258,9 @@ describe.skipIf(process.platform === 'win32')('the first five minutes', () => {
       ['Welcome to codsh', `think it over${ENTER}`, 300],
       // Thinking lands collapsed; a click on its summary opens that block.
       ['thought for', clickOn('thought for'), 600],
-      // A click on the open block's head line folds it back again.
-      ['weighing the options carefully', clickOn('✻ thought for'), 600],
+      // A click anywhere in the open block — not just its head line — folds it
+      // back again.
+      ['weighing the options carefully', clickOn('weighing the options carefully'), 600],
       ['lines (click or Ctrl+O expands)', `/exit${ENTER}`, 400],
     ])
     const opened = screenAtLast(output, 'weighing the options carefully').alternate

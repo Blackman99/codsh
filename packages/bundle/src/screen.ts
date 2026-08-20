@@ -333,30 +333,32 @@ export class Screen {
   /**
    * Work the block a bare click landed on, the way a details element opens.
    *
-   * Collapsed, the whole summary is the target — the `+N lines` line is what a
-   * person aims at, and the summary is only ever a line or two. Open, only the
-   * block's first row folds it back, so a click inside text being read can
-   * never make it vanish under the pointer.
+   * The whole block is the target, in both forms: collapsed, the `+N lines`
+   * line is what a person aims at, and open, anywhere inside the text folds it
+   * back — hunting for a head row that has scrolled off the top is not an
+   * affordance. Selecting text inside a block is a drag, which never reaches
+   * here, so reading is unaffected.
    * @param row - physical buffer row the press anchored on.
    */
   private clickFold(row: number): void {
-    const hit = this.foldAt(row)
-    if (hit === undefined) return
-    if (hit.fold.expanded && row !== hit.start) return
-    this.setFold(hit.fold, !hit.fold.expanded)
+    const fold = this.foldAt(row)
+    if (fold === undefined) return
+    this.setFold(fold, !fold.expanded)
   }
 
   /**
-   * The block covering a physical row, and the row it starts at.
+   * The block covering a physical row.
    *
    * Blocks are recorded in logical lines while the mouse reports physical
    * rows, so the wrapped height of everything above a block is what bridges
-   * the two. Blocks are kept in buffer order, so the walk stops at the first
-   * one that begins below the row rather than measuring the whole scrollback.
+   * the two — measured under each line's own rule, which costs columns and so
+   * changes the height. Blocks are kept in buffer order, so the walk stops at
+   * the first one that begins below the row rather than measuring the whole
+   * scrollback.
    * @param row - physical buffer row, 0-based.
-   * @returns the block and its first physical row, or undefined for a miss.
+   * @returns the block, or undefined when the row is not in one.
    */
-  private foldAt(row: number): { fold: Fold; start: number } | undefined {
+  private foldAt(row: number): Fold | undefined {
     const columns = this.contentColumns()
     const height = (index: number): number => this.wrapLine(this.logical[index] ?? '', this.rules[index] ?? '', columns).length
     let physical = 0
@@ -364,9 +366,8 @@ export class Screen {
     for (const fold of this.folds) {
       for (; index < fold.at; index += 1) physical += height(index)
       if (physical > row) return undefined
-      const start = physical
       for (; index < fold.at + fold.shownLength; index += 1) physical += height(index)
-      if (row < physical) return { fold, start }
+      if (row < physical) return fold
     }
     return undefined
   }

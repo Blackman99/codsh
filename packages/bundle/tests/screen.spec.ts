@@ -406,7 +406,7 @@ describe('folds', () => {
     expect(text).not.toContain('second full a')
   })
 
-  it('folds an open block back from its first row, but not from inside it', () => {
+  it('folds an open block back from anywhere inside it', () => {
     const sink = host(12, 40)
     const screen = new Screen(sink)
     screen.enter()
@@ -416,18 +416,32 @@ describe('folds', () => {
     screen.toggleFolds()
     flush(sink)
 
-    // Row 3 is inside the open block: text being read never collapses under
-    // the pointer, so nothing at all is painted.
-    screen.mouseDown(3, 2)
+    // Row 4 is the middle of the open block, not its head row: a block whose
+    // head has scrolled off the top would otherwise have nothing to click.
+    screen.mouseDown(4, 2)
     expect(screen.mouseUp()).toBeUndefined()
-    expect(flush(sink)).toBe('')
-
-    // Row 2 is the block's first row — its summary line — which folds it back.
-    screen.mouseDown(2, 2)
-    screen.mouseUp()
     const text = [...painted(flush(sink)).values()].join('\n')
     expect(text).toContain('summary')
     expect(text).not.toContain('tail')
+  })
+
+  it('leaves a block alone when the click was a drag over it', () => {
+    const sink = host(12, 40)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['status'], { row: 0, column: 0 }, false)
+    screen.append(['above'])
+    screen.appendFold(['summary', ''], ['head', 'body', 'tail', ''])
+    screen.toggleFolds()
+    flush(sink)
+
+    // Selecting inside a block is a drag, and a drag hands over its text
+    // instead of collapsing what was just read.
+    screen.mouseDown(2, 1)
+    screen.mouseDrag(3, 4)
+    expect(screen.mouseUp()).toBe('head\nbody')
+    const text = [...painted(flush(sink)).values()].join('\n')
+    expect(text).not.toContain('summary')
   })
 
   it('still copies a drag that starts on a collapsed block', () => {
