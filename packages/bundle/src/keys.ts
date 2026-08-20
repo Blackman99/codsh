@@ -36,6 +36,7 @@ export type Key =
   | { kind: 'shift-tab' }
   | { kind: 'clear-screen' }
   | { kind: 'expand-output' }
+  | { kind: 'toggle-todos' }
   | { kind: 'page'; direction: -1 | 1 }
   | { kind: 'scroll'; lines: number }
   | { kind: 'scroll-end' }
@@ -170,6 +171,7 @@ const CONTROLS: Readonly<Record<string, Key>> = {
   '\u000B': { kind: 'kill-line' },
   '\u000C': { kind: 'clear-screen' },
   '\u000F': { kind: 'expand-output' },
+  '\u0014': { kind: 'toggle-todos' },
   '\u0015': { kind: 'kill-input' },
   '\u0017': { kind: 'kill-word' },
 }

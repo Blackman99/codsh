@@ -13,14 +13,24 @@ import { Editor } from './editor.ts'
 import { inputBox } from './inputbox.ts'
 import { Selector } from './selector.ts'
 import { truncate } from './theme.ts'
+import { todoReport, todoRow } from './todos.ts'
 import type { TerminalConsole } from './console.ts'
 import type { EditorSources } from './editor.ts'
 import type { Key } from './keys.ts'
 import type { SelectOutcome, SelectSpec } from './selector.ts'
 import type { Theme } from './theme.ts'
+import type { TodoList } from './todos.ts'
 
 /** How long a flash notice holds the hint row. */
 const FLASH_MS = 1500
+
+/**
+ * Most todo items the expanded list may occupy.
+ *
+ * The chrome never scrolls, so an unbounded list would push the box off a short
+ * terminal; the items past the cap are counted, never silently dropped.
+ */
+const TODO_ROWS = 10
 
 /** What the prompt reports to its owner. */
 export interface PromptHandlers {
@@ -68,6 +78,13 @@ export class Prompt {
   private flashTimer: ReturnType<typeof setTimeout> | undefined
   /** The always-current session facts shown as the region's last row. */
   private status: string | undefined
+  /**
+   * The agent's current todo list, kept in the chrome rather than only in the
+   * transcript: the card that announced it scrolls away, this does not.
+   */
+  private todos: TodoList = []
+  /** Whether the todo readout shows every item or only the one in flight. */
+  private todosExpanded = false
   /** The assistant line still arriving, shown above the box. */
   private streaming: string | undefined
   /** Frame styling for the current mode, e.g. plan mode's accent. */
@@ -173,6 +190,21 @@ export class Prompt {
   setStatus(text: string | undefined): void {
     if (text === this.status) return
     this.status = text
+    this.render()
+  }
+
+  /**
+   * Set the todo readout to the list the session now holds.
+   *
+   * Compared by content, not identity: this is pushed on every session event,
+   * and a repaint per event would flicker the chrome for nothing.
+   * @param todos - the current list, empty to drop the readout.
+   */
+  setTodos(todos: TodoList): void {
+    if (todos.length === this.todos.length
+      && todos.every((todo, at) => todo.content === this.todos[at]?.content
+        && todo.status === this.todos[at]?.status)) return
+    this.todos = todos
     this.render()
   }
 
@@ -289,6 +321,13 @@ export class Prompt {
       this.handlers.expandOutput?.()
       return
     }
+    // Handled here rather than reported to the owner: the readout is the
+    // chrome's own state, and nothing outside it changes when the list opens.
+    if (key.kind === 'toggle-todos') {
+      this.todosExpanded = !this.todosExpanded
+      this.render()
+      return
+    }
     // Scrolling belongs to the viewport, not to the buffer being edited.
     if (key.kind === 'page') {
       this.console.scrollPage(key.direction)
@@ -382,6 +421,20 @@ export class Prompt {
     this.render()
   }
 
+  /**
+   * The todo readout's rows: the one in flight, or the whole list once opened.
+   * @param columns - display columns available.
+   * @returns the rows, empty when no list is live.
+   */
+  private todoRows(columns: number): string[] {
+    if (this.todos.length === 0) return []
+    if (!this.todosExpanded) {
+      const row = todoRow(this.todos, this.theme, columns, 'Ctrl+T opens the list')
+      return row === undefined ? [] : [row]
+    }
+    return todoReport(this.todos, this.theme, columns, { hint: 'Ctrl+T closes', limit: TODO_ROWS })
+  }
+
   /** Recompose and redraw the bottom region. */
   private render(): void {
     if (!this.console.readsKeys) return
@@ -404,6 +457,9 @@ export class Prompt {
       const more = this.queued.length > 1 ? ` (+${this.queued.length - 1} more)` : ''
       rows.push(this.theme.dim(truncate(`  ↳ queued: ${preview.split('\n')[0] ?? ''}${more}`, columns)))
     }
+    // Under the box and over the hint row: the list is context for the work in
+    // flight, and the rows nearest the bottom stay the ones about right now.
+    rows.push(...this.todoRows(columns))
     // Detached from the tail the box would look like it had stopped receiving
     // output, so the viewport says so — over its own top row, never as another
     // chrome row, which would move the box while scrolling.

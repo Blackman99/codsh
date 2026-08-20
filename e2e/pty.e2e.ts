@@ -551,6 +551,45 @@ describe.skipIf(process.platform === 'win32')('dsh code Escape (real PTY)', () =
     expect(after.some(row => row.includes('CODE_CLI_TALL_44'))).toBe(false)
   }, E2E_TEST_TIMEOUT_MS)
 
+  it('pins the todo list in the chrome and opens it on Ctrl-T', async () => {
+    const output = await drivePty('todo', [
+      ['/help for commands', `plan the work${ENTER}`, 300],
+      // The readout names its own key, the way a fold names Ctrl-O...
+      ['Ctrl+T opens the list', '\u0014', 400],
+      // ...opens to every item...
+      ['Ctrl+T closes', '\u0014', 400],
+      // ...and closes back to the one line.
+      ['Ctrl+T opens the list', `/exit${ENTER}`, 400],
+    ])
+
+    // Pinned: the item in flight sits directly over the status row, so the list
+    // is still answerable long after its card scrolled away.
+    const pinned = screenAt(output, 'Ctrl+T opens the list').alternate
+    expect(pinned.at(-1)).toMatch(/cli-mock · code-cli/)
+    const readout = pinned.findIndex(row => row.includes('Ctrl+T opens the list'))
+    expect(pinned[readout]).toContain('▶ write the fix')
+    expect(pinned[readout]).toContain('1/3')
+    // In the chrome, not the transcript: only the rows about right now sit
+    // under it — the working indicator, when one is ticking, and the status row.
+    expect(pinned.length - readout).toBeLessThanOrEqual(3)
+
+    // Opened: every item, under the header that says how to close it.
+    const opened = screenAt(output, 'Ctrl+T closes').alternate
+    const head = opened.findIndex(row => row.includes('Ctrl+T closes'))
+    expect(head).toBeGreaterThanOrEqual(0)
+    expect(opened.slice(head + 1, head + 4).map(row => row.trim())).toEqual([
+      '✔ read the code',
+      '▶ write the fix',
+      '○ run the tests',
+    ])
+
+    // Closed again: the chrome is back to one row. The card in the transcript
+    // still lists the items, so the header's own key text is what separates an
+    // open readout from a scrolled-back write.
+    const closed = screenAt(output, 'Ctrl+T opens the list', 'last').alternate
+    expect(closed.some(row => row.includes('Ctrl+T closes'))).toBe(false)
+  }, E2E_TEST_TIMEOUT_MS)
+
   it('speaks the kitty keyboard protocol: pushed on entry, Shift+Enter breaks the line', async () => {
     const output = await drivePty('write', [
       // A kitty-capable terminal sends Shift+Enter as CSI 13;2u.

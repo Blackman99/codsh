@@ -44,6 +44,12 @@ _Avoid_: collapse block, expandable section
 A short-lived notice that borrows the hint row and gives it back (e.g. the
 copy toast).
 
+**Todo readout**:
+The chrome row that holds the agent's todo list — progress plus the item in
+flight — for as long as a list is live, opened into the full list with Ctrl+T.
+Read from the `todos` projection, never remembered from the write.
+_Avoid_: todo panel, task bar, progress bar
+
 ### Workflows
 
 **Ship gates**:

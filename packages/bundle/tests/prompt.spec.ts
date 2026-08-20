@@ -254,6 +254,57 @@ describe('the surrounding rows', () => {
     expect(console.draws.length).toBe(drawn)
   })
 
+  it('pins the todo readout over the hint and status rows', () => {
+    const { prompt, console } = build()
+    prompt.setStatus('model · 12k tokens')
+    prompt.setHint('working')
+    prompt.setTodos([
+      { content: 'read the code', status: 'completed' },
+      { content: 'write the fix', status: 'in_progress' },
+    ])
+    const rows = console.draws.at(-1)?.rows ?? []
+    // The list is context for the work in flight, so it sits above the rows
+    // that describe right now — and it survives the card scrolling away.
+    expect(rows.at(-3)).toContain('▶ write the fix')
+    expect(rows.at(-2)).toBe('working')
+    expect(rows.at(-1)).toBe('model · 12k tokens')
+  })
+
+  it('opens the whole list on Ctrl-T and closes it again', () => {
+    const { prompt, console } = build()
+    prompt.setTodos([
+      { content: 'read the code', status: 'completed' },
+      { content: 'write the fix', status: 'in_progress' },
+    ])
+    console.press({ kind: 'toggle-todos' })
+    const opened = console.draws.at(-1)?.rows ?? []
+    expect(opened.some(row => row.includes('read the code'))).toBe(true)
+    expect(opened.some(row => row.includes('Ctrl+T closes'))).toBe(true)
+    console.press({ kind: 'toggle-todos' })
+    const closed = console.draws.at(-1)?.rows ?? []
+    expect(closed.some(row => row.includes('read the code'))).toBe(false)
+    expect(closed.some(row => row.includes('▶ write the fix'))).toBe(true)
+  })
+
+  it('shows no readout before the first todo write', () => {
+    const { prompt, console } = build()
+    prompt.setStatus('model')
+    prompt.setTodos([])
+    expect((console.draws.at(-1)?.rows ?? []).some(row => row.includes('todos'))).toBe(false)
+  })
+
+  it('redraws only when the list actually changed', () => {
+    const { prompt, console } = build()
+    prompt.setTodos([{ content: 'write the fix', status: 'in_progress' }])
+    const drawn = console.draws.length
+    // Pushed on every session event: repainting an unchanged list would flicker
+    // the chrome for the length of a turn.
+    prompt.setTodos([{ content: 'write the fix', status: 'in_progress' }])
+    expect(console.draws.length).toBe(drawn)
+    prompt.setTodos([{ content: 'write the fix', status: 'completed' }])
+    expect(console.draws.length).toBeGreaterThan(drawn)
+  })
+
   it('reports Shift-Tab to its owner as a mode change', () => {
     const console = fakeConsole(true)
     const modes: string[] = []

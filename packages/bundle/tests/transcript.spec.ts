@@ -133,7 +133,7 @@ describe('session state', () => {
       { content: 'run the tests', status: 'pending' },
     ]))
     expect(lines).toEqual([
-      'todos 1/3',
+      'todos 1/3 · 1 in progress · 1 open',
       '  ✔ read the code',
       '  ▶ write the fix',
       '  ○ run the tests',

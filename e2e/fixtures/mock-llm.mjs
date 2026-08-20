@@ -91,6 +91,15 @@ const ARGUMENTS = {
     timeoutMs: SLOW_SECONDS * 2000,
   },
   tall: { file_path: join(process.cwd(), TARGET), content: TALL_CONTENT },
+  // One item per lifecycle state, so the readout has a count to report, an
+  // item in flight to name, and a finished one to dim.
+  todo: {
+    todos: [
+      { content: 'read the code', status: 'completed' },
+      { content: 'write the fix', status: 'in_progress' },
+      { content: 'run the tests', status: 'pending' },
+    ],
+  },
 }
 
 /** Emits one `write` call, then a closing message naming the result. */
@@ -173,7 +182,7 @@ class CodeCliMockAdapter extends LlmAdapter {
       // what reaches `ctx.approval` and therefore the keyboard. `slow` occupies
       // the turn long enough for a person to interrupt it.
       const mode = process.env.DSH_CODE_CLI_MOCK_TOOL ?? 'write'
-      const tool = mode === 'write' || mode === 'tall' ? 'write' : 'bash'
+      const tool = mode === 'write' || mode === 'tall' ? 'write' : mode === 'todo' ? 'todo_write' : 'bash'
       const args = JSON.stringify(ARGUMENTS[mode] ?? ARGUMENTS.write)
       const id = CallId(`code-cli-${tool}`)
       yield { type: 'block-start', index: 0, blockType: 'tool-call' }

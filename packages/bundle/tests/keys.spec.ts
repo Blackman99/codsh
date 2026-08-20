@@ -36,6 +36,7 @@ describe('KeyDecoder', () => {
     { label: 'Ctrl-E', bytes: '\u0005', key: { kind: 'end' } },
     { label: 'Ctrl-W', bytes: '\u0017', key: { kind: 'kill-word' } },
     { label: 'Ctrl-L', bytes: '\u000C', key: { kind: 'clear-screen' } },
+    { label: 'Ctrl-T', bytes: '\u0014', key: { kind: 'toggle-todos' } },
   ])('decodes $label', ({ bytes, key }) => {
     expect(decode(bytes)).toEqual([key])
   })
@@ -166,6 +167,7 @@ describe('KeyDecoder', () => {
     { label: 'Ctrl+C interrupts', bytes: `${ESC}[99;5u`, keys: [{ kind: 'interrupt' }] },
     { label: 'Ctrl+D is EOF', bytes: `${ESC}[100;5u`, keys: [{ kind: 'eof' }] },
     { label: 'Ctrl+O expands', bytes: `${ESC}[111;5u`, keys: [{ kind: 'expand-output' }] },
+    { label: 'Ctrl+T opens the todo list', bytes: `${ESC}[116;5u`, keys: [{ kind: 'toggle-todos' }] },
     { label: 'Alt+b steps a word left', bytes: `${ESC}[98;3u`, keys: [{ kind: 'word-left' }] },
     { label: 'Alt+Backspace kills a word', bytes: `${ESC}[127;3u`, keys: [{ kind: 'kill-word' }] },
   ])('decodes the kitty report: $label', ({ bytes, keys }) => {

@@ -19,7 +19,7 @@ import { E2E_TEST_TIMEOUT_MS, makeHome, overlayText, resolveLaunch } from './har
  * What the mocked model does: `write` needs no approval, `bash` escalates and so
  * asks for one, and `markdown` answers in prose instead of calling anything.
  */
-type MockTool = 'write' | 'bash' | 'markdown' | 'reasoning' | 'echo'
+type MockTool = 'write' | 'bash' | 'markdown' | 'reasoning' | 'echo' | 'todo'
 
 /** One completed run of the terminal surface. */
 interface Run {
@@ -241,6 +241,18 @@ describe('dsh code (real profile, keyless model)', () => {
     // The command echoes as typed; the request carries the expanded template.
     expect(run.stdout).toContain('› /hello world')
     expect(run.stdout).toContain('marker=yes')
+    expect(run.stdout).not.toContain('unknown command')
+  }, E2E_TEST_TIMEOUT_MS)
+
+  it('prints the todo list on /todos, read back from the session projection', async () => {
+    const run = await runCodeCli({ tool: 'todo', input: 'plan the work\n/todos\n/exit\n' })
+
+    // Twice: once as the card the write produced, once as `/todos` reading the
+    // projection back — which is what keeps the list answerable off a TTY,
+    // where there is no chrome to pin it to.
+    const header = 'todos 1/3 · 1 in progress · 1 open'
+    expect(run.stdout.split(header)).toHaveLength(3)
+    expect(run.stdout).toContain('▶ write the fix')
     expect(run.stdout).not.toContain('unknown command')
   }, E2E_TEST_TIMEOUT_MS)
 

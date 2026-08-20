@@ -15,6 +15,7 @@ import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import type { FileDiff, ToolCallView, ToolResult, ToolResultView } from '@deepseek-ai/dsh-tools'
 import { renderMarkdown } from './markdown.ts'
 import { truncate } from './theme.ts'
+import { todoReport } from './todos.ts'
 import type { Theme } from './theme.ts'
 
 /** Context lines kept on each side of a rendered hunk. */
@@ -191,18 +192,10 @@ export class Transcript {
       case 'tool/result':
         return this.renderResult(event.data)
       case 'todo/write': {
-        const { todos } = event.data
-        if (todos.length === 0) return []
-        const done = todos.filter(todo => todo.status === 'completed').length
-        return [
-          `${theme.tool('todos')} ${theme.dim(`${done}/${todos.length}`)}`,
-          ...todos.map((todo) => {
-            if (todo.status === 'completed') return theme.dim(`  ✔ ${todo.content}`)
-            if (todo.status === 'in_progress') return `  ${theme.pending('▶')} ${todo.content}`
-            return theme.dim(`  ○ ${todo.content}`)
-          }),
-          '',
-        ]
+        // The same renderer the pinned readout uses: the card is this write, the
+        // readout is the list as it now stands, and they must not disagree.
+        const lines = todoReport(event.data.todos, theme, this.options.columns)
+        return lines.length === 0 ? [] : [...lines, '']
       }
       case 'plan/mode':
         return event.data.active

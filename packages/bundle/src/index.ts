@@ -25,6 +25,8 @@ import type {} from '@deepseek-ai/dsh-agent-presets'
 import type {} from '@deepseek-ai/dsh-commands'
 import type {} from '@deepseek-ai/dsh-plan-mode'
 import type {} from '@deepseek-ai/dsh-session-projection'
+// Declares the `todos` projection key this surface reads for its readout.
+import type {} from '@deepseek-ai/dsh-tool-todo'
 import type {} from '@deepseek-ai/dsh-token-meter'
 import type {} from '@deepseek-ai/dsh-permission-presets'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
@@ -52,6 +54,8 @@ import { SHIP_PROMPT } from './ship.ts'
 import { Spinner } from './spinner.ts'
 import { TextStream } from './streaming.ts'
 import { formatTokens, gitBranch, statusLine, statusReport, totalTokens } from './status.ts'
+import { todoReport } from './todos.ts'
+import type { TodoList } from './todos.ts'
 import type { StatusFacts } from './status.ts'
 import { backgroundIsLight, createTheme } from './theme.ts'
 import { Transcript } from './transcript.ts'
@@ -189,6 +193,19 @@ function statusFacts(
     usage: projections?.tokenUsage,
     context: projections?.contextPressure,
   }
+}
+
+/**
+ * The agent's todo list as the chrome's readout wants it.
+ *
+ * Read from the projection rather than remembered from the write event, so a
+ * resumed session shows the list it left off with and a `/clear` shows none.
+ * @param ctx - plugin context carrying the projection service.
+ * @param agent - the live agent.
+ * @returns the current list, empty before any write.
+ */
+function todoList(ctx: Context, agent: Agent): TodoList {
+  return ctx.get('sessionProjections')?.snapshot(agent.session).values.todos ?? []
 }
 
 /**
@@ -653,6 +670,18 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
       handler: () => ({ kind: 'success', text: statusReport(facts(branch), live.agent.session.id) }),
     }))
     disposers.push(commands.register({
+      name: 'todos',
+      description: 'print the agent\'s todo list as it now stands',
+      handler: () => {
+        // The readout answers this at a glance on a terminal; this is the same
+        // list for the pipe shape, which has no chrome and no keys to open it.
+        const lines = todoReport(todoList(ctx, live.agent), theme, io.console.columns)
+        return lines.length === 0
+          ? { kind: 'success', text: 'no todos yet' }
+          : { kind: 'success', text: lines.join('\n') }
+      },
+    }))
+    disposers.push(commands.register({
       name: 'clear',
       description: 'start a fresh session in place',
       handler: async () => {
@@ -854,6 +883,9 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
   const refreshStatus = (): void => {
     if (!io.console.readsKeys) return
     prompt.setStatus(statusLine(facts(branch), theme, io.console.columns - 1))
+    // Same cadence as the status row, for the same reason: the list is a fold
+    // over the log, so anything cached here would report the turn before last.
+    prompt.setTodos(todoList(ctx, live.agent))
   }
   if (planModeFrom(live.agent.session.events)) prompt.setAccent(text => theme.pending(text))
   refreshStatus()
@@ -867,6 +899,10 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
       prompt.setAccent(event.data.active ? text => theme.pending(text) : undefined)
     }
     refreshStatus()
+    // Straight from the event, after the projection read above: the write
+    // carries the whole replacement list, so the readout never has to wait for
+    // a fold that may land after this handler runs.
+    if (event.type === 'todo/write') prompt.setTodos(event.data.todos)
     // In print mode the task text came from the caller's own command line;
     // echoing it back would only make stdout harder to consume in scripts.
     if (config.print && event.type === 'user/message') return
