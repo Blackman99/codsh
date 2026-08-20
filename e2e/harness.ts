@@ -21,7 +21,7 @@ import { createRequire } from 'node:module'
 /** Generous ceiling for one whole scenario, profile boot included. */
 export const E2E_TEST_TIMEOUT_MS = 120_000
 
-const repoRoot = fileURLToPath(new URL('..', import.meta.url))
+export const repoRoot = fileURLToPath(new URL('..', import.meta.url))
 
 /** The bundle package — what profiles install and these suites pack. */
 export const bundleRoot = join(repoRoot, 'packages', 'bundle')

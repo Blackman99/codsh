@@ -1,0 +1,116 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 340" width="1200" height="340" role="img" aria-labelledby="t d">
+<title id="t">codsh — a terminal coding agent, composed on the DeepSeek Harness</title>
+<desc id="d">A dark terminal panel. On the left the codsh wordmark with a blinking block cursor and a one-line description. On the right a miniature transcript: the person's own message under a heavy left rule, a tool card under a light one, a collapsed thinking fold whose head row is underlined by the pointer, the input box, the readout naming the block under the pointer, and the status row.</desc>
+
+<style>
+  /* Generic stacks only: a banner loaded as an image never fetches a font. */
+  .m { font-family: ui-monospace, 'SF Mono', SFMono-Regular, Menlo, Consolas, 'DejaVu Sans Mono', monospace; }
+  .ink { fill: #e8e6e1; }
+  .soft { fill: #b6b8bb; }
+  .dim { fill: #868b93; }
+  .user { fill: #d98ce8; }
+  .tool { fill: #6fd6d0; }
+  .ok { fill: #8fce92; }
+  .pending { fill: #e6c67c; }
+  .wordmark { font-size: 76px; font-weight: 700; letter-spacing: -0.035em; }
+  .tag { font-size: 17px; }
+  .meta { font-size: 13px; letter-spacing: 0.04em; }
+  .line { font-size: 16px; }
+  .small { font-size: 14px; }
+  .hovered { text-decoration: underline; text-underline-offset: 3px; }
+
+  /* The one moving part: the cursor the box always shows. */
+  .caret { animation: blink 1.25s steps(1) infinite; }
+  @keyframes blink {
+    0%, 45% { opacity: 1 }
+    50%, 95% { opacity: 0.15 }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .caret { animation: none }
+  }
+</style>
+
+<defs>
+  <radialGradient id="glow" cx="76%" cy="0%" r="72%">
+    <stop offset="0%" stop-color="#6fd6d0" stop-opacity="0.16"/>
+    <stop offset="60%" stop-color="#6fd6d0" stop-opacity="0"/>
+  </radialGradient>
+  <radialGradient id="glow2" cx="4%" cy="10%" r="55%">
+    <stop offset="0%" stop-color="#d98ce8" stop-opacity="0.14"/>
+    <stop offset="70%" stop-color="#d98ce8" stop-opacity="0"/>
+  </radialGradient>
+  <pattern id="scan" width="4" height="3" patternUnits="userSpaceOnUse">
+    <rect width="4" height="1" fill="#ffffff" opacity="0.022"/>
+  </pattern>
+  <clipPath id="panel">
+    <rect width="1200" height="340" rx="18"/>
+  </clipPath>
+</defs>
+
+<!-- The panel is opaque, so the banner reads the same on a light README. -->
+<g clip-path="url(#panel)">
+  <rect width="1200" height="340" fill="#0b0d0f"/>
+  <rect width="1200" height="340" fill="url(#glow)"/>
+  <rect width="1200" height="340" fill="url(#glow2)"/>
+  <rect width="1200" height="340" fill="url(#scan)"/>
+</g>
+<rect x="0.5" y="0.5" width="1199" height="339" rx="18" fill="none" stroke="#21262d"/>
+
+<!--
+  ── Left: the wordmark, what it is, and how to get it ────────────────────
+  Every line is one text element flowing from a single x. A banner loaded as
+  an image renders in whatever monospace the reader has, so positioning words
+  by hand — a separator placed at its own x, a cursor beside the wordmark —
+  drifts into a collision on the first machine whose font is a little wider.
+-->
+<g class="m">
+  <text class="wordmark ink" x="58" y="148">codsh<tspan class="caret user" dx="8">▌</tspan></text>
+
+  <text class="tag soft" x="60" y="200">A terminal coding agent whose</text>
+  <text class="tag soft" x="60" y="226">interaction design fuses the best</text>
+  <text class="tag soft" x="60" y="252">of today’s agent CLIs.</text>
+
+  <text class="meta dim" x="60" y="290">npm i -g codsh-cli · MIT</text>
+  <text class="meta dim" x="60" y="312">one dsh per machine, however many tools</text>
+</g>
+
+<!-- ── Right: a transcript, told in the surface's own marks ──────────── -->
+<rect x="470.5" y="44.5" width="681" height="251" rx="11" fill="#0f1216" stroke="#21262d"/>
+
+<g class="m">
+  <!-- The person's own message: the heavy rule. -->
+  <rect x="492" y="70" width="3" height="22" rx="1.5" fill="#d98ce8"/>
+  <text class="line user" x="508" y="87">›</text>
+  <text class="line ink" x="526" y="87">ship the pager for long diffs</text>
+
+  <!-- A tool block: the light rule, the card's own title. -->
+  <rect x="492" y="104" width="2" height="22" rx="1" fill="#6fd6d0"/>
+  <text class="line pending" x="508" y="121">●</text>
+  <text class="line tool" x="528" y="121">Write docs/specs/pager.md</text>
+
+  <rect x="492" y="130" width="2" height="22" rx="1" fill="#6fd6d0"/>
+  <text class="line ok" x="508" y="147">+</text>
+  <text class="line dim" x="526" y="147">6 acceptance criteria, each one checkable</text>
+
+  <!-- A fold, flush by design, with the head row the pointer is on. -->
+  <g transform="translate(499 172)">
+    <g stroke="#868b93" stroke-width="1.6" stroke-linecap="round">
+      <path d="M0 -5.5V5.5M-4.8 -2.8L4.8 2.8M-4.8 2.8L4.8 -2.8"/>
+    </g>
+  </g>
+  <text class="line dim hovered" x="518" y="178">thought for 3.2s · +42 lines (click or Ctrl+O expands)</text>
+
+  <!-- The input box, which never leaves the bottom. -->
+  <rect x="492.5" y="196.5" width="636" height="34" rx="7" fill="none" stroke="#2a3038"/>
+  <text class="line user" x="508" y="219">›</text>
+  <rect class="caret" x="526" y="205" width="9" height="18" fill="#d98ce8" opacity="0.5"/>
+  <text class="small dim" x="545" y="218">Ask anything · / for commands · @ for files</text>
+
+  <!-- The readout: what the pointer is resting on, and what a click does. -->
+  <text class="small dim" x="508" y="252">thinking · 42 lines · click to expand</text>
+
+  <!-- The status row, the always-current last line. One element, so the model
+       name and what follows it cannot drift apart. -->
+  <text class="small" x="492" y="278"><tspan class="tool">cli-mock</tspan><tspan class="dim"> · code-cli · workspace-write · 128k ctx · ~/my-project</tspan></text>
+</g>
+</svg>

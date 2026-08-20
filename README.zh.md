@@ -1,8 +1,17 @@
-# codsh
+<p align="center">
+  <a href="https://blackman99.github.io/codsh/zh.html">
+    <img src="assets/banner.svg" width="900"
+         alt="codsh — 一款汲取了当今主流 agent CLI 交互体验精髓的终端编码 agent，组合在 DeepSeek Harness 之上">
+  </a>
+</p>
+
+<p align="center">
+  <a href="https://blackman99.github.io/codsh/zh.html"><b>站点与展示</b></a> ·
+  <a href="https://www.npmjs.com/package/codsh-cli">npm</a> ·
+  <a href="README.md">English</a> | 中文
+</p>
 
 > npm 包名：[`codsh-cli`](https://www.npmjs.com/package/codsh-cli) · 命令：`codsh`
-
-[English](README.md) | 中文
 
 一款汲取了当今主流 agent CLI 交互体验精髓的终端编码 agent，组合在 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)（dsh）插件运行时之上。codsh 是架在你的 dsh 之上的两个小包：零依赖启动器（`codsh-cli`）和携带交互式 TTY 界面与编码 agent preset 的 dsh *bundle*（`codsh-bundle`）。其下的一切——agent 循环、工具、会话、沙箱、模型适配器——都是 npm 上已发布的 dsh 包，一台机器只装一份。
 

@@ -1,0 +1,539 @@
+<!DOCTYPE html>
+<html lang="zh-Hans">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>codsh — 架在 dsh 之上的终端编码 agent</title>
+<meta name="description" content="一款汲取了当今主流 agent CLI 交互体验精髓的终端编码 agent，组合在 DeepSeek Harness 之上。架在你的 dsh 上的两个小包：零依赖启动器，以及携带交互式 TTY 界面的 bundle。">
+<meta name="color-scheme" content="dark">
+<link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
+<meta property="og:title" content="codsh — 终端编码 agent">
+<meta property="og:description" content="可点击的折叠块、常驻可见的 todo，以及一句话落地。组合在 DeepSeek Harness 之上。">
+<meta property="og:type" content="website">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/styles.css">
+</head>
+<body>
+
+<div class="rail">
+  <a class="rail__mark" href="#top">codsh</a>
+  <nav>
+    <a href="#see">看一眼</a>
+    <a href="#surface">界面</a>
+    <a href="#ship">/ship</a>
+    <a href="#install">安装</a>
+    <a href="#dev">开发</a>
+    <a href="https://github.com/Blackman99/codsh">GitHub</a>
+    <a class="rail__lang" href="index.html" hreflang="en" lang="en">English</a>
+  </nav>
+</div>
+
+<main>
+
+<section class="hero" id="top">
+  <div class="wrap">
+    <div class="hero__grid">
+      <div class="block block--heavy">
+      <span class="block__index reveal reveal-1">终端编码 agent · 组合在 dsh 之上</span>
+      <h1 class="reveal reveal-1">codsh<span class="caret">▍</span></h1>
+      <p class="hero__sub reveal reveal-2">
+        把当今最好的几个 agent CLI 的交互设计重做成一个界面——
+        再把它架在你已经有的运行时上。
+      </p>
+      <div class="hero__meta reveal reveal-2">
+        <span>npm 上的 <a href="https://www.npmjs.com/package/codsh-cli">codsh-cli</a></span>
+        <span>零依赖启动器</span>
+        <span>MIT</span>
+      </div>
+      <div class="shell reveal reveal-3">
+        <div class="shell__bar"><i class="shell__dot shell__dot--live"></i> 安装</div>
+<pre><span class="prompt">$</span> <span class="cmd">npm install -g @deepseek-ai/dsh codsh-cli</span>
+<span class="comment">  # 已有 dsh？只需 npm i -g codsh-cli</span>
+<span class="prompt">$</span> <span class="cmd">codsh</span></pre>
+      </div>
+      <p class="reveal reveal-4" style="margin-top:1.5rem">
+        界面之下的一切——agent 循环、工具、会话、沙箱、模型适配器——都是 npm 上
+        已发布的 <a href="https://github.com/deepseek-ai/deepseek-harness">DeepSeek Harness</a>
+        包，<strong>一台机器只装一份</strong>。codsh 只在上面加两个小东西：启动器，
+        以及携带 TTY 界面与编码 preset 的 bundle。
+      </p>
+      </div>
+      <div class="hero__frame reveal reveal-3">
+<!-- hero:start -->
+          <figure class="frame">
+            <div class="frame__bar">
+              <i class="shell__dot"></i><i class="shell__dot"></i><i class="shell__dot"></i>
+              <b>会话是自己的空间</b>
+              <span class="frame__real">真实抓取</span>
+            </div>
+            <div class="screen"><code class="screen__rows">
+<span class="row"><span class="c-user">  ██████╗ ██████╗ ██████╗ ███████╗██╗  ██╗</span></span>
+<span class="row"><span class="c-user"> ██╔════╝██╔═══██╗██╔══██╗██╔════╝██║  ██║</span></span>
+<span class="row"><span class="c-user"> ██║     ██║   ██║██║  ██║███████╗███████║</span></span>
+<span class="row"><span class="c-user"> ██║     ██║   ██║██║  ██║╚════██║██╔══██║</span></span>
+<span class="row"><span class="c-user"> ╚██████╗╚██████╔╝██████╔╝███████║██║  ██║</span></span>
+<span class="row"><span class="c-user">  ╚═════╝ ╚═════╝ ╚═════╝ ╚══════╝╚═╝  ╚═╝</span></span>
+<span class="row"> </span>
+<span class="row"> <span class="a-bold">✻ Welcome to codsh</span><span class="c-dim"> · cli-mock · code-cli</span></span>
+<span class="row"> </span>
+<span class="row"><span class="c-dim">  ~/.cache/codsh/showcase</span></span>
+<span class="row"><span class="c-dim">  session session-d6d79cb8-8e2c-4d12-85e7-37d83d819643</span></span>
+<span class="row"> </span>
+<span class="row"><span class="c-dim">  /help for commands · Tab completes · ⇧Tab plan mode · ESC interrupts · /exit leav</span></span>
+<span class="row"><span class="c-dim">…</span></span>
+<span class="gap"></span>
+<span class="row"><span class="c-dim">╭─────────────────────────────────────────────────────────────────────────────────╮</span></span>
+<span class="row"><span class="c-dim">│</span> <span class="c-user">›</span> <span class="c-dim">Ask anything · / for commands · @ for files · ⇧Tab plan mode</span>                  <span class="c-dim">│</span></span>
+<span class="row"><span class="c-dim">╰─────────────────────────────────────────────────────────────────────────────────╯</span></span>
+<span class="row"><span class="c-tool">cli-mock</span><span class="c-dim"> · code-cli · workspace-write · 0 tokens · ~/.cache/codsh/showcase</span></span>
+</code></div>
+          </figure>
+<!-- hero:end -->
+        <p class="caption">由 e2e harness 从打包后的真实二进制抓取。</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="see">
+  <div class="wrap">
+    <div class="block">
+      <span class="block__index">01 — 看一眼</span>
+      <h2>下面每一个终端都是真的。</h2>
+      <p class="lede">
+        不是效果图。每一帧都由 e2e 测试驱动打包后的真实二进制抓取，
+        经终端模拟器重放，再连颜色一起写进这个页面。
+      </p>
+      <p>
+        没人核对过的截图，等于没人守住的承诺——所以这个站点是按测试的方式生成的：
+        驱动真实的东西，留下那一帧。重新生成只需 <code>pnpm run site:screens</code>。
+        屏幕中间的空白被缩短，好让卡片保持可读的高度——除此之外没有任何改动。
+      </p>
+
+      <div class="scenes">
+<!-- frames:start -->
+        <input type="radio" name="scene" id="s-1" checked>
+        <input type="radio" name="scene" id="s-2">
+        <input type="radio" name="scene" id="s-3">
+        <input type="radio" name="scene" id="s-4">
+        <input type="radio" name="scene" id="s-5">
+        <input type="radio" name="scene" id="s-6">
+        <div class="scenes__tabs" role="tablist" aria-label="选择场景">
+          <label class="scenes__tab" for="s-1">工具卡片</label>
+          <label class="scenes__tab" for="s-2">悬停</label>
+          <label class="scenes__tab" for="s-3">点击展开</label>
+          <label class="scenes__tab" for="s-4">Todo</label>
+          <label class="scenes__tab" for="s-5">Markdown</label>
+          <label class="scenes__tab" for="s-6">Plan 模式</label>
+        </div>
+        <div class="scenes__panels">
+        <div data-scene="1">
+          <figure class="frame">
+            <div class="frame__bar">
+              <i class="shell__dot"></i><i class="shell__dot"></i><i class="shell__dot"></i>
+              <b>工具调用渲染为卡片，带 diff</b>
+              <span class="frame__real">真实抓取</span>
+            </div>
+            <div class="screen"><code class="screen__rows">
+<span class="row"> </span>
+<span class="row"><span class="c-user">┃ ›</span> create the note</span>
+<span class="row"> </span>
+<span class="row"><span class="c-tool">│ </span><span class="c-pending">●</span> <span class="c-tool">Write note.txt</span></span>
+<span class="row"><span class="c-tool">│ </span><span class="c-ok">+ CODE_CLI_ROUND_TRIP</span></span>
+<span class="row"> </span>
+<span class="row">CODE_CLI_CALL_OK via cli-mock</span>
+<span class="gap"></span>
+<span class="row"><span class="c-dim">╭─────────────────────────────────────────────────────────────────────────────────╮</span></span>
+<span class="row"><span class="c-dim">│</span> <span class="c-user">›</span> <span class="c-dim">Ask anything · / for commands · @ for files · ⇧Tab plan mode</span>                  <span class="c-dim">│</span></span>
+<span class="row"><span class="c-dim">╰─────────────────────────────────────────────────────────────────────────────────╯</span></span>
+<span class="row"><span class="c-pending">⠋</span> working <span class="c-dim">0.0s · ESC to interrupt</span></span>
+<span class="row"><span class="c-tool">cli-mock</span><span class="c-dim"> · code-cli · workspace-write · 26 tokens · ~/.cache/codsh/showcase</span></span>
+</code></div>
+          </figure>
+          <p class="caption">每次调用都经由它的 presenter 渲染——标题、状态、diff——左侧还有一道标出块边界的竖线。</p>
+        </div>
+        <div data-scene="2">
+          <figure class="frame">
+            <div class="frame__bar">
+              <i class="shell__dot"></i><i class="shell__dot"></i><i class="shell__dot"></i>
+              <b>鼠标停在哪一块，它就说自己是什么</b>
+              <span class="frame__real">真实抓取</span>
+            </div>
+            <div class="screen"><code class="screen__rows">
+<span class="row"> </span>
+<span class="row"><span class="c-user">┃ ›</span> think it over</span>
+<span class="row"> </span>
+<span class="row"><span class="c-dim a-underline">✻ thought for 0.0s · +2 lines (click or Ctrl+O expands)</span></span>
+<span class="row"> </span>
+<span class="row">CODE_CLI_ANSWER after thinking</span>
+<span class="row"> </span>
+<span class="row"><span class="c-dim">  0.0s · 14 tokens</span></span>
+<span class="gap"></span>
+<span class="row"><span class="c-dim">╭─────────────────────────────────────────────────────────────────────────────────╮</span></span>
+<span class="row"><span class="c-dim">│</span> <span class="c-user">›</span> <span class="c-dim">Ask anything · / for commands · @ for files · ⇧Tab plan mode</span>                  <span class="c-dim">│</span></span>
+<span class="row"><span class="c-dim">╰─────────────────────────────────────────────────────────────────────────────────╯</span></span>
+<span class="row"><span class="c-dim">  thinking · 4 lines · click to expand</span></span>
+<span class="row"><span class="c-tool">cli-mock</span><span class="c-dim"> · code-cli · workspace-write · 14 tokens · ~/.cache/codsh/showcase</span></span>
+</code></div>
+          </figure>
+          <p class="caption">停在折叠块上时，其首行加下划线，输入框下方报出它是什么——点下去会发生什么，点之前就知道。</p>
+        </div>
+        <div data-scene="3">
+          <figure class="frame">
+            <div class="frame__bar">
+              <i class="shell__dot"></i><i class="shell__dot"></i><i class="shell__dot"></i>
+              <b>一次点击只开一块</b>
+              <span class="frame__real">真实抓取</span>
+            </div>
+            <div class="screen"><code class="screen__rows">
+<span class="row"> </span>
+<span class="row"><span class="c-user">┃ ›</span> think it over</span>
+<span class="row"> </span>
+<span class="row"><span class="c-dim">✻ thought for 0.0s</span></span>
+<span class="row"><span class="c-dim">  CODE_CLI_THINKING about the request</span></span>
+<span class="row"><span class="c-dim">  weighing the options carefully</span></span>
+<span class="row"> </span>
+<span class="row">CODE_CLI_ANSWER after thinking</span>
+<span class="row"> </span>
+<span class="row"><span class="c-dim">  0.0s · 14 tokens</span></span>
+<span class="gap"></span>
+<span class="row"><span class="c-dim">╭─────────────────────────────────────────────────────────────────────────────────╮</span></span>
+<span class="row"><span class="c-dim">│</span> <span class="c-user">›</span> <span class="c-dim">Ask anything · / for commands · @ for files · ⇧Tab plan mode</span>                  <span class="c-dim">│</span></span>
+<span class="row"><span class="c-dim">╰─────────────────────────────────────────────────────────────────────────────────╯</span></span>
+<span class="row"><span class="c-tool">cli-mock</span><span class="c-dim"> · code-cli · workspace-write · 14 tokens · ~/.cache/codsh/showcase</span></span>
+</code></div>
+          </figure>
+          <p class="caption">点一下展开落点那一块，在块内任意处再点一下收起；Ctrl+O 依然一次开合全部。</p>
+        </div>
+        <div data-scene="4">
+          <figure class="frame">
+            <div class="frame__bar">
+              <i class="shell__dot"></i><i class="shell__dot"></i><i class="shell__dot"></i>
+              <b>todo 常驻可见</b>
+              <span class="frame__real">真实抓取</span>
+            </div>
+            <div class="screen"><code class="screen__rows">
+<span class="row"> </span>
+<span class="row"><span class="c-user">┃ ›</span> plan the work</span>
+<span class="row"> </span>
+<span class="row"><span class="c-tool">│ </span><span class="c-pending">●</span> Update todo list</span>
+<span class="row"><span class="c-tool">│ todos</span> <span class="c-dim">1/3 · 1 in progress · 1 open</span></span>
+<span class="row"><span class="c-tool">│ </span>  <span class="c-ok">✔</span> <span class="c-dim">read the code</span></span>
+<span class="row"><span class="c-tool">│ </span>  <span class="c-pending">▶</span> write the fix</span>
+<span class="row"><span class="c-tool">│ </span>  <span class="c-dim">○</span> run the tests</span>
+<span class="row"> </span>
+<span class="row"><span class="c-tool">│ </span><span class="c-dim">  Updated todo list: 1 pending, 1 in progress, 1 completed.</span></span>
+<span class="row"> </span>
+<span class="row">CODE_CLI_CALL_OK via cli-mock</span>
+<span class="row"> </span>
+<span class="row"><span class="c-dim">  0.1s · 26 tokens</span></span>
+<span class="gap"></span>
+<span class="row"><span class="c-dim">╭─────────────────────────────────────────────────────────────────────────────────╮</span></span>
+<span class="row"><span class="c-dim">│</span> <span class="c-user">›</span> <span class="c-dim">Ask anything · / for commands · @ for files · ⇧Tab plan mode</span>                  <span class="c-dim">│</span></span>
+<span class="row"><span class="c-dim">╰─────────────────────────────────────────────────────────────────────────────────╯</span></span>
+<span class="row"><span class="c-tool">todos</span> <span class="c-dim">1/3 · 1 in progress · 1 open · Ctrl+T closes</span></span>
+<span class="row">  <span class="c-ok">✔</span> <span class="c-dim">read the code</span></span>
+<span class="row">  <span class="c-pending">▶</span> write the fix</span>
+<span class="row">  <span class="c-dim">○</span> run the tests</span>
+<span class="row"><span class="c-tool">cli-mock</span><span class="c-dim"> · code-cli · workspace-write · 26 tokens · ~/.cache/codsh/showcase</span></span>
+</code></div>
+          </figure>
+          <p class="caption">一行常驻读数把 agent 的清单钉在状态行之上，不随那次写入滚走；Ctrl+T 展开为完整清单。</p>
+        </div>
+        <div data-scene="5">
+          <figure class="frame">
+            <div class="frame__bar">
+              <i class="shell__dot"></i><i class="shell__dot"></i><i class="shell__dot"></i>
+              <b>Markdown 是渲染，不是回显</b>
+              <span class="frame__real">真实抓取</span>
+            </div>
+            <div class="screen"><code class="screen__rows">
+<span class="row"> </span>
+<span class="row"><span class="c-user">┃ ›</span> explain it</span>
+<span class="row"> </span>
+<span class="row"><span class="a-bold">CODE_CLI_HEADING</span></span>
+<span class="row"> </span>
+<span class="row">Prose with <span class="a-bold">bold</span>, <span class="a-bold">em</span>, <span class="c-tool">inline_code</span>, and a <span class="a-bold">link</span> <span class="c-dim">(https://x.dev)</span>.</span>
+<span class="row">An identifier like some_helper_name must survive intact.</span>
+<span class="row"> </span>
+<span class="row"><span class="c-dim">•</span> <span class="c-tool a-bold">screen.ts</span>: the viewport module</span>
+<span class="row"><span class="c-dim">•</span> second bullet</span>
+<span class="row"><span class="c-dim">•</span> third bullet keeps the answer long</span>
+<span class="row"><span class="c-dim">  … +23 lines (click or Ctrl+O expands)</span></span>
+<span class="row"> </span>
+<span class="row"><span class="c-dim">  0.1s · 13 tokens</span></span>
+<span class="gap"></span>
+<span class="row"><span class="c-dim">╭─────────────────────────────────────────────────────────────────────────────────╮</span></span>
+<span class="row"><span class="c-dim">│</span> <span class="c-user">›</span> <span class="c-dim">Ask anything · / for commands · @ for files · ⇧Tab plan mode</span>                  <span class="c-dim">│</span></span>
+<span class="row"><span class="c-dim">╰─────────────────────────────────────────────────────────────────────────────────╯</span></span>
+<span class="row"><span class="c-tool">cli-mock</span><span class="c-dim"> · code-cli · workspace-write · 13 tokens · ~/.cache/codsh/showcase</span></span>
+</code></div>
+          </figure>
+          <p class="caption">表格排出真正的列，代码带高亮，强调标记被吃掉而不是打印出来。</p>
+        </div>
+        <div data-scene="6">
+          <figure class="frame">
+            <div class="frame__bar">
+              <i class="shell__dot"></i><i class="shell__dot"></i><i class="shell__dot"></i>
+              <b>Plan 模式为输入框着色</b>
+              <span class="frame__real">真实抓取</span>
+            </div>
+            <div class="screen"><code class="screen__rows">
+<span class="row"><span class="c-user">  ██████╗ ██████╗ ██████╗ ███████╗██╗  ██╗</span></span>
+<span class="row"><span class="c-user"> ██╔════╝██╔═══██╗██╔══██╗██╔════╝██║  ██║</span></span>
+<span class="row"><span class="c-user"> ██║     ██║   ██║██║  ██║███████╗███████║</span></span>
+<span class="row"><span class="c-user"> ██║     ██║   ██║██║  ██║╚════██║██╔══██║</span></span>
+<span class="row"><span class="c-user"> ╚██████╗╚██████╔╝██████╔╝███████║██║  ██║</span></span>
+<span class="row"><span class="c-user">  ╚═════╝ ╚═════╝ ╚═════╝ ╚══════╝╚═╝  ╚═╝</span></span>
+<span class="row"> </span>
+<span class="row"> <span class="a-bold">✻ Welcome to codsh</span><span class="c-dim"> · cli-mock · code-cli</span></span>
+<span class="row"> </span>
+<span class="row"><span class="c-dim">  ~/.cache/codsh/showcase</span></span>
+<span class="row"><span class="c-dim">  session session-f0e77170-1a27-4a3e-bf67-8ba1ff2f1872</span></span>
+<span class="row"> </span>
+<span class="row"><span class="c-dim">  /help for commands · Tab completes · ⇧Tab plan mode · ESC interrupts · /exit leav</span></span>
+<span class="row"><span class="c-dim">…</span></span>
+<span class="row"> </span>
+<span class="row"><span class="c-pending">▲ plan mode — exploring only; no files will change until you approve a plan</span></span>
+<span class="gap"></span>
+<span class="row"><span class="c-pending">╭─────────────────────────────────────────────────────────────────────────────────╮</span></span>
+<span class="row"><span class="c-pending">│</span> <span class="c-user">›</span> <span class="c-dim">Ask anything · / for commands · @ for files · ⇧Tab plan mode</span>                  <span class="c-pending">│</span></span>
+<span class="row"><span class="c-pending">╰─────────────────────────────────────────────────────────────────────────────────╯</span></span>
+<span class="row"><span class="c-tool">cli-mock</span><span class="c-dim"> · code-cli · workspace-write · </span><span class="c-pending">plan</span><span class="c-dim"> · 0 tokens · ~/.cache/codsh/showcase</span></span>
+</code></div>
+          </figure>
+          <p class="caption">Shift-Tab 切换 plan 模式，边框承载这个状态——下一次提交会做什么，思考途中一眼可见。</p>
+        </div>
+        </div>
+<!-- frames:end -->
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="surface">
+  <div class="wrap">
+    <div class="block">
+      <span class="block__index">02 — 界面</span>
+      <h2>会话是自己的空间。</h2>
+      <p class="lede">
+        codsh 进入备用屏幕，你的 shell 滚回历史原封不动、退出即在那里等着你。
+      </p>
+
+      <div class="grid">
+        <div class="card card--user">
+          <h3>transcript 由你自己走</h3>
+          <p>
+            它在会话自有的缓冲里滚动——滚轮、翻页键、<kbd>⇧↑</kbd> <kbd>⇧↓</kbd>——
+            输入框钉在底部从不移动。向上翻阅时视口会标注离尾部多远，
+            新输出继续累积而不把你拽回去。
+          </p>
+        </div>
+        <div class="card">
+          <h3>折叠块听鼠标的</h3>
+          <p>
+            超过一屏的已完成块——思考、工具输出、长回答——在你继续往下走时
+            折叠成头几行。点一下只展开那一块，在块内任意处再点一下收起，
+            也可以一次开合全部。
+          </p>
+          <div class="card__keys"><kbd>点击</kbd><kbd>Ctrl+O</kbd></div>
+        </div>
+        <div class="card">
+          <h3>块会说自己是什么</h3>
+          <p>
+            鼠标停在折叠块上，它的首行加下划线，同时 chrome 报出它是什么——
+            <code>thinking · 42 lines · click to expand</code>。点下去会发生什么，
+            点之前就知道；块比屏幕还高时，你也知道自己正处在哪一段。
+          </p>
+        </div>
+        <div class="card">
+          <h3>todo 常驻可见</h3>
+          <p>
+            agent 写下清单后，一行常驻读数把它钉在状态行之上——进度、
+            正在做的那一项，或者下一项该做什么——不会随那次写入一起滚走。
+          </p>
+          <div class="card__keys"><kbd>Ctrl+T</kbd><kbd>/todos</kbd></div>
+        </div>
+        <div class="card card--user">
+          <h3>框选即复制</h3>
+          <p>
+            拖动，松手那一刻内容就在剪贴板上——OSC 52 与平台剪贴板双通道。
+            框选跨过块左侧的竖线时，复制出来的是正文，不带那道线。
+          </p>
+        </div>
+        <div class="card">
+          <h3>接管键盘的输入框</h3>
+          <p>
+            多行编辑（支持 kitty 键盘协议的终端用 <kbd>⇧Enter</kbd>，
+            其余终端 <kbd>Alt+Enter</kbd>）、跨会话历史，
+            命令、参数与 <code>@</code> 文件提及的补全随输入自动打开。
+          </p>
+        </div>
+        <div class="card card--flush">
+          <h3>流式渲染</h3>
+          <p>
+            Markdown 带代码高亮与真正的表格列，推理模型的思考在
+            <code>✻ thinking</code> 下暗色显示，工具调用按 presenter 驱动的
+            卡片渲染（含 diff）。
+          </p>
+        </div>
+        <div class="card">
+          <h3>决定用选择</h3>
+          <p>
+            审批、提问、<code>/model</code> 与 <code>/resume</code> 都是方向键组件。
+            <kbd>⇧Tab</kbd> 切换 plan 模式并为输入框着色——下一次提交会做什么，
+            思考途中一眼可见。
+          </p>
+        </div>
+        <div class="card">
+          <h3>会话流</h3>
+          <p>
+            <code>/clear</code> 原地开新会话，<code>/resume</code> 从会话列表里选，
+            连按两次 <kbd>Esc</kbd> 召回上一条消息编辑，<code>!cmd</code> 在你自己的
+            shell 里运行并把结果注入为上下文——不花回合。
+          </p>
+        </div>
+      </div>
+
+      <div class="note">
+        <b>非 TTY 环境下是降级，不是罢工。</b>在管道或脚本里，同一界面变成行读取器：
+        选择变为键入回答、组件变为列表、不绘制任何东西。
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="ship">
+  <div class="wrap">
+    <div class="block block--heavy">
+      <span class="block__index">03 — /ship</span>
+      <h2>一句话到落地。</h2>
+      <p class="lede">
+        <code>/ship</code> 用恰好两次确认、再无其他看护，把一个想法从 0 推到 1。
+      </p>
+
+      <ol class="steps">
+        <li>
+          <b>访谈</b>
+          <p>agent 先通读你的仓库，再一次只问一个问题——用户、成功标准、范围、非目标、约束、边界情况——直到回答不再改变设计。</p>
+        </li>
+        <li>
+          <b>Spec</b> <span class="gate">— 关口 1</span>
+          <p>商定的设计落成仓库里的一个文件，带可客观检验的验收标准：具名的测试、带预期输出的命令、可观察的行为。由你确认。</p>
+        </li>
+        <li>
+          <b>计划</b> <span class="gate">— 关口 2</span>
+          <p>有序的里程碑、每个里程碑添加的测试，以及证明整件事的命令。由你批准。此关口通过之前不写任何实现代码。</p>
+        </li>
+        <li>
+          <b>落地</b>
+          <p>此后全程自主。小计划在会话内按 todo 清单走实现→测试→修复；大计划跑 fresh-agent Ralph 循环，磁盘上的 spec 文件是每一轮都能读到的持久记忆。</p>
+        </li>
+        <li>
+          <b>完成即已验证</b>
+          <p>每条验收标准都以真正跑过具名测试、读过真实输出来验证——然后如实汇报：什么已经落地，什么还开着。</p>
+        </li>
+      </ol>
+
+      <div class="shell" style="margin-top:2rem">
+        <div class="shell__bar"><i class="shell__dot"></i> 在输入框里</div>
+<pre><span class="prompt">›</span> <span class="cmd">/ship 让超长 diff 用分页器打开而不是刷屏滚过</span></pre>
+      </div>
+      <p style="margin-top:1.2rem">
+        不带参数运行会先问你那句话。中途改变的决定先写回 spec 文件，
+        磁盘上的文件永远说明正在构建什么。
+      </p>
+    </div>
+  </div>
+</section>
+
+<section id="install">
+  <div class="wrap">
+    <div class="block">
+      <span class="block__index">04 — 安装与运行</span>
+      <h2>两个包，一份 dsh。</h2>
+      <p class="lede">
+        <code>codsh-cli</code> 是一个零依赖启动器，只有几十 KB。它从不捆绑运行时，
+        所以一台机器无论装多少工具，都只有一份 dsh。
+      </p>
+      <p>
+        启动器自动找到你的 dsh，首次运行把
+        <a href="https://www.npmjs.com/package/codsh-bundle">codsh-bundle</a>
+        运行时注册进 dsh 的 <code>code</code> profile——自带的
+        <code>code-cli</code> preset 会在首次启动时自动安装——之后每次运行
+        直接进入提示符。<code>codsh</code> 严格等价于
+        <code>dsh --profile code</code>，其后的参数直达应用。
+      </p>
+
+      <div class="defs">
+        <div><code>codsh --resume &lt;id&gt;</code><p>重开一个已记录的会话，历史以同样的折叠形态重放。</p></div>
+        <div><code>codsh --continue</code><p>接上当前工作区最近的那个会话。</p></div>
+        <div><code>codsh -p "任务"</code><p>一次性 print 模式，面向脚本与管道。</p></div>
+        <div><code>DEEPSEEK_API_KEY</code><p>模型密钥，从环境变量或 <code>.env</code> 读取。</p></div>
+        <div><code>DSH_BIN</code><p>指定启动哪个 dsh，当你不想用 <code>PATH</code> 上那个时。</p></div>
+        <div><code>DSH_HOME</code><p>profile 存放位置，默认 <code>~/.dsh</code>。</p></div>
+        <div><code>CODSH_CLIPBOARD</code><p><code>osc52</code>、<code>system</code> 或 <code>off</code>——收窄选中内容进剪贴板的通道。</p></div>
+        <div><code>CODSH_BUNDLE_SPEC</code><p>钉住启动器注册的运行时版本，而不用它默认配对的那个。</p></div>
+      </div>
+
+      <p style="margin-top:2rem">完全不想要启动器？它包装的那两行可以直接用，profile 名任取：</p>
+      <div class="shell">
+        <div class="shell__bar"><i class="shell__dot"></i> 不用启动器</div>
+<pre><span class="prompt">$</span> <span class="cmd">dsh plugin --profile code add codsh-bundle</span>
+<span class="prompt">$</span> <span class="cmd">dsh --profile code</span></pre>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="dev">
+  <div class="wrap">
+    <div class="block">
+      <span class="block__index">05 — 开发</span>
+      <h2>一次迭代只要几秒。</h2>
+      <p>
+        <code>pnpm run dev</code> 在 <code>.dev-home</code> 维护一个仓库本地的
+        dsh home：首次运行对打包后的工作树做一次真实 profile 安装，
+        之后每次只把新构建覆盖上去——改动秒级到达运行中的界面。
+      </p>
+      <div class="shell">
+        <div class="shell__bar"><i class="shell__dot"></i> 开发</div>
+<pre><span class="prompt">$</span> <span class="cmd">pnpm install</span>
+<span class="prompt">$</span> <span class="cmd">pnpm run dev</span>            <span class="comment"># build → 同步 → 启动</span>
+<span class="prompt">$</span> <span class="cmd">MOCK=markdown pnpm run dev</span>  <span class="comment"># 无 key，对着 e2e mock 模型</span>
+<span class="prompt">$</span> <span class="cmd">pnpm test</span>              <span class="comment"># 单测</span>
+<span class="prompt">$</span> <span class="cmd">pnpm run test:e2e</span>      <span class="comment"># 打包、安装，驱动真实二进制</span></pre>
+      </div>
+      <p style="margin-top:1.5rem">
+        e2e 测试的是发布产物：<code>npm pack</code> 的输出装进真实 profile，
+        由 npm 上的 dsh launcher 启动，配 keyless mock 模型。
+        那里通过的就是用户装到的——本页那些帧也出自同一套 harness。
+      </p>
+      <div class="note">
+        <b>codsh 绝不 fork harness。</b>想进上游的改动以普通 PR 提交到
+        <a href="https://github.com/deepseek-ai/deepseek-harness">deepseek-harness</a>。
+        跟随它的发布是全自动的：<code>pnpm run sync:dsh</code> 把所有范围改写到
+        最新已发布版本，重新核对插件组合，再证明这棵树仍然能构建、能通过测试。
+      </div>
+    </div>
+  </div>
+</section>
+
+</main>
+
+<footer>
+  <div class="wrap">
+    <span>codsh · MIT · 构建于 DeepSeek Harness</span>
+    <nav>
+      <a href="https://github.com/Blackman99/codsh">源码</a>
+      <a href="https://www.npmjs.com/package/codsh-cli">codsh-cli</a>
+      <a href="https://www.npmjs.com/package/codsh-bundle">codsh-bundle</a>
+      <a href="index.html" hreflang="en" lang="en">English</a>
+    </nav>
+  </div>
+</footer>
+
+</body>
+</html>

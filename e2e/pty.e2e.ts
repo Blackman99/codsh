@@ -8,20 +8,10 @@
  * real PTY and write the actual bytes.
  */
 
-import { mkdtemp, rm, writeFile } from 'node:fs/promises'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
-import { execa } from 'execa'
 import { describe, expect, it } from 'vitest'
-import { E2E_TEST_TIMEOUT_MS, makeHome, overlayText, resolveLaunch } from './harness.ts'
+import { E2E_TEST_TIMEOUT_MS } from './harness.ts'
+import { PTY_COLUMNS, PTY_ROWS, SYNC_END, drivePty, drivePtySteps } from './pty-driver.ts'
 import { Terminal, render } from './vt.ts'
-
-/** The window size the driver gives every run. */
-const PTY_ROWS = 40
-const PTY_COLUMNS = 120
-
-/** Ends one synchronized frame, which is where a capture may safely be cut. */
-const SYNC_END = '\u001B[?2026l'
 
 /** The surface handing the terminal back; nothing after it is session screen. */
 const LEAVE_ALT = '\u001B[?1049l'
@@ -79,142 +69,11 @@ const PASTE_END = '\u001B[201~'
  * One scripted interaction: wait for `marker` in the output (empty to wait for
  * nothing), settle for `delayMs`, then type `payload`.
  */
-type PtyStep = readonly [marker: string, payload: string, delayMs: number]
-
 /**
  * Drive a PTY through an ordered script: wait for each marker, then write its
  * payload. Exits 124 when a marker never arrives, so a hang is a named failure
  * rather than a timeout with no explanation.
  */
-const PTY_DRIVER = String.raw`
-import errno, fcntl, json, os, pty, select, signal, struct, sys, termios, time
-node, launch_args_json, launch_env_json, cwd, timeout_seconds, script_json = sys.argv[1:]
-env = os.environ.copy()
-env.update(json.loads(launch_env_json))
-script = [(m.encode(), p.encode(), int(d)) for m, p, d in json.loads(script_json)]
-pid, fd = pty.fork()
-if pid == 0:
-    os.chdir(cwd)
-    os.execvpe(node, [node, *json.loads(launch_args_json)], env)
-
-# A forked PTY has no window size, and a terminal reporting zero columns is not
-# what this test is about; give it the dimensions a real one would report.
-fcntl.ioctl(fd, termios.TIOCSWINSZ, struct.pack("HHHH", 40, 120, 0, 0))
-
-output = bytearray()
-step = 0
-consumed = 0
-deadline = time.monotonic() + float(timeout_seconds)
-status = None
-while time.monotonic() < deadline:
-    ready, _, _ = select.select([fd], [], [], 0.05)
-    if ready:
-        try:
-            chunk = os.read(fd, 65536)
-        except OSError as error:
-            if error.errno != errno.EIO:
-                raise
-            chunk = b""
-        if chunk:
-            output.extend(chunk)
-    # Each marker is searched only in output produced after the previous step,
-    # so a payload never fires twice on one banner and the order is enforced.
-    while step < len(script):
-        marker, payload, delay_ms = script[step]
-        if marker:
-            found = output.find(marker, consumed)
-            if found < 0:
-                break
-            consumed = found + len(marker)
-        # A settle delay is how a step asserts that NOTHING appears: there is
-        # no marker to wait for when the expected outcome is silence. The PTY
-        # keeps draining while we wait — a paused reader backs the app up and
-        # scrambles the byte-offset bookkeeping the frame replays depend on.
-        settle_until = time.monotonic() + delay_ms / 1000
-        while time.monotonic() < settle_until:
-            ready, _, _ = select.select([fd], [], [], 0.02)
-            if ready:
-                try:
-                    chunk = os.read(fd, 65536)
-                except OSError as error:
-                    if error.errno != errno.EIO:
-                        raise
-                    break
-                if chunk:
-                    output.extend(chunk)
-        if payload.startswith(b"@WINSZ:"):
-            new_rows, new_cols = payload[7:].split(b"x")
-            fcntl.ioctl(fd, termios.TIOCSWINSZ, struct.pack("HHHH", int(new_rows), int(new_cols), 0, 0))
-        else:
-            os.write(fd, payload)
-        step += 1
-        sys.stderr.write(f"step {step} at {len(output)}: matched {marker!r}, wrote {payload!r}\n")
-    waited, candidate = os.waitpid(pid, os.WNOHANG)
-    if waited == pid:
-        status = candidate
-        break
-
-if status is None:
-    os.kill(pid, signal.SIGKILL)
-    _, status = os.waitpid(pid, 0)
-sys.stdout.buffer.write(output)
-if step != len(script):
-    sys.stderr.write(f"completed {step}/{len(script)} PTY steps before timeout\n")
-    sys.exit(124)
-sys.exit(os.waitstatus_to_exitcode(status))
-`
-
-/**
- * Boot `dsh code` in a PTY and run one marker-driven script against it.
- * @param mode - the mocked tool mode.
- * @param script - ordered steps, run in sequence.
- * @returns everything the PTY showed.
- */
-/** A capture plus where in it each scripted step fired. */
-interface Driven {
-  output: string
-  /** Byte offset of the capture when step N (1-based) wrote its payload. */
-  offsets: number[]
-}
-
-async function drivePty(mode: string, script: readonly PtyStep[]): Promise<string> {
-  return (await drivePtySteps(mode, script)).output
-}
-
-async function drivePtySteps(mode: string, script: readonly PtyStep[]): Promise<Driven> {
-  const cwd = await mkdtemp(join(tmpdir(), 'codsh-pty-'))
-  const home = await makeHome()
-  try {
-    const overlay = join(cwd, 'mock.cordis.patch.yml')
-    await writeFile(overlay, overlayText())
-    const launch = resolveLaunch({ overlay, home, mode })
-    const timeoutMs = 25_000
-    const result = await execa('python3', [
-      '-c',
-      PTY_DRIVER,
-      launch.command,
-      JSON.stringify(launch.args),
-      JSON.stringify(launch.env),
-      cwd,
-      String(timeoutMs / 1000),
-      JSON.stringify(script),
-    ], {
-      stdin: 'ignore',
-      timeout: timeoutMs + 10_000,
-      reject: false,
-      killSignal: 'SIGKILL',
-      stripFinalNewline: false,
-    })
-    if (result.exitCode !== 0) {
-      throw new Error(`PTY driver exited ${String(result.exitCode)}.\nstdout:\n${result.stdout}\nstderr:\n${result.stderr}`)
-    }
-    const offsets = [...result.stderr.matchAll(/step \d+ at (\d+):/gu)].map(match => Number(match[1]))
-    return { output: result.stdout, offsets }
-  } finally {
-    await rm(cwd, { recursive: true, force: true })
-    await rm(home, { recursive: true, force: true })
-  }
-}
 
 describe.skipIf(process.platform === 'win32')('dsh code Escape (real PTY)', () => {
   it('offers Escape as the interrupt on a terminal', async () => {
