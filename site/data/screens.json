@@ -25,7 +25,7 @@
         ],
         [
           {
-            "text": "me-kyQKpy/.agent-presets/code-cli",
+            "text": "me-GMfwJQ/.agent-presets/code-cli",
             "pen": "38;5;245"
           }
         ],
@@ -90,7 +90,7 @@
         ],
         [
           {
-            "text": "  session session-d6d79cb8-8e2c-4d12-85e7-37d83d819643",
+            "text": "  session session-6610af68-744c-4499-98c7-d9bb135d6891",
             "pen": "38;5;245"
           }
         ],
@@ -197,7 +197,7 @@
         ],
         [
           {
-            "text": "me-7RIRBN/.agent-presets/code-cli",
+            "text": "me-FYMme4/.agent-presets/code-cli",
             "pen": "38;5;245"
           }
         ],
@@ -262,7 +262,7 @@
         ],
         [
           {
-            "text": "  session session-cca2d153-845d-46cc-aa22-efbaa1ea05da",
+            "text": "  session session-66329788-172c-4dc4-8824-ddecc5f44735",
             "pen": "38;5;245"
           }
         ],
@@ -422,7 +422,7 @@
         ],
         [
           {
-            "text": "me-dg7maK/.agent-presets/code-cli",
+            "text": "me-yCy8aD/.agent-presets/code-cli",
             "pen": "38;5;245"
           }
         ],
@@ -487,7 +487,7 @@
         ],
         [
           {
-            "text": "  session session-4920affb-7a81-4fdd-92c2-d68ae5a4f4f1",
+            "text": "  session session-c7bbf342-34f3-43e3-8901-5ed50e49c815",
             "pen": "38;5;245"
           }
         ],
@@ -623,7 +623,7 @@
         ],
         [
           {
-            "text": "me-hrivIB/.agent-presets/code-cli",
+            "text": "me-eHwXaj/.agent-presets/code-cli",
             "pen": "38;5;245"
           }
         ],
@@ -688,7 +688,7 @@
         ],
         [
           {
-            "text": "  session session-eb144de8-772a-4e0b-a568-26accefb3968",
+            "text": "  session session-1e2932d9-153a-409e-9416-05e3834bf005",
             "pen": "38;5;245"
           }
         ],
@@ -863,7 +863,7 @@
         ],
         [
           {
-            "text": "  session session-36b13361-3d75-4d1f-a602-b521c1a9bbed",
+            "text": "  session session-29becd9a-f7c5-4bf6-9ac2-33c0c011ee21",
             "pen": "38;5;245"
           }
         ],
@@ -1124,112 +1124,15 @@
       "note": "Tables get real columns, code gets highlighted, and emphasis markers are consumed instead of printed.",
       "keep": [
         [
-          15,
-          28
+          0,
+          10
         ],
         [
-          30,
+          12,
           33
         ]
       ],
       "rows": [
-        [],
-        [
-          {
-            "text": "  ██████╗ ██████╗ ██████╗ ███████╗██╗  ██╗",
-            "pen": "35"
-          }
-        ],
-        [
-          {
-            "text": " ██╔════╝██╔═══██╗██╔══██╗██╔════╝██║  ██║",
-            "pen": "35"
-          }
-        ],
-        [
-          {
-            "text": " ██║     ██║   ██║██║  ██║███████╗███████║",
-            "pen": "35"
-          }
-        ],
-        [
-          {
-            "text": " ██║     ██║   ██║██║  ██║╚════██║██╔══██║",
-            "pen": "35"
-          }
-        ],
-        [
-          {
-            "text": " ╚██████╗╚██████╔╝██████╔╝███████║██║  ██║",
-            "pen": "35"
-          }
-        ],
-        [
-          {
-            "text": "  ╚═════╝ ╚═════╝ ╚═════╝ ╚══════╝╚═╝  ╚═╝",
-            "pen": "35"
-          }
-        ],
-        [],
-        [
-          {
-            "text": " ",
-            "pen": ""
-          },
-          {
-            "text": "✻ Welcome to codsh",
-            "pen": "1"
-          },
-          {
-            "text": " · cli-mock · code-cli",
-            "pen": "38;5;245"
-          }
-        ],
-        [],
-        [
-          {
-            "text": "  ~/.cache/codsh/showcase",
-            "pen": "38;5;245"
-          }
-        ],
-        [
-          {
-            "text": "  session session-c04ce091-de86-4021-ab1d-e1603c50984c",
-            "pen": "38;5;245"
-          }
-        ],
-        [],
-        [
-          {
-            "text": "  /help for commands · Tab completes · ⇧Tab plan mode · ESC interrupts · /exit leav",
-            "pen": "38;5;245"
-          }
-        ],
-        [
-          {
-            "text": "…",
-            "pen": "38;5;245"
-          }
-        ],
-        [],
-        [
-          {
-            "text": "┃ ›",
-            "pen": "35"
-          },
-          {
-            "text": " explain it",
-            "pen": ""
-          }
-        ],
-        [],
-        [
-          {
-            "text": "CODE_CLI_HEADING",
-            "pen": "1"
-          }
-        ],
-        [],
         [
           {
             "text": "Prose with ",
@@ -1323,18 +1226,290 @@
         ],
         [
           {
-            "text": "  … +23 lines (click or Ctrl+O expands)",
+            "text": "•",
+            "pen": "38;5;245"
+          },
+          {
+            "text": " fourth bullet keeps the answer long",
+            "pen": ""
+          }
+        ],
+        [
+          {
+            "text": "•",
+            "pen": "38;5;245"
+          },
+          {
+            "text": " fifth bullet keeps the answer long",
+            "pen": ""
+          }
+        ],
+        [
+          {
+            "text": "•",
+            "pen": "38;5;245"
+          },
+          {
+            "text": " sixth bullet keeps the answer long",
+            "pen": ""
+          }
+        ],
+        [
+          {
+            "text": "•",
+            "pen": "38;5;245"
+          },
+          {
+            "text": " seventh bullet keeps the answer long",
+            "pen": ""
+          }
+        ],
+        [
+          {
+            "text": "•",
+            "pen": "38;5;245"
+          },
+          {
+            "text": " eighth bullet: past the fold threshold at any test width",
+            "pen": ""
+          }
+        ],
+        [],
+        [
+          {
+            "text": "╭────────┬────────────────────────────────────────────────────────────────────────╮",
+            "pen": "38;5;245"
+          }
+        ],
+        [
+          {
+            "text": "│",
+            "pen": "38;5;245"
+          },
+          {
+            "text": " ",
+            "pen": ""
+          },
+          {
+            "text": "维度",
+            "pen": "1"
+          },
+          {
+            "text": "   ",
+            "pen": ""
+          },
+          {
+            "text": "│",
+            "pen": "38;5;245"
+          },
+          {
+            "text": " ",
+            "pen": ""
+          },
+          {
+            "text": "内容",
+            "pen": "1"
+          },
+          {
+            "text": "                                                                   ",
+            "pen": ""
+          },
+          {
+            "text": "│",
+            "pen": "38;5;245"
+          }
+        ],
+        [
+          {
+            "text": "├────────┼────────────────────────────────────────────────────────────────────────┤",
+            "pen": "38;5;245"
+          }
+        ],
+        [
+          {
+            "text": "│",
+            "pen": "38;5;245"
+          },
+          {
+            "text": " 一句话 ",
+            "pen": ""
+          },
+          {
+            "text": "│",
+            "pen": "38;5;245"
+          },
+          {
+            "text": " 一个很长的中文单元格内容,用来强制表格在任何终端宽度下都必须在单元格内  ",
+            "pen": ""
+          },
+          {
+            "text": "│",
+            "pen": "38;5;245"
+          }
+        ],
+        [
+          {
+            "text": "│",
+            "pen": "38;5;245"
+          },
+          {
+            "text": "        ",
+            "pen": ""
+          },
+          {
+            "text": "│",
+            "pen": "38;5;245"
+          },
+          {
+            "text": " 部换行。一个很长的中文单元格内容,用来强制表格在任何终端宽度下都必须在  ",
+            "pen": ""
+          },
+          {
+            "text": "│",
+            "pen": "38;5;245"
+          }
+        ],
+        [
+          {
+            "text": "│",
+            "pen": "38;5;245"
+          },
+          {
+            "text": "        ",
+            "pen": ""
+          },
+          {
+            "text": "│",
+            "pen": "38;5;245"
+          },
+          {
+            "text": " 单元格内部换行。一个很长的中文单元格内容,用来强制表格在任何终端宽度下  ",
+            "pen": ""
+          },
+          {
+            "text": "│",
+            "pen": "38;5;245"
+          }
+        ],
+        [
+          {
+            "text": "│",
+            "pen": "38;5;245"
+          },
+          {
+            "text": "        ",
+            "pen": ""
+          },
+          {
+            "text": "│",
+            "pen": "38;5;245"
+          },
+          {
+            "text": " 都必须在单元格内部换行。                                               ",
+            "pen": ""
+          },
+          {
+            "text": "│",
+            "pen": "38;5;245"
+          }
+        ],
+        [
+          {
+            "text": "├────────┼────────────────────────────────────────────────────────────────────────┤",
+            "pen": "38;5;245"
+          }
+        ],
+        [
+          {
+            "text": "│",
+            "pen": "38;5;245"
+          },
+          {
+            "text": " 命令   ",
+            "pen": ""
+          },
+          {
+            "text": "│",
+            "pen": "38;5;245"
+          },
+          {
+            "text": " ",
+            "pen": ""
+          },
+          {
+            "text": "codsh",
+            "pen": "36"
+          },
+          {
+            "text": "                                                                  ",
+            "pen": ""
+          },
+          {
+            "text": "│",
+            "pen": "38;5;245"
+          }
+        ],
+        [
+          {
+            "text": "╰────────┴────────────────────────────────────────────────────────────────────────╯",
             "pen": "38;5;245"
           }
         ],
         [],
         [
           {
-            "text": "  0.1s · 13 tokens",
+            "text": "│",
+            "pen": "38;5;245"
+          },
+          {
+            "text": " ",
+            "pen": ""
+          },
+          {
+            "text": "a quoted line",
             "pen": "38;5;245"
           }
         ],
         [],
+        [
+          {
+            "text": "  ts",
+            "pen": "38;5;245"
+          }
+        ],
+        [
+          {
+            "text": "  ",
+            "pen": ""
+          },
+          {
+            "text": "const",
+            "pen": "35"
+          },
+          {
+            "text": " answer = ",
+            "pen": ""
+          },
+          {
+            "text": "\"text\"",
+            "pen": "32"
+          },
+          {
+            "text": " ",
+            "pen": ""
+          },
+          {
+            "text": "// a comment",
+            "pen": "2"
+          }
+        ],
+        [],
+        [
+          {
+            "text": "CODE_CLI_CALL_STREAM_DONE",
+            "pen": "38;5;245"
+          }
+        ],
         [
           {
             "text": "╭─────────────────────────────────────────────────────────────────────────────────╮",
@@ -1379,11 +1554,25 @@
         ],
         [
           {
+            "text": "⠋",
+            "pen": "33"
+          },
+          {
+            "text": " working ",
+            "pen": ""
+          },
+          {
+            "text": "0.0s · ESC to interrupt",
+            "pen": "38;5;245"
+          }
+        ],
+        [
+          {
             "text": "cli-mock",
             "pen": "36"
           },
           {
-            "text": " · code-cli · workspace-write · 13 tokens · ~/.cache/codsh/showcase",
+            "text": " · code-cli · workspace-write · 0 tokens · ~/.cache/codsh/showcase",
             "pen": "38;5;245"
           }
         ]
@@ -1412,7 +1601,7 @@
         ],
         [
           {
-            "text": "me-tFdbYr/.agent-presets/code-cli",
+            "text": "me-LiIObg/.agent-presets/code-cli",
             "pen": "38;5;245"
           }
         ],
@@ -1477,7 +1666,7 @@
         ],
         [
           {
-            "text": "  session session-f0e77170-1a27-4a3e-bf67-8ba1ff2f1872",
+            "text": "  session session-e81f2247-9dbd-4e1e-afc1-efc009a5578d",
             "pen": "38;5;245"
           }
         ],

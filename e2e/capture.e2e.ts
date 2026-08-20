@@ -148,6 +148,10 @@ describe.skipIf(process.env.CAPTURE_SCREENS === undefined)('showcase frames', ()
       marker: string,
       occurrence: 'first' | 'last' = 'last',
     ): Promise<void> => {
+      // Every scene starts from an empty workspace: a note.txt a previous
+      // scene wrote changes what the next tool call does, and a run that ended
+      // badly would otherwise poison the one after it.
+      await rm(WORKSPACE, { recursive: true, force: true })
       const output = await drivePty(mode, script, {
         cwd: WORKSPACE,
         rows: CAPTURE_ROWS,
@@ -217,10 +221,18 @@ describe.skipIf(process.env.CAPTURE_SCREENS === undefined)('showcase frames', ()
 
     // Markdown: tables laid out, code highlighted, emphasis eaten.
     await capture(
-      { id: 'markdown', title: 'Markdown, rendered rather than echoed', note: 'Tables get real columns, code gets highlighted, and emphasis markers are consumed instead of printed.', from: '› explain it' },
+      { id: 'markdown', title: 'Markdown, rendered rather than echoed', note: 'Tables get real columns, code gets highlighted, and emphasis markers are consumed instead of printed.' },
       'markdown',
-      [['Welcome to codsh', `explain it${ENTER}`, 400], ['│', '', 900], ['', `/exit${ENTER}`, 400]],
-      '│',
+      [
+        ['Welcome to codsh', `explain it${ENTER}`, 400],
+        // The end of the stream, which is the moment the whole answer is on
+        // screen: a finished answer becomes a fold but stays open until the
+        // conversation moves on, so its table and code are visible right here
+        // and the collapsed summary does not exist yet to wait for.
+        ['CODE_CLI_CALL_STREAM_DONE', `/exit${ENTER}`, 700],
+      ],
+      'CODE_CLI_CALL_STREAM_DONE',
+      'first',
     )
 
     // Plan mode, which tints the box frame while it holds.

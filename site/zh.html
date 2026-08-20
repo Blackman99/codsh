@@ -79,7 +79,7 @@
 <span class="row"> <span class="a-bold">✻ Welcome to codsh</span><span class="c-dim"> · cli-mock · code-cli</span></span>
 <span class="row"> </span>
 <span class="row"><span class="c-dim">  ~/.cache/codsh/showcase</span></span>
-<span class="row"><span class="c-dim">  session session-d6d79cb8-8e2c-4d12-85e7-37d83d819643</span></span>
+<span class="row"><span class="c-dim">  session session-6610af68-744c-4499-98c7-d9bb135d6891</span></span>
 <span class="row"> </span>
 <span class="row"><span class="c-dim">  /help for commands · Tab completes · ⇧Tab plan mode · ESC interrupts · /exit leav</span></span>
 <span class="row"><span class="c-dim">…</span></span>
@@ -250,25 +250,40 @@
               <span class="frame__real">真实抓取</span>
             </div>
             <div class="screen"><code class="screen__rows">
-<span class="row"> </span>
-<span class="row"><span class="c-user">┃ ›</span> explain it</span>
-<span class="row"> </span>
-<span class="row"><span class="a-bold">CODE_CLI_HEADING</span></span>
-<span class="row"> </span>
 <span class="row">Prose with <span class="a-bold">bold</span>, <span class="a-bold">em</span>, <span class="c-tool">inline_code</span>, and a <span class="a-bold">link</span> <span class="c-dim">(https://x.dev)</span>.</span>
 <span class="row">An identifier like some_helper_name must survive intact.</span>
 <span class="row"> </span>
 <span class="row"><span class="c-dim">•</span> <span class="c-tool a-bold">screen.ts</span>: the viewport module</span>
 <span class="row"><span class="c-dim">•</span> second bullet</span>
 <span class="row"><span class="c-dim">•</span> third bullet keeps the answer long</span>
-<span class="row"><span class="c-dim">  … +23 lines (click or Ctrl+O expands)</span></span>
-<span class="row"> </span>
-<span class="row"><span class="c-dim">  0.1s · 13 tokens</span></span>
+<span class="row"><span class="c-dim">•</span> fourth bullet keeps the answer long</span>
+<span class="row"><span class="c-dim">•</span> fifth bullet keeps the answer long</span>
+<span class="row"><span class="c-dim">•</span> sixth bullet keeps the answer long</span>
+<span class="row"><span class="c-dim">•</span> seventh bullet keeps the answer long</span>
+<span class="row"><span class="c-dim">•</span> eighth bullet: past the fold threshold at any test width</span>
 <span class="gap"></span>
+<span class="row"><span class="c-dim">╭────────┬────────────────────────────────────────────────────────────────────────╮</span></span>
+<span class="row"><span class="c-dim">│</span> <span class="a-bold">维度</span>   <span class="c-dim">│</span> <span class="a-bold">内容</span>                                                                   <span class="c-dim">│</span></span>
+<span class="row"><span class="c-dim">├────────┼────────────────────────────────────────────────────────────────────────┤</span></span>
+<span class="row"><span class="c-dim">│</span> 一句话 <span class="c-dim">│</span> 一个很长的中文单元格内容,用来强制表格在任何终端宽度下都必须在单元格内  <span class="c-dim">│</span></span>
+<span class="row"><span class="c-dim">│</span>        <span class="c-dim">│</span> 部换行。一个很长的中文单元格内容,用来强制表格在任何终端宽度下都必须在  <span class="c-dim">│</span></span>
+<span class="row"><span class="c-dim">│</span>        <span class="c-dim">│</span> 单元格内部换行。一个很长的中文单元格内容,用来强制表格在任何终端宽度下  <span class="c-dim">│</span></span>
+<span class="row"><span class="c-dim">│</span>        <span class="c-dim">│</span> 都必须在单元格内部换行。                                               <span class="c-dim">│</span></span>
+<span class="row"><span class="c-dim">├────────┼────────────────────────────────────────────────────────────────────────┤</span></span>
+<span class="row"><span class="c-dim">│</span> 命令   <span class="c-dim">│</span> <span class="c-tool">codsh</span>                                                                  <span class="c-dim">│</span></span>
+<span class="row"><span class="c-dim">╰────────┴────────────────────────────────────────────────────────────────────────╯</span></span>
+<span class="row"> </span>
+<span class="row"><span class="c-dim">│</span> <span class="c-dim">a quoted line</span></span>
+<span class="row"> </span>
+<span class="row"><span class="c-dim">  ts</span></span>
+<span class="row">  <span class="c-user">const</span> answer = <span class="c-ok">"text"</span> <span class="a-dim">// a comment</span></span>
+<span class="row"> </span>
+<span class="row"><span class="c-dim">CODE_CLI_CALL_STREAM_DONE</span></span>
 <span class="row"><span class="c-dim">╭─────────────────────────────────────────────────────────────────────────────────╮</span></span>
 <span class="row"><span class="c-dim">│</span> <span class="c-user">›</span> <span class="c-dim">Ask anything · / for commands · @ for files · ⇧Tab plan mode</span>                  <span class="c-dim">│</span></span>
 <span class="row"><span class="c-dim">╰─────────────────────────────────────────────────────────────────────────────────╯</span></span>
-<span class="row"><span class="c-tool">cli-mock</span><span class="c-dim"> · code-cli · workspace-write · 13 tokens · ~/.cache/codsh/showcase</span></span>
+<span class="row"><span class="c-pending">⠋</span> working <span class="c-dim">0.0s · ESC to interrupt</span></span>
+<span class="row"><span class="c-tool">cli-mock</span><span class="c-dim"> · code-cli · workspace-write · 0 tokens · ~/.cache/codsh/showcase</span></span>
 </code></div>
           </figure>
           <p class="caption">表格排出真正的列，代码带高亮，强调标记被吃掉而不是打印出来。</p>
@@ -291,7 +306,7 @@
 <span class="row"> <span class="a-bold">✻ Welcome to codsh</span><span class="c-dim"> · cli-mock · code-cli</span></span>
 <span class="row"> </span>
 <span class="row"><span class="c-dim">  ~/.cache/codsh/showcase</span></span>
-<span class="row"><span class="c-dim">  session session-f0e77170-1a27-4a3e-bf67-8ba1ff2f1872</span></span>
+<span class="row"><span class="c-dim">  session session-e81f2247-9dbd-4e1e-afc1-efc009a5578d</span></span>
 <span class="row"> </span>
 <span class="row"><span class="c-dim">  /help for commands · Tab completes · ⇧Tab plan mode · ESC interrupts · /exit leav</span></span>
 <span class="row"><span class="c-dim">…</span></span>
