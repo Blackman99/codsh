@@ -53,17 +53,17 @@ Off a TTY (pipes, scripts) the same surface degrades to a line reader: selection
 
 `/ship` drives an idea from 0 to 1 with exactly two approvals and nothing else to babysit:
 
-1. **Interview** — the agent reads your repo first, then asks one focused question at a time (users, success criteria, scope, non-goals, constraints, edge cases) until answers stop changing the design.
-2. **Spec (gate 1)** — the agreed design lands as a file in your repo (`docs/specs/<slug>.md` unless your repo has its own convention), with objectively checkable acceptance criteria; you confirm it.
-3. **Plan (gate 2)** — milestones, tests, and the commands that prove them; you approve it.
-4. **Landing** — from here it is autonomous: small plans run implement→test→fix in-session under the todo list; large ones run a fresh-agent Ralph loop with the spec file on disk as the memory that survives every round.
-5. **Done** — every acceptance criterion verified by actually running the tests, then an honest report.
+1. **Interview** — the agent reads your repo first, then asks one focused question at a time (users, success criteria, scope, non-goals, constraints, edge cases) until answers stop changing the design. A pasted mockup or screenshot is requirements material.
+2. **Spec (gate 1)** — the agreed design lands as a file in your repo (`docs/specs/<slug>.md` unless your repo has its own convention). Every acceptance criterion names the exact command that proves it, and a `Status:` line makes the file resumable; you confirm it.
+3. **Plan (gate 2)** — milestones, tests, and the commands that prove them; you approve it. The approved plan is then written **into the spec** as checkboxes, and the proof commands run once before any code — a baseline that is already red surfaces here, not under the diff.
+4. **Landing** — from here it is autonomous, with the spec file as the working memory: re-read before each milestone, checkbox ticked and a commit made when it turns green. Small plans run implement→test→fix→commit in-session under the todo list; large ones run a fresh-agent Ralph loop — bounded, and told to stop and report rather than spin past two rounds of no progress.
+5. **Done** — every criterion verified by running its own command and reading the output (after a Ralph loop, the session re-runs them all itself), then a report listing criterion → command → what it printed.
 
 ```sh
 /ship let long diffs open in a pager instead of scrolling past
 ```
 
-Run it bare and it asks for the sentence first. Mid-flight decision changes go back into the spec file, so the file always states what is being built.
+Run it bare and it first offers to resume any unfinished spec it finds — interruptions lose nothing — then asks for the sentence. Mid-flight decision changes go back into the spec file, so the file always states what is being built.
 
 ## Development
 
