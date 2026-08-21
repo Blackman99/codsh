@@ -229,17 +229,12 @@ function inject(page, name, html) {
 }
 
 const data = JSON.parse(readFileSync(dataPath, 'utf8'))
-// The welcome screen carries the hero; the rest are the switcher's scenes, so
-// the page never shows the same capture twice.
-const hero = data.scenes.find((scene) => scene.id === 'welcome')
-const rest = data.scenes.filter((scene) => scene !== hero)
-if (hero === undefined) throw new Error('no welcome scene to put in the hero')
-
+// Every capture is a switcher scene; the hero holds the hand-authored /ship
+// demo, the one screen on the page that is not a capture.
 for (const [file, lang] of [['index.html', 'en'], ['zh.html', 'zh']]) {
   const path = join(root, 'site', file)
   let page = readFileSync(path, 'utf8')
-  page = inject(page, 'hero', renderFrame(hero, lang))
-  page = inject(page, 'frames', renderScenes(rest, lang))
+  page = inject(page, 'frames', renderScenes(data.scenes, lang))
   writeFileSync(path, page)
-  console.log(`✓ ${file}: hero + ${rest.length} scenes inlined (${lang})`)
+  console.log(`✓ ${file}: ${data.scenes.length} scenes inlined (${lang})`)
 }

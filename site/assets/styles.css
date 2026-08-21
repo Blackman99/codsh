@@ -200,12 +200,15 @@ kbd {
   text-transform: lowercase;
   color: var(--ink);
   border: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5em;
 }
 
-.rail__mark::before {
-  content: '▍';
-  color: var(--user);
-  margin-right: 0.45em;
+.rail__mark img {
+  width: 22px;
+  height: 22px;
+  display: block;
 }
 
 .rail nav {
@@ -857,6 +860,94 @@ footer a:hover {
 
   .hero h1 .caret {
     animation: none;
+  }
+}
+
+/*
+ * ── The hero demo: /ship's whole arc in one looping terminal ────────────
+ *
+ * The one animated screen on the page, and the one that is not a capture —
+ * its tag says so. Pure CSS: every transcript row shares a 26s clock and
+ * each keyframe block differs only in when its row enters; the command
+ * types itself with steps(). Reduced motion shows the finished transcript.
+ */
+.frame__bar .frame__demo {
+  margin-left: auto;
+  font-size: 10.5px;
+  letter-spacing: 0.08em;
+  color: var(--pending);
+  text-transform: uppercase;
+}
+
+.frame__bar .frame__demo::before {
+  content: '▶';
+  margin-right: 0.4em;
+  font-size: 0.8em;
+  vertical-align: 0.1em;
+}
+
+.demo .dm {
+  opacity: 0;
+  animation-duration: 26s;
+  animation-timing-function: linear;
+  animation-iteration-count: infinite;
+}
+
+.demo .type {
+  display: inline-block;
+  overflow: hidden;
+  white-space: pre;
+  vertical-align: bottom;
+  animation: ship-type 26s steps(38, end) infinite;
+}
+
+@keyframes ship-type { 0%, 1.5% { max-width: 0; } 9%, 100% { max-width: 40ch; } }
+
+.demo .s1  { animation-name: ship-s1; }
+.demo .s2  { animation-name: ship-s2; }
+.demo .s3  { animation-name: ship-s3; }
+.demo .s4  { animation-name: ship-s4; }
+.demo .s5  { animation-name: ship-s5; }
+.demo .s6  { animation-name: ship-s6; }
+.demo .s7  { animation-name: ship-s7; }
+.demo .s8  { animation-name: ship-s8; }
+.demo .s9  { animation-name: ship-s9; }
+.demo .s10 { animation-name: ship-s10; }
+.demo .s11 { animation-name: ship-s11; }
+.demo .s12 { animation-name: ship-s12; }
+.demo .s13 { animation-name: ship-s13; }
+.demo .s14 { animation-name: ship-s14; }
+.demo .s15 { animation-name: ship-s15; }
+.demo .s16 { animation-name: ship-s16; }
+.demo .s17 { animation-name: ship-s17; }
+
+@keyframes ship-s1  { 0%, 94% { opacity: 1; } 96.5%, 100% { opacity: 0; } }
+@keyframes ship-s2  { 0%, 11.5% { opacity: 0; } 12.7%, 94% { opacity: 1; } 96.5%, 100% { opacity: 0; } }
+@keyframes ship-s3  { 0%, 17% { opacity: 0; } 18.2%, 94% { opacity: 1; } 96.5%, 100% { opacity: 0; } }
+@keyframes ship-s4  { 0%, 23.5% { opacity: 0; } 24.7%, 94% { opacity: 1; } 96.5%, 100% { opacity: 0; } }
+@keyframes ship-s5  { 0%, 29.5% { opacity: 0; } 30.7%, 94% { opacity: 1; } 96.5%, 100% { opacity: 0; } }
+@keyframes ship-s6  { 0%, 32% { opacity: 0; } 33.2%, 94% { opacity: 1; } 96.5%, 100% { opacity: 0; } }
+@keyframes ship-s7  { 0%, 37.5% { opacity: 0; } 38.7%, 94% { opacity: 1; } 96.5%, 100% { opacity: 0; } }
+@keyframes ship-s8  { 0%, 42.5% { opacity: 0; } 43.7%, 94% { opacity: 1; } 96.5%, 100% { opacity: 0; } }
+@keyframes ship-s9  { 0%, 47.5% { opacity: 0; } 48.7%, 94% { opacity: 1; } 96.5%, 100% { opacity: 0; } }
+@keyframes ship-s10 { 0%, 52% { opacity: 0; } 53.2%, 94% { opacity: 1; } 96.5%, 100% { opacity: 0; } }
+@keyframes ship-s11 { 0%, 56.5% { opacity: 0; } 57.7%, 94% { opacity: 1; } 96.5%, 100% { opacity: 0; } }
+@keyframes ship-s12 { 0%, 61% { opacity: 0; } 62.2%, 94% { opacity: 1; } 96.5%, 100% { opacity: 0; } }
+@keyframes ship-s13 { 0%, 66.5% { opacity: 0; } 67.7%, 94% { opacity: 1; } 96.5%, 100% { opacity: 0; } }
+@keyframes ship-s14 { 0%, 71.5% { opacity: 0; } 72.7%, 94% { opacity: 1; } 96.5%, 100% { opacity: 0; } }
+@keyframes ship-s15 { 0%, 76.5% { opacity: 0; } 77.7%, 94% { opacity: 1; } 96.5%, 100% { opacity: 0; } }
+@keyframes ship-s16 { 0%, 82.5% { opacity: 0; } 83.7%, 94% { opacity: 1; } 96.5%, 100% { opacity: 0; } }
+@keyframes ship-s17 { 0%, 85.5% { opacity: 0; } 86.7%, 94% { opacity: 1; } 96.5%, 100% { opacity: 0; } }
+
+@media (prefers-reduced-motion: reduce) {
+  .demo .dm {
+    animation: none;
+    opacity: 1;
+  }
+
+  .demo .type {
+    animation: none;
+    max-width: none;
   }
 }
 

@@ -18,7 +18,7 @@
 <body>
 
 <div class="rail">
-  <a class="rail__mark" href="#top">codsh</a>
+  <a class="rail__mark" href="#top"><img src="assets/logo.svg" alt="" width="22" height="22">codsh</a>
   <nav>
     <a href="#ship">/ship</a>
     <a href="#see">See it</a>
@@ -63,37 +63,42 @@
       </p>
       </div>
       <div class="hero__frame reveal reveal-3">
-<!-- hero:start -->
           <figure class="frame">
             <div class="frame__bar">
               <i class="shell__dot"></i><i class="shell__dot"></i><i class="shell__dot"></i>
-              <b>A session that is its own space</b>
-              <span class="frame__real">real capture</span>
+              <b>/ship, end to end</b>
+              <span class="frame__demo">animated demo</span>
             </div>
-            <div class="screen"><code class="screen__rows">
-<span class="row"><span class="c-user">  ██████╗ ██████╗ ██████╗ ███████╗██╗  ██╗</span></span>
-<span class="row"><span class="c-user"> ██╔════╝██╔═══██╗██╔══██╗██╔════╝██║  ██║</span></span>
-<span class="row"><span class="c-user"> ██║     ██║   ██║██║  ██║███████╗███████║</span></span>
-<span class="row"><span class="c-user"> ██║     ██║   ██║██║  ██║╚════██║██╔══██║</span></span>
-<span class="row"><span class="c-user"> ╚██████╗╚██████╔╝██████╔╝███████║██║  ██║</span></span>
-<span class="row"><span class="c-user">  ╚═════╝ ╚═════╝ ╚═════╝ ╚══════╝╚═╝  ╚═╝</span></span>
+            <div class="screen"><code class="screen__rows demo">
+<span class="row dm s1"><span class="c-user">┃ ›</span> <span class="type">/ship let long diffs open in a pager</span></span>
 <span class="row"> </span>
-<span class="row"> <span class="a-bold">✻ Welcome to codsh</span><span class="c-dim"> · cli-mock · code-cli</span></span>
+<span class="row dm s2"><span class="c-dim">✻ reading the repo — pager.ts, screen.ts, three call sites</span></span>
+<span class="row dm s3"><span class="c-pending">?</span> one question at a time: full screen, or split under the box?</span>
+<span class="row dm s4"><span class="c-user">┃ ›</span> full screen — q returns to the transcript</span>
 <span class="row"> </span>
-<span class="row"><span class="c-dim">  ~/.cache/codsh/showcase</span></span>
-<span class="row"><span class="c-dim">  session session-6610af68-744c-4499-98c7-d9bb135d6891</span></span>
+<span class="row dm s5"><span class="c-tool">│ </span><span class="c-pending">●</span> <span class="c-tool">Write docs/specs/pager.md</span></span>
+<span class="row dm s6"><span class="c-tool">│ </span><span class="c-ok">+ 6 acceptance criteria</span><span class="c-dim"> · each names its proving command</span></span>
+<span class="row dm s7"><span class="c-pending">?</span> confirm the spec <span class="c-dim">— gate 1</span></span>
+<span class="row dm s8"><span class="c-user">┃ ›</span> confirmed</span>
+<span class="row dm s9"><span class="c-tool">│ </span><span class="c-pending">●</span> <span class="c-tool">plan: 3 milestones → checkboxes in the spec</span></span>
+<span class="row dm s10"><span class="c-pending">?</span> approve the plan <span class="c-dim">— gate 2</span></span>
+<span class="row dm s11"><span class="c-user">┃ ›</span> approved</span>
 <span class="row"> </span>
-<span class="row"><span class="c-dim">  /help for commands · Tab completes · ⇧Tab plan mode · ESC interrupts · /exit leav</span></span>
-<span class="row"><span class="c-dim">…</span></span>
+<span class="row dm s12"><span class="c-dim">⠿ baseline: proof commands run once — two red, as expected</span></span>
+<span class="row dm s13"><span class="c-ok">✔ 1/3</span> pager opens on long output <span class="c-dim">· tests green · committed</span></span>
+<span class="row dm s14"><span class="c-ok">✔ 2/3</span> q returns to the transcript <span class="c-dim">· tests green · committed</span></span>
+<span class="row dm s15"><span class="c-ok">✔ 3/3</span> state survives a resize <span class="c-dim">· tests green · committed</span></span>
+<span class="row"> </span>
+<span class="row dm s16"><span class="c-ok">✔</span> <span class="a-bold">every criterion re-run and read — all green</span></span>
+<span class="row dm s17"><span class="c-dim">  criterion → command → what it printed</span></span>
 <span class="gap"></span>
 <span class="row"><span class="c-dim">╭─────────────────────────────────────────────────────────────────────────────────╮</span></span>
 <span class="row"><span class="c-dim">│</span> <span class="c-user">›</span> <span class="c-dim">Ask anything · / for commands · @ for files · ⇧Tab plan mode</span>                  <span class="c-dim">│</span></span>
 <span class="row"><span class="c-dim">╰─────────────────────────────────────────────────────────────────────────────────╯</span></span>
-<span class="row"><span class="c-tool">cli-mock</span><span class="c-dim"> · code-cli · workspace-write · 0 tokens · ~/.cache/codsh/showcase</span></span>
+<span class="row"><span class="c-tool">deepseek-chat</span><span class="c-dim"> · code-cli · workspace-write · ~/my-project</span></span>
 </code></div>
           </figure>
-<!-- hero:end -->
-        <p class="caption">Captured from the packed binary by the e2e harness.</p>
+        <p class="caption">The arc loops; <a href="#ship">01 — /ship</a> below walks each gate.</p>
       </div>
     </div>
   </div>
@@ -169,16 +174,49 @@
         <input type="radio" name="scene" id="s-4">
         <input type="radio" name="scene" id="s-5">
         <input type="radio" name="scene" id="s-6">
+        <input type="radio" name="scene" id="s-7">
         <div class="scenes__tabs" role="tablist" aria-label="Pick a scene">
-          <label class="scenes__tab" for="s-1">Tool cards</label>
-          <label class="scenes__tab" for="s-2">Hover</label>
-          <label class="scenes__tab" for="s-3">Click to open</label>
-          <label class="scenes__tab" for="s-4">Todos</label>
-          <label class="scenes__tab" for="s-5">Markdown</label>
-          <label class="scenes__tab" for="s-6">Plan mode</label>
+          <label class="scenes__tab" for="s-1">Welcome</label>
+          <label class="scenes__tab" for="s-2">Tool cards</label>
+          <label class="scenes__tab" for="s-3">Hover</label>
+          <label class="scenes__tab" for="s-4">Click to open</label>
+          <label class="scenes__tab" for="s-5">Todos</label>
+          <label class="scenes__tab" for="s-6">Markdown</label>
+          <label class="scenes__tab" for="s-7">Plan mode</label>
         </div>
         <div class="scenes__panels">
         <div data-scene="1">
+          <figure class="frame">
+            <div class="frame__bar">
+              <i class="shell__dot"></i><i class="shell__dot"></i><i class="shell__dot"></i>
+              <b>A session that is its own space</b>
+              <span class="frame__real">real capture</span>
+            </div>
+            <div class="screen"><code class="screen__rows">
+<span class="row"><span class="c-user">  ██████╗ ██████╗ ██████╗ ███████╗██╗  ██╗</span></span>
+<span class="row"><span class="c-user"> ██╔════╝██╔═══██╗██╔══██╗██╔════╝██║  ██║</span></span>
+<span class="row"><span class="c-user"> ██║     ██║   ██║██║  ██║███████╗███████║</span></span>
+<span class="row"><span class="c-user"> ██║     ██║   ██║██║  ██║╚════██║██╔══██║</span></span>
+<span class="row"><span class="c-user"> ╚██████╗╚██████╔╝██████╔╝███████║██║  ██║</span></span>
+<span class="row"><span class="c-user">  ╚═════╝ ╚═════╝ ╚═════╝ ╚══════╝╚═╝  ╚═╝</span></span>
+<span class="row"> </span>
+<span class="row"> <span class="a-bold">✻ Welcome to codsh</span><span class="c-dim"> · cli-mock · code-cli</span></span>
+<span class="row"> </span>
+<span class="row"><span class="c-dim">  ~/.cache/codsh/showcase</span></span>
+<span class="row"><span class="c-dim">  session session-6610af68-744c-4499-98c7-d9bb135d6891</span></span>
+<span class="row"> </span>
+<span class="row"><span class="c-dim">  /help for commands · Tab completes · ⇧Tab plan mode · ESC interrupts · /exit leav</span></span>
+<span class="row"><span class="c-dim">…</span></span>
+<span class="gap"></span>
+<span class="row"><span class="c-dim">╭─────────────────────────────────────────────────────────────────────────────────╮</span></span>
+<span class="row"><span class="c-dim">│</span> <span class="c-user">›</span> <span class="c-dim">Ask anything · / for commands · @ for files · ⇧Tab plan mode</span>                  <span class="c-dim">│</span></span>
+<span class="row"><span class="c-dim">╰─────────────────────────────────────────────────────────────────────────────────╯</span></span>
+<span class="row"><span class="c-tool">cli-mock</span><span class="c-dim"> · code-cli · workspace-write · 0 tokens · ~/.cache/codsh/showcase</span></span>
+</code></div>
+          </figure>
+          <p class="caption">The alternate screen, the input box pinned to the bottom, and the status row that is always current.</p>
+        </div>
+        <div data-scene="2">
           <figure class="frame">
             <div class="frame__bar">
               <i class="shell__dot"></i><i class="shell__dot"></i><i class="shell__dot"></i>
@@ -203,7 +241,7 @@
           </figure>
           <p class="caption">Every call renders through its presenter — a title, a status, and a diff — under a rule down the block’s left edge.</p>
         </div>
-        <div data-scene="2">
+        <div data-scene="3">
           <figure class="frame">
             <div class="frame__bar">
               <i class="shell__dot"></i><i class="shell__dot"></i><i class="shell__dot"></i>
@@ -229,7 +267,7 @@
           </figure>
           <p class="caption">Resting on a fold underlines its head row and names it below the box — what a click will do, before it lands.</p>
         </div>
-        <div data-scene="3">
+        <div data-scene="4">
           <figure class="frame">
             <div class="frame__bar">
               <i class="shell__dot"></i><i class="shell__dot"></i><i class="shell__dot"></i>
@@ -256,7 +294,7 @@
           </figure>
           <p class="caption">A click opens the block it lands on and a click anywhere inside folds it back; Ctrl+O still swaps every one at once.</p>
         </div>
-        <div data-scene="4">
+        <div data-scene="5">
           <figure class="frame">
             <div class="frame__bar">
               <i class="shell__dot"></i><i class="shell__dot"></i><i class="shell__dot"></i>
@@ -291,7 +329,7 @@
           </figure>
           <p class="caption">A pinned row holds the agent’s list over the status row instead of scrolling away with the write; Ctrl+T opens it whole.</p>
         </div>
-        <div data-scene="5">
+        <div data-scene="6">
           <figure class="frame">
             <div class="frame__bar">
               <i class="shell__dot"></i><i class="shell__dot"></i><i class="shell__dot"></i>
@@ -337,7 +375,7 @@
           </figure>
           <p class="caption">Tables get real columns, code gets highlighted, and emphasis markers are consumed instead of printed.</p>
         </div>
-        <div data-scene="6">
+        <div data-scene="7">
           <figure class="frame">
             <div class="frame__bar">
               <i class="shell__dot"></i><i class="shell__dot"></i><i class="shell__dot"></i>

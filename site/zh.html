@@ -18,7 +18,7 @@
 <body>
 
 <div class="rail">
-  <a class="rail__mark" href="#top">codsh</a>
+  <a class="rail__mark" href="#top"><img src="assets/logo.svg" alt="" width="22" height="22">codsh</a>
   <nav>
     <a href="#ship">/ship</a>
     <a href="#see">看一眼</a>
@@ -62,37 +62,42 @@
       </p>
       </div>
       <div class="hero__frame reveal reveal-3">
-<!-- hero:start -->
           <figure class="frame">
             <div class="frame__bar">
               <i class="shell__dot"></i><i class="shell__dot"></i><i class="shell__dot"></i>
-              <b>会话是自己的空间</b>
-              <span class="frame__real">真实抓取</span>
+              <b>/ship 全流程</b>
+              <span class="frame__demo">演示动画</span>
             </div>
-            <div class="screen"><code class="screen__rows">
-<span class="row"><span class="c-user">  ██████╗ ██████╗ ██████╗ ███████╗██╗  ██╗</span></span>
-<span class="row"><span class="c-user"> ██╔════╝██╔═══██╗██╔══██╗██╔════╝██║  ██║</span></span>
-<span class="row"><span class="c-user"> ██║     ██║   ██║██║  ██║███████╗███████║</span></span>
-<span class="row"><span class="c-user"> ██║     ██║   ██║██║  ██║╚════██║██╔══██║</span></span>
-<span class="row"><span class="c-user"> ╚██████╗╚██████╔╝██████╔╝███████║██║  ██║</span></span>
-<span class="row"><span class="c-user">  ╚═════╝ ╚═════╝ ╚═════╝ ╚══════╝╚═╝  ╚═╝</span></span>
+            <div class="screen"><code class="screen__rows demo">
+<span class="row dm s1"><span class="c-user">┃ ›</span> <span class="type">/ship 让超长 diff 用分页器打开</span></span>
 <span class="row"> </span>
-<span class="row"> <span class="a-bold">✻ Welcome to codsh</span><span class="c-dim"> · cli-mock · code-cli</span></span>
+<span class="row dm s2"><span class="c-dim">✻ 正在通读仓库——pager.ts、screen.ts、三处调用点</span></span>
+<span class="row dm s3"><span class="c-pending">?</span> 一次只问一个：全屏打开，还是在输入框下方分栏？</span>
+<span class="row dm s4"><span class="c-user">┃ ›</span> 全屏——按 q 回到 transcript</span>
 <span class="row"> </span>
-<span class="row"><span class="c-dim">  ~/.cache/codsh/showcase</span></span>
-<span class="row"><span class="c-dim">  session session-6610af68-744c-4499-98c7-d9bb135d6891</span></span>
+<span class="row dm s5"><span class="c-tool">│ </span><span class="c-pending">●</span> <span class="c-tool">Write docs/specs/pager.md</span></span>
+<span class="row dm s6"><span class="c-tool">│ </span><span class="c-ok">+ 6 条验收标准</span><span class="c-dim"> · 每条写明证明它的命令</span></span>
+<span class="row dm s7"><span class="c-pending">?</span> 确认这份 spec<span class="c-dim">——关口 1</span></span>
+<span class="row dm s8"><span class="c-user">┃ ›</span> 确认</span>
+<span class="row dm s9"><span class="c-tool">│ </span><span class="c-pending">●</span> <span class="c-tool">计划：3 个里程碑 → 以复选框写进 spec</span></span>
+<span class="row dm s10"><span class="c-pending">?</span> 批准这份计划<span class="c-dim">——关口 2</span></span>
+<span class="row dm s11"><span class="c-user">┃ ›</span> 批准</span>
 <span class="row"> </span>
-<span class="row"><span class="c-dim">  /help for commands · Tab completes · ⇧Tab plan mode · ESC interrupts · /exit leav</span></span>
-<span class="row"><span class="c-dim">…</span></span>
+<span class="row dm s12"><span class="c-dim">⠿ 基线：证明命令先跑一遍——两条红，符合预期</span></span>
+<span class="row dm s13"><span class="c-ok">✔ 1/3</span> 长输出进分页器 <span class="c-dim">· 测试绿 · 已提交</span></span>
+<span class="row dm s14"><span class="c-ok">✔ 2/3</span> 按 q 返回 transcript <span class="c-dim">· 测试绿 · 已提交</span></span>
+<span class="row dm s15"><span class="c-ok">✔ 3/3</span> 缩放窗口状态不丢 <span class="c-dim">· 测试绿 · 已提交</span></span>
+<span class="row"> </span>
+<span class="row dm s16"><span class="c-ok">✔</span> <span class="a-bold">每条标准重跑自己的命令、读真实输出——全绿</span></span>
+<span class="row dm s17"><span class="c-dim">  标准 → 命令 → 实际输出</span></span>
 <span class="gap"></span>
 <span class="row"><span class="c-dim">╭─────────────────────────────────────────────────────────────────────────────────╮</span></span>
 <span class="row"><span class="c-dim">│</span> <span class="c-user">›</span> <span class="c-dim">Ask anything · / for commands · @ for files · ⇧Tab plan mode</span>                  <span class="c-dim">│</span></span>
 <span class="row"><span class="c-dim">╰─────────────────────────────────────────────────────────────────────────────────╯</span></span>
-<span class="row"><span class="c-tool">cli-mock</span><span class="c-dim"> · code-cli · workspace-write · 0 tokens · ~/.cache/codsh/showcase</span></span>
+<span class="row"><span class="c-tool">deepseek-chat</span><span class="c-dim"> · code-cli · workspace-write · ~/my-project</span></span>
 </code></div>
           </figure>
-<!-- hero:end -->
-        <p class="caption">由 e2e harness 从打包后的真实二进制抓取。</p>
+        <p class="caption">完整流程循环播放；下方 <a href="#ship">01 — /ship</a> 逐段拆解。</p>
       </div>
     </div>
   </div>
@@ -165,16 +170,49 @@
         <input type="radio" name="scene" id="s-4">
         <input type="radio" name="scene" id="s-5">
         <input type="radio" name="scene" id="s-6">
+        <input type="radio" name="scene" id="s-7">
         <div class="scenes__tabs" role="tablist" aria-label="选择场景">
-          <label class="scenes__tab" for="s-1">工具卡片</label>
-          <label class="scenes__tab" for="s-2">悬停</label>
-          <label class="scenes__tab" for="s-3">点击展开</label>
-          <label class="scenes__tab" for="s-4">Todo</label>
-          <label class="scenes__tab" for="s-5">Markdown</label>
-          <label class="scenes__tab" for="s-6">Plan 模式</label>
+          <label class="scenes__tab" for="s-1">欢迎</label>
+          <label class="scenes__tab" for="s-2">工具卡片</label>
+          <label class="scenes__tab" for="s-3">悬停</label>
+          <label class="scenes__tab" for="s-4">点击展开</label>
+          <label class="scenes__tab" for="s-5">Todo</label>
+          <label class="scenes__tab" for="s-6">Markdown</label>
+          <label class="scenes__tab" for="s-7">Plan 模式</label>
         </div>
         <div class="scenes__panels">
         <div data-scene="1">
+          <figure class="frame">
+            <div class="frame__bar">
+              <i class="shell__dot"></i><i class="shell__dot"></i><i class="shell__dot"></i>
+              <b>会话是自己的空间</b>
+              <span class="frame__real">真实抓取</span>
+            </div>
+            <div class="screen"><code class="screen__rows">
+<span class="row"><span class="c-user">  ██████╗ ██████╗ ██████╗ ███████╗██╗  ██╗</span></span>
+<span class="row"><span class="c-user"> ██╔════╝██╔═══██╗██╔══██╗██╔════╝██║  ██║</span></span>
+<span class="row"><span class="c-user"> ██║     ██║   ██║██║  ██║███████╗███████║</span></span>
+<span class="row"><span class="c-user"> ██║     ██║   ██║██║  ██║╚════██║██╔══██║</span></span>
+<span class="row"><span class="c-user"> ╚██████╗╚██████╔╝██████╔╝███████║██║  ██║</span></span>
+<span class="row"><span class="c-user">  ╚═════╝ ╚═════╝ ╚═════╝ ╚══════╝╚═╝  ╚═╝</span></span>
+<span class="row"> </span>
+<span class="row"> <span class="a-bold">✻ Welcome to codsh</span><span class="c-dim"> · cli-mock · code-cli</span></span>
+<span class="row"> </span>
+<span class="row"><span class="c-dim">  ~/.cache/codsh/showcase</span></span>
+<span class="row"><span class="c-dim">  session session-6610af68-744c-4499-98c7-d9bb135d6891</span></span>
+<span class="row"> </span>
+<span class="row"><span class="c-dim">  /help for commands · Tab completes · ⇧Tab plan mode · ESC interrupts · /exit leav</span></span>
+<span class="row"><span class="c-dim">…</span></span>
+<span class="gap"></span>
+<span class="row"><span class="c-dim">╭─────────────────────────────────────────────────────────────────────────────────╮</span></span>
+<span class="row"><span class="c-dim">│</span> <span class="c-user">›</span> <span class="c-dim">Ask anything · / for commands · @ for files · ⇧Tab plan mode</span>                  <span class="c-dim">│</span></span>
+<span class="row"><span class="c-dim">╰─────────────────────────────────────────────────────────────────────────────────╯</span></span>
+<span class="row"><span class="c-tool">cli-mock</span><span class="c-dim"> · code-cli · workspace-write · 0 tokens · ~/.cache/codsh/showcase</span></span>
+</code></div>
+          </figure>
+          <p class="caption">备用屏幕、钉在底部从不移动的输入框，以及始终当前的状态行。</p>
+        </div>
+        <div data-scene="2">
           <figure class="frame">
             <div class="frame__bar">
               <i class="shell__dot"></i><i class="shell__dot"></i><i class="shell__dot"></i>
@@ -199,7 +237,7 @@
           </figure>
           <p class="caption">每次调用都经由它的 presenter 渲染——标题、状态、diff——左侧还有一道标出块边界的竖线。</p>
         </div>
-        <div data-scene="2">
+        <div data-scene="3">
           <figure class="frame">
             <div class="frame__bar">
               <i class="shell__dot"></i><i class="shell__dot"></i><i class="shell__dot"></i>
@@ -225,7 +263,7 @@
           </figure>
           <p class="caption">停在折叠块上时，其首行加下划线，输入框下方报出它是什么——点下去会发生什么，点之前就知道。</p>
         </div>
-        <div data-scene="3">
+        <div data-scene="4">
           <figure class="frame">
             <div class="frame__bar">
               <i class="shell__dot"></i><i class="shell__dot"></i><i class="shell__dot"></i>
@@ -252,7 +290,7 @@
           </figure>
           <p class="caption">点一下展开落点那一块，在块内任意处再点一下收起；Ctrl+O 依然一次开合全部。</p>
         </div>
-        <div data-scene="4">
+        <div data-scene="5">
           <figure class="frame">
             <div class="frame__bar">
               <i class="shell__dot"></i><i class="shell__dot"></i><i class="shell__dot"></i>
@@ -287,7 +325,7 @@
           </figure>
           <p class="caption">一行常驻读数把 agent 的清单钉在状态行之上，不随那次写入滚走；Ctrl+T 展开为完整清单。</p>
         </div>
-        <div data-scene="5">
+        <div data-scene="6">
           <figure class="frame">
             <div class="frame__bar">
               <i class="shell__dot"></i><i class="shell__dot"></i><i class="shell__dot"></i>
@@ -333,7 +371,7 @@
           </figure>
           <p class="caption">表格排出真正的列，代码带高亮，强调标记被吃掉而不是打印出来。</p>
         </div>
-        <div data-scene="6">
+        <div data-scene="7">
           <figure class="frame">
             <div class="frame__bar">
               <i class="shell__dot"></i><i class="shell__dot"></i><i class="shell__dot"></i>
