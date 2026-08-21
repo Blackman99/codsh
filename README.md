@@ -35,6 +35,8 @@ dsh --profile code
 
 ## `/ship` — from one sentence to shipped
 
+[![The /ship flow, end to end: interview, spec, plan, landing, verification — animated demo](assets/ship-demo.gif)](https://blackman99.github.io/codsh/)
+
 The core of codsh. Type `/ship <one-sentence idea>` and the agent drives it from 0 to 1 with exactly two approvals and nothing else to babysit:
 
 1. **Interview** — the agent reads your repo first, then asks one focused question at a time (users, success criteria, scope, non-goals, constraints, edge cases) until answers stop changing the design. A pasted mockup or screenshot is requirements material.

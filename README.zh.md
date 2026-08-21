@@ -35,6 +35,8 @@ dsh --profile code
 
 ## `/ship`——从一句话到落地
 
+[![一句话到落地：/ship 访谈、spec、计划、落地、验证——演示动画](assets/ship-demo.zh.gif)](https://blackman99.github.io/codsh/zh.html)
+
 codsh 的核心。输入 `/ship <一句话需求>`，agent 用恰好两次确认、再无其他看护，把它从 0 推到 1：
 
 1. **访谈**——agent 先通读你的仓库，再一次只问一个问题（用户、成功标准、范围、非目标、约束、边界情况），直到回答不再改变设计。随命令粘贴的 mockup 或截图就是需求材料。
