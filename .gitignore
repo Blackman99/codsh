@@ -4,3 +4,4 @@ lib/
 .DS_Store
 .dev-home/
 .env
+.claude/
