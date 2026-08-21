@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96" role="img" aria-label="codsh — a slash-shaped sail riding a whale">
+  <!--
+    The mark: dsh is the whale underneath, codsh the sail it carries — and the
+    sail's leading edge is the slash the whole product hangs off: /ship.
+    Cyan is the harness (tool colour), magenta the person's own command.
+  -->
+  <!-- The slash: the sail's leading edge, clear of the deck. -->
+  <path d="M36 46 55 6" stroke="#d98ce8" stroke-width="7" stroke-linecap="round" fill="none"/>
+  <!-- The sail cloth, parallel to the slash, a gap of air between them. -->
+  <path d="M66 11 C61 22, 55 34, 50 44 L80 44 C78 33, 73 20, 66 11 Z" fill="#d98ce8"/>
+  <!-- The whale: the hull everything rides on. -->
+  <path d="M16 60 C20 53, 32 49, 50 49 C66 49, 80 53, 86 61 C89 68, 84 76, 72 79 C56 83, 32 82, 20 73 C17 69, 15 64, 16 60 Z" fill="#6fd6d0"/>
+  <!-- The fluke, swept up and aft. -->
+  <path d="M4 40 C3 51, 8 60, 18 65 L24 58 C15 55, 9 49, 8 43 Z" fill="#6fd6d0"/>
+  <!-- Eye and smile. -->
+  <circle cx="78" cy="60" r="2.2" fill="#0b0d0f"/>
+  <path d="M83 67 Q78 70 72 68.5" stroke="#0b0d0f" stroke-width="2" stroke-linecap="round" fill="none"/>
+</svg>
