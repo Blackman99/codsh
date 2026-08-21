@@ -13,7 +13,7 @@
 
 > npm: [`codsh-cli`](https://www.npmjs.com/package/codsh-cli) · command: `codsh`
 
-A terminal coding agent whose interaction design fuses the best of today's agent CLIs, composed on the [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) (dsh) plugin runtime. codsh is two small packages over your dsh: a zero-dependency launcher (`codsh-cli`) and a dsh *bundle* (`codsh-bundle`) shipping the interactive TTY surface and a coding agent preset. Everything underneath — the agent loop, tools, sessions, sandboxing, model adapters — is the released dsh packages from npm, installed once per machine.
+A terminal coding agent built around one command: **`/ship`** takes a one-sentence idea and drives it to landed, verified code — interview, spec, plan, then autonomous execution until the acceptance criteria pass with green tests. Around it, an interactive surface that fuses the best of today's agent CLIs, composed on the [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) (dsh) plugin runtime: codsh is two small packages over your dsh — a zero-dependency launcher (`codsh-cli`) and a dsh *bundle* (`codsh-bundle`) — while everything underneath (the agent loop, tools, sessions, sandboxing, model adapters) is the released dsh packages from npm, installed once per machine.
 
 ## Install
 
@@ -33,25 +33,9 @@ dsh plugin --profile code add codsh-bundle
 dsh --profile code
 ```
 
-## What you get
+## `/ship` — from one sentence to shipped
 
-- **A session that is its own space**: codsh takes the alternate screen, so your shell's scrollback is untouched and waiting when you leave. The transcript scrolls in a buffer the session owns — mouse wheel, PgUp/PgDn, Shift+↑/↓ — under an input box that never moves from the bottom; scrolled back, the viewport says how far and new output keeps accumulating without yanking you to it. Every frame paints as one synchronized update, and quitting drops a two-line summary (session id, spend, the `--resume` command) into your shell.
-- **From one sentence to shipped — `/ship`**: type `/ship <one-sentence idea>` and the agent researches your repo, grills you one focused question at a time until the design stops moving, writes a spec you confirm, presents a plan you approve, then lands it autonomously — small work in-session, large work through a fresh-agent Ralph loop — until the spec's acceptance criteria pass with green tests.
-- **Todos that stay in view**: when the agent writes a todo list, a pinned row holds it over the status row — progress, the item in flight, or what comes next — instead of scrolling away with the write. Ctrl+T opens it into the full list and closes it again; `/todos` prints the list into the transcript, and `--resume` reopens on the list the session left off with.
-- **Select to copy**: drag with the mouse and the selection is on your clipboard the moment you release — highlighted in place, sent through OSC 52 and the platform clipboard both (`CODSH_CLIPBOARD=osc52|system|off` narrows it). Long finished blocks — thinking, tool output, and answers past a screenful — collapse to their head lines once you move on; click one to open just that block, click it again anywhere to fold it back, or Ctrl-O to swap every one of them at once. Resting the pointer on a block underlines its head row and names it under the box — `thinking · 42 lines · click to expand` — so what a click will do is known before it lands, and a block taller than the screen still says which one you are in. Resuming a session replays its history as those same folds, so a long output from yesterday still opens. Every block also carries a rule down its left edge — heavy for your own message, light for a tool block, red for a failed one — and a selection that sweeps across one copies the text without it.
-- **An input box that owns the keyboard**: multi-line editing (Shift-Enter on kitty-protocol terminals — Ghostty, kitty, WezTerm, iTerm2, foot — and Alt-Enter everywhere), history across sessions, and completion for commands, arguments, and `@`-mentioned files (fuzzy, workspace-wide), opened as you type.
-- **Paste an image, even into a text-only model**: Ctrl+V reads your system clipboard and attaches the image behind an `[Image #N]` token (backspace deletes it whole). On an image-capable route it rides the message as a first-class attachment through dsh's durable store — declare `inputModalities: [text, image]` for your model in `$DSH_HOME/settings.yaml` to open that gate. On the default text-only DeepSeek routes the image is saved to a file the agent can work on with its tools, and when `CODSH_VISION_BASE_URL` + `CODSH_VISION_MODEL` (plus optional `CODSH_VISION_API_KEY`) name any OpenAI-compatible multimodal endpoint — GLM-4V, Qwen-VL, a local llava — a description with everything transcribed verbatim rides the same message, standing in for sight.
-- **Streaming rendering**: Markdown with code highlighting and table layout, reasoning models' thinking dim under `✻ thinking`, tool calls as presenter-driven cards with diffs, and Ctrl-O to reprint the last clipped output in full.
-- **Decisions as selections**: approvals, questions, `/model`, and `/resume` are arrow-key widgets; plan mode toggles on Shift-Tab and tints the box frame.
-- **Session flow**: `/clear` starts fresh in place, `/resume` picks from recorded sessions with titles and ages, Escape twice recalls your previous message for editing, and `!cmd` runs in your shell with the outcome injected as model-visible context — no turn spent.
-- **Canned prompts**: `/init` drafts an `AGENTS.md`; your own Markdown files under `$DSH_HOME/commands/` or `<workspace>/.dsh/commands/` become slash commands with `$ARGUMENTS` templating.
-- Status line (model, preset, permissions, tokens, context left, branch), terminal-title updates, a bell when a decision waits, and a `--print` mode for scripts.
-
-Off a TTY (pipes, scripts) the same surface degrades to a line reader: selections become typed answers, lists replace widgets, and nothing draws.
-
-## From one sentence to shipped
-
-`/ship` drives an idea from 0 to 1 with exactly two approvals and nothing else to babysit:
+The core of codsh. Type `/ship <one-sentence idea>` and the agent drives it from 0 to 1 with exactly two approvals and nothing else to babysit:
 
 1. **Interview** — the agent reads your repo first, then asks one focused question at a time (users, success criteria, scope, non-goals, constraints, edge cases) until answers stop changing the design. A pasted mockup or screenshot is requirements material.
 2. **Spec (gate 1)** — the agreed design lands as a file in your repo (`docs/specs/<slug>.md` unless your repo has its own convention). Every acceptance criterion names the exact command that proves it, and a `Status:` line makes the file resumable; you confirm it.
@@ -64,6 +48,23 @@ Off a TTY (pipes, scripts) the same surface degrades to a line reader: selection
 ```
 
 Run it bare and it first offers to resume any unfinished spec it finds — interruptions lose nothing — then asks for the sentence. Mid-flight decision changes go back into the spec file, so the file always states what is being built.
+
+## The surface
+
+Around `/ship`, a session surface that borrows the best interaction design in the category — in brief (the [site](https://blackman99.github.io/codsh/) shows each one live):
+
+- **A session that is its own space** — codsh takes the alternate screen: the transcript scrolls in a buffer the session owns, the input box never leaves the bottom, and quitting restores your shell untouched plus a two-line summary (session id, spend, the `--resume` command).
+- **Folds you can click** — long finished blocks (thinking, tool output, answers past a screenful) collapse to their head lines; a click opens the one under the pointer, hovering names it first, and Ctrl-O swaps them all.
+- **Todos that stay in view** — a pinned row holds the agent's list over the status row; Ctrl+T expands it, `/todos` prints it, `--resume` reopens on it.
+- **Select to copy** — drag, release, and it is on your clipboard — OSC 52 and the platform clipboard both (`CODSH_CLIPBOARD` narrows it).
+- **Streaming rendering** — Markdown with code highlighting and real table columns, thinking dim under `✻ thinking`, tool calls as cards with diffs.
+- **Paste an image, even into a text-only model** — Ctrl+V attaches it; image-capable routes send it as a first-class attachment, text-only routes get a file the agent can open with tools — and with `CODSH_VISION_*` pointing at any OpenAI-compatible vision endpoint, a verbatim description rides the same message.
+- **An input box that owns the keyboard** — multi-line editing (Shift-Enter on kitty-protocol terminals, Alt-Enter everywhere), history across sessions, fuzzy completion for commands, arguments, and `@`-mentioned files.
+- **Decisions as selections** — approvals, questions, `/model`, and `/resume` are arrow-key widgets; Shift-Tab toggles plan mode and tints the box frame.
+- **Session flow** — `/clear` starts fresh in place, `/resume` picks from recorded sessions, Escape twice recalls your last message, and `!cmd` runs in your shell with the outcome injected as context.
+- **Canned prompts and status** — `/init` drafts an `AGENTS.md`; Markdown files under `$DSH_HOME/commands/` or `.dsh/commands/` become slash commands; a status line, terminal-title updates, a bell when a decision waits, and `--print` for scripts.
+
+Off a TTY (pipes, scripts) the same surface degrades to a line reader: selections become typed answers, lists replace widgets, and nothing draws.
 
 ## Development
 

@@ -13,7 +13,7 @@
 
 > npm 包名：[`codsh-cli`](https://www.npmjs.com/package/codsh-cli) · 命令：`codsh`
 
-一款汲取了当今主流 agent CLI 交互体验精髓的终端编码 agent，组合在 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)（dsh）插件运行时之上。codsh 是架在你的 dsh 之上的两个小包：零依赖启动器（`codsh-cli`）和携带交互式 TTY 界面与编码 agent preset 的 dsh *bundle*（`codsh-bundle`）。其下的一切——agent 循环、工具、会话、沙箱、模型适配器——都是 npm 上已发布的 dsh 包，一台机器只装一份。
+一款围绕一个命令构建的终端编码 agent：**`/ship`** 接住一句话需求，把它推进到已落地、已验证的代码——访谈、spec、计划，然后自主执行直到验收标准全部通过、测试变绿。它周围是一个汲取了当今主流 agent CLI 交互精髓的界面，组合在 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)（dsh）插件运行时之上：codsh 只是架在你的 dsh 上的两个小包——零依赖启动器（`codsh-cli`）与 dsh *bundle*（`codsh-bundle`）——其下的一切（agent 循环、工具、会话、沙箱、模型适配器）都是 npm 上已发布的 dsh 包，一台机器只装一份。
 
 ## 安装
 
@@ -33,24 +33,9 @@ dsh plugin --profile code add codsh-bundle
 dsh --profile code
 ```
 
-## 你会得到什么
+## `/ship`——从一句话到落地
 
-- **会话是自己的空间**：codsh 进入备用屏幕，你的 shell 滚回历史原封不动、退出即恢复。transcript 在会话自有的缓冲里滚动——鼠标滚轮、PgUp/PgDn、Shift+↑/↓——输入框钉在底部从不移动；向上翻阅时视口会标注离尾部多远，新输出继续累积而不把你拽回去。每一帧以同步更新原子绘制；退出时向 shell 留下两行摘要（会话 id、用量、`--resume` 命令）。
-- **一句话需求落地——`/ship`**：输入 `/ship <一句话需求>`，agent 先调研你的仓库，再一次只问一个问题地把设计追问到不再变化，写出一份由你确认的 spec，给出一份由你批准的实施计划，然后自主落地——小任务在会话内完成，大任务走 fresh-agent Ralph 循环——直到 spec 的验收标准全部通过、测试变绿。
-- **todo 状态常驻可见**：agent 写下 todo 清单后，一行常驻读数把它钉在状态行之上——进度、正在做的那一项，或者下一项该做什么——不会随那次写入一起滚走。Ctrl+T 展开为完整清单、再按收起；`/todos` 把同一份清单打印到 transcript；`--resume` 恢复时直接接上上次的清单。
-- **接管键盘的输入框**：多行编辑（支持 kitty 键盘协议的终端——Ghostty、kitty、WezTerm、iTerm2、foot——可用 Shift-Enter，其余终端 Alt-Enter）、跨会话历史，命令、参数与 `@` 文件提及（全工作区模糊搜索）的补全随输入自动打开。
-- **粘贴图片，哪怕模型只认文字**：Ctrl+V 直接读取系统剪贴板，图片以 `[Image #N]` 标记挂进输入框（退格一次整体删除）。当前路由支持图像时（在 `$DSH_HOME/settings.yaml` 里为模型声明 `inputModalities: [text, image]` 即可打开这扇门），图片经 dsh 的持久附件仓库作为一等内容块随消息发送；在默认的纯文本 DeepSeek 路由上，图片被存成 agent 可以用工具操作的文件，并且——当 `CODSH_VISION_BASE_URL` + `CODSH_VISION_MODEL`（可选 `CODSH_VISION_API_KEY`）指向任意 OpenAI 兼容的多模态端点（GLM-4V、Qwen-VL、本地 llava）时——一份逐字转写的详细描述会随同一条消息送达，替模型看见。
-- **流式渲染**：Markdown 带代码高亮与表格排版，推理模型的思考在 `✻ thinking` 下暗色显示，工具调用按 presenter 驱动的卡片渲染（含 diff）。超过一屏的已完成块——思考、工具输出、长回答——在你继续往下走时折叠成头几行；点一下即单独展开那一块、在块内任意处再点一下即收起，Ctrl-O 则一次性开合全部。鼠标停在某个块上时，该块首行加下划线，输入框下方同时报出它是什么、有多少行、点下去是展开还是收起（`thinking · 42 lines · click to expand`）——点之前就知道会发生什么，块比屏幕还高时也知道自己正处在哪一段。`--resume` 恢复会话时，历史会以同样的折叠形态重放，昨天那段长输出今天依然能展开。每个段落左侧还有一道竖线标出边界——你自己的消息用粗线、工具块用细线、失败的调用变红，回答本身齐头不加标记；框选跨过竖线时复制出来的是正文，不带那道线。
-- **决定用选择**：审批、提问、`/model` 与 `/resume` 都是方向键组件；Shift-Tab 切换 plan 模式并为框着色。
-- **会话流**：`/clear` 原地开新会话，`/resume` 从带标题和时间的会话列表里选，连按两次 Escape 召回上一条消息编辑，`!cmd` 在你自己的 shell 里运行并把结果注入为模型可见上下文——不花回合。
-- **固定 prompt**：`/init` 起草 `AGENTS.md`；`$DSH_HOME/commands/` 或 `<工作区>/.dsh/commands/` 下的 Markdown 文件即成为斜杠命令，支持 `$ARGUMENTS` 模板。
-- 状态行（模型、preset、权限、token、剩余上下文、分支）、终端标题跟随、有决定等待时的铃声，以及面向脚本的 `--print` 模式。
-
-非 TTY 环境（管道、脚本）下同一界面降级为行读取器：选择变为键入回答、组件变为列表、不绘制任何东西。
-
-## 从一句话到落地
-
-`/ship` 用恰好两次确认、再无其他看护，把一个想法从 0 推到 1：
+codsh 的核心。输入 `/ship <一句话需求>`，agent 用恰好两次确认、再无其他看护，把它从 0 推到 1：
 
 1. **访谈**——agent 先通读你的仓库，再一次只问一个问题（用户、成功标准、范围、非目标、约束、边界情况），直到回答不再改变设计。随命令粘贴的 mockup 或截图就是需求材料。
 2. **Spec（关口 1）**——商定的设计落成仓库里的一个文件（默认 `docs/specs/<slug>.md`，仓库有自己的惯例则从之）。每条验收标准都写明证明它的精确命令，`Status:` 行让文件可续跑；由你确认。
@@ -63,6 +48,23 @@ dsh --profile code
 ```
 
 不带参数运行会先提议续跑任何未完成的 spec——中断不丢任何东西——然后才问你那句话。中途改变的决定先写回 spec 文件，文件永远说明正在构建什么。
+
+## 界面
+
+`/ship` 周围是一个汲取了同类工具最佳交互设计的会话界面——每项一句（[站点](https://blackman99.github.io/codsh/zh.html)有逐项真实演示）：
+
+- **会话是自己的空间**——codsh 进入备用屏幕：transcript 在会话自有的缓冲里滚动，输入框钉在底部从不移动，退出时 shell 原封不动、只留两行摘要（会话 id、用量、`--resume` 命令）。
+- **可点击的折叠块**——超过一屏的已完成块（思考、工具输出、长回答）折叠成头几行；点一下展开落点那一块，悬停先报出它是什么，Ctrl-O 一次开合全部。
+- **todo 常驻可见**——一行常驻读数把 agent 的清单钉在状态行之上；Ctrl+T 展开，`/todos` 打印，`--resume` 接着上次的清单继续。
+- **框选即复制**——拖动、松手，内容就在剪贴板上——OSC 52 与平台剪贴板双通道（`CODSH_CLIPBOARD` 可收窄）。
+- **流式渲染**——Markdown 带代码高亮与真正的表格列，思考在 `✻ thinking` 下暗色显示，工具调用按卡片渲染、含 diff。
+- **粘贴图片，哪怕模型只认文字**——Ctrl+V 直接挂进输入框；支持图像的路由作为一等附件发送，纯文本路由存成 agent 可用工具打开的文件——配 `CODSH_VISION_*` 指向任意 OpenAI 兼容视觉端点时，一份逐字转写的描述随同一条消息送达。
+- **接管键盘的输入框**——多行编辑（kitty 协议终端 Shift-Enter，其余 Alt-Enter）、跨会话历史，命令、参数与 `@` 文件提及的模糊补全。
+- **决定用选择**——审批、提问、`/model` 与 `/resume` 都是方向键组件；Shift-Tab 切换 plan 模式并为输入框着色。
+- **会话流**——`/clear` 原地开新会话，`/resume` 从会话列表里选，连按两次 Escape 召回上一条消息，`!cmd` 在你的 shell 里运行并把结果注入为上下文。
+- **固定 prompt 与状态**——`/init` 起草 `AGENTS.md`；`$DSH_HOME/commands/` 或 `.dsh/commands/` 下的 Markdown 文件即成斜杠命令；状态行、终端标题跟随、有决定等待时的铃声，以及面向脚本的 `--print`。
+
+非 TTY 环境（管道、脚本）下同一界面降级为行读取器：选择变为键入回答、组件变为列表、不绘制任何东西。
 
 ## 开发
 

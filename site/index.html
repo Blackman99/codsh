@@ -4,11 +4,11 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>codsh — a terminal coding agent, composed on dsh</title>
-<meta name="description" content="A terminal coding agent whose interaction design fuses the best of today's agent CLIs, composed on the DeepSeek Harness. Two small packages over your dsh: a zero-dependency launcher and a bundle carrying the TTY surface.">
+<meta name="description" content="One sentence to shipped: /ship interviews your idea into a spec, plans against it, and lands it with green tests. A terminal coding agent composed on the DeepSeek Harness.">
 <meta name="color-scheme" content="dark">
 <link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
 <meta property="og:title" content="codsh — a terminal coding agent">
-<meta property="og:description" content="Folds you can click, todos that stay in view, and one sentence to shipped. Composed on the DeepSeek Harness.">
+<meta property="og:description" content="One sentence to shipped — /ship interviews, specs, plans, and lands. Composed on the DeepSeek Harness.">
 <meta property="og:type" content="website">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -20,9 +20,9 @@
 <div class="rail">
   <a class="rail__mark" href="#top">codsh</a>
   <nav>
+    <a href="#ship">/ship</a>
     <a href="#see">See it</a>
     <a href="#surface">Surface</a>
-    <a href="#ship">/ship</a>
     <a href="#install">Install</a>
     <a href="#dev">Develop</a>
     <a href="https://github.com/Blackman99/codsh">GitHub</a>
@@ -39,8 +39,9 @@
       <span class="block__index reveal reveal-1">A terminal coding agent · composed on dsh</span>
       <h1 class="reveal reveal-1">codsh<span class="caret">▍</span></h1>
       <p class="hero__sub reveal reveal-2">
-        The interaction design of today's best agent CLIs, rebuilt as one surface
-        — and put on top of a runtime you already have.
+        One sentence to shipped. <code>/ship</code> interviews your idea into a
+        spec, plans against it, and lands it verified — on a surface that fuses
+        the best of today's agent CLIs.
       </p>
       <div class="hero__meta reveal reveal-2">
         <span><a href="https://www.npmjs.com/package/codsh-cli">codsh-cli</a> on npm</span>
@@ -51,7 +52,8 @@
         <div class="shell__bar"><i class="shell__dot shell__dot--live"></i> install</div>
 <pre><span class="prompt">$</span> <span class="cmd">npm install -g @deepseek-ai/dsh codsh-cli</span>
 <span class="comment">  # have dsh already? npm i -g codsh-cli</span>
-<span class="prompt">$</span> <span class="cmd">codsh</span></pre>
+<span class="prompt">$</span> <span class="cmd">codsh</span>
+<span class="prompt">›</span> <span class="cmd">/ship &lt;your one-sentence idea&gt;</span></pre>
       </div>
       <p class="reveal reveal-4" style="margin-top:1.5rem">
         Everything under the surface — the agent loop, tools, sessions, sandboxing,
@@ -97,10 +99,57 @@
   </div>
 </section>
 
+<section id="ship">
+  <div class="wrap">
+    <div class="block block--heavy">
+      <span class="block__index">01 — /ship</span>
+      <h2>One sentence to shipped.</h2>
+      <p class="lede">
+        <code>/ship</code> drives an idea from 0 to 1 with exactly two approvals
+        and nothing else to babysit.
+      </p>
+
+      <ol class="steps">
+        <li>
+          <b>Interview</b>
+          <p>The agent reads your repo first, then asks one focused question at a time — users, success criteria, scope, non-goals, constraints, edge cases — until answers stop changing the design. A pasted mockup or screenshot is requirements material.</p>
+        </li>
+        <li>
+          <b>Spec</b> <span class="gate">— gate 1</span>
+          <p>The agreed design lands as a file in your repo. Every acceptance criterion names the exact command that proves it, and a <code>Status:</code> line makes the file resumable. You confirm it.</p>
+        </li>
+        <li>
+          <b>Plan</b> <span class="gate">— gate 2</span>
+          <p>Ordered milestones, the tests each one adds, and the commands that prove the whole thing. You approve it — and the plan is then written into the spec as checkboxes, with the proof commands run once to record the baseline before any code. A suite that was already red surfaces here, not under the diff.</p>
+        </li>
+        <li>
+          <b>Landing</b>
+          <p>From here it is autonomous, with the spec file — not the conversation — as the working memory: re-read before each milestone, checkbox ticked and a commit made when it turns green. Small plans run in-session under the todo list; large ones run a bounded fresh-agent Ralph loop that stops and reports rather than spin past two rounds of no progress.</p>
+        </li>
+        <li>
+          <b>Done means verified</b>
+          <p>Every criterion is checked by running its own command and reading the real output — after a Ralph loop, the session re-runs them all itself — then a report listing criterion, command, and what it printed.</p>
+        </li>
+      </ol>
+
+      <div class="shell" style="margin-top:2rem">
+        <div class="shell__bar"><i class="shell__dot"></i> in the box</div>
+<pre><span class="prompt">›</span> <span class="cmd">/ship let long diffs open in a pager instead of scrolling past</span></pre>
+      </div>
+      <p style="margin-top:1.2rem">
+        Run it bare and it first offers to resume any unfinished spec it finds
+        — interruptions lose nothing — then asks for the sentence. Mid-flight
+        decision changes go back into the spec file, so the file on disk always
+        states what is being built.
+      </p>
+    </div>
+  </div>
+</section>
+
 <section id="see">
   <div class="wrap">
     <div class="block">
-      <span class="block__index">01 — See it</span>
+      <span class="block__index">02 — See it</span>
       <h2>Every terminal below is a real one.</h2>
       <p class="lede">
         Not a mockup. Each frame was captured from the packed binary by the
@@ -108,8 +157,6 @@
         into this page with its colours intact.
       </p>
       <p>
-        A screenshot nobody checked is a promise nobody kept, so the site is
-        generated the way the tests are: drive the real thing, keep the frame.
         Rerun it with <code>pnpm run site:screens</code>. A screen’s empty middle
         is shortened so the card stays a readable height — nothing else is touched.
       </p>
@@ -333,7 +380,7 @@
 <section id="surface">
   <div class="wrap">
     <div class="block">
-      <span class="block__index">02 — The surface</span>
+      <span class="block__index">03 — The surface</span>
       <h2>A session that is its own space.</h2>
       <p class="lede">
         codsh takes the alternate screen, so your shell's scrollback is
@@ -345,36 +392,24 @@
           <h3>The transcript is yours to move in</h3>
           <p>
             It scrolls in a buffer the session owns — wheel, page keys,
-            <kbd>⇧↑</kbd> <kbd>⇧↓</kbd> — under an input box that never leaves the
-            bottom. Scrolled back, the viewport says how far, and new output
-            accumulates without yanking you to it.
+            <kbd>⇧↑</kbd> <kbd>⇧↓</kbd> — under an input box that never leaves
+            the bottom, and new output accumulates without yanking you to it.
           </p>
         </div>
         <div class="card">
           <h3>Folds answer the mouse</h3>
           <p>
-            Long finished blocks — thinking, tool output, answers past a
-            screenful — collapse to their head lines once you move on. Click one
-            to open just that block, click anywhere inside to fold it back, or
-            swap every one at once.
+            Long finished blocks collapse to their head lines. Rest on one and
+            it names itself — <code>thinking · 42 lines · click to expand</code>;
+            a click opens just that block, <kbd>Ctrl+O</kbd> swaps every one.
           </p>
           <div class="card__keys"><kbd>click</kbd><kbd>Ctrl+O</kbd></div>
         </div>
         <div class="card">
-          <h3>A block says what it is</h3>
-          <p>
-            Rest the pointer on a fold and its head row underlines while the
-            chrome names it — <code>thinking · 42 lines · click to expand</code>.
-            What a click will do is known before it lands, and a block taller
-            than the screen still tells you which one you are in.
-          </p>
-        </div>
-        <div class="card">
           <h3>Todos that stay in view</h3>
           <p>
-            When the agent writes a list, a pinned row holds it over the status
-            row — progress, the item in flight, or what comes next — instead of
-            scrolling away with the write.
+            A pinned row holds the agent's list over the status row — progress,
+            the item in flight — instead of scrolling away with the write.
           </p>
           <div class="card__keys"><kbd>Ctrl+T</kbd><kbd>/todos</kbd></div>
         </div>
@@ -382,33 +417,31 @@
           <h3>Select to copy</h3>
           <p>
             Drag, and the selection is on your clipboard the moment you release
-            — through OSC 52 and the platform clipboard both. A selection that
-            sweeps across a block's left rule copies the text without it.
+            — through OSC 52 and the platform clipboard both.
           </p>
         </div>
         <div class="card">
           <h3>An input box that owns the keyboard</h3>
           <p>
-            Multi-line editing (<kbd>⇧Enter</kbd> on kitty-protocol terminals,
-            <kbd>Alt+Enter</kbd> everywhere), history across sessions, and
-            completion for commands, arguments and <code>@</code>-mentioned files
-            as you type.
+            Multi-line editing (<kbd>⇧Enter</kbd> or <kbd>Alt+Enter</kbd>),
+            history across sessions, and completion for commands, arguments and
+            <code>@</code>-mentioned files as you type.
           </p>
         </div>
         <div class="card card--flush">
           <h3>Streaming rendering</h3>
           <p>
             Markdown with code highlighting and real table columns, reasoning
-            dim under <code>✻ thinking</code>, and tool calls as presenter-driven
-            cards with diffs.
+            dim under <code>✻ thinking</code>, and tool calls as cards with
+            diffs.
           </p>
         </div>
         <div class="card">
           <h3>Decisions as selections</h3>
           <p>
             Approvals, questions, <code>/model</code> and <code>/resume</code> are
-            arrow-key widgets. Plan mode toggles on <kbd>⇧Tab</kbd> and tints the
-            box frame, so the next submission's effect is visible mid-thought.
+            arrow-key widgets. Plan mode toggles on <kbd>⇧Tab</kbd> and tints
+            the box frame.
           </p>
         </div>
         <div class="card">
@@ -416,8 +449,8 @@
           <p>
             <code>/clear</code> starts fresh in place, <code>/resume</code> picks
             from recorded sessions, <kbd>Esc</kbd> <kbd>Esc</kbd> recalls your
-            last message to edit, and <code>!cmd</code> runs in your shell with
-            the outcome injected as context — no turn spent.
+            last message, and <code>!cmd</code> runs in your shell with the
+            outcome injected as context.
           </p>
         </div>
       </div>
@@ -427,53 +460,6 @@
         same surface becomes a line reader: selections become typed answers,
         lists replace widgets, and nothing draws.
       </div>
-    </div>
-  </div>
-</section>
-
-<section id="ship">
-  <div class="wrap">
-    <div class="block block--heavy">
-      <span class="block__index">03 — /ship</span>
-      <h2>One sentence to shipped.</h2>
-      <p class="lede">
-        <code>/ship</code> drives an idea from 0 to 1 with exactly two approvals
-        and nothing else to babysit.
-      </p>
-
-      <ol class="steps">
-        <li>
-          <b>Interview</b>
-          <p>The agent reads your repo first, then asks one focused question at a time — users, success criteria, scope, non-goals, constraints, edge cases — until answers stop changing the design. A pasted mockup or screenshot is requirements material.</p>
-        </li>
-        <li>
-          <b>Spec</b> <span class="gate">— gate 1</span>
-          <p>The agreed design lands as a file in your repo. Every acceptance criterion names the exact command that proves it, and a <code>Status:</code> line makes the file resumable. You confirm it.</p>
-        </li>
-        <li>
-          <b>Plan</b> <span class="gate">— gate 2</span>
-          <p>Ordered milestones, the tests each one adds, and the commands that prove the whole thing. You approve it — and the plan is then written into the spec as checkboxes, with the proof commands run once to record the baseline before any code. A suite that was already red surfaces here, not under the diff.</p>
-        </li>
-        <li>
-          <b>Landing</b>
-          <p>From here it is autonomous, with the spec file — not the conversation — as the working memory: re-read before each milestone, checkbox ticked and a commit made when it turns green. Small plans run in-session under the todo list; large ones run a bounded fresh-agent Ralph loop that stops and reports rather than spin past two rounds of no progress.</p>
-        </li>
-        <li>
-          <b>Done means verified</b>
-          <p>Every criterion is checked by running its own command and reading the real output — after a Ralph loop, the session re-runs them all itself — then a report listing criterion, command, and what it printed.</p>
-        </li>
-      </ol>
-
-      <div class="shell" style="margin-top:2rem">
-        <div class="shell__bar"><i class="shell__dot"></i> in the box</div>
-<pre><span class="prompt">›</span> <span class="cmd">/ship let long diffs open in a pager instead of scrolling past</span></pre>
-      </div>
-      <p style="margin-top:1.2rem">
-        Run it bare and it first offers to resume any unfinished spec it finds
-        — interruptions lose nothing — then asks for the sentence. Mid-flight
-        decision changes go back into the spec file, so the file on disk always
-        states what is being built.
-      </p>
     </div>
   </div>
 </section>

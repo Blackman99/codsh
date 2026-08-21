@@ -4,11 +4,11 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>codsh — 架在 dsh 之上的终端编码 agent</title>
-<meta name="description" content="一款汲取了当今主流 agent CLI 交互体验精髓的终端编码 agent，组合在 DeepSeek Harness 之上。架在你的 dsh 上的两个小包：零依赖启动器，以及携带交互式 TTY 界面的 bundle。">
+<meta name="description" content="一句话到落地：/ship 把你的想法访谈成 spec、按计划推进、以绿色测试收尾。组合在 DeepSeek Harness 之上的终端编码 agent。">
 <meta name="color-scheme" content="dark">
 <link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
 <meta property="og:title" content="codsh — 终端编码 agent">
-<meta property="og:description" content="可点击的折叠块、常驻可见的 todo，以及一句话落地。组合在 DeepSeek Harness 之上。">
+<meta property="og:description" content="一句话到落地——/ship 访谈、成 spec、按计划自主落地。组合在 DeepSeek Harness 之上。">
 <meta property="og:type" content="website">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -20,9 +20,9 @@
 <div class="rail">
   <a class="rail__mark" href="#top">codsh</a>
   <nav>
+    <a href="#ship">/ship</a>
     <a href="#see">看一眼</a>
     <a href="#surface">界面</a>
-    <a href="#ship">/ship</a>
     <a href="#install">安装</a>
     <a href="#dev">开发</a>
     <a href="https://github.com/Blackman99/codsh">GitHub</a>
@@ -39,8 +39,8 @@
       <span class="block__index reveal reveal-1">终端编码 agent · 组合在 dsh 之上</span>
       <h1 class="reveal reveal-1">codsh<span class="caret">▍</span></h1>
       <p class="hero__sub reveal reveal-2">
-        把当今最好的几个 agent CLI 的交互设计重做成一个界面——
-        再把它架在你已经有的运行时上。
+        一句话到落地。<code>/ship</code> 把你的想法访谈成 spec、按计划推进、
+        验证后交付——架在汲取了主流 agent CLI 交互精髓的界面之上。
       </p>
       <div class="hero__meta reveal reveal-2">
         <span>npm 上的 <a href="https://www.npmjs.com/package/codsh-cli">codsh-cli</a></span>
@@ -51,7 +51,8 @@
         <div class="shell__bar"><i class="shell__dot shell__dot--live"></i> 安装</div>
 <pre><span class="prompt">$</span> <span class="cmd">npm install -g @deepseek-ai/dsh codsh-cli</span>
 <span class="comment">  # 已有 dsh？只需 npm i -g codsh-cli</span>
-<span class="prompt">$</span> <span class="cmd">codsh</span></pre>
+<span class="prompt">$</span> <span class="cmd">codsh</span>
+<span class="prompt">›</span> <span class="cmd">/ship &lt;你的一句话需求&gt;</span></pre>
       </div>
       <p class="reveal reveal-4" style="margin-top:1.5rem">
         界面之下的一切——agent 循环、工具、会话、沙箱、模型适配器——都是 npm 上
@@ -97,19 +98,63 @@
   </div>
 </section>
 
+<section id="ship">
+  <div class="wrap">
+    <div class="block block--heavy">
+      <span class="block__index">01 — /ship</span>
+      <h2>一句话到落地。</h2>
+      <p class="lede">
+        <code>/ship</code> 用恰好两次确认、再无其他看护，把一个想法从 0 推到 1。
+      </p>
+
+      <ol class="steps">
+        <li>
+          <b>访谈</b>
+          <p>agent 先通读你的仓库，再一次只问一个问题——用户、成功标准、范围、非目标、约束、边界情况——直到回答不再改变设计。随命令粘贴的 mockup 或截图就是需求材料。</p>
+        </li>
+        <li>
+          <b>Spec</b> <span class="gate">— 关口 1</span>
+          <p>商定的设计落成仓库里的一个文件。每条验收标准都写明证明它的精确命令，<code>Status:</code> 行让文件可续跑。由你确认。</p>
+        </li>
+        <li>
+          <b>计划</b> <span class="gate">— 关口 2</span>
+          <p>有序的里程碑、每个里程碑添加的测试，以及证明整件事的命令。由你批准——批准后计划以复选框形式写进 spec 文件，并在写任何代码之前先把证明命令跑一遍记录基线。本来就红的测试在这道关口暴露，而不是压在 diff 底下。</p>
+        </li>
+        <li>
+          <b>落地</b>
+          <p>此后全程自主，spec 文件——而非对话——是工作记忆：每个里程碑开始前重读、变绿即打钩并提交一次。小计划在会话内按 todo 清单走；大计划跑有界的 fresh-agent Ralph 循环，连续两轮无进展即停下汇报而不是空转。</p>
+        </li>
+        <li>
+          <b>完成即已验证</b>
+          <p>每条标准都以跑它自带的命令、读真实输出来验证——Ralph 循环返回后由会话亲自全部重跑——然后按“标准、命令、实际输出”逐条汇报。</p>
+        </li>
+      </ol>
+
+      <div class="shell" style="margin-top:2rem">
+        <div class="shell__bar"><i class="shell__dot"></i> 在输入框里</div>
+<pre><span class="prompt">›</span> <span class="cmd">/ship 让超长 diff 用分页器打开而不是刷屏滚过</span></pre>
+      </div>
+      <p style="margin-top:1.2rem">
+        不带参数运行会先提议续跑任何未完成的 spec——中断不丢任何东西——
+        然后才问你那句话。中途改变的决定先写回 spec 文件，
+        磁盘上的文件永远说明正在构建什么。
+      </p>
+    </div>
+  </div>
+</section>
+
 <section id="see">
   <div class="wrap">
     <div class="block">
-      <span class="block__index">01 — 看一眼</span>
+      <span class="block__index">02 — 看一眼</span>
       <h2>下面每一个终端都是真的。</h2>
       <p class="lede">
         不是效果图。每一帧都由 e2e 测试驱动打包后的真实二进制抓取，
         经终端模拟器重放，再连颜色一起写进这个页面。
       </p>
       <p>
-        没人核对过的截图，等于没人守住的承诺——所以这个站点是按测试的方式生成的：
-        驱动真实的东西，留下那一帧。重新生成只需 <code>pnpm run site:screens</code>。
-        屏幕中间的空白被缩短，好让卡片保持可读的高度——除此之外没有任何改动。
+        重新生成只需 <code>pnpm run site:screens</code>；屏幕中间的空白被缩短，
+        好让卡片保持可读的高度——除此之外没有任何改动。
       </p>
 
       <div class="scenes">
@@ -331,7 +376,7 @@
 <section id="surface">
   <div class="wrap">
     <div class="block">
-      <span class="block__index">02 — 界面</span>
+      <span class="block__index">03 — 界面</span>
       <h2>会话是自己的空间。</h2>
       <p class="lede">
         codsh 进入备用屏幕，你的 shell 滚回历史原封不动、退出即在那里等着你。
@@ -342,32 +387,23 @@
           <h3>transcript 由你自己走</h3>
           <p>
             它在会话自有的缓冲里滚动——滚轮、翻页键、<kbd>⇧↑</kbd> <kbd>⇧↓</kbd>——
-            输入框钉在底部从不移动。向上翻阅时视口会标注离尾部多远，
-            新输出继续累积而不把你拽回去。
+            输入框钉在底部从不移动，新输出继续累积而不把你拽回去。
           </p>
         </div>
         <div class="card">
           <h3>折叠块听鼠标的</h3>
           <p>
-            超过一屏的已完成块——思考、工具输出、长回答——在你继续往下走时
-            折叠成头几行。点一下只展开那一块，在块内任意处再点一下收起，
-            也可以一次开合全部。
+            超过一屏的已完成块折叠成头几行。鼠标停上去它会报出自己是什么——
+            <code>thinking · 42 lines · click to expand</code>；点一下只展开
+            那一块，<kbd>Ctrl+O</kbd> 一次开合全部。
           </p>
           <div class="card__keys"><kbd>点击</kbd><kbd>Ctrl+O</kbd></div>
         </div>
         <div class="card">
-          <h3>块会说自己是什么</h3>
-          <p>
-            鼠标停在折叠块上，它的首行加下划线，同时 chrome 报出它是什么——
-            <code>thinking · 42 lines · click to expand</code>。点下去会发生什么，
-            点之前就知道；块比屏幕还高时，你也知道自己正处在哪一段。
-          </p>
-        </div>
-        <div class="card">
           <h3>todo 常驻可见</h3>
           <p>
-            agent 写下清单后，一行常驻读数把它钉在状态行之上——进度、
-            正在做的那一项，或者下一项该做什么——不会随那次写入一起滚走。
+            一行常驻读数把 agent 的清单钉在状态行之上——进度、正在做的那一项——
+            不随那次写入一起滚走。
           </p>
           <div class="card__keys"><kbd>Ctrl+T</kbd><kbd>/todos</kbd></div>
         </div>
@@ -375,39 +411,35 @@
           <h3>框选即复制</h3>
           <p>
             拖动，松手那一刻内容就在剪贴板上——OSC 52 与平台剪贴板双通道。
-            框选跨过块左侧的竖线时，复制出来的是正文，不带那道线。
           </p>
         </div>
         <div class="card">
           <h3>接管键盘的输入框</h3>
           <p>
-            多行编辑（支持 kitty 键盘协议的终端用 <kbd>⇧Enter</kbd>，
-            其余终端 <kbd>Alt+Enter</kbd>）、跨会话历史，
+            多行编辑（<kbd>⇧Enter</kbd> 或 <kbd>Alt+Enter</kbd>）、跨会话历史，
             命令、参数与 <code>@</code> 文件提及的补全随输入自动打开。
           </p>
         </div>
         <div class="card card--flush">
           <h3>流式渲染</h3>
           <p>
-            Markdown 带代码高亮与真正的表格列，推理模型的思考在
-            <code>✻ thinking</code> 下暗色显示，工具调用按 presenter 驱动的
-            卡片渲染（含 diff）。
+            Markdown 带代码高亮与真正的表格列，思考在 <code>✻ thinking</code>
+            下暗色显示，工具调用按卡片渲染、含 diff。
           </p>
         </div>
         <div class="card">
           <h3>决定用选择</h3>
           <p>
             审批、提问、<code>/model</code> 与 <code>/resume</code> 都是方向键组件。
-            <kbd>⇧Tab</kbd> 切换 plan 模式并为输入框着色——下一次提交会做什么，
-            思考途中一眼可见。
+            <kbd>⇧Tab</kbd> 切换 plan 模式并为输入框着色。
           </p>
         </div>
         <div class="card">
           <h3>会话流</h3>
           <p>
             <code>/clear</code> 原地开新会话，<code>/resume</code> 从会话列表里选，
-            连按两次 <kbd>Esc</kbd> 召回上一条消息编辑，<code>!cmd</code> 在你自己的
-            shell 里运行并把结果注入为上下文——不花回合。
+            连按两次 <kbd>Esc</kbd> 召回上一条消息，<code>!cmd</code> 在你的
+            shell 里运行并把结果注入为上下文。
           </p>
         </div>
       </div>
@@ -416,51 +448,6 @@
         <b>非 TTY 环境下是降级，不是罢工。</b>在管道或脚本里，同一界面变成行读取器：
         选择变为键入回答、组件变为列表、不绘制任何东西。
       </div>
-    </div>
-  </div>
-</section>
-
-<section id="ship">
-  <div class="wrap">
-    <div class="block block--heavy">
-      <span class="block__index">03 — /ship</span>
-      <h2>一句话到落地。</h2>
-      <p class="lede">
-        <code>/ship</code> 用恰好两次确认、再无其他看护，把一个想法从 0 推到 1。
-      </p>
-
-      <ol class="steps">
-        <li>
-          <b>访谈</b>
-          <p>agent 先通读你的仓库，再一次只问一个问题——用户、成功标准、范围、非目标、约束、边界情况——直到回答不再改变设计。随命令粘贴的 mockup 或截图就是需求材料。</p>
-        </li>
-        <li>
-          <b>Spec</b> <span class="gate">— 关口 1</span>
-          <p>商定的设计落成仓库里的一个文件。每条验收标准都写明证明它的精确命令，<code>Status:</code> 行让文件可续跑。由你确认。</p>
-        </li>
-        <li>
-          <b>计划</b> <span class="gate">— 关口 2</span>
-          <p>有序的里程碑、每个里程碑添加的测试，以及证明整件事的命令。由你批准——批准后计划以复选框形式写进 spec 文件，并在写任何代码之前先把证明命令跑一遍记录基线。本来就红的测试在这道关口暴露，而不是压在 diff 底下。</p>
-        </li>
-        <li>
-          <b>落地</b>
-          <p>此后全程自主，spec 文件——而非对话——是工作记忆：每个里程碑开始前重读、变绿即打钩并提交一次。小计划在会话内按 todo 清单走；大计划跑有界的 fresh-agent Ralph 循环，连续两轮无进展即停下汇报而不是空转。</p>
-        </li>
-        <li>
-          <b>完成即已验证</b>
-          <p>每条标准都以跑它自带的命令、读真实输出来验证——Ralph 循环返回后由会话亲自全部重跑——然后按“标准、命令、实际输出”逐条汇报。</p>
-        </li>
-      </ol>
-
-      <div class="shell" style="margin-top:2rem">
-        <div class="shell__bar"><i class="shell__dot"></i> 在输入框里</div>
-<pre><span class="prompt">›</span> <span class="cmd">/ship 让超长 diff 用分页器打开而不是刷屏滚过</span></pre>
-      </div>
-      <p style="margin-top:1.2rem">
-        不带参数运行会先提议续跑任何未完成的 spec——中断不丢任何东西——
-        然后才问你那句话。中途改变的决定先写回 spec 文件，
-        磁盘上的文件永远说明正在构建什么。
-      </p>
     </div>
   </div>
 </section>
