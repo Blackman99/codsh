@@ -13,7 +13,7 @@
 
 > npm: [`codsh-cli`](https://www.npmjs.com/package/codsh-cli) · command: `codsh`
 
-A terminal coding agent built around one command: **`/ship`** takes a one-sentence idea and drives it to landed, verified code — interview, spec, plan, then autonomous execution until the acceptance criteria pass with green tests. Around it, an interactive surface that fuses the best of today's agent CLIs, composed on the [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) (dsh) plugin runtime: codsh is two small packages over your dsh — a zero-dependency launcher (`codsh-cli`) and a dsh *bundle* (`codsh-bundle`) — while everything underneath (the agent loop, tools, sessions, sandboxing, model adapters) is the released dsh packages from npm, installed once per machine.
+A terminal coding agent built around one command: **`/ship`** takes a one-sentence idea to landed, verified code — on the [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) (dsh).
 
 ## Install
 

@@ -13,7 +13,7 @@
 
 > npm 包名：[`codsh-cli`](https://www.npmjs.com/package/codsh-cli) · 命令：`codsh`
 
-一款围绕一个命令构建的终端编码 agent：**`/ship`** 接住一句话需求，把它推进到已落地、已验证的代码——访谈、spec、计划，然后自主执行直到验收标准全部通过、测试变绿。它周围是一个汲取了当今主流 agent CLI 交互精髓的界面，组合在 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)（dsh）插件运行时之上：codsh 只是架在你的 dsh 上的两个小包——零依赖启动器（`codsh-cli`）与 dsh *bundle*（`codsh-bundle`）——其下的一切（agent 循环、工具、会话、沙箱、模型适配器）都是 npm 上已发布的 dsh 包，一台机器只装一份。
+一款围绕一个命令构建的终端编码 agent：**`/ship`** 把一句话需求推进到已落地、已验证的代码——组合在 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)（dsh）之上。
 
 ## 安装
 
