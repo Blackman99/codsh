@@ -228,7 +228,9 @@ for (const { path, pkg } of manifests) {
   writeFileSync(path, `${JSON.stringify(pkg, null, 2)}\n`)
   console.log(`↑ ${relative(root, path)} ranges bumped`)
 }
-run('pnpm install')
+// CI freezes the lockfile by default; the bump above intentionally makes it
+// stale, so the install must be allowed to rewrite it.
+run('pnpm install --no-frozen-lockfile')
 
 // ── 4. Is codsh's bundle patch still coherent on the new tree? ─────────────
 verifyPatchDrift()
