@@ -4,7 +4,7 @@
  * Three exits, three tests. On an image-capable route (the mock's `vision`
  * mode declares image input) the pasted bytes ride the message as first-class
  * blocks through the durable store. On the text-only route (`echo`, declaring
- * `['text']` exactly like the real DeepSeek catalog) the image becomes a
+ * `['text']` like DeepSeek Flash and Pro) the image becomes a
  * saved file the model is told about — and, when the vision sidecar is
  * configured, a description stands in for sight. The clipboard is a fixture
  * command (`CODSH_CLIPBOARD_IMAGE_CMD`), so no run touches the real one.

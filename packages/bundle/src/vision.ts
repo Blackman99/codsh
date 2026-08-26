@@ -1,11 +1,12 @@
 /**
  * What a pasted image becomes when the model cannot see.
  *
- * The default DeepSeek routes are text-only, so codsh gives an image two
- * honest lives. It is always saved to a stable file the agent's tools can
- * touch — inspect, commit, embed. And when a vision sidecar is configured
- * (`CODSH_VISION_*`: any OpenAI-compatible multimodal endpoint), the image is
- * also described into text the model can actually read: everything in it
+ * DeepSeek Vision routes receive first-class image blocks before this module
+ * is involved. For text-only routes such as Flash and Pro, codsh gives an
+ * image two honest lives: it is always saved to a stable file the agent's
+ * tools can touch — inspect, commit, embed. And when a vision sidecar is
+ * configured (`CODSH_VISION_*`: any OpenAI-compatible multimodal endpoint),
+ * the image is also described into text the model can actually read: everything in it
  * transcribed, structure narrated. Both ride the same message the person
  * sent, so they persist in durable history and survive `--resume`.
  * @module codsh-bundle/src/vision
