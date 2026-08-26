@@ -573,15 +573,24 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
   /**
    * Whether the current route explicitly accepts image input.
    *
-   * The same explicit-true test the adapter applies before throwing
-   * UNSUPPORTED_CONTENT: absent modalities mean unknown, and unknown gets the
-   * text fallback — which degrades, where the block path would crash the turn.
+   * Exact-model metadata, not the advisory catalog, owns this decision. The
+   * catalog is fetched in the background and can be empty or stale while a
+   * saved route is already usable. The same explicit-true test the adapter
+   * applies before throwing UNSUPPORTED_CONTENT remains fail-closed: absent
+   * modalities or a failed resolution get the text fallback, which degrades,
+   * where the block path would crash the turn.
    */
-  const routeAcceptsImages = (): boolean => {
+  const routeAcceptsImages = async (): Promise<boolean> => {
     const current = selection.current
     if (current === undefined) return false
-    const entry = modelCatalog.find(model => model.provider === current.provider && model.id === current.model)
-    return entry?.inputModalities?.includes('image') === true
+    const llm = ctx.get('llm')
+    if (llm === undefined) return false
+    try {
+      const resolved = await llm.resolveModelInfo(current.provider, current.model)
+      return resolved.inputModalities?.includes('image') === true
+    } catch {
+      return false
+    }
   }
 
   /**
@@ -1189,7 +1198,7 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
     if (images.length === 0) return undefined
     const store = ctx.get('attachments')
     const limits = store?.imageLimits ?? DEFAULT_IMAGE_LIMITS
-    if (routeAcceptsImages() && store !== undefined) {
+    if (await routeAcceptsImages() && store !== undefined) {
       try {
         // Downscaled to what deployed routes stream: a retina screenshot is
         // over the 2000px side limit as a matter of course.
@@ -1370,7 +1379,7 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
       // adapter refuses the whole request instead of degrading.
       let batch: EncodedImageAttachment[] = []
       if (images.length > 0) {
-        if (routeAcceptsImages()) {
+        if (await routeAcceptsImages()) {
           const limits = ctx.get('attachments')?.imageLimits ?? DEFAULT_IMAGE_LIMITS
           batch = await Promise.all(images.map(pending => fitWithinLimits(pending.image, limits)))
         } else {

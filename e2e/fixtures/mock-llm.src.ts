@@ -91,9 +91,12 @@ const ARGUMENTS: Readonly<Record<string, Readonly<Record<string, unknown>>>> = {
 /** Emits one `write` call, then a closing message naming the result. */
 class CodeCliMockAdapter extends LlmAdapter {
   override listModels(provider: string): Promise<readonly LlmModelInfo[]> {
+    // Keep the advisory catalog text-only even in vision mode. Exact model
+    // resolution below is the capability source; this pins the startup/stale
+    // catalog case instead of letting cached discovery decide correctness.
     return Promise.resolve([
-      { provider, id: 'cli-mock', name: 'CLI Mock' },
-      { provider, id: 'cli-mock-pro', name: 'CLI Mock Pro' },
+      { provider, id: 'cli-mock', name: 'CLI Mock', inputModalities: ['text'] },
+      { provider, id: 'cli-mock-pro', name: 'CLI Mock Pro', inputModalities: ['text'] },
     ])
   }
 
@@ -102,6 +105,7 @@ class CodeCliMockAdapter extends LlmAdapter {
       provider,
       id: model,
       name: model,
+      inputModalities: process.env.DSH_CODE_CLI_MOCK_TOOL === 'vision' ? ['text', 'image'] : ['text'],
       reasoning: {
         efforts: [{ id: OFF, name: 'Off' }, { id: HIGH, name: 'High' }],
         defaultEffort: HIGH,
@@ -110,6 +114,21 @@ class CodeCliMockAdapter extends LlmAdapter {
   }
 
   async * stream(options: GenerateOptions): AsyncIterable<StreamChunk> {
+    if (process.env.DSH_CODE_CLI_MOCK_TOOL === 'vision') {
+      // Reports the image blocks the request actually carried: id, size, type.
+      // This is the proof the first-class path works — bytes were admitted to
+      // the durable store and rode the message as blocks, not as text.
+      const images = options.messages.flatMap(message =>
+        message.content.filter(block => block.type === 'image').map(block => block.attachment))
+      const shapes = images.map(image => `${image.width}x${image.height}:${image.mediaType}`).join(' ')
+      const reply = `CODE_CLI_VISION img=${images.length}${shapes === '' ? '' : ` ${shapes}`}`
+      yield { type: 'block-start', index: 0, blockType: 'text' }
+      yield { type: 'text-delta', index: 0, text: reply }
+      yield { type: 'block-end', index: 0, block: { type: 'text', text: reply } }
+      yield { type: 'usage', usage: { inputTokens: 3, outputTokens: 4 } }
+      yield { type: 'finish', reason: { kind: 'stop' } }
+      return
+    }
     if (process.env.DSH_CODE_CLI_MOCK_TOOL === 'reasoning') {
       // Reasoning first, text second — the order the real provider emits.
       yield { type: 'block-start', index: 0, blockType: 'reasoning' }

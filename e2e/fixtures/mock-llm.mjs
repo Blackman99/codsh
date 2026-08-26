@@ -106,13 +106,12 @@ const ARGUMENTS = {
 /** Emits one `write` call, then a closing message naming the result. */
 class CodeCliMockAdapter extends LlmAdapter {
   listModels(provider) {
-    // The vision mode declares image input, so the surface's capability gate
-    // opens; every other mode stays text-only, exactly like the real DeepSeek
-    // catalog — which is what the fallback paths are tested against.
-    const modalities = process.env.DSH_CODE_CLI_MOCK_TOOL === 'vision' ? ['text', 'image'] : ['text']
+    // Keep the advisory catalog text-only even in vision mode. Exact model
+    // resolution below is the capability source; this pins the startup/stale
+    // catalog case instead of letting cached discovery decide correctness.
     return Promise.resolve([
-      { provider, id: 'cli-mock', name: 'CLI Mock', inputModalities: modalities },
-      { provider, id: 'cli-mock-pro', name: 'CLI Mock Pro', inputModalities: modalities },
+      { provider, id: 'cli-mock', name: 'CLI Mock', inputModalities: ['text'] },
+      { provider, id: 'cli-mock-pro', name: 'CLI Mock Pro', inputModalities: ['text'] },
     ])
   }
 
@@ -121,6 +120,7 @@ class CodeCliMockAdapter extends LlmAdapter {
       provider,
       id: model,
       name: model,
+      inputModalities: process.env.DSH_CODE_CLI_MOCK_TOOL === 'vision' ? ['text', 'image'] : ['text'],
       reasoning: {
         efforts: [{ id: OFF, name: 'Off' }, { id: HIGH, name: 'High' }],
         defaultEffort: HIGH,
