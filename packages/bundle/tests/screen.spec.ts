@@ -26,7 +26,7 @@ function host(rows = 10, columns = 20): ScreenHost & { out: string[]; size: { ro
 function painted(data: string): Map<number, string> {
   const rows = new Map<number, string>()
   for (const match of data.matchAll(/\u001B\[(\d+);1H\u001B\[K([^\u001B]*)/gu)) {
-    rows.set(Number(match[1]), match[2] ?? '')
+    rows.set(Number(match[1]), (match[2] ?? '').slice(2))
   }
   return rows
 }
@@ -125,12 +125,12 @@ describe('layout', () => {
     screen.enter()
     screen.setChrome(['status'], { row: 0, column: 0 }, false)
     flush(sink)
-    // Nine content columns (one is kept clear), so 20 characters take 3 rows.
+    // Seven content columns (gutter plus one kept clear), so 20 characters take 3 rows.
     screen.append(['x'.repeat(20)])
     const rows = painted(flush(sink))
-    expect(rows.get(1)).toBe('x'.repeat(9))
-    expect(rows.get(2)).toBe('x'.repeat(9))
-    expect(rows.get(3)).toBe('xx')
+    expect(rows.get(1)).toBe('x'.repeat(7))
+    expect(rows.get(2)).toBe('x'.repeat(7))
+    expect(rows.get(3)).toBe('x'.repeat(6))
   })
 
   it('places the cursor absolutely inside the chrome, or hides it', () => {
@@ -139,8 +139,8 @@ describe('layout', () => {
     screen.enter()
     flush(sink)
     screen.setChrome(['a', 'b', 'c'], { row: 1, column: 4 }, true)
-    // Chrome starts at row 4, so its second row is row 5, column 4 is 5.
-    expect(flush(sink)).toContain('\u001B[5;5H\u001B[?25h')
+    // Chrome starts at row 4, so its second row is row 5; column 4 plus the gutter.
+    expect(flush(sink)).toContain('\u001B[5;7H\u001B[?25h')
 
     screen.setChrome(['a', 'b', 'd'], { row: 1, column: 4 }, false)
     const unfocused = flush(sink)
@@ -248,9 +248,9 @@ describe('resize', () => {
     sink.size.columns = 6
     screen.resize()
     const rows = painted(flush(sink))
-    // Five content columns now: the sixteen characters take four rows, which is
-    // exactly the viewport, and a resize repaints every row including the chrome.
-    expect([rows.get(1), rows.get(2), rows.get(3), rows.get(4)]).toEqual(['abcde', 'fghij', 'klmno', 'p'])
+    // Three content columns now: the sixteen characters take six rows, and the
+    // viewport shows the last four, with the chrome still on the last row.
+    expect([rows.get(1), rows.get(2), rows.get(3), rows.get(4)]).toEqual(['ghi', 'jkl', 'mno', 'p'])
     expect(rows.get(5)).toBe('status')
   })
 
@@ -437,8 +437,8 @@ describe('folds', () => {
 
     // Selecting inside a block is a drag, and a drag hands over its text
     // instead of collapsing what was just read.
-    screen.mouseDown(2, 1)
-    screen.mouseDrag(3, 4)
+    screen.mouseDown(2, 3)
+    screen.mouseDrag(3, 6)
     expect(screen.mouseUp()).toBe('head\nbody')
     const text = [...painted(flush(sink)).values()].join('\n')
     expect(text).not.toContain('summary')
@@ -452,8 +452,8 @@ describe('folds', () => {
     screen.appendFold(['summary line', ''], ['full a', 'full b', ''])
     flush(sink)
 
-    screen.mouseDown(1, 1)
-    screen.mouseDrag(1, 7)
+    screen.mouseDown(1, 3)
+    screen.mouseDrag(1, 9)
     expect(screen.mouseUp()).toBe('summary')
     // A drag is a selection, not a click: the block stayed shut.
     expect(flush(sink)).not.toContain('full b')
@@ -526,8 +526,8 @@ describe('mouse selection', () => {
     flush(sink)
 
     // Rows 1-2 hold the two lines (content is top-aligned).
-    screen.mouseDown(1, 7)
-    screen.mouseDrag(2, 5)
+    screen.mouseDown(1, 9)
+    screen.mouseDrag(2, 7)
     const frame = flush(sink)
     expect(frame).toContain('\u001B[7m')
     const text = screen.mouseUp()
@@ -541,8 +541,8 @@ describe('mouse selection', () => {
     screen.enter()
     screen.setChrome(['status'], { row: 0, column: 0 }, false)
     screen.append([`\u001B[1mbold words\u001B[0m`])
-    screen.mouseDown(1, 1)
-    screen.mouseDrag(1, 10)
+    screen.mouseDown(1, 3)
+    screen.mouseDrag(1, 12)
     expect(screen.mouseUp()).toBe('bold words')
   })
 
@@ -552,9 +552,9 @@ describe('mouse selection', () => {
     screen.enter()
     screen.setChrome(['status'], { row: 0, column: 0 }, false)
     screen.append(['中文 text'])
-    screen.mouseDown(1, 1)
+    screen.mouseDown(1, 3)
     // Through display column 4: both wide characters, nothing sliced apart.
-    screen.mouseDrag(1, 4)
+    screen.mouseDrag(1, 6)
     expect(screen.mouseUp()).toBe('中文')
   })
 
@@ -567,8 +567,8 @@ describe('mouse selection', () => {
     screen.mouseDown(1, 2)
     expect(screen.mouseUp()).toBeUndefined()
 
-    screen.mouseDown(1, 1)
-    screen.mouseDrag(1, 5)
+    screen.mouseDown(1, 3)
+    screen.mouseDrag(1, 7)
     expect(screen.mouseUp()).toBe('some ')
     flush(sink)
     // The highlight stood after the copy; a fresh click clears it.
@@ -716,14 +716,14 @@ describe('the rule down a block\'s edge', () => {
     screen.enter()
     screen.setChrome(['status'], { row: 0, column: 0 }, false)
     flush(sink)
-    // Eleven content columns, two of them the rule's, so nine characters fit a
+    // Nine content columns, two of them the rule's, so seven characters fit a
     // row — and the rule is on the continuation too, or the edge breaks exactly
     // where a long line made it matter.
     screen.append(['x'.repeat(20)], '| ')
     const rows = painted(flush(sink))
-    expect(rows.get(1)).toBe(`| ${'x'.repeat(9)}`)
-    expect(rows.get(2)).toBe(`| ${'x'.repeat(9)}`)
-    expect(rows.get(3)).toBe('| xx')
+    expect(rows.get(1)).toBe(`| ${'x'.repeat(7)}`)
+    expect(rows.get(2)).toBe(`| ${'x'.repeat(7)}`)
+    expect(rows.get(3)).toBe('| xxxxxx')
   })
 
   it('leaves the blank line between blocks unmarked', () => {
@@ -767,7 +767,7 @@ describe('the rule down a block\'s edge', () => {
   })
 
   it('works a ruled block on a click, under the rule it was drawn with', () => {
-    const sink = host(10, 12)
+    const sink = host(10, 14)
     const screen = new Screen(sink)
     screen.enter()
     screen.setChrome(['status'], { row: 0, column: 0 }, false)

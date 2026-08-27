@@ -22,6 +22,9 @@ import { wrapStyled } from './wrap.ts'
 /** Logical transcript lines kept before the oldest are dropped. */
 const MAX_SCROLLBACK = 5000
 
+/** Blank columns to the left of every painted row, so text is not flush to the window. */
+const GUTTER = 2
+
 /** Enter the alternate screen, saving the cursor and the current buffer. */
 const ENTER_ALT = '\u001B[?1049h'
 
@@ -815,7 +818,7 @@ export class Screen {
     let index = start + row - 1
     if (!clamp && (row - 1 >= height || index >= end || index < start)) return undefined
     index = Math.min(Math.max(index, start), end - 1)
-    return { row: index, column: Math.max(0, column - 1) }
+    return { row: index, column: Math.max(0, column - 1 - GUTTER) }
   }
 
   /** Rows the transcript viewport occupies. */
@@ -825,7 +828,7 @@ export class Screen {
 
   /** Columns content is laid out for, one short of the width so no row wraps. */
   private contentColumns(): number {
-    return Math.max(1, this.host.columns() - 1)
+    return Math.max(1, this.host.columns() - 1 - GUTTER)
   }
 
   /**
@@ -947,7 +950,7 @@ export class Screen {
       // Only rows that changed are repainted: a frame that rewrites everything
       // makes a wide terminal flicker even inside a synchronized update.
       if (this.painted[index] === row) return
-      out += `\u001B[${index + 1};1H${CLEAR_LINE}${row}`
+      out += `\u001B[${index + 1};1H${CLEAR_LINE}${' '.repeat(GUTTER)}${row}`
     })
     // A shrunken frame leaves rows behind; clear what the new one does not fill.
     for (let index = frame.length; index < this.painted.length; index += 1) {
@@ -955,7 +958,7 @@ export class Screen {
     }
     if (this.chromeFocus) {
       const row = frame.length - this.chrome.length + this.chromeCursor.row + 1
-      out += `\u001B[${row};${this.chromeCursor.column + 1}H${SHOW_CURSOR}`
+      out += `\u001B[${row};${this.chromeCursor.column + 1 + GUTTER}H${SHOW_CURSOR}`
     }
     out += SYNC_END
     this.host.write(out)

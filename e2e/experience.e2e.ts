@@ -27,7 +27,7 @@ describe.skipIf(process.platform === 'win32')('the first five minutes', () => {
     expect(logoRow).toBeGreaterThanOrEqual(0)
     expect(logoRow).toBeLessThan(8)
     // The gap sits between the welcome and the chrome, not above the welcome.
-    expect(rows.slice(-4).some(row => row.startsWith('╭'))).toBe(true)
+    expect(rows.slice(-4).some(row => row.trimStart().startsWith('╭'))).toBe(true)
   }, E2E_TEST_TIMEOUT_MS)
 
   it('shows the welcome again after /clear', async () => {
@@ -156,7 +156,7 @@ describe.skipIf(process.platform === 'win32')('the first five minutes', () => {
     // The grid is framed and ruled: edges, a head rule, and every table row —
     // wrapped continuations included — carries the same rule count, so the
     // sheared-apart layout of the field report cannot re-form silently.
-    expect(rows.some(row => row.startsWith('╭') && row.includes('┬'))).toBe(true)
+    expect(rows.some(row => row.includes('╭') && row.includes('┬'))).toBe(true)
     expect(rows.some(row => row.includes('┼'))).toBe(true)
     // Table rows carry three rules (two columns framed); the input box's
     // middle row has two and a blockquote one, so ≥3 isolates the table.
@@ -205,7 +205,7 @@ describe.skipIf(process.platform === 'win32')('the first five minutes', () => {
       ['CODE_CLI_CALL_OK', '\u0006', 400],
       ['find:', 'CALL', 400],
       ['find: CALL', '\u001B', 300],
-      ['Ask anything', `/exit${ENTER}`, 400],
+      ['', `/exit${ENTER}`, 400],
     ])
     const rows = screenAt(output, 'find: CALL').alternate
     expect(rows.some(row => row.includes('find: CALL'))).toBe(true)

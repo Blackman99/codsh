@@ -564,7 +564,7 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
     session: live.agent.session.id,
     readsKeys: io.console.readsKeys,
     resumed: config.resume !== '',
-  }, theme, io.console.columns)) io.console.write(line)
+  }, theme, io.console.contentColumns)) io.console.write(line)
 
   const disposers: (() => void)[] = []
   const commands = ctx.get('commands')
@@ -812,7 +812,7 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
           session: live.agent.session.id,
           readsKeys: io.console.readsKeys,
           resumed: false,
-        }, theme, io.console.columns)) prompt.write(line)
+        }, theme, io.console.contentColumns)) prompt.write(line)
         return { kind: 'success', text: `new session ${live.agent.session.id}` }
       },
     }))

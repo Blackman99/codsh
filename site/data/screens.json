@@ -25,45 +25,103 @@
         ],
         [
           {
-            "text": "me-GMfwJQ/.agent-presets/code-cli",
+            "text": "me-0OclMd/.agent-presets/code-cli",
             "pen": "38;5;245"
           }
         ],
         [],
         [
           {
-            "text": "  ██████╗ ██████╗ ██████╗ ███████╗██╗  ██╗",
-            "pen": "35"
+            "text": "         ",
+            "pen": ""
+          },
+          {
+            "text": "█▄▄",
+            "pen": "38;2;126;150;245"
           }
         ],
         [
           {
-            "text": " ██╔════╝██╔═══██╗██╔══██╗██╔════╝██║  ██║",
-            "pen": "35"
+            "text": "         ",
+            "pen": ""
+          },
+          {
+            "text": "█",
+            "pen": "38;2;126;150;245"
+          },
+          {
+            "text": " ",
+            "pen": ""
+          },
+          {
+            "text": "▀██",
+            "pen": "38;2;126;150;245"
           }
         ],
         [
           {
-            "text": " ██║     ██║   ██║██║  ██║███████╗███████║",
-            "pen": "35"
+            "text": "         ",
+            "pen": ""
+          },
+          {
+            "text": "█▄█▀▀",
+            "pen": "38;2;126;150;245"
           }
         ],
         [
           {
-            "text": " ██║     ██║   ██║██║  ██║╚════██║██╔══██║",
-            "pen": "35"
+            "text": "       ",
+            "pen": ""
+          },
+          {
+            "text": "▀██████▀",
+            "pen": "38;2;238;241;251"
           }
         ],
         [
           {
-            "text": " ╚██████╗╚██████╔╝██████╔╝███████║██║  ██║",
-            "pen": "35"
+            "text": "     ",
+            "pen": ""
+          },
+          {
+            "text": "█▄██▄▄██▄██▄",
+            "pen": "38;2;61;86;214"
           }
         ],
         [
           {
-            "text": "  ╚═════╝ ╚═════╝ ╚═════╝ ╚══════╝╚═╝  ╚═╝",
-            "pen": "35"
+            "text": "      ",
+            "pen": ""
+          },
+          {
+            "text": "▀▄▄",
+            "pen": "38;2;61;86;214"
+          },
+          {
+            "text": " ",
+            "pen": ""
+          },
+          {
+            "text": "██",
+            "pen": "38;2;61;86;214"
+          },
+          {
+            "text": " ",
+            "pen": ""
+          },
+          {
+            "text": "▄▄▀",
+            "pen": "38;2;61;86;214"
+          }
+        ],
+        [
+          {
+            "text": "        ",
+            "pen": ""
+          },
+          {
+            "text": "▀█▄▄█▀",
+            "pen": "38;2;61;86;214"
           }
         ],
         [],
@@ -90,20 +148,14 @@
         ],
         [
           {
-            "text": "  session session-6610af68-744c-4499-98c7-d9bb135d6891",
+            "text": "  session session-970741c8-2234-4248-985b-cf860a957aef",
             "pen": "38;5;245"
           }
         ],
         [],
         [
           {
-            "text": "  /help for commands · Tab completes · ⇧Tab plan mode · ESC interrupts · /exit leav",
-            "pen": "38;5;245"
-          }
-        ],
-        [
-          {
-            "text": "…",
+            "text": "  /help for commands · Tab completes · ⇧Tab plan mode · ESC interrupts · /exit lea…",
             "pen": "38;5;245"
           }
         ],
@@ -144,11 +196,558 @@
             "pen": ""
           },
           {
-            "text": "Ask anything · / $ ! @ · ⇧Tab plan mode",
+            "text": "Ask anything · / for commands · $ for skills · ! shell · @ for files · ⇧Tab …",
             "pen": "38;5;245"
           },
           {
-            "text": "                  ",
+            "text": " ",
+            "pen": ""
+          },
+          {
+            "text": "│",
+            "pen": "38;5;245"
+          }
+        ],
+        [
+          {
+            "text": "╰─────────────────────────────────────────────────────────────────────────────────╯",
+            "pen": "38;5;245"
+          }
+        ],
+        [
+          {
+            "text": "cli-mock",
+            "pen": "36"
+          },
+          {
+            "text": " · code-cli · workspace-write · 0 tokens · ~/.cache/codsh/showcase",
+            "pen": "38;5;245"
+          }
+        ]
+      ]
+    },
+    {
+      "id": "complete",
+      "title": "Completion sits above the box",
+      "note": "Type / or $ and a fragment anywhere in the name is enough. The menu opens above the box, so the prompt does not jump.",
+      "keep": [
+        [
+          3,
+          33
+        ]
+      ],
+      "rows": [
+        [
+          {
+            "text": "installed preset into /var/folders/s6/7t1hr_t554l4nqkfxkpg8q2w0000gn/T/codsh-e2e-ho",
+            "pen": "38;5;245"
+          }
+        ],
+        [
+          {
+            "text": "me-AMOrQD/.agent-presets/code-cli",
+            "pen": "38;5;245"
+          }
+        ],
+        [],
+        [
+          {
+            "text": "         ",
+            "pen": ""
+          },
+          {
+            "text": "█▄▄",
+            "pen": "38;2;126;150;245"
+          }
+        ],
+        [
+          {
+            "text": "         ",
+            "pen": ""
+          },
+          {
+            "text": "█",
+            "pen": "38;2;126;150;245"
+          },
+          {
+            "text": " ",
+            "pen": ""
+          },
+          {
+            "text": "▀██",
+            "pen": "38;2;126;150;245"
+          }
+        ],
+        [
+          {
+            "text": "         ",
+            "pen": ""
+          },
+          {
+            "text": "█▄█▀▀",
+            "pen": "38;2;126;150;245"
+          }
+        ],
+        [
+          {
+            "text": "       ",
+            "pen": ""
+          },
+          {
+            "text": "▀██████▀",
+            "pen": "38;2;238;241;251"
+          }
+        ],
+        [
+          {
+            "text": "     ",
+            "pen": ""
+          },
+          {
+            "text": "█▄██▄▄██▄██▄",
+            "pen": "38;2;61;86;214"
+          }
+        ],
+        [
+          {
+            "text": "      ",
+            "pen": ""
+          },
+          {
+            "text": "▀▄▄",
+            "pen": "38;2;61;86;214"
+          },
+          {
+            "text": " ",
+            "pen": ""
+          },
+          {
+            "text": "██",
+            "pen": "38;2;61;86;214"
+          },
+          {
+            "text": " ",
+            "pen": ""
+          },
+          {
+            "text": "▄▄▀",
+            "pen": "38;2;61;86;214"
+          }
+        ],
+        [
+          {
+            "text": "        ",
+            "pen": ""
+          },
+          {
+            "text": "▀█▄▄█▀",
+            "pen": "38;2;61;86;214"
+          }
+        ],
+        [],
+        [
+          {
+            "text": " ",
+            "pen": ""
+          },
+          {
+            "text": "✻ Welcome to codsh",
+            "pen": "1"
+          },
+          {
+            "text": " · cli-mock · code-cli",
+            "pen": "38;5;245"
+          }
+        ],
+        [],
+        [
+          {
+            "text": "  ~/.cache/codsh/showcase",
+            "pen": "38;5;245"
+          }
+        ],
+        [
+          {
+            "text": "  session session-e01bb3f3-c4a0-48b4-978b-e21f7180d464",
+            "pen": "38;5;245"
+          }
+        ],
+        [],
+        [
+          {
+            "text": "  /help for commands · Tab completes · ⇧Tab plan mode · ESC interrupts · /exit lea…",
+            "pen": "38;5;245"
+          }
+        ],
+        [],
+        [],
+        [],
+        [],
+        [],
+        [],
+        [],
+        [],
+        [],
+        [
+          {
+            "text": "❯",
+            "pen": "35"
+          },
+          {
+            "text": " ",
+            "pen": ""
+          },
+          {
+            "text": "/p",
+            "pen": "4"
+          },
+          {
+            "text": "ermission",
+            "pen": ""
+          },
+          {
+            "text": "  Switch the permission preset (sandbox mode + approval policy)",
+            "pen": "38;5;245"
+          }
+        ],
+        [
+          {
+            "text": "  ",
+            "pen": ""
+          },
+          {
+            "text": "/p",
+            "pen": "4"
+          },
+          {
+            "text": "lan",
+            "pen": "38;5;245"
+          },
+          {
+            "text": "      ",
+            "pen": ""
+          },
+          {
+            "text": "  Enter or leave plan mode",
+            "pen": "38;5;245"
+          }
+        ],
+        [
+          {
+            "text": "  ",
+            "pen": ""
+          },
+          {
+            "text": "/shi",
+            "pen": "38;5;245"
+          },
+          {
+            "text": "p",
+            "pen": "4"
+          },
+          {
+            "text": "      ",
+            "pen": ""
+          },
+          {
+            "text": "  take a one-sentence idea to shipped code",
+            "pen": "38;5;245"
+          }
+        ],
+        [
+          {
+            "text": "  ",
+            "pen": ""
+          },
+          {
+            "text": "/com",
+            "pen": "38;5;245"
+          },
+          {
+            "text": "p",
+            "pen": "4"
+          },
+          {
+            "text": "act",
+            "pen": "38;5;245"
+          },
+          {
+            "text": "   ",
+            "pen": ""
+          },
+          {
+            "text": "  Compact older conversation history",
+            "pen": "38;5;245"
+          }
+        ],
+        [
+          {
+            "text": "╭─────────────────────────────────────────────────────────────────────────────────╮",
+            "pen": "38;5;245"
+          }
+        ],
+        [
+          {
+            "text": "│",
+            "pen": "38;5;245"
+          },
+          {
+            "text": " ",
+            "pen": ""
+          },
+          {
+            "text": "›",
+            "pen": "35"
+          },
+          {
+            "text": " /p                                                                            ",
+            "pen": ""
+          },
+          {
+            "text": "│",
+            "pen": "38;5;245"
+          }
+        ],
+        [
+          {
+            "text": "╰─────────────────────────────────────────────────────────────────────────────────╯",
+            "pen": "38;5;245"
+          }
+        ],
+        [
+          {
+            "text": "cli-mock",
+            "pen": "36"
+          },
+          {
+            "text": " · code-cli · workspace-write · 0 tokens · ~/.cache/codsh/showcase",
+            "pen": "38;5;245"
+          }
+        ]
+      ]
+    },
+    {
+      "id": "bang",
+      "title": "!cmd prints in the session",
+      "note": "The command and its output land as a bash card in the transcript, and the agent sees the result.",
+      "keep": [
+        [
+          18,
+          20
+        ],
+        [
+          30,
+          33
+        ]
+      ],
+      "rows": [
+        [
+          {
+            "text": "installed preset into /var/folders/s6/7t1hr_t554l4nqkfxkpg8q2w0000gn/T/codsh-e2e-ho",
+            "pen": "38;5;245"
+          }
+        ],
+        [
+          {
+            "text": "me-URuw2t/.agent-presets/code-cli",
+            "pen": "38;5;245"
+          }
+        ],
+        [],
+        [
+          {
+            "text": "         ",
+            "pen": ""
+          },
+          {
+            "text": "█▄▄",
+            "pen": "38;2;126;150;245"
+          }
+        ],
+        [
+          {
+            "text": "         ",
+            "pen": ""
+          },
+          {
+            "text": "█",
+            "pen": "38;2;126;150;245"
+          },
+          {
+            "text": " ",
+            "pen": ""
+          },
+          {
+            "text": "▀██",
+            "pen": "38;2;126;150;245"
+          }
+        ],
+        [
+          {
+            "text": "         ",
+            "pen": ""
+          },
+          {
+            "text": "█▄█▀▀",
+            "pen": "38;2;126;150;245"
+          }
+        ],
+        [
+          {
+            "text": "       ",
+            "pen": ""
+          },
+          {
+            "text": "▀██████▀",
+            "pen": "38;2;238;241;251"
+          }
+        ],
+        [
+          {
+            "text": "     ",
+            "pen": ""
+          },
+          {
+            "text": "█▄██▄▄██▄██▄",
+            "pen": "38;2;61;86;214"
+          }
+        ],
+        [
+          {
+            "text": "      ",
+            "pen": ""
+          },
+          {
+            "text": "▀▄▄",
+            "pen": "38;2;61;86;214"
+          },
+          {
+            "text": " ",
+            "pen": ""
+          },
+          {
+            "text": "██",
+            "pen": "38;2;61;86;214"
+          },
+          {
+            "text": " ",
+            "pen": ""
+          },
+          {
+            "text": "▄▄▀",
+            "pen": "38;2;61;86;214"
+          }
+        ],
+        [
+          {
+            "text": "        ",
+            "pen": ""
+          },
+          {
+            "text": "▀█▄▄█▀",
+            "pen": "38;2;61;86;214"
+          }
+        ],
+        [],
+        [
+          {
+            "text": " ",
+            "pen": ""
+          },
+          {
+            "text": "✻ Welcome to codsh",
+            "pen": "1"
+          },
+          {
+            "text": " · cli-mock · code-cli",
+            "pen": "38;5;245"
+          }
+        ],
+        [],
+        [
+          {
+            "text": "  ~/.cache/codsh/showcase",
+            "pen": "38;5;245"
+          }
+        ],
+        [
+          {
+            "text": "  session session-134134d5-ffeb-4ebd-b138-574dae6ef245",
+            "pen": "38;5;245"
+          }
+        ],
+        [],
+        [
+          {
+            "text": "  /help for commands · Tab completes · ⇧Tab plan mode · ESC interrupts · /exit lea…",
+            "pen": "38;5;245"
+          }
+        ],
+        [],
+        [
+          {
+            "text": "●",
+            "pen": "33"
+          },
+          {
+            "text": " ",
+            "pen": ""
+          },
+          {
+            "text": "bash",
+            "pen": "36"
+          }
+        ],
+        [
+          {
+            "text": "  $ echo SHOWCASE_BANG",
+            "pen": ""
+          }
+        ],
+        [
+          {
+            "text": "  SHOWCASE_BANG",
+            "pen": ""
+          }
+        ],
+        [],
+        [],
+        [],
+        [],
+        [],
+        [],
+        [],
+        [],
+        [],
+        [
+          {
+            "text": "╭─────────────────────────────────────────────────────────────────────────────────╮",
+            "pen": "38;5;245"
+          }
+        ],
+        [
+          {
+            "text": "│",
+            "pen": "38;5;245"
+          },
+          {
+            "text": " ",
+            "pen": ""
+          },
+          {
+            "text": "›",
+            "pen": "35"
+          },
+          {
+            "text": " ",
+            "pen": ""
+          },
+          {
+            "text": "Ask anything · / for commands · $ for skills · ! shell · @ for files · ⇧Tab …",
+            "pen": "38;5;245"
+          },
+          {
+            "text": " ",
             "pen": ""
           },
           {
@@ -197,45 +796,103 @@
         ],
         [
           {
-            "text": "me-FYMme4/.agent-presets/code-cli",
+            "text": "me-A6L7Ht/.agent-presets/code-cli",
             "pen": "38;5;245"
           }
         ],
         [],
         [
           {
-            "text": "  ██████╗ ██████╗ ██████╗ ███████╗██╗  ██╗",
-            "pen": "35"
+            "text": "         ",
+            "pen": ""
+          },
+          {
+            "text": "█▄▄",
+            "pen": "38;2;126;150;245"
           }
         ],
         [
           {
-            "text": " ██╔════╝██╔═══██╗██╔══██╗██╔════╝██║  ██║",
-            "pen": "35"
+            "text": "         ",
+            "pen": ""
+          },
+          {
+            "text": "█",
+            "pen": "38;2;126;150;245"
+          },
+          {
+            "text": " ",
+            "pen": ""
+          },
+          {
+            "text": "▀██",
+            "pen": "38;2;126;150;245"
           }
         ],
         [
           {
-            "text": " ██║     ██║   ██║██║  ██║███████╗███████║",
-            "pen": "35"
+            "text": "         ",
+            "pen": ""
+          },
+          {
+            "text": "█▄█▀▀",
+            "pen": "38;2;126;150;245"
           }
         ],
         [
           {
-            "text": " ██║     ██║   ██║██║  ██║╚════██║██╔══██║",
-            "pen": "35"
+            "text": "       ",
+            "pen": ""
+          },
+          {
+            "text": "▀██████▀",
+            "pen": "38;2;238;241;251"
           }
         ],
         [
           {
-            "text": " ╚██████╗╚██████╔╝██████╔╝███████║██║  ██║",
-            "pen": "35"
+            "text": "     ",
+            "pen": ""
+          },
+          {
+            "text": "█▄██▄▄██▄██▄",
+            "pen": "38;2;61;86;214"
           }
         ],
         [
           {
-            "text": "  ╚═════╝ ╚═════╝ ╚═════╝ ╚══════╝╚═╝  ╚═╝",
-            "pen": "35"
+            "text": "      ",
+            "pen": ""
+          },
+          {
+            "text": "▀▄▄",
+            "pen": "38;2;61;86;214"
+          },
+          {
+            "text": " ",
+            "pen": ""
+          },
+          {
+            "text": "██",
+            "pen": "38;2;61;86;214"
+          },
+          {
+            "text": " ",
+            "pen": ""
+          },
+          {
+            "text": "▄▄▀",
+            "pen": "38;2;61;86;214"
+          }
+        ],
+        [
+          {
+            "text": "        ",
+            "pen": ""
+          },
+          {
+            "text": "▀█▄▄█▀",
+            "pen": "38;2;61;86;214"
           }
         ],
         [],
@@ -262,20 +919,14 @@
         ],
         [
           {
-            "text": "  session session-66329788-172c-4dc4-8824-ddecc5f44735",
+            "text": "  session session-6916eee0-5bb8-4011-a52a-6ba631e29a7d",
             "pen": "38;5;245"
           }
         ],
         [],
         [
           {
-            "text": "  /help for commands · Tab completes · ⇧Tab plan mode · ESC interrupts · /exit leav",
-            "pen": "38;5;245"
-          }
-        ],
-        [
-          {
-            "text": "…",
+            "text": "  /help for commands · Tab completes · ⇧Tab plan mode · ESC interrupts · /exit lea…",
             "pen": "38;5;245"
           }
         ],
@@ -355,11 +1006,11 @@
             "pen": ""
           },
           {
-            "text": "Ask anything · / $ ! @ · ⇧Tab plan mode",
+            "text": "Ask anything · / for commands · $ for skills · ! shell · @ for files · ⇧Tab …",
             "pen": "38;5;245"
           },
           {
-            "text": "                  ",
+            "text": " ",
             "pen": ""
           },
           {
@@ -383,7 +1034,7 @@
             "pen": ""
           },
           {
-            "text": "0.0s · ESC to interrupt",
+            "text": "0.0s · 14 tokens · ESC to interrupt",
             "pen": "38;5;245"
           }
         ],
@@ -402,14 +1053,14 @@
     {
       "id": "fold-hover",
       "title": "A block says what it is under the pointer",
-      "note": "Resting on a fold underlines its head row and names it below the box — what a click will do, before it lands.",
+      "note": "Resting on a fold fills the block and names it on the chrome row — what a click will do, before it lands.",
       "keep": [
         [
           17,
           24
         ],
         [
-          29,
+          30,
           33
         ]
       ],
@@ -422,45 +1073,103 @@
         ],
         [
           {
-            "text": "me-yCy8aD/.agent-presets/code-cli",
+            "text": "me-Z8dhne/.agent-presets/code-cli",
             "pen": "38;5;245"
           }
         ],
         [],
         [
           {
-            "text": "  ██████╗ ██████╗ ██████╗ ███████╗██╗  ██╗",
-            "pen": "35"
+            "text": "         ",
+            "pen": ""
+          },
+          {
+            "text": "█▄▄",
+            "pen": "38;2;126;150;245"
           }
         ],
         [
           {
-            "text": " ██╔════╝██╔═══██╗██╔══██╗██╔════╝██║  ██║",
-            "pen": "35"
+            "text": "         ",
+            "pen": ""
+          },
+          {
+            "text": "█",
+            "pen": "38;2;126;150;245"
+          },
+          {
+            "text": " ",
+            "pen": ""
+          },
+          {
+            "text": "▀██",
+            "pen": "38;2;126;150;245"
           }
         ],
         [
           {
-            "text": " ██║     ██║   ██║██║  ██║███████╗███████║",
-            "pen": "35"
+            "text": "         ",
+            "pen": ""
+          },
+          {
+            "text": "█▄█▀▀",
+            "pen": "38;2;126;150;245"
           }
         ],
         [
           {
-            "text": " ██║     ██║   ██║██║  ██║╚════██║██╔══██║",
-            "pen": "35"
+            "text": "       ",
+            "pen": ""
+          },
+          {
+            "text": "▀██████▀",
+            "pen": "38;2;238;241;251"
           }
         ],
         [
           {
-            "text": " ╚██████╗╚██████╔╝██████╔╝███████║██║  ██║",
-            "pen": "35"
+            "text": "     ",
+            "pen": ""
+          },
+          {
+            "text": "█▄██▄▄██▄██▄",
+            "pen": "38;2;61;86;214"
           }
         ],
         [
           {
-            "text": "  ╚═════╝ ╚═════╝ ╚═════╝ ╚══════╝╚═╝  ╚═╝",
-            "pen": "35"
+            "text": "      ",
+            "pen": ""
+          },
+          {
+            "text": "▀▄▄",
+            "pen": "38;2;61;86;214"
+          },
+          {
+            "text": " ",
+            "pen": ""
+          },
+          {
+            "text": "██",
+            "pen": "38;2;61;86;214"
+          },
+          {
+            "text": " ",
+            "pen": ""
+          },
+          {
+            "text": "▄▄▀",
+            "pen": "38;2;61;86;214"
+          }
+        ],
+        [
+          {
+            "text": "        ",
+            "pen": ""
+          },
+          {
+            "text": "▀█▄▄█▀",
+            "pen": "38;2;61;86;214"
           }
         ],
         [],
@@ -487,20 +1196,14 @@
         ],
         [
           {
-            "text": "  session session-c7bbf342-34f3-43e3-8901-5ed50e49c815",
+            "text": "  session session-ab5af9dc-cdaf-4631-b7a1-bdf7e92419e9",
             "pen": "38;5;245"
           }
         ],
         [],
         [
           {
-            "text": "  /help for commands · Tab completes · ⇧Tab plan mode · ESC interrupts · /exit leav",
-            "pen": "38;5;245"
-          }
-        ],
-        [
-          {
-            "text": "…",
+            "text": "  /help for commands · Tab completes · ⇧Tab plan mode · ESC interrupts · /exit lea…",
             "pen": "38;5;245"
           }
         ],
@@ -519,7 +1222,7 @@
         [
           {
             "text": "✻ thought for 0.0s · +2 lines (click or Ctrl+O expands)",
-            "pen": "38;5;245;4"
+            "pen": "38;5;245"
           }
         ],
         [],
@@ -536,6 +1239,7 @@
             "pen": "38;5;245"
           }
         ],
+        [],
         [],
         [],
         [],
@@ -564,11 +1268,11 @@
             "pen": ""
           },
           {
-            "text": "Ask anything · / $ ! @ · ⇧Tab plan mode",
+            "text": "Ask anything · / for commands · $ for skills · ! shell · @ for files · ⇧Tab …",
             "pen": "38;5;245"
           },
           {
-            "text": "                  ",
+            "text": " ",
             "pen": ""
           },
           {
@@ -585,16 +1289,6 @@
         [
           {
             "text": "  thinking · 4 lines · click to expand",
-            "pen": "38;5;245"
-          }
-        ],
-        [
-          {
-            "text": "cli-mock",
-            "pen": "36"
-          },
-          {
-            "text": " · code-cli · workspace-write · 14 tokens · ~/.cache/codsh/showcase",
             "pen": "38;5;245"
           }
         ]
@@ -623,45 +1317,103 @@
         ],
         [
           {
-            "text": "me-eHwXaj/.agent-presets/code-cli",
+            "text": "me-MyHPS2/.agent-presets/code-cli",
             "pen": "38;5;245"
           }
         ],
         [],
         [
           {
-            "text": "  ██████╗ ██████╗ ██████╗ ███████╗██╗  ██╗",
-            "pen": "35"
+            "text": "         ",
+            "pen": ""
+          },
+          {
+            "text": "█▄▄",
+            "pen": "38;2;126;150;245"
           }
         ],
         [
           {
-            "text": " ██╔════╝██╔═══██╗██╔══██╗██╔════╝██║  ██║",
-            "pen": "35"
+            "text": "         ",
+            "pen": ""
+          },
+          {
+            "text": "█",
+            "pen": "38;2;126;150;245"
+          },
+          {
+            "text": " ",
+            "pen": ""
+          },
+          {
+            "text": "▀██",
+            "pen": "38;2;126;150;245"
           }
         ],
         [
           {
-            "text": " ██║     ██║   ██║██║  ██║███████╗███████║",
-            "pen": "35"
+            "text": "         ",
+            "pen": ""
+          },
+          {
+            "text": "█▄█▀▀",
+            "pen": "38;2;126;150;245"
           }
         ],
         [
           {
-            "text": " ██║     ██║   ██║██║  ██║╚════██║██╔══██║",
-            "pen": "35"
+            "text": "       ",
+            "pen": ""
+          },
+          {
+            "text": "▀██████▀",
+            "pen": "38;2;238;241;251"
           }
         ],
         [
           {
-            "text": " ╚██████╗╚██████╔╝██████╔╝███████║██║  ██║",
-            "pen": "35"
+            "text": "     ",
+            "pen": ""
+          },
+          {
+            "text": "█▄██▄▄██▄██▄",
+            "pen": "38;2;61;86;214"
           }
         ],
         [
           {
-            "text": "  ╚═════╝ ╚═════╝ ╚═════╝ ╚══════╝╚═╝  ╚═╝",
-            "pen": "35"
+            "text": "      ",
+            "pen": ""
+          },
+          {
+            "text": "▀▄▄",
+            "pen": "38;2;61;86;214"
+          },
+          {
+            "text": " ",
+            "pen": ""
+          },
+          {
+            "text": "██",
+            "pen": "38;2;61;86;214"
+          },
+          {
+            "text": " ",
+            "pen": ""
+          },
+          {
+            "text": "▄▄▀",
+            "pen": "38;2;61;86;214"
+          }
+        ],
+        [
+          {
+            "text": "        ",
+            "pen": ""
+          },
+          {
+            "text": "▀█▄▄█▀",
+            "pen": "38;2;61;86;214"
           }
         ],
         [],
@@ -688,20 +1440,14 @@
         ],
         [
           {
-            "text": "  session session-1e2932d9-153a-409e-9416-05e3834bf005",
+            "text": "  session session-4c848e9f-8f3d-4cfc-b27b-e7c6a9b8fb25",
             "pen": "38;5;245"
           }
         ],
         [],
         [
           {
-            "text": "  /help for commands · Tab completes · ⇧Tab plan mode · ESC interrupts · /exit leav",
-            "pen": "38;5;245"
-          }
-        ],
-        [
-          {
-            "text": "…",
+            "text": "  /help for commands · Tab completes · ⇧Tab plan mode · ESC interrupts · /exit lea…",
             "pen": "38;5;245"
           }
         ],
@@ -776,11 +1522,11 @@
             "pen": ""
           },
           {
-            "text": "Ask anything · / $ ! @ · ⇧Tab plan mode",
+            "text": "Ask anything · / for commands · $ for skills · ! shell · @ for files · ⇧Tab …",
             "pen": "38;5;245"
           },
           {
-            "text": "                  ",
+            "text": " ",
             "pen": ""
           },
           {
@@ -823,20 +1569,58 @@
       "rows": [
         [
           {
-            "text": " ██║     ██║   ██║██║  ██║╚════██║██╔══██║",
-            "pen": "35"
+            "text": "       ",
+            "pen": ""
+          },
+          {
+            "text": "▀██████▀",
+            "pen": "38;2;238;241;251"
           }
         ],
         [
           {
-            "text": " ╚██████╗╚██████╔╝██████╔╝███████║██║  ██║",
-            "pen": "35"
+            "text": "     ",
+            "pen": ""
+          },
+          {
+            "text": "█▄██▄▄██▄██▄",
+            "pen": "38;2;61;86;214"
           }
         ],
         [
           {
-            "text": "  ╚═════╝ ╚═════╝ ╚═════╝ ╚══════╝╚═╝  ╚═╝",
-            "pen": "35"
+            "text": "      ",
+            "pen": ""
+          },
+          {
+            "text": "▀▄▄",
+            "pen": "38;2;61;86;214"
+          },
+          {
+            "text": " ",
+            "pen": ""
+          },
+          {
+            "text": "██",
+            "pen": "38;2;61;86;214"
+          },
+          {
+            "text": " ",
+            "pen": ""
+          },
+          {
+            "text": "▄▄▀",
+            "pen": "38;2;61;86;214"
+          }
+        ],
+        [
+          {
+            "text": "        ",
+            "pen": ""
+          },
+          {
+            "text": "▀█▄▄█▀",
+            "pen": "38;2;61;86;214"
           }
         ],
         [],
@@ -863,20 +1647,14 @@
         ],
         [
           {
-            "text": "  session session-29becd9a-f7c5-4bf6-9ac2-33c0c011ee21",
+            "text": "  session session-78fbdfd2-3daa-40e1-80fc-903e3fe0578f",
             "pen": "38;5;245"
           }
         ],
         [],
         [
           {
-            "text": "  /help for commands · Tab completes · ⇧Tab plan mode · ESC interrupts · /exit leav",
-            "pen": "38;5;245"
-          }
-        ],
-        [
-          {
-            "text": "…",
+            "text": "  /help for commands · Tab completes · ⇧Tab plan mode · ESC interrupts · /exit lea…",
             "pen": "38;5;245"
           }
         ],
@@ -1028,11 +1806,11 @@
             "pen": ""
           },
           {
-            "text": "Ask anything · / $ ! @ · ⇧Tab plan mode",
+            "text": "Ask anything · / for commands · $ for skills · ! shell · @ for files · ⇧Tab …",
             "pen": "38;5;245"
           },
           {
-            "text": "                  ",
+            "text": " ",
             "pen": ""
           },
           {
@@ -1534,11 +2312,11 @@
             "pen": ""
           },
           {
-            "text": "Ask anything · / $ ! @ · ⇧Tab plan mode",
+            "text": "Ask anything · / for commands · $ for skills · ! shell · @ for files · ⇧Tab …",
             "pen": "38;5;245"
           },
           {
-            "text": "                  ",
+            "text": " ",
             "pen": ""
           },
           {
@@ -1601,45 +2379,103 @@
         ],
         [
           {
-            "text": "me-LiIObg/.agent-presets/code-cli",
+            "text": "me-DJGEo8/.agent-presets/code-cli",
             "pen": "38;5;245"
           }
         ],
         [],
         [
           {
-            "text": "  ██████╗ ██████╗ ██████╗ ███████╗██╗  ██╗",
-            "pen": "35"
+            "text": "         ",
+            "pen": ""
+          },
+          {
+            "text": "█▄▄",
+            "pen": "38;2;126;150;245"
           }
         ],
         [
           {
-            "text": " ██╔════╝██╔═══██╗██╔══██╗██╔════╝██║  ██║",
-            "pen": "35"
+            "text": "         ",
+            "pen": ""
+          },
+          {
+            "text": "█",
+            "pen": "38;2;126;150;245"
+          },
+          {
+            "text": " ",
+            "pen": ""
+          },
+          {
+            "text": "▀██",
+            "pen": "38;2;126;150;245"
           }
         ],
         [
           {
-            "text": " ██║     ██║   ██║██║  ██║███████╗███████║",
-            "pen": "35"
+            "text": "         ",
+            "pen": ""
+          },
+          {
+            "text": "█▄█▀▀",
+            "pen": "38;2;126;150;245"
           }
         ],
         [
           {
-            "text": " ██║     ██║   ██║██║  ██║╚════██║██╔══██║",
-            "pen": "35"
+            "text": "       ",
+            "pen": ""
+          },
+          {
+            "text": "▀██████▀",
+            "pen": "38;2;238;241;251"
           }
         ],
         [
           {
-            "text": " ╚██████╗╚██████╔╝██████╔╝███████║██║  ██║",
-            "pen": "35"
+            "text": "     ",
+            "pen": ""
+          },
+          {
+            "text": "█▄██▄▄██▄██▄",
+            "pen": "38;2;61;86;214"
           }
         ],
         [
           {
-            "text": "  ╚═════╝ ╚═════╝ ╚═════╝ ╚══════╝╚═╝  ╚═╝",
-            "pen": "35"
+            "text": "      ",
+            "pen": ""
+          },
+          {
+            "text": "▀▄▄",
+            "pen": "38;2;61;86;214"
+          },
+          {
+            "text": " ",
+            "pen": ""
+          },
+          {
+            "text": "██",
+            "pen": "38;2;61;86;214"
+          },
+          {
+            "text": " ",
+            "pen": ""
+          },
+          {
+            "text": "▄▄▀",
+            "pen": "38;2;61;86;214"
+          }
+        ],
+        [
+          {
+            "text": "        ",
+            "pen": ""
+          },
+          {
+            "text": "▀█▄▄█▀",
+            "pen": "38;2;61;86;214"
           }
         ],
         [],
@@ -1666,20 +2502,14 @@
         ],
         [
           {
-            "text": "  session session-e81f2247-9dbd-4e1e-afc1-efc009a5578d",
+            "text": "  session session-0ebd1344-634d-4b05-90a7-4af90a674c9e",
             "pen": "38;5;245"
           }
         ],
         [],
         [
           {
-            "text": "  /help for commands · Tab completes · ⇧Tab plan mode · ESC interrupts · /exit leav",
-            "pen": "38;5;245"
-          }
-        ],
-        [
-          {
-            "text": "…",
+            "text": "  /help for commands · Tab completes · ⇧Tab plan mode · ESC interrupts · /exit lea…",
             "pen": "38;5;245"
           }
         ],
@@ -1725,11 +2555,11 @@
             "pen": ""
           },
           {
-            "text": "Ask anything · / $ ! @ · ⇧Tab plan mode",
+            "text": "Ask anything · / for commands · $ for skills · ! shell · @ for files · ⇧Tab …",
             "pen": "38;5;245"
           },
           {
-            "text": "                  ",
+            "text": " ",
             "pen": ""
           },
           {

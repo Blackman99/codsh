@@ -171,7 +171,7 @@ describe('the viewport it owns on a terminal', () => {
   function painted(data: string): Map<number, string> {
     const rows = new Map<number, string>()
     for (const match of data.matchAll(/\u001B\[(\d+);1H\u001B\[K([^\u001B]*)/gu)) {
-      rows.set(Number(match[1]), match[2] ?? '')
+      rows.set(Number(match[1]), (match[2] ?? '').slice(2))
     }
     return rows
   }

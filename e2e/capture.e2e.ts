@@ -119,7 +119,7 @@ function keepRanges(rows: Run[][], from?: string): [number, number][] {
   // The input box's top edge is where the chrome begins. Scanning up for the
   // first blank row instead would stop inside the chrome, whose hint row is
   // empty until something has a hint to give.
-  const box = rows.findIndex(row => plain(row).startsWith('╭─'))
+  const box = rows.findIndex(row => plain(row).trimStart().startsWith('╭─'))
   const chrome = box > start ? box : -1
   if (chrome < 0) return [[start, rows.length - 1]]
   let content = chrome - 1
@@ -170,7 +170,7 @@ describe.skipIf(process.env.CAPTURE_SCREENS === undefined)('showcase frames', ()
       scenes.push({ ...rest, keep: keepRanges(rows, from), rows })
     }
 
-    // The first thing anyone sees: the lettermark, the box, the status row.
+    // The first thing anyone sees: the mark, the box, the status row.
     await capture(
       { id: 'welcome', title: 'A session that is its own space', note: 'The alternate screen, the input box pinned to the bottom, and the status row that is always current.' },
       'write',
@@ -179,6 +179,31 @@ describe.skipIf(process.env.CAPTURE_SCREENS === undefined)('showcase frames', ()
       // marker to stop at: it names a screen the person never sees alone.
       'Ask anything',
       'first',
+    )
+
+    // Completion sits above the box, matching a fragment anywhere in the name.
+    await capture(
+      {
+        id: 'complete',
+        title: 'Completion sits above the box',
+        note: 'Type / or $ and a fragment anywhere in the name is enough. The menu opens above the box, so the prompt does not jump.',
+      },
+      'write',
+      [['Ask anything', '/p', 400], ['Enter or leave plan mode', '', 500], ['', `\u0015/exit${ENTER}`, 600]],
+      'Enter or leave plan mode',
+    )
+
+    // A ! line prints as a bash card in the transcript.
+    await capture(
+      {
+        id: 'bang',
+        title: '!cmd prints in the session',
+        note: 'The command and its output land as a bash card in the transcript, and the agent sees the result.',
+        from: '$ echo',
+      },
+      'echo',
+      [['Ask anything', `!echo SHOWCASE_BANG${ENTER}`, 300], ['SHOWCASE_BANG', '', 800], ['', `/exit${ENTER}`, 400]],
+      'SHOWCASE_BANG',
     )
 
     // A tool call rendered as its card, with the diff the presenter produced.
@@ -191,7 +216,7 @@ describe.skipIf(process.env.CAPTURE_SCREENS === undefined)('showcase frames', ()
 
     // Thinking collapsed to one line, and the readout naming it on hover.
     await capture(
-      { id: 'fold-hover', title: 'A block says what it is under the pointer', note: 'Resting on a fold underlines its head row and names it below the box — what a click will do, before it lands.', from: '› think it over' },
+      { id: 'fold-hover', title: 'A block says what it is under the pointer', note: 'Resting on a fold fills the block and names it on the chrome row — what a click will do, before it lands.', from: '› think it over' },
       'reasoning',
       [['Welcome to codsh', `think it over${ENTER}`, 300], ['thought for', moveOnto('thought for'), 900], ['', `/exit${ENTER}`, 400]],
       'click to expand',

@@ -157,14 +157,18 @@
         <input type="radio" name="scene" id="s-5">
         <input type="radio" name="scene" id="s-6">
         <input type="radio" name="scene" id="s-7">
+        <input type="radio" name="scene" id="s-8">
+        <input type="radio" name="scene" id="s-9">
         <div class="scenes__tabs" role="tablist" aria-label="Pick a scene">
           <label class="scenes__tab" for="s-1">Welcome</label>
-          <label class="scenes__tab" for="s-2">Tool cards</label>
-          <label class="scenes__tab" for="s-3">Hover</label>
-          <label class="scenes__tab" for="s-4">Click to open</label>
-          <label class="scenes__tab" for="s-5">Todos</label>
-          <label class="scenes__tab" for="s-6">Markdown</label>
-          <label class="scenes__tab" for="s-7">Plan mode</label>
+          <label class="scenes__tab" for="s-2">Complete</label>
+          <label class="scenes__tab" for="s-3">Shell</label>
+          <label class="scenes__tab" for="s-4">Tool cards</label>
+          <label class="scenes__tab" for="s-5">Hover</label>
+          <label class="scenes__tab" for="s-6">Click to open</label>
+          <label class="scenes__tab" for="s-7">Todos</label>
+          <label class="scenes__tab" for="s-8">Markdown</label>
+          <label class="scenes__tab" for="s-9">Plan mode</label>
         </div>
         <div class="scenes__panels">
         <div data-scene="1">
@@ -175,23 +179,23 @@
               <span class="frame__real">real capture</span>
             </div>
             <div class="screen"><code class="screen__rows">
-<span class="row"><span class="c-user">  ██████╗ ██████╗ ██████╗ ███████╗██╗  ██╗</span></span>
-<span class="row"><span class="c-user"> ██╔════╝██╔═══██╗██╔══██╗██╔════╝██║  ██║</span></span>
-<span class="row"><span class="c-user"> ██║     ██║   ██║██║  ██║███████╗███████║</span></span>
-<span class="row"><span class="c-user"> ██║     ██║   ██║██║  ██║╚════██║██╔══██║</span></span>
-<span class="row"><span class="c-user"> ╚██████╗╚██████╔╝██████╔╝███████║██║  ██║</span></span>
-<span class="row"><span class="c-user">  ╚═════╝ ╚═════╝ ╚═════╝ ╚══════╝╚═╝  ╚═╝</span></span>
+<span class="row">         <span style="color:rgb(126,150,245)">█▄▄</span></span>
+<span class="row">         <span style="color:rgb(126,150,245)">█</span> <span style="color:rgb(126,150,245)">▀██</span></span>
+<span class="row">         <span style="color:rgb(126,150,245)">█▄█▀▀</span></span>
+<span class="row">       <span style="color:rgb(238,241,251)">▀██████▀</span></span>
+<span class="row">     <span style="color:rgb(61,86,214)">█▄██▄▄██▄██▄</span></span>
+<span class="row">      <span style="color:rgb(61,86,214)">▀▄▄</span> <span style="color:rgb(61,86,214)">██</span> <span style="color:rgb(61,86,214)">▄▄▀</span></span>
+<span class="row">        <span style="color:rgb(61,86,214)">▀█▄▄█▀</span></span>
 <span class="row"> </span>
 <span class="row"> <span class="a-bold">✻ Welcome to codsh</span><span class="c-dim"> · cli-mock · code-cli</span></span>
 <span class="row"> </span>
 <span class="row"><span class="c-dim">  ~/.cache/codsh/showcase</span></span>
-<span class="row"><span class="c-dim">  session session-6610af68-744c-4499-98c7-d9bb135d6891</span></span>
+<span class="row"><span class="c-dim">  session session-970741c8-2234-4248-985b-cf860a957aef</span></span>
 <span class="row"> </span>
-<span class="row"><span class="c-dim">  /help for commands · Tab completes · ⇧Tab plan mode · ESC interrupts · /exit leav</span></span>
-<span class="row"><span class="c-dim">…</span></span>
+<span class="row"><span class="c-dim">  /help for commands · Tab completes · ⇧Tab plan mode · ESC interrupts · /exit lea…</span></span>
 <span class="gap"></span>
 <span class="row"><span class="c-dim">╭─────────────────────────────────────────────────────────────────────────────────╮</span></span>
-<span class="row"><span class="c-dim">│</span> <span class="c-user">›</span> <span class="c-dim">Ask anything · / $ ! @ · ⇧Tab plan mode</span>                  <span class="c-dim">│</span></span>
+<span class="row"><span class="c-dim">│</span> <span class="c-user">›</span> <span class="c-dim">Ask anything · / for commands · $ for skills · ! shell · @ for files · ⇧Tab …</span> <span class="c-dim">│</span></span>
 <span class="row"><span class="c-dim">╰─────────────────────────────────────────────────────────────────────────────────╯</span></span>
 <span class="row"><span class="c-tool">cli-mock</span><span class="c-dim"> · code-cli · workspace-write · 0 tokens · ~/.cache/codsh/showcase</span></span>
 </code></div>
@@ -199,6 +203,69 @@
           <p class="caption">The alternate screen, the input box pinned to the bottom, and the status row that is always current.</p>
         </div>
         <div data-scene="2">
+          <figure class="frame">
+            <div class="frame__bar">
+              <i class="shell__dot"></i><i class="shell__dot"></i><i class="shell__dot"></i>
+              <b>Completion sits above the box</b>
+              <span class="frame__real">real capture</span>
+            </div>
+            <div class="screen"><code class="screen__rows">
+<span class="row">         <span style="color:rgb(126,150,245)">█▄▄</span></span>
+<span class="row">         <span style="color:rgb(126,150,245)">█</span> <span style="color:rgb(126,150,245)">▀██</span></span>
+<span class="row">         <span style="color:rgb(126,150,245)">█▄█▀▀</span></span>
+<span class="row">       <span style="color:rgb(238,241,251)">▀██████▀</span></span>
+<span class="row">     <span style="color:rgb(61,86,214)">█▄██▄▄██▄██▄</span></span>
+<span class="row">      <span style="color:rgb(61,86,214)">▀▄▄</span> <span style="color:rgb(61,86,214)">██</span> <span style="color:rgb(61,86,214)">▄▄▀</span></span>
+<span class="row">        <span style="color:rgb(61,86,214)">▀█▄▄█▀</span></span>
+<span class="row"> </span>
+<span class="row"> <span class="a-bold">✻ Welcome to codsh</span><span class="c-dim"> · cli-mock · code-cli</span></span>
+<span class="row"> </span>
+<span class="row"><span class="c-dim">  ~/.cache/codsh/showcase</span></span>
+<span class="row"><span class="c-dim">  session session-e01bb3f3-c4a0-48b4-978b-e21f7180d464</span></span>
+<span class="row"> </span>
+<span class="row"><span class="c-dim">  /help for commands · Tab completes · ⇧Tab plan mode · ESC interrupts · /exit lea…</span></span>
+<span class="row"> </span>
+<span class="row"> </span>
+<span class="row"> </span>
+<span class="row"> </span>
+<span class="row"> </span>
+<span class="row"> </span>
+<span class="row"> </span>
+<span class="row"> </span>
+<span class="row"> </span>
+<span class="row"><span class="c-user">❯</span> <span class="a-underline">/p</span>ermission<span class="c-dim">  Switch the permission preset (sandbox mode + approval policy)</span></span>
+<span class="row">  <span class="a-underline">/p</span><span class="c-dim">lan</span>      <span class="c-dim">  Enter or leave plan mode</span></span>
+<span class="row">  <span class="c-dim">/shi</span><span class="a-underline">p</span>      <span class="c-dim">  take a one-sentence idea to shipped code</span></span>
+<span class="row">  <span class="c-dim">/com</span><span class="a-underline">p</span><span class="c-dim">act</span>   <span class="c-dim">  Compact older conversation history</span></span>
+<span class="row"><span class="c-dim">╭─────────────────────────────────────────────────────────────────────────────────╮</span></span>
+<span class="row"><span class="c-dim">│</span> <span class="c-user">›</span> /p                                                                            <span class="c-dim">│</span></span>
+<span class="row"><span class="c-dim">╰─────────────────────────────────────────────────────────────────────────────────╯</span></span>
+<span class="row"><span class="c-tool">cli-mock</span><span class="c-dim"> · code-cli · workspace-write · 0 tokens · ~/.cache/codsh/showcase</span></span>
+</code></div>
+          </figure>
+          <p class="caption">Type / or $ and a fragment anywhere in the name is enough. The menu opens above the box, so the prompt does not jump.</p>
+        </div>
+        <div data-scene="3">
+          <figure class="frame">
+            <div class="frame__bar">
+              <i class="shell__dot"></i><i class="shell__dot"></i><i class="shell__dot"></i>
+              <b>!cmd prints in the session</b>
+              <span class="frame__real">real capture</span>
+            </div>
+            <div class="screen"><code class="screen__rows">
+<span class="row"><span class="c-pending">●</span> <span class="c-tool">bash</span></span>
+<span class="row">  $ echo SHOWCASE_BANG</span>
+<span class="row">  SHOWCASE_BANG</span>
+<span class="gap"></span>
+<span class="row"><span class="c-dim">╭─────────────────────────────────────────────────────────────────────────────────╮</span></span>
+<span class="row"><span class="c-dim">│</span> <span class="c-user">›</span> <span class="c-dim">Ask anything · / for commands · $ for skills · ! shell · @ for files · ⇧Tab …</span> <span class="c-dim">│</span></span>
+<span class="row"><span class="c-dim">╰─────────────────────────────────────────────────────────────────────────────────╯</span></span>
+<span class="row"><span class="c-tool">cli-mock</span><span class="c-dim"> · code-cli · workspace-write · 0 tokens · ~/.cache/codsh/showcase</span></span>
+</code></div>
+          </figure>
+          <p class="caption">The command and its output land as a bash card in the transcript, and the agent sees the result.</p>
+        </div>
+        <div data-scene="4">
           <figure class="frame">
             <div class="frame__bar">
               <i class="shell__dot"></i><i class="shell__dot"></i><i class="shell__dot"></i>
@@ -215,15 +282,15 @@
 <span class="row">CODE_CLI_CALL_OK via cli-mock</span>
 <span class="gap"></span>
 <span class="row"><span class="c-dim">╭─────────────────────────────────────────────────────────────────────────────────╮</span></span>
-<span class="row"><span class="c-dim">│</span> <span class="c-user">›</span> <span class="c-dim">Ask anything · / $ ! @ · ⇧Tab plan mode</span>                  <span class="c-dim">│</span></span>
+<span class="row"><span class="c-dim">│</span> <span class="c-user">›</span> <span class="c-dim">Ask anything · / for commands · $ for skills · ! shell · @ for files · ⇧Tab …</span> <span class="c-dim">│</span></span>
 <span class="row"><span class="c-dim">╰─────────────────────────────────────────────────────────────────────────────────╯</span></span>
-<span class="row"><span class="c-pending">⠋</span> working <span class="c-dim">0.0s · ESC to interrupt</span></span>
+<span class="row"><span class="c-pending">⠋</span> working <span class="c-dim">0.0s · 14 tokens · ESC to interrupt</span></span>
 <span class="row"><span class="c-tool">cli-mock</span><span class="c-dim"> · code-cli · workspace-write · 26 tokens · ~/.cache/codsh/showcase</span></span>
 </code></div>
           </figure>
           <p class="caption">Every call renders through its presenter — a title, a status, and a diff — under a rule down the block’s left edge.</p>
         </div>
-        <div data-scene="3">
+        <div data-scene="5">
           <figure class="frame">
             <div class="frame__bar">
               <i class="shell__dot"></i><i class="shell__dot"></i><i class="shell__dot"></i>
@@ -234,22 +301,21 @@
 <span class="row"> </span>
 <span class="row"><span class="c-user">┃ ›</span> think it over</span>
 <span class="row"> </span>
-<span class="row"><span class="c-dim a-underline">✻ thought for 0.0s · +2 lines (click or Ctrl+O expands)</span></span>
+<span class="row"><span class="c-dim">✻ thought for 0.0s · +2 lines (click or Ctrl+O expands)</span></span>
 <span class="row"> </span>
 <span class="row">CODE_CLI_ANSWER after thinking</span>
 <span class="row"> </span>
 <span class="row"><span class="c-dim">  0.0s · 14 tokens</span></span>
 <span class="gap"></span>
 <span class="row"><span class="c-dim">╭─────────────────────────────────────────────────────────────────────────────────╮</span></span>
-<span class="row"><span class="c-dim">│</span> <span class="c-user">›</span> <span class="c-dim">Ask anything · / $ ! @ · ⇧Tab plan mode</span>                  <span class="c-dim">│</span></span>
+<span class="row"><span class="c-dim">│</span> <span class="c-user">›</span> <span class="c-dim">Ask anything · / for commands · $ for skills · ! shell · @ for files · ⇧Tab …</span> <span class="c-dim">│</span></span>
 <span class="row"><span class="c-dim">╰─────────────────────────────────────────────────────────────────────────────────╯</span></span>
 <span class="row"><span class="c-dim">  thinking · 4 lines · click to expand</span></span>
-<span class="row"><span class="c-tool">cli-mock</span><span class="c-dim"> · code-cli · workspace-write · 14 tokens · ~/.cache/codsh/showcase</span></span>
 </code></div>
           </figure>
-          <p class="caption">Resting on a fold underlines its head row and names it below the box — what a click will do, before it lands.</p>
+          <p class="caption">Resting on a fold fills the block and names it on the chrome row — what a click will do, before it lands.</p>
         </div>
-        <div data-scene="4">
+        <div data-scene="6">
           <figure class="frame">
             <div class="frame__bar">
               <i class="shell__dot"></i><i class="shell__dot"></i><i class="shell__dot"></i>
@@ -269,14 +335,14 @@
 <span class="row"><span class="c-dim">  0.0s · 14 tokens</span></span>
 <span class="gap"></span>
 <span class="row"><span class="c-dim">╭─────────────────────────────────────────────────────────────────────────────────╮</span></span>
-<span class="row"><span class="c-dim">│</span> <span class="c-user">›</span> <span class="c-dim">Ask anything · / $ ! @ · ⇧Tab plan mode</span>                  <span class="c-dim">│</span></span>
+<span class="row"><span class="c-dim">│</span> <span class="c-user">›</span> <span class="c-dim">Ask anything · / for commands · $ for skills · ! shell · @ for files · ⇧Tab …</span> <span class="c-dim">│</span></span>
 <span class="row"><span class="c-dim">╰─────────────────────────────────────────────────────────────────────────────────╯</span></span>
 <span class="row"><span class="c-tool">cli-mock</span><span class="c-dim"> · code-cli · workspace-write · 14 tokens · ~/.cache/codsh/showcase</span></span>
 </code></div>
           </figure>
           <p class="caption">A click opens the block it lands on and a click anywhere inside folds it back; Ctrl+O still swaps every one at once.</p>
         </div>
-        <div data-scene="5">
+        <div data-scene="7">
           <figure class="frame">
             <div class="frame__bar">
               <i class="shell__dot"></i><i class="shell__dot"></i><i class="shell__dot"></i>
@@ -300,7 +366,7 @@
 <span class="row"><span class="c-dim">  0.1s · 26 tokens</span></span>
 <span class="gap"></span>
 <span class="row"><span class="c-dim">╭─────────────────────────────────────────────────────────────────────────────────╮</span></span>
-<span class="row"><span class="c-dim">│</span> <span class="c-user">›</span> <span class="c-dim">Ask anything · / $ ! @ · ⇧Tab plan mode</span>                  <span class="c-dim">│</span></span>
+<span class="row"><span class="c-dim">│</span> <span class="c-user">›</span> <span class="c-dim">Ask anything · / for commands · $ for skills · ! shell · @ for files · ⇧Tab …</span> <span class="c-dim">│</span></span>
 <span class="row"><span class="c-dim">╰─────────────────────────────────────────────────────────────────────────────────╯</span></span>
 <span class="row"><span class="c-tool">todos</span> <span class="c-dim">1/3 · 1 in progress · 1 open · Ctrl+T closes</span></span>
 <span class="row">  <span class="c-ok">✔</span> <span class="c-dim">read the code</span></span>
@@ -311,7 +377,7 @@
           </figure>
           <p class="caption">A pinned row holds the agent’s list over the status row instead of scrolling away with the write; Ctrl+T opens it whole.</p>
         </div>
-        <div data-scene="6">
+        <div data-scene="8">
           <figure class="frame">
             <div class="frame__bar">
               <i class="shell__dot"></i><i class="shell__dot"></i><i class="shell__dot"></i>
@@ -349,7 +415,7 @@
 <span class="row"> </span>
 <span class="row"><span class="c-dim">CODE_CLI_CALL_STREAM_DONE</span></span>
 <span class="row"><span class="c-dim">╭─────────────────────────────────────────────────────────────────────────────────╮</span></span>
-<span class="row"><span class="c-dim">│</span> <span class="c-user">›</span> <span class="c-dim">Ask anything · / $ ! @ · ⇧Tab plan mode</span>                  <span class="c-dim">│</span></span>
+<span class="row"><span class="c-dim">│</span> <span class="c-user">›</span> <span class="c-dim">Ask anything · / for commands · $ for skills · ! shell · @ for files · ⇧Tab …</span> <span class="c-dim">│</span></span>
 <span class="row"><span class="c-dim">╰─────────────────────────────────────────────────────────────────────────────────╯</span></span>
 <span class="row"><span class="c-pending">⠋</span> working <span class="c-dim">0.0s · ESC to interrupt</span></span>
 <span class="row"><span class="c-tool">cli-mock</span><span class="c-dim"> · code-cli · workspace-write · 0 tokens · ~/.cache/codsh/showcase</span></span>
@@ -357,7 +423,7 @@
           </figure>
           <p class="caption">Tables get real columns, code gets highlighted, and emphasis markers are consumed instead of printed.</p>
         </div>
-        <div data-scene="7">
+        <div data-scene="9">
           <figure class="frame">
             <div class="frame__bar">
               <i class="shell__dot"></i><i class="shell__dot"></i><i class="shell__dot"></i>
@@ -365,25 +431,25 @@
               <span class="frame__real">real capture</span>
             </div>
             <div class="screen"><code class="screen__rows">
-<span class="row"><span class="c-user">  ██████╗ ██████╗ ██████╗ ███████╗██╗  ██╗</span></span>
-<span class="row"><span class="c-user"> ██╔════╝██╔═══██╗██╔══██╗██╔════╝██║  ██║</span></span>
-<span class="row"><span class="c-user"> ██║     ██║   ██║██║  ██║███████╗███████║</span></span>
-<span class="row"><span class="c-user"> ██║     ██║   ██║██║  ██║╚════██║██╔══██║</span></span>
-<span class="row"><span class="c-user"> ╚██████╗╚██████╔╝██████╔╝███████║██║  ██║</span></span>
-<span class="row"><span class="c-user">  ╚═════╝ ╚═════╝ ╚═════╝ ╚══════╝╚═╝  ╚═╝</span></span>
+<span class="row">         <span style="color:rgb(126,150,245)">█▄▄</span></span>
+<span class="row">         <span style="color:rgb(126,150,245)">█</span> <span style="color:rgb(126,150,245)">▀██</span></span>
+<span class="row">         <span style="color:rgb(126,150,245)">█▄█▀▀</span></span>
+<span class="row">       <span style="color:rgb(238,241,251)">▀██████▀</span></span>
+<span class="row">     <span style="color:rgb(61,86,214)">█▄██▄▄██▄██▄</span></span>
+<span class="row">      <span style="color:rgb(61,86,214)">▀▄▄</span> <span style="color:rgb(61,86,214)">██</span> <span style="color:rgb(61,86,214)">▄▄▀</span></span>
+<span class="row">        <span style="color:rgb(61,86,214)">▀█▄▄█▀</span></span>
 <span class="row"> </span>
 <span class="row"> <span class="a-bold">✻ Welcome to codsh</span><span class="c-dim"> · cli-mock · code-cli</span></span>
 <span class="row"> </span>
 <span class="row"><span class="c-dim">  ~/.cache/codsh/showcase</span></span>
-<span class="row"><span class="c-dim">  session session-e81f2247-9dbd-4e1e-afc1-efc009a5578d</span></span>
+<span class="row"><span class="c-dim">  session session-0ebd1344-634d-4b05-90a7-4af90a674c9e</span></span>
 <span class="row"> </span>
-<span class="row"><span class="c-dim">  /help for commands · Tab completes · ⇧Tab plan mode · ESC interrupts · /exit leav</span></span>
-<span class="row"><span class="c-dim">…</span></span>
+<span class="row"><span class="c-dim">  /help for commands · Tab completes · ⇧Tab plan mode · ESC interrupts · /exit lea…</span></span>
 <span class="row"> </span>
 <span class="row"><span class="c-pending">▲ plan mode — exploring only; no files will change until you approve a plan</span></span>
 <span class="gap"></span>
 <span class="row"><span class="c-pending">╭─────────────────────────────────────────────────────────────────────────────────╮</span></span>
-<span class="row"><span class="c-pending">│</span> <span class="c-user">›</span> <span class="c-dim">Ask anything · / $ ! @ · ⇧Tab plan mode</span>                  <span class="c-pending">│</span></span>
+<span class="row"><span class="c-pending">│</span> <span class="c-user">›</span> <span class="c-dim">Ask anything · / for commands · $ for skills · ! shell · @ for files · ⇧Tab …</span> <span class="c-pending">│</span></span>
 <span class="row"><span class="c-pending">╰─────────────────────────────────────────────────────────────────────────────────╯</span></span>
 <span class="row"><span class="c-tool">cli-mock</span><span class="c-dim"> · code-cli · workspace-write · </span><span class="c-pending">plan</span><span class="c-dim"> · 0 tokens · ~/.cache/codsh/showcase</span></span>
 </code></div>

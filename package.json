@@ -10,7 +10,7 @@
     "test:e2e": "pnpm run build && vitest run --config vitest.e2e.config.ts",
     "dev": "node scripts/dev.mjs",
     "sync:dsh": "node scripts/sync-dsh.mjs",
-    "site:screens": "CAPTURE_SCREENS=1 vitest run --config vitest.e2e.config.ts e2e/capture.e2e.ts && node scripts/site-frames.mjs",
+    "site:screens": "pnpm run build && CAPTURE_SCREENS=1 vitest run --config vitest.e2e.config.ts e2e/capture.e2e.ts && node scripts/site-frames.mjs",
     "site:build": "node scripts/site-frames.mjs",
     "release": "pnpm run build && changeset publish"
   },
