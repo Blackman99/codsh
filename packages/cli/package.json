@@ -1,7 +1,7 @@
 {
   "name": "codsh-cli",
   "description": "A Claude Code-style coding agent for the terminal, composed on the DeepSeek Harness (dsh). This is the zero-dependency launcher: it finds your dsh, registers the codsh-bundle runtime into a profile, and boots it.",
-  "version": "0.6.1",
+  "version": "0.7.0",
   "type": "module",
   "license": "MIT",
   "bin": {
