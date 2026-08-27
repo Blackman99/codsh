@@ -5,7 +5,7 @@
 
 import { describe, expect, it, vi } from 'vitest'
 import { Prompt } from '../src/prompt.ts'
-import { createTheme } from '../src/theme.ts'
+import { createTheme, displayWidth } from '../src/theme.ts'
 import type { RegionCursor } from '../src/console.ts'
 import type { Key } from '../src/keys.ts'
 
@@ -28,6 +28,7 @@ function fakeConsole(readsKeys: boolean) {
     readsKeys,
     finished: false,
     columns: 60,
+    get contentColumns() { return Math.max(1, this.columns - 1 - 2) },
     draws,
     written,
     /** Queue a line for the piped read path. */
@@ -41,8 +42,8 @@ function fakeConsole(readsKeys: boolean) {
     scrolls: [] as (number | 'bottom' | -1 | 1)[],
     scrolledBy: 0,
     /** What the viewport reports the pointer is resting on. */
-    hover: undefined as { label: string; lines: number; expanded: boolean } | undefined,
-    mouseMove(): { label: string; lines: number; expanded: boolean } | undefined { return this.hover },
+    hover: undefined as { label: string; lines: number; expanded: boolean; enter?: boolean } | undefined,
+    mouseMove(): { label: string; lines: number; expanded: boolean; enter?: boolean } | undefined { return this.hover },
     write: (line: string) => void written.push(line),
     setRegion: (rows: readonly string[], cursor: RegionCursor) => void draws.push({ rows: [...rows], cursor }),
     clearRegion: () => void draws.push({ rows: [], cursor: { row: 0, column: 0 } }),
@@ -61,6 +62,8 @@ function fakeConsole(readsKeys: boolean) {
     },
     clearTranscriptSearch() { this.transcriptSearch = undefined },
     setScrollNotice() {},
+    overlays: [] as string[][],
+    setOverlay(rows: readonly string[]) { this.overlays.push([...rows]) },
     readLine: () => Promise.resolve(lines.shift()),
   }
 }
@@ -177,6 +180,16 @@ describe('the region it composes', () => {
     expect(last?.cursor.row).toBe(1)
   })
 
+  it('lays the box out to contentColumns so the gutter cannot ellipsize its right edge', () => {
+    const { prompt, console } = build()
+    void prompt.read()
+    const top = console.draws.at(-1)?.rows[0] ?? ''
+    expect(top.startsWith('╭')).toBe(true)
+    expect(top.endsWith('╮')).toBe(true)
+    expect(top).not.toContain('…')
+    expect(displayWidth(top)).toBe(console.contentColumns)
+  })
+
   it('puts the streaming line above the box and shifts the cursor down', () => {
     const { prompt, console } = build()
     void prompt.read()
@@ -203,16 +216,16 @@ describe('the region it composes', () => {
     expect(console.draws.at(-1)?.rows.some(row => row.includes('› x'))).toBe(true)
   })
 
-  it('shows the completion menu above the box', () => {
+  it('floats the completion menu over the transcript', () => {
     const { prompt, console } = build()
     void prompt.read()
     console.press({ kind: 'text', text: '/p' })
     const rows = console.draws.at(-1)?.rows ?? []
-    const plan = rows.findIndex(row => row.includes('/plan'))
-    const frame = rows.findIndex(row => row.includes('╭'))
-    expect(plan).toBeGreaterThanOrEqual(0)
-    expect(plan).toBeLessThan(frame)
-    expect(rows.some(row => row.includes('plan mode'))).toBe(true)
+    const overlay = console.overlays.at(-1) ?? []
+    expect(rows.some(row => row.includes('╭'))).toBe(true)
+    expect(rows.some(row => row.includes('/plan'))).toBe(false)
+    expect(overlay.some(row => row.includes('/plan'))).toBe(true)
+    expect(overlay.some(row => row.includes('plan mode'))).toBe(true)
   })
 
   it('takes the region down when cleared', () => {
@@ -397,6 +410,11 @@ describe('the surrounding rows', () => {
     console.hover = { label: 'thinking', lines: 42, expanded: true }
     console.press({ kind: 'mouse-move', row: 4, column: 5 })
     expect(console.draws.at(-1)?.rows.at(-1)).toBe('  thinking · 42 lines · click to fold')
+
+    // A subagent card is a view: the click opens that session, not the fold.
+    console.hover = { label: 'subagent', lines: 3, expanded: false, enter: true }
+    console.press({ kind: 'mouse-move', row: 5, column: 5 })
+    expect(console.draws.at(-1)?.rows.at(-1)).toBe('  subagent · 3 lines · click to enter')
 
     // Off every block, the indicator has its row back.
     console.hover = undefined

@@ -450,7 +450,7 @@ export class Prompt {
       const block = this.console.mouseMove(key.row, key.column)
       const readout = block === undefined
         ? undefined
-        : this.theme.dim(`  ${block.label} · ${block.lines} lines · click to ${block.expanded ? 'fold' : 'expand'}`)
+        : this.theme.dim(`  ${block.label} · ${block.lines} lines · click to ${block.enter === true ? 'enter' : block.expanded ? 'fold' : 'expand'}`)
       if (readout === this.hover) return
       this.hover = readout
       this.render()
@@ -664,10 +664,11 @@ export class Prompt {
   /** Recompose and redraw the bottom region. */
   private render(): void {
     if (!this.console.readsKeys) return
-    const columns = this.console.columns - 1
+    const columns = this.console.contentColumns
     const rows: string[] = []
     let cursor = { row: 0, column: 0 }
     if (this.streaming !== undefined) rows.push(this.streaming)
+    let menuOverlay: readonly string[] = []
     if (this.select_ !== undefined) {
       rows.push(...this.select_.selector.view(this.theme, columns))
     } else if (this.engaged || this.reading) {
@@ -679,6 +680,7 @@ export class Prompt {
       })
       cursor = { row: rows.length + box.cursorRow, column: box.cursorColumn }
       rows.push(...box.rows)
+      menuOverlay = box.overlay
     }
     if (this.shortcutsOpen) {
       rows.push(this.theme.dim(truncate('  Ctrl+R history · Ctrl+F find · Ctrl+O folds · Ctrl+T todos', columns)))
@@ -716,6 +718,7 @@ export class Prompt {
     // marker is its own focus affordance.
     const focus = this.select_ === undefined && (this.engaged || this.reading)
     if (!focus) cursor = { row: rows.length - 1, column: 0 }
+    this.console.setOverlay(menuOverlay)
     this.console.setRegion(rows, cursor, focus)
   }
 }

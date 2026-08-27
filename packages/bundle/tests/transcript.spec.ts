@@ -8,7 +8,7 @@ import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import type { ToolCallView, ToolResultView } from '@deepseek-ai/dsh-tools'
 import { describe, expect, it } from 'vitest'
 import { createTheme } from '../src/theme.ts'
-import { ANSWER_FOLD_LINES, ANSWER_HEAD_LINES, Transcript, answerSummary, blockRules, thinkingFold, type ToolPresenters } from '../src/transcript.ts'
+import { ANSWER_FOLD_LINES, ANSWER_HEAD_LINES, Transcript, answerSummary, blockRules, childSessionId, thinkingFold, type ToolPresenters } from '../src/transcript.ts'
 
 const theme = createTheme(false, {})
 const CWD = '/repo'
@@ -470,5 +470,40 @@ describe('which block a line belongs to', () => {
     transcript.render(userEvent('do it'))
     expect(transcript.takeRule()).toBe(rules.user)
     expect(transcript.takeRule()).toBe('')
+  })
+})
+
+describe('childSessionId', () => {
+  it('reads the continuable start line', () => {
+    expect(childSessionId('started subagent abc-123')).toBe('abc-123')
+  })
+
+  it('reads the JSON continuable form', () => {
+    expect(childSessionId('{"kind":"continuable","subagentId":"child-1"}')).toBe('child-1')
+  })
+
+  it('ignores a background job and ordinary output', () => {
+    expect(childSessionId('started background subagent job job-9')).toBeUndefined()
+    expect(childSessionId('ok')).toBeUndefined()
+  })
+})
+
+describe('a subagent card that is a view', () => {
+  it('names the child session and tells a click to enter', () => {
+    const transcript = build()
+    transcript.render(callEvent('c1', 'subagent', {}))
+    const lines = transcript.render(resultEvent('c1', 'started subagent child-9'))
+    expect(lines.join('\n')).toContain('started subagent child-9')
+    expect(lines.join('\n')).toContain('click to enter')
+    expect(transcript.takeEnter()).toBe('child-9')
+    expect(transcript.takeLabel()).toBe('subagent')
+    expect(transcript.takeEnter()).toBeUndefined()
+  })
+
+  it('does not offer a view for a failed call', () => {
+    const transcript = build()
+    transcript.render(callEvent('c1', 'subagent', {}))
+    transcript.render(resultEvent('c1', 'started subagent child-9', true))
+    expect(transcript.takeEnter()).toBeUndefined()
   })
 })

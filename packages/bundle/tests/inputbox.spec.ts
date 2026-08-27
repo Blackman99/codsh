@@ -166,14 +166,14 @@ describe('visual hierarchy', () => {
   })
 
   it('underlines the typed fragment and leaves selection to the pointer', () => {
-    const { rows } = inputBox(view({
+    const { overlay } = inputBox(view({
       lines: ['/p'],
       column: 2,
       token: '/p',
       candidates: [{ value: '/plan', detail: 'enter plan mode' }, { value: '/permission', detail: 'switch preset' }],
       selected: 0,
     }), colour, 60)
-    const [chosen = '', other = ''] = rows.slice(0, 2)
+    const [chosen = '', other = ''] = overlay
     expect(chosen).toContain('❯')
     expect(chosen).toContain('\u001B[4m/p\u001B[24m')
     expect(chosen).toContain('lan')
@@ -185,22 +185,22 @@ describe('visual hierarchy', () => {
   })
 
   it('underlines a contained span, not only a prefix', () => {
-    const { rows } = inputBox(view({
+    const { overlay } = inputBox(view({
       lines: ['$ill'],
       column: 4,
       token: '$ill',
       candidates: [{ value: '$grill-me', detail: 'interview' }],
       selected: 0,
     }), colour, 60)
-    const [row = ''] = rows
+    const [row = ''] = overlay
     expect(row).toContain('\u001B[4mill\u001B[24m')
     expect(row).not.toContain('\u001B[4m$ill')
   })
 
   it('windows the menu around the selection instead of pinning the first page', () => {
     const many = Array.from({ length: 12 }, (_, index) => ({ value: `/c${String(index).padStart(2, '0')}`, detail: '' }))
-    const { rows } = inputBox(view({ lines: ['/c'], column: 2, candidates: many, selected: 10 }), theme, 60)
-    const menu = rows.join('\n')
+    const { overlay } = inputBox(view({ lines: ['/c'], column: 2, candidates: many, selected: 10 }), theme, 60)
+    const menu = overlay.join('\n')
     // The selected candidate is visible, with counts for both clipped sides.
     // Twelve candidates, eight visible: the window slides to 3..10 so the
     // selection stays one row above the lower edge.
@@ -212,13 +212,13 @@ describe('visual hierarchy', () => {
   })
 
   it('pads menu labels by display width, so wide names still align', () => {
-    const { rows } = inputBox(view({
+    const { overlay } = inputBox(view({
       lines: ['@'],
       column: 1,
       token: '@',
       candidates: [{ value: '@终端.ts', detail: 'a' }, { value: '@aaaaaa.ts', detail: 'b' }],
     }), theme, 60)
-    const menu = rows.slice(0, 2)
+    const menu = overlay.slice(0, 2)
     // The details are single letters at the end: aligned labels put them at the
     // same display column, which code-unit padding gets wrong for wide names.
     const detailColumn = (row: string): number => displayWidth(row.slice(0, -1))
@@ -227,26 +227,25 @@ describe('visual hierarchy', () => {
 })
 
 describe('the menu', () => {
-  it('lists candidates above the box and marks the selected one', () => {
-    const { rows, cursorRow } = inputBox(view({
+  it('lists candidates as an overlay and marks the selected one', () => {
+    const { rows, overlay, cursorRow } = inputBox(view({
       lines: ['/p'],
       column: 2,
       candidates: [{ value: '/plan', detail: 'enter plan mode' }, { value: '/permission', detail: 'switch preset' }],
       selected: 1,
     }), theme, 60)
-    expect(rows[0]).toContain('/plan')
-    expect(rows[0]).toContain('enter plan mode')
-    expect(rows[1]).toContain('❯')
-    expect(rows[1]).toContain('/permission')
-    expect(rows[2]).toMatch(/^╭/)
-    expect(cursorRow).toBe(3)
+    expect(overlay[0]).toContain('/plan')
+    expect(overlay[0]).toContain('enter plan mode')
+    expect(overlay[1]).toContain('❯')
+    expect(overlay[1]).toContain('/permission')
+    expect(rows[0]).toMatch(/^╭/)
+    expect(cursorRow).toBe(1)
   })
 
   it('caps a long menu and says how much it hid', () => {
     const many = Array.from({ length: 12 }, (_, index) => ({ value: `/c${index}`, detail: '' }))
-    const { rows } = inputBox(view({ lines: ['/c'], column: 2, candidates: many }), theme, 60)
-    const frame = rows.findIndex(row => row.includes('╭'))
-    expect(rows[frame - 1]).toContain('4 more')
+    const { overlay } = inputBox(view({ lines: ['/c'], column: 2, candidates: many }), theme, 60)
+    expect(overlay.at(-1)).toContain('4 more')
   })
 
   it('shows the hint instead of a menu when there is nothing to offer', () => {

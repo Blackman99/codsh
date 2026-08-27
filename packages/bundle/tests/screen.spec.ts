@@ -8,6 +8,7 @@
 import { describe, expect, it } from 'vitest'
 import { Screen } from '../src/screen.ts'
 import type { ScreenHost } from '../src/screen.ts'
+import { displayWidth } from '../src/theme.ts'
 
 /** A host that records what would be written, at a fixed size. */
 function host(rows = 10, columns = 20): ScreenHost & { out: string[]; size: { rows: number; columns: number } } {
@@ -104,6 +105,22 @@ describe('layout', () => {
     expect(rows.get(6)).toBe('status')
   })
 
+  it('floats an overlay over the viewport without growing the chrome', () => {
+    const sink = host(8, 40)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['box', 'status'], { row: 0, column: 0 }, false)
+    screen.append(['one', 'two', 'three', 'four', 'five', 'six'])
+    flush(sink)
+    screen.setOverlay(['menu a', 'menu b'])
+    const frame = flush(sink)
+    expect(frame).toContain('menu a')
+    expect(frame).toContain('menu b')
+    const rows = painted(frame)
+    expect(rows.has(7)).toBe(false)
+    expect(rows.has(8)).toBe(false)
+  })
+
   it('shows the tail of the transcript above the chrome', () => {
     const sink = host(5, 20)
     const screen = new Screen(sink)
@@ -131,6 +148,20 @@ describe('layout', () => {
     expect(rows.get(1)).toBe('x'.repeat(7))
     expect(rows.get(2)).toBe('x'.repeat(7))
     expect(rows.get(3)).toBe('x'.repeat(6))
+  })
+
+  it('never paints a row that fills the terminal, even when chrome arrives too wide', () => {
+    const sink = host(8, 20)
+    const screen = new Screen(sink)
+    screen.enter()
+    // A box laid out at columns-1 (the pre-gutter chrome width) would wrap into
+    // the next row if painted as-is; the viewport must keep a column clear.
+    screen.setChrome(['╭' + '─'.repeat(17) + '╮', 'x'.repeat(19)], { row: 0, column: 0 }, false)
+    screen.append(['z'.repeat(40)])
+    const frame = flush(sink)
+    for (const match of frame.matchAll(/\u001B\[\d+;1H\u001B\[K([^\u001B]*)/gu)) {
+      expect(displayWidth(match[1] ?? '')).toBeLessThan(20)
+    }
   })
 
   it('places the cursor absolutely inside the chrome, or hides it', () => {
@@ -404,6 +435,25 @@ describe('folds', () => {
     // The block below it was not asked for and did not open.
     expect(text).toContain('second summary')
     expect(text).not.toContain('second full a')
+  })
+
+  it('enters a subagent block on click instead of expanding it', () => {
+    const entered: string[] = []
+    const sink = host(10, 40)
+    const screen = new Screen(sink)
+    screen.setEnter((id) => { entered.push(id) })
+    screen.enter()
+    screen.setChrome(['status'], { row: 0, column: 0 }, false)
+    screen.appendFold(['started subagent child-9', '  click to enter', ''], ['started subagent child-9', '  click to enter', ''], '', 'subagent', 'child-9')
+    flush(sink)
+
+    expect(screen.mouseMove(1, 3)).toEqual({ label: 'subagent', lines: 3, expanded: false, enter: true })
+    flush(sink)
+    screen.mouseDown(1, 3)
+    expect(screen.mouseUp()).toBeUndefined()
+    expect(entered).toEqual(['child-9'])
+    // Entering is not folding: nothing on screen swapped.
+    expect(flush(sink)).toBe('')
   })
 
   it('folds an open block back from anywhere inside it', () => {

@@ -244,11 +244,14 @@ function replay(session: Session, transcript: Transcript, io: CliIo, theme: Them
     // The renderer collapsed a long body: history keeps both forms, exactly as
     // the live turn did — the summary promises Ctrl+O, and without the fold the
     // key would answer nothing and the output would be unreachable for good.
+    // A subagent card that names a child session is a view even when nothing
+    // was collapsed: a click enters that session rather than folding the card.
     const full = transcript.takeFold()
     const rule = transcript.takeRule()
     const label = transcript.takeLabel()
-    if (full !== undefined) {
-      io.console.appendFold(lines, full, rule, label)
+    const enter = transcript.takeEnter()
+    if (enter !== undefined || full !== undefined) {
+      io.console.appendFold(lines, full ?? lines, rule, label, enter)
       continue
     }
     for (const line of lines) io.console.write(line, rule)
@@ -548,6 +551,8 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
     agent: composed.handle.agent,
     transcript: new Transcript({ theme, columns: io.console.columns, cwd }, presentersFor(ctx, composed.handle.agent)),
   }
+  /** Nested view of a child subagent session; Esc restores the parent. */
+  let viewing: { session: Session; transcript: Transcript } | undefined
   const facts = (branch: string | undefined): StatusFacts =>
     statusFacts(ctx, live.agent, cwd, selection, presetId, branch)
   io.console.setTitle(`dsh code — ${basename(cwd)}`)
@@ -991,6 +996,10 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
   /** Push the always-current status row; the pipe shape prints it instead. */
   const refreshStatus = (): void => {
     if (!io.console.readsKeys) return
+    if (viewing !== undefined) {
+      prompt.setStatus(theme.dim('subagent · Esc returns to the parent'))
+      return
+    }
     prompt.setStatus(statusLine(facts(branch), theme))
     // Same cadence as the status row, for the same reason: the list is a fold
     // over the log, so anything cached here would report the turn before last.
@@ -999,19 +1008,66 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
   if (planModeFrom(live.agent.session.events)) prompt.setAccent(text => theme.pending(text))
   refreshStatus()
 
+  /**
+   * Open a child subagent's transcript in place of the parent's.
+   * @param id - the child session the card named.
+   */
+  const enterView = (id: string): void => {
+    const session = sessions.get(SessionId(id))
+    if (session === undefined) {
+      prompt.setFlash(theme.dim('  subagent is no longer running'))
+      return
+    }
+    viewing = {
+      session,
+      transcript: new Transcript({ theme, columns: io.console.columns, cwd }, presentersFor(ctx, live.agent)),
+    }
+    spinner.pause()
+    io.console.clearScreen()
+    replay(session, viewing.transcript, io, theme)
+    refreshStatus()
+  }
+  /** Restore the parent session's transcript. */
+  const exitView = (): void => {
+    if (viewing === undefined) return
+    viewing = undefined
+    live.transcript = new Transcript({ theme, columns: io.console.columns, cwd }, presentersFor(ctx, live.agent))
+    io.console.clearScreen()
+    replay(live.agent.session, live.transcript, io, theme)
+    refreshStatus()
+    if (live.agent.status === 'running') spinner.start()
+  }
+  io.console.setEnter(enterView)
+
   ctx.on('session/event', (session: Session, event: SessionEvent) => {
+    // Parent chrome (mode, status, todos) still tracks the live agent even
+    // while a child view is open; only the transcript follows the view.
+    if (session === live.agent.session) {
+      if (event.type === 'plan/mode') {
+        prompt.setAccent(event.data.active ? text => theme.pending(text) : undefined)
+      }
+      refreshStatus()
+      if (event.type === 'todo/write') prompt.setTodos(event.data.todos)
+    }
+    if (viewing !== undefined) {
+      if (session !== viewing.session) return
+      if (event.type === 'tool/call') spinner.setActivity(toolActivity(event.data.name))
+      if (event.type === 'tool/result') spinner.setActivity('working')
+      const lines = viewing.transcript.render(event)
+      const full = viewing.transcript.takeFold()
+      const rule = viewing.transcript.takeRule()
+      const label = viewing.transcript.takeLabel()
+      const enter = viewing.transcript.takeEnter()
+      if (enter !== undefined || full !== undefined) {
+        prompt.setStreaming(undefined)
+        io.console.appendFold(lines, full ?? lines, rule, label, enter)
+        return
+      }
+      emit(lines, undefined, rule)
+      return
+    }
     // `/clear` and `/resume` retire sessions; only the current one renders.
     if (session !== live.agent.session) return
-    if (event.type === 'plan/mode') {
-      // The box frame is where the mode lives: a person mid-thought sees what
-      // the next submission will do without reading the transcript.
-      prompt.setAccent(event.data.active ? text => theme.pending(text) : undefined)
-    }
-    refreshStatus()
-    // Straight from the event, after the projection read above: the write
-    // carries the whole replacement list, so the readout never has to wait for
-    // a fold that may land after this handler runs.
-    if (event.type === 'todo/write') prompt.setTodos(event.data.todos)
     if (event.type === 'tool/call') spinner.setActivity(toolActivity(event.data.name))
     if (event.type === 'tool/result') spinner.setActivity('working')
     // In print mode the task text came from the caller's own command line;
@@ -1058,14 +1114,15 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
     // The rule marks which block these lines belong to, down their left edge.
     const rule = live.transcript.takeRule()
     const label = live.transcript.takeLabel()
-    if (full === undefined) {
+    const enter = live.transcript.takeEnter()
+    if (enter === undefined && full === undefined) {
       emit(lines, undefined, rule)
       return
     }
-    // A collapsed block: the screen keeps both forms; a click on it swaps
-    // that one, Ctrl+O swaps them all.
+    // A collapsed block, or a subagent card that is a view: the screen keeps
+    // both forms; a click on a view enters the child, Ctrl+O still expands.
     prompt.setStreaming(undefined)
-    io.console.appendFold(lines, full, rule, label)
+    io.console.appendFold(lines, full ?? lines, rule, label, enter)
   })
 
   /** Pause the indicator around a decision, and resume it if work continues. */
@@ -1110,6 +1167,8 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
   ctx.on('approval/request', (req, next) => req.agent === live.agent ? approval.decide(req) : next())
 
   adopt = (next: AgentHandle, replayLog: boolean): void => {
+    viewing = undefined
+    prompt.setHint(undefined)
     live.handle = next
     live.agent = next.agent
     live.transcript = new Transcript({ theme, columns: io.console.columns, cwd }, presentersFor(ctx, next.agent))
@@ -1183,6 +1242,10 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
   // window puts the previous message back for editing.
   let recallArmed: NodeJS.Timeout | undefined
   onEscapeKey = () => {
+    if (viewing !== undefined) {
+      exitView()
+      return
+    }
     if (interrupt()) return
     if (!prompt.empty) return
     // Commands and passthroughs are not messages worth re-editing.
@@ -1396,6 +1459,10 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
     const trimmed = line.trim()
     if (trimmed === '') continue
     if (trimmed === '/exit' || trimmed === '/quit') break
+    if (viewing !== undefined) {
+      prompt.setFlash(theme.dim('  Esc returns to the parent'))
+      continue
+    }
     if (trimmed.startsWith('!')) {
       // A ! line runs in the shell and spends no turn; there is no message for
       // an image to ride, so dropping it silently would read as it arriving.

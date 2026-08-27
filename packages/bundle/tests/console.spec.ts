@@ -261,6 +261,16 @@ describe('the viewport it owns on a terminal', () => {
     const { console: term } = build(true, 0)
     expect(term.columns).toBe(20)
   })
+
+  it('reserves the viewport gutter in contentColumns on a terminal', () => {
+    const { console: term } = build(true, 40)
+    expect(term.contentColumns).toBe(37)
+  })
+
+  it('does not reserve a gutter off a terminal', () => {
+    const { console: term } = build(false, 40)
+    expect(term.contentColumns).toBe(39)
+  })
 })
 
 describe('the bell and focus', () => {

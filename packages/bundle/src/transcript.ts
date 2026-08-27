@@ -134,6 +134,37 @@ export function blockRules(theme: Theme): { user: string, tool: string, error: s
  */
 export const FOLD_LABELS = { thinking: 'thinking', answer: 'answer' } as const
 
+/**
+ * The child session a continuable subagent result names, when the card can
+ * open that session.
+ *
+ * Continuable starts return `started subagent <id>` (and a JSON form with the
+ * same id). One-shot background jobs name a job, not a session, and are not a
+ * view.
+ * @param text - the tool result's visible text.
+ * @returns the child session id, or undefined when this result is not a view.
+ */
+export function childSessionId(text: string): string | undefined {
+  const trimmed = text.trim()
+  const started = /^started subagent (\S+)/u.exec(trimmed.split('\n')[0] ?? trimmed)
+  if (started?.[1] !== undefined) return started[1]
+  try {
+    const parsed: unknown = JSON.parse(trimmed)
+    if (
+      parsed !== null
+      && typeof parsed === 'object'
+      && 'kind' in parsed
+      && parsed.kind === 'continuable'
+      && 'subagentId' in parsed
+      && typeof parsed.subagentId === 'string'
+      && parsed.subagentId !== ''
+    ) return parsed.subagentId
+  } catch {
+    // Not JSON; the prose form above is the usual card.
+  }
+  return undefined
+}
+
 /** A finished answer longer than this many rendered lines becomes a fold. */
 export const ANSWER_FOLD_LINES = 24
 
@@ -239,6 +270,8 @@ export class Transcript {
   private label = ''
   /** The left rule the block {@link render} just returned belongs to. */
   private rule = ''
+  /** Child session a click on this card should open, when the result names one. */
+  private enter: string | undefined
 
   constructor(
     private readonly options: TranscriptOptions,
@@ -288,6 +321,7 @@ export class Transcript {
     const { theme } = this.options
     const rules = blockRules(theme)
     this.rule = ''
+    this.enter = undefined
     switch (event.type) {
       case 'user/message': {
         // The person's own message: with the box owning the keyboard there is
@@ -399,17 +433,26 @@ export class Transcript {
     if (pending === undefined) {
       // The call fell outside this surface's window (a resumed page boundary);
       // the raw result still prints rather than vanishing.
-      const raw = this.resultText(block.content).split('\n')
+      const text = this.resultText(block.content)
+      const raw = text.split('\n')
       const head = `${marker} ${theme.dim('(result)')}`
+      const enter = failed ? undefined : childSessionId(text)
+      const hint = enter === undefined ? [] : [theme.dim('  click to enter')]
       if (raw.length > MAX_RESULT_LINES) {
-        this.fold = [head, ...raw, '']
+        this.fold = [head, ...raw, ...hint, '']
         this.label = 'tool result'
       }
-      return [head, ...cap(raw, MAX_RESULT_LINES, theme), '']
+      if (enter !== undefined) {
+        this.enter = enter
+        this.label = 'tool result'
+      }
+      return [head, ...cap(raw, MAX_RESULT_LINES, theme), ...hint, '']
     }
     const view = this.safeResult(pending, block.content, failed, meta)
     const title = view?.title === undefined ? pending.title : this.relativizeIn(view.title)
     const { suffix, body, full } = this.outcome(view, block)
+    const enter = failed ? undefined : childSessionId(this.resultText(block.content))
+    const hint = enter === undefined ? [] : [theme.dim('  click to enter')]
     // The pending card already printed this header, and an append-only
     // transcript cannot replace it. Reprinting an unchanged one reads as a
     // stutter, so the header returns only when the call failed or the presenter
@@ -421,16 +464,20 @@ export class Transcript {
     const head = changed
       ? [`${marker} ${theme.tool(title)}${suffix === '' ? '' : ` ${suffix}`}`]
       : suffix !== '' ? [`  ${suffix}`]
-        : body.length === 0 ? [`  ${theme.success('✓')}`] : []
+        : body.length === 0 && hint.length === 0 ? [`  ${theme.success('✓')}`] : []
     // The fold swaps the WHOLE event's lines, so the expanded form repeats the
     // same head with the uncapped body under it.
     if (full !== undefined) {
-      this.fold = [...head, ...full, '']
+      this.fold = [...head, ...full, ...hint, '']
       // The card's own title, unstyled: what the block is called on screen is
       // what a readout naming it should say.
       this.label = title
     }
-    return [...head, ...body, '']
+    if (enter !== undefined) {
+      this.enter = enter
+      this.label = title
+    }
+    return [...head, ...body, ...hint, '']
   }
 
   /**
@@ -458,6 +505,19 @@ export class Transcript {
     const label = this.label
     this.label = ''
     return label
+  }
+
+  /**
+   * The child session the block {@link render} just returned can open.
+   *
+   * A click on that card enters the child's transcript rather than folding
+   * the card. Taken once, like {@link takeFold}.
+   * @returns the child session id, or undefined when the card is not a view.
+   */
+  takeEnter(): string | undefined {
+    const enter = this.enter
+    this.enter = undefined
+    return enter
   }
 
   /**

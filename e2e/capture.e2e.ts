@@ -186,7 +186,7 @@ describe.skipIf(process.env.CAPTURE_SCREENS === undefined)('showcase frames', ()
       {
         id: 'complete',
         title: 'Completion sits above the box',
-        note: 'Type / or $ and a fragment anywhere in the name is enough. The menu opens above the box, so the prompt does not jump.',
+        note: 'Type / or $ and a fragment anywhere in the name is enough. The menu floats over the transcript, so opening it cannot shake the output.',
       },
       'write',
       [['Ask anything', '/p', 400], ['Enter or leave plan mode', '', 500], ['', `\u0015/exit${ENTER}`, 600]],

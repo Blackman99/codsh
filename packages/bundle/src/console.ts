@@ -20,7 +20,7 @@ import { createInterface } from 'node:readline'
 import type { Interface } from 'node:readline'
 import { DISABLE_PASTE_MARKERS, ENABLE_PASTE_MARKERS, KeyDecoder } from './keys.ts'
 import type { HoverBlock } from './screen.ts'
-import { Screen } from './screen.ts'
+import { GUTTER, Screen } from './screen.ts'
 import type { Key } from './keys.ts'
 
 /** Columns assumed when the output stream reports none (a pipe). */
@@ -125,13 +125,16 @@ export class TerminalConsole {
   }
 
   /**
-   * Columns content may be laid out for: one less than the width, because the
-   * viewport wraps at that boundary. Markdown layout MUST use this figure — a
-   * table laid out one column wider is refolded by the viewport, and its rows
-   * shear apart.
+   * Columns content may be laid out for.
+   *
+   * One less than the width so a row cannot wrap the terminal, and on a
+   * viewport two less again for the left gutter. Markdown, the live line, and
+   * the chrome MUST use this figure — a box laid out one gutter wider is
+   * truncated with an ellipsis on every row, and a live line that fills the
+   * width wraps into the box beneath it.
    */
   get contentColumns(): number {
-    return Math.max(1, this.columns - 1)
+    return Math.max(1, this.columns - 1 - (this.screen !== undefined ? GUTTER : 0))
   }
 
   /** Whether the output stream is a terminal. */
@@ -228,6 +231,14 @@ export class TerminalConsole {
    */
   setScrollNotice(text: string): void {
     this.screen?.setScrollNotice(text)
+  }
+
+  /**
+   * Float rows over the transcript just above the chrome.
+   * @param rows - the overlay, or empty to clear it.
+   */
+  setOverlay(rows: readonly string[]): void {
+    this.screen?.setOverlay(rows)
   }
 
   /**
@@ -408,13 +419,22 @@ export class TerminalConsole {
    * @param rule - a styled left rule for the whole block, `''` for none.
    * @param label - what the block is, for the readout naming what the pointer
    * is over.
+   * @param enter - child session a click opens instead of folding, when set.
    */
-  appendFold(summary: readonly string[], full: readonly string[], rule = '', label = ''): void {
+  appendFold(summary: readonly string[], full: readonly string[], rule = '', label = '', enter?: string): void {
     if (this.screen !== undefined) {
-      this.screen.appendFold(summary, full, rule, label)
+      this.screen.appendFold(summary, full, rule, label, enter)
       return
     }
     for (const line of summary) this.output.write(`${line}\n`)
+  }
+
+  /**
+   * What a click on a view-card does.
+   * @param handler - receives the child session id; omit to restore folding.
+   */
+  setEnter(handler: ((id: string) => void) | undefined): void {
+    this.screen?.setEnter(handler)
   }
 
   /**
@@ -520,6 +540,7 @@ export class TerminalConsole {
 
   /** Take the pinned rows down, leaving the transcript alone. */
   clearRegion(): void {
+    this.screen?.setOverlay([])
     this.screen?.setChrome([], { row: 0, column: 0 }, false)
   }
 

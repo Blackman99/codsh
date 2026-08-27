@@ -44,7 +44,7 @@ const COPY = {
     complete: {
       tab: '补全',
       title: '菜单在输入框上方',
-      note: '打 / 或 $ 即可，包含匹配即可出候选；菜单长在框上面，打开时框不会被顶上去。',
+      note: '打 / 或 $ 即可，包含匹配即可出候选；菜单浮在 transcript 上，打开时上方输出不会晃。',
     },
     bang: {
       tab: 'Shell',

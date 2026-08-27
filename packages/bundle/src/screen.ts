@@ -23,7 +23,7 @@ import { wrapStyled } from './wrap.ts'
 const MAX_SCROLLBACK = 5000
 
 /** Blank columns to the left of every painted row, so text is not flush to the window. */
-const GUTTER = 2
+export const GUTTER = 2
 
 /** Enter the alternate screen, saving the cursor and the current buffer. */
 const ENTER_ALT = '\u001B[?1049h'
@@ -167,6 +167,8 @@ interface Fold {
   rule: string
   /** What the block is, for the readout naming what the pointer is over. */
   label: string
+  /** Child session a click opens instead of folding, when the card is a view. */
+  enter?: string
 }
 
 /** What the pointer is resting on, for a surface that names it. */
@@ -177,6 +179,8 @@ export interface HoverBlock {
   lines: number
   /** Whether it is showing that full form now. */
   expanded: boolean
+  /** Whether a click opens the named child session rather than folding. */
+  enter?: boolean
 }
 
 /** What the screen writes to and measures itself against. */
@@ -214,6 +218,8 @@ export class Screen {
   private offset = 0
   /** What to show while scrolled back, drawn over the viewport's top row. */
   private notice = ''
+  /** Completion menu painted over the viewport, just above the chrome. */
+  private overlay: string[] = []
   /** A mouse selection over the transcript, in physical-row coordinates. */
   private selection: { anchor: { row: number; column: number }; focus: { row: number; column: number }; dragged: boolean } | undefined
   /** Collapsed blocks in the transcript, in order, with both of their forms. */
@@ -241,8 +247,18 @@ export class Screen {
   /** Width the current frame was painted at, to detect a resize. */
   private paintedColumns = 0
   private active = false
+  /** Opens a child session when a view-card is clicked. */
+  private enterHandler: ((id: string) => void) | undefined
 
   constructor(private readonly host: ScreenHost) {}
+
+  /**
+   * What a click on a view-card does.
+   * @param handler - receives the child session id; omit to restore folding.
+   */
+  setEnter(handler: ((id: string) => void) | undefined): void {
+    this.enterHandler = handler
+  }
 
   /** Whether the alternate screen is currently held. */
   get entered(): boolean {
@@ -340,8 +356,9 @@ export class Screen {
    * @param full - the expanded lines, already styled.
    * @param rule - a styled left rule for the whole block, `''` for none.
    * @param label - what the block is, for the hover readout that names it.
+   * @param enter - child session a click opens instead of folding, when set.
    */
-  appendFold(summary: readonly string[], full: readonly string[], rule = '', label = ''): void {
+  appendFold(summary: readonly string[], full: readonly string[], rule = '', label = '', enter?: string): void {
     const shown = this.expanded ? full : summary
     this.folds.push({
       at: this.logical.length,
@@ -351,6 +368,7 @@ export class Screen {
       expanded: this.expanded,
       rule,
       label,
+      ...enter === undefined ? {} : { enter },
     })
     this.append(shown, rule)
   }
@@ -435,6 +453,10 @@ export class Screen {
   private clickFold(row: number): void {
     const fold = this.foldAt(row)
     if (fold === undefined) return
+    if (fold.enter !== undefined && this.enterHandler !== undefined) {
+      this.enterHandler(fold.enter)
+      return
+    }
     this.setFold(fold, !fold.expanded)
   }
 
@@ -564,6 +586,19 @@ export class Screen {
     if (text === this.notice) return
     this.notice = text
     if (this.offset > 0) this.render()
+  }
+
+  /**
+   * Float rows over the viewport just above the chrome.
+   *
+   * The chrome's height does not change, so opening a completion menu cannot
+   * shake the transcript. Empty clears the layer.
+   * @param rows - the overlay, top to bottom.
+   */
+  setOverlay(rows: readonly string[]): void {
+    if (rows.length === this.overlay.length && rows.every((row, index) => row === this.overlay[index])) return
+    this.overlay = [...rows]
+    this.render()
   }
 
   /**
@@ -703,6 +738,13 @@ export class Screen {
    * every time, so a caller need not track the changes itself.
    */
   mouseMove(row: number, column: number): HoverBlock | undefined {
+    if (this.coversOverlay(row)) {
+      if (this.hovered !== undefined) {
+        this.hovered = undefined
+        this.render()
+      }
+      return undefined
+    }
     const at = this.locate(row, column, false)
     const fold = at === undefined ? undefined : this.foldAt(at.row)
     if (fold !== this.hovered) {
@@ -710,7 +752,12 @@ export class Screen {
       this.render()
     }
     if (fold === undefined) return undefined
-    return { label: fold.label, lines: fold.full.length, expanded: fold.expanded }
+    return {
+      label: fold.label,
+      lines: fold.full.length,
+      expanded: fold.expanded,
+      ...fold.enter === undefined ? {} : { enter: true },
+    }
   }
 
   /**
@@ -725,6 +772,10 @@ export class Screen {
   mouseDown(row: number, column: number): void {
     const had = this.selection !== undefined
     this.selection = undefined
+    if (this.coversOverlay(row)) {
+      if (had) this.render()
+      return
+    }
     const at = this.locate(row, column, false)
     if (at !== undefined) this.selection = { anchor: at, focus: at, dragged: false }
     // A bare click also clears a standing highlight; the row diff repaints
@@ -810,6 +861,14 @@ export class Screen {
    * way dragging past an edge keeps selecting, instead of refusing it.
    * @returns the position, or undefined when it misses the content.
    */
+  /** Whether a terminal row sits on the floating completion layer. */
+  private coversOverlay(row: number): boolean {
+    if (this.overlay.length === 0) return false
+    const chromeStart = this.host.rows() - this.chrome.length
+    const overlayStart = chromeStart - this.overlay.length
+    return row - 1 >= overlayStart && row - 1 < chromeStart
+  }
+
   private locate(row: number, column: number, clamp: boolean): { row: number; column: number } | undefined {
     if (this.physical.length === 0) return undefined
     const height = this.viewportHeight()
@@ -942,6 +1001,14 @@ export class Screen {
     // one, so the rest of the layout does not shift under the reader.
     if (this.offset > 0 && this.notice !== '' && viewport.length > 0) {
       viewport[0] = truncate(this.notice, this.contentColumns())
+    }
+    if (this.overlay.length > 0 && viewport.length > 0) {
+      const width = this.contentColumns()
+      const start = Math.max(0, viewport.length - this.overlay.length)
+      this.overlay.forEach((row, index) => {
+        const at = start + index
+        if (at < viewport.length) viewport[at] = fill(truncate(row, width), width, this.light)
+      })
     }
     const frame = [...viewport, ...this.chrome]
 

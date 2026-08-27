@@ -1,7 +1,7 @@
 /**
  * The input box: a framed, multi-line prompt that wraps long lines, grows with
  * its content, and windows when it grows past its budget — with the completion
- * menu above it, so opening candidates cannot lift the box.
+ * menu overlaid on the transcript above it.
  *
  * Pure layout. It turns an {@link EditorView} into the rows of the bottom region
  * and says where the terminal cursor belongs, so the drawing code has no opinion
@@ -58,6 +58,11 @@ export interface BoxOptions {
 export interface BoxLayout {
   /** Rows, top to bottom, each already fitted to the terminal. */
   rows: string[]
+  /**
+   * Completion menu, painted over the transcript just above the box so
+   * opening it cannot grow the chrome or shake the output.
+   */
+  overlay: string[]
   /** Index into {@link rows} where the cursor belongs. */
   cursorRow: number
   /** Display column of the cursor on that row, from zero. */
@@ -172,7 +177,7 @@ function paintGestures(
   return out + cells.slice(at).join('')
 }
 
-/** Candidate rows to sit above the frame, empty when the menu is closed. */
+/** Candidate rows painted as a floating layer, empty when the menu is closed. */
 function menuRows(view: EditorView, theme: Theme, columns: number): string[] {
   if (view.candidates.length === 0) return []
   const first = Math.min(
@@ -231,8 +236,8 @@ export function inputBox(view: EditorView, theme: Theme, columns: number, option
   const empty = lines.length === 1 && lines[0] === ''
   const mark = shell ? theme.pending('!') : theme.user('›')
   const hits = displayHits(view.hits, shell)
-  const menu = menuRows(view, theme, columns)
-  const rows: string[] = [...menu, accent(`╭${rule}╮`)]
+  const overlay = menuRows(view, theme, columns)
+  const rows: string[] = [accent(`╭${rule}╮`)]
   if (empty && (shell || options.placeholder !== undefined)) {
     const text = truncate(shell ? 'command' : (options.placeholder ?? ''), budget)
     const pad = ' '.repeat(Math.max(0, budget - displayWidth(text)))
@@ -266,8 +271,8 @@ export function inputBox(view: EditorView, theme: Theme, columns: number, option
     : Array.from(lines[view.row] ?? '').slice(inCursorRow.start, column).join('')
   return {
     rows,
-    // Menu rows sit above the frame so opening it cannot lift the box.
-    cursorRow: menu.length + 1 + (cursorAt - start),
+    overlay,
+    cursorRow: 1 + (cursorAt - start),
     cursorColumn: FRAME_WIDTH + Math.min(displayWidth(before), budget),
   }
 }
