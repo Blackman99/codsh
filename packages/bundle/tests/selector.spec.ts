@@ -102,6 +102,50 @@ describe('the custom row', () => {
   })
 })
 
+describe('filterable', () => {
+  const catalog: SelectSpec = {
+    title: 'Switch model',
+    filterable: true,
+    options: [
+      { label: 'deepseek/flash', detail: 'fast' },
+      { label: 'deepseek/pro', detail: 'current' },
+      { label: 'openai/gpt', detail: 'codex' },
+    ],
+  }
+
+  it('filters by typed text and accepts the original index', () => {
+    expect(drive(new Selector(catalog), [
+      { kind: 'text', text: 'p' },
+      { kind: 'text', text: 'r' },
+      key('enter'),
+    ])).toEqual({ kind: 'chosen', indices: [1] })
+  })
+
+  it('moves arrows inside the filtered set', () => {
+    expect(drive(new Selector(catalog), [
+      { kind: 'text', text: 'deepseek' },
+      key('down'),
+      key('enter'),
+    ])).toEqual({ kind: 'chosen', indices: [1] })
+  })
+
+  it('edits the query with Backspace', () => {
+    expect(drive(new Selector(catalog), [
+      { kind: 'text', text: 'zzz' },
+      key('backspace'),
+      key('backspace'),
+      key('backspace'),
+      { kind: 'text', text: 'gpt' },
+      key('enter'),
+    ])).toEqual({ kind: 'chosen', indices: [2] })
+  })
+
+  it('leaves digits and shortcuts working when filtering is off', () => {
+    expect(drive(new Selector(spec), [{ kind: 'text', text: 'n' }])).toEqual({ kind: 'chosen', indices: [2] })
+    expect(drive(new Selector(spec), [{ kind: 'text', text: '2' }])).toEqual({ kind: 'chosen', indices: [1] })
+  })
+})
+
 describe('the view', () => {
   it('shows the title, numbered options, shortcuts, and the marker', () => {
     const rows = new Selector(spec).view(theme, 60)

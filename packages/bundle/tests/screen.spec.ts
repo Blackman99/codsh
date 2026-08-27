@@ -612,7 +612,7 @@ describe('mouse selection', () => {
 })
 
 describe('the block under the pointer', () => {
-  it('underlines the hovered block\'s head row and names it', () => {
+  it('fills the hovered block and names it', () => {
     const sink = host(10, 40)
     const screen = new Screen(sink)
     screen.enter()
@@ -623,10 +623,22 @@ describe('the block under the pointer', () => {
 
     // Row 2 is the block's summary line.
     expect(screen.mouseMove(2, 3)).toEqual({ label: 'thinking', lines: 3, expanded: false })
-    expect(flush(sink)).toContain('\u001B[4msummary\u001B[24m')
+    expect(flush(sink)).toContain('\u001B[48;5;236msummary')
   })
 
-  it('marks the head row wherever in the block the pointer is', () => {
+  it('picks a lighter fill on a light background', () => {
+    const sink = host(10, 40)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['status'], { row: 0, column: 0 }, false)
+    screen.appendFold(['summary', ''], ['full'], '', 'thinking')
+    screen.setLight(true)
+    flush(sink)
+    screen.mouseMove(1, 3)
+    expect(flush(sink)).toContain('\u001B[48;5;253m')
+  })
+
+  it('fills every visible row of the hovered block', () => {
     const sink = host(10, 40)
     const screen = new Screen(sink)
     screen.enter()
@@ -635,12 +647,11 @@ describe('the block under the pointer', () => {
     screen.toggleFolds()
     flush(sink)
 
-    // The pointer is on the block's third row; the mark belongs to the block,
-    // not to the row under the pointer.
     expect(screen.mouseMove(3, 2)?.expanded).toBe(true)
     const frame = flush(sink)
-    expect(frame).toContain('\u001B[4mhead\u001B[24m')
-    expect(frame).not.toContain('\u001B[4mbody')
+    expect(frame).toContain('\u001B[48;5;236mhead')
+    expect(frame).toContain('\u001B[48;5;236mbody')
+    expect(frame).toContain('\u001B[48;5;236mtail')
   })
 
   it('repaints only when the block under the pointer changes', () => {
@@ -662,7 +673,7 @@ describe('the block under the pointer', () => {
     // Off the block, the mark goes with it.
     expect(screen.mouseMove(1, 2)).toBeUndefined()
     const frame = flush(sink)
-    expect(frame).not.toContain('\u001B[4m')
+    expect(frame).not.toContain('\u001B[48;5;')
     expect(painted(frame).get(2)).toBe('summary')
   })
 
@@ -679,7 +690,8 @@ describe('the block under the pointer', () => {
     flush(sink)
 
     expect(screen.mouseMove(2, 3)).toEqual({ label: 'Bash(pnpm test)', lines: 12, expanded: true })
-    expect(flush(sink)).not.toContain('\u001B[4m')
+    // The head is off the top; the visible body of the same block is still marked.
+    expect(flush(sink)).toContain('\u001B[48;5;')
   })
 
   it('forgets the block it was on when the transcript is cleared', () => {
@@ -693,7 +705,7 @@ describe('the block under the pointer', () => {
     screen.clearTranscript()
     screen.append(['fresh'])
     // A mark held over a cleared buffer would point at a block that is gone.
-    expect(flush(sink)).not.toContain('\u001B[4m')
+    expect(flush(sink)).not.toContain('\u001B[48;5;')
   })
 })
 
@@ -793,5 +805,46 @@ describe('the rule down a block\'s edge', () => {
     screen.toggleFolds()
     const rows = painted(flush(sink))
     expect(rows.get(1)).toBe('| one')
+  })
+})
+
+describe('transcript search', () => {
+  it('finds hits newest-first and steps without changing the text', () => {
+    const sink = host(8, 40)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['box'], { row: 0, column: 0 }, false)
+    screen.append(['alpha line', 'bravo line', 'alpha again'])
+    const first = screen.searchTranscript('alpha')
+    expect(first).toEqual({ query: 'alpha', hits: 2, index: 1 })
+    const next = screen.nextTranscriptHit(-1)
+    expect(next).toEqual({ query: 'alpha', hits: 2, index: 0 })
+    const frame = flush(sink)
+    expect(frame).toContain('alpha')
+    screen.clearTranscriptSearch()
+    expect(screen.transcriptSearch).toBeUndefined()
+    expect(flush(sink)).toContain('alpha')
+  })
+
+  it('scrolls an off-screen hit into view', () => {
+    const sink = host(6, 40)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['box'], { row: 0, column: 0 }, false)
+    screen.append(['needle', 'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'])
+    expect(screen.scrolledBy).toBe(0)
+    screen.searchTranscript('needle')
+    expect(screen.transcriptSearch?.hits).toBe(1)
+    expect(screen.scrolledBy).toBeGreaterThan(0)
+  })
+
+  it('forgets find when the transcript is cleared', () => {
+    const sink = host()
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.append(['needle'])
+    screen.searchTranscript('needle')
+    screen.clearTranscript()
+    expect(screen.transcriptSearch).toBeUndefined()
   })
 })

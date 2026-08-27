@@ -56,9 +56,11 @@ copy toast).
 **Hover readout**:
 The chrome row naming the fold the pointer rests on — what it is, how many
 lines it holds, whether a click opens or folds it — for as long as it rests
-there. Outranked by a flash, and it outranks the working indicator. Paired
-with the underline on that block's head row; the readout is what still speaks
-when the head row is off the screen.
+there. Outranked by a flash, and it outranks the working indicator. It
+borrows that chrome row rather than adding one, so the box does not jump.
+Paired with a panel fill on every visible row of that block, the way
+opencode marks the block under the pointer; the readout is what still
+speaks when the head row is off the screen.
 _Avoid_: tooltip, status hint
 
 **Pasted image**:
@@ -106,4 +108,5 @@ reading leave a dispute.
 
 **Batch**:
 One user-initiated autonomous run of the pipeline: pick open matrix rows,
-implement, pin with tests, sync, changeset, report.
+implement, pin with tests, verify in the real TUI (PTY e2e or
+`MOCK=… pnpm run dev`), sync, changeset, report.

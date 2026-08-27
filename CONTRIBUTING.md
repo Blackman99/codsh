@@ -21,6 +21,7 @@ pnpm run test:e2e         # drives the installed dsh binary through pipes and a 
 ```
 
 - New rendering or input behavior needs a test at the right level: pure modules (editor, markdown, transcript, …) get unit specs; anything about raw mode, repaints, or key timing gets a PTY e2e step.
+- Surface work is not done at unit green. Drive the changed keys and chrome on a real TTY — the PTY e2e that paints the frame, or `MOCK=echo pnpm run dev` — before calling the row aligned. This is standard process, not optional.
 - The transcript is append-only and the renderer switches on presenter `card` tags, never tool names — keep both invariants.
 - Add a changeset (`pnpm changeset`) describing the user-visible change; releases are cut from accumulated changesets by CI.
 

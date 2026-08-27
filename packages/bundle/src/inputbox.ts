@@ -1,7 +1,7 @@
 /**
  * The input box: a framed, multi-line prompt that wraps long lines, grows with
  * its content, and windows when it grows past its budget — with the completion
- * menu under it.
+ * menu above it, so opening candidates cannot lift the box.
  *
  * Pure layout. It turns an {@link EditorView} into the rows of the bottom region
  * and says where the terminal cursor belongs, so the drawing code has no opinion
@@ -16,7 +16,7 @@
  */
 
 import { displayWidth, truncate } from './theme.ts'
-import type { EditorView } from './editor.ts'
+import type { EditorView, GestureHit } from './editor.ts'
 import type { Theme } from './theme.ts'
 
 /** How many candidates the menu shows before it says how many it hid. */
@@ -31,6 +31,12 @@ const GUTTER_WIDTH = 2
 /** Content rows shown before the box windows around the cursor. */
 const MAX_CONTENT_ROWS = 6
 
+/** Underline on, used only for the typed fragment inside a menu label. */
+const UNDERLINE_ON = '\u001B[4m'
+
+/** Underline off, without resetting other attributes. */
+const UNDERLINE_OFF = '\u001B[24m'
+
 /** What the box is asked to show besides the buffer. */
 export interface BoxOptions {
   /** Dim text shown inside an empty box, e.g. what `/` and `@` do. */
@@ -39,6 +45,13 @@ export interface BoxOptions {
   hint?: string | undefined
   /** Styles the frame; absent frames dim. A mode announces itself here. */
   accent?: ((text: string) => string) | undefined
+  /**
+   * Whether the box is in shell mode (`!` at the start of the first line).
+   *
+   * The frame and gutter announce it; the leading `!` is the gutter, not a
+   * second character in the buffer.
+   */
+  shell?: boolean | undefined
 }
 
 /** The rows to draw and where the cursor goes among them. */
@@ -94,6 +107,95 @@ function wrapLine(line: string, logical: number, budget: number): VisualRow[] {
 }
 
 /**
+ * Paint a menu label so the typed fragment and the selection never share a
+ * colour: the contained span is underlined, the selected name stays full
+ * intensity, and the rest recedes.
+ */
+function paintMenuLabel(value: string, token: string, chosen: boolean, theme: Theme): string {
+  const rest = (text: string): string => (chosen ? text : theme.dim(text))
+  const match = (text: string): string =>
+    theme.colored ? `${UNDERLINE_ON}${text}${UNDERLINE_OFF}` : text
+  if (token === '') return rest(value)
+  const lower = value.toLowerCase()
+  let at = lower.indexOf(token.toLowerCase())
+  let span = token.length
+  if (at < 0 && /^[/@$]/u.test(token) && token.length > 1) {
+    const inner = token.slice(1)
+    at = lower.indexOf(inner.toLowerCase())
+    span = inner.length
+  }
+  if (at < 0) return rest(value)
+  return `${rest(value.slice(0, at))}${match(value.slice(at, at + span))}${rest(value.slice(at + span))}`
+}
+
+/**
+ * Shift first-line hits left by one when the leading `!` is the gutter, not
+ * buffer text the person sees.
+ */
+function displayHits(hits: readonly GestureHit[], shell: boolean): GestureHit[] {
+  if (!shell) return [...hits]
+  return hits.flatMap(hit => {
+    if (hit.row !== 0) return [hit]
+    const start = Math.max(0, hit.start - 1)
+    const end = Math.max(0, hit.end - 1)
+    return end > start ? [{ ...hit, start, end }] : []
+  })
+}
+
+/**
+ * Colour a wrapped segment's known `/command` and `$skill` spans.
+ */
+function paintGestures(
+  text: string,
+  logical: number,
+  start: number,
+  hits: readonly GestureHit[],
+  theme: Theme,
+): string {
+  const end = start + Array.from(text).length
+  const here = hits
+    .filter(hit => hit.row === logical && hit.start < end && hit.end > start)
+    .sort((left, right) => left.start - right.start)
+  if (here.length === 0) return text
+  const cells = Array.from(text)
+  let out = ''
+  let at = 0
+  for (const hit of here) {
+    const from = Math.max(0, hit.start - start)
+    const to = Math.min(cells.length, hit.end - start)
+    if (from >= to) continue
+    out += cells.slice(at, from).join('')
+    const slice = cells.slice(from, to).join('')
+    out += hit.kind === 'skill' ? theme.user(slice) : theme.tool(slice)
+    at = to
+  }
+  return out + cells.slice(at).join('')
+}
+
+/** Candidate rows to sit above the frame, empty when the menu is closed. */
+function menuRows(view: EditorView, theme: Theme, columns: number): string[] {
+  if (view.candidates.length === 0) return []
+  const first = Math.min(
+    Math.max(0, view.selected - MENU_LIMIT + 1),
+    Math.max(0, view.candidates.length - MENU_LIMIT),
+  )
+  const menu = view.candidates.slice(first, first + MENU_LIMIT)
+  const width = Math.max(...menu.map(candidate => displayWidth(candidate.value)))
+  const rows: string[] = []
+  if (first > 0) rows.push(theme.dim(`  ↑ ${first} more`))
+  for (const [index, candidate] of menu.entries()) {
+    const chosen = first + index === view.selected
+    const label = paintMenuLabel(candidate.value, view.token, chosen, theme)
+    const pad = ' '.repeat(Math.max(0, width - displayWidth(candidate.value)))
+    const detail = candidate.detail === '' ? '' : `  ${candidate.detail}`
+    rows.push(truncate(`${chosen ? theme.user('❯') : ' '} ${label}${pad}${theme.dim(detail)}`, columns))
+  }
+  const below = view.candidates.length - first - menu.length
+  if (below > 0) rows.push(theme.dim(`  ↓ ${below} more`))
+  return rows
+}
+
+/**
  * Lay out the input box.
  * @param view - what the editor is showing.
  * @param theme - styling for the frame, the marker, and the menu.
@@ -102,18 +204,23 @@ function wrapLine(line: string, logical: number, budget: number): VisualRow[] {
  * @returns the rows and cursor position.
  */
 export function inputBox(view: EditorView, theme: Theme, columns: number, options: BoxOptions = {}): BoxLayout {
+  const shell = options.shell === true && (view.lines[0] ?? '').startsWith('!')
   const accent = options.accent ?? ((text: string) => theme.dim(text))
   const inner = Math.max(8, columns - FRAME_WIDTH)
   const budget = inner - GUTTER_WIDTH
   const rule = '─'.repeat(inner + 2)
+  const lines = shell
+    ? [(view.lines[0] ?? '').slice(1), ...view.lines.slice(1)]
+    : view.lines
+  const column = shell && view.row === 0 ? Math.max(0, view.column - 1) : view.column
 
-  const visual = view.lines.flatMap((line, index) => wrapLine(line, index, budget))
+  const visual = lines.flatMap((line, index) => wrapLine(line, index, budget))
   // The cursor's visual row: the segment holding its column, with the line's
   // end position belonging to the final segment.
   const cursorVisual = visual.findIndex(row =>
     row.logical === view.row
-    && view.column >= row.start
-    && (view.column < row.start + row.length || (row.last && view.column === row.start + row.length)))
+    && column >= row.start
+    && (column < row.start + row.length || (row.last && column === row.start + row.length)))
   const cursorAt = Math.max(0, cursorVisual)
 
   // Window around the cursor once the box outgrows its budget.
@@ -121,12 +228,15 @@ export function inputBox(view: EditorView, theme: Theme, columns: number, option
   const end = Math.min(visual.length, start + MAX_CONTENT_ROWS)
   const shown = visual.slice(start, end)
 
-  const empty = view.lines.length === 1 && view.lines[0] === ''
-  const rows: string[] = [accent(`╭${rule}╮`)]
-  if (empty && options.placeholder !== undefined) {
-    const text = truncate(options.placeholder, budget)
+  const empty = lines.length === 1 && lines[0] === ''
+  const mark = shell ? theme.pending('!') : theme.user('›')
+  const hits = displayHits(view.hits, shell)
+  const menu = menuRows(view, theme, columns)
+  const rows: string[] = [...menu, accent(`╭${rule}╮`)]
+  if (empty && (shell || options.placeholder !== undefined)) {
+    const text = truncate(shell ? 'command' : (options.placeholder ?? ''), budget)
     const pad = ' '.repeat(Math.max(0, budget - displayWidth(text)))
-    rows.push(`${accent('│')} ${theme.user('›')} ${theme.dim(text)}${pad} ${accent('│')}`)
+    rows.push(`${accent('│')} ${mark} ${theme.dim(text)}${pad} ${accent('│')}`)
   } else {
     shown.forEach((row, index) => {
       const first = start + index === 0
@@ -134,53 +244,30 @@ export function inputBox(view: EditorView, theme: Theme, columns: number, option
       const clippedBelow = index === shown.length - 1 && end < visual.length
       // The gutter marks the very first row; a clipped edge replaces it so a
       // windowed box says there is more rather than looking complete.
-      const gutter = clippedAbove || clippedBelow ? theme.dim('…') : first ? theme.user('›') : ' '
+      const gutter = clippedAbove || clippedBelow ? theme.dim('…') : first ? mark : ' '
+      const painted = paintGestures(row.text, row.logical, row.start, hits, theme)
       const pad = ' '.repeat(Math.max(0, budget - displayWidth(row.text)))
-      rows.push(`${accent('│')} ${gutter} ${row.text}${pad} ${accent('│')}`)
+      rows.push(`${accent('│')} ${gutter} ${painted}${pad} ${accent('│')}`)
     })
   }
   rows.push(accent(`╰${rule}╯`))
 
-  if (view.candidates.length > 0) {
-    // The window follows the selection: a menu that only ever showed its first
-    // page reads as broken the moment the arrows leave it.
-    const first = Math.min(
-      Math.max(0, view.selected - MENU_LIMIT + 1),
-      Math.max(0, view.candidates.length - MENU_LIMIT),
-    )
-    const menu = view.candidates.slice(first, first + MENU_LIMIT)
-    const width = Math.max(...menu.map(candidate => displayWidth(candidate.value)))
-    if (first > 0) rows.push(theme.dim(`  ↑ ${first} more`))
-    menu.forEach((candidate, index) => {
-      const chosen = first + index === view.selected
-      // The selected row is a colour, not merely bold: bold alone is nearly
-      // invisible against a dark background. The typed fragment keeps the
-      // accent on every row, so the menu reads as "your fragment, completed".
-      const matched = view.token !== '' && candidate.value.startsWith(view.token) ? view.token.length : 0
-      const head = candidate.value.slice(0, matched)
-      const tail = candidate.value.slice(matched)
-      const label = chosen
-        ? theme.bold(theme.tool(candidate.value))
-        : `${theme.tool(head)}${tail}`
-      const pad = ' '.repeat(Math.max(0, width - displayWidth(candidate.value)))
-      const detail = candidate.detail === '' ? '' : `  ${candidate.detail}`
-      rows.push(truncate(`${chosen ? theme.user('❯') : ' '} ${label}${pad}${theme.dim(detail)}`, columns))
-    })
-    const below = view.candidates.length - first - menu.length
-    if (below > 0) rows.push(theme.dim(`  ↓ ${below} more`))
-  } else if (options.hint !== undefined) {
+  if (view.candidates.length === 0 && view.search !== undefined) {
+    const failing = view.search.hits === 0
+    const label = failing ? 'failing bck-i-search' : 'bck-i-search'
+    rows.push(theme.dim(truncate(`  ${label}: ${view.search.query}`, columns)))
+  } else if (view.candidates.length === 0 && options.hint !== undefined) {
     rows.push(theme.dim(truncate(options.hint, columns)))
   }
 
   const inCursorRow = visual[cursorAt]
   const before = inCursorRow === undefined
     ? ''
-    : Array.from(view.lines[view.row] ?? '').slice(inCursorRow.start, view.column).join('')
+    : Array.from(lines[view.row] ?? '').slice(inCursorRow.start, column).join('')
   return {
     rows,
-    // Row 0 is the frame's top; the cursor's visual row sits below it, less the
-    // rows the window clipped.
-    cursorRow: 1 + (cursorAt - start),
+    // Menu rows sit above the frame so opening it cannot lift the box.
+    cursorRow: menu.length + 1 + (cursorAt - start),
     cursorColumn: FRAME_WIDTH + Math.min(displayWidth(before), budget),
   }
 }

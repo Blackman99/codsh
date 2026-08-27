@@ -63,23 +63,20 @@
   by hand — a separator placed at its own x, a cursor beside the wordmark —
   drifts into a collision on the first machine whose font is a little wider.
 -->
-<!-- The mark: dsh is the whale underneath, codsh the sail it carries — and
-     the sail's leading edge is the slash the whole product hangs off: /ship. -->
-<g transform="translate(52 77) scale(0.92)">
-  <path d="M36 46 55 6" stroke="#d98ce8" stroke-width="7" stroke-linecap="round" fill="none"/>
-  <path d="M66 11 C61 22, 55 34, 50 44 L80 44 C78 33, 73 20, 66 11 Z" fill="#d98ce8"/>
-  <path d="M16 60 C20 53, 32 49, 50 49 C66 49, 80 53, 86 61 C89 68, 84 76, 72 79 C56 83, 32 82, 20 73 C17 69, 15 64, 16 60 Z" fill="#6fd6d0"/>
-  <path d="M4 40 C3 51, 8 60, 18 65 L24 58 C15 55, 9 49, 8 43 Z" fill="#6fd6d0"/>
-  <circle cx="78" cy="60" r="2.2" fill="#0b0d0f"/>
-  <path d="M83 67 Q78 70 72 68.5" stroke="#0b0d0f" stroke-width="2" stroke-linecap="round" fill="none"/>
+<!-- The mark from assets/logo.svg: a › sail, a hull, water, and a whale tail. -->
+<g transform="translate(28 42) scale(0.42)">
+  <rect x="20" y="20" width="200" height="200" rx="44" fill="#10173a"/>
+  <path d="M96,52 L142,86 L96,120" fill="none" stroke="#7e96f5" stroke-width="16" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M82,132 L158,132 L144,152 L96,152 Z" fill="#eef1fb"/>
+  <path d="M56,166 Q72,158 88,166 T120,166 T152,166 T184,166" fill="none" stroke="#3d56d6" stroke-width="5" stroke-linecap="round"/>
+  <path fill="#3d56d6" d="M120,206 C112,192 100,185 86,187 C97,174 111,175 120,184 C129,175 143,174 154,187 C140,185 128,192 120,206 Z"/>
 </g>
 
 <g class="m">
   <text class="wordmark ink" x="156" y="148">codsh<tspan class="caret user" dx="8">▌</tspan></text>
 
-  <text class="tag soft" x="60" y="200">From one sentence to shipped —</text>
-  <text class="tag soft" x="60" y="226"><tspan class="user">/ship</tspan> interviews, specs, plans,</text>
-  <text class="tag soft" x="60" y="252">and lands with green tests.</text>
+  <text class="tag soft" x="60" y="210"><tspan class="user">/ship</tspan> takes one sentence</text>
+  <text class="tag soft" x="60" y="236">to verified code.</text>
 
   <text class="meta dim" x="60" y="290">npm i -g codsh-cli · MIT</text>
   <text class="meta dim" x="60" y="312">one dsh per machine, however many tools</text>

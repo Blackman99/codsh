@@ -120,6 +120,10 @@ export class Prompt {
   private todos: TodoList = []
   /** Whether the todo readout shows every item or only the one in flight. */
   private todosExpanded = false
+  /** Incremental find over the transcript, absent when find is closed. */
+  private finding: string | undefined
+  /** Whether the shortcuts overlay is occupying chrome. */
+  private shortcutsOpen = false
   /** The assistant line still arriving, shown above the box. */
   private streaming: string | undefined
   /** Frame styling for the current mode, e.g. plan mode's accent. */
@@ -220,7 +224,8 @@ export class Prompt {
 
   /**
    * Set the status row, the region's always-current last line.
-   * @param text - the styled row, or undefined to drop it.
+   * @param text - the full styled row, or undefined to drop it. Truncation is
+   *   applied at paint time so a resize can grow the line back.
    */
   setStatus(text: string | undefined): void {
     if (text === this.status) return
@@ -345,6 +350,7 @@ export class Prompt {
   private onKey(key: Key): void {
     // Ctrl-C outranks every mode: the reflex to stop must always land.
     if (key.kind === 'interrupt') {
+      this.shortcutsOpen = false
       this.handlers.interrupt()
       return
     }
@@ -365,6 +371,33 @@ export class Prompt {
     // chrome's own state, and nothing outside it changes when the list opens.
     if (key.kind === 'toggle-todos') {
       this.todosExpanded = !this.todosExpanded
+      this.render()
+      return
+    }
+    if (key.kind === 'transcript-search') {
+      if (this.finding === undefined) {
+        this.finding = ''
+        this.console.searchTranscript('')
+      } else {
+        this.console.nextTranscriptHit(1)
+      }
+      this.render()
+      return
+    }
+    if (this.finding !== undefined) {
+      this.onFindKey(key)
+      return
+    }
+    if (this.shortcutsOpen) {
+      if (key.kind === 'escape' || (key.kind === 'text' && key.text === '?')) {
+        this.shortcutsOpen = false
+        this.render()
+        return
+      }
+      this.shortcutsOpen = false
+    }
+    if (key.kind === 'text' && key.text === '?' && this.editor.empty) {
+      this.shortcutsOpen = true
       this.render()
       return
     }
@@ -463,6 +496,14 @@ export class Prompt {
         break
       }
       case 'escape':
+        if (this.queued.length > 0) {
+          const last = this.queued.pop()
+          if (last !== undefined) {
+            for (const image of last.images) this.pendingImages.set(image.id, image)
+            this.editor.prefill(last.text)
+          }
+          break
+        }
         this.handlers.escape()
         break
       case 'eof': {
@@ -565,6 +606,61 @@ export class Prompt {
     return todoReport(this.todos, this.theme, columns, { hint: 'Ctrl+T closes', limit: TODO_ROWS })
   }
 
+  /**
+   * Keys while transcript find is open: typing is the query, arrows step,
+   * Escape closes. The transcript is not edited.
+   * @param key - the decoded keystroke.
+   */
+  private onFindKey(key: Key): void {
+    if (key.kind === 'escape') {
+      this.finding = undefined
+      this.console.clearTranscriptSearch()
+      this.render()
+      return
+    }
+    if (key.kind === 'up') {
+      this.console.nextTranscriptHit(-1)
+      this.render()
+      return
+    }
+    if (key.kind === 'down') {
+      this.console.nextTranscriptHit(1)
+      this.render()
+      return
+    }
+    if (key.kind === 'backspace') {
+      this.finding = Array.from(this.finding ?? '').slice(0, -1).join('')
+      this.console.searchTranscript(this.finding)
+      this.render()
+      return
+    }
+    if (key.kind === 'text') {
+      this.finding = `${this.finding ?? ''}${key.text}`
+      this.console.searchTranscript(this.finding)
+      this.render()
+      return
+    }
+    if (key.kind === 'paste') {
+      this.finding = `${this.finding ?? ''}${key.text.replaceAll('\n', '')}`
+      this.console.searchTranscript(this.finding)
+      this.render()
+      return
+    }
+  }
+
+  /**
+   * The find readout, or undefined when find is closed.
+   * @param columns - display columns available.
+   */
+  private findRow(columns: number): string | undefined {
+    if (this.finding === undefined) return undefined
+    const found = this.console.transcriptSearch
+    const hits = found?.hits ?? 0
+    const at = hits === 0 ? 0 : (found?.index ?? 0) + 1
+    const status = hits === 0 ? 'no matches' : `${at}/${hits}`
+    return this.theme.dim(truncate(`  find: ${this.finding}  ${status}  ↑↓ next  Esc closes`, columns))
+  }
+
   /** Recompose and redraw the bottom region. */
   private render(): void {
     if (!this.console.readsKeys) return
@@ -575,12 +671,18 @@ export class Prompt {
     if (this.select_ !== undefined) {
       rows.push(...this.select_.selector.view(this.theme, columns))
     } else if (this.engaged || this.reading) {
+      const bang = (this.editor.view.lines[0] ?? '').startsWith('!')
       const box = inputBox(this.editor.view, this.theme, columns, {
         placeholder: this.placeholder,
-        accent: this.accent,
+        accent: bang ? text => this.theme.pending(text) : this.accent,
+        shell: bang,
       })
       cursor = { row: rows.length + box.cursorRow, column: box.cursorColumn }
       rows.push(...box.rows)
+    }
+    if (this.shortcutsOpen) {
+      rows.push(this.theme.dim(truncate('  Ctrl+R history · Ctrl+F find · Ctrl+O folds · Ctrl+T todos', columns)))
+      rows.push(this.theme.dim(truncate('  Ctrl+V image · Shift-Enter newline · Esc interrupt · ? closes', columns)))
     }
     if (this.queued.length > 0) {
       const preview = this.queued[0]?.text ?? ''
@@ -596,9 +698,15 @@ export class Prompt {
     this.console.setScrollNotice(this.console.scrolledBy > 0
       ? this.theme.dim(truncate(`  ↑ ${this.console.scrolledBy} rows above · PgDn returns to the latest`, columns))
       : '')
-    const notice = this.flash ?? this.hover ?? this.hint
-    if (notice !== undefined) rows.push(notice)
-    if (this.status !== undefined) rows.push(this.status)
+    // Flash, find, and hover borrow an existing chrome row — the hint if one
+    // is up, otherwise the status — so appearing cannot grow the region and
+    // jump the box. Status is truncated at paint so a resize can grow it back.
+    const overlay = this.flash ?? this.findRow(columns) ?? this.hover
+    if (overlay !== undefined) rows.push(overlay)
+    else if (this.hint !== undefined) rows.push(this.hint)
+    if (this.status !== undefined && (overlay === undefined || this.hint !== undefined)) {
+      rows.push(truncate(this.status, columns))
+    }
     if (rows.length === 0) {
       this.console.clearRegion()
       return

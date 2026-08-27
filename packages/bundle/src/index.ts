@@ -27,6 +27,8 @@ import type {} from '@deepseek-ai/dsh-plan-mode'
 import type {} from '@deepseek-ai/dsh-session-projection'
 // Declares the `todos` projection key this surface reads for its readout.
 import type {} from '@deepseek-ai/dsh-tool-todo'
+import { isUserInvocable } from '@deepseek-ai/dsh-skill'
+import type {} from '@deepseek-ai/dsh-skill'
 import type {} from '@deepseek-ai/dsh-token-meter'
 import type {} from '@deepseek-ai/dsh-permission-presets'
 import { admitEncodedImages, isImageAdmissionError } from '@deepseek-ai/dsh-attachment'
@@ -45,7 +47,7 @@ import type {} from '@deepseek-ai/cordis-plugin-loader'
 import type {} from '@deepseek-ai/dsh-cmdline'
 import { TerminalApproval, answerForKey } from './approval.ts'
 import { bannerLines } from './banner.ts'
-import { createCompleter, fuzzyScore } from './completion.ts'
+import { createCompleter, expandSkillGestures, fuzzyScore } from './completion.ts'
 import { expandTemplate, loadCustomCommands } from './custom-commands.ts'
 import type { CompletableCommand } from './completion.ts'
 import { TerminalConsole } from './console.ts'
@@ -54,6 +56,7 @@ import { Prompt } from './prompt.ts'
 import { dshHomePath } from '@deepseek-ai/dsh-home-paths'
 import { installPackagedPreset } from './preset-install.ts'
 import { TerminalQuestions } from './questions.ts'
+import { userShell } from './bang.ts'
 import { SHIP_PROMPT } from './ship.ts'
 import { Spinner } from './spinner.ts'
 import { DEFAULT_IMAGE_LIMITS, describeImage, fitWithinLimits, pastedImageBlock, savePastedImage, visionConfigFromEnv } from './vision.ts'
@@ -277,6 +280,16 @@ interface TurnContent {
   trailing: ContentBlock[]
 }
 
+/** Working-line verb from the in-flight tool name. */
+function toolActivity(name: string): string {
+  const n = name.toLowerCase()
+  if (n.includes('bash') || n.includes('shell') || n.includes('terminal') || n.includes('pwsh')) return 'Running'
+  if (n.includes('read')) return 'Reading'
+  if (n.includes('search') || n.includes('grep') || n.includes('glob') || n.includes('find')) return 'Searching'
+  if (n.includes('edit') || n.includes('write') || n.includes('apply')) return 'Editing'
+  return name
+}
+
 async function turn(agent: Agent, text: string, working?: Spinner, source: TurnSource = { kind: 'user' }, extra?: TurnContent): Promise<void> {
   agent.followup(createUserMessage({
     content: [...extra?.leading ?? [], { type: 'text', text }, ...extra?.trailing ?? []],
@@ -362,12 +375,21 @@ interface Captured {
 function capture(
   file: string,
   args: readonly string[],
-  options: { cwd: string; signal?: AbortSignal; timeoutMs?: number },
+  options: { cwd: string; signal?: AbortSignal; timeoutMs?: number; onLine?: (line: string) => void },
 ): Promise<Captured> {
   return new Promise((resolve) => {
     const child = spawn(file, args, { cwd: options.cwd, stdio: ['ignore', 'pipe', 'pipe'] })
     let output = ''
-    const take = (chunk: Buffer | string): void => { output += chunk.toString() }
+    let pending = ''
+    const take = (chunk: Buffer | string): void => {
+      const text = chunk.toString().replaceAll('\r\n', '\n').replaceAll('\r', '\n')
+      output += text
+      if (options.onLine === undefined) return
+      pending += text
+      const parts = pending.split('\n')
+      pending = parts.pop() ?? ''
+      for (const line of parts) options.onLine(line)
+    }
     child.stdout.on('data', take)
     child.stderr.on('data', take)
     const timer = options.timeoutMs === undefined
@@ -381,6 +403,7 @@ function capture(
     child.on('close', (code, signal) => {
       if (timer !== undefined) clearTimeout(timer)
       options.signal?.removeEventListener('abort', onAbort)
+      if (pending !== '' && options.onLine !== undefined) options.onLine(pending)
       resolve({ output, code, signal })
     })
   })
@@ -499,7 +522,10 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
   // secondary-text shade for everything rendered from then on.
   io.console.onBackground((payload) => {
     const light = backgroundIsLight(payload)
-    if (light !== undefined) theme.setLight(light)
+    if (light !== undefined) {
+      theme.setLight(light)
+      io.console.setLight(light)
+    }
   })
 
   // Before the roster resolves anything: discovery re-reads its roots on every
@@ -632,6 +658,17 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
     ...custom.commands.map(command => ({ name: command.name, description: command.description })),
     { name: 'exit', description: 'leave the session' },
   ]
+  let userSkills: { name: string; description: string }[] = []
+  const refreshSkills = async (): Promise<void> => {
+    try {
+      const listed = await ctx.get('skills')?.list({ cwd, scope: live.agent }) ?? []
+      userSkills = listed.filter(isUserInvocable).map(entry => ({ name: entry.name, description: entry.description }))
+    } catch {
+      userSkills = []
+    }
+  }
+  void refreshSkills()
+  ctx.on('skills/change', () => { void refreshSkills() })
   const completePath = createCompleter(completable, cwd)
   /**
    * The first-argument candidates per command, read live: plan's argument
@@ -676,6 +713,7 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
     commands: completable,
     paths: completePath,
     commandArguments: argumentsFor,
+    skills: () => userSkills,
   }, {
     interrupt: () => { onInterruptKey() },
     escape: () => { onEscapeKey() },
@@ -697,7 +735,7 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
     // Ctrl-V: the prompt owns the token and the pending bytes; the platform
     // read lives here so the prompt module stays pure enough to test.
     readClipboardImage: () => readClipboardImage(process.env),
-  }, 'Ask anything · / for commands · @ for files · ⇧Tab plan mode')
+  }, 'Ask anything · / for commands · $ for skills · ! shell · @ for files · ⇧Tab plan mode')
   // The baseline the indicator's token figure counts from, reset per turn.
   let turnBaseTokens = 0
   const spinner = new Spinner({
@@ -734,6 +772,7 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
     const old = live.handle
     adopt(next, replayLog)
     await old.dispose()
+    void refreshSkills()
   }
   if (commands !== undefined) {
     // `register` returns its own effect disposer, which is this registration's
@@ -818,6 +857,7 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
         const outcome = await prompt.select({
           title: 'Resume session',
           options: rows.map(row => ({ label: row.label, detail: row.detail })),
+          filterable: true,
         }, signal)
         if (outcome.kind !== 'chosen') return { kind: 'success', text: 'nothing resumed' }
         const picked = rows[outcome.indices[0] ?? -1]
@@ -882,6 +922,7 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
               const active = entry.provider === current?.provider && entry.id === current.model
               return { label: `${entry.provider}/${entry.id}`, detail: active ? `${entry.name} · current` : entry.name }
             }),
+            filterable: true,
           })
           if (outcome.kind !== 'chosen') return { kind: 'success', text: 'model unchanged' }
           const picked = modelCatalog[outcome.indices[0] ?? -1]
@@ -950,7 +991,7 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
   /** Push the always-current status row; the pipe shape prints it instead. */
   const refreshStatus = (): void => {
     if (!io.console.readsKeys) return
-    prompt.setStatus(statusLine(facts(branch), theme, io.console.columns - 1))
+    prompt.setStatus(statusLine(facts(branch), theme))
     // Same cadence as the status row, for the same reason: the list is a fold
     // over the log, so anything cached here would report the turn before last.
     prompt.setTodos(todoList(ctx, live.agent))
@@ -971,6 +1012,8 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
     // carries the whole replacement list, so the readout never has to wait for
     // a fold that may land after this handler runs.
     if (event.type === 'todo/write') prompt.setTodos(event.data.todos)
+    if (event.type === 'tool/call') spinner.setActivity(toolActivity(event.data.name))
+    if (event.type === 'tool/result') spinner.setActivity('working')
     // In print mode the task text came from the caller's own command line;
     // echoing it back would only make stdout harder to consume in scripts.
     if (config.print && event.type === 'user/message') return
@@ -1277,34 +1320,41 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
    * @param command - the line after the `!`.
    */
   const passthrough = async (command: string): Promise<void> => {
-    prompt.write(`${theme.user('›')} ${theme.tool(`!${command}`)}`)
+    prompt.write(`${theme.pending('●')} ${theme.tool('bash')}`)
+    prompt.write(`  $ ${command}`)
     running = new AbortController()
     try {
-      const shell = process.env['SHELL'] ?? '/bin/sh'
-      const result = await capture(shell, ['-c', command], {
-        cwd,
-        signal: running.signal,
-        timeoutMs: config.bangTimeoutMs,
-      })
-      const lines = result.output.trimEnd() === '' ? [] : result.output.trimEnd().split('\n')
-      const kept = lines.slice(0, config.bangOutputLines)
-      const dropped = lines.length - kept.length
-      for (const line of kept) prompt.write(theme.dim(`  ${line}`))
-      if (dropped > 0) prompt.write(theme.dim(`  … ${dropped} more lines`))
+      let streamed = 0
+      const result = await capture(
+        userShell(),
+        process.platform === 'win32' ? ['/c', command] : ['-c', command],
+        {
+          cwd,
+          signal: running.signal,
+          timeoutMs: config.bangTimeoutMs,
+          onLine: (line) => {
+            if (streamed < config.bangOutputLines) prompt.write(`  ${line}`)
+            streamed += 1
+          },
+        },
+      )
+      if (streamed > config.bangOutputLines) {
+        prompt.write(theme.dim(`  … ${streamed - config.bangOutputLines} more lines`))
+      }
       const status = result.signal !== null
         ? theme.error(`  ✗ killed by ${result.signal}`)
         : result.code !== 0 ? theme.error(`  ✗ exit ${result.code ?? '?'}`) : undefined
       if (status !== undefined) prompt.write(status)
       prompt.write('')
+      const lines = result.output.trimEnd() === '' ? [] : result.output.trimEnd().split('\n')
+      const kept = lines.slice(0, config.bangOutputLines)
+      const dropped = lines.length - kept.length
       const report = [...kept, ...dropped > 0 ? [`… ${dropped} more lines`] : []].join('\n')
       const exit = result.signal !== null ? `killed by ${result.signal}` : String(result.code ?? 0)
-      live.agent.inject(createUserMessage({
-        content: [{
-          type: 'text',
-          text: `<bash-input>${command}</bash-input>\n<bash-output>\n${report}\n</bash-output>\n<bash-exit>${exit}</bash-exit>`,
-        }],
-        source: { kind: 'plugin', plugin: 'coding-cli' },
-      }))
+      await answer(
+        `<bash-input>${command}</bash-input>\n<bash-output>\n${report}\n</bash-output>\n<bash-exit>${exit}</bash-exit>`,
+        { kind: 'plugin', plugin: 'coding-cli' },
+      )
     } finally {
       running = undefined
     }
@@ -1351,7 +1401,8 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
       // an image to ride, so dropping it silently would read as it arriving.
       if (images.length > 0) prompt.setFlash(theme.dim('  images do not ride ! commands — send them with a prompt'))
       const command = trimmed.slice(1).trim()
-      if (command !== '') await passthrough(command)
+      if (command === '') continue
+      await passthrough(command)
       continue
     }
     if (trimmed.startsWith('/')) {
@@ -1394,7 +1445,7 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
       }
       continue
     }
-    await answer(trimmed, undefined, images)
+    await answer(expandSkillGestures(trimmed, new Set(userSkills.map(entry => entry.name))), undefined, images)
   }
   await sessions.flush(live.agent.session)
   try {

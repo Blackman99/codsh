@@ -31,6 +31,8 @@ export interface SelectSpec {
   multi?: boolean
   /** Label for a trailing "type your own" row; absent offers none. */
   custom?: string
+  /** Whether typing filters the list instead of digits/shortcuts settling. */
+  filterable?: boolean
 }
 
 /** How one selection ended. */
@@ -50,18 +52,31 @@ const VISIBLE_ROWS = 10
 
 export class Selector {
   private selected = 0
+  private query = ''
   private readonly checked = new Set<number>()
 
   constructor(private readonly spec: SelectSpec) {}
 
-  /** How many rows the widget offers, the custom row included. */
-  private get count(): number {
-    return this.spec.options.length + (this.spec.custom === undefined ? 0 : 1)
+  /** Original option indices currently shown, in order. */
+  private matching(): number[] {
+    const options = this.spec.options
+    if (this.query === '' || this.spec.filterable !== true) {
+      return options.map((_, index) => index)
+    }
+    const needle = this.query.toLowerCase()
+    return options.flatMap((option, index) => (
+      `${option.label} ${option.detail ?? ''}`.toLowerCase().includes(needle) ? [index] : []
+    ))
   }
 
-  /** Whether a row index is the custom "type your own" row. */
+  /** How many rows the widget offers, the custom row included. */
+  private get count(): number {
+    return this.matching().length + (this.spec.custom === undefined ? 0 : 1)
+  }
+
+  /** Whether a visible row index is the custom "type your own" row. */
   private isCustom(index: number): boolean {
-    return this.spec.custom !== undefined && index === this.spec.options.length
+    return this.spec.custom !== undefined && index === this.matching().length
   }
 
   /**
@@ -72,16 +87,24 @@ export class Selector {
   handle(key: Key): SelectorStep {
     switch (key.kind) {
       case 'up':
+        if (this.count === 0) return { kind: 'pending' }
         this.selected = (this.selected - 1 + this.count) % this.count
         return { kind: 'pending' }
       case 'down':
       case 'tab':
+        if (this.count === 0) return { kind: 'pending' }
         this.selected = (this.selected + 1) % this.count
         return { kind: 'pending' }
       case 'enter':
         return this.accept(this.selected)
       case 'escape':
         return { kind: 'done', outcome: { kind: 'cancelled' } }
+      case 'backspace':
+        if (this.spec.filterable === true && this.query.length > 0) {
+          this.query = Array.from(this.query).slice(0, -1).join('')
+          this.selected = 0
+        }
+        return { kind: 'pending' }
       case 'text':
         return this.typed(key.text)
       default:
@@ -95,10 +118,22 @@ export class Selector {
    * @returns whether the selection settled.
    */
   private typed(text: string): SelectorStep {
+    if (this.spec.filterable === true) {
+      if (this.query === '') {
+        const shortcut = this.spec.options.findIndex(option => option.shortcut === text.toLowerCase())
+        if (shortcut >= 0) return this.acceptOriginal(shortcut)
+      }
+      this.query += text
+      this.selected = 0
+      return { kind: 'pending' }
+    }
     if (this.spec.multi === true && text === ' ') {
       if (!this.isCustom(this.selected)) {
-        if (this.checked.has(this.selected)) this.checked.delete(this.selected)
-        else this.checked.add(this.selected)
+        const original = this.matching()[this.selected]
+        if (original !== undefined) {
+          if (this.checked.has(original)) this.checked.delete(original)
+          else this.checked.add(original)
+        }
       }
       return { kind: 'pending' }
     }
@@ -108,31 +143,43 @@ export class Selector {
       // multi-select toggles it the way Space does on the marked row.
       if (this.spec.multi === true && !this.isCustom(digit - 1)) {
         this.selected = digit - 1
-        if (this.checked.has(digit - 1)) this.checked.delete(digit - 1)
-        else this.checked.add(digit - 1)
+        const original = this.matching()[digit - 1]
+        if (original !== undefined) {
+          if (this.checked.has(original)) this.checked.delete(original)
+          else this.checked.add(original)
+        }
         return { kind: 'pending' }
       }
       return this.accept(digit - 1)
     }
     const shortcut = this.spec.options.findIndex(option => option.shortcut === text.toLowerCase())
-    if (shortcut >= 0) return this.accept(shortcut)
+    if (shortcut >= 0) return this.acceptOriginal(shortcut)
     return { kind: 'pending' }
   }
 
   /**
-   * Settle on a row.
-   * @param index - the row accepted.
+   * Settle on a visible row.
+   * @param index - the visible row accepted.
    * @returns the settled step.
    */
   private accept(index: number): SelectorStep {
     if (this.isCustom(index)) return { kind: 'done', outcome: { kind: 'custom' } }
+    const original = this.matching()[index]
+    if (original === undefined) return { kind: 'pending' }
+    return this.acceptOriginal(original)
+  }
+
+  /**
+   * Settle on an original option index.
+   * @param original - the option's index in the spec.
+   * @returns the settled step.
+   */
+  private acceptOriginal(original: number): SelectorStep {
     if (this.spec.multi === true) {
-      // Enter confirms whatever is checked; with nothing checked it means the
-      // marked row, so a plain Enter still answers.
-      const indices = this.checked.size > 0 ? [...this.checked].sort((a, b) => a - b) : [index]
+      const indices = this.checked.size > 0 ? [...this.checked].sort((a, b) => a - b) : [original]
       return { kind: 'done', outcome: { kind: 'chosen', indices } }
     }
-    return { kind: 'done', outcome: { kind: 'chosen', indices: [index] } }
+    return { kind: 'done', outcome: { kind: 'chosen', indices: [original] } }
   }
 
   /**
@@ -143,24 +190,30 @@ export class Selector {
    */
   view(theme: Theme, columns: number): string[] {
     const rows: string[] = [theme.bold(truncate(this.spec.title, columns))]
-    // The window follows the mark: a long catalog must scroll under the
-    // arrows, not hide everything past the first page.
+    if (this.spec.filterable === true && this.query !== '') {
+      rows.push(theme.dim(truncate(`  filter: ${this.query}`, columns)))
+    }
+    const shown = this.matching()
     const total = this.count
     const first = Math.min(Math.max(0, this.selected - VISIBLE_ROWS + 1), Math.max(0, total - VISIBLE_ROWS))
     if (first > 0) rows.push(theme.dim(`  ↑ ${first} more`))
     for (let index = first; index < Math.min(total, first + VISIBLE_ROWS); index += 1) {
-      const option = this.spec.options[index]
+      if (this.isCustom(index)) {
+        rows.push(this.row(index, theme.dim(this.spec.custom ?? ''), undefined, theme, columns))
+        continue
+      }
+      const option = this.spec.options[shown[index] ?? -1]
       if (option !== undefined) {
         rows.push(this.row(index, this.label(option, theme), option.detail, theme, columns))
-      } else if (this.spec.custom !== undefined) {
-        rows.push(this.row(index, theme.dim(this.spec.custom), undefined, theme, columns))
       }
     }
     const below = total - first - VISIBLE_ROWS
     if (below > 0) rows.push(theme.dim(`  ↓ ${below} more`))
     const how = this.spec.multi === true
       ? 'Space toggles · Enter confirms · Esc cancels'
-      : '↑↓ move · Enter accepts · Esc cancels'
+      : this.spec.filterable === true
+        ? 'type to filter · ↑↓ move · Enter accepts · Esc cancels'
+        : '↑↓ move · Enter accepts · Esc cancels'
     rows.push(theme.dim(truncate(`  ${how}`, columns)))
     return rows
   }
@@ -189,7 +242,7 @@ export class Selector {
     const marked = index === this.selected
     const marker = marked ? theme.user('❯') : ' '
     const box = this.spec.multi === true && !this.isCustom(index)
-      ? (this.checked.has(index) ? theme.success('◉ ') : theme.dim('○ '))
+      ? (this.checked.has(this.matching()[index] ?? index) ? theme.success('◉ ') : theme.dim('○ '))
       : ''
     const number = theme.dim(`${index + 1}.`)
     const trail = detail === undefined || detail === '' ? '' : theme.dim(`  ${detail}`)

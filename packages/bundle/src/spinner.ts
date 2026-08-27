@@ -59,7 +59,12 @@ export class Spinner {
     private readonly label: SpinnerLabel,
     /** Injected so tests advance time without waiting for it. */
     private readonly now: () => number = () => performance.now(),
-  ) {}
+  ) {
+    this.activity = label.verb
+  }
+
+  /** Current verb, updated as tools fire so the line names what is in flight. */
+  private activity: string
 
   /** Whether the indicator is running. */
   get running(): boolean {
@@ -96,10 +101,20 @@ export class Spinner {
     this.pause()
     this.startedAt = 0
     this.frame = 0
+    this.activity = this.label.verb
+  }
+
+  /**
+   * Name what is in flight. The next tick (or this one, if running) shows it.
+   * @param verb - e.g. `Reading`, `Running`. Empty restores the default verb.
+   */
+  setActivity(verb: string): void {
+    this.activity = verb === '' ? this.label.verb : verb
+    if (this.timer !== undefined) this.draw()
   }
 
   /** Paint the current frame. */
   private draw(): void {
-    this.surface.setLive(spinnerText(this.frame, this.now() - this.startedAt, this.label, this.theme))
+    this.surface.setLive(spinnerText(this.frame, this.now() - this.startedAt, { ...this.label, verb: this.activity }, this.theme))
   }
 }

@@ -197,12 +197,10 @@ describe('dsh code (real profile, keyless model)', () => {
   }, E2E_TEST_TIMEOUT_MS)
 
   it('runs a ! line locally and the next request sees its outcome', async () => {
-    const run = await runCodeCli({ tool: 'echo', input: '!echo BANG_OUTPUT_42\ndid it run\n/exit\n' })
+    const run = await runCodeCli({ tool: 'echo', input: '!echo BANG_OUTPUT_42\n/exit\n' })
 
-    // The command echoes, its output prints, and no model turn was spent on it.
-    expect(run.stdout).toContain('› !echo BANG_OUTPUT_42')
-    expect(run.stdout).toContain('  BANG_OUTPUT_42')
-    // The injected context reached the request layer: the mock reports it.
+    expect(run.stdout).toContain('$ echo BANG_OUTPUT_42')
+    expect(run.stdout).toContain('BANG_OUTPUT_42')
     expect(run.stdout).toContain('bang=yes')
     expect(countOf(run.stdout, 'CODE_CLI_CTX')).toBe(1)
   }, E2E_TEST_TIMEOUT_MS)

@@ -182,6 +182,33 @@ export class TerminalConsole {
     this.screen?.leave()
   }
 
+  /**
+   * Hand the real TTY to a child, then take the viewport back.
+   *
+   * Raw mode and the alternate screen both have to go: the shell needs cooked
+   * input and the person's own buffer, the way Claude Code and opencode yield
+   * `!` to sh. SIGINT is swallowed here so Ctrl-C reaches the child.
+   * @param work - runs while this process is not reading the keyboard.
+   */
+  async runInForeground<T>(work: () => Promise<T>): Promise<T> {
+    if (!this.readsKeys) return work()
+    this.input.pause()
+    this.input.setRawMode?.(false)
+    this.output.write(DISABLE_PASTE_MARKERS)
+    this.screen?.leave()
+    const ignore = (): void => {}
+    process.on('SIGINT', ignore)
+    try {
+      return await work()
+    } finally {
+      process.removeListener('SIGINT', ignore)
+      this.input.setRawMode?.(true)
+      this.output.write(ENABLE_PASTE_MARKERS)
+      this.input.resume()
+      this.screen?.enter()
+    }
+  }
+
   /** Whether this surface currently holds its own screen. */
   get owningScreen(): boolean {
     return this.screen?.entered === true
@@ -214,6 +241,32 @@ export class TerminalConsole {
   /** Return to the tail of the transcript. */
   scrollToBottom(): void {
     this.screen?.scrollToBottom()
+  }
+
+  /**
+   * Search the owned scrollback.
+   * @param query - the needle.
+   */
+  searchTranscript(query: string): { query: string; hits: number; index: number } | undefined {
+    return this.screen?.searchTranscript(query)
+  }
+
+  /**
+   * Step to another hit of the current query.
+   * @param direction - 1 towards the tail, -1 towards the head.
+   */
+  nextTranscriptHit(direction: 1 | -1): { query: string; hits: number; index: number } | undefined {
+    return this.screen?.nextTranscriptHit(direction)
+  }
+
+  /** Close find. Transcript content is untouched. */
+  clearTranscriptSearch(): void {
+    this.screen?.clearTranscriptSearch()
+  }
+
+  /** Incremental find over the scrollback, absent when find is closed. */
+  get transcriptSearch(): { query: string; hits: number; index: number } | undefined {
+    return this.screen?.transcriptSearch
   }
 
   /** Physical rows currently scrolled out of view; zero means at the tail. */
@@ -490,6 +543,14 @@ export class TerminalConsole {
   onBackground(handler: (payload: string) => void): void {
     this.backgroundHandler = handler
     if (this.background !== undefined) handler(this.background)
+  }
+
+  /**
+   * Adopt the light- or dark-background hover fill.
+   * @param light - true when OSC 11 named a light color.
+   */
+  setLight(light: boolean): void {
+    this.screen?.setLight(light)
   }
 
   /**

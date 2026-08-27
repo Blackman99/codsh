@@ -37,6 +37,8 @@ export type Key =
   | { kind: 'clear-screen' }
   | { kind: 'expand-output' }
   | { kind: 'toggle-todos' }
+  | { kind: 'history-search' }
+  | { kind: 'transcript-search' }
   | { kind: 'page'; direction: -1 | 1 }
   | { kind: 'scroll'; lines: number }
   | { kind: 'scroll-end' }
@@ -183,6 +185,8 @@ const CONTROLS: Readonly<Record<string, Key>> = {
   '\u000C': { kind: 'clear-screen' },
   '\u000F': { kind: 'expand-output' },
   '\u0014': { kind: 'toggle-todos' },
+  '\u0012': { kind: 'history-search' },
+  '\u0006': { kind: 'transcript-search' },
   '\u0015': { kind: 'kill-input' },
   // Ctrl+V reads the system clipboard for an image — the binding Claude Code
   // uses. An image never arrives through bracketed paste (that channel is

@@ -20,6 +20,7 @@ interface Drawn {
 /** A console stand-in that records regions and replays keys. */
 function fakeConsole(readsKeys: boolean) {
   let handler: ((key: Key) => void) | undefined
+  let resized: (() => void) | undefined
   const draws: Drawn[] = []
   const written: string[] = []
   const lines: string[] = []
@@ -33,7 +34,8 @@ function fakeConsole(readsKeys: boolean) {
     queue: (line: string) => void lines.push(line),
     press: (key: Key) => { handler?.(key) },
     onKey: (next: (key: Key) => void) => { handler = next; return () => { handler = undefined } },
-    onResize: () => () => {},
+    onResize: (next: () => void) => { resized = next; return () => { resized = undefined } },
+    resize() { resized?.() },
     clearScreen: () => {},
     /** Viewport scrolling, recorded so the key routing can be asserted. */
     scrolls: [] as (number | 'bottom' | -1 | 1)[],
@@ -47,6 +49,17 @@ function fakeConsole(readsKeys: boolean) {
     scrollBy(delta: number) { this.scrolls.push(delta) },
     scrollPage(direction: -1 | 1) { this.scrolls.push(direction) },
     scrollToBottom() { this.scrolls.push('bottom') },
+    transcriptSearch: undefined as { query: string; hits: number; index: number } | undefined,
+    searchTranscript(query: string) {
+      this.transcriptSearch = { query, hits: query === '' ? 0 : 1, index: 0 }
+      return this.transcriptSearch
+    },
+    nextTranscriptHit(direction: 1 | -1) {
+      if (this.transcriptSearch === undefined) return undefined
+      this.transcriptSearch = { ...this.transcriptSearch, index: this.transcriptSearch.index + direction }
+      return this.transcriptSearch
+    },
+    clearTranscriptSearch() { this.transcriptSearch = undefined },
     setScrollNotice() {},
     readLine: () => Promise.resolve(lines.shift()),
   }
@@ -190,12 +203,15 @@ describe('the region it composes', () => {
     expect(console.draws.at(-1)?.rows.some(row => row.includes('› x'))).toBe(true)
   })
 
-  it('shows the completion menu under the box', () => {
+  it('shows the completion menu above the box', () => {
     const { prompt, console } = build()
     void prompt.read()
     console.press({ kind: 'text', text: '/p' })
     const rows = console.draws.at(-1)?.rows ?? []
-    expect(rows.some(row => row.includes('/plan'))).toBe(true)
+    const plan = rows.findIndex(row => row.includes('/plan'))
+    const frame = rows.findIndex(row => row.includes('╭'))
+    expect(plan).toBeGreaterThanOrEqual(0)
+    expect(plan).toBeLessThan(frame)
     expect(rows.some(row => row.includes('plan mode'))).toBe(true)
   })
 
@@ -243,6 +259,17 @@ describe('selection', () => {
 })
 
 describe('the surrounding rows', () => {
+  it('dequeues the tail back into the box on Escape', () => {
+    const { prompt, console, calls } = build()
+    console.press({ kind: 'text', text: 'later work' })
+    console.press({ kind: 'enter' })
+    console.press({ kind: 'escape' })
+    expect(calls).not.toContain('escape')
+    expect((console.draws.at(-1)?.rows ?? []).some(row => row.includes('queued:'))).toBe(false)
+    void prompt.read()
+    expect((console.draws.at(-1)?.rows ?? []).join('\n')).toContain('later work')
+  })
+
   it('previews queued submissions so type-ahead is visibly held, not lost', () => {
     const { prompt, console } = build()
     console.press({ kind: 'text', text: 'later work' })
@@ -267,6 +294,21 @@ describe('the surrounding rows', () => {
     const drawn = console.draws.length
     prompt.setStatus('same')
     expect(console.draws.length).toBe(drawn)
+  })
+
+  it('re-fits the status row when the terminal changes width', () => {
+    const { prompt, console } = build()
+    const long = 'model · code-cli · workspace-write · 12k tokens · ~/very/long/workspace/path (main)'
+    prompt.setStatus(long)
+    void prompt.read()
+    console.columns = 24
+    console.resize()
+    const narrow = console.draws.at(-1)?.rows.at(-1) ?? ''
+    expect(narrow.endsWith('…')).toBe(true)
+    expect(narrow.length).toBeLessThan(long.length)
+    console.columns = 120
+    console.resize()
+    expect(console.draws.at(-1)?.rows.at(-1)).toBe(long)
   })
 
   it('pins the todo readout over the hint and status rows', () => {
@@ -362,6 +404,22 @@ describe('the surrounding rows', () => {
     expect(console.draws.at(-1)?.rows.at(-1)).toBe('working')
   })
 
+  it('does not grow the chrome when the hover readout appears', () => {
+    const { prompt, console } = build()
+    prompt.setStatus('model · 12k tokens')
+    void prompt.read()
+    const idle = console.draws.at(-1)?.rows.length ?? 0
+    console.hover = { label: 'thinking', lines: 8, expanded: false }
+    console.press({ kind: 'mouse-move', row: 3, column: 5 })
+    const hovering = console.draws.at(-1)?.rows ?? []
+    expect(hovering.length).toBe(idle)
+    expect(hovering.at(-1)).toBe('  thinking · 8 lines · click to expand')
+    console.hover = undefined
+    console.press({ kind: 'mouse-move', row: 9, column: 5 })
+    expect(console.draws.at(-1)?.rows.length).toBe(idle)
+    expect(console.draws.at(-1)?.rows.at(-1)).toBe('model · 12k tokens')
+  })
+
   it('repaints nothing while the pointer stays on one block', () => {
     const { prompt, console } = build()
     prompt.setHint('working')
@@ -434,6 +492,61 @@ describe('the surrounding rows', () => {
     prompt.setAccent(undefined)
     const plain = console.draws.at(-1)?.rows ?? []
     expect(plain.some(row => row.startsWith('<╭'))).toBe(false)
+  })
+
+  it('switches the box to shell mode as ! is typed', () => {
+    const { prompt, console } = build()
+    void prompt.read()
+    console.press({ kind: 'text', text: '!' })
+    const rows = console.draws.at(-1)?.rows ?? []
+    expect(rows.some(row => row.includes('! command'))).toBe(true)
+    console.press({ kind: 'text', text: 'l' })
+    const typed = console.draws.at(-1)?.rows ?? []
+    expect(typed.some(row => row.includes('! command'))).toBe(false)
+    expect(typed.some(row => row.includes('! l') || row.includes('l'))).toBe(true)
+  })
+
+  it('opens the shortcuts overlay on ? and closes it on Escape', () => {
+    const { prompt, console } = build()
+    void prompt.read()
+    console.press({ kind: 'text', text: '?' })
+    const opened = console.draws.at(-1)?.rows ?? []
+    expect(opened.some(row => row.includes('Ctrl+R history'))).toBe(true)
+    console.press({ kind: 'escape' })
+    const closed = console.draws.at(-1)?.rows ?? []
+    expect(closed.some(row => row.includes('Ctrl+R history'))).toBe(false)
+  })
+
+  it('does not steal ? once the box has text', () => {
+    const { prompt, console } = build()
+    void prompt.read()
+    console.press({ kind: 'text', text: 'a' })
+    console.press({ kind: 'text', text: '?' })
+    const rows = console.draws.at(-1)?.rows ?? []
+    expect(rows.some(row => row.includes('Ctrl+R history'))).toBe(false)
+    expect(rows.join('\n')).toContain('a?')
+  })
+
+  it('opens transcript find on Ctrl-F and gives the row back on Escape', () => {
+    const { prompt, console } = build()
+    void prompt.read()
+    console.press({ kind: 'transcript-search' })
+    expect((console.draws.at(-1)?.rows ?? []).some(row => row.includes('find:'))).toBe(true)
+    console.press({ kind: 'text', text: 'alpha' })
+    expect(console.transcriptSearch?.query).toBe('alpha')
+    console.press({ kind: 'escape' })
+    expect(console.transcriptSearch).toBeUndefined()
+    expect((console.draws.at(-1)?.rows ?? []).some(row => row.includes('find:'))).toBe(false)
+  })
+
+  it('does not type the find query into the box', () => {
+    const { prompt, console } = build()
+    void prompt.read()
+    console.press({ kind: 'transcript-search' })
+    console.press({ kind: 'text', text: 'needle' })
+    const rows = console.draws.at(-1)?.rows ?? []
+    expect(rows.some(row => row.includes('› needle'))).toBe(false)
+    expect(rows.some(row => row.includes('find: needle'))).toBe(true)
   })
 
   it('shows the placeholder inside an empty box', () => {

@@ -24,6 +24,10 @@ function build(): Editor {
       return ['read-only', 'workspace-write'].filter(value => value.startsWith(typed))
         .map(value => ({ value, detail: value === 'workspace-write' ? 'current' : '' }))
     },
+    skills: () => [
+      { name: 'grill-me', description: 'interview a plan' },
+      { name: 'tdd', description: 'test first' },
+    ],
   })
 }
 
@@ -169,7 +173,7 @@ describe('completion menu', () => {
   it('opens as a command is typed, without asking', () => {
     const editor = build()
     type(editor, '/p')
-    expect(editor.view.candidates.map(c => c.value)).toEqual(['/plan', '/permission'])
+    expect(editor.view.candidates.map(c => c.value)).toEqual(['/plan', '/permission', '/compact'])
     expect(editor.view.candidates[0]?.detail).toBe('enter or leave plan mode')
   })
 
@@ -187,12 +191,78 @@ describe('completion menu', () => {
     expect(editor.view.candidates).toEqual([])
   })
 
+  it('opens skills as a $ mention is typed', () => {
+    const editor = build()
+    type(editor, '$g')
+    expect(editor.view.candidates.map(c => c.value)).toEqual(['$grill-me'])
+    expect(editor.view.candidates[0]?.detail).toBe('interview a plan')
+  })
+
+  it('offers every skill for a bare $', () => {
+    const editor = build()
+    type(editor, '$')
+    expect(editor.view.candidates.map(c => c.value)).toEqual(['$grill-me', '$tdd'])
+  })
+
+  it('offers a skill that contains the fragment, not only a prefix', () => {
+    const editor = build()
+    type(editor, '$ill')
+    expect(editor.view.candidates.map(c => c.value)).toEqual(['$grill-me'])
+  })
+
+  it('offers a command that contains the fragment, not only a prefix', () => {
+    const editor = build()
+    type(editor, '/iss')
+    expect(editor.view.candidates.map(c => c.value)).toEqual(['/permission'])
+  })
+
+  it('completes a $ skill mid-sentence', () => {
+    const editor = build()
+    type(editor, 'use $g')
+    expect(editor.view.candidates.map(c => c.value)).toEqual(['$grill-me'])
+  })
+
+  it('accepts a skill without submitting', () => {
+    const editor = build()
+    type(editor, '$g')
+    expect(editor.handle(key('enter'))).toEqual({ kind: 'none' })
+    expect(editor.text).toBe('$grill-me')
+  })
+
   it('offers no commands mid-sentence, where a slash is not a command', () => {
     const editor = build()
     type(editor, 'use /p for')
     expect(editor.view.candidates).toEqual([])
   })
+})
 
+describe('known gestures in the box', () => {
+  it('marks a finished /command', () => {
+    const editor = build()
+    type(editor, '/plan')
+    expect(editor.view.hits).toEqual([{ row: 0, start: 0, end: 5, kind: 'command' }])
+  })
+
+  it('leaves a partial command unmarked', () => {
+    const editor = build()
+    type(editor, '/pla')
+    expect(editor.view.hits).toEqual([])
+  })
+
+  it('marks a finished $skill, including mid-sentence', () => {
+    const editor = build()
+    type(editor, 'use $grill-me now')
+    expect(editor.view.hits).toEqual([{ row: 0, start: 4, end: 13, kind: 'skill' }])
+  })
+
+  it('leaves an unknown $word unmarked', () => {
+    const editor = build()
+    type(editor, '$amount')
+    expect(editor.view.hits).toEqual([])
+  })
+})
+
+describe('completion menu selection', () => {
   it('moves the selection with Tab and the arrows', () => {
     const editor = build()
     type(editor, '/p')
@@ -200,9 +270,11 @@ describe('completion menu', () => {
     editor.handle(key('tab'))
     expect(editor.view.selected).toBe(1)
     editor.handle(key('down'))
+    expect(editor.view.selected).toBe(2)
+    editor.handle(key('down'))
     expect(editor.view.selected).toBe(0)
     editor.handle(key('up'))
-    expect(editor.view.selected).toBe(1)
+    expect(editor.view.selected).toBe(2)
   })
 
   it('accepts the selection on Enter instead of submitting', () => {
@@ -369,6 +441,76 @@ describe('history', () => {
     // The first Up moves inside the buffer; history is only past its edge.
     expect(editor.view.row).toBe(0)
     expect(editor.text).toBe('a\nb')
+  })
+})
+
+describe('history search', () => {
+  it('opens on history-search and previews the newest entry', () => {
+    const editor = build()
+    type(editor, 'alpha')
+    editor.handle(key('enter'))
+    type(editor, 'bravo')
+    editor.handle(key('enter'))
+    editor.handle(key('history-search'))
+    expect(editor.text).toBe('bravo')
+    expect(editor.view.search).toEqual({ query: '', hits: 2, index: 0 })
+  })
+
+  it('narrows by typed query, newest first', () => {
+    const editor = build()
+    type(editor, 'alpha')
+    editor.handle(key('enter'))
+    type(editor, 'bravo')
+    editor.handle(key('enter'))
+    editor.handle(key('history-search'))
+    type(editor, 'a')
+    expect(editor.text).toBe('bravo')
+    type(editor, 'l')
+    expect(editor.text).toBe('alpha')
+    expect(editor.view.search).toEqual({ query: 'al', hits: 1, index: 0 })
+  })
+
+  it('steps to an older match on repeat history-search', () => {
+    const editor = build()
+    type(editor, 'alpha')
+    editor.handle(key('enter'))
+    type(editor, 'bravo')
+    editor.handle(key('enter'))
+    editor.handle(key('history-search'))
+    type(editor, 'a')
+    editor.handle(key('history-search'))
+    expect(editor.text).toBe('alpha')
+    expect(editor.view.search?.index).toBe(1)
+  })
+
+  it('accepts the match into the buffer without submitting', () => {
+    const editor = build()
+    type(editor, 'kept')
+    editor.handle(key('enter'))
+    editor.handle(key('history-search'))
+    expect(editor.handle(key('enter'))).toEqual({ kind: 'none' })
+    expect(editor.text).toBe('kept')
+    expect(editor.view.search).toBeUndefined()
+  })
+
+  it('restores the draft on Escape', () => {
+    const editor = build()
+    type(editor, 'kept')
+    editor.handle(key('enter'))
+    type(editor, 'draft')
+    editor.handle(key('history-search'))
+    expect(editor.text).toBe('kept')
+    editor.handle(key('escape'))
+    expect(editor.text).toBe('draft')
+    expect(editor.view.search).toBeUndefined()
+  })
+
+  it('keeps the draft when history is empty', () => {
+    const editor = build()
+    type(editor, 'draft')
+    editor.handle(key('history-search'))
+    expect(editor.text).toBe('draft')
+    expect(editor.view.search).toEqual({ query: '', hits: 0, index: 0 })
   })
 })
 

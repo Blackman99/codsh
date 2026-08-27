@@ -91,26 +91,35 @@ const INVERSE = '\u001B[7m'
 /** End reverse video only, leaving any other attributes alone. */
 const INVERSE_OFF = '\u001B[27m'
 
-/** Start underline, which is how the block under the pointer shows itself. */
-const UNDERLINE = '\u001B[4m'
+/** Dark-background hover fill, a slight lift off the default black. */
+const FILL_DARK = '\u001B[48;5;236m'
 
-/** End underline only, leaving any other attributes alone. */
-const UNDERLINE_OFF = '\u001B[24m'
+/** Light-background hover fill, a slight drop off the default white. */
+const FILL_LIGHT = '\u001B[48;5;253m'
+
+/** Restore the terminal's default background, leaving other attributes. */
+const FILL_OFF = '\u001B[49m'
 
 /** A full SGR reset, which every styled span this surface prints ends with. */
 const RESET = '\u001B[0m'
 
 /**
- * Underline a whole rendered row.
+ * Fill a row with the hover panel colour, padded to the content width.
  *
  * Every styled span this surface prints ends in a full reset, which would drop
- * the underline partway along the row — so the attribute is armed again after
- * each one, and turned off alone at the end so nothing else is disturbed.
+ * the fill partway along the row — so the attribute is armed again after each
+ * one, and turned off alone at the end. Spaces pad to the viewport width so
+ * the block reads as a panel, the way opencode fills `backgroundElement`.
  * @param row - the styled row.
- * @returns the row, underlined end to end.
+ * @param columns - display columns the panel should occupy.
+ * @param light - whether the terminal background is light.
+ * @returns the row, filled end to end.
  */
-function underline(row: string): string {
-  return `${UNDERLINE}${row.replaceAll(RESET, `${RESET}${UNDERLINE}`)}${UNDERLINE_OFF}`
+function fill(row: string, columns: number, light: boolean): string {
+  const bg = light ? FILL_LIGHT : FILL_DARK
+  const pad = Math.max(0, columns - displayWidth(row))
+  const padded = `${row}${' '.repeat(pad)}`
+  return `${bg}${padded.replaceAll(RESET, `${RESET}${bg}`)}${FILL_OFF}`
 }
 
 /**
@@ -208,6 +217,8 @@ export class Screen {
   private folds: Fold[] = []
   /** The block the pointer rests on, or undefined when it rests on none. */
   private hovered: Fold | undefined
+  /** Whether OSC 11 named a light background; the hover fill picks a shade. */
+  private light = false
   /**
    * Physical row ranges the blocks occupy, or undefined when they need
    * measuring again.
@@ -220,6 +231,8 @@ export class Screen {
   private ranges: { fold: Fold; from: number; to: number }[] | undefined
   /** Whether the folds currently show their full form. */
   private expanded = false
+  /** Incremental find over the owned scrollback, absent when find is closed. */
+  private find: { query: string; hits: { row: number; start: number; end: number }[]; index: number } | undefined
   /** The last painted frame, so a repaint only touches rows that changed. */
   private painted: string[] = []
   /** Width the current frame was painted at, to detect a resize. */
@@ -233,9 +246,25 @@ export class Screen {
     return this.active
   }
 
+  /**
+   * Adopt the light- or dark-background hover fill.
+   * @param light - true when OSC 11 named a light color.
+   */
+  setLight(light: boolean): void {
+    if (this.light === light) return
+    this.light = light
+    if (this.hovered !== undefined) this.render()
+  }
+
   /** Physical rows scrolled up out of view; zero means the tail is showing. */
   get scrolledBy(): number {
     return this.offset
+  }
+
+  /** Incremental find over the scrollback, absent when find is closed. */
+  get transcriptSearch(): { query: string; hits: number; index: number } | undefined {
+    if (this.find === undefined) return undefined
+    return { query: this.find.query, hits: this.find.hits.length, index: this.find.index }
   }
 
   /** Take the alternate screen and start reporting the mouse. */
@@ -563,6 +592,73 @@ export class Screen {
   }
 
   /**
+   * Search the owned scrollback.
+   *
+   * Hits are physical rows, case-insensitive. A new query starts on the
+   * newest hit so recent output is what find lands on first.
+   * @param query - the needle; empty means no hits yet.
+   * @returns the current find state.
+   */
+  searchTranscript(query: string): { query: string; hits: number; index: number } {
+    const hits: { row: number; start: number; end: number }[] = []
+    const needle = query.toLowerCase()
+    if (needle !== '') {
+      for (const [row, line] of this.physical.entries()) {
+        const plain = line.replaceAll(STYLES, '')
+        const lower = plain.toLowerCase()
+        let from = 0
+        for (;;) {
+          const at = lower.indexOf(needle, from)
+          if (at < 0) break
+          hits.push({ row, start: at, end: at + needle.length })
+          from = at + needle.length
+        }
+      }
+    }
+    const index = hits.length === 0 ? 0 : hits.length - 1
+    this.find = { query, hits, index }
+    this.revealFindHit()
+    return { query, hits: hits.length, index }
+  }
+
+  /**
+   * Step to another hit of the current query.
+   * @param direction - 1 towards the tail, -1 towards the head.
+   * @returns the current find state, or undefined when find is closed.
+   */
+  nextTranscriptHit(direction: 1 | -1): { query: string; hits: number; index: number } | undefined {
+    if (this.find === undefined || this.find.hits.length === 0) return this.transcriptSearch
+    const count = this.find.hits.length
+    this.find.index = (this.find.index + direction + count) % count
+    this.revealFindHit()
+    return this.transcriptSearch
+  }
+
+  /** Close find. Transcript content is untouched. */
+  clearTranscriptSearch(): void {
+    if (this.find === undefined) return
+    this.find = undefined
+    this.render()
+  }
+
+  /** Scroll so the current hit is in the viewport, then paint. */
+  private revealFindHit(): void {
+    const hit = this.find?.hits[this.find.index]
+    if (hit === undefined) {
+      this.render()
+      return
+    }
+    const height = this.viewportHeight()
+    const end = this.physical.length - this.offset
+    const start = Math.max(0, end - height)
+    if (hit.row < start || hit.row >= end) {
+      const limit = Math.max(0, this.physical.length - height)
+      this.offset = Math.min(limit, Math.max(0, this.physical.length - hit.row - 1))
+    }
+    this.render()
+  }
+
+  /**
    * Drop the transcript, keeping the chrome.
    *
    * Ctrl-L on a shared terminal clears a viewport the person may want back; on
@@ -576,6 +672,7 @@ export class Screen {
     this.folds = []
     this.ranges = undefined
     this.hovered = undefined
+    this.find = undefined
     this.expanded = false
     this.offset = 0
     this.painted = []
@@ -811,14 +908,31 @@ export class Screen {
         visible[index] = `${plain.slice(0, start)}${INVERSE}${marked}${INVERSE_OFF}${plain.slice(stop)}`
       }
     }
+    const findHit = this.find?.hits[this.find.index]
+    if (findHit !== undefined) {
+      const first = Math.max(0, end - height)
+      const index = findHit.row - first
+      if (index >= 0 && index < visible.length) {
+        const plain = (visible[index] ?? '').replaceAll(STYLES, '')
+        const marked = plain.slice(findHit.start, findHit.end)
+        if (marked !== '') {
+          visible[index] = `${plain.slice(0, findHit.start)}${INVERSE}${marked}${INVERSE_OFF}${plain.slice(findHit.end)}`
+        }
+      }
+    }
     const hovered = this.hovered
     if (hovered !== undefined) {
-      const head = this.foldRanges().find(range => range.fold === hovered)?.from
-      const index = head === undefined ? -1 : head - Math.max(0, end - height)
-      // Only the block's head row is marked. Underlining every row of a long
-      // block would drown the text it is meant to point at, and the readout
-      // in the chrome is what answers a head row scrolled off the top.
-      if (index >= 0 && index < visible.length) visible[index] = underline(visible[index] ?? '')
+      const range = this.foldRanges().find(entry => entry.fold === hovered)
+      if (range !== undefined) {
+        const first = Math.max(0, end - height)
+        const width = this.contentColumns()
+        for (let at = range.from; at <= range.to; at += 1) {
+          const index = at - first
+          if (index >= 0 && index < visible.length) {
+            visible[index] = fill(visible[index] ?? '', width, this.light)
+          }
+        }
+      }
     }
     const viewport = [...visible, ...padding]
     // Scrolled back, the top row says so — replacing a row rather than adding

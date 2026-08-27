@@ -580,15 +580,15 @@ describe.skipIf(process.platform === 'win32')('dsh code Escape (real PTY)', () =
     expect(expanded.some(row => row.includes('CODE_CLI_TALL_44'))).toBe(true)
   }, E2E_TEST_TIMEOUT_MS)
 
-  it('runs a ! line in the shell without spending a turn', async () => {
+  it('runs a ! line in the shell and the agent sees the output', async () => {
     const output = await drivePty('echo', [
       ['/help for commands', `!echo BANG_PTY_7${ENTER}`, 300],
-      ['BANG_PTY_7', `did it run${ENTER}`, 300],
       ['bang=yes', `/exit${ENTER}`, 400],
     ])
 
     const plain = output.replaceAll(/\u001B\[[0-9;?]*[A-Za-z]/gu, '')
-    expect(plain).toContain('› !echo BANG_PTY_7')
+    expect(plain).toContain('$ echo BANG_PTY_7')
+    expect(plain).toContain('BANG_PTY_7')
     expect(plain).toContain('bang=yes')
   }, E2E_TEST_TIMEOUT_MS)
 

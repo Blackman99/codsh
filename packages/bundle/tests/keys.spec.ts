@@ -37,6 +37,8 @@ describe('KeyDecoder', () => {
     { label: 'Ctrl-W', bytes: '\u0017', key: { kind: 'kill-word' } },
     { label: 'Ctrl-L', bytes: '\u000C', key: { kind: 'clear-screen' } },
     { label: 'Ctrl-T', bytes: '\u0014', key: { kind: 'toggle-todos' } },
+    { label: 'Ctrl-R searches history', bytes: '\u0012', key: { kind: 'history-search' } },
+    { label: 'Ctrl-F searches the transcript', bytes: '\u0006', key: { kind: 'transcript-search' } },
     { label: 'Ctrl-V asks for the clipboard image', bytes: '\u0016', key: { kind: 'paste-image' } },
   ])('decodes $label', ({ bytes, key }) => {
     expect(decode(bytes)).toEqual([key])
@@ -177,6 +179,8 @@ describe('KeyDecoder', () => {
     { label: 'Ctrl+O expands', bytes: `${ESC}[111;5u`, keys: [{ kind: 'expand-output' }] },
     { label: 'Ctrl+V pastes the clipboard image', bytes: `${ESC}[118;5u`, keys: [{ kind: 'paste-image' }] },
     { label: 'Ctrl+T opens the todo list', bytes: `${ESC}[116;5u`, keys: [{ kind: 'toggle-todos' }] },
+    { label: 'Ctrl+R searches history', bytes: `${ESC}[114;5u`, keys: [{ kind: 'history-search' }] },
+    { label: 'Ctrl+F searches the transcript', bytes: `${ESC}[102;5u`, keys: [{ kind: 'transcript-search' }] },
     { label: 'Alt+b steps a word left', bytes: `${ESC}[98;3u`, keys: [{ kind: 'word-left' }] },
     { label: 'Alt+Backspace kills a word', bytes: `${ESC}[127;3u`, keys: [{ kind: 'kill-word' }] },
   ])('decodes the kitty report: $label', ({ bytes, keys }) => {

@@ -125,10 +125,11 @@ export async function gitBranch(cwd: string): Promise<string | undefined> {
  * a fresh session reads as short rather than as broken.
  * @param facts - what to report.
  * @param theme - styling for the segments.
- * @param columns - display columns available; a longer line is cut, never wrapped.
- * @returns the line, unstyled when the theme is plain.
- */
-export function statusLine(facts: StatusFacts, theme: Theme, columns: number): string {
+   * @param columns - display columns available; a longer line is cut, never
+   *   wrapped. Omit to keep the full line, so a later paint can re-fit it.
+   * @returns the line, unstyled when the theme is plain.
+   */
+  export function statusLine(facts: StatusFacts, theme: Theme, columns?: number): string {
   const left = contextLeftPercent(facts.context)
   const total = totalTokens(facts.usage)
   // Styled per segment, never as one wrapped line: an inner reset would end an
@@ -152,9 +153,12 @@ export function statusLine(facts: StatusFacts, theme: Theme, columns: number): s
     ...headroom,
     theme.dim(facts.branch === undefined ? displayPath(facts.cwd) : `${displayPath(facts.cwd)} (${facts.branch})`),
   ]
+  const line = segments.join(theme.dim(' · '))
   // A status line that wraps costs two rows above every prompt and stops being
   // glanceable, so it is cut instead; truncation keeps the styling it can.
-  return truncate(segments.join(theme.dim(' · ')), columns)
+  // Cutting is the paint's job when columns are known only then — a stored
+  // ellipsis cannot grow back when the terminal widens.
+  return columns === undefined ? line : truncate(line, columns)
 }
 
 /**

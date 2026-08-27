@@ -23,7 +23,7 @@ describe.skipIf(process.platform === 'win32')('the first five minutes', () => {
       ['Ask anything', `/exit${ENTER}`, 400],
     ])
     const rows = screenAt(output, 'Ask anything').alternate
-    const logoRow = rows.findIndex(row => row.includes('██████╗'))
+    const logoRow = rows.findIndex(row => row.includes('█') || row.includes('▀') || row.includes('▄'))
     expect(logoRow).toBeGreaterThanOrEqual(0)
     expect(logoRow).toBeLessThan(8)
     // The gap sits between the welcome and the chrome, not above the welcome.
@@ -185,6 +185,56 @@ describe.skipIf(process.platform === 'win32')('the first five minutes', () => {
     // Re-expanded: read the frame that painted the tail marker last.
     const probe = screenAtLast(output, 'CODE_CLI_CALL_STREAM_DONE')
     expect(probe.alternate.some(row => row.includes('CODE_CLI_CALL_STREAM_DONE'))).toBe(true)
+  }, E2E_TEST_TIMEOUT_MS)
+
+  it('searches prompt history on Ctrl+R', async () => {
+    const output = await drivePty('write', [
+      ['Welcome to codsh', `create the note${ENTER}`, 300],
+      ['CODE_CLI_CALL_OK', '\u0012', 400],
+      ['bck-i-search', '\u001B', 300],
+      ['Ask anything', `/exit${ENTER}`, 400],
+    ])
+    const rows = screenAt(output, 'bck-i-search').alternate
+    expect(rows.some(row => row.includes('bck-i-search'))).toBe(true)
+    expect(rows.some(row => row.includes('create the note'))).toBe(true)
+  }, E2E_TEST_TIMEOUT_MS)
+
+  it('searches the transcript on Ctrl+F', async () => {
+    const output = await drivePty('write', [
+      ['Welcome to codsh', `create the note${ENTER}`, 300],
+      ['CODE_CLI_CALL_OK', '\u0006', 400],
+      ['find:', 'CALL', 400],
+      ['find: CALL', '\u001B', 300],
+      ['Ask anything', `/exit${ENTER}`, 400],
+    ])
+    const rows = screenAt(output, 'find: CALL').alternate
+    expect(rows.some(row => row.includes('find: CALL'))).toBe(true)
+    expect(rows.some(row => row.includes('│ › CALL'))).toBe(false)
+  }, E2E_TEST_TIMEOUT_MS)
+
+  it('opens the shortcuts overlay on ? from an empty box', async () => {
+    const output = await drivePty('write', [
+      ['Welcome to codsh', '?', 400],
+      ['Ctrl+R history', '\u001B', 300],
+      ['Ask anything', `/exit${ENTER}`, 400],
+    ])
+    const rows = screenAt(output, 'Ctrl+R history').alternate
+    expect(rows.some(row => row.includes('Ctrl+R history'))).toBe(true)
+    expect(rows.some(row => row.includes('Ctrl+F find'))).toBe(true)
+  }, E2E_TEST_TIMEOUT_MS)
+
+  it('gives a queued line back on Escape', async () => {
+    const output = await drivePty('slow', [
+      ['Welcome to codsh', `take your time${ENTER}`, 300],
+      ['$ sleep', `later work${ENTER}`, 400],
+      ['queued: later work', '\u001B', 500],
+      ['', '\u0015\u001B', 400],
+      ['interrupted', `/exit${ENTER}`, 400],
+    ])
+    expect(screenAt(output, 'queued: later work').alternate.some(row => row.includes('queued: later work'))).toBe(true)
+    const back = screenAtLast(output, 'later work').alternate
+    expect(back.some(row => row.includes('later work'))).toBe(true)
+    expect(back.some(row => row.includes('queued: later work'))).toBe(false)
   }, E2E_TEST_TIMEOUT_MS)
 
   it('collapses thinking by default and expands it on Ctrl+O', async () => {

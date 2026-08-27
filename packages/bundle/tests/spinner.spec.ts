@@ -46,6 +46,16 @@ describe('Spinner', () => {
     expect(view.shown.at(-1)).toBeUndefined()
   })
 
+  it('names the in-flight activity on the working line', () => {
+    const view = surface(true)
+    const spinner = new Spinner(view, theme, label, () => 0)
+    spinner.start()
+    spinner.setActivity('Reading')
+    expect(view.shown.at(-1)).toContain('Reading')
+    spinner.setActivity('')
+    expect(view.shown.at(-1)).toContain('working')
+  })
+
   it('does nothing off a terminal, where a rewritten line becomes noise', () => {
     const view = surface(false)
     const spinner = new Spinner(view, theme, label, () => 0)

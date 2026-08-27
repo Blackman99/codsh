@@ -3,12 +3,12 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>codsh — a terminal coding agent, composed on dsh</title>
-<meta name="description" content="One sentence to shipped: /ship interviews your idea into a spec, plans against it, and lands it with green tests. A terminal coding agent composed on the DeepSeek Harness.">
+<title>codsh — a terminal coding agent on dsh</title>
+<meta name="description" content="/ship takes one sentence to verified code. A terminal coding agent on the DeepSeek Harness.">
 <meta name="color-scheme" content="dark">
 <link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
 <meta property="og:title" content="codsh — a terminal coding agent">
-<meta property="og:description" content="One sentence to shipped — /ship interviews, specs, plans, and lands. Composed on the DeepSeek Harness.">
+<meta property="og:description" content="/ship takes one sentence to verified code. Composed on the DeepSeek Harness.">
 <meta property="og:type" content="website">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -39,9 +39,8 @@
       <span class="block__index reveal reveal-1">A terminal coding agent · composed on dsh</span>
       <h1 class="reveal reveal-1">codsh<span class="caret">▍</span></h1>
       <p class="hero__sub reveal reveal-2">
-        One sentence to shipped. <code>/ship</code> interviews your idea into a
-        spec, plans against it, and lands it verified — on a surface that fuses
-        the best of today's agent CLIs.
+        <code>/ship</code> takes one sentence to verified code.
+        Composed on the DeepSeek Harness.
       </p>
       <div class="hero__meta reveal reveal-2">
         <span><a href="https://www.npmjs.com/package/codsh-cli">codsh-cli</a> on npm</span>
@@ -55,12 +54,6 @@
 <span class="prompt">$</span> <span class="cmd">codsh</span>
 <span class="prompt">›</span> <span class="cmd">/ship &lt;your one-sentence idea&gt;</span></pre>
       </div>
-      <p class="reveal reveal-4" style="margin-top:1.5rem">
-        Everything under the surface — the agent loop, tools, sessions, sandboxing,
-        model adapters — is the released <a href="https://github.com/deepseek-ai/deepseek-harness">DeepSeek Harness</a>
-        packages from npm, installed <strong>once per machine</strong>. codsh adds two small
-        things on top: the launcher, and a bundle carrying the TTY surface and a coding preset.
-      </p>
       </div>
       <div class="hero__frame reveal reveal-3">
           <figure class="frame">
@@ -93,13 +86,13 @@
 <span class="row dm s17"><span class="c-dim">  criterion → command → what it printed</span></span>
 <span class="gap"></span>
 <span class="row"><span class="c-dim">╭─────────────────────────────────────────────────────────────────────────────────╮</span></span>
-<span class="row"><span class="c-dim">│</span> <span class="c-user">›</span> <span class="c-dim">Ask anything · / for commands · @ for files · ⇧Tab plan mode</span>                  <span class="c-dim">│</span></span>
+<span class="row"><span class="c-dim">│</span> <span class="c-user">›</span> <span class="c-dim">Ask anything · / $ ! @ · ⇧Tab plan mode</span>                  <span class="c-dim">│</span></span>
 <span class="row"><span class="c-dim">╰─────────────────────────────────────────────────────────────────────────────────╯</span></span>
 <span class="row todoslot"> <span class="tv tv1"><span class="c-tool">todos</span><span class="c-dim"> 0/3 · </span><span class="c-pending">▶</span> pager opens on long output<span class="c-dim"> · Ctrl+T opens</span></span><span class="tv tv2"><span class="c-tool">todos</span><span class="c-dim"> 1/3 · </span><span class="c-pending">▶</span> q returns to the transcript</span><span class="tv tv3"><span class="c-tool">todos</span><span class="c-dim"> 2/3 · </span><span class="c-pending">▶</span> state survives a resize</span><span class="tv tv4"><span class="c-tool">todos</span><span class="c-dim"> 3/3 · </span><span class="c-ok">all done ✔</span></span></span>
 <span class="row"><span class="c-tool">deepseek-chat</span><span class="c-dim"> · code-cli · workspace-write · ~/my-project</span></span>
 </code></div>
           </figure>
-        <p class="caption">The arc loops; <a href="#ship">01 — /ship</a> below walks each gate.</p>
+        <p class="caption">The arc loops. <a href="#ship">/ship</a> below.</p>
       </div>
     </div>
   </div>
@@ -111,30 +104,29 @@
       <span class="block__index">01 — /ship</span>
       <h2>One sentence to shipped.</h2>
       <p class="lede">
-        <code>/ship</code> drives an idea from 0 to 1 with exactly two approvals
-        and nothing else to babysit.
+        Two approvals. Then autonomous.
       </p>
 
       <ol class="steps">
         <li>
           <b>Interview</b>
-          <p>The agent reads your repo first, then asks one focused question at a time — users, success criteria, scope, non-goals, constraints, edge cases — until answers stop changing the design. A pasted mockup or screenshot is requirements material.</p>
+          <p>Reads the repo, then one question at a time.</p>
         </li>
         <li>
           <b>Spec</b> <span class="gate">— gate 1</span>
-          <p>The agreed design lands as a file in your repo. Every acceptance criterion names the exact command that proves it, and a <code>Status:</code> line makes the file resumable. You confirm it.</p>
+          <p>You confirm. Each criterion names its proving command.</p>
         </li>
         <li>
           <b>Plan</b> <span class="gate">— gate 2</span>
-          <p>Ordered milestones, the tests each one adds, and the commands that prove the whole thing. You approve it — and the plan is then written into the spec as checkboxes, with the proof commands run once to record the baseline before any code. A suite that was already red surfaces here, not under the diff.</p>
+          <p>You approve. Baseline runs before any code.</p>
         </li>
         <li>
           <b>Landing</b>
-          <p>From here it is autonomous, with the spec file — not the conversation — as the working memory: re-read before each milestone, checkbox ticked and a commit made when it turns green. Small plans run in-session under the todo list; large ones run a bounded fresh-agent Ralph loop that stops and reports rather than spin past two rounds of no progress.</p>
+          <p>The spec file is memory. Each green milestone is a commit.</p>
         </li>
         <li>
-          <b>Done means verified</b>
-          <p>Every criterion is checked by running its own command and reading the real output — after a Ralph loop, the session re-runs them all itself — then a report listing criterion, command, and what it printed.</p>
+          <b>Done</b>
+          <p>Every criterion re-run and reported.</p>
         </li>
       </ol>
 
@@ -142,12 +134,7 @@
         <div class="shell__bar"><i class="shell__dot"></i> in the box</div>
 <pre><span class="prompt">›</span> <span class="cmd">/ship let long diffs open in a pager instead of scrolling past</span></pre>
       </div>
-      <p style="margin-top:1.2rem">
-        Run it bare and it first offers to resume any unfinished spec it finds
-        — interruptions lose nothing — then asks for the sentence. Mid-flight
-        decision changes go back into the spec file, so the file on disk always
-        states what is being built.
-      </p>
+      <p style="margin-top:1.2rem">Bare <code>/ship</code> resumes an unfinished spec.</p>
     </div>
   </div>
 </section>
@@ -158,13 +145,7 @@
       <span class="block__index">02 — See it</span>
       <h2>Every terminal below is a real one.</h2>
       <p class="lede">
-        Not a mockup. Each frame was captured from the packed binary by the
-        end-to-end harness, replayed through a terminal emulator, and written
-        into this page with its colours intact.
-      </p>
-      <p>
-        Rerun it with <code>pnpm run site:screens</code>. A screen’s empty middle
-        is shortened so the card stays a readable height — nothing else is touched.
+        Captured from the packed binary. Not a mockup.
       </p>
 
       <div class="scenes">
@@ -210,7 +191,7 @@
 <span class="row"><span class="c-dim">…</span></span>
 <span class="gap"></span>
 <span class="row"><span class="c-dim">╭─────────────────────────────────────────────────────────────────────────────────╮</span></span>
-<span class="row"><span class="c-dim">│</span> <span class="c-user">›</span> <span class="c-dim">Ask anything · / for commands · @ for files · ⇧Tab plan mode</span>                  <span class="c-dim">│</span></span>
+<span class="row"><span class="c-dim">│</span> <span class="c-user">›</span> <span class="c-dim">Ask anything · / $ ! @ · ⇧Tab plan mode</span>                  <span class="c-dim">│</span></span>
 <span class="row"><span class="c-dim">╰─────────────────────────────────────────────────────────────────────────────────╯</span></span>
 <span class="row"><span class="c-tool">cli-mock</span><span class="c-dim"> · code-cli · workspace-write · 0 tokens · ~/.cache/codsh/showcase</span></span>
 </code></div>
@@ -234,7 +215,7 @@
 <span class="row">CODE_CLI_CALL_OK via cli-mock</span>
 <span class="gap"></span>
 <span class="row"><span class="c-dim">╭─────────────────────────────────────────────────────────────────────────────────╮</span></span>
-<span class="row"><span class="c-dim">│</span> <span class="c-user">›</span> <span class="c-dim">Ask anything · / for commands · @ for files · ⇧Tab plan mode</span>                  <span class="c-dim">│</span></span>
+<span class="row"><span class="c-dim">│</span> <span class="c-user">›</span> <span class="c-dim">Ask anything · / $ ! @ · ⇧Tab plan mode</span>                  <span class="c-dim">│</span></span>
 <span class="row"><span class="c-dim">╰─────────────────────────────────────────────────────────────────────────────────╯</span></span>
 <span class="row"><span class="c-pending">⠋</span> working <span class="c-dim">0.0s · ESC to interrupt</span></span>
 <span class="row"><span class="c-tool">cli-mock</span><span class="c-dim"> · code-cli · workspace-write · 26 tokens · ~/.cache/codsh/showcase</span></span>
@@ -260,7 +241,7 @@
 <span class="row"><span class="c-dim">  0.0s · 14 tokens</span></span>
 <span class="gap"></span>
 <span class="row"><span class="c-dim">╭─────────────────────────────────────────────────────────────────────────────────╮</span></span>
-<span class="row"><span class="c-dim">│</span> <span class="c-user">›</span> <span class="c-dim">Ask anything · / for commands · @ for files · ⇧Tab plan mode</span>                  <span class="c-dim">│</span></span>
+<span class="row"><span class="c-dim">│</span> <span class="c-user">›</span> <span class="c-dim">Ask anything · / $ ! @ · ⇧Tab plan mode</span>                  <span class="c-dim">│</span></span>
 <span class="row"><span class="c-dim">╰─────────────────────────────────────────────────────────────────────────────────╯</span></span>
 <span class="row"><span class="c-dim">  thinking · 4 lines · click to expand</span></span>
 <span class="row"><span class="c-tool">cli-mock</span><span class="c-dim"> · code-cli · workspace-write · 14 tokens · ~/.cache/codsh/showcase</span></span>
@@ -288,7 +269,7 @@
 <span class="row"><span class="c-dim">  0.0s · 14 tokens</span></span>
 <span class="gap"></span>
 <span class="row"><span class="c-dim">╭─────────────────────────────────────────────────────────────────────────────────╮</span></span>
-<span class="row"><span class="c-dim">│</span> <span class="c-user">›</span> <span class="c-dim">Ask anything · / for commands · @ for files · ⇧Tab plan mode</span>                  <span class="c-dim">│</span></span>
+<span class="row"><span class="c-dim">│</span> <span class="c-user">›</span> <span class="c-dim">Ask anything · / $ ! @ · ⇧Tab plan mode</span>                  <span class="c-dim">│</span></span>
 <span class="row"><span class="c-dim">╰─────────────────────────────────────────────────────────────────────────────────╯</span></span>
 <span class="row"><span class="c-tool">cli-mock</span><span class="c-dim"> · code-cli · workspace-write · 14 tokens · ~/.cache/codsh/showcase</span></span>
 </code></div>
@@ -319,7 +300,7 @@
 <span class="row"><span class="c-dim">  0.1s · 26 tokens</span></span>
 <span class="gap"></span>
 <span class="row"><span class="c-dim">╭─────────────────────────────────────────────────────────────────────────────────╮</span></span>
-<span class="row"><span class="c-dim">│</span> <span class="c-user">›</span> <span class="c-dim">Ask anything · / for commands · @ for files · ⇧Tab plan mode</span>                  <span class="c-dim">│</span></span>
+<span class="row"><span class="c-dim">│</span> <span class="c-user">›</span> <span class="c-dim">Ask anything · / $ ! @ · ⇧Tab plan mode</span>                  <span class="c-dim">│</span></span>
 <span class="row"><span class="c-dim">╰─────────────────────────────────────────────────────────────────────────────────╯</span></span>
 <span class="row"><span class="c-tool">todos</span> <span class="c-dim">1/3 · 1 in progress · 1 open · Ctrl+T closes</span></span>
 <span class="row">  <span class="c-ok">✔</span> <span class="c-dim">read the code</span></span>
@@ -368,7 +349,7 @@
 <span class="row"> </span>
 <span class="row"><span class="c-dim">CODE_CLI_CALL_STREAM_DONE</span></span>
 <span class="row"><span class="c-dim">╭─────────────────────────────────────────────────────────────────────────────────╮</span></span>
-<span class="row"><span class="c-dim">│</span> <span class="c-user">›</span> <span class="c-dim">Ask anything · / for commands · @ for files · ⇧Tab plan mode</span>                  <span class="c-dim">│</span></span>
+<span class="row"><span class="c-dim">│</span> <span class="c-user">›</span> <span class="c-dim">Ask anything · / $ ! @ · ⇧Tab plan mode</span>                  <span class="c-dim">│</span></span>
 <span class="row"><span class="c-dim">╰─────────────────────────────────────────────────────────────────────────────────╯</span></span>
 <span class="row"><span class="c-pending">⠋</span> working <span class="c-dim">0.0s · ESC to interrupt</span></span>
 <span class="row"><span class="c-tool">cli-mock</span><span class="c-dim"> · code-cli · workspace-write · 0 tokens · ~/.cache/codsh/showcase</span></span>
@@ -402,7 +383,7 @@
 <span class="row"><span class="c-pending">▲ plan mode — exploring only; no files will change until you approve a plan</span></span>
 <span class="gap"></span>
 <span class="row"><span class="c-pending">╭─────────────────────────────────────────────────────────────────────────────────╮</span></span>
-<span class="row"><span class="c-pending">│</span> <span class="c-user">›</span> <span class="c-dim">Ask anything · / for commands · @ for files · ⇧Tab plan mode</span>                  <span class="c-pending">│</span></span>
+<span class="row"><span class="c-pending">│</span> <span class="c-user">›</span> <span class="c-dim">Ask anything · / $ ! @ · ⇧Tab plan mode</span>                  <span class="c-pending">│</span></span>
 <span class="row"><span class="c-pending">╰─────────────────────────────────────────────────────────────────────────────────╯</span></span>
 <span class="row"><span class="c-tool">cli-mock</span><span class="c-dim"> · code-cli · workspace-write · </span><span class="c-pending">plan</span><span class="c-dim"> · 0 tokens · ~/.cache/codsh/showcase</span></span>
 </code></div>
@@ -430,74 +411,59 @@
         <div class="card card--user">
           <h3>The transcript is yours to move in</h3>
           <p>
-            It scrolls in a buffer the session owns — wheel, page keys,
-            <kbd>⇧↑</kbd> <kbd>⇧↓</kbd> — under an input box that never leaves
-            the bottom, and new output accumulates without yanking you to it.
+            Session-owned scrollback. The box never leaves the bottom.
           </p>
         </div>
         <div class="card">
           <h3>Folds answer the mouse</h3>
           <p>
-            Long finished blocks collapse to their head lines. Rest on one and
-            it names itself — <code>thinking · 42 lines · click to expand</code>;
-            a click opens just that block, <kbd>Ctrl+O</kbd> swaps every one.
+            Long blocks collapse. Click one, <kbd>Ctrl+O</kbd> all. Hover names it.
           </p>
           <div class="card__keys"><kbd>click</kbd><kbd>Ctrl+O</kbd></div>
         </div>
         <div class="card">
           <h3>Todos that stay in view</h3>
           <p>
-            A pinned row holds the agent's list over the status row — progress,
-            the item in flight — instead of scrolling away with the write.
+            Progress and the item in flight, pinned over the status row.
           </p>
           <div class="card__keys"><kbd>Ctrl+T</kbd><kbd>/todos</kbd></div>
         </div>
         <div class="card card--user">
           <h3>Select to copy</h3>
           <p>
-            Drag, and the selection is on your clipboard the moment you release
-            — through OSC 52 and the platform clipboard both.
+            Drag, release, clipboard. OSC 52 and the platform both.
           </p>
         </div>
         <div class="card">
           <h3>An input box that owns the keyboard</h3>
           <p>
-            Multi-line editing (<kbd>⇧Enter</kbd> or <kbd>Alt+Enter</kbd>),
-            history across sessions, and completion for commands, arguments and
-            <code>@</code>-mentioned files as you type.
+            <code>/</code> commands, <code>$</code> skills, <code>!</code> shell,
+            <code>@</code> files. The menu sits above the box.
           </p>
         </div>
         <div class="card card--flush">
           <h3>Streaming rendering</h3>
           <p>
-            Markdown with code highlighting and real table columns, reasoning
-            dim under <code>✻ thinking</code>, and tool calls as cards with
-            diffs.
+            Markdown, dim thinking, tool cards with diffs.
           </p>
         </div>
         <div class="card">
           <h3>Decisions as selections</h3>
           <p>
-            Approvals, questions, <code>/model</code> and <code>/resume</code> are
-            arrow-key widgets. Plan mode toggles on <kbd>⇧Tab</kbd> and tints
-            the box frame.
+            Approvals, <code>/model</code>, <code>/resume</code>. <kbd>⇧Tab</kbd> is plan mode.
           </p>
         </div>
         <div class="card">
           <h3>Session flow</h3>
           <p>
-            <code>/clear</code> starts fresh in place, <code>/resume</code> picks
-            from recorded sessions, <kbd>Esc</kbd> <kbd>Esc</kbd> recalls your
-            last message, and <code>!cmd</code> runs in your shell with the
-            outcome injected as context.
+            <code>/clear</code>, <code>/resume</code>, <kbd>Esc</kbd><kbd>Esc</kbd>.
+            <code>!cmd</code> prints in-session; the agent sees the output.
           </p>
         </div>
       </div>
 
       <div class="note">
-        <b>Off a TTY it degrades rather than breaks.</b> In a pipe or a script the
-        same surface becomes a line reader: selections become typed answers,
-        lists replace widgets, and nothing draws.
+        <b>Off a TTY it degrades rather than breaks.</b> Pipes become a line reader.
       </div>
     </div>
   </div>
@@ -509,17 +475,7 @@
       <span class="block__index">04 — Install &amp; run</span>
       <h2>Two packages, one dsh.</h2>
       <p class="lede">
-        <code>codsh-cli</code> is a zero-dependency launcher, a few kilobytes. It
-        never bundles the runtime, so a machine carries exactly one dsh however
-        many tools sit on it.
-      </p>
-      <p>
-        The launcher finds your dsh, registers the
-        <a href="https://www.npmjs.com/package/codsh-bundle">codsh-bundle</a>
-        runtime into a dsh <code>code</code> profile on first run — the packaged
-        <code>code-cli</code> preset installs itself on first boot — and every
-        later run boots straight into the prompt. <code>codsh</code> is exactly
-        <code>dsh --profile code</code>; flags after it reach the app.
+        Zero-dependency launcher. <code>codsh</code> is <code>dsh --profile code</code>.
       </p>
 
       <div class="defs">

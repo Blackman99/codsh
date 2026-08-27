@@ -150,6 +150,20 @@ describe('terminal input', () => {
     expect((input as TtyInput).rawMode).toBe(false)
     expect(output.text).toContain('\u001B[?2004l')
   })
+
+  it('hands the TTY to a child and takes the viewport back', async () => {
+    const { console: term, input } = build(true)
+    const tty = input as TtyInput
+    term.enterScreen()
+    expect(term.owningScreen).toBe(true)
+    expect(tty.rawMode).toBe(true)
+    await term.runInForeground(async () => {
+      expect(term.owningScreen).toBe(false)
+      expect(tty.rawMode).toBe(false)
+    })
+    expect(term.owningScreen).toBe(true)
+    expect(tty.rawMode).toBe(true)
+  })
 })
 
 describe('the viewport it owns on a terminal', () => {

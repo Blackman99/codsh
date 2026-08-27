@@ -167,6 +167,12 @@ describe('statusLine', () => {
     expect(statusLine({ ...base, planMode: true }, theme, 200)).toContain('plan')
   })
 
+  it('keeps the full line when no budget is given, so a later paint can re-fit it', () => {
+    const path = '/very/long/path/that/keeps/going/on'
+    expect(statusLine({ ...base, cwd: path }, theme)).toContain(path)
+    expect(statusLine({ ...base, cwd: path }, theme, 20).endsWith('…')).toBe(true)
+  })
+
   it('is cut rather than wrapped when it will not fit', () => {
     // Two rows above every prompt is not a status line any more.
     const line = statusLine({ ...base, cwd: '/very/long/path/that/keeps/going/on' }, theme, 20)

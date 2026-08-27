@@ -12,7 +12,7 @@ const theme = createTheme(false, {})
 
 /** A view with sensible defaults. */
 function view(over: Partial<EditorView> = {}): EditorView {
-  return { lines: [''], row: 0, column: 0, candidates: [], selected: 0, token: '', ...over }
+  return { lines: [''], row: 0, column: 0, candidates: [], selected: 0, token: '', hits: [], ...over }
 }
 
 describe('the frame', () => {
@@ -52,6 +52,19 @@ describe('the frame', () => {
     const loud = (text: string): string => `<${text}>`
     const { rows } = inputBox(view(), theme, 40, { accent: loud })
     expect(rows[0]?.startsWith('<')).toBe(true)
+  })
+
+  it('announces shell mode: the gutter is !, the leading ! is not repeated', () => {
+    const loud = (text: string): string => `<${text}>`
+    const { rows } = inputBox(view({ lines: ['!ls -la'], column: 7 }), theme, 40, { shell: true, accent: loud })
+    expect(rows[0]?.startsWith('<')).toBe(true)
+    expect(rows[1]).toContain('! ls -la')
+    expect(rows[1]).not.toContain('!ls')
+  })
+
+  it('shows a shell placeholder on a bare !', () => {
+    const { rows } = inputBox(view({ lines: ['!'], column: 1 }), theme, 60, { shell: true })
+    expect(rows[1]).toContain('command')
   })
 })
 
@@ -135,7 +148,24 @@ describe('visual hierarchy', () => {
     expect(typed.rows[1]).not.toContain(`${gray}hello`)
   })
 
-  it('colours the selected row whole, and the matched prefix on the rest', () => {
+  it('colours a known /command and $skill in the box', () => {
+    const command = inputBox(view({
+      lines: ['/plan'],
+      column: 5,
+      hits: [{ row: 0, start: 0, end: 5, kind: 'command' }],
+    }), colour, 60)
+    expect(command.rows[1]).toContain('\u001B[36m/plan\u001B[0m')
+    const skill = inputBox(view({
+      lines: ['use $grill-me now'],
+      column: 17,
+      hits: [{ row: 0, start: 4, end: 13, kind: 'skill' }],
+    }), colour, 60)
+    expect(skill.rows[1]).toContain('\u001B[35m$grill-me\u001B[0m')
+    expect(skill.rows[1]).toContain('use ')
+    expect(skill.rows[1]).toContain(' now')
+  })
+
+  it('underlines the typed fragment and leaves selection to the pointer', () => {
     const { rows } = inputBox(view({
       lines: ['/p'],
       column: 2,
@@ -143,14 +173,28 @@ describe('visual hierarchy', () => {
       candidates: [{ value: '/plan', detail: 'enter plan mode' }, { value: '/permission', detail: 'switch preset' }],
       selected: 0,
     }), colour, 60)
-    const [chosen = '', other = ''] = rows.slice(-2)
-    // The selected row is an accent COLOUR — bold alone barely reads on a
-    // dark background — and its description stays secondary gray.
-    expect(chosen).toContain('\u001B[1m\u001B[36m/plan\u001B[0m')
+    const [chosen = '', other = ''] = rows.slice(0, 2)
+    expect(chosen).toContain('❯')
+    expect(chosen).toContain('\u001B[4m/p\u001B[24m')
+    expect(chosen).toContain('lan')
+    expect(chosen).not.toContain('\u001B[36m')
     expect(chosen).toContain(`${gray}  enter plan mode`)
-    // Unselected rows keep the typed fragment accented, tail plain.
-    expect(other).toContain('\u001B[36m/p\u001B[0m')
-    expect(other).not.toContain('\u001B[36m/permission')
+    expect(other).not.toContain('❯')
+    expect(other).toContain('\u001B[4m/p\u001B[24m')
+    expect(other).toContain(`${gray}ermission`)
+  })
+
+  it('underlines a contained span, not only a prefix', () => {
+    const { rows } = inputBox(view({
+      lines: ['$ill'],
+      column: 4,
+      token: '$ill',
+      candidates: [{ value: '$grill-me', detail: 'interview' }],
+      selected: 0,
+    }), colour, 60)
+    const [row = ''] = rows
+    expect(row).toContain('\u001B[4mill\u001B[24m')
+    expect(row).not.toContain('\u001B[4m$ill')
   })
 
   it('windows the menu around the selection instead of pinning the first page', () => {
@@ -174,7 +218,7 @@ describe('visual hierarchy', () => {
       token: '@',
       candidates: [{ value: '@终端.ts', detail: 'a' }, { value: '@aaaaaa.ts', detail: 'b' }],
     }), theme, 60)
-    const menu = rows.slice(-2)
+    const menu = rows.slice(0, 2)
     // The details are single letters at the end: aligned labels put them at the
     // same display column, which code-unit padding gets wrong for wide names.
     const detailColumn = (row: string): number => displayWidth(row.slice(0, -1))
@@ -183,29 +227,46 @@ describe('visual hierarchy', () => {
 })
 
 describe('the menu', () => {
-  it('lists candidates under the box and marks the selected one', () => {
-    const { rows } = inputBox(view({
+  it('lists candidates above the box and marks the selected one', () => {
+    const { rows, cursorRow } = inputBox(view({
       lines: ['/p'],
       column: 2,
       candidates: [{ value: '/plan', detail: 'enter plan mode' }, { value: '/permission', detail: 'switch preset' }],
       selected: 1,
     }), theme, 60)
-    const menu = rows.slice(3)
-    expect(menu[0]).toContain('/plan')
-    expect(menu[0]).toContain('enter plan mode')
-    expect(menu[1]).toContain('❯')
-    expect(menu[1]).toContain('/permission')
+    expect(rows[0]).toContain('/plan')
+    expect(rows[0]).toContain('enter plan mode')
+    expect(rows[1]).toContain('❯')
+    expect(rows[1]).toContain('/permission')
+    expect(rows[2]).toMatch(/^╭/)
+    expect(cursorRow).toBe(3)
   })
 
   it('caps a long menu and says how much it hid', () => {
     const many = Array.from({ length: 12 }, (_, index) => ({ value: `/c${index}`, detail: '' }))
     const { rows } = inputBox(view({ lines: ['/c'], column: 2, candidates: many }), theme, 60)
-    expect(rows.at(-1)).toContain('4 more')
+    const frame = rows.findIndex(row => row.includes('╭'))
+    expect(rows[frame - 1]).toContain('4 more')
   })
 
   it('shows the hint instead of a menu when there is nothing to offer', () => {
     const { rows } = inputBox(view(), theme, 60, { hint: 'ESC interrupts' })
     expect(rows.at(-1)).toContain('ESC interrupts')
+  })
+
+  it('names reverse history search under the box', () => {
+    const { rows } = inputBox(view({
+      lines: ['kept'],
+      column: 4,
+      search: { query: 'ke', hits: 1, index: 0 },
+    }), theme, 60, { hint: 'ESC interrupts' })
+    expect(rows.at(-1)).toContain('bck-i-search: ke')
+    expect(rows.join('\n')).not.toContain('ESC interrupts')
+  })
+
+  it('marks a failing history search', () => {
+    const { rows } = inputBox(view({ search: { query: 'zzz', hits: 0, index: 0 } }), theme, 60)
+    expect(rows.at(-1)).toContain('failing bck-i-search: zzz')
   })
 
   it('prefers the menu over the hint', () => {

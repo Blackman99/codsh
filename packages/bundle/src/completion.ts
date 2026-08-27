@@ -67,6 +67,34 @@ export function fuzzyScore(needle: string, hay: string): number | undefined {
   return score * 100 - have.length
 }
 
+/**
+ * Rank candidates that contain `typed`, prefix hits first.
+ *
+ * A fragment anywhere in the name is enough to offer it; an exact prefix still
+ * outranks a buried hit, so `/p` keeps `plan` above `compact`.
+ * @param items - the candidates.
+ * @param typed - what was typed, without a leading `/` `$` `@`.
+ * @param nameOf - the name to match against.
+ * @returns matching items, prefix then substring.
+ */
+export function rankContains<T>(items: readonly T[], typed: string, nameOf: (item: T) => string): T[] {
+  if (typed === '') return [...items]
+  const needle = typed.toLowerCase()
+  const prefixed: T[] = []
+  const contained: T[] = []
+  for (const item of items) {
+    const have = nameOf(item).toLowerCase()
+    if (have.startsWith(needle)) prefixed.push(item)
+    else if (have.includes(needle)) contained.push(item)
+  }
+  contained.sort((left, right) => {
+    const a = nameOf(left).toLowerCase()
+    const b = nameOf(right).toLowerCase()
+    return a.indexOf(needle) - b.indexOf(needle) || a.length - b.length
+  })
+  return [...prefixed, ...contained]
+}
+
 /** One cached walk of the workspace. */
 interface FileIndex {
   cwd: string
@@ -174,18 +202,23 @@ export function createCompleter(
     // command is already chosen and its input is the command's own business.
     if (!line.startsWith('/') || line.includes(' ')) return [[], token]
     const typed = line.slice(1)
-    const names = commands().map(command => `/${command.name}`)
-    const prefixed = names.filter(name => name.startsWith(`/${typed}`))
-    const fuzzy = names
-      .map(name => ({ name, score: fuzzyScore(typed, name.slice(1)) }))
-      .filter((hit): hit is { name: string; score: number } => hit.score !== undefined)
-      .sort((a, b) => b.score - a.score)
-      .map(hit => hit.name)
-    const ranked: string[] = []
-    for (const name of [...prefixed, ...fuzzy]) {
-      if (!ranked.includes(name)) ranked.push(name)
-      if (ranked.length >= LIMIT) break
-    }
+    const ranked = rankContains(commands(), typed, command => command.name)
+      .map(command => `/${command.name}`)
+      .slice(0, LIMIT)
     return [ranked, line]
   }
+}
+
+/**
+ * Turn `$name` skill gestures into the `/name` tokens dsh injects.
+ *
+ * Only names in `known` are rewritten, so an ordinary `$amount` stays prose.
+ * @param text - the submitted line.
+ * @param known - user-invocable skill names.
+ * @returns the line with known `$name` tokens rewritten as `/name`.
+ */
+export function expandSkillGestures(text: string, known: ReadonlySet<string>): string {
+  return text.replace(/(^|\s)\$([a-z0-9]+(?:-[a-z0-9]+)*)(?=\s|$)/g, (match, bound: string, name: string) => (
+    known.has(name) ? `${bound}/${name}` : match
+  ))
 }

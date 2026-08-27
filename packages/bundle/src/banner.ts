@@ -11,22 +11,69 @@ import type { Theme } from './theme.ts'
 const NAME = 'dsh code'
 
 /**
- * The lettermark, drawn in half-block glyphs.
+ * Half-block sprite of `assets/logo.svg`: a › chevron, a hull, a wave, and a
+ * whale tail. Each character is two vertical pixels (`▀` `▄` `█`).
  *
- * Forty columns wide: it fits an eighty-column terminal with room to spare,
- * and anything narrower falls back to the plain headline anyway.
+ * `.` empty, `c` chevron, `h` hull, `w` water and fluke.
  */
-const LOGO = [
-  ' ██████╗ ██████╗ ██████╗ ███████╗██╗  ██╗',
-  '██╔════╝██╔═══██╗██╔══██╗██╔════╝██║  ██║',
-  '██║     ██║   ██║██║  ██║███████╗███████║',
-  '██║     ██║   ██║██║  ██║╚════██║██╔══██║',
-  '╚██████╗╚██████╔╝██████╔╝███████║██║  ██║',
-  ' ╚═════╝ ╚═════╝ ╚═════╝ ╚══════╝╚═╝  ╚═╝',
-]
+const SPRITE = [
+  '........c...........',
+  '........ccc.........',
+  '........c.ccc.......',
+  '........c..cc.......',
+  '........c.ccc.......',
+  '........ccc.........',
+  '......hhhhhhhh......',
+  '.......hhhhhh.......',
+  '....w.ww..ww.ww.....',
+  '....wwwwwwwwwwww....',
+  '.....w...ww...w.....',
+  '......ww.ww.ww......',
+  '.......ww..ww.......',
+  '........wwww........',
+] as const
 
-/** Display width of the widest logo row. */
-const LOGO_WIDTH = 41
+/** Display width of the sprite, plus the leading pad. */
+const LOGO_WIDTH = SPRITE[0]!.length + 1
+
+/** One sprite pixel. */
+type Pixel = '.' | 'c' | 'h' | 'w'
+
+/** Truecolor fills matching `assets/logo.svg`, used only on a coloured TTY. */
+const FILL: Record<Exclude<Pixel, '.'>, string> = {
+  c: '\u001B[38;2;126;150;245m',
+  h: '\u001B[38;2;238;241;251m',
+  w: '\u001B[38;2;61;86;214m',
+}
+
+/**
+ * Paint one half-block cell from a pair of pixels.
+ */
+function paintCell(upper: Pixel, lower: Pixel, theme: Theme): string {
+  const ink = (role: Exclude<Pixel, '.'>, ch: string): string =>
+    theme.colored ? `${FILL[role]}${ch}\u001B[0m` : ch
+  if (upper === '.') return lower === '.' ? ' ' : ink(lower, '▄')
+  if (lower === '.') return ink(upper, '▀')
+  if (upper === lower) return ink(upper, '█')
+  return ink(upper, '▀')
+}
+
+/**
+ * Paint the first-screen mark as half-block rows.
+ */
+function logoLines(theme: Theme): string[] {
+  const rows: string[] = []
+  for (let y = 0; y < SPRITE.length; y += 2) {
+    const top = SPRITE[y] ?? ''
+    const bot = SPRITE[y + 1] ?? ''
+    let line = ' '
+    for (let x = 0; x < top.length; x += 1) {
+      line += paintCell((top[x] ?? '.') as Pixel, (bot[x] ?? '.') as Pixel, theme)
+    }
+    rows.push(line)
+  }
+  return rows
+}
 
 /** What the banner reports about the composed session. */
 export interface BannerFacts {
@@ -87,15 +134,15 @@ export function bannerLines(facts: BannerFacts, theme: Theme, columns: number): 
     theme.dim(truncate(`  /help for commands · Tab completes · ⇧Tab plan mode · ${interrupt} interrupts · /exit leaves`, columns)),
     '',
   ]
-  // A terminal wide enough gets the lettermark; a resumed session skips it —
-  // the conversation being continued matters more than the greeting. Off a
+  // A terminal wide enough gets the mark; a resumed session skips it — the
+  // conversation being continued matters more than the greeting. Off a
   // terminal (or squeezed) the compact framed headline still says everything.
-  if (facts.readsKeys && !facts.resumed && columns >= LOGO_WIDTH + 2) {
+  if (facts.readsKeys && !facts.resumed && columns >= Math.max(LOGO_WIDTH + 2, 40)) {
     return [
       '',
-      ...LOGO.map(row => theme.user(` ${row}`)),
+      ...logoLines(theme),
       '',
-      ` ${theme.bold('✻ Welcome to codsh')}${theme.dim(` · ${composition}`)}`,
+      truncate(` ${theme.bold('✻ Welcome to codsh')}${theme.dim(` · ${composition}`)}`, columns),
       '',
       ...details,
     ]

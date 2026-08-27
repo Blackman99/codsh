@@ -7,7 +7,7 @@ import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import { createCompleter, fuzzyScore, resetFileIndex } from '../src/completion.ts'
+import { createCompleter, expandSkillGestures, fuzzyScore, rankContains, resetFileIndex } from '../src/completion.ts'
 
 const commands = [
   { name: 'compact', description: 'compact history' },
@@ -23,14 +23,14 @@ describe('createCompleter', () => {
     expect(complete('/comp')).toEqual([['/compact'], '/comp'])
   })
 
-  it('offers every candidate sharing a prefix, before any fuzzy match', () => {
+  it('offers every candidate sharing a prefix, before a contained match', () => {
     const [matches] = complete('/p')
     expect(matches.slice(0, 2)).toEqual(['/plan', '/permission'])
+    expect(matches).toContain('/compact')
   })
 
-  it('falls back to a fuzzy match when no prefix does', () => {
-    // `cpt` is a fragment of compact, not a prefix of anything.
-    expect(complete('/cpt')[0]).toEqual(['/compact'])
+  it('offers a command that contains the fragment, not only a prefix', () => {
+    expect(complete('/iss')[0]).toEqual(['/permission'])
   })
 
   it('offers every command for a bare slash', () => {
@@ -59,6 +59,38 @@ describe('createCompleter', () => {
     expect(completer('/')).toEqual([['/plan'], '/'])
     live = [{ name: 'compact', description: 'x' }]
     expect(completer('/')).toEqual([['/compact'], '/'])
+  })
+})
+
+describe('expandSkillGestures', () => {
+  const known = new Set(['grill-me', 'tdd'])
+
+  it('rewrites a known $skill into the /name token dsh injects', () => {
+    expect(expandSkillGestures('$grill-me look at this', known)).toBe('/grill-me look at this')
+  })
+
+  it('leaves unknown $words as prose', () => {
+    expect(expandSkillGestures('costs $amount now', known)).toBe('costs $amount now')
+  })
+
+  it('rewrites a skill in the middle of a sentence', () => {
+    expect(expandSkillGestures('please $tdd the parser', known)).toBe('please /tdd the parser')
+  })
+})
+
+describe('rankContains', () => {
+  const names = ['compact', 'plan', 'permission', 'exit']
+
+  it('keeps original order for prefixes, then buried hits', () => {
+    expect(rankContains(names, 'p', name => name)).toEqual(['plan', 'permission', 'compact'])
+  })
+
+  it('matches a buried fragment', () => {
+    expect(rankContains(names, 'iss', name => name)).toEqual(['permission'])
+  })
+
+  it('returns everything for an empty needle', () => {
+    expect(rankContains(names, '', name => name)).toEqual(names)
   })
 })
 

@@ -21,16 +21,17 @@ const facts: BannerFacts = {
 }
 
 describe('bannerLines', () => {
-  it('greets a terminal with the lettermark, composition beneath it', () => {
+  it('greets a terminal with the mark, composition beneath it', () => {
     const lines = bannerLines(facts, theme, 100)
-    expect(lines.some(line => line.includes('██████╗'))).toBe(true)
+    expect(lines.some(line => line.includes('█'))).toBe(true)
+    expect(lines.some(line => line.includes('▀') || line.includes('▄'))).toBe(true)
     expect(lines.some(line => line.includes('✻ Welcome to codsh'))).toBe(true)
     expect(lines.join('\n')).toContain('deepseek-v4-flash · code-cli')
   })
 
   it('skips the greeting for a resumed session, whose transcript matters more', () => {
     const lines = bannerLines({ ...facts, resumed: true }, theme, 100)
-    expect(lines.some(line => line.includes('██████╗'))).toBe(false)
+    expect(lines.some(line => line.includes('█'))).toBe(false)
   })
 
   it('frames the headline in a box off a terminal, which gets no lettermark', () => {

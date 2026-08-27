@@ -8,6 +8,7 @@
  * @module codsh-bundle/src/editor
  */
 
+import { rankContains } from './completion.ts'
 import type { CompletableCommand, CompletionResult } from './completion.ts'
 import type { Key } from './keys.ts'
 
@@ -33,6 +34,26 @@ export interface EditorView {
   selected: number
   /** The token under the cursor, which is what the candidates matched. */
   token: string
+  /** Reverse history search, absent when not searching. */
+  search?: { query: string; hits: number; index: number }
+  /**
+   * Known `/command` and `$skill` spans in the buffer, in code points.
+   *
+   * Painted in the box so a finished gesture reads as one, not as prose.
+   */
+  hits: readonly GestureHit[]
+}
+
+/** A `/command` or `$skill` in the buffer that names something real. */
+export interface GestureHit {
+  /** Buffer line index. */
+  row: number
+  /** First code point of the token. */
+  start: number
+  /** Code point after the token. */
+  end: number
+  /** Which kind of gesture it is. */
+  kind: 'command' | 'skill'
 }
 
 /** What the caller must do after a key. */
@@ -60,6 +81,12 @@ export interface EditorSources {
    * @returns candidates to offer, best first.
    */
   commandArguments?(command: string, typed: string): readonly Candidate[]
+  /**
+   * User-invocable skills for a `$` mention.
+   *
+   * Absent or empty means `$` is ordinary text.
+   */
+  skills?(): readonly { name: string; description: string }[]
 }
 
 /** Longest run of history the editor keeps for one session. */
@@ -89,6 +116,8 @@ export class Editor {
   private browsing = 0
   /** The buffer set aside while history is being browsed. */
   private stashed: string[] | undefined
+  /** Reverse-i-search over {@link history}, absent when the box is typing. */
+  private search: { query: string; index: number; stash: string[]; row: number; column: number } | undefined
 
   constructor(private readonly sources: EditorSources) {}
 
@@ -101,6 +130,10 @@ export class Editor {
       candidates: this.candidates,
       selected: this.selected,
       token: this.token(),
+      hits: this.gestureHits(),
+      ...(this.search === undefined
+        ? {}
+        : { search: { query: this.search.query, hits: this.searchHits().length, index: this.search.index } }),
     }
   }
 
@@ -151,7 +184,9 @@ export class Editor {
    * @returns what the caller must do about it.
    */
   handle(key: Key): EditorAction {
+    if (this.search !== undefined) return this.handleSearch(key)
     switch (key.kind) {
+      case 'history-search': return this.openSearch()
       case 'text': return this.insert(key.text)
       case 'paste':
         // Pasted newlines are content, never submissions: the terminal told us
@@ -277,6 +312,39 @@ export class Editor {
   }
 
   /**
+   * Spans in the buffer that name a registered command or skill.
+   *
+   * `/` only counts at the start of the first line, matching how a command is
+   * submitted. `$` counts as a word anywhere, matching how a skill is invoked.
+   */
+  private gestureHits(): GestureHit[] {
+    const commands = new Set(this.sources.commands().map(entry => entry.name))
+    const skills = new Set((this.sources.skills?.() ?? []).map(entry => entry.name))
+    const hits: GestureHit[] = []
+    this.lines.forEach((line, row) => {
+      if (row === 0) {
+        const found = /^\/([a-z][a-z0-9_-]*)(?=\s|$)/u.exec(line)
+        if (found?.[1] !== undefined && commands.has(found[1])) {
+          hits.push({ row, start: 0, end: points(found[0]).length, kind: 'command' })
+        }
+      }
+      const pattern = /(^|\s)\$([a-z0-9]+(?:-[a-z0-9]+)*)(?=\s|$)/gu
+      for (const match of line.matchAll(pattern)) {
+        const name = match[2] ?? ''
+        if (!skills.has(name) || match.index === undefined) continue
+        const dollarAt = match.index + (match[1] ?? '').length
+        hits.push({
+          row,
+          start: points(line.slice(0, dollarAt)).length,
+          end: points(line.slice(0, dollarAt + 1 + name.length)).length,
+          kind: 'skill',
+        })
+      }
+    })
+    return hits
+  }
+
+  /**
    * Recompute the candidate list for the token under the cursor.
    *
    * Recomputed on every edit rather than only on Tab, which is what makes the
@@ -293,9 +361,15 @@ export class Editor {
     if (token.startsWith('@')) {
       const [values] = this.sources.paths(token)
       this.candidates = values.map(value => ({ value, detail: '' }))
+    } else if (token.startsWith('$')) {
+      const typed = token.slice(1)
+      const skills = this.sources.skills?.() ?? []
+      this.candidates = rankContains(skills, typed, entry => entry.name).map(entry => ({
+        value: `$${entry.name}`,
+        detail: entry.description,
+      }))
     } else if (wholeLine && token.startsWith('/')) {
-      this.candidates = this.sources.commands()
-        .filter(entry => `/${entry.name}`.startsWith(token))
+      this.candidates = rankContains(this.sources.commands(), token.slice(1), entry => entry.name)
         .map(entry => ({ value: `/${entry.name}`, detail: entry.description }))
     } else if (inArgument) {
       this.candidates = [...this.sources.commandArguments?.(command, token) ?? []]
@@ -467,6 +541,111 @@ export class Editor {
     this.column = at
     this.refresh()
     return { kind: 'none' }
+  }
+
+  /**
+   * Open reverse search over history, stashing the draft.
+   * @returns always `none`.
+   */
+  private openSearch(): EditorAction {
+    this.search = {
+      query: '',
+      index: 0,
+      stash: [...this.lines],
+      row: this.row,
+      column: this.column,
+    }
+    this.candidates = []
+    this.applySearch()
+    return { kind: 'none' }
+  }
+
+  /**
+   * Keys while reverse-i-search is open.
+   * @param key - the decoded keystroke.
+   * @returns what the caller must do about it.
+   */
+  private handleSearch(key: Key): EditorAction {
+    switch (key.kind) {
+      case 'history-search':
+        if (this.search !== undefined) this.search.index += 1
+        this.applySearch()
+        return { kind: 'none' }
+      case 'text':
+        if (this.search !== undefined) {
+          this.search.query += key.text
+          this.search.index = 0
+        }
+        this.applySearch()
+        return { kind: 'none' }
+      case 'paste':
+        if (this.search !== undefined) {
+          this.search.query += key.text.replaceAll('\n', '')
+          this.search.index = 0
+        }
+        this.applySearch()
+        return { kind: 'none' }
+      case 'backspace':
+        if (this.search !== undefined && this.search.query.length > 0) {
+          this.search.query = points(this.search.query).slice(0, -1).join('')
+          this.search.index = 0
+        }
+        this.applySearch()
+        return { kind: 'none' }
+      case 'enter':
+        this.search = undefined
+        this.candidates = []
+        return { kind: 'none' }
+      case 'escape':
+        this.restoreSearchStash()
+        this.search = undefined
+        this.candidates = []
+        return { kind: 'none' }
+      case 'interrupt':
+        this.restoreSearchStash()
+        this.search = undefined
+        return { kind: 'interrupt' }
+      default:
+        return { kind: 'none' }
+    }
+  }
+
+  /** History entries matching the query, newest first. */
+  private searchHits(): string[] {
+    const query = this.search?.query ?? ''
+    const needle = query.toLowerCase()
+    const hits: string[] = []
+    for (let i = this.history.length - 1; i >= 0; i -= 1) {
+      const entry = this.history[i] ?? ''
+      if (needle === '' || entry.toLowerCase().includes(needle)) hits.push(entry)
+    }
+    return hits
+  }
+
+  /** Put the current hit in the buffer, or the stashed draft when none match. */
+  private applySearch(): void {
+    const hits = this.searchHits()
+    if (this.search !== undefined && this.search.index >= hits.length) {
+      this.search.index = Math.max(0, hits.length - 1)
+    }
+    const hit = hits[this.search?.index ?? 0]
+    if (hit === undefined) {
+      this.restoreSearchStash()
+      return
+    }
+    this.lines = hit.split('\n')
+    this.row = this.lines.length - 1
+    this.column = points(this.line()).length
+    this.candidates = []
+  }
+
+  /** Put the draft that search set aside back in the buffer. */
+  private restoreSearchStash(): void {
+    const stash = this.search?.stash
+    if (stash === undefined) return
+    this.lines = [...stash]
+    this.row = this.search?.row ?? 0
+    this.column = this.search?.column ?? 0
   }
 
   /**
