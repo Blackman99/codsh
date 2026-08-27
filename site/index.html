@@ -66,15 +66,15 @@
 <span class="row dm s1"><span class="c-user">┃ ›</span> <span class="type">/ship let long diffs open in a pager</span></span>
 <span class="row"> </span>
 <span class="row dm s2"><span class="c-dim">✻ reading the repo — pager.ts, screen.ts, three call sites</span></span>
-<span class="row dm s3"><span class="c-pending">?</span> one question at a time: full screen, or split under the box?</span>
+<span class="row dm s3"><span class="c-pending">?</span> frontier: full screen, or split under the box? <span class="c-dim">· recommended: full screen</span></span>
 <span class="row dm s4"><span class="c-user">┃ ›</span> full screen — q returns to the transcript</span>
 <span class="row"> </span>
 <span class="row dm s5"><span class="c-tool">│ </span><span class="c-pending">●</span> <span class="c-tool">Write docs/specs/pager.md</span></span>
 <span class="row dm s6"><span class="c-tool">│ </span><span class="c-ok">+ 6 acceptance criteria</span><span class="c-dim"> · each names its proving command</span></span>
 <span class="row dm s7"><span class="c-pending">?</span> confirm the spec <span class="c-dim">— gate 1</span></span>
 <span class="row dm s8"><span class="c-user">┃ ›</span> confirmed</span>
-<span class="row dm s9"><span class="c-tool">│ </span><span class="c-pending">●</span> <span class="c-tool">plan: 3 milestones → checkboxes in the spec</span></span>
-<span class="row dm s10"><span class="c-pending">?</span> approve the plan <span class="c-dim">— gate 2</span></span>
+<span class="row dm s9"><span class="c-tool">│ </span><span class="c-pending">●</span> <span class="c-tool">tickets: 3 tracer bullets → checkboxes in the spec</span></span>
+<span class="row dm s10"><span class="c-pending">?</span> approve the tickets <span class="c-dim">— gate 2</span></span>
 <span class="row dm s11"><span class="c-user">┃ ›</span> approved</span>
 <span class="row"> </span>
 <span class="row dm s12"><span class="c-dim">⠿ baseline: proof commands run once — two red, as expected</span></span>
@@ -109,20 +109,20 @@
 
       <ol class="steps">
         <li>
-          <b>Interview</b>
-          <p>Reads the repo, then one question at a time.</p>
+          <b>Grill</b>
+          <p>Design-tree interview. Facts are inspected; each round asks the open frontier with a recommended answer.</p>
         </li>
         <li>
           <b>Spec</b> <span class="gate">— gate 1</span>
-          <p>You confirm. Each criterion names its proving command.</p>
+          <p>Synthesized automatically. You confirm. Each criterion names its proving command.</p>
         </li>
         <li>
-          <b>Plan</b> <span class="gate">— gate 2</span>
-          <p>You approve. Baseline runs before any code.</p>
+          <b>Tickets</b> <span class="gate">— gate 2</span>
+          <p>Tracer-bullet slices, written automatically. You approve. Baseline runs before any code.</p>
         </li>
         <li>
           <b>Landing</b>
-          <p>The spec file is memory. Each green milestone is a commit.</p>
+          <p>TDD at the spec's seams. Each green ticket is a commit.</p>
         </li>
         <li>
           <b>Done</b>

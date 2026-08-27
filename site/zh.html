@@ -66,15 +66,15 @@
 <span class="row dm s1"><span class="c-user">┃ ›</span> <span class="type">/ship 让超长 diff 用分页器打开</span></span>
 <span class="row"> </span>
 <span class="row dm s2"><span class="c-dim">✻ 正在通读仓库——pager.ts、screen.ts、三处调用点</span></span>
-<span class="row dm s3"><span class="c-pending">?</span> 一次只问一个：全屏打开，还是在输入框下方分栏？</span>
+<span class="row dm s3"><span class="c-pending">?</span> frontier：全屏打开，还是在输入框下方分栏？ <span class="c-dim">· 推荐：全屏</span></span>
 <span class="row dm s4"><span class="c-user">┃ ›</span> 全屏——按 q 回到 transcript</span>
 <span class="row"> </span>
 <span class="row dm s5"><span class="c-tool">│ </span><span class="c-pending">●</span> <span class="c-tool">Write docs/specs/pager.md</span></span>
 <span class="row dm s6"><span class="c-tool">│ </span><span class="c-ok">+ 6 条验收标准</span><span class="c-dim"> · 每条写明证明它的命令</span></span>
 <span class="row dm s7"><span class="c-pending">?</span> 确认这份 spec<span class="c-dim">——关口 1</span></span>
 <span class="row dm s8"><span class="c-user">┃ ›</span> 确认</span>
-<span class="row dm s9"><span class="c-tool">│ </span><span class="c-pending">●</span> <span class="c-tool">计划：3 个里程碑 → 以复选框写进 spec</span></span>
-<span class="row dm s10"><span class="c-pending">?</span> 批准这份计划<span class="c-dim">——关口 2</span></span>
+<span class="row dm s9"><span class="c-tool">│ </span><span class="c-pending">●</span> <span class="c-tool">tickets：3 条垂直切片 → 以复选框写进 spec</span></span>
+<span class="row dm s10"><span class="c-pending">?</span> 批准这些 tickets<span class="c-dim">——关口 2</span></span>
 <span class="row dm s11"><span class="c-user">┃ ›</span> 批准</span>
 <span class="row"> </span>
 <span class="row dm s12"><span class="c-dim">⠿ 基线：证明命令先跑一遍——两条红，符合预期</span></span>
@@ -109,20 +109,20 @@
 
       <ol class="steps">
         <li>
-          <b>访谈</b>
-          <p>先读仓库，一次只问一个问题。</p>
+          <b>Grill</b>
+          <p>设计树访谈。事实自己查；每轮问当前 frontier，并给出推荐答案。</p>
         </li>
         <li>
           <b>Spec</b> <span class="gate">— 关口 1</span>
-          <p>你确认。每条标准写明证明它的命令。</p>
+          <p>自动合成。你确认。每条标准写明证明它的命令。</p>
         </li>
         <li>
-          <b>计划</b> <span class="gate">— 关口 2</span>
-          <p>你批准。写代码前先跑基线。</p>
+          <b>Tickets</b> <span class="gate">— 关口 2</span>
+          <p>自动切成可独立验证的垂直切片。你批准。写代码前先跑基线。</p>
         </li>
         <li>
           <b>落地</b>
-          <p>spec 文件是记忆。每个变绿的里程碑提交一次。</p>
+          <p>在 spec 记下的 seam 上 TDD。每个变绿的 ticket 提交一次。</p>
         </li>
         <li>
           <b>完成</b>

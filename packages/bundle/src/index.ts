@@ -659,7 +659,7 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
   const completable = (): readonly CompletableCommand[] => [
     ...commands?.list(live.agent) ?? [],
     { name: 'init', description: 'analyze the repo and draft AGENTS.md' },
-    { name: 'ship', description: 'take a one-sentence idea to shipped code' },
+    { name: 'ship', description: 'grill an idea, then spec, tickets, and verified code' },
     ...custom.commands.map(command => ({ name: command.name, description: command.description })),
     { name: 'exit', description: 'leave the session' },
   ]

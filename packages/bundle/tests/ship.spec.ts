@@ -39,16 +39,16 @@ describe('SHIP_PROMPT', () => {
     expect(SHIP_PROMPT).toContain('resume')
     // The phase ledger the resume reads.
     expect(SHIP_PROMPT).toContain('`Status:` line (interviewing, confirmed, planned, landing, shipped)')
-    // The approved plan is written into the spec, not left in the conversation.
-    expect(SHIP_PROMPT).toContain('`## Plan` section with one checkbox per milestone')
-    expect(SHIP_PROMPT).toContain('re-read it before starting each milestone')
+    // The approved tickets are written into the spec, not left in the conversation.
+    expect(SHIP_PROMPT).toContain('`## Plan` section with one checkbox per ticket')
+    expect(SHIP_PROMPT).toContain('re-read it before starting each ticket')
   })
 
-  it('grounds green in a recorded baseline and per-milestone commits', () => {
+  it('grounds green in a recorded baseline and per-ticket commits', () => {
     // Proof commands run once BEFORE code, so a red baseline surfaces at the gate.
     expect(SHIP_PROMPT).toContain('recording the baseline in the spec')
     expect(SHIP_PROMPT).toContain('working tree is clean')
-    expect(SHIP_PROMPT).toContain('commit after each milestone turns green')
+    expect(SHIP_PROMPT).toContain('commit after each ticket turns green')
   })
 
   it('makes verification mechanical, and re-runs it after a Ralph loop', () => {
@@ -56,12 +56,23 @@ describe('SHIP_PROMPT', () => {
     expect(SHIP_PROMPT).toContain('names the exact command that proves it')
     expect(SHIP_PROMPT).toContain('run every proof command again yourself')
     // The loop is bounded and stops on stall instead of spinning to the cap.
-    expect(SHIP_PROMPT).toContain('three rounds per milestone')
+    expect(SHIP_PROMPT).toContain('three rounds per ticket')
     expect(SHIP_PROMPT).toContain('two consecutive rounds that tick nothing')
   })
 
   it('treats pasted images as requirements material', () => {
     expect(SHIP_PROMPT).toContain('[Image #N]')
     expect(SHIP_PROMPT).toContain('<pasted-image>')
+  })
+
+  it('grills as a design-tree frontier, then synthesizes spec and tickets without another interview', () => {
+    expect(SHIP_PROMPT).toContain('design tree')
+    expect(SHIP_PROMPT).toContain('whole frontier into a single ask_user_question call')
+    expect(SHIP_PROMPT).toContain('recommended answer as the first option')
+    expect(SHIP_PROMPT).toContain('Do not interview further')
+    expect(SHIP_PROMPT).toContain('Problem Statement')
+    expect(SHIP_PROMPT).toContain('Testing Decisions')
+    expect(SHIP_PROMPT).toContain('tracer-bullet tickets')
+    expect(SHIP_PROMPT).toContain('red before green')
   })
 })

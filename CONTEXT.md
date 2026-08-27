@@ -84,11 +84,13 @@ _Avoid_: todo panel, task bar, progress bar
 
 **Ship gates**:
 The two approvals in the `/ship` workflow — the confirmed spec file (gate 1)
-and the approved implementation plan (gate 2). Everything after gate 2 is
-autonomous. The spec file is the workflow's memory, not the conversation:
-the approved plan lives in it as checkboxes, its `Status:` line names the
-phase, a baseline run is recorded before any code, each green milestone is
-committed, and a bare `/ship` offers to resume whatever it finds unfinished.
+and the approved ticket breakdown (gate 2). Everything after gate 2 is
+autonomous. Grill-me runs first (design tree, frontier rounds); to-spec and
+to-tickets then synthesize without another interview. The spec file is the
+workflow's memory, not the conversation: the approved tickets live in it as
+checkboxes, its `Status:` line names the phase, a baseline run is recorded
+before any code, each green ticket is committed, and a bare `/ship` offers
+to resume whatever it finds unfinished.
 _Avoid_: checkpoints, review steps
 
 ### Alignment pipeline

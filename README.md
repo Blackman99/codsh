@@ -37,12 +37,12 @@ dsh --profile code
 
 [![The /ship flow](assets/ship-demo.gif)](https://blackman99.github.io/codsh/)
 
-`/ship <one-sentence idea>` — two approvals, then autonomous:
+`/ship <one-sentence idea>` — grill, two approvals, then autonomous:
 
-1. **Interview** — reads the repo, one question at a time.
-2. **Spec** — you confirm. Each criterion names its proving command.
-3. **Plan** — you approve. Baseline runs before any code.
-4. **Landing** — the spec file is memory; each green milestone is a commit.
+1. **Grill** — design-tree interview; facts are inspected, each round asks the open frontier with a recommended answer.
+2. **Spec** — synthesized automatically (to-spec). You confirm. Each criterion names its proving command.
+3. **Tickets** — tracer-bullet slices, written automatically. You approve. Baseline runs before any code.
+4. **Landing** — TDD at the spec's seams; each green ticket is a commit.
 5. **Done** — every criterion re-run and reported.
 
 Bare `/ship` resumes an unfinished spec.
