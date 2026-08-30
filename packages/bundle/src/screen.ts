@@ -166,6 +166,8 @@ interface Fold {
   full: string[]
   /** Which of the two is on screen. */
   expanded: boolean
+  /** Whether a person explicitly chose the current form. */
+  manual: boolean
   /** The left rule both forms are drawn with. */
   rule: string
   /** What the block is, for the readout naming what the pointer is over. */
@@ -186,6 +188,14 @@ interface TurnPrompt {
   full: string[]
   /** Long prompts share the fold that controls their displayed form. */
   fold?: Fold
+  /** Explicit form retained while a resize temporarily removes the fold. */
+  preference?: boolean
+}
+
+/** Stable reading position across logical transcript splices and reflow. */
+interface ViewportAnchor {
+  logical: number
+  within: number
 }
 
 /** What the pointer is resting on, for a surface that names it. */
@@ -236,8 +246,6 @@ export class Screen {
   private ruleWidths: number[] = []
   /** Logical line owning each physical row, for resize anchoring. */
   private physicalLogical: number[] = []
-  /** First ordinary content row used by the last frame, below any sticky header. */
-  private contentStart = 0
   /** The bottom rows: input box, menu, indicator, status. */
   private chrome: string[] = []
   private chromeCursor: ChromeCursor = { row: 0, column: 0 }
@@ -289,8 +297,6 @@ export class Screen {
    * changes instead, and every report in between is a lookup.
    */
   private ranges: { fold: Fold; from: number; to: number }[] | undefined
-  /** Whether the folds currently show their full form. */
-  private expanded = false
   /** Incremental find over the owned scrollback, absent when find is closed. */
   private find: { query: string; hits: { row: number; start: number; end: number }[]; index: number } | undefined
   /** The last painted frame, so a repaint only touches rows that changed. */
@@ -500,13 +506,14 @@ export class Screen {
       }
       return
     }
-    const shown = this.expanded ? full : summary
+    const shown = summary
     const fold: Fold = {
       at: this.logical.length,
       shownLength: shown.length,
       summary,
       full,
-      expanded: this.expanded,
+      expanded: false,
+      manual: false,
       rule,
       label: 'prompt',
     }
@@ -569,8 +576,16 @@ export class Screen {
     for (const prompt of this.prompts) if (prompt !== ownerPrompt && prompt.at > at) prompt.at += delta
   }
 
+  /** Move a viewport anchor through one replacement in logical coordinates. */
+  private mapViewportAnchor(anchor: ViewportAnchor | undefined, at: number, removed: number, added: number): ViewportAnchor | undefined {
+    if (anchor === undefined || anchor.logical < at) return anchor
+    if (anchor.logical >= at + removed) return { ...anchor, logical: anchor.logical + added - removed }
+    return { ...anchor, logical: at + Math.min(anchor.logical - at, Math.max(0, added - 1)) }
+  }
+
   /** Rebuild prompt folds when a new width changes their visual line count. */
-  private refreshPromptFolds(): void {
+  private refreshPromptFolds(anchor?: ViewportAnchor): ViewportAnchor | undefined {
+    let mapped = anchor
     for (const prompt of this.prompts) {
       const summary = this.promptSummary(prompt.full, prompt.rule)
       const fold = prompt.fold
@@ -578,7 +593,8 @@ export class Screen {
         if (fold === undefined) continue
         const shown = prompt.full
         const delta = shown.length - prompt.shownLength
-        if (delta !== 0) {
+        if (delta !== 0 || shown.some((line, index) => line !== this.logical[prompt.at + index])) {
+          mapped = this.mapViewportAnchor(mapped, prompt.at, prompt.shownLength, shown.length)
           this.logical.splice(prompt.at, prompt.shownLength, ...shown)
           this.rules.splice(prompt.at, prompt.shownLength, ...shown.map(line => line === '' ? '' : prompt.rule))
         }
@@ -589,10 +605,11 @@ export class Screen {
         continue
       }
       if (fold === undefined) {
-        const expanded = this.expanded
+        const expanded = prompt.preference ?? false
         const shown = expanded ? prompt.full : summary
         const delta = shown.length - prompt.shownLength
         if (delta !== 0 || shown.some((line, index) => line !== this.logical[prompt.at + index])) {
+          mapped = this.mapViewportAnchor(mapped, prompt.at, prompt.shownLength, shown.length)
           this.logical.splice(prompt.at, prompt.shownLength, ...shown)
           this.rules.splice(prompt.at, prompt.shownLength, ...shown.map(line => line === '' ? '' : prompt.rule))
         }
@@ -602,6 +619,7 @@ export class Screen {
           summary,
           full: prompt.full,
           expanded,
+          manual: prompt.preference !== undefined,
           rule: prompt.rule,
           label: 'prompt',
         }
@@ -616,6 +634,7 @@ export class Screen {
       if (fold.expanded) continue
       const delta = summary.length - prompt.shownLength
       if (delta !== 0 || summary.some((line, index) => line !== this.logical[prompt.at + index])) {
+        mapped = this.mapViewportAnchor(mapped, prompt.at, prompt.shownLength, summary.length)
         this.logical.splice(prompt.at, prompt.shownLength, ...summary)
         this.rules.splice(prompt.at, prompt.shownLength, ...summary.map(line => line === '' ? '' : prompt.rule))
       }
@@ -623,7 +642,7 @@ export class Screen {
       prompt.shownLength = summary.length
       this.shiftAfter(prompt.at, delta, prompt, fold)
     }
-    if (this.folds.length === 0) this.expanded = false
+    return mapped
   }
 
   /**
@@ -639,13 +658,14 @@ export class Screen {
    * @param enter - child session a click opens instead of folding, when set.
    */
   appendFold(summary: readonly string[], full: readonly string[], rule = '', label = '', enter?: string): void {
-    const shown = this.expanded ? full : summary
+    const shown = summary
     this.folds.push({
       at: this.logical.length,
       shownLength: shown.length,
       summary: [...summary],
       full: [...full],
-      expanded: this.expanded,
+      expanded: false,
+      manual: false,
       rule,
       label,
       ...enter === undefined ? {} : { enter },
@@ -678,6 +698,7 @@ export class Screen {
       summary: [...summary],
       full: this.logical.slice(at),
       expanded: true,
+      manual: false,
       // One block, one rule: the summary is drawn with whatever the lines it
       // replaces were drawn with, skipping the blanks that hold none.
       rule: this.rules.slice(at).find(rule => rule !== '') ?? '',
@@ -695,7 +716,7 @@ export class Screen {
 
   /** Whether the folds currently show their full form. */
   get foldsExpanded(): boolean {
-    return this.expanded
+    return this.folds.length > 0 && this.folds.every(fold => fold.expanded)
   }
 
   /**
@@ -708,16 +729,13 @@ export class Screen {
    */
   toggleFolds(): boolean {
     if (this.folds.length === 0) return false
-    this.setFolds(!this.folds.every(fold => fold.expanded))
+    this.setFolds(!this.folds.every(fold => fold.expanded), true)
     return true
   }
 
-  /** Return every fold to its summary, the way moving on reads as dismissal. */
+  /** Return automatic folds to their summaries while preserving explicit choices. */
   collapseFolds(): void {
-    // Freshly finished blocks sit expanded even while the global state says
-    // collapsed, so the per-fold flags decide whether work exists.
-    if (this.folds.some(fold => fold.expanded)) this.setFolds(false)
-    else this.expanded = false
+    if (this.folds.some(fold => !fold.manual && fold.expanded)) this.setFolds(false, false, true)
   }
 
   /**
@@ -737,7 +755,7 @@ export class Screen {
       this.enterHandler(fold.enter)
       return
     }
-    this.setFold(fold, !fold.expanded)
+    this.setFold(fold, !fold.expanded, true)
   }
 
   /**
@@ -786,7 +804,7 @@ export class Screen {
    * @param fold - the block to swap.
    * @param expanded - the form to put on screen.
    */
-  private setFold(fold: Fold, expanded: boolean): void {
+  private setFold(fold: Fold, expanded: boolean, manual: boolean): void {
     this.clearTailAnchor()
     const shown = expanded ? fold.full : fold.summary
     const delta = shown.length - fold.shownLength
@@ -794,10 +812,15 @@ export class Screen {
     this.rules.splice(fold.at, fold.shownLength, ...shown.map(line => line === '' ? '' : fold.rule))
     fold.shownLength = shown.length
     fold.expanded = expanded
+    fold.manual = manual
     // Only what sits after the block moves; the block starts where it started.
     for (const other of this.folds) if (other.at > fold.at) other.at += delta
     for (const prompt of this.prompts) {
-      if (prompt.fold === fold) prompt.shownLength = shown.length
+      if (prompt.fold === fold) {
+        prompt.shownLength = shown.length
+        if (manual) prompt.preference = expanded
+        else delete prompt.preference
+      }
       else if (prompt.at > fold.at) prompt.at += delta
     }
     const before = this.physical.length
@@ -813,16 +836,28 @@ export class Screen {
     this.render()
   }
 
-  /** Put every fold into one form, whatever mix of states they are in now. */
-  private setFolds(expanded: boolean): void {
+  /** Put chosen folds into one form and optionally pin that choice. */
+  private setFolds(expanded: boolean, manual: boolean, automaticOnly = false): void {
     this.clearTailAnchor()
-    this.expanded = expanded
+    const anchor = this.offset > 0 ? this.viewportAnchor() : undefined
     // Rebuild back to front, so earlier folds' positions stay valid while the
     // later ones are spliced; remember each block's growth for the fix-up.
     const deltas = new Map<Fold, number>()
     const original = new Map(this.folds.map(fold => [fold, fold.at]))
+    const originalLengths = new Map(this.folds.map(fold => [fold, fold.shownLength]))
+    const promptByFold = new Map(this.prompts.flatMap(prompt => prompt.fold === undefined ? [] : [[prompt.fold, prompt] as const]))
     for (const fold of [...this.folds].reverse()) {
+      if (automaticOnly && fold.manual) {
+        deltas.set(fold, 0)
+        continue
+      }
       if (fold.expanded === expanded) {
+        fold.manual = manual
+        const prompt = promptByFold.get(fold)
+        if (prompt !== undefined) {
+          if (manual) prompt.preference = expanded
+          else delete prompt.preference
+        }
         deltas.set(fold, 0)
         continue
       }
@@ -832,6 +867,7 @@ export class Screen {
       deltas.set(fold, shown.length - fold.shownLength)
       fold.shownLength = shown.length
       fold.expanded = expanded
+      fold.manual = manual
     }
     // Positions after each splice shift by the growth of everything spliced
     // before them; recompute from the front.
@@ -844,6 +880,10 @@ export class Screen {
       if (prompt.fold !== undefined) {
         prompt.at = prompt.fold.at
         prompt.shownLength = prompt.fold.shownLength
+        if (!automaticOnly || !prompt.fold.manual) {
+          if (prompt.fold.manual) prompt.preference = prompt.fold.expanded
+          else delete prompt.preference
+        }
         continue
       }
       let moved = 0
@@ -853,8 +893,25 @@ export class Screen {
       }
       prompt.at += moved
     }
+    let mappedAnchor = anchor
+    if (anchor !== undefined) {
+      let shift = 0
+      let logical = anchor.logical
+      for (const fold of this.folds) {
+        const at = original.get(fold) ?? fold.at
+        const length = originalLengths.get(fold) ?? fold.shownLength
+        if (anchor.logical < at) break
+        if (anchor.logical < at + length) {
+          logical = at + shift + Math.min(anchor.logical - at, Math.max(0, fold.shownLength - 1))
+          break
+        }
+        shift += deltas.get(fold) ?? 0
+        logical = anchor.logical + shift
+      }
+      mappedAnchor = { logical, within: anchor.within }
+    }
     this.rewrap()
-    this.offset = 0
+    if (mappedAnchor !== undefined) this.restoreViewportAnchor(mappedAnchor)
     this.painted = []
     this.render()
   }
@@ -1046,7 +1103,6 @@ export class Screen {
     this.pressedTimeline = undefined
     this.timelineHover = undefined
     this.find = undefined
-    this.expanded = false
     this.offset = 0
     this.clearTailAnchor()
     this.suppressNotice = false
@@ -1055,32 +1111,38 @@ export class Screen {
     this.render()
   }
 
+  /** Logical line and wrapped subrow currently at the top of transcript content. */
+  private viewportAnchor(): ViewportAnchor | undefined {
+    const row = this.frameLayout().first
+    const logical = this.physicalLogical[row]
+    if (logical === undefined) return undefined
+    let within = 0
+    for (let at = row - 1; at >= 0 && this.physicalLogical[at] === logical; at -= 1) within += 1
+    return { logical, within }
+  }
+
+  /** Reposition a scrolled viewport at a logical line after layout changes. */
+  private restoreViewportAnchor(anchor: ViewportAnchor): void {
+    const rows: number[] = []
+    for (const [row, logical] of this.physicalLogical.entries()) if (logical === anchor.logical) rows.push(row)
+    const target = rows[Math.min(anchor.within, Math.max(0, rows.length - 1))]
+    if (target === undefined) return
+    const limit = Math.max(0, this.physical.length - this.viewportHeight())
+    let next = Math.min(limit, this.offset)
+    for (let pass = 0; pass < 4; pass += 1) {
+      const difference = this.frameLayout(next).first - target
+      if (difference === 0) break
+      next = Math.min(limit, Math.max(0, next + difference))
+    }
+    this.offset = next
+  }
+
   /** Re-wrap and repaint after the terminal changed size. */
   resize(): void {
     const following = this.offset === 0
-    const anchorRow = this.contentStart
-    const anchorLogical = this.physicalLogical[anchorRow]
-    let within = 0
-    if (anchorLogical !== undefined) {
-      for (let row = anchorRow - 1; row >= 0 && this.physicalLogical[row] === anchorLogical; row -= 1) within += 1
-    }
-    this.refreshPromptFolds()
+    const anchor = this.refreshPromptFolds(this.viewportAnchor())
     this.rewrap()
-    if (!following && anchorLogical !== undefined) {
-      const rows: number[] = []
-      for (const [row, logical] of this.physicalLogical.entries()) if (logical === anchorLogical) rows.push(row)
-      const target = rows[Math.min(within, Math.max(0, rows.length - 1))]
-      if (target !== undefined) {
-        const limit = Math.max(0, this.physical.length - this.viewportHeight())
-        let next = Math.min(limit, this.offset)
-        for (let pass = 0; pass < 4; pass += 1) {
-          const difference = this.frameLayout(next).first - target
-          if (difference === 0) break
-          next = Math.min(limit, Math.max(0, next + difference))
-        }
-        this.offset = next
-      }
-    }
+    if (!following && anchor !== undefined) this.restoreViewportAnchor(anchor)
     this.refreshTailAnchor()
     // Nothing on screen can be trusted at a new size; the next frame is full.
     this.painted = []
@@ -1216,7 +1278,7 @@ export class Screen {
     const sticky = this.pressedSticky
     this.pressedSticky = undefined
     if (sticky?.fold !== undefined) {
-      this.setFold(sticky.fold, true)
+      this.setFold(sticky.fold, true, true)
       const at = this.promptLayouts().find(layout => layout.prompt === sticky)?.at
       if (at !== undefined) {
         const limit = Math.max(0, this.physical.length - this.viewportHeight())
@@ -1482,7 +1544,6 @@ export class Screen {
       this.paintedColumns = columns
     }
     const { height, end, first, prompts, sticky } = this.frameLayout()
-    this.contentStart = first
     const visible = this.physical.slice(first, Math.max(0, end))
     // Content tops the screen the way a fresh terminal reads — the welcome at
     // the top, the gap between it and the chrome — and grows downward until it

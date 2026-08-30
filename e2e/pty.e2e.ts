@@ -560,7 +560,9 @@ describe.skipIf(process.platform === 'win32')('dsh code Escape (real PTY)', () =
     const output = await drivePty('tall', [
       ['/help for commands', `create the tall note${ENTER}`, 300],
       // 45 diff lines, collapsed live...
-      ['Ctrl+O expands', `/clear${ENTER}`, 400],
+      ['Ctrl+O expands', '\u000F', 400],
+      // ...then explicitly expanded before session replacement.
+      ['CODE_CLI_TALL_44', `/clear${ENTER}`, 400],
       ['new session session-', `/resume${ENTER}`, 400],
       ['Resume session', ENTER, 500],
       // ...and the replayed card still promises the key...

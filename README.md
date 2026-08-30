@@ -62,7 +62,7 @@ The [site](https://blackman99.github.io/codsh/) shows each live. In brief:
 - A one-column timeline on the right tracks the current turn; hover previews and click jumps.
 - `/copy` searches assistant answers; `/copy N` copies raw Markdown and `/copy N:C` copies exact fence-free code.
 - `/view` opens the same answer/code targets in a resize-safe full-screen reader; Esc restores the conversation.
-- Long blocks fold; click one, Ctrl+O all; hover names it.
+- Long blocks fold; click one or Ctrl+O all, and explicit choices persist across later turns.
 - Todos stay in chrome (Ctrl+T / `/todos`).
 - Drag to copy. Markdown, thinking, and tool cards stream in.
 - Ctrl+V pastes images (native vision; DeepSeek text models borrow Vision Exp automatically; other text routes keep the file + optional sidecar fallback).

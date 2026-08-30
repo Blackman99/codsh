@@ -593,7 +593,7 @@ export class TerminalConsole {
     return this.screen?.toggleFolds() ?? false
   }
 
-  /** Return every block to its summary. */
+  /** Return automatic blocks to their summaries, preserving explicit choices. */
   collapseFolds(): void {
     this.screen?.collapseFolds()
   }

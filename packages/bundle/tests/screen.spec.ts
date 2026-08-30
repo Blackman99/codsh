@@ -477,7 +477,7 @@ describe('scrolling', () => {
     expect(painted(flush(sink)).get(4) ?? '').toBe('')
   })
 
-  it('uses an expanded prompt as a non-sticky turn boundary until it is folded again', () => {
+  it('keeps a manually expanded prompt non-sticky across moving on until manually folded again', () => {
     const sink = host(7, 40)
     const screen = new Screen(sink)
     screen.enter()
@@ -494,6 +494,12 @@ describe('scrolling', () => {
     expect(expanded.get(1)).toBe('new 1')
 
     screen.collapseFolds()
+    expect(flush(sink)).toBe('')
+    screen.resize()
+    const stillExpanded = painted(flush(sink))
+    expect(stillExpanded.get(1)).toBe('new 1')
+
+    screen.toggleFolds()
     const collapsed = painted(flush(sink))
     expect(collapsed.get(1)).toBe('| › second a')
   })
@@ -547,11 +553,16 @@ describe('scrolling', () => {
     screen.append(Array.from({ length: 20 }, (_, index) => `tail ${index}`))
     screen.toggleFolds()
     flush(sink)
+    // Trigger another trim after the explicit expansion; moving on and search
+    // must still see the retained prompt's full form.
+    screen.append(Array.from({ length: 10 }, (_, index) => `after ${index}`))
+    screen.collapseFolds()
+    expect(screen.searchTranscript('retained d').hits).toBe(1)
 
     screen.resize()
-    const rows = painted(flush(sink))
+    const frame = flush(sink)
     expect(screen.turnList).toEqual([{ index: 0, summary: '› retained a retained b retained c retained d' }])
-    expect(rows.get(1)).toBe('tail 15')
+    expect(frame).toContain('\u001B[7mretained d\u001B[27m')
   })
 
   it('cancels a sticky click when scrollback trimming removes its prompt', () => {
@@ -625,6 +636,29 @@ describe('scrolling', () => {
     expect(screen.hasFolds).toBe(false)
   })
 
+  it('restores full prompt text when an equal-length summary fold disappears', () => {
+    const sink = host(8, 15)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['status'], { row: 0, column: 0 }, false)
+    screen.appendPrompt([
+      '› first long line',
+      '  second logical line',
+      '  third logical line',
+      '',
+    ], '| ', false)
+    expect(screen.hasFolds).toBe(true)
+    expect(flush(sink)).toContain('…')
+
+    sink.size.columns = 80
+    screen.resize()
+    const frame = flush(sink)
+    expect(screen.hasFolds).toBe(false)
+    expect(frame).toContain('second logical line')
+    expect(frame).toContain('third logical line')
+    expect(frame).not.toContain('…')
+  })
+
   it('keeps the same response line at the content top across a scrolled resize', () => {
     const sink = host(6, 40)
     const screen = new Screen(sink)
@@ -644,6 +678,23 @@ describe('scrolling', () => {
     screen.resize()
     const after = painted(flush(sink))
     expect(after.get(3)).toContain('answer 9')
+  })
+
+  it('keeps the same response line when a prompt fold above it disappears on resize', () => {
+    const sink = host(6, 15)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['status'], { row: 0, column: 0 }, false)
+    screen.appendPrompt(['› one two three four five six seven eight nine ten eleven twelve', ''], '| ', false)
+    screen.append(Array.from({ length: 20 }, (_, index) => `tail${index + 1}`))
+    screen.scrollBy(-4)
+    const before = [...painted(flush(sink)).values()].find(row => row.includes('tail'))
+    expect(before).toBeDefined()
+
+    sink.size.columns = 80
+    screen.resize()
+    const after = [...painted(flush(sink)).values()].find(row => row.includes('tail'))
+    expect(after).toBe(before)
   })
 
   it('opens a folded prompt from its sticky copy and reveals the original', () => {
@@ -851,6 +902,59 @@ describe('conversation timeline', () => {
 })
 
 describe('folds', () => {
+  it('preserves explicit choices while moving on collapses only automatic folds', () => {
+    const sink = host(14, 40)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['status'], { row: 0, column: 0 }, false)
+    screen.appendFold(['manual summary', ''], ['manual full a', 'manual full b', ''])
+    screen.mouseDown(1, 2)
+    screen.mouseUp()
+    screen.append(['fresh a', 'fresh b', 'fresh c'])
+    screen.foldBack(3, ['fresh summary'])
+    flush(sink)
+
+    screen.collapseFolds()
+    const text = [...painted(flush(sink)).values()].join('\n')
+    expect(text).toContain('manual full b')
+    expect(text).not.toContain('manual summary')
+    expect(text).toContain('fresh summary')
+    expect(text).not.toContain('fresh c')
+  })
+
+  it('does not inherit a Ctrl+O choice into folds created later', () => {
+    const sink = host(12, 40)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['status'], { row: 0, column: 0 }, false)
+    screen.appendFold(['first summary'], ['first full'])
+    screen.toggleFolds()
+    screen.appendFold(['later summary'], ['later full'])
+    const text = [...painted(flush(sink)).values()].join('\n')
+    expect(text).toContain('first full')
+    expect(text).toContain('later summary')
+    expect(text).not.toContain('later full')
+  })
+
+  it('keeps an explicit prompt choice when resize removes and recreates its fold', () => {
+    const sink = host(12, 18)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['status'], { row: 0, column: 0 }, false)
+    screen.appendPrompt(['› one two three four five six seven eight nine ten', ''], '| ', false)
+    screen.toggleFolds()
+    flush(sink)
+
+    sink.size.columns = 120
+    screen.resize()
+    flush(sink)
+    sink.size.columns = 18
+    screen.resize()
+    const text = [...painted(flush(sink)).values()].join('\n')
+    expect(text).toContain('nine ten')
+    expect(text).not.toContain('…')
+  })
+
   it('shows the summary, swaps to the full form, and back', () => {
     const sink = host(8, 40)
     const screen = new Screen(sink)
@@ -868,7 +972,7 @@ describe('folds', () => {
     expect(shown).toContain('line 3')
     expect(shown).not.toContain('summary')
 
-    screen.collapseFolds()
+    screen.toggleFolds()
     rows = painted(flush(sink))
     const collapsed = [...rows.values()].join('\n')
     expect(collapsed).toContain('summary (Ctrl+O expands)')
@@ -910,7 +1014,7 @@ describe('folds', () => {
     expect(fresh).toContain('answer 4')
     expect(flush(sink)).toBe('')
 
-    // Moving on collapses it even though the global state was never expanded.
+    // Moving on collapses it because its fresh expanded state is automatic.
     screen.collapseFolds()
     const collapsed = [...painted(flush(sink)).values()].join('\n')
     expect(collapsed).toContain('(more)')
@@ -942,8 +1046,8 @@ describe('folds', () => {
     expect(text.indexOf('between')).toBeLessThan(text.indexOf('long a'))
     expect(text).toContain('long c')
 
-    // Collapse both; order still holds and both summaries show.
-    screen.collapseFolds()
+    // A second explicit toggle collapses both; order still holds and both summaries show.
+    screen.toggleFolds()
     const back = [...painted(flush(sink)).values()].join('\n')
     expect(back.indexOf('thought summary')).toBeLessThan(back.indexOf('between'))
     expect(back.indexOf('between')).toBeLessThan(back.indexOf('long head'))
@@ -1088,6 +1192,38 @@ describe('folds', () => {
     expect(shut.get(1)).toContain('head 1')
     expect(shut.get(3)).toContain('summary')
     expect(shut.get(5)).toContain('tail 1')
+  })
+
+  it('keeps the same logical top row when Ctrl+O expands near the tail', () => {
+    const sink = host(6, 40)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['status'], { row: 0, column: 0 }, false)
+    screen.append(['head 1', 'head 2'])
+    screen.appendFold(['summary', ''], ['full a', 'full b', 'full c', ''])
+    screen.append(['tail 1', 'tail 2', 'tail 3', 'tail 4', 'tail 5'])
+    screen.scrollBy(-3)
+    const before = painted(flush(sink))
+    expect(before.get(1)).toContain('head 2')
+
+    screen.toggleFolds()
+    const open = painted(flush(sink))
+    expect(open.get(1)).toContain('head 2')
+    expect(open.get(2)).toContain('full a')
+  })
+
+  it('keeps the same logical top row when Ctrl+O expands a fold above the viewport', () => {
+    const sink = host(6, 40)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['status'], { row: 0, column: 0 }, false)
+    screen.appendFold(['summary'], ['full a', 'full b', 'full c', 'full d'])
+    screen.append(Array.from({ length: 20 }, (_, index) => `tail${index + 1}`))
+    screen.scrollBy(-6)
+    expect(painted(flush(sink)).get(1)).toBe('tail10')
+
+    screen.toggleFolds()
+    expect(painted(flush(sink)).get(1)).toBe('tail10')
   })
 
   it('folds everything back when a click has already opened it all', () => {

@@ -440,6 +440,18 @@ describe.skipIf(process.platform === 'win32')('the first five minutes', () => {
     expect(probe.alternate.some(row => row.includes('CODE_CLI_CALL_STREAM_DONE'))).toBe(true)
   }, E2E_TEST_TIMEOUT_MS)
 
+  it('keeps a manually expanded block open across the next real turn', async () => {
+    const output = await drivePty('reasoning', [
+      ['Welcome to codsh', `first question${ENTER}`, 300],
+      ['CODE_CLI_ANSWER', '\u000F', 300],
+      ['weighing the options carefully', `second question${ENTER}`, 300],
+      ['CODE_CLI_ANSWER', `/exit${ENTER}`, 500],
+    ])
+    const rows = screenAtLast(output, 'CODE_CLI_ANSWER').alternate
+    expect(rows.filter(row => row.includes('weighing the options carefully'))).toHaveLength(1)
+    expect(rows.some(row => row.includes('second question'))).toBe(true)
+  }, E2E_TEST_TIMEOUT_MS)
+
   it('searches prompt history on Ctrl+R', async () => {
     const output = await drivePty('write', [
       ['Welcome to codsh', `create the note${ENTER}`, 300],

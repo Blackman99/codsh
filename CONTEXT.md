@@ -76,6 +76,14 @@ the exact prior Viewport; the viewer never adds a Prompt, Fold, search hit,
 session event, clipboard write, or pipe output.
 _Avoid_: pager process, transcript view
 
+**Fold preference**:
+An ephemeral, per-Fold choice created by clicking a block or pressing Ctrl+O.
+Explicit expanded and collapsed choices survive streaming completion, resize,
+scrollback trimming, search, and later turns; moving on collapses only automatic
+fresh-output states. A clear or session replacement discards preferences, and
+replay creates capable but automatically collapsed Folds from durable events.
+_Avoid_: session fold state, global expanded mode
+
 **Chrome**:
 The bottom-pinned rows: input box, menus, hint row, status row. Never scrolls.
 

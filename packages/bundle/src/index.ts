@@ -1652,8 +1652,8 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
     const images = prompt.takeAttachments()
     const trimmed = line.trim()
     const surfaceOnlyView = /^\/view(?:\s|$)/u.test(trimmed)
-    // Moving on reads as dismissal: whatever was expanded folds back, the way
-    // clicking elsewhere collapses an expanded block in Claude.
+    // Moving on dismisses only automatic open states. A block the person
+    // explicitly opened remains part of their reading layout across turns.
     if (!surfaceOnlyView) io.console.collapseFolds()
     if (trimmed === '') continue
     if (trimmed === '/exit' || trimmed === '/quit') break
