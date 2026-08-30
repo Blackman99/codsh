@@ -243,6 +243,12 @@ export class Screen {
   private chromeFocus = true
   /** Physical rows hidden below the viewport; zero means following the tail. */
   private offset = 0
+  /** Live prompt whose response is still consuming display-only tail space. */
+  private tailAnchor: TurnPrompt | undefined
+  /** Blank display rows after the physical transcript; never retained or copied. */
+  private tailRows = 0
+  /** The prompt's own rows establish an anchor; only later rows may retire it. */
+  private installingTailAnchor = false
   /** What to show while scrolled back, drawn over the viewport's top row. */
   private notice = ''
   /** A jumped expanded prompt at row one must not be covered by that notice. */
@@ -345,6 +351,7 @@ export class Screen {
   jumpToTurn(index: number): boolean {
     const layout = this.promptLayouts()[index]
     if (layout === undefined) return false
+    this.clearTailAnchor()
     const height = this.viewportHeight()
     const limit = Math.max(0, this.physical.length - height)
     const canStick = layout.prompt.fold?.expanded !== true
@@ -359,6 +366,7 @@ export class Screen {
 
   /** Restore a previously captured physical scroll distance. */
   restoreScroll(offset: number): void {
+    this.clearTailAnchor()
     const limit = Math.max(0, this.physical.length - this.viewportHeight())
     this.offset = Math.min(limit, Math.max(0, offset))
     this.suppressNotice = false
@@ -443,6 +451,7 @@ export class Screen {
     if (heldEnd !== undefined && !trimmed) {
       this.offset = Math.max(0, this.physical.length - heldEnd)
     }
+    this.refreshTailAnchor(!this.installingTailAnchor)
     this.render()
   }
 
@@ -454,14 +463,24 @@ export class Screen {
    * inline copy has scrolled away.
    * @param lines - rendered prompt lines, including its trailing separator.
    * @param rule - the user's styled left rule.
+   * @param anchor - whether a live submission may reserve display-only tail space.
    */
-  appendPrompt(lines: readonly string[], rule = ''): void {
+  appendPrompt(lines: readonly string[], rule = '', anchor = true): void {
     if (lines.length === 0) return
+    const shouldAnchor = anchor && this.active && this.offset === 0
+    if (shouldAnchor) this.clearTailAnchor()
     const full = [...lines]
     const summary = this.promptSummary(full, rule)
     if (summary === undefined) {
-      this.prompts.push({ at: this.logical.length, shownLength: lines.length, rule, full })
-      this.append(lines, rule)
+      const prompt = { at: this.logical.length, shownLength: lines.length, rule, full }
+      this.prompts.push(prompt)
+      if (shouldAnchor) this.tailAnchor = prompt
+      this.installingTailAnchor = shouldAnchor
+      try {
+        this.append(lines, rule)
+      } finally {
+        this.installingTailAnchor = false
+      }
       return
     }
     const shown = this.expanded ? full : summary
@@ -475,8 +494,41 @@ export class Screen {
       label: 'prompt',
     }
     this.folds.push(fold)
-    this.prompts.push({ at: fold.at, shownLength: shown.length, rule, full, fold })
-    this.append(shown, rule)
+    const prompt = { at: fold.at, shownLength: shown.length, rule, full, fold }
+    this.prompts.push(prompt)
+    if (shouldAnchor) this.tailAnchor = prompt
+    this.installingTailAnchor = shouldAnchor
+    try {
+      this.append(shown, rule)
+    } finally {
+      this.installingTailAnchor = false
+    }
+  }
+
+  /** Drop display-only tail space without touching the retained transcript. */
+  private clearTailAnchor(): void {
+    this.tailAnchor = undefined
+    this.tailRows = 0
+  }
+
+  /** Fit the live prompt at row one while its real response has not filled the viewport. */
+  private refreshTailAnchor(retireWhenFilled = false): void {
+    const anchor = this.tailAnchor
+    if (anchor === undefined) {
+      this.tailRows = 0
+      return
+    }
+    if (this.offset > 0 || !this.prompts.includes(anchor)) {
+      this.clearTailAnchor()
+      return
+    }
+    const layout = this.promptLayouts().find(candidate => candidate.prompt === anchor)
+    if (layout === undefined) {
+      this.clearTailAnchor()
+      return
+    }
+    this.tailRows = Math.max(0, this.viewportHeight() - (this.physical.length - layout.at))
+    if (this.tailRows === 0 && retireWhenFilled) this.tailAnchor = undefined
   }
 
   /** Three visual prompt rows plus its separator, or no fold when it fits. */
@@ -718,6 +770,7 @@ export class Screen {
    * @param expanded - the form to put on screen.
    */
   private setFold(fold: Fold, expanded: boolean): void {
+    this.clearTailAnchor()
     const shown = expanded ? fold.full : fold.summary
     const delta = shown.length - fold.shownLength
     this.logical.splice(fold.at, fold.shownLength, ...shown)
@@ -745,6 +798,7 @@ export class Screen {
 
   /** Put every fold into one form, whatever mix of states they are in now. */
   private setFolds(expanded: boolean): void {
+    this.clearTailAnchor()
     this.expanded = expanded
     // Rebuild back to front, so earlier folds' positions stay valid while the
     // later ones are spliced; remember each block's growth for the fix-up.
@@ -800,6 +854,7 @@ export class Screen {
     this.chrome = rows.map(row => truncate(row, this.contentColumns()))
     this.chromeCursor = { ...cursor }
     this.chromeFocus = focus
+    this.refreshTailAnchor()
     this.render()
   }
 
@@ -835,9 +890,11 @@ export class Screen {
    * @param delta - rows to move; negative scrolls back into history.
    */
   scrollBy(delta: number): void {
+    const anchored = this.tailAnchor !== undefined
+    this.clearTailAnchor()
     const limit = Math.max(0, this.physical.length - this.viewportHeight())
     const next = Math.min(limit, Math.max(0, this.offset - delta))
-    if (next === this.offset) return
+    if (next === this.offset && !anchored) return
     this.offset = next
     this.suppressNotice = false
     this.render()
@@ -854,7 +911,9 @@ export class Screen {
 
   /** Jump back to the tail, which is also what a new submission does. */
   scrollToBottom(): void {
-    if (this.offset === 0) return
+    const anchored = this.tailAnchor !== undefined
+    this.clearTailAnchor()
+    if (this.offset === 0 && !anchored) return
     this.offset = 0
     this.suppressNotice = false
     this.render()
@@ -912,6 +971,7 @@ export class Screen {
 
   /** Scroll so the current hit is in the viewport, then paint. */
   private revealFindHit(): void {
+    this.clearTailAnchor()
     this.suppressNotice = false
     const hit = this.find?.hits[this.find.index]
     if (hit === undefined) {
@@ -947,6 +1007,7 @@ export class Screen {
     this.find = undefined
     this.expanded = false
     this.offset = 0
+    this.clearTailAnchor()
     this.suppressNotice = false
     this.painted = []
     this.render()
@@ -978,6 +1039,7 @@ export class Screen {
         this.offset = next
       }
     }
+    this.refreshTailAnchor()
     // Nothing on screen can be trusted at a new size; the next frame is full.
     this.painted = []
     this.render()
@@ -1161,12 +1223,13 @@ export class Screen {
   private locate(row: number, column: number, clamp: boolean): { row: number; column: number } | undefined {
     if (this.physical.length === 0) return undefined
     const { height, end, first, sticky } = this.frameLayout()
+    const physicalEnd = Math.min(end, this.physical.length)
     const reserved = sticky?.reservedRows ?? 0
     const contentHeight = height - reserved
     let visual = row - 1 - reserved
-    if (!clamp && (visual < 0 || visual >= contentHeight || first + visual >= end)) return undefined
-    visual = Math.min(Math.max(visual, 0), Math.max(0, Math.min(contentHeight, end - first) - 1))
-    const index = Math.min(Math.max(first + visual, first), end - 1)
+    if (!clamp && (visual < 0 || visual >= contentHeight || first + visual >= physicalEnd)) return undefined
+    visual = Math.min(Math.max(visual, 0), Math.max(0, Math.min(contentHeight, physicalEnd - first) - 1))
+    const index = Math.min(Math.max(first + visual, first), physicalEnd - 1)
     return { row: index, column: Math.max(0, column - 1 - GUTTER) }
   }
 
@@ -1253,7 +1316,7 @@ export class Screen {
     sticky: ReturnType<typeof computeStickyLayout>
   } {
     const height = this.viewportHeight()
-    const end = this.physical.length - offset
+    const end = this.physical.length + this.tailRows - offset
     const scrollTop = Math.max(0, end - height)
     const prompts = this.promptLayouts()
     const sticky = computeStickyLayout(scrollTop, height, prompts.map(({ prompt, at, rows }) => ({
@@ -1279,6 +1342,7 @@ export class Screen {
     if (columns !== this.paintedColumns) {
       this.refreshPromptFolds()
       this.wrapBuffer()
+      this.refreshTailAnchor()
       this.painted = []
       this.paintedColumns = columns
     }

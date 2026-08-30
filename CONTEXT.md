@@ -47,6 +47,12 @@ Shift+Left/Right moves one anchor; `/jump` previews an anchor while its selector
 moves, commits on Enter, and restores the exact prior Viewport on Escape.
 Plugin-sourced user-role messages never enter this index.
 
+**Prompt-top anchor**:
+Display-only tail space that places a newly submitted real-user Prompt at the
+Viewport top while its response streams below. It exists only while following
+the interactive tail, disappears on manual navigation, and is never part of
+Scrollback, selection, search, replay, folds, or redirected output.
+
 **Chrome**:
 The bottom-pinned rows: input box, menus, hint row, status row. Never scrolls.
 

@@ -421,10 +421,11 @@ export class TerminalConsole {
    * has no viewport, so it receives the exact ordinary transcript lines.
    * @param lines - rendered prompt lines, including its separator.
    * @param rule - the user's styled left rule; omitted from redirected output.
+   * @param anchor - false while replaying retained session history.
    */
-  appendPrompt(lines: readonly string[], rule = ''): void {
+  appendPrompt(lines: readonly string[], rule = '', anchor = true): void {
     if (this.screen !== undefined) {
-      this.screen.appendPrompt(lines, rule)
+      this.screen.appendPrompt(lines, rule, anchor)
       return
     }
     for (const line of lines) this.output.write(`${line}\n`)

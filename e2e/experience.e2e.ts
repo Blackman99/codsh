@@ -113,6 +113,29 @@ describe.skipIf(process.platform === 'win32')('the first five minutes', () => {
     expect(crossed.slice(-2)).toEqual(tail.slice(-2))
   }, E2E_TEST_TIMEOUT_MS)
 
+  it('anchors a submitted prompt while streamed reply rows fill beneath it', async () => {
+    const run = await drivePtySteps('anchor', [
+      ['Welcome to codsh', `anchor this prompt${ENTER}`, 100],
+      ['ANCHOR_REPLY_1', '', 0],
+      ['ANCHOR_REPLY_3', '', 0],
+      ['ANCHOR_REPLY_8', '', 0],
+      ['ANCHOR_REPLY_12', `/exit${ENTER}`, 300],
+    ], { rows: 12 })
+
+    const captured = (offset: number | undefined): string => Buffer.from(run.output).subarray(0, offset).toString()
+    const first = screenOf(captured(run.offsets[1]), -1, 12).alternate
+    const filling = screenOf(captured(run.offsets[2]), -1, 12).alternate
+    const sticky = screenOf(captured(run.offsets[3]), -1, 12).alternate
+    expect(first[0]).toContain('anchor this prompt')
+    expect(first.join('\n')).toContain('ANCHOR_REPLY_1')
+    expect(filling[0]).toContain('anchor this prompt')
+    expect(filling.join('\n')).toContain('ANCHOR_REPLY_3')
+    expect(sticky[0]).toContain('anchor this prompt')
+    expect(sticky.filter(row => row.includes('anchor this prompt'))).toHaveLength(1)
+    expect(first.findIndex(row => row.includes('Ask anything'))).toBe(filling.findIndex(row => row.includes('Ask anything')))
+    expect(first.at(-1)).toBe(filling.at(-1))
+  }, E2E_TEST_TIMEOUT_MS)
+
   it('jumps between real user turns with shifted horizontal arrows', async () => {
     const shiftLeft = '\u001B[1;2D'
     const shiftRight = '\u001B[1;2C'

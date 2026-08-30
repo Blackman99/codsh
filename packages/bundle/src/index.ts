@@ -261,7 +261,7 @@ function replay(session: Session, transcript: Transcript, io: CliIo, theme: Them
     const label = transcript.takeLabel()
     const enter = transcript.takeEnter()
     if (prompt) {
-      io.console.appendPrompt(lines, rule)
+      io.console.appendPrompt(lines, rule, false)
       continue
     }
     if (enter !== undefined || full !== undefined) {

@@ -219,6 +219,126 @@ describe('painting', () => {
 })
 
 describe('scrolling', () => {
+  it('anchors a newly submitted real prompt at the viewport top', () => {
+    const sink = host(8, 40)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['box', 'status'], { row: 0, column: 0 }, false)
+    screen.append(Array.from({ length: 10 }, (_, index) => `old ${index}`))
+    screen.appendPrompt(['› anchored question', ''], '| ')
+
+    const rows = painted(flush(sink))
+    expect(rows.get(1)).toBe('| › anchored question')
+    expect([rows.get(2), rows.get(3), rows.get(4), rows.get(5), rows.get(6)]).toEqual(['', '', '', '', ''])
+    screen.mouseDown(6, 5)
+    screen.mouseDrag(5, 5)
+    expect(screen.mouseUp()).toBeUndefined()
+  })
+
+  it('replaces prompt-tail display space one reply row at a time', () => {
+    const sink = host(8, 40)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['box', 'status'], { row: 0, column: 0 }, false)
+    screen.append(Array.from({ length: 10 }, (_, index) => `old ${index}`))
+    screen.appendPrompt(['› anchored question', ''], '| ')
+    flush(sink)
+
+    screen.append(['reply one'])
+    let rows = painted(flush(sink))
+    expect(rows.get(3)).toBe('reply one')
+    expect(rows.get(4) ?? '').toBe('')
+
+    screen.append(['reply two'])
+    rows = painted(flush(sink))
+    expect(rows.get(4)).toBe('reply two')
+    expect(rows.get(5) ?? '').toBe('')
+  })
+
+  it('hands a filled prompt anchor to sticky without duplicating the prompt', () => {
+    const sink = host(8, 40)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['box', 'status'], { row: 0, column: 0 }, false)
+    screen.append(Array.from({ length: 10 }, (_, index) => `old ${index}`))
+    screen.appendPrompt(['› anchored question', ''], '| ')
+    screen.append(['reply 1', 'reply 2', 'reply 3', 'reply 4', 'reply 5'])
+    flush(sink)
+
+    screen.resize()
+    const rows = [...painted(flush(sink)).values()]
+    expect(rows[0]).toBe('| › anchored question')
+    expect(rows.filter(row => row.includes('anchored question'))).toHaveLength(1)
+  })
+
+  it('preserves a live prompt anchor across resize without adding searchable rows', () => {
+    const sink = host(8, 40)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['box', 'status'], { row: 0, column: 0 }, false)
+    screen.append(Array.from({ length: 10 }, (_, index) => `old ${index}`))
+    screen.appendPrompt(['› anchored question', ''], '| ')
+    screen.append(['reply'])
+    flush(sink)
+
+    sink.size.rows = 10
+    screen.resize()
+    expect(painted(flush(sink)).get(1)).toBe('| › anchored question')
+    expect(screen.searchTranscript('anchored question').hits).toBe(1)
+  })
+
+  it('recovers a logical prompt anchor after a temporary shrink consumes its gap', () => {
+    const sink = host(8, 40)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['box', 'status'], { row: 0, column: 0 }, false)
+    screen.append(Array.from({ length: 10 }, (_, index) => `old ${index}`))
+    screen.appendPrompt(['› anchored question', ''], '| ')
+    screen.append(['reply'])
+    flush(sink)
+
+    sink.size.rows = 5
+    screen.resize()
+    flush(sink)
+    sink.size.rows = 10
+    screen.resize()
+
+    expect(painted(flush(sink)).get(1)).toBe('| › anchored question')
+  })
+
+  it('cancels prompt-tail space on manual history navigation and never anchors replay', () => {
+    const sink = host(8, 40)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['box', 'status'], { row: 0, column: 0 }, false)
+    screen.append(Array.from({ length: 10 }, (_, index) => `old ${index}`))
+    screen.appendPrompt(['› replayed question', ''], '| ', false)
+    let rows = painted(flush(sink))
+    expect(rows.get(1)).toBe('old 6')
+
+    screen.appendPrompt(['› live question', ''], '| ')
+    flush(sink)
+    screen.scrollBy(-1)
+    rows = painted(flush(sink))
+    expect(screen.scrolledBy).toBe(1)
+    expect(rows.get(1)).not.toBe('| › live question')
+  })
+
+  it('does not anchor a live prompt while the reader is browsing history', () => {
+    const sink = host(8, 40)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['box', 'status'], { row: 0, column: 0 }, false)
+    screen.append(Array.from({ length: 15 }, (_, index) => `old ${index}`))
+    screen.scrollBy(-3)
+    flush(sink)
+
+    screen.appendPrompt(['› arrives below', ''], '| ')
+
+    expect(screen.scrolledBy).toBe(5)
+    expect(painted(flush(sink)).size).toBe(0)
+  })
+
   it('lists real prompt turns and reveals either one at the viewport top', () => {
     const sink = host(6, 40)
     const screen = new Screen(sink)

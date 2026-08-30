@@ -120,6 +120,19 @@ class CodeCliMockAdapter extends LlmAdapter {
   }
 
   async * stream(options: GenerateOptions): AsyncIterable<StreamChunk> {
+    if (MOCK_MODE === 'anchor') {
+      const rows = Array.from({ length: 12 }, (_, index) => `ANCHOR_REPLY_${index + 1}`)
+      const reply = rows.join('\n')
+      yield { type: 'block-start', index: 0, blockType: 'text' }
+      for (const [index, row] of rows.entries()) {
+        if (index > 0) await new Promise(resolve => setTimeout(resolve, 100))
+        yield { type: 'text-delta', index: 0, text: `${index === 0 ? '' : '\n'}${row}` }
+      }
+      yield { type: 'block-end', index: 0, block: { type: 'text', text: reply } }
+      yield { type: 'usage', usage: { inputTokens: 4, outputTokens: 12 } }
+      yield { type: 'finish', reason: { kind: 'stop' } }
+      return
+    }
     if (MOCK_MODE === 'sticky') {
       const texts = options.messages.flatMap(message =>
         message.content.filter(block => block.type === 'text').map(block => block.text))
