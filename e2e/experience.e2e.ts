@@ -295,6 +295,58 @@ describe.skipIf(process.platform === 'win32')('the first five minutes', () => {
     expect(text).toContain('screen.ts')
   }, E2E_TEST_TIMEOUT_MS)
 
+  it('copies raw answers and fence-free code by stable content address', async () => {
+    const markdown = [
+      '# CODE_CLI_HEADING',
+      '',
+      'Prose with **bold**, *em*, `inline_code`, and a [link](https://x.dev).',
+      'An identifier like some_helper_name must survive intact.',
+      '',
+      '- **`screen.ts`**: the viewport module',
+      '- second bullet',
+      '- third bullet keeps the answer long',
+      '- fourth bullet keeps the answer long',
+      '- fifth bullet keeps the answer long',
+      '- sixth bullet keeps the answer long',
+      '- seventh bullet keeps the answer long',
+      '- eighth bullet: past the fold threshold at any test width',
+      '',
+      '| 维度 | 内容 |',
+      '|---|---|',
+      `| 一句话 | ${'一个很长的中文单元格内容,用来强制表格在任何终端宽度下都必须在单元格内部换行。'.repeat(3)} |`,
+      '| 命令 | `codsh` | | |',
+      '',
+      '> a quoted line',
+      '',
+      '```ts',
+      'const answer = "text" // a comment',
+      '```',
+      '',
+      'CODE_CLI_CALL_STREAM_DONE',
+    ].join('\n')
+    const output = await drivePty('markdown', [
+      ['Welcome to codsh', `explain${ENTER}`, 300],
+      ['CODE_CLI_CALL_STREAM_DONE', `/copy 1:1${ENTER}`, 300],
+      ['copied code 1:1', `/copy${ENTER}`, 300],
+      ['Copy content', ENTER, 300],
+      ['copied answer 1', `/copy${ENTER}`, 300],
+      ['Copy content', '\u001B', 300],
+      ['nothing copied', `/exit${ENTER}`, 400],
+    ])
+    const copied = [...output.matchAll(/\u001B\]52;c;([^\u0007]*)\u0007/gu)]
+      .map(match => Buffer.from(match[1] ?? '', 'base64').toString('utf8'))
+    expect(copied).toEqual(['const answer = "text" // a comment', markdown])
+  }, E2E_TEST_TIMEOUT_MS)
+
+  it('does not write the clipboard when copying is disabled', async () => {
+    const output = await drivePty('markdown', [
+      ['Welcome to codsh', `explain${ENTER}`, 300],
+      ['CODE_CLI_CALL_STREAM_DONE', `/copy 1${ENTER}`, 300],
+      ['clipboard is disabled or unavailable', `/exit${ENTER}`, 400],
+    ], { env: { CODSH_CLIPBOARD: 'off' } })
+    expect(output).not.toContain('\u001B]52;c;')
+  }, E2E_TEST_TIMEOUT_MS)
+
   it('folds a finished long answer on moving on, and reopens it on Ctrl+O', async () => {
     const output = await drivePty('markdown', [
       ['Welcome to codsh', `explain${ENTER}`, 300],

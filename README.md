@@ -60,6 +60,7 @@ The [site](https://blackman99.github.io/codsh/) shows each live. In brief:
 - A newly submitted prompt starts at the viewport top while streamed reply rows fill the space beneath it.
 - Shift+←/→ jumps between real user turns; `/jump` offers a searchable, reversible preview.
 - A one-column timeline on the right tracks the current turn; hover previews and click jumps.
+- `/copy` searches assistant answers; `/copy N` copies raw Markdown and `/copy N:C` copies exact fence-free code.
 - Long blocks fold; click one, Ctrl+O all; hover names it.
 - Todos stay in chrome (Ctrl+T / `/todos`).
 - Drag to copy. Markdown, thinking, and tool cards stream in.

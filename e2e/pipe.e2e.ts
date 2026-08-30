@@ -175,6 +175,13 @@ describe('dsh code (real profile, keyless model)', () => {
     expect(countOf(run.stdout, 'const answer = "text"')).toBe(1)
   }, E2E_TEST_TIMEOUT_MS)
 
+  it('refuses /copy without a TTY and emits no clipboard sequence', async () => {
+    const run = await runCodeCli({ tool: 'markdown', input: 'explain\n/copy 1\n/exit\n' })
+
+    expect(run.stdout).toContain('/copy requires an interactive terminal')
+    expect(run.stdout).not.toContain('\u001B]52;c;')
+  }, E2E_TEST_TIMEOUT_MS)
+
   it('stops asking for the rest of the session once the answer is "always"', async () => {
     const run = await runCodeCli({ tool: 'bash', input: 'run it\na\nrun it again\n/exit\n' })
 

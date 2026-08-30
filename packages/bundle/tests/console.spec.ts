@@ -53,6 +53,23 @@ function build(tty = false, columns?: number): { console: TerminalConsole; input
 const settle = (): Promise<void> => new Promise(resolve => void setImmediate(resolve))
 
 describe('piped input', () => {
+  it('reports an unavailable system-only clipboard without emitting OSC 52', () => {
+    const clipboard = process.env['CODSH_CLIPBOARD']
+    const path = process.env['PATH']
+    process.env['CODSH_CLIPBOARD'] = 'system'
+    process.env['PATH'] = ''
+    try {
+      const { console: term, output } = build()
+      expect(term.copyText('plain text')).toBe(false)
+      expect(output.text).not.toContain('\u001B]52;c;')
+    } finally {
+      if (clipboard === undefined) delete process.env['CODSH_CLIPBOARD']
+      else process.env['CODSH_CLIPBOARD'] = clipboard
+      if (path === undefined) delete process.env['PATH']
+      else process.env['PATH'] = path
+    }
+  })
+
   it('serves lines that arrived before the first read', async () => {
     const { console: term, input } = build()
     input.write('first\nsecond\n')

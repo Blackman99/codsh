@@ -15,7 +15,7 @@
  * @module codsh-bundle/src/console
  */
 
-import { spawn } from 'node:child_process'
+import { spawn, spawnSync } from 'node:child_process'
 import { createInterface } from 'node:readline'
 import type { Interface } from 'node:readline'
 import { DISABLE_PASTE_MARKERS, ENABLE_PASTE_MARKERS, KeyDecoder } from './keys.ts'
@@ -534,17 +534,25 @@ export class TerminalConsole {
   copyText(text: string): boolean {
     const mode = process.env['CODSH_CLIPBOARD'] ?? 'both'
     if (mode === 'off' || text === '') return false
+    const command = process.platform === 'darwin'
+      ? ['pbcopy']
+      : process.platform === 'win32'
+        ? ['clip']
+        : process.env['WAYLAND_DISPLAY'] === undefined
+          ? ['xclip', '-selection', 'clipboard']
+          : ['wl-copy']
+    if (mode === 'system') {
+      const result = spawnSync(command[0] ?? '', command.slice(1), {
+        input: text,
+        stdio: ['pipe', 'ignore', 'ignore'],
+        timeout: 2_000,
+      })
+      return result.error === undefined && result.status === 0
+    }
     if (mode !== 'system') {
       this.output.write(`\u001B]52;c;${Buffer.from(text, 'utf8').toString('base64')}\u0007`)
     }
     if (mode !== 'osc52') {
-      const command = process.platform === 'darwin'
-        ? ['pbcopy']
-        : process.platform === 'win32'
-          ? ['clip']
-          : process.env['WAYLAND_DISPLAY'] === undefined
-            ? ['xclip', '-selection', 'clipboard']
-            : ['wl-copy']
       try {
         const child = spawn(command[0] ?? '', command.slice(1), { stdio: ['pipe', 'ignore', 'ignore'] })
         // A machine without the helper still copied via OSC 52; stay quiet.

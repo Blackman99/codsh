@@ -50,6 +50,7 @@ import { bannerLines } from './banner.ts'
 import { createCompleter, expandSkillGestures, fuzzyScore } from './completion.ts'
 import { expandTemplate, loadCustomCommands } from './custom-commands.ts'
 import type { CompletableCommand } from './completion.ts'
+import { indexConversationContent, newestCopyTargets, resolveCopyTarget } from './content-index.ts'
 import { TerminalConsole } from './console.ts'
 import { readClipboardImage } from './clipboard-image.ts'
 import { Prompt } from './prompt.ts'
@@ -668,7 +669,7 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
   // `/init` and `/ship` built in, plus whatever command files the person defined.
   const custom = await loadCustomCommands(
     [dshHomePath('commands'), join(cwd, '.dsh', 'commands')],
-    new Set([...(commands?.list(live.agent) ?? []).map(entry => entry.name), 'exit', 'quit', 'help', 'init', 'ship', 'status', 'model', 'clear', 'resume', 'diff', 'jump']),
+    new Set([...(commands?.list(live.agent) ?? []).map(entry => entry.name), 'exit', 'quit', 'help', 'init', 'ship', 'status', 'model', 'clear', 'resume', 'diff', 'jump', 'copy']),
   )
   for (const warning of custom.warnings) io.console.write(theme.dim(`  skipped ${warning}`))
   const customByName = new Map(custom.commands.map(command => [command.name, command]))
@@ -858,6 +859,40 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
         }
         io.console.jumpToTurn(turn.index)
         return { kind: 'success' }
+      },
+    }))
+    disposers.push(commands.register({
+      name: 'copy',
+      description: 'copy a raw assistant answer or fenced code block',
+      input: { hint: '[answer[:code]]' },
+      handler: async ({ rawInput, signal }) => {
+        if (!io.console.readsKeys) return { kind: 'error', text: '/copy requires an interactive terminal' }
+        const targets = indexConversationContent((viewing?.session ?? live.agent.session).events)
+        if (targets.length === 0) return { kind: 'success', text: 'no copyable assistant answers' }
+        const typed = rawInput.trim()
+        let target = typed === '' ? undefined : resolveCopyTarget(targets, typed)
+        if (typed !== '' && target === undefined) {
+          return { kind: 'error', text: `copy target ${typed} was not found; use N or N:C` }
+        }
+        if (target === undefined) {
+          const offered = newestCopyTargets(targets)
+          const outcome = await prompt.select({
+            title: 'Copy content',
+            options: offered.map(entry => ({
+              label: `${entry.address} · ${entry.kind}`,
+              detail: entry.label,
+            })),
+            filterable: true,
+          }, signal)
+          if (outcome.kind !== 'chosen') return { kind: 'success', text: 'nothing copied' }
+          target = offered[outcome.indices[0] ?? -1]
+          if (target === undefined) return { kind: 'success', text: 'nothing copied' }
+        }
+        if (target.text === '') return { kind: 'error', text: `copy target ${target.address} is empty` }
+        if (!io.console.copyText(target.text)) {
+          return { kind: 'error', text: 'clipboard is disabled or unavailable' }
+        }
+        return { kind: 'success', text: `copied ${target.kind} ${target.address}` }
       },
     }))
     disposers.push(commands.register({

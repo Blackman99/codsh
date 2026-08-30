@@ -59,6 +59,14 @@ Each visible tick maps to a retained Turn navigation anchor; the current tick
 uses the user colour, overflow arrows window long histories, hover previews up
 to two Prompt lines, and click reveals that Turn. Modal surfaces hide the rail.
 
+**Content address**:
+A stable raw-content address derived from assistant message events: `N` names
+the Nth non-empty assistant answer, and `N:C` names its Cth closed fenced code
+block. `/copy` selects these newest-first; `/copy N` copies raw Markdown and
+`/copy N:C` copies the fence-free source. Tools, images, rendering chrome,
+Sticky turn headers, Rules, and ANSI styling never enter this index.
+_Avoid_: screen row, rendered block number
+
 **Chrome**:
 The bottom-pinned rows: input box, menus, hint row, status row. Never scrolls.
 

@@ -17,6 +17,17 @@ import type { SyntaxTheme, Theme } from './theme.ts'
 /** Opens or closes a fenced block, capturing its language. */
 const FENCE = /^\s*(?:```|~~~)\s*([\w+-]*)\s*$/
 
+/** A fence line recognized by the transcript renderer. */
+export interface MarkdownFence {
+  language: string
+}
+
+/** Keep content indexing and rendering on the same fenced-block dialect. */
+export function parseMarkdownFence(line: string): MarkdownFence | undefined {
+  const match = FENCE.exec(line)
+  return match === null ? undefined : { language: match[1] ?? '' }
+}
+
 /** An ATX heading and its text. */
 const HEADING = /^(#{1,6})\s+(.*)$/
 
@@ -301,11 +312,11 @@ interface FenceState {
 function renderLine(line: string, theme: Theme, fence: FenceState): string[] {
   const out: string[] = []
   {
-    const opened = FENCE.exec(line)
+    const opened = parseMarkdownFence(line)
     let fenceLanguage = fence.get()
-    if (opened !== null) {
+    if (opened !== undefined) {
       if (fenceLanguage === undefined) {
-        fenceLanguage = opened[1] ?? ''
+        fenceLanguage = opened.language
         // The language is worth naming; the fence itself is not.
         if (fenceLanguage !== '') out.push(theme.dim(`  ${fenceLanguage}`))
       } else {
