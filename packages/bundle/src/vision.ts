@@ -4,10 +4,10 @@
  * DeepSeek Vision routes receive first-class image blocks before this module
  * is involved. For text-only routes such as Flash and Pro, codsh gives an
  * image two honest lives: it is always saved to a stable file the agent's
- * tools can touch — inspect, commit, embed. And when a vision sidecar is
- * configured (`CODSH_VISION_*`: any OpenAI-compatible multimodal endpoint),
- * the image is also described into text the model can actually read: everything in it
- * transcribed, structure narrated. Both ride the same message the person
+ * tools can touch — inspect, commit, embed. An explicit `CODSH_VISION_*`
+ * sidecar, or DeepSeek's built-in Vision Exp bridge when no sidecar is set,
+ * can also describe it into text the model can actually read: everything in
+ * it transcribed, structure narrated. Both ride the same message the person
  * sent, so they persist in durable history and survive `--resume`.
  * @module codsh-bundle/src/vision
  */
@@ -16,7 +16,10 @@ import { createHash } from 'node:crypto'
 import { mkdir, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { dshHomePath } from '@deepseek-ai/dsh-home-paths'
-import type { EncodedImageAttachment, ImageAttachmentLimits } from '@deepseek-ai/dsh-attachment/types'
+import { BlockAssembler, ReasoningEffortId, createUserMessage } from '@deepseek-ai/dsh-llm'
+import type { EncodedImageAttachment, ImageAttachmentLimits, ImageAttachmentRef } from '@deepseek-ai/dsh-attachment/types'
+import type { GenerateOptions, LlmCallConfig, ModelModality, StreamChunk } from '@deepseek-ai/dsh-llm'
+import type { SessionId } from '@deepseek-ai/dsh-session'
 
 /** A vision sidecar: an OpenAI-compatible endpoint that can see. */
 export interface VisionConfig {
@@ -30,6 +33,18 @@ export interface VisionConfig {
 
 /** How long one description may take before the paste falls back to file-only. */
 const VISION_TIMEOUT_MS = 30_000
+
+/** The sibling route that lends sight to DeepSeek's text-only models. */
+export const DEEPSEEK_VISION_MODEL = 'deepseek-v4-flash-vision-exp'
+
+/** The provider-owned preparation seam needed for one auxiliary vision call. */
+export interface VisionLlm {
+  prepareCall(config: LlmCallConfig, signal?: AbortSignal): Promise<{
+    readonly config: LlmCallConfig
+    readonly inputModalities?: readonly ModelModality[]
+    stream(options: GenerateOptions): AsyncIterable<StreamChunk>
+  }>
+}
 
 /**
  * The one instruction the sidecar gets.
@@ -91,6 +106,62 @@ export async function describeImage(image: EncodedImageAttachment, config: Visio
   const body = await response.json() as { choices?: { message?: { content?: string } }[] }
   const text = body.choices?.[0]?.message?.content?.trim()
   if (text === undefined || text === '') throw new Error('vision endpoint answered without text')
+  return text
+}
+
+/**
+ * Ask DeepSeek's native vision sibling to describe one durable image.
+ *
+ * This is deliberately a one-shot auxiliary call: it receives no conversation
+ * history, system prompt, or tools, and its answer is returned as plain text
+ * for the selected text model's ordinary user turn.
+ * @param image - the image reference already admitted to the durable store.
+ * @param llm - the provider-neutral runtime serving the DeepSeek route.
+ * @param options - optional caller cancellation and request attribution.
+ * @returns the visible text emitted by the vision model.
+ * @throws when the route cannot see, the provider fails, the call is aborted,
+ *   or the response contains no visible text.
+ */
+export async function describeImageWithLlm(
+  image: ImageAttachmentRef,
+  llm: VisionLlm,
+  options: { signal?: AbortSignal; sessionId?: SessionId } = {},
+): Promise<string> {
+  const timeout = AbortSignal.timeout(VISION_TIMEOUT_MS)
+  const signal = options.signal === undefined ? timeout : AbortSignal.any([options.signal, timeout])
+  const prepared = await llm.prepareCall({
+    provider: 'deepseek-official',
+    model: DEEPSEEK_VISION_MODEL,
+    reasoningEffort: ReasoningEffortId('off'),
+  }, signal)
+  if (prepared.inputModalities?.includes('image') !== true) {
+    throw new Error(`${DEEPSEEK_VISION_MODEL} does not accept image input`)
+  }
+  const assembler = new BlockAssembler()
+  const message = createUserMessage({
+    content: [
+      { type: 'image', attachment: image },
+      { type: 'text', text: VISION_PROMPT },
+    ],
+    source: { kind: 'plugin', plugin: 'coding-cli' },
+  })
+  for await (const chunk of prepared.stream({
+    ...prepared.config,
+    messages: [message],
+    signal,
+    ...options.sessionId === undefined ? {} : { sessionId: options.sessionId },
+  })) assembler.push(chunk)
+
+  const finish = assembler.finish
+  if (finish.kind === 'error' || finish.kind === 'aborted') {
+    throw new Error(`vision model ${finish.kind}: ${finish.failure.message}`)
+  }
+  const text = assembler.blocks()
+    .filter(block => block.type === 'text')
+    .map(block => block.text)
+    .join('\n')
+    .trim()
+  if (text === '') throw new Error('vision model answered without text')
   return text
 }
 

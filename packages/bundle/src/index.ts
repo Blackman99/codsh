@@ -59,7 +59,16 @@ import { TerminalQuestions } from './questions.ts'
 import { userShell } from './bang.ts'
 import { SHIP_PROMPT } from './ship.ts'
 import { Spinner } from './spinner.ts'
-import { DEFAULT_IMAGE_LIMITS, describeImage, fitWithinLimits, pastedImageBlock, savePastedImage, visionConfigFromEnv } from './vision.ts'
+import {
+  DEEPSEEK_VISION_MODEL,
+  DEFAULT_IMAGE_LIMITS,
+  describeImage,
+  describeImageWithLlm,
+  fitWithinLimits,
+  pastedImageBlock,
+  savePastedImage,
+  visionConfigFromEnv,
+} from './vision.ts'
 import { TextStream } from './streaming.ts'
 import { formatTokens, gitBranch, statusLine, statusReport, totalTokens } from './status.ts'
 import { todoReport } from './todos.ts'
@@ -611,18 +620,22 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
    * modalities or a failed resolution get the text fallback, which degrades,
    * where the block path would crash the turn.
    */
-  const routeAcceptsImages = async (): Promise<boolean> => {
+  const routeImageCapability = async (): Promise<boolean | undefined> => {
     const current = selection.current
-    if (current === undefined) return false
+    if (current === undefined) return undefined
     const llm = ctx.get('llm')
-    if (llm === undefined) return false
+    if (llm === undefined) return undefined
     try {
       const resolved = await llm.resolveModelInfo(current.provider, current.model)
-      return resolved.inputModalities?.includes('image') === true
+      return resolved.inputModalities === undefined
+        ? undefined
+        : resolved.inputModalities.includes('image')
     } catch {
-      return false
+      return undefined
     }
   }
+
+  const routeAcceptsImages = async (): Promise<boolean> => await routeImageCapability() === true
 
   /**
    * Resolve a /model argument to a selection.
@@ -1291,20 +1304,20 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
   /**
    * Turn pasted images into what this turn's message can carry.
    *
-   * Three exits, decided by the route. An image-capable model gets the images
-   * as first-class blocks through the durable store — the runtime's own path.
-   * A text-only model gets each image saved as a file plus, when the vision
-   * sidecar is configured, a description standing in for sight; both ride the
-   * same message so they persist for `--resume`. A failure never loses the
-   * turn: it flashes, and the text still goes.
+   * An image-capable model gets first-class blocks through the durable store.
+   * A text-only model gets each image saved as a file plus a description from
+   * either the configured sidecar or DeepSeek's built-in Vision Exp bridge;
+   * both ride the same message so they persist for `--resume`. A recognition
+   * failure never loses the turn: it flashes, and the saved path still goes.
    * @param images - the submission's pasted images, in token order.
    * @returns blocks around the text, or undefined when there is nothing extra.
    */
-  const prepareImages = async (images: PendingImage[]): Promise<TurnContent | undefined> => {
+  const prepareImages = async (images: PendingImage[], signal?: AbortSignal): Promise<TurnContent | undefined> => {
     if (images.length === 0) return undefined
     const store = ctx.get('attachments')
     const limits = store?.imageLimits ?? DEFAULT_IMAGE_LIMITS
-    if (await routeAcceptsImages() && store !== undefined) {
+    const currentAcceptsImages = await routeImageCapability()
+    if (currentAcceptsImages === true && store !== undefined) {
       try {
         // Downscaled to what deployed routes stream: a retina screenshot is
         // over the 2000px side limit as a matter of course.
@@ -1320,6 +1333,13 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
       }
     }
     const vision = visionConfigFromEnv(process.env)
+    const current = selection.current
+    const llm = ctx.get('llm')
+    const automaticVision = vision === undefined
+      && currentAcceptsImages === false
+      && current?.provider === 'deepseek-official'
+      && llm !== undefined
+      && store !== undefined
     const trailing: ContentBlock[] = []
     for (const pending of images) {
       const path = await savePastedImage(pending.image)
@@ -1329,8 +1349,26 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
       if (vision !== undefined) {
         prompt.setHint(theme.dim(`  ✻ describing image #${pending.id} with ${vision.model}…`))
         try {
-          at.description = await describeImage(await fitWithinLimits(pending.image, limits), vision)
+          at.description = await describeImage(await fitWithinLimits(pending.image, limits), vision, signal)
         } catch (error) {
+          if (signal?.aborted === true) throw error
+          const reason = error instanceof Error ? error.message : String(error)
+          prompt.setFlash(theme.error(truncate(`  image #${pending.id}: description failed (${reason}) — attached as file only`, io.console.columns)))
+        } finally {
+          prompt.setHint(undefined)
+        }
+      } else if (automaticVision) {
+        prompt.setHint(theme.dim(`  ✻ describing image #${pending.id} with ${DEEPSEEK_VISION_MODEL}…`))
+        try {
+          const fitted = await fitWithinLimits(pending.image, limits)
+          const [attachment] = await admitEncodedImages(store, [fitted])
+          if (attachment === undefined) throw new Error('vision image was not admitted')
+          at.description = await describeImageWithLlm(attachment, llm, {
+            ...signal === undefined ? {} : { signal },
+            sessionId: live.agent.session.id,
+          })
+        } catch (error) {
+          if (signal?.aborted === true) throw error
           const reason = error instanceof Error ? error.message : String(error)
           prompt.setFlash(theme.error(truncate(`  image #${pending.id}: description failed (${reason}) — attached as file only`, io.console.columns)))
         } finally {
@@ -1343,7 +1381,18 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
   }
 
   const answer = async (text: string, source?: TurnSource, images: PendingImage[] = []): Promise<void> => {
-    const extra = await prepareImages(images)
+    const preparing = images.length === 0 ? undefined : new AbortController()
+    if (preparing !== undefined) running = preparing
+    let extra: TurnContent | undefined
+    try {
+      extra = await prepareImages(images, preparing?.signal)
+      if (preparing?.signal.aborted === true) return
+    } catch (error) {
+      if (preparing?.signal.aborted === true) return
+      throw error
+    } finally {
+      if (running === preparing) running = undefined
+    }
     const before = totalTokens(facts(branch).usage) ?? 0
     turnBaseTokens = before
     const started = performance.now()

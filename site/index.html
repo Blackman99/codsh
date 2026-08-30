@@ -553,8 +553,8 @@
         <div><code>DSH_HOME</code><p>Where profiles live; <code>~/.dsh</code> by default.</p></div>
         <div><code>CODSH_CLIPBOARD</code><p><code>osc52</code>, <code>system</code>, or <code>off</code> — narrows how a selection reaches your clipboard.</p></div>
         <div><code>CODSH_BUNDLE_SPEC</code><p>Pin the runtime the launcher registers, instead of the version it pairs with.</p></div>
-        <div><code>CODSH_VISION_BASE_URL</code><p>An OpenAI-compatible multimodal endpoint that describes pasted images for the text-only model.</p></div>
-        <div><code>CODSH_VISION_MODEL</code><p>The vision model exposed by that sidecar endpoint, e.g. a local <code>llava</code>. DeepSeek's native vision route is selected in codsh with <code>/model deepseek-v4-flash-vision-exp</code> instead.</p></div>
+        <div><code>CODSH_VISION_BASE_URL</code><p>An OpenAI-compatible multimodal sidecar for text-only models. When configured, it overrides the automatic DeepSeek Vision Exp bridge.</p></div>
+        <div><code>CODSH_VISION_MODEL</code><p>The vision model exposed by that sidecar endpoint, e.g. a local <code>llava</code>. Without a sidecar, DeepSeek text routes borrow <code>deepseek-v4-flash-vision-exp</code> automatically.</p></div>
         <div><code>CODSH_VISION_API_KEY</code><p>Bearer token for the vision endpoint; leave unset for endpoints that need none.</p></div>
       </div>
 

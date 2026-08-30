@@ -59,7 +59,7 @@ dsh --profile code
 - 长块可折叠；点击一块，Ctrl+O 全部；悬停报名字。
 - todo 钉在 chrome（Ctrl+T / `/todos`）。
 - 拖选即复制。Markdown、思考、工具卡片流式画出。
-- Ctrl+V 粘贴图片（原生视觉，或落盘 + 可选 sidecar）。
+- Ctrl+V 粘贴图片（原生视觉；DeepSeek 文本模型自动借用 Vision Exp；其他文本路由仍落盘并可选 sidecar）。
 - `/` 命令、`$` skill、`!` shell、`@` 文件 —— 菜单在输入框上方。
 - 审批和 `/model` `/resume` 用方向键。⇧Tab 是 plan 模式。
 - `/clear`、`/resume`、Esc Esc、`/init`。`!cmd` 打在会话里，agent 看得到输出。

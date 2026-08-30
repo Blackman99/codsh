@@ -63,6 +63,90 @@ describe.skipIf(process.platform === 'win32')('pasting an image (real PTY)', () 
     expect(rows.some(row => row.includes('› [Image #1]'))).toBe(true)
   }, E2E_TEST_TIMEOUT_MS)
 
+  it('lets Vision Exp describe an image before DeepSeek Pro continues the turn', async () => {
+    const output = await drivePty('auto-vision', [
+      ['Welcome to codsh', `/model deepseek-official/deepseek-v4-pro${ENTER}`, 400],
+      ['model deepseek-official/deepseek-v4-pro', CTRL_V, 400],
+      ['image #1 attached', `what is this?${ENTER}`, 400],
+      ['CODE_CLI_AUTO_VISION', `/status${ENTER}`, 500],
+      ['model        deepseek-v4-pro', `/exit${ENTER}`, 500],
+    ], { env: { CODSH_CLIPBOARD_IMAGE_CMD: await fixtureClipboard() } })
+    const rows = finalScreen(output).alternate
+    const text = rows.join(' ')
+    expect(text).toContain('CODE_CLI_AUTO_VISION model=deepseek-v4-pro described=yes')
+    expect(text).toContain('model        deepseek-v4-pro')
+    expect(rows.some(row => row.includes('[image #1 · 1×1 png · described]'))).toBe(true)
+  }, E2E_TEST_TIMEOUT_MS)
+
+  it('cancels the pending turn when the user interrupts Vision Exp', async () => {
+    const output = await drivePty('auto-vision-slow', [
+      ['Welcome to codsh', `/model deepseek-official/deepseek-v4-pro${ENTER}`, 400],
+      ['model deepseek-official/deepseek-v4-pro', CTRL_V, 400],
+      ['image #1 attached', `what is this?${ENTER}`, 400],
+      ['describing image #1 with deepseek-v4-flash-vision-exp', '\u001B', 400],
+      ['', `/exit${ENTER}`, 2_500],
+    ], { env: { CODSH_CLIPBOARD_IMAGE_CMD: await fixtureClipboard() } })
+    const text = finalScreen(output).alternate.join(' ')
+    expect(text).toContain('interrupted')
+    expect(text).not.toContain('CODE_CLI_AUTO_VISION')
+  }, E2E_TEST_TIMEOUT_MS)
+
+  it('continues DeepSeek Pro with the saved file when Vision Exp fails', async () => {
+    const output = await drivePty('auto-vision-fail', [
+      ['Welcome to codsh', `/model deepseek-official/deepseek-v4-pro${ENTER}`, 400],
+      ['model deepseek-official/deepseek-v4-pro', CTRL_V, 400],
+      ['image #1 attached', `what is this?${ENTER}`, 400],
+      ['CODE_CLI_AUTO_VISION', `/exit${ENTER}`, 500],
+    ], { env: { CODSH_CLIPBOARD_IMAGE_CMD: await fixtureClipboard() } })
+    const rows = finalScreen(output).alternate
+    const text = rows.join(' ')
+    expect(text).toContain('CODE_CLI_AUTO_VISION model=deepseek-v4-pro described=no bridge=none file=yes')
+    expect(rows.some(row => row.includes('[image #1 · 1×1 png · saved to file]'))).toBe(true)
+  }, E2E_TEST_TIMEOUT_MS)
+
+  it('keeps an explicitly configured sidecar ahead of automatic Vision Exp', async () => {
+    const server = createServer((_request, response) => {
+      response.setHeader('content-type', 'application/json')
+      response.end(JSON.stringify({
+        choices: [{ message: { content: 'E2E_SIDECAR_DESCRIPTION: a blue square' } }],
+      }))
+    })
+    await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve))
+    const address = server.address()
+    const port = typeof address === 'object' && address !== null ? address.port : 0
+    try {
+      const output = await drivePty('auto-vision', [
+        ['Welcome to codsh', `/model deepseek-official/deepseek-v4-pro${ENTER}`, 400],
+        ['model deepseek-official/deepseek-v4-pro', CTRL_V, 400],
+        ['image #1 attached', `${ENTER}`, 400],
+        ['CODE_CLI_AUTO_VISION', `/exit${ENTER}`, 500],
+      ], {
+        env: {
+          CODSH_CLIPBOARD_IMAGE_CMD: await fixtureClipboard(),
+          CODSH_VISION_BASE_URL: `http://127.0.0.1:${port}`,
+          CODSH_VISION_MODEL: 'e2e-eyes',
+        },
+      })
+      expect(finalScreen(output).alternate.join(' '))
+        .toContain('CODE_CLI_AUTO_VISION model=deepseek-v4-pro described=yes bridge=sidecar file=yes')
+    } finally {
+      await new Promise<void>(resolve => void server.close(() => { resolve() }))
+    }
+  }, E2E_TEST_TIMEOUT_MS)
+
+  it('describes multiple pasted images independently and preserves their order for Pro', async () => {
+    const output = await drivePty('auto-vision', [
+      ['Welcome to codsh', `/model deepseek-official/deepseek-v4-pro${ENTER}`, 400],
+      ['model deepseek-official/deepseek-v4-pro', CTRL_V, 400],
+      ['image #1 attached', CTRL_V, 400],
+      ['image #2 attached', `${ENTER}`, 400],
+      ['CODE_CLI_AUTO_VISION', `/exit${ENTER}`, 500],
+    ], { env: { CODSH_CLIPBOARD_IMAGE_CMD: await fixtureClipboard() } })
+    const rows = finalScreen(output).alternate
+    expect(rows.join(' ')).toContain('model=deepseek-v4-pro described=yes bridge=auto file=yes order=1,2')
+    expect(rows.filter(row => row.includes('· 1×1 png · described]'))).toHaveLength(2)
+  }, E2E_TEST_TIMEOUT_MS)
+
   it('falls back to a saved file the model is told about on a text-only route', async () => {
     const output = await drivePty('echo', [
       ['Welcome to codsh', CTRL_V, 400],

@@ -66,12 +66,14 @@ _Avoid_: tooltip, status hint
 **Pasted image**:
 The clipboard image Ctrl+V attaches behind an `[Image #N]` token in the box —
 one backspace removes the token whole, and a deleted token drops its image.
-At submit it takes one of three exits by the route's declared modality: an
-image-capable model (including DeepSeek's published Vision route) gets it as a
-first-class attachment block; a text-only model gets it saved to a file under
-`$DSH_HOME/attachments/pasted/` plus,
-when the `CODSH_VISION_*` sidecar is configured, a verbatim description —
-both riding the same message so they survive `--resume`.
+At submit an image-capable model gets it as a first-class attachment block. A
+text-only model always gets the original saved under
+`$DSH_HOME/attachments/pasted/`; an explicit `CODSH_VISION_*` sidecar adds a
+verbatim description first, otherwise a `deepseek-official` text model borrows
+`deepseek-v4-flash-vision-exp` for that description automatically. Failure
+keeps the file-only path. The file context and any description ride the same
+message so they survive `--resume`; the selected conversation model never
+changes.
 _Avoid_: upload, embed
 
 **Todo readout**:

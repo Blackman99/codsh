@@ -552,8 +552,8 @@
         <div><code>DSH_HOME</code><p>profile 存放位置，默认 <code>~/.dsh</code>。</p></div>
         <div><code>CODSH_CLIPBOARD</code><p><code>osc52</code>、<code>system</code> 或 <code>off</code>——收窄选中内容进剪贴板的通道。</p></div>
         <div><code>CODSH_BUNDLE_SPEC</code><p>钉住启动器注册的运行时版本，而不用它默认配对的那个。</p></div>
-        <div><code>CODSH_VISION_BASE_URL</code><p>任意 OpenAI 兼容的多模态端点，替纯文本模型描述粘贴的图片。</p></div>
-        <div><code>CODSH_VISION_MODEL</code><p>该 sidecar 端点实际暴露的视觉模型，如本地 <code>llava</code>。DeepSeek 原生视觉路由应在 codsh 中用 <code>/model deepseek-v4-flash-vision-exp</code> 选择。</p></div>
+        <div><code>CODSH_VISION_BASE_URL</code><p>供纯文本模型识图的 OpenAI 兼容 sidecar；一旦配置，它会优先于自动 DeepSeek Vision Exp 桥接。</p></div>
+        <div><code>CODSH_VISION_MODEL</code><p>该 sidecar 端点实际暴露的视觉模型，如本地 <code>llava</code>。未配置 sidecar 时，DeepSeek 文本路由会自动借用 <code>deepseek-v4-flash-vision-exp</code>。</p></div>
         <div><code>CODSH_VISION_API_KEY</code><p>视觉端点的 Bearer token；端点无需鉴权时留空。</p></div>
       </div>
 

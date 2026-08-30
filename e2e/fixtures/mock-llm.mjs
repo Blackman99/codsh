@@ -15,6 +15,8 @@ import { CallId, LlmAdapter, ReasoningEffortId } from '@deepseek-ai/dsh-llm'
 
 const OFF = ReasoningEffortId('off')
 const HIGH = ReasoningEffortId('high')
+const MOCK_MODE = process.env.DSH_CODE_CLI_MOCK_TOOL ?? ''
+const AUTO_VISION = MOCK_MODE.startsWith('auto-vision')
 
 /** File the mocked call creates, relative to the launched process cwd. */
 const TARGET = 'note.txt'
@@ -120,7 +122,10 @@ class CodeCliMockAdapter extends LlmAdapter {
       provider,
       id: model,
       name: model,
-      inputModalities: process.env.DSH_CODE_CLI_MOCK_TOOL === 'vision' ? ['text', 'image'] : ['text'],
+      inputModalities: MOCK_MODE === 'vision'
+        || (AUTO_VISION && model === 'deepseek-v4-flash-vision-exp')
+        ? ['text', 'image']
+        : ['text'],
       reasoning: {
         efforts: [{ id: OFF, name: 'Off' }, { id: HIGH, name: 'High' }],
         defaultEffort: HIGH,
@@ -129,6 +134,51 @@ class CodeCliMockAdapter extends LlmAdapter {
   }
 
   async * stream(options) {
+    if (AUTO_VISION) {
+      if (options.model === 'deepseek-v4-flash-vision-exp') {
+        if (MOCK_MODE === 'auto-vision-fail') {
+          yield { type: 'finish', reason: { kind: 'error', failure: { code: 'VISION_FAILED', message: 'fixture refused image' } } }
+          return
+        }
+        if (MOCK_MODE === 'auto-vision-slow') {
+          await Promise.race([
+            new Promise(resolve => setTimeout(resolve, 2_000)),
+            new Promise(resolve => options.signal?.addEventListener('abort', resolve, { once: true })),
+          ])
+          if (options.signal?.aborted === true) {
+            yield { type: 'finish', reason: { kind: 'aborted', failure: { code: 'ABORTED', message: 'caller stopped' } } }
+            return
+          }
+        }
+        const images = options.messages.flatMap(message =>
+          message.content.filter(block => block.type === 'image').map(block => block.attachment))
+        const names = images.map(image => image.name ?? 'unnamed').join(',')
+        const reply = `E2E_AUTO_DESCRIPTION img=${images.length} name=${names}: a single red pixel`
+        yield { type: 'block-start', index: 0, blockType: 'text' }
+        yield { type: 'text-delta', index: 0, text: reply }
+        yield { type: 'block-end', index: 0, block: { type: 'text', text: reply } }
+        yield { type: 'usage', usage: { inputTokens: 3, outputTokens: 4 } }
+        yield { type: 'finish', reason: { kind: 'stop' } }
+        return
+      }
+      const texts = options.messages.flatMap(message =>
+        message.content.filter(block => block.type === 'text').map(block => block.text))
+      const pasted = texts.filter(text => text.startsWith('<pasted-image '))
+      const savedAt = pasted[0] === undefined ? undefined : /path="([^"]*)"/.exec(pasted[0])?.[1]
+      const described = pasted.length > 0 && pasted.every(text => text.includes('<description>')) ? 'yes' : 'no'
+      const bridge = pasted.some(text => text.includes('E2E_AUTO_DESCRIPTION'))
+        ? 'auto'
+        : pasted.some(text => text.includes('E2E_SIDECAR_DESCRIPTION')) ? 'sidecar' : 'none'
+      const file = savedAt !== undefined && existsSync(savedAt) ? 'yes' : 'no'
+      const order = pasted.map(text => /name=Pasted image #(\d+)/.exec(text)?.[1] ?? '?').join(',')
+      const reply = `CODE_CLI_AUTO_VISION model=${options.model} described=${described} bridge=${bridge} file=${file} order=${order}`
+      yield { type: 'block-start', index: 0, blockType: 'text' }
+      yield { type: 'text-delta', index: 0, text: reply }
+      yield { type: 'block-end', index: 0, block: { type: 'text', text: reply } }
+      yield { type: 'usage', usage: { inputTokens: 3, outputTokens: 4 } }
+      yield { type: 'finish', reason: { kind: 'stop' } }
+      return
+    }
     if (process.env.DSH_CODE_CLI_MOCK_TOOL === 'vision') {
       // Reports the image blocks the request actually carried: id, size, type.
       // This is the proof the first-class path works — bytes were admitted to
@@ -245,5 +295,8 @@ export const inject = ['llm']
  * @param ctx - plugin context carrying the LLM registry.
  */
 export function apply(ctx) {
-  ctx.llm.registerAdapter(['cli-mock'], new CodeCliMockAdapter())
+  const providers = AUTO_VISION
+    ? ['cli-mock', 'deepseek-official']
+    : ['cli-mock']
+  ctx.llm.registerAdapter(providers, new CodeCliMockAdapter())
 }

@@ -59,7 +59,7 @@ The [site](https://blackman99.github.io/codsh/) shows each live. In brief:
 - Long blocks fold; click one, Ctrl+O all; hover names it.
 - Todos stay in chrome (Ctrl+T / `/todos`).
 - Drag to copy. Markdown, thinking, and tool cards stream in.
-- Ctrl+V pastes images (native vision, or a file + optional sidecar).
+- Ctrl+V pastes images (native vision; DeepSeek text models borrow Vision Exp automatically; other text routes keep the file + optional sidecar fallback).
 - `/` commands, `$` skills, `!` shell, `@` files — menu sits above the box.
 - Approvals and `/model` `/resume` are arrow-key widgets. ⇧Tab is plan mode.
 - `/clear`, `/resume`, Esc Esc, `/init`. `!cmd` prints in-session and the agent sees it.
