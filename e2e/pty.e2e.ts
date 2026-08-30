@@ -393,24 +393,24 @@ describe.skipIf(process.platform === 'win32')('dsh code Escape (real PTY)', () =
     expect(recalled?.filter(row => row.includes('Write note.txt'))).toHaveLength(1)
   }, E2E_TEST_TIMEOUT_MS)
 
-  it('toggles a collapsed output open with Ctrl-O, and folds it on moving on', async () => {
+  it('toggles a collapsed output open with Ctrl-O, and keeps that choice on moving on', async () => {
     const output = await drivePty('tall', [
       ['/help for commands', `create the tall note${ENTER}`, 300],
       // 45 diff lines, collapsed: the card names the expand key...
       ['Ctrl+O expands', '\u000F', 400],
       // ...Ctrl-O swaps the block for its full body, clipped tail included...
       ['CODE_CLI_TALL_44', `/status${ENTER}`, 400],
-      // ...and the next submission folds it back, like clicking elsewhere.
+      // ...and the next submission preserves that explicit reading choice.
       ['permissions', `/exit${ENTER}`, 400],
     ])
 
     // Expanded: the tail line is on screen where the summary was.
     const expanded = screenAt(output, 'CODE_CLI_TALL_44').alternate
     expect(expanded.some(row => row.includes('CODE_CLI_TALL_44'))).toBe(true)
-    // Collapsed again after moving on: summary back, tail gone.
+    // Still expanded after moving on: the summary stays away and the tail remains.
     const after = screenAt(output, 'permissions').alternate
-    expect(after.some(row => row.includes('Ctrl+O expands'))).toBe(true)
-    expect(after.some(row => row.includes('CODE_CLI_TALL_44'))).toBe(false)
+    expect(after.some(row => row.includes('Ctrl+O expands'))).toBe(false)
+    expect(after.some(row => row.includes('CODE_CLI_TALL_44'))).toBe(true)
   }, E2E_TEST_TIMEOUT_MS)
 
   it('pins the todo list in the chrome and opens it on Ctrl-T', async () => {
@@ -502,19 +502,20 @@ describe.skipIf(process.platform === 'win32')('dsh code Escape (real PTY)', () =
   it('selects with the mouse and copies on release', async () => {
     const output = await drivePty('write', [
       ['/help for commands', `create the note${ENTER}`, 300],
-      // Press at the top, drag down over the banner, release: the gesture IS
-      // the copy — no keystroke follows it.
+      // Press at the top of the prompt-anchored turn, drag through its answer,
+      // release: the gesture IS the copy — no keystroke follows it.
       ['CODE_CLI_CALL_OK', `${ESCAPE}[<0;1;1M${ESCAPE}[<32;60;6M${ESCAPE}[<32;120;12M${ESCAPE}[<0;120;12m`, 400],
       ['copied', `/exit${ENTER}`, 500],
     ])
 
     // The drag painted a reverse-video span.
     expect(output).toContain('\u001B[7m')
-    // Release wrote the clipboard through OSC 52, with the banner text in it.
+    // Release wrote the visible turn through OSC 52.
     const osc = /\u001B\]52;c;([A-Za-z0-9+/=]+)\u0007/.exec(output)
     expect(osc).not.toBeNull()
     const copied = Buffer.from(osc?.[1] ?? '', 'base64').toString('utf8')
-    expect(copied).toContain('Welcome to codsh')
+    expect(copied).toContain('› create the note')
+    expect(copied).toContain('CODE_CLI_CALL_OK')
     // Plain text: the styling on screen stayed out of the clipboard.
     expect(copied).not.toContain('\u001B')
     // And the toast said so.
