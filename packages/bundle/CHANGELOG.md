@@ -1,5 +1,25 @@
 # codsh-bundle
 
+## 0.7.0
+
+### Minor Changes
+
+- b1a6845: `!cmd` runs in your shell, prints the command plus its output into the session, and the agent spends a turn on the result.
+- b1a6845: First-week surface alignment: Ctrl+R history search, Ctrl+F transcript find, type-to-filter `/model` and `/resume`, `?` shortcuts overlay, an activity-aware working line, and Escape to take back a queued message.
+- b1a6845: `$` searches user-invocable skills the way `/` searches commands. Pick one and it stays in the prompt; submit rewrites known `$name` tokens into the `/name` gesture dsh injects.
+
+### Patch Changes
+
+- 70c89be: Lay chrome and the live line out to the same content width as the viewport, so the left gutter cannot put an ellipsis on every box row or wrap output into the input.
+- b1a6845: Completion matches a fragment anywhere in the name, not only a prefix. The menu sits above the box so opening it cannot lift the prompt. A finished `/command` or `$skill` is coloured in the box.
+- 70c89be: A click on a running subagent card enters that child's transcript; Esc returns to the parent.
+- b1a6845: Hover no longer jumps the input box: the readout borrows the hint or status row instead of adding one. The block under the pointer fills like opencode's panel, so the paragraph is obvious without underlining every letter.
+- b1a6845: The first screen paints the current mark: a › chevron, a hull, water, and a whale tail.
+- 70c89be: The completion menu floats over the transcript instead of growing the chrome, so opening candidates cannot shake the output.
+- 8e07c5a: `/ship` now grills as a design-tree frontier, then synthesizes the spec and tracer-bullet tickets without another interview, and lands them test-first at the spec's seams.
+- b1a6845: The status row re-fits when the terminal is resized. A previously truncated line grows back instead of staying stuck with an ellipsis.
+- 09b8703: Inset every painted row two columns from the window edge, so transcript text is not flush against the frame.
+
 ## 0.6.1
 
 ### Patch Changes
