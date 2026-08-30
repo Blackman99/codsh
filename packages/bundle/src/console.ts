@@ -241,6 +241,11 @@ export class TerminalConsole {
     this.screen?.setOverlay(rows)
   }
 
+  /** Hide the conversation timeline beneath a modal selector or viewer. */
+  setTimelineHidden(hidden: boolean): void {
+    this.screen?.setTimelineHidden(hidden)
+  }
+
   /**
    * Scroll the transcript by a whole viewport.
    * @param direction - -1 for back into history, 1 towards the tail.

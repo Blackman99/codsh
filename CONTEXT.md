@@ -53,6 +53,12 @@ Viewport top while its response streams below. It exists only while following
 the interactive tail, disappears on manual navigation, and is never part of
 Scrollback, selection, search, replay, folds, or redirected output.
 
+**Conversation timeline**:
+The display-only one-column rail in the terminal's reserved rightmost column.
+Each visible tick maps to a retained Turn navigation anchor; the current tick
+uses the user colour, overflow arrows window long histories, hover previews up
+to two Prompt lines, and click reveals that Turn. Modal surfaces hide the rail.
+
 **Chrome**:
 The bottom-pinned rows: input box, menus, hint row, status row. Never scrolls.
 

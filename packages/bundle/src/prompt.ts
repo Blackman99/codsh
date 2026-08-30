@@ -729,6 +729,7 @@ export class Prompt {
       rows.push(truncate(this.status, columns))
     }
     if (rows.length === 0) {
+      this.console.setTimelineHidden(this.select_ !== undefined)
       this.console.clearRegion()
       return
     }
@@ -737,6 +738,7 @@ export class Prompt {
     // marker is its own focus affordance.
     const focus = this.select_ === undefined && (this.engaged || this.reading)
     if (!focus) cursor = { row: rows.length - 1, column: 0 }
+    this.console.setTimelineHidden(this.select_ !== undefined)
     this.console.setOverlay(menuOverlay)
     this.console.setRegion(rows, cursor, focus)
   }

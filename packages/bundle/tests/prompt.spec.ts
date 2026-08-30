@@ -64,6 +64,8 @@ function fakeConsole(readsKeys: boolean) {
     setScrollNotice() {},
     overlays: [] as string[][],
     setOverlay(rows: readonly string[]) { this.overlays.push([...rows]) },
+    timelineHidden: [] as boolean[],
+    setTimelineHidden(hidden: boolean) { this.timelineHidden.push(hidden) },
     readLine: () => Promise.resolve(lines.shift()),
   }
 }
@@ -250,9 +252,11 @@ describe('selection', () => {
     const deciding = prompt.select({ title: 'Allow?', options: [{ label: 'Yes' }, { label: 'No' }] })
     // The widget replaced the box in the region.
     expect(console.draws.at(-1)?.rows[0]).toBe('Allow?')
+    expect(console.timelineHidden.at(-1)).toBe(true)
     console.press({ kind: 'down' })
     console.press({ kind: 'enter' })
     expect(await deciding).toEqual({ kind: 'chosen', indices: [1] })
+    expect(console.timelineHidden.at(-1)).toBe(false)
   })
 
   it('reports selector highlight changes for reversible previews', async () => {

@@ -18,6 +18,8 @@
 
 import { displayWidth, truncate } from './theme.ts'
 import { computeStickyLayout } from './sticky.ts'
+import { computeTimeline } from './timeline.ts'
+import type { TimelineMark } from './timeline.ts'
 import { wrapStyled } from './wrap.ts'
 
 /** Logical transcript lines kept before the oldest are dropped. */
@@ -259,6 +261,14 @@ export class Screen {
   private selection: { anchor: { row: number; column: number }; focus: { row: number; column: number }; dragged: boolean } | undefined
   /** Sticky prompt pressed as display chrome; dragging cancels the click. */
   private pressedSticky: TurnPrompt | undefined
+  /** Timeline prompt pressed in the reserved right column. */
+  private pressedTimeline: TurnPrompt | undefined
+  /** Timeline prompt whose display-only two-line preview is visible. */
+  private timelineHover: TurnPrompt | undefined
+  /** Whether a selector/viewer currently owns the surface over the rail. */
+  private timelineHidden = false
+  /** Last auxiliary glyph per viewport row, for rail-only repainting. */
+  private paintedTimeline: string[] = []
   /** Collapsed blocks in the transcript, in order, with both of their forms. */
   private folds: Fold[] = []
   /** Real user prompts, which divide the transcript into response sections. */
@@ -385,6 +395,7 @@ export class Screen {
     this.active = true
     this.host.write(`${ENTER_ALT}${ENABLE_MOUSE}${ENABLE_KITTY_KEYS}${ENABLE_FOCUS}${QUERY_BACKGROUND}${HIDE_CURSOR}`)
     this.painted = []
+    this.paintedTimeline = []
     this.render()
   }
 
@@ -399,6 +410,7 @@ export class Screen {
     this.active = false
     this.host.write(`${DISABLE_FOCUS}${DISABLE_KITTY_KEYS}${DISABLE_MOUSE}${SHOW_CURSOR}${LEAVE_ALT}`)
     this.painted = []
+    this.paintedTimeline = []
   }
 
   /**
@@ -444,6 +456,9 @@ export class Screen {
       // A trim may have removed the pressed prompt and its fold; a later mouse
       // release must never splice through a descriptor that no longer exists.
       this.pressedSticky = undefined
+      this.pressedTimeline = undefined
+      this.timelineHover = undefined
+      this.painted = []
       // A hovered block may have been cut from the head.
       this.hovered = undefined
       this.rewrap()
@@ -885,6 +900,16 @@ export class Screen {
     this.render()
   }
 
+  /** Hide the right-column timeline while a modal surface owns the viewport. */
+  setTimelineHidden(hidden: boolean): void {
+    if (hidden === this.timelineHidden) return
+    if (this.timelineHover !== undefined) this.painted = []
+    this.timelineHidden = hidden
+    this.timelineHover = undefined
+    this.pressedTimeline = undefined
+    this.render()
+  }
+
   /**
    * Scroll the transcript.
    * @param delta - rows to move; negative scrolls back into history.
@@ -1004,12 +1029,15 @@ export class Screen {
     this.ranges = undefined
     this.hovered = undefined
     this.pressedSticky = undefined
+    this.pressedTimeline = undefined
+    this.timelineHover = undefined
     this.find = undefined
     this.expanded = false
     this.offset = 0
     this.clearTailAnchor()
     this.suppressNotice = false
     this.painted = []
+    this.paintedTimeline = []
     this.render()
   }
 
@@ -1042,6 +1070,7 @@ export class Screen {
     this.refreshTailAnchor()
     // Nothing on screen can be trusted at a new size; the next frame is full.
     this.painted = []
+    this.paintedTimeline = []
     this.render()
   }
 
@@ -1058,6 +1087,22 @@ export class Screen {
    * every time, so a caller need not track the changes itself.
    */
   mouseMove(row: number, column: number): HoverBlock | undefined {
+    const timeline = this.timelineMarkAt(row, column)
+    if (timeline !== undefined) {
+      const prompt = timeline.kind === 'turn' ? this.prompts[timeline.turn] : undefined
+      if (prompt !== this.timelineHover || this.hovered !== undefined) {
+        this.timelineHover = prompt
+        this.hovered = undefined
+        this.painted = []
+        this.render()
+      }
+      return undefined
+    }
+    if (this.timelineHover !== undefined) {
+      this.timelineHover = undefined
+      this.painted = []
+      this.render()
+    }
     if (this.coversOverlay(row)) {
       if (this.hovered !== undefined) {
         this.hovered = undefined
@@ -1090,6 +1135,11 @@ export class Screen {
    * @param column - terminal column, 1-based.
    */
   mouseDown(row: number, column: number): void {
+    const timeline = this.timelineMarkAt(row, column)
+    if (timeline !== undefined) {
+      this.pressedTimeline = timeline.kind === 'turn' ? this.prompts[timeline.turn] : undefined
+      return
+    }
     const had = this.selection !== undefined
     this.selection = undefined
     this.pressedSticky = undefined
@@ -1116,6 +1166,10 @@ export class Screen {
    * @param column - terminal column, 1-based.
    */
   mouseDrag(row: number, column: number): void {
+    if (this.pressedTimeline !== undefined) {
+      this.pressedTimeline = undefined
+      return
+    }
     if (this.pressedSticky !== undefined) {
       this.pressedSticky = undefined
       return
@@ -1138,6 +1192,13 @@ export class Screen {
    * @returns the selected text, or undefined for a bare click.
    */
   mouseUp(): string | undefined {
+    const timeline = this.pressedTimeline
+    this.pressedTimeline = undefined
+    if (timeline !== undefined) {
+      const turn = this.prompts.indexOf(timeline)
+      if (turn >= 0) this.jumpToTurn(turn)
+      return undefined
+    }
     const sticky = this.pressedSticky
     this.pressedSticky = undefined
     if (sticky?.fold !== undefined) {
@@ -1218,6 +1279,43 @@ export class Screen {
     const { sticky, prompts } = this.frameLayout()
     if (sticky === undefined || row < 1 || row > sticky.renderHeight) return undefined
     return prompts[sticky.prompt]?.prompt
+  }
+
+  /** Marks currently visible in the rightmost terminal column. */
+  private timelineMarks(): TimelineMark[] {
+    if (this.timelineHidden || this.prompts.length < 2) return []
+    return computeTimeline(this.prompts.length, this.currentTurn ?? this.prompts.length - 1, this.viewportHeight())
+  }
+
+  /** Timeline mark under a terminal position, including non-clickable arrows. */
+  private timelineMarkAt(row: number, column: number): TimelineMark | undefined {
+    if (column !== this.host.columns() || row < 1 || row > this.viewportHeight()) return undefined
+    return this.timelineMarks().find(mark => mark.row === row - 1)
+  }
+
+  /** Apply the real user's colour from its rule to the current timeline dot. */
+  private timelineGlyph(mark: TimelineMark): string {
+    if (mark.kind === 'above') return `\u001B[2m↑${RESET}`
+    if (mark.kind === 'below') return `\u001B[2m↓${RESET}`
+    if (!mark.current) return `\u001B[2m·${RESET}`
+    const style = this.prompts[mark.turn]?.rule.match(STYLES)?.[0]
+    return style === undefined ? '●' : `${style}●${RESET}`
+  }
+
+  /** Two display-only rows painted beside the hovered tick. */
+  private timelinePreview(): { row: number; column: number; rows: string[] } | undefined {
+    const prompt = this.timelineHover
+    if (prompt === undefined || this.timelineHidden) return undefined
+    const turn = this.prompts.indexOf(prompt)
+    if (turn < 0) return undefined
+    const mark = this.timelineMarks().find(candidate => candidate.kind === 'turn' && candidate.turn === turn)
+    const summary = this.turnList[turn]?.summary
+    if (mark === undefined || summary === undefined) return undefined
+    const width = Math.min(32, Math.max(8, this.contentColumns() - 3))
+    const rows = wrapStyled(summary, width).slice(0, 2)
+    if (rows.length === 0) return undefined
+    const row = Math.min(Math.max(0, mark.row), Math.max(0, this.viewportHeight() - rows.length))
+    return { row, column: Math.max(GUTTER + 1, this.host.columns() - width), rows }
   }
 
   private locate(row: number, column: number, clamp: boolean): { row: number; column: number } | undefined {
@@ -1344,6 +1442,7 @@ export class Screen {
       this.wrapBuffer()
       this.refreshTailAnchor()
       this.painted = []
+      this.paintedTimeline = []
       this.paintedColumns = columns
     }
     const { height, end, first, prompts, sticky } = this.frameLayout()
@@ -1420,15 +1519,33 @@ export class Screen {
     const frame = [...viewport, ...this.chrome]
 
     let out = SYNC_BEGIN + HIDE_CURSOR
+    const repainted = new Set<number>()
     frame.forEach((row, index) => {
       // Only rows that changed are repainted: a frame that rewrites everything
       // makes a wide terminal flicker even inside a synchronized update.
       if (this.painted[index] === row) return
+      repainted.add(index)
       out += `\u001B[${index + 1};1H${CLEAR_LINE}${' '.repeat(GUTTER)}${row}`
     })
     // A shrunken frame leaves rows behind; clear what the new one does not fill.
     for (let index = frame.length; index < this.painted.length; index += 1) {
+      repainted.add(index)
       out += `\u001B[${index + 1};1H${CLEAR_LINE}`
+    }
+    const preview = this.timelinePreview()
+    if (preview !== undefined) {
+      const width = this.host.columns() - preview.column
+      preview.rows.forEach((row, index) => {
+        out += `\u001B[${preview.row + index + 1};${preview.column}H${fill(truncate(row, width), width, this.light)}`
+      })
+    }
+    const rail = Array.from({ length: height }, () => ' ')
+    for (const mark of this.timelineMarks()) rail[mark.row] = this.timelineGlyph(mark)
+    const railRows = Math.max(rail.length, this.paintedTimeline.length)
+    for (let index = 0; index < railRows; index += 1) {
+      const glyph = rail[index] ?? ' '
+      if (glyph === this.paintedTimeline[index] && !repainted.has(index)) continue
+      out += `\u001B[${index + 1};${columns}H${glyph}`
     }
     if (this.chromeFocus) {
       const row = frame.length - this.chrome.length + this.chromeCursor.row + 1
@@ -1437,5 +1554,6 @@ export class Screen {
     out += SYNC_END
     this.host.write(out)
     this.painted = frame
+    this.paintedTimeline = rail
   }
 }

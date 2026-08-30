@@ -32,6 +32,15 @@ function painted(data: string): Map<number, string> {
   return rows
 }
 
+/** Plain glyph last written at one absolute terminal cell. */
+function cell(data: string, row: number, column: number): string | undefined {
+  const marker = `\u001B[${row};${column}H`
+  const at = data.lastIndexOf(marker)
+  if (at < 0) return undefined
+  const plain = data.slice(at + marker.length, at + marker.length + 80).replaceAll(/\u001B\[[0-9;]*m/gu, '')
+  return [...plain][0]
+}
+
 /** Everything written since the last checkpoint, joined. */
 const flush = (sink: { out: string[] }): string => sink.out.splice(0).join('')
 
@@ -741,6 +750,103 @@ describe('resize', () => {
     sink.size.rows = 20
     screen.resize()
     expect(screen.scrolledBy).toBe(0)
+  })
+})
+
+describe('conversation timeline', () => {
+  it('paints ticks in the reserved right column without changing wrapped content', () => {
+    const sink = host(8, 40)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['box', 'status'], { row: 0, column: 0 }, false)
+    screen.appendPrompt(['› first', ''], '| ', false)
+    screen.append(['answer'])
+    screen.appendPrompt(['› second', ''], '| ', false)
+    screen.append(['answer'])
+    flush(sink)
+
+    screen.resize()
+    const frame = flush(sink)
+    expect(cell(frame, 1, 40)).toBe('·')
+    expect(cell(frame, 2, 40)).toBe('●')
+    expect(painted(frame).get(1)).toBe('| › first')
+  })
+
+  it('follows turn ownership and hides beneath a selector layer', () => {
+    const sink = host(7, 40)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['status'], { row: 0, column: 0 }, false)
+    screen.appendPrompt(['› first', ''], '| ', false)
+    screen.append(Array.from({ length: 8 }, (_, index) => `first ${index}`))
+    screen.appendPrompt(['› second', ''], '| ', false)
+    screen.append(Array.from({ length: 8 }, (_, index) => `second ${index}`))
+    screen.jumpToTurn(0)
+    flush(sink)
+
+    screen.resize()
+    let frame = flush(sink)
+    expect(cell(frame, 1, 40)).toBe('●')
+    expect(cell(frame, 2, 40)).toBe('·')
+
+    screen.setTimelineHidden(true)
+    frame = flush(sink)
+    expect(cell(frame, 1, 40)).toBe(' ')
+    expect(cell(frame, 2, 40)).toBe(' ')
+  })
+
+  it('shows a two-line prompt preview and clicks a tick without selecting transcript text', () => {
+    const sink = host(8, 40)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['box', 'status'], { row: 0, column: 0 }, false)
+    screen.appendPrompt(['› first prompt has enough words to wrap into a second preview line', ''], '| ', false)
+    screen.append(Array.from({ length: 8 }, (_, index) => `first ${index}`))
+    screen.appendPrompt(['› second prompt', ''], '| ', false)
+    screen.append(Array.from({ length: 8 }, (_, index) => `second ${index}`))
+    flush(sink)
+
+    screen.mouseMove(1, 40)
+    const hovered = flush(sink).replaceAll(/\u001B\[[0-9;?]*[A-Za-z]/gu, '')
+    expect(hovered).toContain('first prompt has enough')
+    expect(hovered).toContain('second preview li')
+    screen.setTimelineHidden(true)
+    expect(painted(flush(sink)).get(1)).toContain('second prompt')
+    screen.setTimelineHidden(false)
+    flush(sink)
+    screen.mouseMove(1, 40)
+    flush(sink)
+    screen.mouseDown(1, 40)
+    expect(screen.mouseUp()).toBeUndefined()
+    expect(screen.currentTurn).toBe(0)
+  })
+
+  it('remaps retained ticks after scrollback trimming and terminal resize', () => {
+    const sink = host(8, 40)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['box', 'status'], { row: 0, column: 0 }, false)
+    screen.appendPrompt(['› dropped first', ''], '| ', false)
+    screen.append(['answer'])
+    screen.appendPrompt(['› dropped second', ''], '| ', false)
+    screen.append(['answer'])
+    screen.mouseMove(1, 40)
+    screen.mouseDown(1, 40)
+    screen.append(Array.from({ length: 5000 }, (_, index) => `old ${index}`))
+    screen.appendPrompt(['› retained first', ''], '| ', false)
+    screen.append(['answer'])
+    screen.appendPrompt(['› retained second', ''], '| ', false)
+    screen.append(['answer'])
+    flush(sink)
+
+    sink.size.columns = 50
+    screen.resize()
+    const frame = flush(sink)
+    expect(screen.turnList.map(turn => turn.summary)).toEqual(['› retained first', '› retained second'])
+    expect(screen.mouseUp()).toBeUndefined()
+    expect(screen.currentTurn).toBe(1)
+    expect(cell(frame, 1, 50)).toBe('·')
+    expect(cell(frame, 2, 50)).toBe('●')
   })
 })
 
