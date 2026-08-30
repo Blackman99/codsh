@@ -17,6 +17,7 @@
  */
 
 import { displayWidth, truncate } from './theme.ts'
+import { computeStickyLayout } from './sticky.ts'
 import { wrapStyled } from './wrap.ts'
 
 /** Logical transcript lines kept before the oldest are dropped. */
@@ -171,6 +172,20 @@ interface Fold {
   enter?: string
 }
 
+/** One real user prompt and the response section it starts. */
+interface TurnPrompt {
+  /** Logical index of the prompt's first line. */
+  at: number
+  /** Logical lines currently occupied, including its trailing separator. */
+  shownLength: number
+  /** Left rule used by the inline prompt and its sticky copy. */
+  rule: string
+  /** Original logical lines, independent of the current wrapping width. */
+  full: string[]
+  /** Long prompts share the fold that controls their displayed form. */
+  fold?: Fold
+}
+
 /** What the pointer is resting on, for a surface that names it. */
 export interface HoverBlock {
   /** What the block is, e.g. `thinking`. */
@@ -209,6 +224,10 @@ export class Screen {
   private physical: string[] = []
   /** Display columns the rule occupies on each physical row, for copy and hits. */
   private ruleWidths: number[] = []
+  /** Logical line owning each physical row, for resize anchoring. */
+  private physicalLogical: number[] = []
+  /** First ordinary content row used by the last frame, below any sticky header. */
+  private contentStart = 0
   /** The bottom rows: input box, menu, indicator, status. */
   private chrome: string[] = []
   private chromeCursor: ChromeCursor = { row: 0, column: 0 }
@@ -222,8 +241,12 @@ export class Screen {
   private overlay: string[] = []
   /** A mouse selection over the transcript, in physical-row coordinates. */
   private selection: { anchor: { row: number; column: number }; focus: { row: number; column: number }; dragged: boolean } | undefined
+  /** Sticky prompt pressed as display chrome; dragging cancels the click. */
+  private pressedSticky: TurnPrompt | undefined
   /** Collapsed blocks in the transcript, in order, with both of their forms. */
   private folds: Fold[] = []
+  /** Real user prompts, which divide the transcript into response sections. */
+  private prompts: TurnPrompt[] = []
   /** The block the pointer rests on, or undefined when it rests on none. */
   private hovered: Fold | undefined
   /** Whether OSC 11 named a light background; the hover fill picks a shade. */
@@ -327,6 +350,7 @@ export class Screen {
       for (const row of this.wrapLine(line, own, columns)) {
         this.physical.push(row)
         this.ruleWidths.push(displayWidth(own))
+        this.physicalLogical.push(this.logical.length - 1)
       }
     }
     this.ranges = undefined
@@ -335,15 +359,134 @@ export class Screen {
       this.logical.splice(0, dropped)
       this.rules.splice(0, dropped)
       // Folds slide with the buffer; one cut by the trim stops being a fold.
-      this.folds = this.folds.flatMap((fold) => {
-        const at = fold.at - dropped
-        return at >= 0 ? [{ ...fold, at }] : []
+      this.folds = this.folds.filter((fold) => {
+        fold.at -= dropped
+        return fold.at >= 0
       })
-      // The blocks are rebuilt as new objects, so what was hovered is gone.
+      const kept = new Set(this.folds)
+      this.prompts = this.prompts.filter((prompt) => {
+        prompt.at -= dropped
+        return prompt.at >= 0 && (prompt.fold === undefined || kept.has(prompt.fold))
+      })
+      // A trim may have removed the pressed prompt and its fold; a later mouse
+      // release must never splice through a descriptor that no longer exists.
+      this.pressedSticky = undefined
+      // A hovered block may have been cut from the head.
       this.hovered = undefined
       this.rewrap()
     }
     this.render()
+  }
+
+  /**
+   * Append the real user prompt that starts a response section.
+   *
+   * The prompt stays ordinary transcript content. Its descriptor is only the
+   * navigation seam the viewport needs to reproduce it at the top once the
+   * inline copy has scrolled away.
+   * @param lines - rendered prompt lines, including its trailing separator.
+   * @param rule - the user's styled left rule.
+   */
+  appendPrompt(lines: readonly string[], rule = ''): void {
+    if (lines.length === 0) return
+    const full = [...lines]
+    const summary = this.promptSummary(full, rule)
+    if (summary === undefined) {
+      this.prompts.push({ at: this.logical.length, shownLength: lines.length, rule, full })
+      this.append(lines, rule)
+      return
+    }
+    const shown = this.expanded ? full : summary
+    const fold: Fold = {
+      at: this.logical.length,
+      shownLength: shown.length,
+      summary,
+      full,
+      expanded: this.expanded,
+      rule,
+      label: 'prompt',
+    }
+    this.folds.push(fold)
+    this.prompts.push({ at: fold.at, shownLength: shown.length, rule, full, fold })
+    this.append(shown, rule)
+  }
+
+  /** Three visual prompt rows plus its separator, or no fold when it fits. */
+  private promptSummary(lines: readonly string[], rule: string): string[] | undefined {
+    const content = lines.at(-1) === '' ? lines.slice(0, -1) : [...lines]
+    const textColumns = Math.max(1, this.contentColumns() - displayWidth(rule))
+    const wrapped = content.flatMap(line => wrapStyled(line, textColumns))
+    if (wrapped.length <= 3) return undefined
+    const third = wrapped[2] ?? ''
+    return [
+      ...wrapped.slice(0, 2),
+      truncate(`${third} …`, textColumns),
+      ...lines.at(-1) === '' ? [''] : [],
+    ]
+  }
+
+  /** Move every later descriptor after a prompt form changes length. */
+  private shiftAfter(at: number, delta: number, ownerPrompt: TurnPrompt, ownerFold?: Fold): void {
+    if (delta === 0) return
+    for (const fold of this.folds) if (fold !== ownerFold && fold.at > at) fold.at += delta
+    for (const prompt of this.prompts) if (prompt !== ownerPrompt && prompt.at > at) prompt.at += delta
+  }
+
+  /** Rebuild prompt folds when a new width changes their visual line count. */
+  private refreshPromptFolds(): void {
+    for (const prompt of this.prompts) {
+      const summary = this.promptSummary(prompt.full, prompt.rule)
+      const fold = prompt.fold
+      if (summary === undefined) {
+        if (fold === undefined) continue
+        const shown = prompt.full
+        const delta = shown.length - prompt.shownLength
+        if (delta !== 0) {
+          this.logical.splice(prompt.at, prompt.shownLength, ...shown)
+          this.rules.splice(prompt.at, prompt.shownLength, ...shown.map(line => line === '' ? '' : prompt.rule))
+        }
+        prompt.shownLength = shown.length
+        this.shiftAfter(prompt.at, delta, prompt, fold)
+        this.folds = this.folds.filter(candidate => candidate !== fold)
+        delete prompt.fold
+        continue
+      }
+      if (fold === undefined) {
+        const expanded = this.expanded
+        const shown = expanded ? prompt.full : summary
+        const delta = shown.length - prompt.shownLength
+        if (delta !== 0 || shown.some((line, index) => line !== this.logical[prompt.at + index])) {
+          this.logical.splice(prompt.at, prompt.shownLength, ...shown)
+          this.rules.splice(prompt.at, prompt.shownLength, ...shown.map(line => line === '' ? '' : prompt.rule))
+        }
+        const created: Fold = {
+          at: prompt.at,
+          shownLength: shown.length,
+          summary,
+          full: prompt.full,
+          expanded,
+          rule: prompt.rule,
+          label: 'prompt',
+        }
+        prompt.fold = created
+        prompt.shownLength = shown.length
+        this.folds.push(created)
+        this.folds.sort((left, right) => left.at - right.at)
+        this.shiftAfter(prompt.at, delta, prompt, created)
+        continue
+      }
+      fold.summary = summary
+      if (fold.expanded) continue
+      const delta = summary.length - prompt.shownLength
+      if (delta !== 0 || summary.some((line, index) => line !== this.logical[prompt.at + index])) {
+        this.logical.splice(prompt.at, prompt.shownLength, ...summary)
+        this.rules.splice(prompt.at, prompt.shownLength, ...summary.map(line => line === '' ? '' : prompt.rule))
+      }
+      fold.shownLength = summary.length
+      prompt.shownLength = summary.length
+      this.shiftAfter(prompt.at, delta, prompt, fold)
+    }
+    if (this.folds.length === 0) this.expanded = false
   }
 
   /**
@@ -510,11 +653,15 @@ export class Screen {
     const shown = expanded ? fold.full : fold.summary
     const delta = shown.length - fold.shownLength
     this.logical.splice(fold.at, fold.shownLength, ...shown)
-    this.rules.splice(fold.at, fold.shownLength, ...shown.map(() => fold.rule))
+    this.rules.splice(fold.at, fold.shownLength, ...shown.map(line => line === '' ? '' : fold.rule))
     fold.shownLength = shown.length
     fold.expanded = expanded
     // Only what sits after the block moves; the block starts where it started.
     for (const other of this.folds) if (other.at > fold.at) other.at += delta
+    for (const prompt of this.prompts) {
+      if (prompt.fold === fold) prompt.shownLength = shown.length
+      else if (prompt.at > fold.at) prompt.at += delta
+    }
     const before = this.physical.length
     const offset = this.offset
     // Re-wrapping clamps the offset to the new height, so the reader's own
@@ -534,6 +681,7 @@ export class Screen {
     // Rebuild back to front, so earlier folds' positions stay valid while the
     // later ones are spliced; remember each block's growth for the fix-up.
     const deltas = new Map<Fold, number>()
+    const original = new Map(this.folds.map(fold => [fold, fold.at]))
     for (const fold of [...this.folds].reverse()) {
       if (fold.expanded === expanded) {
         deltas.set(fold, 0)
@@ -541,7 +689,7 @@ export class Screen {
       }
       const shown = expanded ? fold.full : fold.summary
       this.logical.splice(fold.at, fold.shownLength, ...shown)
-      this.rules.splice(fold.at, fold.shownLength, ...shown.map(() => fold.rule))
+      this.rules.splice(fold.at, fold.shownLength, ...shown.map(line => line === '' ? '' : fold.rule))
       deltas.set(fold, shown.length - fold.shownLength)
       fold.shownLength = shown.length
       fold.expanded = expanded
@@ -552,6 +700,19 @@ export class Screen {
     for (const fold of this.folds) {
       fold.at += shift
       shift += deltas.get(fold) ?? 0
+    }
+    for (const prompt of this.prompts) {
+      if (prompt.fold !== undefined) {
+        prompt.at = prompt.fold.at
+        prompt.shownLength = prompt.fold.shownLength
+        continue
+      }
+      let moved = 0
+      for (const fold of this.folds) {
+        if ((original.get(fold) ?? fold.at) >= prompt.at) break
+        moved += deltas.get(fold) ?? 0
+      }
+      prompt.at += moved
     }
     this.rewrap()
     this.offset = 0
@@ -686,10 +847,9 @@ export class Screen {
       this.render()
       return
     }
-    const height = this.viewportHeight()
-    const end = this.physical.length - this.offset
-    const start = Math.max(0, end - height)
-    if (hit.row < start || hit.row >= end) {
+    const { end, first } = this.frameLayout()
+    if (hit.row < first || hit.row >= end) {
+      const height = this.viewportHeight()
       const limit = Math.max(0, this.physical.length - height)
       this.offset = Math.min(limit, Math.max(0, this.physical.length - hit.row - 1))
     }
@@ -707,9 +867,12 @@ export class Screen {
     this.rules = []
     this.physical = []
     this.ruleWidths = []
+    this.physicalLogical = []
     this.folds = []
+    this.prompts = []
     this.ranges = undefined
     this.hovered = undefined
+    this.pressedSticky = undefined
     this.find = undefined
     this.expanded = false
     this.offset = 0
@@ -719,7 +882,30 @@ export class Screen {
 
   /** Re-wrap and repaint after the terminal changed size. */
   resize(): void {
+    const following = this.offset === 0
+    const anchorRow = this.contentStart
+    const anchorLogical = this.physicalLogical[anchorRow]
+    let within = 0
+    if (anchorLogical !== undefined) {
+      for (let row = anchorRow - 1; row >= 0 && this.physicalLogical[row] === anchorLogical; row -= 1) within += 1
+    }
+    this.refreshPromptFolds()
     this.rewrap()
+    if (!following && anchorLogical !== undefined) {
+      const rows: number[] = []
+      for (const [row, logical] of this.physicalLogical.entries()) if (logical === anchorLogical) rows.push(row)
+      const target = rows[Math.min(within, Math.max(0, rows.length - 1))]
+      if (target !== undefined) {
+        const limit = Math.max(0, this.physical.length - this.viewportHeight())
+        let next = Math.min(limit, this.offset)
+        for (let pass = 0; pass < 4; pass += 1) {
+          const difference = this.frameLayout(next).first - target
+          if (difference === 0) break
+          next = Math.min(limit, Math.max(0, next + difference))
+        }
+        this.offset = next
+      }
+    }
     // Nothing on screen can be trusted at a new size; the next frame is full.
     this.painted = []
     this.render()
@@ -772,7 +958,14 @@ export class Screen {
   mouseDown(row: number, column: number): void {
     const had = this.selection !== undefined
     this.selection = undefined
+    this.pressedSticky = undefined
     if (this.coversOverlay(row)) {
+      if (had) this.render()
+      return
+    }
+    const stickyPrompt = this.stickyPromptAt(row)
+    if (stickyPrompt !== undefined) {
+      this.pressedSticky = stickyPrompt
       if (had) this.render()
       return
     }
@@ -789,6 +982,10 @@ export class Screen {
    * @param column - terminal column, 1-based.
    */
   mouseDrag(row: number, column: number): void {
+    if (this.pressedSticky !== undefined) {
+      this.pressedSticky = undefined
+      return
+    }
     if (this.selection === undefined) return
     const at = this.locate(row, column, true)
     if (at === undefined) return
@@ -807,6 +1004,19 @@ export class Screen {
    * @returns the selected text, or undefined for a bare click.
    */
   mouseUp(): string | undefined {
+    const sticky = this.pressedSticky
+    this.pressedSticky = undefined
+    if (sticky?.fold !== undefined) {
+      this.setFold(sticky.fold, true)
+      const at = this.promptLayouts().find(layout => layout.prompt === sticky)?.at
+      if (at !== undefined) {
+        const limit = Math.max(0, this.physical.length - this.viewportHeight())
+        this.offset = Math.min(limit, Math.max(0, this.physical.length - at - this.viewportHeight()))
+        this.painted = []
+        this.render()
+      }
+      return undefined
+    }
     const selection = this.selection
     if (selection === undefined) return undefined
     if (!selection.dragged) {
@@ -869,14 +1079,22 @@ export class Screen {
     return row - 1 >= overlayStart && row - 1 < chromeStart
   }
 
+  /** Sticky header content under a terminal row; its gap is not interactive. */
+  private stickyPromptAt(row: number): TurnPrompt | undefined {
+    const { sticky, prompts } = this.frameLayout()
+    if (sticky === undefined || row < 1 || row > sticky.renderHeight) return undefined
+    return prompts[sticky.prompt]?.prompt
+  }
+
   private locate(row: number, column: number, clamp: boolean): { row: number; column: number } | undefined {
     if (this.physical.length === 0) return undefined
-    const height = this.viewportHeight()
-    const end = this.physical.length - this.offset
-    const start = Math.max(0, end - height)
-    let index = start + row - 1
-    if (!clamp && (row - 1 >= height || index >= end || index < start)) return undefined
-    index = Math.min(Math.max(index, start), end - 1)
+    const { height, end, first, sticky } = this.frameLayout()
+    const reserved = sticky?.reservedRows ?? 0
+    const contentHeight = height - reserved
+    let visual = row - 1 - reserved
+    if (!clamp && (visual < 0 || visual >= contentHeight || first + visual >= end)) return undefined
+    visual = Math.min(Math.max(visual, 0), Math.max(0, Math.min(contentHeight, end - first) - 1))
+    const index = Math.min(Math.max(first + visual, first), end - 1)
     return { row: index, column: Math.max(0, column - 1 - GUTTER) }
   }
 
@@ -913,14 +1131,36 @@ export class Screen {
     this.ranges = undefined
     this.physical = []
     this.ruleWidths = []
+    this.physicalLogical = []
     for (const [at, line] of this.logical.entries()) {
       const rule = this.rules[at] ?? ''
       const width = displayWidth(rule)
       for (const row of this.wrapLine(line, rule, columns)) {
         this.physical.push(row)
         this.ruleWidths.push(width)
+        this.physicalLogical.push(at)
       }
     }
+  }
+
+  /** User prompts measured in the same physical rows the viewport scrolls. */
+  private promptLayouts(): { prompt: TurnPrompt; at: number; rows: string[] }[] {
+    const columns = this.contentColumns()
+    const layouts: { prompt: TurnPrompt; at: number; rows: string[] }[] = []
+    let logical = 0
+    let physical = 0
+    const height = (index: number): number =>
+      this.wrapLine(this.logical[index] ?? '', this.rules[index] ?? '', columns).length
+    for (const prompt of this.prompts) {
+      for (; logical < prompt.at; logical += 1) physical += height(logical)
+      const at = physical
+      let contentLength = prompt.shownLength
+      if (this.logical[prompt.at + contentLength - 1] === '') contentLength -= 1
+      for (; logical < prompt.at + contentLength; logical += 1) physical += height(logical)
+      layouts.push({ prompt, at, rows: this.physical.slice(at, physical) })
+      for (; logical < prompt.at + prompt.shownLength; logical += 1) physical += height(logical)
+    }
+    return layouts
   }
 
   /** Re-wrap every kept line at the current width. */
@@ -930,6 +1170,28 @@ export class Screen {
     this.wrapBuffer()
     const limit = Math.max(0, this.physical.length - this.viewportHeight())
     this.offset = Math.min(this.offset, limit)
+  }
+
+  /** All row geometry needed to compose one frame at an offset. */
+  private frameLayout(offset = this.offset): {
+    height: number
+    end: number
+    first: number
+    prompts: { prompt: TurnPrompt; at: number; rows: string[] }[]
+    sticky: ReturnType<typeof computeStickyLayout>
+  } {
+    const height = this.viewportHeight()
+    const end = this.physical.length - offset
+    const scrollTop = Math.max(0, end - height)
+    const prompts = this.promptLayouts()
+    const sticky = computeStickyLayout(scrollTop, height, prompts.map(({ prompt, at, rows }) => ({
+      at,
+      fullHeight: rows.length,
+      minHeight: 1,
+      sticky: prompt.fold?.expanded !== true,
+    })))
+    const contentHeight = Math.max(0, height - (sticky?.reservedRows ?? 0))
+    return { height, end, first: Math.max(0, end - contentHeight), prompts, sticky }
   }
 
   /**
@@ -943,20 +1205,20 @@ export class Screen {
     if (!this.active) return
     const columns = this.host.columns()
     if (columns !== this.paintedColumns) {
+      this.refreshPromptFolds()
       this.wrapBuffer()
       this.painted = []
       this.paintedColumns = columns
     }
-    const height = this.viewportHeight()
-    const end = this.physical.length - this.offset
-    const visible = this.physical.slice(Math.max(0, end - height), Math.max(0, end))
+    const { height, end, first, prompts, sticky } = this.frameLayout()
+    this.contentStart = first
+    const visible = this.physical.slice(first, Math.max(0, end))
     // Content tops the screen the way a fresh terminal reads — the welcome at
     // the top, the gap between it and the chrome — and grows downward until it
     // reaches the chrome and starts scrolling.
     const padding = Array.from({ length: Math.max(0, height - visible.length) }, () => '')
     const bounds = this.orderedSelection()
     if (bounds !== undefined) {
-      const first = Math.max(0, end - height)
       for (let index = 0; index < visible.length; index += 1) {
         const at = first + index
         if (at < bounds.from.row || at > bounds.to.row) continue
@@ -972,7 +1234,6 @@ export class Screen {
     }
     const findHit = this.find?.hits[this.find.index]
     if (findHit !== undefined) {
-      const first = Math.max(0, end - height)
       const index = findHit.row - first
       if (index >= 0 && index < visible.length) {
         const plain = (visible[index] ?? '').replaceAll(STYLES, '')
@@ -986,7 +1247,6 @@ export class Screen {
     if (hovered !== undefined) {
       const range = this.foldRanges().find(entry => entry.fold === hovered)
       if (range !== undefined) {
-        const first = Math.max(0, end - height)
         const width = this.contentColumns()
         for (let at = range.from; at <= range.to; at += 1) {
           const index = at - first
@@ -996,11 +1256,22 @@ export class Screen {
         }
       }
     }
-    const viewport = [...visible, ...padding]
-    // Scrolled back, the top row says so — replacing a row rather than adding
-    // one, so the rest of the layout does not shift under the reader.
-    if (this.offset > 0 && this.notice !== '' && viewport.length > 0) {
-      viewport[0] = truncate(this.notice, this.contentColumns())
+    let viewport: string[]
+    if (sticky !== undefined) {
+      const source = prompts[sticky.prompt]?.rows ?? []
+      const from = sticky.state === 'pushed' ? sticky.clipTop : 0
+      const header = source.slice(from, from + sticky.renderHeight)
+      const gap = sticky.state === 'pinned' && sticky.reservedRows > sticky.renderHeight
+        ? [this.offset > 0 && this.notice !== '' ? truncate(this.notice, this.contentColumns()) : '']
+        : []
+      viewport = [...header, ...gap, ...visible, ...padding].slice(0, height)
+    } else {
+      viewport = [...visible, ...padding]
+      // Scrolled back, the top row says so — replacing a row rather than adding
+      // one, so the rest of the layout does not shift under the reader.
+      if (this.offset > 0 && this.notice !== '' && viewport.length > 0) {
+        viewport[0] = truncate(this.notice, this.contentColumns())
+      }
     }
     if (this.overlay.length > 0 && viewport.length > 0) {
       const width = this.contentColumns()

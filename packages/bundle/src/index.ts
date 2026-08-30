@@ -257,8 +257,13 @@ function replay(session: Session, transcript: Transcript, io: CliIo, theme: Them
     // was collapsed: a click enters that session rather than folding the card.
     const full = transcript.takeFold()
     const rule = transcript.takeRule()
+    const prompt = transcript.takePrompt()
     const label = transcript.takeLabel()
     const enter = transcript.takeEnter()
+    if (prompt) {
+      io.console.appendPrompt(lines, rule)
+      continue
+    }
     if (enter !== undefined || full !== undefined) {
       io.console.appendFold(lines, full ?? lines, rule, label, enter)
       continue
@@ -1069,8 +1074,14 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
       const lines = viewing.transcript.render(event)
       const full = viewing.transcript.takeFold()
       const rule = viewing.transcript.takeRule()
+      const promptBlock = viewing.transcript.takePrompt()
       const label = viewing.transcript.takeLabel()
       const enter = viewing.transcript.takeEnter()
+      if (promptBlock) {
+        prompt.setStreaming(undefined)
+        io.console.appendPrompt(lines, rule)
+        return
+      }
       if (enter !== undefined || full !== undefined) {
         prompt.setStreaming(undefined)
         io.console.appendFold(lines, full ?? lines, rule, label, enter)
@@ -1126,8 +1137,14 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
     const full = live.transcript.takeFold()
     // The rule marks which block these lines belong to, down their left edge.
     const rule = live.transcript.takeRule()
+    const promptBlock = live.transcript.takePrompt()
     const label = live.transcript.takeLabel()
     const enter = live.transcript.takeEnter()
+    if (promptBlock) {
+      prompt.setStreaming(undefined)
+      io.console.appendPrompt(lines, rule)
+      return
+    }
     if (enter === undefined && full === undefined) {
       emit(lines, undefined, rule)
       return

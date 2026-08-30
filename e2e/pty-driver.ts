@@ -226,19 +226,31 @@ export function heldOutput(output: string): string {
  * update, and half of one is a torn screen no terminal would ever show.
  * @param held - output from while the session held the screen.
  * @param at - byte offset to stop at, or -1 for the whole capture.
+ * @param rows - terminal rows used by the run.
+ * @param columns - terminal columns used by the run.
  * @returns the terminal at that point.
  */
-export function screenOf(held: string, at: number): Terminal {
+export function screenOf(
+  held: string,
+  at: number,
+  rows = PTY_ROWS,
+  columns = PTY_COLUMNS,
+): Terminal {
   const frameEnd = at < 0 ? -1 : held.indexOf(SYNC_END, at)
-  const terminal = new Terminal(PTY_ROWS, PTY_COLUMNS)
+  const terminal = new Terminal(rows, columns)
   terminal.feed(held.slice(0, frameEnd < 0 ? held.length : frameEnd + SYNC_END.length))
   return terminal
 }
 
 /** The screen as of the frame in which `marker` first appears. */
-export function screenAt(output: string, marker: string): Terminal {
+export function screenAt(
+  output: string,
+  marker: string,
+  rows = PTY_ROWS,
+  columns = PTY_COLUMNS,
+): Terminal {
   const held = heldOutput(output)
-  return screenOf(held, held.indexOf(marker))
+  return screenOf(held, held.indexOf(marker), rows, columns)
 }
 
 /**
@@ -248,9 +260,14 @@ export function screenAt(output: string, marker: string): Terminal {
  * paint of a line rarely answers it: a live preview, a summary, and a fold's
  * full form can all carry the same text at different moments.
  */
-export function screenAtLast(output: string, marker: string): Terminal {
+export function screenAtLast(
+  output: string,
+  marker: string,
+  rows = PTY_ROWS,
+  columns = PTY_COLUMNS,
+): Terminal {
   const held = heldOutput(output)
-  return screenOf(held, held.lastIndexOf(marker))
+  return screenOf(held, held.lastIndexOf(marker), rows, columns)
 }
 
 /** The screen at the LAST frame before the terminal is handed back. */

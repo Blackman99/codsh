@@ -31,6 +31,16 @@ decide the model-facing toolset.
 The alternate-screen area the session owns: its own scrollback, wrapping,
 scrolling, and frame painting. The terminal's native buffer is never touched.
 
+**Sticky turn header**:
+The real user prompt that owns the response currently crossing the top of the
+Viewport. Its display-only copy stays pinned until the next real prompt pushes
+it away, shrinking from at most three rows to one; the gap below it may carry
+the scrollback notice. A prompt longer than three visual rows is a Fold by
+default. While expanded it still ends the previous turn but does not pin.
+Plugin context, tools, and other injected user-role messages never start a
+turn, and the copied header is not transcript or clipboard content.
+_Avoid_: sticky message, pinned response
+
 **Chrome**:
 The bottom-pinned rows: input box, menus, hint row, status row. Never scrolls.
 

@@ -110,6 +110,12 @@ describe('piped input', () => {
     expect(output.text).toBe('a finished line\n')
   })
 
+  it('writes a prompt normally when no TTY exists to make it sticky', () => {
+    const { console: term, output } = build()
+    term.appendPrompt(['› question', ''], '| ')
+    expect(output.text).toBe('› question\n\n')
+  })
+
   it('owns no keyboard', () => {
     expect(build().console.readsKeys).toBe(false)
   })

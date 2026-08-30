@@ -10,7 +10,15 @@
 
 import { describe, expect, it } from 'vitest'
 import { E2E_TEST_TIMEOUT_MS } from './harness.ts'
-import { PTY_COLUMNS, PTY_ROWS, SYNC_END, drivePty, finalScreen, screenAt, screenAtLast } from './pty-driver.ts'
+import {
+  PTY_COLUMNS,
+  PTY_ROWS,
+  SYNC_END,
+  drivePty,
+  finalScreen,
+  screenAt,
+  screenAtLast,
+} from './pty-driver.ts'
 import { Terminal } from './vt.ts'
 
 /** Submit what the box holds. */
@@ -76,6 +84,31 @@ describe.skipIf(process.platform === 'win32')('the first five minutes', () => {
     const distance = Number(/↑ (\d+) rows above/u.exec(text)?.[1] ?? '0')
     expect(distance).toBeGreaterThan(0)
     expect(distance).toBeLessThanOrEqual(4)
+  }, E2E_TEST_TIMEOUT_MS)
+
+  it('keeps the owning prompt above each turn while scrolling across the boundary', async () => {
+    const rows = 12
+    const wheelUp = '\u001B[<64;10;5M'
+    const wheelDown = '\u001B[<65;10;5M'
+    const output = await drivePty('sticky', [
+      ['Welcome to codsh', `first sticky prompt${ENTER}`, 300],
+      ['STICKY_FIRST_44', `second sticky prompt${ENTER}`, 500],
+      ['51 tokens', wheelUp.repeat(36), 500],
+      ['↑ 36 rows above', wheelUp.repeat(12), 300],
+      ['↑ 48 rows above', wheelDown.repeat(48), 300],
+      ['STICKY_SECOND_DONE', `/exit${ENTER}`, 300],
+    ], { rows })
+    const tail = screenAt(output, '51 tokens', rows).alternate
+    const browsing = screenAt(output, '↑ 36 rows above', rows).alternate
+    const crossed = screenAt(output, '↑ 48 rows above', rows).alternate
+    const returned = screenAtLast(output, 'STICKY_SECOND_DONE', rows).alternate
+
+    expect(tail[0]).toContain('second sticky prompt')
+    expect(browsing[0]).toContain('second sticky prompt')
+    expect(crossed[0]).toContain('first sticky prompt')
+    expect(crossed.join('\n')).toContain('↑ 48 rows above')
+    expect(returned[0]).toContain('second sticky prompt')
+    expect(crossed.slice(-2)).toEqual(tail.slice(-2))
   }, E2E_TEST_TIMEOUT_MS)
 
   it('collapses a long result and names the expand key', async () => {

@@ -120,6 +120,22 @@ class CodeCliMockAdapter extends LlmAdapter {
   }
 
   async * stream(options: GenerateOptions): AsyncIterable<StreamChunk> {
+    if (MOCK_MODE === 'sticky') {
+      const texts = options.messages.flatMap(message =>
+        message.content.filter(block => block.type === 'text').map(block => block.text))
+      const turn = texts.some(text => text.includes('second sticky prompt')) ? 'SECOND' : 'FIRST'
+      const rows = Array.from({ length: 45 }, (_, index) => `STICKY_${turn}_${index}`)
+      if (turn === 'SECOND') rows.push('STICKY_SECOND_DONE')
+      const reply = rows.join('\n')
+      yield { type: 'block-start', index: 0, blockType: 'text' }
+      for (const delta of splitDeltas(reply)) {
+        yield { type: 'text-delta', index: 0, text: delta }
+      }
+      yield { type: 'block-end', index: 0, block: { type: 'text', text: reply } }
+      yield { type: 'usage', usage: { inputTokens: 5, outputTokens: turn === 'SECOND' ? 46 : 45 } }
+      yield { type: 'finish', reason: { kind: 'stop' } }
+      return
+    }
     if (AUTO_VISION) {
       if (options.model === 'deepseek-v4-flash-vision-exp') {
         if (MOCK_MODE === 'auto-vision-fail') {

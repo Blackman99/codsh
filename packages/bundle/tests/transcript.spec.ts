@@ -77,7 +77,10 @@ describe('assistant and user messages', () => {
       time: 0,
       data: { role: 'user', content: [{ type: 'text', text: 'fix the bug' }], source: { kind: 'user' } },
     } as unknown as SessionEvent
-    expect(build().render(event)).toEqual(['› fix the bug', ''])
+    const transcript = build()
+    expect(transcript.render(event)).toEqual(['› fix the bug', ''])
+    expect(transcript.takePrompt()).toBe(true)
+    expect(transcript.takePrompt()).toBe(false)
   })
 
   it('aligns a multi-line prompt under its marker, matching the input box', () => {
@@ -97,7 +100,9 @@ describe('assistant and user messages', () => {
       time: 0,
       data: { role: 'user', content: [{ type: 'text', text: 'AGENTS.md' }], source: { kind: 'plugin', plugin: 'agent-instructions' } },
     } as unknown as SessionEvent
-    expect(build().render(event)).toEqual([])
+    const transcript = build()
+    expect(transcript.render(event)).toEqual([])
+    expect(transcript.takePrompt()).toBe(false)
   })
 
   it('reports a failed turn', () => {

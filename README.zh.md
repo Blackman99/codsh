@@ -56,6 +56,7 @@ dsh --profile code
 [站点](https://blackman99.github.io/codsh/zh.html)有实机演示。一句话：
 
 - 备用屏幕；输入框钉底；退出还原你的 shell。
+- 阅读长回复时，产生当前内容的用户输入会吸附在顶部；下一条输入会把上一条逐步推走。
 - 长块可折叠；点击一块，Ctrl+O 全部；悬停报名字。
 - todo 钉在 chrome（Ctrl+T / `/todos`）。
 - 拖选即复制。Markdown、思考、工具卡片流式画出。

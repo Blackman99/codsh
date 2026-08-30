@@ -219,6 +219,242 @@ describe('painting', () => {
 })
 
 describe('scrolling', () => {
+  it('pins the user prompt over the response section it owns', () => {
+    const sink = host(6, 40)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['status'], { row: 0, column: 0 }, false)
+    screen.appendPrompt(['› first question', ''], '| ')
+    screen.append(['answer 1', 'answer 2', 'answer 3', 'answer 4', 'answer 5', 'answer 6'])
+
+    const rows = painted(flush(sink))
+    expect([rows.get(1), rows.get(2), rows.get(3), rows.get(4), rows.get(5)]).toEqual([
+      '| › first question',
+      '',
+      'answer 4',
+      'answer 5',
+      'answer 6',
+    ])
+  })
+
+  it('folds a long user prompt to three visual rows and expands it on demand', () => {
+    const sink = host(8, 30)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['status'], { row: 0, column: 0 }, false)
+    screen.appendPrompt(['› first line', '  second line', '  third line', '  fourth line', ''], '| ')
+
+    expect(screen.hasFolds).toBe(true)
+    expect(screen.foldsExpanded).toBe(false)
+    const collapsed = flush(sink)
+    expect(collapsed).toContain('third line …')
+    expect(collapsed).not.toContain('fourth line')
+
+    screen.toggleFolds()
+    const expanded = flush(sink)
+    expect(expanded).toContain('fourth line')
+    expect(painted(expanded).get(5) ?? '').toBe('')
+
+    screen.toggleFolds()
+    expect(painted(flush(sink)).get(4) ?? '').toBe('')
+  })
+
+  it('uses an expanded prompt as a non-sticky turn boundary until it is folded again', () => {
+    const sink = host(7, 40)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['status'], { row: 0, column: 0 }, false)
+    screen.appendPrompt(['› first', ''], '| ')
+    screen.append(['old 1', 'old 2', 'old 3'])
+    screen.appendPrompt(['› second a', '  second b', '  second c', '  second d', ''], '| ')
+    screen.toggleFolds()
+    screen.append(['new 1', 'new 2', 'new 3', 'new 4', 'new 5', 'new 6'])
+    flush(sink)
+
+    screen.resize()
+    const expanded = painted(flush(sink))
+    expect(expanded.get(1)).toBe('new 1')
+
+    screen.collapseFolds()
+    const collapsed = painted(flush(sink))
+    expect(collapsed.get(1)).toBe('| › second a')
+  })
+
+  it('keeps later prompt positions aligned when an earlier prompt fold changes size', () => {
+    const sink = host(7, 40)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['status'], { row: 0, column: 0 }, false)
+    screen.appendPrompt(['› first a', '  first b', '  first c', '  first d', ''], '| ')
+    screen.append(['old answer'])
+    screen.appendPrompt(['› second', ''], '| ')
+    screen.append(['new 1', 'new 2', 'new 3', 'new 4', 'new 5', 'new 6'])
+    screen.toggleFolds()
+    flush(sink)
+
+    screen.resize()
+    const rows = painted(flush(sink))
+    expect(rows.get(1)).toBe('| › second')
+  })
+
+  it('forgets sticky prompt descriptors when the transcript is cleared', () => {
+    const sink = host(6, 40)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['status'], { row: 0, column: 0 }, false)
+    screen.appendPrompt(['› old prompt', ''], '| ')
+    screen.clearTranscript()
+    screen.append(['fresh 1', 'fresh 2', 'fresh 3', 'fresh 4', 'fresh 5', 'fresh 6'])
+    flush(sink)
+
+    screen.resize()
+    const rows = painted(flush(sink))
+    expect([rows.get(1), rows.get(2), rows.get(3), rows.get(4), rows.get(5)]).toEqual([
+      'fresh 2',
+      'fresh 3',
+      'fresh 4',
+      'fresh 5',
+      'fresh 6',
+    ])
+  })
+
+  it('keeps a retained prompt linked to its fold after scrollback trimming', () => {
+    const sink = host(6, 40)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['status'], { row: 0, column: 0 }, false)
+    screen.append(Array.from({ length: 4990 }, (_, index) => `old ${index}`))
+    screen.appendPrompt(['› retained a', '  retained b', '  retained c', '  retained d', ''], '| ')
+    screen.append(Array.from({ length: 20 }, (_, index) => `tail ${index}`))
+    screen.toggleFolds()
+    flush(sink)
+
+    screen.resize()
+    const rows = painted(flush(sink))
+    expect(rows.get(1)).toBe('tail 15')
+  })
+
+  it('cancels a sticky click when scrollback trimming removes its prompt', () => {
+    const sink = host(6, 40)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['status'], { row: 0, column: 0 }, false)
+    screen.appendPrompt(['› old a', '  old b', '  old c', '  old d', ''], '| ')
+    screen.append(Array.from({ length: 10 }, (_, index) => `old answer ${index}`))
+    flush(sink)
+
+    screen.mouseDown(1, 5)
+    screen.append(Array.from({ length: 5001 }, (_, index) => `tail ${index}`))
+    expect(screen.mouseUp()).toBeUndefined()
+    screen.resize()
+    expect([...painted(flush(sink)).values()].join('\n')).toContain('tail 5000')
+  })
+
+  it('switches the sticky header as scrolling crosses a turn boundary', () => {
+    const sink = host(7, 40)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['status'], { row: 0, column: 0 }, false)
+    screen.appendPrompt(['› first', ''], '| ')
+    screen.append(['old 1', 'old 2', 'old 3', 'old 4'])
+    screen.appendPrompt(['› second', ''], '| ')
+    screen.append(['new 1', 'new 2', 'new 3', 'new 4', 'new 5', 'new 6'])
+    flush(sink)
+
+    screen.resize()
+    expect(painted(flush(sink)).get(1)).toBe('| › second')
+
+    screen.scrollBy(-5)
+    expect(painted(flush(sink)).get(1)).toBe('| › first')
+
+    screen.scrollBy(5)
+    expect(painted(flush(sink)).get(1)).toBe('| › second')
+  })
+
+  it('uses the sticky gap for the existing scrollback notice', () => {
+    const sink = host(6, 50)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['status'], { row: 0, column: 0 }, false)
+    screen.appendPrompt(['› question', ''], '| ')
+    screen.append(Array.from({ length: 12 }, (_, index) => `answer ${index}`))
+    screen.scrollBy(-2)
+    screen.setScrollNotice('↑ 2 rows above · PgDn returns to the latest')
+
+    const rows = painted(flush(sink))
+    expect(rows.get(1)).toBe('| › question')
+    expect(rows.get(2)).toContain('↑ 2 rows above')
+  })
+
+  it('recomputes the three-row prompt fold when a resize changes wrapping', () => {
+    const sink = host(8, 60)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['status'], { row: 0, column: 0 }, false)
+    screen.appendPrompt(['› one two three four five six seven eight nine ten eleven twelve', ''], '| ')
+    expect(screen.hasFolds).toBe(false)
+
+    sink.size.columns = 15
+    screen.resize()
+    expect(screen.hasFolds).toBe(true)
+    const narrow = flush(sink)
+    expect(narrow).toContain('…')
+
+    sink.size.columns = 80
+    screen.resize()
+    expect(screen.hasFolds).toBe(false)
+  })
+
+  it('keeps the same response line at the content top across a scrolled resize', () => {
+    const sink = host(6, 40)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['status'], { row: 0, column: 0 }, false)
+    screen.appendPrompt(['› question', ''], '| ')
+    screen.append(Array.from({ length: 20 }, (_, index) => `answer ${index} xxxxxxxxxxxxxxxxxxxx`))
+    screen.scrollBy(-8)
+    flush(sink)
+
+    screen.resize()
+    const before = painted(flush(sink))
+    const anchored = before.get(3)
+    expect(anchored).toContain('answer 9')
+
+    sink.size.columns = 20
+    screen.resize()
+    const after = painted(flush(sink))
+    expect(after.get(3)).toContain('answer 9')
+  })
+
+  it('opens a folded prompt from its sticky copy and reveals the original', () => {
+    const sink = host(8, 40)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['status'], { row: 0, column: 0 }, false)
+    screen.appendPrompt(['› first a', '  first b', '  first c', '  first d', ''], '| ')
+    screen.append(Array.from({ length: 10 }, (_, index) => `answer ${index}`))
+    flush(sink)
+
+    screen.mouseDown(1, 6)
+    screen.mouseUp()
+    const rows = painted(flush(sink))
+    expect([...rows.values()].some(row => row.includes('first d'))).toBe(true)
+  })
+
+  it('does not turn a drag over the sticky copy into clipboard text', () => {
+    const sink = host(6, 40)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['status'], { row: 0, column: 0 }, false)
+    screen.appendPrompt(['› question', ''], '| ')
+    screen.append(Array.from({ length: 12 }, (_, index) => `answer ${index}`))
+    flush(sink)
+
+    screen.mouseDown(1, 5)
+    screen.mouseDrag(1, 12)
+    expect(screen.mouseUp()).toBeUndefined()
+  })
+
   it('detaches from the tail and comes back', () => {
     const sink = host(4, 20)
     const screen = new Screen(sink)
@@ -859,6 +1095,39 @@ describe('the rule down a block\'s edge', () => {
 })
 
 describe('transcript search', () => {
+  it('reveals a hit that was hidden behind the sticky header reservation', () => {
+    const sink = host(6, 40)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['box'], { row: 0, column: 0 }, false)
+    screen.appendPrompt(['› question', ''], '| ')
+    screen.append(Array.from({ length: 10 }, (_, index) => index === 5 ? 'needle' : `answer ${index}`))
+    flush(sink)
+
+    screen.searchTranscript('needle')
+    const frame = flush(sink)
+    expect(frame).toContain('\u001B[7mneedle\u001B[27m')
+  })
+
+  it('recomputes the owning sticky header without highlighting its display copy', () => {
+    const sink = host(6, 40)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['box'], { row: 0, column: 0 }, false)
+    screen.appendPrompt(['› first prompt', ''], '| ')
+    screen.append(['old 1', 'needle', 'old 3', 'old 4'])
+    screen.appendPrompt(['› second prompt', ''], '| ')
+    screen.append(Array.from({ length: 10 }, (_, index) => `new ${index}`))
+    flush(sink)
+
+    screen.searchTranscript('needle')
+    const frame = flush(sink)
+    const rows = painted(frame)
+    expect(rows.get(1)).toBe('| › first prompt')
+    expect(frame).toContain('\u001B[7mneedle\u001B[27m')
+    expect(frame).not.toContain('\u001B[7m| › first prompt')
+  })
+
   it('finds hits newest-first and steps without changing the text', () => {
     const sink = host(8, 40)
     const screen = new Screen(sink)

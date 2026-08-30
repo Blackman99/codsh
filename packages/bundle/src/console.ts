@@ -395,6 +395,22 @@ export class TerminalConsole {
   }
 
   /**
+   * Append the real user's prompt as the header of a response section.
+   *
+   * A TTY records the prompt boundary for sticky history navigation. A pipe
+   * has no viewport, so it receives the exact ordinary transcript lines.
+   * @param lines - rendered prompt lines, including its separator.
+   * @param rule - the user's styled left rule; omitted from redirected output.
+   */
+  appendPrompt(lines: readonly string[], rule = ''): void {
+    if (this.screen !== undefined) {
+      this.screen.appendPrompt(lines, rule)
+      return
+    }
+    for (const line of lines) this.output.write(`${line}\n`)
+  }
+
+  /**
    * Replace the rows pinned below the transcript.
    *
    * This is the whole live area: an input box, a completion menu, a working
