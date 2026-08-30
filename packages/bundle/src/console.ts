@@ -124,6 +124,11 @@ export class TerminalConsole {
     return Math.max(this.output.columns ?? FALLBACK_COLUMNS, MIN_COLUMNS)
   }
 
+  /** Physical terminal rows available to a full-screen modal surface. */
+  get rows(): number {
+    return Math.max(2, this.output.rows ?? FALLBACK_ROWS)
+  }
+
   /**
    * Columns content may be laid out for.
    *
@@ -239,6 +244,11 @@ export class TerminalConsole {
    */
   setOverlay(rows: readonly string[]): void {
     this.screen?.setOverlay(rows)
+  }
+
+  /** Show or clear a transient frame over transcript and input chrome. */
+  setViewer(rows: readonly string[] | undefined): void {
+    this.screen?.setViewer(rows)
   }
 
   /** Hide the conversation timeline beneath a modal selector or viewer. */

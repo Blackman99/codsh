@@ -329,8 +329,10 @@ async function turn(agent: Agent, text: string, working?: Spinner, source: TurnS
  * @param io - the terminal to write to.
  * @param theme - styling for the command's report.
  * @param signal - cancels the command when the person interrupts.
+ * @param images - admitted image attachments for commands that accept them.
+ * @param quietSuccess - omit the separator when a surface-only command returned no text.
  */
-async function runCommand(ctx: Context, agent: Agent, line: string, io: CliIo, theme: Theme, signal: AbortSignal, images: readonly EncodedImageAttachment[] = []): Promise<void> {
+async function runCommand(ctx: Context, agent: Agent, line: string, io: CliIo, theme: Theme, signal: AbortSignal, images: readonly EncodedImageAttachment[] = [], quietSuccess = false): Promise<void> {
   const commands = ctx.get('commands')
   if (commands === undefined) {
     io.console.write(theme.error('  commands are unavailable in this composition'))
@@ -358,6 +360,7 @@ async function runCommand(ctx: Context, agent: Agent, line: string, io: CliIo, t
   // like they had done nothing.
   const { result } = execution
   const report = result.kind === 'error' ? theme.error(result.text) : result.text
+  if (quietSuccess && result.kind === 'success' && (report === undefined || report === '')) return
   if (report !== undefined && report !== '') {
     for (const reported of report.split('\n')) io.console.write(`  ${reported}`)
   }
@@ -669,7 +672,7 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
   // `/init` and `/ship` built in, plus whatever command files the person defined.
   const custom = await loadCustomCommands(
     [dshHomePath('commands'), join(cwd, '.dsh', 'commands')],
-    new Set([...(commands?.list(live.agent) ?? []).map(entry => entry.name), 'exit', 'quit', 'help', 'init', 'ship', 'status', 'model', 'clear', 'resume', 'diff', 'jump', 'copy']),
+    new Set([...(commands?.list(live.agent) ?? []).map(entry => entry.name), 'exit', 'quit', 'help', 'init', 'ship', 'status', 'model', 'clear', 'resume', 'diff', 'jump', 'copy', 'view']),
   )
   for (const warning of custom.warnings) io.console.write(theme.dim(`  skipped ${warning}`))
   const customByName = new Map(custom.commands.map(command => [command.name, command]))
@@ -893,6 +896,45 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
           return { kind: 'error', text: 'clipboard is disabled or unavailable' }
         }
         return { kind: 'success', text: `copied ${target.kind} ${target.address}` }
+      },
+    }))
+    disposers.push(commands.register({
+      name: 'view',
+      description: 'open an assistant answer or fenced code block full-screen',
+      input: { hint: '[answer[:code]]' },
+      handler: async ({ rawInput, signal }) => {
+        if (!io.console.readsKeys) return { kind: 'error', text: '/view requires an interactive terminal' }
+        const targets = indexConversationContent((viewing?.session ?? live.agent.session).events)
+        if (targets.length === 0) {
+          prompt.setFlash(theme.error('  /view · no viewable assistant answers'))
+          return { kind: 'success' }
+        }
+        const typed = rawInput.trim()
+        let target = typed === '' ? undefined : resolveCopyTarget(targets, typed)
+        if (typed !== '' && target === undefined) {
+          prompt.setFlash(theme.error(`  /view ${typed} · target was not found; use N or N:C`))
+          return { kind: 'success' }
+        }
+        if (target === undefined) {
+          const offered = newestCopyTargets(targets)
+          const outcome = await prompt.select({
+            title: 'View content',
+            options: offered.map(entry => ({
+              label: `${entry.address} · ${entry.kind}`,
+              detail: entry.label,
+            })),
+            filterable: true,
+          }, signal)
+          if (outcome.kind !== 'chosen') return { kind: 'success' }
+          target = offered[outcome.indices[0] ?? -1]
+          if (target === undefined) return { kind: 'success' }
+        }
+        await prompt.view({
+          title: target.kind === 'answer' ? `Answer ${target.address}` : `Code ${target.address}`,
+          kind: target.kind,
+          text: target.text,
+        }, signal)
+        return { kind: 'success' }
       },
     }))
     disposers.push(commands.register({
@@ -1608,10 +1650,11 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
     if (line === undefined) break
     // The line's pasted images, drained exactly once beside it.
     const images = prompt.takeAttachments()
+    const trimmed = line.trim()
+    const surfaceOnlyView = /^\/view(?:\s|$)/u.test(trimmed)
     // Moving on reads as dismissal: whatever was expanded folds back, the way
     // clicking elsewhere collapses an expanded block in Claude.
-    io.console.collapseFolds()
-    const trimmed = line.trim()
+    if (!surfaceOnlyView) io.console.collapseFolds()
     if (trimmed === '') continue
     if (trimmed === '/exit' || trimmed === '/quit') break
     if (viewing !== undefined) {
@@ -1630,7 +1673,7 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
     if (trimmed.startsWith('/')) {
       // A command produces no session event, so nothing else would show what
       // was run above its result.
-      prompt.write(`${theme.user('›')} ${trimmed}`)
+      if (!surfaceOnlyView) prompt.write(`${theme.user('›')} ${trimmed}`)
       // Canned prompts run as ordinary turns; the echo above is their whole
       // transcript presence, not their page-long body.
       const [, name = '', rest = ''] = /^\/(\S+)\s*([\s\S]*)$/.exec(trimmed) ?? []
@@ -1661,7 +1704,7 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
       }
       running = new AbortController()
       try {
-        await runCommand(ctx, live.agent, trimmed, io, theme, running.signal, batch)
+        await runCommand(ctx, live.agent, trimmed, io, theme, running.signal, batch, surfaceOnlyView)
       } finally {
         running = undefined
       }

@@ -12,6 +12,7 @@
 import { Editor } from './editor.ts'
 import { inputBox } from './inputbox.ts'
 import { Selector } from './selector.ts'
+import { FullscreenViewer } from './viewer.ts'
 import { truncate } from './theme.ts'
 import { todoReport, todoRow } from './todos.ts'
 import type { EncodedImageAttachment } from '@deepseek-ai/dsh-attachment/types'
@@ -22,6 +23,7 @@ import type { Key } from './keys.ts'
 import type { SelectOutcome, SelectSpec } from './selector.ts'
 import type { Theme } from './theme.ts'
 import type { TodoList } from './todos.ts'
+import type { ViewerSpec } from './viewer.ts'
 
 /** How long a flash notice holds the hint row. */
 const FLASH_MS = 1500
@@ -87,11 +89,19 @@ interface ActiveSelect {
   highlighted?: number
 }
 
+/** One transient full-screen reader in progress. */
+interface ActiveView {
+  viewer: FullscreenViewer
+  resolve(): void
+  dispose(): void
+}
+
 /** Drives the input box and answers reads and selections. */
 export class Prompt {
   private readonly editor: Editor
   private pending: Pending | undefined
   private select_: ActiveSelect | undefined
+  private view_: ActiveView | undefined
   /**
    * Submissions made before anything asked for them.
    *
@@ -345,6 +355,29 @@ export class Prompt {
     })
   }
 
+  /** Open one raw-content target in a transient full-screen reader. */
+  view(spec: ViewerSpec, signal?: AbortSignal): Promise<void> {
+    if (!this.console.readsKeys || this.console.finished || signal?.aborted === true) return Promise.resolve()
+    return new Promise<void>((resolve) => {
+      const settle = (): void => {
+        const active = this.view_
+        this.view_ = undefined
+        active?.dispose()
+        this.console.setViewer(undefined)
+        resolve()
+        this.render()
+      }
+      const onAbort = (): void => { settle() }
+      this.view_ = {
+        viewer: new FullscreenViewer(spec),
+        resolve: settle,
+        dispose: () => { signal?.removeEventListener('abort', onAbort) },
+      }
+      signal?.addEventListener('abort', onAbort, { once: true })
+      this.render()
+    })
+  }
+
   /** Take the region down, so what follows lands at the bottom of the screen. */
   clear(): void {
     this.reading = false
@@ -361,6 +394,23 @@ export class Prompt {
     if (key.kind === 'interrupt') {
       this.shortcutsOpen = false
       this.handlers.interrupt()
+      return
+    }
+    const viewing = this.view_
+    if (viewing !== undefined) {
+      if (key.kind === 'escape') {
+        viewing.resolve()
+        return
+      }
+      if (key.kind === 'scroll') viewing.viewer.move({ kind: 'line', lines: key.lines }, this.theme, this.console.contentColumns, this.console.rows)
+      else if (key.kind === 'turn') viewing.viewer.move({ kind: 'line', lines: key.direction }, this.theme, this.console.contentColumns, this.console.rows)
+      else if (key.kind === 'up') viewing.viewer.move({ kind: 'line', lines: -1 }, this.theme, this.console.contentColumns, this.console.rows)
+      else if (key.kind === 'down') viewing.viewer.move({ kind: 'line', lines: 1 }, this.theme, this.console.contentColumns, this.console.rows)
+      else if (key.kind === 'page') viewing.viewer.move({ kind: 'page', direction: key.direction }, this.theme, this.console.contentColumns, this.console.rows)
+      else if (key.kind === 'home') viewing.viewer.move({ kind: 'home' }, this.theme, this.console.contentColumns, this.console.rows)
+      else if (key.kind === 'end' || key.kind === 'scroll-end') viewing.viewer.move({ kind: 'end' }, this.theme, this.console.contentColumns, this.console.rows)
+      else return
+      this.render()
       return
     }
     if (key.kind === 'clear-screen') {
@@ -684,6 +734,10 @@ export class Prompt {
   private render(): void {
     if (!this.console.readsKeys) return
     const columns = this.console.contentColumns
+    if (this.view_ !== undefined) {
+      this.console.setViewer(this.view_.viewer.frame(this.theme, columns, this.console.rows).rows)
+      return
+    }
     const rows: string[] = []
     let cursor = { row: 0, column: 0 }
     if (this.streaming !== undefined) rows.push(this.streaming)

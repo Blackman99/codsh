@@ -28,6 +28,7 @@ function fakeConsole(readsKeys: boolean) {
     readsKeys,
     finished: false,
     columns: 60,
+    rows: 8,
     get contentColumns() { return Math.max(1, this.columns - 1 - 2) },
     draws,
     written,
@@ -64,6 +65,8 @@ function fakeConsole(readsKeys: boolean) {
     setScrollNotice() {},
     overlays: [] as string[][],
     setOverlay(rows: readonly string[]) { this.overlays.push([...rows]) },
+    viewers: [] as (string[] | undefined)[],
+    setViewer(rows: readonly string[] | undefined) { this.viewers.push(rows === undefined ? undefined : [...rows]) },
     timelineHidden: [] as boolean[],
     setTimelineHidden(hidden: boolean) { this.timelineHidden.push(hidden) },
     readLine: () => Promise.resolve(lines.shift()),
@@ -290,6 +293,50 @@ describe('selection', () => {
     expect(calls).toEqual(['interrupt'])
     console.press({ kind: 'escape' })
     expect(await deciding).toEqual({ kind: 'cancelled' })
+  })
+})
+
+describe('fullscreen viewing', () => {
+  it('owns navigation keys until Escape restores the prompt', async () => {
+    const { prompt, console, calls } = build()
+    void prompt.read()
+    const viewing = prompt.view({
+      title: 'Code 1:1',
+      kind: 'code',
+      text: Array.from({ length: 12 }, (_, index) => `line ${index + 1}`).join('\n'),
+    })
+    expect(console.viewers.at(-1)?.[0]).toContain('Code 1:1')
+    expect(console.viewers.at(-1)?.join('\n')).toContain('line 1')
+
+    console.press({ kind: 'scroll', lines: 1 })
+    expect(console.viewers.at(-1)?.join('\n')).not.toContain('line 1\n')
+    console.press({ kind: 'turn', direction: 1 })
+    console.press({ kind: 'page', direction: 1 })
+    expect(console.scrolls).toEqual([])
+    expect(calls).toEqual([])
+
+    console.press({ kind: 'home' })
+    expect(console.viewers.at(-1)?.join('\n')).toContain('line 1')
+    console.press({ kind: 'end' })
+    expect(console.viewers.at(-1)?.join('\n')).toContain('line 12')
+    console.press({ kind: 'escape' })
+    await viewing
+    expect(console.viewers.at(-1)).toBeUndefined()
+    expect(calls).toEqual([])
+    expect(console.draws.at(-1)?.rows.some(row => row.includes('╭'))).toBe(true)
+  })
+
+  it('reflows on resize and closes when its signal aborts', async () => {
+    const { prompt, console } = build()
+    const controller = new AbortController()
+    const viewing = prompt.view({ title: 'Answer 1', kind: 'answer', text: '界'.repeat(30) }, controller.signal)
+    const before = console.viewers.at(-1)?.join('\n') ?? ''
+    console.columns = 20
+    console.resize()
+    expect(console.viewers.at(-1)?.join('\n')).not.toBe(before)
+    controller.abort()
+    await viewing
+    expect(console.viewers.at(-1)).toBeUndefined()
   })
 })
 

@@ -1311,6 +1311,40 @@ describe('the block under the pointer', () => {
   })
 })
 
+describe('fullscreen viewer layer', () => {
+  it('hides transcript chrome and timeline, then restores the exact prior frame', () => {
+    const sink = host(7, 40)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['box', 'status'], { row: 0, column: 0 }, true)
+    screen.appendPrompt(['› first', ''], '| ', false)
+    screen.append(Array.from({ length: 8 }, (_, index) => `first ${index}`))
+    screen.appendPrompt(['› second', ''], '| ', false)
+    screen.append(Array.from({ length: 8 }, (_, index) => `second ${index}`))
+    screen.scrollBy(-3)
+    flush(sink)
+    screen.resize()
+    const beforeData = flush(sink)
+    const before = painted(beforeData)
+    const beforeOffset = screen.scrolledBy
+
+    screen.setViewer(['Answer 1', 'viewer row 1', 'viewer row 2', '', '', '', 'Esc closes'])
+    const viewedData = flush(sink)
+    const viewed = painted(viewedData)
+    expect(Array.from({ length: 7 }, (_, index) => viewed.get(index + 1))).toEqual([
+      'Answer 1', 'viewer row 1', 'viewer row 2', '', '', '', 'Esc closes',
+    ])
+    expect(cell(viewedData, 1, 40)).toBe(' ')
+    expect(viewedData).not.toContain('box')
+    expect(viewedData).not.toContain('status')
+
+    screen.setViewer(undefined)
+    const restoredData = flush(sink)
+    expect(painted(restoredData)).toEqual(before)
+    expect(screen.scrolledBy).toBe(beforeOffset)
+  })
+})
+
 describe('the rule down a block\'s edge', () => {
   it('repeats the rule on every row a line wraps to', () => {
     const sink = host(5, 12)

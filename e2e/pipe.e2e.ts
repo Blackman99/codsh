@@ -182,6 +182,13 @@ describe('dsh code (real profile, keyless model)', () => {
     expect(run.stdout).not.toContain('\u001B]52;c;')
   }, E2E_TEST_TIMEOUT_MS)
 
+  it('refuses /view without adding full-screen UI to a pipe', async () => {
+    const run = await runCodeCli({ tool: 'markdown', input: 'explain\n/view 1\n/exit\n' })
+
+    expect(run.stdout).toContain('/view requires an interactive terminal')
+    expect(run.stdout).not.toContain('Esc closes')
+  }, E2E_TEST_TIMEOUT_MS)
+
   it('stops asking for the rest of the session once the answer is "always"', async () => {
     const run = await runCodeCli({ tool: 'bash', input: 'run it\na\nrun it again\n/exit\n' })
 

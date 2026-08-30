@@ -257,6 +257,8 @@ export class Screen {
   private suppressNotice = false
   /** Completion menu painted over the viewport, just above the chrome. */
   private overlay: string[] = []
+  /** Transient full-screen rows replacing transcript and chrome without mutating either. */
+  private viewer: string[] | undefined
   /** A mouse selection over the transcript, in physical-row coordinates. */
   private selection: { anchor: { row: number; column: number }; focus: { row: number; column: number }; dragged: boolean } | undefined
   /** Sticky prompt pressed as display chrome; dragging cancels the click. */
@@ -900,6 +902,18 @@ export class Screen {
     this.render()
   }
 
+  /** Replace the entire visible frame with a transient reader; omit to restore it. */
+  setViewer(rows: readonly string[] | undefined): void {
+    const next = rows === undefined ? undefined : [...rows]
+    if (next === undefined && this.viewer === undefined) return
+    if (next !== undefined && this.viewer !== undefined && next.length === this.viewer.length
+      && next.every((row, index) => row === this.viewer?.[index])) return
+    this.viewer = next
+    this.painted = []
+    this.paintedTimeline = []
+    this.render()
+  }
+
   /** Hide the right-column timeline while a modal surface owns the viewport. */
   setTimelineHidden(hidden: boolean): void {
     if (hidden === this.timelineHidden) return
@@ -1436,6 +1450,28 @@ export class Screen {
    */
   private render(): void {
     if (!this.active) return
+    if (this.viewer !== undefined) {
+      const columns = this.host.columns()
+      const height = this.host.rows()
+      const shown = this.viewer.slice(0, height).map(row => truncate(row, this.contentColumns()))
+      const frame = [...shown, ...Array.from({ length: Math.max(0, height - shown.length) }, () => '')]
+      let out = SYNC_BEGIN + HIDE_CURSOR
+      frame.forEach((row, index) => {
+        if (this.painted[index] === row) return
+        out += `\u001B[${index + 1};1H${CLEAR_LINE}${' '.repeat(GUTTER)}${row}`
+      })
+      for (let index = frame.length; index < this.painted.length; index += 1) {
+        out += `\u001B[${index + 1};1H${CLEAR_LINE}`
+      }
+      for (let index = 0; index < Math.max(height, this.paintedTimeline.length); index += 1) {
+        out += `\u001B[${index + 1};${columns}H `
+      }
+      out += SYNC_END
+      this.host.write(out)
+      this.painted = frame
+      this.paintedTimeline = Array.from({ length: height }, () => ' ')
+      return
+    }
     const columns = this.host.columns()
     if (columns !== this.paintedColumns) {
       this.refreshPromptFolds()

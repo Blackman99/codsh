@@ -28,6 +28,12 @@ export function parseMarkdownFence(line: string): MarkdownFence | undefined {
   return match === null ? undefined : { language: match[1] ?? '' }
 }
 
+/** One rendered Markdown row and the raw source line that owns it. */
+export interface RenderedMarkdownRow {
+  text: string
+  source: number
+}
+
 /** An ATX heading and its text. */
 const HEADING = /^(#{1,6})\s+(.*)$/
 
@@ -364,9 +370,38 @@ function renderLine(line: string, theme: Theme, fence: FenceState): string[] {
  * Render a whole Markdown answer as terminal lines.
  * @param text - the answer, as the model produced it.
  * @param theme - styling for every construct.
+ * @param columns - optional table layout budget for a reflowing viewport.
  * @returns the output lines, blocks included.
  */
-export function renderMarkdown(text: string, theme: Theme): string[] {
-  const stream = createMarkdownStream(theme)
-  return [...text.split('\n').flatMap(line => stream.line(line)), ...stream.flush()]
+export function renderMarkdown(text: string, theme: Theme, columns?: number): string[] {
+  return renderMarkdownRows(text, theme, columns).map(row => row.text)
+}
+
+/** Render Markdown while retaining raw-line ownership for resize anchoring. */
+export function renderMarkdownRows(text: string, theme: Theme, columns?: number): RenderedMarkdownRow[] {
+  let fenceLanguage: string | undefined
+  const fence: FenceState = {
+    get: () => fenceLanguage,
+    set: (value) => { fenceLanguage = value },
+  }
+  const table: { text: string; source: number }[] = []
+  const rows: RenderedMarkdownRow[] = []
+  const drainTable = (): void => {
+    if (table.length === 0) return
+    const source = table[0]?.source ?? 0
+    rows.push(...layoutTable(table.map(row => row.text), theme, columns ?? Number.POSITIVE_INFINITY)
+      .map(rendered => ({ text: rendered, source })))
+    table.length = 0
+  }
+  const lines = text.split(/\r\n|[\r\n]/u)
+  lines.forEach((line, source) => {
+    if (fenceLanguage === undefined && TABLE_ROW.test(line)) {
+      table.push({ text: line, source })
+      return
+    }
+    drainTable()
+    rows.push(...renderLine(line, theme, fence).map(rendered => ({ text: rendered, source })))
+  })
+  drainTable()
+  return rows
 }

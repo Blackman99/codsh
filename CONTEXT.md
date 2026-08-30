@@ -67,6 +67,15 @@ block. `/copy` selects these newest-first; `/copy N` copies raw Markdown and
 Sticky turn headers, Rules, and ANSI styling never enter this index.
 _Avoid_: screen row, rendered block number
 
+**Fullscreen viewer**:
+A transient reader over one Content address, opened by `/view`, `/view N`, or
+`/view N:C`. It replaces transcript and Chrome for the lifetime of the modal,
+reflows raw Markdown or fence-free code at the current terminal size, and gives
+wheel, shifted arrows, Page, Home/End, and Escape to reading. Closing restores
+the exact prior Viewport; the viewer never adds a Prompt, Fold, search hit,
+session event, clipboard write, or pipe output.
+_Avoid_: pager process, transcript view
+
 **Chrome**:
 The bottom-pinned rows: input box, menus, hint row, status row. Never scrolls.
 

@@ -347,6 +347,81 @@ describe.skipIf(process.platform === 'win32')('the first five minutes', () => {
     expect(output).not.toContain('\u001B]52;c;')
   }, E2E_TEST_TIMEOUT_MS)
 
+  it('views answers and code full-screen, then restores the exact prior viewport', async () => {
+    const run = await drivePtySteps('markdown', [
+      ['Welcome to codsh', `explain${ENTER}`, 300],
+      ['CODE_CLI_CALL_STREAM_DONE', `/view${ENTER}`, 300],
+      ['View content', ENTER, 300],
+      ['Esc closes', '\u001B[6~', 300],
+      ['Esc closes', '\u001B', 300],
+      ['Ask anything', `/view 1:1${ENTER}`, 300],
+      ['Esc closes', '\u001B', 300],
+      ['Ask anything', `/view 9:9${ENTER}`, 300],
+      ['was not found', '', 1_700],
+      ['', `/exit${ENTER}`, 400],
+    ], { rows: 12 })
+    const captured = (offset: number | undefined): string => Buffer.from(run.output).subarray(0, offset).toString()
+    const at = (index: number): string[] => screenOf(captured(run.offsets[index]), -1, 12).alternate
+    const before = at(1)
+    const answer = at(3)
+    const paged = at(4)
+    const afterAnswer = at(5)
+    const code = at(6)
+    const afterCode = at(7)
+    const afterFailure = at(9)
+
+    expect(answer[0]).toContain('Answer 1')
+    expect(answer.at(-1)).toContain('Esc closes')
+    expect(answer.join('\n')).not.toContain('Ask anything')
+    expect(paged).not.toEqual(answer)
+    expect(afterAnswer).toEqual(before)
+    expect(code[0]).toContain('Code 1:1')
+    expect(code.join('\n')).toContain('const answer = "text" // a comment')
+    expect(code.join('\n')).not.toContain('```')
+    expect(afterCode).toEqual(before)
+    expect(afterFailure).toEqual(before)
+  }, E2E_TEST_TIMEOUT_MS)
+
+  it('reports a failed /view in chrome without adding it to the transcript', async () => {
+    const run = await drivePtySteps('write', [
+      ['Welcome to codsh', `/view 1${ENTER}`, 300],
+      ['no viewable assistant answers', '', 1_700],
+      ['', `/exit${ENTER}`, 400],
+    ])
+    const settled = screenOf(Buffer.from(run.output).subarray(0, run.offsets[2]).toString(), -1).alternate
+    expect(settled.join('\n')).not.toContain('/view 1')
+    expect(run.output).not.toContain('Esc closes')
+  }, E2E_TEST_TIMEOUT_MS)
+
+  it('reflows a full-screen viewer across terminal resize before restoring', async () => {
+    const run = await drivePtySteps('markdown', [
+      ['Welcome to codsh', `explain${ENTER}`, 300],
+      ['CODE_CLI_CALL_STREAM_DONE', `/view 1${ENTER}`, 300],
+      ['Esc closes', '@WINSZ:9x50', 400],
+      ['Esc closes', '\u001B', 300],
+      ['Ask anything', `/exit${ENTER}`, 400],
+    ], { rows: 12 })
+    const resizeAt = run.offsets[2] ?? 0
+    const bytes = Buffer.from(run.output)
+    const afterResize = run.offsets[3] ?? bytes.length
+    const terminal = new Terminal(12, PTY_COLUMNS)
+    terminal.feed(bytes.subarray(0, resizeAt).toString())
+    terminal.resize(9, 50)
+    terminal.feed(bytes.subarray(resizeAt, afterResize).toString())
+    expect(terminal.alternate).toHaveLength(9)
+    expect(terminal.alternate[0]).toContain('Answer 1')
+    expect(terminal.alternate.at(-1)).toContain('Esc closes')
+    expect(terminal.alternate.join('\n')).not.toContain('Ask anything')
+    for (const row of terminal.alternate) expect(row.length).toBeLessThanOrEqual(50)
+
+    const restored = new Terminal(12, PTY_COLUMNS)
+    restored.feed(bytes.subarray(0, resizeAt).toString())
+    restored.resize(9, 50)
+    restored.feed(bytes.subarray(resizeAt, run.offsets[4] ?? bytes.length).toString())
+    expect(restored.alternate.join('\n')).toContain('Ask anything')
+    expect(restored.alternate.join('\n')).not.toContain('Answer 1')
+  }, E2E_TEST_TIMEOUT_MS)
+
   it('folds a finished long answer on moving on, and reopens it on Ctrl+O', async () => {
     const output = await drivePty('markdown', [
       ['Welcome to codsh', `explain${ENTER}`, 300],
