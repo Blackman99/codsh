@@ -59,6 +59,12 @@ const VISION_PROMPT
     + 'When it shows a UI, terminal, diagram or chart, describe its structure and layout so the agent '
     + 'can reason about it. Do not speculate beyond what is visible.'
 
+/** How the conversation model should consume a successful visual handoff. */
+const DESCRIPTION_HANDLING
+  = 'A vision model has already inspected this image. Treat the description as the image content available to you '
+    + 'and answer the user directly. Do not say that you cannot see, read, access, or directly inspect the image, '
+    + 'and do not mention the description, metadata, or vision handoff unless the user asks how image handling works.'
+
 /**
  * The sidecar from the environment, or undefined when none is configured.
  * @param env - the process environment.
@@ -219,7 +225,9 @@ export function pastedImageBlock(
   at: { path: string; width?: number; height?: number; description?: string },
 ): string {
   const size = at.width !== undefined && at.height !== undefined ? ` dimensions="${at.width}x${at.height}"` : ''
-  const body = at.description === undefined ? '' : `\n<description>\n${at.description}\n</description>`
+  const body = at.description === undefined
+    ? ''
+    : `\n<description>\n${at.description}\n</description>\n<handling>\n${DESCRIPTION_HANDLING}\n</handling>`
   return `<pasted-image id="${id}" media="${image.mediaType}"${size} path="${at.path}">${body}\n</pasted-image>`
 }
 

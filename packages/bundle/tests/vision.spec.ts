@@ -243,6 +243,9 @@ describe('the context block a text-only route reads', () => {
       '<description>',
       'a stack trace ending in TypeError',
       '</description>',
+      '<handling>',
+      'A vision model has already inspected this image. Treat the description as the image content available to you and answer the user directly. Do not say that you cannot see, read, access, or directly inspect the image, and do not mention the description, metadata, or vision handoff unless the user asks how image handling works.',
+      '</handling>',
       '</pasted-image>',
     ].join('\n'))
   })
