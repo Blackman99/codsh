@@ -57,6 +57,12 @@ export class Selector {
 
   constructor(private readonly spec: SelectSpec) {}
 
+  /** Original option index currently marked, absent for an empty/custom row. */
+  get highlighted(): number | undefined {
+    if (this.isCustom(this.selected)) return undefined
+    return this.matching()[this.selected]
+  }
+
   /** Original option indices currently shown, in order. */
   private matching(): number[] {
     const options = this.spec.options

@@ -60,6 +60,11 @@ describe('KeyDecoder', () => {
     expect(decode(bytes)).toEqual([{ kind }])
   })
 
+  it('uses shifted horizontal arrows for semantic turn navigation', () => {
+    expect(decode(`${ESC}[1;2D`)).toEqual([{ kind: 'turn', direction: -1 }])
+    expect(decode(`${ESC}[1;2C`)).toEqual([{ kind: 'turn', direction: 1 }])
+  })
+
   it('reassembles a sequence split across reads', () => {
     // A terminal is free to deliver `ESC`, `[`, `A` as three reads.
     expect(decode(ESC, '[', 'A')).toEqual([{ kind: 'up' }])

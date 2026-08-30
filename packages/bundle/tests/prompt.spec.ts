@@ -85,6 +85,7 @@ function build(readsKeys = true, clipboard?: () => Promise<{ data: Buffer; media
     interrupt: () => void calls.push('interrupt'),
     escape: () => void calls.push('escape'),
     eof: () => void calls.push('eof'),
+    turn: direction => void calls.push(`turn:${direction}`),
     ...clipboard === undefined ? {} : { readClipboardImage: clipboard },
   })
   return { prompt, console, calls }
@@ -142,7 +143,8 @@ describe('reading on a terminal', () => {
     void prompt.read()
     console.press({ kind: 'interrupt' })
     console.press({ kind: 'escape' })
-    expect(calls).toEqual(['interrupt', 'escape'])
+    console.press({ kind: 'turn', direction: -1 })
+    expect(calls).toEqual(['interrupt', 'escape', 'turn:-1'])
   })
 
   it('answers an outstanding read with nothing on end-of-file', async () => {
@@ -251,6 +253,22 @@ describe('selection', () => {
     console.press({ kind: 'down' })
     console.press({ kind: 'enter' })
     expect(await deciding).toEqual({ kind: 'chosen', indices: [1] })
+  })
+
+  it('reports selector highlight changes for reversible previews', async () => {
+    const { prompt, console } = build()
+    const highlighted: number[] = []
+    const deciding = prompt.select({
+      title: 'Jump',
+      options: [{ label: 'first' }, { label: 'second' }],
+      filterable: true,
+    }, undefined, index => highlighted.push(index))
+
+    console.press({ kind: 'down' })
+    console.press({ kind: 'escape' })
+
+    expect(await deciding).toEqual({ kind: 'cancelled' })
+    expect(highlighted).toEqual([0, 1])
   })
 
   it('cancels the selection when its signal aborts', async () => {

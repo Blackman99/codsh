@@ -97,6 +97,12 @@ describe('the custom row', () => {
     expect(drive(new Selector(withCustom), [key('up'), key('enter')])).toEqual({ kind: 'custom' })
   })
 
+  it('does not expose the custom row as an option preview', () => {
+    const selector = new Selector(withCustom)
+    selector.handle(key('up'))
+    expect(selector.highlighted).toBeUndefined()
+  })
+
   it('reaches it by digit too', () => {
     expect(drive(new Selector(withCustom), [{ kind: 'text', text: '4' }])).toEqual({ kind: 'custom' })
   })
@@ -127,6 +133,15 @@ describe('filterable', () => {
       key('down'),
       key('enter'),
     ])).toEqual({ kind: 'chosen', indices: [1] })
+  })
+
+  it('exposes the marked original index to preview callers', () => {
+    const selector = new Selector(catalog)
+    expect(selector.highlighted).toBe(0)
+    selector.handle({ kind: 'text', text: 'gpt' })
+    expect(selector.highlighted).toBe(2)
+    selector.handle({ kind: 'text', text: 'zzz' })
+    expect(selector.highlighted).toBeUndefined()
   })
 
   it('edits the query with Backspace', () => {

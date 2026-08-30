@@ -19,7 +19,7 @@ import { spawn } from 'node:child_process'
 import { createInterface } from 'node:readline'
 import type { Interface } from 'node:readline'
 import { DISABLE_PASTE_MARKERS, ENABLE_PASTE_MARKERS, KeyDecoder } from './keys.ts'
-import type { HoverBlock } from './screen.ts'
+import type { HoverBlock, TurnReference } from './screen.ts'
 import { GUTTER, Screen } from './screen.ts'
 import type { Key } from './keys.ts'
 
@@ -283,6 +283,26 @@ export class TerminalConsole {
   /** Physical rows currently scrolled out of view; zero means at the tail. */
   get scrolledBy(): number {
     return this.screen?.scrolledBy ?? 0
+  }
+
+  /** Real user turns retained by the interactive viewport. */
+  get turnList(): TurnReference[] {
+    return this.screen?.turnList ?? []
+  }
+
+  /** Zero-based turn owning the current viewport. */
+  get currentTurn(): number | undefined {
+    return this.screen?.currentTurn
+  }
+
+  /** Reveal one real user turn. */
+  jumpToTurn(index: number): boolean {
+    return this.screen?.jumpToTurn(index) ?? false
+  }
+
+  /** Restore a captured physical scroll distance. */
+  restoreScroll(offset: number): void {
+    this.screen?.restoreScroll(offset)
   }
 
   /**

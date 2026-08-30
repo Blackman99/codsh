@@ -219,6 +219,95 @@ describe('painting', () => {
 })
 
 describe('scrolling', () => {
+  it('lists real prompt turns and reveals either one at the viewport top', () => {
+    const sink = host(6, 40)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['status'], { row: 0, column: 0 }, false)
+    screen.appendPrompt(['› first question', ''], '| ')
+    screen.append(['old 1', 'old 2', 'old 3', 'old 4'])
+    screen.appendPrompt(['› second question', ''], '| ')
+    screen.append(['new 1', 'new 2', 'new 3', 'new 4', 'new 5'])
+    flush(sink)
+
+    expect(screen.turnList).toEqual([
+      { index: 0, summary: '› first question' },
+      { index: 1, summary: '› second question' },
+    ])
+    expect(screen.currentTurn).toBe(1)
+    expect(screen.jumpToTurn(0)).toBe(true)
+    expect(screen.currentTurn).toBe(0)
+    expect(painted(flush(sink)).get(1)).toBe('| › first question')
+
+    const saved = screen.scrolledBy
+    expect(screen.jumpToTurn(1)).toBe(true)
+    screen.restoreScroll(saved)
+    expect(screen.currentTurn).toBe(0)
+    expect(screen.jumpToTurn(99)).toBe(false)
+  })
+
+  it('keeps the latest turn current after both answers become folds', () => {
+    const sink = host(12, 120)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['box top', 'box', 'box bottom', 'status'], { row: 1, column: 0 }, false)
+    screen.appendPrompt(['› first sticky prompt', ''], '| ')
+    screen.append(Array.from({ length: 45 }, (_, index) => `first ${index}`))
+    screen.foldBack(45, ['first summary', ''], 'answer')
+    screen.appendPrompt(['› second sticky prompt', ''], '| ')
+    screen.append(Array.from({ length: 45 }, (_, index) => `second ${index}`))
+    screen.foldBack(45, ['second summary', ''], 'answer')
+
+    expect(screen.currentTurn).toBe(1)
+    expect(screen.jumpToTurn(0)).toBe(true)
+    expect(screen.currentTurn).toBe(0)
+  })
+
+  it('treats the latest prompt as current while the whole short transcript fits', () => {
+    const sink = host(20, 80)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['status'], { row: 0, column: 0 }, false)
+    screen.appendPrompt(['› first', ''], '| ')
+    screen.append(['answer'])
+    screen.appendPrompt(['› second', ''], '| ')
+    screen.append(['answer'])
+
+    expect(screen.scrolledBy).toBe(0)
+    expect(screen.currentTurn).toBe(1)
+  })
+
+  it('keeps a scrolled viewport fixed when command output appends below it', () => {
+    const sink = host(6, 40)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['status'], { row: 0, column: 0 }, false)
+    screen.append(Array.from({ length: 20 }, (_, index) => `row ${index}`))
+    screen.scrollBy(-5)
+    flush(sink)
+    const before = screen.scrolledBy
+
+    screen.append(['command result', ''])
+
+    expect(screen.scrolledBy).toBe(before + 2)
+    expect(flush(sink)).not.toContain('command result')
+  })
+
+  it('reveals the first row of an expanded prompt that is not sticky', () => {
+    const sink = host(7, 40)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['status'], { row: 0, column: 0 }, false)
+    screen.appendPrompt(['› first row', '  second row', '  third row', '  fourth row', ''], '| ')
+    screen.toggleFolds()
+    screen.append(Array.from({ length: 12 }, (_, index) => `answer ${index}`))
+    screen.setScrollNotice('↑ history')
+    flush(sink)
+
+    expect(screen.jumpToTurn(0)).toBe(true)
+    expect(painted(flush(sink)).get(1)).toBe('| › first row')
+  })
+
   it('pins the user prompt over the response section it owns', () => {
     const sink = host(6, 40)
     const screen = new Screen(sink)
@@ -304,6 +393,7 @@ describe('scrolling', () => {
     screen.setChrome(['status'], { row: 0, column: 0 }, false)
     screen.appendPrompt(['› old prompt', ''], '| ')
     screen.clearTranscript()
+    expect(screen.turnList).toEqual([])
     screen.append(['fresh 1', 'fresh 2', 'fresh 3', 'fresh 4', 'fresh 5', 'fresh 6'])
     flush(sink)
 
@@ -331,6 +421,7 @@ describe('scrolling', () => {
 
     screen.resize()
     const rows = painted(flush(sink))
+    expect(screen.turnList).toEqual([{ index: 0, summary: '› retained a retained b retained c retained d' }])
     expect(rows.get(1)).toBe('tail 15')
   })
 
@@ -496,10 +587,9 @@ describe('scrolling', () => {
     screen.scrollBy(-2)
     flush(sink)
     screen.append(['six'])
-    // Still two rows from the tail — reading is not yanked forward.
-    expect(screen.scrolledBy).toBe(2)
-    const rows = painted(flush(sink))
-    expect([rows.get(1), rows.get(2), rows.get(3)]).toEqual(['two', 'three', 'four'])
+    // The same logical rows stay put while the tail grows below the reader.
+    expect(screen.scrolledBy).toBe(3)
+    expect(painted(flush(sink)).size).toBe(0)
   })
 })
 

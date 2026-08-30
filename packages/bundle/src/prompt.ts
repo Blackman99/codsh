@@ -46,6 +46,8 @@ export interface PromptHandlers {
   shiftTab?(): void
   /** Ctrl-O: show the last clipped tool output in full. */
   expandOutput?(): void
+  /** Shift-Left/Right: move between real user turns. */
+  turn?(direction: -1 | 1): void
   /**
    * Ctrl-V: the system clipboard's image, or undefined for none.
    *
@@ -81,6 +83,8 @@ interface ActiveSelect {
   selector: Selector
   resolve(outcome: SelectOutcome): void
   dispose(): void
+  preview?: (index: number) => void
+  highlighted?: number
 }
 
 /** Drives the input box and answers reads and selections. */
@@ -315,7 +319,7 @@ export class Prompt {
    * @param signal - cancels the selection, which an aborted tool call does.
    * @returns how the person decided.
    */
-  select(spec: SelectSpec, signal?: AbortSignal): Promise<SelectOutcome> {
+  select(spec: SelectSpec, signal?: AbortSignal, preview?: (index: number) => void): Promise<SelectOutcome> {
     if (this.console.finished || signal?.aborted === true) {
       return Promise.resolve({ kind: 'cancelled' })
     }
@@ -326,11 +330,16 @@ export class Prompt {
         this.render()
       }
       const onAbort = (): void => { settle({ kind: 'cancelled' }) }
+      const selector = new Selector(spec)
+      const highlighted = selector.highlighted
       this.select_ = {
-        selector: new Selector(spec),
+        selector,
         resolve: settle,
         dispose: () => { signal?.removeEventListener('abort', onAbort) },
+        ...preview === undefined ? {} : { preview },
+        ...highlighted === undefined ? {} : { highlighted },
       }
+      if (highlighted !== undefined) preview?.(highlighted)
       signal?.addEventListener('abort', onAbort, { once: true })
       this.render()
     })
@@ -431,6 +440,11 @@ export class Prompt {
       this.render()
       return
     }
+    if (key.kind === 'turn') {
+      this.handlers.turn?.(key.direction)
+      this.render()
+      return
+    }
     // The terminal cannot select while mouse reporting is on, so the viewport
     // does: press anchors, motion extends, release copies — automatically, the
     // way opencode and Claude treat a selection as the intent to copy.
@@ -471,6 +485,11 @@ export class Prompt {
         selecting.dispose()
         selecting.resolve(step.outcome)
         return
+      }
+      const highlighted = selecting.selector.highlighted
+      if (highlighted !== undefined && highlighted !== selecting.highlighted) {
+        selecting.highlighted = highlighted
+        selecting.preview?.(highlighted)
       }
       this.render()
       return

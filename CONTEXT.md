@@ -41,6 +41,12 @@ Plugin context, tools, and other injected user-role messages never start a
 turn, and the copied header is not transcript or clipboard content.
 _Avoid_: sticky message, pinned response
 
+**Turn navigation**:
+The retained real-user Prompt descriptors exposed as numbered reading anchors.
+Shift+Left/Right moves one anchor; `/jump` previews an anchor while its selector
+moves, commits on Enter, and restores the exact prior Viewport on Escape.
+Plugin-sourced user-role messages never enter this index.
+
 **Chrome**:
 The bottom-pinned rows: input box, menus, hint row, status row. Never scrolls.
 

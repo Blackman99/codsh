@@ -668,7 +668,7 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
   // `/init` and `/ship` built in, plus whatever command files the person defined.
   const custom = await loadCustomCommands(
     [dshHomePath('commands'), join(cwd, '.dsh', 'commands')],
-    new Set([...(commands?.list(live.agent) ?? []).map(entry => entry.name), 'exit', 'quit', 'help', 'init', 'ship', 'status', 'model', 'clear', 'resume', 'diff']),
+    new Set([...(commands?.list(live.agent) ?? []).map(entry => entry.name), 'exit', 'quit', 'help', 'init', 'ship', 'status', 'model', 'clear', 'resume', 'diff', 'jump']),
   )
   for (const warning of custom.warnings) io.console.write(theme.dim(`  skipped ${warning}`))
   const customByName = new Map(custom.commands.map(command => [command.name, command]))
@@ -755,6 +755,20 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
     expandOutput: () => {
       if (!io.console.toggleFolds()) prompt.write(theme.dim('  nothing to expand'))
     },
+    turn: (direction) => {
+      const current = io.console.currentTurn
+      const count = io.console.turnList.length
+      if (current === undefined || count === 0) {
+        prompt.setFlash(theme.dim('  no conversation turns yet'))
+        return
+      }
+      const target = Math.min(count - 1, Math.max(0, current + direction))
+      if (target === current) {
+        prompt.setFlash(theme.dim(direction < 0 ? '  already at the first turn' : '  already at the latest turn'))
+        return
+      }
+      io.console.jumpToTurn(target)
+    },
     // Ctrl-V: the prompt owns the token and the pending bytes; the platform
     // read lives here so the prompt module stays pure enough to test.
     readClipboardImage: () => readClipboardImage(process.env),
@@ -805,6 +819,46 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
       name: 'status',
       description: 'show the model, composition, permissions, and token usage',
       handler: () => ({ kind: 'success', text: statusReport(facts(branch), live.agent.session.id) }),
+    }))
+    disposers.push(commands.register({
+      name: 'jump',
+      description: 'jump to a real user turn',
+      input: { hint: '[turn]' },
+      handler: async ({ rawInput, signal }) => {
+        if (!io.console.readsKeys) return { kind: 'error', text: '/jump requires an interactive terminal' }
+        const turns = io.console.turnList
+        if (turns.length === 0) return { kind: 'success', text: 'no conversation turns yet' }
+        const typed = rawInput.trim()
+        if (typed !== '') {
+          const ordinal = Number(typed)
+          if (!Number.isInteger(ordinal) || ordinal < 1 || ordinal > turns.length) {
+            return { kind: 'error', text: `turn must be between 1 and ${turns.length}` }
+          }
+          io.console.jumpToTurn(ordinal - 1)
+          return { kind: 'success' }
+        }
+        const saved = io.console.scrolledBy
+        const offered = [...turns].reverse()
+        const outcome = await prompt.select({
+          title: 'Jump to turn',
+          options: offered.map(turn => ({ label: `${turn.index + 1}. ${turn.summary}` })),
+          filterable: true,
+        }, signal, index => {
+          const turn = offered[index]
+          if (turn !== undefined) io.console.jumpToTurn(turn.index)
+        })
+        if (outcome.kind !== 'chosen') {
+          io.console.restoreScroll(saved)
+          return { kind: 'success', text: 'view restored' }
+        }
+        const turn = offered[outcome.indices[0] ?? -1]
+        if (turn === undefined) {
+          io.console.restoreScroll(saved)
+          return { kind: 'success', text: 'view restored' }
+        }
+        io.console.jumpToTurn(turn.index)
+        return { kind: 'success' }
+      },
     }))
     disposers.push(commands.register({
       name: 'todos',

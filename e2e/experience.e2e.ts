@@ -15,7 +15,9 @@ import {
   PTY_ROWS,
   SYNC_END,
   drivePty,
+  drivePtySteps,
   finalScreen,
+  screenOf,
   screenAt,
   screenAtLast,
 } from './pty-driver.ts'
@@ -109,6 +111,46 @@ describe.skipIf(process.platform === 'win32')('the first five minutes', () => {
     expect(crossed.join('\n')).toContain('↑ 48 rows above')
     expect(returned[0]).toContain('second sticky prompt')
     expect(crossed.slice(-2)).toEqual(tail.slice(-2))
+  }, E2E_TEST_TIMEOUT_MS)
+
+  it('jumps between real user turns with shifted horizontal arrows', async () => {
+    const shiftLeft = '\u001B[1;2D'
+    const shiftRight = '\u001B[1;2C'
+    const run = await drivePtySteps('sticky', [
+      ['Welcome to codsh', `first sticky prompt${ENTER}`, 300],
+      ['STICKY_FIRST_44', `second sticky prompt${ENTER}`, 500],
+      ['51 tokens', shiftLeft, 500],
+      ['', shiftRight, 400],
+      ['', `/exit${ENTER}`, 400],
+    ], { rows: 12 })
+
+    const captured = (offset: number | undefined): string => Buffer.from(run.output).subarray(0, offset).toString()
+    const previous = screenOf(captured(run.offsets[3]), -1, 12).alternate
+    const next = screenOf(captured(run.offsets[4]), -1, 12).alternate
+    expect(previous.join('\n')).toContain('first sticky prompt')
+    expect(next.join('\n')).toContain('second sticky prompt')
+  }, E2E_TEST_TIMEOUT_MS)
+
+  it('previews /jump choices, restores on cancel, and keeps the committed turn', async () => {
+    const run = await drivePtySteps('sticky', [
+      ['Welcome to codsh', `first sticky prompt${ENTER}`, 300],
+      ['STICKY_FIRST_44', `second sticky prompt${ENTER}`, 500],
+      ['51 tokens', `/jump${ENTER}`, 300],
+      ['Jump to turn', '\u001B[B', 300],
+      ['', '\u001B', 500],
+      ['', `/jump${ENTER}`, 300],
+      ['Jump to turn', '\u001B[B', 300],
+      ['', ENTER, 500],
+      ['', `/exit${ENTER}`, 400],
+    ], { rows: 12 })
+
+    const captured = (offset: number | undefined): string => Buffer.from(run.output).subarray(0, offset).toString()
+    const preview = screenOf(captured(run.offsets[4]), -1, 12).alternate
+    const restored = screenOf(captured(run.offsets[5]), -1, 12).alternate
+    const committed = screenOf(captured(run.offsets[8]), -1, 12).alternate
+    expect(preview.join('\n')).toContain('first sticky prompt')
+    expect(restored.join('\n')).toContain('second sticky prompt')
+    expect(committed.join('\n')).toContain('first sticky prompt')
   }, E2E_TEST_TIMEOUT_MS)
 
   it('collapses a long result and names the expand key', async () => {

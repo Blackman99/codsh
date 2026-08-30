@@ -39,6 +39,7 @@ export type Key =
   | { kind: 'toggle-todos' }
   | { kind: 'history-search' }
   | { kind: 'transcript-search' }
+  | { kind: 'turn'; direction: -1 | 1 }
   | { kind: 'page'; direction: -1 | 1 }
   | { kind: 'scroll'; lines: number }
   | { kind: 'scroll-end' }
@@ -130,6 +131,8 @@ const SEQUENCES: readonly (readonly [string, Key])[] = [
   ['\u001B[6~', { kind: 'page', direction: 1 }],
   ['\u001B[1;2A', { kind: 'scroll', lines: -1 }],
   ['\u001B[1;2B', { kind: 'scroll', lines: 1 }],
+  ['\u001B[1;2D', { kind: 'turn', direction: -1 }],
+  ['\u001B[1;2C', { kind: 'turn', direction: 1 }],
   ['\u001B[1;5F', { kind: 'scroll-end' }],
   ['\u001B[1;5D', { kind: 'word-left' }],
   ['\u001B[1;5C', { kind: 'word-right' }],

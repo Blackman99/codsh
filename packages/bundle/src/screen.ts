@@ -198,6 +198,14 @@ export interface HoverBlock {
   enter?: boolean
 }
 
+/** One real user turn exposed to navigation widgets. */
+export interface TurnReference {
+  /** Zero-based position in the retained transcript. */
+  index: number
+  /** Plain first-line label for selectors and previews. */
+  summary: string
+}
+
 /** What the screen writes to and measures itself against. */
 export interface ScreenHost {
   /** Emit raw bytes to the terminal. */
@@ -237,6 +245,8 @@ export class Screen {
   private offset = 0
   /** What to show while scrolled back, drawn over the viewport's top row. */
   private notice = ''
+  /** A jumped expanded prompt at row one must not be covered by that notice. */
+  private suppressNotice = false
   /** Completion menu painted over the viewport, just above the chrome. */
   private overlay: string[] = []
   /** A mouse selection over the transcript, in physical-row coordinates. */
@@ -303,6 +313,58 @@ export class Screen {
     return this.offset
   }
 
+  /** Real user turns retained in this Screen, oldest first. */
+  get turnList(): TurnReference[] {
+    return this.prompts.map((prompt, index) => {
+      const summary = prompt.full
+        .filter(line => line !== '')
+        .map(line => line.replaceAll(STYLES, '').trim())
+        .join(' ')
+        .replace(/\s+/gu, ' ')
+        .trim()
+      return { index, summary }
+    })
+  }
+
+  /** Turn owning the top of the current viewport, or the latest at the tail. */
+  get currentTurn(): number | undefined {
+    const layouts = this.promptLayouts()
+    if (layouts.length === 0) return undefined
+    if (this.offset === 0) return layouts.length - 1
+    const frame = this.frameLayout()
+    if (frame.sticky !== undefined) return frame.sticky.prompt
+    let current = 0
+    for (const [index, layout] of layouts.entries()) {
+      if (layout.at > frame.first) break
+      current = index
+    }
+    return current
+  }
+
+  /** Reveal one retained turn with its inline prompt at the viewport top. */
+  jumpToTurn(index: number): boolean {
+    const layout = this.promptLayouts()[index]
+    if (layout === undefined) return false
+    const height = this.viewportHeight()
+    const limit = Math.max(0, this.physical.length - height)
+    const canStick = layout.prompt.fold?.expanded !== true
+    // Cross one row past an eligible inline prompt so Sticky owns row one and
+    // the notice uses its gap. Expanded prompts stay inline at their first row.
+    const top = layout.at + (canStick ? Math.min(1, layout.rows.length) : 0)
+    this.suppressNotice = !canStick
+    this.offset = Math.min(limit, Math.max(0, this.physical.length - top - height))
+    this.render()
+    return true
+  }
+
+  /** Restore a previously captured physical scroll distance. */
+  restoreScroll(offset: number): void {
+    const limit = Math.max(0, this.physical.length - this.viewportHeight())
+    this.offset = Math.min(limit, Math.max(0, offset))
+    this.suppressNotice = false
+    this.render()
+  }
+
   /** Incremental find over the scrollback, absent when find is closed. */
   get transcriptSearch(): { query: string; hits: number; index: number } | undefined {
     if (this.find === undefined) return undefined
@@ -340,6 +402,8 @@ export class Screen {
    */
   append(lines: readonly string[], rule = ''): void {
     if (lines.length === 0) return
+    const heldEnd = this.offset > 0 ? this.physical.length - this.offset : undefined
+    let trimmed = false
     const columns = this.contentColumns()
     for (const line of lines) {
       // A blank line keeps no rule: the separator between blocks would
@@ -355,6 +419,7 @@ export class Screen {
     }
     this.ranges = undefined
     if (this.logical.length > MAX_SCROLLBACK) {
+      trimmed = true
       const dropped = this.logical.length - MAX_SCROLLBACK
       this.logical.splice(0, dropped)
       this.rules.splice(0, dropped)
@@ -374,6 +439,9 @@ export class Screen {
       // A hovered block may have been cut from the head.
       this.hovered = undefined
       this.rewrap()
+    }
+    if (heldEnd !== undefined && !trimmed) {
+      this.offset = Math.max(0, this.physical.length - heldEnd)
     }
     this.render()
   }
@@ -771,6 +839,7 @@ export class Screen {
     const next = Math.min(limit, Math.max(0, this.offset - delta))
     if (next === this.offset) return
     this.offset = next
+    this.suppressNotice = false
     this.render()
   }
 
@@ -787,6 +856,7 @@ export class Screen {
   scrollToBottom(): void {
     if (this.offset === 0) return
     this.offset = 0
+    this.suppressNotice = false
     this.render()
   }
 
@@ -842,6 +912,7 @@ export class Screen {
 
   /** Scroll so the current hit is in the viewport, then paint. */
   private revealFindHit(): void {
+    this.suppressNotice = false
     const hit = this.find?.hits[this.find.index]
     if (hit === undefined) {
       this.render()
@@ -876,6 +947,7 @@ export class Screen {
     this.find = undefined
     this.expanded = false
     this.offset = 0
+    this.suppressNotice = false
     this.painted = []
     this.render()
   }
@@ -1269,7 +1341,7 @@ export class Screen {
       viewport = [...visible, ...padding]
       // Scrolled back, the top row says so — replacing a row rather than adding
       // one, so the rest of the layout does not shift under the reader.
-      if (this.offset > 0 && this.notice !== '' && viewport.length > 0) {
+      if (this.offset > 0 && this.notice !== '' && !this.suppressNotice && viewport.length > 0) {
         viewport[0] = truncate(this.notice, this.contentColumns())
       }
     }
