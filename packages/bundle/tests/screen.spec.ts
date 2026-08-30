@@ -422,6 +422,46 @@ describe('scrolling', () => {
     expect(flush(sink)).not.toContain('command result')
   })
 
+  it('keeps a logical viewport bookmark stable across resize and turn previews', () => {
+    const sink = host(7, 40)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['status'], { row: 0, column: 0 }, false)
+    screen.appendPrompt(['› first question', ''], '| ', false)
+    screen.append(Array.from({ length: 18 }, (_, index) => `first answer ${index} xxxxxxxxxxxxxxxxxxxx`))
+    screen.appendPrompt(['› second question', ''], '| ', false)
+    screen.append(Array.from({ length: 18 }, (_, index) => `second answer ${index} xxxxxxxxxxxxxxxxxxxx`))
+    screen.scrollBy(-18)
+    flush(sink)
+
+    const bookmark = screen.captureViewportBookmark()
+    const before = [...painted((screen.resize(), flush(sink))).values()].find(row => row.includes('first answer'))
+    expect(bookmark).toBeDefined()
+    expect(before).toBeDefined()
+
+    screen.jumpToTurn(1)
+    sink.size.columns = 24
+    screen.resize()
+    screen.restoreViewportBookmark(bookmark)
+
+    const after = [...painted(flush(sink)).values()].find(row => row.includes('first answer'))
+    expect(after?.match(/first answer \d+/u)?.[0]).toBe(before?.match(/first answer \d+/u)?.[0])
+  })
+
+  it('keeps a manual reading position while scrollback trimming appends below it', () => {
+    const sink = host(6, 40)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['status'], { row: 0, column: 0 }, false)
+    screen.append(Array.from({ length: 5000 }, (_, index) => `row ${index}`))
+    screen.scrollBy(-100)
+    flush(sink)
+
+    screen.append(Array.from({ length: 10 }, (_, index) => `new ${index}`))
+
+    expect(screen.scrolledBy).toBe(110)
+  })
+
   it('reveals the first row of an expanded prompt that is not sticky', () => {
     const sink = host(7, 40)
     const screen = new Screen(sink)
@@ -1629,6 +1669,38 @@ describe('transcript search', () => {
     screen.clearTranscriptSearch()
     expect(screen.transcriptSearch).toBeUndefined()
     expect(flush(sink)).toContain('alpha')
+  })
+
+  it('keeps the selected logical hit highlighted after resize reflows its row', () => {
+    const sink = host(7, 40)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['box'], { row: 0, column: 0 }, false)
+    screen.append(['prefix words before needle and words after it', 'tail 1', 'tail 2', 'tail 3', 'tail 4'])
+    screen.searchTranscript('needle')
+    flush(sink)
+
+    sink.size.columns = 18
+    screen.resize()
+
+    expect(screen.transcriptSearch).toEqual({ query: 'needle', hits: 1, index: 0 })
+    expect(flush(sink)).toContain('\u001B[7mneedle\u001B[27m')
+  })
+
+  it('keeps a selected hit aligned when a fold above it changes logical height', () => {
+    const sink = host(7, 40)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['box'], { row: 0, column: 0 }, false)
+    screen.appendFold(['summary'], ['full one', 'full two', 'full three', 'full four'])
+    screen.append(['needle target', 'tail 1', 'tail 2', 'tail 3', 'tail 4', 'tail 5'])
+    screen.searchTranscript('needle')
+    flush(sink)
+
+    screen.toggleFolds()
+
+    expect(screen.transcriptSearch).toEqual({ query: 'needle', hits: 1, index: 0 })
+    expect(flush(sink)).toContain('\u001B[7mneedle\u001B[27m')
   })
 
   it('scrolls an off-screen hit into view', () => {

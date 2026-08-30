@@ -198,6 +198,21 @@ interface ViewportAnchor {
   within: number
 }
 
+/** A modal-safe reading position that survives prompt reflow. */
+export type ViewportBookmark =
+  | { kind: 'tail' }
+  | { kind: 'head'; logical: number; within: number }
+  | { kind: 'turn'; turn: number; section: 'prompt' | 'response'; line: number; within: number }
+
+/** One physical search match, plus its stable identity in the logical buffer. */
+interface FindHit {
+  row: number
+  start: number
+  end: number
+  logical: number
+  occurrence: number
+}
+
 /** What the pointer is resting on, for a surface that names it. */
 export interface HoverBlock {
   /** What the block is, e.g. `thinking`. */
@@ -298,7 +313,7 @@ export class Screen {
    */
   private ranges: { fold: Fold; from: number; to: number }[] | undefined
   /** Incremental find over the owned scrollback, absent when find is closed. */
-  private find: { query: string; hits: { row: number; start: number; end: number }[]; index: number } | undefined
+  private find: { query: string; hits: FindHit[]; index: number } | undefined
   /** The last painted frame, so a repaint only touches rows that changed. */
   private painted: string[] = []
   /** Width the current frame was painted at, to detect a resize. */
@@ -391,6 +406,52 @@ export class Screen {
     this.render()
   }
 
+  /** Capture a reading position in turn-relative logical coordinates. */
+  captureViewportBookmark(): ViewportBookmark | undefined {
+    if (this.offset === 0) return { kind: 'tail' }
+    const anchor = this.viewportAnchor()
+    if (anchor === undefined) return undefined
+    let turn = -1
+    for (const [index, prompt] of this.prompts.entries()) {
+      if (prompt.at > anchor.logical) break
+      turn = index
+    }
+    if (turn < 0) return { kind: 'head', ...anchor }
+    const prompt = this.prompts[turn]
+    if (prompt === undefined) return { kind: 'head', ...anchor }
+    const responseAt = prompt.at + prompt.shownLength
+    return anchor.logical < responseAt
+      ? { kind: 'turn', turn, section: 'prompt', line: anchor.logical - prompt.at, within: anchor.within }
+      : { kind: 'turn', turn, section: 'response', line: anchor.logical - responseAt, within: anchor.within }
+  }
+
+  /** Restore a reading position after modal previews and terminal reflow. */
+  restoreViewportBookmark(bookmark: ViewportBookmark | undefined): void {
+    if (bookmark === undefined) return
+    if (bookmark.kind === 'tail') {
+      this.scrollToBottom()
+      return
+    }
+    let anchor: ViewportAnchor
+    if (bookmark.kind === 'head') {
+      anchor = { logical: bookmark.logical, within: bookmark.within }
+    } else {
+      const prompt = this.prompts[bookmark.turn]
+      if (prompt === undefined) return
+      const base = bookmark.section === 'prompt' ? prompt.at : prompt.at + prompt.shownLength
+      const next = this.prompts[bookmark.turn + 1]
+      const end = bookmark.section === 'prompt' ? prompt.at + prompt.shownLength : next?.at ?? this.logical.length
+      anchor = {
+        logical: Math.min(base + bookmark.line, Math.max(base, end - 1)),
+        within: bookmark.within,
+      }
+    }
+    this.clearTailAnchor()
+    this.suppressNotice = false
+    this.restoreViewportAnchor(anchor)
+    this.render()
+  }
+
   /** Incremental find over the scrollback, absent when find is closed. */
   get transcriptSearch(): { query: string; hits: number; index: number } | undefined {
     if (this.find === undefined) return undefined
@@ -431,6 +492,8 @@ export class Screen {
   append(lines: readonly string[], rule = ''): void {
     if (lines.length === 0) return
     const heldEnd = this.offset > 0 ? this.physical.length - this.offset : undefined
+    const heldAnchor = this.offset > 0 ? this.viewportAnchor() : undefined
+    let mappedAnchor = heldAnchor
     let trimmed = false
     const columns = this.contentColumns()
     for (const line of lines) {
@@ -449,6 +512,8 @@ export class Screen {
     if (this.logical.length > MAX_SCROLLBACK) {
       trimmed = true
       const dropped = this.logical.length - MAX_SCROLLBACK
+      mappedAnchor = this.mapViewportAnchor(mappedAnchor, 0, dropped, 0)
+      this.mapFindHits(0, dropped, 0)
       this.logical.splice(0, dropped)
       this.rules.splice(0, dropped)
       // Folds slide with the buffer; one cut by the trim stops being a fold.
@@ -470,10 +535,12 @@ export class Screen {
       // A hovered block may have been cut from the head.
       this.hovered = undefined
       this.rewrap()
+      if (mappedAnchor !== undefined) this.restoreViewportAnchor(mappedAnchor)
     }
     if (heldEnd !== undefined && !trimmed) {
       this.offset = Math.max(0, this.physical.length - heldEnd)
     }
+    if (!trimmed) this.refreshTranscriptSearch()
     this.refreshTailAnchor(!this.installingTailAnchor)
     this.render()
   }
@@ -583,6 +650,16 @@ export class Screen {
     return { ...anchor, logical: at + Math.min(anchor.logical - at, Math.max(0, added - 1)) }
   }
 
+  /** Move cached logical search identities through one buffer replacement. */
+  private mapFindHits(at: number, removed: number, added: number): void {
+    if (this.find === undefined) return
+    for (const hit of this.find.hits) {
+      if (hit.logical < at) continue
+      if (hit.logical >= at + removed) hit.logical += added - removed
+      else hit.logical = added === 0 ? -1 : at + Math.min(hit.logical - at, added - 1)
+    }
+  }
+
   /** Rebuild prompt folds when a new width changes their visual line count. */
   private refreshPromptFolds(anchor?: ViewportAnchor): ViewportAnchor | undefined {
     let mapped = anchor
@@ -595,6 +672,7 @@ export class Screen {
         const delta = shown.length - prompt.shownLength
         if (delta !== 0 || shown.some((line, index) => line !== this.logical[prompt.at + index])) {
           mapped = this.mapViewportAnchor(mapped, prompt.at, prompt.shownLength, shown.length)
+          this.mapFindHits(prompt.at, prompt.shownLength, shown.length)
           this.logical.splice(prompt.at, prompt.shownLength, ...shown)
           this.rules.splice(prompt.at, prompt.shownLength, ...shown.map(line => line === '' ? '' : prompt.rule))
         }
@@ -610,6 +688,7 @@ export class Screen {
         const delta = shown.length - prompt.shownLength
         if (delta !== 0 || shown.some((line, index) => line !== this.logical[prompt.at + index])) {
           mapped = this.mapViewportAnchor(mapped, prompt.at, prompt.shownLength, shown.length)
+          this.mapFindHits(prompt.at, prompt.shownLength, shown.length)
           this.logical.splice(prompt.at, prompt.shownLength, ...shown)
           this.rules.splice(prompt.at, prompt.shownLength, ...shown.map(line => line === '' ? '' : prompt.rule))
         }
@@ -635,6 +714,7 @@ export class Screen {
       const delta = summary.length - prompt.shownLength
       if (delta !== 0 || summary.some((line, index) => line !== this.logical[prompt.at + index])) {
         mapped = this.mapViewportAnchor(mapped, prompt.at, prompt.shownLength, summary.length)
+        this.mapFindHits(prompt.at, prompt.shownLength, summary.length)
         this.logical.splice(prompt.at, prompt.shownLength, ...summary)
         this.rules.splice(prompt.at, prompt.shownLength, ...summary.map(line => line === '' ? '' : prompt.rule))
       }
@@ -808,6 +888,7 @@ export class Screen {
     this.clearTailAnchor()
     const shown = expanded ? fold.full : fold.summary
     const delta = shown.length - fold.shownLength
+    this.mapFindHits(fold.at, fold.shownLength, shown.length)
     this.logical.splice(fold.at, fold.shownLength, ...shown)
     this.rules.splice(fold.at, fold.shownLength, ...shown.map(line => line === '' ? '' : fold.rule))
     fold.shownLength = shown.length
@@ -862,6 +943,7 @@ export class Screen {
         continue
       }
       const shown = expanded ? fold.full : fold.summary
+      this.mapFindHits(fold.at, fold.shownLength, shown.length)
       this.logical.splice(fold.at, fold.shownLength, ...shown)
       this.rules.splice(fold.at, fold.shownLength, ...shown.map(line => line === '' ? '' : fold.rule))
       deltas.set(fold, shown.length - fold.shownLength)
@@ -1024,25 +1106,51 @@ export class Screen {
    * @returns the current find state.
    */
   searchTranscript(query: string): { query: string; hits: number; index: number } {
-    const hits: { row: number; start: number; end: number }[] = []
-    const needle = query.toLowerCase()
-    if (needle !== '') {
-      for (const [row, line] of this.physical.entries()) {
-        const plain = line.replaceAll(STYLES, '')
-        const lower = plain.toLowerCase()
-        let from = 0
-        for (;;) {
-          const at = lower.indexOf(needle, from)
-          if (at < 0) break
-          hits.push({ row, start: at, end: at + needle.length })
-          from = at + needle.length
-        }
-      }
-    }
+    const hits = this.collectFindHits(query)
     const index = hits.length === 0 ? 0 : hits.length - 1
     this.find = { query, hits, index }
     this.revealFindHit()
     return { query, hits: hits.length, index }
+  }
+
+  /** Locate physical matches while assigning each a stable logical identity. */
+  private collectFindHits(query: string): FindHit[] {
+    const hits: FindHit[] = []
+    const needle = query.toLowerCase()
+    if (needle !== '') {
+      const occurrences = new Map<number, number>()
+      for (const [row, line] of this.physical.entries()) {
+        const plain = line.replaceAll(STYLES, '')
+        const lower = plain.toLowerCase()
+        const logical = this.physicalLogical[row] ?? -1
+        let from = 0
+        for (;;) {
+          const at = lower.indexOf(needle, from)
+          if (at < 0) break
+          const occurrence = occurrences.get(logical) ?? 0
+          hits.push({ row, start: at, end: at + needle.length, logical, occurrence })
+          occurrences.set(logical, occurrence + 1)
+          from = at + needle.length
+        }
+      }
+    }
+    return hits
+  }
+
+  /** Re-index search rows after wrapping or logical splices without moving the reader. */
+  private refreshTranscriptSearch(): void {
+    const find = this.find
+    if (find === undefined) return
+    const selected = find.hits[find.index]
+    const hits = this.collectFindHits(find.query)
+    let index = Math.min(find.index, Math.max(0, hits.length - 1))
+    if (selected !== undefined) {
+      const preserved = hits.findIndex(hit =>
+        hit.logical === selected.logical && hit.occurrence === selected.occurrence)
+      if (preserved >= 0) index = preserved
+    }
+    find.hits = hits
+    find.index = index
   }
 
   /**
@@ -1450,6 +1558,7 @@ export class Screen {
         this.physicalLogical.push(at)
       }
     }
+    this.refreshTranscriptSearch()
   }
 
   /** User prompts measured in the same physical rows the viewport scrolls. */

@@ -841,7 +841,7 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
           io.console.jumpToTurn(ordinal - 1)
           return { kind: 'success' }
         }
-        const saved = io.console.scrolledBy
+        const saved = io.console.captureViewportBookmark()
         const offered = [...turns].reverse()
         const outcome = await prompt.select({
           title: 'Jump to turn',
@@ -852,12 +852,12 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
           if (turn !== undefined) io.console.jumpToTurn(turn.index)
         })
         if (outcome.kind !== 'chosen') {
-          io.console.restoreScroll(saved)
+          io.console.restoreViewportBookmark(saved)
           return { kind: 'success', text: 'view restored' }
         }
         const turn = offered[outcome.indices[0] ?? -1]
         if (turn === undefined) {
-          io.console.restoreScroll(saved)
+          io.console.restoreViewportBookmark(saved)
           return { kind: 'success', text: 'view restored' }
         }
         io.console.jumpToTurn(turn.index)

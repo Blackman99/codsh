@@ -182,26 +182,39 @@ describe.skipIf(process.platform === 'win32')('the first five minutes', () => {
     expect(next.join('\n')).toContain('second sticky prompt')
   }, E2E_TEST_TIMEOUT_MS)
 
-  it('previews /jump choices, restores on cancel, and keeps the committed turn', async () => {
+  it('previews /jump choices, restores after resize, and keeps the committed turn', async () => {
+    const wheelUp = '\u001B[<64;10;5M'.repeat(8)
     const run = await drivePtySteps('sticky', [
       ['Welcome to codsh', `first sticky prompt${ENTER}`, 300],
       ['STICKY_FIRST_44', `second sticky prompt${ENTER}`, 500],
-      ['51 tokens', `/jump${ENTER}`, 300],
+      ['51 tokens', wheelUp, 300],
+      ['rows above', `/jump${ENTER}`, 300],
       ['Jump to turn', '\u001B[B', 300],
-      ['', '\u001B', 500],
+      ['', '@WINSZ:12x20', 400],
+      ['Jump to turn', '\u001B', 500],
       ['', `/jump${ENTER}`, 300],
       ['Jump to turn', '\u001B[B', 300],
       ['', ENTER, 500],
       ['', `/exit${ENTER}`, 400],
     ], { rows: 12 })
 
-    const captured = (offset: number | undefined): string => Buffer.from(run.output).subarray(0, offset).toString()
-    const preview = screenOf(captured(run.offsets[4]), -1, 12).alternate
-    const restored = screenOf(captured(run.offsets[5]), -1, 12).alternate
-    const committed = screenOf(captured(run.offsets[8]), -1, 12).alternate
+    const bytes = Buffer.from(run.output)
+    const captured = (offset: number | undefined): string => bytes.subarray(0, offset).toString()
+    const preview = screenOf(captured(run.offsets[5]), -1, 12).alternate
+    const resizeAt = run.offsets[5] ?? 0
+    const restoredTerminal = new Terminal(12, PTY_COLUMNS)
+    restoredTerminal.feed(bytes.subarray(0, resizeAt).toString())
+    restoredTerminal.resize(12, 20)
+    restoredTerminal.feed(bytes.subarray(resizeAt, run.offsets[7] ?? bytes.length).toString())
+    const restored = restoredTerminal.alternate
+    const committedTerminal = new Terminal(12, PTY_COLUMNS)
+    committedTerminal.feed(bytes.subarray(0, resizeAt).toString())
+    committedTerminal.resize(12, 20)
+    committedTerminal.feed(bytes.subarray(resizeAt, run.offsets[10] ?? bytes.length).toString())
+    const committed = committedTerminal.alternate
     expect(preview.join('\n')).toContain('first sticky prompt')
-    expect(restored.join('\n')).toContain('second sticky prompt')
-    expect(committed.join('\n')).toContain('first sticky prompt')
+    expect(restored.join('\n')).toContain('second sticky')
+    expect(committed.join('\n')).toContain('first sticky')
   }, E2E_TEST_TIMEOUT_MS)
 
   it('collapses a long result and names the expand key', async () => {

@@ -19,7 +19,7 @@ import { spawn, spawnSync } from 'node:child_process'
 import { createInterface } from 'node:readline'
 import type { Interface } from 'node:readline'
 import { DISABLE_PASTE_MARKERS, ENABLE_PASTE_MARKERS, KeyDecoder } from './keys.ts'
-import type { HoverBlock, TurnReference } from './screen.ts'
+import type { HoverBlock, TurnReference, ViewportBookmark } from './screen.ts'
 import { GUTTER, Screen } from './screen.ts'
 import type { Key } from './keys.ts'
 
@@ -318,6 +318,16 @@ export class TerminalConsole {
   /** Restore a captured physical scroll distance. */
   restoreScroll(offset: number): void {
     this.screen?.restoreScroll(offset)
+  }
+
+  /** Capture a modal-safe logical reading position. */
+  captureViewportBookmark(): ViewportBookmark | undefined {
+    return this.screen?.captureViewportBookmark()
+  }
+
+  /** Restore a logical reading position after modal preview and reflow. */
+  restoreViewportBookmark(bookmark: ViewportBookmark | undefined): void {
+    this.screen?.restoreViewportBookmark(bookmark)
   }
 
   /**
