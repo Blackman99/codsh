@@ -261,8 +261,8 @@ function replay(session: Session, transcript: Transcript, io: CliIo, theme: Them
     const prompt = transcript.takePrompt()
     const label = transcript.takeLabel()
     const enter = transcript.takeEnter()
-    if (prompt) {
-      io.console.appendPrompt(lines, rule, false)
+    if (prompt !== undefined) {
+      io.console.appendPrompt(lines, rule, false, prompt)
       continue
     }
     if (enter !== undefined || full !== undefined) {
@@ -1208,9 +1208,9 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
       const promptBlock = viewing.transcript.takePrompt()
       const label = viewing.transcript.takeLabel()
       const enter = viewing.transcript.takeEnter()
-      if (promptBlock) {
+      if (promptBlock !== undefined) {
         prompt.setStreaming(undefined)
-        io.console.appendPrompt(lines, rule)
+        io.console.appendPrompt(lines, rule, true, promptBlock)
         return
       }
       if (enter !== undefined || full !== undefined) {
@@ -1271,9 +1271,9 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
     const promptBlock = live.transcript.takePrompt()
     const label = live.transcript.takeLabel()
     const enter = live.transcript.takeEnter()
-    if (promptBlock) {
+    if (promptBlock !== undefined) {
       prompt.setStreaming(undefined)
-      io.console.appendPrompt(lines, rule)
+      io.console.appendPrompt(lines, rule, true, promptBlock)
       return
     }
     if (enter === undefined && full === undefined) {

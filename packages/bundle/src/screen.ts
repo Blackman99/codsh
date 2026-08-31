@@ -186,6 +186,8 @@ interface TurnPrompt {
   rule: string
   /** Original logical lines, independent of the current wrapping width. */
   full: string[]
+  /** Lines the person explicitly entered, excluding generated metadata. */
+  explicitLines: number
   /** Long prompts share the fold that controls their displayed form. */
   fold?: Fold
   /** Explicit form retained while a resize temporarily removes the fold. */
@@ -554,15 +556,16 @@ export class Screen {
    * @param lines - rendered prompt lines, including its trailing separator.
    * @param rule - the user's styled left rule.
    * @param anchor - whether a live submission may reserve display-only tail space.
+   * @param explicitLines - logical text lines the person entered, excluding metadata.
    */
-  appendPrompt(lines: readonly string[], rule = '', anchor = true): void {
+  appendPrompt(lines: readonly string[], rule = '', anchor = true, explicitLines = 1): void {
     if (lines.length === 0) return
     const shouldAnchor = anchor && this.active && this.offset === 0
     if (shouldAnchor) this.clearTailAnchor()
     const full = [...lines]
     const summary = this.promptSummary(full, rule)
     if (summary === undefined) {
-      const prompt = { at: this.logical.length, shownLength: lines.length, rule, full }
+      const prompt = { at: this.logical.length, shownLength: lines.length, rule, full, explicitLines }
       this.prompts.push(prompt)
       if (shouldAnchor) this.tailAnchor = prompt
       this.installingTailAnchor = shouldAnchor
@@ -585,7 +588,7 @@ export class Screen {
       label: 'prompt',
     }
     this.folds.push(fold)
-    const prompt = { at: fold.at, shownLength: shown.length, rule, full, fold }
+    const prompt = { at: fold.at, shownLength: shown.length, rule, full, fold, explicitLines }
     this.prompts.push(prompt)
     if (shouldAnchor) this.tailAnchor = prompt
     this.installingTailAnchor = shouldAnchor
@@ -1605,7 +1608,14 @@ export class Screen {
     const sticky = computeStickyLayout(scrollTop, height, prompts.map(({ prompt, at, rows }) => ({
       at,
       fullHeight: rows.length,
-      minHeight: 1,
+      // Explicit newlines carry meaning: a short two- or three-line request
+      // must remain readable as a unit after it pins. A single logical line
+      // may still compact after wrapping, while prompts long enough to own a
+      // Fold retain the existing three-rows-to-one sticky behaviour. The
+      // count arrives from Transcript so generated image metadata is excluded.
+      minHeight: prompt.fold === undefined && prompt.explicitLines > 1
+        ? rows.length
+        : 1,
       sticky: prompt.fold?.expanded !== true,
     })))
     const contentHeight = Math.max(0, height - (sticky?.reservedRows ?? 0))

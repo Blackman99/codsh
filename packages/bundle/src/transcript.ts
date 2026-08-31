@@ -270,8 +270,8 @@ export class Transcript {
   private label = ''
   /** The left rule the block {@link render} just returned belongs to. */
   private rule = ''
-  /** Whether the block just rendered is a real user's turn prompt. */
-  private prompt = false
+  /** Explicit text lines in the real-user prompt just rendered. */
+  private prompt: number | undefined
   /** Child session a click on this card should open, when the result names one. */
   private enter: string | undefined
 
@@ -323,14 +323,13 @@ export class Transcript {
     const { theme } = this.options
     const rules = blockRules(theme)
     this.rule = ''
-    this.prompt = false
+    this.prompt = undefined
     this.enter = undefined
     switch (event.type) {
       case 'user/message': {
         // The person's own message: with the box owning the keyboard there is
         // no terminal echo, so this render is the only copy the transcript gets.
         if (event.data.source.kind !== 'user') return []
-        this.prompt = true
         this.rule = rules.user
         // Only what the person typed: a trailing <pasted-image> block is the
         // pipeline's context for the model, summarized by a meta line instead.
@@ -338,6 +337,7 @@ export class Transcript {
           .filter(block => block.type === 'text')
           .filter(block => !block.text.startsWith('<pasted-image '))
         const [first = '', ...rest] = typed.map(block => block.text).join('').split('\n')
+        this.prompt = 1 + rest.length
         const meta = imageMetaLines(event.data.content, theme)
         return [`${theme.user('›')} ${first}`, ...rest.map(line => `  ${line}`), ...meta, '']
       }
@@ -539,14 +539,14 @@ export class Transcript {
   }
 
   /**
-   * Whether the last rendered block starts a response section.
+   * Explicit text-line count when the last block starts a response section.
    *
    * Only a real `source.kind === "user"` message sets it; plugin context may
    * use the user role for the model but must never become navigation chrome.
    */
-  takePrompt(): boolean {
+  takePrompt(): number | undefined {
     const prompt = this.prompt
-    this.prompt = false
+    this.prompt = undefined
     return prompt
   }
 

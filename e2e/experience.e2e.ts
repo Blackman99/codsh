@@ -117,6 +117,18 @@ describe.skipIf(process.platform === 'win32')('the first five minutes', () => {
     expect(crossed.slice(-2)).toEqual(tail.slice(-2))
   }, E2E_TEST_TIMEOUT_MS)
 
+  it('keeps both explicit user lines in the sticky header', async () => {
+    const shiftEnter = '\u001B[13;2u'
+    const run = await drivePtySteps('sticky', [
+      ['Welcome to codsh', `你好${shiftEnter}介绍下你自己${ENTER}`, 300],
+      ['STICKY_FIRST_44', `/exit${ENTER}`, 500],
+    ], { rows: 12 })
+
+    const settled = screenOf(Buffer.from(run.output).subarray(0, run.offsets[1]).toString(), -1, 12).alternate
+    expect(settled[0]).toContain('你好')
+    expect(settled[1]).toContain('介绍下你自己')
+  }, E2E_TEST_TIMEOUT_MS)
+
   it('anchors a submitted prompt while streamed reply rows fill beneath it', async () => {
     const run = await drivePtySteps('anchor', [
       ['Welcome to codsh', `anchor this prompt${ENTER}`, 100],

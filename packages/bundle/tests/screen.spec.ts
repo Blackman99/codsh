@@ -495,6 +495,46 @@ describe('scrolling', () => {
     ])
   })
 
+  it('keeps every explicit line of a short multiline prompt in its sticky header', () => {
+    const sink = host(6, 40)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['status'], { row: 0, column: 0 }, false)
+    screen.appendPrompt(['› 你好', '  介绍下你自己', ''], '| ', true, 2)
+    screen.append(Array.from({ length: 10 }, (_, index) => `answer ${index}`))
+
+    const rows = painted(flush(sink))
+    expect(rows.get(1)).toContain('你好')
+    expect(rows.get(2)).toContain('介绍下你自己')
+  })
+
+  it('still compacts one logical prompt line that only wrapped visually', () => {
+    const sink = host(6, 18)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['status'], { row: 0, column: 0 }, false)
+    screen.appendPrompt(['› one two three four', ''], '| ')
+    expect(screen.hasFolds).toBe(false)
+    screen.append(Array.from({ length: 10 }, (_, index) => `answer ${index}`))
+
+    const rows = painted(flush(sink))
+    expect(rows.get(1)).toContain('› one two')
+    expect(rows.get(2)).toBe('')
+  })
+
+  it('does not preserve generated image metadata as an explicit sticky line', () => {
+    const sink = host(6, 40)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['status'], { row: 0, column: 0 }, false)
+    screen.appendPrompt(['› describe this', '  [image #1 · sent to the model]', ''], '| ', true, 1)
+    screen.append(Array.from({ length: 10 }, (_, index) => `answer ${index}`))
+
+    const rows = painted(flush(sink))
+    expect(rows.get(1)).toContain('describe this')
+    expect(rows.get(2)).toBe('')
+  })
+
   it('folds a long user prompt to three visual rows and expands it on demand', () => {
     const sink = host(8, 30)
     const screen = new Screen(sink)

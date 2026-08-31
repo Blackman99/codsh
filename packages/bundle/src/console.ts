@@ -447,10 +447,11 @@ export class TerminalConsole {
    * @param lines - rendered prompt lines, including its separator.
    * @param rule - the user's styled left rule; omitted from redirected output.
    * @param anchor - false while replaying retained session history.
+   * @param explicitLines - logical text lines the person entered, excluding metadata.
    */
-  appendPrompt(lines: readonly string[], rule = '', anchor = true): void {
+  appendPrompt(lines: readonly string[], rule = '', anchor = true, explicitLines = 1): void {
     if (this.screen !== undefined) {
-      this.screen.appendPrompt(lines, rule, anchor)
+      this.screen.appendPrompt(lines, rule, anchor, explicitLines)
       return
     }
     for (const line of lines) this.output.write(`${line}\n`)

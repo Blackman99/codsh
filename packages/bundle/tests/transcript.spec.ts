@@ -79,8 +79,8 @@ describe('assistant and user messages', () => {
     } as unknown as SessionEvent
     const transcript = build()
     expect(transcript.render(event)).toEqual(['› fix the bug', ''])
-    expect(transcript.takePrompt()).toBe(true)
-    expect(transcript.takePrompt()).toBe(false)
+    expect(transcript.takePrompt()).toBe(1)
+    expect(transcript.takePrompt()).toBeUndefined()
   })
 
   it('aligns a multi-line prompt under its marker, matching the input box', () => {
@@ -90,7 +90,32 @@ describe('assistant and user messages', () => {
       time: 0,
       data: { role: 'user', content: [{ type: 'text', text: 'first line\nsecond line' }], source: { kind: 'user' } },
     } as unknown as SessionEvent
-    expect(build().render(event)).toEqual(['› first line', '  second line', ''])
+    const transcript = build()
+    expect(transcript.render(event)).toEqual(['› first line', '  second line', ''])
+    expect(transcript.takePrompt()).toBe(2)
+  })
+
+  it('does not count generated image metadata as an explicit prompt line', () => {
+    const event = {
+      type: 'user/message',
+      seq: 1,
+      time: 0,
+      data: {
+        role: 'user',
+        content: [
+          { type: 'text', text: 'describe this' },
+          { type: 'text', text: '<pasted-image id="1" dimensions="20x10" media="image/png"><description>context</description></pasted-image>' },
+        ],
+        source: { kind: 'user' },
+      },
+    } as unknown as SessionEvent
+    const transcript = build()
+    expect(transcript.render(event)).toEqual([
+      '› describe this',
+      '  [image #1 · 20×10 png · described]',
+      '',
+    ])
+    expect(transcript.takePrompt()).toBe(1)
   })
 
   it('shows nothing for injected plugin context', () => {
@@ -102,7 +127,7 @@ describe('assistant and user messages', () => {
     } as unknown as SessionEvent
     const transcript = build()
     expect(transcript.render(event)).toEqual([])
-    expect(transcript.takePrompt()).toBe(false)
+    expect(transcript.takePrompt()).toBeUndefined()
   })
 
   it('reports a failed turn', () => {
