@@ -24,12 +24,17 @@ jobs:
         id: scope
         env:
           BASE: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
-        # The Version Packages commit changesets writes carries no behaviour:
-        # changelogs, the changeset files it consumed, and a version line. The
-        # tree it lands on already ran this suite on the commit that introduced
-        # the changeset, so the five minutes of end-to-end are re-proving a
-        # number. Anything else — one other file, or one other line inside a
-        # manifest — is code, and code runs everything.
+        # Some diffs cannot change what the binary does, and the five
+        # minutes of end-to-end spent on them prove nothing. Two kinds
+        # qualify: the Version Packages commit changesets writes — changelogs,
+        # the changeset files it consumed, and a version line, on a tree that
+        # already ran this suite on the commit that introduced the changeset —
+        # and prose and pictures, which ship to readers rather than to the
+        # profile. The list is spelled out rather than globbed by extension:
+        # the day a skill ships as Markdown, it should run everything, and a
+        # pattern written today would quietly decide otherwise. Anything not
+        # named here — one other file, or one other line inside a manifest —
+        # is code, and code runs everything.
         run: |
           set -euo pipefail
           verdict() { echo "heavy=$1" >> "$GITHUB_OUTPUT"; echo "$2"; exit 0; }
@@ -43,16 +48,18 @@ jobs:
           while IFS= read -r file; do
             case "$file" in
               .changeset/*.md|packages/*/CHANGELOG.md) continue ;;
+              README.md|README.zh.md|CONTEXT.md|CONTRIBUTING.md|SECURITY.md|LICENSE) continue ;;
+              docs/*|site/*|assets/*|packages/*/README.md) continue ;;
               packages/*/package.json)
                 beyond="$(git diff -U0 "$BASE" HEAD -- "$file" \
                   | grep -E '^[-+]' | grep -vE '^(\+\+\+|---)' \
                   | grep -vE '^[-+][[:space:]]*"version": "[^"]+",?$' || true)"
                 [ -z "$beyond" ] || verdict true "$file changed more than its version"
                 continue ;;
-              *) verdict true "$file is not part of a version bump" ;;
+              *) verdict true "$file can change what the binary does" ;;
             esac
           done <<< "$changed"
-          verdict false 'a version bump and nothing else: the end-to-end suite is skipped'
+          verdict false 'nothing here can change behaviour: the end-to-end suite is skipped'
       - uses: pnpm/action-setup@v4
         with:
           version: 10
