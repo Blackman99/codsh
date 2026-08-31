@@ -23,6 +23,7 @@ import { execSync } from 'node:child_process'
 import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join, relative } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { compareVersions, selectDshTarget } from './dsh-release-policy.mjs'
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..')
 
@@ -67,22 +68,6 @@ const registry = (name) =>
     if (!r.ok) throw new Error(`registry ${r.status} for ${name}`)
     return r.json()
   })
-
-/** Compare `X.Y.Z[-rc.N]` version strings. Returns -1/0/1. */
-function compareVersions(a, b) {
-  const parse = (v) => {
-    const m = /^(\d+)\.(\d+)\.(\d+)(?:-rc\.(\d+))?$/.exec(v)
-    if (!m) return null
-    return [+m[1], +m[2], +m[3], m[4] === undefined ? Infinity : +m[4]]
-  }
-  const ta = parse(a)
-  const tb = parse(b)
-  if (!ta || !tb) return a === b ? 0 : a < b ? -1 : 1
-  for (let i = 0; i < 4; i++) {
-    if (ta[i] !== tb[i]) return ta[i] < tb[i] ? -1 : 1
-  }
-  return 0
-}
 
 const stripRange = (range) => (range.startsWith('^') ? range.slice(1) : range)
 
@@ -170,13 +155,17 @@ const run = (cmd) => execSync(cmd, { cwd: root, stdio: 'inherit' })
 // ── 1. What does the harness publish right now? ────────────────────────────
 const manifests = manifestPaths.map((path) => ({ path, pkg: JSON.parse(readFileSync(path, 'utf8')) }))
 const dshMeta = await registry('@deepseek-ai/dsh')
-// The highest version actually published, not the `latest` tag: the harness
-// ships prereleases without always moving its tags — rc.8 was on the registry
-// for every dsh package while `latest` still read rc.7 — and a caret range on
-// a prerelease admits the newer one regardless of tags. What a lockfile-free
-// install would resolve is therefore the only honest target, because that is
-// what a user's profile install actually gets.
-const dshLatest = Object.keys(dshMeta.versions).reduce((a, b) => (compareVersions(a, b) < 0 ? b : a))
+const dshRange = manifests
+  .map(({ pkg }) => pkg.dependencies?.['@deepseek-ai/dsh']
+    ?? pkg.peerDependencies?.['@deepseek-ai/dsh']
+    ?? pkg.devDependencies?.['@deepseek-ai/dsh'])
+  .find((range) => range !== undefined)
+if (dshRange === undefined) throw new Error('no @deepseek-ai/dsh range found in workspace manifests')
+// A promoted `latest` opts into a new release line. Within the current range,
+// also track the highest version a lockfile-free install would resolve: the
+// harness has published same-core RCs without moving its tags. An unrelated
+// alpha tag is neither signal and must not silently move codsh onto that line.
+const dshLatest = selectDshTarget(dshMeta, dshRange)
 if (dshLatest !== dshMeta['dist-tags'].latest) {
   console.log(`note: @deepseek-ai/dsh publishes ${dshLatest}, but its latest tag still reads ${dshMeta['dist-tags'].latest}\n`)
 }
