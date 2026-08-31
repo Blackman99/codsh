@@ -393,6 +393,31 @@ describe.skipIf(process.platform === 'win32')('dsh code Escape (real PTY)', () =
     expect(recalled?.filter(row => row.includes('Write note.txt'))).toHaveLength(1)
   }, E2E_TEST_TIMEOUT_MS)
 
+  it('reads a long diff card in the pager on click, leaving the card collapsed', async () => {
+    const clickCard = '\u001B[<0;6;{row:Ctrl+O expands}M\u001B[<0;6;{row:Ctrl+O expands}m'
+    const output = await drivePty('tall', [
+      ['/help for commands', `create the tall note${ENTER}`, 300],
+      // 45 diff lines, collapsed: the card offers the reader before the key...
+      ['click reads it', clickCard, 500],
+      // ...and the click opens it over the conversation, not into it.
+      ['Esc closes', '\u001B', 400],
+      ['Ask anything', `/exit${ENTER}`, 400],
+    ])
+
+    const reading = screenAt(output, 'Esc closes').alternate
+    expect(reading[0]).toContain('Changes')
+    // Raw unified text, coloured by the reader: a create runs against /dev/null.
+    expect(reading.join('\n')).toContain('+++ b/note.txt')
+    expect(reading.join('\n')).toContain('CODE_CLI_TALL_0')
+    // The box is gone while the reader holds the screen.
+    expect(reading.join('\n')).not.toContain('Ask anything')
+
+    // Esc returns, and the card is where it was — reading is not expanding.
+    const after = screenAt(output, 'Ask anything', 'last').alternate
+    expect(after.some(row => row.includes('Ctrl+O expands'))).toBe(true)
+    expect(after.some(row => row.includes('CODE_CLI_TALL_44'))).toBe(false)
+  }, E2E_TEST_TIMEOUT_MS)
+
   it('toggles a collapsed output open with Ctrl-O, and keeps that choice on moving on', async () => {
     const output = await drivePty('tall', [
       ['/help for commands', `create the tall note${ENTER}`, 300],

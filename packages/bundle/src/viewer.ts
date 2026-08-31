@@ -1,5 +1,6 @@
 /** Pure layout and navigation for the transient fullscreen content reader. */
 
+import { styleDiffLine } from './diff.ts'
 import { highlightCode, renderMarkdownRows } from './markdown.ts'
 import { truncate } from './theme.ts'
 import { wrapStyled } from './wrap.ts'
@@ -7,7 +8,7 @@ import type { Theme } from './theme.ts'
 
 export interface ViewerSpec {
   title: string
-  kind: 'answer' | 'code'
+  kind: 'answer' | 'code' | 'diff'
   text: string
 }
 
@@ -33,9 +34,16 @@ export class FullscreenViewer {
 
   private physical(theme: Theme, columns: number): { text: string; source: number; within: number }[] {
     const width = Math.max(1, columns)
-    const logical = this.spec.kind === 'answer'
-      ? renderMarkdownRows(this.spec.text, theme, width)
-      : this.spec.text.split(/\r\n|[\r\n]/u).map((line, source) => ({ text: highlightCode(line, theme.syntax), source }))
+    // A diff line is coloured by what it does to the file, never by the
+    // language it happens to be written in: syntax highlighting here would
+    // fight the add/remove markers for the same row.
+    const lines = (): { text: string; source: number }[] => this.spec.text
+      .split(/\r\n|[\r\n]/u)
+      .map((line, source) => ({
+        text: this.spec.kind === 'diff' ? styleDiffLine(line, theme) : highlightCode(line, theme.syntax),
+        source,
+      }))
+    const logical = this.spec.kind === 'answer' ? renderMarkdownRows(this.spec.text, theme, width) : lines()
     const counts = new Map<number, number>()
     return logical.flatMap((line) => wrapStyled(line.text, width).map((text) => {
       const within = counts.get(line.source) ?? 0

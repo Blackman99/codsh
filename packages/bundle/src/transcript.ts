@@ -10,6 +10,7 @@
  */
 
 import { structuredPatch } from 'diff'
+import { unifiedDiffText } from './diff.ts'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import type { FileDiff, ToolCallView, ToolResult, ToolResultView } from '@deepseek-ai/dsh-tools'
@@ -255,10 +256,10 @@ function diffBody(diff: FileDiff, theme: Theme): string[] {
  * @param theme - styling for the summary line.
  * @returns the capped body.
  */
-function cap(lines: string[], limit: number, theme: Theme): string[] {
+function cap(lines: string[], limit: number, theme: Theme, hint = 'click or Ctrl+O expands'): string[] {
   if (lines.length <= limit) return lines
   // The collapsed remainder names its key: an affordance, not just a count.
-  return [...lines.slice(0, limit), theme.dim(`  … +${lines.length - limit} lines (click or Ctrl+O expands)`)]
+  return [...lines.slice(0, limit), theme.dim(`  … +${lines.length - limit} lines (${hint})`)]
 }
 
 /** Renders one session's appended events as terminal lines. */
@@ -274,6 +275,8 @@ export class Transcript {
   private prompt: number | undefined
   /** Child session a click on this card should open, when the result names one. */
   private enter: string | undefined
+  /** Raw text a click on this card should read, when its body was capped. */
+  private page: string | undefined
 
   constructor(
     private readonly options: TranscriptOptions,
@@ -325,6 +328,7 @@ export class Transcript {
     this.rule = ''
     this.prompt = undefined
     this.enter = undefined
+    this.page = undefined
     switch (event.type) {
       case 'user/message': {
         // The person's own message: with the box owning the keyboard there is
@@ -525,6 +529,17 @@ export class Transcript {
   }
 
   /**
+   * Raw text a click on the block {@link render} just returned should read
+   * instead of expanding. Taken once, like {@link takeFold}.
+   * @returns the reader's text, or `undefined` when the block just folds.
+   */
+  takePage(): string | undefined {
+    const page = this.page
+    this.page = undefined
+    return page
+  }
+
+  /**
    * The left rule for the block {@link render} just returned, `''` when the
    * block stands flush.
    *
@@ -562,12 +577,20 @@ export class Transcript {
     block: { content: ContentBlock[] },
   ): { suffix: string; body: string[]; full?: string[] } {
     const { theme } = this.options
-    const capped = (lines: string[], limit: number): { body: string[]; full?: string[] } => {
-      const body = cap(lines, limit, theme)
+    const capped = (lines: string[], limit: number, hint?: string): { body: string[]; full?: string[] } => {
+      const body = cap(lines, limit, theme, hint)
       return lines.length > limit ? { body, full: lines } : { body }
     }
     if (view?.card === 'diff') {
-      return { suffix: '', ...capped(view.diffs.flatMap(diff => diffBody(diff, theme)), MAX_DIFF_LINES) }
+      const result = capped(
+        view.diffs.flatMap(diff => diffBody(diff, theme)),
+        MAX_DIFF_LINES,
+        'click reads it · Ctrl+O expands',
+      )
+      // Only a diff that outgrew its card earns the reader; a short one is
+      // already whole on screen, and opening a modal over it would be noise.
+      if (result.full !== undefined) this.page = unifiedDiffText(view.diffs, path => this.relative(path))
+      return { suffix: '', ...result }
     }
     if (view?.card === 'terminal') {
       const suffix = view.signal !== undefined

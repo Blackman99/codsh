@@ -24,6 +24,28 @@ describe('fullscreen response viewer', () => {
     expect(code.frame(theme, 32, 4).body).toContain('const raw = true')
   })
 
+  it('reads a diff by what each line does, not by its language', () => {
+    const text = [
+      'diff --git a/a.ts b/a.ts',
+      '@@ -1,2 +1,2 @@',
+      ' const kept = 1',
+      '-const value = 1',
+      '+const value = 2',
+    ].join('\n')
+    const painted = createTheme(true, {})
+    const viewer = new FullscreenViewer({ title: 'Uncommitted changes', kind: 'diff', text })
+    const frame = viewer.frame(painted, 40, 8)
+
+    expect(frame.rows[0]).toContain('Uncommitted changes')
+    const added = frame.body.find(row => row.includes('+const value = 2')) ?? ''
+    const removed = frame.body.find(row => row.includes('-const value = 1')) ?? ''
+    expect(added).not.toBe('')
+    // The two rows carry the same code and must still not look alike: the
+    // colour here belongs to the marker, not to the `const` they share.
+    expect(added.replace('2', '1')).not.toBe(removed.replace('-', '+'))
+    expect(frame.body.some(row => row.includes('@@ -1,2 +1,2 @@'))).toBe(true)
+  })
+
   it('moves by line and page and reaches both boundaries', () => {
     const viewer = new FullscreenViewer({
       title: 'Code 1:1',
