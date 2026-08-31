@@ -1,0 +1,50 @@
+<!DOCTYPE html><html><head><meta charset="utf-8"><style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  html,body { width:1200px; height:630px; }
+  body {
+    background:#0b0d0f; color:#e8e6e1;
+    font-family: ui-monospace,'SF Mono',SFMono-Regular,Menlo,Consolas,'DejaVu Sans Mono',monospace;
+    display:grid; grid-template-columns: 1fr 470px; gap:56px;
+    padding:70px 68px; align-items:center;
+    background-image: radial-gradient(900px 420px at 8% 0%, #151a1f 0%, #0b0d0f 62%);
+  }
+  .kicker { font-size:16px; letter-spacing:.16em; text-transform:uppercase; color:#868b93; margin-bottom:26px; }
+  h1 { font-size:132px; font-weight:700; letter-spacing:-.045em; line-height:.92; }
+  .caret { display:inline-block; width:24px; height:96px; background:#d98ce8; vertical-align:-4px; margin-left:10px; border-radius:2px; }
+  .sub { font-size:27px; line-height:1.45; color:#e8e6e1; margin-top:28px; max-width:26ch; }
+  .sub code { color:#6fd6d0; }
+  .meta { margin-top:38px; font-size:17px; color:#868b93; letter-spacing:.02em; }
+  .meta b { color:#b6b8bb; font-weight:500; }
+
+  .panel { background:#101317; border:1px solid #21262d; border-radius:14px; padding:26px 28px; }
+  .row { display:flex; gap:14px; padding:9px 0; font-size:16px; line-height:1.5; }
+  .bar { width:3px; border-radius:2px; flex:none; }
+  .heavy { background:#d98ce8; }
+  .light { background:#6fd6d0; }
+  .none  { background:transparent; }
+  .who { color:#d98ce8; }
+  .txt { color:#e8e6e1; }
+  .dim { color:#868b93; }
+  .tool { color:#6fd6d0; }
+  .ok { color:#8fce92; }
+  .path { color:#8fb4ea; }
+  .sep { height:1px; background:#191d23; margin:14px 0; }
+</style></head><body>
+  <div>
+    <div class="kicker">a terminal coding agent · on dsh</div>
+    <h1>codsh<span class="caret"></span></h1>
+    <p class="sub"><code>/ship</code> takes one sentence to verified code.</p>
+    <div class="meta"><b>npm i -g codsh-cli</b> &nbsp;·&nbsp; DeepSeek Harness</div>
+  </div>
+
+  <div class="panel">
+    <div class="row"><span class="bar heavy"></span><span><span class="who">›</span> <span class="txt">/ship let long diffs open in a pager</span></span></div>
+    <div class="sep"></div>
+    <div class="row"><span class="bar light"></span><span><span class="tool">grill</span> <span class="dim">— 3 rounds, frontier closed</span></span></div>
+    <div class="row"><span class="bar light"></span><span><span class="tool">spec</span> <span class="dim">— 4 criteria, each provable</span></span></div>
+    <div class="row"><span class="bar light"></span><span><span class="tool">tickets</span> <span class="dim">— tracer slices, baseline green</span></span></div>
+    <div class="sep"></div>
+    <div class="row"><span class="bar none"></span><span><span class="ok">✓</span> <span class="path">pager.ts</span> <span class="dim">+82 −4</span></span></div>
+    <div class="row"><span class="bar none"></span><span><span class="ok">✓</span> <span class="dim">every criterion re-run</span></span></div>
+  </div>
+</body></html>
