@@ -81,6 +81,37 @@ const MOUSE = /^\u001B\[<(\d+);(\d+);(\d+)([Mm])/
  */
 const KITTY = /^\u001B\[(\d+)(?::\d+)*(?:;(\d+)(?::(\d+))?)?u/
 
+/**
+ * A cursor or editing key in its CSI form: `ESC [ (number) (; mods) final`.
+ *
+ * The modifier field is open-ended — xterm adds Meta at 8, kitty adds Super,
+ * Hyper, Meta, Caps Lock and Num Lock above it — so a fixed table of chords
+ * can only ever list the few it thought of, and a person holding a lock sends
+ * a report that matches none of them.
+ */
+const CSI_KEY = /^\u001B\[(\d*)(?:;(\d+))?([ABCDFH~])/
+
+/** What each CSI final byte means with no chord held. */
+const CURSOR_KEYS: Readonly<Record<string, Key>> = {
+  A: { kind: 'up' },
+  B: { kind: 'down' },
+  C: { kind: 'right' },
+  D: { kind: 'left' },
+  H: { kind: 'home' },
+  F: { kind: 'end' },
+}
+
+/** What each `~`-terminated CSI number means, chord or not. */
+const TILDE_KEYS: Readonly<Record<string, Key>> = {
+  1: { kind: 'home' },
+  3: { kind: 'delete' },
+  4: { kind: 'end' },
+  5: { kind: 'page', direction: -1 },
+  6: { kind: 'page', direction: 1 },
+  7: { kind: 'home' },
+  8: { kind: 'end' },
+}
+
 /** Kitty modifier bits, after the encoded +1 offset is removed. */
 const KITTY_SHIFT = 1
 
@@ -129,15 +160,6 @@ const SEQUENCES: readonly (readonly [string, Key])[] = [
   // Scrolling the transcript: the viewport is ours, so these are ours to read.
   ['\u001B[5~', { kind: 'page', direction: -1 }],
   ['\u001B[6~', { kind: 'page', direction: 1 }],
-  ['\u001B[1;2A', { kind: 'scroll', lines: -1 }],
-  ['\u001B[1;2B', { kind: 'scroll', lines: 1 }],
-  ['\u001B[1;2D', { kind: 'turn', direction: -1 }],
-  ['\u001B[1;2C', { kind: 'turn', direction: 1 }],
-  ['\u001B[1;5F', { kind: 'scroll-end' }],
-  ['\u001B[1;5D', { kind: 'word-left' }],
-  ['\u001B[1;5C', { kind: 'word-right' }],
-  ['\u001B[1;3D', { kind: 'word-left' }],
-  ['\u001B[1;3C', { kind: 'word-right' }],
   ['\u001B[3~', { kind: 'delete' }],
   ['\u001B[1~', { kind: 'home' }],
   ['\u001B[4~', { kind: 'end' }],
@@ -304,6 +326,11 @@ export class KeyDecoder {
       }
       if (sequence.startsWith(this.held)) return undefined
     }
+    const csi = CSI_KEY.exec(this.held)
+    if (csi !== null) {
+      this.held = this.held.slice(csi[0].length)
+      return this.csiKey(csi[1] ?? '', Number(csi[2] ?? '1'), csi[3] ?? '')
+    }
     const first = this.held[0] ?? ''
     if (first === '\u001B') {
       // An Escape that begins no known sequence: the terminal sent something
@@ -360,6 +387,41 @@ export class KeyDecoder {
     // A text key that reached the CSI form anyway (Shift or a lock held).
     if (!ctrl && code >= 32) return [{ kind: 'text', text: String.fromCodePoint(code) }]
     return []
+  }
+
+  /**
+   * Map one CSI cursor or editing report onto its key.
+   *
+   * Locks are stripped the same way {@link kittyKey} strips them: a chord is
+   * only ever Shift, Alt, and Control, and Caps Lock left on must not turn an
+   * arrow into typed text.
+   * @param number - the leading parameter, `''` when the report carried none.
+   * @param mods - the encoded modifiers, offset by one.
+   * @param final - the report's final byte.
+   * @returns the keys produced; an unknown report is swallowed, never typed.
+   */
+  private csiKey(number: string, mods: number, final: string): Key[] {
+    const bits = Math.max(0, mods - 1)
+    const shift = (bits & KITTY_SHIFT) !== 0
+    const alt = (bits & KITTY_ALT) !== 0
+    const ctrl = (bits & KITTY_CTRL) !== 0
+    if (final === '~') {
+      const key = TILDE_KEYS[number]
+      return key === undefined ? [] : [key]
+    }
+    if (shift) {
+      if (final === 'A') return [{ kind: 'scroll', lines: -1 }]
+      if (final === 'B') return [{ kind: 'scroll', lines: 1 }]
+      if (final === 'D') return [{ kind: 'turn', direction: -1 }]
+      if (final === 'C') return [{ kind: 'turn', direction: 1 }]
+    }
+    if (ctrl && final === 'F') return [{ kind: 'scroll-end' }]
+    if (ctrl || alt) {
+      if (final === 'D') return [{ kind: 'word-left' }]
+      if (final === 'C') return [{ kind: 'word-right' }]
+    }
+    const key = CURSOR_KEYS[final]
+    return key === undefined ? [] : [key]
   }
 
   /**

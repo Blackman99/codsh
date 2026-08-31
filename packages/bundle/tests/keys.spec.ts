@@ -17,6 +17,41 @@ function decode(...chunks: string[]): Key[] {
 }
 
 describe('KeyDecoder', () => {
+  it('reads an arrow with a lock key held, instead of typing the report', () => {
+    // Caps Lock and Num Lock ride along in the modifier field: xterm and kitty
+    // both add their bits (64 and 128) to the encoded value, so a person with
+    // either lock on sends `CSI 1;65 B` for Down rather than `CSI B`. Matching
+    // modified arrows against a fixed table missed those, the introducer was
+    // dropped, and the rest of the report was typed into the box as `[1;65B`.
+    expect(decode(`${ESC}[1;65B`)).toEqual([{ kind: 'down' }])
+    expect(decode(`${ESC}[1;65A`)).toEqual([{ kind: 'up' }])
+    expect(decode(`${ESC}[1;129C`)).toEqual([{ kind: 'right' }])
+    expect(decode(`${ESC}[1;193D`)).toEqual([{ kind: 'left' }])
+    // A chord still reads as its chord with a lock added on top: 66 is
+    // Shift+Caps Lock, and Shift+Down is how the transcript scrolls.
+    expect(decode(`${ESC}[1;66B`)).toEqual([{ kind: 'scroll', lines: 1 }])
+    expect(decode(`${ESC}[1;69D`)).toEqual([{ kind: 'word-left' }])
+    // The same fault reached every `~` key: PgDn with a lock held.
+    expect(decode(`${ESC}[6;65~`)).toEqual([{ kind: 'page', direction: 1 }])
+    expect(decode(`${ESC}[3;65~`)).toEqual([{ kind: 'delete' }])
+    // Nothing reached the buffer as text.
+    for (const report of [`${ESC}[1;65B`, `${ESC}[6;65~`]) {
+      expect(decode(report).some(key => key.kind === 'text')).toBe(false)
+    }
+  })
+
+  it('keeps the chords the fixed table already spelled out', () => {
+    expect(decode(`${ESC}[1;2A`)).toEqual([{ kind: 'scroll', lines: -1 }])
+    expect(decode(`${ESC}[1;2B`)).toEqual([{ kind: 'scroll', lines: 1 }])
+    expect(decode(`${ESC}[1;2D`)).toEqual([{ kind: 'turn', direction: -1 }])
+    expect(decode(`${ESC}[1;2C`)).toEqual([{ kind: 'turn', direction: 1 }])
+    expect(decode(`${ESC}[1;5F`)).toEqual([{ kind: 'scroll-end' }])
+    expect(decode(`${ESC}[1;5D`)).toEqual([{ kind: 'word-left' }])
+    expect(decode(`${ESC}[1;5C`)).toEqual([{ kind: 'word-right' }])
+    expect(decode(`${ESC}[1;3D`)).toEqual([{ kind: 'word-left' }])
+    expect(decode(`${ESC}[1;3C`)).toEqual([{ kind: 'word-right' }])
+  })
+
   it('takes printable text in one key, so fast typing is not split', () => {
     expect(decode('hello')).toEqual([{ kind: 'text', text: 'hello' }])
   })

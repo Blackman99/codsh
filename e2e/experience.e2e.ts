@@ -75,6 +75,38 @@ describe.skipIf(process.platform === 'win32')('the first five minutes', () => {
     expect(markedSeen).toBeGreaterThan(5)
   }, E2E_TEST_TIMEOUT_MS)
 
+  it('moves the command menu with an arrow reported under a lock key', async () => {
+    // What a kitty-protocol terminal sends for Down with Caps Lock on: the
+    // lock rides in the modifier field (64, encoded 65). Matched against a
+    // fixed table of chords it hit nothing, lost its introducer, and the rest
+    // was typed — the box filled with `/[1;65B` instead of the menu moving.
+    const lockedDown = '\u001B[1;65B'
+    // Waiting happens on the raw stream, where the marker is wrapped in SGR
+    // and `❯ /` never appears contiguously; the menu's own entries do.
+    const run = await drivePtySteps('write', [
+      ['Welcome to codsh', '/', 400],
+      ['/exit', lockedDown, 500],
+      // Escape closes the menu but leaves the typed `/`; backspace clears it
+      // so the command that follows is not `//exit`.
+      ['', `\u001B\u007F/exit${ENTER}`, 600],
+    ])
+    const captured = (offset: number | undefined): string => Buffer.from(run.output).subarray(0, offset).toString()
+    const markedAt = (index: number): string => screenOf(captured(run.offsets[index]), -1)
+      .alternate.find(row => row.includes('❯ ')) ?? ''
+
+    // offsets[0] is the moment `/` was written, before the menu painted; the
+    // menu is on screen at offsets[1], and the arrow has landed by offsets[2].
+    const opened = markedAt(1)
+    const moved = markedAt(2)
+    // The menu opens on its first entry, and the arrow moves off it.
+    expect(opened).not.toBe('')
+    expect(moved).not.toBe('')
+    expect(moved).not.toBe(opened)
+    // Nothing of the report reached the box, at any point in the run.
+    expect(run.output).not.toContain('[1;65B')
+    expect(screenOf(captured(run.offsets[2]), -1).alternate.join('\n')).not.toContain('1;65')
+  }, E2E_TEST_TIMEOUT_MS)
+
   it('scrolls back with wheel-up, gently, and says how far', async () => {
     const wheelUp = '\u001B[<64;10;10M'.repeat(4)
     // A tall result, so the transcript genuinely overflows the viewport.
