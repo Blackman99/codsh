@@ -49,6 +49,7 @@ import { TerminalApproval, answerForKey } from './approval.ts'
 import { bannerLines } from './banner.ts'
 import { createCompleter, expandSkillGestures, fuzzyScore } from './completion.ts'
 import { expandTemplate, loadCustomCommands } from './custom-commands.ts'
+import { styleDiffLine } from './diff.ts'
 import type { CompletableCommand } from './completion.ts'
 import { indexConversationContent, newestCopyTargets, resolveCopyTarget } from './content-index.ts'
 import { TerminalConsole } from './console.ts'
@@ -262,12 +263,13 @@ function replay(session: Session, transcript: Transcript, io: CliIo, theme: Them
     const prompt = transcript.takePrompt()
     const label = transcript.takeLabel()
     const enter = transcript.takeEnter()
+    const page = transcript.takePage()
     if (prompt !== undefined) {
       io.console.appendPrompt(lines, rule, false, prompt)
       continue
     }
     if (enter !== undefined || full !== undefined) {
-      io.console.appendFold(lines, full ?? lines, rule, label, enter)
+      io.console.appendFold(lines, full ?? lines, rule, label, enter, page)
       continue
     }
     for (const line of lines) io.console.write(line, rule)
@@ -429,20 +431,6 @@ function capture(
       resolve({ output, code, signal })
     })
   })
-}
-
-/**
- * Style one unified-diff line for the transcript.
- * @param line - the raw diff line.
- * @param theme - styling for additions, removals, and headers.
- * @returns the styled line.
- */
-function diffLine(line: string, theme: Theme): string {
-  if (line.startsWith('+++') || line.startsWith('---') || line.startsWith('diff ') || line.startsWith('index ')) return theme.dim(line)
-  if (line.startsWith('@@')) return theme.tool(line)
-  if (line.startsWith('+')) return theme.success(line)
-  if (line.startsWith('-')) return theme.error(line)
-  return theme.dim(line)
 }
 
 /**
@@ -1075,8 +1063,15 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
         const against = await capture('git', ['diff', 'HEAD'], { cwd, signal })
         const diff = against.code === 0 ? against : await capture('git', ['diff'], { cwd, signal })
         if (diff.code !== 0) return { kind: 'error', text: diff.output.trim() === '' ? 'not a git repository' : diff.output.trim() }
-        if (diff.output.trim() === '') return { kind: 'success', text: 'no uncommitted changes' }
-        for (const line of diff.output.trimEnd().split('\n')) prompt.write(diffLine(line, theme))
+        const text = diff.output.trimEnd()
+        if (text.trim() === '') return { kind: 'success', text: 'no uncommitted changes' }
+        // A long diff written into the transcript is a diff that scrolls past.
+        // Off a TTY there is nothing to open, and the lines are the output.
+        if (!io.console.readsKeys) {
+          for (const line of text.split('\n')) prompt.write(styleDiffLine(line, theme))
+          return { kind: 'success' }
+        }
+        await prompt.view({ title: 'Uncommitted changes', kind: 'diff', text }, signal)
         return { kind: 'success' }
       },
     }))
@@ -1234,6 +1229,11 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
     if (live.agent.status === 'running') spinner.start()
   }
   io.console.setEnter(enterView)
+  // A clicked diff card reads in the same transient reader `/diff` and `/view`
+  // use; nothing about the transcript moves while it is open.
+  io.console.setPager((text) => {
+    void prompt.view({ title: 'Changes', kind: 'diff', text })
+  })
 
   ctx.on('session/event', (session: Session, event: SessionEvent) => {
     // Parent chrome (mode, status, todos) still tracks the live agent even
@@ -1255,6 +1255,7 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
       const promptBlock = viewing.transcript.takePrompt()
       const label = viewing.transcript.takeLabel()
       const enter = viewing.transcript.takeEnter()
+      const page = viewing.transcript.takePage()
       if (promptBlock !== undefined) {
         prompt.setStreaming(undefined)
         io.console.appendPrompt(lines, rule, true, promptBlock)
@@ -1262,7 +1263,7 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
       }
       if (enter !== undefined || full !== undefined) {
         prompt.setStreaming(undefined)
-        io.console.appendFold(lines, full ?? lines, rule, label, enter)
+        io.console.appendFold(lines, full ?? lines, rule, label, enter, page)
         return
       }
       emit(lines, undefined, rule)
@@ -1318,6 +1319,7 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
     const promptBlock = live.transcript.takePrompt()
     const label = live.transcript.takeLabel()
     const enter = live.transcript.takeEnter()
+    const page = live.transcript.takePage()
     if (promptBlock !== undefined) {
       prompt.setStreaming(undefined)
       io.console.appendPrompt(lines, rule, true, promptBlock)
@@ -1330,7 +1332,7 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
     // A collapsed block, or a subagent card that is a view: the screen keeps
     // both forms; a click on a view enters the child, Ctrl+O still expands.
     prompt.setStreaming(undefined)
-    io.console.appendFold(lines, full ?? lines, rule, label, enter)
+    io.console.appendFold(lines, full ?? lines, rule, label, enter, page)
   })
 
   /** Pause the indicator around a decision, and resume it if work continues. */

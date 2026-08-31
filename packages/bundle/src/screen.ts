@@ -174,6 +174,8 @@ interface Fold {
   label: string
   /** Child session a click opens instead of folding, when the card is a view. */
   enter?: string
+  /** Raw text a click opens in the reader instead of expanding, when the block is long. */
+  page?: string
 }
 
 /** One real user prompt and the response section it starts. */
@@ -341,6 +343,8 @@ export class Screen {
   private active = false
   /** Opens a child session when a view-card is clicked. */
   private enterHandler: ((id: string) => void) | undefined
+  /** Opens long text in the reader when its block is clicked. */
+  private pagerHandler: ((text: string) => void) | undefined
 
   constructor(private readonly host: ScreenHost) {}
 
@@ -350,6 +354,14 @@ export class Screen {
    */
   setEnter(handler: ((id: string) => void) | undefined): void {
     this.enterHandler = handler
+  }
+
+  /**
+   * What a click on a block that carries reader text does.
+   * @param handler - receives the raw text; omit to restore folding.
+   */
+  setPager(handler: ((text: string) => void) | undefined): void {
+    this.pagerHandler = handler
   }
 
   /** Whether the alternate screen is currently held. */
@@ -784,8 +796,9 @@ export class Screen {
    * @param rule - a styled left rule for the whole block, `''` for none.
    * @param label - what the block is, for the hover readout that names it.
    * @param enter - child session a click opens instead of folding, when set.
+   * @param page - raw text a click reads instead of expanding, when set.
    */
-  appendFold(summary: readonly string[], full: readonly string[], rule = '', label = '', enter?: string): void {
+  appendFold(summary: readonly string[], full: readonly string[], rule = '', label = '', enter?: string, page?: string): void {
     const shown = summary
     this.folds.push({
       at: this.logical.length,
@@ -797,6 +810,7 @@ export class Screen {
       rule,
       label,
       ...enter === undefined ? {} : { enter },
+      ...page === undefined ? {} : { page },
     })
     this.append(shown, rule)
   }
@@ -881,6 +895,13 @@ export class Screen {
     if (fold === undefined) return
     if (fold.enter !== undefined && this.enterHandler !== undefined) {
       this.enterHandler(fold.enter)
+      return
+    }
+    // Expanding a long diff in place only moves the scrolling problem into the
+    // transcript, so a block that brought reader text opens there instead.
+    // Ctrl+O still expands it inline, which is what expand-everything means.
+    if (fold.page !== undefined && this.pagerHandler !== undefined) {
+      this.pagerHandler(fold.page)
       return
     }
     this.setFold(fold, !fold.expanded, true)

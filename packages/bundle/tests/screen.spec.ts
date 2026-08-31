@@ -1521,6 +1521,35 @@ describe('folds', () => {
     expect(flush(sink)).toBe('')
   })
 
+  it('reads a long block on click, and still expands it with Ctrl+O', () => {
+    const read: string[] = []
+    const sink = host(10, 40)
+    const screen = new Screen(sink)
+    screen.setPager((text) => { read.push(text) })
+    screen.enter()
+    screen.setChrome(['status'], { row: 0, column: 0 }, false)
+    screen.appendFold(
+      ['● Edit', '  … +40 lines (click reads it · Ctrl+O expands)', ''],
+      ['● Edit', '- was', '+ is', ''],
+      '',
+      'diff',
+      undefined,
+      '--- a/a.ts\n-was\n+is',
+    )
+    flush(sink)
+
+    screen.mouseDown(1, 2)
+    expect(screen.mouseUp()).toBeUndefined()
+    expect(read).toEqual(['--- a/a.ts\n-was\n+is'])
+    // Reading is not folding: the transcript under the reader did not move.
+    expect(flush(sink)).toBe('')
+
+    // Expand-everything still means everything, in place.
+    expect(screen.toggleFolds()).toBe(true)
+    expect([...painted(flush(sink)).values()].join('\n')).toContain('+ is')
+    expect(read).toHaveLength(1)
+  })
+
   it('folds an open block back from anywhere inside it', () => {
     const sink = host(12, 40)
     const screen = new Screen(sink)

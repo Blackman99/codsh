@@ -483,10 +483,11 @@ export class TerminalConsole {
    * @param label - what the block is, for the readout naming what the pointer
    * is over.
    * @param enter - child session a click opens instead of folding, when set.
+   * @param page - raw text a click reads instead of expanding, when set.
    */
-  appendFold(summary: readonly string[], full: readonly string[], rule = '', label = '', enter?: string): void {
+  appendFold(summary: readonly string[], full: readonly string[], rule = '', label = '', enter?: string, page?: string): void {
     if (this.screen !== undefined) {
-      this.screen.appendFold(summary, full, rule, label, enter)
+      this.screen.appendFold(summary, full, rule, label, enter, page)
       return
     }
     for (const line of summary) this.output.write(`${line}\n`)
@@ -496,6 +497,10 @@ export class TerminalConsole {
    * What a click on a view-card does.
    * @param handler - receives the child session id; omit to restore folding.
    */
+  setPager(handler: ((text: string) => void) | undefined): void {
+    this.screen?.setPager(handler)
+  }
+
   setEnter(handler: ((id: string) => void) | undefined): void {
     this.screen?.setEnter(handler)
   }

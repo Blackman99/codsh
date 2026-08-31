@@ -73,12 +73,24 @@ _Avoid_: screen row, rendered block number
 
 **Fullscreen viewer**:
 A transient reader over one Content address, opened by `/view`, `/view N`, or
-`/view N:C`. It replaces transcript and Chrome for the lifetime of the modal,
-reflows raw Markdown or fence-free code at the current terminal size, and gives
-wheel, shifted arrows, Page, Home/End, and Escape to reading. Closing restores
-the exact prior Viewport; the viewer never adds a Prompt, Fold, search hit,
-session event, clipboard write, or pipe output.
+`/view N:C`, and over unified-diff text, opened by `/diff` or by clicking a
+Diff card whose body was capped. It replaces transcript and Chrome for the
+lifetime of the modal, reflows raw Markdown, fence-free code, or diff text at
+the current terminal size, and gives wheel, shifted arrows, Page, Home/End, and
+Escape to reading. Diff text is coloured by what each line does to the file,
+never by the language it is written in. Closing restores the exact prior
+Viewport; the viewer never adds a Prompt, Fold, search hit, session event,
+clipboard write, or pipe output. Off a TTY there is no modal: `/diff` writes
+its lines and stays a line reader.
 _Avoid_: pager process, transcript view
+
+**Reader hand-off**:
+The raw text a Fold carries so a click opens the Fullscreen viewer instead of
+expanding in place. Only a Diff card that outgrew its 24-line body takes one —
+a short diff is already whole on screen. Ctrl+O is unaffected: expanding
+everything still expands this block inline, and the collapsed line names both,
+so the affordance never promises a gesture the block does not have.
+_Avoid_: pager payload, click target
 
 **Fold preference**:
 An ephemeral, per-Fold choice created by clicking a block or pressing Ctrl+O.

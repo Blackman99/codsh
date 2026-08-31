@@ -67,6 +67,7 @@ The [site](https://blackman99.github.io/codsh/) shows each one as a real capture
 - A one-column timeline on the right marks the turn you are in — ticks and arrows click-jump, hover previews the real prompt lines. Shift+←/→ does it from the keyboard, and `/jump` is a searchable, reversible preview.
 - Long blocks fold: click one, Ctrl+O all, and what you opened by hand stays open across later turns.
 - `/view 1` opens an answer full screen, `/view 1:1` its first code block; Esc restores the conversation exactly. `/copy` addresses the same targets — raw Markdown, or fence-free code.
+- `/diff` reads uncommitted changes in the same reader rather than scrolling them past, and a diff card too long for its own body opens there on click. Piped, it stays lines.
 
 **Working**
 

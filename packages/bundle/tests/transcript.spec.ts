@@ -257,6 +257,37 @@ describe('tool results', () => {
     ])
   })
 
+  it('hands a long diff to the reader instead of expanding it in place', () => {
+    // Every line moves, so the single hunk outgrows the card's 24-line body.
+    const oldText = Array.from({ length: 30 }, (_, index) => `line ${index + 1}`).join('\n')
+    const newText = Array.from({ length: 30 }, (_, index) => `LINE ${index + 1}`).join('\n')
+    const result = (): ToolResultView => ({ card: 'diff', title: 'Edit', diffs: [{ path: '/repo/a.ts', oldText, newText }] })
+    const transcript = build({ result })
+    transcript.render(callEvent('c1', 'edit', {}))
+    const lines = transcript.render(resultEvent('c1', 'ok'))
+
+    expect(lines.join('\n')).toContain('click reads it · Ctrl+O expands')
+    expect(transcript.takeFold()).not.toBeUndefined()
+    const page = transcript.takePage()
+    expect(page).toContain('--- a/a.ts')
+    expect(page).toContain('-line 30')
+    expect(page).toContain('+LINE 30')
+    // Taken once, like every other side channel on the transcript.
+    expect(transcript.takePage()).toBeUndefined()
+  })
+
+  it('leaves a short diff whole on screen, with nothing for the reader', () => {
+    const result = (): ToolResultView => ({
+      card: 'diff',
+      title: 'Edit',
+      diffs: [{ path: '/repo/a.ts', oldText: 'const a = 1', newText: 'const a = 2' }],
+    })
+    const transcript = build({ result })
+    transcript.render(callEvent('c1', 'edit', {}))
+    transcript.render(resultEvent('c1', 'ok'))
+    expect(transcript.takePage()).toBeUndefined()
+  })
+
   it('renders a created file as all additions', () => {
     const result = (): ToolResultView => ({ card: 'diff', diffs: [{ path: '/repo/a.ts', oldText: null, newText: 'a\nb' }] })
     const transcript = build({ result })

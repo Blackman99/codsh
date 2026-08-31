@@ -8,6 +8,10 @@
  * the NEXT change to rendering or input fails here first.
  */
 
+import { execFileSync } from 'node:child_process'
+import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { E2E_TEST_TIMEOUT_MS, fakeRegistry } from './harness.ts'
 import {
@@ -305,16 +309,19 @@ describe.skipIf(process.platform === 'win32')('the first five minutes', () => {
     expect(committed.join('\n')).toContain('first sticky')
   }, E2E_TEST_TIMEOUT_MS)
 
-  it('collapses a long result and names the expand key', async () => {
+  it('collapses a long result and names what each gesture does', async () => {
     const output = await drivePty('tall', [
       ['Welcome to codsh', `make it tall${ENTER}`, 300],
-      ['lines (click or Ctrl+O expands)', `/exit${ENTER}`, 500],
+      ['lines (click reads it · Ctrl+O expands)', `/exit${ENTER}`, 500],
     ])
     const rows = screenAt(output, 'Ctrl+O expands').alternate
     const body = rows.filter(row => row.includes('CODE_CLI_TALL_'))
-    // A skimmable sliver, not a wall; the affordance names the key.
+    // A skimmable sliver, not a wall. This one is a diff, so the line promises
+    // what a click actually does now — open the reader — while Ctrl+O keeps
+    // meaning expand-everything-in-place. A block whose click still folds (a
+    // thought, a terminal result) keeps saying so; see the pty suite.
     expect(body.length).toBeLessThanOrEqual(24)
-    expect(rows.some(row => row.includes('(click or Ctrl+O expands)'))).toBe(true)
+    expect(rows.some(row => row.includes('(click reads it · Ctrl+O expands)'))).toBe(true)
   }, E2E_TEST_TIMEOUT_MS)
 
   it('names the block the pointer rests on, and gives the row back', async () => {
@@ -481,6 +488,61 @@ describe.skipIf(process.platform === 'win32')('the first five minutes', () => {
     expect(code.join('\n')).not.toContain('```')
     expect(afterCode).toEqual(before)
     expect(afterFailure).toEqual(before)
+  }, E2E_TEST_TIMEOUT_MS)
+
+  it('reads /diff in the pager instead of scrolling it past', async () => {
+    // A real repository with a real uncommitted change: `/diff` shells out to
+    // git, so a fixture that only looks like one would prove nothing.
+    const repo = await mkdtemp(join(tmpdir(), 'codsh-diff-'))
+    const git = (...args: string[]): void => {
+      execFileSync('git', args, { cwd: repo, stdio: 'ignore', env: { ...process.env, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_SYSTEM: '/dev/null' } })
+    }
+    try {
+      await writeFile(join(repo, 'tracked.ts'), Array.from({ length: 40 }, (_, index) => `const line${index + 1} = ${index + 1}`).join('\n'))
+      git('init', '-q')
+      git('-c', 'user.email=e2e@codsh', '-c', 'user.name=e2e', 'commit', '-qam', 'base', '--allow-empty')
+      git('add', '-A')
+      git('-c', 'user.email=e2e@codsh', '-c', 'user.name=e2e', 'commit', '-qm', 'tracked')
+      await writeFile(join(repo, 'tracked.ts'), Array.from({ length: 40 }, (_, index) => `const CHANGED${index + 1} = ${index + 1}`).join('\n'))
+
+      const run = await drivePtySteps('markdown', [
+        ['Welcome to codsh', `/diff${ENTER}`, 500],
+        ['Esc closes', '\u001B[6~', 300],
+        ['Esc closes', '\u001B[F', 300],
+        ['Esc closes', '\u001B', 300],
+        ['Ask anything', `/exit${ENTER}`, 400],
+      ], { rows: 12, cwd: repo })
+      const captured = (offset: number | undefined): string => Buffer.from(run.output).subarray(0, offset).toString()
+      const at = (index: number): string[] => screenOf(captured(run.offsets[index]), -1, 12).alternate
+      const before = at(0)
+      const opened = at(1)
+      const paged = at(2)
+      const ended = at(3)
+      const restored = at(4)
+
+      expect(opened[0]).toContain('Uncommitted changes')
+      expect(opened.at(-1)).toContain('Esc closes')
+      expect(opened.join('\n')).toContain('tracked.ts')
+      // The first screen is the removals; 87 diff lines do not fit 12 rows.
+      expect(opened.join('\n')).toContain('-const line1 = 1')
+      expect(opened.join('\n')).not.toContain('CHANGED')
+      // The box is gone while the reader holds the screen.
+      expect(opened.join('\n')).not.toContain('Ask anything')
+      // Paging moves, and the far end carries the additions — which is the
+      // whole point of not writing all 87 lines into the transcript.
+      expect(paged).not.toEqual(opened)
+      expect(ended.join('\n')).toContain('CHANGED')
+      // Esc gives the conversation back — and the diff it just read stayed in
+      // the reader: the transcript carries the command's own echo and nothing
+      // else, which is the difference from writing 87 lines into it.
+      expect(restored.join('\n')).toContain('Ask anything')
+      expect(restored.join('\n')).not.toContain('CHANGED')
+      expect(restored.join('\n')).not.toContain('@@ -1,40')
+      expect(restored.join('\n')).not.toContain('Esc closes')
+      expect(before.join('\n')).not.toContain('CHANGED')
+    } finally {
+      await rm(repo, { recursive: true, force: true })
+    }
   }, E2E_TEST_TIMEOUT_MS)
 
   it('reports a failed /view in chrome without adding it to the transcript', async () => {
