@@ -42,6 +42,35 @@ function type(editor: Editor, text: string): EditorAction {
 const key = (kind: Key['kind']): Key => ({ kind } as Key)
 
 describe('editing', () => {
+  it('moves the menu with the arrows, whichever trigger opened it', () => {
+    // The decoder turns every arrow report into one `down`/`up`, and all four
+    // sources fill the same candidate list — so a fault in either place shows
+    // up in every menu at once. `/` was the one reported; this pins the rest.
+    const openings: readonly (readonly [string, string])[] = [
+      ['/', 'commands'],
+      ['@', 'paths'],
+      ['$', 'skills'],
+      ['/permission ', 'command arguments'],
+    ]
+    for (const [typed, what] of openings) {
+      const editor = build()
+      type(editor, typed)
+      const opened = editor.view.candidates
+      expect(opened.length, what).toBeGreaterThan(1)
+      expect(editor.view.selected, what).toBe(0)
+
+      editor.handle(key('down'))
+      expect(editor.view.selected, what).toBe(1)
+      editor.handle(key('up'))
+      expect(editor.view.selected, what).toBe(0)
+      // Up from the first wraps to the last, so the menu has no dead end.
+      editor.handle(key('up'))
+      expect(editor.view.selected, what).toBe(opened.length - 1)
+      // Nothing was typed into the buffer by any of it.
+      expect(editor.view.lines.join(''), what).toBe(typed)
+    }
+  })
+
   it('inserts text and tracks the cursor', () => {
     const editor = build()
     type(editor, 'hello')
