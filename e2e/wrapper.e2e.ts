@@ -13,7 +13,7 @@ import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { promisify } from 'node:util'
 import { describe, expect, it } from 'vitest'
-import { E2E_TEST_TIMEOUT_MS, bundleRoot, dshBin, overlayText } from './harness.ts'
+import { E2E_TEST_TIMEOUT_MS, bundleRoot, dshBin, fakeRegistry, overlayText } from './harness.ts'
 
 const run = promisify(execFile)
 const repoRoot = fileURLToPath(new URL('..', import.meta.url))
@@ -76,6 +76,37 @@ describe.skipIf(process.platform === 'win32')('the codsh launcher', () => {
       rmSync(home, { recursive: true, force: true })
       rmSync(cwd, { recursive: true, force: true })
     }
+  }, E2E_TEST_TIMEOUT_MS)
+
+  it('updates the pair from outside a session, and installs nothing when current', async () => {
+    const own = JSON.parse(readFileSync(join(repoRoot, 'packages', 'cli', 'package.json'), 'utf8')) as { version: string }
+    // Advertising the version in hand is the one answer that must never run an
+    // install; the registry is local, so no suite ever reaches npm.
+    const registry = await fakeRegistry(own.version)
+    try {
+      const result = await run(process.execPath, [wrapper, 'update'], {
+        env: { ...process.env, CODSH_UPDATE_REGISTRY: registry.base, DSH_BIN: dshBin() },
+      })
+
+      expect(result.stdout.trim()).toBe(`codsh ${own.version} is the latest`)
+      // A word that would otherwise have been passed through as a task: the
+      // launcher answers it itself, without booting anything.
+      expect(result.stderr).not.toContain('registering')
+      expect(result.stdout).not.toContain('npm install -g')
+    } finally {
+      await registry.close()
+    }
+  }, E2E_TEST_TIMEOUT_MS)
+
+  it('says so, and fails, when the registry cannot be reached', async () => {
+    // Port 1 answers nothing on any machine, which is the unreachable case a
+    // laptop on a captive network actually has.
+    const failed = await run(process.execPath, [wrapper, 'update'], {
+      env: { ...process.env, CODSH_UPDATE_REGISTRY: 'http://127.0.0.1:1', DSH_BIN: dshBin() },
+    }).then(() => undefined, (error: { stderr: string; code: number }) => error)
+
+    expect(failed?.stderr).toContain('could not reach the npm registry')
+    expect(failed?.code).toBe(1)
   }, E2E_TEST_TIMEOUT_MS)
 
   it('answers --version for the pair, not for the runtime it launches', async () => {

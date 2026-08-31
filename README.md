@@ -24,11 +24,12 @@ codsh
 
 Zero-dependency launcher. `codsh` is `dsh --profile code`. Key: `DEEPSEEK_API_KEY`.
 
-`codsh --resume <id>` · `codsh --continue` · `codsh -p "task"` · `codsh --version`
+`codsh --resume <id>` · `codsh --continue` · `codsh -p "task"` · `codsh --version` · `codsh update`
 
-A session says so when a newer codsh is published, and `/update` installs it
-(`npm install -g codsh-cli@latest`, then restart). `CODSH_UPDATE_CHECK=off`
-silences the automatic check; `/update` still asks.
+A session says so when a newer codsh is published. `codsh update` moves the
+pair from the shell, `/update` does it from inside a session, and either way
+the next boot registers the matching runtime. `CODSH_UPDATE_CHECK=off`
+silences the automatic check; asking still asks.
 
 Or skip the launcher:
 

@@ -22,6 +22,22 @@ const own = JSON.parse(readFileSync(new URL('../package.json', import.meta.url),
 /** The bundle package this launcher pairs with, lockstep-versioned. */
 const BUNDLE = 'codsh-bundle'
 
+/** This launcher's own npm name, which is what `codsh update` installs. */
+const LAUNCHER = 'codsh-cli'
+
+const home = process.env.DSH_HOME ?? join(homedir(), '.dsh')
+const manifestPath = join(home, 'profiles', 'code', 'package.json')
+
+/** What the code profile currently carries, or undefined before first run. */
+function profile() {
+  if (!existsSync(manifestPath)) return undefined
+  try {
+    return JSON.parse(readFileSync(manifestPath, 'utf8'))
+  } catch {
+    return undefined
+  }
+}
+
 /**
  * Locate a dsh launcher without carrying one.
  * @returns how to spawn it, or undefined when the machine has none.
@@ -45,6 +61,72 @@ function findDsh() {
   const probe = spawnSync('dsh', ['--version'], { stdio: 'ignore', shell: process.platform === 'win32' })
   if (probe.error === undefined && probe.status !== null) return { command: 'dsh', prefix: [] }
   return undefined
+}
+
+/**
+ * The newest published launcher, as the registry tags it.
+ * @returns the version, or undefined when the registry cannot say.
+ */
+async function published() {
+  const base = (process.env.CODSH_UPDATE_REGISTRY ?? 'https://registry.npmjs.org').replace(/\/+$/, '')
+  try {
+    const response = await fetch(`${base}/-/package/codsh-cli/dist-tags`, {
+      signal: AbortSignal.timeout(5_000),
+      headers: { accept: 'application/json' },
+    })
+    if (!response.ok) return undefined
+    const body = await response.json()
+    return typeof body?.latest === 'string' && body.latest !== '' ? body.latest : undefined
+  } catch {
+    // No network, a captive portal, a slow mirror: nothing to say, not a crash.
+    return undefined
+  }
+}
+
+// `codsh update` moves the pair from outside a session, which is where a person
+// is when they are not in one. It prints the command it runs rather than
+// hiding it, and installs only the launcher: the runtime is registered by the
+// next boot, in lockstep, the way every other version change reaches it.
+if (process.argv[2] === 'update') {
+  const latest = await published()
+  if (latest === undefined) {
+    console.error('codsh: could not reach the npm registry')
+    process.exit(1)
+  }
+  if (!newer(latest, own.version)) {
+    console.log(`codsh ${own.version} is the latest`)
+    process.exit(0)
+  }
+  const command = ['npm', 'install', '-g', `${LAUNCHER}@${latest}`]
+  console.error(`codsh: ${command.join(' ')}`)
+  const installed = spawnSync(command[0], command.slice(1), {
+    stdio: 'inherit',
+    shell: process.platform === 'win32',
+  })
+  if (installed.status !== 0) {
+    console.error(`codsh: update failed — run ${command.join(' ')} yourself`)
+    process.exit(installed.status ?? 1)
+  }
+  console.log(`codsh ${latest} installed · the next codsh registers the matching runtime`)
+  process.exit(0)
+}
+
+// `--version` is the launcher's own question, so the launcher answers it: the
+// pair a person installed, what the profile currently carries, and the dsh
+// this run found. Passing the flag through would report the runtime's version
+// and never mention codsh at all — and a machine whose dsh went missing still
+// gets an answer for the two halves that are still there.
+if (process.argv[2] === '--version' || process.argv[2] === '-V') {
+  const registered = profile()?.dependencies?.[BUNDLE]
+  const found = findDsh()
+  const probe = found === undefined
+    ? undefined
+    : spawnSync(found.command, [...found.prefix, '--version'], { encoding: 'utf8' })
+  const runtime = String(probe?.stdout ?? '').trim().split('\n').at(-1)
+  console.log(`codsh ${own.version}`)
+  console.log(`${BUNDLE} ${registered ?? 'not registered yet'}`)
+  console.log(`dsh ${runtime === undefined || runtime === '' ? 'not found' : runtime}`)
+  process.exit(0)
 }
 
 const dsh = findDsh()
@@ -71,33 +153,6 @@ function newer(a, b) {
     if ((pa[index] ?? 0) !== (pb[index] ?? 0)) return (pa[index] ?? 0) > (pb[index] ?? 0)
   }
   return false
-}
-
-const home = process.env.DSH_HOME ?? join(homedir(), '.dsh')
-const manifestPath = join(home, 'profiles', 'code', 'package.json')
-
-/** What the code profile currently carries, or undefined before first run. */
-function profile() {
-  if (!existsSync(manifestPath)) return undefined
-  try {
-    return JSON.parse(readFileSync(manifestPath, 'utf8'))
-  } catch {
-    return undefined
-  }
-}
-
-// `--version` is the launcher's own question, so the launcher answers it: the
-// pair a person installed, what the profile currently carries, and the dsh
-// this run found. Passing the flag through would report the runtime's version
-// and never mention codsh at all.
-if (process.argv[2] === '--version' || process.argv[2] === '-V') {
-  const registered = profile()?.dependencies?.[BUNDLE]
-  const probe = spawnSync(dsh.command, [...dsh.prefix, '--version'], { encoding: 'utf8' })
-  const runtime = String(probe.stdout ?? '').trim().split('\n').at(-1)
-  console.log(`codsh ${own.version}`)
-  console.log(`${BUNDLE} ${registered ?? 'not registered yet'}`)
-  console.log(`dsh ${runtime === undefined || runtime === '' ? 'unknown' : runtime}`)
-  process.exit(0)
 }
 
 /**
