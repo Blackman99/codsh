@@ -68,6 +68,9 @@ importers:
       execa:
         specifier: ^9.0.0
         version: 9.6.1
+      semver:
+        specifier: ^7.8.5
+        version: 7.8.5
       tsdown:
         specifier: ^0.15.0
         version: 0.15.12(@emnapi/core@1.11.3)(@emnapi/runtime@1.11.3)(typescript@5.9.3)
