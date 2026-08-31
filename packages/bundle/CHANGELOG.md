@@ -1,5 +1,16 @@
 # codsh-bundle
 
+## 0.12.0
+
+### Minor Changes
+
+- 639fa0a: `/diff` reads uncommitted changes in the fullscreen reader instead of writing them into the transcript, and a diff card too long for its 24-line body opens there on click. The reader colours a diff by what each line does to the file; Ctrl+O still expands a block in place, and off a TTY `/diff` stays a line reader.
+
+### Patch Changes
+
+- 7a836cf: `/ship`, `/init`, and custom commands now take the top of the viewport the way a typed message does, so the reply fills the space beneath instead of scrolling the command off. Commands that only work the chrome are unchanged: they answer nothing, and clearing the screen for a reply that never comes would only lose what was on it.
+- 241173d: Arrow keys work with Caps Lock or Num Lock held. A lock rides in the modifier field of a CSI report, so Down arrived as `ESC [ 1;65 B`, matched none of the chords the decoder listed, and was typed into the box as `[1;65B` instead of moving the command menu. Cursor and editing keys are now parsed rather than enumerated, and locks are stripped the way the kitty path already stripped them.
+
 ## 0.11.0
 
 ### Minor Changes
