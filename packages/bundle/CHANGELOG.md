@@ -1,5 +1,17 @@
 # codsh-bundle
 
+## 0.10.0
+
+### Minor Changes
+
+- 7bd477d: Add an interactive right-side conversation timeline with turn previews and click navigation.
+- a3eaaa3: Add stable assistant answer and fenced-code addresses with an interactive `/copy` selector and exact raw-content clipboard output.
+- 2098dfc: Add a resize-safe `/view` reader for assistant answer and fenced-code content addresses with exact viewport restoration.
+- 08bee80: Keep explicit click and Ctrl+O fold choices across streaming and later turns while newly created and replayed folds retain their automatic defaults.
+- 7fe31a3: Place newly submitted prompts at the top of the interactive viewport while streamed replies fill beneath them. The reserved space scrolls with the transcript, so reading back and returning to the tail lands on the anchored frame again.
+- 98c7e4d: Move the scrollback notice to the foot of the viewport and make the row a click that returns to the latest.
+- 5ea12b6: Add semantic conversation navigation in the interactive TTY: Shift+Left and Shift+Right move between real user turns, while `/jump` provides a searchable preview that restores the previous viewport when cancelled.
+
 ## 0.9.0
 
 ### Minor Changes
