@@ -467,9 +467,12 @@
         <div><code>codsh --resume &lt;id&gt;</code><p>Reopen a recorded session, replaying its history as the same folds.</p></div>
         <div><code>codsh --continue</code><p>Pick up the most recent session in this workspace.</p></div>
         <div><code>codsh -p "task"</code><p>One-shot print mode, for scripts and pipes.</p></div>
+        <div><code>codsh --version</code><p>The launcher, the runtime registered in the profile, and the dsh it found.</p></div>
+        <div><code>/update</code><p>A session says so when a newer codsh is out; <code>/update</code> installs it and you restart.</p></div>
         <div><code>DEEPSEEK_API_KEY</code><p>The model key, read from the environment or a <code>.env</code> file.</p></div>
         <div><code>DSH_HOME</code><p>Where profiles live; <code>~/.dsh</code> by default. <code>DSH_BIN</code> picks the dsh to launch.</p></div>
         <div><code>CODSH_CLIPBOARD</code><p><code>osc52</code>, <code>system</code>, or <code>off</code> — narrows how a selection reaches your clipboard.</p></div>
+        <div><code>CODSH_UPDATE_CHECK</code><p><code>off</code> silences the automatic check — <code>/update</code> still asks. <code>CODSH_UPDATE_REGISTRY</code> points both at another registry.</p></div>
         <div><code>CODSH_VISION_*</code><p><code>_BASE_URL</code>, <code>_MODEL</code>, <code>_API_KEY</code>: an OpenAI-compatible sidecar for text-only models. Without one, DeepSeek text routes borrow <code>deepseek-v4-flash-vision-exp</code> by themselves.</p></div>
       </div>
 

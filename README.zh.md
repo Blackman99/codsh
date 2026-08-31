@@ -24,7 +24,10 @@ codsh
 
 零依赖启动器。`codsh` 即 `dsh --profile code`。密钥：`DEEPSEEK_API_KEY`。
 
-`codsh --resume <id>` · `codsh --continue` · `codsh -p "任务"`
+`codsh --resume <id>` · `codsh --continue` · `codsh -p "任务"` · `codsh --version`
+
+有新版本时会话里会有一行提示，`/update` 直接装（`npm install -g codsh-cli@latest`，装完重启）。
+`CODSH_UPDATE_CHECK=off` 关掉自动检查；`/update` 依然会问。
 
 不用启动器：
 
@@ -69,7 +72,7 @@ dsh --profile code
 - todo 常驻 chrome（Ctrl+T / `/todos`）。Markdown、思考、工具卡片流式画出。拖选即复制。
 - Ctrl+V 粘贴图片（原生视觉；DeepSeek 文本模型自动借用 Vision Exp；其他文本路由仍落盘并可选 sidecar）。
 - `/` 命令、`$` skill、`!` shell、`@` 文件 —— 菜单在输入框上方。⇧Tab 是 plan 模式。
-- 审批、`/model`、`/resume` 用方向键；还有 `/clear`、Esc Esc、`/init`。`!cmd` 打在会话里，agent 看得到输出。
+- 审批、`/model`、`/resume` 用方向键；还有 `/clear`、Esc Esc、`/init`、`/update`。`!cmd` 打在会话里，agent 看得到输出。
 
 非 TTY 降级为行读取器：无组件、不绘制。
 

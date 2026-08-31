@@ -24,7 +24,11 @@ codsh
 
 Zero-dependency launcher. `codsh` is `dsh --profile code`. Key: `DEEPSEEK_API_KEY`.
 
-`codsh --resume <id>` · `codsh --continue` · `codsh -p "task"`
+`codsh --resume <id>` · `codsh --continue` · `codsh -p "task"` · `codsh --version`
+
+A session says so when a newer codsh is published, and `/update` installs it
+(`npm install -g codsh-cli@latest`, then restart). `CODSH_UPDATE_CHECK=off`
+silences the automatic check; `/update` still asks.
 
 Or skip the launcher:
 
@@ -69,7 +73,7 @@ The [site](https://blackman99.github.io/codsh/) shows each one as a real capture
 - Todos stay in the chrome (Ctrl+T / `/todos`). Markdown, thinking, and tool cards stream in. Drag to copy.
 - Ctrl+V pastes images (native vision; DeepSeek text models borrow Vision Exp automatically; other text routes keep the file + optional sidecar fallback).
 - `/` commands, `$` skills, `!` shell, `@` files — the menu sits above the box. ⇧Tab is plan mode.
-- Approvals, `/model`, and `/resume` are arrow-key widgets; `/clear`, Esc Esc, and `/init` round it out. `!cmd` prints in-session and the agent sees it.
+- Approvals, `/model`, and `/resume` are arrow-key widgets; `/clear`, Esc Esc, `/init`, and `/update` round it out. `!cmd` prints in-session and the agent sees it.
 
 Off a TTY it becomes a line reader: no widgets, no drawing.
 

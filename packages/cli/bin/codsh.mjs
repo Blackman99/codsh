@@ -86,6 +86,20 @@ function profile() {
   }
 }
 
+// `--version` is the launcher's own question, so the launcher answers it: the
+// pair a person installed, what the profile currently carries, and the dsh
+// this run found. Passing the flag through would report the runtime's version
+// and never mention codsh at all.
+if (process.argv[2] === '--version' || process.argv[2] === '-V') {
+  const registered = profile()?.dependencies?.[BUNDLE]
+  const probe = spawnSync(dsh.command, [...dsh.prefix, '--version'], { encoding: 'utf8' })
+  const runtime = String(probe.stdout ?? '').trim().split('\n').at(-1)
+  console.log(`codsh ${own.version}`)
+  console.log(`${BUNDLE} ${registered ?? 'not registered yet'}`)
+  console.log(`dsh ${runtime === undefined || runtime === '' ? 'unknown' : runtime}`)
+  process.exit(0)
+}
+
 /**
  * Decide whether — and what — to register into the profile this run.
  * @returns the spec to `dsh plugin add`, or undefined when nothing is due.

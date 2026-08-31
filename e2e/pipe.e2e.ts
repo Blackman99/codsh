@@ -11,9 +11,10 @@
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { execa } from 'execa'
 import { describe, expect, it } from 'vitest'
-import { E2E_TEST_TIMEOUT_MS, makeHome, overlayText, resolveLaunch } from './harness.ts'
+import { E2E_TEST_TIMEOUT_MS, fakeRegistry, makeHome, overlayText, resolveLaunch } from './harness.ts'
 
 /**
  * What the mocked model does: `write` needs no approval, `bash` escalates and so
@@ -44,6 +45,8 @@ async function runCodeCli(options: {
   input: string
   /** Extra workspace preparation, e.g. a custom command file. */
   setup?: (cwd: string) => Promise<void>
+  /** Extra environment for the launched surface, over the harness's own. */
+  env?: Record<string, string>
 }): Promise<Run> {
   const cwd = await mkdtemp(join(tmpdir(), 'codsh-e2e-'))
   const home = await makeHome()
@@ -54,7 +57,7 @@ async function runCodeCli(options: {
     const launch = resolveLaunch({ overlay, args: options.args, home, mode: options.tool })
     const result = await execa(launch.command, launch.args, {
       cwd,
-      env: launch.env,
+      env: { ...launch.env, ...options.env ?? {} },
       extendEnv: false,
       input: options.input,
       reject: false,
@@ -138,6 +141,28 @@ describe('dsh code (real profile, keyless model)', () => {
     expect(run.stdout).toContain('plan mode')
     expect(run.stdout).not.toContain('unknown command')
     expect(run.exitCode).toBe(0)
+  }, E2E_TEST_TIMEOUT_MS)
+
+  it('checks the registry on /update, and installs nothing when it is current', async () => {
+    // The version this tree publishes: advertising it back is the "already the
+    // latest" answer, and the only /update path that must never run an install.
+    const manifest: { version: string } = JSON.parse(
+      await readFile(fileURLToPath(new URL('../packages/bundle/package.json', import.meta.url)), 'utf8'),
+    )
+    const registry = await fakeRegistry(manifest.version)
+    try {
+      const run = await runCodeCli({
+        tool: 'write',
+        input: '/update\n/exit\n',
+        env: { CODSH_UPDATE_REGISTRY: registry.base },
+      })
+
+      expect(run.stdout).toContain(`codsh ${manifest.version} is the latest`)
+      expect(run.stdout).not.toContain('npm install -g')
+      expect(run.exitCode).toBe(0)
+    } finally {
+      await registry.close()
+    }
   }, E2E_TEST_TIMEOUT_MS)
 
   it('shows the composition, location, and spend with the prompt', async () => {

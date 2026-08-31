@@ -77,4 +77,35 @@ describe.skipIf(process.platform === 'win32')('the codsh launcher', () => {
       rmSync(cwd, { recursive: true, force: true })
     }
   }, E2E_TEST_TIMEOUT_MS)
+
+  it('answers --version for the pair, not for the runtime it launches', async () => {
+    const home = await mkdtemp(join(tmpdir(), 'codsh-version-home-'))
+    try {
+      const profile = join(home, 'profiles', 'code')
+      mkdirSync(profile, { recursive: true })
+      writeFileSync(join(profile, 'package.json'), `${JSON.stringify({
+        name: 'dsh-profile-code',
+        private: true,
+        dependencies: { 'codsh-bundle': '^0.4.2' },
+      }, null, 2)}\n`)
+      const own = JSON.parse(readFileSync(join(repoRoot, 'packages', 'cli', 'package.json'), 'utf8')) as { version: string }
+
+      const result = await run(process.execPath, [wrapper, '--version'], {
+        env: { ...process.env, DSH_HOME: home, DSH_BIN: dshBin(), DSH_TELEMETRY_DISABLED: '1' },
+      })
+
+      // The launcher's own version, what the profile carries right now, and the
+      // dsh this run found — the flag never reaches that dsh, which would have
+      // answered with a version nobody asked about.
+      const lines = result.stdout.trim().split('\n')
+      expect(lines[0]).toBe(`codsh ${own.version}`)
+      expect(lines[1]).toBe('codsh-bundle ^0.4.2')
+      expect(lines[2]).toMatch(/^dsh \d+\.\d+\.\d+/u)
+      // Asking the version must not register, install, or boot anything.
+      expect(readFileSync(join(profile, 'package.json'), 'utf8')).toContain('^0.4.2')
+      expect(result.stderr).not.toContain('registering')
+    } finally {
+      rmSync(home, { recursive: true, force: true })
+    }
+  }, E2E_TEST_TIMEOUT_MS)
 })

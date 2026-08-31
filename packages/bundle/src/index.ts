@@ -71,6 +71,7 @@ import {
   visionConfigFromEnv,
 } from './vision.ts'
 import { TextStream } from './streaming.ts'
+import { bundleVersion, checkForUpdate, updateCommand } from './update.ts'
 import { formatTokens, gitBranch, statusLine, statusReport, totalTokens } from './status.ts'
 import { todoReport } from './todos.ts'
 import type { PendingImage } from './prompt.ts'
@@ -589,6 +590,20 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
     resumed: config.resume !== '',
   }, theme, io.console.contentColumns)) io.console.write(line)
 
+  // The version this build carries, and — off the boot's critical path — one
+  // dim line when a newer one is published. The check is a cached registry
+  // read behind a two-second budget: a slow network, a captive portal, or no
+  // network at all all cost the same nothing, and nothing is ever installed
+  // without the person asking for it with /update.
+  const version = await bundleVersion()
+  const updateCachePath = dshHomePath('code-cli-update.json')
+  if (version !== undefined && io.console.readsKeys) {
+    void checkForUpdate({ current: version, cachePath: updateCachePath }).then((status) => {
+      if (status?.available !== true) return
+      io.console.write(theme.dim(`  ✻ codsh ${status.latest} is available · /update installs it`))
+    })
+  }
+
   const disposers: (() => void)[] = []
   const commands = ctx.get('commands')
 
@@ -823,6 +838,38 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
       name: 'status',
       description: 'show the model, composition, permissions, and token usage',
       handler: () => ({ kind: 'success', text: statusReport(facts(branch), live.agent.session.id) }),
+    }))
+    disposers.push(commands.register({
+      name: 'update',
+      description: 'check for a newer codsh and install it',
+      handler: async () => {
+        if (version === undefined) return { kind: 'error', text: 'this build carries no version to compare' }
+        // Asked for by name, so it asks the registry even when the automatic
+        // check is silenced, and never answers from yesterday's cache.
+        const status = await checkForUpdate({ current: version, cachePath: updateCachePath, force: true })
+        if (status === undefined) return { kind: 'error', text: 'could not reach the npm registry' }
+        if (!status.available) return { kind: 'success', text: `codsh ${status.current} is the latest` }
+        const command = updateCommand(status.latest)
+        const [file = 'npm', ...args] = command
+        prompt.write(`${theme.pending('●')} ${theme.tool('update')}`)
+        prompt.write(`  $ ${command.join(' ')}`)
+        let streamed = 0
+        const result = await capture(file, args, {
+          cwd,
+          timeoutMs: config.bangTimeoutMs,
+          onLine: (line) => {
+            if (streamed < config.bangOutputLines) prompt.write(`  ${line}`)
+            streamed += 1
+          },
+        })
+        prompt.write('')
+        if (result.code !== 0 || result.signal !== null) {
+          return { kind: 'error', text: `update failed — run ${command.join(' ')} yourself` }
+        }
+        // The running process cannot become the version it just installed; the
+        // launcher registers the matching runtime on the next boot.
+        return { kind: 'success', text: `codsh ${status.latest} installed · /exit, then start codsh again` }
+      },
     }))
     disposers.push(commands.register({
       name: 'jump',

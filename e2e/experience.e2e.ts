@@ -9,7 +9,7 @@
  */
 
 import { describe, expect, it } from 'vitest'
-import { E2E_TEST_TIMEOUT_MS } from './harness.ts'
+import { E2E_TEST_TIMEOUT_MS, fakeRegistry } from './harness.ts'
 import {
   PTY_COLUMNS,
   PTY_ROWS,
@@ -202,6 +202,25 @@ describe.skipIf(process.platform === 'win32')('the first five minutes', () => {
     expect(browsing[noticeAt]).toContain('click or PgDn')
     expect(returned.join('\n')).not.toContain('rows above')
     expect(returned.join('\n')).toContain('STICKY_SECOND_DONE')
+  }, E2E_TEST_TIMEOUT_MS)
+
+  it('says a newer codsh is out, once, under the welcome', async () => {
+    const registry = await fakeRegistry('99.0.0')
+    try {
+      const output = await drivePty('write', [
+        ['Welcome to codsh', '', 900],
+        ['', `/exit${ENTER}`, 400],
+      ], { env: { CODSH_UPDATE_CHECK: 'on', CODSH_UPDATE_REGISTRY: registry.base } })
+      const rows = screenAt(output, 'is available').alternate
+
+      // One dim line under the greeting, naming the command that acts on it —
+      // it never grows the chrome and never installs anything by itself.
+      expect(rows.filter(row => row.includes('codsh 99.0.0 is available'))).toHaveLength(1)
+      expect(rows.join('\n')).toContain('/update installs it')
+      expect(output).not.toContain('npm install -g')
+    } finally {
+      await registry.close()
+    }
   }, E2E_TEST_TIMEOUT_MS)
 
   it('previews and clicks the timeline rail, then clears the preview on mouse-out', async () => {

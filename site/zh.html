@@ -467,9 +467,12 @@
         <div><code>codsh --resume &lt;id&gt;</code><p>重开一个已记录的会话，历史以同样的折叠形态重放。</p></div>
         <div><code>codsh --continue</code><p>接上当前工作区最近的那个会话。</p></div>
         <div><code>codsh -p "任务"</code><p>一次性 print 模式，面向脚本与管道。</p></div>
+        <div><code>codsh --version</code><p>启动器版本、profile 里注册的运行时、以及这次找到的 dsh。</p></div>
+        <div><code>/update</code><p>有新版本时会话里会有一行提示；<code>/update</code> 直接装，装完重启。</p></div>
         <div><code>DEEPSEEK_API_KEY</code><p>模型密钥，从环境变量或 <code>.env</code> 读取。</p></div>
         <div><code>DSH_HOME</code><p>profile 存放位置，默认 <code>~/.dsh</code>；<code>DSH_BIN</code> 指定启动哪个 dsh。</p></div>
         <div><code>CODSH_CLIPBOARD</code><p><code>osc52</code>、<code>system</code> 或 <code>off</code>——收窄选中内容进剪贴板的通道。</p></div>
+        <div><code>CODSH_UPDATE_CHECK</code><p><code>off</code> 关掉自动检查——<code>/update</code> 依然会问。<code>CODSH_UPDATE_REGISTRY</code> 把两者都指向别的 registry。</p></div>
         <div><code>CODSH_VISION_*</code><p><code>_BASE_URL</code>、<code>_MODEL</code>、<code>_API_KEY</code>：供纯文本模型识图的 OpenAI 兼容 sidecar。不配也行，DeepSeek 文本路由会自动借用 <code>deepseek-v4-flash-vision-exp</code>。</p></div>
       </div>
 

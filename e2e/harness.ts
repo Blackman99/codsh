@@ -10,6 +10,7 @@
  * installed presets test-local while the heavyweight profile is shared.
  */
 
+import { createServer } from 'node:http'
 import { execFileSync } from 'node:child_process'
 import { existsSync, mkdirSync, readFileSync, rmSync } from 'node:fs'
 import { mkdtemp, symlink } from 'node:fs/promises'
@@ -36,6 +37,32 @@ export function dshBin(): string {
   const manifest = require.resolve('@deepseek-ai/dsh/package.json')
   const bin: unknown = (JSON.parse(readFileSync(manifest, 'utf8')) as { bin: string | Record<string, string> }).bin
   return join(dirname(manifest), typeof bin === 'string' ? bin : (bin as Record<string, string>)['dsh'] ?? '')
+}
+
+/**
+ * A registry that answers one dist-tag, so no suite reaches npm.
+ *
+ * The update check is a network read the surface makes on its own; pointing it
+ * at a local server is what lets a test drive both answers — current, and one
+ * version behind — without ever installing anything.
+ * @param latest - the version to advertise for `codsh-cli`.
+ * @returns its base URL and how to stop it.
+ */
+export async function fakeRegistry(latest: string): Promise<{ base: string; close: () => Promise<void> }> {
+  const server = createServer((request, response) => {
+    if (request.url !== '/-/package/codsh-cli/dist-tags') {
+      response.writeHead(404).end()
+      return
+    }
+    response.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify({ latest }))
+  })
+  await new Promise<void>((resolve) => { server.listen(0, '127.0.0.1', resolve) })
+  const address = server.address()
+  const port = typeof address === 'object' && address !== null ? address.port : 0
+  return {
+    base: `http://127.0.0.1:${String(port)}`,
+    close: () => new Promise<void>((resolve) => { server.close(() => { resolve() }) }),
+  }
 }
 
 let template: string | undefined
@@ -106,6 +133,9 @@ export function resolveLaunch(options: {
       TERM: 'xterm-256color',
       DSH_HOME: options.home,
       DSH_TELEMETRY_DISABLED: '1',
+      // Pinned: a suite must not depend on what npm currently publishes. The
+      // update tests point the check at a local registry and turn it back on.
+      CODSH_UPDATE_CHECK: 'off',
       DSH_CODE_CLI_MOCK_TOOL: options.mode,
       DEEPSEEK_API_KEY: '',
       // The escape sequence only: a test run must never overwrite the real

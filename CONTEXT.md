@@ -112,6 +112,15 @@ ends it. Display-only, drawn over the Viewport's last row — under what is
 being read, never over it, and never a chrome row, which would move the input
 box while scrolling. A drag that starts on it is a drag, not a click.
 
+**Update check**:
+One cached read of the `codsh-cli` dist-tag, behind a two-second budget, that
+can only ever add a dim line under the welcome naming the newer version. It is
+never a chrome row (the chrome's height is what keeps the box still), never
+blocks the boot, and never installs anything: `/update` is the person asking,
+and it runs `npm install -g codsh-cli@<latest>` in the open like a `!` line.
+`CODSH_UPDATE_CHECK=off` silences the automatic check but not `/update`;
+`CODSH_UPDATE_REGISTRY` points both at another registry.
+
 **Flash**:
 A short-lived notice that borrows the hint row and gives it back (e.g. the
 copy toast).
