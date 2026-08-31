@@ -768,10 +768,11 @@ export class Prompt {
     // flight, and the rows nearest the bottom stay the ones about right now.
     rows.push(...this.todoRows(columns))
     // Detached from the tail the box would look like it had stopped receiving
-    // output, so the viewport says so — over its own top row, never as another
-    // chrome row, which would move the box while scrolling.
+    // output, so the viewport says so — over its own last row, never as another
+    // chrome row, which would move the box while scrolling. The row is also the
+    // click that ends the scroll, which is why it says so.
     this.console.setScrollNotice(this.console.scrolledBy > 0
-      ? this.theme.dim(truncate(`  ↑ ${this.console.scrolledBy} rows above · PgDn returns to the latest`, columns))
+      ? this.theme.dim(truncate(`  ↑ ${this.console.scrolledBy} rows above · click or PgDn returns to the latest`, columns))
       : '')
     // Flash, find, and hover borrow an existing chrome row — the hint if one
     // is up, otherwise the status — so appearing cannot grow the region and

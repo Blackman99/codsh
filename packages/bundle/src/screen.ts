@@ -292,10 +292,8 @@ export class Screen {
   private tailRows = 0
   /** The prompt's own rows establish an anchor; only later rows may retire it. */
   private installingTailAnchor = false
-  /** What to show while scrolled back, drawn over the viewport's top row. */
+  /** What to show while scrolled back, drawn over the viewport's last row. */
   private notice = ''
-  /** A jumped expanded prompt at row one must not be covered by that notice. */
-  private suppressNotice = false
   /** Completion menu painted over the viewport, just above the chrome. */
   private overlay: string[] = []
   /** Transient full-screen rows replacing transcript and chrome without mutating either. */
@@ -304,6 +302,8 @@ export class Screen {
   private selection: { anchor: { row: number; column: number }; focus: { row: number; column: number }; dragged: boolean } | undefined
   /** Sticky prompt pressed as display chrome; dragging cancels the click. */
   private pressedSticky: TurnPrompt | undefined
+  /** Whether the press landed on the scroll notice, which returns to the tail. */
+  private pressedNotice = false
   /** Timeline target pressed in the reserved rail; null keeps an inert rail gesture owned. */
   private pressedTimeline: TurnPrompt | null | undefined
   /** Last pointer position, re-resolved against each frame's rail geometry. */
@@ -417,10 +417,9 @@ export class Screen {
     const height = this.viewportHeight()
     const limit = this.scrollLimit()
     const canStick = layout.prompt.fold?.expanded !== true
-    // Cross one row past an eligible inline prompt so Sticky owns row one and
-    // the notice uses its gap. Expanded prompts stay inline at their first row.
+    // Cross one row past an eligible inline prompt so Sticky owns row one.
+    // Expanded prompts stay inline at their first row.
     const top = layout.at + (canStick ? Math.min(1, layout.rows.length) : 0)
-    this.suppressNotice = !canStick
     this.offset = Math.min(limit, Math.max(0, this.scrollExtent() - top - height))
     this.render()
     return true
@@ -431,7 +430,6 @@ export class Screen {
     this.cancelTimelineNavigation()
     const limit = this.scrollLimit()
     this.offset = Math.min(limit, Math.max(0, offset))
-    this.suppressNotice = false
     this.render()
   }
 
@@ -476,7 +474,6 @@ export class Screen {
         within: bookmark.within,
       }
     }
-    this.suppressNotice = false
     this.restoreViewportAnchor(anchor)
     this.render()
   }
@@ -1068,9 +1065,10 @@ export class Screen {
   /**
    * Set the line shown while the reader is away from the tail.
    *
-   * Drawn OVER the viewport's top row rather than added to the chrome: a notice
-   * that changed the chrome's height would move the input box as a side effect
-   * of scrolling, and would make a page up and a page down different sizes.
+   * Drawn OVER the viewport's last row rather than added to the chrome: a
+   * notice that changed the chrome's height would move the input box as a side
+   * effect of scrolling, and would make a page up and a page down different
+   * sizes. The row is also the click that ends the scroll.
    * @param text - the styled notice, already fitted.
    */
   setScrollNotice(text: string): void {
@@ -1125,7 +1123,6 @@ export class Screen {
     if (next === this.offset) return
     this.cancelTimelineNavigation()
     this.offset = next
-    this.suppressNotice = false
     this.render()
   }
 
@@ -1143,7 +1140,6 @@ export class Screen {
     if (this.offset === 0) return
     this.cancelTimelineNavigation()
     this.offset = 0
-    this.suppressNotice = false
     this.render()
   }
 
@@ -1226,7 +1222,6 @@ export class Screen {
   /** Scroll so the current hit is in the viewport, then paint. */
   private revealFindHit(): void {
     this.cancelTimelineNavigation()
-    this.suppressNotice = false
     const hit = this.find?.hits[this.find.index]
     if (hit === undefined) {
       this.render()
@@ -1263,7 +1258,6 @@ export class Screen {
     this.find = undefined
     this.offset = 0
     this.clearTailAnchor()
-    this.suppressNotice = false
     this.painted = []
     this.paintedTimeline = []
     this.render()
@@ -1342,7 +1336,9 @@ export class Screen {
       this.painted = []
       this.render()
     }
-    if (this.coversOverlay(row)) {
+    // The notice covers the row under it, so the pointer resting there is on
+    // the notice, not on whatever block that row would otherwise belong to.
+    if (this.coversOverlay(row) || row === this.noticeRow()) {
       if (this.hovered !== undefined) {
         this.hovered = undefined
         this.render()
@@ -1385,7 +1381,13 @@ export class Screen {
     const had = this.selection !== undefined
     this.selection = undefined
     this.pressedSticky = undefined
+    this.pressedNotice = false
     if (this.coversOverlay(row)) {
+      if (had) this.render()
+      return
+    }
+    if (row === this.noticeRow()) {
+      this.pressedNotice = true
       if (had) this.render()
       return
     }
@@ -1418,6 +1420,10 @@ export class Screen {
       this.pressedSticky = undefined
       return
     }
+    if (this.pressedNotice) {
+      this.pressedNotice = false
+      return
+    }
     if (this.selection === undefined) return
     const at = this.locate(row, column, true)
     if (at === undefined) return
@@ -1443,6 +1449,12 @@ export class Screen {
         const turn = this.prompts.indexOf(timeline)
         if (turn >= 0) this.jumpToTurn(turn)
       }
+      return undefined
+    }
+    const notice = this.pressedNotice
+    this.pressedNotice = false
+    if (notice) {
+      this.scrollToBottom()
       return undefined
     }
     const sticky = this.pressedSticky
@@ -1600,6 +1612,16 @@ export class Screen {
     visual = Math.min(Math.max(visual, 0), Math.max(0, Math.min(contentHeight, physicalEnd - first) - 1))
     const index = Math.min(Math.max(first + visual, first), physicalEnd - 1)
     return { row: index, column: Math.max(0, column - 1 - GUTTER) }
+  }
+
+  /** Whether the scroll notice owns the viewport's last row this frame. */
+  private noticeVisible(): boolean {
+    return this.offset > 0 && this.notice !== ''
+  }
+
+  /** Terminal row the notice occupies, or undefined when it is not shown. */
+  private noticeRow(): number | undefined {
+    return this.noticeVisible() ? this.viewportHeight() : undefined
   }
 
   /** Rows the transcript viewport occupies. */
@@ -1811,17 +1833,18 @@ export class Screen {
       const source = prompts[sticky.prompt]?.rows ?? []
       const from = sticky.state === 'pushed' ? sticky.clipTop : 0
       const header = source.slice(from, from + sticky.renderHeight)
-      const gap = sticky.state === 'pinned' && sticky.reservedRows > sticky.renderHeight
-        ? [this.offset > 0 && this.notice !== '' ? truncate(this.notice, this.contentColumns()) : '']
-        : []
+      const gap = sticky.state === 'pinned' && sticky.reservedRows > sticky.renderHeight ? [''] : []
       viewport = [...header, ...gap, ...visible, ...padding].slice(0, height)
     } else {
       viewport = [...visible, ...padding]
-      // Scrolled back, the top row says so — replacing a row rather than adding
-      // one, so the rest of the layout does not shift under the reader.
-      if (this.offset > 0 && this.notice !== '' && !this.suppressNotice && viewport.length > 0) {
-        viewport[0] = truncate(this.notice, this.contentColumns())
-      }
+    }
+    // How far back the reader has gone belongs at the foot of what they are
+    // reading, not over the top of it: it is a way out, and the way out is
+    // where the eye already is. It replaces the last row rather than adding
+    // one, so the layout does not shift under the reader, and the whole row
+    // is the click that returns to the tail.
+    if (this.noticeVisible() && viewport.length > 0) {
+      viewport[viewport.length - 1] = truncate(this.notice, this.contentColumns())
     }
     if (this.overlay.length > 0 && viewport.length > 0) {
       const width = this.contentColumns()

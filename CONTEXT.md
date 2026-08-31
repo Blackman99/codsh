@@ -34,8 +34,8 @@ scrolling, and frame painting. The terminal's native buffer is never touched.
 **Sticky turn header**:
 The real user prompt that owns the response currently crossing the top of the
 Viewport. Its display-only copy stays pinned until the next real prompt pushes
-it away, shrinking from at most three rows to one; the gap below it may carry
-the scrollback notice. A prompt longer than three visual rows is a Fold by
+it away, shrinking from at most three rows to one; the gap below it stays
+empty. A prompt longer than three visual rows is a Fold by
 default. While expanded it still ends the previous turn but does not pin.
 Plugin context, tools, and other injected user-role messages never start a
 turn, and the copied header is not transcript or clipboard content.
@@ -105,6 +105,12 @@ starts and ends — heavy for the person's own message, light for a tool block,
 error-coloured for a failed one, absent for what a person reads. Chrome, not
 content: it repeats on wrapped rows and never reaches the clipboard.
 _Avoid_: border, gutter, sidebar
+
+**Scrollback notice**:
+The row that says how far back the reader has gone and takes the click that
+ends it. Display-only, drawn over the Viewport's last row — under what is
+being read, never over it, and never a chrome row, which would move the input
+box while scrolling. A drag that starts on it is a drag, not a click.
 
 **Flash**:
 A short-lived notice that borrows the hint row and gives it back (e.g. the

@@ -33,7 +33,7 @@
             "pen": ""
           },
           {
-            "text": "home-DWlqZu/.agent-presets/code-cli",
+            "text": "home-iyUFhZ/.agent-presets/code-cli",
             "pen": "38;5;245"
           }
         ],
@@ -164,7 +164,7 @@
             "pen": ""
           },
           {
-            "text": "  session session-ccefafee-c4bb-401c-b0bb-4c4ab5cda01f",
+            "text": "  session session-98058f06-28e8-4202-9fbb-203be692c1da",
             "pen": "38;5;245"
           }
         ],
@@ -450,7 +450,7 @@
     {
       "id": "turns",
       "title": "The prompt that owns what you are reading",
-      "note": "Scroll back over a turn boundary and the prompt that asked for those rows pins itself at the top, while the rail on the right marks the turn you are in. Shift+←/→ jumps between them.",
+      "note": "Scroll back over a turn boundary and the prompt that asked for those rows pins itself at the top; the rail on the right marks the turn you are in, and the foot of the screen says how far back you are — click it to come home. Shift+←/→ jumps between turns.",
       "keep": [
         [
           0,
@@ -478,15 +478,7 @@
         ],
         [
           {
-            "text": "  ",
-            "pen": ""
-          },
-          {
-            "text": "  ↑ 12 rows above · PgDn returns to the latest",
-            "pen": "38;5;245"
-          },
-          {
-            "text": "                                   ",
+            "text": "                                                                                   ",
             "pen": ""
           },
           {
@@ -901,7 +893,7 @@
             "pen": ""
           },
           {
-            "text": "├────────┼──────────────────────────────────────────────────────────────────────┤",
+            "text": "  ↑ 12 rows above · click or PgDn returns to the latest",
             "pen": "38;5;245"
           }
         ],
@@ -1139,7 +1131,7 @@
             "pen": ""
           },
           {
-            "text": "0.1s · 14 tokens · ESC to interrupt",
+            "text": "0.0s · 14 tokens · ESC to interrupt",
             "pen": "38;5;245"
           }
         ],

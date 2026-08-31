@@ -193,7 +193,7 @@ describe.skipIf(process.env.CAPTURE_SCREENS === undefined)('showcase frames', ()
       {
         id: 'turns',
         title: 'The prompt that owns what you are reading',
-        note: 'Scroll back over a turn boundary and the prompt that asked for those rows pins itself at the top, while the rail on the right marks the turn you are in. Shift+←/→ jumps between them.',
+        note: 'Scroll back over a turn boundary and the prompt that asked for those rows pins itself at the top; the rail on the right marks the turn you are in, and the foot of the screen says how far back you are — click it to come home. Shift+←/→ jumps between turns.',
       },
       'markdown',
       [

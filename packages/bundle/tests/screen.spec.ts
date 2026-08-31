@@ -785,7 +785,7 @@ describe('scrolling', () => {
     expect(painted(flush(sink)).get(1)).toBe('| › second')
   })
 
-  it('uses the sticky gap for the existing scrollback notice', () => {
+  it('puts the scrollback notice under what is being read, not over it', () => {
     const sink = host(6, 50)
     const screen = new Screen(sink)
     screen.enter()
@@ -793,11 +793,49 @@ describe('scrolling', () => {
     screen.appendPrompt(['› question', ''], '| ')
     screen.append(Array.from({ length: 12 }, (_, index) => `answer ${index}`))
     screen.scrollBy(-2)
-    screen.setScrollNotice('↑ 2 rows above · PgDn returns to the latest')
+    screen.setScrollNotice('↑ 2 rows above · click or PgDn returns to the latest')
 
     const rows = painted(flush(sink))
+    // The sticky header keeps row one and its gap stays empty; the notice sits
+    // at the foot of the viewport, where the way out is.
     expect(rows.get(1)).toBe('| › question')
-    expect(rows.get(2)).toContain('↑ 2 rows above')
+    expect(rows.get(2)).toBe('')
+    expect(rows.get(5)).toContain('↑ 2 rows above')
+  })
+
+  it('returns to the latest when the notice row is clicked', () => {
+    const sink = host(6, 50)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['status'], { row: 0, column: 0 }, false)
+    screen.appendPrompt(['› question', ''], '| ')
+    screen.append(Array.from({ length: 12 }, (_, index) => `answer ${index}`))
+    screen.scrollBy(-3)
+    screen.setScrollNotice('↑ 3 rows above · click or PgDn returns to the latest')
+    flush(sink)
+
+    screen.mouseDown(5, 4)
+    expect(screen.mouseUp()).toBeUndefined()
+    expect(screen.scrolledBy).toBe(0)
+    // Home again, the row goes back to being transcript.
+    expect([...painted(flush(sink)).values()].join('\n')).not.toContain('rows above')
+  })
+
+  it('leaves the reader where they were when a drag starts on the notice', () => {
+    const sink = host(6, 50)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['status'], { row: 0, column: 0 }, false)
+    screen.appendPrompt(['› question', ''], '| ')
+    screen.append(Array.from({ length: 12 }, (_, index) => `answer ${index}`))
+    screen.scrollBy(-3)
+    screen.setScrollNotice('↑ 3 rows above · click or PgDn returns to the latest')
+    flush(sink)
+
+    screen.mouseDown(5, 4)
+    screen.mouseDrag(4, 4)
+    expect(screen.mouseUp()).toBeUndefined()
+    expect(screen.scrolledBy).toBe(3)
   })
 
   it('recomputes the three-row prompt fold when a resize changes wrapping', () => {

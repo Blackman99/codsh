@@ -178,6 +178,32 @@ describe.skipIf(process.platform === 'win32')('the first five minutes', () => {
     expect(returned.slice(0, 14)).toEqual(anchored.slice(0, 14))
   }, E2E_TEST_TIMEOUT_MS)
 
+  it('says how far back it is, at the foot of the screen, and clicks home', async () => {
+    const rows = 12
+    const wheelUp = '\u001B[<64;10;5M'
+    // Press and release on the notice itself, wherever the frame painted it.
+    const clickNotice = '\u001B[<0;6;{row:rows above}M\u001B[<0;6;{row:rows above}m'
+    const run = await drivePtySteps('sticky', [
+      ['Welcome to codsh', `first sticky prompt${ENTER}`, 300],
+      ['STICKY_FIRST_44', `second sticky prompt${ENTER}`, 500],
+      ['51 tokens', wheelUp.repeat(6), 400],
+      ['rows above', clickNotice, 400],
+      ['', `/exit${ENTER}`, 300],
+    ], { rows })
+
+    const captured = (offset: number | undefined): string => Buffer.from(run.output).subarray(0, offset).toString()
+    const browsing = screenOf(captured(run.offsets[3]), -1, rows).alternate
+    const returned = screenOf(captured(run.offsets[4]), -1, rows).alternate
+    const noticeAt = browsing.findIndex(row => row.includes('rows above'))
+    const boxAt = browsing.findIndex(row => row.trimStart().startsWith('╭'))
+    // Under what is being read, not over it: the last transcript row, right
+    // above the box — and it names the click that ends the scroll.
+    expect(noticeAt).toBe(boxAt - 1)
+    expect(browsing[noticeAt]).toContain('click or PgDn')
+    expect(returned.join('\n')).not.toContain('rows above')
+    expect(returned.join('\n')).toContain('STICKY_SECOND_DONE')
+  }, E2E_TEST_TIMEOUT_MS)
+
   it('previews and clicks the timeline rail, then clears the preview on mouse-out', async () => {
     const moveRail = '\u001B[<35;120;2M'
     const clickRail = '\u001B[<0;120;2M\u001B[<0;120;2m'
