@@ -47,8 +47,15 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           for dir in packages/*; do
-            name=$(node -p "require('./$dir/package.json').name")
-            version=$(node -p "require('./$dir/package.json').version")
+            # The manifest on disk is not the fact here. changesets/action runs
+            # ahead of this step and, whenever a changeset is pending, leaves
+            # `changeset version` output in the working tree — so the file said
+            # 0.11.1 on the very push where 0.11.0 was the released version, and
+            # the step went looking for something npm will never have. What the
+            # commit says is what shipped.
+            manifest=$(git show "HEAD:$dir/package.json")
+            name=$(printf '%s' "$manifest" | node -pe "JSON.parse(require('fs').readFileSync(0,'utf8')).name")
+            version=$(printf '%s' "$manifest" | node -pe "JSON.parse(require('fs').readFileSync(0,'utf8')).version")
             tag="$name@$version"
 
             # This step decided everything behind >/dev/null and reported
