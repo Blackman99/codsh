@@ -50,35 +50,48 @@ jobs:
             name=$(node -p "require('./$dir/package.json').name")
             version=$(node -p "require('./$dir/package.json').version")
             tag="$name@$version"
-            # Steady state: an earlier run already tagged and released this
-            # version, so there is nothing to prove and no registry to ask.
-            if git ls-remote --exit-code --tags origin "$tag" >/dev/null 2>&1 \
-              && gh release view "$tag" >/dev/null 2>&1; then
+
+            # This step decided everything behind >/dev/null and reported
+            # nothing, which is how it skipped every release after 0.6.0 while
+            # each run stayed green. It says what it sees now, so the next
+            # surprise costs one log line instead of an afternoon.
+            git ls-remote --exit-code --tags origin "$tag" >/dev/null 2>&1 \
+              && tagged=yes || tagged=no
+            gh release view "$tag" >/dev/null 2>&1 && released=yes || released=no
+            echo "$tag: tagged=$tagged released=$released"
+
+            # Steady state: an earlier run finished this version, so there is
+            # nothing to prove and no registry to ask.
+            if [ "$tagged" = yes ] && [ "$released" = yes ]; then
               continue
             fi
-            # npm answers its own publish with a lag. This step ran 1.3s after
-            # changesets pushed 0.11.0, was told that version did not exist, and
-            # took the `continue` — which is why every tag and release after
-            # 0.6.0 is missing while each run stayed green. Only a version this
-            # repo has never tagged reaches here, so the wait is paid once per
-            # release and never on an ordinary push to main.
-            published=''
-            for _ in $(seq 1 12); do
-              if npm view "$tag" version >/dev/null 2>&1; then published=1; break; fi
+
+            # npm answers its own publish with a lag. The 0.11.0 run published
+            # at 06:04:03.165Z and asked about 0.11.0 at 06:04:05.26; the answer
+            # was no, and both packages were dropped in silence. Only a version
+            # this repo has not finished reaches here, so the wait is paid once
+            # per release rather than on every push to main.
+            published=no
+            for _ in $(seq 1 6); do
+              if npm view "$tag" version >/dev/null 2>&1; then published=yes; break; fi
               sleep 5
             done
-            [ -n "$published" ] || continue
-            if ! git ls-remote --exit-code --tags origin "$tag" >/dev/null 2>&1; then
+            echo "$tag: published=$published"
+            [ "$published" = yes ] || continue
+
+            if [ "$tagged" = no ]; then
               git tag "$tag" 2>/dev/null || true
               git push origin "$tag"
+              echo "$tag: tag pushed"
             fi
-            if ! gh release view "$tag" >/dev/null 2>&1; then
+
+            if [ "$released" = no ]; then
               awk "/^## $version\$/{flag=1; next} /^## /{flag=0} flag" \
                 "$dir/CHANGELOG.md" 2>/dev/null > /tmp/release-notes.md
               # A bump a sibling package carried leaves an empty section behind,
-              # and an empty --notes-file is rejected; the tag still deserves a
-              # release people can subscribe to.
+              # and an empty --notes-file is rejected.
               [ -s /tmp/release-notes.md ] || echo "Released \`$tag\` to npm." > /tmp/release-notes.md
               gh release create "$tag" --title "$tag" --notes-file /tmp/release-notes.md
+              echo "$tag: release created"
             fi
           done
