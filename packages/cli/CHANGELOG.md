@@ -1,5 +1,11 @@
 # codsh
 
+## 0.11.0
+
+### Minor Changes
+
+- d615a96: Tell a session when a newer codsh is published, install it on `/update` or `codsh update`, and answer `codsh --version` for the pair instead of the runtime it launches.
+
 ## 0.10.0
 
 ## 0.9.0
