@@ -19,20 +19,28 @@
       "rows": [
         [
           {
-            "text": "installed preset into /var/folders/s6/7t1hr_t554l4nqkfxkpg8q2w0000gn/T/codsh-e2e-ho",
+            "text": "  ",
+            "pen": ""
+          },
+          {
+            "text": "installed preset into /var/folders/s6/7t1hr_t554l4nqkfxkpg8q2w0000gn/T/codsh-e2e-",
             "pen": "38;5;245"
           }
         ],
         [
           {
-            "text": "me-0OclMd/.agent-presets/code-cli",
+            "text": "  ",
+            "pen": ""
+          },
+          {
+            "text": "home-DWlqZu/.agent-presets/code-cli",
             "pen": "38;5;245"
           }
         ],
         [],
         [
           {
-            "text": "         ",
+            "text": "           ",
             "pen": ""
           },
           {
@@ -42,7 +50,7 @@
         ],
         [
           {
-            "text": "         ",
+            "text": "           ",
             "pen": ""
           },
           {
@@ -60,7 +68,7 @@
         ],
         [
           {
-            "text": "         ",
+            "text": "           ",
             "pen": ""
           },
           {
@@ -70,7 +78,7 @@
         ],
         [
           {
-            "text": "       ",
+            "text": "         ",
             "pen": ""
           },
           {
@@ -80,7 +88,7 @@
         ],
         [
           {
-            "text": "     ",
+            "text": "       ",
             "pen": ""
           },
           {
@@ -90,7 +98,7 @@
         ],
         [
           {
-            "text": "      ",
+            "text": "        ",
             "pen": ""
           },
           {
@@ -116,7 +124,7 @@
         ],
         [
           {
-            "text": "        ",
+            "text": "          ",
             "pen": ""
           },
           {
@@ -126,535 +134,11 @@
         ],
         [],
         [
-          {
-            "text": " ",
-            "pen": ""
-          },
-          {
-            "text": "✻ Welcome to codsh",
-            "pen": "1"
-          },
-          {
-            "text": " · cli-mock · code-cli",
-            "pen": "38;5;245"
-          }
-        ],
-        [],
-        [
-          {
-            "text": "  ~/.cache/codsh/showcase",
-            "pen": "38;5;245"
-          }
-        ],
-        [
-          {
-            "text": "  session session-970741c8-2234-4248-985b-cf860a957aef",
-            "pen": "38;5;245"
-          }
-        ],
-        [],
-        [
-          {
-            "text": "  /help for commands · Tab completes · ⇧Tab plan mode · ESC interrupts · /exit lea…",
-            "pen": "38;5;245"
-          }
-        ],
-        [],
-        [],
-        [],
-        [],
-        [],
-        [],
-        [],
-        [],
-        [],
-        [],
-        [],
-        [],
-        [],
-        [
-          {
-            "text": "╭─────────────────────────────────────────────────────────────────────────────────╮",
-            "pen": "38;5;245"
-          }
-        ],
-        [
-          {
-            "text": "│",
-            "pen": "38;5;245"
-          },
-          {
-            "text": " ",
-            "pen": ""
-          },
-          {
-            "text": "›",
-            "pen": "35"
-          },
-          {
-            "text": " ",
-            "pen": ""
-          },
-          {
-            "text": "Ask anything · / for commands · $ for skills · ! shell · @ for files · ⇧Tab …",
-            "pen": "38;5;245"
-          },
-          {
-            "text": " ",
-            "pen": ""
-          },
-          {
-            "text": "│",
-            "pen": "38;5;245"
-          }
-        ],
-        [
-          {
-            "text": "╰─────────────────────────────────────────────────────────────────────────────────╯",
-            "pen": "38;5;245"
-          }
-        ],
-        [
-          {
-            "text": "cli-mock",
-            "pen": "36"
-          },
-          {
-            "text": " · code-cli · workspace-write · 0 tokens · ~/.cache/codsh/showcase",
-            "pen": "38;5;245"
-          }
-        ]
-      ]
-    },
-    {
-      "id": "complete",
-      "title": "Completion sits above the box",
-      "note": "Type / or $ and a fragment anywhere in the name is enough. The menu opens above the box, so the prompt does not jump.",
-      "keep": [
-        [
-          3,
-          33
-        ]
-      ],
-      "rows": [
-        [
-          {
-            "text": "installed preset into /var/folders/s6/7t1hr_t554l4nqkfxkpg8q2w0000gn/T/codsh-e2e-ho",
-            "pen": "38;5;245"
-          }
-        ],
-        [
-          {
-            "text": "me-AMOrQD/.agent-presets/code-cli",
-            "pen": "38;5;245"
-          }
-        ],
-        [],
-        [
-          {
-            "text": "         ",
-            "pen": ""
-          },
-          {
-            "text": "█▄▄",
-            "pen": "38;2;126;150;245"
-          }
-        ],
-        [
-          {
-            "text": "         ",
-            "pen": ""
-          },
-          {
-            "text": "█",
-            "pen": "38;2;126;150;245"
-          },
-          {
-            "text": " ",
-            "pen": ""
-          },
-          {
-            "text": "▀██",
-            "pen": "38;2;126;150;245"
-          }
-        ],
-        [
-          {
-            "text": "         ",
-            "pen": ""
-          },
-          {
-            "text": "█▄█▀▀",
-            "pen": "38;2;126;150;245"
-          }
-        ],
-        [
-          {
-            "text": "       ",
-            "pen": ""
-          },
-          {
-            "text": "▀██████▀",
-            "pen": "38;2;238;241;251"
-          }
-        ],
-        [
-          {
-            "text": "     ",
-            "pen": ""
-          },
-          {
-            "text": "█▄██▄▄██▄██▄",
-            "pen": "38;2;61;86;214"
-          }
-        ],
-        [
-          {
-            "text": "      ",
-            "pen": ""
-          },
-          {
-            "text": "▀▄▄",
-            "pen": "38;2;61;86;214"
-          },
-          {
-            "text": " ",
-            "pen": ""
-          },
-          {
-            "text": "██",
-            "pen": "38;2;61;86;214"
-          },
-          {
-            "text": " ",
-            "pen": ""
-          },
-          {
-            "text": "▄▄▀",
-            "pen": "38;2;61;86;214"
-          }
-        ],
-        [
-          {
-            "text": "        ",
-            "pen": ""
-          },
-          {
-            "text": "▀█▄▄█▀",
-            "pen": "38;2;61;86;214"
-          }
-        ],
-        [],
-        [
-          {
-            "text": " ",
-            "pen": ""
-          },
-          {
-            "text": "✻ Welcome to codsh",
-            "pen": "1"
-          },
-          {
-            "text": " · cli-mock · code-cli",
-            "pen": "38;5;245"
-          }
-        ],
-        [],
-        [
-          {
-            "text": "  ~/.cache/codsh/showcase",
-            "pen": "38;5;245"
-          }
-        ],
-        [
-          {
-            "text": "  session session-e01bb3f3-c4a0-48b4-978b-e21f7180d464",
-            "pen": "38;5;245"
-          }
-        ],
-        [],
-        [
-          {
-            "text": "  /help for commands · Tab completes · ⇧Tab plan mode · ESC interrupts · /exit lea…",
-            "pen": "38;5;245"
-          }
-        ],
-        [],
-        [],
-        [],
-        [],
-        [],
-        [],
-        [],
-        [],
-        [],
-        [
-          {
-            "text": "❯",
-            "pen": "35"
-          },
-          {
-            "text": " ",
-            "pen": ""
-          },
-          {
-            "text": "/p",
-            "pen": "4"
-          },
-          {
-            "text": "ermission",
-            "pen": ""
-          },
-          {
-            "text": "  Switch the permission preset (sandbox mode + approval policy)",
-            "pen": "38;5;245"
-          }
-        ],
-        [
-          {
-            "text": "  ",
-            "pen": ""
-          },
-          {
-            "text": "/p",
-            "pen": "4"
-          },
-          {
-            "text": "lan",
-            "pen": "38;5;245"
-          },
-          {
-            "text": "      ",
-            "pen": ""
-          },
-          {
-            "text": "  Enter or leave plan mode",
-            "pen": "38;5;245"
-          }
-        ],
-        [
-          {
-            "text": "  ",
-            "pen": ""
-          },
-          {
-            "text": "/shi",
-            "pen": "38;5;245"
-          },
-          {
-            "text": "p",
-            "pen": "4"
-          },
-          {
-            "text": "      ",
-            "pen": ""
-          },
-          {
-            "text": "  take a one-sentence idea to shipped code",
-            "pen": "38;5;245"
-          }
-        ],
-        [
-          {
-            "text": "  ",
-            "pen": ""
-          },
-          {
-            "text": "/com",
-            "pen": "38;5;245"
-          },
-          {
-            "text": "p",
-            "pen": "4"
-          },
-          {
-            "text": "act",
-            "pen": "38;5;245"
-          },
           {
             "text": "   ",
             "pen": ""
           },
           {
-            "text": "  Compact older conversation history",
-            "pen": "38;5;245"
-          }
-        ],
-        [
-          {
-            "text": "╭─────────────────────────────────────────────────────────────────────────────────╮",
-            "pen": "38;5;245"
-          }
-        ],
-        [
-          {
-            "text": "│",
-            "pen": "38;5;245"
-          },
-          {
-            "text": " ",
-            "pen": ""
-          },
-          {
-            "text": "›",
-            "pen": "35"
-          },
-          {
-            "text": " /p                                                                            ",
-            "pen": ""
-          },
-          {
-            "text": "│",
-            "pen": "38;5;245"
-          }
-        ],
-        [
-          {
-            "text": "╰─────────────────────────────────────────────────────────────────────────────────╯",
-            "pen": "38;5;245"
-          }
-        ],
-        [
-          {
-            "text": "cli-mock",
-            "pen": "36"
-          },
-          {
-            "text": " · code-cli · workspace-write · 0 tokens · ~/.cache/codsh/showcase",
-            "pen": "38;5;245"
-          }
-        ]
-      ]
-    },
-    {
-      "id": "bang",
-      "title": "!cmd prints in the session",
-      "note": "The command and its output land as a bash card in the transcript, and the agent sees the result.",
-      "keep": [
-        [
-          18,
-          20
-        ],
-        [
-          30,
-          33
-        ]
-      ],
-      "rows": [
-        [
-          {
-            "text": "installed preset into /var/folders/s6/7t1hr_t554l4nqkfxkpg8q2w0000gn/T/codsh-e2e-ho",
-            "pen": "38;5;245"
-          }
-        ],
-        [
-          {
-            "text": "me-URuw2t/.agent-presets/code-cli",
-            "pen": "38;5;245"
-          }
-        ],
-        [],
-        [
-          {
-            "text": "         ",
-            "pen": ""
-          },
-          {
-            "text": "█▄▄",
-            "pen": "38;2;126;150;245"
-          }
-        ],
-        [
-          {
-            "text": "         ",
-            "pen": ""
-          },
-          {
-            "text": "█",
-            "pen": "38;2;126;150;245"
-          },
-          {
-            "text": " ",
-            "pen": ""
-          },
-          {
-            "text": "▀██",
-            "pen": "38;2;126;150;245"
-          }
-        ],
-        [
-          {
-            "text": "         ",
-            "pen": ""
-          },
-          {
-            "text": "█▄█▀▀",
-            "pen": "38;2;126;150;245"
-          }
-        ],
-        [
-          {
-            "text": "       ",
-            "pen": ""
-          },
-          {
-            "text": "▀██████▀",
-            "pen": "38;2;238;241;251"
-          }
-        ],
-        [
-          {
-            "text": "     ",
-            "pen": ""
-          },
-          {
-            "text": "█▄██▄▄██▄██▄",
-            "pen": "38;2;61;86;214"
-          }
-        ],
-        [
-          {
-            "text": "      ",
-            "pen": ""
-          },
-          {
-            "text": "▀▄▄",
-            "pen": "38;2;61;86;214"
-          },
-          {
-            "text": " ",
-            "pen": ""
-          },
-          {
-            "text": "██",
-            "pen": "38;2;61;86;214"
-          },
-          {
-            "text": " ",
-            "pen": ""
-          },
-          {
-            "text": "▄▄▀",
-            "pen": "38;2;61;86;214"
-          }
-        ],
-        [
-          {
-            "text": "        ",
-            "pen": ""
-          },
-          {
-            "text": "▀█▄▄█▀",
-            "pen": "38;2;61;86;214"
-          }
-        ],
-        [],
-        [
-          {
-            "text": " ",
-            "pen": ""
-          },
-          {
             "text": "✻ Welcome to codsh",
             "pen": "1"
           },
@@ -666,66 +150,63 @@
         [],
         [
           {
+            "text": "  ",
+            "pen": ""
+          },
+          {
             "text": "  ~/.cache/codsh/showcase",
             "pen": "38;5;245"
           }
         ],
         [
           {
-            "text": "  session session-134134d5-ffeb-4ebd-b138-574dae6ef245",
-            "pen": "38;5;245"
-          }
-        ],
-        [],
-        [
-          {
-            "text": "  /help for commands · Tab completes · ⇧Tab plan mode · ESC interrupts · /exit lea…",
-            "pen": "38;5;245"
-          }
-        ],
-        [],
-        [
-          {
-            "text": "●",
-            "pen": "33"
-          },
-          {
-            "text": " ",
+            "text": "  ",
             "pen": ""
           },
           {
-            "text": "bash",
-            "pen": "36"
+            "text": "  session session-ccefafee-c4bb-401c-b0bb-4c4ab5cda01f",
+            "pen": "38;5;245"
           }
         ],
+        [],
         [
           {
-            "text": "  $ echo SHOWCASE_BANG",
+            "text": "  ",
             "pen": ""
+          },
+          {
+            "text": "  /help for commands · Tab completes · ⇧Tab plan mode · ESC interrupts · /exit l…",
+            "pen": "38;5;245"
           }
         ],
+        [],
+        [],
+        [],
+        [],
+        [],
+        [],
+        [],
+        [],
+        [],
+        [],
+        [],
+        [],
+        [],
         [
           {
-            "text": "  SHOWCASE_BANG",
+            "text": "  ",
             "pen": ""
-          }
-        ],
-        [],
-        [],
-        [],
-        [],
-        [],
-        [],
-        [],
-        [],
-        [],
-        [
+          },
           {
-            "text": "╭─────────────────────────────────────────────────────────────────────────────────╮",
+            "text": "╭───────────────────────────────────────────────────────────────────────────────╮",
             "pen": "38;5;245"
           }
         ],
         [
+          {
+            "text": "  ",
+            "pen": ""
+          },
           {
             "text": "│",
             "pen": "38;5;245"
@@ -743,7 +224,7 @@
             "pen": ""
           },
           {
-            "text": "Ask anything · / for commands · $ for skills · ! shell · @ for files · ⇧Tab …",
+            "text": "Ask anything · / for commands · $ for skills · ! shell · @ for files · ⇧Ta…",
             "pen": "38;5;245"
           },
           {
@@ -757,11 +238,19 @@
         ],
         [
           {
-            "text": "╰─────────────────────────────────────────────────────────────────────────────────╯",
+            "text": "  ",
+            "pen": ""
+          },
+          {
+            "text": "╰───────────────────────────────────────────────────────────────────────────────╯",
             "pen": "38;5;245"
           }
         ],
         [
+          {
+            "text": "  ",
+            "pen": ""
+          },
           {
             "text": "cli-mock",
             "pen": "36"
@@ -774,13 +263,13 @@
       ]
     },
     {
-      "id": "tool-call",
-      "title": "Tool calls as cards, with their diffs",
-      "note": "Every call renders through its presenter — a title, a status, and a diff — under a rule down the block’s left edge.",
+      "id": "anchor",
+      "title": "The question you just asked holds the top",
+      "note": "A submitted prompt takes the viewport top and the reply fills the space beneath it. Read back into history and the way home is the same frame: the wheel and PgDn land on it again.",
       "keep": [
         [
-          17,
-          23
+          0,
+          4
         ],
         [
           29,
@@ -790,190 +279,59 @@
       "rows": [
         [
           {
-            "text": "installed preset into /var/folders/s6/7t1hr_t554l4nqkfxkpg8q2w0000gn/T/codsh-e2e-ho",
-            "pen": "38;5;245"
-          }
-        ],
-        [
-          {
-            "text": "me-A6L7Ht/.agent-presets/code-cli",
-            "pen": "38;5;245"
-          }
-        ],
-        [],
-        [
-          {
-            "text": "         ",
+            "text": "  ",
             "pen": ""
           },
-          {
-            "text": "█▄▄",
-            "pen": "38;2;126;150;245"
-          }
-        ],
-        [
-          {
-            "text": "         ",
-            "pen": ""
-          },
-          {
-            "text": "█",
-            "pen": "38;2;126;150;245"
-          },
-          {
-            "text": " ",
-            "pen": ""
-          },
-          {
-            "text": "▀██",
-            "pen": "38;2;126;150;245"
-          }
-        ],
-        [
-          {
-            "text": "         ",
-            "pen": ""
-          },
-          {
-            "text": "█▄█▀▀",
-            "pen": "38;2;126;150;245"
-          }
-        ],
-        [
-          {
-            "text": "       ",
-            "pen": ""
-          },
-          {
-            "text": "▀██████▀",
-            "pen": "38;2;238;241;251"
-          }
-        ],
-        [
-          {
-            "text": "     ",
-            "pen": ""
-          },
-          {
-            "text": "█▄██▄▄██▄██▄",
-            "pen": "38;2;61;86;214"
-          }
-        ],
-        [
-          {
-            "text": "      ",
-            "pen": ""
-          },
-          {
-            "text": "▀▄▄",
-            "pen": "38;2;61;86;214"
-          },
-          {
-            "text": " ",
-            "pen": ""
-          },
-          {
-            "text": "██",
-            "pen": "38;2;61;86;214"
-          },
-          {
-            "text": " ",
-            "pen": ""
-          },
-          {
-            "text": "▄▄▀",
-            "pen": "38;2;61;86;214"
-          }
-        ],
-        [
-          {
-            "text": "        ",
-            "pen": ""
-          },
-          {
-            "text": "▀█▄▄█▀",
-            "pen": "38;2;61;86;214"
-          }
-        ],
-        [],
-        [
-          {
-            "text": " ",
-            "pen": ""
-          },
-          {
-            "text": "✻ Welcome to codsh",
-            "pen": "1"
-          },
-          {
-            "text": " · cli-mock · code-cli",
-            "pen": "38;5;245"
-          }
-        ],
-        [],
-        [
-          {
-            "text": "  ~/.cache/codsh/showcase",
-            "pen": "38;5;245"
-          }
-        ],
-        [
-          {
-            "text": "  session session-6916eee0-5bb8-4011-a52a-6ba631e29a7d",
-            "pen": "38;5;245"
-          }
-        ],
-        [],
-        [
-          {
-            "text": "  /help for commands · Tab completes · ⇧Tab plan mode · ESC interrupts · /exit lea…",
-            "pen": "38;5;245"
-          }
-        ],
-        [],
-        [
           {
             "text": "┃ ›",
             "pen": "35"
           },
           {
-            "text": " create the note",
+            "text": " and what backs it off?                                                       ↑",
             "pen": ""
           }
         ],
-        [],
         [
           {
-            "text": "│ ",
-            "pen": "36"
+            "text": "                                                                                   ",
+            "pen": ""
+          },
+          {
+            "text": "·",
+            "pen": "2"
+          }
+        ],
+        [
+          {
+            "text": "  ",
+            "pen": ""
+          },
+          {
+            "text": "✻ thought for 0.0s · +2 lines (click or Ctrl+O expands)",
+            "pen": "38;5;245"
+          },
+          {
+            "text": "                          ",
+            "pen": ""
           },
           {
             "text": "●",
-            "pen": "33"
-          },
+            "pen": "35"
+          }
+        ],
+        [
           {
-            "text": " ",
+            "text": "                                                                                   ",
             "pen": ""
           },
           {
-            "text": "Write note.txt",
-            "pen": "36"
+            "text": "↓",
+            "pen": "2"
           }
         ],
         [
           {
-            "text": "│ ",
-            "pen": "36"
-          },
-          {
-            "text": "+ CODE_CLI_ROUND_TRIP",
-            "pen": "32"
-          }
-        ],
-        [],
-        [
-          {
-            "text": "CODE_CLI_CALL_OK via cli-mock",
+            "text": "  CODE_CLI_ANSWER after thinking",
             "pen": ""
           }
         ],
@@ -982,13 +340,40 @@
         [],
         [],
         [],
+        [],
+        [],
+        [],
+        [],
+        [],
+        [],
+        [],
+        [],
+        [],
+        [],
+        [],
+        [],
+        [],
+        [],
+        [],
+        [],
+        [],
+        [],
+        [],
         [
           {
-            "text": "╭─────────────────────────────────────────────────────────────────────────────────╮",
+            "text": "  ",
+            "pen": ""
+          },
+          {
+            "text": "╭───────────────────────────────────────────────────────────────────────────────╮",
             "pen": "38;5;245"
           }
         ],
         [
+          {
+            "text": "  ",
+            "pen": ""
+          },
           {
             "text": "│",
             "pen": "38;5;245"
@@ -1006,7 +391,7 @@
             "pen": ""
           },
           {
-            "text": "Ask anything · / for commands · $ for skills · ! shell · @ for files · ⇧Tab …",
+            "text": "Ask anything · / for commands · $ for skills · ! shell · @ for files · ⇧Ta…",
             "pen": "38;5;245"
           },
           {
@@ -1020,11 +405,19 @@
         ],
         [
           {
-            "text": "╰─────────────────────────────────────────────────────────────────────────────────╯",
+            "text": "  ",
+            "pen": ""
+          },
+          {
+            "text": "╰───────────────────────────────────────────────────────────────────────────────╯",
             "pen": "38;5;245"
           }
         ],
         [
+          {
+            "text": "  ",
+            "pen": ""
+          },
           {
             "text": "⠋",
             "pen": "33"
@@ -1034,886 +427,137 @@
             "pen": ""
           },
           {
-            "text": "0.0s · 14 tokens · ESC to interrupt",
+            "text": "0.0s · ESC to interrupt",
             "pen": "38;5;245"
           }
         ],
         [
+          {
+            "text": "  ",
+            "pen": ""
+          },
           {
             "text": "cli-mock",
             "pen": "36"
           },
           {
-            "text": " · code-cli · workspace-write · 26 tokens · ~/.cache/codsh/showcase",
+            "text": " · code-cli · workspace-write · 28 tokens · ~/.cache/codsh/showcase",
             "pen": "38;5;245"
           }
         ]
       ]
     },
     {
-      "id": "fold-hover",
-      "title": "A block says what it is under the pointer",
-      "note": "Resting on a fold fills the block and names it on the chrome row — what a click will do, before it lands.",
-      "keep": [
-        [
-          17,
-          24
-        ],
-        [
-          30,
-          33
-        ]
-      ],
-      "rows": [
-        [
-          {
-            "text": "installed preset into /var/folders/s6/7t1hr_t554l4nqkfxkpg8q2w0000gn/T/codsh-e2e-ho",
-            "pen": "38;5;245"
-          }
-        ],
-        [
-          {
-            "text": "me-Z8dhne/.agent-presets/code-cli",
-            "pen": "38;5;245"
-          }
-        ],
-        [],
-        [
-          {
-            "text": "         ",
-            "pen": ""
-          },
-          {
-            "text": "█▄▄",
-            "pen": "38;2;126;150;245"
-          }
-        ],
-        [
-          {
-            "text": "         ",
-            "pen": ""
-          },
-          {
-            "text": "█",
-            "pen": "38;2;126;150;245"
-          },
-          {
-            "text": " ",
-            "pen": ""
-          },
-          {
-            "text": "▀██",
-            "pen": "38;2;126;150;245"
-          }
-        ],
-        [
-          {
-            "text": "         ",
-            "pen": ""
-          },
-          {
-            "text": "█▄█▀▀",
-            "pen": "38;2;126;150;245"
-          }
-        ],
-        [
-          {
-            "text": "       ",
-            "pen": ""
-          },
-          {
-            "text": "▀██████▀",
-            "pen": "38;2;238;241;251"
-          }
-        ],
-        [
-          {
-            "text": "     ",
-            "pen": ""
-          },
-          {
-            "text": "█▄██▄▄██▄██▄",
-            "pen": "38;2;61;86;214"
-          }
-        ],
-        [
-          {
-            "text": "      ",
-            "pen": ""
-          },
-          {
-            "text": "▀▄▄",
-            "pen": "38;2;61;86;214"
-          },
-          {
-            "text": " ",
-            "pen": ""
-          },
-          {
-            "text": "██",
-            "pen": "38;2;61;86;214"
-          },
-          {
-            "text": " ",
-            "pen": ""
-          },
-          {
-            "text": "▄▄▀",
-            "pen": "38;2;61;86;214"
-          }
-        ],
-        [
-          {
-            "text": "        ",
-            "pen": ""
-          },
-          {
-            "text": "▀█▄▄█▀",
-            "pen": "38;2;61;86;214"
-          }
-        ],
-        [],
-        [
-          {
-            "text": " ",
-            "pen": ""
-          },
-          {
-            "text": "✻ Welcome to codsh",
-            "pen": "1"
-          },
-          {
-            "text": " · cli-mock · code-cli",
-            "pen": "38;5;245"
-          }
-        ],
-        [],
-        [
-          {
-            "text": "  ~/.cache/codsh/showcase",
-            "pen": "38;5;245"
-          }
-        ],
-        [
-          {
-            "text": "  session session-ab5af9dc-cdaf-4631-b7a1-bdf7e92419e9",
-            "pen": "38;5;245"
-          }
-        ],
-        [],
-        [
-          {
-            "text": "  /help for commands · Tab completes · ⇧Tab plan mode · ESC interrupts · /exit lea…",
-            "pen": "38;5;245"
-          }
-        ],
-        [],
-        [
-          {
-            "text": "┃ ›",
-            "pen": "35"
-          },
-          {
-            "text": " think it over",
-            "pen": ""
-          }
-        ],
-        [],
-        [
-          {
-            "text": "✻ thought for 0.0s · +2 lines (click or Ctrl+O expands)",
-            "pen": "38;5;245"
-          }
-        ],
-        [],
-        [
-          {
-            "text": "CODE_CLI_ANSWER after thinking",
-            "pen": ""
-          }
-        ],
-        [],
-        [
-          {
-            "text": "  0.0s · 14 tokens",
-            "pen": "38;5;245"
-          }
-        ],
-        [],
-        [],
-        [],
-        [],
-        [],
-        [
-          {
-            "text": "╭─────────────────────────────────────────────────────────────────────────────────╮",
-            "pen": "38;5;245"
-          }
-        ],
-        [
-          {
-            "text": "│",
-            "pen": "38;5;245"
-          },
-          {
-            "text": " ",
-            "pen": ""
-          },
-          {
-            "text": "›",
-            "pen": "35"
-          },
-          {
-            "text": " ",
-            "pen": ""
-          },
-          {
-            "text": "Ask anything · / for commands · $ for skills · ! shell · @ for files · ⇧Tab …",
-            "pen": "38;5;245"
-          },
-          {
-            "text": " ",
-            "pen": ""
-          },
-          {
-            "text": "│",
-            "pen": "38;5;245"
-          }
-        ],
-        [
-          {
-            "text": "╰─────────────────────────────────────────────────────────────────────────────────╯",
-            "pen": "38;5;245"
-          }
-        ],
-        [
-          {
-            "text": "  thinking · 4 lines · click to expand",
-            "pen": "38;5;245"
-          }
-        ]
-      ]
-    },
-    {
-      "id": "fold-open",
-      "title": "One click opens the one block",
-      "note": "A click opens the block it lands on and a click anywhere inside folds it back; Ctrl+O still swaps every one at once.",
-      "keep": [
-        [
-          17,
-          26
-        ],
-        [
-          30,
-          33
-        ]
-      ],
-      "rows": [
-        [
-          {
-            "text": "installed preset into /var/folders/s6/7t1hr_t554l4nqkfxkpg8q2w0000gn/T/codsh-e2e-ho",
-            "pen": "38;5;245"
-          }
-        ],
-        [
-          {
-            "text": "me-MyHPS2/.agent-presets/code-cli",
-            "pen": "38;5;245"
-          }
-        ],
-        [],
-        [
-          {
-            "text": "         ",
-            "pen": ""
-          },
-          {
-            "text": "█▄▄",
-            "pen": "38;2;126;150;245"
-          }
-        ],
-        [
-          {
-            "text": "         ",
-            "pen": ""
-          },
-          {
-            "text": "█",
-            "pen": "38;2;126;150;245"
-          },
-          {
-            "text": " ",
-            "pen": ""
-          },
-          {
-            "text": "▀██",
-            "pen": "38;2;126;150;245"
-          }
-        ],
-        [
-          {
-            "text": "         ",
-            "pen": ""
-          },
-          {
-            "text": "█▄█▀▀",
-            "pen": "38;2;126;150;245"
-          }
-        ],
-        [
-          {
-            "text": "       ",
-            "pen": ""
-          },
-          {
-            "text": "▀██████▀",
-            "pen": "38;2;238;241;251"
-          }
-        ],
-        [
-          {
-            "text": "     ",
-            "pen": ""
-          },
-          {
-            "text": "█▄██▄▄██▄██▄",
-            "pen": "38;2;61;86;214"
-          }
-        ],
-        [
-          {
-            "text": "      ",
-            "pen": ""
-          },
-          {
-            "text": "▀▄▄",
-            "pen": "38;2;61;86;214"
-          },
-          {
-            "text": " ",
-            "pen": ""
-          },
-          {
-            "text": "██",
-            "pen": "38;2;61;86;214"
-          },
-          {
-            "text": " ",
-            "pen": ""
-          },
-          {
-            "text": "▄▄▀",
-            "pen": "38;2;61;86;214"
-          }
-        ],
-        [
-          {
-            "text": "        ",
-            "pen": ""
-          },
-          {
-            "text": "▀█▄▄█▀",
-            "pen": "38;2;61;86;214"
-          }
-        ],
-        [],
-        [
-          {
-            "text": " ",
-            "pen": ""
-          },
-          {
-            "text": "✻ Welcome to codsh",
-            "pen": "1"
-          },
-          {
-            "text": " · cli-mock · code-cli",
-            "pen": "38;5;245"
-          }
-        ],
-        [],
-        [
-          {
-            "text": "  ~/.cache/codsh/showcase",
-            "pen": "38;5;245"
-          }
-        ],
-        [
-          {
-            "text": "  session session-4c848e9f-8f3d-4cfc-b27b-e7c6a9b8fb25",
-            "pen": "38;5;245"
-          }
-        ],
-        [],
-        [
-          {
-            "text": "  /help for commands · Tab completes · ⇧Tab plan mode · ESC interrupts · /exit lea…",
-            "pen": "38;5;245"
-          }
-        ],
-        [],
-        [
-          {
-            "text": "┃ ›",
-            "pen": "35"
-          },
-          {
-            "text": " think it over",
-            "pen": ""
-          }
-        ],
-        [],
-        [
-          {
-            "text": "✻ thought for 0.0s",
-            "pen": "38;5;245"
-          }
-        ],
-        [
-          {
-            "text": "  CODE_CLI_THINKING about the request",
-            "pen": "38;5;245"
-          }
-        ],
-        [
-          {
-            "text": "  weighing the options carefully",
-            "pen": "38;5;245"
-          }
-        ],
-        [],
-        [
-          {
-            "text": "CODE_CLI_ANSWER after thinking",
-            "pen": ""
-          }
-        ],
-        [],
-        [
-          {
-            "text": "  0.0s · 14 tokens",
-            "pen": "38;5;245"
-          }
-        ],
-        [],
-        [],
-        [],
-        [
-          {
-            "text": "╭─────────────────────────────────────────────────────────────────────────────────╮",
-            "pen": "38;5;245"
-          }
-        ],
-        [
-          {
-            "text": "│",
-            "pen": "38;5;245"
-          },
-          {
-            "text": " ",
-            "pen": ""
-          },
-          {
-            "text": "›",
-            "pen": "35"
-          },
-          {
-            "text": " ",
-            "pen": ""
-          },
-          {
-            "text": "Ask anything · / for commands · $ for skills · ! shell · @ for files · ⇧Tab …",
-            "pen": "38;5;245"
-          },
-          {
-            "text": " ",
-            "pen": ""
-          },
-          {
-            "text": "│",
-            "pen": "38;5;245"
-          }
-        ],
-        [
-          {
-            "text": "╰─────────────────────────────────────────────────────────────────────────────────╯",
-            "pen": "38;5;245"
-          }
-        ],
-        [
-          {
-            "text": "cli-mock",
-            "pen": "36"
-          },
-          {
-            "text": " · code-cli · workspace-write · 14 tokens · ~/.cache/codsh/showcase",
-            "pen": "38;5;245"
-          }
-        ]
-      ]
-    },
-    {
-      "id": "todos",
-      "title": "Todos that stay in view",
-      "note": "A pinned row holds the agent’s list over the status row instead of scrolling away with the write; Ctrl+T opens it whole.",
-      "keep": [
-        [
-          11,
-          24
-        ],
-        [
-          26,
-          33
-        ]
-      ],
-      "rows": [
-        [
-          {
-            "text": "       ",
-            "pen": ""
-          },
-          {
-            "text": "▀██████▀",
-            "pen": "38;2;238;241;251"
-          }
-        ],
-        [
-          {
-            "text": "     ",
-            "pen": ""
-          },
-          {
-            "text": "█▄██▄▄██▄██▄",
-            "pen": "38;2;61;86;214"
-          }
-        ],
-        [
-          {
-            "text": "      ",
-            "pen": ""
-          },
-          {
-            "text": "▀▄▄",
-            "pen": "38;2;61;86;214"
-          },
-          {
-            "text": " ",
-            "pen": ""
-          },
-          {
-            "text": "██",
-            "pen": "38;2;61;86;214"
-          },
-          {
-            "text": " ",
-            "pen": ""
-          },
-          {
-            "text": "▄▄▀",
-            "pen": "38;2;61;86;214"
-          }
-        ],
-        [
-          {
-            "text": "        ",
-            "pen": ""
-          },
-          {
-            "text": "▀█▄▄█▀",
-            "pen": "38;2;61;86;214"
-          }
-        ],
-        [],
-        [
-          {
-            "text": " ",
-            "pen": ""
-          },
-          {
-            "text": "✻ Welcome to codsh",
-            "pen": "1"
-          },
-          {
-            "text": " · cli-mock · code-cli",
-            "pen": "38;5;245"
-          }
-        ],
-        [],
-        [
-          {
-            "text": "  ~/.cache/codsh/showcase",
-            "pen": "38;5;245"
-          }
-        ],
-        [
-          {
-            "text": "  session session-78fbdfd2-3daa-40e1-80fc-903e3fe0578f",
-            "pen": "38;5;245"
-          }
-        ],
-        [],
-        [
-          {
-            "text": "  /help for commands · Tab completes · ⇧Tab plan mode · ESC interrupts · /exit lea…",
-            "pen": "38;5;245"
-          }
-        ],
-        [],
-        [
-          {
-            "text": "┃ ›",
-            "pen": "35"
-          },
-          {
-            "text": " plan the work",
-            "pen": ""
-          }
-        ],
-        [],
-        [
-          {
-            "text": "│ ",
-            "pen": "36"
-          },
-          {
-            "text": "●",
-            "pen": "33"
-          },
-          {
-            "text": " Update todo list",
-            "pen": ""
-          }
-        ],
-        [
-          {
-            "text": "│ todos",
-            "pen": "36"
-          },
-          {
-            "text": " ",
-            "pen": ""
-          },
-          {
-            "text": "1/3 · 1 in progress · 1 open",
-            "pen": "38;5;245"
-          }
-        ],
-        [
-          {
-            "text": "│ ",
-            "pen": "36"
-          },
-          {
-            "text": "  ",
-            "pen": ""
-          },
-          {
-            "text": "✔",
-            "pen": "32"
-          },
-          {
-            "text": " ",
-            "pen": ""
-          },
-          {
-            "text": "read the code",
-            "pen": "38;5;245"
-          }
-        ],
-        [
-          {
-            "text": "│ ",
-            "pen": "36"
-          },
-          {
-            "text": "  ",
-            "pen": ""
-          },
-          {
-            "text": "▶",
-            "pen": "33"
-          },
-          {
-            "text": " write the fix",
-            "pen": ""
-          }
-        ],
-        [
-          {
-            "text": "│ ",
-            "pen": "36"
-          },
-          {
-            "text": "  ",
-            "pen": ""
-          },
-          {
-            "text": "○",
-            "pen": "38;5;245"
-          },
-          {
-            "text": " run the tests",
-            "pen": ""
-          }
-        ],
-        [],
-        [
-          {
-            "text": "│ ",
-            "pen": "36"
-          },
-          {
-            "text": "  Updated todo list: 1 pending, 1 in progress, 1 completed.",
-            "pen": "38;5;245"
-          }
-        ],
-        [],
-        [
-          {
-            "text": "CODE_CLI_CALL_OK via cli-mock",
-            "pen": ""
-          }
-        ],
-        [],
-        [
-          {
-            "text": "  0.1s · 26 tokens",
-            "pen": "38;5;245"
-          }
-        ],
-        [],
-        [
-          {
-            "text": "╭─────────────────────────────────────────────────────────────────────────────────╮",
-            "pen": "38;5;245"
-          }
-        ],
-        [
-          {
-            "text": "│",
-            "pen": "38;5;245"
-          },
-          {
-            "text": " ",
-            "pen": ""
-          },
-          {
-            "text": "›",
-            "pen": "35"
-          },
-          {
-            "text": " ",
-            "pen": ""
-          },
-          {
-            "text": "Ask anything · / for commands · $ for skills · ! shell · @ for files · ⇧Tab …",
-            "pen": "38;5;245"
-          },
-          {
-            "text": " ",
-            "pen": ""
-          },
-          {
-            "text": "│",
-            "pen": "38;5;245"
-          }
-        ],
-        [
-          {
-            "text": "╰─────────────────────────────────────────────────────────────────────────────────╯",
-            "pen": "38;5;245"
-          }
-        ],
-        [
-          {
-            "text": "todos",
-            "pen": "36"
-          },
-          {
-            "text": " ",
-            "pen": ""
-          },
-          {
-            "text": "1/3 · 1 in progress · 1 open · Ctrl+T closes",
-            "pen": "38;5;245"
-          }
-        ],
-        [
-          {
-            "text": "  ",
-            "pen": ""
-          },
-          {
-            "text": "✔",
-            "pen": "32"
-          },
-          {
-            "text": " ",
-            "pen": ""
-          },
-          {
-            "text": "read the code",
-            "pen": "38;5;245"
-          }
-        ],
-        [
-          {
-            "text": "  ",
-            "pen": ""
-          },
-          {
-            "text": "▶",
-            "pen": "33"
-          },
-          {
-            "text": " write the fix",
-            "pen": ""
-          }
-        ],
-        [
-          {
-            "text": "  ",
-            "pen": ""
-          },
-          {
-            "text": "○",
-            "pen": "38;5;245"
-          },
-          {
-            "text": " run the tests",
-            "pen": ""
-          }
-        ],
-        [
-          {
-            "text": "cli-mock",
-            "pen": "36"
-          },
-          {
-            "text": " · code-cli · workspace-write · 26 tokens · ~/.cache/codsh/showcase",
-            "pen": "38;5;245"
-          }
-        ]
-      ]
-    },
-    {
-      "id": "markdown",
-      "title": "Markdown, rendered rather than echoed",
-      "note": "Tables get real columns, code gets highlighted, and emphasis markers are consumed instead of printed.",
+      "id": "turns",
+      "title": "The prompt that owns what you are reading",
+      "note": "Scroll back over a turn boundary and the prompt that asked for those rows pins itself at the top, while the rail on the right marks the turn you are in. Shift+←/→ jumps between them.",
       "keep": [
         [
           0,
-          10
+          20
         ],
         [
-          12,
+          22,
           33
         ]
       ],
       "rows": [
         [
           {
-            "text": "Prose with ",
+            "text": "  ",
+            "pen": ""
+          },
+          {
+            "text": "┃ ›",
+            "pen": "35"
+          },
+          {
+            "text": " explain the render path                                                      ↑",
+            "pen": ""
+          }
+        ],
+        [
+          {
+            "text": "  ",
+            "pen": ""
+          },
+          {
+            "text": "  ↑ 12 rows above · PgDn returns to the latest",
+            "pen": "38;5;245"
+          },
+          {
+            "text": "                                   ",
+            "pen": ""
+          },
+          {
+            "text": "●",
+            "pen": "35"
+          }
+        ],
+        [
+          {
+            "text": "  ",
+            "pen": ""
+          },
+          {
+            "text": "  … +23 lines (click or Ctrl+O expands)",
+            "pen": "38;5;245"
+          },
+          {
+            "text": "                                          ",
+            "pen": ""
+          },
+          {
+            "text": "·",
+            "pen": "2"
+          }
+        ],
+        [
+          {
+            "text": "                                                                                   ↓",
+            "pen": ""
+          }
+        ],
+        [
+          {
+            "text": "  ",
+            "pen": ""
+          },
+          {
+            "text": "  0.1s · 13 tokens",
+            "pen": "38;5;245"
+          }
+        ],
+        [],
+        [
+          {
+            "text": "  ",
+            "pen": ""
+          },
+          {
+            "text": "┃ ›",
+            "pen": "35"
+          },
+          {
+            "text": " now the input path",
+            "pen": ""
+          }
+        ],
+        [],
+        [
+          {
+            "text": "  ",
+            "pen": ""
+          },
+          {
+            "text": "CODE_CLI_HEADING",
+            "pen": "1"
+          }
+        ],
+        [],
+        [
+          {
+            "text": "  Prose with ",
             "pen": ""
           },
           {
@@ -1959,12 +603,16 @@
         ],
         [
           {
-            "text": "An identifier like some_helper_name must survive intact.",
+            "text": "  An identifier like some_helper_name must survive intact.",
             "pen": ""
           }
         ],
         [],
         [
+          {
+            "text": "  ",
+            "pen": ""
+          },
           {
             "text": "•",
             "pen": "38;5;245"
@@ -1984,6 +632,10 @@
         ],
         [
           {
+            "text": "  ",
+            "pen": ""
+          },
+          {
             "text": "•",
             "pen": "38;5;245"
           },
@@ -1993,6 +645,10 @@
           }
         ],
         [
+          {
+            "text": "  ",
+            "pen": ""
+          },
           {
             "text": "•",
             "pen": "38;5;245"
@@ -2004,6 +660,10 @@
         ],
         [
           {
+            "text": "  ",
+            "pen": ""
+          },
+          {
             "text": "•",
             "pen": "38;5;245"
           },
@@ -2013,6 +673,10 @@
           }
         ],
         [
+          {
+            "text": "  ",
+            "pen": ""
+          },
           {
             "text": "•",
             "pen": "38;5;245"
@@ -2024,6 +688,10 @@
         ],
         [
           {
+            "text": "  ",
+            "pen": ""
+          },
+          {
             "text": "•",
             "pen": "38;5;245"
           },
@@ -2034,6 +702,10 @@
         ],
         [
           {
+            "text": "  ",
+            "pen": ""
+          },
+          {
             "text": "•",
             "pen": "38;5;245"
           },
@@ -2043,6 +715,10 @@
           }
         ],
         [
+          {
+            "text": "  ",
+            "pen": ""
+          },
           {
             "text": "•",
             "pen": "38;5;245"
@@ -2055,11 +731,19 @@
         [],
         [
           {
-            "text": "╭────────┬────────────────────────────────────────────────────────────────────────╮",
+            "text": "  ",
+            "pen": ""
+          },
+          {
+            "text": "╭────────┬──────────────────────────────────────────────────────────────────────╮",
             "pen": "38;5;245"
           }
         ],
         [
+          {
+            "text": "  ",
+            "pen": ""
+          },
           {
             "text": "│",
             "pen": "38;5;245"
@@ -2089,7 +773,7 @@
             "pen": "1"
           },
           {
-            "text": "                                                                   ",
+            "text": "                                                                 ",
             "pen": ""
           },
           {
@@ -2099,11 +783,19 @@
         ],
         [
           {
-            "text": "├────────┼────────────────────────────────────────────────────────────────────────┤",
+            "text": "  ",
+            "pen": ""
+          },
+          {
+            "text": "├────────┼──────────────────────────────────────────────────────────────────────┤",
             "pen": "38;5;245"
           }
         ],
         [
+          {
+            "text": "  ",
+            "pen": ""
+          },
           {
             "text": "│",
             "pen": "38;5;245"
@@ -2117,7 +809,7 @@
             "pen": "38;5;245"
           },
           {
-            "text": " 一个很长的中文单元格内容,用来强制表格在任何终端宽度下都必须在单元格内  ",
+            "text": " 一个很长的中文单元格内容,用来强制表格在任何终端宽度下都必须在单元格  ",
             "pen": ""
           },
           {
@@ -2126,6 +818,10 @@
           }
         ],
         [
+          {
+            "text": "  ",
+            "pen": ""
+          },
           {
             "text": "│",
             "pen": "38;5;245"
@@ -2139,7 +835,7 @@
             "pen": "38;5;245"
           },
           {
-            "text": " 部换行。一个很长的中文单元格内容,用来强制表格在任何终端宽度下都必须在  ",
+            "text": " 内部换行。一个很长的中文单元格内容,用来强制表格在任何终端宽度下都必  ",
             "pen": ""
           },
           {
@@ -2148,6 +844,10 @@
           }
         ],
         [
+          {
+            "text": "  ",
+            "pen": ""
+          },
           {
             "text": "│",
             "pen": "38;5;245"
@@ -2161,7 +861,7 @@
             "pen": "38;5;245"
           },
           {
-            "text": " 单元格内部换行。一个很长的中文单元格内容,用来强制表格在任何终端宽度下  ",
+            "text": " 须在单元格内部换行。一个很长的中文单元格内容,用来强制表格在任何终端  ",
             "pen": ""
           },
           {
@@ -2170,6 +870,10 @@
           }
         ],
         [
+          {
+            "text": "  ",
+            "pen": ""
+          },
           {
             "text": "│",
             "pen": "38;5;245"
@@ -2183,7 +887,7 @@
             "pen": "38;5;245"
           },
           {
-            "text": " 都必须在单元格内部换行。                                               ",
+            "text": " 宽度下都必须在单元格内部换行。                                       ",
             "pen": ""
           },
           {
@@ -2193,11 +897,1086 @@
         ],
         [
           {
-            "text": "├────────┼────────────────────────────────────────────────────────────────────────┤",
+            "text": "  ",
+            "pen": ""
+          },
+          {
+            "text": "├────────┼──────────────────────────────────────────────────────────────────────┤",
             "pen": "38;5;245"
           }
         ],
         [
+          {
+            "text": "  ",
+            "pen": ""
+          },
+          {
+            "text": "╭───────────────────────────────────────────────────────────────────────────────╮",
+            "pen": "38;5;245"
+          }
+        ],
+        [
+          {
+            "text": "  ",
+            "pen": ""
+          },
+          {
+            "text": "│",
+            "pen": "38;5;245"
+          },
+          {
+            "text": " ",
+            "pen": ""
+          },
+          {
+            "text": "›",
+            "pen": "35"
+          },
+          {
+            "text": " ",
+            "pen": ""
+          },
+          {
+            "text": "Ask anything · / for commands · $ for skills · ! shell · @ for files · ⇧Ta…",
+            "pen": "38;5;245"
+          },
+          {
+            "text": " ",
+            "pen": ""
+          },
+          {
+            "text": "│",
+            "pen": "38;5;245"
+          }
+        ],
+        [
+          {
+            "text": "  ",
+            "pen": ""
+          },
+          {
+            "text": "╰───────────────────────────────────────────────────────────────────────────────╯",
+            "pen": "38;5;245"
+          }
+        ],
+        [
+          {
+            "text": "  ",
+            "pen": ""
+          },
+          {
+            "text": "cli-mock",
+            "pen": "36"
+          },
+          {
+            "text": " · code-cli · workspace-write · 26 tokens · ~/.cache/codsh/showcase",
+            "pen": "38;5;245"
+          }
+        ]
+      ]
+    },
+    {
+      "id": "tool-call",
+      "title": "Tool calls as cards, with their diffs",
+      "note": "Every call renders through its presenter — a title, a status, and a diff — under a rule down the block’s left edge.",
+      "keep": [
+        [
+          0,
+          5
+        ],
+        [
+          29,
+          33
+        ]
+      ],
+      "rows": [
+        [
+          {
+            "text": "  ",
+            "pen": ""
+          },
+          {
+            "text": "┃ ›",
+            "pen": "35"
+          },
+          {
+            "text": " create the note",
+            "pen": ""
+          }
+        ],
+        [],
+        [
+          {
+            "text": "  ",
+            "pen": ""
+          },
+          {
+            "text": "│ ",
+            "pen": "36"
+          },
+          {
+            "text": "●",
+            "pen": "33"
+          },
+          {
+            "text": " ",
+            "pen": ""
+          },
+          {
+            "text": "Write note.txt",
+            "pen": "36"
+          }
+        ],
+        [
+          {
+            "text": "  ",
+            "pen": ""
+          },
+          {
+            "text": "│ ",
+            "pen": "36"
+          },
+          {
+            "text": "+ CODE_CLI_ROUND_TRIP",
+            "pen": "32"
+          }
+        ],
+        [],
+        [
+          {
+            "text": "  CODE_CLI_CALL_OK via cli-mock",
+            "pen": ""
+          }
+        ],
+        [],
+        [],
+        [],
+        [],
+        [],
+        [],
+        [],
+        [],
+        [],
+        [],
+        [],
+        [],
+        [],
+        [],
+        [],
+        [],
+        [],
+        [],
+        [],
+        [],
+        [],
+        [],
+        [],
+        [
+          {
+            "text": "  ",
+            "pen": ""
+          },
+          {
+            "text": "╭───────────────────────────────────────────────────────────────────────────────╮",
+            "pen": "38;5;245"
+          }
+        ],
+        [
+          {
+            "text": "  ",
+            "pen": ""
+          },
+          {
+            "text": "│",
+            "pen": "38;5;245"
+          },
+          {
+            "text": " ",
+            "pen": ""
+          },
+          {
+            "text": "›",
+            "pen": "35"
+          },
+          {
+            "text": " ",
+            "pen": ""
+          },
+          {
+            "text": "Ask anything · / for commands · $ for skills · ! shell · @ for files · ⇧Ta…",
+            "pen": "38;5;245"
+          },
+          {
+            "text": " ",
+            "pen": ""
+          },
+          {
+            "text": "│",
+            "pen": "38;5;245"
+          }
+        ],
+        [
+          {
+            "text": "  ",
+            "pen": ""
+          },
+          {
+            "text": "╰───────────────────────────────────────────────────────────────────────────────╯",
+            "pen": "38;5;245"
+          }
+        ],
+        [
+          {
+            "text": "  ",
+            "pen": ""
+          },
+          {
+            "text": "⠋",
+            "pen": "33"
+          },
+          {
+            "text": " working ",
+            "pen": ""
+          },
+          {
+            "text": "0.1s · 14 tokens · ESC to interrupt",
+            "pen": "38;5;245"
+          }
+        ],
+        [
+          {
+            "text": "  ",
+            "pen": ""
+          },
+          {
+            "text": "cli-mock",
+            "pen": "36"
+          },
+          {
+            "text": " · code-cli · workspace-write · 26 tokens · ~/.cache/codsh/showcase",
+            "pen": "38;5;245"
+          }
+        ]
+      ]
+    },
+    {
+      "id": "fold-open",
+      "title": "One click opens the one block",
+      "note": "A click opens the block it lands on and a click anywhere inside folds it back; Ctrl+O still swaps every one at once.",
+      "keep": [
+        [
+          0,
+          8
+        ],
+        [
+          30,
+          33
+        ]
+      ],
+      "rows": [
+        [
+          {
+            "text": "  ",
+            "pen": ""
+          },
+          {
+            "text": "┃ ›",
+            "pen": "35"
+          },
+          {
+            "text": " think it over",
+            "pen": ""
+          }
+        ],
+        [],
+        [
+          {
+            "text": "  ",
+            "pen": ""
+          },
+          {
+            "text": "✻ thought for 0.0s",
+            "pen": "38;5;245"
+          }
+        ],
+        [
+          {
+            "text": "  ",
+            "pen": ""
+          },
+          {
+            "text": "  CODE_CLI_THINKING about the request",
+            "pen": "38;5;245"
+          }
+        ],
+        [
+          {
+            "text": "  ",
+            "pen": ""
+          },
+          {
+            "text": "  weighing the options carefully",
+            "pen": "38;5;245"
+          }
+        ],
+        [],
+        [
+          {
+            "text": "  CODE_CLI_ANSWER after thinking",
+            "pen": ""
+          }
+        ],
+        [],
+        [
+          {
+            "text": "  ",
+            "pen": ""
+          },
+          {
+            "text": "  0.0s · 14 tokens",
+            "pen": "38;5;245"
+          }
+        ],
+        [],
+        [],
+        [],
+        [],
+        [],
+        [],
+        [],
+        [],
+        [],
+        [],
+        [],
+        [],
+        [],
+        [],
+        [],
+        [],
+        [],
+        [],
+        [],
+        [],
+        [],
+        [
+          {
+            "text": "  ",
+            "pen": ""
+          },
+          {
+            "text": "╭───────────────────────────────────────────────────────────────────────────────╮",
+            "pen": "38;5;245"
+          }
+        ],
+        [
+          {
+            "text": "  ",
+            "pen": ""
+          },
+          {
+            "text": "│",
+            "pen": "38;5;245"
+          },
+          {
+            "text": " ",
+            "pen": ""
+          },
+          {
+            "text": "›",
+            "pen": "35"
+          },
+          {
+            "text": " ",
+            "pen": ""
+          },
+          {
+            "text": "Ask anything · / for commands · $ for skills · ! shell · @ for files · ⇧Ta…",
+            "pen": "38;5;245"
+          },
+          {
+            "text": " ",
+            "pen": ""
+          },
+          {
+            "text": "│",
+            "pen": "38;5;245"
+          }
+        ],
+        [
+          {
+            "text": "  ",
+            "pen": ""
+          },
+          {
+            "text": "╰───────────────────────────────────────────────────────────────────────────────╯",
+            "pen": "38;5;245"
+          }
+        ],
+        [
+          {
+            "text": "  ",
+            "pen": ""
+          },
+          {
+            "text": "cli-mock",
+            "pen": "36"
+          },
+          {
+            "text": " · code-cli · workspace-write · 14 tokens · ~/.cache/codsh/showcase",
+            "pen": "38;5;245"
+          }
+        ]
+      ]
+    },
+    {
+      "id": "todos",
+      "title": "Todos that stay in view",
+      "note": "A pinned row holds the agent’s list over the status row instead of scrolling away with the write; Ctrl+T opens it whole.",
+      "keep": [
+        [
+          0,
+          12
+        ],
+        [
+          26,
+          33
+        ]
+      ],
+      "rows": [
+        [
+          {
+            "text": "  ",
+            "pen": ""
+          },
+          {
+            "text": "┃ ›",
+            "pen": "35"
+          },
+          {
+            "text": " plan the work",
+            "pen": ""
+          }
+        ],
+        [],
+        [
+          {
+            "text": "  ",
+            "pen": ""
+          },
+          {
+            "text": "│ ",
+            "pen": "36"
+          },
+          {
+            "text": "●",
+            "pen": "33"
+          },
+          {
+            "text": " Update todo list",
+            "pen": ""
+          }
+        ],
+        [
+          {
+            "text": "  ",
+            "pen": ""
+          },
+          {
+            "text": "│ todos",
+            "pen": "36"
+          },
+          {
+            "text": " ",
+            "pen": ""
+          },
+          {
+            "text": "1/3 · 1 in progress · 1 open",
+            "pen": "38;5;245"
+          }
+        ],
+        [
+          {
+            "text": "  ",
+            "pen": ""
+          },
+          {
+            "text": "│ ",
+            "pen": "36"
+          },
+          {
+            "text": "  ",
+            "pen": ""
+          },
+          {
+            "text": "✔",
+            "pen": "32"
+          },
+          {
+            "text": " ",
+            "pen": ""
+          },
+          {
+            "text": "read the code",
+            "pen": "38;5;245"
+          }
+        ],
+        [
+          {
+            "text": "  ",
+            "pen": ""
+          },
+          {
+            "text": "│ ",
+            "pen": "36"
+          },
+          {
+            "text": "  ",
+            "pen": ""
+          },
+          {
+            "text": "▶",
+            "pen": "33"
+          },
+          {
+            "text": " write the fix",
+            "pen": ""
+          }
+        ],
+        [
+          {
+            "text": "  ",
+            "pen": ""
+          },
+          {
+            "text": "│ ",
+            "pen": "36"
+          },
+          {
+            "text": "  ",
+            "pen": ""
+          },
+          {
+            "text": "○",
+            "pen": "38;5;245"
+          },
+          {
+            "text": " run the tests",
+            "pen": ""
+          }
+        ],
+        [],
+        [
+          {
+            "text": "  ",
+            "pen": ""
+          },
+          {
+            "text": "│ ",
+            "pen": "36"
+          },
+          {
+            "text": "  Updated todo list: 1 pending, 1 in progress, 1 completed.",
+            "pen": "38;5;245"
+          }
+        ],
+        [],
+        [
+          {
+            "text": "  CODE_CLI_CALL_OK via cli-mock",
+            "pen": ""
+          }
+        ],
+        [],
+        [
+          {
+            "text": "  ",
+            "pen": ""
+          },
+          {
+            "text": "  0.1s · 26 tokens",
+            "pen": "38;5;245"
+          }
+        ],
+        [],
+        [],
+        [],
+        [],
+        [],
+        [],
+        [],
+        [],
+        [],
+        [],
+        [],
+        [],
+        [],
+        [
+          {
+            "text": "  ",
+            "pen": ""
+          },
+          {
+            "text": "╭───────────────────────────────────────────────────────────────────────────────╮",
+            "pen": "38;5;245"
+          }
+        ],
+        [
+          {
+            "text": "  ",
+            "pen": ""
+          },
+          {
+            "text": "│",
+            "pen": "38;5;245"
+          },
+          {
+            "text": " ",
+            "pen": ""
+          },
+          {
+            "text": "›",
+            "pen": "35"
+          },
+          {
+            "text": " ",
+            "pen": ""
+          },
+          {
+            "text": "Ask anything · / for commands · $ for skills · ! shell · @ for files · ⇧Ta…",
+            "pen": "38;5;245"
+          },
+          {
+            "text": " ",
+            "pen": ""
+          },
+          {
+            "text": "│",
+            "pen": "38;5;245"
+          }
+        ],
+        [
+          {
+            "text": "  ",
+            "pen": ""
+          },
+          {
+            "text": "╰───────────────────────────────────────────────────────────────────────────────╯",
+            "pen": "38;5;245"
+          }
+        ],
+        [
+          {
+            "text": "  ",
+            "pen": ""
+          },
+          {
+            "text": "todos",
+            "pen": "36"
+          },
+          {
+            "text": " ",
+            "pen": ""
+          },
+          {
+            "text": "1/3 · 1 in progress · 1 open · Ctrl+T closes",
+            "pen": "38;5;245"
+          }
+        ],
+        [
+          {
+            "text": "    ",
+            "pen": ""
+          },
+          {
+            "text": "✔",
+            "pen": "32"
+          },
+          {
+            "text": " ",
+            "pen": ""
+          },
+          {
+            "text": "read the code",
+            "pen": "38;5;245"
+          }
+        ],
+        [
+          {
+            "text": "    ",
+            "pen": ""
+          },
+          {
+            "text": "▶",
+            "pen": "33"
+          },
+          {
+            "text": " write the fix",
+            "pen": ""
+          }
+        ],
+        [
+          {
+            "text": "    ",
+            "pen": ""
+          },
+          {
+            "text": "○",
+            "pen": "38;5;245"
+          },
+          {
+            "text": " run the tests",
+            "pen": ""
+          }
+        ],
+        [
+          {
+            "text": "  ",
+            "pen": ""
+          },
+          {
+            "text": "cli-mock",
+            "pen": "36"
+          },
+          {
+            "text": " · code-cli · workspace-write · 26 tokens · ~/.cache/codsh/showcase",
+            "pen": "38;5;245"
+          }
+        ]
+      ]
+    },
+    {
+      "id": "markdown",
+      "title": "Markdown, rendered rather than echoed",
+      "note": "Tables get real columns, code gets highlighted, and emphasis markers are consumed instead of printed.",
+      "keep": [
+        [
+          0,
+          10
+        ],
+        [
+          12,
+          33
+        ]
+      ],
+      "rows": [
+        [
+          {
+            "text": "  ",
+            "pen": ""
+          },
+          {
+            "text": "┃ ›",
+            "pen": "35"
+          },
+          {
+            "text": " explain it",
+            "pen": ""
+          }
+        ],
+        [],
+        [],
+        [
+          {
+            "text": "  ",
+            "pen": ""
+          },
+          {
+            "text": "•",
+            "pen": "38;5;245"
+          },
+          {
+            "text": " ",
+            "pen": ""
+          },
+          {
+            "text": "screen.ts",
+            "pen": "36;1"
+          },
+          {
+            "text": ": the viewport module",
+            "pen": ""
+          }
+        ],
+        [
+          {
+            "text": "  ",
+            "pen": ""
+          },
+          {
+            "text": "•",
+            "pen": "38;5;245"
+          },
+          {
+            "text": " second bullet",
+            "pen": ""
+          }
+        ],
+        [
+          {
+            "text": "  ",
+            "pen": ""
+          },
+          {
+            "text": "•",
+            "pen": "38;5;245"
+          },
+          {
+            "text": " third bullet keeps the answer long",
+            "pen": ""
+          }
+        ],
+        [
+          {
+            "text": "  ",
+            "pen": ""
+          },
+          {
+            "text": "•",
+            "pen": "38;5;245"
+          },
+          {
+            "text": " fourth bullet keeps the answer long",
+            "pen": ""
+          }
+        ],
+        [
+          {
+            "text": "  ",
+            "pen": ""
+          },
+          {
+            "text": "•",
+            "pen": "38;5;245"
+          },
+          {
+            "text": " fifth bullet keeps the answer long",
+            "pen": ""
+          }
+        ],
+        [
+          {
+            "text": "  ",
+            "pen": ""
+          },
+          {
+            "text": "•",
+            "pen": "38;5;245"
+          },
+          {
+            "text": " sixth bullet keeps the answer long",
+            "pen": ""
+          }
+        ],
+        [
+          {
+            "text": "  ",
+            "pen": ""
+          },
+          {
+            "text": "•",
+            "pen": "38;5;245"
+          },
+          {
+            "text": " seventh bullet keeps the answer long",
+            "pen": ""
+          }
+        ],
+        [
+          {
+            "text": "  ",
+            "pen": ""
+          },
+          {
+            "text": "•",
+            "pen": "38;5;245"
+          },
+          {
+            "text": " eighth bullet: past the fold threshold at any test width",
+            "pen": ""
+          }
+        ],
+        [],
+        [
+          {
+            "text": "  ",
+            "pen": ""
+          },
+          {
+            "text": "╭────────┬──────────────────────────────────────────────────────────────────────╮",
+            "pen": "38;5;245"
+          }
+        ],
+        [
+          {
+            "text": "  ",
+            "pen": ""
+          },
+          {
+            "text": "│",
+            "pen": "38;5;245"
+          },
+          {
+            "text": " ",
+            "pen": ""
+          },
+          {
+            "text": "维度",
+            "pen": "1"
+          },
+          {
+            "text": "   ",
+            "pen": ""
+          },
+          {
+            "text": "│",
+            "pen": "38;5;245"
+          },
+          {
+            "text": " ",
+            "pen": ""
+          },
+          {
+            "text": "内容",
+            "pen": "1"
+          },
+          {
+            "text": "                                                                 ",
+            "pen": ""
+          },
+          {
+            "text": "│",
+            "pen": "38;5;245"
+          }
+        ],
+        [
+          {
+            "text": "  ",
+            "pen": ""
+          },
+          {
+            "text": "├────────┼──────────────────────────────────────────────────────────────────────┤",
+            "pen": "38;5;245"
+          }
+        ],
+        [
+          {
+            "text": "  ",
+            "pen": ""
+          },
+          {
+            "text": "│",
+            "pen": "38;5;245"
+          },
+          {
+            "text": " 一句话 ",
+            "pen": ""
+          },
+          {
+            "text": "│",
+            "pen": "38;5;245"
+          },
+          {
+            "text": " 一个很长的中文单元格内容,用来强制表格在任何终端宽度下都必须在单元格  ",
+            "pen": ""
+          },
+          {
+            "text": "│",
+            "pen": "38;5;245"
+          }
+        ],
+        [
+          {
+            "text": "  ",
+            "pen": ""
+          },
+          {
+            "text": "│",
+            "pen": "38;5;245"
+          },
+          {
+            "text": "        ",
+            "pen": ""
+          },
+          {
+            "text": "│",
+            "pen": "38;5;245"
+          },
+          {
+            "text": " 内部换行。一个很长的中文单元格内容,用来强制表格在任何终端宽度下都必  ",
+            "pen": ""
+          },
+          {
+            "text": "│",
+            "pen": "38;5;245"
+          }
+        ],
+        [
+          {
+            "text": "  ",
+            "pen": ""
+          },
+          {
+            "text": "│",
+            "pen": "38;5;245"
+          },
+          {
+            "text": "        ",
+            "pen": ""
+          },
+          {
+            "text": "│",
+            "pen": "38;5;245"
+          },
+          {
+            "text": " 须在单元格内部换行。一个很长的中文单元格内容,用来强制表格在任何终端  ",
+            "pen": ""
+          },
+          {
+            "text": "│",
+            "pen": "38;5;245"
+          }
+        ],
+        [
+          {
+            "text": "  ",
+            "pen": ""
+          },
+          {
+            "text": "│",
+            "pen": "38;5;245"
+          },
+          {
+            "text": "        ",
+            "pen": ""
+          },
+          {
+            "text": "│",
+            "pen": "38;5;245"
+          },
+          {
+            "text": " 宽度下都必须在单元格内部换行。                                       ",
+            "pen": ""
+          },
+          {
+            "text": "│",
+            "pen": "38;5;245"
+          }
+        ],
+        [
+          {
+            "text": "  ",
+            "pen": ""
+          },
+          {
+            "text": "├────────┼──────────────────────────────────────────────────────────────────────┤",
+            "pen": "38;5;245"
+          }
+        ],
+        [
+          {
+            "text": "  ",
+            "pen": ""
+          },
           {
             "text": "│",
             "pen": "38;5;245"
@@ -2219,7 +1998,7 @@
             "pen": "36"
           },
           {
-            "text": "                                                                  ",
+            "text": "                                                                ",
             "pen": ""
           },
           {
@@ -2229,12 +2008,20 @@
         ],
         [
           {
-            "text": "╰────────┴────────────────────────────────────────────────────────────────────────╯",
+            "text": "  ",
+            "pen": ""
+          },
+          {
+            "text": "╰────────┴──────────────────────────────────────────────────────────────────────╯",
             "pen": "38;5;245"
           }
         ],
         [],
         [
+          {
+            "text": "  ",
+            "pen": ""
+          },
           {
             "text": "│",
             "pen": "38;5;245"
@@ -2251,13 +2038,17 @@
         [],
         [
           {
+            "text": "  ",
+            "pen": ""
+          },
+          {
             "text": "  ts",
             "pen": "38;5;245"
           }
         ],
         [
           {
-            "text": "  ",
+            "text": "    ",
             "pen": ""
           },
           {
@@ -2284,17 +2075,29 @@
         [],
         [
           {
+            "text": "  ",
+            "pen": ""
+          },
+          {
             "text": "CODE_CLI_CALL_STREAM_DONE",
             "pen": "38;5;245"
           }
         ],
         [
           {
-            "text": "╭─────────────────────────────────────────────────────────────────────────────────╮",
+            "text": "  ",
+            "pen": ""
+          },
+          {
+            "text": "╭───────────────────────────────────────────────────────────────────────────────╮",
             "pen": "38;5;245"
           }
         ],
         [
+          {
+            "text": "  ",
+            "pen": ""
+          },
           {
             "text": "│",
             "pen": "38;5;245"
@@ -2312,7 +2115,7 @@
             "pen": ""
           },
           {
-            "text": "Ask anything · / for commands · $ for skills · ! shell · @ for files · ⇧Tab …",
+            "text": "Ask anything · / for commands · $ for skills · ! shell · @ for files · ⇧Ta…",
             "pen": "38;5;245"
           },
           {
@@ -2326,11 +2129,19 @@
         ],
         [
           {
-            "text": "╰─────────────────────────────────────────────────────────────────────────────────╯",
+            "text": "  ",
+            "pen": ""
+          },
+          {
+            "text": "╰───────────────────────────────────────────────────────────────────────────────╯",
             "pen": "38;5;245"
           }
         ],
         [
+          {
+            "text": "  ",
+            "pen": ""
+          },
           {
             "text": "⠋",
             "pen": "33"
@@ -2346,6 +2157,10 @@
         ],
         [
           {
+            "text": "  ",
+            "pen": ""
+          },
+          {
             "text": "cli-mock",
             "pen": "36"
           },
@@ -2357,237 +2172,506 @@
       ]
     },
     {
-      "id": "plan-mode",
-      "title": "Plan mode tints the box",
-      "note": "Shift-Tab toggles plan mode, and the frame carries it so the next submission’s effect is visible mid-thought.",
+      "id": "view",
+      "title": "A full-screen reader for one answer",
+      "note": "/view 1 opens an answer, /view 1:1 its first code block, in a reader that survives a resize. Esc puts the conversation back exactly as it was; /copy addresses the same targets.",
       "keep": [
         [
-          3,
-          18
+          0,
+          13
         ],
         [
-          30,
+          15,
           33
         ]
       ],
       "rows": [
         [
           {
-            "text": "installed preset into /var/folders/s6/7t1hr_t554l4nqkfxkpg8q2w0000gn/T/codsh-e2e-ho",
-            "pen": "38;5;245"
+            "text": "  ",
+            "pen": ""
+          },
+          {
+            "text": "Answer 1",
+            "pen": "1"
           }
         ],
         [
           {
-            "text": "me-DJGEo8/.agent-presets/code-cli",
-            "pen": "38;5;245"
+            "text": "  ",
+            "pen": ""
+          },
+          {
+            "text": "CODE_CLI_HEADING",
+            "pen": "1"
           }
         ],
         [],
         [
           {
-            "text": "         ",
+            "text": "  Prose with ",
             "pen": ""
           },
           {
-            "text": "█▄▄",
-            "pen": "38;2;126;150;245"
-          }
-        ],
-        [
+            "text": "bold",
+            "pen": "1"
+          },
           {
-            "text": "         ",
+            "text": ", ",
             "pen": ""
           },
           {
-            "text": "█",
-            "pen": "38;2;126;150;245"
+            "text": "em",
+            "pen": "1"
+          },
+          {
+            "text": ", ",
+            "pen": ""
+          },
+          {
+            "text": "inline_code",
+            "pen": "36"
+          },
+          {
+            "text": ", and a ",
+            "pen": ""
+          },
+          {
+            "text": "link",
+            "pen": "1"
           },
           {
             "text": " ",
             "pen": ""
           },
           {
-            "text": "▀██",
-            "pen": "38;2;126;150;245"
+            "text": "(https://x.dev)",
+            "pen": "38;5;245"
+          },
+          {
+            "text": ".",
+            "pen": ""
           }
         ],
         [
           {
-            "text": "         ",
+            "text": "  An identifier like some_helper_name must survive intact.",
             "pen": ""
-          },
-          {
-            "text": "█▄█▀▀",
-            "pen": "38;2;126;150;245"
           }
         ],
+        [],
         [
           {
-            "text": "       ",
+            "text": "  ",
             "pen": ""
           },
           {
-            "text": "▀██████▀",
-            "pen": "38;2;238;241;251"
-          }
-        ],
-        [
-          {
-            "text": "     ",
-            "pen": ""
-          },
-          {
-            "text": "█▄██▄▄██▄██▄",
-            "pen": "38;2;61;86;214"
-          }
-        ],
-        [
-          {
-            "text": "      ",
-            "pen": ""
-          },
-          {
-            "text": "▀▄▄",
-            "pen": "38;2;61;86;214"
+            "text": "•",
+            "pen": "38;5;245"
           },
           {
             "text": " ",
             "pen": ""
           },
           {
-            "text": "██",
-            "pen": "38;2;61;86;214"
+            "text": "screen.ts",
+            "pen": "36;1"
+          },
+          {
+            "text": ": the viewport module",
+            "pen": ""
+          }
+        ],
+        [
+          {
+            "text": "  ",
+            "pen": ""
+          },
+          {
+            "text": "•",
+            "pen": "38;5;245"
+          },
+          {
+            "text": " second bullet",
+            "pen": ""
+          }
+        ],
+        [
+          {
+            "text": "  ",
+            "pen": ""
+          },
+          {
+            "text": "•",
+            "pen": "38;5;245"
+          },
+          {
+            "text": " third bullet keeps the answer long",
+            "pen": ""
+          }
+        ],
+        [
+          {
+            "text": "  ",
+            "pen": ""
+          },
+          {
+            "text": "•",
+            "pen": "38;5;245"
+          },
+          {
+            "text": " fourth bullet keeps the answer long",
+            "pen": ""
+          }
+        ],
+        [
+          {
+            "text": "  ",
+            "pen": ""
+          },
+          {
+            "text": "•",
+            "pen": "38;5;245"
+          },
+          {
+            "text": " fifth bullet keeps the answer long",
+            "pen": ""
+          }
+        ],
+        [
+          {
+            "text": "  ",
+            "pen": ""
+          },
+          {
+            "text": "•",
+            "pen": "38;5;245"
+          },
+          {
+            "text": " sixth bullet keeps the answer long",
+            "pen": ""
+          }
+        ],
+        [
+          {
+            "text": "  ",
+            "pen": ""
+          },
+          {
+            "text": "•",
+            "pen": "38;5;245"
+          },
+          {
+            "text": " seventh bullet keeps the answer long",
+            "pen": ""
+          }
+        ],
+        [
+          {
+            "text": "  ",
+            "pen": ""
+          },
+          {
+            "text": "•",
+            "pen": "38;5;245"
+          },
+          {
+            "text": " eighth bullet: past the fold threshold at any test width",
+            "pen": ""
+          }
+        ],
+        [],
+        [
+          {
+            "text": "  ",
+            "pen": ""
+          },
+          {
+            "text": "╭────────┬──────────────────────────────────────────────────────────────────────╮",
+            "pen": "38;5;245"
+          }
+        ],
+        [
+          {
+            "text": "  ",
+            "pen": ""
+          },
+          {
+            "text": "│",
+            "pen": "38;5;245"
           },
           {
             "text": " ",
             "pen": ""
           },
           {
-            "text": "▄▄▀",
-            "pen": "38;2;61;86;214"
+            "text": "维度",
+            "pen": "1"
+          },
+          {
+            "text": "   ",
+            "pen": ""
+          },
+          {
+            "text": "│",
+            "pen": "38;5;245"
+          },
+          {
+            "text": " ",
+            "pen": ""
+          },
+          {
+            "text": "内容",
+            "pen": "1"
+          },
+          {
+            "text": "                                                                 ",
+            "pen": ""
+          },
+          {
+            "text": "│",
+            "pen": "38;5;245"
           }
         ],
         [
+          {
+            "text": "  ",
+            "pen": ""
+          },
+          {
+            "text": "├────────┼──────────────────────────────────────────────────────────────────────┤",
+            "pen": "38;5;245"
+          }
+        ],
+        [
+          {
+            "text": "  ",
+            "pen": ""
+          },
+          {
+            "text": "│",
+            "pen": "38;5;245"
+          },
+          {
+            "text": " 一句话 ",
+            "pen": ""
+          },
+          {
+            "text": "│",
+            "pen": "38;5;245"
+          },
+          {
+            "text": " 一个很长的中文单元格内容,用来强制表格在任何终端宽度下都必须在单元格  ",
+            "pen": ""
+          },
+          {
+            "text": "│",
+            "pen": "38;5;245"
+          }
+        ],
+        [
+          {
+            "text": "  ",
+            "pen": ""
+          },
+          {
+            "text": "│",
+            "pen": "38;5;245"
+          },
           {
             "text": "        ",
             "pen": ""
           },
           {
-            "text": "▀█▄▄█▀",
-            "pen": "38;2;61;86;214"
-          }
-        ],
-        [],
-        [
-          {
-            "text": " ",
-            "pen": ""
-          },
-          {
-            "text": "✻ Welcome to codsh",
-            "pen": "1"
-          },
-          {
-            "text": " · cli-mock · code-cli",
-            "pen": "38;5;245"
-          }
-        ],
-        [],
-        [
-          {
-            "text": "  ~/.cache/codsh/showcase",
-            "pen": "38;5;245"
-          }
-        ],
-        [
-          {
-            "text": "  session session-0ebd1344-634d-4b05-90a7-4af90a674c9e",
-            "pen": "38;5;245"
-          }
-        ],
-        [],
-        [
-          {
-            "text": "  /help for commands · Tab completes · ⇧Tab plan mode · ESC interrupts · /exit lea…",
-            "pen": "38;5;245"
-          }
-        ],
-        [],
-        [
-          {
-            "text": "▲ plan mode — exploring only; no files will change until you approve a plan",
-            "pen": "33"
-          }
-        ],
-        [],
-        [],
-        [],
-        [],
-        [],
-        [],
-        [],
-        [],
-        [],
-        [],
-        [],
-        [
-          {
-            "text": "╭─────────────────────────────────────────────────────────────────────────────────╮",
-            "pen": "33"
-          }
-        ],
-        [
-          {
             "text": "│",
-            "pen": "33"
-          },
-          {
-            "text": " ",
-            "pen": ""
-          },
-          {
-            "text": "›",
-            "pen": "35"
-          },
-          {
-            "text": " ",
-            "pen": ""
-          },
-          {
-            "text": "Ask anything · / for commands · $ for skills · ! shell · @ for files · ⇧Tab …",
             "pen": "38;5;245"
           },
           {
-            "text": " ",
+            "text": " 内部换行。一个很长的中文单元格内容,用来强制表格在任何终端宽度下都必  ",
             "pen": ""
           },
           {
             "text": "│",
-            "pen": "33"
+            "pen": "38;5;245"
           }
         ],
         [
           {
-            "text": "╰─────────────────────────────────────────────────────────────────────────────────╯",
-            "pen": "33"
+            "text": "  ",
+            "pen": ""
+          },
+          {
+            "text": "│",
+            "pen": "38;5;245"
+          },
+          {
+            "text": "        ",
+            "pen": ""
+          },
+          {
+            "text": "│",
+            "pen": "38;5;245"
+          },
+          {
+            "text": " 须在单元格内部换行。一个很长的中文单元格内容,用来强制表格在任何终端  ",
+            "pen": ""
+          },
+          {
+            "text": "│",
+            "pen": "38;5;245"
           }
         ],
         [
           {
-            "text": "cli-mock",
+            "text": "  ",
+            "pen": ""
+          },
+          {
+            "text": "│",
+            "pen": "38;5;245"
+          },
+          {
+            "text": "        ",
+            "pen": ""
+          },
+          {
+            "text": "│",
+            "pen": "38;5;245"
+          },
+          {
+            "text": " 宽度下都必须在单元格内部换行。                                       ",
+            "pen": ""
+          },
+          {
+            "text": "│",
+            "pen": "38;5;245"
+          }
+        ],
+        [
+          {
+            "text": "  ",
+            "pen": ""
+          },
+          {
+            "text": "├────────┼──────────────────────────────────────────────────────────────────────┤",
+            "pen": "38;5;245"
+          }
+        ],
+        [
+          {
+            "text": "  ",
+            "pen": ""
+          },
+          {
+            "text": "│",
+            "pen": "38;5;245"
+          },
+          {
+            "text": " 命令   ",
+            "pen": ""
+          },
+          {
+            "text": "│",
+            "pen": "38;5;245"
+          },
+          {
+            "text": " ",
+            "pen": ""
+          },
+          {
+            "text": "codsh",
             "pen": "36"
           },
           {
-            "text": " · code-cli · workspace-write · ",
+            "text": "                                                                ",
+            "pen": ""
+          },
+          {
+            "text": "│",
+            "pen": "38;5;245"
+          }
+        ],
+        [
+          {
+            "text": "  ",
+            "pen": ""
+          },
+          {
+            "text": "╰────────┴──────────────────────────────────────────────────────────────────────╯",
+            "pen": "38;5;245"
+          }
+        ],
+        [],
+        [
+          {
+            "text": "  ",
+            "pen": ""
+          },
+          {
+            "text": "│",
             "pen": "38;5;245"
           },
           {
-            "text": "plan",
-            "pen": "33"
+            "text": " ",
+            "pen": ""
           },
           {
-            "text": " · 0 tokens · ~/.cache/codsh/showcase",
+            "text": "a quoted line",
+            "pen": "38;5;245"
+          }
+        ],
+        [],
+        [
+          {
+            "text": "  ",
+            "pen": ""
+          },
+          {
+            "text": "  ts",
+            "pen": "38;5;245"
+          }
+        ],
+        [
+          {
+            "text": "    ",
+            "pen": ""
+          },
+          {
+            "text": "const",
+            "pen": "35"
+          },
+          {
+            "text": " answer = ",
+            "pen": ""
+          },
+          {
+            "text": "\"text\"",
+            "pen": "32"
+          },
+          {
+            "text": " ",
+            "pen": ""
+          },
+          {
+            "text": "// a comment",
+            "pen": "2"
+          }
+        ],
+        [],
+        [
+          {
+            "text": "  CODE_CLI_CALL_STREAM_DONE",
+            "pen": ""
+          }
+        ],
+        [],
+        [
+          {
+            "text": "  ",
+            "pen": ""
+          },
+          {
+            "text": "↑↓/wheel · PgUp/PgDn · Home/End · Esc closes · 1-31/31",
             "pen": "38;5;245"
           }
         ]

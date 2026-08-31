@@ -26,14 +26,13 @@ const dataPath = join(root, 'site', 'data', 'screens.json')
 const COPY = {
   en: {
     welcome: { tab: 'Welcome' },
-    complete: { tab: 'Complete' },
-    bang: { tab: 'Shell' },
+    anchor: { tab: 'Ask' },
+    turns: { tab: 'Read back' },
     'tool-call': { tab: 'Tool cards' },
-    'fold-hover': { tab: 'Hover' },
-    'fold-open': { tab: 'Click to open' },
+    'fold-open': { tab: 'Folds' },
     todos: { tab: 'Todos' },
     markdown: { tab: 'Markdown' },
-    'plan-mode': { tab: 'Plan mode' },
+    view: { tab: 'Full screen' },
   },
   zh: {
     welcome: {
@@ -41,30 +40,25 @@ const COPY = {
       title: '会话是自己的空间',
       note: '备用屏幕、钉在底部从不移动的输入框，以及始终当前的状态行。',
     },
-    complete: {
-      tab: '补全',
-      title: '菜单在输入框上方',
-      note: '打 / 或 $ 即可，包含匹配即可出候选；菜单浮在 transcript 上，打开时上方输出不会晃。',
+    anchor: {
+      tab: '提问',
+      title: '刚问出口的问题停在最上面',
+      note: '刚提交的问题占住视口顶部，回复从下方填进空出来的位置。往回读历史再回到底部，回来的是同一帧——滚轮和 PgDn 都能落回去。',
     },
-    bang: {
-      tab: 'Shell',
-      title: '!cmd 打在会话里',
-      note: '命令和输出以 bash 卡片进 transcript，agent 接着看得到。',
+    turns: {
+      tab: '往回读',
+      title: '你正在读的这段，是谁问出来的',
+      note: '往回滚过一次轮次边界，问出这几行的那条提问就钉在顶部；右侧一列时间线标出当前在哪一轮，Shift+←/→ 在轮次之间跳。',
     },
     'tool-call': {
       tab: '工具卡片',
       title: '工具调用渲染为卡片，带 diff',
       note: '每次调用都经由它的 presenter 渲染——标题、状态、diff——左侧还有一道标出块边界的竖线。',
     },
-    'fold-hover': {
-      tab: '悬停',
-      title: '鼠标停在哪一块，它就说自己是什么',
-      note: '停在折叠块上时整块着色，chrome 行报出它是什么——点下去会发生什么，点之前就知道。',
-    },
     'fold-open': {
-      tab: '点击展开',
+      tab: '折叠块',
       title: '一次点击只开一块',
-      note: '点一下展开落点那一块，在块内任意处再点一下收起；Ctrl+O 依然一次开合全部。',
+      note: '点一下展开落点那一块，在块内任意处再点一下收起；Ctrl+O 依然一次开合全部，手动开合的选择会跨轮次保留。',
     },
     todos: {
       tab: 'Todo',
@@ -76,10 +70,10 @@ const COPY = {
       title: 'Markdown 是渲染，不是回显',
       note: '表格排出真正的列，代码带高亮，强调标记被吃掉而不是打印出来。',
     },
-    'plan-mode': {
-      tab: 'Plan 模式',
-      title: 'Plan 模式为输入框着色',
-      note: 'Shift-Tab 切换 plan 模式，边框承载这个状态——下一次提交会做什么，思考途中一眼可见。',
+    view: {
+      tab: '全屏阅读',
+      title: '把一条回答摊开成整屏',
+      note: '/view 1 打开一条回答，/view 1:1 打开它的第一个代码块，改窗口大小也不会乱；Esc 原样还回会话。/copy 用的是同一套编号。',
     },
   },
 }

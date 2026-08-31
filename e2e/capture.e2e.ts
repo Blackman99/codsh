@@ -37,8 +37,8 @@ const CAPTURE_COLUMNS = 84
 /** Submit what the box holds. */
 const ENTER = '\r'
 
-/** Legacy Shift-Tab, which toggles plan mode. */
-const SHIFT_TAB = '[Z'
+/** One wheel-up report, which scrolls the transcript back a row. */
+const WHEEL_UP = '\u001B[<64;6;5M'
 
 /** Ctrl+T, which opens the todo list. */
 const CTRL_T = ''
@@ -55,17 +55,6 @@ const OUT = join(repoRoot, 'site', 'data', 'screens.json')
  * must never be one a person could already own.
  */
 const WORKSPACE = join(homedir(), '.cache', 'codsh', 'showcase')
-
-/**
- * A pointer resting on the line `text` was painted on.
- *
- * Button 35 is the motion bit over the no-button code — what any-motion
- * tracking sends — and `{row:…}` is resolved by the driver, since a block's
- * row depends on everything printed above it.
- * @param text - a line the pointer should rest on.
- * @returns the mouse report to write.
- */
-const moveOnto = (text: string): string => `[<35;6;{row:${text}}M`
 
 /** One captured screen, as the site consumes it. */
 interface Scene {
@@ -181,29 +170,42 @@ describe.skipIf(process.env.CAPTURE_SCREENS === undefined)('showcase frames', ()
       'first',
     )
 
-    // Completion sits above the box, matching a fragment anywhere in the name.
+    // A submitted prompt held at the top, with the turn before it pushed off.
     await capture(
       {
-        id: 'complete',
-        title: 'Completion sits above the box',
-        note: 'Type / or $ and a fragment anywhere in the name is enough. The menu floats over the transcript, so opening it cannot shake the output.',
+        id: 'anchor',
+        title: 'The question you just asked holds the top',
+        note: 'A submitted prompt takes the viewport top and the reply fills the space beneath it. Read back into history and the way home is the same frame: the wheel and PgDn land on it again.',
       },
-      'write',
-      [['Ask anything', '/p', 400], ['Enter or leave plan mode', '', 500], ['', `\u0015/exit${ENTER}`, 600]],
-      'Enter or leave plan mode',
+      'reasoning',
+      [
+        ['Welcome to codsh', `where does the retry live?${ENTER}`, 300],
+        ['CODE_CLI_ANSWER after thinking', `and what backs it off?${ENTER}`, 700],
+        ['', `/exit${ENTER}`, 900],
+      ],
+      // The second turn's answer: the first turn is above the viewport top by
+      // then, which is the whole of what the gap does.
+      'CODE_CLI_ANSWER after thinking',
     )
 
-    // A ! line prints as a bash card in the transcript.
+    // Reading back across a turn boundary: the owning prompt pins itself.
     await capture(
       {
-        id: 'bang',
-        title: '!cmd prints in the session',
-        note: 'The command and its output land as a bash card in the transcript, and the agent sees the result.',
-        from: '$ echo',
+        id: 'turns',
+        title: 'The prompt that owns what you are reading',
+        note: 'Scroll back over a turn boundary and the prompt that asked for those rows pins itself at the top, while the rail on the right marks the turn you are in. Shift+←/→ jumps between them.',
       },
-      'echo',
-      [['Ask anything', `!echo SHOWCASE_BANG${ENTER}`, 300], ['SHOWCASE_BANG', '', 800], ['', `/exit${ENTER}`, 400]],
-      'SHOWCASE_BANG',
+      'markdown',
+      [
+        ['Welcome to codsh', `explain the render path${ENTER}`, 300],
+        ['CODE_CLI_CALL_STREAM_DONE', `now the input path${ENTER}`, 700],
+        // Twelve rows back is over the boundary and no further: the frame keeps
+        // the second turn's own rows in it, under the prompt that owns them.
+        ['CODE_CLI_CALL_STREAM_DONE', WHEEL_UP.repeat(12), 700],
+        ['rows above', '', 500],
+        ['', `/exit${ENTER}`, 400],
+      ],
+      'rows above',
     )
 
     // A tool call rendered as its card, with the diff the presenter produced.
@@ -212,14 +214,6 @@ describe.skipIf(process.env.CAPTURE_SCREENS === undefined)('showcase frames', ()
       'write',
       [['Welcome to codsh', `create the note${ENTER}`, 300], ['CODE_CLI_CALL_OK', '', 700], ['', `/exit${ENTER}`, 400]],
       'CODE_CLI_CALL_OK',
-    )
-
-    // Thinking collapsed to one line, and the readout naming it on hover.
-    await capture(
-      { id: 'fold-hover', title: 'A block says what it is under the pointer', note: 'Resting on a fold fills the block and names it on the chrome row — what a click will do, before it lands.', from: '› think it over' },
-      'reasoning',
-      [['Welcome to codsh', `think it over${ENTER}`, 300], ['thought for', moveOnto('thought for'), 900], ['', `/exit${ENTER}`, 400]],
-      'click to expand',
     )
 
     // The same block opened by a click, which is the other half of the story.
@@ -260,12 +254,24 @@ describe.skipIf(process.env.CAPTURE_SCREENS === undefined)('showcase frames', ()
       'first',
     )
 
-    // Plan mode, which tints the box frame while it holds.
+    // One answer opened in the full-screen reader.
     await capture(
-      { id: 'plan-mode', title: 'Plan mode tints the box', note: 'Shift-Tab toggles plan mode, and the frame carries it so the next submission’s effect is visible mid-thought.' },
-      'write',
-      [['Welcome to codsh', SHIFT_TAB, 400], ['plan mode', '', 800], ['', `/exit${ENTER}`, 400]],
-      'plan mode',
+      {
+        id: 'view',
+        title: 'A full-screen reader for one answer',
+        note: '/view 1 opens an answer, /view 1:1 its first code block, in a reader that survives a resize. Esc puts the conversation back exactly as it was; /copy addresses the same targets.',
+      },
+      'markdown',
+      [
+        ['Welcome to codsh', `explain the render path${ENTER}`, 400],
+        ['CODE_CLI_CALL_STREAM_DONE', `/view 1${ENTER}`, 500],
+        // Esc alone, then the box: typing into the same step would send the
+        // command while the viewer still owned the keyboard.
+        ['Esc closes', '\u001B', 400],
+        ['Ask anything', `/exit${ENTER}`, 400],
+      ],
+      'Esc closes',
+      'first',
     )
 
     // The showcase workspace was only ever scaffolding for the capture.

@@ -53,17 +53,23 @@ dsh --profile code
 
 ## 界面
 
-[站点](https://blackman99.github.io/codsh/zh.html)有实机演示。一句话：
+[站点](https://blackman99.github.io/codsh/zh.html)上每一屏都是实机抓取。一句话：
 
-- 备用屏幕；输入框钉底；退出还原你的 shell。
-- 阅读长回复时，产生当前内容的用户输入会吸附在顶部；下一条输入会把上一条逐步推走。
-- 长块可折叠；点击一块，Ctrl+O 全部；悬停报名字。
-- todo 钉在 chrome（Ctrl+T / `/todos`）。
-- 拖选即复制。Markdown、思考、工具卡片流式画出。
+**读一段长会话**
+
+- 刚提交的提问占住视口顶部，回复从下方填进空出来的位置。往回读历史再回来，回来的是同一帧——滚轮和 PgDn 都落得回去。
+- 不管读到哪里，问出这段内容的那条提问会吸附在顶部；下一条提问再把它推走。
+- 右侧一列时间线标出当前在第几轮——刻度和箭头可点击跳转，悬停预览真实的提问内容。Shift+←/→ 是键盘上的同一件事，`/jump` 则是可搜索、可撤回的预览。
+- 长块可折叠：点一块开一块，Ctrl+O 开合全部；手动开合的选择跨轮次保留。
+- `/view 1` 把一条回答摊成整屏，`/view 1:1` 打开它的第一个代码块；Esc 原样还回会话。`/copy` 用的是同一套编号——原始 Markdown，或去掉围栏的代码。
+
+**干活**
+
+- 备用屏幕；输入框钉底；退出原样还回你的 shell。
+- todo 常驻 chrome（Ctrl+T / `/todos`）。Markdown、思考、工具卡片流式画出。拖选即复制。
 - Ctrl+V 粘贴图片（原生视觉；DeepSeek 文本模型自动借用 Vision Exp；其他文本路由仍落盘并可选 sidecar）。
-- `/` 命令、`$` skill、`!` shell、`@` 文件 —— 菜单在输入框上方。
-- 审批和 `/model` `/resume` 用方向键。⇧Tab 是 plan 模式。
-- `/clear`、`/resume`、Esc Esc、`/init`。`!cmd` 打在会话里，agent 看得到输出。
+- `/` 命令、`$` skill、`!` shell、`@` 文件 —— 菜单在输入框上方。⇧Tab 是 plan 模式。
+- 审批、`/model`、`/resume` 用方向键；还有 `/clear`、Esc Esc、`/init`。`!cmd` 打在会话里，agent 看得到输出。
 
 非 TTY 降级为行读取器：无组件、不绘制。
 
@@ -75,6 +81,7 @@ pnpm run dev                 # build → .dev-home → 启动
 MOCK=markdown pnpm run dev   # 无 key，对着 e2e mock
 pnpm test
 pnpm run test:e2e            # 打包、安装，驱动真实二进制
+CAPTURE_SCREENS=1 pnpm run site:screens   # 重拍站点上的终端截屏
 ```
 
 `pnpm run sync:dsh` 跟踪已发布的 `@deepseek-ai/dsh-*`。本仓库绝不 fork harness。

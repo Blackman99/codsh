@@ -53,22 +53,23 @@ Bare `/ship` resumes an unfinished spec.
 
 ## The surface
 
-The [site](https://blackman99.github.io/codsh/) shows each live. In brief:
+The [site](https://blackman99.github.io/codsh/) shows each one as a real capture. In brief:
 
-- Alternate screen; box pinned at the bottom; quit restores your shell.
-- User prompts stay at the top as turn headers while you read long replies; the next prompt pushes the previous one away.
-- A newly submitted prompt starts at the viewport top while streamed reply rows fill the space beneath it.
-- Shift+←/→ jumps between real user turns; `/jump` offers a searchable, reversible preview.
-- A one-column timeline on the right tracks the current turn; hover previews real prompt lines, while ticks and enabled arrows click-jump through turns.
-- `/copy` searches assistant answers; `/copy N` copies raw Markdown and `/copy N:C` copies exact fence-free code.
-- `/view` opens the same answer/code targets in a resize-safe full-screen reader; Esc restores the conversation.
-- Long blocks fold; click one or Ctrl+O all, and explicit choices persist across later turns.
-- Todos stay in chrome (Ctrl+T / `/todos`).
-- Drag to copy. Markdown, thinking, and tool cards stream in.
+**Reading a long session**
+
+- A submitted prompt takes the viewport top and its reply fills the space beneath it. Read back into history and the way home is the same frame: the wheel and PgDn land on it again.
+- Whatever you are reading, the prompt that asked for it pins itself at the top; the next prompt pushes it away.
+- A one-column timeline on the right marks the turn you are in — ticks and arrows click-jump, hover previews the real prompt lines. Shift+←/→ does it from the keyboard, and `/jump` is a searchable, reversible preview.
+- Long blocks fold: click one, Ctrl+O all, and what you opened by hand stays open across later turns.
+- `/view 1` opens an answer full screen, `/view 1:1` its first code block; Esc restores the conversation exactly. `/copy` addresses the same targets — raw Markdown, or fence-free code.
+
+**Working**
+
+- Alternate screen; the box never leaves the bottom; quitting gives your shell back untouched.
+- Todos stay in the chrome (Ctrl+T / `/todos`). Markdown, thinking, and tool cards stream in. Drag to copy.
 - Ctrl+V pastes images (native vision; DeepSeek text models borrow Vision Exp automatically; other text routes keep the file + optional sidecar fallback).
-- `/` commands, `$` skills, `!` shell, `@` files — menu sits above the box.
-- Approvals and `/model` `/resume` are arrow-key widgets. ⇧Tab is plan mode.
-- `/clear`, `/resume`, Esc Esc, `/init`. `!cmd` prints in-session and the agent sees it.
+- `/` commands, `$` skills, `!` shell, `@` files — the menu sits above the box. ⇧Tab is plan mode.
+- Approvals, `/model`, and `/resume` are arrow-key widgets; `/clear`, Esc Esc, and `/init` round it out. `!cmd` prints in-session and the agent sees it.
 
 Off a TTY it becomes a line reader: no widgets, no drawing.
 
@@ -80,6 +81,7 @@ pnpm run dev                 # build → .dev-home → boot
 MOCK=markdown pnpm run dev   # keyless, against the e2e mock
 pnpm test
 pnpm run test:e2e            # pack, install, drive the real binary
+CAPTURE_SCREENS=1 pnpm run site:screens   # re-shoot the site's terminals
 ```
 
 `pnpm run sync:dsh` tracks published `@deepseek-ai/dsh-*` releases. This repo never forks the harness.
