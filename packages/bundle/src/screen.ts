@@ -194,6 +194,22 @@ interface TurnPrompt {
   preference?: boolean
 }
 
+/** One prompt measured in the physical rows shared by sticky and timeline UI. */
+interface PromptLayout {
+  prompt: TurnPrompt
+  at: number
+  rows: string[]
+}
+
+/** All row geometry needed to compose and interact with one viewport frame. */
+interface FrameLayout {
+  height: number
+  end: number
+  first: number
+  prompts: PromptLayout[]
+  sticky: ReturnType<typeof computeStickyLayout>
+}
+
 /** Stable reading position across logical transcript splices and reflow. */
 interface ViewportAnchor {
   logical: number
@@ -288,10 +304,10 @@ export class Screen {
   private selection: { anchor: { row: number; column: number }; focus: { row: number; column: number }; dragged: boolean } | undefined
   /** Sticky prompt pressed as display chrome; dragging cancels the click. */
   private pressedSticky: TurnPrompt | undefined
-  /** Timeline prompt pressed in the reserved right column. */
-  private pressedTimeline: TurnPrompt | undefined
-  /** Timeline prompt whose display-only two-line preview is visible. */
-  private timelineHover: TurnPrompt | undefined
+  /** Timeline target pressed in the reserved rail; null keeps an inert rail gesture owned. */
+  private pressedTimeline: TurnPrompt | null | undefined
+  /** Last pointer position, re-resolved against each frame's rail geometry. */
+  private timelinePointer: { row: number; column: number } | undefined
   /** Whether a selector/viewer currently owns the surface over the rail. */
   private timelineHidden = false
   /** Last auxiliary glyph per viewport row, for rail-only repainting. */
@@ -300,6 +316,8 @@ export class Screen {
   private folds: Fold[] = []
   /** Real user prompts, which divide the transcript into response sections. */
   private prompts: TurnPrompt[] = []
+  /** Prompt row geometry, invalidated only when prompt content or width changes. */
+  private promptLayoutCache: PromptLayout[] | undefined
   /** The block the pointer rests on, or undefined when it rests on none. */
   private hovered: Fold | undefined
   /** Whether OSC 11 named a light background; the hover fill picks a shade. */
@@ -357,9 +375,8 @@ export class Screen {
   /** Real user turns retained in this Screen, oldest first. */
   get turnList(): TurnReference[] {
     return this.prompts.map((prompt, index) => {
-      const summary = prompt.full
+      const summary = this.explicitPromptLines(prompt)
         .filter(line => line !== '')
-        .map(line => line.replaceAll(STYLES, '').trim())
         .join(' ')
         .replace(/\s+/gu, ' ')
         .trim()
@@ -369,23 +386,34 @@ export class Screen {
 
   /** Turn owning the top of the current viewport, or the latest at the tail. */
   get currentTurn(): number | undefined {
-    const layouts = this.promptLayouts()
-    if (layouts.length === 0) return undefined
-    if (this.offset === 0) return layouts.length - 1
-    const frame = this.frameLayout()
+    return this.currentTurnFor(this.frameLayout())
+  }
+
+  /** Turn owner derived from the same frame used by timeline paint and hits. */
+  private currentTurnFor(frame: FrameLayout): number | undefined {
+    if (frame.prompts.length === 0) return undefined
+    if (this.offset === 0) return frame.prompts.length - 1
     if (frame.sticky !== undefined) return frame.sticky.prompt
     let current = 0
-    for (const [index, layout] of layouts.entries()) {
+    for (const [index, layout] of frame.prompts.entries()) {
       if (layout.at > frame.first) break
       current = index
     }
     return current
   }
 
+  /** Plain real-user lines, excluding generated image metadata and separators. */
+  private explicitPromptLines(prompt: TurnPrompt): string[] {
+    return prompt.full
+      .slice(0, Math.max(0, prompt.explicitLines))
+      .map(line => line.replaceAll(STYLES, '').trim())
+  }
+
   /** Reveal one retained turn with its inline prompt at the viewport top. */
   jumpToTurn(index: number): boolean {
     const layout = this.promptLayouts()[index]
     if (layout === undefined) return false
+    this.cancelTimelineNavigation()
     this.clearTailAnchor()
     const height = this.viewportHeight()
     const limit = Math.max(0, this.physical.length - height)
@@ -401,6 +429,7 @@ export class Screen {
 
   /** Restore a previously captured physical scroll distance. */
   restoreScroll(offset: number): void {
+    this.cancelTimelineNavigation()
     this.clearTailAnchor()
     const limit = Math.max(0, this.physical.length - this.viewportHeight())
     this.offset = Math.min(limit, Math.max(0, offset))
@@ -430,6 +459,7 @@ export class Screen {
   /** Restore a reading position after modal previews and terminal reflow. */
   restoreViewportBookmark(bookmark: ViewportBookmark | undefined): void {
     if (bookmark === undefined) return
+    this.cancelTimelineNavigation()
     if (bookmark.kind === 'tail') {
       this.scrollToBottom()
       return
@@ -493,6 +523,8 @@ export class Screen {
    */
   append(lines: readonly string[], rule = ''): void {
     if (lines.length === 0) return
+    this.cancelTimelineNavigation()
+    const extendsPromptLayouts = this.prompts.some(prompt => prompt.at >= this.logical.length)
     const heldEnd = this.offset > 0 ? this.physical.length - this.offset : undefined
     const heldAnchor = this.offset > 0 ? this.viewportAnchor() : undefined
     let mappedAnchor = heldAnchor
@@ -510,6 +542,11 @@ export class Screen {
         this.physicalLogical.push(this.logical.length - 1)
       }
     }
+    // appendPrompt installs its descriptor before these rows arrive. A reader
+    // browsing history may have populated the cache via viewportAnchor above,
+    // so rebuild once the prompt's real physical rows now exist. Ordinary
+    // streamed response rows sit after every prompt and keep the cache hot.
+    if (extendsPromptLayouts) this.promptLayoutCache = undefined
     this.ranges = undefined
     if (this.logical.length > MAX_SCROLLBACK) {
       trimmed = true
@@ -531,8 +568,7 @@ export class Screen {
       // A trim may have removed the pressed prompt and its fold; a later mouse
       // release must never splice through a descriptor that no longer exists.
       this.pressedSticky = undefined
-      this.pressedTimeline = undefined
-      this.timelineHover = undefined
+      this.cancelTimelineNavigation()
       this.painted = []
       // A hovered block may have been cut from the head.
       this.hovered = undefined
@@ -567,6 +603,7 @@ export class Screen {
     if (summary === undefined) {
       const prompt = { at: this.logical.length, shownLength: lines.length, rule, full, explicitLines }
       this.prompts.push(prompt)
+      this.promptLayoutCache = undefined
       if (shouldAnchor) this.tailAnchor = prompt
       this.installingTailAnchor = shouldAnchor
       try {
@@ -590,6 +627,7 @@ export class Screen {
     this.folds.push(fold)
     const prompt = { at: fold.at, shownLength: shown.length, rule, full, fold, explicitLines }
     this.prompts.push(prompt)
+    this.promptLayoutCache = undefined
     if (shouldAnchor) this.tailAnchor = prompt
     this.installingTailAnchor = shouldAnchor
     try {
@@ -603,6 +641,11 @@ export class Screen {
   private clearTailAnchor(): void {
     this.tailAnchor = undefined
     this.tailRows = 0
+  }
+
+  /** Cancel a stale rail target while retaining ownership through mouse-up. */
+  private cancelTimelineNavigation(): void {
+    if (this.pressedTimeline !== undefined) this.pressedTimeline = null
   }
 
   /** Fit the live prompt at row one while its real response has not filled the viewport. */
@@ -1008,6 +1051,7 @@ export class Screen {
    * @param focus - whether to show the cursor there.
    */
   setChrome(rows: readonly string[], cursor: ChromeCursor, focus: boolean): void {
+    if (rows.length !== this.chrome.length) this.cancelTimelineNavigation()
     // Cut, never wrapped: a box border that wrapped would push the layout down
     // a row and the frame would disagree with itself.
     this.chrome = rows.map(row => truncate(row, this.contentColumns()))
@@ -1050,6 +1094,7 @@ export class Screen {
     if (next === undefined && this.viewer === undefined) return
     if (next !== undefined && this.viewer !== undefined && next.length === this.viewer.length
       && next.every((row, index) => row === this.viewer?.[index])) return
+    this.cancelTimelineNavigation()
     this.viewer = next
     this.painted = []
     this.paintedTimeline = []
@@ -1059,10 +1104,10 @@ export class Screen {
   /** Hide the right-column timeline while a modal surface owns the viewport. */
   setTimelineHidden(hidden: boolean): void {
     if (hidden === this.timelineHidden) return
-    if (this.timelineHover !== undefined) this.painted = []
+    if (this.timelinePointer !== undefined) this.painted = []
     this.timelineHidden = hidden
-    this.timelineHover = undefined
-    this.pressedTimeline = undefined
+    this.timelinePointer = undefined
+    this.cancelTimelineNavigation()
     this.render()
   }
 
@@ -1076,6 +1121,7 @@ export class Screen {
     const limit = Math.max(0, this.physical.length - this.viewportHeight())
     const next = Math.min(limit, Math.max(0, this.offset - delta))
     if (next === this.offset && !anchored) return
+    this.cancelTimelineNavigation()
     this.offset = next
     this.suppressNotice = false
     this.render()
@@ -1095,6 +1141,7 @@ export class Screen {
     const anchored = this.tailAnchor !== undefined
     this.clearTailAnchor()
     if (this.offset === 0 && !anchored) return
+    this.cancelTimelineNavigation()
     this.offset = 0
     this.suppressNotice = false
     this.render()
@@ -1178,6 +1225,7 @@ export class Screen {
 
   /** Scroll so the current hit is in the viewport, then paint. */
   private revealFindHit(): void {
+    this.cancelTimelineNavigation()
     this.clearTailAnchor()
     this.suppressNotice = false
     const hit = this.find?.hits[this.find.index]
@@ -1208,11 +1256,13 @@ export class Screen {
     this.physicalLogical = []
     this.folds = []
     this.prompts = []
+    this.promptLayoutCache = undefined
     this.ranges = undefined
     this.hovered = undefined
     this.pressedSticky = undefined
+    this.selection = undefined
     this.pressedTimeline = undefined
-    this.timelineHover = undefined
+    this.timelinePointer = undefined
     this.find = undefined
     this.offset = 0
     this.clearTailAnchor()
@@ -1250,6 +1300,7 @@ export class Screen {
 
   /** Re-wrap and repaint after the terminal changed size. */
   resize(): void {
+    this.cancelTimelineNavigation()
     const following = this.offset === 0
     const anchor = this.refreshPromptFolds(this.viewportAnchor())
     this.rewrap()
@@ -1274,19 +1325,23 @@ export class Screen {
    * every time, so a caller need not track the changes itself.
    */
   mouseMove(row: number, column: number): HoverBlock | undefined {
-    const timeline = this.timelineMarkAt(row, column)
-    if (timeline !== undefined) {
-      const prompt = timeline.kind === 'turn' ? this.prompts[timeline.turn] : undefined
-      if (prompt !== this.timelineHover || this.hovered !== undefined) {
-        this.timelineHover = prompt
+    const frame = this.frameLayout()
+    const marks = this.timelineMarks(frame)
+    const previous = this.timelinePointer === undefined
+      ? undefined
+      : this.timelineMarkAt(this.timelinePointer.row, this.timelinePointer.column, marks)
+    const timeline = this.timelineMarkAt(row, column, marks)
+    if (this.coversTimeline(row, column, marks)) {
+      this.timelinePointer = { row, column }
+      if (timeline !== previous || this.hovered !== undefined) {
         this.hovered = undefined
         this.painted = []
         this.render()
       }
       return undefined
     }
-    if (this.timelineHover !== undefined) {
-      this.timelineHover = undefined
+    this.timelinePointer = undefined
+    if (previous !== undefined) {
       this.painted = []
       this.render()
     }
@@ -1322,9 +1377,12 @@ export class Screen {
    * @param column - terminal column, 1-based.
    */
   mouseDown(row: number, column: number): void {
-    const timeline = this.timelineMarkAt(row, column)
-    if (timeline !== undefined) {
-      this.pressedTimeline = timeline.kind === 'turn' ? this.prompts[timeline.turn] : undefined
+    const frame = this.frameLayout()
+    const marks = this.timelineMarks(frame)
+    const timeline = this.timelineMarkAt(row, column, marks)
+    if (this.coversTimeline(row, column, marks)) {
+      const target = timeline === undefined ? undefined : timeline.kind === 'turn' ? timeline.turn : timeline.target
+      this.pressedTimeline = timeline === undefined || target === undefined ? null : this.prompts[target]
       return
     }
     const had = this.selection !== undefined
@@ -1354,7 +1412,9 @@ export class Screen {
    */
   mouseDrag(row: number, column: number): void {
     if (this.pressedTimeline !== undefined) {
-      this.pressedTimeline = undefined
+      // The drag cancels navigation but remains a rail-owned gesture through
+      // release, so an older transcript selection can never be copied again.
+      this.pressedTimeline = null
       return
     }
     if (this.pressedSticky !== undefined) {
@@ -1382,8 +1442,10 @@ export class Screen {
     const timeline = this.pressedTimeline
     this.pressedTimeline = undefined
     if (timeline !== undefined) {
-      const turn = this.prompts.indexOf(timeline)
-      if (turn >= 0) this.jumpToTurn(turn)
+      if (timeline !== null) {
+        const turn = this.prompts.indexOf(timeline)
+        if (turn >= 0) this.jumpToTurn(turn)
+      }
       return undefined
     }
     const sticky = this.pressedSticky
@@ -1469,37 +1531,63 @@ export class Screen {
   }
 
   /** Marks currently visible in the rightmost terminal column. */
-  private timelineMarks(): TimelineMark[] {
-    if (this.timelineHidden || this.prompts.length < 2) return []
-    return computeTimeline(this.prompts.length, this.currentTurn ?? this.prompts.length - 1, this.viewportHeight())
+  private timelineMarks(frame: FrameLayout): TimelineMark[] {
+    if (this.timelineHidden || frame.prompts.length < 2 || frame.height < 3) return []
+    const current = this.currentTurnFor(frame)
+    if (current === undefined) return []
+    let above: number | undefined
+    let below: number | undefined
+    for (const [index, layout] of frame.prompts.entries()) {
+      if (layout.at < frame.first) above = index
+      else if (layout.at > frame.first && below === undefined) below = index
+    }
+    if (this.offset === 0) {
+      below = undefined
+    }
+    return computeTimeline(frame.prompts.length, current, frame.height, {
+      ...above === undefined ? {} : { above },
+      ...below === undefined ? {} : { below },
+    })
   }
 
-  /** Timeline mark under a terminal position, including non-clickable arrows. */
-  private timelineMarkAt(row: number, column: number): TimelineMark | undefined {
+  /** Timeline mark under a terminal position, including navigation arrows. */
+  private timelineMarkAt(row: number, column: number, marks: readonly TimelineMark[]): TimelineMark | undefined {
     if (column !== this.host.columns() || row < 1 || row > this.viewportHeight()) return undefined
-    return this.timelineMarks().find(mark => mark.row === row - 1)
+    return marks.find(mark => mark.row === row - 1)
+  }
+
+  /** Whether the active rail owns a terminal cell, including gaps between marks. */
+  private coversTimeline(row: number, column: number, marks: readonly TimelineMark[]): boolean {
+    return marks.length > 0 && column === this.host.columns() && row >= 1 && row <= this.viewportHeight()
   }
 
   /** Apply the real user's colour from its rule to the current timeline dot. */
-  private timelineGlyph(mark: TimelineMark): string {
-    if (mark.kind === 'above') return `\u001B[2m↑${RESET}`
-    if (mark.kind === 'below') return `\u001B[2m↓${RESET}`
-    if (!mark.current) return `\u001B[2m·${RESET}`
+  private timelineGlyph(mark: TimelineMark, hovered: boolean): string {
+    if (mark.kind === 'above' || mark.kind === 'below') {
+      const glyph = mark.kind === 'above' ? '↑' : '↓'
+      if (mark.target === undefined) return `\u001B[2m${glyph}${RESET}`
+      return hovered ? `\u001B[1m${glyph}${RESET}` : glyph
+    }
+    if (!mark.current) return hovered ? '·' : `\u001B[2m·${RESET}`
     const style = this.prompts[mark.turn]?.rule.match(STYLES)?.[0]
     return style === undefined ? '●' : `${style}●${RESET}`
   }
 
   /** Two display-only rows painted beside the hovered tick. */
-  private timelinePreview(): { row: number; column: number; rows: string[] } | undefined {
-    const prompt = this.timelineHover
-    if (prompt === undefined || this.timelineHidden) return undefined
-    const turn = this.prompts.indexOf(prompt)
-    if (turn < 0) return undefined
-    const mark = this.timelineMarks().find(candidate => candidate.kind === 'turn' && candidate.turn === turn)
-    const summary = this.turnList[turn]?.summary
-    if (mark === undefined || summary === undefined) return undefined
+  private timelinePreview(marks: readonly TimelineMark[]): { row: number; column: number; rows: string[] } | undefined {
+    const pointer = this.timelinePointer
+    if (pointer === undefined || this.timelineHidden) return undefined
+    const mark = this.timelineMarkAt(pointer.row, pointer.column, marks)
+    if (mark?.kind !== 'turn') return undefined
+    const prompt = this.prompts[mark.turn]
+    if (prompt === undefined) return undefined
     const width = Math.min(32, Math.max(8, this.contentColumns() - 3))
-    const rows = wrapStyled(summary, width).slice(0, 2)
+    const wrapped = this.explicitPromptLines(prompt).flatMap(line => wrapStyled(line, width))
+    const rows = wrapped.slice(0, 2)
+    if (wrapped.length > rows.length && rows.length > 0) {
+      const last = rows.length - 1
+      rows[last] = truncate(`${rows[last] ?? ''} …`, width)
+    }
     if (rows.length === 0) return undefined
     const row = Math.min(Math.max(0, mark.row), Math.max(0, this.viewportHeight() - rows.length))
     return { row, column: Math.max(GUTTER + 1, this.host.columns() - width), rows }
@@ -1549,6 +1637,8 @@ export class Screen {
   private wrapBuffer(): void {
     const columns = this.contentColumns()
     this.ranges = undefined
+    this.promptLayoutCache = undefined
+    this.cancelTimelineNavigation()
     this.physical = []
     this.ruleWidths = []
     this.physicalLogical = []
@@ -1565,9 +1655,10 @@ export class Screen {
   }
 
   /** User prompts measured in the same physical rows the viewport scrolls. */
-  private promptLayouts(): { prompt: TurnPrompt; at: number; rows: string[] }[] {
+  private promptLayouts(): PromptLayout[] {
+    if (this.promptLayoutCache !== undefined) return this.promptLayoutCache
     const columns = this.contentColumns()
-    const layouts: { prompt: TurnPrompt; at: number; rows: string[] }[] = []
+    const layouts: PromptLayout[] = []
     let logical = 0
     let physical = 0
     const height = (index: number): number =>
@@ -1581,6 +1672,7 @@ export class Screen {
       layouts.push({ prompt, at, rows: this.physical.slice(at, physical) })
       for (; logical < prompt.at + prompt.shownLength; logical += 1) physical += height(logical)
     }
+    this.promptLayoutCache = layouts
     return layouts
   }
 
@@ -1594,13 +1686,7 @@ export class Screen {
   }
 
   /** All row geometry needed to compose one frame at an offset. */
-  private frameLayout(offset = this.offset): {
-    height: number
-    end: number
-    first: number
-    prompts: { prompt: TurnPrompt; at: number; rows: string[] }[]
-    sticky: ReturnType<typeof computeStickyLayout>
-  } {
+  private frameLayout(offset = this.offset): FrameLayout {
     const height = this.viewportHeight()
     const end = this.physical.length + this.tailRows - offset
     const scrollTop = Math.max(0, end - height)
@@ -1662,7 +1748,9 @@ export class Screen {
       this.paintedTimeline = []
       this.paintedColumns = columns
     }
-    const { height, end, first, prompts, sticky } = this.frameLayout()
+    const layout = this.frameLayout()
+    const { height, end, first, prompts, sticky } = layout
+    const timeline = this.timelineMarks(layout)
     const visible = this.physical.slice(first, Math.max(0, end))
     // Content tops the screen the way a fresh terminal reads — the welcome at
     // the top, the gap between it and the chrome — and grows downward until it
@@ -1748,7 +1836,10 @@ export class Screen {
       repainted.add(index)
       out += `\u001B[${index + 1};1H${CLEAR_LINE}`
     }
-    const preview = this.timelinePreview()
+    const hoveredTimeline = this.timelinePointer === undefined
+      ? undefined
+      : this.timelineMarkAt(this.timelinePointer.row, this.timelinePointer.column, timeline)
+    const preview = this.timelinePreview(timeline)
     if (preview !== undefined) {
       const width = this.host.columns() - preview.column
       preview.rows.forEach((row, index) => {
@@ -1756,7 +1847,7 @@ export class Screen {
       })
     }
     const rail = Array.from({ length: height }, () => ' ')
-    for (const mark of this.timelineMarks()) rail[mark.row] = this.timelineGlyph(mark)
+    for (const mark of timeline) rail[mark.row] = this.timelineGlyph(mark, mark === hoveredTimeline)
     const railRows = Math.max(rail.length, this.paintedTimeline.length)
     for (let index = 0; index < railRows; index += 1) {
       const glyph = rail[index] ?? ' '

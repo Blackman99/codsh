@@ -106,12 +106,14 @@ describe.skipIf(process.platform === 'win32')('the first five minutes', () => {
     const returned = screenAtLast(output, 'STICKY_SECOND_DONE', rows).alternate
 
     expect(tail[0]).toContain('second sticky prompt')
-    expect(tail[0]?.at(-1)).toBe('·')
-    expect(tail[1]?.at(-1)).toBe('●')
+    expect(tail[0]?.at(-1)).toBe('↑')
+    expect(tail[1]?.at(-1)).toBe('·')
+    expect(tail[2]?.at(-1)).toBe('●')
     expect(browsing[0]).toContain('second sticky prompt')
     expect(crossed[0]).toContain('first sticky prompt')
-    expect(crossed[0]?.at(-1)).toBe('●')
-    expect(crossed[1]?.at(-1)).toBe('·')
+    expect(crossed[0]?.at(-1)).toBe('↑')
+    expect(crossed[1]?.at(-1)).toBe('●')
+    expect(crossed[2]?.at(-1)).toBe('·')
     expect(crossed.join('\n')).toContain('↑ 48 rows above')
     expect(returned[0]).toContain('second sticky prompt')
     expect(crossed.slice(-2)).toEqual(tail.slice(-2))
@@ -153,27 +155,32 @@ describe.skipIf(process.platform === 'win32')('the first five minutes', () => {
   }, E2E_TEST_TIMEOUT_MS)
 
   it('previews and clicks the timeline rail, then clears the preview on mouse-out', async () => {
-    const moveRail = '\u001B[<35;120;1M'
-    const clickRail = '\u001B[<0;120;1M\u001B[<0;120;1m'
+    const moveRail = '\u001B[<35;120;2M'
+    const clickRail = '\u001B[<0;120;2M\u001B[<0;120;2m'
+    const clickDown = '\u001B[<0;120;5M\u001B[<0;120;5m'
     const moveAway = '\u001B[<35;10;6M'
     const run = await drivePtySteps('sticky', [
       ['Welcome to codsh', `first sticky prompt${ENTER}`, 300],
       ['STICKY_FIRST_44', `second sticky prompt${ENTER}`, 500],
-      ['51 tokens', moveRail, 300],
+      ['51 tokens', `third sticky prompt${ENTER}`, 500],
+      ['STICKY_SECOND_DONE', moveRail, 300],
       ['first sticky prompt', clickRail, 300],
-      ['first sticky prompt', moveAway, 300],
+      ['first sticky prompt', clickDown, 300],
+      ['second sticky prompt', moveAway, 300],
       ['', `/exit${ENTER}`, 400],
     ], { rows: 12 })
 
     const captured = (offset: number | undefined): string => Buffer.from(run.output).subarray(0, offset).toString()
-    const preview = screenOf(captured(run.offsets[3]), -1, 12).alternate.join('\n')
-    const clicked = screenOf(captured(run.offsets[4]), -1, 12).alternate
-    const cleared = screenOf(captured(run.offsets[5]), -1, 12).alternate.join('\n')
+    const preview = screenOf(captured(run.offsets[4]), -1, 12).alternate.join('\n')
+    const clicked = screenOf(captured(run.offsets[5]), -1, 12).alternate
+    const arrowed = screenOf(captured(run.offsets[6]), -1, 12).alternate
+    const cleared = screenOf(captured(run.offsets[7]), -1, 12).alternate.join('\n')
     const occurrences = (text: string): number => text.split('first sticky prompt').length - 1
     expect(occurrences(preview)).toBe(1)
     expect(occurrences(clicked.join('\n'))).toBe(2)
-    expect(clicked[0]?.at(-1)).toBe('●')
-    expect(occurrences(cleared)).toBe(1)
+    expect(clicked[1]?.at(-1)).toBe('●')
+    expect(arrowed[2]?.at(-1)).toBe('●')
+    expect(occurrences(cleared)).toBe(0)
   }, E2E_TEST_TIMEOUT_MS)
 
   it('jumps between real user turns with shifted horizontal arrows', async () => {

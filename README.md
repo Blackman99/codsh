@@ -59,7 +59,7 @@ The [site](https://blackman99.github.io/codsh/) shows each live. In brief:
 - User prompts stay at the top as turn headers while you read long replies; the next prompt pushes the previous one away.
 - A newly submitted prompt starts at the viewport top while streamed reply rows fill the space beneath it.
 - Shift+←/→ jumps between real user turns; `/jump` offers a searchable, reversible preview.
-- A one-column timeline on the right tracks the current turn; hover previews and click jumps.
+- A one-column timeline on the right tracks the current turn; hover previews real prompt lines, while ticks and enabled arrows click-jump through turns.
 - `/copy` searches assistant answers; `/copy N` copies raw Markdown and `/copy N:C` copies exact fence-free code.
 - `/view` opens the same answer/code targets in a resize-safe full-screen reader; Esc restores the conversation.
 - Long blocks fold; click one or Ctrl+O all, and explicit choices persist across later turns.

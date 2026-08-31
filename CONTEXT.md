@@ -56,8 +56,10 @@ Scrollback, selection, search, replay, folds, or redirected output.
 **Conversation timeline**:
 The display-only one-column rail in the terminal's reserved rightmost column.
 Each visible tick maps to a retained Turn navigation anchor; the current tick
-uses the user colour, overflow arrows window long histories, hover previews up
-to two Prompt lines, and click reveals that Turn. Modal surfaces hide the rail.
+uses the user colour, enabled arrows jump to the nearest Turn anchor above or
+below the Viewport top, and tick hover previews up to two real-user Prompt
+lines. Rendering and hit-testing share one frame geometry; modal surfaces hide
+the rail.
 
 **Content address**:
 A stable raw-content address derived from assistant message events: `N` names

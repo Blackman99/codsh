@@ -629,7 +629,7 @@ describe('scrolling', () => {
     screen.enter()
     screen.setChrome(['status'], { row: 0, column: 0 }, false)
     screen.append(Array.from({ length: 4990 }, (_, index) => `old ${index}`))
-    screen.appendPrompt(['› retained a', '  retained b', '  retained c', '  retained d', ''], '| ')
+    screen.appendPrompt(['› retained a', '  retained b', '  retained c', '  retained d', ''], '| ', true, 4)
     screen.append(Array.from({ length: 20 }, (_, index) => `tail ${index}`))
     screen.toggleFolds()
     flush(sink)
@@ -898,8 +898,10 @@ describe('conversation timeline', () => {
 
     screen.resize()
     const frame = flush(sink)
-    expect(cell(frame, 1, 40)).toBe('·')
-    expect(cell(frame, 2, 40)).toBe('●')
+    expect(cell(frame, 1, 40)).toBe('↑')
+    expect(cell(frame, 2, 40)).toBe('·')
+    expect(cell(frame, 3, 40)).toBe('●')
+    expect(cell(frame, 4, 40)).toBe('↓')
     expect(painted(frame).get(1)).toBe('| › first')
   })
 
@@ -917,13 +919,17 @@ describe('conversation timeline', () => {
 
     screen.resize()
     let frame = flush(sink)
-    expect(cell(frame, 1, 40)).toBe('●')
-    expect(cell(frame, 2, 40)).toBe('·')
+    expect(cell(frame, 1, 40)).toBe('↑')
+    expect(cell(frame, 2, 40)).toBe('●')
+    expect(cell(frame, 3, 40)).toBe('·')
+    expect(cell(frame, 4, 40)).toBe('↓')
 
     screen.setTimelineHidden(true)
     frame = flush(sink)
     expect(cell(frame, 1, 40)).toBe(' ')
     expect(cell(frame, 2, 40)).toBe(' ')
+    expect(cell(frame, 3, 40)).toBe(' ')
+    expect(cell(frame, 4, 40)).toBe(' ')
   })
 
   it('shows a two-line prompt preview and clicks a tick without selecting transcript text', () => {
@@ -937,17 +943,17 @@ describe('conversation timeline', () => {
     screen.append(Array.from({ length: 8 }, (_, index) => `second ${index}`))
     flush(sink)
 
-    screen.mouseMove(1, 40)
+    screen.mouseMove(2, 40)
     const hovered = flush(sink).replaceAll(/\u001B\[[0-9;?]*[A-Za-z]/gu, '')
     expect(hovered).toContain('first prompt has enough')
-    expect(hovered).toContain('second preview li')
+    expect(hovered).toContain('second preview l…')
     screen.setTimelineHidden(true)
     expect(painted(flush(sink)).get(1)).toContain('second prompt')
     screen.setTimelineHidden(false)
     flush(sink)
-    screen.mouseMove(1, 40)
+    screen.mouseMove(2, 40)
     flush(sink)
-    screen.mouseDown(1, 40)
+    screen.mouseDown(2, 40)
     expect(screen.mouseUp()).toBeUndefined()
     expect(screen.currentTurn).toBe(0)
   })
@@ -976,8 +982,190 @@ describe('conversation timeline', () => {
     expect(screen.turnList.map(turn => turn.summary)).toEqual(['› retained first', '› retained second'])
     expect(screen.mouseUp()).toBeUndefined()
     expect(screen.currentTurn).toBe(1)
-    expect(cell(frame, 1, 50)).toBe('·')
-    expect(cell(frame, 2, 50)).toBe('●')
+    expect(cell(frame, 1, 50)).toBe('↑')
+    expect(cell(frame, 2, 50)).toBe('·')
+    expect(cell(frame, 3, 50)).toBe('●')
+    expect(cell(frame, 4, 50)).toBe('↓')
+  })
+
+  it('clicks enabled arrows and leaves disabled end stops inert', () => {
+    const sink = host(8, 40)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['status'], { row: 0, column: 0 }, false)
+    screen.appendPrompt(['› first', ''], '| ', false)
+    screen.append(Array.from({ length: 8 }, (_, index) => `first ${index}`))
+    screen.appendPrompt(['› second', ''], '| ', false)
+    screen.append(Array.from({ length: 8 }, (_, index) => `second ${index}`))
+    screen.appendPrompt(['› third', ''], '| ', false)
+    screen.append(Array.from({ length: 8 }, (_, index) => `third ${index}`))
+    flush(sink)
+
+    screen.mouseDown(7, 40)
+    screen.mouseDrag(6, 5)
+    expect(screen.mouseUp()).toBeUndefined()
+    screen.mouseDown(1, 40)
+    expect(screen.mouseUp()).toBeUndefined()
+    expect(screen.currentTurn).toBe(2)
+    screen.scrollBy(-3)
+    const before = screen.scrolledBy
+    screen.mouseDown(5, 40)
+    expect(screen.mouseUp()).toBeUndefined()
+    expect(screen.scrolledBy).not.toBe(before)
+    expect(screen.currentTurn).toBeGreaterThanOrEqual(1)
+
+    screen.scrollBy(-100)
+    flush(sink)
+    const atFirst = screen.scrolledBy
+    screen.mouseDown(1, 40)
+    expect(screen.mouseUp()).toBeUndefined()
+    expect(screen.scrolledBy).toBe(atFirst)
+  })
+
+  it('keeps the upper arrow disabled when every retained prompt is already visible', () => {
+    const sink = host(12, 40)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['status'], { row: 0, column: 0 }, false)
+    screen.appendPrompt(['› first', ''], '| ', false)
+    screen.append(['answer'])
+    screen.appendPrompt(['› second', ''], '| ', false)
+    screen.append(['answer'])
+    screen.appendPrompt(['› third', ''], '| ', false)
+    screen.append(['answer'])
+    flush(sink)
+
+    screen.mouseMove(1, 40)
+    const hovered = flush(sink)
+    expect(hovered).toContain('\u001B[1;40H\u001B[2m↑\u001B[0m')
+    expect(hovered).not.toContain('\u001B[1;40H\u001B[1m↑')
+
+    screen.mouseDown(7, 3)
+    screen.mouseDrag(7, 8)
+    expect(screen.mouseUp()).toBeDefined()
+    screen.mouseDown(1, 40)
+    screen.mouseDrag(2, 8)
+    expect(screen.mouseUp()).toBeUndefined()
+    screen.mouseDown(8, 40)
+    expect(screen.mouseUp()).toBeUndefined()
+  })
+
+  it('rebuilds a newly appended prompt layout while the reader stays in history', () => {
+    const sink = host(8, 40)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['status'], { row: 0, column: 0 }, false)
+    screen.appendPrompt(['› first', ''], '| ', false)
+    screen.append(Array.from({ length: 12 }, (_, index) => `first ${index}`))
+    screen.scrollBy(-4)
+    flush(sink)
+
+    screen.appendPrompt(['› second while browsing', ''], '| ', false)
+    screen.append(['second answer'])
+
+    const internals = screen as unknown as { promptLayoutCache?: { rows: string[] }[] }
+    expect(internals.promptLayoutCache?.[1]?.rows.length).toBeGreaterThan(0)
+    expect(internals.promptLayoutCache?.[1]?.rows.join('\n')).toContain('› second while browsing')
+    expect(screen.scrolledBy).toBeGreaterThan(0)
+    expect(screen.jumpToTurn(1)).toBe(true)
+    expect(screen.currentTurn).toBe(1)
+  })
+
+  it('retains rail gesture ownership when frame geometry changes before release', () => {
+    const sink = host(8, 40)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['status'], { row: 0, column: 0 }, false)
+    screen.appendPrompt(['› first', ''], '| ', false)
+    screen.append(Array.from({ length: 8 }, (_, index) => `first ${index}`))
+    screen.appendPrompt(['› second', ''], '| ', false)
+    screen.append(Array.from({ length: 8 }, (_, index) => `second ${index}`))
+    screen.appendPrompt(['› third', ''], '| ', false)
+    screen.append(Array.from({ length: 8 }, (_, index) => `third ${index}`))
+    flush(sink)
+
+    screen.mouseDown(3, 3)
+    screen.mouseDrag(3, 8)
+    expect(screen.mouseUp()).toBeDefined()
+
+    screen.mouseDown(2, 40)
+    screen.append(['streamed geometry change'])
+    expect(screen.mouseUp()).toBeUndefined()
+
+    screen.mouseDown(2, 40)
+    screen.scrollBy(-2)
+    expect(screen.mouseUp()).toBeUndefined()
+
+    screen.mouseDown(2, 40)
+    sink.size.columns = 50
+    screen.resize()
+    expect(screen.mouseUp()).toBeUndefined()
+
+    screen.mouseDown(2, 50)
+    screen.searchTranscript('second 0')
+    const searchOffset = screen.scrolledBy
+    expect(screen.mouseUp()).toBeUndefined()
+    expect(screen.scrolledBy).toBe(searchOffset)
+
+    screen.scrollToBottom()
+    screen.mouseDown(2, 50)
+    screen.setViewer(['viewer'])
+    expect(screen.mouseUp()).toBeUndefined()
+    screen.setViewer(undefined)
+    expect(screen.currentTurn).toBe(2)
+  })
+
+  it('previews only explicit user lines, preserving newlines and ellipsizing overflow', () => {
+    const sink = host(9, 50)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['status'], { row: 0, column: 0 }, false)
+    screen.appendPrompt([
+      '› 你好',
+      '  介绍下你自己',
+      '  还有第三行',
+      '  [image #1 · sent to the model]',
+      '',
+    ], '| ', false, 3)
+    screen.append(Array.from({ length: 8 }, (_, index) => `first ${index}`))
+    screen.appendPrompt(['› second', ''], '| ', false)
+    screen.append(Array.from({ length: 8 }, (_, index) => `second ${index}`))
+    flush(sink)
+
+    screen.mouseMove(2, 50)
+    const hovered = flush(sink).replaceAll(/\u001B\[[0-9;?]*[A-Za-z]/gu, '')
+    expect(hovered).toContain('› 你好')
+    expect(hovered).toContain('介绍下你自己 …')
+    expect(hovered).not.toContain('还有第三行')
+    expect(hovered).not.toContain('[image #1')
+    expect(screen.turnList[0]?.summary).toBe('› 你好 介绍下你自己 还有第三行')
+  })
+
+  it('re-resolves hover after resize and invalidates cached prompt geometry', () => {
+    const sink = host(8, 40)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['status'], { row: 0, column: 0 }, false)
+    screen.appendPrompt(['› first preview', ''], '| ', false)
+    screen.append(Array.from({ length: 8 }, (_, index) => `first ${index}`))
+    screen.appendPrompt(['› second preview', ''], '| ', false)
+    screen.append(Array.from({ length: 8 }, (_, index) => `second ${index}`))
+    flush(sink)
+
+    const internals = screen as unknown as { promptLayoutCache?: unknown[] }
+    const cached = internals.promptLayoutCache
+    screen.mouseMove(2, 40)
+    expect(flush(sink)).toContain('first preview')
+    expect(internals.promptLayoutCache).toBe(cached)
+
+    screen.mouseDown(2, 40)
+    sink.size.columns = 50
+    screen.resize()
+    const resized = flush(sink)
+    expect(resized).not.toContain('first preview')
+    expect(internals.promptLayoutCache).not.toBe(cached)
+    expect(screen.mouseUp()).toBeUndefined()
+    expect(screen.currentTurn).toBe(1)
   })
 })
 
