@@ -152,6 +152,30 @@ describe.skipIf(process.platform === 'win32')('the first five minutes', () => {
     expect(first.at(-1)).toBe(filling.at(-1))
   }, E2E_TEST_TIMEOUT_MS)
 
+  it('gives the anchored prompt back when the reader wheels home again', async () => {
+    const wheelUp = '\u001B[<64;10;5M'
+    const wheelDown = '\u001B[<65;10;5M'
+    const run = await drivePtySteps('anchor', [
+      ['Welcome to codsh', `anchor this prompt${ENTER}`, 100],
+      ['ANCHOR_REPLY_12', wheelUp.repeat(3), 400],
+      ['\u2191 3 rows above', wheelDown.repeat(3), 400],
+      ['', `/exit${ENTER}`, 300],
+    ])
+
+    const captured = (offset: number | undefined): string => Buffer.from(run.output).subarray(0, offset).toString()
+    const anchored = screenOf(captured(run.offsets[1]), -1).alternate
+    const browsing = screenOf(captured(run.offsets[2]), -1).alternate
+    const returned = screenOf(captured(run.offsets[3]), -1).alternate
+    expect(anchored[0]).toContain('anchor this prompt')
+    // Reading back steps the prompt down by the rows asked for, and the way
+    // back to the tail is the same frame it left — not one that lost the gap.
+    expect(browsing[0]).not.toContain('anchor this prompt')
+    expect(browsing[3]).toContain('anchor this prompt')
+    expect(browsing.join('\n')).toContain('3 rows above')
+    expect(returned[0]).toContain('anchor this prompt')
+    expect(returned.slice(0, 14)).toEqual(anchored.slice(0, 14))
+  }, E2E_TEST_TIMEOUT_MS)
+
   it('previews and clicks the timeline rail, then clears the preview on mouse-out', async () => {
     const moveRail = '\u001B[<35;120;1M'
     const clickRail = '\u001B[<0;120;1M\u001B[<0;120;1m'
@@ -466,13 +490,17 @@ describe.skipIf(process.platform === 'win32')('the first five minutes', () => {
   }, E2E_TEST_TIMEOUT_MS)
 
   it('keeps a manually expanded block open across the next real turn', async () => {
+    // The next turn anchors its own prompt at the top, so the block that was
+    // opened by hand is read by scrolling back to it.
+    const wheelUp = '\u001B[<64;10;5M'
     const output = await drivePty('reasoning', [
       ['Welcome to codsh', `first question${ENTER}`, 300],
       ['CODE_CLI_ANSWER', '\u000F', 300],
       ['weighing the options carefully', `second question${ENTER}`, 300],
-      ['CODE_CLI_ANSWER', `/exit${ENTER}`, 500],
+      ['CODE_CLI_ANSWER', wheelUp.repeat(12), 400],
+      ['\u2191 12 rows above', `/exit${ENTER}`, 400],
     ])
-    const rows = screenAtLast(output, 'CODE_CLI_ANSWER').alternate
+    const rows = screenAt(output, '\u2191 12 rows above').alternate
     expect(rows.filter(row => row.includes('weighing the options carefully'))).toHaveLength(1)
     expect(rows.some(row => row.includes('second question'))).toBe(true)
   }, E2E_TEST_TIMEOUT_MS)

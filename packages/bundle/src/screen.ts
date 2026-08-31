@@ -386,23 +386,21 @@ export class Screen {
   jumpToTurn(index: number): boolean {
     const layout = this.promptLayouts()[index]
     if (layout === undefined) return false
-    this.clearTailAnchor()
     const height = this.viewportHeight()
-    const limit = Math.max(0, this.physical.length - height)
+    const limit = this.scrollLimit()
     const canStick = layout.prompt.fold?.expanded !== true
     // Cross one row past an eligible inline prompt so Sticky owns row one and
     // the notice uses its gap. Expanded prompts stay inline at their first row.
     const top = layout.at + (canStick ? Math.min(1, layout.rows.length) : 0)
     this.suppressNotice = !canStick
-    this.offset = Math.min(limit, Math.max(0, this.physical.length - top - height))
+    this.offset = Math.min(limit, Math.max(0, this.scrollExtent() - top - height))
     this.render()
     return true
   }
 
   /** Restore a previously captured physical scroll distance. */
   restoreScroll(offset: number): void {
-    this.clearTailAnchor()
-    const limit = Math.max(0, this.physical.length - this.viewportHeight())
+    const limit = this.scrollLimit()
     this.offset = Math.min(limit, Math.max(0, offset))
     this.suppressNotice = false
     this.render()
@@ -448,7 +446,6 @@ export class Screen {
         within: bookmark.within,
       }
     }
-    this.clearTailAnchor()
     this.suppressNotice = false
     this.restoreViewportAnchor(anchor)
     this.render()
@@ -493,7 +490,7 @@ export class Screen {
    */
   append(lines: readonly string[], rule = ''): void {
     if (lines.length === 0) return
-    const heldEnd = this.offset > 0 ? this.physical.length - this.offset : undefined
+    const heldEnd = this.offset > 0 ? this.scrollExtent() - this.offset : undefined
     const heldAnchor = this.offset > 0 ? this.viewportAnchor() : undefined
     let mappedAnchor = heldAnchor
     let trimmed = false
@@ -539,11 +536,14 @@ export class Screen {
       this.rewrap()
       if (mappedAnchor !== undefined) this.restoreViewportAnchor(mappedAnchor)
     }
-    if (heldEnd !== undefined && !trimmed) {
-      this.offset = Math.max(0, this.physical.length - heldEnd)
-    }
     if (!trimmed) this.refreshTranscriptSearch()
+    // Reply rows consume the gap one for one, so the reader's distance from
+    // the tail is re-applied after it is re-measured: the rows they are on
+    // stay exactly where they are while the reply streams below.
     this.refreshTailAnchor(!this.installingTailAnchor)
+    if (heldEnd !== undefined && !trimmed) {
+      this.offset = Math.min(this.scrollLimit(), Math.max(0, this.scrollExtent() - heldEnd))
+    }
     this.render()
   }
 
@@ -560,8 +560,10 @@ export class Screen {
    */
   appendPrompt(lines: readonly string[], rule = '', anchor = true, explicitLines = 1): void {
     if (lines.length === 0) return
+    // The previous turn's gap goes first: a reader still inside it was
+    // reading the tail, so the new prompt anchors for them too.
+    this.clearTailAnchor()
     const shouldAnchor = anchor && this.active && this.offset === 0
-    if (shouldAnchor) this.clearTailAnchor()
     const full = [...lines]
     const summary = this.promptSummary(full, rule)
     if (summary === undefined) {
@@ -601,6 +603,9 @@ export class Screen {
 
   /** Drop display-only tail space without touching the retained transcript. */
   private clearTailAnchor(): void {
+    // The gap is part of what scrolls: taking it away under a reader who is
+    // off the tail would slide the transcript down by its height.
+    if (this.offset > 0) this.offset = Math.max(0, this.offset - this.tailRows)
     this.tailAnchor = undefined
     this.tailRows = 0
   }
@@ -612,7 +617,7 @@ export class Screen {
       this.tailRows = 0
       return
     }
-    if (this.offset > 0 || !this.prompts.includes(anchor)) {
+    if (!this.prompts.includes(anchor)) {
       this.clearTailAnchor()
       return
     }
@@ -888,7 +893,6 @@ export class Screen {
    * @param expanded - the form to put on screen.
    */
   private setFold(fold: Fold, expanded: boolean, manual: boolean): void {
-    this.clearTailAnchor()
     const shown = expanded ? fold.full : fold.summary
     const delta = shown.length - fold.shownLength
     this.mapFindHits(fold.at, fold.shownLength, shown.length)
@@ -912,9 +916,9 @@ export class Screen {
     // Re-wrapping clamps the offset to the new height, so the reader's own
     // distance from the tail is remembered from before it and re-applied.
     this.rewrap()
+    this.refreshTailAnchor()
     if (offset > 0) {
-      const limit = Math.max(0, this.physical.length - this.viewportHeight())
-      this.offset = Math.min(limit, Math.max(0, offset + this.physical.length - before))
+      this.offset = Math.min(this.scrollLimit(), Math.max(0, offset + this.physical.length - before))
     }
     this.painted = []
     this.render()
@@ -922,7 +926,6 @@ export class Screen {
 
   /** Put chosen folds into one form and optionally pin that choice. */
   private setFolds(expanded: boolean, manual: boolean, automaticOnly = false): void {
-    this.clearTailAnchor()
     const anchor = this.offset > 0 ? this.viewportAnchor() : undefined
     // Rebuild back to front, so earlier folds' positions stay valid while the
     // later ones are spliced; remember each block's growth for the fix-up.
@@ -996,6 +999,7 @@ export class Screen {
       mappedAnchor = { logical, within: anchor.within }
     }
     this.rewrap()
+    this.refreshTailAnchor()
     if (mappedAnchor !== undefined) this.restoreViewportAnchor(mappedAnchor)
     this.painted = []
     this.render()
@@ -1071,11 +1075,9 @@ export class Screen {
    * @param delta - rows to move; negative scrolls back into history.
    */
   scrollBy(delta: number): void {
-    const anchored = this.tailAnchor !== undefined
-    this.clearTailAnchor()
-    const limit = Math.max(0, this.physical.length - this.viewportHeight())
+    const limit = this.scrollLimit()
     const next = Math.min(limit, Math.max(0, this.offset - delta))
-    if (next === this.offset && !anchored) return
+    if (next === this.offset) return
     this.offset = next
     this.suppressNotice = false
     this.render()
@@ -1092,9 +1094,7 @@ export class Screen {
 
   /** Jump back to the tail, which is also what a new submission does. */
   scrollToBottom(): void {
-    const anchored = this.tailAnchor !== undefined
-    this.clearTailAnchor()
-    if (this.offset === 0 && !anchored) return
+    if (this.offset === 0) return
     this.offset = 0
     this.suppressNotice = false
     this.render()
@@ -1178,7 +1178,6 @@ export class Screen {
 
   /** Scroll so the current hit is in the viewport, then paint. */
   private revealFindHit(): void {
-    this.clearTailAnchor()
     this.suppressNotice = false
     const hit = this.find?.hits[this.find.index]
     if (hit === undefined) {
@@ -1187,9 +1186,7 @@ export class Screen {
     }
     const { end, first } = this.frameLayout()
     if (hit.row < first || hit.row >= end) {
-      const height = this.viewportHeight()
-      const limit = Math.max(0, this.physical.length - height)
-      this.offset = Math.min(limit, Math.max(0, this.physical.length - hit.row - 1))
+      this.offset = Math.min(this.scrollLimit(), Math.max(0, this.scrollExtent() - hit.row - 1))
     }
     this.render()
   }
@@ -1238,7 +1235,7 @@ export class Screen {
     for (const [row, logical] of this.physicalLogical.entries()) if (logical === anchor.logical) rows.push(row)
     const target = rows[Math.min(anchor.within, Math.max(0, rows.length - 1))]
     if (target === undefined) return
-    const limit = Math.max(0, this.physical.length - this.viewportHeight())
+    const limit = this.scrollLimit()
     let next = Math.min(limit, this.offset)
     for (let pass = 0; pass < 4; pass += 1) {
       const difference = this.frameLayout(next).first - target
@@ -1253,8 +1250,8 @@ export class Screen {
     const following = this.offset === 0
     const anchor = this.refreshPromptFolds(this.viewportAnchor())
     this.rewrap()
-    if (!following && anchor !== undefined) this.restoreViewportAnchor(anchor)
     this.refreshTailAnchor()
+    if (!following && anchor !== undefined) this.restoreViewportAnchor(anchor)
     // Nothing on screen can be trusted at a new size; the next frame is full.
     this.painted = []
     this.paintedTimeline = []
@@ -1392,8 +1389,7 @@ export class Screen {
       this.setFold(sticky.fold, true, true)
       const at = this.promptLayouts().find(layout => layout.prompt === sticky)?.at
       if (at !== undefined) {
-        const limit = Math.max(0, this.physical.length - this.viewportHeight())
-        this.offset = Math.min(limit, Math.max(0, this.physical.length - at - this.viewportHeight()))
+        this.offset = Math.min(this.scrollLimit(), Math.max(0, this.scrollExtent() - at - this.viewportHeight()))
         this.painted = []
         this.render()
       }
@@ -1523,6 +1519,22 @@ export class Screen {
     return Math.max(1, this.host.rows() - this.chrome.length)
   }
 
+  /**
+   * Rows the viewport moves through: the buffer plus the live prompt's gap.
+   *
+   * The gap is display-only, but it is part of what scrolls. A reader who
+   * leaves the tail crosses it one row at a time, and coming back to the tail
+   * lands on the anchored frame again instead of on a frame that lost it.
+   */
+  private scrollExtent(): number {
+    return this.physical.length + this.tailRows
+  }
+
+  /** Furthest back the viewport may scroll from the tail. */
+  private scrollLimit(): number {
+    return Math.max(0, this.scrollExtent() - this.viewportHeight())
+  }
+
   /** Columns content is laid out for, one short of the width so no row wraps. */
   private contentColumns(): number {
     return Math.max(1, this.host.columns() - 1 - GUTTER)
@@ -1589,8 +1601,7 @@ export class Screen {
     // Physical rows are the selection's coordinate system; a reflow voids it.
     this.selection = undefined
     this.wrapBuffer()
-    const limit = Math.max(0, this.physical.length - this.viewportHeight())
-    this.offset = Math.min(this.offset, limit)
+    this.offset = Math.min(this.offset, this.scrollLimit())
   }
 
   /** All row geometry needed to compose one frame at an offset. */

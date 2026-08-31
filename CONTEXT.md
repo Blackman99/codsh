@@ -49,9 +49,11 @@ Plugin-sourced user-role messages never enter this index.
 
 **Prompt-top anchor**:
 Display-only tail space that places a newly submitted real-user Prompt at the
-Viewport top while its response streams below. It exists only while following
-the interactive tail, disappears on manual navigation, and is never part of
-Scrollback, selection, search, replay, folds, or redirected output.
+Viewport top while its response streams below. It belongs to the live turn,
+not to a reading position: it scrolls with the transcript, so reading back and
+returning to the tail lands on the anchored frame again. It ends when the
+response fills the Viewport or the next Prompt takes it over, and is never
+part of Scrollback, selection, search, replay, folds, or redirected output.
 
 **Conversation timeline**:
 The display-only one-column rail in the terminal's reserved rightmost column.
