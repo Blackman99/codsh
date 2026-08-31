@@ -613,14 +613,15 @@ describe.skipIf(process.platform === 'win32')('dsh code Escape (real PTY)', () =
     // then the emulator resizes exactly where the window did, then the rest.
     const held = output.slice(0, output.indexOf(LEAVE_ALT))
     const resizeAt = offsets[1] ?? 0
-    // The settled frame after the post-resize turn completes — a mid-typing
-    // frame can catch the chrome one row from where the next frame puts it.
-    const at = held.indexOf('CODE_CLI_CALL_OK', resizeAt)
-    const frameEnd = held.indexOf(SYNC_END, held.indexOf(SYNC_END, at) + 1)
+    // The settled frame is the last whole one before `/exit` reaches the box:
+    // the turn is over by then, while counting frames from the tool marker
+    // judges the layout on whichever repaint happened to be in flight.
+    const typed = held.lastIndexOf('/exit')
+    const settled = held.lastIndexOf(SYNC_END, typed < 0 ? held.length : typed)
     const terminal = new Terminal(PTY_ROWS, PTY_COLUMNS)
     terminal.feed(held.slice(0, resizeAt))
     terminal.resize(PTY_ROWS, narrow)
-    terminal.feed(held.slice(resizeAt, frameEnd < 0 ? held.length : frameEnd + SYNC_END.length))
+    terminal.feed(held.slice(resizeAt, settled < 0 ? held.length : settled + SYNC_END.length))
     const rows = terminal.alternate
     const foot = rows.slice(-4)
     expect(foot.filter(row => row.trimStart().startsWith('╭─') && row.length > narrow / 2)).toHaveLength(1)

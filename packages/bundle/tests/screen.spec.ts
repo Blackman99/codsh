@@ -315,7 +315,7 @@ describe('scrolling', () => {
     expect(painted(flush(sink)).get(1)).toBe('| › anchored question')
   })
 
-  it('cancels prompt-tail space on manual history navigation and never anchors replay', () => {
+  it('steps off the anchored prompt one row at a time and never anchors replay', () => {
     const sink = host(8, 40)
     const screen = new Screen(sink)
     screen.enter()
@@ -330,7 +330,110 @@ describe('scrolling', () => {
     screen.scrollBy(-1)
     rows = painted(flush(sink))
     expect(screen.scrolledBy).toBe(1)
+    // Reading back moves the frame by the row asked for: the space under the
+    // prompt scrolls like every other row rather than vanishing under it.
     expect(rows.get(1)).not.toBe('| › live question')
+    expect(rows.get(2)).toBe('| › live question')
+  })
+
+  it('gives the anchored frame back when the reader returns to the tail', () => {
+    const sink = host(8, 40)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['box', 'status'], { row: 0, column: 0 }, false)
+    screen.append(Array.from({ length: 10 }, (_, index) => `old ${index}`))
+    screen.appendPrompt(['› anchored question', ''], '| ')
+    flush(sink)
+
+    screen.scrollBy(-2)
+    let rows = painted(flush(sink))
+    expect(rows.get(1)).toBe('old 8')
+    expect(rows.get(3)).toBe('| › anchored question')
+
+    screen.scrollBy(2)
+    rows = painted(flush(sink))
+    expect(screen.scrolledBy).toBe(0)
+    expect(rows.get(1)).toBe('| › anchored question')
+
+    // The jump back to the latest lands on the same frame the wheel does.
+    screen.scrollBy(-4)
+    flush(sink)
+    screen.scrollToBottom()
+    expect(painted(flush(sink)).get(1)).toBe('| › anchored question')
+  })
+
+  it('still reaches the oldest row while the prompt gap is reserved', () => {
+    const sink = host(8, 40)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['box', 'status'], { row: 0, column: 0 }, false)
+    screen.append(Array.from({ length: 10 }, (_, index) => `old ${index}`))
+    screen.appendPrompt(['› anchored question', ''], '| ')
+    flush(sink)
+
+    screen.scrollBy(-99)
+    expect(painted(flush(sink)).get(1)).toBe('old 0')
+  })
+
+  it('holds a reader who scrolled back still while replies fill the gap', () => {
+    const sink = host(8, 40)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['box', 'status'], { row: 0, column: 0 }, false)
+    screen.append(Array.from({ length: 10 }, (_, index) => `old ${index}`))
+    screen.appendPrompt(['› anchored question', ''], '| ')
+    screen.scrollBy(-2)
+    flush(sink)
+
+    screen.append(['reply one'])
+    // The reply lands in the reserved space; the rows being read do not move.
+    expect([...painted(flush(sink))]).toEqual([[5, 'reply one']])
+    expect(screen.scrolledBy).toBe(2)
+  })
+
+  it('anchors the next prompt for a reader still inside the previous gap', () => {
+    const sink = host(8, 40)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['box', 'status'], { row: 0, column: 0 }, false)
+    screen.append(Array.from({ length: 10 }, (_, index) => `old ${index}`))
+    screen.appendPrompt(['› anchored question', ''], '| ')
+    screen.scrollBy(-2)
+    flush(sink)
+
+    screen.appendPrompt(['› next question', ''], '| ')
+    expect(screen.scrolledBy).toBe(0)
+    expect(painted(flush(sink)).get(1)).toBe('| › next question')
+  })
+
+  it('keeps the anchored prompt at the top when a block above it opens', () => {
+    const sink = host(8, 40)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['box', 'status'], { row: 0, column: 0 }, false)
+    screen.appendFold(['summary line'], ['full 1', 'full 2', 'full 3'], '', 'output')
+    screen.appendPrompt(['› anchored question', ''], '| ')
+    flush(sink)
+
+    // Working a block is reading, not navigating: the live turn keeps its gap.
+    expect(screen.toggleFolds()).toBe(true)
+    expect(painted(flush(sink)).get(1)).toBe('| › anchored question')
+  })
+
+  it('leaves a reader in history exactly where they were when the gap goes', () => {
+    const sink = host(8, 40)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['box', 'status'], { row: 0, column: 0 }, false)
+    screen.append(Array.from({ length: 10 }, (_, index) => `old ${index}`))
+    screen.appendPrompt(['› anchored question', ''], '| ')
+    screen.scrollBy(-6)
+    const before = painted(flush(sink))
+    expect(before.get(1)).toBe('old 4')
+
+    screen.appendPrompt(['› next question', ''], '| ')
+    expect(painted(flush(sink)).size).toBe(0)
+    expect(screen.scrolledBy).toBe(4)
   })
 
   it('does not anchor a live prompt while the reader is browsing history', () => {
