@@ -50,17 +50,35 @@ jobs:
             name=$(node -p "require('./$dir/package.json').name")
             version=$(node -p "require('./$dir/package.json').version")
             tag="$name@$version"
-            npm view "$tag" version >/dev/null 2>&1 || continue
+            # Steady state: an earlier run already tagged and released this
+            # version, so there is nothing to prove and no registry to ask.
+            if git ls-remote --exit-code --tags origin "$tag" >/dev/null 2>&1 \
+              && gh release view "$tag" >/dev/null 2>&1; then
+              continue
+            fi
+            # npm answers its own publish with a lag. This step ran 1.3s after
+            # changesets pushed 0.11.0, was told that version did not exist, and
+            # took the `continue` — which is why every tag and release after
+            # 0.6.0 is missing while each run stayed green. Only a version this
+            # repo has never tagged reaches here, so the wait is paid once per
+            # release and never on an ordinary push to main.
+            published=''
+            for _ in $(seq 1 12); do
+              if npm view "$tag" version >/dev/null 2>&1; then published=1; break; fi
+              sleep 5
+            done
+            [ -n "$published" ] || continue
             if ! git ls-remote --exit-code --tags origin "$tag" >/dev/null 2>&1; then
               git tag "$tag" 2>/dev/null || true
               git push origin "$tag"
             fi
             if ! gh release view "$tag" >/dev/null 2>&1; then
-              if [ -f "$dir/CHANGELOG.md" ]; then
-                awk "/^## $version\$/{flag=1; next} /^## /{flag=0} flag" "$dir/CHANGELOG.md" > /tmp/release-notes.md
-              else
-                echo "$tag" > /tmp/release-notes.md
-              fi
+              awk "/^## $version\$/{flag=1; next} /^## /{flag=0} flag" \
+                "$dir/CHANGELOG.md" 2>/dev/null > /tmp/release-notes.md
+              # A bump a sibling package carried leaves an empty section behind,
+              # and an empty --notes-file is rejected; the tag still deserves a
+              # release people can subscribe to.
+              [ -s /tmp/release-notes.md ] || echo "Released \`$tag\` to npm." > /tmp/release-notes.md
               gh release create "$tag" --title "$tag" --notes-file /tmp/release-notes.md
             fi
           done
