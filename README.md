@@ -13,7 +13,9 @@
 
 > npm: [`codsh-cli`](https://www.npmjs.com/package/codsh-cli) · command: `codsh`
 
-A terminal coding agent on the [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness). **`/ship`** takes one sentence to verified code.
+**`/ship`** takes one sentence to verified code. A terminal coding agent on the [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness).
+
+[![The /ship flow](assets/ship-demo.gif)](https://blackman99.github.io/codsh/)
 
 ## Install
 
@@ -39,8 +41,6 @@ dsh --profile code
 ```
 
 ## `/ship`
-
-[![The /ship flow](assets/ship-demo.gif)](https://blackman99.github.io/codsh/)
 
 `/ship <one-sentence idea>` — grill, two approvals, then autonomous:
 

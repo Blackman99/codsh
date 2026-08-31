@@ -13,7 +13,9 @@
 
 > npm：[`codsh-cli`](https://www.npmjs.com/package/codsh-cli) · 命令：`codsh`
 
-架在 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 上的终端编码 agent。**`/ship`** 把一句话变成已验证的代码。
+**`/ship`** 把一句话变成已验证的代码。架在 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 上的终端编码 agent。
+
+[![/ship 流程](assets/ship-demo.zh.gif)](https://blackman99.github.io/codsh/zh.html)
 
 ## 安装
 
@@ -37,8 +39,6 @@ dsh --profile code
 ```
 
 ## `/ship`
-
-[![/ship 流程](assets/ship-demo.zh.gif)](https://blackman99.github.io/codsh/zh.html)
 
 `/ship <一句话需求>` —— 先 grill，两次确认，此后自主：
 
