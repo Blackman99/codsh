@@ -46,14 +46,16 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          echo "reading manifests at $GITHUB_SHA"
           for dir in packages/*; do
-            # The manifest on disk is not the fact here. changesets/action runs
-            # ahead of this step and, whenever a changeset is pending, leaves
-            # `changeset version` output in the working tree — so the file said
-            # 0.11.1 on the very push where 0.11.0 was the released version, and
-            # the step went looking for something npm will never have. What the
-            # commit says is what shipped.
-            manifest=$(git show "HEAD:$dir/package.json")
+            # Neither the working tree nor HEAD is the fact here.
+            # changesets/action runs ahead of this step and, whenever a
+            # changeset is pending, commits `changeset version` output for its
+            # Version Packages pull request — which moved both to 0.11.1 on the
+            # very push that released 0.11.0, sending this step after something
+            # npm will never have. The commit that triggered the run is the one
+            # that shipped, and nothing downstream can move it.
+            manifest=$(git show "$GITHUB_SHA:$dir/package.json")
             name=$(printf '%s' "$manifest" | node -pe "JSON.parse(require('fs').readFileSync(0,'utf8')).name")
             version=$(printf '%s' "$manifest" | node -pe "JSON.parse(require('fs').readFileSync(0,'utf8')).version")
             tag="$name@$version"
