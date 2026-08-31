@@ -79,7 +79,7 @@ import type { PendingImage } from './prompt.ts'
 import type { TodoList } from './todos.ts'
 import type { StatusFacts } from './status.ts'
 import { backgroundIsLight, createTheme, truncate } from './theme.ts'
-import { FOLD_LABELS, Transcript, answerSummary, thinkingFold } from './transcript.ts'
+import { FOLD_LABELS, Transcript, answerSummary, blockRules, thinkingFold } from './transcript.ts'
 import type { Theme } from './theme.ts'
 
 /** Stable Cordis plugin name. */
@@ -1720,12 +1720,21 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
       continue
     }
     if (trimmed.startsWith('/')) {
-      // A command produces no session event, so nothing else would show what
-      // was run above its result.
-      if (!surfaceOnlyView) prompt.write(`${theme.user('›')} ${trimmed}`)
-      // Canned prompts run as ordinary turns; the echo above is their whole
+      // Canned prompts run as ordinary turns; the echo below is their whole
       // transcript presence, not their page-long body.
       const [, name = '', rest = ''] = /^\/(\S+)\s*([\s\S]*)$/.exec(trimmed) ?? []
+      const cannedPrompt = name === 'init' || name === 'ship' || customByName.has(name)
+      // A command produces no session event, so nothing else would show what
+      // was run above its result. One that spends a turn is a prompt the
+      // person submitted — the model is about to answer it, and the page is
+      // about to fill — so it takes the prompt's own place at the top of the
+      // viewport, exactly as a typed message does. One that only works the
+      // chrome answers nothing, and would leave that space empty.
+      if (!surfaceOnlyView) {
+        const echo = `${theme.user('›')} ${trimmed}`
+        if (cannedPrompt) io.console.appendPrompt([echo, ''], blockRules(theme).user, true, 1)
+        else prompt.write(echo)
+      }
       if (name === 'init') {
         await answer(INIT_PROMPT, { kind: 'plugin', plugin: 'coding-cli' }, images)
         continue

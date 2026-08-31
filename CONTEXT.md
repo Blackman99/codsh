@@ -45,11 +45,16 @@ _Avoid_: sticky message, pinned response
 The retained real-user Prompt descriptors exposed as numbered reading anchors.
 Shift+Left/Right moves one anchor; `/jump` previews an anchor while its selector
 moves, commits on Enter, and restores the exact prior Viewport on Escape.
-Plugin-sourced user-role messages never enter this index.
+Plugin-sourced user-role messages never enter this index — including the
+template a Canned command expands into, whose echo is the Prompt that enters
+in its place.
 
 **Prompt-top anchor**:
 Display-only tail space that places a newly submitted real-user Prompt at the
-Viewport top while its response streams below. It belongs to the live turn,
+Viewport top while its response streams below. A Canned command's echo is
+placed the same way, for the same reason: it spends a turn, so a reply is
+about to fill the space. A command that only works the Chrome answers nothing
+and is written where it falls. It belongs to the live turn,
 not to a reading position: it scrolls with the transcript, so reading back and
 returning to the tail lands on the anchored frame again. It ends when the
 response fills the Viewport or the next Prompt takes it over, and is never
@@ -91,6 +96,13 @@ a short diff is already whole on screen. Ctrl+O is unaffected: expanding
 everything still expands this block inline, and the collapsed line names both,
 so the affordance never promises a gesture the block does not have.
 _Avoid_: pager payload, click target
+
+**Canned command**:
+A command whose body is a prompt template rather than a handler: `/ship`,
+`/init`, and a person's own `custom-commands` entries. It spends a turn, so
+what a person typed is echoed as a Prompt and the template itself never
+reaches the transcript.
+_Avoid_: macro, alias
 
 **Fold preference**:
 An ephemeral, per-Fold choice created by clicking a block or pressing Ctrl+O.

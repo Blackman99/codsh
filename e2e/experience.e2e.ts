@@ -190,6 +190,49 @@ describe.skipIf(process.platform === 'win32')('the first five minutes', () => {
     expect(first.at(-1)).toBe(filling.at(-1))
   }, E2E_TEST_TIMEOUT_MS)
 
+  it('gives a canned command the top of the viewport, like a typed prompt', async () => {
+    const run = await drivePtySteps('anchor', [
+      ['Welcome to codsh', `/ship let long diffs open in a pager${ENTER}`, 200],
+      ['ANCHOR_REPLY_1', '', 0],
+      ['ANCHOR_REPLY_8', '', 0],
+      ['ANCHOR_REPLY_12', `/exit${ENTER}`, 300],
+    ], { rows: 12 })
+
+    const captured = (offset: number | undefined): string => Buffer.from(run.output).subarray(0, offset).toString()
+    const first = screenOf(captured(run.offsets[1]), -1, 12).alternate
+    const filling = screenOf(captured(run.offsets[2]), -1, 12).alternate
+
+    // The echo takes the place a submitted message takes, and the reply fills
+    // the space under it rather than pushing it up the screen.
+    expect(first[0]).toContain('/ship let long diffs open in a pager')
+    expect(first.join('\n')).toContain('ANCHOR_REPLY_1')
+    expect(filling[0]).toContain('/ship let long diffs open in a pager')
+    expect(filling.join('\n')).toContain('ANCHOR_REPLY_8')
+    expect(first.findIndex(row => row.includes('Ask anything'))).toBe(filling.findIndex(row => row.includes('Ask anything')))
+    // One copy: the anchored prompt and its sticky header are the same row.
+    expect(filling.filter(row => row.includes('/ship let long diffs'))).toHaveLength(1)
+    // The template the command expands into is still not the transcript's
+    // business — the echo is its whole presence, however it is placed.
+    expect(run.output).not.toContain('tracer-bullet')
+    expect(run.output).not.toContain('Phase 1')
+  }, E2E_TEST_TIMEOUT_MS)
+
+  it('leaves a command that only works the chrome where it was written', async () => {
+    // The other half of the rule: `/status` answers nothing, so taking the top
+    // would clear the screen to make room for a reply that never comes.
+    const run = await drivePtySteps('anchor', [
+      ['Welcome to codsh', `/status${ENTER}`, 500],
+      ['', `/exit${ENTER}`, 300],
+    ], { rows: 24 })
+    const captured = (offset: number | undefined): string => Buffer.from(run.output).subarray(0, offset).toString()
+    const shown = screenOf(captured(run.offsets[1]), -1, 24).alternate
+
+    const echo = shown.findIndex(row => row.includes('› /status'))
+    expect(echo).toBeGreaterThan(0)
+    // What was on screen before it is still above it.
+    expect(shown.slice(0, echo).join('\n')).toContain('Welcome to codsh')
+  }, E2E_TEST_TIMEOUT_MS)
+
   it('gives the anchored prompt back when the reader wheels home again', async () => {
     const wheelUp = '\u001B[<64;10;5M'
     const wheelDown = '\u001B[<65;10;5M'
