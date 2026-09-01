@@ -97,6 +97,15 @@ everything still expands this block inline, and the collapsed line names both,
 so the affordance never promises a gesture the block does not have.
 _Avoid_: pager payload, click target
 
+**Workflow progress**:
+What a `tool-workflow/*` record becomes on screen. A run opens with its name,
+each round prints one line as it settles, and the stop reason closes it. The
+round still running is named in the working line instead, because the
+transcript is append-only and cannot unprint a line when it ends. A settled
+round carries its child session id, so a click enters the round — which is
+where that round's todos, tools, and reasoning actually are.
+_Avoid_: workflow log, progress bar
+
 **Canned command**:
 A command whose body is a prompt template rather than a handler: `/ship`,
 `/init`, and a person's own `custom-commands` entries. It spends a turn, so

@@ -240,6 +240,49 @@ describe('tool results', () => {
     expect(transcript.render(resultEvent('c1', 'exit 1', true))[0]).toBe('✗ bash')
   })
 
+  it('shows a workflow run as it goes, instead of only when it returns', () => {
+    // `/ship`'s ralph loop spends minutes per round and showed nothing at all
+    // until the whole run came back. These four events are its only progress.
+    const transcript = build()
+    const run = (type: string, data: Record<string, unknown>): SessionEvent =>
+      ({ type, seq: 1, time: 0, data } as unknown as SessionEvent)
+
+    expect(transcript.render(run('tool-workflow/run-start', { runId: 'r1', name: 'ralph' })))
+      .toEqual(['● ralph'])
+    expect(transcript.render(run('tool-workflow/agent-start', {
+      runId: 'r1', seq: 1, label: 'Ralph round 1', phase: 'Fresh-agent rounds', childId: 'c1',
+    }))).toEqual([])
+    // The round that settled names itself; the one still running is the
+    // working line's job, because an append-only transcript cannot unprint it.
+    expect(transcript.render(run('tool-workflow/agent-end', { runId: 'r1', seq: 1, outcome: 'completed' })))
+      .toEqual(['  ✓ Ralph round 1  click to enter'])
+    // The round is a door into its own child session, where its todos are.
+    expect(transcript.takeEnter()).toBe('c1')
+    expect(transcript.render(run('tool-workflow/run-end', { runId: 'r1', stopReason: 'completed' })))
+      .toEqual(['  completed', ''])
+  })
+
+  it('marks a round that did not complete, and still names it', () => {
+    const transcript = build()
+    transcript.render({ type: 'tool-workflow/agent-start', seq: 1, time: 0, data: {
+      runId: 'r1', seq: 7, label: 'Ralph round 7', childId: 'c7',
+    } } as unknown as SessionEvent)
+    expect(transcript.render({ type: 'tool-workflow/agent-end', seq: 2, time: 0, data: {
+      runId: 'r1', seq: 7, outcome: 'failed',
+    } } as unknown as SessionEvent)).toEqual(['  ✗ Ralph round 7 (failed)  click to enter'])
+    expect(transcript.takeEnter()).toBe('c7')
+  })
+
+  it('falls back to the sequence when an end arrives without its start', () => {
+    // A resumed log can begin mid-run; the line still has to say something.
+    const transcript = build()
+    expect(transcript.render({ type: 'tool-workflow/agent-end', seq: 1, time: 0, data: {
+      runId: 'r1', seq: 3, outcome: 'completed',
+    } } as unknown as SessionEvent)).toEqual(['  ✓ round 3'])
+    // No start seen means no child to open; the line must not promise one.
+    expect(transcript.takeEnter()).toBeUndefined()
+  })
+
   it('renders a diff result as marked lines', () => {
     const result = (): ToolResultView => ({
       card: 'diff',

@@ -782,6 +782,9 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
   }, 'Ask anything · / for commands · $ for skills · ! shell · @ for files · ⇧Tab plan mode')
   // The baseline the indicator's token figure counts from, reset per turn.
   let turnBaseTokens = 0
+  // The round a workflow is on. A ralph loop spends minutes inside one round,
+  // and the working line is the only thing moving while it does.
+  let workflowRound: string | undefined
   const spinner = new Spinner({
     setLive: (text) => { prompt.setHint(text) },
     isTty: io.console.readsKeys,
@@ -790,7 +793,8 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
     interrupt: io.console.readsKeys ? 'ESC' : 'Ctrl-C',
     detail: () => {
       const spent = (totalTokens(facts(branch).usage) ?? 0) - turnBaseTokens
-      return spent > 0 ? `${formatTokens(spent)} tokens` : undefined
+      const tokens = spent > 0 ? `${formatTokens(spent)} tokens` : undefined
+      return [workflowRound, tokens].filter(part => part !== undefined).join(' · ') || undefined
     },
   })
   // Prompt history survives sessions, which is what makes Up-arrow at a fresh
@@ -1273,6 +1277,8 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
     if (session !== live.agent.session) return
     if (event.type === 'tool/call') spinner.setActivity(toolActivity(event.data.name))
     if (event.type === 'tool/result') spinner.setActivity('working')
+    if (event.type === 'tool-workflow/agent-start') workflowRound = event.data.label
+    if (event.type === 'tool-workflow/agent-end' || event.type === 'tool-workflow/run-end') workflowRound = undefined
     // In print mode the task text came from the caller's own command line;
     // echoing it back would only make stdout harder to consume in scripts.
     if (config.print && event.type === 'user/message') return
@@ -1388,6 +1394,7 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
     // Session-scoped state does not follow the person to another session.
     approval.clear()
     turnBaseTokens = 0
+    workflowRound = undefined
     prompt.setAccent(planModeFrom(next.agent.session.events) ? text => theme.pending(text) : undefined)
     if (replayLog) replay(next.agent.session, live.transcript, io, theme)
     refreshStatus()
@@ -1592,6 +1599,7 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
     }
     const before = totalTokens(facts(branch).usage) ?? 0
     turnBaseTokens = before
+    workflowRound = undefined
     const started = performance.now()
     io.console.setTitle(`⚡ dsh code — ${basename(cwd)}`)
     try {

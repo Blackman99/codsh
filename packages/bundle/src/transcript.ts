@@ -10,6 +10,9 @@
  */
 
 import { structuredPatch } from 'diff'
+// The `./types` entry carries the session-event augmentation for
+// `tool-workflow/*`, which is how a workflow's progress reaches this surface.
+import type { ToolWorkflowAgentStartData } from '@deepseek-ai/dsh-tool-workflow/types'
 import { unifiedDiffText } from './diff.ts'
 import { formatElapsed } from './status.ts'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
@@ -278,6 +281,8 @@ export class Transcript {
   private enter: string | undefined
   /** Raw text a click on this card should read, when its body was capped. */
   private page: string | undefined
+  /** Rounds a workflow started, keyed `runId:seq`: an end carries only the seq. */
+  private readonly workflowAgents = new Map<string, Pick<ToolWorkflowAgentStartData, 'label' | 'childId'>>()
 
   constructor(
     private readonly options: TranscriptOptions,
@@ -373,6 +378,40 @@ export class Transcript {
         if (event.data.reason.kind !== 'error') return []
         this.rule = rules.error
         return [theme.error(`✗ ${event.data.reason.error.code}: ${event.data.reason.error.message}`), '']
+      // A workflow — `/ship`'s ralph loop is one — runs for minutes per round
+      // and showed nothing until the whole run returned. These four events are
+      // its only public progress, so the transcript prints the shape of the
+      // run: a head, a line as each round settles, and what stopped it.
+      case 'tool-workflow/run-start':
+        this.rule = rules.tool
+        return [`${theme.pending('●')} ${theme.tool(event.data.name)}`]
+      case 'tool-workflow/agent-start':
+        // Nothing is appended for a start: the round that is running is named
+        // in the working line, which is where a moving figure belongs. An
+        // append-only transcript cannot take the line back when it ends.
+        this.workflowAgents.set(`${event.data.runId}:${String(event.data.seq)}`, {
+          label: event.data.label,
+          childId: event.data.childId,
+        })
+        this.rule = rules.tool
+        return []
+      case 'tool-workflow/agent-end': {
+        const key = `${event.data.runId}:${String(event.data.seq)}`
+        const started = this.workflowAgents.get(key)
+        this.workflowAgents.delete(key)
+        const label = started?.label ?? `round ${String(event.data.seq)}`
+        this.rule = rules.tool
+        // Each round is its own child session, so its todos, tools, and
+        // reasoning live there rather than here. The round is the door: a
+        // click opens it, the same gesture a subagent card already offers.
+        if (started !== undefined) this.enter = started.childId
+        const hint = started === undefined ? '' : theme.dim('  click to enter')
+        if (event.data.outcome === 'completed') return [`  ${theme.success('✓')} ${label}${hint}`]
+        return [`  ${theme.error('✗')} ${label} ${theme.dim(`(${event.data.outcome})`)}${hint}`]
+      }
+      case 'tool-workflow/run-end':
+        this.rule = rules.tool
+        return [theme.dim(`  ${event.data.stopReason}`), '']
       default:
         // Merge-extensible map: an event this surface shows nothing for.
         return []
