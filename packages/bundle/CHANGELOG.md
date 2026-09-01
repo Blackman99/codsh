@@ -1,5 +1,19 @@
 # codsh-bundle
 
+## 0.13.0
+
+### Minor Changes
+
+- 2f25502: `/resume` offers the folder you are standing in, and folds every other folder behind one row that opens the rest. Rows are ordered by when a session was last touched rather than when it was created, and each names its title, that age, how many messages it holds, and — only when the session belongs to another folder — which one, `~`-shortened.
+- 29bac89: A workflow shows its progress while it runs. `/ship`'s ralph loop spends minutes per round and printed nothing until the whole run returned; the surface now opens the run with its name, prints a line as each round settles, names the round still running in the working line, and closes with the stop reason. A settled round is a door: clicking it enters that round's child session, where its todos and tools are.
+
+### Patch Changes
+
+- c37eb5c: chore: sync `@deepseek-ai/dsh-*` (and co-released cordis packages) to 0.1.1-rc.2
+- 433ab87: Elapsed times grow a unit instead of counting seconds forever: a long run reads `1h 37m` rather than `5845s`. The working line, the figure a finished turn reports, and a thinking block's header all share one formatter, which keeps the decimal while a turn is quick and shows the finest unit that still changes visibly.
+- ff89f25: Typing stays responsive while a reply streams into a long conversation. Past the scrollback cap, every appended line re-wrapped the entire buffer to drop its first line — measured at about 50ms per line against 0.02ms below the cap, which is the surface going deaf to the keyboard exactly when output is fastest. The trim now cuts the rows the dropped lines owned and leaves the survivors alone.
+- 2b97ab1: Up and Down move by the rows you see. A long line wraps across several rows in the box but is one line in the buffer, so Up from its second row decided there was nothing above it and recalled the previous prompt — replacing what was being typed. Movement now wraps at the same width the box draws at; only the top row hands the key to the history.
+
 ## 0.12.0
 
 ### Minor Changes
