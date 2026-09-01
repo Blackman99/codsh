@@ -551,6 +551,33 @@ describe('scrolling', () => {
     expect(after?.match(/first answer \d+/u)?.[0]).toBe(before?.match(/first answer \d+/u)?.[0])
   })
 
+  it('places a block under wrapped lines, measured from the buffer', () => {
+    // A block's clickable rows are found by counting the physical rows above
+    // it. That count used to be re-derived by wrapping every line again; it is
+    // read from the wrapped buffer now, and lines that occupy several rows are
+    // where the two would disagree.
+    const sink = host(14, 24)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['box'], { row: 0, column: 0 }, false)
+    // Each of these is three rows wide at 24 columns.
+    screen.append(Array.from({ length: 3 }, (_, index) => `wrapped ${index} ${'z'.repeat(40)}`))
+    screen.appendFold(['summary row'], ['full a', 'full b'], '', 'output')
+    const frame = painted(flush(sink))
+    // Where the summary actually landed, so the test does not restate the
+    // arithmetic it is checking.
+    const summaryRow = [...frame.entries()].find(([, text]) => text.includes('summary row'))?.[0]
+    expect(summaryRow).toBeDefined()
+
+    // The pointer on it finds the block, and a wrapped row above it does not.
+    expect(screen.mouseMove(summaryRow ?? 0, 12)?.label).toBe('output')
+    expect(screen.mouseMove((summaryRow ?? 0) - 1, 12)?.label).toBeUndefined()
+    flush(sink)
+    screen.mouseDown(summaryRow ?? 0, 12)
+    expect(screen.mouseUp()).toBeUndefined()
+    expect([...painted(flush(sink)).values()].join('\n')).toContain('full b')
+  })
+
   it('holds the brush while a session is poured in, then paints once', () => {
     // A resume replays every recorded line. Painting each one sent thousands
     // of frames nobody sees to the terminal before the conversation appeared.

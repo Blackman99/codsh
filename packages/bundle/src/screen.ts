@@ -937,18 +937,42 @@ export class Screen {
    * changes the height.
    * @returns one range per block, in buffer order.
    */
+  /**
+   * Where each logical line begins among the physical rows.
+   *
+   * The wrapped rows already say this: every row records the line it came
+   * from, and every line owns at least one row. Measuring a block's position
+   * by re-wrapping the lines above it re-derived what the buffer had already
+   * computed — for a long transcript, thousands of regex passes and
+   * allocations per append, which profiled as 84% of the time spent appending.
+   * @returns one index per logical line, plus a final total, so the height of
+   *   line `i` is `starts[i + 1] - starts[i]`.
+   */
+  private logicalStarts(): number[] {
+    const starts = new Array<number>(this.logical.length + 1)
+    let line = 0
+    for (let row = 0; row < this.physicalLogical.length; row += 1) {
+      const owner = this.physicalLogical[row] ?? 0
+      while (line <= owner) {
+        starts[line] = row
+        line += 1
+      }
+    }
+    while (line <= this.logical.length) {
+      starts[line] = this.physical.length
+      line += 1
+    }
+    return starts
+  }
+
   private foldRanges(): { fold: Fold; from: number; to: number }[] {
     if (this.ranges !== undefined) return this.ranges
-    const columns = this.contentColumns()
-    const height = (index: number): number => this.wrapLine(this.logical[index] ?? '', this.rules[index] ?? '', columns).length
+    const starts = this.logicalStarts()
+    const at = (index: number): number => starts[Math.min(index, this.logical.length)] ?? this.physical.length
     const ranges: { fold: Fold; from: number; to: number }[] = []
-    let physical = 0
-    let index = 0
     for (const fold of this.folds) {
-      for (; index < fold.at; index += 1) physical += height(index)
-      const from = physical
-      for (; index < fold.at + fold.shownLength; index += 1) physical += height(index)
-      ranges.push({ fold, from, to: physical - 1 })
+      const from = at(fold.at)
+      ranges.push({ fold, from, to: at(fold.at + fold.shownLength) - 1 })
     }
     this.ranges = ranges
     return ranges
@@ -1733,20 +1757,14 @@ export class Screen {
   /** User prompts measured in the same physical rows the viewport scrolls. */
   private promptLayouts(): PromptLayout[] {
     if (this.promptLayoutCache !== undefined) return this.promptLayoutCache
-    const columns = this.contentColumns()
     const layouts: PromptLayout[] = []
-    let logical = 0
-    let physical = 0
-    const height = (index: number): number =>
-      this.wrapLine(this.logical[index] ?? '', this.rules[index] ?? '', columns).length
+    const starts = this.logicalStarts()
+    const rowAt = (index: number): number => starts[Math.min(index, this.logical.length)] ?? this.physical.length
     for (const prompt of this.prompts) {
-      for (; logical < prompt.at; logical += 1) physical += height(logical)
-      const at = physical
+      const at = rowAt(prompt.at)
       let contentLength = prompt.shownLength
       if (this.logical[prompt.at + contentLength - 1] === '') contentLength -= 1
-      for (; logical < prompt.at + contentLength; logical += 1) physical += height(logical)
-      layouts.push({ prompt, at, rows: this.physical.slice(at, physical) })
-      for (; logical < prompt.at + prompt.shownLength; logical += 1) physical += height(logical)
+      layouts.push({ prompt, at, rows: this.physical.slice(at, rowAt(prompt.at + contentLength)) })
     }
     this.promptLayoutCache = layouts
     return layouts
