@@ -1,5 +1,16 @@
 # codsh-bundle
 
+## 0.14.0
+
+### Minor Changes
+
+- ba492fc: `CODSH_TRACE=<path>` records every byte the viewport writes, and the size it wrote them at, so a frame that arrives corrupted can be replayed afterwards. A rendering fault is a disagreement between what the surface emitted and what the terminal did with it; without this the emitted half is gone by the time anyone looks. Off unless the variable is set, and a trace that cannot be written never costs the session.
+
+### Patch Changes
+
+- fbddfcf: Appending stays cheap however long the conversation gets. Locating a block or a prompt among the wrapped rows re-wrapped every line above it, which a profile showed to be 84% of the time spent appending — 1200 turns of a session took 113 seconds. The wrapped buffer already records which line each row came from, so the positions are read from it: the same 1200 turns take 335ms, and the cost is linear again.
+- 1aa8021: `codsh --resume`, `--continue`, and `/resume` open a long conversation quickly. Replaying a session wrote one line at a time and painted a frame after each, so a 2000-event log sent about 24,000 frames and 39MB of escape sequences to the terminal before the conversation appeared. The replay now hands over a whole event's lines at once and holds painting until the log is in: the same session sends 4 frames.
+
 ## 0.13.0
 
 ### Minor Changes

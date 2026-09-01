@@ -1,5 +1,11 @@
 # codsh
 
+## 0.14.0
+
+### Patch Changes
+
+- 2737dbd: Keep the registered runtime in lockstep when a dsh profile records `codsh-bundle` as an exact registry version. The launcher now upgrades that stale runtime before boot instead of mistaking it for a development pin and repeatedly showing an update notice.
+
 ## 0.13.0
 
 ### Patch Changes
