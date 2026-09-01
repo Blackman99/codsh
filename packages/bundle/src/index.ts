@@ -55,6 +55,8 @@ import { indexConversationContent, newestCopyTargets, resolveCopyTarget } from '
 import { TerminalConsole } from './console.ts'
 import { readClipboardImage } from './clipboard-image.ts'
 import { Prompt } from './prompt.ts'
+import { shapeResume } from './resume.ts'
+import type { ResumeCandidate } from './resume.ts'
 import { dshHomePath } from '@deepseek-ai/dsh-home-paths'
 import { installPackagedPreset } from './preset-install.ts'
 import { TerminalQuestions } from './questions.ts'
@@ -73,7 +75,7 @@ import {
 } from './vision.ts'
 import { TextStream } from './streaming.ts'
 import { bundleVersion, checkForUpdate, updateCommand } from './update.ts'
-import { formatElapsed, formatTokens, gitBranch, statusLine, statusReport, totalTokens } from './status.ts'
+import { displayPath, formatElapsed, formatTokens, gitBranch, statusLine, statusReport, totalTokens } from './status.ts'
 import { todoReport } from './todos.ts'
 import type { PendingImage } from './prompt.ts'
 import type { TodoList } from './todos.ts'
@@ -433,24 +435,13 @@ function capture(
   })
 }
 
-/**
- * A moment's age as a person reads it.
- * @param epochMs - when it happened.
- * @returns e.g. `just now`, `5m ago`, `3h ago`, `2d ago`.
- */
-function age(epochMs: number): string {
-  const minutes = Math.floor((Date.now() - epochMs) / 60_000)
-  if (minutes < 1) return 'just now'
-  if (minutes < 60) return `${minutes}m ago`
-  const hours = Math.floor(minutes / 60)
-  if (hours < 24) return `${hours}h ago`
-  return `${Math.floor(hours / 24)}d ago`
-}
-
 /** The `/init` prompt: a canned task submitted through the ordinary turn path. */
 const INIT_PROMPT = `Analyze this repository and write an AGENTS.md file at its root for future coding agents.
 Cover: what the project is, the repository layout, how to build/test/lint (exact commands), code conventions worth enforcing, and any non-obvious constraints you find in configs or docs.
 If AGENTS.md (or CLAUDE.md) already exists, read it first and improve it rather than starting over. Keep it concise and factual.`
+
+/** Sessions one `/resume` page describes; a log read per row is its cost. */
+const RESUME_LIST_LIMIT = 20
 
 /** One composed terminal session: the live agent and what it was composed from. */
 interface ComposedSession {
@@ -1025,37 +1016,85 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
         const query = ctx.get('sessionQuery')
         if (query === undefined) return { kind: 'error', text: 'session listing is unavailable in this composition' }
         const records = (await query.listSessions()).filter(record => record.header.id !== live.agent.session.id)
-        // Newest-first already; this workspace's sessions lead, and the rest
-        // follow for the times work moved between checkouts.
-        const here = records.filter(record => record.header.cwd === cwd)
-        const elsewhere = records.filter(record => record.header.cwd !== cwd)
-        const listed = [...here, ...elsewhere].slice(0, 20)
-        if (listed.length === 0) return { kind: 'success', text: 'no other sessions recorded' }
-        const titles = await Promise.all(listed.map(async (record) => {
-          try {
-            return (await query.readTitle(record.header.id, signal))?.title
-          } catch {
-            // A session whose log cannot be read still lists by id.
-            return undefined
-          }
-        }))
-        const rows = listed.map((record, index) => ({
-          id: record.header.id,
-          label: titles[index] ?? String(record.header.id),
-          detail: `${age(record.header.createdAt)}${record.header.cwd === cwd ? '' : ` · ${record.header.cwd ?? ''}`}`,
-        }))
-        if (!io.console.readsKeys) {
-          return { kind: 'success', text: rows.map(row => `${row.id}  ${row.label}  ${row.detail}`).join('\n') }
+        if (records.length === 0) return { kind: 'success', text: 'no other sessions recorded' }
+        const hereRecords = records.filter(record => record.header.cwd === cwd)
+        const otherRecords = records.filter(record => record.header.cwd !== cwd)
+        /**
+         * Read what a row shows, for the sessions actually being listed.
+         *
+         * A log read per session is the cost of saying when it was last
+         * touched and how much is in it, so it is paid for one page, never for
+         * every session on the machine.
+         * @param subset - the records to describe.
+         * @returns one candidate per record, in the order given.
+         */
+        const describe = async (subset: readonly typeof records[number][]): Promise<ResumeCandidate[]> => {
+          const page = subset.slice(0, RESUME_LIST_LIMIT)
+          const titles = await query.readTitleSnapshots(page.map(record => record.header.id), signal)
+            .catch(() => [])
+          const byId = new Map(titles.map(entry => [
+            String(entry.sessionId),
+            entry.status === 'fulfilled' ? entry.value.title?.title : undefined,
+          ]))
+          return Promise.all(page.map(async (record) => {
+            const id = String(record.header.id)
+            const title = byId.get(id)
+            const home = record.header.cwd
+            const base: ResumeCandidate = {
+              id,
+              createdAt: record.header.createdAt,
+              ...home === undefined ? {} : { cwd: home, folder: displayPath(home) },
+              ...title === undefined ? {} : { title },
+            }
+            try {
+              // A session whose log will not read still lists, by id and by
+              // the only time it is certain of: when it was created.
+              const events = await query.listEvents(record.header.id)
+              const last = events.at(-1)
+              const messages = events.filter(event => event.type === 'user/message' || event.type === 'assistant/message').length
+              return { ...base, ...last === undefined ? {} : { lastActive: last.time }, messages }
+            } catch {
+              return base
+            }
+          }))
         }
-        const outcome = await prompt.select({
-          title: 'Resume session',
-          options: rows.map(row => ({ label: row.label, detail: row.detail })),
-          filterable: true,
-        }, signal)
-        if (outcome.kind !== 'chosen') return { kind: 'success', text: 'nothing resumed' }
-        const picked = rows[outcome.indices[0] ?? -1]
-        if (picked === undefined) return { kind: 'success', text: 'nothing resumed' }
-        return resume(picked.id)
+        /**
+         * Offer one list and act on the choice.
+         * @param subset - the records to offer.
+         * @param folded - sessions in other folders this list is standing in
+         *   for, offered as one row that opens them.
+         * @returns the command outcome.
+         */
+        const offer = async (
+          subset: readonly typeof records[number][],
+          folded: readonly typeof records[number][],
+        ): Promise<{ kind: 'success'; text: string }> => {
+          const { here, elsewhere } = shapeResume(await describe(subset), cwd, Date.now())
+          const rows = [...here, ...elsewhere]
+          if (rows.length === 0) return { kind: 'success', text: 'no other sessions recorded' }
+          if (!io.console.readsKeys) {
+            return { kind: 'success', text: rows.map(row => `${row.id}  ${row.label}  ${row.detail}`).join('\n') }
+          }
+          const expander = folded.length === 0
+            ? []
+            : [{ label: `… ${String(folded.length)} in other folders`, detail: 'open the rest' }]
+          const outcome = await prompt.select({
+            title: 'Resume session',
+            options: [...rows.map(row => ({ label: row.label, detail: row.detail })), ...expander],
+            filterable: true,
+          }, signal)
+          if (outcome.kind !== 'chosen') return { kind: 'success', text: 'nothing resumed' }
+          const index = outcome.indices[0] ?? -1
+          if (expander.length > 0 && index === rows.length) return offer([...subset, ...folded], [])
+          const picked = rows[index]
+          if (picked === undefined) return { kind: 'success', text: 'nothing resumed' }
+          return resume(SessionId(picked.id))
+        }
+        // The folder a person is standing in is where the session they want
+        // almost always is; everywhere else is one row away.
+        return hereRecords.length === 0
+          ? offer(otherRecords, [])
+          : offer(hereRecords, otherRecords)
       },
     }))
     disposers.push(commands.register({

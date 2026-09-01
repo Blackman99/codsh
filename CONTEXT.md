@@ -97,6 +97,15 @@ everything still expands this block inline, and the collapsed line names both,
 so the affordance never promises a gesture the block does not have.
 _Avoid_: pager payload, click target
 
+**Resume list**:
+What `/resume` offers. The workspace a person is standing in is the list;
+every other folder is one row that opens the rest, because the session wanted
+is almost always in the folder they are in. Rows are ordered by when the
+session was last touched — not when it began — and each names its title, that
+age, how many messages it holds, and, only for a session from elsewhere, the
+folder it belongs to.
+_Avoid_: session picker, history list
+
 **Workflow progress**:
 What a `tool-workflow/*` record becomes on screen. A run opens with its name,
 each round prints one line as it settles, and the stop reason closes it. The

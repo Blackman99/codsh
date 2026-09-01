@@ -8,9 +8,11 @@
  * real PTY and write the actual bytes.
  */
 
+import { mkdtemp, rm } from 'node:fs/promises'
+import { basename } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { E2E_TEST_TIMEOUT_MS } from './harness.ts'
-import { PTY_COLUMNS, PTY_ROWS, SYNC_END, drivePty, drivePtySteps } from './pty-driver.ts'
+import { E2E_TEST_TIMEOUT_MS, makeHome } from './harness.ts'
+import { PTY_COLUMNS, PTY_ROWS, SYNC_END, drivePty, drivePtySteps, screenOf } from './pty-driver.ts'
 import { Terminal, render } from './vt.ts'
 
 /** The surface handing the terminal back; nothing after it is session screen. */
@@ -416,6 +418,58 @@ describe.skipIf(process.platform === 'win32')('dsh code Escape (real PTY)', () =
     const after = screenAt(output, 'Ask anything', 'last').alternate
     expect(after.some(row => row.includes('Ctrl+O expands'))).toBe(true)
     expect(after.some(row => row.includes('CODE_CLI_TALL_44'))).toBe(false)
+  }, E2E_TEST_TIMEOUT_MS)
+
+  it('offers this folder first, and folds the other folders behind one row', async () => {
+    // Two workspaces sharing one home, which is the only way sessions from
+    // another checkout exist to be folded away.
+    const home = await makeHome()
+    // Short paths on purpose: a row is truncated to the window, and the
+    // per-user temp root is long enough on macOS to cut the name off the end.
+    const here = await mkdtemp('/tmp/codsh-here-')
+    const away = await mkdtemp('/tmp/codsh-away-')
+    try {
+      await drivePty('write', [
+        ['/help for commands', `note the away work${ENTER}`, 500],
+        ['Write note.txt', `/exit${ENTER}`, 400],
+      ], { cwd: away, env: { DSH_HOME: home } })
+
+      // The surface prints the realpath, and macOS hands out /var for
+      // /private/var; the directory's own name is what both forms carry.
+      const awayName = basename(away)
+      const run = await drivePtySteps('write', [
+        ['/help for commands', `note the local work${ENTER}`, 500],
+        // /clear retires this session, so the folder has one to offer back.
+        ['Write note.txt', `/clear${ENTER}`, 500],
+        ['new session session-', `/resume${ENTER}`, 700],
+        // Filtering to the fold row is how it gets chosen without counting
+        // arrow presses through a list whose length the test does not fix.
+        ['Resume session', 'other folders', 500],
+        ['in other folders', ENTER, 700],
+        // Waiting for the other folder's own name IS the assertion: the row
+        // was a door, and reaching this step at all means it opened.
+        [awayName, '\u001B', 400],
+        // Escape and the command go in separate writes: `ESC /` in one chunk
+        // is an Alt chord, and the surface swallows it.
+        ['Ask anything', `/exit${ENTER}`, 500],
+      ], { cwd: here, env: { DSH_HOME: home } })
+
+      const at = (index: number): string => screenOf(
+        Buffer.from(run.output).subarray(0, run.offsets[index]).toString(), -1,
+      ).alternate.join('\n')
+      // Folded: this folder's session is offered, and the other folder is one
+      // row rather than a row per session.
+      const folded = at(4)
+      expect(folded).toContain('in other folders')
+      expect(folded).not.toContain(awayName)
+
+      // Opened: the list that replaced it holds the other folder's session.
+      expect(screenAt(run.output, awayName).alternate.join('\n')).toContain(awayName)
+    } finally {
+      await rm(here, { recursive: true, force: true })
+      await rm(away, { recursive: true, force: true })
+      await rm(home, { recursive: true, force: true })
+    }
   }, E2E_TEST_TIMEOUT_MS)
 
   it('toggles a collapsed output open with Ctrl-O, and keeps that choice on moving on', async () => {
