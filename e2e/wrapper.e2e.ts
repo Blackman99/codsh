@@ -78,6 +78,36 @@ describe.skipIf(process.platform === 'win32')('the codsh launcher', () => {
     }
   }, E2E_TEST_TIMEOUT_MS)
 
+  it('upgrades an exact older registry version before booting', async () => {
+    const home = await mkdtemp(join(tmpdir(), 'codsh-wrapper-exact-home-'))
+    try {
+      const profile = join(home, 'profiles', 'code')
+      mkdirSync(profile, { recursive: true })
+      writeFileSync(join(profile, 'package.json'), `${JSON.stringify({
+        name: 'dsh-profile-code',
+        private: true,
+        dependencies: { 'codsh-bundle': '0.0.1' },
+      }, null, 2)}\n`)
+      const fakeDsh = join(home, 'fake-dsh.mjs')
+      writeFileSync(fakeDsh, "process.stdout.write(`${JSON.stringify(process.argv.slice(2))}\\n`)\n")
+      const own = JSON.parse(readFileSync(join(repoRoot, 'packages', 'cli', 'package.json'), 'utf8')) as { version: string }
+      const env: NodeJS.ProcessEnv = { ...process.env, DSH_HOME: home, DSH_BIN: fakeDsh }
+      delete env.CODSH_BUNDLE_SPEC
+
+      const result = await run(process.execPath, [wrapper, '-p', 'test the exact version'], {
+        env,
+      })
+
+      expect(result.stderr).toContain(`registering codsh-bundle@^${own.version}`)
+      expect(result.stdout.trim().split('\n').map(line => JSON.parse(line))).toEqual([
+        ['plugin', '--profile', 'code', 'add', `codsh-bundle@^${own.version}`],
+        ['--profile', 'code', '-p', 'test the exact version'],
+      ])
+    } finally {
+      rmSync(home, { recursive: true, force: true })
+    }
+  })
+
   it('updates the pair from outside a session, and installs nothing when current', async () => {
     const own = JSON.parse(readFileSync(join(repoRoot, 'packages', 'cli', 'package.json'), 'utf8')) as { version: string }
     // Advertising the version in hand is the one answer that must never run an

@@ -177,9 +177,11 @@ function registration() {
   }
   const current = dependencies[BUNDLE]
   if (current === undefined) return spec
-  // A file:/link: registration is a development pin; never clobber it.
-  if (!current.startsWith('^')) return undefined
-  return newer(own.version, current.slice(1)) ? spec : undefined
+  // Only registry versions belong to the launcher. A file:/link:/git/custom
+  // registration is a development pin and must never be clobbered.
+  const registered = /^\^?(\d+\.\d+\.\d+)$/u.exec(current)?.[1]
+  if (registered === undefined) return undefined
+  return newer(own.version, registered) ? spec : undefined
 }
 
 const spec = registration()
