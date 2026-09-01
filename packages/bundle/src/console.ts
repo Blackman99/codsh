@@ -432,11 +432,35 @@ export class TerminalConsole {
    *   a terminal it is dropped: a pipe's reader wants the text, not the frame.
    */
   write(line: string, rule = ''): void {
+    this.writeAll([line], rule)
+  }
+
+  /**
+   * Write a block of finished lines that share one rule.
+   *
+   * One call rather than one per line: appending is what a resume spends its
+   * time in, and the per-append work — the trim check, the anchor, the frame —
+   * is paid once for the block instead of once for every line in it.
+   * @param lines - the lines to keep, in order.
+   * @param rule - a styled left rule marking which block they belong to.
+   */
+  writeAll(lines: readonly string[], rule = ''): void {
+    if (lines.length === 0) return
     if (this.screen !== undefined) {
-      this.screen.append([line], rule)
+      this.screen.append(lines, rule)
       return
     }
-    this.output.write(`${line}\n`)
+    for (const line of lines) this.output.write(`${line}\n`)
+  }
+
+  /** Hold painting while a replay pours a session in; see Screen. */
+  suspendPainting(): void {
+    this.screen?.suspendPainting()
+  }
+
+  /** Paint again after a replay. */
+  resumePainting(): void {
+    this.screen?.resumePainting()
   }
 
   /**

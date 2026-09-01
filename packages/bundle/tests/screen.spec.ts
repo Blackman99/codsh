@@ -551,6 +551,41 @@ describe('scrolling', () => {
     expect(after?.match(/first answer \d+/u)?.[0]).toBe(before?.match(/first answer \d+/u)?.[0])
   })
 
+  it('holds the brush while a session is poured in, then paints once', () => {
+    // A resume replays every recorded line. Painting each one sent thousands
+    // of frames nobody sees to the terminal before the conversation appeared.
+    const sink = host(10, 40)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['box'], { row: 0, column: 0 }, false)
+    flush(sink)
+
+    screen.suspendPainting()
+    for (let index = 0; index < 50; index += 1) screen.append([`line ${index}`])
+    expect(flush(sink)).toBe('')
+
+    screen.resumePainting()
+    const frame = [...painted(flush(sink)).values()].join('\n')
+    expect(frame).toContain('line 49')
+  })
+
+  it('appends a block exactly as it appends the same lines one at a time', () => {
+    // The replay hands a whole event's lines over at once now; the buffer it
+    // leaves has to be the one the line-at-a-time path left.
+    const lines = Array.from({ length: 12 }, (_, index) => `row ${index}`)
+    const build = (append: (screen: Screen) => void): string => {
+      const sink = host(10, 40)
+      const screen = new Screen(sink)
+      screen.enter()
+      screen.setChrome(['box'], { row: 0, column: 0 }, false)
+      append(screen)
+      return [...painted(flush(sink)).values()].join('\n')
+    }
+    const one = build(screen => { for (const line of lines) screen.append([line], '| ') })
+    const block = build(screen => screen.append(lines, '| '))
+    expect(block).toBe(one)
+  })
+
   it('trims the wrapped buffer to exactly what a full reflow would leave', () => {
     // The trim drops the head incrementally rather than re-wrapping every
     // surviving row, which is what made an append past the cap cost the whole

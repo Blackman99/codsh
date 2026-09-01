@@ -340,6 +340,8 @@ export class Screen {
   private painted: string[] = []
   /** Width the current frame was painted at, to detect a resize. */
   private paintedColumns = 0
+  /** Whether a frame is painted at all; a replay holds it until it is done. */
+  private painting = true
   private active = false
   /** Opens a child session when a view-card is clicked. */
   private enterHandler: ((id: string) => void) | undefined
@@ -362,6 +364,25 @@ export class Screen {
    */
   setPager(handler: ((text: string) => void) | undefined): void {
     this.pagerHandler = handler
+  }
+
+  /**
+   * Stop painting until {@link resumePainting}.
+   *
+   * A replay pours a whole session in one line at a time, and each line ended
+   * in a frame: a long conversation spent its resume painting thousands of
+   * frames nobody sees, one per line, straight into the terminal. Held here,
+   * the replay costs the buffer work alone and paints once at the end.
+   */
+  suspendPainting(): void {
+    this.painting = false
+  }
+
+  /** Paint again, and paint what the pause accumulated. */
+  resumePainting(): void {
+    if (this.painting) return
+    this.painting = true
+    this.render()
   }
 
   /** Whether the alternate screen is currently held. */
@@ -1799,7 +1820,7 @@ export class Screen {
    * rather than wherever output happened to reach.
    */
   private render(): void {
-    if (!this.active) return
+    if (!this.active || !this.painting) return
     if (this.viewer !== undefined) {
       const columns = this.host.columns()
       const height = this.host.rows()

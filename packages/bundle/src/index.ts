@@ -239,6 +239,24 @@ function todoList(ctx: Context, agent: Agent): TodoList {
  * @param io - the terminal to write to.
  */
 function replay(session: Session, transcript: Transcript, io: CliIo, theme: Theme): void {
+  // Nothing is painted until the whole log is in: a resumed conversation is
+  // one frame, not one per line of everything that was ever said in it.
+  io.console.suspendPainting()
+  try {
+    replayEvents(session, transcript, io, theme)
+  } finally {
+    io.console.resumePainting()
+  }
+}
+
+/**
+ * Render every recorded event into the transcript.
+ * @param session - the session being replayed.
+ * @param transcript - the renderer to pour it through.
+ * @param io - the surface to write to.
+ * @param theme - styling for the replayed thinking folds.
+ */
+function replayEvents(session: Session, transcript: Transcript, io: CliIo, theme: Theme): void {
   for (const event of session.events) {
     // Thinking is in the log but not in the renderer's visible text: replay it
     // the way the turn showed it, one dim line with the deliberation behind
@@ -274,7 +292,7 @@ function replay(session: Session, transcript: Transcript, io: CliIo, theme: Them
       io.console.appendFold(lines, full ?? lines, rule, label, enter, page)
       continue
     }
-    for (const line of lines) io.console.write(line, rule)
+    io.console.writeAll(lines, rule)
     if (event.type !== 'assistant/message') continue
     // A long answer folds after the fact here too: it was written in the open,
     // and only then does it grow the summary the conversation moved on from.
