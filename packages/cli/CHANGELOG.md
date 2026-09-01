@@ -1,5 +1,11 @@
 # codsh
 
+## 0.13.0
+
+### Patch Changes
+
+- c37eb5c: chore: sync `@deepseek-ai/dsh-*` (and co-released cordis packages) to 0.1.1-rc.2
+
 ## 0.12.0
 
 ### Patch Changes
