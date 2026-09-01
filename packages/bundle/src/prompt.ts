@@ -10,7 +10,7 @@
  */
 
 import { Editor } from './editor.ts'
-import { inputBox } from './inputbox.ts'
+import { inputBox, wrapBudget } from './inputbox.ts'
 import { Selector } from './selector.ts'
 import { FullscreenViewer } from './viewer.ts'
 import { truncate } from './theme.ts'
@@ -548,6 +548,10 @@ export class Prompt {
       void this.pasteImage()
       return
     }
+    // The arrows move by the rows a person sees, so the model is told the
+    // width they are wrapped at before it reads one — a resize between keys
+    // would otherwise move the cursor by yesterday's geometry.
+    this.editor.setWrapWidth(wrapBudget(this.console.contentColumns))
     const action = this.editor.handle(key)
     switch (action.kind) {
       case 'submit': {

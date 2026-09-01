@@ -70,7 +70,7 @@ export interface BoxLayout {
 }
 
 /** One wrapped segment of one logical line. */
-interface VisualRow {
+export interface VisualRow {
   /** The segment's text. */
   text: string
   /** Which logical line it came from. */
@@ -90,7 +90,7 @@ interface VisualRow {
  * @param budget - display columns per segment.
  * @returns at least one segment, empty lines included.
  */
-function wrapLine(line: string, logical: number, budget: number): VisualRow[] {
+export function wrapLine(line: string, logical: number, budget: number): VisualRow[] {
   const cells = Array.from(line)
   const rows: VisualRow[] = []
   let start = 0
@@ -109,6 +109,54 @@ function wrapLine(line: string, logical: number, budget: number): VisualRow[] {
   }
   rows.push({ text: cells.slice(start, start + length).join(''), logical, start, length, last: true })
   return rows
+}
+
+/**
+ * Display columns one row of the buffer wraps at.
+ *
+ * Movement has to wrap at the same width the box draws at, or the row a
+ * person sees themselves on is not the row the cursor moves from.
+ * @param columns - display columns available to the whole box.
+ * @returns columns available to the text inside it.
+ */
+export function wrapBudget(columns: number): number {
+  return Math.max(8, columns - FRAME_WIDTH) - GUTTER_WIDTH
+}
+
+/**
+ * Step the cursor one visual row, across a wrap or a line end.
+ *
+ * The buffer's rows and the box's rows are not the same thing: one long line
+ * occupies several rows on screen, and an arrow that moved by logical line
+ * would jump the whole wrapped line at once — which is how Up from the second
+ * row of a wrapped line reached the history instead of the row above it.
+ * @param lines - the buffer's logical lines.
+ * @param row - the cursor's logical line.
+ * @param column - the cursor's code-point column within that line.
+ * @param delta - -1 for the row above, 1 for the row below.
+ * @param budget - display columns each row wraps at.
+ * @returns where the cursor lands, or `undefined` when there is no such row —
+ *   which is the edge where history takes over.
+ */
+export function visualStep(
+  lines: readonly string[],
+  row: number,
+  column: number,
+  delta: -1 | 1,
+  budget: number,
+): { row: number; column: number } | undefined {
+  const visual = lines.flatMap((line, index) => wrapLine(line, index, budget))
+  const at = visual.findIndex(candidate => candidate.logical === row
+    && column >= candidate.start
+    && (column < candidate.start + candidate.length || (candidate.last && column === candidate.start + candidate.length)))
+  if (at < 0) return undefined
+  const target = visual[at + delta]
+  const current = visual[at]
+  if (target === undefined || current === undefined) return undefined
+  // The column is kept as an offset into the row, so moving between rows of
+  // different lengths lands where the eye expects and never past the end.
+  const offset = Math.min(column - current.start, target.length)
+  return { row: target.logical, column: target.start + offset }
 }
 
 /**
@@ -212,7 +260,7 @@ export function inputBox(view: EditorView, theme: Theme, columns: number, option
   const shell = options.shell === true && (view.lines[0] ?? '').startsWith('!')
   const accent = options.accent ?? ((text: string) => theme.dim(text))
   const inner = Math.max(8, columns - FRAME_WIDTH)
-  const budget = inner - GUTTER_WIDTH
+  const budget = wrapBudget(columns)
   const rule = '─'.repeat(inner + 2)
   const lines = shell
     ? [(view.lines[0] ?? '').slice(1), ...view.lines.slice(1)]

@@ -472,6 +472,30 @@ describe.skipIf(process.platform === 'win32')('dsh code Escape (real PTY)', () =
     }
   }, E2E_TEST_TIMEOUT_MS)
 
+  it('moves up a wrapped line instead of recalling the last prompt', async () => {
+    // A narrow window, so one typed line is more than one row on screen.
+    const long = 'const alpha = beta.gamma(delta, epsilon, zeta, eta, theta)'
+    const run = await drivePtySteps('write', [
+      ['/help for commands', `remembered prompt${ENTER}`, 500],
+      // Type the long line — 40 columns makes it several rows — then Up from
+      // its last row.
+      ['Write note.txt', long, 400],
+      [long.slice(-12), '\u001B[A', 500],
+      // Submitting empties the box, so the command after it is a command.
+      ['', ENTER, 700],
+      ['Write note.txt', `/exit${ENTER}`, 500],
+    ], { columns: 40 })
+
+    // The frame after Up settled.
+    const after = screenOf(
+      Buffer.from(run.output).subarray(0, run.offsets[3]).toString(), -1,
+    ).alternate.join('\n')
+    // The line is still in the box: Up moved inside it. Recalling history
+    // would have replaced the buffer, and this line was never submitted, so
+    // it would be nowhere on screen at all.
+    expect(after).toContain('const alpha')
+  }, E2E_TEST_TIMEOUT_MS)
+
   it('toggles a collapsed output open with Ctrl-O, and keeps that choice on moving on', async () => {
     const output = await drivePty('tall', [
       ['/help for commands', `create the tall note${ENTER}`, 300],

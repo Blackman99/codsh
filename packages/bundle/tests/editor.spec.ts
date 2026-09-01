@@ -42,6 +42,59 @@ function type(editor: Editor, text: string): EditorAction {
 const key = (kind: Key['kind']): Key => ({ kind } as Key)
 
 describe('editing', () => {
+  it('moves up a wrapped row, instead of jumping to the history', () => {
+    // The box wraps one long line across several rows. Up from the second row
+    // used to see `row === 0`, decide there was nothing above, and recall the
+    // previous prompt — losing what was being typed.
+    const editor = build()
+    editor.setWrapWidth(10)
+    type(editor, 'abcdefghijklmno')
+    expect(editor.view.row).toBe(0)
+    expect(editor.view.column).toBe(15)
+
+    editor.handle(key('up'))
+    expect(editor.view.lines.join('\n')).toBe('abcdefghijklmno')
+    // Still the same logical line, now on the row above it.
+    expect(editor.view.row).toBe(0)
+    expect(editor.view.column).toBe(5)
+
+    // Only the top row hands the key to the history.
+    editor.handle(key('up'))
+    expect(editor.view.lines.join('\n')).toBe('abcdefghijklmno')
+  })
+
+  it('comes back down the same rows', () => {
+    const editor = build()
+    editor.setWrapWidth(10)
+    type(editor, 'abcdefghijklmno')
+    editor.handle(key('up'))
+    editor.handle(key('down'))
+    expect(editor.view.column).toBe(15)
+  })
+
+  it('keeps the column offset when the row above is shorter', () => {
+    const editor = build()
+    editor.setWrapWidth(10)
+    type(editor, 'abc')
+    editor.handle({ kind: 'newline' })
+    type(editor, 'defghij')
+    expect(editor.view.row).toBe(1)
+    editor.handle(key('up'))
+    // Column 7 does not exist on a 3-character line; the end of it does.
+    expect(editor.view.row).toBe(0)
+    expect(editor.view.column).toBe(3)
+  })
+
+  it('moves by logical line where nothing wraps', () => {
+    // Off a TTY there is no width and no wrapping, so a line is the row.
+    const editor = build()
+    type(editor, 'one')
+    editor.handle({ kind: 'newline' })
+    type(editor, 'two')
+    editor.handle(key('up'))
+    expect(editor.view.row).toBe(0)
+  })
+
   it('moves the menu with the arrows, whichever trigger opened it', () => {
     // The decoder turns every arrow report into one `down`/`up`, and all four
     // sources fill the same candidate list — so a fault in either place shows

@@ -9,6 +9,7 @@
  */
 
 import { rankContains } from './completion.ts'
+import { visualStep } from './inputbox.ts'
 import type { CompletableCommand, CompletionResult } from './completion.ts'
 import type { Key } from './keys.ts'
 
@@ -111,6 +112,12 @@ export class Editor {
   private column = 0
   private candidates: Candidate[] = []
   private selected = 0
+  /**
+   * Columns the box wraps at, once a surface that wraps has said so.
+   *
+   * Undefined off a TTY, where nothing wraps and a line is a line.
+   */
+  private wrapWidth: number | undefined
   private readonly history: string[] = []
   /** Where the caller is in history; equals `history.length` when not browsing. */
   private browsing = 0
@@ -418,17 +425,22 @@ export class Editor {
     return { kind: 'none' }
   }
 
+  /**
+   * Tell the model the width its rows wrap at.
+   * @param width - display columns per row, or undefined where nothing wraps.
+   */
+  setWrapWidth(width: number | undefined): void {
+    this.wrapWidth = width === undefined || width <= 0 ? undefined : width
+  }
+
   /** Move up a line, or back through history from the first line. */
   private moveUp(): EditorAction {
     if (this.candidates.length > 0) {
       this.selected = (this.selected - 1 + this.candidates.length) % this.candidates.length
       return { kind: 'none' }
     }
-    if (this.row > 0) {
-      this.row -= 1
-      this.column = Math.min(this.column, points(this.line()).length)
-      return { kind: 'none' }
-    }
+    const stepped = this.step(-1)
+    if (stepped) return { kind: 'none' }
     return this.recall(-1)
   }
 
@@ -438,12 +450,33 @@ export class Editor {
       this.selected = (this.selected + 1) % this.candidates.length
       return { kind: 'none' }
     }
-    if (this.row < this.lines.length - 1) {
-      this.row += 1
-      this.column = Math.min(this.column, points(this.line()).length)
-      return { kind: 'none' }
-    }
+    const stepped = this.step(1)
+    if (stepped) return { kind: 'none' }
     return this.recall(1)
+  }
+
+  /**
+   * Move the cursor one row, the way the person sees rows.
+   *
+   * A wrapped line is several rows on screen and one line here, so the width
+   * the box wraps at is what decides whether there is a row to move to. With
+   * no width — off a TTY — a logical line is the whole row.
+   * @param delta - -1 for the row above, 1 for the row below.
+   * @returns whether the cursor moved; if it did not, the edge belongs to history.
+   */
+  private step(delta: -1 | 1): boolean {
+    if (this.wrapWidth !== undefined) {
+      const next = visualStep(this.lines, this.row, this.column, delta, this.wrapWidth)
+      if (next === undefined) return false
+      this.row = next.row
+      this.column = next.column
+      return true
+    }
+    const target = this.row + delta
+    if (target < 0 || target > this.lines.length - 1) return false
+    this.row = target
+    this.column = Math.min(this.column, points(this.line()).length)
+    return true
   }
 
   /**
