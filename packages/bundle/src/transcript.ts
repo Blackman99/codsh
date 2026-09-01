@@ -281,6 +281,8 @@ export class Transcript {
   private enter: string | undefined
   /** Raw text a click on this card should read, when its body was capped. */
   private page: string | undefined
+  /** Files the event just rendered reported writing, workspace-relative. */
+  private written: readonly string[] = []
   /** Rounds a workflow started, keyed `runId:seq`: an end carries only the seq. */
   private readonly workflowAgents = new Map<string, Pick<ToolWorkflowAgentStartData, 'label' | 'childId'>>()
 
@@ -335,6 +337,7 @@ export class Transcript {
     this.prompt = undefined
     this.enter = undefined
     this.page = undefined
+    this.written = []
     switch (event.type) {
       case 'user/message': {
         // The person's own message: with the box owning the keyboard there is
@@ -573,6 +576,17 @@ export class Transcript {
    * instead of expanding. Taken once, like {@link takeFold}.
    * @returns the reader's text, or `undefined` when the block just folds.
    */
+  /**
+   * Paths the block {@link render} just returned reported writing. Taken once,
+   * like {@link takeFold}.
+   * @returns the paths, empty when the event wrote nothing.
+   */
+  takeWritten(): readonly string[] {
+    const written = this.written
+    this.written = []
+    return written
+  }
+
   takePage(): string | undefined {
     const page = this.page
     this.page = undefined
@@ -622,6 +636,9 @@ export class Transcript {
       return lines.length > limit ? { body, full: lines } : { body }
     }
     if (view?.card === 'diff') {
+      // What the turn changed on disk. A `/ship` run keeps its plan in a spec
+      // file, so the surface learns where that file is by watching it written.
+      this.written = view.diffs.map(diff => diff.path)
       const result = capped(
         view.diffs.flatMap(diff => diffBody(diff, theme)),
         MAX_DIFF_LINES,

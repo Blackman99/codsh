@@ -106,6 +106,15 @@ age, how many messages it holds, and, only for a session from elsewhere, the
 folder it belongs to.
 _Avoid_: session picker, history list
 
+**Plan progress**:
+How far a `/ship` run has got, read from the spec file's `## Plan` checkboxes
+rather than from the conversation — the spec file is the workflow's memory, and
+its boxes are the only place the work is counted. The working line reports it
+as `done/total` and names the first unticked ticket, which is what the round in
+flight is landing. The round number a Workflow reports counts against a budget
+and is the fallback, shown only when no plan has been found.
+_Avoid_: todo list, task count
+
 **Workflow progress**:
 What a `tool-workflow/*` record becomes on screen. A run opens with its name,
 each round prints one line as it settles, and the stop reason closes it. The

@@ -543,6 +543,23 @@ describe.skipIf(process.platform === 'win32')('dsh code Escape (real PTY)', () =
     }
   }, E2E_TEST_TIMEOUT_MS)
 
+  it('says how far through the plan a run is, not just which round', async () => {
+    // The spec file is where progress lives: one checkbox per ticket, ticked
+    // as each lands. The working line reports it as soon as the file exists.
+    const output = await drivePty('spec', [
+      ['/help for commands', `write the plan${ENTER}`, 900],
+      ['SHIP_TICKET_THREE', '', 900],
+      ['', `/exit${ENTER}`, 500],
+    ], { columns: 100, rows: 16 })
+
+    const working = output.split(SYNC_END)
+      .flatMap(frame => frame.split('\n'))
+      .filter(line => line.includes('working') && line.includes('1/3'))
+    // One ticket of three is ticked, and the line names the one in flight.
+    expect(working.length).toBeGreaterThan(0)
+    expect(working.join('\n')).toContain('SHIP_TICKET_TWO')
+  }, E2E_TEST_TIMEOUT_MS)
+
   it('toggles a collapsed output open with Ctrl-O, and keeps that choice on moving on', async () => {
     const output = await drivePty('tall', [
       ['/help for commands', `create the tall note${ENTER}`, 300],

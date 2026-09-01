@@ -331,6 +331,31 @@ describe('tool results', () => {
     expect(transcript.takePage()).toBeUndefined()
   })
 
+  it('reports the paths a diff card wrote, once', () => {
+    // A `/ship` run keeps its plan in a spec file; the surface finds that file
+    // by watching it written rather than guessing where the repo keeps specs.
+    const result = (): ToolResultView => ({
+      card: 'diff',
+      diffs: [
+        { path: '/repo/docs/specs/pager.md', oldText: 'a', newText: 'b' },
+        { path: '/repo/src/pager.ts', oldText: 'a', newText: 'b' },
+      ],
+    })
+    const transcript = build({ result })
+    transcript.render(callEvent('c1', 'edit', {}))
+    transcript.render(resultEvent('c1', 'ok'))
+    expect(transcript.takeWritten()).toEqual(['/repo/docs/specs/pager.md', '/repo/src/pager.ts'])
+    expect(transcript.takeWritten()).toEqual([])
+  })
+
+  it('reports nothing written for a card that changed no file', () => {
+    const result = (): ToolResultView => ({ card: 'terminal', title: 'ls', output: 'a' })
+    const transcript = build({ result })
+    transcript.render(callEvent('c1', 'bash', {}))
+    transcript.render(resultEvent('c1', 'ok'))
+    expect(transcript.takeWritten()).toEqual([])
+  })
+
   it('renders a created file as all additions', () => {
     const result = (): ToolResultView => ({ card: 'diff', diffs: [{ path: '/repo/a.ts', oldText: null, newText: 'a\nb' }] })
     const transcript = build({ result })

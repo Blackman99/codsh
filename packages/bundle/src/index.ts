@@ -15,6 +15,7 @@
 import { spawn } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import { readFile, writeFile } from 'node:fs/promises'
+import { readFileSync } from 'node:fs'
 import { basename, join } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
@@ -54,6 +55,8 @@ import type { CompletableCommand } from './completion.ts'
 import { indexConversationContent, newestCopyTargets, resolveCopyTarget } from './content-index.ts'
 import { TerminalConsole } from './console.ts'
 import { readClipboardImage } from './clipboard-image.ts'
+import { parsePlan, planRow } from './plan.ts'
+import type { Plan } from './plan.ts'
 import { Prompt } from './prompt.ts'
 import { shapeResume } from './resume.ts'
 import type { ResumeCandidate } from './resume.ts'
@@ -794,6 +797,48 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
   // The round a workflow is on. A ralph loop spends minutes inside one round,
   // and the working line is the only thing moving while it does.
   let workflowRound: string | undefined
+  /**
+   * Markdown files this session watched the agent write, newest first.
+   *
+   * A `/ship` run writes its plan into a spec file and ticks a checkbox as
+   * each ticket lands, so the file is where "how far in" actually lives — the
+   * round number a workflow reports counts against a budget, not against the
+   * work. The surface learns the path by watching the write rather than
+   * guessing at a convention, because the spec goes wherever the repository
+   * already keeps its design documents.
+   */
+  const writtenDocs: string[] = []
+  /** The plan that file holds, re-read when a round settles. */
+  let shipPlan: Plan | undefined
+  /** Re-read the newest written document that holds a plan. */
+  const refreshPlan = (): void => {
+    for (const path of writtenDocs.slice(0, 8)) {
+      try {
+        const plan = parsePlan(readFileSync(path, 'utf8'))
+        if (plan.tickets.length === 0) continue
+        shipPlan = plan
+        return
+      } catch {
+        // A spec that moved or will not read is simply not the progress.
+      }
+    }
+  }
+  /**
+   * Note a file the agent wrote, so its plan can be found later.
+   * @param paths - paths the event reported writing.
+   */
+  const noteWritten = (paths: readonly string[]): void => {
+    for (const path of paths) {
+      if (!path.endsWith('.md')) continue
+      const already = writtenDocs.indexOf(path)
+      if (already >= 0) writtenDocs.splice(already, 1)
+      writtenDocs.unshift(path)
+    }
+    // The plan is worth reporting from the moment it exists, not only once
+    // the autonomous rounds start: the phase that writes it is also the phase
+    // a person is deciding whether to approve it.
+    if (paths.some(path => path.endsWith('.md'))) refreshPlan()
+  }
   const spinner = new Spinner({
     setLive: (text) => { prompt.setHint(text) },
     isTty: io.console.readsKeys,
@@ -803,7 +848,12 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
     detail: () => {
       const spent = (totalTokens(facts(branch).usage) ?? 0) - turnBaseTokens
       const tokens = spent > 0 ? `${formatTokens(spent)} tokens` : undefined
-      return [workflowRound, tokens].filter(part => part !== undefined).join(' · ') || undefined
+      // What is happening and how much is left, when a plan says; the round
+      // number only when nothing better is known.
+      const progress = shipPlan === undefined
+        ? workflowRound
+        : planRow(shipPlan, theme, Math.max(16, io.console.contentColumns - 40)) ?? workflowRound
+      return [progress, tokens].filter(part => part !== undefined).join(' · ') || undefined
     },
   })
   // Prompt history survives sessions, which is what makes Up-arrow at a fresh
@@ -1317,6 +1367,7 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
       const label = viewing.transcript.takeLabel()
       const enter = viewing.transcript.takeEnter()
       const page = viewing.transcript.takePage()
+      noteWritten(viewing.transcript.takeWritten())
       if (promptBlock !== undefined) {
         prompt.setStreaming(undefined)
         io.console.appendPrompt(lines, rule, true, promptBlock)
@@ -1336,6 +1387,9 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
     if (event.type === 'tool/result') spinner.setActivity('working')
     if (event.type === 'tool-workflow/agent-start') workflowRound = event.data.label
     if (event.type === 'tool-workflow/agent-end' || event.type === 'tool-workflow/run-end') workflowRound = undefined
+    // A round settles by ticking its checkbox, so the plan is re-read at the
+    // boundary rather than polled: once per round, and a round is minutes.
+    if (event.type === 'tool-workflow/agent-end' || event.type === 'tool-workflow/run-start') refreshPlan()
     // In print mode the task text came from the caller's own command line;
     // echoing it back would only make stdout harder to consume in scripts.
     if (config.print && event.type === 'user/message') return
@@ -1383,6 +1437,7 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
     const label = live.transcript.takeLabel()
     const enter = live.transcript.takeEnter()
     const page = live.transcript.takePage()
+    noteWritten(live.transcript.takeWritten())
     if (promptBlock !== undefined) {
       prompt.setStreaming(undefined)
       io.console.appendPrompt(lines, rule, true, promptBlock)

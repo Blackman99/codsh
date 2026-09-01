@@ -83,6 +83,24 @@ const AFTERTHOUGHT = 'CODE_CLI_ANSWER after thinking'
 /** A tall write: enough diff lines that the terminal clips the card body. */
 const TALL_CONTENT = `${Array.from({ length: 45 }, (_, index) => `CODE_CLI_TALL_${index}`).join('\n')}\n`
 
+/** A spec whose `## Plan` gives the surface a ticket count to report. */
+const SPEC_CONTENT = [
+  '# Demo spec',
+  '',
+  'Status: landing',
+  '',
+  '## Plan',
+  '',
+  '- [x] SHIP_TICKET_ONE already landed',
+  '- [ ] SHIP_TICKET_TWO in flight',
+  '- [ ] SHIP_TICKET_THREE waiting',
+  '',
+  '## Acceptance criteria',
+  '',
+  '1. `pnpm test` passes',
+  '',
+].join('\n')
+
 /** Call arguments per `DSH_CODE_CLI_MOCK_TOOL` mode. */
 const ARGUMENTS: Readonly<Record<string, Readonly<Record<string, unknown>>>> = {
   write: { file_path: join(process.cwd(), TARGET), content: CONTENT },
@@ -98,6 +116,7 @@ const ARGUMENTS: Readonly<Record<string, Readonly<Record<string, unknown>>>> = {
     timeoutMs: SLOW_SECONDS * 2000,
   },
   tall: { file_path: join(process.cwd(), TARGET), content: TALL_CONTENT },
+  spec: { file_path: join(process.cwd(), 'plan.md'), content: SPEC_CONTENT },
 }
 
 /** Emits one `write` call, then a closing message naming the result. */
@@ -300,6 +319,12 @@ class CodeCliMockAdapter extends LlmAdapter {
     // reached the request rather than only the status display.
     const reply = failed ? 'CODE_CLI_CALL_DENIED' : `CODE_CLI_CALL_OK via ${options.model}`
     yield { type: 'block-start', index: 0, blockType: 'text' }
+    // `spec` holds the turn open past the write, so the working line ticks
+    // with the plan the write put on disk: a figure that only exists after
+    // the turn ends is a figure nobody sees.
+    if ((process.env.DSH_CODE_CLI_MOCK_TOOL ?? '') === 'spec') {
+      for (let tick = 0; tick < 12; tick += 1) await new Promise(resolve => setTimeout(resolve, 120))
+    }
     yield { type: 'text-delta', index: 0, text: reply }
     yield { type: 'block-end', index: 0, block: { type: 'text', text: reply } }
     yield { type: 'usage', usage: { inputTokens: 7, outputTokens: 5 } }
