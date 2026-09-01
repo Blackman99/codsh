@@ -90,6 +90,12 @@ pnpm run test:e2e            # pack, install, drive the real binary
 CAPTURE_SCREENS=1 pnpm run site:screens   # re-shoot the site's terminals
 ```
 
+`CODSH_TRACE=<path>` tees every byte the viewport writes, and the size it wrote
+them at, into a file. A frame that arrives corrupted is a disagreement between
+what the surface emitted and what the terminal did with it, and the emitted
+half is gone by the time anyone looks; replaying the file through a terminal
+emulator reproduces the screen it drew. Off unless the variable is set.
+
 `pnpm run sync:dsh` tracks published `@deepseek-ai/dsh-*` releases. This repo never forks the harness.
 
 ## License

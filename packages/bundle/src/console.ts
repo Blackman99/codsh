@@ -16,6 +16,7 @@
  */
 
 import { spawn, spawnSync } from 'node:child_process'
+import { openSync, writeSync } from 'node:fs'
 import { createInterface } from 'node:readline'
 import type { Interface } from 'node:readline'
 import { DISABLE_PASTE_MARKERS, ENABLE_PASTE_MARKERS, KeyDecoder } from './keys.ts'
@@ -74,6 +75,54 @@ export interface RegionCursor {
 }
 
 /** Line input and output over one pair of process streams. */
+/**
+ * Tee every byte the viewport writes, and the size it wrote them at, into the
+ * file `CODSH_TRACE` names.
+ *
+ * A frame that arrives corrupted is a disagreement between what this surface
+ * emitted and what the terminal did with it, and the emitted half is the half
+ * nobody can see after the fact. Off unless the variable is set; a failure to
+ * open or write the file must never cost the session, so it degrades to no
+ * tracing at all.
+ * @param write - the real write to wrap.
+ * @param size - the terminal size at the moment of writing.
+ * @param env - the environment to read the path from.
+ * @returns the write to use, traced or not.
+ */
+function traced(
+  write: (data: string) => void,
+  size: () => { columns: number; rows: number },
+  env: Record<string, string | undefined>,
+): (data: string) => void {
+  const path = env.CODSH_TRACE
+  if (path === undefined || path === '') return write
+  let handle: number
+  try {
+    handle = openSync(path, 'a')
+    // The size leads the file: replaying the bytes needs the geometry they
+    // were painted for, and a resize mid-session changes it.
+    const { columns, rows } = size()
+    writeSync(handle, `\u001B_codsh;start ${String(columns)}x${String(rows)} ${new Date().toISOString()}\u001B\\`)
+  } catch {
+    return write
+  }
+  let last = ''
+  return (data: string) => {
+    try {
+      const { columns, rows } = size()
+      const now = `${String(columns)}x${String(rows)}`
+      if (now !== last) {
+        writeSync(handle, `\u001B_codsh;size ${now}\u001B\\`)
+        last = now
+      }
+      writeSync(handle, data)
+    } catch {
+      // A trace that cannot be written is not a reason to stop drawing.
+    }
+    write(data)
+  }
+}
+
 export class TerminalConsole {
   private readonly rl: Interface | undefined
   private readonly decoder = new KeyDecoder()
@@ -101,10 +150,15 @@ export class TerminalConsole {
       // Asking the terminal to mark pastes is what lets a pasted block enter the
       // buffer whole instead of arriving as a run of Enter presses.
       this.output.write(ENABLE_PASTE_MARKERS)
+      const rows = (): number => Math.max(2, this.output.rows ?? FALLBACK_ROWS)
       this.screen = new Screen({
-        write: data => void this.output.write(data),
+        write: traced(
+          data => void this.output.write(data),
+          () => ({ columns: this.columns, rows: rows() }),
+          process.env,
+        ),
         columns: () => this.columns,
-        rows: () => Math.max(2, this.output.rows ?? FALLBACK_ROWS),
+        rows,
       })
       // Registered before any caller's resize handler, so the viewport is
       // re-laid-out before anything redraws at the new size.

@@ -88,6 +88,10 @@ pnpm run test:e2e            # 打包、安装，驱动真实二进制
 CAPTURE_SCREENS=1 pnpm run site:screens   # 重拍站点上的终端截屏
 ```
 
+`CODSH_TRACE=<路径>` 把视口写出的每一个字节、以及当时的窗口尺寸,一并录进文件。
+画面错乱是「本 surface 发出的字节」和「终端拿它做了什么」之间的分歧,而前一半事后
+就找不回来了;把文件回放进任意终端模拟器,就能还原它画出的屏幕。不设该变量则不开启。
+
 `pnpm run sync:dsh` 跟踪已发布的 `@deepseek-ai/dsh-*`。本仓库绝不 fork harness。
 
 ## 许可

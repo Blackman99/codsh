@@ -8,8 +8,8 @@
  * real PTY and write the actual bytes.
  */
 
-import { mkdtemp, rm } from 'node:fs/promises'
-import { basename } from 'node:path'
+import { mkdtemp, readFile, rm } from 'node:fs/promises'
+import { basename, join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { E2E_TEST_TIMEOUT_MS, makeHome } from './harness.ts'
 import { PTY_COLUMNS, PTY_ROWS, SYNC_END, drivePty, drivePtySteps, screenOf } from './pty-driver.ts'
@@ -516,6 +516,31 @@ describe.skipIf(process.platform === 'win32')('dsh code Escape (real PTY)', () =
       if (/[A-Za-z]/u.test(border)) offenders.push(border.trim())
     }
     expect(offenders.slice(0, 3)).toEqual([])
+  }, E2E_TEST_TIMEOUT_MS)
+
+  it('records a replayable trace of what it drew, when asked to', async () => {
+    // A corrupted frame is a disagreement between what the surface emitted and
+    // what the terminal did with it, and the emitted half is unrecoverable
+    // afterwards. CODSH_TRACE keeps it.
+    const dir = await mkdtemp('/tmp/codsh-trace-')
+    const path = join(dir, 'trace')
+    try {
+      const output = await drivePty('write', [
+        ['/help for commands', `note the work${ENTER}`, 600],
+        ['Write note.txt', `/exit${ENTER}`, 500],
+      ], { columns: 60, rows: 16, env: { CODSH_TRACE: path } })
+
+      const trace = await readFile(path, 'utf8')
+      // It leads with the geometry the bytes were painted for; replaying them
+      // without it would be replaying at the wrong size.
+      expect(trace).toMatch(/\u001B_codsh;start 60x16 /u)
+      // And the bytes themselves reproduce the screen the run ended on.
+      const fromTrace = screenAt(trace, 'Write note.txt', 'last').alternate
+      const fromRun = screenAt(output, 'Write note.txt', 'last').alternate
+      expect(fromTrace).toEqual(fromRun)
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
   }, E2E_TEST_TIMEOUT_MS)
 
   it('toggles a collapsed output open with Ctrl-O, and keeps that choice on moving on', async () => {
