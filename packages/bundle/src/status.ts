@@ -50,6 +50,26 @@ export function formatTokens(tokens: number): string {
 }
 
 /**
+ * Abbreviate an elapsed time the way a running clock wants it.
+ *
+ * A live figure has to keep moving, so this never collapses to one unit the
+ * way a timestamp's age does: an hour-long run reading `1h` for the whole
+ * hour looks like a clock that stopped. Each band shows the finest unit that
+ * still changes visibly — a decimal while a turn is quick, then seconds, then
+ * seconds under minutes, then minutes under hours.
+ * @param ms - milliseconds elapsed.
+ * @returns e.g. `3.4s`, `42s`, `9m 05s`, `1h 37m`.
+ */
+export function formatElapsed(ms: number): string {
+  if (ms < 10_000) return `${(Math.max(0, ms) / 1000).toFixed(1)}s`
+  const total = Math.round(ms / 1000)
+  if (total < 60) return `${total}s`
+  const minutes = Math.floor(total / 60)
+  if (minutes < 60) return `${minutes}m ${String(total % 60).padStart(2, '0')}s`
+  return `${Math.floor(minutes / 60)}h ${String(minutes % 60).padStart(2, '0')}m`
+}
+
+/**
  * Total tokens a session has spent across every bucket.
  *
  * The four buckets are disjoint by contract — reasoning already sits inside

@@ -11,6 +11,7 @@
 
 import { structuredPatch } from 'diff'
 import { unifiedDiffText } from './diff.ts'
+import { formatElapsed } from './status.ts'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import type { FileDiff, ToolCallView, ToolResult, ToolResultView } from '@deepseek-ai/dsh-tools'
@@ -209,7 +210,7 @@ export function thinkingFold(
   theme: Theme,
   seconds?: number,
 ): { summary: string[], full: string[] } {
-  const head = seconds === undefined ? '✻ thought' : `✻ thought for ${seconds.toFixed(1)}s`
+  const head = seconds === undefined ? '✻ thought' : `✻ thought for ${formatElapsed(seconds * 1000)}`
   return {
     summary: [theme.dim(`${head} · +${lines.length} lines (click or Ctrl+O expands)`), ''],
     full: [theme.dim(head), ...lines, ''],

@@ -7,6 +7,7 @@
  * @module codsh-bundle/src/spinner
  */
 
+import { formatElapsed } from './status.ts'
 import type { Theme } from './theme.ts'
 
 /** Braille frames, one cell wide each, so the line never changes width. */
@@ -40,11 +41,11 @@ export interface SpinnerLabel {
  * @returns the line to display.
  */
 export function spinnerText(frame: number, elapsedMs: number, label: SpinnerLabel, theme: Theme): string {
-  const seconds = (elapsedMs / 1000).toFixed(elapsedMs < 10_000 ? 1 : 0)
+  const elapsed = formatElapsed(elapsedMs)
   const mark = FRAMES[frame % FRAMES.length] ?? FRAMES[0]
   const extra = label.detail?.()
   const detail = extra === undefined || extra === '' ? '' : `${extra} · `
-  return `${theme.pending(mark)} ${label.verb} ${theme.dim(`${seconds}s · ${detail}${label.interrupt} to interrupt`)}`
+  return `${theme.pending(mark)} ${label.verb} ${theme.dim(`${elapsed} · ${detail}${label.interrupt} to interrupt`)}`
 }
 
 /** Drives the working indicator for as long as the agent is busy. */

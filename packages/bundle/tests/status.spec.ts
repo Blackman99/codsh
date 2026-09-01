@@ -11,6 +11,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import {
   contextLeftPercent,
   displayPath,
+  formatElapsed,
   formatTokens,
   gitBranch,
   statusLine,
@@ -43,6 +44,38 @@ const usage: TokenUsageProjection = {
 
 /** The minimum a status line needs. */
 const base: StatusFacts = { model: 'm', planMode: false, cwd: '/repo' }
+
+describe('formatElapsed', () => {
+  it('keeps a decimal while a turn is still quick', () => {
+    expect(formatElapsed(0)).toBe('0.0s')
+    expect(formatElapsed(1500)).toBe('1.5s')
+    expect(formatElapsed(9_949)).toBe('9.9s')
+  })
+
+  it('drops it once the decimal is noise', () => {
+    expect(formatElapsed(10_000)).toBe('10s')
+    expect(formatElapsed(59_400)).toBe('59s')
+  })
+
+  it('grows a unit instead of counting seconds forever', () => {
+    // The report that started this: `5845s` on a long ralph run.
+    expect(formatElapsed(60_000)).toBe('1m 00s')
+    expect(formatElapsed(62_000)).toBe('1m 02s')
+    expect(formatElapsed(3_599_000)).toBe('59m 59s')
+    expect(formatElapsed(3_600_000)).toBe('1h 00m')
+    expect(formatElapsed(5_845_000)).toBe('1h 37m')
+    expect(formatElapsed(86_400_000)).toBe('24h 00m')
+  })
+
+  it('pads the smaller unit, so the figure does not jump width', () => {
+    expect(formatElapsed(65_000)).toBe('1m 05s')
+    expect(formatElapsed(3_902_000)).toBe('1h 05m')
+  })
+
+  it('never shows a negative clock', () => {
+    expect(formatElapsed(-1)).toBe('0.0s')
+  })
+})
 
 describe('formatTokens', () => {
   it.each([

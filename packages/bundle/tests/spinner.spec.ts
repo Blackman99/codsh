@@ -22,7 +22,15 @@ describe('spinnerText', () => {
   })
 
   it('drops the decimal once the wait is long enough for it to be noise', () => {
-    expect(spinnerText(0, 62_000, label, theme)).toContain('62s')
+    expect(spinnerText(0, 12_000, label, theme)).toContain('12s')
+  })
+
+  it('grows a unit rather than counting seconds forever', () => {
+    // A ralph run reported `5845s`, which is a number a person has to divide
+    // before it means anything.
+    expect(spinnerText(0, 62_000, label, theme)).toContain('1m 02s')
+    expect(spinnerText(0, 5_845_000, label, theme)).toContain('1h 37m')
+    expect(spinnerText(0, 5_845_000, label, theme)).not.toContain('5845')
   })
 
   it('cycles frames without running off the end', () => {

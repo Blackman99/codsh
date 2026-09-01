@@ -73,7 +73,7 @@ import {
 } from './vision.ts'
 import { TextStream } from './streaming.ts'
 import { bundleVersion, checkForUpdate, updateCommand } from './update.ts'
-import { formatTokens, gitBranch, statusLine, statusReport, totalTokens } from './status.ts'
+import { formatElapsed, formatTokens, gitBranch, statusLine, statusReport, totalTokens } from './status.ts'
 import { todoReport } from './todos.ts'
 import type { PendingImage } from './prompt.ts'
 import type { TodoList } from './todos.ts'
@@ -1600,11 +1600,11 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
       io.console.setTitle(`dsh code — ${basename(cwd)}`)
     }
     const spent = (totalTokens(facts(branch).usage) ?? 0) - before
-    const elapsed = (performance.now() - started) / 1000
+    const elapsedMs = performance.now() - started
     // A long turn ending is the other moment worth calling the person back.
-    if (config.bell && elapsed * 1000 > BELL_TURN_MS) io.console.bell()
+    if (config.bell && elapsedMs > BELL_TURN_MS) io.console.bell()
     const cost = spent > 0 ? ` · ${formatTokens(spent)} tokens` : ''
-    prompt.write(theme.dim(`  ${elapsed.toFixed(1)}s${cost}`))
+    prompt.write(theme.dim(`  ${formatElapsed(elapsedMs)}${cost}`))
     prompt.write('')
   }
 

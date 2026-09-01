@@ -473,6 +473,12 @@ describe('the forms a long block keeps', () => {
     expect(full).toContain('  second')
   })
 
+  it('grows a unit for a long think, rather than counting seconds', () => {
+    const long = thinkingFold(['a'], theme, 312.4)
+    expect(long.summary[0]).toContain('✻ thought for 5m 12s')
+    expect(long.summary[0]).not.toContain('312')
+  })
+
   it('says only that it thought when there is no clock to read', () => {
     // A replayed log carries the reasoning but not its duration; claiming a
     // time here would be inventing one.
