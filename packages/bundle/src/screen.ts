@@ -578,7 +578,7 @@ export class Screen {
       this.painted = []
       // A hovered block may have been cut from the head.
       this.hovered = undefined
-      this.rewrap()
+      this.trimWrapped(dropped)
       if (mappedAnchor !== undefined) this.restoreViewportAnchor(mappedAnchor)
     }
     if (!trimmed) this.refreshTranscriptSearch()
@@ -1732,6 +1732,35 @@ export class Screen {
   }
 
   /** Re-wrap every kept line at the current width. */
+  /**
+   * Drop the head of the wrapped buffer the trimmed logical lines owned.
+   *
+   * Re-wrapping the whole scrollback to remove its first line made every
+   * append past {@link MAX_SCROLLBACK} cost the entire buffer: measured, a
+   * session past the cap spent about 50ms per appended line rather than
+   * 0.02ms, which is the surface going deaf to the keyboard while a reply
+   * streams into a long conversation. The rows a dropped line owns are
+   * exactly the leading ones that point back at it, so they can be cut
+   * without touching the rows that survive.
+   * @param dropped - logical lines removed from the head.
+   */
+  private trimWrapped(dropped: number): void {
+    // Physical rows are the selection's coordinate system; a trim voids it.
+    this.selection = undefined
+    let cut = 0
+    while (cut < this.physicalLogical.length && (this.physicalLogical[cut] ?? 0) < dropped) cut += 1
+    this.physical.splice(0, cut)
+    this.ruleWidths.splice(0, cut)
+    this.physicalLogical.splice(0, cut)
+    for (let at = 0; at < this.physicalLogical.length; at += 1) {
+      this.physicalLogical[at] = (this.physicalLogical[at] ?? 0) - dropped
+    }
+    this.ranges = undefined
+    this.promptLayoutCache = undefined
+    this.refreshTranscriptSearch()
+    this.offset = Math.min(this.offset, this.scrollLimit())
+  }
+
   private rewrap(): void {
     // Physical rows are the selection's coordinate system; a reflow voids it.
     this.selection = undefined

@@ -551,6 +551,43 @@ describe('scrolling', () => {
     expect(after?.match(/first answer \d+/u)?.[0]).toBe(before?.match(/first answer \d+/u)?.[0])
   })
 
+  it('trims the wrapped buffer to exactly what a full reflow would leave', () => {
+    // The trim drops the head incrementally rather than re-wrapping every
+    // surviving row, which is what made an append past the cap cost the whole
+    // buffer. The two must agree: a reflow after the trim has to paint the
+    // same frame the trim left, or the cheap path is quietly wrong.
+    const sink = host(10, 34)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['box'], { row: 0, column: 0 }, false)
+    // Lines wide enough to wrap, so the trim must cut whole rows off a line
+    // that owns several of them.
+    screen.append(Array.from({ length: 5200 }, (_, index) => `row ${index} ${'y'.repeat(40)}`), '| ')
+    /** The tail and the very top, since a bad cut shows only at the head. */
+    const shot = (): string => {
+      const tail = [...painted(flush(sink)).values()].join('\n')
+      screen.scrollBy(-10_000)
+      const top = [...painted(flush(sink)).values()].join('\n')
+      screen.scrollBy(10_000)
+      flush(sink)
+      return `${tail}\n--\n${top}`
+    }
+    const trimmed = shot()
+
+    // A resize away and back rebuilds every physical row from scratch.
+    sink.size.columns = 30
+    screen.resize()
+    flush(sink)
+    sink.size.columns = 34
+    screen.resize()
+    const reflowed = shot()
+
+    expect(reflowed).toBe(trimmed)
+    // And what survived is the tail, not the head.
+    expect(trimmed).toContain('row 5199')
+    expect(trimmed).not.toContain('row 0 ')
+  })
+
   it('keeps a manual reading position while scrollback trimming appends below it', () => {
     const sink = host(6, 40)
     const screen = new Screen(sink)
