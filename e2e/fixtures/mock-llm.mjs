@@ -67,6 +67,15 @@ function splitDeltas(text) {
   return deltas
 }
 
+/** Lines far wider than any test terminal, for the streaming repaint stress. */
+const WIDE_LINES = [
+  "const WIDE = source.replace(/<script[\\s\\S]*?<\\/script>/g, '').replace(/<style[\\s\\S]*?<\\/style>/g, '') + SUFFIX_MARKER_ONE",
+  "const BASE = 'http://localhost:4173/some/deep/path?query=1&other=2#fragment' + '/' + segment + '/' + tail",
+  // Short and alone on its line: a marker inside a wide line is cut in half by
+  // the wrap, and a test cannot wait for a string the screen never holds.
+  'WIDEDONE',
+]
+
 /** How long the interruptible scenario keeps the turn busy. */
 const SLOW_SECONDS = 30
 
@@ -134,6 +143,18 @@ class CodeCliMockAdapter extends LlmAdapter {
   }
 
   async * stream(options) {
+    if (MOCK_MODE === 'wide') {
+      const reply = WIDE_LINES.join('\n')
+      yield { type: 'block-start', index: 0, blockType: 'text' }
+      for (const delta of splitDeltas(reply)) {
+        await new Promise(resolve => setTimeout(resolve, 12))
+        yield { type: 'text-delta', index: 0, text: delta }
+      }
+      yield { type: 'block-end', index: 0, block: { type: 'text', text: reply } }
+      yield { type: 'usage', usage: { inputTokens: 4, outputTokens: 40 } }
+      yield { type: 'finish', reason: { kind: 'stop' } }
+      return
+    }
     if (MOCK_MODE === 'anchor') {
       const rows = Array.from({ length: 12 }, (_, index) => `ANCHOR_REPLY_${index + 1}`)
       const reply = rows.join('\n')

@@ -496,6 +496,28 @@ describe.skipIf(process.platform === 'win32')('dsh code Escape (real PTY)', () =
     expect(after).toContain('const alpha')
   }, E2E_TEST_TIMEOUT_MS)
 
+  it('keeps the box intact while lines wider than the terminal stream in', async () => {
+    // The reported corruption: streamed text sitting on the box's top border.
+    // Narrow window, lines far wider than it, deltas that ignore line ends —
+    // the box repaints many times inside one line.
+    const output = await drivePty('wide', [
+      ['/help for commands', `stream something wide${ENTER}`, 2_500],
+      ['WIDEDONE', `/exit${ENTER}`, 500],
+    ], { columns: 60, rows: 16 })
+
+    // Every frame, not just the last: the corruption is transient by nature.
+    const probe = new Terminal(16, 60)
+    const offenders: string[] = []
+    for (const frame of output.split(SYNC_END)) {
+      probe.feed(frame + SYNC_END)
+      const border = probe.alternate.find(row => row.includes('╭'))
+      if (border === undefined) continue
+      // A top border is border and space; a letter on it is bled content.
+      if (/[A-Za-z]/u.test(border)) offenders.push(border.trim())
+    }
+    expect(offenders.slice(0, 3)).toEqual([])
+  }, E2E_TEST_TIMEOUT_MS)
+
   it('toggles a collapsed output open with Ctrl-O, and keeps that choice on moving on', async () => {
     const output = await drivePty('tall', [
       ['/help for commands', `create the tall note${ENTER}`, 300],
