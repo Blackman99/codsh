@@ -151,6 +151,14 @@ export class Prompt {
    * letting go is the escape hatch every button has.
    */
   private pressedTarget: RegionTarget | undefined
+  /**
+   * Whether the press in flight anchored in the viewport rather than a region.
+   *
+   * A gesture belongs to where it began, through release: sweeping down past
+   * the last line and letting go over the input box is how a person selects to
+   * the end of what they can see, and the release is what copies.
+   */
+  private pressedViewport = false
   /** The row the pointer last marked, so a move that changes nothing repaints nothing. */
   private regionHover = ''
   /** The plan a `/ship` run is working through, when one has been found. */
@@ -540,7 +548,14 @@ export class Prompt {
     // it, and a press on a border does nothing rather than starting a
     // selection nobody asked for.
     if (key.kind === 'mouse-down' || key.kind === 'mouse-up' || key.kind === 'mouse-move' || key.kind === 'mouse-drag') {
-      const region = this.console.regionRowAt(key.row)
+      // ...unless the viewport anchored the gesture. A selection swept out of
+      // the transcript is still that selection, so the drag that left and the
+      // release that copies keep reaching it instead of dying on a row that
+      // offers nothing. A button-less move says nothing is held any more,
+      // which is also how a release lost outside the window heals.
+      if (key.kind === 'mouse-move') this.pressedViewport = false
+      const owned = this.pressedViewport && (key.kind === 'mouse-drag' || key.kind === 'mouse-up')
+      const region = owned ? undefined : this.console.regionRowAt(key.row)
       if (region !== undefined) {
         this.onRegionPointer(key.kind, region, key.column)
         return
@@ -557,6 +572,7 @@ export class Prompt {
     // does: press anchors, motion extends, release copies — automatically, the
     // way opencode and Claude treat a selection as the intent to copy.
     if (key.kind === 'mouse-down') {
+      this.pressedViewport = true
       this.console.mouseDown(key.row, key.column)
       return
     }
@@ -579,6 +595,7 @@ export class Prompt {
       return
     }
     if (key.kind === 'mouse-up') {
+      this.pressedViewport = false
       const text = this.console.mouseUp()
       if (text !== undefined && this.console.copyText(text)) {
         const rows = text.split('\n').length

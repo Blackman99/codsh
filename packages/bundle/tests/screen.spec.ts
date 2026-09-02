@@ -1810,6 +1810,37 @@ describe('mouse selection', () => {
     expect(text).toBe('beta\ngamma')
   })
 
+  it('anchors in the blank space under the last line and sweeps up out of it', () => {
+    const sink = host(8, 40)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['status'], { row: 0, column: 0 }, false)
+    screen.append(['alpha beta', 'gamma delta'])
+    flush(sink)
+
+    // Only rows 1-2 hold text, so row 5 is empty — and it is where the pointer
+    // already rests once a turn has finished. A press there anchors at the
+    // nearest row instead of refusing, so sweeping up selects to the end.
+    screen.mouseDown(5, 30)
+    screen.mouseDrag(1, 9)
+    expect(screen.mouseUp()).toBe('beta\ngamma delta')
+  })
+
+  it('works no block when that blank space is merely clicked', () => {
+    const sink = host(12, 40)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['status'], { row: 0, column: 0 }, false)
+    screen.appendFold(['summary line', ''], ['full a', 'full b', ''])
+    flush(sink)
+
+    // Pressed and released in the empty space with no motion: the anchor was
+    // clamped to the block's row, but the click never landed on it.
+    screen.mouseDown(8, 5)
+    expect(screen.mouseUp()).toBeUndefined()
+    expect(flush(sink)).not.toContain('full b')
+  })
+
   it('copies plain text out of styled rows', () => {
     const sink = host(8, 40)
     const screen = new Screen(sink)

@@ -874,6 +874,29 @@ describe.skipIf(process.platform === 'win32')('dsh code Escape (real PTY)', () =
     expect(frame.alternate.some(row => /✓ copied \d+ lines/u.test(row))).toBe(true)
   }, E2E_TEST_TIMEOUT_MS)
 
+  it('copies a drag that leaves the transcript and is released over the input box', async () => {
+    const bottom = String(PTY_ROWS)
+    const output = await drivePty('write', [
+      ['/help for commands', `create the note${ENTER}`, 300],
+      // Press on the first row and sweep down past the last line, letting go on
+      // the bottom row — the way a person selects everything on screen. The
+      // rows below the transcript belong to the chrome, but the gesture belongs
+      // to the viewport that anchored it.
+      [
+        'CODE_CLI_CALL_OK',
+        `${ESCAPE}[<0;1;1M${ESCAPE}[<32;60;20M${ESCAPE}[<32;120;${bottom}M${ESCAPE}[<0;120;${bottom}m`,
+        400,
+      ],
+      ['copied', `/exit${ENTER}`, 500],
+    ])
+
+    const osc = /\u001B\]52;c;([A-Za-z0-9+/=]+)\u0007/.exec(output)
+    expect(osc).not.toBeNull()
+    const copied = Buffer.from(osc?.[1] ?? '', 'base64').toString('utf8')
+    expect(copied).toContain('› create the note')
+    expect(copied).toContain('CODE_CLI_CALL_OK')
+  }, E2E_TEST_TIMEOUT_MS)
+
   it('clears to a fresh session, then resumes the old one through the selector', async () => {
     const output = await drivePty('echo', [
       ['/help for commands', `remember DELTA_ONE${ENTER}`, 300],

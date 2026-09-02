@@ -58,7 +58,9 @@ function fakeConsole(readsKeys: boolean) {
     pointer: [] as string[],
     mouseDown(row: number) { this.pointer.push(`down ${String(row)}`) },
     mouseDrag(row: number) { this.pointer.push(`drag ${String(row)}`) },
-    mouseUp(): string | undefined { this.pointer.push('up'); return undefined },
+    /** What the viewport hands back on release, when a drag selected something. */
+    selected: undefined as string | undefined,
+    mouseUp(): string | undefined { this.pointer.push('up'); return this.selected },
     write: (line: string) => void written.push(line),
     setRegion: (rows: readonly string[], cursor: RegionCursor) => void draws.push({ rows: [...rows], cursor }),
     clearRegion: () => void draws.push({ rows: [], cursor: { row: 0, column: 0 } }),
@@ -324,6 +326,36 @@ describe('selection', () => {
     expect(console.pointer).toEqual([])
     console.press({ kind: 'escape' })
     expect(await deciding).toEqual({ kind: 'cancelled' })
+  })
+
+  it('keeps a drag the viewport anchored when it is released below the transcript', () => {
+    const { console } = build()
+    // Pressed on the transcript: no region owns that row.
+    console.press({ kind: 'mouse-down', row: 3, column: 4 })
+    // Swept down out of the transcript and let go over the input box, which is
+    // how selecting through to the last line ends.
+    console.region = { region: 'chrome', index: 1 }
+    console.press({ kind: 'mouse-drag', row: 9, column: 40 })
+    console.selected = 'answer'
+    console.press({ kind: 'mouse-up', row: 9, column: 40 })
+    // The gesture belonged to the viewport through release, so it copied.
+    expect(console.pointer).toEqual(['down 3', 'drag 9', 'up'])
+    expect(console.copied).toEqual(['answer'])
+  })
+
+  it('gives a region the gesture back once nothing is held any more', async () => {
+    const { prompt, console } = build()
+    const deciding = prompt.select({ title: 'Allow?', options: [{ label: 'Yes' }, { label: 'No' }] })
+    // A press the viewport anchored whose release happened off the window and
+    // never arrived.
+    console.press({ kind: 'mouse-down', row: 3, column: 4 })
+    console.region = { region: 'chrome', index: 2 }
+    // A button-less move says the button is up: the option is the region's
+    // again, rather than feeding a selection that ended long ago.
+    console.press({ kind: 'mouse-move', row: 9, column: 4 })
+    console.press({ kind: 'mouse-down', row: 9, column: 4 })
+    console.press({ kind: 'mouse-up', row: 9, column: 4 })
+    expect(await deciding).toEqual({ kind: 'chosen', indices: [1] })
   })
 
   it('marks the row under the pointer without moving what Enter would take', async () => {

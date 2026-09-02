@@ -115,8 +115,14 @@ mark may suggest one could. Those rows belong to whatever
 composed them, so a pointer there never reaches the Viewport: a row that
 offers something acts on it, and a row that offers nothing does nothing rather
 than starting a selection. A press commits only where it is released, so
-sliding off before letting go takes it back. The Viewport keeps press-to-
-anchor, drag-to-extend, release-to-copy exactly as it was.
+sliding off before letting go takes it back. A gesture nonetheless belongs to
+where it began, through release: a drag the Viewport anchored keeps reaching it
+once the pointer has left, because sweeping past the last line and letting go
+over the input box is how a person selects to the end of what they can see. The
+Viewport keeps press-to-anchor, drag-to-extend, release-to-copy, and the blank
+space under the last line anchors there too — a press with nowhere to land is
+still where the pointer was resting, though only a press that landed on a row
+can work that row's Fold.
 _Avoid_: click handler, hit area
 
 **List window**:

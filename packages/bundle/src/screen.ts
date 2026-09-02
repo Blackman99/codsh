@@ -300,8 +300,14 @@ export class Screen {
   private overlay: string[] = []
   /** Transient full-screen rows replacing transcript and chrome without mutating either. */
   private viewer: string[] | undefined
-  /** A mouse selection over the transcript, in physical-row coordinates. */
-  private selection: { anchor: { row: number; column: number }; focus: { row: number; column: number }; dragged: boolean } | undefined
+  /**
+   * A mouse selection over the transcript, in physical-row coordinates.
+   *
+   * `onContent` records whether the press landed on a row or on the blank
+   * space under the last one: both anchor a selection, but only a press on a
+   * row can be a click on what it holds.
+   */
+  private selection: { anchor: { row: number; column: number }; focus: { row: number; column: number }; dragged: boolean; onContent: boolean } | undefined
   /** Sticky prompt pressed as display chrome; dragging cancels the click. */
   private pressedSticky: TurnPrompt | undefined
   /** Whether the press landed on the scroll notice, which returns to the tail. */
@@ -1485,8 +1491,14 @@ export class Screen {
       if (had) this.render()
       return
     }
-    const at = this.locate(row, column, false)
-    if (at !== undefined) this.selection = { anchor: at, focus: at, dragged: false }
+    // The blank space under the last line is where the pointer already rests,
+    // and sweeping up out of it is a selection anywhere else, so a press there
+    // anchors at the nearest row instead of refusing. It is still not a click
+    // on that row: only `onContent` earns the block gesture on release.
+    const on = this.locate(row, column, false)
+    const blank = row >= 1 && row <= this.viewportHeight()
+    const at = on ?? (blank ? this.locate(row, column, true) : undefined)
+    if (at !== undefined) this.selection = { anchor: at, focus: at, dragged: false, onContent: on !== undefined }
     // A bare click also clears a standing highlight; the row diff repaints
     // exactly the rows that lost it.
     if (had) this.render()
@@ -1561,7 +1573,7 @@ export class Screen {
     if (selection === undefined) return undefined
     if (!selection.dragged) {
       this.selection = undefined
-      this.clickFold(selection.anchor.row)
+      if (selection.onContent) this.clickFold(selection.anchor.row)
       return undefined
     }
     const text = this.selectedText()
