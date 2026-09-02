@@ -1483,6 +1483,9 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
             { label: `Yes, every ${toolName} call this session`, shortcut: 'a' },
             { label: 'No', shortcut: 'n' },
           ],
+          // Granting a tool for the session cannot be taken back, and a
+          // misplaced click is not the way to decide it.
+          keyboardOnly: true,
         }, signal)
         if (outcome.kind !== 'chosen') return undefined
         const [chosen] = outcome.indices

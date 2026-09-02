@@ -803,6 +803,7 @@ export class Prompt {
     const start = this.selectorRow
     const selecting = this.select_
     if (start === undefined || selecting === undefined) return false
+    if (selecting.selector.keyboardOnly) return false
     if (region.index < start) return false
     selecting.selector.scrollBy(lines)
     this.render()
@@ -871,6 +872,9 @@ export class Prompt {
     const start = this.selectorRow
     const selecting = this.select_
     if (start !== undefined && selecting !== undefined) {
+      // A decision a click must not make takes no pointer at all: no target to
+      // press, and no mark under the pointer suggesting there is one.
+      if (selecting.selector.keyboardOnly) return undefined
       const target = selecting.selector.targetAt(region.index - start)
       return target === undefined ? undefined : { kind: 'selector', target }
     }

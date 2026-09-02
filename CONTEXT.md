@@ -108,7 +108,10 @@ _Avoid_: session picker, history list
 
 **Region pointer**:
 A pointer press, release, or move on the rows below the transcript — the
-Chrome, and the Overlay drawn just above it. Those rows belong to whatever
+Chrome, and the Overlay drawn just above it. A selection may refuse it
+outright (`keyboardOnly`): an approval grants a tool for the rest of the
+session and cannot be taken back, so no click may decide it and no Pointer
+mark may suggest one could. Those rows belong to whatever
 composed them, so a pointer there never reaches the Viewport: a row that
 offers something acts on it, and a row that offers nothing does nothing rather
 than starting a selection. A press commits only where it is released, so

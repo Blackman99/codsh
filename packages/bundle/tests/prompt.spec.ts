@@ -400,6 +400,34 @@ describe('selection', () => {
     expect(await deciding).toEqual({ kind: 'cancelled' })
   })
 
+  it('refuses the pointer on a decision only the keyboard may make', async () => {
+    // An approval: granting a tool for the session cannot be taken back, so a
+    // click must not be able to do it, and nothing may suggest it can.
+    const { prompt, console } = build()
+    const deciding = prompt.select({
+      title: 'Allow bash?',
+      options: [{ label: 'Yes, this time' }, { label: 'Yes, always' }, { label: 'No' }],
+      keyboardOnly: true,
+    })
+    console.region = { region: 'chrome', index: 2 }
+    console.press({ kind: 'mouse-move', row: 9, column: 4 })
+    console.press({ kind: 'mouse-down', row: 9, column: 4 })
+    console.press({ kind: 'mouse-up', row: 9, column: 4 })
+    // Nothing settled, and no row wears the pointer's mark. The dot also
+    // appears inside the hints line, so the test looks for it where a marker
+    // lives: at the very start of a row.
+    const rows = console.draws.at(-1)?.rows ?? []
+    expect(rows.some(row => row.startsWith('\u00B7'))).toBe(false)
+
+    // The wheel is refused too: the pointer does nothing here at all.
+    console.press({ kind: 'scroll', lines: 3, at: { row: 9, column: 4 } })
+    await Promise.resolve()
+    expect(console.scrolls).toEqual([3])
+
+    console.press({ kind: 'enter' })
+    expect(await deciding).toEqual({ kind: 'chosen', indices: [0] })
+  })
+
   it('cancels the selection when its signal aborts', async () => {
     const { prompt } = build()
     const controller = new AbortController()

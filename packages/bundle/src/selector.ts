@@ -33,6 +33,14 @@ export interface SelectSpec {
   custom?: string
   /** Whether typing filters the list instead of digits/shortcuts settling. */
   filterable?: boolean
+  /**
+   * Whether only the keyboard may answer this one.
+   *
+   * For a decision a click must not be able to make. An approval is the case
+   * it exists for: granting a tool for the rest of the session cannot be taken
+   * back, and its keyboard path is already one key.
+   */
+  keyboardOnly?: boolean
 }
 
 /** How one selection ended. */
@@ -77,6 +85,11 @@ export class Selector {
   private scrolled: number | undefined
 
   constructor(private readonly spec: SelectSpec) {}
+
+  /** Whether a pointer may answer this selection at all. */
+  get keyboardOnly(): boolean {
+    return this.spec.keyboardOnly === true
+  }
 
   /** Original option index currently marked, absent for an empty/custom row. */
   get highlighted(): number | undefined {

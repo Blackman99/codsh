@@ -662,6 +662,26 @@ describe.skipIf(process.platform === 'win32')('dsh code Escape (real PTY)', () =
     expect(taken).toContain('/clear')
   }, E2E_TEST_TIMEOUT_MS)
 
+  it('does not let a click answer an approval', async () => {
+    // `bash` asks for a wider sandbox, which is the approval prompt. Granting
+    // a tool for the session cannot be taken back, so the pointer is refused
+    // there — and the run has to end with the keyboard answering.
+    const clickAlways = '\u001B[<0;6;{row:every bash}M\u001B[<0;6;{row:every bash}m'
+    const run = await drivePtySteps('bash', [
+      ['/help for commands', `run it${ENTER}`, 600],
+      ['Allow bash?', clickAlways, 600],
+      // Still asking: the click decided nothing.
+      ['', 'n', 600],
+      ['', `/exit${ENTER}`, 500],
+    ], { rows: 20 })
+
+    const captured = (offset: number | undefined): string => Buffer.from(run.output).subarray(0, offset).toString()
+    const afterClick = screenOf(captured(run.offsets[2]), -1, 20).alternate
+    // The question is still on screen, and no row wears the pointer's mark.
+    expect(afterClick.join('\n')).toContain('Allow bash?')
+    expect(afterClick.some(row => row.trimStart().startsWith('\u00B7'))).toBe(false)
+  }, E2E_TEST_TIMEOUT_MS)
+
   it('toggles a collapsed output open with Ctrl-O, and keeps that choice on moving on', async () => {
     const output = await drivePty('tall', [
       ['/help for commands', `create the tall note${ENTER}`, 300],
