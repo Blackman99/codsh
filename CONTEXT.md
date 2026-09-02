@@ -106,6 +106,24 @@ age, how many messages it holds, and, only for a session from elsewhere, the
 folder it belongs to.
 _Avoid_: session picker, history list
 
+**Region pointer**:
+A pointer press, release, or move on the rows below the transcript — the
+Chrome, and the Overlay drawn just above it. Those rows belong to whatever
+composed them, so a pointer there never reaches the Viewport: a row that
+offers something acts on it, and a row that offers nothing does nothing rather
+than starting a selection. A press commits only where it is released, so
+sliding off before letting go takes it back. The Viewport keeps press-to-
+anchor, drag-to-extend, release-to-copy exactly as it was.
+_Avoid_: click handler, hit area
+
+**Pointer mark**:
+The row a Region pointer rests on, underlined. Kept apart from the `❯` a
+selection is marked with: a pointer often comes to rest somewhere nobody
+chose, and moving the mark would change what Enter does as a side effect of
+where the mouse is. Clicking takes the underlined row; Enter takes the marked
+one.
+_Avoid_: highlight, focus
+
 **Plan progress**:
 How far a `/ship` run has got, read from the spec file's `## Plan` checkboxes
 rather than from the conversation — the spec file is the workflow's memory, and

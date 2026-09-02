@@ -507,6 +507,16 @@ export class TerminalConsole {
     for (const line of lines) this.output.write(`${line}\n`)
   }
 
+  /**
+   * Where a terminal row falls in the region below the transcript.
+   * @param row - terminal row, 1-based.
+   * @returns the region and index, or `undefined` off a terminal or for a row
+   *   the transcript owns.
+   */
+  regionRowAt(row: number): { region: 'chrome' | 'overlay'; index: number } | undefined {
+    return this.screen?.regionRowAt(row)
+  }
+
   /** Hold painting while a replay pours a session in; see Screen. */
   suspendPainting(): void {
     this.screen?.suspendPainting()

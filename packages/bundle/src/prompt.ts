@@ -20,7 +20,7 @@ import type { ClipboardImage } from './clipboard-image.ts'
 import type { TerminalConsole } from './console.ts'
 import type { EditorSources } from './editor.ts'
 import type { Key } from './keys.ts'
-import type { SelectOutcome, SelectSpec } from './selector.ts'
+import type { SelectOutcome, SelectSpec, SelectorStep, SelectorTarget } from './selector.ts'
 import type { Theme } from './theme.ts'
 import type { TodoList } from './todos.ts'
 import type { ViewerSpec } from './viewer.ts'
@@ -125,6 +125,23 @@ export class Prompt {
   /** What the pointer is resting on, borrowing the hint row while it rests. */
   private hover: string | undefined
   private flashTimer: ReturnType<typeof setTimeout> | undefined
+  /**
+   * Where the selector's own rows begin among the chrome rows.
+   *
+   * Recorded while the chrome is composed, because that is the only moment
+   * anything knows the offset: the region is handed over as a flat array of
+   * strings and every part's position is lost with it.
+   */
+  private selectorRow: number | undefined
+  /**
+   * What a press landed on, so a release somewhere else cancels it.
+   *
+   * A press that commits on the way down has no way back; sliding off before
+   * letting go is the escape hatch every button has.
+   */
+  private pressedTarget: SelectorTarget | undefined
+  /** The row the pointer last marked, so a move that changes nothing repaints nothing. */
+  private regionHover = ''
   /** The always-current session facts shown as the region's last row. */
   private status: string | undefined
   /**
@@ -495,6 +512,24 @@ export class Prompt {
       this.render()
       return
     }
+    // The rows below the transcript belong to whatever composed them, so a
+    // pointer there never reaches the viewport: a press on an option acts on
+    // it, and a press on a border does nothing rather than starting a
+    // selection nobody asked for.
+    if (key.kind === 'mouse-down' || key.kind === 'mouse-up' || key.kind === 'mouse-move' || key.kind === 'mouse-drag') {
+      const region = this.console.regionRowAt(key.row)
+      if (region !== undefined) {
+        this.onRegionPointer(key.kind, region)
+        return
+      }
+      if (this.pressedTarget !== undefined) {
+        // The press began on a row and the pointer left the region; releasing
+        // out here is the cancel.
+        if (key.kind === 'mouse-up' || key.kind === 'mouse-down') this.pressedTarget = undefined
+        if (key.kind === 'mouse-move') this.clearRegionHover()
+        if (key.kind !== 'mouse-move') return
+      }
+    }
     // The terminal cannot select while mouse reporting is on, so the viewport
     // does: press anchors, motion extends, release copies — automatically, the
     // way opencode and Claude treat a selection as the intent to copy.
@@ -734,6 +769,92 @@ export class Prompt {
     return this.theme.dim(truncate(`  find: ${this.finding}  ${status}  ↑↓ next  Esc closes`, columns))
   }
 
+  /**
+   * Act on a pointer in the region below the transcript.
+   * @param kind - which pointer event arrived.
+   * @param region - the region and the row's index within it.
+   */
+  private onRegionPointer(
+    kind: 'mouse-down' | 'mouse-up' | 'mouse-move' | 'mouse-drag',
+    region: { region: 'chrome' | 'overlay'; index: number },
+  ): void {
+    const target = this.regionTarget(region)
+    if (kind === 'mouse-move') {
+      this.setRegionHover(target)
+      return
+    }
+    if (kind === 'mouse-drag') return
+    if (kind === 'mouse-down') {
+      this.pressedTarget = target
+      return
+    }
+    const pressed = this.pressedTarget
+    this.pressedTarget = undefined
+    // Same row down and up, or nothing happened: a press that slid somewhere
+    // else on its way to being released was taken back.
+    if (pressed === undefined || target === undefined) return
+    if (pressed.kind !== target.kind) return
+    if (pressed.kind === 'option' && target.kind === 'option' && pressed.index !== target.index) return
+    const selecting = this.select_
+    if (selecting === undefined) return
+    this.settleSelection(selecting.selector.click(target))
+  }
+
+  /**
+   * What sits on one row of the region, when anything does.
+   * @param region - the region and the row's index within it.
+   * @returns the selector row under the pointer, or `undefined`.
+   */
+  private regionTarget(region: { region: 'chrome' | 'overlay'; index: number }): SelectorTarget | undefined {
+    if (region.region !== 'chrome') return undefined
+    const start = this.selectorRow
+    const selecting = this.select_
+    if (start === undefined || selecting === undefined) return undefined
+    return selecting.selector.targetAt(region.index - start)
+  }
+
+  /**
+   * Mark the row the pointer rests on, repainting only when it moved.
+   * @param target - the row under the pointer, or `undefined`.
+   */
+  private setRegionHover(target: SelectorTarget | undefined): void {
+    const selecting = this.select_
+    if (selecting === undefined) return
+    const next = target === undefined ? '' : `${target.kind}:${target.kind === 'option' ? String(target.index) : ''}`
+    if (next === this.regionHover) return
+    this.regionHover = next
+    selecting.selector.setHovered(target)
+    this.render()
+  }
+
+  /** Drop the pointer mark when the pointer leaves the region. */
+  private clearRegionHover(): void {
+    if (this.regionHover === '') return
+    this.regionHover = ''
+    this.select_?.selector.setHovered(undefined)
+    this.render()
+  }
+
+  /**
+   * Finish what a selector step decided, the way a keystroke would.
+   * @param step - what the selector did.
+   */
+  private settleSelection(step: SelectorStep): void {
+    const selecting = this.select_
+    if (selecting === undefined) return
+    if (step.kind === 'done') {
+      selecting.dispose()
+      selecting.resolve(step.outcome)
+      return
+    }
+    const highlighted = selecting.selector.highlighted
+    if (highlighted !== undefined && highlighted !== selecting.highlighted) {
+      selecting.highlighted = highlighted
+      selecting.preview?.(highlighted)
+    }
+    this.render()
+  }
+
   /** Recompose and redraw the bottom region. */
   private render(): void {
     if (!this.console.readsKeys) return
@@ -746,7 +867,9 @@ export class Prompt {
     let cursor = { row: 0, column: 0 }
     if (this.streaming !== undefined) rows.push(this.streaming)
     let menuOverlay: readonly string[] = []
+    this.selectorRow = undefined
     if (this.select_ !== undefined) {
+      this.selectorRow = rows.length
       rows.push(...this.select_.selector.view(this.theme, columns))
     } else if (this.engaged || this.reading) {
       const bang = (this.editor.view.lines[0] ?? '').startsWith('!')

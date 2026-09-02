@@ -560,6 +560,38 @@ describe.skipIf(process.platform === 'win32')('dsh code Escape (real PTY)', () =
     expect(working.join('\n')).toContain('SHIP_TICKET_TWO')
   }, E2E_TEST_TIMEOUT_MS)
 
+  it('takes a selector row on a click, and marks the row under the pointer', async () => {
+    // `/view` is the observable one: choosing a row opens the reader, so the
+    // click either committed or it did not. The pointer rests on the SECOND
+    // row, which the mark is not on — proving the click took the row under the
+    // pointer rather than the row Enter would have taken.
+    const overRow = '\u001B[<35;6;{row:const answer}M'
+    const clickRow = '\u001B[<0;6;{row:const answer}M\u001B[<0;6;{row:const answer}m'
+    const run = await drivePtySteps('markdown', [
+      ['Welcome to codsh', `explain${ENTER}`, 400],
+      ['CODE_CLI_CALL_STREAM_DONE', `/view${ENTER}`, 500],
+      ['View content', overRow, 400],
+      // No wait: the title is already on screen, and only the rows the hover
+      // changed are repainted, so waiting for it again would wait forever.
+      ['', clickRow, 600],
+      ['Esc closes', '\u001B', 400],
+      ['Ask anything', `/exit${ENTER}`, 400],
+    ], { rows: 20 })
+
+    const captured = (offset: number | undefined): string => Buffer.from(run.output).subarray(0, offset).toString()
+    const hovered = screenOf(captured(run.offsets[3]), -1, 20).alternate
+    const marked = hovered.findIndex(row => row.includes('\u276F'))
+    const under = hovered.findIndex(row => row.includes('const answer') && !row.includes('\u276F'))
+    // Resting somewhere never moves the mark.
+    expect(marked).toBeGreaterThanOrEqual(0)
+    expect(under).toBeGreaterThanOrEqual(0)
+    expect(marked).not.toBe(under)
+
+    // And the reader that opened is the row the pointer was on, not the marked one.
+    const opened = screenOf(captured(run.offsets[4]), -1, 20).alternate
+    expect(opened[0]).toContain('Code 1:1')
+  }, E2E_TEST_TIMEOUT_MS)
+
   it('toggles a collapsed output open with Ctrl-O, and keeps that choice on moving on', async () => {
     const output = await drivePty('tall', [
       ['/help for commands', `create the tall note${ENTER}`, 300],

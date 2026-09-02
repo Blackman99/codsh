@@ -41,6 +41,11 @@ export type SelectOutcome =
   | { kind: 'custom' }
   | { kind: 'cancelled' }
 
+/** What a pointer is over, in the widget's own row space. */
+export type SelectorTarget =
+  | { kind: 'option'; index: number }
+  | { kind: 'custom' }
+
 /** What a key did to the selection. */
 export type SelectorStep =
   | { kind: 'pending' }
@@ -54,6 +59,14 @@ export class Selector {
   private selected = 0
   private query = ''
   private readonly checked = new Set<number>()
+  /**
+   * The row the pointer rests on, when it rests on one.
+   *
+   * Kept apart from {@link selected} on purpose: a pointer often comes to rest
+   * somewhere nobody chose, and moving the mark would change what Enter does
+   * as a side effect of where the mouse happens to be.
+   */
+  private hovered: number | undefined
 
   constructor(private readonly spec: SelectSpec) {}
 
@@ -83,6 +96,67 @@ export class Selector {
   /** Whether a visible row index is the custom "type your own" row. */
   private isCustom(index: number): boolean {
     return this.spec.custom !== undefined && index === this.matching().length
+  }
+
+  /**
+   * What sits on one row of {@link view}'s output.
+   *
+   * The arithmetic mirrors the render exactly, and lives beside it for that
+   * reason: a title, an optional filter line, an optional "more above" line,
+   * then the window of rows, and the two trailing lines the pointer cannot
+   * act on.
+   * @param row - a row index within this widget's own rows, title at zero.
+   * @returns what the row offers, or `undefined` for a row that offers nothing.
+   */
+  targetAt(row: number): SelectorTarget | undefined {
+    let at = 1
+    if (this.spec.filterable === true && this.query !== '') at += 1
+    const total = this.count
+    const first = this.windowStart()
+    if (first > 0) at += 1
+    const shown = Math.min(total, first + VISIBLE_ROWS) - first
+    if (row < at || row >= at + shown) return undefined
+    const index = first + (row - at)
+    return this.isCustom(index) ? { kind: 'custom' } : { kind: 'option', index }
+  }
+
+  /**
+   * Mark the row the pointer rests on, or none.
+   * @param target - what the pointer is over.
+   */
+  setHovered(target: SelectorTarget | undefined): void {
+    this.hovered = target === undefined
+      ? undefined
+      : target.kind === 'custom' ? this.matching().length : target.index
+  }
+
+  /**
+   * Act on a row the pointer chose.
+   *
+   * A single-select row settles the whole selection, because a click that only
+   * moved the mark would be a gesture that needs a second gesture. A
+   * multi-select row toggles instead — committing on the first row would make
+   * a second choice impossible — which is what Space does on the keyboard. The
+   * custom row is neither: it is the way out of the list, and a click takes it.
+   * @param target - the row chosen.
+   * @returns whether the selection settled, and how.
+   */
+  click(target: SelectorTarget): SelectorStep {
+    if (target.kind === 'custom') return { kind: 'done', outcome: { kind: 'custom' } }
+    if (this.spec.multi === true) {
+      const original = this.matching()[target.index]
+      if (original === undefined) return { kind: 'pending' }
+      this.selected = target.index
+      if (this.checked.has(original)) this.checked.delete(original)
+      else this.checked.add(original)
+      return { kind: 'pending' }
+    }
+    return this.accept(target.index)
+  }
+
+  /** First row of the window, which follows the marked row. */
+  private windowStart(): number {
+    return Math.min(Math.max(0, this.selected - VISIBLE_ROWS + 1), Math.max(0, this.count - VISIBLE_ROWS))
   }
 
   /**
@@ -201,7 +275,7 @@ export class Selector {
     }
     const shown = this.matching()
     const total = this.count
-    const first = Math.min(Math.max(0, this.selected - VISIBLE_ROWS + 1), Math.max(0, total - VISIBLE_ROWS))
+    const first = this.windowStart()
     if (first > 0) rows.push(theme.dim(`  ↑ ${first} more`))
     for (let index = first; index < Math.min(total, first + VISIBLE_ROWS); index += 1) {
       if (this.isCustom(index)) {
@@ -253,7 +327,13 @@ export class Selector {
     const number = theme.dim(`${index + 1}.`)
     const trail = detail === undefined || detail === '' ? '' : theme.dim(`  ${detail}`)
     // Colour, not merely bold: bold alone barely reads on a dark background.
-    const body = marked ? theme.bold(theme.tool(label)) : label
+    const marked_ = marked ? theme.bold(theme.tool(label)) : label
+    // The pointer's row is underlined rather than marked: `❯` says what Enter
+    // would take, and a second glyph competing for that meaning would make the
+    // list answer two questions with one alphabet.
+    const body = index === this.hovered && theme.colored && !marked
+      ? `\u001B[4m${marked_}\u001B[24m`
+      : marked_
     return truncate(`${marker} ${number} ${box}${body}${trail}`, columns)
   }
 }

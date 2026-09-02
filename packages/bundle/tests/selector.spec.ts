@@ -189,3 +189,81 @@ describe('the view', () => {
     }
   })
 })
+
+describe('the pointer', () => {
+  it('maps its own rows to what sits on them', () => {
+    const selector = new Selector(spec)
+    // Title, then the three options, then the hints line.
+    expect(selector.targetAt(0)).toBeUndefined()
+    expect(selector.targetAt(1)).toEqual({ kind: 'option', index: 0 })
+    expect(selector.targetAt(3)).toEqual({ kind: 'option', index: 2 })
+    expect(selector.targetAt(4)).toBeUndefined()
+  })
+
+  it('counts the filter line and the "more above" line', () => {
+    const many: SelectSpec = {
+      title: 'Pick',
+      filterable: true,
+      options: Array.from({ length: 30 }, (_, index) => ({ label: `option ${index}` })),
+    }
+    const selector = new Selector(many)
+    selector.handle({ kind: 'text', text: 'option' } as Key)
+    // Title, filter line, then rows — the window is still at the top.
+    expect(selector.targetAt(2)).toEqual({ kind: 'option', index: 0 })
+
+    // Walking down past the window pushes it, and a "more above" line appears.
+    for (let step = 0; step < 15; step += 1) selector.handle(key('down'))
+    expect(selector.view(theme, 60)[2]).toContain('more')
+    const target = selector.targetAt(3)
+    expect(target?.kind).toBe('option')
+    // The first row of the window, not the first option in the list.
+    expect(target).not.toEqual({ kind: 'option', index: 0 })
+  })
+
+  it('finds the custom row where the list ends', () => {
+    const selector = new Selector({ ...spec, custom: 'Type your own answer' })
+    expect(selector.targetAt(4)).toEqual({ kind: 'custom' })
+  })
+
+  it('settles a single-select list on one click', () => {
+    const selector = new Selector(spec)
+    expect(selector.click({ kind: 'option', index: 2 })).toEqual({
+      kind: 'done', outcome: { kind: 'chosen', indices: [2] },
+    })
+  })
+
+  it('toggles a multi-select row instead of settling it', () => {
+    // Committing on the first row would make a second choice impossible.
+    const selector = new Selector({ ...spec, multi: true })
+    expect(selector.click({ kind: 'option', index: 0 })).toEqual({ kind: 'pending' })
+    expect(selector.click({ kind: 'option', index: 2 })).toEqual({ kind: 'pending' })
+    expect(selector.handle(key('enter'))).toEqual({
+      kind: 'done', outcome: { kind: 'chosen', indices: [0, 2] },
+    })
+  })
+
+  it('takes the custom row as the way out, even in a multi-select list', () => {
+    const selector = new Selector({ ...spec, multi: true, custom: 'Type your own answer' })
+    expect(selector.click({ kind: 'custom' })).toEqual({ kind: 'done', outcome: { kind: 'custom' } })
+  })
+
+  it('underlines the row it rests on, and leaves the mark where it was', () => {
+    const painted = createTheme(true, {})
+    const selector = new Selector(spec)
+    selector.setHovered({ kind: 'option', index: 2 })
+    const rows = selector.view(painted, 60)
+    const UNDERLINE = '\u001B[4m'
+    // The mark stays on the first row; the third is underlined.
+    expect(rows[1]).toContain('\u276F')
+    expect(rows[3]).toContain(UNDERLINE)
+    expect(rows[1]).not.toContain(UNDERLINE)
+    expect(selector.highlighted).toBe(0)
+  })
+
+  it('never underlines the row the mark is already on', () => {
+    const painted = createTheme(true, {})
+    const selector = new Selector(spec)
+    selector.setHovered({ kind: 'option', index: 0 })
+    expect(selector.view(painted, 60)[1]).not.toContain('\u001B[4m')
+  })
+})

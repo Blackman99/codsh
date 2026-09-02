@@ -42,9 +42,20 @@ function fakeConsole(readsKeys: boolean) {
     /** Viewport scrolling, recorded so the key routing can be asserted. */
     scrolls: [] as (number | 'bottom' | -1 | 1)[],
     scrolledBy: 0,
+    /**
+     * Where a pointer row falls below the transcript; the fake owns no
+     * geometry, so a test says so directly when it wants a region row.
+     */
+    region: undefined as { region: 'chrome' | 'overlay'; index: number } | undefined,
+    regionRowAt(): { region: 'chrome' | 'overlay'; index: number } | undefined { return this.region },
     /** What the viewport reports the pointer is resting on. */
     hover: undefined as { label: string; lines: number; expanded: boolean; enter?: boolean } | undefined,
     mouseMove(): { label: string; lines: number; expanded: boolean; enter?: boolean } | undefined { return this.hover },
+    /** Viewport pointer calls, recorded so a region press can be shown not to reach them. */
+    pointer: [] as string[],
+    mouseDown(row: number) { this.pointer.push(`down ${String(row)}`) },
+    mouseDrag(row: number) { this.pointer.push(`drag ${String(row)}`) },
+    mouseUp(): string | undefined { this.pointer.push('up'); return undefined },
     write: (line: string) => void written.push(line),
     setRegion: (rows: readonly string[], cursor: RegionCursor) => void draws.push({ rows: [...rows], cursor }),
     clearRegion: () => void draws.push({ rows: [], cursor: { row: 0, column: 0 } }),
@@ -276,6 +287,50 @@ describe('selection', () => {
 
     expect(await deciding).toEqual({ kind: 'cancelled' })
     expect(highlighted).toEqual([0, 1])
+  })
+
+  it('settles on a row pressed and released in the same place', async () => {
+    const { prompt, console } = build()
+    const deciding = prompt.select({ title: 'Allow?', options: [{ label: 'Yes' }, { label: 'No' }] })
+    // Row 0 is the title; the options follow it.
+    console.region = { region: 'chrome', index: 2 }
+    console.press({ kind: 'mouse-down', row: 9, column: 4 })
+    console.press({ kind: 'mouse-up', row: 9, column: 4 })
+    expect(await deciding).toEqual({ kind: 'chosen', indices: [1] })
+  })
+
+  it('takes the press back when it is released somewhere else', async () => {
+    const { prompt, console } = build()
+    const deciding = prompt.select({ title: 'Allow?', options: [{ label: 'Yes' }, { label: 'No' }] })
+    console.region = { region: 'chrome', index: 1 }
+    console.press({ kind: 'mouse-down', row: 8, column: 4 })
+    // Released one row down: the button was slid off before it was let go.
+    console.region = { region: 'chrome', index: 2 }
+    console.press({ kind: 'mouse-up', row: 9, column: 4 })
+    console.press({ kind: 'escape' })
+    expect(await deciding).toEqual({ kind: 'cancelled' })
+  })
+
+  it('does nothing on a row that offers nothing, and never reaches the viewport', async () => {
+    const { prompt, console } = build()
+    const deciding = prompt.select({ title: 'Allow?', options: [{ label: 'Yes' }] })
+    // The title row: not an option, and not a place to start a selection.
+    console.region = { region: 'chrome', index: 0 }
+    console.press({ kind: 'mouse-down', row: 7, column: 4 })
+    console.press({ kind: 'mouse-up', row: 7, column: 4 })
+    expect(console.pointer).toEqual([])
+    console.press({ kind: 'escape' })
+    expect(await deciding).toEqual({ kind: 'cancelled' })
+  })
+
+  it('marks the row under the pointer without moving what Enter would take', async () => {
+    const { prompt, console } = build()
+    const deciding = prompt.select({ title: 'Allow?', options: [{ label: 'Yes' }, { label: 'No' }] })
+    console.region = { region: 'chrome', index: 2 }
+    console.press({ kind: 'mouse-move', row: 9, column: 4 })
+    // The pointer moved nothing: Enter still takes the row the mark is on.
+    console.press({ kind: 'enter' })
+    expect(await deciding).toEqual({ kind: 'chosen', indices: [0] })
   })
 
   it('cancels the selection when its signal aborts', async () => {

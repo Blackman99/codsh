@@ -385,6 +385,28 @@ export class Screen {
     this.render()
   }
 
+  /**
+   * Where a terminal row falls in the region the surface owns below the
+   * transcript: the chrome, or the overlay drawn just above it.
+   *
+   * The viewport answers presses itself — blocks, the rail, the notice — but
+   * everything in these two regions belongs to whatever composed them, which
+   * is the only place that knows a row holds an option rather than a border.
+   * @param row - terminal row, 1-based.
+   * @returns the region and the row's index within it, or `undefined` for a
+   *   row the transcript owns.
+   */
+  regionRowAt(row: number): { region: 'chrome' | 'overlay'; index: number } | undefined {
+    const at = row - 1
+    const chromeStart = this.host.rows() - this.chrome.length
+    if (this.chrome.length > 0 && at >= chromeStart) return { region: 'chrome', index: at - chromeStart }
+    const overlayStart = chromeStart - this.overlay.length
+    if (this.overlay.length > 0 && at >= overlayStart && at < chromeStart) {
+      return { region: 'overlay', index: at - overlayStart }
+    }
+    return undefined
+  }
+
   /** Whether the alternate screen is currently held. */
   get entered(): boolean {
     return this.active
