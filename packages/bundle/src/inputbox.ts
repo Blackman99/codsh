@@ -52,6 +52,8 @@ export interface BoxOptions {
    * second character in the buffer.
    */
   shell?: boolean | undefined
+  /** The menu row a pointer rests on, underlined rather than marked. */
+  hoveredCandidate?: number | undefined
 }
 
 /** The rows to draw and where the cursor goes among them. */
@@ -226,12 +228,39 @@ function paintGestures(
 }
 
 /** Candidate rows painted as a floating layer, empty when the menu is closed. */
-function menuRows(view: EditorView, theme: Theme, columns: number): string[] {
-  if (view.candidates.length === 0) return []
-  const first = Math.min(
+/**
+ * First candidate of the menu's window, which follows the marked row.
+ * @param view - what the editor is showing.
+ * @returns the index the window starts at.
+ */
+function menuWindowStart(view: EditorView): number {
+  return Math.min(
     Math.max(0, view.selected - MENU_LIMIT + 1),
     Math.max(0, view.candidates.length - MENU_LIMIT),
   )
+}
+
+/**
+ * Which candidate sits on one row of the menu.
+ *
+ * The arithmetic mirrors {@link menuRows}: an optional "more above" line, the
+ * window, and an optional "more below" line the pointer cannot act on.
+ * @param view - what the editor is showing.
+ * @param row - a row index within the menu's own rows.
+ * @returns the candidate's index, or `undefined` for a row that offers none.
+ */
+export function menuTargetAt(view: EditorView, row: number): number | undefined {
+  if (view.candidates.length === 0) return undefined
+  const first = menuWindowStart(view)
+  const at = first > 0 ? 1 : 0
+  const shown = Math.min(view.candidates.length, first + MENU_LIMIT) - first
+  if (row < at || row >= at + shown) return undefined
+  return first + (row - at)
+}
+
+function menuRows(view: EditorView, theme: Theme, columns: number, hovered?: number): string[] {
+  if (view.candidates.length === 0) return []
+  const first = menuWindowStart(view)
   const menu = view.candidates.slice(first, first + MENU_LIMIT)
   const width = Math.max(...menu.map(candidate => displayWidth(candidate.value)))
   const rows: string[] = []
@@ -241,7 +270,11 @@ function menuRows(view: EditorView, theme: Theme, columns: number): string[] {
     const label = paintMenuLabel(candidate.value, view.token, chosen, theme)
     const pad = ' '.repeat(Math.max(0, width - displayWidth(candidate.value)))
     const detail = candidate.detail === '' ? '' : `  ${candidate.detail}`
-    rows.push(truncate(`${chosen ? theme.user('❯') : ' '} ${label}${pad}${theme.dim(detail)}`, columns))
+    // The marker column, not the label: the label already underlines the
+    // fragment that was typed, so a second underline there would say two
+    // things with one mark.
+    const marker = chosen ? theme.user('❯') : first + index === hovered ? theme.dim('·') : ' '
+    rows.push(truncate(`${marker} ${label}${pad}${theme.dim(detail)}`, columns))
   }
   const below = view.candidates.length - first - menu.length
   if (below > 0) rows.push(theme.dim(`  ↓ ${below} more`))
@@ -284,7 +317,7 @@ export function inputBox(view: EditorView, theme: Theme, columns: number, option
   const empty = lines.length === 1 && lines[0] === ''
   const mark = shell ? theme.pending('!') : theme.user('›')
   const hits = displayHits(view.hits, shell)
-  const overlay = menuRows(view, theme, columns)
+  const overlay = menuRows(view, theme, columns, options.hoveredCandidate)
   const rows: string[] = [accent(`╭${rule}╮`)]
   if (empty && (shell || options.placeholder !== undefined)) {
     const text = truncate(shell ? 'command' : (options.placeholder ?? ''), budget)

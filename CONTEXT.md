@@ -117,11 +117,13 @@ anchor, drag-to-extend, release-to-copy exactly as it was.
 _Avoid_: click handler, hit area
 
 **Pointer mark**:
-The row a Region pointer rests on, underlined. Kept apart from the `❯` a
-selection is marked with: a pointer often comes to rest somewhere nobody
-chose, and moving the mark would change what Enter does as a side effect of
-where the mouse is. Clicking takes the underlined row; Enter takes the marked
-one.
+The row a Region pointer rests on, shown as a dim `·` in the column `❯` marks
+from. One column answering two questions that cannot be confused: `❯` is what
+Enter takes, `·` is only where the pointer is. Kept apart on purpose — a
+pointer often comes to rest somewhere nobody chose, and moving the mark would
+change what Enter does as a side effect of where the mouse is. The completion
+menu is why it is the marker column rather than an underline: the label
+already underlines the fragment that was typed.
 _Avoid_: highlight, focus
 
 **Plan progress**:

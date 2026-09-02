@@ -42,6 +42,25 @@ function type(editor: Editor, text: string): EditorAction {
 const key = (kind: Key['kind']): Key => ({ kind } as Key)
 
 describe('editing', () => {
+  it('takes the candidate a pointer named, not the one the mark is on', () => {
+    // A click is not Tab: it names a row rather than stepping to the next.
+    const editor = build()
+    type(editor, '/')
+    const offered = editor.view.candidates.map(candidate => candidate.value)
+    expect(offered.length).toBeGreaterThan(1)
+    editor.chooseCandidate(1)
+    expect(editor.text).toBe(offered[1] ?? '')
+    expect(editor.view.candidates).toEqual([])
+  })
+
+  it('ignores a candidate index that names nothing', () => {
+    const editor = build()
+    type(editor, '/')
+    const before = editor.text
+    editor.chooseCandidate(99)
+    expect(editor.text).toBe(before)
+  })
+
   it('moves up a wrapped row, instead of jumping to the history', () => {
     // The box wraps one long line across several rows. Up from the second row
     // used to see `row === 0`, decide there was nothing above, and recall the

@@ -279,6 +279,20 @@ export class Editor {
   }
 
   /**
+   * Take the candidate a pointer chose.
+   *
+   * A click is not Tab: it names the row rather than stepping to the next one,
+   * so the mark moves there and the word finishes in one gesture.
+   * @param index - the candidate's index in the open menu.
+   * @returns what the edit did, or `none` when the index names nothing.
+   */
+  chooseCandidate(index: number): EditorAction {
+    if (index < 0 || index >= this.candidates.length) return { kind: 'none' }
+    this.selected = index
+    return this.take()
+  }
+
+  /**
    * Open the menu, or move through it when it is already open.
    * @returns always `none`.
    */

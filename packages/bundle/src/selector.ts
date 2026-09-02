@@ -320,20 +320,17 @@ export class Selector {
    */
   private row(index: number, label: string, detail: string | undefined, theme: Theme, columns: number): string {
     const marked = index === this.selected
-    const marker = marked ? theme.user('❯') : ' '
+    // The marker column says what each row is: `❯` is what Enter takes, and a
+    // dim dot is only where the pointer rests. One column, two answers that
+    // cannot be confused, and no second alphabet.
+    const marker = marked ? theme.user('❯') : index === this.hovered ? theme.dim('·') : ' '
     const box = this.spec.multi === true && !this.isCustom(index)
       ? (this.checked.has(this.matching()[index] ?? index) ? theme.success('◉ ') : theme.dim('○ '))
       : ''
     const number = theme.dim(`${index + 1}.`)
     const trail = detail === undefined || detail === '' ? '' : theme.dim(`  ${detail}`)
     // Colour, not merely bold: bold alone barely reads on a dark background.
-    const marked_ = marked ? theme.bold(theme.tool(label)) : label
-    // The pointer's row is underlined rather than marked: `❯` says what Enter
-    // would take, and a second glyph competing for that meaning would make the
-    // list answer two questions with one alphabet.
-    const body = index === this.hovered && theme.colored && !marked
-      ? `\u001B[4m${marked_}\u001B[24m`
-      : marked_
+    const body = marked ? theme.bold(theme.tool(label)) : label
     return truncate(`${marker} ${number} ${box}${body}${trail}`, columns)
   }
 }

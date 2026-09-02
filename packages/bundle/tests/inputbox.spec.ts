@@ -4,7 +4,7 @@
  */
 
 import { describe, expect, it } from 'vitest'
-import { inputBox } from '../src/inputbox.ts'
+import { inputBox, menuTargetAt } from '../src/inputbox.ts'
 import { createTheme, displayWidth } from '../src/theme.ts'
 import type { EditorView } from '../src/editor.ts'
 
@@ -273,5 +273,52 @@ describe('the menu', () => {
       view({ lines: ['/p'], column: 2, candidates: [{ value: '/plan', detail: '' }] }),
       theme, 60, { hint: 'ESC interrupts' })
     expect(rows.join('\n')).not.toContain('ESC interrupts')
+  })
+})
+
+describe('the menu and the pointer', () => {
+  const candidates = (count: number) =>
+    Array.from({ length: count }, (_, index) => ({ value: `/cmd${index}`, detail: '' }))
+
+  it('maps its own rows to candidates', () => {
+    const shown = view({ lines: ['/'], column: 1, token: '/', candidates: candidates(4) })
+    expect(menuTargetAt(shown, 0)).toBe(0)
+    expect(menuTargetAt(shown, 3)).toBe(3)
+    expect(menuTargetAt(shown, 4)).toBeUndefined()
+  })
+
+  it('counts the "more above" line once the window has moved', () => {
+    // 30 candidates with the mark at the end: the window has scrolled, so the
+    // first row is the count of what is above it, not a candidate.
+    const shown = view({ lines: ['/'], column: 1, token: '/', candidates: candidates(30), selected: 29 })
+    const rows = inputBox(shown, theme, 60).overlay
+    expect(rows[0]).toContain('more')
+    expect(menuTargetAt(shown, 0)).toBeUndefined()
+    // Not a fixed number: the window's size is the menu's business, and a test
+    // that restates it breaks when the menu grows a row.
+    const firstShown = menuTargetAt(shown, 1)
+    expect(firstShown).toBeGreaterThan(0)
+    expect(menuTargetAt(shown, 2)).toBe((firstShown ?? 0) + 1)
+  })
+
+  it('offers nothing when the menu is closed', () => {
+    expect(menuTargetAt(view(), 0)).toBeUndefined()
+  })
+
+  it('dots the row the pointer rests on, and leaves the mark alone', () => {
+    const painted = createTheme(true, {})
+    const shown = view({ lines: ['/'], column: 1, token: '/', candidates: candidates(4) })
+    const rows = inputBox(shown, painted, 60, { hoveredCandidate: 2 }).overlay
+    expect(rows[0]).toContain('\u276F')
+    expect(rows[2]).toContain('\u00B7')
+    expect(rows[0]).not.toContain('\u00B7')
+  })
+
+  it('never puts the dot on the marked row', () => {
+    const painted = createTheme(true, {})
+    const shown = view({ lines: ['/'], column: 1, token: '/', candidates: candidates(4) })
+    const rows = inputBox(shown, painted, 60, { hoveredCandidate: 0 }).overlay
+    expect(rows[0]).toContain('\u276F')
+    expect(rows[0]).not.toContain('\u00B7')
   })
 })

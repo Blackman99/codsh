@@ -252,18 +252,19 @@ describe('the pointer', () => {
     const selector = new Selector(spec)
     selector.setHovered({ kind: 'option', index: 2 })
     const rows = selector.view(painted, 60)
-    const UNDERLINE = '\u001B[4m'
-    // The mark stays on the first row; the third is underlined.
+    // The mark stays on the first row; the third gets the pointer's dot.
     expect(rows[1]).toContain('\u276F')
-    expect(rows[3]).toContain(UNDERLINE)
-    expect(rows[1]).not.toContain(UNDERLINE)
+    expect(rows[3]).toContain('\u00B7')
+    expect(rows[1]).not.toContain('\u00B7')
     expect(selector.highlighted).toBe(0)
   })
 
-  it('never underlines the row the mark is already on', () => {
+  it('never puts the dot on the row the mark is already on', () => {
     const painted = createTheme(true, {})
     const selector = new Selector(spec)
     selector.setHovered({ kind: 'option', index: 0 })
-    expect(selector.view(painted, 60)[1]).not.toContain('\u001B[4m')
+    const row = selector.view(painted, 60)[1] ?? ''
+    expect(row).toContain('\u276F')
+    expect(row).not.toContain('\u00B7')
   })
 })

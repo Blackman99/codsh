@@ -10,7 +10,7 @@
  */
 
 import { Editor } from './editor.ts'
-import { inputBox, wrapBudget } from './inputbox.ts'
+import { inputBox, menuTargetAt, wrapBudget } from './inputbox.ts'
 import { Selector } from './selector.ts'
 import { FullscreenViewer } from './viewer.ts'
 import { truncate } from './theme.ts'
@@ -97,6 +97,11 @@ interface ActiveView {
 }
 
 /** Drives the input box and answers reads and selections. */
+/** What sits under a pointer in the region below the transcript. */
+type RegionTarget =
+  | { kind: 'selector'; target: SelectorTarget }
+  | { kind: 'candidate'; index: number }
+
 export class Prompt {
   private readonly editor: Editor
   private pending: Pending | undefined
@@ -139,9 +144,11 @@ export class Prompt {
    * A press that commits on the way down has no way back; sliding off before
    * letting go is the escape hatch every button has.
    */
-  private pressedTarget: SelectorTarget | undefined
+  private pressedTarget: RegionTarget | undefined
   /** The row the pointer last marked, so a move that changes nothing repaints nothing. */
   private regionHover = ''
+  /** The menu row a pointer rests on, handed to the box each render. */
+  private menuHover: number | undefined
   /** The always-current session facts shown as the region's last row. */
   private status: string | undefined
   /**
@@ -793,11 +800,16 @@ export class Prompt {
     // Same row down and up, or nothing happened: a press that slid somewhere
     // else on its way to being released was taken back.
     if (pressed === undefined || target === undefined) return
-    if (pressed.kind !== target.kind) return
-    if (pressed.kind === 'option' && target.kind === 'option' && pressed.index !== target.index) return
+    if (regionKey(pressed) !== regionKey(target)) return
+    if (target.kind === 'candidate') {
+      this.editor.chooseCandidate(target.index)
+      this.menuHover = undefined
+      this.render()
+      return
+    }
     const selecting = this.select_
     if (selecting === undefined) return
-    this.settleSelection(selecting.selector.click(target))
+    this.settleSelection(selecting.selector.click(target.target))
   }
 
   /**
@@ -805,25 +817,30 @@ export class Prompt {
    * @param region - the region and the row's index within it.
    * @returns the selector row under the pointer, or `undefined`.
    */
-  private regionTarget(region: { region: 'chrome' | 'overlay'; index: number }): SelectorTarget | undefined {
-    if (region.region !== 'chrome') return undefined
+  private regionTarget(region: { region: 'chrome' | 'overlay'; index: number }): RegionTarget | undefined {
+    if (region.region === 'overlay') {
+      // The completion menu is drawn over the transcript rather than among the
+      // chrome rows, so it answers in the overlay's own row space.
+      const index = menuTargetAt(this.editor.view, region.index)
+      return index === undefined ? undefined : { kind: 'candidate', index }
+    }
     const start = this.selectorRow
     const selecting = this.select_
     if (start === undefined || selecting === undefined) return undefined
-    return selecting.selector.targetAt(region.index - start)
+    const target = selecting.selector.targetAt(region.index - start)
+    return target === undefined ? undefined : { kind: 'selector', target }
   }
 
   /**
    * Mark the row the pointer rests on, repainting only when it moved.
    * @param target - the row under the pointer, or `undefined`.
    */
-  private setRegionHover(target: SelectorTarget | undefined): void {
-    const selecting = this.select_
-    if (selecting === undefined) return
-    const next = target === undefined ? '' : `${target.kind}:${target.kind === 'option' ? String(target.index) : ''}`
+  private setRegionHover(target: RegionTarget | undefined): void {
+    const next = target === undefined ? '' : regionKey(target)
     if (next === this.regionHover) return
     this.regionHover = next
-    selecting.selector.setHovered(target)
+    this.menuHover = target?.kind === 'candidate' ? target.index : undefined
+    this.select_?.selector.setHovered(target?.kind === 'selector' ? target.target : undefined)
     this.render()
   }
 
@@ -831,6 +848,7 @@ export class Prompt {
   private clearRegionHover(): void {
     if (this.regionHover === '') return
     this.regionHover = ''
+    this.menuHover = undefined
     this.select_?.selector.setHovered(undefined)
     this.render()
   }
@@ -877,6 +895,7 @@ export class Prompt {
         placeholder: this.placeholder,
         accent: bang ? text => this.theme.pending(text) : this.accent,
         shell: bang,
+        hoveredCandidate: this.menuHover,
       })
       cursor = { row: rows.length + box.cursorRow, column: box.cursorColumn }
       rows.push(...box.rows)
@@ -924,4 +943,14 @@ export class Prompt {
     this.console.setOverlay(menuOverlay)
     this.console.setRegion(rows, cursor, focus)
   }
+}
+
+/**
+ * One comparable name for what a pointer is over.
+ * @param target - the row under the pointer.
+ * @returns a key equal only for the same row.
+ */
+function regionKey(target: RegionTarget): string {
+  if (target.kind === 'candidate') return `candidate:${String(target.index)}`
+  return target.target.kind === 'custom' ? 'selector:custom' : `selector:${String(target.target.index)}`
 }

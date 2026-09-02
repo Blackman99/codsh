@@ -592,6 +592,31 @@ describe.skipIf(process.platform === 'win32')('dsh code Escape (real PTY)', () =
     expect(opened[0]).toContain('Code 1:1')
   }, E2E_TEST_TIMEOUT_MS)
 
+  it('takes a completion the pointer clicked, not the one the mark is on', async () => {
+    // `/` opens the menu with the mark on its first row; the pointer takes a
+    // different one, so the box proves which row the click meant.
+    // The typed `/` is underlined on its own, so the raw stream never holds
+    // `/compact` contiguously; the rest of the label does.
+    const overRow = '\u001B[<35;6;{row:compact}M'
+    const clickRow = '\u001B[<0;6;{row:compact}M\u001B[<0;6;{row:compact}m'
+    const run = await drivePtySteps('write', [
+      ['/help for commands', '/', 500],
+      ['compact', overRow, 400],
+      // No wait: only the rows the hover changed are repainted.
+      ['', clickRow, 500],
+      ['', `\u0015/exit${ENTER}`, 500],
+    ], { rows: 20 })
+
+    const captured = (offset: number | undefined): string => Buffer.from(run.output).subarray(0, offset).toString()
+    const hovered = screenOf(captured(run.offsets[2]), -1, 20).alternate
+    // The mark is on one row and the pointer's dot on another.
+    expect(hovered.some(row => row.includes('\u276F'))).toBe(true)
+    expect(hovered.some(row => row.includes('\u00B7 ') && row.includes('/compact'))).toBe(true)
+
+    const taken = screenOf(captured(run.offsets[3]), -1, 20).alternate.join('\n')
+    expect(taken).toContain('/compact')
+  }, E2E_TEST_TIMEOUT_MS)
+
   it('toggles a collapsed output open with Ctrl-O, and keeps that choice on moving on', async () => {
     const output = await drivePty('tall', [
       ['/help for commands', `create the tall note${ENTER}`, 300],

@@ -85,7 +85,7 @@ function fakeConsole(readsKeys: boolean) {
 }
 
 const sources = {
-  commands: () => [{ name: 'plan', description: 'plan mode' }],
+  commands: () => [{ name: 'plan', description: 'plan mode' }, { name: 'permission', description: 'switch the preset' }],
   paths: (token: string) => [[], token] as [string[], string],
 }
 
@@ -331,6 +331,23 @@ describe('selection', () => {
     // The pointer moved nothing: Enter still takes the row the mark is on.
     console.press({ kind: 'enter' })
     expect(await deciding).toEqual({ kind: 'chosen', indices: [0] })
+  })
+
+  it('takes a completion the pointer chose, not the one the mark is on', async () => {
+    const { prompt, console } = build()
+    const reading = prompt.read()
+    console.press({ kind: 'text', text: '/' })
+    // Two candidates are offered and the mark sits on the first.
+    expect(console.overlays.at(-1)?.length).toBeGreaterThan(1)
+
+    // The menu is drawn over the transcript, so it answers in the overlay.
+    console.region = { region: 'overlay', index: 1 }
+    console.press({ kind: 'mouse-down', row: 5, column: 4 })
+    console.press({ kind: 'mouse-up', row: 5, column: 4 })
+
+    console.press({ kind: 'enter' })
+    // The second candidate, not the first, which is where the mark was.
+    expect(await reading).toBe('/permission')
   })
 
   it('cancels the selection when its signal aborts', async () => {
