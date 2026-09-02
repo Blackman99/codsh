@@ -565,6 +565,38 @@ describe.skipIf(process.platform === 'win32')('the first five minutes', () => {
     expect(afterFailure).toEqual(before)
   }, E2E_TEST_TIMEOUT_MS)
 
+  it('copies the diff the reader is showing, which /copy cannot address', async () => {
+    const repo = await mkdtemp(join(tmpdir(), 'codsh-copy-'))
+    const git = (...args: string[]): void => {
+      execFileSync('git', args, { cwd: repo, stdio: 'ignore', env: { ...process.env, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_SYSTEM: '/dev/null' } })
+    }
+    try {
+      await writeFile(join(repo, 'tracked.ts'), 'const before = 1\n')
+      git('init', '-q')
+      git('add', '-A')
+      git('-c', 'user.email=e2e@codsh', '-c', 'user.name=e2e', 'commit', '-qm', 'base')
+      await writeFile(join(repo, 'tracked.ts'), 'const after = 2\n')
+
+      const output = await drivePty('markdown', [
+        ['Welcome to codsh', `/diff${ENTER}`, 500],
+        // `c` inside the reader; the clipboard write is the OSC 52 the
+        // terminal receives, which is the only proof available here.
+        ['c copies', 'c', 400],
+        ['copied', '\u001B', 300],
+        ['Ask anything', `/exit${ENTER}`, 400],
+      ], { cwd: repo, rows: 14 })
+
+      // OSC 52 carries the payload base64-encoded.
+      const written = /\u001B\]52;c;([A-Za-z0-9+/=]+)\u0007/u.exec(output)?.[1] ?? ''
+      expect(written).not.toBe('')
+      const text = Buffer.from(written, 'base64').toString()
+      expect(text).toContain('-const before = 1')
+      expect(text).toContain('+const after = 2')
+    } finally {
+      await rm(repo, { recursive: true, force: true })
+    }
+  }, E2E_TEST_TIMEOUT_MS)
+
   it('reads /diff in the pager instead of scrolling it past', async () => {
     // A real repository with a real uncommitted change: `/diff` shells out to
     // git, so a fixture that only looks like one would prove nothing.

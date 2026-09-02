@@ -404,13 +404,13 @@ export class Transcript {
         this.workflowAgents.delete(key)
         const label = started?.label ?? `round ${String(event.data.seq)}`
         this.rule = rules.tool
-        // Each round is its own child session, so its todos, tools, and
-        // reasoning live there rather than here. The round is the door: a
-        // click opens it, the same gesture a subagent card already offers.
-        if (started !== undefined) this.enter = started.childId
-        const hint = started === undefined ? '' : theme.dim('  click to enter')
-        if (event.data.outcome === 'completed') return [`  ${theme.success('✓')} ${label}${hint}`]
-        return [`  ${theme.error('✗')} ${label} ${theme.dim(`(${event.data.outcome})`)}${hint}`]
+        // No door, though the event names a child session: a workflow's
+        // children run in a worker thread, so their sessions are never in this
+        // process's registry — clicking a round could only ever answer "no
+        // longer running". Driven on a real terminal, that is exactly what it
+        // answered. The line stands on its own.
+        if (event.data.outcome === 'completed') return [`  ${theme.success('✓')} ${label}`]
+        return [`  ${theme.error('✗')} ${label} ${theme.dim(`(${event.data.outcome})`)}`]
       }
       case 'tool-workflow/run-end':
         this.rule = rules.tool

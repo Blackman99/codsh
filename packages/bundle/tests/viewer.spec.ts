@@ -126,3 +126,38 @@ describe('fullscreen response viewer', () => {
     expect(viewer.frame(theme, 20, 1).rows).toEqual(['Answer 1'])
   })
 })
+
+describe('copying what it shows', () => {
+  it('offers the gesture in the footer', () => {
+    const viewer = new FullscreenViewer({ title: 'Answer 1', kind: 'answer', text: 'body' })
+    expect(viewer.frame(theme, 80, 6).rows.at(-1)).toContain('c copies')
+  })
+
+  it('says it copied, until the next move', () => {
+    const viewer = new FullscreenViewer({
+      title: 'Code 1:1',
+      kind: 'code',
+      text: Array.from({ length: 12 }, (_, index) => `line ${index}`).join('\n'),
+    })
+    viewer.markCopied()
+    expect(viewer.frame(theme, 80, 6).rows.at(-1)).toContain('copied')
+    // Reading on is how a person acknowledges it; no timer is needed.
+    viewer.move({ kind: 'line', lines: 1 }, theme, 80, 6)
+    expect(viewer.frame(theme, 80, 6).rows.at(-1)).toContain('c copies')
+  })
+
+  it('hands over exactly what it was given, not what it drew', () => {
+    // The diff a card cannot address through `/copy`: the raw text, not the
+    // coloured rows the reader painted from it.
+    const text = '--- a/x.ts\n+++ b/x.ts\n@@ -1 +1 @@\n-was\n+is'
+    expect(new FullscreenViewer({ title: 'Changes', kind: 'diff', text }).text).toBe(text)
+  })
+})
+
+describe('the footer at a narrow width', () => {
+  it('keeps the way out when it has to cut', () => {
+    const viewer = new FullscreenViewer({ title: 'Answer 1', kind: 'answer', text: 'body' })
+    // Losing `Esc closes` to a navigation hint would be losing the exit.
+    expect(viewer.frame(theme, 24, 6).rows.at(-1)).toContain('Esc closes')
+  })
+})

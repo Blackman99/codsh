@@ -682,6 +682,68 @@ describe.skipIf(process.platform === 'win32')('dsh code Escape (real PTY)', () =
     expect(afterClick.some(row => row.trimStart().startsWith('\u00B7'))).toBe(false)
   }, E2E_TEST_TIMEOUT_MS)
 
+  it('opens the ship plan in the panel, ticket by ticket', async () => {
+    // The spec on disk is the plan; the panel is where the whole of it reads.
+    const run = await drivePtySteps('spec', [
+      ['/help for commands', `write the plan${ENTER}`, 900],
+      // The closed readout teases it; Ctrl+T opens the list.
+      ['Ctrl+T opens the list', '\u0014', 700],
+      ['SHIP_TICKET_THREE', '', 300],
+      ['', `/exit${ENTER}`, 500],
+    ], { columns: 100, rows: 24 })
+
+    const captured = (offset: number | undefined): string => Buffer.from(run.output).subarray(0, offset).toString()
+    const closed = screenOf(captured(run.offsets[1]), -1, 24).alternate.join('\n')
+    const open = screenOf(captured(run.offsets[2]), -1, 24).alternate.join('\n')
+
+    // The card that wrote the spec is also on screen with the same words in
+    // it, so the panel is told apart by its marks, which a diff never has.
+    // Closed: one row, the count and what is being landed, and no marks.
+    expect(closed).toContain('plan 1/3')
+    expect(closed).not.toContain('\u25B6')
+    // Open: the ticket in flight is marked, and the ones around it are too.
+    expect(open).toMatch(/\u25B6 SHIP_TICKET_TWO/u)
+    expect(open).toMatch(/\u2714 SHIP_TICKET_ONE/u)
+    expect(open).toMatch(/\u25CB SHIP_TICKET_THREE/u)
+  }, E2E_TEST_TIMEOUT_MS)
+
+  it('shows a workflow round by round, in the transcript and the working line', async () => {
+    // The real engine, driven by the mock: a script that runs two rounds, each
+    // child answering as text. Until now this rendering had no terminal test
+    // at all, because nothing could make a workflow run.
+    const run = await drivePtySteps('workflow', [
+      ['/help for commands', `run the rounds${ENTER}`, 400],
+      ['completed', '', 400],
+      ['', `/exit${ENTER}`, 500],
+    ], { rows: 20 })
+
+    const captured = (offset: number | undefined): string => Buffer.from(run.output).subarray(0, offset).toString()
+    const settled = screenOf(captured(run.offsets[1]), -1, 20).alternate.join('\n')
+
+    // The round in flight is in the working line, not the transcript: an
+    // append-only transcript cannot unprint a line when the round ends. Every
+    // frame is searched rather than one moment sampled: the label is also in
+    // the script the tool call carries, so only a decoded working line proves
+    // it, and only the frames while a round runs have one.
+    const probe = new Terminal(20, PTY_COLUMNS)
+    let namedARound = false
+    for (const frame of run.output.split(SYNC_END)) {
+      probe.feed(frame + SYNC_END)
+      // The verb is the tool's own name once a call is in flight, so the
+      // working line is recognised by what only it carries.
+      if (probe.alternate.some(row => /E2E round \d.*ESC to interrupt/u.test(row))) namedARound = true
+    }
+    expect(namedARound).toBe(true)
+    // Each settled round is one line, and the run closes with its reason.
+    expect(settled).toContain('e2e-rounds')
+    expect(settled).toMatch(/\u2713 E2E round 1/u)
+    expect(settled).toMatch(/\u2713 E2E round 2/u)
+    expect(settled).toContain('completed')
+    // And no door is offered, because a workflow's children live in a worker
+    // thread and no click could ever open one.
+    expect(settled).not.toContain('click to enter')
+  }, E2E_TEST_TIMEOUT_MS)
+
   it('toggles a collapsed output open with Ctrl-O, and keeps that choice on moving on', async () => {
     const output = await drivePty('tall', [
       ['/help for commands', `create the tall note${ENTER}`, 300],

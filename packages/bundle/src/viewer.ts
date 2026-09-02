@@ -28,6 +28,14 @@ export interface ViewerFrame {
 /** One response target rendered and navigated without touching transcript state. */
 export class FullscreenViewer {
   private offset = 0
+  /**
+   * Whether the last thing that happened was a copy.
+   *
+   * Said in the footer rather than the chrome, because the reader owns the
+   * whole screen while it is open and the flash row is not on it. Cleared by
+   * the next move, so it needs no timer: a person who read on has seen it.
+   */
+  private copied = false
   private layout: { columns: number; rows: { text: string; source: number; within: number }[] } | undefined
 
   constructor(private readonly spec: ViewerSpec) {}
@@ -81,7 +89,12 @@ export class FullscreenViewer {
     const body = [...visible, ...Array.from({ length: Math.max(0, bodyHeight - visible.length) }, () => '')]
     const first = physical.length === 0 ? 0 : this.offset + 1
     const last = Math.min(physical.length, this.offset + bodyHeight)
-    const footer = truncate(`↑↓/wheel · PgUp/PgDn · Home/End · Esc closes · ${first}-${last}/${physical.length}`, width)
+    // The two things a person needs lead: how to leave, and how to take what
+    // they are reading. A narrow terminal cuts the tail, and losing `Esc
+    // closes` to a navigation hint is losing the way out.
+    const footer = this.copied
+      ? truncate(`✓ copied · Esc closes · ${first}-${last}/${physical.length}`, width)
+      : truncate(`Esc closes · c copies · ↑↓/wheel · PgUp/PgDn · Home/End · ${first}-${last}/${physical.length}`, width)
     return {
       rows: [theme.bold(truncate(this.spec.title, width)), ...body, theme.dim(footer)],
       body,
@@ -90,7 +103,18 @@ export class FullscreenViewer {
     }
   }
 
+  /** The text this reader is showing, for a copy. */
+  get text(): string {
+    return this.spec.text
+  }
+
+  /** Note that what it shows was copied, until the next move. */
+  markCopied(): void {
+    this.copied = true
+  }
+
   move(move: ViewerMove, theme: Theme, columns: number, rows: number): void {
+    this.copied = false
     const frame = this.frame(theme, columns, rows)
     const page = Math.max(1, rows - 2)
     if (move.kind === 'home') this.offset = 0

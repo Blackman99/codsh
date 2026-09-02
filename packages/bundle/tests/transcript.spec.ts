@@ -255,9 +255,10 @@ describe('tool results', () => {
     // The round that settled names itself; the one still running is the
     // working line's job, because an append-only transcript cannot unprint it.
     expect(transcript.render(run('tool-workflow/agent-end', { runId: 'r1', seq: 1, outcome: 'completed' })))
-      .toEqual(['  ✓ Ralph round 1  click to enter'])
-    // The round is a door into its own child session, where its todos are.
-    expect(transcript.takeEnter()).toBe('c1')
+      .toEqual(['  ✓ Ralph round 1'])
+    // No door: a workflow's children run in a worker thread, so their
+    // sessions are not in this process to enter.
+    expect(transcript.takeEnter()).toBeUndefined()
     expect(transcript.render(run('tool-workflow/run-end', { runId: 'r1', stopReason: 'completed' })))
       .toEqual(['  completed', ''])
   })
@@ -269,8 +270,8 @@ describe('tool results', () => {
     } } as unknown as SessionEvent)
     expect(transcript.render({ type: 'tool-workflow/agent-end', seq: 2, time: 0, data: {
       runId: 'r1', seq: 7, outcome: 'failed',
-    } } as unknown as SessionEvent)).toEqual(['  ✗ Ralph round 7 (failed)  click to enter'])
-    expect(transcript.takeEnter()).toBe('c7')
+    } } as unknown as SessionEvent)).toEqual(['  ✗ Ralph round 7 (failed)'])
+    expect(transcript.takeEnter()).toBeUndefined()
   })
 
   it('falls back to the sequence when an end arrives without its start', () => {
@@ -279,7 +280,6 @@ describe('tool results', () => {
     expect(transcript.render({ type: 'tool-workflow/agent-end', seq: 1, time: 0, data: {
       runId: 'r1', seq: 3, outcome: 'completed',
     } } as unknown as SessionEvent)).toEqual(['  ✓ round 3'])
-    // No start seen means no child to open; the line must not promise one.
     expect(transcript.takeEnter()).toBeUndefined()
   })
 

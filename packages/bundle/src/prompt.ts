@@ -11,6 +11,8 @@
 
 import { Editor } from './editor.ts'
 import { caretAt, inputBox, menuScrollFrom, menuScrollLimit, menuTargetAt, wrapBudget } from './inputbox.ts'
+import { planReport, planSummary } from './plan.ts'
+import type { Plan } from './plan.ts'
 import { GUTTER } from './screen.ts'
 import { Selector } from './selector.ts'
 import { FullscreenViewer } from './viewer.ts'
@@ -151,6 +153,8 @@ export class Prompt {
   private pressedTarget: RegionTarget | undefined
   /** The row the pointer last marked, so a move that changes nothing repaints nothing. */
   private regionHover = ''
+  /** The plan a `/ship` run is working through, when one has been found. */
+  private plan: Plan | undefined
   /** The menu row a pointer rests on, handed to the box each render. */
   private menuHover: number | undefined
   /** The always-current session facts shown as the region's last row. */
@@ -437,6 +441,13 @@ export class Prompt {
       else if (key.kind === 'page') viewing.viewer.move({ kind: 'page', direction: key.direction }, this.theme, this.console.contentColumns, this.console.rows)
       else if (key.kind === 'home') viewing.viewer.move({ kind: 'home' }, this.theme, this.console.contentColumns, this.console.rows)
       else if (key.kind === 'end' || key.kind === 'scroll-end') viewing.viewer.move({ kind: 'end' }, this.theme, this.console.contentColumns, this.console.rows)
+      else if (key.kind === 'text' && key.text === 'c') {
+        // The one gesture that covers every kind the reader opens: an answer,
+        // a fenced block, and a diff, which `/copy` cannot address because
+        // tool cards are deliberately outside its index.
+        if (!this.console.copyText(viewing.viewer.text)) return
+        viewing.viewer.markCopied()
+      }
       else return
       this.render()
       return
@@ -718,12 +729,30 @@ export class Prompt {
    * @returns the rows, empty when no list is live.
    */
   private todoRows(columns: number): string[] {
-    if (this.todos.length === 0) return []
+    const plan = this.plan
     if (!this.todosExpanded) {
-      const row = todoRow(this.todos, this.theme, columns, 'Ctrl+T opens the list')
+      // One teaser, not two: the plan when there is one, because it outlives
+      // the turn's own list and says how much of the work is left.
+      const row = plan === undefined
+        ? todoRow(this.todos, this.theme, columns, 'Ctrl+T opens the list')
+        : planSummary(plan, this.theme, columns, 'Ctrl+T opens the list')
       return row === undefined ? [] : [row]
     }
-    return todoReport(this.todos, this.theme, columns, { hint: 'Ctrl+T closes', limit: TODO_ROWS })
+    // Both, plan first: they are different granularities of the same work —
+    // what `/ship` approved, and what this turn is tracking inside it.
+    return [
+      ...plan === undefined ? [] : planReport(plan, this.theme, columns, TODO_ROWS),
+      ...todoReport(this.todos, this.theme, columns, { hint: 'Ctrl+T closes', limit: TODO_ROWS }),
+    ]
+  }
+
+  /**
+   * Set the plan a `/ship` run is working through, or none.
+   * @param plan - the plan read from the spec file.
+   */
+  setPlan(plan: Plan | undefined): void {
+    this.plan = plan
+    this.render()
   }
 
   /**

@@ -817,6 +817,7 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
         const plan = parsePlan(readFileSync(path, 'utf8'))
         if (plan.tickets.length === 0) continue
         shipPlan = plan
+        prompt.setPlan(plan)
         return
       } catch {
         // A spec that moved or will not read is simply not the progress.

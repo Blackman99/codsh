@@ -86,3 +86,55 @@ export function planRow(plan: Plan, theme: Theme, columns: number): string | und
   // that is useless when partial.
   return truncate(`${count} · ${plan.current.title}`, Math.max(8, columns))
 }
+
+/**
+ * The plan as the pinned readout shows it when it is closed.
+ * @param plan - the plan read from the spec.
+ * @param theme - styling for the figure and the hint.
+ * @param columns - display columns available.
+ * @param hint - a trailing note, e.g. the key that opens the list.
+ * @returns the row, or `undefined` when there is no plan to report.
+ */
+export function planSummary(
+  plan: Plan,
+  theme: Theme,
+  columns: number,
+  hint?: string,
+): string | undefined {
+  if (plan.tickets.length === 0) return undefined
+  const count = `${String(plan.done)}/${String(plan.tickets.length)}`
+  const trail = hint === undefined ? '' : theme.dim(` · ${hint}`)
+  const current = plan.current === undefined
+    ? theme.success('every ticket landed')
+    : plan.current.title
+  return truncate(`  ${theme.tool('◇')} plan ${theme.dim(count)} · ${current}${trail}`, columns)
+}
+
+/**
+ * The plan's tickets, one per row.
+ *
+ * The same three marks the todo list uses, because a person reading the panel
+ * is reading one alphabet: a ticket that landed, the one being landed, and the
+ * ones waiting.
+ * @param plan - the plan read from the spec.
+ * @param theme - styling for the marks.
+ * @param columns - display columns available.
+ * @param limit - most tickets to print; the rest are counted on one line.
+ * @returns the rows, a header first.
+ */
+export function planReport(plan: Plan, theme: Theme, columns: number, limit?: number): string[] {
+  if (plan.tickets.length === 0) return []
+  const shown = limit === undefined ? plan.tickets : plan.tickets.slice(0, Math.max(0, limit))
+  const hidden = plan.tickets.length - shown.length
+  const count = `${String(plan.done)}/${String(plan.tickets.length)}`
+  return [
+    truncate(`  ${theme.tool('◇')} plan ${theme.dim(count)}`, columns),
+    ...shown.map((ticket) => {
+      const current = ticket === plan.current
+      const mark = ticket.done ? theme.success('✔') : current ? theme.pending('▶') : theme.dim('○')
+      const title = ticket.done ? theme.dim(ticket.title) : ticket.title
+      return truncate(`    ${mark} ${title}`, columns)
+    }),
+    ...hidden === 0 ? [] : [theme.dim(truncate(`    … +${String(hidden)} more`, columns))],
+  ]
+}

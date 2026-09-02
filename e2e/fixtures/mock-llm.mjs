@@ -76,6 +76,22 @@ const WIDE_LINES = [
   'WIDEDONE',
 ]
 
+/**
+ * A workflow the end-to-end suite can actually run: two rounds through the real
+ * engine, with each child answering as text so nothing recurses.
+ *
+ * The child is told apart by the marker its prompt carries — a child has no
+ * tool result in its history either, so without one it would emit this very
+ * tool call again.
+ */
+const WORKFLOW_SCRIPT = [
+  "phase('Rounds')",
+  'for (let round = 1; round <= 2; round += 1) {',
+  "  await agent('WORKFLOW_CHILD round ' + round, { label: 'E2E round ' + round, phase: 'Rounds' })",
+  '}',
+  "return 'WORKFLOW_RUN_DONE'",
+].join('\n')
+
 /** How long the interruptible scenario keeps the turn busy. */
 const SLOW_SECONDS = 30
 
@@ -162,6 +178,43 @@ class CodeCliMockAdapter extends LlmAdapter {
   }
 
   async * stream(options) {
+    if (MOCK_MODE === 'workflow') {
+      const seen = options.messages.flatMap(message =>
+        message.content.filter(block => block.type === 'text').map(block => block.text))
+      if (seen.some(text => text.includes('WORKFLOW_CHILD'))) {
+        // Long enough that the working line ticks while a round is in flight:
+        // a figure that only exists between rounds is one nobody sees.
+        await new Promise(resolve => setTimeout(resolve, 700))
+        const reply = 'WORKFLOW_CHILD_OK'
+        yield { type: 'block-start', index: 0, blockType: 'text' }
+        yield { type: 'text-delta', index: 0, text: reply }
+        yield { type: 'block-end', index: 0, block: { type: 'text', text: reply } }
+        yield { type: 'usage', usage: { inputTokens: 2, outputTokens: 2 } }
+        yield { type: 'finish', reason: { kind: 'stop' } }
+        return
+      }
+      const settled = options.messages.at(-1)?.content.find(block => block.type === 'tool-result')
+      if (settled === undefined) {
+        const args = JSON.stringify({
+          script: WORKFLOW_SCRIPT,
+          meta: { name: 'e2e-rounds', description: 'Two rounds through the real engine.' },
+        })
+        const id = CallId('code-cli-workflow')
+        yield { type: 'block-start', index: 0, blockType: 'tool-call' }
+        yield { type: 'tool-call-delta', index: 0, id, name: 'workflow', argumentsDelta: args }
+        yield { type: 'block-end', index: 0, block: { type: 'tool-call', id, name: 'workflow', arguments: args } }
+        yield { type: 'usage', usage: { inputTokens: 9, outputTokens: 4 } }
+        yield { type: 'finish', reason: { kind: 'tool-calls' } }
+        return
+      }
+      const reply = 'WORKFLOW_PARENT_OK'
+      yield { type: 'block-start', index: 0, blockType: 'text' }
+      yield { type: 'text-delta', index: 0, text: reply }
+      yield { type: 'block-end', index: 0, block: { type: 'text', text: reply } }
+      yield { type: 'usage', usage: { inputTokens: 3, outputTokens: 3 } }
+      yield { type: 'finish', reason: { kind: 'stop' } }
+      return
+    }
     if (MOCK_MODE === 'wide') {
       const reply = WIDE_LINES.join('\n')
       yield { type: 'block-start', index: 0, blockType: 'text' }

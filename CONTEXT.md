@@ -162,9 +162,9 @@ _Avoid_: todo list, task count
 What a `tool-workflow/*` record becomes on screen. A run opens with its name,
 each round prints one line as it settles, and the stop reason closes it. The
 round still running is named in the working line instead, because the
-transcript is append-only and cannot unprint a line when it ends. A settled
-round carries its child session id, so a click enters the round — which is
-where that round's todos, tools, and reasoning actually are.
+transcript is append-only and cannot unprint a line when it ends. The line is
+all a round gets: a workflow's children run in a worker thread, so their
+sessions are never in this process and no click could enter one.
 _Avoid_: workflow log, progress bar
 
 **Canned command**:

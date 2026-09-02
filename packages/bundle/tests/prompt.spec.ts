@@ -51,6 +51,9 @@ function fakeConsole(readsKeys: boolean) {
     /** What the viewport reports the pointer is resting on. */
     hover: undefined as { label: string; lines: number; expanded: boolean; enter?: boolean } | undefined,
     mouseMove(): { label: string; lines: number; expanded: boolean; enter?: boolean } | undefined { return this.hover },
+    /** What was written to the clipboard, so a copy can be asserted. */
+    copied: [] as string[],
+    copyText(text: string): boolean { this.copied.push(text); return true },
     /** Viewport pointer calls, recorded so a region press can be shown not to reach them. */
     pointer: [] as string[],
     mouseDown(row: number) { this.pointer.push(`down ${String(row)}`) },
@@ -426,6 +429,19 @@ describe('selection', () => {
 
     console.press({ kind: 'enter' })
     expect(await deciding).toEqual({ kind: 'chosen', indices: [0] })
+  })
+
+  it('copies what the reader is showing, on c', async () => {
+    const { prompt, console } = build()
+    const reading = prompt.view({ title: 'Changes', kind: 'diff', text: '-was\n+is' })
+    console.press({ kind: 'text', text: 'c' })
+    expect(console.copied).toEqual(['-was\n+is'])
+    // The reader says so itself: it owns the screen, so the flash row is not
+    // on it.
+    expect((console.viewers.at(-1) ?? []).join('\n')).toContain('copied')
+
+    console.press({ kind: 'escape' })
+    await reading
   })
 
   it('cancels the selection when its signal aborts', async () => {
