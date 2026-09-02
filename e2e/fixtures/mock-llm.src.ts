@@ -117,12 +117,31 @@ const SPEC_CONTENT = [
   '',
 ].join('\n')
 
+/** A command that is itself several lines, the shape a heredoc gives. */
+const HEREDOC_COMMAND = [
+  "python3 - <<'EOF'",
+  'import re',
+  "p='docs/specs/2026-09-02-impact.md'",
+  's=open(p).read()',
+  "open(p,'w').write(s)",
+  "print('patched')",
+  'EOF',
+].join('\n')
+
 /** Call arguments per `DSH_CODE_CLI_MOCK_TOOL` mode. */
 const ARGUMENTS: Readonly<Record<string, Readonly<Record<string, unknown>>>> = {
   write: { file_path: join(process.cwd(), TARGET), content: CONTENT },
   bash: {
     command: `printf ${CONTENT.trim()}`,
     description: 'Prove the terminal round trip.',
+    sandbox_permissions: 'danger-full-access',
+    justification: 'The end-to-end test drives the approval prompt.',
+  },
+  // A command with newlines in it: every row region cuts to fit, and a cut
+  // that keeps a newline breaks the frame it was cut for.
+  heredoc: {
+    command: HEREDOC_COMMAND,
+    description: 'Carry newlines into a one-row region.',
     sandbox_permissions: 'danger-full-access',
     justification: 'The end-to-end test drives the approval prompt.',
   },

@@ -1810,6 +1810,38 @@ describe('mouse selection', () => {
     expect(text).toBe('beta\ngamma')
   })
 
+
+  it('never lets a chrome row paint outside its own row', () => {
+    const sink = host(6, 40)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.append(['answer'])
+    // A status row built from text that carries its own newlines — a tool call
+    // whose command is a script, as one real session had. Measured as a fit,
+    // it would drop the cursor a line mid-row and write the rest at column 1
+    // of the box border below, which the frame diff then leaves alone forever.
+    screen.setChrome(["running: python3 - <<'EOF'\nimport re\nprint(1)", '╭────────╮', '│ prompt │'], { row: 0, column: 0 }, false)
+    const frame = flush(sink)
+    expect(frame).not.toContain('\n')
+    const rows = painted(frame)
+    expect(rows.get(4)?.startsWith("running: python3 - <<'EOF' import")).toBe(true)
+    expect(rows.get(5)).toBe('╭────────╮')
+  })
+
+  it('keeps what it recorded painting equal to what it wrote', () => {
+    const sink = host(6, 40)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['a\nb'], { row: 0, column: 0 }, false)
+    flush(sink)
+    // The row the diff remembers is the row that went out: remembering the
+    // unflattened one would make every later frame skip a row the terminal
+    // never received.
+    screen.setChrome(['a b'], { row: 0, column: 0 }, false)
+    // No row write at all: the frame it remembered is the frame that went out.
+    expect(flush(sink)).not.toContain('\u001B[2K')
+  })
+
   it('anchors in the blank space under the last line and sweeps up out of it', () => {
     const sink = host(8, 40)
     const screen = new Screen(sink)

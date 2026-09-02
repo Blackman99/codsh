@@ -448,9 +448,14 @@ export class Transcript {
       const header = view.cwd === undefined ? '' : theme.dim(` (${this.relative(view.cwd)})`)
       const description = view.description === undefined ? [] : [theme.dim(`  ${view.description}`)]
       const command = this.relativizeIn(view.title)
+      // A command that is several lines is named by its first. The rest is not
+      // lost — it arrives in full with the result — and a script whose lines
+      // are run together on one row reads as noise.
+      const lines = command.split('\n')
+      const summary = lines.length > 1 ? `${lines[0] ?? ''} …` : command
       return record(command, [
         `${theme.pending('●')} ${theme.tool(name)}${header}`,
-        `  $ ${truncate(command, columns - 4)}`,
+        `  $ ${truncate(summary, columns - 4)}`,
         ...description,
       ])
     }

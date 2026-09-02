@@ -4,7 +4,7 @@
  */
 
 import { describe, expect, it } from 'vitest'
-import { backgroundIsLight, createTheme, displayWidth, truncate } from '../src/theme.ts'
+import { backgroundIsLight, createTheme, displayWidth, oneRow, truncate } from '../src/theme.ts'
 
 describe('createTheme', () => {
   it('emits sequences on a colour-capable terminal', () => {
@@ -106,5 +106,28 @@ describe('emoji and symbol widths, per string-width', () => {
     // ⚡ mis-sized at one column sheared a real table's fourth column.
     expect(displayWidth('⚡')).toBe(2)
     expect(displayWidth('工作中显示 ⚡ 前缀')).toBe(18)
+  })
+})
+
+describe('a row that must stay one row', () => {
+  it('turns every control character into the column it was measured as', () => {
+    expect(oneRow('one\ntwo')).toBe('one two')
+    expect(oneRow('tab\there')).toBe('tab here')
+    expect(oneRow('carriage\rreturn')).toBe('carriage return')
+    // The escape SGR is built from is the one C0 character a row needs.
+    expect(oneRow('\u001B[1mbold\u001B[0m')).toBe('\u001B[1mbold\u001B[0m')
+  })
+
+  it('keeps the newline for a caller that breaks rows on it', () => {
+    expect(oneRow('one\ntwo\tthree', true)).toBe('one\ntwo three')
+  })
+
+  it('measures a cut on the flattened string, so no cut keeps a newline', () => {
+    // Left alone, a newline scores no columns: the string measures as a fit,
+    // is returned untouched, and the row it is painted into loses its frame.
+    const multi = "import re\np='spec.md'\ns=open(p).read()"
+    expect(truncate(multi, 200)).not.toContain('\n')
+    expect(truncate(multi, 20)).not.toContain('\n')
+    expect(displayWidth(truncate(multi, 20))).toBeLessThanOrEqual(20)
   })
 })

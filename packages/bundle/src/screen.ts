@@ -16,7 +16,7 @@
  * @module codsh-bundle/src/screen
  */
 
-import { displayWidth, truncate } from './theme.ts'
+import { displayWidth, oneRow, truncate } from './theme.ts'
 import { computeStickyLayout } from './sticky.ts'
 import { computeTimeline } from './timeline.ts'
 import type { TimelineMark } from './timeline.ts'
@@ -1977,7 +1977,12 @@ export class Screen {
         if (at < viewport.length) viewport[at] = fill(truncate(row, width), width, this.light)
       })
     }
-    const frame = [...viewport, ...this.chrome]
+    // Nothing that reaches this point may carry a control character: the
+    // frame below is written row by row at an explicit position, and a row that
+    // moves the cursor itself paints outside its own row. Both sources cut or
+    // wrap to fit and both drop them, so this is the guard rather than the
+    // rule, and it holds for whatever composes a row next.
+    const frame = [...viewport, ...this.chrome].map(row => oneRow(row))
 
     let out = SYNC_BEGIN + HIDE_CURSOR
     const repainted = new Set<number>()

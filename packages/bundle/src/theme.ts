@@ -165,6 +165,60 @@ export function displayWidth(text: string): number {
   return stringWidth(text)
 }
 
+/**
+ * Every C0 control character except the escape SGR sequences are built from,
+ * plus DEL.
+ */
+const CONTROL = /[\u0000-\u001A\u001C-\u001F\u007F]/u
+
+/**
+ * One escape sequence, matched where the scan stands.
+ *
+ * The C0 characters inside one belong to it — an OSC hyperlink or clipboard
+ * write ends in BEL — so a sequence is copied whole rather than flattened
+ * character by character.
+ */
+const ESCAPE_AT = /(?:\u001B\[[0-9;?]*[A-Za-z]|\u001B\][^\u0007]*\u0007|\u001B[\s\S])/gy
+
+/**
+ * Flatten a string into something one row can hold.
+ *
+ * A newline in a row is not a character but a cursor movement, and the width
+ * authority scores it zero columns — so a row carrying one measures as though
+ * it fits, and painting it drops the terminal's cursor a line and writes the
+ * remainder at column 1 of the row below. That row is usually one the frame
+ * diff considers unchanged — a box border, say — so nothing ever paints over
+ * the spill and it outlives every later frame. Every C0 character does this or
+ * worse, so each becomes one space. It happens before anything measures: the
+ * column a control character never had is exactly what the measurement got
+ * wrong.
+ * @param text - the string a single row will hold.
+ * @param keepNewlines - leave `\n` in, for a caller that breaks rows on it.
+ * @returns the string without control characters, keeping the escapes that style it.
+ */
+export function oneRow(text: string, keepNewlines = false): string {
+  // Most rows hold nothing to flatten, and this sits under the wrapping loop.
+  if (!CONTROL.test(text)) return text
+  let out = ''
+  let at = 0
+  while (at < text.length) {
+    const code = text.charCodeAt(at)
+    if (code === 0x1B) {
+      ESCAPE_AT.lastIndex = at
+      const escape = ESCAPE_AT.exec(text)
+      if (escape !== null) {
+        out += escape[0]
+        at += escape[0].length
+        continue
+      }
+    }
+    const control = code <= 0x1A || (code >= 0x1C && code <= 0x1F) || code === 0x7F
+    out += control && !(keepNewlines && code === 0x0A) ? ' ' : text[at]
+    at += 1
+  }
+  return out
+}
+
 /** Matches one SGR sequence at the start of a string. */
 const SGR_AT_START = /^\u001B\[[0-9;]*m/u
 
@@ -181,6 +235,9 @@ const SGR_AT_START = /^\u001B\[[0-9;]*m/u
  * @returns the string, unchanged when it already fits.
  */
 export function truncate(text: string, columns: number): string {
+  // Before the measurement, never after: a row is one row, and a control
+  // character inside one is a lie about how many columns it occupies.
+  text = oneRow(text)
   if (displayWidth(text) <= columns) return text
   if (columns < 2) return ''
   let width = 0

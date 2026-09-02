@@ -874,6 +874,31 @@ describe.skipIf(process.platform === 'win32')('dsh code Escape (real PTY)', () =
     expect(frame.alternate.some(row => /✓ copied \d+ lines/u.test(row))).toBe(true)
   }, E2E_TEST_TIMEOUT_MS)
 
+it('paints a command that is a script as rows, never outside one', async () => {
+    const output = await drivePty('heredoc', [
+      ['/help for commands', `run it${ENTER}`, 300],
+      ['Allow bash?', 'n', 400],
+      ['CODE_CLI_CALL_DENIED', `/exit${ENTER}`, 400],
+    ], { columns: 76, rows: 20 })
+
+    // Inside the alternate screen every row is written at a position of its
+    // own, so a raw newline is the surface painting outside one: the rest of
+    // the row lands at column 1 of the row below, and that row — a box border,
+    // say — is one the frame diff considers unchanged, so nothing paints over
+    // it again for the rest of the session. A real session lost the top of its
+    // input box exactly that way, to a bash command that was a heredoc.
+    const held = output.slice(output.indexOf('\u001B[?1049h'), output.indexOf(LEAVE_ALT))
+    expect(held).not.toContain('\n')
+
+    // The one-row summary names the command's first line...
+    const asking = screenAt(output, 'Allow bash?', 'last').alternate
+    expect(asking.some(row => row.includes("$ python3 - <<'EOF' …"))).toBe(true)
+    // ...and the whole script reads as rows of the block that ran it.
+    const done = screenAt(output, 'CODE_CLI_CALL_DENIED', 'last').alternate
+    expect(done.some(row => /│ import re$/u.test(row.trimEnd()))).toBe(true)
+    expect(done.some(row => row.includes("print('patched')"))).toBe(true)
+  }, E2E_TEST_TIMEOUT_MS)
+
   it('copies a drag that leaves the transcript and is released over the input box', async () => {
     const bottom = String(PTY_ROWS)
     const output = await drivePty('write', [

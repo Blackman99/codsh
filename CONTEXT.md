@@ -191,6 +191,19 @@ _Avoid_: session fold state, global expanded mode
 **Chrome**:
 The bottom-pinned rows: input box, menus, hint row, status row. Never scrolls.
 
+**Row**:
+One line of a frame, painted at a position of its own. A row is text and
+nothing else: a control character inside one is not a character but a cursor
+movement, and the width authority scores it zero columns — so a row carrying a
+newline measures as a fit, paints its head where it belongs, and drops the rest
+at column 1 of the row below. That row is usually one the frame diff considers
+unchanged, so nothing paints over the spill and it outlives every later frame.
+Text becomes a row by being cut to fit (Chrome, menus, cards) or wrapped to fit
+(transcript); both flatten control characters first — the cut before it
+measures, the wrap by breaking a row where a newline asked for one — and the
+frame flattens again as it paints, for whatever composes a row next.
+_Avoid_: line (a transcript line may occupy several rows)
+
 **Fold**:
 A transcript block kept in both a summary and a full form, swappable in place
 — a click anywhere in the one under the pointer works it, Ctrl+O works them

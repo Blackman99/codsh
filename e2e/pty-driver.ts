@@ -154,6 +154,8 @@ export interface DriveOptions {
   columns?: number
   /** Extra environment for the app, over the harness's defaults. */
   env?: Record<string, string>
+  /** Arguments for the app itself, such as `--resume`. */
+  args?: readonly string[]
 }
 
 /**
@@ -178,7 +180,7 @@ export async function drivePtySteps(
   try {
     const overlay = join(cwd, 'mock.cordis.patch.yml')
     await writeFile(overlay, overlayText())
-    const launch = resolveLaunch({ overlay, home, mode })
+    const launch = resolveLaunch({ overlay, args: options.args, home, mode })
     const env = { ...launch.env, ...options.env ?? {} }
     const result = await execa('python3', [
       '-c', PTY_DRIVER,

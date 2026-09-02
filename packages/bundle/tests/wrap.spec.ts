@@ -64,3 +64,19 @@ describe('wrapAll', () => {
     expect(wrapAll(['ab', 'cdefgh', ''], 3)).toEqual(['ab', 'cde', 'fgh', ''])
   })
 })
+
+describe('a line that carries its own newlines', () => {
+  it('becomes one row per line, not one row with a cursor movement in it', () => {
+    expect(wrapStyled('one\ntwo\nthree', 40)).toEqual(['one', 'two', 'three'])
+  })
+
+  it('carries the styles open at the break into the next row', () => {
+    const rows = wrapStyled('\u001B[1mbold\nstill bold', 40)
+    expect(rows[0]).toBe('\u001B[1mbold\u001B[0m')
+    expect(rows[1]).toBe('\u001B[1mstill bold\u001B[0m')
+  })
+
+  it('spends a column on every other control character', () => {
+    expect(wrapStyled('a\tb', 40)).toEqual(['a b'])
+  })
+})

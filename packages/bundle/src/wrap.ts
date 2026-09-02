@@ -9,7 +9,7 @@
  * @module codsh-bundle/src/wrap
  */
 
-import { displayWidth } from './theme.ts'
+import { displayWidth, oneRow } from './theme.ts'
 
 /** One SGR sequence, which occupies no display columns. */
 const SGR = /^\u001B\[[0-9;]*m/
@@ -36,7 +36,10 @@ export function wrapStyled(text: string, columns: number): string[] {
   let active: string[] = []
   let row = ''
   let width = 0
-  let rest = text
+  // A row cannot hold a cursor movement, so every other control character
+  // becomes a space here and the newline breaks a row below — where the styles
+  // open at the break carry over, the way any other row break does.
+  let rest = oneRow(text, true)
 
   const flush = (): void => {
     rows.push(active.length > 0 ? `${row}${RESET}` : row)
@@ -45,6 +48,11 @@ export function wrapStyled(text: string, columns: number): string[] {
   }
 
   while (rest !== '') {
+    if (rest.startsWith('\n')) {
+      flush()
+      rest = rest.slice(1)
+      continue
+    }
     const sgr = SGR.exec(rest)
     if (sgr !== null) {
       const sequence = sgr[0]
