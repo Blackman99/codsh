@@ -4,7 +4,7 @@
  */
 
 import { describe, expect, it } from 'vitest'
-import { inputBox, menuTargetAt } from '../src/inputbox.ts'
+import { caretAt, inputBox, menuTargetAt } from '../src/inputbox.ts'
 import { createTheme, displayWidth } from '../src/theme.ts'
 import type { EditorView } from '../src/editor.ts'
 
@@ -320,5 +320,57 @@ describe('the menu and the pointer', () => {
     const rows = inputBox(shown, painted, 60, { hoveredCandidate: 0 }).overlay
     expect(rows[0]).toContain('\u276F')
     expect(rows[0]).not.toContain('\u00B7')
+  })
+})
+
+describe('putting the cursor where a pointer landed', () => {
+  // A content row is `| <gutter> <text>`, so its text starts four cells in.
+  const TEXT_AT = 4
+
+  it('lands on the character under the pointer', () => {
+    const shown = view({ lines: ['hello world'], column: 11 })
+    expect(caretAt(shown, 40, 1, TEXT_AT)).toEqual({ row: 0, column: 0 })
+    expect(caretAt(shown, 40, 1, TEXT_AT + 6)).toEqual({ row: 0, column: 6 })
+  })
+
+  it('clamps a border row to the nearest content row', () => {
+    const shown = view({ lines: ['one', 'two'], row: 1, column: 3 })
+    // Row 0 is the top border; row 3 is the bottom one.
+    expect(caretAt(shown, 40, 0, TEXT_AT + 1)).toEqual({ row: 0, column: 1 })
+    expect(caretAt(shown, 40, 3, TEXT_AT + 1)).toEqual({ row: 1, column: 1 })
+  })
+
+  it('clamps a column outside the text to the nearest end of it', () => {
+    const shown = view({ lines: ['abc'], column: 3 })
+    // On the frame, left of the text: the start of the line.
+    expect(caretAt(shown, 40, 1, 0)).toEqual({ row: 0, column: 0 })
+    // Past the end of a short line: its end, not the next line.
+    expect(caretAt(shown, 40, 1, TEXT_AT + 30)).toEqual({ row: 0, column: 3 })
+  })
+
+  it('counts a wide character as the two columns it draws', () => {
+    const shown = view({ lines: ['\u770B\u4E0Bx'], column: 3 })
+    // The `x` is the third code point but the fifth column.
+    expect(caretAt(shown, 40, 1, TEXT_AT + 4)).toEqual({ row: 0, column: 2 })
+    // Landing on the second half of a wide character takes that character.
+    expect(caretAt(shown, 40, 1, TEXT_AT + 1)).toEqual({ row: 0, column: 0 })
+  })
+
+  it('follows a line that wrapped onto a second row', () => {
+    const long = 'abcdefghijklmnopqrstuvwxyz'
+    const shown = view({ lines: [long], column: long.length })
+    // Narrow enough that the line takes more than one row.
+    const budget = Math.max(8, 20 - 4) - 2
+    expect(caretAt(shown, 20, 2, TEXT_AT + 1)).toEqual({ row: 0, column: budget + 1 })
+  })
+
+  it('gives back the `!` a shell box hides', () => {
+    const shown = view({ lines: ['!ls -la'], column: 7 })
+    // The box drew `ls -la`; column 0 of that is column 1 of the buffer.
+    expect(caretAt(shown, 40, 1, TEXT_AT, true)).toEqual({ row: 0, column: 1 })
+  })
+
+  it('answers for an empty box without inventing a position', () => {
+    expect(caretAt(view(), 40, 1, TEXT_AT + 5)).toEqual({ row: 0, column: 0 })
   })
 })

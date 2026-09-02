@@ -617,6 +617,28 @@ describe.skipIf(process.platform === 'win32')('dsh code Escape (real PTY)', () =
     expect(taken).toContain('/compact')
   }, E2E_TEST_TIMEOUT_MS)
 
+  it('puts the cursor where the box was clicked, across a wrap', async () => {
+    // Narrow enough that one typed line takes two rows in the box. Clicking
+    // the first row and typing proves the cursor went where the pointer did.
+    const typed = 'alpha beta gamma delta epsilon zeta'
+    const clickFirstRow = '\u001B[<0;10;{row:alpha}M\u001B[<0;10;{row:alpha}m'
+    const run = await drivePtySteps('write', [
+      ['/help for commands', typed, 500],
+      // The tail of the line is on the second row; `alpha` is on the first.
+      ['zeta', clickFirstRow, 400],
+      ['', 'X', 400],
+      // Submitting empties the box, so the command after it is a command.
+      ['', ENTER, 700],
+      ['Write note.txt', `/exit${ENTER}`, 500],
+    ], { columns: 30, rows: 16 })
+
+    const captured = (offset: number | undefined): string => Buffer.from(run.output).subarray(0, offset).toString()
+    const after = screenOf(captured(run.offsets[3]), -1, 16).alternate.join('\n')
+    // The character landed inside the first row, not at the end of the line.
+    expect(after).toContain('X')
+    expect(after).not.toContain('zetaX')
+  }, E2E_TEST_TIMEOUT_MS)
+
   it('toggles a collapsed output open with Ctrl-O, and keeps that choice on moving on', async () => {
     const output = await drivePty('tall', [
       ['/help for commands', `create the tall note${ENTER}`, 300],

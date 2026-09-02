@@ -350,6 +350,22 @@ describe('selection', () => {
     expect(await reading).toBe('/permission')
   })
 
+  it('puts the cursor where the box was clicked', async () => {
+    const { prompt, console } = build()
+    const reading = prompt.read()
+    console.press({ kind: 'text', text: 'hello world' })
+
+    // Row 0 of the chrome is the box's top border; row 1 is its first line,
+    // and the text starts four cells into it, after the screen's own gutter.
+    console.region = { region: 'chrome', index: 1 }
+    console.press({ kind: 'mouse-down', row: 9, column: 3 + 4 + 5 })
+    console.press({ kind: 'mouse-up', row: 9, column: 3 + 4 + 5 })
+    console.press({ kind: 'text', text: 'X' })
+
+    console.press({ kind: 'enter' })
+    expect(await reading).toBe('helloX world')
+  })
+
   it('cancels the selection when its signal aborts', async () => {
     const { prompt } = build()
     const controller = new AbortController()

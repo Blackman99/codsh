@@ -289,17 +289,38 @@ function menuRows(view: EditorView, theme: Theme, columns: number, hovered?: num
  * @param options - placeholder, hint, and frame accent.
  * @returns the rows and cursor position.
  */
-export function inputBox(view: EditorView, theme: Theme, columns: number, options: BoxOptions = {}): BoxLayout {
-  const shell = options.shell === true && (view.lines[0] ?? '').startsWith('!')
-  const accent = options.accent ?? ((text: string) => theme.dim(text))
-  const inner = Math.max(8, columns - FRAME_WIDTH)
+/** The wrapped rows a box shows, and the window it shows them through. */
+interface BoxLayoutRows {
+  /** The buffer's lines, with a shell mode's `!` already taken off. */
+  lines: readonly string[]
+  /** The cursor's column within its line, with a shell mode's `!` taken off. */
+  column: number
+  /** Every wrapped segment of every line, in order. */
+  visual: VisualRow[]
+  /** The segment the cursor sits on. */
+  cursorAt: number
+  /** First and last segment the window shows. */
+  start: number
+  end: number
+}
+
+/**
+ * Where the box's rows come from.
+ *
+ * Read by the render and by {@link caretAt}, because a pointer has to land on
+ * the row a person is looking at: two copies of this arithmetic would put the
+ * cursor somewhere the box never drew.
+ * @param view - what the editor is showing.
+ * @param columns - display columns available to the whole box.
+ * @param shell - whether the leading `!` is the gutter rather than content.
+ * @returns the wrapped rows and the window over them.
+ */
+function boxLayout(view: EditorView, columns: number, shell: boolean): BoxLayoutRows {
   const budget = wrapBudget(columns)
-  const rule = '─'.repeat(inner + 2)
   const lines = shell
     ? [(view.lines[0] ?? '').slice(1), ...view.lines.slice(1)]
     : view.lines
   const column = shell && view.row === 0 ? Math.max(0, view.column - 1) : view.column
-
   const visual = lines.flatMap((line, index) => wrapLine(line, index, budget))
   // The cursor's visual row: the segment holding its column, with the line's
   // end position belonging to the final segment.
@@ -308,10 +329,60 @@ export function inputBox(view: EditorView, theme: Theme, columns: number, option
     && column >= row.start
     && (column < row.start + row.length || (row.last && column === row.start + row.length)))
   const cursorAt = Math.max(0, cursorVisual)
-
   // Window around the cursor once the box outgrows its budget.
   const start = Math.max(0, Math.min(visual.length - MAX_CONTENT_ROWS, cursorAt - (MAX_CONTENT_ROWS - 1)))
-  const end = Math.min(visual.length, start + MAX_CONTENT_ROWS)
+  return { lines, column, visual, cursorAt, start, end: Math.min(visual.length, start + MAX_CONTENT_ROWS) }
+}
+
+/** Cells before a content row's text: the frame, a space, the gutter, a space. */
+const TEXT_AT = 4
+
+/**
+ * Where a pointer landed in the buffer.
+ *
+ * Near misses clamp rather than miss: the text inside a box is a narrow target
+ * and "just above the first line" or "past the end of this one" are ordinary
+ * intentions, so a border row takes the nearest content row and a column
+ * outside the text takes the nearest end of it.
+ * @param view - what the editor is showing.
+ * @param columns - display columns available to the whole box.
+ * @param row - the row within the box's own rows, the top border at zero.
+ * @param cell - the display column within that row, from zero.
+ * @param shell - whether the leading `!` is the gutter rather than content.
+ * @returns where the cursor belongs in the buffer.
+ */
+export function caretAt(
+  view: EditorView,
+  columns: number,
+  row: number,
+  cell: number,
+  shell = false,
+): { row: number; column: number } {
+  const { visual, start, end } = boxLayout(view, columns, shell)
+  const shownCount = Math.max(1, end - start)
+  const within = Math.min(Math.max(0, row - 1), shownCount - 1)
+  const target = visual[start + within]
+  if (target === undefined) return { row: 0, column: shell ? 1 : 0 }
+  let remaining = Math.max(0, cell - TEXT_AT)
+  let offset = 0
+  for (const character of Array.from(target.text)) {
+    const width = displayWidth(character)
+    if (remaining < width) break
+    remaining -= width
+    offset += 1
+  }
+  const column = target.start + Math.min(offset, target.length)
+  // The `!` a shell box hides is still a character in the buffer.
+  return { row: target.logical, column: shell && target.logical === 0 ? column + 1 : column }
+}
+
+export function inputBox(view: EditorView, theme: Theme, columns: number, options: BoxOptions = {}): BoxLayout {
+  const shell = options.shell === true && (view.lines[0] ?? '').startsWith('!')
+  const accent = options.accent ?? ((text: string) => theme.dim(text))
+  const inner = Math.max(8, columns - FRAME_WIDTH)
+  const budget = wrapBudget(columns)
+  const rule = '─'.repeat(inner + 2)
+  const { lines, column, visual, cursorAt, start, end } = boxLayout(view, columns, shell)
   const shown = visual.slice(start, end)
 
   const empty = lines.length === 1 && lines[0] === ''

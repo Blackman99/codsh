@@ -116,6 +116,17 @@ sliding off before letting go takes it back. The Viewport keeps press-to-
 anchor, drag-to-extend, release-to-copy exactly as it was.
 _Avoid_: click handler, hit area
 
+**Caret placement**:
+Where a click inside the box puts the cursor. Near misses clamp rather than
+miss — a border row takes the nearest content row, a column outside the text
+takes the nearest end of it — because the text inside a frame is a narrow
+target and "just above the first line" is an ordinary intention. The inverse
+reads the same wrapped rows and the same window the box drew, so the cursor
+cannot land somewhere the box never showed, and a shell box's hidden `!` is
+given back. The press only has to land in the box: the release is the position
+it means, because putting a cursor somewhere is not a thing to be undone.
+_Avoid_: click to focus, text hit test
+
 **Pointer mark**:
 The row a Region pointer rests on, shown as a dim `·` in the column `❯` marks
 from. One column answering two questions that cannot be confused: `❯` is what

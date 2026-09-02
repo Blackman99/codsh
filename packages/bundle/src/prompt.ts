@@ -10,7 +10,8 @@
  */
 
 import { Editor } from './editor.ts'
-import { inputBox, menuTargetAt, wrapBudget } from './inputbox.ts'
+import { caretAt, inputBox, menuTargetAt, wrapBudget } from './inputbox.ts'
+import { GUTTER } from './screen.ts'
 import { Selector } from './selector.ts'
 import { FullscreenViewer } from './viewer.ts'
 import { truncate } from './theme.ts'
@@ -101,6 +102,7 @@ interface ActiveView {
 type RegionTarget =
   | { kind: 'selector'; target: SelectorTarget }
   | { kind: 'candidate'; index: number }
+  | { kind: 'caret'; row: number; cell: number }
 
 export class Prompt {
   private readonly editor: Editor
@@ -138,6 +140,8 @@ export class Prompt {
    * strings and every part's position is lost with it.
    */
   private selectorRow: number | undefined
+  /** Where the box's own rows begin among the chrome rows, and how many. */
+  private boxRows: { start: number; count: number } | undefined
   /**
    * What a press landed on, so a release somewhere else cancels it.
    *
@@ -526,7 +530,7 @@ export class Prompt {
     if (key.kind === 'mouse-down' || key.kind === 'mouse-up' || key.kind === 'mouse-move' || key.kind === 'mouse-drag') {
       const region = this.console.regionRowAt(key.row)
       if (region !== undefined) {
-        this.onRegionPointer(key.kind, region)
+        this.onRegionPointer(key.kind, region, key.column)
         return
       }
       if (this.pressedTarget !== undefined) {
@@ -784,8 +788,9 @@ export class Prompt {
   private onRegionPointer(
     kind: 'mouse-down' | 'mouse-up' | 'mouse-move' | 'mouse-drag',
     region: { region: 'chrome' | 'overlay'; index: number },
+    column: number,
   ): void {
-    const target = this.regionTarget(region)
+    const target = this.regionTarget(region, column)
     if (kind === 'mouse-move') {
       this.setRegionHover(target)
       return
@@ -801,6 +806,13 @@ export class Prompt {
     // else on its way to being released was taken back.
     if (pressed === undefined || target === undefined) return
     if (regionKey(pressed) !== regionKey(target)) return
+    if (target.kind === 'caret') {
+      const bang = (this.editor.view.lines[0] ?? '').startsWith('!')
+      const at = caretAt(this.editor.view, this.console.contentColumns, target.row, target.cell, bang)
+      this.editor.setCursor(at.row, at.column)
+      this.render()
+      return
+    }
     if (target.kind === 'candidate') {
       this.editor.chooseCandidate(target.index)
       this.menuHover = undefined
@@ -817,7 +829,10 @@ export class Prompt {
    * @param region - the region and the row's index within it.
    * @returns the selector row under the pointer, or `undefined`.
    */
-  private regionTarget(region: { region: 'chrome' | 'overlay'; index: number }): RegionTarget | undefined {
+  private regionTarget(
+    region: { region: 'chrome' | 'overlay'; index: number },
+    column: number,
+  ): RegionTarget | undefined {
     if (region.region === 'overlay') {
       // The completion menu is drawn over the transcript rather than among the
       // chrome rows, so it answers in the overlay's own row space.
@@ -826,9 +841,17 @@ export class Prompt {
     }
     const start = this.selectorRow
     const selecting = this.select_
-    if (start === undefined || selecting === undefined) return undefined
-    const target = selecting.selector.targetAt(region.index - start)
-    return target === undefined ? undefined : { kind: 'selector', target }
+    if (start !== undefined && selecting !== undefined) {
+      const target = selecting.selector.targetAt(region.index - start)
+      return target === undefined ? undefined : { kind: 'selector', target }
+    }
+    const box = this.boxRows
+    if (box === undefined) return undefined
+    const row = region.index - box.start
+    if (row < 0 || row >= box.count) return undefined
+    // The screen prepends its own gutter before every row it paints, so the
+    // column the terminal reports is that much wider than the row's own.
+    return { kind: 'caret', row, cell: column - 1 - GUTTER }
   }
 
   /**
@@ -886,6 +909,7 @@ export class Prompt {
     if (this.streaming !== undefined) rows.push(this.streaming)
     let menuOverlay: readonly string[] = []
     this.selectorRow = undefined
+    this.boxRows = undefined
     if (this.select_ !== undefined) {
       this.selectorRow = rows.length
       rows.push(...this.select_.selector.view(this.theme, columns))
@@ -898,6 +922,7 @@ export class Prompt {
         hoveredCandidate: this.menuHover,
       })
       cursor = { row: rows.length + box.cursorRow, column: box.cursorColumn }
+      this.boxRows = { start: rows.length, count: box.rows.length }
       rows.push(...box.rows)
       menuOverlay = box.overlay
     }
@@ -951,6 +976,10 @@ export class Prompt {
  * @returns a key equal only for the same row.
  */
 function regionKey(target: RegionTarget): string {
+  // A caret is the box, not a cell: a press that lands in the box and is let
+  // go one column over is still a person putting the cursor there, and the
+  // release is the position they meant.
+  if (target.kind === 'caret') return 'caret'
   if (target.kind === 'candidate') return `candidate:${String(target.index)}`
   return target.target.kind === 'custom' ? 'selector:custom' : `selector:${String(target.target.index)}`
 }

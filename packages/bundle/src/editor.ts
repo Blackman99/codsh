@@ -279,6 +279,22 @@ export class Editor {
   }
 
   /**
+   * Put the cursor where a pointer landed.
+   *
+   * The menu closes with the move: its candidates were computed for the token
+   * the cursor just left, and moving the cursor does not recompute them, so a
+   * menu left open would be offering completions for somewhere else.
+   * @param row - the buffer line, clamped into the buffer.
+   * @param column - the code-point column, clamped into that line.
+   */
+  setCursor(row: number, column: number): void {
+    this.row = Math.min(Math.max(0, row), this.lines.length - 1)
+    this.column = Math.min(Math.max(0, column), points(this.line()).length)
+    this.candidates = []
+    this.selected = 0
+  }
+
+  /**
    * Take the candidate a pointer chose.
    *
    * A click is not Tab: it names the row rather than stepping to the next one,

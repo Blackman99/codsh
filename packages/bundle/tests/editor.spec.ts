@@ -42,6 +42,31 @@ function type(editor: Editor, text: string): EditorAction {
 const key = (kind: Key['kind']): Key => ({ kind } as Key)
 
 describe('editing', () => {
+  it('puts the cursor where a pointer landed, and clamps into the buffer', () => {
+    const editor = build()
+    type(editor, 'one')
+    editor.handle({ kind: 'newline' })
+    type(editor, 'two')
+    editor.setCursor(0, 1)
+    expect(editor.view.row).toBe(0)
+    expect(editor.view.column).toBe(1)
+    // Past the end of a line, and past the end of the buffer.
+    editor.setCursor(0, 99)
+    expect(editor.view.column).toBe(3)
+    editor.setCursor(99, 0)
+    expect(editor.view.row).toBe(1)
+  })
+
+  it('closes the menu when the cursor is moved away from its token', () => {
+    // The candidates were computed for the token the cursor just left, and a
+    // cursor move does not recompute them.
+    const editor = build()
+    type(editor, '/')
+    expect(editor.view.candidates.length).toBeGreaterThan(0)
+    editor.setCursor(0, 0)
+    expect(editor.view.candidates).toEqual([])
+  })
+
   it('takes the candidate a pointer named, not the one the mark is on', () => {
     // A click is not Tab: it names a row rather than stepping to the next.
     const editor = build()
