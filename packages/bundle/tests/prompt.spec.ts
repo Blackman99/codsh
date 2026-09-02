@@ -366,6 +366,40 @@ describe('selection', () => {
     expect(await reading).toBe('helloX world')
   })
 
+  it('turns the wheel on the list the pointer is over', async () => {
+    const { prompt, console } = build()
+    const deciding = prompt.select({
+      title: 'Pick',
+      options: Array.from({ length: 30 }, (_, index) => ({ label: `option ${index}` })),
+    })
+    console.region = { region: 'chrome', index: 3 }
+    console.press({ kind: 'scroll', lines: 6, at: { row: 9, column: 4 } })
+
+    const shown = (console.draws.at(-1)?.rows ?? []).join('\n')
+    expect(shown).not.toContain('option 0 ')
+    // The mark never moved, so Enter still takes the first option.
+    console.press({ kind: 'enter' })
+    expect(await deciding).toEqual({ kind: 'chosen', indices: [0] })
+  })
+
+  it('leaves a keyboard scroll to the transcript, wherever the pointer rests', async () => {
+    const { prompt, console } = build()
+    const deciding = prompt.select({
+      title: 'Pick',
+      options: Array.from({ length: 30 }, (_, index) => ({ label: `option ${index}` })),
+    })
+    console.region = { region: 'chrome', index: 3 }
+    // No place on it: this came from Shift+Down, not the wheel.
+    console.press({ kind: 'scroll', lines: 6 })
+    // The transcript's scroll coalesces a burst into one repaint, so it lands
+    // on the next microtask rather than inside the key.
+    await Promise.resolve()
+    expect(console.scrolls).toEqual([6])
+
+    console.press({ kind: 'escape' })
+    expect(await deciding).toEqual({ kind: 'cancelled' })
+  })
+
   it('cancels the selection when its signal aborts', async () => {
     const { prompt } = build()
     const controller = new AbortController()

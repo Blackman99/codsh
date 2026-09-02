@@ -33,6 +33,8 @@ export interface EditorView {
   candidates: readonly Candidate[]
   /** Which candidate is selected, meaningless when there are none. */
   selected: number
+  /** Where the wheel left the menu's window; absent follows {@link selected}. */
+  menuScroll?: number
   /** The token under the cursor, which is what the candidates matched. */
   token: string
   /** Reverse history search, absent when not searching. */
@@ -118,6 +120,8 @@ export class Editor {
    * Undefined off a TTY, where nothing wraps and a line is a line.
    */
   private wrapWidth: number | undefined
+  /** A menu window the wheel moved; undefined follows the marked candidate. */
+  private menuScroll: number | undefined
   private readonly history: string[] = []
   /** Where the caller is in history; equals `history.length` when not browsing. */
   private browsing = 0
@@ -136,6 +140,7 @@ export class Editor {
       column: this.column,
       candidates: this.candidates,
       selected: this.selected,
+      ...this.menuScroll === undefined ? {} : { menuScroll: this.menuScroll },
       token: this.token(),
       hits: this.gestureHits(),
       ...(this.search === undefined
@@ -191,6 +196,9 @@ export class Editor {
    * @returns what the caller must do about it.
    */
   handle(key: Key): EditorAction {
+    // Any key brings the menu's window back to the marked candidate: a list
+    // scrolled away from what Enter would take answers a question nobody asked.
+    this.menuScroll = undefined
     if (this.search !== undefined) return this.handleSearch(key)
     switch (key.kind) {
       case 'history-search': return this.openSearch()
@@ -279,6 +287,16 @@ export class Editor {
   }
 
   /**
+   * Move the menu's window without moving the marked candidate.
+   * @param delta - rows to move by; negative scrolls towards the top.
+   * @param limit - the furthest the window may start.
+   * @param from - where the window starts now.
+   */
+  scrollMenu(delta: number, from: number, limit: number): void {
+    this.menuScroll = Math.min(Math.max(0, limit), Math.max(0, from + delta))
+  }
+
+  /**
    * Put the cursor where a pointer landed.
    *
    * The menu closes with the move: its candidates were computed for the token
@@ -292,6 +310,7 @@ export class Editor {
     this.column = Math.min(Math.max(0, column), points(this.line()).length)
     this.candidates = []
     this.selected = 0
+    this.menuScroll = undefined
   }
 
   /**

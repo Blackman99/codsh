@@ -41,7 +41,12 @@ export type Key =
   | { kind: 'transcript-search' }
   | { kind: 'turn'; direction: -1 | 1 }
   | { kind: 'page'; direction: -1 | 1 }
-  | { kind: 'scroll'; lines: number }
+  /**
+   * Scroll by lines. A scroll that carries a place came from the wheel; one
+   * without came from the keyboard, and must never be steered by where the
+   * pointer happens to be resting.
+   */
+  | { kind: 'scroll'; lines: number; at?: { row: number; column: number } }
   | { kind: 'scroll-end' }
   | { kind: 'paste'; text: string }
   | { kind: 'paste-image' }
@@ -283,8 +288,9 @@ export class KeyDecoder {
     if (mouse !== null) {
       this.held = this.held.slice(mouse[0].length)
       const button = Number(mouse[1])
-      if (button === WHEEL_UP) return [{ kind: 'scroll', lines: -WHEEL_LINES }]
-      if (button === WHEEL_UP + 1) return [{ kind: 'scroll', lines: WHEEL_LINES }]
+      const at = { row: Number(mouse[3]), column: Number(mouse[2]) }
+      if (button === WHEEL_UP) return [{ kind: 'scroll', lines: -WHEEL_LINES, at }]
+      if (button === WHEEL_UP + 1) return [{ kind: 'scroll', lines: WHEEL_LINES, at }]
       // The left button drives selection: press anchors it, motion extends
       // it, release copies it. Modified clicks stay the terminal's business —
       // a Shift-drag keeps reaching the terminal's own selection.

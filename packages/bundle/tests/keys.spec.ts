@@ -177,8 +177,11 @@ describe('KeyDecoder', () => {
   })
 
   it('turns the wheel into scroll keys', () => {
-    expect(decode(`${ESC}[<64;10;5M`)).toEqual([{ kind: 'scroll', lines: -1 }])
-    expect(decode(`${ESC}[<65;10;5M`)).toEqual([{ kind: 'scroll', lines: 1 }])
+    // The wheel carries where it turned; the keyboard's scroll does not, which
+    // is what keeps a resting pointer from steering Shift+Up.
+    expect(decode(`${ESC}[<64;10;5M`)).toEqual([{ kind: 'scroll', lines: -1, at: { row: 5, column: 10 } }])
+    expect(decode(`${ESC}[<65;10;5M`)).toEqual([{ kind: 'scroll', lines: 1, at: { row: 5, column: 10 } }])
+    expect(decode(`${ESC}[1;2A`)).toEqual([{ kind: 'scroll', lines: -1 }])
   })
 
   it('reports a left-button press, drag, and release with their position', () => {

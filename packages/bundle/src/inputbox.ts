@@ -234,10 +234,25 @@ function paintGestures(
  * @returns the index the window starts at.
  */
 function menuWindowStart(view: EditorView): number {
-  return Math.min(
+  const following = Math.min(
     Math.max(0, view.selected - MENU_LIMIT + 1),
     Math.max(0, view.candidates.length - MENU_LIMIT),
   )
+  return view.menuScroll ?? following
+}
+
+/** The furthest the menu's window may start, so the wheel can be clamped. */
+export function menuScrollLimit(view: EditorView): number {
+  return Math.max(0, view.candidates.length - MENU_LIMIT)
+}
+
+/**
+ * Where the menu's window starts now, so the wheel can move from it.
+ * @param view - what the editor is showing.
+ * @returns the first candidate the window shows.
+ */
+export function menuScrollFrom(view: EditorView): number {
+  return menuWindowStart(view)
 }
 
 /**

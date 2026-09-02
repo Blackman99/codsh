@@ -116,6 +116,15 @@ sliding off before letting go takes it back. The Viewport keeps press-to-
 anchor, drag-to-extend, release-to-copy exactly as it was.
 _Avoid_: click handler, hit area
 
+**List window**:
+Where an open list starts showing its rows. It follows the marked row, so the
+`❯` is always in view — except while the wheel has moved it, which is the one
+state it holds independently. Any key brings it back to the mark: a list
+scrolled away from what Enter would take answers a question nobody asked. Only
+the wheel moves it, never the keyboard's own scroll, which is why a scroll
+carries where it turned and one without a place is left to the transcript.
+_Avoid_: scroll offset, viewport
+
 **Caret placement**:
 Where a click inside the box puts the cursor. Near misses clamp rather than
 miss — a border row takes the nearest content row, a column outside the text

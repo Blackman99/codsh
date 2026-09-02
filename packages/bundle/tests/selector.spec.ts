@@ -268,3 +268,38 @@ describe('the pointer', () => {
     expect(row).not.toContain('\u00B7')
   })
 })
+
+describe('the wheel', () => {
+  const many: SelectSpec = {
+    title: 'Pick',
+    options: Array.from({ length: 30 }, (_, index) => ({ label: `option ${index}` })),
+  }
+
+  it('moves the window without moving the mark', () => {
+    const selector = new Selector(many)
+    expect(selector.highlighted).toBe(0)
+    selector.scrollBy(5)
+    // The mark did not move, so Enter still takes what it took.
+    expect(selector.highlighted).toBe(0)
+    // And the window did: the first option is no longer on screen.
+    expect(selector.view(theme, 60).join('\n')).not.toContain('option 0 ')
+  })
+
+  it('stops at both ends', () => {
+    const selector = new Selector(many)
+    selector.scrollBy(-50)
+    expect(selector.view(theme, 60).join('\n')).toContain('option 0')
+    selector.scrollBy(500)
+    expect(selector.view(theme, 60).join('\n')).toContain('option 29')
+  })
+
+  it('comes back to the mark on any key', () => {
+    const selector = new Selector(many)
+    selector.scrollBy(12)
+    expect(selector.view(theme, 60).join('\n')).not.toContain('option 0 ')
+    // A list scrolled away from what Enter would take answers a question
+    // nobody asked, so the first key brings it back.
+    selector.handle(key('down'))
+    expect(selector.view(theme, 60).join('\n')).toContain('option 0')
+  })
+})

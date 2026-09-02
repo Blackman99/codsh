@@ -10,7 +10,7 @@
  */
 
 import { Editor } from './editor.ts'
-import { caretAt, inputBox, menuTargetAt, wrapBudget } from './inputbox.ts'
+import { caretAt, inputBox, menuScrollFrom, menuScrollLimit, menuTargetAt, wrapBudget } from './inputbox.ts'
 import { GUTTER } from './screen.ts'
 import { Selector } from './selector.ts'
 import { FullscreenViewer } from './viewer.ts'
@@ -494,6 +494,7 @@ export class Prompt {
       this.render()
       return
     }
+    if (key.kind === 'scroll' && key.at !== undefined && this.scrollList(key.at, key.lines)) return
     if (key.kind === 'scroll') {
       // Negative lines scroll back into history — wheel up shows older output,
       // the direction every terminal scrolls. A gesture arrives as a burst of
@@ -778,6 +779,34 @@ export class Prompt {
     const at = hits === 0 ? 0 : (found?.index ?? 0) + 1
     const status = hits === 0 ? 'no matches' : `${at}/${hits}`
     return this.theme.dim(truncate(`  find: ${this.finding}  ${status}  ↑↓ next  Esc closes`, columns))
+  }
+
+  /**
+   * Turn the wheel on the list the pointer is over, when it is over one.
+   *
+   * Only the wheel: a scroll without a place came from the keyboard, and a
+   * pointer resting somewhere must never decide what Shift+Up moves.
+   * @param at - where the wheel turned.
+   * @param lines - rows to move by.
+   * @returns whether a list took it.
+   */
+  private scrollList(at: { row: number; column: number }, lines: number): boolean {
+    const region = this.console.regionRowAt(at.row)
+    if (region === undefined) return false
+    if (region.region === 'overlay') {
+      if (this.editor.view.candidates.length === 0) return false
+      const view = this.editor.view
+      this.editor.scrollMenu(lines, menuScrollFrom(view), menuScrollLimit(view))
+      this.render()
+      return true
+    }
+    const start = this.selectorRow
+    const selecting = this.select_
+    if (start === undefined || selecting === undefined) return false
+    if (region.index < start) return false
+    selecting.selector.scrollBy(lines)
+    this.render()
+    return true
   }
 
   /**

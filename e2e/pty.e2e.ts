@@ -639,6 +639,29 @@ describe.skipIf(process.platform === 'win32')('dsh code Escape (real PTY)', () =
     expect(after).not.toContain('zetaX')
   }, E2E_TEST_TIMEOUT_MS)
 
+  it('turns the wheel on an open menu, without moving what Enter would take', async () => {
+    // `/` offers more commands than the menu shows at once, so it has
+    // somewhere to scroll to.
+    const wheelDown = '\u001B[<65;10;{row:compact}M'.repeat(3)
+    const run = await drivePtySteps('write', [
+      ['/help for commands', '/', 500],
+      ['compact', wheelDown, 500],
+      // Enter with a menu open finishes the word rather than submitting, so
+      // the command it left has to be submitted before the box is free.
+      ['', ENTER, 700],
+      ['', ENTER, 700],
+      ['new session session-', `/exit${ENTER}`, 500],
+    ], { rows: 20 })
+
+    const captured = (offset: number | undefined): string => Buffer.from(run.output).subarray(0, offset).toString()
+    const scrolled = screenOf(captured(run.offsets[2]), -1, 20).alternate.join('\n')
+    // The window moved: the first command is no longer among the rows.
+    expect(scrolled).not.toContain('/clear')
+    // The mark did not, so Enter still finished the first command.
+    const taken = screenOf(captured(run.offsets[3]), -1, 20).alternate.join('\n')
+    expect(taken).toContain('/clear')
+  }, E2E_TEST_TIMEOUT_MS)
+
   it('toggles a collapsed output open with Ctrl-O, and keeps that choice on moving on', async () => {
     const output = await drivePty('tall', [
       ['/help for commands', `create the tall note${ENTER}`, 300],

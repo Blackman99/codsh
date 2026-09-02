@@ -67,6 +67,14 @@ export class Selector {
    * as a side effect of where the mouse happens to be.
    */
   private hovered: number | undefined
+  /**
+   * A window the wheel moved, independent of the marked row.
+   *
+   * Undefined means the window follows the mark, which is what every keyboard
+   * action restores: scrolling to look around must not decide what Enter
+   * takes, and a mark left off-screen would.
+   */
+  private scrolled: number | undefined
 
   constructor(private readonly spec: SelectSpec) {}
 
@@ -154,9 +162,19 @@ export class Selector {
     return this.accept(target.index)
   }
 
-  /** First row of the window, which follows the marked row. */
+  /** First row of the window: where the wheel left it, else following the mark. */
   private windowStart(): number {
-    return Math.min(Math.max(0, this.selected - VISIBLE_ROWS + 1), Math.max(0, this.count - VISIBLE_ROWS))
+    const following = Math.min(Math.max(0, this.selected - VISIBLE_ROWS + 1), Math.max(0, this.count - VISIBLE_ROWS))
+    return this.scrolled ?? following
+  }
+
+  /**
+   * Move the window without moving the mark.
+   * @param delta - rows to move by; negative scrolls towards the top.
+   */
+  scrollBy(delta: number): void {
+    const limit = Math.max(0, this.count - VISIBLE_ROWS)
+    this.scrolled = Math.min(limit, Math.max(0, this.windowStart() + delta))
   }
 
   /**
@@ -165,6 +183,9 @@ export class Selector {
    * @returns whether the selection settled, and how.
    */
   handle(key: Key): SelectorStep {
+    // Any key brings the window back to the mark: a list scrolled away from
+    // what Enter would take is a list that answers a question nobody asked.
+    this.scrolled = undefined
     switch (key.kind) {
       case 'up':
         if (this.count === 0) return { kind: 'pending' }
