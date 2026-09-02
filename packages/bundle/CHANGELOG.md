@@ -1,5 +1,21 @@
 # codsh-bundle
 
+## 0.15.0
+
+### Minor Changes
+
+- 0799769: The wheel scrolls the list it is over. An open selector or completion menu now holds a window of its own while the wheel moves it, so looking further down a list never changes what Enter would take — and any key brings the window back to the marked row. A scroll from the keyboard is left to the transcript wherever the pointer happens to rest, because a scroll now carries where it turned and one without a place did not come from the mouse.
+- 3e6323a: The completion menu answers the mouse. Clicking a row finishes the word with that candidate — the row the pointer named, not the one the mark is on — and resting on a row shows a dim `·` beside it without moving the `❯`. The menu is drawn over the transcript rather than among the rows below it, so it answers in the overlay's own row space.
+- b424ef8: Ctrl+T opens the `/ship` plan: every ticket with the landed ones dimmed and the one in flight marked, beside the agent's own todo list, since the two are different granularities of the same work. The fullscreen reader can copy what it is showing with `c` — which covers a diff, the one thing `/copy` cannot address, because tool cards are deliberately outside its index. Its footer leads with how to leave and how to copy, so a narrow terminal cuts a navigation hint rather than the way out.
+- b69db97: Selectors answer the mouse. A click takes a row in `/model`, `/resume`, `/jump`, `/copy`, `/view`, and every `ask_user_question` — a multi-select row toggles the way Space does, and the "type your own" row opens free text. Resting on a row underlines it without moving the `❯`, so the pointer never changes what Enter would take, and a press commits only where it is released. Approvals stay keyboard-only, and the transcript is untouched: press-to-anchor, drag-to-extend, release-to-copy work exactly as before.
+- fea74dc: A `/ship` run says how far through its plan it is while it works. The working line reports `done/total` and names the ticket in flight, read from the spec file's `## Plan` checkboxes — the round number a ralph loop reports counts against a budget, not against the work, so it could say which round was running but never how much was left. The figure appears as soon as the plan is on disk and updates as each round ticks its box.
+
+### Patch Changes
+
+- 4c8f9b9: An approval cannot be answered by a click. Making selectors answer the pointer made approvals answer it too, because they ask through the same widget — and one of their rows grants a tool for the rest of the session, which cannot be taken back. A selection can now refuse the pointer outright: no row to press, no mark under the pointer suggesting there is one, and the wheel refused as well.
+- 03bca03: Clicking in the input box puts the cursor there. A long line wraps across several rows and a tall one scrolls inside the frame, and the click follows both, because it reads the same wrapped rows and the same window the box drew. Near misses clamp instead of missing: a border row takes the nearest line, a column past the end of a line takes its end. The completion menu closes with the move, since its candidates were computed for the token the cursor just left.
+- b424ef8: A workflow round no longer offers to be entered. The event that reports a round names the child session it ran in, so each settled round said `click to enter` — but a workflow's children run in a worker thread and their sessions are never in this process, so clicking one could only ever answer "no longer running". Driven on a real terminal, that is exactly what it answered. The line stands on its own.
+
 ## 0.14.0
 
 ### Minor Changes
