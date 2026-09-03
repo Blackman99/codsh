@@ -418,6 +418,20 @@ describe.skipIf(process.platform === 'win32')('the first five minutes', () => {
     expect(released.some(row => row.includes('click to expand'))).toBe(false)
   }, E2E_TEST_TIMEOUT_MS)
 
+  it('gives the status row back when the window loses focus', async () => {
+    const moveTo = (line: string): string => `\u001B[<35;6;{row:${line}}M`
+    const output = await drivePty('reasoning', [
+      ['Welcome to codsh', `think it over${ENTER}`, 300],
+      ['thought for', moveTo('thought for'), 600],
+      ['click to expand', '\u001B[O', 600],
+      ['workspace-write', `/exit${ENTER}`, 400],
+    ])
+    const named = screenAtLast(output, 'click to expand').alternate
+    expect(named.some(row => /thinking · \d+ lines · click to expand/u.test(row))).toBe(true)
+    const released = screenAtLast(output, 'workspace-write').alternate
+    expect(released.some(row => row.includes('click to expand'))).toBe(false)
+  }, E2E_TEST_TIMEOUT_MS)
+
   it('opens the block a click lands on, and folds it back from inside it', async () => {
     // Where a block sits depends on everything printed above it, so the click
     // aims at the line itself and the driver resolves the row it was painted

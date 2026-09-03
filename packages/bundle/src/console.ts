@@ -423,6 +423,11 @@ export class TerminalConsole {
     // them, and buffering them as "early keys" would replay them as typing.
     if (key.kind === 'focus') {
       this.focused = key.focused
+      if (!key.focused) this.screen?.mouseLeave()
+      // The prompt still needs the report: a hover readout lives in the chrome,
+      // and leaving the window has to give that row back.
+      if (this.keyHandler === undefined) return
+      this.keyHandler(key)
       return
     }
     if (key.kind === 'osc-reply') {
@@ -624,6 +629,15 @@ export class TerminalConsole {
    */
   mouseMove(row: number, column: number): HoverBlock | undefined {
     return this.screen?.mouseMove(row, column)
+  }
+
+  /**
+   * The pointer left the transcript — the chrome, or the window.
+   *
+   * Drops the hover fill and the timeline preview the move last named.
+   */
+  mouseLeave(): void {
+    this.screen?.mouseLeave()
   }
 
   /**

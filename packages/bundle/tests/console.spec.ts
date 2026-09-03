@@ -304,6 +304,16 @@ describe('the bell and focus', () => {
     expect(term).toBeDefined()
   })
 
+  it('delivers focus-out to the key handler', async () => {
+    const { console: term, input } = build(true)
+    const seen: Key[] = []
+    const stop = term.onKey(key => { seen.push(key) })
+    input.write('\u001B[O')
+    await settle()
+    expect(seen).toEqual([{ kind: 'focus', focused: false }])
+    stop()
+  })
+
   it('stays quiet while the window is focused, and rings once it is not', async () => {
     const { console: term, input, output } = build(true)
     const stop = term.onKey(() => {})

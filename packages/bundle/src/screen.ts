@@ -1455,6 +1455,20 @@ export class Screen {
   }
 
   /**
+   * The pointer has left the transcript: it is on the chrome, or it left the
+   * window. The hover fill and the timeline preview go with it.
+   */
+  mouseLeave(): void {
+    const hadFold = this.hovered !== undefined
+    const hadTimeline = this.timelinePointer !== undefined
+    if (!hadFold && !hadTimeline) return
+    this.hovered = undefined
+    this.timelinePointer = undefined
+    if (hadTimeline) this.painted = []
+    this.render()
+  }
+
+  /**
    * Anchor a selection where the left button went down.
    *
    * The terminal cannot select for us while mouse reporting is on, so the

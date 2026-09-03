@@ -460,6 +460,10 @@ export class Prompt {
       this.render()
       return
     }
+    if (key.kind === 'focus') {
+      if (!key.focused) this.dropPointerHover()
+      return
+    }
     if (key.kind === 'clear-screen') {
       this.console.clearScreen()
       this.render()
@@ -554,6 +558,10 @@ export class Prompt {
       // offers nothing. A button-less move says nothing is held any more,
       // which is also how a release lost outside the window heals.
       if (key.kind === 'mouse-move') this.pressedViewport = false
+      if (key.kind === 'mouse-move' && this.pointerLeftWindow(key.row, key.column)) {
+        this.dropPointerHover()
+        return
+      }
       const owned = this.pressedViewport && (key.kind === 'mouse-drag' || key.kind === 'mouse-up')
       const region = owned ? undefined : this.console.regionRowAt(key.row)
       if (region !== undefined) {
@@ -877,7 +885,13 @@ export class Prompt {
   ): void {
     const target = this.regionTarget(region, column)
     if (kind === 'mouse-move') {
+      // The chrome is not a transcript block: keep the pointer mark on a
+      // selector row, but give the status row back if a fold had borrowed it.
+      const dropped = this.hover !== undefined
+      this.hover = undefined
+      this.console.mouseLeave()
       this.setRegionHover(target)
+      if (dropped) this.render()
       return
     }
     if (kind === 'mouse-drag') return
@@ -962,6 +976,32 @@ export class Prompt {
     this.menuHover = undefined
     this.select_?.selector.setHovered(undefined)
     this.render()
+  }
+
+  /**
+   * Whether a motion report is from outside the window.
+   *
+   * Some terminals send a 0,0 any-motion event when the pointer leaves; others
+   * report a cell past the last row or column. Either is "not on this surface".
+   * @param row - terminal row, 1-based.
+   * @param column - terminal column, 1-based.
+   */
+  private pointerLeftWindow(row: number, column: number): boolean {
+    return row < 1 || column < 1 || row > this.console.rows || column > this.console.columns
+  }
+
+  /**
+   * Give the status row back, and drop the fill the transcript was drawing.
+   *
+   * Used when the pointer leaves the window, or when focus-out is the only
+   * report the terminal will send for that.
+   */
+  private dropPointerHover(): void {
+    const dropped = this.hover !== undefined
+    this.hover = undefined
+    this.console.mouseLeave()
+    if (this.regionHover !== '') this.clearRegionHover()
+    else if (dropped) this.render()
   }
 
   /**

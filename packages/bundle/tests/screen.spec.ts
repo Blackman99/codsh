@@ -2015,6 +2015,24 @@ describe('the block under the pointer', () => {
     expect(painted(frame).get(2)).toBe('summary')
   })
 
+  it('drops the fill when the pointer leaves the window', () => {
+    const sink = host(10, 40)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['status'], { row: 0, column: 0 }, false)
+    screen.append(['above'])
+    screen.appendFold(['summary', ''], ['full one', ''], '', 'thinking')
+    screen.mouseMove(2, 3)
+    expect(flush(sink)).toContain('\u001B[48;5;236m')
+    screen.mouseLeave()
+    const frame = flush(sink)
+    expect(frame).not.toContain('\u001B[48;5;')
+    expect(painted(frame).get(2)).toBe('summary')
+    // A second leave, with nothing hovering, is a no-op.
+    screen.mouseLeave()
+    expect(flush(sink)).toBe('')
+  })
+
   it('still names a block whose head row is off the top of the screen', () => {
     const sink = host(6, 40)
     const screen = new Screen(sink)

@@ -51,6 +51,7 @@ function fakeConsole(readsKeys: boolean) {
     /** What the viewport reports the pointer is resting on. */
     hover: undefined as { label: string; lines: number; expanded: boolean; enter?: boolean } | undefined,
     mouseMove(): { label: string; lines: number; expanded: boolean; enter?: boolean } | undefined { return this.hover },
+    mouseLeave() { this.pointer.push('leave') },
     /** What was written to the clipboard, so a copy can be asserted. */
     copied: [] as string[],
     copyText(text: string): boolean { this.copied.push(text); return true },
@@ -687,6 +688,39 @@ describe('the surrounding rows', () => {
     console.hover = undefined
     console.press({ kind: 'mouse-move', row: 9, column: 5 })
     expect(console.draws.at(-1)?.rows.at(-1)).toBe('working')
+  })
+
+  it('gives the status row back when the pointer leaves the transcript for the chrome', () => {
+    const { prompt, console } = build()
+    prompt.setStatus('model · 12k tokens')
+    void prompt.read()
+    console.hover = { label: 'thinking', lines: 8, expanded: false }
+    console.press({ kind: 'mouse-move', row: 3, column: 5 })
+    expect(console.draws.at(-1)?.rows.at(-1)).toBe('  thinking · 8 lines · click to expand')
+    console.hover = undefined
+    console.region = { region: 'chrome', index: 0 }
+    console.press({ kind: 'mouse-move', row: 7, column: 5 })
+    expect(console.draws.at(-1)?.rows.at(-1)).toBe('model · 12k tokens')
+    expect(console.pointer.at(-1)).toBe('leave')
+  })
+
+  it('gives the status row back when the pointer leaves the window', () => {
+    const { prompt, console } = build()
+    prompt.setStatus('model · 12k tokens')
+    void prompt.read()
+    console.hover = { label: 'thinking', lines: 8, expanded: false }
+    console.press({ kind: 'mouse-move', row: 3, column: 5 })
+    expect(console.draws.at(-1)?.rows.at(-1)).toBe('  thinking · 8 lines · click to expand')
+    console.hover = undefined
+    // Some terminals report 0,0 when the pointer exits; others a cell past the
+    // last row. Either is "not on this surface".
+    console.press({ kind: 'mouse-move', row: 0, column: 0 })
+    expect(console.draws.at(-1)?.rows.at(-1)).toBe('model · 12k tokens')
+    console.hover = { label: 'thinking', lines: 8, expanded: false }
+    console.press({ kind: 'mouse-move', row: 3, column: 5 })
+    console.hover = undefined
+    console.press({ kind: 'focus', focused: false })
+    expect(console.draws.at(-1)?.rows.at(-1)).toBe('model · 12k tokens')
   })
 
   it('does not grow the chrome when the hover readout appears', () => {
