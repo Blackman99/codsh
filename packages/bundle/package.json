@@ -1,7 +1,7 @@
 {
   "name": "codsh-bundle",
   "description": "The codsh runtime: the interactive TTY surface and code-cli agent preset, installed into a dsh profile. Users install codsh-cli (the launcher) — this package is what it registers.",
-  "version": "0.15.1",
+  "version": "0.15.2",
   "type": "module",
   "license": "MIT",
   "main": "lib/index.js",
