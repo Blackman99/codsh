@@ -1,5 +1,12 @@
 # codsh-bundle
 
+## 0.15.2
+
+### Patch Changes
+
+- 6f43ce3: Give the status row back when the pointer leaves the window or moves onto the chrome. A hover readout had been sticky: leaving the transcript (or the window) kept showing `thinking · N lines · click to expand` instead of the model/tokens line.
+- e7d8458: Include thinking duration statistics for each reasoning block in the turn summary: e.g. `12.3s (thought 3.2s) · 1.2k tokens` or `12.3s (thought 2.1s, 4.3s) · 1.2k tokens`.
+
 ## 0.15.1
 
 ### Patch Changes
