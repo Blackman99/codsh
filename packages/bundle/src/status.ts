@@ -70,6 +70,19 @@ export function formatElapsed(ms: number): string {
 }
 
 /**
+ * Format a finished turn's time summary, optionally breaking out individual thinking durations.
+ * @param elapsedMs - milliseconds the entire turn took.
+ * @param thinkingMs - milliseconds each thinking block took, oldest first.
+ * @returns e.g. `12.3s`, `12.3s (thought 3.2s)`, `12.3s (thought 2.1s, 4.3s)`.
+ */
+export function formatTurnTime(elapsedMs: number, thinkingMs: readonly number[] = []): string {
+  const base = formatElapsed(elapsedMs)
+  if (thinkingMs.length === 0) return base
+  const thoughts = thinkingMs.map(ms => formatElapsed(ms)).join(', ')
+  return `${base} (thought ${thoughts})`
+}
+
+/**
  * Total tokens a session has spent across every bucket.
  *
  * The four buckets are disjoint by contract — reasoning already sits inside

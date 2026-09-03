@@ -78,7 +78,7 @@ import {
 } from './vision.ts'
 import { TextStream } from './streaming.ts'
 import { bundleVersion, checkForUpdate, updateCommand } from './update.ts'
-import { displayPath, formatElapsed, formatTokens, gitBranch, statusLine, statusReport, totalTokens } from './status.ts'
+import { displayPath, formatTokens, formatTurnTime, gitBranch, statusLine, statusReport, totalTokens } from './status.ts'
 import { todoReport } from './todos.ts'
 import type { PendingImage } from './prompt.ts'
 import type { TodoList } from './todos.ts'
@@ -1274,11 +1274,14 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
   // pages of deliberation would otherwise bury the conversation.
   let thinkingLines: string[] = []
   let thinkingStartedAt = 0
+  let turnThinkingMs: number[] = []
   const flushThinking = (): void => {
     thinkingLines.push(...thinking.flush())
     if (thinkingLines.length === 0) return
     prompt.setStreaming(undefined)
-    const { summary, full } = thinkingFold(thinkingLines, theme, (performance.now() - thinkingStartedAt) / 1000)
+    const thinkingElapsedMs = thinkingStartedAt > 0 ? performance.now() - thinkingStartedAt : 0
+    turnThinkingMs.push(thinkingElapsedMs)
+    const { summary, full } = thinkingFold(thinkingLines, theme, thinkingElapsedMs / 1000)
     io.console.appendFold(summary, full, '', FOLD_LABELS.thinking)
     thinkingLines = []
     thinkingStartedAt = 0
@@ -1716,6 +1719,7 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
     const before = totalTokens(facts(branch).usage) ?? 0
     turnBaseTokens = before
     workflowRound = undefined
+    turnThinkingMs = []
     const started = performance.now()
     io.console.setTitle(`⚡ dsh code — ${basename(cwd)}`)
     try {
@@ -1728,7 +1732,7 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
     // A long turn ending is the other moment worth calling the person back.
     if (config.bell && elapsedMs > BELL_TURN_MS) io.console.bell()
     const cost = spent > 0 ? ` · ${formatTokens(spent)} tokens` : ''
-    prompt.write(theme.dim(`  ${formatElapsed(elapsedMs)}${cost}`))
+    prompt.write(theme.dim(`  ${formatTurnTime(elapsedMs, turnThinkingMs)}${cost}`))
     prompt.write('')
   }
 

@@ -13,6 +13,7 @@ import {
   displayPath,
   formatElapsed,
   formatTokens,
+  formatTurnTime,
   gitBranch,
   statusLine,
   statusReport,
@@ -74,6 +75,25 @@ describe('formatElapsed', () => {
 
   it('never shows a negative clock', () => {
     expect(formatElapsed(-1)).toBe('0.0s')
+  })
+})
+
+describe('formatTurnTime', () => {
+  it('returns plain elapsed time when there are no thinking segments', () => {
+    expect(formatTurnTime(1500)).toBe('1.5s')
+    expect(formatTurnTime(1500, [])).toBe('1.5s')
+  })
+
+  it('includes a single thinking segment in parentheses', () => {
+    expect(formatTurnTime(12_300, [3200])).toBe('12s (thought 3.2s)')
+  })
+
+  it('includes multiple thinking segments separated by commas', () => {
+    expect(formatTurnTime(15_000, [2100, 4300])).toBe('15s (thought 2.1s, 4.3s)')
+  })
+
+  it('formats long thinking durations with appropriate units', () => {
+    expect(formatTurnTime(120_000, [65_000])).toBe('2m 00s (thought 1m 05s)')
   })
 })
 

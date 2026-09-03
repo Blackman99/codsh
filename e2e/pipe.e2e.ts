@@ -233,6 +233,7 @@ describe('dsh code (real profile, keyless model)', () => {
     expect(run.stdout).not.toContain('weighing the options carefully')
     expect(run.stdout.indexOf('✻ thought for')).toBeLessThan(run.stdout.indexOf('CODE_CLI_ANSWER'))
     expect(countOf(run.stdout, 'CODE_CLI_ANSWER after thinking')).toBe(1)
+    expect(run.stdout).toMatch(/[\d.]+s \(thought [\d.]+s\) · \d+ tokens/u)
   }, E2E_TEST_TIMEOUT_MS)
 
   it('runs a ! line locally and the next request sees its outcome', async () => {
