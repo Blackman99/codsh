@@ -757,9 +757,18 @@ export class Prompt {
     }
     // Both, plan first: they are different granularities of the same work —
     // what `/ship` approved, and what this turn is tracking inside it.
+    // If todos duplicate the plan's tickets (e.g. ship tickets tracked 1:1 via todo_write),
+    // omit the redundant todo list to avoid echoing identical items.
+    const redundantTodos = plan !== undefined && this.todos.length > 0
+      && this.todos.every(todo => plan.tickets.some(t => {
+        const todoNorm = todo.content.trim().toLowerCase()
+        const planNorm = t.title.trim().toLowerCase()
+        return todoNorm.includes(planNorm) || planNorm.includes(todoNorm)
+      }))
+
     return [
       ...plan === undefined ? [] : planReport(plan, this.theme, columns, TODO_ROWS),
-      ...todoReport(this.todos, this.theme, columns, { hint: 'Ctrl+T closes', limit: TODO_ROWS }),
+      ...redundantTodos ? [] : todoReport(this.todos, this.theme, columns, { hint: 'Ctrl+T closes', limit: TODO_ROWS }),
     ]
   }
 

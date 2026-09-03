@@ -59,8 +59,14 @@ export function parsePlan(markdown: string): Plan {
     if (!inside) continue
     const ticket = TICKET.exec(line)
     if (ticket === null) continue
-    const title = (ticket[2] ?? '').trim()
-    if (title === '') continue
+    const rawTitle = (ticket[2] ?? '').trim()
+    if (rawTitle === '') continue
+    // Strip trailing ticket metadata (e.g. "(Blocked by: ...) — Delivers ...")
+    // so the TUI displays a concise, readable ticket title without overflow.
+    const title = rawTitle
+      .replace(/\s*\([^)]*blocked\s+by:[^)]*\)/iu, '')
+      .replace(/\s*[-—–]\s*delivers\b.*$/iu, '')
+      .trim() || rawTitle
     tickets.push({ title, done: (ticket[1] ?? ' ').toLowerCase() === 'x' })
   }
   const done = tickets.filter(ticket => ticket.done).length

@@ -47,6 +47,13 @@ describe('parsePlan', () => {
     expect(plan.done).toBe(1)
   })
 
+  it('cleans up verbose ticket metadata from the title for clean terminal display', () => {
+    const spec = `## Plan\n\n- [x] Ticket 1: Short Title (Blocked by: None) — Delivers foo\n- [ ] Ticket 2: Another Title - Delivers bar (Blocked by: Ticket 1)\n`
+    const plan = parsePlan(spec)
+    expect(plan.tickets[0]?.title).toBe('Ticket 1: Short Title')
+    expect(plan.tickets[1]?.title).toBe('Ticket 2: Another Title')
+  })
+
   it('reports nothing for a spec with no plan yet', () => {
     const plan = parsePlan('# Spec\n\nStatus: interviewing\n')
     expect(plan.tickets).toEqual([])

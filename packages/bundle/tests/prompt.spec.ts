@@ -734,6 +734,28 @@ describe('the surrounding rows', () => {
     expect(closed.some(row => row.includes('▶ write the fix'))).toBe(true)
   })
 
+  it('omits redundant todos when a plan has matching tickets', () => {
+    const { prompt, console } = build()
+    prompt.setPlan({
+      tickets: [
+        { title: 'Ticket 1: Data Model', done: true },
+        { title: 'Ticket 2: Application Integration', done: false },
+      ],
+      done: 1,
+      current: { title: 'Ticket 2: Application Integration', done: false },
+    })
+    prompt.setTodos([
+      { content: 'Ticket 1: Data Model', status: 'completed' },
+      { content: 'Ticket 2: Application Integration', status: 'in_progress' },
+    ])
+    console.press({ kind: 'toggle-todos' })
+    const opened = console.draws.at(-1)?.rows ?? []
+    // The plan tickets are rendered
+    expect(opened.some(row => row.includes('◇ plan'))).toBe(true)
+    // Redundant todos header should not be rendered
+    expect(opened.some(row => row.includes('todos 1/2'))).toBe(false)
+  })
+
   it('shows no readout before the first todo write', () => {
     const { prompt, console } = build()
     prompt.setStatus('model')
