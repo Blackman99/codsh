@@ -1,5 +1,40 @@
 # codsh-bundle
 
+## 0.15.1
+
+### Patch Changes
+
+- dcadebc: Deduplicate redundant todos and clean up ticket titles in the `/ship` plan readout.
+  
+  When `/ship` landed tickets in-session, tracking them via `todo_write` duplicated
+  the spec's plan readout verbatim when opened with `Ctrl+T`. The readout now omits
+  the duplicate todo section when a live plan covers the same tickets, keeping the
+  panel concise. Ticket titles read from spec checkboxes also strip verbose metadata
+  (such as blocking edges and deliverables) to avoid overflow and clipping in the TUI.
+- 17d8e4f: Fix drag selection dying at the edges of the transcript.
+  
+  A drag swept down past the last line and released over the input box copied
+  nothing: the rows below the transcript are routed to whatever composed them, so
+  the release never reached the viewport that had anchored the selection — it
+  neither copied nor cleared. A gesture now belongs to where it began, through
+  release.
+  
+  A press on the blank space under the last line started nothing at all, so
+  sweeping up out of it selected nothing. It anchors at the nearest row now,
+  while a bare click there still works no block.
+- cf69c4d: Fix the frame corruption that survived every later repaint.
+  
+  A row painted with a control character in it does not stay in its row: the
+  width authority scores a newline zero columns, so the row measures as a fit,
+  paints its head where it belongs, and drops the rest at column 1 of the row
+  below — usually a box border the frame diff considers unchanged, so nothing
+  ever paints over the spill. A bash command that was a heredoc put one there.
+  
+  Text now flattens to one row wherever it becomes one: the cut does it before it
+  measures, the wrap breaks a row where a newline asked for one, and the frame
+  flattens again as it paints. A multi-line command reads as its lines in the
+  card that ran it, and the one-row summary above names its first line.
+
 ## 0.15.0
 
 ### Minor Changes
