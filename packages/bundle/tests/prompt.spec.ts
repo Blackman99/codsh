@@ -943,6 +943,8 @@ describe('the surrounding rows', () => {
     console.press({ kind: 'text', text: '?' })
     const opened = console.draws.at(-1)?.rows ?? []
     expect(opened.some(row => row.includes('Ctrl+R history'))).toBe(true)
+    expect(opened.some(row => row.includes('/status'))).toBe(true)
+    expect(opened.some(row => row.includes('model · permissions · tokens · context'))).toBe(true)
     console.press({ kind: 'escape' })
     const closed = console.draws.at(-1)?.rows ?? []
     expect(closed.some(row => row.includes('Ctrl+R history'))).toBe(false)

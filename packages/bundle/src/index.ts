@@ -1073,7 +1073,7 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
     // effect scope the detached driver has already left.
     disposers.push(commands.register({
       name: 'status',
-      description: 'show the model, composition, permissions, and token usage',
+      description: 'model · permissions · tokens · context',
       handler: () => ({ kind: 'success', text: statusReport(facts(branch), live.agent.session.id) }),
     }))
     disposers.push(commands.register({
