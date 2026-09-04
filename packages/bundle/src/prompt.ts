@@ -1,7 +1,7 @@
 /**
  * The prompt as the person sees it: an input box, a completion menu, a working
  * indicator, a status row, and — when a decision is being asked — a selection
- * widget in the box's place.
+ * widget in the box's place, or a compact /ship grill card above the box.
  *
  * This is where the two input shapes meet. On a terminal it drives the editor
  * from decoded keys and owns the bottom region; off one it reads lines from the
@@ -14,6 +14,7 @@ import { caretAt, inputBox, menuScrollFrom, menuScrollLimit, menuTargetAt, wrapB
 import { planReport, planSummary } from './plan.ts'
 import type { Plan } from './plan.ts'
 import { GUTTER } from './screen.ts'
+import { FrontierCard } from './frontier-card.ts'
 import { GateModal, gateChip } from './gate-modal.ts'
 import { Selector } from './selector.ts'
 import { FullscreenViewer } from './viewer.ts'
@@ -24,6 +25,7 @@ import type { EncodedImageAttachment } from '@deepseek-ai/dsh-attachment/types'
 import type { ClipboardImage } from './clipboard-image.ts'
 import type { TerminalConsole } from './console.ts'
 import type { EditorSources } from './editor.ts'
+import type { FrontierOutcome, FrontierSpec } from './frontier-card.ts'
 import type { GateAction, GateModalSpec } from './gate-modal.ts'
 import type { Key } from './keys.ts'
 import type { SelectOutcome, SelectSpec, SelectorStep, SelectorTarget } from './selector.ts'
@@ -114,6 +116,13 @@ interface ActiveGate {
   dispose(): void
 }
 
+/** One /ship grill frontier card in progress. */
+interface ActiveFrontier {
+  card: FrontierCard
+  resolve(outcome: FrontierOutcome): void
+  dispose(): void
+}
+
 /** Drives the input box and answers reads and selections. */
 /** What sits under a pointer in the region below the transcript. */
 type RegionTarget =
@@ -128,6 +137,7 @@ export class Prompt {
   private select_: ActiveSelect | undefined
   private view_: ActiveView | undefined
   private gate_: ActiveGate | undefined
+  private frontier_: ActiveFrontier | undefined
   /** Open /ship gate number mirrored into StatusFacts via handlers.shipGate. */
   private shipGate_: 1 | 2 | undefined
   /**
@@ -530,6 +540,38 @@ export class Prompt {
     })
   }
 
+  /**
+   * Put one /ship grill question on a compact card above the input.
+   *
+   * Not a viewer: the transcript and MetaBar stay up. Esc dismisses the card
+   * (soft cancel) and does not abort /ship.
+   * @param spec - the question and its options.
+   * @param signal - cancels as dismiss (empty, not abort).
+   */
+  frontier(spec: FrontierSpec, signal?: AbortSignal): Promise<FrontierOutcome> {
+    if (!this.console.readsKeys || this.console.finished || signal?.aborted === true) {
+      return Promise.resolve({ kind: 'dismiss' })
+    }
+    return new Promise<FrontierOutcome>((resolve) => {
+      const settle = (outcome: FrontierOutcome): void => {
+        const active = this.frontier_
+        this.frontier_ = undefined
+        active?.dispose()
+        if (outcome.kind === 'edit') this.editor.prefill(active?.card.focusedLabel ?? spec.options[0]?.label ?? '')
+        resolve(outcome)
+        this.render()
+      }
+      const onAbort = (): void => { settle({ kind: 'dismiss' }) }
+      this.frontier_ = {
+        card: new FrontierCard(spec),
+        resolve: settle,
+        dispose: () => { signal?.removeEventListener('abort', onAbort) },
+      }
+      signal?.addEventListener('abort', onAbort, { once: true })
+      this.render()
+    })
+  }
+
   /** Take the region down, so what follows lands at the bottom of the screen. */
   clear(): void {
     this.reading = false
@@ -546,6 +588,21 @@ export class Prompt {
     if (key.kind === 'interrupt') {
       this.shortcutsOpen = false
       this.handlers.interrupt()
+      return
+    }
+    const fronting = this.frontier_
+    if (fronting !== undefined) {
+      const action = fronting.card.handleKey(key)
+      if (action === undefined) {
+        this.render()
+        return
+      }
+      if (action.kind === 'move') {
+        this.render()
+        return
+      }
+      // Esc is dismiss, never handlers.escape / abort ship.
+      fronting.resolve(action)
       return
     }
     const gating = this.gate_
@@ -1260,10 +1317,13 @@ export class Prompt {
     this.selectorRow = undefined
     this.boxRows = undefined
     this.todoRowsAt = undefined
+    if (this.frontier_ !== undefined) {
+      rows.push(...this.frontier_.card.frame(this.theme, columns).rows)
+    }
     if (this.select_ !== undefined) {
       this.selectorRow = rows.length
       rows.push(...this.select_.selector.view(this.theme, columns))
-    } else if (this.engaged || this.reading) {
+    } else if (this.engaged || this.reading || this.frontier_ !== undefined) {
       const bang = (this.editor.view.lines[0] ?? '').startsWith('!')
       const box = inputBox(this.editor.view, this.theme, columns, {
         placeholder: this.placeholder,
@@ -1302,11 +1362,11 @@ export class Prompt {
     // jump the box. Status is truncated at paint so a resize can grow it back.
     // The legend keeps the row while the box is up; under a selector the
     // keys it names are not the ones that apply.
-    const hint = this.hint ?? (this.select_ === undefined ? this.legend : undefined)
+    const hint = this.hint ?? (this.select_ === undefined && this.frontier_ === undefined ? this.legend : undefined)
     const overlay = this.flash ?? this.findRow(columns) ?? this.hover
     if (overlay !== undefined) rows.push(overlay)
     else if (hint !== undefined) rows.push(truncate(hint, columns))
-    if (this.idleTipVisible && this.select_ === undefined && overlay === undefined) {
+    if (this.idleTipVisible && this.select_ === undefined && this.frontier_ === undefined && overlay === undefined) {
       rows.push(this.theme.muted(truncate(`  ${IDLE_TIP}`, columns)))
     }
     if (this.status !== undefined && (overlay === undefined || hint !== undefined)) {
@@ -1321,8 +1381,9 @@ export class Prompt {
     // The cursor lives in the box and shows only there: parked visibly on a
     // display row it reads as content colliding with it, and the selector's ❯
     // marker is its own focus affordance.
-    const focus = this.select_ === undefined && (this.engaged || this.reading)
+    const focus = this.select_ === undefined && this.frontier_ === undefined && (this.engaged || this.reading)
     if (!focus) cursor = { row: rows.length - 1, column: 0 }
+    // Frontier keeps the timeline: it is a card above the box, not a viewer.
     this.console.setTimelineHidden(this.select_ !== undefined)
     this.console.setOverlay(menuOverlay)
     this.console.setRegion(rows, cursor, focus)

@@ -14,6 +14,7 @@ import type {
   AskUserQuestionItem,
   AskUserQuestionRequest,
 } from '@deepseek-ai/dsh-user-questions'
+import type { FrontierOutcome, FrontierSpec } from './frontier-card.ts'
 import { gateTitle } from './gate-modal.ts'
 import { renderMarkdown } from './markdown.ts'
 import type { GateAction, GateKind, GateModalSpec } from './gate-modal.ts'
@@ -25,6 +26,9 @@ export type SelectAsk = (spec: SelectSpec, signal?: AbortSignal) => Promise<Sele
 
 /** Puts one /ship gate on the full-screen card; absent off a TTY. */
 export type GateAsk = (spec: GateModalSpec, signal?: AbortSignal) => Promise<GateAction>
+
+/** Puts one /ship grill question on the compact card; absent off a TTY. */
+export type FrontierAsk = (spec: FrontierSpec, signal?: AbortSignal) => Promise<FrontierOutcome>
 
 /** Reads one answer from the person. */
 export interface LineReader {
@@ -117,6 +121,18 @@ export function detectShipGate(header: string | undefined): 1 | 2 | undefined {
 }
 
 /**
+ * Detect a /ship grill frontier interview from an ask_user_question header.
+ * Matches `ship · grill` only (middle dot optional). Gate headers stay gates.
+ * @param header - the question header, if any.
+ * @returns true when this is a grill frontier question.
+ */
+export function detectShipGrill(header: string | undefined): true | undefined {
+  if (header === undefined) return undefined
+  if (/ship\s*[·•]?\s*grill\b/i.test(header)) return true
+  return undefined
+}
+
+/**
  * Detect a /ship approval gate from the question header only.
  *
  * Only `/ship` doors with `header` matching `ship · gate 1/2` (or 2/2) open
@@ -146,6 +162,31 @@ export function encodeGateAnswer(question: AskUserQuestionItem, action: GateActi
   return { id: question.id, selected: [yes?.label ?? options[0]?.label ?? 'Confirm'] }
 }
 
+/**
+ * Map a frontier card decision onto the ask_user_question answer encoding.
+ *
+ * Accept writes the focused label as a selection (same as Selector choose).
+ * Edit is the custom-edit path (`custom: 'edit'`), like gate edit.
+ * Dismiss is empty selected — not an abort write.
+ * @param question - the question being answered.
+ * @param outcome - what the FrontierCard settled as.
+ */
+export function encodeFrontierAnswer(question: AskUserQuestionItem, outcome: FrontierOutcome): AskUserQuestionAnswerItem {
+  if (outcome.kind === 'accept') return { id: question.id, selected: [outcome.value] }
+  if (outcome.kind === 'edit') return { id: question.id, selected: [], custom: 'edit' }
+  return { id: question.id, selected: [] }
+}
+
+/**
+ * Mark the recommended option: a description that says so, else the first.
+ * @param options - the question's options.
+ */
+function recommendedFlags(options: readonly { description?: string }[]): boolean[] {
+  const marked = options.map(option => option.description !== undefined && /recommend/i.test(option.description))
+  if (marked.some(flag => flag)) return marked
+  return options.map((_, index) => index === 0)
+}
+
 /** Answers `ask_user_question` from the terminal. */
 export class TerminalQuestions {
   constructor(
@@ -156,6 +197,8 @@ export class TerminalQuestions {
     private readonly select?: SelectAsk,
     /** The /ship full-screen gate, offered only on a TTY. */
     private readonly gate?: GateAsk,
+    /** The /ship grill compact card, offered only on a TTY. */
+    private readonly frontier?: FrontierAsk,
   ) {}
 
   /**
@@ -204,6 +247,27 @@ export class TerminalQuestions {
       } else {
         this.write(this.theme.dim('  aborted'))
       }
+      return answer
+    }
+    if (this.frontier !== undefined && detectShipGrill(question.header) === true && options.length > 0) {
+      const recommended = recommendedFlags(options)
+      const outcome = await this.frontier({
+        question: question.question,
+        options: options.map((option, index) => ({
+          label: option.label,
+          ...option.description === undefined ? {} : { detail: option.description },
+          ...recommended[index] === true ? { recommended: true } : {},
+        })),
+      }, signal)
+      const answer = encodeFrontierAnswer(question, outcome)
+      if (outcome.kind === 'accept') {
+        this.write(this.theme.dim(`  ✓ ${answer.selected.join(', ')}`))
+      } else if (outcome.kind === 'edit') {
+        // e exits to edit: custom-edit encoding (like gate), and Prompt
+        // prefills the focused option so the person types in the box.
+        this.write(this.theme.dim('  ✎ edit'))
+      }
+      // dismiss: empty selected, no "aborted" write — /ship keeps running.
       return answer
     }
     if (this.select === undefined || options.length === 0) {

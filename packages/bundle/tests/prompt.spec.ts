@@ -1103,6 +1103,46 @@ describe('ship gate modal', () => {
   })
 })
 
+describe('ship frontier card', () => {
+  const grill = {
+    question: 'Which storage?',
+    options: [
+      { label: 'SQLite', recommended: true as const },
+      { label: 'Postgres' },
+    ],
+  }
+
+  it('paints above the input without setViewer or hiding the timeline', async () => {
+    const { prompt, console, calls } = build()
+    prompt.setEngaged(true)
+    const pending = prompt.frontier(grill)
+    const rows = console.draws.at(-1)?.rows ?? []
+    expect(rows.some(row => row.includes('Which storage?'))).toBe(true)
+    expect(rows.some(row => row.includes('[rec]'))).toBe(true)
+    expect(rows.some(row => row.includes('╭'))).toBe(true)
+    expect(console.viewers).toEqual([])
+    expect(console.timelineHidden.at(-1)).toBe(false)
+    expect(prompt.shipGate).toBeUndefined()
+    console.press({ kind: 'escape' })
+    await expect(pending).resolves.toEqual({ kind: 'dismiss' })
+    expect(calls).toEqual([])
+  })
+
+  it('accepts y as the recommended label and prefills on e', async () => {
+    const { prompt, console } = build()
+    const taking = prompt.frontier(grill)
+    console.press({ kind: 'text', text: 'y' })
+    await expect(taking).resolves.toEqual({ kind: 'accept', value: 'SQLite' })
+
+    const editing = prompt.frontier(grill)
+    console.press({ kind: 'text', text: 'e' })
+    await expect(editing).resolves.toEqual({ kind: 'edit' })
+    const after = prompt.read()
+    console.press({ kind: 'enter' })
+    expect(await after).toBe('SQLite')
+  })
+})
+
 describe('comfortable idle tip', () => {
   afterEach(() => {
     vi.useRealTimers()
