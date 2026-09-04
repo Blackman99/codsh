@@ -1071,7 +1071,7 @@ it('paints a command that is a script as rows, never outside one', async () => {
     terminal.resize(PTY_ROWS, narrow)
     terminal.feed(held.slice(resizeAt, settled < 0 ? held.length : settled + SYNC_END.length))
     const rows = terminal.alternate
-    const foot = rows.slice(-4)
+    const foot = rows.slice(-5)
     expect(foot.filter(row => row.trimStart().startsWith('╭─') && row.length > narrow / 2)).toHaveLength(1)
     expect(rows.findLastIndex(row => row.trimStart().startsWith('╰─') && row.length > narrow / 2)).toBeGreaterThanOrEqual(PTY_ROWS - 4)
     for (const row of rows) expect(row.length).toBeLessThanOrEqual(narrow)

@@ -41,7 +41,9 @@ describe.skipIf(process.platform === 'win32')('the first five minutes', () => {
     expect(logoRow).toBeGreaterThanOrEqual(0)
     expect(logoRow).toBeLessThan(8)
     // The gap sits between the welcome and the chrome, not above the welcome.
-    expect(rows.slice(-4).some(row => row.trimStart().startsWith('╭'))).toBe(true)
+    // The chrome is the box plus its two rows — the key legend and the status —
+    // so the box's top border is the fifth row up from the foot.
+    expect(rows.slice(-5).some(row => row.trimStart().startsWith('╭'))).toBe(true)
   }, E2E_TEST_TIMEOUT_MS)
 
   it('shows the welcome again after /clear', async () => {
@@ -229,8 +231,10 @@ describe.skipIf(process.platform === 'win32')('the first five minutes', () => {
 
     const echo = shown.findIndex(row => row.includes('› /status'))
     expect(echo).toBeGreaterThan(0)
-    // What was on screen before it is still above it.
-    expect(shown.slice(0, echo).join('\n')).toContain('Welcome to codsh')
+    // What was on screen before it is still above it. On a 24-row terminal the
+    // taller chrome scrolls the lettermark off, so the welcome's help line —
+    // still on screen — is the witness that the command took no viewport.
+    expect(shown.slice(0, echo).join('\n')).toContain('Tab completes')
   }, E2E_TEST_TIMEOUT_MS)
 
   it('gives the anchored prompt back when the reader wheels home again', async () => {
@@ -418,18 +422,22 @@ describe.skipIf(process.platform === 'win32')('the first five minutes', () => {
     expect(released.some(row => row.includes('click to expand'))).toBe(false)
   }, E2E_TEST_TIMEOUT_MS)
 
-  it('gives the status row back when the window loses focus', async () => {
+  it('clears the hover readout when the window loses focus, and the status row never moved', async () => {
     const moveTo = (line: string): string => `\u001B[<35;6;{row:${line}}M`
     const output = await drivePty('reasoning', [
       ['Welcome to codsh', `think it over${ENTER}`, 300],
       ['thought for', moveTo('thought for'), 600],
+      // Focus out is a pointer-left: the readout clears and the legend row it
+      // borrowed comes back. The status row was always the row below it.
       ['click to expand', '\u001B[O', 600],
-      ['workspace-write', `/exit${ENTER}`, 400],
+      ['? shortcuts', `/exit${ENTER}`, 400],
     ])
     const named = screenAtLast(output, 'click to expand').alternate
     expect(named.some(row => /thinking · \d+ lines · click to expand/u.test(row))).toBe(true)
-    const released = screenAtLast(output, 'workspace-write').alternate
+    const released = screenAtLast(output, '? shortcuts').alternate
     expect(released.some(row => row.includes('click to expand'))).toBe(false)
+    // The status row is not what the hover borrowed, so it stayed throughout.
+    expect(released.some(row => row.includes('workspace-write'))).toBe(true)
   }, E2E_TEST_TIMEOUT_MS)
 
   it('opens the block a click lands on, and folds it back from inside it', async () => {

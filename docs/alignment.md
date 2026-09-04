@@ -47,8 +47,11 @@ in a terminal state.
   are recorded, not batched. Rows are ordered by how often a session hits
   the gap, not by how visible the difference is. Next batch, in order:
   approval preview, persisted allow rules, editor undo, idle key legend,
-  desktop notifications, `/compact` feedback, `/rewind` (rows say
-  **next batch (n)**). Terminals are tiered in README "Terminals": first
+  desktop notifications, `/compact` feedback, `/rewind` — all seven
+  landed and `aligned` the same day (rows say **Batch item n,
+  2026-09-04**). The next batch is picked from the remaining `open` rows
+  by the same frequency rule; MCP mounting and `/login` are the two a
+  first session hits earliest. Terminals are tiered in README "Terminals": first
   tier iTerm2, Terminal.app, VS Code integrated terminal, tmux, Windows
   Terminal + WSL; second tier Ghostty, kitty, Alacritty, Warp; native
   Windows best-effort. tmux joins the e2e PTY matrix. Chrome text stays
