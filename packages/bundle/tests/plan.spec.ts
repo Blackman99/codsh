@@ -1,7 +1,7 @@
 /** Reading a `/ship` spec's plan: how many tickets, and which one is now. */
 
 import { describe, expect, it } from 'vitest'
-import { parsePlan, planReport, planRow, planSummary } from '../src/plan.ts'
+import { parsePlan, parseShipStatus, planReport, planRow, planSummary } from '../src/plan.ts'
 import { createTheme } from '../src/theme.ts'
 
 const theme = createTheme(false, {})
@@ -65,6 +65,18 @@ describe('parsePlan', () => {
     const plan = parsePlan('## Plan\n\n- [x] one\n- [x] two\n')
     expect(plan.current).toBeUndefined()
     expect(planRow(plan, theme, 80)).toBe('2/2 tickets')
+  })
+})
+
+describe('parseShipStatus', () => {
+  it('reads the Status phase from the spec', () => {
+    expect(parseShipStatus(SPEC)).toBe('landing')
+    expect(parseShipStatus('# Spec\n\nStatus: interviewing\n')).toBe('interviewing')
+    expect(parseShipStatus('Status: shipped\n')).toBe('shipped')
+  })
+
+  it('ignores a file with no Status line', () => {
+    expect(parseShipStatus('# Spec\n\n## Plan\n\n- [ ] one\n')).toBeUndefined()
   })
 })
 
