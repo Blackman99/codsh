@@ -1,5 +1,12 @@
 # codsh-bundle
 
+## 0.15.3
+
+### Patch Changes
+
+- e090653: Click-and-drag now selects text in the input box the same way it does in the transcript: press anchors, motion extends, release copies, and the span stays marked until the next click or key. A click that never moved still just places the cursor. Typing, paste, and delete replace the selected span.
+- ec19e44: An update now moves the whole pair in one command: after installing the new launcher, `codsh update` and `/update` also register the matching `codsh-bundle` into the code profile immediately, instead of leaving the runtime to be registered on the next launcher boot. A profile that launches straight through `dsh` is never left behind, and a pinned development runtime is still never clobbered. The boot-time registration stays as the catch for a runtime a bare `npm install -g codsh-cli` upgrade, or a failed move, left behind.
+
 ## 0.15.2
 
 ### Patch Changes
