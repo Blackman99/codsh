@@ -72,7 +72,8 @@ jobs:
       # Typecheck and the unit suites cost seconds and still catch a manifest
       # edited into nonsense, so they run either way.
       - run: pnpm test
-      # Packs the tree and drives the real binary, which is the five minutes.
-      # It builds first, so there is no separate build step to keep in step.
+      # Packs the tree and drives the real binary. Files run in parallel
+      # against one shared profile template; it builds first, so there is
+      # no separate build step to keep in step.
       - run: pnpm run test:e2e
         if: steps.scope.outputs.heavy != 'false'

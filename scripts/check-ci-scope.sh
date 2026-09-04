@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Prove the CI scope gate, which decides whether the end-to-end suite runs.
 #
-# A gate that wrongly says "heavy" costs five minutes. A gate that wrongly says
+# A gate that wrongly says "heavy" costs the end-to-end suite. A gate that wrongly says
 # "light" costs the coverage silently, and that is the failure worth a test:
 # the run stays green either way, so nothing else will tell you.
 #

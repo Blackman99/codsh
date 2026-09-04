@@ -5,14 +5,15 @@
  * model.
  *
  * The profile install is expensive (a pnpm install), so it happens once per
- * run into a template home; each test gets a fresh home whose `profiles`
- * directory is a symlink into the template, keeping sessions, history, and
- * installed presets test-local while the heavyweight profile is shared.
+ * run into a template home — and once across parallel files, behind a lock.
+ * Each test gets a fresh home whose `profiles` directory is a symlink into
+ * the template, keeping sessions, history, and installed presets test-local
+ * while the heavyweight profile is shared.
  */
 
 import { createServer } from 'node:http'
 import { execFileSync } from 'node:child_process'
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { mkdtemp, symlink } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
@@ -67,39 +68,122 @@ export async function fakeRegistry(latest: string): Promise<{ base: string; clos
 
 let template: string | undefined
 
+/** Where the shared packed profile lives, so parallel e2e workers can reuse it. */
+const templateCache = join(repoRoot, 'node_modules', '.cache', 'codsh-e2e')
+const templateHome = join(templateCache, 'home')
+const templateStamp = join(templateCache, '.stamp')
+const templateLock = join(templateCache, '.lock')
+
+/** How long a worker waits for another to finish packing the profile. */
+const TEMPLATE_WAIT_MS = 180_000
+
 /**
  * Pack this repository and register it into a template code profile, once.
  *
  * Packing rather than `file:`-linking the working tree is deliberate: the
  * tarball is the release artifact, so the suite proves what a user installs —
  * `files` filtering, exports, and the shipped preset included.
+ *
+ * Parallel e2e files share this through a directory lock and a stamp: the
+ * profile install is the expensive part, and the tests themselves are mostly
+ * waiting on a PTY, so overlapping files cuts the suite roughly in half.
  * @returns the template home directory.
  */
 export function ensureTemplateHome(): string {
   if (template !== undefined) return template
-  const cache = join(repoRoot, 'node_modules', '.cache', 'codsh-e2e')
-  const home = join(cache, 'home')
-  rmSync(cache, { recursive: true, force: true })
-  mkdirSync(cache, { recursive: true })
-  const packed = execFileSync('npm', ['pack', '--pack-destination', cache], { cwd: bundleRoot, encoding: 'utf8' })
+  mkdirSync(templateCache, { recursive: true })
+  const stamp = currentTemplateStamp()
+  if (templateMatches(stamp)) {
+    template = templateHome
+    return template
+  }
+  const deadline = Date.now() + TEMPLATE_WAIT_MS
+  while (Date.now() < deadline) {
+    if (templateMatches(stamp)) {
+      template = templateHome
+      return template
+    }
+    try {
+      mkdirSync(templateLock)
+    } catch {
+      if (lockAgeMs() > TEMPLATE_WAIT_MS) rmSync(templateLock, { recursive: true, force: true })
+      else sleepSync(100)
+      continue
+    }
+    try {
+      if (templateMatches(stamp)) {
+        template = templateHome
+        return template
+      }
+      installTemplate()
+      writeFileSync(templateStamp, stamp)
+      template = templateHome
+      return template
+    } finally {
+      rmSync(templateLock, { recursive: true, force: true })
+    }
+  }
+  throw new Error('timed out waiting for the e2e profile template')
+}
+
+/** Fingerprint of what `npm pack` would put in the profile. */
+function currentTemplateStamp(): string {
+  return [
+    join(bundleRoot, 'lib', 'index.js'),
+    join(bundleRoot, 'package.json'),
+    join(bundleRoot, 'cordis.patch.yml'),
+    join(bundleRoot, 'agent-presets'),
+  ].map(stampPath).join('\n')
+}
+
+/**
+ * A path's identity for the stamp: files by size and mtime, directories by
+ * their children, so a preset change rebuilds the template without a full tree
+ * walk of node_modules.
+ */
+function stampPath(path: string): string {
+  if (!existsSync(path)) return `${path}:missing`
+  const info = statSync(path)
+  if (!info.isDirectory()) return `${path}:${info.size}:${info.mtimeMs}`
+  return readdirSync(path).sort().map(name => stampPath(join(path, name))).join('\n')
+}
+
+function templateMatches(stamp: string): boolean {
+  if (!existsSync(templateHome) || !existsSync(templateStamp)) return false
+  return readFileSync(templateStamp, 'utf8') === stamp
+}
+
+function lockAgeMs(): number {
+  try {
+    return Date.now() - statSync(templateLock).mtimeMs
+  } catch {
+    return 0
+  }
+}
+
+function sleepSync(ms: number): void {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms)
+}
+
+function installTemplate(): void {
+  rmSync(templateHome, { recursive: true, force: true })
+  const packed = execFileSync('npm', ['pack', '--pack-destination', templateCache], { cwd: bundleRoot, encoding: 'utf8' })
     .trim().split('\n').at(-1) ?? ''
-  execFileSync(process.execPath, [dshBin(), 'plugin', '--profile', 'code', 'add', join(cache, packed)], {
-    env: { ...process.env, DSH_HOME: home },
+  execFileSync(process.execPath, [dshBin(), 'plugin', '--profile', 'code', 'add', join(templateCache, packed)], {
+    env: { ...process.env, DSH_HOME: templateHome },
     stdio: 'pipe',
   })
   // Spell the runtime as a registry version, the way a real install records
   // it. The suites drive the /update registration decision, which — like the
   // launcher — must move a registry version but never clobber a development
   // pin; boot loads the installed files either way.
-  const manifestPath = join(home, 'profiles', 'code', 'package.json')
+  const manifestPath = join(templateHome, 'profiles', 'code', 'package.json')
   const manifest = JSON.parse(readFileSync(manifestPath, 'utf8')) as { dependencies: Record<string, string> }
   const bundle = JSON.parse(readFileSync(join(bundleRoot, 'package.json'), 'utf8')) as { version: string }
   if (manifest.dependencies['codsh-bundle'] !== undefined) {
     manifest.dependencies['codsh-bundle'] = `^${bundle.version}`
     writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`)
   }
-  template = home
-  return home
 }
 
 /**
