@@ -118,11 +118,13 @@ than starting a selection. A press commits only where it is released, so
 sliding off before letting go takes it back. A gesture nonetheless belongs to
 where it began, through release: a drag the Viewport anchored keeps reaching it
 once the pointer has left, because sweeping past the last line and letting go
-over the input box is how a person selects to the end of what they can see. The
-Viewport keeps press-to-anchor, drag-to-extend, release-to-copy, and the blank
-space under the last line anchors there too — a press with nowhere to land is
-still where the pointer was resting, though only a press that landed on a row
-can work that row's Fold.
+over the input box is how a person selects to the end of what they can see, and
+a drag the box anchored keeps selecting the same way, clamped into its text.
+The Viewport keeps press-to-anchor, drag-to-extend, release-to-copy, and the
+blank space under the last line anchors there too — a press with nowhere to
+land is still where the pointer was resting, though only a press that landed on
+a row can work that row's Fold. A press in the box that then moved is a Box
+selection, not a Viewport one.
 _Avoid_: click handler, hit area
 
 **List window**:
@@ -142,8 +144,18 @@ target and "just above the first line" is an ordinary intention. The inverse
 reads the same wrapped rows and the same window the box drew, so the cursor
 cannot land somewhere the box never showed, and a shell box's hidden `!` is
 given back. The press only has to land in the box: the release is the position
-it means, because putting a cursor somewhere is not a thing to be undone.
+it means, because putting a cursor somewhere is not a thing to be undone. A
+press that then moved is a Box selection, not this.
 _Avoid_: click to focus, text hit test
+
+**Box selection**:
+A mouse selection over the text inside the box. Press anchors, drag extends,
+release copies — the same gesture the Viewport gives the transcript, because
+mouse reporting has taken the terminal's own selection. A press that never
+moved is still Caret placement, and sliding off before any drag takes it back.
+The span stays marked until the next click or move; typing, paste, and delete
+replace it. Escape dismisses it before it means leave.
+_Avoid_: input highlight, textarea selection
 
 **Pointer mark**:
 The row a Region pointer rests on, shown as a dim `·` in the column `❯` marks

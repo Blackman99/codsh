@@ -45,6 +45,13 @@ export interface EditorView {
    * Painted in the box so a finished gesture reads as one, not as prose.
    */
   hits: readonly GestureHit[]
+  /**
+   * A selected span in the buffer, absent when nothing is selected.
+   *
+   * Ordered start-first. The cursor sits at one end; the other is the
+   * anchor the gesture left behind.
+   */
+  selection?: { start: { row: number; column: number }; end: { row: number; column: number } }
 }
 
 /** A `/command` or `$skill` in the buffer that names something real. */
@@ -129,11 +136,19 @@ export class Editor {
   private stashed: string[] | undefined
   /** Reverse-i-search over {@link history}, absent when the box is typing. */
   private search: { query: string; index: number; stash: string[]; row: number; column: number } | undefined
+  /**
+   * The other end of a buffer selection, when one is stretched.
+   *
+   * The cursor is the focus; this is the anchor. Absent, or equal to the
+   * cursor, means nothing is selected.
+   */
+  private anchor: { row: number; column: number } | undefined
 
   constructor(private readonly sources: EditorSources) {}
 
   /** What to render. */
   get view(): EditorView {
+    const selection = this.orderedSelection()
     return {
       lines: this.lines,
       row: this.row,
@@ -146,6 +161,7 @@ export class Editor {
       ...(this.search === undefined
         ? {}
         : { search: { query: this.search.query, hits: this.searchHits().length, index: this.search.index } }),
+      ...selection === undefined ? {} : { selection },
     }
   }
 
@@ -171,6 +187,7 @@ export class Editor {
     this.row = this.lines.length - 1
     this.column = points(this.line()).length
     this.candidates = []
+    this.anchor = undefined
   }
 
   /** Submissions this session recorded, oldest first, for persistence. */
@@ -249,6 +266,7 @@ export class Editor {
    * @returns always `none`; insertion never completes a read.
    */
   private insert(text: string): EditorAction {
+    this.dropSelected()
     const line = this.line()
     const before = points(line).slice(0, this.column).join('')
     const after = points(line).slice(this.column).join('')
@@ -275,6 +293,7 @@ export class Editor {
     this.row = 0
     this.column = 0
     this.candidates = []
+    this.anchor = undefined
     return { kind: 'submit', text }
   }
 
@@ -306,11 +325,49 @@ export class Editor {
    * @param column - the code-point column, clamped into that line.
    */
   setCursor(row: number, column: number): void {
-    this.row = Math.min(Math.max(0, row), this.lines.length - 1)
-    this.column = Math.min(Math.max(0, column), points(this.line()).length)
+    const at = this.clamp(row, column)
+    this.row = at.row
+    this.column = at.column
+    this.anchor = undefined
     this.candidates = []
     this.selected = 0
     this.menuScroll = undefined
+  }
+
+  /**
+   * Stretch a selection from an anchor to a focus.
+   *
+   * The cursor sits at the focus. A collapsed range is a cursor, not a span.
+   * @param anchor - where the gesture began.
+   * @param focus - where it is now.
+   */
+  select(anchor: { row: number; column: number }, focus: { row: number; column: number }): void {
+    const from = this.clamp(anchor.row, anchor.column)
+    const to = this.clamp(focus.row, focus.column)
+    this.row = to.row
+    this.column = to.column
+    this.anchor = from.row === to.row && from.column === to.column ? undefined : from
+    this.candidates = []
+    this.selected = 0
+    this.menuScroll = undefined
+  }
+
+  /**
+   * The plain text under the selection, empty when nothing is selected.
+   *
+   * Visual rows are not involved: this is the buffer, newlines and all, the
+   * way a copy out of the box should read.
+   */
+  get selectedText(): string {
+    const range = this.orderedSelection()
+    if (range === undefined) return ''
+    if (range.start.row === range.end.row) {
+      return points(this.lines[range.start.row] ?? '').slice(range.start.column, range.end.column).join('')
+    }
+    const parts = [points(this.lines[range.start.row] ?? '').slice(range.start.column).join('')]
+    for (let row = range.start.row + 1; row < range.end.row; row += 1) parts.push(this.lines[row] ?? '')
+    parts.push(points(this.lines[range.end.row] ?? '').slice(0, range.end.column).join(''))
+    return parts.join('\n')
   }
 
   /**
@@ -323,6 +380,7 @@ export class Editor {
    */
   chooseCandidate(index: number): EditorAction {
     if (index < 0 || index >= this.candidates.length) return { kind: 'none' }
+    this.anchor = undefined
     this.selected = index
     return this.take()
   }
@@ -332,6 +390,7 @@ export class Editor {
    * @returns always `none`.
    */
   private complete(): EditorAction {
+    this.anchor = undefined
     if (this.candidates.length === 0) this.refresh()
     // One candidate is not a choice: Tab means "finish this word".
     if (this.candidates.length === 1) return this.take()
@@ -439,6 +498,10 @@ export class Editor {
 
   /** Remove the character before the cursor, joining lines at a boundary. */
   private backspace(): EditorAction {
+    if (this.dropSelected()) {
+      this.refresh()
+      return { kind: 'none' }
+    }
     if (this.column > 0) {
       const cells = points(this.line())
       // A pasted-image token is one thing: eaten a character at a time it
@@ -462,6 +525,10 @@ export class Editor {
 
   /** Remove the character after the cursor, joining lines at a boundary. */
   private forwardDelete(): EditorAction {
+    if (this.dropSelected()) {
+      this.refresh()
+      return { kind: 'none' }
+    }
     const cells = points(this.line())
     if (this.column < cells.length) {
       cells.splice(this.column, 1)
@@ -484,6 +551,7 @@ export class Editor {
 
   /** Move up a line, or back through history from the first line. */
   private moveUp(): EditorAction {
+    this.anchor = undefined
     if (this.candidates.length > 0) {
       this.selected = (this.selected - 1 + this.candidates.length) % this.candidates.length
       return { kind: 'none' }
@@ -495,6 +563,7 @@ export class Editor {
 
   /** Move down a line, or forward through history from the last line. */
   private moveDown(): EditorAction {
+    this.anchor = undefined
     if (this.candidates.length > 0) {
       this.selected = (this.selected + 1) % this.candidates.length
       return { kind: 'none' }
@@ -545,11 +614,13 @@ export class Editor {
     this.row = this.lines.length - 1
     this.column = points(this.line()).length
     this.candidates = []
+    this.anchor = undefined
     return { kind: 'none' }
   }
 
   /** Move the cursor one position left, wrapping to the previous line. */
   private moveLeft(): EditorAction {
+    this.anchor = undefined
     if (this.column > 0) this.column -= 1
     else if (this.row > 0) {
       this.row -= 1
@@ -560,6 +631,7 @@ export class Editor {
 
   /** Move the cursor one position right, wrapping to the next line. */
   private moveRight(): EditorAction {
+    this.anchor = undefined
     if (this.column < points(this.line()).length) this.column += 1
     else if (this.row < this.lines.length - 1) {
       this.row += 1
@@ -574,12 +646,17 @@ export class Editor {
    * @returns always `none`.
    */
   private jump(column: number): EditorAction {
+    this.anchor = undefined
     this.column = column
     return { kind: 'none' }
   }
 
   /** Drop everything after the cursor on this line. */
   private killLine(): EditorAction {
+    if (this.dropSelected()) {
+      this.refresh()
+      return { kind: 'none' }
+    }
     this.setLine(points(this.line()).slice(0, this.column).join(''))
     this.refresh()
     return { kind: 'none' }
@@ -587,6 +664,10 @@ export class Editor {
 
   /** Drop everything before the cursor on this line. */
   private killInput(): EditorAction {
+    if (this.dropSelected()) {
+      this.refresh()
+      return { kind: 'none' }
+    }
     this.setLine(points(this.line()).slice(this.column).join(''))
     this.column = 0
     this.refresh()
@@ -595,6 +676,7 @@ export class Editor {
 
   /** Move the cursor to the start of the word before it. */
   private wordLeft(): EditorAction {
+    this.anchor = undefined
     const cells = points(this.line())
     let at = this.column
     while (at > 0 && cells[at - 1] === ' ') at -= 1
@@ -605,6 +687,7 @@ export class Editor {
 
   /** Move the cursor past the end of the word after it. */
   private wordRight(): EditorAction {
+    this.anchor = undefined
     const cells = points(this.line())
     let at = this.column
     while (at < cells.length && cells[at] === ' ') at += 1
@@ -615,6 +698,10 @@ export class Editor {
 
   /** Drop the word before the cursor. */
   private killWord(): EditorAction {
+    if (this.dropSelected()) {
+      this.refresh()
+      return { kind: 'none' }
+    }
     const cells = points(this.line())
     let at = this.column
     while (at > 0 && cells[at - 1] === ' ') at -= 1
@@ -739,6 +826,50 @@ export class Editor {
       this.candidates = []
       return { kind: 'none' }
     }
+    if (this.anchor !== undefined) {
+      this.anchor = undefined
+      return { kind: 'none' }
+    }
     return { kind: 'escape' }
+  }
+
+  /**
+   * Clamp a buffer position into the text that is actually there.
+   * @param row - a line index, possibly past either end.
+   * @param column - a code-point column, possibly past the line.
+   */
+  private clamp(row: number, column: number): { row: number; column: number } {
+    const at = Math.min(Math.max(0, row), this.lines.length - 1)
+    return { row: at, column: Math.min(Math.max(0, column), points(this.lines[at] ?? '').length) }
+  }
+
+  /**
+   * The selection's bounds in order, start first, or nothing when collapsed.
+   */
+  private orderedSelection(): { start: { row: number; column: number }; end: { row: number; column: number } } | undefined {
+    if (this.anchor === undefined) return undefined
+    const focus = { row: this.row, column: this.column }
+    const backwards = focus.row < this.anchor.row
+      || (focus.row === this.anchor.row && focus.column < this.anchor.column)
+    const start = backwards ? focus : this.anchor
+    const end = backwards ? this.anchor : focus
+    if (start.row === end.row && start.column === end.column) return undefined
+    return { start, end }
+  }
+
+  /**
+   * Delete the selected span, leaving the cursor at its start.
+   * @returns whether there was a span to drop.
+   */
+  private dropSelected(): boolean {
+    const range = this.orderedSelection()
+    this.anchor = undefined
+    if (range === undefined) return false
+    const first = points(this.lines[range.start.row] ?? '').slice(0, range.start.column)
+    const last = points(this.lines[range.end.row] ?? '').slice(range.end.column)
+    this.lines.splice(range.start.row, range.end.row - range.start.row + 1, [...first, ...last].join(''))
+    this.row = range.start.row
+    this.column = range.start.column
+    return true
   }
 }

@@ -402,6 +402,39 @@ describe('selection', () => {
     expect(await reading).toBe('helloX world')
   })
 
+  it('selects in the box on a drag and copies on release', async () => {
+    const { prompt, console } = build()
+    const reading = prompt.read()
+    console.press({ kind: 'text', text: 'hello world' })
+
+    // Column 7 is the first character; column 12 is the space after "hello".
+    console.region = { region: 'chrome', index: 1 }
+    console.press({ kind: 'mouse-down', row: 9, column: 7 })
+    console.press({ kind: 'mouse-drag', row: 9, column: 12 })
+    console.press({ kind: 'mouse-up', row: 9, column: 12 })
+
+    expect(console.copied).toEqual(['hello'])
+    const drawn = console.draws.at(-1)?.rows.join('\n') ?? ''
+    expect(drawn).toContain('\u001B[7mhello\u001B[27m')
+
+    console.press({ kind: 'text', text: 'X' })
+    console.press({ kind: 'enter' })
+    expect(await reading).toBe('X world')
+  })
+
+  it('still places the cursor when the press never moved', async () => {
+    const { prompt, console } = build()
+    const reading = prompt.read()
+    console.press({ kind: 'text', text: 'hello world' })
+    console.region = { region: 'chrome', index: 1 }
+    console.press({ kind: 'mouse-down', row: 9, column: 7 })
+    console.press({ kind: 'mouse-up', row: 9, column: 7 })
+    console.press({ kind: 'text', text: 'X' })
+    console.press({ kind: 'enter' })
+    expect(await reading).toBe('Xhello world')
+    expect(console.copied).toEqual([])
+  })
+
   it('turns the wheel on the list the pointer is over', async () => {
     const { prompt, console } = build()
     const deciding = prompt.select({

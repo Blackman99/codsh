@@ -71,7 +71,7 @@ dsh --profile code
 **干活**
 
 - 备用屏幕；输入框钉底；退出原样还回你的 shell。
-- todo 常驻 chrome（Ctrl+T / `/todos`）。Markdown、思考、工具卡片流式画出。拖选即复制。
+- todo 常驻 chrome（Ctrl+T / `/todos`）。Markdown、思考、工具卡片流式画出。拖选即复制，对话和输入框都是。
 - Ctrl+V 粘贴图片（原生视觉；DeepSeek 文本模型自动借用 Vision Exp；其他文本路由仍落盘并可选 sidecar）。
 - `/` 命令、`$` skill、`!` shell、`@` 文件 —— 菜单在输入框上方。⇧Tab 是 plan 模式。
 - 审批、`/model`、`/resume` 用方向键；还有 `/clear`、Esc Esc、`/init`、`/update`。`!cmd` 打在会话里，agent 看得到输出。

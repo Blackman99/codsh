@@ -617,6 +617,31 @@ describe.skipIf(process.platform === 'win32')('dsh code Escape (real PTY)', () =
     expect(taken).toContain('/compact')
   }, E2E_TEST_TIMEOUT_MS)
 
+  it('selects text in the box with a drag and copies on release', async () => {
+    const typed = 'hello world'
+    const press = '\u001B[<0;8;{row:hello world}M'
+    const drag = '\u001B[<32;16;{row:hello world}M'
+    const release = '\u001B[<0;16;{row:hello world}m'
+    const run = await drivePtySteps('write', [
+      ['/help for commands', typed, 500],
+      ['hello world', `${press}${drag}${release}`, 400],
+      // Home drops the span and Ctrl-K clears the line so /exit is a command,
+      // not a replacement of the selected text.
+      ['copied', `\u0001\u000B/exit${ENTER}`, 500],
+    ], { rows: 16 })
+
+    const captured = (offset: number | undefined): string => Buffer.from(run.output).subarray(0, offset).toString()
+    const after = captured(run.offsets[2])
+    expect(after).toContain('\u001B[7m')
+    const osc = /\u001B\]52;c;([A-Za-z0-9+/=]+)\u0007/.exec(after)
+    expect(osc).not.toBeNull()
+    const copied = Buffer.from(osc?.[1] ?? '', 'base64').toString('utf8')
+    expect(copied.length).toBeGreaterThan(0)
+    expect(typed).toContain(copied)
+    expect(copied).not.toContain('\u001B')
+    expect(copied).not.toContain('›')
+  }, E2E_TEST_TIMEOUT_MS)
+
   it('puts the cursor where the box was clicked, across a wrap', async () => {
     // Narrow enough that one typed line takes two rows in the box. Clicking
     // the first row and typing proves the cursor went where the pointer did.

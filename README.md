@@ -73,7 +73,7 @@ The [site](https://blackman99.github.io/codsh/) shows each one as a real capture
 **Working**
 
 - Alternate screen; the box never leaves the bottom; quitting gives your shell back untouched.
-- Todos stay in the chrome (Ctrl+T / `/todos`). Markdown, thinking, and tool cards stream in. Drag to copy.
+- Todos stay in the chrome (Ctrl+T / `/todos`). Markdown, thinking, and tool cards stream in. Drag to copy, in the transcript or the box.
 - Ctrl+V pastes images (native vision; DeepSeek text models borrow Vision Exp automatically; other text routes keep the file + optional sidecar fallback).
 - `/` commands, `$` skills, `!` shell, `@` files — the menu sits above the box. ⇧Tab is plan mode.
 - Approvals, `/model`, and `/resume` are arrow-key widgets; `/clear`, Esc Esc, `/init`, and `/update` round it out. `!cmd` prints in-session and the agent sees it.

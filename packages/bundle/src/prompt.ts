@@ -159,6 +159,17 @@ export class Prompt {
    * the end of what they can see, and the release is what copies.
    */
   private pressedViewport = false
+  /**
+   * Where a press landed in the buffer, when it landed in the box.
+   *
+   * A click waits for the release to place the cursor — putting one somewhere
+   * is not a thing to be undone. A drag uses this as the selection's anchor.
+   */
+  private pressedCaret: { row: number; column: number } | undefined
+  /** Whether the box-owned press in flight has moved, which makes it a selection. */
+  private boxDragging = false
+  /** Chrome rows last composed, so a drag that left the box can still clamp into it. */
+  private chromeHeight = 0
   /** The row the pointer last marked, so a move that changes nothing repaints nothing. */
   private regionHover = ''
   /** The plan a `/ship` run is working through, when one has been found. */
@@ -557,7 +568,11 @@ export class Prompt {
       // release that copies keep reaching it instead of dying on a row that
       // offers nothing. A button-less move says nothing is held any more,
       // which is also how a release lost outside the window heals.
-      if (key.kind === 'mouse-move') this.pressedViewport = false
+      if (key.kind === 'mouse-move') {
+        this.pressedViewport = false
+        this.pressedCaret = undefined
+        this.boxDragging = false
+      }
       if (key.kind === 'mouse-move' && this.pointerLeftWindow(key.row, key.column)) {
         this.dropPointerHover()
         return
@@ -565,7 +580,14 @@ export class Prompt {
       const owned = this.pressedViewport && (key.kind === 'mouse-drag' || key.kind === 'mouse-up')
       const region = owned ? undefined : this.console.regionRowAt(key.row)
       if (region !== undefined) {
-        this.onRegionPointer(key.kind, region, key.column)
+        this.onRegionPointer(key.kind, region, key.column, key.row)
+        return
+      }
+      if (this.pressedCaret !== undefined && (key.kind === 'mouse-drag' || key.kind === 'mouse-up')) {
+        // The box anchored the gesture. Sweeping out of it still selects, the
+        // way a viewport drag that left the transcript keeps selecting: the
+        // pointer is clamped to the nearest text rather than cancelling.
+        this.onRegionPointer(key.kind, undefined, key.column, key.row)
         return
       }
       if (this.pressedTarget !== undefined) {
@@ -876,14 +898,18 @@ export class Prompt {
   /**
    * Act on a pointer in the region below the transcript.
    * @param kind - which pointer event arrived.
-   * @param region - the region and the row's index within it.
+   * @param region - the region and the row's index within it, or none when a
+   *   box-owned gesture has left the chrome and is being clamped back in.
+   * @param column - terminal column, 1-based.
+   * @param terminalRow - terminal row, 1-based.
    */
   private onRegionPointer(
     kind: 'mouse-down' | 'mouse-up' | 'mouse-move' | 'mouse-drag',
-    region: { region: 'chrome' | 'overlay'; index: number },
+    region: { region: 'chrome' | 'overlay'; index: number } | undefined,
     column: number,
+    terminalRow: number,
   ): void {
-    const target = this.regionTarget(region, column)
+    const target = region === undefined ? undefined : this.regionTarget(region, column)
     if (kind === 'mouse-move') {
       // The chrome is not a transcript block: keep the pointer mark on a
       // selector row, but give the status row back if a fold had borrowed it.
@@ -894,33 +920,99 @@ export class Prompt {
       if (dropped) this.render()
       return
     }
-    if (kind === 'mouse-drag') return
+    if (kind === 'mouse-drag') {
+      if (this.pressedCaret === undefined) return
+      this.boxDragging = true
+      this.editor.select(this.pressedCaret, this.boxCaretAt(region, column, terminalRow))
+      this.render()
+      return
+    }
     if (kind === 'mouse-down') {
       this.pressedTarget = target
+      this.pressedCaret = target?.kind === 'caret'
+        ? caretAt(
+          this.editor.view,
+          this.console.contentColumns,
+          target.row,
+          target.cell,
+          (this.editor.view.lines[0] ?? '').startsWith('!'),
+        )
+        : undefined
+      this.boxDragging = false
       return
     }
     const pressed = this.pressedTarget
     this.pressedTarget = undefined
-    // Same row down and up, or nothing happened: a press that slid somewhere
-    // else on its way to being released was taken back.
-    if (pressed === undefined || target === undefined) return
-    if (regionKey(pressed) !== regionKey(target)) return
-    if (target.kind === 'caret') {
+    const caret = this.pressedCaret
+    this.pressedCaret = undefined
+    const dragged = this.boxDragging
+    this.boxDragging = false
+    if (caret !== undefined) {
+      if (dragged) {
+        this.editor.select(caret, this.boxCaretAt(region, column, terminalRow))
+        const text = this.editor.selectedText
+        if (text !== '' && this.console.copyText(text)) {
+          const rows = text.split('\n').length
+          this.setFlash(this.theme.dim(rows > 1 ? `  ✓ copied ${rows} lines` : '  ✓ copied'))
+          return
+        }
+        this.render()
+        return
+      }
+      // A press that never moved is still Caret placement: the release is the
+      // position it means, and sliding off before that takes it back.
+      if (pressed === undefined || target === undefined) return
+      if (regionKey(pressed) !== regionKey(target)) return
+      if (target.kind !== 'caret') return
       const bang = (this.editor.view.lines[0] ?? '').startsWith('!')
       const at = caretAt(this.editor.view, this.console.contentColumns, target.row, target.cell, bang)
       this.editor.setCursor(at.row, at.column)
       this.render()
       return
     }
+    // Same row down and up, or nothing happened: a press that slid somewhere
+    // else on its way to being released was taken back.
+    if (pressed === undefined || target === undefined) return
+    if (regionKey(pressed) !== regionKey(target)) return
     if (target.kind === 'candidate') {
       this.editor.chooseCandidate(target.index)
       this.menuHover = undefined
       this.render()
       return
     }
+    if (target.kind !== 'selector') return
     const selecting = this.select_
     if (selecting === undefined) return
     this.settleSelection(selecting.selector.click(target.target))
+  }
+
+  /**
+   * Where a pointer sits in the buffer, clamped into the box's own rows.
+   *
+   * A drag that left the chrome still has to land somewhere the box drew:
+   * above it is the first content row, below it the last, a column past the
+   * text the nearest end — the same near-miss rule Caret placement uses.
+   * @param region - the chrome row when the pointer is still in the region.
+   * @param column - terminal column, 1-based.
+   * @param terminalRow - terminal row, 1-based.
+   */
+  private boxCaretAt(
+    region: { region: 'chrome' | 'overlay'; index: number } | undefined,
+    column: number,
+    terminalRow: number,
+  ): { row: number; column: number } {
+    const box = this.boxRows
+    const bang = (this.editor.view.lines[0] ?? '').startsWith('!')
+    const count = Math.max(1, box?.count ?? 1)
+    let boxRow: number
+    if (region?.region === 'chrome' && box !== undefined) {
+      boxRow = Math.min(Math.max(0, region.index - box.start), count - 1)
+    } else {
+      const chromeStart = this.console.rows - this.chromeHeight + 1
+      const boxStart = chromeStart + (box?.start ?? 0)
+      boxRow = Math.min(Math.max(0, terminalRow - boxStart), count - 1)
+    }
+    return caretAt(this.editor.view, this.console.contentColumns, boxRow, column - 1 - GUTTER, bang)
   }
 
   /**
@@ -1082,6 +1174,7 @@ export class Prompt {
     if (this.status !== undefined && (overlay === undefined || this.hint !== undefined)) {
       rows.push(truncate(this.status, columns))
     }
+    this.chromeHeight = rows.length
     if (rows.length === 0) {
       this.console.setTimelineHidden(this.select_ !== undefined)
       this.console.clearRegion()

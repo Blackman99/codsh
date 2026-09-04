@@ -19,6 +19,12 @@ import { displayWidth, truncate } from './theme.ts'
 import type { EditorView, GestureHit } from './editor.ts'
 import type { Theme } from './theme.ts'
 
+/** Start reverse video, which is how a buffer selection shows itself. */
+const INVERSE = '\u001B[7m'
+
+/** End reverse video only, leaving any other attributes alone. */
+const INVERSE_OFF = '\u001B[27m'
+
 /** How many candidates the menu shows before it says how many it hid. */
 const MENU_LIMIT = 8
 
@@ -195,6 +201,62 @@ function displayHits(hits: readonly GestureHit[], shell: boolean): GestureHit[] 
     const end = Math.max(0, hit.end - 1)
     return end > start ? [{ ...hit, start, end }] : []
   })
+}
+
+/**
+ * Shift a first-line selection left by one when the leading `!` is the gutter.
+ */
+function displaySelection(
+  selection: EditorView['selection'],
+  shell: boolean,
+): EditorView['selection'] {
+  if (selection === undefined || !shell) return selection
+  const shift = (at: { row: number; column: number }): { row: number; column: number } =>
+    at.row === 0 ? { row: 0, column: Math.max(0, at.column - 1) } : at
+  const start = shift(selection.start)
+  const end = shift(selection.end)
+  return start.row === end.row && start.column === end.column ? undefined : { start, end }
+}
+
+/**
+ * The selected code-point range within one wrapped segment, if any.
+ * @param logical - the buffer line the segment belongs to.
+ * @param start - the segment's first code point within that line.
+ * @param length - code points in the segment.
+ * @param selection - the buffer span, already shifted for a shell box.
+ */
+function selectionOnRow(
+  logical: number,
+  start: number,
+  length: number,
+  selection: EditorView['selection'],
+): { from: number; to: number } | undefined {
+  if (selection === undefined) return undefined
+  if (logical < selection.start.row || logical > selection.end.row) return undefined
+  const from = logical === selection.start.row ? Math.max(0, selection.start.column - start) : 0
+  const to = logical === selection.end.row ? Math.min(length, Math.max(0, selection.end.column - start)) : length
+  if (from >= to) return undefined
+  return { from, to }
+}
+
+/**
+ * Paint a wrapped segment: known gestures in their colours, then the selected
+ * span in reverse video over the raw text so a copy still reads as what was typed.
+ */
+function paintContent(
+  text: string,
+  logical: number,
+  start: number,
+  hits: readonly GestureHit[],
+  selection: EditorView['selection'],
+  theme: Theme,
+): string {
+  const marked = selectionOnRow(logical, start, Array.from(text).length, selection)
+  if (marked === undefined) return paintGestures(text, logical, start, hits, theme)
+  const cells = Array.from(text)
+  const before = paintGestures(cells.slice(0, marked.from).join(''), logical, start, hits, theme)
+  const after = paintGestures(cells.slice(marked.to).join(''), logical, start + marked.to, hits, theme)
+  return `${before}${INVERSE}${cells.slice(marked.from, marked.to).join('')}${INVERSE_OFF}${after}`
 }
 
 /**
@@ -403,6 +465,7 @@ export function inputBox(view: EditorView, theme: Theme, columns: number, option
   const empty = lines.length === 1 && lines[0] === ''
   const mark = shell ? theme.pending('!') : theme.user('›')
   const hits = displayHits(view.hits, shell)
+  const selection = displaySelection(view.selection, shell)
   const overlay = menuRows(view, theme, columns, options.hoveredCandidate)
   const rows: string[] = [accent(`╭${rule}╮`)]
   if (empty && (shell || options.placeholder !== undefined)) {
@@ -417,7 +480,7 @@ export function inputBox(view: EditorView, theme: Theme, columns: number, option
       // The gutter marks the very first row; a clipped edge replaces it so a
       // windowed box says there is more rather than looking complete.
       const gutter = clippedAbove || clippedBelow ? theme.dim('…') : first ? mark : ' '
-      const painted = paintGestures(row.text, row.logical, row.start, hits, theme)
+      const painted = paintContent(row.text, row.logical, row.start, hits, selection, theme)
       const pad = ' '.repeat(Math.max(0, budget - displayWidth(row.text)))
       rows.push(`${accent('│')} ${gutter} ${painted}${pad} ${accent('│')}`)
     })

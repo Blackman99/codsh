@@ -374,3 +374,27 @@ describe('putting the cursor where a pointer landed', () => {
     expect(caretAt(view(), 40, 1, TEXT_AT + 5)).toEqual({ row: 0, column: 0 })
   })
 })
+
+describe('painting a buffer selection', () => {
+  it('marks the selected span in reverse video', () => {
+    const shown = view({
+      lines: ['hello world'],
+      column: 5,
+      selection: { start: { row: 0, column: 0 }, end: { row: 0, column: 5 } },
+    })
+    const { rows } = inputBox(shown, theme, 40)
+    expect(rows[1]).toContain(`\u001B[7mhello\u001B[27m`)
+    expect(rows[1]).toContain('world')
+  })
+
+  it('marks only the visible `ls` of a shell box, not the hidden `!`', () => {
+    const shown = view({
+      lines: ['!ls -la'],
+      column: 3,
+      selection: { start: { row: 0, column: 1 }, end: { row: 0, column: 3 } },
+    })
+    const { rows } = inputBox(shown, theme, 40, { shell: true })
+    expect(rows[1]).toContain(`\u001B[7mls\u001B[27m`)
+    expect(rows[1]).not.toContain(`\u001B[7m!`)
+  })
+})

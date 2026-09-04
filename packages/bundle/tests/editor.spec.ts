@@ -659,3 +659,87 @@ describe('recall for editing', () => {
     expect(editor.empty).toBe(false)
   })
 })
+
+describe('buffer selection', () => {
+  it('stretches a span from an anchor to a focus, and hands back the text', () => {
+    const editor = build()
+    type(editor, 'hello world')
+    editor.select({ row: 0, column: 0 }, { row: 0, column: 5 })
+    expect(editor.view.selection).toEqual({ start: { row: 0, column: 0 }, end: { row: 0, column: 5 } })
+    expect(editor.view.column).toBe(5)
+    expect(editor.selectedText).toBe('hello')
+  })
+
+  it('orders a backwards drag start-first, with the cursor at the focus', () => {
+    const editor = build()
+    type(editor, 'hello world')
+    editor.select({ row: 0, column: 11 }, { row: 0, column: 6 })
+    expect(editor.view.selection).toEqual({ start: { row: 0, column: 6 }, end: { row: 0, column: 11 } })
+    expect(editor.view.column).toBe(6)
+    expect(editor.selectedText).toBe('world')
+  })
+
+  it('joins a multi-line span with the newlines that were in the buffer', () => {
+    const editor = build()
+    type(editor, 'one')
+    editor.handle({ kind: 'newline' })
+    type(editor, 'two')
+    editor.select({ row: 0, column: 1 }, { row: 1, column: 2 })
+    expect(editor.selectedText).toBe('ne\ntw')
+  })
+
+  it('treats a collapsed range as a cursor, not a span', () => {
+    const editor = build()
+    type(editor, 'hello')
+    editor.select({ row: 0, column: 2 }, { row: 0, column: 2 })
+    expect(editor.view.selection).toBeUndefined()
+    expect(editor.selectedText).toBe('')
+    expect(editor.view.column).toBe(2)
+  })
+
+  it('replaces the span when text is typed into it', () => {
+    const editor = build()
+    type(editor, 'hello world')
+    editor.select({ row: 0, column: 0 }, { row: 0, column: 5 })
+    type(editor, 'X')
+    expect(editor.text).toBe('X world')
+    expect(editor.view.selection).toBeUndefined()
+  })
+
+  it('drops the span on backspace, rather than the character before it', () => {
+    const editor = build()
+    type(editor, 'hello world')
+    editor.select({ row: 0, column: 0 }, { row: 0, column: 6 })
+    editor.handle(key('backspace'))
+    expect(editor.text).toBe('world')
+    expect(editor.view.selection).toBeUndefined()
+  })
+
+  it('drops the span when the cursor is moved, without taking the text', () => {
+    const editor = build()
+    type(editor, 'hello world')
+    editor.select({ row: 0, column: 0 }, { row: 0, column: 5 })
+    editor.handle(key('right'))
+    expect(editor.text).toBe('hello world')
+    expect(editor.view.selection).toBeUndefined()
+    expect(editor.view.column).toBe(6)
+  })
+
+  it('clears the span on a click, which is a cursor, not a drag', () => {
+    const editor = build()
+    type(editor, 'hello world')
+    editor.select({ row: 0, column: 0 }, { row: 0, column: 5 })
+    editor.setCursor(0, 8)
+    expect(editor.view.selection).toBeUndefined()
+    expect(editor.view.column).toBe(8)
+  })
+
+  it('takes Escape to dismiss the span before it means leave', () => {
+    const editor = build()
+    type(editor, 'hello')
+    editor.select({ row: 0, column: 0 }, { row: 0, column: 5 })
+    expect(editor.handle(key('escape'))).toEqual({ kind: 'none' })
+    expect(editor.view.selection).toBeUndefined()
+    expect(editor.handle(key('escape'))).toEqual({ kind: 'escape' })
+  })
+})
