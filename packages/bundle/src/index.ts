@@ -299,7 +299,7 @@ function replayEvents(session: Session, transcript: Transcript, io: CliIo, theme
       if (thought !== '') {
         const lines = thought.split('\n').map(line => theme.dim(`  ${line}`))
         const { summary, full } = thinkingFold(lines, theme)
-        io.console.appendFold(summary, full, '', FOLD_LABELS.thinking)
+        io.console.appendFold(summary, full, blockRules(theme).agent, FOLD_LABELS.thinking)
       }
     }
     const lines = transcript.render(event)
@@ -1419,7 +1419,7 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
     const thinkingElapsedMs = thinkingStartedAt > 0 ? performance.now() - thinkingStartedAt : 0
     turnThinkingMs.push(thinkingElapsedMs)
     const { summary, full } = thinkingFold(thinkingLines, theme, thinkingElapsedMs / 1000)
-    io.console.appendFold(summary, full, '', FOLD_LABELS.thinking)
+    io.console.appendFold(summary, full, blockRules(theme).agent, FOLD_LABELS.thinking)
     thinkingLines = []
     thinkingStartedAt = 0
   }
@@ -2048,9 +2048,10 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
       // viewport, exactly as a typed message does. One that only works the
       // chrome answers nothing, and would leave that space empty.
       if (!surfaceOnlyView) {
-        const echo = `${theme.user('›')} ${trimmed}`
-        if (cannedPrompt) io.console.appendPrompt([echo, ''], blockRules(theme).user, true, 1)
-        else prompt.write(echo)
+        // Canned prompts share the user gutter; chrome-only commands keep › in
+        // the line because they are not a turn header.
+        if (cannedPrompt) io.console.appendPrompt([trimmed, ''], blockRules(theme).user, true, 1)
+        else prompt.write(`${theme.user('›')} ${trimmed}`)
       }
       if (name === 'init') {
         await answer(INIT_PROMPT, { kind: 'plugin', plugin: 'coding-cli' }, images)

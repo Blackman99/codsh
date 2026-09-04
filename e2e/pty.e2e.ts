@@ -218,9 +218,9 @@ describe.skipIf(process.platform === 'win32')('dsh code Escape (real PTY)', () =
     // The echo keeps the block's shape: the marker on the first row, the
     // continuation aligned under it, both outside the box's borders.
     const rows = screen.alternate.map(visible)
-    const echo = rows.indexOf('┃ › first')
+    const echo = rows.indexOf('› first')
     expect(echo).toBeGreaterThanOrEqual(0)
-    expect(rows[echo + 1]).toBe('┃   second')
+    expect(rows[echo + 1]).toBe('›   second')
   }, E2E_TEST_TIMEOUT_MS)
 
   it('recalls the previous submission with the up arrow', async () => {
@@ -277,7 +277,7 @@ describe.skipIf(process.platform === 'win32')('dsh code Escape (real PTY)', () =
     expect(rows.at(-1)).toMatch(/cli-mock/)
     // Submitting clears the box, so the transcript's own render is the only
     // copy of the message that survives — a row outside the box's borders.
-    expect(rows.map(visible)).toContain('┃ › create the note')
+    expect(rows.map(visible)).toContain('› create the note')
   }, E2E_TEST_TIMEOUT_MS)
 
   it('toggles plan mode with Shift-Tab, both ways', async () => {
@@ -358,7 +358,7 @@ describe.skipIf(process.platform === 'win32')('dsh code Escape (real PTY)', () =
     expect(output).toContain('CODE_CLI_THINKING')
     // ...but the settled screen keeps one summary line, not the pages.
     const rows = screenAt(output, 'CODE_CLI_ANSWER after thinking').alternate
-    const summary = rows.findIndex(row => /✻ thought for [\d.]+s · \+\d+ lines \(click or Ctrl\+O expands\)/u.test(row))
+    const summary = rows.findIndex(row => /✻ thought for [\d.]+s/u.test(row))
     expect(summary).toBeGreaterThanOrEqual(0)
     expect(rows.some(row => row.includes('weighing the options'))).toBe(false)
     expect(summary).toBeLessThan(rows.findIndex(row => row.includes('CODE_CLI_ANSWER')))
@@ -401,11 +401,11 @@ describe.skipIf(process.platform === 'win32')('dsh code Escape (real PTY)', () =
   }, E2E_TEST_TIMEOUT_MS)
 
   it('reads a long diff card in the pager on click, leaving the card collapsed', async () => {
-    const clickCard = '\u001B[<0;6;{row:Ctrl+O expands}M\u001B[<0;6;{row:Ctrl+O expands}m'
+    const clickCard = '\u001B[<0;6;{row:Write note.txt}M\u001B[<0;6;{row:Write note.txt}m'
     const output = await drivePty('tall', [
       ['/help for commands', `create the tall note${ENTER}`, 300],
-      // 45 diff lines, collapsed: the card offers the reader before the key...
-      ['click reads it', clickCard, 500],
+      // 45 diff lines, collapsed to one ToolCard line: a click opens the reader.
+      ['+45 -0', clickCard, 500],
       // ...and the click opens it over the conversation, not into it.
       ['Esc closes', '\u001B', 400],
       ['Ask anything', `/exit${ENTER}`, 400],
@@ -421,7 +421,7 @@ describe.skipIf(process.platform === 'win32')('dsh code Escape (real PTY)', () =
 
     // Esc returns, and the card is where it was — reading is not expanding.
     const after = screenAt(output, 'Ask anything', 'last').alternate
-    expect(after.some(row => row.includes('Ctrl+O expands'))).toBe(true)
+    expect(after.some(row => row.includes('● Write note.txt +45 -0 ✔'))).toBe(true)
     expect(after.some(row => row.includes('CODE_CLI_TALL_44'))).toBe(false)
   }, E2E_TEST_TIMEOUT_MS)
 
@@ -553,7 +553,8 @@ describe.skipIf(process.platform === 'win32')('dsh code Escape (real PTY)', () =
     // as each lands. The working line reports it as soon as the file exists.
     const output = await drivePty('spec', [
       ['/help for commands', `write the plan${ENTER}`, 900],
-      ['SHIP_TICKET_THREE', '', 900],
+      // Spec body is folded; the one-liner is what lands on screen.
+      ['Write plan.md', '', 900],
       ['', `/exit${ENTER}`, 500],
     ], { columns: 100, rows: 16 })
 
@@ -795,8 +796,8 @@ describe.skipIf(process.platform === 'win32')('dsh code Escape (real PTY)', () =
   it('toggles a collapsed output open with Ctrl-O, and keeps that choice on moving on', async () => {
     const output = await drivePty('tall', [
       ['/help for commands', `create the tall note${ENTER}`, 300],
-      // 45 diff lines, collapsed: the card names the expand key...
-      ['Ctrl+O expands', '\u000F', 400],
+      // 45 diff lines, collapsed to one line; Ctrl-O expands in place.
+      ['+45 -0', '\u000F', 400],
       // ...Ctrl-O swaps the block for its full body, clipped tail included...
       ['CODE_CLI_TALL_44', `/status${ENTER}`, 400],
       // ...and the next submission preserves that explicit reading choice.
@@ -871,7 +872,7 @@ describe.skipIf(process.platform === 'win32')('dsh code Escape (real PTY)', () =
     expect(typing[boxRow + 1] ?? '').toContain('second')
     // ...and the transcript echoes the one two-line message.
     const done = screenAt(output, 'CODE_CLI_CALL_OK').alternate
-    const echo = done.findIndex(row => visible(row).startsWith('┃ › first'))
+    const echo = done.findIndex(row => visible(row).startsWith('› first'))
     expect(echo).toBeGreaterThanOrEqual(0)
     expect(done[echo + 1] ?? '').toContain('second')
   }, E2E_TEST_TIMEOUT_MS)
@@ -915,7 +916,9 @@ describe.skipIf(process.platform === 'win32')('dsh code Escape (real PTY)', () =
     const osc = /\u001B\]52;c;([A-Za-z0-9+/=]+)\u0007/.exec(output)
     expect(osc).not.toBeNull()
     const copied = Buffer.from(osc?.[1] ?? '', 'base64').toString('utf8')
-    expect(copied).toContain('› create the note')
+    // Gutter `›` is paint, not copy: the turn is the prompt body + ToolCard line.
+    expect(copied).toContain('create the note')
+    expect(copied).toContain('● Write note.txt')
     expect(copied).toContain('CODE_CLI_CALL_OK')
     // Plain text: the styling on screen stayed out of the clipboard.
     expect(copied).not.toContain('\u001B')
@@ -943,10 +946,12 @@ it('paints a command that is a script as rows, never outside one', async () => {
     // The one-row summary names the command's first line...
     const asking = screenAt(output, 'Allow bash', 'last').alternate
     expect(asking.some(row => row.includes("$ python3 - <<'EOF' …"))).toBe(true)
-    // ...and the whole script reads as rows of the block that ran it.
+    // Default card is one line; the script body is not painted as its own rows.
     const done = screenAt(output, 'CODE_CLI_CALL_DENIED', 'last').alternate
-    expect(done.some(row => /│ import re$/u.test(row.trimEnd()))).toBe(true)
-    expect(done.some(row => row.includes("print('patched')"))).toBe(true)
+    expect(done.some(row => row.includes('● bash'))).toBe(true)
+    expect(done.some(row => row.includes("$ python3 - <<'EOF' …"))).toBe(true)
+    expect(done.some(row => /│ import re$/u.test(row.trimEnd()))).toBe(false)
+    expect(done.some(row => row.includes("print('patched')"))).toBe(false)
   }, E2E_TEST_TIMEOUT_MS)
 
   it('copies a drag that leaves the transcript and is released over the input box', async () => {
@@ -968,7 +973,8 @@ it('paints a command that is a script as rows, never outside one', async () => {
     const osc = /\u001B\]52;c;([A-Za-z0-9+/=]+)\u0007/.exec(output)
     expect(osc).not.toBeNull()
     const copied = Buffer.from(osc?.[1] ?? '', 'base64').toString('utf8')
-    expect(copied).toContain('› create the note')
+    expect(copied).toContain('create the note')
+    expect(copied).toContain('● Write note.txt')
     expect(copied).toContain('CODE_CLI_CALL_OK')
   }, E2E_TEST_TIMEOUT_MS)
 
@@ -985,7 +991,7 @@ it('paints a command that is a script as rows, never outside one', async () => {
     const rows = screenAt(output, 'resumed session-', 'last').alternate.map(visible)
     // Switching sessions clears the retired viewport, then replays the resumed
     // log: exactly one echo, and none of the interim session's chatter.
-    expect(rows.filter(row => row === '┃ › remember DELTA_ONE')).toHaveLength(1)
+    expect(rows.filter(row => row === '› remember DELTA_ONE')).toHaveLength(1)
     expect(rows.some(row => row.includes('new session session-'))).toBe(false)
     // The window title tracks the surface on a real terminal.
     expect(output).toContain('\u001B]2;dsh code —')
@@ -1000,7 +1006,7 @@ it('paints a command that is a script as rows, never outside one', async () => {
     const rows = screenAt(output, 'CODE_CLI_CALL_OK').alternate.map(visible)
     // The person's own words carry the heavy mark; the tool block the light
     // one — which is what tells two segments apart without a frame or a fill.
-    expect(rows).toContain('┃ › create the note')
+    expect(rows).toContain('› create the note')
     expect(rows.some(row => row.includes('│ ') && row.includes('note.txt'))).toBe(true)
     // What a person reads stays flush: the answer is not marked at all.
     expect(rows.some(row => row.startsWith('CODE_CLI_CALL_OK'))).toBe(true)
@@ -1009,8 +1015,8 @@ it('paints a command that is a script as rows, never outside one', async () => {
   it('replays history as folds, so a resumed long output still opens', async () => {
     const output = await drivePty('tall', [
       ['/help for commands', `create the tall note${ENTER}`, 300],
-      // 45 diff lines, collapsed live...
-      ['Ctrl+O expands', '\u000F', 400],
+      // 45 diff lines, collapsed live to one ToolCard line...
+      ['+45 -0', '\u000F', 400],
       // ...then explicitly expanded before session replacement.
       ['CODE_CLI_TALL_44', `/clear${ENTER}`, 400],
       ['new session session-', `/resume${ENTER}`, 400],
@@ -1025,8 +1031,8 @@ it('paints a command that is a script as rows, never outside one', async () => {
     // Replayed, before the key: the log's own message above a card still
     // collapsed to its summary — history as the turn left it.
     const replayed = screenAt(output, 'resumed session-').alternate
-    expect(replayed.map(visible)).toContain('┃ › create the tall note')
-    expect(replayed.some(row => row.includes('Ctrl+O expands'))).toBe(true)
+    expect(replayed.map(visible)).toContain('› create the tall note')
+    expect(replayed.some(row => row.includes('● Write note.txt +45 -0 ✔'))).toBe(true)
     expect(replayed.some(row => row.includes('CODE_CLI_TALL_44'))).toBe(false)
 
     // After the key: the body the log carried, on screen from a fold that only

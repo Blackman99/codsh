@@ -129,7 +129,8 @@ describe('piped input', () => {
 
   it('writes a prompt normally when no TTY exists to make it sticky', () => {
     const { console: term, output } = build()
-    term.appendPrompt(['› question', ''], '| ')
+    // Off a TTY the gutter still prefixes each content row so pipes keep role marks.
+    term.appendPrompt(['question', ''], '› ')
     expect(output.text).toBe('› question\n\n')
   })
 
