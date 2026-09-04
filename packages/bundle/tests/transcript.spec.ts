@@ -78,7 +78,7 @@ describe('assistant and user messages', () => {
       data: { role: 'user', content: [{ type: 'text', text: 'fix the bug' }], source: { kind: 'user' } },
     } as unknown as SessionEvent
     const transcript = build()
-    expect(transcript.render(event)).toEqual(['› fix the bug', ''])
+    expect(transcript.render(event)).toEqual(['fix the bug', ''])
     expect(transcript.takePrompt()).toBe(1)
     expect(transcript.takePrompt()).toBeUndefined()
   })
@@ -91,7 +91,7 @@ describe('assistant and user messages', () => {
       data: { role: 'user', content: [{ type: 'text', text: 'first line\nsecond line' }], source: { kind: 'user' } },
     } as unknown as SessionEvent
     const transcript = build()
-    expect(transcript.render(event)).toEqual(['› first line', '  second line', ''])
+    expect(transcript.render(event)).toEqual(['first line', 'second line', ''])
     expect(transcript.takePrompt()).toBe(2)
   })
 
@@ -111,7 +111,7 @@ describe('assistant and user messages', () => {
     } as unknown as SessionEvent
     const transcript = build()
     expect(transcript.render(event)).toEqual([
-      '› describe this',
+      'describe this',
       '  [image #1 · 20×10 png · described]',
       '',
     ])
@@ -204,7 +204,8 @@ describe('tool cards', () => {
 
   it('renders a diff call with its paths relativized', () => {
     const call = (): ToolCallView => ({ card: 'diff', title: 'Write', diffs: [{ path: '/repo/src/a.ts', oldText: null, newText: 'x' }] })
-    expect(build({ call }).render(callEvent('c1', 'write', {}))).toEqual(['● Write src/a.ts'])
+    // Pending diff cards stay off-screen; the completed one-liner is the card.
+    expect(build({ call }).render(callEvent('c1', 'write', {}))).toEqual([])
   })
 
   it('renders a generic call with its follow-along locations', () => {
@@ -229,8 +230,8 @@ describe('tool results', () => {
   it('pairs a result with its call and prints the body', () => {
     const transcript = build()
     transcript.render(callEvent('c1', 'grep', {}))
-    // The pending card already printed the header; an append-only transcript
-    // cannot replace it, so an unchanged successful result adds only its body.
+    // The pending card already printed the header; an unchanged successful
+    // result adds only its body.
     expect(transcript.render(resultEvent('c1', 'two matches'))).toEqual(['  two matches', ''])
   })
 
@@ -283,7 +284,7 @@ describe('tool results', () => {
     expect(transcript.takeEnter()).toBeUndefined()
   })
 
-  it('renders a diff result as marked lines', () => {
+  it('renders a diff result as a folded ToolCard with +n -m', () => {
     const result = (): ToolResultView => ({
       card: 'diff',
       title: 'Edit',
@@ -291,13 +292,11 @@ describe('tool results', () => {
     })
     const transcript = build({ result })
     transcript.render(callEvent('c1', 'edit', {}))
-    // The result title differs from the pending one, so the header reprints.
-    expect(transcript.render(resultEvent('c1', 'ok'))).toEqual([
-      '● Edit',
-      '- const a = 1',
-      '+ const a = 2',
-      '',
-    ])
+    expect(transcript.render(resultEvent('c1', 'ok'))).toEqual(['● Edit +1 -1 ✔', ''])
+    const fold = transcript.takeFold() ?? []
+    expect(fold[0]).toBe('● Edit +1 -1 ✔')
+    expect(fold).toContain('- const a = 1')
+    expect(fold).toContain('+ const a = 2')
   })
 
   it('hands a long diff to the reader instead of expanding it in place', () => {
@@ -309,8 +308,10 @@ describe('tool results', () => {
     transcript.render(callEvent('c1', 'edit', {}))
     const lines = transcript.render(resultEvent('c1', 'ok'))
 
-    expect(lines.join('\n')).toContain('click reads it · Ctrl+O expands')
-    expect(transcript.takeFold()).not.toBeUndefined()
+    expect(lines).toEqual(['● Edit +30 -30 ✔', ''])
+    const fold = transcript.takeFold() ?? []
+    expect(fold[0]).toBe('● Edit +30 -30 ✔')
+    expect(fold.join('\n')).toContain('click reads it · Ctrl+O expands')
     const page = transcript.takePage()
     expect(page).toContain('--- a/a.ts')
     expect(page).toContain('-line 30')
@@ -319,7 +320,7 @@ describe('tool results', () => {
     expect(transcript.takePage()).toBeUndefined()
   })
 
-  it('leaves a short diff whole on screen, with nothing for the reader', () => {
+  it('folds a short diff behind the ToolCard head, with nothing for the reader', () => {
     const result = (): ToolResultView => ({
       card: 'diff',
       title: 'Edit',
@@ -327,7 +328,10 @@ describe('tool results', () => {
     })
     const transcript = build({ result })
     transcript.render(callEvent('c1', 'edit', {}))
-    transcript.render(resultEvent('c1', 'ok'))
+    expect(transcript.render(resultEvent('c1', 'ok'))).toEqual(['● Edit +1 -1 ✔', ''])
+    const fold = transcript.takeFold() ?? []
+    expect(fold).toContain('- const a = 1')
+    expect(fold).toContain('+ const a = 2')
     expect(transcript.takePage()).toBeUndefined()
   })
 
@@ -360,7 +364,8 @@ describe('tool results', () => {
     const result = (): ToolResultView => ({ card: 'diff', diffs: [{ path: '/repo/a.ts', oldText: null, newText: 'a\nb' }] })
     const transcript = build({ result })
     transcript.render(callEvent('c1', 'write', {}))
-    expect(transcript.render(resultEvent('c1', 'ok'))).toEqual(['+ a', '+ b', ''])
+    expect(transcript.render(resultEvent('c1', 'ok'))).toEqual(['● write +2 -0 ✔', ''])
+    expect(transcript.takeFold() ?? []).toEqual(['● write +2 -0 ✔', '+ a', '+ b', ''])
   })
 
   it('shows a non-zero exit status on a terminal result', () => {
@@ -436,7 +441,7 @@ describe('tool results', () => {
     const transcript = build()
     transcript.render(callEvent('c1', 'todo_write', {}))
     // Nothing to show and nothing changed, but the call must not look pending.
-    expect(transcript.render(resultEvent('c1', ''))).toEqual(['  ✓', ''])
+    expect(transcript.render(resultEvent('c1', ''))).toEqual(['  ✔', ''])
   })
 
   it('does not repeat a path the presenter already put in its title', () => {
@@ -445,8 +450,10 @@ describe('tool results', () => {
       title: 'Write /repo/src/a.ts',
       diffs: [{ path: '/repo/src/a.ts', oldText: null, newText: 'x' }],
     })
-    // The title names the file, so the card appends no second copy of it.
-    expect(build({ call }).render(callEvent('c1', 'write', {}))).toEqual(['● Write src/a.ts'])
+    // Pending is silent; the completed ToolCard carries the relativized title.
+    const transcript = build({ call })
+    expect(transcript.render(callEvent('c1', 'write', {}))).toEqual([])
+    expect(transcript.callSummary('c1')).toBe('src/a.ts')
   })
 
   it('appends a path the presenter left out of its title', () => {
@@ -455,7 +462,9 @@ describe('tool results', () => {
       title: 'Write',
       diffs: [{ path: '/repo/src/a.ts', oldText: null, newText: 'x' }],
     })
-    expect(build({ call }).render(callEvent('c1', 'write', {}))).toEqual(['● Write src/a.ts'])
+    const transcript = build({ call })
+    expect(transcript.render(callEvent('c1', 'write', {}))).toEqual([])
+    expect(transcript.callSummary('c1')).toBe('src/a.ts')
   })
 
   it('shortens a workspace path a terminal presenter embedded in its command', () => {
@@ -467,7 +476,8 @@ describe('tool results', () => {
     const result = (): ToolResultView => ({ card: 'diff', diffs: [{ path: '/repo/a.ts', oldText: null, newText: 'only\n' }] })
     const transcript = build({ result })
     transcript.render(callEvent('c1', 'write', {}))
-    expect(transcript.render(resultEvent('c1', 'ok'))).toEqual(['+ only', ''])
+    expect(transcript.render(resultEvent('c1', 'ok'))).toEqual(['● write +1 -0 ✔', ''])
+    expect((transcript.takeFold() ?? []).join('\n')).toContain('+ only')
   })
 
   it('collapses a long body behind a count that names the expand key', () => {
@@ -569,14 +579,14 @@ describe('folding collapsed output', () => {
 describe('the forms a long block keeps', () => {
   it('times a thinking block when the surface timed it', () => {
     const { summary, full } = thinkingFold(['  first', '  second'], theme, 3.24)
-    expect(summary[0]).toBe('✻ thought for 3.2s · +2 lines (click or Ctrl+O expands)')
-    expect(full[0]).toBe('✻ thought for 3.2s')
+    expect(summary[0]).toBe('thought for 3.2s')
+    expect(full[0]).toBe('thought for 3.2s')
     expect(full).toContain('  second')
   })
 
   it('grows a unit for a long think, rather than counting seconds', () => {
     const long = thinkingFold(['a'], theme, 312.4)
-    expect(long.summary[0]).toContain('✻ thought for 5m 12s')
+    expect(long.summary[0]).toBe('thought for 5m 12s')
     expect(long.summary[0]).not.toContain('312')
   })
 
@@ -584,13 +594,22 @@ describe('the forms a long block keeps', () => {
     // A replayed log carries the reasoning but not its duration; claiming a
     // time here would be inventing one.
     const { summary, full } = thinkingFold(['  first'], theme)
-    expect(summary[0]).toBe('✻ thought · +1 lines (click or Ctrl+O expands)')
-    expect(full[0]).toBe('✻ thought')
+    expect(summary[0]).toBe('thought')
+    expect(full[0]).toBe('thought')
   })
 })
 
 describe('which block a line belongs to', () => {
   const rules = blockRules(theme)
+
+  it('exposes the gutter glyphs without the old heavy bar', () => {
+    expect(rules.user).toBe('› ')
+    expect(rules.tool).toBe('│ ')
+    expect(rules.error).toBe('│ ')
+    expect(rules.agent).toBe('✻ ')
+    expect(rules.meta).toBe('· ')
+    expect(rules.user).not.toContain('┃')
+  })
 
   /** A user message event. */
   const userEvent = (text: string): SessionEvent => ({
@@ -600,7 +619,7 @@ describe('which block a line belongs to', () => {
     data: { source: { kind: 'user' }, content: [{ type: 'text', text }] },
   }) as unknown as SessionEvent
 
-  it('marks the person\'s own words with the heavy rule', () => {
+  it('marks the person\'s own words with the accent gutter', () => {
     const transcript = build()
     transcript.render(userEvent('do it'))
     expect(transcript.takeRule()).toBe(rules.user)

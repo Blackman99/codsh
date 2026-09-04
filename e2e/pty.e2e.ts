@@ -218,9 +218,9 @@ describe.skipIf(process.platform === 'win32')('dsh code Escape (real PTY)', () =
     // The echo keeps the block's shape: the marker on the first row, the
     // continuation aligned under it, both outside the box's borders.
     const rows = screen.alternate.map(visible)
-    const echo = rows.indexOf('┃ › first')
+    const echo = rows.indexOf('› first')
     expect(echo).toBeGreaterThanOrEqual(0)
-    expect(rows[echo + 1]).toBe('┃   second')
+    expect(rows[echo + 1]).toBe('› second')
   }, E2E_TEST_TIMEOUT_MS)
 
   it('recalls the previous submission with the up arrow', async () => {
@@ -277,7 +277,7 @@ describe.skipIf(process.platform === 'win32')('dsh code Escape (real PTY)', () =
     expect(rows.at(-1)).toMatch(/cli-mock/)
     // Submitting clears the box, so the transcript's own render is the only
     // copy of the message that survives — a row outside the box's borders.
-    expect(rows.map(visible)).toContain('┃ › create the note')
+    expect(rows.map(visible)).toContain('› create the note')
   }, E2E_TEST_TIMEOUT_MS)
 
   it('toggles plan mode with Shift-Tab, both ways', async () => {
@@ -871,7 +871,7 @@ describe.skipIf(process.platform === 'win32')('dsh code Escape (real PTY)', () =
     expect(typing[boxRow + 1] ?? '').toContain('second')
     // ...and the transcript echoes the one two-line message.
     const done = screenAt(output, 'CODE_CLI_CALL_OK').alternate
-    const echo = done.findIndex(row => visible(row).startsWith('┃ › first'))
+    const echo = done.findIndex(row => visible(row).startsWith('› first'))
     expect(echo).toBeGreaterThanOrEqual(0)
     expect(done[echo + 1] ?? '').toContain('second')
   }, E2E_TEST_TIMEOUT_MS)
@@ -985,7 +985,7 @@ it('paints a command that is a script as rows, never outside one', async () => {
     const rows = screenAt(output, 'resumed session-', 'last').alternate.map(visible)
     // Switching sessions clears the retired viewport, then replays the resumed
     // log: exactly one echo, and none of the interim session's chatter.
-    expect(rows.filter(row => row === '┃ › remember DELTA_ONE')).toHaveLength(1)
+    expect(rows.filter(row => row === '› remember DELTA_ONE')).toHaveLength(1)
     expect(rows.some(row => row.includes('new session session-'))).toBe(false)
     // The window title tracks the surface on a real terminal.
     expect(output).toContain('\u001B]2;dsh code —')
@@ -1000,7 +1000,7 @@ it('paints a command that is a script as rows, never outside one', async () => {
     const rows = screenAt(output, 'CODE_CLI_CALL_OK').alternate.map(visible)
     // The person's own words carry the heavy mark; the tool block the light
     // one — which is what tells two segments apart without a frame or a fill.
-    expect(rows).toContain('┃ › create the note')
+    expect(rows).toContain('› create the note')
     expect(rows.some(row => row.includes('│ ') && row.includes('note.txt'))).toBe(true)
     // What a person reads stays flush: the answer is not marked at all.
     expect(rows.some(row => row.startsWith('CODE_CLI_CALL_OK'))).toBe(true)
@@ -1025,7 +1025,7 @@ it('paints a command that is a script as rows, never outside one', async () => {
     // Replayed, before the key: the log's own message above a card still
     // collapsed to its summary — history as the turn left it.
     const replayed = screenAt(output, 'resumed session-').alternate
-    expect(replayed.map(visible)).toContain('┃ › create the tall note')
+    expect(replayed.map(visible)).toContain('› create the tall note')
     expect(replayed.some(row => row.includes('Ctrl+O expands'))).toBe(true)
     expect(replayed.some(row => row.includes('CODE_CLI_TALL_44'))).toBe(false)
 

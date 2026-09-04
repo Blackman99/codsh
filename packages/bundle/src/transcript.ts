@@ -19,10 +19,14 @@ import { formatElapsed } from './status.ts'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import type { FileDiff, ToolCallView, ToolResult, ToolResultView } from '@deepseek-ai/dsh-tools'
+import { blockRules } from './gutter.ts'
 import { renderMarkdown } from './markdown.ts'
 import { displayWidth, oneRow, truncate } from './theme.ts'
 import { todoReport } from './todos.ts'
 import type { Theme } from './theme.ts'
+
+export { blockRules, gutter } from './gutter.ts'
+export type { GutterRole } from './gutter.ts'
 
 /** Context lines kept on each side of a rendered hunk. */
 const DIFF_CONTEXT = 3
@@ -131,26 +135,6 @@ function imageMetaLines(content: readonly ContentBlock[], theme: Theme): string[
 }
 
 /**
- * The left rules the transcript draws down a block's edge, one per kind.
- *
- * A rule is how a segment shows where it starts and ends without a frame or a
- * background fill: the references converge on a left border (Claude Code's
- * `borderLeft`, opencode's `border: ["left"]`), and a border costs one column
- * where a fill costs the terminal's own background — which is the theme's to
- * decide, not this surface's (ADR-0001).
- *
- * The person's own words get the heavy mark; a tool block gets the light one,
- * in the error colour when the call failed. What a person actually reads — an
- * answer, a thinking summary — stays flush, so the rules mark the machinery
- * around it rather than everything equally.
- * @param theme - styling for the marks.
- * @returns the rule per block kind.
- */
-export function blockRules(theme: Theme): { user: string, tool: string, error: string } {
-  return { user: theme.user('┃ '), tool: theme.tool('│ '), error: theme.error('│ ') }
-}
-
-/**
  * What a nameless thinking block is called when a readout names it.
  *
  * A tool block answers with its card's own title, which is already on screen;
@@ -190,11 +174,12 @@ export function childSessionId(text: string): string | undefined {
 }
 
 /**
- * The two forms of a thinking block: one dim line, and the deliberation behind
- * it.
+ * The two forms of a thinking block: one slim clock line, and the deliberation
+ * behind it.
  *
- * Pages of reasoning would bury the conversation, so the transcript keeps the
- * summary and hands the rest to Ctrl+O — live and on replay alike.
+ * Pages of reasoning would bury the conversation, so the transcript keeps a
+ * one-line summary — the `✻` lives in the agent gutter via {@link blockRules} —
+ * and hands the full body to the fold (click or Ctrl+O).
  * @param lines - the rendered thinking lines, already styled.
  * @param theme - styling for the header.
  * @param seconds - how long the thinking took, when the surface timed it; a
@@ -206,11 +191,63 @@ export function thinkingFold(
   theme: Theme,
   seconds?: number,
 ): { summary: string[], full: string[] } {
-  const head = seconds === undefined ? '✻ thought' : `✻ thought for ${formatElapsed(seconds * 1000)}`
+  // Glyph lives in the agent gutter (`✻ `); the line is the clock only.
+  const head = theme.dim(seconds === undefined ? 'thought' : `thought for ${formatElapsed(seconds * 1000)}`)
   return {
-    summary: [theme.dim(`${head} · +${lines.length} lines (click or Ctrl+O expands)`), ''],
-    full: [theme.dim(head), ...lines, ''],
+    summary: [head, ''],
+    full: [head, ...lines, ''],
   }
+}
+
+/** Count added/removed lines across one or more file diffs. */
+function diffStats(diffs: readonly FileDiff[]): { added: number, removed: number } {
+  let added = 0
+  let removed = 0
+  for (const diff of diffs) {
+    if (diff.oldText === null) {
+      const lines = diff.newText.split('\n')
+      if (lines.at(-1) === '') lines.pop()
+      added += lines.length
+      continue
+    }
+    const patch = structuredPatch('', '', diff.oldText, diff.newText, undefined, undefined, { context: DIFF_CONTEXT })
+    for (const hunk of patch.hunks) {
+      for (const line of hunk.lines) {
+        if (line.startsWith('+') && !line.startsWith('+++')) added += 1
+        else if (line.startsWith('-') && !line.startsWith('---')) removed += 1
+      }
+    }
+  }
+  return { added, removed }
+}
+
+/**
+ * One ToolCard headline: bullet, title, optional +n -m, trailing status.
+ *
+ * Title truncates first so `+n -m` and the status glyph survive an 80-col
+ * terminal; omit the stats segment when both counts are zero.
+ * @param theme - styling for title and muted stats.
+ * @param columns - display columns available for the line (rule excluded).
+ * @param bullet - already-styled leading marker (`●` / pending).
+ * @param title - plain card title.
+ * @param stats - already-styled `+n -m`, or `''`.
+ * @param status - already-styled trailing `✔` / `✗` / spinner.
+ * @returns the painted one-liner.
+ */
+export function formatToolCardLine(
+  theme: Theme,
+  columns: number,
+  bullet: string,
+  title: string,
+  stats: string,
+  status: string,
+): string {
+  const statsPart = stats === '' ? '' : ` ${stats}`
+  const statusPart = ` ${status}`
+  const prefix = `${bullet} `
+  const reserve = displayWidth(oneRow(`${prefix}${statsPart}${statusPart}`))
+  const titleBudget = Math.max(8, columns - reserve)
+  return `${prefix}${theme.tool(truncate(title, titleBudget))}${statsPart}${statusPart}`
 }
 
 /**
@@ -332,7 +369,7 @@ export class Transcript {
         const [first = '', ...rest] = typed.map(block => block.text).join('').split('\n')
         this.prompt = 1 + rest.length
         const meta = imageMetaLines(event.data.content, theme)
-        return [`${theme.user('›')} ${first}`, ...rest.map(line => `  ${line}`), ...meta, '']
+        return [first, ...rest, ...meta, '']
       }
       case 'assistant/message': {
         const text = visibleText(event.data.message.content)
@@ -358,7 +395,7 @@ export class Transcript {
       // `user/message` this renderer drops. The summary event is the moment to
       // say what happened, and the summary itself is what the fold keeps.
       case 'compaction/summary': {
-        this.rule = rules.tool
+        this.rule = rules.meta
         const items = event.data.shadowedSeqs.length
         const head = theme.dim(`✂ compacted ${String(items)} history item${items === 1 ? '' : 's'} (~${String(event.data.shadowedTokenCount)} tokens) into a summary · ${event.data.model}`)
         const summary = visibleText(event.data.summary)
@@ -372,6 +409,7 @@ export class Transcript {
         this.rule = rules.error
         return [theme.error(`✗ compaction failed: ${event.data.error}`), '']
       case 'plan/mode':
+        this.rule = rules.meta
         return event.data.active
           ? [theme.pending('▲ plan mode — exploring only; no files will change until you approve a plan'), '']
           : [theme.dim('▼ plan mode off'), '']
@@ -481,7 +519,9 @@ export class Transcript {
       const title = this.relativizeIn(view.title)
       const paths = view.diffs.map(diff => this.relative(diff.path))
       const line = `${title}${this.extraPaths(title, paths)}`
-      return record(line, paths.length === 0 ? title : paths.join(', '), [`${theme.pending('●')} ${theme.tool(title)}${theme.path(this.extraPaths(title, paths))}`])
+      // Pending stays off-screen: the completed one-liner is the card. The
+      // spinner names the tool while it runs.
+      return record(line, paths.length === 0 ? title : paths.join(', '), [])
     }
     const title = this.relativizeIn(view.title)
     const locations = (view.locations ?? []).map(location => this.relative(location.path))
@@ -527,24 +567,25 @@ export class Transcript {
     const { suffix, body, full } = this.outcome(view, block)
     const enter = failed ? undefined : childSessionId(this.resultText(block.content))
     const hint = enter === undefined ? [] : [theme.dim('  click to enter')]
-    // The pending card already printed this header, and an append-only
-    // transcript cannot replace it. Reprinting an unchanged one reads as a
-    // stutter, so the header returns only when the call failed or the presenter
-    // changed the title. A status the pending line could not know — a match
-    // count, an exit code — arrives as a continuation line under it instead, and
-    // a completion with neither status nor body gets a `✓` so it never looks
-    // stuck.
+    // Diff ToolCard: one collapsed line with +n -m and status; body only when expanded.
+    if (view?.card === 'diff') {
+      const bullet = failed ? theme.error('●') : theme.success('●')
+      const done = failed ? theme.error('✗') : theme.success('✔')
+      const head = [formatToolCardLine(theme, this.options.columns, bullet, title, suffix, done)]
+      this.fold = [...head, ...(full ?? []), ...hint, '']
+      this.label = title
+      if (enter !== undefined) this.enter = enter
+      return [...head, ...hint, '']
+    }
+
+    // Other cards: avoid reprinting an unchanged pending header.
     const changed = failed || title !== pending.title
     const head = changed
       ? [`${marker} ${theme.tool(title)}${suffix === '' ? '' : ` ${suffix}`}`]
       : suffix !== '' ? [`  ${suffix}`]
-        : body.length === 0 && hint.length === 0 ? [`  ${theme.success('✓')}`] : []
-    // The fold swaps the WHOLE event's lines, so the expanded form repeats the
-    // same head with the uncapped body under it.
+        : body.length === 0 && hint.length === 0 ? [`  ${theme.success('✔')}`] : []
     if (full !== undefined) {
       this.fold = [...head, ...full, ...hint, '']
-      // The card's own title, unstyled: what the block is called on screen is
-      // what a readout naming it should say.
       this.label = title
     }
     if (enter !== undefined) {
@@ -700,15 +741,24 @@ export class Transcript {
       // What the turn changed on disk. A `/ship` run keeps its plan in a spec
       // file, so the surface learns where that file is by watching it written.
       this.written = view.diffs.map(diff => diff.path)
-      const result = capped(
-        view.diffs.flatMap(diff => diffBody(diff, theme)),
-        MAX_DIFF_LINES,
-        'click reads it · Ctrl+O expands',
-      )
-      // Only a diff that outgrew its card earns the reader; a short one is
-      // already whole on screen, and opening a modal over it would be noise.
-      if (result.full !== undefined) this.page = unifiedDiffText(view.diffs, path => this.relative(path))
-      return { suffix: '', ...result }
+      const hunks = view.diffs.flatMap(diff => diffBody(diff, theme))
+      const { added, removed } = diffStats(view.diffs)
+      const stats = added === 0 && removed === 0
+        ? ''
+        : theme.muted(`+${added} -${removed}`)
+      // Default collapsed: one-line ToolCard; body lives in the fold until expand.
+      // Soft-cap still applies inside the expanded form; only then does a click
+      // open the reader (Ctrl+O still expands inline).
+      const soft = capped(hunks, MAX_DIFF_LINES, 'click reads it · Ctrl+O expands')
+      // Soft-cap inside the expanded form; click opens the reader only when capped.
+      if (soft.full !== undefined) this.page = unifiedDiffText(view.diffs, path => this.relative(path))
+      return {
+        suffix: stats,
+        body: [],
+        full: hunks.length === 0
+          ? undefined
+          : soft.full !== undefined ? soft.body : hunks,
+      }
     }
     if (view?.card === 'terminal') {
       const suffix = view.signal !== undefined
