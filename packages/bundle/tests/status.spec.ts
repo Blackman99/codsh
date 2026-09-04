@@ -220,6 +220,11 @@ describe('statusLine', () => {
     expect(statusLine({ ...base, planMode: true }, theme, 200)).toBe('plan · m · /repo')
   })
 
+  it('prepends the ship gate chip ahead of plan mode', () => {
+    expect(statusLine({ ...base, planMode: true, shipGate: 1 }, theme, 200)).toBe('ship · gate1 · plan · m · /repo')
+    expect(statusLine({ ...base, shipGate: 2 }, theme, 200)).toBe('ship · gate2 · m · /repo')
+  })
+
   it('keeps the full line when no budget is given, so a later paint can re-fit it', () => {
     const path = '/very/long/path/that/keeps/going/on'
     expect(statusLine({ ...base, cwd: path }, theme)).toContain(path)
@@ -237,6 +242,20 @@ describe('statusLine', () => {
     expect(line).toContain('20%')
   })
 
+  it('keeps shipGate like mode — drops cwd then model before the chip', () => {
+    const line = statusLine({
+      ...base,
+      shipGate: 1,
+      planMode: true,
+      cwd: '/a/very/long/workspace/path/that/will/not/fit',
+      context: { contextWindow: 100, projectedTokens: 80 },
+    }, theme, 28)
+    expect(line).not.toContain('/a/very')
+    expect(line).toContain('ship · gate1')
+    expect(line).toContain('plan')
+    expect(line).toContain('20%')
+  })
+
   it('is cut rather than wrapped when even the kept segments will not fit', () => {
     const line = statusLine({ ...base, cwd: '/very/long/path/that/keeps/going/on' }, theme, 8)
     expect(line.length).toBeLessThanOrEqual(8)
@@ -246,6 +265,11 @@ describe('statusLine', () => {
 
 describe('status styling', () => {
   const colour = createTheme(true, {})
+
+  it('styles the ship gate chip warn', () => {
+    const line = statusLine({ ...base, shipGate: 1 }, colour, 200)
+    expect(line).toContain('\u001B[93mship · gate1\u001B[0m')
+  })
 
   it('styles the model muted, never cyan/accent', () => {
     const line = statusLine({ ...base, preset: 'code-cli', usage }, colour, 200)

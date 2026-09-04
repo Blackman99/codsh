@@ -804,6 +804,7 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
   // through the prompt, so one side of the pair is wired after both exist.
   let onEscapeKey: () => void = () => {}
   let onInterruptKey: () => void = () => {}
+  let onShipGate: (gate: 1 | 2 | undefined) => void = () => {}
   const prompt = new Prompt(io.console, theme, {
     commands: completable,
     paths: completePath,
@@ -844,6 +845,8 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
     // Ctrl-V: the prompt owns the token and the pending bytes; the platform
     // read lives here so the prompt module stays pure enough to test.
     readClipboardImage: () => readClipboardImage(process.env),
+    // /ship GateModal open/close: repaint MetaBar with the gate chip.
+    shipGate: (gate) => { onShipGate(gate) },
   }, 'Ask anything · / for commands · $ for skills · ! shell · @ for files · ⇧Tab plan mode')
   // The keys a first session most needs, on the hint row, while typing too:
   // the placeholder leaves with the first character, and `?` opens the rest.
@@ -1440,12 +1443,13 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
       prompt.setStatus(theme.dim('subagent · Esc returns to the parent'))
       return
     }
-    prompt.setStatus(statusLine(facts(branch), theme))
+    prompt.setStatus(statusLine({ ...facts(branch), ...prompt.shipGate === undefined ? {} : { shipGate: prompt.shipGate } }, theme))
     // Same cadence as the status row, for the same reason: the list is a fold
     // over the log, so anything cached here would report the turn before last.
     prompt.setTodos(todoList(ctx, live.agent))
   }
   if (sessionFolds.planMode) prompt.setAccent(text => theme.pending(text))
+  onShipGate = (_gate) => { refreshStatus() }
   refreshStatus()
 
   /**
@@ -1707,6 +1711,7 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
       theme,
       (line) => { prompt.write(line) },
       io.console.readsKeys ? async (spec, signal) => prompt.select(spec, signal) : undefined,
+      io.console.readsKeys ? async (spec, signal) => prompt.gate(spec, signal) : undefined,
     )
     questions.registerProvider({ ask: async request => whileDeciding(() => terminalQuestions.ask(request), 'your answer') })
   }
@@ -2001,7 +2006,7 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
       // On a terminal the status lives in the region, always current.
       refreshStatus()
     } else {
-      const status = statusLine(facts(branch), theme, io.console.columns)
+      const status = statusLine({ ...facts(branch), ...prompt.shipGate === undefined ? {} : { shipGate: prompt.shipGate } }, theme, io.console.columns)
       if (status !== shownStatus) {
         prompt.write(status)
         shownStatus = status

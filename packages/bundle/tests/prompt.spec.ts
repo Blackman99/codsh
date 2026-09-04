@@ -1053,3 +1053,51 @@ describe('the key legend', () => {
     expect(rows().some(row => row.includes('? shortcuts'))).toBe(true)
   })
 })
+
+describe('ship gate modal', () => {
+  it('paints via setViewer, settles y/e/n/Esc, and clears shipGate + viewer', async () => {
+    const gates: Array<1 | 2 | undefined> = []
+    const { console, prompt } = (() => {
+      const console = fakeConsole(true)
+      const prompt = new Prompt(console as never, createTheme(false, {}), sources, {
+        interrupt: () => {},
+        escape: () => {},
+        eof: () => {},
+        shipGate: (gate) => { gates.push(gate) },
+      })
+      return { console, prompt }
+    })()
+    const pending = prompt.gate({
+      kind: 'spec',
+      title: 'ship · gate 1/2 — confirm spec',
+      bodyLines: ['body'],
+      recommended: 'confirm',
+    })
+    expect(prompt.shipGate).toBe(1)
+    expect(gates.at(-1)).toBe(1)
+    expect(console.viewers.at(-1)?.join('\n')).toContain('gate 1/2')
+    console.press({ kind: 'text', text: 'y' })
+    await expect(pending).resolves.toBe('confirm')
+    expect(prompt.shipGate).toBeUndefined()
+    expect(gates.at(-1)).toBeUndefined()
+    expect(console.viewers.at(-1)).toBeUndefined()
+
+    for (const [key, action] of [
+      [{ kind: 'text', text: 'e' }, 'edit'],
+      [{ kind: 'text', text: 'n' }, 'abort'],
+      [{ kind: 'escape' }, 'abort'],
+    ] as const) {
+      const next = prompt.gate({
+        kind: 'tickets',
+        title: 'ship · gate 2/2 — approve tickets',
+        bodyLines: ['t'],
+        recommended: 'confirm',
+      })
+      expect(prompt.shipGate).toBe(2)
+      console.press(key as never)
+      await expect(next).resolves.toBe(action)
+      expect(prompt.shipGate).toBeUndefined()
+      expect(console.viewers.at(-1)).toBeUndefined()
+    }
+  })
+})
