@@ -152,7 +152,8 @@ export class FrontierCard {
       if (option === undefined) continue
       body.push(framed(this.optionRow(option, index === this.focus, theme, inner), theme, inner))
     }
-    const hint = theme.muted('[y] take · [e] edit · [up/down] pick')
+    // Shared vocabulary: take / edit; Esc is back (dismiss), never abort.
+    const hint = theme.muted('[y] take · [e] edit · [↑↓] pick')
     const rows = [top, ...body, framed(truncate(hint, inner), theme, inner), bottom]
     return {
       rows: rows.map(row => truncate(row, width)),
