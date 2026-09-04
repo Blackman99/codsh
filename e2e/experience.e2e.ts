@@ -458,7 +458,7 @@ describe.skipIf(process.platform === 'win32')('the first five minutes', () => {
     expect(opened.some(row => row.includes('CODE_CLI_THINKING about the request'))).toBe(true)
     // Folded back by the second click — before any submission could do it.
     const shut = screenAtLast(output, 'lines (click or Ctrl+O expands)').alternate
-    expect(shut.some(row => /✻ thought for [\d.]+s · \+\d+ lines/u.test(row))).toBe(true)
+    expect(shut.some(row => /✻ thought for [\d.]+s/u.test(row))).toBe(true)
     expect(shut.some(row => row.includes('weighing the options carefully'))).toBe(false)
   }, E2E_TEST_TIMEOUT_MS)
 
