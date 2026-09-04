@@ -31,6 +31,8 @@ export type Key =
   | { kind: 'kill-line' }
   | { kind: 'kill-input' }
   | { kind: 'kill-word' }
+  | { kind: 'undo' }
+  | { kind: 'redo' }
   | { kind: 'word-left' }
   | { kind: 'word-right' }
   | { kind: 'shift-tab' }
@@ -224,6 +226,11 @@ const CONTROLS: Readonly<Record<string, Key>> = {
   // The kitty form (CSI 118;5u) lands here too, via the Ctrl+letter lookup.
   '\u0016': { kind: 'paste-image' },
   '\u0017': { kind: 'kill-word' },
+  // Ctrl+Z and Ctrl+_ both undo: raw mode reads 0x1A rather than suspending,
+  // and 0x1F is what readline has always used. Redo has no legacy byte —
+  // Ctrl+Shift+Z is indistinguishable from Ctrl+Z without the kitty protocol.
+  '\u001A': { kind: 'undo' },
+  '\u001F': { kind: 'undo' },
 }
 
 /** Decodes terminal bytes into keys, holding partial sequences between reads. */
@@ -381,6 +388,11 @@ export class KeyDecoder {
     if (code === 13) return [shift || alt ? { kind: 'newline' } : { kind: 'enter' }]
     if (code === 9) return [shift ? { kind: 'shift-tab' } : { kind: 'tab' }]
     if (code === 127 || code === 8) return [alt || ctrl ? { kind: 'kill-word' } : { kind: 'backspace' }]
+    // Redo lives only here: with Shift reported, Ctrl+Shift+Z is its own key.
+    // A terminal reporting the shifted letter itself (`Z`) means the same.
+    if (ctrl && ((shift && code === 122) || code === 90)) return [{ kind: 'redo' }]
+    // Ctrl+_ arrives as `_`, as `/`, or as Shift+`-`, by layout and terminal.
+    if (ctrl && (code === 95 || code === 47 || (shift && code === 45))) return [{ kind: 'undo' }]
     if (ctrl && code >= 97 && code <= 122) {
       const control = CONTROLS[String.fromCharCode(code - 96)]
       return control === undefined ? [] : [control]

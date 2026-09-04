@@ -1114,3 +1114,32 @@ describe.skipIf(process.platform === 'win32')('remembered approvals (real PTY)',
     }
   }, E2E_TEST_TIMEOUT_MS)
 })
+
+describe.skipIf(process.platform === 'win32')('undo and redo (real PTY)', () => {
+  it('takes typing back on Ctrl+Z and returns it on Ctrl+Shift+Z', async () => {
+    // Ctrl+Z is the raw byte 0x1A; redo has no legacy byte, so it is the
+    // kitty report for Ctrl+Shift+Z — the protocol this surface pushes.
+    const undo = '\u001A'
+    const redo = '\u001B[122;6u'
+    const run = await drivePtySteps('write', [
+      ['/help for commands', 'hello', 0],
+      ['hello', `${PASTE_START} pasted words${PASTE_END}`, 300],
+      ['pasted words', undo, 300],
+      ['', redo, 400],
+      ['', `${CLEAR}/exit${ENTER}`, 400],
+    ])
+
+    // The screen as each step was written: the settle before it let the
+    // previous key's frame land.
+    const captured = (offset: number | undefined): string => Buffer.from(run.output).subarray(0, offset).toString()
+    const screenBefore = (step: number): string => screenOf(captured(run.offsets[step]), -1).alternate.join('\n')
+    const pasted = screenBefore(2)
+    const undone = screenBefore(3)
+    const redone = screenBefore(4)
+    expect(pasted).toContain('› hello pasted words')
+    // The paste came off as one step; the typed word is still there.
+    expect(undone).toMatch(/› hello\s+│/u)
+    expect(undone).not.toContain('pasted words')
+    expect(redone).toContain('› hello pasted words')
+  }, E2E_TEST_TIMEOUT_MS)
+})

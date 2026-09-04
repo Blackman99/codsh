@@ -1160,7 +1160,7 @@ export class Prompt {
       menuOverlay = box.overlay
     }
     if (this.shortcutsOpen) {
-      rows.push(this.theme.dim(truncate('  Ctrl+R history · Ctrl+F find · Ctrl+O folds · Ctrl+T todos', columns)))
+      rows.push(this.theme.dim(truncate('  Ctrl+R history · Ctrl+F find · Ctrl+O folds · Ctrl+T todos · Ctrl+Z undo', columns)))
       rows.push(this.theme.dim(truncate('  Ctrl+V image · Shift-Enter newline · Esc interrupt · ? closes', columns)))
     }
     if (this.queued.length > 0) {

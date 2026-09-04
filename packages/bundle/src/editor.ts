@@ -102,6 +102,25 @@ export interface EditorSources {
 /** Longest run of history the editor keeps for one session. */
 const HISTORY_LIMIT = 200
 
+/** How many edits back undo can go. */
+const UNDO_LIMIT = 100
+
+/** The buffer and cursor as they stood before one edit. */
+interface Snapshot {
+  lines: string[]
+  row: number
+  column: number
+}
+
+/**
+ * Which edits merge into one undo step.
+ *
+ * Typing a word is one step, the space after it another, and the next word
+ * joins that space — so undo walks back a word at a time, the way readline's
+ * does. Held Backspace or Delete is one step too. Anything else stands alone.
+ */
+type EditGroup = 'word' | 'space' | 'backspace' | 'delete'
+
 /**
  * Split text into the units the cursor counts.
  *
@@ -113,6 +132,17 @@ const HISTORY_LIMIT = 200
  * @returns its code points.
  */
 const points = (text: string): string[] => Array.from(text)
+
+/**
+ * The undo group a key's edit belongs to.
+ * @param key - the key that edited.
+ * @returns the group, or undefined for an edit that stands alone.
+ */
+function groupOf(key: Key): EditGroup | undefined {
+  if (key.kind === 'text') return key.text.trim() === '' ? 'space' : 'word'
+  if (key.kind === 'backspace' || key.kind === 'delete') return key.kind
+  return undefined
+}
 
 /** A multi-line prompt editor. */
 export class Editor {
@@ -143,6 +173,12 @@ export class Editor {
    * cursor, means nothing is selected.
    */
   private anchor: { row: number; column: number } | undefined
+  /** What undo restores, most recent last. */
+  private readonly undone: Snapshot[] = []
+  /** What redo restores, most recent last; emptied by any fresh edit. */
+  private readonly redone: Snapshot[] = []
+  /** The group the last recorded edit belonged to, for merging the next one. */
+  private lastEdit: EditGroup | undefined
 
   constructor(private readonly sources: EditorSources) {}
 
@@ -183,11 +219,13 @@ export class Editor {
    * @param text - the text to edit, possibly multi-line.
    */
   prefill(text: string): void {
+    const before = this.snapshot()
     this.lines = text.split('\n')
     this.row = this.lines.length - 1
     this.column = points(this.line()).length
     this.candidates = []
     this.anchor = undefined
+    this.record(before, undefined)
   }
 
   /** Submissions this session recorded, oldest first, for persistence. */
@@ -217,6 +255,25 @@ export class Editor {
     // scrolled away from what Enter would take answers a question nobody asked.
     this.menuScroll = undefined
     if (this.search !== undefined) return this.handleSearch(key)
+    if (key.kind === 'undo') return this.undo()
+    if (key.kind === 'redo') return this.redo()
+    // Undo is recorded by comparison, not by each edit: whatever the key did
+    // to the buffer, the state before it is what undo gives back.
+    const before = this.snapshot()
+    const action = this.dispatch(key)
+    if (action.kind === 'submit') {
+      // The box is empty and the text is in history; Esc Esc recalls it.
+      this.undone.length = 0
+      this.redone.length = 0
+      this.lastEdit = undefined
+    } else {
+      this.record(before, groupOf(key))
+    }
+    return action
+  }
+
+  /** Apply one key to the buffer, menu, or history. */
+  private dispatch(key: Key): EditorAction {
     switch (key.kind) {
       case 'history-search': return this.openSearch()
       case 'text': return this.insert(key.text)
@@ -380,9 +437,69 @@ export class Editor {
    */
   chooseCandidate(index: number): EditorAction {
     if (index < 0 || index >= this.candidates.length) return { kind: 'none' }
+    const before = this.snapshot()
     this.anchor = undefined
     this.selected = index
-    return this.take()
+    const action = this.take()
+    this.record(before, undefined)
+    return action
+  }
+
+  /** The buffer and cursor as they stand, copied. */
+  private snapshot(): Snapshot {
+    return { lines: [...this.lines], row: this.row, column: this.column }
+  }
+
+  /**
+   * Keep the state before an edit for undo, when the edit changed the buffer.
+   * @param before - the state before the edit.
+   * @param group - the group the edit merges into, or undefined to stand alone.
+   */
+  private record(before: Snapshot, group: EditGroup | undefined): void {
+    const unchanged = before.lines.length === this.lines.length && before.lines.every((line, index) => line === this.lines[index])
+    if (unchanged) {
+      // A cursor move between two typed words separates them for undo.
+      if (group === undefined) this.lastEdit = undefined
+      return
+    }
+    const merges = group !== undefined && this.lastEdit !== undefined
+      && (group === this.lastEdit || (group === 'word' && this.lastEdit === 'space'))
+    if (!merges) {
+      this.undone.push(before)
+      if (this.undone.length > UNDO_LIMIT) this.undone.shift()
+    }
+    this.redone.length = 0
+    this.lastEdit = group
+  }
+
+  /** Step the buffer back one recorded edit. */
+  private undo(): EditorAction {
+    const previous = this.undone.pop()
+    if (previous !== undefined) {
+      this.redone.push(this.snapshot())
+      this.restore(previous)
+    }
+    return { kind: 'none' }
+  }
+
+  /** Step the buffer forward again, undoing an undo. */
+  private redo(): EditorAction {
+    const next = this.redone.pop()
+    if (next !== undefined) {
+      this.undone.push(this.snapshot())
+      this.restore(next)
+    }
+    return { kind: 'none' }
+  }
+
+  /** Put a snapshot back as the buffer; the next typed word starts its own step. */
+  private restore(snapshot: Snapshot): void {
+    this.lines = [...snapshot.lines]
+    this.row = Math.min(snapshot.row, this.lines.length - 1)
+    this.column = Math.min(snapshot.column, points(this.line()).length)
+    this.anchor = undefined
+    this.lastEdit = undefined
+    this.refresh()
   }
 
   /**

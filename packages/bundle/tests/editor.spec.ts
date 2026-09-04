@@ -743,3 +743,87 @@ describe('buffer selection', () => {
     expect(editor.handle(key('escape'))).toEqual({ kind: 'escape' })
   })
 })
+
+describe('undo and redo', () => {
+  const paste = (editor: Editor, text: string): void => void editor.handle({ kind: 'paste', text })
+
+  it('takes a typed word back as one step, and the space before it as the next', () => {
+    const editor = build()
+    type(editor, 'hello world')
+    editor.handle(key('undo'))
+    expect(editor.text).toBe('hello')
+    editor.handle(key('undo'))
+    expect(editor.text).toBe('')
+    // Nothing further back: undo on an empty history is quiet.
+    expect(editor.handle(key('undo'))).toEqual({ kind: 'none' })
+    expect(editor.text).toBe('')
+  })
+
+  it('brings an undone step back on redo, and forgets it after a fresh edit', () => {
+    const editor = build()
+    type(editor, 'hello world')
+    editor.handle(key('undo'))
+    editor.handle(key('redo'))
+    expect(editor.text).toBe('hello world')
+    expect(editor.view.column).toBe(11)
+    editor.handle(key('undo'))
+    type(editor, '!')
+    expect(editor.text).toBe('hello!')
+    editor.handle(key('redo'))
+    expect(editor.text).toBe('hello!')
+  })
+
+  it('treats a paste as one step, and a run of Backspace as one', () => {
+    const editor = build()
+    type(editor, 'keep ')
+    paste(editor, 'pasted\nblock')
+    expect(editor.text).toBe('keep pasted\nblock')
+    editor.handle(key('undo'))
+    expect(editor.text).toBe('keep ')
+    editor.handle(key('redo'))
+    for (let index = 0; index < 5; index += 1) editor.handle(key('backspace'))
+    expect(editor.text).toBe('keep pasted\n')
+    editor.handle(key('undo'))
+    expect(editor.text).toBe('keep pasted\nblock')
+  })
+
+  it('restores what a kill took, cursor included', () => {
+    const editor = build()
+    type(editor, 'remove all of this')
+    editor.handle(key('kill-input'))
+    expect(editor.text).toBe('')
+    editor.handle(key('undo'))
+    expect(editor.text).toBe('remove all of this')
+    expect(editor.view).toMatchObject({ row: 0, column: 18 })
+  })
+
+  it('separates words typed around a cursor move', () => {
+    const editor = build()
+    type(editor, 'ab')
+    editor.handle(key('left'))
+    type(editor, 'X')
+    expect(editor.text).toBe('aXb')
+    editor.handle(key('undo'))
+    expect(editor.text).toBe('ab')
+  })
+
+  it('starts over after a submission: the sent text is history, not an undo step', () => {
+    const editor = build()
+    type(editor, 'send this')
+    expect(editor.handle(key('enter'))).toEqual({ kind: 'submit', text: 'send this' })
+    editor.handle(key('undo'))
+    expect(editor.text).toBe('')
+  })
+
+  it('undoes a recalled prompt and a completion taken by the pointer', () => {
+    const editor = build()
+    editor.prefill('recalled line')
+    editor.handle(key('undo'))
+    expect(editor.text).toBe('')
+    type(editor, '/pl')
+    editor.chooseCandidate(0)
+    expect(editor.text).toBe('/plan')
+    editor.handle(key('undo'))
+    expect(editor.text).toBe('/pl')
+  })
+})

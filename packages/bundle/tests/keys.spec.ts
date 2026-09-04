@@ -73,6 +73,8 @@ describe('KeyDecoder', () => {
     { label: 'Ctrl-L', bytes: '\u000C', key: { kind: 'clear-screen' } },
     { label: 'Ctrl-T', bytes: '\u0014', key: { kind: 'toggle-todos' } },
     { label: 'Ctrl-R searches history', bytes: '\u0012', key: { kind: 'history-search' } },
+    { label: 'Ctrl-Z undoes (raw mode reads it, nothing suspends)', bytes: '\u001A', key: { kind: 'undo' } },
+    { label: 'Ctrl-_ undoes, as in readline', bytes: '\u001F', key: { kind: 'undo' } },
     { label: 'Ctrl-F searches the transcript', bytes: '\u0006', key: { kind: 'transcript-search' } },
     { label: 'Ctrl-V asks for the clipboard image', bytes: '\u0016', key: { kind: 'paste-image' } },
   ])('decodes $label', ({ bytes, key }) => {
@@ -226,6 +228,12 @@ describe('KeyDecoder', () => {
     { label: 'Ctrl+F searches the transcript', bytes: `${ESC}[102;5u`, keys: [{ kind: 'transcript-search' }] },
     { label: 'Alt+b steps a word left', bytes: `${ESC}[98;3u`, keys: [{ kind: 'word-left' }] },
     { label: 'Alt+Backspace kills a word', bytes: `${ESC}[127;3u`, keys: [{ kind: 'kill-word' }] },
+    { label: 'Ctrl+Z undoes', bytes: `${ESC}[122;5u`, keys: [{ kind: 'undo' }] },
+    { label: 'Ctrl+Shift+Z redoes', bytes: `${ESC}[122;6u`, keys: [{ kind: 'redo' }] },
+    { label: 'Ctrl+Z reported as the shifted letter redoes', bytes: `${ESC}[90;5u`, keys: [{ kind: 'redo' }] },
+    { label: 'Ctrl+_ undoes', bytes: `${ESC}[95;5u`, keys: [{ kind: 'undo' }] },
+    { label: 'Ctrl+/ undoes, the other spelling of Ctrl+_', bytes: `${ESC}[47;5u`, keys: [{ kind: 'undo' }] },
+    { label: 'Ctrl+Shift+- undoes, the third spelling', bytes: `${ESC}[45;6u`, keys: [{ kind: 'undo' }] },
   ])('decodes the kitty report: $label', ({ bytes, keys }) => {
     expect(decode(bytes)).toEqual(keys)
   })
