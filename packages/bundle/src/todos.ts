@@ -122,13 +122,15 @@ function fitRow(
   shrinkBody: boolean,
 ): string {
   const sep = theme.dim(' · ')
-  const withHint = hint === undefined ? undefined : `${count}${sep}${body}${sep}${hint}`
+  // Hint and its separator are one muted span so a PTY wait can match
+  // ` · Ctrl+T` as raw bytes, the way the old `opens the list` phrase did.
+  const trail = hint === undefined ? undefined : theme.dim(` · ${hint}`)
+  const withHint = trail === undefined ? undefined : `${count}${sep}${body}${trail}`
   if (withHint !== undefined && displayWidth(withHint) <= columns) return withHint
-  if (shrinkBody && hint !== undefined) {
+  if (shrinkBody && trail !== undefined) {
     const prefix = `${count}${sep}`
-    const suffix = `${sep}${hint}`
-    const budget = columns - displayWidth(prefix) - displayWidth(suffix)
-    if (budget >= 2) return `${prefix}${truncate(body, budget)}${suffix}`
+    const budget = columns - displayWidth(prefix) - displayWidth(trail)
+    if (budget >= 2) return `${prefix}${truncate(body, budget)}${trail}`
   }
   const withoutHint = `${count}${sep}${body}`
   if (displayWidth(withoutHint) <= columns) return withoutHint
@@ -160,13 +162,12 @@ export function todoRow(
   const { done, total } = tally(todos)
   const next = focus(todos)
   const count = `${theme.tool('todos')} ${theme.dim(`${done}/${total}`)}`
-  const hintSeg = hint === undefined ? undefined : theme.dim(hint)
   // Finished lists still report: `n/n` is the confirmation that the work the
   // list described actually landed, and it costs one row until the next write.
   const body = next === undefined
     ? `${theme.dim('all done')} ${theme.success('✔')}`
     : `${mark(next.status, theme, true)} ${next.content}`
-  return fitRow(count, body, hintSeg, columns, theme, next !== undefined)
+  return fitRow(count, body, hint, columns, theme, next !== undefined)
 }
 
 /**

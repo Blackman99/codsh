@@ -817,16 +817,17 @@ describe.skipIf(process.platform === 'win32')('dsh code Escape (real PTY)', () =
     const output = await drivePty('todo', [
       ['Welcome to codsh', `plan the work${ENTER}`, 300],
       // The readout names its own key, the way a fold names Ctrl-O...
-      ['write the fix · Ctrl+T', '\u0014', 400],
+      // ` · Ctrl+T` is one muted span, so the PTY wait matches raw bytes.
+      [' · Ctrl+T', '\u0014', 400],
       // ...opens to every item...
       ['Ctrl+T closes', '\u0014', 400],
       // ...and closes back to the one line.
-      ['write the fix · Ctrl+T', `/exit${ENTER}`, 400],
+      [' · Ctrl+T', `/exit${ENTER}`, 400],
     ])
 
     // Pinned: the item in flight sits directly over the status row, so the list
     // is still answerable long after its card scrolled away.
-    const pinned = screenAt(output, 'write the fix · Ctrl+T').alternate
+    const pinned = screenAt(output, ' · Ctrl+T').alternate
     expect(pinned.at(-1)).toMatch(/cli-mock/)
     const readout = pinned.findIndex(row => row.includes('write the fix · Ctrl+T'))
     expect(pinned[readout]).toContain('▶ write the fix')
@@ -848,7 +849,7 @@ describe.skipIf(process.platform === 'win32')('dsh code Escape (real PTY)', () =
     // Closed again: the chrome is back to one row. The card in the transcript
     // still lists the items, so the header's own key text is what separates an
     // open readout from a scrolled-back write.
-    const closed = screenAt(output, 'write the fix · Ctrl+T', 'last').alternate
+    const closed = screenAt(output, ' · Ctrl+T', 'last').alternate
     expect(closed.some(row => row.includes('Ctrl+T closes'))).toBe(false)
   }, E2E_TEST_TIMEOUT_MS)
 
