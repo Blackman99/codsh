@@ -21,6 +21,7 @@ import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import type { FileDiff, ToolCallView, ToolResult, ToolResultView } from '@deepseek-ai/dsh-tools'
 import { blockRules } from './gutter.ts'
 import { renderMarkdown } from './markdown.ts'
+import { DEFAULT_DENSITY, DIFF_SOFT_CAP, type Density } from './density.ts'
 import { displayWidth, oneRow, truncate } from './theme.ts'
 import { todoReport } from './todos.ts'
 import type { Theme } from './theme.ts'
@@ -30,9 +31,6 @@ export type { GutterRole } from './gutter.ts'
 
 /** Context lines kept on each side of a rendered hunk. */
 const DIFF_CONTEXT = 3
-
-/** Diff body lines printed for one file before the card collapses the rest. */
-const MAX_DIFF_LINES = 24
 
 /**
  * Result body lines printed for one completed call before the card collapses.
@@ -80,6 +78,8 @@ export interface TranscriptOptions {
   columns: number
   /** Session workspace, stripped from absolute paths so cards stay short. */
   cwd: string
+  /** Transcript density. Compact is the default; comfortable adds turn gaps. */
+  density?: Density
 }
 
 /** One pending call, kept until its result pairs with it. */
@@ -302,11 +302,21 @@ export class Transcript {
   private written: readonly string[] = []
   /** Rounds a workflow started, keyed `runId:seq`: an end carries only the seq. */
   private readonly workflowAgents = new Map<string, Pick<ToolWorkflowAgentStartData, 'label' | 'childId'>>()
+  /** Whether a real user turn has already been painted — comfortable gaps after the first. */
+  private sawUser = false
 
   constructor(
     private readonly options: TranscriptOptions,
     private readonly presenters: ToolPresenters,
   ) {}
+
+  /**
+   * Switch density for later events. Already-painted cards keep their fold.
+   * @param density - the live mode.
+   */
+  setDensity(density: Density): void {
+    this.options.density = density
+  }
 
   /**
    * Shorten an absolute path inside the workspace to a workspace-relative one.
@@ -369,7 +379,11 @@ export class Transcript {
         const [first = '', ...rest] = typed.map(block => block.text).join('').split('\n')
         this.prompt = 1 + rest.length
         const meta = imageMetaLines(event.data.content, theme)
-        return [first, ...rest.map(line => `  ${line}`), ...meta, '']
+        const lines = [first, ...rest.map(line => `  ${line}`), ...meta, '']
+        // Comfortable only: one extra blank row between turns, never before the first.
+        const gap = this.options.density === 'comfortable' && this.sawUser
+        this.sawUser = true
+        return gap ? ['', ...lines] : lines
       }
       case 'assistant/message': {
         const text = visibleText(event.data.message.content)
@@ -745,7 +759,7 @@ export class Transcript {
       // Soft-cap still applies inside the expanded form; only then does a click
       // open the reader (Ctrl+O still expands inline).
       // Always fold the full hunks; optional reader when the expanded form is large.
-      const soft = capped(hunks, MAX_DIFF_LINES, 'click reads it · Ctrl+O expands')
+      const soft = capped(hunks, DIFF_SOFT_CAP[this.options.density ?? DEFAULT_DENSITY], 'click reads it · Ctrl+O expands')
       if (soft.full !== undefined) this.page = unifiedDiffText(view.diffs, path => this.relative(path))
       return hunks.length === 0
         ? { suffix: stats, body: [] }

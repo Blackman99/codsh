@@ -10,6 +10,7 @@ import { describe, expect, it } from 'vitest'
 import { createTheme, displayWidth } from '../src/theme.ts'
 import { gutter } from '../src/gutter.ts'
 import { Transcript, blockRules, childSessionId, formatToolCardLine, thinkingFold, type ToolPresenters } from '../src/transcript.ts'
+import type { Density } from '../src/density.ts'
 
 const theme = createTheme(false, {})
 const CWD = '/repo'
@@ -823,5 +824,82 @@ describe('formatToolCardLine', () => {
     expect(gutter('tool', plain)).toBe('│ ')
     expect(gutter('system', plain)).toBe('· ')
     expect(formatToolCardLine(plain, 80, '●', 'Write x.ts', '+12 -3', '✔')).toBe('● Write x.ts +12 -3 ✔')
+  })
+})
+
+describe('transcript density', () => {
+  /** A user turn the person typed. */
+  const user = (text: string, seq = 1): SessionEvent => ({
+    type: 'user/message',
+    seq,
+    time: 0,
+    data: { role: 'user', content: [{ type: 'text', text }], source: { kind: 'user' } },
+  }) as unknown as SessionEvent
+
+  /** Transcript at a named density. */
+  const at = (density: Density, presenters: Partial<ToolPresenters> = {}): Transcript =>
+    new Transcript({ theme, columns: 80, cwd: CWD, density }, {
+      call: presenters.call ?? (() => undefined),
+      result: presenters.result ?? (() => undefined),
+    })
+
+  /** All-changed file of `count` lines — each change is one - and one +. */
+  const allChanged = (count: number): { oldText: string; newText: string } => ({
+    oldText: Array.from({ length: count }, (_, index) => `line ${index + 1}`).join('\n'),
+    newText: Array.from({ length: count }, (_, index) => `LINE ${index + 1}`).join('\n'),
+  })
+
+  it('leaves no extra blank row between turns in compact (the default)', () => {
+    const transcript = build()
+    expect(transcript.render(user('one'))).toEqual(['one', ''])
+    expect(transcript.render(user('two', 2))).toEqual(['two', ''])
+  })
+
+  it('inserts one extra blank row before later user turns in comfortable', () => {
+    const transcript = at('comfortable')
+    expect(transcript.render(user('one'))).toEqual(['one', ''])
+    expect(transcript.render(user('two', 2))).toEqual(['', 'two', ''])
+  })
+
+  it('does not unfold a folded ToolCard when density switches', () => {
+    const result = (): ToolResultView => ({
+      card: 'diff',
+      title: 'Edit',
+      diffs: [{ path: '/repo/a.ts', oldText: 'const a = 1', newText: 'const a = 2' }],
+    })
+    const transcript = build({ result })
+    transcript.render(callEvent('c1', 'edit', {}))
+    expect(transcript.render(resultEvent('c1', 'ok'))).toEqual(['● Edit +1 -1 ✔', ''])
+    transcript.setDensity('comfortable')
+    const fold = transcript.takeFold() ?? []
+    expect(fold[0]).toBe('● Edit +1 -1 ✔')
+    expect(transcript.takePage()).toBeUndefined()
+  })
+
+  it('pages a mid-size expanded diff in compact but not comfortable', () => {
+    // 15 lines all changed → 30 hunk lines: over compact 24, under comfortable 48.
+    const { oldText, newText } = allChanged(15)
+    const result = (): ToolResultView => ({ card: 'diff', title: 'Edit', diffs: [{ path: '/repo/a.ts', oldText, newText }] })
+    const compact = at('compact', { result })
+    compact.render(callEvent('c1', 'edit', {}))
+    expect(compact.render(resultEvent('c1', 'ok'))).toEqual(['● Edit +15 -15 ✔', ''])
+    expect(compact.takePage()).toBeDefined()
+
+    const comfortable = at('comfortable', { result })
+    comfortable.render(callEvent('c1', 'edit', {}))
+    expect(comfortable.render(resultEvent('c1', 'ok'))).toEqual(['● Edit +15 -15 ✔', ''])
+    expect(comfortable.takePage()).toBeUndefined()
+    expect(comfortable.takeFold()?.[0]).toBe('● Edit +15 -15 ✔')
+  })
+
+  it('pages a large expanded diff in both densities', () => {
+    const { oldText, newText } = allChanged(30)
+    const result = (): ToolResultView => ({ card: 'diff', title: 'Edit', diffs: [{ path: '/repo/a.ts', oldText, newText }] })
+    for (const density of ['compact', 'comfortable'] as const) {
+      const transcript = at(density, { result })
+      transcript.render(callEvent('c1', 'edit', {}))
+      expect(transcript.render(resultEvent('c1', 'ok'))).toEqual(['● Edit +30 -30 ✔', ''])
+      expect(transcript.takePage()).toBeDefined()
+    }
   })
 })
