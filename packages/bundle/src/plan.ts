@@ -29,6 +29,9 @@ export interface Plan {
   current: PlanTicket | undefined
 }
 
+/** Phases a `/ship` spec's `Status:` line names. */
+export type ShipStatus = 'interviewing' | 'confirmed' | 'planned' | 'landing' | 'shipped'
+
 /** A `## Plan` heading, at any depth, in any case. */
 const PLAN_HEADING = /^#{1,6}\s+plan\s*$/iu
 
@@ -37,6 +40,9 @@ const HEADING = /^#{1,6}\s+/u
 
 /** A task-list line: `- [ ] title` or `- [x] title`, dash or star. */
 const TICKET = /^\s*[-*]\s+\[([ xX])\]\s+(.*)$/u
+
+/** A spec's `Status:` phase line. */
+const STATUS_LINE = /^Status:\s*(interviewing|confirmed|planned|landing|shipped)\b/imu
 
 /**
  * Read the tickets out of a spec's `## Plan` section.
@@ -71,6 +77,30 @@ export function parsePlan(markdown: string): Plan {
   }
   const done = tickets.filter(ticket => ticket.done).length
   return { tickets, done, current: tickets.find(ticket => !ticket.done) }
+}
+
+/**
+ * Read the workflow phase from a spec's `Status:` line.
+ *
+ * The line is the durable phase ledger `/ship` keeps on disk: interviewing,
+ * confirmed, planned, landing, or shipped. Anything else is not a phase the
+ * MetaBar chip knows how to name.
+ * @param markdown - the spec file's contents.
+ * @returns the phase, or undefined when the file has no Status line.
+ */
+export function parseShipStatus(markdown: string): ShipStatus | undefined {
+  const match = STATUS_LINE.exec(markdown)
+  const value = match?.[1]?.toLowerCase()
+  switch (value) {
+    case 'interviewing':
+    case 'confirmed':
+    case 'planned':
+    case 'landing':
+    case 'shipped':
+      return value
+    default:
+      return undefined
+  }
 }
 
 /**

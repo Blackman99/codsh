@@ -8,6 +8,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { ContextPressureProjection, TokenUsageProjection } from '@deepseek-ai/dsh-token-meter/client'
 import { afterEach, describe, expect, it } from 'vitest'
+import { parsePlan, parseShipStatus } from '../src/plan.ts'
 import {
   contextLeftPercent,
   displayPath,
@@ -15,6 +16,10 @@ import {
   formatTokens,
   formatTurnTime,
   gitBranch,
+  landChip,
+  paintShipChip,
+  shipChipFromSpec,
+  shipChipLabel,
   statusLine,
   statusReport,
   totalTokens,
@@ -225,6 +230,29 @@ describe('statusLine', () => {
     expect(statusLine({ ...base, shipGate: 2 }, theme, 200)).toBe('ship · gate2 · m · /repo')
   })
 
+  it('paints ship · land k/n with spaces around the middot', () => {
+    expect(statusLine({ ...base, shipChip: { kind: 'land', k: 2, n: 3 } }, theme, 200)).toBe('ship · land 2/3 · m · /repo')
+  })
+
+  it('paints grill, verify, and done chips', () => {
+    expect(statusLine({ ...base, shipChip: { kind: 'grill' } }, theme, 200)).toBe('ship · grill · m · /repo')
+    expect(statusLine({ ...base, shipChip: { kind: 'verify' } }, theme, 200)).toBe('ship · verify · m · /repo')
+    expect(statusLine({ ...base, shipChip: { kind: 'done' } }, theme, 200)).toBe('ship · done · m · /repo')
+  })
+
+  it('treats a bare shipGate as a gate chip when shipChip is omitted', () => {
+    expect(shipChipLabel({ kind: 'gate', gate: 1 })).toBe('ship · gate1')
+    expect(statusLine({ ...base, shipGate: 1 }, theme, 200)).toBe('ship · gate1 · m · /repo')
+  })
+
+  it('lets shipChip win over a leftover shipGate', () => {
+    expect(statusLine({
+      ...base,
+      shipGate: 1,
+      shipChip: { kind: 'land', k: 1, n: 2 },
+    }, theme, 200)).toBe('ship · land 1/2 · m · /repo')
+  })
+
   it('keeps the full line when no budget is given, so a later paint can re-fit it', () => {
     const path = '/very/long/path/that/keeps/going/on'
     expect(statusLine({ ...base, cwd: path }, theme)).toContain(path)
@@ -256,6 +284,20 @@ describe('statusLine', () => {
     expect(line).toContain('20%')
   })
 
+  it('keeps the landing chip when the budget is tight — drops cwd then model', () => {
+    const line = statusLine({
+      ...base,
+      shipChip: { kind: 'land', k: 2, n: 3 },
+      planMode: true,
+      cwd: '/a/very/long/workspace/path/that/will/not/fit',
+      context: { contextWindow: 100, projectedTokens: 80 },
+    }, theme, 32)
+    expect(line).not.toContain('/a/very')
+    expect(line).toContain('ship · land 2/3')
+    expect(line).toContain('plan')
+    expect(line).toContain('20%')
+  })
+
   it('is cut rather than wrapped when even the kept segments will not fit', () => {
     const line = statusLine({ ...base, cwd: '/very/long/path/that/keeps/going/on' }, theme, 8)
     expect(line.length).toBeLessThanOrEqual(8)
@@ -269,6 +311,28 @@ describe('status styling', () => {
   it('styles the ship gate chip warn', () => {
     const line = statusLine({ ...base, shipGate: 1 }, colour, 200)
     expect(line).toContain('\u001B[93mship · gate1\u001B[0m')
+  })
+
+  it('styles the landing chip agent, and ok while a ticket flash is on', () => {
+    const land = statusLine({ ...base, shipChip: { kind: 'land', k: 2, n: 3 } }, colour, 200)
+    expect(land).toContain('\u001B[35mship · land 2/3\u001B[0m')
+    const flash = statusLine({ ...base, shipChip: { kind: 'land', k: 2, n: 3, flashOk: true } }, colour, 200)
+    expect(flash).toContain('\u001B[32mship · land 2/3\u001B[0m')
+  })
+
+  it('styles grill muted, verify muted, and done ok', () => {
+    expect(statusLine({ ...base, shipChip: { kind: 'grill' } }, colour, 200)).toContain('\u001B[90mship · grill\u001B[0m')
+    expect(statusLine({ ...base, shipChip: { kind: 'verify' } }, colour, 200)).toContain('\u001B[90mship · verify\u001B[0m')
+    expect(statusLine({ ...base, shipChip: { kind: 'done' } }, colour, 200)).toContain('\u001B[32mship · done\u001B[0m')
+  })
+
+  it('keeps ship chips readable under NO_COLOR', () => {
+    const plain = createTheme(true, { NO_COLOR: '1' })
+    expect(statusLine({ ...base, shipChip: { kind: 'land', k: 2, n: 3 } }, plain, 200)).toBe('ship · land 2/3 · m · /repo')
+    expect(statusLine({ ...base, shipChip: { kind: 'grill' } }, plain, 200)).toContain('ship · grill')
+    expect(statusLine({ ...base, shipChip: { kind: 'verify' } }, plain, 200)).toContain('ship · verify')
+    expect(statusLine({ ...base, shipChip: { kind: 'done' } }, plain, 200)).toContain('ship · done')
+    expect(paintShipChip({ kind: 'land', k: 1, n: 4 }, plain)).toBe('ship · land 1/4')
   })
 
   it('styles the model muted, never cyan/accent', () => {
@@ -285,6 +349,24 @@ describe('status styling', () => {
     expect(at(50)).not.toContain('50%')
     expect(at(80)).toContain('\u001B[93m20%\u001B[0m')
     expect(at(95)).toContain('\u001B[31m5%\u001B[0m')
+  })
+})
+
+describe('ship chip helpers', () => {
+  it('counts land k as done+1 while a ticket is current', () => {
+    const plan = parsePlan('## Plan\n\n- [x] a\n- [ ] b\n- [ ] c\n')
+    expect(landChip(plan)).toEqual({ kind: 'land', k: 2, n: 3 })
+    expect(landChip(plan, true)).toEqual({ kind: 'land', k: 2, n: 3, flashOk: true })
+    expect(landChip(parsePlan('## Plan\n\n- [x] a\n- [x] b\n'))).toBeUndefined()
+  })
+
+  it('derives grill / land / verify / done from Status and the plan', () => {
+    const landing = parsePlan('Status: landing\n\n## Plan\n\n- [x] a\n- [ ] b\n- [ ] c\n')
+    expect(shipChipFromSpec('interviewing', undefined)).toEqual({ kind: 'grill' })
+    expect(shipChipFromSpec('landing', landing)).toEqual({ kind: 'land', k: 2, n: 3 })
+    expect(shipChipFromSpec('landing', parsePlan('## Plan\n\n- [x] a\n- [x] b\n'))).toEqual({ kind: 'verify' })
+    expect(shipChipFromSpec('shipped', landing)).toEqual({ kind: 'done' })
+    expect(parseShipStatus('# Spec\n\nStatus: landing\n')).toBe('landing')
   })
 })
 

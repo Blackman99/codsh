@@ -11,8 +11,23 @@ import { readFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { dirname, join, parse } from 'node:path'
 import type { ContextPressureProjection, TokenUsageProjection } from '@deepseek-ai/dsh-token-meter/client'
+import type { Plan, ShipStatus } from './plan.ts'
 import { displayWidth, truncate } from './theme.ts'
 import type { Theme } from './theme.ts'
+
+/**
+ * The MetaBar `/ship` orientation chip.
+ *
+ * Gate chips already shipped via {@link StatusFacts.shipGate}; the rest of the
+ * workflow (grill, landing k/n, verify, done) uses this union so one paint
+ * path owns the label and the theme role.
+ */
+export type ShipChip =
+  | { readonly kind: 'grill' }
+  | { readonly kind: 'gate'; readonly gate: 1 | 2 }
+  | { readonly kind: 'land'; readonly k: number; readonly n: number; readonly flashOk?: true }
+  | { readonly kind: 'verify' }
+  | { readonly kind: 'done' }
 
 /** Everything one status line reports. */
 export interface StatusFacts {
@@ -26,9 +41,15 @@ export interface StatusFacts {
   planMode: boolean
   /**
    * Open /ship gate number, when a GateModal owns the screen.
-   * Shown as a warn chip ahead of plan mode.
+   * Shown as a warn chip ahead of plan mode. Ignored when {@link StatusFacts.shipChip}
+   * is set; when only this field is present it is treated as a gate chip.
    */
   shipGate?: 1 | 2
+  /**
+   * /ship orientation chip. When omitted, {@link StatusFacts.shipGate} still
+   * paints as `ship · gate1|gate2` so existing callers keep working.
+   */
+  shipChip?: ShipChip
   /** Session workspace. */
   cwd: string
   /** Checked-out branch, absent outside a repository. */
@@ -127,6 +148,102 @@ export function displayPath(path: string, home: string = homedir()): string {
 }
 
 /**
+ * The MetaBar label for a `/ship` chip. Spaces around the middot are part of
+ * the contract: `ship · land 2/3`, never `ship·land`.
+ * @param chip - the orientation chip.
+ * @returns the unstyled label.
+ */
+export function shipChipLabel(chip: ShipChip): string {
+  switch (chip.kind) {
+    case 'grill':
+      return 'ship · grill'
+    case 'gate':
+      return `ship · gate${String(chip.gate)}`
+    case 'land':
+      return `ship · land ${String(chip.k)}/${String(chip.n)}`
+    case 'verify':
+      return 'ship · verify'
+    case 'done':
+      return 'ship · done'
+  }
+}
+
+/**
+ * Paint a `/ship` chip in its theme role.
+ *
+ * Grill is muted, an open gate is warn (already shipped), landing is agent
+ * except the brief ok flash when a ticket turns green, verify is muted, and
+ * done is ok.
+ * @param chip - the orientation chip.
+ * @param theme - styling for the label.
+ * @returns the painted label.
+ */
+export function paintShipChip(chip: ShipChip, theme: Theme): string {
+  const label = shipChipLabel(chip)
+  switch (chip.kind) {
+    case 'grill':
+      return theme.muted(label)
+    case 'gate':
+      return theme.warn(label)
+    case 'land':
+      return chip.flashOk === true ? theme.ok(label) : theme.agent(label)
+    case 'verify':
+      return theme.muted(label)
+    case 'done':
+      return theme.ok(label)
+  }
+}
+
+/**
+ * The landing chip for a plan that still has a current ticket: k is
+ * `done + 1`, n is the ticket count.
+ * @param plan - the plan read from the spec.
+ * @param flashOk - when true, the next paint flashes ok for a landed ticket.
+ * @returns the land chip, or undefined once every ticket is ticked.
+ */
+export function landChip(plan: Plan, flashOk = false): Extract<ShipChip, { kind: 'land' }> | undefined {
+  if (plan.current === undefined || plan.tickets.length === 0) return undefined
+  return flashOk
+    ? { kind: 'land', k: plan.done + 1, n: plan.tickets.length, flashOk: true }
+    : { kind: 'land', k: plan.done + 1, n: plan.tickets.length }
+}
+
+/**
+ * Derive the MetaBar chip from a spec's Status line and its plan.
+ *
+ * interviewing/confirmed/planned → grill; landing with a current ticket →
+ * land k/n; every ticket ticked → verify; shipped → done.
+ * @param status - the spec's Status phase, if the file named one.
+ * @param plan - the plan, or undefined before tickets exist.
+ * @param flashOk - when true, a land chip flashes ok.
+ * @returns the chip, or undefined when the spec does not name a phase yet.
+ */
+export function shipChipFromSpec(
+  status: ShipStatus | undefined,
+  plan: Plan | undefined,
+  flashOk = false,
+): ShipChip | undefined {
+  if (status === 'shipped') return { kind: 'done' }
+  if (plan !== undefined && plan.tickets.length > 0 && plan.current === undefined) return { kind: 'verify' }
+  if (status === 'landing' && plan !== undefined) {
+    const land = landChip(plan, flashOk)
+    if (land !== undefined) return land
+  }
+  if (status === 'interviewing' || status === 'confirmed' || status === 'planned') return { kind: 'grill' }
+  return undefined
+}
+
+/**
+ * The chip a status line should paint: `shipChip` wins; a bare `shipGate`
+ * is treated as a gate chip so existing callers keep working.
+ * @param facts - what to report.
+ * @returns the chip, or undefined when /ship is not showing one.
+ */
+export function resolveShipChip(facts: StatusFacts): ShipChip | undefined {
+  return facts.shipChip ?? (facts.shipGate === undefined ? undefined : { kind: 'gate', gate: facts.shipGate })
+}
+
+/**
  * Read the checked-out branch by walking up to the repository's `HEAD`.
  *
  * Read rather than shelled out: `git` may be absent, slow, or blocked by the
@@ -173,9 +290,8 @@ export function statusLine(facts: StatusFacts, theme: Theme, columns?: number): 
   // routine context stay in `/status`; only alarming headroom surfaces here.
   // Never accent on this line — accent is reserved for focus/selection.
   const sep = theme.muted(' · ')
-  const shipGate = facts.shipGate === undefined
-    ? undefined
-    : theme.warn(`ship · gate${facts.shipGate}`)
+  const chip = resolveShipChip(facts)
+  const shipChip = chip === undefined ? undefined : paintShipChip(chip, theme)
   const mode = facts.planMode ? theme.warn('plan') : undefined
   const model = theme.muted(facts.model)
   const cwd = theme.muted(
@@ -185,10 +301,11 @@ export function statusLine(facts: StatusFacts, theme: Theme, columns?: number): 
     ? undefined
     : left <= 10 ? theme.err(`${left}%`) : theme.warn(`${left}%`)
   // Drop whole segments until the line fits: cwd first, then model; keep
-  // shipGate, mode, and alarming context. Omit columns => full line for a
-  // later re-fit.
-  const tagged: { key: 'shipGate' | 'mode' | 'model' | 'context' | 'cwd'; text: string }[] = [
-    ...shipGate === undefined ? [] : [{ key: 'shipGate' as const, text: shipGate }],
+  // the ship chip, mode, and alarming context. Never drop the ship chip
+  // first — same priority the gate chip already had. Omit columns => full
+  // line for a later re-fit.
+  const tagged: { key: 'shipChip' | 'mode' | 'model' | 'context' | 'cwd'; text: string }[] = [
+    ...shipChip === undefined ? [] : [{ key: 'shipChip' as const, text: shipChip }],
     ...mode === undefined ? [] : [{ key: 'mode' as const, text: mode }],
     { key: 'model', text: model },
     ...context === undefined ? [] : [{ key: 'context' as const, text: context }],
