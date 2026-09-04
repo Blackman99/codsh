@@ -167,7 +167,11 @@ describe('the view', () => {
     expect(rows[0]).toBe('Allow bash?')
     expect(rows[1]).toContain('❯ 1. Yes, this time (y)')
     expect(rows[3]).toContain('  3. No (n)')
-    expect(rows.at(-1)).toContain('Enter accepts')
+    expect(rows.at(-1)).toContain('[enter] take')
+    expect(rows.at(-1)).toContain('[esc] back')
+    expect(rows.at(-1)).not.toContain('[e] edit')
+    expect(rows.at(-1)).not.toMatch(/\[n\]/)
+    expect(rows.at(-1)).not.toContain('abort')
   })
 
   it('marks checked options in multi select', () => {
@@ -176,7 +180,10 @@ describe('the view', () => {
     const rows = selector.view(theme, 60)
     expect(rows[1]).toContain('◉')
     expect(rows[2]).toContain('○')
-    expect(rows.at(-1)).toContain('Space toggles')
+    // Multi without a custom row: take / back, no edit key, no abort.
+    expect(rows.at(-1)).toContain('[enter] take · [esc] back')
+    expect(rows.at(-1)).not.toContain('[e] edit')
+    expect(rows.at(-1)).not.toMatch(/\[n\]/)
   })
 
   it('fits its rows to the terminal', () => {
@@ -301,5 +308,87 @@ describe('the wheel', () => {
     // nobody asked, so the first key brings it back.
     selector.handle(key('down'))
     expect(selector.view(theme, 60).join('\n')).toContain('option 0')
+  })
+})
+
+describe('key semantics', () => {
+  it('takes the marked option on y, the same as Enter', () => {
+    expect(drive(new Selector(spec), [{ kind: 'text', text: 'y' }])).toEqual({ kind: 'chosen', indices: [0] })
+    expect(drive(new Selector(spec), [key('down'), { kind: 'text', text: 'y' }])).toEqual({ kind: 'chosen', indices: [1] })
+    expect(drive(new Selector(spec), [key('down'), key('enter')])).toEqual({ kind: 'chosen', indices: [1] })
+    expect(drive(new Selector(spec), [{ kind: 'text', text: 'Y' }])).toEqual({ kind: 'chosen', indices: [0] })
+  })
+
+  it('does not bind y as take on multi-select', () => {
+    // `y` is take only on single-select; here it remains the option shortcut.
+    expect(drive(new Selector({ ...spec, multi: true }), [{ kind: 'text', text: 'y' }])).toEqual({
+      kind: 'chosen', indices: [0],
+    })
+    const noShortcut: SelectSpec = {
+      title: 'Pick several',
+      multi: true,
+      options: [{ label: 'A' }, { label: 'B' }],
+    }
+    expect(drive(new Selector(noShortcut), [{ kind: 'text', text: 'y' }])).toBeUndefined()
+    expect(drive(new Selector(noShortcut), [key('enter')])).toEqual({ kind: 'chosen', indices: [0] })
+  })
+
+  it('edits on e only when a custom row is offered', () => {
+    const withCustom: SelectSpec = { ...spec, custom: '✎ Type your own answer' }
+    expect(drive(new Selector(withCustom), [{ kind: 'text', text: 'e' }])).toEqual({ kind: 'custom' })
+    expect(drive(new Selector(withCustom), [{ kind: 'text', text: 'E' }])).toEqual({ kind: 'custom' })
+    expect(drive(new Selector(spec), [{ kind: 'text', text: 'e' }])).toBeUndefined()
+    const footer = new Selector(withCustom).view(theme, 60).at(-1) ?? ''
+    expect(footer).toBe('  [enter] take · [e] edit · [esc] back')
+    expect(new Selector(spec).view(theme, 60).at(-1)).toBe('  [enter] take · [esc] back')
+  })
+
+  it('backs out on Escape and never paints abort', () => {
+    expect(drive(new Selector(spec), [key('escape')])).toEqual({ kind: 'cancelled' })
+    const footer = new Selector(spec).view(theme, 60).at(-1) ?? ''
+    expect(footer).toContain('[esc] back')
+    expect(footer).not.toContain('cancel')
+    expect(footer).not.toContain('abort')
+    expect(footer).not.toMatch(/\[n\]/)
+    const painted = createTheme(true, {})
+    const colored = new Selector(spec).view(painted, 60).at(-1) ?? ''
+    // Dim chrome, never err red — back is leave, not a failure.
+    expect(colored).toContain('\u001B[2m')
+    expect(colored).not.toContain('\u001B[31m')
+  })
+
+  it('does not treat n as abort when it is not an option shortcut', () => {
+    const plain: SelectSpec = { title: 'Pick', options: [{ label: 'A' }, { label: 'B' }] }
+    expect(drive(new Selector(plain), [{ kind: 'text', text: 'n' }])).toBeUndefined()
+    expect(new Selector(plain).view(theme, 60).join('\n')).not.toMatch(/\[n\]/)
+    // An approval still answers its `n` shortcut as "No", not abort.
+    expect(drive(new Selector(spec), [{ kind: 'text', text: 'n' }])).toEqual({ kind: 'chosen', indices: [2] })
+  })
+
+  it('keeps y as filter text on a filterable list', () => {
+    const catalog: SelectSpec = {
+      title: 'Switch model',
+      filterable: true,
+      options: [
+        { label: 'deepseek/flash' },
+        { label: 'yolo-model' },
+      ],
+    }
+    const selector = new Selector(catalog)
+    expect(selector.view(theme, 60).at(-1)).toBe('  [enter] take · [esc] back')
+    expect(selector.handle({ kind: 'text', text: 'y' })).toEqual({ kind: 'pending' })
+    expect(selector.view(theme, 60).join('\n')).toContain('filter: y')
+    expect(selector.handle(key('enter'))).toEqual({ kind: 'done', outcome: { kind: 'chosen', indices: [1] } })
+  })
+
+  it('stays readable under NO_COLOR / plain theme', () => {
+    const plain = createTheme(false, { NO_COLOR: '1' })
+    const selecting = new Selector(spec).view(plain, 60).join('\n')
+    const editing = new Selector({ ...spec, custom: 'Type your own' }).view(plain, 60).join('\n')
+    expect(selecting).not.toMatch(/\u001B\[/)
+    expect(selecting).toContain('[enter] take')
+    expect(selecting).toContain('[esc] back')
+    expect(editing).toContain('[e] edit')
+    expect(editing).not.toMatch(/\u001B\[/)
   })
 })
