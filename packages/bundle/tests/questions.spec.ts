@@ -5,7 +5,7 @@
 
 import type { AskUserQuestionItem, AskUserQuestionRequest } from '@deepseek-ai/dsh-user-questions'
 import { describe, expect, it } from 'vitest'
-import { encodeAnswer, questionLines, TerminalQuestions } from '../src/questions.ts'
+import { detectShipGate, encodeAnswer, encodeGateAnswer, questionLines, shipGateKind, TerminalQuestions } from '../src/questions.ts'
 import { createTheme } from '../src/theme.ts'
 
 const theme = createTheme(false, {})
@@ -127,5 +127,171 @@ describe('plan review', () => {
 
   it('encodes the approval like any other selection', () => {
     expect(encodeAnswer('1', plan)).toEqual({ id: 'plan', selected: ['Yes, implement it'] })
+  })
+})
+
+describe('ship gate detection', () => {
+  it('detects gate numbers from the ship header', () => {
+    expect(detectShipGate('ship · gate 1/2')).toBe(1)
+    expect(detectShipGate('ship · gate 2/2')).toBe(2)
+    expect(detectShipGate('ship • gate 1/2')).toBe(1)
+    expect(detectShipGate('ship gate 2/2')).toBe(2)
+    // Incomplete / non-gate headers must not open GateModal.
+    expect(detectShipGate('ship · gate 1')).toBeUndefined()
+    expect(detectShipGate('ship · gate 2')).toBeUndefined()
+    expect(detectShipGate('gate 1/2')).toBeUndefined()
+    expect(detectShipGate('Approach')).toBeUndefined()
+    expect(detectShipGate(undefined)).toBeUndefined()
+  })
+
+  it('recognises gate headers only — not confirm/approve phrasing alone', () => {
+    expect(shipGateKind({ id: 'g1', question: 'Ready?', header: 'ship · gate 1/2' })).toBe('spec')
+    expect(shipGateKind({ id: 'g2', question: 'Ready?', header: 'ship · gate 2/2' })).toBe('tickets')
+    // Wording without the header must stay on Selector — ONLY /ship two doors.
+    expect(shipGateKind({ id: 'g3', question: 'Please confirm spec' })).toBeUndefined()
+    expect(shipGateKind({ id: 'g4', question: 'Approve tickets now' })).toBeUndefined()
+    expect(shipGateKind({ id: 'g5', question: 'Which approach?' })).toBeUndefined()
+  })
+
+  it('maps confirm/edit/abort onto ask_user_question answers', () => {
+    const q = {
+      id: 'gate',
+      question: 'Confirm?',
+      options: [{ label: 'Confirm' }, { label: 'Edit' }, { label: 'Abort' }],
+    }
+    expect(encodeGateAnswer(q, 'confirm')).toEqual({ id: 'gate', selected: ['Confirm'] })
+    expect(encodeGateAnswer(q, 'edit')).toEqual({ id: 'gate', selected: [], custom: 'edit' })
+    expect(encodeGateAnswer(q, 'abort')).toEqual({ id: 'gate', selected: [] })
+  })
+
+  it('routes a ship gate header to the gate ask when provided', async () => {
+    const calls: string[] = []
+    const questions = new TerminalQuestions(
+      { read: () => Promise.resolve(undefined) },
+      theme,
+      () => {},
+      undefined,
+      async (spec) => {
+        calls.push(spec.title)
+        expect(spec.kind).toBe('spec')
+        expect(spec.bodyLines.join('\n')).toContain('Acceptance')
+        return 'confirm'
+      },
+    )
+    const request = {
+      questions: [{
+        id: 'g1',
+        question: 'Confirm this spec?',
+        header: 'ship · gate 1/2',
+        detail: 'Acceptance\n✔ criterion',
+        options: [{ label: 'Confirm' }, { label: 'Edit' }, { label: 'Abort' }],
+      }],
+    } as AskUserQuestionRequest
+    expect(await questions.ask(request)).toEqual({
+      answers: [{ id: 'g1', selected: ['Confirm'] }],
+    })
+    expect(calls).toEqual(['ship · gate 1/2 — confirm spec'])
+  })
+
+  it('maps edit and abort from the gate modal', async () => {
+    const questions = new TerminalQuestions(
+      { read: () => Promise.resolve(undefined) },
+      theme,
+      () => {},
+      undefined,
+      async () => 'edit',
+    )
+    const request = {
+      questions: [{
+        id: 'g2',
+        question: 'Approve tickets?',
+        header: 'ship · gate 2/2',
+        options: [{ label: 'Confirm' }, { label: 'Edit' }, { label: 'Abort' }],
+      }],
+    } as AskUserQuestionRequest
+    expect(await questions.ask(request)).toEqual({
+      answers: [{ id: 'g2', selected: [], custom: 'edit' }],
+    })
+
+    const aborting = new TerminalQuestions(
+      { read: () => Promise.resolve(undefined) },
+      theme,
+      () => {},
+      undefined,
+      async () => 'abort',
+    )
+    expect(await aborting.ask(request)).toEqual({
+      answers: [{ id: 'g2', selected: [] }],
+    })
+  })
+
+  it('keeps the pipe/line-reader path when no gate fn is provided', async () => {
+    const questions = new TerminalQuestions(
+      { read: () => Promise.resolve('1') },
+      theme,
+      () => {},
+    )
+    const request = {
+      questions: [{
+        id: 'g1',
+        question: 'Confirm this spec?',
+        header: 'ship · gate 1/2',
+        options: [{ label: 'Confirm' }, { label: 'Edit' }, { label: 'Abort' }],
+      }],
+    } as AskUserQuestionRequest
+    expect(await questions.ask(request)).toEqual({
+      answers: [{ id: 'g1', selected: ['Confirm'] }],
+    })
+  })
+
+  it('routes ordinary questions to Selector even when a gate fn is present', async () => {
+    const selects: string[] = []
+    const gates: string[] = []
+    const questions = new TerminalQuestions(
+      { read: () => Promise.resolve(undefined) },
+      theme,
+      () => {},
+      async (spec) => {
+        selects.push(spec.title)
+        return { kind: 'chosen', indices: [0] }
+      },
+      async (spec) => {
+        gates.push(spec.title)
+        return 'confirm'
+      },
+    )
+    const request = {
+      questions: [{
+        id: 'q1',
+        question: 'Which approach?',
+        options: [{ label: 'Rewrite' }, { label: 'Patch' }],
+      }],
+    } as AskUserQuestionRequest
+    expect(await questions.ask(request)).toEqual({
+      answers: [{ id: 'q1', selected: ['Rewrite'] }],
+    })
+    expect(selects).toEqual(['Which approach?'])
+    expect(gates).toEqual([])
+  })
+
+  it('NO_COLOR / plain theme still answers a ship gate through the gate fn', async () => {
+    const questions = new TerminalQuestions(
+      { read: () => Promise.resolve(undefined) },
+      theme,
+      () => {},
+      undefined,
+      async () => 'confirm',
+    )
+    const request = {
+      questions: [{
+        id: 'g1',
+        question: 'Confirm?',
+        header: 'ship · gate 1/2',
+        options: [{ label: 'Confirm' }, { label: 'Edit' }, { label: 'Abort' }],
+      }],
+    } as AskUserQuestionRequest
+    expect(await questions.ask(request)).toEqual({
+      answers: [{ id: 'g1', selected: ['Confirm'] }],
+    })
   })
 })
