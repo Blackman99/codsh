@@ -22,6 +22,21 @@ describe('createTheme', () => {
   it.each([{ NO_COLOR: '1' }, { NO_COLOR: '' }])('honours NO_COLOR set to any value (%o)', (env) => {
     expect(createTheme(true, env).colored).toBe(false)
   })
+
+  it('maps the locked semantic palette to the agreed SGR codes', () => {
+    const theme = createTheme(true, {})
+    expect(theme.muted('x')).toBe('\u001B[90mx\u001B[0m')
+    expect(theme.accent('x')).toBe('\u001B[36mx\u001B[0m')
+    expect(theme.agent('x')).toBe('\u001B[35mx\u001B[0m')
+    expect(theme.tool('x')).toBe('\u001B[33mx\u001B[0m')
+    expect(theme.ok('x')).toBe('\u001B[32mx\u001B[0m')
+    expect(theme.warn('x')).toBe('\u001B[93mx\u001B[0m')
+    expect(theme.err('x')).toBe('\u001B[31mx\u001B[0m')
+  })
+
+  it('strips accent under NO_COLOR', () => {
+    expect(createTheme(true, { NO_COLOR: '1' }).accent('x')).toBe('x')
+  })
 })
 
 describe('displayWidth', () => {

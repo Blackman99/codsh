@@ -17,6 +17,8 @@ const SGR = {
   blue: '\u001B[34m',
   magenta: '\u001B[35m',
   cyan: '\u001B[36m',
+  brightBlack: '\u001B[90m',
+  brightYellow: '\u001B[93m',
 } as const
 
 /** Style roles the renderer asks for, resolved to SGR codes by {@link createTheme}. */
@@ -25,17 +27,29 @@ export interface Theme {
   readonly colored: boolean
   dim(text: string): string
   bold(text: string): string
-  /** Failures, denied approvals, and removed diff lines. */
-  error(text: string): string
+  /** Secondary chrome text (status model/cwd, legend, separators). */
+  muted(text: string): string
+  /** Focus and selection only: input frame default, marked selector rows. */
+  accent(text: string): string
+  /** Agent / user identity colour. */
+  agent(text: string): string
+  /** Failures and alarms. */
+  err(text: string): string
   /** Completed work and added diff lines. */
-  success(text: string): string
-  /** Pending state and approval prompts. */
-  pending(text: string): string
+  ok(text: string): string
+  /** Warnings and pending state. */
+  warn(text: string): string
   /** Tool names and card titles. */
   tool(text: string): string
   /** File paths and locations. */
   path(text: string): string
-  /** The user's own echoed input. */
+  /** Alias for {@link Theme.err}. */
+  error(text: string): string
+  /** Alias for {@link Theme.ok}. */
+  success(text: string): string
+  /** Alias for {@link Theme.warn}. */
+  pending(text: string): string
+  /** Alias for {@link Theme.agent}. */
   user(text: string): string
   /**
    * Adopt the light- or dark-background palette.
@@ -63,11 +77,17 @@ const PLAIN: Theme = {
   setLight: () => {},
   dim: text => text,
   bold: text => text,
+  muted: text => text,
+  accent: text => text,
+  agent: text => text,
+  err: text => text,
+  ok: text => text,
+  warn: text => text,
+  tool: text => text,
+  path: text => text,
   error: text => text,
   success: text => text,
   pending: text => text,
-  tool: text => text,
-  path: text => text,
   user: text => text,
   syntax: {
     keyword: text => text,
@@ -99,6 +119,10 @@ export function createTheme(isTty: boolean, env: Record<string, string | undefin
   // Mutable on purpose: the background answer arrives moments after the first
   // frame, and everything rendered from then on picks the readable shade.
   let gray = '\u001B[38;5;245m'
+  const err = wrap(SGR.red)
+  const ok = wrap(SGR.green)
+  const warn = wrap(SGR.brightYellow)
+  const agent = wrap(SGR.magenta)
   return {
     colored: true,
     setLight(light: boolean) {
@@ -106,12 +130,18 @@ export function createTheme(isTty: boolean, env: Record<string, string | undefin
     },
     dim: text => `${palette ? gray : SGR.dim}${text}${SGR.reset}`,
     bold: wrap(SGR.bold),
-    error: wrap(SGR.red),
-    success: wrap(SGR.green),
-    pending: wrap(SGR.yellow),
-    tool: wrap(SGR.cyan),
+    muted: wrap(SGR.brightBlack),
+    accent: wrap(SGR.cyan),
+    agent,
+    err,
+    ok,
+    warn,
+    tool: wrap(SGR.yellow),
     path: wrap(SGR.blue),
-    user: wrap(SGR.magenta),
+    error: err,
+    success: ok,
+    pending: warn,
+    user: agent,
     syntax: {
       keyword: wrap(SGR.magenta),
       string: wrap(SGR.green),

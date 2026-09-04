@@ -192,7 +192,7 @@ describe('tables', () => {
     // Backticks and stars are consumed, not printed.
     expect(body).not.toContain('`')
     expect(body).not.toContain('**')
-    expect(body).toContain('\u001B[36mcode\u001B[0m')
+    expect(body).toContain('\u001B[33mcode\u001B[0m')
   })
 
   it('falls back to source lines only when the terminal cannot hold columns at all', () => {

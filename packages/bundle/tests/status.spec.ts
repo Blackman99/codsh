@@ -204,7 +204,7 @@ describe('statusLine', () => {
     expect(statusLine(base, theme, 200)).toBe('m · /repo')
   })
 
-  it('reports composition, permissions, location, spend, and headroom', () => {
+  it('keeps extras out of the glance line — preset, permission, tokens, routine context', () => {
     const line = statusLine({
       ...base,
       preset: 'code-cli',
@@ -213,59 +213,54 @@ describe('statusLine', () => {
       usage,
       context: { contextWindow: 1000, projectedTokens: 250 },
     }, theme, 200)
-    expect(line).toBe('m · code-cli · workspace-write · 425 tokens · 75% context left · /repo (main)')
+    expect(line).toBe('m · /repo (main)')
   })
 
-  it('marks plan mode, which changes what the agent may do', () => {
-    expect(statusLine({ ...base, planMode: true }, theme, 200)).toContain('plan')
+  it('marks plan mode ahead of model and cwd', () => {
+    expect(statusLine({ ...base, planMode: true }, theme, 200)).toBe('plan · m · /repo')
   })
 
   it('keeps the full line when no budget is given, so a later paint can re-fit it', () => {
     const path = '/very/long/path/that/keeps/going/on'
     expect(statusLine({ ...base, cwd: path }, theme)).toContain(path)
-    expect(statusLine({ ...base, cwd: path }, theme, 20).endsWith('…')).toBe(true)
   })
 
-  it('is cut rather than wrapped when it will not fit', () => {
-    // Two rows above every prompt is not a status line any more.
-    const line = statusLine({ ...base, cwd: '/very/long/path/that/keeps/going/on' }, theme, 20)
-    expect(line.length).toBeLessThanOrEqual(20)
-    expect(line.endsWith('…')).toBe(true)
-  })
-
-  it('keeps spend and headroom when the cut has to fall somewhere', () => {
-    // The workspace is the longest segment and the banner already stated it;
-    // context remaining is the figure a person is watching.
+  it('drops cwd before model when the budget is tight', () => {
     const line = statusLine({
       ...base,
-      cwd: '/a/very/long/workspace/path/that/will/not/fit/anywhere',
-      usage,
-      context: { contextWindow: 1000, projectedTokens: 250 },
-    }, theme, 46)
-    expect(line).toContain('425 tokens')
-    expect(line).toContain('75% context left')
+      planMode: true,
+      cwd: '/a/very/long/workspace/path/that/will/not/fit',
+      context: { contextWindow: 100, projectedTokens: 80 },
+    }, theme, 18)
+    expect(line).not.toContain('/a/very')
+    expect(line).toContain('plan')
+    expect(line).toContain('20%')
+  })
+
+  it('is cut rather than wrapped when even the kept segments will not fit', () => {
+    const line = statusLine({ ...base, cwd: '/very/long/path/that/keeps/going/on' }, theme, 8)
+    expect(line.length).toBeLessThanOrEqual(8)
+    expect(line.endsWith('…') || line === 'm').toBe(true)
   })
 })
 
 describe('status styling', () => {
-  const colour = createTheme(true, { TERM: 'xterm-256color' })
+  const colour = createTheme(true, {})
 
-  it('keeps the model identity coloured and the routine facts gray', () => {
+  it('styles the model muted, never cyan/accent', () => {
     const line = statusLine({ ...base, preset: 'code-cli', usage }, colour, 200)
-    expect(line).toContain('\u001B[36mm\u001B[0m')
-    expect(line).toContain('\u001B[38;5;245mcode-cli\u001B[0m')
+    expect(line).toContain('\u001B[90mm\u001B[0m')
+    expect(line).not.toContain('\u001B[36m')
   })
 
-  it('escalates the context segment as headroom shrinks', () => {
+  it('escalates alarming context only; routine headroom stays off the glance', () => {
     const at = (projected: number): string => statusLine({
       ...base,
       context: { contextWindow: 100, projectedTokens: projected },
     }, colour, 200)
-    // Routine, then warning, then alarm: the figure a person is watching is the
-    // one that changes colour.
-    expect(at(50)).toContain('\u001B[38;5;245m50% context left')
-    expect(at(80)).toContain('\u001B[33m20% context left')
-    expect(at(95)).toContain('\u001B[31m5% context left')
+    expect(at(50)).not.toContain('50%')
+    expect(at(80)).toContain('\u001B[93m20%\u001B[0m')
+    expect(at(95)).toContain('\u001B[31m5%\u001B[0m')
   })
 })
 

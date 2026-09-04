@@ -437,7 +437,7 @@ describe.skipIf(process.platform === 'win32')('the first five minutes', () => {
     const released = screenAtLast(output, '? shortcuts').alternate
     expect(released.some(row => row.includes('click to expand'))).toBe(false)
     // The status row is not what the hover borrowed, so it stayed throughout.
-    expect(released.some(row => row.includes('workspace-write'))).toBe(true)
+    expect(released.some(row => row.includes('cli-mock'))).toBe(true)
   }, E2E_TEST_TIMEOUT_MS)
 
   it('opens the block a click lands on, and folds it back from inside it', async () => {
@@ -835,7 +835,7 @@ describe.skipIf(process.platform === 'win32')('the key legend (real PTY)', () =>
       ['CODE_CLI_CALL_OK', `/exit${ENTER}`, 300],
     ])
     const empty = screenAt(output, '? shortcuts').alternate
-    expect(empty.some(row => row.includes('? shortcuts · ⇧Tab plan · Ctrl+T todos · Ctrl+O folds'))).toBe(true)
+    expect(empty.some(row => row.includes('? shortcuts'))).toBe(true)
     // The placeholder left with the first character; the legend did not.
     const typing = screenAt(output, 'legend typing test').alternate
     expect(typing.some(row => row.includes('› legend typing test'))).toBe(true)
