@@ -84,7 +84,7 @@ import type { PendingImage } from './prompt.ts'
 import type { TodoList } from './todos.ts'
 import type { StatusFacts } from './status.ts'
 import { backgroundIsLight, createTheme, truncate } from './theme.ts'
-import { FOLD_LABELS, Transcript, answerSummary, blockRules, thinkingFold } from './transcript.ts'
+import { FOLD_LABELS, Transcript, blockRules, thinkingFold } from './transcript.ts'
 import type { Theme } from './theme.ts'
 
 /** Stable Cordis plugin name. */
@@ -317,12 +317,6 @@ function replayEvents(session: Session, transcript: Transcript, io: CliIo, theme
       continue
     }
     io.console.writeAll(lines, rule)
-    if (event.type !== 'assistant/message') continue
-    // A long answer folds after the fact here too: it was written in the open,
-    // and only then does it grow the summary the conversation moved on from.
-    const body = lines.at(-1) === '' ? lines.slice(0, -1) : lines
-    const summary = answerSummary(body, theme)
-    if (summary !== undefined) io.console.foldRecent(lines.length, summary, FOLD_LABELS.answer)
   }
 }
 
@@ -1319,19 +1313,12 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
   }
 
   const stream = new TextStream(theme, () => io.console.contentColumns)
-  // A finished answer is foldable too, the way Claude keeps every long block
-  // collapsible: it streams in the open, and when the block ends anything
-  // longer than a screenful is registered as an expanded fold — read now,
-  // collapsed to its head lines once the conversation moves on.
-  let answerLines: string[] = []
+  // A finished answer stays as transcript: it streams in the open and remains
+  // whole. Thinking and long tool output still collapse; the pointer resting
+  // on the answer names nothing and a click does not work it.
   const finishAnswer = (): void => {
     if (!stream.streamed) return
-    const tail = stream.flush()
-    emit([...tail, ''])
-    answerLines.push(...tail)
-    const summary = answerSummary(answerLines, theme)
-    if (summary !== undefined) io.console.foldRecent(answerLines.length + 1, summary, FOLD_LABELS.answer)
-    answerLines = []
+    emit([...stream.flush(), ''])
   }
   // Reasoning gets its own stream: pushed into `stream`, its deltas would mark
   // the answer as already-shown and the visible text would be swallowed.
@@ -1490,7 +1477,6 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
       flushThinking()
       const step = stream.push(chunk.text)
       emit(step.lines, step.live)
-      answerLines.push(...step.lines)
       return
     }
     if (event.type === 'assistant/message') {

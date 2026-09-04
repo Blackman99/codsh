@@ -245,9 +245,8 @@ describe.skipIf(process.env.CAPTURE_SCREENS === undefined)('showcase frames', ()
       [
         ['Welcome to codsh', `explain it${ENTER}`, 400],
         // The end of the stream, which is the moment the whole answer is on
-        // screen: a finished answer becomes a fold but stays open until the
-        // conversation moves on, so its table and code are visible right here
-        // and the collapsed summary does not exist yet to wait for.
+        // screen: a finished answer is transcript, not a fold, so its table
+        // and code stay visible here with nothing to collapse.
         ['CODE_CLI_CALL_STREAM_DONE', `/exit${ENTER}`, 700],
       ],
       'CODE_CLI_CALL_STREAM_DONE',

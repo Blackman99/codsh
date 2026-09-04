@@ -693,20 +693,6 @@ export class TerminalConsole {
     return true
   }
 
-  /**
-   * Make the last `count` written lines a collapsible block after the fact.
-   *
-   * Screen-only on purpose: a pipe already carries the full text, and a
-   * summary would subtract from it.
-   * @param count - how many trailing lines the block owns.
-   * @param summary - the collapsed lines, already styled.
-   * @param label - what the block is, for the readout naming what the pointer
-   * is over.
-   */
-  foldRecent(count: number, summary: readonly string[], label = ''): void {
-    this.screen?.foldBack(count, summary, label)
-  }
-
   toggleFolds(): boolean {
     return this.screen?.toggleFolds() ?? false
   }

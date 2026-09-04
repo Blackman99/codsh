@@ -219,9 +219,9 @@ _Avoid_: line (a transcript line may occupy several rows)
 **Fold**:
 A transcript block kept in both a summary and a full form, swappable in place
 — a click anywhere in the one under the pointer works it, Ctrl+O works them
-all — and collapsed when the conversation moves on. Thinking, long tool
-output, and long finished answers are all folds. A fold names itself under the
-pointer, as the **Hover readout**.
+all — and collapsed when the conversation moves on. Thinking and long tool
+output are folds. A finished answer is transcript: it stays whole, a click
+does not work it, and the pointer resting on it names nothing.
 _Avoid_: collapse block, expandable section
 
 **Rule**:

@@ -144,12 +144,12 @@ export function blockRules(theme: Theme): { user: string, tool: string, error: s
 }
 
 /**
- * What the two nameless block kinds are called when a readout names them.
+ * What a nameless thinking block is called when a readout names it.
  *
  * A tool block answers with its card's own title, which is already on screen;
- * thinking and an answer have no title of their own, so these are theirs.
+ * thinking has no title of its own, so this is its.
  */
-export const FOLD_LABELS = { thinking: 'thinking', answer: 'answer' } as const
+export const FOLD_LABELS = { thinking: 'thinking' } as const
 
 /**
  * The child session a continuable subagent result names, when the card can
@@ -180,32 +180,6 @@ export function childSessionId(text: string): string | undefined {
     // Not JSON; the prose form above is the usual card.
   }
   return undefined
-}
-
-/** A finished answer longer than this many rendered lines becomes a fold. */
-export const ANSWER_FOLD_LINES = 24
-
-/** How many of its head lines a collapsed answer keeps visible. */
-export const ANSWER_HEAD_LINES = 8
-
-/**
- * The collapsed form of a finished answer, when it is long enough to fold.
- *
- * Shared by the live turn and by replay: a resumed session must offer the same
- * summary the turn itself left behind, or history would read as a different
- * conversation from the one that happened.
- * @param lines - the answer's rendered lines, without its trailing blank.
- * @param theme - styling for the count line.
- * @returns the collapsed lines, or undefined when the answer is short enough
- *   to stand as it is.
- */
-export function answerSummary(lines: readonly string[], theme: Theme): string[] | undefined {
-  if (lines.length <= ANSWER_FOLD_LINES) return undefined
-  return [
-    ...lines.slice(0, ANSWER_HEAD_LINES),
-    theme.dim(`  … +${lines.length - ANSWER_HEAD_LINES} lines (click or Ctrl+O expands)`),
-    '',
-  ]
 }
 
 /**

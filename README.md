@@ -66,7 +66,7 @@ The [site](https://blackman99.github.io/codsh/) shows each one as a real capture
 - A submitted prompt takes the viewport top and its reply fills the space beneath it. Read back into history and the way home is the same frame: the wheel and PgDn land on it again.
 - Whatever you are reading, the prompt that asked for it pins itself at the top; the next prompt pushes it away.
 - A one-column timeline on the right marks the turn you are in — ticks and arrows click-jump, hover previews the real prompt lines. Shift+←/→ does it from the keyboard, and `/jump` is a searchable, reversible preview.
-- Long blocks fold: click one, Ctrl+O all, and what you opened by hand stays open across later turns.
+- Thinking and long tool output fold: click one, Ctrl+O all, and what you opened by hand stays open across later turns. A finished answer stays whole.
 - `/view 1` opens an answer full screen, `/view 1:1` its first code block; Esc restores the conversation exactly. `/copy` addresses the same targets — raw Markdown, or fence-free code.
 - `/diff` reads uncommitted changes in the same reader rather than scrolling them past, and a diff card too long for its own body opens there on click. Piped, it stays lines.
 

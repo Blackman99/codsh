@@ -706,22 +706,36 @@ describe.skipIf(process.platform === 'win32')('the first five minutes', () => {
     expect(restored.alternate.join('\n')).not.toContain('Answer 1')
   }, E2E_TEST_TIMEOUT_MS)
 
-  it('folds a finished long answer on moving on, and reopens it on Ctrl+O', async () => {
-    const output = await drivePty('markdown', [
+  it('leaves a finished answer whole, with no fold and no hover chrome', async () => {
+    // A move with nothing held: button 35 is the motion bit over the no-button
+    // code, which is what any-motion tracking sends. Press and release without
+    // moving: a drag would copy instead. Aim at the tail marker — it is on
+    // screen once the stream ends, and it belongs to the answer.
+    const moveTo = (line: string): string => `\u001B[<35;6;{row:${line}}M`
+    const clickOn = (line: string): string => `\u001B[<0;6;{row:${line}}M\u001B[<0;6;{row:${line}}m`
+    const tail = 'CODE_CLI_CALL_STREAM_DONE'
+    const run = await drivePtySteps('markdown', [
       ['Welcome to codsh', `explain${ENTER}`, 300],
-      // The whole answer stands while fresh; the next submission collapses it.
-      ['CODE_CLI_CALL_STREAM_DONE', `/status${ENTER}`, 500],
-      // Collapsed to its head lines: Ctrl+O brings the tail back.
-      ['permissions', '\u000F', 400],
-      ['CODE_CLI_CALL_STREAM_DONE', `/exit${ENTER}`, 400],
+      // Resting on the fresh answer must not name it as a fold.
+      [tail, moveTo(tail), 600],
+      // Empty markers: the tail is already in the capture, and a no-op hover
+      // does not reprint it. Delay, then click, then move on.
+      ['', clickOn(tail), 600],
+      ['', `/status${ENTER}`, 500],
+      ['permissions', `/exit${ENTER}`, 400],
     ])
-    // After /status the wall is gone: a head, a count, and no tail marker.
-    const folded = screenAt(output, 'permissions').alternate
-    expect(folded.some(row => row.includes('lines (click or Ctrl+O expands)'))).toBe(true)
-    expect(folded.some(row => row.includes('CODE_CLI_CALL_STREAM_DONE'))).toBe(false)
-    // Re-expanded: read the frame that painted the tail marker last.
-    const probe = screenAtLast(output, 'CODE_CLI_CALL_STREAM_DONE')
-    expect(probe.alternate.some(row => row.includes('CODE_CLI_CALL_STREAM_DONE'))).toBe(true)
+    const captured = (offset: number | undefined): string => Buffer.from(run.output).subarray(0, offset).toString()
+    // After the pointer has rested on the answer: the chrome still names the
+    // model, not a fold, and the tail marker is still on screen.
+    const hovered = screenOf(captured(run.offsets[2]), -1).alternate
+    expect(hovered.some(row => /answer · \d+ lines · click to (?:fold|expand)/u.test(row))).toBe(false)
+    expect(hovered.some(row => row.includes(tail))).toBe(true)
+    const clicked = screenOf(captured(run.offsets[3]), -1).alternate
+    expect(clicked.some(row => row.includes(tail))).toBe(true)
+    expect(clicked.some(row => row.includes('lines (click or Ctrl+O expands)'))).toBe(false)
+    const after = screenAt(run.output, 'permissions').alternate
+    expect(after.some(row => row.includes(tail))).toBe(true)
+    expect(after.some(row => row.includes('lines (click or Ctrl+O expands)'))).toBe(false)
   }, E2E_TEST_TIMEOUT_MS)
 
   it('keeps a manually expanded block open across the next real turn', async () => {

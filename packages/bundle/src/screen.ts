@@ -880,10 +880,8 @@ export class Screen {
    * Turn the last `count` appended lines into a collapsible block after the
    * fact.
    *
-   * This is how a finished answer becomes foldable without ever having been
-   * withheld: it streamed in the open, and only once complete does it grow a
-   * summary form. The block starts expanded — the person is reading it — and
-   * collapses with the rest when the conversation moves on.
+   * The block starts expanded — the person is reading it — and collapses with
+   * the rest when the conversation moves on.
    * @param count - how many trailing lines the block owns.
    * @param summary - the collapsed lines, already styled.
    * @param label - what the block is, for the hover readout that names it.
