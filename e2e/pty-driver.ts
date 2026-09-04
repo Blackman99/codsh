@@ -32,7 +32,8 @@ export const LEAVE_ALT = '\u001B[?1049l'
  * One scripted step: wait for `marker`, then write `payload`.
  *
  * `delayMs` settles before the write — the only way to assert that nothing
- * appears, since silence has no marker to wait for.
+ * appears, since silence has no marker to wait for. Prefix the marker with
+ * `re:` to search the raw stream with a Python regex (SGR sits between words).
  */
 export type PtyStep = readonly [marker: string, payload: string, delayMs: number]
 
@@ -95,10 +96,18 @@ while time.monotonic() < deadline:
     while step < len(script):
         marker, payload, delay_ms = script[step]
         if marker:
-            found = output.find(marker, consumed)
-            if found < 0:
-                break
-            consumed = found + len(marker)
+            # re:… searches the raw stream so a wait can name the visible
+            # line (todos … Ctrl+T) even when SGR sits between the words.
+            if marker.startswith(b"re:"):
+                found_match = re.search(marker[3:], output[consumed:])
+                if found_match is None:
+                    break
+                consumed = consumed + found_match.end()
+            else:
+                found = output.find(marker, consumed)
+                if found < 0:
+                    break
+                consumed = found + len(marker)
         settle_until = time.monotonic() + delay_ms / 1000
         while time.monotonic() < settle_until:
             ready, _, _ = select.select([fd], [], [], 0.02)
