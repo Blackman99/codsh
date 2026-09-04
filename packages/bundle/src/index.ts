@@ -50,7 +50,7 @@ import { TerminalApproval, answerForKey, nameCall, type ApprovalAnswer } from '.
 import { notificationText, planNotification, runNotificationCommand } from './notify.ts'
 import { PermissionRules } from './permissions.ts'
 import { rewindPoints, type RewindPoint } from './rewind.ts'
-import { bannerLines } from './banner.ts'
+import { bannerLines, resolveWelcomeKind } from './banner.ts'
 import { createCompleter, expandSkillGestures, fuzzyScore } from './completion.ts'
 import { expandTemplate, loadCustomCommands } from './custom-commands.ts'
 import { styleDiffLine } from './diff.ts'
@@ -166,6 +166,27 @@ async function latestSessionIn(ctx: Context, cwd: string): Promise<SessionId | u
   const records = await query.listSessions()
   // `listSessions` is newest-first, so the first workspace match is the latest.
   return records.find(record => record.header.cwd === cwd)?.header.id
+}
+
+/**
+ * Whether this workspace already has a prior session worth a returning welcome.
+ *
+ * The brand-new empty current session does not count: if it is the only cwd
+ * match and it has no completed turn, the greeting is still first-run. When
+ * `sessionQuery` is unavailable the caller treats the result as first.
+ */
+async function priorSessionInWorkspace(ctx: Context, cwd: string, session: Session): Promise<boolean> {
+  const query = ctx.get('sessionQuery')
+  if (query === undefined) return false
+  const records = await query.listSessions()
+  const currentHasTurn = session.events.some(
+    event => event.type === 'turn/end' || event.type === 'user/message',
+  )
+  return records.some((record) => {
+    if (record.header.cwd !== cwd) return false
+    if (record.header.id !== session.id) return true
+    return currentHasTurn
+  })
 }
 
 /**
@@ -644,16 +665,22 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
   // Refreshed once per prompt. A command handler is synchronous, so it reports
   // the branch this session last observed rather than stalling to re-read it.
   let branch = await gitBranch(cwd)
-  if (config.resume !== '') replay(live.agent.session, live.transcript, io, theme)
-  for (const line of bannerLines({
-    model,
-    preset: presetId,
-    cwd,
-    branch,
-    session: live.agent.session.id,
-    readsKeys: io.console.readsKeys,
-    resumed: config.resume !== '',
-  }, theme, io.console.contentColumns)) io.console.write(line)
+  if (config.resume !== '') {
+    // Replay owns the screen; skip the welcome entirely.
+    replay(live.agent.session, live.transcript, io, theme)
+  } else {
+    const welcomeKind = resolveWelcomeKind(
+      false,
+      await priorSessionInWorkspace(ctx, cwd, live.agent.session),
+    )
+    for (const line of bannerLines({
+      model,
+      preset: presetId,
+      session: live.agent.session.id,
+      readsKeys: io.console.readsKeys,
+      welcomeKind,
+    }, theme, io.console.contentColumns)) io.console.write(line)
+  }
 
   // The version this build carries, and — off the boot's critical path — one
   // dim line when a newer one is published. The check is a cached registry
@@ -1243,15 +1270,13 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
         // create costs nothing.
         const next = await composed.createAnother()
         await switchTo(next, false)
-        // A fresh session opens the way the first one did: welcome at the top.
+        // Same workspace: /clear is still a returning welcome, not a first-run ASCII.
         for (const line of bannerLines({
           model,
           preset: presetId,
-          cwd,
-          branch,
           session: live.agent.session.id,
           readsKeys: io.console.readsKeys,
-          resumed: false,
+          welcomeKind: 'returning',
         }, theme, io.console.contentColumns)) prompt.write(line)
         return { kind: 'success', text: `new session ${live.agent.session.id}` }
       },
