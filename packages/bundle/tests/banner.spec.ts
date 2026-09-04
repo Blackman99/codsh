@@ -47,7 +47,7 @@ describe('bannerLines', () => {
     const content = lines.filter(line => line !== '')
     expect(content).toHaveLength(2)
     expect(content[0]).toContain('✻ codsh · deepseek-v4-flash · /help')
-    expect(content[1]).toBe('  session session-1 · Tab · ⇧Tab plan')
+    expect(content[1]).toBe('session session-1 · Tab · ⇧Tab plan')
     expect(lines.some(line => line.includes('█') || line.includes('▀') || line.includes('▄'))).toBe(false)
     expect(lines.join('\n')).not.toContain('Welcome to codsh')
   })
