@@ -391,16 +391,15 @@ describe.skipIf(process.platform === 'win32')('the first five minutes', () => {
   it('collapses a long result and names what each gesture does', async () => {
     const output = await drivePty('tall', [
       ['Welcome to codsh', `make it tall${ENTER}`, 300],
-      ['lines (click reads it · Ctrl+O expands)', `/exit${ENTER}`, 500],
+      // Diff cards default to one ToolCard line; hunks live in the fold.
+      ['+45 -0', `/exit${ENTER}`, 500],
     ])
-    const rows = screenAt(output, 'Ctrl+O expands').alternate
+    const rows = screenAt(output, '+45 -0').alternate
     const body = rows.filter(row => row.includes('CODE_CLI_TALL_'))
-    // A skimmable sliver, not a wall. This one is a diff, so the line promises
-    // what a click actually does now — open the reader — while Ctrl+O keeps
-    // meaning expand-everything-in-place. A block whose click still folds (a
-    // thought, a terminal result) keeps saying so; see the pty suite.
-    expect(body.length).toBeLessThanOrEqual(24)
-    expect(rows.some(row => row.includes('(click reads it · Ctrl+O expands)'))).toBe(true)
+    // A skimmable one-liner, not a wall. Click / Ctrl+O still open the body;
+    // those gestures are covered in the pty suite.
+    expect(body.length).toBe(0)
+    expect(rows.some(row => row.includes('● Write note.txt +45 -0 ✔'))).toBe(true)
   }, E2E_TEST_TIMEOUT_MS)
 
   it('names the block the pointer rests on, and gives the row back', async () => {
@@ -452,12 +451,14 @@ describe.skipIf(process.platform === 'win32')('the first five minutes', () => {
       // A click anywhere in the open block — not just its head line — folds it
       // back again.
       ['weighing the options carefully', clickOn('weighing the options carefully'), 600],
-      ['lines (click or Ctrl+O expands)', `/exit${ENTER}`, 400],
+      // Folded summary is `thought for Xs` with no leftover hint line; delay
+      // then leave so the last frame is the shut card.
+      ['', `/exit${ENTER}`, 600],
     ])
     const opened = screenAtLast(output, 'weighing the options carefully').alternate
     expect(opened.some(row => row.includes('CODE_CLI_THINKING about the request'))).toBe(true)
     // Folded back by the second click — before any submission could do it.
-    const shut = screenAtLast(output, 'lines (click or Ctrl+O expands)').alternate
+    const shut = finalScreen(output).alternate
     expect(shut.some(row => /✻ thought for [\d.]+s/u.test(row))).toBe(true)
     expect(shut.some(row => row.includes('weighing the options carefully'))).toBe(false)
   }, E2E_TEST_TIMEOUT_MS)
