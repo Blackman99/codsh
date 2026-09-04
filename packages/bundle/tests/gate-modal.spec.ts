@@ -37,9 +37,7 @@ describe('GateModal', () => {
     expect(frame.rows).toHaveLength(16)
     expect(frame.rows[0]).toContain('gate 1/2')
     expect(frame.body.join('\n')).toContain('Acceptance')
-    expect(frame.rows.join('\n')).toContain('[y] confirm')
-    expect(frame.rows.join('\n')).toContain('[e] edit')
-    expect(frame.rows.join('\n')).toContain('[n] abort')
+    expect(frame.rows.join('\n')).toContain('[y] confirm · [e] edit · [n] abort')
     expect(frame.rows.join('\n')).toContain('recommended: confirm')
     expect(frame.focus).toBe('confirm')
   })
@@ -83,16 +81,17 @@ describe('GateModal', () => {
     // warn = bright yellow for gate N/2
     expect(frame.rows[0]).toContain('\u001B[93m')
     const joined = frame.rows.join('\n')
-    // y → ok (green), n → err (red)
-    expect(joined).toContain('\u001B[32m')
-    expect(joined).toContain('\u001B[31m')
+    // y → ok (green), n → err (red); copy uses middots.
+    expect(joined).toContain('\u001B[32m[y]')
+    expect(joined).toContain('\u001B[31m[n]')
+    expect(joined.replace(/\u001B\[[0-9;]*m/gu, '')).toContain('[y] confirm · [e] edit · [n] abort')
   })
 
   it('stays readable under NO_COLOR / plain theme', () => {
     const modal = new GateModal(spec)
     const text = modal.frame(theme, 72, 16).rows.join('\n')
     expect(text).not.toMatch(/\u001B\[/)
-    expect(text).toContain('confirm')
-    expect(text).toContain('abort')
+    expect(text).toContain('[y] confirm · [e] edit · [n] abort')
+    expect(text).not.toContain('[y] take')
   })
 })

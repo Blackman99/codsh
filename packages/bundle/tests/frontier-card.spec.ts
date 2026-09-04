@@ -84,10 +84,9 @@ describe('FrontierCard', () => {
     expect(text).toContain('[rec]')
     expect(text).toContain('SQLite file')
     expect(text).toContain('Postgres')
-    expect(text).toContain('[y] take')
-    expect(text).toContain('[e] edit')
-    expect(text).toContain('[up/down] pick')
+    expect(text).toContain('[y] take · [e] edit · [↑↓] pick')
     expect(text).not.toMatch(/\[n\]/)
+    expect(text).not.toContain('abort')
     expect(text).toContain('┌')
     expect(text).toContain('└')
   })
@@ -129,7 +128,7 @@ describe('FrontierCard', () => {
     const text = card.frame(theme, 56).rows.join('\n')
     expect(text).not.toMatch(/\u001B\[/)
     expect(text).toContain('[rec]')
-    expect(text).toContain('[y] take')
+    expect(text).toContain('[y] take · [e] edit · [↑↓] pick')
     expect(text).toContain('SQLite file')
     expect(text).toContain('Which storage wins')
   })
@@ -139,6 +138,10 @@ describe('FrontierCard', () => {
     const text = card.frame(painted, 56).rows.join('\n')
     expect(text).toContain('\u001B[32m')
     expect(text).toContain('\u001B[36m')
+    // Footer: y is ok (green), arrows are accent (cyan); no abort red.
+    expect(text).toContain('\u001B[32m[y]')
+    expect(text).toContain('\u001B[36m[↑↓]')
+    expect(text).not.toContain('\u001B[31m')
   })
 
   it('keeps every row within the column budget', () => {

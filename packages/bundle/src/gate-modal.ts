@@ -1,4 +1,9 @@
-/** Full-screen /ship approval gate: confirm · edit · abort. */
+/**
+ * Full-screen /ship approval gate: confirm · edit · abort.
+ *
+ * Shared vocabulary with Selector and FrontierCard: take is confirm (`y` /
+ * Enter), edit is `e`, abort is `n` / Esc — the only surface that paints abort.
+ */
 
 import { displayWidth, truncate } from './theme.ts'
 import type { Key } from './keys.ts'
@@ -235,6 +240,6 @@ export class GateModal {
     const abort = this.focus === 'abort'
       ? `${theme.err('[n]')} ${theme.bold('abort')}`
       : `${theme.err('[n]')} abort`
-    return truncate(`${confirm}   ${edit}   ${abort}`, inner)
+    return truncate(`${confirm} · ${edit} · ${abort}`, inner)
   }
 }

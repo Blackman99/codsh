@@ -5,6 +5,10 @@
  * Pure state, like the editor: keys in, a verdict and rows out. One widget
  * serves single-select, multi-select, and shortcut keys, because three slightly
  * different pickers is how the same bug ships three times.
+ *
+ * Footer vocabulary shared with GateModal and FrontierCard:
+ * take (Enter, and `y` on single-select), edit (`e` when a custom row is
+ * offered), back (Esc). Abort (`n`) is GateModal-only and is never painted here.
  * @module codsh-bundle/src/selector
  */
 
@@ -27,7 +31,7 @@ export interface SelectSpec {
   /** The question, shown above the options. */
   title: string
   options: readonly SelectOption[]
-  /** Whether several options may be chosen; Space toggles, Enter confirms. */
+  /** Whether several options may be chosen; Space toggles, Enter takes. */
   multi?: boolean
   /** Label for a trailing "type your own" row; absent offers none. */
   custom?: string
@@ -212,6 +216,8 @@ export class Selector {
       case 'enter':
         return this.accept(this.selected)
       case 'escape':
+        // Back: leave without a choice. Not abort — the footer never paints it
+        // as one, and the outcome is cancelled, not an error.
         return { kind: 'done', outcome: { kind: 'cancelled' } }
       case 'backspace':
         if (this.spec.filterable === true && this.query.length > 0) {
@@ -227,14 +233,24 @@ export class Selector {
   }
 
   /**
-   * Resolve a typed character: a digit jumps, a shortcut picks, Space toggles.
+   * Resolve a typed character: a digit jumps, a shortcut picks, Space toggles,
+   * `e` edits when a custom row is offered, and `y` takes on single-select.
    * @param text - what was typed.
    * @returns whether the selection settled.
    */
   private typed(text: string): SelectorStep {
+    const letter = text.toLowerCase()
     if (this.spec.filterable === true) {
       if (this.query === '') {
-        const shortcut = this.spec.options.findIndex(option => option.shortcut === text.toLowerCase())
+        // Empty query: reserved letters settle like the unfiltered picker.
+        // Once a filter is started, letters (including y) stay in the query.
+        if (this.spec.custom !== undefined && letter === 'e') {
+          return { kind: 'done', outcome: { kind: 'custom' } }
+        }
+        if (this.spec.multi !== true && letter === 'y') {
+          return this.accept(this.selected)
+        }
+        const shortcut = this.spec.options.findIndex(option => option.shortcut === letter)
         if (shortcut >= 0) return this.acceptOriginal(shortcut)
       }
       this.query += text
@@ -251,6 +267,15 @@ export class Selector {
       }
       return { kind: 'pending' }
     }
+    if (this.spec.custom !== undefined && letter === 'e') {
+      return { kind: 'done', outcome: { kind: 'custom' } }
+    }
+    // `y` ≡ Enter on single-select: take the focused row, same muscle memory
+    // as Gate/Frontier. An option shortcut `y` is shadowed on purpose — take
+    // means the mark, not "yes".
+    if (this.spec.multi !== true && letter === 'y') {
+      return this.accept(this.selected)
+    }
     const digit = Number(text)
     if (Number.isInteger(digit) && digit >= 1 && digit <= this.count) {
       // A digit is an answer, not a cursor move: single-select settles on it,
@@ -266,7 +291,7 @@ export class Selector {
       }
       return this.accept(digit - 1)
     }
-    const shortcut = this.spec.options.findIndex(option => option.shortcut === text.toLowerCase())
+    const shortcut = this.spec.options.findIndex(option => option.shortcut === letter)
     if (shortcut >= 0) return this.acceptOriginal(shortcut)
     return { kind: 'pending' }
   }
@@ -323,13 +348,21 @@ export class Selector {
     }
     const below = total - first - VISIBLE_ROWS
     if (below > 0) rows.push(theme.dim(`  ↓ ${below} more`))
-    const how = this.spec.multi === true
-      ? 'Space toggles · Enter confirms · Esc cancels'
-      : this.spec.filterable === true
-        ? 'type to filter · ↑↓ move · Enter accepts · Esc cancels'
-        : '↑↓ move · Enter accepts · Esc cancels'
-    rows.push(theme.dim(truncate(`  ${how}`, columns)))
+    rows.push(truncate(this.footer(theme), columns))
     return rows
+  }
+
+  /**
+   * Shared take / edit / back chrome. Take keys are ok (green); Esc is warn,
+   * never err — back is leave, not abort. `[y] take` only on single-select,
+   * where `y` is bound; `[e] edit` only when a custom row is offered.
+   */
+  private footer(theme: Theme): string {
+    const parts = [`${theme.ok('[enter]')} take`]
+    if (this.spec.multi !== true) parts.push(`${theme.ok('[y]')} take`)
+    if (this.spec.custom !== undefined) parts.push(`${theme.muted('[e]')} edit`)
+    parts.push(`${theme.warn('[esc]')} back`)
+    return `  ${parts.join(' · ')}`
   }
 
   /**

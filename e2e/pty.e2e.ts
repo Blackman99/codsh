@@ -251,6 +251,8 @@ describe.skipIf(process.platform === 'win32')('dsh code Escape (real PTY)', () =
     expect(plain).toContain('Allow bash: printf')
     expect(plain).toContain('❯ 1. Yes, this time (y)')
     expect(plain).toContain('2. Yes, every bash call this session (a)')
+    expect(plain).toContain('[enter] take · [y] take · [esc] back')
+    expect(plain).not.toContain('[n] abort')
     expect(plain).toContain('CODE_CLI_ROUND_TRIP')
   }, E2E_TEST_TIMEOUT_MS)
 
