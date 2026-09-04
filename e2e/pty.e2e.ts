@@ -814,23 +814,26 @@ describe.skipIf(process.platform === 'win32')('dsh code Escape (real PTY)', () =
   }, E2E_TEST_TIMEOUT_MS)
 
   it('pins the todo list in the chrome and opens it on Ctrl-T', async () => {
+    // One-line chrome is `todos 1/3 · ▶ write the fix · Ctrl+T`. Colour splits
+    // that across SGR, so the wait is the same line as a raw-stream regex.
+    const collapsed = 're:todos[\\s\\S]{0,120}?write the fix[\\s\\S]{0,40}?Ctrl\\+T'
     const output = await drivePty('todo', [
       ['Welcome to codsh', `plan the work${ENTER}`, 300],
-      // The readout names its own key, the way a fold names Ctrl-O...
-      ['Ctrl+T opens the list', '\u0014', 400],
-      // ...opens to every item...
+      [collapsed, '\u0014', 400],
       ['Ctrl+T closes', '\u0014', 400],
-      // ...and closes back to the one line.
-      ['Ctrl+T opens the list', `/exit${ENTER}`, 400],
+      [collapsed, `/exit${ENTER}`, 400],
     ])
 
     // Pinned: the item in flight sits directly over the status row, so the list
     // is still answerable long after its card scrolled away.
-    const pinned = screenAt(output, 'Ctrl+T opens the list').alternate
+    const pinned = screenAt(output, 'write the fix').alternate
     expect(pinned.at(-1)).toMatch(/cli-mock/)
-    const readout = pinned.findIndex(row => row.includes('Ctrl+T opens the list'))
-    expect(pinned[readout]).toContain('▶ write the fix')
-    expect(pinned[readout]).toContain('1/3')
+    const readout = pinned.findIndex(row => /todos 1\/3 · ▶ write the fix · Ctrl\+T/.test(row))
+    expect(readout).toBeGreaterThanOrEqual(0)
+    expect(pinned[readout]).toMatch(/todos 1\/3 · ▶ write the fix · Ctrl\+T/)
+    // Collapsed chrome is one row: the transcript card may still list items,
+    // but the readout itself is not a multi-line checklist.
+    expect(pinned[readout]?.includes('read the code')).toBe(false)
     // In the chrome, not the transcript: only the rows about right now sit
     // under it — the working indicator, when one is ticking, and the status row.
     expect(pinned.length - readout).toBeLessThanOrEqual(3)
@@ -839,6 +842,7 @@ describe.skipIf(process.platform === 'win32')('dsh code Escape (real PTY)', () =
     const opened = screenAt(output, 'Ctrl+T closes').alternate
     const head = opened.findIndex(row => row.includes('Ctrl+T closes'))
     expect(head).toBeGreaterThanOrEqual(0)
+    expect(opened[head]).toMatch(/todos 1\/3 · Ctrl\+T closes/)
     expect(opened.slice(head + 1, head + 4).map(row => row.trim())).toEqual([
       '✔ read the code',
       '▶ write the fix',
@@ -848,7 +852,8 @@ describe.skipIf(process.platform === 'win32')('dsh code Escape (real PTY)', () =
     // Closed again: the chrome is back to one row. The card in the transcript
     // still lists the items, so the header's own key text is what separates an
     // open readout from a scrolled-back write.
-    const closed = screenAt(output, 'Ctrl+T opens the list', 'last').alternate
+    const closed = screenAt(output, ' · Ctrl+T', 'last').alternate
+    expect(closed.some(row => /todos 1\/3 · ▶ write the fix · Ctrl\+T/.test(row))).toBe(true)
     expect(closed.some(row => row.includes('Ctrl+T closes'))).toBe(false)
   }, E2E_TEST_TIMEOUT_MS)
 

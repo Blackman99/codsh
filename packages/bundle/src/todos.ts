@@ -11,7 +11,7 @@
  */
 
 import type { TodoItem } from '@deepseek-ai/dsh-session'
-import { truncate } from './theme.ts'
+import { displayWidth, truncate } from './theme.ts'
 import type { Theme } from './theme.ts'
 
 /** The list as the projection holds it: whole-value, latest write wins. */
@@ -32,13 +32,18 @@ export interface TodoReportOptions {
  * squares: the transcript has used them since todos first rendered, and one
  * surface speaking two alphabets for the same list is worse than differing from
  * the reference on a glyph.
+ *
+ * The collapsed row keeps `▶` off accent and pending — those roles belong to
+ * the input and the expanded current item — so a glance at the one-line chrome
+ * does not steal the focus colour.
  * @param status - the item's lifecycle state.
  * @param theme - styling for the mark.
+ * @param collapsed - the pinned one-line row, which always names the focus item.
  * @returns the styled mark.
  */
-function mark(status: TodoItem['status'], theme: Theme): string {
+function mark(status: TodoItem['status'], theme: Theme, collapsed = false): string {
   if (status === 'completed') return theme.success('✔')
-  if (status === 'in_progress') return theme.pending('▶')
+  if (status === 'in_progress' || collapsed) return collapsed ? theme.bold('▶') : theme.pending('▶')
   return theme.dim('○')
 }
 
@@ -60,9 +65,9 @@ function tally(todos: TodoList): { done: number, active: number, open: number, t
 /**
  * The header both the card and the expanded list carry.
  *
- * Progress leads because it is the figure a glance wants; the state breakdown
- * follows, and a state with nothing in it is dropped rather than shown as zero —
- * the same rule the status line follows.
+ * Progress leads because it is the figure a glance wants. The transcript card
+ * then names the states that have items; the chrome header that carries a hint
+ * stays `todos k/n · hint` so the expanded panel matches the collapsed count.
  * @param todos - the list to summarize.
  * @param theme - styling for the segments.
  * @param hint - a trailing note, e.g. the key that collapses the list.
@@ -70,11 +75,14 @@ function tally(todos: TodoList): { done: number, active: number, open: number, t
  */
 function header(todos: TodoList, theme: Theme, hint: string | undefined): string {
   const { done, active, open, total } = tally(todos)
+  const count = theme.dim(`${done}/${total}`)
+  if (hint !== undefined) {
+    return `${theme.tool('todos')} ${count}${theme.dim(` · ${hint}`)}`
+  }
   const segments = [
-    theme.dim(`${done}/${total}`),
+    count,
     ...active === 0 ? [] : [theme.dim(`${active} in progress`)],
     ...open === 0 ? [] : [theme.dim(`${open} open`)],
-    ...hint === undefined ? [] : [theme.dim(hint)],
   ]
   return `${theme.tool('todos')} ${segments.join(theme.dim(' · '))}`
 }
@@ -91,8 +99,49 @@ function focus(todos: TodoList): TodoItem | undefined {
 }
 
 /**
- * Render the pinned row: one line naming the work in flight and the progress
- * around it.
+ * Fit `count · body · hint` into one row, shrinking a title before the hint.
+ *
+ * At 80 columns the key must stay readable; a long title is the part a glance
+ * can still recognise when cut. The hint drops only when even a two-column
+ * title would not leave room for it. A finished-list phrase is not cut to
+ * keep the key — the spec keeps `all done ✔` whole and drops the hint first.
+ * @param count - the `todos k/n` prefix, already styled.
+ * @param body - the focus title, or the finished-list phrase.
+ * @param hint - the trailing key, already styled, when one was given.
+ * @param columns - display columns the whole row may use.
+ * @param theme - the separator.
+ * @param shrinkBody - whether the body may be cut to keep the hint.
+ * @returns one row, never wrapped.
+ */
+function fitRow(
+  count: string,
+  body: string,
+  hint: string | undefined,
+  columns: number,
+  theme: Theme,
+  shrinkBody: boolean,
+): string {
+  const sep = theme.dim(' · ')
+  // Hint and its separator are one muted span so a PTY wait can match
+  // ` · Ctrl+T` as raw bytes, the way the old `opens the list` phrase did.
+  const trail = hint === undefined ? undefined : theme.dim(` · ${hint}`)
+  const withHint = trail === undefined ? undefined : `${count}${sep}${body}${trail}`
+  if (withHint !== undefined && displayWidth(withHint) <= columns) return withHint
+  if (shrinkBody && trail !== undefined) {
+    const prefix = `${count}${sep}`
+    const budget = columns - displayWidth(prefix) - displayWidth(trail)
+    if (budget >= 2) return `${prefix}${truncate(body, budget)}${trail}`
+  }
+  const withoutHint = `${count}${sep}${body}`
+  if (displayWidth(withoutHint) <= columns) return withoutHint
+  const prefix = `${count}${sep}`
+  const budget = columns - displayWidth(prefix)
+  if (budget >= 2) return `${prefix}${truncate(body, budget)}`
+  return truncate(withoutHint, columns)
+}
+
+/**
+ * Render the pinned row: always one line — count, the work in focus, the key.
  *
  * This row is the whole point of reading from a projection rather than from the
  * write event: the card that announced the list scrolls away, the row does not,
@@ -112,18 +161,13 @@ export function todoRow(
   if (todos.length === 0) return undefined
   const { done, total } = tally(todos)
   const next = focus(todos)
-  // Finished lists still report: `5/5` is the confirmation that the work the
+  const count = `${theme.tool('todos')} ${theme.dim(`${done}/${total}`)}`
+  // Finished lists still report: `n/n` is the confirmation that the work the
   // list described actually landed, and it costs one row until the next write.
   const body = next === undefined
-    ? `${theme.success('✔')} ${theme.dim('all done')}`
-    : `${mark(next.status, theme)} ${next.status === 'in_progress' ? next.content : `next: ${next.content}`}`
-  const segments = [
-    theme.tool('todos'),
-    theme.dim(`${done}/${total}`),
-    body,
-    ...hint === undefined ? [] : [theme.dim(hint)],
-  ]
-  return truncate(segments.join(theme.dim(' · ')), columns)
+    ? `${theme.dim('all done')} ${theme.success('✔')}`
+    : `${mark(next.status, theme, true)} ${next.content}`
+  return fitRow(count, body, hint, columns, theme, next !== undefined)
 }
 
 /**
