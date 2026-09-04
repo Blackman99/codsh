@@ -7,7 +7,7 @@
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import type { ToolCallView, ToolResultView } from '@deepseek-ai/dsh-tools'
 import { describe, expect, it } from 'vitest'
-import { createTheme } from '../src/theme.ts'
+import { createTheme, displayWidth } from '../src/theme.ts'
 import { ANSWER_FOLD_LINES, ANSWER_HEAD_LINES, Transcript, answerSummary, blockRules, childSessionId, thinkingFold, type ToolPresenters } from '../src/transcript.ts'
 
 const theme = createTheme(false, {})
@@ -479,6 +479,55 @@ describe('tool results', () => {
     expect(lines.join('\n')).toContain('line 4')
     expect(lines.join('\n')).not.toContain('line 5')
     expect(lines.at(-2)).toBe('  … +25 lines (click or Ctrl+O expands)')
+  })
+})
+
+describe('a result line wider than the card', () => {
+  it('cuts a line wider than a few rows and keeps the whole line behind the fold', () => {
+    // One bash result carried a 49,616-character HTML line. Shown whole it
+    // wrapped to five hundred rows under a card that promised five lines.
+    const wide = `<html>${'<div class="x"></div>'.repeat(200)}</html>`
+    const result = (): ToolResultView => ({ card: 'terminal', title: 'curl', output: `${wide}\nshort tail` })
+    const transcript = build({ result })
+    transcript.render(callEvent('c1', 'bash', {}))
+    const lines = transcript.render(resultEvent('c1', 'ok'))
+    const shown = lines.find(line => line.includes('<html>')) ?? ''
+    // Three rows' worth at 80 columns, the ellipsis marking the cut.
+    expect(displayWidth(shown)).toBeLessThanOrEqual((80 - 4) * 3)
+    expect(shown.endsWith('…')).toBe(true)
+    expect(lines).toContain('  … a long line cut (click or Ctrl+O expands)')
+    expect(lines.join('\n')).toContain('short tail')
+    // The fold holds the line whole, so Ctrl+O reads what the card withheld.
+    const full = transcript.takeFold() ?? []
+    expect(full.some(line => line.includes(wide))).toBe(true)
+  })
+
+  it('leaves a body of short lines uncut and unfolded', () => {
+    // Same title as the pending card, so no header returns: only the body.
+    const result = (): ToolResultView => ({ card: 'terminal', title: 'bash', output: 'a\tb\nc' })
+    const transcript = build({ result })
+    transcript.render(callEvent('c1', 'bash', {}))
+    // A tab is flattened at paint, not here: the line fits, so it is kept as it came.
+    expect(transcript.render(resultEvent('c1', 'ok'))).toEqual(['  a\tb', '  c', ''])
+    expect(transcript.takeFold()).toBeUndefined()
+  })
+
+  it('counts both cuts once when a body is long and wide', () => {
+    const output = [`${'w'.repeat(500)}`, ...Array.from({ length: 10 }, (_, i) => `line ${i}`)].join('\n')
+    const result = (): ToolResultView => ({ card: 'terminal', title: 'run', output })
+    const transcript = build({ result })
+    transcript.render(callEvent('c1', 'bash', {}))
+    const lines = transcript.render(resultEvent('c1', 'ok'))
+    expect(lines.at(-2)).toBe('  … +6 lines (click or Ctrl+O expands)')
+    expect(lines.some(line => line.includes('long line'))).toBe(false)
+    expect((transcript.takeFold() ?? []).join('\n')).toContain('w'.repeat(500))
+  })
+
+  it('cuts wide lines in an unpaired raw result the same way', () => {
+    const transcript = build()
+    const lines = transcript.render(resultEvent('c9', 'y'.repeat(1000)))
+    expect(displayWidth(lines[1] ?? '')).toBeLessThanOrEqual((80 - 4) * 3)
+    expect((transcript.takeFold() ?? []).join('\n')).toContain('y'.repeat(1000))
   })
 })
 

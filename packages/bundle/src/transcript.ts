@@ -19,7 +19,7 @@ import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import type { FileDiff, ToolCallView, ToolResult, ToolResultView } from '@deepseek-ai/dsh-tools'
 import { renderMarkdown } from './markdown.ts'
-import { truncate } from './theme.ts'
+import { displayWidth, oneRow, truncate } from './theme.ts'
 import { todoReport } from './todos.ts'
 import type { Theme } from './theme.ts'
 
@@ -36,6 +36,18 @@ const MAX_DIFF_LINES = 24
  * the collapsed remainder is one click — or one Ctrl+O — away in full.
  */
 const MAX_RESULT_LINES = 5
+
+/**
+ * Rows' worth of columns one shown result line may take before it is cut.
+ *
+ * The body is capped at {@link MAX_RESULT_LINES} lines, but one line can be
+ * a whole page — an HTML document a command printed, a minified bundle, a
+ * JSON blob. Left whole it wraps to hundreds of rows, and the card that
+ * promised five lines fills the screen many times over; one such line, 49,616
+ * characters long, is what a resumed session spent its seconds on. The shown
+ * form keeps this much of it, marked; the fold keeps the whole line.
+ */
+const MAX_RESULT_LINE_ROWS = 3
 
 /** The registered presenters, resolved against the agent's scope by the caller. */
 export interface ToolPresenters {
@@ -251,19 +263,6 @@ function diffBody(diff: FileDiff, theme: Theme): string[] {
     }
   }
   return lines
-}
-
-/**
- * Cap a body at `limit` lines, replacing the remainder with a count.
- * @param lines - the rendered body.
- * @param limit - how many lines to keep.
- * @param theme - styling for the summary line.
- * @returns the capped body.
- */
-function cap(lines: string[], limit: number, theme: Theme, hint = 'click or Ctrl+O expands'): string[] {
-  if (lines.length <= limit) return lines
-  // The collapsed remainder names its key: an affordance, not just a count.
-  return [...lines.slice(0, limit), theme.dim(`  … +${lines.length - limit} lines (${hint})`)]
 }
 
 /** Renders one session's appended events as terminal lines. */
@@ -490,19 +489,19 @@ export class Transcript {
       // The call fell outside this surface's window (a resumed page boundary);
       // the raw result still prints rather than vanishing.
       const text = this.resultText(block.content)
-      const raw = text.split('\n')
+      const { body, full } = this.capBody(text.split('\n'), MAX_RESULT_LINES)
       const head = `${marker} ${theme.dim('(result)')}`
       const enter = failed ? undefined : childSessionId(text)
       const hint = enter === undefined ? [] : [theme.dim('  click to enter')]
-      if (raw.length > MAX_RESULT_LINES) {
-        this.fold = [head, ...raw, ...hint, '']
+      if (full !== undefined) {
+        this.fold = [head, ...full, ...hint, '']
         this.label = 'tool result'
       }
       if (enter !== undefined) {
         this.enter = enter
         this.label = 'tool result'
       }
-      return [head, ...cap(raw, MAX_RESULT_LINES, theme), ...hint, '']
+      return [head, ...body, ...hint, '']
     }
     const view = this.safeResult(pending, block.content, failed, meta)
     const title = view?.title === undefined ? pending.title : this.relativizeIn(view.title)
@@ -625,6 +624,46 @@ export class Transcript {
   }
 
   /**
+   * Cut each shown result line to a few rows' worth of columns.
+   * @param lines - the styled body lines to show.
+   * @returns the lines as shown, and how many were cut.
+   */
+  private fit(lines: readonly string[]): { shown: string[]; cut: number } {
+    const budget = Math.max(20, (this.options.columns - 4) * MAX_RESULT_LINE_ROWS)
+    let cut = 0
+    const shown = lines.map((line) => {
+      // Measured flat, the way a row is painted; a line that fits is kept
+      // exactly as it came.
+      if (displayWidth(oneRow(line)) <= budget) return line
+      cut += 1
+      return truncate(line, budget)
+    })
+    return { shown, cut }
+  }
+
+  /**
+   * Cap a result body by line count and by line width.
+   *
+   * Either cut withholds part of the result, so either earns the fold that
+   * keeps the whole. The collapsed remainder names its key — an affordance,
+   * not just a count — and a body cut only for width says so the same way.
+   * @param lines - the rendered body, styled.
+   * @param limit - how many lines to show.
+   * @param hint - what the summary line promises, when not the default.
+   * @returns the body to show, and the full body when anything was withheld.
+   */
+  private capBody(lines: string[], limit: number, hint = 'click or Ctrl+O expands'): { body: string[]; full?: string[] } {
+    const { theme } = this.options
+    const { shown, cut } = this.fit(lines.slice(0, limit))
+    if (lines.length > limit) {
+      return { body: [...shown, theme.dim(`  … +${lines.length - limit} lines (${hint})`)], full: lines }
+    }
+    if (cut === 0) return { body: shown }
+    const what = cut === 1 ? 'a long line' : `${String(cut)} long lines`
+    return { body: [...shown, theme.dim(`  … ${what} cut (${hint})`)], full: lines }
+  }
+
+  /**
    * Render one completed call's status suffix and body from its declared view.
    * @param view - the result view, absent when no presenter answered.
    * @param block - the model-facing result block, used by the generic fallback.
@@ -636,10 +675,8 @@ export class Transcript {
     block: { content: ContentBlock[] },
   ): { suffix: string; body: string[]; full?: string[] } {
     const { theme } = this.options
-    const capped = (lines: string[], limit: number, hint?: string): { body: string[]; full?: string[] } => {
-      const body = cap(lines, limit, theme, hint)
-      return lines.length > limit ? { body, full: lines } : { body }
-    }
+    const capped = (lines: string[], limit: number, hint?: string): { body: string[]; full?: string[] } =>
+      this.capBody(lines, limit, hint)
     if (view?.card === 'diff') {
       // What the turn changed on disk. A `/ship` run keeps its plan in a spec
       // file, so the surface learns where that file is by watching it written.
