@@ -167,8 +167,7 @@ describe('the view', () => {
     expect(rows[0]).toBe('Allow bash?')
     expect(rows[1]).toContain('❯ 1. Yes, this time (y)')
     expect(rows[3]).toContain('  3. No (n)')
-    expect(rows.at(-1)).toContain('[enter] take')
-    expect(rows.at(-1)).toContain('[esc] back')
+    expect(rows.at(-1)).toBe('  [enter] take · [y] take · [esc] back')
     expect(rows.at(-1)).not.toContain('[e] edit')
     expect(rows.at(-1)).not.toMatch(/\[n\]/)
     expect(rows.at(-1)).not.toContain('abort')
@@ -339,21 +338,22 @@ describe('key semantics', () => {
     expect(drive(new Selector(withCustom), [{ kind: 'text', text: 'E' }])).toEqual({ kind: 'custom' })
     expect(drive(new Selector(spec), [{ kind: 'text', text: 'e' }])).toBeUndefined()
     const footer = new Selector(withCustom).view(theme, 60).at(-1) ?? ''
-    expect(footer).toBe('  [enter] take · [e] edit · [esc] back')
-    expect(new Selector(spec).view(theme, 60).at(-1)).toBe('  [enter] take · [esc] back')
+    expect(footer).toBe('  [enter] take · [y] take · [e] edit · [esc] back')
+    expect(new Selector(spec).view(theme, 60).at(-1)).toBe('  [enter] take · [y] take · [esc] back')
   })
 
   it('backs out on Escape and never paints abort', () => {
     expect(drive(new Selector(spec), [key('escape')])).toEqual({ kind: 'cancelled' })
     const footer = new Selector(spec).view(theme, 60).at(-1) ?? ''
-    expect(footer).toContain('[esc] back')
+    expect(footer).toBe('  [enter] take · [y] take · [esc] back')
     expect(footer).not.toContain('cancel')
     expect(footer).not.toContain('abort')
     expect(footer).not.toMatch(/\[n\]/)
     const painted = createTheme(true, {})
     const colored = new Selector(spec).view(painted, 60).at(-1) ?? ''
-    // Dim chrome, never err red — back is leave, not a failure.
-    expect(colored).toContain('\u001B[2m')
+    // Take keys are ok (green); Esc is warn (yellow), never err red.
+    expect(colored).toContain('\u001B[32m')
+    expect(colored).toContain('\u001B[93m')
     expect(colored).not.toContain('\u001B[31m')
   })
 
@@ -365,7 +365,7 @@ describe('key semantics', () => {
     expect(drive(new Selector(spec), [{ kind: 'text', text: 'n' }])).toEqual({ kind: 'chosen', indices: [2] })
   })
 
-  it('keeps y as filter text on a filterable list', () => {
+  it('takes on y when the filter is empty, then treats later y as filter text', () => {
     const catalog: SelectSpec = {
       title: 'Switch model',
       filterable: true,
@@ -374,11 +374,12 @@ describe('key semantics', () => {
         { label: 'yolo-model' },
       ],
     }
+    expect(new Selector(catalog).view(theme, 60).at(-1)).toBe('  [enter] take · [y] take · [esc] back')
+    expect(drive(new Selector(catalog), [{ kind: 'text', text: 'y' }])).toEqual({ kind: 'chosen', indices: [0] })
     const selector = new Selector(catalog)
-    expect(selector.view(theme, 60).at(-1)).toBe('  [enter] take · [esc] back')
+    expect(selector.handle({ kind: 'text', text: 'o' })).toEqual({ kind: 'pending' })
     expect(selector.handle({ kind: 'text', text: 'y' })).toEqual({ kind: 'pending' })
-    expect(selector.view(theme, 60).join('\n')).toContain('filter: y')
-    expect(selector.handle(key('enter'))).toEqual({ kind: 'done', outcome: { kind: 'chosen', indices: [1] } })
+    expect(selector.view(theme, 60).join('\n')).toContain('filter: oy')
   })
 
   it('stays readable under NO_COLOR / plain theme', () => {
@@ -386,9 +387,8 @@ describe('key semantics', () => {
     const selecting = new Selector(spec).view(plain, 60).join('\n')
     const editing = new Selector({ ...spec, custom: 'Type your own' }).view(plain, 60).join('\n')
     expect(selecting).not.toMatch(/\u001B\[/)
-    expect(selecting).toContain('[enter] take')
-    expect(selecting).toContain('[esc] back')
-    expect(editing).toContain('[e] edit')
+    expect(selecting).toContain('[enter] take · [y] take · [esc] back')
+    expect(editing).toContain('[enter] take · [y] take · [e] edit · [esc] back')
     expect(editing).not.toMatch(/\u001B\[/)
   })
 })

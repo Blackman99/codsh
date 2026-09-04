@@ -240,6 +240,6 @@ export class GateModal {
     const abort = this.focus === 'abort'
       ? `${theme.err('[n]')} ${theme.bold('abort')}`
       : `${theme.err('[n]')} abort`
-    return truncate(`${confirm}   ${edit}   ${abort}`, inner)
+    return truncate(`${confirm} · ${edit} · ${abort}`, inner)
   }
 }
