@@ -509,7 +509,12 @@ export class TerminalConsole {
       this.screen.append(lines, rule)
       return
     }
-    for (const line of lines) this.output.write(`${line}\n`)
+    // Pipe readers still need the gutter glyph (› / ✻ / │ / ·); colour is
+    // already absent off a TTY. Blank separators stay blank.
+    for (const line of lines) {
+      const prefix = line === '' || rule === '' ? '' : rule
+      this.output.write(`${prefix}${line}\n`)
+    }
   }
 
   /**
@@ -547,7 +552,10 @@ export class TerminalConsole {
       this.screen.appendPrompt(lines, rule, anchor, explicitLines)
       return
     }
-    for (const line of lines) this.output.write(`${line}\n`)
+    for (const line of lines) {
+      const prefix = line === '' || rule === '' ? '' : rule
+      this.output.write(`${prefix}${line}\n`)
+    }
   }
 
   /**
@@ -583,7 +591,10 @@ export class TerminalConsole {
       this.screen.appendFold(summary, full, rule, label, enter, page)
       return
     }
-    for (const line of summary) this.output.write(`${line}\n`)
+    for (const line of summary) {
+      const prefix = line === '' || rule === '' ? '' : rule
+      this.output.write(`${prefix}${line}\n`)
+    }
   }
 
   /**
