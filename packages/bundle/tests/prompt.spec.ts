@@ -792,14 +792,45 @@ describe('the surrounding rows', () => {
       { content: 'read the code', status: 'completed' },
       { content: 'write the fix', status: 'in_progress' },
     ])
+    const pinned = console.draws.at(-1)?.rows ?? []
+    expect(pinned.some(row => row.includes('todos 1/2 · ▶ write the fix · Ctrl+T'))).toBe(true)
+    expect(pinned.some(row => row.includes('read the code'))).toBe(false)
     console.press({ kind: 'toggle-todos' })
     const opened = console.draws.at(-1)?.rows ?? []
     expect(opened.some(row => row.includes('read the code'))).toBe(true)
-    expect(opened.some(row => row.includes('Ctrl+T closes'))).toBe(true)
+    expect(opened.some(row => row.includes('todos 1/2 · Ctrl+T closes'))).toBe(true)
     console.press({ kind: 'toggle-todos' })
     const closed = console.draws.at(-1)?.rows ?? []
     expect(closed.some(row => row.includes('read the code'))).toBe(false)
-    expect(closed.some(row => row.includes('▶ write the fix'))).toBe(true)
+    expect(closed.some(row => row.includes('todos 1/2 · ▶ write the fix · Ctrl+T'))).toBe(true)
+  })
+
+  it('collapses the list on Escape without aborting the session', () => {
+    const { prompt, console, calls } = build()
+    prompt.setTodos([
+      { content: 'read the code', status: 'completed' },
+      { content: 'write the fix', status: 'in_progress' },
+    ])
+    console.press({ kind: 'toggle-todos' })
+    expect((console.draws.at(-1)?.rows ?? []).some(row => row.includes('read the code'))).toBe(true)
+    console.press({ kind: 'escape' })
+    const closed = console.draws.at(-1)?.rows ?? []
+    expect(closed.some(row => row.includes('read the code'))).toBe(false)
+    expect(closed.some(row => row.includes('todos 1/2 · ▶ write the fix · Ctrl+T'))).toBe(true)
+    expect(calls).not.toContain('escape')
+  })
+
+  it('keeps the same collapsed row in comfortable density', () => {
+    const { prompt, console } = build()
+    prompt.setTodos([
+      { content: 'read the code', status: 'completed' },
+      { content: 'write the fix', status: 'in_progress' },
+    ])
+    const compact = (console.draws.at(-1)?.rows ?? []).find(row => row.includes('todos 1/2'))
+    prompt.setDensity('comfortable')
+    const comfortable = (console.draws.at(-1)?.rows ?? []).find(row => row.includes('todos 1/2'))
+    expect(compact).toBe('todos 1/2 · ▶ write the fix · Ctrl+T')
+    expect(comfortable).toBe(compact)
   })
 
   it('opens the ship plan on a click, and folds it back from inside the list', () => {

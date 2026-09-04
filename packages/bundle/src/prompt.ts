@@ -822,6 +822,13 @@ export class Prompt {
       void this.pasteImage()
       return
     }
+    // The open list is chrome of its own: Escape folds it back to one line
+    // rather than aborting the session the way an empty box does.
+    if (key.kind === 'escape' && this.todosExpanded) {
+      this.todosExpanded = false
+      this.render()
+      return
+    }
     // The arrows move by the rows a person sees, so the model is told the
     // width they are wrapped at before it reads one — a resize between keys
     // would otherwise move the cursor by yesterday's geometry.
@@ -951,7 +958,7 @@ export class Prompt {
       // One teaser, not two: the plan when there is one, because it outlives
       // the turn's own list and says how much of the work is left.
       const row = plan === undefined
-        ? todoRow(this.todos, this.theme, columns, 'click or Ctrl+T opens the list')
+        ? todoRow(this.todos, this.theme, columns, 'Ctrl+T')
         : planSummary(plan, this.theme, columns, 'click or Ctrl+T opens the list')
       return row === undefined ? [] : [row]
     }
@@ -968,7 +975,7 @@ export class Prompt {
 
     return [
       ...plan === undefined ? [] : planReport(plan, this.theme, columns, TODO_ROWS, 'click or Ctrl+T closes'),
-      ...redundantTodos ? [] : todoReport(this.todos, this.theme, columns, { hint: 'click or Ctrl+T closes', limit: TODO_ROWS }),
+      ...redundantTodos ? [] : todoReport(this.todos, this.theme, columns, { hint: 'Ctrl+T closes', limit: TODO_ROWS }),
     ]
   }
 
