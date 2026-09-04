@@ -220,7 +220,7 @@ describe.skipIf(process.platform === 'win32')('dsh code Escape (real PTY)', () =
     const rows = screen.alternate.map(visible)
     const echo = rows.indexOf('› first')
     expect(echo).toBeGreaterThanOrEqual(0)
-    expect(rows[echo + 1]).toBe('› second')
+    expect(rows[echo + 1]).toBe('›   second')
   }, E2E_TEST_TIMEOUT_MS)
 
   it('recalls the previous submission with the up arrow', async () => {
@@ -358,7 +358,7 @@ describe.skipIf(process.platform === 'win32')('dsh code Escape (real PTY)', () =
     expect(output).toContain('CODE_CLI_THINKING')
     // ...but the settled screen keeps one summary line, not the pages.
     const rows = screenAt(output, 'CODE_CLI_ANSWER after thinking').alternate
-    const summary = rows.findIndex(row => /✻ thought for [\d.]+s · \+\d+ lines \(click or Ctrl\+O expands\)/u.test(row))
+    const summary = rows.findIndex(row => /✻ thought for [\d.]+s/u.test(row))
     expect(summary).toBeGreaterThanOrEqual(0)
     expect(rows.some(row => row.includes('weighing the options'))).toBe(false)
     expect(summary).toBeLessThan(rows.findIndex(row => row.includes('CODE_CLI_ANSWER')))

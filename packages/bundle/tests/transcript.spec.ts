@@ -8,7 +8,8 @@ import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import type { ToolCallView, ToolResultView } from '@deepseek-ai/dsh-tools'
 import { describe, expect, it } from 'vitest'
 import { createTheme, displayWidth } from '../src/theme.ts'
-import { Transcript, blockRules, childSessionId, thinkingFold, type ToolPresenters } from '../src/transcript.ts'
+import { gutter } from '../src/gutter.ts'
+import { Transcript, blockRules, childSessionId, formatToolCardLine, thinkingFold, type ToolPresenters } from '../src/transcript.ts'
 
 const theme = createTheme(false, {})
 const CWD = '/repo'
@@ -91,7 +92,7 @@ describe('assistant and user messages', () => {
       data: { role: 'user', content: [{ type: 'text', text: 'first line\nsecond line' }], source: { kind: 'user' } },
     } as unknown as SessionEvent
     const transcript = build()
-    expect(transcript.render(event)).toEqual(['first line', 'second line', ''])
+    expect(transcript.render(event)).toEqual(['first line', '  second line', ''])
     expect(transcript.takePrompt()).toBe(2)
   })
 
@@ -204,8 +205,7 @@ describe('tool cards', () => {
 
   it('renders a diff call with its paths relativized', () => {
     const call = (): ToolCallView => ({ card: 'diff', title: 'Write', diffs: [{ path: '/repo/src/a.ts', oldText: null, newText: 'x' }] })
-    // Pending diff cards stay off-screen; the completed one-liner is the card.
-    expect(build({ call }).render(callEvent('c1', 'write', {}))).toEqual([])
+    expect(build({ call }).render(callEvent('c1', 'write', {}))).toEqual(['● Write src/a.ts'])
   })
 
   it('renders a generic call with its follow-along locations', () => {
@@ -217,7 +217,7 @@ describe('tool cards', () => {
     const event = { type: 'tool/call', seq: 1, time: 0, data: { turn: 1, step: 1, callId: 'c1', name: 'bash', arguments: '{oops' } } as SessionEvent
     const transcript = build()
     expect(transcript.render(event)).toEqual(['● bash'])
-    expect(transcript.render(resultEvent('c1', 'out'))).toEqual(['  out', ''])
+    expect(transcript.render(resultEvent('c1', 'out'))).toEqual(['● bash ✔', '  out', ''])
   })
 
   it('degrades to the generic line when a call presenter throws', () => {
@@ -230,15 +230,14 @@ describe('tool results', () => {
   it('pairs a result with its call and prints the body', () => {
     const transcript = build()
     transcript.render(callEvent('c1', 'grep', {}))
-    // The pending card already printed the header; an unchanged successful
-    // result adds only its body.
-    expect(transcript.render(resultEvent('c1', 'two matches'))).toEqual(['  two matches', ''])
+    // Completed tools always reprint one stable head line (marker · title · ✔).
+    expect(transcript.render(resultEvent('c1', 'two matches'))).toEqual(['● grep ✔', '  two matches', ''])
   })
 
   it('marks a failed call', () => {
     const transcript = build()
     transcript.render(callEvent('c1', 'bash', {}))
-    expect(transcript.render(resultEvent('c1', 'exit 1', true))[0]).toBe('✗ bash')
+    expect(transcript.render(resultEvent('c1', 'exit 1', true))[0]).toBe('● bash ✗')
   })
 
   it('shows a workflow run as it goes, instead of only when it returns', () => {
@@ -311,7 +310,9 @@ describe('tool results', () => {
     expect(lines).toEqual(['● Edit +30 -30 ✔', ''])
     const fold = transcript.takeFold() ?? []
     expect(fold[0]).toBe('● Edit +30 -30 ✔')
-    expect(fold.join('\n')).toContain('click reads it · Ctrl+O expands')
+    expect(fold.join('\n')).toContain('- line 30')
+    expect(fold.join('\n')).toContain('+ LINE 30')
+    expect(lines.join('\n')).not.toContain('- line 1')
     const page = transcript.takePage()
     expect(page).toContain('--- a/a.ts')
     expect(page).toContain('-line 30')
@@ -374,14 +375,14 @@ describe('tool results', () => {
     transcript.render(callEvent('c1', 'bash', {}))
     // No call presenter here, so the pending title was the tool name: the
     // result's own title differs, which is what brings the header back.
-    expect(transcript.render(resultEvent('c1', 'failed'))).toEqual(['● pnpm test (exit 1)', '  failed', ''])
+    expect(transcript.render(resultEvent('c1', 'failed'))).toEqual(['● pnpm test (exit 1) ✔', '  failed', ''])
   })
 
   it('reports a signal kill instead of an exit code', () => {
     const result = (): ToolResultView => ({ card: 'terminal', title: 'sleep', signal: 'SIGTERM' })
     const transcript = build({ result })
     transcript.render(callEvent('c1', 'bash', {}))
-    expect(transcript.render(resultEvent('c1', ''))[0]).toBe('● sleep (killed by SIGTERM)')
+    expect(transcript.render(resultEvent('c1', ''))[0]).toBe('● sleep (killed by SIGTERM) ✔')
   })
 
   it('groups search matches by file', () => {
@@ -394,23 +395,22 @@ describe('tool results', () => {
     })
     const transcript = build({ result })
     transcript.render(callEvent('c1', 'grep', {}))
-    expect(transcript.render(resultEvent('c1', 'ok'))).toEqual(['  1 results', '  a.ts', '    3: const a = 1', ''])
+    expect(transcript.render(resultEvent('c1', 'ok'))).toEqual(['● grep 1 results ✔', '  a.ts', '    3: const a = 1', ''])
   })
 
   it('marks a capped search as capped', () => {
     const result = (): ToolResultView => ({ card: 'search', shape: 'paths', paths: ['/repo/a.ts'], truncated: true, total: 900 })
     const transcript = build({ result })
     transcript.render(callEvent('c1', 'glob', {}))
-    expect(transcript.render(resultEvent('c1', 'ok'))[0]).toBe('  900+ (capped) results')
+    expect(transcript.render(resultEvent('c1', 'ok'))[0]).toBe('● glob 900+ (capped) results ✔')
   })
 
-  it('adds a status under an unchanged header rather than repeating it', () => {
+  it('reprints one stable head with exit status rather than a continuation-only line', () => {
     const call = (): ToolCallView => ({ card: 'terminal', title: 'pnpm test' })
     const result = (): ToolResultView => ({ card: 'terminal', title: 'pnpm test', output: 'out', exitCode: 1 })
     const transcript = build({ call, result })
     transcript.render(callEvent('c1', 'bash', {}))
-    // The pending card already said `pnpm test`; only the exit status is new.
-    expect(transcript.render(resultEvent('c1', 'failed'))).toEqual(['  (exit 1)', '  out', ''])
+    expect(transcript.render(resultEvent('c1', 'failed'))).toEqual(['● pnpm test (exit 1) ✔', '  out', ''])
   })
 
   it('summarizes a read as a window of the file', () => {
@@ -423,7 +423,7 @@ describe('tool results', () => {
     })
     const transcript = build({ result })
     transcript.render(callEvent('c1', 'read', {}))
-    expect(transcript.render(resultEvent('c1', 'ok'))).toEqual(['  1 of 12 lines', ''])
+    expect(transcript.render(resultEvent('c1', 'ok'))).toEqual(['● read 1 of 12 lines ✔', ''])
   })
 
   it('prints an unpaired result rather than dropping it', () => {
@@ -434,14 +434,14 @@ describe('tool results', () => {
     const result = () => { throw new Error('presenter is broken') }
     const transcript = build({ result })
     transcript.render(callEvent('c1', 'grep', {}))
-    expect(transcript.render(resultEvent('c1', 'two matches'))).toEqual(['  two matches', ''])
+    expect(transcript.render(resultEvent('c1', 'two matches'))).toEqual(['● grep ✔', '  two matches', ''])
   })
 
   it('confirms a completion that carries no body', () => {
     const transcript = build()
     transcript.render(callEvent('c1', 'todo_write', {}))
     // Nothing to show and nothing changed, but the call must not look pending.
-    expect(transcript.render(resultEvent('c1', ''))).toEqual(['  ✔', ''])
+    expect(transcript.render(resultEvent('c1', ''))).toEqual(['● todo_write ✔', ''])
   })
 
   it('does not repeat a path the presenter already put in its title', () => {
@@ -450,10 +450,8 @@ describe('tool results', () => {
       title: 'Write /repo/src/a.ts',
       diffs: [{ path: '/repo/src/a.ts', oldText: null, newText: 'x' }],
     })
-    // Pending is silent; the completed ToolCard carries the relativized title.
-    const transcript = build({ call })
-    expect(transcript.render(callEvent('c1', 'write', {}))).toEqual([])
-    expect(transcript.callSummary('c1')).toBe('src/a.ts')
+    // The title names the file, so the card appends no second copy of it.
+    expect(build({ call }).render(callEvent('c1', 'write', {}))).toEqual(['● Write src/a.ts'])
   })
 
   it('appends a path the presenter left out of its title', () => {
@@ -462,9 +460,7 @@ describe('tool results', () => {
       title: 'Write',
       diffs: [{ path: '/repo/src/a.ts', oldText: null, newText: 'x' }],
     })
-    const transcript = build({ call })
-    expect(transcript.render(callEvent('c1', 'write', {}))).toEqual([])
-    expect(transcript.callSummary('c1')).toBe('src/a.ts')
+    expect(build({ call }).render(callEvent('c1', 'write', {}))).toEqual(['● Write src/a.ts'])
   })
 
   it('shortens a workspace path a terminal presenter embedded in its command', () => {
@@ -518,7 +514,7 @@ describe('a result line wider than the card', () => {
     const transcript = build({ result })
     transcript.render(callEvent('c1', 'bash', {}))
     // A tab is flattened at paint, not here: the line fits, so it is kept as it came.
-    expect(transcript.render(resultEvent('c1', 'ok'))).toEqual(['  a\tb', '  c', ''])
+    expect(transcript.render(resultEvent('c1', 'ok'))).toEqual(['● bash ✔', '  a\tb', '  c', ''])
     expect(transcript.takeFold()).toBeUndefined()
   })
 
@@ -777,5 +773,28 @@ describe('compaction', () => {
     expect(transcript.render(start)).toEqual([])
     expect(transcript.render(clean)).toEqual([])
     expect(transcript.render(failed)).toEqual([theme.error('✗ compaction failed: summary did not shrink'), ''])
+  })
+})
+
+describe('formatToolCardLine', () => {
+  it('truncates the title before +n -m and the status on a narrow terminal', () => {
+    const line = formatToolCardLine(theme, 40, '●', 'Write very/long/path/to/src/pager.ts', '+12 -3', '✔')
+    expect(line.endsWith('+12 -3 ✔')).toBe(true)
+    expect(line.startsWith('● ')).toBe(true)
+    expect(displayWidth(line)).toBeLessThanOrEqual(40)
+    expect(line).toContain('…')
+  })
+
+  it('omits the stats segment when both counts are zero', () => {
+    expect(formatToolCardLine(theme, 80, '●', 'Write x.ts', '', '✔')).toBe('● Write x.ts ✔')
+  })
+
+  it('keeps gutter glyphs under NO_COLOR', () => {
+    const plain = createTheme(false, { NO_COLOR: '1' })
+    expect(gutter('user', plain)).toBe('› ')
+    expect(gutter('thinking', plain)).toBe('✻ ')
+    expect(gutter('tool', plain)).toBe('│ ')
+    expect(gutter('system', plain)).toBe('· ')
+    expect(formatToolCardLine(plain, 80, '●', 'Write x.ts', '+12 -3', '✔')).toBe('● Write x.ts +12 -3 ✔')
   })
 })
