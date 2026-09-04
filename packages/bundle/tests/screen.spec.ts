@@ -5,7 +5,7 @@
  * guarantee.
  */
 
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { Screen } from '../src/screen.ts'
 import type { ScreenHost } from '../src/screen.ts'
 import { displayWidth } from '../src/theme.ts'
@@ -2301,5 +2301,134 @@ describe('transcript search', () => {
     screen.searchTranscript('needle')
     screen.clearTranscript()
     expect(screen.transcriptSearch).toBeUndefined()
+  })
+})
+
+describe('wrapping the buffer only when the width changed', () => {
+  /** Spy on the whole-buffer re-wrap, which is the cost a resize must pay once. */
+  const spyWrap = (): ReturnType<typeof vi.spyOn> =>
+    vi.spyOn(Screen.prototype as unknown as { wrapBuffer(): void }, 'wrapBuffer')
+
+  it('re-wraps once per resize, not again in the frame that follows', () => {
+    // The resize re-wrapped, then the first paint at the new width saw a width
+    // it had not painted and re-wrapped everything a second time.
+    const sink = host(10, 40)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['box'], { row: 0, column: 0 }, false)
+    screen.append(Array.from({ length: 200 }, (_, index) => `row ${index} ${'y'.repeat(50)}`), '| ')
+    flush(sink)
+    const wraps = spyWrap()
+    try {
+      sink.size.columns = 30
+      screen.resize()
+      expect(wraps).toHaveBeenCalledTimes(1)
+      const frame = [...painted(flush(sink)).values()]
+      for (const row of frame) expect(displayWidth(row)).toBeLessThanOrEqual(30 - 1)
+      expect(frame.join('\n')).toContain('row 199')
+    } finally {
+      wraps.mockRestore()
+    }
+  })
+
+  it('paints a replayed transcript without wrapping it a second time', () => {
+    // `--resume` pours the session in before the viewport is entered; the
+    // appends wrapped every line at the width the first frame then paints at.
+    const sink = host(10, 40)
+    const screen = new Screen(sink)
+    screen.suspendPainting()
+    screen.append(Array.from({ length: 300 }, (_, index) => `line ${index} ${'x'.repeat(60)}`))
+    screen.resumePainting()
+    screen.setChrome(['box'], { row: 0, column: 0 }, false)
+    const wraps = spyWrap()
+    try {
+      screen.enter()
+      expect(wraps).not.toHaveBeenCalled()
+      expect([...painted(flush(sink)).values()].join('\n')).toContain('line 299')
+      // A width the rows were not wrapped at still re-wraps them.
+      sink.size.columns = 33
+      screen.resize()
+      expect(wraps).toHaveBeenCalledTimes(1)
+    } finally {
+      wraps.mockRestore()
+    }
+  })
+
+  it('swaps a block in place without re-wrapping the rest of the buffer', () => {
+    // Opening one fold cost every line in the session; only the block's own
+    // rows change, so only they are wrapped — and the frame must be exactly
+    // what a screen built from the expanded lines would paint.
+    const lines = Array.from({ length: 120 }, (_, index) => `context ${index} ${'z'.repeat(45)}`)
+    const full = Array.from({ length: 30 }, (_, index) => `detail ${index} ${'w'.repeat(38)}`)
+    const build = (expanded: boolean): { screen: Screen; sink: ReturnType<typeof host> } => {
+      const sink = host(12, 36)
+      const screen = new Screen(sink)
+      screen.enter()
+      screen.setChrome(['box'], { row: 0, column: 0 }, false)
+      screen.append(lines.slice(0, 60), '| ')
+      if (expanded) screen.append(full, '> ')
+      else screen.appendFold(['summary +30 lines'], full, '> ', 'tool')
+      screen.append(lines.slice(60), '| ')
+      return { screen, sink }
+    }
+    /** The tail frame, then the frame around the block, then the head. */
+    const shots = (screen: Screen, sink: ReturnType<typeof host>): string => {
+      // A viewer in and out forces a whole frame, so the shot is the screen
+      // and not the rows the last operation happened to touch.
+      const whole = (): string => {
+        screen.setViewer(['blank'])
+        flush(sink)
+        screen.setViewer(undefined)
+        return [...painted(flush(sink)).values()].join('\n')
+      }
+      const tail = whole()
+      screen.scrollBy(-70)
+      const middle = whole()
+      screen.scrollBy(-10_000)
+      const head = whole()
+      screen.scrollBy(10_000)
+      flush(sink)
+      return [tail, middle, head].join('\n--\n')
+    }
+    const reference = build(true)
+    const expandedFrames = shots(reference.screen, reference.sink)
+    const folded = build(false)
+    const wraps = spyWrap()
+    try {
+      folded.screen.toggleFolds()
+      expect(wraps).not.toHaveBeenCalled()
+    } finally {
+      wraps.mockRestore()
+    }
+    expect(shots(folded.screen, folded.sink)).toBe(expandedFrames)
+    // And back: the summary form paints exactly as a screen that never opened it.
+    const summaryReference = build(false)
+    const summaryFrames = shots(summaryReference.screen, summaryReference.sink)
+    folded.screen.toggleFolds()
+    expect(shots(folded.screen, folded.sink)).toBe(summaryFrames)
+  })
+
+  it('keeps find hits and hover geometry right after an in-place swap', () => {
+    const sink = host(8, 30)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['box'], { row: 0, column: 0 }, false)
+    screen.append(['alpha needle one', 'beta'])
+    screen.appendFold(['folded'], ['open needle two', 'open needle three'], '', 'tool')
+    screen.append(['gamma needle four'])
+    expect(screen.searchTranscript('needle').hits).toBe(2)
+    screen.toggleFolds()
+    // Hits are re-indexed over the new physical rows.
+    expect(screen.transcriptSearch?.hits).toBe(4)
+    screen.clearTranscriptSearch()
+    // Content tops the screen: rows 1-2 are the two lines before the block,
+    // rows 3-4 its open form, row 5 the line after. The pointer finds the
+    // block where the swap put it, measured from the spliced rows.
+    const frame = [...painted(flush(sink)).values()]
+    expect(frame[2]).toContain('open needle two')
+    expect(frame[4]).toContain('gamma needle four')
+    expect(screen.mouseMove(3, 5)?.label).toBe('tool')
+    expect(screen.mouseMove(4, 5)?.label).toBe('tool')
+    expect(screen.mouseMove(5, 5)).toBeUndefined()
   })
 })

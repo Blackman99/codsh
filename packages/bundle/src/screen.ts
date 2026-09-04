@@ -346,6 +346,16 @@ export class Screen {
   private painted: string[] = []
   /** Width the current frame was painted at, to detect a resize. */
   private paintedColumns = 0
+  /**
+   * Width the physical rows were last wrapped at.
+   *
+   * A frame at a new width needs the rows wrapped for it, but not wrapped
+   * again: a resize re-wraps before it paints, and a replay poured in before
+   * the first frame wrapped every line as it went. Measured, a resize was
+   * wrapping the whole scrollback twice and a resumed session's first frame
+   * once more than it had to.
+   */
+  private wrappedColumns = 0
   /** Whether a frame is painted at all; a replay holds it until it is done. */
   private painting = true
   private active = false
@@ -585,6 +595,8 @@ export class Screen {
     let mappedAnchor = heldAnchor
     let trimmed = false
     const columns = this.contentColumns()
+    // An empty buffer is wrapped at whatever width its first lines take.
+    if (this.logical.length === 0) this.wrappedColumns = this.host.columns()
     for (const line of lines) {
       // A blank line keeps no rule: the separator between blocks would
       // otherwise show as a lone mark hanging under the block it ended.
@@ -1029,9 +1041,10 @@ export class Screen {
   private setFold(fold: Fold, expanded: boolean, manual: boolean): void {
     const shown = expanded ? fold.full : fold.summary
     const delta = shown.length - fold.shownLength
+    const before = this.physical.length
+    const offset = this.offset
     this.mapFindHits(fold.at, fold.shownLength, shown.length)
-    this.logical.splice(fold.at, fold.shownLength, ...shown)
-    this.rules.splice(fold.at, fold.shownLength, ...shown.map(line => line === '' ? '' : fold.rule))
+    this.spliceLines(fold.at, fold.shownLength, shown, fold.rule)
     fold.shownLength = shown.length
     fold.expanded = expanded
     fold.manual = manual
@@ -1045,11 +1058,9 @@ export class Screen {
       }
       else if (prompt.at > fold.at) prompt.at += delta
     }
-    const before = this.physical.length
-    const offset = this.offset
-    // Re-wrapping clamps the offset to the new height, so the reader's own
-    // distance from the tail is remembered from before it and re-applied.
-    this.rewrap()
+    // The new height clamps the offset, so the reader's own distance from the
+    // tail is remembered from before the swap and re-applied over it.
+    this.offset = Math.min(this.offset, this.scrollLimit())
     this.refreshTailAnchor()
     if (offset > 0) {
       this.offset = Math.min(this.scrollLimit(), Math.max(0, offset + this.physical.length - before))
@@ -1084,8 +1095,7 @@ export class Screen {
       }
       const shown = expanded ? fold.full : fold.summary
       this.mapFindHits(fold.at, fold.shownLength, shown.length)
-      this.logical.splice(fold.at, fold.shownLength, ...shown)
-      this.rules.splice(fold.at, fold.shownLength, ...shown.map(line => line === '' ? '' : fold.rule))
+      this.spliceLines(fold.at, fold.shownLength, shown, fold.rule, false)
       deltas.set(fold, shown.length - fold.shownLength)
       fold.shownLength = shown.length
       fold.expanded = expanded
@@ -1132,7 +1142,10 @@ export class Screen {
       }
       mappedAnchor = { logical, within: anchor.within }
     }
-    this.rewrap()
+    // Physical rows are the selection's coordinate system; a reflow voids it.
+    this.selection = undefined
+    this.refreshTranscriptSearch()
+    this.offset = Math.min(this.offset, this.scrollLimit())
     this.refreshTailAnchor()
     if (mappedAnchor !== undefined) this.restoreViewportAnchor(mappedAnchor)
     this.painted = []
@@ -1352,6 +1365,7 @@ export class Screen {
     this.find = undefined
     this.offset = 0
     this.clearTailAnchor()
+    this.wrappedColumns = this.host.columns()
     this.painted = []
     this.paintedTimeline = []
     this.render()
@@ -1781,9 +1795,82 @@ export class Screen {
     return rows.map(row => `${rule}${row}`)
   }
 
+  /**
+   * First physical row a logical line owns.
+   * @param logical - logical line index; one past the end names the row count.
+   * @returns the row index, found by bisection over the row owners.
+   */
+  private physicalStart(logical: number): number {
+    let low = 0
+    let high = this.physicalLogical.length
+    while (low < high) {
+      const middle = (low + high) >>> 1
+      if ((this.physicalLogical[middle] ?? 0) < logical) low = middle + 1
+      else high = middle
+    }
+    return low
+  }
+
+  /**
+   * Replace `removed` logical lines at `at` with `shown`, re-wrapping only them.
+   *
+   * A block swapping between its two forms used to re-wrap the whole
+   * scrollback, so opening one thinking fold cost every line in the session —
+   * measured at 300–830ms on long conversations, and four seconds when one
+   * line was long enough to make wrapping itself slow. Only the rows the block
+   * owns change; the rows after it keep their text and are told their new
+   * owner index. Descriptor positions, find hits, and anchors are the caller's
+   * to map, exactly as they were around the splice this replaces.
+   * @param at - logical index of the first line replaced.
+   * @param removed - logical lines taken out.
+   * @param shown - the lines put in their place.
+   * @param rule - the styled left rule every non-blank replacement line carries.
+   * @param reindexFind - whether to re-index find hits now; a caller splicing
+   *   several blocks in one go re-indexes once at the end instead.
+   */
+  private spliceLines(at: number, removed: number, shown: readonly string[], rule: string, reindexFind = true): void {
+    const columns = this.contentColumns()
+    const from = this.physicalStart(at)
+    const to = this.physicalStart(at + removed)
+    const rules = shown.map(line => line === '' ? '' : rule)
+    const rows: string[] = []
+    const widths: number[] = []
+    const owners: number[] = []
+    for (const [index, line] of shown.entries()) {
+      const own = rules[index] ?? ''
+      const width = displayWidth(own)
+      for (const row of this.wrapLine(line, own, columns)) {
+        rows.push(row)
+        widths.push(width)
+        owners.push(at + index)
+      }
+    }
+    // Concatenation rather than a spread splice: a block's full form can run
+    // to tens of thousands of rows, more than a call may take as arguments.
+    this.logical = this.logical.slice(0, at).concat(shown, this.logical.slice(at + removed))
+    this.rules = this.rules.slice(0, at).concat(rules, this.rules.slice(at + removed))
+    this.physical = this.physical.slice(0, from).concat(rows, this.physical.slice(to))
+    this.ruleWidths = this.ruleWidths.slice(0, from).concat(widths, this.ruleWidths.slice(to))
+    this.physicalLogical = this.physicalLogical.slice(0, from).concat(owners, this.physicalLogical.slice(to))
+    const delta = shown.length - removed
+    if (delta !== 0) {
+      for (let row = from + rows.length; row < this.physicalLogical.length; row += 1) {
+        this.physicalLogical[row] = (this.physicalLogical[row] ?? 0) + delta
+      }
+    }
+    // Physical rows are the selection's coordinate system; a reflow voids it,
+    // and a rail press aimed at rows that have moved is no longer a click.
+    this.selection = undefined
+    this.cancelTimelineNavigation()
+    this.ranges = undefined
+    this.promptLayoutCache = undefined
+    if (reindexFind) this.refreshTranscriptSearch()
+  }
+
   /** Re-wrap every kept line at the current width, rules and all. */
   private wrapBuffer(): void {
     const columns = this.contentColumns()
+    this.wrappedColumns = this.host.columns()
     this.ranges = undefined
     this.promptLayoutCache = undefined
     this.cancelTimelineNavigation()
@@ -1911,8 +1998,13 @@ export class Screen {
     }
     const columns = this.host.columns()
     if (columns !== this.paintedColumns) {
-      this.refreshPromptFolds()
-      this.wrapBuffer()
+      // Rows already wrapped at this width — by the resize that led here, or
+      // by the appends of a replay before the first frame — are not wrapped
+      // again; only the frame is repainted whole.
+      if (columns !== this.wrappedColumns) {
+        this.refreshPromptFolds()
+        this.wrapBuffer()
+      }
       this.refreshTailAnchor()
       this.painted = []
       this.paintedTimeline = []

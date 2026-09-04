@@ -59,6 +59,39 @@ describe('wrapStyled', () => {
   })
 })
 
+describe('a very long line', () => {
+  it('wraps in time proportional to its length, losing nothing', () => {
+    // One tool result held a 49,616-character HTML line; wrapping it took four
+    // seconds when every character re-sliced the remainder, and the buffer is
+    // wrapped again at every resize and fold toggle. Linear now: milliseconds.
+    const line = `\u001B[2m  ${'<div class="x">'.repeat(4000)}\u001B[0m`
+    const started = performance.now()
+    const rows = wrapStyled(line, 100)
+    const elapsed = performance.now() - started
+    expect(rows.map(plain).join('')).toBe(plain(line))
+    expect(rows.length).toBe(Math.ceil(displayWidth(plain(line)) / 100))
+    for (const row of rows) expect(displayWidth(row)).toBeLessThanOrEqual(100)
+    // Every row opens the dim style and closes it.
+    for (const row of rows) {
+      expect(row.startsWith('\u001B[2m')).toBe(true)
+      expect(row.endsWith('\u001B[0m')).toBe(true)
+    }
+    // Two orders of magnitude under the quadratic cost, so a slow machine
+    // cannot turn this into a flake.
+    expect(elapsed).toBeLessThan(1000)
+  })
+
+  it('wraps wide and styled text identically at any length', () => {
+    // Wide characters, links, resets, and a mid-line newline, repeated until
+    // the line is long enough that a quadratic scan would show.
+    const unit = '中文\u001B[31mred\u001B[0m \u001B]8;;http://x\u0007l\u001B]8;;\u0007 a\nb '
+    const rows = wrapStyled(unit.repeat(1500), 40)
+    const text = plain(unit.repeat(1500)).replaceAll(/\u001B\][^\u0007]*\u0007/gu, '')
+    expect(rows.map(row => plain(row).replaceAll(/\u001B\][^\u0007]*\u0007/gu, '')).join('')).toBe(text.replaceAll('\n', ''))
+    for (const row of rows) expect(displayWidth(row)).toBeLessThanOrEqual(40)
+  })
+})
+
 describe('wrapAll', () => {
   it('keeps line order and counts physical rows', () => {
     expect(wrapAll(['ab', 'cdefgh', ''], 3)).toEqual(['ab', 'cde', 'fgh', ''])
