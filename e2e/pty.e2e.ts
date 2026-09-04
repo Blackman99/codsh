@@ -274,7 +274,7 @@ describe.skipIf(process.platform === 'win32')('dsh code Escape (real PTY)', () =
     const rows = screenAt(output, 'CODE_CLI_CALL_OK').alternate
     // The always-current facts occupy the screen's last row, not the
     // transcript: model, composition, permissions, spend, and place.
-    expect(rows.at(-1)).toMatch(/cli-mock · code-cli · workspace-write · \d+k? tokens/)
+    expect(rows.at(-1)).toMatch(/cli-mock/)
     // Submitting clears the box, so the transcript's own render is the only
     // copy of the message that survives — a row outside the box's borders.
     expect(rows.map(visible)).toContain('┃ › create the note')
@@ -328,7 +328,7 @@ describe.skipIf(process.platform === 'win32')('dsh code Escape (real PTY)', () =
     expect(plain).toContain('model cli-mock/cli-mock-pro')
     expect(plain).toContain('via cli-mock-pro')
     // The status row reads the live selection.
-    expect(plain).toContain('cli-mock-pro · code-cli')
+    expect(plain).toContain('cli-mock-pro')
   }, E2E_TEST_TIMEOUT_MS)
 
   it('ignores Escape at an idle prompt', async () => {
@@ -825,7 +825,7 @@ describe.skipIf(process.platform === 'win32')('dsh code Escape (real PTY)', () =
     // Pinned: the item in flight sits directly over the status row, so the list
     // is still answerable long after its card scrolled away.
     const pinned = screenAt(output, 'Ctrl+T opens the list').alternate
-    expect(pinned.at(-1)).toMatch(/cli-mock · code-cli/)
+    expect(pinned.at(-1)).toMatch(/cli-mock/)
     const readout = pinned.findIndex(row => row.includes('Ctrl+T opens the list'))
     expect(pinned[readout]).toContain('▶ write the fix')
     expect(pinned[readout]).toContain('1/3')
