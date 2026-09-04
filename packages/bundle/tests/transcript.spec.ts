@@ -203,9 +203,11 @@ describe('tool cards', () => {
     ])
   })
 
-  it('renders a diff call with its paths relativized', () => {
+  it('records a diff call without painting — the result owns the one-liner', () => {
     const call = (): ToolCallView => ({ card: 'diff', title: 'Write', diffs: [{ path: '/repo/src/a.ts', oldText: null, newText: 'x' }] })
-    expect(build({ call }).render(callEvent('c1', 'write', {}))).toEqual(['● Write src/a.ts'])
+    const transcript = build({ call })
+    expect(transcript.render(callEvent('c1', 'write', {}))).toEqual([])
+    expect(transcript.callSummary('c1')).toBe('src/a.ts')
   })
 
   it('renders a generic call with its follow-along locations', () => {
@@ -450,8 +452,14 @@ describe('tool results', () => {
       title: 'Write /repo/src/a.ts',
       diffs: [{ path: '/repo/src/a.ts', oldText: null, newText: 'x' }],
     })
-    // The title names the file, so the card appends no second copy of it.
-    expect(build({ call }).render(callEvent('c1', 'write', {}))).toEqual(['● Write src/a.ts'])
+    const result = (): ToolResultView => ({
+      card: 'diff',
+      title: 'Write src/a.ts',
+      diffs: [{ path: '/repo/src/a.ts', oldText: null, newText: 'x' }],
+    })
+    const transcript = build({ call, result })
+    expect(transcript.render(callEvent('c1', 'write', {}))).toEqual([])
+    expect(transcript.render(resultEvent('c1', 'ok'))[0]).toBe('● Write src/a.ts +1 -0 ✔')
   })
 
   it('appends a path the presenter left out of its title', () => {
@@ -460,7 +468,14 @@ describe('tool results', () => {
       title: 'Write',
       diffs: [{ path: '/repo/src/a.ts', oldText: null, newText: 'x' }],
     })
-    expect(build({ call }).render(callEvent('c1', 'write', {}))).toEqual(['● Write src/a.ts'])
+    const result = (): ToolResultView => ({
+      card: 'diff',
+      title: 'Write src/a.ts',
+      diffs: [{ path: '/repo/src/a.ts', oldText: null, newText: 'x' }],
+    })
+    const transcript = build({ call, result })
+    expect(transcript.render(callEvent('c1', 'write', {}))).toEqual([])
+    expect(transcript.render(resultEvent('c1', 'ok'))[0]).toBe('● Write src/a.ts +1 -0 ✔')
   })
 
   it('shortens a workspace path a terminal presenter embedded in its command', () => {

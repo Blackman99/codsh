@@ -519,8 +519,9 @@ export class Transcript {
       const title = this.relativizeIn(view.title)
       const paths = view.diffs.map(diff => this.relative(diff.path))
       const line = `${title}${this.extraPaths(title, paths)}`
-      // Pending is already one line; the completed card reprints with +n -m.
-      return record(line, paths.length === 0 ? title : paths.join(', '), [`${theme.pending('●')} ${theme.tool(title)}${theme.path(this.extraPaths(title, paths))}`])
+      // Pending stays off-screen: the completed one-liner is the card. The
+      // spinner names the tool while it runs.
+      return record(line, paths.length === 0 ? title : paths.join(', '), [])
     }
     const title = this.relativizeIn(view.title)
     const locations = (view.locations ?? []).map(location => this.relative(location.path))
