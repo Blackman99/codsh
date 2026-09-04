@@ -369,7 +369,7 @@ export class Transcript {
         const [first = '', ...rest] = typed.map(block => block.text).join('').split('\n')
         this.prompt = 1 + rest.length
         const meta = imageMetaLines(event.data.content, theme)
-        return [first, ...rest, ...meta, '']
+        return [first, ...rest.map(line => `  ${line}`), ...meta, '']
       }
       case 'assistant/message': {
         const text = visibleText(event.data.message.content)
@@ -519,9 +519,8 @@ export class Transcript {
       const title = this.relativizeIn(view.title)
       const paths = view.diffs.map(diff => this.relative(diff.path))
       const line = `${title}${this.extraPaths(title, paths)}`
-      // Pending stays off-screen: the completed one-liner is the card. The
-      // spinner names the tool while it runs.
-      return record(line, paths.length === 0 ? title : paths.join(', '), [])
+      // Pending is already one line; the completed card reprints with +n -m.
+      return record(line, paths.length === 0 ? title : paths.join(', '), [`${theme.pending('●')} ${theme.tool(title)}${theme.path(this.extraPaths(title, paths))}`])
     }
     const title = this.relativizeIn(view.title)
     const locations = (view.locations ?? []).map(location => this.relative(location.path))
@@ -543,10 +542,10 @@ export class Transcript {
     this.calls.delete(callId)
     const failed = error !== undefined || block.isError === true
     if (failed) this.rule = blockRules(theme).error
-    const marker = failed ? theme.error('✗') : theme.success('●')
     if (pending === undefined) {
       // The call fell outside this surface's window (a resumed page boundary);
       // the raw result still prints rather than vanishing.
+      const marker = failed ? theme.err('✗') : theme.ok('●')
       const text = this.resultText(block.content)
       const { body, full } = this.capBody(text.split('\n'), MAX_RESULT_LINES)
       const head = `${marker} ${theme.dim('(result)')}`
@@ -567,23 +566,13 @@ export class Transcript {
     const { suffix, body, full } = this.outcome(view, block)
     const enter = failed ? undefined : childSessionId(this.resultText(block.content))
     const hint = enter === undefined ? [] : [theme.dim('  click to enter')]
-    // Diff ToolCard: one collapsed line with +n -m and status; body only when expanded.
-    if (view?.card === 'diff') {
-      const bullet = failed ? theme.error('●') : theme.success('●')
-      const done = failed ? theme.error('✗') : theme.success('✔')
-      const head = [formatToolCardLine(theme, this.options.columns, bullet, title, suffix, done)]
-      this.fold = [...head, ...(full ?? []), ...hint, '']
-      this.label = title
-      if (enter !== undefined) this.enter = enter
-      return [...head, ...hint, '']
-    }
-
-    // Other cards: avoid reprinting an unchanged pending header.
-    const changed = failed || title !== pending.title
-    const head = changed
-      ? [`${marker} ${theme.tool(title)}${suffix === '' ? '' : ` ${suffix}`}`]
-      : suffix !== '' ? [`  ${suffix}`]
-        : body.length === 0 && hint.length === 0 ? [`  ${theme.success('✔')}`] : []
+    // One stable ToolCard line: ● · title · +n -m · ✔/✗. Truncate the title
+    // first so the stats and status survive a narrow terminal.
+    const bullet = theme.ok('●')
+    const done = failed ? theme.err('✗') : theme.ok('✔')
+    const head = [formatToolCardLine(theme, this.options.columns, bullet, title, suffix, done)]
+    // The fold swaps the WHOLE event's lines, so the expanded form repeats the
+    // same head with the uncapped body under it.
     if (full !== undefined) {
       this.fold = [...head, ...full, ...hint, '']
       this.label = title
@@ -592,6 +581,8 @@ export class Transcript {
       this.enter = enter
       this.label = title
     }
+    // Diff cards stay collapsed on screen (hunks only in the fold).
+    if (view?.card === 'diff') return [...head, ...hint, '']
     return [...head, ...body, ...hint, '']
   }
 
@@ -749,15 +740,13 @@ export class Transcript {
       // Default collapsed: one-line ToolCard; body lives in the fold until expand.
       // Soft-cap still applies inside the expanded form; only then does a click
       // open the reader (Ctrl+O still expands inline).
+      // Always fold the full hunks; optional reader when the expanded form is large.
       const soft = capped(hunks, MAX_DIFF_LINES, 'click reads it · Ctrl+O expands')
-      // Soft-cap inside the expanded form; click opens the reader only when capped.
       if (soft.full !== undefined) this.page = unifiedDiffText(view.diffs, path => this.relative(path))
       return {
         suffix: stats,
         body: [],
-        full: hunks.length === 0
-          ? undefined
-          : soft.full !== undefined ? soft.body : hunks,
+        full: hunks.length === 0 ? undefined : hunks,
       }
     }
     if (view?.card === 'terminal') {
