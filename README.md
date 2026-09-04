@@ -30,8 +30,9 @@ Zero-dependency launcher. `codsh` is `dsh --profile code`. Key: `DEEPSEEK_API_KE
 
 A session says so when a newer codsh is published. `codsh update` moves the
 pair from the shell, `/update` does it from inside a session, and either way
-the next boot registers the matching runtime. `CODSH_UPDATE_CHECK=off`
-silences the automatic check; asking still asks.
+the update also moves the code profile's runtime to match — the next boot only
+registers a runtime a bare `npm install -g codsh-cli` upgrade left behind.
+`CODSH_UPDATE_CHECK=off` silences the automatic check; asking still asks.
 
 Or skip the launcher:
 

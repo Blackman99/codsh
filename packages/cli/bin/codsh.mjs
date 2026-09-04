@@ -85,8 +85,11 @@ async function published() {
 
 // `codsh update` moves the pair from outside a session, which is where a person
 // is when they are not in one. It prints the command it runs rather than
-// hiding it, and installs only the launcher: the runtime is registered by the
-// next boot, in lockstep, the way every other version change reaches it.
+// hiding it, installs the launcher, and moves the profile's runtime to match
+// before it reports success — an update is one decision, not a promise the
+// next boot keeps. The boot-time registration stays as the catch for a runtime
+// a bare `npm install -g codsh-cli` upgrade, or a failed move here, left
+// behind.
 if (process.argv[2] === 'update') {
   const latest = await published()
   if (latest === undefined) {
@@ -107,7 +110,16 @@ if (process.argv[2] === 'update') {
     console.error(`codsh: update failed — run ${command.join(' ')} yourself`)
     process.exit(installed.status ?? 1)
   }
-  console.log(`codsh ${latest} installed · the next codsh registers the matching runtime`)
+  const moved = registerRuntime(latest)
+  if (moved.status === 'failed') {
+    console.error(`codsh: the launcher is installed, but ${moved.spec} could not be registered into the code profile — the next codsh start will retry`)
+    process.exit(1)
+  }
+  const done = `codsh ${latest} installed`
+  if (moved.status === 'registered') console.log(`${done} · the code profile now carries ${moved.spec}`)
+  else if (moved.status === 'pinned') console.log(`${done} · the code profile pins ${BUNDLE} to "${moved.current}" — leaving it as-is`)
+  else if (moved.status === 'current') console.log(`${done} · the code profile already carries ${BUNDLE} ${moved.current}`)
+  else console.log(`${done} · the next codsh start registers the matching runtime`)
   process.exit(0)
 }
 
@@ -139,9 +151,9 @@ the runtime is not bundled, so a machine never carries a second copy.
   process.exit(1)
 }
 
-/** Run the found dsh with arguments, inheriting the terminal. */
-function run(args) {
-  const result = spawnSync(dsh.command, [...dsh.prefix, ...args], { stdio: 'inherit' })
+/** Run a dsh with arguments, inheriting the terminal. */
+function run(args, launcher = dsh) {
+  const result = spawnSync(launcher.command, [...launcher.prefix, ...args], { stdio: 'inherit' })
   return result.status ?? 1
 }
 
@@ -182,6 +194,37 @@ function registration() {
   const registered = /^\^?(\d+\.\d+\.\d+)$/u.exec(current)?.[1]
   if (registered === undefined) return undefined
   return newer(own.version, registered) ? spec : undefined
+}
+
+/**
+ * Move the code profile's runtime to the version this update just installed,
+ * now rather than at the next boot — an update is one decision, and a profile
+ * launched straight through dsh never sees a boot-time registration. Dev pins
+ * are still never clobbered, and a legacy pre-split profile is still the
+ * boot's to migrate.
+ * @param version - the launcher version just installed.
+ * @returns what happened, so the caller can say exactly that.
+ */
+function registerRuntime(version) {
+  const spec = `${BUNDLE}@^${version}`
+  const manifest = profile()
+  const dependencies = manifest?.dependencies ?? {}
+  // A legacy pre-split profile is the next boot's to migrate, not an update's.
+  if ('codsh-cli' in dependencies) return { status: 'deferred' }
+  const current = dependencies[BUNDLE]
+  if (current !== undefined) {
+    // Only registry versions belong to an update; a file:/link:/git/custom
+    // registration is a development pin and must never be clobbered.
+    const registered = /^\^?(\d+\.\d+\.\d+)$/u.exec(current)?.[1]
+    if (registered === undefined) return { status: 'pinned', current }
+    if (!newer(version, registered)) return { status: 'current', current }
+  }
+  const found = findDsh()
+  if (found === undefined) return { status: 'deferred' }
+  console.error(`codsh: registering ${spec} into the dsh code profile`)
+  return run(['plugin', '--profile', 'code', 'add', spec], found) === 0
+    ? { status: 'registered', spec }
+    : { status: 'failed', spec }
 }
 
 const spec = registration()

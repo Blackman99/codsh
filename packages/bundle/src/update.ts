@@ -3,9 +3,11 @@
  *
  * The `codsh-cli` launcher and this runtime publish in lockstep, so the version
  * this bundle carries is the version a person has installed, and the launcher's
- * `latest` dist-tag is what they would install to move. Nothing here installs
- * anything: the check is one cached read, and the command it names is run by
- * the caller — an update is the person's decision, not a side effect of boot.
+ * `latest` dist-tag is what they would install to move. An update installs the
+ * launcher and moves the code profile's runtime to match, so nothing here
+ * installs anything on its own: the check is one cached read, and the commands
+ * this module names are run by the caller — an update is the person's
+ * decision, not a side effect of boot.
  * @module codsh-bundle/src/update
  */
 
@@ -13,6 +15,12 @@ import { readFile, writeFile } from 'node:fs/promises'
 
 /** The package a person installs; this runtime ships in lockstep with it. */
 export const LAUNCHER = 'codsh-cli'
+
+/** The dsh profile codsh installs its runtime into. */
+export const PROFILE = 'code'
+
+/** The runtime a code profile carries; an update moves it with the launcher. */
+export const RUNTIME = 'codsh-bundle'
 
 /** How long a registry answer stands before the registry is asked again. */
 export const CACHE_MS = 6 * 60 * 60 * 1000
@@ -81,6 +89,79 @@ export function newerVersion(candidate: string, current: string): boolean {
  */
 export function updateCommand(version: string): readonly string[] {
   return ['npm', 'install', '-g', `${LAUNCHER}@${version}`]
+}
+
+/**
+ * The spec that moves a profile's runtime to a version, as `dsh plugin add`
+ * takes it.
+ * @param version - the version to move the runtime to.
+ * @returns the package spec to register.
+ */
+export function runtimeSpec(version: string): string {
+  return `${RUNTIME}@^${version}`
+}
+
+/** A dsh to drive: its executable and the prefix that reaches its entry. */
+export interface Dsh {
+  command: string
+  prefix: readonly string[]
+}
+
+/**
+ * Resolve the dsh running this process, so an in-session update can drive it
+ * the way the launcher's next boot would.
+ *
+ * `DSH_BIN` names the pinned dsh when there is one; otherwise the running
+ * process's own entry — this runtime is loaded by that dsh — is the dsh the
+ * next boot would have used.
+ * @param env - the environment carrying the pin; the real one by default.
+ * @param argv - this process's arguments; the real ones by default.
+ * @returns how to spawn the dsh, or undefined when none can be found.
+ */
+export function runningDsh(env: NodeJS.ProcessEnv = process.env, argv: readonly string[] = process.argv): Dsh | undefined {
+  const pinned = env.DSH_BIN?.trim()
+  if (pinned !== undefined && pinned !== '') {
+    // A JS entry runs through this Node; anything else is an executable.
+    return /\.[cm]?js$/.test(pinned)
+      ? { command: process.execPath, prefix: [pinned] }
+      : { command: pinned, prefix: [] }
+  }
+  const entry = argv[1]
+  if (entry === undefined || entry === '') return undefined
+  return { command: process.execPath, prefix: [entry] }
+}
+
+/**
+ * The command that moves a profile's runtime to a version, as the caller runs
+ * it in the open.
+ * @param dsh - the dsh to drive, from {@link runningDsh}.
+ * @param version - the launcher version just installed.
+ * @returns the executable and its arguments.
+ */
+export function runtimeRegisterCommand(dsh: Dsh, version: string): readonly string[] {
+  return [dsh.command, ...dsh.prefix, 'plugin', '--profile', PROFILE, 'add', runtimeSpec(version)]
+}
+
+/**
+ * Whether an update should also move the profile's runtime.
+ *
+ * An update installs the launcher and moves the profile's runtime to match —
+ * unless the profile pins a development build an update must never clobber, or
+ * already carries a runtime at or past the installed version.
+ * @param version - the launcher version being installed.
+ * @param dependencies - the code profile's declared dependencies.
+ * @returns 'register' when the runtime should move to `version`, 'pinned' when
+ *   the profile's runtime is a development pin, and 'current' when the profile
+ *   already carries a matching or newer runtime.
+ */
+export function runtimeMove(version: string, dependencies: Record<string, string> | undefined): 'register' | 'pinned' | 'current' {
+  const current = dependencies?.[RUNTIME]
+  if (current !== undefined) {
+    const registered = /^\^?(\d+\.\d+\.\d+)$/u.exec(current)?.[1]
+    if (registered === undefined) return 'pinned'
+    if (!newerVersion(version, registered)) return 'current'
+  }
+  return 'register'
 }
 
 /** Registry the dist-tag is read from; the override is what tests point away. */

@@ -231,10 +231,13 @@ can only ever add a dim line under the welcome naming the newer version. It is
 never a chrome row (the chrome's height is what keeps the box still), never
 blocks the boot, and never installs anything on its own. Asking is `/update`
 inside a session or `codsh update` outside one; both run
-`npm install -g codsh-cli@<latest>` in the open, and the launcher registers the
-matching runtime on the next boot. `CODSH_UPDATE_CHECK=off` silences the
-automatic check but neither of those; `CODSH_UPDATE_REGISTRY` points every one
-of them at another registry.
+`npm install -g codsh-cli@<latest>` in the open and then move the code
+profile's runtime to match, so a profile that launches straight through dsh
+never waits for a boot to catch up. The boot's registration remains the catch
+for a runtime a bare `npm install -g codsh-cli` upgrade, or a failed move,
+left behind. `CODSH_UPDATE_CHECK=off` silences the automatic check but neither
+of those; `CODSH_UPDATE_REGISTRY` points every one of them at another
+registry.
 
 **Flash**:
 A short-lived notice that borrows the hint row and gives it back (e.g. the

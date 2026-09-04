@@ -9,7 +9,7 @@ import { execFileSync, execFile } from 'node:child_process'
 import { mkdirSync, readFileSync, writeFileSync, rmSync, existsSync } from 'node:fs'
 import { mkdtemp } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { delimiter, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { promisify } from 'node:util'
 import { describe, expect, it } from 'vitest'
@@ -18,6 +18,21 @@ import { E2E_TEST_TIMEOUT_MS, bundleRoot, dshBin, fakeRegistry, overlayText } fr
 const run = promisify(execFile)
 const repoRoot = fileURLToPath(new URL('..', import.meta.url))
 const wrapper = join(repoRoot, 'packages', 'cli', 'bin', 'codsh.mjs')
+
+/** A fake executable that echoes its invocation as `TAG args…`, for npm or dsh. */
+function writeFake(path: string, tag: string): void {
+  writeFileSync(path, `#!/usr/bin/env node
+console.log(\`${tag} \${process.argv.slice(2).join(' ')}\`)
+`, { mode: 0o755 })
+}
+
+/** A fake executable that echoes its invocation and fails, for a dsh that cannot register. */
+function writeFailingFake(path: string, tag: string): void {
+  writeFileSync(path, `#!/usr/bin/env node
+console.log(\`${tag} \${process.argv.slice(2).join(' ')}\`)
+process.exit(1)
+`, { mode: 0o755 })
+}
 
 describe.skipIf(process.platform === 'win32')('the codsh launcher', () => {
   it('migrates a pre-split profile, registers the bundle, and boots', async () => {
@@ -137,6 +152,171 @@ describe.skipIf(process.platform === 'win32')('the codsh launcher', () => {
 
     expect(failed?.stderr).toContain('could not reach the npm registry')
     expect(failed?.code).toBe(1)
+  }, E2E_TEST_TIMEOUT_MS)
+
+  /** A fresh home whose code profile declares exactly the given dependencies. */
+  async function homeWithProfile(dependencies: Record<string, string>): Promise<string> {
+    const home = await mkdtemp(join(tmpdir(), 'codsh-update-home-'))
+    const profile = join(home, 'profiles', 'code')
+    mkdirSync(profile, { recursive: true })
+    writeFileSync(join(profile, 'package.json'), `${JSON.stringify({
+      name: 'dsh-profile-code',
+      private: true,
+      dependencies,
+    }, null, 2)}\n`)
+    return home
+  }
+
+  it('moves the profile runtime when update finds a newer codsh', async () => {
+    const home = await homeWithProfile({ 'codsh-bundle': '0.1.0' })
+    const fake = await mkdtemp(join(tmpdir(), 'codsh-update-fake-bin-'))
+    try {
+      writeFake(join(fake, 'npm'), 'FAKE_NPM')
+      writeFake(join(fake, 'dsh'), 'FAKE_DSH')
+      const registry = await fakeRegistry('9.9.9')
+      try {
+        const result = await run(process.execPath, [wrapper, 'update'], {
+          env: {
+            ...process.env,
+            DSH_HOME: home,
+            DSH_BIN: join(fake, 'dsh'),
+            PATH: `${fake}${delimiter}${process.env.PATH ?? ''}`,
+            CODSH_UPDATE_REGISTRY: registry.base,
+          },
+        })
+
+        // The launcher install ran in the open, and the runtime move followed
+        // it in the same command — no suite reaches npm or a real profile.
+        expect(result.stderr).toContain('codsh: npm install -g codsh-cli@9.9.9')
+        expect(result.stdout).toContain('FAKE_NPM install -g codsh-cli@9.9.9')
+        expect(result.stderr).toContain('codsh: registering codsh-bundle@^9.9.9 into the dsh code profile')
+        expect(result.stdout).toContain('FAKE_DSH plugin --profile code add codsh-bundle@^9.9.9')
+        expect(result.stdout).toContain('codsh 9.9.9 installed · the code profile now carries codsh-bundle@^9.9.9')
+      } finally {
+        await registry.close()
+      }
+    } finally {
+      rmSync(home, { recursive: true, force: true })
+      rmSync(fake, { recursive: true, force: true })
+    }
+  }, E2E_TEST_TIMEOUT_MS)
+
+  it('leaves a development-pinned runtime alone when update moves the launcher', async () => {
+    const home = await homeWithProfile({ 'codsh-bundle': 'link:../codsh-bundle' })
+    const fake = await mkdtemp(join(tmpdir(), 'codsh-update-pinned-bin-'))
+    try {
+      writeFake(join(fake, 'npm'), 'FAKE_NPM')
+      writeFake(join(fake, 'dsh'), 'FAKE_DSH')
+      const registry = await fakeRegistry('9.9.9')
+      try {
+        const result = await run(process.execPath, [wrapper, 'update'], {
+          env: {
+            ...process.env,
+            DSH_HOME: home,
+            DSH_BIN: join(fake, 'dsh'),
+            PATH: `${fake}${delimiter}${process.env.PATH ?? ''}`,
+            CODSH_UPDATE_REGISTRY: registry.base,
+          },
+        })
+
+        expect(result.stdout).toContain('FAKE_NPM install -g codsh-cli@9.9.9')
+        expect(result.stdout).toContain('the code profile pins codsh-bundle to "link:../codsh-bundle" — leaving it as-is')
+        // A pinned runtime is never clobbered: the dsh is not driven at all.
+        expect(result.stdout).not.toContain('FAKE_DSH')
+      } finally {
+        await registry.close()
+      }
+    } finally {
+      rmSync(home, { recursive: true, force: true })
+      rmSync(fake, { recursive: true, force: true })
+    }
+  }, E2E_TEST_TIMEOUT_MS)
+
+  it('says the profile is already current instead of registering again', async () => {
+    const home = await homeWithProfile({ 'codsh-bundle': '^9.9.9' })
+    const fake = await mkdtemp(join(tmpdir(), 'codsh-update-current-bin-'))
+    try {
+      writeFake(join(fake, 'npm'), 'FAKE_NPM')
+      writeFake(join(fake, 'dsh'), 'FAKE_DSH')
+      const registry = await fakeRegistry('9.9.9')
+      try {
+        const result = await run(process.execPath, [wrapper, 'update'], {
+          env: {
+            ...process.env,
+            DSH_HOME: home,
+            DSH_BIN: join(fake, 'dsh'),
+            PATH: `${fake}${delimiter}${process.env.PATH ?? ''}`,
+            CODSH_UPDATE_REGISTRY: registry.base,
+          },
+        })
+
+        expect(result.stdout).toContain('codsh 9.9.9 installed · the code profile already carries codsh-bundle ^9.9.9')
+        expect(result.stdout).not.toContain('FAKE_DSH')
+      } finally {
+        await registry.close()
+      }
+    } finally {
+      rmSync(home, { recursive: true, force: true })
+      rmSync(fake, { recursive: true, force: true })
+    }
+  }, E2E_TEST_TIMEOUT_MS)
+
+  it('defers a legacy pre-split profile to the next boot', async () => {
+    const home = await homeWithProfile({ 'codsh-cli': '0.15.1' })
+    const fake = await mkdtemp(join(tmpdir(), 'codsh-update-legacy-bin-'))
+    try {
+      writeFake(join(fake, 'npm'), 'FAKE_NPM')
+      writeFake(join(fake, 'dsh'), 'FAKE_DSH')
+      const registry = await fakeRegistry('9.9.9')
+      try {
+        const result = await run(process.execPath, [wrapper, 'update'], {
+          env: {
+            ...process.env,
+            DSH_HOME: home,
+            DSH_BIN: join(fake, 'dsh'),
+            PATH: `${fake}${delimiter}${process.env.PATH ?? ''}`,
+            CODSH_UPDATE_REGISTRY: registry.base,
+          },
+        })
+
+        expect(result.stdout).toContain('codsh 9.9.9 installed · the next codsh start registers the matching runtime')
+        expect(result.stdout).not.toContain('FAKE_DSH')
+      } finally {
+        await registry.close()
+      }
+    } finally {
+      rmSync(home, { recursive: true, force: true })
+      rmSync(fake, { recursive: true, force: true })
+    }
+  }, E2E_TEST_TIMEOUT_MS)
+
+  it('fails loudly when the runtime cannot be registered', async () => {
+    const home = await homeWithProfile({ 'codsh-bundle': '0.1.0' })
+    const fake = await mkdtemp(join(tmpdir(), 'codsh-update-fail-bin-'))
+    try {
+      writeFake(join(fake, 'npm'), 'FAKE_NPM')
+      writeFailingFake(join(fake, 'dsh'), 'FAKE_DSH')
+      const registry = await fakeRegistry('9.9.9')
+      try {
+        const failed = await run(process.execPath, [wrapper, 'update'], {
+          env: {
+            ...process.env,
+            DSH_HOME: home,
+            DSH_BIN: join(fake, 'dsh'),
+            PATH: `${fake}${delimiter}${process.env.PATH ?? ''}`,
+            CODSH_UPDATE_REGISTRY: registry.base,
+          },
+        }).then(() => undefined, (error: { stderr: string; code: number }) => error)
+
+        expect(failed?.stderr).toContain('the launcher is installed, but codsh-bundle@^9.9.9 could not be registered into the code profile')
+        expect(failed?.code).toBe(1)
+      } finally {
+        await registry.close()
+      }
+    } finally {
+      rmSync(home, { recursive: true, force: true })
+      rmSync(fake, { recursive: true, force: true })
+    }
   }, E2E_TEST_TIMEOUT_MS)
 
   it('answers --version for the pair, not for the runtime it launches', async () => {

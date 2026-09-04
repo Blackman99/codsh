@@ -29,7 +29,8 @@ codsh
 `codsh --resume <id>` · `codsh --continue` · `codsh -p "任务"` · `codsh --version` · `codsh update`
 
 有新版本时会话里会有一行提示。`codsh update` 在 shell 里升级，`/update` 在会话里升级，
-两条路都由下次启动把配套 runtime 注册上。`CODSH_UPDATE_CHECK=off` 关掉自动检查；主动问依然会问。
+两条路都会把 code profile 里的配套 runtime 一并升好——只有裸 `npm install -g codsh-cli` 落下的 runtime 才由下次启动补注册。
+`CODSH_UPDATE_CHECK=off` 关掉自动检查；主动问依然会问。
 
 不用启动器：
 

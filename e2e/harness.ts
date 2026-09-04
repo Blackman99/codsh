@@ -12,7 +12,7 @@
 
 import { createServer } from 'node:http'
 import { execFileSync } from 'node:child_process'
-import { existsSync, mkdirSync, readFileSync, rmSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { mkdtemp, symlink } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
@@ -87,6 +87,17 @@ export function ensureTemplateHome(): string {
     env: { ...process.env, DSH_HOME: home },
     stdio: 'pipe',
   })
+  // Spell the runtime as a registry version, the way a real install records
+  // it. The suites drive the /update registration decision, which — like the
+  // launcher — must move a registry version but never clobber a development
+  // pin; boot loads the installed files either way.
+  const manifestPath = join(home, 'profiles', 'code', 'package.json')
+  const manifest = JSON.parse(readFileSync(manifestPath, 'utf8')) as { dependencies: Record<string, string> }
+  const bundle = JSON.parse(readFileSync(join(bundleRoot, 'package.json'), 'utf8')) as { version: string }
+  if (manifest.dependencies['codsh-bundle'] !== undefined) {
+    manifest.dependencies['codsh-bundle'] = `^${bundle.version}`
+    writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`)
+  }
   template = home
   return home
 }

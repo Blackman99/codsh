@@ -77,7 +77,7 @@ import {
   visionConfigFromEnv,
 } from './vision.ts'
 import { TextStream } from './streaming.ts'
-import { bundleVersion, checkForUpdate, updateCommand } from './update.ts'
+import { PROFILE, bundleVersion, checkForUpdate, runtimeMove, runtimeRegisterCommand, runtimeSpec, runningDsh, updateCommand } from './update.ts'
 import { displayPath, formatTokens, formatTurnTime, gitBranch, statusLine, statusReport, totalTokens } from './status.ts'
 import { todoReport } from './todos.ts'
 import type { PendingImage } from './prompt.ts'
@@ -904,23 +904,61 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
         const command = updateCommand(status.latest)
         const [file = 'npm', ...args] = command
         prompt.write(`${theme.pending('●')} ${theme.tool('update')}`)
-        prompt.write(`  $ ${command.join(' ')}`)
         let streamed = 0
+        const stream = (line: string): void => {
+          if (streamed < config.bangOutputLines) prompt.write(`  ${line}`)
+          streamed += 1
+        }
+        prompt.write(`  $ ${command.join(' ')}`)
         const result = await capture(file, args, {
           cwd,
           timeoutMs: config.bangTimeoutMs,
-          onLine: (line) => {
-            if (streamed < config.bangOutputLines) prompt.write(`  ${line}`)
-            streamed += 1
-          },
+          onLine: stream,
         })
         prompt.write('')
         if (result.code !== 0 || result.signal !== null) {
           return { kind: 'error', text: `update failed — run ${command.join(' ')} yourself` }
         }
-        // The running process cannot become the version it just installed; the
-        // launcher registers the matching runtime on the next boot.
-        return { kind: 'success', text: `codsh ${status.latest} installed · /exit, then start codsh again` }
+        // The launcher is installed, so the profile's runtime should move to
+        // match now. The next boot used to be the moment the profile caught
+        // up, but an update is one decision, and a profile launched straight
+        // through dsh never sees a boot-time registration. A pinned runtime is
+        // still left alone, and the running process still cannot become what
+        // it just installed.
+        const spec = runtimeSpec(status.latest)
+        const restart = { kind: 'success' as const, text: `codsh ${status.latest} installed · /exit, then start codsh again` }
+        let dependencies: Record<string, string> | undefined
+        try {
+          const manifest = JSON.parse(await readFile(dshHomePath('profiles', PROFILE, 'package.json'), 'utf8')) as {
+            dependencies?: Record<string, string>
+          }
+          dependencies = manifest.dependencies
+        } catch {
+          // No readable profile yet: an update registers a fresh one.
+        }
+        if (runtimeMove(status.latest, dependencies) !== 'register') return restart
+        const dsh = runningDsh()
+        if (dsh === undefined) return restart
+        const register = runtimeRegisterCommand(dsh, status.latest)
+        const [registerFile = 'dsh', ...registerArgs] = register
+        streamed = 0
+        prompt.write(`  $ ${register.join(' ')}`)
+        const moved = await capture(registerFile, registerArgs, {
+          cwd,
+          timeoutMs: config.bangTimeoutMs,
+          onLine: stream,
+        })
+        prompt.write('')
+        if (moved.code !== 0 || moved.signal !== null) {
+          return {
+            kind: 'success',
+            text: `codsh ${status.latest} installed, but ${spec} could not be registered into the code profile · /exit, then start codsh again to retry it`,
+          }
+        }
+        return {
+          kind: 'success',
+          text: `codsh ${status.latest} installed · the code profile now carries ${spec} · /exit, then start codsh again`,
+        }
       },
     }))
     disposers.push(commands.register({

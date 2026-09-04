@@ -7,7 +7,7 @@ import { mkdtemp, readFile, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { CACHE_MS, bundleVersion, checkForUpdate, newerVersion, updateCommand } from '../src/update.ts'
+import { CACHE_MS, bundleVersion, checkForUpdate, newerVersion, runtimeMove, runtimeRegisterCommand, runtimeSpec, runningDsh, updateCommand } from '../src/update.ts'
 
 /** A fetch that answers one dist-tags body and counts its calls. */
 function registry(latest: unknown, status = 200): typeof fetch & { calls: string[] } {
@@ -46,6 +46,40 @@ describe('comparing published versions', () => {
 
   it('names the command a person would type', () => {
     expect(updateCommand('0.9.1')).toEqual(['npm', 'install', '-g', 'codsh-cli@0.9.1'])
+  })
+})
+
+describe('moving the profile runtime with an update', () => {
+  it('names the spec and the command that move a profile runtime', () => {
+    expect(runtimeSpec('0.9.1')).toBe('codsh-bundle@^0.9.1')
+    expect(runtimeRegisterCommand({ command: '/opt/dsh/bin/dsh', prefix: [] }, '0.9.1')).toEqual([
+      '/opt/dsh/bin/dsh', 'plugin', '--profile', 'code', 'add', 'codsh-bundle@^0.9.1',
+    ])
+    expect(runtimeRegisterCommand({ command: process.execPath, prefix: ['/opt/dsh/entry.mjs'] }, '0.9.1')).toEqual([
+      process.execPath, '/opt/dsh/entry.mjs', 'plugin', '--profile', 'code', 'add', 'codsh-bundle@^0.9.1',
+    ])
+  })
+
+  it('resolves the dsh running the session, honoring a DSH_BIN pin', () => {
+    // The running process's own entry is the dsh, when nothing is pinned.
+    expect(runningDsh({}, ['node', '/opt/dsh/entry.mjs'])).toEqual({ command: process.execPath, prefix: ['/opt/dsh/entry.mjs'] })
+    // A pinned JS entry runs through this Node; a pinned executable runs alone.
+    expect(runningDsh({ DSH_BIN: '/opt/dsh/entry.mjs' }, ['node', 'x'])).toEqual({ command: process.execPath, prefix: ['/opt/dsh/entry.mjs'] })
+    expect(runningDsh({ DSH_BIN: '/usr/local/bin/dsh' }, ['node', 'x'])).toEqual({ command: '/usr/local/bin/dsh', prefix: [] })
+    // A blank pin is no pin at all; a process with no entry has no dsh to drive.
+    expect(runningDsh({ DSH_BIN: '  ' }, ['node', '/opt/dsh/entry.mjs'])).toEqual({ command: process.execPath, prefix: ['/opt/dsh/entry.mjs'] })
+    expect(runningDsh({}, ['node'])).toBeUndefined()
+  })
+
+  it('decides whether the profile runtime should move', () => {
+    expect(runtimeMove('0.9.1', undefined)).toBe('register')
+    expect(runtimeMove('0.9.1', {})).toBe('register')
+    expect(runtimeMove('0.9.1', { 'codsh-bundle': '0.9.0' })).toBe('register')
+    expect(runtimeMove('0.9.1', { 'codsh-bundle': '^0.9.0' })).toBe('register')
+    expect(runtimeMove('0.9.1', { 'codsh-bundle': '0.9.1' })).toBe('current')
+    expect(runtimeMove('0.9.1', { 'codsh-bundle': '^0.10.0' })).toBe('current')
+    expect(runtimeMove('0.9.1', { 'codsh-bundle': 'file:/tmp/codsh-bundle-0.9.1.tgz' })).toBe('pinned')
+    expect(runtimeMove('0.9.1', { 'codsh-bundle': 'link:../codsh-bundle' })).toBe('pinned')
   })
 })
 
