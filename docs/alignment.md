@@ -34,6 +34,25 @@ in a terminal state.
   upstream, then `limitation`. Batch pick order: first-week surface, then
   remaining surface, then mixed; the three protocol rows (modifyOtherKeys,
   2027, OSC 8) are their own batch.
+- **Gap review (2026-09-04)**: owner-confirmed rules, superseding the
+  2026-08-27 exclusion of dsh-underneath capabilities. Every gap enters. A
+  gap the bundle cannot close without a dsh change is `upstream` — visible,
+  not codsh's debt. A gap the bundle can close alone (a composition row, a
+  `tools/pre-execute` subscriber, a session `fork`) is `open` like any
+  other, however deep it looks. "Known problems" below holds implementation
+  defects, weighted robustness first, then friction inside aligned rows,
+  then architecture; its evidence is a reproduction, not a reference agent.
+  Reference set unchanged (ADR-0001; Grok Build case by case). Target user:
+  DeepSeek API users first, Claude Code migrants second; headless/CI rows
+  are recorded, not batched. Rows are ordered by how often a session hits
+  the gap, not by how visible the difference is. Next batch, in order:
+  approval preview, persisted allow rules, editor undo, idle key legend,
+  desktop notifications, `/compact` feedback, `/rewind` (rows say
+  **next batch (n)**). Terminals are tiered in README "Terminals": first
+  tier iTerm2, Terminal.app, VS Code integrated terminal, tmux, Windows
+  Terminal + WSL; second tier Ghostty, kitty, Alacritty, Warp; native
+  Windows best-effort. tmux joins the e2e PTY matrix. Chrome text stays
+  English.
 
 ## States
 
@@ -43,6 +62,7 @@ in a terminal state.
 | `wip` | In a batch now |
 | `aligned` | Shipped and pinned by the named tests (terminal) |
 | `limitation` | Cannot align without upstream/terminal support; reason noted, README limitation section updated (terminal) |
+| `upstream` | Closable only by a dsh change; recorded so the gap stays visible, not codsh's debt; becomes `open` the day dsh ships the seam |
 | `rejected` | Deliberately not aligned; reason noted, owner confirmed (terminal) |
 
 ## Matrix
@@ -75,37 +95,74 @@ in a terminal state.
 | Ctrl+R history search | claude, opencode, Codex: incremental search through prompt history | `aligned` | first-week; inventoried 2026-08-27, not probed. keys.spec Ctrl-R + kitty 114;5u; editor.spec "history search" suite; inputbox.spec "names reverse history search"; experience e2e "searches prompt history on Ctrl+R" |
 | Transcript search | claude, opencode, Codex: find/filter in scrollback | `aligned` | first-week; inventoried 2026-08-27, not probed. keys.spec Ctrl-F + kitty 102;5u; screen.spec "transcript search" suite; prompt.spec "opens transcript find"; experience e2e "searches the transcript on Ctrl+F" |
 | Type-to-filter selectors | claude resume/model search; opencode palettes | `aligned` | first-week. selector.spec "filterable" suite. `/model` and `/resume` pass `filterable`; approvals keep digits/shortcuts |
-| Copy answer / code block | claude `/copy` + code-block copy; opencode message/code copy; Codex copy | `open` | first-week; copy today is drag-select only |
-| Attach non-image files | claude paths/files; opencode attachments; Codex file attach | `open` | first-week; Ctrl+V is image-only; bracketed paste is text |
+| Copy answer / code block | claude `/copy` + code-block copy; opencode message/code copy; Codex copy | `aligned` | superseded by "Conversation content index and `/copy`" above: `/copy N` and `/copy N:C` ship, pinned by content-index.spec and the experience e2e OSC 52 receipts; the drag remains the pointer path. Row closed in the 2026-09-04 review |
+| Attach non-image files | claude paths/files; opencode attachments; Codex file attach | `open` | first-week; Ctrl+V is image-only; bracketed paste is text. 2026-09-04: not batched |
+| Large paste collapses to a placeholder | claude folds a long bracketed paste into `[Pasted text #N +M lines]` in the box and expands it on submit; opencode similar | `open` | surface; inventoried from the 2026-09-04 paste probe, not probed against the reference. codsh puts the whole paste in the box (a 300-line paste is held correctly, see Known problems), so the gap is legibility, not correctness. Not batched |
 | Drag-drop files | claude, opencode | `open` | first-week; mouse decoder is left-drag + wheel only |
 | Shortcuts overlay (`?`) | claude `?`; opencode/Codex footer + help | `aligned` | first-week. prompt.spec "opens the shortcuts overlay on ?"; experience e2e "opens the shortcuts overlay on ? from an empty box". `/help` still prints the command list |
 | Activity-aware working line | all three: "Reading x" / "Running npm…" | `aligned` | first-week. spinner.spec "names the in-flight activity on the working line"; session `tool/call` sets Reading/Running/Searching/Editing from the tool name |
 | Edit/cancel queued messages | claude, opencode, Codex: queue is editable or dismissable | `aligned` | first-week. prompt.spec "dequeues the tail back into the box on Escape"; experience e2e "gives a queued line back on Escape" |
 | Vim mode | claude `/vim`; opencode modal; Codex vim composer | `open` | rest surface; inventoried 2026-08-27, not probed |
-| Editor undo/redo | all three | `open` | rest surface; editor has no undo stack |
+| Editor undo/redo | all three | `open` | **next batch (3)**. Editor has no undo stack and keys.ts binds nothing for it. Decided 2026-09-04: undo on Ctrl+_ and Ctrl+Z (raw mode reads 0x1a, nothing suspends); redo on Ctrl+Shift+Z on kitty-protocol terminals only — a legacy terminal cannot tell it from Ctrl+Z, and Ctrl+Y stays reserved for the kill-ring row |
 | External `$EDITOR` | claude Ctrl+G; opencode `/editor`; Codex editor | `open` | rest surface |
 | Kill-ring yank | claude/Codex emacs composers (Ctrl+Y) | `open` | rest surface; Ctrl+K/U/W drop text with nowhere to yank |
 | Forward kill-word (Alt+d) | emacs in the reference composers | `open` | rest surface; only backward kill-word is bound |
 | Double-click / keyboard selection | typical in the reference TUIs | `open` | rest surface; selection is press-drag-release only |
-| Idle keybinding footer | claude, opencode, Codex always-on key chrome | `open` | rest surface; placeholder vanishes once you type |
+| Idle keybinding footer | claude, opencode, Codex always-on key chrome | `open` | **next batch (4)**. Placeholder vanishes once you type. Shape: the existing hint row carries a short legend (`? shortcuts · ⇧Tab plan · Ctrl+T todos · Ctrl+O folds`) whenever nothing borrows it — flash, find, hover, and the todo readout outrank it — including while typing. No new chrome row; the box never jumps |
 | /theme picker | opencode, Codex | `open` | rest surface; OSC 11 only remaps secondary gray, no catalog |
-| Desktop notifications | claude, Codex (osascript / notify-send / OSC 9) | `open` | rest surface; today BEL + title only. Distinct from footnote bell/title |
-| Session rename/delete | claude, opencode session lists | `open` | rest surface; `/resume` lists but cannot rename or delete |
+| Desktop notifications | claude, Codex (osascript / notify-send / OSC 9) | `open` | **next batch (5)**. Today BEL + title only. Triggers reuse the bell's two (a decision waiting; a turn over 10 s ending) and fire only while unfocused (mode 1004 already tracked). OSC 9 first; `osascript` for Terminal.app, which ignores OSC 9; `notify-send` on Linux when present. A `notify` config beside `bell`, default on |
+| Session rename | claude, opencode session lists | `open` | codsh-side: `SessionTitleService.rename` exists; `/rename <title>` over the current session. Not batched |
+| Session delete | claude, opencode session lists | `upstream` | dsh-session-persistence exposes create/append/load/inspect/readFrom/list/locate/repair and no delete; JSONL truncation exists only as crash repair. `/resume` lists but cannot delete |
+| Session export | opencode `/export`; claude copy / `--output-format`; Codex | `open` | dsh's `/export` ZIP is web-only over the host API proxy. codsh renders its own Markdown from `dsh-session-query` `listEvents` to `~/.dsh/exports/<title>-<id>.md` and prints the path. Not batched |
 | Vision badge on model rows | claude, opencode | `open` | rest surface; catalog has `inputModalities`, picker does not show them |
-| /context breakdown | claude `/context` (system/tools/messages bars) | `open` | rest surface; status has % left, no per-bucket view |
-| Cost in the status row | claude `$`; Codex cost-ish | `open` | rest surface; limitation if the meter exposes no money |
-| Reasoning effort control | Codex; claude on some routes | `open` | rest surface; `/model` picks provider/id only |
+| /context breakdown | claude `/context` (system/tools/messages bars) | `open` | rest surface; status has % left, no per-bucket view. codsh-side: the meter projection already exposes `contextBreakdown` (system / tools / message tokens) and `contextPressure`. Not batched |
+| Cost in the status row | claude `$`; Codex cost-ish | `open` | rest surface. dsh-token-meter exposes token buckets (uncached input, output, cache read, cache write) and no price, so money is a codsh-owned table. Decided 2026-09-04: DeepSeek official prices (cache-hit price included), shown for `deepseek-official` routes only, CNY by default with a `/config` currency switch, marked `≈` because off-peak discounts are not modelled; user-supplied per-model prices are a later row. Not batched |
+| Thinking toggle / reasoning effort | Codex `/effort`; claude on some routes | `open` | rest surface; `/model` picks provider/id only. Decided 2026-09-04: `/thinking on\|off`, persisted per model (support differs by model, so a global value breaks on `/model`), shown in the status line. Not upstream: dsh already carries a per-request reasoning effort with per-model `reasoningEfforts` levels, where `off:` sends `thinking: {type: disabled}` on the deepseek dialect and `false` declares a model that never receives a thinking field — so a strict third-party gateway is a settings matter, and `/thinking` is a selector over the current model's declared levels. Not batched |
 | Update-available chrome | claude, opencode tell you a newer version is out and name what installs it | `aligned` | update.spec version ordering, cache lifetime, opt-out, registry override, and every unreachable/malformed answer; pipe e2e "checks the registry on /update, and installs nothing when it is current" and "moves the profile runtime when /update finds a newer codsh"; experience e2e "says a newer codsh is out, once, under the welcome"; wrapper e2e "answers --version for the pair", "updates the pair from outside a session", "moves the profile runtime when update finds a newer codsh", the pinned/current/legacy cases, and the unreachable-registry case. Divergence: codsh's line is one dim transcript row under the welcome, not a chrome row — chrome height is what keeps the box still — and the check is a 6-hour-cached dist-tag read behind a two-second budget that installs nothing on its own. An update installs the launcher and moves the profile's runtime to match in the same command; the boot only registers a runtime a bare npm upgrade left behind. `CODSH_UPDATE_CHECK=off` silences the check; `/update` in a session and `codsh update` outside one still ask |
 | Markdown strikethrough / task list | claude, opencode answers | `open` | rest surface; markdown has no `~~`; lists are `•` / `1.` only |
 | Custom keybind file | opencode | `open` | rest surface; bindings hardcoded in keys.ts. low |
 | Voice input | claude | `open` | rest surface; low |
 | In-app screenshot capture | claude | `open` | rest surface; low. Distinct from aligned image paste |
-| Rewind / undo conversation | claude `/rewind`; opencode `/undo` `/redo`; Codex rewind | `open` | mixed: surface picker + session truncate API. inventoried 2026-08-27, not probed |
-| Approval command preview | all three show the bash/path | `open` | mixed: widget is `Allow {tool}?` with optional reason; request currently has no arguments |
+| Rewind / undo conversation | claude `/rewind`; opencode `/undo` `/redo`; Codex rewind | `open` | **next batch (7)**. The log is append-only — no truncate — but `SessionStore.fork(source, boundary)` forks at an inclusive event seq. Conversation only: reuse the `/jump` turn picker, fork at the chosen turn's boundary, switch to the child; the original stays in `/resume`. Esc Esc stays recall. File restore is its own row |
+| Approval command preview | all three show the bash/path | `open` | **next batch (1)**. The approval request carries agent, toolName, callId, reason and no arguments by design; the `tool/call` event with the same callId carries the raw JSON arguments and is already rendered as a card above the widget — invisible once scrolled or folded. Surface joins on callId and puts one line in the widget title: `Allow bash: git push origin main?` — the command for bash/terminal, the path for file tools, truncated to width. Not upstream |
 | `@` beyond files | claude; opencode similar (agents, MCP, git, docs) | `open` | mixed: mention UI is surface; catalogs are dsh |
-| `#` add-to-memory | claude | `open` | mixed: `#` token is surface; memory store is dsh |
+| `#` add-to-memory | claude | `open` | codsh-side: append the line to the project instruction file dsh already reads — AGENTS.md if present, else CLAUDE.md if present, else a new AGENTS.md (dsh-agent-instructions loads both, content-deduplicated). No picker, no user-level target in v1. Not batched |
 | Background-shell chrome (Ctrl+B) | claude | `open` | mixed: chrome/key is surface; job runtime is dsh |
-| /compact chrome | claude, opencode, Codex (instructions, progress, kept/dropped) | `open` | mixed: command is dsh; dedicated UX is surface |
+| /compact chrome | claude, opencode, Codex (instructions, progress, kept/dropped) | `open` | **next batch (6)**. dsh appends `compaction/start`, `compaction/end`, `compaction/prune` session events; index.ts handles none. Spinner says Compacting… on start; one transcript line `Compacted · kept N · dropped M` on end; the summary text, when the end event carries it, becomes a fold. Auto and manual compaction share the path |
+| Persisted allow rules | claude `settings.json` allow/deny with `Bash(git *)` patterns and "don't ask again" in the prompt; opencode permission config; Codex approval policies | `open` | **next batch (2)**. dsh has no rule list — `ApprovalOutcome` is allowed-once / rejected / cancelled / unavailable — and codsh's "always" is per-process memory, cleared on session switch. `tools/pre-execute` is a waterfall returning allow / deny / ask, so rules live in the bundle. The widget gains "Always allow `git *`": the prefix is the first word, plus the subcommand for git / npm / pnpm / cargo / go / docker, not editable; file tools stay tool-level in v1. Three files, project wins: `.dsh/permissions.local.json` (the widget writes here; personal), `.dsh/permissions.json` (committed), `~/.dsh/permissions.json`. MCP tools (`mcp__<server>__<tool>`) take the same prefixes |
+| Rewind restores files | claude `/rewind` "restore code"; Codex | `open` | needs pre-write snapshots taken from `tools/post-execute`, a store separate from the conversation fork. Not batched |
+| MCP servers | all four: `.mcp.json` / `mcpServers`, `/mcp` | `open` | `@deepseek-ai/dsh-mcp-client` is complete and unmounted: each server is one plugin row in the composition, so the bundle reads `.mcp.json` (project) and `~/.claude.json` `mcpServers` (user), expands `${VAR}`, and generates rows at boot — a change needs a restart, as in Claude Code. Project servers ask once per project and remember beside the permission files. `/mcp` is read-only: status per server, "restart to apply". Tools surface as `mcp__<server>__<tool>` and go through the ordinary approval widget. Not batched |
+| LSP auto-enable | claude, opencode LSP | `open` | the `code-navigation` group is `disabled: true` because `lsp-stdio` spawns from PATH and a missing binary turns every call into a spawn failure. Probe `typescript-language-server`, `pyright-langserver`, `gopls`, `rust-analyzer` at boot; each present binary enables its provider, any one enables the group. Not batched |
+| User hooks | claude hooks (PreToolUse / PostToolUse / UserPromptSubmit / Stop / SessionStart); opencode plugins; Codex hooks | `open` | dsh has no hooks package but exposes `tools/pre-execute`, `tools/post-execute`, `agent/session-start`, `agent/turn-stopping`, `session/event`. Claude Code's event names and settings shape per ADR-0001; the allow-rules engine is the first pre-execute consumer, so the plumbing lands with batch item 2. Not batched |
+| First-run credential and `/login` | claude `/login`; opencode `/connect`; Codex login | `open` | boot is silent without a key; the first request fails `MISSING_CREDENTIAL` and shows as a generic red line. Probe the default route's credential at boot, prompt for the key in the box, write `$DSH_HOME/.credentials.yaml` (precedence: env > credentials file > `<cwd>/.env` > `$DSH_HOME/.env`); `/login` runs the same flow on demand; the red line names `/login`. DeepSeek key only — third-party endpoints stay in settings. Not batched |
+| `/config` | claude `/config`; opencode config; Codex config | `open` | codsh-owned items only (`bell`, `notify`, `bangTimeoutMs`, `bangOutputLines`, update check, vision sidecar, cost currency), stored in `~/.dsh/code-cli-settings.json` over the composition defaults; user level only — these are a person's preferences, not a project's. Provider endpoints stay in dsh `settings.yaml`; README documents the shape instead. Not batched |
+| Third-party endpoint docs | all four document provider setup | `open` | README and site had no provider section. The shape is `$DSH_HOME/settings.yaml` → `llm-pi-ai.providers.<name>` (`baseURL`, `apiKeyEnv`, `api: openai-completions`, `models`) then `agent-default-model`. README "Third-party endpoints" written 2026-09-04; closes when a pipe e2e boots against a pi-ai route |
+| Headless JSON output | claude `--output-format json`; Codex `--json`; gemini | `open` | low. `-p` prints text and exits after one turn. Not a target-user scenario; recorded, not batched |
+| Headless streaming | claude `stream-json`; Codex exec | `open` | low. Same |
+
+## Known problems
+
+Implementation defects, as distinct from alignment gaps: the evidence is a
+reproduction, not a reference agent. Same states; `upstream` when the fix
+is dsh's. A row enters on a reproduction or an owner report. Weighting from
+the 2026-09-04 review: robustness (terminal compatibility, long sessions,
+crash and resume) first, then friction inside aligned rows, then
+architecture (the `0.1.1-rc` dsh line, launcher/profile runtime pairing).
+The owner reported no field problems at the review; every row below was
+found by probing the packed build on a 40×120 PTY through the e2e driver
+and mock model (2026-09-04).
+
+| Problem | Evidence | State | Tests / Notes |
+|---|---|---|---|
+| Interrupted tool call replays as model-facing text | SIGKILL the process while a `bash` call runs, then `--continue`: the session resumes and the call is marked `✗`, but its body is dsh's repair note in a `console` fence — "The tool call was interrupted after it was recorded, but no result was durably recorded… Decide whether to retry from the tool semantics… Do not retry blindly." — a paragraph addressed to the model, painted for the reader | `open` | recovery itself is right (dsh `commitRepair`); the surface should render an interrupted call as one line, "interrupted before a result was recorded", and keep the model-facing note out of the transcript the way tool-result prose already folds. Friction inside an aligned row (folds survive replay) |
+| PTY driver deadlocks on a payload larger than the input queue | `drivePtySteps` writes each step with one `os.write`; a 13 KB bracketed paste blocked the write while the app blocked on its own output, nobody read either side, and the run died at the execa timeout with empty stdout and stderr (P2, run 1). The same paste in 512-byte steps with 30 ms settles passed in 2.7 s | `open` | e2e tooling, not the product; blocks any future paste, attachment, or drag-drop e2e. Fix: write payloads in chunks inside the driver, draining the PTY between chunks |
+
+Probed and not reproduced — kept so the next review does not repeat them:
+
+- **Chinese IME and wide-character input.** Six CJK characters move the cursor 12 columns (7→19), each Backspace removes one whole character and gives back 2 columns (17, 15); a 160-character CJK paste wraps to 55 / 55 / 50 characters over three box rows with the cursor at row 38 column 107, exactly after the last character; a 300-line CJK paste is held whole, first and last lines present, and does not submit before Enter. The cursor the terminal is told about is where the text ends, which is what an IME positions its candidate window on. Still unverified: a live IME on iTerm2 and Terminal.app (needs a human with the input source active), and terminals set to treat ambiguous-width glyphs (`·`, `—`, `…`, `›`) as double width, which would misalign the chrome — a setting, off by default.
+- **Long session repaint growth.** Fourteen turns of 45-line tool output paint 6.8 KB and 35–40 frames per turn, flat as history grows (the 18-byte drift per turn is the token count widening).
+- **Crash mid-turn.** `--continue` after a SIGKILL resumes the session with the open call repaired (see the first row for the one thing it shows wrong).
+- **Interrupt, resume folds, Ctrl+C.** Already pinned by pty e2e "cancels a running turn and returns to the prompt" and "replays history as folds"; not re-probed.
 
 Completed alignment work before this matrix existed (thinking collapse, `!`
 passthrough, /clear, /resume selector, ESC-ESC recall, todo cards, Ctrl+O

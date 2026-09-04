@@ -78,6 +78,42 @@ dsh --profile code
 
 非 TTY 降级为行读取器：无组件、不绘制。
 
+## 终端
+
+三个等级决定一次发版不能破坏什么：
+
+| 等级 | 终端 | 含义 |
+|---|---|---|
+| 一等 | iTerm2、Terminal.app、VS Code 集成终端、tmux、Windows Terminal + WSL | 这里出回归就不能发版 |
+| 二等 | Ghostty、kitty、Alacritty、Warp | 这里出回归是 bug，不阻塞发版 |
+| 尽力支持 | 原生 Windows（pwsh） | 持久终端在那里不可用；其余功能应当可用 |
+
+协议是渐进使用的：kitty 键盘协议、焦点上报、OSC 11 主题探测都会发出请求，终端答应了就生效；不答应的终端走传统路径。
+
+## 第三方端点
+
+任何 OpenAI 兼容端点都是一条 dsh 路由。在 `$DSH_HOME/settings.yaml`（默认 `~/.dsh/settings.yaml`，热加载）里声明一次，然后用 `/model` 选中：
+
+```yaml
+llm-pi-ai:
+  providers:
+    acme-gateway:
+      displayName: Acme Gateway
+      apiKeyEnv: ACME_GATEWAY_API_KEY
+      api: openai-completions
+      baseURL: https://gateway.acme.example/v1
+      compat:
+        thinkingFormat: deepseek      # 思考等级在线上的写法
+        supportsDeveloperRole: false  # 系统提示用 system 而不是 developer 角色
+        maxTokensField: max_tokens
+      models:
+        - id: acme-large
+          contextWindow: 65536
+          maxTokens: 4096
+```
+
+`/model acme-gateway/acme-large` 切换过去并保存为默认；`/status` 会显示当前路由。密钥按请求解析，顺序是：指定的环境变量、`$DSH_HOME/.credentials.yaml`、`<cwd>/.env`、`$DSH_HOME/.env`。网关拒绝请求形状时看 `compat`：完整的开关表、按模型的 `reasoningEfforts`（含 `false`，表示这个模型永远不收思考字段）以及修正单个目录模型的 `modelOverrides`，都在 `@deepseek-ai/dsh-llm-pi-ai` 的 README 里。
+
 ## 开发
 
 ```sh
