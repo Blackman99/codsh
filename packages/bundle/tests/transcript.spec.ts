@@ -804,6 +804,18 @@ describe('formatToolCardLine', () => {
     expect(formatToolCardLine(theme, 80, '●', 'Write x.ts', '', '✔')).toBe('● Write x.ts ✔')
   })
 
+  it('fits +n -m on one row when an 80-col TTY also paints the tool rule', () => {
+    // Viewport content is 80 minus the 2-col `│ ` rule; a headline that
+    // budgets the full 80 wraps and splits `+12 -3`.
+    const rule = gutter('tool', theme)
+    const inner = 80 - displayWidth(rule)
+    const title = 'Write src/very/long/path/that/would/wrap/the/stats/pager.ts'
+    const line = formatToolCardLine(theme, inner, '●', title, '+12 -3', '✔')
+    expect(displayWidth(rule) + displayWidth(line)).toBeLessThanOrEqual(80)
+    expect(line.endsWith('+12 -3 ✔')).toBe(true)
+    expect(line).not.toMatch(/\+\s*$/u)
+  })
+
   it('keeps gutter glyphs under NO_COLOR', () => {
     const plain = createTheme(false, { NO_COLOR: '1' })
     expect(gutter('user', plain)).toBe('› ')
