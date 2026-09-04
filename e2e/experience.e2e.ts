@@ -234,7 +234,7 @@ describe.skipIf(process.platform === 'win32')('the first five minutes', () => {
     // What was on screen before it is still above it. On a 24-row terminal the
     // taller chrome scrolls the lettermark off, so the welcome's help line —
     // still on screen — is the witness that the command took no viewport.
-    expect(shown.slice(0, echo).join('\n')).toContain('Tab completes')
+    expect(shown.slice(0, echo).join('\n')).toContain('/help · Tab')
   }, E2E_TEST_TIMEOUT_MS)
 
   it('gives the anchored prompt back when the reader wheels home again', async () => {

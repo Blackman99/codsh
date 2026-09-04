@@ -1,14 +1,10 @@
 /**
- * The opening banner: what answered, where, and which keys matter.
+ * The opening banner: what answered, and which keys matter.
  * @module codsh-bundle/src/banner
  */
 
-import { displayPath } from './status.ts'
 import { displayWidth, truncate } from './theme.ts'
 import type { Theme } from './theme.ts'
-
-/** The product name, shown as the framed headline. */
-const NAME = 'dsh code'
 
 /**
  * Half-block sprite of `assets/logo.svg`: a › chevron, a hull, a wave, and a
@@ -75,83 +71,113 @@ function logoLines(theme: Theme): string[] {
   return rows
 }
 
+/** How the opening banner greets this invocation. */
+export type WelcomeKind = 'first' | 'returning' | 'none'
+
 /** What the banner reports about the composed session. */
 export interface BannerFacts {
   /** Model route answering this session. */
   model: string
   /** Composed preset, absent when the deployment composes no roster. */
   preset?: string | undefined
-  /** Session workspace. */
-  cwd: string
-  /** Checked-out branch, absent outside a repository. */
-  branch?: string | undefined
-  /** Session identity, so a person can resume this exact conversation later. */
+  /** Session identity, shown on the returning greeting. */
   session: string
   /** Whether Escape can reach the surface; decides which interrupt is named. */
   readsKeys: boolean
-  /** Whether the transcript replayed a resumed conversation above the banner. */
-  resumed: boolean
+  /**
+   * Which greeting to paint.
+   * - `first` — ASCII (when wide enough) + short tips
+   * - `returning` — two muted content lines (no ASCII)
+   * - `none` — skip (`--resume` / `--continue`; replay owns the screen)
+   */
+  welcomeKind: WelcomeKind
 }
 
 /**
- * Frame one headline in a rounded box sized to its content.
- *
- * Drawn from the measured display width rather than the character count, so a
- * headline carrying wide characters still closes its own box.
- * @param headline - the text to frame, already styled.
- * @param width - display width of the headline's plain text.
- * @param theme - styling for the frame itself.
- * @returns the three box lines.
+ * Model · optional preset, matching the status composition.
  */
-function framed(headline: string, width: number, theme: Theme): string[] {
-  const rule = '─'.repeat(width + 2)
-  return [
-    theme.dim(`╭${rule}╮`),
-    `${theme.dim('│')} ${headline} ${theme.dim('│')}`,
-    theme.dim(`╰${rule}╯`),
-  ]
+function compositionOf(facts: BannerFacts): string {
+  return [facts.model, ...facts.preset === undefined ? [] : [facts.preset]].join(' · ')
+}
+
+/**
+ * Decide the greeting kind.
+ *
+ * Resume maps to `'none'` (replay owns the screen). Otherwise a prior session
+ * in this workspace — or an explicit `/clear` paint — is `'returning'`; a
+ * true first run is `'first'`.
+ * @param resumeOrClear - at boot: `config.resume !== ''`; after `/clear`: pass
+ *   `false` and set `priorInWorkspace` true (or call with clear semantics via
+ *   the second overload path used by boot: `resolveWelcomeKind(false, prior)`).
+ * @param priorInWorkspace - true when this cwd already has a prior session.
+ */
+export function resolveWelcomeKind(resumeOrClear: boolean, priorInWorkspace: boolean): WelcomeKind {
+  // Boot path: first arg is `config.resume !== ''`. When true → none.
+  // /clear path hardcodes welcomeKind: 'returning' and does not call this.
+  // The existing boot call is resolveWelcomeKind(false, prior) after skipping resume.
+  if (resumeOrClear) return 'none'
+  return priorInWorkspace ? 'returning' : 'first'
+}
+
+/**
+ * Shorten a session id so `session <id> · Tab · ⇧Tab plan` fits `columns`.
+ * Prefers trimming the id over dropping the tip suffix.
+ */
+function fitSessionId(session: string, columns: number): string {
+  const prefix = 'session '
+  const suffix = ' · Tab · ⇧Tab plan'
+  const budget = columns - displayWidth(prefix) - displayWidth(suffix)
+  if (budget <= 0) return ''
+  if (displayWidth(session) <= budget) return session
+  // Session ids are ASCII; character length equals display width.
+  if (budget < 2) return session.slice(0, budget)
+  return `${session.slice(0, budget - 1)}…`
+}
+
+/**
+ * Returning welcome: two content lines + trailing blank. No ASCII.
+ */
+function returningLines(facts: BannerFacts, theme: Theme, columns: number): string[] {
+  const line1 = truncate(
+    `${theme.agent('✻')}${theme.muted(` codsh · ${facts.model} · /help`)}`,
+    columns,
+  )
+  const id = fitSessionId(facts.session, columns)
+  const line2 = truncate(theme.muted(`session ${id} · Tab · ⇧Tab plan`), columns)
+  return [line1, line2, '']
+}
+
+/**
+ * First-run welcome: ASCII whale when the TTY is wide enough, then short tips.
+ */
+function firstLines(facts: BannerFacts, theme: Theme, columns: number): string[] {
+  const composition = compositionOf(facts)
+  const interrupt = facts.readsKeys ? 'ESC' : 'Ctrl-C'
+  const welcome = truncate(
+    `${theme.agent('✻')}${theme.muted(` Welcome to codsh · ${composition}`)}`,
+    columns,
+  )
+  const tips = truncate(
+    theme.muted(`/help · Tab · ⇧Tab plan · ${interrupt} · /exit`),
+    columns,
+  )
+  // A terminal wide enough gets the mark. Off a terminal (or squeezed) the
+  // short tips still greet without the lettermark.
+  if (facts.readsKeys && columns >= Math.max(LOGO_WIDTH + 2, 40)) {
+    return ['', ...logoLines(theme), '', welcome, tips, '']
+  }
+  return [welcome, tips, '']
 }
 
 /**
  * Render the opening banner.
  * @param facts - what to report.
- * @param theme - styling for the frame and the detail lines.
- * @param columns - display columns available; a narrow terminal loses the frame.
- * @returns the lines to print, ending with a blank separator.
+ * @param theme - styling; `✻` via `agent`, everything else `muted`.
+ * @param columns - display columns available; no line may exceed them.
+ * @returns the lines to print (empty when `welcomeKind` is `none`).
  */
 export function bannerLines(facts: BannerFacts, theme: Theme, columns: number): string[] {
-  const composition = [facts.model, ...facts.preset === undefined ? [] : [facts.preset]].join(' · ')
-  const where = facts.branch === undefined
-    ? displayPath(facts.cwd)
-    : `${displayPath(facts.cwd)} (${facts.branch})`
-  const interrupt = facts.readsKeys ? 'ESC' : 'Ctrl-C'
-  const plain = `${NAME} · ${composition}`
-  const headline = `${theme.bold(NAME)}${theme.dim(` · ${composition}`)}`
-  const details = [
-    theme.dim(`  ${truncate(where, columns - 2)}`),
-    theme.dim(`  session ${facts.session}${facts.resumed ? ' (resumed)' : ''}`),
-    '',
-    theme.dim(truncate(`  /help for commands · Tab completes · ⇧Tab plan mode · ${interrupt} interrupts · /exit leaves`, columns)),
-    '',
-  ]
-  // A terminal wide enough gets the mark; a resumed session skips it — the
-  // conversation being continued matters more than the greeting. Off a
-  // terminal (or squeezed) the compact framed headline still says everything.
-  if (facts.readsKeys && !facts.resumed && columns >= Math.max(LOGO_WIDTH + 2, 40)) {
-    return [
-      '',
-      ...logoLines(theme),
-      '',
-      truncate(` ${theme.bold('✻ Welcome to codsh')}${theme.dim(` · ${composition}`)}`, columns),
-      '',
-      ...details,
-    ]
-  }
-  // The frame costs four columns; below that the headline is shown plain rather
-  // than wrapped into a broken box.
-  const framing = displayWidth(plain) + 4 <= columns
-  return [
-    ...framing ? framed(headline, displayWidth(plain), theme) : [truncate(plain, columns)],
-    ...details,
-  ]
+  if (facts.welcomeKind === 'none') return []
+  if (facts.welcomeKind === 'returning') return returningLines(facts, theme, columns)
+  return firstLines(facts, theme, columns)
 }
