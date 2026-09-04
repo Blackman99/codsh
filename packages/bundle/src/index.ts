@@ -64,6 +64,16 @@ import { Prompt } from './prompt.ts'
 import { shapeResume } from './resume.ts'
 import type { ResumeCandidate } from './resume.ts'
 import { dshHomePath } from '@deepseek-ai/dsh-home-paths'
+import {
+  DEFAULT_DENSITY,
+  UI_PREFS_FILE,
+  densityReport,
+  loadDensity,
+  parseDensity,
+  saveDensity,
+  thinkingStreamPreview,
+  type Density,
+} from './density.ts'
 import { installPackagedPreset } from './preset-install.ts'
 import { TerminalQuestions } from './questions.ts'
 import { userShell } from './bang.ts'
@@ -608,10 +618,12 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
   // `/clear` and `/resume` swap the session under a running surface, so the
   // agent, its handle, and its presenter-bound transcript live in one mutable
   // ref that every closure reads through.
+  const uiPrefsPath = dshHomePath(UI_PREFS_FILE)
+  let density: Density = await loadDensity(uiPrefsPath) ?? DEFAULT_DENSITY
   const live = {
     handle: composed.handle,
     agent: composed.handle.agent,
-    transcript: new Transcript({ theme, columns: io.console.columns, cwd }, presentersFor(ctx, composed.handle.agent)),
+    transcript: new Transcript({ theme, columns: io.console.columns, cwd, density }, presentersFor(ctx, composed.handle.agent)),
   }
   /** Nested view of a child subagent session; Esc restores the parent. */
   let viewing: { session: Session; transcript: Transcript } | undefined
@@ -784,6 +796,12 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
       const current = presets.current(live.agent.session.events)
       return offer(presets.names.map(name => ({ value: name, detail: name === current ? 'current' : '' })))
     }
+    if (command === 'ui') {
+      return offer([
+        { value: 'compact', detail: density === 'compact' ? 'current' : 'tight chrome' },
+        { value: 'comfortable', detail: density === 'comfortable' ? 'current' : 'roomier transcript' },
+      ])
+    }
     if (command === 'model') {
       const current = selection.current
       const exact = offer(modelCatalog.map(entry => ({
@@ -851,6 +869,13 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
   // The keys a first session most needs, on the hint row, while typing too:
   // the placeholder leaves with the first character, and `?` opens the rest.
   prompt.setLegend(theme.muted('  ? shortcuts'))
+  prompt.setDensity(density)
+  const applyDensity = (next: Density): void => {
+    density = next
+    live.transcript.setDensity(next)
+    viewing?.transcript.setDensity(next)
+    prompt.setDensity(next)
+  }
   // The baseline the indicator's token figure counts from, reset per turn.
   let turnBaseTokens = 0
   // The round a workflow is on. A ralph loop spends minutes inside one round,
@@ -951,6 +976,24 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
       name: 'status',
       description: 'show the model, composition, permissions, and token usage',
       handler: () => ({ kind: 'success', text: statusReport(facts(branch), live.agent.session.id) }),
+    }))
+    disposers.push(commands.register({
+      name: 'ui',
+      description: 'set transcript density: compact (default) or comfortable',
+      input: { hint: '[compact|comfortable]' },
+      handler: async ({ rawInput }) => {
+        const typed = rawInput.trim()
+        if (typed === '') return { kind: 'success', text: densityReport(density) }
+        const next = parseDensity(typed)
+        if (next === undefined) return { kind: 'error', text: 'usage: /ui compact|comfortable' }
+        applyDensity(next)
+        try {
+          await saveDensity(uiPrefsPath, next)
+        } catch {
+          // Session still switched; next boot falls back to the last readable file.
+        }
+        return { kind: 'success', text: densityReport(next) }
+      },
     }))
     disposers.push(commands.register({
       name: 'update',
@@ -1464,7 +1507,7 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
     }
     viewing = {
       session,
-      transcript: new Transcript({ theme, columns: io.console.columns, cwd }, presentersFor(ctx, live.agent)),
+      transcript: new Transcript({ theme, columns: io.console.columns, cwd, density }, presentersFor(ctx, live.agent)),
     }
     spinner.pause()
     io.console.clearScreen()
@@ -1475,7 +1518,7 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
   const exitView = (): void => {
     if (viewing === undefined) return
     viewing = undefined
-    live.transcript = new Transcript({ theme, columns: io.console.columns, cwd }, presentersFor(ctx, live.agent))
+    live.transcript = new Transcript({ theme, columns: io.console.columns, cwd, density }, presentersFor(ctx, live.agent))
     io.console.clearScreen()
     replay(live.agent.session, live.transcript, io, theme)
     refreshStatus()
@@ -1565,7 +1608,12 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
         const step = thinking.push(chunk.text)
         // Collected, not printed: only the line being thought shows, live.
         thinkingLines.push(...step.lines)
-        prompt.setStreaming(step.live ?? thinkingLines.at(-1) ?? theme.dim('✻ thinking'))
+        prompt.setStreaming(thinkingStreamPreview(
+          density,
+          thinkingLines,
+          step.live,
+          theme.dim('✻ thinking'),
+        ))
         return
       }
       if (chunk.type !== 'text-delta') return
@@ -1690,7 +1738,7 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
     prompt.setHint(undefined)
     live.handle = next
     live.agent = next.agent
-    live.transcript = new Transcript({ theme, columns: io.console.columns, cwd }, presentersFor(ctx, next.agent))
+    live.transcript = new Transcript({ theme, columns: io.console.columns, cwd, density }, presentersFor(ctx, next.agent))
     // The viewport buffer is the RETIRED session's transcript; left in place,
     // /clear would clear nothing visible and /resume would replay under it.
     io.console.clearScreen()
