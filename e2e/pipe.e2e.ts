@@ -85,12 +85,12 @@ describe('dsh code (real profile, keyless model)', () => {
     // shown once: the pending card names the file, and the result adds only its
     // body. (The banner still prints the workspace itself, one line above.)
     const card = run.stdout.split('\n').filter(line => line.includes('note.txt'))
-    expect(card).toEqual(['● Write note.txt'])
+    // Collapsed ToolCard one-liner (gutter + title + stats + status); body stays folded.
+    expect(card).toEqual(['│ ● Write note.txt +1 -0 ✔'])
     // Print mode serves scripts: the task text came from the caller's own
     // command line, so it is not echoed back into the output.
     expect(run.stdout).not.toContain('› create the note')
-    // The write tool's own diff presenter drives the body.
-    expect(run.stdout).toContain('+ CODE_CLI_ROUND_TRIP')
+    expect(run.stdout).not.toContain('+ CODE_CLI_ROUND_TRIP')
     expect(run.stdout).toContain('CODE_CLI_CALL_OK')
     expect(run.written).toBe('CODE_CLI_ROUND_TRIP\n')
     expect(run.exitCode).toBe(0)
@@ -263,7 +263,7 @@ describe('dsh code (real profile, keyless model)', () => {
 
     // Collapsed by default: the transcript keeps a one-line summary, never the
     // pages of deliberation, and the summary lands before the answer.
-    expect(run.stdout).toMatch(/✻ thought for [\d.]+s · \+\d+ lines/u)
+    expect(run.stdout).toMatch(/✻ thought for [\d.]+s/u)
     expect(run.stdout).not.toContain('weighing the options carefully')
     expect(run.stdout.indexOf('✻ thought for')).toBeLessThan(run.stdout.indexOf('CODE_CLI_ANSWER'))
     expect(countOf(run.stdout, 'CODE_CLI_ANSWER after thinking')).toBe(1)
