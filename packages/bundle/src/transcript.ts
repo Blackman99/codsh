@@ -747,11 +747,9 @@ export class Transcript {
       // Always fold the full hunks; optional reader when the expanded form is large.
       const soft = capped(hunks, MAX_DIFF_LINES, 'click reads it · Ctrl+O expands')
       if (soft.full !== undefined) this.page = unifiedDiffText(view.diffs, path => this.relative(path))
-      return {
-        suffix: stats,
-        body: [],
-        full: hunks.length === 0 ? undefined : hunks,
-      }
+      return hunks.length === 0
+        ? { suffix: stats, body: [] }
+        : { suffix: stats, body: [], full: hunks }
     }
     if (view?.card === 'terminal') {
       const suffix = view.signal !== undefined
