@@ -818,6 +818,9 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
     // read lives here so the prompt module stays pure enough to test.
     readClipboardImage: () => readClipboardImage(process.env),
   }, 'Ask anything · / for commands · $ for skills · ! shell · @ for files · ⇧Tab plan mode')
+  // The keys a first session most needs, on the hint row, while typing too:
+  // the placeholder leaves with the first character, and `?` opens the rest.
+  prompt.setLegend(theme.dim('  ? shortcuts · ⇧Tab plan · Ctrl+T todos · Ctrl+O folds'))
   // The baseline the indicator's token figure counts from, reset per turn.
   let turnBaseTokens = 0
   // The round a workflow is on. A ralph loop spends minutes inside one round,

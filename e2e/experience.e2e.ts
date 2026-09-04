@@ -818,3 +818,23 @@ describe.skipIf(process.platform === 'win32')('the first five minutes', () => {
     expect(rows.some(row => row.includes('weighing the options carefully'))).toBe(true)
   }, E2E_TEST_TIMEOUT_MS)
 })
+
+describe.skipIf(process.platform === 'win32')('the key legend (real PTY)', () => {
+  it('keeps the key legend under the box while typing', async () => {
+    const output = await drivePty('write', [
+      ['Welcome to codsh', 'legend typing test', 400],
+      ['legend typing test', ENTER, 400],
+      ['CODE_CLI_CALL_OK', `/exit${ENTER}`, 300],
+    ])
+    const empty = screenAt(output, '? shortcuts').alternate
+    expect(empty.some(row => row.includes('? shortcuts · ⇧Tab plan · Ctrl+T todos · Ctrl+O folds'))).toBe(true)
+    // The placeholder left with the first character; the legend did not.
+    const typing = screenAt(output, 'legend typing test').alternate
+    expect(typing.some(row => row.includes('› legend typing test'))).toBe(true)
+    expect(typing.some(row => row.includes('Ask anything'))).toBe(false)
+    expect(typing.some(row => row.includes('? shortcuts'))).toBe(true)
+    // Same chrome in both frames: the legend row is where it was, so the box is too.
+    const legendRow = (rows: string[]): number => rows.findIndex(row => row.includes('? shortcuts'))
+    expect(legendRow(typing)).toBe(legendRow(empty))
+  }, E2E_TEST_TIMEOUT_MS)
+})

@@ -130,6 +130,14 @@ export class Prompt {
   private pastingImage = false
   /** The working indicator shown under the box. */
   private hint: string | undefined
+  /**
+   * What the hint row says when nothing else needs it: the key legend.
+   *
+   * With a legend the hint row is always there, so a hint, a flash, a find,
+   * or a hover replaces it instead of adding a row — the box never moves.
+   * Without one (a pipe, a test that set none) the row is absent as before.
+   */
+  private legend: string | undefined
   /** A short-lived notice that borrows the hint row, e.g. the copy toast. */
   private flash: string | undefined
   /** What the pointer is resting on, borrowing the hint row while it rests. */
@@ -264,6 +272,16 @@ export class Prompt {
    * Set the working indicator under the box.
    * @param text - the text, or undefined to drop the row.
    */
+  /**
+   * Set the legend the hint row falls back to.
+   * @param text - the legend, or undefined for no row when nothing else needs one.
+   */
+  setLegend(text: string | undefined): void {
+    if (text === this.legend) return
+    this.legend = text
+    this.render()
+  }
+
   setHint(text: string | undefined): void {
     if (text === this.hint) return
     this.hint = text
@@ -1183,10 +1201,13 @@ export class Prompt {
     // Flash, find, and hover borrow an existing chrome row — the hint if one
     // is up, otherwise the status — so appearing cannot grow the region and
     // jump the box. Status is truncated at paint so a resize can grow it back.
+    // The legend keeps the row while the box is up; under a selector the
+    // keys it names are not the ones that apply.
+    const hint = this.hint ?? (this.select_ === undefined ? this.legend : undefined)
     const overlay = this.flash ?? this.findRow(columns) ?? this.hover
     if (overlay !== undefined) rows.push(overlay)
-    else if (this.hint !== undefined) rows.push(this.hint)
-    if (this.status !== undefined && (overlay === undefined || this.hint !== undefined)) {
+    else if (hint !== undefined) rows.push(truncate(hint, columns))
+    if (this.status !== undefined && (overlay === undefined || hint !== undefined)) {
       rows.push(truncate(this.status, columns))
     }
     this.chromeHeight = rows.length

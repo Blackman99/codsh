@@ -1003,3 +1003,53 @@ describe('sources', () => {
     expect(commands.mock.calls.length).toBeGreaterThan(1)
   })
 })
+
+describe('the key legend', () => {
+  const build = () => {
+    const console = fakeConsole(true)
+    const prompt = new Prompt(console as never, theme, sources,
+      { interrupt: () => {}, escape: () => {}, eof: () => {} }, 'Ask anything')
+    prompt.setStatus('status')
+    prompt.setLegend('  ? shortcuts · ⇧Tab plan')
+    void prompt.read()
+    const rows = (): string[] => console.draws.at(-1)?.rows ?? []
+    return { prompt, console, rows }
+  }
+
+  it('sits on the hint row under the box, empty or being typed in', () => {
+    const { console, rows } = build()
+    expect(rows().some(row => row.includes('? shortcuts'))).toBe(true)
+    const height = rows().length
+    for (const character of 'abc') console.press({ kind: 'text', text: character })
+    expect(rows().some(row => row.includes('› abc'))).toBe(true)
+    expect(rows().some(row => row.includes('? shortcuts'))).toBe(true)
+    expect(rows().length).toBe(height)
+  })
+
+  it('gives the row to a hint or a flash and takes it back, without moving the box', () => {
+    const { prompt, rows } = build()
+    const height = rows().length
+    prompt.setHint('  ESC again to edit your previous message')
+    expect(rows().some(row => row.includes('ESC again'))).toBe(true)
+    expect(rows().some(row => row.includes('? shortcuts'))).toBe(false)
+    expect(rows().length).toBe(height)
+    prompt.setHint(undefined)
+    expect(rows().some(row => row.includes('? shortcuts'))).toBe(true)
+    prompt.setFlash('  ✓ copied')
+    expect(rows().some(row => row.includes('✓ copied'))).toBe(true)
+    expect(rows().some(row => row.includes('? shortcuts'))).toBe(false)
+    expect(rows().length).toBe(height)
+    // The status row stays under whichever of them holds the hint row.
+    expect(rows().at(-1)).toContain('status')
+  })
+
+  it('steps aside for a selector, whose keys are its own', async () => {
+    const { prompt, console, rows } = build()
+    const choosing = prompt.select({ title: 'Allow bash?', options: [{ label: 'Yes' }, { label: 'No' }] })
+    expect(rows().some(row => row.includes('Allow bash?'))).toBe(true)
+    expect(rows().some(row => row.includes('? shortcuts'))).toBe(false)
+    console.press({ kind: 'enter' })
+    await choosing
+    expect(rows().some(row => row.includes('? shortcuts'))).toBe(true)
+  })
+})
