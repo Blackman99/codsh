@@ -349,3 +349,31 @@ describe('the bell and focus', () => {
     expect(keys).toEqual(['text'])
   })
 })
+
+describe('notifications through the terminal', () => {
+  it('writes OSC 9 only while the person is away, like the bell', async () => {
+    const { console: term, input, output } = build(true)
+    const stop = term.onKey(() => {})
+    // Never reported: away, as far as anyone can tell.
+    expect(term.away).toBe(true)
+    expect(term.notify('waiting for approval')).toBe(true)
+    expect(output.text).toContain('\u001B]9;waiting for approval\u0007')
+    input.write('\u001B[I')
+    await settle()
+    expect(term.away).toBe(false)
+    expect(term.notify('ignored')).toBe(false)
+    expect(output.text).not.toContain('ignored')
+    input.write('\u001B[O')
+    await settle()
+    expect(term.notify('back')).toBe(true)
+    expect(output.text).toContain('\u001B]9;back\u0007')
+    stop()
+  })
+
+  it('sends nothing off a TTY', () => {
+    const { console: term, output } = build(false)
+    expect(term.away).toBe(false)
+    expect(term.notify('piped')).toBe(false)
+    expect(output.text).not.toContain(']9;')
+  })
+})

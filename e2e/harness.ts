@@ -226,6 +226,9 @@ export function resolveLaunch(options: {
       // Pinned: rendering assertions must not depend on the runner's TERM —
       // CI machines report no 256-color support and the palette forks on it.
       TERM: 'xterm-256color',
+      // Pinned: a notification must go to the PTY as OSC 9, never to the
+      // runner's own desktop through the terminal the suite happens to run in.
+      TERM_PROGRAM: 'codsh-e2e',
       DSH_HOME: options.home,
       DSH_TELEMETRY_DISABLED: '1',
       // Pinned: a suite must not depend on what npm currently publishes. The

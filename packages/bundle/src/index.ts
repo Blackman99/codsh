@@ -47,6 +47,7 @@ import type {} from '@deepseek-ai/dsh-user-questions'
 import type {} from '@deepseek-ai/cordis-plugin-loader'
 import type {} from '@deepseek-ai/dsh-cmdline'
 import { TerminalApproval, answerForKey, nameCall, type ApprovalAnswer } from './approval.ts'
+import { notificationText, planNotification, runNotificationCommand } from './notify.ts'
 import { PermissionRules } from './permissions.ts'
 import { bannerLines } from './banner.ts'
 import { createCompleter, expandSkillGestures, fuzzyScore } from './completion.ts'
@@ -106,6 +107,8 @@ export interface Config {
   print: boolean
   /** Ring the terminal bell when a decision waits or a long turn ends. */
   bell: boolean
+  /** Send a desktop notification at the same moments, while the window is unfocused. */
+  notify: boolean
   /** How long a `!` passthrough command may run before it is killed. */
   bangTimeoutMs: number
   /** Output lines a `!` passthrough keeps before summarizing the rest. */
@@ -118,6 +121,7 @@ export const Config: z<Config> = z.object({
   preset: z.string().default(''),
   print: z.boolean().default(false),
   bell: z.boolean().default(true),
+  notify: z.boolean().default(true),
   bangTimeoutMs: z.number().default(120_000),
   bangOutputLines: z.number().default(200),
 })
@@ -1519,11 +1523,22 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
   })
 
   /** Pause the indicator around a decision, and resume it if work continues. */
-  const whileDeciding = async <T>(decide: () => Promise<T>): Promise<T> => {
+  // The bell's moments, made visible from another window: only while the
+  // terminal says the person is away, and only if the composition wants it.
+  const notifyAway = (body: string): void => {
+    if (!config.notify || !io.console.away) return
+    const text = notificationText(body)
+    const plan = planNotification('codsh', text, process.env, process.platform)
+    if (plan.osc) io.console.notify(text)
+    runNotificationCommand(plan)
+  }
+
+  const whileDeciding = async <T>(decide: () => Promise<T>, waitingFor: string): Promise<T> => {
     // Paused, not stopped: the decision is part of the turn, and its clock.
     spinner.pause()
     // A decision is the moment a person has to come back to the terminal.
     if (config.bell) io.console.bell()
+    notifyAway(`waiting for ${waitingFor}`)
     try {
       return await decide()
     } finally {
@@ -1573,7 +1588,7 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
         if (outcome.kind !== 'chosen') return undefined
         const [chosen] = outcome.indices
         return answers[chosen ?? -1] ?? 'reject'
-      }),
+      }, `approval: ${nameCall(toolName, summary)}`),
     },
     theme,
     (line) => { prompt.write(line) },
@@ -1609,7 +1624,7 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
       (line) => { prompt.write(line) },
       io.console.readsKeys ? async (spec, signal) => prompt.select(spec, signal) : undefined,
     )
-    questions.registerProvider({ ask: async request => whileDeciding(() => terminalQuestions.ask(request)) })
+    questions.registerProvider({ ask: async request => whileDeciding(() => terminalQuestions.ask(request), 'your answer') })
   }
 
   // The controller in flight belongs to the slash command being executed, so
@@ -1812,7 +1827,10 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
     const spent = (totalTokens(facts(branch).usage) ?? 0) - before
     const elapsedMs = performance.now() - started
     // A long turn ending is the other moment worth calling the person back.
-    if (config.bell && elapsedMs > BELL_TURN_MS) io.console.bell()
+    if (elapsedMs > BELL_TURN_MS) {
+      if (config.bell) io.console.bell()
+      notifyAway(`finished in ${formatTurnTime(elapsedMs)}`)
+    }
     const cost = spent > 0 ? ` · ${formatTokens(spent)} tokens` : ''
     prompt.write(theme.dim(`  ${formatTurnTime(elapsedMs, turnThinkingMs)}${cost}`))
     prompt.write('')

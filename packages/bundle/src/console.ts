@@ -748,6 +748,26 @@ export class TerminalConsole {
   }
 
   /**
+   * Whether the person is away, as far as the terminal has said: focus
+   * reported out, or never reported at all — the same reading the bell takes.
+   */
+  get away(): boolean {
+    return this.isTty && this.focused !== true
+  }
+
+  /**
+   * Send one notification through the terminal (OSC 9), the way the bell
+   * rings: only while the person is away.
+   * @param text - one line, already free of control characters.
+   * @returns whether the sequence was written.
+   */
+  notify(text: string): boolean {
+    if (!this.away) return false
+    this.output.write(`\u001B]9;${text}\u0007`)
+    return true
+  }
+
+  /**
    * Read one line from a piped stream.
    *
    * Only the non-terminal shape reads this way; with the keyboard owned, input

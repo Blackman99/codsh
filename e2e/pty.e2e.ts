@@ -890,6 +890,8 @@ describe.skipIf(process.platform === 'win32')('dsh code Escape (real PTY)', () =
     const bels = (held.match(/\u0007/gu) ?? []).length
     const oscs = (held.match(/\u001B\]/gu) ?? []).length
     expect(bels).toBe(oscs)
+    // Nor did it notify: focused, the person is already here.
+    expect(held).not.toContain('\u001B]9;')
     // The light answer swapped the secondary-text shade for later frames.
     expect(held).toContain('\u001B[38;5;242m')
     // And nothing of the reports leaked into visible text.
@@ -1141,5 +1143,18 @@ describe.skipIf(process.platform === 'win32')('undo and redo (real PTY)', () => 
     expect(undone).toMatch(/› hello\s+│/u)
     expect(undone).not.toContain('pasted words')
     expect(redone).toContain('› hello pasted words')
+  }, E2E_TEST_TIMEOUT_MS)
+})
+
+describe.skipIf(process.platform === 'win32')('desktop notifications (real PTY)', () => {
+  it('notifies through the terminal while the window is unfocused, naming what waits', async () => {
+    const output = await drivePty('bash', [
+      // The window reports focus out, then a turn asks for approval.
+      ['/help for commands', `${ESCAPE}[Orun it${ENTER}`, 300],
+      ['Allow bash', 'n', 400],
+      ['CODE_CLI_CALL_DENIED', `/exit${ENTER}`, 400],
+    ])
+    const notices = [...output.matchAll(/\u001B\]9;([^\u0007]*)\u0007/gu)].map(match => match[1])
+    expect(notices).toEqual(['waiting for approval: bash: printf CODE_CLI_ROUND_TRIP'])
   }, E2E_TEST_TIMEOUT_MS)
 })
