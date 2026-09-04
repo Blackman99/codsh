@@ -49,6 +49,7 @@ import type {} from '@deepseek-ai/dsh-cmdline'
 import { TerminalApproval, answerForKey, nameCall, type ApprovalAnswer } from './approval.ts'
 import { notificationText, planNotification, runNotificationCommand } from './notify.ts'
 import { PermissionRules } from './permissions.ts'
+import { rewindPoints, type RewindPoint } from './rewind.ts'
 import { bannerLines } from './banner.ts'
 import { createCompleter, expandSkillGestures, fuzzyScore } from './completion.ts'
 import { expandTemplate, loadCustomCommands } from './custom-commands.ts'
@@ -500,6 +501,14 @@ interface ComposedSession {
   createAnother(): Promise<AgentHandle>
   /** Reopen a persisted session the same way — `/resume`'s switch. */
   resumeAnother(id: SessionId): Promise<AgentHandle>
+  /**
+   * Compose a sibling seeded with a prefix of `source`'s log — `/rewind`'s
+   * fork. The log is append-only, so a rewind is a new session that starts
+   * where the old one stood at `boundary`, with the old one as its parent.
+   * @param source - the session to fork.
+   * @param boundary - the inclusive seq the seed runs through.
+   */
+  forkAnother(source: Session, boundary: number): Promise<AgentHandle>
 }
 
 /**
@@ -531,11 +540,25 @@ async function compose(ctx: Context, config: Config, cwd: string): Promise<Compo
     setup,
   })
   const resumeAnother = (id: SessionId): Promise<AgentHandle> => agents.resume({ resumeSessionId: id, agentOptions, setup })
+  const forkAnother = (source: Session, boundary: number): Promise<AgentHandle> => {
+    // The factory's own fork path: a balanced completed-turn prefix as the
+    // seed, lineage in the header. The store's live `fork` makes a child no
+    // agent can then be resumed onto, so it is not the route.
+    const seed = source.events.filter(event => event.seq <= boundary)
+    return agents.create({
+      sessionId: SessionId(`session-${randomUUID()}`),
+      meta: { cwd, parentSession: source.id, seedLength: seed.length, ...preset === undefined ? {} : { agentPreset: preset.id } },
+      seed,
+      agentOptions,
+      setup,
+    })
+  }
   const composed = {
     model: selection.model,
     selection: selected,
     createAnother,
     resumeAnother,
+    forkAnother,
     ...preset === undefined ? {} : { presetId: preset.id },
   }
   if (config.resume === '') return { handle: await createAnother(), ...composed }
@@ -994,6 +1017,51 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
           kind: 'success',
           text: `codsh ${status.latest} installed · the code profile now carries ${spec} · /exit, then start codsh again`,
         }
+      },
+    }))
+    disposers.push(commands.register({
+      name: 'rewind',
+      description: 'fork the conversation from before an earlier turn',
+      input: { hint: '[turn]' },
+      handler: async ({ rawInput, signal }) => {
+        // The log is append-only; a rewind is a fork of it through the event
+        // before the chosen turn opened, and the fork is what the session
+        // becomes. The original stays where /resume can find it.
+        if (live.agent.status === 'running') return { kind: 'error', text: 'a turn is running — interrupt it before rewinding' }
+        const points = rewindPoints(live.agent.session.events)
+        if (points.length === 0) return { kind: 'success', text: 'no turns to rewind yet' }
+        const typed = rawInput.trim()
+        let point: RewindPoint | undefined
+        if (typed !== '') {
+          const ordinal = Number(typed)
+          if (!Number.isInteger(ordinal) || ordinal < 1 || ordinal > points.length) {
+            return { kind: 'error', text: `turn must be between 1 and ${String(points.length)}` }
+          }
+          point = points[ordinal - 1]
+        } else if (!io.console.readsKeys) {
+          return { kind: 'success', text: [...points.map(entry => `${String(entry.turn)}. ${entry.summary}`), '/rewind <turn> forks the conversation from before that turn'].join('\n') }
+        } else {
+          // Newest first: the turn most often taken back is the last one.
+          const offered = [...points].reverse()
+          const outcome = await prompt.select({
+            title: 'Rewind to before turn',
+            options: offered.map(entry => ({ label: `${String(entry.turn)}. ${entry.summary}` })),
+            filterable: true,
+          }, signal)
+          if (outcome.kind !== 'chosen') return { kind: 'success', text: 'nothing rewound' }
+          point = offered[outcome.indices[0] ?? -1]
+        }
+        if (point === undefined) return { kind: 'success', text: 'nothing rewound' }
+        if (point.boundary === undefined) return { kind: 'error', text: 'nothing precedes turn 1 — /clear starts over instead' }
+        const source = live.agent.session
+        let next: AgentHandle
+        try {
+          next = await composed.forkAnother(source, point.boundary)
+        } catch (error) {
+          return { kind: 'error', text: `could not rewind: ${error instanceof Error ? error.message : String(error)}` }
+        }
+        await switchTo(next, true)
+        return { kind: 'success', text: `↶ rewound to before turn ${String(point.turn)} · now on ${next.agent.session.id} · ${source.id} stays in /resume` }
       },
     }))
     disposers.push(commands.register({

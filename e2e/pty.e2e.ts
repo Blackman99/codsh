@@ -1175,3 +1175,33 @@ describe.skipIf(process.platform === 'win32')('compaction feedback (real PTY)', 
     expect(plain).toMatch(/Compacted \d+ history items/u)
   }, E2E_TEST_TIMEOUT_MS)
 })
+
+describe.skipIf(process.platform === 'win32')('rewind (real PTY)', () => {
+  it('forks the conversation from before a chosen turn and continues there', async () => {
+    const output = await drivePty('write', [
+      ['/help for commands', `first request${ENTER}`, 300],
+      ['CODE_CLI_CALL_OK', `second request${ENTER}`, 400],
+      ['CODE_CLI_CALL_OK', `third request${ENTER}`, 400],
+      // The picker opens newest first; Enter takes back the last turn.
+      ['CODE_CLI_CALL_OK', `/rewind${ENTER}`, 400],
+      ['Rewind to before turn', ENTER, 400],
+      // The fork is a live session: a new prompt runs on it. Its write may be
+      // refused — the new agent never read the file the discarded turn wrote —
+      // so the turn ending is the assertion, not the tool's outcome.
+      ['rewound to before turn 3', `fourth request${ENTER}`, 600],
+      ['CODE_CLI_CALL_', `/exit${ENTER}`, 400],
+    ], { timeoutMs: 60_000 })
+    const plain = output.replaceAll(/\u001B\[[0-9;?]*[A-Za-z]/gu, '')
+    const rewound = screenAt(output, 'rewound to before turn 3').alternate
+    // The report wraps at 120 columns, so it is read off the screen with its
+    // padding squeezed out: two session ids, and not the same one twice.
+    const said = /nowon(session-[\w-]+)·(session-[\w-]+)staysin\/resume/u.exec(rewound.join('').replaceAll(/\s+/gu, ''))
+    expect(said).not.toBeNull()
+    expect(said?.[1]).not.toBe(said?.[2])
+    // The replayed fork carries the first two turns and not the third.
+    expect(rewound.some(row => row.includes('› first request'))).toBe(true)
+    expect(rewound.some(row => row.includes('› second request'))).toBe(true)
+    expect(rewound.some(row => row.includes('› third request'))).toBe(false)
+    expect(plain).toContain('› fourth request')
+  }, E2E_TEST_TIMEOUT_MS)
+})
