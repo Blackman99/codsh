@@ -24,6 +24,11 @@ export interface StatusFacts {
   permission?: string | undefined
   /** Whether plan mode is holding. */
   planMode: boolean
+  /**
+   * Open /ship gate number, when a GateModal owns the screen.
+   * Shown as a warn chip ahead of plan mode.
+   */
+  shipGate?: 1 | 2
   /** Session workspace. */
   cwd: string
   /** Checked-out branch, absent outside a repository. */
@@ -168,6 +173,9 @@ export function statusLine(facts: StatusFacts, theme: Theme, columns?: number): 
   // routine context stay in `/status`; only alarming headroom surfaces here.
   // Never accent on this line — accent is reserved for focus/selection.
   const sep = theme.muted(' · ')
+  const shipGate = facts.shipGate === undefined
+    ? undefined
+    : theme.warn(`ship · gate${facts.shipGate}`)
   const mode = facts.planMode ? theme.warn('plan') : undefined
   const model = theme.muted(facts.model)
   const cwd = theme.muted(
@@ -176,9 +184,11 @@ export function statusLine(facts: StatusFacts, theme: Theme, columns?: number): 
   const context = left === undefined || left > 25
     ? undefined
     : left <= 10 ? theme.err(`${left}%`) : theme.warn(`${left}%`)
-  // Drop whole segments until the line fits: cwd first, then model; keep mode
-  // and alarming context. Omit columns => full line for a later re-fit.
-  const tagged: { key: 'mode' | 'model' | 'context' | 'cwd'; text: string }[] = [
+  // Drop whole segments until the line fits: cwd first, then model; keep
+  // shipGate, mode, and alarming context. Omit columns => full line for a
+  // later re-fit.
+  const tagged: { key: 'shipGate' | 'mode' | 'model' | 'context' | 'cwd'; text: string }[] = [
+    ...shipGate === undefined ? [] : [{ key: 'shipGate' as const, text: shipGate }],
     ...mode === undefined ? [] : [{ key: 'mode' as const, text: mode }],
     { key: 'model', text: model },
     ...context === undefined ? [] : [{ key: 'context' as const, text: context }],

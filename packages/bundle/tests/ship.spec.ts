@@ -33,6 +33,12 @@ describe('SHIP_PROMPT', () => {
     expect(SHIP_PROMPT).toContain('Never report a result you did not run')
   })
 
+  it('instructs gate headers so the TUI can open GateModal', () => {
+    expect(SHIP_PROMPT).toContain('ship · gate 1/2')
+    expect(SHIP_PROMPT).toContain('ship · gate 2/2')
+    expect(SHIP_PROMPT).toContain('detail')
+  })
+
   it('makes the spec file the durable memory: status, resume, plan on disk', () => {
     // A bare /ship offers to pick up unfinished work before asking for an idea.
     expect(SHIP_PROMPT).toContain('Status line is not `shipped`')

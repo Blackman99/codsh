@@ -14,6 +14,7 @@ import { caretAt, inputBox, menuScrollFrom, menuScrollLimit, menuTargetAt, wrapB
 import { planReport, planSummary } from './plan.ts'
 import type { Plan } from './plan.ts'
 import { GUTTER } from './screen.ts'
+import { GateModal, gateChip } from './gate-modal.ts'
 import { Selector } from './selector.ts'
 import { FullscreenViewer } from './viewer.ts'
 import { truncate } from './theme.ts'
@@ -22,6 +23,7 @@ import type { EncodedImageAttachment } from '@deepseek-ai/dsh-attachment/types'
 import type { ClipboardImage } from './clipboard-image.ts'
 import type { TerminalConsole } from './console.ts'
 import type { EditorSources } from './editor.ts'
+import type { GateAction, GateModalSpec } from './gate-modal.ts'
 import type { Key } from './keys.ts'
 import type { SelectOutcome, SelectSpec, SelectorStep, SelectorTarget } from './selector.ts'
 import type { Theme } from './theme.ts'
@@ -60,6 +62,11 @@ export interface PromptHandlers {
    * prompt a fixture instead of a machine's clipboard.
    */
   readClipboardImage?(): Promise<ClipboardImage | undefined>
+  /**
+   * /ship GateModal opened or closed: refresh the MetaBar shipGate chip.
+   * @param gate - 1 or 2 while open, undefined when cleared.
+   */
+  shipGate?(gate: 1 | 2 | undefined): void
 }
 
 /**
@@ -99,6 +106,13 @@ interface ActiveView {
   dispose(): void
 }
 
+/** One /ship approval gate in progress. */
+interface ActiveGate {
+  modal: GateModal
+  resolve(action: GateAction): void
+  dispose(): void
+}
+
 /** Drives the input box and answers reads and selections. */
 /** What sits under a pointer in the region below the transcript. */
 type RegionTarget =
@@ -112,6 +126,9 @@ export class Prompt {
   private pending: Pending | undefined
   private select_: ActiveSelect | undefined
   private view_: ActiveView | undefined
+  private gate_: ActiveGate | undefined
+  /** Open /ship gate number mirrored into StatusFacts via handlers.shipGate. */
+  private shipGate_: 1 | 2 | undefined
   /**
    * Submissions made before anything asked for them.
    *
@@ -344,6 +361,21 @@ export class Prompt {
   }
 
   /**
+   * Set or clear the MetaBar `/ship` gate chip.
+   * @param gate - 1 or 2 while a GateModal is open, undefined to clear.
+   */
+  setShipGate(gate: 1 | 2 | undefined): void {
+    if (this.shipGate_ === gate) return
+    this.shipGate_ = gate
+    this.handlers.shipGate?.(gate)
+  }
+
+  /** The open /ship gate number, if any. */
+  get shipGate(): 1 | 2 | undefined {
+    return this.shipGate_
+  }
+
+  /**
    * Set the assistant line currently arriving, shown above the box.
    * @param text - the partial line, or undefined when none is open.
    */
@@ -450,6 +482,38 @@ export class Prompt {
     })
   }
 
+  /**
+   * Put one /ship approval gate on the full-screen viewer surface.
+   * @param spec - which gate, title, and body.
+   * @param signal - cancels as abort (same as Esc/n).
+   * @returns confirm | edit | abort.
+   */
+  gate(spec: GateModalSpec, signal?: AbortSignal): Promise<GateAction> {
+    if (!this.console.readsKeys || this.console.finished || signal?.aborted === true) {
+      return Promise.resolve('abort')
+    }
+    return new Promise<GateAction>((resolve) => {
+      const settle = (action: GateAction): void => {
+        const active = this.gate_
+        this.gate_ = undefined
+        active?.dispose()
+        this.setShipGate(undefined)
+        this.console.setViewer(undefined)
+        resolve(action)
+        this.render()
+      }
+      const onAbort = (): void => { settle('abort') }
+      this.gate_ = {
+        modal: new GateModal(spec),
+        resolve: settle,
+        dispose: () => { signal?.removeEventListener('abort', onAbort) },
+      }
+      this.setShipGate(gateChip(spec.kind))
+      signal?.addEventListener('abort', onAbort, { once: true })
+      this.render()
+    })
+  }
+
   /** Take the region down, so what follows lands at the bottom of the screen. */
   clear(): void {
     this.reading = false
@@ -466,6 +530,17 @@ export class Prompt {
     if (key.kind === 'interrupt') {
       this.shortcutsOpen = false
       this.handlers.interrupt()
+      return
+    }
+    const gating = this.gate_
+    if (gating !== undefined) {
+      const action = gating.modal.handleKey(key, this.theme, this.console.contentColumns, this.console.rows)
+      if (action !== undefined) {
+        // settle (stored as resolve) clears gate_/viewer/shipGate — same path as abort.
+        gating.resolve(action)
+        return
+      }
+      this.render()
       return
     }
     const viewing = this.view_
@@ -1150,6 +1225,10 @@ export class Prompt {
   private render(): void {
     if (!this.console.readsKeys) return
     const columns = this.console.contentColumns
+    if (this.gate_ !== undefined) {
+      this.console.setViewer(this.gate_.modal.frame(this.theme, columns, this.console.rows).rows)
+      return
+    }
     if (this.view_ !== undefined) {
       this.console.setViewer(this.view_.viewer.frame(this.theme, columns, this.console.rows).rows)
       return

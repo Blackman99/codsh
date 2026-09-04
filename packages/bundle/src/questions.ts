@@ -14,12 +14,17 @@ import type {
   AskUserQuestionItem,
   AskUserQuestionRequest,
 } from '@deepseek-ai/dsh-user-questions'
+import { gateTitle } from './gate-modal.ts'
 import { renderMarkdown } from './markdown.ts'
+import type { GateAction, GateKind, GateModalSpec } from './gate-modal.ts'
 import type { SelectOutcome, SelectSpec } from './selector.ts'
 import type { Theme } from './theme.ts'
 
 /** Puts one selection to the keyboard; absent on a pipe, which types instead. */
 export type SelectAsk = (spec: SelectSpec, signal?: AbortSignal) => Promise<SelectOutcome>
+
+/** Puts one /ship gate on the full-screen card; absent off a TTY. */
+export type GateAsk = (spec: GateModalSpec, signal?: AbortSignal) => Promise<GateAction>
 
 /** Reads one answer from the person. */
 export interface LineReader {
@@ -95,6 +100,52 @@ export function questionLines(question: AskUserQuestionItem, theme: Theme): stri
   return lines
 }
 
+
+/**
+ * Detect a /ship approval gate number from an ask_user_question header.
+ * Matches `ship · gate 1/2` / `ship · gate 2/2` only (middle dot optional).
+ * @param header - the question header, if any.
+ * @returns 1 or 2, or undefined when this is not a ship gate header.
+ */
+export function detectShipGate(header: string | undefined): 1 | 2 | undefined {
+  if (header === undefined) return undefined
+  // Require the full `gate N/2` token — not bare "gate 1" — so only the two /ship doors match.
+  const match = /ship\s*[·•]?\s*gate\s*([12])\/2\b/i.exec(header)
+  if (match?.[1] === '1') return 1
+  if (match?.[1] === '2') return 2
+  return undefined
+}
+
+/**
+ * Detect a /ship approval gate from the question header only.
+ *
+ * Only `/ship` doors with `header` matching `ship · gate 1/2` (or 2/2) open
+ * GateModal; every other ask_user_question stays on Selector / line-reader.
+ * @param question - the ask_user_question item.
+ * @returns which gate, or undefined when this is an ordinary question.
+ */
+export function shipGateKind(question: AskUserQuestionItem): GateKind | undefined {
+  // Header-only: only the two /ship doors open GateModal; ordinary wording stays on Selector.
+  const fromHeader = detectShipGate(question.header)
+  if (fromHeader === 1) return 'spec'
+  if (fromHeader === 2) return 'tickets'
+  return undefined
+}
+
+/**
+ * Map a gate decision onto the ask_user_question answer encoding.
+ * @param question - the question being answered.
+ * @param action - what the GateModal returned.
+ * @returns the encoded answer item.
+ */
+export function encodeGateAnswer(question: AskUserQuestionItem, action: GateAction): AskUserQuestionAnswerItem {
+  const options = question.options ?? []
+  if (action === 'abort') return { id: question.id, selected: [] }
+  if (action === 'edit') return { id: question.id, selected: [], custom: 'edit' }
+  const yes = options.find(option => /^(confirm|yes)\b/i.test(option.label))
+  return { id: question.id, selected: [yes?.label ?? options[0]?.label ?? 'Confirm'] }
+}
+
 /** Answers `ask_user_question` from the terminal. */
 export class TerminalQuestions {
   constructor(
@@ -103,6 +154,8 @@ export class TerminalQuestions {
     private readonly write: (line: string) => void,
     /** The arrow-key selection, offered only where keys can arrive. */
     private readonly select?: SelectAsk,
+    /** The /ship full-screen gate, offered only on a TTY. */
+    private readonly gate?: GateAsk,
   ) {}
 
   /**
@@ -126,6 +179,33 @@ export class TerminalQuestions {
    */
   private async one(question: AskUserQuestionItem, signal: AbortSignal | undefined): Promise<AskUserQuestionAnswerItem> {
     const options = question.options ?? []
+    const gateKind = this.gate === undefined ? undefined : shipGateKind(question)
+    if (gateKind !== undefined && this.gate !== undefined) {
+      const bodyLines = question.detail !== undefined && question.detail.trim() !== ''
+        ? question.detail.split(/\r\n|[\r\n]/u)
+        : [
+            question.question,
+            ...options.map((option, index) => {
+              const description = option.description === undefined ? '' : ` — ${option.description}`
+              return `${index + 1}. ${option.label}${description}`
+            }),
+          ]
+      const action = await this.gate({
+        kind: gateKind,
+        title: gateTitle(gateKind),
+        bodyLines,
+        recommended: 'confirm',
+      }, signal)
+      const answer = encodeGateAnswer(question, action)
+      if (action === 'confirm') {
+        this.write(this.theme.dim(`  ✓ ${answer.selected.join(', ')}`))
+      } else if (action === 'edit') {
+        this.write(this.theme.dim('  ✎ edit'))
+      } else {
+        this.write(this.theme.dim('  aborted'))
+      }
+      return answer
+    }
     if (this.select === undefined || options.length === 0) {
       for (const line of questionLines(question, this.theme)) this.write(line)
       const line = await this.reader.read(signal)
