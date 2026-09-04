@@ -1866,6 +1866,7 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
       (line) => { prompt.write(line) },
       io.console.readsKeys ? async (spec, signal) => prompt.select(spec, signal) : undefined,
       io.console.readsKeys ? async (spec, signal) => prompt.gate(spec, signal) : undefined,
+      io.console.readsKeys ? async (spec, signal) => prompt.frontier(spec, signal) : undefined,
     )
     questions.registerProvider({ ask: async request => whileDeciding(() => terminalQuestions.ask(request), 'your answer') })
   }
