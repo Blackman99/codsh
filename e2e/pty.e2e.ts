@@ -239,12 +239,15 @@ describe.skipIf(process.platform === 'win32')('dsh code Escape (real PTY)', () =
     const output = await drivePty('bash', [
       ['/help for commands', `run it${ENTER}`, 300],
       // The selector replaced the input box; Enter takes the marked default.
-      ['Allow bash?', ENTER, 400],
+      ['Allow bash', ENTER, 400],
       ['CODE_CLI_CALL_OK', `/exit${ENTER}`, 400],
     ])
 
     // Styling survives rendering now, so the codes are stripped before matching.
     const plain = output.replaceAll(/\u001B\[[0-9;?]*[A-Za-z]/gu, '')
+    // The question names the command, not only the tool: the card that shows
+    // it can be scrolled away or folded by the time the decision is asked.
+    expect(plain).toContain('Allow bash: printf')
     expect(plain).toContain('❯ 1. Yes, this time (y)')
     expect(plain).toContain('2. Yes, every bash call this session (a)')
     expect(plain).toContain('CODE_CLI_ROUND_TRIP')
@@ -253,7 +256,7 @@ describe.skipIf(process.platform === 'win32')('dsh code Escape (real PTY)', () =
   it('denies an approval through its shortcut key', async () => {
     const output = await drivePty('bash', [
       ['/help for commands', `run it${ENTER}`, 300],
-      ['Allow bash?', 'n', 400],
+      ['Allow bash', 'n', 400],
       ['CODE_CLI_CALL_DENIED', `/exit${ENTER}`, 400],
     ])
 
@@ -694,7 +697,7 @@ describe.skipIf(process.platform === 'win32')('dsh code Escape (real PTY)', () =
     const clickAlways = '\u001B[<0;6;{row:every bash}M\u001B[<0;6;{row:every bash}m'
     const run = await drivePtySteps('bash', [
       ['/help for commands', `run it${ENTER}`, 600],
-      ['Allow bash?', clickAlways, 600],
+      ['Allow bash', clickAlways, 600],
       // Still asking: the click decided nothing.
       ['', 'n', 600],
       ['', `/exit${ENTER}`, 500],
@@ -703,7 +706,7 @@ describe.skipIf(process.platform === 'win32')('dsh code Escape (real PTY)', () =
     const captured = (offset: number | undefined): string => Buffer.from(run.output).subarray(0, offset).toString()
     const afterClick = screenOf(captured(run.offsets[2]), -1, 20).alternate
     // The question is still on screen, and no row wears the pointer's mark.
-    expect(afterClick.join('\n')).toContain('Allow bash?')
+    expect(afterClick.join('\n')).toContain('Allow bash')
     expect(afterClick.some(row => row.trimStart().startsWith('\u00B7'))).toBe(false)
   }, E2E_TEST_TIMEOUT_MS)
 
@@ -876,7 +879,7 @@ describe.skipIf(process.platform === 'win32')('dsh code Escape (real PTY)', () =
       // The terminal reports focus, then answers the background question with
       // white — the decoder must consume both, never type them.
       ['/help for commands', `${ESCAPE}[I${ESCAPE}]11;rgb:ffff/ffff/ffff\u0007run the command${ENTER}`, 300],
-      ['Allow bash?', 'n', 400],
+      ['Allow bash', 'n', 400],
       ['CODE_CLI_CALL_DENIED', `/exit${ENTER}`, 400],
     ])
 
@@ -920,7 +923,7 @@ describe.skipIf(process.platform === 'win32')('dsh code Escape (real PTY)', () =
 it('paints a command that is a script as rows, never outside one', async () => {
     const output = await drivePty('heredoc', [
       ['/help for commands', `run it${ENTER}`, 300],
-      ['Allow bash?', 'n', 400],
+      ['Allow bash', 'n', 400],
       ['CODE_CLI_CALL_DENIED', `/exit${ENTER}`, 400],
     ], { columns: 76, rows: 20 })
 
@@ -934,7 +937,7 @@ it('paints a command that is a script as rows, never outside one', async () => {
     expect(held).not.toContain('\n')
 
     // The one-row summary names the command's first line...
-    const asking = screenAt(output, 'Allow bash?', 'last').alternate
+    const asking = screenAt(output, 'Allow bash', 'last').alternate
     expect(asking.some(row => row.includes("$ python3 - <<'EOF' …"))).toBe(true)
     // ...and the whole script reads as rows of the block that ran it.
     const done = screenAt(output, 'CODE_CLI_CALL_DENIED', 'last').alternate

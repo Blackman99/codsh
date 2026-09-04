@@ -675,3 +675,40 @@ describe('a subagent card that is a view', () => {
     expect(transcript.takeEnter()).toBeUndefined()
   })
 })
+
+describe('naming a pending call', () => {
+  it('names a terminal call by its first command line', () => {
+    const call = (): ToolCallView => ({ card: 'terminal', title: 'git push origin main\necho done' })
+    const transcript = build({ call })
+    transcript.render(callEvent('c1', 'bash', {}))
+    expect(transcript.callSummary('c1')).toBe('git push origin main …')
+  })
+
+  it('names a diff call by its workspace-relative paths', () => {
+    const call = (): ToolCallView => ({ card: 'diff', title: 'Write', diffs: [{ path: '/repo/src/a.ts', oldText: null, newText: 'x' }, { path: '/repo/src/b.ts', oldText: null, newText: 'y' }] })
+    const transcript = build({ call })
+    transcript.render(callEvent('c1', 'write', {}))
+    expect(transcript.callSummary('c1')).toBe('src/a.ts, src/b.ts')
+  })
+
+  it('names a generic call by its locations, or its title when it has none', () => {
+    const located = build({ call: () => ({ card: 'generic', title: 'Read a.ts', locations: [{ path: '/repo/src/a.ts' }] }) })
+    located.render(callEvent('c1', 'read', {}))
+    expect(located.callSummary('c1')).toBe('src/a.ts')
+    const bare = build({ call: () => ({ card: 'generic', title: 'Search the web' }) })
+    bare.render(callEvent('c2', 'web_search', {}))
+    expect(bare.callSummary('c2')).toBe('Search the web')
+  })
+
+  it('has no name for a call without a presenter, and forgets it once the result lands', () => {
+    const transcript = build({ call: () => ({ card: 'terminal', title: 'pnpm test' }) })
+    const plain = build()
+    plain.render(callEvent('c1', 'mystery', {}))
+    expect(plain.callSummary('c1')).toBeUndefined()
+    transcript.render(callEvent('c1', 'bash', {}))
+    expect(transcript.callSummary('c1')).toBe('pnpm test')
+    transcript.render(resultEvent('c1', 'ok'))
+    expect(transcript.callSummary('c1')).toBeUndefined()
+    expect(transcript.callSummary('never')).toBeUndefined()
+  })
+})

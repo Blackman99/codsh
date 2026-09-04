@@ -6,6 +6,11 @@
  * `rejected`, `cancelled`, and `unavailable` — so "allow every call to this
  * tool" is this surface's own state, kept here and answered as `allowed-once`
  * without asking again.
+ *
+ * The request carries no arguments; its `callId` links to the `tool/call` the
+ * transcript already rendered. The prompt names the call through that link,
+ * so the question reads "Allow bash: git push?" even when the card that says
+ * so has scrolled away or sits inside a fold.
  * @module codsh-bundle/src/approval
  */
 
@@ -21,10 +26,11 @@ export interface ApprovalPrompt {
    * Ask the person about one pending call.
    * @param toolName - the tool awaiting a decision.
    * @param reason - the asker's explanation, when it supplied one.
+   * @param summary - the call in one line (its command, its paths), when the transcript has it.
    * @param signal - aborts the prompt when the call is cancelled.
    * @returns the chosen answer, or undefined when the prompt was aborted.
    */
-  ask(toolName: string, reason: string | undefined, signal: AbortSignal | undefined): Promise<ApprovalAnswer | undefined>
+  ask(toolName: string, reason: string | undefined, summary: string | undefined, signal: AbortSignal | undefined): Promise<ApprovalAnswer | undefined>
 }
 
 /**
@@ -39,10 +45,18 @@ export interface ApprovalPrompt {
 export class TerminalApproval {
   private readonly allowed = new Set<string>()
 
+  /**
+   * @param prompt - reads the keystroke.
+   * @param theme - styles the lines written back.
+   * @param write - appends one line under the prompt.
+   * @param describe - names a pending call by its id, from the transcript that
+   * rendered it; undefined when nothing was rendered under that id.
+   */
   constructor(
     private readonly prompt: ApprovalPrompt,
     private readonly theme: Theme,
     private readonly write: (line: string) => void,
+    private readonly describe: (callId: string) => string | undefined = () => undefined,
   ) {}
 
   /** Tool names granted for the rest of this process, in grant order. */
@@ -62,10 +76,11 @@ export class TerminalApproval {
    */
   async decide(req: ApprovalRequest): Promise<ApprovalOutcome> {
     if (this.allowed.has(req.toolName)) return 'allowed-once'
-    const answer = await this.prompt.ask(req.toolName, req.reason, req.signal)
+    const summary = req.callId === undefined ? undefined : this.describe(req.callId)
+    const answer = await this.prompt.ask(req.toolName, req.reason, summary, req.signal)
     if (answer === undefined) return 'cancelled'
     if (answer === 'reject') {
-      this.write(this.theme.error(`  ✗ denied ${req.toolName}`))
+      this.write(this.theme.error(`  ✗ denied ${nameCall(req.toolName, summary)}`))
       return 'rejected'
     }
     if (answer === 'always') {
@@ -74,6 +89,16 @@ export class TerminalApproval {
     }
     return 'allowed-once'
   }
+}
+
+/**
+ * The call as a prompt names it: the tool, and the summary when there is one.
+ * @param toolName - the tool awaiting a decision.
+ * @param summary - the call in one line, or undefined.
+ * @returns `bash: git push`, or just `bash`.
+ */
+export function nameCall(toolName: string, summary: string | undefined): string {
+  return summary === undefined || summary === '' ? toolName : `${toolName}: ${summary}`
 }
 
 /**

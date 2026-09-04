@@ -5,7 +5,7 @@
 
 import type { ApprovalRequest } from '@deepseek-ai/dsh-user-approval'
 import { describe, expect, it } from 'vitest'
-import { answerForKey, TerminalApproval, type ApprovalAnswer } from '../src/approval.ts'
+import { answerForKey, nameCall, TerminalApproval, type ApprovalAnswer } from '../src/approval.ts'
 import { createTheme } from '../src/theme.ts'
 
 const theme = createTheme(false, {})
@@ -96,5 +96,52 @@ describe('answerForKey', () => {
 
   it('maps an unrecognised key to nothing, so the caller decides the default', () => {
     expect(answerForKey('q')).toBeUndefined()
+  })
+})
+
+describe('naming the call', () => {
+  /** An answerer whose transcript knows one call, `c1`, as `git push`. */
+  function named(answers: (ApprovalAnswer | undefined)[]) {
+    const summaries: (string | undefined)[] = []
+    const written: string[] = []
+    const approval = new TerminalApproval(
+      {
+        ask: (_toolName, _reason, summary) => {
+          summaries.push(summary)
+          return Promise.resolve(answers[summaries.length - 1])
+        },
+      },
+      theme,
+      line => void written.push(line),
+      callId => callId === 'c1' ? 'git push' : undefined,
+    )
+    return { approval, summaries, written }
+  }
+
+  it('hands the prompt the call the transcript rendered under the request id', async () => {
+    const { approval, summaries } = named(['once'])
+    await approval.decide({ toolName: 'bash', callId: 'c1' } as unknown as ApprovalRequest)
+    expect(summaries).toEqual(['git push'])
+  })
+
+  it('asks by tool name alone when the id names nothing, or there is no id', async () => {
+    const { approval, summaries } = named(['once', 'once'])
+    await approval.decide({ toolName: 'bash', callId: 'unknown' } as unknown as ApprovalRequest)
+    await approval.decide(request('bash'))
+    expect(summaries).toEqual([undefined, undefined])
+  })
+
+  it('names the command in the denial line', async () => {
+    const { approval, written } = named(['reject'])
+    await approval.decide({ toolName: 'bash', callId: 'c1' } as unknown as ApprovalRequest)
+    expect(written.join('\n')).toContain('denied bash: git push')
+  })
+
+  it.each([
+    { toolName: 'bash', summary: 'git push', named: 'bash: git push' },
+    { toolName: 'bash', summary: undefined, named: 'bash' },
+    { toolName: 'bash', summary: '', named: 'bash' },
+  ])('nameCall($toolName, $summary) is $named', ({ toolName, summary, named: expected }) => {
+    expect(nameCall(toolName, summary)).toBe(expected)
   })
 })

@@ -46,7 +46,7 @@ import type {} from '@deepseek-ai/dsh-user-questions'
 // and the cmdline Context merge for the appExit host value.
 import type {} from '@deepseek-ai/cordis-plugin-loader'
 import type {} from '@deepseek-ai/dsh-cmdline'
-import { TerminalApproval, answerForKey } from './approval.ts'
+import { TerminalApproval, answerForKey, nameCall } from './approval.ts'
 import { bannerLines } from './banner.ts'
 import { createCompleter, expandSkillGestures, fuzzyScore } from './completion.ts'
 import { expandTemplate, loadCustomCommands } from './custom-commands.ts'
@@ -1529,16 +1529,19 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
 
   const approval = new TerminalApproval(
     {
-      ask: (toolName, reason, signal) => whileDeciding(async () => {
+      ask: (toolName, reason, summary, signal) => whileDeciding(async () => {
+        // The card that shows the command may have scrolled away or folded;
+        // the question names the call itself so the answer is never blind.
+        const named = summary === undefined ? theme.tool(toolName) : `${theme.tool(toolName)}: ${summary}`
         if (!io.console.readsKeys) {
           const detail = reason === undefined ? '' : ` ${theme.dim(reason)}`
-          prompt.write(`${theme.pending('?')} allow ${theme.tool(toolName)}${detail}`)
+          prompt.write(`${theme.pending('?')} allow ${named}${detail}`)
           const line = await prompt.read(signal)
           return line === undefined ? undefined : answerForKey(line) ?? 'reject'
         }
         if (reason !== undefined) prompt.write(theme.dim(`  ${reason}`))
         const outcome = await prompt.select({
-          title: `Allow ${toolName}?`,
+          title: `Allow ${nameCall(toolName, summary)}?`,
           options: [
             { label: 'Yes, this time', shortcut: 'y' },
             { label: `Yes, every ${toolName} call this session`, shortcut: 'a' },
@@ -1555,6 +1558,7 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
     },
     theme,
     (line) => { prompt.write(line) },
+    callId => live.transcript.callSummary(callId),
   )
   ctx.on('approval/request', (req, next) => req.agent === live.agent ? approval.decide(req) : next())
 

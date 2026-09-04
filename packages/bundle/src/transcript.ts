@@ -83,6 +83,12 @@ interface PendingCall {
   args: unknown
   /** The header line already on screen, so the result does not reprint it. */
   title: string
+  /**
+   * What the call is about in one short line — the command of a terminal
+   * card, the paths of a file card — for a prompt that has to name the call
+   * somewhere its card is not, such as the approval widget.
+   */
+  summary: string | undefined
 }
 
 /**
@@ -401,6 +407,15 @@ export class Transcript {
    * @param rawArguments - the unparsed arguments JSON the model produced.
    * @returns the pending card's lines.
    */
+  /**
+   * One line naming a pending call, for a prompt shown away from its card.
+   * @param callId - the call to name.
+   * @returns the summary, or undefined once the call has its result or was never seen.
+   */
+  callSummary(callId: string): string | undefined {
+    return this.calls.get(callId)?.summary
+  }
+
   private renderCall(callId: string, name: string, rawArguments: string): string[] {
     const { theme, columns } = this.options
     let args: unknown
@@ -412,11 +427,11 @@ export class Transcript {
       args = undefined
     }
     const view = this.safeCall(name, args)
-    const record = (title: string, lines: string[]): string[] => {
-      this.calls.set(callId, { name, args, title })
+    const record = (title: string, summary: string | undefined, lines: string[]): string[] => {
+      this.calls.set(callId, { name, args, title, summary })
       return lines
     }
-    if (view === undefined) return record(name, [`${theme.pending('●')} ${theme.tool(name)}`])
+    if (view === undefined) return record(name, undefined, [`${theme.pending('●')} ${theme.tool(name)}`])
     if (view.card === 'terminal') {
       const header = view.cwd === undefined ? '' : theme.dim(` (${this.relative(view.cwd)})`)
       const description = view.description === undefined ? [] : [theme.dim(`  ${view.description}`)]
@@ -426,7 +441,7 @@ export class Transcript {
       // are run together on one row reads as noise.
       const lines = command.split('\n')
       const summary = lines.length > 1 ? `${lines[0] ?? ''} …` : command
-      return record(command, [
+      return record(command, summary, [
         `${theme.pending('●')} ${theme.tool(name)}${header}`,
         `  $ ${truncate(summary, columns - 4)}`,
         ...description,
@@ -436,12 +451,12 @@ export class Transcript {
       const title = this.relativizeIn(view.title)
       const paths = view.diffs.map(diff => this.relative(diff.path))
       const line = `${title}${this.extraPaths(title, paths)}`
-      return record(line, [`${theme.pending('●')} ${theme.tool(title)}${theme.path(this.extraPaths(title, paths))}`])
+      return record(line, paths.length === 0 ? title : paths.join(', '), [`${theme.pending('●')} ${theme.tool(title)}${theme.path(this.extraPaths(title, paths))}`])
     }
     const title = this.relativizeIn(view.title)
     const locations = (view.locations ?? []).map(location => this.relative(location.path))
     const extra = this.extraPaths(title, locations)
-    return record(`${title}${extra}`, [`${theme.pending('●')} ${truncate(title, columns - 4)}${theme.path(extra)}`])
+    return record(`${title}${extra}`, locations.length === 0 ? title : locations.join(', '), [`${theme.pending('●')} ${truncate(title, columns - 4)}${theme.path(extra)}`])
   }
 
   /**
