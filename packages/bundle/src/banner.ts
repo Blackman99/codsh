@@ -120,12 +120,12 @@ export function resolveWelcomeKind(resumeOrClear: boolean, priorInWorkspace: boo
 }
 
 /**
- * Shorten a session id so `session <id> · Tab · ⇧Tab plan` fits `columns`.
+ * Shorten a session id so `session <id> · /status · ⇧Tab plan` fits `columns`.
  * Prefers trimming the id over dropping the tip suffix.
  */
 function fitSessionId(session: string, columns: number): string {
   const prefix = 'session '
-  const suffix = ' · Tab · ⇧Tab plan'
+  const suffix = ' · /status · ⇧Tab plan'
   const budget = columns - displayWidth(prefix) - displayWidth(suffix)
   if (budget <= 0) return ''
   if (displayWidth(session) <= budget) return session
@@ -143,7 +143,7 @@ function returningLines(facts: BannerFacts, theme: Theme, columns: number): stri
     columns,
   )
   const id = fitSessionId(facts.session, columns)
-  const line2 = truncate(theme.muted(`session ${id} · Tab · ⇧Tab plan`), columns)
+  const line2 = truncate(theme.muted(`session ${id} · /status · ⇧Tab plan`), columns)
   return [line1, line2, '']
 }
 
@@ -158,7 +158,7 @@ function firstLines(facts: BannerFacts, theme: Theme, columns: number): string[]
     columns,
   )
   const tips = truncate(
-    theme.muted(`/help · Tab · ⇧Tab plan · ${interrupt} · /exit`),
+    theme.muted(`/help · /status · Tab · ⇧Tab plan · ${interrupt} · /exit`),
     columns,
   )
   // A terminal wide enough gets the mark. Off a terminal (or squeezed) the
