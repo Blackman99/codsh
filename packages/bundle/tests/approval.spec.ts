@@ -6,6 +6,7 @@
 import type { ApprovalRequest } from '@deepseek-ai/dsh-user-approval'
 import { describe, expect, it } from 'vitest'
 import { answerForKey, nameCall, TerminalApproval, type ApprovalAnswer } from '../src/approval.ts'
+import { formatRule, parseRule, ruleMatches, type Rule } from '../src/permissions.ts'
 import { createTheme } from '../src/theme.ts'
 
 const theme = createTheme(false, {})
@@ -25,7 +26,7 @@ function harness(answers: (ApprovalAnswer | undefined)[]) {
   const written: string[] = []
   const approval = new TerminalApproval(
     {
-      ask: (toolName) => {
+      ask: ({ toolName }) => {
         asked.push(toolName)
         return Promise.resolve(answers[asked.length - 1])
       },
@@ -97,6 +98,89 @@ describe('answerForKey', () => {
   it('maps an unrecognised key to nothing, so the caller decides the default', () => {
     expect(answerForKey('q')).toBeUndefined()
   })
+
+  it('maps d to the remembered answer', () => {
+    expect(answerForKey('d')).toBe('remember')
+  })
+})
+
+describe('remembered rules', () => {
+  /** A store over an in-memory rule list, recording what it is asked to keep. */
+  function stored(rules: string[], answers: (ApprovalAnswer | undefined)[], failWrite = false) {
+    const kept: string[] = []
+    const questions: { toolName: string; rule: string | undefined }[] = []
+    const written: string[] = []
+    const approval = new TerminalApproval(
+      {
+        ask: ({ toolName, rule }) => {
+          questions.push({ toolName, rule })
+          return Promise.resolve(answers[questions.length - 1])
+        },
+      },
+      theme,
+      line => void written.push(line),
+      callId => callId === 'push' ? { summary: 'git push origin main', args: { command: 'git push origin main' } }
+        : callId === 'compound' ? { summary: 'git status && rm -rf .', args: { command: 'git status && rm -rf .' } }
+        : callId === 'write' ? { summary: 'src/a.ts', args: { file_path: 'src/a.ts' } }
+        : undefined,
+      {
+        allows: (toolName, args) => Promise.resolve(rules.map(text => parseRule(text) as Rule).find(rule => ruleMatches(rule, toolName, args))),
+        remember: (rule) => {
+          if (failWrite) return Promise.reject(new Error('.dsh/permissions.local.json: Unexpected token'))
+          kept.push(formatRule(rule))
+          rules.push(formatRule(rule))
+          return Promise.resolve('.dsh/permissions.local.json')
+        },
+      },
+    )
+    return { approval, kept, questions, written }
+  }
+  const request = (toolName: string, callId: string): ApprovalRequest => ({ toolName, callId } as unknown as ApprovalRequest)
+
+  it('answers a call a rule covers without asking, and says which rule', async () => {
+    const { approval, questions, written } = stored(['bash(git push *)'], [])
+    expect(await approval.decide(request('bash', 'push'))).toBe('allowed-once')
+    expect(questions).toEqual([])
+    expect(written).toEqual([theme.dim('  ✓ bash: git push origin main · allowed by bash(git push *)')])
+  })
+
+  it('offers the prefix of the call, and keeps it when the answer is remember', async () => {
+    const { approval, kept, questions, written } = stored([], ['remember'])
+    expect(await approval.decide(request('bash', 'push'))).toBe('allowed-once')
+    expect(questions).toEqual([{ toolName: 'bash', rule: 'bash(git push *)' }])
+    expect(kept).toEqual(['bash(git push *)'])
+    expect(written).toEqual([theme.dim('  ✓ allowing bash(git push *) from now on · .dsh/permissions.local.json')])
+    // The next call is covered by what was just written.
+    expect(await approval.decide(request('bash', 'push'))).toBe('allowed-once')
+    expect(questions).toHaveLength(1)
+  })
+
+  it('offers a tool without a command whole, and nothing for a compound command or an unknown call', async () => {
+    const { approval, questions } = stored([], ['once', 'once', 'once'])
+    await approval.decide(request('write', 'write'))
+    await approval.decide(request('bash', 'compound'))
+    await approval.decide(request('bash', 'never-rendered'))
+    expect(questions.map(question => question.rule)).toEqual(['write', undefined, undefined])
+  })
+
+  it('still allows the call when the rule cannot be written, and says so', async () => {
+    const { approval, kept, written } = stored([], ['remember'], true)
+    expect(await approval.decide(request('bash', 'push'))).toBe('allowed-once')
+    expect(kept).toEqual([])
+    expect(written.join('\n')).toContain('could not remember bash(git push *): .dsh/permissions.local.json: Unexpected token')
+  })
+
+  it('treats remember as once when nothing was offered', async () => {
+    const { approval, kept } = stored([], ['remember'])
+    expect(await approval.decide(request('bash', 'compound'))).toBe('allowed-once')
+    expect(kept).toEqual([])
+  })
+
+  it('lets a tool-level rule answer a request that names no call', async () => {
+    const { approval, questions } = stored(['write'], [])
+    expect(await approval.decide({ toolName: 'write' } as unknown as ApprovalRequest)).toBe('allowed-once')
+    expect(questions).toEqual([])
+  })
 })
 
 describe('naming the call', () => {
@@ -106,14 +190,14 @@ describe('naming the call', () => {
     const written: string[] = []
     const approval = new TerminalApproval(
       {
-        ask: (_toolName, _reason, summary) => {
+        ask: ({ summary }) => {
           summaries.push(summary)
           return Promise.resolve(answers[summaries.length - 1])
         },
       },
       theme,
       line => void written.push(line),
-      callId => callId === 'c1' ? 'git push' : undefined,
+      callId => callId === 'c1' ? { summary: 'git push', args: { command: 'git push' } } : undefined,
     )
     return { approval, summaries, written }
   }
@@ -135,6 +219,18 @@ describe('naming the call', () => {
     const { approval, written } = named(['reject'])
     await approval.decide({ toolName: 'bash', callId: 'c1' } as unknown as ApprovalRequest)
     expect(written.join('\n')).toContain('denied bash: git push')
+  })
+
+  it('offers no rule without a store, so the prompt shows three answers', async () => {
+    const offered: (string | undefined)[] = []
+    const approval = new TerminalApproval(
+      { ask: ({ rule }) => { offered.push(rule); return Promise.resolve('once') } },
+      theme,
+      () => undefined,
+      () => ({ summary: 'git push', args: { command: 'git push' } }),
+    )
+    await approval.decide({ toolName: 'bash', callId: 'c1' } as unknown as ApprovalRequest)
+    expect(offered).toEqual([undefined])
   })
 
   it.each([

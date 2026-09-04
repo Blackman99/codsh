@@ -416,6 +416,17 @@ export class Transcript {
     return this.calls.get(callId)?.summary
   }
 
+  /**
+   * What is known about a pending call — its one-line summary and its parsed
+   * arguments — for a prompt deciding it away from its card.
+   * @param callId - the call to look up.
+   * @returns the summary and arguments, or undefined once the call has its result or was never seen.
+   */
+  pendingCall(callId: string): { summary: string | undefined; args: unknown } | undefined {
+    const pending = this.calls.get(callId)
+    return pending === undefined ? undefined : { summary: pending.summary, args: pending.args }
+  }
+
   private renderCall(callId: string, name: string, rawArguments: string): string[] {
     const { theme, columns } = this.options
     let args: unknown

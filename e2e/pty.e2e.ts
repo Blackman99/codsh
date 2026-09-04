@@ -9,6 +9,7 @@
  */
 
 import { mkdtemp, readFile, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
 import { basename, join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { E2E_TEST_TIMEOUT_MS, makeHome } from './harness.ts'
@@ -1074,5 +1075,42 @@ it('paints a command that is a script as rows, never outside one', async () => {
     for (const row of rows) expect(row.length).toBeLessThanOrEqual(narrow)
     // The session kept working at the new size.
     expect(held.includes('still here')).toBe(true)
+  }, E2E_TEST_TIMEOUT_MS)
+})
+
+describe.skipIf(process.platform === 'win32')('remembered approvals (real PTY)', () => {
+  it('remembers a command prefix for the project, and honours it in a later process', async () => {
+    // A fixed workspace: the rule file written by the first process is what
+    // the second one has to read.
+    const cwd = await mkdtemp(join(tmpdir(), 'codsh-rules-'))
+    try {
+      const first = await drivePty('bash', [
+        ['/help for commands', `run it${ENTER}`, 300],
+        // The third answer writes `bash(printf *)` to the project's personal rule file.
+        ['Allow bash', 'd', 400],
+        // The same command again: the rule answers, nobody is asked.
+        ['CODE_CLI_CALL_OK', `run it${ENTER}`, 400],
+        ['CODE_CLI_CALL_OK', `/exit${ENTER}`, 400],
+      ], { cwd })
+      const plain = first.replaceAll(/\u001B\[[0-9;?]*[A-Za-z]/gu, '')
+      expect(plain).toContain("3. Yes, and don't ask again for bash(printf *) in this project (d)")
+      expect(plain).toContain('allowing bash(printf *) from now on · .dsh/permissions.local.json')
+      // Nothing asked after the first answer: the second call reports its rule instead.
+      const afterFirstAnswer = plain.slice(plain.indexOf('from now on'))
+      expect(afterFirstAnswer).not.toContain('Allow bash')
+      expect(afterFirstAnswer).toContain('allowed by bash(printf *)')
+      const written = JSON.parse(await readFile(join(cwd, '.dsh', 'permissions.local.json'), 'utf8')) as { allow: string[] }
+      expect(written.allow).toEqual(['bash(printf *)'])
+
+      const second = await drivePty('bash', [
+        ['/help for commands', `run it${ENTER}`, 300],
+        ['CODE_CLI_CALL_OK', `/exit${ENTER}`, 400],
+      ], { cwd })
+      expect(second).not.toContain('Allow bash')
+      expect(second).toContain('allowed by bash(printf *)')
+      expect(second).toContain('CODE_CLI_ROUND_TRIP')
+    } finally {
+      await rm(cwd, { recursive: true, force: true })
+    }
   }, E2E_TEST_TIMEOUT_MS)
 })

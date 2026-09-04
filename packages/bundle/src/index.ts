@@ -46,7 +46,8 @@ import type {} from '@deepseek-ai/dsh-user-questions'
 // and the cmdline Context merge for the appExit host value.
 import type {} from '@deepseek-ai/cordis-plugin-loader'
 import type {} from '@deepseek-ai/dsh-cmdline'
-import { TerminalApproval, answerForKey, nameCall } from './approval.ts'
+import { TerminalApproval, answerForKey, nameCall, type ApprovalAnswer } from './approval.ts'
+import { PermissionRules } from './permissions.ts'
 import { bannerLines } from './banner.ts'
 import { createCompleter, expandSkillGestures, fuzzyScore } from './completion.ts'
 import { expandTemplate, loadCustomCommands } from './custom-commands.ts'
@@ -1527,9 +1528,20 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
     }
   }
 
+  // Remembered grants: the project's committed and personal files, then the
+  // machine's. Read on every question, so a hand edit counts on the next call.
+  const permissionRules = new PermissionRules({
+    project: join(cwd, '.dsh', 'permissions.json'),
+    projectLocal: join(cwd, '.dsh', 'permissions.local.json'),
+    user: dshHomePath('permissions.json'),
+  }, {
+    label: path => path.startsWith(`${cwd}/`) ? path.slice(cwd.length + 1) : path,
+    warn: line => { prompt.write(theme.dim(`  ${line}`)) },
+  })
+
   const approval = new TerminalApproval(
     {
-      ask: (toolName, reason, summary, signal) => whileDeciding(async () => {
+      ask: ({ toolName, reason, summary, rule }, signal) => whileDeciding(async () => {
         // The card that shows the command may have scrolled away or folded;
         // the question names the call itself so the answer is never blind.
         const named = summary === undefined ? theme.tool(toolName) : `${theme.tool(toolName)}: ${summary}`
@@ -1540,11 +1552,15 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
           return line === undefined ? undefined : answerForKey(line) ?? 'reject'
         }
         if (reason !== undefined) prompt.write(theme.dim(`  ${reason}`))
+        // The third answer exists only when a rule is safe to offer: a compound
+        // command has no prefix worth remembering, so it is asked every time.
+        const answers: ApprovalAnswer[] = ['once', 'always', ...rule === undefined ? [] : ['remember' as const], 'reject']
         const outcome = await prompt.select({
           title: `Allow ${nameCall(toolName, summary)}?`,
           options: [
             { label: 'Yes, this time', shortcut: 'y' },
             { label: `Yes, every ${toolName} call this session`, shortcut: 'a' },
+            ...rule === undefined ? [] : [{ label: `Yes, and don't ask again for ${rule} in this project`, shortcut: 'd' }],
             { label: 'No', shortcut: 'n' },
           ],
           // Granting a tool for the session cannot be taken back, and a
@@ -1553,12 +1569,13 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
         }, signal)
         if (outcome.kind !== 'chosen') return undefined
         const [chosen] = outcome.indices
-        return chosen === 0 ? 'once' : chosen === 1 ? 'always' : 'reject'
+        return answers[chosen ?? -1] ?? 'reject'
       }),
     },
     theme,
     (line) => { prompt.write(line) },
-    callId => live.transcript.callSummary(callId),
+    callId => live.transcript.pendingCall(callId),
+    permissionRules,
   )
   ctx.on('approval/request', (req, next) => req.agent === live.agent ? approval.decide(req) : next())
 

@@ -77,6 +77,7 @@ The [site](https://blackman99.github.io/codsh/) shows each one as a real capture
 - Ctrl+V pastes images (native vision; DeepSeek text models borrow Vision Exp automatically; other text routes keep the file + optional sidecar fallback).
 - `/` commands, `$` skills, `!` shell, `@` files — the menu sits above the box. ⇧Tab is plan mode.
 - Approvals, `/model`, and `/resume` are arrow-key widgets; `/clear`, Esc Esc, `/init`, and `/update` round it out. `!cmd` prints in-session and the agent sees it.
+- An approval names the call — `Allow bash: git push origin main?` — and its third answer remembers it: `bash(git push *)` goes to `.dsh/permissions.local.json` (personal; gitignore it) and the same prefix is never asked again in this project. `.dsh/permissions.json` (committed) and `~/.dsh/permissions.json` are hand-written, `{ "allow": ["tool", "tool(prefix *)", "tool(exact command)"] }`; a compound command — `&&`, `;`, `|`, a newline — never matches a prefix.
 
 Off a TTY it becomes a line reader: no widgets, no drawing.
 
