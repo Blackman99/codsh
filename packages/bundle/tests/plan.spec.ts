@@ -82,10 +82,10 @@ describe('planRow', () => {
 
 describe('the readout', () => {
   it('says how far in, and what is being landed, on one row', () => {
-    const row = planSummary(parsePlan(SPEC), theme, 80, 'Ctrl+T opens the list') ?? ''
+    const row = planSummary(parsePlan(SPEC), theme, 80, 'click or Ctrl+T opens the list') ?? ''
     expect(row).toContain('2/4')
     expect(row).toContain('Open a long card in it')
-    expect(row).toContain('Ctrl+T opens the list')
+    expect(row).toContain('click or Ctrl+T opens the list')
   })
 
   it('says so when every ticket landed', () => {

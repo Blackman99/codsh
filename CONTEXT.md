@@ -280,8 +280,10 @@ _Avoid_: upload, embed
 
 **Todo readout**:
 The chrome row that holds the agent's todo list — progress plus the item in
-flight — for as long as a list is live, opened into the full list with Ctrl+T.
-Read from the `todos` projection, never remembered from the write.
+flight — for as long as a list is live, and the `/ship` plan when one is on
+disk. A click anywhere in the readout, or Ctrl+T, opens the full list and
+closes it again, the way a Fold works. Read from the `todos` projection and
+the spec file, never remembered from the write.
 _Avoid_: todo panel, task bar, progress bar
 
 ### Workflows

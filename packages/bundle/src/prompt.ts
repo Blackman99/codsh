@@ -105,6 +105,7 @@ type RegionTarget =
   | { kind: 'selector'; target: SelectorTarget }
   | { kind: 'candidate'; index: number }
   | { kind: 'caret'; row: number; cell: number }
+  | { kind: 'todos' }
 
 export class Prompt {
   private readonly editor: Editor
@@ -144,6 +145,8 @@ export class Prompt {
   private selectorRow: number | undefined
   /** Where the box's own rows begin among the chrome rows, and how many. */
   private boxRows: { start: number; count: number } | undefined
+  /** Where the plan/todo readout sits among the chrome rows, and how many. */
+  private todoRowsAt: { start: number; count: number } | undefined
   /**
    * What a press landed on, so a release somewhere else cancels it.
    *
@@ -781,8 +784,8 @@ export class Prompt {
       // One teaser, not two: the plan when there is one, because it outlives
       // the turn's own list and says how much of the work is left.
       const row = plan === undefined
-        ? todoRow(this.todos, this.theme, columns, 'Ctrl+T opens the list')
-        : planSummary(plan, this.theme, columns, 'Ctrl+T opens the list')
+        ? todoRow(this.todos, this.theme, columns, 'click or Ctrl+T opens the list')
+        : planSummary(plan, this.theme, columns, 'click or Ctrl+T opens the list')
       return row === undefined ? [] : [row]
     }
     // Both, plan first: they are different granularities of the same work —
@@ -797,8 +800,8 @@ export class Prompt {
       }))
 
     return [
-      ...plan === undefined ? [] : planReport(plan, this.theme, columns, TODO_ROWS),
-      ...redundantTodos ? [] : todoReport(this.todos, this.theme, columns, { hint: 'Ctrl+T closes', limit: TODO_ROWS }),
+      ...plan === undefined ? [] : planReport(plan, this.theme, columns, TODO_ROWS, 'click or Ctrl+T closes'),
+      ...redundantTodos ? [] : todoReport(this.todos, this.theme, columns, { hint: 'click or Ctrl+T closes', limit: TODO_ROWS }),
     ]
   }
 
@@ -980,6 +983,11 @@ export class Prompt {
       this.render()
       return
     }
+    if (target.kind === 'todos') {
+      this.todosExpanded = !this.todosExpanded
+      this.render()
+      return
+    }
     if (target.kind !== 'selector') return
     const selecting = this.select_
     if (selecting === undefined) return
@@ -1037,7 +1045,11 @@ export class Prompt {
       // press, and no mark under the pointer suggesting there is one.
       if (selecting.selector.keyboardOnly) return undefined
       const target = selecting.selector.targetAt(region.index - start)
-      return target === undefined ? undefined : { kind: 'selector', target }
+      if (target !== undefined) return { kind: 'selector', target }
+    }
+    const todos = this.todoRowsAt
+    if (todos !== undefined && region.index >= todos.start && region.index < todos.start + todos.count) {
+      return { kind: 'todos' }
     }
     const box = this.boxRows
     if (box === undefined) return undefined
@@ -1130,6 +1142,7 @@ export class Prompt {
     let menuOverlay: readonly string[] = []
     this.selectorRow = undefined
     this.boxRows = undefined
+    this.todoRowsAt = undefined
     if (this.select_ !== undefined) {
       this.selectorRow = rows.length
       rows.push(...this.select_.selector.view(this.theme, columns))
@@ -1157,7 +1170,9 @@ export class Prompt {
     }
     // Under the box and over the hint row: the list is context for the work in
     // flight, and the rows nearest the bottom stay the ones about right now.
-    rows.push(...this.todoRows(columns))
+    const todo = this.todoRows(columns)
+    if (todo.length > 0) this.todoRowsAt = { start: rows.length, count: todo.length }
+    rows.push(...todo)
     // Detached from the tail the box would look like it had stopped receiving
     // output, so the viewport says so — over its own last row, never as another
     // chrome row, which would move the box while scrolling. The row is also the
@@ -1202,5 +1217,6 @@ function regionKey(target: RegionTarget): string {
   // release is the position they meant.
   if (target.kind === 'caret') return 'caret'
   if (target.kind === 'candidate') return `candidate:${String(target.index)}`
+  if (target.kind === 'todos') return 'todos'
   return target.target.kind === 'custom' ? 'selector:custom' : `selector:${String(target.target.index)}`
 }

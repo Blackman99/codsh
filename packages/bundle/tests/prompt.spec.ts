@@ -801,6 +801,62 @@ describe('the surrounding rows', () => {
     expect(closed.some(row => row.includes('▶ write the fix'))).toBe(true)
   })
 
+  it('opens the ship plan on a click, and folds it back from inside the list', () => {
+    const { prompt, console } = build()
+    prompt.setPlan({
+      tickets: [
+        { title: 'landed', done: true },
+        { title: 'in flight', done: false },
+        { title: 'waiting', done: false },
+      ],
+      done: 1,
+      current: { title: 'in flight', done: false },
+    })
+    const closed = console.draws.at(-1)?.rows ?? []
+    const teaser = closed.findIndex(row => row.includes('Ctrl+T opens the list'))
+    expect(teaser).toBeGreaterThanOrEqual(0)
+    expect(closed.some(row => row.includes('waiting'))).toBe(false)
+
+    console.region = { region: 'chrome', index: teaser }
+    console.press({ kind: 'mouse-down', row: 9, column: 4 })
+    console.press({ kind: 'mouse-up', row: 9, column: 4 })
+    const opened = console.draws.at(-1)?.rows ?? []
+    expect(opened.some(row => row.includes('waiting'))).toBe(true)
+
+    // A click anywhere in the open panel — not just the teaser — folds it back.
+    const inside = opened.findIndex(row => row.includes('waiting'))
+    expect(inside).toBeGreaterThanOrEqual(0)
+    console.region = { region: 'chrome', index: inside }
+    console.press({ kind: 'mouse-down', row: 10, column: 4 })
+    console.press({ kind: 'mouse-up', row: 10, column: 4 })
+    const shut = console.draws.at(-1)?.rows ?? []
+    expect(shut.some(row => row.includes('Ctrl+T opens the list'))).toBe(true)
+    expect(shut.some(row => row.includes('waiting'))).toBe(false)
+  })
+
+  it('takes a plan click back when it is released off the readout', () => {
+    const { prompt, console } = build()
+    prompt.setStatus('model')
+    prompt.setPlan({
+      tickets: [{ title: 'one ticket', done: false }],
+      done: 0,
+      current: { title: 'one ticket', done: false },
+    })
+    const teaser = (console.draws.at(-1)?.rows ?? []).findIndex(row => row.includes('plan 0/1'))
+    expect(teaser).toBeGreaterThanOrEqual(0)
+    console.region = { region: 'chrome', index: teaser }
+    console.press({ kind: 'mouse-down', row: 9, column: 4 })
+    // Released on the status row: the button was slid off before it was let go.
+    const status = (console.draws.at(-1)?.rows ?? []).findIndex(row => row.includes('model'))
+    expect(status).toBeGreaterThanOrEqual(0)
+    expect(status).not.toBe(teaser)
+    console.region = { region: 'chrome', index: status }
+    console.press({ kind: 'mouse-up', row: 10, column: 4 })
+    const rows = console.draws.at(-1)?.rows ?? []
+    expect(rows.some(row => row.includes('plan 0/1'))).toBe(true)
+    expect(rows.filter(row => row.includes('one ticket'))).toHaveLength(1)
+  })
+
   it('omits redundant todos when a plan has matching tickets', () => {
     const { prompt, console } = build()
     prompt.setPlan({

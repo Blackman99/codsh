@@ -40,8 +40,8 @@ describe('todoRow', () => {
   })
 
   it('appends the hint it is given', () => {
-    const row = todoRow(list('in_progress:ship it'), theme, 80, 'Ctrl+T opens the list')
-    expect(row).toBe('todos · 0/1 · ▶ ship it · Ctrl+T opens the list')
+    const row = todoRow(list('in_progress:ship it'), theme, 80, 'click or Ctrl+T opens the list')
+    expect(row).toBe('todos · 0/1 · ▶ ship it · click or Ctrl+T opens the list')
   })
 
   it('is cut to the columns it was given, never wrapped', () => {
@@ -73,8 +73,8 @@ describe('todoReport', () => {
   })
 
   it('carries a hint on the header', () => {
-    const [header] = todoReport(list('pending:one'), theme, 80, { hint: 'Ctrl+T closes' })
-    expect(header).toBe('todos 0/1 · 1 open · Ctrl+T closes')
+    const [header] = todoReport(list('pending:one'), theme, 80, { hint: 'click or Ctrl+T closes' })
+    expect(header).toBe('todos 0/1 · 1 open · click or Ctrl+T closes')
   })
 
   it('has nothing to print before the first write', () => {

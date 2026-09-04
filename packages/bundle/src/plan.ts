@@ -126,15 +126,17 @@ export function planSummary(
  * @param theme - styling for the marks.
  * @param columns - display columns available.
  * @param limit - most tickets to print; the rest are counted on one line.
+ * @param hint - a trailing note on the header, e.g. the key that closes the list.
  * @returns the rows, a header first.
  */
-export function planReport(plan: Plan, theme: Theme, columns: number, limit?: number): string[] {
+export function planReport(plan: Plan, theme: Theme, columns: number, limit?: number, hint?: string): string[] {
   if (plan.tickets.length === 0) return []
   const shown = limit === undefined ? plan.tickets : plan.tickets.slice(0, Math.max(0, limit))
   const hidden = plan.tickets.length - shown.length
   const count = `${String(plan.done)}/${String(plan.tickets.length)}`
+  const trail = hint === undefined ? '' : theme.dim(` · ${hint}`)
   return [
-    truncate(`  ${theme.tool('◇')} plan ${theme.dim(count)}`, columns),
+    truncate(`  ${theme.tool('◇')} plan ${theme.dim(count)}${trail}`, columns),
     ...shown.map((ticket) => {
       const current = ticket === plan.current
       const mark = ticket.done ? theme.success('✔') : current ? theme.pending('▶') : theme.dim('○')

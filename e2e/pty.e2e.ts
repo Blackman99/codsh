@@ -732,6 +732,24 @@ describe.skipIf(process.platform === 'win32')('dsh code Escape (real PTY)', () =
     expect(open).toMatch(/\u25CB SHIP_TICKET_THREE/u)
   }, E2E_TEST_TIMEOUT_MS)
 
+  it('opens the ship plan on a click, the way a fold does', async () => {
+    const clickOn = (line: string): string => `\u001B[<0;6;{row:${line}}M\u001B[<0;6;{row:${line}}m`
+    const run = await drivePtySteps('spec', [
+      ['/help for commands', `write the plan${ENTER}`, 900],
+      ['Ctrl+T opens the list', clickOn('Ctrl+T opens the list'), 700],
+      ['Ctrl+T closes', clickOn('Ctrl+T closes'), 500],
+      ['Ctrl+T opens the list', `/exit${ENTER}`, 400],
+    ], { columns: 100, rows: 24 })
+
+    const captured = (offset: number | undefined): string => Buffer.from(run.output).subarray(0, offset).toString()
+    const opened = screenOf(captured(run.offsets[2]), -1, 24).alternate.join('\n')
+    const shut = screenOf(captured(run.offsets[3]), -1, 24).alternate.join('\n')
+    expect(opened).toMatch(/\u25B6 SHIP_TICKET_TWO/u)
+    expect(opened).toMatch(/\u25CB SHIP_TICKET_THREE/u)
+    expect(shut).toContain('Ctrl+T opens the list')
+    expect(shut).not.toMatch(/\u25CB SHIP_TICKET_THREE/u)
+  }, E2E_TEST_TIMEOUT_MS)
+
   it('shows a workflow round by round, in the transcript and the working line', async () => {
     // The real engine, driven by the mock: a script that runs two rounds, each
     // child answering as text. Until now this rendering had no terminal test
