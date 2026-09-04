@@ -1,0 +1,79 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# A superseded pull-request run proves nothing about the commit that replaced
+# it; main keeps every run, so a red commit is never hidden by the next one.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+jobs:
+  test:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Whether this diff can change behaviour
+        id: scope
+        env:
+          BASE: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
+        # Some diffs cannot change what the binary does, and the five
+        # minutes of end-to-end spent on them prove nothing. Two kinds
+        # qualify: the Version Packages commit changesets writes — changelogs,
+        # the changeset files it consumed, and a version line, on a tree that
+        # already ran this suite on the commit that introduced the changeset —
+        # and prose and pictures, which ship to readers rather than to the
+        # profile. The list is spelled out rather than globbed by extension:
+        # the day a skill ships as Markdown, it should run everything, and a
+        # pattern written today would quietly decide otherwise. Anything not
+        # named here — one other file, or one other line inside a manifest —
+        # is code, and code runs everything.
+        run: |
+          set -euo pipefail
+          verdict() { echo "heavy=$1" >> "$GITHUB_OUTPUT"; echo "$2"; exit 0; }
+          [ -n "${BASE:-}" ] || verdict true 'nothing names the other end of the diff'
+          # The checkout is one commit deep, which keeps every run's clone
+          # cheap; this fetches the one other commit the diff needs.
+          git fetch --no-tags --depth=1 origin "$BASE" >/dev/null 2>&1 \
+            || verdict true 'the base commit is not reachable from here'
+          changed="$(git diff --name-only "$BASE" HEAD)"
+          [ -n "$changed" ] || verdict true 'nothing to compare'
+          while IFS= read -r file; do
+            case "$file" in
+              .changeset/*.md|packages/*/CHANGELOG.md) continue ;;
+              README.md|README.zh.md|CONTEXT.md|CONTRIBUTING.md|SECURITY.md|LICENSE) continue ;;
+              docs/*|site/*|assets/*|packages/*/README.md) continue ;;
+              packages/*/package.json)
+                beyond="$(git diff -U0 "$BASE" HEAD -- "$file" \
+                  | grep -E '^[-+]' | grep -vE '^(\+\+\+|---)' \
+                  | grep -vE '^[-+][[:space:]]*"version": "[^"]+",?$' || true)"
+                [ -z "$beyond" ] || verdict true "$file changed more than its version"
+                continue ;;
+              *) verdict true "$file can change what the binary does" ;;
+            esac
+          done <<< "$changed"
+          verdict false 'nothing here can change behaviour: the end-to-end suite is skipped'
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm run typecheck
+      # Typecheck and the unit suites cost seconds and still catch a manifest
+      # edited into nonsense, so they run either way.
+      - run: pnpm test
+      # Packs the tree and drives the real binary. Files run in parallel
+      # against one shared profile template; it builds first, so there is
+      # no separate build step to keep in step.
+      - run: pnpm run test:e2e
+        if: steps.scope.outputs.heavy != 'false'

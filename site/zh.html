@@ -1,0 +1,528 @@
+<!DOCTYPE html>
+<html lang="zh-Hans">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>codsh — 架在 dsh 上的终端编码 agent</title>
+<meta name="description" content="/ship 把一句话变成已验证的代码。架在 DeepSeek Harness 上的终端编码 agent。">
+<meta name="color-scheme" content="dark">
+<link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
+<meta property="og:title" content="codsh — 终端编码 agent">
+<meta property="og:description" content="/ship 把一句话变成已验证的代码。组合在 DeepSeek Harness 之上。">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://blackman99.github.io/codsh/zh.html">
+<meta property="og:site_name" content="codsh">
+<meta property="og:locale" content="zh_CN">
+<meta property="og:locale:alternate" content="en_US">
+<meta property="og:image" content="https://blackman99.github.io/codsh/assets/og.png">
+<meta property="og:image:type" content="image/png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="codsh — /ship 把一句话变成已验证的代码。">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="codsh — 终端编码 agent">
+<meta name="twitter:description" content="/ship 把一句话变成已验证的代码。组合在 DeepSeek Harness 之上。">
+<meta name="twitter:image" content="https://blackman99.github.io/codsh/assets/og.png">
+<meta name="twitter:image:alt" content="codsh — /ship 把一句话变成已验证的代码。">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/styles.css">
+</head>
+<body>
+
+<div class="rail">
+  <a class="rail__mark" href="#top"><img src="assets/logo.svg" alt="" width="22" height="22">codsh</a>
+  <nav>
+    <a href="#ship">/ship</a>
+    <a href="#see">看一眼</a>
+    <a href="#install">安装</a>
+    <a href="https://github.com/Blackman99/codsh">GitHub</a>
+    <a class="rail__lang" href="index.html" hreflang="en" lang="en">English</a>
+  </nav>
+</div>
+
+<main>
+
+<section class="hero" id="top">
+  <div class="wrap">
+    <div class="hero__grid">
+      <div class="block block--heavy">
+      <span class="block__index reveal reveal-1">终端编码 agent · 组合在 dsh 之上</span>
+      <h1 class="reveal reveal-1">codsh<span class="caret">▍</span></h1>
+      <p class="hero__sub reveal reveal-2">
+        <code>/ship</code> 把一句话变成已验证的代码。
+        组合在 DeepSeek Harness 之上。
+      </p>
+      <div class="hero__meta reveal reveal-2">
+        <span>npm 上的 <a href="https://www.npmjs.com/package/codsh-cli">codsh-cli</a></span>
+        <span>零依赖启动器</span>
+        <span>MIT</span>
+      </div>
+      <div class="shell reveal reveal-3">
+        <div class="shell__bar"><i class="shell__dot shell__dot--live"></i> 安装</div>
+<pre><span class="prompt">$</span> <span class="cmd">npm install -g @deepseek-ai/dsh codsh-cli</span>
+<span class="comment">  # 已有 dsh？只需 npm i -g codsh-cli</span>
+<span class="prompt">$</span> <span class="cmd">codsh</span>
+<span class="prompt">›</span> <span class="cmd">/ship &lt;你的一句话需求&gt;</span></pre>
+      </div>
+      </div>
+      <div class="hero__frame reveal reveal-3">
+          <figure class="frame">
+            <div class="frame__bar">
+              <i class="shell__dot"></i><i class="shell__dot"></i><i class="shell__dot"></i>
+              <b>/ship 全流程</b>
+              <span class="frame__demo">演示动画</span>
+            </div>
+            <div class="screen"><code class="screen__rows demo">
+<span class="row dm s1"><span class="c-user">┃ ›</span> <span class="type">/ship 让超长 diff 用分页器打开</span></span>
+<span class="row"> </span>
+<span class="row dm s2"><span class="c-dim">✻ 正在通读仓库——pager.ts、screen.ts、三处调用点</span></span>
+<span class="row dm s3"><span class="c-pending">?</span> frontier：全屏打开，还是在输入框下方分栏？ <span class="c-dim">· 推荐：全屏</span></span>
+<span class="row dm s4"><span class="c-user">┃ ›</span> 全屏——按 q 回到 transcript</span>
+<span class="row"> </span>
+<span class="row dm s5"><span class="c-tool">│ </span><span class="c-pending">●</span> <span class="c-tool">Write docs/specs/pager.md</span></span>
+<span class="row dm s6"><span class="c-tool">│ </span><span class="c-ok">+ 6 条验收标准</span><span class="c-dim"> · 每条写明证明它的命令</span></span>
+<span class="row dm s7"><span class="c-pending">?</span> 确认这份 spec<span class="c-dim">——关口 1</span></span>
+<span class="row dm s8"><span class="c-user">┃ ›</span> 确认</span>
+<span class="row dm s9"><span class="c-tool">│ </span><span class="c-pending">●</span> <span class="c-tool">tickets：3 条垂直切片 → 以复选框写进 spec</span></span>
+<span class="row dm s10"><span class="c-pending">?</span> 批准这些 tickets<span class="c-dim">——关口 2</span></span>
+<span class="row dm s11"><span class="c-user">┃ ›</span> 批准</span>
+<span class="row"> </span>
+<span class="row dm s12"><span class="c-dim">⠿ 基线：证明命令先跑一遍——两条红，符合预期</span></span>
+<span class="row dm s13"><span class="c-ok">✔ 1/3</span> 长输出进分页器 <span class="c-dim">· 测试绿 · 已提交</span></span>
+<span class="row dm s14"><span class="c-ok">✔ 2/3</span> 按 q 返回 transcript <span class="c-dim">· 测试绿 · 已提交</span></span>
+<span class="row dm s15"><span class="c-ok">✔ 3/3</span> 缩放窗口状态不丢 <span class="c-dim">· 测试绿 · 已提交</span></span>
+<span class="row"> </span>
+<span class="row dm s16"><span class="c-ok">✔</span> <span class="a-bold">每条标准重跑自己的命令、读真实输出——全绿</span></span>
+<span class="row dm s17"><span class="c-dim">  标准 → 命令 → 实际输出</span></span>
+<span class="gap"></span>
+<span class="row"><span class="c-dim">╭─────────────────────────────────────────────────────────────────────────────────╮</span></span>
+<span class="row"><span class="c-dim">│</span> <span class="c-user">›</span> <span class="c-dim">Ask anything · / $ ! @ · ⇧Tab plan mode</span>                  <span class="c-dim">│</span></span>
+<span class="row"><span class="c-dim">╰─────────────────────────────────────────────────────────────────────────────────╯</span></span>
+<span class="row todoslot"> <span class="tv tv1"><span class="c-tool">todos</span><span class="c-dim"> 0/3 · </span><span class="c-pending">▶</span> 长输出进分页器<span class="c-dim"> · Ctrl+T 展开</span></span><span class="tv tv2"><span class="c-tool">todos</span><span class="c-dim"> 1/3 · </span><span class="c-pending">▶</span> 按 q 返回 transcript</span><span class="tv tv3"><span class="c-tool">todos</span><span class="c-dim"> 2/3 · </span><span class="c-pending">▶</span> 缩放窗口状态不丢</span><span class="tv tv4"><span class="c-tool">todos</span><span class="c-dim"> 3/3 · </span><span class="c-ok">全部完成 ✔</span></span></span>
+<span class="row"><span class="c-tool">deepseek-chat</span><span class="c-dim"> · code-cli · workspace-write · ~/my-project</span></span>
+</code></div>
+          </figure>
+        <p class="caption">完整流程循环播放。下方 <a href="#ship">/ship</a>。</p>
+      </div>
+    </div>
+    <div class="block block--heavy" id="ship" style="margin-top:clamp(3rem,7vw,5rem)">
+      <span class="block__index">01 — /ship</span>
+      <h2>一句话到落地。</h2>
+      <p class="lede">
+        两次确认。此后自主。
+      </p>
+
+      <ol class="steps">
+        <li>
+          <b>Grill</b>
+          <p>设计树访谈。事实自己查；每轮问当前 frontier，并给出推荐答案。</p>
+        </li>
+        <li>
+          <b>Spec</b> <span class="gate">— 关口 1</span>
+          <p>自动合成。你确认。每条标准写明证明它的命令。</p>
+        </li>
+        <li>
+          <b>Tickets</b> <span class="gate">— 关口 2</span>
+          <p>自动切成可独立验证的垂直切片。你批准。写代码前先跑基线。</p>
+        </li>
+        <li>
+          <b>落地</b>
+          <p>在 spec 记下的 seam 上 TDD。每个变绿的 ticket 提交一次。</p>
+        </li>
+        <li>
+          <b>完成</b>
+          <p>每条标准重跑并汇报。</p>
+        </li>
+      </ol>
+
+      <div class="shell" style="margin-top:2rem">
+        <div class="shell__bar"><i class="shell__dot"></i> 在输入框里</div>
+<pre><span class="prompt">›</span> <span class="cmd">/ship 让超长 diff 用分页器打开而不是刷屏滚过</span></pre>
+      </div>
+      <p style="margin-top:1.2rem">裸 <code>/ship</code> 会续跑未完成的 spec。</p>
+    </div>
+  </div>
+</section>
+
+<section id="see">
+  <div class="wrap">
+    <div class="block">
+      <span class="block__index">01 — 看一眼</span>
+      <h2>下面每一个终端都是真的。</h2>
+      <p class="lede">
+        从打包后的二进制抓取。不是效果图。
+      </p>
+
+      <div class="scenes">
+<!-- frames:start -->
+        <input type="radio" name="scene" id="s-1" checked>
+        <input type="radio" name="scene" id="s-2">
+        <input type="radio" name="scene" id="s-3">
+        <input type="radio" name="scene" id="s-4">
+        <input type="radio" name="scene" id="s-5">
+        <input type="radio" name="scene" id="s-6">
+        <input type="radio" name="scene" id="s-7">
+        <input type="radio" name="scene" id="s-8">
+        <div class="scenes__tabs" role="tablist" aria-label="选择场景">
+          <label class="scenes__tab" for="s-1">欢迎</label>
+          <label class="scenes__tab" for="s-2">提问</label>
+          <label class="scenes__tab" for="s-3">往回读</label>
+          <label class="scenes__tab" for="s-4">工具卡片</label>
+          <label class="scenes__tab" for="s-5">折叠块</label>
+          <label class="scenes__tab" for="s-6">Todo</label>
+          <label class="scenes__tab" for="s-7">Markdown</label>
+          <label class="scenes__tab" for="s-8">全屏阅读</label>
+        </div>
+        <div class="scenes__panels">
+        <div data-scene="1">
+          <figure class="frame">
+            <div class="frame__bar">
+              <i class="shell__dot"></i><i class="shell__dot"></i><i class="shell__dot"></i>
+              <b>会话是自己的空间</b>
+              <span class="frame__real">真实抓取</span>
+            </div>
+            <div class="screen"><code class="screen__rows">
+<span class="row">           <span style="color:rgb(126,150,245)">█▄▄</span></span>
+<span class="row">           <span style="color:rgb(126,150,245)">█</span> <span style="color:rgb(126,150,245)">▀██</span></span>
+<span class="row">           <span style="color:rgb(126,150,245)">█▄█▀▀</span></span>
+<span class="row">         <span style="color:rgb(238,241,251)">▀██████▀</span></span>
+<span class="row">       <span style="color:rgb(61,86,214)">█▄██▄▄██▄██▄</span></span>
+<span class="row">        <span style="color:rgb(61,86,214)">▀▄▄</span> <span style="color:rgb(61,86,214)">██</span> <span style="color:rgb(61,86,214)">▄▄▀</span></span>
+<span class="row">          <span style="color:rgb(61,86,214)">▀█▄▄█▀</span></span>
+<span class="row"> </span>
+<span class="row">   <span class="a-bold">✻ Welcome to codsh</span><span class="c-dim"> · cli-mock · code-cli</span></span>
+<span class="row"> </span>
+<span class="row">  <span class="c-dim">  ~/.cache/codsh/showcase</span></span>
+<span class="row">  <span class="c-dim">  session session-98058f06-28e8-4202-9fbb-203be692c1da</span></span>
+<span class="row"> </span>
+<span class="row">  <span class="c-dim">  /help for commands · Tab completes · ⇧Tab plan mode · ESC interrupts · /exit l…</span></span>
+<span class="gap"></span>
+<span class="row">  <span class="c-dim">╭───────────────────────────────────────────────────────────────────────────────╮</span></span>
+<span class="row">  <span class="c-dim">│</span> <span class="c-user">›</span> <span class="c-dim">Ask anything · / for commands · $ for skills · ! shell · @ for files · ⇧Ta…</span> <span class="c-dim">│</span></span>
+<span class="row">  <span class="c-dim">╰───────────────────────────────────────────────────────────────────────────────╯</span></span>
+<span class="row">  <span class="c-tool">cli-mock</span><span class="c-dim"> · code-cli · workspace-write · 0 tokens · ~/.cache/codsh/showcase</span></span>
+</code></div>
+          </figure>
+          <p class="caption">备用屏幕、钉在底部从不移动的输入框，以及始终当前的状态行。</p>
+        </div>
+        <div data-scene="2">
+          <figure class="frame">
+            <div class="frame__bar">
+              <i class="shell__dot"></i><i class="shell__dot"></i><i class="shell__dot"></i>
+              <b>刚问出口的问题停在最上面</b>
+              <span class="frame__real">真实抓取</span>
+            </div>
+            <div class="screen"><code class="screen__rows">
+<span class="row">  <span class="c-user">┃ ›</span> and what backs it off?                                                       ↑</span>
+<span class="row">                                                                                   <span class="a-dim">·</span></span>
+<span class="row">  <span class="c-dim">✻ thought for 0.0s · +2 lines (click or Ctrl+O expands)</span>                          <span class="c-user">●</span></span>
+<span class="row">                                                                                   <span class="a-dim">↓</span></span>
+<span class="row">  CODE_CLI_ANSWER after thinking</span>
+<span class="gap"></span>
+<span class="row">  <span class="c-dim">╭───────────────────────────────────────────────────────────────────────────────╮</span></span>
+<span class="row">  <span class="c-dim">│</span> <span class="c-user">›</span> <span class="c-dim">Ask anything · / for commands · $ for skills · ! shell · @ for files · ⇧Ta…</span> <span class="c-dim">│</span></span>
+<span class="row">  <span class="c-dim">╰───────────────────────────────────────────────────────────────────────────────╯</span></span>
+<span class="row">  <span class="c-pending">⠋</span> working <span class="c-dim">0.0s · ESC to interrupt</span></span>
+<span class="row">  <span class="c-tool">cli-mock</span><span class="c-dim"> · code-cli · workspace-write · 28 tokens · ~/.cache/codsh/showcase</span></span>
+</code></div>
+          </figure>
+          <p class="caption">刚提交的问题占住视口顶部，回复从下方填进空出来的位置。往回读历史再回到底部，回来的是同一帧——滚轮和 PgDn 都能落回去。</p>
+        </div>
+        <div data-scene="3">
+          <figure class="frame">
+            <div class="frame__bar">
+              <i class="shell__dot"></i><i class="shell__dot"></i><i class="shell__dot"></i>
+              <b>你正在读的这段，是谁问出来的</b>
+              <span class="frame__real">真实抓取</span>
+            </div>
+            <div class="screen"><code class="screen__rows">
+<span class="row">  <span class="c-user">┃ ›</span> explain the render path                                                      ↑</span>
+<span class="row">                                                                                   <span class="c-user">●</span></span>
+<span class="row">  <span class="c-dim">  … +23 lines (click or Ctrl+O expands)</span>                                          <span class="a-dim">·</span></span>
+<span class="row">                                                                                   ↓</span>
+<span class="row">  <span class="c-dim">  0.1s · 13 tokens</span></span>
+<span class="row"> </span>
+<span class="row">  <span class="c-user">┃ ›</span> now the input path</span>
+<span class="row"> </span>
+<span class="row">  <span class="a-bold">CODE_CLI_HEADING</span></span>
+<span class="row"> </span>
+<span class="row">  Prose with <span class="a-bold">bold</span>, <span class="a-bold">em</span>, <span class="c-tool">inline_code</span>, and a <span class="a-bold">link</span> <span class="c-dim">(https://x.dev)</span>.</span>
+<span class="row">  An identifier like some_helper_name must survive intact.</span>
+<span class="row"> </span>
+<span class="row">  <span class="c-dim">•</span> <span class="c-tool a-bold">screen.ts</span>: the viewport module</span>
+<span class="row">  <span class="c-dim">•</span> second bullet</span>
+<span class="row">  <span class="c-dim">•</span> third bullet keeps the answer long</span>
+<span class="row">  <span class="c-dim">•</span> fourth bullet keeps the answer long</span>
+<span class="row">  <span class="c-dim">•</span> fifth bullet keeps the answer long</span>
+<span class="row">  <span class="c-dim">•</span> sixth bullet keeps the answer long</span>
+<span class="row">  <span class="c-dim">•</span> seventh bullet keeps the answer long</span>
+<span class="row">  <span class="c-dim">•</span> eighth bullet: past the fold threshold at any test width</span>
+<span class="gap"></span>
+<span class="row">  <span class="c-dim">╭────────┬──────────────────────────────────────────────────────────────────────╮</span></span>
+<span class="row">  <span class="c-dim">│</span> <span class="a-bold">维度</span>   <span class="c-dim">│</span> <span class="a-bold">内容</span>                                                                 <span class="c-dim">│</span></span>
+<span class="row">  <span class="c-dim">├────────┼──────────────────────────────────────────────────────────────────────┤</span></span>
+<span class="row">  <span class="c-dim">│</span> 一句话 <span class="c-dim">│</span> 一个很长的中文单元格内容,用来强制表格在任何终端宽度下都必须在单元格  <span class="c-dim">│</span></span>
+<span class="row">  <span class="c-dim">│</span>        <span class="c-dim">│</span> 内部换行。一个很长的中文单元格内容,用来强制表格在任何终端宽度下都必  <span class="c-dim">│</span></span>
+<span class="row">  <span class="c-dim">│</span>        <span class="c-dim">│</span> 须在单元格内部换行。一个很长的中文单元格内容,用来强制表格在任何终端  <span class="c-dim">│</span></span>
+<span class="row">  <span class="c-dim">│</span>        <span class="c-dim">│</span> 宽度下都必须在单元格内部换行。                                       <span class="c-dim">│</span></span>
+<span class="row">  <span class="c-dim">  ↑ 12 rows above · click or PgDn returns to the latest</span></span>
+<span class="row">  <span class="c-dim">╭───────────────────────────────────────────────────────────────────────────────╮</span></span>
+<span class="row">  <span class="c-dim">│</span> <span class="c-user">›</span> <span class="c-dim">Ask anything · / for commands · $ for skills · ! shell · @ for files · ⇧Ta…</span> <span class="c-dim">│</span></span>
+<span class="row">  <span class="c-dim">╰───────────────────────────────────────────────────────────────────────────────╯</span></span>
+<span class="row">  <span class="c-tool">cli-mock</span><span class="c-dim"> · code-cli · workspace-write · 26 tokens · ~/.cache/codsh/showcase</span></span>
+</code></div>
+          </figure>
+          <p class="caption">往回滚过一次轮次边界，问出这几行的那条提问就钉在顶部；右侧一列时间线标出当前在哪一轮，底部那行说明退了多远——点它就回到最新。Shift+←/→ 在轮次之间跳。</p>
+        </div>
+        <div data-scene="4">
+          <figure class="frame">
+            <div class="frame__bar">
+              <i class="shell__dot"></i><i class="shell__dot"></i><i class="shell__dot"></i>
+              <b>工具调用渲染为卡片，带 diff</b>
+              <span class="frame__real">真实抓取</span>
+            </div>
+            <div class="screen"><code class="screen__rows">
+<span class="row">  <span class="c-user">┃ ›</span> create the note</span>
+<span class="row"> </span>
+<span class="row">  <span class="c-tool">│ </span><span class="c-pending">●</span> <span class="c-tool">Write note.txt</span></span>
+<span class="row">  <span class="c-tool">│ </span><span class="c-ok">+ CODE_CLI_ROUND_TRIP</span></span>
+<span class="row"> </span>
+<span class="row">  CODE_CLI_CALL_OK via cli-mock</span>
+<span class="gap"></span>
+<span class="row">  <span class="c-dim">╭───────────────────────────────────────────────────────────────────────────────╮</span></span>
+<span class="row">  <span class="c-dim">│</span> <span class="c-user">›</span> <span class="c-dim">Ask anything · / for commands · $ for skills · ! shell · @ for files · ⇧Ta…</span> <span class="c-dim">│</span></span>
+<span class="row">  <span class="c-dim">╰───────────────────────────────────────────────────────────────────────────────╯</span></span>
+<span class="row">  <span class="c-pending">⠋</span> working <span class="c-dim">0.0s · 14 tokens · ESC to interrupt</span></span>
+<span class="row">  <span class="c-tool">cli-mock</span><span class="c-dim"> · code-cli · workspace-write · 26 tokens · ~/.cache/codsh/showcase</span></span>
+</code></div>
+          </figure>
+          <p class="caption">每次调用都经由它的 presenter 渲染——标题、状态、diff——左侧还有一道标出块边界的竖线。</p>
+        </div>
+        <div data-scene="5">
+          <figure class="frame">
+            <div class="frame__bar">
+              <i class="shell__dot"></i><i class="shell__dot"></i><i class="shell__dot"></i>
+              <b>一次点击只开一块</b>
+              <span class="frame__real">真实抓取</span>
+            </div>
+            <div class="screen"><code class="screen__rows">
+<span class="row">  <span class="c-user">┃ ›</span> think it over</span>
+<span class="row"> </span>
+<span class="row">  <span class="c-dim">✻ thought for 0.0s</span></span>
+<span class="row">  <span class="c-dim">  CODE_CLI_THINKING about the request</span></span>
+<span class="row">  <span class="c-dim">  weighing the options carefully</span></span>
+<span class="row"> </span>
+<span class="row">  CODE_CLI_ANSWER after thinking</span>
+<span class="row"> </span>
+<span class="row">  <span class="c-dim">  0.0s · 14 tokens</span></span>
+<span class="gap"></span>
+<span class="row">  <span class="c-dim">╭───────────────────────────────────────────────────────────────────────────────╮</span></span>
+<span class="row">  <span class="c-dim">│</span> <span class="c-user">›</span> <span class="c-dim">Ask anything · / for commands · $ for skills · ! shell · @ for files · ⇧Ta…</span> <span class="c-dim">│</span></span>
+<span class="row">  <span class="c-dim">╰───────────────────────────────────────────────────────────────────────────────╯</span></span>
+<span class="row">  <span class="c-tool">cli-mock</span><span class="c-dim"> · code-cli · workspace-write · 14 tokens · ~/.cache/codsh/showcase</span></span>
+</code></div>
+          </figure>
+          <p class="caption">点一下展开落点那一块，在块内任意处再点一下收起；Ctrl+O 依然一次开合全部，手动开合的选择会跨轮次保留。</p>
+        </div>
+        <div data-scene="6">
+          <figure class="frame">
+            <div class="frame__bar">
+              <i class="shell__dot"></i><i class="shell__dot"></i><i class="shell__dot"></i>
+              <b>todo 常驻可见</b>
+              <span class="frame__real">真实抓取</span>
+            </div>
+            <div class="screen"><code class="screen__rows">
+<span class="row">  <span class="c-user">┃ ›</span> plan the work</span>
+<span class="row"> </span>
+<span class="row">  <span class="c-tool">│ </span><span class="c-pending">●</span> Update todo list</span>
+<span class="row">  <span class="c-tool">│ todos</span> <span class="c-dim">1/3 · 1 in progress · 1 open</span></span>
+<span class="row">  <span class="c-tool">│ </span>  <span class="c-ok">✔</span> <span class="c-dim">read the code</span></span>
+<span class="row">  <span class="c-tool">│ </span>  <span class="c-pending">▶</span> write the fix</span>
+<span class="row">  <span class="c-tool">│ </span>  <span class="c-dim">○</span> run the tests</span>
+<span class="row"> </span>
+<span class="row">  <span class="c-tool">│ </span><span class="c-dim">  Updated todo list: 1 pending, 1 in progress, 1 completed.</span></span>
+<span class="row"> </span>
+<span class="row">  CODE_CLI_CALL_OK via cli-mock</span>
+<span class="row"> </span>
+<span class="row">  <span class="c-dim">  0.1s · 26 tokens</span></span>
+<span class="gap"></span>
+<span class="row">  <span class="c-dim">╭───────────────────────────────────────────────────────────────────────────────╮</span></span>
+<span class="row">  <span class="c-dim">│</span> <span class="c-user">›</span> <span class="c-dim">Ask anything · / for commands · $ for skills · ! shell · @ for files · ⇧Ta…</span> <span class="c-dim">│</span></span>
+<span class="row">  <span class="c-dim">╰───────────────────────────────────────────────────────────────────────────────╯</span></span>
+<span class="row">  <span class="c-tool">todos</span> <span class="c-dim">1/3 · 1 in progress · 1 open · Ctrl+T closes</span></span>
+<span class="row">    <span class="c-ok">✔</span> <span class="c-dim">read the code</span></span>
+<span class="row">    <span class="c-pending">▶</span> write the fix</span>
+<span class="row">    <span class="c-dim">○</span> run the tests</span>
+<span class="row">  <span class="c-tool">cli-mock</span><span class="c-dim"> · code-cli · workspace-write · 26 tokens · ~/.cache/codsh/showcase</span></span>
+</code></div>
+          </figure>
+          <p class="caption">一行常驻读数把 agent 的清单钉在状态行之上，不随那次写入滚走；Ctrl+T 展开为完整清单。</p>
+        </div>
+        <div data-scene="7">
+          <figure class="frame">
+            <div class="frame__bar">
+              <i class="shell__dot"></i><i class="shell__dot"></i><i class="shell__dot"></i>
+              <b>Markdown 是渲染，不是回显</b>
+              <span class="frame__real">真实抓取</span>
+            </div>
+            <div class="screen"><code class="screen__rows">
+<span class="row">  <span class="c-user">┃ ›</span> explain it</span>
+<span class="row"> </span>
+<span class="row"> </span>
+<span class="row">  <span class="c-dim">•</span> <span class="c-tool a-bold">screen.ts</span>: the viewport module</span>
+<span class="row">  <span class="c-dim">•</span> second bullet</span>
+<span class="row">  <span class="c-dim">•</span> third bullet keeps the answer long</span>
+<span class="row">  <span class="c-dim">•</span> fourth bullet keeps the answer long</span>
+<span class="row">  <span class="c-dim">•</span> fifth bullet keeps the answer long</span>
+<span class="row">  <span class="c-dim">•</span> sixth bullet keeps the answer long</span>
+<span class="row">  <span class="c-dim">•</span> seventh bullet keeps the answer long</span>
+<span class="row">  <span class="c-dim">•</span> eighth bullet: past the fold threshold at any test width</span>
+<span class="gap"></span>
+<span class="row">  <span class="c-dim">╭────────┬──────────────────────────────────────────────────────────────────────╮</span></span>
+<span class="row">  <span class="c-dim">│</span> <span class="a-bold">维度</span>   <span class="c-dim">│</span> <span class="a-bold">内容</span>                                                                 <span class="c-dim">│</span></span>
+<span class="row">  <span class="c-dim">├────────┼──────────────────────────────────────────────────────────────────────┤</span></span>
+<span class="row">  <span class="c-dim">│</span> 一句话 <span class="c-dim">│</span> 一个很长的中文单元格内容,用来强制表格在任何终端宽度下都必须在单元格  <span class="c-dim">│</span></span>
+<span class="row">  <span class="c-dim">│</span>        <span class="c-dim">│</span> 内部换行。一个很长的中文单元格内容,用来强制表格在任何终端宽度下都必  <span class="c-dim">│</span></span>
+<span class="row">  <span class="c-dim">│</span>        <span class="c-dim">│</span> 须在单元格内部换行。一个很长的中文单元格内容,用来强制表格在任何终端  <span class="c-dim">│</span></span>
+<span class="row">  <span class="c-dim">│</span>        <span class="c-dim">│</span> 宽度下都必须在单元格内部换行。                                       <span class="c-dim">│</span></span>
+<span class="row">  <span class="c-dim">├────────┼──────────────────────────────────────────────────────────────────────┤</span></span>
+<span class="row">  <span class="c-dim">│</span> 命令   <span class="c-dim">│</span> <span class="c-tool">codsh</span>                                                                <span class="c-dim">│</span></span>
+<span class="row">  <span class="c-dim">╰────────┴──────────────────────────────────────────────────────────────────────╯</span></span>
+<span class="row"> </span>
+<span class="row">  <span class="c-dim">│</span> <span class="c-dim">a quoted line</span></span>
+<span class="row"> </span>
+<span class="row">  <span class="c-dim">  ts</span></span>
+<span class="row">    <span class="c-user">const</span> answer = <span class="c-ok">"text"</span> <span class="a-dim">// a comment</span></span>
+<span class="row"> </span>
+<span class="row">  <span class="c-dim">CODE_CLI_CALL_STREAM_DONE</span></span>
+<span class="row">  <span class="c-dim">╭───────────────────────────────────────────────────────────────────────────────╮</span></span>
+<span class="row">  <span class="c-dim">│</span> <span class="c-user">›</span> <span class="c-dim">Ask anything · / for commands · $ for skills · ! shell · @ for files · ⇧Ta…</span> <span class="c-dim">│</span></span>
+<span class="row">  <span class="c-dim">╰───────────────────────────────────────────────────────────────────────────────╯</span></span>
+<span class="row">  <span class="c-pending">⠋</span> working <span class="c-dim">0.0s · ESC to interrupt</span></span>
+<span class="row">  <span class="c-tool">cli-mock</span><span class="c-dim"> · code-cli · workspace-write · 0 tokens · ~/.cache/codsh/showcase</span></span>
+</code></div>
+          </figure>
+          <p class="caption">表格排出真正的列，代码带高亮，强调标记被吃掉而不是打印出来。</p>
+        </div>
+        <div data-scene="8">
+          <figure class="frame">
+            <div class="frame__bar">
+              <i class="shell__dot"></i><i class="shell__dot"></i><i class="shell__dot"></i>
+              <b>把一条回答摊开成整屏</b>
+              <span class="frame__real">真实抓取</span>
+            </div>
+            <div class="screen"><code class="screen__rows">
+<span class="row">  <span class="a-bold">Answer 1</span></span>
+<span class="row">  <span class="a-bold">CODE_CLI_HEADING</span></span>
+<span class="row"> </span>
+<span class="row">  Prose with <span class="a-bold">bold</span>, <span class="a-bold">em</span>, <span class="c-tool">inline_code</span>, and a <span class="a-bold">link</span> <span class="c-dim">(https://x.dev)</span>.</span>
+<span class="row">  An identifier like some_helper_name must survive intact.</span>
+<span class="row"> </span>
+<span class="row">  <span class="c-dim">•</span> <span class="c-tool a-bold">screen.ts</span>: the viewport module</span>
+<span class="row">  <span class="c-dim">•</span> second bullet</span>
+<span class="row">  <span class="c-dim">•</span> third bullet keeps the answer long</span>
+<span class="row">  <span class="c-dim">•</span> fourth bullet keeps the answer long</span>
+<span class="row">  <span class="c-dim">•</span> fifth bullet keeps the answer long</span>
+<span class="row">  <span class="c-dim">•</span> sixth bullet keeps the answer long</span>
+<span class="row">  <span class="c-dim">•</span> seventh bullet keeps the answer long</span>
+<span class="row">  <span class="c-dim">•</span> eighth bullet: past the fold threshold at any test width</span>
+<span class="gap"></span>
+<span class="row">  <span class="c-dim">╭────────┬──────────────────────────────────────────────────────────────────────╮</span></span>
+<span class="row">  <span class="c-dim">│</span> <span class="a-bold">维度</span>   <span class="c-dim">│</span> <span class="a-bold">内容</span>                                                                 <span class="c-dim">│</span></span>
+<span class="row">  <span class="c-dim">├────────┼──────────────────────────────────────────────────────────────────────┤</span></span>
+<span class="row">  <span class="c-dim">│</span> 一句话 <span class="c-dim">│</span> 一个很长的中文单元格内容,用来强制表格在任何终端宽度下都必须在单元格  <span class="c-dim">│</span></span>
+<span class="row">  <span class="c-dim">│</span>        <span class="c-dim">│</span> 内部换行。一个很长的中文单元格内容,用来强制表格在任何终端宽度下都必  <span class="c-dim">│</span></span>
+<span class="row">  <span class="c-dim">│</span>        <span class="c-dim">│</span> 须在单元格内部换行。一个很长的中文单元格内容,用来强制表格在任何终端  <span class="c-dim">│</span></span>
+<span class="row">  <span class="c-dim">│</span>        <span class="c-dim">│</span> 宽度下都必须在单元格内部换行。                                       <span class="c-dim">│</span></span>
+<span class="row">  <span class="c-dim">├────────┼──────────────────────────────────────────────────────────────────────┤</span></span>
+<span class="row">  <span class="c-dim">│</span> 命令   <span class="c-dim">│</span> <span class="c-tool">codsh</span>                                                                <span class="c-dim">│</span></span>
+<span class="row">  <span class="c-dim">╰────────┴──────────────────────────────────────────────────────────────────────╯</span></span>
+<span class="row"> </span>
+<span class="row">  <span class="c-dim">│</span> <span class="c-dim">a quoted line</span></span>
+<span class="row"> </span>
+<span class="row">  <span class="c-dim">  ts</span></span>
+<span class="row">    <span class="c-user">const</span> answer = <span class="c-ok">"text"</span> <span class="a-dim">// a comment</span></span>
+<span class="row"> </span>
+<span class="row">  CODE_CLI_CALL_STREAM_DONE</span>
+<span class="row"> </span>
+<span class="row">  <span class="c-dim">↑↓/wheel · PgUp/PgDn · Home/End · Esc closes · 1-31/31</span></span>
+</code></div>
+          </figure>
+          <p class="caption">/view 1 打开一条回答，/view 1:1 打开它的第一个代码块，改窗口大小也不会乱；Esc 原样还回会话。/copy 用的是同一套编号。</p>
+        </div>
+        </div>
+<!-- frames:end -->
+      </div>
+
+      <div class="defs" style="margin-top:2.75rem">
+        <div><code>Shift+←/→</code><p>在真实轮次之间跳；<code>/jump</code> 预览一轮，Esc 原样还回。</p></div>
+        <div><code>/copy</code><p><code>/copy N</code> 取一条回答的原始 Markdown，<code>/copy N:C</code> 取它的代码，不含围栏。</p></div>
+        <div><code>Ctrl+V</code><p>粘贴图片：原生视觉，或由 DeepSeek 文本模型借用 Vision Exp 描述一次。</p></div>
+        <div><code>/ $ ! @</code><p>命令、skill、shell、文件——菜单在输入框上方开。<kbd>⇧Tab</kbd> 是 plan 模式。</p></div>
+        <div><code>拖选</code><p>选中即复制，走 OSC 52 或系统剪贴板。</p></div>
+        <div><code>管道</code><p>非 TTY 是降级不是崩：行读取器，无组件、不绘制。</p></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="install">
+  <div class="wrap">
+    <div class="block">
+      <span class="block__index">02 — 安装与运行</span>
+      <h2>两个包，一份 dsh。</h2>
+      <p class="lede">
+        零依赖启动器。<code>codsh</code> 即 <code>dsh --profile code</code>。
+      </p>
+
+      <div class="defs">
+        <div><code>codsh --resume &lt;id&gt;</code><p>重开一个已记录的会话，历史以同样的折叠形态重放。</p></div>
+        <div><code>codsh --continue</code><p>接上当前工作区最近的那个会话。</p></div>
+        <div><code>codsh -p "任务"</code><p>一次性 print 模式，面向脚本与管道。</p></div>
+        <div><code>codsh --version</code><p>启动器版本、profile 里注册的运行时、以及这次找到的 dsh。</p></div>
+        <div><code>codsh update</code><p>在 shell 里升级这一对；<code>/update</code> 是会话里的同一件事，有新版本时会话自己会提示。</p></div>
+        <div><code>DEEPSEEK_API_KEY</code><p>模型密钥，从环境变量或 <code>.env</code> 读取。</p></div>
+        <div><code>DSH_HOME</code><p>profile 存放位置，默认 <code>~/.dsh</code>；<code>DSH_BIN</code> 指定启动哪个 dsh。</p></div>
+        <div><code>CODSH_CLIPBOARD</code><p><code>osc52</code>、<code>system</code> 或 <code>off</code>——收窄选中内容进剪贴板的通道。</p></div>
+        <div><code>CODSH_UPDATE_CHECK</code><p><code>off</code> 关掉自动检查——<code>/update</code> 依然会问。<code>CODSH_UPDATE_REGISTRY</code> 把两者都指向别的 registry。</p></div>
+        <div><code>CODSH_VISION_*</code><p><code>_BASE_URL</code>、<code>_MODEL</code>、<code>_API_KEY</code>：供纯文本模型识图的 OpenAI 兼容 sidecar。不配也行，DeepSeek 文本路由会自动借用 <code>deepseek-v4-flash-vision-exp</code>。</p></div>
+      </div>
+
+      <p style="margin-top:2rem">完全不想要启动器？它包装的那两行可以直接用，profile 名任取：</p>
+      <div class="shell">
+        <div class="shell__bar"><i class="shell__dot"></i> 不用启动器</div>
+<pre><span class="prompt">$</span> <span class="cmd">dsh plugin --profile code add codsh-bundle</span>
+<span class="prompt">$</span> <span class="cmd">dsh --profile code</span></pre>
+      </div>
+      <div class="note" style="margin-top:2.5rem">
+        <b>要动手改？</b><code>pnpm install &amp;&amp; pnpm run dev</code> 在 <code>.dev-home</code>
+        里维护一份仓库本地的 dsh home，改动几秒钟就能进到运行中的界面；
+        <code>MOCK=markdown pnpm run dev</code> 不需要 key。<code>pnpm run test:e2e</code>
+        把整棵树打包装进真实 profile 去驱动已发布的二进制——上面每一屏都是这套装置抓的。
+        codsh 绝不 fork harness：上游的事去
+        <a href="https://github.com/deepseek-ai/deepseek-harness">deepseek-harness</a> 提 PR，
+        <code>pnpm run sync:dsh</code> 跟踪它的发布。细节见
+        <a href="https://github.com/Blackman99/codsh">README</a>。
+      </div>
+    </div>
+  </div>
+</section>
+
+</main>
+
+<footer>
+  <div class="wrap">
+    <span>codsh · MIT · 构建于 DeepSeek Harness</span>
+    <nav>
+      <a href="https://github.com/Blackman99/codsh">源码</a>
+      <a href="https://www.npmjs.com/package/codsh-cli">codsh-cli</a>
+      <a href="https://www.npmjs.com/package/codsh-bundle">codsh-bundle</a>
+      <a href="index.html" hreflang="en" lang="en">English</a>
+    </nav>
+  </div>
+</footer>
+
+</body>
+</html>

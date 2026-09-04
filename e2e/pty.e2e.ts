@@ -1,0 +1,1207 @@
+/**
+ * The behaviours that exist only on a terminal: Escape interrupting a turn, a
+ * pasted block arriving as one message, Tab completing, and the live region
+ * repainting as text streams.
+ *
+ * Neither can be exercised through a pipe — Escape needs raw mode, and a pipe's
+ * lines are separate instructions by design — so these drive `dsh code` inside a
+ * real PTY and write the actual bytes.
+ */
+
+import { mkdtemp, readFile, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { basename, join } from 'node:path'
+import { describe, expect, it } from 'vitest'
+import { E2E_TEST_TIMEOUT_MS, makeHome } from './harness.ts'
+import { PTY_COLUMNS, PTY_ROWS, SYNC_END, drivePty, drivePtySteps, screenOf } from './pty-driver.ts'
+import { Terminal, render } from './vt.ts'
+
+/** The surface handing the terminal back; nothing after it is session screen. */
+const LEAVE_ALT = '\u001B[?1049l'
+
+/**
+ * The screen as it stood when `marker` was last emitted.
+ *
+ * The surface owns its screen, so its output is frames rather than lines:
+ * replaying them through a terminal is what turns a capture back into what a
+ * person saw at that moment.
+ * @param output - everything the PTY emitted.
+ * @param marker - text to stop at; the whole capture when absent.
+ * @returns the terminal at that point.
+ */
+function screenAt(output: string, marker: string, occurrence: 'first' | 'last' = 'first'): Terminal {
+  // Only what the session showed while it held the screen: the frames after it
+  // hands the terminal back have already torn the chrome down.
+  const handedBack = output.indexOf(LEAVE_ALT)
+  const held = handedBack < 0 ? output : output.slice(0, handedBack)
+  // First occurrence by default: teardown reflows the viewport and re-emits
+  // transcript bytes, so the LAST copy of a transcript marker is usually the
+  // chrome-less exit frame. `last` is for markers that only chrome paints.
+  const at = occurrence === 'first' ? held.indexOf(marker) : held.lastIndexOf(marker)
+  if (at < 0) return render(held, PTY_ROWS, PTY_COLUMNS)
+  // Cut at the end of the frame the marker appeared in, never inside it: a
+  // frame is one synchronized update, and half of one is a torn screen no
+  // terminal would ever show.
+  const frameEnd = held.indexOf(SYNC_END, at)
+  return render(held.slice(0, frameEnd < 0 ? held.length : frameEnd + SYNC_END.length), PTY_ROWS, PTY_COLUMNS)
+}
+
+/**
+ * Rows that start the INPUT box's frame.
+ *
+ * The banner is boxed too, so width is what tells them apart: the input box
+ * spans the terminal, the banner is as wide as its own text.
+ */
+const boxTops = (terminal: Terminal): number[] =>
+  terminal.alternate.flatMap((row, index) => row.trimStart().startsWith('╭─') && row.length > PTY_COLUMNS / 2 ? [index] : [])
+
+/** A painted row without the viewport gutter, for assertions on the content. */
+const visible = (row: string): string => row.replace(/^ {2}/u, '').trimEnd()
+
+/** The bare Escape byte, which is what a person pressing the key sends. */
+const ESCAPE = '\u001B'
+
+/** Enter, as a terminal in raw mode sends it. */
+const ENTER = '\r'
+
+/** Ctrl-U, which clears the line so a following command is not appended to it. */
+const CLEAR = '\u0015'
+
+/** Bracketed-paste markers, which the surface asks the terminal to send. */
+const PASTE_START = '\u001B[200~'
+const PASTE_END = '\u001B[201~'
+
+/**
+ * One scripted interaction: wait for `marker` in the output (empty to wait for
+ * nothing), settle for `delayMs`, then type `payload`.
+ */
+/**
+ * Drive a PTY through an ordered script: wait for each marker, then write its
+ * payload. Exits 124 when a marker never arrives, so a hang is a named failure
+ * rather than a timeout with no explanation.
+ */
+
+describe.skipIf(process.platform === 'win32')('dsh code Escape (real PTY)', () => {
+  it('offers Escape as the interrupt on a terminal', async () => {
+    const output = await drivePty('write', [
+      ['/help for commands', '/exit\n', 0],
+    ])
+
+    // The banner names whichever interrupt this surface can actually offer.
+    expect(output).toContain('ESC interrupts')
+    expect(output).not.toContain('Ctrl-C interrupts')
+  }, E2E_TEST_TIMEOUT_MS)
+
+  it('cancels a running turn and returns to the prompt', async () => {
+    const output = await drivePty('slow', [
+      // Start a turn whose tool occupies it.
+      ['/help for commands', 'take your time\n', 0],
+      // The command is running; press Escape alone.
+      ['$ sleep', ESCAPE, 0],
+      // The turn is cancelled, so the prompt comes back and accepts more.
+      //
+      // `/exit` is the assertion that Escape released the reader's decoder: a
+      // still-suspended decoder consumes the leading slash as the byte that
+      // would have identified an arrow key, leaving `exit` — an ordinary prompt
+      // that starts another turn instead of leaving, which times out here.
+      ['interrupted', '/exit\n', 300],
+    ])
+
+    expect(output).toContain('$ sleep')
+    expect(output).toContain('interrupted')
+    // The mocked model answers only after a tool result; a cancelled call
+    // produces none, so its closing message must never appear.
+    expect(output).not.toContain('CODE_CLI_CALL_OK')
+    // Leaving normally after the interrupt proves the session survived it.
+    expect(output).toMatch(/session session-/)
+  }, E2E_TEST_TIMEOUT_MS)
+
+  it('takes a pasted block into the buffer whole, and waits', async () => {
+    const paste = `${PASTE_START}first line of one prompt\nsecond line of it${PASTE_END}`
+    const output = await drivePty('write', [
+      // What a terminal actually sends for a paste: the block wrapped in markers.
+      // Without them a multi-line write is indistinguishable from fast typing
+      // with Enters, and guessing is how a paste turns into several turns.
+      ['/help for commands', paste, 0],
+      // The paste did not submit: the person still decides when to send it.
+      ['second line of it', ENTER, 300],
+      ['CODE_CLI_CALL_OK', `/exit${ENTER}`, 300],
+    ])
+
+    // Both lines sat in the box together, unsent, before Enter.
+    const held = screenAt(output, 'second line of it').text
+    expect(held).toContain('first line of one prompt')
+    expect(held).toContain('second line of it')
+    // One turn, so one tool card. Line-by-line submission would have run two.
+    const done = screenAt(output, 'CODE_CLI_CALL_OK').alternate
+    expect(done.filter(row => row.includes('Write note.txt'))).toHaveLength(1)
+  }, E2E_TEST_TIMEOUT_MS)
+
+  it('completes an @ mention on Tab', async () => {
+    // The unit suite covers the completer; only a terminal proves the reader was
+    // actually given one, since Tab is inert without it.
+    const output = await drivePty('write', [
+      // `mock.cordis.patch.yml` is the overlay this harness writes into the cwd.
+      ['/help for commands', '@mo\t', 0],
+      ['mock.cordis.patch.yml', '\n', 300],
+      ['CODE_CLI_CALL_OK', '/exit\n', 300],
+    ])
+
+    expect(output).toContain('@mock.cordis.patch.yml')
+  }, E2E_TEST_TIMEOUT_MS)
+
+  it('repaints the live region as text streams in', async () => {
+    const output = await drivePty('markdown', [
+      ['/help for commands', 'explain\n', 0],
+      ['CODE_CLI_CALL_STREAM_DONE', '/exit\n', 300],
+    ])
+
+    // Each delta repaints the row being typed, which is the token-level display.
+    const repaints = output.split('\u001B[K').length - 1
+    expect(repaints).toBeGreaterThan(10)
+    // Mid-stream: the answer is on screen once, the box is still up — type-ahead
+    // must stay visible — and the cursor is inside the box, not parked on the
+    // status row, which is the collision this pins down.
+    const mid = screenAt(output, 'CODE_CLI_HEADING')
+    expect(mid.alternate.filter(row => row.includes('CODE_CLI_HEADING'))).toHaveLength(1)
+    const tops = boxTops(mid)
+    expect(tops).toHaveLength(1)
+    expect(mid.cursorRow).toBeGreaterThan(tops[0] ?? 0)
+    expect(mid.cursorRow).toBeLessThan(PTY_ROWS - 1)
+  }, E2E_TEST_TIMEOUT_MS)
+
+  it('draws a framed input box that closes on itself', async () => {
+    const output = await drivePty('write', [
+      ['/help for commands', 'typed text', 0],
+      ['typed text', `${CLEAR}/exit${ENTER}`, 300],
+    ])
+
+    // A real frame around the real text, exactly one of it, pinned at the
+    // bottom of the session's own screen.
+    const screen = screenAt(output, 'typed text')
+    const rows = screen.alternate
+    expect(boxTops(screen)).toHaveLength(1)
+    // The typed text sits inside the frame, which closes on itself.
+    expect(rows.some(row => row.includes('│ › typed text') && row.endsWith('│'))).toBe(true)
+    // The frame's last row is within the chrome at the screen's foot.
+    const bottom = rows.findLastIndex(row => row.trimStart().startsWith('╰─') && row.length > PTY_COLUMNS / 2)
+    expect(bottom).toBeGreaterThanOrEqual(PTY_ROWS - 4)
+  }, E2E_TEST_TIMEOUT_MS)
+
+  it('opens the completion menu as a command is typed', async () => {
+    const output = await drivePty('write', [
+      // No Tab: the menu has to appear from the typing itself.
+      ['/help for commands', '/p', 0],
+      ['Enter or leave plan mode', `${CLEAR}/exit${ENTER}`, 300],
+    ])
+
+    // Both matches, each with what it does, and one of them marked. The typed
+    // fragment keeps the accent colour inside each candidate.
+    const plain = output.replaceAll(/\u001B\[[0-9;?]*[A-Za-z]/gu, '')
+    expect(plain).toContain('/plan')
+    expect(plain).toContain('/permission')
+    expect(plain).toContain('Enter or leave plan mode')
+    expect(plain).toContain('❯')
+    expect(output).toContain('\u001B[4m/p\u001B[24m')
+  }, E2E_TEST_TIMEOUT_MS)
+
+  it('adds a line with Alt-Enter and submits the block with Enter', async () => {
+    const output = await drivePty('write', [
+      ['/help for commands', `first${ESCAPE}${ENTER}second`, 0],
+      ['second', ENTER, 300],
+      ['CODE_CLI_CALL_OK', `/exit${ENTER}`, 300],
+    ])
+
+    const screen = screenAt(output, 'CODE_CLI_CALL_OK')
+    // One turn from two lines: the break did not submit.
+    expect(screen.alternate.filter(row => row.includes('Write note.txt'))).toHaveLength(1)
+    // The echo keeps the block's shape: the marker on the first row, the
+    // continuation aligned under it, both outside the box's borders.
+    const rows = screen.alternate.map(visible)
+    const echo = rows.indexOf('┃ › first')
+    expect(echo).toBeGreaterThanOrEqual(0)
+    expect(rows[echo + 1]).toBe('┃   second')
+  }, E2E_TEST_TIMEOUT_MS)
+
+  it('recalls the previous submission with the up arrow', async () => {
+    const output = await drivePty('write', [
+      ['/help for commands', `remembered text${ENTER}`, 0],
+      ['CODE_CLI_CALL_OK', `${ESCAPE}[A`, 400],
+      ['remembered text', `${CLEAR}/exit${ENTER}`, 400],
+    ])
+
+    // The recalled text is back inside the box. It appears only once: sent as a
+    // single write, the typing itself never produced an intermediate frame.
+    const plain = output.replaceAll(/\u001B\[[0-9;?]*[A-Za-z]/gu, '')
+    expect(plain).toContain('› remembered text')
+  }, E2E_TEST_TIMEOUT_MS)
+
+  it('puts an approval to the arrow keys and accepts on Enter', async () => {
+    const output = await drivePty('bash', [
+      ['/help for commands', `run it${ENTER}`, 300],
+      // The selector replaced the input box; Enter takes the marked default.
+      ['Allow bash', ENTER, 400],
+      ['CODE_CLI_CALL_OK', `/exit${ENTER}`, 400],
+    ])
+
+    // Styling survives rendering now, so the codes are stripped before matching.
+    const plain = output.replaceAll(/\u001B\[[0-9;?]*[A-Za-z]/gu, '')
+    // The question names the command, not only the tool: the card that shows
+    // it can be scrolled away or folded by the time the decision is asked.
+    expect(plain).toContain('Allow bash: printf')
+    expect(plain).toContain('❯ 1. Yes, this time (y)')
+    expect(plain).toContain('2. Yes, every bash call this session (a)')
+    expect(plain).toContain('CODE_CLI_ROUND_TRIP')
+  }, E2E_TEST_TIMEOUT_MS)
+
+  it('denies an approval through its shortcut key', async () => {
+    const output = await drivePty('bash', [
+      ['/help for commands', `run it${ENTER}`, 300],
+      ['Allow bash', 'n', 400],
+      ['CODE_CLI_CALL_DENIED', `/exit${ENTER}`, 400],
+    ])
+
+    expect(output).toContain('CODE_CLI_CALL_DENIED')
+    expect(output).not.toContain('CODE_CLI_CALL_OK')
+  }, E2E_TEST_TIMEOUT_MS)
+
+  it('keeps the status row live in the region', async () => {
+    const output = await drivePty('write', [
+      ['/help for commands', `create the note${ENTER}`, 300],
+      ['CODE_CLI_CALL_OK', `/exit${ENTER}`, 400],
+    ])
+
+    const rows = screenAt(output, 'CODE_CLI_CALL_OK').alternate
+    // The always-current facts occupy the screen's last row, not the
+    // transcript: model, composition, permissions, spend, and place.
+    expect(rows.at(-1)).toMatch(/cli-mock · code-cli · workspace-write · \d+k? tokens/)
+    // Submitting clears the box, so the transcript's own render is the only
+    // copy of the message that survives — a row outside the box's borders.
+    expect(rows.map(visible)).toContain('┃ › create the note')
+  }, E2E_TEST_TIMEOUT_MS)
+
+  it('toggles plan mode with Shift-Tab, both ways', async () => {
+    const output = await drivePty('write', [
+      ['/help for commands', `${ESCAPE}[Z`, 400],
+      // The registry's bare /plan only ever enters; the second press must still
+      // leave, or the key reads as broken.
+      ['▲ plan mode', `${ESCAPE}[Z`, 500],
+      ['▼ plan mode off', `/exit${ENTER}`, 400],
+    ])
+
+    const plain = output.replaceAll(/\u001B\[[0-9;?]*[A-Za-z]/gu, '')
+    expect(plain).toContain('▲ plan mode')
+    expect(plain).toContain('▼ plan mode off')
+    // The box frame carries the mode while it holds.
+    expect(output).toContain('\u001B[33m╭')
+  }, E2E_TEST_TIMEOUT_MS)
+
+  it('completes a command argument and runs it', async () => {
+    const output = await drivePty('write', [
+      ['/help for commands', `${ESCAPE}[Z`, 400],
+      // Typing the space after /plan opens the argument menu by itself.
+      ['▲ plan mode', '/plan ', 500],
+      ['leave plan mode', `\t${ENTER}`, 400],
+      ['▼ plan mode off', `${CLEAR}/exit${ENTER}`, 400],
+    ])
+
+    const plain = output.replaceAll(/\u001B\[[0-9;?]*[A-Za-z]/gu, '')
+    expect(plain).toContain('leave plan mode')
+    expect(plain).toContain('▼ plan mode off')
+  }, E2E_TEST_TIMEOUT_MS)
+
+  it('switches the model through the /model selector, all the way to the request', async () => {
+    const output = await drivePty('write', [
+      // Bare /model IS the request to pick one: the selector opens.
+      ['/help for commands', `/model${ENTER}`, 400],
+      ['Switch model', `${ESCAPE}[B${ENTER}`, 500],
+      // The pick is confirmed, and the next turn must be SERVED by it: the
+      // mock names the model that answered, which is the only proof a switch
+      // reached the request rather than only the display.
+      ['model cli-mock/cli-mock-pro', `run it${ENTER}`, 400],
+      ['via cli-mock-pro', `/exit${ENTER}`, 400],
+    ])
+
+    const plain = output.replaceAll(/\u001B\[[0-9;?]*[A-Za-z]/gu, '')
+    expect(plain).toContain('❯ 1. cli-mock/cli-mock')
+    expect(plain).toContain('· current')
+    expect(plain).toContain('model cli-mock/cli-mock-pro')
+    expect(plain).toContain('via cli-mock-pro')
+    // The status row reads the live selection.
+    expect(plain).toContain('cli-mock-pro · code-cli')
+  }, E2E_TEST_TIMEOUT_MS)
+
+  it('ignores Escape at an idle prompt', async () => {
+    const output = await drivePty('write', [
+      // Press Escape with nothing running.
+      ['/help for commands', ESCAPE, 0],
+      // Nothing should have happened, so there is no marker to wait for: settle,
+      // then prove the surface is still reading by giving it real work.
+      ['', 'create the note\n', 1000],
+      ['CODE_CLI_CALL_OK', '/exit\n', 300],
+    ])
+
+    // Cancelling an idle agent is a no-op, so the surface stays quiet about it.
+    expect(output).not.toContain('interrupted')
+    expect(output).toContain('CODE_CLI_CALL_OK')
+    expect(output).toMatch(/session session-/)
+  }, E2E_TEST_TIMEOUT_MS)
+
+  it('streams thinking as a live line and collapses it to a summary', async () => {
+    const output = await drivePty('reasoning', [
+      ['/help for commands', `think it over${ENTER}`, 300],
+      ['CODE_CLI_ANSWER after thinking', `/exit${ENTER}`, 400],
+    ])
+
+    // The thought was visible while it streamed...
+    expect(output).toContain('CODE_CLI_THINKING')
+    // ...but the settled screen keeps one summary line, not the pages.
+    const rows = screenAt(output, 'CODE_CLI_ANSWER after thinking').alternate
+    const summary = rows.findIndex(row => /✻ thought for [\d.]+s · \+\d+ lines \(click or Ctrl\+O expands\)/u.test(row))
+    expect(summary).toBeGreaterThanOrEqual(0)
+    expect(rows.some(row => row.includes('weighing the options'))).toBe(false)
+    expect(summary).toBeLessThan(rows.findIndex(row => row.includes('CODE_CLI_ANSWER')))
+  }, E2E_TEST_TIMEOUT_MS)
+
+  it('recalls the previous message with a double Escape', async () => {
+    const output = await drivePty('write', [
+      ['/help for commands', `create the note${ENTER}`, 300],
+      ['CODE_CLI_CALL_OK', ESCAPE, 400],
+      // The first Escape at a quiet, empty prompt arms recall and says so.
+      ['ESC again to edit', ESCAPE, 200],
+      // The recalled text is back in the box, editable — not submitted.
+      ['create the note', `${CLEAR}/exit${ENTER}`, 400],
+    ])
+
+    // The armed hint appeared on screen, and the recalled text is back in the
+    // box rather than submitted: still exactly one tool card.
+    expect(screenAt(output, 'ESC again to edit').text).toContain('ESC again to edit your previous message')
+    // The recall puts the text back INSIDE the box. Chrome-height changes make
+    // the transcript re-emit its rows, so no byte marker is unambiguous here;
+    // replaying frame by frame and watching the screen is.
+    const held = output.slice(0, output.indexOf(LEAVE_ALT))
+    const probe = new Terminal(PTY_ROWS, PTY_COLUMNS)
+    let from = 0
+    let recalled: string[] | undefined
+    for (;;) {
+      const end = held.indexOf(SYNC_END, from)
+      if (end < 0) break
+      probe.feed(held.slice(from, end + SYNC_END.length))
+      from = end + SYNC_END.length
+      if (probe.alternate.some(row => row.includes('│ › create the note'))) {
+        // Keep the LAST such frame: the first is the original typing, before
+        // the tool card existed; the last is the recall.
+        recalled = [...probe.alternate]
+      }
+    }
+    expect(recalled).toBeDefined()
+    // Recalled for editing, not re-submitted: still exactly one tool card.
+    expect(recalled?.filter(row => row.includes('Write note.txt'))).toHaveLength(1)
+  }, E2E_TEST_TIMEOUT_MS)
+
+  it('reads a long diff card in the pager on click, leaving the card collapsed', async () => {
+    const clickCard = '\u001B[<0;6;{row:Ctrl+O expands}M\u001B[<0;6;{row:Ctrl+O expands}m'
+    const output = await drivePty('tall', [
+      ['/help for commands', `create the tall note${ENTER}`, 300],
+      // 45 diff lines, collapsed: the card offers the reader before the key...
+      ['click reads it', clickCard, 500],
+      // ...and the click opens it over the conversation, not into it.
+      ['Esc closes', '\u001B', 400],
+      ['Ask anything', `/exit${ENTER}`, 400],
+    ])
+
+    const reading = screenAt(output, 'Esc closes').alternate
+    expect(reading[0]).toContain('Changes')
+    // Raw unified text, coloured by the reader: a create runs against /dev/null.
+    expect(reading.join('\n')).toContain('+++ b/note.txt')
+    expect(reading.join('\n')).toContain('CODE_CLI_TALL_0')
+    // The box is gone while the reader holds the screen.
+    expect(reading.join('\n')).not.toContain('Ask anything')
+
+    // Esc returns, and the card is where it was — reading is not expanding.
+    const after = screenAt(output, 'Ask anything', 'last').alternate
+    expect(after.some(row => row.includes('Ctrl+O expands'))).toBe(true)
+    expect(after.some(row => row.includes('CODE_CLI_TALL_44'))).toBe(false)
+  }, E2E_TEST_TIMEOUT_MS)
+
+  it('offers this folder first, and folds the other folders behind one row', async () => {
+    // Two workspaces sharing one home, which is the only way sessions from
+    // another checkout exist to be folded away.
+    const home = await makeHome()
+    // Short paths on purpose: a row is truncated to the window, and the
+    // per-user temp root is long enough on macOS to cut the name off the end.
+    const here = await mkdtemp('/tmp/codsh-here-')
+    const away = await mkdtemp('/tmp/codsh-away-')
+    try {
+      await drivePty('write', [
+        ['/help for commands', `note the away work${ENTER}`, 500],
+        ['Write note.txt', `/exit${ENTER}`, 400],
+      ], { cwd: away, env: { DSH_HOME: home } })
+
+      // The surface prints the realpath, and macOS hands out /var for
+      // /private/var; the directory's own name is what both forms carry.
+      const awayName = basename(away)
+      const run = await drivePtySteps('write', [
+        ['/help for commands', `note the local work${ENTER}`, 500],
+        // /clear retires this session, so the folder has one to offer back.
+        ['Write note.txt', `/clear${ENTER}`, 500],
+        ['new session session-', `/resume${ENTER}`, 700],
+        // Filtering to the fold row is how it gets chosen without counting
+        // arrow presses through a list whose length the test does not fix.
+        ['Resume session', 'other folders', 500],
+        ['in other folders', ENTER, 700],
+        // Waiting for the other folder's own name IS the assertion: the row
+        // was a door, and reaching this step at all means it opened.
+        [awayName, '\u001B', 400],
+        // Escape and the command go in separate writes: `ESC /` in one chunk
+        // is an Alt chord, and the surface swallows it.
+        ['Ask anything', `/exit${ENTER}`, 500],
+      ], { cwd: here, env: { DSH_HOME: home } })
+
+      const at = (index: number): string => screenOf(
+        Buffer.from(run.output).subarray(0, run.offsets[index]).toString(), -1,
+      ).alternate.join('\n')
+      // Folded: this folder's session is offered, and the other folder is one
+      // row rather than a row per session.
+      const folded = at(4)
+      expect(folded).toContain('in other folders')
+      expect(folded).not.toContain(awayName)
+
+      // Opened: the list that replaced it holds the other folder's session.
+      expect(screenAt(run.output, awayName).alternate.join('\n')).toContain(awayName)
+    } finally {
+      await rm(here, { recursive: true, force: true })
+      await rm(away, { recursive: true, force: true })
+      await rm(home, { recursive: true, force: true })
+    }
+  }, E2E_TEST_TIMEOUT_MS)
+
+  it('moves up a wrapped line instead of recalling the last prompt', async () => {
+    // A narrow window, so one typed line is more than one row on screen.
+    const long = 'const alpha = beta.gamma(delta, epsilon, zeta, eta, theta)'
+    const run = await drivePtySteps('write', [
+      ['/help for commands', `remembered prompt${ENTER}`, 500],
+      // Type the long line — 40 columns makes it several rows — then Up from
+      // its last row.
+      ['Write note.txt', long, 400],
+      [long.slice(-12), '\u001B[A', 500],
+      // Submitting empties the box, so the command after it is a command.
+      ['', ENTER, 700],
+      ['Write note.txt', `/exit${ENTER}`, 500],
+    ], { columns: 40 })
+
+    // The frame after Up settled.
+    const after = screenOf(
+      Buffer.from(run.output).subarray(0, run.offsets[3]).toString(), -1,
+    ).alternate.join('\n')
+    // The line is still in the box: Up moved inside it. Recalling history
+    // would have replaced the buffer, and this line was never submitted, so
+    // it would be nowhere on screen at all.
+    expect(after).toContain('const alpha')
+  }, E2E_TEST_TIMEOUT_MS)
+
+  it('keeps the box intact while lines wider than the terminal stream in', async () => {
+    // The reported corruption: streamed text sitting on the box's top border.
+    // Narrow window, lines far wider than it, deltas that ignore line ends —
+    // the box repaints many times inside one line.
+    const output = await drivePty('wide', [
+      ['/help for commands', `stream something wide${ENTER}`, 2_500],
+      ['WIDEDONE', `/exit${ENTER}`, 500],
+    ], { columns: 60, rows: 16 })
+
+    // Every frame, not just the last: the corruption is transient by nature.
+    const probe = new Terminal(16, 60)
+    const offenders: string[] = []
+    for (const frame of output.split(SYNC_END)) {
+      probe.feed(frame + SYNC_END)
+      const border = probe.alternate.find(row => row.includes('╭'))
+      if (border === undefined) continue
+      // A top border is border and space; a letter on it is bled content.
+      if (/[A-Za-z]/u.test(border)) offenders.push(border.trim())
+    }
+    expect(offenders.slice(0, 3)).toEqual([])
+  }, E2E_TEST_TIMEOUT_MS)
+
+  it('records a replayable trace of what it drew, when asked to', async () => {
+    // A corrupted frame is a disagreement between what the surface emitted and
+    // what the terminal did with it, and the emitted half is unrecoverable
+    // afterwards. CODSH_TRACE keeps it.
+    const dir = await mkdtemp('/tmp/codsh-trace-')
+    const path = join(dir, 'trace')
+    try {
+      const output = await drivePty('write', [
+        ['/help for commands', `note the work${ENTER}`, 600],
+        ['Write note.txt', `/exit${ENTER}`, 500],
+      ], { columns: 60, rows: 16, env: { CODSH_TRACE: path } })
+
+      const trace = await readFile(path, 'utf8')
+      // It leads with the geometry the bytes were painted for; replaying them
+      // without it would be replaying at the wrong size.
+      expect(trace).toMatch(/\u001B_codsh;start 60x16 /u)
+      // And the bytes themselves reproduce the screen the run ended on.
+      const fromTrace = screenAt(trace, 'Write note.txt', 'last').alternate
+      const fromRun = screenAt(output, 'Write note.txt', 'last').alternate
+      expect(fromTrace).toEqual(fromRun)
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  }, E2E_TEST_TIMEOUT_MS)
+
+  it('says how far through the plan a run is, not just which round', async () => {
+    // The spec file is where progress lives: one checkbox per ticket, ticked
+    // as each lands. The working line reports it as soon as the file exists.
+    const output = await drivePty('spec', [
+      ['/help for commands', `write the plan${ENTER}`, 900],
+      ['SHIP_TICKET_THREE', '', 900],
+      ['', `/exit${ENTER}`, 500],
+    ], { columns: 100, rows: 16 })
+
+    const working = output.split(SYNC_END)
+      .flatMap(frame => frame.split('\n'))
+      .filter(line => line.includes('working') && line.includes('1/3'))
+    // One ticket of three is ticked, and the line names the one in flight.
+    expect(working.length).toBeGreaterThan(0)
+    expect(working.join('\n')).toContain('SHIP_TICKET_TWO')
+  }, E2E_TEST_TIMEOUT_MS)
+
+  it('takes a selector row on a click, and marks the row under the pointer', async () => {
+    // `/view` is the observable one: choosing a row opens the reader, so the
+    // click either committed or it did not. The pointer rests on the SECOND
+    // row, which the mark is not on — proving the click took the row under the
+    // pointer rather than the row Enter would have taken.
+    const overRow = '\u001B[<35;6;{row:const answer}M'
+    const clickRow = '\u001B[<0;6;{row:const answer}M\u001B[<0;6;{row:const answer}m'
+    const run = await drivePtySteps('markdown', [
+      ['Welcome to codsh', `explain${ENTER}`, 400],
+      ['CODE_CLI_CALL_STREAM_DONE', `/view${ENTER}`, 500],
+      ['View content', overRow, 400],
+      // No wait: the title is already on screen, and only the rows the hover
+      // changed are repainted, so waiting for it again would wait forever.
+      ['', clickRow, 600],
+      ['Esc closes', '\u001B', 400],
+      ['Ask anything', `/exit${ENTER}`, 400],
+    ], { rows: 20 })
+
+    const captured = (offset: number | undefined): string => Buffer.from(run.output).subarray(0, offset).toString()
+    const hovered = screenOf(captured(run.offsets[3]), -1, 20).alternate
+    const marked = hovered.findIndex(row => row.includes('\u276F'))
+    const under = hovered.findIndex(row => row.includes('const answer') && !row.includes('\u276F'))
+    // Resting somewhere never moves the mark.
+    expect(marked).toBeGreaterThanOrEqual(0)
+    expect(under).toBeGreaterThanOrEqual(0)
+    expect(marked).not.toBe(under)
+
+    // And the reader that opened is the row the pointer was on, not the marked one.
+    const opened = screenOf(captured(run.offsets[4]), -1, 20).alternate
+    expect(opened[0]).toContain('Code 1:1')
+  }, E2E_TEST_TIMEOUT_MS)
+
+  it('takes a completion the pointer clicked, not the one the mark is on', async () => {
+    // `/` opens the menu with the mark on its first row; the pointer takes a
+    // different one, so the box proves which row the click meant.
+    // The typed `/` is underlined on its own, so the raw stream never holds
+    // `/compact` contiguously; the rest of the label does.
+    const overRow = '\u001B[<35;6;{row:compact}M'
+    const clickRow = '\u001B[<0;6;{row:compact}M\u001B[<0;6;{row:compact}m'
+    const run = await drivePtySteps('write', [
+      ['/help for commands', '/', 500],
+      ['compact', overRow, 400],
+      // No wait: only the rows the hover changed are repainted.
+      ['', clickRow, 500],
+      ['', `\u0015/exit${ENTER}`, 500],
+    ], { rows: 20 })
+
+    const captured = (offset: number | undefined): string => Buffer.from(run.output).subarray(0, offset).toString()
+    const hovered = screenOf(captured(run.offsets[2]), -1, 20).alternate
+    // The mark is on one row and the pointer's dot on another.
+    expect(hovered.some(row => row.includes('\u276F'))).toBe(true)
+    expect(hovered.some(row => row.includes('\u00B7 ') && row.includes('/compact'))).toBe(true)
+
+    const taken = screenOf(captured(run.offsets[3]), -1, 20).alternate.join('\n')
+    expect(taken).toContain('/compact')
+  }, E2E_TEST_TIMEOUT_MS)
+
+  it('selects text in the box with a drag and copies on release', async () => {
+    const typed = 'hello world'
+    const press = '\u001B[<0;8;{row:hello world}M'
+    const drag = '\u001B[<32;16;{row:hello world}M'
+    const release = '\u001B[<0;16;{row:hello world}m'
+    const run = await drivePtySteps('write', [
+      ['/help for commands', typed, 500],
+      ['hello world', `${press}${drag}${release}`, 400],
+      // Home drops the span and Ctrl-K clears the line so /exit is a command,
+      // not a replacement of the selected text.
+      ['copied', `\u0001\u000B/exit${ENTER}`, 500],
+    ], { rows: 16 })
+
+    const captured = (offset: number | undefined): string => Buffer.from(run.output).subarray(0, offset).toString()
+    const after = captured(run.offsets[2])
+    expect(after).toContain('\u001B[7m')
+    const osc = /\u001B\]52;c;([A-Za-z0-9+/=]+)\u0007/.exec(after)
+    expect(osc).not.toBeNull()
+    const copied = Buffer.from(osc?.[1] ?? '', 'base64').toString('utf8')
+    expect(copied.length).toBeGreaterThan(0)
+    expect(typed).toContain(copied)
+    expect(copied).not.toContain('\u001B')
+    expect(copied).not.toContain('›')
+  }, E2E_TEST_TIMEOUT_MS)
+
+  it('puts the cursor where the box was clicked, across a wrap', async () => {
+    // Narrow enough that one typed line takes two rows in the box. Clicking
+    // the first row and typing proves the cursor went where the pointer did.
+    const typed = 'alpha beta gamma delta epsilon zeta'
+    const clickFirstRow = '\u001B[<0;10;{row:alpha}M\u001B[<0;10;{row:alpha}m'
+    const run = await drivePtySteps('write', [
+      ['/help for commands', typed, 500],
+      // The tail of the line is on the second row; `alpha` is on the first.
+      ['zeta', clickFirstRow, 400],
+      ['', 'X', 400],
+      // Submitting empties the box, so the command after it is a command.
+      ['', ENTER, 700],
+      ['Write note.txt', `/exit${ENTER}`, 500],
+    ], { columns: 30, rows: 16 })
+
+    const captured = (offset: number | undefined): string => Buffer.from(run.output).subarray(0, offset).toString()
+    const after = screenOf(captured(run.offsets[3]), -1, 16).alternate.join('\n')
+    // The character landed inside the first row, not at the end of the line.
+    expect(after).toContain('X')
+    expect(after).not.toContain('zetaX')
+  }, E2E_TEST_TIMEOUT_MS)
+
+  it('turns the wheel on an open menu, without moving what Enter would take', async () => {
+    // `/` offers more commands than the menu shows at once, so it has
+    // somewhere to scroll to.
+    const wheelDown = '\u001B[<65;10;{row:compact}M'.repeat(3)
+    const run = await drivePtySteps('write', [
+      ['/help for commands', '/', 500],
+      ['compact', wheelDown, 500],
+      // Enter with a menu open finishes the word rather than submitting, so
+      // the command it left has to be submitted before the box is free.
+      ['', ENTER, 700],
+      ['', ENTER, 700],
+      ['new session session-', `/exit${ENTER}`, 500],
+    ], { rows: 20 })
+
+    const captured = (offset: number | undefined): string => Buffer.from(run.output).subarray(0, offset).toString()
+    const scrolled = screenOf(captured(run.offsets[2]), -1, 20).alternate.join('\n')
+    // The window moved: the first command is no longer among the rows.
+    expect(scrolled).not.toContain('/clear')
+    // The mark did not, so Enter still finished the first command.
+    const taken = screenOf(captured(run.offsets[3]), -1, 20).alternate.join('\n')
+    expect(taken).toContain('/clear')
+  }, E2E_TEST_TIMEOUT_MS)
+
+  it('does not let a click answer an approval', async () => {
+    // `bash` asks for a wider sandbox, which is the approval prompt. Granting
+    // a tool for the session cannot be taken back, so the pointer is refused
+    // there — and the run has to end with the keyboard answering.
+    const clickAlways = '\u001B[<0;6;{row:every bash}M\u001B[<0;6;{row:every bash}m'
+    const run = await drivePtySteps('bash', [
+      ['/help for commands', `run it${ENTER}`, 600],
+      ['Allow bash', clickAlways, 600],
+      // Still asking: the click decided nothing.
+      ['', 'n', 600],
+      ['', `/exit${ENTER}`, 500],
+    ], { rows: 20 })
+
+    const captured = (offset: number | undefined): string => Buffer.from(run.output).subarray(0, offset).toString()
+    const afterClick = screenOf(captured(run.offsets[2]), -1, 20).alternate
+    // The question is still on screen, and no row wears the pointer's mark.
+    expect(afterClick.join('\n')).toContain('Allow bash')
+    expect(afterClick.some(row => row.trimStart().startsWith('\u00B7'))).toBe(false)
+  }, E2E_TEST_TIMEOUT_MS)
+
+  it('opens the ship plan in the panel, ticket by ticket', async () => {
+    // The spec on disk is the plan; the panel is where the whole of it reads.
+    const run = await drivePtySteps('spec', [
+      ['/help for commands', `write the plan${ENTER}`, 900],
+      // The closed readout teases it; Ctrl+T opens the list.
+      ['Ctrl+T opens the list', '\u0014', 700],
+      ['SHIP_TICKET_THREE', '', 300],
+      ['', `/exit${ENTER}`, 500],
+    ], { columns: 100, rows: 24 })
+
+    const captured = (offset: number | undefined): string => Buffer.from(run.output).subarray(0, offset).toString()
+    const closed = screenOf(captured(run.offsets[1]), -1, 24).alternate.join('\n')
+    const open = screenOf(captured(run.offsets[2]), -1, 24).alternate.join('\n')
+
+    // The card that wrote the spec is also on screen with the same words in
+    // it, so the panel is told apart by its marks, which a diff never has.
+    // Closed: one row, the count and what is being landed, and no marks.
+    expect(closed).toContain('plan 1/3')
+    expect(closed).not.toContain('\u25B6')
+    // Open: the ticket in flight is marked, and the ones around it are too.
+    expect(open).toMatch(/\u25B6 SHIP_TICKET_TWO/u)
+    expect(open).toMatch(/\u2714 SHIP_TICKET_ONE/u)
+    expect(open).toMatch(/\u25CB SHIP_TICKET_THREE/u)
+  }, E2E_TEST_TIMEOUT_MS)
+
+  it('opens the ship plan on a click, the way a fold does', async () => {
+    const clickOn = (line: string): string => `\u001B[<0;6;{row:${line}}M\u001B[<0;6;{row:${line}}m`
+    const run = await drivePtySteps('spec', [
+      ['/help for commands', `write the plan${ENTER}`, 900],
+      ['Ctrl+T opens the list', clickOn('Ctrl+T opens the list'), 700],
+      ['Ctrl+T closes', clickOn('Ctrl+T closes'), 500],
+      ['Ctrl+T opens the list', `/exit${ENTER}`, 400],
+    ], { columns: 100, rows: 24 })
+
+    const captured = (offset: number | undefined): string => Buffer.from(run.output).subarray(0, offset).toString()
+    const opened = screenOf(captured(run.offsets[2]), -1, 24).alternate.join('\n')
+    const shut = screenOf(captured(run.offsets[3]), -1, 24).alternate.join('\n')
+    expect(opened).toMatch(/\u25B6 SHIP_TICKET_TWO/u)
+    expect(opened).toMatch(/\u25CB SHIP_TICKET_THREE/u)
+    expect(shut).toContain('Ctrl+T opens the list')
+    expect(shut).not.toMatch(/\u25CB SHIP_TICKET_THREE/u)
+  }, E2E_TEST_TIMEOUT_MS)
+
+  it('shows a workflow round by round, in the transcript and the working line', async () => {
+    // The real engine, driven by the mock: a script that runs two rounds, each
+    // child answering as text. Until now this rendering had no terminal test
+    // at all, because nothing could make a workflow run.
+    const run = await drivePtySteps('workflow', [
+      ['/help for commands', `run the rounds${ENTER}`, 400],
+      ['completed', '', 400],
+      ['', `/exit${ENTER}`, 500],
+    ], { rows: 20 })
+
+    const captured = (offset: number | undefined): string => Buffer.from(run.output).subarray(0, offset).toString()
+    const settled = screenOf(captured(run.offsets[1]), -1, 20).alternate.join('\n')
+
+    // The round in flight is in the working line, not the transcript: an
+    // append-only transcript cannot unprint a line when the round ends. Every
+    // frame is searched rather than one moment sampled: the label is also in
+    // the script the tool call carries, so only a decoded working line proves
+    // it, and only the frames while a round runs have one.
+    const probe = new Terminal(20, PTY_COLUMNS)
+    let namedARound = false
+    for (const frame of run.output.split(SYNC_END)) {
+      probe.feed(frame + SYNC_END)
+      // The verb is the tool's own name once a call is in flight, so the
+      // working line is recognised by what only it carries.
+      if (probe.alternate.some(row => /E2E round \d.*ESC to interrupt/u.test(row))) namedARound = true
+    }
+    expect(namedARound).toBe(true)
+    // Each settled round is one line, and the run closes with its reason.
+    expect(settled).toContain('e2e-rounds')
+    expect(settled).toMatch(/\u2713 E2E round 1/u)
+    expect(settled).toMatch(/\u2713 E2E round 2/u)
+    expect(settled).toContain('completed')
+    // And no door is offered, because a workflow's children live in a worker
+    // thread and no click could ever open one.
+    expect(settled).not.toContain('click to enter')
+  }, E2E_TEST_TIMEOUT_MS)
+
+  it('toggles a collapsed output open with Ctrl-O, and keeps that choice on moving on', async () => {
+    const output = await drivePty('tall', [
+      ['/help for commands', `create the tall note${ENTER}`, 300],
+      // 45 diff lines, collapsed: the card names the expand key...
+      ['Ctrl+O expands', '\u000F', 400],
+      // ...Ctrl-O swaps the block for its full body, clipped tail included...
+      ['CODE_CLI_TALL_44', `/status${ENTER}`, 400],
+      // ...and the next submission preserves that explicit reading choice.
+      ['permissions', `/exit${ENTER}`, 400],
+    ])
+
+    // Expanded: the tail line is on screen where the summary was.
+    const expanded = screenAt(output, 'CODE_CLI_TALL_44').alternate
+    expect(expanded.some(row => row.includes('CODE_CLI_TALL_44'))).toBe(true)
+    // Still expanded after moving on: the summary stays away and the tail remains.
+    const after = screenAt(output, 'permissions').alternate
+    expect(after.some(row => row.includes('Ctrl+O expands'))).toBe(false)
+    expect(after.some(row => row.includes('CODE_CLI_TALL_44'))).toBe(true)
+  }, E2E_TEST_TIMEOUT_MS)
+
+  it('pins the todo list in the chrome and opens it on Ctrl-T', async () => {
+    const output = await drivePty('todo', [
+      ['/help for commands', `plan the work${ENTER}`, 300],
+      // The readout names its own key, the way a fold names Ctrl-O...
+      ['Ctrl+T opens the list', '\u0014', 400],
+      // ...opens to every item...
+      ['Ctrl+T closes', '\u0014', 400],
+      // ...and closes back to the one line.
+      ['Ctrl+T opens the list', `/exit${ENTER}`, 400],
+    ])
+
+    // Pinned: the item in flight sits directly over the status row, so the list
+    // is still answerable long after its card scrolled away.
+    const pinned = screenAt(output, 'Ctrl+T opens the list').alternate
+    expect(pinned.at(-1)).toMatch(/cli-mock · code-cli/)
+    const readout = pinned.findIndex(row => row.includes('Ctrl+T opens the list'))
+    expect(pinned[readout]).toContain('▶ write the fix')
+    expect(pinned[readout]).toContain('1/3')
+    // In the chrome, not the transcript: only the rows about right now sit
+    // under it — the working indicator, when one is ticking, and the status row.
+    expect(pinned.length - readout).toBeLessThanOrEqual(3)
+
+    // Opened: every item, under the header that says how to close it.
+    const opened = screenAt(output, 'Ctrl+T closes').alternate
+    const head = opened.findIndex(row => row.includes('Ctrl+T closes'))
+    expect(head).toBeGreaterThanOrEqual(0)
+    expect(opened.slice(head + 1, head + 4).map(row => row.trim())).toEqual([
+      '✔ read the code',
+      '▶ write the fix',
+      '○ run the tests',
+    ])
+
+    // Closed again: the chrome is back to one row. The card in the transcript
+    // still lists the items, so the header's own key text is what separates an
+    // open readout from a scrolled-back write.
+    const closed = screenAt(output, 'Ctrl+T opens the list', 'last').alternate
+    expect(closed.some(row => row.includes('Ctrl+T closes'))).toBe(false)
+  }, E2E_TEST_TIMEOUT_MS)
+
+  it('speaks the kitty keyboard protocol: pushed on entry, Shift+Enter breaks the line', async () => {
+    const output = await drivePty('write', [
+      // A kitty-capable terminal sends Shift+Enter as CSI 13;2u.
+      ['/help for commands', `first${ESCAPE}[13;2usecond`, 300],
+      // Both halves in the box; Enter submits them as ONE message.
+      ['second', ENTER, 400],
+      ['CODE_CLI_CALL_OK', `/exit${ENTER}`, 400],
+    ])
+
+    // The flag is pushed inside the session and popped before it ends.
+    const held = output.slice(0, output.indexOf('\u001B[?1049l'))
+    expect(held.indexOf('\u001B[?1049h')).toBeLessThan(held.indexOf('\u001B[>1u'))
+    expect(held).toContain('\u001B[<u')
+    // The report broke the line: both halves stacked in the box...
+    const typing = screenAt(output, 'second').alternate
+    const boxRow = typing.findIndex(row => row.includes('› first'))
+    expect(boxRow).toBeGreaterThanOrEqual(0)
+    expect(typing[boxRow + 1] ?? '').toContain('second')
+    // ...and the transcript echoes the one two-line message.
+    const done = screenAt(output, 'CODE_CLI_CALL_OK').alternate
+    const echo = done.findIndex(row => visible(row).startsWith('┃ › first'))
+    expect(echo).toBeGreaterThanOrEqual(0)
+    expect(done[echo + 1] ?? '').toContain('second')
+  }, E2E_TEST_TIMEOUT_MS)
+
+  it('reads focus and background reports: no bell while focused, light palette adopted', async () => {
+    const output = await drivePty('bash', [
+      // The terminal reports focus, then answers the background question with
+      // white — the decoder must consume both, never type them.
+      ['/help for commands', `${ESCAPE}[I${ESCAPE}]11;rgb:ffff/ffff/ffff\u0007run the command${ENTER}`, 300],
+      ['Allow bash', 'n', 400],
+      ['CODE_CLI_CALL_DENIED', `/exit${ENTER}`, 400],
+    ])
+
+    const held = output.slice(0, output.indexOf('\u001B[?1049l'))
+    // Every BEL in the run terminates an OSC: the approval rang no bell,
+    // because the person was already looking at the terminal.
+    const bels = (held.match(/\u0007/gu) ?? []).length
+    const oscs = (held.match(/\u001B\]/gu) ?? []).length
+    expect(bels).toBe(oscs)
+    // Nor did it notify: focused, the person is already here.
+    expect(held).not.toContain('\u001B]9;')
+    // The light answer swapped the secondary-text shade for later frames.
+    expect(held).toContain('\u001B[38;5;242m')
+    // And nothing of the reports leaked into visible text.
+    const plain = held.replaceAll(/\u001B(?:\[[0-9;?<>:]*[A-Za-z]|\][^\u0007]*\u0007)/gu, '')
+    expect(plain).not.toContain('rgb:')
+  }, E2E_TEST_TIMEOUT_MS)
+
+  it('selects with the mouse and copies on release', async () => {
+    const output = await drivePty('write', [
+      ['/help for commands', `create the note${ENTER}`, 300],
+      // Press at the top of the prompt-anchored turn, drag through its answer,
+      // release: the gesture IS the copy — no keystroke follows it.
+      ['CODE_CLI_CALL_OK', `${ESCAPE}[<0;1;1M${ESCAPE}[<32;60;6M${ESCAPE}[<32;120;12M${ESCAPE}[<0;120;12m`, 400],
+      ['copied', `/exit${ENTER}`, 500],
+    ])
+
+    // The drag painted a reverse-video span.
+    expect(output).toContain('\u001B[7m')
+    // Release wrote the visible turn through OSC 52.
+    const osc = /\u001B\]52;c;([A-Za-z0-9+/=]+)\u0007/.exec(output)
+    expect(osc).not.toBeNull()
+    const copied = Buffer.from(osc?.[1] ?? '', 'base64').toString('utf8')
+    expect(copied).toContain('› create the note')
+    expect(copied).toContain('CODE_CLI_CALL_OK')
+    // Plain text: the styling on screen stayed out of the clipboard.
+    expect(copied).not.toContain('\u001B')
+    // And the toast said so.
+    const frame = screenAt(output, 'copied', 'last')
+    expect(frame.alternate.some(row => /✓ copied \d+ lines/u.test(row))).toBe(true)
+  }, E2E_TEST_TIMEOUT_MS)
+
+it('paints a command that is a script as rows, never outside one', async () => {
+    const output = await drivePty('heredoc', [
+      ['/help for commands', `run it${ENTER}`, 300],
+      ['Allow bash', 'n', 400],
+      ['CODE_CLI_CALL_DENIED', `/exit${ENTER}`, 400],
+    ], { columns: 76, rows: 20 })
+
+    // Inside the alternate screen every row is written at a position of its
+    // own, so a raw newline is the surface painting outside one: the rest of
+    // the row lands at column 1 of the row below, and that row — a box border,
+    // say — is one the frame diff considers unchanged, so nothing paints over
+    // it again for the rest of the session. A real session lost the top of its
+    // input box exactly that way, to a bash command that was a heredoc.
+    const held = output.slice(output.indexOf('\u001B[?1049h'), output.indexOf(LEAVE_ALT))
+    expect(held).not.toContain('\n')
+
+    // The one-row summary names the command's first line...
+    const asking = screenAt(output, 'Allow bash', 'last').alternate
+    expect(asking.some(row => row.includes("$ python3 - <<'EOF' …"))).toBe(true)
+    // ...and the whole script reads as rows of the block that ran it.
+    const done = screenAt(output, 'CODE_CLI_CALL_DENIED', 'last').alternate
+    expect(done.some(row => /│ import re$/u.test(row.trimEnd()))).toBe(true)
+    expect(done.some(row => row.includes("print('patched')"))).toBe(true)
+  }, E2E_TEST_TIMEOUT_MS)
+
+  it('copies a drag that leaves the transcript and is released over the input box', async () => {
+    const bottom = String(PTY_ROWS)
+    const output = await drivePty('write', [
+      ['/help for commands', `create the note${ENTER}`, 300],
+      // Press on the first row and sweep down past the last line, letting go on
+      // the bottom row — the way a person selects everything on screen. The
+      // rows below the transcript belong to the chrome, but the gesture belongs
+      // to the viewport that anchored it.
+      [
+        'CODE_CLI_CALL_OK',
+        `${ESCAPE}[<0;1;1M${ESCAPE}[<32;60;20M${ESCAPE}[<32;120;${bottom}M${ESCAPE}[<0;120;${bottom}m`,
+        400,
+      ],
+      ['copied', `/exit${ENTER}`, 500],
+    ])
+
+    const osc = /\u001B\]52;c;([A-Za-z0-9+/=]+)\u0007/.exec(output)
+    expect(osc).not.toBeNull()
+    const copied = Buffer.from(osc?.[1] ?? '', 'base64').toString('utf8')
+    expect(copied).toContain('› create the note')
+    expect(copied).toContain('CODE_CLI_CALL_OK')
+  }, E2E_TEST_TIMEOUT_MS)
+
+  it('clears to a fresh session, then resumes the old one through the selector', async () => {
+    const output = await drivePty('echo', [
+      ['/help for commands', `remember DELTA_ONE${ENTER}`, 300],
+      ['remembered=yes', `/clear${ENTER}`, 400],
+      ['new session session-', `/resume${ENTER}`, 400],
+      // The retired session is the one on offer; Enter takes it.
+      ['Resume session', ENTER, 400],
+      ['resumed session-', `/exit${ENTER}`, 500],
+    ])
+
+    const rows = screenAt(output, 'resumed session-', 'last').alternate.map(visible)
+    // Switching sessions clears the retired viewport, then replays the resumed
+    // log: exactly one echo, and none of the interim session's chatter.
+    expect(rows.filter(row => row === '┃ › remember DELTA_ONE')).toHaveLength(1)
+    expect(rows.some(row => row.includes('new session session-'))).toBe(false)
+    // The window title tracks the surface on a real terminal.
+    expect(output).toContain('\u001B]2;dsh code —')
+  }, E2E_TEST_TIMEOUT_MS)
+
+  it('rules each block down its left edge, by what the block is', async () => {
+    const output = await drivePty('write', [
+      ['/help for commands', `create the note${ENTER}`, 300],
+      ['CODE_CLI_CALL_OK', `/exit${ENTER}`, 400],
+    ])
+
+    const rows = screenAt(output, 'CODE_CLI_CALL_OK').alternate.map(visible)
+    // The person's own words carry the heavy mark; the tool block the light
+    // one — which is what tells two segments apart without a frame or a fill.
+    expect(rows).toContain('┃ › create the note')
+    expect(rows.some(row => row.includes('│ ') && row.includes('note.txt'))).toBe(true)
+    // What a person reads stays flush: the answer is not marked at all.
+    expect(rows.some(row => row.startsWith('CODE_CLI_CALL_OK'))).toBe(true)
+  }, E2E_TEST_TIMEOUT_MS)
+
+  it('replays history as folds, so a resumed long output still opens', async () => {
+    const output = await drivePty('tall', [
+      ['/help for commands', `create the tall note${ENTER}`, 300],
+      // 45 diff lines, collapsed live...
+      ['Ctrl+O expands', '\u000F', 400],
+      // ...then explicitly expanded before session replacement.
+      ['CODE_CLI_TALL_44', `/clear${ENTER}`, 400],
+      ['new session session-', `/resume${ENTER}`, 400],
+      ['Resume session', ENTER, 500],
+      // ...and the replayed card still promises the key...
+      ['resumed session-', '\u000F', 500],
+      // ...which must actually deliver the body, or the promise was a lie and
+      // the output would be unreachable for the rest of the session.
+      ['CODE_CLI_TALL_44', `/exit${ENTER}`, 400],
+    ])
+
+    // Replayed, before the key: the log's own message above a card still
+    // collapsed to its summary — history as the turn left it.
+    const replayed = screenAt(output, 'resumed session-').alternate
+    expect(replayed.map(visible)).toContain('┃ › create the tall note')
+    expect(replayed.some(row => row.includes('Ctrl+O expands'))).toBe(true)
+    expect(replayed.some(row => row.includes('CODE_CLI_TALL_44'))).toBe(false)
+
+    // After the key: the body the log carried, on screen from a fold that only
+    // exists because replay rebuilt it.
+    const expanded = screenAt(output, 'CODE_CLI_TALL_44', 'last').alternate
+    expect(expanded.some(row => row.includes('CODE_CLI_TALL_44'))).toBe(true)
+  }, E2E_TEST_TIMEOUT_MS)
+
+  it('runs a ! line in the shell and the agent sees the output', async () => {
+    const output = await drivePty('echo', [
+      ['/help for commands', `!echo BANG_PTY_7${ENTER}`, 300],
+      ['bang=yes', `/exit${ENTER}`, 400],
+    ])
+
+    const plain = output.replaceAll(/\u001B\[[0-9;?]*[A-Za-z]/gu, '')
+    expect(plain).toContain('$ echo BANG_PTY_7')
+    expect(plain).toContain('BANG_PTY_7')
+    expect(plain).toContain('bang=yes')
+  }, E2E_TEST_TIMEOUT_MS)
+
+  it('re-lays-out the whole viewport after a terminal resize', async () => {
+    const narrow = 80
+    const { output, offsets } = await drivePtySteps('write', [
+      ['/help for commands', `create the note${ENTER}`, 300],
+      // Shrink the window mid-session: every row has to be laid out again, and
+      // a viewport repaint has no old frame to leave behind.
+      ['CODE_CLI_CALL_OK', `@WINSZ:${PTY_ROWS}x${narrow}`, 600],
+      ['', `still here${ENTER}`, 500],
+      ['CODE_CLI_CALL_OK', `/exit${ENTER}`, 400],
+    ])
+
+    // Replayed the way the terminal lived it: wide frames at the wide size,
+    // then the emulator resizes exactly where the window did, then the rest.
+    const held = output.slice(0, output.indexOf(LEAVE_ALT))
+    const resizeAt = offsets[1] ?? 0
+    // The settled frame is the last whole one before `/exit` reaches the box:
+    // the turn is over by then, while counting frames from the tool marker
+    // judges the layout on whichever repaint happened to be in flight.
+    const typed = held.lastIndexOf('/exit')
+    const settled = held.lastIndexOf(SYNC_END, typed < 0 ? held.length : typed)
+    const terminal = new Terminal(PTY_ROWS, PTY_COLUMNS)
+    terminal.feed(held.slice(0, resizeAt))
+    terminal.resize(PTY_ROWS, narrow)
+    terminal.feed(held.slice(resizeAt, settled < 0 ? held.length : settled + SYNC_END.length))
+    const rows = terminal.alternate
+    const foot = rows.slice(-5)
+    expect(foot.filter(row => row.trimStart().startsWith('╭─') && row.length > narrow / 2)).toHaveLength(1)
+    expect(rows.findLastIndex(row => row.trimStart().startsWith('╰─') && row.length > narrow / 2)).toBeGreaterThanOrEqual(PTY_ROWS - 4)
+    for (const row of rows) expect(row.length).toBeLessThanOrEqual(narrow)
+    // The session kept working at the new size.
+    expect(held.includes('still here')).toBe(true)
+  }, E2E_TEST_TIMEOUT_MS)
+})
+
+describe.skipIf(process.platform === 'win32')('remembered approvals (real PTY)', () => {
+  it('remembers a command prefix for the project, and honours it in a later process', async () => {
+    // A fixed workspace: the rule file written by the first process is what
+    // the second one has to read.
+    const cwd = await mkdtemp(join(tmpdir(), 'codsh-rules-'))
+    try {
+      const first = await drivePty('bash', [
+        ['/help for commands', `run it${ENTER}`, 300],
+        // The third answer writes `bash(printf *)` to the project's personal rule file.
+        ['Allow bash', 'd', 400],
+        // The same command again: the rule answers, nobody is asked.
+        ['CODE_CLI_CALL_OK', `run it${ENTER}`, 400],
+        ['CODE_CLI_CALL_OK', `/exit${ENTER}`, 400],
+      ], { cwd })
+      const plain = first.replaceAll(/\u001B\[[0-9;?]*[A-Za-z]/gu, '')
+      expect(plain).toContain("3. Yes, and don't ask again for bash(printf *) in this project (d)")
+      expect(plain).toContain('allowing bash(printf *) from now on · .dsh/permissions.local.json')
+      // Nothing asked after the first answer: the second call reports its rule instead.
+      const afterFirstAnswer = plain.slice(plain.indexOf('from now on'))
+      expect(afterFirstAnswer).not.toContain('Allow bash')
+      expect(afterFirstAnswer).toContain('allowed by bash(printf *)')
+      const written = JSON.parse(await readFile(join(cwd, '.dsh', 'permissions.local.json'), 'utf8')) as { allow: string[] }
+      expect(written.allow).toEqual(['bash(printf *)'])
+
+      const second = await drivePty('bash', [
+        ['/help for commands', `run it${ENTER}`, 300],
+        ['CODE_CLI_CALL_OK', `/exit${ENTER}`, 400],
+      ], { cwd })
+      expect(second).not.toContain('Allow bash')
+      expect(second).toContain('allowed by bash(printf *)')
+      expect(second).toContain('CODE_CLI_ROUND_TRIP')
+    } finally {
+      await rm(cwd, { recursive: true, force: true })
+    }
+  }, E2E_TEST_TIMEOUT_MS)
+})
+
+describe.skipIf(process.platform === 'win32')('undo and redo (real PTY)', () => {
+  it('takes typing back on Ctrl+Z and returns it on Ctrl+Shift+Z', async () => {
+    // Ctrl+Z is the raw byte 0x1A; redo has no legacy byte, so it is the
+    // kitty report for Ctrl+Shift+Z — the protocol this surface pushes.
+    const undo = '\u001A'
+    const redo = '\u001B[122;6u'
+    const run = await drivePtySteps('write', [
+      ['/help for commands', 'hello', 0],
+      ['hello', `${PASTE_START} pasted words${PASTE_END}`, 300],
+      ['pasted words', undo, 300],
+      ['', redo, 400],
+      ['', `${CLEAR}/exit${ENTER}`, 400],
+    ])
+
+    // The screen as each step was written: the settle before it let the
+    // previous key's frame land.
+    const captured = (offset: number | undefined): string => Buffer.from(run.output).subarray(0, offset).toString()
+    const screenBefore = (step: number): string => screenOf(captured(run.offsets[step]), -1).alternate.join('\n')
+    const pasted = screenBefore(2)
+    const undone = screenBefore(3)
+    const redone = screenBefore(4)
+    expect(pasted).toContain('› hello pasted words')
+    // The paste came off as one step; the typed word is still there.
+    expect(undone).toMatch(/› hello\s+│/u)
+    expect(undone).not.toContain('pasted words')
+    expect(redone).toContain('› hello pasted words')
+  }, E2E_TEST_TIMEOUT_MS)
+})
+
+describe.skipIf(process.platform === 'win32')('desktop notifications (real PTY)', () => {
+  it('notifies through the terminal while the window is unfocused, naming what waits', async () => {
+    const output = await drivePty('bash', [
+      // The window reports focus out, then a turn asks for approval.
+      ['/help for commands', `${ESCAPE}[Orun it${ENTER}`, 300],
+      ['Allow bash', 'n', 400],
+      ['CODE_CLI_CALL_DENIED', `/exit${ENTER}`, 400],
+    ])
+    const notices = [...output.matchAll(/\u001B\]9;([^\u0007]*)\u0007/gu)].map(match => match[1])
+    expect(notices).toEqual(['waiting for approval: bash: printf CODE_CLI_ROUND_TRIP'])
+  }, E2E_TEST_TIMEOUT_MS)
+})
+
+describe.skipIf(process.platform === 'win32')('compaction feedback (real PTY)', () => {
+  it('leaves a fold after /compact that names what was summarized, and opens on Ctrl+O', async () => {
+    const output = await drivePty('markdown', [
+      ['/help for commands', `first question${ENTER}`, 300],
+      ['CODE_CLI_CALL_STREAM_DONE', `second question${ENTER}`, 600],
+      ['CODE_CLI_CALL_STREAM_DONE', `/compact${ENTER}`, 600],
+      ['into a summary', '\u000F', 600],
+      ['', `/exit${ENTER}`, 800],
+    ], { timeoutMs: 60_000 })
+    const plain = output.replaceAll(/\u001B\[[0-9;?]*[A-Za-z]/gu, '')
+    expect(plain).toMatch(/✂ compacted \d+ history items \(~\d+ tokens\) into a summary · cli-mock/u)
+    expect(plain).toContain('lines of summary (click or Ctrl+O expands)')
+    // dsh's own report still prints: the fold adds the summary, not a second count.
+    expect(plain).toMatch(/Compacted \d+ history items/u)
+  }, E2E_TEST_TIMEOUT_MS)
+})
+
+describe.skipIf(process.platform === 'win32')('rewind (real PTY)', () => {
+  it('forks the conversation from before a chosen turn and continues there', async () => {
+    const output = await drivePty('write', [
+      ['/help for commands', `first request${ENTER}`, 300],
+      ['CODE_CLI_CALL_OK', `second request${ENTER}`, 400],
+      ['CODE_CLI_CALL_OK', `third request${ENTER}`, 400],
+      // The picker opens newest first; Enter takes back the last turn.
+      ['CODE_CLI_CALL_OK', `/rewind${ENTER}`, 400],
+      ['Rewind to before turn', ENTER, 400],
+      // The fork is a live session: a new prompt runs on it. Its write may be
+      // refused — the new agent never read the file the discarded turn wrote —
+      // so the turn ending is the assertion, not the tool's outcome.
+      ['rewound to before turn 3', `fourth request${ENTER}`, 600],
+      ['CODE_CLI_CALL_', `/exit${ENTER}`, 400],
+    ], { timeoutMs: 60_000 })
+    const plain = output.replaceAll(/\u001B\[[0-9;?]*[A-Za-z]/gu, '')
+    const rewound = screenAt(output, 'rewound to before turn 3').alternate
+    // The report wraps at 120 columns, so it is read off the screen with its
+    // padding squeezed out: two session ids, and not the same one twice.
+    const said = /nowon(session-[\w-]+)·(session-[\w-]+)staysin\/resume/u.exec(rewound.join('').replaceAll(/\s+/gu, ''))
+    expect(said).not.toBeNull()
+    expect(said?.[1]).not.toBe(said?.[2])
+    // The replayed fork carries the first two turns and not the third.
+    expect(rewound.some(row => row.includes('› first request'))).toBe(true)
+    expect(rewound.some(row => row.includes('› second request'))).toBe(true)
+    expect(rewound.some(row => row.includes('› third request'))).toBe(false)
+    expect(plain).toContain('› fourth request')
+  }, E2E_TEST_TIMEOUT_MS)
+})

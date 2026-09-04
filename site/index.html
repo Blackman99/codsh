@@ -1,0 +1,529 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>codsh — a terminal coding agent on dsh</title>
+<meta name="description" content="/ship takes one sentence to verified code. A terminal coding agent on the DeepSeek Harness.">
+<meta name="color-scheme" content="dark">
+<link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
+<meta property="og:title" content="codsh — a terminal coding agent">
+<meta property="og:description" content="/ship takes one sentence to verified code. Composed on the DeepSeek Harness.">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://blackman99.github.io/codsh/">
+<meta property="og:site_name" content="codsh">
+<meta property="og:locale" content="en_US">
+<meta property="og:locale:alternate" content="zh_CN">
+<meta property="og:image" content="https://blackman99.github.io/codsh/assets/og.png">
+<meta property="og:image:type" content="image/png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="codsh — /ship takes one sentence to verified code.">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="codsh — a terminal coding agent">
+<meta name="twitter:description" content="/ship takes one sentence to verified code. Composed on the DeepSeek Harness.">
+<meta name="twitter:image" content="https://blackman99.github.io/codsh/assets/og.png">
+<meta name="twitter:image:alt" content="codsh — /ship takes one sentence to verified code.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/styles.css">
+</head>
+<body>
+
+<div class="rail">
+  <a class="rail__mark" href="#top"><img src="assets/logo.svg" alt="" width="22" height="22">codsh</a>
+  <nav>
+    <a href="#ship">/ship</a>
+    <a href="#see">See it</a>
+    <a href="#install">Install</a>
+    <a href="https://github.com/Blackman99/codsh">GitHub</a>
+    <a class="rail__lang" href="zh.html" hreflang="zh" lang="zh">中文</a>
+  </nav>
+</div>
+
+<main>
+
+<section class="hero" id="top">
+  <div class="wrap">
+    <div class="hero__grid">
+      <div class="block block--heavy">
+      <span class="block__index reveal reveal-1">A terminal coding agent · composed on dsh</span>
+      <h1 class="reveal reveal-1">codsh<span class="caret">▍</span></h1>
+      <p class="hero__sub reveal reveal-2">
+        <code>/ship</code> takes one sentence to verified code.
+        Composed on the DeepSeek Harness.
+      </p>
+      <div class="hero__meta reveal reveal-2">
+        <span><a href="https://www.npmjs.com/package/codsh-cli">codsh-cli</a> on npm</span>
+        <span>zero-dependency launcher</span>
+        <span>MIT</span>
+      </div>
+      <div class="shell reveal reveal-3">
+        <div class="shell__bar"><i class="shell__dot shell__dot--live"></i> install</div>
+<pre><span class="prompt">$</span> <span class="cmd">npm install -g @deepseek-ai/dsh codsh-cli</span>
+<span class="comment">  # have dsh already? npm i -g codsh-cli</span>
+<span class="prompt">$</span> <span class="cmd">codsh</span>
+<span class="prompt">›</span> <span class="cmd">/ship &lt;your one-sentence idea&gt;</span></pre>
+      </div>
+      </div>
+      <div class="hero__frame reveal reveal-3">
+          <figure class="frame">
+            <div class="frame__bar">
+              <i class="shell__dot"></i><i class="shell__dot"></i><i class="shell__dot"></i>
+              <b>/ship, end to end</b>
+              <span class="frame__demo">animated demo</span>
+            </div>
+            <div class="screen"><code class="screen__rows demo">
+<span class="row dm s1"><span class="c-user">┃ ›</span> <span class="type">/ship let long diffs open in a pager</span></span>
+<span class="row"> </span>
+<span class="row dm s2"><span class="c-dim">✻ reading the repo — pager.ts, screen.ts, three call sites</span></span>
+<span class="row dm s3"><span class="c-pending">?</span> frontier: full screen, or split under the box? <span class="c-dim">· recommended: full screen</span></span>
+<span class="row dm s4"><span class="c-user">┃ ›</span> full screen — q returns to the transcript</span>
+<span class="row"> </span>
+<span class="row dm s5"><span class="c-tool">│ </span><span class="c-pending">●</span> <span class="c-tool">Write docs/specs/pager.md</span></span>
+<span class="row dm s6"><span class="c-tool">│ </span><span class="c-ok">+ 6 acceptance criteria</span><span class="c-dim"> · each names its proving command</span></span>
+<span class="row dm s7"><span class="c-pending">?</span> confirm the spec <span class="c-dim">— gate 1</span></span>
+<span class="row dm s8"><span class="c-user">┃ ›</span> confirmed</span>
+<span class="row dm s9"><span class="c-tool">│ </span><span class="c-pending">●</span> <span class="c-tool">tickets: 3 tracer bullets → checkboxes in the spec</span></span>
+<span class="row dm s10"><span class="c-pending">?</span> approve the tickets <span class="c-dim">— gate 2</span></span>
+<span class="row dm s11"><span class="c-user">┃ ›</span> approved</span>
+<span class="row"> </span>
+<span class="row dm s12"><span class="c-dim">⠿ baseline: proof commands run once — two red, as expected</span></span>
+<span class="row dm s13"><span class="c-ok">✔ 1/3</span> pager opens on long output <span class="c-dim">· tests green · committed</span></span>
+<span class="row dm s14"><span class="c-ok">✔ 2/3</span> q returns to the transcript <span class="c-dim">· tests green · committed</span></span>
+<span class="row dm s15"><span class="c-ok">✔ 3/3</span> state survives a resize <span class="c-dim">· tests green · committed</span></span>
+<span class="row"> </span>
+<span class="row dm s16"><span class="c-ok">✔</span> <span class="a-bold">every criterion re-run and read — all green</span></span>
+<span class="row dm s17"><span class="c-dim">  criterion → command → what it printed</span></span>
+<span class="gap"></span>
+<span class="row"><span class="c-dim">╭─────────────────────────────────────────────────────────────────────────────────╮</span></span>
+<span class="row"><span class="c-dim">│</span> <span class="c-user">›</span> <span class="c-dim">Ask anything · / $ ! @ · ⇧Tab plan mode</span>                  <span class="c-dim">│</span></span>
+<span class="row"><span class="c-dim">╰─────────────────────────────────────────────────────────────────────────────────╯</span></span>
+<span class="row todoslot"> <span class="tv tv1"><span class="c-tool">todos</span><span class="c-dim"> 0/3 · </span><span class="c-pending">▶</span> pager opens on long output<span class="c-dim"> · Ctrl+T opens</span></span><span class="tv tv2"><span class="c-tool">todos</span><span class="c-dim"> 1/3 · </span><span class="c-pending">▶</span> q returns to the transcript</span><span class="tv tv3"><span class="c-tool">todos</span><span class="c-dim"> 2/3 · </span><span class="c-pending">▶</span> state survives a resize</span><span class="tv tv4"><span class="c-tool">todos</span><span class="c-dim"> 3/3 · </span><span class="c-ok">all done ✔</span></span></span>
+<span class="row"><span class="c-tool">deepseek-chat</span><span class="c-dim"> · code-cli · workspace-write · ~/my-project</span></span>
+</code></div>
+          </figure>
+        <p class="caption">The arc loops. <a href="#ship">/ship</a> below.</p>
+      </div>
+    </div>
+    <div class="block block--heavy" id="ship" style="margin-top:clamp(3rem,7vw,5rem)">
+      <span class="block__index">01 — /ship</span>
+      <h2>One sentence to shipped.</h2>
+      <p class="lede">
+        Two approvals. Then autonomous.
+      </p>
+
+      <ol class="steps">
+        <li>
+          <b>Grill</b>
+          <p>Design-tree interview. Facts are inspected; each round asks the open frontier with a recommended answer.</p>
+        </li>
+        <li>
+          <b>Spec</b> <span class="gate">— gate 1</span>
+          <p>Synthesized automatically. You confirm. Each criterion names its proving command.</p>
+        </li>
+        <li>
+          <b>Tickets</b> <span class="gate">— gate 2</span>
+          <p>Tracer-bullet slices, written automatically. You approve. Baseline runs before any code.</p>
+        </li>
+        <li>
+          <b>Landing</b>
+          <p>TDD at the spec's seams. Each green ticket is a commit.</p>
+        </li>
+        <li>
+          <b>Done</b>
+          <p>Every criterion re-run and reported.</p>
+        </li>
+      </ol>
+
+      <div class="shell" style="margin-top:2rem">
+        <div class="shell__bar"><i class="shell__dot"></i> in the box</div>
+<pre><span class="prompt">›</span> <span class="cmd">/ship let long diffs open in a pager instead of scrolling past</span></pre>
+      </div>
+      <p style="margin-top:1.2rem">Bare <code>/ship</code> resumes an unfinished spec.</p>
+    </div>
+  </div>
+</section>
+
+<section id="see">
+  <div class="wrap">
+    <div class="block">
+      <span class="block__index">01 — See it</span>
+      <h2>Every terminal below is a real one.</h2>
+      <p class="lede">
+        Captured from the packed binary. Not a mockup.
+      </p>
+
+      <div class="scenes">
+<!-- frames:start -->
+        <input type="radio" name="scene" id="s-1" checked>
+        <input type="radio" name="scene" id="s-2">
+        <input type="radio" name="scene" id="s-3">
+        <input type="radio" name="scene" id="s-4">
+        <input type="radio" name="scene" id="s-5">
+        <input type="radio" name="scene" id="s-6">
+        <input type="radio" name="scene" id="s-7">
+        <input type="radio" name="scene" id="s-8">
+        <div class="scenes__tabs" role="tablist" aria-label="Pick a scene">
+          <label class="scenes__tab" for="s-1">Welcome</label>
+          <label class="scenes__tab" for="s-2">Ask</label>
+          <label class="scenes__tab" for="s-3">Read back</label>
+          <label class="scenes__tab" for="s-4">Tool cards</label>
+          <label class="scenes__tab" for="s-5">Folds</label>
+          <label class="scenes__tab" for="s-6">Todos</label>
+          <label class="scenes__tab" for="s-7">Markdown</label>
+          <label class="scenes__tab" for="s-8">Full screen</label>
+        </div>
+        <div class="scenes__panels">
+        <div data-scene="1">
+          <figure class="frame">
+            <div class="frame__bar">
+              <i class="shell__dot"></i><i class="shell__dot"></i><i class="shell__dot"></i>
+              <b>A session that is its own space</b>
+              <span class="frame__real">real capture</span>
+            </div>
+            <div class="screen"><code class="screen__rows">
+<span class="row">           <span style="color:rgb(126,150,245)">█▄▄</span></span>
+<span class="row">           <span style="color:rgb(126,150,245)">█</span> <span style="color:rgb(126,150,245)">▀██</span></span>
+<span class="row">           <span style="color:rgb(126,150,245)">█▄█▀▀</span></span>
+<span class="row">         <span style="color:rgb(238,241,251)">▀██████▀</span></span>
+<span class="row">       <span style="color:rgb(61,86,214)">█▄██▄▄██▄██▄</span></span>
+<span class="row">        <span style="color:rgb(61,86,214)">▀▄▄</span> <span style="color:rgb(61,86,214)">██</span> <span style="color:rgb(61,86,214)">▄▄▀</span></span>
+<span class="row">          <span style="color:rgb(61,86,214)">▀█▄▄█▀</span></span>
+<span class="row"> </span>
+<span class="row">   <span class="a-bold">✻ Welcome to codsh</span><span class="c-dim"> · cli-mock · code-cli</span></span>
+<span class="row"> </span>
+<span class="row">  <span class="c-dim">  ~/.cache/codsh/showcase</span></span>
+<span class="row">  <span class="c-dim">  session session-98058f06-28e8-4202-9fbb-203be692c1da</span></span>
+<span class="row"> </span>
+<span class="row">  <span class="c-dim">  /help for commands · Tab completes · ⇧Tab plan mode · ESC interrupts · /exit l…</span></span>
+<span class="gap"></span>
+<span class="row">  <span class="c-dim">╭───────────────────────────────────────────────────────────────────────────────╮</span></span>
+<span class="row">  <span class="c-dim">│</span> <span class="c-user">›</span> <span class="c-dim">Ask anything · / for commands · $ for skills · ! shell · @ for files · ⇧Ta…</span> <span class="c-dim">│</span></span>
+<span class="row">  <span class="c-dim">╰───────────────────────────────────────────────────────────────────────────────╯</span></span>
+<span class="row">  <span class="c-tool">cli-mock</span><span class="c-dim"> · code-cli · workspace-write · 0 tokens · ~/.cache/codsh/showcase</span></span>
+</code></div>
+          </figure>
+          <p class="caption">The alternate screen, the input box pinned to the bottom, and the status row that is always current.</p>
+        </div>
+        <div data-scene="2">
+          <figure class="frame">
+            <div class="frame__bar">
+              <i class="shell__dot"></i><i class="shell__dot"></i><i class="shell__dot"></i>
+              <b>The question you just asked holds the top</b>
+              <span class="frame__real">real capture</span>
+            </div>
+            <div class="screen"><code class="screen__rows">
+<span class="row">  <span class="c-user">┃ ›</span> and what backs it off?                                                       ↑</span>
+<span class="row">                                                                                   <span class="a-dim">·</span></span>
+<span class="row">  <span class="c-dim">✻ thought for 0.0s · +2 lines (click or Ctrl+O expands)</span>                          <span class="c-user">●</span></span>
+<span class="row">                                                                                   <span class="a-dim">↓</span></span>
+<span class="row">  CODE_CLI_ANSWER after thinking</span>
+<span class="gap"></span>
+<span class="row">  <span class="c-dim">╭───────────────────────────────────────────────────────────────────────────────╮</span></span>
+<span class="row">  <span class="c-dim">│</span> <span class="c-user">›</span> <span class="c-dim">Ask anything · / for commands · $ for skills · ! shell · @ for files · ⇧Ta…</span> <span class="c-dim">│</span></span>
+<span class="row">  <span class="c-dim">╰───────────────────────────────────────────────────────────────────────────────╯</span></span>
+<span class="row">  <span class="c-pending">⠋</span> working <span class="c-dim">0.0s · ESC to interrupt</span></span>
+<span class="row">  <span class="c-tool">cli-mock</span><span class="c-dim"> · code-cli · workspace-write · 28 tokens · ~/.cache/codsh/showcase</span></span>
+</code></div>
+          </figure>
+          <p class="caption">A submitted prompt takes the viewport top and the reply fills the space beneath it. Read back into history and the way home is the same frame: the wheel and PgDn land on it again.</p>
+        </div>
+        <div data-scene="3">
+          <figure class="frame">
+            <div class="frame__bar">
+              <i class="shell__dot"></i><i class="shell__dot"></i><i class="shell__dot"></i>
+              <b>The prompt that owns what you are reading</b>
+              <span class="frame__real">real capture</span>
+            </div>
+            <div class="screen"><code class="screen__rows">
+<span class="row">  <span class="c-user">┃ ›</span> explain the render path                                                      ↑</span>
+<span class="row">                                                                                   <span class="c-user">●</span></span>
+<span class="row">  <span class="c-dim">  … +23 lines (click or Ctrl+O expands)</span>                                          <span class="a-dim">·</span></span>
+<span class="row">                                                                                   ↓</span>
+<span class="row">  <span class="c-dim">  0.1s · 13 tokens</span></span>
+<span class="row"> </span>
+<span class="row">  <span class="c-user">┃ ›</span> now the input path</span>
+<span class="row"> </span>
+<span class="row">  <span class="a-bold">CODE_CLI_HEADING</span></span>
+<span class="row"> </span>
+<span class="row">  Prose with <span class="a-bold">bold</span>, <span class="a-bold">em</span>, <span class="c-tool">inline_code</span>, and a <span class="a-bold">link</span> <span class="c-dim">(https://x.dev)</span>.</span>
+<span class="row">  An identifier like some_helper_name must survive intact.</span>
+<span class="row"> </span>
+<span class="row">  <span class="c-dim">•</span> <span class="c-tool a-bold">screen.ts</span>: the viewport module</span>
+<span class="row">  <span class="c-dim">•</span> second bullet</span>
+<span class="row">  <span class="c-dim">•</span> third bullet keeps the answer long</span>
+<span class="row">  <span class="c-dim">•</span> fourth bullet keeps the answer long</span>
+<span class="row">  <span class="c-dim">•</span> fifth bullet keeps the answer long</span>
+<span class="row">  <span class="c-dim">•</span> sixth bullet keeps the answer long</span>
+<span class="row">  <span class="c-dim">•</span> seventh bullet keeps the answer long</span>
+<span class="row">  <span class="c-dim">•</span> eighth bullet: past the fold threshold at any test width</span>
+<span class="gap"></span>
+<span class="row">  <span class="c-dim">╭────────┬──────────────────────────────────────────────────────────────────────╮</span></span>
+<span class="row">  <span class="c-dim">│</span> <span class="a-bold">维度</span>   <span class="c-dim">│</span> <span class="a-bold">内容</span>                                                                 <span class="c-dim">│</span></span>
+<span class="row">  <span class="c-dim">├────────┼──────────────────────────────────────────────────────────────────────┤</span></span>
+<span class="row">  <span class="c-dim">│</span> 一句话 <span class="c-dim">│</span> 一个很长的中文单元格内容,用来强制表格在任何终端宽度下都必须在单元格  <span class="c-dim">│</span></span>
+<span class="row">  <span class="c-dim">│</span>        <span class="c-dim">│</span> 内部换行。一个很长的中文单元格内容,用来强制表格在任何终端宽度下都必  <span class="c-dim">│</span></span>
+<span class="row">  <span class="c-dim">│</span>        <span class="c-dim">│</span> 须在单元格内部换行。一个很长的中文单元格内容,用来强制表格在任何终端  <span class="c-dim">│</span></span>
+<span class="row">  <span class="c-dim">│</span>        <span class="c-dim">│</span> 宽度下都必须在单元格内部换行。                                       <span class="c-dim">│</span></span>
+<span class="row">  <span class="c-dim">  ↑ 12 rows above · click or PgDn returns to the latest</span></span>
+<span class="row">  <span class="c-dim">╭───────────────────────────────────────────────────────────────────────────────╮</span></span>
+<span class="row">  <span class="c-dim">│</span> <span class="c-user">›</span> <span class="c-dim">Ask anything · / for commands · $ for skills · ! shell · @ for files · ⇧Ta…</span> <span class="c-dim">│</span></span>
+<span class="row">  <span class="c-dim">╰───────────────────────────────────────────────────────────────────────────────╯</span></span>
+<span class="row">  <span class="c-tool">cli-mock</span><span class="c-dim"> · code-cli · workspace-write · 26 tokens · ~/.cache/codsh/showcase</span></span>
+</code></div>
+          </figure>
+          <p class="caption">Scroll back over a turn boundary and the prompt that asked for those rows pins itself at the top; the rail on the right marks the turn you are in, and the foot of the screen says how far back you are — click it to come home. Shift+←/→ jumps between turns.</p>
+        </div>
+        <div data-scene="4">
+          <figure class="frame">
+            <div class="frame__bar">
+              <i class="shell__dot"></i><i class="shell__dot"></i><i class="shell__dot"></i>
+              <b>Tool calls as cards, with their diffs</b>
+              <span class="frame__real">real capture</span>
+            </div>
+            <div class="screen"><code class="screen__rows">
+<span class="row">  <span class="c-user">┃ ›</span> create the note</span>
+<span class="row"> </span>
+<span class="row">  <span class="c-tool">│ </span><span class="c-pending">●</span> <span class="c-tool">Write note.txt</span></span>
+<span class="row">  <span class="c-tool">│ </span><span class="c-ok">+ CODE_CLI_ROUND_TRIP</span></span>
+<span class="row"> </span>
+<span class="row">  CODE_CLI_CALL_OK via cli-mock</span>
+<span class="gap"></span>
+<span class="row">  <span class="c-dim">╭───────────────────────────────────────────────────────────────────────────────╮</span></span>
+<span class="row">  <span class="c-dim">│</span> <span class="c-user">›</span> <span class="c-dim">Ask anything · / for commands · $ for skills · ! shell · @ for files · ⇧Ta…</span> <span class="c-dim">│</span></span>
+<span class="row">  <span class="c-dim">╰───────────────────────────────────────────────────────────────────────────────╯</span></span>
+<span class="row">  <span class="c-pending">⠋</span> working <span class="c-dim">0.0s · 14 tokens · ESC to interrupt</span></span>
+<span class="row">  <span class="c-tool">cli-mock</span><span class="c-dim"> · code-cli · workspace-write · 26 tokens · ~/.cache/codsh/showcase</span></span>
+</code></div>
+          </figure>
+          <p class="caption">Every call renders through its presenter — a title, a status, and a diff — under a rule down the block’s left edge.</p>
+        </div>
+        <div data-scene="5">
+          <figure class="frame">
+            <div class="frame__bar">
+              <i class="shell__dot"></i><i class="shell__dot"></i><i class="shell__dot"></i>
+              <b>One click opens the one block</b>
+              <span class="frame__real">real capture</span>
+            </div>
+            <div class="screen"><code class="screen__rows">
+<span class="row">  <span class="c-user">┃ ›</span> think it over</span>
+<span class="row"> </span>
+<span class="row">  <span class="c-dim">✻ thought for 0.0s</span></span>
+<span class="row">  <span class="c-dim">  CODE_CLI_THINKING about the request</span></span>
+<span class="row">  <span class="c-dim">  weighing the options carefully</span></span>
+<span class="row"> </span>
+<span class="row">  CODE_CLI_ANSWER after thinking</span>
+<span class="row"> </span>
+<span class="row">  <span class="c-dim">  0.0s · 14 tokens</span></span>
+<span class="gap"></span>
+<span class="row">  <span class="c-dim">╭───────────────────────────────────────────────────────────────────────────────╮</span></span>
+<span class="row">  <span class="c-dim">│</span> <span class="c-user">›</span> <span class="c-dim">Ask anything · / for commands · $ for skills · ! shell · @ for files · ⇧Ta…</span> <span class="c-dim">│</span></span>
+<span class="row">  <span class="c-dim">╰───────────────────────────────────────────────────────────────────────────────╯</span></span>
+<span class="row">  <span class="c-tool">cli-mock</span><span class="c-dim"> · code-cli · workspace-write · 14 tokens · ~/.cache/codsh/showcase</span></span>
+</code></div>
+          </figure>
+          <p class="caption">A click opens the block it lands on and a click anywhere inside folds it back; Ctrl+O still swaps every one at once.</p>
+        </div>
+        <div data-scene="6">
+          <figure class="frame">
+            <div class="frame__bar">
+              <i class="shell__dot"></i><i class="shell__dot"></i><i class="shell__dot"></i>
+              <b>Todos that stay in view</b>
+              <span class="frame__real">real capture</span>
+            </div>
+            <div class="screen"><code class="screen__rows">
+<span class="row">  <span class="c-user">┃ ›</span> plan the work</span>
+<span class="row"> </span>
+<span class="row">  <span class="c-tool">│ </span><span class="c-pending">●</span> Update todo list</span>
+<span class="row">  <span class="c-tool">│ todos</span> <span class="c-dim">1/3 · 1 in progress · 1 open</span></span>
+<span class="row">  <span class="c-tool">│ </span>  <span class="c-ok">✔</span> <span class="c-dim">read the code</span></span>
+<span class="row">  <span class="c-tool">│ </span>  <span class="c-pending">▶</span> write the fix</span>
+<span class="row">  <span class="c-tool">│ </span>  <span class="c-dim">○</span> run the tests</span>
+<span class="row"> </span>
+<span class="row">  <span class="c-tool">│ </span><span class="c-dim">  Updated todo list: 1 pending, 1 in progress, 1 completed.</span></span>
+<span class="row"> </span>
+<span class="row">  CODE_CLI_CALL_OK via cli-mock</span>
+<span class="row"> </span>
+<span class="row">  <span class="c-dim">  0.1s · 26 tokens</span></span>
+<span class="gap"></span>
+<span class="row">  <span class="c-dim">╭───────────────────────────────────────────────────────────────────────────────╮</span></span>
+<span class="row">  <span class="c-dim">│</span> <span class="c-user">›</span> <span class="c-dim">Ask anything · / for commands · $ for skills · ! shell · @ for files · ⇧Ta…</span> <span class="c-dim">│</span></span>
+<span class="row">  <span class="c-dim">╰───────────────────────────────────────────────────────────────────────────────╯</span></span>
+<span class="row">  <span class="c-tool">todos</span> <span class="c-dim">1/3 · 1 in progress · 1 open · Ctrl+T closes</span></span>
+<span class="row">    <span class="c-ok">✔</span> <span class="c-dim">read the code</span></span>
+<span class="row">    <span class="c-pending">▶</span> write the fix</span>
+<span class="row">    <span class="c-dim">○</span> run the tests</span>
+<span class="row">  <span class="c-tool">cli-mock</span><span class="c-dim"> · code-cli · workspace-write · 26 tokens · ~/.cache/codsh/showcase</span></span>
+</code></div>
+          </figure>
+          <p class="caption">A pinned row holds the agent’s list over the status row instead of scrolling away with the write; Ctrl+T opens it whole.</p>
+        </div>
+        <div data-scene="7">
+          <figure class="frame">
+            <div class="frame__bar">
+              <i class="shell__dot"></i><i class="shell__dot"></i><i class="shell__dot"></i>
+              <b>Markdown, rendered rather than echoed</b>
+              <span class="frame__real">real capture</span>
+            </div>
+            <div class="screen"><code class="screen__rows">
+<span class="row">  <span class="c-user">┃ ›</span> explain it</span>
+<span class="row"> </span>
+<span class="row"> </span>
+<span class="row">  <span class="c-dim">•</span> <span class="c-tool a-bold">screen.ts</span>: the viewport module</span>
+<span class="row">  <span class="c-dim">•</span> second bullet</span>
+<span class="row">  <span class="c-dim">•</span> third bullet keeps the answer long</span>
+<span class="row">  <span class="c-dim">•</span> fourth bullet keeps the answer long</span>
+<span class="row">  <span class="c-dim">•</span> fifth bullet keeps the answer long</span>
+<span class="row">  <span class="c-dim">•</span> sixth bullet keeps the answer long</span>
+<span class="row">  <span class="c-dim">•</span> seventh bullet keeps the answer long</span>
+<span class="row">  <span class="c-dim">•</span> eighth bullet: past the fold threshold at any test width</span>
+<span class="gap"></span>
+<span class="row">  <span class="c-dim">╭────────┬──────────────────────────────────────────────────────────────────────╮</span></span>
+<span class="row">  <span class="c-dim">│</span> <span class="a-bold">维度</span>   <span class="c-dim">│</span> <span class="a-bold">内容</span>                                                                 <span class="c-dim">│</span></span>
+<span class="row">  <span class="c-dim">├────────┼──────────────────────────────────────────────────────────────────────┤</span></span>
+<span class="row">  <span class="c-dim">│</span> 一句话 <span class="c-dim">│</span> 一个很长的中文单元格内容,用来强制表格在任何终端宽度下都必须在单元格  <span class="c-dim">│</span></span>
+<span class="row">  <span class="c-dim">│</span>        <span class="c-dim">│</span> 内部换行。一个很长的中文单元格内容,用来强制表格在任何终端宽度下都必  <span class="c-dim">│</span></span>
+<span class="row">  <span class="c-dim">│</span>        <span class="c-dim">│</span> 须在单元格内部换行。一个很长的中文单元格内容,用来强制表格在任何终端  <span class="c-dim">│</span></span>
+<span class="row">  <span class="c-dim">│</span>        <span class="c-dim">│</span> 宽度下都必须在单元格内部换行。                                       <span class="c-dim">│</span></span>
+<span class="row">  <span class="c-dim">├────────┼──────────────────────────────────────────────────────────────────────┤</span></span>
+<span class="row">  <span class="c-dim">│</span> 命令   <span class="c-dim">│</span> <span class="c-tool">codsh</span>                                                                <span class="c-dim">│</span></span>
+<span class="row">  <span class="c-dim">╰────────┴──────────────────────────────────────────────────────────────────────╯</span></span>
+<span class="row"> </span>
+<span class="row">  <span class="c-dim">│</span> <span class="c-dim">a quoted line</span></span>
+<span class="row"> </span>
+<span class="row">  <span class="c-dim">  ts</span></span>
+<span class="row">    <span class="c-user">const</span> answer = <span class="c-ok">"text"</span> <span class="a-dim">// a comment</span></span>
+<span class="row"> </span>
+<span class="row">  <span class="c-dim">CODE_CLI_CALL_STREAM_DONE</span></span>
+<span class="row">  <span class="c-dim">╭───────────────────────────────────────────────────────────────────────────────╮</span></span>
+<span class="row">  <span class="c-dim">│</span> <span class="c-user">›</span> <span class="c-dim">Ask anything · / for commands · $ for skills · ! shell · @ for files · ⇧Ta…</span> <span class="c-dim">│</span></span>
+<span class="row">  <span class="c-dim">╰───────────────────────────────────────────────────────────────────────────────╯</span></span>
+<span class="row">  <span class="c-pending">⠋</span> working <span class="c-dim">0.0s · ESC to interrupt</span></span>
+<span class="row">  <span class="c-tool">cli-mock</span><span class="c-dim"> · code-cli · workspace-write · 0 tokens · ~/.cache/codsh/showcase</span></span>
+</code></div>
+          </figure>
+          <p class="caption">Tables get real columns, code gets highlighted, and emphasis markers are consumed instead of printed.</p>
+        </div>
+        <div data-scene="8">
+          <figure class="frame">
+            <div class="frame__bar">
+              <i class="shell__dot"></i><i class="shell__dot"></i><i class="shell__dot"></i>
+              <b>A full-screen reader for one answer</b>
+              <span class="frame__real">real capture</span>
+            </div>
+            <div class="screen"><code class="screen__rows">
+<span class="row">  <span class="a-bold">Answer 1</span></span>
+<span class="row">  <span class="a-bold">CODE_CLI_HEADING</span></span>
+<span class="row"> </span>
+<span class="row">  Prose with <span class="a-bold">bold</span>, <span class="a-bold">em</span>, <span class="c-tool">inline_code</span>, and a <span class="a-bold">link</span> <span class="c-dim">(https://x.dev)</span>.</span>
+<span class="row">  An identifier like some_helper_name must survive intact.</span>
+<span class="row"> </span>
+<span class="row">  <span class="c-dim">•</span> <span class="c-tool a-bold">screen.ts</span>: the viewport module</span>
+<span class="row">  <span class="c-dim">•</span> second bullet</span>
+<span class="row">  <span class="c-dim">•</span> third bullet keeps the answer long</span>
+<span class="row">  <span class="c-dim">•</span> fourth bullet keeps the answer long</span>
+<span class="row">  <span class="c-dim">•</span> fifth bullet keeps the answer long</span>
+<span class="row">  <span class="c-dim">•</span> sixth bullet keeps the answer long</span>
+<span class="row">  <span class="c-dim">•</span> seventh bullet keeps the answer long</span>
+<span class="row">  <span class="c-dim">•</span> eighth bullet: past the fold threshold at any test width</span>
+<span class="gap"></span>
+<span class="row">  <span class="c-dim">╭────────┬──────────────────────────────────────────────────────────────────────╮</span></span>
+<span class="row">  <span class="c-dim">│</span> <span class="a-bold">维度</span>   <span class="c-dim">│</span> <span class="a-bold">内容</span>                                                                 <span class="c-dim">│</span></span>
+<span class="row">  <span class="c-dim">├────────┼──────────────────────────────────────────────────────────────────────┤</span></span>
+<span class="row">  <span class="c-dim">│</span> 一句话 <span class="c-dim">│</span> 一个很长的中文单元格内容,用来强制表格在任何终端宽度下都必须在单元格  <span class="c-dim">│</span></span>
+<span class="row">  <span class="c-dim">│</span>        <span class="c-dim">│</span> 内部换行。一个很长的中文单元格内容,用来强制表格在任何终端宽度下都必  <span class="c-dim">│</span></span>
+<span class="row">  <span class="c-dim">│</span>        <span class="c-dim">│</span> 须在单元格内部换行。一个很长的中文单元格内容,用来强制表格在任何终端  <span class="c-dim">│</span></span>
+<span class="row">  <span class="c-dim">│</span>        <span class="c-dim">│</span> 宽度下都必须在单元格内部换行。                                       <span class="c-dim">│</span></span>
+<span class="row">  <span class="c-dim">├────────┼──────────────────────────────────────────────────────────────────────┤</span></span>
+<span class="row">  <span class="c-dim">│</span> 命令   <span class="c-dim">│</span> <span class="c-tool">codsh</span>                                                                <span class="c-dim">│</span></span>
+<span class="row">  <span class="c-dim">╰────────┴──────────────────────────────────────────────────────────────────────╯</span></span>
+<span class="row"> </span>
+<span class="row">  <span class="c-dim">│</span> <span class="c-dim">a quoted line</span></span>
+<span class="row"> </span>
+<span class="row">  <span class="c-dim">  ts</span></span>
+<span class="row">    <span class="c-user">const</span> answer = <span class="c-ok">"text"</span> <span class="a-dim">// a comment</span></span>
+<span class="row"> </span>
+<span class="row">  CODE_CLI_CALL_STREAM_DONE</span>
+<span class="row"> </span>
+<span class="row">  <span class="c-dim">↑↓/wheel · PgUp/PgDn · Home/End · Esc closes · 1-31/31</span></span>
+</code></div>
+          </figure>
+          <p class="caption">/view 1 opens an answer, /view 1:1 its first code block, in a reader that survives a resize. Esc puts the conversation back exactly as it was; /copy addresses the same targets.</p>
+        </div>
+        </div>
+<!-- frames:end -->
+      </div>
+
+      <div class="defs" style="margin-top:2.75rem">
+        <div><code>Shift+←/→</code><p>Jump between real turns; <code>/jump</code> previews one and Esc puts the frame back.</p></div>
+        <div><code>/copy</code><p><code>/copy N</code> takes an answer's raw Markdown, <code>/copy N:C</code> its code without the fence.</p></div>
+        <div><code>Ctrl+V</code><p>Pastes an image: native vision, or a DeepSeek text model borrowing Vision Exp for one description.</p></div>
+        <div><code>/ $ ! @</code><p>Commands, skills, shell, files — the menu opens above the box. <kbd>⇧Tab</kbd> is plan mode.</p></div>
+        <div><code>drag</code><p>Select to copy, over OSC 52 or the platform clipboard.</p></div>
+        <div><code>a pipe</code><p>Off a TTY it degrades rather than breaks: a line reader, no widgets, no drawing.</p></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="install">
+  <div class="wrap">
+    <div class="block">
+      <span class="block__index">02 — Install &amp; run</span>
+      <h2>Two packages, one dsh.</h2>
+      <p class="lede">
+        Zero-dependency launcher. <code>codsh</code> is <code>dsh --profile code</code>.
+      </p>
+
+      <div class="defs">
+        <div><code>codsh --resume &lt;id&gt;</code><p>Reopen a recorded session, replaying its history as the same folds.</p></div>
+        <div><code>codsh --continue</code><p>Pick up the most recent session in this workspace.</p></div>
+        <div><code>codsh -p "task"</code><p>One-shot print mode, for scripts and pipes.</p></div>
+        <div><code>codsh --version</code><p>The launcher, the runtime registered in the profile, and the dsh it found.</p></div>
+        <div><code>codsh update</code><p>Moves the pair from the shell. <code>/update</code> does it from inside a session; a session says so on its own when one is out.</p></div>
+        <div><code>DEEPSEEK_API_KEY</code><p>The model key, read from the environment or a <code>.env</code> file.</p></div>
+        <div><code>DSH_HOME</code><p>Where profiles live; <code>~/.dsh</code> by default. <code>DSH_BIN</code> picks the dsh to launch.</p></div>
+        <div><code>CODSH_CLIPBOARD</code><p><code>osc52</code>, <code>system</code>, or <code>off</code> — narrows how a selection reaches your clipboard.</p></div>
+        <div><code>CODSH_UPDATE_CHECK</code><p><code>off</code> silences the automatic check — <code>/update</code> still asks. <code>CODSH_UPDATE_REGISTRY</code> points both at another registry.</p></div>
+        <div><code>CODSH_VISION_*</code><p><code>_BASE_URL</code>, <code>_MODEL</code>, <code>_API_KEY</code>: an OpenAI-compatible sidecar for text-only models. Without one, DeepSeek text routes borrow <code>deepseek-v4-flash-vision-exp</code> by themselves.</p></div>
+      </div>
+
+      <p style="margin-top:2rem">Prefer no launcher at all? The two lines it wraps work directly, with any profile name:</p>
+      <div class="shell">
+        <div class="shell__bar"><i class="shell__dot"></i> without the launcher</div>
+<pre><span class="prompt">$</span> <span class="cmd">dsh plugin --profile code add codsh-bundle</span>
+<span class="prompt">$</span> <span class="cmd">dsh --profile code</span></pre>
+      </div>
+      <div class="note" style="margin-top:2.5rem">
+        <b>Working on it?</b> <code>pnpm install &amp;&amp; pnpm run dev</code> keeps a repo-local
+        dsh home in <code>.dev-home</code>, so edits reach the running surface in seconds;
+        <code>MOCK=markdown pnpm run dev</code> needs no key. <code>pnpm run test:e2e</code>
+        packs the tree into a real profile and drives the published binary — the same
+        harness that captured every screen above. codsh never forks the harness:
+        upstream work goes to
+        <a href="https://github.com/deepseek-ai/deepseek-harness">deepseek-harness</a>,
+        and <code>pnpm run sync:dsh</code> tracks its releases. Details in the
+        <a href="https://github.com/Blackman99/codsh">README</a>.
+      </div>
+    </div>
+  </div>
+</section>
+
+</main>
+
+<footer>
+  <div class="wrap">
+    <span>codsh · MIT · built on the DeepSeek Harness</span>
+    <nav>
+      <a href="https://github.com/Blackman99/codsh">Source</a>
+      <a href="https://www.npmjs.com/package/codsh-cli">codsh-cli</a>
+      <a href="https://www.npmjs.com/package/codsh-bundle">codsh-bundle</a>
+      <a href="zh.html" hreflang="zh" lang="zh">中文</a>
+    </nav>
+  </div>
+</footer>
+
+</body>
+</html>

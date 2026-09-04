@@ -1,0 +1,942 @@
+/*
+ * codsh — the site is typeset the way the tool renders.
+ *
+ * Two ideas carry the whole design. The palette is the surface's own: the ANSI
+ * roles codsh assigns (magenta for the person, cyan for a tool, red for a
+ * failure, a palette gray for everything secondary) are the site's roles too,
+ * so a captured frame and the prose around it are coloured by one system. And
+ * the rule — the mark codsh draws down a transcript block's left edge to say
+ * where a block begins and ends — runs down the sections here for the same
+ * reason. Nothing on this page is a screenshot of a mockup: every terminal is
+ * a frame the e2e harness captured from the real binary.
+ */
+
+:root {
+  /* Ground: cool near-black, never #000, with warm ink over it. */
+  --bg: #0b0d0f;
+  --bg-panel: #101317;
+  --bg-raise: #151a1f;
+  --ink: #e8e6e1;
+  --ink-soft: #b6b8bb;
+
+  /* The surface's own roles, one per ANSI colour it actually paints with. */
+  --user: #d98ce8;
+  --tool: #6fd6d0;
+  --ok: #8fce92;
+  --pending: #e6c67c;
+  --error: #ea8a8a;
+  --path: #8fb4ea;
+  --dim: #868b93;
+
+  --rule-heavy: var(--user);
+  --rule-light: var(--tool);
+
+  --edge: #21262d;
+  --edge-soft: #191d23;
+
+  --measure: 68ch;
+  --gutter: clamp(1.25rem, 4vw, 3.5rem);
+
+  /* CJK has no place in a monospace face, so name the fallback rather than
+     leaving each platform to pick one. */
+  --mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas,
+    'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', monospace;
+  --display: 'Instrument Serif', 'Iowan Old Style', Georgia, serif;
+
+  --step: 0.28s cubic-bezier(0.2, 0.7, 0.3, 1);
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  scroll-behavior: smooth;
+  /* The anchor targets sit below the sticky rail. */
+  scroll-padding-top: 5rem;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--mono);
+  font-size: 15px;
+  line-height: 1.72;
+  font-weight: 400;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+/*
+ * Atmosphere: a scanline field and a corner glow, both far below the text.
+ *
+ * A terminal's ground is not flat, and a flat one reads as a slide. Kept at a
+ * few percent so it is texture rather than decoration — legible at any zoom,
+ * and invisible once you are reading.
+ */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  background:
+    radial-gradient(1100px 520px at 78% -8%, rgba(111, 214, 208, 0.09), transparent 65%),
+    radial-gradient(760px 420px at 8% 4%, rgba(217, 140, 232, 0.07), transparent 60%),
+    repeating-linear-gradient(to bottom, rgba(255, 255, 255, 0.016) 0 1px, transparent 1px 3px);
+}
+
+main,
+header,
+footer {
+  position: relative;
+  z-index: 1;
+}
+
+/* ── Type scale ─────────────────────────────────────────────────────────── */
+
+h1,
+h2,
+h3 {
+  font-family: var(--display);
+  font-weight: 400;
+  letter-spacing: -0.01em;
+  line-height: 1.06;
+  margin: 0;
+}
+
+h1 {
+  font-size: clamp(3rem, 9vw, 6.5rem);
+}
+
+h2 {
+  font-size: clamp(1.9rem, 4.4vw, 3.1rem);
+}
+
+h3 {
+  font-size: clamp(1.2rem, 2.2vw, 1.5rem);
+  line-height: 1.25;
+}
+
+p {
+  margin: 0 0 1.1em;
+  max-width: var(--measure);
+  color: var(--ink-soft);
+}
+
+strong {
+  color: var(--ink);
+  font-weight: 700;
+}
+
+em {
+  font-style: italic;
+  font-family: var(--display);
+  font-size: 1.08em;
+  color: var(--ink);
+}
+
+a {
+  color: var(--tool);
+  text-decoration: none;
+  border-bottom: 1px solid color-mix(in oklab, var(--tool) 35%, transparent);
+  transition: color var(--step), border-color var(--step);
+}
+
+a:hover {
+  color: var(--ink);
+  border-bottom-color: var(--ink);
+}
+
+code {
+  font-family: var(--mono);
+  font-size: 0.92em;
+  color: var(--pending);
+  background: color-mix(in oklab, var(--pending) 8%, transparent);
+  padding: 0.1em 0.34em;
+  border-radius: 3px;
+}
+
+a code {
+  color: inherit;
+  background: none;
+  padding: 0;
+}
+
+kbd {
+  font-family: var(--mono);
+  font-size: 0.82em;
+  color: var(--ink);
+  border: 1px solid var(--edge);
+  border-bottom-width: 2px;
+  border-radius: 4px;
+  padding: 0.05em 0.4em;
+  background: var(--bg-raise);
+  white-space: nowrap;
+}
+
+/* ── The rail: a language switch and the section index ──────────────────── */
+
+.rail {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  gap: 1.5rem;
+  padding: 0.75rem var(--gutter);
+  background: color-mix(in oklab, var(--bg) 82%, transparent);
+  backdrop-filter: blur(10px);
+  border-bottom: 1px solid var(--edge-soft);
+  font-size: 12.5px;
+}
+
+.rail__mark {
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: lowercase;
+  color: var(--ink);
+  border: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5em;
+}
+
+.rail__mark img {
+  width: 22px;
+  height: 22px;
+  display: block;
+}
+
+.rail nav {
+  display: flex;
+  gap: 1.1rem;
+  margin-left: auto;
+  flex-wrap: wrap;
+}
+
+.rail nav a {
+  color: var(--dim);
+  border: 0;
+  letter-spacing: 0.02em;
+}
+
+.rail nav a:hover {
+  color: var(--ink);
+}
+
+.rail__lang {
+  color: var(--ink);
+  border: 1px solid var(--edge);
+  border-radius: 999px;
+  padding: 0.1em 0.7em;
+}
+
+/* ── Layout ─────────────────────────────────────────────────────────────── */
+
+.wrap {
+  max-width: 1180px;
+  margin: 0 auto;
+  padding: 0 var(--gutter);
+}
+
+section {
+  padding: clamp(3.5rem, 9vw, 7rem) 0;
+  border-top: 1px solid var(--edge-soft);
+}
+
+section:first-of-type {
+  border-top: 0;
+}
+
+/*
+ * A section wears a rule down its left edge, as a transcript block does.
+ *
+ * The number in the margin is the same device a spec sheet uses: it says where
+ * you are without a heading having to.
+ */
+.block {
+  position: relative;
+  padding-left: clamp(1.25rem, 3.5vw, 2.75rem);
+}
+
+.block::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0.3em;
+  bottom: 0.2em;
+  width: 2px;
+  background: linear-gradient(to bottom, var(--rule-light), transparent 92%);
+  opacity: 0.55;
+}
+
+.block--heavy::before {
+  background: linear-gradient(to bottom, var(--rule-heavy), transparent 92%);
+  width: 3px;
+  opacity: 0.75;
+}
+
+.block__index {
+  display: block;
+  font-size: 11px;
+  letter-spacing: 0.26em;
+  text-transform: uppercase;
+  color: var(--dim);
+  margin-bottom: 1.1rem;
+}
+
+.lede {
+  font-family: var(--display);
+  font-size: clamp(1.3rem, 2.6vw, 1.85rem);
+  line-height: 1.42;
+  color: var(--ink);
+  max-width: 40ch;
+}
+
+/* ── Hero ───────────────────────────────────────────────────────────────── */
+
+.hero {
+  padding-top: clamp(2.5rem, 7vw, 5rem);
+}
+
+/*
+ * Claim on the left, the thing itself on the right.
+ *
+ * The frame is the argument, so it belongs above the fold rather than three
+ * sections down. It gives way below the breakpoint, where a 120-column
+ * terminal would be a strip of unreadable text.
+ */
+.hero__grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 2.5rem;
+  align-items: center;
+}
+
+@media (min-width: 62rem) {
+  .hero__grid {
+    grid-template-columns: minmax(0, 0.92fr) minmax(0, 1.08fr);
+    gap: clamp(2rem, 4vw, 4rem);
+  }
+}
+
+.hero__frame .frame {
+  /* Lifted, as the one object on the page that is not text. */
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.05) inset,
+    0 40px 80px -40px rgba(0, 0, 0, 1);
+}
+
+.hero__frame .caption {
+  margin-top: 0.8rem;
+  font-size: 12px;
+}
+
+.hero h1 {
+  display: flex;
+  align-items: baseline;
+  gap: 0.1em;
+}
+
+.hero h1 .caret {
+  color: var(--user);
+  font-family: var(--mono);
+  font-size: 0.42em;
+  transform: translateY(-0.35em);
+  animation: blink 1.25s steps(1) infinite;
+}
+
+@keyframes blink {
+  0%, 45% { opacity: 1; }
+  50%, 95% { opacity: 0.18; }
+}
+
+.hero__sub {
+  margin-top: 1.4rem;
+  font-size: clamp(1.05rem, 2vw, 1.3rem);
+  line-height: 1.6;
+  color: var(--ink);
+  max-width: 46ch;
+}
+
+.hero__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 1.4rem;
+  margin: 1.6rem 0 2.2rem;
+  font-size: 12.5px;
+  color: var(--dim);
+  letter-spacing: 0.04em;
+}
+
+.hero__meta span::before {
+  content: '·';
+  margin-right: 0.6em;
+  color: var(--edge);
+}
+
+.hero__meta span:first-child::before {
+  content: none;
+}
+
+/* ── Install strip ──────────────────────────────────────────────────────── */
+
+.shell {
+  background: var(--bg-panel);
+  border: 1px solid var(--edge);
+  border-radius: 10px;
+  overflow: hidden;
+  max-width: var(--measure);
+}
+
+.shell__bar {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0.85rem;
+  border-bottom: 1px solid var(--edge-soft);
+  font-size: 11px;
+  color: var(--dim);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.shell__dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--edge);
+}
+
+.shell__dot--live {
+  background: var(--ok);
+  box-shadow: 0 0 0 3px color-mix(in oklab, var(--ok) 18%, transparent);
+}
+
+.shell pre {
+  margin: 0;
+  padding: 1rem 1.1rem;
+  overflow-x: auto;
+  /* A `pre` keeps the UA's monospace unless told otherwise. */
+  font-family: var(--mono);
+  font-size: 13.5px;
+  line-height: 1.85;
+  color: var(--ink);
+}
+
+.shell pre .prompt {
+  color: var(--ok);
+  user-select: none;
+}
+
+.shell pre .comment {
+  color: var(--dim);
+}
+
+.shell pre .cmd {
+  color: var(--ink);
+}
+
+/* ── The terminal frames ────────────────────────────────────────────────── */
+
+.scenes {
+  margin-top: 2.5rem;
+}
+
+/*
+ * A CSS-only scene switcher.
+ *
+ * The frames are inlined at build time from the captures, so the showcase has
+ * to work with no script at all — the radio inputs are the state, and the
+ * labels are the tabs.
+ */
+.scenes input[type='radio'] {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.scenes__tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin-bottom: 1rem;
+}
+
+.scenes__tab {
+  font-size: 12px;
+  letter-spacing: 0.02em;
+  color: var(--dim);
+  padding: 0.3rem 0.7rem;
+  border: 1px solid var(--edge-soft);
+  border-radius: 999px;
+  cursor: pointer;
+  transition: color var(--step), border-color var(--step), background var(--step);
+  white-space: nowrap;
+}
+
+.scenes__tab:hover {
+  color: var(--ink);
+  border-color: var(--edge);
+}
+
+/* Panels are the generator's `data-scene` blocks; only the checked one shows. */
+.scenes__panels > div {
+  display: none;
+}
+
+/* The tab whose radio is checked lights up, and its panel is the one shown. */
+#s-1:checked ~ .scenes__tabs [for='s-1'],
+#s-2:checked ~ .scenes__tabs [for='s-2'],
+#s-3:checked ~ .scenes__tabs [for='s-3'],
+#s-4:checked ~ .scenes__tabs [for='s-4'],
+#s-5:checked ~ .scenes__tabs [for='s-5'],
+#s-6:checked ~ .scenes__tabs [for='s-6'],
+#s-7:checked ~ .scenes__tabs [for='s-7'],
+#s-8:checked ~ .scenes__tabs [for='s-8'],
+#s-9:checked ~ .scenes__tabs [for='s-9'] {
+  color: var(--bg);
+  background: var(--ink);
+  border-color: var(--ink);
+}
+
+#s-1:checked ~ .scenes__panels [data-scene='1'],
+#s-2:checked ~ .scenes__panels [data-scene='2'],
+#s-3:checked ~ .scenes__panels [data-scene='3'],
+#s-4:checked ~ .scenes__panels [data-scene='4'],
+#s-5:checked ~ .scenes__panels [data-scene='5'],
+#s-6:checked ~ .scenes__panels [data-scene='6'],
+#s-7:checked ~ .scenes__panels [data-scene='7'],
+#s-8:checked ~ .scenes__panels [data-scene='8'],
+#s-9:checked ~ .scenes__panels [data-scene='9'] {
+  display: block;
+}
+
+.frame {
+  /* The screen inside sizes itself to this card, not to the viewport. */
+  container-type: inline-size;
+  background: #090b0d;
+  border: 1px solid var(--edge);
+  border-radius: 12px;
+  overflow: hidden;
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.04) inset,
+    0 30px 60px -30px rgba(0, 0, 0, 0.9);
+}
+
+.frame__bar {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.5rem 0.8rem;
+  border-bottom: 1px solid var(--edge-soft);
+  background: linear-gradient(to bottom, #12161a, #0e1215);
+}
+
+.frame__bar b {
+  margin-left: 0.5rem;
+  font-weight: 400;
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--dim);
+}
+
+.frame__bar .frame__real {
+  margin-left: auto;
+  font-size: 10.5px;
+  letter-spacing: 0.08em;
+  color: var(--ok);
+  text-transform: uppercase;
+}
+
+.frame__bar .frame__real::before {
+  content: '●';
+  margin-right: 0.4em;
+  font-size: 0.8em;
+  vertical-align: 0.1em;
+}
+
+/*
+ * The screen itself.
+ *
+ * Rows are pre-wrapped text in a fixed grid, scaled to the card rather than
+ * reflowed: a transcript that rewrapped would no longer be the frame that was
+ * captured. The row block scrolls sideways on a narrow viewport instead.
+ */
+.screen {
+  overflow-x: auto;
+  padding: 1rem 1.15rem 1.15rem;
+  /*
+   * A captured screen is a fixed grid of 84 columns, and reflowing it would
+   * make it a different screen. So the type scales to the card instead: at
+   * 0.6em per column, 84 of them need just under 51em, and dividing the card
+   * by 53 leaves room for the padding. It stops growing at a comfortable
+   * reading size and never shrinks past legibility — below that the row block
+   * scrolls sideways rather than the page.
+   */
+  font-size: clamp(7.5px, calc(100cqw / 56), 13px);
+  line-height: 1.5;
+  scrollbar-width: thin;
+}
+
+/*
+ * The rows are a `code` element, whose inline styling has no business here:
+ * a captured frame carries its own colours, and the tint that marks inline
+ * code in prose would wash every one of them.
+ */
+.screen__rows {
+  display: block;
+  min-width: max-content;
+  padding: 0;
+  font-family: var(--mono);
+  font-size: inherit;
+  color: var(--ink);
+  background: none;
+  border-radius: 0;
+}
+
+.screen .row {
+  display: block;
+  white-space: pre;
+  min-height: 1.5em;
+}
+
+/* The empty middle of a 40-row screen, shortened but never hidden. */
+.screen .gap {
+  display: block;
+  height: 1.1em;
+  margin: 0.15em 0;
+  border-left: 0;
+  background: repeating-linear-gradient(to bottom, var(--edge-soft) 0 1px, transparent 1px 4px);
+  opacity: 0.5;
+}
+
+/* Pens, mapped from the SGR the surface actually emitted. */
+.screen .c-user { color: var(--user); }
+.screen .c-tool { color: var(--tool); }
+.screen .c-ok { color: var(--ok); }
+.screen .c-pending { color: var(--pending); }
+.screen .c-error { color: var(--error); }
+.screen .c-path { color: var(--path); }
+.screen .c-dim { color: var(--dim); }
+.screen .a-bold { font-weight: 700; color: var(--ink); }
+.screen .a-dim { color: var(--dim); }
+.screen .a-underline { text-decoration: underline; text-underline-offset: 0.18em; }
+.screen .a-inverse { background: var(--ink); color: var(--bg); }
+
+.caption {
+  margin: 0.9rem 0 0;
+  font-size: 13px;
+  color: var(--dim);
+  max-width: 62ch;
+}
+
+.caption b {
+  color: var(--ink);
+  font-weight: 500;
+}
+
+/* ── Steps (the /ship gates) ────────────────────────────────────────────── */
+
+.steps {
+  counter-reset: step;
+  list-style: none;
+  padding: 0;
+  margin: 2.5rem 0 0;
+  display: grid;
+  gap: 1px;
+  background: var(--edge-soft);
+  border-block: 1px solid var(--edge-soft);
+}
+
+.steps li {
+  counter-increment: step;
+  background: var(--bg);
+  padding: 1.3rem 1.5rem 1.3rem 4.2rem;
+  position: relative;
+}
+
+.steps li::before {
+  content: counter(step, decimal-leading-zero);
+  position: absolute;
+  left: 1.5rem;
+  top: 1.35rem;
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  color: var(--dim);
+}
+
+.steps li b {
+  color: var(--ink);
+  font-weight: 700;
+}
+
+.steps li .gate {
+  color: var(--pending);
+  font-weight: 700;
+}
+
+.steps li p {
+  margin: 0.35rem 0 0;
+  font-size: 13.5px;
+  max-width: 70ch;
+}
+
+/* ── Docs list ──────────────────────────────────────────────────────────── */
+
+.defs {
+  margin: 2rem 0 0;
+  display: grid;
+  gap: 0;
+}
+
+.defs > div {
+  display: grid;
+  grid-template-columns: minmax(9rem, 14rem) 1fr;
+  gap: 0 1.5rem;
+  padding: 0.85rem 0;
+  border-top: 1px solid var(--edge-soft);
+  align-items: baseline;
+}
+
+.defs > div:last-child {
+  border-bottom: 1px solid var(--edge-soft);
+}
+
+.defs dt,
+.defs > div > :first-child {
+  color: var(--tool);
+  font-size: 13px;
+}
+
+.defs > div > :last-child {
+  color: var(--ink-soft);
+  font-size: 13.5px;
+  margin: 0;
+  max-width: 70ch;
+}
+
+@media (max-width: 40rem) {
+  .defs > div {
+    grid-template-columns: 1fr;
+    gap: 0.2rem;
+  }
+}
+
+/* ── Callout ────────────────────────────────────────────────────────────── */
+
+.note {
+  margin-top: 2rem;
+  padding: 1rem 1.2rem;
+  border-left: 3px solid var(--pending);
+  background: color-mix(in oklab, var(--pending) 5%, transparent);
+  font-size: 13.5px;
+  color: var(--ink-soft);
+  max-width: var(--measure);
+}
+
+.note b {
+  color: var(--ink);
+}
+
+/* ── Footer ─────────────────────────────────────────────────────────────── */
+
+footer {
+  border-top: 1px solid var(--edge-soft);
+  padding: 3rem 0 4rem;
+  font-size: 12.5px;
+  color: var(--dim);
+}
+
+footer .wrap {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem 2rem;
+  align-items: baseline;
+}
+
+footer nav {
+  display: flex;
+  gap: 1.2rem;
+  flex-wrap: wrap;
+  margin-left: auto;
+}
+
+footer a {
+  color: var(--ink-soft);
+  border: 0;
+}
+
+footer a:hover {
+  color: var(--ink);
+}
+
+/* ── Motion, and the choice to sit still ────────────────────────────────── */
+
+@media (prefers-reduced-motion: no-preference) {
+  .reveal {
+    animation: rise 0.7s cubic-bezier(0.2, 0.7, 0.3, 1) both;
+  }
+
+  .reveal-1 { animation-delay: 0.05s; }
+  .reveal-2 { animation-delay: 0.14s; }
+  .reveal-3 { animation-delay: 0.23s; }
+  .reveal-4 { animation-delay: 0.32s; }
+
+  @keyframes rise {
+    from {
+      opacity: 0;
+      transform: translateY(0.6rem);
+    }
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+
+  .hero h1 .caret {
+    animation: none;
+  }
+}
+
+/*
+ * ── The hero demo: /ship's whole arc in one looping terminal ────────────
+ *
+ * The one animated screen on the page, and the one that is not a capture —
+ * its tag says so. Pure CSS: every transcript row shares a 26s clock and
+ * each keyframe block differs only in when its row enters; the command
+ * types itself with steps(). Reduced motion shows the finished transcript.
+ */
+.frame__bar .frame__demo {
+  margin-left: auto;
+  font-size: 10.5px;
+  letter-spacing: 0.08em;
+  color: var(--pending);
+  text-transform: uppercase;
+}
+
+.frame__bar .frame__demo::before {
+  content: '▶';
+  margin-right: 0.4em;
+  font-size: 0.8em;
+  vertical-align: 0.1em;
+}
+
+.demo .dm {
+  opacity: 0;
+  animation-duration: 26s;
+  animation-timing-function: linear;
+  animation-iteration-count: infinite;
+}
+
+.demo .type {
+  display: inline-block;
+  overflow: hidden;
+  white-space: pre;
+  vertical-align: bottom;
+  animation: ship-type 26s steps(38, end) infinite;
+}
+
+@keyframes ship-type { 0%, 1.5% { max-width: 0; } 9%, 100% { max-width: 40ch; } }
+
+.demo .s1  { animation-name: ship-s1; }
+.demo .s2  { animation-name: ship-s2; }
+.demo .s3  { animation-name: ship-s3; }
+.demo .s4  { animation-name: ship-s4; }
+.demo .s5  { animation-name: ship-s5; }
+.demo .s6  { animation-name: ship-s6; }
+.demo .s7  { animation-name: ship-s7; }
+.demo .s8  { animation-name: ship-s8; }
+.demo .s9  { animation-name: ship-s9; }
+.demo .s10 { animation-name: ship-s10; }
+.demo .s11 { animation-name: ship-s11; }
+.demo .s12 { animation-name: ship-s12; }
+.demo .s13 { animation-name: ship-s13; }
+.demo .s14 { animation-name: ship-s14; }
+.demo .s15 { animation-name: ship-s15; }
+.demo .s16 { animation-name: ship-s16; }
+.demo .s17 { animation-name: ship-s17; }
+
+@keyframes ship-s1  { 0%, 94% { opacity: 1; } 96.5%, 100% { opacity: 0; } }
+@keyframes ship-s2  { 0%, 11.5% { opacity: 0; } 12.7%, 94% { opacity: 1; } 96.5%, 100% { opacity: 0; } }
+@keyframes ship-s3  { 0%, 17% { opacity: 0; } 18.2%, 94% { opacity: 1; } 96.5%, 100% { opacity: 0; } }
+@keyframes ship-s4  { 0%, 23.5% { opacity: 0; } 24.7%, 94% { opacity: 1; } 96.5%, 100% { opacity: 0; } }
+@keyframes ship-s5  { 0%, 29.5% { opacity: 0; } 30.7%, 94% { opacity: 1; } 96.5%, 100% { opacity: 0; } }
+@keyframes ship-s6  { 0%, 32% { opacity: 0; } 33.2%, 94% { opacity: 1; } 96.5%, 100% { opacity: 0; } }
+@keyframes ship-s7  { 0%, 37.5% { opacity: 0; } 38.7%, 94% { opacity: 1; } 96.5%, 100% { opacity: 0; } }
+@keyframes ship-s8  { 0%, 42.5% { opacity: 0; } 43.7%, 94% { opacity: 1; } 96.5%, 100% { opacity: 0; } }
+@keyframes ship-s9  { 0%, 47.5% { opacity: 0; } 48.7%, 94% { opacity: 1; } 96.5%, 100% { opacity: 0; } }
+@keyframes ship-s10 { 0%, 52% { opacity: 0; } 53.2%, 94% { opacity: 1; } 96.5%, 100% { opacity: 0; } }
+@keyframes ship-s11 { 0%, 56.5% { opacity: 0; } 57.7%, 94% { opacity: 1; } 96.5%, 100% { opacity: 0; } }
+@keyframes ship-s12 { 0%, 61% { opacity: 0; } 62.2%, 94% { opacity: 1; } 96.5%, 100% { opacity: 0; } }
+@keyframes ship-s13 { 0%, 66.5% { opacity: 0; } 67.7%, 94% { opacity: 1; } 96.5%, 100% { opacity: 0; } }
+@keyframes ship-s14 { 0%, 71.5% { opacity: 0; } 72.7%, 94% { opacity: 1; } 96.5%, 100% { opacity: 0; } }
+@keyframes ship-s15 { 0%, 76.5% { opacity: 0; } 77.7%, 94% { opacity: 1; } 96.5%, 100% { opacity: 0; } }
+@keyframes ship-s16 { 0%, 82.5% { opacity: 0; } 83.7%, 94% { opacity: 1; } 96.5%, 100% { opacity: 0; } }
+@keyframes ship-s17 { 0%, 85.5% { opacity: 0; } 86.7%, 94% { opacity: 1; } 96.5%, 100% { opacity: 0; } }
+
+/* The pinned todo readout: one row over the status row whose variants swap
+   in step with the milestones — todos that stay in view, mid-landing. */
+.demo .todoslot {
+  position: relative;
+}
+
+.demo .todoslot .tv {
+  position: absolute;
+  left: 0;
+  top: 0;
+  font-style: normal;
+  opacity: 0;
+  animation-duration: 26s;
+  animation-timing-function: linear;
+  animation-iteration-count: infinite;
+}
+
+.demo .tv1 { animation-name: ship-t1; }
+.demo .tv2 { animation-name: ship-t2; }
+.demo .tv3 { animation-name: ship-t3; }
+.demo .tv4 { animation-name: ship-t4; }
+
+@keyframes ship-t1 { 0%, 59% { opacity: 0; } 59.5%, 67.4% { opacity: 1; } 67.7%, 100% { opacity: 0; } }
+@keyframes ship-t2 { 0%, 67.7% { opacity: 0; } 68.2%, 72.4% { opacity: 1; } 72.7%, 100% { opacity: 0; } }
+@keyframes ship-t3 { 0%, 72.7% { opacity: 0; } 73.2%, 77.4% { opacity: 1; } 77.7%, 100% { opacity: 0; } }
+@keyframes ship-t4 { 0%, 77.7% { opacity: 0; } 78.2%, 94% { opacity: 1; } 96.5%, 100% { opacity: 0; } }
+
+@media (prefers-reduced-motion: reduce) {
+  .demo .dm {
+    animation: none;
+    opacity: 1;
+  }
+
+  .demo .type {
+    animation: none;
+    max-width: none;
+  }
+
+  .demo .todoslot .tv {
+    animation: none;
+  }
+
+  .demo .todoslot .tv4 {
+    opacity: 1;
+  }
+}
+
+/* Light terminals exist; this page is a dark one on purpose, and says so by
+   painting its own ground rather than borrowing the browser's. */
+@media (prefers-color-scheme: light) {
+  :root {
+    --bg: #0b0d0f;
+  }
+}

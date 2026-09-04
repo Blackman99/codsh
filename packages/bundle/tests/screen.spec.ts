@@ -1,0 +1,2434 @@
+/**
+ * The session's own screen. Owning the viewport means the chrome sits at the
+ * bottom by construction, scrolling is ours to implement, and a frame is
+ * painted as a whole — the three things the old bottom-region drawing could not
+ * guarantee.
+ */
+
+import { describe, expect, it, vi } from 'vitest'
+import { Screen } from '../src/screen.ts'
+import type { ScreenHost } from '../src/screen.ts'
+import { displayWidth } from '../src/theme.ts'
+
+/** A host that records what would be written, at a fixed size. */
+function host(rows = 10, columns = 20): ScreenHost & { out: string[]; size: { rows: number; columns: number } } {
+  const size = { rows, columns }
+  const out: string[] = []
+  return {
+    out,
+    size,
+    write: (data: string) => void out.push(data),
+    columns: () => size.columns,
+    rows: () => size.rows,
+  }
+}
+
+/** The rows a frame painted, as `row => text`, from the emitted sequences. */
+function painted(data: string): Map<number, string> {
+  const rows = new Map<number, string>()
+  for (const match of data.matchAll(/\u001B\[(\d+);1H\u001B\[K([^\u001B]*)/gu)) {
+    rows.set(Number(match[1]), (match[2] ?? '').slice(2))
+  }
+  return rows
+}
+
+/** Plain glyph last written at one absolute terminal cell. */
+function cell(data: string, row: number, column: number): string | undefined {
+  const marker = `\u001B[${row};${column}H`
+  const at = data.lastIndexOf(marker)
+  if (at < 0) return undefined
+  const plain = data.slice(at + marker.length, at + marker.length + 80).replaceAll(/\u001B\[[0-9;]*m/gu, '')
+  return [...plain][0]
+}
+
+/** Everything written since the last checkpoint, joined. */
+const flush = (sink: { out: string[] }): string => sink.out.splice(0).join('')
+
+describe('entering and leaving', () => {
+  it('pushes the kitty keyboard flag on entry and pops it before leaving', () => {
+    const sink = host()
+    const screen = new Screen(sink)
+    screen.enter()
+    const entered = flush(sink)
+    expect(entered).toContain('\u001B[>1u')
+    expect(entered.indexOf('\u001B[?1049h')).toBeLessThan(entered.indexOf('\u001B[>1u'))
+    // Focus reporting and the background question ride the same entry.
+    expect(entered).toContain('\u001B[?1004h')
+    expect(entered).toContain('\u001B]11;?\u0007')
+    screen.leave()
+    const left = flush(sink)
+    expect(left).toContain('\u001B[<u')
+    expect(left).toContain('\u001B[?1004l')
+    expect(left.indexOf('\u001B[<u')).toBeLessThan(left.indexOf('\u001B[?1049l'))
+  })
+
+  it('takes the alternate screen with mouse reporting, and gives both back', () => {
+    const sink = host()
+    const screen = new Screen(sink)
+    screen.enter()
+    const entered = flush(sink)
+    expect(entered).toContain('\u001B[?1049h')
+    expect(entered).toContain('\u001B[?1002h')
+    expect(entered).toContain('\u001B[?1006h')
+
+    screen.leave()
+    const left = flush(sink)
+    // Mouse and cursor are restored before the buffer swaps back, so the
+    // shell never inherits our modes.
+    expect(left.indexOf('\u001B[?1006l')).toBeLessThan(left.indexOf('\u001B[?1049l'))
+    expect(left).toContain('\u001B[?25h')
+  })
+
+  it('leaves once, however many exit paths call it', () => {
+    const sink = host()
+    const screen = new Screen(sink)
+    screen.enter()
+    flush(sink)
+    screen.leave()
+    const first = flush(sink)
+    screen.leave()
+    expect(first).toContain('\u001B[?1049l')
+    expect(flush(sink)).toBe('')
+  })
+
+  it('draws nothing before it holds the screen', () => {
+    const sink = host()
+    const screen = new Screen(sink)
+    screen.append(['ignored'])
+    screen.setChrome(['box'], { row: 0, column: 0 }, true)
+    expect(flush(sink)).toBe('')
+  })
+})
+
+describe('layout', () => {
+  it('puts the chrome on the last rows with an empty transcript', () => {
+    const sink = host(6, 20)
+    const screen = new Screen(sink)
+    screen.enter()
+    flush(sink)
+    screen.setChrome(['box top', 'box body', 'status'], { row: 1, column: 2 }, true)
+    const rows = painted(flush(sink))
+    // Six rows, three of chrome: the chrome occupies 4, 5, 6.
+    expect(rows.get(4)).toBe('box top')
+    expect(rows.get(5)).toBe('box body')
+    expect(rows.get(6)).toBe('status')
+  })
+
+  it('floats an overlay over the viewport without growing the chrome', () => {
+    const sink = host(8, 40)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['box', 'status'], { row: 0, column: 0 }, false)
+    screen.append(['one', 'two', 'three', 'four', 'five', 'six'])
+    flush(sink)
+    screen.setOverlay(['menu a', 'menu b'])
+    const frame = flush(sink)
+    expect(frame).toContain('menu a')
+    expect(frame).toContain('menu b')
+    const rows = painted(frame)
+    expect(rows.has(7)).toBe(false)
+    expect(rows.has(8)).toBe(false)
+  })
+
+  it('shows the tail of the transcript above the chrome', () => {
+    const sink = host(5, 20)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['status'], { row: 0, column: 0 }, false)
+    flush(sink)
+    screen.append(['one', 'two', 'three', 'four', 'five', 'six'])
+    const rows = painted(flush(sink))
+    // Four viewport rows show the last four lines. The chrome's row is absent
+    // from this frame precisely because it did not change — which is the diff
+    // doing its job; its placement is pinned by the layout test above.
+    expect([rows.get(1), rows.get(2), rows.get(3), rows.get(4)]).toEqual(['three', 'four', 'five', 'six'])
+    expect(rows.has(5)).toBe(false)
+  })
+
+  it('wraps a line too wide for the viewport instead of overwriting a row', () => {
+    const sink = host(4, 10)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['status'], { row: 0, column: 0 }, false)
+    flush(sink)
+    // Seven content columns (gutter plus one kept clear), so 20 characters take 3 rows.
+    screen.append(['x'.repeat(20)])
+    const rows = painted(flush(sink))
+    expect(rows.get(1)).toBe('x'.repeat(7))
+    expect(rows.get(2)).toBe('x'.repeat(7))
+    expect(rows.get(3)).toBe('x'.repeat(6))
+  })
+
+  it('never paints a row that fills the terminal, even when chrome arrives too wide', () => {
+    const sink = host(8, 20)
+    const screen = new Screen(sink)
+    screen.enter()
+    // A box laid out at columns-1 (the pre-gutter chrome width) would wrap into
+    // the next row if painted as-is; the viewport must keep a column clear.
+    screen.setChrome(['╭' + '─'.repeat(17) + '╮', 'x'.repeat(19)], { row: 0, column: 0 }, false)
+    screen.append(['z'.repeat(40)])
+    const frame = flush(sink)
+    for (const match of frame.matchAll(/\u001B\[\d+;1H\u001B\[K([^\u001B]*)/gu)) {
+      expect(displayWidth(match[1] ?? '')).toBeLessThan(20)
+    }
+  })
+
+  it('places the cursor absolutely inside the chrome, or hides it', () => {
+    const sink = host(6, 20)
+    const screen = new Screen(sink)
+    screen.enter()
+    flush(sink)
+    screen.setChrome(['a', 'b', 'c'], { row: 1, column: 4 }, true)
+    // Chrome starts at row 4, so its second row is row 5; column 4 plus the gutter.
+    expect(flush(sink)).toContain('\u001B[5;7H\u001B[?25h')
+
+    screen.setChrome(['a', 'b', 'd'], { row: 1, column: 4 }, false)
+    const unfocused = flush(sink)
+    expect(unfocused).not.toContain('\u001B[?25h')
+  })
+})
+
+describe('painting', () => {
+  it('wraps every frame in a synchronized update', () => {
+    const sink = host()
+    const screen = new Screen(sink)
+    screen.enter()
+    flush(sink)
+    screen.append(['line'])
+    const frame = flush(sink)
+    expect(frame.startsWith('\u001B[?2026h')).toBe(true)
+    expect(frame.endsWith('\u001B[?2026l')).toBe(true)
+  })
+
+  it('repaints only the rows that changed', () => {
+    const sink = host(5, 20)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['status one'], { row: 0, column: 0 }, false)
+    screen.append(['kept', 'kept too'])
+    flush(sink)
+    screen.setChrome(['status two'], { row: 0, column: 0 }, false)
+    const rows = painted(flush(sink))
+    // Only the chrome row differs, so the transcript rows are left alone.
+    expect([...rows.keys()]).toEqual([5])
+    expect(rows.get(5)).toBe('status two')
+  })
+
+  it('clears rows a shrunken frame no longer fills', () => {
+    const sink = host(5, 20)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['a', 'b', 'c'], { row: 0, column: 0 }, false)
+    flush(sink)
+    // A shorter chrome leaves the bottom row painted with the old content.
+    screen.setChrome(['a'], { row: 0, column: 0 }, false)
+    const frame = flush(sink)
+    expect(frame).toContain('\u001B[5;1H\u001B[K')
+  })
+})
+
+describe('scrolling', () => {
+  it('anchors a newly submitted real prompt at the viewport top', () => {
+    const sink = host(8, 40)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['box', 'status'], { row: 0, column: 0 }, false)
+    screen.append(Array.from({ length: 10 }, (_, index) => `old ${index}`))
+    screen.appendPrompt(['› anchored question', ''], '| ')
+
+    const rows = painted(flush(sink))
+    expect(rows.get(1)).toBe('| › anchored question')
+    expect([rows.get(2), rows.get(3), rows.get(4), rows.get(5), rows.get(6)]).toEqual(['', '', '', '', ''])
+    screen.mouseDown(6, 5)
+    screen.mouseDrag(5, 5)
+    expect(screen.mouseUp()).toBeUndefined()
+  })
+
+  it('replaces prompt-tail display space one reply row at a time', () => {
+    const sink = host(8, 40)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['box', 'status'], { row: 0, column: 0 }, false)
+    screen.append(Array.from({ length: 10 }, (_, index) => `old ${index}`))
+    screen.appendPrompt(['› anchored question', ''], '| ')
+    flush(sink)
+
+    screen.append(['reply one'])
+    let rows = painted(flush(sink))
+    expect(rows.get(3)).toBe('reply one')
+    expect(rows.get(4) ?? '').toBe('')
+
+    screen.append(['reply two'])
+    rows = painted(flush(sink))
+    expect(rows.get(4)).toBe('reply two')
+    expect(rows.get(5) ?? '').toBe('')
+  })
+
+  it('hands a filled prompt anchor to sticky without duplicating the prompt', () => {
+    const sink = host(8, 40)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['box', 'status'], { row: 0, column: 0 }, false)
+    screen.append(Array.from({ length: 10 }, (_, index) => `old ${index}`))
+    screen.appendPrompt(['› anchored question', ''], '| ')
+    screen.append(['reply 1', 'reply 2', 'reply 3', 'reply 4', 'reply 5'])
+    flush(sink)
+
+    screen.resize()
+    const rows = [...painted(flush(sink)).values()]
+    expect(rows[0]).toBe('| › anchored question')
+    expect(rows.filter(row => row.includes('anchored question'))).toHaveLength(1)
+  })
+
+  it('preserves a live prompt anchor across resize without adding searchable rows', () => {
+    const sink = host(8, 40)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['box', 'status'], { row: 0, column: 0 }, false)
+    screen.append(Array.from({ length: 10 }, (_, index) => `old ${index}`))
+    screen.appendPrompt(['› anchored question', ''], '| ')
+    screen.append(['reply'])
+    flush(sink)
+
+    sink.size.rows = 10
+    screen.resize()
+    expect(painted(flush(sink)).get(1)).toBe('| › anchored question')
+    expect(screen.searchTranscript('anchored question').hits).toBe(1)
+  })
+
+  it('recovers a logical prompt anchor after a temporary shrink consumes its gap', () => {
+    const sink = host(8, 40)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['box', 'status'], { row: 0, column: 0 }, false)
+    screen.append(Array.from({ length: 10 }, (_, index) => `old ${index}`))
+    screen.appendPrompt(['› anchored question', ''], '| ')
+    screen.append(['reply'])
+    flush(sink)
+
+    sink.size.rows = 5
+    screen.resize()
+    flush(sink)
+    sink.size.rows = 10
+    screen.resize()
+
+    expect(painted(flush(sink)).get(1)).toBe('| › anchored question')
+  })
+
+  it('steps off the anchored prompt one row at a time and never anchors replay', () => {
+    const sink = host(8, 40)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['box', 'status'], { row: 0, column: 0 }, false)
+    screen.append(Array.from({ length: 10 }, (_, index) => `old ${index}`))
+    screen.appendPrompt(['› replayed question', ''], '| ', false)
+    let rows = painted(flush(sink))
+    expect(rows.get(1)).toBe('old 6')
+
+    screen.appendPrompt(['› live question', ''], '| ')
+    flush(sink)
+    screen.scrollBy(-1)
+    rows = painted(flush(sink))
+    expect(screen.scrolledBy).toBe(1)
+    // Reading back moves the frame by the row asked for: the space under the
+    // prompt scrolls like every other row rather than vanishing under it.
+    expect(rows.get(1)).not.toBe('| › live question')
+    expect(rows.get(2)).toBe('| › live question')
+  })
+
+  it('gives the anchored frame back when the reader returns to the tail', () => {
+    const sink = host(8, 40)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['box', 'status'], { row: 0, column: 0 }, false)
+    screen.append(Array.from({ length: 10 }, (_, index) => `old ${index}`))
+    screen.appendPrompt(['› anchored question', ''], '| ')
+    flush(sink)
+
+    screen.scrollBy(-2)
+    let rows = painted(flush(sink))
+    expect(rows.get(1)).toBe('old 8')
+    expect(rows.get(3)).toBe('| › anchored question')
+
+    screen.scrollBy(2)
+    rows = painted(flush(sink))
+    expect(screen.scrolledBy).toBe(0)
+    expect(rows.get(1)).toBe('| › anchored question')
+
+    // The jump back to the latest lands on the same frame the wheel does.
+    screen.scrollBy(-4)
+    flush(sink)
+    screen.scrollToBottom()
+    expect(painted(flush(sink)).get(1)).toBe('| › anchored question')
+  })
+
+  it('still reaches the oldest row while the prompt gap is reserved', () => {
+    const sink = host(8, 40)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['box', 'status'], { row: 0, column: 0 }, false)
+    screen.append(Array.from({ length: 10 }, (_, index) => `old ${index}`))
+    screen.appendPrompt(['› anchored question', ''], '| ')
+    flush(sink)
+
+    screen.scrollBy(-99)
+    expect(painted(flush(sink)).get(1)).toBe('old 0')
+  })
+
+  it('holds a reader who scrolled back still while replies fill the gap', () => {
+    const sink = host(8, 40)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['box', 'status'], { row: 0, column: 0 }, false)
+    screen.append(Array.from({ length: 10 }, (_, index) => `old ${index}`))
+    screen.appendPrompt(['› anchored question', ''], '| ')
+    screen.scrollBy(-2)
+    flush(sink)
+
+    screen.append(['reply one'])
+    // The reply lands in the reserved space; the rows being read do not move.
+    expect([...painted(flush(sink))]).toEqual([[5, 'reply one']])
+    expect(screen.scrolledBy).toBe(2)
+  })
+
+  it('anchors the next prompt for a reader still inside the previous gap', () => {
+    const sink = host(8, 40)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['box', 'status'], { row: 0, column: 0 }, false)
+    screen.append(Array.from({ length: 10 }, (_, index) => `old ${index}`))
+    screen.appendPrompt(['› anchored question', ''], '| ')
+    screen.scrollBy(-2)
+    flush(sink)
+
+    screen.appendPrompt(['› next question', ''], '| ')
+    expect(screen.scrolledBy).toBe(0)
+    expect(painted(flush(sink)).get(1)).toBe('| › next question')
+  })
+
+  it('keeps the anchored prompt at the top when a block above it opens', () => {
+    const sink = host(8, 40)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['box', 'status'], { row: 0, column: 0 }, false)
+    screen.appendFold(['summary line'], ['full 1', 'full 2', 'full 3'], '', 'output')
+    screen.appendPrompt(['› anchored question', ''], '| ')
+    flush(sink)
+
+    // Working a block is reading, not navigating: the live turn keeps its gap.
+    expect(screen.toggleFolds()).toBe(true)
+    expect(painted(flush(sink)).get(1)).toBe('| › anchored question')
+  })
+
+  it('leaves a reader in history exactly where they were when the gap goes', () => {
+    const sink = host(8, 40)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['box', 'status'], { row: 0, column: 0 }, false)
+    screen.append(Array.from({ length: 10 }, (_, index) => `old ${index}`))
+    screen.appendPrompt(['› anchored question', ''], '| ')
+    screen.scrollBy(-6)
+    const before = painted(flush(sink))
+    expect(before.get(1)).toBe('old 4')
+
+    screen.appendPrompt(['› next question', ''], '| ')
+    expect(painted(flush(sink)).size).toBe(0)
+    expect(screen.scrolledBy).toBe(4)
+  })
+
+  it('does not anchor a live prompt while the reader is browsing history', () => {
+    const sink = host(8, 40)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['box', 'status'], { row: 0, column: 0 }, false)
+    screen.append(Array.from({ length: 15 }, (_, index) => `old ${index}`))
+    screen.scrollBy(-3)
+    flush(sink)
+
+    screen.appendPrompt(['› arrives below', ''], '| ')
+
+    expect(screen.scrolledBy).toBe(5)
+    expect(painted(flush(sink)).size).toBe(0)
+  })
+
+  it('lists real prompt turns and reveals either one at the viewport top', () => {
+    const sink = host(6, 40)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['status'], { row: 0, column: 0 }, false)
+    screen.appendPrompt(['› first question', ''], '| ')
+    screen.append(['old 1', 'old 2', 'old 3', 'old 4'])
+    screen.appendPrompt(['› second question', ''], '| ')
+    screen.append(['new 1', 'new 2', 'new 3', 'new 4', 'new 5'])
+    flush(sink)
+
+    expect(screen.turnList).toEqual([
+      { index: 0, summary: '› first question' },
+      { index: 1, summary: '› second question' },
+    ])
+    expect(screen.currentTurn).toBe(1)
+    expect(screen.jumpToTurn(0)).toBe(true)
+    expect(screen.currentTurn).toBe(0)
+    expect(painted(flush(sink)).get(1)).toBe('| › first question')
+
+    const saved = screen.scrolledBy
+    expect(screen.jumpToTurn(1)).toBe(true)
+    screen.restoreScroll(saved)
+    expect(screen.currentTurn).toBe(0)
+    expect(screen.jumpToTurn(99)).toBe(false)
+  })
+
+  it('keeps the latest turn current after both answers become folds', () => {
+    const sink = host(12, 120)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['box top', 'box', 'box bottom', 'status'], { row: 1, column: 0 }, false)
+    screen.appendPrompt(['› first sticky prompt', ''], '| ')
+    screen.append(Array.from({ length: 45 }, (_, index) => `first ${index}`))
+    screen.foldBack(45, ['first summary', ''], 'answer')
+    screen.appendPrompt(['› second sticky prompt', ''], '| ')
+    screen.append(Array.from({ length: 45 }, (_, index) => `second ${index}`))
+    screen.foldBack(45, ['second summary', ''], 'answer')
+
+    expect(screen.currentTurn).toBe(1)
+    expect(screen.jumpToTurn(0)).toBe(true)
+    expect(screen.currentTurn).toBe(0)
+  })
+
+  it('treats the latest prompt as current while the whole short transcript fits', () => {
+    const sink = host(20, 80)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['status'], { row: 0, column: 0 }, false)
+    screen.appendPrompt(['› first', ''], '| ')
+    screen.append(['answer'])
+    screen.appendPrompt(['› second', ''], '| ')
+    screen.append(['answer'])
+
+    expect(screen.scrolledBy).toBe(0)
+    expect(screen.currentTurn).toBe(1)
+  })
+
+  it('keeps a scrolled viewport fixed when command output appends below it', () => {
+    const sink = host(6, 40)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['status'], { row: 0, column: 0 }, false)
+    screen.append(Array.from({ length: 20 }, (_, index) => `row ${index}`))
+    screen.scrollBy(-5)
+    flush(sink)
+    const before = screen.scrolledBy
+
+    screen.append(['command result', ''])
+
+    expect(screen.scrolledBy).toBe(before + 2)
+    expect(flush(sink)).not.toContain('command result')
+  })
+
+  it('keeps a logical viewport bookmark stable across resize and turn previews', () => {
+    const sink = host(7, 40)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['status'], { row: 0, column: 0 }, false)
+    screen.appendPrompt(['› first question', ''], '| ', false)
+    screen.append(Array.from({ length: 18 }, (_, index) => `first answer ${index} xxxxxxxxxxxxxxxxxxxx`))
+    screen.appendPrompt(['› second question', ''], '| ', false)
+    screen.append(Array.from({ length: 18 }, (_, index) => `second answer ${index} xxxxxxxxxxxxxxxxxxxx`))
+    screen.scrollBy(-18)
+    flush(sink)
+
+    const bookmark = screen.captureViewportBookmark()
+    const before = [...painted((screen.resize(), flush(sink))).values()].find(row => row.includes('first answer'))
+    expect(bookmark).toBeDefined()
+    expect(before).toBeDefined()
+
+    screen.jumpToTurn(1)
+    sink.size.columns = 24
+    screen.resize()
+    screen.restoreViewportBookmark(bookmark)
+
+    const after = [...painted(flush(sink)).values()].find(row => row.includes('first answer'))
+    expect(after?.match(/first answer \d+/u)?.[0]).toBe(before?.match(/first answer \d+/u)?.[0])
+  })
+
+  it('places a block under wrapped lines, measured from the buffer', () => {
+    // A block's clickable rows are found by counting the physical rows above
+    // it. That count used to be re-derived by wrapping every line again; it is
+    // read from the wrapped buffer now, and lines that occupy several rows are
+    // where the two would disagree.
+    const sink = host(14, 24)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['box'], { row: 0, column: 0 }, false)
+    // Each of these is three rows wide at 24 columns.
+    screen.append(Array.from({ length: 3 }, (_, index) => `wrapped ${index} ${'z'.repeat(40)}`))
+    screen.appendFold(['summary row'], ['full a', 'full b'], '', 'output')
+    const frame = painted(flush(sink))
+    // Where the summary actually landed, so the test does not restate the
+    // arithmetic it is checking.
+    const summaryRow = [...frame.entries()].find(([, text]) => text.includes('summary row'))?.[0]
+    expect(summaryRow).toBeDefined()
+
+    // The pointer on it finds the block, and a wrapped row above it does not.
+    expect(screen.mouseMove(summaryRow ?? 0, 12)?.label).toBe('output')
+    expect(screen.mouseMove((summaryRow ?? 0) - 1, 12)?.label).toBeUndefined()
+    flush(sink)
+    screen.mouseDown(summaryRow ?? 0, 12)
+    expect(screen.mouseUp()).toBeUndefined()
+    expect([...painted(flush(sink)).values()].join('\n')).toContain('full b')
+  })
+
+  it('holds the brush while a session is poured in, then paints once', () => {
+    // A resume replays every recorded line. Painting each one sent thousands
+    // of frames nobody sees to the terminal before the conversation appeared.
+    const sink = host(10, 40)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['box'], { row: 0, column: 0 }, false)
+    flush(sink)
+
+    screen.suspendPainting()
+    for (let index = 0; index < 50; index += 1) screen.append([`line ${index}`])
+    expect(flush(sink)).toBe('')
+
+    screen.resumePainting()
+    const frame = [...painted(flush(sink)).values()].join('\n')
+    expect(frame).toContain('line 49')
+  })
+
+  it('appends a block exactly as it appends the same lines one at a time', () => {
+    // The replay hands a whole event's lines over at once now; the buffer it
+    // leaves has to be the one the line-at-a-time path left.
+    const lines = Array.from({ length: 12 }, (_, index) => `row ${index}`)
+    const build = (append: (screen: Screen) => void): string => {
+      const sink = host(10, 40)
+      const screen = new Screen(sink)
+      screen.enter()
+      screen.setChrome(['box'], { row: 0, column: 0 }, false)
+      append(screen)
+      return [...painted(flush(sink)).values()].join('\n')
+    }
+    const one = build(screen => { for (const line of lines) screen.append([line], '| ') })
+    const block = build(screen => screen.append(lines, '| '))
+    expect(block).toBe(one)
+  })
+
+  it('trims the wrapped buffer to exactly what a full reflow would leave', () => {
+    // The trim drops the head incrementally rather than re-wrapping every
+    // surviving row, which is what made an append past the cap cost the whole
+    // buffer. The two must agree: a reflow after the trim has to paint the
+    // same frame the trim left, or the cheap path is quietly wrong.
+    const sink = host(10, 34)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['box'], { row: 0, column: 0 }, false)
+    // Lines wide enough to wrap, so the trim must cut whole rows off a line
+    // that owns several of them.
+    screen.append(Array.from({ length: 5200 }, (_, index) => `row ${index} ${'y'.repeat(40)}`), '| ')
+    /** The tail and the very top, since a bad cut shows only at the head. */
+    const shot = (): string => {
+      const tail = [...painted(flush(sink)).values()].join('\n')
+      screen.scrollBy(-10_000)
+      const top = [...painted(flush(sink)).values()].join('\n')
+      screen.scrollBy(10_000)
+      flush(sink)
+      return `${tail}\n--\n${top}`
+    }
+    const trimmed = shot()
+
+    // A resize away and back rebuilds every physical row from scratch.
+    sink.size.columns = 30
+    screen.resize()
+    flush(sink)
+    sink.size.columns = 34
+    screen.resize()
+    const reflowed = shot()
+
+    expect(reflowed).toBe(trimmed)
+    // And what survived is the tail, not the head.
+    expect(trimmed).toContain('row 5199')
+    expect(trimmed).not.toContain('row 0 ')
+  })
+
+  it('keeps a manual reading position while scrollback trimming appends below it', () => {
+    const sink = host(6, 40)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['status'], { row: 0, column: 0 }, false)
+    screen.append(Array.from({ length: 5000 }, (_, index) => `row ${index}`))
+    screen.scrollBy(-100)
+    flush(sink)
+
+    screen.append(Array.from({ length: 10 }, (_, index) => `new ${index}`))
+
+    expect(screen.scrolledBy).toBe(110)
+  })
+
+  it('reveals the first row of an expanded prompt that is not sticky', () => {
+    const sink = host(7, 40)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['status'], { row: 0, column: 0 }, false)
+    screen.appendPrompt(['› first row', '  second row', '  third row', '  fourth row', ''], '| ')
+    screen.toggleFolds()
+    screen.append(Array.from({ length: 12 }, (_, index) => `answer ${index}`))
+    screen.setScrollNotice('↑ history')
+    flush(sink)
+
+    expect(screen.jumpToTurn(0)).toBe(true)
+    expect(painted(flush(sink)).get(1)).toBe('| › first row')
+  })
+
+  it('pins the user prompt over the response section it owns', () => {
+    const sink = host(6, 40)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['status'], { row: 0, column: 0 }, false)
+    screen.appendPrompt(['› first question', ''], '| ')
+    screen.append(['answer 1', 'answer 2', 'answer 3', 'answer 4', 'answer 5', 'answer 6'])
+
+    const rows = painted(flush(sink))
+    expect([rows.get(1), rows.get(2), rows.get(3), rows.get(4), rows.get(5)]).toEqual([
+      '| › first question',
+      '',
+      'answer 4',
+      'answer 5',
+      'answer 6',
+    ])
+  })
+
+  it('keeps every explicit line of a short multiline prompt in its sticky header', () => {
+    const sink = host(6, 40)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['status'], { row: 0, column: 0 }, false)
+    screen.appendPrompt(['› 你好', '  介绍下你自己', ''], '| ', true, 2)
+    screen.append(Array.from({ length: 10 }, (_, index) => `answer ${index}`))
+
+    const rows = painted(flush(sink))
+    expect(rows.get(1)).toContain('你好')
+    expect(rows.get(2)).toContain('介绍下你自己')
+  })
+
+  it('still compacts one logical prompt line that only wrapped visually', () => {
+    const sink = host(6, 18)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['status'], { row: 0, column: 0 }, false)
+    screen.appendPrompt(['› one two three four', ''], '| ')
+    expect(screen.hasFolds).toBe(false)
+    screen.append(Array.from({ length: 10 }, (_, index) => `answer ${index}`))
+
+    const rows = painted(flush(sink))
+    expect(rows.get(1)).toContain('› one two')
+    expect(rows.get(2)).toBe('')
+  })
+
+  it('does not preserve generated image metadata as an explicit sticky line', () => {
+    const sink = host(6, 40)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['status'], { row: 0, column: 0 }, false)
+    screen.appendPrompt(['› describe this', '  [image #1 · sent to the model]', ''], '| ', true, 1)
+    screen.append(Array.from({ length: 10 }, (_, index) => `answer ${index}`))
+
+    const rows = painted(flush(sink))
+    expect(rows.get(1)).toContain('describe this')
+    expect(rows.get(2)).toBe('')
+  })
+
+  it('folds a long user prompt to three visual rows and expands it on demand', () => {
+    const sink = host(8, 30)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['status'], { row: 0, column: 0 }, false)
+    screen.appendPrompt(['› first line', '  second line', '  third line', '  fourth line', ''], '| ')
+
+    expect(screen.hasFolds).toBe(true)
+    expect(screen.foldsExpanded).toBe(false)
+    const collapsed = flush(sink)
+    expect(collapsed).toContain('third line …')
+    expect(collapsed).not.toContain('fourth line')
+
+    screen.toggleFolds()
+    const expanded = flush(sink)
+    expect(expanded).toContain('fourth line')
+    expect(painted(expanded).get(5) ?? '').toBe('')
+
+    screen.toggleFolds()
+    expect(painted(flush(sink)).get(4) ?? '').toBe('')
+  })
+
+  it('keeps a manually expanded prompt non-sticky across moving on until manually folded again', () => {
+    const sink = host(7, 40)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['status'], { row: 0, column: 0 }, false)
+    screen.appendPrompt(['› first', ''], '| ')
+    screen.append(['old 1', 'old 2', 'old 3'])
+    screen.appendPrompt(['› second a', '  second b', '  second c', '  second d', ''], '| ')
+    screen.toggleFolds()
+    screen.append(['new 1', 'new 2', 'new 3', 'new 4', 'new 5', 'new 6'])
+    flush(sink)
+
+    screen.resize()
+    const expanded = painted(flush(sink))
+    expect(expanded.get(1)).toBe('new 1')
+
+    screen.collapseFolds()
+    expect(flush(sink)).toBe('')
+    screen.resize()
+    const stillExpanded = painted(flush(sink))
+    expect(stillExpanded.get(1)).toBe('new 1')
+
+    screen.toggleFolds()
+    const collapsed = painted(flush(sink))
+    expect(collapsed.get(1)).toBe('| › second a')
+  })
+
+  it('keeps later prompt positions aligned when an earlier prompt fold changes size', () => {
+    const sink = host(7, 40)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['status'], { row: 0, column: 0 }, false)
+    screen.appendPrompt(['› first a', '  first b', '  first c', '  first d', ''], '| ')
+    screen.append(['old answer'])
+    screen.appendPrompt(['› second', ''], '| ')
+    screen.append(['new 1', 'new 2', 'new 3', 'new 4', 'new 5', 'new 6'])
+    screen.toggleFolds()
+    flush(sink)
+
+    screen.resize()
+    const rows = painted(flush(sink))
+    expect(rows.get(1)).toBe('| › second')
+  })
+
+  it('forgets sticky prompt descriptors when the transcript is cleared', () => {
+    const sink = host(6, 40)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['status'], { row: 0, column: 0 }, false)
+    screen.appendPrompt(['› old prompt', ''], '| ')
+    screen.clearTranscript()
+    expect(screen.turnList).toEqual([])
+    screen.append(['fresh 1', 'fresh 2', 'fresh 3', 'fresh 4', 'fresh 5', 'fresh 6'])
+    flush(sink)
+
+    screen.resize()
+    const rows = painted(flush(sink))
+    expect([rows.get(1), rows.get(2), rows.get(3), rows.get(4), rows.get(5)]).toEqual([
+      'fresh 2',
+      'fresh 3',
+      'fresh 4',
+      'fresh 5',
+      'fresh 6',
+    ])
+  })
+
+  it('keeps a retained prompt linked to its fold after scrollback trimming', () => {
+    const sink = host(6, 40)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['status'], { row: 0, column: 0 }, false)
+    screen.append(Array.from({ length: 4990 }, (_, index) => `old ${index}`))
+    screen.appendPrompt(['› retained a', '  retained b', '  retained c', '  retained d', ''], '| ', true, 4)
+    screen.append(Array.from({ length: 20 }, (_, index) => `tail ${index}`))
+    screen.toggleFolds()
+    flush(sink)
+    // Trigger another trim after the explicit expansion; moving on and search
+    // must still see the retained prompt's full form.
+    screen.append(Array.from({ length: 10 }, (_, index) => `after ${index}`))
+    screen.collapseFolds()
+    expect(screen.searchTranscript('retained d').hits).toBe(1)
+
+    screen.resize()
+    const frame = flush(sink)
+    expect(screen.turnList).toEqual([{ index: 0, summary: '› retained a retained b retained c retained d' }])
+    expect(frame).toContain('\u001B[7mretained d\u001B[27m')
+  })
+
+  it('cancels a sticky click when scrollback trimming removes its prompt', () => {
+    const sink = host(6, 40)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['status'], { row: 0, column: 0 }, false)
+    screen.appendPrompt(['› old a', '  old b', '  old c', '  old d', ''], '| ')
+    screen.append(Array.from({ length: 10 }, (_, index) => `old answer ${index}`))
+    flush(sink)
+
+    screen.mouseDown(1, 5)
+    screen.append(Array.from({ length: 5001 }, (_, index) => `tail ${index}`))
+    expect(screen.mouseUp()).toBeUndefined()
+    screen.resize()
+    expect([...painted(flush(sink)).values()].join('\n')).toContain('tail 5000')
+  })
+
+  it('switches the sticky header as scrolling crosses a turn boundary', () => {
+    const sink = host(7, 40)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['status'], { row: 0, column: 0 }, false)
+    screen.appendPrompt(['› first', ''], '| ')
+    screen.append(['old 1', 'old 2', 'old 3', 'old 4'])
+    screen.appendPrompt(['› second', ''], '| ')
+    screen.append(['new 1', 'new 2', 'new 3', 'new 4', 'new 5', 'new 6'])
+    flush(sink)
+
+    screen.resize()
+    expect(painted(flush(sink)).get(1)).toBe('| › second')
+
+    screen.scrollBy(-5)
+    expect(painted(flush(sink)).get(1)).toBe('| › first')
+
+    screen.scrollBy(5)
+    expect(painted(flush(sink)).get(1)).toBe('| › second')
+  })
+
+  it('puts the scrollback notice under what is being read, not over it', () => {
+    const sink = host(6, 50)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['status'], { row: 0, column: 0 }, false)
+    screen.appendPrompt(['› question', ''], '| ')
+    screen.append(Array.from({ length: 12 }, (_, index) => `answer ${index}`))
+    screen.scrollBy(-2)
+    screen.setScrollNotice('↑ 2 rows above · click or PgDn returns to the latest')
+
+    const rows = painted(flush(sink))
+    // The sticky header keeps row one and its gap stays empty; the notice sits
+    // at the foot of the viewport, where the way out is.
+    expect(rows.get(1)).toBe('| › question')
+    expect(rows.get(2)).toBe('')
+    expect(rows.get(5)).toContain('↑ 2 rows above')
+  })
+
+  it('returns to the latest when the notice row is clicked', () => {
+    const sink = host(6, 50)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['status'], { row: 0, column: 0 }, false)
+    screen.appendPrompt(['› question', ''], '| ')
+    screen.append(Array.from({ length: 12 }, (_, index) => `answer ${index}`))
+    screen.scrollBy(-3)
+    screen.setScrollNotice('↑ 3 rows above · click or PgDn returns to the latest')
+    flush(sink)
+
+    screen.mouseDown(5, 4)
+    expect(screen.mouseUp()).toBeUndefined()
+    expect(screen.scrolledBy).toBe(0)
+    // Home again, the row goes back to being transcript.
+    expect([...painted(flush(sink)).values()].join('\n')).not.toContain('rows above')
+  })
+
+  it('leaves the reader where they were when a drag starts on the notice', () => {
+    const sink = host(6, 50)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['status'], { row: 0, column: 0 }, false)
+    screen.appendPrompt(['› question', ''], '| ')
+    screen.append(Array.from({ length: 12 }, (_, index) => `answer ${index}`))
+    screen.scrollBy(-3)
+    screen.setScrollNotice('↑ 3 rows above · click or PgDn returns to the latest')
+    flush(sink)
+
+    screen.mouseDown(5, 4)
+    screen.mouseDrag(4, 4)
+    expect(screen.mouseUp()).toBeUndefined()
+    expect(screen.scrolledBy).toBe(3)
+  })
+
+  it('recomputes the three-row prompt fold when a resize changes wrapping', () => {
+    const sink = host(8, 60)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['status'], { row: 0, column: 0 }, false)
+    screen.appendPrompt(['› one two three four five six seven eight nine ten eleven twelve', ''], '| ')
+    expect(screen.hasFolds).toBe(false)
+
+    sink.size.columns = 15
+    screen.resize()
+    expect(screen.hasFolds).toBe(true)
+    const narrow = flush(sink)
+    expect(narrow).toContain('…')
+
+    sink.size.columns = 80
+    screen.resize()
+    expect(screen.hasFolds).toBe(false)
+  })
+
+  it('restores full prompt text when an equal-length summary fold disappears', () => {
+    const sink = host(8, 15)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['status'], { row: 0, column: 0 }, false)
+    screen.appendPrompt([
+      '› first long line',
+      '  second logical line',
+      '  third logical line',
+      '',
+    ], '| ', false)
+    expect(screen.hasFolds).toBe(true)
+    expect(flush(sink)).toContain('…')
+
+    sink.size.columns = 80
+    screen.resize()
+    const frame = flush(sink)
+    expect(screen.hasFolds).toBe(false)
+    expect(frame).toContain('second logical line')
+    expect(frame).toContain('third logical line')
+    expect(frame).not.toContain('…')
+  })
+
+  it('keeps the same response line at the content top across a scrolled resize', () => {
+    const sink = host(6, 40)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['status'], { row: 0, column: 0 }, false)
+    screen.appendPrompt(['› question', ''], '| ')
+    screen.append(Array.from({ length: 20 }, (_, index) => `answer ${index} xxxxxxxxxxxxxxxxxxxx`))
+    screen.scrollBy(-8)
+    flush(sink)
+
+    screen.resize()
+    const before = painted(flush(sink))
+    const anchored = before.get(3)
+    expect(anchored).toContain('answer 9')
+
+    sink.size.columns = 20
+    screen.resize()
+    const after = painted(flush(sink))
+    expect(after.get(3)).toContain('answer 9')
+  })
+
+  it('keeps the same response line when a prompt fold above it disappears on resize', () => {
+    const sink = host(6, 15)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['status'], { row: 0, column: 0 }, false)
+    screen.appendPrompt(['› one two three four five six seven eight nine ten eleven twelve', ''], '| ', false)
+    screen.append(Array.from({ length: 20 }, (_, index) => `tail${index + 1}`))
+    screen.scrollBy(-4)
+    const before = [...painted(flush(sink)).values()].find(row => row.includes('tail'))
+    expect(before).toBeDefined()
+
+    sink.size.columns = 80
+    screen.resize()
+    const after = [...painted(flush(sink)).values()].find(row => row.includes('tail'))
+    expect(after).toBe(before)
+  })
+
+  it('opens a folded prompt from its sticky copy and reveals the original', () => {
+    const sink = host(8, 40)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['status'], { row: 0, column: 0 }, false)
+    screen.appendPrompt(['› first a', '  first b', '  first c', '  first d', ''], '| ')
+    screen.append(Array.from({ length: 10 }, (_, index) => `answer ${index}`))
+    flush(sink)
+
+    screen.mouseDown(1, 6)
+    screen.mouseUp()
+    const rows = painted(flush(sink))
+    expect([...rows.values()].some(row => row.includes('first d'))).toBe(true)
+  })
+
+  it('does not turn a drag over the sticky copy into clipboard text', () => {
+    const sink = host(6, 40)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['status'], { row: 0, column: 0 }, false)
+    screen.appendPrompt(['› question', ''], '| ')
+    screen.append(Array.from({ length: 12 }, (_, index) => `answer ${index}`))
+    flush(sink)
+
+    screen.mouseDown(1, 5)
+    screen.mouseDrag(1, 12)
+    expect(screen.mouseUp()).toBeUndefined()
+  })
+
+  it('detaches from the tail and comes back', () => {
+    const sink = host(4, 20)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['status'], { row: 0, column: 0 }, false)
+    screen.append(['one', 'two', 'three', 'four', 'five'])
+    flush(sink)
+
+    screen.scrollBy(-2)
+    expect(screen.scrolledBy).toBe(2)
+    const back = painted(flush(sink))
+    expect([back.get(1), back.get(2), back.get(3)]).toEqual(['one', 'two', 'three'])
+
+    screen.scrollToBottom()
+    expect(screen.scrolledBy).toBe(0)
+    const tail = painted(flush(sink))
+    expect([tail.get(1), tail.get(2), tail.get(3)]).toEqual(['three', 'four', 'five'])
+  })
+
+  it('cannot scroll past either end', () => {
+    const sink = host(4, 20)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['status'], { row: 0, column: 0 }, false)
+    screen.append(['one', 'two', 'three', 'four', 'five'])
+    screen.scrollBy(-100)
+    // Five lines in a three-row viewport: two rows can be hidden, no more.
+    expect(screen.scrolledBy).toBe(2)
+    screen.scrollBy(100)
+    expect(screen.scrolledBy).toBe(0)
+  })
+
+  it('keeps a scrolled reader in place as new lines arrive', () => {
+    const sink = host(4, 20)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['status'], { row: 0, column: 0 }, false)
+    screen.append(['one', 'two', 'three', 'four', 'five'])
+    screen.scrollBy(-2)
+    flush(sink)
+    screen.append(['six'])
+    // The same logical rows stay put while the tail grows below the reader.
+    expect(screen.scrolledBy).toBe(3)
+    expect(painted(flush(sink)).size).toBe(0)
+  })
+})
+
+describe('resize', () => {
+  it('re-wraps at the new width and repaints in full', () => {
+    const sink = host(5, 12)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['status'], { row: 0, column: 0 }, false)
+    screen.append(['abcdefghijklmnop'])
+    flush(sink)
+
+    sink.size.columns = 6
+    screen.resize()
+    const rows = painted(flush(sink))
+    // Three content columns now: the sixteen characters take six rows, and the
+    // viewport shows the last four, with the chrome still on the last row.
+    expect([rows.get(1), rows.get(2), rows.get(3), rows.get(4)]).toEqual(['ghi', 'jkl', 'mno', 'p'])
+    expect(rows.get(5)).toBe('status')
+  })
+
+  it('clamps a scrolled position that a taller screen makes impossible', () => {
+    const sink = host(4, 20)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['status'], { row: 0, column: 0 }, false)
+    screen.append(['one', 'two', 'three', 'four', 'five'])
+    screen.scrollBy(-2)
+    sink.size.rows = 20
+    screen.resize()
+    expect(screen.scrolledBy).toBe(0)
+  })
+})
+
+describe('conversation timeline', () => {
+  it('paints ticks in the reserved right column without changing wrapped content', () => {
+    const sink = host(8, 40)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['box', 'status'], { row: 0, column: 0 }, false)
+    screen.appendPrompt(['› first', ''], '| ', false)
+    screen.append(['answer'])
+    screen.appendPrompt(['› second', ''], '| ', false)
+    screen.append(['answer'])
+    flush(sink)
+
+    screen.resize()
+    const frame = flush(sink)
+    expect(cell(frame, 1, 40)).toBe('↑')
+    expect(cell(frame, 2, 40)).toBe('·')
+    expect(cell(frame, 3, 40)).toBe('●')
+    expect(cell(frame, 4, 40)).toBe('↓')
+    expect(painted(frame).get(1)).toBe('| › first')
+  })
+
+  it('follows turn ownership and hides beneath a selector layer', () => {
+    const sink = host(7, 40)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['status'], { row: 0, column: 0 }, false)
+    screen.appendPrompt(['› first', ''], '| ', false)
+    screen.append(Array.from({ length: 8 }, (_, index) => `first ${index}`))
+    screen.appendPrompt(['› second', ''], '| ', false)
+    screen.append(Array.from({ length: 8 }, (_, index) => `second ${index}`))
+    screen.jumpToTurn(0)
+    flush(sink)
+
+    screen.resize()
+    let frame = flush(sink)
+    expect(cell(frame, 1, 40)).toBe('↑')
+    expect(cell(frame, 2, 40)).toBe('●')
+    expect(cell(frame, 3, 40)).toBe('·')
+    expect(cell(frame, 4, 40)).toBe('↓')
+
+    screen.setTimelineHidden(true)
+    frame = flush(sink)
+    expect(cell(frame, 1, 40)).toBe(' ')
+    expect(cell(frame, 2, 40)).toBe(' ')
+    expect(cell(frame, 3, 40)).toBe(' ')
+    expect(cell(frame, 4, 40)).toBe(' ')
+  })
+
+  it('shows a two-line prompt preview and clicks a tick without selecting transcript text', () => {
+    const sink = host(8, 40)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['box', 'status'], { row: 0, column: 0 }, false)
+    screen.appendPrompt(['› first prompt has enough words to wrap into a second preview line', ''], '| ', false)
+    screen.append(Array.from({ length: 8 }, (_, index) => `first ${index}`))
+    screen.appendPrompt(['› second prompt', ''], '| ', false)
+    screen.append(Array.from({ length: 8 }, (_, index) => `second ${index}`))
+    flush(sink)
+
+    screen.mouseMove(2, 40)
+    const hovered = flush(sink).replaceAll(/\u001B\[[0-9;?]*[A-Za-z]/gu, '')
+    expect(hovered).toContain('first prompt has enough')
+    expect(hovered).toContain('second preview l…')
+    screen.setTimelineHidden(true)
+    expect(painted(flush(sink)).get(1)).toContain('second prompt')
+    screen.setTimelineHidden(false)
+    flush(sink)
+    screen.mouseMove(2, 40)
+    flush(sink)
+    screen.mouseDown(2, 40)
+    expect(screen.mouseUp()).toBeUndefined()
+    expect(screen.currentTurn).toBe(0)
+  })
+
+  it('remaps retained ticks after scrollback trimming and terminal resize', () => {
+    const sink = host(8, 40)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['box', 'status'], { row: 0, column: 0 }, false)
+    screen.appendPrompt(['› dropped first', ''], '| ', false)
+    screen.append(['answer'])
+    screen.appendPrompt(['› dropped second', ''], '| ', false)
+    screen.append(['answer'])
+    screen.mouseMove(1, 40)
+    screen.mouseDown(1, 40)
+    screen.append(Array.from({ length: 5000 }, (_, index) => `old ${index}`))
+    screen.appendPrompt(['› retained first', ''], '| ', false)
+    screen.append(['answer'])
+    screen.appendPrompt(['› retained second', ''], '| ', false)
+    screen.append(['answer'])
+    flush(sink)
+
+    sink.size.columns = 50
+    screen.resize()
+    const frame = flush(sink)
+    expect(screen.turnList.map(turn => turn.summary)).toEqual(['› retained first', '› retained second'])
+    expect(screen.mouseUp()).toBeUndefined()
+    expect(screen.currentTurn).toBe(1)
+    expect(cell(frame, 1, 50)).toBe('↑')
+    expect(cell(frame, 2, 50)).toBe('·')
+    expect(cell(frame, 3, 50)).toBe('●')
+    expect(cell(frame, 4, 50)).toBe('↓')
+  })
+
+  it('clicks enabled arrows and leaves disabled end stops inert', () => {
+    const sink = host(8, 40)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['status'], { row: 0, column: 0 }, false)
+    screen.appendPrompt(['› first', ''], '| ', false)
+    screen.append(Array.from({ length: 8 }, (_, index) => `first ${index}`))
+    screen.appendPrompt(['› second', ''], '| ', false)
+    screen.append(Array.from({ length: 8 }, (_, index) => `second ${index}`))
+    screen.appendPrompt(['› third', ''], '| ', false)
+    screen.append(Array.from({ length: 8 }, (_, index) => `third ${index}`))
+    flush(sink)
+
+    screen.mouseDown(7, 40)
+    screen.mouseDrag(6, 5)
+    expect(screen.mouseUp()).toBeUndefined()
+    screen.mouseDown(1, 40)
+    expect(screen.mouseUp()).toBeUndefined()
+    expect(screen.currentTurn).toBe(2)
+    screen.scrollBy(-3)
+    const before = screen.scrolledBy
+    screen.mouseDown(5, 40)
+    expect(screen.mouseUp()).toBeUndefined()
+    expect(screen.scrolledBy).not.toBe(before)
+    expect(screen.currentTurn).toBeGreaterThanOrEqual(1)
+
+    screen.scrollBy(-100)
+    flush(sink)
+    const atFirst = screen.scrolledBy
+    screen.mouseDown(1, 40)
+    expect(screen.mouseUp()).toBeUndefined()
+    expect(screen.scrolledBy).toBe(atFirst)
+  })
+
+  it('keeps the upper arrow disabled when every retained prompt is already visible', () => {
+    const sink = host(12, 40)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['status'], { row: 0, column: 0 }, false)
+    screen.appendPrompt(['› first', ''], '| ', false)
+    screen.append(['answer'])
+    screen.appendPrompt(['› second', ''], '| ', false)
+    screen.append(['answer'])
+    screen.appendPrompt(['› third', ''], '| ', false)
+    screen.append(['answer'])
+    flush(sink)
+
+    screen.mouseMove(1, 40)
+    const hovered = flush(sink)
+    expect(hovered).toContain('\u001B[1;40H\u001B[2m↑\u001B[0m')
+    expect(hovered).not.toContain('\u001B[1;40H\u001B[1m↑')
+
+    screen.mouseDown(7, 3)
+    screen.mouseDrag(7, 8)
+    expect(screen.mouseUp()).toBeDefined()
+    screen.mouseDown(1, 40)
+    screen.mouseDrag(2, 8)
+    expect(screen.mouseUp()).toBeUndefined()
+    screen.mouseDown(8, 40)
+    expect(screen.mouseUp()).toBeUndefined()
+  })
+
+  it('rebuilds a newly appended prompt layout while the reader stays in history', () => {
+    const sink = host(8, 40)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['status'], { row: 0, column: 0 }, false)
+    screen.appendPrompt(['› first', ''], '| ', false)
+    screen.append(Array.from({ length: 12 }, (_, index) => `first ${index}`))
+    screen.scrollBy(-4)
+    flush(sink)
+
+    screen.appendPrompt(['› second while browsing', ''], '| ', false)
+    screen.append(['second answer'])
+
+    const internals = screen as unknown as { promptLayoutCache?: { rows: string[] }[] }
+    expect(internals.promptLayoutCache?.[1]?.rows.length).toBeGreaterThan(0)
+    expect(internals.promptLayoutCache?.[1]?.rows.join('\n')).toContain('› second while browsing')
+    expect(screen.scrolledBy).toBeGreaterThan(0)
+    expect(screen.jumpToTurn(1)).toBe(true)
+    expect(screen.currentTurn).toBe(1)
+  })
+
+  it('retains rail gesture ownership when frame geometry changes before release', () => {
+    const sink = host(8, 40)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['status'], { row: 0, column: 0 }, false)
+    screen.appendPrompt(['› first', ''], '| ', false)
+    screen.append(Array.from({ length: 8 }, (_, index) => `first ${index}`))
+    screen.appendPrompt(['› second', ''], '| ', false)
+    screen.append(Array.from({ length: 8 }, (_, index) => `second ${index}`))
+    screen.appendPrompt(['› third', ''], '| ', false)
+    screen.append(Array.from({ length: 8 }, (_, index) => `third ${index}`))
+    flush(sink)
+
+    screen.mouseDown(3, 3)
+    screen.mouseDrag(3, 8)
+    expect(screen.mouseUp()).toBeDefined()
+
+    screen.mouseDown(2, 40)
+    screen.append(['streamed geometry change'])
+    expect(screen.mouseUp()).toBeUndefined()
+
+    screen.mouseDown(2, 40)
+    screen.scrollBy(-2)
+    expect(screen.mouseUp()).toBeUndefined()
+
+    screen.mouseDown(2, 40)
+    sink.size.columns = 50
+    screen.resize()
+    expect(screen.mouseUp()).toBeUndefined()
+
+    screen.mouseDown(2, 50)
+    screen.searchTranscript('second 0')
+    const searchOffset = screen.scrolledBy
+    expect(screen.mouseUp()).toBeUndefined()
+    expect(screen.scrolledBy).toBe(searchOffset)
+
+    screen.scrollToBottom()
+    screen.mouseDown(2, 50)
+    screen.setViewer(['viewer'])
+    expect(screen.mouseUp()).toBeUndefined()
+    screen.setViewer(undefined)
+    expect(screen.currentTurn).toBe(2)
+  })
+
+  it('previews only explicit user lines, preserving newlines and ellipsizing overflow', () => {
+    const sink = host(9, 50)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['status'], { row: 0, column: 0 }, false)
+    screen.appendPrompt([
+      '› 你好',
+      '  介绍下你自己',
+      '  还有第三行',
+      '  [image #1 · sent to the model]',
+      '',
+    ], '| ', false, 3)
+    screen.append(Array.from({ length: 8 }, (_, index) => `first ${index}`))
+    screen.appendPrompt(['› second', ''], '| ', false)
+    screen.append(Array.from({ length: 8 }, (_, index) => `second ${index}`))
+    flush(sink)
+
+    screen.mouseMove(2, 50)
+    const hovered = flush(sink).replaceAll(/\u001B\[[0-9;?]*[A-Za-z]/gu, '')
+    expect(hovered).toContain('› 你好')
+    expect(hovered).toContain('介绍下你自己 …')
+    expect(hovered).not.toContain('还有第三行')
+    expect(hovered).not.toContain('[image #1')
+    expect(screen.turnList[0]?.summary).toBe('› 你好 介绍下你自己 还有第三行')
+  })
+
+  it('re-resolves hover after resize and invalidates cached prompt geometry', () => {
+    const sink = host(8, 40)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['status'], { row: 0, column: 0 }, false)
+    screen.appendPrompt(['› first preview', ''], '| ', false)
+    screen.append(Array.from({ length: 8 }, (_, index) => `first ${index}`))
+    screen.appendPrompt(['› second preview', ''], '| ', false)
+    screen.append(Array.from({ length: 8 }, (_, index) => `second ${index}`))
+    flush(sink)
+
+    const internals = screen as unknown as { promptLayoutCache?: unknown[] }
+    const cached = internals.promptLayoutCache
+    screen.mouseMove(2, 40)
+    expect(flush(sink)).toContain('first preview')
+    expect(internals.promptLayoutCache).toBe(cached)
+
+    screen.mouseDown(2, 40)
+    sink.size.columns = 50
+    screen.resize()
+    const resized = flush(sink)
+    expect(resized).not.toContain('first preview')
+    expect(internals.promptLayoutCache).not.toBe(cached)
+    expect(screen.mouseUp()).toBeUndefined()
+    expect(screen.currentTurn).toBe(1)
+  })
+})
+
+describe('folds', () => {
+  it('preserves explicit choices while moving on collapses only automatic folds', () => {
+    const sink = host(14, 40)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['status'], { row: 0, column: 0 }, false)
+    screen.appendFold(['manual summary', ''], ['manual full a', 'manual full b', ''])
+    screen.mouseDown(1, 2)
+    screen.mouseUp()
+    screen.append(['fresh a', 'fresh b', 'fresh c'])
+    screen.foldBack(3, ['fresh summary'])
+    flush(sink)
+
+    screen.collapseFolds()
+    const text = [...painted(flush(sink)).values()].join('\n')
+    expect(text).toContain('manual full b')
+    expect(text).not.toContain('manual summary')
+    expect(text).toContain('fresh summary')
+    expect(text).not.toContain('fresh c')
+  })
+
+  it('does not inherit a Ctrl+O choice into folds created later', () => {
+    const sink = host(12, 40)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['status'], { row: 0, column: 0 }, false)
+    screen.appendFold(['first summary'], ['first full'])
+    screen.toggleFolds()
+    screen.appendFold(['later summary'], ['later full'])
+    const text = [...painted(flush(sink)).values()].join('\n')
+    expect(text).toContain('first full')
+    expect(text).toContain('later summary')
+    expect(text).not.toContain('later full')
+  })
+
+  it('keeps an explicit prompt choice when resize removes and recreates its fold', () => {
+    const sink = host(12, 18)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['status'], { row: 0, column: 0 }, false)
+    screen.appendPrompt(['› one two three four five six seven eight nine ten', ''], '| ', false)
+    screen.toggleFolds()
+    flush(sink)
+
+    sink.size.columns = 120
+    screen.resize()
+    flush(sink)
+    sink.size.columns = 18
+    screen.resize()
+    const text = [...painted(flush(sink)).values()].join('\n')
+    expect(text).toContain('nine ten')
+    expect(text).not.toContain('…')
+  })
+
+  it('shows the summary, swaps to the full form, and back', () => {
+    const sink = host(8, 40)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['status'], { row: 0, column: 0 }, false)
+    screen.append(['before'])
+    screen.appendFold(['summary (Ctrl+O expands)'], ['line 1', 'line 2', 'line 3'])
+    screen.append(['after'])
+    flush(sink)
+
+    expect(screen.hasFolds).toBe(true)
+    expect(screen.toggleFolds()).toBe(true)
+    let rows = painted(flush(sink))
+    const shown = [...rows.values()].join('\n')
+    expect(shown).toContain('line 3')
+    expect(shown).not.toContain('summary')
+
+    screen.toggleFolds()
+    rows = painted(flush(sink))
+    const collapsed = [...rows.values()].join('\n')
+    expect(collapsed).toContain('summary (Ctrl+O expands)')
+    expect(collapsed).not.toContain('line 2')
+  })
+
+  it('toggles every fold, and later content keeps its place', () => {
+    const sink = host(12, 40)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['status'], { row: 0, column: 0 }, false)
+    screen.appendFold(['first summary'], ['first full a', 'first full b'])
+    screen.append(['between'])
+    screen.appendFold(['second summary'], ['second full'])
+    flush(sink)
+    screen.toggleFolds()
+    const text = [...painted(flush(sink)).values()].join('\n')
+    // Both folds expanded; the plain line between them stays between them.
+    expect(text.indexOf('first full b')).toBeLessThan(text.indexOf('between'))
+    expect(text.indexOf('between')).toBeLessThan(text.indexOf('second full'))
+    // Toggling back restores both summaries.
+    screen.toggleFolds()
+    const back = [...painted(flush(sink)).values()].join('\n')
+    expect(back).toContain('first summary')
+    expect(back).toContain('second summary')
+  })
+
+  it('folds back a finished block: expanded now, summary once moved on', () => {
+    const sink = host(10, 40)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['status'], { row: 0, column: 0 }, false)
+    screen.append(['answer 1', 'answer 2', 'answer 3', 'answer 4', ''])
+    const fresh = [...painted(flush(sink)).values()].join('\n')
+    screen.foldBack(5, ['answer 1', '(more)', ''])
+
+    // Nothing changed visually: the block streamed in the open and stays.
+    expect(screen.hasFolds).toBe(true)
+    expect(fresh).toContain('answer 4')
+    expect(flush(sink)).toBe('')
+
+    // Moving on collapses it because its fresh expanded state is automatic.
+    screen.collapseFolds()
+    const collapsed = [...painted(flush(sink)).values()].join('\n')
+    expect(collapsed).toContain('(more)')
+    expect(collapsed).not.toContain('answer 4')
+
+    // Ctrl+O brings the full text back, and again away.
+    expect(screen.toggleFolds()).toBe(true)
+    expect([...painted(flush(sink)).values()].join('\n')).toContain('answer 4')
+    screen.toggleFolds()
+    expect([...painted(flush(sink)).values()].join('\n')).toContain('(more)')
+  })
+
+  it('keeps positions right with folds in mixed states', () => {
+    const sink = host(14, 40)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['status'], { row: 0, column: 0 }, false)
+    // A collapsed fold (thinking), a plain line, then a fresh expanded block.
+    screen.appendFold(['thought summary'], ['thought a', 'thought b', 'thought c'])
+    screen.append(['between'])
+    screen.append(['long a', 'long b', 'long c'])
+    screen.foldBack(3, ['long head', '(rest)'])
+    flush(sink)
+
+    // One Ctrl+O expands the collapsed one; the fresh one already shows full.
+    screen.toggleFolds()
+    const text = [...painted(flush(sink)).values()].join('\n')
+    expect(text.indexOf('thought c')).toBeLessThan(text.indexOf('between'))
+    expect(text.indexOf('between')).toBeLessThan(text.indexOf('long a'))
+    expect(text).toContain('long c')
+
+    // A second explicit toggle collapses both; order still holds and both summaries show.
+    screen.toggleFolds()
+    const back = [...painted(flush(sink)).values()].join('\n')
+    expect(back.indexOf('thought summary')).toBeLessThan(back.indexOf('between'))
+    expect(back.indexOf('between')).toBeLessThan(back.indexOf('long head'))
+    expect(back).toContain('(rest)')
+    expect(back).not.toContain('long c')
+  })
+
+  it('refuses a fold back that would overlap an existing fold', () => {
+    const sink = host(10, 40)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.appendFold(['s'], ['f1', 'f2'])
+    screen.append(['tail'])
+    // Claims two lines but the first belongs to the fold above: refused.
+    screen.foldBack(2, ['bad'])
+    screen.collapseFolds()
+    flush(sink)
+    expect(screen.toggleFolds()).toBe(true)
+    // Only the original fold toggles; 'bad' never entered the transcript.
+    const text = [...painted(flush(sink)).values()].join('\n')
+    expect(text).toContain('f2')
+    expect(text).not.toContain('bad')
+  })
+
+  it('opens the block a click lands on, and leaves its neighbours folded', () => {
+    const sink = host(12, 40)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['status'], { row: 0, column: 0 }, false)
+    screen.appendFold(['first summary', ''], ['first full a', 'first full b', ''])
+    screen.appendFold(['second summary', ''], ['second full a', 'second full b', ''])
+    flush(sink)
+
+    // Row 1 holds the first summary; pressing and releasing without moving is
+    // a click, and a click works that one block.
+    screen.mouseDown(1, 3)
+    expect(screen.mouseUp()).toBeUndefined()
+    const text = [...painted(flush(sink)).values()].join('\n')
+    expect(text).toContain('first full b')
+    expect(text).not.toContain('first summary')
+    // The block below it was not asked for and did not open.
+    expect(text).toContain('second summary')
+    expect(text).not.toContain('second full a')
+  })
+
+  it('enters a subagent block on click instead of expanding it', () => {
+    const entered: string[] = []
+    const sink = host(10, 40)
+    const screen = new Screen(sink)
+    screen.setEnter((id) => { entered.push(id) })
+    screen.enter()
+    screen.setChrome(['status'], { row: 0, column: 0 }, false)
+    screen.appendFold(['started subagent child-9', '  click to enter', ''], ['started subagent child-9', '  click to enter', ''], '', 'subagent', 'child-9')
+    flush(sink)
+
+    expect(screen.mouseMove(1, 3)).toEqual({ label: 'subagent', lines: 3, expanded: false, enter: true })
+    flush(sink)
+    screen.mouseDown(1, 3)
+    expect(screen.mouseUp()).toBeUndefined()
+    expect(entered).toEqual(['child-9'])
+    // Entering is not folding: nothing on screen swapped.
+    expect(flush(sink)).toBe('')
+  })
+
+  it('reads a long block on click, and still expands it with Ctrl+O', () => {
+    const read: string[] = []
+    const sink = host(10, 40)
+    const screen = new Screen(sink)
+    screen.setPager((text) => { read.push(text) })
+    screen.enter()
+    screen.setChrome(['status'], { row: 0, column: 0 }, false)
+    screen.appendFold(
+      ['● Edit', '  … +40 lines (click reads it · Ctrl+O expands)', ''],
+      ['● Edit', '- was', '+ is', ''],
+      '',
+      'diff',
+      undefined,
+      '--- a/a.ts\n-was\n+is',
+    )
+    flush(sink)
+
+    screen.mouseDown(1, 2)
+    expect(screen.mouseUp()).toBeUndefined()
+    expect(read).toEqual(['--- a/a.ts\n-was\n+is'])
+    // Reading is not folding: the transcript under the reader did not move.
+    expect(flush(sink)).toBe('')
+
+    // Expand-everything still means everything, in place.
+    expect(screen.toggleFolds()).toBe(true)
+    expect([...painted(flush(sink)).values()].join('\n')).toContain('+ is')
+    expect(read).toHaveLength(1)
+  })
+
+  it('folds an open block back from anywhere inside it', () => {
+    const sink = host(12, 40)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['status'], { row: 0, column: 0 }, false)
+    screen.append(['above'])
+    screen.appendFold(['summary', ''], ['head', 'body', 'tail', ''])
+    screen.toggleFolds()
+    flush(sink)
+
+    // Row 4 is the middle of the open block, not its head row: a block whose
+    // head has scrolled off the top would otherwise have nothing to click.
+    screen.mouseDown(4, 2)
+    expect(screen.mouseUp()).toBeUndefined()
+    const text = [...painted(flush(sink)).values()].join('\n')
+    expect(text).toContain('summary')
+    expect(text).not.toContain('tail')
+  })
+
+  it('leaves a block alone when the click was a drag over it', () => {
+    const sink = host(12, 40)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['status'], { row: 0, column: 0 }, false)
+    screen.append(['above'])
+    screen.appendFold(['summary', ''], ['head', 'body', 'tail', ''])
+    screen.toggleFolds()
+    flush(sink)
+
+    // Selecting inside a block is a drag, and a drag hands over its text
+    // instead of collapsing what was just read.
+    screen.mouseDown(2, 3)
+    screen.mouseDrag(3, 6)
+    expect(screen.mouseUp()).toBe('head\nbody')
+    const text = [...painted(flush(sink)).values()].join('\n')
+    expect(text).not.toContain('summary')
+  })
+
+  it('still copies a drag that starts on a collapsed block', () => {
+    const sink = host(12, 40)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['status'], { row: 0, column: 0 }, false)
+    screen.appendFold(['summary line', ''], ['full a', 'full b', ''])
+    flush(sink)
+
+    screen.mouseDown(1, 3)
+    screen.mouseDrag(1, 9)
+    expect(screen.mouseUp()).toBe('summary')
+    // A drag is a selection, not a click: the block stayed shut.
+    expect(flush(sink)).not.toContain('full b')
+  })
+
+  it('keeps a scrolled reader in place when a block above the tail opens', () => {
+    const sink = host(6, 40)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['status'], { row: 0, column: 0 }, false)
+    screen.append(['head 1', 'head 2'])
+    screen.appendFold(['summary', ''], ['full a', 'full b', 'full c', ''])
+    screen.append(['tail 1', 'tail 2', 'tail 3', 'tail 4', 'tail 5'])
+    // Scrolled all the way back: the two head lines, then the summary.
+    screen.scrollBy(-9)
+    flush(sink)
+
+    screen.mouseDown(3, 1)
+    screen.mouseUp()
+    const open = painted(flush(sink))
+    // The rows above the block did not move; the block grew where it stood.
+    expect(open.get(1)).toContain('head 1')
+    expect(open.get(2)).toContain('head 2')
+    expect(open.get(3)).toContain('full a')
+
+    // And folding it back puts the reader exactly where they started.
+    screen.mouseDown(3, 1)
+    screen.mouseUp()
+    const shut = painted(flush(sink))
+    expect(shut.get(1)).toContain('head 1')
+    expect(shut.get(3)).toContain('summary')
+    expect(shut.get(5)).toContain('tail 1')
+  })
+
+  it('keeps the same logical top row when Ctrl+O expands near the tail', () => {
+    const sink = host(6, 40)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['status'], { row: 0, column: 0 }, false)
+    screen.append(['head 1', 'head 2'])
+    screen.appendFold(['summary', ''], ['full a', 'full b', 'full c', ''])
+    screen.append(['tail 1', 'tail 2', 'tail 3', 'tail 4', 'tail 5'])
+    screen.scrollBy(-3)
+    const before = painted(flush(sink))
+    expect(before.get(1)).toContain('head 2')
+
+    screen.toggleFolds()
+    const open = painted(flush(sink))
+    expect(open.get(1)).toContain('head 2')
+    expect(open.get(2)).toContain('full a')
+  })
+
+  it('keeps the same logical top row when Ctrl+O expands a fold above the viewport', () => {
+    const sink = host(6, 40)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['status'], { row: 0, column: 0 }, false)
+    screen.appendFold(['summary'], ['full a', 'full b', 'full c', 'full d'])
+    screen.append(Array.from({ length: 20 }, (_, index) => `tail${index + 1}`))
+    screen.scrollBy(-6)
+    expect(painted(flush(sink)).get(1)).toBe('tail10')
+
+    screen.toggleFolds()
+    expect(painted(flush(sink)).get(1)).toBe('tail10')
+  })
+
+  it('folds everything back when a click has already opened it all', () => {
+    const sink = host(12, 40)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['status'], { row: 0, column: 0 }, false)
+    screen.appendFold(['summary', ''], ['full a', 'full b', ''])
+    screen.mouseDown(1, 2)
+    screen.mouseUp()
+    flush(sink)
+
+    // Every block is open, so the key closes them rather than doing nothing.
+    expect(screen.toggleFolds()).toBe(true)
+    const text = [...painted(flush(sink)).values()].join('\n')
+    expect(text).toContain('summary')
+    expect(text).not.toContain('full b')
+  })
+
+  it('has nothing to toggle without folds, and clearing forgets them', () => {
+    const sink = host(8, 40)
+    const screen = new Screen(sink)
+    screen.enter()
+    expect(screen.toggleFolds()).toBe(false)
+    screen.appendFold(['s'], ['f'])
+    screen.clearTranscript()
+    expect(screen.hasFolds).toBe(false)
+  })
+})
+
+describe('mouse selection', () => {
+  it('highlights the dragged span and hands over its text on release', () => {
+    const sink = host(8, 40)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['status'], { row: 0, column: 0 }, false)
+    screen.append(['alpha beta', 'gamma delta'])
+    flush(sink)
+
+    // Rows 1-2 hold the two lines (content is top-aligned).
+    screen.mouseDown(1, 9)
+    screen.mouseDrag(2, 7)
+    const frame = flush(sink)
+    expect(frame).toContain('\u001B[7m')
+    const text = screen.mouseUp()
+    // From column 7 of the first row through column 5 of the second.
+    expect(text).toBe('beta\ngamma')
+  })
+
+
+  it('never lets a chrome row paint outside its own row', () => {
+    const sink = host(6, 40)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.append(['answer'])
+    // A status row built from text that carries its own newlines — a tool call
+    // whose command is a script, as one real session had. Measured as a fit,
+    // it would drop the cursor a line mid-row and write the rest at column 1
+    // of the box border below, which the frame diff then leaves alone forever.
+    screen.setChrome(["running: python3 - <<'EOF'\nimport re\nprint(1)", '╭────────╮', '│ prompt │'], { row: 0, column: 0 }, false)
+    const frame = flush(sink)
+    expect(frame).not.toContain('\n')
+    const rows = painted(frame)
+    expect(rows.get(4)?.startsWith("running: python3 - <<'EOF' import")).toBe(true)
+    expect(rows.get(5)).toBe('╭────────╮')
+  })
+
+  it('keeps what it recorded painting equal to what it wrote', () => {
+    const sink = host(6, 40)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['a\nb'], { row: 0, column: 0 }, false)
+    flush(sink)
+    // The row the diff remembers is the row that went out: remembering the
+    // unflattened one would make every later frame skip a row the terminal
+    // never received.
+    screen.setChrome(['a b'], { row: 0, column: 0 }, false)
+    // No row write at all: the frame it remembered is the frame that went out.
+    expect(flush(sink)).not.toContain('\u001B[2K')
+  })
+
+  it('anchors in the blank space under the last line and sweeps up out of it', () => {
+    const sink = host(8, 40)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['status'], { row: 0, column: 0 }, false)
+    screen.append(['alpha beta', 'gamma delta'])
+    flush(sink)
+
+    // Only rows 1-2 hold text, so row 5 is empty — and it is where the pointer
+    // already rests once a turn has finished. A press there anchors at the
+    // nearest row instead of refusing, so sweeping up selects to the end.
+    screen.mouseDown(5, 30)
+    screen.mouseDrag(1, 9)
+    expect(screen.mouseUp()).toBe('beta\ngamma delta')
+  })
+
+  it('works no block when that blank space is merely clicked', () => {
+    const sink = host(12, 40)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['status'], { row: 0, column: 0 }, false)
+    screen.appendFold(['summary line', ''], ['full a', 'full b', ''])
+    flush(sink)
+
+    // Pressed and released in the empty space with no motion: the anchor was
+    // clamped to the block's row, but the click never landed on it.
+    screen.mouseDown(8, 5)
+    expect(screen.mouseUp()).toBeUndefined()
+    expect(flush(sink)).not.toContain('full b')
+  })
+
+  it('copies plain text out of styled rows', () => {
+    const sink = host(8, 40)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['status'], { row: 0, column: 0 }, false)
+    screen.append([`\u001B[1mbold words\u001B[0m`])
+    screen.mouseDown(1, 3)
+    screen.mouseDrag(1, 12)
+    expect(screen.mouseUp()).toBe('bold words')
+  })
+
+  it('counts columns by display width, so wide characters stay whole', () => {
+    const sink = host(8, 40)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['status'], { row: 0, column: 0 }, false)
+    screen.append(['中文 text'])
+    screen.mouseDown(1, 3)
+    // Through display column 4: both wide characters, nothing sliced apart.
+    screen.mouseDrag(1, 6)
+    expect(screen.mouseUp()).toBe('中文')
+  })
+
+  it('ignores a bare click, and a click dismisses a standing highlight', () => {
+    const sink = host(8, 40)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['status'], { row: 0, column: 0 }, false)
+    screen.append(['some content here'])
+    screen.mouseDown(1, 2)
+    expect(screen.mouseUp()).toBeUndefined()
+
+    screen.mouseDown(1, 3)
+    screen.mouseDrag(1, 7)
+    expect(screen.mouseUp()).toBe('some ')
+    flush(sink)
+    // The highlight stood after the copy; a fresh click clears it.
+    screen.mouseDown(1, 2)
+    screen.mouseUp()
+    expect(flush(sink)).not.toContain('\u001B[7m')
+  })
+
+  it('clamps a drag that leaves the content, and a resize voids the selection', () => {
+    const sink = host(8, 40)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['status'], { row: 0, column: 0 }, false)
+    screen.append(['only row'])
+    screen.mouseDown(1, 1)
+    // Dragged into the padding far below: the selection ends at the content.
+    screen.mouseDrag(6, 30)
+    expect(screen.mouseUp()).toBe('only row')
+
+    screen.mouseDown(1, 1)
+    screen.mouseDrag(1, 5)
+    sink.size.columns = 30
+    screen.resize()
+    // Reflow voided it: release finds nothing to copy.
+    expect(screen.mouseUp()).toBeUndefined()
+  })
+
+  it('starts nothing from the chrome or an empty transcript', () => {
+    const sink = host(8, 40)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['status'], { row: 0, column: 0 }, false)
+    screen.mouseDown(1, 1)
+    expect(screen.mouseUp()).toBeUndefined()
+    screen.append(['row'])
+    // The chrome row (bottom) is not selectable content.
+    screen.mouseDown(8, 1)
+    screen.mouseDrag(8, 5)
+    expect(screen.mouseUp()).toBeUndefined()
+  })
+})
+
+describe('the block under the pointer', () => {
+  it('fills the hovered block and names it', () => {
+    const sink = host(10, 40)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['status'], { row: 0, column: 0 }, false)
+    screen.append(['above'])
+    screen.appendFold(['summary', ''], ['full one', 'full two', ''], '', 'thinking')
+    flush(sink)
+
+    // Row 2 is the block's summary line.
+    expect(screen.mouseMove(2, 3)).toEqual({ label: 'thinking', lines: 3, expanded: false })
+    expect(flush(sink)).toContain('\u001B[48;5;236msummary')
+  })
+
+  it('picks a lighter fill on a light background', () => {
+    const sink = host(10, 40)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['status'], { row: 0, column: 0 }, false)
+    screen.appendFold(['summary', ''], ['full'], '', 'thinking')
+    screen.setLight(true)
+    flush(sink)
+    screen.mouseMove(1, 3)
+    expect(flush(sink)).toContain('\u001B[48;5;253m')
+  })
+
+  it('fills every visible row of the hovered block', () => {
+    const sink = host(10, 40)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['status'], { row: 0, column: 0 }, false)
+    screen.appendFold(['summary', ''], ['head', 'body', 'tail', ''], '', 'thinking')
+    screen.toggleFolds()
+    flush(sink)
+
+    expect(screen.mouseMove(3, 2)?.expanded).toBe(true)
+    const frame = flush(sink)
+    expect(frame).toContain('\u001B[48;5;236mhead')
+    expect(frame).toContain('\u001B[48;5;236mbody')
+    expect(frame).toContain('\u001B[48;5;236mtail')
+  })
+
+  it('repaints only when the block under the pointer changes', () => {
+    const sink = host(10, 40)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['status'], { row: 0, column: 0 }, false)
+    screen.append(['above'])
+    screen.appendFold(['summary', ''], ['full one', ''], '', 'thinking')
+    flush(sink)
+
+    screen.mouseMove(2, 3)
+    expect(flush(sink)).not.toBe('')
+    // Moving along the same block: nothing on screen has changed, and motion
+    // arrives a report per cell crossed.
+    expect(screen.mouseMove(2, 4)).toEqual({ label: 'thinking', lines: 2, expanded: false })
+    expect(flush(sink)).toBe('')
+
+    // Off the block, the mark goes with it.
+    expect(screen.mouseMove(1, 2)).toBeUndefined()
+    const frame = flush(sink)
+    expect(frame).not.toContain('\u001B[48;5;')
+    expect(painted(frame).get(2)).toBe('summary')
+  })
+
+  it('drops the fill when the pointer leaves the window', () => {
+    const sink = host(10, 40)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['status'], { row: 0, column: 0 }, false)
+    screen.append(['above'])
+    screen.appendFold(['summary', ''], ['full one', ''], '', 'thinking')
+    screen.mouseMove(2, 3)
+    expect(flush(sink)).toContain('\u001B[48;5;236m')
+    screen.mouseLeave()
+    const frame = flush(sink)
+    expect(frame).not.toContain('\u001B[48;5;')
+    expect(painted(frame).get(2)).toBe('summary')
+    // A second leave, with nothing hovering, is a no-op.
+    screen.mouseLeave()
+    expect(flush(sink)).toBe('')
+  })
+
+  it('still names a block whose head row is off the top of the screen', () => {
+    const sink = host(6, 40)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['status'], { row: 0, column: 0 }, false)
+    // Taller than the viewport once open, which is the case the readout exists
+    // for: there is no head row on screen to mark or to aim a click at.
+    const full = Array.from({ length: 12 }, (_, index) => `line ${index}`)
+    screen.appendFold(['summary'], full, '', 'Bash(pnpm test)')
+    screen.toggleFolds()
+    flush(sink)
+
+    expect(screen.mouseMove(2, 3)).toEqual({ label: 'Bash(pnpm test)', lines: 12, expanded: true })
+    // The head is off the top; the visible body of the same block is still marked.
+    expect(flush(sink)).toContain('\u001B[48;5;')
+  })
+
+  it('forgets the block it was on when the transcript is cleared', () => {
+    const sink = host(10, 40)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['status'], { row: 0, column: 0 }, false)
+    screen.appendFold(['summary', ''], ['full one', ''], '', 'thinking')
+    screen.mouseMove(1, 3)
+    flush(sink)
+    screen.clearTranscript()
+    screen.append(['fresh'])
+    // A mark held over a cleared buffer would point at a block that is gone.
+    expect(flush(sink)).not.toContain('\u001B[48;5;')
+  })
+})
+
+describe('fullscreen viewer layer', () => {
+  it('hides transcript chrome and timeline, then restores the exact prior frame', () => {
+    const sink = host(7, 40)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['box', 'status'], { row: 0, column: 0 }, true)
+    screen.appendPrompt(['› first', ''], '| ', false)
+    screen.append(Array.from({ length: 8 }, (_, index) => `first ${index}`))
+    screen.appendPrompt(['› second', ''], '| ', false)
+    screen.append(Array.from({ length: 8 }, (_, index) => `second ${index}`))
+    screen.scrollBy(-3)
+    flush(sink)
+    screen.resize()
+    const beforeData = flush(sink)
+    const before = painted(beforeData)
+    const beforeOffset = screen.scrolledBy
+
+    screen.setViewer(['Answer 1', 'viewer row 1', 'viewer row 2', '', '', '', 'Esc closes'])
+    const viewedData = flush(sink)
+    const viewed = painted(viewedData)
+    expect(Array.from({ length: 7 }, (_, index) => viewed.get(index + 1))).toEqual([
+      'Answer 1', 'viewer row 1', 'viewer row 2', '', '', '', 'Esc closes',
+    ])
+    expect(cell(viewedData, 1, 40)).toBe(' ')
+    expect(viewedData).not.toContain('box')
+    expect(viewedData).not.toContain('status')
+
+    screen.setViewer(undefined)
+    const restoredData = flush(sink)
+    expect(painted(restoredData)).toEqual(before)
+    expect(screen.scrolledBy).toBe(beforeOffset)
+  })
+})
+
+describe('the rule down a block\'s edge', () => {
+  it('repeats the rule on every row a line wraps to', () => {
+    const sink = host(5, 12)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['status'], { row: 0, column: 0 }, false)
+    flush(sink)
+    // Nine content columns, two of them the rule's, so seven characters fit a
+    // row — and the rule is on the continuation too, or the edge breaks exactly
+    // where a long line made it matter.
+    screen.append(['x'.repeat(20)], '| ')
+    const rows = painted(flush(sink))
+    expect(rows.get(1)).toBe(`| ${'x'.repeat(7)}`)
+    expect(rows.get(2)).toBe(`| ${'x'.repeat(7)}`)
+    expect(rows.get(3)).toBe('| xxxxxx')
+  })
+
+  it('leaves the blank line between blocks unmarked', () => {
+    const sink = host(5, 20)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['status'], { row: 0, column: 0 }, false)
+    flush(sink)
+    screen.append(['head', ''], '| ')
+    const rows = painted(flush(sink))
+    expect(rows.get(1)).toBe('| head')
+    // A lone mark hanging under the block it ended would read as a row of it.
+    // An unchanged empty row is not repainted at all, which says the same thing.
+    expect(rows.get(2) ?? '').toBe('')
+  })
+
+  it('hands over the text without the rule it swept across', () => {
+    const sink = host(8, 40)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['status'], { row: 0, column: 0 }, false)
+    screen.append(['alpha beta', 'gamma delta'], '| ')
+    flush(sink)
+    screen.mouseDown(1, 1)
+    screen.mouseDrag(2, 40)
+    // The rule is a mark this surface drew, not text anyone typed.
+    expect(screen.mouseUp()).toBe('alpha beta\ngamma delta')
+  })
+
+  it('keeps a block\'s rule across a fold toggle', () => {
+    const sink = host(8, 40)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['status'], { row: 0, column: 0 }, false)
+    screen.appendFold(['summary'], ['full one', 'full two'], '| ')
+    flush(sink)
+    screen.toggleFolds()
+    const rows = painted(flush(sink))
+    expect(rows.get(1)).toBe('| full one')
+    expect(rows.get(2)).toBe('| full two')
+  })
+
+  it('works a ruled block on a click, under the rule it was drawn with', () => {
+    const sink = host(10, 14)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['status'], { row: 0, column: 0 }, false)
+    // Two of the eleven content columns are the rule's, so this line takes
+    // three rows rather than two — and the block under it starts one row lower
+    // than a measure that forgot the rule would say.
+    screen.append(['x'.repeat(20)], '| ')
+    screen.appendFold(['summary'], ['full one', 'full two'], '| ')
+    flush(sink)
+
+    // Row 4 is where the block starts, so a click there works it — and both
+    // forms come back under the rule the block was drawn with.
+    screen.mouseDown(4, 3)
+    expect(screen.mouseUp()).toBeUndefined()
+    let rows = painted(flush(sink))
+    expect(rows.get(4)).toBe('| full one')
+    expect(rows.get(5)).toBe('| full two')
+
+    // Open, only that same head row folds it back.
+    screen.mouseDown(4, 3)
+    expect(screen.mouseUp()).toBeUndefined()
+    rows = painted(flush(sink))
+    expect(rows.get(4)).toBe('| summary')
+  })
+
+  it('folds a finished block back under the rule it was drawn with', () => {
+    const sink = host(8, 40)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['status'], { row: 0, column: 0 }, false)
+    screen.append(['one', 'two', ''], '| ')
+    screen.foldBack(3, ['summary', ''])
+    screen.collapseFolds()
+    flush(sink)
+    screen.toggleFolds()
+    const rows = painted(flush(sink))
+    expect(rows.get(1)).toBe('| one')
+  })
+})
+
+describe('transcript search', () => {
+  it('reveals a hit that was hidden behind the sticky header reservation', () => {
+    const sink = host(6, 40)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['box'], { row: 0, column: 0 }, false)
+    screen.appendPrompt(['› question', ''], '| ')
+    screen.append(Array.from({ length: 10 }, (_, index) => index === 5 ? 'needle' : `answer ${index}`))
+    flush(sink)
+
+    screen.searchTranscript('needle')
+    const frame = flush(sink)
+    expect(frame).toContain('\u001B[7mneedle\u001B[27m')
+  })
+
+  it('recomputes the owning sticky header without highlighting its display copy', () => {
+    const sink = host(6, 40)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['box'], { row: 0, column: 0 }, false)
+    screen.appendPrompt(['› first prompt', ''], '| ')
+    screen.append(['old 1', 'needle', 'old 3', 'old 4'])
+    screen.appendPrompt(['› second prompt', ''], '| ')
+    screen.append(Array.from({ length: 10 }, (_, index) => `new ${index}`))
+    flush(sink)
+
+    screen.searchTranscript('needle')
+    const frame = flush(sink)
+    const rows = painted(frame)
+    expect(rows.get(1)).toBe('| › first prompt')
+    expect(frame).toContain('\u001B[7mneedle\u001B[27m')
+    expect(frame).not.toContain('\u001B[7m| › first prompt')
+  })
+
+  it('finds hits newest-first and steps without changing the text', () => {
+    const sink = host(8, 40)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['box'], { row: 0, column: 0 }, false)
+    screen.append(['alpha line', 'bravo line', 'alpha again'])
+    const first = screen.searchTranscript('alpha')
+    expect(first).toEqual({ query: 'alpha', hits: 2, index: 1 })
+    const next = screen.nextTranscriptHit(-1)
+    expect(next).toEqual({ query: 'alpha', hits: 2, index: 0 })
+    const frame = flush(sink)
+    expect(frame).toContain('alpha')
+    screen.clearTranscriptSearch()
+    expect(screen.transcriptSearch).toBeUndefined()
+    expect(flush(sink)).toContain('alpha')
+  })
+
+  it('keeps the selected logical hit highlighted after resize reflows its row', () => {
+    const sink = host(7, 40)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['box'], { row: 0, column: 0 }, false)
+    screen.append(['prefix words before needle and words after it', 'tail 1', 'tail 2', 'tail 3', 'tail 4'])
+    screen.searchTranscript('needle')
+    flush(sink)
+
+    sink.size.columns = 18
+    screen.resize()
+
+    expect(screen.transcriptSearch).toEqual({ query: 'needle', hits: 1, index: 0 })
+    expect(flush(sink)).toContain('\u001B[7mneedle\u001B[27m')
+  })
+
+  it('keeps a selected hit aligned when a fold above it changes logical height', () => {
+    const sink = host(7, 40)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['box'], { row: 0, column: 0 }, false)
+    screen.appendFold(['summary'], ['full one', 'full two', 'full three', 'full four'])
+    screen.append(['needle target', 'tail 1', 'tail 2', 'tail 3', 'tail 4', 'tail 5'])
+    screen.searchTranscript('needle')
+    flush(sink)
+
+    screen.toggleFolds()
+
+    expect(screen.transcriptSearch).toEqual({ query: 'needle', hits: 1, index: 0 })
+    expect(flush(sink)).toContain('\u001B[7mneedle\u001B[27m')
+  })
+
+  it('scrolls an off-screen hit into view', () => {
+    const sink = host(6, 40)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['box'], { row: 0, column: 0 }, false)
+    screen.append(['needle', 'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'])
+    expect(screen.scrolledBy).toBe(0)
+    screen.searchTranscript('needle')
+    expect(screen.transcriptSearch?.hits).toBe(1)
+    expect(screen.scrolledBy).toBeGreaterThan(0)
+  })
+
+  it('forgets find when the transcript is cleared', () => {
+    const sink = host()
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.append(['needle'])
+    screen.searchTranscript('needle')
+    screen.clearTranscript()
+    expect(screen.transcriptSearch).toBeUndefined()
+  })
+})
+
+describe('wrapping the buffer only when the width changed', () => {
+  /** Spy on the whole-buffer re-wrap, which is the cost a resize must pay once. */
+  const spyWrap = (): ReturnType<typeof vi.spyOn> =>
+    vi.spyOn(Screen.prototype as unknown as { wrapBuffer(): void }, 'wrapBuffer')
+
+  it('re-wraps once per resize, not again in the frame that follows', () => {
+    // The resize re-wrapped, then the first paint at the new width saw a width
+    // it had not painted and re-wrapped everything a second time.
+    const sink = host(10, 40)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['box'], { row: 0, column: 0 }, false)
+    screen.append(Array.from({ length: 200 }, (_, index) => `row ${index} ${'y'.repeat(50)}`), '| ')
+    flush(sink)
+    const wraps = spyWrap()
+    try {
+      sink.size.columns = 30
+      screen.resize()
+      expect(wraps).toHaveBeenCalledTimes(1)
+      const frame = [...painted(flush(sink)).values()]
+      for (const row of frame) expect(displayWidth(row)).toBeLessThanOrEqual(30 - 1)
+      expect(frame.join('\n')).toContain('row 199')
+    } finally {
+      wraps.mockRestore()
+    }
+  })
+
+  it('paints a replayed transcript without wrapping it a second time', () => {
+    // `--resume` pours the session in before the viewport is entered; the
+    // appends wrapped every line at the width the first frame then paints at.
+    const sink = host(10, 40)
+    const screen = new Screen(sink)
+    screen.suspendPainting()
+    screen.append(Array.from({ length: 300 }, (_, index) => `line ${index} ${'x'.repeat(60)}`))
+    screen.resumePainting()
+    screen.setChrome(['box'], { row: 0, column: 0 }, false)
+    const wraps = spyWrap()
+    try {
+      screen.enter()
+      expect(wraps).not.toHaveBeenCalled()
+      expect([...painted(flush(sink)).values()].join('\n')).toContain('line 299')
+      // A width the rows were not wrapped at still re-wraps them.
+      sink.size.columns = 33
+      screen.resize()
+      expect(wraps).toHaveBeenCalledTimes(1)
+    } finally {
+      wraps.mockRestore()
+    }
+  })
+
+  it('swaps a block in place without re-wrapping the rest of the buffer', () => {
+    // Opening one fold cost every line in the session; only the block's own
+    // rows change, so only they are wrapped — and the frame must be exactly
+    // what a screen built from the expanded lines would paint.
+    const lines = Array.from({ length: 120 }, (_, index) => `context ${index} ${'z'.repeat(45)}`)
+    const full = Array.from({ length: 30 }, (_, index) => `detail ${index} ${'w'.repeat(38)}`)
+    const build = (expanded: boolean): { screen: Screen; sink: ReturnType<typeof host> } => {
+      const sink = host(12, 36)
+      const screen = new Screen(sink)
+      screen.enter()
+      screen.setChrome(['box'], { row: 0, column: 0 }, false)
+      screen.append(lines.slice(0, 60), '| ')
+      if (expanded) screen.append(full, '> ')
+      else screen.appendFold(['summary +30 lines'], full, '> ', 'tool')
+      screen.append(lines.slice(60), '| ')
+      return { screen, sink }
+    }
+    /** The tail frame, then the frame around the block, then the head. */
+    const shots = (screen: Screen, sink: ReturnType<typeof host>): string => {
+      // A viewer in and out forces a whole frame, so the shot is the screen
+      // and not the rows the last operation happened to touch.
+      const whole = (): string => {
+        screen.setViewer(['blank'])
+        flush(sink)
+        screen.setViewer(undefined)
+        return [...painted(flush(sink)).values()].join('\n')
+      }
+      const tail = whole()
+      screen.scrollBy(-70)
+      const middle = whole()
+      screen.scrollBy(-10_000)
+      const head = whole()
+      screen.scrollBy(10_000)
+      flush(sink)
+      return [tail, middle, head].join('\n--\n')
+    }
+    const reference = build(true)
+    const expandedFrames = shots(reference.screen, reference.sink)
+    const folded = build(false)
+    const wraps = spyWrap()
+    try {
+      folded.screen.toggleFolds()
+      expect(wraps).not.toHaveBeenCalled()
+    } finally {
+      wraps.mockRestore()
+    }
+    expect(shots(folded.screen, folded.sink)).toBe(expandedFrames)
+    // And back: the summary form paints exactly as a screen that never opened it.
+    const summaryReference = build(false)
+    const summaryFrames = shots(summaryReference.screen, summaryReference.sink)
+    folded.screen.toggleFolds()
+    expect(shots(folded.screen, folded.sink)).toBe(summaryFrames)
+  })
+
+  it('keeps find hits and hover geometry right after an in-place swap', () => {
+    const sink = host(8, 30)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['box'], { row: 0, column: 0 }, false)
+    screen.append(['alpha needle one', 'beta'])
+    screen.appendFold(['folded'], ['open needle two', 'open needle three'], '', 'tool')
+    screen.append(['gamma needle four'])
+    expect(screen.searchTranscript('needle').hits).toBe(2)
+    screen.toggleFolds()
+    // Hits are re-indexed over the new physical rows.
+    expect(screen.transcriptSearch?.hits).toBe(4)
+    screen.clearTranscriptSearch()
+    // Content tops the screen: rows 1-2 are the two lines before the block,
+    // rows 3-4 its open form, row 5 the line after. The pointer finds the
+    // block where the swap put it, measured from the spliced rows.
+    const frame = [...painted(flush(sink)).values()]
+    expect(frame[2]).toContain('open needle two')
+    expect(frame[4]).toContain('gamma needle four')
+    expect(screen.mouseMove(3, 5)?.label).toBe('tool')
+    expect(screen.mouseMove(4, 5)?.label).toBe('tool')
+    expect(screen.mouseMove(5, 5)).toBeUndefined()
+  })
+})

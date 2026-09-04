@@ -1,0 +1,106 @@
+name: Release
+
+on:
+  push:
+    branches: [main]
+
+concurrency: ${{ github.workflow }}-${{ github.ref }}
+
+permissions:
+  contents: write
+  pull-requests: write
+  id-token: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+          registry-url: https://registry.npmjs.org
+      - run: pnpm install --frozen-lockfile
+      - name: Create release PR or publish to npm
+        uses: changesets/action@v1
+        with:
+          publish: pnpm run release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Both names on purpose: setup-node's .npmrc reads NODE_AUTH_TOKEN,
+          # while the changesets action looks for NPM_TOKEN — without it the
+          # action falls back to OIDC, which cannot create a NEW package.
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          # Provenance only generates inside CI; local publishes stay plain.
+          NPM_CONFIG_PROVENANCE: 'true'
+      # changesets v3 stopped printing the "New tag:" lines the action parses,
+      # so the tag push and the GitHub release silently no-op. This step is the
+      # idempotent backstop: for every workspace package npm already carries,
+      # make sure the monorepo-style tag and the release exist too.
+      - name: Ensure tags and GitHub releases exist
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          echo "reading manifests at $GITHUB_SHA"
+          for dir in packages/*; do
+            # Neither the working tree nor HEAD is the fact here.
+            # changesets/action runs ahead of this step and, whenever a
+            # changeset is pending, commits `changeset version` output for its
+            # Version Packages pull request — which moved both to 0.11.1 on the
+            # very push that released 0.11.0, sending this step after something
+            # npm will never have. The commit that triggered the run is the one
+            # that shipped, and nothing downstream can move it.
+            manifest=$(git show "$GITHUB_SHA:$dir/package.json")
+            name=$(printf '%s' "$manifest" | node -pe "JSON.parse(require('fs').readFileSync(0,'utf8')).name")
+            version=$(printf '%s' "$manifest" | node -pe "JSON.parse(require('fs').readFileSync(0,'utf8')).version")
+            tag="$name@$version"
+
+            # This step decided everything behind >/dev/null and reported
+            # nothing, which is how it skipped every release after 0.6.0 while
+            # each run stayed green. It says what it sees now, so the next
+            # surprise costs one log line instead of an afternoon.
+            git ls-remote --exit-code --tags origin "$tag" >/dev/null 2>&1 \
+              && tagged=yes || tagged=no
+            gh release view "$tag" >/dev/null 2>&1 && released=yes || released=no
+            echo "$tag: tagged=$tagged released=$released"
+
+            # Steady state: an earlier run finished this version, so there is
+            # nothing to prove and no registry to ask.
+            if [ "$tagged" = yes ] && [ "$released" = yes ]; then
+              continue
+            fi
+
+            # npm answers its own publish with a lag. The 0.11.0 run published
+            # at 06:04:03.165Z and asked about 0.11.0 at 06:04:05.26; the answer
+            # was no, and both packages were dropped in silence. Only a version
+            # this repo has not finished reaches here, so the wait is paid once
+            # per release rather than on every push to main.
+            published=no
+            for _ in $(seq 1 6); do
+              if npm view "$tag" version >/dev/null 2>&1; then published=yes; break; fi
+              sleep 5
+            done
+            echo "$tag: published=$published"
+            [ "$published" = yes ] || continue
+
+            if [ "$tagged" = no ]; then
+              git tag "$tag" 2>/dev/null || true
+              git push origin "$tag"
+              echo "$tag: tag pushed"
+            fi
+
+            if [ "$released" = no ]; then
+              awk "/^## $version\$/{flag=1; next} /^## /{flag=0} flag" \
+                "$dir/CHANGELOG.md" 2>/dev/null > /tmp/release-notes.md
+              # A bump a sibling package carried leaves an empty section behind,
+              # and an empty --notes-file is rejected.
+              [ -s /tmp/release-notes.md ] || echo "Released \`$tag\` to npm." > /tmp/release-notes.md
+              gh release create "$tag" --title "$tag" --notes-file /tmp/release-notes.md
+              echo "$tag: release created"
+            fi
+          done

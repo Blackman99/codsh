@@ -1,0 +1,992 @@
+/**
+ * The prompt's editing model: a multi-line buffer, a cursor, history, and the
+ * completion menu.
+ *
+ * Pure state. It takes keys and answers with what changed, so every behaviour
+ * here is testable without a terminal — the rendering and the raw-mode plumbing
+ * are somebody else's job.
+ * @module codsh-bundle/src/editor
+ */
+
+import { rankContains } from './completion.ts'
+import { visualStep } from './inputbox.ts'
+import type { CompletableCommand, CompletionResult } from './completion.ts'
+import type { Key } from './keys.ts'
+
+/** One entry offered in the completion menu. */
+export interface Candidate {
+  /** The text that replaces the token when accepted. */
+  value: string
+  /** What it does, shown beside it. Empty for a path, which explains itself. */
+  detail: string
+}
+
+/** What the editor is showing right now. */
+export interface EditorView {
+  /** Buffer lines; always at least one, possibly empty. */
+  lines: readonly string[]
+  /** Cursor line index. */
+  row: number
+  /** Cursor column within that line, in code points. */
+  column: number
+  /** Candidates to offer, empty when the menu is closed. */
+  candidates: readonly Candidate[]
+  /** Which candidate is selected, meaningless when there are none. */
+  selected: number
+  /** Where the wheel left the menu's window; absent follows {@link selected}. */
+  menuScroll?: number
+  /** The token under the cursor, which is what the candidates matched. */
+  token: string
+  /** Reverse history search, absent when not searching. */
+  search?: { query: string; hits: number; index: number }
+  /**
+   * Known `/command` and `$skill` spans in the buffer, in code points.
+   *
+   * Painted in the box so a finished gesture reads as one, not as prose.
+   */
+  hits: readonly GestureHit[]
+  /**
+   * A selected span in the buffer, absent when nothing is selected.
+   *
+   * Ordered start-first. The cursor sits at one end; the other is the
+   * anchor the gesture left behind.
+   */
+  selection?: { start: { row: number; column: number }; end: { row: number; column: number } }
+}
+
+/** A `/command` or `$skill` in the buffer that names something real. */
+export interface GestureHit {
+  /** Buffer line index. */
+  row: number
+  /** First code point of the token. */
+  start: number
+  /** Code point after the token. */
+  end: number
+  /** Which kind of gesture it is. */
+  kind: 'command' | 'skill'
+}
+
+/** What the caller must do after a key. */
+export type EditorAction =
+  | { kind: 'none' }
+  | { kind: 'submit'; text: string }
+  | { kind: 'interrupt' }
+  | { kind: 'eof' }
+  | { kind: 'escape' }
+
+/** How the editor finds candidates for the token under the cursor. */
+export interface EditorSources {
+  /** The commands currently registered. */
+  commands(): readonly CompletableCommand[]
+  /** Path candidates for an `@` mention, as the completer produces them. */
+  paths(token: string): CompletionResult
+  /**
+   * Argument candidates for one command's first argument.
+   *
+   * `/plan off`, `/permission workspace-write`, `/model <id>` — the values a
+   * command takes are the command's own knowledge, so the editor asks rather
+   * than guessing. Absent or empty means the argument is free-form.
+   * @param command - the command name without its slash.
+   * @param typed - what has been typed of the argument so far.
+   * @returns candidates to offer, best first.
+   */
+  commandArguments?(command: string, typed: string): readonly Candidate[]
+  /**
+   * User-invocable skills for a `$` mention.
+   *
+   * Absent or empty means `$` is ordinary text.
+   */
+  skills?(): readonly { name: string; description: string }[]
+}
+
+/** Longest run of history the editor keeps for one session. */
+const HISTORY_LIMIT = 200
+
+/** How many edits back undo can go. */
+const UNDO_LIMIT = 100
+
+/** The buffer and cursor as they stood before one edit. */
+interface Snapshot {
+  lines: string[]
+  row: number
+  column: number
+}
+
+/**
+ * Which edits merge into one undo step.
+ *
+ * Typing a word is one step, the space after it another, and the next word
+ * joins that space — so undo walks back a word at a time, the way readline's
+ * does. Held Backspace or Delete is one step too. Anything else stands alone.
+ */
+type EditGroup = 'word' | 'space' | 'backspace' | 'delete'
+
+/**
+ * Split text into the units the cursor counts.
+ *
+ * Code points, not grapheme clusters: a column here is one cursor step, and the
+ * terminal moves the cursor by code point too. A combining mark or a ZWJ emoji
+ * therefore takes more than one step, which is the same limit the width
+ * measurement carries.
+ * @param text - the text to split.
+ * @returns its code points.
+ */
+const points = (text: string): string[] => Array.from(text)
+
+/**
+ * The undo group a key's edit belongs to.
+ * @param key - the key that edited.
+ * @returns the group, or undefined for an edit that stands alone.
+ */
+function groupOf(key: Key): EditGroup | undefined {
+  if (key.kind === 'text') return key.text.trim() === '' ? 'space' : 'word'
+  if (key.kind === 'backspace' || key.kind === 'delete') return key.kind
+  return undefined
+}
+
+/** A multi-line prompt editor. */
+export class Editor {
+  private lines = ['']
+  private row = 0
+  private column = 0
+  private candidates: Candidate[] = []
+  private selected = 0
+  /**
+   * Columns the box wraps at, once a surface that wraps has said so.
+   *
+   * Undefined off a TTY, where nothing wraps and a line is a line.
+   */
+  private wrapWidth: number | undefined
+  /** A menu window the wheel moved; undefined follows the marked candidate. */
+  private menuScroll: number | undefined
+  private readonly history: string[] = []
+  /** Where the caller is in history; equals `history.length` when not browsing. */
+  private browsing = 0
+  /** The buffer set aside while history is being browsed. */
+  private stashed: string[] | undefined
+  /** Reverse-i-search over {@link history}, absent when the box is typing. */
+  private search: { query: string; index: number; stash: string[]; row: number; column: number } | undefined
+  /**
+   * The other end of a buffer selection, when one is stretched.
+   *
+   * The cursor is the focus; this is the anchor. Absent, or equal to the
+   * cursor, means nothing is selected.
+   */
+  private anchor: { row: number; column: number } | undefined
+  /** What undo restores, most recent last. */
+  private readonly undone: Snapshot[] = []
+  /** What redo restores, most recent last; emptied by any fresh edit. */
+  private readonly redone: Snapshot[] = []
+  /** The group the last recorded edit belonged to, for merging the next one. */
+  private lastEdit: EditGroup | undefined
+
+  constructor(private readonly sources: EditorSources) {}
+
+  /** What to render. */
+  get view(): EditorView {
+    const selection = this.orderedSelection()
+    return {
+      lines: this.lines,
+      row: this.row,
+      column: this.column,
+      candidates: this.candidates,
+      selected: this.selected,
+      ...this.menuScroll === undefined ? {} : { menuScroll: this.menuScroll },
+      token: this.token(),
+      hits: this.gestureHits(),
+      ...(this.search === undefined
+        ? {}
+        : { search: { query: this.search.query, hits: this.searchHits().length, index: this.search.index } }),
+      ...selection === undefined ? {} : { selection },
+    }
+  }
+
+  /** The buffer as one string. */
+  get text(): string {
+    return this.lines.join('\n')
+  }
+
+  /** Whether nothing has been typed. */
+  get empty(): boolean {
+    return this.text === ''
+  }
+
+  /**
+   * Replace the buffer with earlier text, cursor at its end.
+   *
+   * This is recall-for-editing: the second Escape puts the previous submission
+   * back so it can be corrected and resent.
+   * @param text - the text to edit, possibly multi-line.
+   */
+  prefill(text: string): void {
+    const before = this.snapshot()
+    this.lines = text.split('\n')
+    this.row = this.lines.length - 1
+    this.column = points(this.line()).length
+    this.candidates = []
+    this.anchor = undefined
+    this.record(before, undefined)
+  }
+
+  /** Submissions this session recorded, oldest first, for persistence. */
+  get pastSubmissions(): readonly string[] {
+    return this.history
+  }
+
+  /**
+   * Preload history from an earlier session.
+   *
+   * Applied before any live submission, so recall starts where the last
+   * session ended rather than empty.
+   * @param entries - past submissions, oldest first.
+   */
+  seedHistory(entries: readonly string[]): void {
+    this.history.splice(0, this.history.length, ...entries.slice(-HISTORY_LIMIT))
+    this.browsing = this.history.length
+  }
+
+  /**
+   * Apply one key.
+   * @param key - the decoded keystroke.
+   * @returns what the caller must do about it.
+   */
+  handle(key: Key): EditorAction {
+    // Any key brings the menu's window back to the marked candidate: a list
+    // scrolled away from what Enter would take answers a question nobody asked.
+    this.menuScroll = undefined
+    if (this.search !== undefined) return this.handleSearch(key)
+    if (key.kind === 'undo') return this.undo()
+    if (key.kind === 'redo') return this.redo()
+    // Undo is recorded by comparison, not by each edit: whatever the key did
+    // to the buffer, the state before it is what undo gives back.
+    const before = this.snapshot()
+    const action = this.dispatch(key)
+    if (action.kind === 'submit') {
+      // The box is empty and the text is in history; Esc Esc recalls it.
+      this.undone.length = 0
+      this.redone.length = 0
+      this.lastEdit = undefined
+    } else {
+      this.record(before, groupOf(key))
+    }
+    return action
+  }
+
+  /** Apply one key to the buffer, menu, or history. */
+  private dispatch(key: Key): EditorAction {
+    switch (key.kind) {
+      case 'history-search': return this.openSearch()
+      case 'text': return this.insert(key.text)
+      case 'paste':
+        // Pasted newlines are content, never submissions: the terminal told us
+        // this was a paste, so the block enters the buffer whole.
+        return this.insert(key.text)
+      case 'enter': return this.accept()
+      case 'newline': return this.insert('\n')
+      case 'tab': return this.complete()
+      case 'backspace': return this.backspace()
+      case 'delete': return this.forwardDelete()
+      case 'up': return this.moveUp()
+      case 'down': return this.moveDown()
+      case 'left': return this.moveLeft()
+      case 'right': return this.moveRight()
+      case 'home': return this.jump(0)
+      case 'end': return this.jump(points(this.line()).length)
+      case 'kill-line': return this.killLine()
+      case 'kill-input': return this.killInput()
+      case 'kill-word': return this.killWord()
+      case 'word-left': return this.wordLeft()
+      case 'word-right': return this.wordRight()
+      case 'escape': return this.cancel()
+      case 'interrupt': return { kind: 'interrupt' }
+      case 'eof':
+        // End-of-file only means "leave" on an untouched prompt; with text in
+        // hand it would silently discard work.
+        return this.text === '' ? { kind: 'eof' } : { kind: 'none' }
+      default: return { kind: 'none' }
+    }
+  }
+
+  /** The line the cursor is on. */
+  private line(): string {
+    return this.lines[this.row] ?? ''
+  }
+
+  /** Replace the cursor's line. */
+  private setLine(text: string): void {
+    this.lines[this.row] = text
+  }
+
+  /**
+   * Insert text at the cursor, splitting lines on newlines.
+   * @param text - the text to insert.
+   * @returns always `none`; insertion never completes a read.
+   */
+  private insert(text: string): EditorAction {
+    this.dropSelected()
+    const line = this.line()
+    const before = points(line).slice(0, this.column).join('')
+    const after = points(line).slice(this.column).join('')
+    const parts = (before + text + after).split('\n')
+    // The inserted text's own line count decides where the cursor lands.
+    const inserted = (before + text).split('\n')
+    this.lines.splice(this.row, 1, ...parts)
+    this.row += inserted.length - 1
+    this.column = points(inserted.at(-1) ?? '').length
+    this.refresh()
+    return { kind: 'none' }
+  }
+
+  /**
+   * Submit, or accept the highlighted candidate when the menu is open.
+   * @returns the submission, or `none` when a candidate was taken instead.
+   */
+  private accept(): EditorAction {
+    if (this.candidates.length > 0) return this.take()
+    const text = this.text
+    if (text.trim() === '') return { kind: 'none' }
+    this.remember(text)
+    this.lines = ['']
+    this.row = 0
+    this.column = 0
+    this.candidates = []
+    this.anchor = undefined
+    return { kind: 'submit', text }
+  }
+
+  /** Record a submission for history, collapsing an immediate repeat. */
+  private remember(text: string): void {
+    if (this.history.at(-1) !== text) this.history.push(text)
+    if (this.history.length > HISTORY_LIMIT) this.history.shift()
+    this.browsing = this.history.length
+    this.stashed = undefined
+  }
+
+  /**
+   * Move the menu's window without moving the marked candidate.
+   * @param delta - rows to move by; negative scrolls towards the top.
+   * @param limit - the furthest the window may start.
+   * @param from - where the window starts now.
+   */
+  scrollMenu(delta: number, from: number, limit: number): void {
+    this.menuScroll = Math.min(Math.max(0, limit), Math.max(0, from + delta))
+  }
+
+  /**
+   * Put the cursor where a pointer landed.
+   *
+   * The menu closes with the move: its candidates were computed for the token
+   * the cursor just left, and moving the cursor does not recompute them, so a
+   * menu left open would be offering completions for somewhere else.
+   * @param row - the buffer line, clamped into the buffer.
+   * @param column - the code-point column, clamped into that line.
+   */
+  setCursor(row: number, column: number): void {
+    const at = this.clamp(row, column)
+    this.row = at.row
+    this.column = at.column
+    this.anchor = undefined
+    this.candidates = []
+    this.selected = 0
+    this.menuScroll = undefined
+  }
+
+  /**
+   * Stretch a selection from an anchor to a focus.
+   *
+   * The cursor sits at the focus. A collapsed range is a cursor, not a span.
+   * @param anchor - where the gesture began.
+   * @param focus - where it is now.
+   */
+  select(anchor: { row: number; column: number }, focus: { row: number; column: number }): void {
+    const from = this.clamp(anchor.row, anchor.column)
+    const to = this.clamp(focus.row, focus.column)
+    this.row = to.row
+    this.column = to.column
+    this.anchor = from.row === to.row && from.column === to.column ? undefined : from
+    this.candidates = []
+    this.selected = 0
+    this.menuScroll = undefined
+  }
+
+  /**
+   * The plain text under the selection, empty when nothing is selected.
+   *
+   * Visual rows are not involved: this is the buffer, newlines and all, the
+   * way a copy out of the box should read.
+   */
+  get selectedText(): string {
+    const range = this.orderedSelection()
+    if (range === undefined) return ''
+    if (range.start.row === range.end.row) {
+      return points(this.lines[range.start.row] ?? '').slice(range.start.column, range.end.column).join('')
+    }
+    const parts = [points(this.lines[range.start.row] ?? '').slice(range.start.column).join('')]
+    for (let row = range.start.row + 1; row < range.end.row; row += 1) parts.push(this.lines[row] ?? '')
+    parts.push(points(this.lines[range.end.row] ?? '').slice(0, range.end.column).join(''))
+    return parts.join('\n')
+  }
+
+  /**
+   * Take the candidate a pointer chose.
+   *
+   * A click is not Tab: it names the row rather than stepping to the next one,
+   * so the mark moves there and the word finishes in one gesture.
+   * @param index - the candidate's index in the open menu.
+   * @returns what the edit did, or `none` when the index names nothing.
+   */
+  chooseCandidate(index: number): EditorAction {
+    if (index < 0 || index >= this.candidates.length) return { kind: 'none' }
+    const before = this.snapshot()
+    this.anchor = undefined
+    this.selected = index
+    const action = this.take()
+    this.record(before, undefined)
+    return action
+  }
+
+  /** The buffer and cursor as they stand, copied. */
+  private snapshot(): Snapshot {
+    return { lines: [...this.lines], row: this.row, column: this.column }
+  }
+
+  /**
+   * Keep the state before an edit for undo, when the edit changed the buffer.
+   * @param before - the state before the edit.
+   * @param group - the group the edit merges into, or undefined to stand alone.
+   */
+  private record(before: Snapshot, group: EditGroup | undefined): void {
+    const unchanged = before.lines.length === this.lines.length && before.lines.every((line, index) => line === this.lines[index])
+    if (unchanged) {
+      // A cursor move between two typed words separates them for undo.
+      if (group === undefined) this.lastEdit = undefined
+      return
+    }
+    const merges = group !== undefined && this.lastEdit !== undefined
+      && (group === this.lastEdit || (group === 'word' && this.lastEdit === 'space'))
+    if (!merges) {
+      this.undone.push(before)
+      if (this.undone.length > UNDO_LIMIT) this.undone.shift()
+    }
+    this.redone.length = 0
+    this.lastEdit = group
+  }
+
+  /** Step the buffer back one recorded edit. */
+  private undo(): EditorAction {
+    const previous = this.undone.pop()
+    if (previous !== undefined) {
+      this.redone.push(this.snapshot())
+      this.restore(previous)
+    }
+    return { kind: 'none' }
+  }
+
+  /** Step the buffer forward again, undoing an undo. */
+  private redo(): EditorAction {
+    const next = this.redone.pop()
+    if (next !== undefined) {
+      this.undone.push(this.snapshot())
+      this.restore(next)
+    }
+    return { kind: 'none' }
+  }
+
+  /** Put a snapshot back as the buffer; the next typed word starts its own step. */
+  private restore(snapshot: Snapshot): void {
+    this.lines = [...snapshot.lines]
+    this.row = Math.min(snapshot.row, this.lines.length - 1)
+    this.column = Math.min(snapshot.column, points(this.line()).length)
+    this.anchor = undefined
+    this.lastEdit = undefined
+    this.refresh()
+  }
+
+  /**
+   * Open the menu, or move through it when it is already open.
+   * @returns always `none`.
+   */
+  private complete(): EditorAction {
+    this.anchor = undefined
+    if (this.candidates.length === 0) this.refresh()
+    // One candidate is not a choice: Tab means "finish this word".
+    if (this.candidates.length === 1) return this.take()
+    if (this.candidates.length > 1) this.selected = (this.selected + 1) % this.candidates.length
+    return { kind: 'none' }
+  }
+
+  /**
+   * Replace the token under the cursor with the selected candidate.
+   * @returns always `none`.
+   */
+  private take(): EditorAction {
+    const candidate = this.candidates[this.selected]
+    this.candidates = []
+    if (candidate === undefined) return { kind: 'none' }
+    const line = this.line()
+    const cells = points(line)
+    const start = this.tokenStart()
+    const replaced = [...cells.slice(0, start), candidate.value, ...cells.slice(this.column)]
+    this.setLine(replaced.join(''))
+    this.column = start + points(candidate.value).length
+    return { kind: 'none' }
+  }
+
+  /** Where the token under the cursor begins, in code points. */
+  private tokenStart(): number {
+    const before = points(this.line()).slice(0, this.column)
+    return before.lastIndexOf(' ') + 1
+  }
+
+  /** The token under the cursor. */
+  private token(): string {
+    return points(this.line()).slice(this.tokenStart(), this.column).join('')
+  }
+
+  /**
+   * Spans in the buffer that name a registered command or skill.
+   *
+   * `/` only counts at the start of the first line, matching how a command is
+   * submitted. `$` counts as a word anywhere, matching how a skill is invoked.
+   */
+  private gestureHits(): GestureHit[] {
+    const commands = new Set(this.sources.commands().map(entry => entry.name))
+    const skills = new Set((this.sources.skills?.() ?? []).map(entry => entry.name))
+    const hits: GestureHit[] = []
+    this.lines.forEach((line, row) => {
+      if (row === 0) {
+        const found = /^\/([a-z][a-z0-9_-]*)(?=\s|$)/u.exec(line)
+        if (found?.[1] !== undefined && commands.has(found[1])) {
+          hits.push({ row, start: 0, end: points(found[0]).length, kind: 'command' })
+        }
+      }
+      const pattern = /(^|\s)\$([a-z0-9]+(?:-[a-z0-9]+)*)(?=\s|$)/gu
+      for (const match of line.matchAll(pattern)) {
+        const name = match[2] ?? ''
+        if (!skills.has(name) || match.index === undefined) continue
+        const dollarAt = match.index + (match[1] ?? '').length
+        hits.push({
+          row,
+          start: points(line.slice(0, dollarAt)).length,
+          end: points(line.slice(0, dollarAt + 1 + name.length)).length,
+          kind: 'skill',
+        })
+      }
+    })
+    return hits
+  }
+
+  /**
+   * Recompute the candidate list for the token under the cursor.
+   *
+   * Recomputed on every edit rather than only on Tab, which is what makes the
+   * menu appear as a command is typed instead of after a key that asks for it.
+   */
+  private refresh(): void {
+    const token = this.token()
+    const wholeLine = this.row === 0 && this.tokenStart() === 0
+    const line = this.lines[0] ?? ''
+    const command = /^\/([a-z][a-z0-9_-]*) /.exec(line)?.[1]
+    // The argument slot: the second word of a command line, cursor inside it.
+    const inArgument = this.row === 0 && command !== undefined
+      && this.tokenStart() === command.length + 2
+    if (token.startsWith('@')) {
+      const [values] = this.sources.paths(token)
+      this.candidates = values.map(value => ({ value, detail: '' }))
+    } else if (token.startsWith('$')) {
+      const typed = token.slice(1)
+      const skills = this.sources.skills?.() ?? []
+      this.candidates = rankContains(skills, typed, entry => entry.name).map(entry => ({
+        value: `$${entry.name}`,
+        detail: entry.description,
+      }))
+    } else if (wholeLine && token.startsWith('/')) {
+      this.candidates = rankContains(this.sources.commands(), token.slice(1), entry => entry.name)
+        .map(entry => ({ value: `/${entry.name}`, detail: entry.description }))
+    } else if (inArgument) {
+      this.candidates = [...this.sources.commandArguments?.(command, token) ?? []]
+    } else {
+      this.candidates = []
+    }
+    // An exact single match is not worth a menu; the word is already finished.
+    if (this.candidates.length === 1 && this.candidates[0]?.value === token) this.candidates = []
+    this.selected = 0
+  }
+
+  /** Remove the character before the cursor, joining lines at a boundary. */
+  private backspace(): EditorAction {
+    if (this.dropSelected()) {
+      this.refresh()
+      return { kind: 'none' }
+    }
+    if (this.column > 0) {
+      const cells = points(this.line())
+      // A pasted-image token is one thing: eaten a character at a time it
+      // would leave a fragment that still looks like a reference but no
+      // longer names its attachment. Same atomicity Claude Code gives it.
+      const token = /\[Image #\d+\]$/u.exec(cells.slice(0, this.column).join(''))
+      const width = token === null ? 1 : points(token[0]).length
+      cells.splice(this.column - width, width)
+      this.setLine(cells.join(''))
+      this.column -= width
+    } else if (this.row > 0) {
+      const previous = this.lines[this.row - 1] ?? ''
+      const current = this.line()
+      this.lines.splice(this.row - 1, 2, previous + current)
+      this.row -= 1
+      this.column = points(previous).length
+    }
+    this.refresh()
+    return { kind: 'none' }
+  }
+
+  /** Remove the character after the cursor, joining lines at a boundary. */
+  private forwardDelete(): EditorAction {
+    if (this.dropSelected()) {
+      this.refresh()
+      return { kind: 'none' }
+    }
+    const cells = points(this.line())
+    if (this.column < cells.length) {
+      cells.splice(this.column, 1)
+      this.setLine(cells.join(''))
+    } else if (this.row < this.lines.length - 1) {
+      const next = this.lines[this.row + 1] ?? ''
+      this.lines.splice(this.row, 2, this.line() + next)
+    }
+    this.refresh()
+    return { kind: 'none' }
+  }
+
+  /**
+   * Tell the model the width its rows wrap at.
+   * @param width - display columns per row, or undefined where nothing wraps.
+   */
+  setWrapWidth(width: number | undefined): void {
+    this.wrapWidth = width === undefined || width <= 0 ? undefined : width
+  }
+
+  /** Move up a line, or back through history from the first line. */
+  private moveUp(): EditorAction {
+    this.anchor = undefined
+    if (this.candidates.length > 0) {
+      this.selected = (this.selected - 1 + this.candidates.length) % this.candidates.length
+      return { kind: 'none' }
+    }
+    const stepped = this.step(-1)
+    if (stepped) return { kind: 'none' }
+    return this.recall(-1)
+  }
+
+  /** Move down a line, or forward through history from the last line. */
+  private moveDown(): EditorAction {
+    this.anchor = undefined
+    if (this.candidates.length > 0) {
+      this.selected = (this.selected + 1) % this.candidates.length
+      return { kind: 'none' }
+    }
+    const stepped = this.step(1)
+    if (stepped) return { kind: 'none' }
+    return this.recall(1)
+  }
+
+  /**
+   * Move the cursor one row, the way the person sees rows.
+   *
+   * A wrapped line is several rows on screen and one line here, so the width
+   * the box wraps at is what decides whether there is a row to move to. With
+   * no width — off a TTY — a logical line is the whole row.
+   * @param delta - -1 for the row above, 1 for the row below.
+   * @returns whether the cursor moved; if it did not, the edge belongs to history.
+   */
+  private step(delta: -1 | 1): boolean {
+    if (this.wrapWidth !== undefined) {
+      const next = visualStep(this.lines, this.row, this.column, delta, this.wrapWidth)
+      if (next === undefined) return false
+      this.row = next.row
+      this.column = next.column
+      return true
+    }
+    const target = this.row + delta
+    if (target < 0 || target > this.lines.length - 1) return false
+    this.row = target
+    this.column = Math.min(this.column, points(this.line()).length)
+    return true
+  }
+
+  /**
+   * Step through history.
+   * @param delta - -1 for older, 1 for newer.
+   * @returns always `none`.
+   */
+  private recall(delta: number): EditorAction {
+    const next = this.browsing + delta
+    if (next < 0 || next > this.history.length) return { kind: 'none' }
+    // The buffer being edited is set aside on the way in, so stepping past the
+    // newest entry gives it back rather than an empty prompt.
+    if (this.browsing === this.history.length) this.stashed = this.lines
+    this.browsing = next
+    const entry = next === this.history.length ? (this.stashed ?? ['']) : (this.history[next] ?? '').split('\n')
+    this.lines = [...entry]
+    this.row = this.lines.length - 1
+    this.column = points(this.line()).length
+    this.candidates = []
+    this.anchor = undefined
+    return { kind: 'none' }
+  }
+
+  /** Move the cursor one position left, wrapping to the previous line. */
+  private moveLeft(): EditorAction {
+    this.anchor = undefined
+    if (this.column > 0) this.column -= 1
+    else if (this.row > 0) {
+      this.row -= 1
+      this.column = points(this.line()).length
+    }
+    return { kind: 'none' }
+  }
+
+  /** Move the cursor one position right, wrapping to the next line. */
+  private moveRight(): EditorAction {
+    this.anchor = undefined
+    if (this.column < points(this.line()).length) this.column += 1
+    else if (this.row < this.lines.length - 1) {
+      this.row += 1
+      this.column = 0
+    }
+    return { kind: 'none' }
+  }
+
+  /**
+   * Put the cursor at a column on the current line.
+   * @param column - the target column.
+   * @returns always `none`.
+   */
+  private jump(column: number): EditorAction {
+    this.anchor = undefined
+    this.column = column
+    return { kind: 'none' }
+  }
+
+  /** Drop everything after the cursor on this line. */
+  private killLine(): EditorAction {
+    if (this.dropSelected()) {
+      this.refresh()
+      return { kind: 'none' }
+    }
+    this.setLine(points(this.line()).slice(0, this.column).join(''))
+    this.refresh()
+    return { kind: 'none' }
+  }
+
+  /** Drop everything before the cursor on this line. */
+  private killInput(): EditorAction {
+    if (this.dropSelected()) {
+      this.refresh()
+      return { kind: 'none' }
+    }
+    this.setLine(points(this.line()).slice(this.column).join(''))
+    this.column = 0
+    this.refresh()
+    return { kind: 'none' }
+  }
+
+  /** Move the cursor to the start of the word before it. */
+  private wordLeft(): EditorAction {
+    this.anchor = undefined
+    const cells = points(this.line())
+    let at = this.column
+    while (at > 0 && cells[at - 1] === ' ') at -= 1
+    while (at > 0 && cells[at - 1] !== ' ') at -= 1
+    this.column = at
+    return { kind: 'none' }
+  }
+
+  /** Move the cursor past the end of the word after it. */
+  private wordRight(): EditorAction {
+    this.anchor = undefined
+    const cells = points(this.line())
+    let at = this.column
+    while (at < cells.length && cells[at] === ' ') at += 1
+    while (at < cells.length && cells[at] !== ' ') at += 1
+    this.column = at
+    return { kind: 'none' }
+  }
+
+  /** Drop the word before the cursor. */
+  private killWord(): EditorAction {
+    if (this.dropSelected()) {
+      this.refresh()
+      return { kind: 'none' }
+    }
+    const cells = points(this.line())
+    let at = this.column
+    while (at > 0 && cells[at - 1] === ' ') at -= 1
+    while (at > 0 && cells[at - 1] !== ' ') at -= 1
+    this.setLine([...cells.slice(0, at), ...cells.slice(this.column)].join(''))
+    this.column = at
+    this.refresh()
+    return { kind: 'none' }
+  }
+
+  /**
+   * Open reverse search over history, stashing the draft.
+   * @returns always `none`.
+   */
+  private openSearch(): EditorAction {
+    this.search = {
+      query: '',
+      index: 0,
+      stash: [...this.lines],
+      row: this.row,
+      column: this.column,
+    }
+    this.candidates = []
+    this.applySearch()
+    return { kind: 'none' }
+  }
+
+  /**
+   * Keys while reverse-i-search is open.
+   * @param key - the decoded keystroke.
+   * @returns what the caller must do about it.
+   */
+  private handleSearch(key: Key): EditorAction {
+    switch (key.kind) {
+      case 'history-search':
+        if (this.search !== undefined) this.search.index += 1
+        this.applySearch()
+        return { kind: 'none' }
+      case 'text':
+        if (this.search !== undefined) {
+          this.search.query += key.text
+          this.search.index = 0
+        }
+        this.applySearch()
+        return { kind: 'none' }
+      case 'paste':
+        if (this.search !== undefined) {
+          this.search.query += key.text.replaceAll('\n', '')
+          this.search.index = 0
+        }
+        this.applySearch()
+        return { kind: 'none' }
+      case 'backspace':
+        if (this.search !== undefined && this.search.query.length > 0) {
+          this.search.query = points(this.search.query).slice(0, -1).join('')
+          this.search.index = 0
+        }
+        this.applySearch()
+        return { kind: 'none' }
+      case 'enter':
+        this.search = undefined
+        this.candidates = []
+        return { kind: 'none' }
+      case 'escape':
+        this.restoreSearchStash()
+        this.search = undefined
+        this.candidates = []
+        return { kind: 'none' }
+      case 'interrupt':
+        this.restoreSearchStash()
+        this.search = undefined
+        return { kind: 'interrupt' }
+      default:
+        return { kind: 'none' }
+    }
+  }
+
+  /** History entries matching the query, newest first. */
+  private searchHits(): string[] {
+    const query = this.search?.query ?? ''
+    const needle = query.toLowerCase()
+    const hits: string[] = []
+    for (let i = this.history.length - 1; i >= 0; i -= 1) {
+      const entry = this.history[i] ?? ''
+      if (needle === '' || entry.toLowerCase().includes(needle)) hits.push(entry)
+    }
+    return hits
+  }
+
+  /** Put the current hit in the buffer, or the stashed draft when none match. */
+  private applySearch(): void {
+    const hits = this.searchHits()
+    if (this.search !== undefined && this.search.index >= hits.length) {
+      this.search.index = Math.max(0, hits.length - 1)
+    }
+    const hit = hits[this.search?.index ?? 0]
+    if (hit === undefined) {
+      this.restoreSearchStash()
+      return
+    }
+    this.lines = hit.split('\n')
+    this.row = this.lines.length - 1
+    this.column = points(this.line()).length
+    this.candidates = []
+  }
+
+  /** Put the draft that search set aside back in the buffer. */
+  private restoreSearchStash(): void {
+    const stash = this.search?.stash
+    if (stash === undefined) return
+    this.lines = [...stash]
+    this.row = this.search?.row ?? 0
+    this.column = this.search?.column ?? 0
+  }
+
+  /**
+   * Close the menu, or report Escape when there is none to close.
+   * @returns `none` when a menu was dismissed, otherwise `escape`.
+   */
+  private cancel(): EditorAction {
+    if (this.candidates.length > 0) {
+      this.candidates = []
+      return { kind: 'none' }
+    }
+    if (this.anchor !== undefined) {
+      this.anchor = undefined
+      return { kind: 'none' }
+    }
+    return { kind: 'escape' }
+  }
+
+  /**
+   * Clamp a buffer position into the text that is actually there.
+   * @param row - a line index, possibly past either end.
+   * @param column - a code-point column, possibly past the line.
+   */
+  private clamp(row: number, column: number): { row: number; column: number } {
+    const at = Math.min(Math.max(0, row), this.lines.length - 1)
+    return { row: at, column: Math.min(Math.max(0, column), points(this.lines[at] ?? '').length) }
+  }
+
+  /**
+   * The selection's bounds in order, start first, or nothing when collapsed.
+   */
+  private orderedSelection(): { start: { row: number; column: number }; end: { row: number; column: number } } | undefined {
+    if (this.anchor === undefined) return undefined
+    const focus = { row: this.row, column: this.column }
+    const backwards = focus.row < this.anchor.row
+      || (focus.row === this.anchor.row && focus.column < this.anchor.column)
+    const start = backwards ? focus : this.anchor
+    const end = backwards ? this.anchor : focus
+    if (start.row === end.row && start.column === end.column) return undefined
+    return { start, end }
+  }
+
+  /**
+   * Delete the selected span, leaving the cursor at its start.
+   * @returns whether there was a span to drop.
+   */
+  private dropSelected(): boolean {
+    const range = this.orderedSelection()
+    this.anchor = undefined
+    if (range === undefined) return false
+    const first = points(this.lines[range.start.row] ?? '').slice(0, range.start.column)
+    const last = points(this.lines[range.end.row] ?? '').slice(range.end.column)
+    this.lines.splice(range.start.row, range.end.row - range.start.row + 1, [...first, ...last].join(''))
+    this.row = range.start.row
+    this.column = range.start.column
+    return true
+  }
+}

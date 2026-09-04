@@ -1,0 +1,33 @@
+{
+  "name": "codsh-cli",
+  "description": "A Claude Code-style coding agent for the terminal, composed on the DeepSeek Harness (dsh). This is the zero-dependency launcher: it finds your dsh, registers the codsh-bundle runtime into a profile, and boots it.",
+  "version": "0.15.4",
+  "type": "module",
+  "license": "MIT",
+  "bin": {
+    "codsh": "./bin/codsh.mjs"
+  },
+  "files": [
+    "bin",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=22.19"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Blackman99/codsh.git",
+    "directory": "packages/cli"
+  },
+  "keywords": [
+    "cli",
+    "coding-agent",
+    "terminal",
+    "deepseek",
+    "dsh",
+    "ai",
+    "agent"
+  ],
+  "homepage": "https://github.com/Blackman99/codsh#readme",
+  "bugs": "https://github.com/Blackman99/codsh/issues"
+}

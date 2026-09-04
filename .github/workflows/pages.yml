@@ -1,0 +1,49 @@
+name: Pages
+
+# The showcase site. Frames are committed HTML rather than fetched at runtime,
+# so the deploy is a file copy — and the one build step here exists to prove the
+# committed pages still match the captures they were generated from.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'site/**'
+      - 'scripts/site-frames.mjs'
+      - '.github/workflows/pages.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      # No install: the generator uses nothing but node builtins.
+      - name: Frames match the captures they came from
+        run: |
+          node scripts/site-frames.mjs
+          git diff --exit-code -- site || {
+            echo "::error::site pages are stale — run pnpm run site:build and commit"
+            exit 1
+          }
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+      - id: deploy
+        uses: actions/deploy-pages@v4

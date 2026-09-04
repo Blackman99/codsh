@@ -1,0 +1,63 @@
+name: Sync dsh
+
+# Keeps codsh in lockstep with DeepSeek Harness releases: every night (and on
+# demand) it checks the npm registry for a newer @deepseek-ai/dsh release and,
+# when one exists, opens a PR that bumps all dsh ranges, refreshes the
+# lockfile, re-verifies cordis.patch.yml against the new bundles, and lets the
+# regular CI (typecheck / build / unit / e2e) prove the tree still works.
+
+on:
+  schedule:
+    - cron: '17 3 * * *' # daily, 03:17 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Check for newer harness release
+        id: check
+        run: |
+          set +e
+          pnpm run sync:dsh --check
+          rc=$?
+          set -e
+          if [ "$rc" -eq 1 ]; then
+            echo "up_to_date=false" >> "$GITHUB_OUTPUT"
+          else
+            # 0 = in sync, anything else = a real error (fail the job)
+            [ "$rc" -eq 0 ] || exit "$rc"
+            echo "up_to_date=true" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Apply sync (bump, install, patch drift check, typecheck/build/test)
+        if: steps.check.outputs.up_to_date == 'false'
+        run: pnpm run sync:dsh
+      - name: Open or update sync PR
+        if: steps.check.outputs.up_to_date == 'false'
+        uses: peter-evans/create-pull-request@v6
+        with:
+          branch: chore/dsh-sync
+          delete-branch: true
+          title: 'chore: sync @deepseek-ai/dsh-* to the latest harness release'
+          commit-message: 'chore: sync @deepseek-ai/dsh-* dependencies'
+          body: |
+            A newer DeepSeek Harness release is out. This PR:
+
+            - bumps every `@deepseek-ai/dsh-*` (and co-released cordis) range in `package.json` and refreshes `pnpm-lock.yaml`,
+            - re-verifies `cordis.patch.yml` against the plugin ids the new bundles declare,
+            - writes a changeset so the next codsh release carries the bump.
+
+            Regular CI (typecheck, build, unit, e2e) runs on this PR automatically — it boots the real patched bundle with a mock model, so it is the authoritative proof that codsh still works on the new harness.
