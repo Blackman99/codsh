@@ -58,7 +58,7 @@ import type { CompletableCommand } from './completion.ts'
 import { indexConversationContent, newestCopyTargets, resolveCopyTarget } from './content-index.ts'
 import { TerminalConsole } from './console.ts'
 import { readClipboardImage } from './clipboard-image.ts'
-import { parsePlan, planRow } from './plan.ts'
+import { parsePlan, parseShipStatus, planRow } from './plan.ts'
 import type { Plan } from './plan.ts'
 import { Prompt } from './prompt.ts'
 import { shapeResume } from './resume.ts'
@@ -91,11 +91,11 @@ import {
 } from './vision.ts'
 import { TextStream } from './streaming.ts'
 import { PROFILE, bundleVersion, checkForUpdate, runtimeMove, runtimeRegisterCommand, runtimeSpec, runningDsh, updateCommand } from './update.ts'
-import { displayPath, formatTokens, formatTurnTime, gitBranch, statusLine, statusReport, totalTokens } from './status.ts'
+import { displayPath, formatTokens, formatTurnTime, gitBranch, shipChipFromSpec, statusLine, statusReport, totalTokens } from './status.ts'
 import { todoReport } from './todos.ts'
 import type { PendingImage } from './prompt.ts'
 import type { TodoList } from './todos.ts'
-import type { StatusFacts } from './status.ts'
+import type { ShipChip, StatusFacts } from './status.ts'
 import { backgroundIsLight, createTheme, truncate } from './theme.ts'
 import { FOLD_LABELS, Transcript, blockRules, thinkingFold } from './transcript.ts'
 import type { Theme } from './theme.ts'
@@ -923,19 +923,91 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
   const writtenDocs: string[] = []
   /** The plan that file holds, re-read when a round settles. */
   let shipPlan: Plan | undefined
-  /** Re-read the newest written document that holds a plan. */
+  /** MetaBar /ship chip derived from the spec; a gate overlay wins at paint. */
+  let shipChip: ShipChip | undefined
+  /** Tickets already ticked the last time the landing chip was adopted. */
+  let lastShipDone: number | undefined
+  /** True after `ship · done` flashed and the chip was cleared. */
+  let shipChipCleared = false
+  let shipFlashTimer: ReturnType<typeof setTimeout> | undefined
+  /** How long a land-ok flash or the done chip stays before the next paint. */
+  const SHIP_CHIP_FLASH_MS = 400
+  /** Assigned with refreshStatus: chip changes must repaint MetaBar. */
+  let onShipChip: () => void = () => {}
+  const clearShipFlash = (): void => {
+    if (shipFlashTimer === undefined) return
+    clearTimeout(shipFlashTimer)
+    shipFlashTimer = undefined
+  }
+  /**
+   * Set the orientation chip and optionally settle it after the flash window.
+   * @param next - the chip to show, or undefined to hide it.
+   * @param settle - `flash` drops land.flashOk; `clear` hides a done chip.
+   */
+  const setShipChip = (next: ShipChip | undefined, settle?: 'flash' | 'clear'): void => {
+    clearShipFlash()
+    shipChip = next
+    onShipChip()
+    if (settle === undefined || next === undefined) return
+    shipFlashTimer = setTimeout(() => {
+      shipFlashTimer = undefined
+      if (settle === 'clear') {
+        shipChip = undefined
+        shipChipCleared = true
+      } else if (next.kind === 'land') {
+        shipChip = { kind: 'land', k: next.k, n: next.n }
+      }
+      onShipChip()
+    }, SHIP_CHIP_FLASH_MS)
+    shipFlashTimer.unref()
+  }
+  /** Start a /ship run: grill until the spec names a later phase. */
+  const beginShip = (): void => {
+    shipChipCleared = false
+    lastShipDone = undefined
+    setShipChip({ kind: 'grill' })
+  }
+  /**
+   * Adopt the chip the spec now names. A rising done-count flashes land ok.
+   * @param markdown - the spec file's contents.
+   * @param plan - the plan parsed from that file.
+   */
+  const adoptShipChip = (markdown: string, plan: Plan): void => {
+    if (shipChipCleared) return
+    const status = parseShipStatus(markdown)
+    const usable = plan.tickets.length > 0 ? plan : undefined
+    const flash = usable !== undefined && lastShipDone !== undefined && usable.done > lastShipDone
+    if (usable !== undefined) lastShipDone = usable.done
+    const derived = shipChipFromSpec(status, usable, flash)
+    if (derived === undefined) return
+    if (derived.kind === 'done') {
+      if (shipChip?.kind === 'done') return
+      setShipChip(derived, 'clear')
+      return
+    }
+    setShipChip(derived, derived.kind === 'land' && derived.flashOk === true ? 'flash' : undefined)
+  }
+  /** Re-read the newest written document that holds a plan or a Status line. */
   const refreshPlan = (): void => {
+    let statusOnly: { markdown: string; plan: Plan } | undefined
     for (const path of writtenDocs.slice(0, 8)) {
       try {
-        const plan = parsePlan(readFileSync(path, 'utf8'))
-        if (plan.tickets.length === 0) continue
-        shipPlan = plan
-        prompt.setPlan(plan)
-        return
+        const markdown = readFileSync(path, 'utf8')
+        const plan = parsePlan(markdown)
+        if (plan.tickets.length > 0) {
+          shipPlan = plan
+          prompt.setPlan(plan)
+          adoptShipChip(markdown, plan)
+          return
+        }
+        if (statusOnly === undefined && parseShipStatus(markdown) !== undefined) {
+          statusOnly = { markdown, plan }
+        }
       } catch {
         // A spec that moved or will not read is simply not the progress.
       }
     }
+    if (statusOnly !== undefined) adoptShipChip(statusOnly.markdown, statusOnly.plan)
   }
   /**
    * Note a file the agent wrote, so its plan can be found later.
@@ -1504,6 +1576,14 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
     prompt.setStreaming(live)
   }
 
+  /**
+   * Gate from the open GateModal wins; otherwise the derived /ship chip.
+   * A bare shipGate keeps existing callers (and tests) painting a gate chip.
+   */
+  const shipFacts = (): Pick<StatusFacts, 'shipGate' | 'shipChip'> => {
+    if (prompt.shipGate !== undefined) return { shipGate: prompt.shipGate }
+    return shipChip === undefined ? {} : { shipChip }
+  }
   /** Push the always-current status row; the pipe shape prints it instead. */
   const refreshStatus = (): void => {
     if (!io.console.readsKeys) return
@@ -1511,13 +1591,14 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
       prompt.setStatus(theme.dim('subagent · Esc returns to the parent'))
       return
     }
-    prompt.setStatus(statusLine({ ...facts(branch), ...prompt.shipGate === undefined ? {} : { shipGate: prompt.shipGate } }, theme))
+    prompt.setStatus(statusLine({ ...facts(branch), ...shipFacts() }, theme))
     // Same cadence as the status row, for the same reason: the list is a fold
     // over the log, so anything cached here would report the turn before last.
     prompt.setTodos(todoList(ctx, live.agent))
   }
   if (sessionFolds.planMode) prompt.setAccent(text => theme.pending(text))
   onShipGate = (_gate) => { refreshStatus() }
+  onShipChip = () => { refreshStatus() }
   refreshStatus()
 
   /**
@@ -2079,7 +2160,7 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
       // On a terminal the status lives in the region, always current.
       refreshStatus()
     } else {
-      const status = statusLine({ ...facts(branch), ...prompt.shipGate === undefined ? {} : { shipGate: prompt.shipGate } }, theme, io.console.columns)
+      const status = statusLine({ ...facts(branch), ...shipFacts() }, theme, io.console.columns)
       if (status !== shownStatus) {
         prompt.write(status)
         shownStatus = status
@@ -2131,6 +2212,8 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
         continue
       }
       if (name === 'ship') {
+        beginShip()
+        refreshPlan()
         await answer(expandTemplate(SHIP_PROMPT, rest.trim()), { kind: 'plugin', plugin: 'coding-cli' }, images)
         continue
       }
