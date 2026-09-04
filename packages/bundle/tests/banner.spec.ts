@@ -38,7 +38,7 @@ describe('bannerLines', () => {
     expect(lines.some(line => line.includes('▀') || line.includes('▄'))).toBe(true)
     expect(lines.some(line => line.includes('✻ Welcome to codsh'))).toBe(true)
     expect(lines.join('\n')).toContain('deepseek-v4-flash')
-    expect(lines.join('\n')).toContain('/help · Tab · ⇧Tab plan · ESC · /exit')
+    expect(lines.join('\n')).toContain('/help · /status · Tab · ⇧Tab plan · ESC · /exit')
     expect(lines.join('\n')).not.toContain('for commands')
   })
 
@@ -47,7 +47,8 @@ describe('bannerLines', () => {
     const content = lines.filter(line => line !== '')
     expect(content).toHaveLength(2)
     expect(content[0]).toContain('✻ codsh · deepseek-v4-flash · /help')
-    expect(content[1]).toBe('session session-1 · Tab · ⇧Tab plan')
+    expect(content[1]).toBe('session session-1 · /status · ⇧Tab plan')
+    expect(content[1]).toContain('/status')
     expect(lines.some(line => line.includes('█') || line.includes('▀') || line.includes('▄'))).toBe(false)
     expect(lines.join('\n')).not.toContain('Welcome to codsh')
   })

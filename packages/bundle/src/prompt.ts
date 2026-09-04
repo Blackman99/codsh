@@ -1339,6 +1339,7 @@ export class Prompt {
     if (this.shortcutsOpen) {
       rows.push(this.theme.dim(truncate('  Ctrl+R history · Ctrl+F find · Ctrl+O folds · Ctrl+T todos · Ctrl+Z undo', columns)))
       rows.push(this.theme.dim(truncate('  Ctrl+V image · Shift-Enter newline · Esc interrupt · ? closes', columns)))
+      rows.push(this.theme.muted(truncate('  /status → model · permissions · tokens · context', columns)))
     }
     if (this.queued.length > 0) {
       const preview = this.queued[0]?.text ?? ''
