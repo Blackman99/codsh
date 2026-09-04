@@ -357,14 +357,14 @@ export class Selector {
     // The marker column says what each row is: `❯` is what Enter takes, and a
     // dim dot is only where the pointer rests. One column, two answers that
     // cannot be confused, and no second alphabet.
-    const marker = marked ? theme.user('❯') : index === this.hovered ? theme.dim('·') : ' '
+    const marker = marked ? theme.accent('❯') : index === this.hovered ? theme.dim('·') : ' '
     const box = this.spec.multi === true && !this.isCustom(index)
       ? (this.checked.has(this.matching()[index] ?? index) ? theme.success('◉ ') : theme.dim('○ '))
       : ''
     const number = theme.dim(`${index + 1}.`)
     const trail = detail === undefined || detail === '' ? '' : theme.dim(`  ${detail}`)
     // Colour, not merely bold: bold alone barely reads on a dark background.
-    const body = marked ? theme.bold(theme.tool(label)) : label
+    const body = marked ? theme.bold(theme.accent(label)) : label
     return truncate(`${marker} ${number} ${box}${body}${trail}`, columns)
   }
 }

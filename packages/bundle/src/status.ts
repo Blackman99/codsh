@@ -11,7 +11,7 @@ import { readFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { dirname, join, parse } from 'node:path'
 import type { ContextPressureProjection, TokenUsageProjection } from '@deepseek-ai/dsh-token-meter/client'
-import { truncate } from './theme.ts'
+import { displayWidth, truncate } from './theme.ts'
 import type { Theme } from './theme.ts'
 
 /** Everything one status line reports. */
@@ -158,40 +158,41 @@ export async function gitBranch(cwd: string): Promise<string | undefined> {
  * a fresh session reads as short rather than as broken.
  * @param facts - what to report.
  * @param theme - styling for the segments.
-   * @param columns - display columns available; a longer line is cut, never
-   *   wrapped. Omit to keep the full line, so a later paint can re-fit it.
-   * @returns the line, unstyled when the theme is plain.
-   */
-  export function statusLine(facts: StatusFacts, theme: Theme, columns?: number): string {
+ * @param columns - display columns available; a longer line is cut, never
+ *   wrapped. Omit to keep the full line, so a later paint can re-fit it.
+ * @returns the line, unstyled when the theme is plain.
+ */
+export function statusLine(facts: StatusFacts, theme: Theme, columns?: number): string {
   const left = contextLeftPercent(facts.context)
-  const total = totalTokens(facts.usage)
-  // Styled per segment, never as one wrapped line: an inner reset would end an
-  // outer style at the first coloured segment. The hierarchy is deliberate —
-  // the model keeps its identity colour, plan mode warns, a shrinking context
-  // escalates, and everything routine sits in the secondary gray.
-  const headroom = left === undefined
-    ? []
-    : [left <= 10
-      ? theme.error(`${left}% context left`)
-      : left <= 25 ? theme.pending(`${left}% context left`) : theme.dim(`${left}% context left`)]
-  // Ordered by what a narrow terminal should keep: truncation cuts from the
-  // right, and the workspace is both the longest segment and the one the banner
-  // already stated, so it goes last while spend and headroom stay visible.
-  const segments = [
-    theme.tool(facts.model),
-    ...facts.preset === undefined ? [] : [theme.dim(facts.preset)],
-    ...facts.permission === undefined ? [] : [theme.dim(facts.permission)],
-    ...facts.planMode ? [theme.pending('plan')] : [],
-    ...total === undefined ? [] : [theme.dim(`${formatTokens(total)} tokens`)],
-    ...headroom,
-    theme.dim(facts.branch === undefined ? displayPath(facts.cwd) : `${displayPath(facts.cwd)} (${facts.branch})`),
+  // Glance MetaBar: mode · model · cwd. Preset, permission, token totals, and
+  // routine context stay in `/status`; only alarming headroom surfaces here.
+  // Never accent on this line — accent is reserved for focus/selection.
+  const sep = theme.muted(' · ')
+  const mode = facts.planMode ? theme.warn('plan') : undefined
+  const model = theme.muted(facts.model)
+  const cwd = theme.muted(
+    facts.branch === undefined ? displayPath(facts.cwd) : `${displayPath(facts.cwd)} (${facts.branch})`,
+  )
+  const context = left === undefined || left > 25
+    ? undefined
+    : left <= 10 ? theme.err(`${left}%`) : theme.warn(`${left}%`)
+  // Drop whole segments until the line fits: cwd first, then model; keep mode
+  // and alarming context. Omit columns => full line for a later re-fit.
+  const tagged: { key: 'mode' | 'model' | 'context' | 'cwd'; text: string }[] = [
+    ...mode === undefined ? [] : [{ key: 'mode' as const, text: mode }],
+    { key: 'model', text: model },
+    ...context === undefined ? [] : [{ key: 'context' as const, text: context }],
+    { key: 'cwd', text: cwd },
   ]
-  const line = segments.join(theme.dim(' · '))
-  // A status line that wraps costs two rows above every prompt and stops being
-  // glanceable, so it is cut instead; truncation keeps the styling it can.
-  // Cutting is the paint's job when columns are known only then — a stored
-  // ellipsis cannot grow back when the terminal widens.
-  return columns === undefined ? line : truncate(line, columns)
+  if (columns === undefined) return tagged.map(part => part.text).join(sep)
+  const join = (parts: string[]): string => parts.join(sep)
+  let kept = tagged
+  for (const drop of ['cwd', 'model'] as const) {
+    if (displayWidth(join(kept.map(part => part.text))) <= columns) break
+    kept = kept.filter(part => part.key !== drop)
+  }
+  const line = join(kept.map(part => part.text))
+  return displayWidth(line) <= columns ? line : truncate(line, columns)
 }
 
 /**
