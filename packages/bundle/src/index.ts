@@ -197,6 +197,7 @@ function planModeFrom(events: readonly SessionEvent[]): boolean {
  * @param model - the model route answering this session.
  * @param presetId - the composed preset, when a roster resolved one.
  * @param branch - the checked-out branch, read once per prompt.
+ * @param folded - the whole-log folds, kept current by the surface.
  * @returns the facts to render.
  */
 function statusFacts(
@@ -206,20 +207,40 @@ function statusFacts(
   selection: ModelSelectionRef,
   presetId: string | undefined,
   branch: string | undefined,
+  folded: FoldedFacts,
 ): StatusFacts {
   const projections = ctx.get('sessionProjections')?.snapshot(agent.session).values
   return {
     // Read live: a /model switch must show at the next status render.
     model: selection.current?.model ?? '',
     preset: presetId,
-    permission: ctx.get('permissionPresets')?.current(agent.session.events),
-    planMode: planModeFrom(agent.session.events),
+    permission: folded.permission,
+    planMode: folded.planMode,
     cwd,
     branch,
     usage: projections?.tokenUsage,
     context: projections?.contextPressure,
   }
 }
+
+/**
+ * The status facts that are folds over the whole session log.
+ *
+ * Folding them inside every status read walked the entire log per streamed
+ * chunk and per tick of the working indicator: on a resumed 17,000-event
+ * session that was six seconds of a two-minute turn spent re-deriving two
+ * booleans. They are folded once per session and kept current by the events
+ * that can change them — see {@link KNOB_EVENTS} and `plan/mode`.
+ */
+interface FoldedFacts {
+  /** Whether plan mode is holding. */
+  planMode: boolean
+  /** Permission preset name, absent when none is composed. */
+  permission?: string | undefined
+}
+
+/** The events the permission preset fold reads; nothing else moves it. */
+const KNOB_EVENTS = new Set<string>(['permission/preset', 'sandbox/mode', 'approval/policy'])
 
 /**
  * The agent's todo list as the chrome's readout wants it.
@@ -572,8 +593,18 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
   }
   /** Nested view of a child subagent session; Esc restores the parent. */
   let viewing: { session: Session; transcript: Transcript } | undefined
+  const sessionFolds: FoldedFacts = { planMode: false }
+  /** Fold plan mode and the permission preset over the live session's log. */
+  const refold = (): void => {
+    const events = live.agent.session.events
+    sessionFolds.planMode = planModeFrom(events)
+    const permission = ctx.get('permissionPresets')?.current(events)
+    if (permission === undefined) delete sessionFolds.permission
+    else sessionFolds.permission = permission
+  }
+  refold()
   const facts = (branch: string | undefined): StatusFacts =>
-    statusFacts(ctx, live.agent, cwd, selection, presetId, branch)
+    statusFacts(ctx, live.agent, cwd, selection, presetId, branch, sessionFolds)
   io.console.setTitle(`dsh code — ${basename(cwd)}`)
 
   // Refreshed once per prompt. A command handler is synchronous, so it reports
@@ -1349,7 +1380,7 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
     // over the log, so anything cached here would report the turn before last.
     prompt.setTodos(todoList(ctx, live.agent))
   }
-  if (planModeFrom(live.agent.session.events)) prompt.setAccent(text => theme.pending(text))
+  if (sessionFolds.planMode) prompt.setAccent(text => theme.pending(text))
   refreshStatus()
 
   /**
@@ -1393,8 +1424,10 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
     // while a child view is open; only the transcript follows the view.
     if (session === live.agent.session) {
       if (event.type === 'plan/mode') {
+        sessionFolds.planMode = event.data.active
         prompt.setAccent(event.data.active ? text => theme.pending(text) : undefined)
       }
+      if (KNOB_EVENTS.has(event.type)) refold()
       refreshStatus()
       if (event.type === 'todo/write') prompt.setTodos(event.data.todos)
     }
@@ -1552,7 +1585,8 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
     approval.clear()
     turnBaseTokens = 0
     workflowRound = undefined
-    prompt.setAccent(planModeFrom(next.agent.session.events) ? text => theme.pending(text) : undefined)
+    refold()
+    prompt.setAccent(sessionFolds.planMode ? text => theme.pending(text) : undefined)
     if (replayLog) replay(next.agent.session, live.transcript, io, theme)
     refreshStatus()
   }
