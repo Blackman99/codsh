@@ -292,8 +292,9 @@ describe.skipIf(process.platform === 'win32')('dsh code Escape (real PTY)', () =
     const plain = output.replaceAll(/\u001B\[[0-9;?]*[A-Za-z]/gu, '')
     expect(plain).toContain('▲ plan mode')
     expect(plain).toContain('▼ plan mode off')
-    // The box frame carries the mode while it holds.
-    expect(output).toContain('\u001B[33m╭')
+    // Plan mode paints the frame with warn (bright yellow); idle focus uses accent cyan.
+    expect(output).toContain('\u001B[93m╭')
+    expect(output).toContain('\u001B[36m╭')
   }, E2E_TEST_TIMEOUT_MS)
 
   it('completes a command argument and runs it', async () => {
