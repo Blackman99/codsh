@@ -571,7 +571,10 @@ export class Transcript {
     // first so the stats and status survive a narrow terminal.
     const bullet = theme.ok('●')
     const done = failed ? theme.err('✗') : theme.ok('✔')
-    const head = [formatToolCardLine(theme, this.options.columns, bullet, title, suffix, done)]
+    // The screen paints the tool rule (`│ `) beside this line; budget the
+    // headline for what's left so `+n -m` cannot wrap onto the next row.
+    const ruleWidth = displayWidth(oneRow(this.rule || blockRules(theme).tool))
+    const head = [formatToolCardLine(theme, this.options.columns - ruleWidth, bullet, title, suffix, done)]
     // The fold swaps the WHOLE event's lines, so the expanded form repeats the
     // same head with the uncapped body under it.
     if (full !== undefined) {
