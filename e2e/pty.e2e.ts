@@ -84,18 +84,18 @@ const PASTE_END = '\u001B[201~'
 describe.skipIf(process.platform === 'win32')('dsh code Escape (real PTY)', () => {
   it('offers Escape as the interrupt on a terminal', async () => {
     const output = await drivePty('write', [
-      ['/help for commands', '/exit\n', 0],
+      ['Welcome to codsh', '/exit\n', 0],
     ])
 
     // The banner names whichever interrupt this surface can actually offer.
-    expect(output).toContain('ESC interrupts')
+    expect(output).toContain('⇧Tab plan · ESC')
     expect(output).not.toContain('Ctrl-C interrupts')
   }, E2E_TEST_TIMEOUT_MS)
 
   it('cancels a running turn and returns to the prompt', async () => {
     const output = await drivePty('slow', [
       // Start a turn whose tool occupies it.
-      ['/help for commands', 'take your time\n', 0],
+      ['Welcome to codsh', 'take your time\n', 0],
       // The command is running; press Escape alone.
       ['$ sleep', ESCAPE, 0],
       // The turn is cancelled, so the prompt comes back and accepts more.
@@ -122,7 +122,7 @@ describe.skipIf(process.platform === 'win32')('dsh code Escape (real PTY)', () =
       // What a terminal actually sends for a paste: the block wrapped in markers.
       // Without them a multi-line write is indistinguishable from fast typing
       // with Enters, and guessing is how a paste turns into several turns.
-      ['/help for commands', paste, 0],
+      ['Welcome to codsh', paste, 0],
       // The paste did not submit: the person still decides when to send it.
       ['second line of it', ENTER, 300],
       ['CODE_CLI_CALL_OK', `/exit${ENTER}`, 300],
@@ -142,7 +142,7 @@ describe.skipIf(process.platform === 'win32')('dsh code Escape (real PTY)', () =
     // actually given one, since Tab is inert without it.
     const output = await drivePty('write', [
       // `mock.cordis.patch.yml` is the overlay this harness writes into the cwd.
-      ['/help for commands', '@mo\t', 0],
+      ['Welcome to codsh', '@mo\t', 0],
       ['mock.cordis.patch.yml', '\n', 300],
       ['CODE_CLI_CALL_OK', '/exit\n', 300],
     ])
@@ -152,7 +152,7 @@ describe.skipIf(process.platform === 'win32')('dsh code Escape (real PTY)', () =
 
   it('repaints the live region as text streams in', async () => {
     const output = await drivePty('markdown', [
-      ['/help for commands', 'explain\n', 0],
+      ['Welcome to codsh', 'explain\n', 0],
       ['CODE_CLI_CALL_STREAM_DONE', '/exit\n', 300],
     ])
 
@@ -172,7 +172,7 @@ describe.skipIf(process.platform === 'win32')('dsh code Escape (real PTY)', () =
 
   it('draws a framed input box that closes on itself', async () => {
     const output = await drivePty('write', [
-      ['/help for commands', 'typed text', 0],
+      ['Welcome to codsh', 'typed text', 0],
       ['typed text', `${CLEAR}/exit${ENTER}`, 300],
     ])
 
@@ -191,7 +191,7 @@ describe.skipIf(process.platform === 'win32')('dsh code Escape (real PTY)', () =
   it('opens the completion menu as a command is typed', async () => {
     const output = await drivePty('write', [
       // No Tab: the menu has to appear from the typing itself.
-      ['/help for commands', '/p', 0],
+      ['Welcome to codsh', '/p', 0],
       ['Enter or leave plan mode', `${CLEAR}/exit${ENTER}`, 300],
     ])
 
@@ -207,7 +207,7 @@ describe.skipIf(process.platform === 'win32')('dsh code Escape (real PTY)', () =
 
   it('adds a line with Alt-Enter and submits the block with Enter', async () => {
     const output = await drivePty('write', [
-      ['/help for commands', `first${ESCAPE}${ENTER}second`, 0],
+      ['Welcome to codsh', `first${ESCAPE}${ENTER}second`, 0],
       ['second', ENTER, 300],
       ['CODE_CLI_CALL_OK', `/exit${ENTER}`, 300],
     ])
@@ -225,7 +225,7 @@ describe.skipIf(process.platform === 'win32')('dsh code Escape (real PTY)', () =
 
   it('recalls the previous submission with the up arrow', async () => {
     const output = await drivePty('write', [
-      ['/help for commands', `remembered text${ENTER}`, 0],
+      ['Welcome to codsh', `remembered text${ENTER}`, 0],
       ['CODE_CLI_CALL_OK', `${ESCAPE}[A`, 400],
       ['remembered text', `${CLEAR}/exit${ENTER}`, 400],
     ])
@@ -238,7 +238,7 @@ describe.skipIf(process.platform === 'win32')('dsh code Escape (real PTY)', () =
 
   it('puts an approval to the arrow keys and accepts on Enter', async () => {
     const output = await drivePty('bash', [
-      ['/help for commands', `run it${ENTER}`, 300],
+      ['Welcome to codsh', `run it${ENTER}`, 300],
       // The selector replaced the input box; Enter takes the marked default.
       ['Allow bash', ENTER, 400],
       ['CODE_CLI_CALL_OK', `/exit${ENTER}`, 400],
@@ -256,7 +256,7 @@ describe.skipIf(process.platform === 'win32')('dsh code Escape (real PTY)', () =
 
   it('denies an approval through its shortcut key', async () => {
     const output = await drivePty('bash', [
-      ['/help for commands', `run it${ENTER}`, 300],
+      ['Welcome to codsh', `run it${ENTER}`, 300],
       ['Allow bash', 'n', 400],
       ['CODE_CLI_CALL_DENIED', `/exit${ENTER}`, 400],
     ])
@@ -267,7 +267,7 @@ describe.skipIf(process.platform === 'win32')('dsh code Escape (real PTY)', () =
 
   it('keeps the status row live in the region', async () => {
     const output = await drivePty('write', [
-      ['/help for commands', `create the note${ENTER}`, 300],
+      ['Welcome to codsh', `create the note${ENTER}`, 300],
       ['CODE_CLI_CALL_OK', `/exit${ENTER}`, 400],
     ])
 
@@ -282,7 +282,7 @@ describe.skipIf(process.platform === 'win32')('dsh code Escape (real PTY)', () =
 
   it('toggles plan mode with Shift-Tab, both ways', async () => {
     const output = await drivePty('write', [
-      ['/help for commands', `${ESCAPE}[Z`, 400],
+      ['Welcome to codsh', `${ESCAPE}[Z`, 400],
       // The registry's bare /plan only ever enters; the second press must still
       // leave, or the key reads as broken.
       ['▲ plan mode', `${ESCAPE}[Z`, 500],
@@ -299,7 +299,7 @@ describe.skipIf(process.platform === 'win32')('dsh code Escape (real PTY)', () =
 
   it('completes a command argument and runs it', async () => {
     const output = await drivePty('write', [
-      ['/help for commands', `${ESCAPE}[Z`, 400],
+      ['Welcome to codsh', `${ESCAPE}[Z`, 400],
       // Typing the space after /plan opens the argument menu by itself.
       ['▲ plan mode', '/plan ', 500],
       ['leave plan mode', `\t${ENTER}`, 400],
@@ -314,7 +314,7 @@ describe.skipIf(process.platform === 'win32')('dsh code Escape (real PTY)', () =
   it('switches the model through the /model selector, all the way to the request', async () => {
     const output = await drivePty('write', [
       // Bare /model IS the request to pick one: the selector opens.
-      ['/help for commands', `/model${ENTER}`, 400],
+      ['Welcome to codsh', `/model${ENTER}`, 400],
       ['Switch model', `${ESCAPE}[B${ENTER}`, 500],
       // The pick is confirmed, and the next turn must be SERVED by it: the
       // mock names the model that answered, which is the only proof a switch
@@ -335,7 +335,7 @@ describe.skipIf(process.platform === 'win32')('dsh code Escape (real PTY)', () =
   it('ignores Escape at an idle prompt', async () => {
     const output = await drivePty('write', [
       // Press Escape with nothing running.
-      ['/help for commands', ESCAPE, 0],
+      ['Welcome to codsh', ESCAPE, 0],
       // Nothing should have happened, so there is no marker to wait for: settle,
       // then prove the surface is still reading by giving it real work.
       ['', 'create the note\n', 1000],
@@ -350,7 +350,7 @@ describe.skipIf(process.platform === 'win32')('dsh code Escape (real PTY)', () =
 
   it('streams thinking as a live line and collapses it to a summary', async () => {
     const output = await drivePty('reasoning', [
-      ['/help for commands', `think it over${ENTER}`, 300],
+      ['Welcome to codsh', `think it over${ENTER}`, 300],
       ['CODE_CLI_ANSWER after thinking', `/exit${ENTER}`, 400],
     ])
 
@@ -366,7 +366,7 @@ describe.skipIf(process.platform === 'win32')('dsh code Escape (real PTY)', () =
 
   it('recalls the previous message with a double Escape', async () => {
     const output = await drivePty('write', [
-      ['/help for commands', `create the note${ENTER}`, 300],
+      ['Welcome to codsh', `create the note${ENTER}`, 300],
       ['CODE_CLI_CALL_OK', ESCAPE, 400],
       // The first Escape at a quiet, empty prompt arms recall and says so.
       ['ESC again to edit', ESCAPE, 200],
@@ -403,7 +403,7 @@ describe.skipIf(process.platform === 'win32')('dsh code Escape (real PTY)', () =
   it('reads a long diff card in the pager on click, leaving the card collapsed', async () => {
     const clickCard = '\u001B[<0;6;{row:Write note.txt}M\u001B[<0;6;{row:Write note.txt}m'
     const output = await drivePty('tall', [
-      ['/help for commands', `create the tall note${ENTER}`, 300],
+      ['Welcome to codsh', `create the tall note${ENTER}`, 300],
       // 45 diff lines, collapsed to one ToolCard line: a click opens the reader.
       ['+45 -0', clickCard, 500],
       // ...and the click opens it over the conversation, not into it.
@@ -435,7 +435,7 @@ describe.skipIf(process.platform === 'win32')('dsh code Escape (real PTY)', () =
     const away = await mkdtemp('/tmp/codsh-away-')
     try {
       await drivePty('write', [
-        ['/help for commands', `note the away work${ENTER}`, 500],
+        ['Welcome to codsh', `note the away work${ENTER}`, 500],
         ['Write note.txt', `/exit${ENTER}`, 400],
       ], { cwd: away, env: { DSH_HOME: home } })
 
@@ -443,7 +443,7 @@ describe.skipIf(process.platform === 'win32')('dsh code Escape (real PTY)', () =
       // /private/var; the directory's own name is what both forms carry.
       const awayName = basename(away)
       const run = await drivePtySteps('write', [
-        ['/help for commands', `note the local work${ENTER}`, 500],
+        ['Welcome to codsh', `note the local work${ENTER}`, 500],
         // /clear retires this session, so the folder has one to offer back.
         ['Write note.txt', `/clear${ENTER}`, 500],
         ['new session session-', `/resume${ENTER}`, 700],
@@ -481,7 +481,7 @@ describe.skipIf(process.platform === 'win32')('dsh code Escape (real PTY)', () =
     // A narrow window, so one typed line is more than one row on screen.
     const long = 'const alpha = beta.gamma(delta, epsilon, zeta, eta, theta)'
     const run = await drivePtySteps('write', [
-      ['/help for commands', `remembered prompt${ENTER}`, 500],
+      ['Welcome to codsh', `remembered prompt${ENTER}`, 500],
       // Type the long line — 40 columns makes it several rows — then Up from
       // its last row.
       ['Write note.txt', long, 400],
@@ -506,7 +506,7 @@ describe.skipIf(process.platform === 'win32')('dsh code Escape (real PTY)', () =
     // Narrow window, lines far wider than it, deltas that ignore line ends —
     // the box repaints many times inside one line.
     const output = await drivePty('wide', [
-      ['/help for commands', `stream something wide${ENTER}`, 2_500],
+      ['Welcome to codsh', `stream something wide${ENTER}`, 2_500],
       ['WIDEDONE', `/exit${ENTER}`, 500],
     ], { columns: 60, rows: 16 })
 
@@ -531,7 +531,7 @@ describe.skipIf(process.platform === 'win32')('dsh code Escape (real PTY)', () =
     const path = join(dir, 'trace')
     try {
       const output = await drivePty('write', [
-        ['/help for commands', `note the work${ENTER}`, 600],
+        ['Welcome to codsh', `note the work${ENTER}`, 600],
         ['Write note.txt', `/exit${ENTER}`, 500],
       ], { columns: 60, rows: 16, env: { CODSH_TRACE: path } })
 
@@ -552,7 +552,7 @@ describe.skipIf(process.platform === 'win32')('dsh code Escape (real PTY)', () =
     // The spec file is where progress lives: one checkbox per ticket, ticked
     // as each lands. The working line reports it as soon as the file exists.
     const output = await drivePty('spec', [
-      ['/help for commands', `write the plan${ENTER}`, 900],
+      ['Welcome to codsh', `write the plan${ENTER}`, 900],
       // Spec body is folded; the one-liner is what lands on screen.
       ['Write plan.md', '', 900],
       ['', `/exit${ENTER}`, 500],
@@ -606,7 +606,7 @@ describe.skipIf(process.platform === 'win32')('dsh code Escape (real PTY)', () =
     const overRow = '\u001B[<35;6;{row:compact}M'
     const clickRow = '\u001B[<0;6;{row:compact}M\u001B[<0;6;{row:compact}m'
     const run = await drivePtySteps('write', [
-      ['/help for commands', '/', 500],
+      ['Welcome to codsh', '/', 500],
       ['compact', overRow, 400],
       // No wait: only the rows the hover changed are repainted.
       ['', clickRow, 500],
@@ -629,7 +629,7 @@ describe.skipIf(process.platform === 'win32')('dsh code Escape (real PTY)', () =
     const drag = '\u001B[<32;16;{row:hello world}M'
     const release = '\u001B[<0;16;{row:hello world}m'
     const run = await drivePtySteps('write', [
-      ['/help for commands', typed, 500],
+      ['Welcome to codsh', typed, 500],
       ['hello world', `${press}${drag}${release}`, 400],
       // Home drops the span and Ctrl-K clears the line so /exit is a command,
       // not a replacement of the selected text.
@@ -654,7 +654,7 @@ describe.skipIf(process.platform === 'win32')('dsh code Escape (real PTY)', () =
     const typed = 'alpha beta gamma delta epsilon zeta'
     const clickFirstRow = '\u001B[<0;10;{row:alpha}M\u001B[<0;10;{row:alpha}m'
     const run = await drivePtySteps('write', [
-      ['/help for commands', typed, 500],
+      ['Welcome to codsh', typed, 500],
       // The tail of the line is on the second row; `alpha` is on the first.
       ['zeta', clickFirstRow, 400],
       ['', 'X', 400],
@@ -675,7 +675,7 @@ describe.skipIf(process.platform === 'win32')('dsh code Escape (real PTY)', () =
     // somewhere to scroll to.
     const wheelDown = '\u001B[<65;10;{row:compact}M'.repeat(3)
     const run = await drivePtySteps('write', [
-      ['/help for commands', '/', 500],
+      ['Welcome to codsh', '/', 500],
       ['compact', wheelDown, 500],
       // Enter with a menu open finishes the word rather than submitting, so
       // the command it left has to be submitted before the box is free.
@@ -699,7 +699,7 @@ describe.skipIf(process.platform === 'win32')('dsh code Escape (real PTY)', () =
     // there — and the run has to end with the keyboard answering.
     const clickAlways = '\u001B[<0;6;{row:every bash}M\u001B[<0;6;{row:every bash}m'
     const run = await drivePtySteps('bash', [
-      ['/help for commands', `run it${ENTER}`, 600],
+      ['Welcome to codsh', `run it${ENTER}`, 600],
       ['Allow bash', clickAlways, 600],
       // Still asking: the click decided nothing.
       ['', 'n', 600],
@@ -716,7 +716,7 @@ describe.skipIf(process.platform === 'win32')('dsh code Escape (real PTY)', () =
   it('opens the ship plan in the panel, ticket by ticket', async () => {
     // The spec on disk is the plan; the panel is where the whole of it reads.
     const run = await drivePtySteps('spec', [
-      ['/help for commands', `write the plan${ENTER}`, 900],
+      ['Welcome to codsh', `write the plan${ENTER}`, 900],
       // The closed readout teases it; Ctrl+T opens the list.
       ['Ctrl+T opens the list', '\u0014', 700],
       ['SHIP_TICKET_THREE', '', 300],
@@ -741,7 +741,7 @@ describe.skipIf(process.platform === 'win32')('dsh code Escape (real PTY)', () =
   it('opens the ship plan on a click, the way a fold does', async () => {
     const clickOn = (line: string): string => `\u001B[<0;6;{row:${line}}M\u001B[<0;6;{row:${line}}m`
     const run = await drivePtySteps('spec', [
-      ['/help for commands', `write the plan${ENTER}`, 900],
+      ['Welcome to codsh', `write the plan${ENTER}`, 900],
       ['Ctrl+T opens the list', clickOn('Ctrl+T opens the list'), 700],
       ['Ctrl+T closes', clickOn('Ctrl+T closes'), 500],
       ['Ctrl+T opens the list', `/exit${ENTER}`, 400],
@@ -761,7 +761,7 @@ describe.skipIf(process.platform === 'win32')('dsh code Escape (real PTY)', () =
     // child answering as text. Until now this rendering had no terminal test
     // at all, because nothing could make a workflow run.
     const run = await drivePtySteps('workflow', [
-      ['/help for commands', `run the rounds${ENTER}`, 400],
+      ['Welcome to codsh', `run the rounds${ENTER}`, 400],
       ['completed', '', 400],
       ['', `/exit${ENTER}`, 500],
     ], { rows: 20 })
@@ -795,7 +795,7 @@ describe.skipIf(process.platform === 'win32')('dsh code Escape (real PTY)', () =
 
   it('toggles a collapsed output open with Ctrl-O, and keeps that choice on moving on', async () => {
     const output = await drivePty('tall', [
-      ['/help for commands', `create the tall note${ENTER}`, 300],
+      ['Welcome to codsh', `create the tall note${ENTER}`, 300],
       // 45 diff lines, collapsed to one line; Ctrl-O expands in place.
       ['+45 -0', '\u000F', 400],
       // ...Ctrl-O swaps the block for its full body, clipped tail included...
@@ -815,7 +815,7 @@ describe.skipIf(process.platform === 'win32')('dsh code Escape (real PTY)', () =
 
   it('pins the todo list in the chrome and opens it on Ctrl-T', async () => {
     const output = await drivePty('todo', [
-      ['/help for commands', `plan the work${ENTER}`, 300],
+      ['Welcome to codsh', `plan the work${ENTER}`, 300],
       // The readout names its own key, the way a fold names Ctrl-O...
       ['Ctrl+T opens the list', '\u0014', 400],
       // ...opens to every item...
@@ -855,7 +855,7 @@ describe.skipIf(process.platform === 'win32')('dsh code Escape (real PTY)', () =
   it('speaks the kitty keyboard protocol: pushed on entry, Shift+Enter breaks the line', async () => {
     const output = await drivePty('write', [
       // A kitty-capable terminal sends Shift+Enter as CSI 13;2u.
-      ['/help for commands', `first${ESCAPE}[13;2usecond`, 300],
+      ['Welcome to codsh', `first${ESCAPE}[13;2usecond`, 300],
       // Both halves in the box; Enter submits them as ONE message.
       ['second', ENTER, 400],
       ['CODE_CLI_CALL_OK', `/exit${ENTER}`, 400],
@@ -881,7 +881,7 @@ describe.skipIf(process.platform === 'win32')('dsh code Escape (real PTY)', () =
     const output = await drivePty('bash', [
       // The terminal reports focus, then answers the background question with
       // white — the decoder must consume both, never type them.
-      ['/help for commands', `${ESCAPE}[I${ESCAPE}]11;rgb:ffff/ffff/ffff\u0007run the command${ENTER}`, 300],
+      ['Welcome to codsh', `${ESCAPE}[I${ESCAPE}]11;rgb:ffff/ffff/ffff\u0007run the command${ENTER}`, 300],
       ['Allow bash', 'n', 400],
       ['CODE_CLI_CALL_DENIED', `/exit${ENTER}`, 400],
     ])
@@ -903,7 +903,7 @@ describe.skipIf(process.platform === 'win32')('dsh code Escape (real PTY)', () =
 
   it('selects with the mouse and copies on release', async () => {
     const output = await drivePty('write', [
-      ['/help for commands', `create the note${ENTER}`, 300],
+      ['Welcome to codsh', `create the note${ENTER}`, 300],
       // Press at the top of the prompt-anchored turn, drag through its answer,
       // release: the gesture IS the copy — no keystroke follows it.
       ['CODE_CLI_CALL_OK', `${ESCAPE}[<0;1;1M${ESCAPE}[<32;60;6M${ESCAPE}[<32;120;12M${ESCAPE}[<0;120;12m`, 400],
@@ -929,7 +929,7 @@ describe.skipIf(process.platform === 'win32')('dsh code Escape (real PTY)', () =
 
 it('paints a command that is a script as rows, never outside one', async () => {
     const output = await drivePty('heredoc', [
-      ['/help for commands', `run it${ENTER}`, 300],
+      ['Welcome to codsh', `run it${ENTER}`, 300],
       ['Allow bash', 'n', 400],
       ['CODE_CLI_CALL_DENIED', `/exit${ENTER}`, 400],
     ], { columns: 76, rows: 20 })
@@ -957,7 +957,7 @@ it('paints a command that is a script as rows, never outside one', async () => {
   it('copies a drag that leaves the transcript and is released over the input box', async () => {
     const bottom = String(PTY_ROWS)
     const output = await drivePty('write', [
-      ['/help for commands', `create the note${ENTER}`, 300],
+      ['Welcome to codsh', `create the note${ENTER}`, 300],
       // Press on the first row and sweep down past the last line, letting go on
       // the bottom row — the way a person selects everything on screen. The
       // rows below the transcript belong to the chrome, but the gesture belongs
@@ -980,7 +980,7 @@ it('paints a command that is a script as rows, never outside one', async () => {
 
   it('clears to a fresh session, then resumes the old one through the selector', async () => {
     const output = await drivePty('echo', [
-      ['/help for commands', `remember DELTA_ONE${ENTER}`, 300],
+      ['Welcome to codsh', `remember DELTA_ONE${ENTER}`, 300],
       ['remembered=yes', `/clear${ENTER}`, 400],
       ['new session session-', `/resume${ENTER}`, 400],
       // The retired session is the one on offer; Enter takes it.
@@ -999,7 +999,7 @@ it('paints a command that is a script as rows, never outside one', async () => {
 
   it('rules each block down its left edge, by what the block is', async () => {
     const output = await drivePty('write', [
-      ['/help for commands', `create the note${ENTER}`, 300],
+      ['Welcome to codsh', `create the note${ENTER}`, 300],
       ['CODE_CLI_CALL_OK', `/exit${ENTER}`, 400],
     ])
 
@@ -1014,7 +1014,7 @@ it('paints a command that is a script as rows, never outside one', async () => {
 
   it('replays history as folds, so a resumed long output still opens', async () => {
     const output = await drivePty('tall', [
-      ['/help for commands', `create the tall note${ENTER}`, 300],
+      ['Welcome to codsh', `create the tall note${ENTER}`, 300],
       // 45 diff lines, collapsed live to one ToolCard line...
       ['+45 -0', '\u000F', 400],
       // ...then explicitly expanded before session replacement.
@@ -1043,7 +1043,7 @@ it('paints a command that is a script as rows, never outside one', async () => {
 
   it('runs a ! line in the shell and the agent sees the output', async () => {
     const output = await drivePty('echo', [
-      ['/help for commands', `!echo BANG_PTY_7${ENTER}`, 300],
+      ['Welcome to codsh', `!echo BANG_PTY_7${ENTER}`, 300],
       ['bang=yes', `/exit${ENTER}`, 400],
     ])
 
@@ -1056,7 +1056,7 @@ it('paints a command that is a script as rows, never outside one', async () => {
   it('re-lays-out the whole viewport after a terminal resize', async () => {
     const narrow = 80
     const { output, offsets } = await drivePtySteps('write', [
-      ['/help for commands', `create the note${ENTER}`, 300],
+      ['Welcome to codsh', `create the note${ENTER}`, 300],
       // Shrink the window mid-session: every row has to be laid out again, and
       // a viewport repaint has no old frame to leave behind.
       ['CODE_CLI_CALL_OK', `@WINSZ:${PTY_ROWS}x${narrow}`, 600],
@@ -1094,7 +1094,7 @@ describe.skipIf(process.platform === 'win32')('remembered approvals (real PTY)',
     const cwd = await mkdtemp(join(tmpdir(), 'codsh-rules-'))
     try {
       const first = await drivePty('bash', [
-        ['/help for commands', `run it${ENTER}`, 300],
+        ['Welcome to codsh', `run it${ENTER}`, 300],
         // The third answer writes `bash(printf *)` to the project's personal rule file.
         ['Allow bash', 'd', 400],
         // The same command again: the rule answers, nobody is asked.
@@ -1112,7 +1112,7 @@ describe.skipIf(process.platform === 'win32')('remembered approvals (real PTY)',
       expect(written.allow).toEqual(['bash(printf *)'])
 
       const second = await drivePty('bash', [
-        ['/help for commands', `run it${ENTER}`, 300],
+        ['Welcome to codsh', `run it${ENTER}`, 300],
         ['CODE_CLI_CALL_OK', `/exit${ENTER}`, 400],
       ], { cwd })
       expect(second).not.toContain('Allow bash')
@@ -1131,7 +1131,7 @@ describe.skipIf(process.platform === 'win32')('undo and redo (real PTY)', () => 
     const undo = '\u001A'
     const redo = '\u001B[122;6u'
     const run = await drivePtySteps('write', [
-      ['/help for commands', 'hello', 0],
+      ['Welcome to codsh', 'hello', 0],
       ['hello', `${PASTE_START} pasted words${PASTE_END}`, 300],
       ['pasted words', undo, 300],
       ['', redo, 400],
@@ -1157,7 +1157,7 @@ describe.skipIf(process.platform === 'win32')('desktop notifications (real PTY)'
   it('notifies through the terminal while the window is unfocused, naming what waits', async () => {
     const output = await drivePty('bash', [
       // The window reports focus out, then a turn asks for approval.
-      ['/help for commands', `${ESCAPE}[Orun it${ENTER}`, 300],
+      ['Welcome to codsh', `${ESCAPE}[Orun it${ENTER}`, 300],
       ['Allow bash', 'n', 400],
       ['CODE_CLI_CALL_DENIED', `/exit${ENTER}`, 400],
     ])
@@ -1169,7 +1169,7 @@ describe.skipIf(process.platform === 'win32')('desktop notifications (real PTY)'
 describe.skipIf(process.platform === 'win32')('compaction feedback (real PTY)', () => {
   it('leaves a fold after /compact that names what was summarized, and opens on Ctrl+O', async () => {
     const output = await drivePty('markdown', [
-      ['/help for commands', `first question${ENTER}`, 300],
+      ['Welcome to codsh', `first question${ENTER}`, 300],
       ['CODE_CLI_CALL_STREAM_DONE', `second question${ENTER}`, 600],
       ['CODE_CLI_CALL_STREAM_DONE', `/compact${ENTER}`, 600],
       ['into a summary', '\u000F', 600],
@@ -1186,7 +1186,7 @@ describe.skipIf(process.platform === 'win32')('compaction feedback (real PTY)', 
 describe.skipIf(process.platform === 'win32')('rewind (real PTY)', () => {
   it('forks the conversation from before a chosen turn and continues there', async () => {
     const output = await drivePty('write', [
-      ['/help for commands', `first request${ENTER}`, 300],
+      ['Welcome to codsh', `first request${ENTER}`, 300],
       ['CODE_CLI_CALL_OK', `second request${ENTER}`, 400],
       ['CODE_CLI_CALL_OK', `third request${ENTER}`, 400],
       // The picker opens newest first; Enter takes back the last turn.

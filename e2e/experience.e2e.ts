@@ -53,8 +53,10 @@ describe.skipIf(process.platform === 'win32')('the first five minutes', () => {
       ['new session', `/exit${ENTER}`, 500],
     ])
     const rows = screenAt(output, 'new session').alternate
-    // The fresh session greets like the first one did, and the old turn is gone.
-    expect(rows.some(row => row.includes('✻ Welcome to codsh'))).toBe(true)
+    // Same workspace: /clear is a returning welcome (2 lines), not first-run ASCII.
+    expect(rows.some(row => row.includes('✻ codsh'))).toBe(true)
+    expect(rows.some(row => row.includes('⇧Tab plan'))).toBe(true)
+    expect(rows.some(row => row.includes('Welcome to codsh'))).toBe(false)
     expect(rows.some(row => row.includes('Write note.txt'))).toBe(false)
   }, E2E_TEST_TIMEOUT_MS)
 
@@ -234,7 +236,7 @@ describe.skipIf(process.platform === 'win32')('the first five minutes', () => {
     // What was on screen before it is still above it. On a 24-row terminal the
     // taller chrome scrolls the lettermark off, so the welcome's help line —
     // still on screen — is the witness that the command took no viewport.
-    expect(shown.slice(0, echo).join('\n')).toContain('Tab completes')
+    expect(shown.slice(0, echo).join('\n')).toContain('/help · Tab')
   }, E2E_TEST_TIMEOUT_MS)
 
   it('gives the anchored prompt back when the reader wheels home again', async () => {

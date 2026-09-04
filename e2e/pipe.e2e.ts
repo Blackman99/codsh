@@ -203,7 +203,7 @@ describe('dsh code (real profile, keyless model)', () => {
     const run = await runCodeCli({ tool: 'write', input: 'create the note\n/exit\n' })
 
     // The banner frames what answered; the status line carries it per prompt.
-    expect(run.stdout).toContain('dsh code · cli-mock · code-cli')
+    expect(run.stdout).toContain('Welcome to codsh · cli-mock')
     expect(run.stdout).toMatch(/cli-mock/)
     // A turn reports what it cost, which is the figure a person acts on.
     expect(run.stdout).toMatch(/\d+\.\ds · \d+ tokens/)
