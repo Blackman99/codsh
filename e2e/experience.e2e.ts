@@ -53,8 +53,10 @@ describe.skipIf(process.platform === 'win32')('the first five minutes', () => {
       ['new session', `/exit${ENTER}`, 500],
     ])
     const rows = screenAt(output, 'new session').alternate
-    // The fresh session greets like the first one did, and the old turn is gone.
-    expect(rows.some(row => row.includes('✻ Welcome to codsh'))).toBe(true)
+    // Same workspace: /clear is a returning welcome (2 lines), not first-run ASCII.
+    expect(rows.some(row => row.includes('✻ codsh'))).toBe(true)
+    expect(rows.some(row => row.includes('⇧Tab plan'))).toBe(true)
+    expect(rows.some(row => row.includes('Welcome to codsh'))).toBe(false)
     expect(rows.some(row => row.includes('Write note.txt'))).toBe(false)
   }, E2E_TEST_TIMEOUT_MS)
 
