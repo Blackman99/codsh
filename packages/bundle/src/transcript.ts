@@ -12,6 +12,7 @@
 import { structuredPatch } from 'diff'
 // The `./types` entry carries the session-event augmentation for
 // `tool-workflow/*`, which is how a workflow's progress reaches this surface.
+import type {} from '@deepseek-ai/dsh-compaction/types'
 import type { ToolWorkflowAgentStartData } from '@deepseek-ai/dsh-tool-workflow/types'
 import { unifiedDiffText } from './diff.ts'
 import { formatElapsed } from './status.ts'
@@ -155,7 +156,7 @@ export function blockRules(theme: Theme): { user: string, tool: string, error: s
  * A tool block answers with its card's own title, which is already on screen;
  * thinking has no title of its own, so this is its.
  */
-export const FOLD_LABELS = { thinking: 'thinking' } as const
+export const FOLD_LABELS = { thinking: 'thinking', summary: 'compaction summary' } as const
 
 /**
  * The child session a continuable subagent result names, when the card can
@@ -352,6 +353,24 @@ export class Transcript {
         const lines = todoReport(event.data.todos, theme, this.options.columns)
         return lines.length === 0 ? [] : [...lines, '']
       }
+      // Compaction — automatic under pressure, or `/compact` — used to leave no
+      // trace but the shorter context: its summary replaces history through a
+      // `user/message` this renderer drops. The summary event is the moment to
+      // say what happened, and the summary itself is what the fold keeps.
+      case 'compaction/summary': {
+        this.rule = rules.tool
+        const items = event.data.shadowedSeqs.length
+        const head = theme.dim(`✂ compacted ${String(items)} history item${items === 1 ? '' : 's'} (~${String(event.data.shadowedTokenCount)} tokens) into a summary · ${event.data.model}`)
+        const summary = visibleText(event.data.summary)
+        const body = summary === '' ? [theme.dim('  (empty summary)')] : renderMarkdown(summary, theme).map(line => `  ${line}`)
+        this.fold = [head, ...body, '']
+        this.label = FOLD_LABELS.summary
+        return [head, theme.dim(`  … ${String(body.length)} lines of summary (click or Ctrl+O expands)`), '']
+      }
+      case 'compaction/end':
+        if (event.data.error === undefined) return []
+        this.rule = rules.error
+        return [theme.error(`✗ compaction failed: ${event.data.error}`), '']
       case 'plan/mode':
         return event.data.active
           ? [theme.pending('▲ plan mode — exploring only; no files will change until you approve a plan'), '']

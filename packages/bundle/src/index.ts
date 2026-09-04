@@ -830,6 +830,8 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
   // The round a workflow is on. A ralph loop spends minutes inside one round,
   // and the working line is the only thing moving while it does.
   let workflowRound: string | undefined
+  /** Whether the hint row is ours: a compaction announced itself there. */
+  let compacting = false
   /**
    * Markdown files this session watched the agent write, newest first.
    *
@@ -1455,6 +1457,20 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
     if (session !== live.agent.session) return
     if (event.type === 'tool/call') spinner.setActivity(toolActivity(event.data.name))
     if (event.type === 'tool/result') spinner.setActivity('working')
+    // Compaction says so while it runs — the spinner's verb during a turn, the
+    // hint row between turns for `/compact` — and gives the row back after.
+    if (event.type === 'compaction/start') {
+      spinner.setActivity('Compacting')
+      prompt.setHint(theme.dim('  ✂ compacting history…'))
+      compacting = true
+    }
+    if (event.type === 'compaction/end') {
+      spinner.setActivity('working')
+      if (compacting) {
+        compacting = false
+        prompt.setHint(undefined)
+      }
+    }
     if (event.type === 'tool-workflow/agent-start') workflowRound = event.data.label
     if (event.type === 'tool-workflow/agent-end' || event.type === 'tool-workflow/run-end') workflowRound = undefined
     // A round settles by ticking its checkbox, so the plan is re-read at the

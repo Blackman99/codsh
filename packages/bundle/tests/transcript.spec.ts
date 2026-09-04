@@ -712,3 +712,51 @@ describe('naming a pending call', () => {
     expect(transcript.callSummary('never')).toBeUndefined()
   })
 })
+
+describe('compaction', () => {
+  const summaryEvent = (summary: string, items: number, tokens: number): SessionEvent => ({
+    type: 'compaction/summary',
+    seq: 9,
+    time: 0,
+    data: {
+      compactionId: 'cp1',
+      summary: [{ type: 'text', text: summary }],
+      shadowedRange: { start: 1, end: items },
+      shadowedSeqs: Array.from({ length: items }, (_, index) => index + 1),
+      shadowedTokenCount: tokens,
+      provider: 'cli-mock',
+      model: 'cli-mock',
+      rawOutput: [{ type: 'text', text: summary }],
+      llmStreamCall: true,
+    },
+  } as unknown as SessionEvent)
+
+  it('leaves a fold saying what became a summary, with the summary inside', () => {
+    const transcript = build()
+    const lines = transcript.render(summaryEvent('# Recap\n\nWe fixed the **bug**.', 6, 545))
+    expect(lines[0]).toContain('✂ compacted 6 history items (~545 tokens) into a summary · cli-mock')
+    expect(lines[1]).toContain('lines of summary (click or Ctrl+O expands)')
+    const full = transcript.takeFold() ?? []
+    expect(full[0]).toBe(lines[0])
+    expect(full.join('\n')).toContain('Recap')
+    expect(full.join('\n')).toContain('bug')
+    expect(transcript.takeLabel()).toBe('compaction summary')
+  })
+
+  it('counts one item in the singular and says when the summary is empty', () => {
+    const transcript = build()
+    const lines = transcript.render(summaryEvent('', 1, 12))
+    expect(lines[0]).toContain('compacted 1 history item (~12 tokens)')
+    expect((transcript.takeFold() ?? []).join('\n')).toContain('(empty summary)')
+  })
+
+  it('reports a failed compaction, and says nothing for its start or a clean end', () => {
+    const transcript = build()
+    const start = { type: 'compaction/start', seq: 8, time: 0, data: { compactionId: 'cp1', turn: null } } as unknown as SessionEvent
+    const clean = { type: 'compaction/end', seq: 10, time: 0, data: { compactionId: 'cp1', turn: null } } as unknown as SessionEvent
+    const failed = { type: 'compaction/end', seq: 10, time: 0, data: { compactionId: 'cp1', turn: null, error: 'summary did not shrink' } } as unknown as SessionEvent
+    expect(transcript.render(start)).toEqual([])
+    expect(transcript.render(clean)).toEqual([])
+    expect(transcript.render(failed)).toEqual([theme.error('✗ compaction failed: summary did not shrink'), ''])
+  })
+})

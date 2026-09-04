@@ -1158,3 +1158,20 @@ describe.skipIf(process.platform === 'win32')('desktop notifications (real PTY)'
     expect(notices).toEqual(['waiting for approval: bash: printf CODE_CLI_ROUND_TRIP'])
   }, E2E_TEST_TIMEOUT_MS)
 })
+
+describe.skipIf(process.platform === 'win32')('compaction feedback (real PTY)', () => {
+  it('leaves a fold after /compact that names what was summarized, and opens on Ctrl+O', async () => {
+    const output = await drivePty('markdown', [
+      ['/help for commands', `first question${ENTER}`, 300],
+      ['CODE_CLI_CALL_STREAM_DONE', `second question${ENTER}`, 600],
+      ['CODE_CLI_CALL_STREAM_DONE', `/compact${ENTER}`, 600],
+      ['into a summary', '\u000F', 600],
+      ['', `/exit${ENTER}`, 800],
+    ], { timeoutMs: 60_000 })
+    const plain = output.replaceAll(/\u001B\[[0-9;?]*[A-Za-z]/gu, '')
+    expect(plain).toMatch(/✂ compacted \d+ history items \(~\d+ tokens\) into a summary · cli-mock/u)
+    expect(plain).toContain('lines of summary (click or Ctrl+O expands)')
+    // dsh's own report still prints: the fold adds the summary, not a second count.
+    expect(plain).toMatch(/Compacted \d+ history items/u)
+  }, E2E_TEST_TIMEOUT_MS)
+})
