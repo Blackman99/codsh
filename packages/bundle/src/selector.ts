@@ -242,10 +242,13 @@ export class Selector {
     const letter = text.toLowerCase()
     if (this.spec.filterable === true) {
       if (this.query === '') {
-        // Filterable lists (`/model`, `/jump`, …) keep letters for the query,
-        // except `e` when a custom row is offered — that is edit, not a filter.
+        // Empty query: reserved letters settle like the unfiltered picker.
+        // Once a filter is started, letters (including y) stay in the query.
         if (this.spec.custom !== undefined && letter === 'e') {
           return { kind: 'done', outcome: { kind: 'custom' } }
+        }
+        if (this.spec.multi !== true && letter === 'y') {
+          return this.accept(this.selected)
         }
         const shortcut = this.spec.options.findIndex(option => option.shortcut === letter)
         if (shortcut >= 0) return this.acceptOriginal(shortcut)
@@ -269,7 +272,7 @@ export class Selector {
     }
     // `y` ≡ Enter on single-select: take the focused row, same muscle memory
     // as Gate/Frontier. An option shortcut `y` is shadowed on purpose — take
-    // means the mark, not "yes". Filterable lists do not bind it (above).
+    // means the mark, not "yes".
     if (this.spec.multi !== true && letter === 'y') {
       return this.accept(this.selected)
     }
@@ -345,13 +348,21 @@ export class Selector {
     }
     const below = total - first - VISIBLE_ROWS
     if (below > 0) rows.push(theme.dim(`  ↓ ${below} more`))
-    // Dim, never err: back is leave, not abort. `[e] edit` only when a
-    // custom/free-text row is offered — multi-select alone has no edit path.
-    const how = this.spec.custom === undefined
-      ? '[enter] take · [esc] back'
-      : '[enter] take · [e] edit · [esc] back'
-    rows.push(theme.dim(truncate(`  ${how}`, columns)))
+    rows.push(truncate(this.footer(theme), columns))
     return rows
+  }
+
+  /**
+   * Shared take / edit / back chrome. Take keys are ok (green); Esc is warn,
+   * never err — back is leave, not abort. `[y] take` only on single-select,
+   * where `y` is bound; `[e] edit` only when a custom row is offered.
+   */
+  private footer(theme: Theme): string {
+    const parts = [`${theme.ok('[enter]')} take`]
+    if (this.spec.multi !== true) parts.push(`${theme.ok('[y]')} take`)
+    if (this.spec.custom !== undefined) parts.push(`${theme.muted('[e]')} edit`)
+    parts.push(`${theme.warn('[esc]')} back`)
+    return `  ${parts.join(' · ')}`
   }
 
   /**

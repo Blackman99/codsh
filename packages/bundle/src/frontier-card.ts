@@ -153,7 +153,8 @@ export class FrontierCard {
       body.push(framed(this.optionRow(option, index === this.focus, theme, inner), theme, inner))
     }
     // Shared vocabulary: take / edit; Esc is back (dismiss), never abort.
-    const hint = theme.muted('[y] take · [e] edit · [↑↓] pick')
+    // y is ok (green); arrows are accent (cyan). No n.
+    const hint = `${theme.ok('[y]')} take · [e] edit · ${theme.accent('[↑↓]')} pick`
     const rows = [top, ...body, framed(truncate(hint, inner), theme, inner), bottom]
     return {
       rows: rows.map(row => truncate(row, width)),
