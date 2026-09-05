@@ -36,7 +36,7 @@ import { admitEncodedImages, isImageAdmissionError } from '@deepseek-ai/dsh-atta
 import type { EncodedImageAttachment } from '@deepseek-ai/dsh-attachment/types'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
-import { SessionId } from '@deepseek-ai/dsh-session'
+import { SessionId, SessionLogOffset } from '@deepseek-ai/dsh-session'
 import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-session-query'
 import type { ToolResult } from '@deepseek-ai/dsh-tools'
@@ -179,7 +179,7 @@ async function priorSessionInWorkspace(ctx: Context, cwd: string, session: Sessi
   const query = ctx.get('sessionQuery')
   if (query === undefined) return false
   const records = await query.listSessions()
-  const currentHasTurn = session.events.some(
+  const currentHasTurn = session.snapshotEvents().some(
     event => event.type === 'turn/end' || event.type === 'user/message',
   )
   return records.some((record) => {
@@ -318,7 +318,7 @@ function replay(session: Session, transcript: Transcript, io: CliIo, theme: Them
  * @param theme - styling for the replayed thinking folds.
  */
 function replayEvents(session: Session, transcript: Transcript, io: CliIo, theme: Theme): void {
-  for (const event of session.events) {
+  for (const event of session.snapshotEvents()) {
     // Thinking is in the log but not in the renderer's visible text: replay it
     // the way the turn showed it, one dim line with the deliberation behind
     // Ctrl+O, so a resumed session is that session rather than a redacted copy.
@@ -575,10 +575,11 @@ async function compose(ctx: Context, config: Config, cwd: string): Promise<Compo
     // The factory's own fork path: a balanced completed-turn prefix as the
     // seed, lineage in the header. The store's live `fork` makes a child no
     // agent can then be resumed onto, so it is not the route.
-    const seed = source.events.filter(event => event.seq <= boundary)
+    const seed = source.snapshotEvents().filter(event => event.seq <= boundary)
     return agents.create({
       sessionId: SessionId(`session-${randomUUID()}`),
-      meta: { cwd, parentSession: source.id, seedLength: seed.length, ...preset === undefined ? {} : { agentPreset: preset.id } },
+      meta: { cwd, parentSession: source.id, isSeeded: true, ...preset === undefined ? {} : { agentPreset: preset.id } },
+      inheritedEventCount: SessionLogOffset(seed.length),
       seed,
       agentOptions,
       setup,
@@ -651,9 +652,9 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
   const sessionFolds: FoldedFacts = { planMode: false }
   /** Fold plan mode and the permission preset over the live session's log. */
   const refold = (): void => {
-    const events = live.agent.session.events
-    sessionFolds.planMode = planModeFrom(events)
-    const permission = ctx.get('permissionPresets')?.current(events)
+    const session = live.agent.session
+    sessionFolds.planMode = planModeFrom(session.snapshotEvents())
+    const permission = ctx.get('permissionPresets')?.current(session)
     if (permission === undefined) delete sessionFolds.permission
     else sessionFolds.permission = permission
   }
@@ -813,14 +814,14 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
     const offer = (values: { value: string; detail: string }[]): { value: string; detail: string }[] =>
       values.filter(entry => entry.value.startsWith(typed))
     if (command === 'plan') {
-      return planModeFrom(live.agent.session.events)
+      return planModeFrom(live.agent.session.snapshotEvents())
         ? offer([{ value: 'off', detail: 'leave plan mode' }])
         : []
     }
     if (command === 'permission') {
       const presets = ctx.get('permissionPresets')
       if (presets === undefined) return []
-      const current = presets.current(live.agent.session.events)
+      const current = presets.current(live.agent.session)
       return offer(presets.names.map(name => ({ value: name, detail: name === current ? 'current' : '' })))
     }
     if (command === 'ui') {
@@ -865,7 +866,7 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
     // so the current fold decides which line to send — without it a second
     // Shift-Tab would do nothing, which reads as a broken key.
     shiftTab: () => {
-      const line = planModeFrom(live.agent.session.events) ? '/plan off' : '/plan'
+      const line = planModeFrom(live.agent.session.snapshotEvents()) ? '/plan off' : '/plan'
       void commands?.execute(live.agent, line, [], new AbortController().signal)
     },
     // Ctrl-O toggles every collapsed block — tool output and thinking alike —
@@ -1173,7 +1174,7 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
         // before the chosen turn opened, and the fork is what the session
         // becomes. The original stays where /resume can find it.
         if (live.agent.status === 'running') return { kind: 'error', text: 'a turn is running — interrupt it before rewinding' }
-        const points = rewindPoints(live.agent.session.events)
+        const points = rewindPoints(live.agent.session.snapshotEvents())
         if (points.length === 0) return { kind: 'success', text: 'no turns to rewind yet' }
         const typed = rawInput.trim()
         let point: RewindPoint | undefined
@@ -1255,7 +1256,7 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
       input: { hint: '[answer[:code]]' },
       handler: async ({ rawInput, signal }) => {
         if (!io.console.readsKeys) return { kind: 'error', text: '/copy requires an interactive terminal' }
-        const targets = indexConversationContent((viewing?.session ?? live.agent.session).events)
+        const targets = indexConversationContent((viewing?.session ?? live.agent.session).snapshotEvents())
         if (targets.length === 0) return { kind: 'success', text: 'no copyable assistant answers' }
         const typed = rawInput.trim()
         let target = typed === '' ? undefined : resolveCopyTarget(targets, typed)
@@ -1289,7 +1290,7 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
       input: { hint: '[answer[:code]]' },
       handler: async ({ rawInput, signal }) => {
         if (!io.console.readsKeys) return { kind: 'error', text: '/view requires an interactive terminal' }
-        const targets = indexConversationContent((viewing?.session ?? live.agent.session).events)
+        const targets = indexConversationContent((viewing?.session ?? live.agent.session).snapshotEvents())
         if (targets.length === 0) {
           prompt.setFlash(theme.error('  /view · no viewable assistant answers'))
           return { kind: 'success' }
@@ -1868,7 +1869,7 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
       io.console.readsKeys ? async (spec, signal) => prompt.gate(spec, signal) : undefined,
       io.console.readsKeys ? async (spec, signal) => prompt.frontier(spec, signal) : undefined,
     )
-    questions.registerProvider({ ask: async request => whileDeciding(() => terminalQuestions.ask(request), 'your answer') })
+    ctx.on('user-questions/request', request => whileDeciding(() => terminalQuestions.ask(request), 'your answer'))
   }
 
   // The controller in flight belongs to the slash command being executed, so

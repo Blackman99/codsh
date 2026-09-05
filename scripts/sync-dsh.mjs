@@ -169,7 +169,7 @@ const dshLatest = selectDshTarget(dshMeta, dshRange)
 if (dshLatest !== dshMeta['dist-tags'].latest) {
   console.log(`note: @deepseek-ai/dsh publishes ${dshLatest}, but its latest tag still reads ${dshMeta['dist-tags'].latest}\n`)
 }
-const extra = ['@deepseek-ai/cordis', '@deepseek-ai/cordis-plugin-loader', '@deepseek-ai/schemastery']
+const extra = ['@deepseek-ai/cordis', '@deepseek-ai/cordis-plugin-group', '@deepseek-ai/cordis-plugin-loader', '@deepseek-ai/schemastery']
 const extraLatest = Object.fromEntries(
   await Promise.all(
     extra.map(async (n) => [n, (await registry(n))['dist-tags'].latest]),
