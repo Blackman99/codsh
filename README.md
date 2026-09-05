@@ -20,7 +20,8 @@
 ## Install
 
 ```sh
-npm install -g @deepseek-ai/dsh codsh-cli   # already have dsh? npm i -g codsh-cli
+npm install -g @deepseek-ai/dsh codsh-cli  
+# already have dsh? npm i -g codsh-cli
 codsh
 ```
 
