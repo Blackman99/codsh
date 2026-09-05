@@ -10,7 +10,7 @@
  * @module codsh-bundle/src/todos
  */
 
-import type { TodoItem } from '@deepseek-ai/dsh-session'
+import type { TodoItem } from '@deepseek-ai/dsh-tool-todo'
 import { displayWidth, truncate } from './theme.ts'
 import type { Theme } from './theme.ts'
 
