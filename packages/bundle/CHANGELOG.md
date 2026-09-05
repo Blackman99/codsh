@@ -1,5 +1,13 @@
 # codsh-bundle
 
+## 0.15.6
+
+### Patch Changes
+
+- 5a0e631: chore: sync `@deepseek-ai/dsh-*` (and co-released cordis packages) to 0.1.2-rc.1
+  
+  Adapt the terminal surface to the 0.1.2-rc.1 harness APIs: `ToolCallId`, `TodoItem` from `dsh-tool-todo`, `Session.snapshotEvents()`, fork `isSeeded`/`inheritedEventCount`, and the `user-questions/request` waterfall.
+
 ## 0.15.5
 
 ### Patch Changes
