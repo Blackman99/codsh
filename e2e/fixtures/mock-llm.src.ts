@@ -12,9 +12,9 @@ import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import {
-  CallId,
   LlmAdapter,
   ReasoningEffortId,
+  ToolCallId,
   type GenerateOptions,
   type LlmModelInfo,
   type LlmResolvedModelInfo,
@@ -204,7 +204,7 @@ class CodeCliMockAdapter extends LlmAdapter {
           script: WORKFLOW_SCRIPT,
           meta: { name: 'e2e-rounds', description: 'Two rounds through the real engine.' },
         })
-        const id = CallId('code-cli-workflow')
+        const id = ToolCallId('code-cli-workflow')
         yield { type: 'block-start', index: 0, blockType: 'tool-call' }
         yield { type: 'tool-call-delta', index: 0, id, name: 'workflow', argumentsDelta: args }
         yield { type: 'block-end', index: 0, block: { type: 'tool-call', id, name: 'workflow', arguments: args } }
@@ -378,7 +378,7 @@ class CodeCliMockAdapter extends LlmAdapter {
       const mode = process.env.DSH_CODE_CLI_MOCK_TOOL ?? 'write'
       const tool = mode === 'write' || mode === 'tall' ? 'write' : 'bash'
       const args = JSON.stringify(ARGUMENTS[mode] ?? ARGUMENTS.write)
-      const id = CallId(`code-cli-${tool}`)
+      const id = ToolCallId(`code-cli-${tool}`)
       yield { type: 'block-start', index: 0, blockType: 'tool-call' }
       yield { type: 'tool-call-delta', index: 0, id, name: tool, argumentsDelta: args }
       yield { type: 'block-end', index: 0, block: { type: 'tool-call', id, name: tool, arguments: args } }
