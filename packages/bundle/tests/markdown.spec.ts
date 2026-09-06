@@ -233,3 +233,39 @@ describe('nested inline, as models actually write it', () => {
     expect(renderMarkdown('- **`screen.ts`**: 备用屏', plain).join('')).toBe('• screen.ts: 备用屏')
   })
 })
+
+describe('task lists and strikethrough', () => {
+  it('renders unchecked task list items with dim circle and preserves indentation', () => {
+    expect(render('- [ ] first task', plain)).toBe('○ first task')
+    expect(render('* [ ] second task', plain)).toBe('○ second task')
+    expect(render('+ [ ] third task', plain)).toBe('○ third task')
+    expect(render('  - [ ] nested task', plain)).toBe('  ○ nested task')
+
+    const out = render('- [ ] colored task', colour)
+    expect(out).toContain('\u001B[2m○\u001B[0m')
+    expect(out).toContain('colored task')
+  })
+
+  it('renders completed task list items with checkmark and dimmed strikethrough text', () => {
+    expect(render('- [x] done task', plain)).toBe('✔ done task')
+    expect(render('* [X] uppercase done', plain)).toBe('✔ uppercase done')
+    expect(render('  + [x] nested done', plain)).toBe('  ✔ nested done')
+
+    const out = render('- [x] styled done', colour)
+    expect(out).toContain('\u001B[32m✔\u001B[0m')
+    expect(out).toContain('\u001B[9mstyled done\u001B[0m')
+    expect(out).toContain('\u001B[2m')
+  })
+
+  it('renders inline strikethrough with ANSI SGR 9 in colored mode and plain in uncolored', () => {
+    expect(renderInline('this is ~~obsolete~~ info', plain)).toBe('this is obsolete info')
+    expect(renderInline('~~deprecated~~', colour)).toBe('\u001B[9mdeprecated\u001B[0m')
+  })
+
+  it('renders strikethrough inside table cells and mixed with other inline styles', () => {
+    expect(renderInline('**bold ~~strike~~ text**', plain)).toBe('bold strike text')
+    const table = renderMarkdown('| Old | New |\n|---|---|\n| ~~v1~~ | v2 |', plain)
+    expect(table.join('\n')).toContain('v1')
+    expect(table.join('\n')).not.toContain('~~')
+  })
+})
