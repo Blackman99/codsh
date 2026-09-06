@@ -54,16 +54,26 @@ export interface Theme {
   pending(text: string): string
   /** Alias for {@link Theme.agent}. */
   user(text: string): string
-  /**
-   * Adopt the light- or dark-background palette.
-   *
-   * Base ANSI colors are the terminal theme's to map, but the secondary-text
-   * gray is an absolute palette entry, and the shade that recedes on a dark
-   * background washes out on a light one.
-   */
+  /** Adopt the light- or dark-background palette. */
   setLight(light: boolean): void
   /** Roles used inside a fenced code block. */
   readonly syntax: SyntaxTheme
+  /** Background for user messages / prompts (Grok bg_light). */
+  bgUser(text: string): string
+  /** Background for tool calls and executions (Grok bg_dark). */
+  bgTool(text: string): string
+  /** Background for reasoning / thinking blocks (Grok bg_thinking). */
+  bgThinking(text: string): string
+  /** Background for errors and failures (Grok diff_delete_bg / toolErrorBg). */
+  bgError(text: string): string
+  /** Background for code blocks (Grok md_code_bg). */
+  bgCode(text: string): string
+  /** Background for system / meta blocks (compaction, plan mode). */
+  bgMeta(text: string): string
+  /** Diff addition line (Grok diff_insert_bg + diff_insert_fg). */
+  diffAdd(text: string): string
+  /** Diff deletion line (Grok diff_delete_bg + diff_delete_fg). */
+  diffDel(text: string): string
 }
 
 /** Styling for the token classes a code block is coloured by. */
@@ -99,6 +109,14 @@ const PLAIN: Theme = {
     number: text => text,
     comment: text => text,
   },
+  bgUser: text => text,
+  bgTool: text => text,
+  bgThinking: text => text,
+  bgError: text => text,
+  bgCode: text => text,
+  bgMeta: text => text,
+  diffAdd: text => text,
+  diffDel: text => text,
 }
 
 /**
@@ -119,9 +137,11 @@ const PLAIN: Theme = {
 export function createTheme(isTty: boolean, env: Record<string, string | undefined>): Theme {
   if (!isTty || env.NO_COLOR !== undefined) return PLAIN
   const palette = env.TERM?.includes('256color') === true || env.COLORTERM !== undefined
+  const truecolor = env.COLORTERM === 'truecolor' || env.COLORTERM === '24bit'
   const wrap = (code: string) => (text: string): string => `${code}${text}${SGR.reset}`
   // Mutable on purpose: the background answer arrives moments after the first
   // frame, and everything rendered from then on picks the readable shade.
+  let isLight = false
   let gray = '\u001B[38;5;245m'
   let amber = '\u001B[38;5;214m'
   const err = wrap(SGR.red)
@@ -129,9 +149,51 @@ export function createTheme(isTty: boolean, env: Record<string, string | undefin
   const warn = (text: string): string => `${palette ? amber : SGR.brightYellow}${text}${SGR.reset}`
   const tool = (text: string): string => `${palette ? amber : SGR.yellow}${text}${SGR.reset}`
   const agent = wrap(SGR.magenta)
+
+  const wrapBg = (getSeq: () => string) => (text: string): string => {
+    if (text === '') return ''
+    const seq = getSeq()
+    if (seq === '') return text
+    const inner = text.endsWith(SGR.reset) ? text.slice(0, -SGR.reset.length) : text
+    return `${seq}${inner.replaceAll(SGR.reset, `${SGR.reset}${seq}`)}${SGR.reset}`
+  }
+
+  const getBgUser = (): string => isLight
+    ? (truecolor ? '\u001B[48;2;238;240;248m' : palette ? '\u001B[48;5;254m' : '\u001B[47m')
+    : (truecolor ? '\u001B[48;2;18;22;30m' : palette ? '\u001B[48;5;236m' : '\u001B[40m')
+
+  const getBgTool = (): string => isLight
+    ? (truecolor ? '\u001B[48;2;243;245;248m' : palette ? '\u001B[48;5;255m' : '\u001B[47m')
+    : (truecolor ? '\u001B[48;2;14;18;24m' : palette ? '\u001B[48;5;235m' : '\u001B[40m')
+
+  const getBgThinking = (): string => isLight
+    ? (truecolor ? '\u001B[48;2;245;242;250m' : palette ? '\u001B[48;5;255m' : '\u001B[47m')
+    : (truecolor ? '\u001B[48;2;20;16;32m' : palette ? '\u001B[48;5;236m' : '\u001B[40m')
+
+  const getBgError = (): string => isLight
+    ? (truecolor ? '\u001B[48;2;254;226;226m' : palette ? '\u001B[48;5;224m' : '\u001B[41m')
+    : (truecolor ? '\u001B[48;2;45;15;25m' : palette ? '\u001B[48;5;52m' : '\u001B[41m')
+
+  const getBgCode = (): string => isLight
+    ? (truecolor ? '\u001B[48;2;240;242;246m' : palette ? '\u001B[48;5;254m' : '\u001B[47m')
+    : (truecolor ? '\u001B[48;2;15;18;24m' : palette ? '\u001B[48;5;235m' : '\u001B[40m')
+
+  const getBgMeta = (): string => isLight
+    ? (truecolor ? '\u001B[48;2;244;244;246m' : palette ? '\u001B[48;5;255m' : '\u001B[47m')
+    : (truecolor ? '\u001B[48;2;18;20;26m' : palette ? '\u001B[48;5;236m' : '\u001B[40m')
+
+  const getDiffAdd = (): string => isLight
+    ? (truecolor ? '\u001B[48;2;236;253;245;38;2;22;101;52m' : palette ? '\u001B[48;5;194;38;5;28m' : '\u001B[42;30m')
+    : (truecolor ? '\u001B[48;2;10;38;30;38;2;80;200;140m' : palette ? '\u001B[48;5;22;38;5;120m' : '\u001B[42;30m')
+
+  const getDiffDel = (): string => isLight
+    ? (truecolor ? '\u001B[48;2;254;242;242;38;2;153;27;27m' : palette ? '\u001B[48;5;224;38;5;160m' : '\u001B[41;37m')
+    : (truecolor ? '\u001B[48;2;45;15;25;38;2;240;100;110m' : palette ? '\u001B[48;5;52;38;5;203m' : '\u001B[41;37m')
+
   return {
     colored: true,
     setLight(light: boolean) {
+      isLight = light
       gray = light ? '\u001B[38;5;242m' : '\u001B[38;5;245m'
       amber = light ? '\u001B[38;5;172m' : '\u001B[38;5;214m'
     },
@@ -150,6 +212,14 @@ export function createTheme(isTty: boolean, env: Record<string, string | undefin
     success: ok,
     pending: warn,
     user: agent,
+    bgUser: wrapBg(getBgUser),
+    bgTool: wrapBg(getBgTool),
+    bgThinking: wrapBg(getBgThinking),
+    bgError: wrapBg(getBgError),
+    bgCode: wrapBg(getBgCode),
+    bgMeta: wrapBg(getBgMeta),
+    diffAdd: wrapBg(getDiffAdd),
+    diffDel: wrapBg(getDiffDel),
     syntax: {
       keyword: wrap(SGR.magenta),
       string: wrap(SGR.green),

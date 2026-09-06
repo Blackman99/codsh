@@ -18,11 +18,11 @@ const CONTEXT = 3
  * @returns the styled line.
  */
 export function styleDiffLine(line: string, theme: Theme): string {
-  if (line.startsWith('+++') || line.startsWith('---') || line.startsWith('diff ') || line.startsWith('index ')) return theme.dim(line)
-  if (line.startsWith('@@')) return theme.tool(line)
-  if (line.startsWith('+')) return theme.success(line)
-  if (line.startsWith('-')) return theme.error(line)
-  return theme.dim(line)
+  if (line.startsWith('+++') || line.startsWith('---') || line.startsWith('diff ') || line.startsWith('index ')) return theme.bgTool(theme.dim(line))
+  if (line.startsWith('@@')) return theme.bgTool(theme.tool(line))
+  if (line.startsWith('+')) return theme.diffAdd(line)
+  if (line.startsWith('-')) return theme.diffDel(line)
+  return theme.bgTool(theme.dim(line))
 }
 
 /**

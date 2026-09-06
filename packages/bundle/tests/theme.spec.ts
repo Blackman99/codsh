@@ -49,6 +49,51 @@ describe('createTheme', () => {
     const noColor = createTheme(true, { NO_COLOR: '1' })
     expect(noColor.strike('strikethrough text')).toBe('strikethrough text')
   })
+
+  it('renders grok background colors for different functional sections under truecolor', () => {
+    const theme = createTheme(true, { COLORTERM: 'truecolor' })
+    expect(theme.bgUser('prompt')).toBe('\u001B[48;2;18;22;30mprompt\u001B[0m')
+    expect(theme.bgTool('exec')).toBe('\u001B[48;2;14;18;24mexec\u001B[0m')
+    expect(theme.bgThinking('thought')).toBe('\u001B[48;2;20;16;32mthought\u001B[0m')
+    expect(theme.bgError('failure')).toBe('\u001B[48;2;45;15;25mfailure\u001B[0m')
+    expect(theme.bgCode('const x = 1')).toBe('\u001B[48;2;15;18;24mconst x = 1\u001B[0m')
+    expect(theme.bgMeta('plan')).toBe('\u001B[48;2;18;20;26mplan\u001B[0m')
+    expect(theme.diffAdd('+ line')).toBe('\u001B[48;2;10;38;30;38;2;80;200;140m+ line\u001B[0m')
+    expect(theme.diffDel('- line')).toBe('\u001B[48;2;45;15;25;38;2;240;100;110m- line\u001B[0m')
+  })
+
+  it('renders grok background colors under 256-color palette', () => {
+    const theme = createTheme(true, { TERM: 'xterm-256color' })
+    expect(theme.bgUser('prompt')).toBe('\u001B[48;5;236mprompt\u001B[0m')
+    expect(theme.bgTool('exec')).toBe('\u001B[48;5;235mexec\u001B[0m')
+    expect(theme.bgThinking('thought')).toBe('\u001B[48;5;236mthought\u001B[0m')
+    expect(theme.bgError('failure')).toBe('\u001B[48;5;52mfailure\u001B[0m')
+    expect(theme.diffAdd('+ line')).toBe('\u001B[48;5;22;38;5;120m+ line\u001B[0m')
+    expect(theme.diffDel('- line')).toBe('\u001B[48;5;52;38;5;203m- line\u001B[0m')
+  })
+
+  it('swaps grok background colors for light palette and back', () => {
+    const theme = createTheme(true, { COLORTERM: 'truecolor' })
+    theme.setLight(true)
+    expect(theme.bgUser('prompt')).toBe('\u001B[48;2;238;240;248mprompt\u001B[0m')
+    expect(theme.bgTool('exec')).toBe('\u001B[48;2;243;245;248mexec\u001B[0m')
+    expect(theme.bgThinking('thought')).toBe('\u001B[48;2;245;242;250mthought\u001B[0m')
+    expect(theme.bgError('failure')).toBe('\u001B[48;2;254;226;226mfailure\u001B[0m')
+    expect(theme.diffAdd('+ line')).toBe('\u001B[48;2;236;253;245;38;2;22;101;52m+ line\u001B[0m')
+    expect(theme.diffDel('- line')).toBe('\u001B[48;2;254;242;242;38;2;153;27;27m- line\u001B[0m')
+    theme.setLight(false)
+    expect(theme.bgUser('prompt')).toBe('\u001B[48;2;18;22;30mprompt\u001B[0m')
+  })
+
+  it('leaves grok backgrounds unstyled off-TTY or under NO_COLOR', () => {
+    const offTty = createTheme(false, {})
+    expect(offTty.bgUser('prompt')).toBe('prompt')
+    expect(offTty.bgTool('exec')).toBe('exec')
+    expect(offTty.diffAdd('+ line')).toBe('+ line')
+    const noColor = createTheme(true, { NO_COLOR: '1' })
+    expect(noColor.bgUser('prompt')).toBe('prompt')
+    expect(noColor.diffDel('- line')).toBe('- line')
+  })
 })
 
 describe('displayWidth', () => {

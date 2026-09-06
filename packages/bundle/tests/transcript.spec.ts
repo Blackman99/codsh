@@ -903,3 +903,38 @@ describe('transcript density', () => {
     }
   })
 })
+
+describe('grok background differentiation across functional blocks', () => {
+  it('styles user, tool, thinking, and error blocks with distinct background colors', () => {
+    const colorTheme = createTheme(true, { COLORTERM: 'truecolor' })
+    const coloredTranscript = new Transcript({ theme: colorTheme, columns: 80, cwd: CWD }, {
+      call: (name) => name === 'bash' ? { card: 'terminal', title: 'echo hi' } : undefined,
+      result: (name) => name === 'bash' ? { card: 'terminal', title: 'echo hi', output: 'hi' } : undefined,
+    })
+
+    const userEvent: SessionEvent = {
+      type: 'user/message',
+      seq: 1,
+      time: 0,
+      data: { role: 'user', content: [{ type: 'text', text: 'my prompt' }], source: { kind: 'user' } },
+    } as unknown as SessionEvent
+    const userLines = coloredTranscript.render(userEvent)
+    expect(userLines[0]).toBe(colorTheme.bgUser('my prompt'))
+
+    const callLines = coloredTranscript.render(callEvent('c1', 'bash', {}))
+    expect(callLines[0]).toContain(colorTheme.bgTool(`${colorTheme.pending('●')} ${colorTheme.tool('bash')}`))
+
+    const resultLines = coloredTranscript.render(resultEvent('c1', 'hi'))
+    expect(resultLines[0]?.startsWith('\u001B[48;2;14;18;24m')).toBe(true)
+    expect(resultLines[0]).toContain('echo hi')
+    expect(resultLines[1]).toBe(colorTheme.bgTool(colorTheme.dim('  hi')))
+
+    const errResultLines = coloredTranscript.render(resultEvent('c2', 'failed', true))
+    expect(errResultLines[0]?.startsWith('\u001B[48;2;45;15;25m')).toBe(true)
+    expect(errResultLines[0]).toContain('✗')
+
+    const think = thinkingFold(['reasoning line'], colorTheme, 1.5)
+    expect(think.summary[0]).toBe(colorTheme.bgThinking(colorTheme.dim('thought for 1.5s')))
+    expect(think.full[1]).toBe(colorTheme.bgThinking('reasoning line'))
+  })
+})
