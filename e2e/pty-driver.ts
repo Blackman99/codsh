@@ -69,6 +69,7 @@ def resolve(payload, output):
 node, launch_args_json, launch_env_json, cwd, timeout_seconds, script_json, win_rows, win_cols = sys.argv[1:]
 env = os.environ.copy()
 env.update(json.loads(launch_env_json))
+env.pop("NO_COLOR", None)
 script = [(m.encode(), p.encode(), int(d)) for m, p, d in json.loads(script_json)]
 pid, fd = pty.fork()
 if pid == 0:
