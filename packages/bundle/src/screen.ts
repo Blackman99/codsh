@@ -2066,22 +2066,6 @@ export class Screen {
         }
       }
     }
-    const contentWidth = this.contentColumns()
-    for (let index = 0; index < visible.length; index += 1) {
-      visible[index] = padRowBackground(visible[index] ?? '', contentWidth)
-    }
-    const hovered = this.hovered
-    if (hovered !== undefined) {
-      const range = this.foldRanges().find(entry => entry.fold === hovered)
-      if (range !== undefined) {
-        for (let at = range.from; at <= range.to; at += 1) {
-          const index = at - first
-          if (index >= 0 && index < visible.length) {
-            visible[index] = fill(visible[index] ?? '', contentWidth, this.light)
-          }
-        }
-      }
-    }
     let viewport: string[]
     if (sticky !== undefined) {
       const source = prompts[sticky.prompt]?.rows ?? []
@@ -2094,6 +2078,26 @@ export class Screen {
       viewport = [...filledHeader, ...gap, ...visible, ...padding].slice(0, height)
     } else {
       viewport = [...visible, ...padding]
+    }
+    const contentWidth = this.contentColumns()
+    const viewportRows = Math.min(viewport.length, height)
+    for (let index = 0; index < viewportRows; index += 1) {
+      viewport[index] = padRowBackground(viewport[index] ?? '', contentWidth)
+    }
+    const hovered = this.hovered
+    if (hovered !== undefined) {
+      const range = this.foldRanges().find(entry => entry.fold === hovered)
+      if (range !== undefined) {
+        for (let at = range.from; at <= range.to; at += 1) {
+          const index = at - first
+          if (index >= 0 && index < visible.length) {
+            const vpIndex = (sticky !== undefined ? (sticky.state === 'pinned' && sticky.reservedRows > sticky.renderHeight ? sticky.renderHeight + 1 : sticky.renderHeight) : 0) + index
+            if (vpIndex < viewport.length) {
+              viewport[vpIndex] = fill(visible[index] ?? '', contentWidth, this.light)
+            }
+          }
+        }
+      }
     }
     // How far back the reader has gone belongs at the foot of what they are
     // reading, not over the top of it: it is a way out, and the way out is

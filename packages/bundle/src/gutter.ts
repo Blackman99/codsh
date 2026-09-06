@@ -20,15 +20,15 @@ export type GutterRole = 'user' | 'thinking' | 'tool' | 'error' | 'answer' | 'sy
 export function gutter(role: GutterRole, theme: Theme): string {
   switch (role) {
     case 'user':
-      return theme.accent(theme.bgUser('› '))
+      return theme.accent('› ')
     case 'thinking':
-      return theme.agent(theme.bgThinking('✻ '))
+      return theme.agent('✻ ')
     case 'tool':
-      return theme.tool(theme.bgTool('│ '))
+      return theme.tool('│ ')
     case 'error':
-      return theme.err(theme.bgError('│ '))
+      return theme.err('│ ')
     case 'system':
-      return theme.muted(theme.bgMeta('· '))
+      return theme.muted('· ')
     case 'answer':
       return ''
   }

@@ -919,28 +919,22 @@ describe('grok background differentiation across functional blocks', () => {
       data: { role: 'user', content: [{ type: 'text', text: 'my prompt' }], source: { kind: 'user' } },
     } as unknown as SessionEvent
     const userLines = coloredTranscript.render(userEvent)
-    expect(userLines[0]).toBe(colorTheme.bgUser('  '))
-    expect(userLines[1]).toBe(colorTheme.bgUser('my prompt'))
-    expect(userLines[2]).toBe(colorTheme.bgUser('  '))
+    expect(userLines[0]).toBe(colorTheme.bgUser('my prompt'))
 
     const callLines = coloredTranscript.render(callEvent('c1', 'bash', {}))
-    expect(callLines[0]).toBe(colorTheme.bgTool('  '))
-    expect(callLines[1]).toContain(colorTheme.bgTool(`${colorTheme.pending('●')} ${colorTheme.tool('bash')}`))
+    expect(callLines[0]).toContain(colorTheme.bgTool(`${colorTheme.pending('●')} ${colorTheme.tool('bash')}`))
 
     const resultLines = coloredTranscript.render(resultEvent('c1', 'hi'))
-    expect(resultLines[0]).toBe(colorTheme.bgTool('  '))
-    expect(resultLines[1]?.startsWith('\u001B[48;2;14;18;24m')).toBe(true)
-    expect(resultLines[1]).toContain('echo hi')
-    expect(resultLines[2]).toBe(colorTheme.bgTool(colorTheme.dim('  hi')))
+    expect(resultLines[0]?.startsWith('\u001B[48;2;14;18;24m')).toBe(true)
+    expect(resultLines[0]).toContain('echo hi')
+    expect(resultLines[1]).toBe(colorTheme.bgTool(colorTheme.dim('  hi')))
 
     const errResultLines = coloredTranscript.render(resultEvent('c2', 'failed', true))
-    expect(errResultLines[0]).toBe(colorTheme.bgError('  '))
-    expect(errResultLines[1]?.startsWith('\u001B[48;2;45;15;25m')).toBe(true)
-    expect(errResultLines[1]).toContain('✗')
+    expect(errResultLines[0]?.startsWith('\u001B[48;2;45;15;25m')).toBe(true)
+    expect(errResultLines[0]).toContain('✗')
 
     const think = thinkingFold(['reasoning line'], colorTheme, 1.5)
-    expect(think.summary[0]).toBe(colorTheme.bgThinking('  '))
-    expect(think.summary[1]).toBe(colorTheme.bgThinking(colorTheme.dim('thought for 1.5s')))
-    expect(think.full[2]).toBe(colorTheme.bgThinking('reasoning line'))
+    expect(think.summary[0]).toBe(colorTheme.bgThinking(colorTheme.dim('thought for 1.5s')))
+    expect(think.full[1]).toBe(colorTheme.bgThinking('reasoning line'))
   })
 })
