@@ -94,6 +94,8 @@ interface PendingCall {
    * somewhere its card is not, such as the approval widget.
    */
   summary: string | undefined
+  /** Description supplied with the tool call, when present. */
+  description?: string | undefined
 }
 
 /**
@@ -504,7 +506,6 @@ export class Transcript {
   }
 
   private renderCall(callId: string, name: string, rawArguments: string): string[] {
-    const { theme, columns } = this.options
     let args: unknown
     try {
       args = JSON.parse(rawArguments)
@@ -514,38 +515,29 @@ export class Transcript {
       args = undefined
     }
     const view = this.safeCall(name, args)
-    const record = (title: string, summary: string | undefined, lines: string[]): string[] => {
-      this.calls.set(callId, { name, args, title, summary })
+    const record = (title: string, summary: string | undefined, lines: string[], description?: string): string[] => {
+      this.calls.set(callId, { name, args, title, summary, description })
       return lines
     }
-    if (view === undefined) return record(name, undefined, [theme.bgTool(`${theme.pending('●')} ${theme.tool(name)}`)])
+    // Pending stays off-screen: the completed one-liner is the card. The
+    // spinner names the tool while it runs.
+    if (view === undefined) return record(name, undefined, [])
     if (view.card === 'terminal') {
-      const header = view.cwd === undefined ? '' : theme.dim(` (${this.relative(view.cwd)})`)
-      const description = view.description === undefined ? [] : [theme.dim(`  ${view.description}`)]
       const command = this.relativizeIn(view.title)
-      // A command that is several lines is named by its first. The rest is not
-      // lost — it arrives in full with the result — and a script whose lines
-      // are run together on one row reads as noise.
       const lines = command.split('\n')
       const summary = lines.length > 1 ? `${lines[0] ?? ''} …` : command
-      return record(command, summary, [
-        theme.bgTool(`${theme.pending('●')} ${theme.tool(name)}${header}`),
-        theme.bgTool(`  $ ${truncate(summary, columns - 4)}`),
-        ...description.map(d => theme.bgTool(d)),
-      ])
+      return record(command, summary, [], view.description)
     }
     if (view.card === 'diff') {
       const title = this.relativizeIn(view.title)
       const paths = view.diffs.map(diff => this.relative(diff.path))
       const line = `${title}${this.extraPaths(title, paths)}`
-      // Pending stays off-screen: the completed one-liner is the card. The
-      // spinner names the tool while it runs.
       return record(line, paths.length === 0 ? title : paths.join(', '), [])
     }
     const title = this.relativizeIn(view.title)
     const locations = (view.locations ?? []).map(location => this.relative(location.path))
     const extra = this.extraPaths(title, locations)
-    return record(`${title}${extra}`, locations.length === 0 ? title : locations.join(', '), [theme.bgTool(`${theme.pending('●')} ${truncate(title, columns - 4)}${theme.path(extra)}`)])
+    return record(`${title}${extra}`, locations.length === 0 ? title : locations.join(', '), [])
   }
 
   /**
@@ -584,7 +576,7 @@ export class Transcript {
     }
     const view = this.safeResult(pending, block.content, failed, meta)
     const title = view?.title === undefined ? pending.title : this.relativizeIn(view.title)
-    const { suffix, body, full } = this.outcome(view, block)
+    const { suffix, body, full } = this.outcome(view, block, pending)
     const enter = failed ? undefined : childSessionId(this.resultText(block.content))
     const hint = enter === undefined ? [] : [bg(theme.dim('  click to enter'))]
     // One stable ToolCard line: ● · title · +n -m · ✔/✗. Truncate the title
@@ -597,10 +589,14 @@ export class Transcript {
     const head = [bg(formatToolCardLine(theme, this.options.columns - ruleWidth, bullet, title, suffix, done))]
     const bodyLines = view?.card === 'diff' ? body : body.map(line => bg(line))
     const fullLines = view?.card === 'diff' ? full : full?.map(line => bg(line))
+    const hasBody = bodyLines.length > 0 || hint.length > 0
+    const vpad = (theme.colored && hasBody) ? [bg('  ')] : []
+    const fullHasBody = fullLines !== undefined && (fullLines.length > 0 || hint.length > 0)
+    const fullVpad = (theme.colored && fullHasBody) ? [bg('  ')] : []
     // The fold swaps the WHOLE event's lines, so the expanded form repeats the
     // same head with the uncapped body under it.
     if (fullLines !== undefined) {
-      this.fold = [...head, ...fullLines, ...hint, '']
+      this.fold = [...head, ...fullLines, ...hint, ...fullVpad, '']
       this.label = title
     }
     if (enter !== undefined) {
@@ -609,7 +605,7 @@ export class Transcript {
     }
     // Diff cards stay collapsed on screen (hunks only in the fold).
     if (view?.card === 'diff') return [...head, ...hint, '']
-    return [...head, ...bodyLines, ...hint, '']
+    return [...head, ...bodyLines, ...hint, ...vpad, '']
   }
 
   /**
@@ -731,6 +727,15 @@ export class Transcript {
    */
   private capBody(lines: string[], limit: number, hint = 'click or Ctrl+O expands'): { body: string[]; full?: string[] } {
     const { theme } = this.options
+    // If the excess over limit is only 1-2 lines, collapsing them saves nothing
+    // because the fold hint itself takes 1 line. Show them in full.
+    const slack = 2
+    if (lines.length <= limit + slack) {
+      const { shown, cut } = this.fit(lines)
+      if (cut === 0) return { body: shown }
+      const what = cut === 1 ? 'a long line' : `${String(cut)} long lines`
+      return { body: [...shown, theme.dim(`  … ${what} cut (${hint})`)], full: lines }
+    }
     const { shown, cut } = this.fit(lines.slice(0, limit))
     if (lines.length > limit) {
       return { body: [...shown, theme.dim(`  … +${lines.length - limit} lines (${hint})`)], full: lines }
@@ -744,12 +749,14 @@ export class Transcript {
    * Render one completed call's status suffix and body from its declared view.
    * @param view - the result view, absent when no presenter answered.
    * @param block - the model-facing result block, used by the generic fallback.
+   * @param pending - the recorded pending call, carrying command or description.
    * @returns the suffix, the (possibly capped) body, and — when the cap dropped
    *   lines, or a bodiless card withheld content — the full body for Ctrl-O.
    */
   private outcome(
     view: ToolResultView | undefined,
     block: { content: ContentBlock[] },
+    pending?: PendingCall,
   ): { suffix: string; body: string[]; full?: string[] } {
     const { theme } = this.options
     const capped = (lines: string[], limit: number, hint?: string): { body: string[]; full?: string[] } =>
@@ -778,8 +785,10 @@ export class Transcript {
         ? theme.error(`(killed by ${view.signal})`)
         : view.exitCode !== undefined && view.exitCode !== 0 ? theme.error(`(exit ${view.exitCode})`) : ''
       const output = (view.output ?? '').trimEnd()
-      // Left to wrap: a truncated command output is a lie about what happened.
-      const body = output === '' ? [] : output.split('\n').map(line => theme.dim(`  ${line}`))
+      const desc = pending?.description
+      const descLines = desc !== undefined && desc !== '' ? [theme.dim(`  ${desc}`)] : []
+      const outputLines = output === '' ? [] : output.split('\n').map(line => theme.dim(`  ${line}`))
+      const body = [...descLines, ...outputLines]
       return { suffix, ...capped(body, MAX_RESULT_LINES) }
     }
     if (view?.card === 'search') {

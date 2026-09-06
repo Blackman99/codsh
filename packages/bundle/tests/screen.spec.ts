@@ -2057,6 +2057,21 @@ describe('the block under the pointer', () => {
     expect(frame).not.toContain('\u001B[48;2;14;18;24m')
   })
 
+  it('does not fill trailing blank separator rows on hover', () => {
+    const sink = host(5, 40)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['status'], { row: 0, column: 0 }, false)
+    screen.appendFold(['content', ''], ['full', ''], '', 'tool')
+    flush(sink)
+
+    screen.mouseMove(1, 3)
+    const frame = flush(sink)
+    expect(frame).toContain('\u001B[48;5;236mcontent')
+    // Moving pointer to the blank row below the card should not trigger fold hover
+    expect(screen.mouseMove(2, 3)).toBeUndefined()
+  })
+
   it('drops the fill when the pointer leaves the window', () => {
     const sink = host(10, 40)
     const screen = new Screen(sink)

@@ -192,16 +192,14 @@ describe('session state', () => {
 
 describe('tool cards', () => {
   it('falls back to the tool name when no presenter is registered', () => {
-    expect(build().render(callEvent('c1', 'grep', { pattern: 'x' }))).toEqual(['● grep'])
+    expect(build().render(callEvent('c1', 'grep', { pattern: 'x' }))).toEqual([])
   })
 
   it('renders a terminal call as a command line with its workspace-relative cwd', () => {
     const call = (): ToolCallView => ({ card: 'terminal', title: 'pnpm test', cwd: '/repo/apps', description: 'run the suite' })
-    expect(build({ call }).render(callEvent('c1', 'bash', {}))).toEqual([
-      '● bash (apps)',
-      '  $ pnpm test',
-      '  run the suite',
-    ])
+    const transcript = build({ call })
+    expect(transcript.render(callEvent('c1', 'bash', {}))).toEqual([])
+    expect(transcript.callSummary('c1')).toBe('pnpm test')
   })
 
   it('records a diff call without painting — the result owns the one-liner', () => {
@@ -213,19 +211,21 @@ describe('tool cards', () => {
 
   it('renders a generic call with its follow-along locations', () => {
     const call = (): ToolCallView => ({ card: 'generic', title: 'Read a.ts', locations: [{ path: '/repo/src/a.ts' }] })
-    expect(build({ call }).render(callEvent('c1', 'read', {}))).toEqual(['● Read a.ts src/a.ts'])
+    const transcript = build({ call })
+    expect(transcript.render(callEvent('c1', 'read', {}))).toEqual([])
+    expect(transcript.callSummary('c1')).toBe('src/a.ts')
   })
 
   it('still records the call when its arguments do not parse', () => {
     const event = { type: 'tool/call', seq: 1, time: 0, data: { turn: 1, step: 1, callId: 'c1', name: 'bash', arguments: '{oops' } } as SessionEvent
     const transcript = build()
-    expect(transcript.render(event)).toEqual(['● bash'])
+    expect(transcript.render(event)).toEqual([])
     expect(transcript.render(resultEvent('c1', 'out'))).toEqual(['● bash ✔', '  out', ''])
   })
 
   it('degrades to the generic line when a call presenter throws', () => {
     const call = () => { throw new Error('presenter is broken') }
-    expect(build({ call }).render(callEvent('c1', 'grep', {}))).toEqual(['● grep'])
+    expect(build({ call }).render(callEvent('c1', 'grep', {}))).toEqual([])
   })
 })
 
@@ -481,7 +481,9 @@ describe('tool results', () => {
 
   it('shortens a workspace path a terminal presenter embedded in its command', () => {
     const call = (): ToolCallView => ({ card: 'terminal', title: 'cat /repo/src/a.ts' })
-    expect(build({ call }).render(callEvent('c1', 'bash', {}))).toEqual(['● bash', '  $ cat src/a.ts'])
+    const transcript = build({ call })
+    expect(transcript.render(callEvent('c1', 'bash', {}))).toEqual([])
+    expect(transcript.callSummary('c1')).toBe('cat src/a.ts')
   })
 
   it('does not claim a line for a created file\'s trailing newline', () => {
@@ -922,12 +924,13 @@ describe('grok background differentiation across functional blocks', () => {
     expect(userLines[0]).toBe(colorTheme.bgUser('my prompt'))
 
     const callLines = coloredTranscript.render(callEvent('c1', 'bash', {}))
-    expect(callLines[0]).toContain(colorTheme.bgTool(`${colorTheme.pending('●')} ${colorTheme.tool('bash')}`))
+    expect(callLines).toEqual([])
 
     const resultLines = coloredTranscript.render(resultEvent('c1', 'hi'))
     expect(resultLines[0]?.startsWith('\u001B[48;2;14;18;24m')).toBe(true)
     expect(resultLines[0]).toContain('echo hi')
     expect(resultLines[1]).toBe(colorTheme.bgTool(colorTheme.dim('  hi')))
+    expect(resultLines[2]).toBe(colorTheme.bgTool('  '))
 
     const errResultLines = coloredTranscript.render(resultEvent('c2', 'failed', true))
     expect(errResultLines[0]?.startsWith('\u001B[48;2;45;15;25m')).toBe(true)
