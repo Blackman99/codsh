@@ -1858,6 +1858,7 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
     const label = live.transcript.takeLabel()
     const enter = live.transcript.takeEnter()
     const page = live.transcript.takePage()
+    const replaceCount = live.transcript.takePendingLinesCount()
     noteWritten(live.transcript.takeWritten())
     if (promptBlock !== undefined) {
       prompt.setStreaming(undefined)
@@ -1871,7 +1872,7 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
     // A collapsed block, or a subagent card that is a view: the screen keeps
     // both forms; a click on a view enters the child, Ctrl+O still expands.
     prompt.setStreaming(undefined)
-    io.console.appendFold(lines, full ?? lines, rule, label, enter, page)
+    io.console.appendFold(lines, full ?? lines, rule, label, enter, page, replaceCount)
   })
 
   /** Pause the indicator around a decision, and resume it if work continues. */

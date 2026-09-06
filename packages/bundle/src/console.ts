@@ -586,9 +586,9 @@ export class TerminalConsole {
    * @param enter - child session a click opens instead of folding, when set.
    * @param page - raw text a click reads instead of expanding, when set.
    */
-  appendFold(summary: readonly string[], full: readonly string[], rule = '', label = '', enter?: string, page?: string): void {
+  appendFold(summary: readonly string[], full: readonly string[], rule = '', label = '', enter?: string, page?: string, replaceCount = 0): void {
     if (this.screen !== undefined) {
-      this.screen.appendFold(summary, full, rule, label, enter, page)
+      this.screen.appendFold(summary, full, rule, label, enter, page, replaceCount)
       return
     }
     for (const line of summary) {

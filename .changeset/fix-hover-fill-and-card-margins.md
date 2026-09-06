@@ -3,8 +3,8 @@
 'codsh-cli': patch
 ---
 
-fix(tui): fix hover highlight alignment, eliminate duplicate pending headers, and improve card margins
+fix(tui): replace pending tool call lines in-place on result, align hover bounds, and improve card margins
 
-- Keep pending tool calls off-screen across all tool types, letting completed tool cards own the single coherent block and eliminating duplicate pending headers.
-- Prevent hover background fill from bleeding into trailing blank block separators, ensuring hover highlights align precisely with card bounds.
+- Replace pending tool call lines in-place when the completed tool result arrives, eliminating duplicate pending headers while preserving live in-flight commands and PTY interrupt visibility.
+- Exclude trailing blank separator rows from fold ranges and hover fills, ensuring hover highlights align precisely with card bounds.
 - Add vertical breathing padding to multiline tool results and avoid low-yield folds for 1-2 excess lines.
