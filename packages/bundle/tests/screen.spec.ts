@@ -2042,6 +2042,21 @@ describe('the block under the pointer', () => {
     expect(painted(frame).get(2)).toBe('summary')
   })
 
+  it('strips resting background sequences on hover so the hover fill is uniform', () => {
+    const sink = host(5, 40)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['status'], { row: 0, column: 0 }, false)
+    screen.appendFold(['\u001B[48;2;14;18;24m\u001B[32m●\u001B[0m command \u001B[32m✔\u001B[0m'], ['full'], '', 'tool')
+    flush(sink)
+
+    screen.mouseMove(1, 3)
+    const frame = flush(sink)
+    // The hover fill \u001B[48;5;236m applies across the whole row, and \u001B[48;2;14;18;24m is stripped
+    expect(frame).toContain('\u001B[48;5;236m')
+    expect(frame).not.toContain('\u001B[48;2;14;18;24m')
+  })
+
   it('drops the fill when the pointer leaves the window', () => {
     const sink = host(10, 40)
     const screen = new Screen(sink)
