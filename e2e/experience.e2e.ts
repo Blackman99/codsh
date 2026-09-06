@@ -53,10 +53,11 @@ describe.skipIf(process.platform === 'win32')('the first five minutes', () => {
       ['new session', `/exit${ENTER}`, 500],
     ])
     const rows = screenAt(output, 'new session').alternate
-    // Same workspace: /clear is a returning welcome (2 lines), not first-run ASCII.
-    expect(rows.some(row => row.includes('✻ codsh'))).toBe(true)
+    // /clear resets the screen with the full ASCII logo banner and tips.
+    const logoRow = rows.findIndex(row => row.includes('█') || row.includes('▀') || row.includes('▄'))
+    expect(logoRow).toBeGreaterThanOrEqual(0)
+    expect(rows.some(row => row.includes('Welcome to codsh'))).toBe(true)
     expect(rows.some(row => row.includes('⇧Tab plan'))).toBe(true)
-    expect(rows.some(row => row.includes('Welcome to codsh'))).toBe(false)
     expect(rows.some(row => row.includes('Write note.txt'))).toBe(false)
   }, E2E_TEST_TIMEOUT_MS)
 
