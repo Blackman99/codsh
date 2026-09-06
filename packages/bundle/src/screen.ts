@@ -126,8 +126,11 @@ const RESET = '\u001B[0m'
  */
 function fill(row: string, columns: number, light: boolean): string {
   const bg = light ? FILL_LIGHT : FILL_DARK
-  const pad = Math.max(0, columns - displayWidth(row))
-  const padded = `${row}${' '.repeat(pad)}`
+  // Strip any existing background escape sequences so the hover fill is completely
+  // uniform across both text and trailing padding, rather than creating two-tone cutouts.
+  const noBg = row.replaceAll(/\u001B\[(?:48;[0-9;]*|49)m/gu, '')
+  const pad = Math.max(0, columns - displayWidth(noBg))
+  const padded = `${noBg}${' '.repeat(pad)}`
   return `${bg}${padded.replaceAll(RESET, `${RESET}${bg}`)}${FILL_OFF}`
 }
 
@@ -2063,22 +2066,21 @@ export class Screen {
         }
       }
     }
+    const contentWidth = this.contentColumns()
+    for (let index = 0; index < visible.length; index += 1) {
+      visible[index] = padRowBackground(visible[index] ?? '', contentWidth)
+    }
     const hovered = this.hovered
     if (hovered !== undefined) {
       const range = this.foldRanges().find(entry => entry.fold === hovered)
       if (range !== undefined) {
-        const width = this.contentColumns()
         for (let at = range.from; at <= range.to; at += 1) {
           const index = at - first
           if (index >= 0 && index < visible.length) {
-            visible[index] = fill(visible[index] ?? '', width, this.light)
+            visible[index] = fill(visible[index] ?? '', contentWidth, this.light)
           }
         }
       }
-    }
-    const contentWidth = this.contentColumns()
-    for (let index = 0; index < visible.length; index += 1) {
-      visible[index] = padRowBackground(visible[index] ?? '', contentWidth)
     }
     let viewport: string[]
     if (sticky !== undefined) {
