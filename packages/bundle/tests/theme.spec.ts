@@ -111,6 +111,22 @@ describe('truncate', () => {
     expect(theme.dim('x')).toBe('\u001B[38;5;245mx\u001B[0m')
   })
 
+  it('upgrades warning and tool styling to an amber shade on a 256-colour terminal', () => {
+    const theme = createTheme(true, { TERM: 'xterm-256color' })
+    expect(theme.warn('x')).toBe('\u001B[38;5;214mx\u001B[0m')
+    expect(theme.tool('x')).toBe('\u001B[38;5;214mx\u001B[0m')
+  })
+
+  it('swaps the amber shade for a light background, and back', () => {
+    const theme = createTheme(true, { TERM: 'xterm-256color' })
+    theme.setLight(true)
+    expect(theme.warn('x')).toBe('\u001B[38;5;172mx\u001B[0m')
+    expect(theme.tool('x')).toBe('\u001B[38;5;172mx\u001B[0m')
+    theme.setLight(false)
+    expect(theme.warn('x')).toBe('\u001B[38;5;214mx\u001B[0m')
+    expect(theme.tool('x')).toBe('\u001B[38;5;214mx\u001B[0m')
+  })
+
   it('reads lightness out of an OSC color answer', () => {
     expect(backgroundIsLight('rgb:ffff/ffff/ffff')).toBe(true)
     expect(backgroundIsLight('rgb:1e1e/1e1e/2e2e')).toBe(false)

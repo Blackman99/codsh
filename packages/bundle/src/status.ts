@@ -58,6 +58,8 @@ export interface StatusFacts {
   usage?: TokenUsageProjection | undefined
   /** Context occupancy, absent before the first reported request. */
   context?: ContextPressureProjection | undefined
+  /** Whether to show shortcuts hint in the status line. */
+  shortcuts?: boolean | undefined
 }
 
 /**
@@ -300,21 +302,23 @@ export function statusLine(facts: StatusFacts, theme: Theme, columns?: number): 
   const context = left === undefined || left > 25
     ? undefined
     : left <= 10 ? theme.err(`${left}%`) : theme.warn(`${left}%`)
-  // Drop whole segments until the line fits: cwd first, then model; keep
-  // the ship chip, mode, and alarming context. Never drop the ship chip
-  // first — same priority the gate chip already had. Omit columns => full
+  const shortcuts = facts.shortcuts ? theme.muted('? shortcuts') : undefined
+  // Drop whole segments until the line fits: shortcuts first, then cwd, then
+  // model; keep the ship chip, mode, and alarming context. Never drop the ship
+  // chip first — same priority the gate chip already had. Omit columns => full
   // line for a later re-fit.
-  const tagged: { key: 'shipChip' | 'mode' | 'model' | 'context' | 'cwd'; text: string }[] = [
+  const tagged: { key: 'shipChip' | 'mode' | 'model' | 'context' | 'cwd' | 'shortcuts'; text: string }[] = [
     ...shipChip === undefined ? [] : [{ key: 'shipChip' as const, text: shipChip }],
     ...mode === undefined ? [] : [{ key: 'mode' as const, text: mode }],
     { key: 'model', text: model },
     ...context === undefined ? [] : [{ key: 'context' as const, text: context }],
     { key: 'cwd', text: cwd },
+    ...shortcuts === undefined ? [] : [{ key: 'shortcuts' as const, text: shortcuts }],
   ]
   if (columns === undefined) return tagged.map(part => part.text).join(sep)
   const join = (parts: string[]): string => parts.join(sep)
   let kept = tagged
-  for (const drop of ['cwd', 'model'] as const) {
+  for (const drop of ['shortcuts', 'cwd', 'model'] as const) {
     if (displayWidth(join(kept.map(part => part.text))) <= columns) break
     kept = kept.filter(part => part.key !== drop)
   }

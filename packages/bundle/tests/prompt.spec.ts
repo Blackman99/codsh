@@ -626,6 +626,16 @@ describe('the surrounding rows', () => {
     expect(console.draws.at(-1)?.rows.at(-1)).toBe(long)
   })
 
+  it('calls column-aware status formatter on paint and resize', () => {
+    const { prompt, console } = build()
+    prompt.setStatus(columns => `width:${columns}`)
+    void prompt.read()
+    expect(console.draws.at(-1)?.rows.at(-1)).toBe(`width:${console.contentColumns}`)
+    console.columns = 30
+    console.resize()
+    expect(console.draws.at(-1)?.rows.at(-1)).toBe(`width:${console.contentColumns}`)
+  })
+
   it('pins the todo readout over the hint and status rows', () => {
     const { prompt, console } = build()
     prompt.setStatus('model · 12k tokens')
@@ -660,6 +670,32 @@ describe('the surrounding rows', () => {
     expect(images[0]?.image.data).toBe(Buffer.from('fake-png-bytes').toString('base64'))
     // Drained exactly once.
     expect(prompt.takeAttachments()).toHaveLength(0)
+  })
+
+  it('shows image preview overlay when cursor is next to an image token and hides when moved away', async () => {
+    const { prompt, console } = build(true, pngClipboard)
+    void prompt.read()
+    console.press({ kind: 'paste-image' })
+    await settled()
+
+    // Immediately after pasting, cursor is at the right edge of [Image #1]
+    const overlay = console.overlays.at(-1) ?? []
+    expect(overlay.some(row => row.includes('Image #1'))).toBe(true)
+
+    // Moving away from the image token hides the preview overlay
+    console.press({ kind: 'text', text: ' ' })
+    console.press({ kind: 'text', text: 'a' })
+    expect(console.overlays.at(-1)).toEqual([])
+
+    // Moving back to the right edge of [Image #1] restores the preview overlay
+    console.press({ kind: 'left' })
+    expect(console.overlays.at(-1)).toEqual([])
+    console.press({ kind: 'left' }) // now at column 10 (right edge of [Image #1])
+    expect((console.overlays.at(-1) ?? []).some(row => row.includes('Image #1'))).toBe(true)
+
+    // Moving left jumps over the token to the left edge of [Image #1] (column 0)
+    console.press({ kind: 'left' })
+    expect((console.overlays.at(-1) ?? []).some(row => row.includes('Image #1'))).toBe(true)
   })
 
   it('drops the image whose token was deleted before submitting', async () => {

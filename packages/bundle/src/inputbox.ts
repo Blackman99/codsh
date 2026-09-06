@@ -283,7 +283,7 @@ function paintGestures(
     if (from >= to) continue
     out += cells.slice(at, from).join('')
     const slice = cells.slice(from, to).join('')
-    out += hit.kind === 'skill' ? theme.user(slice) : theme.tool(slice)
+    out += hit.kind === 'skill' ? theme.user(slice) : hit.kind === 'image' ? theme.accent(slice) : theme.tool(slice)
     at = to
   }
   return out + cells.slice(at).join('')
