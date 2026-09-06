@@ -187,6 +187,18 @@ function registration() {
     writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`)
     return spec
   }
+  // dsh-base provides @deepseek-ai/dsh-llm-pi-ai out of the box; an explicit
+  // profile dependency pins a stale version that breaks across harness bumps.
+  if (manifest !== undefined && '@deepseek-ai/dsh-llm-pi-ai' in dependencies) {
+    console.error('codsh: removing redundant @deepseek-ai/dsh-llm-pi-ai from code profile')
+    delete manifest.dependencies['@deepseek-ai/dsh-llm-pi-ai']
+    const stalePiAi = join(home, 'profiles', 'code', 'node_modules', '@deepseek-ai', 'dsh-llm-pi-ai')
+    if (existsSync(stalePiAi)) {
+      rmSync(stalePiAi, { recursive: true, force: true })
+    }
+    writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`)
+    return spec
+  }
   const current = dependencies[BUNDLE]
   if (current === undefined) return spec
   // Only registry versions belong to the launcher. A file:/link:/git/custom
@@ -211,6 +223,14 @@ function registerRuntime(version) {
   const dependencies = manifest?.dependencies ?? {}
   // A legacy pre-split profile is the next boot's to migrate, not an update's.
   if ('codsh-cli' in dependencies) return { status: 'deferred' }
+  if ('@deepseek-ai/dsh-llm-pi-ai' in dependencies) {
+    delete manifest.dependencies['@deepseek-ai/dsh-llm-pi-ai']
+    const stalePiAi = join(home, 'profiles', 'code', 'node_modules', '@deepseek-ai', 'dsh-llm-pi-ai')
+    if (existsSync(stalePiAi)) {
+      rmSync(stalePiAi, { recursive: true, force: true })
+    }
+    writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`)
+  }
   const current = dependencies[BUNDLE]
   if (current !== undefined) {
     // Only registry versions belong to an update; a file:/link:/git/custom

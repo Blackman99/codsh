@@ -36,11 +36,26 @@ execFileSync('pnpm', ['run', 'build'], { cwd: repo, stdio: 'inherit' })
 // A pre-split home registered the runtime under the launcher's old name and
 // pinned a temp-dir tarball that no longer exists; nothing in it is worth
 // keeping — it is a scratch profile — so a shape mismatch rebuilds it whole.
+// Similarly, when the dsh runtime version or bundle package dependencies
+// change, the installed profile's node_modules become stale and must rebuild.
+const stampFile = join(home, '.dev-stamp')
+const dshVersion = JSON.parse(readFileSync(dshManifest, 'utf8')).version
+const bundlePkg = JSON.parse(readFileSync(join(bundle, 'package.json'), 'utf8'))
+const expectedStamp = JSON.stringify({
+  dsh: dshVersion,
+  bundleVersion: bundlePkg.version,
+  dependencies: bundlePkg.dependencies,
+  peerDependencies: bundlePkg.peerDependencies,
+})
+
 const manifest = join(home, 'profiles', 'code', 'package.json')
 if (existsSync(manifest)) {
   const profile = JSON.parse(readFileSync(manifest, 'utf8'))
-  if ('codsh-cli' in (profile.dependencies ?? {})) {
-    console.error('codsh dev: .dev-home predates the launcher/bundle split — rebuilding it')
+  const stale = 'codsh-cli' in (profile.dependencies ?? {})
+    || !existsSync(stampFile)
+    || readFileSync(stampFile, 'utf8') !== expectedStamp
+  if (stale) {
+    console.error('codsh dev: .dev-home is out of date — rebuilding it')
     rmSync(home, { recursive: true, force: true })
   }
 }
@@ -57,6 +72,7 @@ if (!existsSync(installed)) {
     stdio: 'inherit',
   })
   rmSync(scratch, { recursive: true, force: true })
+  writeFileSync(stampFile, expectedStamp)
 } else {
   // Fast path: the profile already carries every dependency; only this
   // package's own artifacts changed.

@@ -93,6 +93,43 @@ describe.skipIf(process.platform === 'win32')('the codsh launcher', () => {
     }
   }, E2E_TEST_TIMEOUT_MS)
 
+  it('removes redundant @deepseek-ai/dsh-llm-pi-ai from profile before booting', async () => {
+    const home = await mkdtemp(join(tmpdir(), 'codsh-wrapper-redundant-home-'))
+    try {
+      const profile = join(home, 'profiles', 'code')
+      mkdirSync(profile, { recursive: true })
+      writeFileSync(join(profile, 'package.json'), `${JSON.stringify({
+        name: 'dsh-profile-code',
+        private: true,
+        dependencies: {
+          'codsh-bundle': '99.0.0',
+          '@deepseek-ai/dsh-llm-pi-ai': '0.1.1-rc.2',
+        },
+      }, null, 2)}\n`)
+      const fakeDsh = join(home, 'fake-dsh.mjs')
+      writeFileSync(fakeDsh, "process.stdout.write(`${JSON.stringify(process.argv.slice(2))}\\n`)\n")
+      const own = JSON.parse(readFileSync(join(repoRoot, 'packages', 'cli', 'package.json'), 'utf8')) as { version: string }
+      const env: NodeJS.ProcessEnv = { ...process.env, DSH_HOME: home, DSH_BIN: fakeDsh }
+      delete env.CODSH_BUNDLE_SPEC
+
+      const result = await run(process.execPath, [wrapper, '-p', 'test redundant cleanup'], {
+        env,
+      })
+
+      expect(result.stderr).toContain('removing redundant @deepseek-ai/dsh-llm-pi-ai')
+      const manifest = JSON.parse(readFileSync(join(profile, 'package.json'), 'utf8')) as {
+        dependencies: Record<string, string>
+      }
+      expect(manifest.dependencies).not.toHaveProperty('@deepseek-ai/dsh-llm-pi-ai')
+      expect(result.stdout.trim().split('\n').map(line => JSON.parse(line))).toEqual([
+        ['plugin', '--profile', 'code', 'add', `codsh-bundle@^${own.version}`],
+        ['--profile', 'code', '-p', 'test redundant cleanup'],
+      ])
+    } finally {
+      rmSync(home, { recursive: true, force: true })
+    }
+  })
+
   it('upgrades an exact older registry version before booting', async () => {
     const home = await mkdtemp(join(tmpdir(), 'codsh-wrapper-exact-home-'))
     try {
