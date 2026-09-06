@@ -77,7 +77,8 @@ The [site](https://blackman99.github.io/codsh/) shows each one as a real capture
 - Todos stay in the chrome (Ctrl+T / `/todos`). Markdown, thinking, and tool cards stream in. Drag to copy, in the transcript or the box.
 - Ctrl+V pastes images (native vision; DeepSeek text models borrow Vision Exp automatically; other text routes keep the file + optional sidecar fallback).
 - `/` commands, `$` skills, `!` shell, `@` files — the menu sits above the box. ⇧Tab is plan mode.
-- Approvals, `/model`, and `/resume` are arrow-key widgets; `/clear`, Esc Esc, `/init`, and `/update` round it out. `!cmd` prints in-session and the agent sees it.
+- Approvals, `/model`, `/resume`, and `/thinking` (or `/effort`) are arrow-key widgets; `/clear`, Esc Esc, `/init`, and `/update` round it out. `!cmd` prints in-session and the agent sees it.
+- `/thinking [level]` (alias `/effort`) configures reasoning deliberation (e.g. `off`, `low`, `high`, `max`, or shortcuts `on`/`off`) with an interactive selector on TTY, per-model persistence, and active level tags in MetaBar (e.g. `deepseek-chat (high)`) and `/status`.
 - Away from the window, a decision waiting or a turn over ten seconds ending rings the bell and sends a desktop notification: OSC 9 on iTerm2, WezTerm, Ghostty, kitty, and Windows Terminal, `osascript` on Terminal.app, `notify-send` beside it on other Linux terminals. Focused, nothing. `bell` and `notify` are the two switches.
 - An approval names the call — `Allow bash: git push origin main?` — and its third answer remembers it: `bash(git push *)` goes to `.dsh/permissions.local.json` (personal; gitignore it) and the same prefix is never asked again in this project. `.dsh/permissions.json` (committed) and `~/.dsh/permissions.json` are hand-written, `{ "allow": ["tool", "tool(prefix *)", "tool(exact command)"] }`; a compound command — `&&`, `;`, `|`, a newline — never matches a prefix.
 
