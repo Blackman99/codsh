@@ -1,5 +1,35 @@
 # codsh-bundle
 
+## 0.15.8
+
+### Patch Changes
+
+- ec7e0d3: feat(tui): always show full ASCII logo banner on fresh start and /clear
+  
+  - Always display the full ASCII whale logo and welcome tips whenever a fresh session is started in an interactive terminal, regardless of prior sessions in the workspace.
+  - Redisplay the full ASCII logo banner after a `/clear` command in an ongoing session.
+  - Keep skipping the welcome banner when resuming or continuing a previous session (`--resume` / `--continue`).
+- ac5f952: feat(tui): atomic image token navigation and automatic image preview overlay
+  
+  - Treat `[Image #N]` tokens as atomic units in the input editor: cursor navigation (Left/Right, Up/Down, Word, Home/End, mouse clicks) jumps over the token and never positions the cursor inside it.
+  - Support atomic forward deletion for image tokens (`delete` key before `[`).
+  - Style `[Image #N]` tokens in the input box with accent color (`theme.accent`).
+  - Automatically show a floating image preview overlay above the prompt box when the cursor is directly at the left or right edge of an image token, displaying image metadata, dimensions, file size, and half-block ANSI thumbnail.
+- 94b2f06: feat(tui): support GFM task lists and ~~strikethrough~~ in Markdown answers
+  
+  - Add first-class `Theme.strike` method backed by ANSI SGR 9 (`\u001B[9m`), gracefully degrading under `NO_COLOR` and off-TTY environments.
+  - Render Markdown task list items natively: unchecked (`- [ ]`, `* [ ]`, `+ [ ]`) render as `○`, checked (`- [x]`, `* [x]`, `+ [X]`) render as `✔` with dimmed, struck-through body text, preserving nested indentation.
+  - Render double-tilde inline strikethrough (`~~text~~`) in prose and table cells.
+- ac5f952: feat(tui): merge `? shortcuts` hint into bottom status line
+  
+  - Move `? shortcuts` into MetaBar bottom status line instead of dedicating a standalone row under the input box.
+  - Make `Prompt.setStatus` support dynamic column-aware formatting, dropping shortcuts first when terminal columns are constrained before cwd and model.
+- ac5f952: feat(theme): replace glaring bright yellow highlights with soft amber on 256-color terminals
+  
+  - Map `warn`, `tool`, and `pending` highlights to a softer amber shade (`\u001B[38;5;214m` in dark mode, `\u001B[38;5;172m` in light mode) on 256-color terminals.
+  - Retain standard ANSI yellow in basic 16-color mode for backwards compatibility.
+  - Eliminates eye strain caused by high-intensity fluorescent yellow on dark terminal themes.
+
 ## 0.15.7
 
 ### Patch Changes
