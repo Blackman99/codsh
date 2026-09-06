@@ -132,6 +132,24 @@ function fill(row: string, columns: number, light: boolean): string {
 }
 
 /**
+ * Pad a row carrying a background sequence to the content width so the block
+ * reads as a full-width panel rather than hugging the text.
+ * @param row - the styled row.
+ * @param width - display columns to pad to.
+ * @returns the row, padded with its background color across the full width.
+ */
+function padRowBackground(row: string, width: number): string {
+  if (row === '') return ''
+  const bgMatch = /\u001B\[48;[0-9;]*m/.exec(row)
+  if (bgMatch === null) return row
+  const pad = Math.max(0, width - displayWidth(row))
+  if (pad <= 0) return row
+  const bg = bgMatch[0]
+  const trimmed = row.replace(/(?:\u001B\[[0-9;]*m)+$/u, '')
+  return `${trimmed}${bg}${' '.repeat(pad)}${RESET}`
+}
+
+/**
  * The string index where a display column begins.
  *
  * Columns are what the mouse reports and characters are what strings hold;
@@ -2057,6 +2075,10 @@ export class Screen {
           }
         }
       }
+    }
+    const contentWidth = this.contentColumns()
+    for (let index = 0; index < visible.length; index += 1) {
+      visible[index] = padRowBackground(visible[index] ?? '', contentWidth)
     }
     let viewport: string[]
     if (sticky !== undefined) {
