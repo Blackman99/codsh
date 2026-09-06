@@ -257,6 +257,45 @@ describe('statusLine', () => {
     }, theme, 200)).toBe('ship · land 1/2 · m · /repo')
   })
 
+  it('formats model with reasoning effort when reasoning is supported', () => {
+    expect(statusLine({
+      ...base,
+      model: 'deepseek-chat',
+      reasoningEffort: 'high',
+      reasoningSupported: true,
+    }, theme, 200)).toBe('deepseek-chat (high) · /repo')
+  })
+
+  it('formats model with off when reasoning effort is off and supported', () => {
+    expect(statusLine({
+      ...base,
+      model: 'deepseek-chat',
+      reasoningEffort: 'off',
+      reasoningSupported: true,
+    }, theme, 200)).toBe('deepseek-chat (off) · /repo')
+  })
+
+  it('omits reasoning effort tag when reasoning is not supported or effort is absent', () => {
+    expect(statusLine({
+      ...base,
+      model: 'deepseek-chat',
+      reasoningEffort: 'high',
+      reasoningSupported: false,
+    }, theme, 200)).toBe('deepseek-chat · /repo')
+
+    expect(statusLine({
+      ...base,
+      model: 'deepseek-chat',
+      reasoningSupported: true,
+    }, theme, 200)).toBe('deepseek-chat · /repo')
+
+    expect(statusLine({
+      ...base,
+      model: 'deepseek-chat',
+      reasoningEffort: 'high',
+    }, theme, 200)).toBe('deepseek-chat · /repo')
+  })
+
   it('keeps the full line when no budget is given, so a later paint can re-fit it', () => {
     const path = '/very/long/path/that/keeps/going/on'
     expect(statusLine({ ...base, cwd: path }, theme)).toContain(path)
@@ -355,6 +394,11 @@ describe('status styling', () => {
     expect(line).not.toContain('\u001B[36m')
   })
 
+  it('styles the model with reasoning effort muted', () => {
+    const line = statusLine({ ...base, model: 'm', reasoningEffort: 'high', reasoningSupported: true }, colour, 200)
+    expect(line).toContain('\u001B[90mm (high)\u001B[0m')
+  })
+
   it('escalates alarming context only; routine headroom stays off the glance', () => {
     const at = (projected: number): string => statusLine({
       ...base,
@@ -399,5 +443,29 @@ describe('statusReport', () => {
   it('reports occupancy against the window', () => {
     const report = statusReport({ ...base, context: { contextWindow: 1000, projectedTokens: 250 } }, 'session-1')
     expect(report).toContain('next request  250 of 1.0k (75% left)')
+  })
+
+  it('includes thinking row with active level and available choices when supported', () => {
+    const report = statusReport({
+      ...base,
+      reasoningEffort: 'high',
+      reasoningSupported: true,
+      reasoningChoices: ['off', 'low', 'high', 'max'],
+    }, 'session-1')
+    expect(report).toContain('thinking   high (available: off, low, high, max)')
+  })
+
+  it('includes thinking row with level only when choices are absent', () => {
+    const report = statusReport({
+      ...base,
+      reasoningEffort: 'low',
+      reasoningSupported: true,
+    }, 'session-1')
+    expect(report).toContain('thinking   low')
+  })
+
+  it('reports thinking as not supported when unsupported or absent', () => {
+    expect(statusReport({ ...base, reasoningSupported: false }, 'session-1')).toContain('thinking   not supported')
+    expect(statusReport(base, 'session-1')).toContain('thinking   not supported')
   })
 })

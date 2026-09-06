@@ -60,6 +60,12 @@ export interface StatusFacts {
   context?: ContextPressureProjection | undefined
   /** Whether to show shortcuts hint in the status line. */
   shortcuts?: boolean | undefined
+  /** Active reasoning effort / thinking level (e.g. 'high', 'off'), absent when not configured. */
+  reasoningEffort?: string | undefined
+  /** Whether the active model supports configurable reasoning. */
+  reasoningSupported?: boolean | undefined
+  /** Available reasoning efforts / thinking levels supported by the active model. */
+  reasoningChoices?: readonly string[] | undefined
 }
 
 /**
@@ -295,7 +301,10 @@ export function statusLine(facts: StatusFacts, theme: Theme, columns?: number): 
   const chip = resolveShipChip(facts)
   const shipChip = chip === undefined ? undefined : paintShipChip(chip, theme)
   const mode = facts.planMode ? theme.warn('plan') : undefined
-  const model = theme.muted(facts.model)
+  const modelText = facts.reasoningSupported && facts.reasoningEffort !== undefined && facts.reasoningEffort.trim() !== ''
+    ? `${facts.model} (${facts.reasoningEffort.trim()})`
+    : facts.model
+  const model = theme.muted(modelText)
   const cwd = theme.muted(
     facts.branch === undefined ? displayPath(facts.cwd) : `${displayPath(facts.cwd)} (${facts.branch})`,
   )
@@ -327,6 +336,22 @@ export function statusLine(facts: StatusFacts, theme: Theme, columns?: number): 
 }
 
 /**
+ * Format the thinking row value for `/status`.
+ *
+ * Reports `<level> (available: <choices>)` when supported, or `not supported`.
+ * @param facts - status facts.
+ */
+export function formatThinkingReport(facts: StatusFacts): string {
+  const supported = facts.reasoningSupported === true || (facts.reasoningSupported === undefined && facts.reasoningEffort !== undefined)
+  if (!supported) return 'not supported'
+  const effort = facts.reasoningEffort ?? 'default'
+  if (facts.reasoningChoices !== undefined && facts.reasoningChoices.length > 0) {
+    return `${effort} (available: ${facts.reasoningChoices.join(', ')})`
+  }
+  return effort
+}
+
+/**
  * Render the fuller readout `/status` answers with.
  *
  * The status line is a glance; this is the place a person looks when the glance
@@ -343,6 +368,7 @@ export function statusReport(facts: StatusFacts, session: string): string {
   const rows: [string, string][] = [
     ['session', session],
     ['model', facts.model],
+    ['thinking', formatThinkingReport(facts)],
     ...facts.preset === undefined ? [] : [['preset', facts.preset] as [string, string]],
     ...facts.permission === undefined ? [] : [['permissions', facts.permission] as [string, string]],
     ['plan mode', facts.planMode ? 'on' : 'off'],
