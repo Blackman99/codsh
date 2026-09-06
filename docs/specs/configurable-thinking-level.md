@@ -1,6 +1,6 @@
 # Configurable Thinking Level
 
-Status: landing
+Status: shipped
 
 ## Requirement
 
