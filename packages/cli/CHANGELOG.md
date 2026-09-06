@@ -1,5 +1,25 @@
 # codsh
 
+## 0.16.0
+
+### Minor Changes
+
+- e904c8b: feat(bundle): configurable thinking level via /thinking and /effort commands
+  
+  - Add `/thinking` command and `/effort` alias to configure reasoning deliberation level.
+  - Support interactive selector prompt in TTY, non-TTY listing, direct argument input, and `on`/`off` shortcut toggles.
+  - Add per-model thinking preference persistence (`~/.dsh/code-cli-thinking.json`), restoring chosen levels on `/model` switches.
+  - Display active thinking level tag in MetaBar status line (`model (effort)`) and detail row in `/status` report.
+  - Provide auto-completion for `/thinking` and `/effort` arguments based on model capabilities.
+
+### Patch Changes
+
+- 6d8a5ae: fix(tui): replace pending tool call lines in-place on result, align hover bounds, and improve card margins
+  
+  - Replace pending tool call lines in-place when the completed tool result arrives, eliminating duplicate pending headers while preserving live in-flight commands and PTY interrupt visibility.
+  - Exclude trailing blank separator rows from fold ranges and hover fills, ensuring hover highlights align precisely with card bounds.
+  - Add vertical breathing padding to multiline tool results and avoid low-yield folds for 1-2 excess lines.
+
 ## 0.15.11
 
 ### Patch Changes
