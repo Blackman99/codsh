@@ -106,6 +106,9 @@ const FILL_LIGHT = '\u001B[48;5;253m'
 /** Restore the terminal's default background, leaving other attributes. */
 const FILL_OFF = '\u001B[49m'
 
+/** Muted color for dividers and borders. */
+const MUTED = '\u001B[90m'
+
 /** A full SGR reset, which every styled span this surface prints ends with. */
 const RESET = '\u001B[0m'
 
@@ -2060,8 +2063,11 @@ export class Screen {
       const source = prompts[sticky.prompt]?.rows ?? []
       const from = sticky.state === 'pushed' ? sticky.clipTop : 0
       const header = source.slice(from, from + sticky.renderHeight)
-      const gap = sticky.state === 'pinned' && sticky.reservedRows > sticky.renderHeight ? [''] : []
-      viewport = [...header, ...gap, ...visible, ...padding].slice(0, height)
+      const width = this.contentColumns()
+      const filledHeader = header.map(row => fill(truncate(row, width), width, this.light))
+      const divider = `${MUTED}${'─'.repeat(width)}${RESET}`
+      const gap = sticky.state === 'pinned' && sticky.reservedRows > sticky.renderHeight ? [divider] : []
+      viewport = [...filledHeader, ...gap, ...visible, ...padding].slice(0, height)
     } else {
       viewport = [...visible, ...padding]
     }

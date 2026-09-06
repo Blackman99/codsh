@@ -26,8 +26,9 @@ function host(rows = 10, columns = 20): ScreenHost & { out: string[]; size: { ro
 /** The rows a frame painted, as `row => text`, from the emitted sequences. */
 function painted(data: string): Map<number, string> {
   const rows = new Map<number, string>()
-  for (const match of data.matchAll(/\u001B\[(\d+);1H\u001B\[K([^\u001B]*)/gu)) {
-    rows.set(Number(match[1]), (match[2] ?? '').slice(2))
+  for (const match of data.matchAll(/\u001B\[(\d+);1H\u001B\[K((?:[^\u001B]|\u001B\[[0-9;]*m)*)/gu)) {
+    const raw = (match[2] ?? '').slice(2).replaceAll(/\u001B\[[0-9;]*m/gu, '')
+    rows.set(Number(match[1]), raw.trimEnd())
   }
   return rows
 }
@@ -690,7 +691,7 @@ describe('scrolling', () => {
     const rows = painted(flush(sink))
     expect([rows.get(1), rows.get(2), rows.get(3), rows.get(4), rows.get(5)]).toEqual([
       '| › first question',
-      '',
+      '─'.repeat(37),
       'answer 4',
       'answer 5',
       'answer 6',
@@ -721,7 +722,7 @@ describe('scrolling', () => {
 
     const rows = painted(flush(sink))
     expect(rows.get(1)).toContain('› one two')
-    expect(rows.get(2)).toBe('')
+    expect(rows.get(2)).toContain('─')
   })
 
   it('does not preserve generated image metadata as an explicit sticky line', () => {
@@ -734,7 +735,7 @@ describe('scrolling', () => {
 
     const rows = painted(flush(sink))
     expect(rows.get(1)).toContain('describe this')
-    expect(rows.get(2)).toBe('')
+    expect(rows.get(2)).toContain('─')
   })
 
   it('folds a long user prompt to three visual rows and expands it on demand', () => {
@@ -895,11 +896,37 @@ describe('scrolling', () => {
     screen.setScrollNotice('↑ 2 rows above · click or PgDn returns to the latest')
 
     const rows = painted(flush(sink))
-    // The sticky header keeps row one and its gap stays empty; the notice sits
+    // The sticky header keeps row one and its gap row shows the divider line; the notice sits
     // at the foot of the viewport, where the way out is.
     expect(rows.get(1)).toBe('| › question')
-    expect(rows.get(2)).toBe('')
+    expect(rows.get(2)).toBe('─'.repeat(47))
     expect(rows.get(5)).toContain('↑ 2 rows above')
+  })
+
+  it('fills sticky header rows with the panel background and adds a divider line', () => {
+    const sink = host(6, 40)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['status'], { row: 0, column: 0 }, false)
+    screen.appendPrompt(['› question', ''], '| ')
+    screen.append(Array.from({ length: 12 }, (_, index) => `answer ${index}`))
+    screen.scrollBy(-2)
+    const frame = flush(sink)
+    expect(frame).toContain('\u001B[48;5;236m| › question')
+    expect(frame).toContain('\u001B[90m─')
+  })
+
+  it('uses light panel fill for sticky header on a light background', () => {
+    const sink = host(6, 40)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setLight(true)
+    screen.setChrome(['status'], { row: 0, column: 0 }, false)
+    screen.appendPrompt(['› question', ''], '| ')
+    screen.append(Array.from({ length: 12 }, (_, index) => `answer ${index}`))
+    screen.scrollBy(-2)
+    const frame = flush(sink)
+    expect(frame).toContain('\u001B[48;5;253m| › question')
   })
 
   it('returns to the latest when the notice row is clicked', () => {
