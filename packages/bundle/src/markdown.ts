@@ -343,10 +343,9 @@ function renderLine(line: string, theme: Theme, fence: FenceState): string[] {
     if (opened !== undefined) {
       if (fenceLanguage === undefined) {
         fenceLanguage = opened.language
-        if (theme.colored) out.push(theme.bgCode('  '))
+        // The language is worth naming; the fence itself is not.
         if (fenceLanguage !== '') out.push(theme.bgCode(theme.dim(`  ${fenceLanguage}`)))
       } else {
-        if (theme.colored) out.push(theme.bgCode('  '))
         fenceLanguage = undefined
       }
       fence.set(fenceLanguage)
