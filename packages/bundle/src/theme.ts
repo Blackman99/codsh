@@ -11,6 +11,7 @@ const SGR = {
   reset: '\u001B[0m',
   dim: '\u001B[2m',
   bold: '\u001B[1m',
+  strike: '\u001B[9m',
   red: '\u001B[31m',
   green: '\u001B[32m',
   yellow: '\u001B[33m',
@@ -27,6 +28,8 @@ export interface Theme {
   readonly colored: boolean
   dim(text: string): string
   bold(text: string): string
+  /** Strikethrough text. */
+  strike(text: string): string
   /** Secondary chrome text (status model/cwd, legend, separators). */
   muted(text: string): string
   /** Focus and selection only: input frame default, marked selector rows. */
@@ -77,6 +80,7 @@ const PLAIN: Theme = {
   setLight: () => {},
   dim: text => text,
   bold: text => text,
+  strike: text => text,
   muted: text => text,
   accent: text => text,
   agent: text => text,
@@ -130,6 +134,7 @@ export function createTheme(isTty: boolean, env: Record<string, string | undefin
     },
     dim: text => `${palette ? gray : SGR.dim}${text}${SGR.reset}`,
     bold: wrap(SGR.bold),
+    strike: wrap(SGR.strike),
     muted: wrap(SGR.brightBlack),
     accent: wrap(SGR.cyan),
     agent,
