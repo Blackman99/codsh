@@ -1,6 +1,6 @@
 # Always Show ASCII Logo Banner on Fresh Start and Clear
 
-Status: landing
+Status: shipped
 
 ## Requirement
 
@@ -58,7 +58,7 @@ In commit `f2a6e7c`, an optimization was introduced that automatically suppresse
 ## Plan
 
 - [x] Ticket 1: Always Produce Full ASCII Logo Banner on Fresh Start and Clear — Delivers full ASCII logo on fresh start and /clear (Blocked by: none)
-- [ ] Ticket 2: Changeset, Spec Verification, and Regression Testing — Delivers changeset and passes all acceptance criteria (Blocked by: Ticket 1)
+- [x] Ticket 2: Changeset, Spec Verification, and Regression Testing — Delivers changeset and passes all acceptance criteria (Blocked by: Ticket 1)
 
 ## Baseline
 
