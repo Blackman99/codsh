@@ -54,7 +54,7 @@ export interface EditorView {
   selection?: { start: { row: number; column: number }; end: { row: number; column: number } }
 }
 
-/** A `/command` or `$skill` in the buffer that names something real. */
+/** A `/command`, `$skill`, or `[Image #N]` in the buffer that names something real. */
 export interface GestureHit {
   /** Buffer line index. */
   row: number
@@ -63,7 +63,7 @@ export interface GestureHit {
   /** Code point after the token. */
   end: number
   /** Which kind of gesture it is. */
-  kind: 'command' | 'skill'
+  kind: 'command' | 'skill' | 'image'
 }
 
 /** What the caller must do after a key. */
@@ -132,6 +132,35 @@ type EditGroup = 'word' | 'space' | 'backspace' | 'delete'
  * @returns its code points.
  */
 const points = (text: string): string[] => Array.from(text)
+
+/** An `[Image #N]` token located within a buffer line. */
+export interface ImageTokenRange {
+  start: number
+  end: number
+  id: number
+  text: string
+}
+
+/**
+ * Locate all `[Image #N]` tokens in a line, in code-point indices.
+ * @param line - line content.
+ */
+export function imageTokenRanges(line: string): ImageTokenRange[] {
+  const ranges: ImageTokenRange[] = []
+  const regex = /\[Image #(\d+)\]/gu
+  for (const match of line.matchAll(regex)) {
+    if (match.index === undefined) continue
+    const start = Array.from(line.slice(0, match.index)).length
+    const length = Array.from(match[0]).length
+    ranges.push({
+      start,
+      end: start + length,
+      id: Number(match[1]),
+      text: match[0],
+    })
+  }
+  return ranges
+}
 
 /**
  * The undo group a key's edit belongs to.
@@ -572,6 +601,14 @@ export class Editor {
           kind: 'skill',
         })
       }
+      for (const token of imageTokenRanges(line)) {
+        hits.push({
+          row,
+          start: token.start,
+          end: token.end,
+          kind: 'image',
+        })
+      }
     })
     return hits
   }
@@ -648,7 +685,10 @@ export class Editor {
     }
     const cells = points(this.line())
     if (this.column < cells.length) {
-      cells.splice(this.column, 1)
+      const rest = cells.slice(this.column).join('')
+      const token = /^\[Image #\d+\]/u.exec(rest)
+      const width = token === null ? 1 : points(token[0]).length
+      cells.splice(this.column, width)
       this.setLine(cells.join(''))
     } else if (this.row < this.lines.length - 1) {
       const next = this.lines[this.row + 1] ?? ''
@@ -703,14 +743,16 @@ export class Editor {
     if (this.wrapWidth !== undefined) {
       const next = visualStep(this.lines, this.row, this.column, delta, this.wrapWidth)
       if (next === undefined) return false
-      this.row = next.row
-      this.column = next.column
+      const clamped = this.clamp(next.row, next.column)
+      this.row = clamped.row
+      this.column = clamped.column
       return true
     }
     const target = this.row + delta
     if (target < 0 || target > this.lines.length - 1) return false
-    this.row = target
-    this.column = Math.min(this.column, points(this.line()).length)
+    const clamped = this.clamp(target, this.column)
+    this.row = clamped.row
+    this.column = clamped.column
     return true
   }
 
@@ -738,10 +780,25 @@ export class Editor {
   /** Move the cursor one position left, wrapping to the previous line. */
   private moveLeft(): EditorAction {
     this.anchor = undefined
-    if (this.column > 0) this.column -= 1
-    else if (this.row > 0) {
+    if (this.column > 0) {
+      let target = this.column - 1
+      for (const token of imageTokenRanges(this.line())) {
+        if (target > token.start && target < token.end) {
+          target = token.start
+          break
+        }
+      }
+      this.column = target
+    } else if (this.row > 0) {
       this.row -= 1
-      this.column = points(this.line()).length
+      let target = points(this.line()).length
+      for (const token of imageTokenRanges(this.line())) {
+        if (target > token.start && target < token.end) {
+          target = token.start
+          break
+        }
+      }
+      this.column = target
     }
     return { kind: 'none' }
   }
@@ -749,10 +806,26 @@ export class Editor {
   /** Move the cursor one position right, wrapping to the next line. */
   private moveRight(): EditorAction {
     this.anchor = undefined
-    if (this.column < points(this.line()).length) this.column += 1
-    else if (this.row < this.lines.length - 1) {
+    const len = points(this.line()).length
+    if (this.column < len) {
+      let target = this.column + 1
+      for (const token of imageTokenRanges(this.line())) {
+        if (target > token.start && target < token.end) {
+          target = token.end
+          break
+        }
+      }
+      this.column = target
+    } else if (this.row < this.lines.length - 1) {
       this.row += 1
-      this.column = 0
+      let target = 0
+      for (const token of imageTokenRanges(this.line())) {
+        if (target > token.start && target < token.end) {
+          target = token.end
+          break
+        }
+      }
+      this.column = target
     }
     return { kind: 'none' }
   }
@@ -764,7 +837,8 @@ export class Editor {
    */
   private jump(column: number): EditorAction {
     this.anchor = undefined
-    this.column = column
+    const clamped = this.clamp(this.row, column)
+    this.column = clamped.column
     return { kind: 'none' }
   }
 
@@ -798,6 +872,12 @@ export class Editor {
     let at = this.column
     while (at > 0 && cells[at - 1] === ' ') at -= 1
     while (at > 0 && cells[at - 1] !== ' ') at -= 1
+    for (const token of imageTokenRanges(this.line())) {
+      if (at > token.start && at < token.end) {
+        at = token.start
+        break
+      }
+    }
     this.column = at
     return { kind: 'none' }
   }
@@ -809,6 +889,12 @@ export class Editor {
     let at = this.column
     while (at < cells.length && cells[at] === ' ') at += 1
     while (at < cells.length && cells[at] !== ' ') at += 1
+    for (const token of imageTokenRanges(this.line())) {
+      if (at > token.start && at < token.end) {
+        at = token.end
+        break
+      }
+    }
     this.column = at
     return { kind: 'none' }
   }
@@ -957,7 +1043,14 @@ export class Editor {
    */
   private clamp(row: number, column: number): { row: number; column: number } {
     const at = Math.min(Math.max(0, row), this.lines.length - 1)
-    return { row: at, column: Math.min(Math.max(0, column), points(this.lines[at] ?? '').length) }
+    let col = Math.min(Math.max(0, column), points(this.lines[at] ?? '').length)
+    for (const token of imageTokenRanges(this.lines[at] ?? '')) {
+      if (col > token.start && col < token.end) {
+        col = (col - token.start < token.end - col) ? token.start : token.end
+        break
+      }
+    }
+    return { row: at, column: col }
   }
 
   /**

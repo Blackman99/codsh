@@ -870,9 +870,6 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
     // /ship GateModal open/close: repaint MetaBar with the gate chip.
     shipGate: (gate) => { onShipGate(gate) },
   }, 'Ask anything · / for commands · $ for skills · ! shell · @ for files · ⇧Tab plan mode')
-  // The keys a first session most needs, on the hint row, while typing too:
-  // the placeholder leaves with the first character, and `?` opens the rest.
-  prompt.setLegend(theme.muted('  ? shortcuts'))
   prompt.setDensity(density)
   const applyDensity = (next: Density): void => {
     density = next
@@ -1568,7 +1565,7 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
       prompt.setStatus(theme.dim('subagent · Esc returns to the parent'))
       return
     }
-    prompt.setStatus(statusLine({ ...facts(branch), ...shipFacts() }, theme))
+    prompt.setStatus(columns => statusLine({ ...facts(branch), ...shipFacts(), shortcuts: true }, theme, columns))
     // Same cadence as the status row, for the same reason: the list is a fold
     // over the log, so anything cached here would report the turn before last.
     prompt.setTodos(todoList(ctx, live.agent))

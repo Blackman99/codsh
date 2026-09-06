@@ -209,6 +209,10 @@ describe('statusLine', () => {
     expect(statusLine(base, theme, 200)).toBe('m · /repo')
   })
 
+  it('appends shortcuts hint when requested', () => {
+    expect(statusLine({ ...base, shortcuts: true }, theme, 200)).toBe('m · /repo · ? shortcuts')
+  })
+
   it('keeps extras out of the glance line — preset, permission, tokens, routine context', () => {
     const line = statusLine({
       ...base,
@@ -256,6 +260,16 @@ describe('statusLine', () => {
   it('keeps the full line when no budget is given, so a later paint can re-fit it', () => {
     const path = '/very/long/path/that/keeps/going/on'
     expect(statusLine({ ...base, cwd: path }, theme)).toContain(path)
+  })
+
+  it('drops shortcuts before cwd and model when the budget is tight', () => {
+    const line = statusLine({
+      ...base,
+      shortcuts: true,
+      cwd: '/repo',
+    }, theme, 12)
+    expect(line).not.toContain('shortcuts')
+    expect(line).toContain('m · /repo')
   })
 
   it('drops cwd before model when the budget is tight', () => {

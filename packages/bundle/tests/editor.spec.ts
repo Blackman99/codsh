@@ -827,3 +827,48 @@ describe('undo and redo', () => {
     expect(editor.text).toBe('/pl')
   })
 })
+
+describe('image token navigation', () => {
+  it('jumps over an image token when moving left and right', () => {
+    const editor = build()
+    type(editor, 'a[Image #1]b')
+    expect(editor.view.column).toBe(12)
+    editor.handle(key('left'))
+    expect(editor.view.column).toBe(11)
+    editor.handle(key('left'))
+    expect(editor.view.column).toBe(1)
+    editor.handle(key('right'))
+    expect(editor.view.column).toBe(11)
+  })
+
+  it('deletes an image token atomically with forward delete', () => {
+    const editor = build()
+    type(editor, '[Image #1]more')
+    editor.handle(key('home'))
+    expect(editor.view.column).toBe(0)
+    editor.handle(key('delete'))
+    expect(editor.text).toBe('more')
+    expect(editor.view.column).toBe(0)
+  })
+
+  it('clamps clicks inside an image token to the nearest boundary', () => {
+    const editor = build()
+    type(editor, 'hello [Image #1] world')
+    // token is at [6, 16]
+    editor.setCursor(0, 7)
+    expect(editor.view.column).toBe(6)
+    editor.setCursor(0, 15)
+    expect(editor.view.column).toBe(16)
+  })
+
+  it('skips over image tokens during word navigation', () => {
+    const editor = build()
+    type(editor, 'foo [Image #1] bar')
+    editor.handle(key('word-left'))
+    expect(editor.view.column).toBe(15)
+    editor.handle(key('word-left'))
+    expect(editor.view.column).toBe(4)
+    editor.handle(key('word-right'))
+    expect(editor.view.column).toBe(14)
+  })
+})

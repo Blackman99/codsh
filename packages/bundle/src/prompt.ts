@@ -9,7 +9,8 @@
  * @module codsh-bundle/src/prompt
  */
 
-import { Editor } from './editor.ts'
+import { Editor, imageTokenRanges } from './editor.ts'
+import { generateImageThumbnail, imagePreviewCard, readImageMetadata } from './image-preview.ts'
 import { caretAt, inputBox, menuScrollFrom, menuScrollLimit, menuTargetAt, wrapBudget } from './inputbox.ts'
 import { planReport, planSummary } from './plan.ts'
 import type { Plan } from './plan.ts'
@@ -85,6 +86,8 @@ export interface PendingImage {
   image: EncodedImageAttachment
   width?: number
   height?: number
+  byteSize?: number
+  thumbnail?: string[]
 }
 
 /** One waiting read. */
@@ -216,7 +219,7 @@ export class Prompt {
   /** The menu row a pointer rests on, handed to the box each render. */
   private menuHover: number | undefined
   /** The always-current session facts shown as the region's last row. */
-  private status: string | undefined
+  private status: string | ((columns: number) => string) | undefined
   /**
    * The agent's current todo list, kept in the chrome rather than only in the
    * transcript: the card that announced it scrolls away, this does not.
@@ -353,10 +356,11 @@ export class Prompt {
 
   /**
    * Set the status row, the region's always-current last line.
-   * @param text - the full styled row, or undefined to drop it. Truncation is
-   *   applied at paint time so a resize can grow the line back.
+   * @param text - the full styled row, a dynamic formatter taking display columns,
+   *   or undefined to drop it. Truncation is applied at paint time so a resize
+   *   can grow the line back.
    */
-  setStatus(text: string | undefined): void {
+  setStatus(text: string | ((columns: number) => string) | undefined): void {
     if (text === this.status) return
     this.status = text
     this.render()
@@ -899,13 +903,23 @@ export class Prompt {
       const pending: PendingImage = {
         id,
         image: { mediaType: found.mediaType, data: found.data.toString('base64'), name: `Pasted image #${id}` },
+        byteSize: found.data.length,
+        ...found.width !== undefined ? { width: found.width } : {},
+        ...found.height !== undefined ? { height: found.height } : {},
       }
-      if (found.width !== undefined) pending.width = found.width
-      if (found.height !== undefined) pending.height = found.height
       this.pendingImages.set(id, pending)
       this.editor.handle({ kind: 'paste', text: `[Image #${id}]` })
       const size = found.width !== undefined && found.height !== undefined ? ` (${found.width}×${found.height} ${found.mediaType.slice(6)})` : ''
       this.setFlash(this.theme.dim(`  ✓ image #${id} attached${size}`))
+      void Promise.all([
+        generateImageThumbnail(found.data),
+        found.width === undefined || found.height === undefined ? readImageMetadata(found.data) : undefined,
+      ]).then(([thumb, meta]) => {
+        if (thumb !== undefined) pending.thumbnail = thumb
+        if (meta?.width !== undefined && pending.width === undefined) pending.width = meta.width
+        if (meta?.height !== undefined && pending.height === undefined) pending.height = meta.height
+        this.render()
+      })
     } finally {
       this.pastingImage = false
       this.render()
@@ -1377,8 +1391,9 @@ export class Prompt {
     if (this.idleTipVisible && this.select_ === undefined && this.frontier_ === undefined && overlay === undefined) {
       rows.push(this.theme.muted(truncate(`  ${IDLE_TIP}`, columns)))
     }
-    if (this.status !== undefined && (overlay === undefined || hint !== undefined)) {
-      rows.push(truncate(this.status, columns))
+    const statusText = typeof this.status === 'function' ? this.status(columns) : this.status
+    if (statusText !== undefined && (overlay === undefined || hint !== undefined)) {
+      rows.push(truncate(statusText, columns))
     }
     this.chromeHeight = rows.length
     if (rows.length === 0) {
@@ -1393,8 +1408,48 @@ export class Prompt {
     if (!focus) cursor = { row: rows.length - 1, column: 0 }
     // Frontier keeps the timeline: it is a card above the box, not a viewer.
     this.console.setTimelineHidden(this.select_ !== undefined)
-    this.console.setOverlay(menuOverlay)
+    const preview = this.imagePreviewOverlay(columns)
+    const consoleOverlay = menuOverlay.length > 0 ? menuOverlay : preview
+    this.console.setOverlay(consoleOverlay)
     this.console.setRegion(rows, cursor, focus)
+  }
+
+  /**
+   * Return the pending image if the cursor is directly at the left or right edge
+   * of an `[Image #N]` token in the editor.
+   */
+  private activeImageAtCursor(): PendingImage | undefined {
+    const view = this.editor.view
+    const line = view.lines[view.row] ?? ''
+    const ranges = imageTokenRanges(line)
+    for (const range of ranges) {
+      if (view.column === range.start || view.column === range.end) {
+        const pending = this.pendingImages.get(range.id)
+        if (pending !== undefined) {
+          if (pending.thumbnail === undefined && pending.image.data) {
+            const buf = Buffer.from(pending.image.data, 'base64')
+            void generateImageThumbnail(buf).then(thumb => {
+              if (thumb !== undefined) {
+                pending.thumbnail = thumb
+                this.render()
+              }
+            })
+          }
+          return pending
+        }
+      }
+    }
+    return undefined
+  }
+
+  /**
+   * Floating image preview overlay, shown when cursor is next to an image token.
+   * @param columns - terminal content columns.
+   */
+  private imagePreviewOverlay(columns: number): readonly string[] {
+    const active = this.activeImageAtCursor()
+    if (active === undefined) return []
+    return imagePreviewCard(active, this.theme, columns)
   }
 
   /** Hide the idle tip while the box is typed in; restore it after idle. */

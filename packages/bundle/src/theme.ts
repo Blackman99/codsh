@@ -123,14 +123,17 @@ export function createTheme(isTty: boolean, env: Record<string, string | undefin
   // Mutable on purpose: the background answer arrives moments after the first
   // frame, and everything rendered from then on picks the readable shade.
   let gray = '\u001B[38;5;245m'
+  let amber = '\u001B[38;5;214m'
   const err = wrap(SGR.red)
   const ok = wrap(SGR.green)
-  const warn = wrap(SGR.brightYellow)
+  const warn = (text: string): string => `${palette ? amber : SGR.brightYellow}${text}${SGR.reset}`
+  const tool = (text: string): string => `${palette ? amber : SGR.yellow}${text}${SGR.reset}`
   const agent = wrap(SGR.magenta)
   return {
     colored: true,
     setLight(light: boolean) {
       gray = light ? '\u001B[38;5;242m' : '\u001B[38;5;245m'
+      amber = light ? '\u001B[38;5;172m' : '\u001B[38;5;214m'
     },
     dim: text => `${palette ? gray : SGR.dim}${text}${SGR.reset}`,
     bold: wrap(SGR.bold),
@@ -141,7 +144,7 @@ export function createTheme(isTty: boolean, env: Record<string, string | undefin
     err,
     ok,
     warn,
-    tool: wrap(SGR.yellow),
+    tool,
     path: wrap(SGR.blue),
     error: err,
     success: ok,
