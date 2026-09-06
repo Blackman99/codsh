@@ -1,5 +1,23 @@
 # codsh-bundle
 
+## 0.15.11
+
+### Patch Changes
+
+- 8e4f52e: fix(transcript): add vertical padding (vpad) and breathing room around functional blocks
+  
+  - Add vertical padding rows (`vpad`) at the top and bottom of functional blocks (user prompts, tool cards, execution results, thinking deliberation, and code blocks) so text is not pressed directly against block edges.
+  - Ensure tool call invocations and completed results are cleanly separated with proper margins.
+- df8987a: fix(ci): restore clean line layout and fix viewport background/hover coordinate alignment
+  
+  - Revert artificial synthetic vpad rows in transcripts that caused line count and turn offset mismatches in PTY and sticky headers.
+  - Keep left gutter glyphs clean without inner background wrappers to prevent trailing line truncation anomalies.
+  - Align viewport padding and hover fill index coordinates in `Screen.render`.
+- f7bc14e: fix(screen): ensure uniform hover fill without resting background text cutouts
+  
+  - Strip resting background escape sequences when rendering hover fill (`fill`), ensuring uniform, clean highlight across the entire hovered block without dark text cutouts.
+  - Order rendering so full-width padding applies before hover fill overlays.
+
 ## 0.15.10
 
 ### Patch Changes
