@@ -83,7 +83,7 @@ export class TextStream {
 
   /** Render one complete line in this stream's mode. */
   private renderLine(line: string): string[] {
-    return this.plain ? [this.theme.dim(`  ${line}`)] : this.markdown.line(line)
+    return this.plain ? [this.theme.bgThinking(this.theme.dim(`  ${line}`))] : this.markdown.line(line)
   }
 
   /**

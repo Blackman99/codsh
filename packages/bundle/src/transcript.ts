@@ -192,10 +192,10 @@ export function thinkingFold(
   seconds?: number,
 ): { summary: string[], full: string[] } {
   // Glyph lives in the agent gutter (`✻ `); the line is the clock only.
-  const head = theme.dim(seconds === undefined ? 'thought' : `thought for ${formatElapsed(seconds * 1000)}`)
+  const head = theme.bgThinking(theme.dim(seconds === undefined ? 'thought' : `thought for ${formatElapsed(seconds * 1000)}`))
   return {
     summary: [head, ''],
-    full: [head, ...lines, ''],
+    full: [head, ...lines.map(line => theme.bgThinking(line)), ''],
   }
 }
 
@@ -266,7 +266,7 @@ function diffBody(diff: FileDiff, theme: Theme): string[] {
     // A file's trailing newline splits into a final empty element; showing it
     // as an added line would claim a line the file does not have.
     if (lines.at(-1) === '') lines.pop()
-    return lines.map(line => theme.success(`+ ${line}`))
+    return lines.map(line => theme.diffAdd(`+ ${line}`))
   }
   const patch = structuredPatch('', '', diff.oldText, diff.newText, undefined, undefined, { context: DIFF_CONTEXT })
   const lines: string[] = []
@@ -275,9 +275,9 @@ function diffBody(diff: FileDiff, theme: Theme): string[] {
       // The no-trailing-newline marker annotates the patch, not the content.
       if (line.startsWith('\\')) continue
       const text = line.slice(1)
-      if (line.startsWith('+')) lines.push(theme.success(`+ ${text}`))
-      else if (line.startsWith('-')) lines.push(theme.error(`- ${text}`))
-      else lines.push(theme.dim(`  ${text}`))
+      if (line.startsWith('+')) lines.push(theme.diffAdd(`+ ${text}`))
+      else if (line.startsWith('-')) lines.push(theme.diffDel(`- ${text}`))
+      else lines.push(theme.bgTool(theme.dim(`  ${text}`)))
     }
   }
   return lines
@@ -379,7 +379,12 @@ export class Transcript {
         const [first = '', ...rest] = typed.map(block => block.text).join('').split('\n')
         this.prompt = 1 + rest.length
         const meta = imageMetaLines(event.data.content, theme)
-        const lines = [first, ...rest.map(line => `  ${line}`), ...meta, '']
+        const lines = [
+          theme.bgUser(first),
+          ...rest.map(line => theme.bgUser(`  ${line}`)),
+          ...meta.map(m => theme.bgUser(m)),
+          '',
+        ]
         // Comfortable only: one extra blank row between turns, never before the first.
         const gap = this.options.density === 'comfortable' && this.sawUser
         this.sawUser = true
@@ -402,7 +407,7 @@ export class Transcript {
         // The same renderer the pinned readout uses: the card is this write, the
         // readout is the list as it now stands, and they must not disagree.
         const lines = todoReport(event.data.todos, theme, this.options.columns)
-        return lines.length === 0 ? [] : [...lines, '']
+        return lines.length === 0 ? [] : [...lines.map(line => theme.bgTool(line)), '']
       }
       // Compaction — automatic under pressure, or `/compact` — used to leave no
       // trace but the shorter context: its summary replaces history through a
@@ -411,33 +416,33 @@ export class Transcript {
       case 'compaction/summary': {
         this.rule = rules.meta
         const items = event.data.shadowedSeqs.length
-        const head = theme.dim(`✂ compacted ${String(items)} history item${items === 1 ? '' : 's'} (~${String(event.data.shadowedTokenCount)} tokens) into a summary · ${event.data.model}`)
+        const head = theme.bgMeta(theme.dim(`✂ compacted ${String(items)} history item${items === 1 ? '' : 's'} (~${String(event.data.shadowedTokenCount)} tokens) into a summary · ${event.data.model}`))
         const summary = visibleText(event.data.summary)
-        const body = summary === '' ? [theme.dim('  (empty summary)')] : renderMarkdown(summary, theme).map(line => `  ${line}`)
+        const body = summary === '' ? [theme.bgMeta(theme.dim('  (empty summary)'))] : renderMarkdown(summary, theme).map(line => theme.bgMeta(`  ${line}`))
         this.fold = [head, ...body, '']
         this.label = FOLD_LABELS.summary
-        return [head, theme.dim(`  … ${String(body.length)} lines of summary (click or Ctrl+O expands)`), '']
+        return [head, theme.bgMeta(theme.dim(`  … ${String(body.length)} lines of summary (click or Ctrl+O expands)`)), '']
       }
       case 'compaction/end':
         if (event.data.error === undefined) return []
         this.rule = rules.error
-        return [theme.error(`✗ compaction failed: ${event.data.error}`), '']
+        return [theme.bgError(theme.error(`✗ compaction failed: ${event.data.error}`)), '']
       case 'plan/mode':
         this.rule = rules.meta
         return event.data.active
-          ? [theme.pending('▲ plan mode — exploring only; no files will change until you approve a plan'), '']
-          : [theme.dim('▼ plan mode off'), '']
+          ? [theme.bgMeta(theme.pending('▲ plan mode — exploring only; no files will change until you approve a plan')), '']
+          : [theme.bgMeta(theme.dim('▼ plan mode off')), '']
       case 'turn/end':
         if (event.data.reason.kind !== 'error') return []
         this.rule = rules.error
-        return [theme.error(`✗ ${event.data.reason.error.code}: ${event.data.reason.error.message}`), '']
+        return [theme.bgError(theme.error(`✗ ${event.data.reason.error.code}: ${event.data.reason.error.message}`)), '']
       // A workflow — `/ship`'s ralph loop is one — runs for minutes per round
       // and showed nothing until the whole run returned. These four events are
       // its only public progress, so the transcript prints the shape of the
       // run: a head, a line as each round settles, and what stopped it.
       case 'tool-workflow/run-start':
         this.rule = rules.tool
-        return [`${theme.pending('●')} ${theme.tool(event.data.name)}`]
+        return [theme.bgTool(`${theme.pending('●')} ${theme.tool(event.data.name)}`)]
       case 'tool-workflow/agent-start':
         // Nothing is appended for a start: the round that is running is named
         // in the working line, which is where a moving figure belongs. An
@@ -459,12 +464,12 @@ export class Transcript {
         // process's registry — clicking a round could only ever answer "no
         // longer running". Driven on a real terminal, that is exactly what it
         // answered. The line stands on its own.
-        if (event.data.outcome === 'completed') return [`  ${theme.success('✓')} ${label}`]
-        return [`  ${theme.error('✗')} ${label} ${theme.dim(`(${event.data.outcome})`)}`]
+        if (event.data.outcome === 'completed') return [theme.bgTool(`  ${theme.success('✓')} ${label}`)]
+        return [theme.bgError(`  ${theme.error('✗')} ${label} ${theme.dim(`(${event.data.outcome})`)}`)]
       }
       case 'tool-workflow/run-end':
         this.rule = rules.tool
-        return [theme.dim(`  ${event.data.stopReason}`), '']
+        return [theme.bgTool(theme.dim(`  ${event.data.stopReason}`)), '']
       default:
         // Merge-extensible map: an event this surface shows nothing for.
         return []
@@ -513,7 +518,7 @@ export class Transcript {
       this.calls.set(callId, { name, args, title, summary })
       return lines
     }
-    if (view === undefined) return record(name, undefined, [`${theme.pending('●')} ${theme.tool(name)}`])
+    if (view === undefined) return record(name, undefined, [theme.bgTool(`${theme.pending('●')} ${theme.tool(name)}`)])
     if (view.card === 'terminal') {
       const header = view.cwd === undefined ? '' : theme.dim(` (${this.relative(view.cwd)})`)
       const description = view.description === undefined ? [] : [theme.dim(`  ${view.description}`)]
@@ -524,9 +529,9 @@ export class Transcript {
       const lines = command.split('\n')
       const summary = lines.length > 1 ? `${lines[0] ?? ''} …` : command
       return record(command, summary, [
-        `${theme.pending('●')} ${theme.tool(name)}${header}`,
-        `  $ ${truncate(summary, columns - 4)}`,
-        ...description,
+        theme.bgTool(`${theme.pending('●')} ${theme.tool(name)}${header}`),
+        theme.bgTool(`  $ ${truncate(summary, columns - 4)}`),
+        ...description.map(d => theme.bgTool(d)),
       ])
     }
     if (view.card === 'diff') {
@@ -540,7 +545,7 @@ export class Transcript {
     const title = this.relativizeIn(view.title)
     const locations = (view.locations ?? []).map(location => this.relative(location.path))
     const extra = this.extraPaths(title, locations)
-    return record(`${title}${extra}`, locations.length === 0 ? title : locations.join(', '), [`${theme.pending('●')} ${truncate(title, columns - 4)}${theme.path(extra)}`])
+    return record(`${title}${extra}`, locations.length === 0 ? title : locations.join(', '), [theme.bgTool(`${theme.pending('●')} ${truncate(title, columns - 4)}${theme.path(extra)}`)])
   }
 
   /**
@@ -557,15 +562,16 @@ export class Transcript {
     this.calls.delete(callId)
     const failed = error !== undefined || block.isError === true
     if (failed) this.rule = blockRules(theme).error
+    const bg = failed ? (text: string) => theme.bgError(text) : (text: string) => theme.bgTool(text)
     if (pending === undefined) {
       // The call fell outside this surface's window (a resumed page boundary);
       // the raw result still prints rather than vanishing.
       const marker = failed ? theme.err('✗') : theme.ok('●')
       const text = this.resultText(block.content)
-      const { body, full } = this.capBody(text.split('\n'), MAX_RESULT_LINES)
-      const head = `${marker} ${theme.dim('(result)')}`
+      const { body, full } = this.capBody(text.split('\n').map(line => bg(line)), MAX_RESULT_LINES)
+      const head = bg(`${marker} ${theme.dim('(result)')}`)
       const enter = failed ? undefined : childSessionId(text)
-      const hint = enter === undefined ? [] : [theme.dim('  click to enter')]
+      const hint = enter === undefined ? [] : [bg(theme.dim('  click to enter'))]
       if (full !== undefined) {
         this.fold = [head, ...full, ...hint, '']
         this.label = 'tool result'
@@ -580,7 +586,7 @@ export class Transcript {
     const title = view?.title === undefined ? pending.title : this.relativizeIn(view.title)
     const { suffix, body, full } = this.outcome(view, block)
     const enter = failed ? undefined : childSessionId(this.resultText(block.content))
-    const hint = enter === undefined ? [] : [theme.dim('  click to enter')]
+    const hint = enter === undefined ? [] : [bg(theme.dim('  click to enter'))]
     // One stable ToolCard line: ● · title · +n -m · ✔/✗. Truncate the title
     // first so the stats and status survive a narrow terminal.
     const bullet = theme.ok('●')
@@ -588,11 +594,13 @@ export class Transcript {
     // The screen paints the tool rule (`│ `) beside this line; budget the
     // headline for what's left so `+n -m` cannot wrap onto the next row.
     const ruleWidth = displayWidth(oneRow(this.rule || blockRules(theme).tool))
-    const head = [formatToolCardLine(theme, this.options.columns - ruleWidth, bullet, title, suffix, done)]
+    const head = [bg(formatToolCardLine(theme, this.options.columns - ruleWidth, bullet, title, suffix, done))]
+    const bodyLines = view?.card === 'diff' ? body : body.map(line => bg(line))
+    const fullLines = view?.card === 'diff' ? full : full?.map(line => bg(line))
     // The fold swaps the WHOLE event's lines, so the expanded form repeats the
     // same head with the uncapped body under it.
-    if (full !== undefined) {
-      this.fold = [...head, ...full, ...hint, '']
+    if (fullLines !== undefined) {
+      this.fold = [...head, ...fullLines, ...hint, '']
       this.label = title
     }
     if (enter !== undefined) {
@@ -601,7 +609,7 @@ export class Transcript {
     }
     // Diff cards stay collapsed on screen (hunks only in the fold).
     if (view?.card === 'diff') return [...head, ...hint, '']
-    return [...head, ...body, ...hint, '']
+    return [...head, ...bodyLines, ...hint, '']
   }
 
   /**

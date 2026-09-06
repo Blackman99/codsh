@@ -344,7 +344,7 @@ function renderLine(line: string, theme: Theme, fence: FenceState): string[] {
       if (fenceLanguage === undefined) {
         fenceLanguage = opened.language
         // The language is worth naming; the fence itself is not.
-        if (fenceLanguage !== '') out.push(theme.dim(`  ${fenceLanguage}`))
+        if (fenceLanguage !== '') out.push(theme.bgCode(theme.dim(`  ${fenceLanguage}`)))
       } else {
         fenceLanguage = undefined
       }
@@ -354,7 +354,7 @@ function renderLine(line: string, theme: Theme, fence: FenceState): string[] {
     if (fenceLanguage !== undefined) {
       // Indented rather than fenced, so a block reads as code without the
       // reader having to match delimiters.
-      out.push(`  ${highlightCode(line, theme.syntax)}`)
+      out.push(theme.bgCode(`  ${highlightCode(line, theme.syntax)}`))
       return out
     }
     const heading = HEADING.exec(line)
