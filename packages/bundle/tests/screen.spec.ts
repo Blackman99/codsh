@@ -2090,6 +2090,17 @@ describe('the block under the pointer', () => {
     // A mark held over a cleared buffer would point at a block that is gone.
     expect(flush(sink)).not.toContain('\u001B[48;5;')
   })
+
+  it('pads rows carrying a background color across the full content width', () => {
+    const sink = host(5, 40)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['status'], { row: 0, column: 0 }, false)
+    screen.append(['\u001B[48;2;14;18;24mshort\u001B[0m'])
+    const frame = flush(sink)
+    // 40 columns - 2 GUTTER - 1 TIMELINE = 37 content columns. 'short' is 5 columns -> 32 spaces of background fill.
+    expect(frame).toContain('\u001B[48;2;14;18;24mshort\u001B[48;2;14;18;24m' + ' '.repeat(32) + '\u001B[0m')
+  })
 })
 
 describe('fullscreen viewer layer', () => {
