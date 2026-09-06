@@ -37,6 +37,18 @@ describe('createTheme', () => {
   it('strips accent under NO_COLOR', () => {
     expect(createTheme(true, { NO_COLOR: '1' }).accent('x')).toBe('x')
   })
+
+  it('formats strike with ANSI SGR 9 when colored', () => {
+    const theme = createTheme(true, {})
+    expect(theme.strike('strikethrough text')).toBe('\u001B[9mstrikethrough text\u001B[0m')
+  })
+
+  it('strips strike when uncolored or off-TTY', () => {
+    const offTty = createTheme(false, {})
+    expect(offTty.strike('strikethrough text')).toBe('strikethrough text')
+    const noColor = createTheme(true, { NO_COLOR: '1' })
+    expect(noColor.strike('strikethrough text')).toBe('strikethrough text')
+  })
 })
 
 describe('displayWidth', () => {
