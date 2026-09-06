@@ -34,8 +34,8 @@ import type {} from '@deepseek-ai/dsh-token-meter'
 import type {} from '@deepseek-ai/dsh-permission-presets'
 import { admitEncodedImages, isImageAdmissionError } from '@deepseek-ai/dsh-attachment'
 import type { EncodedImageAttachment } from '@deepseek-ai/dsh-attachment/types'
-import { createUserMessage } from '@deepseek-ai/dsh-llm'
-import type { ContentBlock } from '@deepseek-ai/dsh-llm'
+import { createUserMessage, ReasoningEffortId } from '@deepseek-ai/dsh-llm'
+import type { ContentBlock, LlmModelReasoningInfo } from '@deepseek-ai/dsh-llm'
 import { SessionId, SessionLogOffset } from '@deepseek-ai/dsh-session'
 import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-session-query'
@@ -92,6 +92,18 @@ import {
 import { TextStream } from './streaming.ts'
 import { PROFILE, bundleVersion, checkForUpdate, runtimeMove, runtimeRegisterCommand, runtimeSpec, runningDsh, updateCommand } from './update.ts'
 import { displayPath, formatTokens, formatTurnTime, gitBranch, shipChipFromSpec, statusLine, statusReport, totalTokens } from './status.ts'
+import {
+  THINKING_PREFS_FILE,
+  buildThinkingOptions,
+  formatThinkingList,
+  getThinkingPref,
+  isReasoningSupported,
+  loadThinkingPrefs,
+  modelKey,
+  resolveEffortChoice,
+  saveThinkingPref,
+  thinkingArgumentCandidates,
+} from './thinking.ts'
 import { todoReport } from './todos.ts'
 import type { PendingImage } from './prompt.ts'
 import type { TodoList } from './todos.ts'
@@ -224,6 +236,7 @@ function statusFacts(
   presetId: string | undefined,
   branch: string | undefined,
   folded: FoldedFacts,
+  reasoning?: { supported?: boolean | undefined; choices?: readonly string[] | undefined } | undefined,
 ): StatusFacts {
   const projections = ctx.get('sessionProjections')?.snapshot(agent.session).values
   return {
@@ -236,6 +249,9 @@ function statusFacts(
     branch,
     usage: projections?.tokenUsage,
     context: projections?.contextPressure,
+    reasoningEffort: selection.current?.reasoningEffort,
+    reasoningSupported: reasoning?.supported,
+    reasoningChoices: reasoning?.choices,
   }
 }
 
@@ -536,6 +552,17 @@ async function compose(ctx: Context, config: Config, cwd: string): Promise<Compo
   if (agents === undefined || defaultModel === undefined) return undefined
   const selection = defaultModel.currentSelection()
   const selected: ModelSelectionRef = { current: selection, assembled: undefined }
+  if (selected.current !== undefined && selected.current.reasoningEffort === undefined) {
+    try {
+      const prefs = await loadThinkingPrefs(dshHomePath(THINKING_PREFS_FILE))
+      const savedEffort = getThinkingPref(prefs, selected.current.provider, selected.current.model)
+      if (savedEffort !== undefined) {
+        selected.current.reasoningEffort = savedEffort
+      }
+    } catch {
+      // Ambient selection unchanged
+    }
+  }
   const presets = ctx.get('agentPresets')
   const preset = presets === undefined ? undefined : await presets.resolve(config.preset === '' ? undefined : config.preset)
   const setup = async (agentCtx: Context): Promise<void> => {
@@ -638,8 +665,48 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
     else sessionFolds.permission = permission
   }
   refold()
+  let refreshStatus = (): void => {}
+  const thinkingPrefsPath = dshHomePath(THINKING_PREFS_FILE)
+  let activeReasoning: LlmModelReasoningInfo | undefined
+  let reasoningSupported: boolean | undefined
+  let reasoningChoices: readonly string[] | undefined
+
+  const refreshReasoning = async (): Promise<void> => {
+    const current = selection.current
+    if (current === undefined) {
+      activeReasoning = undefined
+      reasoningSupported = undefined
+      reasoningChoices = undefined
+      return
+    }
+    const llm = ctx.get('llm')
+    if (llm === undefined) {
+      activeReasoning = undefined
+      reasoningSupported = undefined
+      reasoningChoices = undefined
+      return
+    }
+    try {
+      const resolved = await llm.resolveModelInfo(current.provider, current.model)
+      activeReasoning = resolved.reasoning
+      reasoningSupported = isReasoningSupported(resolved.reasoning)
+      reasoningChoices = resolved.reasoning !== undefined && resolved.reasoning.efforts.length > 0
+        ? resolved.reasoning.efforts.map(e => e.id)
+        : undefined
+    } catch {
+      activeReasoning = undefined
+      reasoningSupported = false
+      reasoningChoices = undefined
+    }
+    refreshStatus()
+  }
+  void refreshReasoning()
+
   const facts = (branch: string | undefined): StatusFacts =>
-    statusFacts(ctx, live.agent, cwd, selection, presetId, branch, sessionFolds)
+    statusFacts(ctx, live.agent, cwd, selection, presetId, branch, sessionFolds, {
+      supported: reasoningSupported,
+      choices: reasoningChoices,
+    })
   io.console.setTitle(`dsh code — ${basename(cwd)}`)
 
   // Refreshed once per prompt. A command handler is synchronous, so it reports
@@ -756,7 +823,7 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
   // `/init` and `/ship` built in, plus whatever command files the person defined.
   const custom = await loadCustomCommands(
     [dshHomePath('commands'), join(cwd, '.dsh', 'commands')],
-    new Set([...(commands?.list(live.agent) ?? []).map(entry => entry.name), 'exit', 'quit', 'help', 'init', 'ship', 'status', 'model', 'clear', 'resume', 'diff', 'jump', 'copy', 'view']),
+    new Set([...(commands?.list(live.agent) ?? []).map(entry => entry.name), 'exit', 'quit', 'help', 'init', 'ship', 'status', 'model', 'thinking', 'effort', 'clear', 'resume', 'diff', 'jump', 'copy', 'view']),
   )
   for (const warning of custom.warnings) io.console.write(theme.dim(`  skipped ${warning}`))
   const customByName = new Map(custom.commands.map(command => [command.name, command]))
@@ -819,6 +886,9 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
         .filter((hit): hit is { entry: typeof hit.entry; score: number } => hit.score !== undefined)
         .sort((a, b) => b.score - a.score)
         .map(hit => ({ value: hit.entry.id, detail: hit.entry.name }))
+    }
+    if (command === 'thinking' || command === 'effort') {
+      return offer(thinkingArgumentCandidates(activeReasoning, selection.current?.reasoningEffort))
     }
     return []
   }
@@ -1453,13 +1523,67 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
      * default, never the session.
      */
     const applyModel = async (provider: string, model: string): Promise<void> => {
-      selection.current = { provider, model }
+      let savedEffort: ReasoningEffortId | undefined
+      try {
+        const prefs = await loadThinkingPrefs(thinkingPrefsPath)
+        savedEffort = getThinkingPref(prefs, provider, model)
+      } catch {
+        // Fall back to undefined (model default)
+      }
+      selection.current = { provider, model, ...savedEffort !== undefined ? { reasoningEffort: savedEffort } : {} }
+      try {
+        await ctx.get('agentDefaultModel')?.saveSelection(selection.current)
+      } catch {
+        // Recorded for this session regardless.
+      }
+      await refreshReasoning()
+      refreshStatus()
+    }
+    const applyThinking = async (effort: ReasoningEffortId): Promise<void> => {
+      const current = selection.current
+      if (current === undefined) return
+      selection.current = { ...current, reasoningEffort: effort }
+      try {
+        await saveThinkingPref(thinkingPrefsPath, modelKey(current.provider, current.model), effort)
+      } catch {
+        // Session still switched; next boot falls back to last readable file.
+      }
       try {
         await ctx.get('agentDefaultModel')?.saveSelection(selection.current)
       } catch {
         // Recorded for this session regardless.
       }
       refreshStatus()
+    }
+    const handleThinking = async (rawInput: string) => {
+      if (activeReasoning === undefined) {
+        await refreshReasoning()
+      }
+      if (!isReasoningSupported(activeReasoning) || activeReasoning === undefined) {
+        return { kind: 'error' as const, text: 'model does not support configurable thinking' }
+      }
+      const typed = rawInput.trim()
+      if (typed === '') {
+        const currentEffort = selection.current?.reasoningEffort
+        if (!io.console.readsKeys) {
+          return { kind: 'success' as const, text: formatThinkingList(activeReasoning, currentEffort) }
+        }
+        const outcome = await prompt.select({
+          title: 'Thinking level',
+          options: buildThinkingOptions(activeReasoning, currentEffort),
+        })
+        if (outcome.kind !== 'chosen') return { kind: 'success' as const, text: 'thinking unchanged' }
+        const picked = activeReasoning.efforts[outcome.indices[0] ?? -1]
+        if (picked === undefined) return { kind: 'success' as const, text: 'thinking unchanged' }
+        await applyThinking(picked.id)
+        return { kind: 'success' as const, text: `thinking ${picked.id}` }
+      }
+      const resolved = resolveEffortChoice(typed, activeReasoning)
+      if (!resolved.ok) {
+        return { kind: 'error' as const, text: resolved.error }
+      }
+      await applyThinking(resolved.effort)
+      return { kind: 'success' as const, text: `thinking ${resolved.effort}` }
     }
     disposers.push(commands.register({
       name: 'model',
@@ -1504,6 +1628,18 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
         await applyModel(resolved.provider, resolved.model)
         return { kind: 'success', text: `model ${resolved.provider}/${resolved.model}` }
       },
+    }))
+    disposers.push(commands.register({
+      name: 'thinking',
+      description: 'configure reasoning effort for the current model',
+      input: { hint: '[off|on|level]' },
+      handler: async ({ rawInput }) => handleThinking(rawInput),
+    }))
+    disposers.push(commands.register({
+      name: 'effort',
+      description: 'configure reasoning effort for the current model',
+      input: { hint: '[off|on|level]' },
+      handler: async ({ rawInput }) => handleThinking(rawInput),
     }))
   }
 
@@ -1559,7 +1695,7 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
     return shipChip === undefined ? {} : { shipChip }
   }
   /** Push the always-current status row; the pipe shape prints it instead. */
-  const refreshStatus = (): void => {
+  refreshStatus = (): void => {
     if (!io.console.readsKeys) return
     if (viewing !== undefined) {
       prompt.setStatus(theme.dim('subagent · Esc returns to the parent'))
