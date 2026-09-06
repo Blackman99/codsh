@@ -1,5 +1,27 @@
 # codsh
 
+## 0.15.9
+
+### Patch Changes
+
+- b4ff674: feat(theme): add Grok color scheme with distinct background colors for functional output sections
+  
+  - Adopt Grok Build's color scheme with semantic background differentiation across different output blocks:
+    - User prompts: elevated background (`bgUser`, Grok `bg_light`)
+    - Tool calls and execution results: surface background (`bgTool`, Grok `bg_dark`)
+    - Thinking and reasoning deliberation: subtle violet/purple background (`bgThinking`, Grok `bg_thinking`)
+    - Error notices and failed tool calls: wine red background (`bgError`, Grok `toolErrorBg` / `diff_delete_bg`)
+    - Markdown fenced code blocks: code background (`bgCode`, Grok `md_code_bg`)
+    - Diff additions and deletions: green and red backgrounds (`diffAdd` / `diffDel`, Grok `diff_insert_bg` / `diff_delete_bg`)
+    - System and meta events: subtle meta background (`bgMeta`)
+  - Support 24-bit TrueColor (`COLORTERM=truecolor` / `24bit`), 256-color palette fallback, and adaptive dark/light background switching (`setLight`).
+  - Ensure graceful degradation: under `NO_COLOR` or off-TTY, output remains completely unstyled plain text.
+- 9acbff5: feat(tui): visually distinguish sticky turn header from agent output with panel background and bottom divider
+  
+  - Fill pinned sticky header rows with the panel background shade (`FILL_DARK` / `FILL_LIGHT`), adapting to dark or light terminals.
+  - Add a muted horizontal divider line (`─`) in the gap row between the pinned sticky header and the scrolling transcript content.
+  - Improves contrast and spatial hierarchy so pinned turn prompts are immediately distinguishable from the response text scrolling underneath.
+
 ## 0.15.8
 
 ### Patch Changes
