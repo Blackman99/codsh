@@ -2072,6 +2072,22 @@ describe('the block under the pointer', () => {
     expect(screen.mouseMove(2, 3)).toBeUndefined()
   })
 
+  it('replaces pending call lines when appending a fold with replaceCount', () => {
+    const sink = host(5, 40)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['status'], { row: 0, column: 0 }, false)
+    screen.append(['● bash', '  $ sleep 10'])
+    flush(sink)
+
+    // Completed card replaces the 2 pending lines
+    screen.appendFold(['● sleep (exit 0) ✔', ''], ['full', ''], '', 'tool', undefined, undefined, 2)
+    const frame = flush(sink)
+    expect(frame).toContain('● sleep (exit 0) ✔')
+    expect(frame).not.toContain('● bash')
+    expect(frame).not.toContain('$ sleep 10')
+  })
+
   it('drops the fill when the pointer leaves the window', () => {
     const sink = host(10, 40)
     const screen = new Screen(sink)

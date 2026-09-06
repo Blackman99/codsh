@@ -883,8 +883,27 @@ export class Screen {
    * @param enter - child session a click opens instead of folding, when set.
    * @param page - raw text a click reads instead of expanding, when set.
    */
-  appendFold(summary: readonly string[], full: readonly string[], rule = '', label = '', enter?: string, page?: string): void {
+  appendFold(summary: readonly string[], full: readonly string[], rule = '', label = '', enter?: string, page?: string, replaceCount = 0): void {
     const shown = summary
+    if (replaceCount > 0 && this.logical.length >= replaceCount) {
+      const at = this.logical.length - replaceCount
+      this.spliceLines(at, replaceCount, shown, rule)
+      this.folds.push({
+        at,
+        shownLength: shown.length,
+        summary: [...summary],
+        full: [...full],
+        expanded: false,
+        manual: false,
+        rule,
+        label,
+        ...enter === undefined ? {} : { enter },
+        ...page === undefined ? {} : { page },
+      })
+      this.ranges = undefined
+      this.render()
+      return
+    }
     this.folds.push({
       at: this.logical.length,
       shownLength: shown.length,

@@ -96,6 +96,8 @@ interface PendingCall {
   summary: string | undefined
   /** Description supplied with the tool call, when present. */
   description?: string | undefined
+  /** Lines appended to the transcript when the call started. */
+  linesCount: number
 }
 
 /**
@@ -306,6 +308,8 @@ export class Transcript {
   private readonly workflowAgents = new Map<string, Pick<ToolWorkflowAgentStartData, 'label' | 'childId'>>()
   /** Whether a real user turn has already been painted — comfortable gaps after the first. */
   private sawUser = false
+  /** Pending call lines to replace in screen buffer when result lands. */
+  private pendingLinesCount = 0
 
   constructor(
     private readonly options: TranscriptOptions,
@@ -506,6 +510,7 @@ export class Transcript {
   }
 
   private renderCall(callId: string, name: string, rawArguments: string): string[] {
+    const { theme, columns } = this.options
     let args: unknown
     try {
       args = JSON.parse(rawArguments)
@@ -516,28 +521,36 @@ export class Transcript {
     }
     const view = this.safeCall(name, args)
     const record = (title: string, summary: string | undefined, lines: string[], description?: string): string[] => {
-      this.calls.set(callId, { name, args, title, summary, description })
+      this.calls.set(callId, { name, args, title, summary, description, linesCount: lines.length })
       return lines
     }
-    // Pending stays off-screen: the completed one-liner is the card. The
-    // spinner names the tool while it runs.
-    if (view === undefined) return record(name, undefined, [])
+    if (view === undefined) return record(name, undefined, [theme.bgTool(`${theme.pending('●')} ${theme.tool(name)}`)])
     if (view.card === 'terminal') {
+      const header = view.cwd === undefined ? '' : theme.dim(` (${this.relative(view.cwd)})`)
+      const description = view.description === undefined ? [] : [theme.dim(`  ${view.description}`)]
       const command = this.relativizeIn(view.title)
       const lines = command.split('\n')
       const summary = lines.length > 1 ? `${lines[0] ?? ''} …` : command
-      return record(command, summary, [], view.description)
+      return record(command, summary, [
+        theme.bgTool(`${theme.pending('●')} ${theme.tool(name)}${header}`),
+        theme.bgTool(`  $ ${truncate(summary, columns - 4)}`),
+        ...description.map(d => theme.bgTool(d)),
+      ], view.description)
     }
     if (view.card === 'diff') {
       const title = this.relativizeIn(view.title)
       const paths = view.diffs.map(diff => this.relative(diff.path))
       const line = `${title}${this.extraPaths(title, paths)}`
+      // Pending stays off-screen: the completed one-liner is the card. The
+      // spinner names the tool while it runs.
       return record(line, paths.length === 0 ? title : paths.join(', '), [])
     }
     const title = this.relativizeIn(view.title)
     const locations = (view.locations ?? []).map(location => this.relative(location.path))
     const extra = this.extraPaths(title, locations)
-    return record(`${title}${extra}`, locations.length === 0 ? title : locations.join(', '), [])
+    return record(`${title}${extra}`, locations.length === 0 ? title : locations.join(', '), [
+      theme.bgTool(`${theme.pending('●')} ${truncate(title, columns - 4)}${theme.path(extra)}`),
+    ])
   }
 
   /**
@@ -552,6 +565,7 @@ export class Transcript {
     const callId = message.source.callId
     const pending = this.calls.get(callId)
     this.calls.delete(callId)
+    this.pendingLinesCount = pending?.linesCount ?? 0
     const failed = error !== undefined || block.isError === true
     if (failed) this.rule = blockRules(theme).error
     const bg = failed ? (text: string) => theme.bgError(text) : (text: string) => theme.bgTool(text)
@@ -662,6 +676,17 @@ export class Transcript {
     const written = this.written
     this.written = []
     return written
+  }
+
+  /**
+   * Pending call lines that were printed when the tool started, which the
+   * completed result card should replace. Taken once.
+   * @returns the number of pending lines to replace.
+   */
+  takePendingLinesCount(): number {
+    const count = this.pendingLinesCount
+    this.pendingLinesCount = 0
+    return count
   }
 
   takePage(): string | undefined {
