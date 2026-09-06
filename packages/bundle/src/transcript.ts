@@ -193,9 +193,10 @@ export function thinkingFold(
 ): { summary: string[], full: string[] } {
   // Glyph lives in the agent gutter (`✻ `); the line is the clock only.
   const head = theme.bgThinking(theme.dim(seconds === undefined ? 'thought' : `thought for ${formatElapsed(seconds * 1000)}`))
+  const vpad = theme.colored ? [theme.bgThinking('  ')] : []
   return {
-    summary: [head, ''],
-    full: [head, ...lines.map(line => theme.bgThinking(line)), ''],
+    summary: [...vpad, head, ...vpad, ''],
+    full: [...vpad, head, ...lines.map(line => theme.bgThinking(line)), ...vpad, ''],
   }
 }
 
@@ -379,10 +380,13 @@ export class Transcript {
         const [first = '', ...rest] = typed.map(block => block.text).join('').split('\n')
         this.prompt = 1 + rest.length
         const meta = imageMetaLines(event.data.content, theme)
+        const vpad = theme.colored ? [theme.bgUser('  ')] : []
         const lines = [
+          ...vpad,
           theme.bgUser(first),
           ...rest.map(line => theme.bgUser(`  ${line}`)),
           ...meta.map(m => theme.bgUser(m)),
+          ...vpad,
           '',
         ]
         // Comfortable only: one extra blank row between turns, never before the first.
@@ -518,7 +522,10 @@ export class Transcript {
       this.calls.set(callId, { name, args, title, summary })
       return lines
     }
-    if (view === undefined) return record(name, undefined, [theme.bgTool(`${theme.pending('●')} ${theme.tool(name)}`)])
+    if (view === undefined) {
+      const vpad = theme.colored ? [theme.bgTool('  ')] : []
+      return record(name, undefined, [...vpad, theme.bgTool(`${theme.pending('●')} ${theme.tool(name)}`), ...vpad, ...theme.colored ? [''] : []])
+    }
     if (view.card === 'terminal') {
       const header = view.cwd === undefined ? '' : theme.dim(` (${this.relative(view.cwd)})`)
       const description = view.description === undefined ? [] : [theme.dim(`  ${view.description}`)]
@@ -528,10 +535,14 @@ export class Transcript {
       // are run together on one row reads as noise.
       const lines = command.split('\n')
       const summary = lines.length > 1 ? `${lines[0] ?? ''} …` : command
+      const vpad = theme.colored ? [theme.bgTool('  ')] : []
       return record(command, summary, [
+        ...vpad,
         theme.bgTool(`${theme.pending('●')} ${theme.tool(name)}${header}`),
         theme.bgTool(`  $ ${truncate(summary, columns - 4)}`),
         ...description.map(d => theme.bgTool(d)),
+        ...vpad,
+        ...theme.colored ? [''] : [],
       ])
     }
     if (view.card === 'diff') {
@@ -545,7 +556,13 @@ export class Transcript {
     const title = this.relativizeIn(view.title)
     const locations = (view.locations ?? []).map(location => this.relative(location.path))
     const extra = this.extraPaths(title, locations)
-    return record(`${title}${extra}`, locations.length === 0 ? title : locations.join(', '), [theme.bgTool(`${theme.pending('●')} ${truncate(title, columns - 4)}${theme.path(extra)}`)])
+    const vpad = theme.colored ? [theme.bgTool('  ')] : []
+    return record(`${title}${extra}`, locations.length === 0 ? title : locations.join(', '), [
+      ...vpad,
+      theme.bgTool(`${theme.pending('●')} ${truncate(title, columns - 4)}${theme.path(extra)}`),
+      ...vpad,
+      ...theme.colored ? [''] : [],
+    ])
   }
 
   /**
@@ -563,6 +580,7 @@ export class Transcript {
     const failed = error !== undefined || block.isError === true
     if (failed) this.rule = blockRules(theme).error
     const bg = failed ? (text: string) => theme.bgError(text) : (text: string) => theme.bgTool(text)
+    const vpad = theme.colored ? [bg('  ')] : []
     if (pending === undefined) {
       // The call fell outside this surface's window (a resumed page boundary);
       // the raw result still prints rather than vanishing.
@@ -573,14 +591,14 @@ export class Transcript {
       const enter = failed ? undefined : childSessionId(text)
       const hint = enter === undefined ? [] : [bg(theme.dim('  click to enter'))]
       if (full !== undefined) {
-        this.fold = [head, ...full, ...hint, '']
+        this.fold = [...vpad, head, ...full, ...hint, ...vpad, '']
         this.label = 'tool result'
       }
       if (enter !== undefined) {
         this.enter = enter
         this.label = 'tool result'
       }
-      return [head, ...body, ...hint, '']
+      return [...vpad, head, ...body, ...hint, ...vpad, '']
     }
     const view = this.safeResult(pending, block.content, failed, meta)
     const title = view?.title === undefined ? pending.title : this.relativizeIn(view.title)
@@ -600,7 +618,7 @@ export class Transcript {
     // The fold swaps the WHOLE event's lines, so the expanded form repeats the
     // same head with the uncapped body under it.
     if (fullLines !== undefined) {
-      this.fold = [...head, ...fullLines, ...hint, '']
+      this.fold = [...vpad, ...head, ...fullLines, ...hint, ...vpad, '']
       this.label = title
     }
     if (enter !== undefined) {
@@ -608,8 +626,8 @@ export class Transcript {
       this.label = title
     }
     // Diff cards stay collapsed on screen (hunks only in the fold).
-    if (view?.card === 'diff') return [...head, ...hint, '']
-    return [...head, ...bodyLines, ...hint, '']
+    if (view?.card === 'diff') return [...vpad, ...head, ...hint, ...vpad, '']
+    return [...vpad, ...head, ...bodyLines, ...hint, ...vpad, '']
   }
 
   /**
