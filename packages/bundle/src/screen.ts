@@ -1034,7 +1034,13 @@ export class Screen {
     const ranges: { fold: Fold; from: number; to: number }[] = []
     for (const fold of this.folds) {
       const from = at(fold.at)
-      ranges.push({ fold, from, to: at(fold.at + fold.shownLength) - 1 })
+      let effectiveLength = fold.shownLength
+      const lines = fold.expanded ? fold.full : fold.summary
+      while (effectiveLength > 0 && (lines[effectiveLength - 1] ?? '').trim() === '') {
+        effectiveLength -= 1
+      }
+      const to = Math.max(from, at(fold.at + effectiveLength) - 1)
+      ranges.push({ fold, from, to })
     }
     this.ranges = ranges
     return ranges
@@ -2091,9 +2097,11 @@ export class Screen {
         for (let at = range.from; at <= range.to; at += 1) {
           const index = at - first
           if (index >= 0 && index < visible.length) {
+            const rawRow = visible[index] ?? ''
+            if (rawRow.trim() === '') continue
             const vpIndex = (sticky !== undefined ? (sticky.state === 'pinned' && sticky.reservedRows > sticky.renderHeight ? sticky.renderHeight + 1 : sticky.renderHeight) : 0) + index
             if (vpIndex < viewport.length) {
-              viewport[vpIndex] = fill(visible[index] ?? '', contentWidth, this.light)
+              viewport[vpIndex] = fill(rawRow, contentWidth, this.light)
             }
           }
         }
