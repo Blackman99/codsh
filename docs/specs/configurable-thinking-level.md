@@ -96,7 +96,7 @@ Currently, `codsh` defaults to the model's ambient reasoning effort and only sup
 ## Plan
 
 - [x] Ticket 1: Thinking Domain Module and Persistence — Delivers thinking level parser, level resolver, error handling, and file persistence (Blocked by: none)
-- [ ] Ticket 2: Status Bar and Report UI Support — Delivers status facts, status line formatting with reasoning effort, and /status report row (Blocked by: Ticket 1)
+- [x] Ticket 2: Status Bar and Report UI Support — Delivers status facts, status line formatting with reasoning effort, and /status report row (Blocked by: Ticket 1)
 - [ ] Ticket 3: CLI /thinking and /effort Commands, Interactive Selector, and Model Switch Integration — Delivers /thinking & /effort commands, interactive selector, arguments completion, and per-model restore on /model switch (Blocked by: Ticket 2)
 - [ ] Ticket 4: Changeset, Bilingual Documentation, Alignment Doc, and Verification — Delivers changeset, documentation updates, alignment doc updates, and passes all acceptance criteria (Blocked by: Ticket 3)
 
