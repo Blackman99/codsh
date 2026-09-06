@@ -18,15 +18,14 @@ const facts: BannerFacts = {
 
 describe('resolveWelcomeKind', () => {
   it('skips the welcome for --resume / --continue', () => {
+    expect(resolveWelcomeKind(true)).toBe('none')
     expect(resolveWelcomeKind(true, false)).toBe('none')
     expect(resolveWelcomeKind(true, true)).toBe('none')
   })
 
-  it('is returning when the workspace already has a session', () => {
-    expect(resolveWelcomeKind(false, true)).toBe('returning')
-  })
-
-  it('is first when this workspace is new', () => {
+  it('greets fresh startups with first regardless of prior workspace sessions', () => {
+    expect(resolveWelcomeKind(false)).toBe('first')
+    expect(resolveWelcomeKind(false, true)).toBe('first')
     expect(resolveWelcomeKind(false, false)).toBe('first')
   })
 })

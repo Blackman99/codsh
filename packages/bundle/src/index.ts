@@ -169,27 +169,6 @@ async function latestSessionIn(ctx: Context, cwd: string): Promise<SessionId | u
 }
 
 /**
- * Whether this workspace already has a prior session worth a returning welcome.
- *
- * The brand-new empty current session does not count: if it is the only cwd
- * match and it has no completed turn, the greeting is still first-run. When
- * `sessionQuery` is unavailable the caller treats the result as first.
- */
-async function priorSessionInWorkspace(ctx: Context, cwd: string, session: Session): Promise<boolean> {
-  const query = ctx.get('sessionQuery')
-  if (query === undefined) return false
-  const records = await query.listSessions()
-  const currentHasTurn = session.snapshotEvents().some(
-    event => event.type === 'turn/end' || event.type === 'user/message',
-  )
-  return records.some((record) => {
-    if (record.header.cwd !== cwd) return false
-    if (record.header.id !== session.id) return true
-    return currentHasTurn
-  })
-}
-
-/**
  * Build the presenter lookups for one live agent.
  *
  * Presenters live with the tool definitions, and definitions live in the scope
@@ -670,10 +649,7 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
     // Replay owns the screen; skip the welcome entirely.
     replay(live.agent.session, live.transcript, io, theme)
   } else {
-    const welcomeKind = resolveWelcomeKind(
-      false,
-      await priorSessionInWorkspace(ctx, cwd, live.agent.session),
-    )
+    const welcomeKind = resolveWelcomeKind(false)
     for (const line of bannerLines({
       model,
       preset: presetId,
@@ -1343,13 +1319,13 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
         // create costs nothing.
         const next = await composed.createAnother()
         await switchTo(next, false)
-        // Same workspace: /clear is still a returning welcome, not a first-run ASCII.
+        // /clear resets the screen with the full ASCII logo banner.
         for (const line of bannerLines({
           model,
           preset: presetId,
           session: live.agent.session.id,
           readsKeys: io.console.readsKeys,
-          welcomeKind: 'returning',
+          welcomeKind: 'first',
         }, theme, io.console.contentColumns)) prompt.write(line)
         return { kind: 'success', text: `new session ${live.agent.session.id}` }
       },

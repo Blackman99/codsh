@@ -103,20 +103,14 @@ function compositionOf(facts: BannerFacts): string {
 /**
  * Decide the greeting kind.
  *
- * Resume maps to `'none'` (replay owns the screen). Otherwise a prior session
- * in this workspace — or an explicit `/clear` paint — is `'returning'`; a
- * true first run is `'first'`.
- * @param resumeOrClear - at boot: `config.resume !== ''`; after `/clear`: pass
- *   `false` and set `priorInWorkspace` true (or call with clear semantics via
- *   the second overload path used by boot: `resolveWelcomeKind(false, prior)`).
- * @param priorInWorkspace - true when this cwd already has a prior session.
+ * Resume maps to `'none'` (replay owns the screen). Any fresh session boot
+ * or `/clear` displays the full ASCII logo banner (`'first'`).
+ * @param resume - at boot: `config.resume !== ''`. When true, skips welcome (`'none'`).
+ * @param _priorInWorkspace - kept for signature compatibility; unused.
  */
-export function resolveWelcomeKind(resumeOrClear: boolean, priorInWorkspace: boolean): WelcomeKind {
-  // Boot path: first arg is `config.resume !== ''`. When true → none.
-  // /clear path hardcodes welcomeKind: 'returning' and does not call this.
-  // The existing boot call is resolveWelcomeKind(false, prior) after skipping resume.
-  if (resumeOrClear) return 'none'
-  return priorInWorkspace ? 'returning' : 'first'
+export function resolveWelcomeKind(resume: boolean, _priorInWorkspace?: boolean): WelcomeKind {
+  if (resume) return 'none'
+  return 'first'
 }
 
 /**
