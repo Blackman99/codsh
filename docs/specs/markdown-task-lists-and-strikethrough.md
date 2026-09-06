@@ -69,7 +69,7 @@ Enhance the terminal Markdown rendering pipeline to natively support:
 ## Plan
 
 - [x] Ticket 1: Theme SGR 9 Strikethrough Support — Delivers strike(text) API and ANSI SGR 9 sequences in Theme (Blocked by: none)
-- [ ] Ticket 2: Markdown Strikethrough and Task List Rendering — Delivers ~~text~~ strikethrough and GFM task list rendering (Blocked by: Ticket 1)
+- [x] Ticket 2: Markdown Strikethrough and Task List Rendering — Delivers ~~text~~ strikethrough and GFM task list rendering (Blocked by: Ticket 1)
 - [ ] Ticket 3: Alignment Matrix, Changeset, and Verification — Delivers docs/alignment.md row 125 update and changeset (Blocked by: Ticket 1, Ticket 2)
 
 ## Baseline

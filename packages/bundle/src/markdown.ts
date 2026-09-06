@@ -37,6 +37,9 @@ export interface RenderedMarkdownRow {
 /** An ATX heading and its text. */
 const HEADING = /^(#{1,6})\s+(.*)$/
 
+/** A task list item: the indent, the status (checked or unchecked), and the text. */
+const TASK_ITEM = /^(\s*)[-*+]\s+\[([ xX])\](?:\s+(.*))?$/
+
 /** A bullet item: the indent, the marker, and the text. */
 const BULLET = /^(\s*)[-*+]\s+(.*)$/
 
@@ -65,7 +68,7 @@ const TABLE_DELIMITER = /^:?-+:?$/
  * Markdown itself requires: without the guard `some_helper_name` reads as an
  * emphasis and the identifier comes out mangled.
  */
-const INLINE = /(`[^`]+`)|(\*\*[^*]+\*\*)|((?<!\w)__[^_]+__(?!\w))|(\[[^\]]*\]\([^)]*\))|(\*[^*\s][^*]*\*)|((?<!\w)_[^_\s][^_]*_(?!\w))/g
+const INLINE = /(`[^`]+`)|(\*\*[^*]+\*\*)|((?<!\w)__[^_]+__(?!\w))|(~~[^~]+~~)|(\[[^\]]*\]\([^)]*\))|(\*[^*\s][^*]*\*)|((?<!\w)_[^_\s][^_]*_(?!\w))/g
 
 /**
  * Keywords shared across the languages this surface commonly shows.
@@ -125,15 +128,31 @@ export function renderInline(text: string, theme: Theme): string {
   // the bold after `b` — and a single-pass regex would instead leave the
   // backticks in the text, which is what models' headings actually hit.
   const emphasized = (inner: string): string =>
-    inner.split(/(`[^`]+`)/u).map(segment =>
-      segment.startsWith('`') && segment.endsWith('`') && segment.length > 1
-        ? theme.bold(theme.tool(segment.slice(1, -1)))
-        : segment === '' ? '' : theme.bold(segment)).join('')
+    inner.split(/(`[^`]+`|~~[^~]+~~)/u).map((segment) => {
+      if (segment.startsWith('`') && segment.endsWith('`') && segment.length > 1) {
+        return theme.bold(theme.tool(segment.slice(1, -1)))
+      }
+      if (segment.startsWith('~~') && segment.endsWith('~~') && segment.length > 3) {
+        return theme.bold(theme.strike(segment.slice(2, -2)))
+      }
+      return segment === '' ? '' : theme.bold(segment)
+    }).join('')
+  const struck = (inner: string): string =>
+    inner.split(/(`[^`]+`|\*\*[^*]+\*\*)/u).map((segment) => {
+      if (segment.startsWith('`') && segment.endsWith('`') && segment.length > 1) {
+        return theme.strike(theme.tool(segment.slice(1, -1)))
+      }
+      if (segment.startsWith('**') && segment.endsWith('**') && segment.length > 3) {
+        return theme.strike(theme.bold(segment.slice(2, -2)))
+      }
+      return segment === '' ? '' : theme.strike(segment)
+    }).join('')
   return text.replace(INLINE, (
     match: string,
     code: string | undefined,
     starBold: string | undefined,
     underBold: string | undefined,
+    strike: string | undefined,
     link: string | undefined,
     starEm: string | undefined,
     underEm: string | undefined,
@@ -141,6 +160,7 @@ export function renderInline(text: string, theme: Theme): string {
     if (code !== undefined) return theme.tool(code.slice(1, -1))
     if (starBold !== undefined) return emphasized(starBold.slice(2, -2))
     if (underBold !== undefined) return emphasized(underBold.slice(2, -2))
+    if (strike !== undefined) return struck(strike.slice(2, -2))
     if (link !== undefined) {
       const parts = /^\[([^\]]*)\]\(([^)]*)\)$/.exec(link)
       if (parts === null) return match
@@ -349,6 +369,21 @@ function renderLine(line: string, theme: Theme, fence: FenceState): string[] {
     const quote = QUOTE.exec(line)
     if (quote !== null) {
       out.push(`${theme.dim('│')} ${theme.dim(renderInline(quote[1] ?? '', theme))}`)
+      return out
+    }
+    const task = TASK_ITEM.exec(line)
+    if (task !== null) {
+      const indent = task[1] ?? ''
+      const isDone = task[2] === 'x' || task[2] === 'X'
+      const rawText = task[3]
+      const text = rawText !== undefined && rawText !== '' ? renderInline(rawText, theme) : ''
+      if (isDone) {
+        const body = text !== '' ? ` ${theme.dim(theme.strike(text))}` : ''
+        out.push(`${indent}${theme.success('✔')}${body}`)
+      } else {
+        const body = text !== '' ? ` ${text}` : ''
+        out.push(`${indent}${theme.dim('○')}${body}`)
+      }
       return out
     }
     const bullet = BULLET.exec(line)
