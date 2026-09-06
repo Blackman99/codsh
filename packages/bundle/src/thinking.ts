@@ -11,6 +11,7 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { dirname } from 'node:path'
 import { ReasoningEffortId } from '@deepseek-ai/dsh-llm'
 import type { LlmModelReasoningInfo } from '@deepseek-ai/dsh-llm'
+import type { SelectOption } from './selector.js'
 
 /** Map of model keys (`${provider}/${model}` or `${model}`) to reasoning effort IDs. */
 export type ThinkingPrefMap = Record<string, ReasoningEffortId>
@@ -172,3 +173,69 @@ export async function saveThinkingPref(
   current[key] = ReasoningEffortId(effort)
   await saveThinkingPrefs(filePath, current)
 }
+
+/**
+ * Build interactive selector options from model reasoning metadata.
+ * @param reasoning - Active model's reasoning info.
+ * @param activeEffort - Currently selected reasoning effort, if any.
+ */
+export function buildThinkingOptions(
+  reasoning: LlmModelReasoningInfo,
+  activeEffort?: string,
+): SelectOption[] {
+  return reasoning.efforts.map((entry) => {
+    const active = entry.id.toLowerCase() === activeEffort?.toLowerCase()
+    return {
+      label: entry.id,
+      detail: active ? `${entry.name} · current` : (entry.description ?? entry.name),
+    }
+  })
+}
+
+/**
+ * Format reasoning effort levels for non-TTY environments.
+ * @param reasoning - Active model's reasoning info.
+ * @param activeEffort - Currently selected reasoning effort, if any.
+ */
+export function formatThinkingList(
+  reasoning: LlmModelReasoningInfo,
+  activeEffort?: string,
+): string {
+  const currentEffort = activeEffort ?? (reasoning.defaultEffort !== undefined ? `default (${reasoning.defaultEffort})` : 'default')
+  const header = `current thinking: ${currentEffort}`
+  const rows = reasoning.efforts.map((entry) => {
+    const active = entry.id.toLowerCase() === activeEffort?.toLowerCase()
+    return `${active ? '❯' : ' '} ${entry.id}  ${entry.name}`
+  })
+  return `${header}\n${rows.join('\n')}`
+}
+
+/**
+ * Generate autocompletion candidates for `/thinking` and `/effort` commands.
+ * @param reasoning - Active model's reasoning info, or undefined when unsupported.
+ * @param activeEffort - Currently selected reasoning effort, if any.
+ */
+export function thinkingArgumentCandidates(
+  reasoning: LlmModelReasoningInfo | undefined,
+  activeEffort?: string,
+): { value: string; detail: string }[] {
+  if (!isReasoningSupported(reasoning) || reasoning === undefined) {
+    return []
+  }
+  const candidates: { value: string; detail: string }[] = []
+  candidates.push({ value: 'on', detail: 'enable reasoning' })
+  const hasOff = reasoning.efforts.some(e => e.id.toLowerCase() === 'off')
+  if (!hasOff) {
+    const isOffCurrent = activeEffort?.toLowerCase() === 'off'
+    candidates.push({ value: 'off', detail: isOffCurrent ? 'off · current' : 'disable reasoning' })
+  }
+  for (const entry of reasoning.efforts) {
+    const active = entry.id.toLowerCase() === activeEffort?.toLowerCase()
+    candidates.push({
+      value: entry.id,
+      detail: active ? `${entry.name} · current` : (entry.description ?? entry.name),
+    })
+  }
+  return candidates
+}
+

@@ -12,6 +12,9 @@ import {
   resolveEffortChoice,
   loadThinkingPrefs,
   saveThinkingPref,
+  buildThinkingOptions,
+  formatThinkingList,
+  thinkingArgumentCandidates,
 } from '../src/thinking.js'
 
 describe('thinking domain module', () => {
@@ -202,6 +205,108 @@ describe('thinking domain module', () => {
       await saveThinkingPref(prefsPath, 'deepseek/deepseek-reasoner', 'off')
       prefs = await loadThinkingPrefs(prefsPath)
       expect(prefs['deepseek/deepseek-reasoner']).toBe(ReasoningEffortId('off'))
+    })
+  })
+
+  describe('buildThinkingOptions', () => {
+    const reasoning: LlmModelReasoningInfo = {
+      efforts: [
+        { id: ReasoningEffortId('off'), name: 'Off', description: 'Thinking disabled' },
+        { id: ReasoningEffortId('low'), name: 'Low', description: 'Fast shallow thinking' },
+        { id: ReasoningEffortId('high'), name: 'High', description: 'Deep deliberation' },
+      ],
+      defaultEffort: ReasoningEffortId('low'),
+    }
+
+    it('builds select options marking the active effort as current', () => {
+      const options = buildThinkingOptions(reasoning, 'high')
+      expect(options).toEqual([
+        { label: 'off', detail: 'Thinking disabled' },
+        { label: 'low', detail: 'Fast shallow thinking' },
+        { label: 'high', detail: 'High · current' },
+      ])
+    })
+
+    it('falls back to name when description is absent', () => {
+      const reasoningNoDesc: LlmModelReasoningInfo = {
+        efforts: [
+          { id: ReasoningEffortId('low'), name: 'Low' },
+          { id: ReasoningEffortId('high'), name: 'High' },
+        ],
+      }
+      const options = buildThinkingOptions(reasoningNoDesc, 'low')
+      expect(options).toEqual([
+        { label: 'low', detail: 'Low · current' },
+        { label: 'high', detail: 'High' },
+      ])
+    })
+  })
+
+  describe('formatThinkingList', () => {
+    const reasoning: LlmModelReasoningInfo = {
+      efforts: [
+        { id: ReasoningEffortId('off'), name: 'Off' },
+        { id: ReasoningEffortId('low'), name: 'Low' },
+        { id: ReasoningEffortId('high'), name: 'High' },
+      ],
+      defaultEffort: ReasoningEffortId('low'),
+    }
+
+    it('formats non-TTY thinking levels marking active level with arrow', () => {
+      const output = formatThinkingList(reasoning, 'high')
+      expect(output).toBe(
+        'current thinking: high\n' +
+        '  off  Off\n' +
+        '  low  Low\n' +
+        '❯ high  High',
+      )
+    })
+
+    it('displays default indicator when no effort is explicitly active', () => {
+      const output = formatThinkingList(reasoning, undefined)
+      expect(output).toContain('current thinking: default (low)')
+    })
+  })
+
+  describe('thinkingArgumentCandidates', () => {
+    const reasoning: LlmModelReasoningInfo = {
+      efforts: [
+        { id: ReasoningEffortId('off'), name: 'Off', description: 'Thinking disabled' },
+        { id: ReasoningEffortId('low'), name: 'Low', description: 'Fast shallow thinking' },
+        { id: ReasoningEffortId('high'), name: 'High', description: 'Deep deliberation' },
+      ],
+      defaultEffort: ReasoningEffortId('low'),
+    }
+
+    it('returns empty array when reasoning is not supported or undefined', () => {
+      expect(thinkingArgumentCandidates(undefined)).toEqual([])
+      expect(thinkingArgumentCandidates({ efforts: [] })).toEqual([])
+    })
+
+    it('offers on, off, and all model-supported effort levels', () => {
+      const candidates = thinkingArgumentCandidates(reasoning, 'high')
+      expect(candidates).toEqual([
+        { value: 'on', detail: 'enable reasoning' },
+        { value: 'off', detail: 'Thinking disabled' },
+        { value: 'low', detail: 'Fast shallow thinking' },
+        { value: 'high', detail: 'High · current' },
+      ])
+    })
+
+    it('includes off even if not listed in model efforts', () => {
+      const reasoningWithoutOff: LlmModelReasoningInfo = {
+        efforts: [
+          { id: ReasoningEffortId('low'), name: 'Low' },
+          { id: ReasoningEffortId('high'), name: 'High' },
+        ],
+      }
+      const candidates = thinkingArgumentCandidates(reasoningWithoutOff, 'low')
+      expect(candidates).toEqual([
+        { value: 'on', detail: 'enable reasoning' },
+        { value: 'off', detail: 'disable reasoning' },
+        { value: 'low', detail: 'Low · current' },
+        { value: 'high', detail: 'High' },
+      ])
     })
   })
 })
