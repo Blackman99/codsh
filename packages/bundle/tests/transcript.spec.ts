@@ -1029,6 +1029,48 @@ describe('grok background differentiation across functional blocks', () => {
     expect(second[1]).toBe(pad)
   })
 
+  it('keeps the tool run open across intervening empty assistant messages and step boundaries', () => {
+    const colorTheme = createTheme(true, { COLORTERM: 'truecolor' })
+    const pad = colorTheme.bgTool('  ')
+    let file = 'a.ts'
+    const colored = new Transcript(
+      { columns: 80, theme: colorTheme, cwd: CWD },
+      {
+        call: (): ToolCallView => ({ card: 'generic', title: `Read ${file}` }),
+        result: (): ToolResultView => ({ card: 'generic', title: `Read ${file}` }),
+      },
+    )
+
+    colored.render(callEvent('c1', 'read', {}))
+    colored.render(resultEvent('c1', ''))
+
+    // In a real agent turn, step transitions and text-free assistant messages arrive between tool calls
+    const stepEnd = { type: 'step/end', seq: 3, time: 0, data: { turn: 1, step: 1 } } as SessionEvent
+    const stepStart = { type: 'step/start', seq: 4, time: 0, data: { turn: 1, step: 2 } } as SessionEvent
+    const emptyAssistant = {
+      type: 'assistant/message',
+      seq: 5,
+      time: 0,
+      data: { turn: 1, step: 2, message: { role: 'assistant', content: [{ type: 'tool-call', id: 'c2', name: 'read', arguments: '{}' }], source: { kind: 'model' } } },
+    } as unknown as SessionEvent
+
+    expect(colored.render(stepEnd)).toEqual([])
+    expect(colored.render(stepStart)).toEqual([])
+    expect(colored.render(emptyAssistant)).toEqual([])
+
+    // The second call must still join the same panel rather than opening a new one with leading pad
+    file = 'b.ts'
+    const pending = colored.render(callEvent('c2', 'read', {}))
+    expect(colored.takePendingCard()).toEqual([pad])
+    expect(pending[0]).toContain('Read b.ts')
+    expect(pending[1]).toBe(pad)
+
+    const second = colored.render(resultEvent('c2', ''))
+    expect(colored.takePendingCard()).toEqual(pending)
+    expect(second[0]).toContain('Read b.ts')
+    expect(second[1]).toBe(pad)
+  })
+
   it('keeps a divider row between cards that have bodies', () => {
     const colorTheme = createTheme(true, { COLORTERM: 'truecolor' })
     const pad = colorTheme.bgTool('  ')

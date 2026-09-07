@@ -325,6 +325,7 @@ function replayEvents(session: Session, transcript: Transcript, io: CliIo, theme
         .map(block => block.text)
         .join('')
       if (thought !== '') {
+        transcript.endRun()
         const lines = thought.split('\n').map(line => theme.dim(`  ${line}`))
         const { summary, full } = thinkingFold(lines, theme)
         io.console.appendFold(summary, full, blockRules(theme).agent, FOLD_LABELS.thinking)
@@ -1683,6 +1684,7 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
     const flushed = thinking.flush()
     if (flushed === undefined) return
     prompt.setStreaming(undefined)
+    live.transcript.endRun()
     turnThinkingMs.push(flushed.elapsedMs)
     const { summary, full } = thinkingFold(flushed.lines, theme, flushed.elapsedMs / 1000)
     io.console.appendFold(summary, full, blockRules(theme).agent, FOLD_LABELS.thinking)

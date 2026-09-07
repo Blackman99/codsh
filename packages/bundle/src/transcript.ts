@@ -417,6 +417,11 @@ export class Transcript {
     return missing.length === 0 ? '' : ` ${missing.join(', ')}`
   }
 
+  /** Close an active tool run, so subsequent tools open in a new panel. */
+  endRun(): void {
+    this.run = undefined
+  }
+
   /**
    * Render one appended event.
    * @param event - the event exactly as recorded.
@@ -426,8 +431,11 @@ export class Transcript {
     // Only tool cards share a panel; anything else printed under one ends it,
     // and its own leading rows are the gap.
     const hadRun = this.run !== undefined
-    if (event.type !== 'tool/call' && event.type !== 'tool/result') this.run = undefined
-    return this.renderBlock(event, hadRun)
+    const lines = this.renderBlock(event, hadRun)
+    if (lines.length > 0 && event.type !== 'tool/call' && event.type !== 'tool/result') {
+      this.run = undefined
+    }
+    return lines
   }
 
   /**
