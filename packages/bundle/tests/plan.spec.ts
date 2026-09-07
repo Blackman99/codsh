@@ -1,7 +1,7 @@
 /** Reading a `/ship` spec's plan: how many tickets, and which one is now. */
 
 import { describe, expect, it } from 'vitest'
-import { parsePlan, parseShipStatus, planReport, planRow, planSummary } from '../src/plan.ts'
+import { parsePlan, parseShipStatus, parseSpecMetadata, planReport, planRow, planSummary } from '../src/plan.ts'
 import { createTheme } from '../src/theme.ts'
 
 const theme = createTheme(false, {})
@@ -48,10 +48,11 @@ describe('parsePlan', () => {
   })
 
   it('cleans up verbose ticket metadata from the title for clean terminal display', () => {
-    const spec = `## Plan\n\n- [x] Ticket 1: Short Title (Blocked by: None) — Delivers foo\n- [ ] Ticket 2: Another Title - Delivers bar (Blocked by: Ticket 1)\n`
+    const spec = `## Plan\n\n- [x] Ticket 1: Short Title (Blocked by: None) — Delivers foo (Verification: vitest)\n- [ ] Ticket 2: Another Title - Delivers bar (Blocked by: Ticket 1)\n- [ ] Ticket 3: Third Title (Verification Log: pass) — Delivers baz\n`
     const plan = parsePlan(spec)
     expect(plan.tickets[0]?.title).toBe('Ticket 1: Short Title')
     expect(plan.tickets[1]?.title).toBe('Ticket 2: Another Title')
+    expect(plan.tickets[2]?.title).toBe('Ticket 3: Third Title')
   })
 
   it('reports nothing for a spec with no plan yet', () => {
@@ -77,6 +78,23 @@ describe('parseShipStatus', () => {
 
   it('ignores a file with no Status line', () => {
     expect(parseShipStatus('# Spec\n\n## Plan\n\n- [ ] one\n')).toBeUndefined()
+  })
+})
+
+describe('parseSpecMetadata', () => {
+  it('reads branch and base commit metadata from spec header', () => {
+    const markdown = `# Feature\n\nStatus: planned\nBranch: ship/my-feature\nBase-Commit: abc1234\nOriginal-Branch: main\n\n## Plan\n`
+    const meta = parseSpecMetadata(markdown)
+    expect(meta.branch).toBe('ship/my-feature')
+    expect(meta.baseCommit).toBe('abc1234')
+    expect(meta.originalBranch).toBe('main')
+  })
+
+  it('returns empty object when metadata headers are absent', () => {
+    const meta = parseSpecMetadata('# Feature\n\nStatus: interviewing\n')
+    expect(meta.branch).toBeUndefined()
+    expect(meta.baseCommit).toBeUndefined()
+    expect(meta.originalBranch).toBeUndefined()
   })
 })
 

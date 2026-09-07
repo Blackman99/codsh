@@ -44,15 +44,16 @@ dsh --profile code
 
 ## `/ship`
 
-`/ship <one-sentence idea>` — grill, two approvals, then autonomous:
+`/ship <one-sentence idea>` — pre-flight isolation, grill, two approvals, autonomous TDD, dual-layer DoD:
 
+0. **Pre-flight & Isolation** — checks working tree hygiene (`ship · preflight` prompt if dirty); cuts an isolated `ship/<slug>` branch so the base branch stays pristine.
 1. **Grill** — design-tree interview; facts are inspected, each round asks the open frontier with a recommended answer.
-2. **Spec** — synthesized automatically (to-spec). You confirm. Each criterion names its proving command.
-3. **Tickets** — tracer-bullet slices, written automatically. You approve. Baseline runs before any code.
-4. **Landing** — TDD at the spec's seams; each green ticket is a commit.
-5. **Done** — every criterion re-run and reported.
+2. **Spec (Gate 1)** — synthesized automatically (to-spec). You confirm. Records branch, base commit, decisions, and exact proving commands.
+3. **Tickets & Baseline (Gate 2)** — tracer-bullet vertical slices plus release compliance ticket. You approve. Baseline runs across proof commands and repo guardrails.
+4. **Landing** — TDD red-to-green proof logging; 3-strike circuit breaker; cascading re-verification on resume; each green ticket is a clean commit.
+5. **Done (Dual-Layer DoD)** — verifies acceptance criteria (exit 0) and zero new repo failures against baseline; interactive delivery prompt (`ship · deliver`: merge back, keep PR branch, or stay).
 
-Bare `/ship` resumes an unfinished spec.
+Bare `/ship` resumes an unfinished spec with cascading re-verification of prior tickets.
 
 ```sh
 /ship let long diffs open in a pager instead of scrolling past

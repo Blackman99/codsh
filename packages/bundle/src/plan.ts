@@ -32,6 +32,16 @@ export interface Plan {
 /** Phases a `/ship` spec's `Status:` line names. */
 export type ShipStatus = 'interviewing' | 'confirmed' | 'planned' | 'landing' | 'shipped'
 
+/** Metadata a `/ship` spec records in its header. */
+export interface SpecMetadata {
+  /** The dedicated feature branch (`ship/<slug>`). */
+  branch?: string
+  /** Base commit SHA before landing. */
+  baseCommit?: string
+  /** Original branch name from which the feature branch was cut. */
+  originalBranch?: string
+}
+
 /** A `## Plan` heading, at any depth, in any case. */
 const PLAN_HEADING = /^#{1,6}\s+plan\s*$/iu
 
@@ -43,6 +53,15 @@ const TICKET = /^\s*[-*]\s+\[([ xX])\]\s+(.*)$/u
 
 /** A spec's `Status:` phase line. */
 const STATUS_LINE = /^Status:\s*(interviewing|confirmed|planned|landing|shipped)\b/imu
+
+/** A spec's `Branch:` line. */
+const BRANCH_LINE = /^Branch:\s*(\S+)/imu
+
+/** A spec's `Base-Commit:` line. */
+const BASE_COMMIT_LINE = /^Base-Commit:\s*(\S+)/imu
+
+/** A spec's `Original-Branch:` line. */
+const ORIGINAL_BRANCH_LINE = /^Original-Branch:\s*(\S+)/imu
 
 /**
  * Read the tickets out of a spec's `## Plan` section.
@@ -67,16 +86,33 @@ export function parsePlan(markdown: string): Plan {
     if (ticket === null) continue
     const rawTitle = (ticket[2] ?? '').trim()
     if (rawTitle === '') continue
-    // Strip trailing ticket metadata (e.g. "(Blocked by: ...) — Delivers ...")
+    // Strip trailing ticket metadata (e.g. "(Blocked by: ...) — Delivers ... (Verification: ...)")
     // so the TUI displays a concise, readable ticket title without overflow.
     const title = rawTitle
-      .replace(/\s*\([^)]*blocked\s+by:[^)]*\)/iu, '')
-      .replace(/\s*[-—–]\s*delivers\b.*$/iu, '')
+      .replace(/\s*\([^)]*(?:blocked\s+by|verification(?:\s+log)?)\s*:[^)]*\)/giu, '')
+      .replace(/\s*[-—–]\s*(?:delivers|verification)\b.*$/iu, '')
+      .replace(/\s*\([^)]*(?:blocked\s+by|verification(?:\s+log)?)\s*:[^)]*\)/giu, '')
       .trim() || rawTitle
     tickets.push({ title, done: (ticket[1] ?? ' ').toLowerCase() === 'x' })
   }
   const done = tickets.filter(ticket => ticket.done).length
   return { tickets, done, current: tickets.find(ticket => !ticket.done) }
+}
+
+/**
+ * Read metadata from a spec's header lines (Branch, Base-Commit, Original-Branch).
+ * @param markdown - the spec file's contents.
+ * @returns the parsed metadata fields.
+ */
+export function parseSpecMetadata(markdown: string): SpecMetadata {
+  const branch = BRANCH_LINE.exec(markdown)?.[1]
+  const baseCommit = BASE_COMMIT_LINE.exec(markdown)?.[1]
+  const originalBranch = ORIGINAL_BRANCH_LINE.exec(markdown)?.[1]
+  return {
+    ...(branch !== undefined ? { branch } : {}),
+    ...(baseCommit !== undefined ? { baseCommit } : {}),
+    ...(originalBranch !== undefined ? { originalBranch } : {}),
+  }
 }
 
 /**
