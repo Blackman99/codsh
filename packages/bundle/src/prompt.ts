@@ -20,7 +20,7 @@ import { FrontierCard } from './frontier-card.ts'
 import { GateModal, gateChip } from './gate-modal.ts'
 import { Selector } from './selector.ts'
 import { FullscreenViewer } from './viewer.ts'
-import { DEFAULT_DENSITY, IDLE_TIP, IDLE_TIP_MS, type Density } from './density.ts'
+import { DEFAULT_DENSITY, type Density } from './density.ts'
 import { truncate } from './theme.ts'
 import { todoReport, todoRow } from './todos.ts'
 import type { EncodedImageAttachment } from '@deepseek-ai/dsh-attachment/types'
@@ -242,12 +242,8 @@ export class Prompt {
   private shortcutsOpen = false
   /** The assistant line(s) still arriving, shown above the box. */
   private streaming: string | readonly string[] | undefined
-  /** Live density; comfortable adds an idle tip under the legend. */
+  /** Live density; comfortable adds room in the transcript without touching prompt chrome. */
   private density: Density = DEFAULT_DENSITY
-  /** Whether the comfortable idle tip is on screen. */
-  private idleTipVisible = false
-  /** Restores the idle tip after the box has sat empty. */
-  private idleTimer: ReturnType<typeof setTimeout> | undefined
   /** Frame styling for the current mode, e.g. plan mode's accent. */
   private accent: ((text: string) => string) | undefined
   /** Whether a read is outstanding, which decides where a submission goes. */
@@ -325,15 +321,12 @@ export class Prompt {
   }
 
   /**
-   * Switch density. Comfortable shows the idle tip on an empty box; compact
-   * never does. Open folds elsewhere are not touched.
+   * Switch density. Open folds elsewhere are not touched.
    * @param density - the live mode.
    */
   setDensity(density: Density): void {
     if (this.density === density) return
     this.density = density
-    this.clearIdleTimer()
-    this.idleTipVisible = density === 'comfortable' && this.editor.empty
     this.render()
   }
 
@@ -851,7 +844,6 @@ export class Prompt {
     // would otherwise move the cursor by yesterday's geometry.
     this.editor.setWrapWidth(wrapBudget(this.console.contentColumns))
     const action = this.editor.handle(key)
-    this.syncIdleTip()
     switch (action.kind) {
       case 'submit': {
         const waiting = this.pending
@@ -1406,9 +1398,6 @@ export class Prompt {
     const overlay = this.flash ?? this.findRow(columns) ?? this.hover
     if (overlay !== undefined) rows.push(overlay)
     else if (hint !== undefined) rows.push(truncate(hint, columns))
-    if (this.idleTipVisible && this.select_ === undefined && this.frontier_ === undefined && overlay === undefined) {
-      rows.push(this.theme.muted(truncate(`  ${IDLE_TIP}`, columns)))
-    }
     const statusText = typeof this.status === 'function' ? this.status(columns) : this.status
     if (statusText !== undefined && (overlay === undefined || hint !== undefined)) {
       rows.push(truncate(statusText, columns))
@@ -1504,36 +1493,6 @@ export class Prompt {
    */
   private get previewRows(): number {
     return Math.max(6, this.console.rows - this.chromeHeight)
-  }
-
-  /** Hide the idle tip while the box is typed in; restore it after idle. */
-  private syncIdleTip(): void {
-    if (this.density !== 'comfortable') return
-    if (!this.editor.empty) {
-      this.clearIdleTimer()
-      if (this.idleTipVisible) this.idleTipVisible = false
-      return
-    }
-    this.scheduleIdleTip()
-  }
-
-  private scheduleIdleTip(): void {
-    this.clearIdleTimer()
-    if (this.density !== 'comfortable') return
-    this.idleTimer = setTimeout(() => {
-      this.idleTimer = undefined
-      if (this.density === 'comfortable' && this.editor.empty) {
-        this.idleTipVisible = true
-        this.render()
-      }
-    }, IDLE_TIP_MS)
-    this.idleTimer.unref()
-  }
-
-  private clearIdleTimer(): void {
-    if (this.idleTimer === undefined) return
-    clearTimeout(this.idleTimer)
-    this.idleTimer = undefined
   }
 }
 

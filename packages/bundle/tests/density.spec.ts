@@ -10,7 +10,6 @@ import { describe, expect, it } from 'vitest'
 import {
   DEFAULT_DENSITY,
   DIFF_SOFT_CAP,
-  IDLE_TIP,
   densityReport,
   loadDensity,
   parseDensity,
@@ -96,11 +95,5 @@ describe('GateModal and MetaBar ignore density', () => {
     const facts = { model: 'm', planMode: false, cwd: '/repo' }
     expect(statusLine(facts, theme, 200)).toBe('m · /repo')
     expect(statusLine({ ...facts, shipGate: 1 as const }, theme, 200)).toBe('ship · gate1 · m · /repo')
-  })
-
-  it('keeps the idle tip readable under NO_COLOR', () => {
-    const plain = createTheme(true, { NO_COLOR: '1' })
-    expect(plain.muted(`  ${IDLE_TIP}`)).toContain('⇧Tab plan')
-    expect(plain.muted(`  ${IDLE_TIP}`)).toContain('Ctrl+T todos')
   })
 })

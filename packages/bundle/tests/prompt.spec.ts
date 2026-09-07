@@ -3,8 +3,7 @@
  * a line reader off one. It also owns what the bottom region is made of.
  */
 
-import { afterEach, describe, expect, it, vi } from 'vitest'
-import { IDLE_TIP, IDLE_TIP_MS } from '../src/density.ts'
+import { describe, expect, it, vi } from 'vitest'
 import { Prompt } from '../src/prompt.ts'
 import { createTheme, displayWidth } from '../src/theme.ts'
 import type { RegionCursor } from '../src/console.ts'
@@ -1213,86 +1212,31 @@ describe('ship frontier card', () => {
   })
 })
 
-describe('comfortable idle tip', () => {
-  afterEach(() => {
-    vi.useRealTimers()
-  })
-
-  const buildComfortable = (env: NodeJS.ProcessEnv = {}) => {
+describe('comfortable density chrome', () => {
+  it('does not add extra idle tip rows or cause status line wrapping on startup or typing', () => {
     const console = fakeConsole(true)
-    const prompt = new Prompt(console as never, createTheme(false, env), sources, {
-      interrupt: () => {},
-      escape: () => {},
-      eof: () => {},
-    }, 'Ask anything')
-    prompt.setLegend('  ? shortcuts')
-    void prompt.read()
-    prompt.setDensity('comfortable')
-    const rows = (): string[] => console.draws.at(-1)?.rows ?? []
-    const hasTip = (): boolean => rows().some(row => row.includes('⇧Tab plan'))
-    return { prompt, console, rows, hasTip }
-  }
-
-  it('shows on first empty paint in comfortable, not in compact', () => {
-    const compact = (() => {
-      const console = fakeConsole(true)
-      const prompt = new Prompt(console as never, theme, sources, {
-        interrupt: () => {},
-        escape: () => {},
-        eof: () => {},
-      })
-      prompt.setLegend('  ? shortcuts')
-      void prompt.read()
-      return { console, prompt }
-    })()
-    expect(compact.console.draws.at(-1)?.rows.some(row => row.includes('⇧Tab plan'))).toBe(false)
-
-    const { hasTip, rows } = buildComfortable()
-    expect(hasTip()).toBe(true)
-    expect(rows().some(row => row.includes('? shortcuts'))).toBe(true)
-  })
-
-  it('leaves on the first key and returns after idle if the box is empty again', () => {
-    vi.useFakeTimers()
-    const { console, hasTip } = buildComfortable()
-    expect(hasTip()).toBe(true)
-    console.press({ kind: 'text', text: 'x' })
-    expect(hasTip()).toBe(false)
-    console.press({ kind: 'backspace' })
-    expect(hasTip()).toBe(false)
-    vi.advanceTimersByTime(IDLE_TIP_MS)
-    expect(hasTip()).toBe(true)
-  })
-
-  it('never restores the tip in compact after idle', () => {
-    vi.useFakeTimers()
-    const console = fakeConsole(true)
+    console.columns = 120
     const prompt = new Prompt(console as never, theme, sources, {
       interrupt: () => {},
       escape: () => {},
       eof: () => {},
-    })
-    prompt.setLegend('  ? shortcuts')
+    }, 'Ask anything · / for commands · ⇧Tab plan mode')
+    prompt.setDensity('comfortable')
+    prompt.setStatus('gemini-3.8-flash-high (medium) · ~/my-projects/codsh (main) · ? shortcuts')
     void prompt.read()
-    console.press({ kind: 'text', text: 'x' })
-    console.press({ kind: 'backspace' })
-    vi.advanceTimersByTime(IDLE_TIP_MS)
-    expect(console.draws.at(-1)?.rows.some(row => row.includes('⇧Tab plan'))).toBe(false)
-  })
 
-  it('keeps the tip text under NO_COLOR', () => {
-    const { hasTip, rows } = buildComfortable({ NO_COLOR: '1' })
-    expect(hasTip()).toBe(true)
-    expect(rows().join('\n')).toContain(IDLE_TIP)
-  })
+    const draws = () => console.draws.at(-1)?.rows ?? []
+    // The last row is the status line
+    expect(draws().at(-1)).toBe('gemini-3.8-flash-high (medium) · ~/my-projects/codsh (main) · ? shortcuts')
+    // No redundant idle tip row above status line
+    expect(draws().some(row => row.includes('⇧Tab plan · Ctrl+T todos'))).toBe(false)
+    expect(draws().some(row => row.includes('Ctrl+T todos'))).toBe(false)
 
-  it('hides the tip while a selector is open', async () => {
-    const { prompt, console, hasTip } = buildComfortable()
-    expect(hasTip()).toBe(true)
-    const choosing = prompt.select({ title: 'Allow bash?', options: [{ label: 'Yes' }, { label: 'No' }] })
-    expect(hasTip()).toBe(false)
-    console.press({ kind: 'enter' })
-    await choosing
-    expect(hasTip()).toBe(true)
+    const initialRowCount = draws().length
+
+    // Typing in the box does not change row count or drop any wrapping row
+    console.press({ kind: 'text', text: 'hello' })
+    expect(draws().length).toBe(initialRowCount)
+    expect(draws().at(-1)).toBe('gemini-3.8-flash-high (medium) · ~/my-projects/codsh (main) · ? shortcuts')
   })
 })

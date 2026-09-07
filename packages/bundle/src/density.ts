@@ -3,8 +3,8 @@
  *
  * Compact is the default after the chrome redesign. Comfortable only adds
  * room — a blank row between turns, a two-line thinking preview while it
- * streams, a higher click-to-pager threshold on expanded diffs, and one
- * idle tip — without touching GateModal, MetaBar, or folded ToolCards.
+ * streams, a higher click-to-pager threshold on expanded diffs —
+ * without touching GateModal, MetaBar, or folded ToolCards.
  * @module codsh-bundle/src/density
  */
 
@@ -13,17 +13,11 @@ import { readFile, writeFile } from 'node:fs/promises'
 /** The two densities `/ui` switches. */
 export type Density = 'compact' | 'comfortable'
 
-/** Returning-user default: tight chrome, folded cards, no idle tip. */
+/** Returning-user default: tight chrome, folded cards. */
 export const DEFAULT_DENSITY: Density = 'compact'
 
 /** Filename under the dsh home, beside `code-cli-history.json`. */
 export const UI_PREFS_FILE = 'code-cli-ui.json'
-
-/** How long an empty box sits idle before the comfortable tip returns. */
-export const IDLE_TIP_MS = 30_000
-
-/** Comfortable idle hint; muted, gone on the first key. */
-export const IDLE_TIP = '⇧Tab plan · Ctrl+T todos'
 
 /**
  * Diff lines before a click opens the pager rather than expanding in place.
