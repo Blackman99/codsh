@@ -204,16 +204,18 @@ export function thinkingFold(
   lines: readonly string[],
   theme: Theme,
   seconds?: number,
+  hadRun = false,
 ): { summary: string[], full: string[] } {
   // Glyph lives in the agent gutter (`✻ `); the line is the clock only.
   const clock = seconds === undefined ? 'thought' : `thought for ${formatElapsed(seconds * 1000)}`
   const head = theme.bgThinking(theme.dim(`${cardIndent(theme)}${clock}`))
   const pad = blockPad(theme, text => theme.bgThinking(text))
+  const gap = hadRun ? [''] : []
   return {
     // Collapsed it is one row, so it pads to nothing: padding a single line
     // only stacks the `✻` the gutter repeats on every row of the block.
-    summary: [head, ''],
-    full: [...pad, head, ...lines.map(line => theme.bgThinking(line)), ...pad, ''],
+    summary: [...gap, head, ''],
+    full: [...gap, ...pad, head, ...lines.map(line => theme.bgThinking(line)), ...pad, ''],
   }
 }
 
@@ -424,8 +426,10 @@ export class Transcript {
   }
 
   /** Close an active tool run, so subsequent tools open in a new panel. */
-  endRun(): void {
+  endRun(): boolean {
+    const hadRun = this.run !== undefined
     this.run = undefined
+    return hadRun
   }
 
   /**
