@@ -1,5 +1,28 @@
 # codsh-bundle
 
+## 0.17.2
+
+### Patch Changes
+
+- 5c4604b: fix(tui): compact consecutive tool cards into a single shared panel
+  
+  Intervening non-printing events during multi-step turns (such as `step/start`, `step/end`, and text-free `assistant/message` events) prematurely cleared the active tool card run. This caused consecutive one-line tool cards (such as repeated `read` or `grep` operations) to each render in separate panels with extraneous blank padding lines between them. The active tool run now persists across non-printing events so that consecutive tool cards share a single compact panel without gaps.
+- 5441184: fix(tui): preserve /status column alignment and prevent card headline truncation on tiny screens
+  
+  Adjust the session elapsed time label in `/status` to `time` so maximum label width does not exceed 11 columns, preserving column alignment. On narrow viewports, ensure short tool card titles avoid premature truncation.
+- 2c5f9ac: fix(tui): accurately calculate thinking duration from step start to handle buffered reasoning deltas
+  
+  When model providers or proxies buffer reasoning tokens and deliver them in a single burst or delta late in a step, measuring elapsed thinking time only between chunk arrivals resulted in inaccurate durations (such as 0.1s). Deliberation timing now anchors to step start and concludes when reasoning finishes or subsequent text/tool calls begin.
+- 22e75fb: fix(tui): prevent tool card headline overflow and unexpected line wrap
+  
+  Tool card headlines previously truncated against raw terminal columns (`io.console.columns`) rather than viewport content columns (`io.console.contentColumns`). Because content columns account for left gutters and terminal padding, truncated headlines exceeded the screen's wrap boundary by several columns, causing trailing status glyphs (`… ✔`) to wrap onto an unintended second line. Transcript now reads content columns dynamically so card headlines always stay strictly on a single line.
+- 7eced9d: feat(tui): improve markdown code block presentation with rich syntax highlighting and clean padding
+  
+  Enhance code block rendering with IDE-grade syntax highlighting (function calls, types, properties, constants, keywords, strings, and numbers). Add top and bottom padding within code blocks and ensure appropriate vertical margins separate code blocks from adjacent text and list items.
+- 0ef8149: feat(tui): display cumulative session duration in turn summary and /status
+  
+  Display cumulative session elapsed time alongside turn duration in the turn footer when multiple turns have run (`15s (thought 4.2s) · session 4m 30s · 3.2k tokens`). Also report session duration (including active execution time) in `/status`.
+
 ## 0.17.1
 
 ### Patch Changes
