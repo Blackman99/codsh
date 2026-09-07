@@ -605,20 +605,37 @@ export class TerminalConsole {
    * @param enter - child session a click opens instead of folding, when set.
    * @param page - raw text a click reads instead of expanding, when set.
    */
-  appendFold(summary: readonly string[], full: readonly string[], rule = '', label = '', enter?: string, page?: string, replaces: readonly string[] = []): void {
+  appendFold(
+    summary: readonly string[],
+    full: readonly string[],
+    rule: string | readonly string[] = '',
+    label = '',
+    enter?: string,
+    page?: string,
+    replaces: readonly string[] = [],
+    fullRule?: string | readonly string[],
+  ): void {
     if (this.screen !== undefined) {
-      this.screen.appendFold(summary, full, rule, label, enter, page, replaces)
+      this.screen.appendFold(summary, full, rule, label, enter, page, replaces, fullRule)
       return
     }
-    for (const line of summary) {
-      const prefix = line === '' || rule === '' ? '' : rule
+    for (const [index, line] of summary.entries()) {
+      const ownRule = Array.isArray(rule) ? (rule[index] ?? '') : rule
+      const prefix = line === '' || ownRule === '' ? '' : ownRule
       this.output.write(`${prefix}${line}\n`)
     }
   }
 
-  updateFold(oldSummary: readonly string[], oldFull: readonly string[], newSummary: readonly string[], newFull: readonly string[]): void {
+  updateFold(
+    oldSummary: readonly string[],
+    oldFull: readonly string[],
+    newSummary: readonly string[],
+    newFull: readonly string[],
+    newRule?: string | readonly string[],
+    newFullRule?: string | readonly string[],
+  ): void {
     if (this.screen !== undefined) {
-      this.screen.updateFold(oldSummary, oldFull, newSummary, newFull)
+      this.screen.updateFold(oldSummary, oldFull, newSummary, newFull, newRule, newFullRule)
     }
   }
 

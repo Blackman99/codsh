@@ -328,7 +328,10 @@ function replayEvents(session: Session, transcript: Transcript, io: CliIo, theme
         transcript.endRun()
         const lines = thought.split('\n').map(line => theme.dim(`  ${line}`))
         const { summary, full } = thinkingFold(lines, theme)
-        io.console.appendFold(summary, full, blockRules(theme).agent, FOLD_LABELS.thinking)
+        const agentRule = blockRules(theme).agent
+        const blankRule = '  '
+        const summaryRule = theme.colored ? [blankRule, agentRule, blankRule] : agentRule
+        io.console.appendFold(summary, full, summaryRule, FOLD_LABELS.thinking, undefined, undefined, [], agentRule)
       }
     }
     const lines = transcript.render(event)
@@ -1690,7 +1693,10 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
     turnThinkingMs.push(flushed.elapsedMs)
     const { summary, full } = thinkingFold(flushed.lines, theme, flushed.elapsedMs / 1000)
     currentThought = { summary, full, lines: flushed.lines, elapsedMs: flushed.elapsedMs }
-    io.console.appendFold(summary, full, blockRules(theme).agent, FOLD_LABELS.thinking)
+    const agentRule = blockRules(theme).agent
+    const blankRule = '  '
+    const summaryRule = theme.colored ? [blankRule, agentRule, blankRule] : agentRule
+    io.console.appendFold(summary, full, summaryRule, FOLD_LABELS.thinking, undefined, undefined, [], agentRule)
   }
   /**
    * Append the lines an event produced, and show the line still being typed.

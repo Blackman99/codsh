@@ -202,7 +202,9 @@ interface Fold {
   /** Whether a person explicitly chose the current form. */
   manual: boolean
   /** The left rule both forms are drawn with. */
-  rule: string
+  rule: string | readonly string[]
+  /** Optional rule for the expanded form when it differs from the summary rule. */
+  fullRule?: string | readonly string[]
   /** What the block is, for the readout naming what the pointer is over. */
   label: string
   /** Child session a click opens instead of folding, when the card is a view. */
@@ -641,7 +643,7 @@ export class Screen {
    * where they are, and the new rows accumulate below them.
    * @param lines - the lines to keep, already styled.
    */
-  append(lines: readonly string[], rule = '', replaces: readonly string[] = []): void {
+  append(lines: readonly string[], rule: string | readonly string[] = '', replaces: readonly string[] = []): void {
     if (lines.length === 0) return
     if (this.takePlaceOf(replaces, lines, rule) !== undefined) {
       this.render()
@@ -656,10 +658,11 @@ export class Screen {
     const columns = this.contentColumns()
     // An empty buffer is wrapped at whatever width its first lines take.
     if (this.logical.length === 0) this.wrappedColumns = this.host.columns()
-    for (const line of lines) {
+    for (const [index, line] of lines.entries()) {
       // A blank line keeps no rule: the separator between blocks would
       // otherwise show as a lone mark hanging under the block it ended.
-      const own = line === '' ? '' : rule
+      const ownRule = Array.isArray(rule) ? (rule[index] ?? '') : rule
+      const own = line === '' ? '' : ownRule
       this.logical.push(line)
       this.rules.push(own)
       for (const row of this.wrapLine(line, own, columns)) {
@@ -928,7 +931,16 @@ export class Screen {
    * @param enter - child session a click opens instead of folding, when set.
    * @param page - raw text a click reads instead of expanding, when set.
    */
-  appendFold(summary: readonly string[], full: readonly string[], rule = '', label = '', enter?: string, page?: string, replaces: readonly string[] = []): void {
+  appendFold(
+    summary: readonly string[],
+    full: readonly string[],
+    rule: string | readonly string[] = '',
+    label = '',
+    enter?: string,
+    page?: string,
+    replaces: readonly string[] = [],
+    fullRule?: string | readonly string[],
+  ): void {
     const shown = summary
     const at = this.takePlaceOf(replaces, shown, rule)
     if (at !== undefined) {
@@ -940,6 +952,7 @@ export class Screen {
         expanded: false,
         manual: false,
         rule,
+        ...fullRule !== undefined ? { fullRule } : {},
         label,
         ...enter === undefined ? {} : { enter },
         ...page === undefined ? {} : { page },
@@ -956,6 +969,7 @@ export class Screen {
       expanded: false,
       manual: false,
       rule,
+      ...fullRule !== undefined ? { fullRule } : {},
       label,
       ...enter === undefined ? {} : { enter },
       ...page === undefined ? {} : { page },
@@ -963,13 +977,21 @@ export class Screen {
     this.append(shown, rule)
   }
 
-  updateFold(oldSummary: readonly string[], oldFull: readonly string[], newSummary: readonly string[], newFull: readonly string[]): void {
+  updateFold(
+    oldSummary: readonly string[],
+    oldFull: readonly string[],
+    newSummary: readonly string[],
+    newFull: readonly string[],
+    newRule?: string | readonly string[],
+    newFullRule?: string | readonly string[],
+  ): void {
     const isSummary = this.lastRunOf(oldSummary) >= 0
     const isFull = !isSummary && this.lastRunOf(oldFull) >= 0
     if (!isSummary && !isFull) return
 
     const oldFold = this.folds.find(f => f.summary.length === oldSummary.length && f.summary.every((line, i) => line === oldSummary[i]))
-    const rule = oldFold?.rule ?? ''
+    const rule = newRule ?? oldFold?.rule ?? ''
+    const fullRule = newFullRule ?? oldFold?.fullRule
     const label = oldFold?.label ?? ''
     const enter = oldFold?.enter
     const page = oldFold?.page
@@ -978,7 +1000,8 @@ export class Screen {
 
     const replaces = isSummary ? oldSummary : oldFull
     const shown = isSummary ? newSummary : newFull
-    const at = this.takePlaceOf(replaces, shown, rule)
+    const currentRule = expanded ? (fullRule ?? rule) : rule
+    const at = this.takePlaceOf(replaces, shown, currentRule)
     if (at !== undefined) {
       this.folds.push({
         at,
@@ -988,6 +1011,7 @@ export class Screen {
         expanded,
         manual,
         rule,
+        ...fullRule !== undefined ? { fullRule } : {},
         label,
         ...enter === undefined ? {} : { enter },
         ...page === undefined ? {} : { page },
@@ -1132,11 +1156,12 @@ export class Screen {
     for (const fold of this.folds) {
       let effectiveLength = fold.shownLength
       const lines = fold.expanded ? fold.full : fold.summary
-      while (effectiveLength > 0 && (lines[effectiveLength - 1] ?? '').replaceAll(STYLES, '').trim() === '') {
+      const isBlankSeparator = (line: string): boolean => line.replaceAll(STYLES, '').trim() === '' && !/\u001B\[48;[0-9;]*m/.test(line)
+      while (effectiveLength > 0 && isBlankSeparator(lines[effectiveLength - 1] ?? '')) {
         effectiveLength -= 1
       }
       let effectiveStart = 0
-      while (effectiveStart < effectiveLength && (lines[effectiveStart] ?? '').replaceAll(STYLES, '').trim() === '') {
+      while (effectiveStart < effectiveLength && isBlankSeparator(lines[effectiveStart] ?? '')) {
         effectiveStart += 1
       }
       if (effectiveStart >= effectiveLength) {
@@ -1173,11 +1198,12 @@ export class Screen {
    */
   private setFold(fold: Fold, expanded: boolean, manual: boolean): void {
     const shown = expanded ? fold.full : fold.summary
+    const rule = expanded ? (fold.fullRule ?? fold.rule) : fold.rule
     const delta = shown.length - fold.shownLength
     const before = this.physical.length
     const offset = this.offset
     this.mapFindHits(fold.at, fold.shownLength, shown.length)
-    this.spliceLines(fold.at, fold.shownLength, shown, fold.rule)
+    this.spliceLines(fold.at, fold.shownLength, shown, rule)
     fold.shownLength = shown.length
     fold.expanded = expanded
     fold.manual = manual
@@ -1227,8 +1253,9 @@ export class Screen {
         continue
       }
       const shown = expanded ? fold.full : fold.summary
+      const rule = expanded ? (fold.fullRule ?? fold.rule) : fold.rule
       this.mapFindHits(fold.at, fold.shownLength, shown.length)
-      this.spliceLines(fold.at, fold.shownLength, shown, fold.rule, false)
+      this.spliceLines(fold.at, fold.shownLength, shown, rule, false)
       deltas.set(fold, shown.length - fold.shownLength)
       fold.shownLength = shown.length
       fold.expanded = expanded
@@ -2045,7 +2072,7 @@ export class Screen {
    * @param rule - the left rule the new lines belong to.
    * @returns where the block landed, or undefined when it is no longer here.
    */
-  private takePlaceOf(replaces: readonly string[], shown: readonly string[], rule: string): number | undefined {
+  private takePlaceOf(replaces: readonly string[], shown: readonly string[], rule: string | readonly string[]): number | undefined {
     const at = this.lastRunOf(replaces)
     if (at < 0) return undefined
     // A run with nothing but padding in it is a gap, and a gap is only the one
@@ -2096,11 +2123,14 @@ export class Screen {
     return -1
   }
 
-  private spliceLines(at: number, removed: number, shown: readonly string[], rule: string, reindexFind = true): void {
+  private spliceLines(at: number, removed: number, shown: readonly string[], rule: string | readonly string[], reindexFind = true): void {
     const columns = this.contentColumns()
     const from = this.physicalStart(at)
     const to = this.physicalStart(at + removed)
-    const rules = shown.map(line => line === '' ? '' : rule)
+    const rules = shown.map((line, index) => {
+      const ownRule = Array.isArray(rule) ? (rule[index] ?? '') : rule
+      return line === '' ? '' : ownRule
+    })
     const rows: string[] = []
     const widths: number[] = []
     const owners: number[] = []
@@ -2367,7 +2397,7 @@ export class Screen {
           const index = at - first
           if (index >= 0 && index < visible.length) {
             const rawRow = visible[index] ?? ''
-            if (rawRow.replaceAll(STYLES, '').trim() === '') continue
+            if (rawRow.replaceAll(STYLES, '').trim() === '' && !/\u001B\[48;[0-9;]*m/.test(rawRow)) continue
             const vpIndex = (sticky !== undefined ? (sticky.state === 'pinned' ? sticky.reservedRows : sticky.renderHeight) : 0) + index
             if (vpIndex < viewport.length) {
               viewport[vpIndex] = fill(rawRow, contentWidth, this.light)

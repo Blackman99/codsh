@@ -2861,4 +2861,28 @@ describe('overlay graphics', () => {
     expect(foldedFrame).toContain('● Read b.ts (101 - 200) ✔')
     expect(foldedFrame).toContain('● Read c.ts (201 - 300) ✔')
   })
+
+  it('fills background padding rows together on hover and supports per-line rules', () => {
+    const sink = host(5, 40)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['status'], { row: 0, column: 0 }, false)
+
+    const pad = '\u001B[48;2;20;16;32m  \u001B[0m'
+    const text = '\u001B[48;2;20;16;32mthought for 2.0s\u001B[0m'
+    const summary = [pad, text, pad]
+    const full = [pad, text, '\u001B[48;2;20;16;32mreasoning\u001B[0m', pad]
+    screen.appendFold(summary, full, ['  ', '✻ ', '  '], 'thinking')
+    const initial = flush(sink)
+    // In collapsed form, only the middle row gets the ✻ rule; rows 1 and 3 have spaces
+    expect(initial).toContain('thought for 2.0s')
+    expect(initial.split('✻').length - 1).toBe(1)
+
+    // Moving pointer to any row (top pad row 1, or middle text row 2) triggers hover
+    expect(screen.mouseMove(1, 5)?.label).toBe('thinking')
+    const frame = flush(sink)
+    // All 3 rows receive hover fill \u001B[48;5;236m
+    const hoverCount = frame.split('\u001B[48;5;236m').length - 1
+    expect(hoverCount).toBeGreaterThanOrEqual(3)
+  })
 })
