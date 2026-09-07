@@ -1,5 +1,32 @@
 # codsh-bundle
 
+## 0.17.5
+
+### Patch Changes
+
+- 0b90398: feat(tui): show execution duration on completed tool cards
+  
+  Tool cards now report their start-to-finish execution duration in the headline (e.g., `● Read a.ts +1 -1 · 1.2s ✔`), matching the visibility previously only available for thinking blocks. Additionally, the expanded thinking block now indents its reasoning text to provide breathing room from the background panel border.
+- 17962ad: feat(tui): track entire turn duration at the thinking line instead of individual tool calls
+  
+  Tool card duration statistics have been reverted. The completion time of the entire assistant output turn (from starting execution to final output settling) is now presented collectively as a single unified `· total Y.Ys` suffix appended to the `thought` line itself.
+- 6f34f53: fix: fix declaration build errors and type narrowing in dev script
+  
+  Clean up unused parameter in `thinkingFold` and fix TypeScript control flow narrowing in `index.ts` across `turn()` execution so `pnpm run build` and `pnpm run dev` compile without error.
+- a553350: fix(transcript): join consecutive diff tool cards into a single shared panel without redundant padding
+  
+  Tool cards representing diffs (e.g. `Edit`) do not display a pending card while executing. Previously, `renderResult` erroneously assumed pending lines were always printed, preventing consecutive completed diff cards from taking over the preceding card's closing padding. This resulted in redundant double-row padding gaps between consecutive `Edit` cards. `renderResult` now checks if the pending card printed visible lines, allowing consecutive diff cards to stack adjacently in a single compact panel.
+- 80c24ef: fix(tui): fill thought background padding rows on hover and center single gutter glyph when collapsed
+  
+  1. Hover fill now checks whether a visually trimmed row carries an explicit background escape sequence before treating it as an unstyled separator. Padded panel rows (such as thought inner padding) now highlight and transition colors together with the text instead of leaving unstyled two-tone strips.
+  2. The transcript fold and screen components now support per-line gutter rules. When the thought block is collapsed, only the middle text line displays the `✻` glyph while the padding lines preserve spacing without redundant stacked glyphs.
+- 4d4c63e: fix(transcript): reduce outer margins and add inner padding with background to thought content block
+  
+  The `thought` summary block previously added unstyled empty outer rows, causing an excessively large gap between adjacent tool blocks while leaving the text without internal background padding. The thought block now removes the extra outer blank lines and renders as a styled panel with its own internal background (`bgThinking`) and symmetric top/bottom inner padding rows, matching the padding behavior of other transcript panels.
+- 7689efa: fix(tui): restore background border and symmetric inner padding to thinking summary
+  
+  The collapsed `thought` summary now re-integrates its background block to match other panels but with top and bottom inner padding directly embedded (expanding into a symmetric 3-row block when isolated). This properly isolates the thought text from touching adjacent block borders while still maintaining the intended structural boundary constraints of the user interface.
+
 ## 0.17.4
 
 ### Patch Changes
