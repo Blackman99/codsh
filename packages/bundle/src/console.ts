@@ -22,6 +22,7 @@ import type { Interface } from 'node:readline'
 import { DISABLE_PASTE_MARKERS, ENABLE_PASTE_MARKERS, KeyDecoder } from './keys.ts'
 import type { HoverBlock, TurnReference, ViewportBookmark } from './screen.ts'
 import { GUTTER, Screen } from './screen.ts'
+import type { TerminalGraphic } from './terminal-graphics.ts'
 import type { Key } from './keys.ts'
 
 /** Columns assumed when the output stream reports none (a pipe). */
@@ -296,11 +297,18 @@ export class TerminalConsole {
   }
 
   /**
-   * Float rows over the transcript just above the chrome.
+   * Float rows over the transcript.
    * @param rows - the overlay, or empty to clear it.
+   * @param centered - whether to center the overlay vertically on the screen.
+   * @param graphic - an image to paint over cells the rows reserved for it.
    */
-  setOverlay(rows: readonly string[]): void {
-    this.screen?.setOverlay(rows)
+  setOverlay(rows: readonly string[], centered = false, graphic?: TerminalGraphic): void {
+    this.screen?.setOverlay(rows, centered, graphic)
+  }
+
+  /** Whether a terminal row sits on the floating overlay layer. */
+  coversOverlay(row: number): boolean {
+    return this.screen?.coversOverlay(row) ?? false
   }
 
   /** Show or clear a transient frame over transcript and input chrome. */

@@ -72,7 +72,7 @@ dsh --profile code
 
 - 备用屏幕；输入框钉底；退出原样还回你的 shell。
 - todo 常驻 chrome（Ctrl+T / `/todos`）。Markdown、思考、工具卡片流式画出。拖选即复制，对话和输入框都是。
-- Ctrl+V 粘贴图片（原生视觉；DeepSeek 文本模型自动借用 Vision Exp；其他文本路由仍落盘并可选 sidecar）。
+- Ctrl+V 粘贴图片。光标停在 `[Image #N]` 上时，屏幕中央浮出一张预览卡：能画图的终端直接显示原图——Ghostty、kitty、WezTerm 走 Kitty graphics，iTerm2 走它自己的协议——其余终端显示彩色半块马赛克。Ctrl+O 或点一下卡片，用系统看图器打开原图。（原生视觉；DeepSeek 文本模型自动借用 Vision Exp；其他文本路由仍落盘并可选 sidecar。）
 - `/` 命令、`$` skill、`!` shell、`@` 文件 —— 菜单在输入框上方。⇧Tab 是 plan 模式。
 - 审批、`/model`、`/resume`、`/thinking`（或 `/effort`）用方向键；还有 `/clear`、Esc Esc、`/init`、`/update`。`!cmd` 打在会话里，agent 看得到输出。
 - `/thinking [level]`（别名 `/effort`）配置模型思考深度（如 `off`、`low`、`high`、`max`，或快捷指令 `on`/`off`），支持 TTY 交互式选择、按模型独立持久化，并在状态栏 MetaBar（如 `deepseek-chat (high)`）及 `/status` 报告中常驻显示。

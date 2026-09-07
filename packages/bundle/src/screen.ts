@@ -26,6 +26,7 @@ import {
   BG_USER_LIGHT_256,
 } from './theme.ts'
 import { computeStickyLayout } from './sticky.ts'
+import type { TerminalGraphic } from './terminal-graphics.ts'
 import { computeTimeline } from './timeline.ts'
 import type { TimelineMark } from './timeline.ts'
 import { wrapStyled } from './wrap.ts'
@@ -330,8 +331,14 @@ export class Screen {
   private installingTailAnchor = false
   /** What to show while scrolled back, drawn over the viewport's last row. */
   private notice = ''
-  /** Completion menu painted over the viewport, just above the chrome. */
+  /** Completion menu or modal card painted over the viewport. */
   private overlay: string[] = []
+  /** Whether the overlay is vertically centered on the viewport. */
+  private overlayCentered = false
+  /** The image the overlay wants painted over its own rows, if any. */
+  private overlayGraphic: TerminalGraphic | undefined
+  /** What a graphic the last frame painted was, and where, so it can be removed. */
+  private paintedGraphic: { key: string; row: number; column: number; rows: number; clear: string } | undefined
   /** Transient full-screen rows replacing transcript and chrome without mutating either. */
   private viewer: string[] | undefined
   /**
@@ -612,9 +619,14 @@ export class Screen {
   leave(): void {
     if (!this.active) return
     this.active = false
-    this.host.write(`${DISABLE_FOCUS}${DISABLE_KITTY_KEYS}${DISABLE_MOUSE}${SHOW_CURSOR}${LEAVE_ALT}`)
+    // An image outlives the rows it sat on, so it is deleted on the way out:
+    // leaving the alternate screen with a placement still live can drop the
+    // picture onto the shell the session hands the terminal back to.
+    const graphic = this.paintedGraphic?.clear ?? ''
+    this.host.write(`${graphic}${DISABLE_FOCUS}${DISABLE_KITTY_KEYS}${DISABLE_MOUSE}${SHOW_CURSOR}${LEAVE_ALT}`)
     this.painted = []
     this.paintedTimeline = []
+    this.paintedGraphic = undefined
   }
 
   /**
@@ -1259,15 +1271,31 @@ export class Screen {
   }
 
   /**
-   * Float rows over the viewport just above the chrome.
+   * Float rows over the viewport.
    *
-   * The chrome's height does not change, so opening a completion menu cannot
-   * shake the transcript. Empty clears the layer.
+   * By default, floats just above the chrome (e.g. completion menu).
+   * When `centered` is true, centers vertically on the visible viewport
+   * (e.g. image preview card) without stripping inner ANSI background fills.
+   * Empty clears the layer.
+   *
+   * A graphic rides beside the rows rather than in them. Its payload is base64
+   * image bytes, which measure as thousands of columns and would be cut
+   * mid-sequence by the width fitting every row goes through — so the rows
+   * reserve blank cells for the image and the frame paints it there.
    * @param rows - the overlay, top to bottom.
+   * @param centered - whether to center vertically on the viewport.
+   * @param graphic - an image to paint over the overlay's reserved cells.
    */
-  setOverlay(rows: readonly string[]): void {
-    if (rows.length === this.overlay.length && rows.every((row, index) => row === this.overlay[index])) return
+  setOverlay(rows: readonly string[], centered = false, graphic?: TerminalGraphic): void {
+    if (
+      this.overlayCentered === centered
+      && this.overlayGraphic?.key === graphic?.key
+      && rows.length === this.overlay.length
+      && rows.every((row, index) => row === this.overlay[index])
+    ) return
     this.overlay = [...rows]
+    this.overlayCentered = centered
+    this.overlayGraphic = graphic
     this.render()
   }
 
@@ -1725,12 +1753,56 @@ export class Screen {
    * way dragging past an edge keeps selecting, instead of refusing it.
    * @returns the position, or undefined when it misses the content.
    */
-  /** Whether a terminal row sits on the floating completion layer. */
-  private coversOverlay(row: number): boolean {
+  /** Whether a terminal row sits on the floating overlay layer. */
+  coversOverlay(row: number): boolean {
     if (this.overlay.length === 0) return false
     const chromeStart = this.host.rows() - this.chrome.length
+    if (this.overlayCentered) {
+      const viewportHeight = Math.max(1, chromeStart)
+      const start = Math.max(0, Math.floor((viewportHeight - this.overlay.length) / 2))
+      return row - 1 >= start && row - 1 < start + this.overlay.length
+    }
     const overlayStart = chromeStart - this.overlay.length
     return row - 1 >= overlayStart && row - 1 < chromeStart
+  }
+
+  /**
+   * Paint, move, or remove the graphic the overlay asked for.
+   *
+   * An image placement is not cell content: a row that clears itself does not
+   * clear the picture sitting over it, and nothing repaints it either. So it is
+   * tracked from frame to frame — transmitted when it appears, when it moves,
+   * or when a row underneath it repaints and takes it with them; deleted when
+   * the overlay that owned it goes away; and left alone when none of that
+   * happened, which is the common case and the point, since a transmission is
+   * tens of kilobytes down the wire.
+   * @param overlayStart - viewport row the overlay block begins on, if it is up.
+   * @param repainted - frame rows this render has already rewritten.
+   * @returns escapes to append to the frame.
+   */
+  private paintGraphic(overlayStart: number | undefined, repainted: ReadonlySet<number>): string {
+    const graphic = overlayStart === undefined ? undefined : this.overlayGraphic
+    const next = graphic === undefined || overlayStart === undefined
+      ? undefined
+      : {
+          key: graphic.key,
+          row: overlayStart + graphic.row,
+          column: GUTTER + graphic.column,
+          rows: graphic.rows,
+          clear: graphic.clear,
+        }
+    const shown = this.paintedGraphic
+    const moved = shown !== undefined && next !== undefined
+      && (shown.key !== next.key || shown.row !== next.row || shown.column !== next.column)
+    const covered = next !== undefined
+      && Array.from({ length: next.rows }, (_, index) => next.row + index).some(row => repainted.has(row))
+    let out = ''
+    if (shown !== undefined && (next === undefined || moved || covered)) out += shown.clear
+    if (next !== undefined && graphic !== undefined && (shown === undefined || moved || covered)) {
+      out += `\u001B[${next.row + 1};${next.column + 1}H${graphic.payload}`
+    }
+    this.paintedGraphic = next
+    return out
   }
 
   /**
@@ -2249,12 +2321,18 @@ export class Screen {
     if (this.noticeVisible() && viewport.length > 0) {
       viewport[viewport.length - 1] = truncate(this.notice, this.contentColumns())
     }
+    let overlayStart: number | undefined
     if (this.overlay.length > 0 && viewport.length > 0) {
       const width = this.contentColumns()
-      const start = Math.max(0, viewport.length - this.overlay.length)
+      const start = this.overlayCentered
+        ? Math.max(0, Math.floor((viewport.length - this.overlay.length) / 2))
+        : Math.max(0, viewport.length - this.overlay.length)
+      overlayStart = start
       this.overlay.forEach((row, index) => {
         const at = start + index
-        if (at < viewport.length) viewport[at] = fill(truncate(row, width), width, this.light)
+        if (at < viewport.length) {
+          viewport[at] = this.overlayCentered ? truncate(row, width) : fill(truncate(row, width), width, this.light)
+        }
       })
     }
     // Nothing that reaches this point may carry a control character: the
@@ -2278,6 +2356,7 @@ export class Screen {
       repainted.add(index)
       out += `\u001B[${index + 1};1H${CLEAR_LINE}`
     }
+    out += this.paintGraphic(overlayStart, repainted)
     const hoveredTimeline = this.timelinePointer === undefined
       ? undefined
       : this.timelineMarkAt(this.timelinePointer.row, this.timelinePointer.column, timeline)

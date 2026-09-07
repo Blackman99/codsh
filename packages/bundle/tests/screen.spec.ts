@@ -8,6 +8,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { Screen } from '../src/screen.ts'
 import type { ScreenHost } from '../src/screen.ts'
+import type { TerminalGraphic } from '../src/terminal-graphics.ts'
 import { displayWidth } from '../src/theme.ts'
 
 /** A host that records what would be written, at a fixed size. */
@@ -129,6 +130,19 @@ describe('layout', () => {
     const rows = painted(frame)
     expect(rows.has(7)).toBe(false)
     expect(rows.has(8)).toBe(false)
+  })
+
+  it('centers overlay vertically when centered is true', () => {
+    const sink = host(10, 40)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['box', 'status'], { row: 0, column: 0 }, false)
+    screen.append(['one', 'two', 'three', 'four'])
+    flush(sink)
+    screen.setOverlay(['modal a', 'modal b'], true)
+    const frame = flush(sink)
+    expect(frame).toContain('modal a')
+    expect(frame).toContain('modal b')
   })
 
   it('shows the tail of the transcript above the chrome', () => {
@@ -2691,5 +2705,94 @@ describe('wrapping the buffer only when the width changed', () => {
     expect(screen.mouseMove(3, 5)?.label).toBe('tool')
     expect(screen.mouseMove(4, 5)?.label).toBe('tool')
     expect(screen.mouseMove(5, 5)).toBeUndefined()
+  })
+})
+
+describe('overlay graphics', () => {
+  /**
+   * A card three rows tall with a picture one row into it.
+   *
+   * The payload and its deletion are sentinels rather than real escapes: what
+   * matters here is when the screen decides to send them, and where.
+   */
+  const card = ['card top', 'card mid', 'card end']
+  const graphic = (key: string): TerminalGraphic => ({
+    key,
+    payload: 'PAYLOAD',
+    clear: 'CLEAR',
+    row: 1,
+    column: 0,
+    columns: 4,
+    rows: 2,
+  })
+
+  /** A screen with a transcript, chrome, and everything painted once. */
+  function ready(): { sink: ReturnType<typeof host>; screen: Screen } {
+    const sink = host(10, 40)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['box', 'status'], { row: 0, column: 0 }, false)
+    screen.append(['one', 'two', 'three', 'four'])
+    flush(sink)
+    return { sink, screen }
+  }
+
+  it('paints the image at the cell the overlay reserved for it', () => {
+    const { sink, screen } = ready()
+    screen.setOverlay(card, true, graphic('a'))
+    // Eight viewport rows hold a three-row card from index 2, the picture sits
+    // one row into it, and the content area starts past the two-column gutter.
+    expect(flush(sink)).toContain('\u001B[4;3HPAYLOAD')
+  })
+
+  it('keeps the payload out of the rows themselves', () => {
+    const { sink, screen } = ready()
+    screen.setOverlay(card, true, graphic('a'))
+    const frame = flush(sink)
+    // The row write for the card's picture row carries blank cells; the
+    // payload arrives on its own positioned write.
+    expect(frame).toContain('card mid')
+    expect(frame.indexOf('PAYLOAD')).toBeGreaterThan(frame.indexOf('card end'))
+  })
+
+  it('does not retransmit an unchanged image when other rows repaint', () => {
+    const { sink, screen } = ready()
+    screen.setOverlay(card, true, graphic('a'))
+    flush(sink)
+    screen.setChrome(['typing', 'status'], { row: 0, column: 6 }, true)
+    const frame = flush(sink)
+    // Retransmission is tens of kilobytes down the wire; a keystroke repaints
+    // the chrome and must not drag the picture with it.
+    expect(frame).toContain('typing')
+    expect(frame).not.toContain('PAYLOAD')
+  })
+
+  it('retransmits when a row under the image repaints and takes it away', () => {
+    const { sink, screen } = ready()
+    screen.setOverlay(card, true, graphic('a'))
+    flush(sink)
+    screen.setOverlay(['card top', 'card new', 'card end'], true, graphic('a'))
+    const frame = flush(sink)
+    expect(frame).toContain('CLEAR')
+    expect(frame).toContain('PAYLOAD')
+    expect(frame.indexOf('CLEAR')).toBeLessThan(frame.indexOf('PAYLOAD'))
+  })
+
+  it('deletes the image when the overlay goes away', () => {
+    const { sink, screen } = ready()
+    screen.setOverlay(card, true, graphic('a'))
+    flush(sink)
+    screen.setOverlay([])
+    const frame = flush(sink)
+    expect(frame).toContain('CLEAR')
+    expect(frame).not.toContain('PAYLOAD')
+  })
+
+  it('deletes the image on the way out, so it cannot land on the shell', () => {
+    const { sink, screen } = ready()
+    screen.setOverlay(card, true, graphic('a'))
+    flush(sink)
+    screen.leave()
+    expect(flush(sink)).toContain('CLEAR')
   })
 })

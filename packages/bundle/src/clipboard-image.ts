@@ -15,6 +15,7 @@ import { execFile } from 'node:child_process'
 import { mkdtemp, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { probeImageDimensions } from './image-meta.ts'
 import type { ImageMediaType } from '@deepseek-ai/dsh-attachment/types'
 
 /** An image read off the clipboard, plus what the flash line wants to say. */
@@ -130,23 +131,13 @@ async function readWin32(): Promise<Buffer | undefined> {
 /**
  * Pixel dimensions from the image header, best effort.
  *
- * sharp decodes properly, but it is a native module and the flash line does
- * not justify failing a paste over it — an unreadable header simply reports
- * no dimensions.
+ * Fast pure-JS header parser without loading native dylibs.
  * @param data - the image bytes.
  * @returns width and height, or undefined.
  */
-async function probeDimensions(data: Buffer): Promise<{ width: number; height: number } | undefined> {
-  try {
-    const { default: sharp } = await import('sharp')
-    const meta = await sharp(data).metadata()
-    if (typeof meta.width === 'number' && typeof meta.height === 'number') {
-      return { width: meta.width, height: meta.height }
-    }
-    return undefined
-  } catch {
-    return undefined
-  }
+function probeDimensions(data: Buffer): { width: number; height: number } | undefined {
+  const probed = probeImageDimensions(data)
+  return probed !== undefined ? { width: probed.width, height: probed.height } : undefined
 }
 
 /**
@@ -168,6 +159,6 @@ export async function readClipboardImage(env: Record<string, string | undefined>
   if (data === undefined) return undefined
   const mediaType = sniffImageType(data)
   if (mediaType === undefined) return undefined
-  const size = await probeDimensions(data)
+  const size = probeDimensions(data)
   return { data, mediaType, ...size }
 }

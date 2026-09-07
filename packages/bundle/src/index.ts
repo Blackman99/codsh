@@ -916,9 +916,9 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
       const line = planModeFrom(live.agent.session.snapshotEvents()) ? '/plan off' : '/plan'
       void commands?.execute(live.agent, line, [], new AbortController().signal)
     },
-    // Ctrl-O toggles every collapsed block — tool output and thinking alike —
-    // between its summary and its full form, in place.
+    // Ctrl-O toggles every collapsed block — or opens the original image when previewing one.
     expandOutput: () => {
+      if (prompt.openActiveImage()) return
       if (!io.console.toggleFolds()) prompt.write(theme.dim('  nothing to expand'))
     },
     turn: (direction) => {

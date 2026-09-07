@@ -75,7 +75,7 @@ The [site](https://blackman99.github.io/codsh/) shows each one as a real capture
 
 - Alternate screen; the box never leaves the bottom; quitting gives your shell back untouched.
 - Todos stay in the chrome (Ctrl+T / `/todos`). Markdown, thinking, and tool cards stream in. Drag to copy, in the transcript or the box.
-- Ctrl+V pastes images (native vision; DeepSeek text models borrow Vision Exp automatically; other text routes keep the file + optional sidecar fallback).
+- Ctrl+V pastes images. While the cursor rests on the `[Image #N]` token a card centered over the transcript previews it: the picture itself wherever the terminal paints one — Ghostty, kitty and WezTerm through Kitty graphics, iTerm2 through its own — and a colour half-block mosaic everywhere else. Ctrl+O, or a click on the card, opens the original in the system viewer. (Native vision; DeepSeek text models borrow Vision Exp automatically; other text routes keep the file + optional sidecar fallback.)
 - `/` commands, `$` skills, `!` shell, `@` files — the menu sits above the box. ⇧Tab is plan mode.
 - Approvals, `/model`, `/resume`, and `/thinking` (or `/effort`) are arrow-key widgets; `/clear`, Esc Esc, `/init`, and `/update` round it out. `!cmd` prints in-session and the agent sees it.
 - `/thinking [level]` (alias `/effort`) configures reasoning deliberation (e.g. `off`, `low`, `high`, `max`, or shortcuts `on`/`off`) with an interactive selector on TTY, per-model persistence, and active level tags in MetaBar (e.g. `deepseek-chat (high)`) and `/status`.

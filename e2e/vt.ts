@@ -269,8 +269,18 @@ export class Terminal {
           rest = rest.slice(osc[0].length)
           continue
         }
+        // An inline-graphics payload is consumed and drawn, never printed: a
+        // real terminal takes the APC string as an image, so a fake one that
+        // spilled its base64 onto the screen would report a mess no person
+        // would ever see. Base64 holds no escape, so the scan for the string
+        // terminator cannot run past the sequence.
+        const apc = /^\u001B_[^\u001B]*\u001B\\/.exec(rest)
+        if (apc !== null) {
+          rest = rest.slice(apc[0].length)
+          continue
+        }
         // An incomplete sequence waits for the rest rather than printing.
-        if (/^\u001B(?:\[[0-9;?<>]*|\][^\u0007]*)?$/u.test(rest)) {
+        if (/^\u001B(?:\[[0-9;?<>]*|\][^\u0007]*|_[^\u001B]*\u001B?)?$/u.test(rest)) {
           this.held = rest
           return
         }

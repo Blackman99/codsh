@@ -83,6 +83,7 @@ function fakeConsole(readsKeys: boolean) {
     setScrollNotice() {},
     overlays: [] as string[][],
     setOverlay(rows: readonly string[]) { this.overlays.push([...rows]) },
+    coversOverlay: () => false,
     viewers: [] as (string[] | undefined)[],
     setViewer(rows: readonly string[] | undefined) { this.viewers.push(rows === undefined ? undefined : [...rows]) },
     timelineHidden: [] as boolean[],

@@ -287,6 +287,23 @@ message so they survive `--resume`; the selected conversation model never
 changes.
 _Avoid_: upload, embed
 
+**Image preview card**:
+The card centered over the transcript while the cursor rests against an
+`[Image #N]` token — it says what is attached, and shows it. A terminal with an
+inline-graphics protocol is handed the image itself: Kitty graphics for
+Ghostty, kitty, and WezTerm, `OSC 1337` for iTerm2. Sending the protocol a
+terminal does not implement fails silently, and a multiplexer forwards neither,
+so both are read off the environment rather than assumed; whatever is left gets
+a half-block mosaic, resampled in a child process so no native decoder is
+loaded here. The payload never travels as row text — a base64 image measures as
+thousands of columns and is cut mid-sequence by the width every row is fitted
+to, which leaves the terminal eating the rest of the frame as string data — so
+the rows reserve blank cells and the frame paints the picture over them at an
+absolute position. Ctrl+O and a click on the card open the original in the
+platform viewer. Card and picture come down together: a Kitty placement is not
+cell content, so clearing its rows would leave it on screen.
+_Avoid_: thumbnail, attachment chip
+
 **Todo readout**:
 The chrome row that holds the agent's todo list — progress plus the item in
 flight — for as long as a list is live, and the `/ship` plan when one is on

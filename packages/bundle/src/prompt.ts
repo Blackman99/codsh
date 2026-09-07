@@ -10,7 +10,8 @@
  */
 
 import { Editor, imageTokenRanges } from './editor.ts'
-import { generateImageThumbnail, imagePreviewCard, readImageMetadata } from './image-preview.ts'
+import { generateImageThumbnail, imagePreviewCard, nativePreviewProtocol, openOriginalImage, readImageMetadata } from './image-preview.ts'
+import type { ImagePreview } from './image-preview.ts'
 import { caretAt, inputBox, menuScrollFrom, menuScrollLimit, menuTargetAt, wrapBudget } from './inputbox.ts'
 import { planReport, planSummary } from './plan.ts'
 import type { Plan } from './plan.ts'
@@ -88,6 +89,14 @@ export interface PendingImage {
   height?: number
   byteSize?: number
   thumbnail?: string[]
+  /**
+   * Whether a mosaic has already been asked for.
+   *
+   * The decode runs in a child process and can come back with nothing — an
+   * image no decoder here understands. Without this, that answer would be
+   * re-asked on every cursor move that lands beside the token.
+   */
+  thumbnailRequested?: boolean
 }
 
 /** One waiting read. */
@@ -770,6 +779,10 @@ export class Prompt {
         if (key.kind === 'mouse-move') this.clearRegionHover()
         if (key.kind !== 'mouse-move') return
       }
+      if (this.console.coversOverlay?.(key.row) && this.hasActiveImage) {
+        if (key.kind === 'mouse-up') this.openActiveImage()
+        return
+      }
     }
     // The terminal cannot select while mouse reporting is on, so the viewport
     // does: press anchors, motion extends, release copies — automatically, the
@@ -911,15 +924,20 @@ export class Prompt {
       this.editor.handle({ kind: 'paste', text: `[Image #${id}]` })
       const size = found.width !== undefined && found.height !== undefined ? ` (${found.width}×${found.height} ${found.mediaType.slice(6)})` : ''
       this.setFlash(this.theme.dim(`  ✓ image #${id} attached${size}`))
-      void Promise.all([
-        generateImageThumbnail(found.data),
-        found.width === undefined || found.height === undefined ? readImageMetadata(found.data) : undefined,
-      ]).then(([thumb, meta]) => {
-        if (thumb !== undefined) pending.thumbnail = thumb
-        if (meta?.width !== undefined && pending.width === undefined) pending.width = meta.width
-        if (meta?.height !== undefined && pending.height === undefined) pending.height = meta.height
-        this.render()
-      })
+      const meta = found.width === undefined || found.height === undefined ? readImageMetadata(found.data) : undefined
+      if (meta?.width !== undefined && pending.width === undefined) pending.width = meta.width
+      if (meta?.height !== undefined && pending.height === undefined) pending.height = meta.height
+      // A terminal that paints the image itself needs no mosaic, and building
+      // one would spend a process launch and a decode on nothing.
+      if (nativePreviewProtocol(pending) === undefined) {
+        pending.thumbnailRequested = true
+        const maxW = Math.max(24, this.console.columns - 8)
+        const maxH = Math.max(4, this.previewRows - 5)
+        void generateImageThumbnail(found.data, maxW, maxH).then((thumb) => {
+          if (thumb !== undefined) pending.thumbnail = thumb
+          this.render()
+        })
+      }
     } finally {
       this.pastingImage = false
       this.render()
@@ -1409,8 +1427,9 @@ export class Prompt {
     // Frontier keeps the timeline: it is a card above the box, not a viewer.
     this.console.setTimelineHidden(this.select_ !== undefined)
     const preview = this.imagePreviewOverlay(columns)
-    const consoleOverlay = menuOverlay.length > 0 ? menuOverlay : preview
-    this.console.setOverlay(consoleOverlay)
+    const isPreview = menuOverlay.length === 0 && preview.rows.length > 0
+    const consoleOverlay = menuOverlay.length > 0 ? menuOverlay : preview.rows
+    this.console.setOverlay(consoleOverlay, isPreview, isPreview ? preview.graphic : undefined)
     this.console.setRegion(rows, cursor, focus)
   }
 
@@ -1426,9 +1445,16 @@ export class Prompt {
       if (view.column === range.start || view.column === range.end) {
         const pending = this.pendingImages.get(range.id)
         if (pending !== undefined) {
-          if (pending.thumbnail === undefined && pending.image.data) {
+          const wantsMosaic = pending.thumbnail === undefined
+            && pending.thumbnailRequested !== true
+            && pending.image.data !== ''
+            && nativePreviewProtocol(pending) === undefined
+          if (wantsMosaic) {
+            pending.thumbnailRequested = true
             const buf = Buffer.from(pending.image.data, 'base64')
-            void generateImageThumbnail(buf).then(thumb => {
+            const maxW = Math.max(24, this.console.columns - 8)
+            const maxH = Math.max(4, this.previewRows - 5)
+            void generateImageThumbnail(buf, maxW, maxH).then(thumb => {
               if (thumb !== undefined) {
                 pending.thumbnail = thumb
                 this.render()
@@ -1442,14 +1468,42 @@ export class Prompt {
     return undefined
   }
 
+  /** Whether the cursor is currently resting next to an image token. */
+  get hasActiveImage(): boolean {
+    return this.activeImageAtCursor() !== undefined
+  }
+
+  /** Open the active pending image in the platform default native viewer. */
+  openActiveImage(): boolean {
+    const active = this.activeImageAtCursor()
+    if (active === undefined) return false
+    const opened = openOriginalImage(active)
+    if (opened) {
+      this.setFlash(this.theme.dim(`  ✓ opened image #${active.id} in system viewer`))
+    }
+    return opened
+  }
+
   /**
    * Floating image preview overlay, shown when cursor is next to an image token.
    * @param columns - terminal content columns.
    */
-  private imagePreviewOverlay(columns: number): readonly string[] {
+  private imagePreviewOverlay(columns: number): ImagePreview {
     const active = this.activeImageAtCursor()
-    if (active === undefined) return []
-    return imagePreviewCard(active, this.theme, columns)
+    if (active === undefined) return { rows: [] }
+    return imagePreviewCard(active, this.theme, columns, this.previewRows)
+  }
+
+  /**
+   * Rows the preview card has to live in.
+   *
+   * The overlay floats inside the viewport, which is what the chrome leaves of
+   * the screen — so the card is measured against that, never against the
+   * terminal's own height, or the rows that say what the image is fall off the
+   * bottom while the picture keeps the space.
+   */
+  private get previewRows(): number {
+    return Math.max(6, this.console.rows - this.chromeHeight)
   }
 
   /** Hide the idle tip while the box is typed in; restore it after idle. */

@@ -16,10 +16,13 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, describe, expect, it } from 'vitest'
 import { E2E_TEST_TIMEOUT_MS } from './harness.ts'
-import { drivePty, finalScreen } from './pty-driver.ts'
+import { drivePty, drivePtySteps, finalScreen, heldOutput, screenOf } from './pty-driver.ts'
 
 /** Submit what the box holds. */
 const ENTER = '\r'
+
+/** The preview card's title, and the anchor for the frame that drew it. */
+const CARD_TITLE = 'Image #1'
 
 /** Ctrl+V, the paste-image binding. */
 const CTRL_V = ''
@@ -207,5 +210,65 @@ describe.skipIf(process.platform === 'win32')('pasting an image (real PTY)', () 
     } finally {
       await new Promise<void>(resolve => void server.close(() => { resolve() }))
     }
+  }, E2E_TEST_TIMEOUT_MS)
+})
+
+describe.skipIf(process.platform === 'win32')('previewing a pasted image (real PTY)', () => {
+  it('hands a kitty-graphics terminal the image, and no row carries its bytes', async () => {
+    // The card is up as soon as the paste lands: the token goes in at the
+    // cursor, and the cursor is left resting against it.
+    // One backspace takes the token back out — dropping the image and closing
+    // the card — so the line is a command by the time `/exit` is typed.
+    const driven = await drivePtySteps('echo', [
+      ['Welcome to codsh', CTRL_V, 800],
+      ['image #1 attached', `\u007F/exit${ENTER}`, 800],
+    ], {
+      env: {
+        CODSH_CLIPBOARD_IMAGE_CMD: await fixtureClipboard(),
+        TERM_PROGRAM: 'ghostty',
+      },
+    })
+    const held = heldOutput(driven.output)
+    // One complete transmission: the keys Ghostty implements, the payload, and
+    // the string terminator. A payload cut short of that terminator is what
+    // leaves a terminal eating the rest of the frame as string data.
+    const transmit = /\u001B_Ga=T,f=100,t=d,i=\d+,c=\d+,r=\d+,C=1,q=2;[A-Za-z0-9+/=]+\u001B\\/u
+    expect(transmit.test(held)).toBe(true)
+    // Positioned by the frame, at a cell inside the card rather than wherever
+    // the last row write happened to leave the cursor.
+    expect(/\u001B\[\d+;\d+H\u001B_Ga=T/u.test(held)).toBe(true)
+    // Taking the token back out closes the card, and a kitty placement has to
+    // be deleted by id or it stays on screen over whatever comes next.
+    expect(/\u001B_Ga=d,d=I,i=\d+,q=2\u001B\\/u.test(held)).toBe(true)
+    // The frame that drew the card, not the last one: the card is up only
+    // while the cursor rests against the token, and step 2 takes it away.
+    const rows = screenOf(held, held.indexOf(CARD_TITLE)).alternate
+    expect(rows.some(row => row.includes('Pasted image #1'))).toBe(true)
+    expect(rows.some(row => row.includes('1×1'))).toBe(true)
+    // The whole card, caption and bottom border included: sized against the
+    // terminal rather than the overlay, the rows that name the image are the
+    // ones that fall off the bottom while the picture keeps the space.
+    expect(rows.some(row => row.includes('╰'))).toBe(true)
+    // The bytes stayed out of the rows, so nothing was measured, cut, or
+    // ellipsised on the way to the screen.
+    for (const row of rows) {
+      expect(row).not.toContain('a=T,f=100')
+      expect(row).not.toContain('1337')
+    }
+  }, E2E_TEST_TIMEOUT_MS)
+
+  it('sends no graphics escape to a terminal that cannot paint one', async () => {
+    // The harness pins TERM_PROGRAM to its own name, which speaks neither
+    // protocol — the card falls back to text and a mosaic.
+    const driven = await drivePtySteps('echo', [
+      ['Welcome to codsh', CTRL_V, 800],
+      ['image #1 attached', `\u007F/exit${ENTER}`, 800],
+    ], { env: { CODSH_CLIPBOARD_IMAGE_CMD: await fixtureClipboard() } })
+    const held = heldOutput(driven.output)
+    expect(held).not.toContain('\u001B_Ga=T')
+    expect(held).not.toContain('1337;File=inline')
+    const rows = screenOf(held, held.indexOf(CARD_TITLE)).alternate
+    expect(rows.some(row => row.includes('Pasted image #1'))).toBe(true)
+    expect(rows.some(row => row.includes('╰'))).toBe(true)
   }, E2E_TEST_TIMEOUT_MS)
 })
