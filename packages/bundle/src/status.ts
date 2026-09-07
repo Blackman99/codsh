@@ -104,16 +104,23 @@ export function formatElapsed(ms: number): string {
 }
 
 /**
- * Format a finished turn's time summary, optionally breaking out individual thinking durations.
+ * Format a finished turn's time summary: how long it took, and how much of
+ * that was spent thinking.
+ *
+ * The thinking figure is a total, not a list. Every thinking block already
+ * carries its own clock on its own summary row, written where that thinking
+ * actually happened — so listing each one again here said nothing new and, on
+ * an agentic turn that stopped to think before each of seventeen tool calls,
+ * ended the turn with a line of durations longer than the answer.
  * @param elapsedMs - milliseconds the entire turn took.
  * @param thinkingMs - milliseconds each thinking block took, oldest first.
- * @returns e.g. `12.3s`, `12.3s (thought 3.2s)`, `12.3s (thought 2.1s, 4.3s)`.
+ * @returns e.g. `12.3s`, `12.3s (thought 3.2s)`.
  */
 export function formatTurnTime(elapsedMs: number, thinkingMs: readonly number[] = []): string {
   const base = formatElapsed(elapsedMs)
   if (thinkingMs.length === 0) return base
-  const thoughts = thinkingMs.map(ms => formatElapsed(ms)).join(', ')
-  return `${base} (thought ${thoughts})`
+  const thinking = thinkingMs.reduce((total, ms) => total + ms, 0)
+  return `${base} (thought ${formatElapsed(thinking)})`
 }
 
 /**

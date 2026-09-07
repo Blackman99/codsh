@@ -93,8 +93,13 @@ describe('formatTurnTime', () => {
     expect(formatTurnTime(12_300, [3200])).toBe('12s (thought 3.2s)')
   })
 
-  it('includes multiple thinking segments separated by commas', () => {
-    expect(formatTurnTime(15_000, [2100, 4300])).toBe('15s (thought 2.1s, 4.3s)')
+  it('totals many thinking segments rather than listing them', () => {
+    // Each block already prints its own clock where it happened. A turn that
+    // thinks before every tool call would otherwise end on a line of
+    // durations longer than the answer it is summarizing.
+    expect(formatTurnTime(15_000, [2100, 4300])).toBe('15s (thought 6.4s)')
+    expect(formatTurnTime(622_000, [900, 4200, 100, 1100, 100, 10_000, 0, 6000, 3800, 6100, 100, 5100, 2100, 0, 1100, 0, 1700]))
+      .toBe('10m 22s (thought 42s)')
   })
 
   it('formats long thinking durations with appropriate units', () => {
