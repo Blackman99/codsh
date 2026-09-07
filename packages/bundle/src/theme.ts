@@ -6,6 +6,14 @@
 
 import stringWidth from 'string-width'
 
+/** Background color for user messages and sticky headers (deep plum / eggplant in dark mode). */
+export const BG_USER_DARK_TRUECOLOR = '\u001B[48;2;30;19;38m'
+export const BG_USER_DARK_256 = '\u001B[48;5;53m'
+
+/** Background color for user messages and sticky headers (soft lavender in light mode). */
+export const BG_USER_LIGHT_TRUECOLOR = '\u001B[48;2;243;234;246m'
+export const BG_USER_LIGHT_256 = '\u001B[48;5;225m'
+
 /** SGR codes applied by {@link Theme}, by role. */
 const SGR = {
   reset: '\u001B[0m',
@@ -159,8 +167,8 @@ export function createTheme(isTty: boolean, env: Record<string, string | undefin
   }
 
   const getBgUser = (): string => isLight
-    ? (truecolor ? '\u001B[48;2;238;240;248m' : palette ? '\u001B[48;5;254m' : '\u001B[47m')
-    : (truecolor ? '\u001B[48;2;18;22;30m' : palette ? '\u001B[48;5;236m' : '\u001B[40m')
+    ? (truecolor ? BG_USER_LIGHT_TRUECOLOR : palette ? BG_USER_LIGHT_256 : '\u001B[47m')
+    : (truecolor ? BG_USER_DARK_TRUECOLOR : palette ? BG_USER_DARK_256 : '\u001B[40m')
 
   const getBgTool = (): string => isLight
     ? (truecolor ? '\u001B[48;2;243;245;248m' : palette ? '\u001B[48;5;255m' : '\u001B[47m')

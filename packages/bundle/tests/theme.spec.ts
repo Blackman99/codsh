@@ -52,7 +52,7 @@ describe('createTheme', () => {
 
   it('renders grok background colors for different functional sections under truecolor', () => {
     const theme = createTheme(true, { COLORTERM: 'truecolor' })
-    expect(theme.bgUser('prompt')).toBe('\u001B[48;2;18;22;30mprompt\u001B[0m')
+    expect(theme.bgUser('prompt')).toBe('\u001B[48;2;30;19;38mprompt\u001B[0m')
     expect(theme.bgTool('exec')).toBe('\u001B[48;2;14;18;24mexec\u001B[0m')
     expect(theme.bgThinking('thought')).toBe('\u001B[48;2;20;16;32mthought\u001B[0m')
     expect(theme.bgError('failure')).toBe('\u001B[48;2;45;15;25mfailure\u001B[0m')
@@ -64,7 +64,7 @@ describe('createTheme', () => {
 
   it('renders grok background colors under 256-color palette', () => {
     const theme = createTheme(true, { TERM: 'xterm-256color' })
-    expect(theme.bgUser('prompt')).toBe('\u001B[48;5;236mprompt\u001B[0m')
+    expect(theme.bgUser('prompt')).toBe('\u001B[48;5;53mprompt\u001B[0m')
     expect(theme.bgTool('exec')).toBe('\u001B[48;5;235mexec\u001B[0m')
     expect(theme.bgThinking('thought')).toBe('\u001B[48;5;236mthought\u001B[0m')
     expect(theme.bgError('failure')).toBe('\u001B[48;5;52mfailure\u001B[0m')
@@ -75,14 +75,14 @@ describe('createTheme', () => {
   it('swaps grok background colors for light palette and back', () => {
     const theme = createTheme(true, { COLORTERM: 'truecolor' })
     theme.setLight(true)
-    expect(theme.bgUser('prompt')).toBe('\u001B[48;2;238;240;248mprompt\u001B[0m')
+    expect(theme.bgUser('prompt')).toBe('\u001B[48;2;243;234;246mprompt\u001B[0m')
     expect(theme.bgTool('exec')).toBe('\u001B[48;2;243;245;248mexec\u001B[0m')
     expect(theme.bgThinking('thought')).toBe('\u001B[48;2;245;242;250mthought\u001B[0m')
     expect(theme.bgError('failure')).toBe('\u001B[48;2;254;226;226mfailure\u001B[0m')
     expect(theme.diffAdd('+ line')).toBe('\u001B[48;2;236;253;245;38;2;22;101;52m+ line\u001B[0m')
     expect(theme.diffDel('- line')).toBe('\u001B[48;2;254;242;242;38;2;153;27;27m- line\u001B[0m')
     theme.setLight(false)
-    expect(theme.bgUser('prompt')).toBe('\u001B[48;2;18;22;30mprompt\u001B[0m')
+    expect(theme.bgUser('prompt')).toBe('\u001B[48;2;30;19;38mprompt\u001B[0m')
   })
 
   it('leaves grok backgrounds unstyled off-TTY or under NO_COLOR', () => {

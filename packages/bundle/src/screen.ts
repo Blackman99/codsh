@@ -16,7 +16,15 @@
  * @module codsh-bundle/src/screen
  */
 
-import { displayWidth, oneRow, truncate } from './theme.ts'
+import {
+  displayWidth,
+  oneRow,
+  truncate,
+  BG_USER_DARK_TRUECOLOR,
+  BG_USER_DARK_256,
+  BG_USER_LIGHT_TRUECOLOR,
+  BG_USER_LIGHT_256,
+} from './theme.ts'
 import { computeStickyLayout } from './sticky.ts'
 import { computeTimeline } from './timeline.ts'
 import type { TimelineMark } from './timeline.ts'
@@ -102,14 +110,6 @@ const FILL_DARK = '\u001B[48;5;236m'
 
 /** Light-background hover fill, a slight drop off the default white. */
 const FILL_LIGHT = '\u001B[48;5;253m'
-
-/** Dark-background sticky header fill (deep plum / eggplant). */
-const STICKY_FILL_DARK_TRUECOLOR = '\u001B[48;2;30;19;38m'
-const STICKY_FILL_DARK_256 = '\u001B[48;5;53m'
-
-/** Light-background sticky header fill (soft lavender). */
-const STICKY_FILL_LIGHT_TRUECOLOR = '\u001B[48;2;243;234;246m'
-const STICKY_FILL_LIGHT_256 = '\u001B[48;5;225m'
 
 /** Restore the terminal's default background, leaving other attributes. */
 const FILL_OFF = '\u001B[49m'
@@ -2109,8 +2109,8 @@ export class Screen {
    */
   private fillSticky(row: string, columns: number): string {
     const bg = this.light
-      ? (this.truecolor ? STICKY_FILL_LIGHT_TRUECOLOR : STICKY_FILL_LIGHT_256)
-      : (this.truecolor ? STICKY_FILL_DARK_TRUECOLOR : STICKY_FILL_DARK_256)
+      ? (this.truecolor ? BG_USER_LIGHT_TRUECOLOR : BG_USER_LIGHT_256)
+      : (this.truecolor ? BG_USER_DARK_TRUECOLOR : BG_USER_DARK_256)
     const noBg = row.replaceAll(/\u001B\[(?:48;[0-9;]*|49)m/gu, '')
     const pad = Math.max(0, columns - displayWidth(noBg))
     const padded = `${noBg}${' '.repeat(pad)}`
