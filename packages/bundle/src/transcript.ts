@@ -215,10 +215,10 @@ export function thinkingFold(
   const pad = blockPad(theme, text => theme.bgThinking(text))
   const gap = hadRun ? [''] : []
   return {
-    // The collapsed summary is a single row with no background color.
-    // Surrounded by tool block padding (bgTool), it appears perfectly centered.
-    summary: [text],
-    full: [...gap, ...pad, headFull, ...lines.map(line => theme.bgThinking(line === '' ? '  ' : `  ${line}`)), ...pad, ''],
+    // The collapsed summary provides its own empty unstyled rows for top and bottom outer margins,
+    // ensuring it never visually touches the background borders of the panels around it.
+    summary: ['', text, ''],
+    full: ['', ...pad, headFull, ...pad, ...lines.map(line => theme.bgThinking(line === '' ? '  ' : `  ${line}`)), ...pad, ''],
   }
 }
 
@@ -500,9 +500,8 @@ export class Transcript {
       case 'assistant/message': {
         const text = visibleText(event.data.message.content)
         if (text === '') return []
-        const hasThinking = event.data.message.content.some(b => b.type === 'reasoning')
         const lines = renderMarkdown(text, theme)
-        return hadRun || hasThinking ? ['', ...lines, ''] : [...lines, '']
+        return hadRun ? ['', ...lines, ''] : [...lines, '']
       }
       case 'tool/call':
         this.rule = rules.tool
