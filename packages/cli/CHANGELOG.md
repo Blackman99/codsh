@@ -1,5 +1,19 @@
 # codsh
 
+## 0.17.5
+
+### Patch Changes
+
+- 0b90398: feat(tui): show execution duration on completed tool cards
+  
+  Tool cards now report their start-to-finish execution duration in the headline (e.g., `● Read a.ts +1 -1 · 1.2s ✔`), matching the visibility previously only available for thinking blocks. Additionally, the expanded thinking block now indents its reasoning text to provide breathing room from the background panel border.
+- 17962ad: feat(tui): track entire turn duration at the thinking line instead of individual tool calls
+  
+  Tool card duration statistics have been reverted. The completion time of the entire assistant output turn (from starting execution to final output settling) is now presented collectively as a single unified `· total Y.Ys` suffix appended to the `thought` line itself.
+- 7689efa: fix(tui): restore background border and symmetric inner padding to thinking summary
+  
+  The collapsed `thought` summary now re-integrates its background block to match other panels but with top and bottom inner padding directly embedded (expanding into a symmetric 3-row block when isolated). This properly isolates the thought text from touching adjacent block borders while still maintaining the intended structural boundary constraints of the user interface.
+
 ## 0.17.4
 
 ### Patch Changes
