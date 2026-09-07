@@ -86,6 +86,8 @@ export interface TranscriptOptions {
 interface PendingCall {
   name: string
   args: unknown
+  /** The time the call started, to measure duration. */
+  startTime: number
   /** The header line already on screen, so the result does not reprint it. */
   title: string
   /**
@@ -216,7 +218,7 @@ export function thinkingFold(
     // The collapsed summary is a single row with no background color.
     // Surrounded by tool block padding (bgTool), it appears perfectly centered.
     summary: [text],
-    full: [...gap, ...pad, headFull, ...lines.map(line => theme.bgThinking(line)), ...pad, ''],
+    full: [...gap, ...pad, headFull, ...lines.map(line => theme.bgThinking(line === '' ? '  ' : `  ${line}`)), ...pad, ''],
   }
 }
 
@@ -261,15 +263,17 @@ export function formatToolCardLine(
   bullet: string,
   title: string,
   stats: string,
+  duration: string,
   status: string,
 ): string {
   const statsPart = stats === '' ? '' : ` ${stats}`
+  const durationPart = duration === '' ? '' : ` ${theme.dim(`· ${duration}`)}`
   const statusPart = ` ${status}`
   const prefix = `${cardIndent(theme)}${bullet} `
-  const reserve = displayWidth(oneRow(`${prefix}${statsPart}${statusPart}`))
+  const reserve = displayWidth(oneRow(`${prefix}${statsPart}${durationPart}${statusPart}`))
   const minBudget = columns <= 30 && title.length <= 16 ? title.length : 8
   const titleBudget = Math.max(minBudget, columns - reserve)
-  return `${prefix}${theme.tool(truncate(title, titleBudget))}${statsPart}${statusPart}`
+  return `${prefix}${theme.tool(truncate(title, titleBudget))}${statsPart}${durationPart}${statusPart}`
 }
 
 /** Left inset that keeps a card's glyph clear of the block rule beside it. */
@@ -502,12 +506,12 @@ export class Transcript {
       }
       case 'tool/call':
         this.rule = rules.tool
-        return this.renderCall(event.data.callId, event.data.name, event.data.arguments)
+        return this.renderCall(event.data.callId, event.data.name, event.data.arguments, event.time)
       case 'tool/result':
         // Set before rendering: a failed call re-marks the block's edge, which
         // is the renderer's own finding rather than something the type says.
         this.rule = rules.tool
-        return this.renderResult(event.data)
+        return this.renderResult(event.data, event.time)
       case 'todo/write': {
         this.rule = rules.tool
         // The same renderer the pinned readout uses: the card is this write, the
@@ -647,7 +651,7 @@ export class Transcript {
     return { lead: joined ? [] : blockPad(theme, bg), close, joined, supersedes }
   }
 
-  private renderCall(callId: string, name: string, rawArguments: string): string[] {
+  private renderCall(callId: string, name: string, rawArguments: string, startTime: number): string[] {
     const { theme } = this.options
     const columns = this.columns
     let args: unknown
@@ -669,7 +673,7 @@ export class Transcript {
       return opened
     }
     const record = (title: string, summary: string | undefined, lines: string[], description?: string): string[] => {
-      this.calls.set(callId, { name, args, title, summary, description, lines, joined, closes })
+      this.calls.set(callId, { name, args, startTime, title, summary, description, lines, joined, closes })
       return lines
     }
     const indent = cardIndent(theme)
@@ -717,7 +721,7 @@ export class Transcript {
    * @param data - the `tool/result` payload.
    * @returns the completed card's lines.
    */
-  private renderResult(data: SessionEvent<'tool/result'>['data']): string[] {
+  private renderResult(data: SessionEvent<'tool/result'>['data'], endTime: number): string[] {
     const { theme } = this.options
     const { message, meta, error } = data
     const [block] = message.content
@@ -760,7 +764,8 @@ export class Transcript {
     // The screen paints the tool rule (`│ `) beside this line; budget the
     // headline for what's left so `+n -m` cannot wrap onto the next row.
     const ruleWidth = displayWidth(oneRow(this.rule || blockRules(theme).tool))
-    const head = [bg(formatToolCardLine(theme, this.columns - ruleWidth, bullet, title, suffix, done))]
+    const durationStr = pending === undefined || pending.startTime === 0 ? '' : formatElapsed(endTime - pending.startTime)
+    const head = [bg(formatToolCardLine(theme, this.columns - ruleWidth, bullet, title, suffix, durationStr, done))]
     const bodyLines = view?.card === 'diff' ? body : body.map(line => bg(line))
     const fullLines = view?.card === 'diff' ? full : full?.map(line => bg(line))
     // Diff cards stay collapsed on screen (hunks only in the fold).
