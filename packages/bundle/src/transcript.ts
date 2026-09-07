@@ -74,8 +74,8 @@ export interface ToolPresenters {
 /** What the renderer needs to know about the surface it writes to. */
 export interface TranscriptOptions {
   theme: Theme
-  /** Display columns available for one line. */
-  columns: number
+  /** Display columns available for one line, or a getter for live content columns. */
+  columns: number | (() => number)
   /** Session workspace, stripped from absolute paths so cards stay short. */
   cwd: string
   /** Transcript density. Compact is the default; comfortable adds turn gaps. */
@@ -375,6 +375,11 @@ export class Transcript {
     private readonly presenters: ToolPresenters,
   ) {}
 
+  /** Display columns available for content, evaluated live when provided as a getter. */
+  get columns(): number {
+    return typeof this.options.columns === 'function' ? this.options.columns() : this.options.columns
+  }
+
   /**
    * Switch density for later events. Already-painted cards keep their fold.
    * @param density - the live mode.
@@ -500,7 +505,7 @@ export class Transcript {
         this.rule = rules.tool
         // The same renderer the pinned readout uses: the card is this write, the
         // readout is the list as it now stands, and they must not disagree.
-        const lines = todoReport(event.data.todos, theme, this.options.columns)
+        const lines = todoReport(event.data.todos, theme, this.columns)
         return lines.length === 0 ? [] : [...lines.map(line => theme.bgTool(line)), '']
       }
       // Compaction — automatic under pressure, or `/compact` — used to leave no
@@ -636,7 +641,8 @@ export class Transcript {
   }
 
   private renderCall(callId: string, name: string, rawArguments: string): string[] {
-    const { theme, columns } = this.options
+    const { theme } = this.options
+    const columns = this.columns
     let args: unknown
     try {
       args = JSON.parse(rawArguments)
@@ -691,9 +697,10 @@ export class Transcript {
     const locations = (view.locations ?? []).map(location => this.relative(location.path))
     const extra = this.extraPaths(title, locations)
     const { lead, close } = card(false)
+    const titleBudget = Math.max(8, columns - 4 - displayWidth(extra))
     return record(`${title}${extra}`, locations.length === 0 ? title : locations.join(', '), [
       ...lead,
-      theme.bgTool(`${indent}${theme.pending('●')} ${truncate(title, columns - 4)}${theme.path(extra)}`),
+      theme.bgTool(`${indent}${theme.pending('●')} ${truncate(title, titleBudget)}${theme.path(extra)}`),
       ...close,
     ])
   }
@@ -746,7 +753,7 @@ export class Transcript {
     // The screen paints the tool rule (`│ `) beside this line; budget the
     // headline for what's left so `+n -m` cannot wrap onto the next row.
     const ruleWidth = displayWidth(oneRow(this.rule || blockRules(theme).tool))
-    const head = [bg(formatToolCardLine(theme, this.options.columns - ruleWidth, bullet, title, suffix, done))]
+    const head = [bg(formatToolCardLine(theme, this.columns - ruleWidth, bullet, title, suffix, done))]
     const bodyLines = view?.card === 'diff' ? body : body.map(line => bg(line))
     const fullLines = view?.card === 'diff' ? full : full?.map(line => bg(line))
     // Diff cards stay collapsed on screen (hunks only in the fold).
@@ -889,7 +896,7 @@ export class Transcript {
    * @returns the lines as shown, and how many were cut.
    */
   private fit(lines: readonly string[]): { shown: string[]; cut: number } {
-    const budget = Math.max(20, (this.options.columns - 4) * MAX_RESULT_LINE_ROWS)
+    const budget = Math.max(20, (this.columns - 4) * MAX_RESULT_LINE_ROWS)
     let cut = 0
     const shown = lines.map((line) => {
       // Measured flat, the way a row is painted; a line that fits is kept

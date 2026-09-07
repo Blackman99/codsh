@@ -655,7 +655,7 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
   const live = {
     handle: composed.handle,
     agent: composed.handle.agent,
-    transcript: new Transcript({ theme, columns: io.console.columns, cwd, density }, presentersFor(ctx, composed.handle.agent)),
+    transcript: new Transcript({ theme, columns: () => io.console.contentColumns, cwd, density }, presentersFor(ctx, composed.handle.agent)),
   }
   /** Nested view of a child subagent session; Esc restores the parent. */
   let viewing: { session: Session; transcript: Transcript } | undefined
@@ -1739,7 +1739,7 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
     }
     viewing = {
       session,
-      transcript: new Transcript({ theme, columns: io.console.columns, cwd, density }, presentersFor(ctx, live.agent)),
+      transcript: new Transcript({ theme, columns: () => io.console.contentColumns, cwd, density }, presentersFor(ctx, live.agent)),
     }
     spinner.pause()
     io.console.clearScreen()
@@ -1750,7 +1750,7 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
   const exitView = (): void => {
     if (viewing === undefined) return
     viewing = undefined
-    live.transcript = new Transcript({ theme, columns: io.console.columns, cwd, density }, presentersFor(ctx, live.agent))
+    live.transcript = new Transcript({ theme, columns: () => io.console.contentColumns, cwd, density }, presentersFor(ctx, live.agent))
     io.console.clearScreen()
     replay(live.agent.session, live.transcript, io, theme)
     refreshStatus()
@@ -1983,7 +1983,7 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
     prompt.setHint(undefined)
     live.handle = next
     live.agent = next.agent
-    live.transcript = new Transcript({ theme, columns: io.console.columns, cwd, density }, presentersFor(ctx, next.agent))
+    live.transcript = new Transcript({ theme, columns: () => io.console.contentColumns, cwd, density }, presentersFor(ctx, next.agent))
     // The viewport buffer is the RETIRED session's transcript; left in place,
     // /clear would clear nothing visible and /resume would replay under it.
     io.console.clearScreen()

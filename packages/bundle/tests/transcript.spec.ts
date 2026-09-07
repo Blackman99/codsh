@@ -838,6 +838,40 @@ describe('formatToolCardLine', () => {
     expect(gutter('system', plain)).toBe('· ')
     expect(formatToolCardLine(plain, 80, '●', 'Write x.ts', '+12 -3', '✔')).toBe('● Write x.ts +12 -3 ✔')
   })
+
+  it('supports a dynamic columns getter that reflects live viewport width', () => {
+    let cols = 60
+    const dynamic = new Transcript(
+      { theme, columns: () => cols, cwd: CWD },
+      { call: (): ToolCallView => ({ card: 'terminal', title: 'node -e "very long script here..."' }), result: () => undefined },
+    )
+    expect(dynamic.columns).toBe(60)
+    cols = 100
+    expect(dynamic.columns).toBe(100)
+  })
+
+  it('keeps long terminal command headlines within contentColumns so trailing status never wraps', () => {
+    let width = 60
+    const colorTheme = createTheme(true, { COLORTERM: 'truecolor' })
+    const transcript = new Transcript(
+      { theme: colorTheme, columns: () => width, cwd: CWD },
+      {
+        call: (name, args: any) => ({ card: 'terminal', title: args?.command ?? name }),
+        result: () => undefined,
+      },
+    )
+
+    const longCmd = 'node -e \' const KEYWORDS = new Set([ "as", "async", "await", "break", "case", "catch", "class", "const" ])\''
+    transcript.render(callEvent('c1', 'bash', { command: longCmd }))
+    const resultLines = transcript.render(resultEvent('c1', 'ok'))
+    const resultHead = resultLines.find(line => line.includes('✔'))
+
+    // The line must end with the checkmark, not wrap it onto a second line
+    expect(resultHead).toBeDefined()
+    // Length within rule budget
+    const ruleWidth = 2
+    expect(displayWidth(resultHead ?? '')).toBeLessThanOrEqual(width - ruleWidth)
+  })
 })
 
 describe('transcript density', () => {
