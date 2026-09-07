@@ -1,5 +1,20 @@
 # codsh
 
+## 0.17.1
+
+### Patch Changes
+
+- 309cbb0: fix(tui): separate intermediate blocks and following text output with a blank line
+  
+  Ensure a blank line separates intermediate blocks (such as tool cards) and the assistant's text output, preventing text from rendering flush against the preceding block's bottom border.
+- 47170cc: feat(theme): darken soft amber highlight for lower visual glare and improved contrast
+  
+  - Adjust amber highlights (`warn`, `tool`, `pending`) from bright `#ffaf00` (ANSI 214) to a deeper, warm amber `#d78700` (ANSI 172) in dark mode to reduce eye strain and glare.
+  - Darken light mode amber highlight from `#d78700` (ANSI 172) to `#af5f00` (ANSI 130) to preserve text contrast against light backgrounds.
+- c941e14: fix(tui): remove phantom comfortable density idle tip causing status bar multi-line wrapping
+  
+  Remove the comfortable density idle tip (`⇧Tab plan · Ctrl+T todos`) under the prompt box. The tip rendered as an unexpected extra line on startup and when idle, appearing as a broken multi-line wrap above the MetaBar status line that disappeared upon typing and caused chrome height jumping.
+
 ## 0.17.0
 
 ### Minor Changes
