@@ -1065,6 +1065,32 @@ describe('grok background differentiation across functional blocks', () => {
     expect(second[1]).toBe(pad)
   })
 
+  it('gives a run of diff cards a single shared panel', () => {
+    const colorTheme = createTheme(true, { COLORTERM: 'truecolor' })
+    const pad = colorTheme.bgTool('  ')
+    const colored = new Transcript(
+      { columns: 80, theme: colorTheme, cwd: CWD },
+      {
+        call: (name): ToolCallView => ({ card: 'diff', title: `Edit ${name}`, diffs: [] }),
+        result: (name): ToolResultView => ({ card: 'diff', title: `Edit ${name}`, diffs: [] }),
+      },
+    )
+
+    // First diff call produces no pending lines, and result opens the panel
+    expect(colored.render(callEvent('c1', 'a.ts', {}))).toEqual([])
+    const first = colored.render(resultEvent('c1', ''))
+    expect(first[0]).toBe(pad)
+    expect(first[1]).toContain('Edit a.ts')
+    expect(first[2]).toBe(pad)
+
+    // Second diff call also produces no pending lines, and its result takes over the closing pad
+    expect(colored.render(callEvent('c2', 'b.ts', {}))).toEqual([])
+    const second = colored.render(resultEvent('c2', ''))
+    expect(colored.takePendingCard()).toEqual([pad])
+    expect(second[0]).toContain('Edit b.ts')
+    expect(second[1]).toBe(pad)
+  })
+
   it('keeps the tool run open across intervening empty assistant messages and step boundaries', () => {
     const colorTheme = createTheme(true, { COLORTERM: 'truecolor' })
     const pad = colorTheme.bgTool('  ')

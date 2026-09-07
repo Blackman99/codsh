@@ -769,9 +769,10 @@ export class Transcript {
     // standing in the run: a result cannot re-open a panel its pending card
     // already joined, nor re-print a closing pad a later card took over.
     const { lead, close, supersedes } = this.joinRun(bodied, bg, blockClose(theme, bg))
-    const open = pending === undefined ? lead : (pending.joined ? [] : blockPad(theme, bg))
-    const shut = pending === undefined || pending.closes ? close : []
-    this.pendingCard = pending === undefined ? supersedes : pending.lines
+    const hasPendingLines = pending !== undefined && pending.lines.length > 0
+    const open = hasPendingLines ? (pending.joined ? [] : blockPad(theme, bg)) : lead
+    const shut = !hasPendingLines || pending.closes ? close : []
+    this.pendingCard = hasPendingLines ? pending.lines : supersedes
     // The fold swaps the WHOLE event's lines, so the expanded form repeats the
     // same head with the uncapped body under it.
     if (fullLines !== undefined) {
