@@ -616,6 +616,12 @@ export class TerminalConsole {
     }
   }
 
+  updateFold(oldSummary: readonly string[], oldFull: readonly string[], newSummary: readonly string[], newFull: readonly string[]): void {
+    if (this.screen !== undefined) {
+      this.screen.updateFold(oldSummary, oldFull, newSummary, newFull)
+    }
+  }
+
   /**
    * What a click on a view-card does.
    * @param handler - receives the child session id; omit to restore folding.

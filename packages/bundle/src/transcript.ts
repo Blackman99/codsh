@@ -86,8 +86,6 @@ export interface TranscriptOptions {
 interface PendingCall {
   name: string
   args: unknown
-  /** The time the call started, to measure duration. */
-  startTime: number
   /** The header line already on screen, so the result does not reprint it. */
   title: string
   /**
@@ -206,10 +204,12 @@ export function thinkingFold(
   lines: readonly string[],
   theme: Theme,
   seconds?: number,
+  totalSeconds?: number,
   hadRun = false,
 ): { summary: string[], full: string[] } {
   // Glyph lives in the agent gutter (`✻ `); the line is the clock only.
-  const clock = seconds === undefined ? 'thought' : `thought for ${formatElapsed(seconds * 1000)}`
+  const baseClock = seconds === undefined ? 'thought' : `thought for ${formatElapsed(seconds * 1000)}`
+  const clock = totalSeconds === undefined ? baseClock : `${baseClock} · total ${formatElapsed(totalSeconds * 1000)}`
   const text = theme.dim(`${cardIndent(theme)}${clock}`)
   const headFull = theme.bgThinking(text)
   const pad = blockPad(theme, text => theme.bgThinking(text))
@@ -263,17 +263,15 @@ export function formatToolCardLine(
   bullet: string,
   title: string,
   stats: string,
-  duration: string,
   status: string,
 ): string {
   const statsPart = stats === '' ? '' : ` ${stats}`
-  const durationPart = duration === '' ? '' : ` ${theme.dim(`· ${duration}`)}`
   const statusPart = ` ${status}`
   const prefix = `${cardIndent(theme)}${bullet} `
-  const reserve = displayWidth(oneRow(`${prefix}${statsPart}${durationPart}${statusPart}`))
+  const reserve = displayWidth(oneRow(`${prefix}${statsPart}${statusPart}`))
   const minBudget = columns <= 30 && title.length <= 16 ? title.length : 8
   const titleBudget = Math.max(minBudget, columns - reserve)
-  return `${prefix}${theme.tool(truncate(title, titleBudget))}${statsPart}${durationPart}${statusPart}`
+  return `${prefix}${theme.tool(truncate(title, titleBudget))}${statsPart}${statusPart}`
 }
 
 /** Left inset that keeps a card's glyph clear of the block rule beside it. */
@@ -505,12 +503,12 @@ export class Transcript {
       }
       case 'tool/call':
         this.rule = rules.tool
-        return this.renderCall(event.data.callId, event.data.name, event.data.arguments, event.time)
+        return this.renderCall(event.data.callId, event.data.name, event.data.arguments)
       case 'tool/result':
         // Set before rendering: a failed call re-marks the block's edge, which
         // is the renderer's own finding rather than something the type says.
         this.rule = rules.tool
-        return this.renderResult(event.data, event.time)
+        return this.renderResult(event.data)
       case 'todo/write': {
         this.rule = rules.tool
         // The same renderer the pinned readout uses: the card is this write, the
@@ -650,7 +648,7 @@ export class Transcript {
     return { lead: joined ? [] : blockPad(theme, bg), close, joined, supersedes }
   }
 
-  private renderCall(callId: string, name: string, rawArguments: string, startTime: number): string[] {
+  private renderCall(callId: string, name: string, rawArguments: string): string[] {
     const { theme } = this.options
     const columns = this.columns
     let args: unknown
@@ -672,7 +670,7 @@ export class Transcript {
       return opened
     }
     const record = (title: string, summary: string | undefined, lines: string[], description?: string): string[] => {
-      this.calls.set(callId, { name, args, startTime, title, summary, description, lines, joined, closes })
+      this.calls.set(callId, { name, args, title, summary, description, lines, joined, closes })
       return lines
     }
     const indent = cardIndent(theme)
@@ -720,7 +718,7 @@ export class Transcript {
    * @param data - the `tool/result` payload.
    * @returns the completed card's lines.
    */
-  private renderResult(data: SessionEvent<'tool/result'>['data'], endTime: number): string[] {
+  private renderResult(data: SessionEvent<'tool/result'>['data']): string[] {
     const { theme } = this.options
     const { message, meta, error } = data
     const [block] = message.content
@@ -763,8 +761,7 @@ export class Transcript {
     // The screen paints the tool rule (`│ `) beside this line; budget the
     // headline for what's left so `+n -m` cannot wrap onto the next row.
     const ruleWidth = displayWidth(oneRow(this.rule || blockRules(theme).tool))
-    const durationStr = pending === undefined || pending.startTime === 0 ? '' : formatElapsed(endTime - pending.startTime)
-    const head = [bg(formatToolCardLine(theme, this.columns - ruleWidth, bullet, title, suffix, durationStr, done))]
+    const head = [bg(formatToolCardLine(theme, this.columns - ruleWidth, bullet, title, suffix, done))]
     const bodyLines = view?.card === 'diff' ? body : body.map(line => bg(line))
     const fullLines = view?.card === 'diff' ? full : full?.map(line => bg(line))
     // Diff cards stay collapsed on screen (hunks only in the fold).

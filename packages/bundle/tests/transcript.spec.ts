@@ -807,7 +807,7 @@ describe('compaction', () => {
 
 describe('formatToolCardLine', () => {
   it('truncates the title before +n -m and the status on a narrow terminal', () => {
-    const line = formatToolCardLine(theme, 40, '●', 'Write very/long/path/to/src/pager.ts', '+12 -3', '', '✔')
+    const line = formatToolCardLine(theme, 40, '●', 'Write very/long/path/to/src/pager.ts', '+12 -3', '✔')
     expect(line.endsWith('+12 -3 ✔')).toBe(true)
     expect(line.startsWith('● ')).toBe(true)
     expect(displayWidth(line)).toBeLessThanOrEqual(40)
@@ -815,11 +815,11 @@ describe('formatToolCardLine', () => {
   })
 
   it('omits the stats segment when both counts are zero', () => {
-    expect(formatToolCardLine(theme, 80, '●', 'Write x.ts', '', '', '✔')).toBe('● Write x.ts ✔')
+    expect(formatToolCardLine(theme, 80, '●', 'Write x.ts', '', '✔')).toBe('● Write x.ts ✔')
   })
 
   it('does not prematurely truncate short filenames on a 30-col terminal', () => {
-    expect(formatToolCardLine(theme, 25, '●', 'Write note.txt', '+1 -0', '', '✔')).toContain('Write note.txt')
+    expect(formatToolCardLine(theme, 25, '●', 'Write note.txt', '+1 -0', '✔')).toContain('Write note.txt')
   })
 
   it('fits +n -m on one row when an 80-col TTY also paints the tool rule', () => {
@@ -828,7 +828,7 @@ describe('formatToolCardLine', () => {
     const rule = gutter('tool', theme)
     const inner = 80 - displayWidth(rule)
     const title = 'Write src/very/long/path/that/would/wrap/the/stats/pager.ts'
-    const line = formatToolCardLine(theme, inner, '●', title, '+12 -3', '', '✔')
+    const line = formatToolCardLine(theme, inner, '●', title, '+12 -3', '✔')
     expect(displayWidth(rule) + displayWidth(line)).toBeLessThanOrEqual(80)
     expect(line.endsWith('+12 -3 ✔')).toBe(true)
     expect(line).not.toMatch(/\+\s*$/u)
@@ -840,7 +840,7 @@ describe('formatToolCardLine', () => {
     expect(gutter('thinking', plain)).toBe('✻ ')
     expect(gutter('tool', plain)).toBe('│ ')
     expect(gutter('system', plain)).toBe('· ')
-    expect(formatToolCardLine(plain, 80, '●', 'Write x.ts', '+12 -3', '', '✔')).toBe('● Write x.ts +12 -3 ✔')
+    expect(formatToolCardLine(plain, 80, '●', 'Write x.ts', '+12 -3', '✔')).toBe('● Write x.ts +12 -3 ✔')
   })
 
   it('supports a dynamic columns getter that reflects live viewport width', () => {

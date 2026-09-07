@@ -963,6 +963,40 @@ export class Screen {
     this.append(shown, rule)
   }
 
+  updateFold(oldSummary: readonly string[], oldFull: readonly string[], newSummary: readonly string[], newFull: readonly string[]): void {
+    const isSummary = this.lastRunOf(oldSummary) >= 0
+    const isFull = !isSummary && this.lastRunOf(oldFull) >= 0
+    if (!isSummary && !isFull) return
+
+    const oldFold = this.folds.find(f => f.summary.length === oldSummary.length && f.summary.every((line, i) => line === oldSummary[i]))
+    const rule = oldFold?.rule ?? ''
+    const label = oldFold?.label ?? ''
+    const enter = oldFold?.enter
+    const page = oldFold?.page
+    const expanded = isFull
+    const manual = oldFold?.manual ?? false
+
+    const replaces = isSummary ? oldSummary : oldFull
+    const shown = isSummary ? newSummary : newFull
+    const at = this.takePlaceOf(replaces, shown, rule)
+    if (at !== undefined) {
+      this.folds.push({
+        at,
+        shownLength: shown.length,
+        summary: [...newSummary],
+        full: [...newFull],
+        expanded,
+        manual,
+        rule,
+        label,
+        ...enter === undefined ? {} : { enter },
+        ...page === undefined ? {} : { page },
+      })
+      this.folds.sort((left, right) => left.at - right.at)
+      this.render()
+    }
+  }
+
   /**
    * Turn the last `count` appended lines into a collapsible block after the
    * fact.

@@ -1680,13 +1680,15 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
   // Ctrl+O) away —
   // pages of deliberation would otherwise bury the conversation.
   let turnThinkingMs: number[] = []
+  let currentThought: { summary: readonly string[]; full: readonly string[]; lines: readonly string[]; elapsedMs: number; hadRun: boolean } | undefined
   const flushThinking = (): void => {
     const flushed = thinking.flush()
     if (flushed === undefined) return
     prompt.setStreaming(undefined)
     const hadRun = live.transcript.endRun()
     turnThinkingMs.push(flushed.elapsedMs)
-    const { summary, full } = thinkingFold(flushed.lines, theme, flushed.elapsedMs / 1000, hadRun)
+    const { summary, full } = thinkingFold(flushed.lines, theme, flushed.elapsedMs / 1000, undefined, hadRun)
+    currentThought = { summary, full, lines: flushed.lines, elapsedMs: flushed.elapsedMs, hadRun }
     io.console.appendFold(summary, full, blockRules(theme).agent, FOLD_LABELS.thinking)
   }
   /**
@@ -2206,11 +2208,18 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
     turnThinkingMs = []
     thinking.reset()
     const started = performance.now()
+    currentThought = undefined
     io.console.setTitle(`⚡ dsh code — ${basename(cwd)}`)
     try {
       await turn(live.agent, text, spinner, source, extra)
     } finally {
       io.console.setTitle(`dsh code — ${basename(cwd)}`)
+      if (currentThought !== undefined) {
+        const totalMs = performance.now() - started
+        const { summary, full } = thinkingFold(currentThought.lines, theme, currentThought.elapsedMs / 1000, totalMs / 1000, currentThought.hadRun)
+        io.console.updateFold(currentThought.summary, currentThought.full, summary, full)
+        currentThought = undefined
+      }
     }
     const spent = (totalTokens(facts(branch).usage) ?? 0) - before
     const elapsedMs = performance.now() - started
