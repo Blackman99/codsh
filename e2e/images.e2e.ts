@@ -60,7 +60,7 @@ describe.skipIf(process.platform === 'win32')('pasting an image (real PTY)', () 
     // the durable store, dimensions verified from the stored bytes.
     expect(rows.some(row => row.includes('CODE_CLI_VISION img=1 1x1:image/png'))).toBe(true)
     // The person's message shows the token and the meta line, not the bytes.
-    expect(rows.some(row => row.includes('› [Image #1]'))).toBe(true)
+    expect(rows.some(row => row.includes('›   [Image #1]'))).toBe(true)
   }, E2E_TEST_TIMEOUT_MS)
 
   it('lets Vision Exp describe an image before DeepSeek Pro continues the turn', async () => {

@@ -340,15 +340,16 @@ function replayEvents(session: Session, transcript: Transcript, io: CliIo, theme
     const label = transcript.takeLabel()
     const enter = transcript.takeEnter()
     const page = transcript.takePage()
+    const replaces = transcript.takePendingCard()
     if (prompt !== undefined) {
-      io.console.appendPrompt(lines, rule, false, prompt)
+      io.console.appendPrompt(lines, rule, false, prompt, transcript.takePromptPad())
       continue
     }
     if (enter !== undefined || full !== undefined) {
-      io.console.appendFold(lines, full ?? lines, rule, label, enter, page)
+      io.console.appendFold(lines, full ?? lines, rule, label, enter, page, replaces)
       continue
     }
-    io.console.writeAll(lines, rule)
+    io.console.writeAll(lines, rule, replaces)
   }
 }
 
@@ -1678,11 +1679,11 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
    * @param lines - finished lines for the transcript.
    * @param live - the in-progress line, or undefined to release the region.
    */
-  const emit = (lines: readonly string[], live?: string, rule = ''): void => {
+  const emit = (lines: readonly string[], live?: string, rule = '', replaces: readonly string[] = []): void => {
     // Released before writing: the region is redrawn under every written line,
     // so leaving the superseded partial in place would reprint it each time.
     if (lines.length > 0) prompt.setStreaming(undefined)
-    for (const line of lines) prompt.write(line, rule)
+    io.console.writeAll(lines, rule, replaces)
     prompt.setStreaming(live)
   }
 
@@ -1770,18 +1771,19 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
       const label = viewing.transcript.takeLabel()
       const enter = viewing.transcript.takeEnter()
       const page = viewing.transcript.takePage()
+      const replaces = viewing.transcript.takePendingCard()
       noteWritten(viewing.transcript.takeWritten())
       if (promptBlock !== undefined) {
         prompt.setStreaming(undefined)
-        io.console.appendPrompt(lines, rule, true, promptBlock)
+        io.console.appendPrompt(lines, rule, true, promptBlock, viewing.transcript.takePromptPad())
         return
       }
       if (enter !== undefined || full !== undefined) {
         prompt.setStreaming(undefined)
-        io.console.appendFold(lines, full ?? lines, rule, label, enter, page)
+        io.console.appendFold(lines, full ?? lines, rule, label, enter, page, replaces)
         return
       }
-      emit(lines, undefined, rule)
+      emit(lines, undefined, rule, replaces)
       return
     }
     // `/clear` and `/resume` retire sessions; only the current one renders.
@@ -1858,21 +1860,21 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
     const label = live.transcript.takeLabel()
     const enter = live.transcript.takeEnter()
     const page = live.transcript.takePage()
-    const replaceCount = live.transcript.takePendingLinesCount()
+    const replaces = live.transcript.takePendingCard()
     noteWritten(live.transcript.takeWritten())
     if (promptBlock !== undefined) {
       prompt.setStreaming(undefined)
-      io.console.appendPrompt(lines, rule, true, promptBlock)
+      io.console.appendPrompt(lines, rule, true, promptBlock, live.transcript.takePromptPad())
       return
     }
     if (enter === undefined && full === undefined) {
-      emit(lines, undefined, rule)
+      emit(lines, undefined, rule, replaces)
       return
     }
     // A collapsed block, or a subagent card that is a view: the screen keeps
     // both forms; a click on a view enters the child, Ctrl+O still expands.
     prompt.setStreaming(undefined)
-    io.console.appendFold(lines, full ?? lines, rule, label, enter, page, replaceCount)
+    io.console.appendFold(lines, full ?? lines, rule, label, enter, page, replaces)
   })
 
   /** Pause the indicator around a decision, and resume it if work continues. */
@@ -2316,7 +2318,10 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
       if (!surfaceOnlyView) {
         // Canned prompts share the user gutter; chrome-only commands keep › in
         // the line because they are not a turn header.
-        if (cannedPrompt) io.console.appendPrompt([trimmed, ''], blockRules(theme).user, true, 1)
+        if (cannedPrompt) {
+          const pad = theme.colored ? theme.bgUser('  ') : undefined
+          io.console.appendPrompt(pad === undefined ? [trimmed, ''] : [trimmed], blockRules(theme).user, true, 1, pad)
+        }
         else prompt.write(`${theme.user('›')} ${trimmed}`)
       }
       if (name === 'init') {

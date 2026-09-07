@@ -277,7 +277,7 @@ describe('scrolling', () => {
 
     screen.resize()
     const rows = [...painted(flush(sink)).values()]
-    expect(rows[0]).toBe('| › anchored question')
+    expect(rows[1]).toBe('| › anchored question')
     expect(rows.filter(row => row.includes('anchored question'))).toHaveLength(1)
   })
 
@@ -470,7 +470,7 @@ describe('scrolling', () => {
     expect(screen.currentTurn).toBe(1)
     expect(screen.jumpToTurn(0)).toBe(true)
     expect(screen.currentTurn).toBe(0)
-    expect(painted(flush(sink)).get(1)).toBe('| › first question')
+    expect(painted(flush(sink)).get(2)).toBe('| › first question')
 
     const saved = screen.scrolledBy
     expect(screen.jumpToTurn(1)).toBe(true)
@@ -527,7 +527,7 @@ describe('scrolling', () => {
   })
 
   it('keeps a logical viewport bookmark stable across resize and turn previews', () => {
-    const sink = host(7, 40)
+    const sink = host(8, 40)
     const screen = new Screen(sink)
     screen.enter()
     screen.setChrome(['status'], { row: 0, column: 0 }, false)
@@ -680,8 +680,56 @@ describe('scrolling', () => {
     expect(painted(flush(sink)).get(1)).toBe('| › first row')
   })
 
+  it('wraps a prompt in panel padding that is not part of the prompt', () => {
+    const sink = host(10, 40)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['status'], { row: 0, column: 0 }, false)
+    screen.appendPrompt(['› question'], '| ', false, 1, 'PAD')
+    screen.append(['answer'])
+    screen.resize()
+
+    const rows = [...painted(flush(sink)).values()]
+    expect(rows.slice(0, 4)).toEqual(['| PAD', '| › question', '| PAD', 'answer'])
+    // The navigation seam is the text that was typed, padding excluded.
+    expect(screen.turnList).toEqual([{ index: 0, summary: '› question' }])
+  })
+
+  it('brings a submitted prompt in with its padding row showing', () => {
+    const sink = host(8, 40)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['status'], { row: 0, column: 0 }, false)
+    screen.append(Array.from({ length: 10 }, (_, index) => `old ${index}`))
+    screen.appendPrompt(['› question'], '| ', true, 1, 'PAD')
+
+    // The panel opens one row above the prompt, so the anchor reserves for it.
+    const rows = painted(flush(sink))
+    expect(rows.get(1)).toBe('| PAD')
+    expect(rows.get(2)).toBe('| › question')
+  })
+
+  it('does not double the padding when a padded prompt pins', () => {
+    const sink = host(8, 40)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['status'], { row: 0, column: 0 }, false)
+    screen.appendPrompt(['› question'], '| ', false, 1, 'PAD')
+    screen.append(Array.from({ length: 12 }, (_, index) => `answer ${index}`))
+
+    // The pinned copy pads itself, so the inline block's own padding rows stay
+    // where they are in the transcript rather than joining the header.
+    const rows = painted(flush(sink))
+    expect([rows.get(1), rows.get(2), rows.get(3), rows.get(4)]).toEqual([
+      '',
+      '| › question',
+      '',
+      '─'.repeat(37),
+    ])
+  })
+
   it('pins the user prompt over the response section it owns', () => {
-    const sink = host(6, 40)
+    const sink = host(7, 40)
     const screen = new Screen(sink)
     screen.enter()
     screen.setChrome(['status'], { row: 0, column: 0 }, false)
@@ -689,17 +737,20 @@ describe('scrolling', () => {
     screen.append(['answer 1', 'answer 2', 'answer 3', 'answer 4', 'answer 5', 'answer 6'])
 
     const rows = painted(flush(sink))
-    expect([rows.get(1), rows.get(2), rows.get(3), rows.get(4), rows.get(5)]).toEqual([
+    // A padding row of the panel's own fill above and below the prompt, then
+    // the divider that hands the screen back to the transcript.
+    expect([rows.get(1), rows.get(2), rows.get(3), rows.get(4), rows.get(5), rows.get(6)]).toEqual([
+      '',
       '| › first question',
+      '',
       '─'.repeat(37),
-      'answer 4',
       'answer 5',
       'answer 6',
     ])
   })
 
   it('keeps every explicit line of a short multiline prompt in its sticky header', () => {
-    const sink = host(6, 40)
+    const sink = host(8, 40)
     const screen = new Screen(sink)
     screen.enter()
     screen.setChrome(['status'], { row: 0, column: 0 }, false)
@@ -707,8 +758,8 @@ describe('scrolling', () => {
     screen.append(Array.from({ length: 10 }, (_, index) => `answer ${index}`))
 
     const rows = painted(flush(sink))
-    expect(rows.get(1)).toContain('你好')
-    expect(rows.get(2)).toContain('介绍下你自己')
+    expect(rows.get(2)).toContain('你好')
+    expect(rows.get(3)).toContain('介绍下你自己')
   })
 
   it('still compacts one logical prompt line that only wrapped visually', () => {
@@ -721,8 +772,8 @@ describe('scrolling', () => {
     screen.append(Array.from({ length: 10 }, (_, index) => `answer ${index}`))
 
     const rows = painted(flush(sink))
-    expect(rows.get(1)).toContain('› one two')
-    expect(rows.get(2)).toContain('─')
+    expect(rows.get(2)).toContain('› one two')
+    expect(rows.get(4)).toContain('─')
   })
 
   it('does not preserve generated image metadata as an explicit sticky line', () => {
@@ -734,8 +785,8 @@ describe('scrolling', () => {
     screen.append(Array.from({ length: 10 }, (_, index) => `answer ${index}`))
 
     const rows = painted(flush(sink))
-    expect(rows.get(1)).toContain('describe this')
-    expect(rows.get(2)).toContain('─')
+    expect(rows.get(2)).toContain('describe this')
+    expect(rows.get(4)).toContain('─')
   })
 
   it('folds a long user prompt to three visual rows and expands it on demand', () => {
@@ -784,11 +835,11 @@ describe('scrolling', () => {
 
     screen.toggleFolds()
     const collapsed = painted(flush(sink))
-    expect(collapsed.get(1)).toBe('| › second a')
+    expect(collapsed.get(2)).toBe('| › second a')
   })
 
   it('keeps later prompt positions aligned when an earlier prompt fold changes size', () => {
-    const sink = host(7, 40)
+    const sink = host(8, 40)
     const screen = new Screen(sink)
     screen.enter()
     screen.setChrome(['status'], { row: 0, column: 0 }, false)
@@ -801,7 +852,7 @@ describe('scrolling', () => {
 
     screen.resize()
     const rows = painted(flush(sink))
-    expect(rows.get(1)).toBe('| › second')
+    expect(rows.get(2)).toBe('| › second')
   })
 
   it('forgets sticky prompt descriptors when the transcript is cleared', () => {
@@ -865,7 +916,7 @@ describe('scrolling', () => {
   })
 
   it('switches the sticky header as scrolling crosses a turn boundary', () => {
-    const sink = host(7, 40)
+    const sink = host(8, 40)
     const screen = new Screen(sink)
     screen.enter()
     screen.setChrome(['status'], { row: 0, column: 0 }, false)
@@ -876,17 +927,17 @@ describe('scrolling', () => {
     flush(sink)
 
     screen.resize()
-    expect(painted(flush(sink)).get(1)).toBe('| › second')
+    expect(painted(flush(sink)).get(2)).toBe('| › second')
 
     screen.scrollBy(-5)
-    expect(painted(flush(sink)).get(1)).toBe('| › first')
+    expect(painted(flush(sink)).get(2)).toBe('| › first')
 
     screen.scrollBy(5)
-    expect(painted(flush(sink)).get(1)).toBe('| › second')
+    expect(painted(flush(sink)).get(2)).toBe('| › second')
   })
 
   it('puts the scrollback notice under what is being read, not over it', () => {
-    const sink = host(6, 50)
+    const sink = host(8, 50)
     const screen = new Screen(sink)
     screen.enter()
     screen.setChrome(['status'], { row: 0, column: 0 }, false)
@@ -896,11 +947,11 @@ describe('scrolling', () => {
     screen.setScrollNotice('↑ 2 rows above · click or PgDn returns to the latest')
 
     const rows = painted(flush(sink))
-    // The sticky header keeps row one and its gap row shows the divider line; the notice sits
-    // at the foot of the viewport, where the way out is.
-    expect(rows.get(1)).toBe('| › question')
-    expect(rows.get(2)).toBe('─'.repeat(47))
-    expect(rows.get(5)).toContain('↑ 2 rows above')
+    // The sticky panel keeps the top rows and closes on its divider; the notice
+    // sits at the foot of the viewport, where the way out is.
+    expect(rows.get(2)).toBe('| › question')
+    expect(rows.get(4)).toBe('─'.repeat(47))
+    expect(rows.get(7)).toContain('↑ 2 rows above')
   })
 
   it('fills sticky header rows with the panel background and adds a divider line', () => {
@@ -914,6 +965,52 @@ describe('scrolling', () => {
     const frame = flush(sink)
     expect(frame).toContain('\u001B[48;5;236m| › question')
     expect(frame).toContain('\u001B[90m─')
+  })
+
+  it('gives up the panel padding before the prompt when the viewport is short', () => {
+    const sink = host(4, 40)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['status'], { row: 0, column: 0 }, false)
+    screen.appendPrompt(['› question', ''], '| ')
+    screen.append(Array.from({ length: 12 }, (_, index) => `answer ${index}`))
+    screen.scrollBy(-2)
+
+    // Three rows for the whole panel: the divider says where content starts and
+    // takes its row first, so the padding above the prompt is what goes.
+    const rows = painted(flush(sink))
+    expect(rows.get(1)).toBe('| › question')
+    expect(rows.get(2)).toBe('')
+    expect(rows.get(3)).toBe('─'.repeat(37))
+  })
+
+  it('treats the panel padding as the prompt for a click, and the divider as content', () => {
+    /** A screen scrolled far enough that its folded prompt is pinned. */
+    const pinned = (): ReturnType<typeof host> & { screen: Screen } => {
+      const sink = host(10, 40)
+      const screen = new Screen(sink)
+      screen.enter()
+      screen.setChrome(['status'], { row: 0, column: 0 }, false)
+      screen.appendPrompt(['› question a', '  question b', '  question c', '  question d', ''], '| ')
+      screen.append(Array.from({ length: 12 }, (_, index) => `answer ${index}`))
+      flush(sink)
+      return Object.assign(sink, { screen })
+    }
+
+    // Rows one and three are the panel's padding: they belong to the prompt,
+    // so a click on either opens the fold the pinned copy stands for.
+    for (const row of [1, 3]) {
+      const onPadding = pinned()
+      onPadding.screen.mouseDown(row, 4)
+      onPadding.screen.mouseUp()
+      expect([...painted(flush(onPadding)).values()].join('\n')).toContain('question d')
+    }
+
+    // Row four is the divider closing the panel, and belongs to what is below.
+    const onDivider = pinned()
+    onDivider.screen.mouseDown(4, 4)
+    onDivider.screen.mouseUp()
+    expect([...painted(flush(onDivider)).values()].join('\n')).not.toContain('question d')
   })
 
   it('uses light panel fill for sticky header on a light background', () => {
@@ -1007,7 +1104,7 @@ describe('scrolling', () => {
   })
 
   it('keeps the same response line at the content top across a scrolled resize', () => {
-    const sink = host(6, 40)
+    const sink = host(8, 40)
     const screen = new Screen(sink)
     screen.enter()
     screen.setChrome(['status'], { row: 0, column: 0 }, false)
@@ -1018,13 +1115,13 @@ describe('scrolling', () => {
 
     screen.resize()
     const before = painted(flush(sink))
-    const anchored = before.get(3)
+    const anchored = before.get(5)
     expect(anchored).toContain('answer 9')
 
     sink.size.columns = 20
     screen.resize()
     const after = painted(flush(sink))
-    expect(after.get(3)).toContain('answer 9')
+    expect(after.get(5)).toContain('answer 9')
   })
 
   it('keeps the same response line when a prompt fold above it disappears on resize', () => {
@@ -1215,7 +1312,7 @@ describe('conversation timeline', () => {
     expect(hovered).toContain('first prompt has enough')
     expect(hovered).toContain('second preview l…')
     screen.setTimelineHidden(true)
-    expect(painted(flush(sink)).get(1)).toContain('second prompt')
+    expect(painted(flush(sink)).get(2)).toContain('second prompt')
     screen.setTimelineHidden(false)
     flush(sink)
     screen.mouseMove(2, 40)
@@ -1351,8 +1448,8 @@ describe('conversation timeline', () => {
     screen.append(Array.from({ length: 8 }, (_, index) => `third ${index}`))
     flush(sink)
 
-    screen.mouseDown(3, 3)
-    screen.mouseDrag(3, 8)
+    screen.mouseDown(6, 3)
+    screen.mouseDrag(6, 8)
     expect(screen.mouseUp()).toBeDefined()
 
     screen.mouseDown(2, 40)
@@ -2072,20 +2169,74 @@ describe('the block under the pointer', () => {
     expect(screen.mouseMove(2, 3)).toBeUndefined()
   })
 
-  it('replaces pending call lines when appending a fold with replaceCount', () => {
+  it('puts a completed fold card in the place its pending card held', () => {
     const sink = host(5, 40)
     const screen = new Screen(sink)
     screen.enter()
     screen.setChrome(['status'], { row: 0, column: 0 }, false)
-    screen.append(['● bash', '  $ sleep 10'])
+    const pending = ['● bash', '  $ sleep 10']
+    screen.append(pending)
     flush(sink)
 
-    // Completed card replaces the 2 pending lines
-    screen.appendFold(['● sleep (exit 0) ✔', ''], ['full', ''], '', 'tool', undefined, undefined, 2)
+    screen.appendFold(['● sleep (exit 0) ✔', ''], ['full', ''], '', 'tool', undefined, undefined, pending)
     const frame = flush(sink)
     expect(frame).toContain('● sleep (exit 0) ✔')
     expect(frame).not.toContain('● bash')
     expect(frame).not.toContain('$ sleep 10')
+  })
+
+  it('puts a completed card with no fold in the place its pending card held', () => {
+    const sink = host(6, 40)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['status'], { row: 0, column: 0 }, false)
+    const pending = ['● bash', '  $ echo hi']
+    screen.append(pending)
+    flush(sink)
+
+    screen.append(['● echo hi ✔', '  hi', ''], '', pending)
+    screen.resize()
+    const rows = [...painted(flush(sink)).values()].join('\n')
+    expect(rows).toContain('● echo hi ✔')
+    expect(rows).not.toContain('● bash')
+    expect(rows).not.toContain('$ echo hi')
+  })
+
+  it('keeps what landed between a pending card and its result, and leaves neither behind', () => {
+    const sink = host(9, 40)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['status'], { row: 0, column: 0 }, false)
+    const first = ['● bash', '  $ one']
+    const second = ['● bash', '  $ two']
+    screen.append(first)
+    screen.append(['approval: escalate the sandbox'])
+    screen.append(second)
+    flush(sink)
+
+    // The first call settles while the second call's card sits under it.
+    screen.append(['● one ✔', ''], '', first)
+    screen.resize()
+    const rows = [...painted(flush(sink)).values()].join('\n')
+    expect(rows).toContain('● one ✔')
+    expect(rows).toContain('approval: escalate the sandbox')
+    expect(rows).toContain('$ two')
+    expect(rows).not.toContain('$ one')
+  })
+
+  it('appends a completed card whose pending card is no longer in the buffer', () => {
+    const sink = host(6, 40)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['status'], { row: 0, column: 0 }, false)
+    screen.append(['unrelated'])
+    flush(sink)
+
+    screen.append(['● echo hi ✔', ''], '', ['● bash', '  $ echo hi'])
+    screen.resize()
+    const rows = [...painted(flush(sink)).values()].join('\n')
+    expect(rows).toContain('unrelated')
+    expect(rows).toContain('● echo hi ✔')
   })
 
   it('drops the fill when the pointer leaves the window', () => {

@@ -919,23 +919,120 @@ describe('grok background differentiation across functional blocks', () => {
       data: { role: 'user', content: [{ type: 'text', text: 'my prompt' }], source: { kind: 'user' } },
     } as unknown as SessionEvent
     const userLines = coloredTranscript.render(userEvent)
-    expect(userLines[0]).toBe(colorTheme.bgUser('my prompt'))
+    // Inset like every other block, and padded by the screen rather than by
+    // the block, so the prompt's descriptor stays the text that was typed.
+    expect(userLines[0]).toBe(colorTheme.bgUser('  my prompt'))
+    expect(coloredTranscript.takePromptPad()).toBe(colorTheme.bgUser('  '))
 
     const callLines = coloredTranscript.render(callEvent('c1', 'bash', {}))
-    expect(callLines[0]).toContain(colorTheme.bgTool(`${colorTheme.pending('●')} ${colorTheme.tool('bash')}`))
+    expect(callLines[0]).toBe(colorTheme.bgTool('  '))
+    expect(callLines[1]).toContain(colorTheme.bgTool(`  ${colorTheme.pending('●')} ${colorTheme.tool('bash')}`))
 
     const resultLines = coloredTranscript.render(resultEvent('c1', 'hi'))
     expect(resultLines[0]?.startsWith('\u001B[48;2;14;18;24m')).toBe(true)
-    expect(resultLines[0]).toContain('echo hi')
-    expect(resultLines[1]).toBe(colorTheme.bgTool(colorTheme.dim('  hi')))
-    expect(resultLines[2]).toBe(colorTheme.bgTool('  '))
+    expect(resultLines[0]).toBe(colorTheme.bgTool('  '))
+    expect(resultLines[1]).toContain('echo hi')
+    expect(resultLines[2]).toBe(colorTheme.bgTool(colorTheme.dim('  hi')))
+    expect(resultLines[3]).toBe(colorTheme.bgTool('  '))
 
     const errResultLines = coloredTranscript.render(resultEvent('c2', 'failed', true))
     expect(errResultLines[0]?.startsWith('\u001B[48;2;45;15;25m')).toBe(true)
-    expect(errResultLines[0]).toContain('✗')
+    expect(errResultLines[0]).toBe(colorTheme.bgError('  '))
+    expect(errResultLines[1]).toContain('✗')
 
     const think = thinkingFold(['reasoning line'], colorTheme, 1.5)
-    expect(think.summary[0]).toBe(colorTheme.bgThinking(colorTheme.dim('thought for 1.5s')))
-    expect(think.full[1]).toBe(colorTheme.bgThinking('reasoning line'))
+    // Collapsed it is one row: padding a single line only stacks the `✻` the
+    // gutter repeats down the block.
+    expect(think.summary[0]).toBe(colorTheme.bgThinking(colorTheme.dim('  thought for 1.5s')))
+    expect(think.summary[1]).toBe('')
+    expect(think.summary).toHaveLength(2)
+    expect(think.full[0]).toBe(colorTheme.bgThinking('  '))
+    expect(think.full[1]).toBe(colorTheme.bgThinking(colorTheme.dim('  thought for 1.5s')))
+    expect(think.full[2]).toBe(colorTheme.bgThinking('reasoning line'))
+    expect(think.full[3]).toBe(colorTheme.bgThinking('  '))
+    expect(think.full[4]).toBe('')
+  })
+
+  it('pads every pending card, whatever its presenter answered', () => {
+    const colorTheme = createTheme(true, { COLORTERM: 'truecolor' })
+    const pad = colorTheme.bgTool('  ')
+
+    // No presenter at all: the generic name-only card.
+    const generic = new Transcript(
+      { columns: 80, theme: colorTheme, cwd: CWD },
+      { call: () => undefined, result: () => undefined },
+    ).render(callEvent('c1', 'bash', {}))
+    expect(generic[0]).toBe(pad)
+    expect(generic[1]).toContain(colorTheme.tool('bash'))
+    expect(generic[2]).toBe(pad)
+
+    // A presenter answering with locations: the file card.
+    const located = new Transcript(
+      { columns: 80, theme: colorTheme, cwd: CWD },
+      { call: (): ToolCallView => ({ card: 'generic', title: 'Read README.md', locations: [{ path: '/repo/README.md' }] }), result: () => undefined },
+    ).render(callEvent('c1', 'read', {}))
+    expect(located[0]).toBe(pad)
+    expect(located[1]).toContain('Read README.md')
+    expect(located[2]).toBe(pad)
+  })
+
+  it('leaves uncoloured output unpadded, since it paints no panel to inset', () => {
+    // A pending card closes with its padding, which uncoloured output has
+    // none of; the separator piped output needs comes with the result.
+    const plain = build({ call: () => undefined }).render(callEvent('c1', 'bash', {}))
+    expect(plain).toEqual(['● bash'])
+  })
+
+  it('gives a run of one-line cards a single shared panel', () => {
+    const colorTheme = createTheme(true, { COLORTERM: 'truecolor' })
+    const pad = colorTheme.bgTool('  ')
+    let file = 'a.ts'
+    const colored = new Transcript(
+      { columns: 80, theme: colorTheme, cwd: CWD },
+      {
+        call: (): ToolCallView => ({ card: 'generic', title: `Read ${file}` }),
+        result: (): ToolResultView => ({ card: 'generic', title: `Read ${file}` }),
+      },
+    )
+
+    // The first card opens the panel and closes it.
+    colored.render(callEvent('c1', 'read', {}))
+    const first = colored.render(resultEvent('c1', ''))
+    expect(first[0]).toBe(pad)
+    expect(first[1]).toContain('Read a.ts')
+    expect(first[2]).toBe(pad)
+
+    // The second takes that closing pad over rather than opening a panel of
+    // its own, so the two cards end up as adjacent rows of one panel.
+    file = 'b.ts'
+    const pending = colored.render(callEvent('c2', 'read', {}))
+    expect(colored.takePendingCard()).toEqual([pad])
+    expect(pending[0]).toContain('Read b.ts')
+    expect(pending[1]).toBe(pad)
+
+    const second = colored.render(resultEvent('c2', ''))
+    expect(colored.takePendingCard()).toEqual(pending)
+    expect(second[0]).toContain('Read b.ts')
+    expect(second[1]).toBe(pad)
+  })
+
+  it('keeps a divider row between cards that have bodies', () => {
+    const colorTheme = createTheme(true, { COLORTERM: 'truecolor' })
+    const pad = colorTheme.bgTool('  ')
+    const colored = new Transcript(
+      { columns: 80, theme: colorTheme, cwd: CWD },
+      { call: (): ToolCallView => ({ card: 'terminal', title: 'git status' }), result: () => undefined },
+    )
+
+    colored.render(callEvent('c1', 'bash', {}))
+    colored.render(resultEvent('c1', 'M one.ts'))
+    colored.render(callEvent('c2', 'bash', {}))
+    const second = colored.render(resultEvent('c2', 'M two.ts'))
+
+    // Nothing is superseded but the card's own pending form: the pad the first
+    // card closed with stays, and is the divider between the two.
+    expect(second[0]).not.toBe(pad)
+    expect(second[0]).toContain('git status')
+    expect(second[second.length - 1]).toBe(pad)
   })
 })

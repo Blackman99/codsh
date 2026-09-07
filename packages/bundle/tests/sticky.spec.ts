@@ -15,7 +15,7 @@ describe('sticky turn header layout', () => {
       state: 'pinned',
       renderHeight: 2,
       clipTop: 0,
-      reservedRows: 3,
+      reservedRows: 5,
     })
   })
 

@@ -33,6 +33,25 @@ export interface StickyHeaderLayout {
   reservedRows: number
 }
 
+/**
+ * Viewport rows a pinned header spends on chrome rather than prompt text.
+ *
+ * One padding row above the prompt and one below make the pinned copy read as
+ * a panel instead of text pressed against the top edge of the screen — the
+ * same inset every background-filled block in the transcript carries — and the
+ * divider under them is where the reader's own content starts.
+ */
+export const STICKY_CHROME_ROWS = 3
+
+/**
+ * Transcript rows kept between a shrinking header and the prompt pushing it.
+ *
+ * The hand-off drops the panel's chrome — it is mid-flight, not a stable
+ * header — but the row above the arriving prompt still belongs to the turn
+ * being left, so the old header shrinks one row before it would collide.
+ */
+const HANDOFF_GAP_ROWS = 1
+
 /** Clamp `value` to an inclusive range. */
 function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value))
@@ -65,11 +84,11 @@ export function computeStickyLayout(
   const next = prompts[prompt + 1]
   if (next !== undefined) {
     const nextRow = next.at - scrollTop
-    if (nextRow <= renderHeight + 1) {
-      // One gap row belongs between a stable header and its content. During
-      // the hand-off that row is the last thing left before the next prompt;
-      // it is not itself a fragment of the old header.
-      const visible = Math.min(renderHeight, Math.max(0, nextRow - 1))
+    if (nextRow < renderHeight + STICKY_CHROME_ROWS) {
+      // A pinned panel would reach past the arriving prompt, so the header
+      // gives up its chrome and shrinks instead. The rows it yields are the
+      // tail of its own turn, not fragments of the header itself.
+      const visible = Math.min(renderHeight, Math.max(0, nextRow - HANDOFF_GAP_ROWS))
       if (visible === 0) return undefined
       return {
         prompt,
@@ -85,6 +104,6 @@ export function computeStickyLayout(
     state: 'pinned',
     renderHeight,
     clipTop: 0,
-    reservedRows: Math.min(viewportHeight, renderHeight + 1),
+    reservedRows: Math.min(viewportHeight, renderHeight + STICKY_CHROME_ROWS),
   }
 }

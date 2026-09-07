@@ -34,8 +34,9 @@ scrolling, and frame painting. The terminal's native buffer is never touched.
 **Sticky turn header**:
 The real user prompt that owns the response currently crossing the top of the
 Viewport. Its display-only copy stays pinned until the next real prompt pushes
-it away, shrinking from at most three rows to one; the gap below it stays
-empty. A prompt longer than three visual rows is a Fold by
+it away, shrinking from at most three rows to one. Pinned, it is a panel: one
+padding row of its fill above the prompt and one below, then the divider that
+hands the screen back to the transcript. A prompt longer than three visual rows is a Fold by
 default. While expanded it still ends the previous turn but does not pin.
 Plugin context, tools, and other injected user-role messages never start a
 turn, and the copied header is not transcript or clipboard content.
@@ -223,6 +224,14 @@ all — and collapsed when the conversation moves on. Thinking and long tool
 output are folds. A finished answer is transcript: it stays whole, a click
 does not work it, and the pointer resting on it names nothing.
 _Avoid_: collapse block, expandable section
+
+**Card run**:
+Tool cards that follow one another share one panel rather than each opening and
+closing one of its own. The first pads above, the last pads below, and inside
+the run a card with body rows keeps the pad above it as its divider while a
+bare one-liner takes that row over — so a batch of reads costs one row each
+rather than three. Any other block printed under a run ends it.
+_Avoid_: card group, merged cards
 
 **Rule**:
 The mark drawn down a transcript block's left edge to say where the block

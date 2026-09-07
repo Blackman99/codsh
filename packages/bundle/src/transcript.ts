@@ -96,8 +96,18 @@ interface PendingCall {
   summary: string | undefined
   /** Description supplied with the tool call, when present. */
   description?: string | undefined
-  /** Lines appended to the transcript when the call started. */
-  linesCount: number
+  /**
+   * The exact lines the pending card printed, so the finished card can take
+   * their place instead of piling up under them. Identity rather than a
+   * count: by the time a result lands, an approval note or another call's
+   * card may sit between the pending card and the tail. Trimmed if a later
+   * card takes over the closing pad this one printed.
+   */
+  lines: readonly string[]
+  /** Whether the pending card joined a run rather than opening one. */
+  joined: boolean
+  /** Whether the closing pad it printed is still its own. */
+  closes: boolean
 }
 
 /**
@@ -196,10 +206,14 @@ export function thinkingFold(
   seconds?: number,
 ): { summary: string[], full: string[] } {
   // Glyph lives in the agent gutter (`✻ `); the line is the clock only.
-  const head = theme.bgThinking(theme.dim(seconds === undefined ? 'thought' : `thought for ${formatElapsed(seconds * 1000)}`))
+  const clock = seconds === undefined ? 'thought' : `thought for ${formatElapsed(seconds * 1000)}`
+  const head = theme.bgThinking(theme.dim(`${cardIndent(theme)}${clock}`))
+  const pad = blockPad(theme, text => theme.bgThinking(text))
   return {
+    // Collapsed it is one row, so it pads to nothing: padding a single line
+    // only stacks the `✻` the gutter repeats on every row of the block.
     summary: [head, ''],
-    full: [head, ...lines.map(line => theme.bgThinking(line)), ''],
+    full: [...pad, head, ...lines.map(line => theme.bgThinking(line)), ...pad, ''],
   }
 }
 
@@ -248,10 +262,42 @@ export function formatToolCardLine(
 ): string {
   const statsPart = stats === '' ? '' : ` ${stats}`
   const statusPart = ` ${status}`
-  const prefix = `${bullet} `
+  const prefix = `${cardIndent(theme)}${bullet} `
   const reserve = displayWidth(oneRow(`${prefix}${statsPart}${statusPart}`))
   const titleBudget = Math.max(8, columns - reserve)
   return `${prefix}${theme.tool(truncate(title, titleBudget))}${statsPart}${statusPart}`
+}
+
+/** Left inset that keeps a card's glyph clear of the block rule beside it. */
+function cardIndent(theme: Theme): string {
+  return theme.colored ? '  ' : ''
+}
+
+/**
+ * The blank row a background-filled block opens with.
+ *
+ * A block reads as a panel only when its text does not touch the panel edge.
+ * Uncoloured output paints no panel and so gets no row.
+ * @param theme - the active theme.
+ * @param bg - the block's background wrapper.
+ * @returns the padding row, or nothing at all when uncoloured.
+ */
+function blockPad(theme: Theme, bg: (text: string) => string): string[] {
+  return theme.colored ? [bg('  ')] : []
+}
+
+/**
+ * The row a block closes with.
+ *
+ * On a terminal it is the panel's lower padding, which also holds the next
+ * block off it; piped output has no panel to pad, so the separator there is
+ * the plain blank row it has always been.
+ * @param theme - the active theme.
+ * @param bg - the block's background wrapper.
+ * @returns the closing row.
+ */
+function blockClose(theme: Theme, bg: (text: string) => string): string[] {
+  return theme.colored ? [bg('  ')] : ['']
 }
 
 /**
@@ -298,6 +344,8 @@ export class Transcript {
   private rule = ''
   /** Explicit text lines in the real-user prompt just rendered. */
   private prompt: number | undefined
+  /** The padding row that prompt's panel opens and closes with, if any. */
+  private promptPad: string | undefined
   /** Child session a click on this card should open, when the result names one. */
   private enter: string | undefined
   /** Raw text a click on this card should read, when its body was capped. */
@@ -308,8 +356,19 @@ export class Transcript {
   private readonly workflowAgents = new Map<string, Pick<ToolWorkflowAgentStartData, 'label' | 'childId'>>()
   /** Whether a real user turn has already been painted — comfortable gaps after the first. */
   private sawUser = false
-  /** Pending call lines to replace in screen buffer when result lands. */
-  private pendingLinesCount = 0
+  /** The pending card the block {@link render} just returned supersedes. */
+  private pendingCard: readonly string[] = []
+  /**
+   * The tool-card run standing at the tail of the transcript.
+   *
+   * Cards that follow one another share a panel rather than each opening and
+   * closing one of their own: only the first pads above, and the closing pad
+   * moves down to whichever card is last. A card with body rows keeps the pad
+   * above it as the divider from the card before; a bare one-liner does not
+   * need one, which is what stops a run of reads from spending three rows on
+   * each single line it has to say.
+   */
+  private run: { rule: string; owner: string | undefined; bodied: boolean; close: string } | undefined
 
   constructor(
     private readonly options: TranscriptOptions,
@@ -364,10 +423,23 @@ export class Transcript {
    * @returns the lines to append to the transcript, empty when the event shows nothing.
    */
   render(event: SessionEvent): string[] {
+    // Only tool cards share a panel; anything else printed under one ends it,
+    // and its own leading rows are the gap.
+    if (event.type !== 'tool/call' && event.type !== 'tool/result') this.run = undefined
+    return this.renderBlock(event)
+  }
+
+  /**
+   * One appended event's finished lines, before the run bookkeeping.
+   * @param event - the session event to render.
+   * @returns the block's lines, empty when the event paints nothing.
+   */
+  private renderBlock(event: SessionEvent): string[] {
     const { theme } = this.options
     const rules = blockRules(theme)
     this.rule = ''
     this.prompt = undefined
+    this.promptPad = undefined
     this.enter = undefined
     this.page = undefined
     this.written = []
@@ -385,11 +457,15 @@ export class Transcript {
         const [first = '', ...rest] = typed.map(block => block.text).join('').split('\n')
         this.prompt = 1 + rest.length
         const meta = imageMetaLines(event.data.content, theme)
+        // The panel's padding is the screen's to place: it wraps the block
+        // rather than joining it, so the navigation seam, the fold, and the
+        // pinned copy all stay the text the person actually typed.
+        this.promptPad = theme.colored ? theme.bgUser('  ') : undefined
         const lines = [
-          theme.bgUser(first),
+          theme.bgUser(`${cardIndent(theme)}${first}`),
           ...rest.map(line => theme.bgUser(`  ${line}`)),
           ...meta.map(m => theme.bgUser(m)),
-          '',
+          ...this.promptPad === undefined ? [''] : [],
         ]
         // Comfortable only: one extra blank row between turns, never before the first.
         const gap = this.options.density === 'comfortable' && this.sawUser
@@ -509,6 +585,44 @@ export class Transcript {
     return pending === undefined ? undefined : { summary: pending.summary, args: pending.args }
   }
 
+  /**
+   * Open the tool-card run at the tail, or join the one already standing.
+   *
+   * Joining means printing no pad above: the card before already closed with
+   * one, and that row is the divider between them. Two bare one-liners do not
+   * even need that — the newcomer takes over the closing pad — which is what
+   * stops a run of reads from spending three rows on each single line it has
+   * to say.
+   * @param bodied - whether the card prints rows under its head.
+   * @param bg - the card's background wrapper.
+   * @param close - the rows the card ends with.
+   * @param callId - the call the card belongs to, while it is pending.
+   * @returns how to open and close the card, and the rows it supersedes.
+   */
+  private joinRun(bodied: boolean, bg: (text: string) => string, close: string[], callId?: string): {
+    lead: string[]
+    close: string[]
+    joined: boolean
+    supersedes: string[]
+  } {
+    const { theme } = this.options
+    const open = this.run
+    const joined = open !== undefined && open.rule === this.rule
+    let supersedes: string[] = []
+    if (joined && open !== undefined && !open.bodied && !bodied && theme.colored) {
+      // Neither card has anything under its head, so the row between them is
+      // only a gap: the run's closing pad moves down under the newcomer.
+      supersedes = [open.close]
+      const previous = open.owner === undefined ? undefined : this.calls.get(open.owner)
+      if (previous !== undefined) {
+        previous.lines = previous.lines.slice(0, -1)
+        previous.closes = false
+      }
+    }
+    this.run = { rule: this.rule, owner: callId, bodied, close: close[0] ?? '' }
+    return { lead: joined ? [] : blockPad(theme, bg), close, joined, supersedes }
+  }
+
   private renderCall(callId: string, name: string, rawArguments: string): string[] {
     const { theme, columns } = this.options
     let args: unknown
@@ -520,21 +634,37 @@ export class Transcript {
       args = undefined
     }
     const view = this.safeCall(name, args)
+    let joined = false
+    // True until a later card takes the closing pad over.
+    const closes = true
+    const card = (bodied: boolean): { lead: string[]; close: string[] } => {
+      const opened = this.joinRun(bodied, text => theme.bgTool(text), blockPad(theme, text => theme.bgTool(text)), callId)
+      this.pendingCard = opened.supersedes
+      joined = opened.joined
+      return opened
+    }
     const record = (title: string, summary: string | undefined, lines: string[], description?: string): string[] => {
-      this.calls.set(callId, { name, args, title, summary, description, linesCount: lines.length })
+      this.calls.set(callId, { name, args, title, summary, description, lines, joined, closes })
       return lines
     }
-    if (view === undefined) return record(name, undefined, [theme.bgTool(`${theme.pending('●')} ${theme.tool(name)}`)])
+    const indent = cardIndent(theme)
+    if (view === undefined) {
+      const { lead, close } = card(false)
+      return record(name, undefined, [...lead, theme.bgTool(`${indent}${theme.pending('●')} ${theme.tool(name)}`), ...close])
+    }
     if (view.card === 'terminal') {
       const header = view.cwd === undefined ? '' : theme.dim(` (${this.relative(view.cwd)})`)
       const description = view.description === undefined ? [] : [theme.dim(`  ${view.description}`)]
       const command = this.relativizeIn(view.title)
       const lines = command.split('\n')
       const summary = lines.length > 1 ? `${lines[0] ?? ''} …` : command
+      const { lead, close } = card(true)
       return record(command, summary, [
-        theme.bgTool(`${theme.pending('●')} ${theme.tool(name)}${header}`),
+        ...lead,
+        theme.bgTool(`${indent}${theme.pending('●')} ${theme.tool(name)}${header}`),
         theme.bgTool(`  $ ${truncate(summary, columns - 4)}`),
         ...description.map(d => theme.bgTool(d)),
+        ...close,
       ], view.description)
     }
     if (view.card === 'diff') {
@@ -548,8 +678,11 @@ export class Transcript {
     const title = this.relativizeIn(view.title)
     const locations = (view.locations ?? []).map(location => this.relative(location.path))
     const extra = this.extraPaths(title, locations)
+    const { lead, close } = card(false)
     return record(`${title}${extra}`, locations.length === 0 ? title : locations.join(', '), [
-      theme.bgTool(`${theme.pending('●')} ${truncate(title, columns - 4)}${theme.path(extra)}`),
+      ...lead,
+      theme.bgTool(`${indent}${theme.pending('●')} ${truncate(title, columns - 4)}${theme.path(extra)}`),
+      ...close,
     ])
   }
 
@@ -565,7 +698,6 @@ export class Transcript {
     const callId = message.source.callId
     const pending = this.calls.get(callId)
     this.calls.delete(callId)
-    this.pendingLinesCount = pending?.linesCount ?? 0
     const failed = error !== undefined || block.isError === true
     if (failed) this.rule = blockRules(theme).error
     const bg = failed ? (text: string) => theme.bgError(text) : (text: string) => theme.bgTool(text)
@@ -575,18 +707,20 @@ export class Transcript {
       const marker = failed ? theme.err('✗') : theme.ok('●')
       const text = this.resultText(block.content)
       const { body, full } = this.capBody(text.split('\n').map(line => bg(line)), MAX_RESULT_LINES)
-      const head = bg(`${marker} ${theme.dim('(result)')}`)
+      const head = bg(`${cardIndent(theme)}${marker} ${theme.dim('(result)')}`)
       const enter = failed ? undefined : childSessionId(text)
       const hint = enter === undefined ? [] : [bg(theme.dim('  click to enter'))]
+      const { lead, close, supersedes } = this.joinRun(true, bg, blockClose(theme, bg))
+      this.pendingCard = supersedes
       if (full !== undefined) {
-        this.fold = [head, ...full, ...hint, '']
+        this.fold = [...lead, head, ...full, ...hint, ...close]
         this.label = 'tool result'
       }
       if (enter !== undefined) {
         this.enter = enter
         this.label = 'tool result'
       }
-      return [head, ...body, ...hint, '']
+      return [...lead, head, ...body, ...hint, ...close]
     }
     const view = this.safeResult(pending, block.content, failed, meta)
     const title = view?.title === undefined ? pending.title : this.relativizeIn(view.title)
@@ -603,23 +737,27 @@ export class Transcript {
     const head = [bg(formatToolCardLine(theme, this.options.columns - ruleWidth, bullet, title, suffix, done))]
     const bodyLines = view?.card === 'diff' ? body : body.map(line => bg(line))
     const fullLines = view?.card === 'diff' ? full : full?.map(line => bg(line))
-    const hasBody = bodyLines.length > 0 || hint.length > 0
-    const vpad = (theme.colored && hasBody) ? [bg('  ')] : []
-    const fullHasBody = fullLines !== undefined && (fullLines.length > 0 || hint.length > 0)
-    const fullVpad = (theme.colored && fullHasBody) ? [bg('  ')] : []
+    // Diff cards stay collapsed on screen (hunks only in the fold).
+    const shown = view?.card === 'diff' ? [] : bodyLines
+    const bodied = shown.length > 0 || hint.length > 0
+    // The card takes the place its pending form held, and keeps that form's
+    // standing in the run: a result cannot re-open a panel its pending card
+    // already joined, nor re-print a closing pad a later card took over.
+    const { lead, close, supersedes } = this.joinRun(bodied, bg, blockClose(theme, bg))
+    const open = pending === undefined ? lead : (pending.joined ? [] : blockPad(theme, bg))
+    const shut = pending === undefined || pending.closes ? close : []
+    this.pendingCard = pending === undefined ? supersedes : pending.lines
     // The fold swaps the WHOLE event's lines, so the expanded form repeats the
     // same head with the uncapped body under it.
     if (fullLines !== undefined) {
-      this.fold = [...head, ...fullLines, ...hint, ...fullVpad, '']
+      this.fold = [...open, ...head, ...fullLines, ...hint, ...shut]
       this.label = title
     }
     if (enter !== undefined) {
       this.enter = enter
       this.label = title
     }
-    // Diff cards stay collapsed on screen (hunks only in the fold).
-    if (view?.card === 'diff') return [...head, ...hint, '']
-    return [...head, ...bodyLines, ...hint, ...vpad, '']
+    return [...open, ...head, ...shown, ...hint, ...shut]
   }
 
   /**
@@ -679,14 +817,16 @@ export class Transcript {
   }
 
   /**
-   * Pending call lines that were printed when the tool started, which the
-   * completed result card should replace. Taken once.
-   * @returns the number of pending lines to replace.
+   * The pending card the block just rendered replaces, and forgets it.
+   *
+   * Empty for everything that is not a completed call, and for a call whose
+   * pending card this surface never printed — a resumed page boundary, say.
+   * @returns the lines to take the place of.
    */
-  takePendingLinesCount(): number {
-    const count = this.pendingLinesCount
-    this.pendingLinesCount = 0
-    return count
+  takePendingCard(): readonly string[] {
+    const card = this.pendingCard
+    this.pendingCard = []
+    return card
   }
 
   takePage(): string | undefined {
@@ -715,6 +855,16 @@ export class Transcript {
    * Only a real `source.kind === "user"` message sets it; plugin context may
    * use the user role for the model but must never become navigation chrome.
    */
+  /**
+   * The padding row the prompt just rendered wants around it, and forgets it.
+   * @returns the row, or undefined when the block paints no panel.
+   */
+  takePromptPad(): string | undefined {
+    const pad = this.promptPad
+    this.promptPad = undefined
+    return pad
+  }
+
   takePrompt(): number | undefined {
     const prompt = this.prompt
     this.prompt = undefined

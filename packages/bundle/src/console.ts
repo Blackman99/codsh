@@ -503,10 +503,10 @@ export class TerminalConsole {
    * @param lines - the lines to keep, in order.
    * @param rule - a styled left rule marking which block they belong to.
    */
-  writeAll(lines: readonly string[], rule = ''): void {
+  writeAll(lines: readonly string[], rule = '', replaces: readonly string[] = []): void {
     if (lines.length === 0) return
     if (this.screen !== undefined) {
-      this.screen.append(lines, rule)
+      this.screen.append(lines, rule, replaces)
       return
     }
     // Pipe readers still need the gutter glyph (› / ✻ / │ / ·); colour is
@@ -547,9 +547,9 @@ export class TerminalConsole {
    * @param anchor - false while replaying retained session history.
    * @param explicitLines - logical text lines the person entered, excluding metadata.
    */
-  appendPrompt(lines: readonly string[], rule = '', anchor = true, explicitLines = 1): void {
+  appendPrompt(lines: readonly string[], rule = '', anchor = true, explicitLines = 1, pad?: string): void {
     if (this.screen !== undefined) {
-      this.screen.appendPrompt(lines, rule, anchor, explicitLines)
+      this.screen.appendPrompt(lines, rule, anchor, explicitLines, pad)
       return
     }
     for (const line of lines) {
@@ -586,9 +586,9 @@ export class TerminalConsole {
    * @param enter - child session a click opens instead of folding, when set.
    * @param page - raw text a click reads instead of expanding, when set.
    */
-  appendFold(summary: readonly string[], full: readonly string[], rule = '', label = '', enter?: string, page?: string, replaceCount = 0): void {
+  appendFold(summary: readonly string[], full: readonly string[], rule = '', label = '', enter?: string, page?: string, replaces: readonly string[] = []): void {
     if (this.screen !== undefined) {
-      this.screen.appendFold(summary, full, rule, label, enter, page, replaceCount)
+      this.screen.appendFold(summary, full, rule, label, enter, page, replaces)
       return
     }
     for (const line of summary) {

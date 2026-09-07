@@ -218,6 +218,8 @@ interface TurnPrompt {
   fold?: Fold
   /** Explicit form retained while a resize temporarily removes the fold. */
   preference?: boolean
+  /** Whether a padding row of the block's own fill sits above the prompt. */
+  padded?: boolean
 }
 
 /** One prompt measured in the physical rows shared by sticky and timeline UI. */
@@ -610,8 +612,12 @@ export class Screen {
    * where they are, and the new rows accumulate below them.
    * @param lines - the lines to keep, already styled.
    */
-  append(lines: readonly string[], rule = ''): void {
+  append(lines: readonly string[], rule = '', replaces: readonly string[] = []): void {
     if (lines.length === 0) return
+    if (this.takePlaceOf(replaces, lines, rule) !== undefined) {
+      this.render()
+      return
+    }
     this.cancelTimelineNavigation()
     const extendsPromptLayouts = this.prompts.some(prompt => prompt.at >= this.logical.length)
     const heldEnd = this.offset > 0 ? this.scrollExtent() - this.offset : undefined
@@ -687,23 +693,29 @@ export class Screen {
    * @param rule - the user's styled left rule.
    * @param anchor - whether a live submission may reserve display-only tail space.
    * @param explicitLines - logical text lines the person entered, excluding metadata.
+   * @param pad - the block's padding row, placed around the prompt rather than
+   *   inside it: the descriptor, the fold and the pinned copy are the typed
+   *   text, and the pinned copy pads itself.
    */
-  appendPrompt(lines: readonly string[], rule = '', anchor = true, explicitLines = 1): void {
+  appendPrompt(lines: readonly string[], rule = '', anchor = true, explicitLines = 1, pad?: string): void {
     if (lines.length === 0) return
     // The previous turn's gap goes first: a reader still inside it was
     // reading the tail, so the new prompt anchors for them too.
     this.clearTailAnchor()
     const shouldAnchor = anchor && this.active && this.offset === 0
+    const padded = pad !== undefined
+    if (pad !== undefined) this.append([pad], rule)
     const full = [...lines]
     const summary = this.promptSummary(full, rule)
     if (summary === undefined) {
-      const prompt = { at: this.logical.length, shownLength: lines.length, rule, full, explicitLines }
+      const prompt = { at: this.logical.length, shownLength: lines.length, rule, full, explicitLines, padded }
       this.prompts.push(prompt)
       this.promptLayoutCache = undefined
       if (shouldAnchor) this.tailAnchor = prompt
       this.installingTailAnchor = shouldAnchor
       try {
         this.append(lines, rule)
+        if (pad !== undefined) this.append([pad], rule)
       } finally {
         this.installingTailAnchor = false
       }
@@ -721,13 +733,14 @@ export class Screen {
       label: 'prompt',
     }
     this.folds.push(fold)
-    const prompt = { at: fold.at, shownLength: shown.length, rule, full, fold, explicitLines }
+    const prompt = { at: fold.at, shownLength: shown.length, rule, full, fold, explicitLines, padded }
     this.prompts.push(prompt)
     this.promptLayoutCache = undefined
     if (shouldAnchor) this.tailAnchor = prompt
     this.installingTailAnchor = shouldAnchor
     try {
       this.append(shown, rule)
+      if (pad !== undefined) this.append([pad], rule)
     } finally {
       this.installingTailAnchor = false
     }
@@ -763,7 +776,10 @@ export class Screen {
       this.clearTailAnchor()
       return
     }
-    this.tailRows = Math.max(0, this.viewportHeight() - (this.physical.length - layout.at))
+    // The panel opens one row above the descriptor, and a submitted prompt
+    // should arrive with that row showing rather than pressed to the top.
+    const top = layout.at - (anchor.padded === true ? 1 : 0)
+    this.tailRows = Math.max(0, this.viewportHeight() - (this.physical.length - top))
     if (this.tailRows === 0 && retireWhenFilled) this.tailAnchor = undefined
   }
 
@@ -883,11 +899,10 @@ export class Screen {
    * @param enter - child session a click opens instead of folding, when set.
    * @param page - raw text a click reads instead of expanding, when set.
    */
-  appendFold(summary: readonly string[], full: readonly string[], rule = '', label = '', enter?: string, page?: string, replaceCount = 0): void {
+  appendFold(summary: readonly string[], full: readonly string[], rule = '', label = '', enter?: string, page?: string, replaces: readonly string[] = []): void {
     const shown = summary
-    if (replaceCount > 0 && this.logical.length >= replaceCount) {
-      const at = this.logical.length - replaceCount
-      this.spliceLines(at, replaceCount, shown, rule)
+    const at = this.takePlaceOf(replaces, shown, rule)
+    if (at !== undefined) {
       this.folds.push({
         at,
         shownLength: shown.length,
@@ -900,7 +915,7 @@ export class Screen {
         ...enter === undefined ? {} : { enter },
         ...page === undefined ? {} : { page },
       })
-      this.ranges = undefined
+      this.folds.sort((left, right) => left.at - right.at)
       this.render()
       return
     }
@@ -1706,10 +1721,20 @@ export class Screen {
     return row - 1 >= overlayStart && row - 1 < chromeStart
   }
 
-  /** Sticky header content under a terminal row; its gap is not interactive. */
+  /**
+   * Sticky header content under a terminal row.
+   *
+   * The padding rows are part of the panel the reader sees, so they answer
+   * with the prompt too; the divider closing the panel belongs to the content
+   * below it and stays inert.
+   */
   private stickyPromptAt(row: number): TurnPrompt | undefined {
     const { sticky, prompts } = this.frameLayout()
-    if (sticky === undefined || row < 1 || row > sticky.renderHeight) return undefined
+    if (sticky === undefined || row < 1) return undefined
+    // Everything the panel reserved except the divider closing it, which is
+    // only ever present when the panel got more rows than its prompt needs.
+    const maxRow = sticky.reservedRows - (sticky.reservedRows > sticky.renderHeight ? 1 : 0)
+    if (row > maxRow) return undefined
     return prompts[sticky.prompt]?.prompt
   }
 
@@ -1875,6 +1900,55 @@ export class Screen {
    * @param reindexFind - whether to re-index find hits now; a caller splicing
    *   several blocks in one go re-indexes once at the end instead.
    */
+  /**
+   * Put `shown` where an already-printed block still sits.
+   *
+   * A pending tool card is printed the moment its call starts and finished by
+   * the result that follows — sometimes at once, sometimes after an approval
+   * note or a second call's card has landed under it. Finding the block by
+   * what it printed, rather than counting back from the tail, is what keeps
+   * the finished card in the place its pending form held and keeps the lines
+   * that arrived in between.
+   * @param replaces - the exact lines the superseded block printed.
+   * @param shown - the lines taking their place.
+   * @param rule - the left rule the new lines belong to.
+   * @returns where the block landed, or undefined when it is no longer here.
+   */
+  private takePlaceOf(replaces: readonly string[], shown: readonly string[], rule: string): number | undefined {
+    const at = this.lastRunOf(replaces)
+    if (at < 0) return undefined
+    // A run with nothing but padding in it is a gap, and a gap is only the one
+    // this block means while it is still the last thing printed: anything
+    // appended since owns the blank below it.
+    const blank = replaces.every(line => line.replaceAll(STYLES, '').trim() === '')
+    if (blank && at + replaces.length !== this.logical.length) return undefined
+    const delta = shown.length - replaces.length
+    this.spliceLines(at, replaces.length, shown, rule)
+    if (delta !== 0) {
+      for (const fold of this.folds) if (fold.at > at) fold.at += delta
+      for (const prompt of this.prompts) if (prompt.at > at) prompt.at += delta
+    }
+    this.ranges = undefined
+    return at
+  }
+
+  /**
+   * Where a run of already-printed lines last sits in the logical buffer.
+   * @param lines - the run to find; an empty run is never anywhere.
+   * @returns the first logical index of the last match, or -1.
+   */
+  private lastRunOf(lines: readonly string[]): number {
+    if (lines.length === 0) return -1
+    for (let at = this.logical.length - lines.length; at >= 0; at -= 1) {
+      let matched = true
+      for (let index = 0; index < lines.length && matched; index += 1) {
+        if (this.logical[at + index] !== lines[index]) matched = false
+      }
+      if (matched) return at
+    }
+    return -1
+  }
+
   private spliceLines(at: number, removed: number, shown: readonly string[], rule: string, reindexFind = true): void {
     const columns = this.contentColumns()
     const from = this.physicalStart(at)
@@ -2099,8 +2173,18 @@ export class Screen {
       const width = this.contentColumns()
       const filledHeader = header.map(row => fill(truncate(row, width), width, this.light))
       const divider = `${MUTED}${'─'.repeat(width)}${RESET}`
-      const gap = sticky.state === 'pinned' && sticky.reservedRows > sticky.renderHeight ? [divider] : []
-      viewport = [...filledHeader, ...gap, ...visible, ...padding].slice(0, height)
+      // Pinned, the header is a floating panel: a padding row of its own fill
+      // above and below the prompt, then the divider that hands the screen
+      // back to the transcript. A viewport too short for all three gives them
+      // up in that order — the divider says where content starts and earns its
+      // row first, the padding is what a cramped screen can do without. A
+      // pushed header is mid-hand-off and is only ever surviving prompt rows.
+      const spare = sticky.reservedRows - filledHeader.length
+      const pad = fill('', width, this.light)
+      const panel = sticky.state === 'pinned'
+        ? [...spare >= 3 ? [pad] : [], ...filledHeader, ...spare >= 2 ? [pad] : [], ...spare >= 1 ? [divider] : []]
+        : filledHeader
+      viewport = [...panel.slice(0, sticky.reservedRows), ...visible, ...padding].slice(0, height)
     } else {
       viewport = [...visible, ...padding]
     }
@@ -2118,7 +2202,7 @@ export class Screen {
           if (index >= 0 && index < visible.length) {
             const rawRow = visible[index] ?? ''
             if (rawRow.trim() === '') continue
-            const vpIndex = (sticky !== undefined ? (sticky.state === 'pinned' && sticky.reservedRows > sticky.renderHeight ? sticky.renderHeight + 1 : sticky.renderHeight) : 0) + index
+            const vpIndex = (sticky !== undefined ? (sticky.state === 'pinned' ? sticky.reservedRows : sticky.renderHeight) : 0) + index
             if (vpIndex < viewport.length) {
               viewport[vpIndex] = fill(rawRow, contentWidth, this.light)
             }

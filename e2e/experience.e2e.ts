@@ -146,17 +146,17 @@ describe.skipIf(process.platform === 'win32')('the first five minutes', () => {
     const crossed = screenAt(output, '↑ 48 rows above', rows).alternate
     const returned = screenAtLast(output, 'STICKY_SECOND_DONE', rows).alternate
 
-    expect(tail[0]).toContain('second sticky prompt')
+    expect(tail[1]).toContain('second sticky prompt')
     expect(tail[0]?.at(-1)).toBe('↑')
     expect(tail[1]?.at(-1)).toBe('·')
     expect(tail[2]?.at(-1)).toBe('●')
-    expect(browsing[0]).toContain('second sticky prompt')
-    expect(crossed[0]).toContain('first sticky prompt')
+    expect(browsing[1]).toContain('second sticky prompt')
+    expect(crossed[1]).toContain('first sticky prompt')
     expect(crossed[0]?.at(-1)).toBe('↑')
     expect(crossed[1]?.at(-1)).toBe('●')
     expect(crossed[2]?.at(-1)).toBe('·')
     expect(crossed.join('\n')).toContain('↑ 48 rows above')
-    expect(returned[0]).toContain('second sticky prompt')
+    expect(returned[1]).toContain('second sticky prompt')
     expect(crossed.slice(-2)).toEqual(tail.slice(-2))
   }, E2E_TEST_TIMEOUT_MS)
 
@@ -168,8 +168,10 @@ describe.skipIf(process.platform === 'win32')('the first five minutes', () => {
     ], { rows: 12 })
 
     const settled = screenOf(Buffer.from(run.output).subarray(0, run.offsets[1]).toString(), -1, 12).alternate
-    expect(settled[0]).toContain('你好')
-    expect(settled[1]).toContain('介绍下你自己')
+    // The pinned panel opens with a padding row of its own fill.
+    expect(settled[0]?.trim()).toBe('')
+    expect(settled[1]).toContain('你好')
+    expect(settled[2]).toContain('介绍下你自己')
   }, E2E_TEST_TIMEOUT_MS)
 
   it('anchors a submitted prompt while streamed reply rows fill beneath it', async () => {
@@ -185,11 +187,11 @@ describe.skipIf(process.platform === 'win32')('the first five minutes', () => {
     const first = screenOf(captured(run.offsets[1]), -1, 12).alternate
     const filling = screenOf(captured(run.offsets[2]), -1, 12).alternate
     const sticky = screenOf(captured(run.offsets[3]), -1, 12).alternate
-    expect(first[0]).toContain('anchor this prompt')
+    expect(first[1]).toContain('anchor this prompt')
     expect(first.join('\n')).toContain('ANCHOR_REPLY_1')
-    expect(filling[0]).toContain('anchor this prompt')
+    expect(filling[1]).toContain('anchor this prompt')
     expect(filling.join('\n')).toContain('ANCHOR_REPLY_3')
-    expect(sticky[0]).toContain('anchor this prompt')
+    expect(sticky[1]).toContain('anchor this prompt')
     expect(sticky.filter(row => row.includes('anchor this prompt'))).toHaveLength(1)
     expect(first.findIndex(row => row.includes('Ask anything'))).toBe(filling.findIndex(row => row.includes('Ask anything')))
     expect(first.at(-1)).toBe(filling.at(-1))
@@ -209,9 +211,11 @@ describe.skipIf(process.platform === 'win32')('the first five minutes', () => {
 
     // The echo takes the place a submitted message takes, and the reply fills
     // the space under it rather than pushing it up the screen.
-    expect(first[0]).toContain('/ship let long diffs open in a pager')
+    // Anchored or pinned, the panel's opening row takes the top and the echo
+    // sits under it.
+    expect(first[1]).toContain('/ship let long diffs open in a pager')
     expect(first.join('\n')).toContain('ANCHOR_REPLY_1')
-    expect(filling[0]).toContain('/ship let long diffs open in a pager')
+    expect(filling[1]).toContain('/ship let long diffs open in a pager')
     expect(filling.join('\n')).toContain('ANCHOR_REPLY_8')
     expect(first.findIndex(row => row.includes('Ask anything'))).toBe(filling.findIndex(row => row.includes('Ask anything')))
     // One copy: the anchored prompt and its sticky header are the same row.
@@ -254,13 +258,13 @@ describe.skipIf(process.platform === 'win32')('the first five minutes', () => {
     const anchored = screenOf(captured(run.offsets[1]), -1).alternate
     const browsing = screenOf(captured(run.offsets[2]), -1).alternate
     const returned = screenOf(captured(run.offsets[3]), -1).alternate
-    expect(anchored[0]).toContain('anchor this prompt')
+    expect(anchored[1]).toContain('anchor this prompt')
     // Reading back steps the prompt down by the rows asked for, and the way
     // back to the tail is the same frame it left — not one that lost the gap.
     expect(browsing[0]).not.toContain('anchor this prompt')
-    expect(browsing[3]).toContain('anchor this prompt')
+    expect(browsing[4]).toContain('anchor this prompt')
     expect(browsing.join('\n')).toContain('3 rows above')
-    expect(returned[0]).toContain('anchor this prompt')
+    expect(returned[1]).toContain('anchor this prompt')
     expect(returned.slice(0, 14)).toEqual(anchored.slice(0, 14))
   }, E2E_TEST_TIMEOUT_MS)
 
@@ -462,7 +466,7 @@ describe.skipIf(process.platform === 'win32')('the first five minutes', () => {
     expect(opened.some(row => row.includes('CODE_CLI_THINKING about the request'))).toBe(true)
     // Folded back by the second click — before any submission could do it.
     const shut = finalScreen(output).alternate
-    expect(shut.some(row => /✻ thought for [\d.]+s/u.test(row))).toBe(true)
+    expect(shut.some(row => /✻\s+thought for [\d.]+s/u.test(row))).toBe(true)
     expect(shut.some(row => row.includes('weighing the options carefully'))).toBe(false)
   }, E2E_TEST_TIMEOUT_MS)
 
@@ -826,7 +830,7 @@ describe.skipIf(process.platform === 'win32')('the first five minutes', () => {
     // frame that painted its final line last (the live preview carried the
     // same text earlier).
     const rows = screenAtLast(output, 'weighing the options carefully').alternate
-    expect(rows.some(row => /✻ thought for [\d.]+s/u.test(row))).toBe(true)
+    expect(rows.some(row => /✻\s+thought for [\d.]+s/u.test(row))).toBe(true)
     expect(rows.some(row => row.includes('weighing the options carefully'))).toBe(true)
   }, E2E_TEST_TIMEOUT_MS)
 })

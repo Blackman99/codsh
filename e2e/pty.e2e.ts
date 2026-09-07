@@ -13,7 +13,7 @@ import { tmpdir } from 'node:os'
 import { basename, join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { E2E_TEST_TIMEOUT_MS, makeHome } from './harness.ts'
-import { PTY_COLUMNS, PTY_ROWS, SYNC_END, drivePty, drivePtySteps, screenOf } from './pty-driver.ts'
+import { PTY_COLUMNS, PTY_ROWS, SYNC_END, drivePty, drivePtySteps, finalScreen, screenOf } from './pty-driver.ts'
 import { Terminal, render } from './vt.ts'
 
 /** The surface handing the terminal back; nothing after it is session screen. */
@@ -218,7 +218,7 @@ describe.skipIf(process.platform === 'win32')('dsh code Escape (real PTY)', () =
     // The echo keeps the block's shape: the marker on the first row, the
     // continuation aligned under it, both outside the box's borders.
     const rows = screen.alternate.map(visible)
-    const echo = rows.indexOf('› first')
+    const echo = rows.indexOf('›   first')
     expect(echo).toBeGreaterThanOrEqual(0)
     expect(rows[echo + 1]).toBe('›   second')
   }, E2E_TEST_TIMEOUT_MS)
@@ -256,6 +256,23 @@ describe.skipIf(process.platform === 'win32')('dsh code Escape (real PTY)', () =
     expect(plain).toContain('CODE_CLI_ROUND_TRIP')
   }, E2E_TEST_TIMEOUT_MS)
 
+  it('settles a call into one card, not a finished copy under its pending one', async () => {
+    // A result short enough to need no fold took the path that dropped the
+    // pending card it was finishing, so every such call printed twice.
+    const output = await drivePty('bash', [
+      ['Welcome to codsh', `run it${ENTER}`, 300],
+      ['Allow bash', ENTER, 600],
+      ['CODE_CLI_CALL_OK', `/exit${ENTER}`, 600],
+    ])
+
+    const settled = finalScreen(output).alternate
+    expect(settled.filter(row => row.includes('printf CODE_CLI_ROUND_TRIP'))).toHaveLength(1)
+    expect(settled.some(row => row.includes('● bash'))).toBe(false)
+    // The finished card, and the output the call actually produced.
+    expect(settled.some(row => /● printf CODE_CLI_ROUND_TRIP .*✔/u.test(row))).toBe(true)
+    expect(settled.some(row => /^\s*│\s+CODE_CLI_ROUND_TRIP$/u.test(row.trimEnd()))).toBe(true)
+  }, E2E_TEST_TIMEOUT_MS)
+
   it('denies an approval through its shortcut key', async () => {
     const output = await drivePty('bash', [
       ['Welcome to codsh', `run it${ENTER}`, 300],
@@ -279,7 +296,7 @@ describe.skipIf(process.platform === 'win32')('dsh code Escape (real PTY)', () =
     expect(rows.at(-1)).toMatch(/cli-mock/)
     // Submitting clears the box, so the transcript's own render is the only
     // copy of the message that survives — a row outside the box's borders.
-    expect(rows.map(visible)).toContain('› create the note')
+    expect(rows.map(visible)).toContain('›   create the note')
   }, E2E_TEST_TIMEOUT_MS)
 
   it('toggles plan mode with Shift-Tab, both ways', async () => {
@@ -360,7 +377,7 @@ describe.skipIf(process.platform === 'win32')('dsh code Escape (real PTY)', () =
     expect(output).toContain('CODE_CLI_THINKING')
     // ...but the settled screen keeps one summary line, not the pages.
     const rows = screenAt(output, 'CODE_CLI_ANSWER after thinking').alternate
-    const summary = rows.findIndex(row => /✻ thought for [\d.]+s/u.test(row))
+    const summary = rows.findIndex(row => /✻\s+thought for [\d.]+s/u.test(row))
     expect(summary).toBeGreaterThanOrEqual(0)
     expect(rows.some(row => row.includes('weighing the options'))).toBe(false)
     expect(summary).toBeLessThan(rows.findIndex(row => row.includes('CODE_CLI_ANSWER')))
@@ -766,10 +783,10 @@ describe.skipIf(process.platform === 'win32')('dsh code Escape (real PTY)', () =
       ['Welcome to codsh', `run the rounds${ENTER}`, 400],
       ['completed', '', 400],
       ['', `/exit${ENTER}`, 500],
-    ], { rows: 20 })
+    ], { rows: 24 })
 
     const captured = (offset: number | undefined): string => Buffer.from(run.output).subarray(0, offset).toString()
-    const settled = screenOf(captured(run.offsets[1]), -1, 20).alternate.join('\n')
+    const settled = screenOf(captured(run.offsets[1]), -1, 24).alternate.join('\n')
 
     // The round in flight is in the working line, not the transcript: an
     // append-only transcript cannot unprint a line when the round ends. Every
@@ -879,7 +896,7 @@ describe.skipIf(process.platform === 'win32')('dsh code Escape (real PTY)', () =
     expect(typing[boxRow + 1] ?? '').toContain('second')
     // ...and the transcript echoes the one two-line message.
     const done = screenAt(output, 'CODE_CLI_CALL_OK').alternate
-    const echo = done.findIndex(row => visible(row).startsWith('› first'))
+    const echo = done.findIndex(row => visible(row).startsWith('›   first'))
     expect(echo).toBeGreaterThanOrEqual(0)
     expect(done[echo + 1] ?? '').toContain('second')
   }, E2E_TEST_TIMEOUT_MS)
@@ -939,7 +956,7 @@ it('paints a command that is a script as rows, never outside one', async () => {
       ['Welcome to codsh', `run it${ENTER}`, 300],
       ['Allow bash', 'n', 400],
       ['CODE_CLI_CALL_DENIED', `/exit${ENTER}`, 400],
-    ], { columns: 76, rows: 20 })
+    ], { columns: 76, rows: 24 })
 
     // Inside the alternate screen every row is written at a position of its
     // own, so a raw newline is the surface painting outside one: the rest of
@@ -955,8 +972,10 @@ it('paints a command that is a script as rows, never outside one', async () => {
     expect(asking.some(row => row.includes("$ python3 - <<'EOF' …"))).toBe(true)
     // Default card is one line; the script body is not painted as its own rows.
     const done = screenAt(output, 'CODE_CLI_CALL_DENIED', 'last').alternate
-    expect(done.some(row => row.includes('● bash'))).toBe(true)
-    expect(done.some(row => row.includes("$ python3 - <<'EOF' …"))).toBe(true)
+    // The settled card took the place of the pending one rather than piling up
+    // under it, and still names the command on a row of its own.
+    expect(done.some(row => row.includes('● bash'))).toBe(false)
+    expect(done.some(row => row.includes("● python3 - <<'EOF'"))).toBe(true)
     expect(done.some(row => /│ import re$/u.test(row.trimEnd()))).toBe(false)
     expect(done.some(row => row.includes("print('patched')"))).toBe(false)
   }, E2E_TEST_TIMEOUT_MS)
@@ -998,7 +1017,7 @@ it('paints a command that is a script as rows, never outside one', async () => {
     const rows = screenAt(output, 'resumed session-', 'last').alternate.map(visible)
     // Switching sessions clears the retired viewport, then replays the resumed
     // log: exactly one echo, and none of the interim session's chatter.
-    expect(rows.filter(row => row === '› remember DELTA_ONE')).toHaveLength(1)
+    expect(rows.filter(row => row === '›   remember DELTA_ONE')).toHaveLength(1)
     expect(rows.some(row => row.includes('new session session-'))).toBe(false)
     // The window title tracks the surface on a real terminal.
     expect(output).toContain('\u001B]2;dsh code —')
@@ -1013,7 +1032,7 @@ it('paints a command that is a script as rows, never outside one', async () => {
     const rows = screenAt(output, 'CODE_CLI_CALL_OK').alternate.map(visible)
     // The person's own words carry the heavy mark; the tool block the light
     // one — which is what tells two segments apart without a frame or a fill.
-    expect(rows).toContain('› create the note')
+    expect(rows).toContain('›   create the note')
     expect(rows.some(row => row.includes('│ ') && row.includes('note.txt'))).toBe(true)
     // What a person reads stays flush: the answer is not marked at all.
     expect(rows.some(row => row.startsWith('CODE_CLI_CALL_OK'))).toBe(true)
@@ -1038,7 +1057,7 @@ it('paints a command that is a script as rows, never outside one', async () => {
     // Replayed, before the key: the log's own message above a card still
     // collapsed to its summary — history as the turn left it.
     const replayed = screenAt(output, 'resumed session-').alternate
-    expect(replayed.map(visible)).toContain('› create the tall note')
+    expect(replayed.map(visible)).toContain('›   create the tall note')
     expect(replayed.some(row => row.includes('● Write note.txt +45 -0 ✔'))).toBe(true)
     expect(replayed.some(row => row.includes('CODE_CLI_TALL_44'))).toBe(false)
 
@@ -1213,9 +1232,9 @@ describe.skipIf(process.platform === 'win32')('rewind (real PTY)', () => {
     expect(said).not.toBeNull()
     expect(said?.[1]).not.toBe(said?.[2])
     // The replayed fork carries the first two turns and not the third.
-    expect(rewound.some(row => row.includes('› first request'))).toBe(true)
-    expect(rewound.some(row => row.includes('› second request'))).toBe(true)
-    expect(rewound.some(row => row.includes('› third request'))).toBe(false)
+    expect(rewound.some(row => row.includes('›   first request'))).toBe(true)
+    expect(rewound.some(row => row.includes('›   second request'))).toBe(true)
+    expect(rewound.some(row => row.includes('›   third request'))).toBe(false)
     expect(plain).toContain('› fourth request')
   }, E2E_TEST_TIMEOUT_MS)
 })
