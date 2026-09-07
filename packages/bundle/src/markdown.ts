@@ -70,24 +70,29 @@ const TABLE_DELIMITER = /^:?-+:?$/
  */
 const INLINE = /(`[^`]+`)|(\*\*[^*]+\*\*)|((?<!\w)__[^_]+__(?!\w))|(~~[^~]+~~)|(\[[^\]]*\]\([^)]*\))|(\*[^*\s][^*]*\*)|((?<!\w)_[^_\s][^_]*_(?!\w))/g
 
-/**
- * Keywords shared across the languages this surface commonly shows.
- *
- * Deliberately conservative: a word that reads as a keyword in one language and
- * as an ordinary name in another is left out, because colouring `go(...)` or
- * `use(...)` as a keyword is a visible error while missing one is not.
- */
+/** Keywords shared across the languages this surface commonly shows. */
 const KEYWORDS = new Set([
   'as', 'async', 'await', 'break', 'case', 'catch', 'class', 'const', 'continue', 'def', 'default',
-  'defer', 'elif', 'else', 'enum', 'export', 'extends', 'false', 'finally', 'fn', 'for', 'from',
+  'defer', 'elif', 'else', 'enum', 'export', 'extends', 'finally', 'fn', 'for', 'from',
   'func', 'function', 'if', 'impl', 'import', 'in', 'instanceof', 'interface', 'lambda', 'let',
-  'match', 'new', 'nil', 'none', 'null', 'package', 'private', 'protected', 'public', 'raise',
-  'return', 'self', 'static', 'struct', 'super', 'switch', 'this', 'throw', 'trait', 'true', 'try',
-  'type', 'typeof', 'undefined', 'var', 'void', 'while', 'with', 'yield',
+  'match', 'new', 'package', 'private', 'protected', 'public', 'raise',
+  'return', 'self', 'static', 'struct', 'super', 'switch', 'this', 'throw', 'trait', 'try',
+  'type', 'typeof', 'var', 'void', 'while', 'with', 'yield',
 ])
 
-/** Code tokens, in one alternation: strings, comments, numbers, then words. */
-const CODE_TOKEN = /("(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|`(?:[^`\\]|\\.)*`)|(\/\/[^\n]*|#[^\n]*)|(\b\d[\d_.]*\b)|(\b[A-Za-z_]\w*\b)/g
+/** Constants and booleans highlighted with cyan/number styling. */
+const CONSTANTS = new Set([
+  'true', 'false', 'null', 'undefined', 'nil', 'none', 'NaN', 'Infinity',
+])
+
+/** Common primitive type names in TypeScript, Rust, Go, Python, C. */
+const PRIMITIVE_TYPES = new Set([
+  'string', 'number', 'boolean', 'any', 'unknown', 'never', 'void', 'object', 'symbol', 'bigint',
+  'int', 'float', 'char', 'byte', 'bool', 'i32', 'i64', 'u32', 'u64', 'f32', 'f64', 'str', 'dict', 'list',
+])
+
+/** Code tokens: strings, comments, numbers, method calls, properties, function calls, words. */
+const CODE_TOKEN = /("(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|`(?:[^`\\]|\\.)*`)|(\/\/[^\n]*|#[^\n]*)|(\b0[xX][0-9a-fA-F_]+\b|\b\d[\d_.]*\b)|(\.)([A-Za-z_]\w*)(?=\s*\()|(\.)([A-Za-z_]\w*)|(\b[A-Za-z_]\w*)(?=\s*\()|(\b[A-Za-z_]\w*\b)/g
 
 /**
  * Colour one line of code by token class.
@@ -103,15 +108,33 @@ const CODE_TOKEN = /("(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|`(?:[^`\\]|\\.)*`)|(\/\
 export function highlightCode(line: string, syntax: SyntaxTheme): string {
   return line.replace(CODE_TOKEN, (
     match: string,
-    text: string | undefined,
+    str: string | undefined,
     comment: string | undefined,
     number: string | undefined,
+    dotFn: string | undefined,
+    fnName: string | undefined,
+    dotProp: string | undefined,
+    propName: string | undefined,
+    callName: string | undefined,
     word: string | undefined,
   ) => {
-    if (text !== undefined) return syntax.string(text)
+    if (str !== undefined) return syntax.string(str)
     if (comment !== undefined) return syntax.comment(comment)
     if (number !== undefined) return syntax.number(number)
-    if (word !== undefined && KEYWORDS.has(word)) return syntax.keyword(word)
+    if (dotFn !== undefined && fnName !== undefined) return `.${syntax.fn(fnName)}`
+    if (dotProp !== undefined && propName !== undefined) return `.${syntax.property(propName)}`
+    if (callName !== undefined) {
+      if (KEYWORDS.has(callName)) return syntax.keyword(callName)
+      return syntax.fn(callName)
+    }
+    if (word !== undefined) {
+      if (KEYWORDS.has(word)) return syntax.keyword(word)
+      if (CONSTANTS.has(word)) return syntax.number(word)
+      if (PRIMITIVE_TYPES.has(word) || (word.length > 0 && word.charAt(0) >= 'A' && word.charAt(0) <= 'Z')) {
+        return syntax.type(word)
+      }
+      return word
+    }
     return match
   })
 }
@@ -211,6 +234,8 @@ export interface MarkdownStream {
  */
 export function createMarkdownStream(theme: Theme, columns?: () => number): MarkdownStream {
   let fenceLanguage: string | undefined
+  let sawFenceClose = false
+  let lastEmitted: string | undefined
   const table: string[] = []
   const fence: FenceState = {
     get: () => fenceLanguage,
@@ -218,7 +243,9 @@ export function createMarkdownStream(theme: Theme, columns?: () => number): Mark
   }
   const drainTable = (): string[] => {
     if (table.length === 0) return []
-    return layoutTable(table.splice(0), theme, columns?.() ?? Number.POSITIVE_INFINITY)
+    const rendered = layoutTable(table.splice(0), theme, columns?.() ?? Number.POSITIVE_INFINITY)
+    if (rendered.length > 0) lastEmitted = rendered.at(-1)
+    return rendered
   }
   return {
     get inCode(): boolean {
@@ -231,7 +258,27 @@ export function createMarkdownStream(theme: Theme, columns?: () => number): Mark
         table.push(line)
         return []
       }
-      return [...drainTable(), ...renderLine(line, theme, fence)]
+      const drained = drainTable()
+      const opened = parseMarkdownFence(line)
+      const lead: string[] = []
+      if (opened !== undefined && fenceLanguage === undefined && theme.colored) {
+        if (lastEmitted !== undefined && lastEmitted !== '') {
+          lead.push('')
+        }
+      }
+      const wasInsideFence = fenceLanguage !== undefined
+      const rendered = renderLine(line, theme, fence)
+      if (opened !== undefined && wasInsideFence && theme.colored) {
+        sawFenceClose = true
+      } else if (sawFenceClose) {
+        if (rendered.length > 0 && rendered[0] !== '') {
+          lead.push('')
+        }
+        sawFenceClose = false
+      }
+      const all = [...drained, ...lead, ...rendered]
+      if (all.length > 0) lastEmitted = all.at(-1)
+      return all
     },
     flush: drainTable,
   }
@@ -343,10 +390,17 @@ function renderLine(line: string, theme: Theme, fence: FenceState): string[] {
     if (opened !== undefined) {
       if (fenceLanguage === undefined) {
         fenceLanguage = opened.language
-        // The language is worth naming; the fence itself is not.
-        if (fenceLanguage !== '') out.push(theme.bgCode(theme.dim(`  ${fenceLanguage}`)))
+        if (theme.colored) {
+          const lang = fenceLanguage.trim()
+          out.push(lang !== '' ? theme.bgCode(theme.muted(`  ${lang}`)) : theme.bgCode('  '))
+        } else if (fenceLanguage !== '') {
+          out.push(`  ${fenceLanguage}`)
+        }
       } else {
         fenceLanguage = undefined
+        if (theme.colored) {
+          out.push(theme.bgCode('  '))
+        }
       }
       fence.set(fenceLanguage)
       return out
@@ -415,6 +469,7 @@ export function renderMarkdown(text: string, theme: Theme, columns?: number): st
 /** Render Markdown while retaining raw-line ownership for resize anchoring. */
 export function renderMarkdownRows(text: string, theme: Theme, columns?: number): RenderedMarkdownRow[] {
   let fenceLanguage: string | undefined
+  let sawFenceClose = false
   const fence: FenceState = {
     get: () => fenceLanguage,
     set: (value) => { fenceLanguage = value },
@@ -435,7 +490,23 @@ export function renderMarkdownRows(text: string, theme: Theme, columns?: number)
       return
     }
     drainTable()
-    rows.push(...renderLine(line, theme, fence).map(rendered => ({ text: rendered, source })))
+    const opened = parseMarkdownFence(line)
+    if (opened !== undefined && fenceLanguage === undefined && theme.colored) {
+      if (rows.length > 0 && rows.at(-1)?.text !== '') {
+        rows.push({ text: '', source })
+      }
+    }
+    const wasInsideFence = fenceLanguage !== undefined
+    const renderedLines = renderLine(line, theme, fence)
+    if (opened !== undefined && wasInsideFence && theme.colored) {
+      sawFenceClose = true
+    } else if (sawFenceClose) {
+      if (renderedLines.length > 0 && renderedLines[0] !== '') {
+        rows.push({ text: '', source })
+      }
+      sawFenceClose = false
+    }
+    rows.push(...renderedLines.map(rendered => ({ text: rendered, source })))
   })
   drainTable()
   return rows

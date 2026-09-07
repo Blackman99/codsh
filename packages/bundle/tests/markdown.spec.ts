@@ -52,6 +52,21 @@ describe('highlightCode', () => {
     expect(line).toContain('\u001B[2m// note 42\u001B[0m')
   })
 
+  it('highlights function calls, types, properties, and constants', () => {
+    const fnLine = highlightCode('const lines = this.renderBlock(event)', colour.syntax)
+    expect(fnLine).toContain('\u001B[33mrenderBlock\u001B[0m')
+    expect(fnLine).toContain('.\u001B[33mrenderBlock\u001B[0m')
+
+    const propLine = highlightCode('const run = this.run', colour.syntax)
+    expect(propLine).toContain('.\u001B[34mrun\u001B[0m')
+
+    const typeLine = highlightCode('const ev: SessionEvent = event', colour.syntax)
+    expect(typeLine).toContain('\u001B[36mSessionEvent\u001B[0m')
+
+    const constLine = highlightCode('let x = undefined', colour.syntax)
+    expect(constLine).toContain('\u001B[36mundefined\u001B[0m')
+  })
+
   it('leaves an ordinary identifier alone even when it reads like a keyword elsewhere', () => {
     // `go` and `use` are keywords in some languages and function names in more.
     expect(highlightCode('go(); use();', plain.syntax)).toBe('go(); use();')
@@ -77,6 +92,23 @@ describe('renderMarkdown', () => {
 
   it('names a fenced block\'s language and drops the fence', () => {
     expect(render('```ts\nconst a = 1\n```')).toBe('  ts\n  const a = 1')
+  })
+
+  it('pads and spaces coloured code blocks cleanly away from adjacent text', () => {
+    const text = 'before:\n```ts\nconst a = 1\n```\nafter'
+    const rendered = renderMarkdown(text, colour)
+    // Blank separator line before the block
+    expect(rendered[1]).toBe('')
+    // Language header row with bgCode
+    expect(rendered[2]).toContain('ts')
+    // Highlighted code row with bgCode
+    expect(rendered[3]).toContain('const')
+    expect(rendered[3]).toContain('a =')
+    // Bottom padding row with bgCode
+    expect(rendered[4]).toBe(colour.bgCode('  '))
+    // Blank separator line after the block
+    expect(rendered[5]).toBe('')
+    expect(rendered[6]).toBe('after')
   })
 
   it('indents a fenced block with no language', () => {

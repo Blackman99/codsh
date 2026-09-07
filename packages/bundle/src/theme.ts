@@ -87,9 +87,12 @@ export interface Theme {
 /** Styling for the token classes a code block is coloured by. */
 export interface SyntaxTheme {
   keyword(text: string): string
+  type(text: string): string
+  fn(text: string): string
   string(text: string): string
   number(text: string): string
   comment(text: string): string
+  property(text: string): string
 }
 
 /** A theme that emits no sequences, used off a TTY and under `NO_COLOR`. */
@@ -113,9 +116,12 @@ const PLAIN: Theme = {
   user: text => text,
   syntax: {
     keyword: text => text,
+    type: text => text,
+    fn: text => text,
     string: text => text,
     number: text => text,
     comment: text => text,
+    property: text => text,
   },
   bgUser: text => text,
   bgTool: text => text,
@@ -198,6 +204,30 @@ export function createTheme(isTty: boolean, env: Record<string, string | undefin
     ? (truecolor ? '\u001B[48;2;254;242;242;38;2;153;27;27m' : palette ? '\u001B[48;5;224;38;5;160m' : '\u001B[41;37m')
     : (truecolor ? '\u001B[48;2;45;15;25;38;2;240;100;110m' : palette ? '\u001B[48;5;52;38;5;203m' : '\u001B[41;37m')
 
+  const getKeywordColor = (): string => truecolor
+    ? (isLight ? '\u001B[38;2;175;0;219m' : '\u001B[38;2;197;134;192m')
+    : palette ? '\u001B[38;5;176m' : SGR.magenta
+
+  const getTypeColor = (): string => truecolor
+    ? (isLight ? '\u001B[38;2;38;127;153m' : '\u001B[38;2;78;201;176m')
+    : palette ? '\u001B[38;5;73m' : SGR.cyan
+
+  const getFnColor = (): string => truecolor
+    ? (isLight ? '\u001B[38;2;121;94;38m' : '\u001B[38;2;220;220;170m')
+    : palette ? '\u001B[38;5;186m' : SGR.yellow
+
+  const getStringColor = (): string => truecolor
+    ? (isLight ? '\u001B[38;2;163;21;21m' : '\u001B[38;2;206;145;120m')
+    : palette ? '\u001B[38;5;173m' : SGR.green
+
+  const getNumberColor = (): string => truecolor
+    ? (isLight ? '\u001B[38;2;9;134;88m' : '\u001B[38;2;181;206;168m')
+    : palette ? '\u001B[38;5;151m' : SGR.cyan
+
+  const getPropertyColor = (): string => truecolor
+    ? (isLight ? '\u001B[38;2;0;16;128m' : '\u001B[38;2;156;220;254m')
+    : palette ? '\u001B[38;5;117m' : SGR.blue
+
   return {
     colored: true,
     setLight(light: boolean) {
@@ -229,10 +259,13 @@ export function createTheme(isTty: boolean, env: Record<string, string | undefin
     diffAdd: wrapBg(getDiffAdd),
     diffDel: wrapBg(getDiffDel),
     syntax: {
-      keyword: wrap(SGR.magenta),
-      string: wrap(SGR.green),
-      number: wrap(SGR.cyan),
+      keyword: text => `${getKeywordColor()}${text}${SGR.reset}`,
+      type: text => `${getTypeColor()}${text}${SGR.reset}`,
+      fn: text => `${getFnColor()}${text}${SGR.reset}`,
+      string: text => `${getStringColor()}${text}${SGR.reset}`,
+      number: text => `${getNumberColor()}${text}${SGR.reset}`,
       comment: wrap(SGR.dim),
+      property: text => `${getPropertyColor()}${text}${SGR.reset}`,
     },
   }
 }
