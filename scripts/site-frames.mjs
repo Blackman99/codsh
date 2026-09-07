@@ -98,24 +98,38 @@ const CHROME = {
 function appearance(pen) {
   if (pen === '') return { classes: '', style: '' }
   const classes = []
-  let style = ''
+  const styles = []
   const parts = pen.split(';')
   for (let index = 0; index < parts.length; index += 1) {
     const code = parts[index]
-    if (code === '38' && parts[index + 1] === '5') {
-      classes.push('c-dim')
-      index += 2
+    // A background is what makes a panel a panel: the surface fills the user's
+    // own message, tool runs, and thinking with one, and a reader that walked
+    // past `48` would take the `2` inside a direct colour for dim text and
+    // report the fill as faint letters on the page's own ground.
+    if (code === '38' || code === '48') {
+      const kind = parts[index + 1]
+      const property = code === '38' ? 'color' : 'background'
+      if (kind === '2') {
+        const red = parts[index + 2] ?? '0'
+        const green = parts[index + 3] ?? '0'
+        const blue = parts[index + 4] ?? '0'
+        styles.push(`${property}:rgb(${red},${green},${blue})`)
+        index += 4
+        continue
+      }
+      if (kind === '5') {
+        // Indexed colour: the surface only reaches for it without truecolor,
+        // and the one entry the pages need named is secondary text.
+        if (code === '38') classes.push('c-dim')
+        index += 2
+        continue
+      }
       continue
     }
-    if (code === '38' && parts[index + 1] === '2') {
-      const red = parts[index + 2] ?? '0'
-      const green = parts[index + 3] ?? '0'
-      const blue = parts[index + 4] ?? '0'
-      style = `color:rgb(${red},${green},${blue})`
-      index += 4
-      continue
-    }
-    if (code === '31' || code === '91') classes.push('c-error')
+    // 90 is the surface's muted secondary — the status row, a card's counts,
+    // every aside — and unmapped it read as full-strength ink on the page.
+    if (code === '90' || code === '37') classes.push('c-dim')
+    else if (code === '31' || code === '91') classes.push('c-error')
     else if (code === '32' || code === '92') classes.push('c-ok')
     else if (code === '33' || code === '93') classes.push('c-pending')
     else if (code === '34' || code === '94') classes.push('c-path')
@@ -126,7 +140,7 @@ function appearance(pen) {
     else if (code === '4') classes.push('a-underline')
     else if (code === '7') classes.push('a-inverse')
   }
-  return { classes: [...new Set(classes)].join(' '), style }
+  return { classes: [...new Set(classes)].join(' '), style: styles.join(';') }
 }
 
 const escape = (text) =>

@@ -1,23 +1,24 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 340" width="1200" height="340" role="img" aria-labelledby="t d">
 <title id="t">codsh — a terminal coding agent, composed on the DeepSeek Harness</title>
-<desc id="d">A dark terminal panel. On the left the codsh mark — a whale carrying a sail whose leading edge is a slash, /ship riding the harness — beside the wordmark with a blinking block cursor and a one-line description. On the right a miniature transcript: the person's own message under a heavy left rule, a tool card under a light one, a collapsed thinking fold whose head row is underlined by the pointer, the input box, the readout naming the block under the pointer, and the status row.</desc>
+<desc id="d">A dark terminal panel. On the left the codsh mark — a whale carrying a sail whose leading edge is a slash, /ship riding the harness — beside the wordmark with a blinking block cursor and a one-line description. On the right a miniature transcript in the surface's own marks: the person's own message as a filled plum panel behind a cyan rule, a tool call as a card on its own panel behind an amber rule with a green tick and a diff count, a collapsed thinking row behind a magenta asterisk, the timeline rail marking the turn down the right edge, the input box that never leaves the bottom, the working row, and the status row.</desc>
 
 <style>
   /* Generic stacks only: a banner loaded as an image never fetches a font. */
   .m { font-family: ui-monospace, 'SF Mono', SFMono-Regular, Menlo, Consolas, 'DejaVu Sans Mono', monospace; }
   .ink { fill: #e8e6e1; }
   .soft { fill: #b6b8bb; }
-  .dim { fill: #868b93; }
+  .dim { fill: #8a8f96; }
+  .muted { fill: #868b93; }
+  /* The roles the surface actually paints these marks in. */
   .user { fill: #d98ce8; }
-  .tool { fill: #6fd6d0; }
+  .rule-user { fill: #6fd6d0; }
+  .rule-tool { fill: #e6c67c; }
   .ok { fill: #8fce92; }
-  .pending { fill: #e6c67c; }
   .wordmark { font-size: 76px; font-weight: 700; letter-spacing: -0.035em; }
   .tag { font-size: 17px; }
   .meta { font-size: 13px; letter-spacing: 0.04em; }
-  .line { font-size: 16px; }
-  .small { font-size: 14px; }
-  .hovered { text-decoration: underline; text-underline-offset: 3px; }
+  .line { font-size: 15px; }
+  .small { font-size: 13.5px; }
 
   /* The one moving part: the cursor the box always shows. */
   .caret { animation: blink 1.25s steps(1) infinite; }
@@ -78,47 +79,61 @@
   <text class="tag soft" x="60" y="210"><tspan class="user">/ship</tspan> takes one sentence</text>
   <text class="tag soft" x="60" y="236">to verified code.</text>
 
-  <text class="meta dim" x="60" y="290">npm i -g codsh-cli · MIT</text>
-  <text class="meta dim" x="60" y="312">one dsh per machine, however many tools</text>
+  <text class="meta muted" x="60" y="290">npm i -g codsh-cli · MIT</text>
+  <text class="meta muted" x="60" y="312">one dsh per machine, however many tools</text>
 </g>
 
-<!-- ── Right: a transcript, told in the surface's own marks ──────────── -->
-<rect x="470.5" y="44.5" width="681" height="251" rx="11" fill="#0f1216" stroke="#21262d"/>
+<!--
+  ── Right: a transcript, told in the surface's own marks ──────────────────
+  Read off a real capture (site/data/screens.json), which is why the rules
+  are the colours they are: cyan for the person, amber for a tool card,
+  magenta for thinking. Each block is a filled panel with a padding row of
+  its own fill above and below, and every row here is one text element, so
+  the glyphs flow in whatever monospace the reader has rather than colliding.
+-->
+<rect x="470.5" y="26.5" width="681" height="287" rx="11" fill="#0f1216" stroke="#21262d"/>
+
+<!-- The block fills, drawn the way the surface paints them: to the content's
+     full width, because a blank cell carrying a fill is ink, not padding. A
+     row is 22 units tall and its baseline sits 16 below the cell's top. -->
+<g>
+  <rect x="500" y="34" width="620" height="66" fill="#1e1326"/>
+  <rect x="500" y="100" width="620" height="66" fill="#0e1218"/>
+  <rect x="500" y="166" width="620" height="22" fill="#141020"/>
+</g>
 
 <g class="m">
-  <!-- The person's own message: the heavy rule. -->
-  <rect x="492" y="70" width="3" height="22" rx="1.5" fill="#d98ce8"/>
-  <text class="line user" x="508" y="87">›</text>
-  <text class="line ink" x="526" y="87">ship the pager for long diffs</text>
+  <!-- The person's own message: a plum panel behind a cyan rule, padded above
+       and below with a row of its own fill. -->
+  <text class="line rule-user" x="484" y="50">›</text>
+  <text class="line rule-user" x="484" y="72">›<tspan class="ink" xml:space="preserve">   ship the pager for long diffs</tspan></text>
+  <text class="line rule-user" x="484" y="94">›</text>
 
-  <!-- A tool block: the light rule, the card's own title. -->
-  <rect x="492" y="104" width="2" height="22" rx="1" fill="#6fd6d0"/>
-  <text class="line pending" x="508" y="121">●</text>
-  <text class="line tool" x="528" y="121">Write docs/specs/pager.md</text>
+  <!-- A tool call: its own panel, an amber rule, the presenter's title, the
+       diff count, and the tick that says it landed. -->
+  <text class="line rule-tool" x="484" y="116">│</text>
+  <text class="line rule-tool" x="484" y="138">│<tspan class="ok" xml:space="preserve">   ●</tspan><tspan class="ink" xml:space="preserve"> Write docs/specs/pager.md </tspan><tspan class="muted">+42 -0</tspan><tspan class="ok" xml:space="preserve"> ✔</tspan></text>
+  <text class="line rule-tool" x="484" y="160">│</text>
 
-  <rect x="492" y="130" width="2" height="22" rx="1" fill="#6fd6d0"/>
-  <text class="line ok" x="508" y="147">+</text>
-  <text class="line dim" x="526" y="147">6 acceptance criteria, each one checkable</text>
+  <!-- Thinking, collapsed to the one row that says how long it took. -->
+  <text class="line user" x="484" y="182">✻<tspan class="dim" xml:space="preserve">   thought for 3.2s</tspan></text>
 
-  <!-- A fold, flush by design, with the head row the pointer is on. -->
-  <g transform="translate(499 172)">
-    <g stroke="#868b93" stroke-width="1.6" stroke-linecap="round">
-      <path d="M0 -5.5V5.5M-4.8 -2.8L4.8 2.8M-4.8 2.8L4.8 -2.8"/>
-    </g>
-  </g>
-  <text class="line dim hovered" x="518" y="178">thought for 3.2s · +42 lines (click or Ctrl+O expands)</text>
+  <!-- The timeline rail: one column at the right edge marking the turn. -->
+  <text class="line muted" x="1132" y="50">↑</text>
+  <text class="line muted" x="1132" y="72">·</text>
+  <text class="line rule-user" x="1132" y="94">●</text>
+  <text class="line muted" x="1132" y="116">·</text>
+  <text class="line muted" x="1132" y="160">↓</text>
 
   <!-- The input box, which never leaves the bottom. -->
-  <rect x="492.5" y="196.5" width="636" height="34" rx="7" fill="none" stroke="#2a3038"/>
-  <text class="line user" x="508" y="219">›</text>
-  <rect class="caret" x="526" y="205" width="9" height="18" fill="#d98ce8" opacity="0.5"/>
-  <text class="small dim" x="545" y="218">Ask anything · / for commands · @ for files</text>
+  <text class="line rule-user" x="484" y="208">╭───────────────────────────────────────────────────────────────────╮</text>
+  <text class="line rule-user" x="484" y="230">│ <tspan class="user">›</tspan> <tspan class="dim">Ask anything · / for commands · $ for skills · @ for f…</tspan>    │</text>
+  <text class="line rule-user" x="484" y="252">╰───────────────────────────────────────────────────────────────────╯</text>
 
-  <!-- The readout: what the pointer is resting on, and what a click does. -->
-  <text class="small dim" x="508" y="252">thinking · 42 lines · click to expand</text>
-
-  <!-- The status row, the always-current last line. One element, so the model
-       name and what follows it cannot drift apart. -->
-  <text class="small" x="492" y="278"><tspan class="tool">cli-mock</tspan><tspan class="dim"> · code-cli · workspace-write · 128k ctx · ~/my-project</tspan></text>
+  <!-- The working row, then the status row: model, where you are, and the key
+       that lists the rest. One element each, so nothing drifts apart. -->
+  <text class="small" x="484" y="274"><tspan class="rule-tool">⠻</tspan><tspan class="dim"> working 4.1s · 1.2k tokens · ESC to interrupt</tspan></text>
+  <text class="small muted" x="484" y="296">deepseek-v4-flash (high) · ~/my-project (main) · ? shortcuts</text>
 </g>
+
 </svg>

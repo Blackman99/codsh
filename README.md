@@ -77,6 +77,7 @@ The [site](https://blackman99.github.io/codsh/) shows each one as a real capture
 - Todos stay in the chrome (Ctrl+T / `/todos`). Markdown, thinking, and tool cards stream in. Drag to copy, in the transcript or the box.
 - Ctrl+V pastes images. While the cursor rests on the `[Image #N]` token a card centered over the transcript previews it: the picture itself wherever the terminal paints one — Ghostty, kitty and WezTerm through Kitty graphics, iTerm2 through its own — and a colour half-block mosaic everywhere else. Ctrl+O, or a click on the card, opens the original in the system viewer. (Native vision; DeepSeek text models borrow Vision Exp automatically; other text routes keep the file + optional sidecar fallback.)
 - `/` commands, `$` skills, `!` shell, `@` files — the menu sits above the box. ⇧Tab is plan mode.
+- `/ui compact|comfortable` sets how much room the transcript takes. Compact is the default and the shape everything above is described in; comfortable only adds — a blank row between turns, a two-line preview while thinking streams, a higher click-to-pager threshold on expanded diffs, and an idle tip under the box. The choice persists across sessions.
 - Approvals, `/model`, `/resume`, and `/thinking` (or `/effort`) are arrow-key widgets; `/clear`, Esc Esc, `/init`, and `/update` round it out. `!cmd` prints in-session and the agent sees it.
 - `/thinking [level]` (alias `/effort`) configures reasoning deliberation (e.g. `off`, `low`, `high`, `max`, or shortcuts `on`/`off`) with an interactive selector on TTY, per-model persistence, and active level tags in MetaBar (e.g. `deepseek-chat (high)`) and `/status`.
 - Away from the window, a decision waiting or a turn over ten seconds ending rings the bell and sends a desktop notification: OSC 9 on iTerm2, WezTerm, Ghostty, kitty, and Windows Terminal, `osascript` on Terminal.app, `notify-send` beside it on other Linux terminals. Focused, nothing. `bell` and `notify` are the two switches.
@@ -94,7 +95,7 @@ Three tiers decide what a release must not break:
 | Second | Ghostty, kitty, Alacritty, Warp | a regression here is a bug, not a blocker |
 | Best-effort | native Windows (pwsh) | persistent terminals are unavailable there; the rest is expected to work |
 
-Protocol use is progressive: the kitty keyboard protocol, focus reports, and OSC 11 theme detection are requested and take effect wherever the terminal answers; one that ignores them keeps the legacy path.
+Protocol use is progressive: the kitty keyboard protocol, focus reports, and OSC 11 theme detection are requested and take effect wherever the terminal answers; one that ignores them keeps the legacy path. Inline graphics are chosen the same way, and by what each terminal actually implements rather than by what it is — Kitty graphics on Ghostty, kitty, and WezTerm, `OSC 1337` on iTerm2, a half-block mosaic everywhere else, and nothing inside tmux or screen, which forward neither.
 
 ## Third-party endpoints
 
@@ -127,9 +128,16 @@ pnpm install
 pnpm run dev                 # build → .dev-home → boot
 MOCK=markdown pnpm run dev   # keyless, against the e2e mock
 pnpm test
+pnpm run typecheck
 pnpm run test:e2e            # pack, install, drive the real binary
-CAPTURE_SCREENS=1 pnpm run site:screens   # re-shoot the site's terminals
+pnpm run site:screens        # re-shoot the site's terminals from the real binary
 ```
+
+`MOCK=<mode>` boots against the keyless mock model: `write` (the default),
+`bash`, `heredoc`, `slow`, `tall`, `spec`, `markdown`, `reasoning`, `echo`,
+`vision`, and the `auto-vision`, `auto-vision-slow`, `auto-vision-fail` trio
+behind the automatic image description. `INSPECT=1` opens the Node inspector on
+the app process alone, so a breakpoint does not stop the build that precedes it.
 
 `CODSH_TRACE=<path>` tees every byte the viewport writes, and the size it wrote
 them at, into a file. A frame that arrives corrupted is a disagreement between

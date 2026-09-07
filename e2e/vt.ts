@@ -34,6 +34,29 @@ export interface Run {
   pen: string
 }
 
+/**
+ * Whether a pen paints a background, in either the indexed or the basic form.
+ *
+ * The parameters are walked rather than searched: a direct colour carries its
+ * own channel values, and `38;2;45;15;25` holds a `45` that means fifteen
+ * parts red — not a green background.
+ * @param pen - the pen recorded for a cell.
+ */
+function hasBackground(pen: string): boolean {
+  const codes = pen.split(';')
+  for (let index = 0; index < codes.length; index += 1) {
+    const code = codes[index] ?? ''
+    if (code === '38' || code === '48') {
+      const kind = codes[index + 1] ?? ''
+      index += kind === '5' ? 2 : kind === '2' ? 4 : 0
+      if (code === '48') return true
+      continue
+    }
+    if (/^(?:4[0-7]|10[0-7])$/u.test(code)) return true
+  }
+  return false
+}
+
 /** One screen buffer: a grid, a cursor, and scrolling at the bottom. */
 class Buffer {
   private grid: string[][]
@@ -73,13 +96,18 @@ class Buffer {
 
   /**
    * One row as runs of same-pen text, trailing blanks removed.
+   *
+   * A blank holding a background is not padding but ink: the surface fills a
+   * panel by painting spaces to the row's edge, so a row trimmed at its last
+   * letter would end the panel there and the fill would be reported as
+   * whatever the page behind it is.
    * @param index - the row.
    * @returns the runs, left to right.
    */
   styled(index: number): Run[] {
     const characters = this.grid[index] ?? []
     const pens = this.pens[index] ?? []
-    const width_ = this.line(index).length
+    const width_ = this.paintedWidth(index)
     const runs: Run[] = []
     for (let at = 0; at < characters.length; at += 1) {
       const character = characters[at] ?? ''
@@ -92,6 +120,21 @@ class Buffer {
       else runs.push({ text: character, pen })
     }
     return runs
+  }
+
+  /**
+   * Columns of this row that carry ink — a character, or a background.
+   * @param index - the row.
+   * @returns how far the row is painted.
+   */
+  private paintedWidth(index: number): number {
+    const text = this.line(index).length
+    const pens = this.pens[index] ?? []
+    let filled = 0
+    for (let at = 0; at < pens.length; at += 1) {
+      if (hasBackground(pens[at] ?? '')) filled = at + 1
+    }
+    return Math.max(text, filled)
   }
 
   /** Drop the top row and add a blank one at the bottom. */
@@ -190,7 +233,7 @@ export class Terminal {
    * else is swallowed as before — a screen assertion must not start failing
    * over an attribute nothing reads.
    */
-  private pen = { fg: '', bold: false, dim: false, underline: false, inverse: false }
+  private pen = { fg: '', bg: '', bold: false, dim: false, underline: false, inverse: false }
 
   constructor(rows = 24, columns = 80) {
     this.primaryBuffer = new Buffer(rows, columns)
@@ -309,7 +352,7 @@ export class Terminal {
     for (let index = 0; index < codes.length; index += 1) {
       const code = codes[index] ?? ''
       if (code === '' || code === '0') {
-        this.pen = { fg: '', bold: false, dim: false, underline: false, inverse: false }
+        this.pen = { fg: '', bg: '', bold: false, dim: false, underline: false, inverse: false }
       }
       else if (code === '1') this.pen.bold = true
       else if (code === '2') this.pen.dim = true
@@ -319,21 +362,32 @@ export class Terminal {
       else if (code === '24') this.pen.underline = false
       else if (code === '27') this.pen.inverse = false
       else if (code === '39') this.pen.fg = ''
-      else if (code === '38') {
-        // `38;5;N` names a palette entry; `38;2;R;G;B` a direct colour.
+      else if (code === '49') this.pen.bg = ''
+      else if (code === '38' || code === '48') {
+        // `…;5;N` names a palette entry; `…;2;R;G;B` a direct colour.
         const kind = codes[index + 1] ?? ''
         const span = kind === '5' ? 2 : kind === '2' ? 4 : 0
-        this.pen.fg = codes.slice(index, index + span + 1).join(';')
+        const value = codes.slice(index, index + span + 1).join(';')
+        if (code === '38') this.pen.fg = value
+        else this.pen.bg = value
         index += span
       }
       else if (/^(?:3[0-7]|9[0-7])$/u.test(code)) this.pen.fg = code
+      else if (/^(?:4[0-7]|10[0-7])$/u.test(code)) this.pen.bg = code
     }
   }
 
-  /** The pen in force as one comparable string, `''` when nothing is set. */
+  /**
+   * The pen in force as one comparable string, `''` when nothing is set.
+   *
+   * Colour first, attributes after, each colour keeping its own `38`/`48`
+   * introducer — so a reader walks the parameters exactly as a terminal would
+   * rather than guessing which number belongs to which role.
+   */
   private penKey(): string {
     const parts = [
       this.pen.fg,
+      this.pen.bg,
       this.pen.bold ? '1' : '',
       this.pen.dim ? '2' : '',
       this.pen.underline ? '4' : '',

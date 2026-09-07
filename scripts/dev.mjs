@@ -9,7 +9,10 @@
  * unpacked copy of this package, which is what makes the loop fast.
  *
  * `MOCK=<mode>` boots against the keyless e2e mock model instead of a real
- * key: `write`, `bash`, `slow`, `markdown`, `reasoning`, `echo`, `tall`.
+ * key: `write` (the default), `bash`, `heredoc`, `slow`, `tall`, `spec`,
+ * `markdown`, `reasoning`, `echo`, `vision`, and the `auto-vision`,
+ * `auto-vision-slow`, `auto-vision-fail` trio behind automatic image
+ * description. The list lives in `e2e/fixtures/mock-llm.src.ts`.
  * Arguments after `pnpm run dev` reach the app (`--resume`, `-p "task"`, …).
  */
 
