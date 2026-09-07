@@ -496,8 +496,9 @@ export class Transcript {
       case 'assistant/message': {
         const text = visibleText(event.data.message.content)
         if (text === '') return []
+        const hasThinking = event.data.message.content.some(b => b.type === 'reasoning')
         const lines = renderMarkdown(text, theme)
-        return hadRun ? ['', ...lines, ''] : [...lines, '']
+        return hadRun || hasThinking ? ['', ...lines, ''] : [...lines, '']
       }
       case 'tool/call':
         this.rule = rules.tool
