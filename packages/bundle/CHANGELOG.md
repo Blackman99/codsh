@@ -1,5 +1,13 @@
 # codsh-bundle
 
+## 0.17.6
+
+### Patch Changes
+
+- 43a32f4: fix(replay): restore thinking duration and turn total elapsed time on session resume
+  
+  During session replay (`/resume` or continuing a prior session), `replayEvents` previously rendered thinking folds with no timing arguments, causing all thought clocks to degrade to a bare `thought` string. Replay now indexes recorded step and turn boundary event timestamps, restoring the exact thinking duration and total turn duration for each deliberated step.
+
 ## 0.17.5
 
 ### Patch Changes
