@@ -1,5 +1,22 @@
 # codsh-bundle
 
+## 0.17.4
+
+### Patch Changes
+
+- a463eb5: fix(screen): accurately hover and select individual tool cards in joined runs
+  
+  When multiple consecutive tool calls joined a single panel, the preceding fold's closing padding was replaced in the logical buffer without updating the fold's length. This caused earlier folds to overlap subsequent cards, making mouse hover and click always span two or more rows. Screen fold tracking now truncates superseded folds and strips ANSI escapes when measuring effective fold ranges, ensuring each tool card is individually hovered and selected.
+- 81d4d20: fix(tui): vertically center thinking line between consecutive tool runs
+  
+  The one-line summary for a thinking block now correctly checks if an active tool run preceded it and prepends a blank line if so, preventing the thinking line from appearing visually glued to the bottom padding of the previous tool's output.
+- 8340962: fix(tui): restore bottom margin for thinking summary preceding assistant text
+  
+  The background-less thinking summary relies on the top margin of the subsequent block for its bottom spacing. When the thinking block was immediately followed by assistant text (which normally omits leading margins if not preceded by a tool run), the text appeared visually attached to the thinking line. Assistant text now correctly prepends an unstyled blank line if its message also contained a reasoning block, ensuring the thinking summary remains perfectly centered.
+- e0d84f2: fix(tui): remove background color from thinking summary to balance vertical spacing
+  
+  The collapsed one-line summary for a thinking block now uses the default terminal background instead of `bgThinking`. Removing the background color allows the line to serve as a natural unstyled separator between the padded background blocks of the tools preceding and following it, effectively shrinking the excessive gaps and perfectly centering the clock line.
+
 ## 0.17.3
 
 ### Patch Changes
