@@ -264,7 +264,8 @@ export function formatToolCardLine(
   const statusPart = ` ${status}`
   const prefix = `${cardIndent(theme)}${bullet} `
   const reserve = displayWidth(oneRow(`${prefix}${statsPart}${statusPart}`))
-  const titleBudget = Math.max(8, columns - reserve)
+  const minBudget = columns <= 30 && title.length <= 16 ? title.length : 8
+  const titleBudget = Math.max(minBudget, columns - reserve)
   return `${prefix}${theme.tool(truncate(title, titleBudget))}${statsPart}${statusPart}`
 }
 

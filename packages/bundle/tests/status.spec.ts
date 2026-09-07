@@ -518,6 +518,6 @@ describe('statusReport', () => {
 
   it('includes session time row when provided', () => {
     const report = statusReport({ ...base, sessionTime: '25m (active 3m 40s)' }, 'session-1')
-    expect(report).toContain('session time  25m (active 3m 40s)')
+    expect(report).toContain('time       25m (active 3m 40s)')
   })
 })

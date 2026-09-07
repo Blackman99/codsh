@@ -818,6 +818,10 @@ describe('formatToolCardLine', () => {
     expect(formatToolCardLine(theme, 80, '●', 'Write x.ts', '', '✔')).toBe('● Write x.ts ✔')
   })
 
+  it('does not prematurely truncate short filenames on a 30-col terminal', () => {
+    expect(formatToolCardLine(theme, 25, '●', 'Write note.txt', '+1 -0', '✔')).toContain('Write note.txt')
+  })
+
   it('fits +n -m on one row when an 80-col TTY also paints the tool rule', () => {
     // Viewport content is 80 minus the 2-col `│ ` rule; a headline that
     // budgets the full 80 wraps and splits `+12 -3`.

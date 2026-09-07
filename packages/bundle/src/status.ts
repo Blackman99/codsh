@@ -447,7 +447,7 @@ export function statusReport(facts: StatusFacts, session: string): string {
     ['workspace', facts.branch === undefined
       ? displayPath(facts.cwd)
       : `${displayPath(facts.cwd)} (${facts.branch})`],
-    ...facts.sessionTime === undefined ? [] : [['session time', facts.sessionTime] as [string, string]],
+    ...facts.sessionTime === undefined ? [] : [['time', facts.sessionTime] as [string, string]],
     ...usage === undefined ? [] : [
       ['input', formatTokens(usage.uncachedInputTokens)] as [string, string],
       ['output', formatTokens(usage.outputTokens)] as [string, string],
