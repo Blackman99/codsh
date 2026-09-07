@@ -11,6 +11,7 @@ import { readFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { dirname, join, parse } from 'node:path'
 import type { ContextPressureProjection, TokenUsageProjection } from '@deepseek-ai/dsh-token-meter/client'
+import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import type { Plan, ShipStatus } from './plan.ts'
 import { displayWidth, truncate } from './theme.ts'
 import type { Theme } from './theme.ts'
@@ -66,6 +67,8 @@ export interface StatusFacts {
   reasoningSupported?: boolean | undefined
   /** Available reasoning efforts / thinking levels supported by the active model. */
   reasoningChoices?: readonly string[] | undefined
+  /** Formatted session duration for /status, e.g. '25m (active 3m 40s)'. */
+  sessionTime?: string | undefined
 }
 
 /**
@@ -104,8 +107,8 @@ export function formatElapsed(ms: number): string {
 }
 
 /**
- * Format a finished turn's time summary: how long it took, and how much of
- * that was spent thinking.
+ * Format a finished turn's time summary: how long it took, how much of that
+ * was spent thinking, and the cumulative session duration when multiple turns ran.
  *
  * The thinking figure is a total, not a list. Every thinking block already
  * carries its own clock on its own summary row, written where that thinking
@@ -114,13 +117,75 @@ export function formatElapsed(ms: number): string {
  * ended the turn with a line of durations longer than the answer.
  * @param elapsedMs - milliseconds the entire turn took.
  * @param thinkingMs - milliseconds each thinking block took, oldest first.
- * @returns e.g. `12.3s`, `12.3s (thought 3.2s)`.
+ * @param sessionElapsedMs - cumulative active milliseconds across the session.
+ *   Omitted on the first turn so single-turn answers remain compact.
+ * @returns e.g. `12.3s`, `12.3s (thought 3.2s)`, `12.3s (thought 3.2s) · session 4m 30s`.
  */
-export function formatTurnTime(elapsedMs: number, thinkingMs: readonly number[] = []): string {
+export function formatTurnTime(
+  elapsedMs: number,
+  thinkingMs: readonly number[] = [],
+  sessionElapsedMs?: number,
+): string {
   const base = formatElapsed(elapsedMs)
-  if (thinkingMs.length === 0) return base
-  const thinking = thinkingMs.reduce((total, ms) => total + ms, 0)
-  return `${base} (thought ${formatElapsed(thinking)})`
+  const thinking = thinkingMs.length === 0 ? '' : ` (thought ${formatElapsed(thinkingMs.reduce((total, ms) => total + ms, 0))})`
+  const session = sessionElapsedMs === undefined ? '' : ` · session ${formatElapsed(sessionElapsedMs)}`
+  return `${base}${thinking}${session}`
+}
+
+/**
+ * Timing facts folded from a session's recorded events.
+ */
+export interface SessionHistoryTiming {
+  /** Cumulative active time across completed turns, in milliseconds. */
+  activeMs: number
+  /** Number of completed turns recorded in history. */
+  turnCount: number
+  /** Timestamp of the first event in the session, if any. */
+  firstEventTime?: number | undefined
+}
+
+/**
+ * Fold recorded session events to derive prior turn durations and start time.
+ *
+ * @param events - snapshot of session events.
+ * @returns active duration, completed turn count, and session start timestamp.
+ */
+export function sessionHistoryTiming(events: readonly SessionEvent[]): SessionHistoryTiming {
+  let activeMs = 0
+  let turnCount = 0
+  let currentStart: number | undefined
+  let firstEventTime: number | undefined
+
+  for (const event of events) {
+    if (firstEventTime === undefined && typeof event.time === 'number') {
+      firstEventTime = event.time
+    }
+    if (event.type === 'turn/start') {
+      currentStart = event.time
+    } else if (event.type === 'turn/end') {
+      if (currentStart !== undefined && typeof event.time === 'number') {
+        activeMs += Math.max(0, event.time - currentStart)
+        turnCount += 1
+        currentStart = undefined
+      }
+    }
+  }
+
+  return { activeMs, turnCount, firstEventTime }
+}
+
+/**
+ * Format session duration for status reporting.
+ *
+ * @param wallMs - total elapsed wall-clock milliseconds since session creation.
+ * @param activeMs - cumulative active milliseconds spent in agent turns.
+ * @returns e.g. `4m 30s`, `25m (active 3m 40s)`.
+ */
+export function formatSessionTime(wallMs: number, activeMs: number): string {
+  const wall = formatElapsed(wallMs)
+  if (activeMs <= 0) return wall
+  if (Math.abs(wallMs - activeMs) < 10_000) return formatElapsed(activeMs)
+  return `${wall} (active ${formatElapsed(activeMs)})`
 }
 
 /**
@@ -382,6 +447,7 @@ export function statusReport(facts: StatusFacts, session: string): string {
     ['workspace', facts.branch === undefined
       ? displayPath(facts.cwd)
       : `${displayPath(facts.cwd)} (${facts.branch})`],
+    ...facts.sessionTime === undefined ? [] : [['session time', facts.sessionTime] as [string, string]],
     ...usage === undefined ? [] : [
       ['input', formatTokens(usage.uncachedInputTokens)] as [string, string],
       ['output', formatTokens(usage.outputTokens)] as [string, string],

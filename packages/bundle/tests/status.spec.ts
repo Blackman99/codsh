@@ -7,17 +7,20 @@ import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { ContextPressureProjection, TokenUsageProjection } from '@deepseek-ai/dsh-token-meter/client'
+import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import { afterEach, describe, expect, it } from 'vitest'
 import { parsePlan, parseShipStatus } from '../src/plan.ts'
 import {
   contextLeftPercent,
   displayPath,
   formatElapsed,
+  formatSessionTime,
   formatTokens,
   formatTurnTime,
   gitBranch,
   landChip,
   paintShipChip,
+  sessionHistoryTiming,
   shipChipFromSpec,
   shipChipLabel,
   statusLine,
@@ -104,6 +107,45 @@ describe('formatTurnTime', () => {
 
   it('formats long thinking durations with appropriate units', () => {
     expect(formatTurnTime(120_000, [65_000])).toBe('2m 00s (thought 1m 05s)')
+  })
+
+  it('appends cumulative session duration when multiple turns ran', () => {
+    expect(formatTurnTime(15_000, [4200], 270_000)).toBe('15s (thought 4.2s) · session 4m 30s')
+    expect(formatTurnTime(15_000, [], 270_000)).toBe('15s · session 4m 30s')
+  })
+})
+
+describe('sessionHistoryTiming', () => {
+  it('returns zeroes for empty session events', () => {
+    expect(sessionHistoryTiming([])).toEqual({ activeMs: 0, turnCount: 0, firstEventTime: undefined })
+  })
+
+  it('folds completed turns and calculates total active duration', () => {
+    const events: SessionEvent[] = [
+      { type: 'turn/start', seq: 1, time: 10_000, data: { turn: 1 } } as SessionEvent,
+      { type: 'turn/end', seq: 2, time: 25_000, data: { turn: 1, reason: { kind: 'completed' } } } as SessionEvent,
+      { type: 'turn/start', seq: 3, time: 40_000, data: { turn: 2 } } as SessionEvent,
+      { type: 'turn/end', seq: 4, time: 70_000, data: { turn: 2, reason: { kind: 'completed' } } } as SessionEvent,
+    ]
+    const timing = sessionHistoryTiming(events)
+    expect(timing.turnCount).toBe(2)
+    // 15s + 30s = 45s = 45_000ms
+    expect(timing.activeMs).toBe(45_000)
+    expect(timing.firstEventTime).toBe(10_000)
+  })
+})
+
+describe('formatSessionTime', () => {
+  it('formats single continuous session duration', () => {
+    expect(formatSessionTime(180_000, 180_000)).toBe('3m 00s')
+  })
+
+  it('formats wall-clock and active time when there is an idle gap', () => {
+    expect(formatSessionTime(1_500_000, 180_000)).toBe('25m 00s (active 3m 00s)')
+  })
+
+  it('falls back to wall-clock when there is no active time yet', () => {
+    expect(formatSessionTime(60_000, 0)).toBe('1m 00s')
   })
 })
 
@@ -472,5 +514,10 @@ describe('statusReport', () => {
   it('reports thinking as not supported when unsupported or absent', () => {
     expect(statusReport({ ...base, reasoningSupported: false }, 'session-1')).toContain('thinking   not supported')
     expect(statusReport(base, 'session-1')).toContain('thinking   not supported')
+  })
+
+  it('includes session time row when provided', () => {
+    const report = statusReport({ ...base, sessionTime: '25m (active 3m 40s)' }, 'session-1')
+    expect(report).toContain('session time  25m (active 3m 40s)')
   })
 })

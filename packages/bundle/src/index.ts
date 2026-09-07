@@ -91,7 +91,7 @@ import {
 } from './vision.ts'
 import { TextStream, ThinkingTracker } from './streaming.ts'
 import { PROFILE, bundleVersion, checkForUpdate, runtimeMove, runtimeRegisterCommand, runtimeSpec, runningDsh, updateCommand } from './update.ts'
-import { displayPath, formatTokens, formatTurnTime, gitBranch, shipChipFromSpec, statusLine, statusReport, totalTokens } from './status.ts'
+import { displayPath, formatSessionTime, formatTokens, formatTurnTime, gitBranch, sessionHistoryTiming, shipChipFromSpec, statusLine, statusReport, totalTokens } from './status.ts'
 import {
   THINKING_PREFS_FILE,
   buildThinkingOptions,
@@ -237,6 +237,7 @@ function statusFacts(
   branch: string | undefined,
   folded: FoldedFacts,
   reasoning?: { supported?: boolean | undefined; choices?: readonly string[] | undefined } | undefined,
+  sessionTime?: string | undefined,
 ): StatusFacts {
   const projections = ctx.get('sessionProjections')?.snapshot(agent.session).values
   return {
@@ -252,6 +253,7 @@ function statusFacts(
     reasoningEffort: selection.current?.reasoningEffort,
     reasoningSupported: reasoning?.supported,
     reasoningChoices: reasoning?.choices,
+    sessionTime,
   }
 }
 
@@ -666,6 +668,10 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
     else sessionFolds.permission = permission
   }
   refold()
+  const initialTiming = sessionHistoryTiming(live.agent.session.snapshotEvents())
+  let sessionActiveMs = initialTiming.activeMs
+  let sessionTurns = initialTiming.turnCount
+  let sessionCreatedAt = initialTiming.firstEventTime ?? Date.now()
   let refreshStatus = (): void => {}
   const thinkingPrefsPath = dshHomePath(THINKING_PREFS_FILE)
   let activeReasoning: LlmModelReasoningInfo | undefined
@@ -704,10 +710,20 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
   void refreshReasoning()
 
   const facts = (branch: string | undefined): StatusFacts =>
-    statusFacts(ctx, live.agent, cwd, selection, presetId, branch, sessionFolds, {
-      supported: reasoningSupported,
-      choices: reasoningChoices,
-    })
+    statusFacts(
+      ctx,
+      live.agent,
+      cwd,
+      selection,
+      presetId,
+      branch,
+      sessionFolds,
+      {
+        supported: reasoningSupported,
+        choices: reasoningChoices,
+      },
+      formatSessionTime(Date.now() - sessionCreatedAt, sessionActiveMs),
+    )
   io.console.setTitle(`dsh code — ${basename(cwd)}`)
 
   // Refreshed once per prompt. A command handler is synchronous, so it reports
@@ -1973,6 +1989,10 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
     approval.clear()
     turnBaseTokens = 0
     workflowRound = undefined
+    const history = sessionHistoryTiming(next.agent.session.snapshotEvents())
+    sessionActiveMs = history.activeMs
+    sessionTurns = history.turnCount
+    sessionCreatedAt = history.firstEventTime ?? Date.now()
     refold()
     prompt.setAccent(sessionFolds.planMode ? text => theme.pending(text) : undefined)
     if (replayLog) replay(next.agent.session, live.transcript, io, theme)
@@ -2192,13 +2212,16 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
     }
     const spent = (totalTokens(facts(branch).usage) ?? 0) - before
     const elapsedMs = performance.now() - started
+    sessionActiveMs += elapsedMs
+    sessionTurns += 1
     // A long turn ending is the other moment worth calling the person back.
     if (elapsedMs > BELL_TURN_MS) {
       if (config.bell) io.console.bell()
       notifyAway(`finished in ${formatTurnTime(elapsedMs)}`)
     }
+    const sessionElapsed = sessionTurns > 1 ? sessionActiveMs : undefined
     const cost = spent > 0 ? ` · ${formatTokens(spent)} tokens` : ''
-    prompt.write(theme.dim(`  ${formatTurnTime(elapsedMs, turnThinkingMs)}${cost}`))
+    prompt.write(theme.dim(`  ${formatTurnTime(elapsedMs, turnThinkingMs, sessionElapsed)}${cost}`))
     prompt.write('')
   }
 
