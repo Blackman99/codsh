@@ -1,5 +1,16 @@
 # codsh-bundle
 
+## 0.17.8
+
+### Patch Changes
+
+- 2555514: fix(update): silence package installation output and show updating loading hint on /update
+  
+  Previously, running `/update` streamed the raw package installation output (`npm install` and `dsh profile register`) to the transcript. The command now runs the installation silently under a clean `updating` spinner loading indicator, reporting only the final success or failure message.
+- 2555514: fix(transcript): format ask_user_question result as user reply instead of raw json
+  
+  When `ask_user_question` completed, the transcript rendered the tool's raw `{ answers: [...] }` JSON payload into the terminal card. Tool results for `ask_user_question` are now formatted directly as the user's reply (selected options or custom text), cleanly omitting the body when dismissed or aborted without displaying raw JSON.
+
 ## 0.17.7
 
 ### Patch Changes
