@@ -210,13 +210,11 @@ export function thinkingFold(
   const baseClock = seconds === undefined ? 'thought' : `thought for ${formatElapsed(seconds * 1000)}`
   const clock = totalSeconds === undefined ? baseClock : `${baseClock} · total ${formatElapsed(totalSeconds * 1000)}`
   const text = theme.dim(`${cardIndent(theme)}${clock}`)
-  const headFull = theme.bgThinking(text)
+  const head = theme.bgThinking(text)
   const pad = blockPad(theme, text => theme.bgThinking(text))
   return {
-    // The collapsed summary provides its own empty unstyled rows for top and bottom outer margins,
-    // ensuring it never visually touches the background borders of the panels around it.
-    summary: ['', text, ''],
-    full: ['', ...pad, headFull, ...pad, ...lines.map(line => theme.bgThinking(line === '' ? '  ' : `  ${line}`)), ...pad, ''],
+    summary: [...pad, head, ...pad],
+    full: [...pad, head, ...pad, ...lines.map(line => theme.bgThinking(line)), ...pad],
   }
 }
 

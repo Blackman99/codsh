@@ -604,22 +604,22 @@ describe('folding collapsed output', () => {
 describe('the forms a long block keeps', () => {
   it('times a thinking block when the surface timed it', () => {
     const { summary, full } = thinkingFold(['  first', '  second'], theme, 3.24)
-    expect(summary[1]).toBe('thought for 3.2s')
+    expect(summary[0]).toBe('thought for 3.2s')
     expect(full).toContain('thought for 3.2s')
-    expect(full).toContain('    second')
+    expect(full).toContain('  second')
   })
 
   it('grows a unit for a long think, rather than counting seconds', () => {
     const long = thinkingFold(['a'], theme, 312.4)
-    expect(long.summary[1]).toBe('thought for 5m 12s')
-    expect(long.summary[1]).not.toContain('312')
+    expect(long.summary[0]).toBe('thought for 5m 12s')
+    expect(long.summary[0]).not.toContain('312')
   })
 
   it('says only that it thought when there is no clock to read', () => {
     // A replayed log carries the reasoning but not its duration; claiming a
     // time here would be inventing one.
     const { summary, full } = thinkingFold(['  first'], theme)
-    expect(summary[1]).toBe('thought')
+    expect(summary[0]).toBe('thought')
     expect(full).toContain('thought')
   })
 })
@@ -992,14 +992,16 @@ describe('grok background differentiation across functional blocks', () => {
     expect(errResultLines[1]).toContain('✗')
 
     const think = thinkingFold(['reasoning line'], colorTheme, 1.5)
-    // The collapsed summary is now a single unstyled row that centers naturally.
-    expect(think.summary[1]).toBe(colorTheme.dim('  thought for 1.5s'))
+    // The collapsed summary is a padded panel with bgThinking background.
+    expect(think.summary[0]).toBe(colorTheme.bgThinking('  '))
+    expect(think.summary[1]).toBe(colorTheme.bgThinking(colorTheme.dim('  thought for 1.5s')))
+    expect(think.summary[2]).toBe(colorTheme.bgThinking('  '))
     expect(think.summary).toHaveLength(3)
-    expect(think.full[1]).toBe(colorTheme.bgThinking('  '))
-    expect(think.full[2]).toBe(colorTheme.bgThinking(colorTheme.dim('  thought for 1.5s')))
-    expect(think.full[4]).toBe(colorTheme.bgThinking('  reasoning line'))
-    expect(think.full[5]).toBe(colorTheme.bgThinking('  '))
-    expect(think.full[6]).toBe('')
+    expect(think.full[0]).toBe(colorTheme.bgThinking('  '))
+    expect(think.full[1]).toBe(colorTheme.bgThinking(colorTheme.dim('  thought for 1.5s')))
+    expect(think.full[2]).toBe(colorTheme.bgThinking('  '))
+    expect(think.full[3]).toBe(colorTheme.bgThinking('reasoning line'))
+    expect(think.full[4]).toBe(colorTheme.bgThinking('  '))
   })
 
   it('pads every pending card, whatever its presenter answered', () => {
