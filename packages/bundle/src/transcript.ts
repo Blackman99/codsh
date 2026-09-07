@@ -205,7 +205,6 @@ export function thinkingFold(
   theme: Theme,
   seconds?: number,
   totalSeconds?: number,
-  hadRun = false,
 ): { summary: string[], full: string[] } {
   // Glyph lives in the agent gutter (`✻ `); the line is the clock only.
   const baseClock = seconds === undefined ? 'thought' : `thought for ${formatElapsed(seconds * 1000)}`
@@ -213,7 +212,6 @@ export function thinkingFold(
   const text = theme.dim(`${cardIndent(theme)}${clock}`)
   const headFull = theme.bgThinking(text)
   const pad = blockPad(theme, text => theme.bgThinking(text))
-  const gap = hadRun ? [''] : []
   return {
     // The collapsed summary provides its own empty unstyled rows for top and bottom outer margins,
     // ensuring it never visually touches the background borders of the panels around it.

@@ -325,9 +325,9 @@ function replayEvents(session: Session, transcript: Transcript, io: CliIo, theme
         .map(block => block.text)
         .join('')
       if (thought !== '') {
-        const hadRun = transcript.endRun()
+        transcript.endRun()
         const lines = thought.split('\n').map(line => theme.dim(`  ${line}`))
-        const { summary, full } = thinkingFold(lines, theme, undefined, hadRun)
+        const { summary, full } = thinkingFold(lines, theme)
         io.console.appendFold(summary, full, blockRules(theme).agent, FOLD_LABELS.thinking)
       }
     }
@@ -1680,15 +1680,16 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
   // Ctrl+O) away —
   // pages of deliberation would otherwise bury the conversation.
   let turnThinkingMs: number[] = []
-  let currentThought: { summary: readonly string[]; full: readonly string[]; lines: readonly string[]; elapsedMs: number; hadRun: boolean } | undefined
+  let currentThought: { summary: readonly string[]; full: readonly string[]; lines: readonly string[]; elapsedMs: number } | undefined
+  const getActiveThought = () => currentThought
   const flushThinking = (): void => {
     const flushed = thinking.flush()
     if (flushed === undefined) return
     prompt.setStreaming(undefined)
-    const hadRun = live.transcript.endRun()
+    live.transcript.endRun()
     turnThinkingMs.push(flushed.elapsedMs)
-    const { summary, full } = thinkingFold(flushed.lines, theme, flushed.elapsedMs / 1000, undefined, hadRun)
-    currentThought = { summary, full, lines: flushed.lines, elapsedMs: flushed.elapsedMs, hadRun }
+    const { summary, full } = thinkingFold(flushed.lines, theme, flushed.elapsedMs / 1000)
+    currentThought = { summary, full, lines: flushed.lines, elapsedMs: flushed.elapsedMs }
     io.console.appendFold(summary, full, blockRules(theme).agent, FOLD_LABELS.thinking)
   }
   /**
@@ -2214,10 +2215,11 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
       await turn(live.agent, text, spinner, source, extra)
     } finally {
       io.console.setTitle(`dsh code — ${basename(cwd)}`)
-      if (currentThought !== undefined) {
+      const thought = getActiveThought()
+      if (thought !== undefined) {
         const totalMs = performance.now() - started
-        const { summary, full } = thinkingFold(currentThought.lines, theme, currentThought.elapsedMs / 1000, totalMs / 1000, currentThought.hadRun)
-        io.console.updateFold(currentThought.summary, currentThought.full, summary, full)
+        const { summary, full } = thinkingFold(thought.lines, theme, thought.elapsedMs / 1000, totalMs / 1000)
+        io.console.updateFold(thought.summary, thought.full, summary, full)
         currentThought = undefined
       }
     }
