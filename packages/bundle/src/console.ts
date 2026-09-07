@@ -151,15 +151,18 @@ export class TerminalConsole {
       // buffer whole instead of arriving as a run of Enter presses.
       this.output.write(ENABLE_PASTE_MARKERS)
       const rows = (): number => Math.max(2, this.output.rows ?? FALLBACK_ROWS)
-      this.screen = new Screen({
-        write: traced(
-          data => void this.output.write(data),
-          () => ({ columns: this.columns, rows: rows() }),
-          process.env,
-        ),
-        columns: () => this.columns,
-        rows,
-      })
+      this.screen = new Screen(
+        {
+          write: traced(
+            data => void this.output.write(data),
+            () => ({ columns: this.columns, rows: rows() }),
+            process.env,
+          ),
+          columns: () => this.columns,
+          rows,
+        },
+        process.env,
+      )
       // Registered before any caller's resize handler, so the viewport is
       // re-laid-out before anything redraws at the new size.
       this.output.on('resize', () => { this.screen?.resize() })

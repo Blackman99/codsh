@@ -103,6 +103,14 @@ const FILL_DARK = '\u001B[48;5;236m'
 /** Light-background hover fill, a slight drop off the default white. */
 const FILL_LIGHT = '\u001B[48;5;253m'
 
+/** Dark-background sticky header fill (deep plum / eggplant). */
+const STICKY_FILL_DARK_TRUECOLOR = '\u001B[48;2;30;19;38m'
+const STICKY_FILL_DARK_256 = '\u001B[48;5;53m'
+
+/** Light-background sticky header fill (soft lavender). */
+const STICKY_FILL_LIGHT_TRUECOLOR = '\u001B[48;2;243;234;246m'
+const STICKY_FILL_LIGHT_256 = '\u001B[48;5;225m'
+
 /** Restore the terminal's default background, leaving other attributes. */
 const FILL_OFF = '\u001B[49m'
 
@@ -390,7 +398,11 @@ export class Screen {
   /** Opens long text in the reader when its block is clicked. */
   private pagerHandler: ((text: string) => void) | undefined
 
-  constructor(private readonly host: ScreenHost) {}
+  private readonly truecolor: boolean
+
+  constructor(private readonly host: ScreenHost, env: Record<string, string | undefined> = {}) {
+    this.truecolor = env.COLORTERM === 'truecolor' || env.COLORTERM === '24bit'
+  }
 
   /**
    * What a click on a view-card does.
@@ -461,7 +473,7 @@ export class Screen {
   setLight(light: boolean): void {
     if (this.light === light) return
     this.light = light
-    if (this.hovered !== undefined) this.render()
+    if (this.hovered !== undefined || this.frameLayout().sticky !== undefined) this.render()
   }
 
   /** Physical rows scrolled up out of view; zero means the tail is showing. */
@@ -2087,6 +2099,25 @@ export class Screen {
   }
 
   /**
+   * Fill a row with the sticky header panel colour, padded to the content width.
+   *
+   * Strip any existing background escape sequences so the sticky fill is
+   * completely uniform across both text and trailing padding.
+   * @param row - the styled row.
+   * @param columns - display columns the panel should occupy.
+   * @returns the row, filled end to end with the deep plum / lavender background.
+   */
+  private fillSticky(row: string, columns: number): string {
+    const bg = this.light
+      ? (this.truecolor ? STICKY_FILL_LIGHT_TRUECOLOR : STICKY_FILL_LIGHT_256)
+      : (this.truecolor ? STICKY_FILL_DARK_TRUECOLOR : STICKY_FILL_DARK_256)
+    const noBg = row.replaceAll(/\u001B\[(?:48;[0-9;]*|49)m/gu, '')
+    const pad = Math.max(0, columns - displayWidth(noBg))
+    const padded = `${noBg}${' '.repeat(pad)}`
+    return `${bg}${padded.replaceAll(RESET, `${RESET}${bg}`)}${FILL_OFF}`
+  }
+
+  /**
    * Compose and paint the frame.
    *
    * The viewport is padded at the top when the transcript is shorter than the
@@ -2171,7 +2202,7 @@ export class Screen {
       const from = sticky.state === 'pushed' ? sticky.clipTop : 0
       const header = source.slice(from, from + sticky.renderHeight)
       const width = this.contentColumns()
-      const filledHeader = header.map(row => fill(truncate(row, width), width, this.light))
+      const filledHeader = header.map(row => this.fillSticky(truncate(row, width), width))
       const divider = `${MUTED}${'─'.repeat(width)}${RESET}`
       // Pinned, the header is a floating panel: a padding row of its own fill
       // above and below the prompt, then the divider that hands the screen
@@ -2180,7 +2211,7 @@ export class Screen {
       // row first, the padding is what a cramped screen can do without. A
       // pushed header is mid-hand-off and is only ever surviving prompt rows.
       const spare = sticky.reservedRows - filledHeader.length
-      const pad = fill('', width, this.light)
+      const pad = this.fillSticky('', width)
       const panel = sticky.state === 'pinned'
         ? [...spare >= 3 ? [pad] : [], ...filledHeader, ...spare >= 2 ? [pad] : [], ...spare >= 1 ? [divider] : []]
         : filledHeader

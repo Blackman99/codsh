@@ -963,7 +963,20 @@ describe('scrolling', () => {
     screen.append(Array.from({ length: 12 }, (_, index) => `answer ${index}`))
     screen.scrollBy(-2)
     const frame = flush(sink)
-    expect(frame).toContain('\u001B[48;5;236m| › question')
+    expect(frame).toContain('\u001B[48;5;53m| › question')
+    expect(frame).toContain('\u001B[90m─')
+  })
+
+  it('uses truecolor deep plum fill for sticky header when COLORTERM is truecolor', () => {
+    const sink = host(6, 40)
+    const screen = new Screen(sink, { COLORTERM: 'truecolor' })
+    screen.enter()
+    screen.setChrome(['status'], { row: 0, column: 0 }, false)
+    screen.appendPrompt(['› question', ''], '| ')
+    screen.append(Array.from({ length: 12 }, (_, index) => `answer ${index}`))
+    screen.scrollBy(-2)
+    const frame = flush(sink)
+    expect(frame).toContain('\u001B[48;2;30;19;38m| › question')
     expect(frame).toContain('\u001B[90m─')
   })
 
@@ -1023,7 +1036,20 @@ describe('scrolling', () => {
     screen.append(Array.from({ length: 12 }, (_, index) => `answer ${index}`))
     screen.scrollBy(-2)
     const frame = flush(sink)
-    expect(frame).toContain('\u001B[48;5;253m| › question')
+    expect(frame).toContain('\u001B[48;5;225m| › question')
+  })
+
+  it('uses truecolor lavender fill for sticky header on a light background when COLORTERM is truecolor', () => {
+    const sink = host(6, 40)
+    const screen = new Screen(sink, { COLORTERM: 'truecolor' })
+    screen.enter()
+    screen.setLight(true)
+    screen.setChrome(['status'], { row: 0, column: 0 }, false)
+    screen.appendPrompt(['› question', ''], '| ')
+    screen.append(Array.from({ length: 12 }, (_, index) => `answer ${index}`))
+    screen.scrollBy(-2)
+    const frame = flush(sink)
+    expect(frame).toContain('\u001B[48;2;243;234;246m| › question')
   })
 
   it('returns to the latest when the notice row is clicked', () => {
