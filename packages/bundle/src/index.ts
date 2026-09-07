@@ -89,7 +89,7 @@ import {
   savePastedImage,
   visionConfigFromEnv,
 } from './vision.ts'
-import { TextStream } from './streaming.ts'
+import { TextStream, ThinkingTracker } from './streaming.ts'
 import { PROFILE, bundleVersion, checkForUpdate, runtimeMove, runtimeRegisterCommand, runtimeSpec, runningDsh, updateCommand } from './update.ts'
 import { displayPath, formatTokens, formatTurnTime, gitBranch, shipChipFromSpec, statusLine, statusReport, totalTokens } from './status.ts'
 import {
@@ -1652,27 +1652,24 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
     if (!stream.streamed) return
     emit([...stream.flush(), ''])
   }
-  // Reasoning gets its own stream: pushed into `stream`, its deltas would mark
-  // the answer as already-shown and the visible text would be swallowed.
-  const thinking = new TextStream(theme, () => io.console.contentColumns, true)
+  // Reasoning gets its own stream and tracker: pushed into `stream`, its
+  // deltas would mark the answer as already-shown and the visible text would
+  // be swallowed. Tracking from step/start ensures deliberation time accurately
+  // reflects the full thinking duration even when deltas arrive buffered.
+  const thinking = new ThinkingTracker(theme, () => io.console.contentColumns)
   // Thinking is collapsed by default, the way Claude shows it: while it
   // streams only the current line is live on screen, and when it ends the
   // transcript keeps a one-line summary with the full text one click (or
   // Ctrl+O) away —
   // pages of deliberation would otherwise bury the conversation.
-  let thinkingLines: string[] = []
-  let thinkingStartedAt = 0
   let turnThinkingMs: number[] = []
   const flushThinking = (): void => {
-    thinkingLines.push(...thinking.flush())
-    if (thinkingLines.length === 0) return
+    const flushed = thinking.flush()
+    if (flushed === undefined) return
     prompt.setStreaming(undefined)
-    const thinkingElapsedMs = thinkingStartedAt > 0 ? performance.now() - thinkingStartedAt : 0
-    turnThinkingMs.push(thinkingElapsedMs)
-    const { summary, full } = thinkingFold(thinkingLines, theme, thinkingElapsedMs / 1000)
+    turnThinkingMs.push(flushed.elapsedMs)
+    const { summary, full } = thinkingFold(flushed.lines, theme, flushed.elapsedMs / 1000)
     io.console.appendFold(summary, full, blockRules(theme).agent, FOLD_LABELS.thinking)
-    thinkingLines = []
-    thinkingStartedAt = 0
   }
   /**
    * Append the lines an event produced, and show the line still being typed.
@@ -1788,6 +1785,8 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
     }
     // `/clear` and `/resume` retire sessions; only the current one renders.
     if (session !== live.agent.session) return
+    if (event.type === 'step/start') thinking.markStepStart()
+    if (event.type === 'step/end') thinking.markStepEnd()
     if (event.type === 'tool/call') spinner.setActivity(toolActivity(event.data.name))
     if (event.type === 'tool/result') spinner.setActivity('working')
     // Compaction says so while it runs — the spinner's verb during a turn, the
@@ -1822,21 +1821,26 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
       // with every step — a visible flicker.
       if (chunk.type === 'reasoning-delta') {
         if (chunk.text === '') return
-        if (thinkingStartedAt === 0) thinkingStartedAt = performance.now()
         const step = thinking.push(chunk.text)
         // Collected, not printed: only the line being thought shows, live.
-        thinkingLines.push(...step.lines)
         prompt.setStreaming(thinkingStreamPreview(
           density,
-          thinkingLines,
+          thinking.currentLines,
           step.live,
           theme.dim('✻ thinking'),
         ))
         return
       }
+      if (chunk.type === 'block-end' && chunk.block.type === 'reasoning') {
+        thinking.markReasoningEnd()
+        flushThinking()
+        return
+      }
+      if (chunk.type === 'tool-call-delta' || chunk.type === 'text-delta') {
+        thinking.markReasoningEnd()
+        flushThinking()
+      }
       if (chunk.type !== 'text-delta') return
-      // The answer starting is what collapses the thinking into its summary.
-      flushThinking()
       if (!stream.streamed && !io.console.hasTrailingBlank()) {
         emit([''])
       }
@@ -1847,6 +1851,7 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
     if (event.type === 'assistant/message') {
       // A reasoning-only step (thinking straight into a tool call) still has
       // to land its summary before the call card prints.
+      thinking.markReasoningEnd()
       flushThinking()
       if (stream.streamed) {
         // Already shown delta by delta; re-rendering the assembled text would
@@ -2177,6 +2182,7 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
     turnBaseTokens = before
     workflowRound = undefined
     turnThinkingMs = []
+    thinking.reset()
     const started = performance.now()
     io.console.setTitle(`⚡ dsh code — ${basename(cwd)}`)
     try {

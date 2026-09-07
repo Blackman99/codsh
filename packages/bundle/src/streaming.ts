@@ -100,3 +100,111 @@ export class TextStream {
     return this.theme.dim(truncate(`${prefix}${this.partial}`, this.columns() - 1))
   }
 }
+
+/** Result of flushing a completed thinking segment. */
+export interface ThinkingFlush {
+  /** All lines produced by this thinking segment. */
+  lines: string[]
+  /** Duration in milliseconds this thinking segment took. */
+  elapsedMs: number
+}
+
+/**
+ * Tracks a model's deliberation during a step.
+ *
+ * Models often deliberate before replying or calling tools. When streaming
+ * from proxies or providers that buffer reasoning deltas, the arrival of
+ * tokens may be compressed into a single delta late in the step. Starting the
+ * deliberation clock when the step begins (`step/start`) ensures the recorded
+ * elapsed time accurately reflects the full duration the model spent thinking
+ * (including server-side deliberation and network round-trip), rather than
+ * merely the few milliseconds it took for the client to read buffered chunks.
+ */
+export class ThinkingTracker {
+  private stream: TextStream
+  private lines: string[] = []
+  private stepStartedAt = 0
+  private thinkingStartedAt = 0
+  private thinkingEndedAt = 0
+
+  constructor(
+    private readonly theme: Theme,
+    private readonly columns: () => number,
+  ) {
+    this.stream = new TextStream(theme, columns, true)
+  }
+
+  /** Current accumulated lines for live preview. */
+  get currentLines(): readonly string[] {
+    return this.lines
+  }
+
+  /** Reset state for a new turn. */
+  reset(): void {
+    this.stream = new TextStream(this.theme, this.columns, true)
+    this.lines = []
+    this.stepStartedAt = 0
+    this.thinkingStartedAt = 0
+    this.thinkingEndedAt = 0
+  }
+
+  /** Mark the start of an execution step (e.g. `step/start`). */
+  markStepStart(now = performance.now()): void {
+    this.stepStartedAt = now
+    this.thinkingEndedAt = 0
+  }
+
+  /** Mark the end of an execution step (e.g. `step/end`). */
+  markStepEnd(): void {
+    this.stepStartedAt = 0
+  }
+
+  /**
+   * Consume a reasoning chunk delta.
+   * @param delta - text fragment of reasoning.
+   * @param now - current timestamp.
+   * @returns live streaming step.
+   */
+  push(delta: string, now = performance.now()): StreamStep {
+    if (delta === '') return { lines: [], live: undefined }
+    if (this.thinkingStartedAt === 0) {
+      this.thinkingStartedAt = this.stepStartedAt > 0 ? this.stepStartedAt : now
+    }
+    const step = this.stream.push(delta)
+    this.lines.push(...step.lines)
+    return step
+  }
+
+  /** Mark that reasoning has ended (e.g. `block-end` or answer / tool call started). */
+  markReasoningEnd(now = performance.now()): void {
+    if (this.thinkingEndedAt === 0 && (this.thinkingStartedAt > 0 || this.lines.length > 0 || this.stream.streamed)) {
+      this.thinkingEndedAt = now
+    }
+  }
+
+  /**
+   * Flush any accumulated thinking.
+   * @param now - current timestamp.
+   * @returns finished thinking lines and elapsed time, or undefined if no thinking occurred.
+   */
+  flush(now = performance.now()): ThinkingFlush | undefined {
+    this.lines.push(...this.stream.flush())
+    if (this.lines.length === 0) return undefined
+
+    const end = this.thinkingEndedAt > 0 ? this.thinkingEndedAt : now
+    const elapsedMs = this.thinkingStartedAt > 0 ? Math.max(0, end - this.thinkingStartedAt) : 0
+
+    const result: ThinkingFlush = {
+      lines: this.lines,
+      elapsedMs,
+    }
+
+    this.lines = []
+    this.thinkingStartedAt = 0
+    this.thinkingEndedAt = 0
+    this.stream = new TextStream(this.theme, this.columns, true)
+
+    return result
+  }
+}
+
