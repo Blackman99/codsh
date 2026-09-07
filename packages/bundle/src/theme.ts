@@ -151,7 +151,7 @@ export function createTheme(isTty: boolean, env: Record<string, string | undefin
   // frame, and everything rendered from then on picks the readable shade.
   let isLight = false
   let gray = '\u001B[38;5;245m'
-  let amber = '\u001B[38;5;214m'
+  let amber = '\u001B[38;5;172m'
   const err = wrap(SGR.red)
   const ok = wrap(SGR.green)
   const warn = (text: string): string => `${palette ? amber : SGR.brightYellow}${text}${SGR.reset}`
@@ -203,7 +203,7 @@ export function createTheme(isTty: boolean, env: Record<string, string | undefin
     setLight(light: boolean) {
       isLight = light
       gray = light ? '\u001B[38;5;242m' : '\u001B[38;5;245m'
-      amber = light ? '\u001B[38;5;172m' : '\u001B[38;5;214m'
+      amber = light ? '\u001B[38;5;130m' : '\u001B[38;5;172m'
     },
     dim: text => `${palette ? gray : SGR.dim}${text}${SGR.reset}`,
     bold: wrap(SGR.bold),

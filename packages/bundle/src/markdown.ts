@@ -359,7 +359,7 @@ function renderLine(line: string, theme: Theme, fence: FenceState): string[] {
     }
     const heading = HEADING.exec(line)
     if (heading !== null) {
-      out.push(theme.bold(renderInline(heading[2] ?? '', theme)))
+      out.push(theme.warn(renderInline(heading[2] ?? '', theme)))
       return out
     }
     if (RULE.test(line)) {

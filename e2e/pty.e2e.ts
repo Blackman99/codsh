@@ -312,7 +312,7 @@ describe.skipIf(process.platform === 'win32')('dsh code Escape (real PTY)', () =
     expect(plain).toContain('▲ plan mode')
     expect(plain).toContain('▼ plan mode off')
     // Plan mode paints the frame with warn (amber on 256-color, bright yellow otherwise); idle focus uses accent cyan.
-    expect(output).toMatch(/\u001B\[(?:38;5;214|93)m╭/)
+    expect(output).toMatch(/\u001B\[(?:38;5;172|93)m╭/)
     expect(output).toContain('\u001B[36m╭')
   }, E2E_TEST_TIMEOUT_MS)
 
