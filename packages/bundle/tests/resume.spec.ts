@@ -97,9 +97,11 @@ describe('shapeResume', () => {
 })
 
 describe('indexReplayTiming', () => {
-  it('recovers step thinking time and turn total time from event timestamps', () => {
+  it('recovers distinct step thinking time and step total time for each step', () => {
     const events: SessionEvent[] = [
       { type: 'turn/start', time: 10_000, data: { turn: 1 } } as any,
+
+      // Step 1: thinking 8.3s, step ends at 19_500 (total 9.45s)
       { type: 'step/start', time: 10_050, data: { turn: 1, step: 1 } } as any,
       {
         type: 'assistant/chunk',
@@ -123,13 +125,40 @@ describe('indexReplayTiming', () => {
           },
         },
       } as any,
-      { type: 'step/end', time: 18_410, data: { turn: 1, step: 1 } } as any,
-      { type: 'turn/end', time: 19_150, data: { turn: 1, reason: { kind: 'complete' } } } as any,
+      { type: 'step/end', time: 19_500, data: { turn: 1, step: 1 } } as any,
+
+      // Step 2: thinking 10s, step ends at 35_000 (total 15.4s)
+      { type: 'step/start', time: 19_600, data: { turn: 1, step: 2 } } as any,
+      {
+        type: 'assistant/chunk',
+        time: 29_600,
+        data: { turn: 1, step: 2, chunk: { type: 'reasoning-delta', text: 'thinking 2' } },
+      } as any,
+      {
+        type: 'assistant/message',
+        time: 29_700,
+        data: {
+          turn: 1,
+          step: 2,
+          message: {
+            role: 'assistant',
+            content: [{ type: 'reasoning', text: 'thinking 2' }, { type: 'text', text: 'answer 2' }],
+          },
+        },
+      } as any,
+      { type: 'step/end', time: 35_000, data: { turn: 1, step: 2 } } as any,
+
+      { type: 'turn/end', time: 35_100, data: { turn: 1, reason: { kind: 'complete' } } } as any,
     ]
 
     const timing = indexReplayTiming(events)
+    // Step 1: thought 8.3s, step total 9.45s
     expect(timing.stepThinkingSeconds(1, 1, 18_400)).toBeCloseTo(8.3, 1)
-    expect(timing.turnTotalSeconds(1)).toBeCloseTo(9.15, 1)
+    expect(timing.stepTotalSeconds(1, 1)).toBeCloseTo(9.45, 1)
+
+    // Step 2: thought 10s, step total 15.4s (NOT identical to step 1!)
+    expect(timing.stepThinkingSeconds(1, 2, 29_700)).toBeCloseTo(10.0, 1)
+    expect(timing.stepTotalSeconds(1, 2)).toBeCloseTo(15.4, 1)
   })
 
   it('falls back to assistant message time when chunk events are absent', () => {
@@ -145,11 +174,12 @@ describe('indexReplayTiming', () => {
           message: { role: 'assistant', content: [{ type: 'reasoning', text: 'thinking' }] },
         },
       } as any,
-      { type: 'turn/end', time: 8_000, data: { turn: 1, reason: { kind: 'complete' } } } as any,
+      { type: 'step/end', time: 8_000, data: { turn: 1, step: 1 } } as any,
+      { type: 'turn/end', time: 8_100, data: { turn: 1, reason: { kind: 'complete' } } } as any,
     ]
 
     const timing = indexReplayTiming(events)
     expect(timing.stepThinkingSeconds(1, 1, 7_500)).toBeCloseTo(2.4, 1)
-    expect(timing.turnTotalSeconds(1)).toBeCloseTo(3.0, 1)
+    expect(timing.stepTotalSeconds(1, 1)).toBeCloseTo(2.9, 1)
   })
 })

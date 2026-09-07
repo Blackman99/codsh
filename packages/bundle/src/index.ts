@@ -314,31 +314,30 @@ function replay(session: Session, transcript: Transcript, io: CliIo, theme: Them
  */
 export function indexReplayTiming(events: readonly SessionEvent[]): {
   stepThinkingSeconds: (turn: number, step: number, messageTime?: number) => number | undefined
-  turnTotalSeconds: (turn: number) => number | undefined
+  stepTotalSeconds: (turn: number, step: number) => number | undefined
 } {
-  const turnStarts = new Map<number, number>()
-  const turnEnds = new Map<number, number>()
   const stepStarts = new Map<string, number>()
+  const stepEnds = new Map<string, number>()
   const reasoningEnds = new Map<string, number>()
-  const maxTurnEventTimes = new Map<number, number>()
+  const maxStepEventTimes = new Map<string, number>()
 
   for (const event of events) {
     if (typeof event.time !== 'number' || event.time <= 0) continue
 
     const turn = (event.data as any)?.turn
-    if (typeof turn === 'number') {
-      const prevMax = maxTurnEventTimes.get(turn) ?? 0
-      if (event.time > prevMax) maxTurnEventTimes.set(turn, event.time)
+    const step = (event.data as any)?.step
+    if (typeof turn === 'number' && typeof step === 'number') {
+      const key = `${turn}:${step}`
+      const prevMax = maxStepEventTimes.get(key) ?? 0
+      if (event.time > prevMax) maxStepEventTimes.set(key, event.time)
     }
 
-    if (event.type === 'turn/start' && typeof turn === 'number') {
-      turnStarts.set(turn, event.time)
-    } else if (event.type === 'turn/end' && typeof turn === 'number') {
-      turnEnds.set(turn, event.time)
-    } else if (event.type === 'step/start' && typeof turn === 'number' && typeof (event.data as any)?.step === 'number') {
-      stepStarts.set(`${turn}:${(event.data as any).step}`, event.time)
-    } else if (event.type === 'assistant/chunk' && typeof turn === 'number' && typeof (event.data as any)?.step === 'number') {
-      const key = `${turn}:${(event.data as any).step}`
+    if (event.type === 'step/start' && typeof turn === 'number' && typeof step === 'number') {
+      stepStarts.set(`${turn}:${step}`, event.time)
+    } else if (event.type === 'step/end' && typeof turn === 'number' && typeof step === 'number') {
+      stepEnds.set(`${turn}:${step}`, event.time)
+    } else if (event.type === 'assistant/chunk' && typeof turn === 'number' && typeof step === 'number') {
+      const key = `${turn}:${step}`
       const chunk = (event.data as any).chunk
       if (chunk?.type === 'reasoning-delta') {
         reasoningEnds.set(key, event.time)
@@ -360,16 +359,17 @@ export function indexReplayTiming(events: readonly SessionEvent[]): {
     return undefined
   }
 
-  const turnTotalSeconds = (turn: number): number | undefined => {
-    const start = turnStarts.get(turn) ?? stepStarts.get(`${turn}:1`)
-    const end = turnEnds.get(turn) ?? maxTurnEventTimes.get(turn)
+  const stepTotalSeconds = (turn: number, step: number): number | undefined => {
+    const key = `${turn}:${step}`
+    const start = stepStarts.get(key)
+    const end = stepEnds.get(key) ?? maxStepEventTimes.get(key)
     if (start !== undefined && end !== undefined && end > start) {
       return (end - start) / 1000
     }
     return undefined
   }
 
-  return { stepThinkingSeconds, turnTotalSeconds }
+  return { stepThinkingSeconds, stepTotalSeconds }
 }
 
 /**
@@ -395,7 +395,7 @@ function replayEvents(session: Session, transcript: Transcript, io: CliIo, theme
         transcript.endRun()
         const lines = thought.split('\n').map(line => theme.dim(`  ${line}`))
         const seconds = timing.stepThinkingSeconds(event.data.turn, event.data.step, event.time)
-        const totalSeconds = timing.turnTotalSeconds(event.data.turn)
+        const totalSeconds = timing.stepTotalSeconds(event.data.turn, event.data.step)
         const { summary, full } = thinkingFold(lines, theme, seconds, totalSeconds)
         const agentRule = blockRules(theme).agent
         const blankRule = '  '
@@ -1752,7 +1752,8 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
   // Ctrl+O) away —
   // pages of deliberation would otherwise bury the conversation.
   let turnThinkingMs: number[] = []
-  let currentThought: { summary: readonly string[]; full: readonly string[]; lines: readonly string[]; elapsedMs: number } | undefined
+  let stepStartedAt = 0
+  let currentThought: { summary: readonly string[]; full: readonly string[]; lines: readonly string[]; elapsedMs: number; stepStartedAt: number } | undefined
   const getActiveThought = () => currentThought
   const flushThinking = (): void => {
     const flushed = thinking.flush()
@@ -1761,7 +1762,7 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
     live.transcript.endRun()
     turnThinkingMs.push(flushed.elapsedMs)
     const { summary, full } = thinkingFold(flushed.lines, theme, flushed.elapsedMs / 1000)
-    currentThought = { summary, full, lines: flushed.lines, elapsedMs: flushed.elapsedMs }
+    currentThought = { summary, full, lines: flushed.lines, elapsedMs: flushed.elapsedMs, stepStartedAt }
     const agentRule = blockRules(theme).agent
     const blankRule = '  '
     const summaryRule = theme.colored ? [blankRule, agentRule, blankRule] : agentRule
@@ -1881,8 +1882,20 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
     }
     // `/clear` and `/resume` retire sessions; only the current one renders.
     if (session !== live.agent.session) return
-    if (event.type === 'step/start') thinking.markStepStart()
-    if (event.type === 'step/end') thinking.markStepEnd()
+    if (event.type === 'step/start') {
+      stepStartedAt = performance.now()
+      thinking.markStepStart()
+    }
+    if (event.type === 'step/end') {
+      thinking.markStepEnd()
+      const thought = getActiveThought()
+      if (thought !== undefined) {
+        const stepTotalMs = performance.now() - (thought.stepStartedAt > 0 ? thought.stepStartedAt : performance.now() - thought.elapsedMs)
+        const { summary, full } = thinkingFold(thought.lines, theme, thought.elapsedMs / 1000, stepTotalMs / 1000)
+        io.console.updateFold(thought.summary, thought.full, summary, full)
+        currentThought = undefined
+      }
+    }
     if (event.type === 'tool/call') spinner.setActivity(toolActivity(event.data.name))
     if (event.type === 'tool/result') spinner.setActivity('working')
     // Compaction says so while it runs — the spinner's verb during a turn, the
@@ -2292,8 +2305,8 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
       io.console.setTitle(`dsh code — ${basename(cwd)}`)
       const thought = getActiveThought()
       if (thought !== undefined) {
-        const totalMs = performance.now() - started
-        const { summary, full } = thinkingFold(thought.lines, theme, thought.elapsedMs / 1000, totalMs / 1000)
+        const stepTotalMs = performance.now() - (thought.stepStartedAt > 0 ? thought.stepStartedAt : performance.now() - thought.elapsedMs)
+        const { summary, full } = thinkingFold(thought.lines, theme, thought.elapsedMs / 1000, stepTotalMs / 1000)
         io.console.updateFold(thought.summary, thought.full, summary, full)
         currentThought = undefined
       }
