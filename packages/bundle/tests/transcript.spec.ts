@@ -992,11 +992,9 @@ describe('grok background differentiation across functional blocks', () => {
     expect(errResultLines[1]).toContain('✗')
 
     const think = thinkingFold(['reasoning line'], colorTheme, 1.5)
-    // Collapsed it is one row: padding a single line only stacks the `✻` the
-    // gutter repeats down the block.
-    expect(think.summary[0]).toBe(colorTheme.bgThinking(colorTheme.dim('  thought for 1.5s')))
-    expect(think.summary[1]).toBe('')
-    expect(think.summary).toHaveLength(2)
+    // The collapsed summary is now a single unstyled row that centers naturally.
+    expect(think.summary[0]).toBe(colorTheme.dim('  thought for 1.5s'))
+    expect(think.summary).toHaveLength(1)
     expect(think.full[0]).toBe(colorTheme.bgThinking('  '))
     expect(think.full[1]).toBe(colorTheme.bgThinking(colorTheme.dim('  thought for 1.5s')))
     expect(think.full[2]).toBe(colorTheme.bgThinking('reasoning line'))

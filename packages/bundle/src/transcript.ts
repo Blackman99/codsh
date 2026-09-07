@@ -208,14 +208,15 @@ export function thinkingFold(
 ): { summary: string[], full: string[] } {
   // Glyph lives in the agent gutter (`✻ `); the line is the clock only.
   const clock = seconds === undefined ? 'thought' : `thought for ${formatElapsed(seconds * 1000)}`
-  const head = theme.bgThinking(theme.dim(`${cardIndent(theme)}${clock}`))
+  const text = theme.dim(`${cardIndent(theme)}${clock}`)
+  const headFull = theme.bgThinking(text)
   const pad = blockPad(theme, text => theme.bgThinking(text))
   const gap = hadRun ? [''] : []
   return {
-    // Collapsed it is one row, so it pads to nothing: padding a single line
-    // only stacks the `✻` the gutter repeats on every row of the block.
-    summary: [...gap, head, ''],
-    full: [...gap, ...pad, head, ...lines.map(line => theme.bgThinking(line)), ...pad, ''],
+    // The collapsed summary is a single row with no background color.
+    // Surrounded by tool block padding (bgTool), it appears perfectly centered.
+    summary: [text],
+    full: [...gap, ...pad, headFull, ...lines.map(line => theme.bgThinking(line)), ...pad, ''],
   }
 }
 
