@@ -139,6 +139,7 @@ export class TerminalConsole {
   private backgroundHandler: ((payload: string) => void) | undefined
   private escapeTimer: NodeJS.Timeout | undefined
   private ended = false
+  private lastWritten = ''
   /** The viewport this surface owns on a terminal; absent off one. */
   private readonly screen: Screen | undefined
 
@@ -525,7 +526,14 @@ export class TerminalConsole {
     for (const line of lines) {
       const prefix = line === '' || rule === '' ? '' : rule
       this.output.write(`${prefix}${line}\n`)
+      this.lastWritten = line
     }
+  }
+
+  /** Whether the transcript ends with a blank separator line (or is empty). */
+  hasTrailingBlank(): boolean {
+    if (this.screen !== undefined) return this.screen.hasTrailingBlank()
+    return this.lastWritten === ''
   }
 
   /**

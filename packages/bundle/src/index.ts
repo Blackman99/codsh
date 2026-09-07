@@ -1837,6 +1837,9 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
       if (chunk.type !== 'text-delta') return
       // The answer starting is what collapses the thinking into its summary.
       flushThinking()
+      if (!stream.streamed && !io.console.hasTrailingBlank()) {
+        emit([''])
+      }
       const step = stream.push(chunk.text)
       emit(step.lines, step.live)
       return

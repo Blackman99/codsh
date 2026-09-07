@@ -629,6 +629,11 @@ export class Screen {
     this.paintedGraphic = undefined
   }
 
+  /** Whether the transcript ends with a blank separator line (or is empty). */
+  hasTrailingBlank(): boolean {
+    return this.logical.length === 0 || this.logical.at(-1) === ''
+  }
+
   /**
    * Append finished transcript lines.
    *

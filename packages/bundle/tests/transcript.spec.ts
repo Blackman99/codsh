@@ -62,6 +62,19 @@ describe('assistant and user messages', () => {
     expect(build().render(event)).toEqual(['done', ''])
   })
 
+  it('separates assistant text from a preceding tool call with a blank line', () => {
+    const transcript = build()
+    transcript.render(callEvent('c1', 'bash', { command: 'git status' }))
+    transcript.render(resultEvent('c1', 'working tree clean'))
+    const assistant = {
+      type: 'assistant/message',
+      seq: 3,
+      time: 0,
+      data: { turn: 1, step: 2, message: { role: 'assistant', content: [{ type: 'text', text: 'All done!' }], source: { kind: 'model' } } },
+    } as unknown as SessionEvent
+    expect(transcript.render(assistant)).toEqual(['', 'All done!', ''])
+  })
+
   it('drops an assistant message carrying no visible text', () => {
     const event = {
       type: 'assistant/message',

@@ -425,16 +425,18 @@ export class Transcript {
   render(event: SessionEvent): string[] {
     // Only tool cards share a panel; anything else printed under one ends it,
     // and its own leading rows are the gap.
+    const hadRun = this.run !== undefined
     if (event.type !== 'tool/call' && event.type !== 'tool/result') this.run = undefined
-    return this.renderBlock(event)
+    return this.renderBlock(event, hadRun)
   }
 
   /**
    * One appended event's finished lines, before the run bookkeeping.
    * @param event - the session event to render.
+   * @param hadRun - whether an active tool run was open immediately before this event.
    * @returns the block's lines, empty when the event paints nothing.
    */
-  private renderBlock(event: SessionEvent): string[] {
+  private renderBlock(event: SessionEvent, hadRun = false): string[] {
     const { theme } = this.options
     const rules = blockRules(theme)
     this.rule = ''
@@ -474,7 +476,9 @@ export class Transcript {
       }
       case 'assistant/message': {
         const text = visibleText(event.data.message.content)
-        return text === '' ? [] : [...renderMarkdown(text, theme), '']
+        if (text === '') return []
+        const lines = renderMarkdown(text, theme)
+        return hadRun ? ['', ...lines, ''] : [...lines, '']
       }
       case 'tool/call':
         this.rule = rules.tool

@@ -272,6 +272,16 @@ describe('the viewport it owns on a terminal', () => {
     expect(output.text).not.toContain('\u001B[2J')
   })
 
+  it('reports whether the transcript buffer ends with a blank line', () => {
+    const { console: term } = tty(6, 40)
+    term.enterScreen()
+    expect(term.hasTrailingBlank()).toBe(true)
+    term.write('content line')
+    expect(term.hasTrailingBlank()).toBe(false)
+    term.write('')
+    expect(term.hasTrailingBlank()).toBe(true)
+  })
+
   it('writes the exit summary to the buffer that survives the session', () => {
     const { console: term, output } = tty()
     term.enterScreen()
