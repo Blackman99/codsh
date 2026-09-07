@@ -1,5 +1,64 @@
 # codsh
 
+## 0.17.0
+
+### Minor Changes
+
+- a869d7c: feat(tui): preview a pasted image with the terminal's own graphics protocol, and stop the card corrupting the surface
+  
+  The preview card came up as an empty box in Ghostty and took the rest of the frame with it. Two causes, both fixed:
+  
+  - **The wrong protocol was being sent.** Ghostty, kitty, and WezTerm implement Kitty graphics and ignore `OSC 1337 ; File=`; iTerm2 is the other way round. Sending the wrong one fails silently — the payload is swallowed and the card is blank. The protocol is now read off the terminal: Kitty graphics (`APC _G`, chunked, `C=1` so a placement cannot scroll the layout, `q=2` so the terminal's reply never arrives as keystrokes) for the first three, `OSC 1337` for iTerm2. A multiplexer forwards neither, so inside tmux or screen no graphic is attempted at all.
+  - **The payload was being cut into a row.** Base64 image bytes inside a card row measure as tens of thousands of display columns, so the row fitting cut the escape mid-sequence and dropped its terminator; the terminal then ate every following sequence as string data, which is what smeared the frame across the prompt. The card now reserves blank cells and the frame paints the picture over them at an absolute position — a graphic travels beside the rows, never inside one.
+  
+  Also in this change:
+  
+  - **No native image decoder is loaded in the TTY process.** Pixel dimensions come from a pure-JS header parser (PNG, JPEG, WebP, GIF), and the half-block mosaic used by terminals without a graphics protocol is resampled in a short-lived child process. Loading sharp here pulls libvips in, and with a second copy reachable — a checkout and an installed profile each resolving their own, the normal development shape — the macOS Objective-C runtime prints a `GNotificationCenterDelegate` duplicate-class warning straight to file descriptor 2. There is no JavaScript hook on that write: it lands on the terminal, over a frame the surface believes it owns.
+  - **The card fits the viewport.** It is sized against the rows the chrome leaves rather than the terminal's own height. Measured against the terminal, its caption and bottom border fell off the bottom while the picture kept the space.
+  - **Centered, near-fullscreen, and uncropped** — the whole picture in frame rather than a centre cut of it.
+  - **Ctrl+O, or a click on the card, opens the original** in the platform viewer (Preview.app, `xdg-open`, `start`). When the card closes, a Kitty placement is deleted by id: it is not cell content, so clearing the rows it covered would leave the picture on screen.
+
+### Patch Changes
+
+- 8069e7c: docs: show the surface as it is now — captures, banner, and the gaps in between
+  
+  The pages described a surface two months of UI work had moved on from, and the
+  pictures were worse than the prose: the site's terminals were captured before
+  the panel work landed, and could not have shown it anyway.
+  
+  - **The site's captures can show a panel.** The terminal model behind them
+    tracked foreground colour and attributes only, so every background the
+    surface paints — the person's own message, a tool run, thinking — was dropped
+    on the way out, and the frame generator then read the `2` inside a direct
+    colour as *dim text*. A blank cell carrying a fill is ink, not padding, so it
+    also survives the trailing-blank trim now. Re-shot: the plum message panel,
+    the tool card on its own fill, the collapsed `✻ thought for` row, and the
+    timeline rail are all on the page.
+  - **The README banner is the current surface**, read off a real capture rather
+    than memory — which is how the rules got their colours back: cyan for the
+    person, amber for a tool card, magenta for thinking. It had been showing a
+    thin left rule where the plum panel goes, a status row of fields that moved
+    into `/status` two releases ago, and a placeholder missing half its menus.
+  - **`/ui compact|comfortable` is documented**, in both languages. It persists
+    across sessions and was written down nowhere.
+  - **Inline graphics join the progressive-protocol paragraph**: chosen by what
+    each terminal implements, not by what it is.
+  - **The development loop matches itself.** `CONTRIBUTING.md` sent readers to
+    the README for the `MOCK` modes and `INSPECT=1`, and the README documented
+    neither; the mode list in `scripts/dev.mjs` was four modes short of the
+    fixture it describes; `pnpm run site:screens` sets `CAPTURE_SCREENS=1` on its
+    own and no longer asks to be given it.
+- d273a9e: fix(tui): total a turn's thinking time in the footer instead of listing every segment
+  
+  A turn that stopped to think before each of seventeen tool calls ended on
+  `10m 22s (thought 0.9s, 4.2s, 0.1s, 1.1s, 0.1s, 10.0s, 0.0s, 6.0s, 3.8s, 6.1s, 0.1s, 5.1s, 2.1s, 0.0s, 1.1s, 0.0s, 1.7s) · 9.5M tokens`
+  — a line of durations longer than some of the answers it summarized, and one
+  that said nothing new: every thinking block already carries its own clock, on
+  its own summary row, written into the transcript where that thinking actually
+  happened (`✻ thought for 4.2s`). The footer now reports the total it belongs
+  to instead: `10m 22s (thought 42s) · 9.5M tokens`. A turn with a single
+  thinking block reads exactly as it did before.
+
 ## 0.16.2
 
 ### Patch Changes
