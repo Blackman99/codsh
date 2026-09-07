@@ -1096,12 +1096,20 @@ export class Screen {
     const at = (index: number): number => starts[Math.min(index, this.logical.length)] ?? this.physical.length
     const ranges: { fold: Fold; from: number; to: number }[] = []
     for (const fold of this.folds) {
-      const from = at(fold.at)
       let effectiveLength = fold.shownLength
       const lines = fold.expanded ? fold.full : fold.summary
-      while (effectiveLength > 0 && (lines[effectiveLength - 1] ?? '').trim() === '') {
+      while (effectiveLength > 0 && (lines[effectiveLength - 1] ?? '').replaceAll(STYLES, '').trim() === '') {
         effectiveLength -= 1
       }
+      let effectiveStart = 0
+      while (effectiveStart < effectiveLength && (lines[effectiveStart] ?? '').replaceAll(STYLES, '').trim() === '') {
+        effectiveStart += 1
+      }
+      if (effectiveStart >= effectiveLength) {
+        effectiveStart = 0
+        effectiveLength = fold.shownLength
+      }
+      const from = at(fold.at + effectiveStart)
       const to = Math.max(from, at(fold.at + effectiveLength) - 1)
       ranges.push({ fold, from, to })
     }
@@ -2013,9 +2021,25 @@ export class Screen {
     if (blank && at + replaces.length !== this.logical.length) return undefined
     const delta = shown.length - replaces.length
     this.spliceLines(at, replaces.length, shown, rule)
-    if (delta !== 0) {
-      for (const fold of this.folds) if (fold.at > at) fold.at += delta
-      for (const prompt of this.prompts) if (prompt.at > at) prompt.at += delta
+    for (const fold of this.folds) {
+      if (fold.at > at) {
+        fold.at += delta
+      } else if (fold.at < at && at < fold.at + fold.shownLength) {
+        fold.shownLength = at - fold.at
+        if (fold.summary.length > fold.shownLength) {
+          fold.summary = fold.summary.slice(0, fold.shownLength)
+        }
+      } else if (fold.at === at && fold.shownLength <= replaces.length) {
+        fold.shownLength = 0
+      }
+    }
+    this.folds = this.folds.filter(fold => fold.shownLength > 0)
+    for (const prompt of this.prompts) {
+      if (prompt.at > at) {
+        prompt.at += delta
+      } else if (prompt.at < at && at < prompt.at + prompt.shownLength) {
+        prompt.shownLength = at - prompt.at
+      }
     }
     this.ranges = undefined
     return at
@@ -2309,7 +2333,7 @@ export class Screen {
           const index = at - first
           if (index >= 0 && index < visible.length) {
             const rawRow = visible[index] ?? ''
-            if (rawRow.trim() === '') continue
+            if (rawRow.replaceAll(STYLES, '').trim() === '') continue
             const vpIndex = (sticky !== undefined ? (sticky.state === 'pinned' ? sticky.reservedRows : sticky.renderHeight) : 0) + index
             if (vpIndex < viewport.length) {
               viewport[vpIndex] = fill(rawRow, contentWidth, this.light)

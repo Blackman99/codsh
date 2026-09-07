@@ -2795,4 +2795,70 @@ describe('overlay graphics', () => {
     screen.leave()
     expect(flush(sink)).toContain('CLEAR')
   })
+
+  it('accurately hovers each fold when consecutive tool cards join a panel', () => {
+    const sink = host(10, 80)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['status'], { row: 0, column: 0 }, false)
+
+    const pad = '\u001B[48;2;14;18;24m  \u001B[0m'
+    const card1 = '\u001B[48;2;14;18;24m● Read a.ts (1 - 100) ✔\u001B[0m'
+    screen.appendFold([pad, card1, pad], [pad, card1, 'full 1', pad], '', 'Read a.ts')
+    flush(sink)
+
+    // Card 2 starts and takes over the closing pad
+    const card2_pending = '\u001B[48;2;14;18;24m● Read b.ts (101 - 200)\u001B[0m'
+    screen.append([card2_pending, pad], '', [pad])
+    flush(sink)
+
+    // Card 2 finishes
+    const card2 = '\u001B[48;2;14;18;24m● Read b.ts (101 - 200) ✔\u001B[0m'
+    screen.appendFold([card2, pad], [card2, 'full 2', pad], '', 'Read b.ts', undefined, undefined, [card2_pending, pad])
+    flush(sink)
+
+    // Row 1 is pad, Row 2 is card1, Row 3 is card2, Row 4 is pad
+    // Hovering row 2 should select Card 1
+    expect(screen.mouseMove(2, 5)?.label).toBe('Read a.ts')
+    let frame = flush(sink)
+    // Only row 2 should have hover fill, not row 3
+    expect(frame).toContain('\u001B[48;5;236m● Read a.ts')
+    expect(frame).not.toContain('\u001B[48;5;236m● Read b.ts')
+
+    // Hovering row 3 should select Card 2
+    expect(screen.mouseMove(3, 5)?.label).toBe('Read b.ts')
+    frame = flush(sink)
+    // Only row 3 should have hover fill, not row 2
+    expect(frame).toContain('\u001B[48;5;236m● Read b.ts')
+    expect(frame).not.toContain('\u001B[48;5;236m● Read a.ts')
+
+    // Add Card 3 taking over closing pad of Card 2
+    const card3_pending = '\u001B[48;2;14;18;24m● Read c.ts (201 - 300)\u001B[0m'
+    screen.append([card3_pending, pad], '', [pad])
+    const card3 = '\u001B[48;2;14;18;24m● Read c.ts (201 - 300) ✔\u001B[0m'
+    screen.appendFold([card3, pad], [card3, 'full 3', pad], '', 'Read c.ts', undefined, undefined, [card3_pending, pad])
+    flush(sink)
+
+    // Now Row 1 is pad, Row 2 is card1, Row 3 is card2, Row 4 is card3, Row 5 is pad
+    expect(screen.mouseMove(2, 5)?.label).toBe('Read a.ts')
+    expect(screen.mouseMove(3, 5)?.label).toBe('Read b.ts')
+    expect(screen.mouseMove(4, 5)?.label).toBe('Read c.ts')
+
+    // Clicking Card 2 (row 3) should toggle Card 2 only
+    screen.mouseDown(3, 5)
+    screen.mouseUp()
+    let expandedFrame = flush(sink)
+    expect(expandedFrame).toContain('full 2')
+    expect(expandedFrame).toContain('● Read a.ts (1 - 100) ✔')
+    expect(expandedFrame).toContain('● Read c.ts (201 - 300) ✔')
+
+    // Clicking it again should fold it back
+    screen.mouseDown(3, 5)
+    screen.mouseUp()
+    let foldedFrame = flush(sink)
+    expect(foldedFrame).not.toContain('full 2')
+    expect(foldedFrame).toContain('● Read a.ts (1 - 100) ✔')
+    expect(foldedFrame).toContain('● Read b.ts (101 - 200) ✔')
+    expect(foldedFrame).toContain('● Read c.ts (201 - 300) ✔')
+  })
 })
