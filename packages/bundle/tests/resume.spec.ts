@@ -3,6 +3,8 @@
 import { describe, expect, it } from 'vitest'
 import { age, shapeResume } from '../src/resume.ts'
 import type { ResumeCandidate } from '../src/resume.ts'
+import { indexReplayTiming } from '../src/index.ts'
+import type { SessionEvent } from '@deepseek-ai/dsh-session'
 
 const NOW = 1_700_000_000_000
 const ago = (ms: number): number => NOW - ms
@@ -91,5 +93,63 @@ describe('shapeResume', () => {
     expect(elsewhere.map(r => r.id)).toEqual(['a'])
     // Nothing to name, so nothing is added beyond the age.
     expect(elsewhere[0]?.detail).toBe('just now')
+  })
+})
+
+describe('indexReplayTiming', () => {
+  it('recovers step thinking time and turn total time from event timestamps', () => {
+    const events: SessionEvent[] = [
+      { type: 'turn/start', time: 10_000, data: { turn: 1 } } as any,
+      { type: 'step/start', time: 10_050, data: { turn: 1, step: 1 } } as any,
+      {
+        type: 'assistant/chunk',
+        time: 18_350,
+        data: { turn: 1, step: 1, chunk: { type: 'reasoning-delta', text: 'thinking' } },
+      } as any,
+      {
+        type: 'assistant/chunk',
+        time: 18_360,
+        data: { turn: 1, step: 1, chunk: { type: 'text-delta', text: 'answer' } },
+      } as any,
+      {
+        type: 'assistant/message',
+        time: 18_400,
+        data: {
+          turn: 1,
+          step: 1,
+          message: {
+            role: 'assistant',
+            content: [{ type: 'reasoning', text: 'thinking' }, { type: 'text', text: 'answer' }],
+          },
+        },
+      } as any,
+      { type: 'step/end', time: 18_410, data: { turn: 1, step: 1 } } as any,
+      { type: 'turn/end', time: 19_150, data: { turn: 1, reason: { kind: 'complete' } } } as any,
+    ]
+
+    const timing = indexReplayTiming(events)
+    expect(timing.stepThinkingSeconds(1, 1, 18_400)).toBeCloseTo(8.3, 1)
+    expect(timing.turnTotalSeconds(1)).toBeCloseTo(9.15, 1)
+  })
+
+  it('falls back to assistant message time when chunk events are absent', () => {
+    const events: SessionEvent[] = [
+      { type: 'turn/start', time: 5_000, data: { turn: 1 } } as any,
+      { type: 'step/start', time: 5_100, data: { turn: 1, step: 1 } } as any,
+      {
+        type: 'assistant/message',
+        time: 7_500,
+        data: {
+          turn: 1,
+          step: 1,
+          message: { role: 'assistant', content: [{ type: 'reasoning', text: 'thinking' }] },
+        },
+      } as any,
+      { type: 'turn/end', time: 8_000, data: { turn: 1, reason: { kind: 'complete' } } } as any,
+    ]
+
+    const timing = indexReplayTiming(events)
+    expect(timing.stepThinkingSeconds(1, 1, 7_500)).toBeCloseTo(2.4, 1)
+    expect(timing.turnTotalSeconds(1)).toBeCloseTo(3.0, 1)
   })
 })

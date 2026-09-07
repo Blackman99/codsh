@@ -308,6 +308,71 @@ function replay(session: Session, transcript: Transcript, io: CliIo, theme: Them
 }
 
 /**
+ * Index step and turn boundary timestamps to restore thinking and turn clocks on replay.
+ * @param events - the session snapshot events.
+ * @returns lookup functions for thinking duration and turn duration.
+ */
+export function indexReplayTiming(events: readonly SessionEvent[]): {
+  stepThinkingSeconds: (turn: number, step: number, messageTime?: number) => number | undefined
+  turnTotalSeconds: (turn: number) => number | undefined
+} {
+  const turnStarts = new Map<number, number>()
+  const turnEnds = new Map<number, number>()
+  const stepStarts = new Map<string, number>()
+  const reasoningEnds = new Map<string, number>()
+  const maxTurnEventTimes = new Map<number, number>()
+
+  for (const event of events) {
+    if (typeof event.time !== 'number' || event.time <= 0) continue
+
+    const turn = (event.data as any)?.turn
+    if (typeof turn === 'number') {
+      const prevMax = maxTurnEventTimes.get(turn) ?? 0
+      if (event.time > prevMax) maxTurnEventTimes.set(turn, event.time)
+    }
+
+    if (event.type === 'turn/start' && typeof turn === 'number') {
+      turnStarts.set(turn, event.time)
+    } else if (event.type === 'turn/end' && typeof turn === 'number') {
+      turnEnds.set(turn, event.time)
+    } else if (event.type === 'step/start' && typeof turn === 'number' && typeof (event.data as any)?.step === 'number') {
+      stepStarts.set(`${turn}:${(event.data as any).step}`, event.time)
+    } else if (event.type === 'assistant/chunk' && typeof turn === 'number' && typeof (event.data as any)?.step === 'number') {
+      const key = `${turn}:${(event.data as any).step}`
+      const chunk = (event.data as any).chunk
+      if (chunk?.type === 'reasoning-delta') {
+        reasoningEnds.set(key, event.time)
+      } else if (chunk?.type === 'block-end' && chunk?.block?.type === 'reasoning') {
+        reasoningEnds.set(key, event.time)
+      } else if (chunk?.type === 'text-delta' || chunk?.type === 'tool-call-delta') {
+        if (!reasoningEnds.has(key)) reasoningEnds.set(key, event.time)
+      }
+    }
+  }
+
+  const stepThinkingSeconds = (turn: number, step: number, messageTime?: number): number | undefined => {
+    const key = `${turn}:${step}`
+    const start = stepStarts.get(key)
+    const end = reasoningEnds.get(key) ?? messageTime
+    if (start !== undefined && end !== undefined && end > start) {
+      return (end - start) / 1000
+    }
+    return undefined
+  }
+
+  const turnTotalSeconds = (turn: number): number | undefined => {
+    const start = turnStarts.get(turn) ?? stepStarts.get(`${turn}:1`)
+    const end = turnEnds.get(turn) ?? maxTurnEventTimes.get(turn)
+    if (start !== undefined && end !== undefined && end > start) {
+      return (end - start) / 1000
+    }
+    return undefined
+  }
+
+  return { stepThinkingSeconds, turnTotalSeconds }
+}
+
+/**
  * Render every recorded event into the transcript.
  * @param session - the session being replayed.
  * @param transcript - the renderer to pour it through.
@@ -315,7 +380,9 @@ function replay(session: Session, transcript: Transcript, io: CliIo, theme: Them
  * @param theme - styling for the replayed thinking folds.
  */
 function replayEvents(session: Session, transcript: Transcript, io: CliIo, theme: Theme): void {
-  for (const event of session.snapshotEvents()) {
+  const events = session.snapshotEvents()
+  const timing = indexReplayTiming(events)
+  for (const event of events) {
     // Thinking is in the log but not in the renderer's visible text: replay it
     // the way the turn showed it, one dim line with the deliberation behind
     // Ctrl+O, so a resumed session is that session rather than a redacted copy.
@@ -327,7 +394,9 @@ function replayEvents(session: Session, transcript: Transcript, io: CliIo, theme
       if (thought !== '') {
         transcript.endRun()
         const lines = thought.split('\n').map(line => theme.dim(`  ${line}`))
-        const { summary, full } = thinkingFold(lines, theme)
+        const seconds = timing.stepThinkingSeconds(event.data.turn, event.data.step, event.time)
+        const totalSeconds = timing.turnTotalSeconds(event.data.turn)
+        const { summary, full } = thinkingFold(lines, theme, seconds, totalSeconds)
         const agentRule = blockRules(theme).agent
         const blankRule = '  '
         const summaryRule = theme.colored ? [blankRule, agentRule, blankRule] : agentRule
