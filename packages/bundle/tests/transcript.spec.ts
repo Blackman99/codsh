@@ -9,7 +9,7 @@ import type { ToolCallView, ToolResultView } from '@deepseek-ai/dsh-tools'
 import { describe, expect, it } from 'vitest'
 import { createTheme, displayWidth } from '../src/theme.ts'
 import { gutter } from '../src/gutter.ts'
-import { Transcript, blockRules, childSessionId, formatToolCardLine, thinkingFold, type ToolPresenters } from '../src/transcript.ts'
+import { Transcript, blockRules, childSessionId, formatAskUserQuestionResult, formatToolCardLine, presentAskUserQuestionResult, thinkingFold, type ToolPresenters } from '../src/transcript.ts'
 import type { Density } from '../src/density.ts'
 
 const theme = createTheme(false, {})
@@ -254,6 +254,60 @@ describe('tool results', () => {
     const transcript = build()
     transcript.render(callEvent('c1', 'bash', {}))
     expect(transcript.render(resultEvent('c1', 'exit 1', true))[0]).toBe('● bash ✗')
+  })
+
+  it('renders ask_user_question result directly as the user reply instead of raw json', () => {
+    const transcript = build()
+    transcript.render(callEvent('c1', 'ask_user_question', { questions: [{ id: 'q1', question: 'Which mode?' }] }))
+    const resultJson = JSON.stringify({ answers: [{ id: 'q1', selected: ['Fast mode (Recommended)'] }] })
+    expect(transcript.render(resultEvent('c1', resultJson))).toEqual([
+      '● ask_user_question ✔',
+      '  Fast mode (Recommended)',
+      '',
+    ])
+  })
+
+  it('renders custom reply for ask_user_question directly as plain text', () => {
+    const transcript = build()
+    transcript.render(callEvent('c1', 'ask_user_question', { questions: [{ id: 'q1', question: 'Any comments?' }] }))
+    const resultJson = JSON.stringify({ answers: [{ id: 'q1', selected: [], custom: 'Please keep existing tests.' }] })
+    expect(transcript.render(resultEvent('c1', resultJson))).toEqual([
+      '● ask_user_question ✔',
+      '  Please keep existing tests.',
+      '',
+    ])
+  })
+
+  it('renders multiple answers for ask_user_question on separate lines', () => {
+    const transcript = build()
+    transcript.render(callEvent('c1', 'ask_user_question', {
+      questions: [
+        { id: 'q1', question: 'Target?' },
+        { id: 'q2', question: 'Confirm?' },
+      ],
+    }))
+    const resultJson = JSON.stringify({
+      answers: [
+        { id: 'q1', selected: ['Production'] },
+        { id: 'q2', custom: 'yes proceed' },
+      ],
+    })
+    expect(transcript.render(resultEvent('c1', resultJson))).toEqual([
+      '● ask_user_question ✔',
+      '  Production',
+      '  yes proceed',
+      '',
+    ])
+  })
+
+  it('renders no body when ask_user_question answers are empty (aborted/dismissed)', () => {
+    const transcript = build()
+    transcript.render(callEvent('c1', 'ask_user_question', { questions: [{ id: 'q1', question: 'Confirm?' }] }))
+    const resultJson = JSON.stringify({ answers: [{ id: 'q1', selected: [] }] })
+    expect(transcript.render(resultEvent('c1', resultJson))).toEqual([
+      '● ask_user_question ✔',
+      '',
+    ])
   })
 
   it('shows a workflow run as it goes, instead of only when it returns', () => {
@@ -1153,5 +1207,74 @@ describe('grok background differentiation across functional blocks', () => {
     expect(second[0]).not.toBe(pad)
     expect(second[0]).toContain('git status')
     expect(second[second.length - 1]).toBe(pad)
+  })
+})
+
+describe('formatAskUserQuestionResult', () => {
+  it('extracts selected option labels', () => {
+    expect(formatAskUserQuestionResult(JSON.stringify({ answers: [{ id: 'q1', selected: ['Option A'] }] })))
+      .toBe('Option A')
+  })
+
+  it('extracts comma-separated multi-select choices', () => {
+    expect(formatAskUserQuestionResult(JSON.stringify({ answers: [{ id: 'q1', selected: ['Opt 1', 'Opt 2'] }] })))
+      .toBe('Opt 1, Opt 2')
+  })
+
+  it('extracts custom typed replies', () => {
+    expect(formatAskUserQuestionResult(JSON.stringify({ answers: [{ id: 'q1', selected: [], custom: 'custom text' }] })))
+      .toBe('custom text')
+  })
+
+  it('combines multiple questions on separate lines', () => {
+    expect(formatAskUserQuestionResult(JSON.stringify({
+      answers: [
+        { id: 'q1', selected: ['Opt 1'] },
+        { id: 'q2', custom: 'note' },
+      ],
+    }))).toBe('Opt 1\nnote')
+  })
+
+  it('returns empty string for empty answers', () => {
+    expect(formatAskUserQuestionResult(JSON.stringify({ answers: [{ id: 'q1', selected: [] }] })))
+      .toBe('')
+    expect(formatAskUserQuestionResult(JSON.stringify({ answers: [] }))).toBe('')
+    expect(formatAskUserQuestionResult('')).toBe('')
+  })
+
+  it('passes non-JSON text through unharmed', () => {
+    expect(formatAskUserQuestionResult('plain text answer')).toBe('plain text answer')
+  })
+})
+
+describe('presentAskUserQuestionResult', () => {
+  it('returns generic card with formatted reply', () => {
+    const result = {
+      content: [{ type: 'text' as const, text: JSON.stringify({ answers: [{ id: 'q1', selected: ['Yes'] }] }) }],
+      isError: false,
+    }
+    expect(presentAskUserQuestionResult(result)).toEqual({
+      card: 'generic',
+      content: [{ type: 'text', text: 'Yes' }],
+    })
+  })
+
+  it('returns empty content when answers are empty', () => {
+    const result = {
+      content: [{ type: 'text' as const, text: JSON.stringify({ answers: [{ id: 'q1', selected: [] }] }) }],
+      isError: false,
+    }
+    expect(presentAskUserQuestionResult(result)).toEqual({
+      card: 'generic',
+      content: [],
+    })
+  })
+
+  it('returns undefined when tool execution failed', () => {
+    const result = {
+      content: [{ type: 'text' as const, text: 'ask_user_question failed' }],
+      isError: true,
+    }
+    expect(presentAskUserQuestionResult(result)).toBeUndefined()
   })
 })

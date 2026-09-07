@@ -171,9 +171,10 @@ describe('dsh code (real profile, keyless model)', () => {
     // never left for the next boot. Fake executables stand in for npm and dsh,
     // so no suite reaches npm or a real profile.
     const fake = await mkdtemp(join(tmpdir(), 'codsh-pipe-fake-bin-'))
+    const fakeLog = join(fake, 'fake.log')
     try {
-      await writeFile(join(fake, 'npm'), '#!/usr/bin/env node\nconsole.log(`FAKE_NPM ${process.argv.slice(2).join(" ")}`)\n', { mode: 0o755 })
-      await writeFile(join(fake, 'dsh'), '#!/usr/bin/env node\nconsole.log(`FAKE_DSH ${process.argv.slice(2).join(" ")}`)\n', { mode: 0o755 })
+      await writeFile(join(fake, 'npm'), '#!/usr/bin/env node\nconst fs = require("node:fs"); fs.appendFileSync(process.env.FAKE_LOG, `FAKE_NPM ${process.argv.slice(2).join(" ")}\\n`);\n', { mode: 0o755 })
+      await writeFile(join(fake, 'dsh'), '#!/usr/bin/env node\nconst fs = require("node:fs"); fs.appendFileSync(process.env.FAKE_LOG, `FAKE_DSH ${process.argv.slice(2).join(" ")}\\n`);\n', { mode: 0o755 })
       const registry = await fakeRegistry('9.9.9')
       try {
         const run = await runCodeCli({
@@ -182,12 +183,16 @@ describe('dsh code (real profile, keyless model)', () => {
           env: {
             CODSH_UPDATE_REGISTRY: registry.base,
             DSH_BIN: join(fake, 'dsh'),
+            FAKE_LOG: fakeLog,
             PATH: `${fake}${delimiter}${process.env.PATH ?? ''}`,
           },
         })
 
-        expect(run.stdout).toContain('FAKE_NPM install -g codsh-cli@9.9.9')
-        expect(run.stdout).toContain('FAKE_DSH plugin --profile code add codsh-bundle@^9.9.9')
+        const logged = await readFile(fakeLog, 'utf8')
+        expect(logged).toContain('FAKE_NPM install -g codsh-cli@9.9.9')
+        expect(logged).toContain('FAKE_DSH plugin --profile code add codsh-bundle@^9.9.9')
+        expect(run.stdout).not.toContain('FAKE_NPM')
+        expect(run.stdout).not.toContain('FAKE_DSH')
         expect(run.stdout).toContain('codsh 9.9.9 installed · the code profile now carries codsh-bundle@^9.9.9')
         expect(run.stdout).not.toContain('the next codsh start registers')
         expect(run.exitCode).toBe(0)

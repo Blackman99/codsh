@@ -728,7 +728,8 @@ export class Transcript {
       // The call fell outside this surface's window (a resumed page boundary);
       // the raw result still prints rather than vanishing.
       const marker = failed ? theme.err('✗') : theme.ok('●')
-      const text = this.resultText(block.content)
+      const rawText = this.resultText(block.content)
+      const text = failed ? rawText : formatAskUserQuestionResult(rawText)
       const { body, full } = this.capBody(text.split('\n').map(line => bg(line)), MAX_RESULT_LINES)
       const head = bg(`${cardIndent(theme)}${marker} ${theme.dim('(result)')}`)
       const enter = failed ? undefined : childSessionId(text)
@@ -747,7 +748,7 @@ export class Transcript {
     }
     const view = this.safeResult(pending, block.content, failed, meta)
     const title = view?.title === undefined ? pending.title : this.relativizeIn(view.title)
-    const { suffix, body, full } = this.outcome(view, block, pending)
+    const { suffix, body, full } = this.outcome(view, block, pending, failed)
     const enter = failed ? undefined : childSessionId(this.resultText(block.content))
     const hint = enter === undefined ? [] : [bg(theme.dim('  click to enter'))]
     // One stable ToolCard line: ● · title · +n -m · ✔/✗. Truncate the title
@@ -956,6 +957,7 @@ export class Transcript {
     view: ToolResultView | undefined,
     block: { content: ContentBlock[] },
     pending?: PendingCall,
+    failed = false,
   ): { suffix: string; body: string[]; full?: string[] } {
     const { theme } = this.options
     const capped = (lines: string[], limit: number, hint?: string): { body: string[]; full?: string[] } =>
@@ -1010,7 +1012,10 @@ export class Transcript {
         ...body.length === 0 ? {} : { full: body },
       }
     }
-    const text = this.resultText(view?.card === 'generic' && view.content !== undefined ? view.content : block.content)
+    let text = this.resultText(view?.card === 'generic' && view.content !== undefined ? view.content : block.content)
+    if (pending?.name === 'ask_user_question' && !failed) {
+      text = formatAskUserQuestionResult(text)
+    }
     // A successful call whose result the model reads but a reader does not need
     // (an editor's confirmation line) stays out of the transcript body.
     if (text === '') return { suffix: '', body: [] }
@@ -1066,5 +1071,61 @@ export class Transcript {
       // A throwing presenter degrades this card; it never breaks the transcript.
       return undefined
     }
+  }
+}
+
+/**
+ * Format an ask_user_question tool result into human-facing text.
+ * If the result is a JSON string containing an `answers` array, extracts and formats
+ * the user's answers (selected options or custom text) directly instead of displaying raw JSON.
+ *
+ * @param text - the raw result text (typically JSON.stringify({ answers })).
+ * @returns the formatted human-readable answer string.
+ */
+export function formatAskUserQuestionResult(text: string): string {
+  const trimmed = text.trim()
+  if (trimmed === '') return ''
+  try {
+    const parsed: unknown = JSON.parse(trimmed)
+    if (typeof parsed === 'object' && parsed !== null && Array.isArray((parsed as { answers?: unknown }).answers)) {
+      const answers = (parsed as { answers: unknown[] }).answers
+      const lines: string[] = []
+      for (const item of answers) {
+        if (typeof item !== 'object' || item === null) continue
+        const answer = item as { selected?: unknown; custom?: unknown }
+        const parts: string[] = []
+        if (Array.isArray(answer.selected)) {
+          const selected = answer.selected.filter((s): s is string => typeof s === 'string' && s.trim() !== '')
+          if (selected.length > 0) parts.push(selected.join(', '))
+        }
+        if (typeof answer.custom === 'string' && answer.custom.trim() !== '') {
+          parts.push(answer.custom.trim())
+        }
+        if (parts.length > 0) {
+          lines.push(parts.join(', '))
+        }
+      }
+      return lines.join('\n')
+    }
+  } catch {
+    // Not valid JSON, return original text.
+  }
+  return text
+}
+
+/**
+ * Result presenter for `ask_user_question` tool calls, displaying the user's
+ * reply directly as clean text rather than raw `{ answers: [...] }` JSON.
+ *
+ * @param result - the tool execution result.
+ * @returns the generic tool result view with formatted text content.
+ */
+export function presentAskUserQuestionResult(result: ToolResult): ToolResultView | undefined {
+  if (result.isError) return undefined
+  const raw = visibleText(result.content).trimEnd()
+  const text = formatAskUserQuestionResult(raw)
+  return {
+    card: 'generic',
+    content: text === '' ? [] : [{ type: 'text', text }],
   }
 }

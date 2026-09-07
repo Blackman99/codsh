@@ -167,7 +167,11 @@ function sleepSync(ms: number): void {
 
 function installTemplate(): void {
   rmSync(templateHome, { recursive: true, force: true })
-  const packed = execFileSync('npm', ['pack', '--pack-destination', templateCache], { cwd: bundleRoot, encoding: 'utf8' })
+  const packed = execFileSync('npm', ['pack', '--pack-destination', templateCache], {
+    cwd: bundleRoot,
+    encoding: 'utf8',
+    env: { ...process.env, npm_config_cache: join(templateCache, 'npm-cache') },
+  })
     .trim().split('\n').at(-1) ?? ''
   execFileSync(process.execPath, [dshBin(), 'plugin', '--profile', 'code', 'add', join(templateCache, packed)], {
     env: { ...process.env, DSH_HOME: templateHome },

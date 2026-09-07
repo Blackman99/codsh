@@ -109,7 +109,7 @@ import type { PendingImage } from './prompt.ts'
 import type { TodoList } from './todos.ts'
 import type { ShipChip, StatusFacts } from './status.ts'
 import { backgroundIsLight, createTheme, truncate } from './theme.ts'
-import { FOLD_LABELS, Transcript, blockRules, thinkingFold } from './transcript.ts'
+import { FOLD_LABELS, Transcript, blockRules, presentAskUserQuestionResult, thinkingFold } from './transcript.ts'
 import type { Theme } from './theme.ts'
 
 /** Stable Cordis plugin name. */
@@ -192,8 +192,14 @@ async function latestSessionIn(ctx: Context, cwd: string): Promise<SessionId | u
 function presentersFor(ctx: Context, agent: Agent) {
   return {
     call: (toolName: string, args: unknown) => ctx.tools.get(toolName, agent)?.presentCall?.(args),
-    result: (toolName: string, args: unknown, result: ToolResult) =>
-      ctx.tools.get(toolName, agent)?.presentResult?.(args, result),
+    result: (toolName: string, args: unknown, result: ToolResult) => {
+      const fromTool = ctx.tools.get(toolName, agent)?.presentResult?.(args, result)
+      if (fromTool !== undefined) return fromTool
+      if (toolName === 'ask_user_question') {
+        return presentAskUserQuestionResult(result)
+      }
+      return undefined
+    },
   }
 }
 
@@ -1231,70 +1237,65 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
     disposers.push(commands.register({
       name: 'update',
       description: 'check for a newer codsh and install it',
-      handler: async () => {
+      handler: async ({ signal }) => {
         if (version === undefined) return { kind: 'error', text: 'this build carries no version to compare' }
         // Asked for by name, so it asks the registry even when the automatic
         // check is silenced, and never answers from yesterday's cache.
-        const status = await checkForUpdate({ current: version, cachePath: updateCachePath, force: true })
-        if (status === undefined) return { kind: 'error', text: 'could not reach the npm registry' }
-        if (!status.available) return { kind: 'success', text: `codsh ${status.current} is the latest` }
-        const command = updateCommand(status.latest)
-        const [file = 'npm', ...args] = command
-        prompt.write(`${theme.pending('●')} ${theme.tool('update')}`)
-        let streamed = 0
-        const stream = (line: string): void => {
-          if (streamed < config.bangOutputLines) prompt.write(`  ${line}`)
-          streamed += 1
-        }
-        prompt.write(`  $ ${command.join(' ')}`)
-        const result = await capture(file, args, {
-          cwd,
-          timeoutMs: config.bangTimeoutMs,
-          onLine: stream,
-        })
-        prompt.write('')
-        if (result.code !== 0 || result.signal !== null) {
-          return { kind: 'error', text: `update failed — run ${command.join(' ')} yourself` }
-        }
-        // The launcher is installed, so the profile's runtime should move to
-        // match now. The next boot used to be the moment the profile caught
-        // up, but an update is one decision, and a profile launched straight
-        // through dsh never sees a boot-time registration. A pinned runtime is
-        // still left alone, and the running process still cannot become what
-        // it just installed.
-        const spec = runtimeSpec(status.latest)
-        const restart = { kind: 'success' as const, text: `codsh ${status.latest} installed · /exit, then start codsh again` }
-        let dependencies: Record<string, string> | undefined
+        spinner.setActivity('updating')
+        spinner.start()
         try {
-          const manifest = JSON.parse(await readFile(dshHomePath('profiles', PROFILE, 'package.json'), 'utf8')) as {
-            dependencies?: Record<string, string>
+          const status = await checkForUpdate({ current: version, cachePath: updateCachePath, force: true })
+          if (status === undefined) return { kind: 'error', text: 'could not reach the npm registry' }
+          if (!status.available) return { kind: 'success', text: `codsh ${status.current} is the latest` }
+          const command = updateCommand(status.latest)
+          const [file = 'npm', ...args] = command
+          const result = await capture(file, args, {
+            cwd,
+            signal,
+            timeoutMs: config.bangTimeoutMs,
+          })
+          if (result.code !== 0 || result.signal !== null) {
+            return { kind: 'error', text: `update failed — run ${command.join(' ')} yourself` }
           }
-          dependencies = manifest.dependencies
-        } catch {
-          // No readable profile yet: an update registers a fresh one.
-        }
-        if (runtimeMove(status.latest, dependencies) !== 'register') return restart
-        const dsh = runningDsh()
-        if (dsh === undefined) return restart
-        const register = runtimeRegisterCommand(dsh, status.latest)
-        const [registerFile = 'dsh', ...registerArgs] = register
-        streamed = 0
-        prompt.write(`  $ ${register.join(' ')}`)
-        const moved = await capture(registerFile, registerArgs, {
-          cwd,
-          timeoutMs: config.bangTimeoutMs,
-          onLine: stream,
-        })
-        prompt.write('')
-        if (moved.code !== 0 || moved.signal !== null) {
+          // The launcher is installed, so the profile's runtime should move to
+          // match now. The next boot used to be the moment the profile caught
+          // up, but an update is one decision, and a profile launched straight
+          // through dsh never sees a boot-time registration. A pinned runtime is
+          // still left alone, and the running process still cannot become what
+          // it just installed.
+          const spec = runtimeSpec(status.latest)
+          const restart = { kind: 'success' as const, text: `codsh ${status.latest} installed · /exit, then start codsh again` }
+          let dependencies: Record<string, string> | undefined
+          try {
+            const manifest = JSON.parse(await readFile(dshHomePath('profiles', PROFILE, 'package.json'), 'utf8')) as {
+              dependencies?: Record<string, string>
+            }
+            dependencies = manifest.dependencies
+          } catch {
+            // No readable profile yet: an update registers a fresh one.
+          }
+          if (runtimeMove(status.latest, dependencies) !== 'register') return restart
+          const dsh = runningDsh()
+          if (dsh === undefined) return restart
+          const register = runtimeRegisterCommand(dsh, status.latest)
+          const [registerFile = 'dsh', ...registerArgs] = register
+          const moved = await capture(registerFile, registerArgs, {
+            cwd,
+            signal,
+            timeoutMs: config.bangTimeoutMs,
+          })
+          if (moved.code !== 0 || moved.signal !== null) {
+            return {
+              kind: 'error',
+              text: `codsh ${status.latest} installed, but ${spec} could not be registered into the code profile · /exit, then start codsh again to retry it`,
+            }
+          }
           return {
             kind: 'success',
-            text: `codsh ${status.latest} installed, but ${spec} could not be registered into the code profile · /exit, then start codsh again to retry it`,
+            text: `codsh ${status.latest} installed · the code profile now carries ${spec} · /exit, then start codsh again`,
           }
-        }
-        return {
-          kind: 'success',
-          text: `codsh ${status.latest} installed · the code profile now carries ${spec} · /exit, then start codsh again`,
+        } finally {
+          spinner.stop()
         }
       },
     }))
