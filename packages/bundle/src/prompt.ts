@@ -23,6 +23,10 @@ import { FullscreenViewer } from './viewer.ts'
 import { DEFAULT_DENSITY, type Density } from './density.ts'
 import { truncate } from './theme.ts'
 import { todoReport, todoRow } from './todos.ts'
+import { MessageQueue } from './queue.ts'
+import { QueuePanel, queueRow, steerRefusal, steeringRow } from './queue-panel.ts'
+import type { QueueItem } from './queue.ts'
+import type { PanelAction, PanelTarget } from './queue-panel.ts'
 import type { EncodedImageAttachment } from '@deepseek-ai/dsh-attachment/types'
 import type { ClipboardImage } from './clipboard-image.ts'
 import type { TerminalConsole } from './console.ts'
@@ -72,6 +76,15 @@ export interface PromptHandlers {
    * @param gate - 1 or 2 while open, undefined when cleared.
    */
   shipGate?(gate: 1 | 2 | undefined): void
+  /**
+   * Ctrl-Enter, or `s` in the queue panel: hand a prompt to the RUNNING turn.
+   *
+   * The owner prepares its images and gives it to the agent's inbox; the
+   * prompt shows it as steering until {@link Prompt.steerClaimed} says the
+   * model has it, or {@link Prompt.steerReturned} gives it back.
+   * @returns 'steered' once the agent holds it; 'idle' when no turn was running to take it.
+   */
+  steer?(item: QueueItem): Promise<'steered' | 'idle'>
 }
 
 /**
@@ -99,8 +112,16 @@ export interface PendingImage {
   thumbnailRequested?: boolean
 }
 
-/** One waiting read. */
+/**
+ * One waiting read.
+ *
+ * A `turn` read is the loop asking for the next thing to run, and type-ahead
+ * answers it first. An `answer` read is a question asked mid-turn, which only
+ * the keyboard may answer: a line queued for the next turn is not a reply to a
+ * question nobody had asked yet.
+ */
 interface Pending {
+  kind: 'turn' | 'answer'
   resolve(text: string | undefined): void
   dispose(): void
 }
@@ -142,6 +163,10 @@ type RegionTarget =
   | { kind: 'candidate'; index: number }
   | { kind: 'caret'; row: number; cell: number }
   | { kind: 'todos' }
+  /** The collapsed queue readout: a click opens the panel. */
+  | { kind: 'queue' }
+  /** A row of the open queue panel. */
+  | { kind: 'queue-panel'; target: PanelTarget }
 
 export class Prompt {
   private readonly editor: Editor
@@ -156,9 +181,20 @@ export class Prompt {
    * Submissions made before anything asked for them.
    *
    * Typing while the agent works — or in the instant before a read begins — must
-   * not be lost; the queue is what a line reader provides for free.
+   * not be lost. Adjacent prompts leave as one message; `!` and `/` lines keep
+   * their place and leave alone.
    */
-  private readonly queued: { text: string; images: PendingImage[] }[] = []
+  private readonly queue = new MessageQueue()
+  /** Prompts handed to the running turn, until the agent claims them. */
+  private inFlight: QueueItem[] = []
+  /** The queue panel's view state, meaningful while {@link queueOpen}. */
+  private readonly panel = new QueuePanel()
+  /** Whether the queue panel has the keyboard, in the readout's place. */
+  private queueOpen = false
+  /** Where the queue's rows sit among the chrome rows, and how many. */
+  private queueRowsAt: { start: number; count: number } | undefined
+  /** Whether the submission in flight steers the running turn (Ctrl-Enter). */
+  private steerNext = false
   /** Images pasted into the box, by the number their `[Image #N]` token wears. */
   private readonly pendingImages = new Map<number, PendingImage>()
   /** Numbers are never reused within a session: a recalled token must not
@@ -432,11 +468,35 @@ export class Prompt {
    */
   read(signal?: AbortSignal): Promise<string | undefined> {
     if (!this.console.readsKeys) return this.console.readLine(signal)
-    const typedAhead = this.queued.shift()
-    if (typedAhead !== undefined) {
-      this.submittedImages = typedAhead.images
-      return Promise.resolve(typedAhead.text)
+    // Type-ahead first: adjacent prompts leave as one message, a `!` or `/`
+    // line alone, so the loop dispatches by prefix exactly as it does a line
+    // typed at an idle prompt.
+    const drained = this.queue.drain()
+    if (drained !== undefined) {
+      this.submittedImages = drained.images
+      if (this.queue.length === 0) this.queueOpen = false
+      this.render()
+      return Promise.resolve(drained.text)
     }
+    return this.awaitSubmission('turn', signal)
+  }
+
+  /**
+   * Wait for the answer to a question asked mid-turn.
+   *
+   * Never served from the queue: a line typed for the NEXT turn is not the
+   * reply to a question that had not been asked yet. It stays queued, visibly,
+   * and the next Enter answers.
+   * @param signal - abandons the read, which a cancelled tool call does.
+   * @returns the answer, or undefined when input ended or the read was abandoned.
+   */
+  readAnswer(signal?: AbortSignal): Promise<string | undefined> {
+    if (!this.console.readsKeys) return this.console.readLine(signal)
+    return this.awaitSubmission('answer', signal)
+  }
+
+  /** Park a read until the next Enter. */
+  private awaitSubmission(kind: Pending['kind'], signal?: AbortSignal): Promise<string | undefined> {
     if (this.console.finished) return Promise.resolve(undefined)
     this.reading = true
     this.render()
@@ -449,6 +509,7 @@ export class Prompt {
       }
       const onAbort = (): void => { settle(undefined) }
       this.pending = {
+        kind,
         resolve: settle,
         dispose: () => { signal?.removeEventListener('abort', onAbort) },
       }
@@ -593,6 +654,7 @@ export class Prompt {
     // Ctrl-C outranks every mode: the reflex to stop must always land.
     if (key.kind === 'interrupt') {
       this.shortcutsOpen = false
+      this.queueOpen = false
       this.handlers.interrupt()
       return
     }
@@ -666,13 +728,16 @@ export class Prompt {
     // Handled here rather than reported to the owner: the readout is the
     // chrome's own state, and nothing outside it changes when the list opens.
     if (key.kind === 'toggle-todos') {
+      // One open panel at a time: the chrome has room for a list, not two.
       this.todosExpanded = !this.todosExpanded
+      this.queueOpen = false
       this.render()
       return
     }
     if (key.kind === 'transcript-search') {
       if (this.finding === undefined) {
         this.finding = ''
+        this.queueOpen = false
         this.console.searchTranscript('')
       } else {
         this.console.nextTranscriptHit(1)
@@ -695,6 +760,16 @@ export class Prompt {
     if (key.kind === 'text' && key.text === '?' && this.editor.empty) {
       this.shortcutsOpen = true
       this.render()
+      return
+    }
+    if (key.kind === 'toggle-queue') {
+      this.toggleQueuePanel()
+      return
+    }
+    // The open panel owns the keyboard, the way a selector does. The pointer
+    // keeps its own path below, so a click on a panel row still lands there.
+    if (this.queueOpen && !isPointerKey(key)) {
+      this.onQueuePanelKey(key)
       return
     }
     // Scrolling belongs to the viewport, not to the buffer being edited.
@@ -843,31 +918,42 @@ export class Prompt {
     // width they are wrapped at before it reads one — a resize between keys
     // would otherwise move the cursor by yesterday's geometry.
     this.editor.setWrapWidth(wrapBudget(this.console.contentColumns))
+    // Ctrl-Enter is Enter that steers: the editor still accepts the line —
+    // history, the completion menu, the empty-box no-op stay its — and the
+    // submit case reads the flag.
+    if (key.kind === 'steer') {
+      this.steerNext = true
+      key = { kind: 'enter' }
+    }
     const action = this.editor.handle(key)
+    if (action.kind !== 'submit') this.steerNext = false
     switch (action.kind) {
       case 'submit': {
+        const steer = this.steerNext
+        this.steerNext = false
         const waiting = this.pending
-        if (waiting === undefined) {
-          // Nothing is asking yet; hold it for the next read rather than losing
-          // the keystrokes. Its images are claimed now: a paste made after this
-          // submission belongs to the next line, not retroactively to this one.
-          this.queued.push({ text: action.text, images: this.claimImages(action.text) })
+        if (waiting !== undefined) {
+          // Something is asking — the loop for its next line, or a question
+          // for its answer — and Enter answers it, steering or not.
+          waiting.dispose()
+          waiting.resolve(action.text)
+          this.console.scrollToBottom()
           break
         }
-        waiting.dispose()
-        waiting.resolve(action.text)
-        this.console.scrollToBottom()
+        // Nothing is asking yet; hold it for the next read rather than losing
+        // the keystrokes. Its images are claimed now: a paste made after this
+        // submission belongs to the next line, not retroactively to this one.
+        const images = this.claimImages(action.text)
+        if (steer) {
+          void this.requestSteer(this.queue.make(action.text, images))
+          break
+        }
+        this.queue.push(action.text, images)
         break
       }
       case 'escape':
-        if (this.queued.length > 0) {
-          const last = this.queued.pop()
-          if (last !== undefined) {
-            for (const image of last.images) this.pendingImages.set(image.id, image)
-            this.editor.prefill(last.text)
-          }
-          break
-        }
+        // Escape means stop, whatever is queued: taking a line back is the
+        // panel's job (Ctrl-Q), so an interrupt is never one Escape short.
         this.handlers.escape()
         break
       case 'eof': {
@@ -969,6 +1055,224 @@ export class Prompt {
     const images = this.submittedImages
     this.submittedImages = []
     return images
+  }
+
+  /** The type-ahead, in the order it will leave. */
+  get queued(): readonly QueueItem[] {
+    return this.queue.items
+  }
+
+  /** Prompts handed to the running turn and not yet claimed by the model. */
+  get steering(): readonly QueueItem[] {
+    return this.inFlight
+  }
+
+  /**
+   * Whether a steer has a turn to land in: nothing is asking for the next
+   * line, so one is running — or a question of its own is open inside it.
+   */
+  private get canSteer(): boolean {
+    return this.handlers.steer !== undefined && this.pending?.kind !== 'turn'
+  }
+
+  /** The chrome rows of what is waiting: steers in flight, then the queue. */
+  private queueRows(columns: number): string[] {
+    const rows = this.inFlight.map(item => steeringRow(item.text, this.theme, columns))
+    if (this.queueOpen && this.queue.length > 0) {
+      rows.push(...this.panel.view(this.queue.items, this.theme, columns, this.canSteer))
+      return rows
+    }
+    const row = queueRow(this.queue.items, this.theme, columns)
+    if (row !== undefined) rows.push(row)
+    return rows
+  }
+
+  /** Ctrl-Q, or a click on the readout: open the panel, or fold it back. */
+  private toggleQueuePanel(): void {
+    if (this.select_ !== undefined) return
+    if (this.queueOpen) {
+      this.queueOpen = false
+      this.render()
+      return
+    }
+    if (this.queue.length === 0) {
+      this.setFlash(this.theme.dim('  queue is empty'))
+      return
+    }
+    if (this.finding !== undefined) {
+      this.finding = undefined
+      this.console.clearTranscriptSearch()
+    }
+    this.todosExpanded = false
+    this.shortcutsOpen = false
+    this.queueOpen = true
+    this.panel.reset()
+    this.render()
+  }
+
+  /** A key while the panel is open. */
+  private onQueuePanelKey(key: Key): void {
+    const action = this.panel.handle(key, this.queue.items, this.canSteer)
+    if (action.kind === 'pending' && key.kind === 'text' && key.text === 's') {
+      // The panel refused: say why, so the key does not read as dead.
+      const marked = this.queue.items[this.panel.mark]
+      const why = marked === undefined ? undefined : steerRefusal(marked, this.canSteer)
+      if (why !== undefined) {
+        this.setFlash(this.theme.dim(`  ${why}`))
+        return
+      }
+    }
+    this.applyPanelAction(action)
+  }
+
+  /** Carry out what the panel asked for, by key or by click. */
+  private applyPanelAction(action: PanelAction): void {
+    switch (action.kind) {
+      case 'close':
+        this.queueOpen = false
+        break
+      case 'edit':
+        this.editQueued(action.id)
+        return
+      case 'remove':
+        this.removeQueued(action.id)
+        return
+      case 'move':
+        this.moveQueued(action.id, action.delta)
+        return
+      case 'steer':
+        this.steerQueued(action.id)
+        return
+      case 'pending':
+        break
+    }
+    this.render()
+  }
+
+  /**
+   * Take a queued line back into the box for editing, its images with it.
+   * @param id - the item.
+   * @returns false for an unknown id, or when the box holds text that would be lost.
+   */
+  editQueued(id: number): boolean {
+    const item = this.queue.find(id)
+    if (item === undefined) return false
+    if (!this.editor.empty) {
+      this.setFlash(this.theme.dim('  clear the box first (Ctrl+U) — it would be overwritten'))
+      return false
+    }
+    this.queue.remove(id)
+    this.restoreToBox(item)
+    this.queueOpen = false
+    this.render()
+    return true
+  }
+
+  /**
+   * Drop a queued line. Its images go with it: a `[Image #N]` token recalled
+   * from history later submits as plain text, the rule every claim follows.
+   * @returns false for an unknown id.
+   */
+  removeQueued(id: number): boolean {
+    if (this.queue.remove(id) === undefined) return false
+    if (this.queue.length === 0) this.queueOpen = false
+    this.render()
+    return true
+  }
+
+  /**
+   * Swap a queued line with its neighbour.
+   * @returns false at either end, or for an unknown id.
+   */
+  moveQueued(id: number, delta: -1 | 1): boolean {
+    const moved = this.queue.move(id, delta)
+    if (moved) this.render()
+    return moved
+  }
+
+  /** Hand a queued prompt to the running turn. */
+  steerQueued(id: number): void {
+    const item = this.queue.find(id)
+    if (item === undefined) return
+    const why = steerRefusal(item, this.canSteer)
+    if (why !== undefined) {
+      this.setFlash(this.theme.dim(`  ${why}`))
+      return
+    }
+    this.queue.remove(id)
+    this.queueOpen = false
+    void this.requestSteer(item)
+  }
+
+  /** Put a line back where it was typed: its images pending again, its text in the box. */
+  private restoreToBox(item: QueueItem): void {
+    for (const image of item.images) this.pendingImages.set(image.id, image)
+    this.editor.prefill(item.text)
+  }
+
+  /** Resolve a waiting read with an item whose images were already claimed. */
+  private answerWith(waiting: Pending, item: QueueItem): void {
+    for (const image of item.images) this.pendingImages.set(image.id, image)
+    waiting.dispose()
+    waiting.resolve(item.text)
+    this.console.scrollToBottom()
+  }
+
+  /**
+   * Steer a prompt into the running turn, or send it if nothing is running.
+   *
+   * A `!` or `/` line cannot steer — the shell and the commands run in their
+   * own turn — so it joins the queue instead. With the loop waiting for its
+   * next line there is no turn to steer, and the line is simply sent.
+   */
+  private async requestSteer(item: QueueItem): Promise<void> {
+    const steer = this.handlers.steer
+    if (item.kind !== 'prompt' || steer === undefined) {
+      this.queue.append(item)
+      this.setFlash(this.theme.dim('  only a message can steer — ! and / lines run in their turn'))
+      return
+    }
+    const waiting = this.pending
+    if (waiting?.kind === 'turn') {
+      this.answerWith(waiting, item)
+      return
+    }
+    this.inFlight = [...this.inFlight, item]
+    this.render()
+    const outcome = await steer(item)
+    if (outcome === 'steered') return
+    // Nothing was running by the time it was ready: it goes first, so the next
+    // message the loop reads carries it.
+    this.steerReturned(item.id)
+    this.setFlash(this.theme.dim('  nothing is running — it goes with the next message'))
+  }
+
+  /**
+   * The agent took a steer into its turn; the transcript shows it from here.
+   * @param id - the item, as {@link PromptHandlers.steer} received it.
+   */
+  steerClaimed(id: number): void {
+    if (!this.inFlight.some(item => item.id === id)) return
+    this.inFlight = this.inFlight.filter(item => item.id !== id)
+    this.render()
+  }
+
+  /**
+   * A steer the agent never took comes back to the head of the queue — or
+   * straight to the loop when it is already asking — so nothing typed is lost.
+   * @param id - the item.
+   */
+  steerReturned(id: number): void {
+    const item = this.inFlight.find(candidate => candidate.id === id)
+    if (item === undefined) return
+    this.inFlight = this.inFlight.filter(candidate => candidate.id !== id)
+    const waiting = this.pending
+    if (waiting?.kind === 'turn') {
+      this.answerWith(waiting, item)
+      return
+    }
+    this.queue.unshift(item)
+    this.render()
   }
 
   /**
@@ -1086,6 +1390,12 @@ export class Prompt {
       this.render()
       return true
     }
+    const queue = this.queueRowsAt
+    if (this.queueOpen && queue !== undefined && region.index >= queue.start && region.index < queue.start + queue.count) {
+      this.panel.scrollBy(lines, this.queue.items)
+      this.render()
+      return true
+    }
     const start = this.selectorRow
     const selecting = this.select_
     if (start === undefined || selecting === undefined) return false
@@ -1186,6 +1496,14 @@ export class Prompt {
       this.render()
       return
     }
+    if (target.kind === 'queue') {
+      this.toggleQueuePanel()
+      return
+    }
+    if (target.kind === 'queue-panel') {
+      this.applyPanelAction(this.panel.click(target.target, this.queue.items))
+      return
+    }
     if (target.kind !== 'selector') return
     const selecting = this.select_
     if (selecting === undefined) return
@@ -1249,6 +1567,16 @@ export class Prompt {
     if (todos !== undefined && region.index >= todos.start && region.index < todos.start + todos.count) {
       return { kind: 'todos' }
     }
+    const queue = this.queueRowsAt
+    if (queue !== undefined && region.index >= queue.start && region.index < queue.start + queue.count) {
+      // Steering rows come first and take no pointer; the readout or the
+      // panel follows them.
+      const row = region.index - queue.start - this.inFlight.length
+      if (row < 0) return undefined
+      if (!this.queueOpen) return { kind: 'queue' }
+      const target = this.panel.targetAt(row, this.queue.items)
+      return target === undefined ? undefined : { kind: 'queue-panel', target }
+    }
     const box = this.boxRows
     if (box === undefined) return undefined
     const row = region.index - box.start
@@ -1268,6 +1596,7 @@ export class Prompt {
     this.regionHover = next
     this.menuHover = target?.kind === 'candidate' ? target.index : undefined
     this.select_?.selector.setHovered(target?.kind === 'selector' ? target.target : undefined)
+    this.panel.setHovered(target?.kind === 'queue-panel' ? target.target : undefined)
     this.render()
   }
 
@@ -1277,6 +1606,7 @@ export class Prompt {
     this.regionHover = ''
     this.menuHover = undefined
     this.select_?.selector.setHovered(undefined)
+    this.panel.setHovered(undefined)
     this.render()
   }
 
@@ -1348,6 +1678,7 @@ export class Prompt {
     this.selectorRow = undefined
     this.boxRows = undefined
     this.todoRowsAt = undefined
+    this.queueRowsAt = undefined
     if (this.frontier_ !== undefined) {
       rows.push(...this.frontier_.card.frame(this.theme, columns).rows)
     }
@@ -1369,14 +1700,15 @@ export class Prompt {
     }
     if (this.shortcutsOpen) {
       rows.push(this.theme.dim(truncate('  Ctrl+R history · Ctrl+F find · Ctrl+O folds · Ctrl+T todos · Ctrl+Z undo', columns)))
-      rows.push(this.theme.dim(truncate('  Ctrl+V image · Shift-Enter newline · Esc interrupt · ? closes', columns)))
+      rows.push(this.theme.dim(truncate('  Ctrl+Q queue · Ctrl+Enter steer · Ctrl+V image · Shift-Enter newline', columns)))
+      rows.push(this.theme.dim(truncate('  Esc interrupt · ? closes', columns)))
       rows.push(this.theme.muted(truncate('  /status → model · permissions · tokens · context', columns)))
     }
-    if (this.queued.length > 0) {
-      const preview = this.queued[0]?.text ?? ''
-      const more = this.queued.length > 1 ? ` (+${this.queued.length - 1} more)` : ''
-      rows.push(this.theme.dim(truncate(`  ↳ queued: ${preview.split('\n')[0] ?? ''}${more}`, columns)))
-    }
+    // What is waiting: a steer in flight, then the queue — one row, or the
+    // open panel in its place.
+    const queueRows = this.queueRows(columns)
+    if (queueRows.length > 0) this.queueRowsAt = { start: rows.length, count: queueRows.length }
+    rows.push(...queueRows)
     // Under the box and over the hint row: the list is context for the work in
     // flight, and the rows nearest the bottom stay the ones about right now.
     const todo = this.todoRows(columns)
@@ -1411,7 +1743,7 @@ export class Prompt {
     // The cursor lives in the box and shows only there: parked visibly on a
     // display row it reads as content colliding with it, and the selector's ❯
     // marker is its own focus affordance.
-    const focus = this.select_ === undefined && this.frontier_ === undefined && (this.engaged || this.reading)
+    const focus = this.select_ === undefined && this.frontier_ === undefined && !this.queueOpen && (this.engaged || this.reading)
     if (!focus) cursor = { row: rows.length - 1, column: 0 }
     // Frontier keeps the timeline: it is a card above the box, not a viewer.
     this.console.setTimelineHidden(this.select_ !== undefined)
@@ -1496,6 +1828,12 @@ export class Prompt {
   }
 }
 
+/** Whether a key is the pointer — a button, a motion, or the wheel — rather than the keyboard. */
+function isPointerKey(key: Key): boolean {
+  return key.kind === 'mouse-down' || key.kind === 'mouse-up' || key.kind === 'mouse-move' || key.kind === 'mouse-drag'
+    || (key.kind === 'scroll' && key.at !== undefined)
+}
+
 /**
  * One comparable name for what a pointer is over.
  * @param target - the row under the pointer.
@@ -1508,5 +1846,9 @@ function regionKey(target: RegionTarget): string {
   if (target.kind === 'caret') return 'caret'
   if (target.kind === 'candidate') return `candidate:${String(target.index)}`
   if (target.kind === 'todos') return 'todos'
+  if (target.kind === 'queue') return 'queue'
+  if (target.kind === 'queue-panel') {
+    return target.target.kind === 'item' ? `queue:item:${String(target.target.index)}` : `queue:${target.target.kind}`
+  }
   return target.target.kind === 'custom' ? 'selector:custom' : `selector:${String(target.target.index)}`
 }

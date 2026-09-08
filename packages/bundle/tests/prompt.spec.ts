@@ -8,6 +8,7 @@ import { Prompt } from '../src/prompt.ts'
 import { createTheme, displayWidth } from '../src/theme.ts'
 import type { RegionCursor } from '../src/console.ts'
 import type { Key } from '../src/keys.ts'
+import type { QueueItem } from '../src/queue.ts'
 
 const theme = createTheme(false, {})
 
@@ -101,7 +102,11 @@ const sources = {
  * @param readsKeys - whether the console owns the keyboard.
  * @returns the prompt, its console, and the handler calls it made.
  */
-function build(readsKeys = true, clipboard?: () => Promise<{ data: Buffer; mediaType: 'image/png'; width?: number; height?: number } | undefined>) {
+function build(
+  readsKeys = true,
+  clipboard?: () => Promise<{ data: Buffer; mediaType: 'image/png'; width?: number; height?: number } | undefined>,
+  steer?: (item: QueueItem) => Promise<'steered' | 'idle'>,
+) {
   const console = fakeConsole(readsKeys)
   const calls: string[] = []
   const prompt = new Prompt(console as never, theme, sources, {
@@ -110,9 +115,29 @@ function build(readsKeys = true, clipboard?: () => Promise<{ data: Buffer; media
     eof: () => void calls.push('eof'),
     turn: direction => void calls.push(`turn:${direction}`),
     ...clipboard === undefined ? {} : { readClipboardImage: clipboard },
+    ...steer === undefined ? {} : { steer },
   })
   return { prompt, console, calls }
 }
+
+/** A steer handler that records what it was handed and answers as told. */
+function steerFixture(outcome: 'steered' | 'idle' = 'steered') {
+  const items: QueueItem[] = []
+  const steer = (item: QueueItem): Promise<'steered' | 'idle'> => {
+    items.push(item)
+    return Promise.resolve(outcome)
+  }
+  return { steer, items }
+}
+
+/** Type a line and press Enter. */
+function submit(console: ReturnType<typeof fakeConsole>, text: string): void {
+  console.press({ kind: 'text', text })
+  console.press({ kind: 'enter' })
+}
+
+/** The chrome rows last drawn, joined for a substring check. */
+const drawn = (console: ReturnType<typeof fakeConsole>): string => (console.draws.at(-1)?.rows ?? []).join('\n')
 
 /** Wait out the async hop a clipboard read takes. */
 const settled = (): Promise<void> => new Promise(resolve => setTimeout(resolve, 0))
@@ -143,14 +168,31 @@ describe('reading on a terminal', () => {
     expect(await prompt.read()).toBe('early')
   })
 
-  it('serves queued submissions in order', async () => {
+  it('merges adjacent queued prompts into one submission, a blank line between', async () => {
     const { prompt, console } = build()
-    for (const text of ['one', 'two']) {
-      console.press({ kind: 'text', text })
-      console.press({ kind: 'enter' })
-    }
+    // Two thoughts typed while the agent worked were meant as one turn.
+    submit(console, 'one')
+    submit(console, 'two')
+    expect(await prompt.read()).toBe('one\n\ntwo')
+  })
+
+  it('runs a queued ! line singly, in its turn, between prompts', async () => {
+    const { prompt, console } = build()
+    for (const text of ['one', '!ls', 'two', 'three']) submit(console, text)
     expect(await prompt.read()).toBe('one')
-    expect(await prompt.read()).toBe('two')
+    expect(await prompt.read()).toBe('!ls')
+    expect(await prompt.read()).toBe('two\n\nthree')
+  })
+
+  it('answers a question from the keyboard, never from the queue', async () => {
+    const { prompt, console } = build()
+    // Typed for the next turn, before any question existed.
+    submit(console, 'later')
+    const answer = prompt.readAnswer()
+    submit(console, 'yes')
+    expect(await answer).toBe('yes')
+    expect(prompt.queued.map(item => item.text)).toEqual(['later'])
+    expect(await prompt.read()).toBe('later')
   })
 
   it('abandons a read when its signal aborts', async () => {
@@ -574,24 +616,233 @@ describe('fullscreen viewing', () => {
 })
 
 describe('the surrounding rows', () => {
-  it('dequeues the tail back into the box on Escape', () => {
+  it('leaves the queue alone on Escape and lets the owner interrupt', () => {
     const { prompt, console, calls } = build()
-    console.press({ kind: 'text', text: 'later work' })
-    console.press({ kind: 'enter' })
+    submit(console, 'later work')
     console.press({ kind: 'escape' })
-    expect(calls).not.toContain('escape')
-    expect((console.draws.at(-1)?.rows ?? []).some(row => row.includes('queued:'))).toBe(false)
-    void prompt.read()
-    expect((console.draws.at(-1)?.rows ?? []).join('\n')).toContain('later work')
+    // Escape means stop; taking a line back is the panel's job.
+    expect(calls).toContain('escape')
+    expect(prompt.queued.map(item => item.text)).toEqual(['later work'])
+    expect(drawn(console)).toContain('queued: later work')
   })
 
   it('previews queued submissions so type-ahead is visibly held, not lost', () => {
     const { prompt, console } = build()
-    console.press({ kind: 'text', text: 'later work' })
-    console.press({ kind: 'enter' })
+    submit(console, 'later work')
     prompt.setHint('working')
     const rows = console.draws.at(-1)?.rows ?? []
-    expect(rows.some(row => row.includes('queued: later work'))).toBe(true)
+    expect(rows.some(row => row.includes('queued: later work') && row.includes('Ctrl+Q'))).toBe(true)
+  })
+
+  it('counts several queued lines and previews each', () => {
+    const { console } = build()
+    submit(console, 'first')
+    submit(console, 'second')
+    expect(drawn(console)).toContain('2 queued: first · second')
+  })
+
+  it('opens the queue panel on Ctrl-Q and closes it again', () => {
+    const { prompt, console } = build()
+    submit(console, 'first')
+    submit(console, 'second')
+    console.press({ kind: 'toggle-queue' })
+    const opened = drawn(console)
+    expect(opened).toContain('queue 2 · Ctrl+Q closes')
+    expect(opened).toContain('1. first')
+    expect(opened).toContain('2. second')
+    expect(opened).toContain('[enter] edit')
+    console.press({ kind: 'toggle-queue' })
+    expect(drawn(console)).not.toContain('Ctrl+Q closes')
+    expect(drawn(console)).toContain('2 queued: first · second')
+    expect(prompt.queued).toHaveLength(2)
+  })
+
+  it('flashes when there is nothing to open', () => {
+    const { console } = build()
+    console.press({ kind: 'toggle-queue' })
+    expect(drawn(console)).toContain('queue is empty')
+    expect(drawn(console)).not.toContain('Ctrl+Q closes')
+  })
+
+  it('opens the panel on a click on the readout', () => {
+    const { console } = build()
+    submit(console, 'later work')
+    const rows = console.draws.at(-1)?.rows ?? []
+    const readout = rows.findIndex(row => row.includes('queued: later work'))
+    expect(readout).toBeGreaterThanOrEqual(0)
+    console.region = { region: 'chrome', index: readout }
+    console.press({ kind: 'mouse-down', row: 9, column: 4 })
+    console.press({ kind: 'mouse-up', row: 9, column: 4 })
+    expect(drawn(console)).toContain('queue 1 · Ctrl+Q closes')
+  })
+
+  it('closes on Escape without interrupting or dropping anything', () => {
+    const { prompt, console, calls } = build()
+    submit(console, 'first')
+    submit(console, 'second')
+    console.press({ kind: 'toggle-queue' })
+    console.press({ kind: 'escape' })
+    expect(calls).not.toContain('escape')
+    expect(drawn(console)).not.toContain('Ctrl+Q closes')
+    expect(prompt.queued).toHaveLength(2)
+  })
+
+  it('keeps typing out of the box while the panel is open', () => {
+    const { prompt, console } = build()
+    submit(console, 'first')
+    console.press({ kind: 'toggle-queue' })
+    console.press({ kind: 'text', text: 'x' })
+    expect(prompt.empty).toBe(true)
+    expect(drawn(console)).toContain('Ctrl+Q closes')
+  })
+
+  it('edits a queued line back into the box, its images with it', async () => {
+    const { prompt, console } = build(true, pngClipboard)
+    console.press({ kind: 'paste-image' })
+    await settled()
+    console.press({ kind: 'enter' })
+    console.press({ kind: 'toggle-queue' })
+    console.press({ kind: 'enter' })
+    expect(prompt.queued).toHaveLength(0)
+    expect(drawn(console)).not.toContain('Ctrl+Q closes')
+    const reading = prompt.read()
+    expect(drawn(console)).toContain('[Image #1]')
+    console.press({ kind: 'enter' })
+    expect(await reading).toBe('[Image #1]')
+    expect(prompt.takeAttachments()).toHaveLength(1)
+  })
+
+  it('refuses to edit into a box that holds text', () => {
+    const { prompt, console } = build()
+    submit(console, 'first')
+    console.press({ kind: 'text', text: 'draft' })
+    console.press({ kind: 'toggle-queue' })
+    console.press({ kind: 'text', text: 'e' })
+    expect(drawn(console)).toContain('clear the box first')
+    expect(prompt.queued).toHaveLength(1)
+  })
+
+  it('deletes the marked item on d and closes when the queue empties', () => {
+    const { prompt, console } = build()
+    submit(console, 'only')
+    console.press({ kind: 'toggle-queue' })
+    console.press({ kind: 'text', text: 'd' })
+    expect(prompt.queued).toHaveLength(0)
+    expect(drawn(console)).not.toContain('Ctrl+Q closes')
+    expect(drawn(console)).not.toContain('queued:')
+  })
+
+  it('reorders with Shift-Up and drains in the new order', async () => {
+    const { prompt, console } = build()
+    submit(console, '!first')
+    submit(console, '!second')
+    console.press({ kind: 'toggle-queue' })
+    console.press({ kind: 'down' })
+    console.press({ kind: 'scroll', lines: -1 })
+    expect(prompt.queued.map(item => item.text)).toEqual(['!second', '!first'])
+    expect(await prompt.read()).toBe('!second')
+    expect(await prompt.read()).toBe('!first')
+  })
+
+  it('steers the marked prompt on s while a turn runs', async () => {
+    const fixture = steerFixture()
+    const { prompt, console } = build(true, undefined, fixture.steer)
+    submit(console, 'also check X')
+    console.press({ kind: 'toggle-queue' })
+    console.press({ kind: 'text', text: 's' })
+    await settled()
+    expect(fixture.items.map(item => item.text)).toEqual(['also check X'])
+    expect(prompt.queued).toHaveLength(0)
+    expect(prompt.steering.map(item => item.text)).toEqual(['also check X'])
+    expect(drawn(console)).toContain('steering: also check X')
+    prompt.steerClaimed(fixture.items[0]?.id ?? -1)
+    expect(prompt.steering).toHaveLength(0)
+    expect(drawn(console)).not.toContain('steering:')
+  })
+
+  it('refuses to steer a ! line', async () => {
+    const fixture = steerFixture()
+    const { prompt, console } = build(true, undefined, fixture.steer)
+    submit(console, '!ls')
+    console.press({ kind: 'toggle-queue' })
+    console.press({ kind: 'text', text: 's' })
+    await settled()
+    expect(fixture.items).toHaveLength(0)
+    expect(prompt.queued).toHaveLength(1)
+    expect(drawn(console)).toContain('only a message can steer')
+  })
+
+  it('steers straight from the box on Ctrl-Enter', async () => {
+    const fixture = steerFixture()
+    const { prompt, console } = build(true, undefined, fixture.steer)
+    console.press({ kind: 'text', text: 'also' })
+    console.press({ kind: 'steer' })
+    await settled()
+    expect(fixture.items.map(item => item.text)).toEqual(['also'])
+    expect(prompt.queued).toHaveLength(0)
+    expect(drawn(console)).toContain('steering: also')
+  })
+
+  it('queues a ! line on Ctrl-Enter instead of steering it', async () => {
+    const fixture = steerFixture()
+    const { prompt, console } = build(true, undefined, fixture.steer)
+    console.press({ kind: 'text', text: '!ls' })
+    console.press({ kind: 'steer' })
+    await settled()
+    expect(fixture.items).toHaveLength(0)
+    expect(prompt.queued.map(item => item.text)).toEqual(['!ls'])
+    expect(drawn(console)).toContain('only a message can steer')
+  })
+
+  it('sends like Enter on Ctrl-Enter when the loop is already asking', async () => {
+    const fixture = steerFixture()
+    const { prompt, console } = build(true, undefined, fixture.steer)
+    const reading = prompt.read()
+    console.press({ kind: 'text', text: 'now' })
+    console.press({ kind: 'steer' })
+    expect(await reading).toBe('now')
+    expect(fixture.items).toHaveLength(0)
+  })
+
+  it('falls back to the queue when nothing was running after all', async () => {
+    const fixture = steerFixture('idle')
+    const { prompt, console } = build(true, undefined, fixture.steer)
+    console.press({ kind: 'text', text: 'x' })
+    console.press({ kind: 'steer' })
+    await settled()
+    expect(prompt.steering).toHaveLength(0)
+    expect(prompt.queued.map(item => item.text)).toEqual(['x'])
+    expect(drawn(console)).toContain('nothing is running')
+  })
+
+  it('returns an unclaimed steer to the head of the queue', async () => {
+    const fixture = steerFixture()
+    const { prompt, console } = build(true, undefined, fixture.steer)
+    console.press({ kind: 'text', text: 'x' })
+    console.press({ kind: 'steer' })
+    await settled()
+    submit(console, 'later')
+    prompt.steerReturned(fixture.items[0]?.id ?? -1)
+    expect(prompt.queued.map(item => item.text)).toEqual(['x', 'later'])
+    expect(await prompt.read()).toBe('x\n\nlater')
+  })
+
+  it('holds one open panel: Ctrl-T closes the queue', () => {
+    const { console } = build()
+    submit(console, 'a')
+    console.press({ kind: 'toggle-queue' })
+    console.press({ kind: 'toggle-todos' })
+    expect(drawn(console)).not.toContain('Ctrl+Q closes')
+    console.press({ kind: 'toggle-queue' })
+    expect(drawn(console)).toContain('Ctrl+Q closes')
+  })
+
+  it('closes by itself when a read drains the queue', async () => {
+    const { prompt, console } = build()
+    submit(console, 'a')
+    console.press({ kind: 'toggle-queue' })
+    expect(await prompt.read()).toBe('a')
+    expect(drawn(console)).not.toContain('Ctrl+Q closes')
   })
 
   it('keeps the status row last, under everything else', () => {
@@ -711,19 +962,43 @@ describe('the surrounding rows', () => {
     expect(prompt.takeAttachments()).toHaveLength(0)
   })
 
-  it('keeps a queued line paired with its own images', async () => {
+  it('keeps a queued line paired with its own images through the merge', async () => {
     const { prompt, console } = build(true, pngClipboard)
-    // Nothing is reading yet: paste, submit, then paste again for the next line.
+    // Nothing is reading yet: paste, submit, then a plain line for the same turn.
     console.press({ kind: 'paste-image' })
     await settled()
     console.press({ kind: 'enter' })
-    console.press({ kind: 'text', text: 'no image here' })
+    submit(console, 'no image here')
+    expect(await prompt.read()).toBe('[Image #1]\n\nno image here')
+    expect(prompt.takeAttachments().map(image => image.id)).toEqual([1])
+    // A ! line between two prompts keeps its own (no) images and its place.
+    console.press({ kind: 'paste-image' })
+    await settled()
     console.press({ kind: 'enter' })
-    expect(await prompt.read()).toBe('[Image #1]')
-    expect(prompt.takeAttachments()).toHaveLength(1)
-    expect(await prompt.read()).toBe('no image here')
-    // The second line pasted nothing; a later paste must not bleed backwards.
+    submit(console, '!ls')
+    console.press({ kind: 'paste-image' })
+    await settled()
+    console.press({ kind: 'enter' })
+    expect(await prompt.read()).toBe('[Image #2]')
+    expect(prompt.takeAttachments().map(image => image.id)).toEqual([2])
+    expect(await prompt.read()).toBe('!ls')
     expect(prompt.takeAttachments()).toHaveLength(0)
+    expect(await prompt.read()).toBe('[Image #3]')
+    expect(prompt.takeAttachments().map(image => image.id)).toEqual([3])
+  })
+
+  it('carries every merged line\'s images, in order', async () => {
+    const { prompt, console } = build(true, pngClipboard)
+    console.press({ kind: 'paste-image' })
+    await settled()
+    console.press({ kind: 'text', text: ' first' })
+    console.press({ kind: 'enter' })
+    console.press({ kind: 'paste-image' })
+    await settled()
+    console.press({ kind: 'text', text: ' second' })
+    console.press({ kind: 'enter' })
+    expect(await prompt.read()).toBe('[Image #1] first\n\n[Image #2] second')
+    expect(prompt.takeAttachments().map(image => image.id)).toEqual([1, 2])
   })
 
   it('flashes when the clipboard holds no image', async () => {
@@ -1010,6 +1285,7 @@ describe('the surrounding rows', () => {
     console.press({ kind: 'text', text: '?' })
     const opened = console.draws.at(-1)?.rows ?? []
     expect(opened.some(row => row.includes('Ctrl+R history'))).toBe(true)
+    expect(opened.some(row => row.includes('Ctrl+Q queue'))).toBe(true)
     expect(opened.some(row => row.includes('/status'))).toBe(true)
     expect(opened.some(row => row.includes('model · permissions · tokens · context'))).toBe(true)
     console.press({ kind: 'escape' })

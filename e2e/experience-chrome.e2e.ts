@@ -12,8 +12,8 @@
 
 import { describe, expect, it } from 'vitest'
 import { E2E_TEST_TIMEOUT_MS } from './harness.ts'
-import { PTY_COLUMNS, PTY_ROWS, SYNC_END, drivePty, drivePtySteps, screenOf, screenAt, screenAtLast } from './pty-driver.ts'
-import { ENTER } from './pty-helpers.ts'
+import { PTY_COLUMNS, PTY_ROWS, SYNC_END, drivePty, drivePtySteps, finalScreen, screenOf, screenAt } from './pty-driver.ts'
+import { ENTER, ESCAPE } from './pty-helpers.ts'
 import { Terminal } from './vt.ts'
 
 describe.skipIf(process.platform === 'win32')('the first five minutes: menus, search, legend', () => {
@@ -104,18 +104,68 @@ describe.skipIf(process.platform === 'win32')('the first five minutes: menus, se
     expect(rows.some(row => row.includes('Ctrl+F find'))).toBe(true)
   }, E2E_TEST_TIMEOUT_MS)
 
-  it('gives a queued line back on Escape', async () => {
+  it('queues typed-ahead lines, opens them on Ctrl+Q, and sends them as one message after an Escape interrupt', async () => {
+    const output = await drivePty('slow', [
+      ['Welcome to codsh', `take your time${ENTER}`, 300],
+      ['$ sleep', `first queued${ENTER}second queued${ENTER}`, 400],
+      ['re:2 queued:[^\\r\\n]{0,80}second queued', '\u0011', 400],
+      // Escape on the open panel folds it back; the queue stays.
+      ['Ctrl+Q closes', ESCAPE, 400],
+      // Escape with the panel closed interrupts, queue and all: the two lines
+      // then go as ONE message, which starts exactly one new turn.
+      ['re:2 queued:[^\\r\\n]{0,80}second queued', ESCAPE, 400],
+      ['interrupted', '', 0],
+      ['$ sleep', ESCAPE, 400],
+      ['interrupted', `/exit${ENTER}`, 400],
+    ])
+    const queued = screenAt(output, '2 queued:').alternate
+    expect(queued.some(row => row.includes('2 queued: first queued · second queued'))).toBe(true)
+    const panel = screenAt(output, 'Ctrl+Q closes').alternate
+    expect(panel.some(row => row.includes('1. first queued'))).toBe(true)
+    expect(panel.some(row => row.includes('2. second queued'))).toBe(true)
+    expect(panel.some(row => row.includes('[enter] edit') && row.includes('[d] delete'))).toBe(true)
+    // The script itself proved the order — a second `$ sleep` after the
+    // interrupt, then a second `interrupted` — so what is left to read off the
+    // screen is the shape of the message that started it: one block, two lines.
+    const final = finalScreen(output).alternate
+    const head = final.findIndex(row => /›\s+first queued/u.test(row))
+    expect(head).toBeGreaterThanOrEqual(0)
+    expect(final.slice(head, head + 4).some(row => row.includes('second queued') && !row.includes('queued:'))).toBe(true)
+  }, E2E_TEST_TIMEOUT_MS)
+
+  it('opens the queue panel on a click on its row', async () => {
+    const clickOn = (line: string): string => `\u001B[<0;6;{row:${line}}M\u001B[<0;6;{row:${line}}m`
     const output = await drivePty('slow', [
       ['Welcome to codsh', `take your time${ENTER}`, 300],
       ['$ sleep', `later work${ENTER}`, 400],
-      ['queued: later work', '\u001B', 500],
-      ['', '\u0015\u001B', 400],
+      ['queued: later work', clickOn('queued: later work'), 500],
+      // Ctrl+C interrupts too; the queued line then starts the next turn.
+      ['Ctrl+Q closes', '\u0003', 400],
+      ['$ sleep', ESCAPE, 400],
       ['interrupted', `/exit${ENTER}`, 400],
     ])
-    expect(screenAt(output, 'queued: later work').alternate.some(row => row.includes('queued: later work'))).toBe(true)
-    const back = screenAtLast(output, 'later work').alternate
-    expect(back.some(row => row.includes('later work'))).toBe(true)
-    expect(back.some(row => row.includes('queued: later work'))).toBe(false)
+    expect(screenAt(output, 'Ctrl+Q closes').alternate.some(row => row.includes('1. later work'))).toBe(true)
+  }, E2E_TEST_TIMEOUT_MS)
+
+  it('steers a queued prompt into the running turn from the panel', async () => {
+    const output = await drivePty('steer', [
+      ['Welcome to codsh', `take your time${ENTER}`, 300],
+      ['$ sleep', `CODE_CLI_STEER_MARK now${ENTER}`, 200],
+      ['queued: CODE_CLI_STEER_MARK now', '\u0011', 200],
+      ['Ctrl+Q closes', 's', 200],
+      // `steering:` is painted in its own colour, so SGR sits before the text.
+      ['re:steering:[^\\r\\n]{0,40}CODE_CLI_STEER_MARK', '', 0],
+      ['seen=yes', `/exit${ENTER}`, 400],
+    ])
+    const plain = output.replaceAll(/\u001B\[[0-9;?]*[A-Za-z]/gu, '')
+    expect(plain).toContain('steering: CODE_CLI_STEER_MARK now')
+    const final = finalScreen(output).alternate
+    // One reply and one turn-cost line, and the reply saw the mark: the steer
+    // joined the running turn instead of starting one of its own.
+    expect(final.filter(row => row.includes('CODE_CLI_STEER seen='))).toHaveLength(1)
+    expect(final.filter(row => /^\s+\d+(?:\.\d+)?s · /u.test(row))).toHaveLength(1)
+    expect(final.some(row => row.includes('seen=yes'))).toBe(true)
+    expect(final.some(row => /›\s+CODE_CLI_STEER_MARK now/u.test(row))).toBe(true)
   }, E2E_TEST_TIMEOUT_MS)
 })
 

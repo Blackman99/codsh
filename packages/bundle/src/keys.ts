@@ -39,6 +39,10 @@ export type Key =
   | { kind: 'clear-screen' }
   | { kind: 'expand-output' }
   | { kind: 'toggle-todos' }
+  /** Ctrl-Q: open or close the type-ahead queue panel. */
+  | { kind: 'toggle-queue' }
+  /** Ctrl-Enter: submit into the RUNNING turn rather than the queue. Kitty protocol only. */
+  | { kind: 'steer' }
   | { kind: 'history-search' }
   | { kind: 'transcript-search' }
   | { kind: 'turn'; direction: -1 | 1 }
@@ -217,6 +221,11 @@ const CONTROLS: Readonly<Record<string, Key>> = {
   '\u000C': { kind: 'clear-screen' },
   '\u000F': { kind: 'expand-output' },
   '\u0014': { kind: 'toggle-todos' },
+  // Ctrl+Q opens the queue panel. Raw mode clears IXON, so the byte arrives on
+  // every terminal this surface lists; one with software flow control still
+  // on swallows it silently, and the click on the queued row is the way in.
+  // The kitty form (CSI 113;5u) lands here too, via the Ctrl+letter lookup.
+  '\u0011': { kind: 'toggle-queue' },
   '\u0012': { kind: 'history-search' },
   '\u0006': { kind: 'transcript-search' },
   '\u0015': { kind: 'kill-input' },
@@ -384,8 +393,10 @@ export class KeyDecoder {
     const ctrl = (bits & KITTY_CTRL) !== 0
     if (code === 27) return [{ kind: 'escape' }]
     // The key this protocol exists for: Shift+Enter breaks the line, exactly
-    // like Alt+Enter always has; Enter alone still submits.
-    if (code === 13) return [shift || alt ? { kind: 'newline' } : { kind: 'enter' }]
+    // like Alt+Enter always has; Enter alone still submits. Ctrl+Enter steers
+    // the running turn — a chord only this protocol can tell from Enter, so a
+    // legacy terminal reaches steering through the queue panel instead.
+    if (code === 13) return [ctrl ? { kind: 'steer' } : shift || alt ? { kind: 'newline' } : { kind: 'enter' }]
     if (code === 9) return [shift ? { kind: 'shift-tab' } : { kind: 'tab' }]
     if (code === 127 || code === 8) return [alt || ctrl ? { kind: 'kill-word' } : { kind: 'backspace' }]
     // Redo lives only here: with Shift reported, Ctrl+Shift+Z is its own key.

@@ -78,6 +78,7 @@ The [site](https://blackman99.github.io/codsh/) shows each one as a real capture
 - Todos stay in the chrome (Ctrl+T / `/todos`). Markdown, thinking, and tool cards stream in. The inline HTML an answer uses instead of Markdown renders too: `<font color>` and `<span style>` colours (the terminal's own for ANSI names, truecolor or the nearest palette entry otherwise), `<b>`, `<i>`, `<u>`, `<s>`, `<code>`, `<br>`, and entities; unknown tags stay as written. Drag to copy, in the transcript or the box.
 - Ctrl+V pastes images. While the cursor rests on the `[Image #N]` token a card centered over the transcript previews it: the picture itself wherever the terminal paints one — Ghostty, kitty and WezTerm through Kitty graphics, iTerm2 through its own — and a colour half-block mosaic everywhere else. Ctrl+O, or a click on the card, opens the original in the system viewer. (Native vision; DeepSeek text models borrow Vision Exp automatically; other text routes keep the file + optional sidecar fallback.)
 - `/` commands, `$` skills, `!` shell, `@` files — the menu sits above the box. ⇧Tab is plan mode.
+- Type while the agent works and the line queues, shown as `↳ queued: …` under the box. Prompts queued together go as ONE message when the turn ends, a blank line between them; a `!` line or `/` command keeps its place in the order and runs alone. Ctrl+Q, or a click on that row, opens the queue: Enter edits a line back into the box, `d` deletes, Shift+↑/↓ reorders, `s` steers it into the running turn. Ctrl+Enter steers straight from the box on terminals that speak the kitty keyboard protocol; the line shows as `↳ steering:` until the model takes it. Esc interrupts, queue and all — the queue then goes as the next message. ↑ still recalls the lines one at a time.
 - `/ui compact|comfortable` sets how much room the transcript takes. Compact is the default and the shape everything above is described in; comfortable only adds — a blank row between turns, a two-line preview while thinking streams, and a higher click-to-pager threshold on expanded diffs. The choice persists across sessions.
 - Approvals, `/model`, `/resume`, and `/thinking` (or `/effort`) are arrow-key widgets; `/clear`, Esc Esc, `/init`, and `/update` round it out. `!cmd` prints in-session and the agent sees it.
 - `/thinking [level]` (alias `/effort`) configures reasoning deliberation (e.g. `off`, `low`, `high`, `max`, or shortcuts `on`/`off`) with an interactive selector on TTY, per-model persistence, and active level tags in MetaBar (e.g. `deepseek-chat (high)`) and `/status`.
@@ -96,7 +97,7 @@ Three tiers decide what a release must not break:
 | Second | Ghostty, kitty, Alacritty, Warp | a regression here is a bug, not a blocker |
 | Best-effort | native Windows (pwsh) | persistent terminals are unavailable there; the rest is expected to work |
 
-Protocol use is progressive: the kitty keyboard protocol, focus reports, and OSC 11 theme detection are requested and take effect wherever the terminal answers; one that ignores them keeps the legacy path. Inline graphics are chosen the same way, and by what each terminal actually implements rather than by what it is — Kitty graphics on Ghostty, kitty, and WezTerm, `OSC 1337` on iTerm2, a half-block mosaic everywhere else, and nothing inside tmux or screen, which forward neither.
+Protocol use is progressive: the kitty keyboard protocol, focus reports, and OSC 11 theme detection are requested and take effect wherever the terminal answers; one that ignores them keeps the legacy path — Ctrl+Enter steering needs the kitty protocol, and elsewhere the queue panel's `s` does the same. A terminal with software flow control left on swallows Ctrl+Q silently; the click on the `↳ queued:` row opens the panel there. Inline graphics are chosen the same way, and by what each terminal actually implements rather than by what it is — Kitty graphics on Ghostty, kitty, and WezTerm, `OSC 1337` on iTerm2, a half-block mosaic everywhere else, and nothing inside tmux or screen, which forward neither.
 
 ## Third-party endpoints
 
@@ -135,7 +136,8 @@ pnpm run site:screens        # re-shoot the site's terminals from the real binar
 ```
 
 `MOCK=<mode>` boots against the keyless mock model: `write` (the default),
-`bash`, `heredoc`, `slow`, `tall`, `spec`, `markdown`, `reasoning`, `echo`,
+`bash`, `heredoc`, `slow`, `steer` (holds a turn 3s and reports whether a
+mid-turn message arrived), `tall`, `spec`, `markdown`, `reasoning`, `echo`,
 `vision`, and the `auto-vision`, `auto-vision-slow`, `auto-vision-fail` trio
 behind the automatic image description. `INSPECT=1` opens the Node inspector on
 the app process alone, so a breakpoint does not stop the build that precedes it.

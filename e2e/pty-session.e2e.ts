@@ -9,7 +9,7 @@ import { mkdtemp, readFile, rm } from 'node:fs/promises'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { E2E_TEST_TIMEOUT_MS } from './harness.ts'
-import { LEAVE_ALT, PTY_COLUMNS, PTY_ROWS, SYNC_END, drivePty, drivePtySteps } from './pty-driver.ts'
+import { LEAVE_ALT, PTY_COLUMNS, PTY_ROWS, SYNC_END, drivePty, drivePtySteps, finalScreen } from './pty-driver.ts'
 import { ENTER, ESCAPE, screenAt, visible } from './pty-helpers.ts'
 import { Terminal } from './vt.ts'
 
@@ -96,6 +96,24 @@ describe.skipIf(process.platform === 'win32')('protocols and the session (real P
     const echo = done.findIndex(row => visible(row).startsWith('›   first'))
     expect(echo).toBeGreaterThanOrEqual(0)
     expect(done[echo + 1] ?? '').toContain('second')
+  }, E2E_TEST_TIMEOUT_MS)
+
+  it('speaks Ctrl+Enter as steer under the kitty protocol', async () => {
+    const output = await drivePty('steer', [
+      ['Welcome to codsh', `take your time${ENTER}`, 300],
+      // CSI 13;5u is Ctrl+Enter: the line goes into the running turn.
+      ['$ sleep', `CODE_CLI_STEER_MARK now${ESCAPE}[13;5u`, 300],
+      ['re:steering:[^\\r\\n]{0,40}CODE_CLI_STEER_MARK', '', 0],
+      ['seen=yes', `/exit${ENTER}`, 400],
+    ])
+    const plain = output.replaceAll(/\u001B\[[0-9;?]*[A-Za-z]/gu, '')
+    expect(plain).toContain('steering: CODE_CLI_STEER_MARK now')
+    const final = finalScreen(output).alternate
+    // One reply and one turn-cost line: the steer joined the running turn.
+    expect(final.filter(row => row.includes('CODE_CLI_STEER seen='))).toHaveLength(1)
+    expect(final.filter(row => /^\s+\d+(?:\.\d+)?s · /u.test(row))).toHaveLength(1)
+    expect(final.some(row => row.includes('seen=yes'))).toBe(true)
+    expect(final.some(row => /›\s+CODE_CLI_STEER_MARK now/u.test(row))).toBe(true)
   }, E2E_TEST_TIMEOUT_MS)
 
   it('reads focus and background reports: no bell while focused, light palette adopted', async () => {

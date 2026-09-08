@@ -35,7 +35,7 @@ import type {} from '@deepseek-ai/dsh-permission-presets'
 import { admitEncodedImages, isImageAdmissionError } from '@deepseek-ai/dsh-attachment'
 import type { EncodedImageAttachment } from '@deepseek-ai/dsh-attachment/types'
 import { createUserMessage, ReasoningEffortId } from '@deepseek-ai/dsh-llm'
-import type { ContentBlock, LlmModelReasoningInfo } from '@deepseek-ai/dsh-llm'
+import type { ContentBlock, LlmModelReasoningInfo, UserMessage } from '@deepseek-ai/dsh-llm'
 import { SessionId, SessionLogOffset } from '@deepseek-ai/dsh-session'
 import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-session-query'
@@ -50,6 +50,7 @@ import { TerminalApproval, answerForKey, nameCall, type ApprovalAnswer } from '.
 import { notificationText, planNotification, runNotificationCommand } from './notify.ts'
 import { PermissionRules } from './permissions.ts'
 import { rewindPoints, type RewindPoint } from './rewind.ts'
+import type { QueueItem } from './queue.ts'
 import { bannerLines, resolveWelcomeKind } from './banner.ts'
 import { createCompleter, expandSkillGestures, fuzzyScore } from './completion.ts'
 import { expandTemplate, loadCustomCommands } from './custom-commands.ts'
@@ -993,6 +994,7 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
   let onEscapeKey: () => void = () => {}
   let onInterruptKey: () => void = () => {}
   let onShipGate: (gate: 1 | 2 | undefined) => void = () => {}
+  let onSteer: (item: QueueItem) => Promise<'steered' | 'idle'> = () => Promise.resolve('idle')
   const prompt = new Prompt(io.console, theme, {
     commands: completable,
     paths: completePath,
@@ -1001,6 +1003,7 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
   }, {
     interrupt: () => { onInterruptKey() },
     escape: () => { onEscapeKey() },
+    steer: item => onSteer(item),
     // The outstanding read is already answered with nothing; ending input is
     // what makes the next one answer the same way.
     eof: () => { io.console.close() },
@@ -2039,7 +2042,7 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
         if (!io.console.readsKeys) {
           const detail = reason === undefined ? '' : ` ${theme.dim(reason)}`
           prompt.write(`${theme.pending('?')} allow ${named}${detail}`)
-          const line = await prompt.read(signal)
+          const line = await prompt.readAnswer(signal)
           return line === undefined ? undefined : answerForKey(line) ?? 'reject'
         }
         if (reason !== undefined) prompt.write(theme.dim(`  ${reason}`))
@@ -2073,6 +2076,8 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
   adopt = (next: AgentHandle, replayLog: boolean): void => {
     viewing = undefined
     prompt.setHint(undefined)
+    // A steer the retiring agent never took would sit in a disposed inbox.
+    reclaimSteers(live.agent)
     live.handle = next
     live.agent = next.agent
     live.transcript = new Transcript({ theme, columns: () => io.console.contentColumns, cwd, density }, presentersFor(ctx, next.agent))
@@ -2096,7 +2101,9 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
   const questions = ctx.get('userQuestions')
   if (questions !== undefined) {
     const terminalQuestions = new TerminalQuestions(
-      prompt,
+      // A question's answer comes from the keyboard, never from a line queued
+      // for the next turn: that line was typed before the question existed.
+      { read: signal => prompt.readAnswer(signal) },
       theme,
       (line) => { prompt.write(line) },
       io.console.readsKeys ? async (spec, signal) => prompt.select(spec, signal) : undefined,
@@ -2110,6 +2117,40 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
   // one interrupt reaches whichever kind of work is running.
   let running: AbortController | undefined
   /**
+   * Steers handed to the agent and not yet claimed, by the message id dsh
+   * knows them by. The queue itself stays in the prompt; only what has left
+   * it for the inbox is tracked here.
+   */
+  const steers = new Map<UserMessage['id'], QueueItem>()
+  /**
+   * Take back every steer the agent has not consumed, so it goes to the head
+   * of the queue instead of riding, unseen, into whatever turn comes next.
+   * @param agent - whose inbox to clear of them.
+   */
+  const reclaimSteers = (agent: Agent): void => {
+    for (const [id, item] of steers) {
+      if (!agent.inbox.remove(id)) continue
+      steers.delete(id)
+      prompt.steerReturned(item.id)
+    }
+  }
+  // The agent took a steer into a step: the user/message that follows renders
+  // it, and the steering row makes way. A discard hands the text back.
+  ctx.on('agent/inbox/claimed', ({ agent, message }) => {
+    if (agent !== live.agent) return
+    const item = steers.get(message.id)
+    if (item === undefined) return
+    steers.delete(message.id)
+    prompt.steerClaimed(item.id)
+  })
+  ctx.on('agent/inbox/discarded', ({ agent, message }) => {
+    if (agent !== live.agent) return
+    const item = steers.get(message.id)
+    if (item === undefined) return
+    steers.delete(message.id)
+    prompt.steerReturned(item.id)
+  })
+  /**
    * Stop whatever the agent is doing. Cancelling an idle agent is a no-op, so
    * the report is withheld unless there was work to stop — an Escape pressed at
    * an empty prompt should look like nothing happened.
@@ -2122,7 +2163,10 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
     // indicator redrawing itself as though the turn were still going.
     spinner.stop()
     running?.abort()
-    live.agent.cancel({ kind: 'user' })
+    // A steer in flight comes back to the queue first; the inbox is kept so
+    // dsh logs no canceled splice for what the surface already took back.
+    reclaimSteers(live.agent)
+    live.agent.cancel({ kind: 'user' }, { keepInbox: true })
     // Text cut off mid-line was already shown; leaving it in the live region
     // would erase it on the next write.
     flushThinking()
@@ -2303,6 +2347,8 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
     try {
       await turn(live.agent, text, spinner, source, extra)
     } finally {
+      // A steer the turn ended without taking goes back to the queue's head.
+      reclaimSteers(live.agent)
       io.console.setTitle(`dsh code — ${basename(cwd)}`)
       const thought = getActiveThought()
       if (thought !== undefined) {
@@ -2325,6 +2371,34 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
     const cost = spent > 0 ? ` · ${formatTokens(spent)} tokens` : ''
     prompt.write(theme.dim(`  ${formatTurnTime(elapsedMs, turnThinkingMs, sessionElapsed)}${cost}`))
     prompt.write('')
+  }
+
+  // Ctrl-Enter, or `s` in the queue panel: the line goes into the RUNNING turn
+  // at its next step boundary rather than waiting for the turn to end. The
+  // loop is blocked in the turn, so this runs off the key, not the loop.
+  onSteer = async (item) => {
+    if (live.agent.status !== 'running') return 'idle'
+    const preparing = item.images.length === 0 ? undefined : new AbortController()
+    if (preparing !== undefined) running = preparing
+    let extra: TurnContent | undefined
+    try {
+      extra = await prepareImages(item.images, preparing?.signal)
+    } finally {
+      if (running === preparing) running = undefined
+    }
+    // The turn may have ended while the images were being prepared.
+    if (preparing?.signal.aborted === true || live.agent.status !== 'running') return 'idle'
+    const message = createUserMessage({
+      content: [
+        ...extra?.leading ?? [],
+        { type: 'text', text: expandSkillGestures(item.text.trim(), new Set(userSkills.map(entry => entry.name))) },
+        ...extra?.trailing ?? [],
+      ],
+      source: { kind: 'user' },
+    })
+    steers.set(message.id, item)
+    live.agent.steer(message)
+    return 'steered'
   }
 
   if (config.print) {

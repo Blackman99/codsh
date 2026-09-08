@@ -202,7 +202,8 @@ replay creates capable but automatically collapsed Folds from durable events.
 _Avoid_: session fold state, global expanded mode
 
 **Chrome**:
-The bottom-pinned rows: input box, menus, hint row, status row. Never scrolls.
+The bottom-pinned rows: input box, menus, the Queue and Todo readouts, hint
+row, status row. Never scrolls.
 
 **Row**:
 One line of a frame, painted at a position of its own. A row is text and
@@ -311,6 +312,38 @@ disk. A click anywhere in the readout, or Ctrl+T, opens the full list and
 closes it again, the way a Fold works. Read from the `todos` projection and
 the spec file, never remembered from the write.
 _Avoid_: todo panel, task bar, progress bar
+
+**Queue**:
+The lines submitted while nothing was asking for one — a turn running, a
+question open — held by the Prompt in the order they were typed, each a
+Prompt, a `!` line, or a `/` command with the images its tokens claimed.
+Adjacent Prompts leave as ONE message, a blank line between them; a `!` or
+`/` line is a boundary that keeps its place and leaves alone, so shell output
+lands between the thoughts it separated. Shown as the `↳ queued:` chrome row
+(count, each line's first line, `Ctrl+Q`). Surface state, never the dsh inbox:
+the inbox holds only Steers. An interrupt leaves it alone, and it goes as the
+next message; Escape is always the interrupt.
+_Avoid_: inbox, backlog, type-ahead buffer
+
+**Queue panel**:
+The Queue opened in its row's place — Ctrl+Q, or a click on the readout — as
+a numbered list with the keyboard: Enter edits the marked line back into the
+box (its images with it; refused while the box holds text), `d` deletes,
+Shift+↑/↓ reorders, `s` Steers a Prompt while a turn runs, digits pick a row,
+Escape or Ctrl+Q closes. One open panel at a time with the Todo readout. It
+closes itself after an edit or a Steer and when the Queue empties; the box
+receives no keys while it is open, and the pointer marks and clicks its rows.
+_Avoid_: selector (which replaces the box and settles once), menu
+
+**Steer**:
+A Prompt handed to the RUNNING turn instead of the Queue — Ctrl+Enter from
+the box on a kitty-protocol terminal, `s` in the Queue panel anywhere — via
+the agent's `steer`, which delivers it at the next step boundary. Shown as the
+`↳ steering:` chrome row until the agent claims it, when it renders as a
+Prompt block like any other. A turn that ends without taking it, an interrupt,
+or a session switch reclaims it to the head of the Queue, so nothing typed is
+lost. A `!` or `/` line cannot Steer; it joins the Queue.
+_Avoid_: inject (dsh's model-facing context), interrupt, follow-up
 
 ### Workflows
 

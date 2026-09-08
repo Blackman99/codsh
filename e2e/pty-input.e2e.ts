@@ -11,7 +11,7 @@
 
 import { describe, expect, it } from 'vitest'
 import { E2E_TEST_TIMEOUT_MS } from './harness.ts'
-import { LEAVE_ALT, PTY_COLUMNS, PTY_ROWS, SYNC_END, drivePty, drivePtySteps, screenOf } from './pty-driver.ts'
+import { LEAVE_ALT, PTY_COLUMNS, PTY_ROWS, SYNC_END, drivePty, drivePtySteps, finalScreen, screenOf } from './pty-driver.ts'
 import { CLEAR, ENTER, ESCAPE, PASTE_END, PASTE_START, boxTops, screenAt, visible } from './pty-helpers.ts'
 import { Terminal } from './vt.ts'
 
@@ -226,6 +226,31 @@ describe.skipIf(process.platform === 'win32')('typing and keys (real PTY)', () =
       if (/[A-Za-z]/u.test(border)) offenders.push(border.trim())
     }
     expect(offenders.slice(0, 3)).toEqual([])
+  }, E2E_TEST_TIMEOUT_MS)
+
+  it('runs a queued ! line in its turn, between the prompts around it', async () => {
+    // The steer mock ends a turn on its own after three seconds, so the queue
+    // drains without an Escape per turn.
+    // Markers match in order, so the script itself proves the sequence: the
+    // first reply, then the shell card, then the shell's own follow-up reply,
+    // then the prompt's. The screens at each step pin what was — and was not
+    // — there yet.
+    const run = await drivePtySteps('steer', [
+      ['Welcome to codsh', `go${ENTER}`, 300],
+      ['$ sleep', `!echo QUEUED_BANG${ENTER}after QUEUED_PROMPT${ENTER}`, 300],
+      ['seen=', '', 0],
+      ['$ echo QUEUED_BANG', '', 0],
+      ['seen=', '', 0],
+      ['seen=', `/exit${ENTER}`, 400],
+    ])
+    const at = (step: number): string[] => screenOf(run.output.slice(0, run.offsets[step - 1]), -1).alternate
+    const promptRow = /›\s+after QUEUED_PROMPT/u
+    // When the shell card had just appeared, the prompt typed after it had
+    // not started its turn; by the end it had.
+    expect(at(4).some(row => row.includes('$ echo QUEUED_BANG'))).toBe(true)
+    expect(at(4).some(row => promptRow.test(row))).toBe(false)
+    const final = finalScreen(run.output).alternate
+    expect(final.some(row => promptRow.test(row))).toBe(true)
   }, E2E_TEST_TIMEOUT_MS)
 
   it('runs a ! line in the shell and the agent sees the output', async () => {

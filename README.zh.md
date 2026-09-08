@@ -75,6 +75,7 @@ dsh --profile code
 - todo 常驻 chrome（Ctrl+T / `/todos`）。Markdown、思考、工具卡片流式画出。回答里代替 Markdown 的内联 HTML 也会渲染：`<font color>` 和 `<span style>` 的颜色（ANSI 色名用终端自己的调色板，其余走真彩或最接近的调色板项）、`<b>`、`<i>`、`<u>`、`<s>`、`<code>`、`<br>` 和实体；不认识的标签原样保留。拖选即复制，对话和输入框都是。
 - Ctrl+V 粘贴图片。光标停在 `[Image #N]` 上时，屏幕中央浮出一张预览卡：能画图的终端直接显示原图——Ghostty、kitty、WezTerm 走 Kitty graphics，iTerm2 走它自己的协议——其余终端显示彩色半块马赛克。Ctrl+O 或点一下卡片，用系统看图器打开原图。（原生视觉；DeepSeek 文本模型自动借用 Vision Exp；其他文本路由仍落盘并可选 sidecar。）
 - `/` 命令、`$` skill、`!` shell、`@` 文件 —— 菜单在输入框上方。⇧Tab 是 plan 模式。
+- agent 工作时照样可以打字，回车进入队列，输入框下方显示 `↳ queued: …`。排在一起的消息在回合结束时合并成一条发出，中间空一行；`!` 命令和 `/` 命令保持原来的顺序、单独执行。Ctrl+Q 或点击那一行打开队列面板：Enter 把一条拉回输入框编辑，`d` 删除，Shift+↑/↓ 调序，`s` 把它插进正在运行的回合。支持 kitty 键盘协议的终端上 Ctrl+Enter 直接从输入框插话，送达前显示为 `↳ steering:`。Esc 一律中断，队列保留并作为下一条消息发出。↑ 仍然逐条回溯。
 - `/ui compact|comfortable` 决定对话占多少地方。compact 是默认，上面描述的也都是它的形状；comfortable 只是多给空间——轮次之间空一行、思考流式时留两行预览、展开的 diff 更晚才切到分页器。这个选择会跨会话保存。
 - 审批、`/model`、`/resume`、`/thinking`（或 `/effort`）用方向键；还有 `/clear`、Esc Esc、`/init`、`/update`。`!cmd` 打在会话里，agent 看得到输出。
 - `/thinking [level]`（别名 `/effort`）配置模型思考深度（如 `off`、`low`、`high`、`max`，或快捷指令 `on`/`off`），支持 TTY 交互式选择、按模型独立持久化，并在状态栏 MetaBar（如 `deepseek-chat (high)`）及 `/status` 报告中常驻显示。
@@ -93,7 +94,7 @@ dsh --profile code
 | 二等 | Ghostty、kitty、Alacritty、Warp | 这里出回归是 bug，不阻塞发版 |
 | 尽力支持 | 原生 Windows（pwsh） | 持久终端在那里不可用；其余功能应当可用 |
 
-协议是渐进使用的：kitty 键盘协议、焦点上报、OSC 11 主题探测都会发出请求，终端答应了就生效；不答应的终端走传统路径。内联图像也照这个办法选，而且看的是终端真正实现了什么、而不是它是谁——Ghostty、kitty、WezTerm 走 Kitty graphics，iTerm2 走 `OSC 1337`，其余终端用半块马赛克；tmux 和 screen 两种都不转发，所以在它们里面不发图。
+协议是渐进使用的：kitty 键盘协议、焦点上报、OSC 11 主题探测都会发出请求，终端答应了就生效；不答应的终端走传统路径——Ctrl+Enter 插话需要 kitty 协议，其它终端用队列面板里的 `s` 做同一件事。开着软件流控的终端会悄悄吞掉 Ctrl+Q，那时点击 `↳ queued:` 那一行也能打开面板。内联图像也照这个办法选，而且看的是终端真正实现了什么、而不是它是谁——Ghostty、kitty、WezTerm 走 Kitty graphics，iTerm2 走 `OSC 1337`，其余终端用半块马赛克；tmux 和 screen 两种都不转发，所以在它们里面不发图。
 
 ## 第三方端点
 
@@ -132,7 +133,8 @@ pnpm run site:screens        # 用真实二进制重拍站点上的终端截屏
 ```
 
 `MOCK=<mode>` 用无 key 的 mock 模型启动：`write`（默认）、`bash`、`heredoc`、
-`slow`、`tall`、`spec`、`markdown`、`reasoning`、`echo`、`vision`，以及自动图像
+`slow`、`steer`（占住回合 3 秒并报告插话是否送达）、`tall`、`spec`、`markdown`、
+`reasoning`、`echo`、`vision`，以及自动图像
 描述背后的 `auto-vision`、`auto-vision-slow`、`auto-vision-fail`。`INSPECT=1`
 只对 app 进程打开 Node inspector，断点因此不会把它前面的构建一起停住。
 

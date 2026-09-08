@@ -158,6 +158,13 @@ const ARGUMENTS = {
     description: 'Hold the turn open.',
     timeoutMs: SLOW_SECONDS * 2000,
   },
+  // Just long enough for a test to inject a message into the running turn
+  // before the tool settles, and short enough that the suite does not stall.
+  steer: {
+    command: 'sleep 3',
+    description: 'Hold the turn open briefly.',
+    timeoutMs: 20_000,
+  },
   tall: { file_path: join(process.cwd(), TARGET), content: TALL_CONTENT },
   spec: { file_path: join(process.cwd(), 'plan.md'), content: SPEC_CONTENT },
   // One item per lifecycle state, so the readout has a count to report, an
@@ -414,6 +421,22 @@ class CodeCliMockAdapter extends LlmAdapter {
       yield { type: 'block-end', index: 0, block: { type: 'tool-call', id, name: tool, arguments: args } }
       yield { type: 'usage', usage: { inputTokens: 11, outputTokens: 3 } }
       yield { type: 'finish', reason: { kind: 'tool-calls' } }
+      return
+    }
+    if (MOCK_MODE === 'steer') {
+      // A second `$ sleep` card would mean a second turn; `seen=yes` with only
+      // one card proves the steer message arrived mid-turn.
+      const userMessages = options.messages.filter(message => message.role === 'user')
+      const seen = userMessages.some(message => message.content.some(block =>
+        block.type === 'text' && block.text.includes('CODE_CLI_STEER_MARK')))
+      const users = userMessages.filter(message => message.content.some(block =>
+        block.type === 'text' && !block.text.startsWith('<'))).length
+      const reply = `CODE_CLI_STEER seen=${seen ? 'yes' : 'no'} users=${users}`
+      yield { type: 'block-start', index: 0, blockType: 'text' }
+      yield { type: 'text-delta', index: 0, text: reply }
+      yield { type: 'block-end', index: 0, block: { type: 'text', text: reply } }
+      yield { type: 'usage', usage: { inputTokens: 5, outputTokens: 6 } }
+      yield { type: 'finish', reason: { kind: 'stop' } }
       return
     }
     const failed = toolResult.isError === true
