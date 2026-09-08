@@ -30,6 +30,9 @@ const MARKDOWN = [
   '',
   'Prose with **bold**, *em*, `inline_code`, and a [link](https://x.dev).',
   'An identifier like some_helper_name must survive intact.',
+  // Inline HTML where a model reaches for it instead of Markdown: a coloured
+  // figure, an entity, a bold tag. The surface paints and consumes them.
+  'Gain: <font color="green">CODE_CLI_GAIN</font> &amp; <b>held</b>',
   '',
   // The shapes real models produce constantly: emphasis wrapping code, and a
   // table whose Chinese cells are far wider than any terminal.

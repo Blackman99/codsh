@@ -75,7 +75,7 @@ The [site](https://blackman99.github.io/codsh/) shows each one as a real capture
 **Working**
 
 - Alternate screen; the box never leaves the bottom; quitting gives your shell back untouched.
-- Todos stay in the chrome (Ctrl+T / `/todos`). Markdown, thinking, and tool cards stream in. Drag to copy, in the transcript or the box.
+- Todos stay in the chrome (Ctrl+T / `/todos`). Markdown, thinking, and tool cards stream in. The inline HTML an answer uses instead of Markdown renders too: `<font color>` and `<span style>` colours (the terminal's own for ANSI names, truecolor or the nearest palette entry otherwise), `<b>`, `<i>`, `<u>`, `<s>`, `<code>`, `<br>`, and entities; unknown tags stay as written. Drag to copy, in the transcript or the box.
 - Ctrl+V pastes images. While the cursor rests on the `[Image #N]` token a card centered over the transcript previews it: the picture itself wherever the terminal paints one — Ghostty, kitty and WezTerm through Kitty graphics, iTerm2 through its own — and a colour half-block mosaic everywhere else. Ctrl+O, or a click on the card, opens the original in the system viewer. (Native vision; DeepSeek text models borrow Vision Exp automatically; other text routes keep the file + optional sidecar fallback.)
 - `/` commands, `$` skills, `!` shell, `@` files — the menu sits above the box. ⇧Tab is plan mode.
 - `/ui compact|comfortable` sets how much room the transcript takes. Compact is the default and the shape everything above is described in; comfortable only adds — a blank row between turns, a two-line preview while thinking streams, and a higher click-to-pager threshold on expanded diffs. The choice persists across sessions.

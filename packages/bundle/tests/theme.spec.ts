@@ -4,7 +4,7 @@
  */
 
 import { describe, expect, it } from 'vitest'
-import { backgroundIsLight, createTheme, displayWidth, graphemeAt, oneRow, truncate } from '../src/theme.ts'
+import { backgroundIsLight, createTheme, displayWidth, graphemeAt, oneRow, parseColor, truncate } from '../src/theme.ts'
 
 describe('createTheme', () => {
   it('emits sequences on a colour-capable terminal', () => {
@@ -93,6 +93,46 @@ describe('createTheme', () => {
     const noColor = createTheme(true, { NO_COLOR: '1' })
     expect(noColor.bgUser('prompt')).toBe('prompt')
     expect(noColor.diffDel('- line')).toBe('- line')
+  })
+})
+
+describe('a colour an answer names', () => {
+  it('reads names, hex, and rgb() the way a browser would', () => {
+    expect(parseColor('green')).toEqual({ ansi: '32' })
+    expect(parseColor(' Gray ')).toEqual({ ansi: '90' })
+    expect(parseColor('orange')).toEqual({ rgb: [255, 165, 0] })
+    expect(parseColor('#f80')).toEqual({ rgb: [255, 136, 0] })
+    expect(parseColor('#FF8800')).toEqual({ rgb: [255, 136, 0] })
+    expect(parseColor('rgb(1, 2, 3)')).toEqual({ rgb: [1, 2, 3] })
+    expect(parseColor('rgba(1,2,3,0.5)')).toEqual({ rgb: [1, 2, 3] })
+    expect(parseColor('nosuchcolour')).toBeUndefined()
+    expect(parseColor('#12')).toBeUndefined()
+  })
+
+  it('paints an ANSI name with the terminal\'s palette and a point by the depth it has', () => {
+    const basic = createTheme(true, {})
+    const palette = createTheme(true, { TERM: 'xterm-256color' })
+    const truecolor = createTheme(true, { COLORTERM: 'truecolor' })
+    for (const theme of [basic, palette, truecolor]) expect(theme.color('green')?.('x')).toBe('\u001B[32mx\u001B[0m')
+    expect(truecolor.color('#ff8800')?.('x')).toBe('\u001B[38;2;255;136;0mx\u001B[0m')
+    expect(palette.color('#ff8800')?.('x')).toBe('\u001B[38;5;208mx\u001B[0m')
+    expect(palette.color('#808080')?.('x')).toBe('\u001B[38;5;244mx\u001B[0m')
+    expect(basic.color('#ff8800')?.('x')).toBe('\u001B[33mx\u001B[0m')
+    expect(basic.color('nosuchcolour')).toBeUndefined()
+  })
+
+  it('knows a colour but paints nothing off a TTY', () => {
+    const plain = createTheme(false, {})
+    expect(plain.color('green')?.('x')).toBe('x')
+    expect(plain.color('nosuchcolour')).toBeUndefined()
+    expect(plain.italic('x')).toBe('x')
+    expect(plain.underline('x')).toBe('x')
+  })
+
+  it('has italic and underline roles for the tags that ask for them', () => {
+    const theme = createTheme(true, {})
+    expect(theme.italic('x')).toBe('\u001B[3mx\u001B[0m')
+    expect(theme.underline('x')).toBe('\u001B[4mx\u001B[0m')
   })
 })
 

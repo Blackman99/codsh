@@ -46,6 +46,12 @@ describe.skipIf(process.platform === 'win32')('the first five minutes: rendering
     expect(text).not.toContain('`screen.ts`')
     expect(text).not.toContain('**')
     expect(text).toContain('screen.ts')
+    // Inline HTML painted, not printed: the gain reached the terminal in the
+    // theme's green, the entity is its character, and no tag is on screen.
+    expect(output).toContain('\u001B[32mCODE_CLI_GAIN\u001B[0m')
+    expect(rows.some(row => row.includes('Gain: CODE_CLI_GAIN & held'))).toBe(true)
+    expect(text).not.toContain('<font')
+    expect(text).not.toContain('&amp;')
   }, E2E_TEST_TIMEOUT_MS)
 
   it('copies raw answers and fence-free code by stable content address', async () => {
@@ -54,6 +60,8 @@ describe.skipIf(process.platform === 'win32')('the first five minutes: rendering
       '',
       'Prose with **bold**, *em*, `inline_code`, and a [link](https://x.dev).',
       'An identifier like some_helper_name must survive intact.',
+      // `/copy` hands back the raw answer: the tag and the entity as written.
+      'Gain: <font color="green">CODE_CLI_GAIN</font> &amp; <b>held</b>',
       '',
       '- **`screen.ts`**: the viewport module',
       '- second bullet',

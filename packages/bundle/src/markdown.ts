@@ -70,6 +70,204 @@ const TABLE_DELIMITER = /^:?-+:?$/
  */
 const INLINE = /(`[^`]+`)|(\*\*[^*]+\*\*)|((?<!\w)__[^_]+__(?!\w))|(~~[^~]+~~)|(\[[^\]]*\]\([^)]*\))|(\*[^*\s][^*]*\*)|((?<!\w)_[^_\s][^_]*_(?!\w))/g
 
+/**
+ * Inline HTML an answer may carry instead of Markdown: the tags this surface
+ * styles, by name. A model that wants a green number writes
+ * `<font color="green">` far more often than it finds a Markdown way, and the
+ * tag printed literally is what the reader saw. Anything not named here —
+ * `<div>`, `<details>`, a type parameter in prose — is left exactly as written.
+ */
+const HTML_TAGS = new Set(['font', 'span', 'b', 'strong', 'i', 'em', 'u', 's', 'del', 'strike', 'code', 'kbd', 'mark', 'sub', 'sup', 'small'])
+
+/** One SGR sequence, matched where the scan stands. */
+const SGR_AT = /\u001B\[[0-9;]*m/y
+
+/** One HTML tag, opening, closing, or self-closing. */
+const HTML_TAG = /<(\/?)([a-zA-Z][a-zA-Z0-9]*)\b([^<>]*?)\/?>/g
+
+/** A code span, whose content is literal: a tag inside one is text, not markup. */
+const CODE_SPAN = /(`[^`]+`)/u
+
+/** The entities an answer writes for characters it could not otherwise type. */
+const ENTITY = /&(?:(amp|lt|gt|quot|apos|nbsp)|#(\d{1,7})|#x([0-9a-fA-F]{1,6}));/gu
+const NAMED_ENTITY: Record<string, string> = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: ' ' }
+
+/**
+ * Placeholders stand in for lifted tags while the Markdown pass runs: one
+ * private-use code point each, which no delimiter regex reads as syntax.
+ */
+const PLACEHOLDER_BASE = 0xE000
+const PLACEHOLDERS = /[\uE000-\uE0FF]/u
+
+/** One `<tag>…</tag>` pair lifted out of a line, its content still unrendered. */
+interface LiftedTag {
+  name: string
+  attributes: string
+  inner: string
+}
+
+/**
+ * Lift the styled tag pairs out of a line, leaving a placeholder for each.
+ *
+ * Outermost pairs only — what is inside one renders on its own, recursively,
+ * so nesting and Markdown inside a tag both work. A tag inside a code span is
+ * content; an unmatched or unknown tag stays literal. A top-level `<br>`
+ * becomes a newline, which the block layer turns into a row of its own.
+ * @param text - the line, before any styling.
+ * @returns the line with placeholders, and what each stands for.
+ */
+function liftHtml(text: string): { text: string; lifted: LiftedTag[] } {
+  const lifted: LiftedTag[] = []
+  if (!text.includes('<') || PLACEHOLDERS.test(text)) return { text, lifted }
+  // Code spans, by range, so no tag inside one is read as markup.
+  const codeRanges: [number, number][] = []
+  for (const match of text.matchAll(/`[^`]+`/gu)) codeRanges.push([match.index, match.index + match[0].length])
+  const inCode = (at: number): boolean => codeRanges.some(([from, to]) => at >= from && at < to)
+  const replacements: { from: number; to: number; text: string }[] = []
+  const open: { name: string; attributes: string; from: number; to: number }[] = []
+  for (const match of text.matchAll(HTML_TAG)) {
+    const [whole, slash = '', rawName = '', attributes = ''] = match
+    const name = rawName.toLowerCase()
+    const from = match.index
+    const to = from + whole.length
+    if (inCode(from)) continue
+    if (name === 'br') {
+      if (open.length === 0) replacements.push({ from, to, text: '\n' })
+      continue
+    }
+    if (!HTML_TAGS.has(name)) continue
+    if (slash === '') {
+      open.push({ name, attributes, from, to })
+      continue
+    }
+    const depth = open.map(tag => tag.name).lastIndexOf(name)
+    if (depth < 0) continue
+    const opener = open[depth]
+    open.length = depth
+    if (opener === undefined || open.length > 0) continue
+    lifted.push({ name: opener.name, attributes: opener.attributes, inner: text.slice(opener.to, from) })
+    replacements.push({ from: opener.from, to, text: String.fromCodePoint(PLACEHOLDER_BASE + lifted.length - 1) })
+  }
+  if (replacements.length === 0) return { text, lifted }
+  let out = ''
+  let at = 0
+  for (const replacement of replacements) {
+    out += text.slice(at, replacement.from) + replacement.text
+    at = replacement.to
+  }
+  return { text: out + text.slice(at), lifted }
+}
+
+/** Decode entities outside code spans, where an entity is content. */
+function decodeEntities(text: string): string {
+  if (!text.includes('&')) return text
+  return text.split(CODE_SPAN).map((segment, index) => index % 2 === 1
+    ? segment
+    : segment.replace(ENTITY, (whole, named: string | undefined, decimal: string | undefined, hex: string | undefined) => {
+      if (named !== undefined) return NAMED_ENTITY[named] ?? whole
+      const code = decimal !== undefined ? Number.parseInt(decimal, 10) : Number.parseInt(hex ?? '', 16)
+      return code > 0x1F && code <= 0x10FFFF && (code < 0xD800 || code > 0xDFFF) ? String.fromCodePoint(code) : whole
+    })).join('')
+}
+
+/** The value of one attribute, quoted either way or bare. */
+function attribute(attributes: string, name: string): string | undefined {
+  const match = new RegExp(`\\b${name}\\s*=\\s*(?:"([^"]*)"|'([^']*)'|([^\\s"'>]+))`, 'iu').exec(attributes)
+  if (match === null) return undefined
+  return match[1] ?? match[2] ?? match[3]
+}
+
+/**
+ * The styles one tag asks for, outermost first; none for a tag that only
+ * groups (`<span>` without a colour, `<sub>`, `<small>`), whose text stays.
+ */
+function htmlStyles(tag: LiftedTag, theme: Theme): ((text: string) => string)[] {
+  switch (tag.name) {
+    case 'b': case 'strong': return [theme.bold]
+    case 'i': case 'em': return [theme.italic]
+    case 'u': return [theme.underline]
+    case 's': case 'del': case 'strike': return [theme.strike]
+    case 'code': case 'kbd': return [theme.tool]
+    case 'mark': return [theme.warn]
+    case 'font': {
+      const color = attribute(tag.attributes, 'color')
+      const style = color === undefined ? undefined : theme.color(color)
+      return style === undefined ? [] : [style]
+    }
+    case 'span': {
+      const css = attribute(tag.attributes, 'style') ?? ''
+      const styles: ((text: string) => string)[] = []
+      const weight = /(?:^|;)\s*font-weight\s*:\s*(bold|bolder|[6-9]00)\s*(?:;|$)/iu.exec(css)
+      if (weight !== null) styles.push(theme.bold)
+      const color = /(?:^|;)\s*color\s*:\s*([^;]+?)\s*(?:;|$)/iu.exec(css)
+      const style = color?.[1] === undefined ? undefined : theme.color(color[1])
+      if (style !== undefined) styles.push(style)
+      return styles
+    }
+    default: return []
+  }
+}
+
+/**
+ * Wrap already-styled text in one more style without losing it at a reset.
+ *
+ * Every theme role closes with a reset, and a reset ends every open style —
+ * so `bold(a + red(b) + c)` drops the bold after `b`. Re-opening the outer
+ * style after each reset inside is what keeps `c` bold.
+ * @param style - the theme role to wrap with.
+ * @param inner - text that may already carry styling.
+ * @returns the wrapped text; unchanged under a theme that styles nothing.
+ */
+function nest(style: (text: string) => string, inner: string): string {
+  const [opening = '', closing = ''] = style('\u0000').split('\u0000')
+  if (opening === '') return inner
+  const parts = inner.split(closing)
+  const last = parts.length - 1
+  // A reset that ends the inner text is the wrap's own close; anything
+  // earlier re-opens the style for what follows.
+  const body = parts.map((part, index) =>
+    index === last ? part : index === last - 1 && parts[last] === '' ? `${part}${closing}` : `${part}${closing}${opening}`).join('')
+  return `${opening}${body}${inner.endsWith(closing) ? '' : closing}`
+}
+
+/**
+ * Put the lifted tags back, rendered, where their placeholders stand.
+ *
+ * The Markdown pass may have opened a style across a placeholder; whatever is
+ * open there is re-opened after the tag's own reset, so `**a <b>b</b> c**`
+ * keeps `c` bold.
+ */
+function lowerHtml(styled: string, lifted: LiftedTag[], theme: Theme): string {
+  let out = ''
+  let active: string[] = []
+  let at = 0
+  while (at < styled.length) {
+    const code = styled.charCodeAt(at)
+    if (code === 0x1B) {
+      SGR_AT.lastIndex = at
+      const sgr = SGR_AT.exec(styled)
+      if (sgr !== null) {
+        if (sgr[0] === '\u001B[0m' || sgr[0] === '\u001B[m') active = []
+        else active.push(sgr[0])
+        out += sgr[0]
+        at += sgr[0].length
+        continue
+      }
+    }
+    const tag = code >= PLACEHOLDER_BASE && code < PLACEHOLDER_BASE + lifted.length ? lifted[code - PLACEHOLDER_BASE] : undefined
+    if (tag === undefined) {
+      out += styled[at]
+      at += 1
+      continue
+    }
+    const rendered = htmlStyles(tag, theme).reduceRight((inner, style) => nest(style, inner), renderInline(tag.inner, theme))
+    out += rendered
+    if (active.length > 0 && rendered.includes('\u001B[0m')) out += active.join('')
+    at += 1
+  }
+  return out
+}
+
 /** Keywords shared across the languages this surface commonly shows. */
 const KEYWORDS = new Set([
   'as', 'async', 'await', 'break', 'case', 'catch', 'class', 'const', 'continue', 'def', 'default',
@@ -140,12 +338,31 @@ export function highlightCode(line: string, syntax: SyntaxTheme): string {
 }
 
 /**
- * Style the inline constructs of one line of prose.
+ * Style the inline constructs of one line of prose: Markdown emphasis, code
+ * spans, and links, plus the inline HTML an answer may use instead.
+ *
+ * HTML goes first and last: styled tag pairs are lifted out to placeholders,
+ * entities are decoded, the Markdown pass runs over what is left, and the
+ * tags come back rendered where they stood. A tag's content renders through
+ * the same function, so Markdown inside a tag and a tag inside emphasis both
+ * come out right.
  * @param text - the line, with block syntax already stripped.
+ * @param theme - styling for emphasis, code spans, and link targets.
+ * @returns the styled line, which holds a newline where a `<br>` stood.
+ */
+export function renderInline(text: string, theme: Theme): string {
+  const { text: plain, lifted } = liftHtml(text)
+  const styled = renderMarkdownInline(decodeEntities(plain), theme)
+  return lifted.length === 0 ? styled : lowerHtml(styled, lifted, theme)
+}
+
+/**
+ * Style the Markdown constructs of one line of prose.
+ * @param text - the line, HTML already lifted out.
  * @param theme - styling for emphasis, code spans, and link targets.
  * @returns the styled line.
  */
-export function renderInline(text: string, theme: Theme): string {
+function renderMarkdownInline(text: string, theme: Theme): string {
   // Emphasis wrapping is applied per segment around any code spans inside it:
   // one SGR reset ends every open style, so `bold(a + tool(b) + c)` would drop
   // the bold after `b` — and a single-pass regex would instead leave the
@@ -316,7 +533,9 @@ function layoutTable(rows: readonly string[], theme: Theme, budget: number): str
   const content = [raw[0] ?? [], ...raw.slice(2)]
   while (count > 1 && content.every(row => (row[count - 1] ?? '') === '')) count -= 1
   const styled = content.map(row => row.slice(0, count).map(cell => renderInline(cell, theme)))
-  const visible = (cell: string): number => displayWidth(cell.replaceAll(/\u001B\[[0-9;]*m/gu, ''))
+  // A cell holds a newline where a `<br>` stood; its width is its widest row.
+  const visible = (cell: string): number =>
+    Math.max(...cell.split('\n').map(row => displayWidth(row.replaceAll(/\u001B\[[0-9;]*m/gu, ''))))
   const natural = Array.from({ length: count }, (_, column) =>
     Math.max(1, ...styled.map(row => visible(row[column] ?? ''))))
   // Per row: `│ ` lead, ` │ ` between columns, ` │` tail.
@@ -413,7 +632,7 @@ function renderLine(line: string, theme: Theme, fence: FenceState): string[] {
     }
     const heading = HEADING.exec(line)
     if (heading !== null) {
-      out.push(theme.warn(renderInline(heading[2] ?? '', theme)))
+      out.push(...rows(theme.warn(renderInline(heading[2] ?? '', theme)), '', ''))
       return out
     }
     if (RULE.test(line)) {
@@ -422,7 +641,8 @@ function renderLine(line: string, theme: Theme, fence: FenceState): string[] {
     }
     const quote = QUOTE.exec(line)
     if (quote !== null) {
-      out.push(`${theme.dim('│')} ${theme.dim(renderInline(quote[1] ?? '', theme))}`)
+      const rule = `${theme.dim('│')} `
+      out.push(...rows(theme.dim(renderInline(quote[1] ?? '', theme)), rule, rule))
       return out
     }
     const task = TASK_ITEM.exec(line)
@@ -432,27 +652,44 @@ function renderLine(line: string, theme: Theme, fence: FenceState): string[] {
       const rawText = task[3]
       const text = rawText !== undefined && rawText !== '' ? renderInline(rawText, theme) : ''
       if (isDone) {
-        const body = text !== '' ? ` ${theme.dim(theme.strike(text))}` : ''
-        out.push(`${indent}${theme.success('✔')}${body}`)
+        if (text === '') out.push(`${indent}${theme.success('✔')}`)
+        else out.push(...rows(theme.dim(theme.strike(text)), `${indent}${theme.success('✔')} `, `${indent}  `))
       } else {
-        const body = text !== '' ? ` ${text}` : ''
-        out.push(`${indent}${theme.dim('○')}${body}`)
+        if (text === '') out.push(`${indent}${theme.dim('○')}`)
+        else out.push(...rows(text, `${indent}${theme.dim('○')} `, `${indent}  `))
       }
       return out
     }
     const bullet = BULLET.exec(line)
     if (bullet !== null) {
-      out.push(`${bullet[1] ?? ''}${theme.dim('•')} ${renderInline(bullet[2] ?? '', theme)}`)
+      const indent = bullet[1] ?? ''
+      out.push(...rows(renderInline(bullet[2] ?? '', theme), `${indent}${theme.dim('•')} `, `${indent}  `))
       return out
     }
     const numbered = NUMBERED.exec(line)
     if (numbered !== null) {
-      out.push(`${numbered[1] ?? ''}${theme.dim(`${numbered[2] ?? ''}.`)} ${renderInline(numbered[3] ?? '', theme)}`)
+      const indent = numbered[1] ?? ''
+      const label = `${numbered[2] ?? ''}.`
+      out.push(...rows(renderInline(numbered[3] ?? '', theme), `${indent}${theme.dim(label)} `, `${indent}${' '.repeat(label.length + 1)}`))
       return out
     }
-    out.push(renderInline(line, theme))
+    out.push(...rows(renderInline(line, theme), '', ''))
   }
   return out
+}
+
+/**
+ * The rows one rendered inline occupies: one, unless a `<br>` left a newline
+ * in it, in which case each row is its own line with the styles open at the
+ * break carried over, and a continuation sits under the text, not the bullet.
+ * @param inline - the styled inline text.
+ * @param lead - what precedes the first row.
+ * @param continuation - what precedes every later row.
+ * @returns the rows, at least one.
+ */
+function rows(inline: string, lead: string, continuation: string): string[] {
+  if (!inline.includes('\n')) return [`${lead}${inline}`]
+  return wrapStyled(inline, Number.POSITIVE_INFINITY).map((row, index) => `${index === 0 ? lead : continuation}${row}`)
 }
 
 /**

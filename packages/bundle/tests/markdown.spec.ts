@@ -44,6 +44,85 @@ describe('renderInline', () => {
   })
 })
 
+describe('inline HTML in an answer', () => {
+  const truecolor = createTheme(true, { COLORTERM: 'truecolor' })
+  const palette = createTheme(true, { TERM: 'xterm-256color' })
+
+  it('paints a <font color> in the terminal\'s own colour, and strips the tag off a TTY', () => {
+    // The field case: a P&L line whose gain the model wrapped in a tag, which
+    // the reader saw printed literally.
+    const line = '累计净盈亏: <font color="green">+757.22 USDT</font> (+7.57%)'
+    expect(renderInline(line, colour)).toBe('累计净盈亏: \u001B[32m+757.22 USDT\u001B[0m (+7.57%)')
+    expect(renderInline(line, plain)).toBe('累计净盈亏: +757.22 USDT (+7.57%)')
+  })
+
+  it('reads a span\'s CSS colour and weight, at the depth the terminal has', () => {
+    const line = '<span style="color: #ff8800; font-weight: bold">hot</span>'
+    expect(renderInline(line, truecolor)).toBe('\u001B[1m\u001B[38;2;255;136;0mhot\u001B[0m')
+    expect(renderInline(line, palette)).toContain('\u001B[38;5;208mhot')
+    expect(renderInline(line, colour)).toContain('\u001B[33mhot')
+    expect(renderInline(line, plain)).toBe('hot')
+  })
+
+  it('maps the emphasis tags onto the theme roles', () => {
+    expect(renderInline('<b>a</b> <strong>b</strong>', colour)).toBe('\u001B[1ma\u001B[0m \u001B[1mb\u001B[0m')
+    expect(renderInline('<i>a</i> <em>b</em>', colour)).toBe('\u001B[3ma\u001B[0m \u001B[3mb\u001B[0m')
+    expect(renderInline('<u>a</u> <s>b</s> <del>c</del>', colour)).toBe('\u001B[4ma\u001B[0m \u001B[9mb\u001B[0m \u001B[9mc\u001B[0m')
+    expect(renderInline('<code>x</code>', colour)).toBe(colour.tool('x'))
+    // Grouping tags keep their text and lose the markup.
+    expect(renderInline('H<sub>2</sub>O <span>plain</span> <small>fine</small>', plain)).toBe('H2O plain fine')
+  })
+
+  it('keeps an outer style open past a tag\'s own reset', () => {
+    // `**a <font>b</font> c**`: the tag closes with a reset, which used to end
+    // the bold too; `c` must still be bold.
+    expect(renderInline('**a <font color="red">b</font> c**', colour))
+      .toBe('\u001B[1ma \u001B[31mb\u001B[0m\u001B[1m c\u001B[0m')
+    // And Markdown inside a tag renders, wrapped in the tag's colour throughout.
+    expect(renderInline('<font color="red">a **b** c</font>', colour))
+      .toBe('\u001B[31ma \u001B[1mb\u001B[0m\u001B[31m c\u001B[0m')
+  })
+
+  it('leaves what is not styled markup exactly as written', () => {
+    for (const literal of ['`<b>code</b>`', '<div>block</div>', 'a < b and b > c', 'Vec<T> and <b>unclosed', 'for <i> in range', '<font color="chartreuse-ish">']) {
+      expect(renderInline(literal, plain)).toBe(literal.startsWith('`') ? '<b>code</b>' : literal)
+    }
+    // A known tag with a colour nobody can name still gives the text back plain.
+    expect(renderInline('<font color="nosuchcolour">x</font>', colour)).toBe('x')
+    expect(renderInline('<FONT COLOR=GREEN>x</FONT>', colour)).toBe('\u001B[32mx\u001B[0m')
+  })
+
+  it('decodes entities outside code spans', () => {
+    expect(renderInline('R&amp;D &lt;tag&gt; &quot;q&quot; &#20320;&#x597D; a&nbsp;b', plain)).toBe('R&D <tag> "q" 你好 a b')
+    expect(renderInline('`&amp;` and &amp;', plain)).toBe('&amp; and &')
+    // An escaped tag is text the author wanted shown, not markup.
+    expect(renderInline('&lt;b&gt;shown&lt;/b&gt;', colour)).toBe('<b>shown</b>')
+  })
+
+  it('breaks a row at <br>, under the text of a list item', () => {
+    expect(renderMarkdown('- first<br>second', plain)).toEqual(['• first', '  second'])
+    expect(renderMarkdown('1. first<br/>second', plain)).toEqual(['1. first', '   second'])
+    expect(renderMarkdown('a<br>b', plain)).toEqual(['a', 'b'])
+    // The styles open at the break — the heading's and the tag's — carry onto the next row.
+    const heading = renderMarkdown('# <font color="red">a<br>b</font>', colour)
+    expect(heading).toHaveLength(2)
+    expect(heading[0]).toContain('\u001B[93m\u001B[31ma\u001B[0m')
+    expect(heading[1]?.startsWith('\u001B[93m\u001B[31mb\u001B[0m')).toBe(true)
+  })
+
+  it('lets a <br> inside a table cell make a second row of the cell', () => {
+    const rendered = renderMarkdown('| a | b |\n|---|---|\n| one<br>two | 1 |', plain)
+    expect(rendered).toEqual([
+      '╭─────┬───╮',
+      '│ a   │ b │',
+      '├─────┼───┤',
+      '│ one │ 1 │',
+      '│ two │   │',
+      '╰─────┴───╯',
+    ])
+  })
+})
+
 describe('highlightCode', () => {
   it('colours strings, comments, numbers, and keywords', () => {
     const line = highlightCode('const x = "s" // note 42', colour.syntax)

@@ -72,7 +72,7 @@ dsh --profile code
 **干活**
 
 - 备用屏幕；输入框钉底；退出原样还回你的 shell。
-- todo 常驻 chrome（Ctrl+T / `/todos`）。Markdown、思考、工具卡片流式画出。拖选即复制，对话和输入框都是。
+- todo 常驻 chrome（Ctrl+T / `/todos`）。Markdown、思考、工具卡片流式画出。回答里代替 Markdown 的内联 HTML 也会渲染：`<font color>` 和 `<span style>` 的颜色（ANSI 色名用终端自己的调色板，其余走真彩或最接近的调色板项）、`<b>`、`<i>`、`<u>`、`<s>`、`<code>`、`<br>` 和实体；不认识的标签原样保留。拖选即复制，对话和输入框都是。
 - Ctrl+V 粘贴图片。光标停在 `[Image #N]` 上时，屏幕中央浮出一张预览卡：能画图的终端直接显示原图——Ghostty、kitty、WezTerm 走 Kitty graphics，iTerm2 走它自己的协议——其余终端显示彩色半块马赛克。Ctrl+O 或点一下卡片，用系统看图器打开原图。（原生视觉；DeepSeek 文本模型自动借用 Vision Exp；其他文本路由仍落盘并可选 sidecar。）
 - `/` 命令、`$` skill、`!` shell、`@` 文件 —— 菜单在输入框上方。⇧Tab 是 plan 模式。
 - `/ui compact|comfortable` 决定对话占多少地方。compact 是默认，上面描述的也都是它的形状；comfortable 只是多给空间——轮次之间空一行、思考流式时留两行预览、展开的 diff 更晚才切到分页器。这个选择会跨会话保存。

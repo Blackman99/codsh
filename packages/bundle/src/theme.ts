@@ -19,6 +19,8 @@ const SGR = {
   reset: '\u001B[0m',
   dim: '\u001B[2m',
   bold: '\u001B[1m',
+  italic: '\u001B[3m',
+  underline: '\u001B[4m',
   strike: '\u001B[9m',
   red: '\u001B[31m',
   green: '\u001B[32m',
@@ -38,6 +40,16 @@ export interface Theme {
   bold(text: string): string
   /** Strikethrough text. */
   strike(text: string): string
+  /** Italic text, for an answer's `<i>` and `<em>`. */
+  italic(text: string): string
+  /** Underlined text, for an answer's `<u>`. */
+  underline(text: string): string
+  /**
+   * Foreground styling for a colour an answer names in inline HTML — a CSS
+   * colour name, `#rgb`, `#rrggbb`, or `rgb(r, g, b)`.
+   * @returns the styling function, or undefined when the spec names no colour.
+   */
+  color(spec: string): ((text: string) => string) | undefined
   /** Secondary chrome text (status model/cwd, legend, separators). */
   muted(text: string): string
   /** Focus and selection only: input frame default, marked selector rows. */
@@ -102,6 +114,9 @@ const PLAIN: Theme = {
   dim: text => text,
   bold: text => text,
   strike: text => text,
+  italic: text => text,
+  underline: text => text,
+  color: spec => parseColor(spec) === undefined ? undefined : text => text,
   muted: text => text,
   accent: text => text,
   agent: text => text,
@@ -238,6 +253,19 @@ export function createTheme(isTty: boolean, env: Record<string, string | undefin
     dim: text => `${palette ? gray : SGR.dim}${text}${SGR.reset}`,
     bold: wrap(SGR.bold),
     strike: wrap(SGR.strike),
+    italic: wrap(SGR.italic),
+    underline: wrap(SGR.underline),
+    color: (spec) => {
+      const parsed = parseColor(spec)
+      if (parsed === undefined) return undefined
+      // A named ANSI colour is the terminal's own: `green` matches what the
+      // theme paints success in, on this person's palette, light or dark.
+      if ('ansi' in parsed) return wrap(`\u001B[${parsed.ansi}m`)
+      const [red, green, blue] = parsed.rgb
+      if (truecolor) return wrap(`\u001B[38;2;${red};${green};${blue}m`)
+      if (palette) return wrap(`\u001B[38;5;${nearest256(red, green, blue)}m`)
+      return wrap(`\u001B[${nearestAnsi(red, green, blue)}m`)
+    },
     muted: wrap(SGR.brightBlack),
     accent: wrap(SGR.cyan),
     agent,
@@ -268,6 +296,96 @@ export function createTheme(isTty: boolean, env: Record<string, string | undefin
       property: text => `${getPropertyColor()}${text}${SGR.reset}`,
     },
   }
+}
+
+/** A colour an answer named: one of the terminal's own, or a point in sRGB. */
+export type ColorSpec = { ansi: string } | { rgb: [number, number, number] }
+
+/**
+ * The ANSI colour names, as the SGR foreground code that reaches the
+ * terminal's own palette. Not sRGB values: `green` in an answer should be the
+ * green this person's terminal paints, the way the theme's own roles are.
+ */
+const ANSI_COLORS: Record<string, string> = {
+  black: '30', red: '31', green: '32', yellow: '33', blue: '34', magenta: '35', cyan: '36', white: '37',
+  gray: '90', grey: '90',
+}
+
+/** The CSS colour names an answer is likely to reach for, in sRGB. */
+const CSS_COLORS: Record<string, [number, number, number]> = {
+  orange: [255, 165, 0], darkorange: [255, 140, 0], orangered: [255, 69, 0], gold: [255, 215, 0], goldenrod: [218, 165, 32],
+  purple: [128, 0, 128], violet: [238, 130, 238], indigo: [75, 0, 130], plum: [221, 160, 221], orchid: [218, 112, 214],
+  pink: [255, 192, 203], hotpink: [255, 105, 180], deeppink: [255, 20, 147], fuchsia: [255, 0, 255],
+  brown: [165, 42, 42], chocolate: [210, 105, 30], tan: [210, 180, 140], khaki: [240, 230, 140], wheat: [245, 222, 179],
+  crimson: [220, 20, 60], firebrick: [178, 34, 34], maroon: [128, 0, 0], darkred: [139, 0, 0],
+  tomato: [255, 99, 71], coral: [255, 127, 80], salmon: [250, 128, 114],
+  lime: [0, 255, 0], limegreen: [50, 205, 50], forestgreen: [34, 139, 34], seagreen: [46, 139, 87], springgreen: [0, 255, 127],
+  darkgreen: [0, 100, 0], lightgreen: [144, 238, 144], olive: [128, 128, 0], teal: [0, 128, 128],
+  aqua: [0, 255, 255], turquoise: [64, 224, 208], navy: [0, 0, 128], darkblue: [0, 0, 139], royalblue: [65, 105, 225],
+  steelblue: [70, 130, 180], dodgerblue: [30, 144, 255], deepskyblue: [0, 191, 255], skyblue: [135, 206, 235], lightblue: [173, 216, 230],
+  silver: [192, 192, 192], lightgray: [211, 211, 211], lightgrey: [211, 211, 211], darkgray: [169, 169, 169], darkgrey: [169, 169, 169],
+  dimgray: [105, 105, 105], dimgrey: [105, 105, 105], beige: [245, 245, 220], ivory: [255, 255, 240], lavender: [230, 230, 250],
+}
+
+/**
+ * Read a colour the way a browser would: a name, `#rgb`, `#rrggbb`, or
+ * `rgb(r, g, b)`; case and surrounding space do not matter.
+ * @param spec - the attribute value.
+ * @returns the colour, or undefined when the text names none.
+ */
+export function parseColor(spec: string): ColorSpec | undefined {
+  const name = spec.trim().toLowerCase()
+  if (name in ANSI_COLORS) return { ansi: ANSI_COLORS[name] ?? '37' }
+  const css = CSS_COLORS[name]
+  if (css !== undefined) return { rgb: css }
+  const hex = /^#([0-9a-f]{3}|[0-9a-f]{6})$/u.exec(name)
+  if (hex !== null) {
+    const digits = hex[1] ?? ''
+    const wide = digits.length === 6 ? digits : [...digits].map(d => d + d).join('')
+    return { rgb: [0, 2, 4].map(at => Number.parseInt(wide.slice(at, at + 2), 16)) as [number, number, number] }
+  }
+  const fn = /^rgba?\(\s*(\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(\d{1,3})\s*(?:,[^)]*)?\)$/u.exec(name)
+  if (fn !== null) {
+    const channel = (text: string | undefined): number => Math.min(255, Number.parseInt(text ?? '0', 10))
+    return { rgb: [channel(fn[1]), channel(fn[2]), channel(fn[3])] }
+  }
+  return undefined
+}
+
+/** The sixteen ANSI colours as xterm paints them, with their SGR foreground codes. */
+const ANSI_PALETTE: readonly [number, number, number, string][] = [
+  [0, 0, 0, '30'], [205, 0, 0, '31'], [0, 205, 0, '32'], [205, 205, 0, '33'],
+  [0, 0, 238, '34'], [205, 0, 205, '35'], [0, 205, 205, '36'], [229, 229, 229, '37'],
+  [127, 127, 127, '90'], [255, 0, 0, '91'], [0, 255, 0, '92'], [255, 255, 0, '93'],
+  [92, 92, 255, '94'], [255, 0, 255, '95'], [0, 255, 255, '96'], [255, 255, 255, '97'],
+]
+
+/** Squared distance between two sRGB points; ordering is all that is needed. */
+const apart = (r1: number, g1: number, b1: number, r2: number, g2: number, b2: number): number =>
+  (r1 - r2) ** 2 + (g1 - g2) ** 2 + (b1 - b2) ** 2
+
+/** The SGR code of the ANSI colour closest to an sRGB point. */
+function nearestAnsi(red: number, green: number, blue: number): string {
+  let best = ANSI_PALETTE[0] ?? [0, 0, 0, '37']
+  for (const candidate of ANSI_PALETTE) {
+    if (apart(red, green, blue, candidate[0], candidate[1], candidate[2]) < apart(red, green, blue, best[0], best[1], best[2])) best = candidate
+  }
+  return best[3]
+}
+
+/** Levels of the 256-colour palette's 6×6×6 cube. */
+const CUBE = [0, 95, 135, 175, 215, 255]
+
+/** The 256-colour index closest to an sRGB point: the cube, or the gray ramp when that is nearer. */
+function nearest256(red: number, green: number, blue: number): number {
+  const level = (value: number): number =>
+    CUBE.reduce((best, candidate, index) => Math.abs(candidate - value) < Math.abs((CUBE[best] ?? 0) - value) ? index : best, 0)
+  const [ri, gi, bi] = [level(red), level(green), level(blue)]
+  const cubeApart = apart(red, green, blue, CUBE[ri] ?? 0, CUBE[gi] ?? 0, CUBE[bi] ?? 0)
+  // The ramp runs 232..255 at 8, 18, … 238.
+  const step = Math.min(23, Math.max(0, Math.round((Math.round((red + green + blue) / 3) - 8) / 10)))
+  const gray = 8 + 10 * step
+  return apart(red, green, blue, gray, gray, gray) < cubeApart ? 232 + step : 16 + 36 * ri + 6 * gi + bi
 }
 
 /**
