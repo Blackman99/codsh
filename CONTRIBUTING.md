@@ -18,12 +18,14 @@ See the README's Development section for the full loop, the `MOCK` modes, and `I
 pnpm run typecheck
 pnpm test                 # unit suites
 pnpm run test:e2e         # drives the installed dsh binary through pipes and a real PTY
+pnpm run test:e2e e2e/pty-input.e2e.ts   # one suite; the build still runs first
 ```
 
 - New rendering or input behavior needs a test at the right level: pure modules (editor, markdown, transcript, …) get unit specs; anything about raw mode, repaints, or key timing gets a PTY e2e step.
+- The e2e suites are split by topic because Vitest parallelises by file and a run takes as long as its largest file: `pty-input`, `pty-selectors`, `pty-folds`, `pty-mouse`, `pty-session` for the raw-terminal behaviours, `experience-viewport`, `experience-navigation`, `experience-reading`, `experience-chrome` for the first-five-minutes checklist, plus `pipe`, `images`, and `wrapper`. Put a new step in the file whose topic it belongs to, and split a file that grows past about fifteen steps rather than letting it become the critical path. Shared PTY helpers (keys, `screenAt`, `boxTops`) live in `e2e/pty-helpers.ts`.
 - Surface work is not done at unit green. Drive the changed keys and chrome on a real TTY — the PTY e2e that paints the frame, or `MOCK=echo pnpm run dev` — before calling the row aligned. This is standard process, not optional.
 - The transcript is append-only and the renderer switches on presenter `card` tags, never tool names — keep both invariants.
-- Add a changeset (`pnpm changeset`) describing the user-visible change; releases are cut from accumulated changesets by CI. The Version Packages pull request those produce runs typecheck and the unit suites only — its diff is changelogs and a version line, and the end-to-end suite already ran on the commit that added the changeset. Anything else in the diff runs everything.
+- Add a changeset (`pnpm changeset`) describing the user-visible change; releases are cut from accumulated changesets by CI. CI picks the end-to-end suites by what the diff can reach, and the lists are spelled out in `.github/workflows/ci.yml`: changelogs, changesets, a version line, prose, pictures, and unit specs run typecheck and the unit suites only; a diff confined to `packages/cli` runs the wrapper suite, and one confined to the image modules (vision, preview, paste, terminal graphics) runs the images suite; anything else in the diff runs everything. Extend the lists only for a path no other suite can observe.
 
 ## Reporting bugs
 
