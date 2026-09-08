@@ -2,7 +2,7 @@
 
 import { describe, expect, it } from 'vitest'
 import { GateModal, gateChip, gateTitle } from '../src/gate-modal.ts'
-import { createTheme } from '../src/theme.ts'
+import { createTheme, displayWidth } from '../src/theme.ts'
 
 const theme = createTheme(false, {})
 const painted = createTheme(true, {})
@@ -40,6 +40,28 @@ describe('GateModal', () => {
     expect(frame.rows.join('\n')).toContain('[y] confirm · [e] edit · [n] abort')
     expect(frame.rows.join('\n')).toContain('recommended: confirm')
     expect(frame.focus).toBe('confirm')
+  })
+
+  it('wraps a long body line instead of cutting it at the frame', () => {
+    // A gate's body is the spec summary or the ticket list — long lines, each
+    // of which used to show as one clipped row.
+    const long = 'Ticket 3: Queue panel — Delivers the Ctrl+Q list with edit, delete, reorder, and steer (Blocked by: Ticket 1, Ticket 2)'
+    const modal = new GateModal({ ...spec, bodyLines: [long, 'short'] })
+    const frame = modal.frame(theme, 40, 16)
+    const text = frame.body.filter(row => row.trim() !== '')
+    // Rows break at the width, not at words: joined back without spaces, the
+    // body is exactly the two lines it was given.
+    expect(text.length).toBeGreaterThan(2)
+    expect(text.join('').replaceAll(/\s+/gu, '')).toBe(`${long}short`.replaceAll(/\s+/gu, ''))
+    for (const row of frame.rows) expect(displayWidth(row)).toBeLessThanOrEqual(40)
+  })
+
+  it('hangs a wrapped bullet under its text', () => {
+    const modal = new GateModal({ ...spec, bodyLines: ['· a criterion whose wording runs well past the width of the frame it sits in'] })
+    const body = modal.frame(theme, 40, 12).body.filter(row => row.trim() !== '')
+    expect(body[0]?.startsWith('· a criterion')).toBe(true)
+    expect(body[1]?.startsWith('  ')).toBe(true)
+    expect(body[1]?.trimStart().startsWith('·')).toBe(false)
   })
 
   it('scrolls the body with move and handleKey arrows', () => {

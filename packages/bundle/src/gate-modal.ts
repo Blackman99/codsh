@@ -6,6 +6,7 @@
  */
 
 import { displayWidth, truncate } from './theme.ts'
+import { wrapStyled } from './wrap.ts'
 import type { Key } from './keys.ts'
 import type { Theme } from './theme.ts'
 
@@ -92,6 +93,29 @@ function plainWidth(text: string): number {
   return displayWidth(text.replace(/\u001B\[[0-9;]*m/gu, ''))
 }
 
+/** A bullet or numbered marker with its indent, whose continuation rows hang under the text. */
+const BULLET_LEAD = /^(\s*)(?:[✔✓·•\-*]|\d+[.)])(\s+)/u
+
+/**
+ * Lay one body line out as the rows it needs at the card's width.
+ *
+ * A spec summary or a ticket list arrives as long lines — a paragraph, a
+ * ticket with what it delivers and what blocks it — and the card used to cut
+ * every one at the frame, which left a gate showing a single clipped row of
+ * the very text it asked the person to approve. Rows wrap instead, and a
+ * bullet's continuation hangs under its text so the list still reads as one.
+ * @param line - one raw body line.
+ * @param inner - display columns inside the frame.
+ * @param theme - palette.
+ * @returns the physical rows, at least one.
+ */
+function layoutBodyLine(line: string, inner: number, theme: Theme): string[] {
+  const lead = BULLET_LEAD.exec(line)
+  const hang = lead === null ? 0 : Math.min(inner - 1, displayWidth(lead[0]))
+  const rows = wrapStyled(styleBodyLine(line, theme), Math.max(1, inner - hang))
+  return rows.map((row, index) => (index === 0 || hang === 0 ? row : `${' '.repeat(hang)}${row}`))
+}
+
 /** One /ship approval gate rendered into the alternate-buffer viewer slot. */
 export class GateModal {
   private offset = 0
@@ -128,7 +152,7 @@ export class GateModal {
     }
     const inner = Math.max(1, width - 4)
     const bodyHeight = height - chrome
-    const physical = this.spec.bodyLines.map(line => truncate(styleBodyLine(line, theme), inner))
+    const physical = this.spec.bodyLines.flatMap(line => layoutBodyLine(line, inner, theme))
     const maxOffset = Math.max(0, physical.length - bodyHeight)
     this.offset = Math.min(maxOffset, Math.max(0, this.offset))
     const visible = physical.slice(this.offset, this.offset + bodyHeight)
