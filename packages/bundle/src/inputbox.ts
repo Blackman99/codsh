@@ -15,7 +15,7 @@
  * @module codsh-bundle/src/inputbox
  */
 
-import { displayWidth, truncate } from './theme.ts'
+import { displayWidth, graphemeAt, truncate } from './theme.ts'
 import type { EditorView, GestureHit } from './editor.ts'
 import type { Theme } from './theme.ts'
 
@@ -99,24 +99,38 @@ export interface VisualRow {
  * @returns at least one segment, empty lines included.
  */
 export function wrapLine(line: string, logical: number, budget: number): VisualRow[] {
-  const cells = Array.from(line)
+  // Steps are grapheme clusters — what the terminal paints as one glyph run
+  // and what the width authority measures — while positions stay code points,
+  // the unit the editor moves its cursor by.
+  const cluster = graphemeAt(line)
   const rows: VisualRow[] = []
   let start = 0
   let width = 0
   let length = 0
-  for (const cell of cells) {
+  let text = ''
+  let at = 0
+  while (at < line.length) {
+    const cell = cluster(at)
     const cost = displayWidth(cell)
     if (width + cost > budget && length > 0) {
-      rows.push({ text: cells.slice(start, start + length).join(''), logical, start, length, last: false })
+      rows.push({ text, logical, start, length, last: false })
       start += length
       width = 0
       length = 0
+      text = ''
     }
     width += cost
-    length += 1
+    length += codePoints(cell)
+    text += cell
+    at += cell.length
   }
-  rows.push({ text: cells.slice(start, start + length).join(''), logical, start, length, last: true })
+  rows.push({ text, logical, start, length, last: true })
   return rows
+}
+
+/** Code points in one grapheme cluster, the editor's unit of position. */
+function codePoints(cluster: string): number {
+  return cluster.length === 1 ? 1 : Array.from(cluster).length
 }
 
 /**
@@ -442,11 +456,16 @@ export function caretAt(
   if (target === undefined) return { row: 0, column: shell ? 1 : 0 }
   let remaining = Math.max(0, cell - TEXT_AT)
   let offset = 0
-  for (const character of Array.from(target.text)) {
+  const cluster = graphemeAt(target.text)
+  let at = 0
+  while (at < target.text.length) {
+    // A pointer on any cell of a joined emoji lands before it as a whole.
+    const character = cluster(at)
     const width = displayWidth(character)
     if (remaining < width) break
     remaining -= width
-    offset += 1
+    offset += codePoints(character)
+    at += character.length
   }
   const column = target.start + Math.min(offset, target.length)
   // The `!` a shell box hides is still a character in the buffer.

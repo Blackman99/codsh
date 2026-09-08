@@ -198,6 +198,24 @@ describe('tables', () => {
     expect(ruleAt(rows[3] ?? '')).toBe(ruleAt(rows[5] ?? ''))
   })
 
+  it('keeps every row the frame\'s width when a wrapped cell carries a selector emoji', () => {
+    // The field case: a storyboard table whose script cells open with 🎙️
+    // (U+1F399 U+FE0F). Wrapped by code point the emoji cost one column and
+    // the row ran one past the frame, pushing every rule after it right.
+    const source = [
+      '| 时间轴 | 对应口播台词 | 首尾相接细节 |',
+      '|---|---|---|',
+      '| 0.00s ~ 4.66s | 🎙️《蜂蜜落到面包上，怎么不摊平，反而给自己盘了个发髻?》 | 盘发动作自然收尾，进入过渡区 |',
+      '| 4.36s ~ 4.66s | 音频无缝承接 | 0.3s 交叉微溶，两个镜头间的面包与小纸人位置重合淡入淡出 |',
+    ].join('\n')
+    const narrow = createMarkdownStream(plain, () => 60)
+    const lines = [...source.split('\n').flatMap(line => narrow.line(line)), ...narrow.flush()]
+    expect(lines.join('\n')).toContain('🎙️《')
+    const widths = new Set(lines.map(line => displayWidth(line)))
+    expect([...widths]).toEqual([displayWidth(lines[0] ?? '')])
+    for (const line of lines) expect(displayWidth(line)).toBeLessThanOrEqual(60)
+  })
+
   it('ignores stray trailing pipes: the header defines the columns', () => {
     // Models routinely pad rows with empty cells or over-long delimiters; the
     // ghosts squeezed real columns into wrapping in the field.

@@ -314,6 +314,39 @@ export function displayWidth(text: string): number {
   return stringWidth(text)
 }
 
+/** Grapheme segmenter: the clustering `string-width` measures by, so the two agree by construction. */
+const GRAPHEMES = new Intl.Segmenter()
+
+/**
+ * A reader of `text` one grapheme cluster at a time.
+ *
+ * A terminal paints a cluster — a base with its variation selector, skin tone,
+ * ZWJ-joined partners, or combining marks — as one run of cells, and
+ * {@link displayWidth} measures it whole: `🎙️` is two columns, not the one
+ * column of its base plus the zero of its selector. A scan that stepped by
+ * code point summed the parts instead and came out a column short, which is
+ * how a table rule drifted one cell on every row that carried such an emoji,
+ * and how a truncation cut a family emoji between its joiners. Plain ASCII
+ * never clusters with plain ASCII, so the common line costs no segmentation.
+ * @param text - the string to read, styling sequences included; an escape is
+ *   a control character, which never joins a cluster.
+ * @returns the cluster starting at an index; the caller advances by its length.
+ */
+export function graphemeAt(text: string): (at: number) => string {
+  let segments: Intl.Segments | undefined
+  return (at: number): string => {
+    const code = text.charCodeAt(at)
+    const next = at + 1 < text.length ? text.charCodeAt(at + 1) : 0
+    if (code < 0x80 && next < 0x80) return text[at] ?? ''
+    segments ??= GRAPHEMES.segment(text)
+    const found = segments.containing(at)
+    if (found === undefined) return ''
+    // A mark right after an escape's final letter clusters with that letter in
+    // the segmenter's eyes; the caller already consumed the letter.
+    return found.index < at ? found.segment.slice(at - found.index) : found.segment
+  }
+}
+
 /**
  * Every C0 control character except the escape SGR sequences are built from,
  * plus DEL.
@@ -393,6 +426,7 @@ export function truncate(text: string, columns: number): string {
   let out = ''
   let styled = false
   let at = 0
+  const cluster = graphemeAt(text)
   while (at < text.length) {
     const sequence = SGR_AT_START.exec(text.slice(at))
     if (sequence !== null) {
@@ -401,8 +435,9 @@ export function truncate(text: string, columns: number): string {
       at += sequence[0].length
       continue
     }
-    const code = text.codePointAt(at) ?? 0
-    const cell = String.fromCodePoint(code)
+    // One grapheme cluster per step: what the terminal paints as one glyph
+    // run, measured whole, so a cut never falls inside a joined emoji.
+    const cell = cluster(at)
     const step = displayWidth(cell)
     if (width + step > columns - 1) break
     width += step

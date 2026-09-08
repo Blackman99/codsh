@@ -4,7 +4,7 @@
  */
 
 import { describe, expect, it } from 'vitest'
-import { backgroundIsLight, createTheme, displayWidth, oneRow, truncate } from '../src/theme.ts'
+import { backgroundIsLight, createTheme, displayWidth, graphemeAt, oneRow, truncate } from '../src/theme.ts'
 
 describe('createTheme', () => {
   it('emits sequences on a colour-capable terminal', () => {
@@ -134,6 +134,18 @@ describe('truncate', () => {
     expect(truncate('终端机', 5)).toBe('终端…')
   })
 
+  it('never splits a grapheme cluster, and charges it the columns it paints', () => {
+    // A selector emoji is two columns, so the cut falls after one letter.
+    expect(truncate('🎙️abc', 4)).toBe('🎙️a…')
+    expect(truncate('1️⃣ keycap', 5)).toBe('1️⃣ k…')
+    // A joined family stays whole or goes whole — never `👨‍👩‍…`.
+    expect(truncate('👨‍👩‍👧xyz', 3)).toBe('👨‍👩‍👧…')
+    expect(truncate('👨‍👩‍👧xyz', 2)).toBe('…')
+    for (const [text, budget] of [['🎙️abc', 4], ['1️⃣ keycap', 5], ['👨‍👩‍👧xyz', 3]] as const) {
+      expect(displayWidth(truncate(text, budget))).toBeLessThanOrEqual(budget)
+    }
+  })
+
   it('keeps styling and closes it before the ellipsis on a cut', () => {
     // Styling must survive a fit untouched and a cut without leaking onto the
     // next row — stripping it is how every menu lost its colour.
@@ -194,6 +206,42 @@ describe('emoji and symbol widths, per string-width', () => {
     // ⚡ mis-sized at one column sheared a real table's fourth column.
     expect(displayWidth('⚡')).toBe(2)
     expect(displayWidth('工作中显示 ⚡ 前缀')).toBe(18)
+  })
+
+  it('measures a cluster whole: selector emoji, keycap, and joined family are two columns', () => {
+    // 🎙️ is U+1F399 plus U+FE0F: one column for the base plus none for the
+    // selector is what a code-point scan summed; the terminal paints two.
+    expect(displayWidth('🎙️')).toBe(2)
+    expect(displayWidth('1️⃣')).toBe(2)
+    expect(displayWidth('👨‍👩‍👧')).toBe(2)
+    expect(displayWidth('👍🏽')).toBe(2)
+  })
+})
+
+describe('graphemeAt', () => {
+  it('steps plain text one character at a time', () => {
+    const cluster = graphemeAt('ab')
+    expect(cluster(0)).toBe('a')
+    expect(cluster(1)).toBe('b')
+  })
+
+  it('keeps a selector, a keycap, joiners, a skin tone, and a combining mark with their base', () => {
+    for (const whole of ['🎙️', '1️⃣', '👨‍👩‍👧', '👍🏽', 'e\u0301']) {
+      expect(graphemeAt(`${whole}x`)(0)).toBe(whole)
+    }
+  })
+
+  it('leaves an escape sequence to the caller: ESC never joins a cluster', () => {
+    const text = '\u001B[31m🎙️'
+    const cluster = graphemeAt(text)
+    expect(cluster(0)).toBe('\u001B')
+    expect(cluster(5)).toBe('🎙️')
+  })
+
+  it('answers from inside a cluster with the rest of it, never with text already read', () => {
+    // The mark clusters with the `m` that closed the escape; a caller that
+    // consumed the escape must not get the `m` back.
+    expect(graphemeAt('\u001B[31m\u0301x')(5)).toBe('\u0301')
   })
 })
 

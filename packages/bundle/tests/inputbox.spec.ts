@@ -86,6 +86,22 @@ describe('wrapping', () => {
     for (const row of rows) expect(displayWidth(row)).toBeLessThanOrEqual(30)
   })
 
+  it('charges a selector emoji its two columns and keeps a joined emoji whole across the wrap', () => {
+    // 30 columns leaves 24 for text: 🎙️ plus 23 letters is 25 columns, so
+    // the line takes two rows and neither runs past the frame.
+    const text = `🎙️${'x'.repeat(23)}`
+    const { rows } = inputBox(view({ lines: [text], column: 25 }), theme, 30)
+    const body = rows.slice(1, -1).map(row => row.replaceAll(/[│› ]/gu, ''))
+    expect(body.join('')).toBe(text)
+    expect(body.length).toBe(2)
+    for (const row of rows) expect(displayWidth(row)).toBeLessThanOrEqual(30)
+    // A family emoji at the edge moves down whole rather than losing a member.
+    const family = `${'x'.repeat(23)}👨‍👩‍👧`
+    const wrapped = inputBox(view({ lines: [family], column: 28 }), theme, 30)
+    const pieces = wrapped.rows.slice(1, -1).map(row => row.replaceAll(/[│› ]/gu, ''))
+    expect(pieces).toEqual(['x'.repeat(23), '👨‍👩‍👧'])
+  })
+
   it('puts the cursor on the wrapped row it is editing', () => {
     const text = 'x'.repeat(40)
     const layout = inputBox(view({ lines: [text], column: 40 }), theme, 30)
@@ -354,6 +370,15 @@ describe('putting the cursor where a pointer landed', () => {
     expect(caretAt(shown, 40, 1, TEXT_AT + 4)).toEqual({ row: 0, column: 2 })
     // Landing on the second half of a wide character takes that character.
     expect(caretAt(shown, 40, 1, TEXT_AT + 1)).toEqual({ row: 0, column: 0 })
+  })
+
+  it('counts a selector emoji as one position of two columns', () => {
+    // 🎙️ is two code points but one glyph two cells wide: a pointer on
+    // either cell lands before it, and the cell after it lands after both.
+    const shown = view({ lines: ['🎙️ab'], column: 4 })
+    expect(caretAt(shown, 40, 1, TEXT_AT + 1)).toEqual({ row: 0, column: 0 })
+    expect(caretAt(shown, 40, 1, TEXT_AT + 2)).toEqual({ row: 0, column: 2 })
+    expect(caretAt(shown, 40, 1, TEXT_AT + 3)).toEqual({ row: 0, column: 3 })
   })
 
   it('follows a line that wrapped onto a second row', () => {

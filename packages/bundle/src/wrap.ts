@@ -9,7 +9,7 @@
  * @module codsh-bundle/src/wrap
  */
 
-import { displayWidth, oneRow } from './theme.ts'
+import { displayWidth, graphemeAt, oneRow } from './theme.ts'
 
 /** One SGR sequence, matched where the scan stands; it occupies no display columns. */
 const SGR_AT = /\u001B\[[0-9;]*m/y
@@ -26,8 +26,11 @@ const RESET = '\u001B[0m'
  * Styles carry across the break: each continuation row re-opens whatever was
  * active where the cut fell, and every row that opened a style closes it.
  *
- * The line is scanned by index. Slicing the remainder off after every
- * character copied the whole rest of the line each time, which made one
+ * The line is scanned by index, one grapheme cluster per step: the unit the
+ * terminal paints and the width authority measures, so `🎙️` costs its two
+ * columns whole rather than one for the base and none for the selector, and
+ * a joined emoji never breaks across rows. Slicing the remainder off after
+ * every character copied the whole rest of the line each time, which made one
  * 50,000-character line — a tool's HTML dump, say — cost four seconds per
  * wrap, and the buffer is wrapped again at every resize and fold toggle.
  * @param text - the styled line, without a terminator.
@@ -45,6 +48,7 @@ export function wrapStyled(text: string, columns: number): string[] {
   // becomes a space here and the newline breaks a row below — where the styles
   // open at the break carry over, the way any other row break does.
   const source = oneRow(text, true)
+  const cluster = graphemeAt(source)
 
   const flush = (): void => {
     rows.push(active.length > 0 ? `${row}${RESET}` : row)
@@ -80,7 +84,7 @@ export function wrapStyled(text: string, columns: number): string[] {
         continue
       }
     }
-    const character = String.fromCodePoint(source.codePointAt(at) ?? 0)
+    const character = cluster(at)
     const cost = displayWidth(character)
     // A wide character that would straddle the edge moves down whole.
     if (width + cost > columns && width > 0) flush()

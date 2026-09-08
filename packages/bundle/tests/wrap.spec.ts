@@ -33,6 +33,24 @@ describe('wrapStyled', () => {
     for (const row of rows) expect(displayWidth(row)).toBeLessThanOrEqual(9)
   })
 
+  it('charges a selector emoji or a keycap the two columns the terminal paints', () => {
+    // Counted by code point, 🎙️ was one column and the row came out a column
+    // too wide — the table rule after it drifted right on every such row.
+    for (const emoji of ['🎙️', '1️⃣']) {
+      const rows = wrapStyled(`${emoji}${'x'.repeat(11)}`, 12)
+      expect(rows).toEqual([`${emoji}${'x'.repeat(10)}`, 'x'])
+      for (const row of rows) expect(displayWidth(row)).toBeLessThanOrEqual(12)
+    }
+  })
+
+  it('keeps a joined emoji on one row, whole', () => {
+    // Summed by code point the family was six columns and broke between its
+    // joiners; it is one two-column cluster.
+    const rows = wrapStyled('👨‍👩‍👧 family', 4)
+    expect(rows).toEqual(['👨‍👩‍👧 f', 'amil', 'y'])
+    for (const row of rows) expect(displayWidth(row)).toBeLessThanOrEqual(4)
+  })
+
   it('carries the active style onto the continuation row and closes each row', () => {
     const rows = wrapStyled(`\u001B[31m${'a'.repeat(15)}\u001B[0m`, 10)
     expect(rows).toHaveLength(2)
