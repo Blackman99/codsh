@@ -1,5 +1,13 @@
 # codsh-bundle
 
+## 0.18.2
+
+### Patch Changes
+
+- 6101e36: Consecutive unpaired tool results now share one folded card instead of stacking a `(result)` preview for each.
+- 3bae6e4: A thinking block now sits a blank row away from the tool panel above it, and hovering a card no longer lights its empty padding as a second selected row.
+- a859ec9: Assistant answers no longer keep the extra blank lines a model wraps them in, so a sentence and the next tool card sit one row apart instead of a hole.
+
 ## 0.18.1
 
 ### Patch Changes
