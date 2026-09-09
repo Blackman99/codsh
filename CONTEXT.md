@@ -360,11 +360,14 @@ _Avoid_: inject (dsh's model-facing context), interrupt, follow-up
 The two approvals in the `/ship` workflow — the confirmed spec file (gate 1)
 and the approved ticket breakdown (gate 2). Everything after gate 2 is
 autonomous. Grill-me runs first (design tree, frontier rounds); to-spec and
-to-tickets then synthesize without another interview. The spec file is the
-workflow's memory, not the conversation: the approved tickets live in it as
-checkboxes, its `Status:` line names the phase, a baseline run is recorded
-before any code, each green ticket is committed, and a bare `/ship` offers
-to resume whatever it finds unfinished.
+to-tickets then run as those skills (exhaustive stories, vertical tickets
+with a DAG and per-ticket acceptance, `.scratch/` plus tracker when
+configured) without another interview. Landing follows the tdd skill: one
+red test witnessed failing, then minimal green, then the suite. The spec
+file is the workflow's memory, not the conversation: the approved tickets
+live in it as checkboxes, its `Status:` line names the phase, a baseline
+run is recorded before any code, each green ticket is committed, and a
+bare `/ship` offers to resume whatever it finds unfinished.
 _Avoid_: checkpoints, review steps
 
 ### Alignment pipeline

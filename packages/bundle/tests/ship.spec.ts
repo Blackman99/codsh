@@ -82,6 +82,36 @@ describe('SHIP_PROMPT', () => {
     expect(SHIP_PROMPT).toContain('red before green')
   })
 
+  it('follows the to-spec skill: exhaustive stories, public seams, tracker or scratch, no interrogation', () => {
+    expect(SHIP_PROMPT).toContain('Pure Synthesis, Zero Interrogation')
+    expect(SHIP_PROMPT).toContain('As an <actor>, I want a <feature>, so that <benefit>')
+    expect(SHIP_PROMPT).toContain('Edge cases and failure states are covered as distinct stories')
+    expect(SHIP_PROMPT).toContain('highest available integration seam')
+    expect(SHIP_PROMPT).toContain('Out of Scope')
+    expect(SHIP_PROMPT).toContain('ready-for-agent')
+    expect(SHIP_PROMPT).toContain('.scratch/')
+    expect(SHIP_PROMPT).toContain('/setup-engineering-workflows')
+  })
+
+  it('follows the to-tickets skill: vertical slices, DAG, per-ticket acceptance, no parent mutation', () => {
+    expect(SHIP_PROMPT).toContain('Strict Vertical Tracer Slicing')
+    expect(SHIP_PROMPT).toContain('Blocked by:')
+    expect(SHIP_PROMPT).toContain('single fresh context window')
+    expect(SHIP_PROMPT).toContain('expand–contract')
+    expect(SHIP_PROMPT).toContain('.scratch/<kebab-case-slug>/issues/')
+    expect(SHIP_PROMPT).toContain('atomic acceptance checklist')
+    expect(SHIP_PROMPT).toContain('Never close, resolve, or corrupt parent tracker issues')
+  })
+
+  it('follows the tdd skill: one red test witnessed failing, then minimal green, then the suite', () => {
+    expect(SHIP_PROMPT).toContain('Strict Red-First Execution')
+    expect(SHIP_PROMPT).toContain('witness it fail for the right reason')
+    expect(SHIP_PROMPT).toContain('Independent Expected Values')
+    expect(SHIP_PROMPT).toContain('one test → minimal code → green')
+    expect(SHIP_PROMPT).toContain('never recomputed mirror logic')
+    expect(SHIP_PROMPT).toContain('full test suite')
+  })
+
   it('enforces Phase 0 pre-flight dirty working tree check and feature branch isolation', () => {
     expect(SHIP_PROMPT).toContain('Phase 0 — pre-flight & branch isolation')
     expect(SHIP_PROMPT).toContain('ship · preflight')

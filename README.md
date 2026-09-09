@@ -37,9 +37,9 @@ Key: `DEEPSEEK_API_KEY`. Already have dsh? `npm i -g codsh-cli` is enough.
 
 0. **Pre-flight & Isolation** — checks working tree hygiene (`ship · preflight` prompt if dirty); cuts an isolated `ship/<slug>` branch so the base branch stays pristine.
 1. **Grill** — design-tree interview; facts are inspected, each round asks the open frontier with a recommended answer.
-2. **Spec (Gate 1)** — synthesized automatically (to-spec). You confirm. Records branch, base commit, decisions, and exact proving commands.
-3. **Tickets & Baseline (Gate 2)** — tracer-bullet vertical slices plus release compliance ticket. You approve. Baseline runs across proof commands and repo guardrails.
-4. **Landing** — TDD red-to-green proof logging; 3-strike circuit breaker; cascading re-verification on resume; each green ticket is a clean commit. A larger plan runs as a Ralph loop of fresh agents; while a round works, the working line names that round and its latest call (the chrome already holds the plan), the plan row ticks as the spec's checkboxes change on disk, and the round's end line says what it did — Esc stops the whole loop, mid-ticket.
+2. **Spec (Gate 1)** — synthesized automatically as the to-spec skill (exhaustive stories, public seams, Out of Scope). You confirm. Records branch, base commit, decisions, proving commands, and a `.scratch/` copy (tracker if configured).
+3. **Tickets & Baseline (Gate 2)** — to-tickets vertical slices with a DAG, per-ticket acceptance checklists, `.scratch/.../issues/` files, plus the release compliance ticket. You approve. Baseline runs across proof commands and repo guardrails.
+4. **Landing** — the tdd skill: one red test witnessed failing, then minimal green, then the suite; 3-strike circuit breaker; cascading re-verification on resume; each green ticket is a clean commit. A larger plan runs as a Ralph loop of fresh agents; while a round works, the working line names that round and its latest call (the chrome already holds the plan), the plan row ticks as the spec's checkboxes change on disk, and the round's end line says what it did — Esc stops the whole loop, mid-ticket.
 5. **Done (Dual-Layer DoD)** — verifies acceptance criteria (exit 0) and zero new repo failures against baseline; interactive delivery prompt (`ship · deliver`: merge back, keep PR branch, or stay).
 
 Bare `/ship` resumes an unfinished spec with cascading re-verification of prior tickets.

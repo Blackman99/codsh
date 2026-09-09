@@ -13,8 +13,8 @@ Key: `DEEPSEEK_API_KEY`. Already have dsh? `npm i -g codsh-cli` is enough.
 
 [![The /ship flow](https://raw.githubusercontent.com/Blackman99/codsh/main/assets/ship-demo.gif)](https://blackman99.github.io/codsh/)
 
-`/ship <one-sentence idea>` grills the idea into a spec, cuts it into tracer-bullet tickets, lands
-them with TDD, and re-runs every criterion before it says done. The [site](https://blackman99.github.io/codsh/)
+`/ship <one-sentence idea>` grills the idea into a spec (to-spec), cuts it into tracer-bullet tickets
+(to-tickets), lands them with the tdd skill, and re-runs every criterion before it says done. The [site](https://blackman99.github.io/codsh/)
 shows the rest of the surface as real terminal captures.
 
 ## The launcher
