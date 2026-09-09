@@ -186,17 +186,23 @@ describe.skipIf(process.platform === 'win32')('streaming, cards and folds (real 
     // it, and only the frames while a round runs have one.
     const probe = new Terminal(20, PTY_COLUMNS)
     let namedARound = false
+    let sawActivity = false
     for (const frame of run.output.split(SYNC_END)) {
       probe.feed(frame + SYNC_END)
       // The verb is the tool's own name once a call is in flight, so the
       // working line is recognised by what only it carries.
       if (probe.alternate.some(row => /E2E round \d.*ESC to interrupt/u.test(row))) namedARound = true
+      // The child's one write reached the working line while the round ran:
+      // the round reads as work, not as a hang.
+      if (probe.alternate.some(row => /E2E round \d · 1 call · write/u.test(row))) sawActivity = true
     }
     expect(namedARound).toBe(true)
-    // Each settled round is one line, and the run closes with its reason.
+    expect(sawActivity).toBe(true)
+    // Each settled round is one line — saying what it did — and the run
+    // closes with its reason.
     expect(settled).toContain('e2e-rounds')
-    expect(settled).toMatch(/\u2713 E2E round 1/u)
-    expect(settled).toMatch(/\u2713 E2E round 2/u)
+    expect(settled).toMatch(/\u2713 E2E round 1 · 1 call · \d/u)
+    expect(settled).toMatch(/\u2713 E2E round 2 · 1 call · \d/u)
     expect(settled).toContain('completed')
     // And no door is offered, because a workflow's children live in a worker
     // thread and no click could ever open one.

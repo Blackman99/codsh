@@ -329,6 +329,16 @@ describe('tool results', () => {
     // No door: a workflow's children run in a worker thread, so their
     // sessions are not in this process to enter.
     expect(transcript.takeEnter()).toBeUndefined()
+    // A round the surface watched says what it did on its end line — the
+    // proof that a round which showed nothing while it ran was working.
+    transcript.render(run('tool-workflow/agent-start', { runId: 'r1', seq: 2, label: 'Ralph round 2', childId: 'c2' }))
+    transcript.noteRoundWork('r1', 2, '48 calls · 2m40s')
+    expect(transcript.render(run('tool-workflow/agent-end', { runId: 'r1', seq: 2, outcome: 'completed' })))
+      .toEqual(['  ✓ Ralph round 2 · 48 calls · 2m40s'])
+    transcript.render(run('tool-workflow/agent-start', { runId: 'r1', seq: 3, label: 'Ralph round 3', childId: 'c3' }))
+    transcript.noteRoundWork('r1', 3, '1.2s')
+    expect(transcript.render(run('tool-workflow/agent-end', { runId: 'r1', seq: 3, outcome: 'failed' })))
+      .toEqual(['  ✗ Ralph round 3 (failed) · 1.2s'])
     expect(transcript.render(run('tool-workflow/run-end', { runId: 'r1', stopReason: 'completed' })))
       .toEqual(['  completed', ''])
   })

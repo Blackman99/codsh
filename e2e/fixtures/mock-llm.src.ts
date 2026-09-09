@@ -194,9 +194,24 @@ class CodeCliMockAdapter extends LlmAdapter {
       const seen = options.messages.flatMap(message =>
         message.content.filter(block => block.type === 'text').map(block => block.text))
       if (seen.some(text => text.includes('WORKFLOW_CHILD'))) {
-        // Long enough that the working line ticks while a round is in flight:
-        // a figure that only exists between rounds is one nobody sees.
-        await new Promise(resolve => setTimeout(resolve, 700))
+        // A round's child does one thing before it answers: a write, so the
+        // parent's working line has a call to name while the round runs.
+        const worked = options.messages.at(-1)?.content.find(block => block.type === 'tool-result')
+        if (worked === undefined) {
+          const args = JSON.stringify(ARGUMENTS.write)
+          const id = ToolCallId('code-cli-workflow-child-write')
+          yield { type: 'block-start', index: 0, blockType: 'tool-call' }
+          yield { type: 'tool-call-delta', index: 0, id, name: 'write', argumentsDelta: args }
+          yield { type: 'block-end', index: 0, block: { type: 'tool-call', id, name: 'write', arguments: args } }
+          yield { type: 'usage', usage: { inputTokens: 2, outputTokens: 2 } }
+          yield { type: 'finish', reason: { kind: 'tool-calls' } }
+          return
+        }
+        // Long enough that the working line ticks while a round is in flight,
+        // and that the parent's once-a-second look at the child's log catches
+        // the write above: a figure that only exists between rounds is one
+        // nobody sees.
+        await new Promise(resolve => setTimeout(resolve, 1500))
         const reply = 'WORKFLOW_CHILD_OK'
         yield { type: 'block-start', index: 0, blockType: 'text' }
         yield { type: 'text-delta', index: 0, text: reply }

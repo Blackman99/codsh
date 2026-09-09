@@ -356,6 +356,8 @@ export class Transcript {
   private written: readonly string[] = []
   /** Rounds a workflow started, keyed `runId:seq`: an end carries only the seq. */
   private readonly workflowAgents = new Map<string, Pick<ToolWorkflowAgentStartData, 'label' | 'childId'>>()
+  /** What each round did, by run and seq, noted by the surface before the end line renders. */
+  private readonly roundWork = new Map<string, string>()
   /** Whether a real user turn has already been painted — comfortable gaps after the first. */
   private sawUser = false
   /** The pending card the block {@link render} just returned supersedes. */
@@ -561,14 +563,19 @@ export class Transcript {
         const started = this.workflowAgents.get(key)
         this.workflowAgents.delete(key)
         const label = started?.label ?? `round ${String(event.data.seq)}`
+        // What the round did, when the surface watched its child: the line
+        // that says a round which showed nothing while it ran was working.
+        const work = this.roundWork.get(key)
+        this.roundWork.delete(key)
+        const did = work === undefined ? '' : theme.dim(` · ${work}`)
         this.rule = rules.tool
         // No door, though the event names a child session: a workflow's
         // children run in a worker thread, so their sessions are never in this
         // process's registry — clicking a round could only ever answer "no
         // longer running". Driven on a real terminal, that is exactly what it
         // answered. The line stands on its own.
-        if (event.data.outcome === 'completed') return [theme.bgTool(`  ${theme.success('✓')} ${label}`)]
-        return [theme.bgError(`  ${theme.error('✗')} ${label} ${theme.dim(`(${event.data.outcome})`)}`)]
+        if (event.data.outcome === 'completed') return [theme.bgTool(`  ${theme.success('✓')} ${label}${did}`)]
+        return [theme.bgError(`  ${theme.error('✗')} ${label} ${theme.dim(`(${event.data.outcome})`)}${did}`)]
       }
       case 'tool-workflow/run-end':
         this.rule = rules.tool
@@ -601,6 +608,16 @@ export class Transcript {
    * @param callId - the call to look up.
    * @returns the summary and arguments, or undefined once the call has its result or was never seen.
    */
+  /**
+   * Say what a workflow round did before its end line prints.
+   * @param runId - the workflow run.
+   * @param seq - the round within it.
+   * @param work - one fragment: `48 calls · 2m40s`.
+   */
+  noteRoundWork(runId: string, seq: number, work: string): void {
+    this.roundWork.set(`${runId}:${String(seq)}`, work)
+  }
+
   pendingCall(callId: string): { summary: string | undefined; args: unknown } | undefined {
     const pending = this.calls.get(callId)
     return pending === undefined ? undefined : { summary: pending.summary, args: pending.args }

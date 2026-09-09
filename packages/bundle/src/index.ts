@@ -50,6 +50,8 @@ import { TerminalApproval, answerForKey, nameCall, type ApprovalAnswer } from '.
 import { notificationText, planNotification, runNotificationCommand } from './notify.ts'
 import { PermissionRules } from './permissions.ts'
 import { rewindPoints, type RewindPoint } from './rewind.ts'
+import { NO_PROGRESS, advanceRound, roundActivity, type RoundProgress } from './round-watch.ts'
+import type { ToolWorkflowAgentStartData } from '@deepseek-ai/dsh-tool-workflow/types'
 import type { QueueItem } from './queue.ts'
 import { bannerLines, resolveWelcomeKind } from './banner.ts'
 import { createCompleter, expandSkillGestures, fuzzyScore } from './completion.ts'
@@ -1051,6 +1053,68 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
   // The round a workflow is on. A ralph loop spends minutes inside one round,
   // and the working line is the only thing moving while it does.
   let workflowRound: string | undefined
+  /**
+   * The round in flight, watched through its child session's log.
+   *
+   * The child works in a worker thread this process sees no event from, so
+   * for the minutes a Ralph round takes the working line used to stand still
+   * — and a person read the stillness as a hang, and interrupted a round
+   * that had already landed a ticket. The child's log is on disk, though:
+   * read once a second it says how many calls the round has made and what
+   * the last one was, and whether the spec's checkboxes moved.
+   */
+  let roundWatch: {
+    runId: string
+    seq: number
+    childId: ToolWorkflowAgentStartData['childId']
+    startedAt: number
+    progress: RoundProgress
+    polling: boolean
+    timer: ReturnType<typeof setInterval>
+  } | undefined
+  const ROUND_POLL_MS = 1000
+  const stopRoundWatch = (): void => {
+    if (roundWatch !== undefined) clearInterval(roundWatch.timer)
+    roundWatch = undefined
+  }
+  const pollRound = async (): Promise<void> => {
+    const watch = roundWatch
+    const query = ctx.get('sessionQuery')
+    if (watch === undefined || query === undefined || watch.polling) return
+    watch.polling = true
+    try {
+      const observed = await query.observeSession(watch.childId, { projectionMode: 'none' })
+      try {
+        if (roundWatch !== watch) return
+        const { progress, moved } = advanceRound(watch.progress, observed.events, (name, args) => presentersFor(ctx, live.agent).call(name, args)?.title)
+        watch.progress = progress
+        // A round ticks its ticket on disk; the plan row should say so now,
+        // not when the round ends minutes later.
+        if (moved) refreshPlan()
+      } finally {
+        observed[Symbol.dispose]()
+      }
+    } catch {
+      // A log that cannot be read right now is no news; the next poll tries again.
+    } finally {
+      watch.polling = false
+    }
+  }
+  const watchRound = (data: ToolWorkflowAgentStartData): void => {
+    stopRoundWatch()
+    const timer = setInterval(() => { void pollRound() }, ROUND_POLL_MS)
+    timer.unref()
+    roundWatch = { runId: data.runId, seq: data.seq, childId: data.childId, startedAt: performance.now(), progress: NO_PROGRESS, polling: false, timer }
+    // The first look comes soon: a short round would otherwise end unseen.
+    setTimeout(() => { void pollRound() }, 400).unref()
+  }
+  /** What the round did, for its end line: calls seen and time taken. */
+  const roundWork = (): string | undefined => {
+    if (roundWatch === undefined) return undefined
+    const took = formatTurnTime(performance.now() - roundWatch.startedAt)
+    const { calls } = roundWatch.progress
+    return calls === 0 ? took : `${String(calls)} ${calls === 1 ? 'call' : 'calls'} · ${took}`
+  }
   /** Whether the hint row is ours: a compaction announced itself there. */
   let compacting = false
   /**
@@ -1182,7 +1246,10 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
       const progress = shipPlan === undefined
         ? workflowRound
         : planRow(shipPlan, theme, Math.max(16, io.console.contentColumns - 40)) ?? workflowRound
-      return [progress, tokens].filter(part => part !== undefined).join(' · ') || undefined
+      // What the round's child is doing right now, so a minutes-long round
+      // reads as work rather than as a hang.
+      const activity = roundWatch === undefined ? undefined : roundActivity(roundWatch.progress)
+      return [progress, activity === undefined ? undefined : truncate(activity, 48), tokens].filter(part => part !== undefined).join(' · ') || undefined
     },
   })
   // Prompt history survives sessions, which is what makes Up-arrow at a fresh
@@ -1916,8 +1983,19 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
         prompt.setHint(undefined)
       }
     }
-    if (event.type === 'tool-workflow/agent-start') workflowRound = event.data.label
-    if (event.type === 'tool-workflow/agent-end' || event.type === 'tool-workflow/run-end') workflowRound = undefined
+    if (event.type === 'tool-workflow/agent-start') {
+      workflowRound = event.data.label
+      watchRound(event.data)
+    }
+    if (event.type === 'tool-workflow/agent-end') {
+      // Before the end line renders: what the watch saw is what it says.
+      const work = roundWatch?.runId === event.data.runId && roundWatch.seq === event.data.seq ? roundWork() : undefined
+      if (work !== undefined) live.transcript.noteRoundWork(event.data.runId, event.data.seq, work)
+    }
+    if (event.type === 'tool-workflow/agent-end' || event.type === 'tool-workflow/run-end') {
+      workflowRound = undefined
+      stopRoundWatch()
+    }
     // A round settles by ticking its checkbox, so the plan is re-read at the
     // boundary rather than polled: once per round, and a round is minutes.
     if (event.type === 'tool-workflow/agent-end' || event.type === 'tool-workflow/run-start') refreshPlan()
@@ -2076,6 +2154,7 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
   adopt = (next: AgentHandle, replayLog: boolean): void => {
     viewing = undefined
     prompt.setHint(undefined)
+    stopRoundWatch()
     // A steer the retiring agent never took would sit in a disposed inbox.
     reclaimSteers(live.agent)
     live.handle = next
