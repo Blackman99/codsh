@@ -172,9 +172,34 @@ export function encodeGateAnswer(question: AskUserQuestionItem, action: GateActi
  * @param outcome - what the FrontierCard settled as.
  */
 export function encodeFrontierAnswer(question: AskUserQuestionItem, outcome: FrontierOutcome): AskUserQuestionAnswerItem {
-  if (outcome.kind === 'accept') return { id: question.id, selected: [outcome.value] }
+  if (outcome.kind === 'accept') {
+    return outcome.custom === true
+      ? { id: question.id, selected: [], custom: outcome.value }
+      : { id: question.id, selected: [outcome.value] }
+  }
   if (outcome.kind === 'edit') return { id: question.id, selected: [], custom: 'edit' }
+  if (outcome.kind === 'back') return { id: question.id, selected: [], custom: 'back' }
+  if (outcome.kind === 'next') return { id: question.id, selected: [], custom: 'next' }
   return { id: question.id, selected: [] }
+}
+
+/**
+ * Detect a write-in option: the person types their own answer on this row.
+ * Matches labels/descriptions that ask for free text rather than a pick.
+ */
+function isWriteInOption(option: { label: string; description?: string }): boolean {
+  const text = `${option.label} ${option.description ?? ''}`
+  return /\b(type (a|your|one)|write[- ]?in|specify|other|custom|your own)\b/i.test(text)
+}
+
+/** A stored answer worth restoring when the person revisits this question. */
+function priorAnswer(answer: AskUserQuestionAnswerItem | undefined): { selected?: string; custom?: string } | undefined {
+  if (answer === undefined) return undefined
+  if (answer.custom !== undefined && answer.custom !== 'back' && answer.custom !== 'next' && answer.custom !== 'edit') {
+    return { custom: answer.custom }
+  }
+  const selected = answer.selected[0]
+  return selected === undefined ? undefined : { selected }
 }
 
 /**
@@ -203,15 +228,37 @@ export class TerminalQuestions {
 
   /**
    * Put every question in one request to the person, in order.
+   * Left on a later consecutive question revisits the previous one; right
+   * returns to an already-visited later one.
    * @param request - the questions, owner agent, and abort signal.
    * @returns one answer per question, in request order.
    */
   async ask(request: AskUserQuestionRequest): Promise<AskUserQuestionAnswer> {
     const answers: AskUserQuestionAnswerItem[] = []
-    for (const question of request.questions) {
-      answers.push(await this.one(question, request.signal))
+    let index = 0
+    let reached = 0
+    while (index < request.questions.length) {
+      const question = request.questions[index]
+      if (question === undefined) break
+      reached = Math.max(reached, index)
+      const prior = priorAnswer(answers[index])
+      const answer = await this.one(question, request.signal, {
+        canBack: index > 0,
+        canForward: index < reached,
+        ...prior === undefined ? {} : { prior },
+      })
+      if (answer.custom === 'back') {
+        if (index > 0) index -= 1
+        continue
+      }
+      if (answer.custom === 'next') {
+        if (index < reached) index += 1
+        continue
+      }
+      answers[index] = answer
+      index += 1
     }
-    return { answers }
+    return { answers: request.questions.map((question, at) => answers[at] ?? { id: question.id, selected: [] }) }
   }
 
   /**
@@ -220,7 +267,11 @@ export class TerminalQuestions {
    * @param signal - aborts with the owning tool call.
    * @returns the encoded answer.
    */
-  private async one(question: AskUserQuestionItem, signal: AbortSignal | undefined): Promise<AskUserQuestionAnswerItem> {
+  private async one(
+    question: AskUserQuestionItem,
+    signal: AbortSignal | undefined,
+    nav: { canBack: boolean; canForward: boolean; prior?: { selected?: string; custom?: string } } = { canBack: false, canForward: false },
+  ): Promise<AskUserQuestionAnswerItem> {
     const options = question.options ?? []
     const gateKind = this.gate === undefined ? undefined : shipGateKind(question)
     if (gateKind !== undefined && this.gate !== undefined) {
@@ -257,17 +308,22 @@ export class TerminalQuestions {
           label: option.label,
           ...option.description === undefined ? {} : { detail: option.description },
           ...recommended[index] === true ? { recommended: true } : {},
+          ...isWriteInOption(option) ? { writeIn: true as const } : {},
         })),
+        ...nav.canBack ? { canBack: true } : {},
+        ...nav.canForward ? { canForward: true } : {},
+        ...nav.prior === undefined ? {} : { prior: nav.prior },
       }, signal)
       const answer = encodeFrontierAnswer(question, outcome)
       if (outcome.kind === 'accept') {
-        this.write(this.theme.dim(`  ✓ ${answer.selected.join(', ')}`))
+        const shown = answer.custom ?? answer.selected.join(', ')
+        this.write(this.theme.dim(`  ✓ ${shown}`))
       } else if (outcome.kind === 'edit') {
         // e exits to edit: custom-edit encoding (like gate), and Prompt
         // prefills the focused option so the person types in the box.
         this.write(this.theme.dim('  ✎ edit'))
       }
-      // dismiss: empty selected, no "aborted" write — /ship keeps running.
+      // back / dismiss: no "aborted" write — /ship keeps running.
       return answer
     }
     if (this.select === undefined || options.length === 0) {
@@ -296,6 +352,7 @@ export class TerminalQuestions {
       options: options.map(option => ({ label: option.label, ...option.description === undefined ? {} : { detail: option.description } })),
       ...question.multiSelect === true ? { multi: true } : {},
       custom: '✎ Type your own answer',
+      ...nav.canBack ? { back: true } : {},
     }, signal)
     if (outcome.kind === 'chosen') {
       const selected = outcome.indices
@@ -305,10 +362,16 @@ export class TerminalQuestions {
       return { id: question.id, selected }
     }
     if (outcome.kind === 'custom') {
+      if (outcome.value !== undefined && outcome.value.trim() !== '') {
+        const custom = outcome.value.trim()
+        this.write(this.theme.dim(`  ✓ ${custom}`))
+        return { id: question.id, selected: [], custom }
+      }
       const line = await this.reader.read(signal)
       const custom = (line ?? '').trim()
       return custom === '' ? { id: question.id, selected: [] } : { id: question.id, selected: [], custom }
     }
+    if (outcome.kind === 'back') return { id: question.id, selected: [], custom: 'back' }
     // Cancelled answers empty rather than hanging the tool call.
     return { id: question.id, selected: [] }
   }

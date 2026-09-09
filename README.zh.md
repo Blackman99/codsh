@@ -36,7 +36,7 @@ codsh
 `/ship <一句话需求>` —— 前检隔离、先 grill、两次确认、自主 TDD、双层 DoD：
 
 0. **前检与分支隔离** —— 检查工作区（有改动时弹出 `ship · preflight` 选择暂存/带走）；自动切出 `ship/<slug>` 独立特性分支，保护原分支不受污染。
-1. **Grill** —— 按 grill-me skill：先自己 recon，再按设计树访谈；每轮把当前未阻塞的 frontier 整批发问并给出推荐答案，`header` 为 `ship · grill`；前沿清空并确认后才往下走。
+1. **Grill** —— 按 grill-me skill：先自己 recon，再按设计树访谈；每轮把当前未阻塞的 frontier 整批发问并给出推荐答案，`header` 为 `ship · grill`；←/→ 可回改本轮已答过的题；需要自填的选项聚焦后就是行内输入框。前沿清空并确认后才往下走。
 2. **Spec (Gate 1)** —— 按 to-spec skill 自动合成（穷尽用户故事、公开 seam、Out of Scope）。你确认。记录分支、基底 Commit、验收命令，并写一份 `.scratch/` 副本（配了 tracker 就发到 tracker）。
 3. **Tickets 与基线 (Gate 2)** —— 按 to-tickets skill 切成带 DAG 的垂直切片，每张票有原子验收清单和 `.scratch/.../issues/` 文件，并注入发版合规任务。你批准。先跑业务与仓库全局基线。
 4. **落地** —— 按 tdd skill：先写并亲眼看到一条失败测试，再写最少绿码，再跑全套；单 Ticket 3 轮修错熔断；续跑级联重验；每个变绿的 ticket 产生单次全绿提交。较大的计划以 fresh agent 的 Ralph 循环执行；一轮进行中，工作行显示这一轮及其最近一次调用（计划行已经钉在 chrome 里，不再叠一份进度），spec 里的勾选一变、计划行随即更新，轮次结束的那一行写明做了多少事——Esc 会中断整个循环，哪怕 ticket 还没做完。

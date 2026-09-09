@@ -1666,6 +1666,7 @@ export class Prompt {
     }
     const rows: string[] = []
     let cursor = { row: 0, column: 0 }
+    let frontierCursor: { row: number; column: number } | undefined
     if (this.streaming !== undefined) {
       if (typeof this.streaming === 'string') rows.push(this.streaming)
       else rows.push(...this.streaming)
@@ -1676,7 +1677,9 @@ export class Prompt {
     this.todoRowsAt = undefined
     this.queueRowsAt = undefined
     if (this.frontier_ !== undefined) {
-      rows.push(...this.frontier_.card.frame(this.theme, columns).rows)
+      const frame = this.frontier_.card.frame(this.theme, columns)
+      frontierCursor = frame.cursor
+      rows.push(...frame.rows)
     }
     if (this.select_ !== undefined) {
       this.selectorRow = rows.length
@@ -1739,8 +1742,10 @@ export class Prompt {
     // The cursor lives in the box and shows only there: parked visibly on a
     // display row it reads as content colliding with it, and the selector's ❯
     // marker is its own focus affordance.
-    const focus = this.select_ === undefined && this.frontier_ === undefined && !this.queueOpen && (this.engaged || this.reading)
-    if (!focus) cursor = { row: rows.length - 1, column: 0 }
+    const writing = frontierCursor !== undefined
+    const focus = (this.select_ === undefined && this.frontier_ === undefined && !this.queueOpen && (this.engaged || this.reading)) || writing
+    if (writing && frontierCursor !== undefined) cursor = frontierCursor
+    else if (!focus) cursor = { row: rows.length - 1, column: 0 }
     // Frontier keeps the timeline: it is a card above the box, not a viewer.
     this.console.setTimelineHidden(this.select_ !== undefined)
     const preview = this.imagePreviewOverlay(columns)

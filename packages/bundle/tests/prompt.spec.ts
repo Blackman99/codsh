@@ -1527,6 +1527,23 @@ describe('ship frontier card', () => {
     expect(calls).toEqual([])
   })
 
+  it('puts the cursor on a focused write-in field', async () => {
+    const { prompt, console } = build()
+    const pending = prompt.frontier({
+      question: 'Where?',
+      options: [
+        { label: 'docs/specs/', recommended: true },
+        { label: 'Type a path', writeIn: true },
+      ],
+    })
+    console.press({ kind: 'down' })
+    const last = console.draws.at(-1)
+    expect(last?.cursor.row).toBeGreaterThan(0)
+    expect((last?.rows[last.cursor.row] ?? '')).toMatch(/[▌_]/u)
+    console.press({ kind: 'escape' })
+    await pending
+  })
+
   it('accepts y as the recommended label and prefills on e', async () => {
     const { prompt, console } = build()
     const taking = prompt.frontier(grill)

@@ -50,6 +50,59 @@ describe('FrontierCard', () => {
     expect(card.handleKey({ kind: 'enter' })).toEqual({ kind: 'accept', value: 'SQLite file' })
   })
 
+  it('turns a write-in option into an inline field when focused, and Enter submits the typed text', () => {
+    const card = new FrontierCard({
+      question: 'Where should the spec live?',
+      options: [
+        { label: 'docs/specs/', recommended: true },
+        { label: 'Type a path', writeIn: true },
+      ],
+    })
+    expect(card.handleKey({ kind: 'down' })).toEqual({ kind: 'move' })
+    const focused = card.frame(theme, 56)
+    expect(focused.rows.join('\n')).toContain('Type a path')
+    expect(focused.rows.join('\n')).toMatch(/[▌_]/u)
+    expect(focused.cursor).toBeDefined()
+    expect(card.handleKey({ kind: 'text', text: 'docs/rfcs/' })).toEqual({ kind: 'move' })
+    expect(card.frame(theme, 56).rows.join('\n')).toContain('docs/rfcs/')
+    expect(card.handleKey({ kind: 'enter' })).toEqual({ kind: 'accept', value: 'docs/rfcs/', custom: true })
+  })
+
+  it('restores a previous write-in or selected answer when revisiting', () => {
+    const write = new FrontierCard({
+      question: 'Where?',
+      options: [
+        { label: 'docs/specs/' },
+        { label: 'Type a path', writeIn: true },
+      ],
+      prior: { custom: 'docs/rfcs/' },
+    })
+    expect(write.focused).toBe(1)
+    expect(write.frame(theme, 56).rows.join('\n')).toContain('docs/rfcs/')
+    const picked = new FrontierCard({
+      question: 'Where?',
+      options: [
+        { label: 'docs/specs/' },
+        { label: 'Type a path', writeIn: true },
+      ],
+      prior: { selected: 'docs/specs/' },
+    })
+    expect(picked.focused).toBe(0)
+  })
+
+  it('goes back to the previous consecutive question on left', () => {
+    const card = new FrontierCard({ ...spec, canBack: true })
+    expect(card.handleKey({ kind: 'left' })).toEqual({ kind: 'back' })
+    expect(card.handleKey({ kind: 'right' })).toBeUndefined()
+    expect(new FrontierCard(spec).handleKey({ kind: 'left' })).toBeUndefined()
+  })
+
+  it('goes forward to the next already-answered question on right', () => {
+    const card = new FrontierCard({ ...spec, canForward: true })
+    expect(card.handleKey({ kind: 'right' })).toEqual({ kind: 'next' })
+    expect(new FrontierCard(spec).handleKey({ kind: 'right' })).toBeUndefined()
+  })
+
   it('maps e to edit', () => {
     const card = new FrontierCard(spec)
     expect(card.handleKey({ kind: 'text', text: 'e' })).toEqual({ kind: 'edit' })
@@ -87,6 +140,8 @@ describe('FrontierCard', () => {
     expect(text).toContain('[y] take · [e] edit · [↑↓] pick')
     expect(text).not.toMatch(/\[n\]/)
     expect(text).not.toContain('abort')
+    expect(new FrontierCard({ ...spec, canBack: true, canForward: true }).frame(theme, 56).rows.join('\n'))
+      .toContain('[←] back')
     expect(text).toContain('┌')
     expect(text).toContain('└')
   })

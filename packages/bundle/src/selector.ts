@@ -7,8 +7,9 @@
  * different pickers is how the same bug ships three times.
  *
  * Footer vocabulary shared with GateModal and FrontierCard:
- * take (Enter, and `y` on single-select), edit (`e` when a custom row is
- * offered), back (Esc). Abort (`n`) is GateModal-only and is never painted here.
+ * take (Enter, and `y` on single-select), edit (`e` focuses a custom row),
+ * back (Esc). A focused custom row is an inline field. Abort (`n`) is
+ * GateModal-only and is never painted here.
  * @module codsh-bundle/src/selector
  */
 
@@ -41,6 +42,8 @@ export interface SelectSpec {
   custom?: string
   /** Whether typing filters the list instead of digits/shortcuts settling. */
   filterable?: boolean
+  /** Left goes to the previous consecutive question in this batch. */
+  back?: boolean
   /**
    * Whether only the keyboard may answer this one.
    *
@@ -54,7 +57,8 @@ export interface SelectSpec {
 /** How one selection ended. */
 export type SelectOutcome =
   | { kind: 'chosen'; indices: number[] }
-  | { kind: 'custom' }
+  | { kind: 'custom'; value?: string }
+  | { kind: 'back' }
   | { kind: 'cancelled' }
 
 /** What a pointer is over, in the widget's own row space. */
@@ -74,6 +78,8 @@ const VISIBLE_ROWS = 10
 export class Selector {
   private selected = 0
   private query = ''
+  /** Typed text for the custom row while it is focused. */
+  private draft = ''
   private readonly checked = new Set<number>()
   /**
    * The row the pointer rests on, when it rests on one.
@@ -165,7 +171,14 @@ export class Selector {
    * @returns whether the selection settled, and how.
    */
   click(target: SelectorTarget): SelectorStep {
-    if (target.kind === 'custom') return { kind: 'done', outcome: { kind: 'custom' } }
+    if (target.kind === 'custom') {
+      const customIndex = this.matching().length
+      if (this.selected !== customIndex) {
+        this.selected = customIndex
+        return { kind: 'pending' }
+      }
+      return this.acceptCustom()
+    }
     if (this.spec.multi === true) {
       const original = this.matching()[target.index]
       if (original === undefined) return { kind: 'pending' }
@@ -205,19 +218,32 @@ export class Selector {
       case 'up':
         if (this.count === 0) return { kind: 'pending' }
         this.selected = (this.selected - 1 + this.count) % this.count
+        this.draft = ''
         return { kind: 'pending' }
       case 'down':
       case 'tab':
         if (this.count === 0) return { kind: 'pending' }
         this.selected = (this.selected + 1) % this.count
+        this.draft = ''
         return { kind: 'pending' }
       case 'enter':
         return this.accept(this.selected)
+      case 'left':
+        if (this.isCustom(this.selected) && this.draft.length > 0) {
+          this.draft = Array.from(this.draft).slice(0, -1).join('')
+          return { kind: 'pending' }
+        }
+        if (this.spec.back === true) return { kind: 'done', outcome: { kind: 'back' } }
+        return { kind: 'pending' }
       case 'escape':
         // Back: leave without a choice. Not abort — the footer never paints it
         // as one, and the outcome is cancelled, not an error.
         return { kind: 'done', outcome: { kind: 'cancelled' } }
       case 'backspace':
+        if (this.isCustom(this.selected) && this.draft.length > 0) {
+          this.draft = Array.from(this.draft).slice(0, -1).join('')
+          return { kind: 'pending' }
+        }
         if (this.spec.filterable === true && this.query.length > 0) {
           this.query = Array.from(this.query).slice(0, -1).join('')
           this.selected = 0
@@ -237,13 +263,19 @@ export class Selector {
    * @returns whether the selection settled.
    */
   private typed(text: string): SelectorStep {
+    if (this.isCustom(this.selected)) {
+      this.draft += text
+      return { kind: 'pending' }
+    }
     const letter = text.toLowerCase()
     if (this.spec.filterable === true) {
       if (this.query === '') {
         // Empty query: reserved letters settle like the unfiltered picker.
         // Once a filter is started, letters (including y) stay in the query.
         if (this.spec.custom !== undefined && letter === 'e') {
-          return { kind: 'done', outcome: { kind: 'custom' } }
+          this.selected = this.matching().length
+          this.draft = ''
+          return { kind: 'pending' }
         }
         if (this.spec.multi !== true && letter === 'y') {
           return this.accept(this.selected)
@@ -266,7 +298,9 @@ export class Selector {
       return { kind: 'pending' }
     }
     if (this.spec.custom !== undefined && letter === 'e') {
-      return { kind: 'done', outcome: { kind: 'custom' } }
+      this.selected = this.matching().length
+      this.draft = ''
+      return { kind: 'pending' }
     }
     // `y` ≡ Enter on single-select: take the focused row, same muscle memory
     // as Gate/Frontier. An option shortcut `y` is shadowed on purpose — take
@@ -278,7 +312,13 @@ export class Selector {
     if (Number.isInteger(digit) && digit >= 1 && digit <= this.count) {
       // A digit is an answer, not a cursor move: single-select settles on it,
       // multi-select toggles it the way Space does on the marked row.
-      if (this.spec.multi === true && !this.isCustom(digit - 1)) {
+      // The custom row is an inline field: a digit focuses it rather than
+      // leaving to type elsewhere.
+      if (this.isCustom(digit - 1)) {
+        this.selected = digit - 1
+        return { kind: 'pending' }
+      }
+      if (this.spec.multi === true) {
         this.selected = digit - 1
         const original = this.matching()[digit - 1]
         if (original !== undefined) {
@@ -300,10 +340,17 @@ export class Selector {
    * @returns the settled step.
    */
   private accept(index: number): SelectorStep {
-    if (this.isCustom(index)) return { kind: 'done', outcome: { kind: 'custom' } }
+    if (this.isCustom(index)) return this.acceptCustom()
     const original = this.matching()[index]
     if (original === undefined) return { kind: 'pending' }
     return this.acceptOriginal(original)
+  }
+
+  /** Settle the custom row: typed text when present, else stay so they can type. */
+  private acceptCustom(): SelectorStep {
+    const value = this.draft.trim()
+    if (value === '') return { kind: 'pending' }
+    return { kind: 'done', outcome: { kind: 'custom', value } }
   }
 
   /**
@@ -356,7 +403,12 @@ export class Selector {
     for (let index = first; index < Math.min(total, first + VISIBLE_ROWS); index += 1) {
       const hit: SelectorTarget = this.isCustom(index) ? { kind: 'custom' } : { kind: 'option', index }
       if (this.isCustom(index)) {
-        for (const line of this.optionRows(index, theme.dim(this.spec.custom ?? ''), undefined, theme, columns)) {
+        const writing = index === this.selected
+        const shown = writing
+          ? (this.draft === '' ? `${this.spec.custom ?? ''} ▌` : `${this.draft}▌`)
+          : (this.spec.custom ?? '')
+        const painted = writing ? shown : theme.dim(shown)
+        for (const line of this.optionRows(index, painted, undefined, theme, columns)) {
           push(line, hit)
         }
         continue
@@ -383,6 +435,7 @@ export class Selector {
     const parts = [`${theme.ok('[enter]')} take`]
     if (this.spec.multi !== true) parts.push(`${theme.ok('[y]')} take`)
     if (this.spec.custom !== undefined) parts.push(`${theme.muted('[e]')} edit`)
+    if (this.spec.back === true) parts.push(`${theme.accent('[←]')} back`)
     parts.push(`${theme.warn('[esc]')} back`)
     return `  ${parts.join(' · ')}`
   }

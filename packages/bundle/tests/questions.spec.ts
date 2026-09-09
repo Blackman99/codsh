@@ -99,6 +99,77 @@ describe('TerminalQuestions', () => {
     const request = { questions: [choice] } as AskUserQuestionRequest
     expect(await questions.ask(request)).toEqual({ answers: [{ id: 'q1', selected: [] }] })
   })
+
+  it('lets left go back and rewrite an earlier consecutive grill answer', async () => {
+    const shown: string[] = []
+    let cacheVisits = 0
+    const questions = new TerminalQuestions(
+      { read: () => Promise.resolve(undefined) },
+      theme,
+      () => {},
+      undefined,
+      undefined,
+      async (spec) => {
+        shown.push(spec.question)
+        if (spec.question === 'Storage?') {
+          if (shown.filter(q => q === 'Storage?').length === 1) return { kind: 'accept', value: 'SQLite' }
+          return { kind: 'accept', value: 'Postgres' }
+        }
+        cacheVisits += 1
+        if (cacheVisits === 1) return { kind: 'back' }
+        return { kind: 'accept', value: 'Memory' }
+      },
+    )
+    const request = {
+      questions: [
+        { id: 'q1', question: 'Storage?', header: 'ship · grill', options: [{ label: 'SQLite' }, { label: 'Postgres' }] },
+        { id: 'q2', question: 'Cache?', header: 'ship · grill', options: [{ label: 'Memory' }, { label: 'Redis' }] },
+      ],
+    } as AskUserQuestionRequest
+    expect(await questions.ask(request)).toEqual({
+      answers: [
+        { id: 'q1', selected: ['Postgres'] },
+        { id: 'q2', selected: ['Memory'] },
+      ],
+    })
+    expect(shown).toEqual(['Storage?', 'Cache?', 'Storage?', 'Cache?'])
+  })
+
+  it('lets right go forward to an already-answered consecutive grill question', async () => {
+    const shown: string[] = []
+    let cacheVisits = 0
+    const questions = new TerminalQuestions(
+      { read: () => Promise.resolve(undefined) },
+      theme,
+      () => {},
+      undefined,
+      undefined,
+      async (spec) => {
+        shown.push(spec.question)
+        if (spec.question === 'Storage?') {
+          const visits = shown.filter(q => q === 'Storage?').length
+          if (visits === 1) return { kind: 'accept', value: 'SQLite' }
+          return { kind: 'next' }
+        }
+        cacheVisits += 1
+        if (cacheVisits === 1) return { kind: 'back' }
+        return { kind: 'accept', value: 'Memory' }
+      },
+    )
+    const request = {
+      questions: [
+        { id: 'q1', question: 'Storage?', header: 'ship · grill', options: [{ label: 'SQLite' }, { label: 'Postgres' }] },
+        { id: 'q2', question: 'Cache?', header: 'ship · grill', options: [{ label: 'Memory' }, { label: 'Redis' }] },
+      ],
+    } as AskUserQuestionRequest
+    expect(await questions.ask(request)).toEqual({
+      answers: [
+        { id: 'q1', selected: ['SQLite'] },
+        { id: 'q2', selected: ['Memory'] },
+      ],
+    })
+    expect(shown).toEqual(['Storage?', 'Cache?', 'Storage?', 'Cache?'])
+  })
 })
 
 describe('plan review', () => {
@@ -292,8 +363,42 @@ describe('ship gate detection', () => {
       options: [{ label: 'SQLite', description: 'recommended' }, { label: 'Postgres' }],
     }
     expect(encodeFrontierAnswer(q, { kind: 'accept', value: 'SQLite' })).toEqual({ id: 'grill', selected: ['SQLite'] })
+    expect(encodeFrontierAnswer(q, { kind: 'accept', value: 'a file under docs/', custom: true })).toEqual({
+      id: 'grill',
+      selected: [],
+      custom: 'a file under docs/',
+    })
     expect(encodeFrontierAnswer(q, { kind: 'edit' })).toEqual({ id: 'grill', selected: [], custom: 'edit' })
     expect(encodeFrontierAnswer(q, { kind: 'dismiss' })).toEqual({ id: 'grill', selected: [] })
+    expect(encodeFrontierAnswer(q, { kind: 'back' })).toEqual({ id: 'grill', selected: [], custom: 'back' })
+    expect(encodeFrontierAnswer(q, { kind: 'next' })).toEqual({ id: 'grill', selected: [], custom: 'next' })
+  })
+
+  it('marks a write-in option from its label so the frontier card can type in place', async () => {
+    let writeIn: boolean | undefined
+    const questions = new TerminalQuestions(
+      { read: () => Promise.resolve(undefined) },
+      theme,
+      () => {},
+      undefined,
+      undefined,
+      async (spec) => {
+        writeIn = spec.options[1]?.writeIn
+        return { kind: 'accept', value: 'docs/rfcs/', custom: true }
+      },
+    )
+    const request = {
+      questions: [{
+        id: 'f1',
+        question: 'Where?',
+        header: 'ship · grill',
+        options: [{ label: 'docs/specs/' }, { label: 'Type a path' }],
+      }],
+    } as AskUserQuestionRequest
+    expect(await questions.ask(request)).toEqual({
+      answers: [{ id: 'f1', selected: [], custom: 'docs/rfcs/' }],
+    })
+    expect(writeIn).toBe(true)
   })
 
   it('routes a grill header to the frontier ask when provided', async () => {

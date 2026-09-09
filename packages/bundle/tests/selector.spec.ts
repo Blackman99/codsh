@@ -93,8 +93,19 @@ describe('multi select', () => {
 describe('the custom row', () => {
   const withCustom: SelectSpec = { ...spec, custom: '✎ Type your own answer' }
 
-  it('reports custom when chosen', () => {
-    expect(drive(new Selector(withCustom), [key('up'), key('enter')])).toEqual({ kind: 'custom' })
+  it('does not leave the custom row to type elsewhere — empty Enter stays on the field', () => {
+    expect(drive(new Selector(withCustom), [key('up'), key('enter')])).toBeUndefined()
+  })
+
+  it('turns the custom row into an inline field when focused, and Enter submits the typed text', () => {
+    const selector = new Selector(withCustom)
+    selector.handle(key('up'))
+    const focused = selector.view(theme, 60).join('\n')
+    expect(focused).toContain('Type your own')
+    expect(focused).toMatch(/[▌_]/u)
+    expect(selector.handle({ kind: 'text', text: 'neither' })).toEqual({ kind: 'pending' })
+    expect(selector.view(theme, 60).join('\n')).toContain('neither')
+    expect(selector.handle(key('enter'))).toEqual({ kind: 'done', outcome: { kind: 'custom', value: 'neither' } })
   })
 
   it('does not expose the custom row as an option preview', () => {
@@ -103,8 +114,12 @@ describe('the custom row', () => {
     expect(selector.highlighted).toBeUndefined()
   })
 
-  it('reaches it by digit too', () => {
-    expect(drive(new Selector(withCustom), [{ kind: 'text', text: '4' }])).toEqual({ kind: 'custom' })
+  it('reaches it by digit too, then types in place', () => {
+    const selector = new Selector(withCustom)
+    expect(selector.handle({ kind: 'text', text: '4' })).toEqual({ kind: 'pending' })
+    expect(selector.highlighted).toBeUndefined()
+    expect(selector.handle({ kind: 'text', text: 'neither' })).toEqual({ kind: 'pending' })
+    expect(selector.handle(key('enter'))).toEqual({ kind: 'done', outcome: { kind: 'custom', value: 'neither' } })
   })
 })
 
@@ -271,7 +286,8 @@ describe('the pointer', () => {
 
   it('takes the custom row as the way out, even in a multi-select list', () => {
     const selector = new Selector({ ...spec, multi: true, custom: 'Type your own answer' })
-    expect(selector.click({ kind: 'custom' })).toEqual({ kind: 'done', outcome: { kind: 'custom' } })
+    expect(selector.click({ kind: 'custom' })).toEqual({ kind: 'pending' })
+    expect(selector.click({ kind: 'custom' })).toEqual({ kind: 'pending' })
   })
 
   it('underlines the row it rests on, and leaves the mark where it was', () => {
@@ -353,10 +369,12 @@ describe('key semantics', () => {
     expect(drive(new Selector(noShortcut), [key('enter')])).toEqual({ kind: 'chosen', indices: [0] })
   })
 
-  it('edits on e only when a custom row is offered', () => {
+  it('edits on e only when a custom row is offered — e focuses the inline field', () => {
     const withCustom: SelectSpec = { ...spec, custom: '✎ Type your own answer' }
-    expect(drive(new Selector(withCustom), [{ kind: 'text', text: 'e' }])).toEqual({ kind: 'custom' })
-    expect(drive(new Selector(withCustom), [{ kind: 'text', text: 'E' }])).toEqual({ kind: 'custom' })
+    const selector = new Selector(withCustom)
+    expect(selector.handle({ kind: 'text', text: 'e' })).toEqual({ kind: 'pending' })
+    expect(selector.highlighted).toBeUndefined()
+    expect(selector.view(theme, 60).join('\n')).toMatch(/[▌_]/u)
     expect(drive(new Selector(spec), [{ kind: 'text', text: 'e' }])).toBeUndefined()
     const footer = new Selector(withCustom).view(theme, 60).at(-1) ?? ''
     expect(footer).toBe('  [enter] take · [y] take · [e] edit · [esc] back')
