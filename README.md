@@ -1,7 +1,7 @@
 <p align="center">
   <a href="https://blackman99.github.io/codsh/">
     <img src="assets/banner.svg" width="900"
-         alt="codsh — a terminal coding agent on the DeepSeek Harness">
+         alt="codsh — a terminal coding agent for DeepSeek">
   </a>
 </p>
 
@@ -13,34 +13,22 @@
 
 > npm: [`codsh-cli`](https://www.npmjs.com/package/codsh-cli) · command: `codsh`
 
-**`/ship`** takes one sentence to verified code. A terminal coding agent on the [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness).
+**`/ship`** takes one sentence to verified code. A terminal coding agent for DeepSeek — and any OpenAI-compatible endpoint.
+
+Yet another agent CLI. This one is for people who already run [dsh](https://github.com/deepseek-ai/deepseek-harness), who want DeepSeek (or their own gateway) instead of a closed agent, and who bounced off the default TUI. Not a fork: a coding profile and a terminal that is its own space.
 
 [![The /ship flow](assets/ship-demo.gif)](https://blackman99.github.io/codsh/)
 
 ## Install
 
 ```sh
-npm install -g @deepseek-ai/dsh codsh-cli  
-# already have dsh? npm i -g codsh-cli
+npm install -g @deepseek-ai/dsh codsh-cli
 codsh
 ```
 
-Zero-dependency launcher. `codsh` is `dsh --profile code`. Key: `DEEPSEEK_API_KEY`.
+Key: `DEEPSEEK_API_KEY`. Already have dsh? `npm i -g codsh-cli` is enough.
 
 `codsh --resume <id>` · `codsh --continue` · `codsh -p "task"` · `codsh --version` · `codsh update`
-
-A session says so when a newer codsh is published. `codsh update` moves the
-pair from the shell, `/update` does it from inside a session, and either way
-the update also moves the code profile's runtime to match — the next boot only
-registers a runtime a bare `npm install -g codsh-cli` upgrade left behind.
-`CODSH_UPDATE_CHECK=off` silences the automatic check; asking still asks.
-
-Or skip the launcher:
-
-```sh
-dsh plugin --profile code add codsh-bundle
-dsh --profile code
-```
 
 ## `/ship`
 
@@ -58,6 +46,25 @@ Bare `/ship` resumes an unfinished spec with cascading re-verification of prior 
 ```sh
 /ship let long diffs open in a pager instead of scrolling past
 ```
+
+## How it works
+
+`codsh` is a zero-dependency launcher. It finds your dsh, registers [`codsh-bundle`](https://www.npmjs.com/package/codsh-bundle) into a dedicated `code` profile, and boots `dsh --profile code`.
+
+A session says so when a newer codsh is published. `codsh update` moves the
+pair from the shell, `/update` does it from inside a session, and either way
+the update also moves the code profile's runtime to match — the next boot only
+registers a runtime a bare `npm install -g codsh-cli` upgrade left behind.
+`CODSH_UPDATE_CHECK=off` silences the automatic check; asking still asks.
+
+Or skip the launcher:
+
+```sh
+dsh plugin --profile code add codsh-bundle
+dsh --profile code
+```
+
+Any OpenAI-compatible endpoint is a dsh route — declare it once, then `/model`. See [Third-party endpoints](#third-party-endpoints).
 
 ## The surface
 
@@ -150,6 +157,10 @@ half is gone by the time anyone looks; replaying the file through a terminal
 emulator reproduces the screen it drew. Off unless the variable is set.
 
 `pnpm run sync:dsh` tracks published `@deepseek-ai/dsh-*` releases. This repo never forks the harness.
+
+## Talk to it
+
+Bugs, Windows, other models, “I came from Claude Code” — open an [issue](https://github.com/Blackman99/codsh/issues). [Discussions](https://github.com/Blackman99/codsh/discussions) are on for longer threads. See [CONTRIBUTING.md](CONTRIBUTING.md) if you are changing the surface.
 
 ## License
 

@@ -1,7 +1,7 @@
 <p align="center">
   <a href="https://blackman99.github.io/codsh/zh.html">
     <img src="assets/banner.svg" width="900"
-         alt="codsh — 架在 DeepSeek Harness 上的终端编码 agent">
+         alt="codsh — 面向 DeepSeek 的终端编码 agent">
   </a>
 </p>
 
@@ -13,31 +13,22 @@
 
 > npm：[`codsh-cli`](https://www.npmjs.com/package/codsh-cli) · 命令：`codsh`
 
-**`/ship`** 把一句话变成已验证的代码。架在 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 上的终端编码 agent。
+**`/ship`** 把一句话变成已验证的代码。面向 DeepSeek —— 以及任何 OpenAI 兼容端点 —— 的终端编码 agent。
+
+又一个 agent CLI。给已经在跑 [dsh](https://github.com/deepseek-ai/deepseek-harness) 的人，给想用 DeepSeek（或自己的网关）而不是闭源 agent 的人，给受不了默认 TUI 的人。不是 fork：一个 coding profile，加上一个自成空间的终端。
 
 [![/ship 流程](assets/ship-demo.zh.gif)](https://blackman99.github.io/codsh/zh.html)
 
 ## 安装
 
 ```sh
-npm install -g @deepseek-ai/dsh codsh-cli   # 已有 dsh？npm i -g codsh-cli
+npm install -g @deepseek-ai/dsh codsh-cli
 codsh
 ```
 
-零依赖启动器。`codsh` 即 `dsh --profile code`。密钥：`DEEPSEEK_API_KEY`。
+密钥：`DEEPSEEK_API_KEY`。已经有 dsh？`npm i -g codsh-cli` 就够。
 
 `codsh --resume <id>` · `codsh --continue` · `codsh -p "任务"` · `codsh --version` · `codsh update`
-
-有新版本时会话里会有一行提示。`codsh update` 在 shell 里升级，`/update` 在会话里升级，
-两条路都会把 code profile 里的配套 runtime 一并升好——只有裸 `npm install -g codsh-cli` 落下的 runtime 才由下次启动补注册。
-`CODSH_UPDATE_CHECK=off` 关掉自动检查；主动问依然会问。
-
-不用启动器：
-
-```sh
-dsh plugin --profile code add codsh-bundle
-dsh --profile code
-```
 
 ## `/ship`
 
@@ -55,6 +46,23 @@ dsh --profile code
 ```sh
 /ship 让超长 diff 用分页器打开而不是刷屏滚过
 ```
+
+## 它怎么跑
+
+`codsh` 是零依赖启动器。它找到你的 dsh，把 [`codsh-bundle`](https://www.npmjs.com/package/codsh-bundle) 注册进专用的 `code` profile，然后启动 `dsh --profile code`。
+
+有新版本时会话里会有一行提示。`codsh update` 在 shell 里升级，`/update` 在会话里升级，
+两条路都会把 code profile 里的配套 runtime 一并升好——只有裸 `npm install -g codsh-cli` 落下的 runtime 才由下次启动补注册。
+`CODSH_UPDATE_CHECK=off` 关掉自动检查；主动问依然会问。
+
+不用启动器：
+
+```sh
+dsh plugin --profile code add codsh-bundle
+dsh --profile code
+```
+
+任何 OpenAI 兼容端点都是一条 dsh 路由 —— 声明一次，然后 `/model`。见 [第三方端点](#第三方端点)。
 
 ## 界面
 
@@ -144,6 +152,10 @@ pnpm run site:screens        # 用真实二进制重拍站点上的终端截屏
 就找不回来了;把文件回放进任意终端模拟器,就能还原它画出的屏幕。不设该变量则不开启。
 
 `pnpm run sync:dsh` 跟踪已发布的 `@deepseek-ai/dsh-*`。本仓库绝不 fork harness。
+
+## 说话
+
+Windows、别的模型、从 Claude Code 迁过来、渲染不对 —— 开 [issue](https://github.com/Blackman99/codsh/issues)。长一点的话题走 [Discussions](https://github.com/Blackman99/codsh/discussions)。改界面见 [CONTRIBUTING.md](CONTRIBUTING.md)。
 
 ## 许可
 

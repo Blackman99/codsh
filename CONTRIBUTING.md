@@ -2,6 +2,9 @@
 
 Thanks for helping! codsh is a [dsh](https://github.com/deepseek-ai/deepseek-harness) bundle: this repository owns the terminal surface and the coding-agent preset; everything underneath is the released dsh packages. Changes to the harness itself belong upstream — this repo never forks it.
 
+Not sending a patch? Open an [issue](https://github.com/Blackman99/codsh/issues) or a [discussion](https://github.com/Blackman99/codsh/discussions). Windows, third-party endpoints, and “I came from Claude Code / Codex” are welcome even as incomplete reports — they tell other people the project is lived in.
+
+
 ## Getting started
 
 ```sh

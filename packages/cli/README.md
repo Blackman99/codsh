@@ -1,14 +1,15 @@
 # codsh-cli
 
 **`/ship`** takes one sentence to verified code. [codsh](https://github.com/Blackman99/codsh) is a
-terminal coding agent composed on the [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) (dsh).
+terminal coding agent for DeepSeek — and any OpenAI-compatible endpoint — composed on the
+[DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) (dsh).
 
 ```sh
-npm install -g @deepseek-ai/dsh codsh-cli   # already have dsh? npm i -g codsh-cli
+npm install -g @deepseek-ai/dsh codsh-cli
 codsh
 ```
 
-Key: `DEEPSEEK_API_KEY`.
+Key: `DEEPSEEK_API_KEY`. Already have dsh? `npm i -g codsh-cli` is enough.
 
 [![The /ship flow](https://raw.githubusercontent.com/Blackman99/codsh/main/assets/ship-demo.gif)](https://blackman99.github.io/codsh/)
 

@@ -1,6 +1,6 @@
 {
   "name": "codsh-cli",
-  "description": "A Claude Code-style coding agent for the terminal, composed on the DeepSeek Harness (dsh). This is the zero-dependency launcher: it finds your dsh, registers the codsh-bundle runtime into a profile, and boots it.",
+  "description": "/ship takes one sentence to verified code. Terminal coding agent for DeepSeek and any OpenAI-compatible endpoint. Zero-dependency launcher for the DeepSeek Harness.",
   "version": "0.18.1",
   "type": "module",
   "license": "MIT",
