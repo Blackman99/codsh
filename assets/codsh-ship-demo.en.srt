@@ -1,0 +1,39 @@
+1
+00:00:00,000 --> 00:00:06,000
+codsh. One sentence, to verified code.
+DeepSeek — or any compatible endpoint.
+
+2
+00:00:06,000 --> 00:00:16,000
+Type /ship, then your sentence.
+This one: open long diffs in a pager instead of scrolling past.
+
+3
+00:00:16,000 --> 00:00:24,000
+It reads the repo first, then asks the one choice still open.
+Full screen, or split. It recommends full screen. You answer once.
+
+4
+00:00:24,000 --> 00:00:32,000
+The spec writes itself. Six acceptance checks,
+each with a command that must exit 0. Gate 1. You confirm.
+
+5
+00:00:32,000 --> 00:00:39,000
+The work splits into three independently provable tickets.
+You approve. Baseline runs. Red stays red.
+
+6
+00:00:39,000 --> 00:00:47,000
+Then it lands red to green.
+Each ticket that turns green is one clean commit. One. Two. Three.
+
+7
+00:00:47,000 --> 00:00:55,000
+Every proof command runs again against the baseline.
+Zero new failures. Dual-layer done. Now you can merge it back.
+
+8
+00:00:55,000 --> 00:01:10,000
+Two commands. npm i -g @deepseek-ai/dsh codsh-cli
+Then codsh. Key: DEEPSEEK_API_KEY.
