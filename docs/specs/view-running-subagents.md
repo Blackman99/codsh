@@ -132,7 +132,12 @@ Do not add a PTY e2e that starts a real child agent for this ship: the unit seam
 ## Plan
 
 - [x] Ticket 1: Promote pending subagent cards into views — Delivers Transcript binding of the oldest unmatched pending `subagent` / `subagent_fork` call to a child Session id (FIFO), the dim `click to enter` hint, `takeEnter` / `takePendingCard`, Screen click-to-enter on a replaced-in-place pending card, and keeps failed results plus background jobs non-views. (Blocked by: none)
-- [ ] Ticket 2: Child-view stack module — Delivers a public Child-view stack (push/pop/current), event ownership (viewed Session paints; siblings do not), `inheritedEventCount` prefix skip, and approval ownership for the live agent plus in-process descendants, pinned by `child-view.spec`. (Blocked by: Ticket 1)
+- [x] Ticket 2: Child-view stack module — Delivers a public Child-view stack (push/pop/current), event ownership (viewed Session paints; siblings do not), `inheritedEventCount` prefix skip, and approval ownership for the live agent plus in-process descendants, pinned by `child-view.spec`. (Blocked by: Ticket 1)
+
+### Ticket 2 verification
+
+- Red: `pnpm exec vitest run packages/bundle/tests/child-view.spec.ts` exit 1 — `Cannot find module '../src/child-view.ts'`.
+- Green: same command exit 0, 7 passed. `pnpm run typecheck` exit 0. `pnpm test` exit 0, 48 files / 1280 tests.
 - [ ] Ticket 3: Wire live nested viewing into the composition — Delivers `subagent/start` promotion of pending cards, stacked enter/Esc, parent-like streaming inside the current Child view, descendant keyboard approvals, stay-on-settle, and the existing no-longer-running flash. (Blocked by: Ticket 1, Ticket 2)
 - [ ] Ticket 4: Release & Documentation Compliance — Delivers Changeset and bilingual documentation updates (README.md and README.zh.md) plus CONTEXT.md Child view glossary if user-facing surface is touched. (Blocked by: Ticket 1, Ticket 2, Ticket 3)
 
