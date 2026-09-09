@@ -784,6 +784,74 @@ describe('a subagent card that is a view', () => {
   })
 })
 
+describe('a pending subagent card that is a view', () => {
+  it('promotes a pending subagent call with a child id into a click-to-enter view', () => {
+    const transcript = build()
+    const pending = transcript.render(callEvent('c1', 'subagent', {}))
+    expect(transcript.takeEnter()).toBeUndefined()
+
+    const lines = transcript.promotePendingView('child-9')
+    expect(lines.join('\n')).toContain('click to enter')
+    expect(transcript.takeEnter()).toBe('child-9')
+    expect(transcript.takePendingCard()).toEqual(pending)
+    expect(transcript.takeEnter()).toBeUndefined()
+  })
+
+  it('promotes a pending subagent_fork call the same way', () => {
+    const transcript = build()
+    const pending = transcript.render(callEvent('c1', 'subagent_fork', {}))
+    const lines = transcript.promotePendingView('fork-1')
+    expect(lines.join('\n')).toContain('click to enter')
+    expect(transcript.takeEnter()).toBe('fork-1')
+    expect(transcript.takePendingCard()).toEqual(pending)
+  })
+
+  it('binds two unmatched pendings FIFO', () => {
+    const transcript = build()
+    const firstPending = transcript.render(callEvent('c1', 'subagent', {}))
+    const secondPending = transcript.render(callEvent('c2', 'subagent_fork', {}))
+
+    const first = transcript.promotePendingView('first-child')
+    expect(first.join('\n')).toContain('click to enter')
+    expect(transcript.takeEnter()).toBe('first-child')
+    expect(transcript.takePendingCard()).toEqual(firstPending)
+
+    const second = transcript.promotePendingView('second-child')
+    expect(second.join('\n')).toContain('click to enter')
+    expect(transcript.takeEnter()).toBe('second-child')
+    expect(transcript.takePendingCard()).toEqual(secondPending)
+  })
+
+  it('still names the child on a later continuable start-result', () => {
+    const transcript = build()
+    transcript.render(callEvent('c1', 'subagent', {}))
+    transcript.promotePendingView('child-9')
+    expect(transcript.takeEnter()).toBe('child-9')
+    transcript.takePendingCard()
+
+    const lines = transcript.render(resultEvent('c1', 'started subagent child-9'))
+    expect(lines.join('\n')).toContain('started subagent child-9')
+    expect(lines.join('\n')).toContain('click to enter')
+    expect(transcript.takeEnter()).toBe('child-9')
+  })
+
+  it('does not offer a view for a background job string or a failed result', () => {
+    expect(childSessionId('started background subagent job job-9')).toBeUndefined()
+    const transcript = build()
+    transcript.render(callEvent('c1', 'subagent', {}))
+    transcript.render(resultEvent('c1', 'started subagent child-9', true))
+    expect(transcript.takeEnter()).toBeUndefined()
+  })
+
+  it('does not offer a view for a finished foreground result body', () => {
+    const transcript = build()
+    transcript.render(callEvent('c1', 'subagent', {}))
+    const lines = transcript.render(resultEvent('c1', 'the child finished the work'))
+    expect(lines.join('\n')).not.toContain('click to enter')
+    expect(transcript.takeEnter()).toBeUndefined()
+  })
+})
+
 describe('naming a pending call', () => {
   it('names a terminal call by its first command line', () => {
     const call = (): ToolCallView => ({ card: 'terminal', title: 'git push origin main\necho done' })

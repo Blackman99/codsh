@@ -1784,6 +1784,30 @@ describe('folds', () => {
     expect(flush(sink)).toBe('')
   })
 
+  it('enters a subagent block on click instead of expanding it when the pending card was replaced in place', () => {
+    const entered: string[] = []
+    const sink = host(10, 40)
+    const screen = new Screen(sink)
+    screen.setEnter((id) => { entered.push(id) })
+    screen.enter()
+    screen.setChrome(['status'], { row: 0, column: 0 }, false)
+    const pending = ['● subagent']
+    screen.append(pending)
+    flush(sink)
+
+    const view = ['● subagent', '  click to enter']
+    screen.appendFold(view, view, '', 'subagent', 'child-9', undefined, pending)
+    flush(sink)
+
+    expect(screen.mouseMove(1, 3)).toEqual({ label: 'subagent', lines: 2, expanded: false, enter: true })
+    flush(sink)
+    screen.mouseDown(1, 3)
+    expect(screen.mouseUp()).toBeUndefined()
+    expect(entered).toEqual(['child-9'])
+    // Entering is not folding: nothing on screen swapped.
+    expect(flush(sink)).toBe('')
+  })
+
   it('reads a long block on click, and still expands it with Ctrl+O', () => {
     const read: string[] = []
     const sink = host(10, 40)

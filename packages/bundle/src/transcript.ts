@@ -108,6 +108,11 @@ interface PendingCall {
   joined: boolean
   /** Whether the closing pad it printed is still its own. */
   closes: boolean
+  /**
+   * Child session this pending call was promoted to, when `subagent/start`
+   * bound it as a view before the tool result.
+   */
+  enter?: string
 }
 
 /**
@@ -624,6 +629,56 @@ export class Transcript {
   }
 
   /**
+   * Bind the oldest unmatched pending `subagent` or `subagent_fork` call to a
+   * child Session id, and rebuild that pending card as a view.
+   *
+   * `subagent/start` publishes the id as soon as the child exists — before the
+   * tool result — so a click can enter while the call is still running. Two
+   * unmatched pendings bind FIFO. The pending call stays recorded so a later
+   * continuable start-result still pairs with it.
+   * @param childId - the child Session the pending card should open.
+   * @returns the view card's lines, empty when no unmatched pending call remains.
+   */
+  promotePendingView(childId: string): string[] {
+    const { theme } = this.options
+    this.fold = undefined
+    this.rule = ''
+    this.prompt = undefined
+    this.promptPad = undefined
+    this.enter = undefined
+    this.page = undefined
+    this.written = []
+    this.pendingCard = []
+    this.label = ''
+    if (childId === '') return []
+    let matched: PendingCall | undefined
+    let matchedId: string | undefined
+    for (const [callId, pending] of this.calls) {
+      if (pending.enter !== undefined) continue
+      if (pending.name !== 'subagent' && pending.name !== 'subagent_fork') continue
+      matched = pending
+      matchedId = callId
+      break
+    }
+    if (matched === undefined || matchedId === undefined) return []
+    const bg = (text: string) => theme.bgTool(text)
+    const hint = bg(theme.dim('  click to enter'))
+    const original = [...matched.lines]
+    const close = theme.colored ? bg('  ') : undefined
+    const lines = matched.closes && close !== undefined && original.at(-1) === close
+      ? [...original.slice(0, -1), hint, close]
+      : [...original, hint]
+    matched.enter = childId
+    matched.lines = lines
+    if (this.run?.owner === matchedId) this.run.bodied = true
+    this.rule = blockRules(theme).tool
+    this.enter = childId
+    this.label = matched.title
+    this.pendingCard = original
+    return lines
+  }
+
+  /**
    * Open the tool-card run at the tail, or join the one already standing.
    *
    * Joining means printing no pad above: the card before already closed with
@@ -861,8 +916,9 @@ export class Transcript {
   /**
    * The pending card the block just rendered replaces, and forgets it.
    *
-   * Empty for everything that is not a completed call, and for a call whose
-   * pending card this surface never printed — a resumed page boundary, say.
+   * Empty unless a completed call or a pending-view promotion just rebuilt a
+   * card this surface already printed. A resumed page boundary that never
+   * showed the pending form also yields empty.
    * @returns the lines to take the place of.
    */
   takePendingCard(): readonly string[] {
