@@ -226,6 +226,15 @@ output are folds. A finished answer is transcript: it stays whole, a click
 does not work it, and the pointer resting on it names nothing.
 _Avoid_: collapse block, expandable section
 
+**Child view**:
+The nested Viewport of an in-process child's transcript. A Fold that names a
+child Session is a view: a click enters, Esc pops one level, and the child's
+thinking, text, and tool cards stream the way they do on the parent. The view
+is read-only; typing flashes that Esc returns. Fork views skip the inherited
+parent prefix. Worker-thread Workflow children are not views — their sessions
+are never in this process, so the round line never offers `click to enter`.
+_Avoid_: catalog, inspector, pager
+
 **Card run**:
 Tool cards that follow one another share one panel rather than each opening and
 closing one of its own. The first pads above, the last pads below, and inside

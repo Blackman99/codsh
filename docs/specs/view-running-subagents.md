@@ -1,6 +1,6 @@
 # View Running Subagents
 
-Status: landing
+Status: shipped
 Branch: ship/view-running-subagents
 Base-Commit: 6311fb418b2deccce9ca8fb08c50eb6124f8683e
 Original-Branch: main
@@ -144,7 +144,11 @@ Do not add a PTY e2e that starts a real child agent for this ship: the unit seam
 
 - Wiring lives in the composition root; proofs are Ticket 2's `child-view.spec` plus typecheck/full suite (no new PTY e2e per Testing Decisions).
 - Green: `pnpm exec vitest run packages/bundle/tests/child-view.spec.ts` exit 0 (8 passed). `pnpm run typecheck` exit 0. `pnpm test` exit 0, 48 files / 1281 tests.
-- [ ] Ticket 4: Release & Documentation Compliance — Delivers Changeset and bilingual documentation updates (README.md and README.zh.md) plus CONTEXT.md Child view glossary if user-facing surface is touched. (Blocked by: Ticket 1, Ticket 2, Ticket 3)
+- [x] Ticket 4: Release & Documentation Compliance — Delivers Changeset and bilingual documentation updates (README.md and README.zh.md) plus CONTEXT.md Child view glossary if user-facing surface is touched. (Blocked by: Ticket 1, Ticket 2, Ticket 3)
+
+### Ticket 4 verification
+
+- `.changeset/view-running-subagents.md` (codsh-bundle minor), README.md / README.zh.md surface bullets, CONTEXT.md **Child view** glossary.
 
 ## Baseline
 
