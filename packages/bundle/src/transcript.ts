@@ -125,6 +125,23 @@ function visibleText(content: readonly ContentBlock[]): string {
 }
 
 /**
+ * Drop blank rows a model wrapped an answer in, keeping inner paragraph breaks.
+ *
+ * The transcript already prints one separator after an answer and one before
+ * the next tool card. Leading or trailing empty rows from the source stack on
+ * those separators and read as a hole in the conversation.
+ * @param lines - rendered Markdown rows.
+ * @returns the same rows without outer blanks.
+ */
+function trimOuterBlanks(lines: readonly string[]): string[] {
+  let start = 0
+  let end = lines.length
+  while (start < end && lines[start] === '') start += 1
+  while (end > start && lines[end - 1] === '') end -= 1
+  return [...lines.slice(start, end)]
+}
+
+/**
  * One dim line per image a user message carried, in place of pixels.
  *
  * An image block's bytes cannot render here, and a `<pasted-image>` context
@@ -501,7 +518,8 @@ export class Transcript {
       case 'assistant/message': {
         const text = visibleText(event.data.message.content)
         if (text === '') return []
-        const lines = renderMarkdown(text, theme)
+        const lines = trimOuterBlanks(renderMarkdown(text, theme))
+        if (lines.length === 0) return []
         return hadRun ? ['', ...lines, ''] : [...lines, '']
       }
       case 'tool/call':

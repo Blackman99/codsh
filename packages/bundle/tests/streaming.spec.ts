@@ -55,6 +55,26 @@ describe('TextStream', () => {
     expect(stream.flush()).toEqual([])
   })
 
+  it('drops leading and trailing blank lines the model wrapped the answer in', () => {
+    // A sentence that arrived as `\n\nhello\n\n` used to paint two empty rows
+    // before the words and two after — then the surface added another separator.
+    const stream = build()
+    expect(stream.push('\n\nhello\n\n')).toEqual({ lines: ['hello'], live: undefined })
+    expect(stream.flush()).toEqual([])
+  })
+
+  it('still keeps a paragraph break between sentences', () => {
+    expect(build().push('one\n\ntwo\n')).toEqual({ lines: ['one', '', 'two'], live: undefined })
+  })
+
+  it('keeps blank lines that belong inside a fenced block', () => {
+    const stream = build()
+    expect(stream.push('```\nconst a = 1\n\nconst b = 2\n```\n')).toEqual({
+      lines: ['  const a = 1', '  ', '  const b = 2'],
+      live: undefined,
+    })
+  })
+
   it('reproduces the answer exactly once across arbitrary fragment boundaries', () => {
     const answer = '# Title\n\n- one\n- two\n\n```ts\nconst a = 1\n```\ntail'
     const stream = build()

@@ -62,6 +62,20 @@ describe('assistant and user messages', () => {
     expect(build().render(event)).toEqual(['done', ''])
   })
 
+  it('does not stack the answer\'s leading or trailing blanks onto the separator', () => {
+    // Models often wrap a sentence in extra newlines. Each one used to survive
+    // Markdown and then sit under the separator the card already prints, so a
+    // tool run and the next sentence were two or three empty rows apart.
+    const event = (text: string): SessionEvent => ({
+      type: 'assistant/message',
+      seq: 1,
+      time: 0,
+      data: { turn: 1, step: 1, message: { role: 'assistant', content: [{ type: 'text', text }], source: { kind: 'model' } } },
+    } as unknown as SessionEvent)
+    expect(build().render(event('\n\ndone\n\n'))).toEqual(['done', ''])
+    expect(build().render(event('one\n\ntwo'))).toEqual(['one', '', 'two', ''])
+  })
+
   it('separates assistant text from a preceding tool call with a blank line', () => {
     const transcript = build()
     transcript.render(callEvent('c1', 'bash', { command: 'git status' }))

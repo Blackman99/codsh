@@ -27,6 +27,8 @@ export class TextStream {
   private markdown: MarkdownStream
   private partial = ''
   private seen = false
+  /** Blank rows held until more prose arrives; dropped if the answer ends there. */
+  private heldBlanks = 0
 
   constructor(
     private readonly theme: Theme,
@@ -53,12 +55,28 @@ export class TextStream {
    */
   push(delta: string): StreamStep {
     if (delta === '') return { lines: [], live: this.liveText() }
-    this.seen = true
     const lines: string[] = []
     const parts = (this.partial + delta).split('\n')
     // The last part has no terminator yet, so it stays open for the next delta.
     this.partial = parts.pop() ?? ''
-    for (const complete of parts) lines.push(...this.renderLine(complete))
+    for (const complete of parts) {
+      const inFence = this.markdown.inCode
+      const rendered = this.renderLine(complete)
+      if (complete === '' && !inFence) {
+        // Leading blanks the model wrapped the answer in stay off screen;
+        // inner blanks wait in case they are only a trailing wrapper. A blank
+        // inside a fence is code and has to print.
+        if (this.seen) this.heldBlanks += 1
+        continue
+      }
+      if (this.heldBlanks > 0) {
+        lines.push(...Array.from({ length: this.heldBlanks }, () => ''))
+        this.heldBlanks = 0
+      }
+      this.seen = true
+      lines.push(...rendered)
+    }
+    if (this.partial !== '') this.seen = true
     return { lines, live: this.liveText() }
   }
 
@@ -71,14 +89,19 @@ export class TextStream {
    * @returns the remaining lines to append.
    */
   flush(): string[] {
-    const lines = this.partial === '' ? [] : this.renderLine(this.partial)
+    const leftover = this.partial === '' ? [] : this.renderLine(this.partial)
+    const content = leftover.some(line => line !== '') ? leftover : []
+    if (content.length > 0 && this.heldBlanks > 0) {
+      content.unshift(...Array.from({ length: this.heldBlanks }, () => ''))
+    }
     // A table cut off mid-answer still shows its buffered rows.
-    lines.push(...this.plain ? [] : this.markdown.flush())
+    content.push(...this.plain ? [] : this.markdown.flush())
     this.partial = ''
     this.seen = false
+    this.heldBlanks = 0
     // A fence left open by a cut-off answer must not leak into the next one.
     this.markdown = createMarkdownStream(this.theme, this.columns)
-    return lines
+    return content
   }
 
   /** Render one complete line in this stream's mode. */
