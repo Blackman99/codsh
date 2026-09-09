@@ -138,7 +138,12 @@ Do not add a PTY e2e that starts a real child agent for this ship: the unit seam
 
 - Red: `pnpm exec vitest run packages/bundle/tests/child-view.spec.ts` exit 1 — `Cannot find module '../src/child-view.ts'`.
 - Green: same command exit 0, 7 passed. `pnpm run typecheck` exit 0. `pnpm test` exit 0, 48 files / 1280 tests.
-- [ ] Ticket 3: Wire live nested viewing into the composition — Delivers `subagent/start` promotion of pending cards, stacked enter/Esc, parent-like streaming inside the current Child view, descendant keyboard approvals, stay-on-settle, and the existing no-longer-running flash. (Blocked by: Ticket 1, Ticket 2)
+- [x] Ticket 3: Wire live nested viewing into the composition — Delivers `subagent/start` promotion of pending cards, stacked enter/Esc, parent-like streaming inside the current Child view, descendant keyboard approvals, stay-on-settle, and the existing no-longer-running flash. (Blocked by: Ticket 1, Ticket 2)
+
+### Ticket 3 verification
+
+- Wiring lives in the composition root; proofs are Ticket 2's `child-view.spec` plus typecheck/full suite (no new PTY e2e per Testing Decisions).
+- Green: `pnpm exec vitest run packages/bundle/tests/child-view.spec.ts` exit 0 (8 passed). `pnpm run typecheck` exit 0. `pnpm test` exit 0, 48 files / 1281 tests.
 - [ ] Ticket 4: Release & Documentation Compliance — Delivers Changeset and bilingual documentation updates (README.md and README.zh.md) plus CONTEXT.md Child view glossary if user-facing surface is touched. (Blocked by: Ticket 1, Ticket 2, Ticket 3)
 
 ## Baseline

@@ -89,3 +89,49 @@ export function childOwnedEvents<T>(events: readonly T[], inheritedEventCount: n
 export function ownsApproval(requestingId: string, liveId: string, descendants: ReadonlySet<string>): boolean {
   return requestingId === liveId || descendants.has(requestingId)
 }
+
+/** One live Session the descendant walk can see. */
+export interface LiveSessionLineage {
+  /** This Session's id. */
+  readonly id: string
+  /** The parent Session this one was spawned or forked from, when known. */
+  readonly parentSession?: string
+}
+
+/**
+ * In-process descendant Session ids under a live agent.
+ *
+ * Walks `parentSession` on live Sessions. A child that has left the store is
+ * gone; only what is here can need a keyboard grant.
+ * @param liveId - the live (parent) agent's Session id.
+ * @param sessions - live Sessions in this process.
+ */
+declare module '@deepseek-ai/cordis' {
+  interface Events {
+    /**
+     * A provider established a published child. Payload is the run identity
+     * (`id` is the child Session). Host-plane; the bundle listens without
+     * depending on `@deepseek-ai/dsh-subagent`.
+     */
+    'subagent/start'(info: { id: string }): void
+  }
+}
+
+export function inProcessDescendants(liveId: string, sessions: readonly LiveSessionLineage[]): ReadonlySet<string> {
+  const children = new Map<string, string[]>()
+  for (const session of sessions) {
+    if (session.parentSession === undefined) continue
+    const siblings = children.get(session.parentSession)
+    if (siblings === undefined) children.set(session.parentSession, [session.id])
+    else siblings.push(session.id)
+  }
+  const descendants = new Set<string>()
+  const pending = [...children.get(liveId) ?? []]
+  while (pending.length > 0) {
+    const id = pending.pop()
+    if (id === undefined || descendants.has(id)) continue
+    descendants.add(id)
+    pending.push(...children.get(id) ?? [])
+  }
+  return descendants
+}

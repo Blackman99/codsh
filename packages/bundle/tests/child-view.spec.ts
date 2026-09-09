@@ -8,6 +8,7 @@ import { describe, expect, it } from 'vitest'
 import {
   ChildViews,
   childOwnedEvents,
+  inProcessDescendants,
   ownsApproval,
   paintsViewedSession,
 } from '../src/child-view.ts'
@@ -81,5 +82,16 @@ describe('ownsApproval', () => {
     expect(ownsApproval('child', 'parent', descendants)).toBe(true)
     expect(ownsApproval('grandchild', 'parent', descendants)).toBe(true)
     expect(ownsApproval('stranger', 'parent', descendants)).toBe(false)
+  })
+})
+
+describe('inProcessDescendants', () => {
+  it('collects the live tree under the parent and ignores unrelated Sessions', () => {
+    expect(inProcessDescendants('parent', [
+      { id: 'parent' },
+      { id: 'child', parentSession: 'parent' },
+      { id: 'grandchild', parentSession: 'child' },
+      { id: 'other', parentSession: 'elsewhere' },
+    ])).toEqual(new Set(['child', 'grandchild']))
   })
 })

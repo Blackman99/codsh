@@ -51,6 +51,7 @@ import { notificationText, planNotification, runNotificationCommand } from './no
 import { PermissionRules } from './permissions.ts'
 import { rewindPoints, type RewindPoint } from './rewind.ts'
 import { NO_PROGRESS, advanceRound, roundActivity, type RoundProgress } from './round-watch.ts'
+import { ChildViews, childOwnedEvents, inProcessDescendants, ownsApproval, paintsViewedSession } from './child-view.ts'
 import type { ToolWorkflowAgentStartData } from '@deepseek-ai/dsh-tool-workflow/types'
 import type { QueueItem } from './queue.ts'
 import { bannerLines, resolveWelcomeKind } from './banner.ts'
@@ -388,8 +389,7 @@ export function indexReplayTiming(events: readonly SessionEvent[]): {
  * @param io - the surface to write to.
  * @param theme - styling for the replayed thinking folds.
  */
-function replayEvents(session: Session, transcript: Transcript, io: CliIo, theme: Theme): void {
-  const events = session.snapshotEvents()
+function replayEvents(session: Session, transcript: Transcript, io: CliIo, theme: Theme, events = session.snapshotEvents()): void {
   const timing = indexReplayTiming(events)
   for (const event of events) {
     // Thinking is in the log but not in the renderer's visible text: replay it
@@ -738,8 +738,15 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
     agent: composed.handle.agent,
     transcript: new Transcript({ theme, columns: () => io.console.contentColumns, cwd, density }, presentersFor(ctx, composed.handle.agent)),
   }
-  /** Nested view of a child subagent session; Esc restores the parent. */
-  let viewing: { session: Session; transcript: Transcript } | undefined
+  /** Nested Child views; empty means the parent transcript. */
+  const childViews = new ChildViews()
+  /** Per-id frames for stacked views: transcript plus the streams that follow it. */
+  const nested = new Map<string, {
+    session: Session
+    transcript: Transcript
+    stream: TextStream
+    thinking: ThinkingTracker
+  }>()
   const sessionFolds: FoldedFacts = { planMode: false }
   /** Fold plan mode and the permission preset over the live session's log. */
   const refold = (): void => {
@@ -1045,9 +1052,16 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
   const applyDensity = (next: Density): void => {
     density = next
     live.transcript.setDensity(next)
-    viewing?.transcript.setDensity(next)
+    for (const frame of nested.values()) frame.transcript.setDensity(next)
     prompt.setDensity(next)
   }
+  /** The Child view currently filling the Viewport, if any. */
+  const currentView = () => {
+    const id = childViews.current?.sessionId
+    return id === undefined ? undefined : nested.get(id)
+  }
+  /** The Session whose transcript the Viewport is showing. */
+  const shownSession = (): Session => currentView()?.session ?? live.agent.session
   // The baseline the indicator's token figure counts from, reset per turn.
   let turnBaseTokens = 0
   // The round a workflow is on. A ralph loop spends minutes inside one round,
@@ -1463,7 +1477,7 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
       input: { hint: '[answer[:code]]' },
       handler: async ({ rawInput, signal }) => {
         if (!io.console.readsKeys) return { kind: 'error', text: '/copy requires an interactive terminal' }
-        const targets = indexConversationContent((viewing?.session ?? live.agent.session).snapshotEvents())
+        const targets = indexConversationContent(shownSession().snapshotEvents())
         if (targets.length === 0) return { kind: 'success', text: 'no copyable assistant answers' }
         const typed = rawInput.trim()
         let target = typed === '' ? undefined : resolveCopyTarget(targets, typed)
@@ -1497,7 +1511,7 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
       input: { hint: '[answer[:code]]' },
       handler: async ({ rawInput, signal }) => {
         if (!io.console.readsKeys) return { kind: 'error', text: '/view requires an interactive terminal' }
-        const targets = indexConversationContent((viewing?.session ?? live.agent.session).snapshotEvents())
+        const targets = indexConversationContent(shownSession().snapshotEvents())
         if (targets.length === 0) {
           prompt.setFlash(theme.error('  /view · no viewable assistant answers'))
           return { kind: 'success' }
@@ -1813,7 +1827,11 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
   // on the answer names nothing and a click does not work it.
   const finishAnswer = (): void => {
     if (!stream.streamed) return
-    emit([...stream.flush(), ''])
+    const remaining = stream.flush()
+    // A Child view owns the Viewport; the parent's in-flight line is rebuilt
+    // from the log on the way back, so painting it here would land on the child.
+    if (childViews.current !== undefined) return
+    emit([...remaining, ''])
   }
   // Reasoning gets its own stream and tracker: pushed into `stream`, its
   // deltas would mark the answer as already-shown and the visible text would
@@ -1832,6 +1850,7 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
   const flushThinking = (): void => {
     const flushed = thinking.flush()
     if (flushed === undefined) return
+    if (childViews.current !== undefined) return
     prompt.setStreaming(undefined)
     live.transcript.endRun()
     turnThinkingMs.push(flushed.elapsedMs)
@@ -1866,7 +1885,7 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
   /** Push the always-current status row; the pipe shape prints it instead. */
   refreshStatus = (): void => {
     if (!io.console.readsKeys) return
-    if (viewing !== undefined) {
+    if (childViews.current !== undefined) {
       prompt.setStatus(theme.dim('subagent · Esc returns to the parent'))
       return
     }
@@ -1881,7 +1900,27 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
   refreshStatus()
 
   /**
-   * Open a child subagent's transcript in place of the parent's.
+   * Replay a Session into the Viewport: child-owned events only in a Child view.
+   * @param session - the Session being shown.
+   * @param transcript - the renderer that will own later events for it.
+   */
+  const showSession = (session: Session, transcript: Transcript): void => {
+    io.console.clearScreen()
+    io.console.suspendPainting()
+    try {
+      replayEvents(session, transcript, io, theme, childOwnedEvents(session.snapshotEvents(), session.inheritedEventCount))
+      for (const child of sessions.list()) {
+        if (child.header.parentSession !== session.id) continue
+        const lines = transcript.promotePendingView(child.id)
+        if (lines.length === 0) continue
+        io.console.appendFold(lines, lines, transcript.takeRule(), transcript.takeLabel(), transcript.takeEnter(), undefined, transcript.takePendingCard())
+      }
+    } finally {
+      io.console.resumePainting()
+    }
+  }
+  /**
+   * Open a child subagent's transcript on top of whatever is showing.
    * @param id - the child session the card named.
    */
   const enterView = (id: string): void => {
@@ -1890,24 +1929,39 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
       prompt.setFlash(theme.dim('  subagent is no longer running'))
       return
     }
-    viewing = {
-      session,
-      transcript: new Transcript({ theme, columns: () => io.console.contentColumns, cwd, density }, presentersFor(ctx, live.agent)),
+    if (childViews.current?.sessionId === id) return
+    let frame = nested.get(id)
+    if (frame === undefined) {
+      frame = {
+        session,
+        transcript: new Transcript({ theme, columns: () => io.console.contentColumns, cwd, density }, presentersFor(ctx, live.agent)),
+        stream: new TextStream(theme, () => io.console.contentColumns),
+        thinking: new ThinkingTracker(theme, () => io.console.contentColumns),
+      }
+      nested.set(id, frame)
+    } else {
+      frame.session = session
     }
+    childViews.push(id)
     spinner.pause()
-    io.console.clearScreen()
-    replay(session, viewing.transcript, io, theme)
+    showSession(session, frame.transcript)
     refreshStatus()
   }
-  /** Restore the parent session's transcript. */
+  /** Pop one Child view. Esc returns to the previous level, then the parent. */
   const exitView = (): void => {
-    if (viewing === undefined) return
-    viewing = undefined
-    live.transcript = new Transcript({ theme, columns: () => io.console.contentColumns, cwd, density }, presentersFor(ctx, live.agent))
-    io.console.clearScreen()
-    replay(live.agent.session, live.transcript, io, theme)
+    const closed = childViews.pop()
+    if (closed === undefined) return
+    nested.delete(closed.sessionId)
+    const remaining = currentView()
+    if (remaining === undefined) {
+      live.transcript = new Transcript({ theme, columns: () => io.console.contentColumns, cwd, density }, presentersFor(ctx, live.agent))
+      showSession(live.agent.session, live.transcript)
+      refreshStatus()
+      if (live.agent.status === 'running') spinner.start()
+      return
+    }
+    showSession(remaining.session, remaining.transcript)
     refreshStatus()
-    if (live.agent.status === 'running') spinner.start()
   }
   io.console.setEnter(enterView)
   // A clicked diff card reads in the same transient reader `/diff` and `/view`
@@ -1928,50 +1982,14 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
       refreshStatus()
       if (event.type === 'todo/write') prompt.setTodos(event.data.todos)
     }
-    if (viewing !== undefined) {
-      if (session !== viewing.session) return
-      if (event.type === 'tool/call') spinner.setActivity(toolActivity(event.data.name))
-      if (event.type === 'tool/result') spinner.setActivity('working')
-      const lines = viewing.transcript.render(event)
-      const full = viewing.transcript.takeFold()
-      const rule = viewing.transcript.takeRule()
-      const promptBlock = viewing.transcript.takePrompt()
-      const label = viewing.transcript.takeLabel()
-      const enter = viewing.transcript.takeEnter()
-      const page = viewing.transcript.takePage()
-      const replaces = viewing.transcript.takePendingCard()
-      noteWritten(viewing.transcript.takeWritten())
-      if (promptBlock !== undefined) {
-        prompt.setStreaming(undefined)
-        io.console.appendPrompt(lines, rule, true, promptBlock, viewing.transcript.takePromptPad())
-        return
-      }
-      if (enter !== undefined || full !== undefined) {
-        prompt.setStreaming(undefined)
-        io.console.appendFold(lines, full ?? lines, rule, label, enter, page, replaces)
-        return
-      }
-      emit(lines, undefined, rule, replaces)
+    const viewed = currentView()
+    if (viewed !== undefined) {
+      if (!paintsViewedSession(childViews.current, session.id)) return
+      paintLive(viewed.transcript, viewed.stream, viewed.thinking, event)
       return
     }
     // `/clear` and `/resume` retire sessions; only the current one renders.
     if (session !== live.agent.session) return
-    if (event.type === 'step/start') {
-      stepStartedAt = performance.now()
-      thinking.markStepStart()
-    }
-    if (event.type === 'step/end') {
-      thinking.markStepEnd()
-      const thought = getActiveThought()
-      if (thought !== undefined) {
-        const stepTotalMs = performance.now() - (thought.stepStartedAt > 0 ? thought.stepStartedAt : performance.now() - thought.elapsedMs)
-        const { summary, full } = thinkingFold(thought.lines, theme, thought.elapsedMs / 1000, stepTotalMs / 1000)
-        io.console.updateFold(thought.summary, thought.full, summary, full)
-        currentThought = undefined
-      }
-    }
-    if (event.type === 'tool/call') spinner.setActivity(toolActivity(event.data.name))
-    if (event.type === 'tool/result') spinner.setActivity('working')
     // Compaction says so while it runs — the spinner's verb during a turn, the
     // hint row between turns for `/compact` — and gives the row back after.
     if (event.type === 'compaction/start') {
@@ -2005,79 +2023,130 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
     // In print mode the task text came from the caller's own command line;
     // echoing it back would only make stdout harder to consume in scripts.
     if (config.print && event.type === 'user/message') return
+    paintLive(live.transcript, stream, thinking, event, {
+      onStepStart: () => {
+        stepStartedAt = performance.now()
+      },
+      onStepEnd: () => {
+        const thought = getActiveThought()
+        if (thought !== undefined) {
+          const stepTotalMs = performance.now() - (thought.stepStartedAt > 0 ? thought.stepStartedAt : performance.now() - thought.elapsedMs)
+          const { summary, full } = thinkingFold(thought.lines, theme, thought.elapsedMs / 1000, stepTotalMs / 1000)
+          io.console.updateFold(thought.summary, thought.full, summary, full)
+          currentThought = undefined
+        }
+      },
+      onThinkingFlush: (elapsedMs) => {
+        turnThinkingMs.push(elapsedMs)
+      },
+    })
+  })
+
+  /**
+   * Stream one Session's live events the way the parent turn does.
+   * @param transcript - the renderer that owns this Session.
+   * @param textStream - the in-progress answer for this Session.
+   * @param tracker - the in-progress thinking for this Session.
+   * @param event - the appended event.
+   * @param extras - parent-only clocks and fold updates.
+   */
+  const paintLive = (
+    transcript: Transcript,
+    textStream: TextStream,
+    tracker: ThinkingTracker,
+    event: SessionEvent,
+    extras?: {
+      onStepStart?: () => void
+      onStepEnd?: () => void
+      onThinkingFlush?: (elapsedMs: number) => void
+    },
+  ): void => {
+    if (event.type === 'step/start') {
+      extras?.onStepStart?.()
+      tracker.markStepStart()
+    }
+    if (event.type === 'step/end') {
+      tracker.markStepEnd()
+      extras?.onStepEnd?.()
+    }
+    if (event.type === 'tool/call') spinner.setActivity(toolActivity(event.data.name))
+    if (event.type === 'tool/result') spinner.setActivity('working')
     if (event.type === 'assistant/chunk') {
-      // Text arrives before the message that assembles it; showing it now is the
-      // whole point, and the indicator stands down because the text itself is
-      // better evidence of progress.
       const { chunk } = event.data
-      // The indicator keeps ticking while text streams: it is the turn's one
-      // continuous clock, and hiding it here made the chrome shrink and grow
-      // with every step — a visible flicker.
       if (chunk.type === 'reasoning-delta') {
         if (chunk.text === '') return
-        const step = thinking.push(chunk.text)
-        // Collected, not printed: only the line being thought shows, live.
+        const step = tracker.push(chunk.text)
         prompt.setStreaming(thinkingStreamPreview(
           density,
-          thinking.currentLines,
+          tracker.currentLines,
           step.live,
           theme.dim('✻ thinking'),
         ))
         return
       }
       if (chunk.type === 'block-end' && chunk.block.type === 'reasoning') {
-        thinking.markReasoningEnd()
-        flushThinking()
+        tracker.markReasoningEnd()
+        landThinking(transcript, tracker, extras?.onThinkingFlush)
         return
       }
       if (chunk.type === 'tool-call-delta' || chunk.type === 'text-delta') {
-        thinking.markReasoningEnd()
-        flushThinking()
+        tracker.markReasoningEnd()
+        landThinking(transcript, tracker, extras?.onThinkingFlush)
       }
       if (chunk.type !== 'text-delta') return
-      if (!stream.streamed && !io.console.hasTrailingBlank()) {
-        emit([''])
-      }
-      const step = stream.push(chunk.text)
+      if (!textStream.streamed && !io.console.hasTrailingBlank()) emit([''])
+      const step = textStream.push(chunk.text)
       emit(step.lines, step.live)
       return
     }
     if (event.type === 'assistant/message') {
-      // A reasoning-only step (thinking straight into a tool call) still has
-      // to land its summary before the call card prints.
-      thinking.markReasoningEnd()
-      flushThinking()
-      if (stream.streamed) {
-        // Already shown delta by delta; re-rendering the assembled text would
-        // print the answer twice.
-        finishAnswer()
+      tracker.markReasoningEnd()
+      landThinking(transcript, tracker, extras?.onThinkingFlush)
+      if (textStream.streamed) {
+        emit([...textStream.flush(), ''])
         return
       }
     }
-    const lines = live.transcript.render(event)
-    const full = live.transcript.takeFold()
-    // The rule marks which block these lines belong to, down their left edge.
-    const rule = live.transcript.takeRule()
-    const promptBlock = live.transcript.takePrompt()
-    const label = live.transcript.takeLabel()
-    const enter = live.transcript.takeEnter()
-    const page = live.transcript.takePage()
-    const replaces = live.transcript.takePendingCard()
-    noteWritten(live.transcript.takeWritten())
+    const lines = transcript.render(event)
+    const full = transcript.takeFold()
+    const rule = transcript.takeRule()
+    const promptBlock = transcript.takePrompt()
+    const label = transcript.takeLabel()
+    const enter = transcript.takeEnter()
+    const page = transcript.takePage()
+    const replaces = transcript.takePendingCard()
+    noteWritten(transcript.takeWritten())
     if (promptBlock !== undefined) {
       prompt.setStreaming(undefined)
-      io.console.appendPrompt(lines, rule, true, promptBlock, live.transcript.takePromptPad())
+      io.console.appendPrompt(lines, rule, true, promptBlock, transcript.takePromptPad())
       return
     }
     if (enter === undefined && full === undefined) {
       emit(lines, undefined, rule, replaces)
       return
     }
-    // A collapsed block, or a subagent card that is a view: the screen keeps
-    // both forms; a click on a view enters the child, Ctrl+O still expands.
     prompt.setStreaming(undefined)
     io.console.appendFold(lines, full ?? lines, rule, label, enter, page, replaces)
-  })
+  }
+  /**
+   * Land a finished thinking block onto the transcript that owns this Session.
+   * @param transcript - the renderer that opened the run.
+   * @param tracker - the thinking that just ended.
+   * @param onFlush - parent-only clock bookkeeping.
+   */
+  const landThinking = (transcript: Transcript, tracker: ThinkingTracker, onFlush?: (elapsedMs: number) => void): void => {
+    const flushed = tracker.flush()
+    if (flushed === undefined) return
+    prompt.setStreaming(undefined)
+    transcript.endRun()
+    onFlush?.(flushed.elapsedMs)
+    const { summary, full } = thinkingFold(flushed.lines, theme, flushed.elapsedMs / 1000)
+    currentThought = { summary, full, lines: flushed.lines, elapsedMs: flushed.elapsedMs, stepStartedAt }
+    const agentRule = blockRules(theme).agent
+    const blankRule = '  '
+    const summaryRule = theme.colored ? [blankRule, agentRule, blankRule] : agentRule
+    io.console.appendFold(summary, full, summaryRule, FOLD_LABELS.thinking, undefined, undefined, [], agentRule)
+  }
 
   /** Pause the indicator around a decision, and resume it if work continues. */
   // The bell's moments, made visible from another window: only while the
@@ -2149,13 +2218,45 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
     },
     theme,
     (line) => { prompt.write(line) },
-    callId => live.transcript.pendingCall(callId),
+    callId => (currentView()?.transcript ?? live.transcript).pendingCall(callId),
     permissionRules,
   )
-  ctx.on('approval/request', (req, next) => req.agent === live.agent ? approval.decide(req) : next())
+  ctx.on('approval/request', (req, next) => {
+    const descendants = inProcessDescendants(
+      live.agent.session.id,
+      sessions.list().map(session => (
+        session.header.parentSession === undefined
+          ? { id: session.id }
+          : { id: session.id, parentSession: session.header.parentSession }
+      )),
+    )
+    return ownsApproval(req.agent.session.id, live.agent.session.id, descendants)
+      ? approval.decide(req)
+      : next()
+  })
+  // Host-plane lifecycle: the child Session exists before any tool result.
+  ctx.on('subagent/start', (info) => {
+    const child = sessions.get(SessionId(info.id))
+    const parentId = child?.header.parentSession
+    const viewed = currentView()
+    const onScreen = viewed !== undefined && viewed.session.id === parentId
+    const parentOnScreen = childViews.current === undefined
+      && (parentId === live.agent.session.id || parentId === undefined)
+    const transcript = onScreen && viewed !== undefined
+      ? viewed.transcript
+      : parentOnScreen
+        ? live.transcript
+        : undefined
+    if (transcript === undefined) return
+    const lines = transcript.promotePendingView(info.id)
+    if (lines.length === 0) return
+    prompt.setStreaming(undefined)
+    io.console.appendFold(lines, lines, transcript.takeRule(), transcript.takeLabel(), transcript.takeEnter(), undefined, transcript.takePendingCard())
+  })
 
   adopt = (next: AgentHandle, replayLog: boolean): void => {
-    viewing = undefined
+    childViews.clear()
+    nested.clear()
     prompt.setHint(undefined)
     stopRoundWatch()
     // A steer the retiring agent never took would sit in a disposed inbox.
@@ -2280,7 +2381,7 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
   // window puts the previous message back for editing.
   let recallArmed: NodeJS.Timeout | undefined
   onEscapeKey = () => {
-    if (viewing !== undefined) {
+    if (childViews.current !== undefined) {
       exitView()
       return
     }
@@ -2581,7 +2682,7 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
     if (!surfaceOnlyView) io.console.collapseFolds()
     if (trimmed === '') continue
     if (trimmed === '/exit' || trimmed === '/quit') break
-    if (viewing !== undefined) {
+    if (childViews.current !== undefined) {
       prompt.setFlash(theme.dim('  Esc returns to the parent'))
       continue
     }
