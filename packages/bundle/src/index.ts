@@ -61,7 +61,7 @@ import type { CompletableCommand } from './completion.ts'
 import { indexConversationContent, newestCopyTargets, resolveCopyTarget } from './content-index.ts'
 import { TerminalConsole } from './console.ts'
 import { readClipboardImage } from './clipboard-image.ts'
-import { parsePlan, parseShipStatus, planRow } from './plan.ts'
+import { parsePlan, parseShipStatus, planInFlight, planRow } from './plan.ts'
 import type { Plan } from './plan.ts'
 import { Prompt } from './prompt.ts'
 import { shapeResume } from './resume.ts'
@@ -1202,8 +1202,11 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
         const markdown = readFileSync(path, 'utf8')
         const plan = parsePlan(markdown)
         if (plan.tickets.length > 0) {
-          shipPlan = plan
-          prompt.setPlan(plan)
+          // A shipped spec's tickets are history: the row comes down with the
+          // chip, instead of saying "every ticket landed" until the session ends.
+          const live = planInFlight(markdown, plan)
+          shipPlan = live ? plan : undefined
+          prompt.setPlan(live ? plan : undefined)
           adoptShipChip(markdown, plan)
           return
         }

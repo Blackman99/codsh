@@ -140,6 +140,21 @@ export function parseShipStatus(markdown: string): ShipStatus | undefined {
 }
 
 /**
+ * Whether a spec's plan is still work to pin in the chrome.
+ *
+ * A plan is worth a row while its tickets are being landed. Once the spec's
+ * `Status:` says shipped the tickets are history — the row that tracked them
+ * would only say "every ticket landed" for the rest of the session — so the
+ * chrome gives the row back, the way the done chip already clears itself.
+ * @param markdown - the spec file's contents.
+ * @param plan - the plan parsed from it.
+ * @returns true while there are tickets and the spec has not shipped.
+ */
+export function planInFlight(markdown: string, plan: Plan): boolean {
+  return plan.tickets.length > 0 && parseShipStatus(markdown) !== 'shipped'
+}
+
+/**
  * The plan as one line for the working indicator: how far in, and on what.
  *
  * The count answers how much is left without arithmetic, and the title answers

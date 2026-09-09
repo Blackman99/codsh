@@ -1144,6 +1144,20 @@ describe('the surrounding rows', () => {
     expect(comfortable).toBe(compact)
   })
 
+  it('gives the plan rows back when the plan is withdrawn', () => {
+    const { prompt, console } = build()
+    prompt.setPlan({
+      tickets: [{ title: 'landed', done: true }, { title: 'also landed', done: true }],
+      done: 2,
+      current: undefined,
+    })
+    expect(drawn(console)).toContain('plan 2/2')
+    // A shipped spec has no work left to pin: the chrome shrinks back.
+    prompt.setPlan(undefined)
+    expect(drawn(console)).not.toContain('plan 2/2')
+    expect(drawn(console)).not.toContain('every ticket landed')
+  })
+
   it('opens the ship plan on a click, and folds it back from inside the list', () => {
     const { prompt, console } = build()
     prompt.setPlan({

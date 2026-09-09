@@ -1,7 +1,7 @@
 /** Reading a `/ship` spec's plan: how many tickets, and which one is now. */
 
 import { describe, expect, it } from 'vitest'
-import { parsePlan, parseShipStatus, parseSpecMetadata, planReport, planRow, planSummary } from '../src/plan.ts'
+import { parsePlan, parseShipStatus, parseSpecMetadata, planInFlight, planReport, planRow, planSummary } from '../src/plan.ts'
 import { createTheme } from '../src/theme.ts'
 
 const theme = createTheme(false, {})
@@ -25,6 +25,25 @@ Reading a long diff scrolls it past.
 
 1. \`pnpm test\` passes
 `
+
+describe('planInFlight', () => {
+  it('pins a plan while its tickets are being landed', () => {
+    expect(planInFlight(SPEC, parsePlan(SPEC))).toBe(true)
+    // Every ticket ticked but not yet shipped: the final run is still owed.
+    const landed = SPEC.replaceAll('- [ ]', '- [x]')
+    expect(planInFlight(landed, parsePlan(landed))).toBe(true)
+  })
+
+  it('gives the row back once the spec has shipped', () => {
+    const shipped = SPEC.replace('Status: landing', 'Status: shipped').replaceAll('- [ ]', '- [x]')
+    expect(planInFlight(shipped, parsePlan(shipped))).toBe(false)
+  })
+
+  it('has nothing to pin for a spec without a plan', () => {
+    const bare = 'Status: landing\n\nNo plan yet.'
+    expect(planInFlight(bare, parsePlan(bare))).toBe(false)
+  })
+})
 
 describe('parsePlan', () => {
   it('reads the tickets and where the work is', () => {
