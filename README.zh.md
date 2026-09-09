@@ -18,6 +18,7 @@
 又一个 agent CLI。给已经在跑 [dsh](https://github.com/deepseek-ai/deepseek-harness) 的人，给想用 DeepSeek（或自己的网关）而不是闭源 agent 的人，给受不了默认 TUI 的人。不是 fork：一个 coding profile，加上一个自成空间的终端。
 
 [![/ship 流程](assets/ship-demo.zh.gif)](https://blackman99.github.io/codsh/zh.html)
+<p align="center"><a href="assets/codsh-ship-demo.zh.mp4">中文口播版 · 70 秒</a></p>
 
 ## 安装
 
