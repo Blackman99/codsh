@@ -235,8 +235,30 @@ export function thinkingFold(
   const head = theme.bgThinking(text)
   const pad = blockPad(theme, text => theme.bgThinking(text))
   return {
-    summary: [...pad, head, ...pad],
+    // Collapsed, the clock is one row: pads around it read as an empty panel
+    // sitting between tool cards. Expanded, the panel still insets the body.
+    summary: [head],
     full: [...pad, head, ...pad, ...lines.map(line => theme.bgThinking(line)), ...pad],
+  }
+}
+
+/**
+ * Left rules for a thinking fold: the clock carries the agent gutter; pads
+ * and body rows stay blank so the glyph sits on the clock only.
+ * @param theme - styling for the agent glyph.
+ * @param bodyLines - how many deliberation lines the expanded form carries.
+ * @returns the collapsed rule and, when coloured, the expanded per-row rules.
+ */
+export function thinkingFoldRules(theme: Theme, bodyLines: number): {
+  summary: string
+  full?: string[]
+} {
+  const agentRule = blockRules(theme).agent
+  if (!theme.colored) return { summary: agentRule }
+  const blank = '  '
+  return {
+    summary: agentRule,
+    full: [blank, agentRule, blank, ...Array.from({ length: bodyLines }, () => blank), blank],
   }
 }
 

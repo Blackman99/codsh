@@ -9,7 +9,7 @@ import type { ToolCallView, ToolResultView } from '@deepseek-ai/dsh-tools'
 import { describe, expect, it } from 'vitest'
 import { createTheme, displayWidth } from '../src/theme.ts'
 import { gutter } from '../src/gutter.ts'
-import { Transcript, blockRules, childSessionId, formatAskUserQuestionResult, formatToolCardLine, presentAskUserQuestionResult, thinkingFold, type ToolPresenters } from '../src/transcript.ts'
+import { Transcript, blockRules, childSessionId, formatAskUserQuestionResult, formatToolCardLine, presentAskUserQuestionResult, thinkingFold, thinkingFoldRules, type ToolPresenters } from '../src/transcript.ts'
 import type { Density } from '../src/density.ts'
 
 const theme = createTheme(false, {})
@@ -745,9 +745,24 @@ describe('folding collapsed output', () => {
 describe('the forms a long block keeps', () => {
   it('times a thinking block when the surface timed it', () => {
     const { summary, full } = thinkingFold(['  first', '  second'], theme, 3.24)
-    expect(summary[0]).toBe('thought for 3.2s')
+    expect(summary).toEqual(['thought for 3.2s'])
     expect(full).toContain('thought for 3.2s')
     expect(full).toContain('  second')
+  })
+
+  it('keeps the collapsed clock on one row, not a padded empty panel', () => {
+    // A collapsed thought used to carry a background pad above and below the
+    // clock, so the summary sat in a three-row hole between tool cards.
+    const colorTheme = createTheme(true, { COLORTERM: 'truecolor' })
+    const { summary, full } = thinkingFold(['reasoning line'], colorTheme, 1.5)
+    expect(summary).toEqual([colorTheme.bgThinking(colorTheme.dim('  thought for 1.5s'))])
+    expect(full[0]).toBe(colorTheme.bgThinking('  '))
+    expect(full[1]).toBe(colorTheme.bgThinking(colorTheme.dim('  thought for 1.5s')))
+    expect(full.at(-1)).toBe(colorTheme.bgThinking('  '))
+    expect(full).toContain(colorTheme.bgThinking('reasoning line'))
+    const rules = thinkingFoldRules(colorTheme, 1)
+    expect(rules.summary).toBe(blockRules(colorTheme).agent)
+    expect(rules.full).toEqual(['  ', blockRules(colorTheme).agent, '  ', '  ', '  '])
   })
 
   it('grows a unit for a long think, rather than counting seconds', () => {
@@ -1201,11 +1216,8 @@ describe('grok background differentiation across functional blocks', () => {
     expect(errResultLines[1]).toContain('✗')
 
     const think = thinkingFold(['reasoning line'], colorTheme, 1.5)
-    // The collapsed summary is a padded panel with bgThinking background.
-    expect(think.summary[0]).toBe(colorTheme.bgThinking('  '))
-    expect(think.summary[1]).toBe(colorTheme.bgThinking(colorTheme.dim('  thought for 1.5s')))
-    expect(think.summary[2]).toBe(colorTheme.bgThinking('  '))
-    expect(think.summary).toHaveLength(3)
+    // Collapsed, the clock is one row. Expanded, the panel pads around the body.
+    expect(think.summary).toEqual([colorTheme.bgThinking(colorTheme.dim('  thought for 1.5s'))])
     expect(think.full[0]).toBe(colorTheme.bgThinking('  '))
     expect(think.full[1]).toBe(colorTheme.bgThinking(colorTheme.dim('  thought for 1.5s')))
     expect(think.full[2]).toBe(colorTheme.bgThinking('  '))

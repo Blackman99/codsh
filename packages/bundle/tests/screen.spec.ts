@@ -2243,10 +2243,10 @@ describe('the block under the pointer', () => {
     const thinkPad = '\u001B[48;2;20;16;32m  \u001B[0m'
     const think = '\u001B[48;2;20;16;32mthought for 40s\u001B[0m'
     screen.appendFold([toolPad, tool, toolPad], [toolPad, tool, 'full', toolPad], '', 'Read a.ts')
-    screen.appendFold([thinkPad, think, thinkPad], [thinkPad, think, 'reasoning', thinkPad], ['  ', '✻ ', '  '], 'thinking')
+    screen.appendFold([think], [thinkPad, think, 'reasoning', thinkPad], '✻ ', 'thinking', undefined, undefined, [], ['  ', '✻ ', '  ', '  '])
     flush(sink)
 
-    // Rows: 1 tool pad, 2 Read, 3 tool close pad, 4 thinking pad, 5 clock.
+    // Rows: 1 tool pad, 2 Read, 3 tool close pad, 4 thought clock.
     // Hovering the Read must not light the close pad as if it were another card.
     expect(screen.mouseMove(2, 5)?.label).toBe('Read a.ts')
     const frame = flush(sink)
@@ -2255,7 +2255,7 @@ describe('the block under the pointer', () => {
     // The card's closing pad is only background; filling it looks like a
     // second selected row sitting on the thinking block.
     expect(frame).not.toMatch(/\u001B\[48;5;236m\s+\u001B\[0m\u001B\[48;5;236m/u)
-    expect(screen.mouseMove(5, 5)?.label).toBe('thinking')
+    expect(screen.mouseMove(4, 5)?.label).toBe('thinking')
   })
 
   it('puts a completed fold card in the place its pending card held', () => {
@@ -2919,17 +2919,15 @@ describe('overlay graphics', () => {
 
     const pad = '\u001B[48;2;20;16;32m  \u001B[0m'
     const text = '\u001B[48;2;20;16;32mthought for 2.0s\u001B[0m'
-    const summary = [pad, text, pad]
+    const summary = [text]
     const full = [pad, text, '\u001B[48;2;20;16;32mreasoning\u001B[0m', pad]
-    screen.appendFold(summary, full, ['  ', '✻ ', '  '], 'thinking')
+    screen.appendFold(summary, full, '✻ ', 'thinking', undefined, undefined, [], ['  ', '✻ ', '  ', '  '])
     const initial = flush(sink)
-    // In collapsed form, only the middle row gets the ✻ rule; rows 1 and 3 have spaces
+    // Collapsed, the clock is one row and carries the ✻.
     expect(initial).toContain('thought for 2.0s')
     expect(initial.split('✻').length - 1).toBe(1)
 
-    // The opening pad is only background: hovering it is not a selection.
-    expect(screen.mouseMove(1, 5)).toBeUndefined()
-    expect(screen.mouseMove(2, 5)?.label).toBe('thinking')
+    expect(screen.mouseMove(1, 5)?.label).toBe('thinking')
     const frame = flush(sink)
     expect(frame).toContain('\u001B[48;5;236m✻ thought for 2.0s')
     expect(frame).not.toMatch(/\u001B\[48;5;236m\s+\u001B\[0m\u001B\[48;5;236m/u)

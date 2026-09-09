@@ -113,7 +113,7 @@ import type { PendingImage } from './prompt.ts'
 import type { TodoList } from './todos.ts'
 import type { ShipChip, StatusFacts } from './status.ts'
 import { backgroundIsLight, createTheme, truncate } from './theme.ts'
-import { FOLD_LABELS, Transcript, blockRules, presentAskUserQuestionResult, thinkingFold } from './transcript.ts'
+import { FOLD_LABELS, Transcript, blockRules, presentAskUserQuestionResult, thinkingFold, thinkingFoldRules } from './transcript.ts'
 import type { Theme } from './theme.ts'
 
 /** Stable Cordis plugin name. */
@@ -406,10 +406,8 @@ function replayEvents(session: Session, transcript: Transcript, io: CliIo, theme
         const seconds = timing.stepThinkingSeconds(event.data.turn, event.data.step, event.time)
         const totalSeconds = timing.stepTotalSeconds(event.data.turn, event.data.step)
         const { summary, full } = thinkingFold(lines, theme, seconds, totalSeconds)
-        const agentRule = blockRules(theme).agent
-        const blankRule = '  '
-        const summaryRule = theme.colored ? [blankRule, agentRule, blankRule] : agentRule
-        io.console.appendFold(summary, full, summaryRule, FOLD_LABELS.thinking, undefined, undefined, [], agentRule)
+        const rules = thinkingFoldRules(theme, lines.length)
+        io.console.appendFold(summary, full, rules.summary, FOLD_LABELS.thinking, undefined, undefined, [], rules.full)
       }
     }
     const lines = transcript.render(event)
@@ -1859,10 +1857,8 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
     turnThinkingMs.push(flushed.elapsedMs)
     const { summary, full } = thinkingFold(flushed.lines, theme, flushed.elapsedMs / 1000)
     currentThought = { summary, full, lines: flushed.lines, elapsedMs: flushed.elapsedMs, stepStartedAt }
-    const agentRule = blockRules(theme).agent
-    const blankRule = '  '
-    const summaryRule = theme.colored ? [blankRule, agentRule, blankRule] : agentRule
-    io.console.appendFold(summary, full, summaryRule, FOLD_LABELS.thinking, undefined, undefined, [], agentRule)
+    const rules = thinkingFoldRules(theme, flushed.lines.length)
+    io.console.appendFold(summary, full, rules.summary, FOLD_LABELS.thinking, undefined, undefined, [], rules.full)
   }
   /**
    * Append the lines an event produced, and show the line still being typed.
@@ -2035,7 +2031,8 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
         if (thought !== undefined) {
           const stepTotalMs = performance.now() - (thought.stepStartedAt > 0 ? thought.stepStartedAt : performance.now() - thought.elapsedMs)
           const { summary, full } = thinkingFold(thought.lines, theme, thought.elapsedMs / 1000, stepTotalMs / 1000)
-          io.console.updateFold(thought.summary, thought.full, summary, full)
+          const rules = thinkingFoldRules(theme, thought.lines.length)
+          io.console.updateFold(thought.summary, thought.full, summary, full, rules.summary, rules.full)
           currentThought = undefined
         }
       },
@@ -2145,10 +2142,8 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
     onFlush?.(flushed.elapsedMs)
     const { summary, full } = thinkingFold(flushed.lines, theme, flushed.elapsedMs / 1000)
     currentThought = { summary, full, lines: flushed.lines, elapsedMs: flushed.elapsedMs, stepStartedAt }
-    const agentRule = blockRules(theme).agent
-    const blankRule = '  '
-    const summaryRule = theme.colored ? [blankRule, agentRule, blankRule] : agentRule
-    io.console.appendFold(summary, full, summaryRule, FOLD_LABELS.thinking, undefined, undefined, [], agentRule)
+    const rules = thinkingFoldRules(theme, flushed.lines.length)
+    io.console.appendFold(summary, full, rules.summary, FOLD_LABELS.thinking, undefined, undefined, [], rules.full)
   }
 
   /** Pause the indicator around a decision, and resume it if work continues. */
@@ -2540,7 +2535,8 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
       if (thought !== undefined) {
         const stepTotalMs = performance.now() - (thought.stepStartedAt > 0 ? thought.stepStartedAt : performance.now() - thought.elapsedMs)
         const { summary, full } = thinkingFold(thought.lines, theme, thought.elapsedMs / 1000, stepTotalMs / 1000)
-        io.console.updateFold(thought.summary, thought.full, summary, full)
+        const rules = thinkingFoldRules(theme, thought.lines.length)
+        io.console.updateFold(thought.summary, thought.full, summary, full, rules.summary, rules.full)
         currentThought = undefined
       }
     }
