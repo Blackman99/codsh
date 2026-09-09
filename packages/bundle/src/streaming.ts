@@ -65,7 +65,16 @@ export class TextStream {
       if (complete === '' && !inFence) {
         // Leading blanks the model wrapped the answer in stay off screen;
         // inner blanks wait in case they are only a trailing wrapper. A blank
-        // inside a fence is code and has to print.
+        // still has to reach Markdown first: a table drains on it.
+        if (rendered.some(line => line !== '')) {
+          if (this.heldBlanks > 0) {
+            lines.push(...Array.from({ length: this.heldBlanks }, () => ''))
+            this.heldBlanks = 0
+          }
+          this.seen = true
+          lines.push(...rendered)
+          continue
+        }
         if (this.seen) this.heldBlanks += 1
         continue
       }

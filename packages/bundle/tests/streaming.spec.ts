@@ -75,6 +75,58 @@ describe('TextStream', () => {
     })
   })
 
+  it('keeps a table that arrives as the last construct in the answer', () => {
+    // Table rows buffer until a non-table line drains them. Treating that
+    // empty return as a trailing blank dropped the whole grid on flush.
+    const stream = build()
+    const shown: string[] = []
+    shown.push(...stream.push('intro\n\n| 维度 | 内容 |\n|---|---|\n| 一句话 | 单元格 |\n').lines)
+    shown.push(...stream.flush())
+    expect(shown.join('\n')).toContain('维度')
+    expect(shown.join('\n')).toContain('内容')
+    expect(shown.some(line => line.includes('╭') || line.includes('|'))).toBe(true)
+  })
+
+  it('keeps a wide Chinese table when the answer is cut into 7-character deltas', () => {
+    const markdown = [
+      '# CODE_CLI_HEADING',
+      '',
+      'Prose with **bold**, *em*, `inline_code`, and a [link](https://x.dev).',
+      'An identifier like some_helper_name must survive intact.',
+      'Gain: <font color="green">CODE_CLI_GAIN</font> &amp; <b>held</b>',
+      '',
+      '- **`screen.ts`**: the viewport module',
+      '- second bullet',
+      '- third bullet keeps the answer long',
+      '- fourth bullet keeps the answer long',
+      '- fifth bullet keeps the answer long',
+      '- sixth bullet keeps the answer long',
+      '- seventh bullet keeps the answer long',
+      '- eighth bullet: past the fold threshold at any test width',
+      '',
+      '| 维度 | 内容 |',
+      '|---|---|',
+      `| 一句话 | ${'一个很长的中文单元格内容,用来强制表格在任何终端宽度下都必须在单元格内部换行。'.repeat(3)} |`,
+      '| 命令 | `codsh` | | |',
+      '',
+      '> a quoted line',
+      '',
+      '```ts',
+      'const answer = "text" // a comment',
+      '```',
+      '',
+      'CODE_CLI_CALL_STREAM_DONE',
+    ].join('\n')
+    const stream = build(80)
+    const shown: string[] = []
+    for (let at = 0; at < markdown.length; at += 7) {
+      shown.push(...stream.push(markdown.slice(at, at + 7)).lines)
+    }
+    shown.push(...stream.flush())
+    expect(shown.join('\n')).toContain('维度')
+    expect(shown.join('\n')).toContain('内容')
+  })
+
   it('reproduces the answer exactly once across arbitrary fragment boundaries', () => {
     const answer = '# Title\n\n- one\n- two\n\n```ts\nconst a = 1\n```\ntail'
     const stream = build()
