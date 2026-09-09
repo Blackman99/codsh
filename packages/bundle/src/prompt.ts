@@ -1556,7 +1556,7 @@ export class Prompt {
       // A decision a click must not make takes no pointer at all: no target to
       // press, and no mark under the pointer suggesting there is one.
       if (selecting.selector.keyboardOnly) return undefined
-      const target = selecting.selector.targetAt(region.index - start)
+      const target = selecting.selector.targetAt(region.index - start, this.console.contentColumns)
       if (target !== undefined) return { kind: 'selector', target }
     }
     const todos = this.todoRowsAt

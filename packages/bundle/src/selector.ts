@@ -12,9 +12,13 @@
  * @module codsh-bundle/src/selector
  */
 
-import { truncate } from './theme.ts'
+import { createTheme, displayWidth } from './theme.ts'
+import { wrapStyled } from './wrap.ts'
 import type { Key } from './keys.ts'
 import type { Theme } from './theme.ts'
+
+/** Unstyled theme for hit-testing, so wrap geometry matches a painted row. */
+const PLAIN = createTheme(false, {})
 
 /** One choice on offer. */
 export interface SelectOption {
@@ -133,16 +137,10 @@ export class Selector {
    * @param row - a row index within this widget's own rows, title at zero.
    * @returns what the row offers, or `undefined` for a row that offers nothing.
    */
-  targetAt(row: number): SelectorTarget | undefined {
-    let at = 1
-    if (this.spec.filterable === true && this.query !== '') at += 1
-    const total = this.count
-    const first = this.windowStart()
-    if (first > 0) at += 1
-    const shown = Math.min(total, first + VISIBLE_ROWS) - first
-    if (row < at || row >= at + shown) return undefined
-    const index = first + (row - at)
-    return this.isCustom(index) ? { kind: 'custom' } : { kind: 'option', index }
+  targetAt(row: number, columns = Number.POSITIVE_INFINITY): SelectorTarget | undefined {
+    const layout = this.layout(columns)
+    if (row < 0 || row >= layout.rows.length) return undefined
+    return layout.hits[row]
   }
 
   /**
@@ -328,28 +326,52 @@ export class Selector {
    * @returns the rows, title first.
    */
   view(theme: Theme, columns: number): string[] {
-    const rows: string[] = [theme.bold(truncate(this.spec.title, columns))]
+    return this.layout(columns, theme).rows
+  }
+
+  /**
+   * Paint the widget and record which painted row belongs to which option.
+   *
+   * Title and option details wrap instead of cutting, so a long question
+   * stays readable. Hit-testing uses the same layout, or a click on a
+   * continuation row would miss the option it belongs to.
+   * @param columns - display columns available per row.
+   * @param theme - styling; omitted when only hit-testing.
+   */
+  private layout(columns: number, theme: Theme = PLAIN): { rows: string[]; hits: Array<SelectorTarget | undefined> } {
+    const rows: string[] = []
+    const hits: Array<SelectorTarget | undefined> = []
+    const push = (line: string, hit?: SelectorTarget): void => {
+      rows.push(line)
+      hits.push(hit)
+    }
+    for (const line of wrapStyled(theme.bold(this.spec.title), columns)) push(line)
     if (this.spec.filterable === true && this.query !== '') {
-      rows.push(theme.dim(truncate(`  filter: ${this.query}`, columns)))
+      for (const line of wrapStyled(theme.dim(`  filter: ${this.query}`), columns)) push(line)
     }
     const shown = this.matching()
     const total = this.count
     const first = this.windowStart()
-    if (first > 0) rows.push(theme.dim(`  ↑ ${first} more`))
+    if (first > 0) push(theme.dim(`  ↑ ${first} more`))
     for (let index = first; index < Math.min(total, first + VISIBLE_ROWS); index += 1) {
+      const hit: SelectorTarget = this.isCustom(index) ? { kind: 'custom' } : { kind: 'option', index }
       if (this.isCustom(index)) {
-        rows.push(this.row(index, theme.dim(this.spec.custom ?? ''), undefined, theme, columns))
+        for (const line of this.optionRows(index, theme.dim(this.spec.custom ?? ''), undefined, theme, columns)) {
+          push(line, hit)
+        }
         continue
       }
       const option = this.spec.options[shown[index] ?? -1]
       if (option !== undefined) {
-        rows.push(this.row(index, this.label(option, theme), option.detail, theme, columns))
+        for (const line of this.optionRows(index, this.label(option, theme), option.detail, theme, columns)) {
+          push(line, hit)
+        }
       }
     }
     const below = total - first - VISIBLE_ROWS
-    if (below > 0) rows.push(theme.dim(`  ↓ ${below} more`))
-    rows.push(truncate(this.footer(theme), columns))
-    return rows
+    if (below > 0) push(theme.dim(`  ↓ ${below} more`))
+    for (const line of wrapStyled(this.footer(theme), columns)) push(line)
+    return { rows, hits }
   }
 
   /**
@@ -385,7 +407,7 @@ export class Selector {
    * @param columns - display columns available.
    * @returns the row text.
    */
-  private row(index: number, label: string, detail: string | undefined, theme: Theme, columns: number): string {
+  private optionRows(index: number, label: string, detail: string | undefined, theme: Theme, columns: number): string[] {
     const marked = index === this.selected
     // The marker column says what each row is: `❯` is what Enter takes, and a
     // dim dot is only where the pointer rests. One column, two answers that
@@ -395,9 +417,12 @@ export class Selector {
       ? (this.checked.has(this.matching()[index] ?? index) ? theme.success('◉ ') : theme.dim('○ '))
       : ''
     const number = theme.dim(`${index + 1}.`)
-    const trail = detail === undefined || detail === '' ? '' : theme.dim(`  ${detail}`)
+    const prefix = `${marker} ${number} ${box}`
+    const hang = ' '.repeat(Math.max(1, displayWidth(prefix)))
     // Colour, not merely bold: bold alone barely reads on a dark background.
     const body = marked ? theme.bold(theme.accent(label)) : label
-    return truncate(`${marker} ${number} ${box}${body}${trail}`, columns)
+    const trail = detail === undefined || detail === '' ? '' : theme.dim(`  ${detail}`)
+    const wrapped = wrapStyled(`${body}${trail}`, Math.max(1, columns - displayWidth(prefix)))
+    return wrapped.map((line, at) => `${at === 0 ? prefix : hang}${line}`)
   }
 }

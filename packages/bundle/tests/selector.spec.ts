@@ -194,6 +194,27 @@ describe('the view', () => {
       expect(row.length).toBeLessThanOrEqual(30)
     }
   })
+
+  it('wraps a long question and option detail instead of cutting them', () => {
+    const long: SelectSpec = {
+      title: 'validate 工依赖 implement 的 candidate, 评审人是 Validator。该工项的工具列表决定模型能否读产物。它不能 write_file 到 src/',
+      options: [{
+        label: 'list_files, read_file, publish_artifact (report only) (Recommended)',
+        detail: 'Can inspect and publish a review report artifact. Checks: remaining collaboration closeout.',
+      }],
+      custom: '✎ Type your own answer',
+    }
+    const rows = new Selector(long).view(theme, 60)
+    const text = rows.join('')
+    expect(text).toContain('write_file 到 src/')
+    expect(text).toContain('remaining collaboration')
+    expect(rows.join('\n')).not.toContain('…')
+    for (const row of rows) expect(row.length).toBeLessThanOrEqual(60)
+    const selector = new Selector(long)
+    expect(selector.targetAt(0, 60)).toBeUndefined()
+    expect(selector.targetAt(rows.findIndex(row => row.includes('1.')), 60)).toEqual({ kind: 'option', index: 0 })
+    expect(selector.targetAt(rows.findIndex(row => row.includes('remaining collaboration')), 60)).toEqual({ kind: 'option', index: 0 })
+  })
 })
 
 describe('the pointer', () => {
