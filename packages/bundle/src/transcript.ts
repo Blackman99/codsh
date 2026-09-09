@@ -395,6 +395,14 @@ export class Transcript {
    * each single line it has to say.
    */
   private run: { rule: string; owner: string | undefined; bodied: boolean; close: string } | undefined
+  /**
+   * Consecutive unpaired results currently sharing one card at the tail.
+   *
+   * A resumed page-boundary dumps a burst of raw results with no pending
+   * call to pair with. Stacking each as its own preview fills the viewport
+   * with the same `(result)` head; this run absorbs them into one fold.
+   */
+  private orphanRun: { shown: string[]; full: string[]; count: number; failed: boolean } | undefined
 
   constructor(
     private readonly options: TranscriptOptions,
@@ -452,6 +460,7 @@ export class Transcript {
   endRun(): boolean {
     const hadRun = this.run !== undefined
     this.run = undefined
+    this.orphanRun = undefined
     return hadRun
   }
 
@@ -467,7 +476,9 @@ export class Transcript {
     const lines = this.renderBlock(event, hadRun)
     if (lines.length > 0 && event.type !== 'tool/call' && event.type !== 'tool/result') {
       this.run = undefined
+      this.orphanRun = undefined
     }
+    if (event.type === 'tool/call' && lines.length > 0) this.orphanRun = undefined
     return lines
   }
 
@@ -815,32 +826,9 @@ export class Transcript {
     if (failed) this.rule = blockRules(theme).error
     const bg = failed ? (text: string) => theme.bgError(text) : (text: string) => theme.bgTool(text)
     if (pending === undefined) {
-      // The call fell outside this surface's window (a resumed page boundary);
-      // the raw result still prints rather than vanishing.
-      const marker = failed ? theme.err('✗') : theme.ok('●')
-      const rawText = this.resultText(block.content)
-      const text = failed ? rawText : formatAskUserQuestionResult(rawText)
-      // Same inset and dim as a paired generic body, then the panel fill after
-      // the cap: wrapping first left the collapse hint un-backed, so a long
-      // unpaired line punched a hole in the card.
-      const { body, full } = this.capBody(text.split('\n').map(line => theme.dim(`  ${line}`)), MAX_RESULT_LINES)
-      const head = bg(`${cardIndent(theme)}${marker} ${theme.dim('(result)')}`)
-      const enter = failed ? undefined : childSessionId(text)
-      const hint = enter === undefined ? [] : [bg(theme.dim('  click to enter'))]
-      const { lead, close, supersedes } = this.joinRun(true, bg, blockClose(theme, bg))
-      this.pendingCard = supersedes
-      const bodyLines = body.map(line => bg(line))
-      const fullLines = full?.map(line => bg(line))
-      if (fullLines !== undefined) {
-        this.fold = [...lead, head, ...fullLines, ...hint, ...close]
-        this.label = 'tool result'
-      }
-      if (enter !== undefined) {
-        this.enter = enter
-        this.label = 'tool result'
-      }
-      return [...lead, head, ...bodyLines, ...hint, ...close]
+      return this.renderOrphanResult(text => bg(text), failed, block.content)
     }
+    this.orphanRun = undefined
     const view = this.safeResult(pending, block.content, failed, meta)
     const title = view?.title === undefined ? pending.title : this.relativizeIn(view.title)
     const { suffix, body, full } = this.outcome(view, block, pending, failed)
@@ -878,6 +866,67 @@ export class Transcript {
       this.label = title
     }
     return [...open, ...head, ...shown, ...hint, ...shut]
+  }
+
+  /**
+   * Render a result whose pending call fell outside this surface's window.
+   *
+   * Consecutive orphans of the same kind share one card: the first prints as
+   * itself, and each later one replaces that card with a count and a fold
+   * over every body. A failed result starts its own card so an error does
+   * not hide inside a successful burst.
+   * @param bg - the card's background wrapper.
+   * @param failed - whether the executor reported a failure.
+   * @param content - the model-facing result content.
+   * @returns the card's lines.
+   */
+  private renderOrphanResult(bg: (text: string) => string, failed: boolean, content: readonly ContentBlock[]): string[] {
+    const { theme } = this.options
+    const rawText = this.resultText(content)
+    const text = failed ? rawText : formatAskUserQuestionResult(rawText)
+    const body = text.split('\n').map(line => theme.dim(`  ${line}`))
+    const marker = failed ? theme.err('✗') : theme.ok('●')
+    const enter = failed ? undefined : childSessionId(text)
+    const hint = enter === undefined ? [] : [bg(theme.dim('  click to enter'))]
+    const previous = this.orphanRun
+    const joining = previous !== undefined && previous.failed === failed && enter === undefined
+    if (joining && previous !== undefined) {
+      const count = previous.count + 1
+      const members = [...previous.full, '', ...body]
+      const title = theme.dim(`(result) · ${String(count)}`)
+      const head = bg(`${cardIndent(theme)}${marker} ${title}`)
+      const close = blockClose(theme, bg)
+      const hintLine = theme.dim(`  … +${String(count)} results (click or Ctrl+O expands)`)
+      const card = [head, bg(hintLine), ...close]
+      const full = [head, ...members.map(line => bg(line)), ...close]
+      this.pendingCard = previous.shown
+      this.fold = full
+      this.label = 'tool result'
+      this.orphanRun = { shown: card, full: members, count, failed }
+      this.run = { rule: this.rule, owner: undefined, bodied: true, close: close[0] ?? '' }
+      return card
+    }
+
+    const { body: capped, full } = this.capBody(body, MAX_RESULT_LINES)
+    const head = bg(`${cardIndent(theme)}${marker} ${theme.dim('(result)')}`)
+    const { lead, close, supersedes } = this.joinRun(true, bg, blockClose(theme, bg))
+    this.pendingCard = supersedes
+    const bodyLines = capped.map(line => bg(line))
+    const fullBody = (full ?? body).map(line => bg(line))
+    const shown = [...lead, head, ...bodyLines, ...hint, ...close]
+    const expanded = [...lead, head, ...fullBody, ...hint, ...close]
+    if (full !== undefined) {
+      this.fold = expanded
+      this.label = 'tool result'
+    }
+    if (enter !== undefined) {
+      this.enter = enter
+      this.label = 'tool result'
+      this.orphanRun = undefined
+      return shown
+    }
+    this.orphanRun = { shown, full: body, count: 1, failed }
+    return shown
   }
 
   /**

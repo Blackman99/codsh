@@ -524,6 +524,53 @@ describe('tool results', () => {
     expect(build().render(resultEvent('missing', 'orphan'))).toEqual(['● (result)', '  orphan', ''])
   })
 
+  it('folds consecutive unpaired results into one card instead of stacking them', () => {
+    // A resumed page-boundary dumps a run of raw results. Each one used to
+    // open its own panel with a preview and a fold hint, so a burst of reads
+    // filled the viewport with the same `(result)` head over and over.
+    const transcript = build()
+    const first = transcript.render(resultEvent('c1', 'alpha\nbeta'))
+    expect(first).toEqual(['● (result)', '  alpha', '  beta', ''])
+    expect(transcript.takeFold()).toBeUndefined()
+
+    const second = transcript.render(resultEvent('c2', 'gamma\ndelta'))
+    expect(second[0]).toBe('● (result) · 2')
+    expect(second.join('\n')).toContain('  … +2 results (click or Ctrl+O expands)')
+    expect(second.join('\n')).not.toContain('gamma')
+    expect(transcript.takePendingCard()).toEqual(first)
+    const full = transcript.takeFold() ?? []
+    expect(full.join('\n')).toContain('alpha')
+    expect(full.join('\n')).toContain('gamma')
+    expect(full[0]).toBe('● (result) · 2')
+
+    const third = transcript.render(resultEvent('c3', 'epsilon'))
+    expect(third[0]).toBe('● (result) · 3')
+    expect(transcript.takePendingCard()).toEqual(second)
+    expect((transcript.takeFold() ?? []).join('\n')).toContain('epsilon')
+  })
+
+  it('paints a coalesced orphan fold as one panel, not stacked cards', () => {
+    const colorTheme = createTheme(true, { COLORTERM: 'truecolor' })
+    const transcript = new Transcript(
+      { theme: colorTheme, columns: 80, cwd: CWD },
+      { call: () => undefined, result: () => undefined },
+    )
+    transcript.render(resultEvent('c1', 'alpha'))
+    const second = transcript.render(resultEvent('c2', 'beta'))
+    expect(second[0]).toBe(colorTheme.bgTool(`  ${colorTheme.ok('●')} ${colorTheme.dim('(result) · 2')}`))
+    expect(second).toContain(colorTheme.bgTool(colorTheme.dim('  … +2 results (click or Ctrl+O expands)')))
+  })
+
+  it('does not fold an unpaired result into a paired card of a different kind', () => {
+    const transcript = build()
+    transcript.render(callEvent('c1', 'bash', {}))
+    const paired = transcript.render(resultEvent('c1', 'ok'))
+    expect(paired).toEqual(['● bash ✔', '  ok', ''])
+    const orphan = transcript.render(resultEvent('missing', 'later'))
+    expect(orphan).toEqual(['● (result)', '  later', ''])
+    expect(transcript.takePendingCard()).toEqual([])
+  })
+
   it('degrades to the generic card when a result presenter throws', () => {
     const result = () => { throw new Error('presenter is broken') }
     const transcript = build({ result })
