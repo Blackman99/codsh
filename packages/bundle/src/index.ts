@@ -62,7 +62,7 @@ import type { CompletableCommand } from './completion.ts'
 import { indexConversationContent, newestCopyTargets, resolveCopyTarget } from './content-index.ts'
 import { TerminalConsole } from './console.ts'
 import { readClipboardImage } from './clipboard-image.ts'
-import { parsePlan, parseShipStatus, planInFlight, planRow } from './plan.ts'
+import { parsePlan, parseShipStatus, planInFlight, workingLineProgress } from './plan.ts'
 import type { Plan } from './plan.ts'
 import { Prompt } from './prompt.ts'
 import { shapeResume } from './resume.ts'
@@ -1258,11 +1258,14 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
     detail: () => {
       const spent = (totalTokens(facts(branch).usage) ?? 0) - turnBaseTokens
       const tokens = spent > 0 ? `${formatTokens(spent)} tokens` : undefined
-      // What is happening and how much is left, when a plan says; the round
-      // number only when nothing better is known.
-      const progress = shipPlan === undefined
-        ? workflowRound
-        : planRow(shipPlan, theme, Math.max(16, io.console.contentColumns - 40)) ?? workflowRound
+      // A Ralph round owns this line; the chrome already pins the plan, so
+      // repeating `done/total · ticket` here stacked two identical rows.
+      const progress = workingLineProgress(
+        shipPlan,
+        workflowRound,
+        theme,
+        Math.max(16, io.console.contentColumns - 40),
+      )
       // What the round's child is doing right now, so a minutes-long round
       // reads as work rather than as a hang.
       const activity = roundWatch === undefined ? undefined : roundActivity(roundWatch.progress)

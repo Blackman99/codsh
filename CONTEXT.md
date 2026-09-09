@@ -171,10 +171,10 @@ _Avoid_: highlight, focus
 **Plan progress**:
 How far a `/ship` run has got, read from the spec file's `## Plan` checkboxes
 rather than from the conversation — the spec file is the workflow's memory, and
-its boxes are the only place the work is counted. The working line reports it
-as `done/total` and names the first unticked ticket, which is what the round in
-flight is landing. The round number a Workflow reports counts against a budget
-and is the fallback, shown only when no plan has been found.
+its boxes are the only place the work is counted. The chrome pins it as its own
+row (`plan k/n · current ticket`). The working line names a Workflow round
+while one is in flight; it reports `done/total` and the first unticked ticket
+only when no round is running, so the two rows never stack the same figure.
 _Avoid_: todo list, task count
 
 **Workflow progress**:

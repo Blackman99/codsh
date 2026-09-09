@@ -175,6 +175,30 @@ export function planRow(plan: Plan, theme: Theme, columns: number): string | und
 }
 
 /**
+ * The working-line progress fragment: a Ralph round, or the plan when no round
+ * is in flight.
+ *
+ * The chrome already pins the plan as its own row. Repeating `done/total ·
+ * current ticket` on the working line while a round runs stacks two identical
+ * progress rows — the overlap a `/ship` Ralph loop showed. The round owns this
+ * line; the plan stays in chrome.
+ * @param plan - the plan read from the spec, if one is pinned.
+ * @param round - the workflow round's label, if a round is running.
+ * @param theme - styling for a plan fragment.
+ * @param columns - display columns the plan fragment may use.
+ * @returns the fragment, or undefined when neither is known.
+ */
+export function workingLineProgress(
+  plan: Plan | undefined,
+  round: string | undefined,
+  theme: Theme,
+  columns: number,
+): string | undefined {
+  if (round !== undefined && round !== '') return round
+  return plan === undefined ? undefined : planRow(plan, theme, columns)
+}
+
+/**
  * The plan as the pinned readout shows it when it is closed.
  * @param plan - the plan read from the spec.
  * @param theme - styling for the figure and the hint.

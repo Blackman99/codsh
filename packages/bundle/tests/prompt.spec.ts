@@ -1236,6 +1236,46 @@ describe('the surrounding rows', () => {
     expect(opened.some(row => row.includes('todos 1/2'))).toBe(false)
   })
 
+  it('keeps the collapsed chrome on the plan, not a second todo teaser', () => {
+    const { prompt, console } = build()
+    prompt.setPlan({
+      tickets: [
+        { title: 'Ticket 1: Data Model', done: true },
+        { title: 'Ticket 2: Application Integration', done: false },
+      ],
+      done: 1,
+      current: { title: 'Ticket 2: Application Integration', done: false },
+    })
+    prompt.setTodos([
+      { content: 'Ticket 1: Data Model', status: 'completed' },
+      { content: 'Ticket 2: Application Integration', status: 'in_progress' },
+    ])
+    const rows = console.draws.at(-1)?.rows ?? []
+    expect(rows.some(row => row.includes('plan 1/2'))).toBe(true)
+    expect(rows.some(row => row.includes('todos'))).toBe(false)
+  })
+
+  it('drops todos that repeat plan tickets and keeps genuine sub-steps', () => {
+    const { prompt, console } = build()
+    prompt.setPlan({
+      tickets: [
+        { title: 'Ticket 1: Data Model', done: true },
+        { title: 'Ticket 2: Application Integration', done: false },
+      ],
+      done: 1,
+      current: { title: 'Ticket 2: Application Integration', done: false },
+    })
+    prompt.setTodos([
+      { content: 'Ticket 2: Application Integration', status: 'in_progress' },
+      { content: 'write the failing test for the public seam', status: 'pending' },
+    ])
+    console.press({ kind: 'toggle-todos' })
+    const opened = console.draws.at(-1)?.rows ?? []
+    expect(opened.some(row => row.includes('◇ plan'))).toBe(true)
+    expect(opened.some(row => row.includes('write the failing test for the public seam'))).toBe(true)
+    expect(opened.filter(row => row.includes('Ticket 2: Application Integration'))).toHaveLength(1)
+  })
+
   it('shows no readout before the first todo write', () => {
     const { prompt, console } = build()
     prompt.setStatus('model')

@@ -1,7 +1,7 @@
 /** Reading a `/ship` spec's plan: how many tickets, and which one is now. */
 
 import { describe, expect, it } from 'vitest'
-import { parsePlan, parseShipStatus, parseSpecMetadata, planInFlight, planReport, planRow, planSummary } from '../src/plan.ts'
+import { parsePlan, parseShipStatus, parseSpecMetadata, planInFlight, planReport, planRow, planSummary, workingLineProgress } from '../src/plan.ts'
 import { createTheme } from '../src/theme.ts'
 
 const theme = createTheme(false, {})
@@ -126,6 +126,19 @@ describe('planRow', () => {
     const row = planRow(parsePlan(SPEC), theme, 16) ?? ''
     expect(row.startsWith('2/4')).toBe(true)
     expect(row.length).toBeLessThanOrEqual(16)
+  })
+})
+
+describe('workingLineProgress', () => {
+  it('lets a live Ralph round own the working line so the chrome plan is not repeated', () => {
+    const plan = parsePlan(SPEC)
+    expect(workingLineProgress(plan, 'Ralph round 1', theme, 80)).toBe('Ralph round 1')
+    expect(workingLineProgress(undefined, 'Ralph round 1', theme, 80)).toBe('Ralph round 1')
+  })
+
+  it('still names the plan on the working line when no round is running', () => {
+    expect(workingLineProgress(parsePlan(SPEC), undefined, theme, 80)).toBe('2/4 · Open a long card in it')
+    expect(workingLineProgress(undefined, undefined, theme, 80)).toBeUndefined()
   })
 })
 

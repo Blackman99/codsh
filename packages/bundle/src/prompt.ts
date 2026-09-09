@@ -1292,18 +1292,14 @@ export class Prompt {
     }
     // Both, plan first: they are different granularities of the same work —
     // what `/ship` approved, and what this turn is tracking inside it.
-    // If todos duplicate the plan's tickets (e.g. ship tickets tracked 1:1 via todo_write),
-    // omit the redundant todo list to avoid echoing identical items.
-    const redundantTodos = plan !== undefined && this.todos.length > 0
-      && this.todos.every(todo => plan.tickets.some(t => {
-        const todoNorm = todo.content.trim().toLowerCase()
-        const planNorm = t.title.trim().toLowerCase()
-        return todoNorm.includes(planNorm) || planNorm.includes(todoNorm)
-      }))
+    // Drop todos that echo a plan ticket (a `/ship` Ralph loop often copies
+    // titles 1:1) so the panel does not list the same work twice; keep
+    // genuine sub-steps of the ticket in flight.
+    const remaining = plan === undefined ? this.todos : todosNotOnPlan(this.todos, plan)
 
     return [
       ...plan === undefined ? [] : planReport(plan, this.theme, columns, TODO_ROWS, 'click or Ctrl+T closes'),
-      ...redundantTodos ? [] : todoReport(this.todos, this.theme, columns, { hint: 'Ctrl+T closes', limit: TODO_ROWS }),
+      ...todoReport(remaining, this.theme, columns, { hint: 'Ctrl+T closes', limit: TODO_ROWS }),
     ]
   }
 
@@ -1832,6 +1828,26 @@ export class Prompt {
 function isPointerKey(key: Key): boolean {
   return key.kind === 'mouse-down' || key.kind === 'mouse-up' || key.kind === 'mouse-move' || key.kind === 'mouse-drag'
     || (key.kind === 'scroll' && key.at !== undefined)
+}
+
+/**
+ * Todos that are not already a plan ticket.
+ *
+ * A `/ship` Ralph round often copies ticket titles into todo_write. Those
+ * items echo the plan readout; sub-steps of the ticket in flight do not.
+ * @param todos - the session's current list.
+ * @param plan - the pinned `/ship` plan.
+ * @returns the list with ticket-echo items dropped.
+ */
+function todosNotOnPlan(todos: TodoList, plan: Plan): TodoList {
+  return todos.filter(todo => !plan.tickets.some(ticket => namesOverlap(todo.content, ticket.title)))
+}
+
+/** Whether two labels name the same work, ignoring case and surrounding words. */
+function namesOverlap(left: string, right: string): boolean {
+  const a = left.trim().toLowerCase()
+  const b = right.trim().toLowerCase()
+  return a !== '' && b !== '' && (a.includes(b) || b.includes(a))
 }
 
 /**
