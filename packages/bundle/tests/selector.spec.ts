@@ -97,6 +97,12 @@ describe('the custom row', () => {
     expect(drive(new Selector(withCustom), [key('up'), key('enter')])).toBeUndefined()
   })
 
+  it('restores a previously typed custom answer when revisiting', () => {
+    const selector = new Selector({ ...withCustom, prior: { custom: 'neither' } })
+    expect(selector.highlighted).toBeUndefined()
+    expect(selector.view(theme, 60).join('\n')).toContain('neither')
+  })
+
   it('turns the custom row into an inline field when focused, and Enter submits the typed text', () => {
     const selector = new Selector(withCustom)
     selector.handle(key('up'))
@@ -106,6 +112,17 @@ describe('the custom row', () => {
     expect(selector.handle({ kind: 'text', text: 'neither' })).toEqual({ kind: 'pending' })
     expect(selector.view(theme, 60).join('\n')).toContain('neither')
     expect(selector.handle(key('enter'))).toEqual({ kind: 'done', outcome: { kind: 'custom', value: 'neither' } })
+  })
+
+  it('moves the caret left inside a typed custom answer without deleting it', () => {
+    const selector = new Selector(withCustom)
+    selector.handle(key('up'))
+    selector.handle({ kind: 'text', text: 'ab' })
+    expect(selector.handle(key('left'))).toEqual({ kind: 'pending' })
+    expect(selector.view(theme, 60).join('\n')).toContain('a▌b')
+    expect(selector.handle({ kind: 'text', text: 'X' })).toEqual({ kind: 'pending' })
+    expect(selector.view(theme, 60).join('\n')).toContain('aX▌b')
+    expect(selector.handle(key('enter'))).toEqual({ kind: 'done', outcome: { kind: 'custom', value: 'aXb' } })
   })
 
   it('does not expose the custom row as an option preview', () => {

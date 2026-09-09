@@ -37,7 +37,9 @@ Viewport. Its display-only copy stays pinned until the next real prompt pushes
 it away, shrinking from at most three rows to one. Pinned, it is a panel: one
 padding row of its fill above the prompt and one below, then the divider that
 hands the screen back to the transcript. A prompt longer than three visual rows is a Fold by
-default. While expanded it still ends the previous turn but does not pin.
+default. Clicking the pinned copy expands that floating panel in place;
+the inline prompt and the reading position stay where they were. Ctrl+O
+on the original still expands the transcript fold, which then does not pin.
 Plugin context, tools, and other injected user-role messages never start a
 turn, and the copied header is not transcript or clipboard content.
 _Avoid_: sticky message, pinned response
@@ -309,7 +311,8 @@ loaded here. The payload never travels as row text — a base64 image measures a
 thousands of columns and is cut mid-sequence by the width every row is fitted
 to, which leaves the terminal eating the rest of the frame as string data — so
 the rows reserve blank cells and the frame paints the picture over them at an
-absolute position. Ctrl+O and a click on the card open the original in the
+absolute position. Transcript around the card is dimmed so the picture is what
+reads; the card itself stays undimmed. Ctrl+O and a click on the card open the original in the
 platform viewer. Card and picture come down together: a Kitty placement is not
 cell content, so clearing its rows would leave it on screen.
 _Avoid_: thumbnail, attachment chip

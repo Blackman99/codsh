@@ -44,6 +44,8 @@ export interface SelectSpec {
   filterable?: boolean
   /** Left goes to the previous consecutive question in this batch. */
   back?: boolean
+  /** A previous answer to restore when revisiting this question. */
+  prior?: { selected?: string; custom?: string }
   /**
    * Whether only the keyboard may answer this one.
    *
@@ -80,6 +82,8 @@ export class Selector {
   private query = ''
   /** Typed text for the custom row while it is focused. */
   private draft = ''
+  /** Insertion point inside {@link draft}, in code points. */
+  private caret = 0
   private readonly checked = new Set<number>()
   /**
    * The row the pointer rests on, when it rests on one.
@@ -98,7 +102,17 @@ export class Selector {
    */
   private scrolled: number | undefined
 
-  constructor(private readonly spec: SelectSpec) {}
+  constructor(private readonly spec: SelectSpec) {
+    const prior = spec.prior
+    if (prior?.custom !== undefined && prior.custom !== '' && spec.custom !== undefined) {
+      this.selected = spec.options.length
+      this.draft = prior.custom
+      this.caret = Array.from(prior.custom).length
+    } else if (prior?.selected !== undefined) {
+      const index = spec.options.findIndex(option => option.label === prior.selected)
+      if (index >= 0) this.selected = index
+    }
+  }
 
   /** Whether a pointer may answer this selection at all. */
   get keyboardOnly(): boolean {
@@ -219,29 +233,55 @@ export class Selector {
         if (this.count === 0) return { kind: 'pending' }
         this.selected = (this.selected - 1 + this.count) % this.count
         this.draft = ''
+        this.caret = 0
         return { kind: 'pending' }
       case 'down':
       case 'tab':
         if (this.count === 0) return { kind: 'pending' }
         this.selected = (this.selected + 1) % this.count
         this.draft = ''
+        this.caret = 0
         return { kind: 'pending' }
       case 'enter':
         return this.accept(this.selected)
       case 'left':
-        if (this.isCustom(this.selected) && this.draft.length > 0) {
-          this.draft = Array.from(this.draft).slice(0, -1).join('')
+        if (this.isCustom(this.selected)) {
+          if (this.caret > 0) {
+            this.caret -= 1
+            return { kind: 'pending' }
+          }
+          if (this.spec.back === true) return { kind: 'done', outcome: { kind: 'back' } }
           return { kind: 'pending' }
         }
         if (this.spec.back === true) return { kind: 'done', outcome: { kind: 'back' } }
+        return { kind: 'pending' }
+      case 'right':
+        if (this.isCustom(this.selected)) {
+          const length = Array.from(this.draft).length
+          if (this.caret < length) this.caret += 1
+          return { kind: 'pending' }
+        }
         return { kind: 'pending' }
       case 'escape':
         // Back: leave without a choice. Not abort — the footer never paints it
         // as one, and the outcome is cancelled, not an error.
         return { kind: 'done', outcome: { kind: 'cancelled' } }
+      case 'delete':
+        if (this.isCustom(this.selected)) {
+          const points = Array.from(this.draft)
+          if (this.caret < points.length) {
+            points.splice(this.caret, 1)
+            this.draft = points.join('')
+          }
+          return { kind: 'pending' }
+        }
+        return { kind: 'pending' }
       case 'backspace':
-        if (this.isCustom(this.selected) && this.draft.length > 0) {
-          this.draft = Array.from(this.draft).slice(0, -1).join('')
+        if (this.isCustom(this.selected) && this.caret > 0) {
+          const points = Array.from(this.draft)
+          points.splice(this.caret - 1, 1)
+          this.draft = points.join('')
+          this.caret -= 1
           return { kind: 'pending' }
         }
         if (this.spec.filterable === true && this.query.length > 0) {
@@ -264,7 +304,11 @@ export class Selector {
    */
   private typed(text: string): SelectorStep {
     if (this.isCustom(this.selected)) {
-      this.draft += text
+      const points = Array.from(this.draft)
+      const inserted = Array.from(text)
+      points.splice(this.caret, 0, ...inserted)
+      this.draft = points.join('')
+      this.caret += inserted.length
       return { kind: 'pending' }
     }
     const letter = text.toLowerCase()
@@ -275,6 +319,7 @@ export class Selector {
         if (this.spec.custom !== undefined && letter === 'e') {
           this.selected = this.matching().length
           this.draft = ''
+          this.caret = 0
           return { kind: 'pending' }
         }
         if (this.spec.multi !== true && letter === 'y') {
@@ -300,6 +345,7 @@ export class Selector {
     if (this.spec.custom !== undefined && letter === 'e') {
       this.selected = this.matching().length
       this.draft = ''
+      this.caret = 0
       return { kind: 'pending' }
     }
     // `y` ≡ Enter on single-select: take the focused row, same muscle memory
@@ -404,8 +450,11 @@ export class Selector {
       const hit: SelectorTarget = this.isCustom(index) ? { kind: 'custom' } : { kind: 'option', index }
       if (this.isCustom(index)) {
         const writing = index === this.selected
+        const points = Array.from(this.draft)
         const shown = writing
-          ? (this.draft === '' ? `${this.spec.custom ?? ''} ▌` : `${this.draft}▌`)
+          ? (this.draft === ''
+            ? `${this.spec.custom ?? ''} ▌`
+            : `${points.slice(0, this.caret).join('')}▌${points.slice(this.caret).join('')}`)
           : (this.spec.custom ?? '')
         const painted = writing ? shown : theme.dim(shown)
         for (const line of this.optionRows(index, painted, undefined, theme, columns)) {

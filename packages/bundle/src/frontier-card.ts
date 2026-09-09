@@ -120,16 +120,17 @@ export class FrontierCard {
   private offset = 0
   /** Typed text for the focused write-in option; empty until the person types. */
   private draft = ''
+  /** Insertion point inside {@link draft}, in code points. */
+  private caret = 0
 
   constructor(private readonly spec: FrontierSpec) {
     this.focus = recommendedIndex(spec.options)
     const prior = spec.prior
     if (prior?.custom !== undefined && prior.custom !== '') {
       const write = spec.options.findIndex(option => option.writeIn === true)
-      if (write >= 0) {
-        this.focus = write
-        this.draft = prior.custom
-      }
+      this.focus = write >= 0 ? write : Math.max(0, spec.options.length - 1)
+      this.draft = prior.custom
+      this.caret = Array.from(prior.custom).length
     } else if (prior?.selected !== undefined) {
       const index = spec.options.findIndex(option => option.label === prior.selected)
       if (index >= 0) this.focus = index
@@ -193,7 +194,9 @@ export class FrontierCard {
       : [`${theme.ok('[y]')} take`, '[e] edit', `${theme.accent('[↑↓]')} pick`, ...nav].join(' · ')
     const rows = [top, ...body, framed(truncate(hint, inner), theme, inner), bottom]
     const focusedRow = asked.length + (this.focus - this.offset)
-    const typed = this.draft === '' ? `${this.focusedLabel} ` : this.draft
+    const points = Array.from(this.draft)
+    const before = points.slice(0, this.caret).join('')
+    const typed = this.draft === '' ? `${this.focusedLabel} ` : before
     const caretColumn = 2 + REC_GUTTER + displayWidth(typed)
     return {
       rows: rows.map(row => truncate(row, width)),
@@ -212,23 +215,52 @@ export class FrontierCard {
    */
   handleKey(key: Key): FrontierKey | undefined {
     if (key.kind === 'escape') return { kind: 'dismiss' }
-    if (key.kind === 'left' && this.spec.canBack === true) return { kind: 'back' }
-    if (key.kind === 'right' && this.spec.canForward === true) return { kind: 'next' }
     if (key.kind === 'enter') return this.acceptFocused()
     if (this.writing()) {
+      if (key.kind === 'left') {
+        if (this.caret > 0) {
+          this.caret -= 1
+          return { kind: 'move' }
+        }
+        if (this.spec.canBack === true) return { kind: 'back' }
+        return { kind: 'move' }
+      }
+      if (key.kind === 'right') {
+        const length = Array.from(this.draft).length
+        if (this.caret < length) {
+          this.caret += 1
+          return { kind: 'move' }
+        }
+        if (this.spec.canForward === true) return { kind: 'next' }
+        return { kind: 'move' }
+      }
       if (key.kind === 'backspace') {
-        this.draft = Array.from(this.draft).slice(0, -1).join('')
+        if (this.caret === 0) return { kind: 'move' }
+        const points = Array.from(this.draft)
+        points.splice(this.caret - 1, 1)
+        this.draft = points.join('')
+        this.caret -= 1
         return { kind: 'move' }
       }
-      if (key.kind === 'text') {
-        this.draft += key.text
+      if (key.kind === 'delete') {
+        const points = Array.from(this.draft)
+        if (this.caret < points.length) {
+          points.splice(this.caret, 1)
+          this.draft = points.join('')
+        }
         return { kind: 'move' }
       }
-      if (key.kind === 'paste') {
-        this.draft += key.text
+      if (key.kind === 'text' || key.kind === 'paste') {
+        const points = Array.from(this.draft)
+        const inserted = Array.from(key.text)
+        points.splice(this.caret, 0, ...inserted)
+        this.draft = points.join('')
+        this.caret += inserted.length
         return { kind: 'move' }
       }
     }
+    if (key.kind === 'left' && this.spec.canBack === true) return { kind: 'back' }
+    if (key.kind === 'right' && this.spec.canForward === true) return { kind: 'next' }
     if (key.kind === 'text') {
       const letter = key.text.toLowerCase()
       if (letter === 'y') return this.acceptFocused()
@@ -256,7 +288,7 @@ export class FrontierCard {
 
   /** Whether the focused option is a write-in field. */
   private writing(): boolean {
-    return this.spec.options[this.focus]?.writeIn === true
+    return this.spec.options[this.focus]?.writeIn === true || this.draft !== ''
   }
 
   /** Accept the focused option, or the typed write-in text. */
@@ -278,6 +310,7 @@ export class FrontierCard {
     if (count === 0) return
     this.focus = (this.focus + delta % count + count) % count
     this.draft = ''
+    this.caret = 0
   }
 
   /**
@@ -291,8 +324,11 @@ export class FrontierCard {
     const rec = option.recommended === true
     const mark = rec ? `${theme.ok('[rec]')} ` : ' '.repeat(REC_GUTTER)
     const budget = Math.max(1, inner - REC_GUTTER)
-    if (option.writeIn === true && focused) {
-      const shown = this.draft === '' ? `${option.label} ▌` : `${this.draft}▌`
+    if (focused && (option.writeIn === true || this.draft !== '')) {
+      const points = Array.from(this.draft)
+      const shown = this.draft === ''
+        ? `${option.label} ▌`
+        : `${points.slice(0, this.caret).join('')}▌${points.slice(this.caret).join('')}`
       return truncate(`${mark}${theme.accent(truncate(shown, budget))}`, inner)
     }
     const label = truncate(option.label, budget)

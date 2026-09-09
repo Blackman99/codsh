@@ -1270,7 +1270,10 @@ describe('grok background differentiation across functional blocks', () => {
     )
     colored.render(callEvent('c1', 'read', {}))
     colored.render(resultEvent('c1', ''))
-    expect(colored.endRun()).toEqual([''])
+    // Closing the run must not insert an unstyled blank: neighbouring panels
+    // meet at their inner pads, and a gap here is the hole between an Edit
+    // card and the thought clock.
+    expect(colored.endRun()).toEqual([])
     const next = colored.render(callEvent('c2', 'grep', {}))
     expect(next[0]).toBe(pad)
     expect(next[1]).toContain(colorTheme.tool('grep'))

@@ -48,6 +48,17 @@ describe('sticky turn header layout', () => {
     expect(computeStickyLayout(21, 10, prompts)?.prompt).toBe(2)
   })
 
+  it('keeps an opened floating copy at full height instead of shrinking with scroll', () => {
+    const prompts = [{ at: 2, fullHeight: 5, minHeight: 1, sticky: true, open: true }]
+    expect(computeStickyLayout(40, 10, prompts)).toEqual({
+      prompt: 0,
+      state: 'pinned',
+      renderHeight: 5,
+      clipTop: 0,
+      reservedRows: 8,
+    })
+  })
+
   it('keeps the final prompt pinned at its compact height', () => {
     const prompts = [{ at: 2, fullHeight: 3, minHeight: 1, sticky: true }]
 

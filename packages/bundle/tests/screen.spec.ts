@@ -145,6 +145,24 @@ describe('layout', () => {
     expect(frame).toContain('modal b')
   })
 
+  it('dims the transcript around a centered image preview so the picture reads clearly', () => {
+    const sink = host(10, 40)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['box', 'status'], { row: 0, column: 0 }, false)
+    screen.append(['alpha', 'bravo', 'charlie', 'delta', 'echo', 'foxtrot'])
+    flush(sink)
+    screen.setOverlay(['╭ image ╮', '│ pic  │', '╰──────╯'], true)
+    const frame = flush(sink)
+    expect(frame).toContain('╭ image ╮')
+    // Rows outside the card are the mask: dimmed, not the picture itself.
+    expect(frame).toContain('\u001B[2m')
+    expect(frame).toContain('\u001B[48;5;236m')
+    // The card rows stay undimmed so the picture is what the eye lands on.
+    expect(frame).not.toMatch(/\u001B\[2m╭ image ╮/)
+    expect(frame).not.toMatch(/\u001B\[48;5;236m╭ image ╮/)
+  })
+
   it('shows the tail of the transcript above the chrome', () => {
     const sink = host(5, 20)
     const screen = new Screen(sink)
@@ -1194,6 +1212,31 @@ describe('scrolling', () => {
     screen.mouseUp()
     const rows = painted(flush(sink))
     expect([...rows.values()].some(row => row.includes('first d'))).toBe(true)
+    expect([...rows.values()].some(row => row.includes('first a'))).toBe(true)
+    // The header grew in place; the inline prompt did not jump to row 1.
+    expect(rows.get(1)).not.toBe('answer 0')
+  })
+
+  it('expands a truncated sticky header in place without jumping to the original prompt', () => {
+    const sink = host(8, 40)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['status'], { row: 0, column: 0 }, false)
+    screen.appendPrompt(['› first a', '  first b', '  first c', '  first d', '  first e', ''], '| ')
+    screen.append(Array.from({ length: 12 }, (_, index) => `answer ${index}`))
+    flush(sink)
+    const before = painted(flush(sink))
+    const answerBefore = [...before.values()].find(row => row.includes('answer'))
+
+    screen.mouseDown(2, 6)
+    screen.mouseUp()
+    const after = painted(flush(sink))
+    expect([...after.values()].some(row => row.includes('first e'))).toBe(true)
+    expect([...after.values()].some(row => row.includes('first d'))).toBe(true)
+    const answerAfter = [...after.values()].find(row => row.includes('answer'))
+    expect(answerAfter).toBe(answerBefore)
+    // The header is still the sticky panel, not the inline prompt at the top.
+    expect(after.get(1)).not.toBe('answer 0')
   })
 
   it('does not turn a drag over the sticky copy into clipboard text', () => {
@@ -2254,6 +2297,112 @@ describe('the block under the pointer', () => {
     expect(frame).not.toContain('thought for 40s')
     expect(screen.mouseMove(4, 5)?.label).toBe('thinking')
     expect(screen.mouseMove(5, 5)?.label).toBe('thinking')
+  })
+
+  it('does not fill the tool card below when hovering a collapsed thought', () => {
+    const sink = host(14, 80)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['status'], { row: 0, column: 0 }, false)
+    const thinkPad = '\u001B[48;2;20;16;32m  \u001B[0m'
+    const think = '\u001B[48;2;20;16;32mthought for 26s\u001B[0m'
+    const toolPad = '\u001B[48;2;14;18;24m  \u001B[0m'
+    const read = '\u001B[48;2;14;18;24m● Read access.ts ✔\u001B[0m'
+    const grep = '\u001B[48;2;14;18;24m● Grep PROJECT_GOAL_TOOLS ✔\u001B[0m'
+    screen.appendFold(
+      [thinkPad, think, thinkPad],
+      [thinkPad, think, 'reasoning', thinkPad],
+      ['  ', '✻ ', '  '],
+      'thinking',
+      undefined,
+      undefined,
+      [],
+      ['  ', '✻ ', '  ', '  '],
+    )
+    screen.appendFold([toolPad, read, toolPad], [toolPad, read, 'full', toolPad], '', 'Read access.ts')
+    screen.appendFold([grep, toolPad], [grep, 'matches', toolPad], '', 'Grep PROJECT_GOAL_TOOLS', undefined, undefined, [toolPad])
+    flush(sink)
+
+    // Rows: 1 thought pad, 2 clock, 3 thought pad, 4 tool pad, 5 Read, 6 Grep.
+    expect(screen.mouseMove(2, 5)?.label).toBe('thinking')
+    const frame = flush(sink)
+    expect(frame).toContain('\u001B[48;5;236m✻ thought for 26s')
+    expect(frame).not.toContain('\u001B[48;5;236m● Read access.ts')
+    expect(frame).not.toContain('\u001B[48;5;236m● Grep PROJECT_GOAL_TOOLS')
+    expect(screen.mouseMove(5, 5)?.label).toBe('Read access.ts')
+    expect(screen.mouseMove(6, 5)?.label).toBe('Grep PROJECT_GOAL_TOOLS')
+  })
+
+  it('does not hover later tool rows when a thought fold still claims them', () => {
+    const sink = host(14, 80)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['ask'], { row: 0, column: 0 }, false)
+    const thinkPad = '\u001B[48;2;20;16;32m  \u001B[0m'
+    const think = '\u001B[48;2;20;16;32mthought for 26s\u001B[0m'
+    const toolPad = '\u001B[48;2;14;18;24m  \u001B[0m'
+    const read = '\u001B[48;2;14;18;24m● Read access.ts ✔\u001B[0m'
+    const grep = '\u001B[48;2;14;18;24m● Grep PROJECT_GOAL_TOOLS ✔\u001B[0m'
+    screen.appendFold(
+      [thinkPad, think, thinkPad, toolPad, read, grep],
+      [thinkPad, think, 'reasoning', thinkPad],
+      ['  ', '✻ ', '  '],
+      'thinking',
+      undefined,
+      undefined,
+      [],
+      ['  ', '✻ ', '  ', '  '],
+    )
+    flush(sink)
+    expect(screen.mouseMove(2, 8)?.label).toBe('thinking')
+    const frame = flush(sink)
+    expect(frame).toContain('\u001B[48;5;236m✻ thought for 26s')
+    expect(frame).not.toContain('\u001B[48;5;236m● Read access.ts')
+    expect(frame).not.toContain('\u001B[48;5;236m● Grep PROJECT_GOAL_TOOLS')
+    expect(screen.mouseMove(5, 8)).toBeUndefined()
+    expect(screen.mouseMove(6, 8)).toBeUndefined()
+  })
+
+  it('does not treat a later tool card as part of the thought when their pads meet', () => {
+    const sink = host(14, 80)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['ask'], { row: 0, column: 0 }, false)
+    const thinkPad = '\u001B[48;2;20;16;32m  \u001B[0m'
+    const think = '\u001B[48;2;20;16;32mthought for 26s · total 27s\u001B[0m'
+    const toolPad = '\u001B[48;2;14;18;24m  \u001B[0m'
+    const readA = '\u001B[48;2;14;18;24m● Read access.ts ✔\u001B[0m'
+    const readB = '\u001B[48;2;14;18;24m● Read tools.ts ✔\u001B[0m'
+    const grep = '\u001B[48;2;14;18;24m● Grep PROJECT_GOAL_TOOLS ✔\u001B[0m'
+    const body = '\u001B[48;2;14;18;24m  dispatcher.ts\u001B[0m'
+    screen.appendFold(
+      [thinkPad, think, thinkPad],
+      [thinkPad, think, 'reasoning', thinkPad],
+      ['  ', '✻ ', '  '],
+      'thinking',
+      undefined,
+      undefined,
+      [],
+      ['  ', '✻ ', '  ', '  '],
+    )
+    screen.appendFold([toolPad, readA, toolPad], [toolPad, readA, toolPad], '', 'Read access.ts')
+    screen.appendFold([readB], [readB], '', 'Read tools.ts', undefined, undefined, [toolPad])
+    screen.appendFold([grep, body, toolPad], [grep, body, 'more', toolPad], '', 'Grep PROJECT_GOAL_TOOLS', undefined, undefined, [])
+    flush(sink)
+
+    expect(screen.mouseMove(2, 8)?.label).toBe('thinking')
+    const thoughtHover = flush(sink)
+    expect(thoughtHover).toContain('\u001B[48;5;236m✻ thought for 26s')
+    expect(thoughtHover).not.toContain('\u001B[48;5;236m● Read access.ts')
+    expect(thoughtHover).not.toContain('\u001B[48;5;236m● Read tools.ts')
+    expect(thoughtHover).not.toContain('\u001B[48;5;236m● Grep PROJECT_GOAL_TOOLS')
+    expect(thoughtHover).not.toContain('\u001B[48;5;236m  dispatcher.ts')
+
+    expect(screen.mouseMove(5, 8)?.label).toBe('Read access.ts')
+    const readHover = flush(sink)
+    expect(readHover).toContain('\u001B[48;5;236m● Read access.ts')
+    expect(readHover).not.toContain('\u001B[48;5;236m✻ thought for 26s')
+    expect(readHover).not.toContain('\u001B[48;5;236m● Grep PROJECT_GOAL_TOOLS')
   })
 
   it('puts a completed fold card in the place its pending card held', () => {

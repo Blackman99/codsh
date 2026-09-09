@@ -7,6 +7,7 @@
  * was pasted at; every other terminal gets a half-block mosaic, decoded out
  * of process. Either way the image bytes stay out of the card's rows — the
  * card reserves blank cells and the screen paints the picture over them.
+ * The transcript around the card is dimmed so the picture is what reads.
  * @module codsh-bundle/src/image-preview
  */
 

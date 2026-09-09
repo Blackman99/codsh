@@ -170,6 +170,49 @@ describe('TerminalQuestions', () => {
     })
     expect(shown).toEqual(['Storage?', 'Cache?', 'Storage?', 'Cache?'])
   })
+
+  it('restores a typed custom answer when going back to that question', async () => {
+    const priors: Array<{ custom?: string; selected?: string } | undefined> = []
+    let whereVisits = 0
+    let cacheVisits = 0
+    const questions = new TerminalQuestions(
+      { read: () => Promise.resolve(undefined) },
+      theme,
+      () => {},
+      undefined,
+      undefined,
+      async (spec) => {
+        priors.push(spec.prior)
+        if (spec.question === 'Where?') {
+          whereVisits += 1
+          if (whereVisits === 1) return { kind: 'accept', value: 'docs/rfcs/', custom: true }
+          expect(spec.prior).toEqual({ custom: 'docs/rfcs/' })
+          return { kind: 'accept', value: 'docs/adr/', custom: true }
+        }
+        cacheVisits += 1
+        if (cacheVisits === 1) return { kind: 'back' }
+        return { kind: 'accept', value: 'Memory' }
+      },
+    )
+    const request = {
+      questions: [
+        {
+          id: 'q1',
+          question: 'Where?',
+          header: 'ship · grill',
+          options: [{ label: 'docs/specs/' }, { label: 'Type a path' }],
+        },
+        { id: 'q2', question: 'Cache?', header: 'ship · grill', options: [{ label: 'Memory' }, { label: 'Redis' }] },
+      ],
+    } as AskUserQuestionRequest
+    expect(await questions.ask(request)).toEqual({
+      answers: [
+        { id: 'q1', selected: [], custom: 'docs/adr/' },
+        { id: 'q2', selected: ['Memory'] },
+      ],
+    })
+    expect(priors[2]).toEqual({ custom: 'docs/rfcs/' })
+  })
 })
 
 describe('plan review', () => {

@@ -17,6 +17,8 @@ export interface StickyPrompt {
   minHeight: number
   /** Expanded long prompts remain boundaries but do not pin. */
   sticky: boolean
+  /** The floating copy is showing the prompt's full form. */
+  open?: boolean
 }
 
 /** How the current prompt header occupies the viewport top. */
@@ -80,7 +82,9 @@ export function computeStickyLayout(
   if (current === undefined || !current.sticky) return undefined
   const full = clamp(current.fullHeight, 1, viewportHeight)
   const minimum = clamp(current.minHeight, 1, full)
-  const renderHeight = clamp(full - (scrollTop - current.at), minimum, full)
+  const renderHeight = current.open === true
+    ? full
+    : clamp(full - (scrollTop - current.at), minimum, full)
   const next = prompts[prompt + 1]
   if (next !== undefined) {
     const nextRow = next.at - scrollTop

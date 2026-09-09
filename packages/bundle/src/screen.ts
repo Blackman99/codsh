@@ -115,6 +115,9 @@ const FILL_LIGHT = '\u001B[48;5;253m'
 /** Restore the terminal's default background, leaving other attributes. */
 const FILL_OFF = '\u001B[49m'
 
+/** Dim the transcript around a centered preview so the picture is what reads. */
+const MASK_DIM = '\u001B[2m'
+
 /** Muted color for dividers and borders. */
 const MUTED = '\u001B[90m'
 
@@ -133,6 +136,40 @@ const RESET = '\u001B[0m'
  * @param light - whether the terminal background is light.
  * @returns the row, filled end to end.
  */
+/**
+ * Dim a transcript row behind a centered preview.
+ *
+ * The picture is the thing being looked at; everything else in the viewport
+ * steps back — dimmed text on the hover-panel fill — so the card is what
+ * the eye lands on. Chrome under the overlay stays as it is.
+ */
+function mask(row: string, columns: number, light: boolean): string {
+  const bg = light ? FILL_LIGHT : FILL_DARK
+  const noBg = row.replaceAll(/\u001B\[(?:48;[0-9;]*|49)m/gu, '')
+  const pad = Math.max(0, columns - displayWidth(noBg))
+  const padded = `${noBg}${' '.repeat(pad)}`
+  return `${bg}${MASK_DIM}${padded.replaceAll(RESET, `${RESET}${bg}${MASK_DIM}`)}${FILL_OFF}`
+}
+
+/**
+ * Dim the empty columns beside a centered card, leaving the card itself clear.
+ */
+function maskSides(row: string, columns: number, light: boolean): string {
+  const clipped = truncate(row, columns)
+  const plain = clipped.replaceAll(STYLES, '')
+  let leading = 0
+  while (leading < plain.length && plain[leading] === ' ') leading += 1
+  let trailing = 0
+  while (trailing < plain.length - leading && plain[plain.length - 1 - trailing] === ' ') trailing += 1
+  if (leading === 0 && trailing === 0) return clipped
+  const bg = light ? FILL_LIGHT : FILL_DARK
+  const left = leading > 0 ? `${bg}${MASK_DIM}${' '.repeat(leading)}${FILL_OFF}` : ''
+  const rightPad = Math.max(0, columns - displayWidth(clipped) + trailing)
+  const right = rightPad > 0 ? `${bg}${MASK_DIM}${' '.repeat(rightPad)}${FILL_OFF}` : ''
+  const body = clipped.replace(/^[ ]+/u, '').replace(/[ ]+$/u, '')
+  return `${left}${body}${right}`
+}
+
 function fill(row: string, columns: number, light: boolean): string {
   const bg = light ? FILL_LIGHT : FILL_DARK
   // Strip any existing background escape sequences so the hover fill is completely
@@ -371,6 +408,8 @@ export class Screen {
   private promptLayoutCache: PromptLayout[] | undefined
   /** The block the pointer rests on, or undefined when it rests on none. */
   private hovered: Fold | undefined
+  /** Prompt whose truncated sticky copy is expanded in the floating header. */
+  private stickyOpen: TurnPrompt | undefined
   /** Whether OSC 11 named a light background; the hover fill picks a shade. */
   private light = false
   /**
@@ -1153,25 +1192,32 @@ export class Screen {
     const starts = this.logicalStarts()
     const at = (index: number): number => starts[Math.min(index, this.logical.length)] ?? this.physical.length
     const ranges: { fold: Fold; from: number; to: number }[] = []
-    for (const fold of this.folds) {
-      let effectiveLength = fold.shownLength
+    for (const [index, fold] of this.folds.entries()) {
       const lines = fold.expanded ? fold.full : fold.summary
+      const next = this.folds[index + 1]
+      // Hover belongs to this panel's own rows. A later card may have grown
+      // shownLength past the clock, so clamp to the form currently drawn and
+      // to the next fold — otherwise a thought lights the Grep below it.
+      let end = Math.min(fold.shownLength, lines.length)
+      if (next !== undefined) end = Math.min(end, Math.max(0, next.at - fold.at))
       // Unstyled blanks are a gap between cards. A row that still carries a
       // background is the panel's inset and belongs to the hover.
       const isOuterGap = (line: string): boolean => line.replaceAll(STYLES, '').trim() === '' && !/\u001B\[48;[0-9;]*m/.test(line)
-      while (effectiveLength > 0 && isOuterGap(lines[effectiveLength - 1] ?? '')) {
-        effectiveLength -= 1
+      const panelBg = (line: string): string | undefined => /\u001B\[48;[0-9;]*m/.exec(line)?.[0]
+      let head = 0
+      while (head < end && isOuterGap(lines[head] ?? '')) head += 1
+      const ownBg = panelBg(lines[head] ?? '')
+      let tail = end
+      if (ownBg !== undefined) {
+        while (tail > head && panelBg(lines[tail - 1] ?? '') !== ownBg) tail -= 1
       }
-      let effectiveStart = 0
-      while (effectiveStart < effectiveLength && isOuterGap(lines[effectiveStart] ?? '')) {
-        effectiveStart += 1
+      while (tail > head && isOuterGap(lines[tail - 1] ?? '')) tail -= 1
+      if (head >= tail) {
+        head = 0
+        tail = end
       }
-      if (effectiveStart >= effectiveLength) {
-        effectiveStart = 0
-        effectiveLength = fold.shownLength
-      }
-      const from = at(fold.at + effectiveStart)
-      const to = Math.max(from, at(fold.at + effectiveLength) - 1)
+      const from = at(fold.at + head)
+      const to = Math.max(from, at(fold.at + tail) - 1)
       ranges.push({ fold, from, to })
     }
     this.ranges = ranges
@@ -1184,7 +1230,8 @@ export class Screen {
    * @returns the block, or undefined when the row is not in one.
    */
   private foldAt(row: number): Fold | undefined {
-    return this.foldRanges().find(range => row >= range.from && row <= range.to)?.fold
+    const hits = this.foldRanges().filter(range => row >= range.from && row <= range.to)
+    return hits.at(-1)?.fold
   }
 
   /**
@@ -1351,7 +1398,8 @@ export class Screen {
    *
    * By default, floats just above the chrome (e.g. completion menu).
    * When `centered` is true, centers vertically on the visible viewport
-   * (e.g. image preview card) without stripping inner ANSI background fills.
+   * (e.g. image preview card) and dims the transcript around it so the
+   * picture is what reads.
    * Empty clears the layer.
    *
    * A graphic rides beside the rows rather than in them. Its payload is base64
@@ -1536,6 +1584,7 @@ export class Screen {
     this.promptLayoutCache = undefined
     this.ranges = undefined
     this.hovered = undefined
+    this.stickyOpen = undefined
     this.pressedSticky = undefined
     this.selection = undefined
     this.pressedTimeline = undefined
@@ -1765,14 +1814,10 @@ export class Screen {
     }
     const sticky = this.pressedSticky
     this.pressedSticky = undefined
-    if (sticky?.fold !== undefined) {
-      this.setFold(sticky.fold, true, true)
-      const at = this.promptLayouts().find(layout => layout.prompt === sticky)?.at
-      if (at !== undefined) {
-        this.offset = Math.min(this.scrollLimit(), Math.max(0, this.scrollExtent() - at - this.viewportHeight()))
-        this.painted = []
-        this.render()
-      }
+    if (sticky !== undefined) {
+      this.stickyOpen = this.stickyOpen === sticky ? undefined : sticky
+      this.painted = []
+      this.render()
       return undefined
     }
     const selection = this.selection
@@ -2189,6 +2234,19 @@ export class Screen {
     this.refreshTranscriptSearch()
   }
 
+  /**
+   * Wrapped rows of a prompt's full form, for the floating sticky panel.
+   *
+   * The inline transcript may still show the three-row summary; the header
+   * that pins over the response is a copy, so expanding it must not splice
+   * the original prompt back into view.
+   */
+  private stickyFullRows(prompt: TurnPrompt): string[] {
+    const content = prompt.full.at(-1) === '' ? prompt.full.slice(0, -1) : prompt.full
+    const columns = this.contentColumns()
+    return content.flatMap(line => wrapStyled(line, columns))
+  }
+
   /** User prompts measured in the same physical rows the viewport scrolls. */
   private promptLayouts(): PromptLayout[] {
     if (this.promptLayoutCache !== undefined) return this.promptLayoutCache
@@ -2248,19 +2306,24 @@ export class Screen {
     const end = this.physical.length + this.tailRows - offset
     const scrollTop = Math.max(0, end - height)
     const prompts = this.promptLayouts()
-    const sticky = computeStickyLayout(scrollTop, height, prompts.map(({ prompt, at, rows }) => ({
-      at,
-      fullHeight: rows.length,
-      // Explicit newlines carry meaning: a short two- or three-line request
-      // must remain readable as a unit after it pins. A single logical line
-      // may still compact after wrapping, while prompts long enough to own a
-      // Fold retain the existing three-rows-to-one sticky behaviour. The
-      // count arrives from Transcript so generated image metadata is excluded.
-      minHeight: prompt.fold === undefined && prompt.explicitLines > 1
-        ? rows.length
-        : 1,
-      sticky: prompt.fold?.expanded !== true,
-    })))
+    const sticky = computeStickyLayout(scrollTop, height, prompts.map(({ prompt, at, rows }) => {
+      const open = this.stickyOpen === prompt
+      const fullRows = open ? this.stickyFullRows(prompt) : rows
+      return {
+        at,
+        fullHeight: fullRows.length,
+        // Explicit newlines carry meaning: a short two- or three-line request
+        // must remain readable as a unit after it pins. A single logical line
+        // may still compact after wrapping, while prompts long enough to own a
+        // Fold retain the existing three-rows-to-one sticky behaviour. The
+        // count arrives from Transcript so generated image metadata is excluded.
+        minHeight: prompt.fold === undefined && prompt.explicitLines > 1
+          ? rows.length
+          : 1,
+        sticky: prompt.fold?.expanded !== true || open,
+        ...open ? { open: true } : {},
+      }
+    }))
     const contentHeight = Math.max(0, height - (sticky?.reservedRows ?? 0))
     return { height, end, first: Math.max(0, end - contentHeight), prompts, sticky }
   }
@@ -2365,7 +2428,10 @@ export class Screen {
     }
     let viewport: string[]
     if (sticky !== undefined) {
-      const source = prompts[sticky.prompt]?.rows ?? []
+      const owner = prompts[sticky.prompt]
+      const source = owner !== undefined && this.stickyOpen === owner.prompt
+        ? this.stickyFullRows(owner.prompt)
+        : owner?.rows ?? []
       const from = sticky.state === 'pushed' ? sticky.clipTop : 0
       const header = source.slice(from, from + sticky.renderHeight)
       const width = this.contentColumns()
@@ -2423,10 +2489,19 @@ export class Screen {
         ? Math.max(0, Math.floor((viewport.length - this.overlay.length) / 2))
         : Math.max(0, viewport.length - this.overlay.length)
       overlayStart = start
+      if (this.overlayCentered) {
+        for (let at = 0; at < viewport.length; at += 1) {
+          if (at < start || at >= start + this.overlay.length) {
+            viewport[at] = mask(viewport[at] ?? '', width, this.light)
+          }
+        }
+      }
       this.overlay.forEach((row, index) => {
         const at = start + index
         if (at < viewport.length) {
-          viewport[at] = this.overlayCentered ? truncate(row, width) : fill(truncate(row, width), width, this.light)
+          viewport[at] = this.overlayCentered
+            ? maskSides(row, width, this.light)
+            : fill(truncate(row, width), width, this.light)
         }
       })
     }

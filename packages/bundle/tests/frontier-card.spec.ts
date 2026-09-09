@@ -68,6 +68,24 @@ describe('FrontierCard', () => {
     expect(card.handleKey({ kind: 'enter' })).toEqual({ kind: 'accept', value: 'docs/rfcs/', custom: true })
   })
 
+  it('moves the caret left inside a typed write-in without deleting it', () => {
+    const card = new FrontierCard({
+      question: 'Where?',
+      options: [
+        { label: 'docs/specs/' },
+        { label: 'Type a path', writeIn: true },
+      ],
+      canBack: true,
+    })
+    expect(card.handleKey({ kind: 'down' })).toEqual({ kind: 'move' })
+    expect(card.handleKey({ kind: 'text', text: 'ab' })).toEqual({ kind: 'move' })
+    expect(card.handleKey({ kind: 'left' })).toEqual({ kind: 'move' })
+    expect(card.frame(theme, 56).rows.join('\n')).toContain('a▌b')
+    expect(card.handleKey({ kind: 'text', text: 'X' })).toEqual({ kind: 'move' })
+    expect(card.frame(theme, 56).rows.join('\n')).toContain('aX▌b')
+    expect(card.handleKey({ kind: 'enter' })).toEqual({ kind: 'accept', value: 'aXb', custom: true })
+  })
+
   it('restores a previous write-in or selected answer when revisiting', () => {
     const write = new FrontierCard({
       question: 'Where?',
@@ -88,6 +106,15 @@ describe('FrontierCard', () => {
       prior: { selected: 'docs/specs/' },
     })
     expect(picked.focused).toBe(0)
+    const unlabeled = new FrontierCard({
+      question: 'Where?',
+      options: [
+        { label: 'docs/specs/' },
+        { label: 'Somewhere else' },
+      ],
+      prior: { custom: 'docs/rfcs/' },
+    })
+    expect(unlabeled.frame(theme, 56).rows.join('\n')).toContain('docs/rfcs/')
   })
 
   it('goes back to the previous consecutive question on left', () => {

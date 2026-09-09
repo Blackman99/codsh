@@ -481,15 +481,15 @@ export class Transcript {
   /**
    * Close an active tool run, so subsequent tools open in a new panel.
    *
-   * The closing pad of a coloured panel is not a gap: the next block still
-   * needs a blank row, or it sits flush against the last card.
-   * @returns a blank separator when a run was standing, otherwise empty.
+   * Neighbouring panels already carry their own inner pads, so this must not
+   * insert an unstyled blank — that hole is the gap between an Edit card and
+   * the thought clock. The next block still opens with its own top pad.
+   * @returns nothing; the run is closed in memory only.
    */
   endRun(): string[] {
-    const hadRun = this.run !== undefined
     this.run = undefined
     this.orphanRun = undefined
-    return hadRun ? [''] : []
+    return []
   }
 
   /**

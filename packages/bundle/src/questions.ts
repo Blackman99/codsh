@@ -353,6 +353,7 @@ export class TerminalQuestions {
       ...question.multiSelect === true ? { multi: true } : {},
       custom: '✎ Type your own answer',
       ...nav.canBack ? { back: true } : {},
+      ...nav.prior === undefined ? {} : { prior: nav.prior },
     }, signal)
     if (outcome.kind === 'chosen') {
       const selected = outcome.indices
