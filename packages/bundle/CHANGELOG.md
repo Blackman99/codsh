@@ -1,5 +1,15 @@
 # codsh-bundle
 
+## 0.19.0
+
+### Minor Changes
+
+- bb29725: `/ship` now follows the to-spec, to-tickets, and tdd skills as contracts: exhaustive stories, vertical tickets with a DAG and per-ticket acceptance, `.scratch/` plus tracker when configured, and red-first landing.
+
+### Patch Changes
+
+- e17e601: Ask-user questions wrap their title and option details instead of cutting them with an ellipsis, so a long prompt stays readable.
+
 ## 0.18.3
 
 ### Patch Changes
