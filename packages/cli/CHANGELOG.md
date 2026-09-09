@@ -1,5 +1,11 @@
 # codsh
 
+## 0.19.0
+
+### Minor Changes
+
+- bb29725: `/ship` now follows the to-spec, to-tickets, and tdd skills as contracts: exhaustive stories, vertical tickets with a DAG and per-ticket acceptance, `.scratch/` plus tracker when configured, and red-first landing.
+
 ## 0.18.3
 
 ## 0.18.2
