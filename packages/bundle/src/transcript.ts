@@ -235,9 +235,9 @@ export function thinkingFold(
   const head = theme.bgThinking(text)
   const pad = blockPad(theme, text => theme.bgThinking(text))
   return {
-    // Collapsed, the clock is one row: pads around it read as an empty panel
-    // sitting between tool cards. Expanded, the panel still insets the body.
-    summary: [head],
+    // Pads are the panel's inset, not a gap between neighbouring cards.
+    // Collapsed and expanded both carry them so hover lights the whole panel.
+    summary: [...pad, head, ...pad],
     full: [...pad, head, ...pad, ...lines.map(line => theme.bgThinking(line)), ...pad],
   }
 }
@@ -250,14 +250,14 @@ export function thinkingFold(
  * @returns the collapsed rule and, when coloured, the expanded per-row rules.
  */
 export function thinkingFoldRules(theme: Theme, bodyLines: number): {
-  summary: string
+  summary: string | string[]
   full?: string[]
 } {
   const agentRule = blockRules(theme).agent
   if (!theme.colored) return { summary: agentRule }
   const blank = '  '
   return {
-    summary: agentRule,
+    summary: [blank, agentRule, blank],
     full: [blank, agentRule, blank, ...Array.from({ length: bodyLines }, () => blank), blank],
   }
 }

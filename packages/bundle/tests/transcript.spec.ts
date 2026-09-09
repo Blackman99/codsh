@@ -750,18 +750,20 @@ describe('the forms a long block keeps', () => {
     expect(full).toContain('  second')
   })
 
-  it('keeps the collapsed clock on one row, not a padded empty panel', () => {
-    // A collapsed thought used to carry a background pad above and below the
-    // clock, so the summary sat in a three-row hole between tool cards.
+  it('keeps inner pads on the collapsed clock so the glyph sits in a panel, not a hole', () => {
+    // The pads are the panel's inset, not a gap between neighbouring cards.
+    // Hover and the glyph both belong to that inset.
     const colorTheme = createTheme(true, { COLORTERM: 'truecolor' })
+    const pad = colorTheme.bgThinking('  ')
+    const clock = colorTheme.bgThinking(colorTheme.dim('  thought for 1.5s'))
     const { summary, full } = thinkingFold(['reasoning line'], colorTheme, 1.5)
-    expect(summary).toEqual([colorTheme.bgThinking(colorTheme.dim('  thought for 1.5s'))])
-    expect(full[0]).toBe(colorTheme.bgThinking('  '))
-    expect(full[1]).toBe(colorTheme.bgThinking(colorTheme.dim('  thought for 1.5s')))
-    expect(full.at(-1)).toBe(colorTheme.bgThinking('  '))
+    expect(summary).toEqual([pad, clock, pad])
+    expect(full[0]).toBe(pad)
+    expect(full[1]).toBe(clock)
+    expect(full.at(-1)).toBe(pad)
     expect(full).toContain(colorTheme.bgThinking('reasoning line'))
     const rules = thinkingFoldRules(colorTheme, 1)
-    expect(rules.summary).toBe(blockRules(colorTheme).agent)
+    expect(rules.summary).toEqual(['  ', blockRules(colorTheme).agent, '  '])
     expect(rules.full).toEqual(['  ', blockRules(colorTheme).agent, '  ', '  ', '  '])
   })
 
@@ -1216,8 +1218,12 @@ describe('grok background differentiation across functional blocks', () => {
     expect(errResultLines[1]).toContain('✗')
 
     const think = thinkingFold(['reasoning line'], colorTheme, 1.5)
-    // Collapsed, the clock is one row. Expanded, the panel pads around the body.
-    expect(think.summary).toEqual([colorTheme.bgThinking(colorTheme.dim('  thought for 1.5s'))])
+    // Collapsed and expanded both inset the clock with the thinking panel fill.
+    expect(think.summary).toEqual([
+      colorTheme.bgThinking('  '),
+      colorTheme.bgThinking(colorTheme.dim('  thought for 1.5s')),
+      colorTheme.bgThinking('  '),
+    ])
     expect(think.full[0]).toBe(colorTheme.bgThinking('  '))
     expect(think.full[1]).toBe(colorTheme.bgThinking(colorTheme.dim('  thought for 1.5s')))
     expect(think.full[2]).toBe(colorTheme.bgThinking('  '))

@@ -1156,12 +1156,14 @@ export class Screen {
     for (const fold of this.folds) {
       let effectiveLength = fold.shownLength
       const lines = fold.expanded ? fold.full : fold.summary
-      const isHoverPad = (line: string): boolean => line.replaceAll(STYLES, '').trim() === ''
-      while (effectiveLength > 0 && isHoverPad(lines[effectiveLength - 1] ?? '')) {
+      // Unstyled blanks are a gap between cards. A row that still carries a
+      // background is the panel's inset and belongs to the hover.
+      const isOuterGap = (line: string): boolean => line.replaceAll(STYLES, '').trim() === '' && !/\u001B\[48;[0-9;]*m/.test(line)
+      while (effectiveLength > 0 && isOuterGap(lines[effectiveLength - 1] ?? '')) {
         effectiveLength -= 1
       }
       let effectiveStart = 0
-      while (effectiveStart < effectiveLength && isHoverPad(lines[effectiveStart] ?? '')) {
+      while (effectiveStart < effectiveLength && isOuterGap(lines[effectiveStart] ?? '')) {
         effectiveStart += 1
       }
       if (effectiveStart >= effectiveLength) {
@@ -2397,7 +2399,7 @@ export class Screen {
           const index = at - first
           if (index >= 0 && index < visible.length) {
             const rawRow = visible[index] ?? ''
-            if (rawRow.replaceAll(STYLES, '').trim() === '') continue
+            if (rawRow.replaceAll(STYLES, '').trim() === '' && !/\u001B\[48;[0-9;]*m/.test(rawRow)) continue
             const vpIndex = (sticky !== undefined ? (sticky.state === 'pinned' ? sticky.reservedRows : sticky.renderHeight) : 0) + index
             if (vpIndex < viewport.length) {
               viewport[vpIndex] = fill(rawRow, contentWidth, this.light)
