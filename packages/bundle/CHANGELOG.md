@@ -1,5 +1,11 @@
 # codsh-bundle
 
+## 0.18.3
+
+### Patch Changes
+
+- 5188dc6: A collapsed thinking clock is one row again. The empty pads around it were turning the summary into a three-row hole between tool cards.
+
 ## 0.18.2
 
 ### Patch Changes
