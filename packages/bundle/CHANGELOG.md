@@ -1,5 +1,16 @@
 # codsh-bundle
 
+## 0.20.0
+
+### Minor Changes
+
+- b00bba1: Consecutive `/ship` grill questions revisit with ←/→, and a write-in option is an inline field when focused — type and Enter, no extra select.
+- 6c563bb: `/ship` now follows the grill-me skill as a contract: recon first, batched frontier rounds with recommended answers, the `ship · grill` header, and an exhaustion handshake before the spec.
+
+### Patch Changes
+
+- c391672: A collapsed thought keeps its inner pads, and hovering the clock lights those pads with the rest of the panel.
+
 ## 0.19.0
 
 ### Minor Changes
