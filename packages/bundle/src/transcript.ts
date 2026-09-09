@@ -802,21 +802,26 @@ export class Transcript {
       const marker = failed ? theme.err('✗') : theme.ok('●')
       const rawText = this.resultText(block.content)
       const text = failed ? rawText : formatAskUserQuestionResult(rawText)
-      const { body, full } = this.capBody(text.split('\n').map(line => bg(line)), MAX_RESULT_LINES)
+      // Same inset and dim as a paired generic body, then the panel fill after
+      // the cap: wrapping first left the collapse hint un-backed, so a long
+      // unpaired line punched a hole in the card.
+      const { body, full } = this.capBody(text.split('\n').map(line => theme.dim(`  ${line}`)), MAX_RESULT_LINES)
       const head = bg(`${cardIndent(theme)}${marker} ${theme.dim('(result)')}`)
       const enter = failed ? undefined : childSessionId(text)
       const hint = enter === undefined ? [] : [bg(theme.dim('  click to enter'))]
       const { lead, close, supersedes } = this.joinRun(true, bg, blockClose(theme, bg))
       this.pendingCard = supersedes
-      if (full !== undefined) {
-        this.fold = [...lead, head, ...full, ...hint, ...close]
+      const bodyLines = body.map(line => bg(line))
+      const fullLines = full?.map(line => bg(line))
+      if (fullLines !== undefined) {
+        this.fold = [...lead, head, ...fullLines, ...hint, ...close]
         this.label = 'tool result'
       }
       if (enter !== undefined) {
         this.enter = enter
         this.label = 'tool result'
       }
-      return [...lead, head, ...body, ...hint, ...close]
+      return [...lead, head, ...bodyLines, ...hint, ...close]
     }
     const view = this.safeResult(pending, block.content, failed, meta)
     const title = view?.title === undefined ? pending.title : this.relativizeIn(view.title)

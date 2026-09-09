@@ -507,7 +507,7 @@ describe('tool results', () => {
   })
 
   it('prints an unpaired result rather than dropping it', () => {
-    expect(build().render(resultEvent('missing', 'orphan'))).toEqual(['● (result)', 'orphan', ''])
+    expect(build().render(resultEvent('missing', 'orphan'))).toEqual(['● (result)', '  orphan', ''])
   })
 
   it('degrades to the generic card when a result presenter throws', () => {
@@ -627,6 +627,22 @@ describe('a result line wider than the card', () => {
     const lines = transcript.render(resultEvent('c9', 'y'.repeat(1000)))
     expect(displayWidth(lines[1] ?? '')).toBeLessThanOrEqual((80 - 4) * 3)
     expect((transcript.takeFold() ?? []).join('\n')).toContain('y'.repeat(1000))
+  })
+
+  it('paints an unpaired fold hint as part of the card, not a flush strip', () => {
+    // A resumed page-boundary result has no pending card to pair with. The
+    // body used to sit flush and the collapse hint was left un-backed, so a
+    // long path wrapped the full width and the `… +N lines` row punched a
+    // hole in the panel.
+    const colorTheme = createTheme(true, { COLORTERM: 'truecolor' })
+    const transcript = new Transcript(
+      { theme: colorTheme, columns: 80, cwd: CWD },
+      { call: () => undefined, result: () => undefined },
+    )
+    const lines = transcript.render(resultEvent('c9', Array.from({ length: 20 }, (_, i) => `line ${i}`).join('\n')))
+    const hint = lines.find(line => line.includes('click or Ctrl+O expands')) ?? ''
+    expect(hint).toBe(colorTheme.bgTool(colorTheme.dim('  … +15 lines (click or Ctrl+O expands)')))
+    expect(lines.some(line => line === colorTheme.bgTool(colorTheme.dim('  line 0')))).toBe(true)
   })
 })
 
