@@ -1243,6 +1243,21 @@ describe('grok background differentiation across functional blocks', () => {
     expect(plain).toEqual(['● bash'])
   })
 
+  it('opens a tool panel with its own top pad after thinking ended the run', () => {
+    const colorTheme = createTheme(true, { COLORTERM: 'truecolor' })
+    const pad = colorTheme.bgTool('  ')
+    const colored = new Transcript(
+      { columns: 80, theme: colorTheme, cwd: CWD },
+      { call: () => undefined, result: () => undefined },
+    )
+    colored.render(callEvent('c1', 'read', {}))
+    colored.render(resultEvent('c1', ''))
+    expect(colored.endRun()).toEqual([''])
+    const next = colored.render(callEvent('c2', 'grep', {}))
+    expect(next[0]).toBe(pad)
+    expect(next[1]).toContain(colorTheme.tool('grep'))
+  })
+
   it('gives a run of one-line cards a single shared panel', () => {
     const colorTheme = createTheme(true, { COLORTERM: 'truecolor' })
     const pad = colorTheme.bgTool('  ')

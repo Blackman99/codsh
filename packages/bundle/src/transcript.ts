@@ -456,12 +456,18 @@ export class Transcript {
     return missing.length === 0 ? '' : ` ${missing.join(', ')}`
   }
 
-  /** Close an active tool run, so subsequent tools open in a new panel. */
-  endRun(): boolean {
+  /**
+   * Close an active tool run, so subsequent tools open in a new panel.
+   *
+   * The closing pad of a coloured panel is not a gap: the next block still
+   * needs a blank row, or it sits flush against the last card.
+   * @returns a blank separator when a run was standing, otherwise empty.
+   */
+  endRun(): string[] {
     const hadRun = this.run !== undefined
     this.run = undefined
     this.orphanRun = undefined
-    return hadRun
+    return hadRun ? [''] : []
   }
 
   /**

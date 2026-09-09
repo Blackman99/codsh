@@ -2233,6 +2233,31 @@ describe('the block under the pointer', () => {
     expect(screen.mouseMove(2, 3)).toBeUndefined()
   })
 
+  it('does not hover a thinking pad when the pointer is on the tool card above it', () => {
+    const sink = host(10, 80)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['status'], { row: 0, column: 0 }, false)
+    const toolPad = '\u001B[48;2;14;18;24m  \u001B[0m'
+    const tool = '\u001B[48;2;14;18;24m● Read a.ts ✔\u001B[0m'
+    const thinkPad = '\u001B[48;2;20;16;32m  \u001B[0m'
+    const think = '\u001B[48;2;20;16;32mthought for 40s\u001B[0m'
+    screen.appendFold([toolPad, tool, toolPad], [toolPad, tool, 'full', toolPad], '', 'Read a.ts')
+    screen.appendFold([thinkPad, think, thinkPad], [thinkPad, think, 'reasoning', thinkPad], ['  ', '✻ ', '  '], 'thinking')
+    flush(sink)
+
+    // Rows: 1 tool pad, 2 Read, 3 tool close pad, 4 thinking pad, 5 clock.
+    // Hovering the Read must not light the close pad as if it were another card.
+    expect(screen.mouseMove(2, 5)?.label).toBe('Read a.ts')
+    const frame = flush(sink)
+    expect(frame).toContain('\u001B[48;5;236m● Read a.ts')
+    expect(frame).not.toContain('thought for 40s\u001B[0m\u001B[48;5;236m')
+    // The card's closing pad is only background; filling it looks like a
+    // second selected row sitting on the thinking block.
+    expect(frame).not.toMatch(/\u001B\[48;5;236m\s+\u001B\[0m\u001B\[48;5;236m/u)
+    expect(screen.mouseMove(5, 5)?.label).toBe('thinking')
+  })
+
   it('puts a completed fold card in the place its pending card held', () => {
     const sink = host(5, 40)
     const screen = new Screen(sink)
@@ -2902,11 +2927,11 @@ describe('overlay graphics', () => {
     expect(initial).toContain('thought for 2.0s')
     expect(initial.split('✻').length - 1).toBe(1)
 
-    // Moving pointer to any row (top pad row 1, or middle text row 2) triggers hover
-    expect(screen.mouseMove(1, 5)?.label).toBe('thinking')
+    // The opening pad is only background: hovering it is not a selection.
+    expect(screen.mouseMove(1, 5)).toBeUndefined()
+    expect(screen.mouseMove(2, 5)?.label).toBe('thinking')
     const frame = flush(sink)
-    // All 3 rows receive hover fill \u001B[48;5;236m
-    const hoverCount = frame.split('\u001B[48;5;236m').length - 1
-    expect(hoverCount).toBeGreaterThanOrEqual(3)
+    expect(frame).toContain('\u001B[48;5;236m✻ thought for 2.0s')
+    expect(frame).not.toMatch(/\u001B\[48;5;236m\s+\u001B\[0m\u001B\[48;5;236m/u)
   })
 })
