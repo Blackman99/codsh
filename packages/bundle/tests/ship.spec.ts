@@ -82,6 +82,21 @@ describe('SHIP_PROMPT', () => {
     expect(SHIP_PROMPT).toContain('red before green')
   })
 
+  it('follows the grill-me skill: recon first, batched frontier, recommended answers, exhaustion handshake', () => {
+    expect(SHIP_PROMPT).toContain('Follow the grill-me skill as the contract, not a summary of it')
+    expect(SHIP_PROMPT).toContain('Relentless Frontier Exploration')
+    expect(SHIP_PROMPT).toContain('One Question Round per Turn')
+    expect(SHIP_PROMPT).toContain('Autonomous Fact Extraction')
+    expect(SHIP_PROMPT).toContain('Active Assumption Invalidation')
+    expect(SHIP_PROMPT).toContain('No Premature Implementation')
+    expect(SHIP_PROMPT).toContain('Strict Topological Dependency Ordering')
+    expect(SHIP_PROMPT).toContain('Mandatory Concrete Recommendations')
+    expect(SHIP_PROMPT).toContain('Verified Exhaustion Gate')
+    expect(SHIP_PROMPT).toContain('ship · grill')
+    expect(SHIP_PROMPT).toContain('never interrogate with one-off dribble')
+    expect(SHIP_PROMPT).toContain('never ask the user what inspection can reveal')
+  })
+
   it('follows the to-spec skill: exhaustive stories, public seams, tracker or scratch, no interrogation', () => {
     expect(SHIP_PROMPT).toContain('Pure Synthesis, Zero Interrogation')
     expect(SHIP_PROMPT).toContain('As an <actor>, I want a <feature>, so that <benefit>')

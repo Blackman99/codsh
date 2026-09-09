@@ -36,7 +36,7 @@ Key: `DEEPSEEK_API_KEY`. Already have dsh? `npm i -g codsh-cli` is enough.
 `/ship <one-sentence idea>` — pre-flight isolation, grill, two approvals, autonomous TDD, dual-layer DoD:
 
 0. **Pre-flight & Isolation** — checks working tree hygiene (`ship · preflight` prompt if dirty); cuts an isolated `ship/<slug>` branch so the base branch stays pristine.
-1. **Grill** — design-tree interview; facts are inspected, each round asks the open frontier with a recommended answer.
+1. **Grill** — the grill-me skill: recon first, then a design-tree interview; each round batches the unblocked frontier with a recommended answer and `header` `ship · grill`; nothing is assumed until the frontier is empty and confirmed.
 2. **Spec (Gate 1)** — synthesized automatically as the to-spec skill (exhaustive stories, public seams, Out of Scope). You confirm. Records branch, base commit, decisions, proving commands, and a `.scratch/` copy (tracker if configured).
 3. **Tickets & Baseline (Gate 2)** — to-tickets vertical slices with a DAG, per-ticket acceptance checklists, `.scratch/.../issues/` files, plus the release compliance ticket. You approve. Baseline runs across proof commands and repo guardrails.
 4. **Landing** — the tdd skill: one red test witnessed failing, then minimal green, then the suite; 3-strike circuit breaker; cascading re-verification on resume; each green ticket is a clean commit. A larger plan runs as a Ralph loop of fresh agents; while a round works, the working line names that round and its latest call (the chrome already holds the plan), the plan row ticks as the spec's checkboxes change on disk, and the round's end line says what it did — Esc stops the whole loop, mid-ticket.

@@ -359,7 +359,8 @@ _Avoid_: inject (dsh's model-facing context), interrupt, follow-up
 **Ship gates**:
 The two approvals in the `/ship` workflow — the confirmed spec file (gate 1)
 and the approved ticket breakdown (gate 2). Everything after gate 2 is
-autonomous. Grill-me runs first (design tree, frontier rounds); to-spec and
+autonomous. Grill-me runs first as the grill-me skill (recon, design tree,
+frontier rounds with recommended answers, exhaustion handshake); to-spec and
 to-tickets then run as those skills (exhaustive stories, vertical tickets
 with a DAG and per-ticket acceptance, `.scratch/` plus tracker when
 configured) without another interview. Landing follows the tdd skill: one
