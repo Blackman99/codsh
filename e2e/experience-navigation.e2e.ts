@@ -148,8 +148,9 @@ describe.skipIf(process.platform === 'win32')('the first five minutes: timeline,
     expect(named.some(row => /thinking · \d+ lines · click to expand/u.test(row))).toBe(true)
     const released = screenAtLast(output, '? shortcuts').alternate
     expect(released.some(row => row.includes('click to expand'))).toBe(false)
-    // The status row is not what the hover borrowed, so it stayed throughout.
-    expect(released.some(row => row.includes('cli-mock'))).toBe(true)
+    // The environment bar is not what the hover borrowed, so it stayed
+    // throughout — it is the bar on row 0 that names the workspace now.
+    expect(released[0] ?? '').toContain('/var/folders/')
   }, E2E_TEST_TIMEOUT_MS)
 
   it('opens the block a click lands on, and folds it back from inside it', async () => {

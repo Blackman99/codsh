@@ -297,8 +297,10 @@ describe.skipIf(process.platform === 'win32')('undo and redo (real PTY)', () => 
     const undone = screenBefore(3)
     const redone = screenBefore(4)
     expect(pasted).toContain('› hello pasted words')
-    // The paste came off as one step; the typed word is still there.
-    expect(undone).toMatch(/› hello\s+│/u)
+    // The paste came off as one step; the typed word is still there. The input
+    // is borderless now, so the row is anchored by its `›` mark rather than a
+    // closing frame glyph.
+    expect(undone).toMatch(/› hello\s*$/mu)
     expect(undone).not.toContain('pasted words')
     expect(redone).toContain('› hello pasted words')
   }, E2E_TEST_TIMEOUT_MS)

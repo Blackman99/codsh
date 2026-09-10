@@ -61,11 +61,12 @@ describe.skipIf(process.platform === 'win32')('streaming, cards and folds (real 
     ])
 
     const rows = screenAt(output, 'CODE_CLI_CALL_OK').alternate
-    // The always-current facts occupy the screen's last row, not the
-    // transcript: model, composition, permissions, spend, and place.
-    expect(rows.at(-1)).toMatch(/cli-mock/)
-    // Submitting clears the box, so the transcript's own render is the only
-    // copy of the message that survives — a row outside the box's borders.
+    // The environment facts moved out of the foot and onto the bar at row 0,
+    // which names the workspace; the foot now carries only the shortcuts entry.
+    expect(rows[0]).toContain('/var/folders/')
+    expect(rows.at(-1)).toContain('? shortcuts')
+    // Submitting clears the input, so the transcript's own render is the only
+    // copy of the message that survives — a row of its own, outside the divider.
     expect(rows.map(visible)).toContain('›   create the note')
   }, E2E_TEST_TIMEOUT_MS)
 
@@ -267,10 +268,12 @@ describe.skipIf(process.platform === 'win32')('streaming, cards and folds (real 
       [collapsed, `/exit${ENTER}`, 400],
     ])
 
-    // Pinned: the item in flight sits directly over the status row, so the list
-    // is still answerable long after its card scrolled away.
+    // Pinned: the item in flight sits directly over the foot, so the list is
+    // still answerable long after its card scrolled away. The environment facts
+    // live on the bar at the top now, not in the row this readout borrows.
     const pinned = screenAt(output, 'write the fix').alternate
-    expect(pinned.at(-1)).toMatch(/cli-mock/)
+    expect(pinned[0]).toContain('/var/folders/')
+    expect(pinned.at(-1)).toContain('? shortcuts')
     const readout = pinned.findIndex(row => /todos 1\/3 · ▶ write the fix · Ctrl\+T/.test(row))
     expect(readout).toBeGreaterThanOrEqual(0)
     expect(pinned[readout]).toMatch(/todos 1\/3 · ▶ write the fix · Ctrl\+T/)

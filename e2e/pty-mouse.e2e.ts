@@ -62,7 +62,7 @@ describe.skipIf(process.platform === 'win32')('mouse selection and copy (real PT
       ['Welcome to codsh', `create the note${ENTER}`, 300],
       // Press at the top of the prompt-anchored turn, drag through its answer,
       // release: the gesture IS the copy — no keystroke follows it.
-      ['CODE_CLI_CALL_OK', `${ESCAPE}[<0;1;1M${ESCAPE}[<32;60;6M${ESCAPE}[<32;120;12M${ESCAPE}[<0;120;12m`, 400],
+      ['CODE_CLI_CALL_OK', `${ESCAPE}[<0;1;2M${ESCAPE}[<32;60;6M${ESCAPE}[<32;120;12M${ESCAPE}[<0;120;12m`, 400],
       ['copied', `/exit${ENTER}`, 500],
     ])
 
@@ -111,13 +111,14 @@ it('paints a command that is a script as rows, never outside one', async () => {
     const bottom = String(PTY_ROWS)
     const output = await drivePty('write', [
       ['Welcome to codsh', `create the note${ENTER}`, 300],
-      // Press on the first row and sweep down past the last line, letting go on
-      // the bottom row — the way a person selects everything on screen. The
-      // rows below the transcript belong to the chrome, but the gesture belongs
-      // to the viewport that anchored it.
+      // Press on the first transcript row and sweep down past the last line,
+      // letting go on the bottom row — the way a person selects everything on
+      // screen. Row 0 is the environment bar, so the transcript starts one row
+      // below it; the rows below the transcript belong to the chrome, but the
+      // gesture belongs to the viewport that anchored it.
       [
         'CODE_CLI_CALL_OK',
-        `${ESCAPE}[<0;1;1M${ESCAPE}[<32;60;20M${ESCAPE}[<32;120;${bottom}M${ESCAPE}[<0;120;${bottom}m`,
+        `${ESCAPE}[<0;1;2M${ESCAPE}[<32;60;20M${ESCAPE}[<32;120;${bottom}M${ESCAPE}[<0;120;${bottom}m`,
         400,
       ],
       ['copied', `/exit${ENTER}`, 500],
