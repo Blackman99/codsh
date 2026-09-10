@@ -19,10 +19,10 @@ import { capture } from './capture.ts'
 import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import { installModelSelection } from '@deepseek-ai/dsh-agent'
-import type { Agent, AgentHandle, ModelSelectionRef } from '@deepseek-ai/dsh-agent'
+import type { Agent, AgentHandle, AssistantStreamFrame, ModelSelectionRef } from '@deepseek-ai/dsh-agent'
 import type {} from '@deepseek-ai/dsh-agent-default-model'
 import type {} from '@deepseek-ai/dsh-agent-presets'
-import type {} from '@deepseek-ai/dsh-commands'
+import type { CommandSubmitAttachment } from '@deepseek-ai/dsh-commands'
 import type {} from '@deepseek-ai/dsh-plan-mode'
 import type {} from '@deepseek-ai/dsh-session-projection'
 // Declares the `todos` projection key this surface reads for its readout.
@@ -34,7 +34,7 @@ import type {} from '@deepseek-ai/dsh-permission-presets'
 import { admitEncodedImages, isImageAdmissionError } from '@deepseek-ai/dsh-attachment'
 import type { EncodedImageAttachment } from '@deepseek-ai/dsh-attachment/types'
 import { createUserMessage, ReasoningEffortId } from '@deepseek-ai/dsh-llm'
-import type { ContentBlock, LlmModelReasoningInfo, UserMessage } from '@deepseek-ai/dsh-llm'
+import type { ContentBlock, LlmModelReasoningInfo, StreamChunk, UserMessage } from '@deepseek-ai/dsh-llm'
 import { SessionId, SessionLogOffset } from '@deepseek-ai/dsh-session'
 import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-session-query'
@@ -440,8 +440,9 @@ async function runCommand(ctx: Context, agent: Agent, line: string, io: CliIo, t
   // The whole line, slash included: `parseCommand` anchors on it, so a stripped
   // name resolves as nothing and every registry command answers "unknown". The
   // registry does the image admission itself, refusing a batch sent to a
-  // command that does not declare `input.images`.
-  const execution = await commands.execute(agent, line, images, signal)
+  // command that does not declare `input.attachments`.
+  const attachments: CommandSubmitAttachment[] = images.map(image => ({ type: 'image', ...image }))
+  const execution = await commands.execute(agent, line, attachments, signal)
   if (execution === undefined) {
     io.console.write(theme.error(`  unknown command: ${line}`))
     return
@@ -1848,34 +1849,6 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
     }
     if (event.type === 'tool/call') spinner.setActivity(toolActivity(event.data.name))
     if (event.type === 'tool/result') spinner.setActivity('working')
-    if (event.type === 'assistant/chunk') {
-      const { chunk } = event.data
-      if (chunk.type === 'reasoning-delta') {
-        if (chunk.text === '') return
-        const step = tracker.push(chunk.text)
-        prompt.setStreaming(thinkingStreamPreview(
-          density,
-          tracker.currentLines,
-          step.live,
-          theme.dim('✻ thinking'),
-        ))
-        return
-      }
-      if (chunk.type === 'block-end' && chunk.block.type === 'reasoning') {
-        tracker.markReasoningEnd()
-        landThinking(transcript, tracker, extras?.onThinkingFlush)
-        return
-      }
-      if (chunk.type === 'tool-call-delta' || chunk.type === 'text-delta') {
-        tracker.markReasoningEnd()
-        landThinking(transcript, tracker, extras?.onThinkingFlush)
-      }
-      if (chunk.type !== 'text-delta') return
-      if (!textStream.streamed && !io.console.hasTrailingBlank()) emit([''])
-      const step = textStream.push(chunk.text)
-      emit(step.lines, step.live)
-      return
-    }
     if (event.type === 'assistant/message') {
       tracker.markReasoningEnd()
       landThinking(transcript, tracker, extras?.onThinkingFlush)
@@ -1905,6 +1878,60 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
     prompt.setStreaming(undefined)
     io.console.appendFold(lines, full ?? lines, rule, label, enter, page, replaces)
   }
+  /**
+   * Paint one live model chunk. 0.1.5 publishes these on `agent/assistant-stream`
+   * instead of durable `assistant/chunk` session events.
+   * @param transcript - the renderer that owns this Session.
+   * @param textStream - the in-progress answer for this Session.
+   * @param tracker - the in-progress thinking for this Session.
+   * @param chunk - the published stream chunk.
+   * @param onThinkingFlush - parent-only clock bookkeeping.
+   */
+  const paintStreamChunk = (
+    transcript: Transcript,
+    textStream: TextStream,
+    tracker: ThinkingTracker,
+    chunk: StreamChunk,
+    onThinkingFlush?: (elapsedMs: number) => void,
+  ): void => {
+    if (chunk.type === 'reasoning-delta') {
+      if (chunk.text === '') return
+      const step = tracker.push(chunk.text)
+      prompt.setStreaming(thinkingStreamPreview(
+        density,
+        tracker.currentLines,
+        step.live,
+        theme.dim('✻ thinking'),
+      ))
+      return
+    }
+    if (chunk.type === 'block-end' && chunk.block.type === 'reasoning') {
+      tracker.markReasoningEnd()
+      landThinking(transcript, tracker, onThinkingFlush)
+      return
+    }
+    if (chunk.type === 'tool-call-delta' || chunk.type === 'text-delta') {
+      tracker.markReasoningEnd()
+      landThinking(transcript, tracker, onThinkingFlush)
+    }
+    if (chunk.type !== 'text-delta') return
+    if (!textStream.streamed && !io.console.hasTrailingBlank()) emit([''])
+    const step = textStream.push(chunk.text)
+    emit(step.lines, step.live)
+  }
+  ctx.on('agent/assistant-stream', (payload: { agent: Agent; frame: AssistantStreamFrame }) => {
+    if (payload.frame.type !== 'chunk') return
+    const viewed = currentView()
+    if (viewed !== undefined) {
+      if (!paintsViewedSession(childViews.current, payload.agent.session.id)) return
+      paintStreamChunk(viewed.transcript, viewed.stream, viewed.thinking, payload.frame.chunk)
+      return
+    }
+    if (payload.agent.session !== live.agent.session) return
+    paintStreamChunk(live.transcript, stream, thinking, payload.frame.chunk, (elapsedMs) => {
+      turnThinkingMs.push(elapsedMs)
+    })
+  })
   /**
    * Land a finished thinking block onto the transcript that owns this Session.
    * @param transcript - the renderer that opened the run.

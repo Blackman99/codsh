@@ -104,16 +104,6 @@ describe('indexReplayTiming', () => {
       // Step 1: thinking 8.3s, step ends at 19_500 (total 9.45s)
       { type: 'step/start', time: 10_050, data: { turn: 1, step: 1 } } as any,
       {
-        type: 'assistant/chunk',
-        time: 18_350,
-        data: { turn: 1, step: 1, chunk: { type: 'reasoning-delta', text: 'thinking' } },
-      } as any,
-      {
-        type: 'assistant/chunk',
-        time: 18_360,
-        data: { turn: 1, step: 1, chunk: { type: 'text-delta', text: 'answer' } },
-      } as any,
-      {
         type: 'assistant/message',
         time: 18_400,
         data: {
@@ -123,17 +113,16 @@ describe('indexReplayTiming', () => {
             role: 'assistant',
             content: [{ type: 'reasoning', text: 'thinking' }, { type: 'text', text: 'answer' }],
           },
+          stream: [
+            { type: 'reasoning-chunks', time0: 18_350, index: 0, dt: [], texts: ['thinking'] },
+            { type: 'text-chunks', time0: 18_360, index: 0, dt: [], texts: ['answer'] },
+          ],
         },
       } as any,
       { type: 'step/end', time: 19_500, data: { turn: 1, step: 1 } } as any,
 
       // Step 2: thinking 10s, step ends at 35_000 (total 15.4s)
       { type: 'step/start', time: 19_600, data: { turn: 1, step: 2 } } as any,
-      {
-        type: 'assistant/chunk',
-        time: 29_600,
-        data: { turn: 1, step: 2, chunk: { type: 'reasoning-delta', text: 'thinking 2' } },
-      } as any,
       {
         type: 'assistant/message',
         time: 29_700,
@@ -144,6 +133,9 @@ describe('indexReplayTiming', () => {
             role: 'assistant',
             content: [{ type: 'reasoning', text: 'thinking 2' }, { type: 'text', text: 'answer 2' }],
           },
+          stream: [
+            { type: 'reasoning-chunks', time0: 29_600, index: 0, dt: [], texts: ['thinking 2'] },
+          ],
         },
       } as any,
       { type: 'step/end', time: 35_000, data: { turn: 1, step: 2 } } as any,
@@ -161,7 +153,7 @@ describe('indexReplayTiming', () => {
     expect(timing.stepTotalSeconds(1, 2)).toBeCloseTo(15.4, 1)
   })
 
-  it('falls back to assistant message time when chunk events are absent', () => {
+  it('falls back to assistant message time when the embedded stream is absent', () => {
     const events: SessionEvent[] = [
       { type: 'turn/start', time: 5_000, data: { turn: 1 } } as any,
       { type: 'step/start', time: 5_100, data: { turn: 1, step: 1 } } as any,

@@ -4,6 +4,7 @@
  * @module codsh-bundle/src/replay-timing
  */
 
+import { expandAssistantStream } from '@deepseek-ai/dsh-llm'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
 
 /** Lookup functions for thinking duration and turn duration on replay. */
@@ -38,15 +39,21 @@ export function indexReplayTiming(events: readonly SessionEvent[]): ReplayTiming
       stepStarts.set(`${turn}:${step}`, event.time)
     } else if (event.type === 'step/end' && typeof turn === 'number' && typeof step === 'number') {
       stepEnds.set(`${turn}:${step}`, event.time)
-    } else if (event.type === 'assistant/chunk' && typeof turn === 'number' && typeof step === 'number') {
+    } else if (
+      (event.type === 'assistant/message' || event.type === 'assistant/attempt')
+      && typeof turn === 'number'
+      && typeof step === 'number'
+    ) {
       const key = `${turn}:${step}`
-      const chunk = (event.data as { chunk?: { type?: string; block?: { type?: string } } }).chunk
-      if (chunk?.type === 'reasoning-delta') {
-        reasoningEnds.set(key, event.time)
-      } else if (chunk?.type === 'block-end' && chunk.block?.type === 'reasoning') {
-        reasoningEnds.set(key, event.time)
-      } else if (chunk?.type === 'text-delta' || chunk?.type === 'tool-call-delta') {
-        if (!reasoningEnds.has(key)) reasoningEnds.set(key, event.time)
+      for (const timed of expandAssistantStream(event.data.stream ?? [])) {
+        const { chunk } = timed
+        if (chunk.type === 'reasoning-delta') {
+          reasoningEnds.set(key, timed.time)
+        } else if (chunk.type === 'block-end' && chunk.block.type === 'reasoning') {
+          reasoningEnds.set(key, timed.time)
+        } else if (chunk.type === 'text-delta' || chunk.type === 'tool-call-delta') {
+          if (!reasoningEnds.has(key)) reasoningEnds.set(key, timed.time)
+        }
       }
     }
   }

@@ -24,6 +24,7 @@ import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join, relative } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { compareVersions, selectDshTarget } from './dsh-release-policy.mjs'
+import { parsePatchIds, patchDriftProblems } from './dsh-patch-drift.mjs'
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..')
 
@@ -42,15 +43,6 @@ const manifestPaths = [
     .map((dir) => join(root, 'packages', dir, 'package.json'))
     .filter((path) => existsSync(path)),
 ]
-
-/** Where the installed `@deepseek-ai` trees are, one per workspace package. */
-const scopeDirs = () =>
-  [
-    join(root, 'node_modules', '@deepseek-ai'),
-    ...readdirSync(join(root, 'packages')).map((dir) =>
-      join(root, 'packages', dir, 'node_modules', '@deepseek-ai'),
-    ),
-  ].filter((dir) => existsSync(dir))
 
 /** The patch belongs to the bundle, which is the package that composes dsh. */
 const patchPath = join(root, 'packages', 'bundle', 'cordis.patch.yml')
@@ -71,71 +63,9 @@ const registry = (name) =>
 
 const stripRange = (range) => (range.startsWith('^') ? range.slice(1) : range)
 
-/** All `- id:` rows of a cordis patch, split into referenced vs inserted. */
-function parsePatchIds(file) {
-  const referenced = new Set()
-  const inserted = new Set()
-  const names = new Set()
-  let inInsert = false
-  for (const raw of readFileSync(file, 'utf8').split('\n')) {
-    const line = raw.trimEnd()
-    const t = line.trim()
-    if (!t || t.startsWith('#')) continue
-    if (!/^\s/.test(line)) {
-      // Top-level list entry: either `- id: X` (referenced) or `- insert:`.
-      inInsert = t === '- insert:'
-      const m = /^- id:\s*(\S+)/.exec(t)
-      if (m && !inInsert) referenced.add(m[1])
-      continue
-    }
-    if (!inInsert) continue
-    const m = /^\s*- id:\s*(\S+)/.exec(t)
-    if (m) inserted.add(m[1])
-    const n = /^\s*- name:\s*['"]?([^'"]+)['"]?\s*$/.exec(t)
-    if (n) names.add(n[1])
-  }
-  return { referenced, inserted, names }
-}
-
-/** Collect every plugin id any installed dsh bundle patch declares. */
-function declaredPluginIds() {
-  const declared = new Set()
-  for (const scopeDir of scopeDirs()) {
-    for (const dir of readdirSync(scopeDir)) {
-      const f = join(scopeDir, dir, 'cordis.patch.yml')
-      if (!existsSync(f)) continue
-      const { referenced, inserted } = parsePatchIds(f)
-      for (const id of referenced) declared.add(id)
-      for (const id of inserted) declared.add(id)
-    }
-  }
-  return declared
-}
-
 /** Verify codsh's own patch still matches the installed bundles. */
 function verifyPatchDrift() {
-  const problems = []
-  const { referenced, inserted, names } = parsePatchIds(patchPath)
-  const declared = declaredPluginIds()
-  for (const id of referenced) {
-    if (!declared.has(id)) {
-      problems.push(
-        `cordis.patch.yml references plugin id "${id}", but no installed ` +
-          `@deepseek-ai bundle declares it — the row is dead or the id was renamed upstream.`,
-      )
-    }
-  }
-  for (const name of names) {
-    const resolved = name.replace('/', '/node_modules/')
-    // Hoisting is pnpm's business: an inserted package may sit under any
-    // workspace package's tree, and any one of them satisfies the patch.
-    const anywhere = scopeDirs().some((dir) => existsSync(join(dirname(dir), resolved)))
-    if (!anywhere) {
-      problems.push(
-        `cordis.patch.yml inserts package "${name}", but it is not installed.`,
-      )
-    }
-  }
+  const problems = patchDriftProblems({ root, patchPath })
   if (problems.length) {
     console.error('\n✗ dsh bundle patch drift:\n')
     for (const p of problems) console.error(`  - ${p}`)
@@ -144,13 +74,14 @@ function verifyPatchDrift() {
     )
     process.exit(1)
   }
+  const { referenced, inserted } = parsePatchIds(patchPath)
   console.log(
     `✓ patch ok: ${referenced.size} referenced ids all declared, ` +
       `${inserted.size} inserted rows resolve`,
   )
 }
 
-const run = (cmd) => execSync(cmd, { cwd: root, stdio: 'inherit' })
+const run = (cmd) => execSync(cmd, { cwd: root, stdio: 'inherit', env: { ...process.env, CI: 'true' } })
 
 // ── 1. What does the harness publish right now? ────────────────────────────
 const manifests = manifestPaths.map((path) => ({ path, pkg: JSON.parse(readFileSync(path, 'utf8')) }))
