@@ -1,6 +1,6 @@
 # Bind /goal into /ship as a Main Track compass
 
-Status: landing
+Status: shipped
 Branch: ship/ship-goal-main-track
 Base-Commit: 48b4b4b8dd06dff9e9ab98007add1e4c93ef12a0
 Original-Branch: main
@@ -199,3 +199,14 @@ The issue tracker is unconfigured for agent work. Local store: `.scratch/ship-go
 - Proof command 1 (`pnpm exec vitest run packages/bundle/tests/ship.spec.ts packages/bundle/tests/ship-run.spec.ts packages/bundle/tests/plan.spec.ts`): exit 0 — 3 files, 57 tests passed.
 - Proof command 2 (`pnpm run typecheck`): **already red** — `packages/bundle/tests/startup.spec.ts(13,21): error TS2307: Cannot find module '@deepseek-ai/cordis-plugin-include'`. Pre-existing; zero-new-failures applies.
 - Proof command 3 (`pnpm test`): **already red** — 49 files passed (1335 tests), 1 failed suite `packages/bundle/tests/startup.spec.ts` (`Cannot find package '@deepseek-ai/cordis-plugin-include'`). Same pre-existing hole; green for this ship means no new failures beyond that suite.
+
+## Verification
+
+Parent session re-ran dual-layer DoD after Ralph (loop report is not verification).
+
+1. `pnpm exec vitest run packages/bundle/tests/ship.spec.ts packages/bundle/tests/ship-run.spec.ts packages/bundle/tests/plan.spec.ts` — exit 0, 3 files, 83 tests (was 57 at baseline). Named cases present: occupancy pause-then-ask / Abort / Esc / pipe auto-Replace / ours; snapshot prepend after Confirm; goals-port degrade; Goal-Id / Track: / Main Track parse; forbid-goal-tools; Ralph track in land prompt.
+2. `pnpm run typecheck` — **cannot meet literal exit 0**. Same pre-existing TS2307 on `packages/bundle/tests/startup.spec.ts` (`@deepseek-ai/cordis-plugin-include`) recorded in Baseline. No new type errors. Layer 2 zero-new-failures holds.
+3. `pnpm test` — 49 files / 1361 tests passed (was 1335); the only failed suite is still `startup.spec.ts` with the same missing package. Layer 2 zero-new-failures holds.
+4. `Main Track` / `ship · occupancy` / `$GOAL_ID` match in `packages/bundle/src/plan.ts`, `ship-run.ts`, and `ship.ts`.
+5. `Main Track` / occupancy match in `CONTEXT.md`, `README.md`, `README.zh.md`.
+6. `.changeset/ship-main-track-compass.md` names `'codsh-bundle': minor`.
