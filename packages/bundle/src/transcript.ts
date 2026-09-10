@@ -5,7 +5,8 @@
  *
  * Tool cards come from the registered presenters rather than from tool names:
  * a tool declares its own render intent, and this module switches on the
- * resulting `card` tag.
+ * resulting `card` tag. Consecutive cards with the same command and output
+ * shape collapse into one fold rather than stacking.
  * @module codsh-bundle/src/transcript
  */
 
@@ -320,6 +321,22 @@ function cardIndent(theme: Theme): string {
 }
 
 /**
+ * Strip volatile tokens so two cards can be compared by shape.
+ *
+ * Digits, absolute paths, and UUID-like ids change between otherwise
+ * identical runs; keeping the surrounding words is what lets a burst of
+ * Playwright greps join while `git status` after `pnpm test` does not.
+ */
+function skeleton(text: string): string {
+  return text
+    .replace(/\/(?:Users|home|tmp|var|opt|usr)\/\S+/gu, '/…')
+    .replace(/\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/giu, '…')
+    .replace(/\b\d+\b/gu, '…')
+    .replace(/\s+/gu, ' ')
+    .trim()
+}
+
+/**
  * The blank row a background-filled block opens with.
  *
  * A block reads as a panel only when its text does not touch the panel edge.
@@ -425,6 +442,24 @@ export class Transcript {
    * with the same `(result)` head; this run absorbs them into one fold.
    */
   private orphanRun: { shown: string[]; full: string[]; count: number; failed: boolean } | undefined
+  /**
+   * Consecutive similar tool cards currently sharing one fold at the tail.
+   *
+   * A burst of the same command with the same output shape — Playwright greps
+   * that all print `Error: No tests found`, repeated `pnpm test` failures —
+   * used to stack a full card each. Shape is the command skeleton plus the
+   * output skeleton, so a later card with a different command or a different
+   * kind of output starts its own card.
+   */
+  private similarRun: {
+    key: string
+    shown: string[]
+    members: string[][]
+    count: number
+    failed: boolean
+    title: string
+    suffix: string
+  } | undefined
 
   constructor(
     private readonly options: TranscriptOptions,
@@ -489,6 +524,7 @@ export class Transcript {
   endRun(): string[] {
     this.run = undefined
     this.orphanRun = undefined
+    this.similarRun = undefined
     return []
   }
 
@@ -505,6 +541,7 @@ export class Transcript {
     if (lines.length > 0 && event.type !== 'tool/call' && event.type !== 'tool/result') {
       this.run = undefined
       this.orphanRun = undefined
+      this.similarRun = undefined
     }
     if (event.type === 'tool/call' && lines.length > 0) this.orphanRun = undefined
     return lines
@@ -774,6 +811,15 @@ export class Transcript {
   }
 
   private renderCall(callId: string, name: string, rawArguments: string): string[] {
+    const similar = this.similarRun
+    try {
+      return this.renderCallInner(callId, name, rawArguments)
+    } finally {
+      this.similarRun = similar
+    }
+  }
+
+  private renderCallInner(callId: string, name: string, rawArguments: string): string[] {
     const { theme } = this.options
     const columns = this.columns
     let args: unknown
@@ -858,6 +904,8 @@ export class Transcript {
     }
     this.orphanRun = undefined
     const view = this.safeResult(pending, block.content, failed, meta)
+    const similar = this.absorbSimilar(pending, view, failed, block, bg)
+    if (similar !== undefined) return similar
     const title = view?.title === undefined ? pending.title : this.relativizeIn(view.title)
     const { suffix, body, full } = this.outcome(view, block, pending, failed)
     const enter = failed ? undefined : childSessionId(this.resultText(block.content))
@@ -893,7 +941,87 @@ export class Transcript {
       this.enter = enter
       this.label = title
     }
-    return [...open, ...head, ...shown, ...hint, ...shut]
+    const card = [...open, ...head, ...shown, ...hint, ...shut]
+    const key = this.similarKey(pending, view, failed)
+    if (key !== undefined && enter === undefined) {
+      this.similarRun = {
+        key,
+        shown: card,
+        members: [[...head, ...fullLines ?? shown]],
+        count: 1,
+        failed,
+        title,
+        suffix,
+      }
+    } else {
+      this.similarRun = undefined
+    }
+    return card
+  }
+
+  /**
+   * Fold this result into the similar run at the tail, when its shape matches.
+   *
+   * Shape is the command skeleton plus the output skeleton: digits, absolute
+   * paths, and volatile ids are stripped so two Playwright greps that failed
+   * the same way join, while `git status` after `pnpm test` does not.
+   */
+  private absorbSimilar(
+    pending: PendingCall,
+    view: ToolResultView | undefined,
+    failed: boolean,
+    block: { content: ContentBlock[] },
+    bg: (text: string) => string,
+  ): string[] | undefined {
+    const previous = this.similarRun
+    const key = this.similarKey(pending, view, failed)
+    if (previous === undefined || key === undefined || key !== previous.key || previous.failed !== failed) {
+      return undefined
+    }
+    const { theme } = this.options
+    const { suffix, body, full } = this.outcome(view, block, pending, failed)
+    const member = [
+      bg(formatToolCardLine(theme, this.columns, theme.ok('●'), view?.title === undefined ? pending.title : this.relativizeIn(view.title), suffix, failed ? theme.err('✗') : theme.ok('✔'))),
+      ...(full ?? body).map(line => view?.card === 'diff' ? line : bg(line)),
+    ]
+    const count = previous.count + 1
+    const members = [...previous.members, member]
+    const bullet = theme.ok('●')
+    const done = failed ? theme.err('✗') : theme.ok('✔')
+    const countMark = theme.dim(`· ${String(count)}`)
+    const ruleWidth = displayWidth(oneRow(this.rule || blockRules(theme).tool))
+    const stats = [countMark, previous.suffix].filter(part => part !== '').join(' ')
+    const head = bg(formatToolCardLine(theme, this.columns - ruleWidth, bullet, previous.title, stats, done))
+    const hint = theme.dim(`  … +${String(count)} similar (click or Ctrl+O expands)`)
+    const close = blockClose(theme, bg)
+    const open = pending.joined ? [] : blockPad(theme, bg)
+    const card = [...open, head, bg(hint), ...close]
+    const fullCard = [...open, head, ...members.flatMap((entry, index) => index === 0 ? entry : ['', ...entry]), ...close]
+    this.pendingCard = pending.lines.length > 0 ? [...previous.shown, ...pending.lines] : previous.shown
+    this.fold = fullCard
+    this.label = previous.title
+    this.similarRun = { ...previous, shown: card, members, count, suffix: previous.suffix }
+    this.run = { rule: this.rule, owner: undefined, bodied: true, close: close[0] ?? '' }
+    return card
+  }
+
+  /**
+   * A stable key for consecutive cards that should share one fold.
+   *
+   * Missing when the card is a one-off: a subagent view, a diff, or a
+   * result with no command/output to compare.
+   */
+  private similarKey(pending: PendingCall, view: ToolResultView | undefined, failed: boolean): string | undefined {
+    if (failed) return undefined
+    if (view?.card === 'diff' || view?.card === 'read') return undefined
+    const command = pending.title
+    const output = view?.card === 'terminal'
+      ? (view.output ?? '')
+      : view?.card === 'generic' && view.content !== undefined
+        ? this.resultText(view.content)
+        : ''
+    if (command === '') return undefined
+    return `${pending.name}\n${skeleton(command)}\n${skeleton(output)}`
   }
 
   /**

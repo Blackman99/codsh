@@ -499,6 +499,61 @@ describe('tool results', () => {
     expect(transcript.render(resultEvent('c1', 'ok'))[0]).toBe('● glob 900+ (capped) results ✔')
   })
 
+  it('folds consecutive similar terminal cards into one instead of stacking them', () => {
+    const command = 'export PATH="/tmp/openbot-chat-node:$PATH" && pnpm --filter @openbot/web exec playwright test --config playwright.local.config.ts'
+    let current = { name: 'Baseline three-bot start Playwright grep', output: 'Error: No tests found\n\nundefined\n/Users/zhaodongsheng/my-projects/openbot/apps/web:' }
+    const transcript = build({
+      call: () => ({ card: 'terminal', title: command, description: current.name }),
+      result: () => ({ card: 'terminal', title: command, output: current.output }),
+    })
+    transcript.render(callEvent('c1', 'bash', {}))
+    const first = transcript.render(resultEvent('c1', 'ok'))
+    expect(first[0]).toContain('export PATH=')
+    expect(first.join('\n')).toContain('Baseline three-bot start Playwright grep')
+    expect(first.join('\n')).toContain('Error: No tests found')
+
+    current = { name: 'Baseline three-bot refusal Playwright grep', output: 'Error: No tests found\n\nundefined\n/Users/zhaodongsheng/my-projects/openbot/apps/web:' }
+    transcript.render(callEvent('c2', 'bash', {}))
+    const second = transcript.render(resultEvent('c2', 'ok'))
+    expect(second.join('\n')).toContain('· 2')
+    expect(second.join('\n')).toContain('… +2 similar')
+    expect(second.join('\n')).not.toContain('Baseline three-bot refusal')
+    const replaced = transcript.takePendingCard()
+    expect(replaced[0]).toBe(first[0])
+    expect(replaced.join('\n')).toContain('● bash')
+    const full = transcript.takeFold() ?? []
+    expect(full.join('\n')).toContain('Baseline three-bot start Playwright grep')
+    expect(full.join('\n')).toContain('Baseline three-bot refusal Playwright grep')
+
+    current = { name: 'Baseline pairing Playwright grep', output: 'Error: No tests found\n\nundefined\n/Users/zhaodongsheng/my-projects/openbot/apps/web:' }
+    transcript.render(callEvent('c3', 'bash', {}))
+    const third = transcript.render(resultEvent('c3', 'ok'))
+    expect(third.join('\n')).toContain('· 3')
+    expect(third.join('\n')).toContain('… +3 similar')
+  })
+
+  it('does not fold a later card whose command or output shape is different', () => {
+    const titles = ['pnpm test', 'pnpm test', 'git status']
+    const outputs = ['Error: No tests found', 'Error: No tests found', 'On branch main']
+    let index = 0
+    const transcript = build({
+      call: () => ({ card: 'terminal', title: titles[index] ?? '' }),
+      result: () => ({ card: 'terminal', title: titles[index] ?? '', output: outputs[index] ?? '' }),
+    })
+    transcript.render(callEvent('c1', 'bash', {}))
+    transcript.render(resultEvent('c1', 'ok'))
+    index = 1
+    transcript.render(callEvent('c2', 'bash', {}))
+    const second = transcript.render(resultEvent('c2', 'ok'))
+    expect(second.join('\n')).toContain('· 2')
+    index = 2
+    transcript.render(callEvent('c3', 'bash', {}))
+    const third = transcript.render(resultEvent('c3', 'ok'))
+    expect(third[0]).toContain('git status')
+    expect(third[0]).not.toContain('· 3')
+    expect(third.join('\n')).toContain('On branch main')
+  })
+
   it('reprints one stable head with exit status rather than a continuation-only line', () => {
     const call = (): ToolCallView => ({ card: 'terminal', title: 'pnpm test' })
     const result = (): ToolResultView => ({ card: 'terminal', title: 'pnpm test', output: 'out', exitCode: 1 })
