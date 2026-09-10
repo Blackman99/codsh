@@ -367,11 +367,13 @@ frontier rounds with recommended answers, exhaustion handshake); to-spec and
 to-tickets then run as those skills (exhaustive stories, vertical tickets
 with a DAG and per-ticket acceptance, `.scratch/` plus tracker when
 configured) without another interview. Landing follows the tdd skill: one
-red test witnessed failing, then minimal green, then the suite. The spec
-file is the workflow's memory, not the conversation: the approved tickets
-live in it as checkboxes, its `Status:` line names the phase, a baseline
-run is recorded before any code, each green ticket is committed, and a
-bare `/ship` offers to resume whatever it finds unfinished.
+red test witnessed failing, then minimal green, then the suite. Each `/ship`
+turn injects only the phase the spec's `Status:` names — grill, to-spec,
+to-tickets, and TDD do not share context. The spec file is the workflow's memory,
+not the conversation: the approved tickets live in it as checkboxes, its
+`Status:` line names the phase, a baseline run is recorded before any code,
+each green ticket is committed, and a bare `/ship` offers to resume
+whatever it finds unfinished.
 _Avoid_: checkpoints, review steps
 
 ### Alignment pipeline

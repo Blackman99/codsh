@@ -5,7 +5,7 @@
 
 import { describe, expect, it } from 'vitest'
 import { expandTemplate } from '../src/custom-commands.ts'
-import { SHIP_PROMPT } from '../src/ship.ts'
+import { SHIP_PROMPT, shipPhaseKind, shipPromptFor } from '../src/ship.ts'
 
 describe('SHIP_PROMPT', () => {
   it('substitutes the typed idea exactly once', () => {
@@ -164,5 +164,47 @@ describe('SHIP_PROMPT', () => {
     expect(SHIP_PROMPT).toContain('ship · deliver')
     expect(SHIP_PROMPT).toContain('Merge back')
     expect(SHIP_PROMPT).toContain('Keep branch for PR')
+  })
+
+  it('injects grill, to-spec, to-tickets, and tdd as separate turns', () => {
+    const grill = shipPromptFor(undefined)
+    expect(grill).toContain('Follow the grill-me skill as the contract, not a summary of it')
+    expect(grill).toContain('This turn is pre-flight and grill only')
+    expect(grill).toContain('Status: interviewing')
+    expect(grill).toContain('ship · preflight')
+    expect(grill).not.toContain('Pure Synthesis, Zero Interrogation')
+    expect(grill).not.toContain('ship · gate 1/2')
+    expect(grill).not.toContain('Strict Vertical Tracer Slicing')
+    expect(grill).not.toContain('Strict Red-First Execution')
+
+    const spec = shipPromptFor('interviewing')
+    expect(spec).toContain('Pure Synthesis, Zero Interrogation')
+    expect(spec).toContain('ship · gate 1/2')
+    expect(spec).toContain('This turn is to-spec (gate 1) only')
+    expect(spec).not.toContain('Relentless Frontier Exploration')
+    expect(spec).not.toContain('Strict Vertical Tracer Slicing')
+    expect(spec).not.toContain('Strict Red-First Execution')
+
+    const tickets = shipPromptFor('confirmed')
+    expect(tickets).toContain('Strict Vertical Tracer Slicing')
+    expect(tickets).toContain('This turn is tickets and baseline (gate 2) only')
+    expect(tickets).not.toContain('Relentless Frontier Exploration')
+    expect(tickets).not.toContain('Pure Synthesis, Zero Interrogation')
+    expect(tickets).not.toContain('Strict Red-First Execution')
+
+    const land = shipPromptFor('planned')
+    expect(land).toContain('Strict Red-First Execution')
+    expect(land).toContain('dual-layer DoD')
+    expect(land).not.toContain('Relentless Frontier Exploration')
+    expect(land).not.toContain('Pure Synthesis, Zero Interrogation')
+    expect(land).not.toContain('Strict Vertical Tracer Slicing')
+    expect(shipPromptFor('landing')).toBe(land)
+
+    expect(shipPhaseKind(undefined)).toBe('grill')
+    expect(shipPhaseKind('interviewing')).toBe('spec')
+    expect(shipPhaseKind('confirmed')).toBe('tickets')
+    expect(shipPhaseKind('planned')).toBe('land')
+    expect(shipPhaseKind('landing')).toBe('land')
+    expect(shipPhaseKind('shipped')).toBe('done')
   })
 })

@@ -42,7 +42,7 @@ Key: `DEEPSEEK_API_KEY`. Already have dsh? `npm i -g codsh-cli` is enough.
 4. **Landing** — the tdd skill: one red test witnessed failing, then minimal green, then the suite; 3-strike circuit breaker; cascading re-verification on resume; each green ticket is a clean commit. A larger plan runs as a Ralph loop of fresh agents; while a round works, the working line names that round and its latest call (the chrome already holds the plan), the plan row ticks as the spec's checkboxes change on disk, and the round's end line says what it did — Esc stops the whole loop, mid-ticket.
 5. **Done (Dual-Layer DoD)** — verifies acceptance criteria (exit 0) and zero new repo failures against baseline; interactive delivery prompt (`ship · deliver`: merge back, keep PR branch, or stay).
 
-Bare `/ship` resumes an unfinished spec with cascading re-verification of prior tickets.
+Each `/ship` turn injects only one contract — grill, to-spec, to-tickets, or TDD — so later phases do not crowd the one in play. Bare `/ship` resumes an unfinished spec with cascading re-verification of prior tickets.
 
 ```sh
 /ship let long diffs open in a pager instead of scrolling past

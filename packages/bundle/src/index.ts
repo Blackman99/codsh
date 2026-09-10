@@ -15,7 +15,7 @@
 import { spawn } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import { readFile, writeFile } from 'node:fs/promises'
-import { readFileSync } from 'node:fs'
+import { readdirSync, readFileSync } from 'node:fs'
 import { basename, join } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
@@ -81,7 +81,7 @@ import {
 import { installPackagedPreset } from './preset-install.ts'
 import { TerminalQuestions } from './questions.ts'
 import { userShell } from './bang.ts'
-import { SHIP_PROMPT } from './ship.ts'
+import { shipPhaseKind, shipPromptFor } from './ship.ts'
 import { Spinner } from './spinner.ts'
 import {
   DEEPSEEK_VISION_MODEL,
@@ -1206,6 +1206,33 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
     }
     setShipChip(derived, derived.kind === 'land' && derived.flashOk === true ? 'flash' : undefined)
   }
+  /** Status of the newest unfinished spec, from this session's writes or docs/specs. */
+  const unreadShipStatus = (): ReturnType<typeof parseShipStatus> => {
+    const seen = new Set<string>()
+    const candidates = [
+      ...writtenDocs,
+      ...(() => {
+        try {
+          return readdirSync(join(cwd, 'docs', 'specs'))
+            .filter(name => name.endsWith('.md'))
+            .map(name => join(cwd, 'docs', 'specs', name))
+        } catch {
+          return []
+        }
+      })(),
+    ]
+    for (const path of candidates) {
+      if (seen.has(path)) continue
+      seen.add(path)
+      try {
+        const status = parseShipStatus(readFileSync(path, 'utf8'))
+        if (status !== undefined && status !== 'shipped') return status
+      } catch {
+        // A spec that moved is not the phase ledger.
+      }
+    }
+    return undefined
+  }
   /** Re-read the newest written document that holds a plan or a Status line. */
   const refreshPlan = (): void => {
     let statusOnly: { markdown: string; plan: Plan } | undefined
@@ -2297,6 +2324,8 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
   // The controller in flight belongs to the slash command being executed, so
   // one interrupt reaches whichever kind of work is running.
   let running: AbortController | undefined
+  /** Cancels a /ship phase-advance loop when the person interrupts. */
+  let shipAdvance: AbortController | undefined
   /**
    * Steers handed to the agent and not yet claimed, by the message id dsh
    * knows them by. The queue itself stays in the prompt; only what has left
@@ -2344,6 +2373,7 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
     // indicator redrawing itself as though the turn were still going.
     spinner.stop()
     running?.abort()
+    shipAdvance?.abort()
     // A steer in flight comes back to the queue first; the inbox is kept so
     // dsh logs no canceled splice for what the surface already took back.
     reclaimSteers(live.agent)
@@ -2721,7 +2751,23 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
       if (name === 'ship') {
         beginShip()
         refreshPlan()
-        await answer(expandTemplate(SHIP_PROMPT, rest.trim()), { kind: 'plugin', plugin: 'coding-cli' }, images)
+        const idea = rest.trim()
+        shipAdvance?.abort()
+        const advance = new AbortController()
+        shipAdvance = advance
+        let previous = shipPhaseKind(unreadShipStatus())
+        await answer(expandTemplate(shipPromptFor(unreadShipStatus()), idea), { kind: 'plugin', plugin: 'coding-cli' }, images)
+        // Each turn carries one phase. When the spec's Status advances, inject
+        // the next contract as a fresh turn so grill, to-spec, tickets, and TDD
+        // do not share context.
+        while (!advance.signal.aborted) {
+          refreshPlan()
+          const next = shipPhaseKind(unreadShipStatus())
+          if (next === previous || next === 'done' || next === 'grill') break
+          previous = next
+          await answer(expandTemplate(shipPromptFor(unreadShipStatus()), idea), { kind: 'plugin', plugin: 'coding-cli' }, images)
+        }
+        if (shipAdvance === advance) shipAdvance = undefined
         continue
       }
       const canned = customByName.get(name)
