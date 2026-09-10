@@ -103,14 +103,14 @@ describe.skipIf(process.platform === 'win32')('the first five minutes: timeline,
     const output = await drivePty('tall', [
       ['Welcome to codsh', `make it tall${ENTER}`, 300],
       // Diff cards default to one ToolCard line; hunks live in the fold.
-      ['+45 -0', `/exit${ENTER}`, 500],
+      ['Edited 1 file', `/exit${ENTER}`, 500],
     ])
     const rows = screenAt(output, '+45 -0').alternate
     const body = rows.filter(row => row.includes('CODE_CLI_TALL_'))
     // A skimmable one-liner, not a wall. Click / Ctrl+O still open the body;
     // those gestures are covered in the pty suite.
     expect(body.length).toBe(0)
-    expect(rows.some(row => row.includes('● Write note.txt +45 -0 ✔'))).toBe(true)
+    expect(rows.some(row => row.includes('● Edited 1 file'))).toBe(true)
   }, E2E_TEST_TIMEOUT_MS)
 
   it('names the block the pointer rests on, and gives the row back', async () => {

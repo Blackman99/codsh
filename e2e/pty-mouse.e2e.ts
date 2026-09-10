@@ -47,7 +47,7 @@ describe.skipIf(process.platform === 'win32')('mouse selection and copy (real PT
       ['', 'X', 400],
       // Submitting empties the box, so the command after it is a command.
       ['', ENTER, 700],
-      ['Write note.txt', `/exit${ENTER}`, 500],
+      ['Edited 1 file', `/exit${ENTER}`, 500],
     ], { columns: 30, rows: 16 })
 
     const captured = (offset: number | undefined): string => Buffer.from(run.output).subarray(0, offset).toString()
@@ -74,7 +74,7 @@ describe.skipIf(process.platform === 'win32')('mouse selection and copy (real PT
     const copied = Buffer.from(osc?.[1] ?? '', 'base64').toString('utf8')
     // Gutter `›` is paint, not copy: the turn is the prompt body + ToolCard line.
     expect(copied).toContain('create the note')
-    expect(copied).toContain('● Write note.txt')
+    expect(copied).toContain('● Edited 1 file')
     expect(copied).toContain('CODE_CLI_CALL_OK')
     // Plain text: the styling on screen stayed out of the clipboard.
     expect(copied).not.toContain('\u001B')
@@ -107,7 +107,7 @@ it('paints a command that is a script as rows, never outside one', async () => {
     // The settled card took the place of the pending one rather than piling up
     // under it, and still names the command on a row of its own.
     expect(done.some(row => row.includes('● bash'))).toBe(false)
-    expect(done.some(row => row.includes("● python3 - <<'EOF'"))).toBe(true)
+    expect(done.some(row => row.includes('● Ran 1 command'))).toBe(true)
     expect(done.some(row => /│ import re$/u.test(row.trimEnd()))).toBe(false)
     expect(done.some(row => row.includes("print('patched')"))).toBe(false)
   }, E2E_TEST_TIMEOUT_MS)
@@ -132,7 +132,7 @@ it('paints a command that is a script as rows, never outside one', async () => {
     expect(osc).not.toBeNull()
     const copied = Buffer.from(osc?.[1] ?? '', 'base64').toString('utf8')
     expect(copied).toContain('create the note')
-    expect(copied).toContain('● Write note.txt')
+    expect(copied).toContain('● Edited 1 file')
     expect(copied).toContain('CODE_CLI_CALL_OK')
   }, E2E_TEST_TIMEOUT_MS)
 })

@@ -1690,7 +1690,7 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
         if (child.header.parentSession !== session.id) continue
         const lines = transcript.promotePendingView(child.id)
         if (lines.length === 0) continue
-        io.console.appendFold(lines, lines, transcript.takeRule(), transcript.takeLabel(), transcript.takeEnter(), undefined, transcript.takePendingCard())
+        io.console.appendFold(lines, transcript.takeFold() ?? lines, transcript.takeRule(), transcript.takeLabel(), transcript.takeEnter(), undefined, transcript.takePendingCard())
       }
     } finally {
       io.console.resumePainting()
@@ -2053,7 +2053,7 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
     const lines = transcript.promotePendingView(info.id)
     if (lines.length === 0) return
     prompt.setStreaming(undefined)
-    io.console.appendFold(lines, lines, transcript.takeRule(), transcript.takeLabel(), transcript.takeEnter(), undefined, transcript.takePendingCard())
+    io.console.appendFold(lines, transcript.takeFold() ?? lines, transcript.takeRule(), transcript.takeLabel(), transcript.takeEnter(), undefined, transcript.takePendingCard())
   })
 
   adopt = (next: AgentHandle, replayLog: boolean): void => {

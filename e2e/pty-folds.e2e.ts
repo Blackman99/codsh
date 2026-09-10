@@ -7,7 +7,7 @@
 
 import { describe, expect, it } from 'vitest'
 import { E2E_TEST_TIMEOUT_MS } from './harness.ts'
-import { PTY_COLUMNS, PTY_ROWS, SYNC_END, drivePty, drivePtySteps, finalScreen, screenOf } from './pty-driver.ts'
+import { PTY_COLUMNS, PTY_ROWS, SYNC_END, drivePty, drivePtySteps, screenOf } from './pty-driver.ts'
 import { ENTER, boxTops, screenAt, visible } from './pty-helpers.ts'
 import { Terminal } from './vt.ts'
 
@@ -32,21 +32,23 @@ describe.skipIf(process.platform === 'win32')('streaming, cards and folds (real 
     expect(mid.cursorRow).toBeLessThan(PTY_ROWS - 1)
   }, E2E_TEST_TIMEOUT_MS)
 
-  it('settles a call into one card, not a finished copy under its pending one', async () => {
+  it('settles a call into one muted row, with the command and output behind the fold', async () => {
     // A result short enough to need no fold took the path that dropped the
     // pending card it was finishing, so every such call printed twice.
     const output = await drivePty('bash', [
       ['Welcome to codsh', `run it${ENTER}`, 300],
       ['Allow bash', ENTER, 600],
-      ['CODE_CLI_CALL_OK', `/exit${ENTER}`, 600],
+      ['● Ran 1 command', '\u000F', 600],
+      ['printf CODE_CLI_ROUND_TRIP', `/exit${ENTER}`, 600],
     ])
 
-    const settled = finalScreen(output).alternate
-    expect(settled.filter(row => row.includes('printf CODE_CLI_ROUND_TRIP'))).toHaveLength(1)
+    const settled = screenAt(output, 'printf CODE_CLI_ROUND_TRIP', 'last').alternate
+    // One row stands for the call, and the name is no longer a headline.
+    expect(settled.filter(row => row.includes('● Ran 1 command'))).toHaveLength(1)
     expect(settled.some(row => row.includes('● bash'))).toBe(false)
-    // The finished card, and the output the call actually produced.
-    expect(settled.some(row => /● printf CODE_CLI_ROUND_TRIP .*✔/u.test(row))).toBe(true)
-    expect(settled.some(row => /^\s*│\s+CODE_CLI_ROUND_TRIP$/u.test(row.trimEnd()))).toBe(true)
+    // Ctrl+O opened the group: the real command and its output are the body.
+    expect(settled.some(row => row.includes('printf CODE_CLI_ROUND_TRIP'))).toBe(true)
+    expect(settled.some(row => row.trim() === 'CODE_CLI_ROUND_TRIP')).toBe(true)
   }, E2E_TEST_TIMEOUT_MS)
 
   it('keeps the status row live in the region', async () => {
@@ -80,12 +82,12 @@ describe.skipIf(process.platform === 'win32')('streaming, cards and folds (real 
     expect(summary).toBeLessThan(rows.findIndex(row => row.includes('CODE_CLI_ANSWER')))
   }, E2E_TEST_TIMEOUT_MS)
 
-  it('reads a long diff card in the pager on click, leaving the card collapsed', async () => {
-    const clickCard = '\u001B[<0;6;{row:Write note.txt}M\u001B[<0;6;{row:Write note.txt}m'
+  it('reads a long diff in the pager on click, leaving the group row collapsed', async () => {
+    const clickCard = '\u001B[<0;6;{row:Edited 1 file}M\u001B[<0;6;{row:Edited 1 file}m'
     const output = await drivePty('tall', [
       ['Welcome to codsh', `create the tall note${ENTER}`, 300],
-      // 45 diff lines, collapsed to one ToolCard line: a click opens the reader.
-      ['+45 -0', clickCard, 500],
+      // 45 diff lines, folded into one group row: a click opens the reader.
+      ['Edited 1 file', clickCard, 500],
       // ...and the click opens it over the conversation, not into it.
       ['Esc closes', '\u001B', 400],
       ['Ask anything', `/exit${ENTER}`, 400],
@@ -99,9 +101,9 @@ describe.skipIf(process.platform === 'win32')('streaming, cards and folds (real 
     // The box is gone while the reader holds the screen.
     expect(reading.join('\n')).not.toContain('Ask anything')
 
-    // Esc returns, and the card is where it was — reading is not expanding.
+    // Esc returns, and the group row is where it was — reading is not expanding.
     const after = screenAt(output, 'Ask anything', 'last').alternate
-    expect(after.some(row => row.includes('● Write note.txt +45 -0 ✔'))).toBe(true)
+    expect(after.some(row => row.includes('● Edited 1 file'))).toBe(true)
     expect(after.some(row => row.includes('CODE_CLI_TALL_44'))).toBe(false)
   }, E2E_TEST_TIMEOUT_MS)
 
@@ -209,11 +211,11 @@ describe.skipIf(process.platform === 'win32')('streaming, cards and folds (real 
     expect(settled).not.toContain('click to enter')
   }, E2E_TEST_TIMEOUT_MS)
 
-  it('toggles a collapsed output open with Ctrl-O, and keeps that choice on moving on', async () => {
+  it('toggles a collapsed group open with Ctrl-O, and keeps that choice on moving on', async () => {
     const output = await drivePty('tall', [
       ['Welcome to codsh', `create the tall note${ENTER}`, 300],
-      // 45 diff lines, collapsed to one line; Ctrl-O expands in place.
-      ['+45 -0', '\u000F', 400],
+      // 45 diff lines, folded into one group row; Ctrl-O expands in place.
+      ['Edited 1 file', '\u000F', 400],
       // ...Ctrl-O swaps the block for its full body, clipped tail included...
       ['CODE_CLI_TALL_44', `/status${ENTER}`, 400],
       // ...and the next submission preserves that explicit reading choice.
@@ -283,32 +285,32 @@ describe.skipIf(process.platform === 'win32')('streaming, cards and folds (real 
     // The person's own words carry the heavy mark; the tool block the light
     // one — which is what tells two segments apart without a frame or a fill.
     expect(rows).toContain('›   create the note')
-    expect(rows.some(row => row.includes('│ ') && row.includes('note.txt'))).toBe(true)
+    expect(rows.some(row => row.includes('│ ') && row.includes('Edited 1 file'))).toBe(true)
     // What a person reads stays flush: the answer is not marked at all.
     expect(rows.some(row => row.startsWith('CODE_CLI_CALL_OK'))).toBe(true)
   }, E2E_TEST_TIMEOUT_MS)
 
-  it('replays history as folds, so a resumed long output still opens', async () => {
+  it('replays history as folds, so a resumed long diff still opens', async () => {
     const output = await drivePty('tall', [
       ['Welcome to codsh', `create the tall note${ENTER}`, 300],
-      // 45 diff lines, collapsed live to one ToolCard line...
-      ['+45 -0', '\u000F', 400],
+      // 45 diff lines, folded live into one group row...
+      ['Edited 1 file', '\u000F', 400],
       // ...then explicitly expanded before session replacement.
       ['CODE_CLI_TALL_44', `/clear${ENTER}`, 400],
       ['new session session-', `/resume${ENTER}`, 400],
       ['Resume session', ENTER, 500],
-      // ...and the replayed card still promises the key...
+      // ...and the replayed row still promises the key...
       ['resumed session-', '\u000F', 500],
       // ...which must actually deliver the body, or the promise was a lie and
       // the output would be unreachable for the rest of the session.
       ['CODE_CLI_TALL_44', `/exit${ENTER}`, 400],
     ])
 
-    // Replayed, before the key: the log's own message above a card still
+    // Replayed, before the key: the log's own message above a group still
     // collapsed to its summary — history as the turn left it.
     const replayed = screenAt(output, 'resumed session-').alternate
     expect(replayed.map(visible)).toContain('›   create the tall note')
-    expect(replayed.some(row => row.includes('● Write note.txt +45 -0 ✔'))).toBe(true)
+    expect(replayed.some(row => row.includes('● Edited 1 file'))).toBe(true)
     expect(replayed.some(row => row.includes('CODE_CLI_TALL_44'))).toBe(false)
 
     // After the key: the body the log carried, on screen from a fold that only

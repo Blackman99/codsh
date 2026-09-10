@@ -57,7 +57,7 @@ describe.skipIf(process.platform === 'win32')('protocols and the session (real P
     try {
       const output = await drivePty('write', [
         ['Welcome to codsh', `note the work${ENTER}`, 600],
-        ['Write note.txt', `/exit${ENTER}`, 500],
+        ['Edited 1 file', `/exit${ENTER}`, 500],
       ], { columns: 60, rows: 16, env: { CODSH_TRACE: path } })
 
       const trace = await readFile(path, 'utf8')
@@ -65,8 +65,8 @@ describe.skipIf(process.platform === 'win32')('protocols and the session (real P
       // without it would be replaying at the wrong size.
       expect(trace).toMatch(/\u001B_codsh;start 60x16 /u)
       // And the bytes themselves reproduce the screen the run ended on.
-      const fromTrace = screenAt(trace, 'Write note.txt', 'last').alternate
-      const fromRun = screenAt(output, 'Write note.txt', 'last').alternate
+      const fromTrace = screenAt(trace, 'Edited 1 file', 'last').alternate
+      const fromRun = screenAt(output, 'Edited 1 file', 'last').alternate
       expect(fromTrace).toEqual(fromRun)
     } finally {
       await rm(dir, { recursive: true, force: true })

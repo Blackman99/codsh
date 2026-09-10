@@ -463,7 +463,7 @@ the same verification without the gate. The final phase runs these verbatim.
 ## Plan
 
 - [x] Ticket 1: Tool Verb Vocabulary and Group Label Builder — Delivers a new pure module mapping a call's declared presentation view to a closed category vocabulary, plus the merged group-header label builder (per-category counts, first-appearance order, present/past tense, failure segment). Changes no rendered output. (Blocked by: none) (Track: 3)
-- [ ] Ticket 2: Tool Group Rows Replace Tool Cards — Delivers the end-to-end hierarchy change: one muted row per tool call with no panel, no amber name and no command highlight; consecutive calls aggregated into one group row carrying the Ticket 1 label; the group as a Fold expanding to its calls and their real diffs; reused soft cap and pager; subagent rows still openable; a chosen single-row tool bullet. Rewrites the pre-existing card-shape assertions rather than deleting them. (Blocked by: Ticket 1) (Track: 2,3,7,8)
+- [x] Ticket 2: Tool Group Rows Replace Tool Cards — Delivers the end-to-end hierarchy change: one muted row per tool call with no panel, no amber name and no command highlight; consecutive calls aggregated into one group row carrying the Ticket 1 label; the group as a Fold expanding to its calls and their real diffs; reused soft cap and pager; subagent rows still openable; a chosen single-row tool bullet. Rewrites the pre-existing card-shape assertions rather than deleting them. (Blocked by: Ticket 1) (Track: 2,3,7,8)
 - [ ] Ticket 3: Destructive Commands Break Out of the Group — Delivers a pure, conservative classifier over the decision-13 category allowlist anchored to the command head, the destructive row rendered on its own alert-styled row instead of joining a group, and the rule that approval-gated calls never fold. (Blocked by: Ticket 2) (Track: 4)
 - [ ] Ticket 4: Live Thinking Preview Owns the Display Area — Delivers the density-derived live preview budget (3 compact / 6 comfortable), the unchanged one-line `✻ thought for Xs` settled summary, and the corrected `/ui` description in both README languages. (Blocked by: Ticket 2) (Track: 1,5)
 - [ ] Ticket 5: Contract — Retire the Card Path and the Similar-Run Layer — Delivers deletion of the similar-run machinery, its skeleton helper and its `… +N similar` row, plus the now-unreachable card pad/close helpers, the terminal card's `$ command` row, and the `bgTool` role when the transcript is its last caller. (Blocked by: Ticket 3, Ticket 4) (Track: 6)
@@ -541,3 +541,45 @@ Progress writes only; the sealed Main Track is not touched.
   not a `minimumReleaseAge` policy error).
 - `node node_modules/vitest/vitest.mjs run` → exit 0, **53 files / 1402 tests**
   passing, 0 skipped (baseline 52 / 1388 plus the 14 new; no regression).
+
+### Ticket 2 — Tool Group Rows Replace Tool Cards (Track: 2, 3, 7, 8)
+
+**Delivered.** `packages/bundle/src/transcript.ts` now keeps one `group` at the
+tail: consecutive calls push `GroupMember`s, and `emitGroup` recomputes one muted
+row from the Ticket 1 label plus one Fold over the member heads and bodies. The
+`bgTool` panel, the amber tool name, the `$ command` row, `blockPad`/`blockClose`
+usage on tool rows, `joinRun`, `renderOrphanResult`, and the whole similar-run
+layer (`absorbSimilar`, `similarKey`, `skeleton`, `similarRun`) are gone. A
+larger run hands its reader text to the pager; a subagent member keeps the
+click-to-enter door on the row. The chosen single-row bullet is a muted `●`.
+
+**Red/green (unit seam).** The rewritten `packages/bundle/tests/transcript.spec.ts`
+plus the six new `tool group aggregation` cases exercise five-read aggregation,
+the lone-call shape, mixed-category counts in first-appearance order, present vs
+past tense, prose as the run break, the expanded member list, and narrow-terminal
+truncation.
+
+**Green evidence.**
+
+- `./node_modules/.bin/tsc --noEmit` → exit 0.
+- `node node_modules/vitest/vitest.mjs run` → exit 0, **53 files / 1400 tests**
+  passing, 0 skipped.
+- Direct bundle build (`tsdown` + `tsc -p tsconfig.build.json`) → exit 0, so the
+  e2e profile is the new code.
+- `node node_modules/vitest/vitest.mjs run --config vitest.e2e.config.ts e2e/pipe.e2e.ts`
+  → exit 0, **19 passed (19)**. A redirected transcript cannot unprint the
+  pending row, so an edit reaches a script as `│ ● Editing 1 file` then
+  `│ ● Edited 1 file`; that expectation is the one the old diff-card test was
+  rewritten to.
+
+**PTY blocker (environment, not code).**
+`node node_modules/vitest/vitest.mjs run --config vitest.e2e.config.ts e2e/pty-folds.e2e.ts`
+→ exit 1, all 14 tests fail with `OSError: out of pty devices` from `pty.fork()`
+(`/dev/ptmx` denied under `workspace-write`). The session has approval prompts
+disabled, so `danger-full-access` cannot be requested from here; this command is
+therefore unverifiable in this environment and no PTY result is treated as
+evidence either way. `e2e/pty-folds.e2e.ts` and the other PTY suites were
+rewritten to the new shape blind (`Write note.txt` observables → `Edited 1
+file`, card names → the group row) and must be run with PTY access before landing.
+`e2e/wrapper.e2e.ts` fails in this environment for an unrelated reason:
+`npm pack` hits a root-owned `~/.npm/_cacache` (`EPERM`), also environmental.

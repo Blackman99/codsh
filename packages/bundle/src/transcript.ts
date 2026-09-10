@@ -25,6 +25,7 @@ import { renderMarkdown } from './markdown.ts'
 import { DEFAULT_DENSITY, DIFF_SOFT_CAP, type Density } from './density.ts'
 import { displayWidth, oneRow, truncate } from './theme.ts'
 import { todoReport } from './todos.ts'
+import { toolCategory, toolGroupLabel, type ToolCategory } from './tool-group.ts'
 import type { Theme } from './theme.ts'
 
 export { blockRules, gutter } from './gutter.ts'
@@ -52,6 +53,9 @@ const MAX_RESULT_LINES = 5
  * form keeps this much of it, marked; the fold keeps the whole line.
  */
 const MAX_RESULT_LINE_ROWS = 3
+
+/** The glyph that marks a tool group's single row. Kept distinct from the `✻` thinking mark. */
+const TOOL_BULLET = '●'
 
 /** The registered presenters, resolved against the agent's scope by the caller. */
 export interface ToolPresenters {
@@ -87,32 +91,48 @@ export interface TranscriptOptions {
 interface PendingCall {
   name: string
   args: unknown
-  /** The header line already on screen, so the result does not reprint it. */
+  /** The call's one-line title, as the presenter declared it. */
   title: string
   /**
    * What the call is about in one short line — the command of a terminal
-   * card, the paths of a file card — for a prompt that has to name the call
-   * somewhere its card is not, such as the approval widget.
+   * call, the paths of a file call — for a prompt that has to name the call
+   * somewhere its row is not, such as the approval widget.
    */
   summary: string | undefined
   /** Description supplied with the tool call, when present. */
   description?: string | undefined
   /**
-   * The exact lines the pending card printed, so the finished card can take
-   * their place instead of piling up under them. Identity rather than a
-   * count: by the time a result lands, an approval note or another call's
-   * card may sit between the pending card and the tail. Trimmed if a later
-   * card takes over the closing pad this one printed.
-   */
-  lines: readonly string[]
-  /** Whether the pending card joined a run rather than opening one. */
-  joined: boolean
-  /** Whether the closing pad it printed is still its own. */
-  closes: boolean
-  /**
    * Child session this pending call was promoted to, when `subagent/start`
    * bound it as a view before the tool result.
    */
+  enter?: string
+  /** The group member this call is counted under, while its run is alive. */
+  member?: GroupMember
+}
+
+/**
+ * One call inside the tool run at the tail.
+ *
+ * The run is the unit of layout and interaction: its members share one muted
+ * row and one Fold, and the label is recomputed from them as calls settle.
+ */
+interface GroupMember {
+  /** Correlation id; absent for an unpaired result from a replayed page boundary. */
+  callId: string | undefined
+  name: string
+  /** The category the merged label counts this member under. */
+  category: ToolCategory
+  /** Whether this member's call is still in flight. */
+  running: boolean
+  /** Whether the executor reported a failure for this member. */
+  failed: boolean
+  /** The one-line head this member shows inside the expanded group. */
+  head: string
+  /** The body rows this member contributes to the expanded group (output, diff). */
+  body: string[]
+  /** Raw reader text for this member, when its body is large enough to page. */
+  page?: string
+  /** Child session this member opens, when it is a subagent view. */
   enter?: string
 }
 
@@ -321,22 +341,6 @@ function cardIndent(theme: Theme): string {
 }
 
 /**
- * Strip volatile tokens so two cards can be compared by shape.
- *
- * Digits, absolute paths, and UUID-like ids change between otherwise
- * identical runs; keeping the surrounding words is what lets a burst of
- * Playwright greps join while `git status` after `pnpm test` does not.
- */
-function skeleton(text: string): string {
-  return text
-    .replace(/\/(?:Users|home|tmp|var|opt|usr)\/\S+/gu, '/…')
-    .replace(/\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/giu, '…')
-    .replace(/\b\d+\b/gu, '…')
-    .replace(/\s+/gu, ' ')
-    .trim()
-}
-
-/**
  * The blank row a background-filled block opens with.
  *
  * A block reads as a panel only when its text does not touch the panel edge.
@@ -347,20 +351,6 @@ function skeleton(text: string): string {
  */
 function blockPad(theme: Theme, bg: (text: string) => string): string[] {
   return theme.colored ? [bg('  ')] : []
-}
-
-/**
- * The row a block closes with.
- *
- * On a terminal it is the panel's lower padding, which also holds the next
- * block off it; piped output has no panel to pad, so the separator there is
- * the plain blank row it has always been.
- * @param theme - the active theme.
- * @param bg - the block's background wrapper.
- * @returns the closing row.
- */
-function blockClose(theme: Theme, bg: (text: string) => string): string[] {
-  return theme.colored ? [bg('  ')] : ['']
 }
 
 /**
@@ -390,7 +380,7 @@ function diffBody(diff: FileDiff, theme: Theme): string[] {
       const text = line.slice(1)
       if (line.startsWith('+')) lines.push(theme.diffAdd(`+ ${text}`))
       else if (line.startsWith('-')) lines.push(theme.diffDel(`- ${text}`))
-      else lines.push(theme.bgTool(theme.dim(`  ${text}`)))
+      else lines.push(theme.dim(`  ${text}`))
     }
   }
   return lines
@@ -424,42 +414,15 @@ export class Transcript {
   /** The pending card the block {@link render} just returned supersedes. */
   private pendingCard: readonly string[] = []
   /**
-   * The tool-card run standing at the tail of the transcript.
+   * The contiguous tool run standing at the tail of the transcript.
    *
-   * Cards that follow one another share a panel rather than each opening and
-   * closing one of their own: only the first pads above, and the closing pad
-   * moves down to whichever card is last. A card with body rows keeps the pad
-   * above it as the divider from the card before; a bare one-liner does not
-   * need one, which is what stops a run of reads from spending three rows on
-   * each single line it has to say.
+   * Consecutive tool calls are one unit: one muted row whose label aggregates
+   * their categories, and one Fold holding the member calls and their bodies.
+   * The run is broken by assistant prose, a real-user message, or a call the
+   * grouping rule excludes. `shown` is the row on screen, kept so the next
+   * member replaces it rather than stacking under it.
    */
-  private run: { rule: string; owner: string | undefined; bodied: boolean; close: string } | undefined
-  /**
-   * Consecutive unpaired results currently sharing one card at the tail.
-   *
-   * A resumed page-boundary dumps a burst of raw results with no pending
-   * call to pair with. Stacking each as its own preview fills the viewport
-   * with the same `(result)` head; this run absorbs them into one fold.
-   */
-  private orphanRun: { shown: string[]; full: string[]; count: number; failed: boolean } | undefined
-  /**
-   * Consecutive similar tool cards currently sharing one fold at the tail.
-   *
-   * A burst of the same command with the same output shape — Playwright greps
-   * that all print `Error: No tests found`, repeated `pnpm test` failures —
-   * used to stack a full card each. Shape is the command skeleton plus the
-   * output skeleton, so a later card with a different command or a different
-   * kind of output starts its own card.
-   */
-  private similarRun: {
-    key: string
-    shown: string[]
-    members: string[][]
-    count: number
-    failed: boolean
-    title: string
-    suffix: string
-  } | undefined
+  private group: { members: GroupMember[]; shown: string[] } | undefined
 
   constructor(
     private readonly options: TranscriptOptions,
@@ -514,17 +477,11 @@ export class Transcript {
   }
 
   /**
-   * Close an active tool run, so subsequent tools open in a new panel.
-   *
-   * Neighbouring panels already carry their own inner pads, so this must not
-   * insert an unstyled blank — that hole is the gap between an Edit card and
-   * the thought clock. The next block still opens with its own top pad.
+   * Close the active tool run, so the next call opens a fresh group row.
    * @returns nothing; the run is closed in memory only.
    */
   endRun(): string[] {
-    this.run = undefined
-    this.orphanRun = undefined
-    this.similarRun = undefined
+    this.group = undefined
     return []
   }
 
@@ -534,16 +491,13 @@ export class Transcript {
    * @returns the lines to append to the transcript, empty when the event shows nothing.
    */
   render(event: SessionEvent): string[] {
-    // Only tool cards share a panel; anything else printed under one ends it,
-    // and its own leading rows are the gap.
-    const hadRun = this.run !== undefined
+    const hadRun = this.group !== undefined
     const lines = this.renderBlock(event, hadRun)
-    if (lines.length > 0 && event.type !== 'tool/call' && event.type !== 'tool/result' && event.type !== 'assistant/message') {
-      this.run = undefined
-      this.orphanRun = undefined
-      this.similarRun = undefined
+    // Only consecutive tool calls share a group; assistant prose and a
+    // real-user message end it, and their own leading rows are the gap.
+    if (lines.length > 0 && event.type !== 'tool/call' && event.type !== 'tool/result') {
+      this.group = undefined
     }
-    if (event.type === 'tool/call' && lines.length > 0) this.orphanRun = undefined
     return lines
   }
 
@@ -724,17 +678,16 @@ export class Transcript {
 
   /**
    * Bind the oldest unmatched pending `subagent` or `subagent_fork` call to a
-   * child Session id, and rebuild that pending card as a view.
+   * child Session id, so the group row that stands for it becomes a door.
    *
    * `subagent/start` publishes the id as soon as the child exists — before the
    * tool result — so a click can enter while the call is still running. Two
    * unmatched pendings bind FIFO. The pending call stays recorded so a later
    * continuable start-result still pairs with it.
-   * @param childId - the child Session the pending card should open.
-   * @returns the view card's lines, empty when no unmatched pending call remains.
+   * @param childId - the child Session the group row should open.
+   * @returns the group row to re-register, empty when no unmatched pending call remains.
    */
   promotePendingView(childId: string): string[] {
-    const { theme } = this.options
     this.fold = undefined
     this.rule = ''
     this.prompt = undefined
@@ -746,148 +699,153 @@ export class Transcript {
     this.label = ''
     if (childId === '') return []
     let matched: PendingCall | undefined
-    let matchedId: string | undefined
-    for (const [callId, pending] of this.calls) {
+    for (const pending of this.calls.values()) {
       if (pending.enter !== undefined) continue
       if (pending.name !== 'subagent' && pending.name !== 'subagent_fork') continue
       matched = pending
-      matchedId = callId
       break
     }
-    if (matched === undefined || matchedId === undefined) return []
-    const bg = (text: string) => theme.bgTool(text)
-    const hint = bg(theme.dim('  click to enter'))
-    const original = [...matched.lines]
-    const close = theme.colored ? bg('  ') : undefined
-    const lines = matched.closes && close !== undefined && original.at(-1) === close
-      ? [...original.slice(0, -1), hint, close]
-      : [...original, hint]
+    if (matched === undefined) return []
     matched.enter = childId
-    matched.lines = lines
-    if (this.run?.owner === matchedId) this.run.bodied = true
-    this.rule = blockRules(theme).tool
+    if (matched.member !== undefined) matched.member.enter = childId
+    if (this.group === undefined || matched.member === undefined) return []
+    const row = this.emitGroup()
+    // The promotion that just happened is the live door, not an older member's.
     this.enter = childId
-    this.label = matched.title
-    this.pendingCard = original
-    return lines
+    return row
   }
 
   /**
-   * Open the tool-card run at the tail, or join the one already standing.
-   *
-   * Joining means printing no pad above: the card before already closed with
-   * one, and that row is the divider between them. Two bare one-liners do not
-   * even need that — the newcomer takes over the closing pad — which is what
-   * stops a run of reads from spending three rows on each single line it has
-   * to say.
-   * @param bodied - whether the card prints rows under its head.
-   * @param bg - the card's background wrapper.
-   * @param close - the rows the card ends with.
-   * @param callId - the call the card belongs to, while it is pending.
-   * @returns how to open and close the card, and the rows it supersedes.
+   * Add one member to the run at the tail, opening the run when it is absent.
+   * @param member - the call to count and fold.
    */
-  private joinRun(bodied: boolean, bg: (text: string) => string, close: string[], callId?: string): {
-    lead: string[]
-    close: string[]
-    joined: boolean
-    supersedes: string[]
-  } {
-    const { theme } = this.options
-    const open = this.run
-    const joined = open !== undefined && open.rule === this.rule
-    let supersedes: string[] = []
-    if (joined && open !== undefined && !open.bodied && !bodied && theme.colored) {
-      // Neither card has anything under its head, so the row between them is
-      // only a gap: the run's closing pad moves down under the newcomer.
-      supersedes = [open.close]
-      const previous = open.owner === undefined ? undefined : this.calls.get(open.owner)
-      if (previous !== undefined) {
-        previous.lines = previous.lines.slice(0, -1)
-        previous.closes = false
-      }
-    }
-    this.run = { rule: this.rule, owner: callId, bodied, close: close[0] ?? '' }
-    return { lead: joined ? [] : blockPad(theme, bg), close, joined, supersedes }
+  private pushMember(member: GroupMember): void {
+    this.group ??= { members: [], shown: [] }
+    this.group.members.push(member)
   }
 
+  /**
+   * Recompute the run's one row and its Fold, replacing the row on screen.
+   *
+   * The label is aggregated from every member — categories in first-appearance
+   * order, present tense while any member runs, past once all settle, with a
+   * trailing failure segment — so it is recomputed rather than appended to and
+   * never changes for a volatile path or count.
+   * @returns the one row to append, which supersedes the prior group row.
+   */
+  private emitGroup(): string[] {
+    const { theme } = this.options
+    const group = this.group
+    if (group === undefined) return []
+    const counts = group.members.map(member => ({
+      category: member.category,
+      running: member.running,
+      failed: member.failed,
+    }))
+    const failedCount = group.members.filter(member => member.failed).length
+    const label = toolGroupLabel(counts)
+    const clean = failedCount === 0 ? label : toolGroupLabel(counts.map(entry => ({ ...entry, failed: false })))
+    const painted = `${cardIndent(theme)}${theme.muted(TOOL_BULLET)} ${theme.dim(clean)}${failedCount === 0 ? '' : theme.error(` · ${String(failedCount)} failed`)}`
+    // One row, always: the label truncates rather than wrapping the transcript.
+    const ruleWidth = displayWidth(oneRow(blockRules(theme).tool))
+    const row = truncate(painted, Math.max(8, this.columns - ruleWidth))
+    const body = group.members.flatMap(member => [member.head, ...member.body])
+    this.pendingCard = group.shown
+    group.shown = [row]
+    this.fold = [row, ...body]
+    this.label = label
+    this.rule = blockRules(theme).tool
+    const enter = group.members.find(member => member.enter !== undefined)?.enter
+    this.enter = enter
+    // A run whose expansion is large is read in the pager on click; Ctrl+O
+    // still swaps the whole fold inline.
+    const soft = DIFF_SOFT_CAP[this.options.density ?? DEFAULT_DENSITY]
+    const pages = group.members.map(member => member.page).filter((page): page is string => page !== undefined)
+    this.page = body.length > soft && pages.length > 0 ? pages.join('\n') : undefined
+    return [row]
+  }
+
+  /**
+   * The muted head one member shows inside the expanded group.
+   * @param title - the call's title, already workspace-relative.
+   * @param suffix - already-styled stats (`+n -m`, `3 of 9 lines`), or `''`.
+   * @param status - already-styled trailing glyph, or `''` while still running.
+   * @returns the painted one-liner.
+   */
+  private memberHead(title: string, suffix = '', status = ''): string {
+    const { theme } = this.options
+    const stats = suffix === '' ? '' : ` ${suffix}`
+    const mark = status === '' ? '' : ` ${status}`
+    return `${cardIndent(theme)}${theme.muted(TOOL_BULLET)} ${theme.dim(title)}${stats}${mark}`
+  }
+
+  /**
+   * The one-line summary a call contributes to a prompt shown away from its row.
+   * @param view - the declared call view, when one exists.
+   * @param title - the call's relativized title.
+   * @returns the summary, or undefined for a call with no presenter.
+   */
+  private summarizeCall(view: ToolCallView | undefined, title: string): string | undefined {
+    if (view === undefined) return undefined
+    if (view.card === 'terminal') {
+      const lines = this.relativizeIn(view.title).split('\n')
+      return lines.length > 1 ? `${lines[0] ?? ''} …` : this.relativizeIn(view.title)
+    }
+    if (view.card === 'diff') {
+      const paths = view.diffs.map(diff => this.relative(diff.path))
+      return paths.length === 0 ? title : paths.join(', ')
+    }
+    const locations = (view.locations ?? []).map(location => this.relative(location.path))
+    return locations.length === 0 ? title : locations.join(', ')
+  }
+
+  /**
+   * Render a pending call as one member of the group at the tail.
+   * @param callId - correlation id, remembered until the result pairs with it.
+   * @param name - the tool the model called.
+   * @param rawArguments - the unparsed arguments JSON the model produced.
+   * @returns the group row.
+   */
   private renderCall(callId: string, name: string, rawArguments: string): string[] {
-    const similar = this.similarRun
-    try {
-      return this.renderCallInner(callId, name, rawArguments)
-    } finally {
-      this.similarRun = similar
-    }
-  }
-
-  private renderCallInner(callId: string, name: string, rawArguments: string): string[] {
-    const { theme } = this.options
-    const columns = this.columns
     let args: unknown
     try {
       args = JSON.parse(rawArguments)
     } catch {
-      // Unparseable arguments still get a card: the model called the tool, and
+      // Unparseable arguments still get a row: the model called the tool, and
       // the failure belongs on the result line the executor produces.
       args = undefined
     }
     const view = this.safeCall(name, args)
-    let joined = false
-    // True until a later card takes the closing pad over.
-    const closes = true
-    const card = (bodied: boolean): { lead: string[]; close: string[] } => {
-      const opened = this.joinRun(bodied, text => theme.bgTool(text), blockPad(theme, text => theme.bgTool(text)), callId)
-      this.pendingCard = opened.supersedes
-      joined = opened.joined
-      return opened
+    const category = toolCategory(name, view)
+    const base = view === undefined ? name : this.relativizeIn(view.title)
+    const locations = view?.card === 'generic' ? (view.locations ?? []).map(location => this.relative(location.path)) : []
+    const title = view?.card === 'generic' ? `${base}${this.extraPaths(base, locations)}` : base
+    const summary = this.summarizeCall(view, title)
+    const member: GroupMember = {
+      callId,
+      name,
+      category,
+      running: true,
+      failed: false,
+      head: this.memberHead(title),
+      body: [],
     }
-    const record = (title: string, summary: string | undefined, lines: string[], description?: string): string[] => {
-      this.calls.set(callId, { name, args, title, summary, description, lines, joined, closes })
-      return lines
-    }
-    const indent = cardIndent(theme)
-    if (view === undefined) {
-      const { lead, close } = card(false)
-      return record(name, undefined, [...lead, theme.bgTool(`${indent}${theme.pending('●')} ${theme.tool(name)}`), ...close])
-    }
-    if (view.card === 'terminal') {
-      const header = view.cwd === undefined ? '' : theme.dim(` (${this.relative(view.cwd)})`)
-      const description = view.description === undefined ? [] : [theme.dim(`  ${view.description}`)]
-      const command = this.relativizeIn(view.title)
-      const lines = command.split('\n')
-      const summary = lines.length > 1 ? `${lines[0] ?? ''} …` : command
-      const { lead, close } = card(true)
-      return record(command, summary, [
-        ...lead,
-        theme.bgTool(`${indent}${theme.pending('●')} ${theme.tool(name)}${header}`),
-        theme.bgTool(`  $ ${truncate(summary, columns - 4)}`),
-        ...description.map(d => theme.bgTool(d)),
-        ...close,
-      ], view.description)
-    }
-    if (view.card === 'diff') {
-      const title = this.relativizeIn(view.title)
-      const paths = view.diffs.map(diff => this.relative(diff.path))
-      const line = `${title}${this.extraPaths(title, paths)}`
-      // Pending stays off-screen: the completed one-liner is the card. The
-      // spinner names the tool while it runs.
-      return record(line, paths.length === 0 ? title : paths.join(', '), [])
-    }
-    const title = this.relativizeIn(view.title)
-    const locations = (view.locations ?? []).map(location => this.relative(location.path))
-    const extra = this.extraPaths(title, locations)
-    const { lead, close } = card(false)
-    const titleBudget = Math.max(8, columns - 4 - displayWidth(extra))
-    return record(`${title}${extra}`, locations.length === 0 ? title : locations.join(', '), [
-      ...lead,
-      theme.bgTool(`${indent}${theme.pending('●')} ${truncate(title, titleBudget)}${theme.path(extra)}`),
-      ...close,
-    ])
+    this.calls.set(callId, {
+      name,
+      args,
+      title,
+      summary,
+      ...view?.card === 'terminal' && view.description !== undefined ? { description: view.description } : {},
+      member,
+    })
+    this.pushMember(member)
+    return this.emitGroup()
   }
 
   /**
    * Render a completed call, pairing it with the call this transcript recorded.
    * @param data - the `tool/result` payload.
-   * @returns the completed card's lines.
+   * @returns the group row.
    */
   private renderResult(data: SessionEvent<'tool/result'>['data']): string[] {
     const { theme } = this.options
@@ -898,191 +856,65 @@ export class Transcript {
     this.calls.delete(callId)
     const failed = error !== undefined || block.isError === true
     if (failed) this.rule = blockRules(theme).error
-    const bg = failed ? (text: string) => theme.bgError(text) : (text: string) => theme.bgTool(text)
+    const view = pending === undefined ? undefined : this.safeResult(pending, block.content, failed, meta)
+    const title = view?.title === undefined ? (pending?.title ?? '(result)') : this.relativizeIn(view.title)
+    let suffix = ''
+    let body: string[] = []
+    let full: string[] | undefined
     if (pending === undefined) {
-      return this.renderOrphanResult(text => bg(text), failed, block.content)
-    }
-    this.orphanRun = undefined
-    const view = this.safeResult(pending, block.content, failed, meta)
-    const similar = this.absorbSimilar(pending, view, failed, block, bg)
-    if (similar !== undefined) return similar
-    const title = view?.title === undefined ? pending.title : this.relativizeIn(view.title)
-    const { suffix, body, full } = this.outcome(view, block, pending, failed)
-    const enter = failed ? undefined : childSessionId(this.resultText(block.content))
-    const hint = enter === undefined ? [] : [bg(theme.dim('  click to enter'))]
-    // One stable ToolCard line: ● · title · +n -m · ✔/✗. Truncate the title
-    // first so the stats and status survive a narrow terminal.
-    const bullet = theme.ok('●')
-    const done = failed ? theme.err('✗') : theme.ok('✔')
-    // The screen paints the tool rule (`│ `) beside this line; budget the
-    // headline for what's left so `+n -m` cannot wrap onto the next row.
-    const ruleWidth = displayWidth(oneRow(this.rule || blockRules(theme).tool))
-    const head = [bg(formatToolCardLine(theme, this.columns - ruleWidth, bullet, title, suffix, done))]
-    const bodyLines = view?.card === 'diff' ? body : body.map(line => bg(line))
-    const fullLines = view?.card === 'diff' ? full : full?.map(line => bg(line))
-    // Diff cards stay collapsed on screen (hunks only in the fold).
-    const shown = view?.card === 'diff' ? [] : bodyLines
-    const bodied = shown.length > 0 || hint.length > 0
-    // The card takes the place its pending form held, and keeps that form's
-    // standing in the run: a result cannot re-open a panel its pending card
-    // already joined, nor re-print a closing pad a later card took over.
-    const { lead, close, supersedes } = this.joinRun(bodied, bg, blockClose(theme, bg))
-    const hasPendingLines = pending !== undefined && pending.lines.length > 0
-    const open = hasPendingLines ? (pending.joined ? [] : blockPad(theme, bg)) : lead
-    const shut = !hasPendingLines || pending.closes ? close : []
-    this.pendingCard = hasPendingLines ? pending.lines : supersedes
-    // The fold swaps the WHOLE event's lines, so the expanded form repeats the
-    // same head with the uncapped body under it.
-    if (fullLines !== undefined) {
-      this.fold = [...open, ...head, ...fullLines, ...hint, ...shut]
-      this.label = title
-    }
-    if (enter !== undefined) {
-      this.enter = enter
-      this.label = title
-    }
-    const card = [...open, ...head, ...shown, ...hint, ...shut]
-    const key = this.similarKey(pending, view, failed)
-    if (key !== undefined && enter === undefined) {
-      this.similarRun = {
-        key,
-        shown: card,
-        members: [[...head, ...fullLines ?? shown]],
-        count: 1,
-        failed,
-        title,
-        suffix,
-      }
+      // A page-boundary orphan: there is no declared view, only the raw result.
+      const text = failed ? this.resultText(block.content) : formatAskUserQuestionResult(this.resultText(block.content))
+      const lines = text === '' ? [] : text.split('\n').map(line => theme.dim(`  ${line}`))
+      const capped = this.capBody(lines, MAX_RESULT_LINES)
+      body = capped.body
+      full = capped.full
     } else {
-      this.similarRun = undefined
+      const out = this.outcome(view, block, pending, failed)
+      suffix = out.suffix
+      body = out.body
+      full = out.full
     }
-    return card
-  }
-
-  /**
-   * Fold this result into the similar run at the tail, when its shape matches.
-   *
-   * Shape is the command skeleton plus the output skeleton: digits, absolute
-   * paths, and volatile ids are stripped so two Playwright greps that failed
-   * the same way join, while `git status` after `pnpm test` does not.
-   */
-  private absorbSimilar(
-    pending: PendingCall,
-    view: ToolResultView | undefined,
-    failed: boolean,
-    block: { content: ContentBlock[] },
-    bg: (text: string) => string,
-  ): string[] | undefined {
-    const previous = this.similarRun
-    const key = this.similarKey(pending, view, failed)
-    if (previous === undefined || key === undefined || key !== previous.key || previous.failed !== failed) {
-      return undefined
+    // `outcome` parks a large diff's reader text on `page`; a terminal, read or
+    // generic body supplies its own raw text, and the group decides whether the
+    // whole run is large enough to hand to the pager.
+    let page = this.page
+    this.page = undefined
+    if (page === undefined && view !== undefined) {
+      if (view.card === 'terminal') page = (view.output ?? '').replace(/\n+$/u, '')
+      else if (view.card === 'read') page = view.lines.map(line => `${String(line.number)}: ${line.text}`).join('\n')
+      else if (view.card === 'generic' && view.content !== undefined) page = this.resultText(view.content)
     }
-    const { theme } = this.options
-    const { suffix, body, full } = this.outcome(view, block, pending, failed)
-    const member = [
-      bg(formatToolCardLine(theme, this.columns, theme.ok('●'), view?.title === undefined ? pending.title : this.relativizeIn(view.title), suffix, failed ? theme.err('✗') : theme.ok('✔'))),
-      ...(full ?? body).map(line => view?.card === 'diff' ? line : bg(line)),
-    ]
-    const count = previous.count + 1
-    const members = [...previous.members, member]
-    const bullet = theme.ok('●')
-    const done = failed ? theme.err('✗') : theme.ok('✔')
-    const countMark = theme.dim(`· ${String(count)}`)
-    const ruleWidth = displayWidth(oneRow(this.rule || blockRules(theme).tool))
-    const stats = [countMark, previous.suffix].filter(part => part !== '').join(' ')
-    const head = bg(formatToolCardLine(theme, this.columns - ruleWidth, bullet, previous.title, stats, done))
-    const hint = theme.dim(`  … +${String(count)} similar (click or Ctrl+O expands)`)
-    const close = blockClose(theme, bg)
-    const open = pending.joined ? [] : blockPad(theme, bg)
-    const card = [...open, head, bg(hint), ...close]
-    const fullCard = [...open, head, ...members.flatMap((entry, index) => index === 0 ? entry : ['', ...entry]), ...close]
-    this.pendingCard = pending.lines.length > 0 ? [...previous.shown, ...pending.lines] : previous.shown
-    this.fold = fullCard
-    this.label = previous.title
-    this.similarRun = { ...previous, shown: card, members, count, suffix: previous.suffix }
-    this.run = { rule: this.rule, owner: undefined, bodied: true, close: close[0] ?? '' }
-    return card
-  }
-
-  /**
-   * A stable key for consecutive cards that should share one fold.
-   *
-   * Missing when the card is a one-off: a subagent view, a diff, or a
-   * result with no command/output to compare.
-   */
-  private similarKey(pending: PendingCall, view: ToolResultView | undefined, failed: boolean): string | undefined {
-    if (failed) return undefined
-    if (view?.card === 'diff' || view?.card === 'read') return undefined
-    const command = pending.title
-    const output = view?.card === 'terminal'
-      ? (view.output ?? '')
-      : view?.card === 'generic' && view.content !== undefined
-        ? this.resultText(view.content)
-        : ''
-    if (command === '') return undefined
-    return `${pending.name}\n${skeleton(command)}\n${skeleton(output)}`
-  }
-
-  /**
-   * Render a result whose pending call fell outside this surface's window.
-   *
-   * Consecutive orphans of the same kind share one card: the first prints as
-   * itself, and each later one replaces that card with a count and a fold
-   * over every body. A failed result starts its own card so an error does
-   * not hide inside a successful burst.
-   * @param bg - the card's background wrapper.
-   * @param failed - whether the executor reported a failure.
-   * @param content - the model-facing result content.
-   * @returns the card's lines.
-   */
-  private renderOrphanResult(bg: (text: string) => string, failed: boolean, content: readonly ContentBlock[]): string[] {
-    const { theme } = this.options
-    const rawText = this.resultText(content)
-    const text = failed ? rawText : formatAskUserQuestionResult(rawText)
-    const body = text.split('\n').map(line => theme.dim(`  ${line}`))
-    const marker = failed ? theme.err('✗') : theme.ok('●')
-    const enter = failed ? undefined : childSessionId(text)
-    const hint = enter === undefined ? [] : [bg(theme.dim('  click to enter'))]
-    const previous = this.orphanRun
-    const joining = previous !== undefined && previous.failed === failed && enter === undefined
-    if (joining && previous !== undefined) {
-      const count = previous.count + 1
-      const members = [...previous.full, '', ...body]
-      const title = theme.dim(`(result) · ${String(count)}`)
-      const head = bg(`${cardIndent(theme)}${marker} ${title}`)
-      const close = blockClose(theme, bg)
-      const hintLine = theme.dim(`  … +${String(count)} results (click or Ctrl+O expands)`)
-      const card = [head, bg(hintLine), ...close]
-      const full = [head, ...members.map(line => bg(line)), ...close]
-      this.pendingCard = previous.shown
-      this.fold = full
-      this.label = 'tool result'
-      this.orphanRun = { shown: card, full: members, count, failed }
-      this.run = { rule: this.rule, owner: undefined, bodied: true, close: close[0] ?? '' }
-      return card
+    if (page === '') page = undefined
+    const enter = failed ? undefined : childSessionId(this.resultText(block.content))
+    const head = this.memberHead(title, suffix, failed ? theme.err('✗') : theme.ok('✔'))
+    const member = pending?.member
+    if (pending !== undefined && member !== undefined) {
+      // A non-tool event between the call and its result ends the run; the
+      // result then reopens a group of its own rather than vanishing.
+      if (this.group === undefined || !this.group.members.includes(member)) {
+        this.group = { members: [member], shown: [] }
+      }
+      member.running = false
+      member.failed = failed
+      member.category = toolCategory(pending.name, view)
+      member.head = head
+      member.body = full ?? body
+      if (page !== undefined) member.page = page
+      if (enter !== undefined) member.enter = enter
+    } else {
+      this.pushMember({
+        callId: undefined,
+        name: pending?.name ?? '',
+        category: toolCategory(pending?.name ?? '', view),
+        running: false,
+        failed,
+        head,
+        body: full ?? body,
+        ...page === undefined ? {} : { page },
+        ...enter === undefined ? {} : { enter },
+      })
     }
-
-    const { body: capped, full } = this.capBody(body, MAX_RESULT_LINES)
-    const head = bg(`${cardIndent(theme)}${marker} ${theme.dim('(result)')}`)
-    const { lead, close, supersedes } = this.joinRun(true, bg, blockClose(theme, bg))
-    this.pendingCard = supersedes
-    const bodyLines = capped.map(line => bg(line))
-    const fullBody = (full ?? body).map(line => bg(line))
-    const shown = [...lead, head, ...bodyLines, ...hint, ...close]
-    const expanded = [...lead, head, ...fullBody, ...hint, ...close]
-    if (full !== undefined) {
-      this.fold = expanded
-      this.label = 'tool result'
-    }
-    if (enter !== undefined) {
-      this.enter = enter
-      this.label = 'tool result'
-      this.orphanRun = undefined
-      return shown
-    }
-    this.orphanRun = { shown, full: body, count: 1, failed }
-    return shown
+    return this.emitGroup()
   }
 
   /**

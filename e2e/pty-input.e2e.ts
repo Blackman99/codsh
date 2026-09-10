@@ -34,7 +34,7 @@ describe.skipIf(process.platform === 'win32')('typing and keys (real PTY)', () =
     expect(held).toContain('second line of it')
     // One turn, so one tool card. Line-by-line submission would have run two.
     const done = screenAt(output, 'CODE_CLI_CALL_OK').alternate
-    expect(done.filter(row => row.includes('Write note.txt'))).toHaveLength(1)
+    expect(done.filter(row => row.includes('Edited 1 file'))).toHaveLength(1)
   }, E2E_TEST_TIMEOUT_MS)
 
   it('completes an @ mention on Tab', async () => {
@@ -94,7 +94,7 @@ describe.skipIf(process.platform === 'win32')('typing and keys (real PTY)', () =
 
     const screen = screenAt(output, 'CODE_CLI_CALL_OK')
     // One turn from two lines: the break did not submit.
-    expect(screen.alternate.filter(row => row.includes('Write note.txt'))).toHaveLength(1)
+    expect(screen.alternate.filter(row => row.includes('Edited 1 file'))).toHaveLength(1)
     // The echo keeps the block's shape: the marker on the first row, the
     // continuation aligned under it, both outside the box's borders.
     const rows = screen.alternate.map(visible)
@@ -179,7 +179,7 @@ describe.skipIf(process.platform === 'win32')('typing and keys (real PTY)', () =
     }
     expect(recalled).toBeDefined()
     // Recalled for editing, not re-submitted: still exactly one tool card.
-    expect(recalled?.filter(row => row.includes('Write note.txt'))).toHaveLength(1)
+    expect(recalled?.filter(row => row.includes('Edited 1 file'))).toHaveLength(1)
   }, E2E_TEST_TIMEOUT_MS)
 
   it('moves up a wrapped line instead of recalling the last prompt', async () => {
@@ -189,11 +189,11 @@ describe.skipIf(process.platform === 'win32')('typing and keys (real PTY)', () =
       ['Welcome to codsh', `remembered prompt${ENTER}`, 500],
       // Type the long line — 40 columns makes it several rows — then Up from
       // its last row.
-      ['Write note.txt', long, 400],
+      ['Edited 1 file', long, 400],
       [long.slice(-12), '\u001B[A', 500],
       // Submitting empties the box, so the command after it is a command.
       ['', ENTER, 700],
-      ['Write note.txt', `/exit${ENTER}`, 500],
+      ['Edited 1 file', `/exit${ENTER}`, 500],
     ], { columns: 40 })
 
     // The frame after Up settled.

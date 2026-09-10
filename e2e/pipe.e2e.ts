@@ -76,17 +76,17 @@ async function runCodeCli(options: {
 }
 
 describe('dsh code (real profile, keyless model)', () => {
-  it('mounts the preset and renders a write through the diff card', async () => {
+  it('mounts the preset and renders a write through the muted group row', async () => {
     const run = await runCodeCli({ tool: 'write', args: ['-p', 'create the note'], input: '' })
 
     // The composed surface names the preset the roster resolved.
     expect(run.stdout).toContain('code-cli')
-    // The absolute path the tool reports is shortened against the workspace and
-    // shown once: the pending card names the file, and the result adds only its
-    // body. (The banner still prints the workspace itself, one line above.)
-    const card = run.stdout.split('\n').filter(line => line.includes('note.txt'))
-    // Collapsed ToolCard one-liner (gutter + title + stats + status); body stays folded.
-    expect(card).toEqual(['│ ● Write note.txt +1 -0 ✔'])
+    // A redirected transcript cannot unprint the pending row, so an edit
+    // reaches a script as its two group shapes; the diff body and the file
+    // path stay in the fold, which print mode never opens.
+    const card = run.stdout.split('\n').filter(line => line.includes('Edited 1 file') || line.includes('Editing 1 file'))
+    expect(card).toEqual(['│ ● Editing 1 file', '│ ● Edited 1 file'])
+    expect(run.stdout).not.toContain('note.txt')
     // Print mode serves scripts: the task text came from the caller's own
     // command line, so it is not echoed back into the output.
     expect(run.stdout).not.toContain('› create the note')

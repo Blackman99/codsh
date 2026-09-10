@@ -93,7 +93,7 @@ describe.skipIf(process.platform === 'win32')('approvals and selectors (real PTY
     try {
       await drivePty('write', [
         ['Welcome to codsh', `note the away work${ENTER}`, 500],
-        ['Write note.txt', `/exit${ENTER}`, 400],
+        ['Edited 1 file', `/exit${ENTER}`, 400],
       ], { cwd: away, env: { DSH_HOME: home } })
 
       // The surface prints the realpath, and macOS hands out /var for
@@ -102,7 +102,7 @@ describe.skipIf(process.platform === 'win32')('approvals and selectors (real PTY
       const run = await drivePtySteps('write', [
         ['Welcome to codsh', `note the local work${ENTER}`, 500],
         // /clear retires this session, so the folder has one to offer back.
-        ['Write note.txt', `/clear${ENTER}`, 500],
+        ['Edited 1 file', `/clear${ENTER}`, 500],
         ['new session session-', `/resume${ENTER}`, 700],
         // Filtering to the fold row is how it gets chosen without counting
         // arrow presses through a list whose length the test does not fix.
