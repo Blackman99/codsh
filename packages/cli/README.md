@@ -9,7 +9,7 @@ npm install -g @deepseek-ai/dsh codsh-cli
 codsh
 ```
 
-Key: `DEEPSEEK_API_KEY`. Already have dsh? `npm i -g codsh-cli` is enough.
+Key: `DEEPSEEK_API_KEY`. Already have dsh? `npm i -g codsh-cli` is enough when that dsh matches this release. An older harness is refused at boot with the install line.
 
 [![The /ship flow](https://raw.githubusercontent.com/Blackman99/codsh/main/assets/ship-demo.gif)](https://blackman99.github.io/codsh/)
 
@@ -19,7 +19,7 @@ shows the rest of the surface as real terminal captures.
 
 ## The launcher
 
-This package bundles nothing. It finds the dsh you already have (`DSH_BIN`, a resolvable `@deepseek-ai/dsh`, or `dsh` on PATH), registers the [`codsh-bundle`](https://www.npmjs.com/package/codsh-bundle) runtime into a dsh `code` profile on first run, and boots `dsh --profile code`. No dsh yet? `npm install -g @deepseek-ai/dsh` first.
+This package bundles nothing. It finds the dsh you already have (`DSH_BIN`, a resolvable `@deepseek-ai/dsh`, or `dsh` on PATH), registers the [`codsh-bundle`](https://www.npmjs.com/package/codsh-bundle) runtime into a dsh `code` profile on first run, and boots `dsh --profile code`. The found dsh must meet this release's harness floor (`codsh.requiresDsh` in this package's manifest); an older one is refused at boot with the install line. No dsh yet? `npm install -g @deepseek-ai/dsh` first.
 
 Set `DSH_BIN=/path/to/dsh` to pin a specific dsh; set `CODSH_BUNDLE_SPEC` to register a bundle other than the launcher's paired `codsh-bundle@^<version>` (development installs use a `file:` tarball here, which the launcher never overwrites).
 

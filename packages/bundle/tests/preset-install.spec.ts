@@ -1,8 +1,9 @@
 /**
  * The bundle carries its own preset and installs it into the writable user
  * root, because the launcher owns the roster's search roots and a bundle has no
- * way to add one. The copy never overwrites: that directory belongs to the
- * person, not to this package.
+ * way to add one. The copy never overwrites a person's edits. A leftover
+ * `persona.text` field is rewritten to `prefix` so a copy from before 0.1.5
+ * still mounts.
  */
 
 import { mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises'
@@ -63,6 +64,31 @@ describe('installPackagedPreset', () => {
     expect(await readFile(composition, 'utf8')).toBe('- id: persona\n')
   })
 
+  it('rewrites a leftover persona text field to prefix', async () => {
+    const home = await root()
+    const { path } = await installPackagedPreset(home)
+    const composition = join(path, 'agent.cordis.yml')
+    await writeFile(composition, `- id: persona
+  name: '@deepseek-ai/dsh-persona'
+  config:
+    text: >-
+      You are a coding agent powered by the {{model}} model.
+
+- id: agent-instructions
+  name: '@deepseek-ai/dsh-agent-instructions'
+`)
+
+    const result = await installPackagedPreset(home)
+
+    expect(result.installed).toBe(false)
+    expect(result.migrated).toBe(true)
+    const text = await readFile(composition, 'utf8')
+    expect(text).toContain('prefix: >-')
+    expect(text).not.toMatch(/^\s+text:/mu)
+    expect(text).toContain('You are a coding agent powered by the {{model}} model.')
+    expect(text).toContain('- id: agent-instructions')
+  })
+
   it('installs a composition the loader can read', async () => {
     const home = await root()
     const { path } = await installPackagedPreset(home)
@@ -71,6 +97,8 @@ describe('installPackagedPreset', () => {
     // The row the patch names as the roster default has to be the one that
     // shipped, so a standalone install composes what this bundle expects.
     expect(text).toContain('- id: persona')
+    expect(text).toContain('prefix:')
+    expect(text).not.toMatch(/^\s+text:/mu)
     expect(text).toContain('@deepseek-ai/dsh-tool-terminal')
   })
 })

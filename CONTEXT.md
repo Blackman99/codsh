@@ -9,7 +9,8 @@ design deliberately aligns with the best of today's agent CLIs.
 
 **Launcher**:
 The `codsh-cli` npm package — a zero-dependency command that finds an existing
-dsh, registers the Bundle into a profile, and boots it.
+dsh, registers the Bundle into a profile, and boots it. The found dsh must
+meet the harness floor published on the launcher (`codsh.requiresDsh`).
 _Avoid_: wrapper, shim, cli package
 
 **Bundle**:

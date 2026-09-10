@@ -11,7 +11,7 @@
  */
 
 import { spawnSync } from 'node:child_process'
-import { existsSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { createRequire } from 'node:module'
@@ -141,15 +141,91 @@ if (process.argv[2] === '--version' || process.argv[2] === '-V') {
   process.exit(0)
 }
 
+const PRE_RANK = { alpha: 0, beta: 1, rc: 2 }
+
+/**
+ * The harness floor this launcher was published against.
+ * @returns the exact version, or undefined when the field is missing.
+ */
+function requiredDsh() {
+  const value = own.codsh?.requiresDsh
+  return typeof value === 'string' && value !== '' ? value : undefined
+}
+
+/** npm install line that pins the floor when we know it. */
+function dshInstallCommand() {
+  const need = requiredDsh()
+  return need === undefined ? 'npm install -g @deepseek-ai/dsh' : `npm install -g @deepseek-ai/dsh@${need}`
+}
+
+/**
+ * Parse a dsh --version line into comparable parts.
+ * @param raw - stdout from `dsh --version`, or a version string.
+ * @returns parts, or undefined when the line is not a SemVer dsh version.
+ */
+function parseHarnessVersion(raw) {
+  const line = String(raw ?? '').trim().split('\n').filter(Boolean).at(-1) ?? ''
+  const text = line.replace(/^dsh\s+/iu, '').trim()
+  const match = /^(\d+)\.(\d+)\.(\d+)(?:-([A-Za-z]+)\.(\d+))?(?:\+[0-9A-Za-z.-]+)?$/u.exec(text)
+  if (match === null) return undefined
+  return {
+    major: Number(match[1]),
+    minor: Number(match[2]),
+    patch: Number(match[3]),
+    pre: match[4] === undefined ? undefined : match[4].toLowerCase(),
+    preN: match[5] === undefined ? 0 : Number(match[5]),
+  }
+}
+
+/**
+ * Whether `found` is at least `need` for dsh's x.y.z[-pre.N] versions.
+ * Unparseable `found` is treated as new enough so a DSH_BIN fake still boots.
+ * @param found - a `dsh --version` line.
+ * @param need - the floor this runtime was built against.
+ */
+function harnessAtLeast(found, need) {
+  const a = parseHarnessVersion(found)
+  const b = parseHarnessVersion(need)
+  if (a === undefined || b === undefined) return true
+  if (a.major !== b.major) return a.major > b.major
+  if (a.minor !== b.minor) return a.minor > b.minor
+  if (a.patch !== b.patch) return a.patch > b.patch
+  if (a.pre === undefined) return true
+  if (b.pre === undefined) return false
+  const aRank = PRE_RANK[a.pre] ?? -1
+  const bRank = PRE_RANK[b.pre] ?? -1
+  if (aRank !== bRank) return aRank > bRank
+  return a.preN >= b.preN
+}
+
+/**
+ * Refuse to boot when the found dsh is older than this runtime's harness floor.
+ * @param launcher - the dsh `findDsh` located.
+ */
+function refuseOldDsh(launcher) {
+  const need = requiredDsh()
+  if (need === undefined) return
+  const probe = spawnSync(launcher.command, [...launcher.prefix, '--version'], { encoding: 'utf8' })
+  const raw = String(probe.stdout ?? '').trim().split('\n').at(-1) ?? ''
+  if (harnessAtLeast(raw, need)) return
+  const shown = raw === '' ? 'unknown' : raw
+  console.error(`codsh: dsh ${shown} is too old — this runtime needs @deepseek-ai/dsh@${need} or newer.
+
+  install one:      ${dshInstallCommand()}
+  or point at one:  DSH_BIN=/path/to/dsh codsh`)
+  process.exit(1)
+}
+
 const dsh = findDsh()
 if (dsh === undefined) {
   console.error(`codsh: no dsh runtime found. codsh launches the dsh you already have —
 the runtime is not bundled, so a machine never carries a second copy.
 
-  install one:      npm install -g @deepseek-ai/dsh
+  install one:      ${dshInstallCommand()}
   or point at one:  DSH_BIN=/path/to/dsh codsh`)
   process.exit(1)
 }
+refuseOldDsh(dsh)
 
 /** Run a dsh with arguments, inheriting the terminal. */
 function run(args, launcher = dsh) {

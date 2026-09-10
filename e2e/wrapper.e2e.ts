@@ -160,6 +160,65 @@ describe.skipIf(process.platform === 'win32')('the codsh launcher', () => {
     }
   })
 
+  it('refuses to boot when dsh is older than the harness floor', async () => {
+    const home = await mkdtemp(join(tmpdir(), 'codsh-wrapper-old-dsh-'))
+    try {
+      const own = JSON.parse(readFileSync(join(repoRoot, 'packages', 'cli', 'package.json'), 'utf8')) as {
+        codsh?: { requiresDsh?: string }
+      }
+      const need = own.codsh?.requiresDsh
+      expect(need).toMatch(/^\d+\.\d+\.\d+/u)
+
+      const fakeDsh = join(home, 'fake-dsh.mjs')
+      writeFileSync(fakeDsh, `process.argv.includes('--version')
+  ? process.stdout.write('0.1.2-rc.1\\n')
+  : process.stdout.write(\`\${JSON.stringify(process.argv.slice(2))}\\n\`)
+`)
+      const failed = await run(process.execPath, [wrapper, '-p', 'should not boot'], {
+        env: { ...process.env, DSH_HOME: home, DSH_BIN: fakeDsh },
+      }).then(() => undefined, (error: { stderr: string; code: number; stdout: string }) => error)
+
+      expect(failed?.code).toBe(1)
+      expect(failed?.stderr).toContain('dsh 0.1.2-rc.1 is too old')
+      expect(failed?.stderr).toContain(`@deepseek-ai/dsh@${need}`)
+      expect(failed?.stderr).toContain(`npm install -g @deepseek-ai/dsh@${need}`)
+      expect(failed?.stdout ?? '').not.toContain('--profile')
+    } finally {
+      rmSync(home, { recursive: true, force: true })
+    }
+  })
+
+  it('boots when the found dsh meets the harness floor', async () => {
+    const home = await mkdtemp(join(tmpdir(), 'codsh-wrapper-floor-dsh-'))
+    try {
+      const profile = join(home, 'profiles', 'code')
+      mkdirSync(profile, { recursive: true })
+      writeFileSync(join(profile, 'package.json'), `${JSON.stringify({
+        name: 'dsh-profile-code',
+        private: true,
+        dependencies: { 'codsh-bundle': '99.0.0' },
+      }, null, 2)}\n`)
+      const own = JSON.parse(readFileSync(join(repoRoot, 'packages', 'cli', 'package.json'), 'utf8')) as {
+        codsh?: { requiresDsh?: string }
+      }
+      const fakeDsh = join(home, 'fake-dsh.mjs')
+      writeFileSync(fakeDsh, `if (process.argv.includes('--version')) {
+  process.stdout.write(${JSON.stringify(own.codsh?.requiresDsh ?? '')} + '\\n')
+} else {
+  process.stdout.write(\`\${JSON.stringify(process.argv.slice(2))}\\n\`)
+}
+`)
+      const env: NodeJS.ProcessEnv = { ...process.env, DSH_HOME: home, DSH_BIN: fakeDsh }
+      delete env.CODSH_BUNDLE_SPEC
+      const result = await run(process.execPath, [wrapper, '-p', 'test the floor'], { env })
+      expect(result.stdout.trim().split('\n').map(line => JSON.parse(line))).toEqual([
+        ['--profile', 'code', '-p', 'test the floor'],
+      ])
+    } finally {
+      rmSync(home, { recursive: true, force: true })
+    }
+  })
+
   it('updates the pair from outside a session, and installs nothing when current', async () => {
     const own = JSON.parse(readFileSync(join(repoRoot, 'packages', 'cli', 'package.json'), 'utf8')) as { version: string }
     // Advertising the version in hand is the one answer that must never run an

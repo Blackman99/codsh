@@ -35,7 +35,7 @@ npm install -g @deepseek-ai/dsh codsh-cli
 codsh
 ```
 
-密钥：`DEEPSEEK_API_KEY`。已经有 dsh？`npm i -g codsh-cli` 就够。
+密钥：`DEEPSEEK_API_KEY`。已经有 dsh？只要它够新，`npm i -g codsh-cli` 就够；太旧的话启动器会直接给出安装命令，而不是在缺导出时崩溃。
 
 `codsh --resume <id>` · `codsh --continue` · `codsh -p "任务"` · `codsh --version` · `codsh update`
 
@@ -60,7 +60,7 @@ Gate 1 Confirm 会冻结 Main Track（一句话 idea、编号 Track-N 决策、O
 
 ## 它怎么跑
 
-`codsh` 是零依赖启动器。它找到你的 dsh，把 [`codsh-bundle`](https://www.npmjs.com/package/codsh-bundle) 注册进专用的 `code` profile，然后启动 `dsh --profile code`。
+`codsh` 是零依赖启动器。它找到你的 dsh，把 [`codsh-bundle`](https://www.npmjs.com/package/codsh-bundle) 注册进专用的 `code` profile，然后启动 `dsh --profile code`。找到的 dsh 必须达到本版本的 harness 下限；更旧的版本会在启动时被拒绝，而不是缺导出崩溃。
 
 有新版本时会话里会有一行提示。`codsh update` 在 shell 里升级，`/update` 在会话里升级，
 两条路都会把 code profile 里的配套 runtime 一并升好——只有裸 `npm install -g codsh-cli` 落下的 runtime 才由下次启动补注册。

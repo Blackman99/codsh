@@ -100,6 +100,20 @@ const dshLatest = selectDshTarget(dshMeta, dshRange)
 if (dshLatest !== dshMeta['dist-tags'].latest) {
   console.log(`note: @deepseek-ai/dsh publishes ${dshLatest}, but its latest tag still reads ${dshMeta['dist-tags'].latest}\n`)
 }
+
+/** The launcher reads this floor at boot so an older host dsh is refused, not crashed. */
+const cliManifestPath = join(root, 'packages', 'cli', 'package.json')
+function cliRequiresDsh(pkg) {
+  return typeof pkg.codsh?.requiresDsh === 'string' ? pkg.codsh.requiresDsh : undefined
+}
+function writeCliRequiresDsh(latest) {
+  const pkg = JSON.parse(readFileSync(cliManifestPath, 'utf8'))
+  if (cliRequiresDsh(pkg) === latest) return false
+  pkg.codsh = { ...(pkg.codsh ?? {}), requiresDsh: latest }
+  writeFileSync(cliManifestPath, `${JSON.stringify(pkg, null, 2)}\n`)
+  console.log(`↑ packages/cli/package.json codsh.requiresDsh → ${latest}`)
+  return true
+}
 const extra = ['@deepseek-ai/cordis', '@deepseek-ai/cordis-plugin-group', '@deepseek-ai/cordis-plugin-loader', '@deepseek-ai/schemastery']
 const extraLatest = Object.fromEntries(
   await Promise.all(
@@ -127,6 +141,17 @@ for (const { path, pkg } of manifests) {
 }
 
 if (!stale.length) {
+  const cliPkg = JSON.parse(readFileSync(cliManifestPath, 'utf8'))
+  const floor = cliRequiresDsh(cliPkg)
+  if (floor !== dshLatest) {
+    if (checkOnly) {
+      console.error(
+        `✗ packages/cli/package.json codsh.requiresDsh is ${floor ?? '(missing)'}, want ${dshLatest}`,
+      )
+      process.exit(1)
+    }
+    writeCliRequiresDsh(dshLatest)
+  }
   console.log(`✓ in sync — every @deepseek-ai dep is already at the latest (dsh ${dshLatest})`)
   process.exit(0)
 }
@@ -148,6 +173,7 @@ for (const { path, pkg } of manifests) {
   writeFileSync(path, `${JSON.stringify(pkg, null, 2)}\n`)
   console.log(`↑ ${relative(root, path)} ranges bumped`)
 }
+writeCliRequiresDsh(dshLatest)
 // CI freezes the lockfile by default; the bump above intentionally makes it
 // stale, so the install must be allowed to rewrite it.
 run('pnpm install --no-frozen-lockfile')

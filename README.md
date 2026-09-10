@@ -34,7 +34,7 @@ npm install -g @deepseek-ai/dsh codsh-cli
 codsh
 ```
 
-Key: `DEEPSEEK_API_KEY`. Already have dsh? `npm i -g codsh-cli` is enough.
+Key: `DEEPSEEK_API_KEY`. Already have dsh? `npm i -g codsh-cli` is enough when that dsh matches this release. An older harness is refused at boot with the install line.
 
 `codsh --resume <id>` · `codsh --continue` · `codsh -p "task"` · `codsh --version` · `codsh update`
 
@@ -59,7 +59,7 @@ Gate 1 Confirm freezes the Main Track — the idea, numbered Track-N decisions, 
 
 ## How it works
 
-`codsh` is a zero-dependency launcher. It finds your dsh, registers [`codsh-bundle`](https://www.npmjs.com/package/codsh-bundle) into a dedicated `code` profile, and boots `dsh --profile code`.
+`codsh` is a zero-dependency launcher. It finds your dsh, registers [`codsh-bundle`](https://www.npmjs.com/package/codsh-bundle) into a dedicated `code` profile, and boots `dsh --profile code`. The found dsh must meet this release's harness floor; an older one is refused at boot rather than crashing on a missing export.
 
 A session says so when a newer codsh is published. `codsh update` moves the
 pair from the shell, `/update` does it from inside a session, and either way
