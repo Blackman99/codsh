@@ -1,5 +1,21 @@
 # codsh-bundle
 
+## 0.21.0
+
+### Minor Changes
+
+- d4458a0: `/ship` injects only one contract each turn — grill, to-spec, to-tickets, or TDD — so later phases no longer share one overflowing prompt.
+
+### Patch Changes
+
+- c35ba8a: Consecutive tool cards with the same command and output shape collapse into one fold instead of stacking.
+- ddcec8b: Move `/ship` chrome and phase injection behind a `ShipRun` module so the runner no longer holds spec polling, chip flash, and Status-driven turns as closures.
+- c598934: A centered image preview dims the transcript around the card so the picture is what reads.
+- 1b70afc: Pipe e2e `/ship` now asserts the current phase's contract (grill), not the joined prompt that used to include `ralph` on the first turn.
+- 79a174e: `/ship` chrome follows the spec on disk: the MetaBar chip moves grill → spec → tickets → land k/n, and the plan/todo readout ticks as checkboxes change.
+- c598934: Clicking a truncated sticky turn header expands the floating copy in place instead of jumping to the original prompt.
+- c598934: A thought no longer sits under an unstyled blank, and hovering it no longer lights the tool cards below. Neighbouring panels meet at their inner pads.
+
 ## 0.20.0
 
 ### Minor Changes
