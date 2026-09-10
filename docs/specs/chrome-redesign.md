@@ -433,7 +433,7 @@ print a policy error while exiting 0, so it cannot be used as evidence.
 - [x] Ticket 3: The Input Region Loses Its Border — Delivers the borderless region: a divider, the `›` mark, the input, and one help row carrying the commands-and-keys entry. The cursor geometry must survive exactly, which Ticket 1 is what makes a single-descriptor change. (Blocked by: Ticket 1) (Track: 5)
 - [x] Ticket 4: Environment Facts Move to a Top Bar — Delivers a reserved row 0 carrying branch and directory on the left, context pressure on the right, plus the plan-mode and `/ship` gate chips; the foot drops directory, branch and model; the pinned sticky panel renders below the bar and yields its padding first. Also fixes the defect that a long path currently drops the branch first. (Blocked by: none) (Track: 3,4)
 - [x] Ticket 5: One Restrained Palette — Delivers one semantic role per speaker (person, reasoning, tool, error) resolved through a single point, with decoration uncoloured, tools quieter than reasoning, and meaning surviving `NO_COLOR`. (Blocked by: Ticket 3, Ticket 4) (Track: 2)
-- [ ] Ticket 6: Interaction Preservation After the Frame Changed — A verification gate, not a licence to churn: proves every frozen key binding still reaches its feature after the geometry moved, and fixes only what the new frame actually broke. Accepted misses recorded in the commit message. (Blocked by: Ticket 3, Ticket 4) (Track: 7)
+- [x] Ticket 6: Interaction Preservation After the Frame Changed — A verification gate, not a licence to churn: proves every frozen key binding still reaches its feature after the geometry moved, and fixes only what the new frame actually broke. Accepted misses recorded in the commit message. (Blocked by: Ticket 3, Ticket 4) (Track: 7)
 - [ ] Ticket 7: Release and Documentation Compliance — Delivers the `codsh-bundle` changeset (distinct from the pre-existing `/ship`-chrome one), the bilingual README updates kept in parity, the `CONTEXT.md` terms (top bar, block gap, help row), and the captured visual artifact with its frame paths recorded. (Blocked by: Ticket 5, Ticket 6) (Track: 9)
 
 ## Baseline
@@ -811,5 +811,86 @@ cannot run in this sandbox: 2 files / 18 tests fail with
 denial, and are not treated as evidence either way. Acceptance Criteria 1, 2, 8
 and 11 remain for the main session to run with PTY access; the unit/tsc seam
 above is what this round can prove.
+
+### Ticket 6 — Interaction Preservation After the Frame Changed (Track: 7)
+
+**Verification result.** This is a gate, and at the reachable unit seam it
+passed without a source change: after Tickets 3–4 moved the geometry, every
+frozen binding still reaches its feature. The route was audited end to end —
+Ctrl+O (`expand-output`) to `handlers.expandOutput`; Ctrl+Q (`toggle-queue`) to
+the queue panel and a click on the queued row through `regionTarget`; Ctrl+T
+(`toggle-todos`) to the readout; Ctrl+F (`transcript-search`) to
+`console.searchTranscript`; Ctrl+R (`history-search`) to the editor's own
+history search; Esc (`escape`) to `handlers.escape` (and, in `index.ts`, to
+`childViews`/the gate modal); Tab to the editor's completion; Shift+Tab to
+`handlers.shiftTab` (plan mode); `page`/`scroll` to the viewport; and the mouse
+paths to `regionRowAt`/`locate`. No `packages/bundle/src` file changed in this
+ticket (`git diff -- packages/bundle/src/` is empty), so grouping semantics and
+fold mechanics are untouched.
+
+**Regression guards added (the missing "reaches its feature" assertions).**
+
+- `packages/bundle/tests/screen.spec.ts`, `top bar > keeps the bar inert and
+  the transcript and rail working below it`: with a bar reserved, the rail ticks
+  sit one row lower (row 2 `↑`, 3 `·`, 4 `●`, 5 `↓`), a press/release on the bar
+  row copies nothing and starts no selection, and a click on the shifted
+  first-turn tick still navigates (`currentTurn` 1 → 0). This is the unit-level
+  twin of the stale frame geometry the top bar introduced.
+- `packages/bundle/tests/prompt.spec.ts`, `reports Ctrl+O to its owner so the
+  fold still opens`: Ctrl+O reaches `handlers.expandOutput`, the one frozen key
+  that was only decoded in `keys.spec.ts` and never asserted to arrive.
+
+**Red (witnessed, then reverted — the shipped code already delivered the
+behaviour).**
+
+- Rail shift reverted (`index + 1 + this.topBarRows()` → `index + 1` in
+  `screen.ts`):
+  `node node_modules/vitest/vitest.mjs run packages/bundle/tests/screen.spec.ts -t "keeps the bar inert"`
+  → exit 1, `Tests 1 failed | 163 skipped (164)`,
+  `AssertionError: expected '·' to be '↑'` at `screen.spec.ts:205`.
+- Ctrl+O routing disabled (`if (false && key.kind === 'expand-output')`):
+  `node node_modules/vitest/vitest.mjs run packages/bundle/tests/prompt.spec.ts -t "fold still opens"`
+  → exit 1, `Tests 1 failed | 108 skipped (109)`,
+  `expected [] to deeply equal ['expanded']` at `prompt.spec.ts:1379`.
+- Both reverts were undone before the green run; the source diff is empty.
+
+**Green.**
+
+- `node node_modules/vitest/vitest.mjs run packages/bundle/tests/keys.spec.ts packages/bundle/tests/prompt.spec.ts packages/bundle/tests/screen.spec.ts packages/bundle/tests/console.spec.ts`
+  → exit 0, **4 files / 386 passed (386)**, 0 skipped.
+- `node node_modules/vitest/vitest.mjs run` → exit 0, **54 files / 1444 tests**
+  passing, 0 skipped (Ticket 5's 1442 plus this ticket's 2; the existing
+  `agent-output-rendering` assertions in `transcript.spec.ts` are unmodified).
+- `./node_modules/.bin/tsc --noEmit` → exit 0, no diagnostics.
+- Non-PTY regression: `node node_modules/vitest/vitest.mjs run --config
+  vitest.e2e.config.ts e2e/pipe.e2e.ts` → exit 0, **19 passed (19)**.
+
+**Frame seam fixed (best-effort; needs PTY access to verify).**
+`e2e/experience-navigation.e2e.ts` pinned absolute viewport rows in its timeline
+test. The reserved top bar moves every viewport row down one — proved at the
+unit seam above, where the first turn's tick is terminal row 3 with the bar and
+row 2 without — so the rail click rows were shifted (`2→3`, `5→6`, and the
+mouse-out to row 7) and the two mark assertions re-expressed one row lower
+(`clicked[1]→clicked[2]`, `arrowed[2]→arrowed[3]`). This is the same +1
+transformation Ticket 4 already applied to `e2e/experience-viewport.e2e.ts`.
+The e2e run cannot confirm it here.
+
+**Accepted misses (recorded, not implicit).**
+
+- **Esc leaving a child-session view** is wired in `index.ts` (`onEscapeKey` →
+  `exitView()` when `childViews.current` is set) and the gate modal's Escape is
+  asserted in `packages/bundle/tests/gate-modal.spec.ts`. The child-view stack
+  itself (`ChildViews.push/pop`) is unit-covered in `child-view.spec.ts`; the
+  live key-to-exit path is only exercised by the PTY suites.
+- **Ctrl+R** is delegated by the prompt straight to `editor.handle`, so it is
+  asserted at that seam in `packages/bundle/tests/editor.spec.ts` rather than
+  duplicated at the prompt.
+
+**PTY note.** Ticket 6's own proof,
+`node node_modules/vitest/vitest.mjs run --config vitest.e2e.config.ts e2e/pty-input.e2e.ts e2e/pty-selectors.e2e.ts e2e/pty-mouse.e2e.ts e2e/experience-navigation.e2e.ts`,
+cannot run in this sandbox: 4 files / 40 tests fail with
+`OSError: out of pty devices` (exit 1), the `/dev/ptmx` denial, and are not
+treated as evidence either way. The redirected rail rows and the
+`experience-navigation` assertions above need that PTY run to be confirmed.
 
 

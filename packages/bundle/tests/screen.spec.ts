@@ -185,6 +185,41 @@ describe('top bar', () => {
     expect(rows.get(1)).toBe('bar')
     expect(rows.get(7)).toBe('status')
   })
+
+  it('keeps the bar inert and the transcript and rail working below it', () => {
+    const sink = host(8, 40)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setTopBar('bar')
+    screen.setChrome(['status'], { row: 0, column: 0 }, false)
+    screen.appendPrompt(['› first', ''], '| ', false)
+    screen.append(Array.from({ length: 8 }, (_, index) => `first ${index}`))
+    screen.appendPrompt(['› second', ''], '| ', false)
+    screen.append(Array.from({ length: 8 }, (_, index) => `second ${index}`))
+    flush(sink)
+    screen.resize()
+    const frame = flush(sink)
+
+    // The bar owns row 1; every viewport row sits one below where it was
+    // before the bar, so the rail ticks are shifted with it.
+    expect(cell(frame, 2, 40)).toBe('↑')
+    expect(cell(frame, 3, 40)).toBe('·')
+    expect(cell(frame, 4, 40)).toBe('●')
+    expect(cell(frame, 5, 40)).toBe('↓')
+
+    // A press on the bar is not a transcript gesture: no selection, no copy.
+    screen.mouseDown(1, 5)
+    expect(screen.mouseUp()).toBeUndefined()
+
+    // The first turn's tick moved down with the transcript; a click on it
+    // still navigates, so the pointer was not stolen by the reserved row.
+    screen.mouseMove(3, 40)
+    flush(sink)
+    expect(screen.currentTurn).toBe(1)
+    screen.mouseDown(3, 40)
+    expect(screen.mouseUp()).toBeUndefined()
+    expect(screen.currentTurn).toBe(0)
+  })
 })
 
 describe('layout', () => {

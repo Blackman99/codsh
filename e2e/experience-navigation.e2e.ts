@@ -18,10 +18,12 @@ import { Terminal } from './vt.ts'
 
 describe.skipIf(process.platform === 'win32')('the first five minutes: timeline, folds, hover', () => {
   it('previews and clicks the timeline rail, then clears the preview on mouse-out', async () => {
-    const moveRail = '\u001B[<35;120;2M'
-    const clickRail = '\u001B[<0;120;2M\u001B[<0;120;2m'
-    const clickDown = '\u001B[<0;120;5M\u001B[<0;120;5m'
-    const moveAway = '\u001B[<35;10;6M'
+    // The environment top bar owns row 0, so every viewport row — the rail
+    // included — is one lower than the coordinates this test was written with.
+    const moveRail = '\u001B[<35;120;3M'
+    const clickRail = '\u001B[<0;120;3M\u001B[<0;120;3m'
+    const clickDown = '\u001B[<0;120;6M\u001B[<0;120;6m'
+    const moveAway = '\u001B[<35;10;7M'
     const run = await drivePtySteps('sticky', [
       ['Welcome to codsh', `first sticky prompt${ENTER}`, 300],
       ['STICKY_FIRST_44', `second sticky prompt${ENTER}`, 500],
@@ -41,8 +43,8 @@ describe.skipIf(process.platform === 'win32')('the first five minutes: timeline,
     const occurrences = (text: string): number => text.split('first sticky prompt').length - 1
     expect(occurrences(preview)).toBe(1)
     expect(occurrences(clicked.join('\n'))).toBe(2)
-    expect(clicked[1]?.at(-1)).toBe('●')
-    expect(arrowed[2]?.at(-1)).toBe('●')
+    expect(clicked[2]?.at(-1)).toBe('●')
+    expect(arrowed[3]?.at(-1)).toBe('●')
     expect(occurrences(cleared)).toBe(0)
   }, E2E_TEST_TIMEOUT_MS)
 

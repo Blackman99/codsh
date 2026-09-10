@@ -1366,6 +1366,19 @@ describe('the surrounding rows', () => {
     expect(modes).toEqual(['cycled'])
   })
 
+  it('reports Ctrl+O to its owner so the fold still opens', () => {
+    const console = fakeConsole(true)
+    const folds: string[] = []
+    void new Prompt(console as never, theme, sources, {
+      interrupt: () => {},
+      escape: () => {},
+      eof: () => {},
+      expandOutput: () => void folds.push('expanded'),
+    })
+    console.press({ kind: 'expand-output' })
+    expect(folds).toEqual(['expanded'])
+  })
+
   it('accents the box frame when a mode asks it to', () => {
     const { prompt, console } = build()
     prompt.setAccent(text => `<${text}>`)
