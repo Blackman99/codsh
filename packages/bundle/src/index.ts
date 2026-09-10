@@ -2032,9 +2032,17 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
           : { id: session.id, parentSession: session.header.parentSession }
       )),
     )
-    return ownsApproval(req.agent.session.id, live.agent.session.id, descendants)
-      ? approval.decide(req)
-      : next()
+    const owned = ownsApproval(req.agent.session.id, live.agent.session.id, descendants)
+    if (owned && req.callId !== undefined) {
+      // A question addressed to the person must not hide behind a summary:
+      // pull the call out of the run and give it its own row.
+      const transcript = currentView()?.transcript ?? live.transcript
+      const lines = transcript.markApproval(String(req.callId))
+      if (lines.length > 0) {
+        io.console.appendFold(lines, transcript.takeFold() ?? lines, transcript.takeRule(), transcript.takeLabel(), transcript.takeEnter(), transcript.takePage(), transcript.takePendingCard())
+      }
+    }
+    return owned ? approval.decide(req) : next()
   })
   // Host-plane lifecycle: the child Session exists before any tool result.
   ctx.on('subagent/start', (info) => {

@@ -5,6 +5,7 @@
  */
 
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
+import { destructiveCategory } from '../src/destructive.ts'
 import type { ToolCallView, ToolResultView } from '@deepseek-ai/dsh-tools'
 import { describe, expect, it } from 'vitest'
 import { createTheme, displayWidth } from '../src/theme.ts'
@@ -1378,5 +1379,112 @@ describe('tool group aggregation', () => {
     const rows = narrow.render(resultEvent('c1', 'ok'))
     expect(displayWidth(rows[0] ?? '')).toBeLessThanOrEqual(8)
     expect(rows[0]).toContain('…')
+  })
+})
+
+describe('destructive classifier', () => {
+  it('flags each delete category', () => {
+    expect(destructiveCategory('rm -rf build')).toBe('delete')
+    expect(destructiveCategory('rm -r node_modules')).toBe('delete')
+    expect(destructiveCategory('sudo rm -Rf /tmp/x')).toBe('delete')
+  })
+
+  it('flags each history-rewrite category', () => {
+    expect(destructiveCategory('git push --force origin main')).toBe('history')
+    expect(destructiveCategory('git push -f origin main')).toBe('history')
+    expect(destructiveCategory('git reset --hard HEAD~1')).toBe('history')
+    expect(destructiveCategory('git clean -fd')).toBe('history')
+    expect(destructiveCategory('git branch -D feature')).toBe('history')
+  })
+
+  it('flags each disk and permission category', () => {
+    expect(destructiveCategory('mkfs.ext4 /dev/sda1')).toBe('disk')
+    expect(destructiveCategory('dd if=/dev/zero of=/dev/sda')).toBe('disk')
+    expect(destructiveCategory('chmod -R 777 .')).toBe('disk')
+    expect(destructiveCategory('shutdown -h now')).toBe('disk')
+  })
+
+  it('flags each database and remote-kill category', () => {
+    expect(destructiveCategory('psql -c "DROP TABLE users"')).toBe('database')
+    expect(destructiveCategory('mysql -e "TRUNCATE logs"')).toBe('database')
+    expect(destructiveCategory('DROP TABLE users')).toBe('database')
+    expect(destructiveCategory('kill -9 1234')).toBe('database')
+  })
+
+  it('does not flag a benign command that merely mentions a dangerous token', () => {
+    expect(destructiveCategory('grep -rn "rm -rf" .')).toBeUndefined()
+    expect(destructiveCategory('echo "DROP TABLE users"')).toBeUndefined()
+    expect(destructiveCategory('git log --grep="rm -rf"')).toBeUndefined()
+    expect(destructiveCategory('git push origin main')).toBeUndefined()
+    expect(destructiveCategory('git branch -d merged')).toBeUndefined()
+    expect(destructiveCategory('rm file.txt')).toBeUndefined()
+    expect(destructiveCategory('chmod 644 file')).toBeUndefined()
+    expect(destructiveCategory('kill -15 123')).toBeUndefined()
+    expect(destructiveCategory('npm run clean')).toBeUndefined()
+  })
+
+  it('anchors to the command head, not to a later argument', () => {
+    expect(destructiveCategory('echo done && rm -rf /')).toBeUndefined()
+    expect(destructiveCategory('printf "%s" "git reset --hard"')).toBeUndefined()
+  })
+})
+
+describe('destructive breakout', () => {
+  const commandPresenters = (): Partial<ToolPresenters> => ({
+    call: (name, args) => ({ card: 'terminal', title: (args as { command?: string } | undefined)?.command ?? name }),
+    result: (name, args) => ({ card: 'terminal', title: (args as { command?: string } | undefined)?.command ?? name, output: 'done' }),
+  })
+
+  it('renders a destructive command on its own row instead of joining the group', () => {
+    const transcript = build(commandPresenters())
+    transcript.render(callEvent('c1', 'bash', { command: 'ls' }))
+    transcript.render(resultEvent('c1', 'ok'))
+    const solo = transcript.render(callEvent('c2', 'bash', { command: 'rm -rf build' }))
+    expect(solo).toEqual(['⚠ rm -rf build'])
+    // The earlier group is untouched by the breakout.
+    expect(transcript.takePendingCard()).toEqual([])
+  })
+
+  it('leaves the surrounding calls able to group on either side', () => {
+    const transcript = build(commandPresenters())
+    transcript.render(callEvent('c1', 'bash', { command: 'ls' }))
+    transcript.render(resultEvent('c1', 'ok'))
+    transcript.render(callEvent('c2', 'bash', { command: 'rm -rf build' }))
+    transcript.render(resultEvent('c2', 'ok'))
+    transcript.render(callEvent('c3', 'bash', { command: 'echo one' }))
+    transcript.render(resultEvent('c3', 'ok'))
+    transcript.render(callEvent('c4', 'bash', { command: 'echo two' }))
+    expect(transcript.render(resultEvent('c4', 'ok'))).toEqual(['● Ran 2 commands'])
+  })
+
+  it('pulls a call waiting on the person out of the group', () => {
+    const transcript = build(commandPresenters())
+    transcript.render(callEvent('c1', 'bash', { command: 'ls' }))
+    transcript.render(callEvent('c2', 'bash', { command: 'echo two' }))
+    const lines = transcript.markApproval('c2')
+    // The run keeps its own row; the question stands alone.
+    expect(lines).toEqual(['● Running 1 command', '⚠ echo two'])
+    expect(transcript.takePendingCard()).toEqual(['● Running 2 commands'])
+  })
+
+  it('never folds an approval-gated call away once it settles', () => {
+    const transcript = build(commandPresenters())
+    transcript.render(callEvent('c1', 'bash', { command: 'ls' }))
+    transcript.render(callEvent('c2', 'bash', { command: 'echo two' }))
+    transcript.markApproval('c2')
+    expect(transcript.render(resultEvent('c2', 'ok'))).toEqual(['⚠ echo two ✔'])
+  })
+
+  it('carries the warning role on the destructive row', () => {
+    const colorTheme = createTheme(true, { COLORTERM: 'truecolor' })
+    const transcript = new Transcript(
+      { theme: colorTheme, columns: 80, cwd: CWD },
+      {
+        call: (name, args) => ({ card: 'terminal', title: (args as { command?: string } | undefined)?.command ?? name }),
+        result: () => undefined,
+      },
+    )
+    transcript.render(callEvent('c1', 'bash', { command: 'rm -rf build' }))
+    expect(transcript.takeRule()).toBe(blockRules(colorTheme).error)
   })
 })

@@ -26,6 +26,7 @@ import { DEFAULT_DENSITY, DIFF_SOFT_CAP, type Density } from './density.ts'
 import { displayWidth, oneRow, truncate } from './theme.ts'
 import { todoReport } from './todos.ts'
 import { toolCategory, toolGroupLabel, type ToolCategory } from './tool-group.ts'
+import { isDestructiveCommand } from './destructive.ts'
 import type { Theme } from './theme.ts'
 
 export { blockRules, gutter } from './gutter.ts'
@@ -134,6 +135,15 @@ interface GroupMember {
   page?: string
   /** Child session this member opens, when it is a subagent view. */
   enter?: string
+  /**
+   * Whether this member stands alone rather than in the run: a destructive
+   * command, or a call waiting on the person. A solo row is never folded away.
+   */
+  solo?: boolean
+  /** The member's plain title, so a solo row can be re-painted as it settles. */
+  title?: string
+  /** The member's prior solo row, so the next update can replace it in place. */
+  shown?: string
 }
 
 /**
@@ -716,6 +726,47 @@ export class Transcript {
   }
 
   /**
+   * Pull a call that is waiting on the person out of the run, so a question
+   * addressed to them can never be hidden behind a collapsed summary.
+   *
+   * The pending-call state is the surface's own signal that an approval was
+   * requested for this call; the group logic consults it rather than guessing
+   * from the tool name.
+   * @param callId - the call the approval request names.
+   * @returns the rows to append: the remaining group row and the solo row.
+   */
+  markApproval(callId: string): string[] {
+    const member = this.calls.get(callId)?.member
+    if (member === undefined || member.solo === true) return []
+    const group = this.group
+    const replaces = group?.shown ?? []
+    if (group !== undefined) {
+      const at = group.members.indexOf(member)
+      if (at >= 0) group.members.splice(at, 1)
+      if (group.members.length === 0) this.group = undefined
+    }
+    member.solo = true
+    member.head = this.soloHead(member.title ?? '', '', '', 'pending')
+    const hasGroup = this.group !== undefined && this.group.members.length > 0
+    const groupLines = hasGroup ? this.emitGroup() : []
+    const groupFold = hasGroup ? this.fold ?? [] : []
+    const groupLabel = this.label
+    const groupRule = this.rule
+    const groupEnter = this.enter
+    const groupPage = this.page
+    const solo = this.emitSolo(member)
+    this.pendingCard = replaces
+    if (hasGroup) {
+      this.fold = [...groupFold, ...(this.fold ?? [])]
+      this.label = [groupLabel, this.label].filter(part => part !== '').join(' · ')
+      this.rule = groupRule
+      this.enter = groupEnter ?? this.enter
+      this.page = groupPage ?? this.page
+    }
+    return [...groupLines, ...solo]
+  }
+
+  /**
    * Add one member to the run at the tail, opening the run when it is absent.
    * @param member - the call to count and fold.
    */
@@ -800,6 +851,41 @@ export class Transcript {
   }
 
   /**
+   * The alert-styled head a destructive command, or a call waiting on the
+   * person, shows on its own row.
+   * @param title - the call's title, already workspace-relative.
+   * @param suffix - already-styled stats, or `''`.
+   * @param status - already-styled trailing glyph, or `''` while running.
+   * @param style - the alert role to paint with.
+   * @returns the painted one-liner.
+   */
+  private soloHead(title: string, suffix = '', status = '', style: 'warn' | 'pending' = 'warn'): string {
+    const { theme } = this.options
+    const stats = suffix === '' ? '' : ` ${suffix}`
+    const mark = status === '' ? '' : ` ${status}`
+    return theme[style](`${cardIndent(theme)}⚠ ${title}${stats}${mark}`)
+  }
+
+  /**
+   * Re-emit one standalone member's row after its body or status changed.
+   * @param member - the solo member.
+   * @returns the one row to append, which supersedes the prior solo row.
+   */
+  private emitSolo(member: GroupMember): string[] {
+    const { theme } = this.options
+    const row = member.head
+    this.pendingCard = member.shown === undefined ? [] : [member.shown]
+    member.shown = row
+    this.fold = [row, ...member.body]
+    this.label = member.title ?? ''
+    this.rule = blockRules(theme).error
+    this.enter = member.enter
+    const soft = DIFF_SOFT_CAP[this.options.density ?? DEFAULT_DENSITY]
+    this.page = member.body.length > soft && member.page !== undefined ? member.page : undefined
+    return [row]
+  }
+
+  /**
    * Render a pending call as one member of the group at the tail.
    * @param callId - correlation id, remembered until the result pairs with it.
    * @param name - the tool the model called.
@@ -821,14 +907,20 @@ export class Transcript {
     const locations = view?.card === 'generic' ? (view.locations ?? []).map(location => this.relative(location.path)) : []
     const title = view?.card === 'generic' ? `${base}${this.extraPaths(base, locations)}` : base
     const summary = this.summarizeCall(view, title)
+    // A destructive command is the one deliberate break in the merge rule: it
+    // stands on its own alert row, and the run on either side stays separate.
+    const destructive = view?.card === 'terminal' && isDestructiveCommand(view.title)
+    if (destructive) this.group = undefined
     const member: GroupMember = {
       callId,
       name,
       category,
       running: true,
       failed: false,
-      head: this.memberHead(title),
+      head: destructive ? this.soloHead(title) : this.memberHead(title),
       body: [],
+      title,
+      ...destructive ? { solo: true } : {},
     }
     this.calls.set(callId, {
       name,
@@ -838,6 +930,7 @@ export class Transcript {
       ...view?.card === 'terminal' && view.description !== undefined ? { description: view.description } : {},
       member,
     })
+    if (destructive) return this.emitSolo(member)
     this.pushMember(member)
     return this.emitGroup()
   }
@@ -886,8 +979,20 @@ export class Transcript {
     }
     if (page === '') page = undefined
     const enter = failed ? undefined : childSessionId(this.resultText(block.content))
-    const head = this.memberHead(title, suffix, failed ? theme.err('✗') : theme.ok('✔'))
+    const status = failed ? theme.err('✗') : theme.ok('✔')
     const member = pending?.member
+    if (pending !== undefined && member !== undefined && member.solo === true) {
+      member.running = false
+      member.failed = failed
+      member.category = toolCategory(pending.name, view)
+      member.title = title
+      member.head = this.soloHead(title, suffix, status)
+      member.body = full ?? body
+      if (page !== undefined) member.page = page
+      if (enter !== undefined) member.enter = enter
+      return this.emitSolo(member)
+    }
+    const head = this.memberHead(title, suffix, status)
     if (pending !== undefined && member !== undefined) {
       // A non-tool event between the call and its result ends the run; the
       // result then reopens a group of its own rather than vanishing.
@@ -897,6 +1002,7 @@ export class Transcript {
       member.running = false
       member.failed = failed
       member.category = toolCategory(pending.name, view)
+      member.title = title
       member.head = head
       member.body = full ?? body
       if (page !== undefined) member.page = page
