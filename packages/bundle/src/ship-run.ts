@@ -11,7 +11,7 @@
 
 import { readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { parseShipStatus, parseSpecMetadata, pickLiveShip, planInFlight, plansEqual } from './plan.ts'
+import { parseMainTrack, parseShipStatus, parseSpecMetadata, pickLiveShip, planInFlight, plansEqual } from './plan.ts'
 import type { Plan, ShipSpecFile } from './plan.ts'
 import { expandTemplate } from './custom-commands.ts'
 import type { SelectAsk } from './questions.ts'
@@ -185,6 +185,10 @@ export class ShipRun {
   private watch: ReturnType<typeof setInterval> | undefined
   private advance: AbortController | undefined
   private goalId: string | undefined
+  /** Process snapshot of `## Main Track` captured at Confirm; later injects prepend this, not a live reread. */
+  private sealedTrack: string | undefined
+  /** Spec this run is following; complete only if this file becomes shipped. */
+  private followedSpec: string | undefined
 
   constructor(
     private readonly cwd: string,
@@ -257,6 +261,8 @@ export class ShipRun {
     this.chipCleared = false
     this.lastDone = undefined
     this.goalId = undefined
+    this.sealedTrack = undefined
+    this.followedSpec = undefined
     this.startWatch()
     this.refresh()
     if (this.chip === undefined) this.setChip({ kind: 'grill' })
@@ -266,9 +272,11 @@ export class ShipRun {
     try {
       if (!await this.occupy(idea)) return
       let previous = shipPhaseKind(this.status())
+      await this.syncCompass()
       await turn(expandTemplate(this.promptFor(), idea))
       while (!advance.signal.aborted) {
         this.refresh()
+        await this.syncCompass()
         const next = shipPhaseKind(this.status())
         if (next === previous || next === 'done' || next === 'grill') break
         previous = next
@@ -279,6 +287,7 @@ export class ShipRun {
         this.advance = undefined
         this.stopWatch()
         this.refresh()
+        if (!advance.signal.aborted && this.followedIsShipped()) await this.completeShipGoal()
       }
     }
   }
@@ -378,20 +387,128 @@ export class ShipRun {
     return undefined
   }
 
-  /** Phase prompt plus the Goal-Id occupancy just created, when present. */
+  /**
+   * Keep the session compass on the current track and disarmed. Missing or
+   * throwing goals degrade; the spec+prepend path still binds.
+   */
+  private async syncCompass(): Promise<void> {
+    const goals = this.ports.goals
+    if (goals === undefined || this.goalId === undefined) return
+    try {
+      const current = await goals.get()
+      if (current === undefined || current.id !== this.goalId) return
+      const objective = this.compassObjective()
+      let mutated = false
+      if (objective !== undefined && current.objective !== objective) {
+        await goals.edit(current.id, objective)
+        mutated = true
+      }
+      if (mutated || current.activation === 'armed' || current.phase !== 'paused') {
+        await goals.pause(current.id)
+      }
+    } catch {
+      this.degrade()
+    }
+  }
+
+  /**
+   * `[ship]` plus the compact track. Absent a track, leave the placeholder
+   * `[ship] <idea>` alone so the first grill inject does not clobber it.
+   */
+  private compassObjective(): string | undefined {
+    const track = this.trackForPrompt()
+    return track === undefined ? undefined : `${SHIP_OBJECTIVE_PREFIX}${track}`
+  }
+
+  /**
+   * Phase prompt plus Goal-Id and the Main Track compass. After Confirm the
+   * track is the process snapshot, not a live reread the agent can rewrite.
+   * Land (and later) also carry the spec path so Ralph's objective can cite it.
+   */
   private promptFor(): string {
-    return this.goalId === undefined
-      ? shipPromptFor(this.status())
-      : shipPromptFor(this.status(), { goalId: this.goalId })
+    const status = this.status()
+    const track = this.trackForPrompt()
+    const prompt = shipPromptFor(status, {
+      ...(this.goalId === undefined ? {} : { goalId: this.goalId }),
+      ...(track === undefined ? {} : { track }),
+    })
+    const kind = shipPhaseKind(status)
+    if (kind !== 'land' && kind !== 'done') return prompt
+    const specPath = this.liveSpecPath()
+    return specPath === undefined ? prompt : `${prompt}\n\n${specPath}`
+  }
+
+  /** Complete the ship compass when this run's spec is shipped. */
+  private async completeShipGoal(): Promise<void> {
+    const goals = this.ports.goals
+    if (goals === undefined || this.goalId === undefined) return
+    try {
+      await goals.complete(this.goalId)
+    } catch {
+      this.degrade()
+    }
+  }
+
+  /** True when the spec this run followed now says shipped. */
+  private followedIsShipped(): boolean {
+    if (this.followedSpec === undefined) return false
+    try {
+      return parseShipStatus(readFileSync(this.followedSpec, 'utf8')) === 'shipped'
+    } catch {
+      return false
+    }
+  }
+
+  /**
+   * Draft track from disk until Confirm; then freeze a snapshot for this run.
+   * Interviewing still prepends the live draft; later phases keep the seal.
+   */
+  private trackForPrompt(): string | undefined {
+    if (this.sealedTrack !== undefined) return this.sealedTrack
+    const live = this.liveTrack()
+    if (live === undefined) return undefined
+    const status = this.status()
+    if (status === 'confirmed' || status === 'planned' || status === 'landing') {
+      this.sealedTrack = live
+    }
+    return live
+  }
+
+  /** Compact Main Track on disk, headed so later phases prepend a real section. */
+  private liveTrack(): string | undefined {
+    for (const path of this.specPaths()) {
+      try {
+        const body = parseMainTrack(readFileSync(path, 'utf8'))
+        if (body !== undefined) return `## Main Track\n\n${body}`
+      } catch {
+        // A spec that moved is not the compass.
+      }
+    }
+    return undefined
   }
 
   private status() {
     for (const path of this.specPaths()) {
       try {
         const status = parseShipStatus(readFileSync(path, 'utf8'))
-        if (status !== undefined && status !== 'shipped') return status
+        if (status !== undefined && status !== 'shipped') {
+          this.followedSpec = path
+          return status
+        }
       } catch {
         // A spec that moved is not the phase ledger.
+      }
+    }
+    return undefined
+  }
+
+  /** Path of the live spec, including a session-written shipped file. */
+  private liveSpecPath(): string | undefined {
+    for (const path of this.specPaths()) {
+      try {
+        if (parseShipStatus(readFileSync(path, 'utf8')) !== undefined) return path
+      } catch {
+        // A spec that moved is not the compass path.
       }
     }
     return undefined

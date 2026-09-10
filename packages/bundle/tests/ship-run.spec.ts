@@ -576,6 +576,131 @@ describe('ShipRun', () => {
     await wrapped.clear('host-new')
     expect(current.id).toBe('cleared')
   })
+
+  it('prepends the Confirm snapshot on later injects even if the file Main Track is rewritten (Track: 3,4)', async () => {
+    const cwd = mkdtempSync(join(tmpdir(), 'ship-run-'))
+    const sealed = [
+      '## Main Track',
+      '',
+      '**Idea.** Bind /goal into /ship.',
+      '**Track-1.** Hybrid compass.',
+      '**Out of Scope.** No harness fork.',
+    ].join('\n')
+    const rewritten = [
+      '## Main Track',
+      '',
+      '**Idea.** silently rewritten design.',
+    ].join('\n')
+    const path = writeSpec(cwd, 'widget.md', `Status: interviewing\n\n${sealed}\n`)
+    const prompts: string[] = []
+    const ship = new ShipRun(cwd, chrome)
+    await ship.run('build a widget', async (prompt) => {
+      prompts.push(prompt)
+      if (prompts.length === 1) writeFileSync(path, `Status: confirmed\n\n${sealed}\n`)
+      else if (prompts.length === 2) writeFileSync(path, `Status: planned\n\n${rewritten}\n`)
+    })
+    expect(prompts).toHaveLength(3)
+    expect(prompts[0]).toContain('**Idea.** Bind /goal into /ship.')
+    expect(prompts[0]).toContain('Pure Synthesis, Zero Interrogation')
+    expect(prompts[1]).toContain('**Idea.** Bind /goal into /ship.')
+    expect(prompts[1]).toContain('Strict Vertical Tracer Slicing')
+    expect(prompts[2]).toContain('**Idea.** Bind /goal into /ship.')
+    expect(prompts[2]).toContain('Strict Red-First Execution')
+    expect(prompts[2]).not.toContain('silently rewritten design')
+  })
+
+  it('re-asserts a drifted or armed compass on later injects (Track: 1,7)', async () => {
+    const cwd = mkdtempSync(join(tmpdir(), 'ship-run-'))
+    const track = [
+      '## Main Track',
+      '',
+      '**Idea.** Bind /goal into /ship.',
+      '**Track-1.** Hybrid compass.',
+    ].join('\n')
+    const path = writeSpec(cwd, 'widget.md', `Status: interviewing\n\n${track}\n`)
+    const goals = recordingGoals()
+    const ship = new ShipRun(cwd, chrome, { goals })
+    let drifted = false
+    await ship.run('build a widget', async () => {
+      if (!drifted && goals.current !== undefined) {
+        drifted = true
+        goals.current.objective = 'human edited the compass'
+        goals.current.activation = 'armed'
+        goals.current.phase = 'active'
+      }
+      writeFileSync(path, `Status: confirmed\n\n${track}\n`)
+    })
+    expect(goals.log).toContain('edit:goal-new:[ship] ## Main Track\n\n**Idea.** Bind /goal into /ship.\n**Track-1.** Hybrid compass.')
+    expect(goals.log.filter(entry => entry === 'pause:goal-new').length).toBeGreaterThanOrEqual(2)
+    expect(goals.current?.activation).toBe('disarmed')
+    expect(goals.current?.phase).toBe('paused')
+  })
+
+  it('edits the compass to the draft then the sealed track and completes on shipped (Track: 7)', async () => {
+    const cwd = mkdtempSync(join(tmpdir(), 'ship-run-'))
+    const draft = [
+      '## Main Track',
+      '',
+      '**Idea.** Bind /goal into /ship.',
+      '**Track-1.** Hybrid compass.',
+    ].join('\n')
+    const sealed = [
+      '## Main Track',
+      '',
+      '**Idea.** Bind /goal into /ship.',
+      '**Track-1.** Hybrid compass.',
+      '**Out of Scope.** No harness fork.',
+    ].join('\n')
+    const path = writeSpec(cwd, 'widget.md', `Status: interviewing\n\n${draft}\n`)
+    const goals = recordingGoals()
+    const prompts: string[] = []
+    const ship = new ShipRun(cwd, chrome, { goals })
+    await ship.run('build a widget', async (prompt) => {
+      prompts.push(prompt)
+      if (prompts.length === 1) writeFileSync(path, `Status: confirmed\n\n${sealed}\n`)
+      else writeFileSync(path, `Status: shipped\n\n${sealed}\n`)
+    })
+    expect(goals.log[0]).toBe('create:[ship] build a widget')
+    expect(goals.log).toContain('edit:goal-new:[ship] ## Main Track\n\n**Idea.** Bind /goal into /ship.\n**Track-1.** Hybrid compass.')
+    expect(goals.log).toContain('edit:goal-new:[ship] ## Main Track\n\n**Idea.** Bind /goal into /ship.\n**Track-1.** Hybrid compass.\n**Out of Scope.** No harness fork.')
+    expect(goals.log).toContain('complete:goal-new')
+    expect(goals.log.at(-1)).toBe('complete:goal-new')
+    expect(prompts[0]).toContain('**Idea.** Bind /goal into /ship.')
+    expect(prompts[1]).toContain('**Out of Scope.** No harness fork.')
+  })
+
+  it('leaves the placeholder paused on abort instead of completing (Track: 7)', async () => {
+    const cwd = mkdtempSync(join(tmpdir(), 'ship-run-'))
+    const path = writeSpec(cwd, 'widget.md', 'Status: interviewing\n')
+    const goals = recordingGoals()
+    const ship = new ShipRun(cwd, chrome, { goals })
+    await ship.run('build a widget', async () => {
+      writeFileSync(path, 'Status: confirmed\n')
+      ship.abort()
+    })
+    expect(goals.log).toEqual(['create:[ship] build a widget', 'pause:goal-new'])
+    expect(goals.log).not.toContain('complete:goal-new')
+  })
+
+  it('puts the sealed track and spec path into the land Ralph objective (Track: 4)', async () => {
+    const cwd = mkdtempSync(join(tmpdir(), 'ship-run-'))
+    const sealed = [
+      '## Main Track',
+      '',
+      '**Idea.** Bind /goal into /ship.',
+      '**Track-1.** Hybrid compass.',
+      '**Out of Scope.** No harness fork.',
+    ].join('\n')
+    const path = writeSpec(cwd, 'widget.md', `Status: planned\n\n${sealed}\n`)
+    const prompts: string[] = []
+    const ship = new ShipRun(cwd, chrome)
+    await ship.run('build a widget', async (prompt) => { prompts.push(prompt) })
+    expect(prompts).toHaveLength(1)
+    expect(prompts[0]).toContain('**Idea.** Bind /goal into /ship.')
+    expect(prompts[0]).toContain('**Track-1.** Hybrid compass.')
+    expect(prompts[0]).toMatch(/ralph/i)
+    expect(prompts[0]).toContain(path)
+  })
 })
 
 describe('composition root', () => {
