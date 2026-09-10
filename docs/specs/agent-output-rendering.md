@@ -465,7 +465,7 @@ the same verification without the gate. The final phase runs these verbatim.
 - [x] Ticket 1: Tool Verb Vocabulary and Group Label Builder — Delivers a new pure module mapping a call's declared presentation view to a closed category vocabulary, plus the merged group-header label builder (per-category counts, first-appearance order, present/past tense, failure segment). Changes no rendered output. (Blocked by: none) (Track: 3)
 - [x] Ticket 2: Tool Group Rows Replace Tool Cards — Delivers the end-to-end hierarchy change: one muted row per tool call with no panel, no amber name and no command highlight; consecutive calls aggregated into one group row carrying the Ticket 1 label; the group as a Fold expanding to its calls and their real diffs; reused soft cap and pager; subagent rows still openable; a chosen single-row tool bullet. Rewrites the pre-existing card-shape assertions rather than deleting them. (Blocked by: Ticket 1) (Track: 2,3,7,8)
 - [x] Ticket 3: Destructive Commands Break Out of the Group — Delivers a pure, conservative classifier over the decision-13 category allowlist anchored to the command head, the destructive row rendered on its own alert-styled row instead of joining a group, and the rule that approval-gated calls never fold. (Blocked by: Ticket 2) (Track: 4)
-- [ ] Ticket 4: Live Thinking Preview Owns the Display Area — Delivers the density-derived live preview budget (3 compact / 6 comfortable), the unchanged one-line `✻ thought for Xs` settled summary, and the corrected `/ui` description in both README languages. (Blocked by: Ticket 2) (Track: 1,5)
+- [x] Ticket 4: Live Thinking Preview Owns the Display Area — Delivers the density-derived live preview budget (3 compact / 6 comfortable), the unchanged one-line `✻ thought for Xs` settled summary, and the corrected `/ui` description in both README languages. (Blocked by: Ticket 2) (Track: 1,5)
 - [ ] Ticket 5: Contract — Retire the Card Path and the Similar-Run Layer — Delivers deletion of the similar-run machinery, its skeleton helper and its `… +N similar` row, plus the now-unreachable card pad/close helpers, the terminal card's `$ command` row, and the `bgTool` role when the transcript is its last caller. (Blocked by: Ticket 3, Ticket 4) (Track: 6)
 - [ ] Ticket 6: Destructive Detection Edge Cases and Cross-Path Parity — Delivers adversarial coverage of the classifier (chained, reordered, quoted and wrapper commands; accepted misses recorded) and the guarantee that the live and replay paths produce identical group rows, including interrupted and resumed runs. Optional hardening: if already satisfied, check the boxes and change no code. (Blocked by: Ticket 5) (Track: 4,8)
 - [ ] Ticket 7: Release and Documentation Compliance — Delivers the `codsh-bundle` changeset, the bilingual README updates kept in parity, the new ADR registering `grok-build` and recording both deliberate divergences, and the `CONTEXT.md` domain terms. (Blocked by: Ticket 5, Ticket 6) (Track: 9)
@@ -616,3 +616,31 @@ addressed to the person can never be folded away.
 the Testing Decisions; it cannot be added and run here because `/dev/ptmx` is
 denied (`out of pty devices`) and escalation is disabled. The classifier and the
 breakout are pinned at the transcript seam instead.
+
+### Ticket 4 — Live Thinking Preview Owns the Display Area (Track: 1, 5)
+
+**Delivered.** `packages/bundle/src/density.ts` gains
+`THINKING_PREVIEW_ROWS: Record<Density, number>` (compact 3, comfortable 6),
+and `thinkingStreamPreview` keeps the most recent rows up to that budget instead
+of branching on density. `thinkingFold` and the `✻` glyph are untouched, so a
+settled thought is still one `✻ thought for Xs` Fold. Both READMEs now say
+"a 3-row live thinking preview (6 rows in comfortable)" / "思考流式输出时 3 行预览
+（comfortable 为 6 行）".
+
+**Green evidence.**
+
+- `node node_modules/vitest/vitest.mjs run packages/bundle/tests/density.spec.ts`
+  → exit 0, **11 passed (11)**: three rows compact, six comfortable, the two
+  budgets asserted distinct, the most-recent-rows rule, and the budget never
+  exceeded for a 40-line burst.
+- `./node_modules/.bin/tsc --noEmit` → exit 0.
+- `node node_modules/vitest/vitest.mjs run` → exit 0, **53 files / 1413 tests**
+  passing, 0 skipped.
+- `grep -n "preview while thinking streams" README.md README.zh.md` → exit 1
+  (stale sentence gone). `grep -n "3-row live thinking" README.md` → the new
+  budget is documented.
+
+**PTY note.** `e2e/pty-folds.e2e.ts`'s thinking test and the `reasoning` fixture
+now carry five thought lines and assert at least three preview rows while
+streaming, but the PTY command cannot run here (`out of pty devices`;
+escalation disabled), so that assertion is unverified until landing.

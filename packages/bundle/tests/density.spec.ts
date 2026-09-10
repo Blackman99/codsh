@@ -48,16 +48,34 @@ describe('parseDensity / densityReport', () => {
 describe('thinkingStreamPreview', () => {
   const fallback = '✻ thinking'
 
-  it('keeps one live line in compact', () => {
-    expect(thinkingStreamPreview('compact', ['done'], 'live', fallback)).toBe('live')
-    expect(thinkingStreamPreview('compact', ['done'], undefined, fallback)).toBe('done')
+  it('keeps three live rows in compact', () => {
+    expect(thinkingStreamPreview('compact', ['a', 'b'], 'c', fallback)).toEqual(['a', 'b', 'c'])
+    expect(thinkingStreamPreview('compact', ['a', 'b', 'c', 'd'], 'e', fallback)).toEqual(['c', 'd', 'e'])
+    expect(thinkingStreamPreview('compact', ['a', 'b'], undefined, fallback)).toEqual(['a', 'b'])
     expect(thinkingStreamPreview('compact', [], undefined, fallback)).toBe(fallback)
   })
 
-  it('shows the last finished line plus the live one in comfortable', () => {
-    expect(thinkingStreamPreview('comfortable', ['a', 'b'], 'c', fallback)).toEqual(['b', 'c'])
-    expect(thinkingStreamPreview('comfortable', ['a', 'b'], undefined, fallback)).toEqual(['a', 'b'])
-    expect(thinkingStreamPreview('comfortable', [], 'only', fallback)).toBe('only')
+  it('shows six live rows in comfortable', () => {
+    expect(thinkingStreamPreview('comfortable', ['a', 'b', 'c', 'd', 'e'], 'f', fallback))
+      .toEqual(['a', 'b', 'c', 'd', 'e', 'f'])
+    expect(thinkingStreamPreview('comfortable', ['a', 'b', 'c', 'd', 'e', 'f', 'g'], 'h', fallback))
+      .toEqual(['c', 'd', 'e', 'f', 'g', 'h'])
+  })
+
+  it('keeps the two density budgets distinct', () => {
+    const finished = ['1', '2', '3', '4', '5', '6', '7']
+    const compact = thinkingStreamPreview('compact', finished, undefined, fallback)
+    const comfortable = thinkingStreamPreview('comfortable', finished, undefined, fallback)
+    expect(compact).toHaveLength(3)
+    expect(comfortable).toHaveLength(6)
+    expect(compact).not.toEqual(comfortable)
+  })
+
+  it('never exceeds its budget when more lines arrive than it can hold', () => {
+    for (const density of ['compact', 'comfortable'] as const) {
+      const rows = thinkingStreamPreview(density, Array.from({ length: 40 }, (_, i) => `line ${i}`), 'live', fallback)
+      expect(Array.isArray(rows) ? rows.length : 1).toBeLessThanOrEqual(density === 'compact' ? 3 : 6)
+    }
   })
 })
 

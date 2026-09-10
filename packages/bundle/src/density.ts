@@ -52,13 +52,25 @@ export function densityReport(density: Density): string {
 }
 
 /**
- * Live thinking rows while a thought streams: compact keeps one line,
- * comfortable shows two (the last finished line plus the one still arriving).
+ * Rows the live thinking preview may occupy, by density.
+ *
+ * A row-count lookup rather than a branch inside the preview: a future density
+ * value only adds an entry here. Compact shows a readable three rows;
+ * comfortable doubles it.
+ */
+export const THINKING_PREVIEW_ROWS: Record<Density, number> = {
+  compact: 3,
+  comfortable: 6,
+}
+
+/**
+ * Live thinking rows while a thought streams. Keeps the most recent rows and
+ * never exceeds the density's budget.
  * @param density - the live mode.
  * @param finished - thinking lines already complete this burst.
  * @param live - the in-progress line, when one is open.
  * @param fallback - shown when nothing has arrived yet.
- * @returns one row, or two for comfortable.
+ * @returns one row, or up to the density's budget of rows.
  */
 export function thinkingStreamPreview(
   density: Density,
@@ -66,11 +78,9 @@ export function thinkingStreamPreview(
   live: string | undefined,
   fallback: string,
 ): string | readonly string[] {
-  const current = live ?? finished.at(-1) ?? fallback
-  if (density === 'compact') return current
-  const prior = live === undefined ? finished.slice(-2, -1) : finished.slice(-1)
-  const rows = [...prior, current].filter(row => row !== '')
-  return rows.length <= 1 ? current : rows.slice(-2)
+  const rows = [...finished, ...live === undefined ? [] : [live]].filter(row => row !== '')
+  const kept = rows.length === 0 ? [fallback] : rows.slice(-THINKING_PREVIEW_ROWS[density])
+  return kept.length === 1 ? kept[0] ?? fallback : kept
 }
 
 /**

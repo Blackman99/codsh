@@ -99,7 +99,7 @@ const WORKFLOW_SCRIPT = [
 const SLOW_SECONDS = 30
 
 /** Reasoning text streamed before the `reasoning` mode's answer. */
-const THINKING = 'CODE_CLI_THINKING about the request\nweighing the options carefully'
+const THINKING = 'CODE_CLI_THINKING about the request\nweighing the options carefully\nchecking the render path\ncomparing two shapes\nsettling on one'
 
 /** The `reasoning` mode's visible answer, after the thinking ends. */
 const AFTERTHOUGHT = 'CODE_CLI_ANSWER after thinking'

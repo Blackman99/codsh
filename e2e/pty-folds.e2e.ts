@@ -66,14 +66,17 @@ describe.skipIf(process.platform === 'win32')('streaming, cards and folds (real 
     expect(rows.map(visible)).toContain('›   create the note')
   }, E2E_TEST_TIMEOUT_MS)
 
-  it('streams thinking as a live line and collapses it to a summary', async () => {
+  it('streams thinking as three live rows and collapses it to a summary', async () => {
     const output = await drivePty('reasoning', [
       ['Welcome to codsh', `think it over${ENTER}`, 300],
       ['CODE_CLI_ANSWER after thinking', `/exit${ENTER}`, 400],
     ])
 
-    // The thought was visible while it streamed...
-    expect(output).toContain('CODE_CLI_THINKING')
+    // While it streamed, the preview held several rows at once (compact's
+    // budget is three), which is what makes the reasoning the main area.
+    const mid = screenAt(output, 'settling on one').alternate
+    const thought = mid.filter(row => row.includes('CODE_CLI_THINKING') || row.includes('weighing the options') || row.includes('checking the render path') || row.includes('comparing two shapes') || row.includes('settling on one'))
+    expect(thought.length).toBeGreaterThanOrEqual(3)
     // ...but the settled screen keeps one summary line, not the pages.
     const rows = screenAt(output, 'CODE_CLI_ANSWER after thinking').alternate
     const summary = rows.findIndex(row => /✻\s+thought for [\d.]+s/u.test(row))

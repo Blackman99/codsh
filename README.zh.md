@@ -96,7 +96,7 @@ dsh --profile code
 - Ctrl+V 粘贴图片。光标停在 `[Image #N]` 上时，屏幕中央浮出一张预览卡：能画图的终端直接显示原图——Ghostty、kitty、WezTerm 走 Kitty graphics，iTerm2 走它自己的协议——其余终端显示彩色半块马赛克。Ctrl+O 或点一下卡片，用系统看图器打开原图。（原生视觉；DeepSeek 文本模型自动借用 Vision Exp；其他文本路由仍落盘并可选 sidecar。）
 - `/` 命令、`$` skill、`!` shell、`@` 文件 —— 菜单在输入框上方。⇧Tab 是 plan 模式。
 - agent 工作时照样可以打字，回车进入队列，输入框下方显示 `↳ queued: …`。排在一起的消息在回合结束时合并成一条发出，中间空一行；`!` 命令和 `/` 命令保持原来的顺序、单独执行。Ctrl+Q 或点击那一行打开队列面板：Enter 把一条拉回输入框编辑，`d` 删除，Shift+↑/↓ 调序，`s` 把它插进正在运行的回合。支持 kitty 键盘协议的终端上 Ctrl+Enter 直接从输入框插话，送达前显示为 `↳ steering:`。Esc 一律中断，队列保留并作为下一条消息发出。↑ 仍然逐条回溯。
-- `/ui compact|comfortable` 决定对话占多少地方。compact 是默认，上面描述的也都是它的形状；comfortable 只是多给空间——轮次之间空一行、思考流式时留两行预览、展开的 diff 更晚才切到分页器。这个选择会跨会话保存。
+- `/ui compact|comfortable` 决定对话占多少地方。compact 是默认，上面描述的也都是它的形状；comfortable 只是多给空间——轮次之间空一行、思考流式输出时 3 行预览（comfortable 为 6 行）、展开的 diff 更晚才切到分页器。这个选择会跨会话保存。
 - 审批、`/model`、`/resume`、`/thinking`（或 `/effort`）用方向键；还有 `/clear`、Esc Esc、`/init`、`/update`。`!cmd` 打在会话里，agent 看得到输出。
 - `/thinking [level]`（别名 `/effort`）配置模型思考深度（如 `off`、`low`、`high`、`max`，或快捷指令 `on`/`off`），支持 TTY 交互式选择、按模型独立持久化，并在状态栏 MetaBar（如 `deepseek-chat (high)`）及 `/status` 报告中常驻显示。
 - 人不在窗口时，等待决定或一轮超过十秒结束会响铃并发桌面通知：iTerm2、WezTerm、Ghostty、kitty、Windows Terminal 走 OSC 9，Terminal.app 走 `osascript`，其它 Linux 终端再加 `notify-send`；窗口有焦点时什么都不发。`bell` 和 `notify` 是两个开关。
