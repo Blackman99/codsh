@@ -32,6 +32,15 @@ decide the model-facing toolset.
 The alternate-screen area the session owns: its own scrollback, wrapping,
 scrolling, and frame painting. The terminal's native buffer is never touched.
 
+**Top bar**:
+The one reserved row the surface paints above the Viewport, before the sticky
+panel and the transcript: a left group of the plan and `/ship` chips, the branch
+and the directory, and a right group of the context pressure. It is Chrome, not
+transcript — it never scrolls and is never built by appending transcript rows —
+and it degrades left-first, so a long directory drops before the branch and the
+context figure is the last thing to go.
+_Avoid_: status bar, header, MetaBar
+
 **Sticky turn header**:
 The real user prompt that owns the response currently crossing the top of the
 Viewport. Its display-only copy stays pinned until the next real prompt pushes
@@ -206,8 +215,9 @@ replay creates capable but automatically collapsed Folds from durable events.
 _Avoid_: session fold state, global expanded mode
 
 **Chrome**:
-The bottom-pinned rows: input box, menus, the Queue and Todo readouts, hint
-row, status row. Never scrolls.
+The rows the surface composes around the Viewport rather than from it: the top
+bar at row 0, then the borderless input region, its menus, the Queue and Todo
+readouts, the hint row, and the status foot. Never scrolls.
 
 **Row**:
 One line of a frame, painted at a position of its own. A row is text and
@@ -271,6 +281,21 @@ starts and ends — heavy for the person's own message, light for a tool block,
 error-coloured for a failed one, absent for what a person reads. Chrome, not
 content: it repeats on wrapped rows and never reaches the clipboard.
 _Avoid_: border, gutter, sidebar
+
+**Block gap**:
+The blank rows a step opens with, separating it from the step before it — one
+under `compact`, two under `comfortable`. It is emitted by the transcript as
+part of the block it draws, never inferred by the frame from row shapes, and it
+opens a step rather than closing one, so a turn still ends on painted content.
+_Avoid_: turn separator, spacer row
+
+**Help row**:
+The foot row beneath the input region carrying the commands-and-keys entry
+(`? shortcuts`) and the model's reasoning level. It renders in the same place
+whether the input is empty or has text; the long placeholder belongs to the
+input row above and leaves on the first keystroke, while the help row does not
+move. A cramped width drops the shortcuts entry before the reasoning level.
+_Avoid_: hint row, shortcut footer
 
 **Scrollback notice**:
 The row that says how far back the reader has gone and takes the click that

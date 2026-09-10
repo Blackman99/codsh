@@ -162,13 +162,13 @@ describe.skipIf(process.env.CAPTURE_SCREENS === undefined)('showcase frames', ()
       scenes.push({ ...rest, keep: keepRanges(rows, from), rows })
     }
 
-    // The first thing anyone sees: the mark, the box, the status row.
+    // The first thing anyone sees: the mark, the top bar, the borderless input.
     await capture(
-      { id: 'welcome', title: 'A session that is its own space', note: 'The alternate screen, the input box pinned to the bottom, and the status row that is always current.' },
+      { id: 'welcome', title: 'A session that is its own space', note: 'The alternate screen, the top bar of environment facts, and the borderless input region pinned to the bottom.' },
       'write',
       [['Welcome to codsh', '', 700], ['', `/exit${ENTER}`, 400]],
-      // The box lands a frame after the banner, so the banner is the wrong
-      // marker to stop at: it names a screen the person never sees alone.
+      // The input region lands a frame after the banner, so the banner is the
+      // wrong marker to stop at: it names a screen the person never sees alone.
       'Ask anything',
       'first',
     )
@@ -233,7 +233,7 @@ describe.skipIf(process.env.CAPTURE_SCREENS === undefined)('showcase frames', ()
 
     // The todo list pinned in the chrome, then opened whole.
     await capture(
-      { id: 'todos', title: 'Todos that stay in view', note: 'A pinned row holds the agent’s list over the status row instead of scrolling away with the write; Ctrl+T opens it whole.', from: '› plan the work' },
+      { id: 'todos', title: 'Todos that stay in view', note: 'A pinned row holds the agent’s list over the foot instead of scrolling away with the write; Ctrl+T opens it whole.', from: '› plan the work' },
       'todo',
       [['Welcome to codsh', `plan the work${ENTER}`, 400], ['todos', CTRL_T, 900], ['', `/exit${ENTER}`, 400]],
       // A marker only the chrome paints: a transcript marker would cut the

@@ -84,6 +84,7 @@ dsh --profile code
 - 刚提交的提问占住视口顶部，回复从下方填进空出来的位置。往回读历史再回来，回来的是同一帧——滚轮和 PgDn 都落得回去。
 - 不管读到哪里，问出这段内容的那条提问会吸附在顶部；下一条提问再把它推走。
 - 右侧一列时间线标出当前在第几轮——刻度和箭头可点击跳转，悬停预览真实的提问内容。Shift+←/→ 是键盘上的同一件事，`/jump` 则是可搜索、可撤回的预览。`/rewind` 从你选定的某一轮之前分叉出对话继续；原会话留在 `/resume` 里，Esc Esc 仍然找回上一条提问。
+- 一个步骤读作一个块：思考标题、正文和它引出的工具调用共用同一缩进，步骤之间空一行，不用数记号也能看出一步到哪里结束。
 - 工具调用很安静：每次调用只占一行弱化文字，连续调用合并成一条汇总行，写明做了什么、各几次 —— `Read 3 files, Searched 2 patterns`。运行中用现在时，失败会标出，点开（或 Ctrl+O）能看到每次调用和真实 diff。破坏性命令单独占一行 `⚠` 警告，等待你审批的调用永远不会被折叠。
 - 思考和长工具输出可折叠：点一块开一块，Ctrl+O 开合全部；手动开合的选择跨轮次保留。写完的回答始终整段留下。压缩——自动的，或 `/compact`——也留下一个折叠块：多少条历史、多少 token 变成了摘要、哪个模型写的，以及摘要本身；进行中 hint 行会显示 `compacting history…`。
 - 正在运行的进程内子代理是一个视图：子会话一出现，卡片就会写 `click to enter`。点进去后子代理的 transcript 替换父级并实时流出；Esc 回退一层。这里不能打字——这是查看，不是跟进。Workflow/Ralph 的回合仍然只是一行：那些子会话跑在 worker 线程里，点进去只会打不开。
@@ -92,12 +93,12 @@ dsh --profile code
 
 **干活**
 
-- 备用屏幕；输入框钉底；退出原样还回你的 shell。
-- todo 常驻 chrome（Ctrl+T / `/todos`）。Markdown、思考、工具组流式画出。回答里代替 Markdown 的内联 HTML 也会渲染：`<font color>` 和 `<span style>` 的颜色（ANSI 色名用终端自己的调色板，其余走真彩或最接近的调色板项）、`<b>`、`<i>`、`<u>`、`<s>`、`<code>`、`<br>` 和实体；不认识的标签原样保留。拖选即复制，对话和输入框都是。
+- 备用屏幕；环境信息集中到顶部栏——左侧是分支和目录，右侧是上下文占用，另有 plan 和 `/ship` chip——输入区去掉边框，只留一条普通分隔线钉在底部，`›` 和一行帮助（`? shortcuts`）在其下；退出原样还回你的 shell。
+- todo 常驻 chrome（Ctrl+T / `/todos`）。Markdown、思考、工具组流式画出。回答里代替 Markdown 的内联 HTML 也会渲染：`<font color>` 和 `<span style>` 的颜色（ANSI 色名用终端自己的调色板，其余走真彩或最接近的调色板项）、`<b>`、`<i>`、`<u>`、`<s>`、`<code>`、`<br>` 和实体；不认识的标签原样保留。拖选即复制，对话和输入区都是。
 - Ctrl+V 粘贴图片。光标停在 `[Image #N]` 上时，屏幕中央浮出一张预览卡：能画图的终端直接显示原图——Ghostty、kitty、WezTerm 走 Kitty graphics，iTerm2 走它自己的协议——其余终端显示彩色半块马赛克。Ctrl+O 或点一下卡片，用系统看图器打开原图。（原生视觉；DeepSeek 文本模型自动借用 Vision Exp；其他文本路由仍落盘并可选 sidecar。）
-- `/` 命令、`$` skill、`!` shell、`@` 文件 —— 菜单在输入框上方。⇧Tab 是 plan 模式。
-- agent 工作时照样可以打字，回车进入队列，输入框下方显示 `↳ queued: …`。排在一起的消息在回合结束时合并成一条发出，中间空一行；`!` 命令和 `/` 命令保持原来的顺序、单独执行。Ctrl+Q 或点击那一行打开队列面板：Enter 把一条拉回输入框编辑，`d` 删除，Shift+↑/↓ 调序，`s` 把它插进正在运行的回合。支持 kitty 键盘协议的终端上 Ctrl+Enter 直接从输入框插话，送达前显示为 `↳ steering:`。Esc 一律中断，队列保留并作为下一条消息发出。↑ 仍然逐条回溯。
-- `/ui compact|comfortable` 决定对话占多少地方。compact 是默认，上面描述的也都是它的形状；comfortable 只是多给空间——轮次之间空一行、思考流式输出时 3 行预览（comfortable 为 6 行）、展开的 diff 更晚才切到分页器。这个选择会跨会话保存。
+- `/` 命令、`$` skill、`!` shell、`@` 文件 —— 菜单在输入区上方。⇧Tab 是 plan 模式。
+- agent 工作时照样可以打字，回车进入队列，输入区下方显示 `↳ queued: …`。排在一起的消息在回合结束时合并成一条发出，中间空一行；`!` 命令和 `/` 命令保持原来的顺序、单独执行。Ctrl+Q 或点击那一行打开队列面板：Enter 把一条拉回输入区编辑，`d` 删除，Shift+↑/↓ 调序，`s` 把它插进正在运行的回合。支持 kitty 键盘协议的终端上 Ctrl+Enter 直接从输入区插话，送达前显示为 `↳ steering:`。Esc 一律中断，队列保留并作为下一条消息发出。↑ 仍然逐条回溯。
+- `/ui compact|comfortable` 决定对话占多少地方。compact 是默认，上面描述的也都是它的形状；comfortable 只是多给空间——步骤之间空两行（compact 一行）、思考流式输出时 3 行预览（comfortable 为 6 行）、展开的 diff 更晚才切到分页器。这个选择会跨会话保存。
 - 审批、`/model`、`/resume`、`/thinking`（或 `/effort`）用方向键；还有 `/clear`、Esc Esc、`/init`、`/update`。`!cmd` 打在会话里，agent 看得到输出。
 - `/thinking [level]`（别名 `/effort`）配置模型思考深度（如 `off`、`low`、`high`、`max`，或快捷指令 `on`/`off`），支持 TTY 交互式选择、按模型独立持久化，并在状态栏 MetaBar（如 `deepseek-chat (high)`）及 `/status` 报告中常驻显示。
 - 人不在窗口时，等待决定或一轮超过十秒结束会响铃并发桌面通知：iTerm2、WezTerm、Ghostty、kitty、Windows Terminal 走 OSC 9，Terminal.app 走 `osascript`，其它 Linux 终端再加 `notify-send`；窗口有焦点时什么都不发。`bell` 和 `notify` 是两个开关。

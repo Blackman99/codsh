@@ -893,4 +893,68 @@ cannot run in this sandbox: 4 files / 40 tests fail with
 treated as evidence either way. The redirected rail rows and the
 `experience-navigation` assertions above need that PTY run to be confirmed.
 
+### Ticket 7 — Release and Documentation Compliance (Track: 9)
+
+**Delivered.** The durable records this ticket owns; the visual artifact is the
+one item left to a PTY run.
+
+- `.changeset/chrome-redesign.md` names `codsh-bundle` at `minor` and describes
+  the chrome in the user's terms: the step block and its gap, the top bar, the
+  borderless input with its help row, and the role palette. It is distinct from
+  `.changeset/ship-chrome-idle-after-run.md`, the pre-existing `/ship`-chrome
+  note that matches the word "chrome".
+- `README.md` and `README.zh.md` were corrected in parity: the stale "box at the
+  bottom" sentence became the top bar plus a borderless input region with a `›`
+  and one help row (`? shortcuts`); each now describes the step block and its
+  gap; the `/ui` line names the two-row (comfortable) / one-row (compact) gap
+  between steps; and the remaining chrome "box" references in the Working
+  section became "input region".
+- `CONTEXT.md` gains **Top bar**, **Block gap** and **Help row** under
+  `### Surface` (lines 35, 285, 292), and the redefined **Chrome** now names the
+  top bar at row 0 and the borderless input region instead of "input box,
+  status row".
+- `e2e/capture.e2e.ts`'s user-facing scene copy stops calling the input a box
+  and the foot a status row, so the captured frames are described in the
+  shipped terms.
+
+**Red (witnessed before the docs were written).**
+
+- The release note was absent:
+  `grep -lE "top bar|status bar|input region|palette|spacing|borderless" $(grep -ln "codsh-bundle" .changeset/*.md)`
+  → exit 1, no output (the three pre-existing `codsh-bundle` changesets carry
+  none of those words).
+- The stale sentence was present:
+  `grep -n "box never leaves the bottom" README.md` → line 96;
+  `grep -n "输入框钉底" README.zh.md` → line 95.
+- The new terms were absent: `grep -cE "top bar|block gap|help row" CONTEXT.md`
+  → `0`, exit 1.
+
+**Green.**
+
+- Criterion 9: `grep -icE "input|status|bar|box" README.md; grep -cE "输入框|状态栏|顶部" README.zh.md`
+  → `10` and `5`; both non-zero.
+- Criterion 10: `grep -lE "top bar|status bar|input region|palette|spacing|borderless" $(grep -ln "codsh-bundle" .changeset/*.md)`
+  → `.changeset/chrome-redesign.md`, exit 0.
+- The stale box-at-the-bottom sentences are gone:
+  `grep -n "box never leaves the bottom" README.md` and
+  `grep -n "输入框钉底" README.zh.md` → exit 1 each.
+- The terms resolve: `grep -nE "^\*\*(Top bar|Block gap|Help row)\*\*" CONTEXT.md`
+  → lines 35, 285, 292.
+- `./node_modules/.bin/tsc --noEmit` → exit 0, no diagnostics (Criterion 6).
+- `node node_modules/vitest/vitest.mjs run` → exit 0, **54 files / 1444 tests**
+  passing, 0 skipped (Criterion 5).
+
+**PTY note (Criterion 11 — the one checklist item still open).**
+`CAPTURE_SCREENS=1 node node_modules/vitest/vitest.mjs run --config vitest.e2e.config.ts e2e/capture.e2e.ts`
+cannot run in this sandbox. It fails before any frame is replayed:
+`EPERM: operation not permitted, mkdir '/Users/zhaodongsheng/.cache/codsh/showcase'`
+at `e2e/pty-driver.ts:188` — the sandbox denies the capture workspace write
+outside the session workspace — and its PTY path is denied as well (`/dev/ptmx`
+→ `OSError: out of pty devices`). It is an environment denial, not a code
+failure, so it is not read as evidence either way. The frames it writes,
+`site/data/screens.json`, and their paths therefore cannot be recorded here.
+That is the only Ticket 7 checklist item left, so the Plan checkbox is
+deliberately left unticked and `Status:` stays `planned` until the main session
+runs the capture.
+
 
