@@ -375,7 +375,9 @@ Status (`ship · grill` / `spec` / `tickets` / `land k/n`). The spec file is the
 not the conversation: the approved tickets live in it as checkboxes, its
 `Status:` line names the phase, a baseline run is recorded before any code,
 each green ticket is committed, and a bare `/ship` offers to resume
-whatever it finds unfinished.
+whatever it finds unfinished. One module owns that memory for a session —
+Plan progress, the MetaBar chip, the spec poll, and the canned phase loop —
+so the runner only begins, notes a write, or aborts.
 _Avoid_: checkpoints, review steps
 
 ### Alignment pipeline

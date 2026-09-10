@@ -12,11 +12,10 @@
  * @module codsh
  */
 
-import { spawn } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import { readFile, writeFile } from 'node:fs/promises'
-import { readdirSync, readFileSync } from 'node:fs'
 import { basename, join } from 'node:path'
+import { capture } from './capture.ts'
 import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import { installModelSelection } from '@deepseek-ai/dsh-agent'
@@ -62,8 +61,7 @@ import type { CompletableCommand } from './completion.ts'
 import { indexConversationContent, newestCopyTargets, resolveCopyTarget } from './content-index.ts'
 import { TerminalConsole } from './console.ts'
 import { readClipboardImage } from './clipboard-image.ts'
-import { parseShipStatus, pickLiveShip, planInFlight, plansEqual, workingLineProgress } from './plan.ts'
-import type { Plan, ShipSpecFile } from './plan.ts'
+import { workingLineProgress } from './plan.ts'
 import { Prompt } from './prompt.ts'
 import { shapeResume } from './resume.ts'
 import type { ResumeCandidate } from './resume.ts'
@@ -81,7 +79,8 @@ import {
 import { installPackagedPreset } from './preset-install.ts'
 import { TerminalQuestions } from './questions.ts'
 import { userShell } from './bang.ts'
-import { shipPhaseKind, shipPromptFor } from './ship.ts'
+import { indexReplayTiming } from './replay-timing.ts'
+import { ShipRun } from './ship-run.ts'
 import { Spinner } from './spinner.ts'
 import {
   DEEPSEEK_VISION_MODEL,
@@ -95,7 +94,7 @@ import {
 } from './vision.ts'
 import { TextStream, ThinkingTracker } from './streaming.ts'
 import { PROFILE, bundleVersion, checkForUpdate, runtimeMove, runtimeRegisterCommand, runtimeSpec, runningDsh, updateCommand } from './update.ts'
-import { displayPath, formatSessionTime, formatTokens, formatTurnTime, gitBranch, sessionHistoryTiming, sameShipChip, shipChipFromSpec, statusLine, statusReport, totalTokens } from './status.ts'
+import { displayPath, formatSessionTime, formatTokens, formatTurnTime, gitBranch, sessionHistoryTiming, statusLine, statusReport, totalTokens } from './status.ts'
 import {
   THINKING_PREFS_FILE,
   buildThinkingOptions,
@@ -111,7 +110,7 @@ import {
 import { todoReport } from './todos.ts'
 import type { PendingImage } from './prompt.ts'
 import type { TodoList } from './todos.ts'
-import type { ShipChip, StatusFacts } from './status.ts'
+import type { StatusFacts } from './status.ts'
 import { backgroundIsLight, createTheme, truncate } from './theme.ts'
 import { FOLD_LABELS, Transcript, blockRules, presentAskUserQuestionResult, thinkingFold, thinkingFoldRules } from './transcript.ts'
 import type { Theme } from './theme.ts'
@@ -318,71 +317,6 @@ function replay(session: Session, transcript: Transcript, io: CliIo, theme: Them
 }
 
 /**
- * Index step and turn boundary timestamps to restore thinking and turn clocks on replay.
- * @param events - the session snapshot events.
- * @returns lookup functions for thinking duration and turn duration.
- */
-export function indexReplayTiming(events: readonly SessionEvent[]): {
-  stepThinkingSeconds: (turn: number, step: number, messageTime?: number) => number | undefined
-  stepTotalSeconds: (turn: number, step: number) => number | undefined
-} {
-  const stepStarts = new Map<string, number>()
-  const stepEnds = new Map<string, number>()
-  const reasoningEnds = new Map<string, number>()
-  const maxStepEventTimes = new Map<string, number>()
-
-  for (const event of events) {
-    if (typeof event.time !== 'number' || event.time <= 0) continue
-
-    const turn = (event.data as any)?.turn
-    const step = (event.data as any)?.step
-    if (typeof turn === 'number' && typeof step === 'number') {
-      const key = `${turn}:${step}`
-      const prevMax = maxStepEventTimes.get(key) ?? 0
-      if (event.time > prevMax) maxStepEventTimes.set(key, event.time)
-    }
-
-    if (event.type === 'step/start' && typeof turn === 'number' && typeof step === 'number') {
-      stepStarts.set(`${turn}:${step}`, event.time)
-    } else if (event.type === 'step/end' && typeof turn === 'number' && typeof step === 'number') {
-      stepEnds.set(`${turn}:${step}`, event.time)
-    } else if (event.type === 'assistant/chunk' && typeof turn === 'number' && typeof step === 'number') {
-      const key = `${turn}:${step}`
-      const chunk = (event.data as any).chunk
-      if (chunk?.type === 'reasoning-delta') {
-        reasoningEnds.set(key, event.time)
-      } else if (chunk?.type === 'block-end' && chunk?.block?.type === 'reasoning') {
-        reasoningEnds.set(key, event.time)
-      } else if (chunk?.type === 'text-delta' || chunk?.type === 'tool-call-delta') {
-        if (!reasoningEnds.has(key)) reasoningEnds.set(key, event.time)
-      }
-    }
-  }
-
-  const stepThinkingSeconds = (turn: number, step: number, messageTime?: number): number | undefined => {
-    const key = `${turn}:${step}`
-    const start = stepStarts.get(key)
-    const end = reasoningEnds.get(key) ?? messageTime
-    if (start !== undefined && end !== undefined && end > start) {
-      return (end - start) / 1000
-    }
-    return undefined
-  }
-
-  const stepTotalSeconds = (turn: number, step: number): number | undefined => {
-    const key = `${turn}:${step}`
-    const start = stepStarts.get(key)
-    const end = stepEnds.get(key) ?? maxStepEventTimes.get(key)
-    if (start !== undefined && end !== undefined && end > start) {
-      return (end - start) / 1000
-    }
-    return undefined
-  }
-
-  return { stepThinkingSeconds, stepTotalSeconds }
-}
-
-/**
  * Render every recorded event into the transcript.
  * @param session - the session being replayed.
  * @param transcript - the renderer to pour it through.
@@ -528,63 +462,6 @@ const RECALL_WINDOW_MS = 1500
 
 /** Turns longer than this ring the bell on completion, when the bell is on. */
 const BELL_TURN_MS = 10_000
-
-/**
- * A subprocess's captured outcome: merged output and how it ended.
- */
-interface Captured {
-  /** stdout and stderr merged in arrival order. */
-  output: string
-  /** Exit code, or null when a signal ended it. */
-  code: number | null
-  /** The killing signal, or null when it exited. */
-  signal: NodeJS.Signals | null
-}
-
-/**
- * Run one subprocess and capture everything it printed.
- * @param file - the executable, or a shell when `shell` is given.
- * @param args - its arguments.
- * @param options - working directory, abort wiring, and an optional kill timer.
- * @returns the merged output and exit status; spawn failures come back as a
- *   nonzero code with the error message as output.
- */
-function capture(
-  file: string,
-  args: readonly string[],
-  options: { cwd: string; signal?: AbortSignal; timeoutMs?: number; onLine?: (line: string) => void },
-): Promise<Captured> {
-  return new Promise((resolve) => {
-    const child = spawn(file, args, { cwd: options.cwd, stdio: ['ignore', 'pipe', 'pipe'] })
-    let output = ''
-    let pending = ''
-    const take = (chunk: Buffer | string): void => {
-      const text = chunk.toString().replaceAll('\r\n', '\n').replaceAll('\r', '\n')
-      output += text
-      if (options.onLine === undefined) return
-      pending += text
-      const parts = pending.split('\n')
-      pending = parts.pop() ?? ''
-      for (const line of parts) options.onLine(line)
-    }
-    child.stdout.on('data', take)
-    child.stderr.on('data', take)
-    const timer = options.timeoutMs === undefined
-      ? undefined
-      : setTimeout(() => { child.kill('SIGTERM') }, options.timeoutMs)
-    const onAbort = (): void => { child.kill('SIGTERM') }
-    options.signal?.addEventListener('abort', onAbort, { once: true })
-    child.on('error', (error) => {
-      resolve({ output: error.message, code: 127, signal: null })
-    })
-    child.on('close', (code, signal) => {
-      if (timer !== undefined) clearTimeout(timer)
-      options.signal?.removeEventListener('abort', onAbort)
-      if (pending !== '' && options.onLine !== undefined) options.onLine(pending)
-      resolve({ output, code, signal })
-    })
-  })
-}
 
 /** The `/init` prompt: a canned task submitted through the ordinary turn path. */
 const INIT_PROMPT = `Analyze this repository and write an AGENTS.md file at its root for future coding agents.
@@ -1102,7 +979,7 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
         watch.progress = progress
         // A round ticks its ticket on disk; the plan row should say so now,
         // not when the round ends minutes later.
-        if (moved) refreshPlan()
+        if (moved) ship.refresh()
       } finally {
         observed[Symbol.dispose]()
       }
@@ -1130,171 +1007,16 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
   /** Whether the hint row is ours: a compaction announced itself there. */
   let compacting = false
   /**
-   * Markdown files this session watched the agent write, newest first.
-   *
-   * A `/ship` run writes its plan into a spec file and ticks a checkbox as
-   * each ticket lands, so the file is where "how far in" actually lives — the
-   * round number a workflow reports counts against a budget, not against the
-   * work. The surface learns the path by watching the write rather than
-   * guessing at a convention, because the spec goes wherever the repository
-   * already keeps its design documents.
+   * One `/ship` run: spec file as workflow memory, Plan progress, MetaBar
+   * chip, and the canned phase loop. Chrome paint is late-bound because
+   * refreshStatus is defined after the Prompt exists.
    */
-  const writtenDocs: string[] = []
-  /** The plan that file holds, re-read when a round settles. */
-  let shipPlan: Plan | undefined
-  /** MetaBar /ship chip derived from the spec; a gate overlay wins at paint. */
-  let shipChip: ShipChip | undefined
-  /** Tickets already ticked the last time the landing chip was adopted. */
-  let lastShipDone: number | undefined
-  /** True after `ship · done` flashed and the chip was cleared. */
-  let shipChipCleared = false
-  let shipFlashTimer: ReturnType<typeof setTimeout> | undefined
-  /** How long a land-ok flash or the done chip stays before the next paint. */
-  const SHIP_CHIP_FLASH_MS = 400
-  /** Assigned with refreshStatus: chip changes must repaint MetaBar. */
-  let onShipChip: () => void = () => {}
-  const clearShipFlash = (): void => {
-    if (shipFlashTimer === undefined) return
-    clearTimeout(shipFlashTimer)
-    shipFlashTimer = undefined
-  }
-  /**
-   * Set the orientation chip and optionally settle it after the flash window.
-   * @param next - the chip to show, or undefined to hide it.
-   * @param settle - `flash` drops land.flashOk; `clear` hides a done chip.
-   */
-  const setShipChip = (next: ShipChip | undefined, settle?: 'flash' | 'clear'): void => {
-    if (sameShipChip(shipChip, next) && settle === undefined) return
-    clearShipFlash()
-    shipChip = next
-    onShipChip()
-    if (settle === undefined || next === undefined) return
-    shipFlashTimer = setTimeout(() => {
-      shipFlashTimer = undefined
-      if (settle === 'clear') {
-        shipChip = undefined
-        shipChipCleared = true
-        stopShipWatch()
-      } else if (next.kind === 'land') {
-        shipChip = { kind: 'land', k: next.k, n: next.n }
-      }
-      onShipChip()
-    }, SHIP_CHIP_FLASH_MS)
-    shipFlashTimer.unref()
-  }
-  /** Poll the spec while /ship is in flight so chrome tracks checkboxes on disk. */
-  let shipWatch: ReturnType<typeof setInterval> | undefined
-  const SHIP_POLL_MS = 1000
-  const stopShipWatch = (): void => {
-    if (shipWatch === undefined) return
-    clearInterval(shipWatch)
-    shipWatch = undefined
-  }
-  const startShipWatch = (): void => {
-    stopShipWatch()
-    shipWatch = setInterval(() => {
-      refreshPlan()
-      prompt.setTodos(todoList(ctx, live.agent))
-    }, SHIP_POLL_MS)
-    shipWatch.unref()
-  }
-  /** Start a /ship run: grill until the spec names a later phase. */
-  const beginShip = (): void => {
-    shipChipCleared = false
-    lastShipDone = undefined
-    startShipWatch()
-    refreshPlan()
-    if (shipChip === undefined) setShipChip({ kind: 'grill' })
-  }
-  /**
-   * Adopt the chip the spec now names. A rising done-count flashes land ok.
-   * @param markdown - the spec file's contents.
-   * @param plan - the plan parsed from that file.
-   */
-  const adoptShipChip = (markdown: string, plan: Plan): void => {
-    if (shipChipCleared) return
-    const status = parseShipStatus(markdown)
-    const usable = plan.tickets.length > 0 ? plan : undefined
-    const flash = usable !== undefined && lastShipDone !== undefined && usable.done > lastShipDone
-    if (usable !== undefined) lastShipDone = usable.done
-    const derived = shipChipFromSpec(status, usable, flash)
-    if (derived === undefined) return
-    if (derived.kind === 'done') {
-      if (shipChip?.kind === 'done') return
-      setShipChip(derived, 'clear')
-      return
-    }
-    setShipChip(derived, derived.kind === 'land' && derived.flashOk === true ? 'flash' : undefined)
-  }
-  /** Spec paths this session wrote, then docs/specs, newest-session first. */
-  const shipSpecPaths = (): string[] => {
-    const seen = new Set<string>()
-    const paths: string[] = []
-    let dir: string[] = []
-    try {
-      dir = readdirSync(join(cwd, 'docs', 'specs'))
-        .filter(name => name.endsWith('.md'))
-        .map(name => join(cwd, 'docs', 'specs', name))
-    } catch {
-      dir = []
-    }
-    for (const path of [...writtenDocs, ...dir]) {
-      if (seen.has(path)) continue
-      seen.add(path)
-      paths.push(path)
-    }
-    return paths
-  }
-  /** Status of the newest unfinished spec, from this session's writes or docs/specs. */
-  const unreadShipStatus = (): ReturnType<typeof parseShipStatus> => {
-    for (const path of shipSpecPaths()) {
-      try {
-        const status = parseShipStatus(readFileSync(path, 'utf8'))
-        if (status !== undefined && status !== 'shipped') return status
-      } catch {
-        // A spec that moved is not the phase ledger.
-      }
-    }
-    return undefined
-  }
-  /** Re-read the live spec so the plan row and chip match the file on disk. */
-  const refreshPlan = (): void => {
-    const files: ShipSpecFile[] = []
-    for (const path of shipSpecPaths()) {
-      try {
-        files.push({ path, markdown: readFileSync(path, 'utf8'), sessionWrite: writtenDocs.includes(path) })
-      } catch {
-        // A spec that moved or will not read is simply not the progress.
-      }
-    }
-    const picked = pickLiveShip(files)
-    if (picked === undefined) return
-    // A shipped spec's tickets are history: the row comes down with the
-    // chip, instead of saying "every ticket landed" until the session ends.
-    const live = planInFlight(picked.markdown, picked.plan)
-    const next = live ? picked.plan : undefined
-    if (!plansEqual(shipPlan, next)) {
-      shipPlan = next
-      prompt.setPlan(next)
-    }
-    adoptShipChip(picked.markdown, picked.plan)
-  }
-  /**
-   * Note a file the agent wrote, so its plan can be found later.
-   * @param paths - paths the event reported writing.
-   */
-  const noteWritten = (paths: readonly string[]): void => {
-    for (const path of paths) {
-      if (!path.endsWith('.md')) continue
-      const already = writtenDocs.indexOf(path)
-      if (already >= 0) writtenDocs.splice(already, 1)
-      writtenDocs.unshift(path)
-    }
-    // The plan is worth reporting from the moment it exists, not only once
-    // the autonomous rounds start: the phase that writes it is also the phase
-    // a person is deciding whether to approve it.
-    if (paths.some(path => path.endsWith('.md'))) refreshPlan()
-  }
+  let paintShipChrome = (): void => {}
+  const ship = new ShipRun(cwd, {
+    setPlan: (plan) => { prompt.setPlan(plan) },
+    setChip: () => { paintShipChrome() },
+    setTodos: () => { prompt.setTodos(todoList(ctx, live.agent)) },
+  })
   const spinner = new Spinner({
     setLive: (text) => { prompt.setHint(text) },
     isTty: io.console.readsKeys,
@@ -1307,7 +1029,7 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
       // A Ralph round owns this line; the chrome already pins the plan, so
       // repeating `done/total · ticket` here stacked two identical rows.
       const progress = workingLineProgress(
-        shipPlan,
+        ship.shipPlan,
         workflowRound,
         theme,
         Math.max(16, io.console.contentColumns - 40),
@@ -1927,7 +1649,7 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
    */
   const shipFacts = (): Pick<StatusFacts, 'shipGate' | 'shipChip'> => {
     if (prompt.shipGate !== undefined) return { shipGate: prompt.shipGate }
-    return shipChip === undefined ? {} : { shipChip }
+    return ship.shipChip === undefined ? {} : { shipChip: ship.shipChip }
   }
   /** Push the always-current status row; the pipe shape prints it instead. */
   refreshStatus = (): void => {
@@ -1943,7 +1665,7 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
   }
   if (sessionFolds.planMode) prompt.setAccent(text => theme.pending(text))
   onShipGate = (_gate) => { refreshStatus() }
-  onShipChip = () => { refreshStatus() }
+  paintShipChrome = () => { refreshStatus() }
   refreshStatus()
 
   /**
@@ -2066,7 +1788,7 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
     }
     // A round settles by ticking its checkbox, so the plan is re-read at the
     // boundary rather than polled: once per round, and a round is minutes.
-    if (event.type === 'tool-workflow/agent-end' || event.type === 'tool-workflow/run-start') refreshPlan()
+    if (event.type === 'tool-workflow/agent-end' || event.type === 'tool-workflow/run-start') ship.refresh()
     // In print mode the task text came from the caller's own command line;
     // echoing it back would only make stdout harder to consume in scripts.
     if (config.print && event.type === 'user/message') return
@@ -2163,7 +1885,7 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
     const enter = transcript.takeEnter()
     const page = transcript.takePage()
     const replaces = transcript.takePendingCard()
-    noteWritten(transcript.takeWritten())
+    ship.noteWritten(transcript.takeWritten())
     if (promptBlock !== undefined) {
       prompt.setStreaming(undefined)
       io.console.appendPrompt(lines, rule, true, promptBlock, transcript.takePromptPad())
@@ -2345,8 +2067,6 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
   // The controller in flight belongs to the slash command being executed, so
   // one interrupt reaches whichever kind of work is running.
   let running: AbortController | undefined
-  /** Cancels a /ship phase-advance loop when the person interrupts. */
-  let shipAdvance: AbortController | undefined
   /**
    * Steers handed to the agent and not yet claimed, by the message id dsh
    * knows them by. The queue itself stays in the prompt; only what has left
@@ -2394,8 +2114,7 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
     // indicator redrawing itself as though the turn were still going.
     spinner.stop()
     running?.abort()
-    shipAdvance?.abort()
-    stopShipWatch()
+    ship.abort()
     // A steer in flight comes back to the queue first; the inbox is kept so
     // dsh logs no canceled splice for what the surface already took back.
     reclaimSteers(live.agent)
@@ -2771,27 +2490,8 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
         continue
       }
       if (name === 'ship') {
-        beginShip()
-        refreshPlan()
-        const idea = rest.trim()
-        shipAdvance?.abort()
-        const advance = new AbortController()
-        shipAdvance = advance
-        let previous = shipPhaseKind(unreadShipStatus())
-        await answer(expandTemplate(shipPromptFor(unreadShipStatus()), idea), { kind: 'plugin', plugin: 'coding-cli' }, images)
-        // Each turn carries one phase. When the spec's Status advances, inject
-        // the next contract as a fresh turn so grill, to-spec, tickets, and TDD
-        // do not share context.
-        while (!advance.signal.aborted) {
-          refreshPlan()
-          const next = shipPhaseKind(unreadShipStatus())
-          if (next === previous || next === 'done' || next === 'grill') break
-          previous = next
-          await answer(expandTemplate(shipPromptFor(unreadShipStatus()), idea), { kind: 'plugin', plugin: 'coding-cli' }, images)
-        }
-        if (shipAdvance === advance) shipAdvance = undefined
-        stopShipWatch()
-        refreshPlan()
+        await ship.run(rest.trim(), body =>
+          answer(body, { kind: 'plugin', plugin: 'coding-cli' }, images))
         continue
       }
       const canned = customByName.get(name)

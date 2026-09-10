@@ -3,7 +3,7 @@
 import { describe, expect, it } from 'vitest'
 import { age, shapeResume } from '../src/resume.ts'
 import type { ResumeCandidate } from '../src/resume.ts'
-import { indexReplayTiming } from '../src/index.ts'
+import { indexReplayTiming } from '../src/replay-timing.ts'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
 
 const NOW = 1_700_000_000_000
