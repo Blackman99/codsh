@@ -1,0 +1,456 @@
+# Chrome Redesign
+
+Status: planned
+Branch: ship/chrome-redesign
+Base-Commit: a62d959a9d6b63ff6820350dc6d474d56136be1c
+Original-Branch: main
+Goal-Id: goal-f57b063f-27b9-4550-a497-f2df3d357ecb
+Issue: https://github.com/Blackman99/codsh/issues/89
+
+## Requirement
+
+图 2 是当前输出按照新实现后显得非常零碎
+图 3 是 grok 输出排版非常舒适
+同时，整体的状态栏，输入框，显示信息布局，颜色搭配也没有 grok 的好，参考它进行推翻重头设计实现
+
+## Problem Statement
+
+As someone reading a working session, the surface does not hold together as a
+document.
+
+Every thought is immediately followed by one or two tool lines, and those two
+kinds of line are drawn with four different indentations and markers — the
+thought header sits flush at the marker, its body indents under it, the tool
+group sits behind a `│` rule, and the footer hint indents again. Blocks run
+straight into each other with no gap, so there is no visual answer to "where
+does this step end". The result reads as a list of fragments rather than a
+sequence of steps (image 2).
+
+The chrome around that transcript has the opposite problem: it spends rows on
+decoration and piles environment detail into the one place I look most. The
+input is wrapped in a full rounded, saturated border with a long placeholder
+inside it, and directly under it a second row repeats `model · cwd (branch) ·
+? shortcuts`. So three or four rows of the screen — the rows nearest my hands —
+carry almost no information, while the branch and the context pressure I
+actually glance at are buried at the end of a row that truncates from the right
+as soon as the path is long.
+
+Colour is used as decoration rather than as meaning: the box border, the tool
+name, the thinking mark and the user mark are all saturated and all competing,
+so nothing tells me at a glance who is speaking.
+
+## Solution
+
+As someone reading a working session, the reasoning and its tools become one
+step I can see the edges of, and the chrome recedes to the edges of the screen.
+
+A thought and the tool calls it led to are drawn as a single block: one header,
+the reasoning body, then the tool lines belonging to that step, all on one
+indent, with a blank row between steps. I can see where one step ends and the
+next begins without counting markers.
+
+Environment facts move out of the way of my hands and into one bar across the
+top — the branch and directory on the left, context pressure on the right, plus
+the plan and `/ship` markers when they apply. My input loses its box: a divider
+above it, a `›`, and a single line of help underneath. The model and reasoning
+level go where I can find them on demand rather than sitting under the cursor.
+
+Colour goes back to meaning: one restrained palette, applied by who is speaking
+— me, the agent's reasoning, the agent's tools, and errors — instead of by
+which element wants attention.
+
+## Grill Decisions
+
+1. **A step is one block — reasoning and its tools share an indent and a gap
+   follows.**
+   Reason: the fragmentation has a concrete cause, verified in the transcript
+   composer: a thinking fold at `blockRules().agent` (`✻`), its body indented
+   further, and a tool group behind `blockRules().tool` (`│`) with its own
+   larger indent, alternating with no blank row between them. Re-grouping the
+   existing rows is preferred over re-laying out the transcript because the
+   grouping semantics were just delivered and verified in
+   `docs/specs/agent-output-rendering.md`.
+
+2. **Image 3 is the baseline, not a spec sheet.**
+   Reason: the owner reads it as "comfortable" and wants the same qualities —
+   no box around the input, no per-line timestamps, spaced blocks, restrained
+   colour. Its exact pixel values are not the contract; the acceptance is a
+   screenshot of the finished surface.
+
+3. **Scope is the screen frame: input region, status bar, information layout,
+   colour, line spacing, block outer margin.**
+   Reason: the owner named exactly those ("状态栏，输入框，显示信息布局，颜色搭配").
+   The transcript's *semantics* — what counts as a group, what folds — stay as
+   `docs/specs/agent-output-rendering.md` settled them, so this change cannot
+   silently invalidate that spec or its e2e suite.
+
+4. **Control interactions may be redesigned; global key bindings may not be
+   remapped.**
+   Reason: expanding a fold, entering a child session and summoning a panel are
+   part of how the new layout feels and must be free to move. The key
+   bindings are muscle memory and an alignment surface recorded in
+   `docs/alignment.md`, so moving a control must not cost the person the key
+   that reaches it.
+
+5. **One restrained palette; colour carries meaning only.**
+   Reason: today the box border is accented cyan (`inputbox.ts`), the tool name
+   amber (`theme.tool`), the user mark magenta (`theme.user`), and the thinking
+   mark magenta (`theme.agent`) — four saturated roles none of which outranks
+   the others. Roles stay semantic (person, reasoning, tool, error) but get
+   re-weighted and de-saturated, and decoration stops being coloured at all.
+
+6. **Colour may diverge from image 3.**
+   Reason: what makes the reference comfortable is low contrast and restraint,
+   not its specific hues. Pinning codsh to image 3's pixel values would fight
+   the existing theme system and its tests for no readability gain.
+
+7. **`/ui compact|comfortable` survives, and grows from one number into the
+   whole spacing scale.**
+   Reason: it is a delivered, documented setting with tests and both READMEs
+   behind it. Deleting it would be a silent capability loss; expanding it is
+   what lets one axis control block gaps, preview rows and the expansion
+   threshold coherently.
+
+8. **Environment facts move to a top bar.**
+   Reason: the owner chose this over keeping them at the foot. It also fixes a
+   real defect: `statusLine` drops `shortcuts`, then `cwd`, then `model` as the
+   line runs out of room, so on a long path the branch — the thing worth
+   glancing at — is what disappears.
+
+9. **The top bar carries branch, directory, context pressure, and the plan and
+   `/ship` chips.**
+   Reason: branch plus directory is what image 2 shows on the left and context
+   occupancy on the right; plan mode and the ship gate chip already have to be
+   permanently visible, so they belong on the one always-present row rather
+   than in a second one.
+
+10. **The top bar is row 0; the sticky panel sits below it.**
+    Reason: `screen.ts` composes the viewport as `panel + visible + padding`,
+    and the pinned sticky panel — a long user prompt held at the top — already
+    claims that space. The two carry different things (environment vs. what the
+    person just said) so they stack rather than replace each other; the panel's
+    own padding yields when the screen is short.
+
+11. **The input loses its border: a divider, `›`, and a help row.**
+    Reason: the rounded box costs three or more rows and is the single largest
+    piece of pure decoration on the screen. A divider plus the existing `›`
+    mark keeps the input's edge legible and hands the freed rows back to the
+    transcript.
+
+12. **`? shortcuts` is the one discovery path that must not be lost.** It is
+    the only entry point to the shortcuts overlay and cannot sit under the
+    cursor any more, so it moves into the help row at the foot; if it does not
+    fit there the top bar carries it. Reason: the overlay is how a person
+    learns the keys decision 4 promises to keep working.
+
+## Main Track
+
+**Track-1.** A step is one block: the reasoning header, its body, and the tool
+lines of that step share one indent, and a gap separates consecutive steps.
+
+**Track-2.** Colour is meaning, not decoration: one restrained palette,
+re-weighted by role (person, reasoning, tool, error), with no coloured box
+border and no competing saturated marks.
+
+**Track-3.** Environment facts live in a top bar at row 0: branch and directory
+on the left, context pressure on the right, plus the plan-mode and `/ship` gate
+chips. The foot no longer carries cwd, branch or model.
+
+**Track-4.** The top bar and the pinned sticky panel coexist: the bar keeps row
+0, the panel renders below it, and the panel's padding yields first on a short
+screen.
+
+**Track-5.** The input region is borderless: a divider, a `›` mark, the input,
+and one help row — including the `? shortcuts` entry.
+
+**Track-6.** `/ui compact|comfortable` remains and governs the whole spacing
+scale: block gaps, live thinking preview rows, and the expansion threshold.
+
+**Track-7.** Control interactions may move (expand, enter a child session,
+summon a panel), but every existing global key binding stays reachable and
+unremapped.
+
+**Track-8.** Scope is the screen frame. The transcript's grouping semantics and
+fold mechanics — settled by `docs/specs/agent-output-rendering.md` — are not
+reopened.
+
+**Track-9.** Acceptance is visual: a screenshot of the finished surface against
+image 3, plus the existing automated gates staying green.
+
+**Out of Scope.**
+
+- The transcript's grouping semantics and fold mechanics: what counts as a
+  tool group, what folds, and what a group expands into stay exactly as
+  `docs/specs/agent-output-rendering.md` shipped them.
+- Remapping or removing any global key binding, including Ctrl+O, Ctrl+Q,
+  Ctrl+T, Ctrl+F, Esc, Tab/Shift+Tab, wheel scrolling, and drag selection.
+- Matching image 3's exact colours, glyphs or pixel metrics.
+- Removing the `/ui` axis, the `✻` thinking mark, or the `›` user mark.
+- Any change to the dsh harness upstream (`@deepseek-ai/dsh-*`); codsh adds no
+  fork.
+- The Markdown renderer's own typography (tables, code fences, diffs) beyond the
+  palette its roles resolve to.
+- Making the surface a general-purpose themable TUI: one palette, not a theme
+  file format.
+- Preserving image 2's per-line timestamp column; the reference does not have
+  one and it is not part of this surface.
+
+## User Stories
+
+1. As a person reading a working session, I want a thought and the tool calls it led to drawn as one block, so that I read a sequence of steps instead of a list of fragments.
+2. As a person reading a working session, I want a blank row between consecutive steps, so that I can see where one step ends without counting markers.
+3. As a person reading a working session, I want the reasoning and its tool lines to share one indent, so that the eye does not have to re-anchor on every change of row kind.
+4. As a person reading a working session, I want the tool lines of a step to stay quieter than its reasoning, so that the agent's thinking remains the thing I read.
+5. As a person glancing at the screen, I want the branch and directory on a bar across the top, so that I can see where I am without looking under my hands.
+6. As a person watching context fill up, I want the context pressure on the same top bar, so that I notice before the session runs out rather than after.
+7. As a person in plan mode, I want that state on the top bar, so that a mode that changes what the agent may do is visible the whole time it holds.
+8. As a person running a `/ship` workflow, I want its gate chip on the top bar, so that a workflow which owns the turn is still visible while I read.
+9. As a person on a narrow terminal, I want the branch to survive even when the directory path is long, so that the fact I glance at most is not the first thing dropped.
+10. As a person typing a long message, I want my pinned message to remain visible below the top bar, so that I can still see what I asked while the answer streams.
+11. As a person on a very short screen, I want the pinned message to give up its padding before it gives up its text, so that I lose decoration rather than content.
+12. As a person typing, I want my input to sit on a plain divider without a border around it, so that the screen near my hands is not spent on decoration.
+13. As a person typing, I want a single line of help at the foot, so that the commands and keys I can use are discoverable without a menu.
+14. As a person learning the keys, I want the shortcuts entry to stay visible while I type, so that I can find the overlay at the moment I need it.
+15. As a person who has started typing, I want the long placeholder to get out of the way, so that it does not compete with what I am writing.
+16. As a person reading the transcript, I want the colours to tell me who is speaking, so that I can follow a conversation without reading every word.
+17. As a person with a colour-blind terminal or a low-quality display, I want meaning to survive without colour, so that the hierarchy still reads when the palette does not.
+18. As a person who likes a roomier transcript, I want one setting to give me more air between steps, so that I do not have to trade it against the reasoning preview separately.
+19. As a person who prefers a tight transcript, I want the compact setting to stay genuinely compact, so that the default does not become the roomy one.
+20. As a person whose session was interrupted or resumed, I want the top bar and the input region to look the same as in a live session, so that a resumed screen is not a second visual language.
+21. As a person reading a child session, I want the top bar to keep telling me where I am, so that an entered subagent is not a screen with no context.
+22. As a person opening a modal panel, I want the panels that take the screen to still take it whole, so that a modal is never half-drawn over the new chrome.
+23. As a person who resizes the terminal, I want the top bar and the input region to re-lay out with the transcript, so that a resize does not leave chrome painted over content.
+24. As a person reviewing the finished surface, I want a captured screenshot of a real session, so that I can judge the result against the reference instead of trusting a description.
+
+## Implementation Decisions
+
+**Block gap is a transcript concern, not a frame concern.** What separates two
+steps is knowledge the transcript already has: it knows when a step's run of
+tool activity has ended and a new reasoning header begins. The gap therefore
+comes out of the transcript as part of the block it emits, rather than being
+inferred by the frame from row shapes. The transcript keeps sole ownership of
+"what is one step"; the frame keeps ownership of where the screen's fixed
+regions are.
+
+**Grouping semantics are untouched.** What counts as a tool group, what folds,
+and what a group expands into do not change. This work changes the indent and
+the spacing between blocks, and the palette those blocks resolve to; it does not
+re-decide membership or folding.
+
+**The input region returns rows, not a frame.** The input module's public
+function currently returns a bordered box with a cursor position. It becomes a
+borderless region: a top divider, the input rows, and one help row beneath.
+Its return value keeps carrying the cursor position and the row/column geometry
+that the pointer hit-testing depends on, because clicking to place the caret and
+dragging to select must survive the change.
+
+**The help row is always present and stable.** It carries the commands-and-keys
+entry. It renders in the same place whether the input is empty or has text; the
+long placeholder belongs to the input row and leaves on the first keystroke,
+while the help row does not move. This ordering is what the existing chrome
+behaviour already promises, and it is what makes the shortcuts overlay
+reachable while typing.
+
+**The status surface splits into a top bar and a slimmer foot.** The existing
+status line keeps producing the foot, minus the branch, directory and model; a
+new top-bar producer emits the environment row. Both live behind the same
+status module and share its formatting helpers, so one place still decides what
+an environment fact looks like. The top bar packs two sides: a left group
+(plan and ship chips, branch, directory) and a right group (context pressure),
+with the separator and truncation rules applied so the left group degrades
+before the right.
+
+**The top bar is a reserved row in the screen's composition.** It is chrome, not
+transcript: it does not scroll, and it must not be produced by appending
+transcript rows. The screen reserves its row and renders the pinned panel
+beneath it, so the viewport becomes top bar, then panel, then content, then
+padding. When the screen cannot afford every region, the panel's padding is what
+gives way first.
+
+**Density grows into the whole spacing scale.** The density value currently
+drives exactly three things: the live thinking preview row count, an inter-turn
+blank row, and the diff expansion threshold. It gains the block gap as a fourth
+consumer, expressed as a lookup on the density rather than a conditional inside
+the renderer, so a future density value adds an entry instead of a branch.
+
+**Roles are resolved once, centrally.** The palette keeps one semantic role per
+speaker — person, reasoning, tool, error, plus the muted/dim weights used for
+structure — and every surface resolves through those roles rather than choosing
+a colour at the call site. Decoration (the input border, block rules that carry
+no meaning) stops being coloured entirely. The existing background-fill roles
+that still have non-transcript callers stay as they are.
+
+**Nothing about the key map changes.** The bindings that expand a fold, enter a
+child session, summon a panel or open the shortcuts overlay keep working through
+whatever control the new layout presents. Moving a control's visual affordance
+is allowed; removing the key that reaches it is not.
+
+## Testing Decisions
+
+**Primary seam — the real PTY chrome suite (`e2e/experience-chrome.e2e.ts`).**
+It is the highest existing seam that already asserts this exact surface: it
+drives the packed profile and reads painted frames, including the one test that
+pins the help row's stability across empty and typing frames. Frame-level
+behaviour belongs here: the block gap between steps, the top bar carrying branch
+and directory and context, the absence of a bordered input, the help row still
+present while typing, the pinned panel below the top bar, and the modal panels
+still taking the screen whole. Existing assertions that name the old placeholder
+or the old box geometry are rewritten to the new shape rather than deleted, so
+the behaviours they protect stay covered.
+
+**Secondary seam — the module-level render specs.**
+`packages/bundle/tests/inputbox.spec.ts` already pins the box's frame, its
+placeholder behaviour, its accent, and — most importantly — the mapping from a
+buffer position to a screen row and column. That mapping is the invariant the
+pointer hit-testing depends on, so it is re-expressed for a borderless region
+and must keep passing in spirit: clicking a character still lands on that
+character, dragging still selects the same span, and a wide character still
+counts as two columns. `packages/bundle/tests/status.spec.ts` gains the top
+bar's two-sided packing and truncation order. `packages/bundle/tests/transcript.spec.ts`
+gains the block gap. `packages/bundle/tests/theme.spec.ts` pins the role
+palette.
+
+**Prior art to follow.** `e2e/experience-chrome.e2e.ts` already drives real
+frames and asserts the help row's position across frames — that is the pattern
+for every new chrome assertion. `e2e/pty-selectors.e2e.ts` and
+`e2e/pty-mouse.e2e.ts` drive clicks and drags against the input region and are
+the tests that will catch a geometry regression. `docs/specs/agent-output-rendering.md`
+established the habit of rewriting a stale frame assertion to the new contract
+rather than deleting it; the same applies here.
+
+**Visual acceptance is an artifact, not a test.** `e2e/capture.e2e.ts` already
+replays frames from the packed binary and writes the screens out with styling
+intact. It runs under an environment flag because it writes into the repository
+rather than asserting. The visual criterion uses it to produce the frames a
+person reviews against the reference; it is not a pass/fail gate, and the
+automated criteria below are what the landing phase runs.
+
+## Out of Scope
+
+- The transcript's grouping semantics and fold mechanics: what counts as a tool
+  group, what folds, and what a group expands into stay exactly as
+  `docs/specs/agent-output-rendering.md` shipped them.
+- Remapping or removing any global key binding, including Ctrl+O, Ctrl+Q,
+  Ctrl+T, Ctrl+F, Esc, Tab/Shift+Tab, wheel scrolling, and drag selection.
+- Matching image 3's exact colours, glyphs or pixel metrics.
+- Removing the `/ui` axis, the `✻` thinking mark, or the `›` user mark.
+- Any change to the dsh harness upstream (`@deepseek-ai/dsh-*`); codsh adds no
+  fork.
+- The Markdown renderer's own typography (tables, code fences, diffs) beyond the
+  palette its roles resolve to.
+- Making the surface a general-purpose themable TUI: one palette, not a theme
+  file format.
+- Preserving image 2's per-line timestamp column; the reference does not have
+  one and it is not part of this surface.
+- Adding a per-line timestamp column, a gutter, or any other new transcript
+  decoration.
+- A settings file or `/theme` command for choosing palettes.
+- Restyling the banner shown at startup beyond the roles it already resolves
+  through.
+- Changing the `!` shell-line path, which the previous spec recorded as a known
+  non-goal.
+
+## Acceptance Criteria
+
+Each criterion names the command that proves it and the output that counts as
+passing. As in the previous spec, the commands invoke the installed tools
+directly: this workspace's `minimumReleaseAge` policy makes `pnpm run <script>`
+print a policy error while exiting 0, so it cannot be used as evidence.
+
+1. **The chrome behaves on a real terminal — PTY chrome suite.**
+   Command: `node node_modules/vitest/vitest.mjs run --config vitest.e2e.config.ts e2e/experience-chrome.e2e.ts`
+   Passing: exits 0 with **zero skipped** and every test green, including the
+   rewritten block-gap, borderless-input, top-bar and help-row assertions.
+
+2. **The whole PTY surface still holds — no neighbouring regression.**
+   Command: `node node_modules/vitest/vitest.mjs run --config vitest.e2e.config.ts`
+   Passing: exits 0 with **0 failed** across every e2e file, so input, mouse,
+   selectors, navigation, reading, viewport, folds and session suites are all
+   unaffected by the new geometry.
+
+3. **The input region keeps its geometry contract.**
+   Command: `node node_modules/vitest/vitest.mjs run packages/bundle/tests/inputbox.spec.ts`
+   Passing: exits 0 with zero skipped, including tests that place the cursor by
+   pointer, select a dragged span, and count a wide character as two columns.
+
+4. **The top bar, block gap and palette hold at the module seam.**
+   Command: `node node_modules/vitest/vitest.mjs run packages/bundle/tests/status.spec.ts packages/bundle/tests/transcript.spec.ts packages/bundle/tests/theme.spec.ts packages/bundle/tests/density.spec.ts`
+   Passing: exits 0 with zero skipped, covering the top bar's two-sided packing
+   and truncation order, the block gap under both densities, and the role
+   palette.
+
+5. **Nothing else regressed — full unit suite.**
+   Command: `node node_modules/vitest/vitest.mjs run`
+   Passing: exits 0 with every file green; the suite currently reports 53 files
+   and the new count must be green rather than reduced by deletions.
+
+6. **Types are clean.**
+   Command: `./node_modules/.bin/tsc --noEmit`
+   Passing: exit code 0 with no diagnostics.
+
+7. **The input is genuinely borderless.**
+   Command: `node node_modules/vitest/vitest.mjs run packages/bundle/tests/inputbox.spec.ts packages/bundle/tests/prompt.spec.ts`
+   Passing: exits 0 with assertions proving no rendered row opens with the
+   rounded top-left frame glyph and that the region still emits a divider and
+   the `›` mark.
+
+8. **The shortcuts path survived the move.**
+   Command: `node node_modules/vitest/vitest.mjs run --config vitest.e2e.config.ts e2e/experience-chrome.e2e.ts -t "key legend"`
+   Passing: exits 0, **the matching test reports passed rather than skipped**,
+   and it still asserts both that the shortcuts entry is present in the empty
+   and typing frames and that it holds the same row in both.
+
+9. **The user-facing description matches the new chrome — both languages.**
+   Command: `grep -icE "input|status|bar|box" README.md; grep -cE "输入框|状态栏|顶部" README.zh.md`
+   Passing: both printed counts are non-zero, so each README describes the new
+   input and status chrome in its own language and the two stay in parity. The
+   real check is that the sentences they carry match the shipped behaviour (no
+   bordered box, environment facts on the top bar); the counts prove neither
+   language was left behind, which is the failure that actually happens.
+
+10. **The release note exists.**
+    Command: `grep -lE "top bar|status bar|input region|palette|spacing|borderless" $(grep -ln "codsh-bundle" .changeset/*.md)`
+    Passing: prints at least one path — a changeset naming `codsh-bundle` whose
+    text describes the chrome work. Pre-existing changesets do not satisfy it on
+    their own; in particular the earlier `/ship`-chrome changeset matches on the
+    word "chrome" and must not be mistaken for this one.
+
+11. **The visual artifact exists for review.**
+    Command: `CAPTURE_SCREENS=1 node node_modules/vitest/vitest.mjs run --config vitest.e2e.config.ts e2e/capture.e2e.ts`
+    Passing: exits 0 and prints the paths of the frames it wrote. This is an
+    artifact for human review against the reference, not an automated pass/fail;
+    the criterion is that the capture runs clean and writes frames.
+
+12. **The spec always reflects its phase.**
+    Command: `grep -n "^Status:" docs/specs/chrome-redesign.md`
+    Passing: the line reads `Status: shipped` once landing completes, and the
+    phase actually in progress before that.
+
+## Plan
+
+- [ ] Ticket 1: Input Region Geometry, Separated From the Frame — Delivers one explicit geometry source (left offset, row offset, gutter width) with the wrap budget, the pointer-to-buffer mapping and the composer's mouse hit-testing all routed through it. Changes no rendered output; it exists because the border width and the caret's left offset are the same number written twice today, and removing the border would shift three consumers at once. (Blocked by: none) (Track: 5)
+- [ ] Ticket 2: A Step Reads as One Block — Delivers a gap at the step boundary and gives the block gap its own density-derived value, so a step's reasoning header, its body and its tool rows read as one block on one indent. Grouping and fold semantics unchanged. (Blocked by: none) (Track: 1,6)
+- [ ] Ticket 3: The Input Region Loses Its Border — Delivers the borderless region: a divider, the `›` mark, the input, and one help row carrying the commands-and-keys entry. The cursor geometry must survive exactly, which Ticket 1 is what makes a single-descriptor change. (Blocked by: Ticket 1) (Track: 5)
+- [ ] Ticket 4: Environment Facts Move to a Top Bar — Delivers a reserved row 0 carrying branch and directory on the left, context pressure on the right, plus the plan-mode and `/ship` gate chips; the foot drops directory, branch and model; the pinned sticky panel renders below the bar and yields its padding first. Also fixes the defect that a long path currently drops the branch first. (Blocked by: none) (Track: 3,4)
+- [ ] Ticket 5: One Restrained Palette — Delivers one semantic role per speaker (person, reasoning, tool, error) resolved through a single point, with decoration uncoloured, tools quieter than reasoning, and meaning surviving `NO_COLOR`. (Blocked by: Ticket 3, Ticket 4) (Track: 2)
+- [ ] Ticket 6: Interaction Preservation After the Frame Changed — A verification gate, not a licence to churn: proves every frozen key binding still reaches its feature after the geometry moved, and fixes only what the new frame actually broke. Accepted misses recorded in the commit message. (Blocked by: Ticket 3, Ticket 4) (Track: 7)
+- [ ] Ticket 7: Release and Documentation Compliance — Delivers the `codsh-bundle` changeset (distinct from the pre-existing `/ship`-chrome one), the bilingual README updates kept in parity, the `CONTEXT.md` terms (top bar, block gap, help row), and the captured visual artifact with its frame paths recorded. (Blocked by: Ticket 5, Ticket 6) (Track: 9)
+
+## Baseline
+
+Recorded at gate 2, before implementation, on `ship/chrome-redesign` cut from
+`main` at `a62d959a9d6b63ff6820350dc6d474d56136be1c`.
+
+- Pre-change gates, run directly to bypass the `minimumReleaseAge` lockfile
+  gate: `./node_modules/.bin/tsc --noEmit` exits 0; the unit suite reports
+  **53 files / 1415 tests** passing with 0 skipped.
+- The e2e suite reports **12 files passed / 1 skipped, 135 passed / 1 skipped,
+  0 failed**. Like the previous spec's baseline, it is green only with PTY
+  access: under the default `workspace-write` sandbox every PTY test fails with
+  `OSError: out of pty devices` because `/dev/ptmx` is denied, which is an
+  environment denial and not a code failure. Landing must run the e2e commands
+  with PTY access and must not read a `workspace-write` run as evidence either
+  way.
+- Reference for the target shape: the two attached images. Image 3 (comfortable
+  reference) is the acceptance baseline; image 2 is the current fragmented
+  state.
