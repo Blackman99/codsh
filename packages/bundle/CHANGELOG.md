@@ -1,5 +1,12 @@
 # codsh-bundle
 
+## 0.22.1
+
+### Patch Changes
+
+- 7921f65: chore: sync `@deepseek-ai/dsh-*` (and co-released cordis packages) to 0.1.5-rc.1
+- bf0929f: The `/ship` grill card wraps a long question in full instead of clipping it to two lines with an ellipsis.
+
 ## 0.22.0
 
 ### Minor Changes
