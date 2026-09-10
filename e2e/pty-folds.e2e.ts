@@ -32,23 +32,26 @@ describe.skipIf(process.platform === 'win32')('streaming, cards and folds (real 
     expect(mid.cursorRow).toBeLessThan(PTY_ROWS - 1)
   }, E2E_TEST_TIMEOUT_MS)
 
-  it('settles a call into one muted row, with the command and output behind the fold', async () => {
-    // A result short enough to need no fold took the path that dropped the
-    // pending card it was finishing, so every such call printed twice.
+  it('never folds a call that is waiting on the person', async () => {
+    // `bash` asks for a sandbox escalation, so this call reaches the keyboard
+    // for approval. A question addressed to the person must never be hidden
+    // behind a collapsed summary, so it stands on its own row with its alert
+    // glyph instead of joining the merged group.
     const output = await drivePty('bash', [
       ['Welcome to codsh', `run it${ENTER}`, 300],
       ['Allow bash', ENTER, 600],
-      ['● Ran 1 command', '\u000F', 600],
-      ['printf CODE_CLI_ROUND_TRIP', `/exit${ENTER}`, 600],
+      ['CODE_CLI_CALL_OK', '\u000F', 600],
+      ['', `/exit${ENTER}`, 600],
     ])
 
     const settled = screenAt(output, 'printf CODE_CLI_ROUND_TRIP', 'last').alternate
-    // One row stands for the call, and the name is no longer a headline.
-    expect(settled.filter(row => row.includes('● Ran 1 command'))).toHaveLength(1)
+    // Its own row, not a group row: no merged label stands for this call.
+    expect(settled.filter(row => row.includes('Ran 1 command'))).toHaveLength(0)
+    expect(settled.some(row => row.includes('⚠ printf CODE_CLI_ROUND_TRIP'))).toBe(true)
+    // The old per-card headline is gone either way.
     expect(settled.some(row => row.includes('● bash'))).toBe(false)
-    // Ctrl+O opened the group: the real command and its output are the body.
-    expect(settled.some(row => row.includes('printf CODE_CLI_ROUND_TRIP'))).toBe(true)
-    expect(settled.some(row => row.trim() === 'CODE_CLI_ROUND_TRIP')).toBe(true)
+    // Ctrl+O opened it: the real command and its output are the body.
+    expect(settled.some(row => row.trim() === '│   CODE_CLI_ROUND_TRIP')).toBe(true)
   }, E2E_TEST_TIMEOUT_MS)
 
   it('keeps the status row live in the region', async () => {
@@ -64,6 +67,24 @@ describe.skipIf(process.platform === 'win32')('streaming, cards and folds (real 
     // Submitting clears the box, so the transcript's own render is the only
     // copy of the message that survives — a row outside the box's borders.
     expect(rows.map(visible)).toContain('›   create the note')
+  }, E2E_TEST_TIMEOUT_MS)
+
+  it('renders a tool call as one muted group row, with no panel and no amber', async () => {
+    const output = await drivePty('write', [
+      ['Welcome to codsh', `create the note${ENTER}`, 300],
+      ['CODE_CLI_CALL_OK', `/exit${ENTER}`, 400],
+    ])
+
+    const rows = screenAt(output, 'CODE_CLI_CALL_OK').alternate
+    const group = rows.filter(row => row.includes('Edited 1 file'))
+    // One row stands for the call — not a padded card with a coloured headline.
+    expect(group).toHaveLength(1)
+    const [row = ''] = group
+    // Muted means muted: no amber tool name, and no background panel behind it.
+    expect(row).not.toContain('\u001B[38;5;172m')
+    expect(row).not.toMatch(/\u001B\[48;[25];/)
+    // The old per-card headline is gone.
+    expect(rows.some(candidate => candidate.includes('● write'))).toBe(false)
   }, E2E_TEST_TIMEOUT_MS)
 
   it('streams thinking as three live rows and collapses it to a summary', async () => {
@@ -115,8 +136,9 @@ describe.skipIf(process.platform === 'win32')('streaming, cards and folds (real 
     // as each lands. The working line reports it as soon as the file exists.
     const output = await drivePty('spec', [
       ['Welcome to codsh', `write the plan${ENTER}`, 900],
-      // Spec body is folded; the one-liner is what lands on screen.
-      ['Write plan.md', '', 900],
+      // The write renders as one merged group row (`Edited 1 file`); the file's
+      // own title is inside the fold now, so the visible line is what to wait on.
+      ['Edited 1 file', '', 900],
       ['', `/exit${ENTER}`, 500],
     ], { columns: 100, rows: 16 })
 
