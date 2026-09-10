@@ -1012,7 +1012,7 @@ the new layout deliberately moved:
 Had Criterion 2 been taken as "outstanding" and left unrun, all six would have
 shipped.
 
-### Two observations carried forward, not fixed here
+### Observations carried forward
 
 Both are consistent with the sealed Main Track, so neither was changed silently:
 
@@ -1021,9 +1021,9 @@ Both are consistent with the sealed Main Track, so neither was changed silently:
   only the reasoning level and the shortcuts entry. The model is reachable in
   `/status` but is no longer visible at a glance. If it should be, that is a new
   decision about where it goes, not a defect in this one.
-- **Context pressure is usually invisible.** `topBar` inherits the old
-  alarming-headroom policy: it renders `N% left` only at 25% or below, so the
-  right side of the bar is empty in a healthy session. The plan's User Story 6
-  ("as context fills up, I want it on the same top bar") is satisfied at that
-  threshold, but if the intent was the reference's always-on figure, the threshold
-  is the thing to change.
+- **Context pressure is on from the first sample.** `topBar` carries `N% left`
+  whenever the session has reported usage — `contextPressure` returns the figure
+  muted routinely and only escalates to warn at 25% or below and err at 10% or
+  below — so User Story 6's always-on figure is what shipped, not a threshold.
+  (An earlier draft of this note described the foot's old alarming-headroom
+  policy; it never applied to the bar.)
