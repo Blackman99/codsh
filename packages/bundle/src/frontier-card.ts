@@ -66,10 +66,10 @@ export interface FrontierFrame {
 /** Chrome rows that are never options: top, footer, bottom. */
 const CHROME = 3
 
-/** Question lines shown; a longer question truncates. */
-const QUESTION_LINES = 2
-
-/** Whole card stays short so the transcript is not pushed off. */
+/**
+ * Option window plus chrome when the question is short. A long question
+ * wraps in full and the card grows; options still share this remainder.
+ */
 const MAX_ROWS = 8
 
 /** Columns taken by `[rec] ` so unrecommended labels share the same gutter. */
@@ -101,17 +101,14 @@ function framed(content: string, theme: Theme, inner: number): string {
 }
 
 /**
- * Question rows: at most two lines, leftover truncated on the last.
+ * Question rows: wrap the whole question to `inner`. Never ellipsize it.
  * @param question - the interview question.
  * @param inner - columns inside the frame.
  */
 function questionRows(question: string, inner: number): string[] {
   const width = Math.max(1, inner)
   const wrapped = wrapStyled(question, width)
-  if (wrapped.length <= QUESTION_LINES) return wrapped.length === 0 ? [''] : wrapped
-  const head = wrapped.slice(0, QUESTION_LINES - 1)
-  const rest = wrapped.slice(QUESTION_LINES - 1).join(' ')
-  return [...head, truncate(rest, width)]
+  return wrapped.length === 0 ? [''] : wrapped
 }
 
 /** Compact grill interview card painted above the input box. */
@@ -148,7 +145,7 @@ export class FrontierCard {
   }
 
   /**
-   * Paint the card into at most {@link MAX_ROWS} lines.
+   * Paint the card. The question wraps in full; options keep a compact window.
    * @param theme - palette.
    * @param columns - terminal content columns.
    */
@@ -156,15 +153,18 @@ export class FrontierCard {
     const width = Math.max(1, columns)
     const question = this.spec.question
     if (width < 8) {
+      const wrapped = wrapStyled(question, width)
       return {
-        rows: [truncate(question, width)],
+        rows: wrapped.length === 0 ? [''] : wrapped,
         focus: this.focus,
         offset: 0,
       }
     }
     const inner = Math.max(1, width - 4)
     const asked = questionRows(question, inner)
-    const optionBudget = Math.max(1, MAX_ROWS - CHROME - asked.length)
+    // Options keep the compact window they had when the question was at most
+    // two lines. Extra question rows grow the card instead of eating options.
+    const optionBudget = Math.max(1, MAX_ROWS - CHROME - Math.min(asked.length, 2))
     const total = this.spec.options.length
     const visible = Math.max(1, Math.min(total, optionBudget))
     const maxOffset = Math.max(0, total - visible)

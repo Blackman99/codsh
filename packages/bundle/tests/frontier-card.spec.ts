@@ -173,14 +173,22 @@ describe('FrontierCard', () => {
     expect(text).toContain('└')
   })
 
-  it('truncates a long question to two lines', () => {
+  it('wraps a long question in full instead of truncating it', () => {
+    const question = 'The approved collaboration plan says explicit natural-language edits intervene, while progress comments must not dispatch work. Previous ships forbade NL plan edits because unnamed comments accidentally created tasks. Human comments that name a file still count as edits.'
     const card = new FrontierCard({
-      question: 'This question is long enough that it must wrap and then truncate rather than grow the card past two question lines of body copy that would hide the transcript',
+      question,
       options: [{ label: 'Yes', recommended: true }, { label: 'No' }],
     })
     const frame = card.frame(theme, 40)
-    expect(frame.rows.length).toBeLessThanOrEqual(8)
-    expect(frame.rows.join('\n')).toContain('…')
+    const text = frame.rows.join('\n')
+    const body = frame.rows
+      .filter(row => row.includes('│') && !row.includes('[rec]') && !row.includes('[y]'))
+      .map(row => row.replace(/[│┌┐└┘─]/gu, ''))
+      .join('')
+      .replace(/\s+/gu, '')
+    expect(body).toContain(question.replace(/\s+/gu, ''))
+    expect(text).not.toMatch(/…/)
+    expect(frame.rows.length).toBeGreaterThan(8)
   })
 
   it('scrolls options inside the card when they exceed the budget', () => {
@@ -236,7 +244,6 @@ describe('FrontierCard', () => {
     })
     for (const columns of [1, 8, 10, 20, 40, 72]) {
       const frame = card.frame(theme, columns)
-      expect(frame.rows.length).toBeLessThanOrEqual(8)
       for (const row of frame.rows) {
         expect(displayWidth(row)).toBeLessThanOrEqual(columns)
       }
