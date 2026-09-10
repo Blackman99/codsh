@@ -4,8 +4,9 @@
  *
  * The runner calls {@link ShipRun.run} for the canned command, {@link
  * ShipRun.noteWritten} when a tool writes markdown, and {@link ShipRun.abort}
- * on Esc. Chip, plan, poll, occupancy, the goals port, and phase injection
- * stay behind this seam.
+ * on Esc. When {@link ShipRun.run} returns, chip and plan come down so the
+ * next typed turn sees an ordinary MetaBar. Chip, plan, poll, occupancy, the
+ * goals port, and phase injection stay behind this seam.
  * @module codsh-bundle/src/ship-run
  */
 
@@ -222,13 +223,16 @@ export class ShipRun {
 
   /** Re-read the live spec so the plan row and chip match the file on disk. */
   refresh(): void {
+    // After /ship returns, chrome is idle until the next run. A later markdown
+    // write or workflow tick must not re-pin the finished spec onto the MetaBar.
+    if (this.chipCleared) return
     const files: ShipSpecFile[] = []
     for (const path of this.specPaths()) {
       try {
         files.push({
           path,
           markdown: readFileSync(path, 'utf8'),
-          sessionWrite: this.writtenDocs.includes(path),
+          sessionWrite: this.writtenDocs.includes(path) || path === this.followedSpec,
         })
       } catch {
         // A spec that moved or will not read is simply not the progress.
@@ -258,11 +262,14 @@ export class ShipRun {
    * @param turn - spends one canned-command turn.
    */
   async run(idea: string, turn: ShipTurn): Promise<void> {
+    this.clearFlash()
     this.chipCleared = false
     this.lastDone = undefined
     this.goalId = undefined
     this.sealedTrack = undefined
     this.followedSpec = undefined
+    if (this.chip?.kind === 'done') this.setChip(undefined)
+    this.pruneShippedWrites()
     this.startWatch()
     this.refresh()
     if (this.chip === undefined) this.setChip({ kind: 'grill' })
@@ -286,8 +293,14 @@ export class ShipRun {
       if (this.advance === advance) {
         this.advance = undefined
         this.stopWatch()
-        this.refresh()
-        if (!advance.signal.aborted && this.followedIsShipped()) await this.completeShipGoal()
+        const shipped = this.followedIsShipped()
+        if (!advance.signal.aborted && shipped) {
+          this.refresh()
+          if (this.chip?.kind !== 'done') this.withdrawIdleChrome()
+          await this.completeShipGoal()
+        } else {
+          this.withdrawIdleChrome()
+        }
       }
     }
   }
@@ -531,6 +544,33 @@ export class ShipRun {
       paths.push(path)
     }
     return paths
+  }
+
+  /**
+   * Drop leftover chip and plan when `/ship` is no longer the live command.
+   * The next `run` re-arms chrome; until then the MetaBar is ordinary.
+   */
+  private withdrawIdleChrome(): void {
+    this.chipCleared = true
+    this.pruneShippedWrites()
+    if (this.chip !== undefined) this.setChip(undefined)
+    if (this.plan === undefined) return
+    this.plan = undefined
+    this.chrome.setPlan(undefined)
+  }
+
+  /** Forget shipped specs so a later `/ship` does not re-adopt them as live. */
+  private pruneShippedWrites(): void {
+    for (let i = this.writtenDocs.length - 1; i >= 0; i--) {
+      const path = this.writtenDocs[i]
+      if (path === undefined) continue
+      try {
+        if (parseShipStatus(readFileSync(path, 'utf8')) !== 'shipped') continue
+        this.writtenDocs.splice(i, 1)
+      } catch {
+        // A spec that will not read is not pruned here.
+      }
+    }
   }
 
   private adoptChip(markdown: string, plan: Plan): void {

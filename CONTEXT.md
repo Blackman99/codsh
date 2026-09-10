@@ -372,7 +372,10 @@ configured) without another interview. Landing follows the tdd skill: one
 red test witnessed failing, then minimal green, then the suite. Each `/ship`
 turn injects only the phase the spec's `Status:` names — grill, to-spec,
 to-tickets, and TDD do not share context. The MetaBar chip follows that
-Status (`ship · grill` / `spec` / `tickets` / `land k/n`). The spec file is the workflow's memory,
+Status (`ship · grill` / `spec` / `tickets` / `land k/n`). Once the canned
+`/ship` command returns — shipped, stalled, or aborted — the chip and plan
+row come down so the next typed turn sees the ordinary MetaBar; the next
+`/ship` re-pins them. The spec file is the workflow's memory,
 not the conversation: the approved tickets live in it as checkboxes, its
 `Status:` line names the phase, a baseline run is recorded before any code,
 each green ticket is committed, and a bare `/ship` offers to resume

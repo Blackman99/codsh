@@ -5,3 +5,6 @@ lib/
 .dev-home/
 .env
 .claude/
+.dsh/
+.pnpm-store/
+.scratch/

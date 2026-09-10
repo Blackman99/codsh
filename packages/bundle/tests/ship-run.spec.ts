@@ -99,6 +99,7 @@ describe('ShipRun', () => {
     expect(prompts[0]).toContain('Follow the grill-me skill as the contract, not a summary of it')
     expect(prompts[0]).not.toContain('Pure Synthesis, Zero Interrogation')
     expect(chips[0]).toEqual({ kind: 'grill' })
+    expect(ship.shipChip).toBeUndefined()
   })
 
   it('injects to-spec then tickets when Status advances between turns', async () => {
@@ -178,7 +179,7 @@ describe('ShipRun', () => {
     expect(ship.shipPlan).toBeUndefined()
   })
 
-  it('stops the poll when inject throws, then still refreshes', async () => {
+  it('stops the poll when inject throws, and gives the MetaBar back', async () => {
     vi.useFakeTimers()
     const cwd = mkdtempSync(join(tmpdir(), 'ship-run-'))
     const path = writeSpec(cwd, 'widget.md', 'Status: interviewing\n')
@@ -192,7 +193,7 @@ describe('ShipRun', () => {
       writeFileSync(path, 'Status: confirmed\n')
       throw new Error('turn failed')
     })).rejects.toThrow('turn failed')
-    expect(ship.shipChip).toEqual({ kind: 'tickets' })
+    expect(ship.shipChip).toBeUndefined()
     const before = todos.length
     await vi.advanceTimersByTimeAsync(1100)
     expect(todos.length).toBe(before)
@@ -236,6 +237,68 @@ describe('ShipRun', () => {
     expect(ship.shipChip).toBeUndefined()
     ship.refresh()
     expect(ship.shipChip).toBeUndefined()
+  })
+
+  it('re-pins chrome when /ship resumes after giving the MetaBar back', async () => {
+    const cwd = mkdtempSync(join(tmpdir(), 'ship-run-'))
+    writeSpec(cwd, 'widget.md', landing())
+    const chips: Array<ShipChip | undefined> = []
+    const ship = new ShipRun(cwd, {
+      setPlan: () => {},
+      setChip: chip => { chips.push(chip) },
+    })
+    await ship.run('', async () => {})
+    expect(ship.shipChip).toBeUndefined()
+    chips.length = 0
+    await ship.run('', async () => {
+      expect(ship.shipChip).toEqual({ kind: 'land', k: 2, n: 2 })
+    })
+    expect(chips.some(chip => chip?.kind === 'land')).toBe(true)
+    expect(ship.shipChip).toBeUndefined()
+  })
+
+  it('gives the MetaBar back when the canned command returns to the prompt', async () => {
+    const cwd = mkdtempSync(join(tmpdir(), 'ship-run-'))
+    const path = writeSpec(cwd, 'widget.md', landing('ab'))
+    const ship = new ShipRun(cwd, { setPlan: () => {}, setChip: () => {} })
+    await ship.run('', async () => {})
+    expect(ship.shipChip).toBeUndefined()
+    expect(ship.shipPlan).toBeUndefined()
+    ship.refresh()
+    expect(ship.shipChip).toBeUndefined()
+    expect(ship.shipPlan).toBeUndefined()
+    writeFileSync(path, landing('ab'))
+    ship.noteWritten([path])
+    expect(ship.shipChip).toBeUndefined()
+    expect(ship.shipPlan).toBeUndefined()
+  })
+
+  it('gives the MetaBar back when the run is aborted', async () => {
+    const cwd = mkdtempSync(join(tmpdir(), 'ship-run-'))
+    writeSpec(cwd, 'widget.md', landing())
+    const ship = new ShipRun(cwd, { setPlan: () => {}, setChip: () => {} })
+    await ship.run('', async () => {
+      ship.abort()
+    })
+    expect(ship.shipChip).toBeUndefined()
+    expect(ship.shipPlan).toBeUndefined()
+  })
+
+  it('withdraws chip and plan when the run finishes shipped without a session write', async () => {
+    vi.useFakeTimers()
+    const cwd = mkdtempSync(join(tmpdir(), 'ship-run-'))
+    const path = writeSpec(cwd, 'widget.md', landing('ab'))
+    const ship = new ShipRun(cwd, { setPlan: () => {}, setChip: () => {} })
+    await ship.run('', async () => {
+      writeFileSync(path, 'Status: shipped\n\n## Plan\n\n- [x] a\n- [x] b\n')
+    })
+    expect(ship.shipPlan).toBeUndefined()
+    expect(ship.shipChip).toEqual({ kind: 'done' })
+    await vi.advanceTimersByTimeAsync(400)
+    expect(ship.shipChip).toBeUndefined()
+    ship.refresh()
+    expect(ship.shipChip).toBeUndefined()
+    expect(ship.shipPlan).toBeUndefined()
   })
 
   it('ignores a non-markdown write', () => {
