@@ -387,9 +387,10 @@ class CodeCliMockAdapter extends LlmAdapter {
       // can follow the person's message in the request, so "the last text" is
       // not theirs to claim.
       const marker = texts.some(text => text.includes('CODE_CLI_CUSTOM_MARKER')) ? 'yes' : 'no'
-      // /ship dispatched, expanded the typed idea into the template, and the
-      // template still names the workflow's tools.
-      const ship = texts.some(text => text.includes('SHIP_E2E_IDEA') && text.includes('ask_user_question') && text.includes('ralph')) ? 'yes' : 'no'
+      // /ship dispatched and expanded the typed idea into the current phase.
+      // Grill is the first injection: it names ask_user_question, not ralph —
+      // later phases get their own turn so TDD does not crowd the interview.
+      const ship = texts.some(text => text.includes('SHIP_E2E_IDEA') && text.includes('ask_user_question') && text.includes('grill-me')) ? 'yes' : 'no'
       // A pasted image on a text-only route arrives as a <pasted-image> text
       // block: report the saved path and whether a description came along, so
       // the fallback and sidecar tests can read the proof off the transcript.
