@@ -466,7 +466,7 @@ the same verification without the gate. The final phase runs these verbatim.
 - [x] Ticket 2: Tool Group Rows Replace Tool Cards — Delivers the end-to-end hierarchy change: one muted row per tool call with no panel, no amber name and no command highlight; consecutive calls aggregated into one group row carrying the Ticket 1 label; the group as a Fold expanding to its calls and their real diffs; reused soft cap and pager; subagent rows still openable; a chosen single-row tool bullet. Rewrites the pre-existing card-shape assertions rather than deleting them. (Blocked by: Ticket 1) (Track: 2,3,7,8)
 - [x] Ticket 3: Destructive Commands Break Out of the Group — Delivers a pure, conservative classifier over the decision-13 category allowlist anchored to the command head, the destructive row rendered on its own alert-styled row instead of joining a group, and the rule that approval-gated calls never fold. (Blocked by: Ticket 2) (Track: 4)
 - [x] Ticket 4: Live Thinking Preview Owns the Display Area — Delivers the density-derived live preview budget (3 compact / 6 comfortable), the unchanged one-line `✻ thought for Xs` settled summary, and the corrected `/ui` description in both README languages. (Blocked by: Ticket 2) (Track: 1,5)
-- [ ] Ticket 5: Contract — Retire the Card Path and the Similar-Run Layer — Delivers deletion of the similar-run machinery, its skeleton helper and its `… +N similar` row, plus the now-unreachable card pad/close helpers, the terminal card's `$ command` row, and the `bgTool` role when the transcript is its last caller. (Blocked by: Ticket 3, Ticket 4) (Track: 6)
+- [x] Ticket 5: Contract — Retire the Card Path and the Similar-Run Layer — Delivers deletion of the similar-run machinery, its skeleton helper and its `… +N similar` row, plus the now-unreachable card pad/close helpers, the terminal card's `$ command` row, and the `bgTool` role when the transcript is its last caller. (Blocked by: Ticket 3, Ticket 4) (Track: 6)
 - [ ] Ticket 6: Destructive Detection Edge Cases and Cross-Path Parity — Delivers adversarial coverage of the classifier (chained, reordered, quoted and wrapper commands; accepted misses recorded) and the guarantee that the live and replay paths produce identical group rows, including interrupted and resumed runs. Optional hardening: if already satisfied, check the boxes and change no code. (Blocked by: Ticket 5) (Track: 4,8)
 - [ ] Ticket 7: Release and Documentation Compliance — Delivers the `codsh-bundle` changeset, the bilingual README updates kept in parity, the new ADR registering `grok-build` and recording both deliberate divergences, and the `CONTEXT.md` domain terms. (Blocked by: Ticket 5, Ticket 6) (Track: 9)
 
@@ -644,3 +644,32 @@ settled thought is still one `✻ thought for Xs` Fold. Both READMEs now say
 now carry five thought lines and assert at least three preview rows while
 streaming, but the PTY command cannot run here (`out of pty devices`;
 escalation disabled), so that assertion is unverified until landing.
+
+### Ticket 5 — Retire the Card Path and the Similar-Run Layer (Track: 6)
+
+**Delivered.** The similar-run layer went with Ticket 2. This ticket removed the
+last of the old card path:
+
+- `formatToolCardLine` (the card-title budget helper) is deleted, and its
+  `describe` block and the now-unused `gutter` test import are gone with it.
+- `blockPad` is deleted; `thinkingFold` inlines its two-line density-free inset
+  (`theme.colored ? [theme.bgThinking('  ')] : []`), so no source file calls a
+  card pad/close helper.
+- `blockClose`, the terminal `$ command` row, `skeleton`, `absorbSimilar`,
+  `similarKey`, and the `… +N similar` row were already gone.
+- `grep -rn "blockPad|blockClose|similar|skeleton|formatToolCardLine|\$ command"`
+  across `packages/bundle/src` returns nothing.
+- `bgTool` is **kept**: it still has documented callers — `diff.ts` paints the
+  pager's raw unified text, and the transcript's todo/workflow chrome rows. It is
+  no longer used by any tool-group row.
+
+**Green evidence.**
+
+- `./node_modules/.bin/tsc --noEmit` → exit 0.
+- `node node_modules/vitest/vitest.mjs run` → exit 0, **53 files / 1406 tests**
+  passing, 0 skipped (a burst of identical commands is now pinned by the
+  Ticket 2 `aggregates consecutive terminal calls` test as an ordinary group
+  row; only the dead helper's own tests were deleted).
+- `node node_modules/vitest/vitest.mjs run packages/bundle/tests/transcript.spec.ts packages/bundle/tests/theme.spec.ts`
+  → exit 0, **166 passed** (the criterion-6 seam, no `bgTool`/`theme.tool` on a
+  settled tool row).

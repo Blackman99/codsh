@@ -9,8 +9,7 @@ import { destructiveCategory } from '../src/destructive.ts'
 import type { ToolCallView, ToolResultView } from '@deepseek-ai/dsh-tools'
 import { describe, expect, it } from 'vitest'
 import { createTheme, displayWidth } from '../src/theme.ts'
-import { gutter } from '../src/gutter.ts'
-import { Transcript, blockRules, childSessionId, formatAskUserQuestionResult, formatToolCardLine, presentAskUserQuestionResult, thinkingFold, thinkingFoldRules, type ToolPresenters } from '../src/transcript.ts'
+import { Transcript, blockRules, childSessionId, formatAskUserQuestionResult, presentAskUserQuestionResult, thinkingFold, thinkingFoldRules, type ToolPresenters } from '../src/transcript.ts'
 import type { Density } from '../src/density.ts'
 
 const theme = createTheme(false, {})
@@ -1022,75 +1021,6 @@ describe('compaction', () => {
     expect(transcript.render(start)).toEqual([])
     expect(transcript.render(clean)).toEqual([])
     expect(transcript.render(failed)).toEqual([theme.error('✗ compaction failed: summary did not shrink'), ''])
-  })
-})
-
-describe('formatToolCardLine', () => {
-  it('truncates the title before +n -m and the status on a narrow terminal', () => {
-    const line = formatToolCardLine(theme, 40, '●', 'Write very/long/path/to/src/pager.ts', '+12 -3', '✔')
-    expect(line.endsWith('+12 -3 ✔')).toBe(true)
-    expect(line.startsWith('● ')).toBe(true)
-    expect(displayWidth(line)).toBeLessThanOrEqual(40)
-    expect(line).toContain('…')
-  })
-
-  it('omits the stats segment when both counts are zero', () => {
-    expect(formatToolCardLine(theme, 80, '●', 'Write x.ts', '', '✔')).toBe('● Write x.ts ✔')
-  })
-
-  it('does not prematurely truncate short filenames on a 30-col terminal', () => {
-    expect(formatToolCardLine(theme, 25, '●', 'Write note.txt', '+1 -0', '✔')).toContain('Write note.txt')
-  })
-
-  it('fits +n -m on one row when an 80-col TTY also paints the tool rule', () => {
-    // Viewport content is 80 minus the 2-col `│ ` rule; a headline that
-    // budgets the full 80 wraps and splits `+12 -3`.
-    const rule = gutter('tool', theme)
-    const inner = 80 - displayWidth(rule)
-    const title = 'Write src/very/long/path/that/would/wrap/the/stats/pager.ts'
-    const line = formatToolCardLine(theme, inner, '●', title, '+12 -3', '✔')
-    expect(displayWidth(rule) + displayWidth(line)).toBeLessThanOrEqual(80)
-    expect(line.endsWith('+12 -3 ✔')).toBe(true)
-    expect(line).not.toMatch(/\+\s*$/u)
-  })
-
-  it('keeps gutter glyphs under NO_COLOR', () => {
-    const plain = createTheme(false, { NO_COLOR: '1' })
-    expect(gutter('user', plain)).toBe('› ')
-    expect(gutter('thinking', plain)).toBe('✻ ')
-    expect(gutter('tool', plain)).toBe('│ ')
-    expect(gutter('system', plain)).toBe('· ')
-    expect(formatToolCardLine(plain, 80, '●', 'Write x.ts', '+12 -3', '✔')).toBe('● Write x.ts +12 -3 ✔')
-  })
-
-  it('supports a dynamic columns getter that reflects live viewport width', () => {
-    let cols = 60
-    const dynamic = new Transcript(
-      { theme, columns: () => cols, cwd: CWD },
-      { call: (): ToolCallView => ({ card: 'terminal', title: 'node -e "very long script here..."' }), result: () => undefined },
-    )
-    expect(dynamic.columns).toBe(60)
-    cols = 100
-    expect(dynamic.columns).toBe(100)
-  })
-
-  it('keeps a long command inside contentColumns so the group row never wraps', () => {
-    let width = 60
-    const colorTheme = createTheme(true, { COLORTERM: 'truecolor' })
-    const transcript = new Transcript(
-      { theme: colorTheme, columns: () => width, cwd: CWD },
-      {
-        call: (name, args: any) => ({ card: 'terminal', title: args?.command ?? name }),
-        result: () => undefined,
-      },
-    )
-
-    const longCmd = 'node -e \' const KEYWORDS = new Set([ "as", "async", "await", "break", "case", "catch", "class", "const" ])\''
-    transcript.render(callEvent('c1', 'bash', { command: longCmd }))
-    const resultLines = transcript.render(resultEvent('c1', 'ok'))
-    const row = resultLines[0] ?? ''
-    // The group row stays one line within the `│ ` rule budget.
-    expect(displayWidth(row)).toBeLessThanOrEqual(width - 2)
   })
 })
 

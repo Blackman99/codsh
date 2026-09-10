@@ -264,7 +264,8 @@ export function thinkingFold(
   const clock = totalSeconds === undefined ? baseClock : `${baseClock} · total ${formatElapsed(totalSeconds * 1000)}`
   const text = theme.dim(`${cardIndent(theme)}${clock}`)
   const head = theme.bgThinking(text)
-  const pad = blockPad(theme, text => theme.bgThinking(text))
+  // The panel's inset, not a gap: uncoloured output paints no panel to pad.
+  const pad = theme.colored ? [theme.bgThinking('  ')] : []
   return {
     // Pads are the panel's inset, not a gap between neighbouring cards.
     // Collapsed and expanded both carry them so hover lights the whole panel.
@@ -315,52 +316,9 @@ function diffStats(diffs: readonly FileDiff[]): { added: number, removed: number
   return { added, removed }
 }
 
-/**
- * One ToolCard headline: bullet, title, optional +n -m, trailing status.
- *
- * Title truncates first so `+n -m` and the status glyph survive an 80-col
- * terminal; omit the stats segment when both counts are zero.
- * @param theme - styling for title and muted stats.
- * @param columns - display columns available for the line (rule excluded).
- * @param bullet - already-styled leading marker (`●` / pending).
- * @param title - plain card title.
- * @param stats - already-styled `+n -m`, or `''`.
- * @param status - already-styled trailing `✔` / `✗` / spinner.
- * @returns the painted one-liner.
- */
-export function formatToolCardLine(
-  theme: Theme,
-  columns: number,
-  bullet: string,
-  title: string,
-  stats: string,
-  status: string,
-): string {
-  const statsPart = stats === '' ? '' : ` ${stats}`
-  const statusPart = ` ${status}`
-  const prefix = `${cardIndent(theme)}${bullet} `
-  const reserve = displayWidth(oneRow(`${prefix}${statsPart}${statusPart}`))
-  const minBudget = columns <= 30 && title.length <= 16 ? title.length : 8
-  const titleBudget = Math.max(minBudget, columns - reserve)
-  return `${prefix}${theme.tool(truncate(title, titleBudget))}${statsPart}${statusPart}`
-}
-
 /** Left inset that keeps a card's glyph clear of the block rule beside it. */
 function cardIndent(theme: Theme): string {
   return theme.colored ? '  ' : ''
-}
-
-/**
- * The blank row a background-filled block opens with.
- *
- * A block reads as a panel only when its text does not touch the panel edge.
- * Uncoloured output paints no panel and so gets no row.
- * @param theme - the active theme.
- * @param bg - the block's background wrapper.
- * @returns the padding row, or nothing at all when uncoloured.
- */
-function blockPad(theme: Theme, bg: (text: string) => string): string[] {
-  return theme.colored ? [bg('  ')] : []
 }
 
 /**
