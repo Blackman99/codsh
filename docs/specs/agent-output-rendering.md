@@ -1,6 +1,6 @@
 # Agent Output Rendering
 
-Status: implementing
+Status: shipped
 Branch: ship/agent-output-rendering
 Base-Commit: 1c71c7a92f769f8b5d981bb5df0c4057d223bdba
 Original-Branch: main
@@ -792,9 +792,69 @@ environment (see the blocker note).
     → still `Status: implementing`, because criteria 1 and 2 have not passed.
     It may be moved to `shipped` only once they run green with PTY access. ⛔
 
-**Blocker.** Criteria 1 and 2 need a terminal that can open `/dev/ptmx`. This
-session's `workspace-write` sandbox denies it (`OSError: out of pty devices`),
-and escalation to `danger-full-access` is rejected because approval prompts are
-disabled. No PTY-dependent rewrite (`e2e/pty-folds.e2e.ts` and the other PTY
-suites) has been executed; they are rewritten to the new shape but must be run
-green on a PTY-capable host before `Status: shipped`.
+**Blocker as first reported (later disproven — see the correction below).**
+Criteria 1 and 2 need a terminal that can open `/dev/ptmx`. The Ralph worker's
+`workspace-write` sandbox denied it (`OSError: out of pty devices`), and
+escalation was rejected *from that worker*, because approval prompts are disabled
+for its own turns.
+
+**Correction.** The denial was specific to the worker's sandbox, not to the host.
+The main session *can* escalate to `danger-full-access`, and both criteria were
+run there. The rewrite was not unverified after all — and running it is what
+found the two real defects the sections below record. Treating the worker's
+report as the end of the story would have shipped both.
+
+## Final Verification (Phase 5)
+
+Run by the main session on `ship/agent-output-rendering`, with PTY access, after
+the two blind-rewrite defects below were fixed. Every command is the literal one
+from `## Acceptance Criteria`; every exit code was read from the run.
+
+| # | Criterion | Command | Result |
+|---|---|---|---|
+| 1 | PTY fold suite | `node node_modules/vitest/vitest.mjs run --config vitest.e2e.config.ts e2e/pty-folds.e2e.ts` | exit 0 — **15 passed**, 0 skipped |
+| 2 | Whole PTY surface | `node node_modules/vitest/vitest.mjs run --config vitest.e2e.config.ts` | exit 0 — **12 files passed / 1 skipped, 135 passed / 1 skipped, 0 failed** |
+| 3 | Module render contract | `… transcript.spec.ts density.spec.ts streaming.spec.ts screen.spec.ts` | exit 0 — **327 passed**, 0 skipped |
+| 4 | Full unit suite | `node node_modules/vitest/vitest.mjs run` | exit 0 — **53 files / 1415 passed**, 0 skipped |
+| 5 | Types clean | `./node_modules/.bin/tsc --noEmit` | exit 0, no diagnostics |
+| 6 | Muted tool row | `… transcript.spec.ts theme.spec.ts` | exit 0 — **175 passed** |
+| 7 | Destructive classifier | `… transcript.spec.ts -t destructive` | exit 0 — **16 passed, 0 matching skipped** |
+| 8 | README parity | `grep -n "preview while thinking streams" README.md README.zh.md` | **exit 1** (stale sentence gone); both languages state the 3/6 budgets |
+| 9 | Release note | `grep -ln "codsh-bundle" .changeset/*.md \| xargs grep -ln …` | prints `.changeset/agent-output-rendering.md` |
+| 10 | Reference decision | `ls docs/adr/ && grep -rn "grok-build" docs/adr/` | `0002-grok-build-output-model.md` names `grok-build` and its relation to ADR-0001 |
+| 11 | Spec phase | `grep -n "^Status:" docs/specs/agent-output-rendering.md` | `Status: shipped` |
+
+**Zero new failures against `## Baseline`.** Baseline unit was 1388 tests; final
+is 1415 (+27, nothing deleted). Baseline e2e was 134 passed / 1 skipped / 0
+failed; final is 135 passed / 1 skipped / **0 failed** (+1). Baseline was
+measured with PTY access, so the comparison is like for like.
+
+### Two defects the blind rewrite hid, and their reds
+
+Running the rewritten PTY suites was not a formality: both defects were in the
+delivered code, and both were found only by executing the primary seam.
+
+1. **A multi-line command broke Track-3's one-row contract.** A heredoc's
+   command was rendered whole into the group row, so the command's own newlines
+   became extra transcript rows and the script body escaped onto the screen —
+   the exact class of bug `e2e/pty-mouse.e2e.ts` exists to catch. Fixed with
+   `oneLineTitle` (a head names the call with its first line) and by keeping the
+   full script in the fold, so the one-line head is not lossy.
+   Red witnessed at the unit seam first: a new
+   `keeps a multi-line command to one row, with its body in the fold` case
+   showed the fold's head row carrying `\n` before the fix.
+2. **Eight suites waited on text the new model never paints.** Five files waited
+   on `'$ sleep'`, the command text the old card printed on its own `$ command`
+   row; a pending call is one merged row now and the command lives behind the
+   fold. One more waited on the thought text that the 3-row live preview now
+   carries, so it matched before the Ctrl+O it was meant to precede.
+
+### Known non-goal recorded, not silently widened
+
+A `!` shell line still prints its own `$ command` row plus raw output. It runs
+through `index.ts` `passthrough` (the person's own shell input handed to the
+model as context), not through the tool-call path Track-2 describes, so it is
+outside this change's scope. The two `e2e/pty-input.e2e.ts` tests that cover it
+now assert that shape rather than a group row. If the owner wants `!` lines
+folded and muted too, that is a new spec against `passthrough`, not a silent
+extension of this one.
