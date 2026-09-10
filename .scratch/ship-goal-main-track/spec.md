@@ -188,7 +188,7 @@ The issue tracker is unconfigured for agent work. Local store: `.scratch/ship-go
 ## Plan
 
 - [x] Ticket 1: Spec schema — Delivers Goal-Id metadata, ## Main Track parse, and Track: strip on plan lines so chrome titles stay short (Blocked by: none) (Track: 8)
-- [ ] Ticket 2: Prompt contracts — Delivers shipPromptFor track/goalId, $GOAL_ID, forbid goal tools, freeze-after-Confirm, Track-N cites, Ralph sealed track (Blocked by: none) (Track: 2,3,4,5,7)
+- [x] Ticket 2: Prompt contracts — Delivers shipPromptFor track/goalId, $GOAL_ID, forbid goal tools, freeze-after-Confirm, Track-N cites, Ralph sealed track (Blocked by: none) (Track: 2,3,4,5,7)
 - [ ] Ticket 3: Occupancy and ShipGoals port — Delivers pause-then-ask ship · occupancy, ours-vs-stranger, create-then-pause, goals-port degrade, composition wire; no extra chrome (Blocked by: Ticket 1, Ticket 2) (Track: 1,5,6,9)
 - [ ] Ticket 4: Snapshot lifecycle — Delivers Confirm snapshot prepend, handshake/seal/complete/abort lifecycle, re-assert on later injects, Ralph objective includes sealed track (Blocked by: Ticket 1, Ticket 2, Ticket 3) (Track: 1,3,4,7)
 - [ ] Ticket 5: Release & Documentation Compliance — Delivers Changeset and bilingual documentation updates (README.md and README.zh.md) if user-facing code or bundle/cli is touched (Blocked by: Ticket 1, Ticket 2, Ticket 3, Ticket 4) (Track: 9)

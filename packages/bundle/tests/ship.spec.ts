@@ -207,4 +207,107 @@ describe('SHIP_PROMPT', () => {
     expect(shipPhaseKind('landing')).toBe('land')
     expect(shipPhaseKind('shipped')).toBe('done')
   })
+
+  it('passes Goal-Id into grill so the spec header records the session compass (Track: 5)', () => {
+    expect(SHIP_PROMPT).toContain('$GOAL_ID')
+    const grill = shipPromptFor(undefined, { goalId: 'goal-abc123' })
+    expect(grill).toContain('goal-abc123')
+    expect(grill).toContain('Goal-Id:')
+    expect(grill).not.toContain('$GOAL_ID')
+    expect(grill).not.toContain('Pure Synthesis, Zero Interrogation')
+  })
+
+  it('prepends the compact Main Track on later phases without substituting the phase contract (Track: 2)', () => {
+    const track = [
+      '## Main Track',
+      '',
+      '**Idea.** Bind /goal into /ship.',
+      '**Track-1.** Hybrid compass.',
+      '**Out of Scope.** No harness fork.',
+    ].join('\n')
+    const spec = shipPromptFor('interviewing', { track })
+    expect(spec.startsWith(track)).toBe(true)
+    expect(spec).toContain('Pure Synthesis, Zero Interrogation')
+    expect(spec).not.toContain('Relentless Frontier Exploration')
+
+    const tickets = shipPromptFor('confirmed', { track })
+    expect(tickets.startsWith(track)).toBe(true)
+    expect(tickets).toContain('Strict Vertical Tracer Slicing')
+    expect(tickets).not.toContain('Pure Synthesis, Zero Interrogation')
+
+    const land = shipPromptFor('planned', { track })
+    expect(land.startsWith(track)).toBe(true)
+    expect(land).toContain('Strict Red-First Execution')
+    expect(land).not.toContain('Strict Vertical Tracer Slicing')
+
+    const done = shipPromptFor('shipped', { track })
+    expect(done.startsWith(track)).toBe(true)
+    expect(done).toContain('dual-layer DoD')
+
+    const grill = shipPromptFor(undefined, { track })
+    expect(grill).not.toContain(track)
+    expect(grill).toContain('Follow the grill-me skill as the contract, not a summary of it')
+  })
+
+  it('forbids goal tools in every phase so the model cannot fight the runner (Track: 7)', () => {
+    const phases = [
+      shipPromptFor(undefined),
+      shipPromptFor('interviewing'),
+      shipPromptFor('confirmed'),
+      shipPromptFor('planned'),
+      shipPromptFor('landing'),
+      shipPromptFor('shipped'),
+    ]
+    for (const prompt of phases) {
+      expect(prompt).toContain('create_goal')
+      expect(prompt).toContain('update_goal')
+      expect(prompt).toContain('get_goal')
+      expect(prompt).toMatch(/must not call|do not call|forbid/i)
+    }
+    expect(SHIP_PROMPT).toContain('create_goal')
+    expect(SHIP_PROMPT).toContain('update_goal')
+    expect(SHIP_PROMPT).toContain('get_goal')
+  })
+
+  it('freezes Main Track after Confirm so a contradiction is a blocker not a silent rewrite (Track: 3)', () => {
+    const afterConfirm = [
+      shipPromptFor(undefined),
+      shipPromptFor('interviewing'),
+      shipPromptFor('confirmed'),
+      shipPromptFor('planned'),
+      shipPromptFor('landing'),
+      shipPromptFor('shipped'),
+    ]
+    for (const prompt of afterConfirm) {
+      expect(prompt).toContain('## Main Track')
+      expect(prompt).toMatch(/do not rewrite|must not rewrite/i)
+      expect(prompt).toMatch(/contradiction is a blocker/i)
+      expect(prompt).not.toContain('When a decision changes mid-flight, update the spec file first so the file on disk stays the truth.')
+    }
+    expect(SHIP_PROMPT).toContain('## Main Track')
+    expect(SHIP_PROMPT).toMatch(/contradiction is a blocker/i)
+    expect(SHIP_PROMPT).not.toContain('When a decision changes mid-flight, update the spec file first so the file on disk stays the truth.')
+    expect(SHIP_PROMPT).toMatch(/progress \(Status, checkboxes, proof logs\) remains writable/i)
+  })
+
+  it('requires Track: on plan lines and a Track-N cite on the first red test or commit (Track: 4)', () => {
+    const land = shipPromptFor('planned')
+    expect(land).toContain('Track:')
+    expect(land).toMatch(/first red test/)
+    expect(land).toMatch(/ticket commit/)
+    expect(land).toMatch(/Track-N/)
+    expect(SHIP_PROMPT).toContain('Track:')
+    expect(SHIP_PROMPT).toMatch(/first red test/)
+  })
+
+  it('puts the sealed Main Track plus the spec path into the Ralph objective (Track: 4)', () => {
+    const track = '## Main Track\n\n**Idea.** Bind /goal into /ship.'
+    const land = shipPromptFor('landing', { track })
+    expect(land).toContain('ralph')
+    expect(land).toContain(track)
+    expect(land).toMatch(/objective/)
+    expect(land).toMatch(/sealed track/)
+    expect(land).toMatch(/spec (file )?path/)
+    expect(SHIP_PROMPT).toMatch(/sealed track/)
+  })
 })
