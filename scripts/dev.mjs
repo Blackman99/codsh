@@ -33,8 +33,19 @@ const dshManifest = require.resolve('@deepseek-ai/dsh/package.json')
 const dshBinField = JSON.parse(readFileSync(dshManifest, 'utf8')).bin
 const dshBin = join(dirname(dshManifest), typeof dshBinField === 'string' ? dshBinField : dshBinField.dsh)
 
+// Build with the tools directly rather than `pnpm run build`. pnpm 12 verifies
+// the whole lockfile against its supply-chain policy before *any* command runs,
+// so shelling out to it made the dev loop depend on every pinned entry being
+// older than `minimumReleaseAge` — a condition this repository's dsh pins do not
+// meet, which failed the build before it started. The bundle's own build script
+// is just `tsdown && tsc -p tsconfig.build.json`; running those two preserves
+// the build exactly while keeping the loop free of the installer.
+const tsdownBin = join(dirname(require.resolve('tsdown/package.json')), JSON.parse(readFileSync(require.resolve('tsdown/package.json'), 'utf8')).bin.tsdown)
+const tscBin = require.resolve('typescript/bin/tsc')
+
 console.error('codsh dev: building')
-execFileSync('pnpm', ['run', 'build'], { cwd: repo, stdio: 'inherit' })
+execFileSync(process.execPath, [tsdownBin], { cwd: bundle, stdio: 'inherit' })
+execFileSync(process.execPath, [tscBin, '-p', 'tsconfig.build.json'], { cwd: bundle, stdio: 'inherit' })
 
 // A pre-split home registered the runtime under the launcher's old name and
 // pinned a temp-dir tarball that no longer exists; nothing in it is worth
