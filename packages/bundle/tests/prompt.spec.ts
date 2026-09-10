@@ -242,8 +242,8 @@ describe('the region it composes', () => {
     const { prompt, console } = build()
     void prompt.read()
     const last = console.draws.at(-1)
-    expect(last?.rows[0]?.startsWith('╭')).toBe(true)
-    // Row 0 is the frame's top, so the cursor belongs on the row below it.
+    expect(last?.rows[0]?.startsWith('─')).toBe(true)
+    // Row 0 is the divider, so the cursor belongs on the row below it.
     expect(last?.cursor.row).toBe(1)
   })
 
@@ -251,8 +251,7 @@ describe('the region it composes', () => {
     const { prompt, console } = build()
     void prompt.read()
     const top = console.draws.at(-1)?.rows[0] ?? ''
-    expect(top.startsWith('╭')).toBe(true)
-    expect(top.endsWith('╮')).toBe(true)
+    expect(top).toMatch(/^─+$/u)
     expect(top).not.toContain('…')
     expect(displayWidth(top)).toBe(console.contentColumns)
   })
@@ -289,7 +288,7 @@ describe('the region it composes', () => {
     console.press({ kind: 'text', text: '/p' })
     const rows = console.draws.at(-1)?.rows ?? []
     const overlay = console.overlays.at(-1) ?? []
-    expect(rows.some(row => row.includes('╭'))).toBe(true)
+    expect(rows.some(row => row.includes('─'))).toBe(true)
     expect(rows.some(row => row.includes('/plan'))).toBe(false)
     expect(overlay.some(row => row.includes('/plan'))).toBe(true)
     expect(overlay.some(row => row.includes('plan mode'))).toBe(true)
@@ -434,11 +433,11 @@ describe('selection', () => {
     const reading = prompt.read()
     console.press({ kind: 'text', text: 'hello world' })
 
-    // Row 0 of the chrome is the box's top border; row 1 is its first line,
-    // and the text starts four cells into it, after the screen's own gutter.
+    // Row 0 of the chrome is the divider; row 1 is its first line, and the
+    // text starts two cells into it, after the screen's own gutter.
     console.region = { region: 'chrome', index: 1 }
-    console.press({ kind: 'mouse-down', row: 9, column: 3 + 4 + 5 })
-    console.press({ kind: 'mouse-up', row: 9, column: 3 + 4 + 5 })
+    console.press({ kind: 'mouse-down', row: 9, column: 3 + 2 + 5 })
+    console.press({ kind: 'mouse-up', row: 9, column: 3 + 2 + 5 })
     console.press({ kind: 'text', text: 'X' })
 
     console.press({ kind: 'enter' })
@@ -448,19 +447,19 @@ describe('selection', () => {
   it('puts the cursor on the wrapped row where the box was clicked', async () => {
     const { prompt, console } = build()
     const reading = prompt.read()
-    const line = 'x'.repeat(55)
+    const line = 'x'.repeat(60)
     console.press({ kind: 'text', text: line })
 
-    // 57 content columns leaves 51 for text, so the line takes two box rows and
-    // the 52nd character opens the second. Terminal column 7 is that row's
-    // first character: two cells of screen gutter plus the region's four.
+    // 57 content columns leaves 55 for text, so the line takes two region rows
+    // and the 56th character opens the second. Terminal column 5 is that row's
+    // first character: two cells of screen gutter plus the region's two.
     console.region = { region: 'chrome', index: 2 }
-    console.press({ kind: 'mouse-down', row: 9, column: 7 })
-    console.press({ kind: 'mouse-up', row: 9, column: 7 })
+    console.press({ kind: 'mouse-down', row: 9, column: 5 })
+    console.press({ kind: 'mouse-up', row: 9, column: 5 })
     console.press({ kind: 'text', text: 'X' })
 
     console.press({ kind: 'enter' })
-    expect(await reading).toBe(`${'x'.repeat(51)}X${'x'.repeat(4)}`)
+    expect(await reading).toBe(`${'x'.repeat(55)}X${'x'.repeat(5)}`)
   })
 
   it('selects in the box on a drag and copies on release', async () => {
@@ -468,11 +467,11 @@ describe('selection', () => {
     const reading = prompt.read()
     console.press({ kind: 'text', text: 'hello world' })
 
-    // Column 7 is the first character; column 12 is the space after "hello".
+    // Column 5 is the first character; column 10 is the space after "hello".
     console.region = { region: 'chrome', index: 1 }
-    console.press({ kind: 'mouse-down', row: 9, column: 7 })
-    console.press({ kind: 'mouse-drag', row: 9, column: 12 })
-    console.press({ kind: 'mouse-up', row: 9, column: 12 })
+    console.press({ kind: 'mouse-down', row: 9, column: 5 })
+    console.press({ kind: 'mouse-drag', row: 9, column: 10 })
+    console.press({ kind: 'mouse-up', row: 9, column: 10 })
 
     expect(console.copied).toEqual(['hello'])
     const drawn = console.draws.at(-1)?.rows.join('\n') ?? ''
@@ -488,8 +487,8 @@ describe('selection', () => {
     const reading = prompt.read()
     console.press({ kind: 'text', text: 'hello world' })
     console.region = { region: 'chrome', index: 1 }
-    console.press({ kind: 'mouse-down', row: 9, column: 7 })
-    console.press({ kind: 'mouse-up', row: 9, column: 7 })
+    console.press({ kind: 'mouse-down', row: 9, column: 5 })
+    console.press({ kind: 'mouse-up', row: 9, column: 5 })
     console.press({ kind: 'text', text: 'X' })
     console.press({ kind: 'enter' })
     expect(await reading).toBe('Xhello world')
@@ -616,7 +615,7 @@ describe('fullscreen viewing', () => {
     await viewing
     expect(console.viewers.at(-1)).toBeUndefined()
     expect(calls).toEqual([])
-    expect(console.draws.at(-1)?.rows.some(row => row.includes('╭'))).toBe(true)
+    expect(console.draws.at(-1)?.rows.some(row => row.includes('─'))).toBe(true)
   })
 
   it('reflows on resize and closes when its signal aborts', async () => {
@@ -1348,12 +1347,12 @@ describe('the surrounding rows', () => {
     prompt.setAccent(text => `<${text}>`)
     void prompt.read()
     const rows = console.draws.at(-1)?.rows ?? []
-    // The frame carries the mode so the next submission's rules are visible
-    // from the box itself.
-    expect(rows.some(row => row.startsWith('<╭'))).toBe(true)
+    // The divider carries the mode so the next submission's rules are visible
+    // from the region itself.
+    expect(rows.some(row => row.startsWith('<─'))).toBe(true)
     prompt.setAccent(undefined)
     const plain = console.draws.at(-1)?.rows ?? []
-    expect(plain.some(row => row.startsWith('<╭'))).toBe(false)
+    expect(plain.some(row => row.startsWith('<─'))).toBe(false)
   })
 
   it('switches the box to shell mode as ! is typed', () => {
@@ -1577,7 +1576,7 @@ describe('ship frontier card', () => {
     const rows = console.draws.at(-1)?.rows ?? []
     expect(rows.some(row => row.includes('Which storage?'))).toBe(true)
     expect(rows.some(row => row.includes('[rec]'))).toBe(true)
-    expect(rows.some(row => row.includes('╭'))).toBe(true)
+    expect(rows.some(row => row.includes('─'))).toBe(true)
     expect(console.viewers).toEqual([])
     expect(console.timelineHidden.at(-1)).toBe(false)
     expect(prompt.shipGate).toBeUndefined()

@@ -26,9 +26,9 @@ describe.skipIf(process.platform === 'win32')('the first five minutes: welcome, 
     expect(logoRow).toBeGreaterThanOrEqual(0)
     expect(logoRow).toBeLessThan(8)
     // The gap sits between the welcome and the chrome, not above the welcome.
-    // The chrome is the box plus its two rows — the key legend and the status —
-    // so the box's top border is the fifth row up from the foot.
-    expect(rows.slice(-5).some(row => row.trimStart().startsWith('╭'))).toBe(true)
+    // The chrome is the borderless region plus the status row, so the region's
+    // divider is a few rows up from the foot.
+    expect(rows.slice(-5).some(row => /^─+$/u.test(row.trim()))).toBe(true)
   }, E2E_TEST_TIMEOUT_MS)
 
   it('shows the welcome again after /clear', async () => {
@@ -219,7 +219,12 @@ describe.skipIf(process.platform === 'win32')('the first five minutes: welcome, 
     const browsing = screenOf(captured(run.offsets[3]), -1, rows).alternate
     const returned = screenOf(captured(run.offsets[4]), -1, rows).alternate
     const noticeAt = browsing.findIndex(row => row.includes('rows above'))
-    const boxAt = browsing.findIndex(row => row.trimStart().startsWith('╭'))
+    // The input divider is the last full-width rule: the sticky panel may carry
+    // its own divider above the transcript.
+    const boxAt = browsing.findLastIndex(row => {
+      const trimmed = row.trim()
+      return /^─+$/u.test(trimmed) && trimmed.length > 20
+    })
     // Under what is being read, not over it: the last transcript row, right
     // above the box — and it names the click that ends the scroll.
     expect(noticeAt).toBe(boxAt - 1)

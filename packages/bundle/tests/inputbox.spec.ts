@@ -1,6 +1,6 @@
 /**
- * Input box layout: a frame that closes on itself at any width, long lines that
- * wrap instead of hiding, a window that follows the cursor, and a menu under it.
+ * Input region layout: a divider instead of a frame, long lines that wrap
+ * instead of hiding, a window that follows the cursor, and a menu under it.
  */
 
 import { describe, expect, it } from 'vitest'
@@ -15,15 +15,37 @@ function view(over: Partial<EditorView> = {}): EditorView {
   return { lines: [''], row: 0, column: 0, candidates: [], selected: 0, token: '', hits: [], ...over }
 }
 
-describe('the frame', () => {
-  it('frames one line, all rows the same width', () => {
+describe('the borderless region (Track: 5)', () => {
+  it('paints a divider above the input instead of a frame', () => {
     const { rows } = inputBox(view({ lines: ['hello'], column: 5 }), theme, 40)
-    expect(rows[0]).toMatch(/^╭─+╮$/)
-    expect(rows[2]).toMatch(/^╰─+╯$/)
+    // The box is gone: the top edge is a divider, the `›` mark survives, and
+    // no row carries a rounded corner any more.
+    expect(rows[0]).toMatch(/^─+$/u)
     expect(rows[1]).toContain('› hello')
-    // A box whose rows disagree on width is a broken box.
-    const widths = new Set(rows.slice(0, 3).map(displayWidth))
-    expect(widths.size).toBe(1)
+    expect(rows.join('\n')).not.toMatch(/[╭╮╰╯]/u)
+  })
+
+  it('keeps one help row beneath the input, empty or being typed in', () => {
+    const help = '  ? shortcuts · ⇧Tab plan'
+    const empty = inputBox(view(), theme, 40, { placeholder: 'Ask anything', hint: help })
+    const typing = inputBox(view({ lines: ['abc'], column: 3 }), theme, 40, { placeholder: 'Ask anything', hint: help })
+    expect(empty.rows.at(-1)).toContain('? shortcuts')
+    expect(typing.rows.at(-1)).toContain('? shortcuts')
+    // The help row does not move when the placeholder leaves with the first key.
+    expect(empty.rows.length).toBe(typing.rows.length)
+    expect(empty.rows[1]).toContain('Ask anything')
+    expect(typing.rows[1]).not.toContain('Ask anything')
+  })
+})
+
+describe('the region', () => {
+  it('paints a divider and one input row at the region width', () => {
+    const { rows } = inputBox(view({ lines: ['hello'], column: 5 }), theme, 40)
+    expect(rows[0]).toMatch(/^─+$/u)
+    expect(rows[1]).toContain('› hello')
+    // A region whose rows disagree on width is a broken region.
+    expect(displayWidth(rows[0] ?? '')).toBe(40)
+    expect(displayWidth(rows[1] ?? '')).toBe(40)
   })
 
   it('gives every buffer line its own row, marking only the first', () => {
@@ -34,13 +56,13 @@ describe('the frame', () => {
     expect(rows[2]).not.toContain('›')
   })
 
-  it('closes the frame around a wide character', () => {
+  it('lays every row to the region width around a wide character', () => {
     const { rows } = inputBox(view({ lines: ['终端'], column: 2 }), theme, 30)
     const widths = new Set(rows.slice(0, 3).map(displayWidth))
     expect(widths.size).toBe(1)
   })
 
-  it('shows a placeholder inside an empty box', () => {
+  it('shows a placeholder inside an empty region', () => {
     const { rows } = inputBox(view(), theme, 60, { placeholder: 'Ask anything · / commands' })
     expect(rows[1]).toContain('Ask anything')
     // Placeholder text is furniture, gone the moment anything is typed.
@@ -48,7 +70,7 @@ describe('the frame', () => {
     expect(typed.rows[1]).not.toContain('Ask anything')
   })
 
-  it('takes an accent for the frame, which is how a mode announces itself', () => {
+  it('takes an accent for the divider, which is how a mode announces itself', () => {
     const loud = (text: string): string => `<${text}>`
     const { rows } = inputBox(view(), theme, 40, { accent: loud })
     expect(rows[0]?.startsWith('<')).toBe(true)
@@ -70,10 +92,10 @@ describe('the frame', () => {
 
 describe('wrapping', () => {
   it('wraps a long line instead of hiding it', () => {
-    // 30 columns leaves 24 for text: 40 characters must occupy two rows.
+    // 30 columns leaves 28 for text: 40 characters must occupy two rows.
     const text = 'x'.repeat(40)
     const { rows } = inputBox(view({ lines: [text], column: 40 }), theme, 30)
-    const body = rows.slice(1, -1).map(row => row.replaceAll(/[│› ]/gu, ''))
+    const body = rows.slice(1).map(row => row.replaceAll(/[› ]/gu, ''))
     expect(body.join('')).toBe(text)
     expect(body.length).toBe(2)
   })
@@ -81,36 +103,36 @@ describe('wrapping', () => {
   it('never splits a wide character across the wrap', () => {
     const text = '终'.repeat(15)
     const { rows } = inputBox(view({ lines: [text], column: 15 }), theme, 30)
-    const body = rows.slice(1, -1).map(row => row.replaceAll(/[│› ]/gu, ''))
+    const body = rows.slice(1).map(row => row.replaceAll(/[› ]/gu, ''))
     expect(body.join('')).toBe(text)
     for (const row of rows) expect(displayWidth(row)).toBeLessThanOrEqual(30)
   })
 
   it('charges a selector emoji its two columns and keeps a joined emoji whole across the wrap', () => {
-    // 30 columns leaves 24 for text: 🎙️ plus 23 letters is 25 columns, so
-    // the line takes two rows and neither runs past the frame.
+    // 26 columns leaves 24 for text: 🎙️ plus 23 letters is 25 columns, so
+    // the line takes two rows and neither runs past the region.
     const text = `🎙️${'x'.repeat(23)}`
-    const { rows } = inputBox(view({ lines: [text], column: 25 }), theme, 30)
-    const body = rows.slice(1, -1).map(row => row.replaceAll(/[│› ]/gu, ''))
+    const { rows } = inputBox(view({ lines: [text], column: 25 }), theme, 26)
+    const body = rows.slice(1).map(row => row.replaceAll(/[› ]/gu, ''))
     expect(body.join('')).toBe(text)
     expect(body.length).toBe(2)
-    for (const row of rows) expect(displayWidth(row)).toBeLessThanOrEqual(30)
+    for (const row of rows) expect(displayWidth(row)).toBeLessThanOrEqual(26)
     // A family emoji at the edge moves down whole rather than losing a member.
     const family = `${'x'.repeat(23)}👨‍👩‍👧`
-    const wrapped = inputBox(view({ lines: [family], column: 28 }), theme, 30)
-    const pieces = wrapped.rows.slice(1, -1).map(row => row.replaceAll(/[│› ]/gu, ''))
+    const wrapped = inputBox(view({ lines: [family], column: 28 }), theme, 26)
+    const pieces = wrapped.rows.slice(1).map(row => row.replaceAll(/[› ]/gu, ''))
     expect(pieces).toEqual(['x'.repeat(23), '👨‍👩‍👧'])
   })
 
   it('puts the cursor on the wrapped row it is editing', () => {
     const text = 'x'.repeat(40)
     const layout = inputBox(view({ lines: [text], column: 40 }), theme, 30)
-    // The second segment, one row below the frame's top.
+    // The second segment, one row below the divider.
     expect(layout.cursorRow).toBe(2)
-    expect(layout.cursorColumn).toBe(4 + 16)
+    expect(layout.cursorColumn).toBe(2 + 12)
   })
 
-  it('windows around the cursor once the box outgrows its budget', () => {
+  it('windows around the cursor once the region outgrows its budget', () => {
     const lines = Array.from({ length: 10 }, (_, index) => `line ${index}`)
     const layout = inputBox(view({ lines, row: 9, column: 6 }), theme, 40)
     const body = layout.rows.filter(row => row.includes('line '))
@@ -133,15 +155,15 @@ describe('wrapping', () => {
 describe('the cursor', () => {
   it('sits after the text it follows', () => {
     const { cursorRow, cursorColumn } = inputBox(view({ lines: ['abc'], column: 3 }), theme, 40)
-    // Row 0 is the frame's top, so the first buffer line is row 1.
+    // Row 0 is the divider, so the first buffer line is row 1.
     expect(cursorRow).toBe(1)
-    // Border, space, marker, space, then three characters.
-    expect(cursorColumn).toBe(7)
+    // Marker, space, then three characters.
+    expect(cursorColumn).toBe(5)
   })
 
   it('counts a wide character as two columns', () => {
     const { cursorColumn } = inputBox(view({ lines: ['终'], column: 1 }), theme, 40)
-    expect(cursorColumn).toBe(6)
+    expect(cursorColumn).toBe(4)
   })
 
   it('follows the line being edited', () => {
@@ -157,14 +179,14 @@ describe('visual hierarchy', () => {
   it('sets the placeholder behind the typed text, not beside it', () => {
     const empty = inputBox(view(), colour, 60, { placeholder: 'Ask anything' })
     // Placeholder is secondary gray; typed text carries no styling at all —
-    // that difference IS the contrast the box hinges on.
+    // that difference IS the contrast the region hinges on.
     expect(empty.rows[1]).toContain(`${gray}Ask anything`)
     const typed = inputBox(view({ lines: ['hello'], column: 5 }), colour, 60)
     expect(typed.rows[1]).toContain(' hello')
     expect(typed.rows[1]).not.toContain(`${gray}hello`)
   })
 
-  it('colours a known /command and $skill in the box', () => {
+  it('colours a known /command and $skill in the region', () => {
     const command = inputBox(view({
       lines: ['/plan'],
       column: 5,
@@ -254,7 +276,7 @@ describe('the menu', () => {
     expect(overlay[0]).toContain('enter plan mode')
     expect(overlay[1]).toContain('❯')
     expect(overlay[1]).toContain('/permission')
-    expect(rows[0]).toMatch(/^╭/)
+    expect(rows[0]).toMatch(/^─+$/u)
     expect(cursorRow).toBe(1)
   })
 
@@ -269,7 +291,7 @@ describe('the menu', () => {
     expect(rows.at(-1)).toContain('ESC interrupts')
   })
 
-  it('names reverse history search under the box', () => {
+  it('names reverse history search under the region', () => {
     const { rows } = inputBox(view({
       lines: ['kept'],
       column: 4,
@@ -340,8 +362,8 @@ describe('the menu and the pointer', () => {
 })
 
 describe('putting the cursor where a pointer landed', () => {
-  // A content row is `| <gutter> <text>`, so its text starts four cells in.
-  const TEXT_AT = 4
+  // A content row is `<marker> <text>`, so its text starts two cells in.
+  const TEXT_AT = 2
 
   it('lands on the character under the pointer', () => {
     const shown = view({ lines: ['hello world'], column: 11 })
@@ -349,16 +371,16 @@ describe('putting the cursor where a pointer landed', () => {
     expect(caretAt(shown, 40, 1, TEXT_AT + 6)).toEqual({ row: 0, column: 6 })
   })
 
-  it('clamps a border row to the nearest content row', () => {
+  it('clamps a row outside the content to the nearest content row', () => {
     const shown = view({ lines: ['one', 'two'], row: 1, column: 3 })
-    // Row 0 is the top border; row 3 is the bottom one.
+    // Row 0 is the divider; row 3 is past the last content row.
     expect(caretAt(shown, 40, 0, TEXT_AT + 1)).toEqual({ row: 0, column: 1 })
     expect(caretAt(shown, 40, 3, TEXT_AT + 1)).toEqual({ row: 1, column: 1 })
   })
 
   it('clamps a column outside the text to the nearest end of it', () => {
     const shown = view({ lines: ['abc'], column: 3 })
-    // On the frame, left of the text: the start of the line.
+    // Left of the text — on the marker — is the start of the line.
     expect(caretAt(shown, 40, 1, 0)).toEqual({ row: 0, column: 0 })
     // Past the end of a short line: its end, not the next line.
     expect(caretAt(shown, 40, 1, TEXT_AT + 30)).toEqual({ row: 0, column: 3 })
@@ -385,43 +407,42 @@ describe('putting the cursor where a pointer landed', () => {
     const long = 'abcdefghijklmnopqrstuvwxyz'
     const shown = view({ lines: [long], column: long.length })
     // Narrow enough that the line takes more than one row.
-    const budget = Math.max(8, 20 - 4) - 2
+    const budget = Math.max(8, 20 - 2)
     expect(caretAt(shown, 20, 2, TEXT_AT + 1)).toEqual({ row: 0, column: budget + 1 })
   })
 
   it('gives back the `!` a shell box hides', () => {
     const shown = view({ lines: ['!ls -la'], column: 7 })
-    // The box drew `ls -la`; column 0 of that is column 1 of the buffer.
+    // The region drew `ls -la`; column 0 of that is column 1 of the buffer.
     expect(caretAt(shown, 40, 1, TEXT_AT, true)).toEqual({ row: 0, column: 1 })
   })
 
-  it('answers for an empty box without inventing a position', () => {
+  it('answers for an empty region without inventing a position', () => {
     expect(caretAt(view(), 40, 1, TEXT_AT + 5)).toEqual({ row: 0, column: 0 })
   })
 })
 
 describe('the region geometry source', () => {
   it('names the offsets the region is laid out with', () => {
-    // The frame is four cells wide and the caret's left offset was the same
-    // four: one source has to give both, or removing the frame shifts one
-    // consumer and not the others.
+    // The borderless region spends two cells before the text — the `›` mark
+    // and the space after it — and reserves nothing after it.
     const geometry = regionGeometry()
-    expect(geometry.left).toBe(4)
+    expect(geometry.left).toBe(2)
     expect(geometry.top).toBe(1)
-    expect(geometry.gutter).toBe(2)
+    expect(geometry.gutter).toBe(0)
   })
 
   it('derives the wrap budget from that source', () => {
     const geometry = regionGeometry()
     // The text budget is what is left of the terminal once the region's left
-    // offset comes off, less the gutter inside it.
+    // offset and its trailing reserve come off.
     expect(wrapBudget(40)).toBe(Math.max(8, 40 - geometry.left) - geometry.gutter)
-    expect(wrapBudget(12)).toBe(6)
+    expect(wrapBudget(12)).toBe(10)
   })
 
   it('maps a terminal column through the screen indent to a region cell', () => {
     // The screen paints every chrome row two cells in, so terminal column 7 is
-    // region cell 4: the text's first cell in the framed region.
+    // region cell 4: the text's third cell in the borderless region.
     expect(regionCell(7, 2)).toBe(4)
     expect(regionCell(1, 2)).toBe(-2)
   })
@@ -444,33 +465,31 @@ describe('a pointer on a painted row', () => {
     expect(caretAt(shown, columns, 1, left + 5)).toEqual({ row: 0, column: 5 })
     // The wrapped row paints the next characters, starting with the one after
     // the wrap.
-    expect(painted(2, left)).toBe('g')
-    expect(caretAt(shown, columns, 2, left)).toEqual({ row: 0, column: 6 })
-    expect(painted(2, left + 5)).toBe('l')
-    expect(caretAt(shown, columns, 2, left + 5)).toEqual({ row: 0, column: 11 })
+    expect(painted(2, left)).toBe('k')
+    expect(caretAt(shown, columns, 2, left)).toEqual({ row: 0, column: 10 })
+    expect(painted(2, left + 1)).toBe('l')
+    expect(caretAt(shown, columns, 2, left + 1)).toEqual({ row: 0, column: 11 })
   })
 })
 
 describe('the region as it is drawn today', () => {
-  it('keeps the frame byte-identical while the geometry is separated from it', () => {
+  it('paints the borderless region byte-identically: divider, input, help row', () => {
     const empty = inputBox(view(), theme, 20, { placeholder: 'Ask anything' })
     expect(empty.rows).toEqual([
-      '╭──────────────────╮',
-      '│ › Ask anything   │',
-      '╰──────────────────╯',
+      '────────────────────',
+      '› Ask anything      ',
     ])
     expect({ cursorRow: empty.cursorRow, cursorColumn: empty.cursorColumn })
-      .toEqual({ cursorRow: 1, cursorColumn: 4 })
+      .toEqual({ cursorRow: 1, cursorColumn: 2 })
 
     const wrapped = inputBox(view({ lines: ['abcdefghijkl'], column: 12 }), theme, 12)
     expect(wrapped.rows).toEqual([
-      '╭──────────╮',
-      '│ › abcdef │',
-      '│   ghijkl │',
-      '╰──────────╯',
+      '────────────',
+      '› abcdefghij',
+      '  kl        ',
     ])
     expect({ cursorRow: wrapped.cursorRow, cursorColumn: wrapped.cursorColumn })
-      .toEqual({ cursorRow: 2, cursorColumn: 10 })
+      .toEqual({ cursorRow: 2, cursorColumn: 4 })
   })
 })
 

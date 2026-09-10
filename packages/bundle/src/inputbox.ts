@@ -1,7 +1,7 @@
 /**
- * The input box: a framed, multi-line prompt that wraps long lines, grows with
- * its content, and windows when it grows past its budget — with the completion
- * menu overlaid on the transcript above it.
+ * The input region: a borderless, multi-line prompt below a divider that wraps
+ * long lines, grows with its content, and windows when it grows past its budget
+ * — with the completion menu overlaid on the transcript above it.
  *
  * Pure layout. It turns an {@link EditorView} into the rows of the bottom region
  * and says where the terminal cursor belongs, so the drawing code has no opinion
@@ -10,7 +10,7 @@
  * Wrapping is by display width, hard at the boundary: a wrap that respected word
  * breaks would need the same word knowledge in the cursor mapping, and a cursor
  * that disagrees with the wrap by one cell is worse than a word split across
- * rows. Text is never truncated here — hiding typed text is how an input box
+ * rows. Text is never truncated here — hiding typed text is how an input region
  * loses a person's work.
  * @module codsh-bundle/src/inputbox
  */
@@ -41,11 +41,11 @@ const MAX_CONTENT_ROWS = 6
  * frame changes this descriptor instead of each consumer.
  */
 export interface RegionGeometry {
-  /** Cells before the text on a content row: the frame's edge and pad, then the gutter. */
+  /** Cells before the text on a content row: the marker and the space after it. */
   readonly left: number
-  /** Rows above the first content row: the frame's top edge. */
+  /** Rows above the first content row: the divider. */
   readonly top: number
-  /** Columns the gutter takes inside the frame: the marker and the space after it. */
+  /** Trailing cells reserved after the text on a content row; none without a frame. */
   readonly gutter: number
 }
 
@@ -54,7 +54,7 @@ export interface RegionGeometry {
  * @returns the offsets every consumer of the region reads.
  */
 export function regionGeometry(): RegionGeometry {
-  return { left: 4, top: 1, gutter: 2 }
+  return { left: 2, top: 1, gutter: 0 }
 }
 
 /**
@@ -84,12 +84,12 @@ export interface BoxOptions {
   placeholder?: string | undefined
   /** Dim text shown under the box when the menu is closed. */
   hint?: string | undefined
-  /** Styles the frame; absent frames dim. A mode announces itself here. */
+  /** Styles the divider; absent dividers dim. A mode announces itself here. */
   accent?: ((text: string) => string) | undefined
   /**
    * Whether the box is in shell mode (`!` at the start of the first line).
    *
-   * The frame and gutter announce it; the leading `!` is the gutter, not a
+   * The divider and gutter announce it; the leading `!` is the gutter, not a
    * second character in the buffer.
    */
   shell?: boolean | undefined
@@ -411,9 +411,9 @@ function menuRows(view: EditorView, theme: Theme, columns: number, hovered?: num
 /**
  * Lay out the input box.
  * @param view - what the editor is showing.
- * @param theme - styling for the frame, the marker, and the menu.
+ * @param theme - styling for the divider, the marker, and the menu.
  * @param columns - display columns available.
- * @param options - placeholder, hint, and frame accent.
+ * @param options - placeholder, hint, and divider accent.
  * @returns the rows and cursor position.
  */
 /** The wrapped rows a box shows, and the window it shows them through. */
@@ -472,11 +472,11 @@ function boxLayout(
  *
  * Near misses clamp rather than miss: the text inside a box is a narrow target
  * and "just above the first line" or "past the end of this one" are ordinary
- * intentions, so a border row takes the nearest content row and a column
+ * intentions, so an edge row takes the nearest content row and a column
  * outside the text takes the nearest end of it.
  * @param view - what the editor is showing.
  * @param columns - display columns available to the whole box.
- * @param row - the row within the box's own rows, the top border at zero.
+ * @param row - the row within the box's own rows, the top divider at zero.
  * @param cell - the display column within that row, from zero.
  * @param shell - whether the leading `!` is the gutter rather than content.
  * @param geometry - the region's offsets; the box's by default.
@@ -517,9 +517,7 @@ export function inputBox(view: EditorView, theme: Theme, columns: number, option
   const shell = options.shell === true && (view.lines[0] ?? '').startsWith('!')
   const accent = options.accent ?? ((text: string) => theme.dim(text))
   const geometry = regionGeometry()
-  const inner = Math.max(8, columns - geometry.left)
   const budget = wrapBudget(columns, geometry)
-  const rule = '─'.repeat(inner + 2)
   const { lines, column, visual, cursorAt, start, end } = boxLayout(view, columns, shell, geometry)
   const shown = visual.slice(start, end)
 
@@ -528,25 +526,26 @@ export function inputBox(view: EditorView, theme: Theme, columns: number, option
   const hits = displayHits(view.hits, shell)
   const selection = displaySelection(view.selection, shell)
   const overlay = menuRows(view, theme, columns, options.hoveredCandidate)
-  const rows: string[] = [accent(`╭${rule}╮`)]
+  // A divider is the only edge the region needs: the frame was decoration that
+  // cost rows. It carries the accent so a mode still announces itself here.
+  const rows: string[] = [accent('─'.repeat(Math.max(1, columns)))]
   if (empty && (shell || options.placeholder !== undefined)) {
     const text = truncate(shell ? 'command' : (options.placeholder ?? ''), budget)
     const pad = ' '.repeat(Math.max(0, budget - displayWidth(text)))
-    rows.push(`${accent('│')} ${mark} ${theme.dim(text)}${pad} ${accent('│')}`)
+    rows.push(`${mark} ${theme.dim(text)}${pad}`)
   } else {
     shown.forEach((row, index) => {
       const first = start + index === 0
       const clippedAbove = index === 0 && start > 0
       const clippedBelow = index === shown.length - 1 && end < visual.length
       // The gutter marks the very first row; a clipped edge replaces it so a
-      // windowed box says there is more rather than looking complete.
+      // windowed region says there is more rather than looking complete.
       const gutter = clippedAbove || clippedBelow ? theme.dim('…') : first ? mark : ' '
       const painted = paintContent(row.text, row.logical, row.start, hits, selection, theme)
       const pad = ' '.repeat(Math.max(0, budget - displayWidth(row.text)))
-      rows.push(`${accent('│')} ${gutter} ${painted}${pad} ${accent('│')}`)
+      rows.push(`${gutter} ${painted}${pad}`)
     })
   }
-  rows.push(accent(`╰${rule}╯`))
 
   if (view.candidates.length === 0 && view.search !== undefined) {
     const failing = view.search.hits === 0

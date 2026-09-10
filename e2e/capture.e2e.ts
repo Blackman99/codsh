@@ -105,10 +105,13 @@ function keepRanges(rows: Run[][], from?: string): [number, number][] {
     const at = rows.findIndex(row => plain(row).includes(from))
     if (at > start) start = at - 1
   }
-  // The input box's top edge is where the chrome begins. Scanning up for the
-  // first blank row instead would stop inside the chrome, whose hint row is
-  // empty until something has a hint to give.
-  const box = rows.findIndex(row => plain(row).trimStart().startsWith('╭─'))
+  // The input region's divider is where the chrome begins: the last full-width
+  // rule on the screen. Scanning up for the first blank row instead would stop
+  // inside the chrome, whose hint row is empty until something has a hint.
+  const box = rows.findLastIndex(row => {
+    const trimmed = plain(row).trim()
+    return /^─+$/u.test(trimmed) && trimmed.length > 20
+  })
   const chrome = box > start ? box : -1
   if (chrome < 0) return [[start, rows.length - 1]]
   let content = chrome - 1

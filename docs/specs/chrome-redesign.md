@@ -430,7 +430,7 @@ print a policy error while exiting 0, so it cannot be used as evidence.
 
 - [x] Ticket 1: Input Region Geometry, Separated From the Frame — Delivers one explicit geometry source (left offset, row offset, gutter width) with the wrap budget, the pointer-to-buffer mapping and the composer's mouse hit-testing all routed through it. Changes no rendered output; it exists because the border width and the caret's left offset are the same number written twice today, and removing the border would shift three consumers at once. (Blocked by: none) (Track: 5)
 - [x] Ticket 2: A Step Reads as One Block — Delivers a gap at the step boundary and gives the block gap its own density-derived value, so a step's reasoning header, its body and its tool rows read as one block on one indent. Grouping and fold semantics unchanged. (Blocked by: none) (Track: 1,6)
-- [ ] Ticket 3: The Input Region Loses Its Border — Delivers the borderless region: a divider, the `›` mark, the input, and one help row carrying the commands-and-keys entry. The cursor geometry must survive exactly, which Ticket 1 is what makes a single-descriptor change. (Blocked by: Ticket 1) (Track: 5)
+- [x] Ticket 3: The Input Region Loses Its Border — Delivers the borderless region: a divider, the `›` mark, the input, and one help row carrying the commands-and-keys entry. The cursor geometry must survive exactly, which Ticket 1 is what makes a single-descriptor change. (Blocked by: Ticket 1) (Track: 5)
 - [ ] Ticket 4: Environment Facts Move to a Top Bar — Delivers a reserved row 0 carrying branch and directory on the left, context pressure on the right, plus the plan-mode and `/ship` gate chips; the foot drops directory, branch and model; the pinned sticky panel renders below the bar and yields its padding first. Also fixes the defect that a long path currently drops the branch first. (Blocked by: none) (Track: 3,4)
 - [ ] Ticket 5: One Restrained Palette — Delivers one semantic role per speaker (person, reasoning, tool, error) resolved through a single point, with decoration uncoloured, tools quieter than reasoning, and meaning surviving `NO_COLOR`. (Blocked by: Ticket 3, Ticket 4) (Track: 2)
 - [ ] Ticket 6: Interaction Preservation After the Frame Changed — A verification gate, not a licence to churn: proves every frozen key binding still reaches its feature after the geometry moved, and fixes only what the new frame actually broke. Accepted misses recorded in the commit message. (Blocked by: Ticket 3, Ticket 4) (Track: 7)
@@ -567,4 +567,76 @@ cannot run in this sandbox: all 15 tests fail with
 treated as evidence either way. The frame-level block-gap assertion named in
 the Testing Decisions belongs to `e2e/experience-chrome.e2e.ts` (Acceptance
 Criterion 1) and remains for the main session to run with PTY access.
+
+### Ticket 3 — The Input Region Loses Its Border (Track: 5)
+
+**Delivered.** `packages/bundle/src/inputbox.ts` no longer draws a box.
+`regionGeometry()` is now the single descriptor `{ left: 2, top: 1, gutter: 0 }`
+— two cells before the text (the `›` mark and the space after it) and no
+trailing reserve — so the wrap budget, the caret mapping and the composer's
+mouse hit-testing all shift from the one value. `inputBox()` emits a full-width
+`─` divider as row 0 (still carrying `accent`, so plan and shell modes announce
+themselves there), the input rows with the `›`/`!` mark, and the optional help
+row beneath, all laid out to the region's width. No row opens with `╭` or
+closes with `╮`/`╰`/`╯` any more. Grouping, folding and the menu overlay are
+untouched; the menu still floats above the region.
+
+**Red (witnessed before implementation).** New seam test
+`the borderless region (Track: 5) > paints a divider above the input instead of
+a frame` in `packages/bundle/tests/inputbox.spec.ts`:
+
+- `node node_modules/vitest/vitest.mjs run packages/bundle/tests/inputbox.spec.ts -t "borderless"`
+  → exit 1, `Test Files 1 failed (1)`, `Tests 1 failed | 48 skipped (49)`,
+  `AssertionError: expected '╭────────────────────────────────────…' to match /^─+$/u`.
+  Red at the new seam (the old frame is still painted), not a syntax or setup
+  error.
+
+**Green.**
+
+- `node node_modules/vitest/vitest.mjs run packages/bundle/tests/inputbox.spec.ts`
+  → exit 0, **1 file / 50 passed (50)**, 0 skipped (Acceptance Criterion 3).
+  The stale frame assertions in this file were rewritten to the borderless
+  contract rather than deleted: the divider/`›` shape, the one help row present
+  and stable empty vs. typing, wrapping, the cursor column, wide characters and
+  the selector emoji, the pointer-to-buffer mapping on the first, middle, last
+  and wrapped cell, shell mode, and a byte-identical pin of the borderless rows
+  and cursor for the empty and wrapped cases.
+- `node node_modules/vitest/vitest.mjs run packages/bundle/tests/inputbox.spec.ts packages/bundle/tests/prompt.spec.ts`
+  → exit 0, **2 files / 156 passed (156)**, 0 skipped (Acceptance Criterion 7).
+  The four composer pointer tests and the six chrome-shape tests in
+  `prompt.spec.ts` were re-expressed against the two-cell offset; the drag,
+  click-to-place-caret and cursor-row behaviours are unchanged in spirit.
+- `node node_modules/vitest/vitest.mjs run packages/bundle/tests/status.spec.ts packages/bundle/tests/transcript.spec.ts packages/bundle/tests/theme.spec.ts packages/bundle/tests/density.spec.ts`
+  → exit 0, **4 files / 265 passed (265)** (Acceptance Criterion 4).
+- `./node_modules/.bin/tsc --noEmit` → exit 0, no diagnostics (Criterion 6).
+- `node node_modules/vitest/vitest.mjs run` → exit 0, **53 files / 1431 tests**
+  passing, 0 skipped (baseline 53 / 1415 plus Ticket 1's 6, Ticket 2's 8 and
+  this ticket's 2; no regression, and the existing `agent-output-rendering`
+  assertions are unmodified) (Criterion 5).
+- Non-PTY regression, with the packed bundle rebuilt
+  (`node ../../node_modules/tsdown/dist/run.mjs`, then
+  `node ../../node_modules/typescript/bin/tsc -p tsconfig.build.json`, both
+  exit 0): `node node_modules/vitest/vitest.mjs run --config vitest.e2e.config.ts e2e/pipe.e2e.ts`
+  → exit 0, **19 passed (19)**. `e2e/wrapper.e2e.ts` could not run in this
+  sandbox for an unrelated environment reason — `npm pack` fails because the
+  npm cache contains root-owned files (`npm error Your cache folder contains
+  root-owned files`) — so it is not read as evidence either way.
+- The frame-level seam (`e2e/pty-helpers.ts`, `e2e/pty-input.e2e.ts`,
+  `e2e/pty-session.e2e.ts`, `e2e/pty-selectors.e2e.ts`,
+  `e2e/experience-viewport.e2e.ts`, `e2e/capture.e2e.ts`,
+  `e2e/experience-chrome.e2e.ts`) was updated where it named the old frame: the
+  shared `boxTops` now finds the full-width `─` divider, and the accent
+  assertion, the resize/streaming corruption checks and the find-row check use
+  the borderless shape. These are best-effort rewrites that need PTY access to
+  verify.
+
+**PTY note.** Ticket 3's own PTY proof,
+`node node_modules/vitest/vitest.mjs run --config vitest.e2e.config.ts e2e/pty-selectors.e2e.ts e2e/pty-mouse.e2e.ts e2e/experience-chrome.e2e.ts`,
+cannot run in this sandbox: 3 files / 24 tests fail with
+`OSError: out of pty devices` (exit 1; 48 occurrences), the `/dev/ptmx`
+denial, and are not treated as evidence either way. Acceptance Criteria 1, 2
+and 8 are the same PTY denial. The rendered frame, the byte-level accent on the
+divider and the cursor geometry on a real terminal remain for the main session
+to run with PTY access; the unit/tsc seam above is what this round can prove.
+
 

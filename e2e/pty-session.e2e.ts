@@ -190,8 +190,9 @@ describe.skipIf(process.platform === 'win32')('protocols and the session (real P
     terminal.feed(held.slice(resizeAt, settled < 0 ? held.length : settled + SYNC_END.length))
     const rows = terminal.alternate
     const foot = rows.slice(-5)
-    expect(foot.filter(row => row.trimStart().startsWith('╭─') && row.length > narrow / 2)).toHaveLength(1)
-    expect(rows.findLastIndex(row => row.trimStart().startsWith('╰─') && row.length > narrow / 2)).toBeGreaterThanOrEqual(PTY_ROWS - 4)
+    expect(foot.filter(row => /^─+$/u.test(row.trim()) && row.trim().length > narrow / 2)).toHaveLength(1)
+    const divider = rows.findIndex(row => /^─+$/u.test(row.trim()) && row.trim().length > narrow / 2)
+    expect(divider).toBeGreaterThanOrEqual(PTY_ROWS - 5)
     for (const row of rows) expect(row.length).toBeLessThanOrEqual(narrow)
     // The session kept working at the new size.
     expect(held.includes('still here')).toBe(true)

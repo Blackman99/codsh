@@ -50,22 +50,21 @@ describe.skipIf(process.platform === 'win32')('typing and keys (real PTY)', () =
     expect(output).toContain('@mock.cordis.patch.yml')
   }, E2E_TEST_TIMEOUT_MS)
 
-  it('draws a framed input box that closes on itself', async () => {
+  it('draws a borderless input region under a divider', async () => {
     const output = await drivePty('write', [
       ['Welcome to codsh', 'typed text', 0],
       ['typed text', `${CLEAR}/exit${ENTER}`, 300],
     ])
 
-    // A real frame around the real text, exactly one of it, pinned at the
-    // bottom of the session's own screen.
+    // Exactly one divider above the real text, pinned at the bottom of the
+    // session's own screen, with no frame around it.
     const screen = screenAt(output, 'typed text')
     const rows = screen.alternate
     expect(boxTops(screen)).toHaveLength(1)
-    // The typed text sits inside the frame, which closes on itself.
-    expect(rows.some(row => row.includes('│ › typed text') && row.endsWith('│'))).toBe(true)
-    // The frame's last row is within the chrome at the screen's foot.
-    const bottom = rows.findLastIndex(row => row.trimStart().startsWith('╰─') && row.length > PTY_COLUMNS / 2)
-    expect(bottom).toBeGreaterThanOrEqual(PTY_ROWS - 4)
+    expect(rows.some(row => row.includes('› typed text'))).toBe(true)
+    expect(rows.some(row => row.includes('│ › typed text'))).toBe(false)
+    // The divider is within the chrome at the screen's foot.
+    expect(boxTops(screen)[0] ?? -1).toBeGreaterThanOrEqual(PTY_ROWS - 5)
   }, E2E_TEST_TIMEOUT_MS)
 
   it('opens the completion menu as a command is typed', async () => {
@@ -171,7 +170,7 @@ describe.skipIf(process.platform === 'win32')('typing and keys (real PTY)', () =
       if (end < 0) break
       probe.feed(held.slice(from, end + SYNC_END.length))
       from = end + SYNC_END.length
-      if (probe.alternate.some(row => row.includes('│ › create the note'))) {
+      if (probe.alternate.some(row => row.includes('› create the note'))) {
         // Keep the LAST such frame: the first is the original typing, before
         // the tool card existed; the last is the recall.
         recalled = [...probe.alternate]
@@ -206,10 +205,10 @@ describe.skipIf(process.platform === 'win32')('typing and keys (real PTY)', () =
     expect(after).toContain('const alpha')
   }, E2E_TEST_TIMEOUT_MS)
 
-  it('keeps the box intact while lines wider than the terminal stream in', async () => {
-    // The reported corruption: streamed text sitting on the box's top border.
+  it('keeps the region intact while lines wider than the terminal stream in', async () => {
+    // The reported corruption: streamed text sitting on the region's divider.
     // Narrow window, lines far wider than it, deltas that ignore line ends —
-    // the box repaints many times inside one line.
+    // the region repaints many times inside one line.
     const output = await drivePty('wide', [
       ['Welcome to codsh', `stream something wide${ENTER}`, 2_500],
       ['WIDEDONE', `/exit${ENTER}`, 500],
@@ -220,10 +219,13 @@ describe.skipIf(process.platform === 'win32')('typing and keys (real PTY)', () =
     const offenders: string[] = []
     for (const frame of output.split(SYNC_END)) {
       probe.feed(frame + SYNC_END)
-      const border = probe.alternate.find(row => row.includes('╭'))
-      if (border === undefined) continue
-      // A top border is border and space; a letter on it is bled content.
-      if (/[A-Za-z]/u.test(border)) offenders.push(border.trim())
+      const divider = probe.alternate.find(row => {
+        const trimmed = row.trim()
+        return /^─+$/u.test(trimmed) && trimmed.length > 30
+      })
+      if (divider === undefined) continue
+      // A divider is a run of `─`; a letter on it is bled content.
+      if (/[A-Za-z]/u.test(divider)) offenders.push(divider.trim())
     }
     expect(offenders.slice(0, 3)).toEqual([])
   }, E2E_TEST_TIMEOUT_MS)

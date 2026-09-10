@@ -25,13 +25,16 @@ export function screenAt(output: string, marker: string, occurrence: 'first' | '
 }
 
 /**
- * Rows that start the INPUT box's frame.
+ * Rows that are the INPUT region's divider.
  *
- * The banner is boxed too, so width is what tells them apart: the input box
- * spans the terminal, the banner is as wide as its own text.
+ * The divider is a full-width run of `─` above the borderless input. Width is
+ * what tells it from a transcript table's rule or a banner row.
  */
 export const boxTops = (terminal: Terminal): number[] =>
-  terminal.alternate.flatMap((row, index) => row.trimStart().startsWith('╭─') && row.length > PTY_COLUMNS / 2 ? [index] : [])
+  terminal.alternate.flatMap((row, index) => {
+    const trimmed = row.trim()
+    return /^─+$/u.test(trimmed) && trimmed.length > PTY_COLUMNS / 2 ? [index] : []
+  })
 
 /** A painted row without the viewport gutter, for assertions on the content. */
 export const visible = (row: string): string => row.replace(/^ {2}/u, '').trimEnd()

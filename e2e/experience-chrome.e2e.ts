@@ -90,7 +90,7 @@ describe.skipIf(process.platform === 'win32')('the first five minutes: menus, se
     ])
     const rows = screenAt(output, 'find: CALL').alternate
     expect(rows.some(row => row.includes('find: CALL'))).toBe(true)
-    expect(rows.some(row => row.includes('│ › CALL'))).toBe(false)
+    expect(rows.some(row => row.includes('› CALL'))).toBe(false)
   }, E2E_TEST_TIMEOUT_MS)
 
   it('opens the shortcuts overlay on ? from an empty box', async () => {
