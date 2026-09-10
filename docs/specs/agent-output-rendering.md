@@ -1,6 +1,6 @@
 # Agent Output Rendering
 
-Status: planned
+Status: implementing
 Branch: ship/agent-output-rendering
 Base-Commit: 1c71c7a92f769f8b5d981bb5df0c4057d223bdba
 Original-Branch: main
@@ -462,7 +462,7 @@ the same verification without the gate. The final phase runs these verbatim.
 
 ## Plan
 
-- [ ] Ticket 1: Tool Verb Vocabulary and Group Label Builder — Delivers a new pure module mapping a call's declared presentation view to a closed category vocabulary, plus the merged group-header label builder (per-category counts, first-appearance order, present/past tense, failure segment). Changes no rendered output. (Blocked by: none) (Track: 3)
+- [x] Ticket 1: Tool Verb Vocabulary and Group Label Builder — Delivers a new pure module mapping a call's declared presentation view to a closed category vocabulary, plus the merged group-header label builder (per-category counts, first-appearance order, present/past tense, failure segment). Changes no rendered output. (Blocked by: none) (Track: 3)
 - [ ] Ticket 2: Tool Group Rows Replace Tool Cards — Delivers the end-to-end hierarchy change: one muted row per tool call with no panel, no amber name and no command highlight; consecutive calls aggregated into one group row carrying the Ticket 1 label; the group as a Fold expanding to its calls and their real diffs; reused soft cap and pager; subagent rows still openable; a chosen single-row tool bullet. Rewrites the pre-existing card-shape assertions rather than deleting them. (Blocked by: Ticket 1) (Track: 2,3,7,8)
 - [ ] Ticket 3: Destructive Commands Break Out of the Group — Delivers a pure, conservative classifier over the decision-13 category allowlist anchored to the command head, the destructive row rendered on its own alert-styled row instead of joining a group, and the rule that approval-gated calls never fold. (Blocked by: Ticket 2) (Track: 4)
 - [ ] Ticket 4: Live Thinking Preview Owns the Display Area — Delivers the density-derived live preview budget (3 compact / 6 comfortable), the unchanged one-line `✻ thought for Xs` settled summary, and the corrected `/ui` description in both README languages. (Blocked by: Ticket 2) (Track: 1,5)
@@ -508,3 +508,36 @@ that silently does not run is worse than a failing one.
 (`crates/codegen/xai-grok-pager/src/scrollback/blocks/thinking.rs`,
 `.../scrollback/state/verb_group.rs`, `.../scrollback/blocks/tool/mod.rs`, and
 `crates/codegen/xai-grok-pager-render/src/appearance/config.rs`).
+
+## Verification Log
+
+Progress writes only; the sealed Main Track is not touched.
+
+### Ticket 1 — Tool Verb Vocabulary and Group Label Builder (Track: 3)
+
+**Red (witnessed before implementation).** New seam
+`packages/bundle/tests/tool-group.spec.ts` against the stubbed module
+`packages/bundle/src/tool-group.ts`:
+
+- `node node_modules/vitest/vitest.mjs run packages/bundle/tests/tool-group.spec.ts`
+  → exit 1, `Tests 8 failed (8)`, every failure `Error: not implemented` at
+  `toolCategory` (`src/tool-group.ts:54`). Tracer-bullet red, not a syntax or
+  setup error.
+- Second red for the label slice: same command → exit 1,
+  `Tests 6 failed | 8 passed (14)`, every new failure `Error: not implemented`
+  at `toolGroupLabel` (`src/tool-group.ts:101`).
+
+**Green.**
+
+- `node node_modules/vitest/vitest.mjs run packages/bundle/tests/tool-group.spec.ts`
+  → exit 0, **14 passed (14), 0 skipped**. Covers: one variant per category
+  (terminal → command, diff → edit, search → search, read → read,
+  web/search+fetch → web-search/web-fetch, subagent names → subagent,
+  generic/absent → other), a throwing view → other without throwing,
+  pluralization at one and many for all eight categories, first-appearance
+  ordering, present vs past tense, the failure segment with its count and
+  absent at zero, and an empty run → `''`.
+- `./node_modules/.bin/tsc --noEmit` → exit 0, no diagnostics (real command;
+  not a `minimumReleaseAge` policy error).
+- `node node_modules/vitest/vitest.mjs run` → exit 0, **53 files / 1402 tests**
+  passing, 0 skipped (baseline 52 / 1388 plus the 14 new; no regression).
