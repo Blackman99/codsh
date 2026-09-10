@@ -1,6 +1,6 @@
 # Chrome Redesign
 
-Status: planned
+Status: shipped
 Branch: ship/chrome-redesign
 Base-Commit: a62d959a9d6b63ff6820350dc6d474d56136be1c
 Original-Branch: main
@@ -434,7 +434,7 @@ print a policy error while exiting 0, so it cannot be used as evidence.
 - [x] Ticket 4: Environment Facts Move to a Top Bar — Delivers a reserved row 0 carrying branch and directory on the left, context pressure on the right, plus the plan-mode and `/ship` gate chips; the foot drops directory, branch and model; the pinned sticky panel renders below the bar and yields its padding first. Also fixes the defect that a long path currently drops the branch first. (Blocked by: none) (Track: 3,4)
 - [x] Ticket 5: One Restrained Palette — Delivers one semantic role per speaker (person, reasoning, tool, error) resolved through a single point, with decoration uncoloured, tools quieter than reasoning, and meaning surviving `NO_COLOR`. (Blocked by: Ticket 3, Ticket 4) (Track: 2)
 - [x] Ticket 6: Interaction Preservation After the Frame Changed — A verification gate, not a licence to churn: proves every frozen key binding still reaches its feature after the geometry moved, and fixes only what the new frame actually broke. Accepted misses recorded in the commit message. (Blocked by: Ticket 3, Ticket 4) (Track: 7)
-- [ ] Ticket 7: Release and Documentation Compliance — Delivers the `codsh-bundle` changeset (distinct from the pre-existing `/ship`-chrome one), the bilingual README updates kept in parity, the `CONTEXT.md` terms (top bar, block gap, help row), and the captured visual artifact with its frame paths recorded. (Blocked by: Ticket 5, Ticket 6) (Track: 9)
+- [x] Ticket 7: Release and Documentation Compliance — Delivers the `codsh-bundle` changeset (distinct from the pre-existing `/ship`-chrome one), the bilingual README updates kept in parity, the `CONTEXT.md` terms (top bar, block gap, help row), and the captured visual artifact with its frame paths recorded. (Blocked by: Ticket 5, Ticket 6) (Track: 9)
 
 ## Baseline
 
@@ -958,3 +958,72 @@ deliberately left unticked and `Status:` stays `planned` until the main session
 runs the capture.
 
 
+
+## Final Verification (Phase 5)
+
+Run by the main session with PTY access, after the six stale frame assertions
+that the loop could not see were repaired. Every command below is the literal one
+from `## Acceptance Criteria`; every exit code was read from the run.
+
+| # | Criterion | Result |
+|---|---|---|
+| 1 | PTY chrome suite | exit 0 — **10 passed**, 0 skipped (baseline 9; +1 for the top-bar test) |
+| 2 | Whole PTY surface | exit 0 — 12 files passed / 1 skipped, **136 passed / 1 skipped, 0 failed** (baseline 135, +1) |
+| 3 | Input region geometry | exit 0 — **50 passed**, 0 skipped |
+| 4 | Top bar, block gap, palette | exit 0 — **266 passed** across status/transcript/theme/density |
+| 5 | Full unit suite | exit 0 — **54 files / 1444 passed**, 0 skipped (baseline 53/1415) |
+| 6 | Types clean | **exit 0**, no diagnostics |
+| 7 | Input genuinely borderless | exit 0 — **159 passed** across inputbox/prompt |
+| 8 | Shortcuts path survived | exit 0 — the matching test reports **passed, not skipped** (1 passed / 9 skipped) |
+| 9 | Bilingual README parity | counts **10** and **5**, both non-zero |
+| 10 | Release note | prints `.changeset/chrome-redesign.md`; the pre-existing `/ship`-chrome changeset does not satisfy it |
+| 11 | Visual artifact | exit 0 — **captured 8 screens → `site/data/screens.json`** |
+| 12 | Spec phase | `Status: shipped` |
+
+**Zero new failures against `## Baseline`.** Unit 1415 → **1444** (+29, nothing
+deleted). E2E 135 → **136** passed, 0 failed both before and after. Re-verified on
+the frozen tree: `tsc` exit 0.
+
+### Correction: the blocker was half right, and the other half hid six defects
+
+The loop stopped because Criterion 11 is PTY-only and writes
+`~/.cache/codsh/showcase`, outside its sandbox. That part was true, and the main
+session ran it: `CAPTURE_SCREENS=1 … e2e/capture.e2e.ts` exits 0 and writes 8
+screens.
+
+But the loop also listed Criteria 1, 2 and 8 as merely outstanding, and reported
+that the frame-seam rewrites from Tickets 2-6 were still to do. Running the suite
+found **six real failures** behind that summary — stale assertions naming places
+the new layout deliberately moved:
+
+1. Three tests asserted the model (`cli-mock`) on the foot's status row. The model
+   is no longer persistently painted anywhere: the bar carries ship/plan/branch
+   and the directory, the foot carries the reasoning level and `? shortcuts`.
+   Those assertions now name the workspace on row 0 and the shortcuts entry on the
+   foot, which is what they were really pinning — that bar and foot stay stable
+   while other chrome comes and goes.
+2. Two mouse tests pressed at row 1 before dragging. Row 0 is the environment bar
+   now, so the press landed on the bar, no selection started, and the PTY driver
+   **timed out instead of failing an assertion** — a silent hang, not a red test.
+   The presses move to row 2, the transcript's first row.
+3. The undo test anchored the input row on the frame's closing `│`; the input is
+   borderless, so it anchors on `›` instead.
+
+Had Criterion 2 been taken as "outstanding" and left unrun, all six would have
+shipped.
+
+### Two observations carried forward, not fixed here
+
+Both are consistent with the sealed Main Track, so neither was changed silently:
+
+- **The model name has no persistent home.** Track-3 and the reference image put
+  ship/plan/branch/directory and context pressure on the bar, and the foot keeps
+  only the reasoning level and the shortcuts entry. The model is reachable in
+  `/status` but is no longer visible at a glance. If it should be, that is a new
+  decision about where it goes, not a defect in this one.
+- **Context pressure is usually invisible.** `topBar` inherits the old
+  alarming-headroom policy: it renders `N% left` only at 25% or below, so the
+  right side of the bar is empty in a healthy session. The plan's User Story 6
+  ("as context fills up, I want it on the same top bar") is satisfied at that
+  threshold, but if the intent was the reference's always-on figure, the threshold
+  is the thing to change.
