@@ -56,9 +56,9 @@ describe.skipIf(process.platform === 'win32')('approvals and selectors (real PTY
     const plain = output.replaceAll(/\u001B\[[0-9;?]*[A-Za-z]/gu, '')
     expect(plain).toContain('▲ plan mode')
     expect(plain).toContain('▼ plan mode off')
-    // Plan mode paints the divider with warn (amber on 256-color, bright yellow otherwise); idle focus uses accent cyan.
+    // Plan mode paints the divider with warn (amber on 256-color, bright yellow otherwise); idle focus leaves the divider uncoloured, because the region's edge is not a mode.
     expect(output).toMatch(/\u001B\[(?:38;5;172|93)m─/)
-    expect(output).toContain('\u001B[36m─')
+    expect(output).not.toContain('\u001B[36m─')
   }, E2E_TEST_TIMEOUT_MS)
 
   it('switches the model through the /model selector, all the way to the request', async () => {

@@ -1705,7 +1705,7 @@ export class Prompt {
       const bang = (this.editor.view.lines[0] ?? '').startsWith('!')
       const box = inputBox(this.editor.view, this.theme, columns, {
         placeholder: this.placeholder,
-        accent: bang ? text => this.theme.pending(text) : this.accent ?? (text => this.theme.accent(text)),
+        accent: bang ? text => this.theme.pending(text) : this.accent,
         shell: bang,
         hoveredCandidate: this.menuHover,
       })

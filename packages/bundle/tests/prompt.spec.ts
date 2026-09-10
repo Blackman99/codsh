@@ -109,10 +109,11 @@ function build(
   readsKeys = true,
   clipboard?: () => Promise<{ data: Buffer; mediaType: 'image/png'; width?: number; height?: number } | undefined>,
   steer?: (item: QueueItem) => Promise<'steered' | 'idle'>,
+  painting = theme,
 ) {
   const console = fakeConsole(readsKeys)
   const calls: string[] = []
-  const prompt = new Prompt(console as never, theme, sources, {
+  const prompt = new Prompt(console as never, painting, sources, {
     interrupt: () => void calls.push('interrupt'),
     escape: () => void calls.push('escape'),
     eof: () => void calls.push('eof'),
@@ -257,6 +258,16 @@ describe('the region it composes', () => {
     expect(top).toMatch(/^─+$/u)
     expect(top).not.toContain('…')
     expect(displayWidth(top)).toBe(console.contentColumns)
+  })
+
+  it('leaves the divider uncoloured, so decoration carries no meaning', () => {
+    const painted = createTheme(true, {})
+    const { prompt, console } = build(true, undefined, undefined, painted)
+    void prompt.read()
+    const divider = console.draws.at(-1)?.rows[0] ?? ''
+    // The divider is the region's edge, not a mode: a mode announces itself
+    // through the accent the caller passes, and the default carries no hue.
+    expect(divider).toBe(painted.dim('─'.repeat(console.contentColumns)))
   })
 
   it('puts the streaming line above the box and shifts the cursor down', () => {

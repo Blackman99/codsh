@@ -432,7 +432,7 @@ print a policy error while exiting 0, so it cannot be used as evidence.
 - [x] Ticket 2: A Step Reads as One Block — Delivers a gap at the step boundary and gives the block gap its own density-derived value, so a step's reasoning header, its body and its tool rows read as one block on one indent. Grouping and fold semantics unchanged. (Blocked by: none) (Track: 1,6)
 - [x] Ticket 3: The Input Region Loses Its Border — Delivers the borderless region: a divider, the `›` mark, the input, and one help row carrying the commands-and-keys entry. The cursor geometry must survive exactly, which Ticket 1 is what makes a single-descriptor change. (Blocked by: Ticket 1) (Track: 5)
 - [x] Ticket 4: Environment Facts Move to a Top Bar — Delivers a reserved row 0 carrying branch and directory on the left, context pressure on the right, plus the plan-mode and `/ship` gate chips; the foot drops directory, branch and model; the pinned sticky panel renders below the bar and yields its padding first. Also fixes the defect that a long path currently drops the branch first. (Blocked by: none) (Track: 3,4)
-- [ ] Ticket 5: One Restrained Palette — Delivers one semantic role per speaker (person, reasoning, tool, error) resolved through a single point, with decoration uncoloured, tools quieter than reasoning, and meaning surviving `NO_COLOR`. (Blocked by: Ticket 3, Ticket 4) (Track: 2)
+- [x] Ticket 5: One Restrained Palette — Delivers one semantic role per speaker (person, reasoning, tool, error) resolved through a single point, with decoration uncoloured, tools quieter than reasoning, and meaning surviving `NO_COLOR`. (Blocked by: Ticket 3, Ticket 4) (Track: 2)
 - [ ] Ticket 6: Interaction Preservation After the Frame Changed — A verification gate, not a licence to churn: proves every frozen key binding still reaches its feature after the geometry moved, and fixes only what the new frame actually broke. Accepted misses recorded in the commit message. (Blocked by: Ticket 3, Ticket 4) (Track: 7)
 - [ ] Ticket 7: Release and Documentation Compliance — Delivers the `codsh-bundle` changeset (distinct from the pre-existing `/ship`-chrome one), the bilingual README updates kept in parity, the `CONTEXT.md` terms (top bar, block gap, help row), and the captured visual artifact with its frame paths recorded. (Blocked by: Ticket 5, Ticket 6) (Track: 9)
 
@@ -721,5 +721,95 @@ treated as evidence either way. Acceptance Criteria 1 and 2 are the same
 denial. The live first-row bar, the context figure changing with a reported
 sample, and the resize re-layout remain for the main session to run with PTY
 access; the unit/tsc seam above is what this round can prove.
+
+### Ticket 5 — One Restrained Palette (Track: 2)
+
+**Delivered.** `packages/bundle/src/theme.ts` now names the four speaker roles
+explicitly: `person`, `reasoning`, `tool`, `error`. `person` is a new role
+(blue) used for the `›` mark; `reasoning` is the old `agent` role (magenta);
+`tool` re-weights from amber to the muted structural weight (`tool === muted`,
+bright black), so tools are the quietest speaking role; `error` stays red.
+`user` is now an alias for `person` — it used to alias `agent` — and `agent`
+for `reasoning`, so the input marker and the transcript's person rule resolve
+to one painting. `packages/bundle/src/gutter.ts` resolves its `user` and
+`thinking` rules through `theme.person` and `theme.reasoning` instead of
+`theme.accent` and `theme.agent`, which is the drift the old gutter carried
+(cyan in the transcript, magenta in the input). `packages/bundle/src/prompt.ts`
+stops defaulting the input divider to `theme.accent`: it passes an accent only
+when a mode provides one (plan) or the region is in shell mode, so the default
+divider is the region's own dim edge. New `packages/bundle/tests/gutter.spec.ts`
+pins the single-point mapping and the marks.
+
+**Red (witnessed before implementation).**
+
+- `theme.person`/`theme.reasoning` absent:
+  `node node_modules/vitest/vitest.mjs run packages/bundle/tests/theme.spec.ts -t "paints one role per speaker"`
+  → exit 1, `Test Files 1 failed (1)`, `Tests 1 failed | 41 skipped (42)`,
+  `TypeError: theme.person is not a function` at `theme.spec.ts:102`. Red at
+  the new role, not a syntax or setup error.
+- The person role drifted between the transcript and the input:
+  `node node_modules/vitest/vitest.mjs run packages/bundle/tests/gutter.spec.ts`
+  → exit 1, `Tests 1 failed (1)`, `AssertionError: expected '\u001b[36m› \u001b[0m' to be '\u001b[34m› \u001b[0m'`
+  at `gutter.spec.ts:13` — the gutter's cyan against the role's blue.
+- The alias call site still drifted:
+  `node node_modules/vitest/vitest.mjs run packages/bundle/tests/gutter.spec.ts`
+  → exit 1, `Tests 1 failed | 1 passed (2)`,
+  `expected '\u001b[35m› \u001b[0m' to be '\u001b[34m› \u001b[0m'` at
+  `gutter.spec.ts:24` — the input's magenta against the role's blue.
+- The tool role was not the quiet weight:
+  `node node_modules/vitest/vitest.mjs run packages/bundle/tests/theme.spec.ts -t "quietest speaking role"`
+  → exit 1, `Tests 1 failed | 42 skipped (43)`,
+  `expected '\u001b[33mx\u001b[0m' to be '\u001b[90mx\u001b[0m'` at
+  `theme.spec.ts:110`.
+- The default divider was accented:
+  `node node_modules/vitest/vitest.mjs run packages/bundle/tests/prompt.spec.ts -t "leaves the divider uncoloured"`
+  → exit 1, `Tests 1 failed | 107 skipped (108)`, expected the dim divider
+  `\u001b[2m───…`, received the accent divider `\u001b[36m───…` at
+  `prompt.spec.ts:270`.
+
+**Green.**
+
+- Ticket 5 command:
+  `node node_modules/vitest/vitest.mjs run packages/bundle/tests/theme.spec.ts packages/bundle/tests/gutter.spec.ts`
+  → exit 0, **2 files / 48 passed (48)**, 0 skipped. New coverage: the four
+  roles distinct from each other; the tool role on the muted weight and
+  reasoning off it; every role unstyled under `NO_COLOR`; the background-fill
+  roles resolving for their non-transcript callers; all six gutter roles
+  resolving through the theme role; and the `›` and `✻` marks present and
+  unstyled under `NO_COLOR`.
+- `node node_modules/vitest/vitest.mjs run packages/bundle/tests/inputbox.spec.ts`
+  → exit 0, **1 file / 50 passed (50)**, 0 skipped (Acceptance Criterion 3).
+- `node node_modules/vitest/vitest.mjs run packages/bundle/tests/inputbox.spec.ts packages/bundle/tests/prompt.spec.ts`
+  → exit 0, **2 files / 158 passed (158)**, 0 skipped (Criterion 7), including
+  the new assertion that the default divider is the uncoloured dim edge.
+- `node node_modules/vitest/vitest.mjs run packages/bundle/tests/status.spec.ts packages/bundle/tests/transcript.spec.ts packages/bundle/tests/theme.spec.ts packages/bundle/tests/density.spec.ts`
+  → exit 0, **4 files / 266 passed (266)**, 0 skipped (Criterion 4).
+- `./node_modules/.bin/tsc --noEmit` → exit 0, no diagnostics (Criterion 6).
+- `node node_modules/vitest/vitest.mjs run` → exit 0, **54 files / 1442 tests**
+  passing, 0 skipped (baseline 53 / 1434 plus this ticket's 8; no regression,
+  and the existing `agent-output-rendering` assertions in `transcript.spec.ts`
+  are untouched) (Criterion 5).
+- Non-PTY regression, with the packed bundle rebuilt
+  (`node ../../node_modules/tsdown/dist/run.mjs`, then
+  `node ../../node_modules/typescript/bin/tsc -p tsconfig.build.json`, both
+  exit 0): `node node_modules/vitest/vitest.mjs run --config vitest.e2e.config.ts e2e/pipe.e2e.ts`
+  → exit 0, **19 passed (19)**.
+
+**Stale assertions re-expressed, not weakened.** `theme.spec.ts`'s pinned
+palette now names the new roles (`person` blue, `tool` on the muted weight).
+`inputbox.spec.ts`'s `/command` and `$skill` hue pins and `markdown.spec.ts`'s
+inline-code hue pin now assert through `colour.tool(...)` and
+`colour.user(...)`, so they track the role rather than a literal shade.
+`e2e/pty-selectors.e2e.ts` stops asserting the idle divider is accent cyan and
+asserts it is not, since only a mode accents it now (frame seam, needs PTY
+access to run).
+
+**PTY note.** Ticket 5's own proof,
+`node node_modules/vitest/vitest.mjs run --config vitest.e2e.config.ts e2e/experience-reading.e2e.ts e2e/experience-chrome.e2e.ts`,
+cannot run in this sandbox: 2 files / 18 tests fail with
+`OSError: out of pty devices` (exit 1; 36 occurrences), the `/dev/ptmx`
+denial, and are not treated as evidence either way. Acceptance Criteria 1, 2, 8
+and 11 remain for the main session to run with PTY access; the unit/tsc seam
+above is what this round can prove.
 
 

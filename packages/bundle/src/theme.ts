@@ -52,17 +52,21 @@ export interface Theme {
   color(spec: string): ((text: string) => string) | undefined
   /** Secondary chrome text (status model/cwd, legend, separators). */
   muted(text: string): string
-  /** Focus and selection only: input frame default, marked selector rows. */
+  /** Focus and selection only: a marked selector row, a modal's edit target. */
   accent(text: string): string
-  /** Agent / user identity colour. */
+  /** The agent's mark outside the transcript; alias for {@link Theme.reasoning}. */
   agent(text: string): string
+  /** The person's own voice: the `›` mark on a prompt or the input marker. */
+  person(text: string): string
+  /** The agent's reasoning: the `✻` thinking mark and its fold rules. */
+  reasoning(text: string): string
   /** Failures and alarms. */
   err(text: string): string
   /** Completed work and added diff lines. */
   ok(text: string): string
   /** Warnings and pending state. */
   warn(text: string): string
-  /** Tool names and card titles. */
+  /** Tool names and rules: the quietest speaking role, on the muted weight. */
   tool(text: string): string
   /** File paths and locations. */
   path(text: string): string
@@ -72,7 +76,7 @@ export interface Theme {
   success(text: string): string
   /** Alias for {@link Theme.warn}. */
   pending(text: string): string
-  /** Alias for {@link Theme.agent}. */
+  /** Alias for {@link Theme.person}. */
   user(text: string): string
   /** Adopt the light- or dark-background palette. */
   setLight(light: boolean): void
@@ -120,6 +124,8 @@ const PLAIN: Theme = {
   muted: text => text,
   accent: text => text,
   agent: text => text,
+  person: text => text,
+  reasoning: text => text,
   err: text => text,
   ok: text => text,
   warn: text => text,
@@ -176,8 +182,12 @@ export function createTheme(isTty: boolean, env: Record<string, string | undefin
   const err = wrap(SGR.red)
   const ok = wrap(SGR.green)
   const warn = (text: string): string => `${palette ? amber : SGR.brightYellow}${text}${SGR.reset}`
-  const tool = (text: string): string => `${palette ? amber : SGR.yellow}${text}${SGR.reset}`
+  const muted = wrap(SGR.brightBlack)
+  // Tools are the quietest speaking role: their names and rules carry no hue
+  // of their own, so the agent's reasoning stays the thing that reads.
+  const tool = muted
   const agent = wrap(SGR.magenta)
+  const person = wrap(SGR.blue)
 
   const wrapBg = (getSeq: () => string) => (text: string): string => {
     if (text === '') return ''
@@ -266,9 +276,11 @@ export function createTheme(isTty: boolean, env: Record<string, string | undefin
       if (palette) return wrap(`\u001B[38;5;${nearest256(red, green, blue)}m`)
       return wrap(`\u001B[${nearestAnsi(red, green, blue)}m`)
     },
-    muted: wrap(SGR.brightBlack),
+    muted,
     accent: wrap(SGR.cyan),
     agent,
+    person,
+    reasoning: agent,
     err,
     ok,
     warn,
@@ -277,7 +289,7 @@ export function createTheme(isTty: boolean, env: Record<string, string | undefin
     error: err,
     success: ok,
     pending: warn,
-    user: agent,
+    user: person,
     bgUser: wrapBg(getBgUser),
     bgTool: wrapBg(getBgTool),
     bgThinking: wrapBg(getBgThinking),

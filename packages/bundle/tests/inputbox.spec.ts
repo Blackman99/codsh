@@ -192,13 +192,13 @@ describe('visual hierarchy', () => {
       column: 5,
       hits: [{ row: 0, start: 0, end: 5, kind: 'command' }],
     }), colour, 60)
-    expect(command.rows[1]).toContain('\u001B[38;5;172m/plan\u001B[0m')
+    expect(command.rows[1]).toContain(colour.tool('/plan'))
     const skill = inputBox(view({
       lines: ['use $grill-me now'],
       column: 17,
       hits: [{ row: 0, start: 4, end: 13, kind: 'skill' }],
     }), colour, 60)
-    expect(skill.rows[1]).toContain('\u001B[35m$grill-me\u001B[0m')
+    expect(skill.rows[1]).toContain(colour.user('$grill-me'))
     expect(skill.rows[1]).toContain('use ')
     expect(skill.rows[1]).toContain(' now')
   })

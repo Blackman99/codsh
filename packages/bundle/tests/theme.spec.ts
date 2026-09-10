@@ -27,8 +27,10 @@ describe('createTheme', () => {
     const theme = createTheme(true, {})
     expect(theme.muted('x')).toBe('\u001B[90mx\u001B[0m')
     expect(theme.accent('x')).toBe('\u001B[36mx\u001B[0m')
-    expect(theme.agent('x')).toBe('\u001B[35mx\u001B[0m')
-    expect(theme.tool('x')).toBe('\u001B[33mx\u001B[0m')
+    expect(theme.person('x')).toBe('\u001B[34mx\u001B[0m')
+    expect(theme.reasoning('x')).toBe('\u001B[35mx\u001B[0m')
+    // The tool role is the quiet structural weight, not a competing hue.
+    expect(theme.tool('x')).toBe('\u001B[90mx\u001B[0m')
     expect(theme.ok('x')).toBe('\u001B[32mx\u001B[0m')
     expect(theme.warn('x')).toBe('\u001B[93mx\u001B[0m')
     expect(theme.err('x')).toBe('\u001B[31mx\u001B[0m')
@@ -93,6 +95,36 @@ describe('createTheme', () => {
     const noColor = createTheme(true, { NO_COLOR: '1' })
     expect(noColor.bgUser('prompt')).toBe('prompt')
     expect(noColor.diffDel('- line')).toBe('- line')
+  })
+})
+
+describe('the semantic speaker roles', () => {
+  it('paints one role per speaker, and the four are distinct', () => {
+    const theme = createTheme(true, {})
+    const painted = [theme.person('x'), theme.reasoning('x'), theme.tool('x'), theme.error('x')]
+    expect(new Set(painted).size).toBe(4)
+  })
+
+  it('keeps the tool role the quietest speaking role, behind reasoning', () => {
+    const theme = createTheme(true, {})
+    // Tools recede to the structural weight; the agent's reasoning stays a
+    // real role rather than blending into the chrome.
+    expect(theme.tool('x')).toBe(theme.muted('x'))
+    expect(theme.reasoning('x')).not.toBe(theme.muted('x'))
+  })
+
+  it('resolves every speaker role unstyled under NO_COLOR', () => {
+    const plain = createTheme(true, { NO_COLOR: '1' })
+    for (const role of [plain.person, plain.reasoning, plain.tool, plain.error]) {
+      expect(role('x')).toBe('x')
+    }
+  })
+
+  it('keeps the background-fill roles for their non-transcript callers', () => {
+    const theme = createTheme(true, { COLORTERM: 'truecolor' })
+    for (const role of [theme.bgUser, theme.bgTool, theme.bgThinking, theme.bgError, theme.bgCode, theme.bgMeta]) {
+      expect(role('x')).toContain('\u001B[48;2;')
+    }
   })
 })
 
@@ -208,20 +240,20 @@ describe('truncate', () => {
     expect(theme.dim('x')).toBe('\u001B[38;5;245mx\u001B[0m')
   })
 
-  it('upgrades warning and tool styling to an amber shade on a 256-colour terminal', () => {
+  it('keeps warning on the amber shade and the tool role on the quiet weight', () => {
     const theme = createTheme(true, { TERM: 'xterm-256color' })
     expect(theme.warn('x')).toBe('\u001B[38;5;172mx\u001B[0m')
-    expect(theme.tool('x')).toBe('\u001B[38;5;172mx\u001B[0m')
+    expect(theme.tool('x')).toBe('\u001B[90mx\u001B[0m')
   })
 
-  it('swaps the amber shade for a light background, and back', () => {
+  it('swaps the amber warning shade for a light background, and back', () => {
     const theme = createTheme(true, { TERM: 'xterm-256color' })
     theme.setLight(true)
     expect(theme.warn('x')).toBe('\u001B[38;5;130mx\u001B[0m')
-    expect(theme.tool('x')).toBe('\u001B[38;5;130mx\u001B[0m')
+    expect(theme.tool('x')).toBe('\u001B[90mx\u001B[0m')
     theme.setLight(false)
     expect(theme.warn('x')).toBe('\u001B[38;5;172mx\u001B[0m')
-    expect(theme.tool('x')).toBe('\u001B[38;5;172mx\u001B[0m')
+    expect(theme.tool('x')).toBe('\u001B[90mx\u001B[0m')
   })
 
   it('reads lightness out of an OSC color answer', () => {

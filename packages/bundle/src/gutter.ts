@@ -20,9 +20,9 @@ export type GutterRole = 'user' | 'thinking' | 'tool' | 'error' | 'answer' | 'sy
 export function gutter(role: GutterRole, theme: Theme): string {
   switch (role) {
     case 'user':
-      return theme.accent('› ')
+      return theme.person('› ')
     case 'thinking':
-      return theme.agent('✻ ')
+      return theme.reasoning('✻ ')
     case 'tool':
       return theme.tool('│ ')
     case 'error':
