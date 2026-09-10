@@ -362,8 +362,8 @@ _Avoid_: inject (dsh's model-facing context), interrupt, follow-up
 
 **Ship gates**:
 The two approvals in the `/ship` workflow — the confirmed spec file (gate 1)
-and the approved ticket breakdown (gate 2). Everything after gate 2 is
-autonomous. Grill-me runs first as the grill-me skill (recon, design tree,
+and the approved ticket breakdown (gate 2). Gate 1 Confirm seals the Main Track.
+Everything after gate 2 is autonomous. Grill-me runs first as the grill-me skill (recon, design tree,
 frontier rounds with recommended answers, exhaustion handshake); to-spec and
 to-tickets then run as those skills (exhaustive stories, vertical tickets
 with a DAG and per-ticket acceptance, `.scratch/` plus tracker when
@@ -376,9 +376,40 @@ not the conversation: the approved tickets live in it as checkboxes, its
 `Status:` line names the phase, a baseline run is recorded before any code,
 each green ticket is committed, and a bare `/ship` offers to resume
 whatever it finds unfinished. One module owns that memory for a session —
-Plan progress, the MetaBar chip, the spec poll, and the canned phase loop —
-so the runner only begins, notes a write, or aborts.
-_Avoid_: checkpoints, review steps
+Plan progress, the MetaBar chip, the spec poll, occupancy, the sealed-track
+snapshot, and the canned phase loop — so the runner only begins, notes a
+write, or aborts. Occupancy is a Selector, not a third gate. Chrome stays
+the MetaBar chip and plan row; there is no GoalBar.
+_Avoid_: checkpoints, review steps, GoalBar
+
+**Main Track**:
+The compact compass `/ship` writes into the spec: the one-sentence idea,
+numbered Track-N grill decisions, and Out of Scope — not the full spec.
+Gate 1 Confirm freezes it. Later phase turns are prepended with a process
+snapshot of that section captured at seal time, so landing cannot rewrite
+the design to match what it already built. A needed contradiction is a
+blocker, never a silent spec edit. Progress (Status, checkboxes, proof
+logs) remains writable.
+_Avoid_: live reread, silent rewrite, GoalBar
+
+**Occupancy**:
+Before the first `/ship` phase turn, if an unrelated current `/goal` exists,
+the runner pauses it then asks a Selector titled `ship · occupancy` —
+Replace or Abort. TTY Esc/cancel is Abort: resume the paused stranger and
+stop `/ship`. Off a TTY, auto-Replace. A goal is ours when its id matches
+the spec `Goal-Id:` or its objective starts with `[ship]`; ours is reused
+without asking. Occupancy is not a ship gate.
+_Avoid_: occupancy gate, silent steal, GoalBar
+
+**Hybrid compass**:
+The spec stays durable memory; the harness `/goal` is a disarmed session
+compass whose objective is `[ship]` plus the Main Track. `/ship` remains
+the scheduler and never arms continuation, so a generic goal-round cannot
+fight the current phase. During a run, `/goal` shows that compass; it
+stays the ordinary human command, not a canned `/ship`-style prompt.
+Missing or throwing goal service degrades: spec+prepend still binds later
+phases.
+_Avoid_: armed continuation, canned /goal, second scheduler
 
 ### Alignment pipeline
 
