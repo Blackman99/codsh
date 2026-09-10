@@ -22,7 +22,7 @@ import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import type { FileDiff, ToolCallView, ToolResult, ToolResultView } from '@deepseek-ai/dsh-tools'
 import { blockRules } from './gutter.ts'
 import { renderMarkdown } from './markdown.ts'
-import { DEFAULT_DENSITY, DIFF_SOFT_CAP, type Density } from './density.ts'
+import { DEFAULT_DENSITY, DIFF_SOFT_CAP, blockGap, type Density } from './density.ts'
 import { displayWidth, oneRow, truncate } from './theme.ts'
 import { todoReport } from './todos.ts'
 import { toolCategory, toolGroupLabel, type ToolCategory } from './tool-group.ts'
@@ -379,6 +379,10 @@ export class Transcript {
   private readonly roundWork = new Map<string, string>()
   /** Whether a real user turn has already been painted — comfortable gaps after the first. */
   private sawUser = false
+  /** Whether the step before the boundary painted a block, so it owes a gap. */
+  private paintedStep = false
+  /** Whether the last block the renderer emitted already ended on a separator. */
+  private trailingBlank = false
   /** The pending card the block {@link render} just returned supersedes. */
   private pendingCard: readonly string[] = []
   /**
@@ -471,11 +475,45 @@ export class Transcript {
     const hadRun = this.group !== undefined
     const lines = this.renderBlock(event, hadRun)
     // Only consecutive tool calls share a group; assistant prose and a
-    // real-user message end it, and their own leading rows are the gap.
-    if (lines.length > 0 && event.type !== 'tool/call' && event.type !== 'tool/result') {
+    // real-user message end it, and their own leading rows are the gap. A
+    // step boundary does not end a run: grouping is not reopened here.
+    if (lines.length > 0 && event.type !== 'tool/call' && event.type !== 'tool/result' && event.type !== 'step/start') {
       this.group = undefined
     }
+    if (event.type !== 'step/start') this.notePainted(event, lines)
     return lines
+  }
+
+  /**
+   * Remember what the block just rendered leaves behind, for the next boundary.
+   *
+   * A real user message is the turn's own separator, so the first step after it
+   * must not add a second blank.
+   * @param event - the event just rendered.
+   * @param lines - the rows it emitted.
+   */
+  private notePainted(event: SessionEvent, lines: readonly string[]): void {
+    if (event.type === 'user/message') this.paintedStep = false
+    else if (lines.length > 0) this.paintedStep = true
+    if (lines.length > 0) this.trailingBlank = lines.at(-1) === ''
+  }
+
+  /**
+   * Open a new step with the density's block gap, when the previous step
+   * painted and did not already end on a separator.
+   *
+   * The gap belongs to the step it precedes, not the one it follows, so a turn
+   * that stops after its last step still ends on that step's content. Emitting
+   * it here — the first row of the new block — is what keeps the transcript the
+   * owner of "what is one step".
+   * @returns the gap rows, empty when no gap is due.
+   */
+  private takeStepGap(): string[] {
+    const due = this.paintedStep && !this.trailingBlank
+    this.paintedStep = false
+    if (!due) return []
+    this.trailingBlank = true
+    return Array.from({ length: blockGap(this.options.density ?? DEFAULT_DENSITY) }, () => '')
   }
 
   /**
@@ -610,6 +648,10 @@ export class Transcript {
       case 'tool-workflow/run-end':
         this.rule = rules.tool
         return [theme.bgTool(theme.dim(`  ${event.data.stopReason}`)), '']
+      case 'step/start':
+        // A step boundary is not prose: the gap it opens leaves the tail run
+        // intact, so calls across the boundary still group exactly as before.
+        return this.takeStepGap()
       default:
         // Merge-extensible map: an event this surface shows nothing for.
         return []

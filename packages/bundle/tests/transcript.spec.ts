@@ -9,6 +9,7 @@ import { destructiveCategory } from '../src/destructive.ts'
 import type { ToolCallView, ToolResultView } from '@deepseek-ai/dsh-tools'
 import { describe, expect, it } from 'vitest'
 import { createTheme, displayWidth } from '../src/theme.ts'
+import { ThinkingTracker } from '../src/streaming.ts'
 import { Transcript, blockRules, childSessionId, formatAskUserQuestionResult, presentAskUserQuestionResult, thinkingFold, thinkingFoldRules, type ToolPresenters } from '../src/transcript.ts'
 import type { Density } from '../src/density.ts'
 
@@ -1118,6 +1119,101 @@ describe('transcript density', () => {
       expect(transcript.render(resultEvent('c1', 'ok'))).toEqual(['● Edited 1 file'])
       expect(transcript.takePage()).toBeDefined()
     }
+  })
+})
+
+describe('a step boundary is a gap', () => {
+  /** A `step/start` event, the boundary between two steps of one turn. */
+  const stepStart = (step: number): SessionEvent =>
+    ({ type: 'step/start', seq: step, time: 0, data: { turn: 1, step } }) as SessionEvent
+
+  /** A real user turn. */
+  const user = (text: string): SessionEvent => ({
+    type: 'user/message',
+    seq: 1,
+    time: 0,
+    data: { role: 'user', content: [{ type: 'text', text }], source: { kind: 'user' } },
+  }) as unknown as SessionEvent
+
+  /** Transcript at a named density with no presenters, so rows are deterministic. */
+  const at = (density: Density): Transcript =>
+    new Transcript({ theme, columns: 80, cwd: CWD, density }, { call: () => undefined, result: () => undefined })
+
+  it('opens the step after a painted one with one blank row', () => {
+    const transcript = at('compact')
+    expect(transcript.render(stepStart(1))).toEqual([])
+    expect(transcript.render(callEvent('c1', 'read', {})).length).toBeGreaterThan(0)
+    expect(transcript.render(stepStart(2))).toEqual([''])
+  })
+
+  it('gives comfortable a roomier gap, so the spacing axis cannot collapse', () => {
+    const compact = at('compact')
+    compact.render(callEvent('c1', 'read', {}))
+    const comfortable = at('comfortable')
+    comfortable.render(callEvent('c1', 'read', {}))
+    expect(compact.render(stepStart(2))).toEqual([''])
+    expect(comfortable.render(stepStart(2))).toEqual(['', ''])
+  })
+
+  it('leaves the first step of a turn flush under its prompt', () => {
+    const transcript = at('compact')
+    transcript.render(user('go'))
+    expect(transcript.render(stepStart(1))).toEqual([])
+  })
+
+  it('keeps consecutive tool calls of one step in one run, with no gap between them', () => {
+    const transcript = at('compact')
+    transcript.render(stepStart(1))
+    transcript.render(callEvent('c1', 'read', {}))
+    transcript.render(resultEvent('c1', ''))
+    expect(transcript.render(callEvent('c2', 'read', {}))).not.toContain('')
+  })
+
+  it('never emits the gap twice when the next step paints nothing', () => {
+    const transcript = at('compact')
+    transcript.render(callEvent('c1', 'read', {}))
+    expect(transcript.render(stepStart(2))).toEqual([''])
+    expect(transcript.render(stepStart(3))).toEqual([])
+  })
+
+  it('leaves the turn\'s last step as the last row, with no gap after it', () => {
+    const transcript = at('compact')
+    transcript.render(stepStart(1))
+    transcript.render(callEvent('c1', 'read', {}))
+    transcript.render(resultEvent('c1', ''))
+    // Step two paints, and the turn then ends: the gap is behind it, not after.
+    transcript.render(stepStart(2))
+    transcript.render(callEvent('c2', 'read', {}))
+    const settle = transcript.render(resultEvent('c2', ''))
+    expect(settle.at(-1)).not.toBe('')
+    expect(transcript.render({ type: 'step/end', seq: 3, time: 0, data: { turn: 1, step: 2 } } as SessionEvent)).toEqual([])
+    expect(transcript.render({ type: 'turn/end', seq: 4, time: 0, data: { turn: 1, reason: { kind: 'completed' } } } as SessionEvent)).toEqual([])
+  })
+
+  it('starts a step\'s reasoning header, its body and its tools at one indent', () => {
+    const colorTheme = createTheme(true, { COLORTERM: 'truecolor' })
+    // The header the surface actually prints for a timed thought.
+    const header = thinkingFold(['  body line'], colorTheme, 1).summary[1] ?? ''
+    // The body a settled thought fold carries, as the tracker renders it.
+    const tracker = new ThinkingTracker(colorTheme, () => 80)
+    tracker.markStepStart(1000)
+    tracker.push('body line\n', 2000)
+    const body = (tracker.flush(2000)?.lines ?? [''])[0] ?? ''
+    // The step's tool row, from the transcript itself.
+    const transcript = new Transcript(
+      { theme: colorTheme, columns: 80, cwd: CWD },
+      { call: () => undefined, result: () => undefined },
+    )
+    const tool = transcript.render(callEvent('c1', 'read', {}))[0] ?? ''
+    // Leading columns once the styling sequences are stripped.
+    const indent = (line: string): number => {
+      const plain = line.replaceAll(/\u001B\[[0-9;]*m/gu, '')
+      return plain.length - plain.trimStart().length
+    }
+    expect(indent(header)).toBe(2)
+    expect(indent(body)).toBe(2)
+    expect(indent(tool)).toBe(2)
+    expect([indent(header), indent(body), indent(tool)]).toEqual([2, 2, 2])
   })
 })
 

@@ -32,6 +32,28 @@ export const DIFF_SOFT_CAP: Record<Density, number> = {
 }
 
 /**
+ * Blank rows between two steps, by density.
+ *
+ * A step's reasoning and its tools are one block; this is the air between one
+ * block and the next. Compact keeps a single separator row and comfortable
+ * doubles it, the way it doubles the live thinking preview, so `/ui` keeps
+ * governing the transcript's whole spacing scale.
+ */
+export const BLOCK_GAP: Record<Density, number> = {
+  compact: 1,
+  comfortable: 2,
+}
+
+/**
+ * The step gap for one density, read from {@link BLOCK_GAP}.
+ * @param density - the live mode.
+ * @returns how many blank rows separate two steps.
+ */
+export function blockGap(density: Density): number {
+  return BLOCK_GAP[density]
+}
+
+/**
  * Parse a `/ui` argument.
  * @param raw - typed argument, possibly padded.
  * @returns the density, or undefined when it is not one of the two.

@@ -10,6 +10,7 @@ import { describe, expect, it } from 'vitest'
 import {
   DEFAULT_DENSITY,
   DIFF_SOFT_CAP,
+  blockGap,
   densityReport,
   loadDensity,
   parseDensity,
@@ -42,6 +43,12 @@ describe('parseDensity / densityReport', () => {
   it('raises the expanded-diff pager threshold in comfortable', () => {
     expect(DIFF_SOFT_CAP.compact).toBe(24)
     expect(DIFF_SOFT_CAP.comfortable).toBe(48)
+  })
+
+  it('gives the block gap its own value per density, and keeps the two apart', () => {
+    expect(blockGap('compact')).toBe(1)
+    expect(blockGap('comfortable')).toBe(2)
+    expect(blockGap('compact')).not.toBe(blockGap('comfortable'))
   })
 })
 

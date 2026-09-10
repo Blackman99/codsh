@@ -429,7 +429,7 @@ print a policy error while exiting 0, so it cannot be used as evidence.
 ## Plan
 
 - [x] Ticket 1: Input Region Geometry, Separated From the Frame — Delivers one explicit geometry source (left offset, row offset, gutter width) with the wrap budget, the pointer-to-buffer mapping and the composer's mouse hit-testing all routed through it. Changes no rendered output; it exists because the border width and the caret's left offset are the same number written twice today, and removing the border would shift three consumers at once. (Blocked by: none) (Track: 5)
-- [ ] Ticket 2: A Step Reads as One Block — Delivers a gap at the step boundary and gives the block gap its own density-derived value, so a step's reasoning header, its body and its tool rows read as one block on one indent. Grouping and fold semantics unchanged. (Blocked by: none) (Track: 1,6)
+- [x] Ticket 2: A Step Reads as One Block — Delivers a gap at the step boundary and gives the block gap its own density-derived value, so a step's reasoning header, its body and its tool rows read as one block on one indent. Grouping and fold semantics unchanged. (Blocked by: none) (Track: 1,6)
 - [ ] Ticket 3: The Input Region Loses Its Border — Delivers the borderless region: a divider, the `›` mark, the input, and one help row carrying the commands-and-keys entry. The cursor geometry must survive exactly, which Ticket 1 is what makes a single-descriptor change. (Blocked by: Ticket 1) (Track: 5)
 - [ ] Ticket 4: Environment Facts Move to a Top Bar — Delivers a reserved row 0 carrying branch and directory on the left, context pressure on the right, plus the plan-mode and `/ship` gate chips; the foot drops directory, branch and model; the pinned sticky panel renders below the bar and yields its padding first. Also fixes the defect that a long path currently drops the branch first. (Blocked by: none) (Track: 3,4)
 - [ ] Ticket 5: One Restrained Palette — Delivers one semantic role per speaker (person, reasoning, tool, error) resolved through a single point, with decoration uncoloured, tools quieter than reasoning, and meaning surviving `NO_COLOR`. (Blocked by: Ticket 3, Ticket 4) (Track: 2)
@@ -503,4 +503,68 @@ Criteria (`e2e/pty-selectors.e2e.ts`, `e2e/pty-mouse.e2e.ts`,
 `e2e/experience-chrome.e2e.ts`) cannot run in this sandbox: `/dev/ptmx` is
 denied (`OSError: out of pty devices`, exit 1 for all PTY tests) and approval
 prompts are disabled, so no PTY result is treated as evidence either way.
+
+### Ticket 2 — A Step Reads as One Block (Track: 1,6)
+
+**Delivered.** `packages/bundle/src/density.ts` gains `BLOCK_GAP` (`compact`
+1, `comfortable` 2) and the `blockGap(density)` lookup, so `/ui` now governs
+the block gap as a fourth consumer. `packages/bundle/src/transcript.ts` opens
+each new step with that gap: `step/start` returns the gap rows as the first
+row of the new block, when the previous step painted and did not already end
+on a separator. The tail tool run is deliberately left intact — a step
+boundary is not prose, and the grouping rule does not break on it — and the
+gap is emitted at the *start* of the next step, never after the last one, so
+a turn still ends on painted content. The reasoning header, its body and the
+step's tool rows already sit on one indent on the coloured surface; this
+ticket pins that on the painted rows.
+
+**Reading note on the checklist.** Two of the ticket's checklist items are in
+tension: "exactly one blank row, under both densities" and "compact and
+comfortable produce different gap settings". The sealed Track-6 (density
+governs block gaps), User Story 18 ("more air between steps") and User Story
+19 ("compact stays genuinely compact") resolve it as a per-density count:
+compact 1 blank row, comfortable 2. Compact is asserted at exactly one blank
+row; comfortable at two.
+
+**Red (witnessed before implementation).**
+
+- `blockGap` stubbed to `throw new Error('not implemented')` with the new
+  density test:
+  `node node_modules/vitest/vitest.mjs run packages/bundle/tests/density.spec.ts`
+  → exit 1, `Tests 1 failed | 11 passed (12)`, `Error: not implemented` at
+  `blockGap` (`src/density.ts:43`). Red at the new seam, not a syntax or
+  setup error.
+- The boundary tests first ran against the unmodified renderer:
+  `node node_modules/vitest/vitest.mjs run packages/bundle/tests/transcript.spec.ts`
+  → exit 1, `Tests 3 failed | 136 passed (139)`; every failure
+  `expected [] to deeply equal [ '' ]` at the `step/start` render — the new
+  behaviour absent by assertion, not a setup error.
+
+**Green.**
+
+- `node node_modules/vitest/vitest.mjs run packages/bundle/tests/transcript.spec.ts packages/bundle/tests/density.spec.ts`
+  → exit 0, **2 files / 153 passed (153)**, 0 skipped. New coverage: compact
+  one-row gap; comfortable two-row gap; no gap before a turn's first step; no
+  gap between consecutive tool calls of one step; no second gap when the next
+  step paints nothing; the turn ending on its painted content; and the shared
+  indent of the reasoning header, its body and the tool row.
+- `./node_modules/.bin/tsc --noEmit` → exit 0, no diagnostics.
+- `node node_modules/vitest/vitest.mjs run` → exit 0, **53 files / 1429 tests**
+  passing, 0 skipped (baseline 53 / 1415 plus Ticket 1's 6 and this ticket's
+  8; no regression, and the existing `agent-output-rendering` assertions are
+  unmodified).
+- Non-PTY regression, with the packed bundle rebuilt
+  (`node ../../node_modules/tsdown/dist/run.mjs`, then
+  `node ../../node_modules/typescript/bin/tsc -p tsconfig.build.json`, both
+  exit 0):
+  `node node_modules/vitest/vitest.mjs run --config vitest.e2e.config.ts e2e/pipe.e2e.ts`
+  → exit 0, **19 passed (19)**.
+
+**PTY note.** The ticket's own PTY proof,
+`node node_modules/vitest/vitest.mjs run --config vitest.e2e.config.ts e2e/pty-folds.e2e.ts`,
+cannot run in this sandbox: all 15 tests fail with
+`OSError: out of pty devices` (exit 1), the `/dev/ptmx` denial, and are not
+treated as evidence either way. The frame-level block-gap assertion named in
+the Testing Decisions belongs to `e2e/experience-chrome.e2e.ts` (Acceptance
+Criterion 1) and remains for the main session to run with PTY access.
 
