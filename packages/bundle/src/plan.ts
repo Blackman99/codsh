@@ -40,6 +40,8 @@ export interface SpecMetadata {
   baseCommit?: string
   /** Original branch name from which the feature branch was cut. */
   originalBranch?: string
+  /** Session goal id the ship runner created for this spec (`Goal-Id:`). */
+  goalId?: string
 }
 
 /** A `## Plan` heading, at any depth, in any case. */
@@ -62,6 +64,12 @@ const BASE_COMMIT_LINE = /^Base-Commit:\s*(\S+)/imu
 
 /** A spec's `Original-Branch:` line. */
 const ORIGINAL_BRANCH_LINE = /^Original-Branch:\s*(\S+)/imu
+
+/** A spec's `Goal-Id:` line — the session compass occupancy uses to recognize ours. */
+const GOAL_ID_LINE = /^Goal-Id:\s*(\S+)/imu
+
+/** A `## Main Track` heading, at any depth, in any case. */
+const MAIN_TRACK_HEADING = /^#{1,6}\s+main\s+track\s*$/iu
 
 /**
  * Read the tickets out of a spec's `## Plan` section.
@@ -86,12 +94,14 @@ export function parsePlan(markdown: string): Plan {
     if (ticket === null) continue
     const rawTitle = (ticket[2] ?? '').trim()
     if (rawTitle === '') continue
-    // Strip trailing ticket metadata (e.g. "(Blocked by: ...) — Delivers ... (Verification: ...)")
-    // so the TUI displays a concise, readable ticket title without overflow.
+    // Strip trailing ticket metadata (e.g. "(Blocked by: ...) (Track: 1,3) — Delivers ...
+    // (Verification: ...)") so the TUI displays a concise, readable ticket title without overflow.
     const title = rawTitle
       .replace(/\s*\([^)]*(?:blocked\s+by|verification(?:\s+log)?)\s*:[^)]*\)/giu, '')
+      .replace(/\s*\(\s*Track:\s*[^)]*\)/giu, '')
       .replace(/\s*[-—–]\s*(?:delivers|verification)\b.*$/iu, '')
       .replace(/\s*\([^)]*(?:blocked\s+by|verification(?:\s+log)?)\s*:[^)]*\)/giu, '')
+      .replace(/\s*\(\s*Track:\s*[^)]*\)/giu, '')
       .trim() || rawTitle
     tickets.push({ title, done: (ticket[1] ?? ' ').toLowerCase() === 'x' })
   }
@@ -100,7 +110,7 @@ export function parsePlan(markdown: string): Plan {
 }
 
 /**
- * Read metadata from a spec's header lines (Branch, Base-Commit, Original-Branch).
+ * Read metadata from a spec's header lines (Branch, Base-Commit, Original-Branch, Goal-Id).
  * @param markdown - the spec file's contents.
  * @returns the parsed metadata fields.
  */
@@ -108,11 +118,38 @@ export function parseSpecMetadata(markdown: string): SpecMetadata {
   const branch = BRANCH_LINE.exec(markdown)?.[1]
   const baseCommit = BASE_COMMIT_LINE.exec(markdown)?.[1]
   const originalBranch = ORIGINAL_BRANCH_LINE.exec(markdown)?.[1]
+  const goalId = GOAL_ID_LINE.exec(markdown)?.[1]
   return {
     ...(branch !== undefined ? { branch } : {}),
     ...(baseCommit !== undefined ? { baseCommit } : {}),
     ...(originalBranch !== undefined ? { originalBranch } : {}),
+    ...(goalId !== undefined ? { goalId } : {}),
   }
+}
+
+/**
+ * Read the compact Main Track section from a spec.
+ *
+ * The section is the sealed compass (idea, Track-N decisions, Out of Scope),
+ * not plan tickets. Checkboxes that happen to sit under it must not become
+ * chrome work items — only `## Plan` is the ticket list.
+ * @param markdown - the spec file's contents.
+ * @returns the section body, or undefined when the file has no Main Track.
+ */
+export function parseMainTrack(markdown: string): string | undefined {
+  const body: string[] = []
+  let inside = false
+  for (const line of markdown.split(/\r\n|[\r\n]/u)) {
+    if (MAIN_TRACK_HEADING.test(line)) {
+      inside = true
+      continue
+    }
+    if (inside && HEADING.test(line)) break
+    if (inside) body.push(line)
+  }
+  if (!inside) return undefined
+  const text = body.join('\n').trim()
+  return text === '' ? undefined : text
 }
 
 /**

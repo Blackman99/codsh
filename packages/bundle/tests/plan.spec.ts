@@ -1,7 +1,7 @@
 /** Reading a `/ship` spec's plan: how many tickets, and which one is now. */
 
 import { describe, expect, it } from 'vitest'
-import { parsePlan, parseShipStatus, parseSpecMetadata, pickLiveShip, planInFlight, planReport, planRow, planSummary, plansEqual, workingLineProgress } from '../src/plan.ts'
+import { parseMainTrack, parsePlan, parseShipStatus, parseSpecMetadata, pickLiveShip, planInFlight, planReport, planRow, planSummary, plansEqual, workingLineProgress } from '../src/plan.ts'
 import { createTheme } from '../src/theme.ts'
 
 const theme = createTheme(false, {})
@@ -105,6 +105,12 @@ describe('parsePlan', () => {
     expect(plan.tickets[2]?.title).toBe('Ticket 3: Third Title')
   })
 
+  // Track: 8 — chrome titles stay short; blocker stripping still works beside Track: N[,M].
+  it('strips Track: N[,M] from plan titles without breaking blocker stripping (Track: 8)', () => {
+    const spec = `## Plan\n\n- [ ] Ticket 3: Occupancy (Blocked by: Ticket 1, Ticket 2) (Track: 1,3) — Delivers pause-then-ask\n`
+    expect(parsePlan(spec).tickets[0]?.title).toBe('Ticket 3: Occupancy')
+  })
+
   it('reports nothing for a spec with no plan yet', () => {
     const plan = parsePlan('# Spec\n\nStatus: interviewing\n')
     expect(plan.tickets).toEqual([])
@@ -145,6 +151,49 @@ describe('parseSpecMetadata', () => {
     expect(meta.branch).toBeUndefined()
     expect(meta.baseCommit).toBeUndefined()
     expect(meta.originalBranch).toBeUndefined()
+    expect(meta.goalId).toBeUndefined()
+  })
+
+  // Track: 8 — Goal-Id: round-trips in spec header metadata so occupancy can recognize ours.
+  it('reads Goal-Id from spec header metadata (Track: 8)', () => {
+    const markdown = `# Feature\n\nStatus: planned\nBranch: ship/my-feature\nGoal-Id: goal-abc123\nBase-Commit: abc1234\n`
+    expect(parseSpecMetadata(markdown).goalId).toBe('goal-abc123')
+  })
+})
+
+describe('parseMainTrack', () => {
+  // Track: 8 — ## Main Track is schema, not plan tickets; chrome titles stay short.
+  it('reads the Main Track section without treating its checkboxes as plan tickets (Track: 8)', () => {
+    const markdown = `# Feature
+
+Status: confirmed
+Goal-Id: goal-abc123
+
+## Main Track
+
+**Idea.** Bind /goal into /ship.
+
+**Track-1.** Hybrid compass.
+
+**Out of Scope.**
+- [ ] Forking the harness
+- A TTY GoalBar
+
+## Plan
+
+- [ ] Ticket 1: Spec schema (Blocked by: none) (Track: 8)
+`
+
+    expect(parseMainTrack(markdown)).toContain('**Idea.** Bind /goal into /ship.')
+    expect(parseMainTrack(markdown)).toContain('**Track-1.** Hybrid compass.')
+    expect(parsePlan(markdown).tickets).toHaveLength(1)
+    expect(parsePlan(markdown).tickets[0]?.title).toBe('Ticket 1: Spec schema')
+  })
+
+  it('yields an empty plan when the only checkboxes sit under Main Track (Track: 8)', () => {
+    const markdown = `## Main Track\n\n- [ ] Forking the harness\n- [x] A TTY GoalBar\n`
+    expect(parsePlan(markdown).tickets).toEqual([])
+    expect(parseMainTrack(markdown)).toContain('- [ ] Forking the harness')
   })
 })
 
