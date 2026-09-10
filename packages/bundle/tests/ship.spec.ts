@@ -37,6 +37,8 @@ describe('SHIP_PROMPT', () => {
     expect(SHIP_PROMPT).toContain('ship · gate 1/2')
     expect(SHIP_PROMPT).toContain('ship · gate 2/2')
     expect(SHIP_PROMPT).toContain('detail')
+    expect(SHIP_PROMPT).toContain('Edit means revise the spec and ask again')
+    expect(SHIP_PROMPT).toContain('Fold Edit answers back in and present again')
   })
 
   it('makes the spec file the durable memory: status, resume, plan on disk', () => {

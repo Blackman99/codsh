@@ -78,10 +78,9 @@ describe('GateModal', () => {
     expect(modal.frame(theme, 40, 10).offset).toBe(modal.frame(theme, 40, 10).maxOffset)
   })
 
-  it('maps y / e / n / Esc / Enter and cycles Tab focus', () => {
+  it('maps y / n / Esc / Enter and cycles Tab focus', () => {
     const modal = new GateModal(spec)
     expect(modal.handleKey({ kind: 'text', text: 'y' }, theme, 72, 16)).toBe('confirm')
-    expect(modal.handleKey({ kind: 'text', text: 'e' }, theme, 72, 16)).toBe('edit')
     expect(modal.handleKey({ kind: 'text', text: 'n' }, theme, 72, 16)).toBe('abort')
     expect(modal.handleKey({ kind: 'escape' }, theme, 72, 16)).toBe('abort')
 
@@ -89,12 +88,23 @@ describe('GateModal', () => {
     expect(modal.handleKey({ kind: 'enter' }, theme, 72, 16)).toBe('confirm')
     modal.tab(1)
     expect(modal.focused).toBe('edit')
-    expect(modal.handleKey({ kind: 'enter' }, theme, 72, 16)).toBe('edit')
     modal.handleKey({ kind: 'tab' }, theme, 72, 16)
     expect(modal.focused).toBe('abort')
     expect(modal.handleKey({ kind: 'enter' }, theme, 72, 16)).toBe('abort')
     modal.handleKey({ kind: 'shift-tab' }, theme, 72, 16)
     expect(modal.focused).toBe('edit')
+  })
+
+  it('turns e into an inline field, and Enter submits the typed revision', () => {
+    const modal = new GateModal(spec)
+    expect(modal.handleKey({ kind: 'text', text: 'e' }, theme, 72, 16)).toBeUndefined()
+    expect(modal.focused).toBe('edit')
+    const writing = modal.frame(theme, 72, 16)
+    expect(writing.rows.join('\n')).toMatch(/[▌_]/u)
+    expect(writing.cursor).toBeDefined()
+    expect(modal.handleKey({ kind: 'text', text: 'keep the queue panel' }, theme, 72, 16)).toBeUndefined()
+    expect(modal.frame(theme, 72, 16).rows.join('\n')).toContain('keep the queue panel')
+    expect(modal.handleKey({ kind: 'enter' }, theme, 72, 16)).toEqual({ kind: 'edit', note: 'keep the queue panel' })
   })
 
   it('styles the gate chip warn and action keys by role when colored', () => {

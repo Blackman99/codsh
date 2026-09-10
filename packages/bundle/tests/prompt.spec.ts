@@ -1500,7 +1500,6 @@ describe('ship gate modal', () => {
     expect(console.viewers.at(-1)).toBeUndefined()
 
     for (const [key, action] of [
-      [{ kind: 'text', text: 'e' }, 'edit'],
       [{ kind: 'text', text: 'n' }, 'abort'],
       [{ kind: 'escape' }, 'abort'],
     ] as const) {
@@ -1516,6 +1515,31 @@ describe('ship gate modal', () => {
       expect(prompt.shipGate).toBeUndefined()
       expect(console.viewers.at(-1)).toBeUndefined()
     }
+  })
+
+  it('keeps the tickets gate open on e until the revision is typed and taken', async () => {
+    const { console, prompt } = (() => {
+      const console = fakeConsole(true)
+      const prompt = new Prompt(console as never, createTheme(false, {}), sources, {
+        interrupt: () => {},
+        escape: () => {},
+        eof: () => {},
+      })
+      return { console, prompt }
+    })()
+    const pending = prompt.gate({
+      kind: 'tickets',
+      title: 'ship · gate 2/2 — approve tickets',
+      bodyLines: ['Ticket 1'],
+      recommended: 'confirm',
+    })
+    console.press({ kind: 'text', text: 'e' })
+    expect(prompt.shipGate).toBe(2)
+    expect(console.viewers.at(-1)?.join('\n')).toMatch(/[▌_]/u)
+    console.press({ kind: 'text', text: 'split ticket 1' })
+    console.press({ kind: 'enter' })
+    await expect(pending).resolves.toEqual({ kind: 'edit', note: 'split ticket 1' })
+    expect(prompt.shipGate).toBeUndefined()
   })
 })
 

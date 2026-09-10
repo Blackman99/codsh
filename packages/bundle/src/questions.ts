@@ -157,7 +157,10 @@ export function shipGateKind(question: AskUserQuestionItem): GateKind | undefine
 export function encodeGateAnswer(question: AskUserQuestionItem, action: GateAction): AskUserQuestionAnswerItem {
   const options = question.options ?? []
   if (action === 'abort') return { id: question.id, selected: [] }
-  if (action === 'edit') return { id: question.id, selected: [], custom: 'edit' }
+  if (typeof action === 'object' && action.kind === 'edit') {
+    const note = action.note.trim()
+    return { id: question.id, selected: [], custom: note === '' ? 'edit' : note }
+  }
   const yes = options.find(option => /^(confirm|yes)\b/i.test(option.label))
   return { id: question.id, selected: [yes?.label ?? options[0]?.label ?? 'Confirm'] }
 }
@@ -292,8 +295,9 @@ export class TerminalQuestions {
       const answer = encodeGateAnswer(question, action)
       if (action === 'confirm') {
         this.write(this.theme.dim(`  ✓ ${answer.selected.join(', ')}`))
-      } else if (action === 'edit') {
-        this.write(this.theme.dim('  ✎ edit'))
+      } else if (typeof action === 'object' && action.kind === 'edit') {
+        const shown = action.note.trim() === '' ? 'edit' : action.note.trim()
+        this.write(this.theme.dim(`  ✎ ${shown}`))
       } else {
         this.write(this.theme.dim('  aborted'))
       }

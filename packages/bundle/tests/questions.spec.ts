@@ -274,7 +274,12 @@ describe('ship gate detection', () => {
       options: [{ label: 'Confirm' }, { label: 'Edit' }, { label: 'Abort' }],
     }
     expect(encodeGateAnswer(q, 'confirm')).toEqual({ id: 'gate', selected: ['Confirm'] })
-    expect(encodeGateAnswer(q, 'edit')).toEqual({ id: 'gate', selected: [], custom: 'edit' })
+    expect(encodeGateAnswer(q, { kind: 'edit', note: 'keep the queue panel' })).toEqual({
+      id: 'gate',
+      selected: [],
+      custom: 'keep the queue panel',
+    })
+    expect(encodeGateAnswer(q, { kind: 'edit', note: '' })).toEqual({ id: 'gate', selected: [], custom: 'edit' })
     expect(encodeGateAnswer(q, 'abort')).toEqual({ id: 'gate', selected: [] })
   })
 
@@ -313,7 +318,7 @@ describe('ship gate detection', () => {
       theme,
       () => {},
       undefined,
-      async () => 'edit',
+      async () => ({ kind: 'edit', note: 'split ticket 1' }),
     )
     const request = {
       questions: [{
@@ -324,7 +329,7 @@ describe('ship gate detection', () => {
       }],
     } as AskUserQuestionRequest
     expect(await questions.ask(request)).toEqual({
-      answers: [{ id: 'g2', selected: [], custom: 'edit' }],
+      answers: [{ id: 'g2', selected: [], custom: 'split ticket 1' }],
     })
 
     const aborting = new TerminalQuestions(
