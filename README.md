@@ -11,6 +11,14 @@
   English | <a href="README.zh.md">中文</a>
 </p>
 
+<p align="center">
+  <a href="https://www.npmjs.com/package/codsh-cli"><img src="https://img.shields.io/npm/v/codsh-cli.svg" alt="npm version"></a>
+  <a href="https://github.com/Blackman99/codsh/blob/main/LICENSE"><img src="https://img.shields.io/github/license/Blackman99/codsh.svg" alt="MIT license"></a>
+  <a href="https://github.com/topics/dsh-plugin"><img src="https://img.shields.io/badge/topic-dsh--plugin-1f6feb" alt="dsh-plugin topic"></a>
+  <a href="https://dshfind.com/en/plugins/Blackman99/codsh?ref=badge"><img src="https://dshfind.com/api/badge/Blackman99/codsh" alt="dshfind"></a>
+  <a href="https://github.com/awesome-dsh-plugin/awesome-dsh-plugin"><img src="https://cdn.rawgit.com/sindresorhus/awesome/d7305f38d29fed78fa85652e3a63e154dd8e8829/media/badge.svg" alt="Awesome"></a>
+</p>
+
 > npm: [`codsh-cli`](https://www.npmjs.com/package/codsh-cli) · command: `codsh`
 
 **`/ship`** takes one sentence to verified code. A terminal coding agent for DeepSeek — and any OpenAI-compatible endpoint.
@@ -44,7 +52,7 @@ Key: `DEEPSEEK_API_KEY`. Already have dsh? `npm i -g codsh-cli` is enough.
 
 Each `/ship` turn injects only one contract — grill, to-spec, to-tickets, or TDD — so later phases do not crowd the one in play. The MetaBar chip and plan row follow the spec on disk as Status and checkboxes change. Bare `/ship` resumes an unfinished spec with cascading re-verification of prior tickets.
 
-Gate 1 Confirm freezes the Main Track — the idea, numbered Track-N decisions, and Out of Scope — and later turns are prepended with that snapshot so landing cannot rewrite the design. If an unrelated `/goal` is current, `/ship` pauses it and asks `ship · occupancy` (Replace / Abort) before any phase starts; on a pipe it auto-Replaces. `/goal` during a run shows the `[ship]` compass. Chrome is unchanged: no extra row, no GoalBar.
+Gate 1 Confirm freezes the Main Track — the idea, numbered Track-N decisions, and Out of Scope — and later turns are prepended with that snapshot so landing cannot rewrite the design. If an unrelated `/goal` is current, `/ship` pauses it and asks `ship · occupancy` (Replace / Abort) before any phase starts; on a pipe it auto-Replaces. `/goal` during a run shows the `[ship]` compass. Chrome is unchanged: no extra chrome, no GoalBar.
 
 ```sh
 /ship let long diffs open in a pager instead of scrolling past
