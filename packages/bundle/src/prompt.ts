@@ -13,7 +13,7 @@ import { Editor, imageTokenRanges } from './editor.ts'
 import { generateImageThumbnail, imagePreviewCard, nativePreviewProtocol, openOriginalImage, readImageMetadata } from './image-preview.ts'
 import type { ImagePreview } from './image-preview.ts'
 import { caretAt, inputBox, menuScrollFrom, menuScrollLimit, menuTargetAt, wrapBudget } from './inputbox.ts'
-import { planReport, planSummary } from './plan.ts'
+import { planReport, planSummary, plansEqual } from './plan.ts'
 import type { Plan } from './plan.ts'
 import { GUTTER } from './screen.ts'
 import { FrontierCard } from './frontier-card.ts'
@@ -1308,6 +1308,7 @@ export class Prompt {
    * @param plan - the plan read from the spec file.
    */
   setPlan(plan: Plan | undefined): void {
+    if (plansEqual(this.plan, plan)) return
     this.plan = plan
     this.render()
   }

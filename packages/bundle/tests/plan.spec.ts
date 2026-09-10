@@ -1,7 +1,7 @@
 /** Reading a `/ship` spec's plan: how many tickets, and which one is now. */
 
 import { describe, expect, it } from 'vitest'
-import { parsePlan, parseShipStatus, parseSpecMetadata, planInFlight, planReport, planRow, planSummary, workingLineProgress } from '../src/plan.ts'
+import { parsePlan, parseShipStatus, parseSpecMetadata, pickLiveShip, planInFlight, planReport, planRow, planSummary, plansEqual, workingLineProgress } from '../src/plan.ts'
 import { createTheme } from '../src/theme.ts'
 
 const theme = createTheme(false, {})
@@ -42,6 +42,37 @@ describe('planInFlight', () => {
   it('has nothing to pin for a spec without a plan', () => {
     const bare = 'Status: landing\n\nNo plan yet.'
     expect(planInFlight(bare, parsePlan(bare))).toBe(false)
+  })
+})
+
+describe('plansEqual', () => {
+  it('compares tickets and the current one, not identity', () => {
+    const a = parsePlan(SPEC)
+    const b = parsePlan(SPEC)
+    expect(plansEqual(a, b)).toBe(true)
+    expect(plansEqual(a, parsePlan(SPEC.replace('- [ ] Open a long card in it', '- [x] Open a long card in it')))).toBe(false)
+    expect(plansEqual(a, undefined)).toBe(false)
+    expect(plansEqual(undefined, undefined)).toBe(true)
+  })
+})
+
+describe('pickLiveShip', () => {
+  it('prefers an unfinished spec over a shipped one on disk', () => {
+    const live = pickLiveShip([
+      { path: '/repo/docs/specs/old.md', markdown: 'Status: shipped\n\n## Plan\n\n- [x] a\n' },
+      { path: '/repo/docs/specs/new.md', markdown: 'Status: landing\n\n## Plan\n\n- [x] a\n- [ ] b\n' },
+    ])
+    expect(parseShipStatus(live?.markdown ?? '')).toBe('landing')
+    expect(live?.plan.done).toBe(1)
+  })
+
+  it('adopts a shipped spec only when this session wrote it', () => {
+    expect(pickLiveShip([
+      { path: '/repo/docs/specs/old.md', markdown: 'Status: shipped\n' },
+    ])).toBeUndefined()
+    expect(pickLiveShip([
+      { path: '/repo/docs/specs/this.md', markdown: 'Status: shipped\n', sessionWrite: true },
+    ])?.markdown).toContain('Status: shipped')
   })
 })
 

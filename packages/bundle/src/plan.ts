@@ -155,6 +155,53 @@ export function planInFlight(markdown: string, plan: Plan): boolean {
 }
 
 /**
+ * Whether two plans name the same tickets in the same state.
+ *
+ * Chrome re-reads the spec on a timer; a render that changes nothing would
+ * flicker the readout for no reason.
+ */
+export function plansEqual(a: Plan | undefined, b: Plan | undefined): boolean {
+  if (a === b) return true
+  if (a === undefined || b === undefined) return false
+  if (a.done !== b.done || a.tickets.length !== b.tickets.length) return false
+  if (a.current?.title !== b.current?.title || a.current?.done !== b.current?.done) return false
+  return a.tickets.every((ticket, at) =>
+    ticket.title === b.tickets[at]?.title && ticket.done === b.tickets[at]?.done)
+}
+
+/** One spec file the surface might treat as the live `/ship` ledger. */
+export interface ShipSpecFile {
+  /** Absolute path, used only to distinguish session writes from on-disk history. */
+  path: string
+  /** File contents. */
+  markdown: string
+  /** True when this session watched the agent write the file. */
+  sessionWrite?: boolean
+}
+
+/**
+ * The spec chrome should follow: the first unfinished Status, else a shipped
+ * spec this session wrote (so `ship · done` can clear).
+ *
+ * On-disk shipped specs are history — a fresh `/ship` must not adopt them
+ * and wipe the grill chip.
+ */
+export function pickLiveShip(files: readonly ShipSpecFile[]): { markdown: string; plan: Plan } | undefined {
+  let shipped: { markdown: string; plan: Plan } | undefined
+  for (const file of files) {
+    const status = parseShipStatus(file.markdown)
+    if (status === undefined) continue
+    const plan = parsePlan(file.markdown)
+    if (status === 'shipped') {
+      if (file.sessionWrite === true) shipped ??= { markdown: file.markdown, plan }
+      continue
+    }
+    return { markdown: file.markdown, plan }
+  }
+  return shipped
+}
+
+/**
  * The plan as one line for the working indicator: how far in, and on what.
  *
  * The count answers how much is left without arithmetic, and the title answers

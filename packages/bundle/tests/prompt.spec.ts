@@ -1158,6 +1158,23 @@ describe('the surrounding rows', () => {
     expect(drawn(console)).not.toContain('every ticket landed')
   })
 
+  it('does not redraw when the plan has not changed', () => {
+    const { prompt, console } = build()
+    const plan = {
+      tickets: [{ title: 'landed', done: true }, { title: 'in flight', done: false }],
+      done: 1,
+      current: { title: 'in flight', done: false },
+    }
+    prompt.setPlan(plan)
+    const n = console.draws.length
+    prompt.setPlan({
+      tickets: plan.tickets.map(ticket => ({ ...ticket })),
+      done: 1,
+      current: { title: 'in flight', done: false },
+    })
+    expect(console.draws.length).toBe(n)
+  })
+
   it('opens the ship plan on a click, and folds it back from inside the list', () => {
     const { prompt, console } = build()
     prompt.setPlan({

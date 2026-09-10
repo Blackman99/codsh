@@ -21,6 +21,7 @@ import {
   landChip,
   paintShipChip,
   sessionHistoryTiming,
+  sameShipChip,
   shipChipFromSpec,
   shipChipLabel,
   statusLine,
@@ -285,8 +286,10 @@ describe('statusLine', () => {
     expect(statusLine({ ...base, shipChip: { kind: 'land', k: 2, n: 3 } }, theme, 200)).toBe('ship · land 2/3 · m · /repo')
   })
 
-  it('paints grill, verify, and done chips', () => {
+  it('paints grill, spec, tickets, verify, and done chips', () => {
     expect(statusLine({ ...base, shipChip: { kind: 'grill' } }, theme, 200)).toBe('ship · grill · m · /repo')
+    expect(statusLine({ ...base, shipChip: { kind: 'spec' } }, theme, 200)).toBe('ship · spec · m · /repo')
+    expect(statusLine({ ...base, shipChip: { kind: 'tickets' } }, theme, 200)).toBe('ship · tickets · m · /repo')
     expect(statusLine({ ...base, shipChip: { kind: 'verify' } }, theme, 200)).toBe('ship · verify · m · /repo')
     expect(statusLine({ ...base, shipChip: { kind: 'done' } }, theme, 200)).toBe('ship · done · m · /repo')
   })
@@ -420,8 +423,10 @@ describe('status styling', () => {
     expect(flash).toContain('\u001B[32mship · land 2/3\u001B[0m')
   })
 
-  it('styles grill muted, verify muted, and done ok', () => {
+  it('styles grill, spec, and tickets muted, verify muted, and done ok', () => {
     expect(statusLine({ ...base, shipChip: { kind: 'grill' } }, colour, 200)).toContain('\u001B[90mship · grill\u001B[0m')
+    expect(statusLine({ ...base, shipChip: { kind: 'spec' } }, colour, 200)).toContain('\u001B[90mship · spec\u001B[0m')
+    expect(statusLine({ ...base, shipChip: { kind: 'tickets' } }, colour, 200)).toContain('\u001B[90mship · tickets\u001B[0m')
     expect(statusLine({ ...base, shipChip: { kind: 'verify' } }, colour, 200)).toContain('\u001B[90mship · verify\u001B[0m')
     expect(statusLine({ ...base, shipChip: { kind: 'done' } }, colour, 200)).toContain('\u001B[32mship · done\u001B[0m')
   })
@@ -430,6 +435,8 @@ describe('status styling', () => {
     const plain = createTheme(true, { NO_COLOR: '1' })
     expect(statusLine({ ...base, shipChip: { kind: 'land', k: 2, n: 3 } }, plain, 200)).toBe('ship · land 2/3 · m · /repo')
     expect(statusLine({ ...base, shipChip: { kind: 'grill' } }, plain, 200)).toContain('ship · grill')
+    expect(statusLine({ ...base, shipChip: { kind: 'spec' } }, plain, 200)).toContain('ship · spec')
+    expect(statusLine({ ...base, shipChip: { kind: 'tickets' } }, plain, 200)).toContain('ship · tickets')
     expect(statusLine({ ...base, shipChip: { kind: 'verify' } }, plain, 200)).toContain('ship · verify')
     expect(statusLine({ ...base, shipChip: { kind: 'done' } }, plain, 200)).toContain('ship · done')
     expect(paintShipChip({ kind: 'land', k: 1, n: 4 }, plain)).toBe('ship · land 1/4')
@@ -465,13 +472,24 @@ describe('ship chip helpers', () => {
     expect(landChip(parsePlan('## Plan\n\n- [x] a\n- [x] b\n'))).toBeUndefined()
   })
 
-  it('derives grill / land / verify / done from Status and the plan', () => {
+  it('derives spec / tickets / land / verify / done from Status and the plan', () => {
     const landing = parsePlan('Status: landing\n\n## Plan\n\n- [x] a\n- [ ] b\n- [ ] c\n')
-    expect(shipChipFromSpec('interviewing', undefined)).toEqual({ kind: 'grill' })
+    expect(shipChipFromSpec(undefined, undefined)).toBeUndefined()
+    expect(shipChipFromSpec('interviewing', undefined)).toEqual({ kind: 'spec' })
+    expect(shipChipFromSpec('confirmed', undefined)).toEqual({ kind: 'tickets' })
+    expect(shipChipFromSpec('planned', landing)).toEqual({ kind: 'land', k: 2, n: 3 })
     expect(shipChipFromSpec('landing', landing)).toEqual({ kind: 'land', k: 2, n: 3 })
     expect(shipChipFromSpec('landing', parsePlan('## Plan\n\n- [x] a\n- [x] b\n'))).toEqual({ kind: 'verify' })
     expect(shipChipFromSpec('shipped', landing)).toEqual({ kind: 'done' })
     expect(parseShipStatus('# Spec\n\nStatus: landing\n')).toBe('landing')
+  })
+
+  it('treats two chips as the same when they would paint the same label', () => {
+    expect(sameShipChip({ kind: 'grill' }, { kind: 'grill' })).toBe(true)
+    expect(sameShipChip({ kind: 'spec' }, { kind: 'grill' })).toBe(false)
+    expect(sameShipChip({ kind: 'land', k: 2, n: 3 }, { kind: 'land', k: 2, n: 3 })).toBe(true)
+    expect(sameShipChip({ kind: 'land', k: 2, n: 3 }, { kind: 'land', k: 3, n: 3 })).toBe(false)
+    expect(sameShipChip({ kind: 'land', k: 2, n: 3, flashOk: true }, { kind: 'land', k: 2, n: 3 })).toBe(false)
   })
 })
 

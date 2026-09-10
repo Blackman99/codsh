@@ -42,7 +42,7 @@ codsh
 4. **落地** —— 按 tdd skill：先写并亲眼看到一条失败测试，再写最少绿码，再跑全套；单 Ticket 3 轮修错熔断；续跑级联重验；每个变绿的 ticket 产生单次全绿提交。较大的计划以 fresh agent 的 Ralph 循环执行；一轮进行中，工作行显示这一轮及其最近一次调用（计划行已经钉在 chrome 里，不再叠一份进度），spec 里的勾选一变、计划行随即更新，轮次结束的那一行写明做了多少事——Esc 会中断整个循环，哪怕 ticket 还没做完。
 5. **完成 (双层 DoD)** —— 验收命令实跑 Exit Code 0 且仓库全局零新增报错；弹出合流选择（`ship · deliver`：合并、提 PR、保留分支）。
 
-每次 `/ship` 只注入一份合同（grill / to-spec / to-tickets / TDD），避免后面阶段把正在执行的合同挤掉。裸 `/ship` 会对已有进度级联重验后继续续跑未完成的 spec。
+每次 `/ship` 只注入一份合同（grill / to-spec / to-tickets / TDD），避免后面阶段把正在执行的合同挤掉。MetaBar 芯片和计划行跟着磁盘上的 Status 与勾选走。裸 `/ship` 会对已有进度级联重验后继续续跑未完成的 spec。
 
 ```sh
 /ship 让超长 diff 用分页器打开而不是刷屏滚过

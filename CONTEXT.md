@@ -173,8 +173,9 @@ _Avoid_: highlight, focus
 **Plan progress**:
 How far a `/ship` run has got, read from the spec file's `## Plan` checkboxes
 rather than from the conversation — the spec file is the workflow's memory, and
-its boxes are the only place the work is counted. The chrome pins it as its own
-row (`plan k/n · current ticket`). The working line names a Workflow round
+its boxes are the only place the work is counted. The chrome re-reads that
+file as tickets tick, and pins it as its own row (`plan k/n · current ticket`).
+The working line names a Workflow round
 while one is in flight; it reports `done/total` and the first unticked ticket
 only when no round is running, so the two rows never stack the same figure.
 _Avoid_: todo list, task count
@@ -369,7 +370,8 @@ with a DAG and per-ticket acceptance, `.scratch/` plus tracker when
 configured) without another interview. Landing follows the tdd skill: one
 red test witnessed failing, then minimal green, then the suite. Each `/ship`
 turn injects only the phase the spec's `Status:` names — grill, to-spec,
-to-tickets, and TDD do not share context. The spec file is the workflow's memory,
+to-tickets, and TDD do not share context. The MetaBar chip follows that
+Status (`ship · grill` / `spec` / `tickets` / `land k/n`). The spec file is the workflow's memory,
 not the conversation: the approved tickets live in it as checkboxes, its
 `Status:` line names the phase, a baseline run is recorded before any code,
 each green ticket is committed, and a bare `/ship` offers to resume

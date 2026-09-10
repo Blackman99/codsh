@@ -62,8 +62,8 @@ import type { CompletableCommand } from './completion.ts'
 import { indexConversationContent, newestCopyTargets, resolveCopyTarget } from './content-index.ts'
 import { TerminalConsole } from './console.ts'
 import { readClipboardImage } from './clipboard-image.ts'
-import { parsePlan, parseShipStatus, planInFlight, workingLineProgress } from './plan.ts'
-import type { Plan } from './plan.ts'
+import { parseShipStatus, pickLiveShip, planInFlight, plansEqual, workingLineProgress } from './plan.ts'
+import type { Plan, ShipSpecFile } from './plan.ts'
 import { Prompt } from './prompt.ts'
 import { shapeResume } from './resume.ts'
 import type { ResumeCandidate } from './resume.ts'
@@ -95,7 +95,7 @@ import {
 } from './vision.ts'
 import { TextStream, ThinkingTracker } from './streaming.ts'
 import { PROFILE, bundleVersion, checkForUpdate, runtimeMove, runtimeRegisterCommand, runtimeSpec, runningDsh, updateCommand } from './update.ts'
-import { displayPath, formatSessionTime, formatTokens, formatTurnTime, gitBranch, sessionHistoryTiming, shipChipFromSpec, statusLine, statusReport, totalTokens } from './status.ts'
+import { displayPath, formatSessionTime, formatTokens, formatTurnTime, gitBranch, sessionHistoryTiming, sameShipChip, shipChipFromSpec, statusLine, statusReport, totalTokens } from './status.ts'
 import {
   THINKING_PREFS_FILE,
   buildThinkingOptions,
@@ -1164,6 +1164,7 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
    * @param settle - `flash` drops land.flashOk; `clear` hides a done chip.
    */
   const setShipChip = (next: ShipChip | undefined, settle?: 'flash' | 'clear'): void => {
+    if (sameShipChip(shipChip, next) && settle === undefined) return
     clearShipFlash()
     shipChip = next
     onShipChip()
@@ -1173,6 +1174,7 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
       if (settle === 'clear') {
         shipChip = undefined
         shipChipCleared = true
+        stopShipWatch()
       } else if (next.kind === 'land') {
         shipChip = { kind: 'land', k: next.k, n: next.n }
       }
@@ -1180,11 +1182,29 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
     }, SHIP_CHIP_FLASH_MS)
     shipFlashTimer.unref()
   }
+  /** Poll the spec while /ship is in flight so chrome tracks checkboxes on disk. */
+  let shipWatch: ReturnType<typeof setInterval> | undefined
+  const SHIP_POLL_MS = 1000
+  const stopShipWatch = (): void => {
+    if (shipWatch === undefined) return
+    clearInterval(shipWatch)
+    shipWatch = undefined
+  }
+  const startShipWatch = (): void => {
+    stopShipWatch()
+    shipWatch = setInterval(() => {
+      refreshPlan()
+      prompt.setTodos(todoList(ctx, live.agent))
+    }, SHIP_POLL_MS)
+    shipWatch.unref()
+  }
   /** Start a /ship run: grill until the spec names a later phase. */
   const beginShip = (): void => {
     shipChipCleared = false
     lastShipDone = undefined
-    setShipChip({ kind: 'grill' })
+    startShipWatch()
+    refreshPlan()
+    if (shipChip === undefined) setShipChip({ kind: 'grill' })
   }
   /**
    * Adopt the chip the spec now names. A rising done-count flashes land ok.
@@ -1206,24 +1226,28 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
     }
     setShipChip(derived, derived.kind === 'land' && derived.flashOk === true ? 'flash' : undefined)
   }
-  /** Status of the newest unfinished spec, from this session's writes or docs/specs. */
-  const unreadShipStatus = (): ReturnType<typeof parseShipStatus> => {
+  /** Spec paths this session wrote, then docs/specs, newest-session first. */
+  const shipSpecPaths = (): string[] => {
     const seen = new Set<string>()
-    const candidates = [
-      ...writtenDocs,
-      ...(() => {
-        try {
-          return readdirSync(join(cwd, 'docs', 'specs'))
-            .filter(name => name.endsWith('.md'))
-            .map(name => join(cwd, 'docs', 'specs', name))
-        } catch {
-          return []
-        }
-      })(),
-    ]
-    for (const path of candidates) {
+    const paths: string[] = []
+    let dir: string[] = []
+    try {
+      dir = readdirSync(join(cwd, 'docs', 'specs'))
+        .filter(name => name.endsWith('.md'))
+        .map(name => join(cwd, 'docs', 'specs', name))
+    } catch {
+      dir = []
+    }
+    for (const path of [...writtenDocs, ...dir]) {
       if (seen.has(path)) continue
       seen.add(path)
+      paths.push(path)
+    }
+    return paths
+  }
+  /** Status of the newest unfinished spec, from this session's writes or docs/specs. */
+  const unreadShipStatus = (): ReturnType<typeof parseShipStatus> => {
+    for (const path of shipSpecPaths()) {
       try {
         const status = parseShipStatus(readFileSync(path, 'utf8'))
         if (status !== undefined && status !== 'shipped') return status
@@ -1233,30 +1257,27 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
     }
     return undefined
   }
-  /** Re-read the newest written document that holds a plan or a Status line. */
+  /** Re-read the live spec so the plan row and chip match the file on disk. */
   const refreshPlan = (): void => {
-    let statusOnly: { markdown: string; plan: Plan } | undefined
-    for (const path of writtenDocs.slice(0, 8)) {
+    const files: ShipSpecFile[] = []
+    for (const path of shipSpecPaths()) {
       try {
-        const markdown = readFileSync(path, 'utf8')
-        const plan = parsePlan(markdown)
-        if (plan.tickets.length > 0) {
-          // A shipped spec's tickets are history: the row comes down with the
-          // chip, instead of saying "every ticket landed" until the session ends.
-          const live = planInFlight(markdown, plan)
-          shipPlan = live ? plan : undefined
-          prompt.setPlan(live ? plan : undefined)
-          adoptShipChip(markdown, plan)
-          return
-        }
-        if (statusOnly === undefined && parseShipStatus(markdown) !== undefined) {
-          statusOnly = { markdown, plan }
-        }
+        files.push({ path, markdown: readFileSync(path, 'utf8'), sessionWrite: writtenDocs.includes(path) })
       } catch {
         // A spec that moved or will not read is simply not the progress.
       }
     }
-    if (statusOnly !== undefined) adoptShipChip(statusOnly.markdown, statusOnly.plan)
+    const picked = pickLiveShip(files)
+    if (picked === undefined) return
+    // A shipped spec's tickets are history: the row comes down with the
+    // chip, instead of saying "every ticket landed" until the session ends.
+    const live = planInFlight(picked.markdown, picked.plan)
+    const next = live ? picked.plan : undefined
+    if (!plansEqual(shipPlan, next)) {
+      shipPlan = next
+      prompt.setPlan(next)
+    }
+    adoptShipChip(picked.markdown, picked.plan)
   }
   /**
    * Note a file the agent wrote, so its plan can be found later.
@@ -2374,6 +2395,7 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
     spinner.stop()
     running?.abort()
     shipAdvance?.abort()
+    stopShipWatch()
     // A steer in flight comes back to the queue first; the inbox is kept so
     // dsh logs no canceled splice for what the surface already took back.
     reclaimSteers(live.agent)
@@ -2768,6 +2790,8 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
           await answer(expandTemplate(shipPromptFor(unreadShipStatus()), idea), { kind: 'plugin', plugin: 'coding-cli' }, images)
         }
         if (shipAdvance === advance) shipAdvance = undefined
+        stopShipWatch()
+        refreshPlan()
         continue
       }
       const canned = customByName.get(name)

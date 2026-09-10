@@ -20,11 +20,13 @@ import type { Theme } from './theme.ts'
  * The MetaBar `/ship` orientation chip.
  *
  * Gate chips already shipped via {@link StatusFacts.shipGate}; the rest of the
- * workflow (grill, landing k/n, verify, done) uses this union so one paint
- * path owns the label and the theme role.
+ * workflow (grill, spec, tickets, landing k/n, verify, done) uses this union
+ * so one paint path owns the label and the theme role.
  */
 export type ShipChip =
   | { readonly kind: 'grill' }
+  | { readonly kind: 'spec' }
+  | { readonly kind: 'tickets' }
   | { readonly kind: 'gate'; readonly gate: 1 | 2 }
   | { readonly kind: 'land'; readonly k: number; readonly n: number; readonly flashOk?: true }
   | { readonly kind: 'verify' }
@@ -237,6 +239,10 @@ export function shipChipLabel(chip: ShipChip): string {
   switch (chip.kind) {
     case 'grill':
       return 'ship · grill'
+    case 'spec':
+      return 'ship · spec'
+    case 'tickets':
+      return 'ship · tickets'
     case 'gate':
       return `ship · gate${String(chip.gate)}`
     case 'land':
@@ -251,9 +257,9 @@ export function shipChipLabel(chip: ShipChip): string {
 /**
  * Paint a `/ship` chip in its theme role.
  *
- * Grill is muted, an open gate is warn (already shipped), landing is agent
- * except the brief ok flash when a ticket turns green, verify is muted, and
- * done is ok.
+ * Grill, spec, and tickets are muted, an open gate is warn (already shipped),
+ * landing is agent except the brief ok flash when a ticket turns green,
+ * verify is muted, and done is ok.
  * @param chip - the orientation chip.
  * @param theme - styling for the label.
  * @returns the painted label.
@@ -262,6 +268,8 @@ export function paintShipChip(chip: ShipChip, theme: Theme): string {
   const label = shipChipLabel(chip)
   switch (chip.kind) {
     case 'grill':
+    case 'spec':
+    case 'tickets':
       return theme.muted(label)
     case 'gate':
       return theme.warn(label)
@@ -291,8 +299,8 @@ export function landChip(plan: Plan, flashOk = false): Extract<ShipChip, { kind:
 /**
  * Derive the MetaBar chip from a spec's Status line and its plan.
  *
- * interviewing/confirmed/planned → grill; landing with a current ticket →
- * land k/n; every ticket ticked → verify; shipped → done.
+ * interviewing → spec; confirmed → tickets; planned or landing with a
+ * current ticket → land k/n; every ticket ticked → verify; shipped → done.
  * @param status - the spec's Status phase, if the file named one.
  * @param plan - the plan, or undefined before tickets exist.
  * @param flashOk - when true, a land chip flashes ok.
@@ -305,11 +313,12 @@ export function shipChipFromSpec(
 ): ShipChip | undefined {
   if (status === 'shipped') return { kind: 'done' }
   if (plan !== undefined && plan.tickets.length > 0 && plan.current === undefined) return { kind: 'verify' }
-  if (status === 'landing' && plan !== undefined) {
+  if ((status === 'planned' || status === 'landing') && plan !== undefined) {
     const land = landChip(plan, flashOk)
     if (land !== undefined) return land
   }
-  if (status === 'interviewing' || status === 'confirmed' || status === 'planned') return { kind: 'grill' }
+  if (status === 'confirmed' || status === 'planned') return { kind: 'tickets' }
+  if (status === 'interviewing') return { kind: 'spec' }
   return undefined
 }
 
@@ -321,6 +330,23 @@ export function shipChipFromSpec(
  */
 export function resolveShipChip(facts: StatusFacts): ShipChip | undefined {
   return facts.shipChip ?? (facts.shipGate === undefined ? undefined : { kind: 'gate', gate: facts.shipGate })
+}
+
+/**
+ * Whether two chips would paint the same MetaBar label.
+ *
+ * Chrome re-reads the spec on a timer; adopting an unchanged chip would
+ * restart the land-ok flash and flicker the row.
+ */
+export function sameShipChip(a: ShipChip | undefined, b: ShipChip | undefined): boolean {
+  if (a === b) return true
+  if (a === undefined || b === undefined) return false
+  if (a.kind !== b.kind) return false
+  if (a.kind === 'gate' && b.kind === 'gate') return a.gate === b.gate
+  if (a.kind === 'land' && b.kind === 'land') {
+    return a.k === b.k && a.n === b.n && a.flashOk === b.flashOk
+  }
+  return true
 }
 
 /**
