@@ -468,7 +468,7 @@ the same verification without the gate. The final phase runs these verbatim.
 - [x] Ticket 4: Live Thinking Preview Owns the Display Area — Delivers the density-derived live preview budget (3 compact / 6 comfortable), the unchanged one-line `✻ thought for Xs` settled summary, and the corrected `/ui` description in both README languages. (Blocked by: Ticket 2) (Track: 1,5)
 - [x] Ticket 5: Contract — Retire the Card Path and the Similar-Run Layer — Delivers deletion of the similar-run machinery, its skeleton helper and its `… +N similar` row, plus the now-unreachable card pad/close helpers, the terminal card's `$ command` row, and the `bgTool` role when the transcript is its last caller. (Blocked by: Ticket 3, Ticket 4) (Track: 6)
 - [x] Ticket 6: Destructive Detection Edge Cases and Cross-Path Parity — Delivers adversarial coverage of the classifier (chained, reordered, quoted and wrapper commands; accepted misses recorded) and the guarantee that the live and replay paths produce identical group rows, including interrupted and resumed runs. Optional hardening: if already satisfied, check the boxes and change no code. (Blocked by: Ticket 5) (Track: 4,8)
-- [ ] Ticket 7: Release and Documentation Compliance — Delivers the `codsh-bundle` changeset, the bilingual README updates kept in parity, the new ADR registering `grok-build` and recording both deliberate divergences, and the `CONTEXT.md` domain terms. (Blocked by: Ticket 5, Ticket 6) (Track: 9)
+- [x] Ticket 7: Release and Documentation Compliance — Delivers the `codsh-bundle` changeset, the bilingual README updates kept in parity, the new ADR registering `grok-build` and recording both deliberate divergences, and the `CONTEXT.md` domain terms. (Blocked by: Ticket 5, Ticket 6) (Track: 9)
 
 ## Baseline
 
@@ -707,3 +707,37 @@ replacement, so an interrupted turn stops reading as still running.
 **PTY note.** The interrupted/resumed frame assertions in the PTY suite remain
 unrunnable here (`out of pty devices`; escalation disabled); the behaviours are
 pinned at the transcript seam.
+
+### Ticket 7 — Release and Documentation Compliance (Track: 9)
+
+**Delivered.**
+
+- `.changeset/agent-output-rendering.md` names `codsh-bundle` at `minor` and
+  describes the new hierarchy in the user's terms (thinking preview, merged tool
+  groups, destructive break-out, approval carve-out).
+- Both READMEs: the stale two-line-preview sentence is gone and the 3/6 budgets
+  are stated; a new bullet in each language describes the quiet single-row tool
+  calls, the merged header with its counts/tense/failure mark, the expanded
+  calls and diffs, the `⚠` break-out and the approval carve-out. `tool cards`
+  is now `tool groups` / `工具组`, and the diff-card phrase in `/diff` was
+  updated to the tool group.
+- `docs/adr/0002-grok-build-output-model.md` registers `grok-build` as a fifth
+  reference source in the last slot behind ADR-0001's four agents (whose chain
+  is not rewritten) and records both deliberate divergences — everything merges,
+  including commands and edits; `✻` is kept rather than `◆` — plus the
+  codsh-specific safety carve-out.
+- `CONTEXT.md`'s old **Card run** term is replaced by **Tool group**, **Merged
+  header** and **Destructive break-out**, and the Fullscreen-viewer / Reader
+  hand-off / Child view entries now say "tool group" instead of "Diff card" /
+  "tool cards".
+
+**Green evidence.**
+
+- `.changeset` grep chain prints `.changeset/agent-output-rendering.md`.
+- `grep -n "preview while thinking streams" README.md README.zh.md` → exit 1.
+- `ls docs/adr/ && grep -rn "grok-build" docs/adr/` → ADR-0002 mentions
+  `grok-build` and ADR-0001.
+- `./node_modules/.bin/tsc --noEmit` → exit 0.
+- `node node_modules/vitest/vitest.mjs run` → exit 0, **53 files / 1414 tests**
+  passing, 0 skipped.
+- No `package.json` version or `CHANGELOG.md` was touched.

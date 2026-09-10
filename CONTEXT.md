@@ -83,7 +83,7 @@ _Avoid_: screen row, rendered block number
 **Fullscreen viewer**:
 A transient reader over one Content address, opened by `/view`, `/view N`, or
 `/view N:C`, and over unified-diff text, opened by `/diff` or by clicking a
-Diff card whose body was capped. It replaces transcript and Chrome for the
+tool group whose expansion was capped. It replaces transcript and Chrome for the
 lifetime of the modal, reflows raw Markdown, fence-free code, or diff text at
 the current terminal size, and gives wheel, shifted arrows, Page, Home/End, and
 Escape to reading. Diff text is coloured by what each line does to the file,
@@ -95,8 +95,8 @@ _Avoid_: pager process, transcript view
 
 **Reader hand-off**:
 The raw text a Fold carries so a click opens the Fullscreen viewer instead of
-expanding in place. Only a Diff card that outgrew its 24-line body takes one —
-a short diff is already whole on screen. Ctrl+O is unaffected: expanding
+expanding in place. Only a tool group whose expansion outgrew the soft cap takes
+one — a short body is already whole on screen. Ctrl+O is unaffected: expanding
 everything still expands this block inline, and the collapsed line names both,
 so the affordance never promises a gesture the block does not have.
 _Avoid_: pager payload, click target
@@ -233,19 +233,37 @@ _Avoid_: collapse block, expandable section
 **Child view**:
 The nested Viewport of an in-process child's transcript. A Fold that names a
 child Session is a view: a click enters, Esc pops one level, and the child's
-thinking, text, and tool cards stream the way they do on the parent. The view
+thinking, text, and tool groups stream the way they do on the parent. The view
 is read-only; typing flashes that Esc returns. Fork views skip the inherited
 parent prefix. Worker-thread Workflow children are not views — their sessions
 are never in this process, so the round line never offers `click to enter`.
 _Avoid_: catalog, inspector, pager
 
-**Card run**:
-Tool cards that follow one another share one panel rather than each opening and
-closing one of its own. The first pads above, the last pads below, and inside
-the run a card with body rows keeps the pad above it as its divider while a
-bare one-liner takes that row over — so a batch of reads costs one row each
-rather than three. Any other block printed under a run ends it.
-_Avoid_: card group, merged cards
+**Tool group**:
+The contiguous run of tool calls at the tail, rendered as one unit: one muted
+row whose Merged header aggregates the run, and one Fold holding the member
+calls and their bodies — a terminal's output, an edit's real diff. The run
+extends across groupable calls and is broken by assistant prose, a real-user
+message, or an excluded call. Every call folds the same way, a lone one
+included, so there is one shape to learn.
+_Avoid_: card run, card group, merged cards
+
+**Merged header**:
+The tool group's one row: a muted `●` and a label naming each category in the
+run with its count in first-appearance order, present tense while any member
+runs and past once all settle, with a trailing failure count. Rebuilt from the
+run rather than appended to, so a volatile path or id never changes it. It is
+the row's copyable text and the Fold's hover label.
+_Avoid_: card title, summary line, count badge
+
+**Destructive break-out**:
+A tool call whose command head is on the destructive classifier's list — a
+recursive delete, a history rewrite or force push, a disk/permission change, a
+database/remote kill — stands on its own `⚠` row in the warning role instead of
+joining the group, and the run continues on either side. An approval-gated call
+is pulled out the same way, so a question addressed to the person is never
+folded away.
+_Avoid_: dangerous card, warning card
 
 **Rule**:
 The mark drawn down a transcript block's left edge to say where the block
