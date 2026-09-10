@@ -1,5 +1,11 @@
 # codsh-bundle
 
+## 0.22.0
+
+### Minor Changes
+
+- 413cabb: `/ship` keeps a frozen Main Track as the later-phase compass, asks `ship · occupancy` before replacing an unrelated `/goal`, and shows that compass on `/goal` during a run.
+
 ## 0.21.0
 
 ### Minor Changes
