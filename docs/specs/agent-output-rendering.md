@@ -741,3 +741,60 @@ pinned at the transcript seam.
 - `node node_modules/vitest/vitest.mjs run` → exit 0, **53 files / 1414 tests**
   passing, 0 skipped.
 - No `package.json` version or `CHANGELOG.md` was touched.
+
+## Final Acceptance Run
+
+Literal commands from `## Acceptance Criteria`, run on
+`ship/agent-output-rendering` after all seven tickets were ticked. Criteria 3-10
+were executed here; 1, 2 and the `shipped` half of 11 are blocked by the
+environment (see the blocker note).
+
+1. **PTY fold suite** —
+   `node node_modules/vitest/vitest.mjs run --config vitest.e2e.config.ts e2e/pty-folds.e2e.ts`
+   → **exit 1, `Tests 14 failed (14)`**, every failure
+   `OSError: out of pty devices` from `pty.fork()`. Environment denial, not code:
+   `/dev/ptmx` is denied under `workspace-write` and approval prompts are
+   disabled, so `danger-full-access` cannot be requested from this session.
+   **UNVERIFIED, not passing.**
+2. **Whole PTY surface** —
+   `node node_modules/vitest/vitest.mjs run --config vitest.e2e.config.ts`
+   → **exit 1, `11 failed | 1 passed | 1 skipped`**. The one green file is
+   `e2e/pipe.e2e.ts` (19/19, re-run after the final build). Every other failure
+   is the same PTY denial, except `e2e/wrapper.e2e.ts`, which fails on an
+   unrelated root-owned `~/.npm/_cacache` (`npm pack` `EPERM`). **UNVERIFIED.**
+3. **Module-level render contract** —
+   `node node_modules/vitest/vitest.mjs run packages/bundle/tests/transcript.spec.ts packages/bundle/tests/density.spec.ts packages/bundle/tests/streaming.spec.ts packages/bundle/tests/screen.spec.ts`
+   → exit 0, **4 files / 326 tests passed**, 0 skipped. ✅
+4. **Full unit suite** — `node node_modules/vitest/vitest.mjs run` → exit 0,
+   **53 files / 1414 tests passed**, 0 skipped. ✅
+5. **Types clean** — `./node_modules/.bin/tsc --noEmit` → exit 0, no
+   diagnostics. ✅
+6. **Muted tool row** —
+   `node node_modules/vitest/vitest.mjs run packages/bundle/tests/transcript.spec.ts packages/bundle/tests/theme.spec.ts`
+   → exit 0, **174 passed**. `tool rows are muted, not panelled` asserts a
+   settled tool row carries no `bgTool` background and no `theme.tool` escape,
+   and a destructive row is warning-coloured. ✅
+7. **Destructive classifier** —
+   `node node_modules/vitest/vitest.mjs run packages/bundle/tests/transcript.spec.ts -t destructive`
+   → exit 0, **16 passed | 117 skipped**; the matching tests are passed, not
+   skipped, with one positive per category and the negative cases. ✅
+8. **README parity** —
+   `grep -n "preview while thinking streams" README.md README.zh.md` → exit 1
+   (stale sentence gone); `grep -n "3" README.md` shows the `3-row live thinking
+   preview` and the merged-header example. ✅
+9. **Release note** —
+   `grep -ln "codsh-bundle" .changeset/*.md | xargs grep -ln "tool call\|reasoning\|rendering\|transcript"`
+   → prints `.changeset/agent-output-rendering.md`. ✅
+10. **Reference decision** — `ls docs/adr/ && grep -rn "grok-build" docs/adr/`
+    → `0002-grok-build-output-model.md` exists and names `grok-build` and its
+    position behind ADR-0001. ✅
+11. **Spec phase** — `grep -n "^Status:" docs/specs/agent-output-rendering.md`
+    → still `Status: implementing`, because criteria 1 and 2 have not passed.
+    It may be moved to `shipped` only once they run green with PTY access. ⛔
+
+**Blocker.** Criteria 1 and 2 need a terminal that can open `/dev/ptmx`. This
+session's `workspace-write` sandbox denies it (`OSError: out of pty devices`),
+and escalation to `danger-full-access` is rejected because approval prompts are
+disabled. No PTY-dependent rewrite (`e2e/pty-folds.e2e.ts` and the other PTY
+suites) has been executed; they are rewritten to the new shape but must be run
+green on a PTY-capable host before `Status: shipped`.
