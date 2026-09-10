@@ -26,7 +26,6 @@
 Yet another agent CLI. This one is for people who already run [dsh](https://github.com/deepseek-ai/deepseek-harness), who want DeepSeek (or their own gateway) instead of a closed agent, and who bounced off the default TUI. Not a fork: a coding profile and a terminal that is its own space.
 
 [![The /ship flow](assets/ship-demo.gif)](https://blackman99.github.io/codsh/)
-<p align="center"><a href="assets/codsh-ship-demo.zh.mp4">中文口播版 · 70 秒</a></p>
 
 ## Install
 
