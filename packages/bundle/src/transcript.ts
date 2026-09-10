@@ -538,7 +538,7 @@ export class Transcript {
     // and its own leading rows are the gap.
     const hadRun = this.run !== undefined
     const lines = this.renderBlock(event, hadRun)
-    if (lines.length > 0 && event.type !== 'tool/call' && event.type !== 'tool/result') {
+    if (lines.length > 0 && event.type !== 'tool/call' && event.type !== 'tool/result' && event.type !== 'assistant/message') {
       this.run = undefined
       this.orphanRun = undefined
       this.similarRun = undefined
@@ -596,7 +596,7 @@ export class Transcript {
         if (text === '') return []
         const lines = trimOuterBlanks(renderMarkdown(text, theme))
         if (lines.length === 0) return []
-        return hadRun ? ['', ...lines, ''] : [...lines, '']
+        return hadRun ? [...lines, ''] : [...lines, '']
       }
       case 'tool/call':
         this.rule = rules.tool

@@ -86,7 +86,7 @@ describe('assistant and user messages', () => {
       time: 0,
       data: { turn: 1, step: 2, message: { role: 'assistant', content: [{ type: 'text', text: 'All done!' }], source: { kind: 'model' } } },
     } as unknown as SessionEvent
-    expect(transcript.render(assistant)).toEqual(['', 'All done!', ''])
+    expect(transcript.render(assistant)).toEqual(['All done!', ''])
   })
 
   it('drops an assistant message carrying no visible text', () => {
@@ -1393,6 +1393,66 @@ describe('grok background differentiation across functional blocks', () => {
     expect(second[1]).toBe(pad)
   })
 
+  it('keeps consecutive read cards in one panel with no gap between them', () => {
+    const colorTheme = createTheme(true, { COLORTERM: 'truecolor' })
+    const pad = colorTheme.bgTool('  ')
+    let file = 'questions.spec.ts'
+    const colored = new Transcript(
+      { columns: 80, theme: colorTheme, cwd: CWD },
+      {
+        call: (): ToolCallView => ({ card: 'generic', title: `Read ${file}` }),
+        result: (): ToolResultView => ({
+          card: 'read',
+          path: `/repo/${file}`,
+          offset: 1,
+          lines: [{ number: 1, text: 'x' }],
+          totalLines: 10,
+        }),
+      },
+    )
+    colored.render(callEvent('c1', 'read', {}))
+    const first = colored.render(resultEvent('c1', 'ok'))
+    expect(first[0]).toBe(pad)
+    expect(first[1]).toContain('Read questions.spec.ts')
+    expect(first[2]).toBe(pad)
+
+    file = 'prompt.spec.ts'
+    colored.render(callEvent('c2', 'read', {}))
+    const second = colored.render(resultEvent('c2', 'ok'))
+    expect(second.filter(line => line === pad)).toHaveLength(1)
+    expect(second[0]).toContain('Read prompt.spec.ts')
+    expect(second[1]).toBe(pad)
+  })
+
+  it('keeps consecutive edit cards in one panel with no gap between them', () => {
+    const colorTheme = createTheme(true, { COLORTERM: 'truecolor' })
+    const pad = colorTheme.bgTool('  ')
+    let file = 'questions.spec.ts'
+    const colored = new Transcript(
+      { columns: 80, theme: colorTheme, cwd: CWD },
+      {
+        call: (): ToolCallView => ({ card: 'diff', title: `Edit ${file}`, diffs: [] }),
+        result: (): ToolResultView => ({
+          card: 'diff',
+          title: `Edit ${file}`,
+          diffs: [{ path: `/repo/${file}`, oldText: 'a', newText: 'b' }],
+        }),
+      },
+    )
+    expect(colored.render(callEvent('c1', 'edit', {}))).toEqual([])
+    const first = colored.render(resultEvent('c1', 'ok'))
+    expect(first[0]).toBe(pad)
+    expect(first[1]).toContain('Edit questions.spec.ts')
+    expect(first[2]).toBe(pad)
+
+    file = 'ship.spec.ts'
+    expect(colored.render(callEvent('c2', 'edit', {}))).toEqual([])
+    const second = colored.render(resultEvent('c2', 'ok'))
+    expect(second.filter(line => line === pad)).toHaveLength(1)
+    expect(second[0]).toContain('Edit ship.spec.ts')
+    expect(second[1]).toBe(pad)
+  })
+
   it('keeps the tool run open across intervening empty assistant messages and step boundaries', () => {
     const colorTheme = createTheme(true, { COLORTERM: 'truecolor' })
     const pad = colorTheme.bgTool('  ')
@@ -1433,6 +1493,48 @@ describe('grok background differentiation across functional blocks', () => {
     expect(colored.takePendingCard()).toEqual(pending)
     expect(second[0]).toContain('Read b.ts')
     expect(second[1]).toBe(pad)
+  })
+
+  it('does not open a new panel after a short assistant note between tool cards', () => {
+    const colorTheme = createTheme(true, { COLORTERM: 'truecolor' })
+    const pad = colorTheme.bgTool('  ')
+    let file = 'questions.spec.ts'
+    const colored = new Transcript(
+      { columns: 80, theme: colorTheme, cwd: CWD },
+      {
+        call: (): ToolCallView => ({ card: 'generic', title: `Read ${file}` }),
+        result: (): ToolResultView => ({
+          card: 'read',
+          path: `/repo/${file}`,
+          offset: 1,
+          lines: [{ number: 1, text: 'x' }],
+          totalLines: 10,
+        }),
+      },
+    )
+    colored.render(callEvent('c1', 'read', {}))
+    colored.render(resultEvent('c1', 'ok'))
+    const note = {
+      type: 'assistant/message',
+      seq: 3,
+      time: 0,
+      data: {
+        turn: 1,
+        step: 1,
+        message: {
+          role: 'assistant',
+          content: [{ type: 'text', text: 'questions.spec.ts 改动冲突了，重新读一遍再补测试。' }],
+          source: { kind: 'model' },
+        },
+      },
+    } as unknown as SessionEvent
+    expect(colored.render(note).join('\n')).toContain('改动冲突')
+    file = 'prompt.spec.ts'
+    colored.render(callEvent('c2', 'read', {}))
+    const second = colored.render(resultEvent('c2', 'ok'))
+    expect(second.filter(line => line === pad)).toHaveLength(1)
+    expect(second[0]).toContain('Read prompt.spec.ts')
+    expect(second[0]).not.toBe(pad)
   })
 
   it('keeps a divider row between cards that have bodies', () => {
