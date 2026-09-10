@@ -3,7 +3,8 @@
  *
  * Not a GateModal. The transcript stays visible; Esc dismisses back to typing
  * without aborting /ship. Left/right revisit consecutive questions in the
- * same batch. A write-in option is an inline field when focused.
+ * same batch. A custom write-in row is always last; focusing it — `e`, a
+ * click, or the arrows — is an inline field. Enter submits the typed text.
  * @module codsh-bundle/src/frontier-card
  */
 
@@ -40,7 +41,6 @@ export interface FrontierSpec {
  */
 export type FrontierKey =
   | { kind: 'accept'; value: string; custom?: true }
-  | { kind: 'edit' }
   | { kind: 'dismiss' }
   | { kind: 'back' }
   | { kind: 'next' }
@@ -49,10 +49,12 @@ export type FrontierKey =
 /** How Prompt.frontier settled. */
 export type FrontierOutcome =
   | { kind: 'accept'; value: string; custom?: true }
-  | { kind: 'edit' }
   | { kind: 'dismiss' }
   | { kind: 'back' }
   | { kind: 'next' }
+
+/** Always-last custom row, matching Selector's "type your own" offer. */
+export const FRONTIER_CUSTOM_LABEL = '✎ Type your own answer'
 
 /** One painted frame of the card. */
 export interface FrontierFrame {
@@ -82,6 +84,16 @@ const REC_GUTTER = 6
 export function recommendedIndex(options: readonly FrontierOption[]): number {
   const marked = options.findIndex(option => option.recommended === true)
   return marked >= 0 ? marked : 0
+}
+
+/**
+ * Guarantee a trailing custom write-in row. A question that already offered
+ * one keeps that row; otherwise Selector's "type your own" label is appended.
+ * @param options - the model's choices.
+ */
+function withCustomRow(options: readonly FrontierOption[]): FrontierOption[] {
+  if (options.some(option => option.writeIn === true)) return [...options]
+  return [...options, { label: FRONTIER_CUSTOM_LABEL, writeIn: true }]
 }
 
 /** Strip SGR so padding uses display width. */
@@ -119,17 +131,19 @@ export class FrontierCard {
   private draft = ''
   /** Insertion point inside {@link draft}, in code points. */
   private caret = 0
+  /** Model options plus the always-last custom write-in row. */
+  private readonly options: readonly FrontierOption[]
 
   constructor(private readonly spec: FrontierSpec) {
-    this.focus = recommendedIndex(spec.options)
+    this.options = withCustomRow(spec.options)
+    this.focus = recommendedIndex(this.options)
     const prior = spec.prior
     if (prior?.custom !== undefined && prior.custom !== '') {
-      const write = spec.options.findIndex(option => option.writeIn === true)
-      this.focus = write >= 0 ? write : Math.max(0, spec.options.length - 1)
+      this.focus = this.customIndex()
       this.draft = prior.custom
       this.caret = Array.from(prior.custom).length
     } else if (prior?.selected !== undefined) {
-      const index = spec.options.findIndex(option => option.label === prior.selected)
+      const index = this.options.findIndex(option => option.label === prior.selected)
       if (index >= 0) this.focus = index
     }
   }
@@ -141,7 +155,7 @@ export class FrontierCard {
 
   /** Label of the focused option, or empty when there are none. */
   get focusedLabel(): string {
-    return this.spec.options[this.focus]?.label ?? ''
+    return this.options[this.focus]?.label ?? ''
   }
 
   /**
@@ -165,7 +179,7 @@ export class FrontierCard {
     // Options keep the compact window they had when the question was at most
     // two lines. Extra question rows grow the card instead of eating options.
     const optionBudget = Math.max(1, MAX_ROWS - CHROME - Math.min(asked.length, 2))
-    const total = this.spec.options.length
+    const total = this.options.length
     const visible = Math.max(1, Math.min(total, optionBudget))
     const maxOffset = Math.max(0, total - visible)
     if (this.focus < this.offset) this.offset = this.focus
@@ -177,7 +191,7 @@ export class FrontierCard {
     // Question stays default colour — the frame is the muted chrome.
     const body: string[] = asked.map(line => framed(line, theme, inner))
     for (let index = this.offset; index < this.offset + visible; index += 1) {
-      const option = this.spec.options[index]
+      const option = this.options[index]
       if (option === undefined) continue
       body.push(framed(this.optionRow(option, index === this.focus, theme, inner), theme, inner))
     }
@@ -209,8 +223,8 @@ export class FrontierCard {
   }
 
   /**
-   * Apply one key: y/Enter accept the focused label, e edits, Esc dismisses,
-   * arrows move. `n` is not abort — this card has no abort key.
+   * Apply one key: y/Enter accept the focused label, e focuses the custom
+   * row as an inline field, Esc dismisses, arrows move. `n` is not abort.
    * @param key - decoded keystroke.
    */
   handleKey(key: Key): FrontierKey | undefined {
@@ -264,7 +278,10 @@ export class FrontierCard {
     if (key.kind === 'text') {
       const letter = key.text.toLowerCase()
       if (letter === 'y') return this.acceptFocused()
-      if (letter === 'e') return { kind: 'edit' }
+      if (letter === 'e') {
+        this.focusCustom()
+        return { kind: 'move' }
+      }
       return undefined
     }
     if (key.kind === 'up') {
@@ -288,7 +305,19 @@ export class FrontierCard {
 
   /** Whether the focused option is a write-in field. */
   private writing(): boolean {
-    return this.spec.options[this.focus]?.writeIn === true || this.draft !== ''
+    return this.options[this.focus]?.writeIn === true || this.draft !== ''
+  }
+
+  /** Index of the always-last custom row. */
+  private customIndex(): number {
+    return Math.max(0, this.options.length - 1)
+  }
+
+  /** Focus the custom row as an empty inline field. */
+  private focusCustom(): void {
+    this.focus = this.customIndex()
+    this.draft = ''
+    this.caret = 0
   }
 
   /** Accept the focused option, or the typed write-in text. */
@@ -306,7 +335,7 @@ export class FrontierCard {
    * @param delta - steps; negative moves up.
    */
   private nudge(delta: number): void {
-    const count = this.spec.options.length
+    const count = this.options.length
     if (count === 0) return
     this.focus = (this.focus + delta % count + count) % count
     this.draft = ''

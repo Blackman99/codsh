@@ -130,10 +130,16 @@ describe('FrontierCard', () => {
     expect(new FrontierCard(spec).handleKey({ kind: 'right' })).toBeUndefined()
   })
 
-  it('maps e to edit', () => {
+  it('always offers a custom write-in row, and e focuses it as an inline field', () => {
     const card = new FrontierCard(spec)
-    expect(card.handleKey({ kind: 'text', text: 'e' })).toEqual({ kind: 'edit' })
-    expect(card.handleKey({ kind: 'text', text: 'E' })).toEqual({ kind: 'edit' })
+    expect(card.handleKey({ kind: 'text', text: 'e' })).toEqual({ kind: 'move' })
+    const focused = card.frame(theme, 56)
+    expect(focused.rows.join('\n')).toMatch(/Type your own/i)
+    expect(focused.rows.join('\n')).toMatch(/[▌_]/u)
+    expect(focused.cursor).toBeDefined()
+    expect(card.handleKey({ kind: 'text', text: 'neither' })).toEqual({ kind: 'move' })
+    expect(card.frame(theme, 56).rows.join('\n')).toContain('neither')
+    expect(card.handleKey({ kind: 'enter' })).toEqual({ kind: 'accept', value: 'neither', custom: true })
   })
 
   it('moves with up/down and accepts the newly focused label', () => {
@@ -144,7 +150,7 @@ describe('FrontierCard', () => {
     expect(card.handleKey({ kind: 'up' })).toEqual({ kind: 'move' })
     expect(card.focused).toBe(0)
     expect(card.handleKey({ kind: 'up' })).toEqual({ kind: 'move' })
-    expect(card.focused).toBe(2)
+    expect(card.focused).toBe(3)
   })
 
   it('dismisses on Esc and does not treat n as abort', () => {

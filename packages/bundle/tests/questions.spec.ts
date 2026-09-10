@@ -411,7 +411,6 @@ describe('ship gate detection', () => {
       selected: [],
       custom: 'a file under docs/',
     })
-    expect(encodeFrontierAnswer(q, { kind: 'edit' })).toEqual({ id: 'grill', selected: [], custom: 'edit' })
     expect(encodeFrontierAnswer(q, { kind: 'dismiss' })).toEqual({ id: 'grill', selected: [] })
     expect(encodeFrontierAnswer(q, { kind: 'back' })).toEqual({ id: 'grill', selected: [], custom: 'back' })
     expect(encodeFrontierAnswer(q, { kind: 'next' })).toEqual({ id: 'grill', selected: [], custom: 'next' })
@@ -472,15 +471,20 @@ describe('ship gate detection', () => {
     expect(calls).toEqual(['Which storage?'])
   })
 
-  it('maps frontier edit and dismiss without writing abort', async () => {
-    const written: string[] = []
-    const editing = new TerminalQuestions(
+  it('always appends a custom write-in option to a grill question', async () => {
+    let labels: string[] = []
+    let writeIns: Array<boolean | undefined> = []
+    const questions = new TerminalQuestions(
       { read: () => Promise.resolve(undefined) },
       theme,
-      line => { written.push(line) },
+      () => {},
       undefined,
       undefined,
-      async () => ({ kind: 'edit' }),
+      async (spec) => {
+        labels = spec.options.map(option => option.label)
+        writeIns = spec.options.map(option => option.writeIn)
+        return { kind: 'accept', value: 'neither', custom: true }
+      },
     )
     const request = {
       questions: [{
@@ -490,13 +494,15 @@ describe('ship gate detection', () => {
         options: [{ label: 'SQLite' }, { label: 'Postgres' }],
       }],
     } as AskUserQuestionRequest
-    expect(await editing.ask(request)).toEqual({
-      answers: [{ id: 'f2', selected: [], custom: 'edit' }],
+    expect(await questions.ask(request)).toEqual({
+      answers: [{ id: 'f2', selected: [], custom: 'neither' }],
     })
-    expect(written.join('\n')).toContain('edit')
-    expect(written.join('\n')).not.toContain('aborted')
+    expect(labels.at(-1)).toMatch(/Type your own/i)
+    expect(writeIns.at(-1)).toBe(true)
+  })
 
-    written.length = 0
+  it('maps frontier dismiss without writing abort', async () => {
+    const written: string[] = []
     const dismissing = new TerminalQuestions(
       { read: () => Promise.resolve(undefined) },
       theme,
@@ -505,6 +511,14 @@ describe('ship gate detection', () => {
       undefined,
       async () => ({ kind: 'dismiss' }),
     )
+    const request = {
+      questions: [{
+        id: 'f2',
+        question: 'Which storage?',
+        header: 'ship · grill',
+        options: [{ label: 'SQLite' }, { label: 'Postgres' }],
+      }],
+    } as AskUserQuestionRequest
     expect(await dismissing.ask(request)).toEqual({
       answers: [{ id: 'f2', selected: [] }],
     })

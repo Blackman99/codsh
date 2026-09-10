@@ -14,7 +14,7 @@ import type {
   AskUserQuestionItem,
   AskUserQuestionRequest,
 } from '@deepseek-ai/dsh-user-questions'
-import type { FrontierOutcome, FrontierSpec } from './frontier-card.ts'
+import { FRONTIER_CUSTOM_LABEL, type FrontierOutcome, type FrontierSpec } from './frontier-card.ts'
 import { gateTitle } from './gate-modal.ts'
 import { renderMarkdown } from './markdown.ts'
 import type { GateAction, GateKind, GateModalSpec } from './gate-modal.ts'
@@ -166,8 +166,8 @@ export function encodeGateAnswer(question: AskUserQuestionItem, action: GateActi
  * Map a frontier card decision onto the ask_user_question answer encoding.
  *
  * Accept writes the focused label as a selection (same as Selector choose).
- * Edit is the custom-edit path (`custom: 'edit'`), like gate edit.
- * Dismiss is empty selected — not an abort write.
+ * A custom write-in is `custom: <typed text>`. Dismiss is empty selected —
+ * not an abort write.
  * @param question - the question being answered.
  * @param outcome - what the FrontierCard settled as.
  */
@@ -177,7 +177,6 @@ export function encodeFrontierAnswer(question: AskUserQuestionItem, outcome: Fro
       ? { id: question.id, selected: [], custom: outcome.value }
       : { id: question.id, selected: [outcome.value] }
   }
-  if (outcome.kind === 'edit') return { id: question.id, selected: [], custom: 'edit' }
   if (outcome.kind === 'back') return { id: question.id, selected: [], custom: 'back' }
   if (outcome.kind === 'next') return { id: question.id, selected: [], custom: 'next' }
   return { id: question.id, selected: [] }
@@ -304,12 +303,15 @@ export class TerminalQuestions {
       const recommended = recommendedFlags(options)
       const outcome = await this.frontier({
         question: question.question,
-        options: options.map((option, index) => ({
-          label: option.label,
-          ...option.description === undefined ? {} : { detail: option.description },
-          ...recommended[index] === true ? { recommended: true } : {},
-          ...isWriteInOption(option) ? { writeIn: true as const } : {},
-        })),
+        options: [
+          ...options.map((option, index) => ({
+            label: option.label,
+            ...option.description === undefined ? {} : { detail: option.description },
+            ...recommended[index] === true ? { recommended: true } : {},
+            ...isWriteInOption(option) ? { writeIn: true as const } : {},
+          })),
+          ...options.some(isWriteInOption) ? [] : [{ label: FRONTIER_CUSTOM_LABEL, writeIn: true as const }],
+        ],
         ...nav.canBack ? { canBack: true } : {},
         ...nav.canForward ? { canForward: true } : {},
         ...nav.prior === undefined ? {} : { prior: nav.prior },
@@ -318,10 +320,6 @@ export class TerminalQuestions {
       if (outcome.kind === 'accept') {
         const shown = answer.custom ?? answer.selected.join(', ')
         this.write(this.theme.dim(`  ✓ ${shown}`))
-      } else if (outcome.kind === 'edit') {
-        // e exits to edit: custom-edit encoding (like gate), and Prompt
-        // prefills the focused option so the person types in the box.
-        this.write(this.theme.dim('  ✎ edit'))
       }
       // back / dismiss: no "aborted" write — /ship keeps running.
       return answer

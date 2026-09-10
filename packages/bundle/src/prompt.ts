@@ -624,7 +624,6 @@ export class Prompt {
         const active = this.frontier_
         this.frontier_ = undefined
         active?.dispose()
-        if (outcome.kind === 'edit') this.editor.prefill(active?.card.focusedLabel ?? spec.options[0]?.label ?? '')
         resolve(outcome)
         this.render()
       }

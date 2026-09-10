@@ -1561,7 +1561,7 @@ describe('ship frontier card', () => {
     await pending
   })
 
-  it('accepts y as the recommended label and prefills on e', async () => {
+  it('accepts y as the recommended label, and e stays on an inline custom field', async () => {
     const { prompt, console } = build()
     const taking = prompt.frontier(grill)
     console.press({ kind: 'text', text: 'y' })
@@ -1569,10 +1569,11 @@ describe('ship frontier card', () => {
 
     const editing = prompt.frontier(grill)
     console.press({ kind: 'text', text: 'e' })
-    await expect(editing).resolves.toEqual({ kind: 'edit' })
-    const after = prompt.read()
+    const last = console.draws.at(-1)
+    expect((last?.rows[last.cursor.row] ?? '')).toMatch(/[▌_]/u)
+    console.press({ kind: 'text', text: 'neither' })
     console.press({ kind: 'enter' })
-    expect(await after).toBe('SQLite')
+    await expect(editing).resolves.toEqual({ kind: 'accept', value: 'neither', custom: true })
   })
 })
 
