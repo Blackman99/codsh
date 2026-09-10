@@ -1,5 +1,11 @@
 # codsh
 
+## 0.22.3
+
+### Patch Changes
+
+- c96c33f: Refuse to boot when the found dsh is older than the harness this runtime was built against, and print the install line, instead of crashing on a missing `expandAssistantStream` export.
+
 ## 0.22.2
 
 ## 0.22.1
