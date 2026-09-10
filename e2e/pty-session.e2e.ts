@@ -28,8 +28,11 @@ describe.skipIf(process.platform === 'win32')('protocols and the session (real P
     const output = await drivePty('slow', [
       // Start a turn whose tool occupies it.
       ['Welcome to codsh', 'take your time\n', 0],
-      // The command is running; press Escape alone.
-      ['$ sleep', ESCAPE, 0],
+      // The command is running; press Escape alone. The wait is on the approval
+      // prompt rather than on `$ sleep`: a pending call is now one merged row
+      // (`Running 1 command`) and the command text lives behind the fold, so the
+      // literal `$ sleep` no longer reaches the output at all.
+      ['Running 1 command', ESCAPE, 0],
       // The turn is cancelled, so the prompt comes back and accepts more.
       //
       // `/exit` is the assertion that Escape released the reader's decoder: a
@@ -39,7 +42,7 @@ describe.skipIf(process.platform === 'win32')('protocols and the session (real P
       ['interrupted', '/exit\n', 300],
     ])
 
-    expect(output).toContain('$ sleep')
+    expect(output).toContain('Running 1 command')
     expect(output).toContain('interrupted')
     // The mocked model answers only after a tool result; a cancelled call
     // produces none, so its closing message must never appear.
@@ -101,8 +104,10 @@ describe.skipIf(process.platform === 'win32')('protocols and the session (real P
   it('speaks Ctrl+Enter as steer under the kitty protocol', async () => {
     const output = await drivePty('steer', [
       ['Welcome to codsh', `take your time${ENTER}`, 300],
-      // CSI 13;5u is Ctrl+Enter: the line goes into the running turn.
-      ['$ sleep', `CODE_CLI_STEER_MARK now${ESCAPE}[13;5u`, 300],
+      // CSI 13;5u is Ctrl+Enter: the line goes into the running turn. The wait
+      // is on the approval prompt because a pending call is now one merged row
+      // and its command text lives behind the fold.
+      ['Running 1 command', `CODE_CLI_STEER_MARK now${ESCAPE}[13;5u`, 300],
       ['re:steering:[^\\r\\n]{0,40}CODE_CLI_STEER_MARK', '', 0],
       ['seen=yes', `/exit${ENTER}`, 400],
     ])
@@ -121,7 +126,7 @@ describe.skipIf(process.platform === 'win32')('protocols and the session (real P
       // The terminal reports focus, then answers the background question with
       // white — the decoder must consume both, never type them.
       ['Welcome to codsh', `${ESCAPE}[I${ESCAPE}]11;rgb:ffff/ffff/ffff\u0007run the command${ENTER}`, 300],
-      ['Allow bash', 'n', 400],
+      ['Running 1 command', 'n', 400],
       ['CODE_CLI_CALL_DENIED', `/exit${ENTER}`, 400],
     ])
 
@@ -198,7 +203,7 @@ describe.skipIf(process.platform === 'win32')('desktop notifications (real PTY)'
     const output = await drivePty('bash', [
       // The window reports focus out, then a turn asks for approval.
       ['Welcome to codsh', `${ESCAPE}[Orun it${ENTER}`, 300],
-      ['Allow bash', 'n', 400],
+      ['Running 1 command', 'n', 400],
       ['CODE_CLI_CALL_DENIED', `/exit${ENTER}`, 400],
     ])
     const notices = [...output.matchAll(/\u001B\]9;([^\u0007]*)\u0007/gu)].map(match => match[1])

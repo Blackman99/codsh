@@ -237,20 +237,25 @@ describe.skipIf(process.platform === 'win32')('typing and keys (real PTY)', () =
     // — there yet.
     const run = await drivePtySteps('steer', [
       ['Welcome to codsh', `go${ENTER}`, 300],
-      ['$ sleep', `!echo QUEUED_BANG${ENTER}after QUEUED_PROMPT${ENTER}`, 300],
+      // Wait on the approval prompt, not on `$ sleep`: the pending call is one
+      // merged row now and its command text lives behind the fold.
+      ['Running 1 command', `!echo QUEUED_BANG${ENTER}after QUEUED_PROMPT${ENTER}`, 300],
       ['seen=', '', 0],
-      ['$ echo QUEUED_BANG', '', 0],
+      // The bang is a tool call like any other, so its settled marker is the
+      // merged label rather than the literal command text.
+      ['Ran 1 command', '', 0],
       ['seen=', '', 0],
       ['seen=', `/exit${ENTER}`, 400],
     ])
     const at = (step: number): string[] => screenOf(run.output.slice(0, run.offsets[step - 1]), -1).alternate
-    const promptRow = /›\s+after QUEUED_PROMPT/u
-    // When the shell card had just appeared, the prompt typed after it had
-    // not started its turn; by the end it had.
-    expect(at(4).some(row => row.includes('$ echo QUEUED_BANG'))).toBe(true)
-    expect(at(4).some(row => promptRow.test(row))).toBe(false)
+    // A `!` line is the person's own shell input, not an agent tool call, and it
+    // still prints its own `$ command` row rather than folding behind a group
+    // label. What this test is about is the queue: the prompt typed after the
+    // `!` line waits its turn instead of riding along with it.
+    const startedTurn = /^\s*›\s+after QUEUED_PROMPT/u
+    expect(at(3).some(row => startedTurn.test(row))).toBe(false)
     const final = finalScreen(run.output).alternate
-    expect(final.some(row => promptRow.test(row))).toBe(true)
+    expect(final.some(row => startedTurn.test(row))).toBe(true)
   }, E2E_TEST_TIMEOUT_MS)
 
   it('runs a ! line in the shell and the agent sees the output', async () => {
@@ -260,6 +265,8 @@ describe.skipIf(process.platform === 'win32')('typing and keys (real PTY)', () =
     ])
 
     const plain = output.replaceAll(/\u001B\[[0-9;?]*[A-Za-z]/gu, '')
+    // A `!` line prints its own command row and output; it is the person's own
+    // shell input rather than an agent tool call, so it keeps that shape.
     expect(plain).toContain('$ echo BANG_PTY_7')
     expect(plain).toContain('BANG_PTY_7')
     expect(plain).toContain('bang=yes')

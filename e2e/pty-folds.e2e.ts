@@ -39,7 +39,7 @@ describe.skipIf(process.platform === 'win32')('streaming, cards and folds (real 
     // glyph instead of joining the merged group.
     const output = await drivePty('bash', [
       ['Welcome to codsh', `run it${ENTER}`, 300],
-      ['Allow bash', ENTER, 600],
+      ['Running 1 command', ENTER, 600],
       ['CODE_CLI_CALL_OK', '\u000F', 600],
       ['', `/exit${ENTER}`, 600],
     ])

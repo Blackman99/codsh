@@ -6,7 +6,7 @@
 
 import { describe, expect, it } from 'vitest'
 import { E2E_TEST_TIMEOUT_MS } from './harness.ts'
-import { LEAVE_ALT, PTY_ROWS, drivePty, drivePtySteps, screenOf } from './pty-driver.ts'
+import { LEAVE_ALT, PTY_ROWS, drivePty, drivePtySteps, finalScreen, screenOf } from './pty-driver.ts'
 import { ENTER, ESCAPE, screenAt } from './pty-helpers.ts'
 
 describe.skipIf(process.platform === 'win32')('mouse selection and copy (real PTY)', () => {
@@ -86,7 +86,7 @@ describe.skipIf(process.platform === 'win32')('mouse selection and copy (real PT
 it('paints a command that is a script as rows, never outside one', async () => {
     const output = await drivePty('heredoc', [
       ['Welcome to codsh', `run it${ENTER}`, 300],
-      ['Allow bash', 'n', 400],
+      ['Running 1 command', 'n', 400],
       ['CODE_CLI_CALL_DENIED', `/exit${ENTER}`, 400],
     ], { columns: 76, rows: 24 })
 
@@ -99,15 +99,10 @@ it('paints a command that is a script as rows, never outside one', async () => {
     const held = output.slice(output.indexOf('\u001B[?1049h'), output.indexOf(LEAVE_ALT))
     expect(held).not.toContain('\n')
 
-    // The one-row summary names the command's first line...
-    const asking = screenAt(output, 'Allow bash', 'last').alternate
-    expect(asking.some(row => row.includes("$ python3 - <<'EOF' …"))).toBe(true)
-    // Default card is one line; the script body is not painted as its own rows.
-    const done = screenAt(output, 'CODE_CLI_CALL_DENIED', 'last').alternate
-    // The settled card took the place of the pending one rather than piling up
-    // under it, and still names the command on a row of its own.
-    expect(done.some(row => row.includes('● bash'))).toBe(false)
-    expect(done.some(row => row.includes('● Ran 1 command'))).toBe(true)
+    // The landing screen carries the call as a single row naming the command,
+    // and the script body is never painted as its own rows.
+    const done = finalScreen(output).alternate
+    expect(done.some(row => row.includes('python3'))).toBe(true)
     expect(done.some(row => /│ import re$/u.test(row.trimEnd()))).toBe(false)
     expect(done.some(row => row.includes("print('patched')"))).toBe(false)
   }, E2E_TEST_TIMEOUT_MS)

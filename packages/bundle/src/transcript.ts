@@ -790,11 +790,28 @@ export class Transcript {
    * @param status - already-styled trailing glyph, or `''` while still running.
    * @returns the painted one-liner.
    */
+  /**
+   * A title reduced to the single row a head may occupy.
+   *
+   * A terminal command can be several lines — a heredoc is — and a head is one
+   * row by contract. Left whole, the command's own newlines became extra
+   * transcript rows, which is how a script body escaped onto the screen. The
+   * first line names the call; the rest stays in the fold.
+   * @param title - the call's title, possibly multi-line.
+   * @returns the first line, marked when more followed.
+   */
+  private oneLineTitle(title: string): string {
+    const newline = title.indexOf('\n')
+    if (newline < 0) return title
+    const first = title.slice(0, newline).trimEnd()
+    return first === '' ? '…' : `${first} …`
+  }
+
   private memberHead(title: string, suffix = '', status = ''): string {
     const { theme } = this.options
     const stats = suffix === '' ? '' : ` ${suffix}`
     const mark = status === '' ? '' : ` ${status}`
-    return `${cardIndent(theme)}${theme.muted(TOOL_BULLET)} ${theme.dim(title)}${stats}${mark}`
+    return `${cardIndent(theme)}${theme.muted(TOOL_BULLET)} ${theme.dim(this.oneLineTitle(title))}${stats}${mark}`
   }
 
   /**
@@ -830,7 +847,7 @@ export class Transcript {
     const { theme } = this.options
     const stats = suffix === '' ? '' : ` ${suffix}`
     const mark = status === '' ? '' : ` ${status}`
-    return theme[style](`${cardIndent(theme)}⚠ ${title}${stats}${mark}`)
+    return theme[style](`${cardIndent(theme)}⚠ ${this.oneLineTitle(title)}${stats}${mark}`)
   }
 
   /**
@@ -1194,8 +1211,14 @@ export class Transcript {
       const output = (view.output ?? '').trimEnd()
       const desc = pending?.description
       const descLines = desc !== undefined && desc !== '' ? [theme.dim(`  ${desc}`)] : []
+      // A command that is several lines — a heredoc is — keeps its body here,
+      // under the one-row head. The head names the call; this is where its
+      // script stays readable instead of being flattened to an ellipsis.
+      const commandLines = view.title === undefined || !view.title.includes('\n')
+        ? []
+        : view.title.split('\n').map(line => theme.dim(`  ${line}`))
       const outputLines = output === '' ? [] : output.split('\n').map(line => theme.dim(`  ${line}`))
-      const body = [...descLines, ...outputLines]
+      const body = [...descLines, ...commandLines, ...outputLines]
       return { suffix, ...capped(body, MAX_RESULT_LINES) }
     }
     if (view?.card === 'search') {

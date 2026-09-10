@@ -525,6 +525,26 @@ describe('tool results', () => {
     expect(transcript.render(resultEvent('c3', 'ok'))).toEqual(['● Ran 3 commands'])
   })
 
+  it('keeps a multi-line command to one row, with its body in the fold', () => {
+    // A heredoc's command is several lines. The group row is one row by
+    // contract, so the command's own newlines must not become extra rows of
+    // transcript — that is how a script body escaped onto the screen.
+    const command = "python3 - <<'EOF'\nimport re\np='x.md'\nprint('patched')\nEOF"
+    const transcript = build({
+      call: () => ({ card: 'terminal', title: command }),
+      result: () => ({ card: 'terminal', title: command, output: '' }),
+    })
+    transcript.render(callEvent('c1', 'bash', {}))
+    const running = transcript.takePendingCard()
+    expect(running.length).toBeLessThanOrEqual(1)
+    const settled = transcript.render(resultEvent('c1', 'ok'))
+    expect(settled).toEqual(['● Ran 1 command'])
+    expect(settled.join('\n')).not.toContain('import re')
+    // The body is still reachable: the fold carries the whole script.
+    const full = transcript.takeFold() ?? []
+    expect(full.join('\n')).toContain('import re')
+  })
+
   it('aggregates a mixed run and lists every member in the fold', () => {
     const titles = ['pnpm test', 'pnpm test', 'git status']
     const outputs = ['Error: No tests found', 'Error: No tests found', 'On branch main']

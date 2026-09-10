@@ -107,7 +107,10 @@ describe.skipIf(process.platform === 'win32')('the first five minutes: menus, se
   it('queues typed-ahead lines, opens them on Ctrl+Q, and sends them as one message after an Escape interrupt', async () => {
     const output = await drivePty('slow', [
       ['Welcome to codsh', `take your time${ENTER}`, 300],
-      ['$ sleep', `first queued${ENTER}second queued${ENTER}`, 400],
+      // Wait on the approval prompt: a pending call is one merged row now and
+      // its command text is behind the fold, so `$ sleep` never reaches the
+      // output. Both later waits use the same marker, for the same reason.
+      ['Running 1 command', `first queued${ENTER}second queued${ENTER}`, 400],
       ['re:2 queued:[^\\r\\n]{0,80}second queued', '\u0011', 400],
       // Escape on the open panel folds it back; the queue stays.
       ['Ctrl+Q closes', ESCAPE, 400],
@@ -115,7 +118,7 @@ describe.skipIf(process.platform === 'win32')('the first five minutes: menus, se
       // then go as ONE message, which starts exactly one new turn.
       ['re:2 queued:[^\\r\\n]{0,80}second queued', ESCAPE, 400],
       ['interrupted', '', 0],
-      ['$ sleep', ESCAPE, 400],
+      ['Running 1 command', ESCAPE, 400],
       ['interrupted', `/exit${ENTER}`, 400],
     ])
     const queued = screenAt(output, '2 queued:').alternate
@@ -124,7 +127,7 @@ describe.skipIf(process.platform === 'win32')('the first five minutes: menus, se
     expect(panel.some(row => row.includes('1. first queued'))).toBe(true)
     expect(panel.some(row => row.includes('2. second queued'))).toBe(true)
     expect(panel.some(row => row.includes('[enter] edit') && row.includes('[d] delete'))).toBe(true)
-    // The script itself proved the order — a second `$ sleep` after the
+    // The script itself proved the order — a second approval prompt after the
     // interrupt, then a second `interrupted` — so what is left to read off the
     // screen is the shape of the message that started it: one block, two lines.
     const final = finalScreen(output).alternate
@@ -137,11 +140,11 @@ describe.skipIf(process.platform === 'win32')('the first five minutes: menus, se
     const clickOn = (line: string): string => `\u001B[<0;6;{row:${line}}M\u001B[<0;6;{row:${line}}m`
     const output = await drivePty('slow', [
       ['Welcome to codsh', `take your time${ENTER}`, 300],
-      ['$ sleep', `later work${ENTER}`, 400],
+      ['Running 1 command', `later work${ENTER}`, 400],
       ['queued: later work', clickOn('queued: later work'), 500],
       // Ctrl+C interrupts too; the queued line then starts the next turn.
       ['Ctrl+Q closes', '\u0003', 400],
-      ['$ sleep', ESCAPE, 400],
+      ['Running 1 command', ESCAPE, 400],
       ['interrupted', `/exit${ENTER}`, 400],
     ])
     expect(screenAt(output, 'Ctrl+Q closes').alternate.some(row => row.includes('1. later work'))).toBe(true)
@@ -150,7 +153,7 @@ describe.skipIf(process.platform === 'win32')('the first five minutes: menus, se
   it('steers a queued prompt into the running turn from the panel', async () => {
     const output = await drivePty('steer', [
       ['Welcome to codsh', `take your time${ENTER}`, 300],
-      ['$ sleep', `CODE_CLI_STEER_MARK now${ENTER}`, 200],
+      ['Running 1 command', `CODE_CLI_STEER_MARK now${ENTER}`, 200],
       ['queued: CODE_CLI_STEER_MARK now', '\u0011', 200],
       ['Ctrl+Q closes', 's', 200],
       // `steering:` is painted in its own colour, so SGR sits before the text.
