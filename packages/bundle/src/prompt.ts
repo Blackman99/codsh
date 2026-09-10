@@ -12,7 +12,7 @@
 import { Editor, imageTokenRanges } from './editor.ts'
 import { generateImageThumbnail, imagePreviewCard, nativePreviewProtocol, openOriginalImage, readImageMetadata } from './image-preview.ts'
 import type { ImagePreview } from './image-preview.ts'
-import { caretAt, inputBox, menuScrollFrom, menuScrollLimit, menuTargetAt, wrapBudget } from './inputbox.ts'
+import { caretAt, inputBox, menuScrollFrom, menuScrollLimit, menuTargetAt, regionCell, wrapBudget } from './inputbox.ts'
 import { planReport, planSummary, plansEqual } from './plan.ts'
 import type { Plan } from './plan.ts'
 import { GUTTER } from './screen.ts'
@@ -1532,7 +1532,7 @@ export class Prompt {
       const boxStart = chromeStart + (box?.start ?? 0)
       boxRow = Math.min(Math.max(0, terminalRow - boxStart), count - 1)
     }
-    return caretAt(this.editor.view, this.console.contentColumns, boxRow, column - 1 - GUTTER, bang)
+    return caretAt(this.editor.view, this.console.contentColumns, boxRow, regionCell(column, GUTTER), bang)
   }
 
   /**
@@ -1579,7 +1579,7 @@ export class Prompt {
     if (row < 0 || row >= box.count) return undefined
     // The screen prepends its own gutter before every row it paints, so the
     // column the terminal reports is that much wider than the row's own.
-    return { kind: 'caret', row, cell: column - 1 - GUTTER }
+    return { kind: 'caret', row, cell: regionCell(column, GUTTER) }
   }
 
   /**

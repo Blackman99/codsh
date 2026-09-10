@@ -445,6 +445,24 @@ describe('selection', () => {
     expect(await reading).toBe('helloX world')
   })
 
+  it('puts the cursor on the wrapped row where the box was clicked', async () => {
+    const { prompt, console } = build()
+    const reading = prompt.read()
+    const line = 'x'.repeat(55)
+    console.press({ kind: 'text', text: line })
+
+    // 57 content columns leaves 51 for text, so the line takes two box rows and
+    // the 52nd character opens the second. Terminal column 7 is that row's
+    // first character: two cells of screen gutter plus the region's four.
+    console.region = { region: 'chrome', index: 2 }
+    console.press({ kind: 'mouse-down', row: 9, column: 7 })
+    console.press({ kind: 'mouse-up', row: 9, column: 7 })
+    console.press({ kind: 'text', text: 'X' })
+
+    console.press({ kind: 'enter' })
+    expect(await reading).toBe(`${'x'.repeat(51)}X${'x'.repeat(4)}`)
+  })
+
   it('selects in the box on a drag and copies on release', async () => {
     const { prompt, console } = build()
     const reading = prompt.read()

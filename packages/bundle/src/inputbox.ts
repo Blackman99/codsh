@@ -28,14 +28,49 @@ const INVERSE_OFF = '\u001B[27m'
 /** How many candidates the menu shows before it says how many it hid. */
 const MENU_LIMIT = 8
 
-/** Columns the frame itself occupies: two borders and two pads. */
-const FRAME_WIDTH = 4
-
-/** Columns the gutter occupies inside the frame: the marker and its space. */
-const GUTTER_WIDTH = 2
-
 /** Content rows shown before the box windows around the cursor. */
 const MAX_CONTENT_ROWS = 6
+
+/**
+ * The fixed geometry of the input region, in display cells and rows.
+ *
+ * These offsets feed the wrap budget, the pointer-to-buffer mapping and the
+ * console's mouse hit-testing. They used to be the same number written in
+ * several places; a mismatch between them does not fail loudly, it puts the
+ * caret on a different character than the one under the pointer. Removing the
+ * frame changes this descriptor instead of each consumer.
+ */
+export interface RegionGeometry {
+  /** Cells before the text on a content row: the frame's edge and pad, then the gutter. */
+  readonly left: number
+  /** Rows above the first content row: the frame's top edge. */
+  readonly top: number
+  /** Columns the gutter takes inside the frame: the marker and the space after it. */
+  readonly gutter: number
+}
+
+/**
+ * The geometry the region is laid out with today.
+ * @returns the offsets every consumer of the region reads.
+ */
+export function regionGeometry(): RegionGeometry {
+  return { left: 4, top: 1, gutter: 2 }
+}
+
+/**
+ * The region cell a terminal column falls on.
+ *
+ * The screen indents every chrome row by its own gutter before the region's
+ * own left offset applies, so a terminal column is not a region cell until
+ * that indent comes off. Keeping the arithmetic beside the geometry is what
+ * stops the pointer mapping and the caret mapping from drifting apart.
+ * @param column - terminal column, 1-based.
+ * @param indent - columns the screen indents the region by.
+ * @returns the display cell within the region's own rows, from zero.
+ */
+export function regionCell(column: number, indent: number): number {
+  return column - 1 - indent
+}
 
 /** Underline on, used only for the typed fragment inside a menu label. */
 const UNDERLINE_ON = '\u001B[4m'
@@ -139,10 +174,11 @@ function codePoints(cluster: string): number {
  * Movement has to wrap at the same width the box draws at, or the row a
  * person sees themselves on is not the row the cursor moves from.
  * @param columns - display columns available to the whole box.
+ * @param geometry - the region's offsets; the box's by default.
  * @returns columns available to the text inside it.
  */
-export function wrapBudget(columns: number): number {
-  return Math.max(8, columns - FRAME_WIDTH) - GUTTER_WIDTH
+export function wrapBudget(columns: number, geometry: RegionGeometry = regionGeometry()): number {
+  return Math.max(8, columns - geometry.left) - geometry.gutter
 }
 
 /**
@@ -404,10 +440,16 @@ interface BoxLayoutRows {
  * @param view - what the editor is showing.
  * @param columns - display columns available to the whole box.
  * @param shell - whether the leading `!` is the gutter rather than content.
+ * @param geometry - the region's offsets; the box's by default.
  * @returns the wrapped rows and the window over them.
  */
-function boxLayout(view: EditorView, columns: number, shell: boolean): BoxLayoutRows {
-  const budget = wrapBudget(columns)
+function boxLayout(
+  view: EditorView,
+  columns: number,
+  shell: boolean,
+  geometry: RegionGeometry = regionGeometry(),
+): BoxLayoutRows {
+  const budget = wrapBudget(columns, geometry)
   const lines = shell
     ? [(view.lines[0] ?? '').slice(1), ...view.lines.slice(1)]
     : view.lines
@@ -425,9 +467,6 @@ function boxLayout(view: EditorView, columns: number, shell: boolean): BoxLayout
   return { lines, column, visual, cursorAt, start, end: Math.min(visual.length, start + MAX_CONTENT_ROWS) }
 }
 
-/** Cells before a content row's text: the frame, a space, the gutter, a space. */
-const TEXT_AT = 4
-
 /**
  * Where a pointer landed in the buffer.
  *
@@ -440,6 +479,7 @@ const TEXT_AT = 4
  * @param row - the row within the box's own rows, the top border at zero.
  * @param cell - the display column within that row, from zero.
  * @param shell - whether the leading `!` is the gutter rather than content.
+ * @param geometry - the region's offsets; the box's by default.
  * @returns where the cursor belongs in the buffer.
  */
 export function caretAt(
@@ -448,13 +488,14 @@ export function caretAt(
   row: number,
   cell: number,
   shell = false,
+  geometry: RegionGeometry = regionGeometry(),
 ): { row: number; column: number } {
-  const { visual, start, end } = boxLayout(view, columns, shell)
+  const { visual, start, end } = boxLayout(view, columns, shell, geometry)
   const shownCount = Math.max(1, end - start)
-  const within = Math.min(Math.max(0, row - 1), shownCount - 1)
+  const within = Math.min(Math.max(0, row - geometry.top), shownCount - 1)
   const target = visual[start + within]
   if (target === undefined) return { row: 0, column: shell ? 1 : 0 }
-  let remaining = Math.max(0, cell - TEXT_AT)
+  let remaining = Math.max(0, cell - geometry.left)
   let offset = 0
   const cluster = graphemeAt(target.text)
   let at = 0
@@ -475,10 +516,11 @@ export function caretAt(
 export function inputBox(view: EditorView, theme: Theme, columns: number, options: BoxOptions = {}): BoxLayout {
   const shell = options.shell === true && (view.lines[0] ?? '').startsWith('!')
   const accent = options.accent ?? ((text: string) => theme.dim(text))
-  const inner = Math.max(8, columns - FRAME_WIDTH)
-  const budget = wrapBudget(columns)
+  const geometry = regionGeometry()
+  const inner = Math.max(8, columns - geometry.left)
+  const budget = wrapBudget(columns, geometry)
   const rule = '─'.repeat(inner + 2)
-  const { lines, column, visual, cursorAt, start, end } = boxLayout(view, columns, shell)
+  const { lines, column, visual, cursorAt, start, end } = boxLayout(view, columns, shell, geometry)
   const shown = visual.slice(start, end)
 
   const empty = lines.length === 1 && lines[0] === ''
@@ -522,6 +564,6 @@ export function inputBox(view: EditorView, theme: Theme, columns: number, option
     rows,
     overlay,
     cursorRow: 1 + (cursorAt - start),
-    cursorColumn: FRAME_WIDTH + Math.min(displayWidth(before), budget),
+    cursorColumn: geometry.left + Math.min(displayWidth(before), budget),
   }
 }

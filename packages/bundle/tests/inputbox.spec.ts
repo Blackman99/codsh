@@ -4,7 +4,7 @@
  */
 
 import { describe, expect, it } from 'vitest'
-import { caretAt, inputBox, menuTargetAt } from '../src/inputbox.ts'
+import { caretAt, inputBox, menuTargetAt, regionCell, regionGeometry, wrapBudget } from '../src/inputbox.ts'
 import { createTheme, displayWidth } from '../src/theme.ts'
 import type { EditorView } from '../src/editor.ts'
 
@@ -397,6 +397,80 @@ describe('putting the cursor where a pointer landed', () => {
 
   it('answers for an empty box without inventing a position', () => {
     expect(caretAt(view(), 40, 1, TEXT_AT + 5)).toEqual({ row: 0, column: 0 })
+  })
+})
+
+describe('the region geometry source', () => {
+  it('names the offsets the region is laid out with', () => {
+    // The frame is four cells wide and the caret's left offset was the same
+    // four: one source has to give both, or removing the frame shifts one
+    // consumer and not the others.
+    const geometry = regionGeometry()
+    expect(geometry.left).toBe(4)
+    expect(geometry.top).toBe(1)
+    expect(geometry.gutter).toBe(2)
+  })
+
+  it('derives the wrap budget from that source', () => {
+    const geometry = regionGeometry()
+    // The text budget is what is left of the terminal once the region's left
+    // offset comes off, less the gutter inside it.
+    expect(wrapBudget(40)).toBe(Math.max(8, 40 - geometry.left) - geometry.gutter)
+    expect(wrapBudget(12)).toBe(6)
+  })
+
+  it('maps a terminal column through the screen indent to a region cell', () => {
+    // The screen paints every chrome row two cells in, so terminal column 7 is
+    // region cell 4: the text's first cell in the framed region.
+    expect(regionCell(7, 2)).toBe(4)
+    expect(regionCell(1, 2)).toBe(-2)
+  })
+})
+
+describe('a pointer on a painted row', () => {
+  it('lands on the character painted under it, first, middle, last, and wrapped', () => {
+    const columns = 12
+    const text = 'abcdefghijkl'
+    const shown = view({ lines: [text], column: text.length })
+    const { rows } = inputBox(shown, theme, columns)
+    const left = regionGeometry().left
+    const painted = (row: number, cell: number): string => Array.from(rows[row] ?? '')[cell] ?? ''
+    // The first content row: first, middle and last cell of its text.
+    expect(painted(1, left)).toBe('a')
+    expect(caretAt(shown, columns, 1, left)).toEqual({ row: 0, column: 0 })
+    expect(painted(1, left + 2)).toBe('c')
+    expect(caretAt(shown, columns, 1, left + 2)).toEqual({ row: 0, column: 2 })
+    expect(painted(1, left + 5)).toBe('f')
+    expect(caretAt(shown, columns, 1, left + 5)).toEqual({ row: 0, column: 5 })
+    // The wrapped row paints the next characters, starting with the one after
+    // the wrap.
+    expect(painted(2, left)).toBe('g')
+    expect(caretAt(shown, columns, 2, left)).toEqual({ row: 0, column: 6 })
+    expect(painted(2, left + 5)).toBe('l')
+    expect(caretAt(shown, columns, 2, left + 5)).toEqual({ row: 0, column: 11 })
+  })
+})
+
+describe('the region as it is drawn today', () => {
+  it('keeps the frame byte-identical while the geometry is separated from it', () => {
+    const empty = inputBox(view(), theme, 20, { placeholder: 'Ask anything' })
+    expect(empty.rows).toEqual([
+      '╭──────────────────╮',
+      '│ › Ask anything   │',
+      '╰──────────────────╯',
+    ])
+    expect({ cursorRow: empty.cursorRow, cursorColumn: empty.cursorColumn })
+      .toEqual({ cursorRow: 1, cursorColumn: 4 })
+
+    const wrapped = inputBox(view({ lines: ['abcdefghijkl'], column: 12 }), theme, 12)
+    expect(wrapped.rows).toEqual([
+      '╭──────────╮',
+      '│ › abcdef │',
+      '│   ghijkl │',
+      '╰──────────╯',
+    ])
+    expect({ cursorRow: wrapped.cursorRow, cursorColumn: wrapped.cursorColumn })
+      .toEqual({ cursorRow: 2, cursorColumn: 10 })
   })
 })
 

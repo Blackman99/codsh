@@ -428,7 +428,7 @@ print a policy error while exiting 0, so it cannot be used as evidence.
 
 ## Plan
 
-- [ ] Ticket 1: Input Region Geometry, Separated From the Frame — Delivers one explicit geometry source (left offset, row offset, gutter width) with the wrap budget, the pointer-to-buffer mapping and the composer's mouse hit-testing all routed through it. Changes no rendered output; it exists because the border width and the caret's left offset are the same number written twice today, and removing the border would shift three consumers at once. (Blocked by: none) (Track: 5)
+- [x] Ticket 1: Input Region Geometry, Separated From the Frame — Delivers one explicit geometry source (left offset, row offset, gutter width) with the wrap budget, the pointer-to-buffer mapping and the composer's mouse hit-testing all routed through it. Changes no rendered output; it exists because the border width and the caret's left offset are the same number written twice today, and removing the border would shift three consumers at once. (Blocked by: none) (Track: 5)
 - [ ] Ticket 2: A Step Reads as One Block — Delivers a gap at the step boundary and gives the block gap its own density-derived value, so a step's reasoning header, its body and its tool rows read as one block on one indent. Grouping and fold semantics unchanged. (Blocked by: none) (Track: 1,6)
 - [ ] Ticket 3: The Input Region Loses Its Border — Delivers the borderless region: a divider, the `›` mark, the input, and one help row carrying the commands-and-keys entry. The cursor geometry must survive exactly, which Ticket 1 is what makes a single-descriptor change. (Blocked by: Ticket 1) (Track: 5)
 - [ ] Ticket 4: Environment Facts Move to a Top Bar — Delivers a reserved row 0 carrying branch and directory on the left, context pressure on the right, plus the plan-mode and `/ship` gate chips; the foot drops directory, branch and model; the pinned sticky panel renders below the bar and yields its padding first. Also fixes the defect that a long path currently drops the branch first. (Blocked by: none) (Track: 3,4)
@@ -454,3 +454,53 @@ Recorded at gate 2, before implementation, on `ship/chrome-redesign` cut from
 - Reference for the target shape: the two attached images. Image 3 (comfortable
   reference) is the acceptance baseline; image 2 is the current fragmented
   state.
+
+## Verification Log
+
+Progress writes only; the sealed Main Track is not touched.
+
+### Ticket 1 — Input Region Geometry, Separated From the Frame (Track: 5)
+
+**Delivered.** `packages/bundle/src/inputbox.ts` gains one explicit geometry
+source: `RegionGeometry` (`left` 4, `top` 1, `gutter` 2) returned by
+`regionGeometry()`, plus `regionCell(column, indent)` for the terminal-column to
+region-cell step. The wrap budget, the box's inner width, the caret's row/column
+mapping and the cursor column all read their offsets from it; the old
+`FRAME_WIDTH` / `GUTTER_WIDTH` / `TEXT_AT` constants are gone.
+`packages/bundle/src/prompt.ts` routes both mouse paths (`boxCaretAt` and
+`regionTarget`) through `regionCell` instead of its own `column - 1 - GUTTER`
+arithmetic. No rendered output changed.
+
+**Red (witnessed before implementation).** New seam `regionGeometry()` /
+`regionCell()` stubbed to `throw new Error('not implemented')` in
+`packages/bundle/src/inputbox.ts`, with the new tests in
+`packages/bundle/tests/inputbox.spec.ts`:
+
+- `node node_modules/vitest/vitest.mjs run packages/bundle/tests/inputbox.spec.ts`
+  → exit 1, `Tests 4 failed | 44 passed (48)`, each failure
+  `Error: not implemented` at `regionGeometry` (`src/inputbox.ts:63`) or
+  `regionCell` (`src/inputbox.ts:78`). Tracer-bullet red at the new seam, not a
+  syntax or setup error; the 44 pre-existing tests stayed green.
+
+**Green.**
+
+- `node node_modules/vitest/vitest.mjs run packages/bundle/tests/inputbox.spec.ts packages/bundle/tests/prompt.spec.ts`
+  → exit 0, **2 files / 154 passed (154), 0 skipped**. New coverage: the
+  geometry source's three offsets; the wrap budget derived from it; the
+  terminal-column to region-cell mapping; a pointer on the first (`a`), middle
+  (`c`) and last (`f`) cell of a painted content row and on the first and last
+  cells of a wrapped row landing on exactly the character painted there; a
+  byte-identical pin of the framed rows and cursor for the empty/placeholder and
+  wrapped cases; and a composer click on a wrapped row inserting at the painted
+  character.
+- `./node_modules/.bin/tsc --noEmit` → exit 0, no diagnostics.
+- `node node_modules/vitest/vitest.mjs run` → exit 0, **53 files / 1421 tests**
+  passing, 0 skipped (baseline 53 / 1415 plus the 6 new; no regression).
+
+**PTY note.** This ticket changes no rendered output, so it has no PTY
+assertion of its own. The PTY geometry proofs named in the spec's Acceptance
+Criteria (`e2e/pty-selectors.e2e.ts`, `e2e/pty-mouse.e2e.ts`,
+`e2e/experience-chrome.e2e.ts`) cannot run in this sandbox: `/dev/ptmx` is
+denied (`OSError: out of pty devices`, exit 1 for all PTY tests) and approval
+prompts are disabled, so no PTY result is treated as evidence either way.
+
