@@ -1,5 +1,11 @@
 # codsh-bundle
 
+## 0.22.3
+
+### Patch Changes
+
+- c96c33f: Migrate a leftover `persona.text` in the user-root `code-cli` preset to `prefix`, so a copy from before the 0.1.5 harness still mounts.
+
 ## 0.22.2
 
 ### Patch Changes
