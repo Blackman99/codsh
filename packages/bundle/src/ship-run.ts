@@ -4,15 +4,17 @@
  *
  * The runner calls {@link ShipRun.run} for the canned command, {@link
  * ShipRun.noteWritten} when a tool writes markdown, and {@link ShipRun.abort}
- * on Esc. Chip, plan, poll, and phase injection stay behind this seam.
+ * on Esc. Chip, plan, poll, occupancy, the goals port, and phase injection
+ * stay behind this seam.
  * @module codsh-bundle/src/ship-run
  */
 
 import { readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { parseShipStatus, pickLiveShip, planInFlight, plansEqual } from './plan.ts'
+import { parseShipStatus, parseSpecMetadata, pickLiveShip, planInFlight, plansEqual } from './plan.ts'
 import type { Plan, ShipSpecFile } from './plan.ts'
 import { expandTemplate } from './custom-commands.ts'
+import type { SelectAsk } from './questions.ts'
 import { shipPhaseKind, shipPromptFor } from './ship.ts'
 import { sameShipChip, shipChipFromSpec } from './status.ts'
 import type { ShipChip } from './status.ts'
@@ -28,6 +30,139 @@ export interface ShipChrome {
   setChip(chip: ShipChip | undefined): void
   setTodos?(): void
 }
+
+/** Durable phase the session compass reports. */
+export type ShipGoalPhase = 'active' | 'paused' | 'blocked' | 'complete'
+
+/** Whether the harness round driver may continue this compass. */
+export type ShipGoalActivation = 'armed' | 'disarmed'
+
+/**
+ * One session compass, as the runner sees it. Ids and phases are strings so
+ * the host goal service type never enters this module.
+ */
+export interface ShipGoal {
+  id: string
+  objective: string
+  phase: ShipGoalPhase
+  activation: ShipGoalActivation
+}
+
+/**
+ * Narrow goals port the runner owns. Missing or throwing degrades to
+ * spec+prepend; the composition root wraps `ctx.goals` when present.
+ */
+export interface ShipGoals {
+  get(): Promise<ShipGoal | undefined>
+  create(objective: string): Promise<ShipGoal>
+  edit(id: string, objective: string): Promise<ShipGoal>
+  pause(id: string): Promise<ShipGoal>
+  resume(id: string): Promise<ShipGoal>
+  complete(id: string): Promise<ShipGoal>
+  clear(id: string): Promise<void>
+}
+
+/** Compare-and-set identity the host mutations require. */
+export interface HostGoalRef {
+  id: string
+  revision: number
+}
+
+/**
+ * Host goal service as the composition root sees it. Duck-typed so the
+ * bundle never depends on `@deepseek-ai/dsh-goal`.
+ */
+export interface HostGoalsService {
+  get(agent: unknown): HostGoalView | undefined
+  create(agent: unknown, request: { objective: string }): HostGoalView
+  edit(agent: unknown, ref: HostGoalRef, request: { objective?: string }): HostGoalView
+  pause(agent: unknown, ref: HostGoalRef): HostGoalView
+  resume(agent: unknown, ref: HostGoalRef): HostGoalView
+  complete(agent: unknown, ref: HostGoalRef): HostGoalView
+  clear(agent: unknown, ref: HostGoalRef): unknown
+}
+
+/** One host view; extra fields (rounds) are ignored. */
+export interface HostGoalView {
+  id: string
+  objective: string
+  phase: ShipGoalPhase
+  activation: ShipGoalActivation
+  revision: number
+}
+
+declare module '@deepseek-ai/cordis' {
+  interface Context {
+    /** Optional host goals service; duck-typed, never imported from dsh-goal. */
+    goals?: HostGoalsService
+  }
+}
+
+/** Project a host view onto the runner's narrow compass. */
+const asShipGoal = (view: HostGoalView): ShipGoal => ({
+  id: view.id,
+  objective: view.objective,
+  phase: view.phase,
+  activation: view.activation,
+})
+
+/**
+ * Wrap a present host goals service. The runner never sees the host type.
+ * @param host - `ctx.goals` duck-typed, without a package import.
+ * @param agent - the live agent the host mutations apply to.
+ */
+export function wrapHostGoals(host: HostGoalsService, agent: () => unknown): ShipGoals {
+  const refFor = (id: string): HostGoalRef => ({
+    id,
+    revision: host.get(agent())?.revision ?? 0,
+  })
+  return {
+    async get() {
+      const view = host.get(agent())
+      return view === undefined ? undefined : asShipGoal(view)
+    },
+    async create(objective) {
+      return asShipGoal(host.create(agent(), { objective }))
+    },
+    async edit(id, objective) {
+      return asShipGoal(host.edit(agent(), refFor(id), { objective }))
+    },
+    async pause(id) {
+      return asShipGoal(host.pause(agent(), refFor(id)))
+    },
+    async resume(id) {
+      return asShipGoal(host.resume(agent(), refFor(id)))
+    },
+    async complete(id) {
+      return asShipGoal(host.complete(agent(), refFor(id)))
+    },
+    async clear(id) {
+      host.clear(agent(), refFor(id))
+    },
+  }
+}
+
+/** Selector the occupancy ask uses; absent on a pipe, which auto-Replaces. */
+export type OccupancyAsk = SelectAsk
+
+/** Flash that `/goal` was not updated when the harness half degrades. */
+export type ShipFlash = (text: string) => void
+
+/** Optional ports the composition root wires: goals, occupancy, flash. */
+export interface ShipPorts {
+  goals?: ShipGoals
+  occupancy?: OccupancyAsk
+  flash?: ShipFlash
+}
+
+/** Occupancy Selector title/header — a Selector, not a ship gate modal. */
+export const SHIP_OCCUPANCY_TITLE = 'ship · occupancy'
+
+/** Prefix that marks a session compass as ours. */
+const SHIP_OBJECTIVE_PREFIX = '[ship] '
+
+/** Flash when the harness compass cannot be updated. */
+const GOAL_DEGRADED = '/goal was not updated'
 
 /** What the runner must do to spend a canned-command turn. */
 export interface ShipTurn {
@@ -49,10 +184,12 @@ export class ShipRun {
   private flashTimer: ReturnType<typeof setTimeout> | undefined
   private watch: ReturnType<typeof setInterval> | undefined
   private advance: AbortController | undefined
+  private goalId: string | undefined
 
   constructor(
     private readonly cwd: string,
     private readonly chrome: ShipChrome,
+    private readonly ports: ShipPorts = {},
   ) {}
 
   /** The MetaBar chip Chrome should paint, absent when `/ship` is idle. */
@@ -119,6 +256,7 @@ export class ShipRun {
   async run(idea: string, turn: ShipTurn): Promise<void> {
     this.chipCleared = false
     this.lastDone = undefined
+    this.goalId = undefined
     this.startWatch()
     this.refresh()
     if (this.chip === undefined) this.setChip({ kind: 'grill' })
@@ -126,14 +264,15 @@ export class ShipRun {
     const advance = new AbortController()
     this.advance = advance
     try {
+      if (!await this.occupy(idea)) return
       let previous = shipPhaseKind(this.status())
-      await turn(expandTemplate(shipPromptFor(this.status()), idea))
+      await turn(expandTemplate(this.promptFor(), idea))
       while (!advance.signal.aborted) {
         this.refresh()
         const next = shipPhaseKind(this.status())
         if (next === previous || next === 'done' || next === 'grill') break
         previous = next
-        await turn(expandTemplate(shipPromptFor(this.status()), idea))
+        await turn(expandTemplate(this.promptFor(), idea))
       }
     } finally {
       if (this.advance === advance) {
@@ -142,6 +281,108 @@ export class ShipRun {
         this.refresh()
       }
     }
+  }
+
+  /**
+   * Take the session compass before the first phase turn. Missing or throwing
+   * goals degrade; a stranger is paused then asked; ours is reused.
+   * @param idea - the typed one-sentence requirement.
+   * @returns false when occupancy Abort stops the run without injecting.
+   */
+  private async occupy(idea: string): Promise<boolean> {
+    if (this.ports.goals === undefined) {
+      this.degrade()
+      return true
+    }
+    try {
+      const current = await this.ports.goals.get()
+      if (current === undefined || current.phase === 'complete') {
+        await this.createPlaceholder(idea)
+        return true
+      }
+      if (this.ours(current)) {
+        await this.ports.goals.edit(current.id, `${SHIP_OBJECTIVE_PREFIX}${idea}`)
+        await this.ports.goals.pause(current.id)
+        this.goalId = current.id
+        return true
+      }
+      await this.ports.goals.pause(current.id)
+      const choice = await this.askOccupancy()
+      if (choice === 'abort') {
+        try {
+          await this.ports.goals.resume(current.id)
+        } catch {
+          this.degrade()
+        }
+        return false
+      }
+      await this.ports.goals.clear(current.id)
+      await this.createPlaceholder(idea)
+      return true
+    } catch {
+      this.degrade()
+      return true
+    }
+  }
+
+  /** Pause-then-ask: TTY Selector, cancel/Esc = Abort, absent ask = Replace. */
+  private async askOccupancy(): Promise<'replace' | 'abort'> {
+    const ask = this.ports.occupancy
+    if (ask === undefined) return 'replace'
+    try {
+      const outcome = await ask({
+        title: SHIP_OCCUPANCY_TITLE,
+        options: [{ label: 'Replace' }, { label: 'Abort' }],
+      }, this.advance?.signal)
+      if (outcome.kind === 'chosen' && outcome.indices[0] === 0) return 'replace'
+      return 'abort'
+    } catch {
+      return 'abort'
+    }
+  }
+
+  /** Create `[ship] <idea>` then pause before the first turn is awaited. */
+  private async createPlaceholder(idea: string): Promise<void> {
+    const goals = this.ports.goals
+    if (goals === undefined) return
+    try {
+      const created = await goals.create(`${SHIP_OBJECTIVE_PREFIX}${idea}`)
+      await goals.pause(created.id)
+      this.goalId = created.id
+    } catch {
+      this.degrade()
+    }
+  }
+
+  /** Flash that `/goal` was not updated; the spec+prepend path still binds. */
+  private degrade(): void {
+    this.ports.flash?.(GOAL_DEGRADED)
+  }
+
+  /** Ours: spec Goal-Id match, or an objective that already starts with `[ship]`. */
+  private ours(goal: ShipGoal): boolean {
+    if (goal.objective.startsWith(SHIP_OBJECTIVE_PREFIX.trimEnd())) return true
+    const specId = this.specGoalId()
+    return specId !== undefined && specId === goal.id
+  }
+
+  private specGoalId(): string | undefined {
+    for (const path of this.specPaths()) {
+      try {
+        const id = parseSpecMetadata(readFileSync(path, 'utf8')).goalId
+        if (id !== undefined) return id
+      } catch {
+        // A spec that moved is not occupancy's ours-marker.
+      }
+    }
+    return undefined
+  }
+
+  /** Phase prompt plus the Goal-Id occupancy just created, when present. */
+  private promptFor(): string {
+    return this.goalId === undefined
+      ? shipPromptFor(this.status())
+      : shipPromptFor(this.status(), { goalId: this.goalId })
   }
 
   private status() {

@@ -80,7 +80,7 @@ import { installPackagedPreset } from './preset-install.ts'
 import { TerminalQuestions } from './questions.ts'
 import { userShell } from './bang.ts'
 import { indexReplayTiming } from './replay-timing.ts'
-import { ShipRun } from './ship-run.ts'
+import { ShipRun, wrapHostGoals } from './ship-run.ts'
 import { Spinner } from './spinner.ts'
 import {
   DEEPSEEK_VISION_MODEL,
@@ -1012,10 +1012,17 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
    * refreshStatus is defined after the Prompt exists.
    */
   let paintShipChrome = (): void => {}
+  const hostGoals = ctx.get('goals')
   const ship = new ShipRun(cwd, {
     setPlan: (plan) => { prompt.setPlan(plan) },
     setChip: () => { paintShipChrome() },
     setTodos: () => { prompt.setTodos(todoList(ctx, live.agent)) },
+  }, {
+    ...(hostGoals === undefined ? {} : { goals: wrapHostGoals(hostGoals, () => live.agent) }),
+    ...(io.console.readsKeys
+      ? { occupancy: (spec, signal) => prompt.select(spec, signal) }
+      : {}),
+    flash: text => { prompt.setFlash(theme.dim(`  ${text}`)) },
   })
   const spinner = new Spinner({
     setLive: (text) => { prompt.setHint(text) },
