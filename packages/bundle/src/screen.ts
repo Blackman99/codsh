@@ -357,6 +357,8 @@ export class Screen {
   private physicalLogical: number[] = []
   /** The bottom rows: input box, menu, indicator, status. */
   private chrome: string[] = []
+  /** The reserved chrome row at the very top, absent when there is no bar. */
+  private topBar: string | undefined
   private chromeCursor: ChromeCursor = { row: 0, column: 0 }
   /** Whether the chrome holds input focus, which is when the cursor shows. */
   private chromeFocus = true
@@ -1362,6 +1364,26 @@ export class Screen {
   }
 
   /**
+   * Set the reserved row the screen paints at the very top.
+   *
+   * This is chrome, not transcript: it never scrolls, it is not appended to
+   * the buffer, and the viewport lays out below it. An empty row clears the
+   * reservation so a surface with no top bar pays no row for it.
+   * @param row - the styled row, already fitted, or `''` to drop the bar.
+   */
+  setTopBar(row: string): void {
+    const next = row === '' ? undefined : truncate(row, this.contentColumns())
+    if (next === this.topBar) return
+    this.topBar = next
+    this.render()
+  }
+
+  /** Chrome rows reserved at the top of the screen: one while a bar is set. */
+  private topBarRows(): number {
+    return this.topBar === undefined ? 0 : 1
+  }
+
+  /**
    * Replace the bottom rows.
    * @param rows - the chrome, top to bottom.
    * @param cursor - where the cursor belongs among them.
@@ -1751,7 +1773,7 @@ export class Screen {
     // anchors at the nearest row instead of refusing. It is still not a click
     // on that row: only `onContent` earns the block gesture on release.
     const on = this.locate(row, column, false)
-    const blank = row >= 1 && row <= this.viewportHeight()
+    const blank = row >= 1 + this.topBarRows() && row <= this.topBarRows() + this.viewportHeight()
     const at = on ?? (blank ? this.locate(row, column, true) : undefined)
     if (at !== undefined) this.selection = { anchor: at, focus: at, dragged: false, onContent: on !== undefined }
     // A bare click also clears a standing highlight; the row diff repaints
@@ -1879,8 +1901,8 @@ export class Screen {
     if (this.overlay.length === 0) return false
     const chromeStart = this.host.rows() - this.chrome.length
     if (this.overlayCentered) {
-      const viewportHeight = Math.max(1, chromeStart)
-      const start = Math.max(0, Math.floor((viewportHeight - this.overlay.length) / 2))
+      const viewportHeight = Math.max(1, chromeStart - this.topBarRows())
+      const start = this.topBarRows() + Math.max(0, Math.floor((viewportHeight - this.overlay.length) / 2))
       return row - 1 >= start && row - 1 < start + this.overlay.length
     }
     const overlayStart = chromeStart - this.overlay.length
@@ -1907,7 +1929,7 @@ export class Screen {
       ? undefined
       : {
           key: graphic.key,
-          row: overlayStart + graphic.row,
+          row: overlayStart + graphic.row + this.topBarRows(),
           column: GUTTER + graphic.column,
           rows: graphic.rows,
           clear: graphic.clear,
@@ -1935,11 +1957,12 @@ export class Screen {
    */
   private stickyPromptAt(row: number): TurnPrompt | undefined {
     const { sticky, prompts } = this.frameLayout()
-    if (sticky === undefined || row < 1) return undefined
+    const at = row - this.topBarRows()
+    if (sticky === undefined || at < 1) return undefined
     // Everything the panel reserved except the divider closing it, which is
     // only ever present when the panel got more rows than its prompt needs.
     const maxRow = sticky.reservedRows - (sticky.reservedRows > sticky.renderHeight ? 1 : 0)
-    if (row > maxRow) return undefined
+    if (at > maxRow) return undefined
     return prompts[sticky.prompt]?.prompt
   }
 
@@ -1965,13 +1988,15 @@ export class Screen {
 
   /** Timeline mark under a terminal position, including navigation arrows. */
   private timelineMarkAt(row: number, column: number, marks: readonly TimelineMark[]): TimelineMark | undefined {
-    if (column !== this.host.columns() || row < 1 || row > this.viewportHeight()) return undefined
-    return marks.find(mark => mark.row === row - 1)
+    const top = 1 + this.topBarRows()
+    if (column !== this.host.columns() || row < top || row > top - 1 + this.viewportHeight()) return undefined
+    return marks.find(mark => mark.row === row - top)
   }
 
   /** Whether the active rail owns a terminal cell, including gaps between marks. */
   private coversTimeline(row: number, column: number, marks: readonly TimelineMark[]): boolean {
-    return marks.length > 0 && column === this.host.columns() && row >= 1 && row <= this.viewportHeight()
+    const top = 1 + this.topBarRows()
+    return marks.length > 0 && column === this.host.columns() && row >= top && row <= top - 1 + this.viewportHeight()
   }
 
   /** Apply the real user's colour from its rule to the current timeline dot. */
@@ -2012,7 +2037,7 @@ export class Screen {
     const physicalEnd = Math.min(end, this.physical.length)
     const reserved = sticky?.reservedRows ?? 0
     const contentHeight = height - reserved
-    let visual = row - 1 - reserved
+    let visual = row - 1 - reserved - this.topBarRows()
     if (!clamp && (visual < 0 || visual >= contentHeight || first + visual >= physicalEnd)) return undefined
     visual = Math.min(Math.max(visual, 0), Math.max(0, Math.min(contentHeight, physicalEnd - first) - 1))
     const index = Math.min(Math.max(first + visual, first), physicalEnd - 1)
@@ -2026,12 +2051,12 @@ export class Screen {
 
   /** Terminal row the notice occupies, or undefined when it is not shown. */
   private noticeRow(): number | undefined {
-    return this.noticeVisible() ? this.viewportHeight() : undefined
+    return this.noticeVisible() ? this.topBarRows() + this.viewportHeight() : undefined
   }
 
-  /** Rows the transcript viewport occupies. */
+  /** Rows the transcript viewport occupies, below the top bar. */
   private viewportHeight(): number {
-    return Math.max(1, this.host.rows() - this.chrome.length)
+    return Math.max(1, this.host.rows() - this.chrome.length - this.topBarRows())
   }
 
   /**
@@ -2510,7 +2535,11 @@ export class Screen {
     // moves the cursor itself paints outside its own row. Both sources cut or
     // wrap to fit and both drop them, so this is the guard rather than the
     // rule, and it holds for whatever composes a row next.
-    const frame = [...viewport, ...this.chrome].map(row => oneRow(row))
+    const frame = [
+      ...this.topBar === undefined ? [] : [this.topBar],
+      ...viewport,
+      ...this.chrome,
+    ].map(row => oneRow(row))
 
     let out = SYNC_BEGIN + HIDE_CURSOR
     const repainted = new Set<number>()
@@ -2542,8 +2571,8 @@ export class Screen {
     const railRows = Math.max(rail.length, this.paintedTimeline.length)
     for (let index = 0; index < railRows; index += 1) {
       const glyph = rail[index] ?? ' '
-      if (glyph === this.paintedTimeline[index] && !repainted.has(index)) continue
-      out += `\u001B[${index + 1};${columns}H${glyph}`
+      if (glyph === this.paintedTimeline[index] && !repainted.has(index + this.topBarRows())) continue
+      out += `\u001B[${index + 1 + this.topBarRows()};${columns}H${glyph}`
     }
     if (this.chromeFocus) {
       const row = frame.length - this.chrome.length + this.chromeCursor.row + 1

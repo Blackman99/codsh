@@ -10,6 +10,7 @@
  * transcript search, the shortcuts overlay, queued lines, and the key legend.
  */
 
+import { tmpdir } from 'node:os'
 import { describe, expect, it } from 'vitest'
 import { E2E_TEST_TIMEOUT_MS } from './harness.ts'
 import { PTY_COLUMNS, PTY_ROWS, SYNC_END, drivePty, drivePtySteps, finalScreen, screenOf, screenAt } from './pty-driver.ts'
@@ -169,6 +170,24 @@ describe.skipIf(process.platform === 'win32')('the first five minutes: menus, se
     expect(final.filter(row => /^\s+\d+(?:\.\d+)?s · /u.test(row))).toHaveLength(1)
     expect(final.some(row => row.includes('seen=yes'))).toBe(true)
     expect(final.some(row => /›\s+CODE_CLI_STEER_MARK now/u.test(row))).toBe(true)
+  }, E2E_TEST_TIMEOUT_MS)
+})
+
+describe.skipIf(process.platform === 'win32')('the environment top bar (real PTY)', () => {
+  it('keeps the workspace directory on row 0 and the shortcuts entry on the foot', async () => {
+    const output = await drivePty('write', [
+      ['Welcome to codsh', '', 300],
+      ['Ask anything', `/exit${ENTER}`, 400],
+    ])
+    const rows = screenAt(output, 'Ask anything').alternate
+    // The bar owns row 0 and names the workspace, which the temp run always
+    // places under the system temp root.
+    expect(rows[0]).toContain(tmpdir())
+    // The foot carries the shortcuts entry, not the directory: environment
+    // facts moved to the bar rather than being repeated under the cursor.
+    const foot = rows.at(-1) ?? ''
+    expect(foot).toContain('? shortcuts')
+    expect(foot).not.toContain(tmpdir())
   }, E2E_TEST_TIMEOUT_MS)
 })
 

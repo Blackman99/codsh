@@ -18,7 +18,7 @@ import {
   thinkingStreamPreview,
 } from '../src/density.ts'
 import { GateModal } from '../src/gate-modal.ts'
-import { statusLine } from '../src/status.ts'
+import { topBar } from '../src/status.ts'
 import { createTheme } from '../src/theme.ts'
 
 const theme = createTheme(false, {})
@@ -116,9 +116,9 @@ describe('GateModal and MetaBar ignore density', () => {
     expect(a.join('\n')).toContain('[y] confirm')
   })
 
-  it('paints the same MetaBar status line either way', () => {
-    const facts = { model: 'm', planMode: false, cwd: '/repo' }
-    expect(statusLine(facts, theme, 200)).toBe('m · /repo')
-    expect(statusLine({ ...facts, shipGate: 1 as const }, theme, 200)).toBe('ship · gate1 · m · /repo')
+  it('paints the same MetaBar top bar either way', () => {
+    const facts = { model: 'm', planMode: false, cwd: '/repo', branch: 'main' }
+    expect(topBar(facts, theme, 200)).toBe('main · /repo')
+    expect(topBar({ ...facts, shipGate: 1 as const }, theme, 200)).toBe('ship · gate1 · main · /repo')
   })
 })

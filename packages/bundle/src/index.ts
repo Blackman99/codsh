@@ -94,7 +94,7 @@ import {
 } from './vision.ts'
 import { TextStream, ThinkingTracker } from './streaming.ts'
 import { PROFILE, bundleVersion, checkForUpdate, runtimeMove, runtimeRegisterCommand, runtimeSpec, runningDsh, updateCommand } from './update.ts'
-import { displayPath, formatSessionTime, formatTokens, formatTurnTime, gitBranch, sessionHistoryTiming, statusLine, statusReport, totalTokens } from './status.ts'
+import { displayPath, formatSessionTime, formatTokens, formatTurnTime, gitBranch, sessionHistoryTiming, statusLine, statusReport, topBar, totalTokens } from './status.ts'
 import {
   THINKING_PREFS_FILE,
   buildThinkingOptions,
@@ -1662,6 +1662,9 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
   /** Push the always-current status row; the pipe shape prints it instead. */
   refreshStatus = (): void => {
     if (!io.console.readsKeys) return
+    // Environment facts live on the reserved top bar, so an entered child
+    // session still says where it is; the foot carries only keys and reasoning.
+    prompt.setTopBar(columns => topBar({ ...facts(branch), ...shipFacts() }, theme, columns))
     if (childViews.current !== undefined) {
       prompt.setStatus(theme.dim('subagent · Esc returns to the parent'))
       return
@@ -2477,7 +2480,7 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
       // On a terminal the status lives in the region, always current.
       refreshStatus()
     } else {
-      const status = statusLine({ ...facts(branch), ...shipFacts() }, theme, io.console.columns)
+      const status = topBar({ ...facts(branch), ...shipFacts() }, theme)
       if (status !== shownStatus) {
         prompt.write(status)
         shownStatus = status

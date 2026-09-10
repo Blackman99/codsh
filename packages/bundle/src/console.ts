@@ -593,6 +593,18 @@ export class TerminalConsole {
   }
 
   /**
+   * Set the reserved row the screen paints above the transcript.
+   *
+   * Chrome, not transcript: it never scrolls and the viewport lays out below
+   * it. Off a terminal the call is ignored, like {@link setRegion}; an empty
+   * row clears the reservation.
+   * @param row - the styled row, already fitted to the content width.
+   */
+  setTopBar(row: string): void {
+    this.screen?.setTopBar(row)
+  }
+
+  /**
    * Keep one collapsible block: summary now, full form behind the toggle.
    *
    * Off a terminal only the summary is written — a pipe has no keys to toggle

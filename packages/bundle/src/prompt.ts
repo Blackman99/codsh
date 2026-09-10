@@ -266,6 +266,11 @@ export class Prompt {
   /** The always-current session facts shown as the region's last row. */
   private status: string | ((columns: number) => string) | undefined
   /**
+   * The environment row reserved above the transcript: branch, directory and
+   * context pressure. Chrome, so it never scrolls and never joins the buffer.
+   */
+  private topBar: string | ((columns: number) => string) | undefined
+  /**
    * The agent's current todo list, kept in the chrome rather than only in the
    * transcript: the card that announced it scrolls away, this does not.
    */
@@ -401,6 +406,18 @@ export class Prompt {
   setStatus(text: string | ((columns: number) => string) | undefined): void {
     if (text === this.status) return
     this.status = text
+    this.render()
+  }
+
+  /**
+   * Set the environment row reserved above the transcript.
+   * @param text - the full styled row, a dynamic formatter taking display
+   *   columns, or undefined to drop the reservation. Truncation is applied at
+   *   paint time so a resize can grow the line back.
+   */
+  setTopBar(text: string | ((columns: number) => string) | undefined): void {
+    if (text === this.topBar) return
+    this.topBar = text
     this.render()
   }
 
@@ -1734,6 +1751,10 @@ export class Prompt {
       rows.push(truncate(statusText, columns))
     }
     this.chromeHeight = rows.length
+    // The environment row is chrome of its own, above the transcript: painted
+    // whether or not the region below it has rows to show.
+    const topBarText = typeof this.topBar === 'function' ? this.topBar(columns) : this.topBar
+    this.console.setTopBar(topBarText === undefined ? '' : truncate(topBarText, columns))
     if (rows.length === 0) {
       this.console.setTimelineHidden(this.select_ !== undefined)
       this.console.clearRegion()
@@ -1825,7 +1846,7 @@ export class Prompt {
    * bottom while the picture keeps the space.
    */
   private get previewRows(): number {
-    return Math.max(6, this.console.rows - this.chromeHeight)
+    return Math.max(6, this.console.rows - this.chromeHeight - (this.topBar === undefined ? 0 : 1))
   }
 }
 

@@ -26,6 +26,7 @@ import {
   shipChipLabel,
   statusLine,
   statusReport,
+  topBar,
   totalTokens,
   type StatusFacts,
 } from '../src/status.ts'
@@ -251,216 +252,180 @@ describe('gitBranch', () => {
   })
 })
 
-describe('statusLine', () => {
-  it('drops the segments that have nothing to say', () => {
-    // A fresh session should read as short, not as broken.
-    expect(statusLine(base, theme, 200)).toBe('m · /repo')
-  })
-
-  it('appends shortcuts hint when requested', () => {
-    expect(statusLine({ ...base, shortcuts: true }, theme, 200)).toBe('m · /repo · ? shortcuts')
-  })
-
-  it('keeps extras out of the glance line — preset, permission, tokens, routine context', () => {
-    const line = statusLine({
+describe('topBar', () => {
+  it('packs the branch and directory left and context pressure right', () => {
+    const line = topBar({
       ...base,
-      preset: 'code-cli',
-      permission: 'workspace-write',
       branch: 'main',
-      usage,
-      context: { contextWindow: 1000, projectedTokens: 250 },
-    }, theme, 200)
-    expect(line).toBe('m · /repo (main)')
+      cwd: '/repo',
+      context: { contextWindow: 100, projectedTokens: 50 },
+    }, theme, 40)
+    expect(line).toBe(`main · /repo${' '.repeat(20)}50% left`)
   })
 
-  it('marks plan mode ahead of model and cwd', () => {
-    expect(statusLine({ ...base, planMode: true }, theme, 200)).toBe('plan · m · /repo')
+  it('keeps the branch readable when the directory path overflows', () => {
+    const line = topBar({
+      ...base,
+      branch: 'feature/x',
+      cwd: '/a/very/long/workspace/path/that/will/not/fit',
+      context: { contextWindow: 100, projectedTokens: 50 },
+    }, theme, 30)
+    expect(line).toContain('feature/x')
+    expect(line).toContain('50% left')
+    expect(line).not.toContain('/a/very')
+  })
+
+  it('carries the plan and ship chips on the left', () => {
+    const line = topBar({ ...base, planMode: true, shipGate: 1, branch: 'main', cwd: '/repo' }, theme, 60)
+    expect(line).toContain('plan')
+    expect(line).toContain('ship · gate1')
+    expect(line).toContain('main')
+    expect(line).toContain('/repo')
+  })
+
+  it('keeps context pressure when the left group cannot fit', () => {
+    const line = topBar({
+      ...base,
+      planMode: true,
+      branch: 'main',
+      cwd: '/a/very/long/workspace/path',
+      context: { contextWindow: 100, projectedTokens: 50 },
+    }, theme, 16)
+    expect(line).toContain('50% left')
+    expect(line).toContain('main')
   })
 
   it('prepends the ship gate chip ahead of plan mode', () => {
-    expect(statusLine({ ...base, planMode: true, shipGate: 1 }, theme, 200)).toBe('ship · gate1 · plan · m · /repo')
-    expect(statusLine({ ...base, shipGate: 2 }, theme, 200)).toBe('ship · gate2 · m · /repo')
+    expect(topBar({ ...base, planMode: true, shipGate: 1 }, theme, 200)).toBe('ship · gate1 · plan · /repo')
+    expect(topBar({ ...base, shipGate: 2 }, theme, 200)).toBe('ship · gate2 · /repo')
   })
 
   it('paints ship · land k/n with spaces around the middot', () => {
-    expect(statusLine({ ...base, shipChip: { kind: 'land', k: 2, n: 3 } }, theme, 200)).toBe('ship · land 2/3 · m · /repo')
+    expect(topBar({ ...base, shipChip: { kind: 'land', k: 2, n: 3 } }, theme, 200)).toBe('ship · land 2/3 · /repo')
   })
 
   it('paints grill, spec, tickets, verify, and done chips', () => {
-    expect(statusLine({ ...base, shipChip: { kind: 'grill' } }, theme, 200)).toBe('ship · grill · m · /repo')
-    expect(statusLine({ ...base, shipChip: { kind: 'spec' } }, theme, 200)).toBe('ship · spec · m · /repo')
-    expect(statusLine({ ...base, shipChip: { kind: 'tickets' } }, theme, 200)).toBe('ship · tickets · m · /repo')
-    expect(statusLine({ ...base, shipChip: { kind: 'verify' } }, theme, 200)).toBe('ship · verify · m · /repo')
-    expect(statusLine({ ...base, shipChip: { kind: 'done' } }, theme, 200)).toBe('ship · done · m · /repo')
+    expect(topBar({ ...base, shipChip: { kind: 'grill' } }, theme, 200)).toBe('ship · grill · /repo')
+    expect(topBar({ ...base, shipChip: { kind: 'spec' } }, theme, 200)).toBe('ship · spec · /repo')
+    expect(topBar({ ...base, shipChip: { kind: 'tickets' } }, theme, 200)).toBe('ship · tickets · /repo')
+    expect(topBar({ ...base, shipChip: { kind: 'verify' } }, theme, 200)).toBe('ship · verify · /repo')
+    expect(topBar({ ...base, shipChip: { kind: 'done' } }, theme, 200)).toBe('ship · done · /repo')
   })
 
   it('treats a bare shipGate as a gate chip when shipChip is omitted', () => {
     expect(shipChipLabel({ kind: 'gate', gate: 1 })).toBe('ship · gate1')
-    expect(statusLine({ ...base, shipGate: 1 }, theme, 200)).toBe('ship · gate1 · m · /repo')
+    expect(topBar({ ...base, shipGate: 1 }, theme, 200)).toBe('ship · gate1 · /repo')
   })
 
   it('lets shipChip win over a leftover shipGate', () => {
-    expect(statusLine({
+    expect(topBar({
       ...base,
       shipGate: 1,
       shipChip: { kind: 'land', k: 1, n: 2 },
-    }, theme, 200)).toBe('ship · land 1/2 · m · /repo')
+    }, theme, 200)).toBe('ship · land 1/2 · /repo')
   })
 
-  it('formats model with reasoning effort when reasoning is supported', () => {
-    expect(statusLine({
-      ...base,
-      model: 'deepseek-chat',
-      reasoningEffort: 'high',
-      reasoningSupported: true,
-    }, theme, 200)).toBe('deepseek-chat (high) · /repo')
-  })
-
-  it('formats model with off when reasoning effort is off and supported', () => {
-    expect(statusLine({
-      ...base,
-      model: 'deepseek-chat',
-      reasoningEffort: 'off',
-      reasoningSupported: true,
-    }, theme, 200)).toBe('deepseek-chat (off) · /repo')
-  })
-
-  it('omits reasoning effort tag when reasoning is not supported or effort is absent', () => {
-    expect(statusLine({
-      ...base,
-      model: 'deepseek-chat',
-      reasoningEffort: 'high',
-      reasoningSupported: false,
-    }, theme, 200)).toBe('deepseek-chat · /repo')
-
-    expect(statusLine({
-      ...base,
-      model: 'deepseek-chat',
-      reasoningSupported: true,
-    }, theme, 200)).toBe('deepseek-chat · /repo')
-
-    expect(statusLine({
-      ...base,
-      model: 'deepseek-chat',
-      reasoningEffort: 'high',
-    }, theme, 200)).toBe('deepseek-chat · /repo')
-  })
-
-  it('keeps the full line when no budget is given, so a later paint can re-fit it', () => {
-    const path = '/very/long/path/that/keeps/going/on'
-    expect(statusLine({ ...base, cwd: path }, theme)).toContain(path)
-  })
-
-  it('drops shortcuts before cwd and model when the budget is tight', () => {
-    const line = statusLine({
-      ...base,
-      shortcuts: true,
-      cwd: '/repo',
-    }, theme, 12)
-    expect(line).not.toContain('shortcuts')
-    expect(line).toContain('m · /repo')
-  })
-
-  it('drops cwd before model when the budget is tight', () => {
-    const line = statusLine({
-      ...base,
-      planMode: true,
-      cwd: '/a/very/long/workspace/path/that/will/not/fit',
-      context: { contextWindow: 100, projectedTokens: 80 },
-    }, theme, 18)
-    expect(line).not.toContain('/a/very')
-    expect(line).toContain('plan')
-    expect(line).toContain('20%')
-  })
-
-  it('keeps shipGate like mode — drops cwd then model before the chip', () => {
-    const line = statusLine({
-      ...base,
-      shipGate: 1,
-      planMode: true,
-      cwd: '/a/very/long/workspace/path/that/will/not/fit',
-      context: { contextWindow: 100, projectedTokens: 80 },
-    }, theme, 28)
-    expect(line).not.toContain('/a/very')
-    expect(line).toContain('ship · gate1')
-    expect(line).toContain('plan')
-    expect(line).toContain('20%')
-  })
-
-  it('keeps the landing chip when the budget is tight — drops cwd then model', () => {
-    const line = statusLine({
-      ...base,
-      shipChip: { kind: 'land', k: 2, n: 3 },
-      planMode: true,
-      cwd: '/a/very/long/workspace/path/that/will/not/fit',
-      context: { contextWindow: 100, projectedTokens: 80 },
-    }, theme, 32)
-    expect(line).not.toContain('/a/very')
-    expect(line).toContain('ship · land 2/3')
-    expect(line).toContain('plan')
-    expect(line).toContain('20%')
-  })
-
-  it('is cut rather than wrapped when even the kept segments will not fit', () => {
-    const line = statusLine({ ...base, cwd: '/very/long/path/that/keeps/going/on' }, theme, 8)
+  it('is cut rather than wrapped when even the branch will not fit', () => {
+    const line = topBar({ ...base, branch: 'feature/very-long', cwd: '/a/very/long/path' }, theme, 8)
     expect(line.length).toBeLessThanOrEqual(8)
-    expect(line.endsWith('…') || line === 'm').toBe(true)
+    expect(line.endsWith('…')).toBe(true)
   })
 })
 
-describe('status styling', () => {
+describe('statusLine', () => {
+  it('carries the shortcuts entry and the reasoning level, and nothing about where I am', () => {
+    const line = statusLine({
+      ...base,
+      model: 'deepseek-chat',
+      branch: 'main',
+      shortcuts: true,
+      reasoningEffort: 'high',
+      reasoningSupported: true,
+    }, theme, 200)
+    expect(line).toBe('reasoning high · ? shortcuts')
+    expect(line).not.toContain('deepseek')
+    expect(line).not.toContain('main')
+    expect(line).not.toContain('/repo')
+  })
+
+  it('drops the segments that have nothing to say', () => {
+    // A fresh session with nothing to report reads as no foot at all.
+    expect(statusLine(base, theme, 200)).toBe('')
+  })
+
+  it('shows the reasoning level only when the model supports one', () => {
+    expect(statusLine({ ...base, reasoningEffort: 'high', reasoningSupported: false }, theme, 200)).toBe('')
+    expect(statusLine({ ...base, reasoningSupported: true }, theme, 200)).toBe('')
+    expect(statusLine({ ...base, reasoningEffort: 'high' }, theme, 200)).toBe('')
+    expect(statusLine({ ...base, reasoningEffort: 'high', reasoningSupported: true }, theme, 200)).toBe('reasoning high')
+  })
+
+  it('keeps the full line when no budget is given, so a later paint can re-fit it', () => {
+    expect(statusLine({ ...base, shortcuts: true, reasoningEffort: 'high', reasoningSupported: true }, theme))
+      .toBe('reasoning high · ? shortcuts')
+  })
+
+  it('drops shortcuts before the reasoning level when the budget is tight', () => {
+    const line = statusLine({ ...base, shortcuts: true, reasoningEffort: 'high', reasoningSupported: true }, theme, 14)
+    expect(line).not.toContain('shortcuts')
+    expect(line).toContain('reasoning high')
+  })
+
+  it('is cut rather than wrapped when even the kept segment will not fit', () => {
+    const line = statusLine({ ...base, reasoningEffort: 'high', reasoningSupported: true }, theme, 6)
+    expect(line.length).toBeLessThanOrEqual(6)
+    expect(line.endsWith('…')).toBe(true)
+  })
+})
+
+describe('topBar styling', () => {
   const colour = createTheme(true, {})
 
   it('styles the ship gate chip warn', () => {
-    const line = statusLine({ ...base, shipGate: 1 }, colour, 200)
+    const line = topBar({ ...base, shipGate: 1 }, colour, 200)
     expect(line).toContain('\u001B[93mship · gate1\u001B[0m')
   })
 
   it('styles the landing chip agent, and ok while a ticket flash is on', () => {
-    const land = statusLine({ ...base, shipChip: { kind: 'land', k: 2, n: 3 } }, colour, 200)
+    const land = topBar({ ...base, shipChip: { kind: 'land', k: 2, n: 3 } }, colour, 200)
     expect(land).toContain('\u001B[35mship · land 2/3\u001B[0m')
-    const flash = statusLine({ ...base, shipChip: { kind: 'land', k: 2, n: 3, flashOk: true } }, colour, 200)
+    const flash = topBar({ ...base, shipChip: { kind: 'land', k: 2, n: 3, flashOk: true } }, colour, 200)
     expect(flash).toContain('\u001B[32mship · land 2/3\u001B[0m')
   })
 
   it('styles grill, spec, and tickets muted, verify muted, and done ok', () => {
-    expect(statusLine({ ...base, shipChip: { kind: 'grill' } }, colour, 200)).toContain('\u001B[90mship · grill\u001B[0m')
-    expect(statusLine({ ...base, shipChip: { kind: 'spec' } }, colour, 200)).toContain('\u001B[90mship · spec\u001B[0m')
-    expect(statusLine({ ...base, shipChip: { kind: 'tickets' } }, colour, 200)).toContain('\u001B[90mship · tickets\u001B[0m')
-    expect(statusLine({ ...base, shipChip: { kind: 'verify' } }, colour, 200)).toContain('\u001B[90mship · verify\u001B[0m')
-    expect(statusLine({ ...base, shipChip: { kind: 'done' } }, colour, 200)).toContain('\u001B[32mship · done\u001B[0m')
+    expect(topBar({ ...base, shipChip: { kind: 'grill' } }, colour, 200)).toContain('\u001B[90mship · grill\u001B[0m')
+    expect(topBar({ ...base, shipChip: { kind: 'spec' } }, colour, 200)).toContain('\u001B[90mship · spec\u001B[0m')
+    expect(topBar({ ...base, shipChip: { kind: 'tickets' } }, colour, 200)).toContain('\u001B[90mship · tickets\u001B[0m')
+    expect(topBar({ ...base, shipChip: { kind: 'verify' } }, colour, 200)).toContain('\u001B[90mship · verify\u001B[0m')
+    expect(topBar({ ...base, shipChip: { kind: 'done' } }, colour, 200)).toContain('\u001B[32mship · done\u001B[0m')
   })
 
   it('keeps ship chips readable under NO_COLOR', () => {
     const plain = createTheme(true, { NO_COLOR: '1' })
-    expect(statusLine({ ...base, shipChip: { kind: 'land', k: 2, n: 3 } }, plain, 200)).toBe('ship · land 2/3 · m · /repo')
-    expect(statusLine({ ...base, shipChip: { kind: 'grill' } }, plain, 200)).toContain('ship · grill')
-    expect(statusLine({ ...base, shipChip: { kind: 'spec' } }, plain, 200)).toContain('ship · spec')
-    expect(statusLine({ ...base, shipChip: { kind: 'tickets' } }, plain, 200)).toContain('ship · tickets')
-    expect(statusLine({ ...base, shipChip: { kind: 'verify' } }, plain, 200)).toContain('ship · verify')
-    expect(statusLine({ ...base, shipChip: { kind: 'done' } }, plain, 200)).toContain('ship · done')
+    expect(topBar({ ...base, shipChip: { kind: 'land', k: 2, n: 3 } }, plain, 200)).toBe('ship · land 2/3 · /repo')
+    expect(topBar({ ...base, shipChip: { kind: 'grill' } }, plain, 200)).toContain('ship · grill')
+    expect(topBar({ ...base, shipChip: { kind: 'spec' } }, plain, 200)).toContain('ship · spec')
+    expect(topBar({ ...base, shipChip: { kind: 'tickets' } }, plain, 200)).toContain('ship · tickets')
+    expect(topBar({ ...base, shipChip: { kind: 'verify' } }, plain, 200)).toContain('ship · verify')
+    expect(topBar({ ...base, shipChip: { kind: 'done' } }, plain, 200)).toContain('ship · done')
     expect(paintShipChip({ kind: 'land', k: 1, n: 4 }, plain)).toBe('ship · land 1/4')
   })
 
-  it('styles the model muted, never cyan/accent', () => {
-    const line = statusLine({ ...base, preset: 'code-cli', usage }, colour, 200)
-    expect(line).toContain('\u001B[90mm\u001B[0m')
+  it('styles the branch and directory muted, never cyan/accent', () => {
+    const line = topBar({ ...base, branch: 'main', preset: 'code-cli', usage }, colour, 200)
+    expect(line).toContain('\u001B[90mmain\u001B[0m')
     expect(line).not.toContain('\u001B[36m')
   })
 
-  it('styles the model with reasoning effort muted', () => {
-    const line = statusLine({ ...base, model: 'm', reasoningEffort: 'high', reasoningSupported: true }, colour, 200)
-    expect(line).toContain('\u001B[90mm (high)\u001B[0m')
-  })
-
-  it('escalates alarming context only; routine headroom stays off the glance', () => {
-    const at = (projected: number): string => statusLine({
+  it('paints context pressure muted routinely, and escalates as it falls', () => {
+    const at = (projected: number): string => topBar({
       ...base,
       context: { contextWindow: 100, projectedTokens: projected },
     }, colour, 200)
-    expect(at(50)).not.toContain('50%')
-    expect(at(80)).toContain('\u001B[93m20%\u001B[0m')
-    expect(at(95)).toContain('\u001B[31m5%\u001B[0m')
+    expect(at(50)).toContain('\u001B[90m50% left\u001B[0m')
+    expect(at(80)).toContain('\u001B[93m20% left\u001B[0m')
+    expect(at(95)).toContain('\u001B[31m5% left\u001B[0m')
   })
 })
 

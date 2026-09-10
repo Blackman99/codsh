@@ -431,7 +431,7 @@ print a policy error while exiting 0, so it cannot be used as evidence.
 - [x] Ticket 1: Input Region Geometry, Separated From the Frame — Delivers one explicit geometry source (left offset, row offset, gutter width) with the wrap budget, the pointer-to-buffer mapping and the composer's mouse hit-testing all routed through it. Changes no rendered output; it exists because the border width and the caret's left offset are the same number written twice today, and removing the border would shift three consumers at once. (Blocked by: none) (Track: 5)
 - [x] Ticket 2: A Step Reads as One Block — Delivers a gap at the step boundary and gives the block gap its own density-derived value, so a step's reasoning header, its body and its tool rows read as one block on one indent. Grouping and fold semantics unchanged. (Blocked by: none) (Track: 1,6)
 - [x] Ticket 3: The Input Region Loses Its Border — Delivers the borderless region: a divider, the `›` mark, the input, and one help row carrying the commands-and-keys entry. The cursor geometry must survive exactly, which Ticket 1 is what makes a single-descriptor change. (Blocked by: Ticket 1) (Track: 5)
-- [ ] Ticket 4: Environment Facts Move to a Top Bar — Delivers a reserved row 0 carrying branch and directory on the left, context pressure on the right, plus the plan-mode and `/ship` gate chips; the foot drops directory, branch and model; the pinned sticky panel renders below the bar and yields its padding first. Also fixes the defect that a long path currently drops the branch first. (Blocked by: none) (Track: 3,4)
+- [x] Ticket 4: Environment Facts Move to a Top Bar — Delivers a reserved row 0 carrying branch and directory on the left, context pressure on the right, plus the plan-mode and `/ship` gate chips; the foot drops directory, branch and model; the pinned sticky panel renders below the bar and yields its padding first. Also fixes the defect that a long path currently drops the branch first. (Blocked by: none) (Track: 3,4)
 - [ ] Ticket 5: One Restrained Palette — Delivers one semantic role per speaker (person, reasoning, tool, error) resolved through a single point, with decoration uncoloured, tools quieter than reasoning, and meaning surviving `NO_COLOR`. (Blocked by: Ticket 3, Ticket 4) (Track: 2)
 - [ ] Ticket 6: Interaction Preservation After the Frame Changed — A verification gate, not a licence to churn: proves every frozen key binding still reaches its feature after the geometry moved, and fixes only what the new frame actually broke. Accepted misses recorded in the commit message. (Blocked by: Ticket 3, Ticket 4) (Track: 7)
 - [ ] Ticket 7: Release and Documentation Compliance — Delivers the `codsh-bundle` changeset (distinct from the pre-existing `/ship`-chrome one), the bilingual README updates kept in parity, the `CONTEXT.md` terms (top bar, block gap, help row), and the captured visual artifact with its frame paths recorded. (Blocked by: Ticket 5, Ticket 6) (Track: 9)
@@ -638,5 +638,88 @@ denial, and are not treated as evidence either way. Acceptance Criteria 1, 2
 and 8 are the same PTY denial. The rendered frame, the byte-level accent on the
 divider and the cursor geometry on a real terminal remain for the main session
 to run with PTY access; the unit/tsc seam above is what this round can prove.
+
+### Ticket 4 — Environment Facts Move to a Top Bar (Track: 3,4)
+
+**Delivered.** `packages/bundle/src/status.ts` gains `topBar(facts, theme,
+columns?)`: one row packing a left group (ship chip, plan chip, branch,
+directory) that degrades first — the directory, then the chips, then the branch
+— and a right group (context pressure, always shown when a sample exists,
+muted routinely and warn/err as it falls) that is aligned to the last column
+and never dropped. That fixes the foot's defect, where a long path dropped the
+branch first. `statusLine` is now the slimmer foot: the `? shortcuts` entry and
+the reasoning level, with branch, directory, model, context and the chips
+removed. `packages/bundle/src/screen.ts` reserves row 0 via `setTopBar`, so the
+viewport, the sticky panel's padding and the timeline rail all shift below it,
+and every terminal-row mapping (`locate`, `coversOverlay`, the rail, the notice,
+the sticky hit-test, the graphic placement) accounts for the reserved row; on a
+short screen the panel yields its padding before the bar or the input region.
+`console.setTopBar`, `prompt.setTopBar` and `refreshStatus()` wire the bar in;
+the pipe shape now prints the top bar instead of the removed foot facts, and
+`previewRows` gives the overlay the bar's row back.
+
+**Red (witnessed before implementation).**
+
+- `topBar` stubbed to `throw new Error('not implemented')` with the new
+  `topBar` tests in `packages/bundle/tests/status.spec.ts`:
+  `node node_modules/vitest/vitest.mjs run packages/bundle/tests/status.spec.ts -t "packs the branch and directory left"`
+  → exit 1, `Test Files 1 failed (1)`, `Tests 1 failed | 71 skipped (72)`,
+  `Error: not implemented` at `topBar` (`src/status.ts:400`). Red at the new
+  seam, not a syntax or setup error.
+- `Screen.setTopBar` stubbed to `throw new Error('not implemented')` with the
+  new top-bar layout tests in `packages/bundle/tests/screen.spec.ts`:
+  `node node_modules/vitest/vitest.mjs run packages/bundle/tests/screen.spec.ts -t "top bar"`
+  → exit 1, `Test Files 1 failed (1)`, `Tests 2 failed | 158 skipped (160)`,
+  `Error: not implemented` at `Screen.setTopBar` (`src/screen.ts:1373`). Red at
+  the new seam.
+
+**Green.**
+
+- `node node_modules/vitest/vitest.mjs run packages/bundle/tests/status.spec.ts packages/bundle/tests/transcript.spec.ts packages/bundle/tests/theme.spec.ts packages/bundle/tests/density.spec.ts`
+  → exit 0, **4 files / 262 passed (262)**, 0 skipped (Acceptance Criterion 4).
+  New coverage: the two-sided packing with the context figure aligned right;
+  the branch still readable under an overflowing directory; the plan/ship chips
+  on the left; context pressure surviving when the left group cannot fit; the
+  chip/styling palette moved to the bar; and the foot's shortcuts/plus-reasoning
+  contract, its drop order and its cut, replacing the old model/cwd assertions.
+- `node node_modules/vitest/vitest.mjs run packages/bundle/tests/inputbox.spec.ts`
+  → exit 0, **1 file / 50 passed (50)**, 0 skipped (Criterion 3).
+- `node node_modules/vitest/vitest.mjs run packages/bundle/tests/inputbox.spec.ts packages/bundle/tests/prompt.spec.ts`
+  → exit 0, **2 files / 157 passed (157)**, 0 skipped (Criterion 7); the fake
+  console learned `setTopBar`, and a new test pins the composer's column-aware
+  route to the reserved row.
+- `node node_modules/vitest/vitest.mjs run packages/bundle/tests/screen.spec.ts`
+  → exit 0, **163 passed (163)**: the new top-bar tests cover row 0, the
+  transcript and chrome below it, the bar holding row 0 while scrolling, the
+  pinned panel rendering below it, the panel's padding yielding first on a short
+  screen, and the bar surviving a resize with the transcript below it.
+- `./node_modules/.bin/tsc --noEmit` → exit 0, no diagnostics (Criterion 6).
+- `node node_modules/vitest/vitest.mjs run` → exit 0, **53 files / 1434 tests**
+  passing, 0 skipped (baseline 53 / 1415 plus the tickets' new tests; no
+  regression, and the existing `agent-output-rendering` assertions are
+  unmodified) (Criterion 5).
+- Non-PTY regression, with the packed bundle rebuilt
+  (`node ../../node_modules/tsdown/dist/run.mjs`, then
+  `node ../../node_modules/typescript/bin/tsc -p tsconfig.build.json`, both
+  exit 0): `node node_modules/vitest/vitest.mjs run --config vitest.e2e.config.ts e2e/pipe.e2e.ts`
+  → exit 0, **19 passed (19)**.
+
+**Frame seam (best-effort; needs PTY access to verify).**
+`e2e/experience-chrome.e2e.ts` gains an environment-top-bar suite: the bar owns
+row 0 and names the workspace, and the foot carries `? shortcuts` but not the
+directory. `e2e/experience-viewport.e2e.ts` was shifted by the reserved row
+where it named viewport rows directly (the timeline rail, the pinned panel
+padding, prompt-top anchoring and the wheel-home frame), with the comments
+saying why. `e2e/capture.e2e.ts` needs no change: the viewer and capture read
+the whole screen, and the bar is part of the frame a reviewer wants.
+
+**PTY note.** Ticket 4's own proof,
+`node node_modules/vitest/vitest.mjs run --config vitest.e2e.config.ts e2e/experience-chrome.e2e.ts e2e/experience-viewport.e2e.ts`,
+cannot run in this sandbox: 2 files / 21 tests fail with
+`OSError: out of pty devices` (exit 1), the `/dev/ptmx` denial, and are not
+treated as evidence either way. Acceptance Criteria 1 and 2 are the same
+denial. The live first-row bar, the context figure changing with a reported
+sample, and the resize re-layout remain for the main session to run with PTY
+access; the unit/tsc seam above is what this round can prove.
 
 

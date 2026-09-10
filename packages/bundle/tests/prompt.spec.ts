@@ -65,6 +65,9 @@ function fakeConsole(readsKeys: boolean) {
     mouseUp(): string | undefined { this.pointer.push('up'); return this.selected },
     write: (line: string) => void written.push(line),
     setRegion: (rows: readonly string[], cursor: RegionCursor) => void draws.push({ rows: [...rows], cursor }),
+    /** The reserved top-bar rows this prompt painted. */
+    topBars: [] as string[],
+    setTopBar(row: string) { this.topBars.push(row) },
     clearRegion: () => void draws.push({ rows: [], cursor: { row: 0, column: 0 } }),
     scrollBy(delta: number) { this.scrolls.push(delta) },
     scrollPage(direction: -1 | 1) { this.scrolls.push(direction) },
@@ -877,6 +880,16 @@ describe('the surrounding rows', () => {
     const drawn = console.draws.length
     prompt.setStatus('same')
     expect(console.draws.length).toBe(drawn)
+  })
+
+  it('paints the environment top bar above the region, column-aware', () => {
+    const { prompt, console } = build()
+    prompt.setTopBar(columns => `bar:${columns}`)
+    void prompt.read()
+    expect(console.topBars.at(-1)).toBe(`bar:${console.contentColumns}`)
+    console.columns = 30
+    console.resize()
+    expect(console.topBars.at(-1)).toBe(`bar:${console.contentColumns}`)
   })
 
   it('re-fits the status row when the terminal changes width', () => {

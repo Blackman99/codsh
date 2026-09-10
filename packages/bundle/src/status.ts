@@ -380,10 +380,85 @@ export async function gitBranch(cwd: string): Promise<string | undefined> {
 }
 
 /**
- * Render the status line.
+ * Pack one row with two sides: a left group that keeps what a person glances
+ * at, and a right group that must survive.
  *
- * Segments that have nothing to report are dropped rather than shown empty, so
- * a fresh session reads as short rather than as broken.
+ * The left side is the ship and plan chips, the branch and the directory, in
+ * that order; the right side is context pressure. A row too narrow for both
+ * gives the left side up first — the directory, then the chips, then the
+ * branch — so the figure that says the session is running out is never the
+ * thing that vanishes. The branch survives a long path because the directory is what
+ * degrades, which is the defect the foot had.
+ * @param facts - what to report.
+ * @param theme - styling for the segments.
+ * @param columns - display columns to pack into; the right side is aligned to
+ *   the last one. Omit for the two sides separated by a gap, no padding, so a
+ *   pipe does not collect trailing spaces.
+ * @returns the row, unstyled when the theme is plain.
+ */
+export function topBar(facts: StatusFacts, theme: Theme, columns?: number): string {
+  const sep = theme.muted(' · ')
+  const gap = '  '
+  const chip = resolveShipChip(facts)
+  const left: { key: 'plan' | 'ship' | 'branch' | 'dir'; text: string }[] = [
+    ...chip === undefined ? [] : [{ key: 'ship' as const, text: paintShipChip(chip, theme) }],
+    ...facts.planMode ? [{ key: 'plan' as const, text: theme.warn('plan') }] : [],
+    ...facts.branch === undefined ? [] : [{ key: 'branch' as const, text: theme.muted(facts.branch) }],
+    { key: 'dir' as const, text: theme.muted(displayPath(facts.cwd)) },
+  ]
+  const joined = (parts: typeof left): string => parts.map(part => part.text).join(sep)
+  const context = contextPressure(facts.context, theme)
+  if (columns === undefined) {
+    const text = joined(left)
+    return context === undefined || text === '' ? `${text}${context ?? ''}` : `${text}${gap}${context}`
+  }
+  const rightWidth = context === undefined ? 0 : displayWidth(context)
+  let kept = left
+  const fits = (): boolean => {
+    const gapWidth = context === undefined || kept.length === 0 ? 0 : gap.length
+    return displayWidth(joined(kept)) + gapWidth + rightWidth <= columns
+  }
+  for (const drop of ['dir', 'ship', 'plan'] as const) {
+    if (fits()) break
+    kept = kept.filter(part => part.key !== drop)
+  }
+  let text = joined(kept)
+  const gapWidth = context === undefined || text === '' ? 0 : gap.length
+  if (text !== '' && displayWidth(text) + gapWidth + rightWidth > columns) {
+    text = truncate(text, Math.max(1, columns - rightWidth - gapWidth))
+  }
+  if (context === undefined) return displayWidth(text) <= columns ? text : truncate(text, columns)
+  if (text === '') return truncate(context, columns)
+  const pad = Math.max(1, columns - displayWidth(text) - rightWidth)
+  const line = `${text}${' '.repeat(pad)}${context}`
+  return displayWidth(line) <= columns ? line : truncate(line, columns)
+}
+
+/**
+ * The right-hand context figure, shown wherever there is an occupancy sample.
+ *
+ * Unlike the foot's alarming-only glance, the top bar always carries the
+ * figure: it is the number a person watches, and a bar that showed it only
+ * once it was nearly gone would be the thing they look at too late.
+ * @param context - the occupancy projection.
+ * @param theme - the role the figure is painted in.
+ * @returns the figure, or undefined before the first request.
+ */
+function contextPressure(context: StatusFacts['context'], theme: Theme): string | undefined {
+  const left = contextLeftPercent(context)
+  if (left === undefined) return undefined
+  const label = `${String(left)}% left`
+  return left <= 10 ? theme.err(label) : left <= 25 ? theme.warn(label) : theme.muted(label)
+}
+
+/**
+ * Render the foot line.
+ *
+ * Environment facts — branch, directory, context pressure and the mode chips —
+ * moved to the top bar, so the foot is only what is about the keys and the
+ * model's reasoning: the shortcuts entry and the reasoning level. Segments
+ * that have nothing to report are dropped rather than shown empty, so a plain
+ * session reads as no foot at all rather than as a broken one.
  * @param facts - what to report.
  * @param theme - styling for the segments.
  * @param columns - display columns available; a longer line is cut, never
@@ -391,45 +466,24 @@ export async function gitBranch(cwd: string): Promise<string | undefined> {
  * @returns the line, unstyled when the theme is plain.
  */
 export function statusLine(facts: StatusFacts, theme: Theme, columns?: number): string {
-  const left = contextLeftPercent(facts.context)
-  // Glance MetaBar: mode · model · cwd. Preset, permission, token totals, and
-  // routine context stay in `/status`; only alarming headroom surfaces here.
-  // Never accent on this line — accent is reserved for focus/selection.
-  const sep = theme.muted(' · ')
-  const chip = resolveShipChip(facts)
-  const shipChip = chip === undefined ? undefined : paintShipChip(chip, theme)
-  const mode = facts.planMode ? theme.warn('plan') : undefined
-  const modelText = facts.reasoningSupported && facts.reasoningEffort !== undefined && facts.reasoningEffort.trim() !== ''
-    ? `${facts.model} (${facts.reasoningEffort.trim()})`
-    : facts.model
-  const model = theme.muted(modelText)
-  const cwd = theme.muted(
-    facts.branch === undefined ? displayPath(facts.cwd) : `${displayPath(facts.cwd)} (${facts.branch})`,
-  )
-  const context = left === undefined || left > 25
-    ? undefined
-    : left <= 10 ? theme.err(`${left}%`) : theme.warn(`${left}%`)
+  const effort = facts.reasoningEffort?.trim()
+  const reasoning = facts.reasoningSupported === true && effort !== undefined && effort !== ''
+    ? theme.muted(`reasoning ${effort}`)
+    : undefined
   const shortcuts = facts.shortcuts ? theme.muted('? shortcuts') : undefined
-  // Drop whole segments until the line fits: shortcuts first, then cwd, then
-  // model; keep the ship chip, mode, and alarming context. Never drop the ship
-  // chip first — same priority the gate chip already had. Omit columns => full
-  // line for a later re-fit.
-  const tagged: { key: 'shipChip' | 'mode' | 'model' | 'context' | 'cwd' | 'shortcuts'; text: string }[] = [
-    ...shipChip === undefined ? [] : [{ key: 'shipChip' as const, text: shipChip }],
-    ...mode === undefined ? [] : [{ key: 'mode' as const, text: mode }],
-    { key: 'model', text: model },
-    ...context === undefined ? [] : [{ key: 'context' as const, text: context }],
-    { key: 'cwd', text: cwd },
+  // The reasoning level is the only thing a person changes mid-session, so a
+  // cramped foot gives up the shortcuts entry before it.
+  const tagged: { key: 'reasoning' | 'shortcuts'; text: string }[] = [
+    ...reasoning === undefined ? [] : [{ key: 'reasoning' as const, text: reasoning }],
     ...shortcuts === undefined ? [] : [{ key: 'shortcuts' as const, text: shortcuts }],
   ]
+  const sep = theme.muted(' · ')
   if (columns === undefined) return tagged.map(part => part.text).join(sep)
-  const join = (parts: string[]): string => parts.join(sep)
   let kept = tagged
-  for (const drop of ['shortcuts', 'cwd', 'model'] as const) {
-    if (displayWidth(join(kept.map(part => part.text))) <= columns) break
-    kept = kept.filter(part => part.key !== drop)
+  if (displayWidth(kept.map(part => part.text).join(sep)) > columns) {
+    kept = kept.filter(part => part.key !== 'shortcuts')
   }
-  const line = join(kept.map(part => part.text))
+  const line = kept.map(part => part.text).join(sep)
   return displayWidth(line) <= columns ? line : truncate(line, columns)
 }
 

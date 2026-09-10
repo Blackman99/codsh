@@ -102,6 +102,91 @@ describe('entering and leaving', () => {
   })
 })
 
+describe('top bar', () => {
+  it('reserves row 0 and lays the transcript and chrome out below it', () => {
+    const sink = host(6, 20)
+    const screen = new Screen(sink)
+    screen.enter()
+    flush(sink)
+    screen.setTopBar('bar')
+    screen.setChrome(['box top', 'box body', 'status'], { row: 1, column: 2 }, true)
+    screen.append(['one', 'two', 'three'])
+    const rows = painted(flush(sink))
+    expect(rows.get(1)).toBe('bar')
+    // Two viewport rows, then the three chrome rows.
+    expect([rows.get(2), rows.get(3)]).toEqual(['two', 'three'])
+    expect([rows.get(4), rows.get(5), rows.get(6)]).toEqual(['box top', 'box body', 'status'])
+  })
+
+  it('leaves the bar on row 0 while the transcript scrolls under it', () => {
+    const sink = host(6, 20)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setTopBar('bar')
+    screen.setChrome(['status'], { row: 0, column: 0 }, false)
+    screen.append(['one', 'two', 'three', 'four', 'five'])
+    screen.scrollBy(-1)
+    const rows = painted(flush(sink))
+    expect(rows.get(1)).toBe('bar')
+    expect(rows.get(2)).toBe('one')
+    expect(rows.get(6)).toBe('status')
+  })
+
+  it('renders the pinned panel below the bar, not over it', () => {
+    const sink = host(8, 40)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setTopBar('bar')
+    screen.setChrome(['status'], { row: 0, column: 0 }, false)
+    screen.appendPrompt(['› question', ''], '| ')
+    screen.append(Array.from({ length: 12 }, (_, index) => `answer ${index}`))
+    screen.scrollBy(-2)
+    const rows = painted(flush(sink))
+    expect(rows.get(1)).toBe('bar')
+    // The panel's padding, the prompt, its padding, then the divider.
+    expect([rows.get(2), rows.get(3), rows.get(4), rows.get(5)]).toEqual([
+      '',
+      '| › question',
+      '',
+      '─'.repeat(37),
+    ])
+  })
+
+  it('gives the panel padding up before the bar or the input on a short screen', () => {
+    const sink = host(5, 40)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setTopBar('bar')
+    screen.setChrome(['status'], { row: 0, column: 0 }, false)
+    screen.appendPrompt(['› question', ''], '| ')
+    screen.append(Array.from({ length: 12 }, (_, index) => `answer ${index}`))
+    screen.scrollBy(-2)
+    const rows = painted(flush(sink))
+    expect(rows.get(1)).toBe('bar')
+    // The padding above the prompt is what a cramped screen loses; the prompt,
+    // the divider and the input keep their rows.
+    expect(rows.get(2)).toBe('| › question')
+    expect(rows.get(4)).toBe('─'.repeat(37))
+    expect(rows.get(5)).toBe('status')
+  })
+
+  it('keeps the bar on row 0 across a resize and slides the transcript below it', () => {
+    const sink = host(6, 20)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setTopBar('bar')
+    screen.setChrome(['status'], { row: 0, column: 0 }, false)
+    screen.append(['one', 'two', 'three', 'four'])
+    flush(sink)
+
+    sink.size.rows = 7
+    screen.resize()
+    const rows = painted(flush(sink))
+    expect(rows.get(1)).toBe('bar')
+    expect(rows.get(7)).toBe('status')
+  })
+})
+
 describe('layout', () => {
   it('puts the chrome on the last rows with an empty transcript', () => {
     const sink = host(6, 20)
