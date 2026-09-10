@@ -1,12 +1,14 @@
 /**
  * Conservative destructive-command classifier.
  *
- * A command is "destructive" when its head — the first pipeline segment, after
- * environment assignments and wrapper words — is one of the decision-13
- * categories: a recursive delete, a history rewrite or force push, a disk or
- * permission change, or a database/remote kill. Matching is anchored to that
- * head and its normalized tokens, never to substring containment, so a benign
- * command that merely mentions `rm -rf` inside an argument is not flagged.
+ * A command is "destructive" when one of its segments has a head — the first
+ * program after environment assignments and wrapper words — that is one of the
+ * decision-13 categories: a recursive delete, a history rewrite or force push,
+ * a disk or permission change, or a database/remote kill. Each `&&`/`||`/`;`/
+ * `|`/newline segment is checked, so a dangerous command chained after a benign
+ * one is still caught. Matching is anchored to that head and its normalized
+ * tokens, never to substring containment, so a benign command that merely
+ * mentions `rm -rf` inside an argument is not flagged.
  *
  * Deliberately conservative: a miss is an accepted risk, so the vocabulary is
  * extended by category rather than by one-off patterns. Pure: no I/O, no theme.
@@ -19,11 +21,59 @@ export type DestructiveCategory = 'delete' | 'history' | 'disk' | 'database'
 /** Wrapper words that precede the real program in a command head. */
 const WRAPPERS = new Set(['sudo', 'doas', 'env', 'command', 'nohup', 'time', 'exec'])
 
+/** Shells whose `-c` argument is another command to check. */
+const SHELLS = new Set(['sh', 'bash', 'zsh', 'dash', 'ksh'])
+
+/**
+ * Split a command line into its pipeline/sequence segments, keeping quoted runs
+ * whole so a separator inside an argument is not mistaken for a chain.
+ */
+function splitSegments(command: string): string[] {
+  const segments: string[] = []
+  let current = ''
+  let quote: '"' | "'" | undefined
+  for (let at = 0; at < command.length; at += 1) {
+    const char = command[at] ?? ''
+    if (quote !== undefined) {
+      current += char
+      if (char === quote) quote = undefined
+      continue
+    }
+    if (char === '"' || char === "'") {
+      quote = char
+      current += char
+      continue
+    }
+    if (char === '\n' || char === ';') {
+      segments.push(current)
+      current = ''
+      continue
+    }
+    if (char === '&' && command[at + 1] === '&') {
+      segments.push(current)
+      current = ''
+      at += 1
+      continue
+    }
+    if (char === '|' && command[at + 1] === '|') {
+      segments.push(current)
+      current = ''
+      at += 1
+      continue
+    }
+    if (char === '|') {
+      segments.push(current)
+      current = ''
+      continue
+    }
+    current += char
+  }
+  segments.push(current)
+  return segments.map(segment => segment.trim()).filter(segment => segment !== '')
+}
+
 /** Split one command head into tokens, keeping quoted runs whole. */
-function headTokens(command: string): string[] {
-  // Only the first pipeline/sequence segment is the command head: a dangerous
-  // word after `&&`, `;`, `|` or a newline is not this command's head.
-  const segment = command.split(/\s*(?:&&|\|\||;|\n|\|)\s*/u)[0] ?? ''
+function headTokens(segment: string): string[] {
   const raw = segment.match(/"[^"]*"|'[^']*'|\S+/gu) ?? []
   const tokens = raw.map(token => token.replace(/^["']|["']$/gu, ''))
   let at = 0
@@ -46,14 +96,13 @@ function hasShortFlag(tokens: readonly string[], letter: string): boolean {
   })
 }
 
-/** The base program name, with any leading path removed. */
+/** The base program name, with any leading path removed and lowercased. */
 function programName(token: string): string {
-  const base = token.split('/').at(-1) ?? token
-  return base.toLowerCase()
+  return (token.split('/').at(-1) ?? token).toLowerCase()
 }
 
-/** The `-c` / `-e` script a database client was handed, when present. */
-function sqlClientScript(tokens: readonly string[]): string | undefined {
+/** The `-c` / `-e` script a client was handed, when present. */
+function scriptArgument(tokens: readonly string[]): string | undefined {
   for (let at = 1; at < tokens.length - 1; at += 1) {
     const flag = tokens[at]
     if (flag === '-c' || flag === '-e' || flag === '--command' || flag === '--execute') return tokens[at + 1]
@@ -61,14 +110,9 @@ function sqlClientScript(tokens: readonly string[]): string | undefined {
   return undefined
 }
 
-/**
- * Classify a shell command as destructive, by category.
- *
- * @param command - the command exactly as the presenter declared it.
- * @returns the matched category, or undefined for anything not on the list.
- */
-export function destructiveCategory(command: string): DestructiveCategory | undefined {
-  const tokens = headTokens(command)
+/** Classify one already-split command segment by its head. */
+function classifyHead(segment: string): DestructiveCategory | undefined {
+  const tokens = headTokens(segment)
   const [head = '', ...args] = tokens
   const program = programName(head)
 
@@ -86,6 +130,12 @@ export function destructiveCategory(command: string): DestructiveCategory | unde
     return undefined
   }
 
+  if (SHELLS.has(program)) {
+    const script = scriptArgument(tokens)
+    if (script !== undefined) return destructiveCategory(script)
+    return undefined
+  }
+
   if (program.startsWith('mkfs')) return 'disk'
   if (program === 'dd' && args.some(arg => arg.startsWith('of='))) return 'disk'
   if (program === 'chmod' && (args.includes('-R') || args.includes('--recursive')) && args.includes('777')) return 'disk'
@@ -94,9 +144,23 @@ export function destructiveCategory(command: string): DestructiveCategory | unde
   if (program === 'kill' && (args.includes('-9') || args.includes('-KILL') || args.includes('-SIGKILL'))) return 'database'
 
   const sql = program === 'psql' || program === 'mysql' || program === 'sqlite3' || program === 'mariadb'
-  const statement = (sql ? sqlClientScript(tokens) : tokens.join(' '))?.trim().toUpperCase() ?? ''
+  const statement = (sql ? scriptArgument(tokens) : tokens.join(' '))?.trim().toUpperCase() ?? ''
   if (statement.startsWith('DROP TABLE') || statement.startsWith('TRUNCATE')) return 'database'
 
+  return undefined
+}
+
+/**
+ * Classify a shell command as destructive, by category.
+ *
+ * @param command - the command exactly as the presenter declared it.
+ * @returns the matched category, or undefined for anything not on the list.
+ */
+export function destructiveCategory(command: string): DestructiveCategory | undefined {
+  for (const segment of splitSegments(command)) {
+    const match = classifyHead(segment)
+    if (match !== undefined) return match
+  }
   return undefined
 }
 

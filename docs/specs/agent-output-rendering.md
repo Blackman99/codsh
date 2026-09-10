@@ -467,7 +467,7 @@ the same verification without the gate. The final phase runs these verbatim.
 - [x] Ticket 3: Destructive Commands Break Out of the Group — Delivers a pure, conservative classifier over the decision-13 category allowlist anchored to the command head, the destructive row rendered on its own alert-styled row instead of joining a group, and the rule that approval-gated calls never fold. (Blocked by: Ticket 2) (Track: 4)
 - [x] Ticket 4: Live Thinking Preview Owns the Display Area — Delivers the density-derived live preview budget (3 compact / 6 comfortable), the unchanged one-line `✻ thought for Xs` settled summary, and the corrected `/ui` description in both README languages. (Blocked by: Ticket 2) (Track: 1,5)
 - [x] Ticket 5: Contract — Retire the Card Path and the Similar-Run Layer — Delivers deletion of the similar-run machinery, its skeleton helper and its `… +N similar` row, plus the now-unreachable card pad/close helpers, the terminal card's `$ command` row, and the `bgTool` role when the transcript is its last caller. (Blocked by: Ticket 3, Ticket 4) (Track: 6)
-- [ ] Ticket 6: Destructive Detection Edge Cases and Cross-Path Parity — Delivers adversarial coverage of the classifier (chained, reordered, quoted and wrapper commands; accepted misses recorded) and the guarantee that the live and replay paths produce identical group rows, including interrupted and resumed runs. Optional hardening: if already satisfied, check the boxes and change no code. (Blocked by: Ticket 5) (Track: 4,8)
+- [x] Ticket 6: Destructive Detection Edge Cases and Cross-Path Parity — Delivers adversarial coverage of the classifier (chained, reordered, quoted and wrapper commands; accepted misses recorded) and the guarantee that the live and replay paths produce identical group rows, including interrupted and resumed runs. Optional hardening: if already satisfied, check the boxes and change no code. (Blocked by: Ticket 5) (Track: 4,8)
 - [ ] Ticket 7: Release and Documentation Compliance — Delivers the `codsh-bundle` changeset, the bilingual README updates kept in parity, the new ADR registering `grok-build` and recording both deliberate divergences, and the `CONTEXT.md` domain terms. (Blocked by: Ticket 5, Ticket 6) (Track: 9)
 
 ## Baseline
@@ -673,3 +673,37 @@ last of the old card path:
 - `node node_modules/vitest/vitest.mjs run packages/bundle/tests/transcript.spec.ts packages/bundle/tests/theme.spec.ts`
   → exit 0, **166 passed** (the criterion-6 seam, no `bgTool`/`theme.tool` on a
   settled tool row).
+
+### Ticket 6 — Destructive Detection Edge Cases and Cross-Path Parity (Track: 4, 8)
+
+**Delivered.** The classifier now walks every `&&`/`||`/`;`/`|`/newline segment
+and checks each segment's head, so a dangerous command chained after a benign
+one is caught while a dangerous string inside an argument is not. Shell wrappers
+and `sh`/`bash`/`zsh`/`dash`/`ksh -c` scripts are recursed into.
+`Transcript.endRun()` settles a still-running group (marking its members not
+running and returning the settled row to replace the running one); the three
+`endRun` call sites in `src/index.ts` now pass `takePendingCard()` as the
+replacement, so an interrupted turn stops reading as still running.
+
+**Accepted misses (recorded, per the ticket).**
+
+- A dangerous command inside an *executed* string that is not a `-c` script —
+  e.g. `eval "rm -rf /"` or a variable holding it — is not detected. Anchor is
+  the head of each segment, and `eval` is not a recognized wrapper.
+- A bare `dd of=` is flagged even when `of=` is `/dev/null`; that false
+  positive is the conservative side of the trade.
+
+**Green evidence.**
+
+- `node node_modules/vitest/vitest.mjs run packages/bundle/tests/transcript.spec.ts -t destructive`
+  → exit 0, **16 passed | 117 skipped**, 0 of the matching tests skipped.
+- `node node_modules/vitest/vitest.mjs run` → exit 0, **53 files / 1414 tests**
+  passing, 0 skipped. New cases: chained, reordered/combined flags, quoted
+  arguments, wrappers and `-c` scripts, identical live/replay rows for a mixed
+  sequence including a destructive call, `endRun` settling an interrupted run,
+  and a replayed grouped run still opening to its members.
+- `./node_modules/.bin/tsc --noEmit` → exit 0.
+
+**PTY note.** The interrupted/resumed frame assertions in the PTY suite remain
+unrunnable here (`out of pty devices`; escalation disabled); the behaviours are
+pinned at the transcript seam.

@@ -446,11 +446,20 @@ export class Transcript {
 
   /**
    * Close the active tool run, so the next call opens a fresh group row.
-   * @returns nothing; the run is closed in memory only.
+   *
+   * An interrupted turn never gets the pending call's result; settling the run
+   * here is what stops its row from reading as still running.
+   * @returns the settled row to replace the running one, empty when nothing was running.
    */
   endRun(): string[] {
+    const group = this.group
     this.group = undefined
-    return []
+    if (group === undefined || !group.members.some(member => member.running)) return []
+    for (const member of group.members) member.running = false
+    this.group = group
+    const row = this.emitGroup()
+    this.group = undefined
+    return row
   }
 
   /**

@@ -335,7 +335,7 @@ function replayEvents(session: Session, transcript: Transcript, io: CliIo, theme
         .map(block => block.text)
         .join('')
       if (thought !== '') {
-        io.console.writeAll(transcript.endRun())
+        io.console.writeAll(transcript.endRun(), '', transcript.takePendingCard())
         const lines = thought.split('\n').map(line => theme.dim(`  ${line}`))
         const seconds = timing.stepThinkingSeconds(event.data.turn, event.data.step, event.time)
         const totalSeconds = timing.stepTotalSeconds(event.data.turn, event.data.step)
@@ -1631,7 +1631,7 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
     if (flushed === undefined) return
     if (childViews.current !== undefined) return
     prompt.setStreaming(undefined)
-    io.console.writeAll(live.transcript.endRun())
+    io.console.writeAll(live.transcript.endRun(), '', live.transcript.takePendingCard())
     turnThinkingMs.push(flushed.elapsedMs)
     const { summary, full } = thinkingFold(flushed.lines, theme, flushed.elapsedMs / 1000)
     currentThought = { summary, full, lines: flushed.lines, elapsedMs: flushed.elapsedMs, stepStartedAt }
@@ -1942,7 +1942,7 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
     const flushed = tracker.flush()
     if (flushed === undefined) return
     prompt.setStreaming(undefined)
-    io.console.writeAll(transcript.endRun())
+    io.console.writeAll(transcript.endRun(), '', transcript.takePendingCard())
     onFlush?.(flushed.elapsedMs)
     const { summary, full } = thinkingFold(flushed.lines, theme, flushed.elapsedMs / 1000)
     currentThought = { summary, full, lines: flushed.lines, elapsedMs: flushed.elapsedMs, stepStartedAt }

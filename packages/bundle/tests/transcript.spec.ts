@@ -1353,8 +1353,8 @@ describe('destructive classifier', () => {
     expect(destructiveCategory('npm run clean')).toBeUndefined()
   })
 
-  it('anchors to the command head, not to a later argument', () => {
-    expect(destructiveCategory('echo done && rm -rf /')).toBeUndefined()
+  it('anchors to each segment head, never to a later argument', () => {
+    expect(destructiveCategory('echo done && rm -rf /')).toBe('delete')
     expect(destructiveCategory('printf "%s" "git reset --hard"')).toBeUndefined()
   })
 })
@@ -1416,5 +1416,87 @@ describe('destructive breakout', () => {
     )
     transcript.render(callEvent('c1', 'bash', { command: 'rm -rf build' }))
     expect(transcript.takeRule()).toBe(blockRules(colorTheme).error)
+  })
+})
+
+describe('destructive edge cases', () => {
+  it('flags a dangerous command chained after a benign one', () => {
+    expect(destructiveCategory('cd /tmp && rm -rf build')).toBe('delete')
+    expect(destructiveCategory('ls; git reset --hard HEAD~1')).toBe('history')
+    expect(destructiveCategory('cat log | mkfs.ext4 /dev/sda1')).toBe('disk')
+  })
+
+  it('flags reordered and combined flags', () => {
+    expect(destructiveCategory('rm -fr build')).toBe('delete')
+    expect(destructiveCategory('rm --recursive build')).toBe('delete')
+    expect(destructiveCategory('git clean -df')).toBe('history')
+    expect(destructiveCategory('git push origin main --force')).toBe('history')
+    expect(destructiveCategory('chmod 777 -R .')).toBe('disk')
+  })
+
+  it('does not flag a dangerous string inside a quoted argument', () => {
+    expect(destructiveCategory('printf "%s" "rm -rf /"')).toBeUndefined()
+    expect(destructiveCategory("echo 'git reset --hard'")).toBeUndefined()
+    expect(destructiveCategory('git commit -m "fix rm -rf handling"')).toBeUndefined()
+  })
+
+  it('sees through a shell wrapper and a shell -c script', () => {
+    expect(destructiveCategory('sudo rm -rf /var/log')).toBe('delete')
+    expect(destructiveCategory('bash -c "rm -rf /tmp/x"')).toBe('delete')
+    expect(destructiveCategory('sh -c "git push --force"')).toBe('history')
+  })
+
+  it('records an accepted miss: a sibling separator inside a quoted script is not a chain', () => {
+    // `bash -c` recursion splits the script itself, so this is flagged.
+    expect(destructiveCategory('bash -c "echo hi; rm -rf /"')).toBe('delete')
+  })
+})
+
+describe('live and replay parity', () => {
+  const presenters: Partial<ToolPresenters> = {
+    call: (name, args) => name === 'bash'
+      ? { card: 'terminal', title: (args as { command?: string } | undefined)?.command ?? name }
+      : undefined,
+    result: (name, args) => name === 'bash'
+      ? { card: 'terminal', title: (args as { command?: string } | undefined)?.command ?? name, output: 'out' }
+      : { card: 'read', path: '/repo/a.ts', offset: 1, lines: [{ number: 1, text: 'x' }], totalLines: 9 },
+  }
+
+  const sequence = (): SessionEvent[] => [
+    callEvent('c1', 'read', {}),
+    resultEvent('c1', 'ok'),
+    callEvent('c2', 'bash', { command: 'ls' }),
+    resultEvent('c2', 'ok'),
+    callEvent('c3', 'bash', { command: 'rm -rf build' }),
+    resultEvent('c3', 'ok', true),
+    callEvent('c4', 'read', {}),
+    resultEvent('c4', 'ok'),
+  ]
+
+  it('produces identical group rows through the live and replay entry points', () => {
+    const render = (events: readonly SessionEvent[]): string[] => {
+      const transcript = build(presenters)
+      return events.flatMap(event => transcript.render(event))
+    }
+    const live = render(sequence())
+    const replay = render(sequence())
+    expect(replay).toEqual(live)
+    expect(live).toContain('● Read 1 file, Ran 1 command')
+    expect(live.join('\n')).toContain('⚠ rm -rf build')
+  })
+
+  it('settles an interrupted run so its row does not read as still running', () => {
+    const transcript = build(presenters)
+    transcript.render(callEvent('c1', 'bash', { command: 'sleep 30' }))
+    expect(transcript.endRun()).toEqual(['● Ran 1 command'])
+    expect(transcript.takePendingCard()).toEqual(['● Running 1 command'])
+  })
+
+  it('re-renders a replayed grouped run as the same openable group', () => {
+    const transcript = build(presenters)
+    const rows = sequence().flatMap(event => transcript.render(event))
+    const fold = transcript.takeFold() ?? []
+    expect(rows.at(-1)).toBe('● Read 1 file')
+    expect(fold.join('\n')).toContain('read 1 of 9 lines ✔')
   })
 })
