@@ -1,5 +1,13 @@
 # codsh-bundle
 
+## 0.22.2
+
+### Patch Changes
+
+- 752f4eb: `/ship` spec and tickets gates keep Edit as an inline field. `e` focuses that field so the typed revision is what the model folds back in.
+- 12ee9ac: `/ship` grill questions keep a Type-your-own row. `e` focuses that inline field instead of skipping to the next question.
+- 28038c2: Consecutive Read/Edit cards stay in one panel. A short assistant note between them no longer opens a second block with a gap.
+
 ## 0.22.1
 
 ### Patch Changes

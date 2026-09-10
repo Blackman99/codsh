@@ -1,7 +1,7 @@
 {
   "name": "codsh-bundle",
   "description": "codsh runtime: TTY surface and /ship workflow, installed into a dsh profile by the launcher.",
-  "version": "0.22.1",
+  "version": "0.22.2",
   "type": "module",
   "license": "MIT",
   "main": "lib/index.js",
