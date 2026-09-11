@@ -594,7 +594,7 @@ export class Transcript {
       case 'assistant/message': {
         const text = visibleText(event.data.message.content)
         if (text === '') return []
-        const lines = trimOuterBlanks(renderMarkdown(text, theme))
+        const lines = trimOuterBlanks(renderMarkdown(text, theme, this.columns))
         if (lines.length === 0) return []
         return hadRun ? [...lines, ''] : [...lines, '']
       }
@@ -622,7 +622,7 @@ export class Transcript {
         const items = event.data.shadowedSeqs.length
         const head = theme.bgMeta(theme.dim(`✂ compacted ${String(items)} history item${items === 1 ? '' : 's'} (~${String(event.data.shadowedTokenCount)} tokens) into a summary · ${event.data.model}`))
         const summary = visibleText(event.data.summary)
-        const body = summary === '' ? [theme.bgMeta(theme.dim('  (empty summary)'))] : renderMarkdown(summary, theme).map(line => theme.bgMeta(`  ${line}`))
+        const body = summary === '' ? [theme.bgMeta(theme.dim('  (empty summary)'))] : renderMarkdown(summary, theme, this.columns).map(line => theme.bgMeta(`  ${line}`))
         this.fold = [head, ...body, '']
         this.label = FOLD_LABELS.summary
         return [head, theme.bgMeta(theme.dim(`  … ${String(body.length)} lines of summary (click or Ctrl+O expands)`)), '']

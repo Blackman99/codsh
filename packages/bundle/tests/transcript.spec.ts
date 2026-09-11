@@ -76,6 +76,26 @@ describe('assistant and user messages', () => {
     expect(build().render(event('one\n\ntwo'))).toEqual(['one', '', 'two', ''])
   })
 
+  it('lays out a wide table within the transcript columns, so replayed tables do not overflow', () => {
+    const transcript = build()
+    const wideTable = [
+      '| 阶段 | 对应技能 | 核心行为与约束 |',
+      '|---|---|---|',
+      '| Phase 0: Pre-flight | 环境自检与隔离 | 执行 git status 检查工作区清洁度；脏状态触发交互提示（Stash / Carry / Abort）；根据一句话需求生成 slug，切出 ship/<slug> 独立特性分支，保证主分支安全。 |',
+    ].join('\n')
+    const event = {
+      type: 'assistant/message',
+      seq: 1,
+      time: 0,
+      data: { turn: 1, step: 1, message: { role: 'assistant', content: [{ type: 'text', text: wideTable }], source: { kind: 'model' } } },
+    } as unknown as SessionEvent
+    const lines = transcript.render(event)
+    expect(lines.length).toBeGreaterThan(0)
+    for (const line of lines) {
+      expect(displayWidth(line)).toBeLessThanOrEqual(80)
+    }
+  })
+
   it('separates assistant text from a preceding tool call with a blank line', () => {
     const transcript = build()
     transcript.render(callEvent('c1', 'bash', { command: 'git status' }))
