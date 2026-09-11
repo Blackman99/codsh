@@ -27,14 +27,23 @@ Yet another agent CLI. This one is for people who already run [dsh](https://gith
 
 [![The /ship flow](assets/ship-demo.gif)](https://blackman99.github.io/codsh/)
 
-## Install
+## 60 seconds
 
 ```sh
 npm install -g @deepseek-ai/dsh codsh-cli
+export DEEPSEEK_API_KEY=…   # or any OpenAI-compatible route via ~/.dsh/settings.yaml
 codsh
 ```
 
-Key: `DEEPSEEK_API_KEY`. Already have dsh? `npm i -g codsh-cli` is enough when that dsh matches this release. An older harness is refused at boot with the install line.
+Already on a matching dsh? `npm i -g codsh-cli` is enough. Node `≥22.19`.
+
+```text
+/ship let long diffs open in a pager instead of scrolling past
+```
+
+`/ship` = grill → you confirm the spec → you approve tickets → TDD landing → dual-layer DoD. Not a Claude Code wrapper — a DeepSeek-native coding profile on [dsh](https://github.com/deepseek-ai/deepseek-harness).
+
+Real terminal captures: **[blackman99.github.io/codsh](https://blackman99.github.io/codsh/)**
 
 `codsh --resume <id>` · `codsh --continue` · `codsh -p "task"` · `codsh --version` · `codsh update`
 
@@ -170,9 +179,21 @@ emulator reproduces the screen it drew. Off unless the variable is set.
 
 `pnpm run sync:dsh` tracks published `@deepseek-ai/dsh-*` releases. This repo never forks the harness.
 
+## Compared to…
+
+`/ship` is **verifiable delivery** (grill → two gates → TDD → dual-layer DoD) on open dsh — DeepSeek-native, not a Claude Code wrapper.
+
+| | **codsh** | **Claude Code + DeepSeek env** | **Aider** | **OpenCode** | **Reasonix** |
+|---|---|---|---|---|---|
+| **`/ship`-like workflow** | **Yes** — first-class `/ship` | **No** — prompt + your process | **Partial** — chat + git | **Partial** — agents / permissions | **Partial** — long autonomous runs |
+| **DeepSeek-native** | **Yes** — DeepSeek-first on dsh | **No** — vendor agent redirected | **Supported** | **Supported** | **Yes** |
+| **Harness** | Open [dsh](https://github.com/deepseek-ai/deepseek-harness) | Closed Anthropic | Own Python loop | Own open runtime | Own Go engine |
+
+Full table, reading notes, and one-liners: **[docs/compare.md](docs/compare.md)**. Coming from Claude Code / Codex: **[docs/migrate-from-claude-code.md](docs/migrate-from-claude-code.md)** ([#64](https://github.com/Blackman99/codsh/issues/64)).
+
 ## Talk to it
 
-Bugs, Windows, other models, “I came from Claude Code” — open an [issue](https://github.com/Blackman99/codsh/issues). [Discussions](https://github.com/Blackman99/codsh/discussions) are on for longer threads. See [CONTRIBUTING.md](CONTRIBUTING.md) if you are changing the surface.
+Bugs, Windows, other models, “I came from Claude Code” — open an [issue](https://github.com/Blackman99/codsh/issues) (migration map: [docs/migrate-from-claude-code.md](docs/migrate-from-claude-code.md) / [#64](https://github.com/Blackman99/codsh/issues/64)). [Discussions](https://github.com/Blackman99/codsh/discussions) are on for longer threads. See [CONTRIBUTING.md](CONTRIBUTING.md) if you are changing the surface.
 
 ## License
 

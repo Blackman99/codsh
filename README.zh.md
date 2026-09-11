@@ -28,14 +28,23 @@
 [![/ship 流程](assets/ship-demo.zh.gif)](https://blackman99.github.io/codsh/zh.html)
 <p align="center"><a href="assets/codsh-ship-demo.zh.mp4">中文口播版 · 70 秒</a></p>
 
-## 安装
+## 60 秒上手
 
 ```sh
 npm install -g @deepseek-ai/dsh codsh-cli
+export DEEPSEEK_API_KEY=…   # 或在 ~/.dsh/settings.yaml 配任意 OpenAI 兼容端点
 codsh
 ```
 
-密钥：`DEEPSEEK_API_KEY`。已经有 dsh？只要它够新，`npm i -g codsh-cli` 就够；太旧的话启动器会直接给出安装命令，而不是在缺导出时崩溃。
+已有匹配版本的 dsh？只需 `npm i -g codsh-cli`。需要 Node `≥22.19`。
+
+```text
+/ship 让超长 diff 用分页器打开而不是刷屏滚过
+```
+
+`/ship` = grill → 你确认 spec → 你批准 tickets → TDD 落地 → 双层 DoD。不是给 Claude Code 套 DeepSeek 环境变量——而是跑在 [dsh](https://github.com/deepseek-ai/deepseek-harness) 上的 DeepSeek 原生 coding profile。
+
+真机截屏：**[blackman99.github.io/codsh/zh.html](https://blackman99.github.io/codsh/zh.html)**
 
 `codsh --resume <id>` · `codsh --continue` · `codsh -p "任务"` · `codsh --version` · `codsh update`
 
@@ -166,9 +175,21 @@ pnpm run site:screens        # 用真实二进制重拍站点上的终端截屏
 
 `pnpm run sync:dsh` 跟踪已发布的 `@deepseek-ai/dsh-*`。本仓库绝不 fork harness。
 
+## 和其他工具比
+
+`/ship` 是开源 dsh 上的**可验证交付**（grill → 两道门 → TDD → 双层 DoD）——DeepSeek 原生，不是 Claude Code 套壳。
+
+| | **codsh** | **Claude Code + DeepSeek 环境** | **Aider** | **OpenCode** | **Reasonix** |
+|---|---|---|---|---|---|
+| **类似 `/ship` 的工作流** | **有** — 一等公民 `/ship` | **无** — 靠提示词和你自己的流程 | **部分** — 对话 + git | **部分** — agent / 权限 | **部分** — 长程自主跑 |
+| **DeepSeek 原生** | **是** — dsh 上 DeepSeek 优先 | **否** — 厂商 agent 重定向 | **支持** | **支持** | **是** |
+| **Harness** | 开源 [dsh](https://github.com/deepseek-ai/deepseek-harness) | 闭源 Anthropic | 自有 Python 循环 | 自有开源运行时 | 自有 Go 引擎 |
+
+完整对比表：[docs/compare.md](docs/compare.md)。从 Claude Code / Codex 迁过来：[docs/migrate-from-claude-code.md](docs/migrate-from-claude-code.md)（[#64](https://github.com/Blackman99/codsh/issues/64)）。
+
 ## 说话
 
-Windows、别的模型、从 Claude Code 迁过来、渲染不对 —— 开 [issue](https://github.com/Blackman99/codsh/issues)。长一点的话题走 [Discussions](https://github.com/Blackman99/codsh/discussions)。改界面见 [CONTRIBUTING.md](CONTRIBUTING.md)。
+Windows、别的模型、从 Claude Code 迁过来、渲染不对 —— 开 [issue](https://github.com/Blackman99/codsh/issues)（迁移地图：[docs/migrate-from-claude-code.md](docs/migrate-from-claude-code.md) / [#64](https://github.com/Blackman99/codsh/issues/64)）。长一点的话题走 [Discussions](https://github.com/Blackman99/codsh/discussions)。改界面见 [CONTRIBUTING.md](CONTRIBUTING.md)。
 
 ## 许可
 
