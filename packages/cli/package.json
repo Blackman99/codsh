@@ -1,7 +1,7 @@
 {
   "name": "codsh-cli",
   "description": "/ship takes one sentence to verified code. Terminal coding agent for DeepSeek and any OpenAI-compatible endpoint. Zero-dependency launcher for the DeepSeek Harness.",
-  "version": "0.22.3",
+  "version": "0.23.0",
   "codsh": {
     "requiresDsh": "0.1.5-rc.1"
   },

@@ -1,5 +1,16 @@
 # codsh-bundle
 
+## 0.23.0
+
+### Minor Changes
+
+- 64075d1: Reshape agent output around reasoning: a thought streams into a 3-row (compact) or 6-row (comfortable) live preview and settles to the one-line `✻ thought for Xs` fold, while each tool call becomes a single muted row. Consecutive calls merge into one group header that names each kind of work with its count ("Read 3 files, Searched 2 patterns"), reads in the present tense while work is in flight and past once it settles, carries a failure count, and opens to the member calls and real diffs. A destructive command breaks out of the group onto its own `⚠` warning row, and a call waiting for approval is never folded away.
+- 02c1aa4: Redesign the screen around the transcript. A step now reads as one block — its reasoning header, body and tool rows share one indent with a blank gap between steps — and `/ui compact|comfortable` governs that gap as part of the whole spacing scale. Environment facts move to a top bar: branch and directory on the left, context pressure on the right, plus the plan and `/ship` chips, so the branch survives a long path. The input loses its box for a divider, a `›` and one help row that keeps `? shortcuts` reachable, and one restrained palette paints each speaker by role — person, reasoning, tool, error — with tools quieter than reasoning and meaning surviving `NO_COLOR`.
+
+### Patch Changes
+
+- 1c71c7a: After `/ship` returns, drop the MetaBar chip and plan row so the next typed turn is an ordinary prompt instead of leftover `ship · …` chrome.
+
 ## 0.22.3
 
 ### Patch Changes
