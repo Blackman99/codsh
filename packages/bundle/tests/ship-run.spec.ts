@@ -2,7 +2,7 @@
  * One `/ship` run: chrome and phase injection through the public seam only.
  */
 
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -713,4 +713,62 @@ describe('composition root', () => {
     expect(source).not.toContain('GoalBar')
     expect(source).toMatch(/new ShipRun\([\s\S]*goals/)
   })
+
+  it('compiles and writes a Mission Contract at Confirm and prepends it later', async () => {
+    const cwd = mkdtempSync(join(tmpdir(), 'ship-run-'))
+    const markdown = [
+      'Status: interviewing',
+      'Branch: ship/widget',
+      '',
+      '## Main Track',
+      '',
+      '**Idea.** Bind /goal into /ship.',
+      '**Track-1.** Hybrid compass.',
+      '**Out of Scope.**',
+      '- No harness fork.',
+      '',
+      '## Acceptance Criteria',
+      '',
+      '1. `pnpm test` exits 0.',
+    ].join('\n')
+    const path = writeSpec(cwd, 'widget.md', markdown)
+    const prompts: string[] = []
+    const flashes: string[] = []
+    const ship = new ShipRun(cwd, chrome, { flash: text => { flashes.push(text) } })
+    await ship.run('build a widget', async (prompt) => {
+      prompts.push(prompt)
+      if (prompts.length === 1) {
+        writeFileSync(path, markdown.replace('Status: interviewing', 'Status: confirmed'))
+      } else if (prompts.length === 2) {
+        writeFileSync(path, [
+          'Status: planned',
+          'Branch: ship/widget',
+          '',
+          '## Main Track',
+          '',
+          '**Idea.** silently rewritten design.',
+          '',
+          '## Acceptance Criteria',
+          '',
+          '1. `pnpm test` exits 0.',
+        ].join('\n'))
+      }
+    })
+    expect(ship.missionContract).toBeDefined()
+    expect(ship.missionContract?.objective).toBe('Bind /goal into /ship.')
+    expect(ship.missionContract?.requirements[0]?.id).toBe('REQ-001')
+    expect(ship.missionContract?.excluded[0]?.text).toContain('No harness fork')
+    expect(ship.missionContractFile).toBeDefined()
+    expect(existsSync(ship.missionContractFile!)).toBe(true)
+    expect(readFileSync(ship.missionContractFile!, 'utf8')).toContain('"REQ-001"')
+    expect(prompts.length).toBeGreaterThanOrEqual(2)
+    expect(prompts[1]).toContain('## Mission Contract')
+    expect(prompts[1]).toContain('REQ-001')
+    expect(prompts[2]).toContain('Bind /goal into /ship.')
+    expect(prompts[2]).not.toContain('silently rewritten design')
+    expect(flashes.some(f => f.includes('Mission Contract'))).toBe(true)
+  })
+
+
+
 })

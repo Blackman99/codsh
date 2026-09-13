@@ -15,6 +15,14 @@ import { parseMainTrack, parseShipStatus, parseSpecMetadata, pickLiveShip, planI
 import type { Plan, ShipSpecFile } from './plan.ts'
 import { expandTemplate } from './custom-commands.ts'
 import type { SelectAsk } from './questions.ts'
+import {
+  compileMissionContract,
+  mainTrackDrifted,
+  missionContractSummary,
+  slugFromSpec,
+  writeMissionContract,
+} from './mission.ts'
+import type { MissionContract } from './mission.ts'
 import { shipPhaseKind, shipPromptFor } from './ship.ts'
 import { sameShipChip, shipChipFromSpec } from './status.ts'
 import type { ShipChip } from './status.ts'
@@ -164,6 +172,9 @@ const SHIP_OBJECTIVE_PREFIX = '[ship] '
 /** Flash when the harness compass cannot be updated. */
 const GOAL_DEGRADED = '/goal was not updated'
 
+/** Flash when a sealed Main Track rewrite is ignored for this run. */
+const TRACK_REWRITE_IGNORED = 'Main Track rewrite ignored — sealed Mission Contract holds'
+
 /** What the runner must do to spend a canned-command turn. */
 export interface ShipTurn {
   (prompt: string): Promise<void>
@@ -187,6 +198,10 @@ export class ShipRun {
   private goalId: string | undefined
   /** Process snapshot of `## Main Track` captured at Confirm; later injects prepend this, not a live reread. */
   private sealedTrack: string | undefined
+  /** Sealed Mission Contract compiled at Confirm; control-plane memory for later phases. */
+  private sealedContract: MissionContract | undefined
+  /** Absolute path of the sealed mission.contract.json, when written. */
+  private sealedContractPath: string | undefined
   /** Spec this run is following; complete only if this file becomes shipped. */
   private followedSpec: string | undefined
 
@@ -206,6 +221,16 @@ export class ShipRun {
     return this.plan
   }
 
+  /** Sealed Mission Contract for this run, absent before Confirm. */
+  get missionContract(): MissionContract | undefined {
+    return this.sealedContract
+  }
+
+  /** Absolute path of mission.contract.json when the runner wrote one. */
+  get missionContractFile(): string | undefined {
+    return this.sealedContractPath
+  }
+
   /**
    * Note markdown the agent wrote, so the live spec can be found later.
    * @param paths - paths the event reported writing.
@@ -222,6 +247,7 @@ export class ShipRun {
 
   /** Re-read the live spec so the plan row and chip match the file on disk. */
   refresh(): void {
+    if (this.sealedTrack !== undefined) this.detectTrackRewrite()
     const files: ShipSpecFile[] = []
     for (const path of this.specPaths()) {
       try {
@@ -262,6 +288,8 @@ export class ShipRun {
     this.lastDone = undefined
     this.goalId = undefined
     this.sealedTrack = undefined
+    this.sealedContract = undefined
+    this.sealedContractPath = undefined
     this.followedSpec = undefined
     this.startWatch()
     this.refresh()
@@ -428,9 +456,11 @@ export class ShipRun {
   private promptFor(): string {
     const status = this.status()
     const track = this.trackForPrompt()
+    const mission = this.missionForPrompt()
+    const prepend = [track, mission].filter((part): part is string => part !== undefined).join('\n\n')
     const prompt = shipPromptFor(status, {
       ...(this.goalId === undefined ? {} : { goalId: this.goalId }),
-      ...(track === undefined ? {} : { track }),
+      ...(prepend === '' ? {} : { track: prepend }),
     })
     const kind = shipPhaseKind(status)
     if (kind !== 'land' && kind !== 'done') return prompt
@@ -462,16 +492,68 @@ export class ShipRun {
   /**
    * Draft track from disk until Confirm; then freeze a snapshot for this run.
    * Interviewing still prepends the live draft; later phases keep the seal.
+   * Confirm also compiles and writes the Mission Contract JSON the runner owns.
    */
   private trackForPrompt(): string | undefined {
-    if (this.sealedTrack !== undefined) return this.sealedTrack
+    if (this.sealedTrack !== undefined) {
+      this.detectTrackRewrite()
+      return this.sealedTrack
+    }
     const live = this.liveTrack()
     if (live === undefined) return undefined
     const status = this.status()
     if (status === 'confirmed' || status === 'planned' || status === 'landing') {
       this.sealedTrack = live
+      this.sealMissionContract()
     }
     return live
+  }
+
+  /**
+   * Compact Mission Contract summary for later phase injects. Absent until
+   * Confirm seals one; later phases keep the sealed summary even if the
+   * Markdown Main Track is rewritten on disk.
+   */
+  private missionForPrompt(): string | undefined {
+    if (this.sealedContract === undefined) return undefined
+    return missionContractSummary(this.sealedContract, this.sealedContractPath)
+  }
+
+  /**
+   * Compile + persist the Mission Contract beside `.scratch/<slug>/`.
+   * Failures degrade: the sealed Main Track string still binds.
+   */
+  private sealMissionContract(): void {
+    if (this.sealedContract !== undefined) return
+    const specPath = this.liveSpecPath()
+    if (specPath === undefined) return
+    try {
+      const markdown = readFileSync(specPath, 'utf8')
+      const slug = slugFromSpec(markdown, specPath)
+      const contract = compileMissionContract(markdown, { id: slug })
+      this.sealedContract = contract
+      this.sealedContractPath = writeMissionContract(this.cwd, slug, contract)
+    } catch {
+      // Spec unreadable or disk full: track snapshot still binds later phases.
+    }
+  }
+
+  /**
+   * If the live Main Track diverges from the seal, keep the seal and flash —
+   * mechanical immutability, not prompt-only.
+   */
+  private detectTrackRewrite(): void {
+    if (this.sealedContract === undefined) return
+    const specPath = this.followedSpec ?? this.liveSpecPath()
+    if (specPath === undefined) return
+    try {
+      const live = readFileSync(specPath, 'utf8')
+      if (mainTrackDrifted(this.sealedContract.mainTrackMarkdown, live)) {
+        this.ports.flash?.(TRACK_REWRITE_IGNORED)
+      }
+    } catch {
+      // A missing spec is not a rewrite.
+    }
   }
 
   /** Compact Main Track on disk, headed so later phases prepend a real section. */

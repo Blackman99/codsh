@@ -51,7 +51,7 @@ Key: `DEEPSEEK_API_KEY`. Already have dsh? `npm i -g codsh-cli` is enough when t
 
 Each `/ship` turn injects only one contract — grill, to-spec, to-tickets, or TDD — so later phases do not crowd the one in play. The MetaBar chip and plan row follow the spec on disk as Status and checkboxes change. Bare `/ship` resumes an unfinished spec with cascading re-verification of prior tickets.
 
-Gate 1 Confirm freezes the Main Track — the idea, numbered Track-N decisions, and Out of Scope — and later turns are prepended with that snapshot so landing cannot rewrite the design. If an unrelated `/goal` is current, `/ship` pauses it and asks `ship · occupancy` (Replace / Abort) before any phase starts; on a pipe it auto-Replaces. `/goal` during a run shows the `[ship]` compass. Chrome is unchanged: no extra chrome, no GoalBar.
+Gate 1 Confirm freezes the Main Track — the idea, numbered Track-N decisions, and Out of Scope — compiles a sealed Mission Contract (`.scratch/<slug>/mission.contract.json`) the runner owns, and later turns are prepended with that snapshot plus a compact contract summary so landing cannot rewrite the design. If an unrelated `/goal` is current, `/ship` pauses it and asks `ship · occupancy` (Replace / Abort) before any phase starts; on a pipe it auto-Replaces. `/goal` during a run shows the `[ship]` compass. Chrome is unchanged: no extra chrome, no GoalBar.
 
 ```sh
 /ship let long diffs open in a pager instead of scrolling past
