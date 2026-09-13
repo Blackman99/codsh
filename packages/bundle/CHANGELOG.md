@@ -1,5 +1,11 @@
 # codsh-bundle
 
+## 0.23.0
+
+### Minor Changes
+
+- 0c2f9e3: Mission Contract control plane for `/ship`: sealed contract at Confirm, write-tier restore, Active Ticket land packs, Alignment Gate, Drift Detector, and evidence-based Verifier.
+
 ## 0.22.4
 
 ### Patch Changes
