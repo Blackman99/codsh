@@ -74,3 +74,35 @@ describe('alignAction', () => {
     })
     expect(verdict.allow).toBe(true)
   })
+
+  it('allows reading mission.contract.json while denying writes to it', () => {
+    const read = alignAction({
+      action: 'read mission.contract.json',
+      path: '.scratch/widget/mission.contract.json',
+      toolName: 'read',
+    }, { contract, sealed: true })
+    expect(read.allow).toBe(true)
+    const write = alignAction({
+      action: 'write mission.contract.json',
+      path: '.scratch/widget/mission.contract.json',
+      toolName: 'write',
+      supports: ['REQ-001'],
+    }, { contract, sealed: true })
+    expect(write.allow).toBe(false)
+  })
+
+  it('denies a write that targets an immutable section', () => {
+    const verdict = alignAction({
+      action: 'write docs/specs/widget.md',
+      path: 'docs/specs/widget.md',
+      toolName: 'write',
+      section: 'Out of Scope',
+      supports: ['REQ-001'],
+    }, {
+      contract,
+      sealed: true,
+      activeTicket: { title: 'Ticket 1', done: false, trackIds: [1] },
+    })
+    expect(verdict.allow).toBe(false)
+    expect(verdict.violatesScope).toBe(true)
+  })

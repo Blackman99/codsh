@@ -21,6 +21,7 @@ import {
   mainTrackDrifted,
   missionContractPath,
   missionContractSummary,
+  protectedSectionsChanged,
   readMissionContract,
   restoreMainTrack,
   slugFromSpec,
@@ -28,7 +29,7 @@ import {
   writeMissionContract,
 } from './mission.ts'
 import type { MissionContract } from './mission.ts'
-import { alignAction, descriptorFromToolCall } from './align.ts'
+import { alignAction, descriptorFromToolCall, isMutatingTool, proposeSpecMarkdown } from './align.ts'
 import type { ActionDescriptor, AlignVerdict } from './align.ts'
 import { detectDrift, DRIFT_FLASH_AT } from './drift.ts'
 import type { DriftReport } from './drift.ts'
@@ -301,11 +302,50 @@ export class ShipRun {
   alignTool(toolName: string, args: unknown): AlignVerdict {
     const ticket = this.currentTicket()
     const supports = this.activeTicketSupports(ticket)
-    const descriptor = descriptorFromToolCall(toolName, args, {
+    let descriptor = descriptorFromToolCall(toolName, args, {
       ...(supports === undefined ? {} : { supports }),
       ...(ticket === undefined ? {} : { task: ticket.title }),
     })
+    const section = this.protectedSectionFromTool(toolName, args, descriptor.path)
+    if (section !== undefined) {
+      descriptor = { ...descriptor, section }
+    }
     return this.align(descriptor)
+  }
+
+  /**
+   * Compare a mutating write/edit of the live ship spec against protected
+   * headings. Auto-filled supports must not let Out of Scope / Grill / etc.
+   * rewrites through as a mutable path.
+   */
+  private protectedSectionFromTool(
+    toolName: string,
+    args: unknown,
+    path: string | undefined,
+  ): string | undefined {
+    if (!isMutatingTool(toolName) || path === undefined || !/\.md$/iu.test(path)) return undefined
+    const specPath = this.followedSpec ?? this.liveSpecPath()
+    if (specPath === undefined) return undefined
+    const norm = (value: string): string => value.replace(/\\/gu, '/')
+    const np = norm(path)
+    const ns = norm(specPath)
+    const base = ns.split('/').pop() ?? ''
+    const same = np === ns || ns.endsWith(np) || np.endsWith(ns) || (base !== '' && np.endsWith(`/${base}`))
+    if (!same) return undefined
+    let current: string | undefined
+    try {
+      current = readFileSync(specPath, 'utf8')
+    } catch {
+      current = undefined
+    }
+    const proposed = proposeSpecMarkdown(args, current)
+    if (proposed === undefined) return undefined
+    const sealedFallback = this.sealedContract === undefined
+      ? ''
+      : `## Main Track\n\n${this.sealedContract.mainTrackMarkdown}\n`
+    const before = current ?? sealedFallback
+    const changed = protectedSectionsChanged(before, proposed)
+    return changed[0]
   }
 
   /** Re-read the live spec so the plan row and chip match the file on disk. */
@@ -604,14 +644,20 @@ export class ShipRun {
       this.detectTrackRewrite()
       return this.sealedTrack
     }
-    const live = this.liveTrack()
-    if (live === undefined) return undefined
     const status = this.status()
     if (status === 'confirmed' || status === 'planned' || status === 'landing') {
-      this.sealedTrack = live
+      // Load/seal BEFORE adopting live Markdown — resume must not freeze a
+      // rewritten (or missing) Main Track into the prompt/compass snapshot.
       this.sealMissionContract()
+      if (this.sealedTrack !== undefined) {
+        this.detectTrackRewrite()
+        return this.sealedTrack
+      }
+      const live = this.liveTrack()
+      if (live !== undefined) this.sealedTrack = live
+      return live
     }
-    return live
+    return this.liveTrack()
   }
 
   /**
@@ -640,9 +686,8 @@ export class ShipRun {
       if (existing !== undefined) {
         this.sealedContract = existing
         this.sealedContractPath = missionContractPath(this.cwd, slug)
-        if (this.sealedTrack === undefined) {
-          this.sealedTrack = `## Main Track\n\n${existing.mainTrackMarkdown}`
-        }
+        // Always prefer the sealed snapshot — never keep a live rewrite.
+        this.sealedTrack = `## Main Track\n\n${existing.mainTrackMarkdown}`
         return
       }
       const contract = compileMissionContract(markdown, { id: slug })
@@ -654,28 +699,25 @@ export class ShipRun {
   }
 
 
-  /** Guard sealed contract files and record write descriptors. */
+  /**
+   * Post-write safety net for immutable contract JSON only.
+   * Do not re-align without supports — that false-denies legitimate ticket
+   * writes already allowed by `alignTool` and poisons drift via recentActions.
+   */
   private guardWrites(paths: readonly string[]): void {
     if (this.sealedContract === undefined) return
     for (const path of paths) {
-      const descriptor: ActionDescriptor = {
-        action: `write ${path}`,
-        path,
-        toolName: 'write',
-      }
-      const verdict = this.align(descriptor)
-      if (verdict.allow) continue
+      if (writeAllowed(classifyPath(path))) continue
       this.ports.flash?.(ALIGN_DENIED)
-      if (!writeAllowed(classifyPath(path)) && this.sealedContractPath !== undefined) {
-        try {
-          writeMissionContract(
-            this.cwd,
-            slugFromSpec(readFileSync(this.liveSpecPath() ?? '', 'utf8'), this.liveSpecPath()),
-            this.sealedContract,
-          )
-        } catch {
-          // Best-effort restore of the contract JSON.
-        }
+      if (this.sealedContractPath === undefined) continue
+      try {
+        writeMissionContract(
+          this.cwd,
+          slugFromSpec(readFileSync(this.liveSpecPath() ?? '', 'utf8'), this.liveSpecPath()),
+          this.sealedContract,
+        )
+      } catch {
+        // Best-effort restore of the contract JSON.
       }
     }
   }

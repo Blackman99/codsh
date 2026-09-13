@@ -66,7 +66,12 @@ export function alignAction(descriptor: ActionDescriptor, opts: AlignOptions = {
   let taskId: string | null = descriptor.task ?? null
   let violatesScope = false
 
-  if (descriptor.path !== undefined) {
+  const mutating = isMutatingTool(descriptor.toolName)
+    || /\b(modify|write|edit|create|delete|overwrite)\b/iu.test(descriptor.action)
+
+  // Immutable paths/sections only bind writes — reading mission.contract.json
+  // is required by land prompts.
+  if (mutating && descriptor.path !== undefined) {
     const tier = classifyPath(descriptor.path)
     if (!writeAllowed(tier)) {
       violatesScope = true
@@ -74,7 +79,7 @@ export function alignAction(descriptor: ActionDescriptor, opts: AlignOptions = {
     }
   }
 
-  if (sealed && descriptor.section !== undefined) {
+  if (mutating && sealed && descriptor.section !== undefined) {
     const tier = classifySpecHeading(descriptor.section)
     if (!writeAllowed(tier)) {
       violatesScope = true
@@ -176,10 +181,55 @@ export function descriptorFromToolCall(
   }
 }
 
+
+/** Extract the written body from write/edit tool args, when present. */
+export function toolWriteContent(args: unknown): string | undefined {
+  if (args === null || typeof args !== 'object') return undefined
+  const record = args as Record<string, unknown>
+  for (const key of ['content', 'contents', 'file_text', 'fileText', 'new_string', 'newString']) {
+    const value = record[key]
+    if (typeof value === 'string') return value
+  }
+  return undefined
+}
+
+/** old_string for edit tools. */
+export function toolOldString(args: unknown): string | undefined {
+  if (args === null || typeof args !== 'object') return undefined
+  const record = args as Record<string, unknown>
+  for (const key of ['old_string', 'oldString']) {
+    const value = record[key]
+    if (typeof value === 'string') return value
+  }
+  return undefined
+}
+
+/**
+ * Propose the post-edit markdown for a spec write/edit.
+ * Returns undefined when the call does not carry enough content to compare.
+ */
+export function proposeSpecMarkdown(args: unknown, current: string | undefined): string | undefined {
+  if (args === null || typeof args !== 'object') return undefined
+  const record = args as Record<string, unknown>
+  const content = record.content ?? record.contents ?? record.file_text ?? record.fileText
+  if (typeof content === 'string') return content
+  const oldString = toolOldString(args)
+  const newString = typeof record.new_string === 'string'
+    ? record.new_string
+    : typeof record.newString === 'string'
+      ? record.newString
+      : undefined
+  if (oldString !== undefined && newString !== undefined && current !== undefined) {
+    if (!current.includes(oldString)) return undefined
+    return current.replace(oldString, newString)
+  }
+  return undefined
+}
+
 function toolPath(args: unknown): string | undefined {
   if (args === null || typeof args !== 'object') return undefined
   const record = args as Record<string, unknown>
-  for (const key of ['path', 'file_path', 'filePath', 'target', 'filename']) {
+  for (const key of ['file_path', 'filePath', 'path', 'target', 'filename']) {
     const value = record[key]
     if (typeof value === 'string' && value !== '') return value
   }

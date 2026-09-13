@@ -73,3 +73,30 @@ describe('verifyAcceptance', () => {
     expect(reconcilePlanTicks(markdown, verdict, evidence)).toBeUndefined()
     expect(markdown).toContain('- [x] Ticket 1')
   })
+
+  it('ignores Baseline results when judging Verification evidence', () => {
+    const contract = compileMissionContract(BASE, { id: 'widget', sealedAt: '2026-09-13T00:00:00.000Z' })
+    const baselinePassVerifyFail = `${BASE}
+## Baseline
+1. \`pnpm test\` exits 0.
+2. \`pnpm run typecheck\` exits 0.
+
+## Verification
+1. \`pnpm test\` exit code 1.
+2. \`pnpm run typecheck\` exit code 1.
+`
+    const bad = verifyAcceptance(contract, parseEvidenceFromSpec(baselinePassVerifyFail))
+    expect(bad.satisfied).toBe(false)
+
+    const baselineFailVerifyPass = `${BASE}
+## Baseline
+1. \`pnpm test\` exit code 1.
+2. \`pnpm run typecheck\` exit code 1.
+
+## Verification
+1. \`pnpm test\` exits 0.
+2. \`pnpm run typecheck\` exits 0.
+`
+    const ok = verifyAcceptance(contract, parseEvidenceFromSpec(baselineFailVerifyPass))
+    expect(ok.satisfied).toBe(true)
+  })

@@ -37,20 +37,21 @@ export interface VerifyVerdict {
 }
 
 /**
- * Parse evidence blocks from a ship spec's Verification / Baseline sections.
+ * Parse completion evidence from a ship spec's Verification / Proof sections.
  *
- * Looks for fenced commands, `exit 0` / `exit code 0`, and `ACC-xxx` mentions.
+ * Baseline is excluded: it records pre-land results and must not satisfy (or
+ * block) final acceptance via `find()` first-match against an older exit code.
  */
 export function parseEvidenceFromSpec(markdown: string): Evidence[] {
   const evidence: Evidence[] = []
   let inside = false
   let pendingCommand: string | undefined
   for (const raw of markdown.split(/\r\n|[\r\n]/u)) {
-    if (/^#{1,6}\s+(verification|baseline|proof)\b/iu.test(raw)) {
+    if (/^#{1,6}\s+(verification|proof)\b/iu.test(raw)) {
       inside = true
       continue
     }
-    if (inside && /^#{1,6}\s+/u.test(raw) && !/^#{1,6}\s+(verification|baseline|proof)\b/iu.test(raw)) {
+    if (inside && /^#{1,6}\s+/u.test(raw) && !/^#{1,6}\s+(verification|proof)\b/iu.test(raw)) {
       inside = false
     }
     if (!inside) continue
@@ -101,7 +102,9 @@ export function verifyAcceptance(
   const notes: string[] = []
 
   for (const criterion of contract.acceptance) {
-    const hit = evidence.find(item => evidenceMatches(criterion, item))
+    // Last match wins: later Verification lines are the final proof, not an
+    // earlier duplicate command in the same section.
+    const hit = [...evidence].reverse().find(item => evidenceMatches(criterion, item))
     if (hit === undefined) {
       missing.push(criterion.id)
       notes.push(`${criterion.id}: no evidence`)

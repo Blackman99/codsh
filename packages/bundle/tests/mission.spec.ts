@@ -11,6 +11,7 @@ import {
   classifySpecHeading,
   compileMissionContract,
   mainTrackDrifted,
+  protectedSectionsChanged,
   missionContractPath,
   missionContractSummary,
   parseMissionContract,
@@ -142,4 +143,24 @@ describe('mission contract', () => {
     expect(mainTrackDrifted(contract.mainTrackMarkdown, 'Status: planned\n')).toBe(true)
     expect(mainTrackDrifted(contract.mainTrackMarkdown, 'Status: planned\n\n## Main Track\n\n')).toBe(true)
   })
+
+  it('detects protected section rewrites between markdown versions', () => {
+    const before = [
+      '## Main Track',
+      '',
+      '**Idea.** Bind /goal into /ship.',
+      '',
+      '## Out of Scope',
+      '',
+      '- cloud computer',
+      '',
+      '## Plan',
+      '',
+      '- [ ] Ticket 1',
+    ].join('\n')
+    const after = before.replace('- cloud computer', '- cloud computer\n- also fork harness')
+    expect(protectedSectionsChanged(before, after)).toContain('Out of Scope')
+    expect(protectedSectionsChanged(before, before.replace('- [ ] Ticket 1', '- [x] Ticket 1'))).toEqual([])
+  })
+
 })

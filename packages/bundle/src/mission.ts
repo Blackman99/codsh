@@ -399,6 +399,47 @@ export function writeAllowed(tier: WriteTier): boolean {
   return tier === 'mutable'
 }
 
+/** Headings the control plane treats as sealed after Confirm. */
+export const PROTECTED_SPEC_HEADINGS = [
+  'Main Track',
+  'Out of Scope',
+  'Grill Decisions',
+  'Implementation Decisions',
+] as const
+
+/**
+ * Body of a named markdown section (exclusive of the heading line), or
+ * undefined when the heading is absent.
+ */
+export function sectionBody(markdown: string, heading: string): string | undefined {
+  const escaped = heading.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&')
+  const re = new RegExp(`^#{1,6}\\s+${escaped}\\s*$`, 'imu')
+  const match = re.exec(markdown)
+  if (match === null || match.index === undefined) return undefined
+  const after = markdown.slice(match.index + match[0].length)
+  const lines: string[] = []
+  for (const line of after.split(/\r\n|[\r\n]/u)) {
+    if (/^#{1,6}\s+/u.test(line)) break
+    lines.push(line)
+  }
+  return lines.join('\n').replace(/^\n+/u, '').replace(/\n+$/u, '')
+}
+
+/**
+ * Which protected headings differ between before and after.
+ * A missing section vs present body counts as a change.
+ */
+export function protectedSectionsChanged(before: string, after: string): string[] {
+  const changed: string[] = []
+  for (const heading of PROTECTED_SPEC_HEADINGS) {
+    const left = (sectionBody(before, heading) ?? '').trim()
+    const right = (sectionBody(after, heading) ?? '').trim()
+    if (left !== right) changed.push(heading)
+  }
+  return changed
+}
+
+
 /**
  * Restore the sealed Main Track body into a live spec Markdown document.
  * Other sections (Status, Plan, Baseline, Verification) are left alone.

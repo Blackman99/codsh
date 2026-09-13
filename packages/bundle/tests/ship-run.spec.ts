@@ -868,11 +868,14 @@ describe('composition root', () => {
     writeFileSync(path, markdown.replace('Bind /goal into /ship.', 'silently rewritten after interrupt'))
     const flashes: string[] = []
     const second = new ShipRun(cwd, chrome, { flash: text => { flashes.push(text) } })
-    await second.run('build a widget', async () => {})
+    const prompts: string[] = []
+    await second.run('build a widget', async (prompt) => { prompts.push(prompt) })
     expect(second.missionContract?.objective).toBe('Bind /goal into /ship.')
     expect(readFileSync(second.missionContractFile!, 'utf8')).toBe(sealed)
     expect(readFileSync(path, 'utf8')).toContain('Bind /goal into /ship.')
     expect(readFileSync(path, 'utf8')).not.toContain('silently rewritten after interrupt')
+    expect(prompts[0]).toContain('Bind /goal into /ship.')
+    expect(prompts[0]).not.toContain('silently rewritten after interrupt')
   })
 
   it('advances land turns when the Active Ticket completes without a phase change', async () => {
@@ -988,5 +991,94 @@ describe('composition root', () => {
     const allow = ship.alignTool('write', { path: 'src/openai.ts' })
     expect(allow.allow).toBe(true)
   })
+
+
+  it('loads sealed contract when Main Track was deleted before resume', async () => {
+    const cwd = mkdtempSync(join(tmpdir(), 'ship-run-'))
+    const markdown = [
+      'Status: planned',
+      'Branch: ship/widget',
+      '',
+      '## Main Track',
+      '',
+      '**Idea.** Bind /goal into /ship.',
+      '**Track-1.** Hybrid compass.',
+      '**Out of Scope.**',
+      '- No harness fork.',
+      '',
+      '## Acceptance Criteria',
+      '',
+      '1. `pnpm test` exits 0.',
+      '',
+      '## Plan',
+      '',
+      '- [ ] Ticket 1: Spec schema (Track: 1)',
+    ].join('\n')
+    const path = writeSpec(cwd, 'widget.md', markdown)
+    const first = new ShipRun(cwd, chrome)
+    await first.run('build a widget', async () => {})
+    expect(first.missionContractFile).toBeDefined()
+
+    writeFileSync(path, [
+      'Status: planned',
+      'Branch: ship/widget',
+      '',
+      '## Acceptance Criteria',
+      '',
+      '1. `pnpm test` exits 0.',
+      '',
+      '## Plan',
+      '',
+      '- [ ] Ticket 1: Spec schema (Track: 1)',
+    ].join('\n'))
+
+    const prompts: string[] = []
+    const second = new ShipRun(cwd, chrome)
+    await second.run('build a widget', async (prompt) => { prompts.push(prompt) })
+    expect(second.missionContract?.objective).toBe('Bind /goal into /ship.')
+    expect(prompts[0]).toContain('Bind /goal into /ship.')
+    expect(readFileSync(path, 'utf8')).toContain('## Main Track')
+  })
+
+  it('alignTool allows reading the sealed contract and denies Out of Scope rewrites', async () => {
+    const cwd = mkdtempSync(join(tmpdir(), 'ship-run-'))
+    const markdown = [
+      'Status: interviewing',
+      'Branch: ship/widget',
+      '',
+      '## Main Track',
+      '',
+      '**Idea.** Bind /goal into /ship.',
+      '**Track-1.** Hybrid compass.',
+      '**Out of Scope.**',
+      '- No harness fork.',
+      '',
+      '## Out of Scope',
+      '',
+      '- No harness fork.',
+      '',
+      '## Acceptance Criteria',
+      '',
+      '1. `pnpm test` exits 0.',
+      '',
+      '## Plan',
+      '',
+      '- [ ] Ticket 1: Spec schema (Track: 1)',
+    ].join('\n')
+    const path = writeSpec(cwd, 'widget.md', markdown)
+    const ship = new ShipRun(cwd, chrome)
+    await ship.run('build a widget', async () => {
+      writeFileSync(path, markdown.replace('Status: interviewing', 'Status: confirmed'))
+    })
+    expect(ship.missionContractFile).toBeDefined()
+    expect(ship.alignTool('read', { path: ship.missionContractFile! }).allow).toBe(true)
+
+    const current = readFileSync(path, 'utf8')
+    const rewritten = current.replace('- No harness fork.', '- No harness fork.\n- also cloud GPUs')
+    const deny = ship.alignTool('write', { file_path: path, content: rewritten })
+    expect(deny.allow).toBe(false)
+    expect(deny.reasons.some(r => /Out of Scope|immutable|section/i.test(r))).toBe(true)
+  })
+
 
 })
