@@ -404,8 +404,11 @@ immutable (a rewrite is restored on disk); Implementation Decisions are
 semi-mutable (blocker required); Status, Plan, Baseline, and Verification
 are mutable world state. Land turns also prepend an Active Ticket pack —
 only the first unticked plan line — so the executor cannot replan the whole
-DAG each turn. Alignment Gate, Drift Detector, and an independent Verifier
-are later work.
+DAG each turn. An Alignment Gate refuses writes that lack requirement
+mapping or hit immutable memory. A Drift Detector scores plan/action drift
+against the seal. An independent Verifier matches acceptance criteria to
+recorded evidence and clears premature plan ticks; the ship goal does not
+complete without that evidence.
 _Avoid_: hand-authored JSON, prompt-only freeze, GoalBar
 
 **Occupancy**:

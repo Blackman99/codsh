@@ -16,14 +16,22 @@ import type { Plan, ShipSpecFile } from './plan.ts'
 import { expandTemplate } from './custom-commands.ts'
 import type { SelectAsk } from './questions.ts'
 import {
+  classifyPath,
   compileMissionContract,
   mainTrackDrifted,
   missionContractSummary,
   restoreMainTrack,
   slugFromSpec,
+  writeAllowed,
   writeMissionContract,
 } from './mission.ts'
 import type { MissionContract } from './mission.ts'
+import { alignAction } from './align.ts'
+import type { ActionDescriptor, AlignVerdict } from './align.ts'
+import { detectDrift, DRIFT_BLOCK_AT, DRIFT_FLASH_AT } from './drift.ts'
+import type { DriftReport } from './drift.ts'
+import { parseEvidenceFromSpec, reconcilePlanTicks, verifyAcceptance } from './verify.ts'
+import type { VerifyVerdict } from './verify.ts'
 import { shipPhaseKind, shipPromptFor } from './ship.ts'
 import { sameShipChip, shipChipFromSpec } from './status.ts'
 import type { ShipChip } from './status.ts'
@@ -175,6 +183,9 @@ const GOAL_DEGRADED = '/goal was not updated'
 
 /** Flash when a sealed Main Track rewrite is ignored for this run. */
 const TRACK_REWRITE_IGNORED = 'Main Track rewrite ignored — sealed Mission Contract holds'
+const ALIGN_DENIED = 'Alignment Gate denied write — sealed Mission Contract holds'
+const DRIFT_FLASH = 'Mission drift detected — review plan against sealed contract'
+const VERIFY_INCOMPLETE = 'Verifier: acceptance evidence incomplete — plan ticks reconciled'
 
 /** What the runner must do to spend a canned-command turn. */
 export interface ShipTurn {
@@ -203,6 +214,12 @@ export class ShipRun {
   private sealedContract: MissionContract | undefined
   /** Absolute path of the sealed mission.contract.json, when written. */
   private sealedContractPath: string | undefined
+  /** Recent aligned actions for drift scans (capped). */
+  private recentActions: ActionDescriptor[] = []
+  /** Last drift report, for tests and chrome. */
+  private lastDrift: DriftReport | undefined
+  /** Last verifier verdict, for tests. */
+  private lastVerify: VerifyVerdict | undefined
   /** Spec this run is following; complete only if this file becomes shipped. */
   private followedSpec: string | undefined
 
@@ -232,6 +249,16 @@ export class ShipRun {
     return this.sealedContractPath
   }
 
+  /** Latest drift report from a sealed run, if any. */
+  get driftReport(): DriftReport | undefined {
+    return this.lastDrift
+  }
+
+  /** Latest verifier verdict, if any. */
+  get verifyVerdict(): VerifyVerdict | undefined {
+    return this.lastVerify
+  }
+
   /**
    * Note markdown the agent wrote, so the live spec can be found later.
    * @param paths - paths the event reported writing.
@@ -243,7 +270,24 @@ export class ShipRun {
       if (already >= 0) this.writtenDocs.splice(already, 1)
       this.writtenDocs.unshift(path)
     }
+    this.guardWrites(paths)
     if (paths.some(path => path.endsWith('.md'))) this.refresh()
+    this.scanDrift()
+    this.verifyAndReconcile()
+  }
+
+  /**
+   * Alignment Gate for one action descriptor. Public so the surface can refuse
+   * a tool before it runs; also used for write-path guards.
+   */
+  align(descriptor: ActionDescriptor): AlignVerdict {
+    const verdict = alignAction(descriptor, {
+      contract: this.sealedContract,
+      sealed: this.sealedContract !== undefined,
+      activeTicket: this.currentTicket(),
+    })
+    this.rememberAction(descriptor)
+    return verdict
   }
 
   /** Re-read the live spec so the plan row and chip match the file on disk. */
@@ -291,6 +335,9 @@ export class ShipRun {
     this.sealedTrack = undefined
     this.sealedContract = undefined
     this.sealedContractPath = undefined
+    this.recentActions = []
+    this.lastDrift = undefined
+    this.lastVerify = undefined
     this.followedSpec = undefined
     this.startWatch()
     this.refresh()
@@ -493,6 +540,13 @@ export class ShipRun {
   private async completeShipGoal(): Promise<void> {
     const goals = this.ports.goals
     if (goals === undefined || this.goalId === undefined) return
+    if (this.sealedContract !== undefined && this.sealedContract.acceptance.length > 0) {
+      this.verifyAndReconcile()
+      if (this.lastVerify !== undefined && !this.lastVerify.satisfied) {
+        this.ports.flash?.(VERIFY_INCOMPLETE)
+        return
+      }
+    }
     try {
       await goals.complete(this.goalId)
     } catch {
@@ -557,6 +611,93 @@ export class ShipRun {
     } catch {
       // Spec unreadable or disk full: track snapshot still binds later phases.
     }
+  }
+
+
+  /** Guard sealed contract files and record write descriptors. */
+  private guardWrites(paths: readonly string[]): void {
+    if (this.sealedContract === undefined) return
+    for (const path of paths) {
+      const descriptor: ActionDescriptor = {
+        action: `write ${path}`,
+        path,
+        toolName: 'write',
+      }
+      const verdict = this.align(descriptor)
+      if (verdict.allow) continue
+      this.ports.flash?.(ALIGN_DENIED)
+      if (!writeAllowed(classifyPath(path)) && this.sealedContractPath !== undefined) {
+        try {
+          writeMissionContract(
+            this.cwd,
+            slugFromSpec(readFileSync(this.liveSpecPath() ?? '', 'utf8'), this.liveSpecPath()),
+            this.sealedContract,
+          )
+        } catch {
+          // Best-effort restore of the contract JSON.
+        }
+      }
+    }
+  }
+
+  /** Run a drift scan when a sealed contract and plan exist. */
+  private scanDrift(): void {
+    if (this.sealedContract === undefined) return
+    const specPath = this.liveSpecPath()
+    if (specPath === undefined) return
+    try {
+      const plan = parsePlan(readFileSync(specPath, 'utf8'))
+      if (plan.tickets.length === 0) return
+      const report = detectDrift({
+        contract: this.sealedContract,
+        plan,
+        recentActions: this.recentActions,
+      })
+      this.lastDrift = report
+      if (report.driftScore >= DRIFT_FLASH_AT) this.ports.flash?.(DRIFT_FLASH)
+    } catch {
+      // Unreadable spec: skip.
+    }
+  }
+
+  /**
+   * Verifier: acceptance needs evidence. Premature plan ticks are cleared.
+   * Completion of the ship goal still requires Status shipped + evidence.
+   */
+  private verifyAndReconcile(): void {
+    if (this.sealedContract === undefined) return
+    if (this.sealedContract.acceptance.length === 0) return
+    const specPath = this.liveSpecPath()
+    if (specPath === undefined) return
+    try {
+      let markdown = readFileSync(specPath, 'utf8')
+      const evidence = parseEvidenceFromSpec(markdown)
+      const verdict = verifyAcceptance(this.sealedContract, evidence)
+      this.lastVerify = verdict
+      if (verdict.satisfied) return
+      const reconciled = reconcilePlanTicks(markdown, verdict)
+      if (reconciled !== undefined && reconciled !== markdown) {
+        writeFileSync(specPath, reconciled)
+        this.ports.flash?.(VERIFY_INCOMPLETE)
+      }
+    } catch {
+      // Unreadable spec: skip.
+    }
+  }
+
+  private currentTicket() {
+    const specPath = this.liveSpecPath()
+    if (specPath === undefined) return undefined
+    try {
+      return parsePlan(readFileSync(specPath, 'utf8')).current
+    } catch {
+      return undefined
+    }
+  }
+
+  private rememberAction(descriptor: ActionDescriptor): void {
+    this.recentActions.push(descriptor)
+    if (this.recentActions.length > 40) this.recentActions.shift()
   }
 
   /**
