@@ -76,14 +76,15 @@ export function parseEvidenceFromSpec(markdown: string): Evidence[] {
     const exit = /\bexit(?:\s+code)?\s+(\d+)\b/iu.exec(raw)
     const acc = /\b(ACC-\d+)\b/iu.exec(raw)
     if (inline === null && exit === null && acc === null) continue
-    const item: Evidence = {}
-    if (inline !== null) item.command = inline[1]
-    if (exit !== null) item.exitCode = Number(exit[1])
-    if (acc !== null) item.acceptanceId = acc[1]
-    if (/\b(passed|ok|green|exits?\s+0)\b/iu.test(raw) && item.exitCode === undefined) {
-      item.exitCode = 0
-    }
-    evidence.push(item)
+    const command = inline?.[1]
+    const acceptanceId = acc?.[1]
+    let exitCode = exit !== null ? Number(exit[1]) : undefined
+    if (exitCode === undefined && /\b(passed|ok|green|exits?\s+0)\b/iu.test(raw)) exitCode = 0
+    evidence.push({
+      ...(command === undefined ? {} : { command }),
+      ...(acceptanceId === undefined ? {} : { acceptanceId }),
+      ...(exitCode === undefined ? {} : { exitCode }),
+    })
   }
   return evidence
 }

@@ -28,7 +28,7 @@ import {
 import type { MissionContract } from './mission.ts'
 import { alignAction } from './align.ts'
 import type { ActionDescriptor, AlignVerdict } from './align.ts'
-import { detectDrift, DRIFT_BLOCK_AT, DRIFT_FLASH_AT } from './drift.ts'
+import { detectDrift, DRIFT_FLASH_AT } from './drift.ts'
 import type { DriftReport } from './drift.ts'
 import { parseEvidenceFromSpec, reconcilePlanTicks, verifyAcceptance } from './verify.ts'
 import type { VerifyVerdict } from './verify.ts'
@@ -281,10 +281,11 @@ export class ShipRun {
    * a tool before it runs; also used for write-path guards.
    */
   align(descriptor: ActionDescriptor): AlignVerdict {
+    const ticket = this.currentTicket()
     const verdict = alignAction(descriptor, {
-      contract: this.sealedContract,
+      ...(this.sealedContract === undefined ? {} : { contract: this.sealedContract }),
       sealed: this.sealedContract !== undefined,
-      activeTicket: this.currentTicket(),
+      ...(ticket === undefined ? {} : { activeTicket: ticket }),
     })
     this.rememberAction(descriptor)
     return verdict
@@ -528,8 +529,9 @@ export class ShipRun {
     if (specPath === undefined) return undefined
     try {
       const markdown = readFileSync(specPath, 'utf8')
+      const requirements = this.sealedContract?.requirements
       return activeTicketBrief(parsePlan(markdown), {
-        requirements: this.sealedContract?.requirements,
+        ...(requirements === undefined ? {} : { requirements }),
       })
     } catch {
       return undefined
