@@ -107,9 +107,14 @@ export function verifyAcceptance(
       notes.push(`${criterion.id}: no evidence`)
       continue
     }
-    if (hit.exitCode !== undefined && hit.exitCode !== 0) {
+    // Bare ACC ids without a recorded successful exit are not evidence.
+    if (hit.exitCode !== 0) {
       missing.push(criterion.id)
-      notes.push(`${criterion.id}: evidence exit ${String(hit.exitCode)}`)
+      notes.push(
+        hit.exitCode === undefined
+          ? `${criterion.id}: evidence lacks successful exit code`
+          : `${criterion.id}: evidence exit ${String(hit.exitCode)}`,
+      )
       continue
     }
     matched.push(criterion.id)
@@ -126,12 +131,17 @@ export function verifyAcceptance(
  * the premature ticks so the executor cannot self-certify completion.
  * @returns updated markdown, or undefined when no change is needed.
  */
-export function reconcilePlanTicks(markdown: string, verdict: VerifyVerdict): string | undefined {
+export function reconcilePlanTicks(
+  markdown: string,
+  verdict: VerifyVerdict,
+  evidence: readonly Evidence[] = parseEvidenceFromSpec(markdown),
+): string | undefined {
   if (verdict.satisfied || verdict.missing.length === 0) return undefined
   const plan = parsePlan(markdown)
   if (plan.tickets.every(ticket => !ticket.done)) return undefined
-  // Only untick when the mission acceptance set is incomplete — world progress
-  // that already has evidence can stay; this is a coarse safety net.
+  // Global ACC incompleteness must not wipe ticket progress. Only clear
+  // premature ticks when the plan claims done with ZERO acceptance evidence.
+  if (evidence.length > 0) return undefined
   if (!markdown.includes('## Plan')) return undefined
   const lines = markdown.split(/\r\n|[\r\n]/u)
   let inside = false

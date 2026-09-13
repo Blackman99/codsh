@@ -61,3 +61,16 @@ describe('alignAction', () => {
     expect(verdict.allow).toBe(false)
   })
 })
+
+  it('allows a read tool with a path without supports on land', () => {
+    const verdict = alignAction({
+      action: 'read src/openai.ts',
+      path: 'src/openai.ts',
+      toolName: 'read',
+    }, {
+      contract,
+      sealed: true,
+      activeTicket: { title: 'Ticket 1', done: false, trackIds: [1] },
+    })
+    expect(verdict.allow).toBe(true)
+  })

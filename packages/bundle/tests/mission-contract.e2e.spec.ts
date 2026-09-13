@@ -132,6 +132,7 @@ describe('Mission Contract control plane e2e', () => {
     const denyUnmapped = ship.align({
       action: 'modify src/x.ts',
       path: 'src/x.ts',
+      toolName: 'write',
     })
     expect(denyUnmapped.allow).toBe(false)
 
@@ -139,12 +140,8 @@ describe('Mission Contract control plane e2e', () => {
     ship.noteWritten([ship.missionContractFile!])
     expect(flashes.some(f => /Alignment Gate/i.test(f))).toBe(true)
 
-    const allowMapped = ship.align({
-      action: 'modify src/openai.ts',
-      path: 'src/openai.ts',
-      supports: ['REQ-001'],
-      task: 'Ticket 1: Spec schema',
-    })
+    // Pre-tool path: Active Ticket Track→REQ auto-fills supports.
+    const allowMapped = ship.alignTool('write', { path: 'src/openai.ts' })
     expect(allowMapped.allow).toBe(true)
   })
 

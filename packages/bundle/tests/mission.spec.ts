@@ -137,4 +137,9 @@ describe('mission contract', () => {
     expect(restored).toContain('- [ ] Ticket 1')
   })
 
+  it('treats a missing or emptied Main Track as drift', () => {
+    const contract = compileMissionContract(SPEC, { id: 'widget', sealedAt: '2026-09-13T00:00:00.000Z' })
+    expect(mainTrackDrifted(contract.mainTrackMarkdown, 'Status: planned\n')).toBe(true)
+    expect(mainTrackDrifted(contract.mainTrackMarkdown, 'Status: planned\n\n## Main Track\n\n')).toBe(true)
+  })
 })

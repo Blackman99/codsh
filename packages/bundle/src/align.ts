@@ -118,7 +118,9 @@ export function alignAction(descriptor: ActionDescriptor, opts: AlignOptions = {
       }
     }
 
-    const looksLikeWrite = descriptor.path !== undefined
+    // Path alone is not a write — reads carry paths too. Only mutating tools
+    // (or explicitly write-shaped actions) need a requirement mapping on land.
+    const looksLikeWrite = isMutatingTool(descriptor.toolName)
       || /\b(modify|write|edit|create|delete|overwrite)\b/iu.test(descriptor.action)
     if (looksLikeWrite && supports.length === 0 && opts.activeTicket !== undefined) {
       reasons.push('write has no requirement mapping (supports)')
@@ -137,6 +139,78 @@ export function alignAction(descriptor: ActionDescriptor, opts: AlignOptions = {
     reasons,
   }
 }
+
+/**
+ * True when the tool name is a filesystem / edit mutation.
+ * Used so Alignment Gate does not demand `supports` for reads.
+ */
+export function isMutatingTool(toolName: string | undefined): boolean {
+  if (toolName === undefined || toolName === '') return false
+  const n = toolName.toLowerCase().replace(/_/gu, '-')
+  return /(?:^|-)(write|edit|create|delete|remove|move|rename|apply|patch|str-replace)(?:-|$)/u.test(n)
+    || n.includes('str-replace')
+    || n.includes('apply-patch')
+}
+
+/**
+ * Build an ActionDescriptor from a tool call. When the model omitted
+ * `supports`, land turns inherit the Active Ticket's Track→REQ mapping so
+ * legitimate ticket work is not fail-closed as "unmapped".
+ */
+export function descriptorFromToolCall(
+  toolName: string,
+  args: unknown,
+  opts: { supports?: string[]; task?: string } = {},
+): ActionDescriptor {
+  const path = toolPath(args)
+  const fromArgs = toolSupports(args)
+  const supports = fromArgs ?? opts.supports
+  const task = toolTask(args) ?? opts.task
+  const action = path === undefined ? toolName : `${toolName} ${path}`
+  return {
+    action,
+    toolName,
+    ...(path === undefined ? {} : { path }),
+    ...(supports === undefined || supports.length === 0 ? {} : { supports }),
+    ...(task === undefined ? {} : { task }),
+  }
+}
+
+function toolPath(args: unknown): string | undefined {
+  if (args === null || typeof args !== 'object') return undefined
+  const record = args as Record<string, unknown>
+  for (const key of ['path', 'file_path', 'filePath', 'target', 'filename']) {
+    const value = record[key]
+    if (typeof value === 'string' && value !== '') return value
+  }
+  return undefined
+}
+
+function toolSupports(args: unknown): string[] | undefined {
+  if (args === null || typeof args !== 'object') return undefined
+  const record = args as Record<string, unknown>
+  const raw = record.supports ?? record.requirement_ids ?? record.requirementIds
+  if (Array.isArray(raw)) {
+    const ids = raw.filter((item): item is string => typeof item === 'string' && item !== '')
+    return ids.length === 0 ? undefined : ids
+  }
+  if (typeof raw === 'string' && raw !== '') {
+    const ids = raw.split(/[\s,]+/u).filter(Boolean)
+    return ids.length === 0 ? undefined : ids
+  }
+  return undefined
+}
+
+function toolTask(args: unknown): string | undefined {
+  if (args === null || typeof args !== 'object') return undefined
+  const record = args as Record<string, unknown>
+  for (const key of ['task', 'ticket', 'active_ticket', 'activeTicket']) {
+    const value = record[key]
+    if (typeof value === 'string' && value !== '') return value
+  }
+  return undefined
+}
+
 
 function mentions(descriptor: ActionDescriptor, text: string): boolean {
   const needle = text.toLowerCase()

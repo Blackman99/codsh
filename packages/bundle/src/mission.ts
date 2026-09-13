@@ -11,7 +11,7 @@
  * @module codsh-bundle/src/mission
  */
 
-import { mkdirSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { basename, dirname, join } from 'node:path'
 import { parseMainTrack } from './plan.ts'
 
@@ -173,6 +173,20 @@ export function writeMissionContract(cwd: string, slug: string, contract: Missio
 }
 
 /**
+ * Load a previously sealed Mission Contract from disk, if one exists.
+ * Resume / re-entry must prefer this over recompiling from live Markdown.
+ */
+export function readMissionContract(cwd: string, slug: string): MissionContract | undefined {
+  const path = missionContractPath(cwd, slug)
+  if (!existsSync(path)) return undefined
+  try {
+    return parseMissionContract(readFileSync(path, 'utf8'))
+  } catch {
+    return undefined
+  }
+}
+
+/**
  * Compact summary prepended on later `/ship` turns so the model sees REQ/NEG
  * ids without dumping the full JSON into context.
  */
@@ -213,7 +227,9 @@ export function missionContractSummary(contract: MissionContract, path?: string)
  */
 export function mainTrackDrifted(sealedBody: string, liveMarkdown: string): boolean {
   const live = (parseMainTrack(liveMarkdown) ?? '').trim()
-  return live !== '' && live !== sealedBody.trim()
+  // Missing or emptied Main Track is drift too — otherwise delete-to-bypass
+  // skips restore and the sealed requirements disappear from the live spec.
+  return live !== sealedBody.trim()
 }
 
 /** Slug from `Branch: ship/<slug>` or the spec file basename. */

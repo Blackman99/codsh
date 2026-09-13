@@ -19,14 +19,16 @@ import {
   classifyPath,
   compileMissionContract,
   mainTrackDrifted,
+  missionContractPath,
   missionContractSummary,
+  readMissionContract,
   restoreMainTrack,
   slugFromSpec,
   writeAllowed,
   writeMissionContract,
 } from './mission.ts'
 import type { MissionContract } from './mission.ts'
-import { alignAction } from './align.ts'
+import { alignAction, descriptorFromToolCall } from './align.ts'
 import type { ActionDescriptor, AlignVerdict } from './align.ts'
 import { detectDrift, DRIFT_FLASH_AT } from './drift.ts'
 import type { DriftReport } from './drift.ts'
@@ -291,6 +293,21 @@ export class ShipRun {
     return verdict
   }
 
+  /**
+   * Build + align a tool call before it runs (`tools/pre-execute`).
+   * Land turns auto-fill Active Ticket Track→REQ supports when the model
+   * omitted them, so legitimate ticket writes are not fail-closed as unmapped.
+   */
+  alignTool(toolName: string, args: unknown): AlignVerdict {
+    const ticket = this.currentTicket()
+    const supports = this.activeTicketSupports(ticket)
+    const descriptor = descriptorFromToolCall(toolName, args, {
+      ...(supports === undefined ? {} : { supports }),
+      ...(ticket === undefined ? {} : { task: ticket.title }),
+    })
+    return this.align(descriptor)
+  }
+
   /** Re-read the live spec so the plan row and chip match the file on disk. */
   refresh(): void {
     if (this.sealedTrack !== undefined) this.detectTrackRewrite()
@@ -349,14 +366,25 @@ export class ShipRun {
     try {
       if (!await this.occupy(idea)) return
       let previous = shipPhaseKind(this.status())
+      let previousTicket = this.currentTicketKey()
       await this.syncCompass()
       await turn(expandTemplate(this.promptFor(), idea))
       while (!advance.signal.aborted) {
         this.refresh()
         await this.syncCompass()
         const next = shipPhaseKind(this.status())
-        if (next === previous || next === 'done' || next === 'grill') break
-        previous = next
+        const nextTicket = this.currentTicketKey()
+        const phaseAdvanced = next !== previous && next !== 'done' && next !== 'grill'
+        // Active Ticket land: completing ticket N must inject ticket N+1 even
+        // when Status stays planned/landing (phase unchanged).
+        const ticketAdvanced = previous === 'land'
+          && next === 'land'
+          && previousTicket !== undefined
+          && nextTicket !== undefined
+          && nextTicket !== previousTicket
+        if (!phaseAdvanced && !ticketAdvanced) break
+        if (phaseAdvanced) previous = next
+        previousTicket = nextTicket
         await turn(expandTemplate(this.promptFor(), idea))
       }
     } finally {
@@ -607,6 +635,16 @@ export class ShipRun {
     try {
       const markdown = readFileSync(specPath, 'utf8')
       const slug = slugFromSpec(markdown, specPath)
+      // Resume must load the on-disk seal — never recompile over a prior Confirm.
+      const existing = readMissionContract(this.cwd, slug)
+      if (existing !== undefined) {
+        this.sealedContract = existing
+        this.sealedContractPath = missionContractPath(this.cwd, slug)
+        if (this.sealedTrack === undefined) {
+          this.sealedTrack = `## Main Track\n\n${existing.mainTrackMarkdown}`
+        }
+        return
+      }
       const contract = compileMissionContract(markdown, { id: slug })
       this.sealedContract = contract
       this.sealedContractPath = writeMissionContract(this.cwd, slug, contract)
@@ -695,6 +733,25 @@ export class ShipRun {
     } catch {
       return undefined
     }
+  }
+
+  /** Stable key for the active ticket, used to advance land turns. */
+  private currentTicketKey(): string | undefined {
+    const ticket = this.currentTicket()
+    return ticket?.title
+  }
+
+  /** REQ ids the Active Ticket's Track lines map to on the sealed contract. */
+  private activeTicketSupports(
+    ticket = this.currentTicket(),
+  ): string[] | undefined {
+    if (ticket === undefined || this.sealedContract === undefined) return undefined
+    const track = ticket.trackIds ?? []
+    if (track.length === 0) return undefined
+    const ids = this.sealedContract.requirements
+      .filter(req => req.track?.some(n => track.includes(n)))
+      .map(req => req.id)
+    return ids.length === 0 ? undefined : ids
   }
 
   private rememberAction(descriptor: ActionDescriptor): void {

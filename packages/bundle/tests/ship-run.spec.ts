@@ -710,6 +710,8 @@ describe('composition root', () => {
     expect(source).toContain("ctx.get('goals')")
     expect(source).toContain('prompt.select')
     expect(source).toContain('prompt.setFlash')
+    expect(source).toContain('tools/pre-execute')
+    expect(source).toContain('alignTool')
     expect(source).not.toContain('GoalBar')
     expect(source).toMatch(/new ShipRun\([\s\S]*goals/)
   })
@@ -830,6 +832,161 @@ describe('composition root', () => {
     expect(onDisk).toContain('**Idea.** Bind /goal into /ship.')
     expect(onDisk).not.toContain('silently rewritten design')
     expect(flashes.some(f => f.includes('Mission Contract'))).toBe(true)
+  })
+
+
+
+  it('loads an existing Mission Contract on resume instead of recompiling over it', async () => {
+    const cwd = mkdtempSync(join(tmpdir(), 'ship-run-'))
+    const markdown = [
+      'Status: planned',
+      'Branch: ship/widget',
+      '',
+      '## Main Track',
+      '',
+      '**Idea.** Bind /goal into /ship.',
+      '**Track-1.** Hybrid compass.',
+      '**Out of Scope.**',
+      '- No harness fork.',
+      '',
+      '## Acceptance Criteria',
+      '',
+      '1. `pnpm test` exits 0.',
+      '',
+      '## Plan',
+      '',
+      '- [ ] Ticket 1: Spec schema (Track: 1)',
+    ].join('\n')
+    const path = writeSpec(cwd, 'widget.md', markdown)
+    const first = new ShipRun(cwd, chrome)
+    await first.run('build a widget', async () => {})
+    expect(first.missionContractFile).toBeDefined()
+    const sealed = readFileSync(first.missionContractFile!, 'utf8')
+    expect(sealed).toContain('Bind /goal into /ship.')
+
+    // Interrupt rewrite of Main Track on disk, then resume a fresh run.
+    writeFileSync(path, markdown.replace('Bind /goal into /ship.', 'silently rewritten after interrupt'))
+    const flashes: string[] = []
+    const second = new ShipRun(cwd, chrome, { flash: text => { flashes.push(text) } })
+    await second.run('build a widget', async () => {})
+    expect(second.missionContract?.objective).toBe('Bind /goal into /ship.')
+    expect(readFileSync(second.missionContractFile!, 'utf8')).toBe(sealed)
+    expect(readFileSync(path, 'utf8')).toContain('Bind /goal into /ship.')
+    expect(readFileSync(path, 'utf8')).not.toContain('silently rewritten after interrupt')
+  })
+
+  it('advances land turns when the Active Ticket completes without a phase change', async () => {
+    const cwd = mkdtempSync(join(tmpdir(), 'ship-run-'))
+    const markdown = [
+      'Status: planned',
+      'Branch: ship/widget',
+      '',
+      '## Main Track',
+      '',
+      '**Idea.** Bind /goal into /ship.',
+      '**Track-1.** Hybrid compass.',
+      '**Track-2.** Compact payload.',
+      '**Out of Scope.**',
+      '- No harness fork.',
+      '',
+      '## Acceptance Criteria',
+      '',
+      '1. `pnpm test` exits 0.',
+      '',
+      '## Plan',
+      '',
+      '- [ ] Ticket 1: Spec schema (Track: 1)',
+      '- [ ] Ticket 2: Prompt contracts (Track: 2)',
+    ].join('\n')
+    const path = writeSpec(cwd, 'widget.md', markdown)
+    const prompts: string[] = []
+    const ship = new ShipRun(cwd, chrome)
+    await ship.run('build a widget', async (prompt) => {
+      prompts.push(prompt)
+      if (prompts.length === 1) {
+        writeFileSync(path, markdown.replace('- [ ] Ticket 1: Spec schema (Track: 1)', '- [x] Ticket 1: Spec schema (Track: 1)'))
+      }
+    })
+    expect(prompts.length).toBeGreaterThanOrEqual(2)
+    expect(prompts[0]).toContain('Ticket 1: Spec schema')
+    expect(prompts[0]).not.toContain('Ticket 2: Prompt contracts')
+    expect(prompts[1]).toContain('Ticket 2: Prompt contracts')
+    expect(prompts[1]).not.toContain('Ticket 1: Spec schema')
+  })
+
+  it('restores Main Track when the section is deleted', async () => {
+    const cwd = mkdtempSync(join(tmpdir(), 'ship-run-'))
+    const markdown = [
+      'Status: interviewing',
+      'Branch: ship/widget',
+      '',
+      '## Main Track',
+      '',
+      '**Idea.** Bind /goal into /ship.',
+      '**Track-1.** Hybrid compass.',
+      '**Out of Scope.**',
+      '- No harness fork.',
+      '',
+      '## Acceptance Criteria',
+      '',
+      '1. `pnpm test` exits 0.',
+    ].join('\n')
+    const path = writeSpec(cwd, 'widget.md', markdown)
+    const flashes: string[] = []
+    const ship = new ShipRun(cwd, chrome, { flash: text => { flashes.push(text) } })
+    const prompts: string[] = []
+    await ship.run('build a widget', async (prompt) => {
+      prompts.push(prompt)
+      if (prompts.length === 1) {
+        writeFileSync(path, markdown.replace('Status: interviewing', 'Status: confirmed'))
+      } else {
+        writeFileSync(path, [
+          'Status: planned',
+          'Branch: ship/widget',
+          '',
+          '## Acceptance Criteria',
+          '',
+          '1. `pnpm test` exits 0.',
+        ].join('\n'))
+      }
+    })
+    const onDisk = readFileSync(path, 'utf8')
+    expect(onDisk).toContain('## Main Track')
+    expect(onDisk).toContain('Bind /goal into /ship.')
+    expect(flashes.some(f => /Mission Contract/i.test(f))).toBe(true)
+  })
+
+  it('alignTool denies immutable contract writes before execution', async () => {
+    const cwd = mkdtempSync(join(tmpdir(), 'ship-run-'))
+    const markdown = [
+      'Status: interviewing',
+      'Branch: ship/widget',
+      '',
+      '## Main Track',
+      '',
+      '**Idea.** Bind /goal into /ship.',
+      '**Track-1.** Hybrid compass.',
+      '**Out of Scope.**',
+      '- No harness fork.',
+      '',
+      '## Acceptance Criteria',
+      '',
+      '1. `pnpm test` exits 0.',
+      '',
+      '## Plan',
+      '',
+      '- [ ] Ticket 1: Spec schema (Track: 1)',
+    ].join('\n')
+    const path = writeSpec(cwd, 'widget.md', markdown)
+    const ship = new ShipRun(cwd, chrome)
+    await ship.run('build a widget', async () => {
+      writeFileSync(path, markdown.replace('Status: interviewing', 'Status: confirmed'))
+    })
+    expect(ship.missionContractFile).toBeDefined()
+    const deny = ship.alignTool('write', { path: ship.missionContractFile! })
+    expect(deny.allow).toBe(false)
+    const allow = ship.alignTool('write', { path: 'src/openai.ts' })
+    expect(allow.allow).toBe(true)
   })
 
 })
