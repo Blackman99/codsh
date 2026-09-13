@@ -398,10 +398,14 @@ The machine-checkable control-plane memory Gate 1 Confirm compiles from the
 sealed Main Track, Out of Scope, and acceptance criteria — REQ / NEG / ACC
 ids with Track-N aliases — written to `.scratch/<slug>/mission.contract.json`.
 The Markdown spec stays the human projection; the runner owns the JSON and
-prepends a compact summary on later phases. A live Main Track rewrite after
-seal is ignored for that run (the sealed snapshot holds). Phase A: compile,
-seal, load, immutability. Alignment Gate, Drift Detector, and an independent
-Verifier are later work.
+prepends a compact summary on later phases. After seal, write tiers apply:
+Main Track / Out of Scope / grill decisions / the contract JSON are
+immutable (a rewrite is restored on disk); Implementation Decisions are
+semi-mutable (blocker required); Status, Plan, Baseline, and Verification
+are mutable world state. Land turns also prepend an Active Ticket pack —
+only the first unticked plan line — so the executor cannot replan the whole
+DAG each turn. Alignment Gate, Drift Detector, and an independent Verifier
+are later work.
 _Avoid_: hand-authored JSON, prompt-only freeze, GoalBar
 
 **Occupancy**:

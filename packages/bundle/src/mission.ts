@@ -343,3 +343,77 @@ function parseAcceptance(markdown: string): MissionAcceptance[] {
   }
   return acceptance
 }
+
+
+/** Write tiers the control plane enforces after Mission Contract seal. */
+export type WriteTier = 'immutable' | 'semi_mutable' | 'mutable'
+
+/**
+ * Classify a filesystem path the agent might write.
+ * The sealed Mission Contract JSON is always immutable.
+ */
+export function classifyPath(path: string): WriteTier {
+  const normalized = path.replace(/\\/gu, '/')
+  if (normalized.endsWith('/mission.contract.json') || normalized.endsWith('mission.contract.json')) {
+    return 'immutable'
+  }
+  return 'mutable'
+}
+
+/**
+ * Classify a Markdown heading inside the ship spec after seal.
+ * Main Track / Out of Scope / sealed grill decisions stay immutable;
+ * Implementation Decisions need an explicit blocker to change;
+ * Status, Plan, Baseline, Verification stay mutable world-state.
+ */
+export function classifySpecHeading(heading: string): WriteTier {
+  const name = heading.replace(/^#{1,6}\s+/u, '').trim()
+  if (/^main\s+track\b/iu.test(name)) return 'immutable'
+  if (/^out\s+of\s+scope\b/iu.test(name)) return 'immutable'
+  if (/^grill\s+decisions?\b/iu.test(name)) return 'immutable'
+  if (/^implementation\s+decisions?\b/iu.test(name)) return 'semi_mutable'
+  return 'mutable'
+}
+
+/**
+ * Whether a write tier may proceed without a human blocker after seal.
+ * `semi_mutable` is refused here — it must surface as a blocker, not a silent edit.
+ */
+export function writeAllowed(tier: WriteTier): boolean {
+  return tier === 'mutable'
+}
+
+/**
+ * Restore the sealed Main Track body into a live spec Markdown document.
+ * Other sections (Status, Plan, Baseline, Verification) are left alone.
+ */
+export function restoreMainTrack(markdown: string, sealedBody: string): string {
+  const lines = markdown.split(/\r\n|[\r\n]/u)
+  const out: string[] = []
+  let inside = false
+  let replaced = false
+  const body = sealedBody.trimEnd()
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i] ?? ''
+    if (/^#{1,6}\s+main\s+track\s*$/iu.test(line)) {
+      out.push(line)
+      out.push('')
+      if (body !== '') out.push(body)
+      inside = true
+      replaced = true
+      continue
+    }
+    if (inside && /^#{1,6}\s+/u.test(line)) {
+      inside = false
+      out.push(line)
+      continue
+    }
+    if (inside) continue
+    out.push(line)
+  }
+  if (!replaced) {
+    const suffix = body === '' ? '## Main Track\n' : `## Main Track\n\n${body}\n`
+    return `${markdown.trimEnd()}\n\n${suffix}`
+  }
+  return `${out.join('\n').replace(/\n+$/u, '')}\n`
+}

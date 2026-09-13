@@ -52,7 +52,7 @@ codsh
 
 每次 `/ship` 只注入一份合同（grill / to-spec / to-tickets / TDD），避免后面阶段把正在执行的合同挤掉。MetaBar 芯片和计划行跟着磁盘上的 Status 与勾选走。裸 `/ship` 会对已有进度级联重验后继续续跑未完成的 spec。
 
-Gate 1 Confirm 会冻结 Main Track（一句话 idea、编号 Track-N 决策、Out of Scope），并编译一份由 runner 持有的密封 Mission Contract（`.scratch/<slug>/mission.contract.json`）；之后每一轮都前置这份快照和合同摘要，落地阶段不能改写设计。若会话里已有无关的 `/goal`，`/ship` 会先暂停它并弹出 `ship · occupancy`（Replace / Abort）；管道里自动 Replace。运行期间 `/goal` 显示带 `[ship]` 标记的指南针。Chrome 不变：不加新行，也没有 GoalBar。
+Gate 1 Confirm 会冻结 Main Track（一句话 idea、编号 Track-N 决策、Out of Scope），并编译一份由 runner 持有的密封 Mission Contract（`.scratch/<slug>/mission.contract.json`）；之后每一轮都前置这份快照和合同摘要，落地阶段不能改写设计。密封后若改写 Main Track 会写回磁盘恢复；落地阶段每次只注入当前未完成的 Active Ticket。若会话里已有无关的 `/goal`，`/ship` 会先暂停它并弹出 `ship · occupancy`（Replace / Abort）；管道里自动 Replace。运行期间 `/goal` 显示带 `[ship]` 标记的指南针。Chrome 不变：不加新行，也没有 GoalBar。
 
 ```sh
 /ship 让超长 diff 用分页器打开而不是刷屏滚过

@@ -771,4 +771,65 @@ describe('composition root', () => {
 
 
 
+  it('restores the sealed Main Track on disk and injects only the active ticket on land', async () => {
+    const cwd = mkdtempSync(join(tmpdir(), 'ship-run-'))
+    const markdown = [
+      'Status: interviewing',
+      'Branch: ship/widget',
+      '',
+      '## Main Track',
+      '',
+      '**Idea.** Bind /goal into /ship.',
+      '**Track-1.** Hybrid compass.',
+      '**Out of Scope.**',
+      '- No harness fork.',
+      '',
+      '## Acceptance Criteria',
+      '',
+      '1. `pnpm test` exits 0.',
+      '',
+      '## Plan',
+      '',
+      '- [ ] Ticket 1: Spec schema (Track: 1)',
+      '- [ ] Ticket 2: Prompt contracts (Track: 2)',
+    ].join('\n')
+    const path = writeSpec(cwd, 'widget.md', markdown)
+    const prompts: string[] = []
+    const flashes: string[] = []
+    const ship = new ShipRun(cwd, chrome, { flash: text => { flashes.push(text) } })
+    await ship.run('build a widget', async (prompt) => {
+      prompts.push(prompt)
+      if (prompts.length === 1) {
+        writeFileSync(path, markdown.replace('Status: interviewing', 'Status: confirmed'))
+      } else if (prompts.length === 2) {
+        writeFileSync(path, [
+          'Status: planned',
+          'Branch: ship/widget',
+          '',
+          '## Main Track',
+          '',
+          '**Idea.** silently rewritten design.',
+          '',
+          '## Acceptance Criteria',
+          '',
+          '1. `pnpm test` exits 0.',
+          '',
+          '## Plan',
+          '',
+          '- [ ] Ticket 1: Spec schema (Track: 1)',
+          '- [ ] Ticket 2: Prompt contracts (Track: 2)',
+        ].join('\n'))
+      }
+    })
+    expect(prompts.length).toBeGreaterThanOrEqual(3)
+    expect(prompts[2]).toContain('## Active Ticket')
+    expect(prompts[2]).toContain('Ticket 1: Spec schema')
+    expect(prompts[2]).toContain('REQ-001')
+    expect(prompts[2]).not.toContain('Ticket 2: Prompt contracts')
+    const onDisk = readFileSync(path, 'utf8')
+    expect(onDisk).toContain('**Idea.** Bind /goal into /ship.')
+    expect(onDisk).not.toContain('silently rewritten design')
+    expect(flashes.some(f => f.includes('Mission Contract'))).toBe(true)
+  })
+
 })

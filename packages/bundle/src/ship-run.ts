@@ -9,9 +9,9 @@
  * @module codsh-bundle/src/ship-run
  */
 
-import { readdirSync, readFileSync } from 'node:fs'
+import { readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { parseMainTrack, parseShipStatus, parseSpecMetadata, pickLiveShip, planInFlight, plansEqual } from './plan.ts'
+import { activeTicketBrief, parseMainTrack, parsePlan, parseShipStatus, parseSpecMetadata, pickLiveShip, planInFlight, plansEqual } from './plan.ts'
 import type { Plan, ShipSpecFile } from './plan.ts'
 import { expandTemplate } from './custom-commands.ts'
 import type { SelectAsk } from './questions.ts'
@@ -19,6 +19,7 @@ import {
   compileMissionContract,
   mainTrackDrifted,
   missionContractSummary,
+  restoreMainTrack,
   slugFromSpec,
   writeMissionContract,
 } from './mission.ts'
@@ -457,7 +458,8 @@ export class ShipRun {
     const status = this.status()
     const track = this.trackForPrompt()
     const mission = this.missionForPrompt()
-    const prepend = [track, mission].filter((part): part is string => part !== undefined).join('\n\n')
+    const ticket = this.activeTicketForPrompt()
+    const prepend = [track, mission, ticket].filter((part): part is string => part !== undefined).join('\n\n')
     const prompt = shipPromptFor(status, {
       ...(this.goalId === undefined ? {} : { goalId: this.goalId }),
       ...(prepend === '' ? {} : { track: prepend }),
@@ -466,6 +468,25 @@ export class ShipRun {
     if (kind !== 'land' && kind !== 'done') return prompt
     const specPath = this.liveSpecPath()
     return specPath === undefined ? prompt : `${prompt}\n\n${specPath}`
+  }
+
+  /**
+   * Land/done only: inject the first unticked ticket as a local task pack so
+   * the executor cannot replan the whole plan each turn.
+   */
+  private activeTicketForPrompt(): string | undefined {
+    const kind = shipPhaseKind(this.status())
+    if (kind !== 'land' && kind !== 'done') return undefined
+    const specPath = this.liveSpecPath()
+    if (specPath === undefined) return undefined
+    try {
+      const markdown = readFileSync(specPath, 'utf8')
+      return activeTicketBrief(parsePlan(markdown), {
+        requirements: this.sealedContract?.requirements,
+      })
+    } catch {
+      return undefined
+    }
   }
 
   /** Complete the ship compass when this run's spec is shipped. */
@@ -548,9 +569,11 @@ export class ShipRun {
     if (specPath === undefined) return
     try {
       const live = readFileSync(specPath, 'utf8')
-      if (mainTrackDrifted(this.sealedContract.mainTrackMarkdown, live)) {
-        this.ports.flash?.(TRACK_REWRITE_IGNORED)
-      }
+      if (!mainTrackDrifted(this.sealedContract.mainTrackMarkdown, live)) return
+      // Phase B: restore immutable Main Track on disk — not flash-only.
+      const restored = restoreMainTrack(live, this.sealedContract.mainTrackMarkdown)
+      if (restored !== live) writeFileSync(specPath, restored)
+      this.ports.flash?.(TRACK_REWRITE_IGNORED)
     } catch {
       // A missing spec is not a rewrite.
     }

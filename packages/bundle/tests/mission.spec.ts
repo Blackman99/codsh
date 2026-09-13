@@ -7,13 +7,17 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import {
+  classifyPath,
+  classifySpecHeading,
   compileMissionContract,
   mainTrackDrifted,
   missionContractPath,
   missionContractSummary,
   parseMissionContract,
+  restoreMainTrack,
   serializeMissionContract,
   slugFromSpec,
+  writeAllowed,
   writeMissionContract,
 } from '../src/mission.ts'
 
@@ -101,4 +105,36 @@ describe('mission contract', () => {
     expect(slugFromSpec('Branch: ship/widget\n')).toBe('widget')
     expect(slugFromSpec('Status: confirmed\n', '/repo/docs/specs/my-feature.md')).toBe('my-feature')
   })
+  it('classifies write tiers for paths and headings', () => {
+    expect(classifyPath('.scratch/widget/mission.contract.json')).toBe('immutable')
+    expect(classifyPath('docs/specs/widget.md')).toBe('mutable')
+    expect(classifySpecHeading('## Main Track')).toBe('immutable')
+    expect(classifySpecHeading('## Out of Scope')).toBe('immutable')
+    expect(classifySpecHeading('## Implementation Decisions')).toBe('semi_mutable')
+    expect(classifySpecHeading('## Plan')).toBe('mutable')
+    expect(writeAllowed('mutable')).toBe(true)
+    expect(writeAllowed('immutable')).toBe(false)
+    expect(writeAllowed('semi_mutable')).toBe(false)
+  })
+
+  it('restores a rewritten Main Track while leaving Plan alone', () => {
+    const sealed = '**Idea.** Bind /goal into /ship.\n**Track-1.** Hybrid compass.'
+    const live = [
+      'Status: planned',
+      '',
+      '## Main Track',
+      '',
+      '**Idea.** silently rewritten.',
+      '',
+      '## Plan',
+      '',
+      '- [ ] Ticket 1',
+    ].join('\n')
+    const restored = restoreMainTrack(live, sealed)
+    expect(restored).toContain('**Idea.** Bind /goal into /ship.')
+    expect(restored).not.toContain('silently rewritten')
+    expect(restored).toContain('## Plan')
+    expect(restored).toContain('- [ ] Ticket 1')
+  })
+
 })

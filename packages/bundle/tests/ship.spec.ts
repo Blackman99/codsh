@@ -320,4 +320,9 @@ describe('SHIP_PROMPT', () => {
     }
   })
 
+  it('tells land to implement only the Active Ticket pack', () => {
+    expect(shipPromptFor('planned')).toMatch(/Active Ticket/)
+    expect(SHIP_PROMPT).toMatch(/Active Ticket/)
+  })
+
 })

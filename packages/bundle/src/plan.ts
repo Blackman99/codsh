@@ -18,6 +18,10 @@ export interface PlanTicket {
   title: string
   /** Whether the round that owned it ticked it. */
   done: boolean
+  /** Track-N ids from `(Track: 1,3)`, when present. */
+  trackIds?: number[]
+  /** Raw checkbox body before chrome title stripping. */
+  raw?: string
 }
 
 /** A spec's plan as the surface reports it. */
@@ -71,6 +75,61 @@ const GOAL_ID_LINE = /^Goal-Id:\s*(\S+)/imu
 /** A `## Main Track` heading, at any depth, in any case. */
 const MAIN_TRACK_HEADING = /^#{1,6}\s+main\s+track\s*$/iu
 
+
+/** `(Track: 1,3)` on a plan checkbox line. */
+const TRACK_META = /\(\s*Track:\s*([^)]*)\)/iu
+
+/**
+ * Read Track-N ids from a plan checkbox body.
+ * @param raw - the checkbox text after `- [ ]`.
+ */
+export function parseTrackIds(raw: string): number[] | undefined {
+  const match = TRACK_META.exec(raw)
+  if (match === null) return undefined
+  const ids = (match[1] ?? '')
+    .split(/[,\s]+/u)
+    .map(part => Number(part))
+    .filter(n => Number.isInteger(n) && n > 0)
+  return ids.length === 0 ? undefined : ids
+}
+
+/**
+ * Format the active (first unticked) ticket as a land-only task pack.
+ * Later tickets are omitted so the executor cannot replan the whole plan.
+ */
+export function activeTicketBrief(
+  plan: Plan,
+  opts: { requirements?: ReadonlyArray<{ id: string; track?: number[]; text: string }> } = {},
+): string | undefined {
+  const ticket = plan.current
+  if (ticket === undefined) return undefined
+  const index = plan.tickets.indexOf(ticket)
+  const lines = [
+    '## Active Ticket',
+    '',
+    'This turn implements ONLY the ticket below. Do not start later tickets. Re-read the sealed Mission Contract for invariants; do not rewrite immutable sections.',
+    '',
+    `- index: ${String(index + 1)}/${String(plan.tickets.length)}`,
+    `- title: ${ticket.title}`,
+    `- done: ${String(plan.done)}/${String(plan.tickets.length)}`,
+  ]
+  if (ticket.trackIds !== undefined && ticket.trackIds.length > 0) {
+    lines.push(`- Track: ${ticket.trackIds.join(',')}`)
+    const reqs = opts.requirements ?? []
+    const mapped = reqs.filter(req => req.track?.some(n => ticket.trackIds!.includes(n)))
+    if (mapped.length > 0) {
+      lines.push('- supports:')
+      for (const req of mapped) {
+        lines.push(`  - ${req.id}: ${req.text}`)
+      }
+    }
+  }
+  if (ticket.raw !== undefined && ticket.raw !== ticket.title) {
+    lines.push(`- raw: ${ticket.raw}`)
+  }
+  return lines.join('\n')
+}
+
 /**
  * Read the tickets out of a spec's `## Plan` section.
  *
@@ -94,6 +153,7 @@ export function parsePlan(markdown: string): Plan {
     if (ticket === null) continue
     const rawTitle = (ticket[2] ?? '').trim()
     if (rawTitle === '') continue
+    const trackIds = parseTrackIds(rawTitle)
     // Strip trailing ticket metadata (e.g. "(Blocked by: ...) (Track: 1,3) — Delivers ...
     // (Verification: ...)") so the TUI displays a concise, readable ticket title without overflow.
     const title = rawTitle
@@ -103,7 +163,12 @@ export function parsePlan(markdown: string): Plan {
       .replace(/\s*\([^)]*(?:blocked\s+by|verification(?:\s+log)?)\s*:[^)]*\)/giu, '')
       .replace(/\s*\(\s*Track:\s*[^)]*\)/giu, '')
       .trim() || rawTitle
-    tickets.push({ title, done: (ticket[1] ?? ' ').toLowerCase() === 'x' })
+    tickets.push({
+      title,
+      done: (ticket[1] ?? ' ').toLowerCase() === 'x',
+      ...(trackIds === undefined ? {} : { trackIds }),
+      raw: rawTitle,
+    })
   }
   const done = tickets.filter(ticket => ticket.done).length
   return { tickets, done, current: tickets.find(ticket => !ticket.done) }
