@@ -312,4 +312,17 @@ describe('SHIP_PROMPT', () => {
     expect(land).toMatch(/spec (file )?path/)
     expect(SHIP_PROMPT).toMatch(/sealed track/)
   })
+  it('names the sealed Mission Contract as immutable control-plane memory', () => {
+    expect(SHIP_PROMPT).toMatch(/Mission Contract/)
+    expect(SHIP_PROMPT).toMatch(/mission\.contract\.json/)
+    for (const status of ['confirmed', 'planned', 'landing', 'shipped'] as const) {
+      expect(shipPromptFor(status)).toMatch(/Mission Contract/)
+    }
+  })
+
+  it('tells land to implement only the Active Ticket pack', () => {
+    expect(shipPromptFor('planned')).toMatch(/Active Ticket/)
+    expect(SHIP_PROMPT).toMatch(/Active Ticket/)
+  })
+
 })

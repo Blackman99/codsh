@@ -2036,6 +2036,16 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
       ? approval.decide(req)
       : next()
   })
+  // Alignment Gate: refuse sealed-contract violations before the tool body runs.
+  // noteWritten/guardWrites remain a post-write safety net for contract JSON restore.
+  ctx.on('tools/pre-execute', async (exec, next) => {
+    if (ship.missionContract === undefined) return next()
+    const verdict = ship.alignTool(exec.name, exec.arguments)
+    if (verdict.allow) return next()
+    const reason = verdict.reasons.join('; ') || 'Alignment Gate denied write — sealed Mission Contract holds'
+    prompt.write(theme.dim(`  ✗ ${reason}`))
+    return { kind: 'deny' as const, reason }
+  })
   // Host-plane lifecycle: the child Session exists before any tool result.
   ctx.on('subagent/start', (info) => {
     const child = sessions.get(SessionId(info.id))

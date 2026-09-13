@@ -378,7 +378,7 @@ not the conversation: the approved tickets live in it as checkboxes, its
 each green ticket is committed, and a bare `/ship` offers to resume
 whatever it finds unfinished. One module owns that memory for a session —
 Plan progress, the MetaBar chip, the spec poll, occupancy, the sealed-track
-snapshot, and the canned phase loop — so the runner only begins, notes a
+snapshot, the Mission Contract, and the canned phase loop — so the runner only begins, notes a
 write, or aborts. Occupancy is a Selector, not a third gate. Chrome stays
 the MetaBar chip and plan row; there is no GoalBar.
 _Avoid_: checkpoints, review steps, GoalBar
@@ -392,6 +392,24 @@ the design to match what it already built. A needed contradiction is a
 blocker, never a silent spec edit. Progress (Status, checkboxes, proof
 logs) remains writable.
 _Avoid_: live reread, silent rewrite, GoalBar
+
+**Mission Contract**:
+The machine-checkable control-plane memory Gate 1 Confirm compiles from the
+sealed Main Track, Out of Scope, and acceptance criteria — REQ / NEG / ACC
+ids with Track-N aliases — written to `.scratch/<slug>/mission.contract.json`.
+The Markdown spec stays the human projection; the runner owns the JSON and
+prepends a compact summary on later phases. After seal, write tiers apply:
+Main Track / Out of Scope / grill decisions / the contract JSON are
+immutable (a rewrite is restored on disk); Implementation Decisions are
+semi-mutable (blocker required); Status, Plan, Baseline, and Verification
+are mutable world state. Land turns also prepend an Active Ticket pack —
+only the first unticked plan line — so the executor cannot replan the whole
+DAG each turn. An Alignment Gate refuses writes that lack requirement
+mapping or hit immutable memory. A Drift Detector scores plan/action drift
+against the seal. An independent Verifier matches acceptance criteria to
+recorded evidence and clears premature plan ticks; the ship goal does not
+complete without that evidence.
+_Avoid_: hand-authored JSON, prompt-only freeze, GoalBar
 
 **Occupancy**:
 Before the first `/ship` phase turn, if an unrelated current `/goal` exists,

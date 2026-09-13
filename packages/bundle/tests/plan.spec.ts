@@ -1,7 +1,7 @@
 /** Reading a `/ship` spec's plan: how many tickets, and which one is now. */
 
 import { describe, expect, it } from 'vitest'
-import { parseMainTrack, parsePlan, parseShipStatus, parseSpecMetadata, pickLiveShip, planInFlight, planReport, planRow, planSummary, plansEqual, workingLineProgress } from '../src/plan.ts'
+import { activeTicketBrief, parseMainTrack, parsePlan, parseShipStatus, parseSpecMetadata, parseTrackIds, pickLiveShip, planInFlight, planReport, planRow, planSummary, plansEqual, workingLineProgress } from '../src/plan.ts'
 import { createTheme } from '../src/theme.ts'
 
 const theme = createTheme(false, {})
@@ -257,3 +257,29 @@ describe('the readout', () => {
     expect(rows.at(-1)).toContain('+5 more')
   })
 })
+
+describe('parseTrackIds and activeTicketBrief', () => {
+  it('reads Track ids from plan checkbox metadata', () => {
+    expect(parseTrackIds('Ticket 1 — Delivers x (Blocked by: none) (Track: 1,3)')).toEqual([1, 3])
+    const plan = parsePlan(`Status: planned\n\n## Plan\n\n- [ ] Ticket 1: Spec schema (Track: 8)\n- [ ] Ticket 2: Prompt (Track: 2,3)\n`)
+    expect(plan.tickets[0]?.trackIds).toEqual([8])
+    expect(plan.tickets[1]?.trackIds).toEqual([2, 3])
+    expect(plan.current?.title).toContain('Ticket 1')
+  })
+
+  it('formats only the current ticket as a land task pack', () => {
+    const plan = parsePlan(`## Plan\n\n- [x] Done (Track: 1)\n- [ ] Next ticket (Track: 2)\n- [ ] Later (Track: 3)\n`)
+    const brief = activeTicketBrief(plan, {
+      requirements: [
+        { id: 'REQ-001', text: 'First', track: [1] },
+        { id: 'REQ-002', text: 'Second', track: [2] },
+      ],
+    })
+    expect(brief).toContain('## Active Ticket')
+    expect(brief).toContain('Next ticket')
+    expect(brief).toContain('REQ-002')
+    expect(brief).not.toContain('Later')
+    expect(brief).toMatch(/ONLY the ticket below/i)
+  })
+})
+
