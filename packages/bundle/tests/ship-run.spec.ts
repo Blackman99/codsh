@@ -2,7 +2,7 @@
  * One `/ship` run: chrome and phase injection through the public seam only.
  */
 
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -710,7 +710,375 @@ describe('composition root', () => {
     expect(source).toContain("ctx.get('goals')")
     expect(source).toContain('prompt.select')
     expect(source).toContain('prompt.setFlash')
+    expect(source).toContain('tools/pre-execute')
+    expect(source).toContain('alignTool')
     expect(source).not.toContain('GoalBar')
     expect(source).toMatch(/new ShipRun\([\s\S]*goals/)
   })
+
+  it('compiles and writes a Mission Contract at Confirm and prepends it later', async () => {
+    const cwd = mkdtempSync(join(tmpdir(), 'ship-run-'))
+    const markdown = [
+      'Status: interviewing',
+      'Branch: ship/widget',
+      '',
+      '## Main Track',
+      '',
+      '**Idea.** Bind /goal into /ship.',
+      '**Track-1.** Hybrid compass.',
+      '**Out of Scope.**',
+      '- No harness fork.',
+      '',
+      '## Acceptance Criteria',
+      '',
+      '1. `pnpm test` exits 0.',
+    ].join('\n')
+    const path = writeSpec(cwd, 'widget.md', markdown)
+    const prompts: string[] = []
+    const flashes: string[] = []
+    const ship = new ShipRun(cwd, chrome, { flash: text => { flashes.push(text) } })
+    await ship.run('build a widget', async (prompt) => {
+      prompts.push(prompt)
+      if (prompts.length === 1) {
+        writeFileSync(path, markdown.replace('Status: interviewing', 'Status: confirmed'))
+      } else if (prompts.length === 2) {
+        writeFileSync(path, [
+          'Status: planned',
+          'Branch: ship/widget',
+          '',
+          '## Main Track',
+          '',
+          '**Idea.** silently rewritten design.',
+          '',
+          '## Acceptance Criteria',
+          '',
+          '1. `pnpm test` exits 0.',
+        ].join('\n'))
+      }
+    })
+    expect(ship.missionContract).toBeDefined()
+    expect(ship.missionContract?.objective).toBe('Bind /goal into /ship.')
+    expect(ship.missionContract?.requirements[0]?.id).toBe('REQ-001')
+    expect(ship.missionContract?.excluded[0]?.text).toContain('No harness fork')
+    expect(ship.missionContractFile).toBeDefined()
+    expect(existsSync(ship.missionContractFile!)).toBe(true)
+    expect(readFileSync(ship.missionContractFile!, 'utf8')).toContain('"REQ-001"')
+    expect(prompts.length).toBeGreaterThanOrEqual(2)
+    expect(prompts[1]).toContain('## Mission Contract')
+    expect(prompts[1]).toContain('REQ-001')
+    expect(prompts[2]).toContain('Bind /goal into /ship.')
+    expect(prompts[2]).not.toContain('silently rewritten design')
+    expect(flashes.some(f => f.includes('Mission Contract'))).toBe(true)
+  })
+
+
+
+  it('restores the sealed Main Track on disk and injects only the active ticket on land', async () => {
+    const cwd = mkdtempSync(join(tmpdir(), 'ship-run-'))
+    const markdown = [
+      'Status: interviewing',
+      'Branch: ship/widget',
+      '',
+      '## Main Track',
+      '',
+      '**Idea.** Bind /goal into /ship.',
+      '**Track-1.** Hybrid compass.',
+      '**Out of Scope.**',
+      '- No harness fork.',
+      '',
+      '## Acceptance Criteria',
+      '',
+      '1. `pnpm test` exits 0.',
+      '',
+      '## Plan',
+      '',
+      '- [ ] Ticket 1: Spec schema (Track: 1)',
+      '- [ ] Ticket 2: Prompt contracts (Track: 2)',
+    ].join('\n')
+    const path = writeSpec(cwd, 'widget.md', markdown)
+    const prompts: string[] = []
+    const flashes: string[] = []
+    const ship = new ShipRun(cwd, chrome, { flash: text => { flashes.push(text) } })
+    await ship.run('build a widget', async (prompt) => {
+      prompts.push(prompt)
+      if (prompts.length === 1) {
+        writeFileSync(path, markdown.replace('Status: interviewing', 'Status: confirmed'))
+      } else if (prompts.length === 2) {
+        writeFileSync(path, [
+          'Status: planned',
+          'Branch: ship/widget',
+          '',
+          '## Main Track',
+          '',
+          '**Idea.** silently rewritten design.',
+          '',
+          '## Acceptance Criteria',
+          '',
+          '1. `pnpm test` exits 0.',
+          '',
+          '## Plan',
+          '',
+          '- [ ] Ticket 1: Spec schema (Track: 1)',
+          '- [ ] Ticket 2: Prompt contracts (Track: 2)',
+        ].join('\n'))
+      }
+    })
+    expect(prompts.length).toBeGreaterThanOrEqual(3)
+    expect(prompts[2]).toContain('## Active Ticket')
+    expect(prompts[2]).toContain('Ticket 1: Spec schema')
+    expect(prompts[2]).toContain('REQ-001')
+    expect(prompts[2]).not.toContain('Ticket 2: Prompt contracts')
+    const onDisk = readFileSync(path, 'utf8')
+    expect(onDisk).toContain('**Idea.** Bind /goal into /ship.')
+    expect(onDisk).not.toContain('silently rewritten design')
+    expect(flashes.some(f => f.includes('Mission Contract'))).toBe(true)
+  })
+
+
+
+  it('loads an existing Mission Contract on resume instead of recompiling over it', async () => {
+    const cwd = mkdtempSync(join(tmpdir(), 'ship-run-'))
+    const markdown = [
+      'Status: planned',
+      'Branch: ship/widget',
+      '',
+      '## Main Track',
+      '',
+      '**Idea.** Bind /goal into /ship.',
+      '**Track-1.** Hybrid compass.',
+      '**Out of Scope.**',
+      '- No harness fork.',
+      '',
+      '## Acceptance Criteria',
+      '',
+      '1. `pnpm test` exits 0.',
+      '',
+      '## Plan',
+      '',
+      '- [ ] Ticket 1: Spec schema (Track: 1)',
+    ].join('\n')
+    const path = writeSpec(cwd, 'widget.md', markdown)
+    const first = new ShipRun(cwd, chrome)
+    await first.run('build a widget', async () => {})
+    expect(first.missionContractFile).toBeDefined()
+    const sealed = readFileSync(first.missionContractFile!, 'utf8')
+    expect(sealed).toContain('Bind /goal into /ship.')
+
+    // Interrupt rewrite of Main Track on disk, then resume a fresh run.
+    writeFileSync(path, markdown.replace('Bind /goal into /ship.', 'silently rewritten after interrupt'))
+    const flashes: string[] = []
+    const second = new ShipRun(cwd, chrome, { flash: text => { flashes.push(text) } })
+    const prompts: string[] = []
+    await second.run('build a widget', async (prompt) => { prompts.push(prompt) })
+    expect(second.missionContract?.objective).toBe('Bind /goal into /ship.')
+    expect(readFileSync(second.missionContractFile!, 'utf8')).toBe(sealed)
+    expect(readFileSync(path, 'utf8')).toContain('Bind /goal into /ship.')
+    expect(readFileSync(path, 'utf8')).not.toContain('silently rewritten after interrupt')
+    expect(prompts[0]).toContain('Bind /goal into /ship.')
+    expect(prompts[0]).not.toContain('silently rewritten after interrupt')
+  })
+
+  it('advances land turns when the Active Ticket completes without a phase change', async () => {
+    const cwd = mkdtempSync(join(tmpdir(), 'ship-run-'))
+    const markdown = [
+      'Status: planned',
+      'Branch: ship/widget',
+      '',
+      '## Main Track',
+      '',
+      '**Idea.** Bind /goal into /ship.',
+      '**Track-1.** Hybrid compass.',
+      '**Track-2.** Compact payload.',
+      '**Out of Scope.**',
+      '- No harness fork.',
+      '',
+      '## Acceptance Criteria',
+      '',
+      '1. `pnpm test` exits 0.',
+      '',
+      '## Plan',
+      '',
+      '- [ ] Ticket 1: Spec schema (Track: 1)',
+      '- [ ] Ticket 2: Prompt contracts (Track: 2)',
+    ].join('\n')
+    const path = writeSpec(cwd, 'widget.md', markdown)
+    const prompts: string[] = []
+    const ship = new ShipRun(cwd, chrome)
+    await ship.run('build a widget', async (prompt) => {
+      prompts.push(prompt)
+      if (prompts.length === 1) {
+        writeFileSync(path, markdown.replace('- [ ] Ticket 1: Spec schema (Track: 1)', '- [x] Ticket 1: Spec schema (Track: 1)'))
+      }
+    })
+    expect(prompts.length).toBeGreaterThanOrEqual(2)
+    expect(prompts[0]).toContain('Ticket 1: Spec schema')
+    expect(prompts[0]).not.toContain('Ticket 2: Prompt contracts')
+    expect(prompts[1]).toContain('Ticket 2: Prompt contracts')
+    expect(prompts[1]).not.toContain('Ticket 1: Spec schema')
+  })
+
+  it('restores Main Track when the section is deleted', async () => {
+    const cwd = mkdtempSync(join(tmpdir(), 'ship-run-'))
+    const markdown = [
+      'Status: interviewing',
+      'Branch: ship/widget',
+      '',
+      '## Main Track',
+      '',
+      '**Idea.** Bind /goal into /ship.',
+      '**Track-1.** Hybrid compass.',
+      '**Out of Scope.**',
+      '- No harness fork.',
+      '',
+      '## Acceptance Criteria',
+      '',
+      '1. `pnpm test` exits 0.',
+    ].join('\n')
+    const path = writeSpec(cwd, 'widget.md', markdown)
+    const flashes: string[] = []
+    const ship = new ShipRun(cwd, chrome, { flash: text => { flashes.push(text) } })
+    const prompts: string[] = []
+    await ship.run('build a widget', async (prompt) => {
+      prompts.push(prompt)
+      if (prompts.length === 1) {
+        writeFileSync(path, markdown.replace('Status: interviewing', 'Status: confirmed'))
+      } else {
+        writeFileSync(path, [
+          'Status: planned',
+          'Branch: ship/widget',
+          '',
+          '## Acceptance Criteria',
+          '',
+          '1. `pnpm test` exits 0.',
+        ].join('\n'))
+      }
+    })
+    const onDisk = readFileSync(path, 'utf8')
+    expect(onDisk).toContain('## Main Track')
+    expect(onDisk).toContain('Bind /goal into /ship.')
+    expect(flashes.some(f => /Mission Contract/i.test(f))).toBe(true)
+  })
+
+  it('alignTool denies immutable contract writes before execution', async () => {
+    const cwd = mkdtempSync(join(tmpdir(), 'ship-run-'))
+    const markdown = [
+      'Status: interviewing',
+      'Branch: ship/widget',
+      '',
+      '## Main Track',
+      '',
+      '**Idea.** Bind /goal into /ship.',
+      '**Track-1.** Hybrid compass.',
+      '**Out of Scope.**',
+      '- No harness fork.',
+      '',
+      '## Acceptance Criteria',
+      '',
+      '1. `pnpm test` exits 0.',
+      '',
+      '## Plan',
+      '',
+      '- [ ] Ticket 1: Spec schema (Track: 1)',
+    ].join('\n')
+    const path = writeSpec(cwd, 'widget.md', markdown)
+    const ship = new ShipRun(cwd, chrome)
+    await ship.run('build a widget', async () => {
+      writeFileSync(path, markdown.replace('Status: interviewing', 'Status: confirmed'))
+    })
+    expect(ship.missionContractFile).toBeDefined()
+    const deny = ship.alignTool('write', { path: ship.missionContractFile! })
+    expect(deny.allow).toBe(false)
+    const allow = ship.alignTool('write', { path: 'src/openai.ts' })
+    expect(allow.allow).toBe(true)
+  })
+
+
+  it('loads sealed contract when Main Track was deleted before resume', async () => {
+    const cwd = mkdtempSync(join(tmpdir(), 'ship-run-'))
+    const markdown = [
+      'Status: planned',
+      'Branch: ship/widget',
+      '',
+      '## Main Track',
+      '',
+      '**Idea.** Bind /goal into /ship.',
+      '**Track-1.** Hybrid compass.',
+      '**Out of Scope.**',
+      '- No harness fork.',
+      '',
+      '## Acceptance Criteria',
+      '',
+      '1. `pnpm test` exits 0.',
+      '',
+      '## Plan',
+      '',
+      '- [ ] Ticket 1: Spec schema (Track: 1)',
+    ].join('\n')
+    const path = writeSpec(cwd, 'widget.md', markdown)
+    const first = new ShipRun(cwd, chrome)
+    await first.run('build a widget', async () => {})
+    expect(first.missionContractFile).toBeDefined()
+
+    writeFileSync(path, [
+      'Status: planned',
+      'Branch: ship/widget',
+      '',
+      '## Acceptance Criteria',
+      '',
+      '1. `pnpm test` exits 0.',
+      '',
+      '## Plan',
+      '',
+      '- [ ] Ticket 1: Spec schema (Track: 1)',
+    ].join('\n'))
+
+    const prompts: string[] = []
+    const second = new ShipRun(cwd, chrome)
+    await second.run('build a widget', async (prompt) => { prompts.push(prompt) })
+    expect(second.missionContract?.objective).toBe('Bind /goal into /ship.')
+    expect(prompts[0]).toContain('Bind /goal into /ship.')
+    expect(readFileSync(path, 'utf8')).toContain('## Main Track')
+  })
+
+  it('alignTool allows reading the sealed contract and denies Out of Scope rewrites', async () => {
+    const cwd = mkdtempSync(join(tmpdir(), 'ship-run-'))
+    const markdown = [
+      'Status: interviewing',
+      'Branch: ship/widget',
+      '',
+      '## Main Track',
+      '',
+      '**Idea.** Bind /goal into /ship.',
+      '**Track-1.** Hybrid compass.',
+      '**Out of Scope.**',
+      '- No harness fork.',
+      '',
+      '## Out of Scope',
+      '',
+      '- No harness fork.',
+      '',
+      '## Acceptance Criteria',
+      '',
+      '1. `pnpm test` exits 0.',
+      '',
+      '## Plan',
+      '',
+      '- [ ] Ticket 1: Spec schema (Track: 1)',
+    ].join('\n')
+    const path = writeSpec(cwd, 'widget.md', markdown)
+    const ship = new ShipRun(cwd, chrome)
+    await ship.run('build a widget', async () => {
+      writeFileSync(path, markdown.replace('Status: interviewing', 'Status: confirmed'))
+    })
+    expect(ship.missionContractFile).toBeDefined()
+    expect(ship.alignTool('read', { path: ship.missionContractFile! }).allow).toBe(true)
+
+    const current = readFileSync(path, 'utf8')
+    const rewritten = current.replace('- No harness fork.', '- No harness fork.\n- also cloud GPUs')
+    const deny = ship.alignTool('write', { file_path: path, content: rewritten })
+    expect(deny.allow).toBe(false)
+    expect(deny.reasons.some(r => /Out of Scope|immutable|section/i.test(r))).toBe(true)
+  })
+
+
 })
