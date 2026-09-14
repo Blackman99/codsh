@@ -15,6 +15,8 @@ import type { ImagePreview } from './image-preview.ts'
 import { caretAt, inputBox, menuScrollFrom, menuScrollLimit, menuTargetAt, wrapBudget } from './inputbox.ts'
 import { planReport, planSummary, plansEqual } from './plan.ts'
 import type { Plan } from './plan.ts'
+import { panoramaTeaser } from './ship-graph.ts'
+import type { TeaserCounts } from './ship-graph.ts'
 import { GUTTER } from './screen.ts'
 import { FrontierCard } from './frontier-card.ts'
 import { GateModal, gateChip } from './gate-modal.ts'
@@ -261,6 +263,10 @@ export class Prompt {
   private regionHover = ''
   /** The plan a `/ship` run is working through, when one has been found. */
   private plan: Plan | undefined
+  /** Panorama teaser counts from the rebuilt Ship graph, when one exists. */
+  private teaser: TeaserCounts | undefined
+  /** Live in-flight count for the teaser; Fold Sessions land in a later ticket. */
+  private teaserInFlight = 0
   /** The menu row a pointer rests on, handed to the box each render. */
   private menuHover: number | undefined
   /** The always-current session facts shown as the region's last row. */
@@ -1286,8 +1292,8 @@ export class Prompt {
   private todoRows(columns: number): string[] {
     const plan = this.plan
     if (!this.todosExpanded) {
-      // One teaser, not two: the plan when there is one, because it outlives
-      // the turn's own list and says how much of the work is left.
+      // Plan row stays below the panorama teaser: they are different
+      // readouts of the same graph, and Occupancy is neither.
       const row = plan === undefined
         ? todoRow(this.todos, this.theme, columns, 'Ctrl+T')
         : planSummary(plan, this.theme, columns, 'click or Ctrl+T opens the list')
@@ -1306,6 +1312,13 @@ export class Prompt {
     ]
   }
 
+  /** Panorama teaser above the plan row, empty when no graph is bound. */
+  private teaserRow(columns: number): string | undefined {
+    return this.teaser === undefined
+      ? undefined
+      : panoramaTeaser(this.teaser, this.theme, columns, this.teaserInFlight)
+  }
+
   /**
    * Set the plan a `/ship` run is working through, or none.
    * @param plan - the plan read from the spec file.
@@ -1313,6 +1326,24 @@ export class Prompt {
   setPlan(plan: Plan | undefined): void {
     if (plansEqual(this.plan, plan)) return
     this.plan = plan
+    this.render()
+  }
+
+  /**
+   * Pin the Panorama teaser above the plan row, or none.
+   * Empty inner ring still paints `待认领 0 · 已认领 0 · 已关闭 0`.
+   * @param counts - ticket-node Claim buckets, absent when no graph is bound.
+   * @param inFlight - live Session count; omitted until Fold exists.
+   */
+  setTeaser(counts: TeaserCounts | undefined, inFlight = 0): void {
+    const same = this.teaser === counts
+      || (this.teaser !== undefined && counts !== undefined
+        && this.teaser.unclaimed === counts.unclaimed
+        && this.teaser.claimed === counts.claimed
+        && this.teaser.closed === counts.closed)
+    if (same && this.teaserInFlight === inFlight) return
+    this.teaser = counts
+    this.teaserInFlight = inFlight
     this.render()
   }
 
@@ -1714,6 +1745,8 @@ export class Prompt {
     rows.push(...queueRows)
     // Under the box and over the hint row: the list is context for the work in
     // flight, and the rows nearest the bottom stay the ones about right now.
+    const teaser = this.teaserRow(columns)
+    if (teaser !== undefined) rows.push(teaser)
     const todo = this.todoRows(columns)
     if (todo.length > 0) this.todoRowsAt = { start: rows.length, count: todo.length }
     rows.push(...todo)

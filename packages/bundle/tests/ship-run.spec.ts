@@ -9,6 +9,8 @@ import { fileURLToPath } from 'node:url'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { ShipRun, wrapHostGoals } from '../src/ship-run.ts'
 import { snapshotPathFor } from '../src/ship-snapshot.ts'
+import { graphPathFor } from '../src/ship-graph.ts'
+import type { TeaserCounts } from '../src/ship-graph.ts'
 import type { Plan } from '../src/plan.ts'
 import type { SelectOutcome, SelectSpec } from '../src/selector.ts'
 import type { ShipChip } from '../src/status.ts'
@@ -71,8 +73,8 @@ const recordingGoals = (initial?: ShipGoal): ShipGoals & { log: string[]; curren
 
 const landing = (done: 'a' | 'ab' = 'a'): string =>
   done === 'a'
-    ? 'Status: landing\n\n## Plan\n\n- [x] a\n- [ ] b\n'
-    : 'Status: landing\n\n## Plan\n\n- [x] a\n- [x] b\n'
+    ? 'Status: landing\n\n## Plan\n\n- [x] Ticket 1: a\n- [ ] Ticket 2: b\n'
+    : 'Status: landing\n\n## Plan\n\n- [x] Ticket 1: a\n- [x] Ticket 2: b\n'
 
 const writeSpec = (cwd: string, name: string, markdown: string): string => {
   const dir = join(cwd, 'docs', 'specs')
@@ -196,7 +198,7 @@ describe('ShipRun', () => {
       setChip: chip => { chips.push(chip) },
     })
     ship.noteWritten([path])
-    expect(ship.shipChip).toEqual({ kind: 'land', k: 2, n: 2 })
+    expect(ship.shipChip).toEqual({ kind: 'land', k: 1, n: 2 })
     expect(ship.shipPlan?.done).toBe(1)
     await ship.run('', async (prompt) => { prompts.push(prompt) })
     expect(prompts).toHaveLength(2)
@@ -227,7 +229,7 @@ describe('ShipRun', () => {
       setChip: () => {},
     })
     ship.noteWritten([path])
-    expect(ship.shipPlan?.current?.title).toBe('b')
+    expect(ship.shipPlan?.current?.title).toBe('Ticket 2: b')
     writeFileSync(path, landing('ab'))
     ship.refresh()
     expect(ship.shipPlan?.done).toBe(2)
@@ -237,7 +239,7 @@ describe('ShipRun', () => {
 
   it('ignores a shipped spec that this session did not write', async () => {
     const cwd = mkdtempSync(join(tmpdir(), 'ship-run-'))
-    writeSpec(cwd, 'old.md', 'Status: shipped\n\n## Plan\n\n- [x] a\n')
+    writeSpec(cwd, 'old.md', 'Status: shipped\n\n## Plan\n\n- [x] Ticket 1: a\n')
     const chips: Array<ShipChip | undefined> = []
     const ship = new ShipRun(cwd, {
       setPlan: () => {},
@@ -299,7 +301,7 @@ describe('ShipRun', () => {
       setChip: chip => { chips.push(chip) },
     })
     ship.noteWritten([path])
-    writeFileSync(path, 'Status: shipped\n\n## Plan\n\n- [x] a\n- [x] b\n')
+    writeFileSync(path, 'Status: shipped\n\n## Plan\n\n- [x] Ticket 1: a\n- [x] Ticket 2: b\n')
     ship.refresh()
     expect(ship.shipChip).toEqual({ kind: 'done' })
     vi.advanceTimersByTime(400)
@@ -324,19 +326,19 @@ describe('ShipRun', () => {
   it('flashes land ok when a ticket ticks, then strips the flash', () => {
     vi.useFakeTimers()
     const cwd = mkdtempSync(join(tmpdir(), 'ship-run-'))
-    const path = writeSpec(cwd, 'widget.md', 'Status: landing\n\n## Plan\n\n- [ ] a\n- [ ] b\n')
+    const path = writeSpec(cwd, 'widget.md', 'Status: landing\n\n## Plan\n\n- [ ] Ticket 1: a\n- [ ] Ticket 2: b\n')
     const chips: ShipChip[] = []
     const ship = new ShipRun(cwd, {
       setPlan: () => {},
       setChip: chip => { if (chip !== undefined) chips.push(chip) },
     })
     ship.noteWritten([path])
-    expect(ship.shipChip).toEqual({ kind: 'land', k: 1, n: 2 })
-    writeFileSync(path, 'Status: landing\n\n## Plan\n\n- [x] a\n- [ ] b\n')
+    expect(ship.shipChip).toEqual({ kind: 'land', k: 0, n: 2 })
+    writeFileSync(path, 'Status: landing\n\n## Plan\n\n- [x] Ticket 1: a\n- [ ] Ticket 2: b\n')
     ship.refresh()
-    expect(ship.shipChip).toEqual({ kind: 'land', k: 2, n: 2, flashOk: true })
+    expect(ship.shipChip).toEqual({ kind: 'land', k: 1, n: 2, flashOk: true })
     vi.advanceTimersByTime(400)
-    expect(ship.shipChip).toEqual({ kind: 'land', k: 2, n: 2 })
+    expect(ship.shipChip).toEqual({ kind: 'land', k: 1, n: 2 })
   })
 
   it('creates a [ship] placeholder then pauses before the first grill inject (Track: 5,7)', async () => {
@@ -791,7 +793,7 @@ describe('ShipRun', () => {
     const ship = new ShipRun(cwd, chrome)
     await ship.run('', async (prompt) => {
       prompts.push(prompt)
-      const other = writeSpec(cwd, 'other.md', 'Status: landing\n\n## Original Requirement\n\nUnrelated work.\n\n## Plan\n\n- [x] steal\n')
+      const other = writeSpec(cwd, 'other.md', 'Status: landing\n\n## Original Requirement\n\nUnrelated work.\n\n## Plan\n\n- [x] Ticket 1: steal\n')
       ship.noteWritten([other])
       if (prompts.length === 1) writeFileSync(path, `Status: confirmed\n\n${sealed}\n`)
     })
@@ -1200,6 +1202,7 @@ describe('composition root', () => {
       '',
       '**Idea.** Bind /goal into /ship.',
       '**Track-1.** Hybrid compass.',
+      '**Track-2.** Compact payload.',
       '**Out of Scope.**',
       '- No harness fork.',
       '',
@@ -1520,5 +1523,61 @@ describe('composition root', () => {
     expect(deny.reasons.some(r => /Out of Scope|immutable|section/i.test(r))).toBe(true)
   })
 
+  it('rebuilds a missing or corrupt graph sidecar and does not stop /ship', async () => {
+    const cwd = mkdtempSync(join(tmpdir(), 'ship-run-'))
+    const path = writeSpec(cwd, 'widget.md', landing())
+    const teasers: Array<TeaserCounts | undefined> = []
+    const flashes: string[] = []
+    const ship = new ShipRun(cwd, {
+      setPlan: () => {},
+      setChip: () => {},
+      setTeaser: counts => { teasers.push(counts) },
+    }, { flash: text => { flashes.push(text) } })
+    ship.noteWritten([path])
+    const sidecar = graphPathFor(path)
+    expect(existsSync(sidecar)).toBe(true)
+    expect(ship.shipTeaser).toEqual({ unclaimed: 1, claimed: 0, closed: 1 })
+    expect(teasers.at(-1)).toEqual({ unclaimed: 1, claimed: 0, closed: 1 })
+    writeFileSync(sidecar, '{not json')
+    ship.refresh()
+    expect(flashes).toEqual([])
+    expect(JSON.parse(readFileSync(sidecar, 'utf8')).version).toBe(1)
+    writeFileSync(sidecar, `${JSON.stringify({ version: 99, specPath: 'widget.md', nodes: [], edges: [] })}\n`)
+    ship.refresh()
+    expect(flashes).toEqual([])
+    expect(JSON.parse(readFileSync(sidecar, 'utf8')).nodes.length).toBe(2)
+  })
 
+  it('stops /ship on a Ticket N join failure with no guessed cache', async () => {
+    const cwd = mkdtempSync(join(tmpdir(), 'ship-run-'))
+    const path = writeSpec(cwd, 'widget.md', 'Status: landing\n\n## Plan\n\n- [ ] Land the teaser\n')
+    const flashes: string[] = []
+    const prompts: string[] = []
+    const ship = new ShipRun(cwd, chrome, { flash: text => { flashes.push(text) } })
+    await ship.run('', async prompt => { prompts.push(prompt) })
+    expect(prompts).toEqual([])
+    expect(flashes.some(text => /Ticket N/i.test(text))).toBe(true)
+    expect(existsSync(graphPathFor(path))).toBe(false)
+    expect(ship.shipGraph).toBeUndefined()
+  })
+
+  it('paints land chip as closed/total, not in-flight', () => {
+    const cwd = mkdtempSync(join(tmpdir(), 'ship-run-'))
+    const path = writeSpec(cwd, 'widget.md', landing())
+    const ship = new ShipRun(cwd, chrome)
+    ship.noteWritten([path])
+    expect(ship.shipChip).toEqual({ kind: 'land', k: 1, n: 2 })
+    expect(ship.shipTeaser).toEqual({ unclaimed: 1, claimed: 0, closed: 1 })
+  })
+
+  it('rebuilds the sidecar on a pipe with no occupancy ask', async () => {
+    const cwd = mkdtempSync(join(tmpdir(), 'ship-run-'))
+    const path = writeSpec(cwd, 'widget.md', landing())
+    const prompts: string[] = []
+    const ship = new ShipRun(cwd, chrome)
+    await ship.run('', async prompt => { prompts.push(prompt) })
+    expect(prompts.length).toBeGreaterThan(0)
+    expect(existsSync(graphPathFor(path))).toBe(true)
+    expect(ship.shipGraph?.nodes.some(node => node.id === 'landing:1')).toBe(true)
+  })
 })
