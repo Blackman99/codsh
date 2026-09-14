@@ -5,7 +5,7 @@
 
 import type { AskUserQuestionItem, AskUserQuestionRequest } from '@deepseek-ai/dsh-user-questions'
 import { describe, expect, it } from 'vitest'
-import { detectShipGate, detectShipGrill, encodeAnswer, encodeFrontierAnswer, encodeGateAnswer, questionLines, shipGateKind, TerminalQuestions } from '../src/questions.ts'
+import { detectShipGate, detectShipGrill, detectShipHitl, encodeAnswer, encodeFrontierAnswer, encodeGateAnswer, questionLines, shipAskSettledHitl, shipGateKind, TerminalQuestions } from '../src/questions.ts'
 import { createTheme } from '../src/theme.ts'
 
 const theme = createTheme(false, {})
@@ -402,6 +402,30 @@ describe('ship gate detection', () => {
     expect(detectShipGrill('ship · gate 2/2')).toBeUndefined()
     expect(detectShipGrill('Approach')).toBeUndefined()
     expect(detectShipGrill(undefined)).toBeUndefined()
+  })
+
+  it('detects grill, wayfinder, and preflight HITL headers and ignores gates', () => {
+    expect(detectShipHitl('ship · grill')).toBe(true)
+    expect(detectShipHitl('ship • wayfinder')).toBe(true)
+    expect(detectShipHitl('ship preflight')).toBe(true)
+    expect(detectShipHitl('SHIP · GRILL')).toBe(true)
+    expect(detectShipHitl('ship · gate 1/2')).toBe(false)
+    expect(detectShipHitl('ship · gate 2/2')).toBe(false)
+    expect(detectShipHitl('ship · occupancy')).toBe(false)
+    expect(detectShipHitl('ship · deliver')).toBe(false)
+    expect(detectShipHitl('Approach')).toBe(false)
+    expect(detectShipHitl(undefined)).toBe(false)
+  })
+
+  it('treats a settled grill or wayfinder ask as HITL and ignores abort or empty answers', () => {
+    const grill = [{ header: 'ship · grill' }]
+    expect(shipAskSettledHitl(grill, [{ selected: ['SQLite'] }])).toBe(true)
+    expect(shipAskSettledHitl([{ header: 'ship · wayfinder' }], [{ selected: ['Continue'] }])).toBe(true)
+    expect(shipAskSettledHitl([{ header: 'ship · preflight' }], [{ selected: ['Stash'] }])).toBe(true)
+    expect(shipAskSettledHitl(grill, [{ selected: [] }])).toBe(false)
+    expect(shipAskSettledHitl(grill, [{ selected: ['Abort'] }])).toBe(false)
+    expect(shipAskSettledHitl([{ header: 'ship · gate 1/2' }], [{ selected: ['Confirm'] }])).toBe(false)
+    expect(shipAskSettledHitl(grill, undefined)).toBe(false)
   })
 
   it('maps frontier accept / edit / dismiss onto ask_user_question answers', () => {

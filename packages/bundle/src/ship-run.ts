@@ -229,9 +229,15 @@ const ALIGN_DENIED = 'Alignment Gate denied write — sealed Mission Contract ho
 const DRIFT_FLASH = 'Mission drift detected — review plan against sealed contract'
 const VERIFY_INCOMPLETE = 'Verifier: acceptance evidence incomplete — plan ticks reconciled'
 
+/** Optional report from one canned-command turn. Absent or void is idle-stop. */
+export interface ShipTurnResult {
+  /** True when grill, wayfinder, or preflight HITL settled this turn. */
+  hitl?: boolean
+}
+
 /** What the runner must do to spend a canned-command turn. */
 export interface ShipTurn {
-  (prompt: string): Promise<void>
+  (prompt: string): Promise<void | ShipTurnResult>
 }
 
 /**
@@ -452,7 +458,8 @@ export class ShipRun {
 
   /**
    * Run the canned `/ship` command: inject the current phase, then the next
-   * when Status advances, until unchanged status, wayfinder/done, or Esc.
+   * when Status advances or grill/wayfinder/preflight HITL settled, until
+   * unchanged idle status, done, or Esc.
    * @param idea - the typed one-sentence requirement.
    * @param turn - spends one canned-command turn.
    */
@@ -491,7 +498,7 @@ export class ShipRun {
       let previous = shipPhaseKind(this.status())
       await this.syncCompass()
       if (previous === 'land') { await this.runLanding(turn); return }
-      await this.spendTurn(turn)
+      let hitl = await this.spendTurn(turn)
       while (!advance.signal.aborted && !this.contractInvalid && !this.halted) {
         if (this.inPlanMode()) { this.halted = true; break }
         this.refresh()
@@ -500,10 +507,14 @@ export class ShipRun {
         if (!this.guardContract()) break
         await this.syncCompass()
         const next = shipPhaseKind(this.status())
-        if (!this.mayAdvance(previous, next)) break
+        if (next !== previous) {
+          if (!this.mayAdvance(previous, next)) break
+        } else if (!this.mayContinueHitl(hitl, next)) {
+          break
+        }
         previous = next
         if (next === 'land') { await this.runLanding(turn); break }
-        await this.spendTurn(turn)
+        hitl = await this.spendTurn(turn)
       }
     } catch (error) {
       this.halted = true
@@ -1186,6 +1197,14 @@ export class ShipRun {
     return next !== 'done'
   }
 
+  /**
+   * Grill, wayfinder, and preflight HITL may inject again without a phase
+   * change. Gate Abort and true idle (unchanged Status, no HITL) still stop.
+   */
+  private mayContinueHitl(hitl: boolean, kind: ShipPhaseKind): boolean {
+    return hitl && (kind === 'wayfinder' || kind === 'grill')
+  }
+
   /** Land one ticket per turn, with host-owned checks between every dispatch. */
   private async runLanding(turn: ShipTurn): Promise<void> {
     const initial = landingPlan(this.followedMarkdown() ?? '')
@@ -1239,15 +1258,17 @@ export class ShipRun {
     this.block(`Ship stopped at its landing turn budget (${budget}). Progress remains on disk; inspect blockers before resuming.`)
   }
 
-  private async spendTurn(turn: ShipTurn): Promise<void> {
-    if (this.contractInvalid || this.halted) return
-    if (this.inPlanMode()) { this.halted = true; return }
-    if (!this.guardContract()) return
-    await turn(this.promptFor())
-    if (this.halted || this.advance?.signal.aborted === true || this.inPlanMode()) { this.halted = true; return }
+  private async spendTurn(turn: ShipTurn): Promise<boolean> {
+    if (this.contractInvalid || this.halted) return false
+    if (this.inPlanMode()) { this.halted = true; return false }
+    if (!this.guardContract()) return false
+    const result = await turn(this.promptFor())
+    if (this.halted || this.advance?.signal.aborted === true || this.inPlanMode()) { this.halted = true; return false }
     this.discoverBoundSpec()
-    if (!this.guardContract()) return
+    if (!this.guardContract()) return false
     this.persistSnapshot()
+    if (this.contractInvalid || this.halted) return false
+    return result !== undefined && result.hitl === true
   }
 
   private inPlanMode(): boolean {

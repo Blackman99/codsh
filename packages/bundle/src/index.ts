@@ -76,7 +76,7 @@ import {
   type Density,
 } from './density.ts'
 import { installPackagedPreset } from './preset-install.ts'
-import { TerminalQuestions } from './questions.ts'
+import { TerminalQuestions, shipAskSettledHitl } from './questions.ts'
 import { userShell } from './bang.ts'
 import { indexReplayTiming } from './replay-timing.ts'
 import { ShipRun, wrapHostGoals } from './ship-run.ts'
@@ -1028,6 +1028,8 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
     flash: text => { emit([theme.dim(`  ${text}`)]) },
     isPlanMode: () => sessionFolds.planMode,
   })
+  /** Set when a live `/ship` turn settled grill/wayfinder/preflight HITL. */
+  let shipTurnHitl = false
   const spinner = new Spinner({
     setLive: (text) => { prompt.setHint(text) },
     isTty: io.console.readsKeys,
@@ -2140,7 +2142,11 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
       io.console.readsKeys ? async (spec, signal) => prompt.gate(spec, signal) : undefined,
       io.console.readsKeys ? async (spec, signal) => prompt.frontier(spec, signal) : undefined,
     )
-    ctx.on('user-questions/request', request => whileDeciding(() => terminalQuestions.ask(request), 'your answer'))
+    ctx.on('user-questions/request', request => whileDeciding(async () => {
+      const outcome = await terminalQuestions.ask(request)
+      if (shipAskSettledHitl(request.questions, outcome.answers)) shipTurnHitl = true
+      return outcome
+    }, 'your answer'))
   }
 
   // The controller in flight belongs to the slash command being executed, so
@@ -2571,8 +2577,11 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
         continue
       }
       if (name === 'ship') {
-        await ship.run(rest.trim(), body =>
-          answer(body, { kind: 'plugin', plugin: 'coding-cli' }, images))
+        await ship.run(rest.trim(), async body => {
+          shipTurnHitl = false
+          await answer(body, { kind: 'plugin', plugin: 'coding-cli' }, images)
+          return shipTurnHitl ? { hitl: true } : undefined
+        })
         continue
       }
       const canned = customByName.get(name)

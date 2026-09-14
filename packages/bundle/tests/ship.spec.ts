@@ -93,11 +93,16 @@ describe('SHIP_PROMPT', () => {
     expect(prompt).toContain('open, unblocked, unclaimed')
     expect(prompt).toContain('claim it before work')
     expect(prompt).toContain('research subagents')
-    expect(prompt).toContain('at most one non-research decision ticket per /ship invocation')
     expect(prompt).toContain('Continue to grill (recommended, first) or Stop')
     expect(prompt).toContain('Only an explicit Continue advances')
     expect(prompt).toContain('no separate skill installation is required')
-    expect(prompt).toContain('Do not auto-loop through multiple decision tickets')
+    expect(prompt).toContain('at most one non-research decision ticket per parent wake')
+    expect(prompt).not.toContain('at most one non-research decision ticket per /ship invocation')
+    expect(prompt).not.toContain('Do not auto-loop through multiple decision tickets')
+    expect(prompt).not.toContain('no map is needed for this case')
+    expect(prompt).toContain('empty inner ring')
+    expect(prompt).toContain('the runner injects the next needed turn')
+    expect(prompt).not.toContain('the next /ship turn injects')
     expect(prompt).toContain('Write no production implementation')
     expect(prompt).toContain('## Wayfinder')
   })
@@ -345,6 +350,29 @@ describe('SHIP_PROMPT', () => {
     expect(SHIP_PROMPT).toContain('create_goal')
     expect(SHIP_PROMPT).toContain('update_goal')
     expect(SHIP_PROMPT).toContain('get_goal')
+  })
+
+  it('lets the /ship runner continue after HITL while /goal stays disarmed', () => {
+    const phases = [
+      shipPromptFor(undefined),
+      shipPromptFor('wayfinding'),
+      shipPromptFor('grilling'),
+      shipPromptFor('interviewing'),
+      shipPromptFor('confirmed'),
+      shipPromptFor('planned'),
+      shipPromptFor('landing'),
+      shipPromptFor('shipped'),
+    ]
+    for (const prompt of phases) {
+      expect(prompt).toMatch(/\/goal stays disarmed/)
+      expect(prompt).toMatch(/runner (?:may continue|injects)/i)
+      expect(prompt).not.toContain('the next /ship turn injects')
+    }
+    expect(SHIP_PROMPT).toMatch(/\/goal stays disarmed/)
+    expect(SHIP_PROMPT).not.toContain('the next /ship turn injects')
+    expect(SHIP_PROMPT).toContain('empty inner ring')
+    expect(SHIP_PROMPT).toContain('three per ticket plus final verification')
+    expect(SHIP_PROMPT).toContain('two consecutive turns with no checkbox progress')
   })
 
   it('freezes Main Track after Confirm so a contradiction is a blocker not a silent rewrite (Track: 3)', () => {

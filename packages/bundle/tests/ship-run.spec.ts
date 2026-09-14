@@ -171,6 +171,107 @@ describe('ShipRun', () => {
     expect(ship.shipChip).toEqual({ kind: 'grill' })
   })
 
+  it('injects the next grill frontier round after HITL in the same run()', async () => {
+    const cwd = mkdtempSync(join(tmpdir(), 'ship-run-'))
+    writeSpec(cwd, 'widget.md', 'Status: grilling\n')
+    const ship = new ShipRun(cwd, chrome)
+    const prompts: string[] = []
+    await ship.run('', async prompt => {
+      prompts.push(prompt)
+      return prompts.length === 1 ? { hitl: true } : undefined
+    })
+    expect(prompts).toHaveLength(2)
+    expect(prompts[0]).toContain('Follow the grill-me skill')
+    expect(prompts[1]).toContain('Follow the grill-me skill')
+    expect(prompts[1]).not.toContain('Follow the wayfinder skill')
+    expect(prompts[1]).not.toContain('Pure Synthesis, Zero Interrogation')
+  })
+
+  it('does not inject again when abort settles a grill HITL turn', async () => {
+    const cwd = mkdtempSync(join(tmpdir(), 'ship-run-'))
+    writeSpec(cwd, 'widget.md', 'Status: grilling\n')
+    const ship = new ShipRun(cwd, chrome)
+    const prompts: string[] = []
+    await ship.run('', async prompt => {
+      prompts.push(prompt)
+      ship.abort()
+      return { hitl: true }
+    })
+    expect(prompts).toHaveLength(1)
+  })
+
+  it('injects the next wayfinder turn after a grilling-ticket HITL without leaving wayfinding', async () => {
+    const cwd = mkdtempSync(join(tmpdir(), 'ship-run-'))
+    writeSpec(cwd, 'widget.md', 'Status: wayfinding\n\n## Wayfinder\n\n[Map](../../map.md)\n')
+    const ship = new ShipRun(cwd, chrome)
+    const prompts: string[] = []
+    await ship.run('', async prompt => {
+      prompts.push(prompt)
+      return prompts.length === 1 ? { hitl: true } : undefined
+    })
+    expect(prompts).toHaveLength(2)
+    expect(prompts[0]).toContain('Follow the wayfinder skill')
+    expect(prompts[1]).toContain('Follow the wayfinder skill')
+    expect(prompts[1]).not.toContain('Follow the grill-me skill')
+    expect(prompts[1]).not.toContain('git checkout -b')
+    expect(prompts[1]).not.toContain('ship · preflight')
+    expect(ship.shipChip).toEqual({ kind: 'wayfinder' })
+  })
+
+  it('continues after preflight HITL into wayfinder in the same run()', async () => {
+    const cwd = mkdtempSync(join(tmpdir(), 'ship-run-'))
+    const ship = new ShipRun(cwd, chrome)
+    const prompts: string[] = []
+    await ship.run('build a widget', async prompt => {
+      prompts.push(prompt)
+      if (prompts.length === 1) {
+        writeSpec(cwd, 'widget.md', 'Status: wayfinding\n\n## Wayfinder\n\n[Map](../../map.md)\n')
+        return { hitl: true }
+      }
+      return undefined
+    })
+    expect(prompts).toHaveLength(2)
+    expect(prompts[0]).toContain('ship · preflight')
+    expect(prompts[0]).toContain('Follow the wayfinder skill')
+    expect(prompts[1]).toContain('Follow the wayfinder skill')
+    expect(prompts[1]).not.toContain('ship · preflight')
+    expect(prompts[1]).not.toContain('git checkout -b')
+    expect(prompts[1]).not.toContain('Follow the grill-me skill')
+  })
+
+  it('does not treat a gate HITL as auto-continue when Status is unchanged', async () => {
+    const cwd = mkdtempSync(join(tmpdir(), 'ship-run-'))
+    writeSpec(cwd, 'widget.md', 'Status: interviewing\n')
+    const ship = new ShipRun(cwd, chrome)
+    const prompts: string[] = []
+    await ship.run('', async prompt => {
+      prompts.push(prompt)
+      return { hitl: true }
+    })
+    expect(prompts).toHaveLength(1)
+    expect(prompts[0]).toContain('Pure Synthesis, Zero Interrogation')
+  })
+
+  it('pauses an accidentally armed /goal before the next HITL inject', async () => {
+    const cwd = mkdtempSync(join(tmpdir(), 'ship-run-'))
+    writeSpec(cwd, 'widget.md', 'Status: grilling\n\n## Original Requirement\n\nKeep offline use.\n')
+    const goals = recordingGoals()
+    const ship = new ShipRun(cwd, chrome, { goals })
+    let turns = 0
+    await ship.run('', async () => {
+      turns += 1
+      if (goals.current !== undefined) {
+        goals.current.activation = 'armed'
+        goals.current.phase = 'active'
+      }
+      return turns === 1 ? { hitl: true } : undefined
+    })
+    expect(turns).toBe(2)
+    expect(goals.current?.activation).toBe('disarmed')
+    expect(goals.current?.phase).toBe('paused')
+    expect(goals.log.filter(entry => entry === 'pause:goal-new').length).toBeGreaterThanOrEqual(2)
+  })
+
   it('injects to-spec then tickets when Status advances between turns', async () => {
     const cwd = mkdtempSync(join(tmpdir(), 'ship-run-'))
     const path = writeSpec(cwd, 'widget.md', 'Status: interviewing\n')
@@ -1127,6 +1228,9 @@ describe('composition root', () => {
     expect(source).toContain('selectSpec')
     expect(source).toContain('isPlanMode')
     expect(source).toContain('sessionFolds.planMode')
+    expect(source).toContain('shipAskSettledHitl')
+    expect(source).toContain('hitl: true')
+    expect(source).not.toMatch(/hitl[\s\S]{0,80}subagent/)
   })
 
   it('compiles and writes a Mission Contract at Confirm and prepends it later', async () => {

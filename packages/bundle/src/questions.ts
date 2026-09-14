@@ -133,6 +133,44 @@ export function detectShipGrill(header: string | undefined): true | undefined {
 }
 
 /**
+ * Detect grill, wayfinder, or preflight HITL from an ask_user_question header.
+ * Gates, occupancy, and delivery stay out of the auto-continue loop.
+ * @param header - the question header, if any.
+ * @returns true when this ask should let the same `/ship` run inject again.
+ */
+export function detectShipHitl(header: string | undefined): boolean {
+  if (header === undefined) return false
+  if (detectShipGate(header) !== undefined) return false
+  return /ship\s*[·•]?\s*(grill|wayfinder|preflight)\b/i.test(header)
+}
+
+/**
+ * True when a settled ask_user_question is grill/wayfinder/preflight HITL
+ * the runner should continue after. Empty selected (dismiss/abort encoding)
+ * and Abort/Stop labels do not continue.
+ * @param questions - the request questions, in order.
+ * @param answers - the encoded answers, in request order.
+ */
+export function shipAskSettledHitl(
+  questions: readonly { header?: string | undefined }[],
+  answers: readonly { selected?: readonly string[]; custom?: string }[] | undefined,
+): boolean {
+  if (answers === undefined) return false
+  for (let index = 0; index < questions.length; index += 1) {
+    const question = questions[index]
+    if (question === undefined || !detectShipHitl(question.header)) continue
+    const answer = answers[index]
+    if (answer === undefined) continue
+    if (answer.custom !== undefined && answer.custom.trim() !== '') return true
+    const selected = answer.selected ?? []
+    if (selected.length === 0) continue
+    if (selected.some(label => /^(abort|stop)\b/i.test(label.trim()))) continue
+    return true
+  }
+  return false
+}
+
+/**
  * Detect a /ship approval gate from the question header only.
  *
  * Only `/ship` doors with `header` matching `ship · gate 1/2` (or 2/2) open
