@@ -255,6 +255,157 @@ describe('ShipRun', () => {
     expect(prompts[0]).toContain('Pure Synthesis, Zero Interrogation')
   })
 
+  it('auto-Confirms gate 1, writes Status confirmed and a notice, then injects tickets in the same run()', async () => {
+    const cwd = mkdtempSync(join(tmpdir(), 'ship-run-'))
+    const path = writeSpec(cwd, 'widget.md', [
+      'Status: interviewing',
+      '',
+      '## Original Requirement',
+      '',
+      'Build a widget.',
+      '',
+      '## Main Track',
+      '',
+      '**Idea.** Build a widget.',
+      '**Track-1.** Do the thing.',
+      '',
+      '## Acceptance Criteria',
+      '',
+      '1. `pnpm test` exits 0.',
+    ].join('\n'))
+    const flashes: string[] = []
+    const prompts: string[] = []
+    const ship = new ShipRun(cwd, chrome, { flash: text => { flashes.push(text) } })
+    await ship.run('', async prompt => {
+      prompts.push(prompt)
+      if (prompts.length === 1) {
+        expect(ship.inFlight).toBe(true)
+        expect(ship.confirmGate(1)).toBe(true)
+      }
+    })
+    expect(prompts).toHaveLength(2)
+    expect(prompts[0]).toContain('Pure Synthesis, Zero Interrogation')
+    expect(prompts[1]).toContain('Strict Vertical Tracer Slicing')
+    expect(readFileSync(path, 'utf8')).toMatch(/^Status:\s*confirmed\b/im)
+    expect(flashes.some(text => /Confirmed ship · gate 1\/2/i.test(text))).toBe(true)
+    expect(ship.missionContract).toBeDefined()
+  })
+
+  it('auto-Confirms gate 2, writes Status planned and a notice, then enters landing in the same run()', async () => {
+    const cwd = mkdtempSync(join(tmpdir(), 'ship-run-'))
+    const path = writeSpec(cwd, 'widget.md', [
+      'Status: confirmed',
+      '',
+      '## Original Requirement',
+      '',
+      'Build a widget.',
+      '',
+      '## Main Track',
+      '',
+      '**Idea.** Build a widget.',
+      '**Track-1.** Do the thing.',
+      '',
+      '## Plan',
+      '',
+      '- [ ] Ticket 1: Widget (Blocked by: none) (Track: 1)',
+    ].join('\n'))
+    const flashes: string[] = []
+    const prompts: string[] = []
+    const ship = new ShipRun(cwd, chrome, { flash: text => { flashes.push(text) } })
+    await ship.run('', async prompt => {
+      prompts.push(prompt)
+      if (prompt.includes('Strict Vertical Tracer Slicing')) {
+        expect(ship.confirmGate(2)).toBe(true)
+      } else {
+        ship.abort()
+      }
+    })
+    expect(prompts.length).toBeGreaterThanOrEqual(2)
+    expect(prompts[0]).toContain('Strict Vertical Tracer Slicing')
+    expect(prompts[1]).toContain('Strict Red-First Execution')
+    expect(readFileSync(path, 'utf8')).toMatch(/^Status:\s*planned\b/im)
+    expect(flashes.some(text => /Confirmed ship · gate 2\/2/i.test(text))).toBe(true)
+  })
+
+  it('does not auto-Confirm a gate after Esc / abort', async () => {
+    const cwd = mkdtempSync(join(tmpdir(), 'ship-run-'))
+    const path = writeSpec(cwd, 'widget.md', [
+      'Status: interviewing',
+      '',
+      '## Original Requirement',
+      '',
+      'Build a widget.',
+      '',
+      '## Main Track',
+      '',
+      '**Idea.** Build a widget.',
+    ].join('\n'))
+    const flashes: string[] = []
+    const prompts: string[] = []
+    const ship = new ShipRun(cwd, chrome, { flash: text => { flashes.push(text) } })
+    await ship.run('', async prompt => {
+      prompts.push(prompt)
+      ship.abort()
+      expect(ship.confirmGate(1)).toBe(false)
+    })
+    expect(prompts).toHaveLength(1)
+    expect(readFileSync(path, 'utf8')).toMatch(/^Status:\s*interviewing\b/im)
+    expect(flashes.some(text => /Confirmed ship · gate/i.test(text))).toBe(false)
+  })
+
+  it('writes ## Blocker and stops when an Edit-shaped gate arrives after seal', async () => {
+    const cwd = mkdtempSync(join(tmpdir(), 'ship-run-'))
+    const path = writeSpec(cwd, 'widget.md', [
+      'Status: confirmed',
+      '',
+      '## Original Requirement',
+      '',
+      'Build a widget.',
+      '',
+      '## Main Track',
+      '',
+      '**Idea.** Build a widget.',
+      '**Track-1.** Do the thing.',
+    ].join('\n'))
+    const flashes: string[] = []
+    const prompts: string[] = []
+    const ship = new ShipRun(cwd, chrome, { flash: text => { flashes.push(text) } })
+    await ship.run('', async prompt => {
+      prompts.push(prompt)
+      expect(ship.confirmGate(1)).toBe(false)
+    })
+    expect(prompts).toHaveLength(1)
+    expect(readFileSync(path, 'utf8')).toMatch(/^Status:\s*confirmed\b/im)
+    expect(readFileSync(path, 'utf8')).toMatch(/^## Blocker\b/m)
+    expect(flashes.some(text => /## Blocker/i.test(text))).toBe(true)
+    expect(flashes.some(text => /Confirmed ship · gate/i.test(text))).toBe(false)
+  })
+
+  it('does not inject the next phase while an unresolved ## Blocker remains', async () => {
+    const cwd = mkdtempSync(join(tmpdir(), 'ship-run-'))
+    writeSpec(cwd, 'widget.md', [
+      'Status: confirmed',
+      '',
+      '## Original Requirement',
+      '',
+      'Build a widget.',
+      '',
+      '## Main Track',
+      '',
+      '**Idea.** Build a widget.',
+      '',
+      '## Blocker',
+      '',
+      'Need a design decision.',
+    ].join('\n'))
+    const flashes: string[] = []
+    const prompts: string[] = []
+    const ship = new ShipRun(cwd, chrome, { flash: text => { flashes.push(text) } })
+    await ship.run('', async prompt => { prompts.push(prompt) })
+    expect(prompts).toEqual([])
+    expect(flashes.some(text => /unresolved ## Blocker/i.test(text))).toBe(true)
+  })
+
   it('pauses an accidentally armed /goal before the next HITL inject', async () => {
     const cwd = mkdtempSync(join(tmpdir(), 'ship-run-'))
     writeSpec(cwd, 'widget.md', 'Status: grilling\n\n## Original Requirement\n\nKeep offline use.\n')
@@ -1238,6 +1389,8 @@ describe('composition root', () => {
     expect(source).toContain('sessionFolds.planMode')
     expect(source).toContain('shipAskSettledHitl')
     expect(source).toContain('hitl: true')
+    expect(source).toContain('autoConfirmShipGates')
+    expect(source).toContain('confirmGate')
     expect(source).not.toMatch(/hitl[\s\S]{0,80}subagent/)
     expect(source).toContain('childCreate')
     expect(source).toContain('bindRunnerView')

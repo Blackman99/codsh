@@ -76,7 +76,7 @@ import {
   type Density,
 } from './density.ts'
 import { installPackagedPreset } from './preset-install.ts'
-import { TerminalQuestions, shipAskSettledHitl } from './questions.ts'
+import { TerminalQuestions, autoConfirmShipGates, shipAskSettledHitl } from './questions.ts'
 import { userShell } from './bang.ts'
 import { indexReplayTiming } from './replay-timing.ts'
 import { ShipRun, wrapHostGoals } from './ship-run.ts'
@@ -2241,6 +2241,14 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
       io.console.readsKeys ? async (spec, signal) => prompt.frontier(spec, signal) : undefined,
     )
     ctx.on('user-questions/request', request => whileDeciding(async () => {
+      // Live `/ship` gates never wait on GateModal. confirmGate no-ops after
+      // Esc / abort so auto-Confirm cannot trap a cancelled run.
+      const auto = autoConfirmShipGates(
+        request.questions,
+        gate => ship.confirmGate(gate),
+        request.signal,
+      )
+      if (auto !== undefined) return auto
       const outcome = await terminalQuestions.ask(request)
       if (shipAskSettledHitl(request.questions, outcome.answers)) shipTurnHitl = true
       return outcome

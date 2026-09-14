@@ -33,12 +33,17 @@ describe('SHIP_PROMPT', () => {
     expect(SHIP_PROMPT).toContain('Never report a result you did not run')
   })
 
-  it('instructs gate headers so the TUI can open GateModal', () => {
+  it('instructs gate headers so the runner can auto-Confirm', () => {
     expect(SHIP_PROMPT).toContain('ship · gate 1/2')
     expect(SHIP_PROMPT).toContain('ship · gate 2/2')
     expect(SHIP_PROMPT).toContain('detail')
-    expect(SHIP_PROMPT).toContain('Edit means revise the spec and ask again')
-    expect(SHIP_PROMPT).toContain('Fold Edit answers back in and present again')
+    expect(SHIP_PROMPT).toMatch(/runner auto-Confirm/i)
+    expect(SHIP_PROMPT).toMatch(/transcript notice/i)
+    expect(SHIP_PROMPT).toMatch(/Interrupt or Esc aborts/i)
+    expect(SHIP_PROMPT).toMatch(/no Edit modal/i)
+    expect(SHIP_PROMPT).toContain('## Blocker')
+    expect(SHIP_PROMPT).not.toContain('Edit means revise the spec and ask again')
+    expect(SHIP_PROMPT).not.toContain('Fold Edit answers back in and present again')
   })
 
   it('makes the spec file the durable memory: status, resume, plan on disk', () => {
