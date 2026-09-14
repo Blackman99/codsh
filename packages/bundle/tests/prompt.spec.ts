@@ -5,10 +5,12 @@
 
 import { describe, expect, it, vi } from 'vitest'
 import { Prompt } from '../src/prompt.ts'
+import { EMPTY_INNER_RING } from '../src/ship-panorama.ts'
 import { createTheme, displayWidth } from '../src/theme.ts'
 import type { RegionCursor } from '../src/console.ts'
 import type { Key } from '../src/keys.ts'
 import type { QueueItem } from '../src/queue.ts'
+import type { ShipGraph } from '../src/ship-graph.ts'
 
 const theme = createTheme(false, {})
 
@@ -1173,6 +1175,136 @@ describe('the surrounding rows', () => {
     prompt.setTeaser({ unclaimed: 0, claimed: 0, closed: 0 }, 2)
     const flying = (console.draws.at(-1)?.rows ?? []).find(line => line.includes('待认领 0')) ?? ''
     expect(flying).toContain('in-flight 2')
+  })
+
+  const overlayGraph = (): ShipGraph => ({
+    version: 1,
+    specPath: 'widget.md',
+    nodes: [
+      { id: 'decision:local:1', kind: 'decision', title: 'Chart the map', claim: 'claimed' },
+      { id: 'track:1', kind: 'track', title: 'Hybrid compass.' },
+      { id: 'landing:1', kind: 'landing', title: 'Teaser paint', claim: 'unclaimed' },
+    ],
+    edges: [
+      { from: 'landing:1', to: 'track:1', kind: 'hangs-off' },
+    ],
+  })
+
+  const emptyInnerGraph = (): ShipGraph => ({
+    version: 1,
+    specPath: 'widget.md',
+    nodes: [
+      { id: 'track:1', kind: 'track', title: 'Empty inner ring.' },
+      { id: 'landing:1', kind: 'landing', title: 'Land the teaser', claim: 'unclaimed' },
+    ],
+    edges: [{ from: 'landing:1', to: 'track:1', kind: 'hangs-off' }],
+  })
+
+  it('pins the overlay by default when a graph is bound, and Ctrl+G toggles the teaser', () => {
+    const { prompt, console } = build()
+    prompt.setPlan({
+      tickets: [{ title: 'Teaser paint', done: false }],
+      done: 0,
+      current: { title: 'Teaser paint', done: false },
+    })
+    prompt.setGraph(overlayGraph())
+    expect((console.viewers.at(-1) ?? []).join('\n')).toContain('Chart the map')
+    expect((console.viewers.at(-1) ?? []).join('\n')).toContain('Teaser paint · Track-1')
+    expect(drawn(console)).not.toContain('plan 0/1')
+
+    console.press({ kind: 'toggle-panorama' })
+    expect(console.viewers.at(-1)).toBeUndefined()
+    expect(drawn(console)).toContain('待认领 1')
+    expect(drawn(console)).toContain('plan 0/1')
+
+    console.press({ kind: 'toggle-panorama' })
+    expect((console.viewers.at(-1) ?? []).join('\n')).toContain('Chart the map')
+  })
+
+  it('toggles the overlay from a click on the teaser', () => {
+    const { prompt, console } = build()
+    prompt.setPlan({
+      tickets: [{ title: 'Teaser paint', done: false }],
+      done: 0,
+      current: { title: 'Teaser paint', done: false },
+    })
+    prompt.setGraph(overlayGraph())
+    console.press({ kind: 'toggle-panorama' })
+    const rows = console.draws.at(-1)?.rows ?? []
+    const teaser = rows.findIndex(row => row.includes('待认领 1'))
+    expect(teaser).toBeGreaterThanOrEqual(0)
+    console.region = { region: 'chrome', index: teaser }
+    console.press({ kind: 'mouse-down', row: 9, column: 4 })
+    console.press({ kind: 'mouse-up', row: 9, column: 4 })
+    expect((console.viewers.at(-1) ?? []).join('\n')).toContain('Chart the map')
+  })
+
+  it('returns to the teaser on Esc without aborting /ship', () => {
+    const { prompt, console, calls } = build()
+    prompt.setPlan({
+      tickets: [{ title: 'Teaser paint', done: false }],
+      done: 0,
+      current: { title: 'Teaser paint', done: false },
+    })
+    prompt.setGraph(overlayGraph())
+    console.press({ kind: 'escape' })
+    expect(calls).not.toContain('escape')
+    expect(console.viewers.at(-1)).toBeUndefined()
+    expect(drawn(console)).toContain('待认领 1')
+    expect(drawn(console)).toContain('plan 0/1')
+  })
+
+  it('keeps an empty inner-ring overlay pinned with a body line', () => {
+    const { prompt, console } = build()
+    prompt.setGraph(emptyInnerGraph())
+    const frame = (console.viewers.at(-1) ?? []).join('\n')
+    expect(frame).toContain(EMPTY_INNER_RING)
+    expect(frame).toContain('Land the teaser')
+    expect(console.viewers.at(-1)).not.toBeUndefined()
+  })
+
+  it('dismisses the overlay to the teaser when Queue or Todo opens', () => {
+    const { prompt, console } = build()
+    prompt.setTodos([{ content: 'write the fix', status: 'in_progress' }])
+    prompt.setGraph(overlayGraph())
+    expect(console.viewers.at(-1)).not.toBeUndefined()
+    console.press({ kind: 'toggle-todos' })
+    expect(console.viewers.at(-1)).toBeUndefined()
+    expect(drawn(console)).toContain('Ctrl+T closes')
+    expect(drawn(console)).toContain('待认领 1')
+
+    submit(console, 'later work')
+    console.press({ kind: 'toggle-panorama' })
+    expect(console.viewers.at(-1)).not.toBeUndefined()
+    console.press({ kind: 'toggle-queue' })
+    expect(console.viewers.at(-1)).toBeUndefined()
+    expect(drawn(console)).toContain('Ctrl+Q closes')
+    expect(drawn(console)).toContain('待认领 1')
+  })
+
+  it('dismisses the overlay to the teaser when grill HITL owns the screen', async () => {
+    const { prompt, console, calls } = build()
+    prompt.setGraph(overlayGraph())
+    expect(console.viewers.at(-1)).not.toBeUndefined()
+    const pending = prompt.frontier({
+      question: 'Which storage?',
+      options: [{ label: 'SQLite', recommended: true }, { label: 'Postgres' }],
+    })
+    expect(console.viewers.at(-1)).toBeUndefined()
+    expect(drawn(console)).toContain('Which storage?')
+    expect(drawn(console)).toContain('待认领 1')
+    console.press({ kind: 'escape' })
+    await expect(pending).resolves.toEqual({ kind: 'dismiss' })
+    expect(calls).toEqual([])
+    expect(console.viewers.at(-1)).toBeUndefined()
+    expect(drawn(console)).toContain('待认领 1')
+  })
+
+  it('never paints an overlay on a pipe', () => {
+    const { prompt, console } = build(false)
+    prompt.setGraph(overlayGraph())
+    expect(console.viewers).toEqual([])
+    expect(console.draws).toEqual([])
   })
 
   it('gives the plan rows back when the plan is withdrawn', () => {

@@ -15,8 +15,9 @@ import type { ImagePreview } from './image-preview.ts'
 import { caretAt, inputBox, menuScrollFrom, menuScrollLimit, menuTargetAt, wrapBudget } from './inputbox.ts'
 import { planReport, planSummary, plansEqual } from './plan.ts'
 import type { Plan } from './plan.ts'
-import { panoramaTeaser } from './ship-graph.ts'
-import type { TeaserCounts } from './ship-graph.ts'
+import { panoramaTeaser, teaserCounts } from './ship-graph.ts'
+import type { ShipGraph, TeaserCounts } from './ship-graph.ts'
+import { PanoramaOverlay } from './ship-panorama.ts'
 import { GUTTER } from './screen.ts'
 import { FrontierCard } from './frontier-card.ts'
 import { GateModal, gateChip } from './gate-modal.ts'
@@ -169,6 +170,8 @@ type RegionTarget =
   | { kind: 'queue' }
   /** A row of the open queue panel. */
   | { kind: 'queue-panel'; target: PanelTarget }
+  /** The Panorama teaser: a click toggles the overlay. */
+  | { kind: 'teaser' }
 
 export class Prompt {
   private readonly editor: Editor
@@ -267,6 +270,16 @@ export class Prompt {
   private teaser: TeaserCounts | undefined
   /** Live in-flight count for the teaser; Fold Sessions land in a later ticket. */
   private teaserInFlight = 0
+  /** Bound Ship graph for the overlay; absent when no graph is bound. */
+  private graph: ShipGraph | undefined
+  /** Fullscreen overlay instance, created when a graph is first bound. */
+  private panorama: PanoramaOverlay | undefined
+  /** Whether the overlay currently owns the alternate-screen viewer. */
+  private panoramaOpen = false
+  /** Whether the last paint put the overlay in the viewer slot. */
+  private paintedPanorama = false
+  /** Where the teaser sits among the chrome rows, and how many. */
+  private teaserRowsAt: { start: number; count: number } | undefined
   /** The menu row a pointer rests on, handed to the box each render. */
   private menuHover: number | undefined
   /** The always-current session facts shown as the region's last row. */
@@ -634,6 +647,8 @@ export class Prompt {
         this.render()
       }
       const onAbort = (): void => { settle({ kind: 'dismiss' }) }
+      // Grill HITL owns the screen: dismiss the overlay to the teaser.
+      this.panoramaOpen = false
       this.frontier_ = {
         card: new FrontierCard(spec),
         resolve: settle,
@@ -660,7 +675,10 @@ export class Prompt {
     if (key.kind === 'interrupt') {
       this.shortcutsOpen = false
       this.queueOpen = false
+      const overlay = this.panoramaOpen
+      this.panoramaOpen = false
       this.handlers.interrupt()
+      if (overlay) this.render()
       return
     }
     const fronting = this.frontier_
@@ -713,6 +731,10 @@ export class Prompt {
       this.render()
       return
     }
+    if (this.panoramaShowing) {
+      this.onPanoramaKey(key)
+      return
+    }
     if (key.kind === 'focus') {
       if (!key.focused) this.dropPointerHover()
       return
@@ -736,7 +758,12 @@ export class Prompt {
       // One open panel at a time: the chrome has room for a list, not two.
       this.todosExpanded = !this.todosExpanded
       this.queueOpen = false
+      this.panoramaOpen = false
       this.render()
+      return
+    }
+    if (key.kind === 'toggle-panorama') {
+      this.togglePanorama()
       return
     }
     if (key.kind === 'transcript-search') {
@@ -1114,6 +1141,7 @@ export class Prompt {
     }
     this.todosExpanded = false
     this.shortcutsOpen = false
+    this.panoramaOpen = false
     this.queueOpen = true
     this.panel.reset()
     this.render()
@@ -1348,6 +1376,89 @@ export class Prompt {
   }
 
   /**
+   * Bind the Ship graph the overlay paints. On a TTY the overlay is pinned
+   * by default the first time a graph appears; a pipe never shows it.
+   * Clearing the graph returns chrome to the teaser (or none).
+   */
+  setGraph(graph: ShipGraph | undefined, inFlight?: number): void {
+    const firstBind = graph !== undefined && this.graph === undefined
+    this.graph = graph
+    if (graph === undefined) {
+      this.panorama = undefined
+      this.panoramaOpen = false
+      this.setTeaser(undefined, inFlight ?? 0)
+      if (this.paintedPanorama) this.render()
+      return
+    }
+    if (this.panorama === undefined) this.panorama = new PanoramaOverlay(graph)
+    else this.panorama.bind(graph)
+    if (firstBind && this.console.readsKeys && this.frontier_ === undefined && this.select_ === undefined) {
+      this.panoramaOpen = true
+    }
+    this.teaser = teaserCounts(graph)
+    this.teaserInFlight = inFlight ?? this.teaserInFlight
+    this.render()
+  }
+
+  /** Whether the overlay currently owns the alternate-screen viewer. */
+  private get panoramaShowing(): boolean {
+    return this.panoramaOpen
+      && this.panorama !== undefined
+      && this.graph !== undefined
+      && this.select_ === undefined
+      && this.frontier_ === undefined
+      && this.gate_ === undefined
+      && this.view_ === undefined
+  }
+
+  /** Ctrl+G, or a click on the teaser: pin the overlay, or fold it back. */
+  private togglePanorama(): void {
+    if (this.graph === undefined || this.panorama === undefined) return
+    if (this.select_ !== undefined || this.frontier_ !== undefined) return
+    this.panoramaOpen = !this.panoramaOpen
+    if (this.panoramaOpen) {
+      this.todosExpanded = false
+      this.queueOpen = false
+      this.shortcutsOpen = false
+    }
+    this.render()
+  }
+
+  /** Keys while the overlay owns the screen. Esc returns to the teaser. */
+  private onPanoramaKey(key: Key): void {
+    if (key.kind === 'escape' || key.kind === 'toggle-panorama') {
+      this.panoramaOpen = false
+      this.render()
+      return
+    }
+    if (key.kind === 'toggle-queue') {
+      this.panoramaOpen = false
+      this.toggleQueuePanel()
+      return
+    }
+    if (key.kind === 'toggle-todos') {
+      this.panoramaOpen = false
+      this.todosExpanded = !this.todosExpanded
+      this.queueOpen = false
+      this.render()
+      return
+    }
+    const overlay = this.panorama
+    if (overlay === undefined) return
+    const columns = this.console.contentColumns
+    const rows = this.console.rows
+    if (key.kind === 'scroll') overlay.move({ kind: 'line', lines: key.lines }, this.theme, columns, rows)
+    else if (key.kind === 'turn') overlay.move({ kind: 'line', lines: key.direction }, this.theme, columns, rows)
+    else if (key.kind === 'up') overlay.move({ kind: 'line', lines: -1 }, this.theme, columns, rows)
+    else if (key.kind === 'down') overlay.move({ kind: 'line', lines: 1 }, this.theme, columns, rows)
+    else if (key.kind === 'page') overlay.move({ kind: 'page', direction: key.direction }, this.theme, columns, rows)
+    else if (key.kind === 'home') overlay.move({ kind: 'home' }, this.theme, columns, rows)
+    else if (key.kind === 'end' || key.kind === 'scroll-end') overlay.move({ kind: 'end' }, this.theme, columns, rows)
+    else return
+    this.render()
+  }
+
+  /**
    * Keys while transcript find is open: typing is the query, arrows step,
    * Escape closes. The transcript is not edited.
    * @param key - the decoded keystroke.
@@ -1522,8 +1633,13 @@ export class Prompt {
       this.render()
       return
     }
+    if (target.kind === 'teaser') {
+      this.togglePanorama()
+      return
+    }
     if (target.kind === 'todos') {
       this.todosExpanded = !this.todosExpanded
+      this.panoramaOpen = false
       this.render()
       return
     }
@@ -1593,6 +1709,10 @@ export class Prompt {
       if (selecting.selector.keyboardOnly) return undefined
       const target = selecting.selector.targetAt(region.index - start, this.console.contentColumns)
       if (target !== undefined) return { kind: 'selector', target }
+    }
+    const teaser = this.teaserRowsAt
+    if (teaser !== undefined && region.index >= teaser.start && region.index < teaser.start + teaser.count) {
+      return { kind: 'teaser' }
     }
     const todos = this.todoRowsAt
     if (todos !== undefined && region.index >= todos.start && region.index < todos.start + todos.count) {
@@ -1699,6 +1819,16 @@ export class Prompt {
       this.console.setViewer(this.view_.viewer.frame(this.theme, columns, this.console.rows).rows)
       return
     }
+    if (this.panoramaShowing && this.panorama !== undefined) {
+      this.console.setViewer(this.panorama.frame(this.theme, columns, this.console.rows).rows)
+      this.paintedPanorama = true
+      this.console.clearRegion()
+      return
+    }
+    if (this.paintedPanorama) {
+      this.console.setViewer(undefined)
+      this.paintedPanorama = false
+    }
     const rows: string[] = []
     let cursor = { row: 0, column: 0 }
     let frontierCursor: { row: number; column: number } | undefined
@@ -1711,6 +1841,7 @@ export class Prompt {
     this.boxRows = undefined
     this.todoRowsAt = undefined
     this.queueRowsAt = undefined
+    this.teaserRowsAt = undefined
     if (this.frontier_ !== undefined) {
       const frame = this.frontier_.card.frame(this.theme, columns)
       frontierCursor = frame.cursor === undefined ? undefined : { row: rows.length + frame.cursor.row, column: frame.cursor.column }
@@ -1746,7 +1877,10 @@ export class Prompt {
     // Under the box and over the hint row: the list is context for the work in
     // flight, and the rows nearest the bottom stay the ones about right now.
     const teaser = this.teaserRow(columns)
-    if (teaser !== undefined) rows.push(teaser)
+    if (teaser !== undefined) {
+      this.teaserRowsAt = { start: rows.length, count: 1 }
+      rows.push(teaser)
+    }
     const todo = this.todoRows(columns)
     if (todo.length > 0) this.todoRowsAt = { start: rows.length, count: todo.length }
     rows.push(...todo)
@@ -1904,6 +2038,7 @@ function regionKey(target: RegionTarget): string {
   if (target.kind === 'caret') return 'caret'
   if (target.kind === 'candidate') return `candidate:${String(target.index)}`
   if (target.kind === 'todos') return 'todos'
+  if (target.kind === 'teaser') return 'teaser'
   if (target.kind === 'queue') return 'queue'
   if (target.kind === 'queue-panel') {
     return target.target.kind === 'item' ? `queue:item:${String(target.target.index)}` : `queue:${target.target.kind}`

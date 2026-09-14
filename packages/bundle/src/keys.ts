@@ -41,6 +41,8 @@ export type Key =
   | { kind: 'toggle-todos' }
   /** Ctrl-Q: open or close the type-ahead queue panel. */
   | { kind: 'toggle-queue' }
+  /** Ctrl-G: open or close the Panorama overlay. */
+  | { kind: 'toggle-panorama' }
   /** Ctrl-Enter: submit into the RUNNING turn rather than the queue. Kitty protocol only. */
   | { kind: 'steer' }
   | { kind: 'history-search' }
@@ -226,6 +228,9 @@ const CONTROLS: Readonly<Record<string, Key>> = {
   // on swallows it silently, and the click on the queued row is the way in.
   // The kitty form (CSI 113;5u) lands here too, via the Ctrl+letter lookup.
   '\u0011': { kind: 'toggle-queue' },
+  // Ctrl+G toggles the Panorama overlay. BEL (0x07) is the legacy byte; the
+  // kitty form (CSI 103;5u) lands here too, via the Ctrl+letter lookup.
+  '\u0007': { kind: 'toggle-panorama' },
   '\u0012': { kind: 'history-search' },
   '\u0006': { kind: 'transcript-search' },
   '\u0015': { kind: 'kill-input' },
