@@ -1,7 +1,7 @@
 /** Reading a `/ship` spec's plan: how many tickets, and which one is now. */
 
 import { describe, expect, it } from 'vitest'
-import { parseAcceptanceCriteria, parseMainTrack, parseOriginalRequirement, parsePlan, parseShipStatus, parseSpecMetadata, pickLiveShip, planInFlight, planReport, planRow, planSummary, plansEqual, workingLineProgress } from '../src/plan.ts'
+import { activeTicketBrief, parseAcceptanceCriteria, parseLegacyRequirement, parseMainTrack, parseOriginalRequirement, parsePlan, parseShipBlocker, parseShipStatus, parseSpecMetadata, parseTrackIds, pickLiveShip, planInFlight, planReport, planRow, planSummary, plansEqual, workingLineProgress } from '../src/plan.ts'
 import { createTheme } from '../src/theme.ts'
 
 const theme = createTheme(false, {})
@@ -109,6 +109,23 @@ describe('parsePlan', () => {
   it('strips Track: N[,M] from plan titles without breaking blocker stripping (Track: 8)', () => {
     const spec = `## Plan\n\n- [ ] Ticket 3: Occupancy (Blocked by: Ticket 1, Ticket 2) (Track: 1,3) — Delivers pause-then-ask\n`
     expect(parsePlan(spec).tickets[0]?.title).toBe('Ticket 3: Occupancy')
+  })
+
+  it('keeps the raw checkbox body when rawTitles is set', () => {
+    const spec = `## Plan\n\n- [ ] Ticket 3: Occupancy (Blocked by: Ticket 1, Ticket 2) (Track: 1,3) — Delivers pause-then-ask\n`
+    const ticket = parsePlan(spec, { rawTitles: true }).tickets[0]
+    expect(ticket?.title).toBe('Ticket 3: Occupancy (Blocked by: Ticket 1, Ticket 2) (Track: 1,3) — Delivers pause-then-ask')
+    expect(ticket?.raw).toBe(ticket?.title)
+    expect(ticket?.trackIds).toEqual([1, 3])
+  })
+
+  it('still stores raw and trackIds on the display Plan', () => {
+    const spec = `## Plan\n\n- [ ] Ticket 3: Occupancy (Blocked by: Ticket 1, Ticket 2) (Track: 1,3) — Delivers pause-then-ask\n`
+    const plan = parsePlan(spec)
+    const ticket = plan.tickets[0]
+    expect(ticket).toMatchObject({ title: 'Ticket 3: Occupancy', done: false, trackIds: [1, 3] })
+    expect(ticket?.raw).toBe('Ticket 3: Occupancy (Blocked by: Ticket 1, Ticket 2) (Track: 1,3) — Delivers pause-then-ask')
+    expect(planRow(plan, theme, 80)).toBe('0/1 · Ticket 3: Occupancy')
   })
 
   it('reports nothing for a spec with no plan yet', () => {
@@ -242,6 +259,16 @@ This is a design summary, not the original.
     expect(parseAcceptanceCriteria(markdown)).toContain('pnpm test')
     expect(parseAcceptanceCriteria(markdown)).not.toContain('Ticket 1')
   })
+
+  it('reads a legacy Requirement heading as original wording for old specs', () => {
+    expect(parseLegacyRequirement('# Feature\n\n## Requirement\n\nBuild a widget\n')).toBe('Build a widget')
+    expect(parseLegacyRequirement('# Feature\n\n## Original Requirement\n\nKeep this\n')).toBeUndefined()
+  })
+
+  it('reads an unresolved Blocker and ignores archived blocker headings', () => {
+    expect(parseShipBlocker('# Feature\n\n## Blocker\n\nNeed a decision on X\n')).toBe('Need a decision on X')
+    expect(parseShipBlocker('# Feature\n\n## Resolved Blocker\n\nOld issue\n')).toBeUndefined()
+  })
 })
 
 describe('planRow', () => {
@@ -302,5 +329,30 @@ describe('the readout', () => {
     const rows = planReport(parsePlan(many), theme, 80, 4)
     expect(rows).toHaveLength(6)
     expect(rows.at(-1)).toContain('+5 more')
+  })
+})
+
+describe('parseTrackIds and activeTicketBrief', () => {
+  it('reads Track ids from plan checkbox metadata', () => {
+    expect(parseTrackIds('Ticket 1 — Delivers x (Blocked by: none) (Track: 1,3)')).toEqual([1, 3])
+    const plan = parsePlan(`Status: planned\n\n## Plan\n\n- [ ] Ticket 1: Spec schema (Track: 8)\n- [ ] Ticket 2: Prompt (Track: 2,3)\n`)
+    expect(plan.tickets[0]?.trackIds).toEqual([8])
+    expect(plan.tickets[1]?.trackIds).toEqual([2, 3])
+    expect(plan.current?.title).toContain('Ticket 1')
+  })
+
+  it('formats only the current ticket as a land task pack', () => {
+    const plan = parsePlan(`## Plan\n\n- [x] Done (Track: 1)\n- [ ] Next ticket (Track: 2)\n- [ ] Later (Track: 3)\n`)
+    const brief = activeTicketBrief(plan, {
+      requirements: [
+        { id: 'REQ-001', text: 'First', track: [1] },
+        { id: 'REQ-002', text: 'Second', track: [2] },
+      ],
+    })
+    expect(brief).toContain('## Active Ticket')
+    expect(brief).toContain('Next ticket')
+    expect(brief).toContain('REQ-002')
+    expect(brief).not.toContain('Later')
+    expect(brief).toMatch(/ONLY the ticket below/i)
   })
 })

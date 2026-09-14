@@ -40,7 +40,7 @@ describe.skipIf(process.platform === 'win32')('ship per-ticket landing (real PTY
     } finally { await rm(cwd, { recursive: true, force: true }) }
   }, E2E_TEST_TIMEOUT_MS)
 
-  it('blocks drift between tickets before a second model turn', async () => {
+  it('denies a goal rewrite before execution and never dispatches the second ticket', async () => {
     const cwd = await mkdtemp(join(tmpdir(), 'ship-drift-pty-'))
     try {
       const dir = join(cwd, 'docs', 'specs')
@@ -48,9 +48,10 @@ describe.skipIf(process.platform === 'win32')('ship per-ticket landing (real PTY
       await writeFile(join(dir, 'landing-e2e.md'), ledger(true))
       const run = await drivePtySteps('ship-landing', [
         ['Welcome to codsh', `/ship${ENTER}`, 200],
-        ['Frozen ## Main Track', `/exit${ENTER}`, 300],
+        ['Ship stopped after two consecutive', `/exit${ENTER}`, 300],
       ], { cwd })
-      expect(run.output).toContain('SHIP_TICKET_1_DONE')
+      expect(run.output).toContain('section Main Track is immutable')
+      expect(run.output).toContain('SHIP_LANDING_ERROR')
       expect(run.output).not.toContain('SHIP_TICKET_2_DONE')
       expect(run.output).not.toContain('SHIP_VERIFICATION_DONE')
     } finally { await rm(cwd, { recursive: true, force: true }) }

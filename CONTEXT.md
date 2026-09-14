@@ -431,10 +431,10 @@ corruption is a stop, not an accepted rewrite. A first snapshot cannot verify
 earlier history — limited protection, not a tamper-proof sandbox. Plan mode
 writes no snapshots. Coverage is original requirement → Track-N → acceptance →
 ticket → evidence. One module owns that memory for a session — Plan progress,
-the MetaBar chip, the spec poll, occupancy, the sealed-track snapshot, and the
-canned phase loop — so the runner only begins, notes a write, or aborts.
-Occupancy is a Selector, not a third gate. Chrome stays the MetaBar chip and
-plan row; there is no GoalBar.
+the MetaBar chip, the spec poll, occupancy, the sealed-track snapshot, the
+Mission Contract, and the canned phase loop — so the runner only begins, notes a
+write, or aborts. Occupancy is a Selector, not a third gate. Chrome stays
+the MetaBar chip and plan row; there is no GoalBar.
 _Avoid_: checkpoints, review steps, GoalBar, in-session landing, process-only snapshot
 
 **Original Requirement**:
@@ -453,7 +453,8 @@ boundaries and on resume; a mismatch or corruption stops the run. A first
 snapshot has no earlier history to compare, so protection is limited — not a
 security sandbox. Plan mode writes none. Identity, snapshot, and phase checks
 plus review and real proofs are the guardrails; semantic zero drift is not
-claimed.
+claimed. Distinct from the Mission Contract JSON under `.scratch/<slug>/`,
+which compiles richer control-plane ids from the same seal.
 _Avoid_: process-only snapshot, live reread, tamper-proof, security sandbox
 
 **Main Track**:
@@ -484,6 +485,28 @@ and return to repair within the same budget. `/ship` never calls Ralph; its
 tool remains available outside the workflow for explicit requests. Missing
 delegation is stated as a limitation, not claimed as a child that ran.
 _Avoid_: in-session landing, fork history, semantic zero drift
+
+**Mission Contract**:
+The machine-checkable control-plane memory Gate 1 Confirm compiles from the
+sealed Main Track, Out of Scope, and acceptance criteria — REQ / NEG / ACC
+ids with Track-N aliases — written to `.scratch/<slug>/mission.contract.json`.
+Distinct from `<spec>.ship.json`, which snapshots the original wording and
+sealed Main Track / acceptance for resume comparison. The Markdown spec stays
+the human projection; the runner owns the JSON and prepends a compact summary
+on later phases. After seal, write tiers apply: Main Track / Out of Scope /
+grill decisions / original requirement / acceptance criteria / contract JSON
+are immutable (protected writes are refused; external drift stops the run
+and remains on disk for inspection); Implementation Decisions are semi-mutable (blocker required); Status,
+Plan, Baseline, and Verification are mutable world state. Land turns also
+prepend an Active Ticket pack — only the first unticked plan line — so the
+executor cannot replan the whole DAG each turn. An Alignment Gate refuses
+writes that lack requirement mapping or hit immutable memory. A Drift
+Detector scores plan/action drift against the seal and treats a rewritten
+Main Track as a blocker, not an accepted rewrite. An independent
+Verifier matches acceptance criteria to recorded evidence and reconciles
+premature plan ticks at final verification, not after each ticket write;
+delivery and the ship goal do not complete without that evidence.
+_Avoid_: hand-authored JSON, prompt-only freeze, GoalBar, wording-snapshot substitute
 
 **Occupancy**:
 Before the first `/ship` phase turn, if an unrelated current `/goal` exists,

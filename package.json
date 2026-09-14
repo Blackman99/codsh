@@ -18,6 +18,7 @@
     "@changesets/cli": "^3.0.0",
     "@deepseek-ai/cordis": "^4.0.2",
     "@deepseek-ai/cordis-plugin-group": "^1.0.2",
+    "@deepseek-ai/cordis-plugin-include": "^1.0.7",
     "@deepseek-ai/cordis-plugin-loader": "^1.0.3",
     "@deepseek-ai/dsh-agent": "^0.1.5-rc.1",
     "@deepseek-ai/dsh-agent-default-model": "^0.1.5-rc.1",

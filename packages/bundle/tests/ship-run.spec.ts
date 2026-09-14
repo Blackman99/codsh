@@ -676,7 +676,8 @@ describe('ShipRun', () => {
     expect(prompts[1]).toContain('**Idea.** Bind /goal into /ship.')
     expect(prompts[1]).toContain('Strict Vertical Tracer Slicing')
     expect(prompts[1]).not.toContain('silently rewritten design')
-    expect(flashes.some(text => /Main Track no longer matches/i.test(text))).toBe(true)
+    expect(flashes.some(text => /Frozen ## Main Track/i.test(text))).toBe(true)
+    expect(readFileSync(path, 'utf8')).toContain('silently rewritten design')
   })
 
   it('re-asserts a drifted or armed compass on later injects (Track: 1,7)', async () => {
@@ -845,7 +846,8 @@ describe('ShipRun', () => {
     const third = new ShipRun(cwd, chrome, { flash: text => { flashes.push(text) } })
     await third.run('', async (prompt) => { drifted.push(prompt) })
     expect(drifted).toEqual([])
-    expect(flashes.some(text => /Main Track no longer matches/i.test(text))).toBe(true)
+    expect(flashes.some(text => /Frozen ## Main Track/i.test(text))).toBe(true)
+    expect(readFileSync(path, 'utf8')).toContain('silently rewritten design')
   })
 
   it('blocks a typed idea that conflicts with the saved original', async () => {
@@ -1024,7 +1026,10 @@ describe('ShipRun', () => {
       else writeFileSync(path, 'Status: planned\n\n## Requirement\n\nA design summary.\n')
     })
     expect(prompts).toHaveLength(2)
-    expect(flashes.some(text => /Frozen ## Original Requirement is missing|Frozen ## Main Track is missing/i.test(text))).toBe(true)
+    expect(flashes.some(text => /Frozen ## (?:Original Requirement|Main Track)/i.test(text))).toBe(true)
+    expect(readFileSync(path, 'utf8')).toContain('## Requirement')
+    expect(readFileSync(path, 'utf8')).not.toContain('## Original Requirement')
+    expect(readFileSync(path, 'utf8')).not.toContain('## Main Track')
   })
 
   it('still validates disk when optional goals throw', async () => {
@@ -1061,7 +1066,10 @@ describe('ShipRun', () => {
     })
     await ship.run('', async (prompt) => { prompts.push(prompt) })
     expect(prompts).toEqual([])
-    expect(flashes.some(text => /Frozen ## Original Requirement is missing|Frozen ## Main Track is missing/i.test(text))).toBe(true)
+    expect(flashes.some(text => /Frozen ## (?:Original Requirement|Main Track)/i.test(text))).toBe(true)
+    expect(readFileSync(path, 'utf8')).toContain('## Requirement')
+    expect(readFileSync(path, 'utf8')).not.toContain('## Original Requirement')
+    expect(readFileSync(path, 'utf8')).not.toContain('## Main Track')
   })
 
   it('does not substitute $ARGUMENTS that live in the original requirement or track', async () => {
@@ -1112,10 +1120,405 @@ describe('composition root', () => {
     expect(source).toContain("ctx.get('goals')")
     expect(source).toContain('prompt.select')
     expect(source).toContain('prompt.setFlash')
+    expect(source).toContain('tools/pre-execute')
+    expect(source).toContain('alignTool')
     expect(source).not.toContain('GoalBar')
     expect(source).toMatch(/new ShipRun\([\s\S]*goals/)
     expect(source).toContain('selectSpec')
     expect(source).toContain('isPlanMode')
     expect(source).toContain('sessionFolds.planMode')
   })
+
+  it('compiles and writes a Mission Contract at Confirm and prepends it later', async () => {
+    const cwd = mkdtempSync(join(tmpdir(), 'ship-run-'))
+    const markdown = [
+      'Status: interviewing',
+      'Branch: ship/widget',
+      '',
+      '## Main Track',
+      '',
+      '**Idea.** Bind /goal into /ship.',
+      '**Track-1.** Hybrid compass.',
+      '**Out of Scope.**',
+      '- No harness fork.',
+      '',
+      '## Acceptance Criteria',
+      '',
+      '1. `pnpm test` exits 0.',
+    ].join('\n')
+    const path = writeSpec(cwd, 'widget.md', markdown)
+    const prompts: string[] = []
+    const flashes: string[] = []
+    const ship = new ShipRun(cwd, chrome, { flash: text => { flashes.push(text) } })
+    await ship.run('build a widget', async (prompt) => {
+      prompts.push(prompt)
+      if (prompts.length === 1) {
+        writeFileSync(path, markdown.replace('Status: interviewing', 'Status: confirmed'))
+      } else if (prompts.length === 2) {
+        writeFileSync(path, [
+          'Status: planned',
+          'Branch: ship/widget',
+          '',
+          '## Main Track',
+          '',
+          '**Idea.** silently rewritten design.',
+          '',
+          '## Acceptance Criteria',
+          '',
+          '1. `pnpm test` exits 0.',
+        ].join('\n'))
+      }
+    })
+    expect(ship.missionContract).toBeDefined()
+    expect(ship.missionContract?.objective).toBe('Bind /goal into /ship.')
+    expect(ship.missionContract?.requirements[0]?.id).toBe('REQ-001')
+    expect(ship.missionContract?.excluded[0]?.text).toContain('No harness fork')
+    expect(ship.missionContractFile).toBeDefined()
+    expect(existsSync(ship.missionContractFile!)).toBe(true)
+    expect(readFileSync(ship.missionContractFile!, 'utf8')).toContain('"REQ-001"')
+    expect(prompts.length).toBeGreaterThanOrEqual(2)
+    expect(prompts[1]).toContain('## Mission Contract')
+    expect(prompts[1]).toContain('REQ-001')
+    expect(prompts[1]).toContain('Bind /goal into /ship.')
+    expect(prompts[1]).not.toContain('silently rewritten design')
+    expect(prompts.length).toBe(2)
+    expect(flashes.some(f => /Frozen ## Main Track/i.test(f))).toBe(true)
+    expect(readFileSync(path, 'utf8')).toContain('silently rewritten design')
+    expect(readFileSync(ship.missionContractFile!, 'utf8')).toContain('Bind /goal into /ship.')
+    expect(readFileSync(ship.missionContractFile!, 'utf8')).not.toContain('silently rewritten design')
+  })
+
+
+
+  it('halts on a rewritten sealed Main Track, keeps the modified file, and still injects only the active ticket on land', async () => {
+    const cwd = mkdtempSync(join(tmpdir(), 'ship-run-'))
+    const markdown = [
+      'Status: interviewing',
+      'Branch: ship/widget',
+      '',
+      '## Main Track',
+      '',
+      '**Idea.** Bind /goal into /ship.',
+      '**Track-1.** Hybrid compass.',
+      '**Out of Scope.**',
+      '- No harness fork.',
+      '',
+      '## Acceptance Criteria',
+      '',
+      '1. `pnpm test` exits 0.',
+      '',
+      '## Plan',
+      '',
+      '- [ ] Ticket 1: Spec schema (Track: 1)',
+      '- [ ] Ticket 2: Prompt contracts (Track: 2)',
+    ].join('\n')
+    const path = writeSpec(cwd, 'widget.md', markdown)
+    const prompts: string[] = []
+    const flashes: string[] = []
+    const ship = new ShipRun(cwd, chrome, { flash: text => { flashes.push(text) } })
+    const rewritten = [
+      'Status: planned',
+      'Branch: ship/widget',
+      '',
+      '## Main Track',
+      '',
+      '**Idea.** silently rewritten design.',
+      '',
+      '## Acceptance Criteria',
+      '',
+      '1. `pnpm test` exits 0.',
+      '',
+      '## Plan',
+      '',
+      '- [ ] Ticket 1: Spec schema (Track: 1)',
+      '- [ ] Ticket 2: Prompt contracts (Track: 2)',
+    ].join('\n')
+    await ship.run('build a widget', async (prompt) => {
+      prompts.push(prompt)
+      if (prompts.length === 1) {
+        writeFileSync(path, markdown.replace('Status: interviewing', 'Status: confirmed'))
+      } else if (prompts.length === 2) {
+        writeFileSync(path, rewritten)
+      }
+    })
+    expect(prompts).toHaveLength(2)
+    expect(prompts[1]).toContain('## Mission Contract')
+    expect(prompts[1]).toContain('REQ-001')
+    expect(prompts[1]).toContain('Bind /goal into /ship.')
+    expect(prompts[1]).not.toContain('silently rewritten design')
+    expect(flashes.some(f => /Frozen ## Main Track/i.test(f))).toBe(true)
+    expect(readFileSync(path, 'utf8')).toBe(rewritten)
+    expect(readFileSync(ship.missionContractFile!, 'utf8')).toContain('Bind /goal into /ship.')
+    expect(readFileSync(ship.missionContractFile!, 'utf8')).not.toContain('silently rewritten design')
+
+    const land = mkdtempSync(join(tmpdir(), 'ship-run-'))
+    const landPath = writeSpec(land, 'widget.md', markdown.replace('Status: interviewing', 'Status: planned'))
+    const landPrompts: string[] = []
+    const landShip = new ShipRun(land, chrome)
+    await landShip.run('build a widget', async (prompt) => {
+      landPrompts.push(prompt)
+      landShip.abort()
+    })
+    expect(landPrompts).toHaveLength(1)
+    expect(landPrompts[0]).toContain('## Active Ticket')
+    expect(landPrompts[0]).toContain('Ticket 1: Spec schema')
+    expect(landPrompts[0]).toContain('REQ-001')
+    expect(landPrompts[0]).not.toContain('Ticket 2: Prompt contracts')
+    expect(readFileSync(landPath, 'utf8')).toContain('**Idea.** Bind /goal into /ship.')
+  })
+
+
+
+  it('loads an existing Mission Contract on resume instead of recompiling over it', async () => {
+    const cwd = mkdtempSync(join(tmpdir(), 'ship-run-'))
+    const markdown = [
+      'Status: planned',
+      'Branch: ship/widget',
+      '',
+      '## Main Track',
+      '',
+      '**Idea.** Bind /goal into /ship.',
+      '**Track-1.** Hybrid compass.',
+      '**Out of Scope.**',
+      '- No harness fork.',
+      '',
+      '## Acceptance Criteria',
+      '',
+      '1. `pnpm test` exits 0.',
+      '',
+      '## Plan',
+      '',
+      '- [ ] Ticket 1: Spec schema (Track: 1)',
+    ].join('\n')
+    const path = writeSpec(cwd, 'widget.md', markdown)
+    const first = new ShipRun(cwd, chrome)
+    await first.run('build a widget', async () => {})
+    expect(first.missionContractFile).toBeDefined()
+    const sealed = readFileSync(first.missionContractFile!, 'utf8')
+    expect(sealed).toContain('Bind /goal into /ship.')
+
+    // Interrupt rewrite of Main Track on disk, then resume a fresh run.
+    const drifted = markdown.replace('Bind /goal into /ship.', 'silently rewritten after interrupt')
+    writeFileSync(path, drifted)
+    const flashes: string[] = []
+    const second = new ShipRun(cwd, chrome, { flash: text => { flashes.push(text) } })
+    const prompts: string[] = []
+    await second.run('build a widget', async (prompt) => { prompts.push(prompt) })
+    expect(second.missionContract?.objective).toBe('Bind /goal into /ship.')
+    expect(readFileSync(second.missionContractFile!, 'utf8')).toBe(sealed)
+    expect(readFileSync(path, 'utf8')).toBe(drifted)
+    expect(readFileSync(path, 'utf8')).toContain('silently rewritten after interrupt')
+    expect(prompts).toEqual([])
+    expect(flashes.some(f => /Frozen ## Main Track/i.test(f))).toBe(true)
+  })
+
+  it('advances land turns when the Active Ticket completes without a phase change', async () => {
+    const cwd = mkdtempSync(join(tmpdir(), 'ship-run-'))
+    const markdown = [
+      'Status: planned',
+      'Branch: ship/widget',
+      '',
+      '## Main Track',
+      '',
+      '**Idea.** Bind /goal into /ship.',
+      '**Track-1.** Hybrid compass.',
+      '**Track-2.** Compact payload.',
+      '**Out of Scope.**',
+      '- No harness fork.',
+      '',
+      '## Acceptance Criteria',
+      '',
+      '1. `pnpm test` exits 0.',
+      '',
+      '## Plan',
+      '',
+      '- [ ] Ticket 1: Spec schema (Track: 1)',
+      '- [ ] Ticket 2: Prompt contracts (Track: 2)',
+    ].join('\n')
+    const path = writeSpec(cwd, 'widget.md', markdown)
+    const prompts: string[] = []
+    const ship = new ShipRun(cwd, chrome)
+    await ship.run('build a widget', async (prompt) => {
+      prompts.push(prompt)
+      if (prompts.length === 1) {
+        writeFileSync(path, markdown.replace('- [ ] Ticket 1: Spec schema (Track: 1)', '- [x] Ticket 1: Spec schema (Track: 1)'))
+      }
+    })
+    expect(prompts.length).toBeGreaterThanOrEqual(2)
+    expect(prompts[0]).toContain('Ticket 1: Spec schema')
+    expect(prompts[0]).not.toContain('Ticket 2: Prompt contracts')
+    expect(prompts[1]).toContain('Ticket 2: Prompt contracts')
+    expect(prompts[1]).not.toContain('Ticket 1: Spec schema')
+  })
+
+  it('halts and keeps the deleted Main Track on disk as evidence', async () => {
+    const cwd = mkdtempSync(join(tmpdir(), 'ship-run-'))
+    const markdown = [
+      'Status: interviewing',
+      'Branch: ship/widget',
+      '',
+      '## Main Track',
+      '',
+      '**Idea.** Bind /goal into /ship.',
+      '**Track-1.** Hybrid compass.',
+      '**Out of Scope.**',
+      '- No harness fork.',
+      '',
+      '## Acceptance Criteria',
+      '',
+      '1. `pnpm test` exits 0.',
+    ].join('\n')
+    const path = writeSpec(cwd, 'widget.md', markdown)
+    const flashes: string[] = []
+    const ship = new ShipRun(cwd, chrome, { flash: text => { flashes.push(text) } })
+    const prompts: string[] = []
+    const deleted = [
+      'Status: planned',
+      'Branch: ship/widget',
+      '',
+      '## Acceptance Criteria',
+      '',
+      '1. `pnpm test` exits 0.',
+    ].join('\n')
+    await ship.run('build a widget', async (prompt) => {
+      prompts.push(prompt)
+      if (prompts.length === 1) {
+        writeFileSync(path, markdown.replace('Status: interviewing', 'Status: confirmed'))
+      } else {
+        writeFileSync(path, deleted)
+      }
+    })
+    expect(prompts).toHaveLength(2)
+    expect(readFileSync(path, 'utf8')).toBe(deleted)
+    expect(readFileSync(path, 'utf8')).not.toContain('## Main Track')
+    expect(ship.missionContract?.objective).toBe('Bind /goal into /ship.')
+    expect(readFileSync(ship.missionContractFile!, 'utf8')).toContain('Bind /goal into /ship.')
+    expect(flashes.some(f => /Frozen ## Main Track/i.test(f))).toBe(true)
+  })
+
+  it('alignTool denies immutable contract writes before execution', async () => {
+    const cwd = mkdtempSync(join(tmpdir(), 'ship-run-'))
+    const markdown = [
+      'Status: interviewing',
+      'Branch: ship/widget',
+      '',
+      '## Main Track',
+      '',
+      '**Idea.** Bind /goal into /ship.',
+      '**Track-1.** Hybrid compass.',
+      '**Out of Scope.**',
+      '- No harness fork.',
+      '',
+      '## Acceptance Criteria',
+      '',
+      '1. `pnpm test` exits 0.',
+      '',
+      '## Plan',
+      '',
+      '- [ ] Ticket 1: Spec schema (Track: 1)',
+    ].join('\n')
+    const path = writeSpec(cwd, 'widget.md', markdown)
+    const ship = new ShipRun(cwd, chrome)
+    await ship.run('build a widget', async () => {
+      writeFileSync(path, markdown.replace('Status: interviewing', 'Status: confirmed'))
+    })
+    expect(ship.missionContractFile).toBeDefined()
+    const deny = ship.alignTool('write', { path: ship.missionContractFile! })
+    expect(deny.allow).toBe(false)
+    const allow = ship.alignTool('write', { path: 'src/openai.ts' })
+    expect(allow.allow).toBe(true)
+  })
+
+
+  it('loads sealed contract when Main Track was deleted before resume', async () => {
+    const cwd = mkdtempSync(join(tmpdir(), 'ship-run-'))
+    const markdown = [
+      'Status: planned',
+      'Branch: ship/widget',
+      '',
+      '## Main Track',
+      '',
+      '**Idea.** Bind /goal into /ship.',
+      '**Track-1.** Hybrid compass.',
+      '**Out of Scope.**',
+      '- No harness fork.',
+      '',
+      '## Acceptance Criteria',
+      '',
+      '1. `pnpm test` exits 0.',
+      '',
+      '## Plan',
+      '',
+      '- [ ] Ticket 1: Spec schema (Track: 1)',
+    ].join('\n')
+    const path = writeSpec(cwd, 'widget.md', markdown)
+    const first = new ShipRun(cwd, chrome)
+    await first.run('build a widget', async () => {})
+    expect(first.missionContractFile).toBeDefined()
+
+    writeFileSync(path, [
+      'Status: planned',
+      'Branch: ship/widget',
+      '',
+      '## Acceptance Criteria',
+      '',
+      '1. `pnpm test` exits 0.',
+      '',
+      '## Plan',
+      '',
+      '- [ ] Ticket 1: Spec schema (Track: 1)',
+    ].join('\n'))
+
+    const prompts: string[] = []
+    const flashes: string[] = []
+    const second = new ShipRun(cwd, chrome, { flash: text => { flashes.push(text) } })
+    await second.run('build a widget', async (prompt) => { prompts.push(prompt) })
+    expect(second.missionContract?.objective).toBe('Bind /goal into /ship.')
+    expect(prompts).toEqual([])
+    expect(readFileSync(path, 'utf8')).not.toContain('## Main Track')
+    expect(readFileSync(second.missionContractFile!, 'utf8')).toContain('Bind /goal into /ship.')
+    expect(flashes.some(f => /Frozen ## Main Track/i.test(f))).toBe(true)
+  })
+
+  it('alignTool allows reading the sealed contract and denies Out of Scope rewrites', async () => {
+    const cwd = mkdtempSync(join(tmpdir(), 'ship-run-'))
+    const markdown = [
+      'Status: interviewing',
+      'Branch: ship/widget',
+      '',
+      '## Main Track',
+      '',
+      '**Idea.** Bind /goal into /ship.',
+      '**Track-1.** Hybrid compass.',
+      '**Out of Scope.**',
+      '- No harness fork.',
+      '',
+      '## Out of Scope',
+      '',
+      '- No harness fork.',
+      '',
+      '## Acceptance Criteria',
+      '',
+      '1. `pnpm test` exits 0.',
+      '',
+      '## Plan',
+      '',
+      '- [ ] Ticket 1: Spec schema (Track: 1)',
+    ].join('\n')
+    const path = writeSpec(cwd, 'widget.md', markdown)
+    const ship = new ShipRun(cwd, chrome)
+    await ship.run('build a widget', async () => {
+      writeFileSync(path, markdown.replace('Status: interviewing', 'Status: confirmed'))
+    })
+    expect(ship.missionContractFile).toBeDefined()
+    expect(ship.alignTool('read', { path: ship.missionContractFile! }).allow).toBe(true)
+
+    const current = readFileSync(path, 'utf8')
+    const rewritten = current.replace('- No harness fork.', '- No harness fork.\n- also cloud GPUs')
+    const deny = ship.alignTool('write', { file_path: path, content: rewritten })
+    expect(deny.allow).toBe(false)
+    expect(deny.reasons.some(r => /Out of Scope|immutable|section/i.test(r))).toBe(true)
+  })
+
+
 })

@@ -354,9 +354,10 @@ describe('dsh code (real profile, keyless model)', () => {
     const run = await runCodeCli({ tool: 'echo', input: '/ship add a SHIP_E2E_IDEA command\n/exit\n' })
 
     // The command echoes as typed; the request carries the current phase
-    // (wayfinder first) with the idea substituted.
+    // (wayfinder first) with the idea substituted, including Mission Contract freeze.
     expect(run.stdout).toContain('› /ship add a SHIP_E2E_IDEA command')
     expect(run.stdout).toContain('ship=yes')
+    expect(run.stdout).toContain('mission=yes')
     expect(run.stdout).not.toContain('unknown command')
   }, E2E_TEST_TIMEOUT_MS)
 

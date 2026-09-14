@@ -55,7 +55,7 @@ codsh
 
 每次 `/ship` 只注入一份合同（wayfinder / grill / to-spec / to-tickets / TDD），避免后面阶段把正在执行的合同挤掉。运行时为阶段、goal、界面和完成绑定一份 spec。多份未完成 spec 会弹出选择器；管道里拒绝猜测。状态栏从 `ship · wayfinder` 开始，与计划行一起跟随这份绑定 spec。spec 的 `## Wayfinder` 保存决策图链接，供 grill 和规格合成读取。已有 `interviewing`、`confirmed`、`planned`、`landing` spec 保持原阶段含义，恢复时不重跑 wayfinder。裸 `/ship` 续跑未完成工作，且不会把原始需求抹空；恢复实施任务时先级联重验。
 
-Gate 1 Confirm 会封存 Main Track 和验收标准。运行器在相邻的 `<spec>.ship.json`（例如 `widget.md` → `widget.ship.json`）里持久化原始需求，以及确认时已有的封存 Main Track 和验收标准；这份文件由运行器管理，模型不得改、删或重生成。将它原样随 spec 提交，以便重新检出代码后仍保留比较基线。后续阶段和续跑在阶段边界核对该快照；不匹配或损坏就停下，而不是接受改写。第一份快照无法核对其之前的历史，因此这是有限保护，不是防篡改沙箱。plan 模式不写快照。goal 仍可选；裸 `/ship` 仍保留原始措辞。守卫是身份、快照、阶段检查，加上审查和实跑证明——不保证语义零漂移。若会话里已有无关的 `/goal`，`/ship` 会先暂停它并弹出 `ship · occupancy`（Replace / Abort）；管道里自动 Replace。运行期间 `/goal` 显示带 `[ship]` 标记的指南针。Chrome 不变：不加新行，也没有 GoalBar。
+Gate 1 Confirm 会封存 Main Track 和验收标准。运行器在相邻的 `<spec>.ship.json`（例如 `widget.md` → `widget.ship.json`）里持久化原始需求，以及确认时已有的封存 Main Track 和验收标准；这份文件由运行器管理，模型不得改、删或重生成。将它原样随 spec 提交，以便重新检出代码后仍保留措辞比较基线。后续阶段和续跑在阶段边界核对该快照；不匹配或损坏就停下，而不是接受改写。第一份快照无法核对其之前的历史，因此这是有限保护，不是防篡改沙箱。plan 模式不写快照。与这份措辞快照分开，Confirm 还会编译一份由 runner 持有的密封 Mission Contract（`.scratch/<slug>/mission.contract.json`）：REQ / NEG / ACC 编号、不可变 Main Track 的写入保护、Alignment Gate / Drift Detector / Verifier，以及后续轮次前置的合同摘要，落地阶段不能改写设计。密封后，受保护内容的写入会在执行前拒绝；外部改写 Main Track 会停止运行并保留磁盘现场供检查，不自动恢复后继续。最终交付还必须具有已记录的验收证据。落地阶段每次只注入当前未完成的 Active Ticket。goal 仍可选；裸 `/ship` 仍保留原始措辞。守卫是身份、快照、阶段检查，加上审查和实跑证明——不保证语义零漂移。若会话里已有无关的 `/goal`，`/ship` 会先暂停它并弹出 `ship · occupancy`（Replace / Abort）；管道里自动 Replace。运行期间 `/goal` 显示带 `[ship]` 标记的指南针。Chrome 不变：不加新行，也没有 GoalBar。
 
 ```sh
 /ship 让超长 diff 用分页器打开而不是刷屏滚过

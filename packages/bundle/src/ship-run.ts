@@ -9,13 +9,32 @@
  * @module codsh-bundle/src/ship-run
  */
 
-import { readdirSync, readFileSync } from 'node:fs'
+import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { basename, dirname, join, resolve, sep } from 'node:path'
-import { parseMainTrack, parseOriginalRequirement, parseShipBlocker, parseShipStatus, parseSpecMetadata, pickLiveShip, planInFlight, plansEqual } from './plan.ts'
+import { activeTicketBrief, parseMainTrack, parseOriginalRequirement, parsePlan, parseShipBlocker, parseShipStatus, parseSpecMetadata, pickLiveShip, planInFlight, plansEqual } from './plan.ts'
 import { landingPlan, sameLandingPlan } from './ship-landing.ts'
 import type { Plan, ShipSpecFile } from './plan.ts'
 import { expandTemplate } from './custom-commands.ts'
 import type { SelectAsk } from './questions.ts'
+import {
+  classifyPath,
+  compileMissionContract,
+  mainTrackDrifted,
+  missionContractPath,
+  missionContractSummary,
+  protectedSectionsChanged,
+  readMissionContract,
+  slugFromSpec,
+  writeAllowed,
+  writeMissionContract,
+} from './mission.ts'
+import type { MissionContract } from './mission.ts'
+import { alignAction, descriptorFromToolCall, isMutatingTool, proposeSpecMarkdown } from './align.ts'
+import type { ActionDescriptor, AlignVerdict } from './align.ts'
+import { detectDrift, DRIFT_FLASH_AT } from './drift.ts'
+import type { DriftReport } from './drift.ts'
+import { parseEvidenceFromSpec, reconcilePlanTicks, verifyAcceptance } from './verify.ts'
+import type { VerifyVerdict } from './verify.ts'
 import { shipPhaseKind, shipPromptFor } from './ship.ts'
 import type { ShipPhaseKind } from './ship.ts'
 import { sameShipChip, shipChipFromSpec } from './status.ts'
@@ -205,6 +224,11 @@ const PHASE_RANK: Record<ShipPhaseKind, number> = {
   done: 5,
 }
 
+/** Mission Contract checks complement the original-requirement snapshot. */
+const ALIGN_DENIED = 'Alignment Gate denied write — sealed Mission Contract holds'
+const DRIFT_FLASH = 'Mission drift detected — review plan against sealed contract'
+const VERIFY_INCOMPLETE = 'Verifier: acceptance evidence incomplete — plan ticks reconciled'
+
 /** What the runner must do to spend a canned-command turn. */
 export interface ShipTurn {
   (prompt: string): Promise<void>
@@ -229,6 +253,16 @@ export class ShipRun {
   private goalId: string | undefined
   /** Process snapshot of `## Main Track` captured at Confirm; later injects prepend this, not a live reread. */
   private sealedTrack: string | undefined
+  /** Sealed Mission Contract compiled at Confirm; control-plane memory for later phases. */
+  private sealedContract: MissionContract | undefined
+  /** Absolute path of the sealed mission.contract.json, when written. */
+  private sealedContractPath: string | undefined
+  /** Recent aligned actions for drift scans (capped). */
+  private recentActions: ActionDescriptor[] = []
+  /** Last drift report, for tests and chrome. */
+  private lastDrift: DriftReport | undefined
+  /** Last verifier verdict, for tests. */
+  private lastVerify: VerifyVerdict | undefined
   /** Spec this run is following; complete only if this file becomes shipped. */
   private followedSpec: string | undefined
   /** Adjacent freeze for the bound spec; status, track, and original come from it. */
@@ -260,6 +294,26 @@ export class ShipRun {
     return this.plan
   }
 
+  /** Sealed Mission Contract for this run, absent before Confirm. */
+  get missionContract(): MissionContract | undefined {
+    return this.sealedContract
+  }
+
+  /** Absolute path of mission.contract.json when the runner wrote one. */
+  get missionContractFile(): string | undefined {
+    return this.sealedContractPath
+  }
+
+  /** Latest drift report from a sealed run, if any. */
+  get driftReport(): DriftReport | undefined {
+    return this.lastDrift
+  }
+
+  /** Latest verifier verdict, if any. */
+  get verifyVerdict(): VerifyVerdict | undefined {
+    return this.lastVerify
+  }
+
   /**
    * Note markdown the agent wrote, so the live spec can be found later.
    * @param paths - paths the event reported writing.
@@ -271,7 +325,83 @@ export class ShipRun {
       if (already >= 0) this.writtenDocs.splice(already, 1)
       this.writtenDocs.unshift(path)
     }
+    this.guardWrites(paths)
     if (paths.some(path => path.endsWith('.md'))) this.refresh()
+    this.scanDrift()
+    this.verifyAndReconcile(false)
+  }
+
+  /**
+   * Alignment Gate for one action descriptor. Public so the surface can refuse
+   * a tool before it runs; also used for write-path guards.
+   */
+  align(descriptor: ActionDescriptor): AlignVerdict {
+    const ticket = this.currentTicket()
+    const verdict = alignAction(descriptor, {
+      ...(this.sealedContract === undefined ? {} : { contract: this.sealedContract }),
+      sealed: this.sealedContract !== undefined,
+      ...(ticket === undefined ? {} : { activeTicket: ticket }),
+    })
+    this.rememberAction(descriptor)
+    return verdict
+  }
+
+  /**
+   * Build + align a tool call before it runs (`tools/pre-execute`).
+   * Land turns auto-fill Active Ticket Track→REQ supports when the model
+   * omitted them, so legitimate ticket writes are not fail-closed as unmapped.
+   */
+  alignTool(toolName: string, args: unknown): AlignVerdict {
+    const ticket = this.currentTicket()
+    const supports = this.activeTicketSupports(ticket)
+    let descriptor = descriptorFromToolCall(toolName, args, {
+      ...(supports === undefined ? {} : { supports }),
+      ...(ticket === undefined ? {} : { task: ticket.title }),
+    })
+    const section = this.protectedSectionFromTool(toolName, args, descriptor.path)
+    if (section !== undefined) {
+      descriptor = { ...descriptor, section }
+    }
+    return this.align(descriptor)
+  }
+
+  /**
+   * Compare a mutating write/edit of the live ship spec against protected
+   * headings. Auto-filled supports must not let Out of Scope / Grill / etc.
+   * rewrites through as a mutable path.
+   */
+  private protectedSectionFromTool(
+    toolName: string,
+    args: unknown,
+    path: string | undefined,
+  ): string | undefined {
+    if (!isMutatingTool(toolName) || path === undefined || !/\.md$/iu.test(path)) return undefined
+    const specPath = this.followedSpec
+    if (specPath === undefined) return undefined
+    const norm = (value: string): string => value.replace(/\\/gu, '/')
+    const np = norm(path)
+    const ns = norm(specPath)
+    const base = ns.split('/').pop() ?? ''
+    const same = np === ns || ns.endsWith(np) || np.endsWith(ns) || (base !== '' && np.endsWith(`/${base}`))
+    if (!same) return undefined
+    let current: string | undefined
+    try {
+      current = readFileSync(specPath, 'utf8')
+    } catch {
+      current = undefined
+    }
+    const proposed = proposeSpecMarkdown(args, current)
+    if (proposed === undefined) return undefined
+    if (parseShipStatus(proposed) === 'shipped' && this.sealedContract !== undefined) {
+      if (this.currentTicket() !== undefined || landingPlan(proposed).active !== undefined) return 'Acceptance Criteria'
+      if (this.sealedContract.acceptance.length > 0 && !verifyAcceptance(this.sealedContract, parseEvidenceFromSpec(proposed)).satisfied) return 'Acceptance Criteria'
+    }
+    const sealedFallback = this.sealedContract === undefined
+      ? ''
+      : `## Main Track\n\n${this.sealedContract.mainTrackMarkdown}\n`
+    const before = current ?? sealedFallback
+    const changed = protectedSectionsChanged(before, proposed)
+    return changed[0]
   }
 
   /** Re-read the live spec so the plan row and chip match the file on disk. */
@@ -332,6 +462,11 @@ export class ShipRun {
     this.lastDone = undefined
     this.goalId = undefined
     this.sealedTrack = undefined
+    this.sealedContract = undefined
+    this.sealedContractPath = undefined
+    this.recentActions = []
+    this.lastDrift = undefined
+    this.lastVerify = undefined
     this.followedSpec = undefined
     this.snapshot = undefined
     this.originalRequirement = undefined
@@ -541,11 +676,14 @@ export class ShipRun {
     const original = this.originalRequirement
     const specPath = this.followedSpec
     const landing = shipPhaseKind(status) === 'land' ? landingPlan(this.followedMarkdown() ?? '') : undefined
+    const mission = this.missionForPrompt()
+    const ticket = this.activeTicketForPrompt()
+    const prepend = [track, mission, ticket].filter((part): part is string => part !== undefined).join('\n\n')
     const prompt = shipPromptFor(status, {
       ...(landing === undefined ? {} : { verificationOnly: landing.tickets.length > 0 && landing.active === undefined }),
       ...(landing?.active === undefined ? {} : { activeTicket: landing.active.contract }),
       ...(this.goalId === undefined ? {} : { goalId: this.goalId }),
-      ...(track === undefined ? {} : { track }),
+      ...(prepend === '' ? {} : { track: prepend }),
       ...(original === undefined ? {} : { originalRequirement: original }),
       ...(specPath === undefined ? {} : { specPath }),
     })
@@ -554,10 +692,38 @@ export class ShipRun {
     return original === undefined ? expandTemplate(prompt, this.typedIdea) : prompt
   }
 
+  /**
+   * Land/done only: inject the first unticked ticket as a local task pack so
+   * the executor cannot replan the whole plan each turn.
+   */
+  private activeTicketForPrompt(): string | undefined {
+    const kind = shipPhaseKind(this.status())
+    if (kind !== 'land' && kind !== 'done') return undefined
+    const specPath = this.followedSpec
+    if (specPath === undefined) return undefined
+    try {
+      const markdown = readFileSync(specPath, 'utf8')
+      const requirements = this.sealedContract?.requirements
+      const plan = parsePlan(markdown)
+      return activeTicketBrief({ ...plan, current: this.currentTicket() }, {
+        ...(requirements === undefined ? {} : { requirements }),
+      })
+    } catch {
+      return undefined
+    }
+  }
+
   /** Complete the ship compass when this run's spec is shipped. */
   private async completeShipGoal(): Promise<void> {
     const goals = this.ports.goals
     if (goals === undefined || this.goalId === undefined) return
+    if (this.sealedContract !== undefined && this.sealedContract.acceptance.length > 0) {
+      this.verifyAndReconcile(false)
+      if (this.lastVerify === undefined || !this.lastVerify.satisfied) {
+        this.ports.flash?.(VERIFY_INCOMPLETE)
+        return
+      }
+    }
     try {
       await goals.complete(this.goalId)
     } catch {
@@ -578,20 +744,156 @@ export class ShipRun {
   /**
    * Draft track from the bound spec until Confirm; then freeze a snapshot.
    * Interviewing still prepends the live draft; later phases keep the seal.
+   * Confirm also compiles and writes the Mission Contract JSON the runner owns.
    */
   private trackForPrompt(): string | undefined {
-    if (this.snapshot?.trackSealed === true && this.snapshot.mainTrack !== undefined) {
-      this.sealedTrack = this.snapshot.mainTrack
-      return this.snapshot.mainTrack
-    }
-    if (this.sealedTrack !== undefined) return this.sealedTrack
-    const live = this.liveTrack()
-    if (live === undefined) return undefined
+    if (this.snapshot?.trackSealed === true && this.snapshot.mainTrack !== undefined) return this.snapshot.mainTrack
+    if (this.sealedContract !== undefined) return `## Main Track\n\n${this.sealedContract.mainTrackMarkdown}`
+    return this.sealedTrack ?? this.liveTrack()
+  }
+
+  /**
+   * Compact Mission Contract summary for later phase injects. Absent until
+   * Confirm seals one; later phases keep the sealed summary even if the
+   * Markdown Main Track is rewritten on disk.
+   */
+  private missionForPrompt(): string | undefined {
+    if (this.sealedContract === undefined) return undefined
+    return missionContractSummary(this.sealedContract, this.sealedContractPath)
+  }
+
+  /**
+   * Compile + persist the Mission Contract beside `.scratch/<slug>/`.
+   * Failures degrade: the sealed Main Track string still binds.
+   */
+  private sealMissionContract(): void {
+    if (this.sealedContract !== undefined || this.inPlanMode() || this.contractInvalid) return
     const status = this.status()
-    if (status === 'confirmed' || status === 'planned' || status === 'landing') {
-      this.sealedTrack = live
+    if (!['confirmed', 'planned', 'landing', 'shipped'].includes(status ?? '')) return
+    const specPath = this.followedSpec
+    if (specPath === undefined) return
+    try {
+      const markdown = readFileSync(specPath, 'utf8')
+      const slug = slugFromSpec(markdown, specPath)
+      // Resume must load the on-disk seal — never recompile over a prior Confirm.
+      const existing = readMissionContract(this.cwd, slug)
+      if (existing !== undefined) {
+        this.sealedContract = existing
+        this.sealedContractPath = missionContractPath(this.cwd, slug)
+        // Always prefer the sealed snapshot — never keep a live rewrite.
+        this.sealedTrack = `## Main Track\n\n${existing.mainTrackMarkdown}`
+        return
+      }
+      if (existsSync(missionContractPath(this.cwd, slug))) {
+        this.block('Sealed Mission Contract is unreadable or corrupt. Stopped; restore it rather than recompiling.')
+        return
+      }
+      const contract = compileMissionContract(markdown, { id: slug })
+      this.sealedContract = contract
+      this.sealedContractPath = writeMissionContract(this.cwd, slug, contract)
+    } catch {
+      this.block('Mission Contract could not be sealed. Stopped; check the spec and writable scratch directory.')
     }
-    return live
+  }
+
+
+  /**
+   * Post-write safety net for immutable contract JSON only.
+   * Do not re-align without supports — that false-denies legitimate ticket
+   * writes already allowed by `alignTool` and poisons drift via recentActions.
+   */
+  private guardWrites(paths: readonly string[]): void {
+    if (this.sealedContract === undefined || this.inPlanMode()) return
+    for (const path of paths) {
+      if (writeAllowed(classifyPath(path))) continue
+      this.ports.flash?.(ALIGN_DENIED)
+      if (this.sealedContractPath === undefined) continue
+      try {
+        writeMissionContract(
+          this.cwd,
+          slugFromSpec(readFileSync(this.followedSpec ?? '', 'utf8'), this.followedSpec),
+          this.sealedContract,
+        )
+      } catch {
+        // Best-effort restore of the contract JSON.
+      }
+    }
+  }
+
+  /** Run a drift scan when a sealed contract and plan exist. */
+  private scanDrift(): void {
+    if (this.sealedContract === undefined) return
+    const specPath = this.followedSpec
+    if (specPath === undefined) return
+    try {
+      const plan = parsePlan(readFileSync(specPath, 'utf8'))
+      if (plan.tickets.length === 0) return
+      const report = detectDrift({
+        contract: this.sealedContract,
+        plan,
+        recentActions: this.recentActions,
+      })
+      this.lastDrift = report
+      if (report.driftScore >= DRIFT_FLASH_AT) this.ports.flash?.(DRIFT_FLASH)
+    } catch {
+      // Unreadable spec: skip.
+    }
+  }
+
+  /**
+   * Verifier: acceptance needs evidence. Premature plan ticks are cleared.
+   * Completion of the ship goal still requires Status shipped + evidence.
+   */
+  private verifyAndReconcile(reconcile = true): void {
+    if (this.inPlanMode()) return
+    if (this.sealedContract === undefined) return
+    if (this.sealedContract.acceptance.length === 0) return
+    const specPath = this.followedSpec
+    if (specPath === undefined) return
+    try {
+      let markdown = readFileSync(specPath, 'utf8')
+      const evidence = parseEvidenceFromSpec(markdown)
+      const verdict = verifyAcceptance(this.sealedContract, evidence)
+      this.lastVerify = verdict
+      if (verdict.satisfied || !reconcile) return
+      const reconciled = reconcilePlanTicks(markdown, verdict)
+      if (reconciled !== undefined && reconciled !== markdown) {
+        writeFileSync(specPath, reconciled)
+        this.ports.flash?.(VERIFY_INCOMPLETE)
+      }
+    } catch {
+      // Unreadable spec: skip.
+    }
+  }
+
+  private currentTicket() {
+    const specPath = this.followedSpec
+    if (specPath === undefined) return undefined
+    try {
+      const markdown = readFileSync(specPath, 'utf8')
+      const active = landingPlan(markdown).active
+      return active === undefined ? undefined : parsePlan(markdown).tickets.find(ticket => ticket.raw === active.contract)
+    } catch {
+      return undefined
+    }
+  }
+
+  /** REQ ids the Active Ticket's Track lines map to on the sealed contract. */
+  private activeTicketSupports(
+    ticket = this.currentTicket(),
+  ): string[] | undefined {
+    if (ticket === undefined || this.sealedContract === undefined) return undefined
+    const track = ticket.trackIds ?? []
+    if (track.length === 0) return undefined
+    const ids = this.sealedContract.requirements
+      .filter(req => req.track?.some(n => track.includes(n)))
+      .map(req => req.id)
+    return ids.length === 0 ? undefined : ids
+  }
+
+  private rememberAction(descriptor: ActionDescriptor): void {
+    this.recentActions.push(descriptor)
+    if (this.recentActions.length > 40) this.recentActions.shift()
   }
 
   /** Compact Main Track on the bound spec, headed so later phases prepend a real section. */
@@ -700,6 +1002,21 @@ export class ShipRun {
       this.block(loaded.error)
       return false
     }
+    const missionSlug = slugFromSpec(markdown, path)
+    const missionPath = missionContractPath(this.cwd, missionSlug)
+    const priorMission = readMissionContract(this.cwd, missionSlug)
+    if (existsSync(missionPath) && priorMission === undefined) {
+      this.block('Sealed Mission Contract is unreadable or corrupt. Stopped; restore it rather than recompiling.')
+      return false
+    }
+    if (priorMission !== undefined) {
+      this.sealedContract = priorMission
+      this.sealedContractPath = missionPath
+      if (mainTrackDrifted(priorMission.mainTrackMarkdown, markdown)) {
+        this.block('Frozen ## Main Track no longer matches the sealed Mission Contract. Stopped; restore the approved content.')
+        return false
+      }
+    }
     const known = this.knownSnapshots.get(path)
     if (known !== undefined && JSON.stringify(known) !== JSON.stringify(loaded)) {
       this.block(`Ship snapshot is missing or changed beside ${path}. Stopped; restore the saved snapshot.`)
@@ -807,6 +1124,8 @@ export class ShipRun {
     this.snapshot = next
     if (next.originalRequirement !== '') this.originalRequirement = next.originalRequirement
     if (next.trackSealed && next.mainTrack !== undefined) this.sealedTrack = next.mainTrack
+    this.sealMissionContract()
+    this.scanDrift()
   }
 
   /**
@@ -833,11 +1152,26 @@ export class ShipRun {
         return false
       }
     }
-    if (this.snapshot === undefined) return true
-    const drift = validateSnapshotAgainstSpec(this.snapshot, this.followedSpec, markdown)
-    if (drift !== undefined) {
-      this.block(drift)
-      return false
+    if (this.snapshot !== undefined) {
+      const snapshotDrift = validateSnapshotAgainstSpec(this.snapshot, this.followedSpec, markdown)
+      if (snapshotDrift !== undefined) { this.block(snapshotDrift); return false }
+    }
+    if (this.sealedContract !== undefined) {
+      if (mainTrackDrifted(this.sealedContract.mainTrackMarkdown, markdown)) {
+        this.block('Frozen ## Main Track no longer matches the sealed Mission Contract. Stopped; restore the approved content.')
+        return false
+      }
+      if (this.sealedContractPath !== undefined) {
+        try {
+          if (JSON.stringify(JSON.parse(readFileSync(this.sealedContractPath, 'utf8'))) !== JSON.stringify(this.sealedContract)) {
+            this.block('Sealed Mission Contract changed. Stopped; restore the approved contract.')
+            return false
+          }
+        } catch {
+          this.block('Sealed Mission Contract is missing or corrupt. Stopped; restore the approved contract.')
+          return false
+        }
+      }
     }
     return true
   }
@@ -884,6 +1218,15 @@ export class ShipRun {
       if (next === 'done') {
         if (before.active !== undefined || after.active !== undefined || parseShipBlocker(afterMarkdown) !== undefined) {
           this.block('Ship may finish only in a separate final verification turn after every ticket is checked.')
+          return
+        }
+        this.verifyAndReconcile()
+        if (this.sealedContract?.acceptance.length && !this.lastVerify?.satisfied) {
+          const current = this.followedMarkdown()
+          if (current !== undefined && this.followedSpec !== undefined) {
+            writeFileSync(this.followedSpec, current.replace(/^Status:\s*shipped\b/imu, 'Status: landing'))
+          }
+          this.block('Verifier: acceptance evidence incomplete. Delivery blocked; restore proof evidence before resuming.')
         }
         return
       }

@@ -1,5 +1,11 @@
 # codsh-bundle
 
+## 0.22.4
+
+### Patch Changes
+
+- d4da23e: Pass content columns budget when rendering assistant markdown in transcript replay, ensuring tables wrap within columns rather than overflowing the screen width.
+
 ## 0.22.3
 
 ### Patch Changes

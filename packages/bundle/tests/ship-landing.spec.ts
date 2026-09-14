@@ -115,6 +115,47 @@ describe('ship landing coordinator', () => {
     expect(messages.join('\n')).toContain('landing turn budget')
   })
 
+  it('uses the dependency-selected ticket for Mission Contract action mapping', async () => {
+    const { ship, path } = fixture([false, false])
+    const base = spec([false, false], 'landing', 'Track-1: Offline only.\nTrack-2: Local format.')
+    const first = '- [ ] Ticket 1: Capability 1 (Blocked by: none) (Track: 1)'
+    const second = '- [ ] Ticket 2: Capability 2 (Blocked by: 1) (Track: 1)'
+    writeFileSync(path, base.replace(`${first}\n${second}`, `${second.replace('(Track: 1)', '(Track: 2)')}\n${first}`))
+    await ship.run('', async prompt => {
+      expect(prompt).toContain('Active Ticket: Ticket 1:')
+      expect(ship.alignTool('write', { file_path: 'src/export.ts' }).supportsRequirement).toBe('REQ-001')
+      expect(ship.alignTool('write', { file_path: 'src/export.ts', supports: ['REQ-002'] }).allow).toBe(false)
+      expect(ship.alignTool('write', { file_path: path, content: base.replace(original, 'Upload files.') }).allow).toBe(false)
+      ship.abort()
+    })
+  })
+
+  it('requires acceptance evidence in the independent final verification turn', async () => {
+    const { ship, path, messages } = fixture([false])
+    const ledger = (done: boolean, status = 'landing', proof = false) => spec([done], status)
+      .replace('Run pnpm test; exit 0.', '1. `pnpm test` exits 0.')
+      + (proof ? '\n## Verification\n\n- ACC-001: `pnpm test` exit 0\n' : '')
+    writeFileSync(path, ledger(false))
+    let turns = 0
+    await ship.run('', async prompt => {
+      turns += 1
+      if (turns === 1) writeFileSync(path, ledger(true))
+      else {
+        expect(prompt).toContain('This turn is final verification only')
+        expect(ship.alignTool('write', { file_path: path, content: ledger(true, 'shipped') }).allow).toBe(false)
+        writeFileSync(path, ledger(true, 'shipped'))
+      }
+    })
+    expect(turns).toBe(2)
+    expect(ship.verifyVerdict?.satisfied).toBe(false)
+    expect(messages.join('\n')).toContain('Delivery blocked')
+    await ship.run('', async prompt => {
+      if (prompt.includes('This turn is final verification only')) writeFileSync(path, ledger(true, 'shipped', true))
+      else writeFileSync(path, ledger(true))
+    })
+    expect(ship.verifyVerdict?.satisfied).toBe(true)
+  })
+
   it('keeps dependencies and Track metadata while choosing an unblocked ticket', () => {
     const plan = landingPlan('## Plan\n\n- [ ] Ticket 2: downstream (Blocked by: 1) (Track: 2)\n- [ ] Ticket 1: upstream (Blocked by: none) (Track: 1)\n')
     expect(plan.active?.id).toBe('1')

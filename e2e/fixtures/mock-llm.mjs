@@ -307,7 +307,7 @@ class CodeCliMockAdapter extends LlmAdapter {
         const drift = current.includes('DRIFT_AFTER_FIRST') && active === '1'
         const content = active !== undefined
           ? current.replace(`- [ ] Ticket ${active}:`, `- [x] Ticket ${active}:`).replace(drift ? 'Track-1: Keep offline exports.' : 'NEVER_MATCH', 'Track-1: Upload exports.')
-          : verification ? current.replace('Status: landing', 'Status: shipped') : current
+          : verification ? `${current.replace('Status: landing', 'Status: shipped')}\n## Verification\n\n- ACC-001: \`pnpm test\` exit 0\n` : current
         const id = ToolCallId(`landing-${active ?? 'verify'}`)
         const args = JSON.stringify({ file_path: ledger, content })
         yield { type: 'block-start', index: 0, blockType: 'tool-call' }
@@ -689,6 +689,7 @@ class CodeCliMockAdapter extends LlmAdapter {
       const ship = texts.some(text => text.includes('SHIP_E2E_IDEA') && text.includes('ask_user_question') && text.includes('This turn is wayfinder only')) ? 'yes' : 'no'
       const original = texts.some(text => /<idea>\s*add a SHIP_E2E_IDEA command\s*<\/idea>/u.test(text)) ? 'yes' : 'no'
       const policy = texts.some(text => text.includes('Prefer `subagent`, not `subagent_fork`')) ? 'yes' : 'no'
+      const mission = texts.some(text => text.includes('SHIP_E2E_IDEA') && (text.includes('Mission Contract') || text.includes('mission.contract.json'))) ? 'yes' : 'no'
       // A pasted image on a text-only route arrives as a <pasted-image> text
       // block: report the saved path and whether a description came along, so
       // the fallback and sidecar tests can read the proof off the transcript.
@@ -699,7 +700,7 @@ class CodeCliMockAdapter extends LlmAdapter {
       const image = pasted === undefined
         ? 'image=no'
         : `image=${savedAt ?? '?'} file=${savedAt !== undefined && existsSync(savedAt) ? 'yes' : 'no'} described=${pasted.includes('<description>') ? 'yes' : 'no'}`
-      const reply = `CODE_CLI_CTX bang=${bang} remembered=${remembered} marker=${marker} ship=${ship} original=${original} policy=${policy} ${image}`
+      const reply = `CODE_CLI_CTX bang=${bang} remembered=${remembered} marker=${marker} ship=${ship} original=${original} policy=${policy} mission=${mission} ${image}`
       yield { type: 'block-start', index: 0, blockType: 'text' }
       yield { type: 'text-delta', index: 0, text: reply }
       yield { type: 'block-end', index: 0, block: { type: 'text', text: reply } }

@@ -389,4 +389,63 @@ describe('SHIP_PROMPT', () => {
     expect(land).toContain('Do not call ralph from /ship')
     expect(land).not.toContain('call the ralph tool once')
   })
+
+  it('names the sealed Mission Contract as immutable control-plane memory', () => {
+    expect(SHIP_PROMPT).toMatch(/Mission Contract/)
+    expect(SHIP_PROMPT).toMatch(/mission\.contract\.json/)
+    for (const status of ['confirmed', 'planned', 'landing', 'shipped'] as const) {
+      expect(shipPromptFor(status)).toMatch(/Mission Contract/)
+    }
+  })
+
+  it('tells land to implement only the Active Ticket pack', () => {
+    expect(shipPromptFor('planned')).toMatch(/Active Ticket/)
+    expect(SHIP_PROMPT).toMatch(/Active Ticket/)
+  })
+
+  it('prepends the runner Mission Contract separately from the wording snapshot and ticket', () => {
+    const track = '## Main Track\n\n**Idea.** Bind /goal into /ship.'
+    const mission = [
+      '## Mission Contract',
+      '',
+      'Sealed control-plane memory (immutable after Gate 1 Confirm).',
+      'Path: `.scratch/widget/mission.contract.json`',
+      '- REQ-001 (Track: 1): Bind /goal into /ship.',
+    ].join('\n')
+    const land = shipPromptFor('landing', {
+      track,
+      mission,
+      originalRequirement: 'Keep offline use.',
+      specPath: 'docs/specs/widget.md',
+      activeTicket: 'Ticket 1: bind compass (Track: 1)',
+    })
+    expect(land.startsWith(`${track}\n\n${mission}`)).toBe(true)
+    expect(land).toContain('## Original Requirement\n\nKeep offline use.')
+    expect(land).toContain('Bound spec: "docs/specs/widget.md"')
+    expect(land).toContain('Active Ticket: Ticket 1: bind compass (Track: 1)')
+    expect(land).toContain('Strict Red-First Execution')
+    expect(land).not.toContain('Phase 5 — done means verified')
+    expect(land).toContain('Do not call ralph from /ship')
+    expect(land).not.toContain('call the ralph tool once')
+    expect(land).not.toContain('the user running /ship is their explicit request for a fresh-agent Ralph loop')
+  })
+
+  it('keeps verificationOnly as a separate final-proof turn on the sealed contract', () => {
+    const mission = '## Mission Contract\n\n- ACC-001: prove offline export'
+    const done = shipPromptFor('landing', {
+      verificationOnly: true,
+      mission,
+      activeTicket: 'Ticket 9: should not land during verification',
+    })
+    expect(done).toContain(mission)
+    expect(done).toContain('Phase 5 — done means verified')
+    expect(done).toContain('This turn is final verification only')
+    expect(done).toContain('a child\'s word is a report, not a verification')
+    expect(done).toContain('Verifier can match to ACC-*')
+    expect(done).toContain('do not rewrite `## Main Track` or the sealed Mission Contract')
+    expect(done).not.toContain('Strict Red-First Execution')
+    expect(done).not.toContain('After a Ralph loop returns')
+    expect(done).toContain('Active Ticket: Ticket 9: should not land during verification')
+  })
+
 })
