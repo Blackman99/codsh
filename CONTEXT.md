@@ -254,9 +254,12 @@ The nested Viewport of an in-process child's transcript. A Fold that names a
 child Session is a view: a click enters, Esc pops one level, and the child's
 thinking, text, and tool cards stream the way they do on the parent. The view
 is read-only; typing flashes that Esc returns. Fork views skip the inherited
-parent prefix. Worker-thread Workflow children are not views — their sessions
-are never in this process, so the round line never offers `click to enter`.
-_Avoid_: catalog, inspector, pager
+parent prefix. A runner-dispatched in-process child is a view without a parent
+tool call — that Fold is not a `subagent` card, not a parent-log line, and
+not in a Card run. Worker-thread Workflow children are not views — their
+sessions are never in this process, so the round line never offers
+`click to enter`. Off a TTY there is no Fold.
+_Avoid_: catalog, inspector, pager, synthetic tool-call, Claim on the card
 
 **Card run**:
 Tool cards that follow one another share one panel rather than each opening and
@@ -266,8 +269,8 @@ keeps the pad above it as its divider, and so does a run of similar cards,
 whose rebuilt head has to find its rows where it left them; a bare one-liner,
 which every other finished card is, takes that row over — so a batch of calls
 costs one row each rather than three. Any other block printed under a run
-ends it.
-_Avoid_: card group, merged cards
+ends it. A runner Child view at the tail is not in a run.
+_Avoid_: card group, merged cards, runner Child view as a tool card
 
 **Rule**:
 The mark drawn down a transcript block's left edge to say where the block
@@ -407,12 +410,16 @@ _Avoid_: navigation strings encoded as custom answers, per-visit transcript writ
 
 **Ship gates**:
 The two approvals in the `/ship` workflow — the confirmed spec file (gate 1)
-and the approved ticket breakdown (gate 2). Gate 1 Confirm seals the Main Track
-and acceptance criteria. Everything after gate 2 is autonomous. Wayfinder
+and the approved ticket breakdown (gate 2). The runner auto-Confirms both with
+a transcript notice; interrupt still aborts. Gate 1 Confirm seals the Main Track
+and acceptance criteria. After seal there is no Edit modal; a sealed-track
+contradiction is a `## Blocker`. Everything after gate 2 is autonomous. Wayfinder
 precedes grill as a planning-only contract: destination, named decision map,
 dependency-linked decision tickets, and a local-Markdown fallback when no
-tracker is configured. Charting stops; each later invocation resolves at most
-one non-research decision ticket. Unresolved work remains `wayfinding`;
+tracker is configured. Charting no longer drops the person: the same `/ship`
+invocation continues after HITL. A named map is always charted; an empty inner
+ring is valid. Decision-ticket HITL still wakes the parent one unblocked
+non-research ticket at a time. Unresolved work remains `wayfinding`;
 explicit confirmation of a clear route advances to `grilling`. A small clear
 route records a confirmed no-map handoff. The ledger's `## Wayfinder` section
 links the canonical map and its decisions, not a duplicate implementation plan.
@@ -444,8 +451,9 @@ writes no snapshots. Coverage is original requirement → Track-N → acceptance
 ticket → evidence. One module owns that memory for a session — Plan progress,
 the MetaBar chip, the spec poll, occupancy, the sealed-track snapshot, the
 Mission Contract, and the canned phase loop — so the runner only begins, notes a
-write, or aborts. Occupancy is a Selector, not a third gate. Chrome stays
-the MetaBar chip and plan row; there is no GoalBar.
+write, or aborts. Occupancy and dirty-tree preflight still ask on a TTY.
+Occupancy is a Selector, not a third gate. Chrome stays
+the MetaBar chip, plan row, and Panorama teaser; there is no GoalBar.
 _Avoid_: checkpoints, review steps, GoalBar, in-session landing, process-only snapshot
 
 **Original Requirement**:
@@ -478,6 +486,43 @@ to match what it already built. A needed contradiction is a blocker, never a
 silent spec edit. Progress (Status, checkboxes, proof logs) remains writable.
 _Avoid_: live reread, silent rewrite, GoalBar
 
+**Decision ticket**:
+A wayfinder child of the named map — a question, not a build slice. Its graph
+key is the tracker's native id: `decision:github:owner/repo#n`, or
+`decision:local:NN` from `.scratch/<slug>/wayfinder/NN-slug.md` when no
+tracker is configured. Distinct from a Landing ticket; it does not become a
+Track-N.
+_Avoid_: implementation ticket, graph uuid, plan checkbox
+
+**Landing ticket**:
+A Gate 2 tracer-bullet ticket. Its graph key is `landing:N` from the
+`Ticket N:` prefix on the spec `## Plan` checkbox. After Gate 2 Confirm, `N`
+is never renumbered or reused; checkbox order may still follow the DAG. The
+scratch file is `.scratch/<slug>/issues/NN-slug.md` with the same integer `N`;
+a published tracker issue is a locator (`Issue: owner/repo#n`), not a second
+node.
+_Avoid_: plan index, Track-N, Decision ticket
+
+**Track anchor**:
+A sealed Main Track decision as a graph node (`track:N`). `REQ-*` is an alias,
+not a second key. Landing tickets hang off one or more anchors (many-to-many).
+Wayfinder tickets stay a separate inner ring; during wayfinding there are no
+Track anchors yet.
+_Avoid_: edge label, inner-ring node, Main Track hub
+
+**Ship graph**:
+The two-ring panorama of one bound spec: Decision tickets (inner ring),
+Landing tickets (outer ring), and Track anchors. Rebuilt from those canonical
+sources into adjacent `<spec>.ship.graph.json`; the cache is not identity.
+Missing or corrupt cache is discarded and rebuilt; a join failure against
+canonical sources stops the run. Ticket nodes carry a derived Claim token;
+decision nodes may carry `ticketType`. Edges are `blocked-by` and
+`hangs-off` only. Map, spec, Idea, worktree, child, Claim, Blocker,
+ACC-*, Panorama overlay, Panorama teaser, and Web panorama are not
+nodes. A confirmed no-map route has an empty inner ring, not a
+fourth node kind. `NN` in filenames is an integer (`01-foo.md` → `1`).
+_Avoid_: sidecar as source of truth, title matching, freeze-sidecar stop, fourth node kind
+
 **Ship delegation**:
 Fresh-context `subagent` is the default for investigation, research, ticket
 implementation, and independent review. Prefer `subagent`, not
@@ -485,17 +530,24 @@ implementation, and independent review. Prefer `subagent`, not
 keeps questions, gates, coordination, and independently re-runs final proofs.
 Children return at most 20 lines naming the result plus evidence/log paths.
 The working tree is shared: read-only work may run in parallel; writers and
-git mutations stay serial. All plans use one parent-coordinated fresh child
-per active unblocked ticket, at most one ticket per model turn. The runner
-validates the frozen goal, unchanged ticket contracts, dependencies and
-checkbox changes between turns. All checked tickets trigger a separate final
-verification turn. An unresolved `## Blocker`, two consecutive no-progress
-turns, or three turns per ticket plus one final-verification turn per invocation
-halts automatic continuation. Cascading re-verification may untick tickets
-and return to repair within the same budget. `/ship` never calls Ralph; its
-tool remains available outside the workflow for explicit requests. Missing
-delegation is stated as a limitation, not claimed as a child that ran.
-_Avoid_: in-session landing, fork history, semantic zero drift
+git mutations stay serial. Landing is a Landing wave: it dispatches every
+currently unblocked, unclaimed ticket in parallel worktrees; the parent
+serial-merges Ready-set then proves. An in-process child the runner dispatched is a Child view
+without a parent tool call. Whenever the parent Viewport is shown, one
+door per live Session that names the ticket's graph key, at the tail, in
+graph-key order. Head is `Ticket N: <title>` or the decision name, with
+`· conflict` / `· repair` only when one node has two Sessions, then
+`click to enter`. The runner keeps that Session until it releases the
+child; a leftover worktree with no Session is panorama 已认领, not a dead
+door. Claim does not store a Session id. Decision-ticket HITL still
+wakes the parent one unblocked ticket at a time. An unresolved `## Blocker`
+stops automatic continuation until archived; there is no landing
+turn-budget breaker. Cascading re-verification unticks only tickets whose
+proofs failed, plus already-closed DAG dependents of those tickets — never
+every later-N. `/ship` never calls Ralph; its tool remains available
+outside the workflow for explicit requests. Missing delegation is stated
+as a limitation, not claimed as a child that ran.
+_Avoid_: in-session landing, fork history, semantic zero drift, subsequent-untick, parent-log door
 
 **Mission Contract**:
 The machine-checkable control-plane memory Gate 1 Confirm compiles from the
@@ -508,9 +560,9 @@ on later phases. After seal, write tiers apply: Main Track / Out of Scope /
 grill decisions / original requirement / acceptance criteria / contract JSON
 are immutable (protected writes are refused; external drift stops the run
 and remains on disk for inspection); Implementation Decisions are semi-mutable (blocker required); Status,
-Plan, Baseline, and Verification are mutable world state. Land turns also
-prepend an Active Ticket pack — only the first unticked plan line — so the
-executor cannot replan the whole DAG each turn. An Alignment Gate refuses
+Plan, Baseline, and Verification are mutable world state. A land-phase HITL
+wake prepends the bound spec and the in-flight / Ready-set set, not a single
+Active Ticket line. An Alignment Gate refuses
 writes that lack requirement mapping or hit immutable memory. A Drift
 Detector scores plan/action drift against the seal and treats a rewritten
 Main Track as a blocker, not an accepted rewrite. An independent
@@ -518,6 +570,85 @@ Verifier matches acceptance criteria to recorded evidence and reconciles
 premature plan ticks at final verification, not after each ticket write;
 delivery and the ship goal do not complete without that evidence.
 _Avoid_: hand-authored JSON, prompt-only freeze, GoalBar, wording-snapshot substitute
+
+**Conflict-resolution child**:
+A one-shot fresh-context child that fills git conflict-marker hunks in the
+merge-target tree during a serial landing merge or delivery Merge-back. It is
+not an implementation child: no tests, glue, or git mutations; the runner
+owns add, commit, and abort.
+_Avoid_: merge bot, TDD repair, conflict agent
+
+**Worktree branch**:
+The dedicated git ref for a ticket worktree: `wt/<slug>/<directory>`, where
+the directory is the filesystem form of the graph key (`landing-N`,
+`decision-<github-number>`, `decision-<local-NN>`). Distinct from the feature
+branch `ship/<slug>` — git cannot nest `ship/<slug>/landing-N` under
+`ship/<slug>`. Never create a parent ref `wt/<slug>`. Resume identity is this
+ref, not a detached HEAD. After any merge commit into `ship/<slug>` the
+directory and ref are removed; abort keeps both under the same names. Nested
+checkouts are ignored in the parent via `.scratch/<slug>/worktrees/.gitignore`.
+The land → prove → tick/Blocker protocol applies only to `landing-N`.
+_Avoid_: `ship/<slug>/landing-N`, detached worktree HEAD, `wt/<slug>` as a ref
+
+**Worktree commit**:
+The runner's one commit on a landing Worktree branch, subject `Ticket N:
+<title>`, Track-N in the body. Children never commit. Author is the host
+`user.name` / `user.email`. Distinct from the `--no-ff` land merge onto
+`ship/<slug>` and from the Tick commit that follows a green proof.
+_Avoid_: child-authored commits, synthetic `codsh` author
+
+**Tick commit**:
+The commit on `ship/<slug>` after a green parent proof of a serial-merged
+ticket: ticks the plan checkbox, appends Verification, leaves Claim. Distinct
+from the `--no-ff` merge that landed the worktree (kept even when proof is
+red) and from a red-proof commit that only writes `## Blocker`. Interrupt
+writes no git commit and no `## Blocker`. A proof sweep that both ticks and
+records a Blocker is still one commit — not two.
+_Avoid_: amending the merge, ticking inside the merge message, two commits per sweep
+
+**Merge snapshot**:
+A timestamped dump of a mid-merge abort — unmerged paths, git output, and
+partial hunk fills — at
+`.scratch/<slug>/merge-snapshots/<directory>/<utc>/`. Landing uses the
+worktree directory name; Merge-back uses `delivery`. Interrupt and
+Blocker-class abort share that layout; a later retry does not overwrite.
+The directory is gitignored in the parent except that a Blocker-class dump
+is force-added with the `## Blocker` commit; an interrupt dump stays
+untracked.
+_Avoid_: a single overwritten dump, storing the dump inside the worktree
+
+**Claim**:
+The panorama bucket of one Decision ticket or Landing ticket: 待认领,
+已认领, or 已关闭. Distinct from Occupancy. 已认领 means the ticket is
+taken, not that a child is running. Canonical writes stay on the tracker or
+scratch file; the Ship graph cache only copies a derived token.
+_Avoid_: Occupancy, graph node, fourth bucket, live-child, second claim store
+
+**Landing wave**:
+The standing set of in-flight landing worktrees plus the serial merge queue
+on `ship/<slug>`. Not a barrier that waits for every child to finish.
+Dispatch takes every currently unblocked, unclaimed landing ticket.
+_Avoid_: batch barrier, Track-N order, one Active Ticket
+
+**Ready-set**:
+Finished 已认领 landing children whose DAG blockers are already 已关闭.
+Serial-merge order is lowest `landing:N` in this set. A keep-commit that
+stayed `[ ]` does not unblock dependents. Distinct from git conflict and
+from `## Blocker`.
+_Avoid_: completion order, strict earlier-N wait, Track-N order
+
+**Last proof**:
+Scratch field `Proof: green` or `Proof: red` beside `Claim: claimed`. A
+green Tick writes green; a failed parent proof writes red; unticking a
+still-green dependent does not change it. Omitted until the first parent
+proof. Distinct from spec `## Verification`.
+_Avoid_: sidecar, Blocker body as identity, parsing Verification prose
+
+**In-place repair**:
+A TDD child whose cwd is the parent `ship/<slug>` tree, used when that
+landing ticket already has a land-merge commit and no worktree. Distinct
+from a worktree TDD child. New worktrees wait until this child is idle.
+_Avoid_: second land merge, overlapping drain writers
 
 **Occupancy**:
 Before the first `/ship` phase turn, if an unrelated current `/goal` exists,
@@ -531,24 +662,31 @@ _Avoid_: occupancy gate, silent steal, GoalBar, Claim
 **Panorama overlay**:
 The pinned fullscreen TTY projection of one bound spec's two-ring graph:
 inner ring then outer ring, 待认领 / 已认领 / 已关闭 on the ticket row,
-Track-N as a suffix. Distinct from the Panorama teaser and from the Web
-projection. Not a graph node. An empty inner ring is still this overlay.
+Track-N as a suffix. Ctrl+G or a click on the teaser toggles it; exclusive
+with Queue/Todo. Distinct from the Panorama teaser and from the Web
+panorama. Not a graph node. An empty inner ring is still this overlay.
 _Avoid_: Track-N grouping, hub row, Queue-style window, fourth bucket
 
 **Panorama teaser**:
 The one-line TTY chrome of the same graph — `待认领 n · 已认领 n · 已关闭 n`,
 plus in-flight when greater than zero — above the plan row. Distinct from
-Occupancy and from the MetaBar land chip (closed/total).
+Occupancy, the MetaBar land chip (closed/total), and the Web panorama.
 _Avoid_: Occupancy, fourth bucket, land chip, plan row
+
+**Web panorama**:
+The loopback node-link projection of one bound spec's Ship graph. Binds
+`127.0.0.1` on an ephemeral port; the URL is printed. Distinct
+from the Panorama overlay and the Panorama teaser. Not a second store.
+_Avoid_: dashboard, hub, site, graph UI
 
 **Hybrid compass**:
 The spec stays durable memory; the harness `/goal` is a disarmed session
-compass whose objective is `[ship]` plus the Main Track. `/ship` remains
-the scheduler and never arms continuation, so a generic goal-round cannot
-fight the current phase. During a run, `/goal` shows that compass; it
-stays the ordinary human command, not a canned `/ship`-style prompt.
-Missing or throwing goal service degrades: spec+prepend still binds later
-phases.
+compass whose objective is `[ship]` plus the Main Track. The `/ship` runner
+may auto-continue after HITL and inside landing; `/goal` stays disarmed, so
+a generic goal-round cannot fight the current phase. During a run, `/goal`
+shows that compass; it stays the ordinary human command, not a canned
+`/ship`-style prompt. Missing or throwing goal service degrades: spec+prepend
+still binds later phases.
 _Avoid_: armed continuation, canned /goal, second scheduler
 
 ### Alignment pipeline

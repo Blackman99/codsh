@@ -41,21 +41,23 @@ codsh
 
 ## `/ship`
 
-`/ship <一句话需求>` —— 前检隔离、wayfinder、grill、两次确认、自主 TDD、双层 DoD：
+`/ship <一句话需求>` —— 前检隔离、wayfinder、grill、两次自动确认闸门、Landing wave、双层 DoD。每次 HITL 回答后，同一次调用继续推进；`/goal` 保持解除武装。双环全景（overlay、teaser、Web）始终在场：
 
-0. **前检与分支隔离** —— 检查工作区（有改动时弹出 `ship · preflight` 选择暂存/带走）；自动切出 `ship/<slug>` 独立特性分支，保护原分支不受污染。
-1. **Wayfinder** —— 在 grill 前明确目标并解决待决问题。大型任务在已配置的 tracker 上建立带名称的决策图及有依赖关系的决策票；未配置时使用 `.scratch/<slug>/wayfinder/` 下的本地 Markdown。这些是决策，不是实施任务。尚未完成时停在 `Status: wayfinding`，裸 `/ship` 继续，每次最多解决一张非研究类决策票。路线已经明确的小任务会询问是否不建图直接继续。确认后改为 `Status: grilling`，下一轮再载入 grill。该合同随 codsh 提供，无需另装 skill。
-2. **Grill** —— 按 grill-me skill：先自己 recon，再按设计树访谈；每轮把当前未阻塞的 frontier 整批发问并给出推荐答案，`header` 为 `ship · grill`；←/→ 可回改本轮已答过的题；需要自填的选项聚焦后就是行内输入框。卡片把整道题换行显示，不再截成两行省略号。前沿清空并确认后才往下走。
-3. **Spec (Gate 1)** —— 按 to-spec skill 自动合成（穷尽用户故事、公开 seam、Out of Scope）。`## Original Requirement` 单独保留用户原话，与精简的 Main Track 分开。你确认。记录分支、基底 Commit、验收命令，并写一份 `.scratch/` 副本（配了 tracker 就发到 tracker）。
-4. **Tickets 与基线 (Gate 2)** —— 按 to-tickets skill 切成带 DAG 的垂直切片，每张票有原子验收清单和 `.scratch/.../issues/` 文件，并注入发版合规任务。你批准。先跑业务与仓库全局基线。
-5. **落地** —— 按 tdd skill：先写并亲眼看到一条失败测试，再写最少绿码，再跑全套；单 Ticket 3 轮修错熔断；续跑级联重验；每个变绿的 ticket 产生单次全绿提交。仓库调查、研究、单票实施和独立审查交给全新上下文的 `subagent`（不是 fork 历史）。父会话保留提问、闸门和协调，并独立重跑最终验收。子代理最多回 20 行，并给出证据/日志路径。工作树共享：只读调查可并行，写入和 git 变更必须串行。所有计划统一逐票推进：父会话为当前未阻塞票协调一个全新子代理，完成后结束本轮。运行器在派发下一票前检查目标快照、票的合同未变、依赖和勾选变化；全部票勾选后，另起一轮做最终验收。连续两轮没有勾选进展、存在未解决的 `## Blocker`，或达到单次调用的轮数预算（每票三轮加一轮最终验收），都会停止自动推进，磁盘进度仍可续跑。`/ship` 不调用 Ralph；该工具保留供流程之外显式请求使用。Esc 会中断协调，包括尚未完成的 ticket。
-6. **完成 (双层 DoD)** —— 验收命令实跑 Exit Code 0 且仓库全局零新增报错；弹出合流选择（`ship · deliver`：合并、提 PR、保留分支）。覆盖链是原始需求 → Track-N → 验收 → ticket → 证据；绿测试不能掩盖漏掉的需求或越界改动。
+0. **前检与分支隔离** —— 检查工作区（有改动时弹出 `ship · preflight` 选择暂存/带走）；自动切出 `ship/<slug>` 独立特性分支，保护原分支不受污染。会话里已有无关 `/goal` 时，TTY 上仍会询问 occupancy（`ship · occupancy`）。
+1. **Wayfinder** —— 在 grill 前明确目标并解决待决问题。每次运行都会绘制带名称的决策图及有依赖关系的决策票（已配置 tracker 时发到 tracker；否则用 `.scratch/<slug>/wayfinder/` 下的本地 Markdown）；内环为空也合法。这些是决策，不是实施任务。尚未完成时保持 `Status: wayfinding`。运行器在同一次调用里于每次 HITL 后继续，父会话每次最多被一张未阻塞的非研究类决策票叫醒。路线已经明确的小任务会记下确认的无图交接并自动进入 grill。该合同随 codsh 提供，无需另装 skill。
+2. **Grill** —— 按 grill-me skill：先自己 recon，再按设计树访谈；每轮把当前未阻塞的 frontier 整批发问并给出推荐答案，`header` 为 `ship · grill`；←/→ 可回改本轮已答过的题；需要自填的选项聚焦后就是行内输入框。卡片把整道题换行显示，不再截成两行省略号。前沿清空并确认后才往下走。答完一轮后，同一次调用会注入下一轮。
+3. **Spec (Gate 1)** —— 按 to-spec skill 自动合成（穷尽用户故事、公开 seam、Out of Scope）。`## Original Requirement` 单独保留用户原话，与精简的 Main Track 分开。运行器自动 Confirm，并在 transcript 里留下通知；中断仍会中止。密封后不再弹出 Edit 模态——矛盾写成 `## Blocker`。记录分支、基底 Commit、验收命令，并写一份 `.scratch/` 副本（配了 tracker 就发到 tracker）。
+4. **Tickets 与基线 (Gate 2)** —— 按 to-tickets skill 切成带 DAG 的垂直切片，每张票有原子验收清单和 `.scratch/.../issues/` 文件，并注入发版合规任务。运行器同样自动 Confirm。先跑业务与仓库全局基线。
+5. **落地** —— 按 tdd skill：先写并亲眼看到一条失败测试，再写最少绿码，再跑全套。Landing wave 把当前所有未阻塞、未认领的落地票派发到并行 worktree；父会话按 Ready-set（最低 `landing:N`）串行合并再证明。没有落地轮数熔断；未解决的 `## Blocker` 会停止自动推进，直到归档。级联重验只取消失败证明及其已关闭的 DAG 依赖票。仓库调查、研究、单票实施和独立审查交给全新上下文的 `subagent`（不是 fork 历史）。父会话保留提问、闸门和协调，并独立重跑最终验收。子代理最多回 20 行，并给出证据/日志路径。运行器派发的进程内子代理是 Child view Fold，不是伪造的 `subagent` 卡片。`/ship` 不调用 Ralph；该工具保留供流程之外显式请求使用。Esc 会中断协调，包括尚未完成的 ticket。
+6. **完成 (双层 DoD)** —— 验收命令实跑 Exit Code 0 且仓库全局零新增报错；交付自动选择 Merge back（能快进就快进，否则 squash）。覆盖链是原始需求 → Track-N → 验收 → ticket → 证据；绿测试不能掩盖漏掉的需求或越界改动。
 
 每轮访谈中，↑/↓ 移动焦点；多选题用空格切换 `[x]` 勾选，Enter 提交（未勾选时，Enter 选中当前焦点项）。← 返回上一题，→ 回到下一道已访问的题，之前的选择和已提交的自填答案会恢复。编辑文字时，←/→ 优先移动光标，到达文本边界后才切换题目。切换选项会保留自填草稿。本轮结束时，每道已答题只输出一次最新提交的答案。Esc 关闭本轮剩余问题，不中止 `/ship`；尚未提交的题返回空答案。焦点选项的说明会完整显示，关闭颜色后仍可通过 `❯` 看出焦点。
 
-每次 `/ship` 只注入一份合同（wayfinder / grill / to-spec / to-tickets / TDD），避免后面阶段把正在执行的合同挤掉。运行时为阶段、goal、界面和完成绑定一份 spec。多份未完成 spec 会弹出选择器；管道里拒绝猜测。状态栏从 `ship · wayfinder` 开始，与计划行一起跟随这份绑定 spec。spec 的 `## Wayfinder` 保存决策图链接，供 grill 和规格合成读取。已有 `interviewing`、`confirmed`、`planned`、`landing` spec 保持原阶段含义，恢复时不重跑 wayfinder。裸 `/ship` 续跑未完成工作，且不会把原始需求抹空；恢复实施任务时先级联重验。
+grill、wayfinder、occupancy 或 preflight HITL 之后，同一次 `/ship` 调用会再次注入——不必再敲一遍 `/ship`。双环全景始终在场：钉住的 TTY overlay（Ctrl+G 或点击 teaser）、计划行上方一行 teaser `待认领 n · 已认领 n · 已关闭 n`，以及打印 URL 的回环 Web panorama。`/goal` 保持解除武装。
 
-Gate 1 Confirm 会封存 Main Track 和验收标准。运行器在相邻的 `<spec>.ship.json`（例如 `widget.md` → `widget.ship.json`）里持久化原始需求，以及确认时已有的封存 Main Track 和验收标准；这份文件由运行器管理，模型不得改、删或重生成。将它原样随 spec 提交，以便重新检出代码后仍保留措辞比较基线。后续阶段和续跑在阶段边界核对该快照；不匹配或损坏就停下，而不是接受改写。第一份快照无法核对其之前的历史，因此这是有限保护，不是防篡改沙箱。plan 模式不写快照。与这份措辞快照分开，Confirm 还会编译一份由 runner 持有的密封 Mission Contract（`.scratch/<slug>/mission.contract.json`）：REQ / NEG / ACC 编号、不可变 Main Track 的写入保护、Alignment Gate / Drift Detector / Verifier，以及后续轮次前置的合同摘要，落地阶段不能改写设计。密封后，受保护内容的写入会在执行前拒绝；外部改写 Main Track 会停止运行并保留磁盘现场供检查，不自动恢复后继续。最终交付还必须具有已记录的验收证据。落地阶段每次只注入当前未完成的 Active Ticket。goal 仍可选；裸 `/ship` 仍保留原始措辞。守卫是身份、快照、阶段检查，加上审查和实跑证明——不保证语义零漂移。若会话里已有无关的 `/goal`，`/ship` 会先暂停它并弹出 `ship · occupancy`（Replace / Abort）；管道里自动 Replace。运行期间 `/goal` 显示带 `[ship]` 标记的指南针。Chrome 不变：不加新行，也没有 GoalBar。
+每次 `/ship` 只注入一份合同（wayfinder / grill / to-spec / to-tickets / TDD），避免后面阶段把正在执行的合同挤掉。运行时为阶段、goal、界面和完成绑定一份 spec。多份未完成 spec 会弹出选择器；管道里拒绝猜测。状态栏从 `ship · wayfinder` 开始，与计划行一起跟随这份绑定 spec（落地芯片是 closed/total）。spec 的 `## Wayfinder` 保存决策图链接，供 grill 和规格合成读取。已有 `interviewing`、`confirmed`、`planned`、`landing` spec 保持原阶段含义，恢复时不重跑 wayfinder。裸 `/ship` 续跑未完成工作，且不会把原始需求抹空；恢复实施任务时先级联重验。
+
+Gate 1 Confirm 会封存 Main Track 和验收标准。运行器在相邻的 `<spec>.ship.json`（例如 `widget.md` → `widget.ship.json`）里持久化原始需求，以及确认时已有的封存 Main Track 和验收标准；这份文件由运行器管理，模型不得改、删或重生成。将它原样随 spec 提交，以便重新检出代码后仍保留措辞比较基线。后续阶段和续跑在阶段边界核对该快照；不匹配或损坏就停下，而不是接受改写。第一份快照无法核对其之前的历史，因此这是有限保护，不是防篡改沙箱。plan 模式不写快照。与这份措辞快照分开，Confirm 还会编译一份由 runner 持有的密封 Mission Contract（`.scratch/<slug>/mission.contract.json`）：REQ / NEG / ACC 编号、不可变 Main Track 的写入保护、Alignment Gate / Drift Detector / Verifier，以及后续轮次前置的合同摘要，落地阶段不能改写设计。密封后，受保护内容的写入会在执行前拒绝；外部改写 Main Track 会停止运行并保留磁盘现场供检查，不自动恢复后继续。最终交付还必须具有已记录的验收证据。落地阶段 HITL 前置 in-flight / Ready-set，而不是一张 Active Ticket。goal 仍可选；裸 `/ship` 仍保留原始措辞。守卫是身份、快照、阶段检查，加上审查和实跑证明——不保证语义零漂移。若会话里已有无关的 `/goal`，`/ship` 会先暂停它并弹出 `ship · occupancy`（Replace / Abort）；管道里自动 Replace。运行期间 `/goal` 显示带 `[ship]` 标记的指南针并保持解除武装——运行器可以自动续跑；通用 goal-round 不能与当前阶段打架。Chrome 仍是 MetaBar 芯片、计划行和 panorama teaser；没有 GoalBar。
 
 ```sh
 /ship 让超长 diff 用分页器打开而不是刷屏滚过
