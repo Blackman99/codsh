@@ -185,10 +185,15 @@ describe('SHIP_PROMPT', () => {
     expect(SHIP_PROMPT).toContain('Release & Documentation Compliance')
   })
 
-  it('presents post-ship interactive delivery modal for branch merge options', () => {
+  it('auto-picks Merge back after dual-layer proof without a third HITL', () => {
     expect(SHIP_PROMPT).toContain('ship · deliver')
     expect(SHIP_PROMPT).toContain('Merge back')
     expect(SHIP_PROMPT).toContain('Keep branch for PR')
+    expect(SHIP_PROMPT).toMatch(/auto-picks Merge back/)
+    const done = shipPromptFor('landing', { verificationOnly: true })
+    expect(done).toContain('auto-picks Merge back')
+    expect(done).toContain('Do not present')
+    expect(done).toContain('ship · deliver')
   })
 
   it('injects wayfinder, grill, to-spec, to-tickets, and tdd as separate turns', () => {

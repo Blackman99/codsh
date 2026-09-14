@@ -2321,6 +2321,243 @@ describe('Conflict-resolution child', () => {
   })
 })
 
+describe('Delivery auto Merge-back', () => {
+  const conflictHunk = [
+    'export function greet(name: string): string {',
+    '<<<<<<< HEAD',
+    "  return `hi ${name}`",
+    '=======',
+    "  return `hello ${name}`",
+    '>>>>>>> ship/widget',
+    '}',
+    '',
+  ].join('\n')
+
+  function writeDeliverySpec(cwd: string): string {
+    const issues = join(cwd, '.scratch', 'widget', 'issues')
+    mkdirSync(issues, { recursive: true })
+    writeFileSync(join(issues, '01-spec-schema.md'), 'Claim: claimed\nProof: green\nTicket 1: Spec schema\n')
+    return writeSpec(cwd, 'widget.md', [
+      'Status: landing',
+      'Branch: ship/widget',
+      'Original-Branch: main',
+      '',
+      '## Original Requirement',
+      '',
+      'Keep offline use.',
+      '',
+      '## Main Track',
+      '',
+      '**Idea.** Keep offline use.',
+      '**Track-1.** Hybrid compass.',
+      '**Out of Scope.**',
+      '- No harness fork.',
+      '',
+      '## Acceptance Criteria',
+      '',
+      '1. `pnpm test` exits 0.',
+      '',
+      '## Plan',
+      '',
+      '- [x] Ticket 1: Spec schema (Blocked by: none) (Track: 1)',
+    ].join('\n'))
+  }
+
+  function shipVerified(cwd: string): void {
+    const path = join(cwd, 'docs', 'specs', 'widget.md')
+    const landed = readFileSync(path, 'utf8').replace(/^Status:\s*\S+/mu, 'Status: shipped')
+    writeFileSync(path, landed.includes('## Verification')
+      ? landed
+      : `${landed.trimEnd()}\n\n## Verification\n\n- ACC-001: \`pnpm test\` exit 0\n`)
+  }
+
+  function deliveryGit(opts: {
+    cwd: string
+    ff?: boolean
+    squashConflict?: boolean
+    conflictPath?: string
+    conflictContent?: string
+    fill?: string
+    head?: string
+  }) {
+    const log: string[] = []
+    const branches = new Set(['main', 'ship/widget'])
+    let merging = false
+    const conflictPath = opts.conflictPath ?? 'src/greet.ts'
+    const unmerged = `100644 abc123 1\t${conflictPath}\n100644 def456 2\t${conflictPath}\n100644 ghi789 3\t${conflictPath}\n`
+    return {
+      log,
+      branches,
+      git: async (args: readonly string[], workCwd: string) => {
+        log.push(`${args.join(' ')} @ ${workCwd}`)
+        if (args[0] === 'config' && args[1] === 'user.name') return { code: 0, output: 'Ada Lovelace\n' }
+        if (args[0] === 'config' && args[1] === 'user.email') return { code: 0, output: 'ada@example.com\n' }
+        if (args[0] === 'rev-parse' && args.includes('HEAD')) {
+          return { code: 0, output: `${opts.head ?? 'premergeabc'}\n` }
+        }
+        if (args.includes('merge') && args.includes('--ff-only')) {
+          return opts.ff === false
+            ? { code: 1, output: 'fatal: Not possible to fast-forward\n' }
+            : { code: 0, output: '' }
+        }
+        if (args.includes('merge') && args.includes('--squash')) {
+          if (opts.squashConflict === true) {
+            merging = true
+            mkdirSync(join(opts.cwd, dirname(conflictPath)), { recursive: true })
+            writeFileSync(join(opts.cwd, conflictPath), opts.conflictContent ?? '')
+            return { code: 1, output: `CONFLICT (content): Merge conflict in ${conflictPath}\nAutomatic merge failed\n` }
+          }
+          return { code: 0, output: '' }
+        }
+        if (args[0] === 'ls-files' && args[1] === '-u') {
+          return { code: 0, output: merging ? unmerged : '' }
+        }
+        if (args[0] === 'diff' && args.includes('--diff-filter=U')) {
+          return { code: 0, output: merging ? `${conflictPath}\n` : '' }
+        }
+        if (args[0] === 'status' && args.includes('--porcelain')) {
+          return { code: 0, output: merging ? `UU ${conflictPath}\n` : '' }
+        }
+        if (args[0] === 'add') {
+          if (opts.fill !== undefined && args.includes(conflictPath)) {
+            writeFileSync(join(opts.cwd, conflictPath), opts.fill)
+          }
+          return { code: 0, output: '' }
+        }
+        if (args.includes('merge') && args.includes('--continue')) {
+          merging = false
+          return { code: 0, output: '' }
+        }
+        if (args.includes('merge') && args.includes('--abort')) {
+          merging = false
+          return { code: 0, output: '' }
+        }
+        if (args[0] === 'branch' && (args[1] === '-D' || args[1] === '-d')) {
+          const name = args[2]
+          if (name !== undefined) branches.delete(name)
+        }
+        return { code: 0, output: '' }
+      },
+    }
+  }
+
+  it('fast-forwards onto Original-Branch after dual-layer proof without a deliver prompt', async () => {
+    const cwd = mkdtempSync(join(tmpdir(), 'ship-run-'))
+    writeDeliverySpec(cwd)
+    const git = deliveryGit({ cwd })
+    const prompts: string[] = []
+    let proved = 0
+    const goals = recordingGoals()
+    const ship = new ShipRun(cwd, chrome, {
+      git: git.git,
+      goals,
+      proveDelivery: async () => {
+        proved += 1
+        return 'green'
+      },
+    })
+    await ship.run('Keep offline use.', async prompt => {
+      prompts.push(prompt)
+      if (prompt.includes('Phase 5 — done means verified')) shipVerified(cwd)
+    })
+    expect(prompts).toHaveLength(1)
+    expect(prompts[0]).toContain('Phase 5 — done means verified')
+    expect(prompts[0]).toContain('auto-picks Merge back')
+    expect(git.log.some(entry => entry.includes('checkout main'))).toBe(true)
+    expect(git.log.some(entry => /merge --ff-only ship\/widget/.test(entry))).toBe(true)
+    expect(git.log.some(entry => entry.includes('merge --squash'))).toBe(false)
+    expect(proved).toBe(0)
+    expect(goals.log).toContain('complete:goal-new')
+  })
+
+  it('squashes with the host author and spec title then re-proves when fast-forward is impossible', async () => {
+    const cwd = mkdtempSync(join(tmpdir(), 'ship-run-'))
+    writeDeliverySpec(cwd)
+    const git = deliveryGit({ cwd, ff: false })
+    let proved = 0
+    const ship = new ShipRun(cwd, chrome, {
+      git: git.git,
+      proveDelivery: async () => {
+        proved += 1
+        return 'green'
+      },
+    })
+    await ship.run('Keep offline use.', async prompt => {
+      if (prompt.includes('Phase 5 — done means verified')) shipVerified(cwd)
+    })
+    expect(git.log.some(entry => /merge --ff-only ship\/widget/.test(entry))).toBe(true)
+    expect(git.log.some(entry => /merge --squash ship\/widget/.test(entry))).toBe(true)
+    expect(git.log.some(entry =>
+      entry.includes('commit')
+      && entry.includes('user.name=Ada Lovelace')
+      && entry.includes('Keep offline use.'),
+    )).toBe(true)
+    expect(proved).toBe(1)
+    expect(git.log.some(entry => /branch -[Dd] ship\/widget/.test(entry))).toBe(false)
+  })
+
+  it('dispatches one Merge-back Conflict-resolution child with directory delivery', async () => {
+    const cwd = mkdtempSync(join(tmpdir(), 'ship-run-'))
+    writeDeliverySpec(cwd)
+    const created: Array<{ graphKey: string; cwd?: string; role?: string }> = []
+    const git = deliveryGit({
+      cwd,
+      ff: false,
+      squashConflict: true,
+      conflictPath: 'src/greet.ts',
+      conflictContent: conflictHunk,
+    })
+    const children: ShipChildCreate = {
+      async create(request) {
+        created.push({
+          graphKey: request.graphKey,
+          ...(request.cwd === undefined ? {} : { cwd: request.cwd }),
+          ...(request.role === undefined ? {} : { role: request.role }),
+        })
+        return {
+          id: `child-${request.graphKey}-${request.role ?? 'tdd'}`,
+          graphKey: request.graphKey,
+          label: request.label,
+          ...(request.role === undefined ? {} : { role: request.role }),
+          done: Promise.resolve(),
+          async dispose() {},
+        }
+      },
+    }
+    await new ShipRun(cwd, chrome, { childCreate: children, git: git.git }).run('Keep offline use.', async prompt => {
+      if (prompt.includes('Phase 5 — done means verified')) shipVerified(cwd)
+    })
+    const conflictKids = created.filter(row => row.role === 'conflict')
+    expect(conflictKids).toHaveLength(1)
+    expect(conflictKids[0]?.graphKey).toBe('delivery')
+    expect(conflictKids[0]?.cwd).toBe(cwd)
+    expect(git.log.some(entry => entry.includes('merge --abort'))).toBe(true)
+    expect(existsSync(join(cwd, '.scratch', 'widget', 'merge-snapshots', 'delivery'))).toBe(true)
+    expect(readFileSync(join(cwd, 'docs', 'specs', 'widget.md'), 'utf8')).toContain('## Blocker')
+    expect(git.branches.has('ship/widget')).toBe(true)
+  })
+
+  it('resets Original-Branch on red delivery proof and keeps ship/<slug>', async () => {
+    const cwd = mkdtempSync(join(tmpdir(), 'ship-run-'))
+    writeDeliverySpec(cwd)
+    const git = deliveryGit({ cwd, ff: false, head: 'premergeabc' })
+    const goals = recordingGoals()
+    const ship = new ShipRun(cwd, chrome, {
+      git: git.git,
+      goals,
+      proveDelivery: async () => 'red',
+    })
+    await ship.run('Keep offline use.', async prompt => {
+      if (prompt.includes('Phase 5 — done means verified')) shipVerified(cwd)
+    })
+    expect(git.log.some(entry => /merge --squash ship\/widget/.test(entry))).toBe(true)
+    expect(git.log.some(entry => /reset --hard premergeabc/.test(entry))).toBe(true)
+    expect(git.log.some(entry => /branch -[Dd] ship\/widget/.test(entry))).toBe(false)
+    expect(git.branches.has('ship/widget')).toBe(true)
+    expect(goals.log).not.toContain('complete:goal-new')
+  })
+})
+
 async function waitFor(predicate: () => boolean, ms = 1000): Promise<void> {
   const start = Date.now()
   while (!predicate()) {

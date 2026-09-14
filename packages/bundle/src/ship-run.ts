@@ -270,6 +270,11 @@ export interface ShipPorts {
    * real suite inside unit tests.
    */
   prove?: (ticket: { id: string; contract: string; kind: 'sweep' | 'land' }) => Promise<'green' | 'red'>
+  /**
+   * Dual-layer re-prove after a squash Merge-back. Fast-forward skips this.
+   * Absent defaults to green so unit tests do not run the real suite.
+   */
+  proveDelivery?: () => Promise<'green' | 'red'>
   /** False on a pipe: sidecar still rebuilds, no Fold. Default true. */
   isTty?: boolean
 }
@@ -2221,10 +2226,137 @@ export class ShipRun {
           writeFileSync(this.followedSpec, current.replace(/^Status:\s*shipped\b/imu, 'Status: landing'))
         }
         this.block('Verifier: acceptance evidence incomplete. Delivery blocked; restore proof evidence before resuming.')
+        return
       }
+      await this.deliverMergeBack()
       return
     }
     if (next !== 'land') this.block(`Invalid ship phase transition during landing: ${next}. Stopped.`)
+  }
+
+  /**
+   * Standing preference is Merge back: fast-forward when possible (skip
+   * re-prove), else squash under the host author and spec title, then
+   * re-prove. Not a third HITL. Red resets Original-Branch; `ship/<slug>` stays.
+   */
+  private async deliverMergeBack(): Promise<void> {
+    if (this.landingStopped()) return
+    const markdown = this.followedMarkdown() ?? ''
+    const meta = parseSpecMetadata(markdown)
+    const original = meta.originalBranch
+    const slug = this.slug()
+    const feature = meta.branch ?? (slug === undefined ? undefined : `ship/${slug}`)
+    if (original === undefined || original === '' || feature === undefined) return
+    const checked = await this.git(['checkout', original])
+    if (checked.code !== 0) {
+      this.block(`Merge-back could not check out Original-Branch ${original}. Stopped; keep ${feature}.`)
+      return
+    }
+    const pre = (await this.git(['rev-parse', 'HEAD'])).output.trim()
+    const ff = await this.git(['merge', '--ff-only', feature])
+    if (ff.code === 0) return
+    const squash = await this.git(['merge', '--squash', feature])
+    let committed = false
+    if (squash.code !== 0) {
+      const resolved = await this.resolveDeliveryMergeConflict(squash.output)
+      if (!resolved) return
+      committed = true
+    }
+    if (!committed) {
+      const authored = await this.gitAsHost(['commit', '-m', this.deliveryCommitMessage()])
+      if (authored.code !== 0) {
+        if (pre !== '') await this.git(['reset', '--hard', pre])
+        this.halted = true
+        this.ports.flash?.(`Merge-back squash commit failed. Original-Branch reset; ${feature} kept.`)
+        return
+      }
+    }
+    const color = this.ports.proveDelivery === undefined ? 'green' : await this.ports.proveDelivery()
+    if (color === 'green') return
+    if (pre !== '') await this.git(['reset', '--hard', pre])
+    this.halted = true
+    this.ports.flash?.(`Merge-back proof was red. Original-Branch reset; ${feature} kept.`)
+  }
+
+  /** Spec title for a squash Merge-back: Original Requirement, else idea, else basename. */
+  private deliveryCommitMessage(): string {
+    const markdown = this.followedMarkdown() ?? ''
+    const original = parseOriginalRequirement(markdown) ?? this.originalRequirement
+    if (original !== undefined) {
+      const line = original.split(/\r\n|[\r\n]/u).map(part => part.trim()).find(part => part !== '')
+      if (line !== undefined && line !== '') return line
+    }
+    const idea = this.sealedContract?.objective.trim()
+    if (idea !== undefined && idea !== '') return idea
+    const specPath = this.followedSpec
+    if (specPath !== undefined) {
+      const base = basename(specPath, '.md')
+      if (base !== '') return base
+    }
+    return this.slug() ?? 'ship'
+  }
+
+  /**
+   * Same Conflict-resolution child and abort rule as a land merge, directory
+   * `delivery`, cwd the Original-Branch working tree.
+   */
+  private async resolveDeliveryMergeConflict(mergeOutput: string): Promise<boolean> {
+    const slug = this.slug()
+    if (slug === undefined) return false
+    try {
+      const outcome = await runMergeConflictResolution({
+        targetCwd: this.cwd,
+        scratchSlugDir: join(this.cwd, '.scratch', slug),
+        directory: 'delivery',
+        graphKey: 'delivery',
+        label: 'Merge-back',
+        mergeOutput,
+        git: {
+          git: (args, cwd) => this.git(args, cwd),
+          gitAsHost: (args, cwd) => this.gitAsHost(args, cwd),
+        },
+        ...(this.ports.childCreate === undefined ? {} : { childCreate: this.ports.childCreate }),
+        ...(this.advance === undefined ? {} : { signal: this.advance.signal }),
+        halted: () => this.landingStopped(),
+        ...(this.ports.folds === undefined ? {} : { bindFold: (id, label) => this.ports.folds?.bind(id, label) }),
+        ...(this.ports.isTty === undefined ? {} : { isTty: this.ports.isTty }),
+        onChild: handle => { this.children.set(handle.id, handle) },
+        releaseChild: id => this.releaseChild(id),
+        onFillable: paths => { this.conflictAlignPaths = [...paths] },
+      })
+      if (outcome.kind === 'resolved') return true
+      if (outcome.kind === 'interrupt') {
+        this.abort()
+        return false
+      }
+      if (outcome.kind === 'failed') {
+        this.block('Merge-back conflict could not be classified. Stopped; keep ship/<slug>.')
+        return false
+      }
+      await this.recordDeliveryConflictBlocker(outcome.snapshotDir, outcome.reason)
+      this.block('Merge-back conflict could not be filled. Stopped; keep ship/<slug>.')
+      return false
+    } finally {
+      this.conflictAlignPaths = undefined
+    }
+  }
+
+  private async recordDeliveryConflictBlocker(snapshotDir: string, reason: string): Promise<void> {
+    const specPath = this.followedSpec
+    if (specPath === undefined) return
+    let markdown = this.followedMarkdown() ?? ''
+    if (parseShipBlocker(markdown) === undefined) {
+      const body = [
+        `Conflict-resolution skipped for Merge-back (${reason}).`,
+        `Merge snapshot: ${mergeSnapshotRepoPath(this.cwd, snapshotDir)}`,
+        'The child was not asked to invent implementation. ship/<slug> stays as the recovery vehicle.',
+      ].join('\n')
+      markdown = markdown.endsWith('\n') ? `${markdown}\n## Blocker\n\n${body}\n` : `${markdown}\n\n## Blocker\n\n${body}\n`
+      writeFileSync(specPath, markdown)
+    }
+    await this.git(['add', '--', specPath])
+    await this.git(['add', '-f', '--', snapshotDir])
+    await this.gitAsHost(['commit', '-m', 'ship: blocker Merge-back'])
   }
 
   private async spendTurn(turn: ShipTurn): Promise<boolean> {
