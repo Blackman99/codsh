@@ -80,6 +80,7 @@ import { TerminalQuestions } from './questions.ts'
 import { userShell } from './bang.ts'
 import { indexReplayTiming } from './replay-timing.ts'
 import { ShipRun, wrapHostGoals } from './ship-run.ts'
+import { bindWebPanorama, openWebPanorama } from './ship-web.ts'
 import { Spinner } from './spinner.ts'
 import {
   DEEPSEEK_VISION_MODEL,
@@ -1024,10 +1025,12 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
       ? {
           occupancy: (spec, signal) => prompt.select(spec, signal),
           selectSpec: (spec, signal) => prompt.select(spec, signal),
+          open: url => { openWebPanorama(url) },
         }
       : {}),
     flash: text => { emit([theme.dim(`  ${text}`)]) },
     isPlanMode: () => sessionFolds.planMode,
+    bind: request => bindWebPanorama(request.graph),
   })
   const spinner = new Spinner({
     setLive: (text) => { prompt.setHint(text) },
