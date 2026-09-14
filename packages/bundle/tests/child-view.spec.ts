@@ -8,9 +8,11 @@ import { describe, expect, it } from 'vitest'
 import {
   ChildViews,
   childOwnedEvents,
+  graphKeyedSessions,
   inProcessDescendants,
   ownsApproval,
   paintsViewedSession,
+  runnerFolds,
 } from '../src/child-view.ts'
 
 describe('ChildViews', () => {
@@ -93,5 +95,45 @@ describe('inProcessDescendants', () => {
       { id: 'grandchild', parentSession: 'child' },
       { id: 'other', parentSession: 'elsewhere' },
     ])).toEqual(new Set(['child', 'grandchild']))
+  })
+})
+
+describe('graphKeyedSessions', () => {
+  it('keeps only live Sessions that the runner still names', () => {
+    expect(graphKeyedSessions(
+      [{ id: 'parent' }, { id: 'child' }],
+      [
+        { id: 'child', graphKey: 'landing:2', label: 'Ticket 2: Teaser' },
+        { id: 'gone', graphKey: 'landing:1', label: 'Ticket 1: Graph join' },
+      ],
+    )).toEqual([
+      { id: 'child', graphKey: 'landing:2', label: 'Ticket 2: Teaser' },
+    ])
+  })
+})
+
+describe('runnerFolds', () => {
+  it('orders one Fold per live Session by graph key and omits a leftover with no Session', () => {
+    expect(runnerFolds([
+      { id: 'later', graphKey: 'landing:2', label: 'Ticket 2: Teaser' },
+      { id: 'first', graphKey: 'decision:local:1', label: 'Graph node identity' },
+    ])).toEqual([
+      { sessionId: 'first', graphKey: 'decision:local:1', label: 'Graph node identity' },
+      { sessionId: 'later', graphKey: 'landing:2', label: 'Ticket 2: Teaser' },
+    ])
+    expect(runnerFolds([])).toEqual([])
+  })
+
+  it('adds · conflict / · repair only when two Sessions share one key', () => {
+    expect(runnerFolds([
+      { id: 'tdd', graphKey: 'landing:1', label: 'Ticket 1: Graph join' },
+      { id: 'fix', graphKey: 'landing:1', label: 'Ticket 1: Graph join', role: 'conflict' },
+    ])).toEqual([
+      { sessionId: 'fix', graphKey: 'landing:1', label: 'Ticket 1: Graph join · conflict' },
+      { sessionId: 'tdd', graphKey: 'landing:1', label: 'Ticket 1: Graph join · repair' },
+    ])
+    expect(runnerFolds([
+      { id: 'only', graphKey: 'landing:1', label: 'Ticket 1: Graph join' },
+    ])[0]?.label).toBe('Ticket 1: Graph join')
   })
 })

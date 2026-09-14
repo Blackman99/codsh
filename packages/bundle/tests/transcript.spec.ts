@@ -1114,6 +1114,39 @@ describe('a pending subagent card that is a view', () => {
   })
 })
 
+describe('a runner Child view Fold', () => {
+  it('paints click to enter without a parent subagent card', () => {
+    const transcript = build()
+    const lines = transcript.bindRunnerView('child-9', 'Ticket 2: Land the teaser')
+    expect(lines).toEqual(['Ticket 2: Land the teaser', '  click to enter'])
+    expect(lines.join('\n')).not.toContain('subagent')
+    expect(transcript.takeEnter()).toBe('child-9')
+    expect(transcript.takeLabel()).toBe('Ticket 2: Land the teaser')
+    expect(transcript.takePendingCard()).toEqual([])
+    expect(transcript.takeEnter()).toBeUndefined()
+  })
+
+  it('reprints the same door so reconstruct after clear still enters', () => {
+    const transcript = build()
+    expect(transcript.bindRunnerView('child-9', 'Ticket 2: Land the teaser')).toEqual([
+      'Ticket 2: Land the teaser',
+      '  click to enter',
+    ])
+    transcript.takeEnter()
+    const again = transcript.bindRunnerView('child-9', 'Ticket 2: Land the teaser')
+    expect(again.join('\n')).toContain('click to enter')
+    expect(transcript.takeEnter()).toBe('child-9')
+  })
+
+  it('drops the door when the runner releases the child', () => {
+    const transcript = build()
+    const painted = transcript.bindRunnerView('child-9', 'Graph node identity')
+    expect(transcript.dropRunnerView('child-9')).toEqual(painted)
+    expect(transcript.dropRunnerView('child-9')).toEqual([])
+    expect(transcript.takeEnter()).toBeUndefined()
+  })
+})
+
 describe('naming a pending call', () => {
   it('names a terminal call by its first command line', () => {
     const call = (): ToolCallView => ({ card: 'terminal', title: 'git push origin main\necho done' })

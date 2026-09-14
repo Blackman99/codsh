@@ -4,12 +4,12 @@
  *
  * The runner calls {@link ShipRun.run} for the canned command, {@link
  * ShipRun.noteWritten} when a tool writes markdown, and {@link ShipRun.abort}
- * on Esc. Chip, plan, poll, occupancy, the goals port, and phase injection
- * stay behind this seam.
+ * on Esc. Chip, plan, poll, occupancy, the goals port, Claim writes,
+ * AFK child-create, Fold bind, and phase injection stay behind this seam.
  * @module codsh-bundle/src/ship-run
  */
 
-import { existsSync, readdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs'
 import { basename, dirname, join, resolve, sep } from 'node:path'
 import { activeTicketBrief, parseMainTrack, parseOriginalRequirement, parsePlan, parseShipBlocker, parseShipStatus, parseSpecMetadata, pickLiveShip, planInFlight, plansEqual } from './plan.ts'
 import { landingPlan, sameLandingPlan } from './ship-landing.ts'
@@ -39,6 +39,7 @@ import { shipPhaseKind, shipPromptFor } from './ship.ts'
 import type { ShipPhaseKind } from './ship.ts'
 import { sameShipChip, shipChipFromSpec } from './status.ts'
 import type { ShipChip } from './status.ts'
+import { capture } from './capture.ts'
 import {
   collectJoinSources,
   graphPathFor,
@@ -47,9 +48,11 @@ import {
   joinShipGraph,
   readShipGraph,
   teaserCounts,
+  worktreeDirectory,
+  worktreeDirectoryParts,
   writeShipGraph,
 } from './ship-graph.ts'
-import type { ShipGraph, TeaserCounts } from './ship-graph.ts'
+import type { ShipGraph, ShipGraphNode, TeaserCounts } from './ship-graph.ts'
 import {
   freezeEqual,
   freezeText,
@@ -195,6 +198,40 @@ export type OccupancyAsk = SelectAsk
 /** Flash that `/goal` was not updated when the harness half degrades. */
 export type ShipFlash = (text: string) => void
 
+/** One AFK child the host creates with `agents.create({ meta: { cwd } })`. */
+export interface ShipChildCreateRequest {
+  graphKey: string
+  label: string
+  prompt: string
+  cwd?: string
+  role?: 'conflict' | 'repair'
+}
+
+/** Live handle the runner keeps until it releases the child. */
+export interface ShipChildHandle {
+  id: string
+  graphKey: string
+  label: string
+  role?: 'conflict' | 'repair'
+  /** Settles when the child is idle; the runner then releases the Fold. */
+  done?: Promise<void>
+  dispose(): Promise<void>
+}
+
+/** Host-plane child factory. High-level spawn copies parent cwd and is wrong. */
+export interface ShipChildCreate {
+  create(request: ShipChildCreateRequest): Promise<ShipChildHandle>
+}
+
+/** Transcript port that paints a runner Fold without a parent `subagent` card. */
+export interface ShipFoldBind {
+  bind(sessionId: string, label: string): void
+  release(sessionId: string): void
+}
+
+/** Optional git so tests can fake worktree add and claim commits. */
+export type ShipGit = (args: readonly string[], cwd: string) => Promise<{ code: number; output: string }>
+
 /** Optional ports the composition root wires: goals, occupancy, flash. */
 export interface ShipPorts {
   goals?: ShipGoals
@@ -204,6 +241,13 @@ export interface ShipPorts {
   flash?: ShipFlash
   /** True while plan mode is holding; the runner stays read-only. */
   isPlanMode?: () => boolean
+  /** AFK child factory; absent means no runner dispatch. */
+  childCreate?: ShipChildCreate
+  /** Runner Fold bind; a pipe (`isTty: false`) never calls it. */
+  folds?: ShipFoldBind
+  git?: ShipGit
+  /** False on a pipe: sidecar still rebuilds, no Fold. Default true. */
+  isTty?: boolean
 }
 
 /** Occupancy Selector title/header — a Selector, not a ship gate modal. */
@@ -300,6 +344,8 @@ export class ShipRun {
   private halted = false
   /** Unfinished specs this run must not jump to. */
   private ignoredSpecs = new Set<string>()
+  /** In-flight runner children, keyed by Session id. Claim never stores these. */
+  private readonly children = new Map<string, ShipChildHandle>()
 
   constructor(
     private readonly cwd: string,
@@ -479,11 +525,35 @@ export class ShipRun {
     this.rebuildGraph()
   }
 
-  /** Stop the phase loop and the spec poll. */
+  /** Stop the phase loop and the spec poll. Claim stays; Occupancy end does not unclaim. */
   abort(): void {
     this.halted = true
     this.advance?.abort()
     this.stopWatch()
+  }
+
+  /**
+   * Drop a runner child after the work is released. The Fold goes with it.
+   * A leftover worktree with no Session stays panorama 已认领, not a dead door.
+   */
+  async releaseChild(id: string): Promise<void> {
+    const handle = this.children.get(id)
+    if (handle === undefined) return
+    this.children.delete(id)
+    try {
+      await handle.dispose()
+    } catch {
+      // Dispose is best-effort; the Fold still has to leave.
+    }
+    this.ports.folds?.release(id)
+  }
+
+  /**
+   * In-flight runner children. Reconstruct Folds from this plus live Sessions;
+   * a leftover worktree with no Session is not listed.
+   */
+  get liveChildren(): readonly ShipChildHandle[] {
+    return [...this.children.values()]
   }
 
   /**
@@ -528,9 +598,12 @@ export class ShipRun {
       if (!await this.occupy(idea)) return
       this.persistSnapshot()
       this.rebuildGraph()
+      this.reclaimLeftoverWorktrees()
+      this.rebuildGraph()
       if (!this.guardContract()) return
       let previous = shipPhaseKind(this.status())
       await this.syncCompass()
+      await this.reclaimAndDispatch()
       if (previous === 'land') { await this.runLanding(turn); return }
       let hitl = await this.spendTurn(turn)
       while (!advance.signal.aborted && !this.contractInvalid && !this.halted) {
@@ -541,6 +614,7 @@ export class ShipRun {
         this.rebuildGraph()
         if (!this.guardContract()) break
         await this.syncCompass()
+        await this.reclaimAndDispatch()
         const next = shipPhaseKind(this.status())
         if (next !== previous) {
           if (!this.mayAdvance(previous, next)) break
@@ -1278,6 +1352,232 @@ export class ShipRun {
    */
   private mayContinueHitl(hitl: boolean, kind: ShipPhaseKind): boolean {
     return hitl && (kind === 'wayfinder' || kind === 'grill')
+  }
+
+  /**
+   * Claim leftover worktrees, then AFK-dispatch unblocked research and
+   * unclaimed landing tickets. No parent model turn is spent here.
+   */
+  private async reclaimAndDispatch(): Promise<void> {
+    this.reclaimLeftoverWorktrees()
+    this.rebuildGraph()
+    if (this.halted || this.contractInvalid || this.inPlanMode()) return
+    await this.dispatchResearch()
+    await this.dispatchLandingChildren()
+  }
+
+  private slug(): string | undefined {
+    const specPath = this.followedSpec
+    const markdown = this.followedMarkdown()
+    if (specPath === undefined || markdown === undefined) return undefined
+    return slugFromSpec(markdown, specPath)
+  }
+
+  private worktreePath(graphKey: string): string | undefined {
+    const slug = this.slug()
+    const directory = worktreeDirectory(graphKey)
+    if (slug === undefined || directory === undefined) return undefined
+    return join(this.cwd, '.scratch', slug, 'worktrees', directory)
+  }
+
+  private leftoverWorktree(graphKey: string): boolean {
+    const path = this.worktreePath(graphKey)
+    return path !== undefined && existsSync(path)
+  }
+
+  /** Missing `Claim: claimed` plus leftover worktree writes the flag. Never a Session id. */
+  private reclaimLeftoverWorktrees(): void {
+    const slug = this.slug()
+    if (slug === undefined) return
+    const root = join(this.cwd, '.scratch', slug, 'worktrees')
+    let names: string[] = []
+    try {
+      names = readdirSync(root)
+    } catch {
+      return
+    }
+    for (const name of names) {
+      const parts = worktreeDirectoryParts(name)
+      if (parts === undefined) continue
+      if (parts.kind === 'landing') this.writeLandingClaim(slug, parts.n)
+      else this.writeDecisionClaim(slug, parts.n)
+    }
+  }
+
+  private writeLandingClaim(slug: string, n: number): boolean {
+    const dir = join(this.cwd, '.scratch', slug, 'issues')
+    mkdirSync(dir, { recursive: true })
+    const path = this.scratchFile(dir, n) ?? join(dir, `${String(n).padStart(2, '0')}-ticket.md`)
+    let text = ''
+    try {
+      text = readFileSync(path, 'utf8')
+    } catch {
+      const title = this.graph?.nodes.find(node => node.id === `landing:${String(n)}`)?.title ?? `Ticket ${String(n)}`
+      text = `Ticket ${String(n)}: ${title}\n`
+    }
+    if (/^Claim:\s*claimed\b/imu.test(text)) return false
+    const next = /^Claim:\s*/imu.test(text)
+      ? text.replace(/^Claim:\s*.*$/imu, 'Claim: claimed')
+      : `Claim: claimed\n${text}`
+    writeFileSync(path, next.endsWith('\n') ? next : `${next}\n`)
+    return true
+  }
+
+  private writeDecisionClaim(slug: string, n: number): boolean {
+    const dir = join(this.cwd, '.scratch', slug, 'wayfinder')
+    const path = this.scratchFile(dir, n)
+    if (path === undefined) return false
+    let text = ''
+    try {
+      text = readFileSync(path, 'utf8')
+    } catch {
+      return false
+    }
+    if (/^Status:\s*claimed\b/imu.test(text)) return false
+    const next = /^Status:\s*/imu.test(text)
+      ? text.replace(/^Status:\s*.*$/imu, 'Status: claimed')
+      : `Status: claimed\n${text}`
+    writeFileSync(path, next.endsWith('\n') ? next : `${next}\n`)
+    return true
+  }
+
+  private scratchFile(dir: string, n: number): string | undefined {
+    let names: string[] = []
+    try {
+      names = readdirSync(dir)
+    } catch {
+      return undefined
+    }
+    const match = names.find(name => new RegExp(`^0*${String(n)}-.+\\.md$`, 'u').test(name))
+    return match === undefined ? undefined : join(dir, match)
+  }
+
+  private unblocked(id: string): boolean {
+    if (this.graph === undefined) return false
+    return this.graph.edges
+      .filter(edge => edge.from === id && edge.kind === 'blocked-by')
+      .every(edge => this.graph?.nodes.find(node => node.id === edge.to)?.claim === 'closed')
+  }
+
+  private hasChildFor(graphKey: string): boolean {
+    for (const child of this.children.values()) {
+      if (child.graphKey === graphKey) return true
+    }
+    return false
+  }
+
+  private async dispatchResearch(): Promise<void> {
+    if (this.ports.childCreate === undefined || this.graph === undefined) return
+    const jobs: Promise<void>[] = []
+    for (const node of this.graph.nodes) {
+      if (node.kind !== 'decision' || node.ticketType !== 'research') continue
+      if (node.claim !== 'claimed') continue
+      if (!this.unblocked(node.id)) continue
+      if (this.hasChildFor(node.id) || this.leftoverWorktree(node.id)) continue
+      jobs.push(this.dispatchChild(node, this.researchPrompt(node)))
+    }
+    await Promise.all(jobs)
+  }
+
+  private async dispatchLandingChildren(): Promise<void> {
+    if (this.ports.childCreate === undefined || this.graph === undefined) return
+    if (shipPhaseKind(this.status()) !== 'land') return
+    const slug = this.slug()
+    if (slug === undefined) return
+    const pending: ShipGraphNode[] = []
+    for (const node of this.graph.nodes) {
+      if (node.kind !== 'landing' || node.claim !== 'unclaimed') continue
+      if (!this.unblocked(node.id)) continue
+      const n = Number(/^landing:(\d+)$/u.exec(node.id)?.[1])
+      if (!Number.isInteger(n) || n <= 0) continue
+      this.writeLandingClaim(slug, n)
+      if (this.leftoverWorktree(node.id) || this.hasChildFor(node.id)) continue
+      pending.push(node)
+    }
+    this.rebuildGraph()
+    for (const node of pending) {
+      await this.commitClaim(node.id)
+    }
+    await Promise.all(pending.map(node => this.dispatchChild(node, this.landingPrompt(node))))
+  }
+
+  private researchPrompt(node: ShipGraphNode): string {
+    const specPath = this.followedSpec ?? ''
+    return [
+      `Research decision: ${node.title}`,
+      `Bound spec: ${specPath}`,
+      'Read-only with respect to project files. Write evidence only under the spec scratch directory.',
+      'Return at most 20 lines naming the result plus evidence paths. Do not edit the spec, Status, or plan checkboxes.',
+    ].join('\n')
+  }
+
+  private landingPrompt(node: ShipGraphNode): string {
+    const n = /^landing:(\d+)$/u.exec(node.id)?.[1] ?? ''
+    return [
+      `Ticket ${n}: ${node.title}`,
+      `Bound spec: ${this.followedSpec ?? ''}`,
+      'Implement only this ticket in this worktree. Do not tick the plan checkbox; Claim is already written.',
+      'Return at most 20 lines naming the result plus evidence paths. Children never commit.',
+    ].join('\n')
+  }
+
+  private async commitClaim(graphKey: string): Promise<void> {
+    const slug = this.slug()
+    if (slug === undefined) return
+    const n = Number(graphKey.split(':')[1])
+    const path = this.scratchFile(join(this.cwd, '.scratch', slug, 'issues'), n)
+    if (path === undefined) return
+    await this.git(['add', '--', path])
+    await this.git(['commit', '-m', `ship: claim ${graphKey}`])
+  }
+
+  private async dispatchChild(node: ShipGraphNode, prompt: string): Promise<void> {
+    const create = this.ports.childCreate
+    if (create === undefined) return
+    const cwd = await this.ensureWorktree(node.id)
+    const n = /^landing:(\d+)$/u.exec(node.id)?.[1]
+    const label = n === undefined ? node.title : `Ticket ${n}: ${node.title}`
+    try {
+      const handle = await create.create({
+        graphKey: node.id,
+        label,
+        prompt,
+        ...(cwd === undefined ? {} : { cwd }),
+      })
+      this.children.set(handle.id, handle)
+      if (this.ports.isTty !== false) this.ports.folds?.bind(handle.id, label)
+      if (handle.done !== undefined) {
+        void handle.done.then(() => this.releaseChild(handle.id), () => this.releaseChild(handle.id))
+      }
+    } catch {
+      this.ports.flash?.(`Could not dispatch ${label}`)
+    }
+  }
+
+  private async ensureWorktree(graphKey: string): Promise<string | undefined> {
+    const abs = this.worktreePath(graphKey)
+    const slug = this.slug()
+    const directory = worktreeDirectory(graphKey)
+    if (abs === undefined || slug === undefined || directory === undefined) return undefined
+    const root = join(this.cwd, '.scratch', slug, 'worktrees')
+    mkdirSync(root, { recursive: true })
+    const ignore = join(root, '.gitignore')
+    if (!existsSync(ignore)) writeFileSync(ignore, '*\n')
+    if (!existsSync(abs)) {
+      const added = await this.git(['worktree', 'add', '-B', `wt/${slug}/${directory}`, abs])
+      if (added.code !== 0 && !existsSync(abs)) mkdirSync(abs, { recursive: true })
+    }
+    return abs
+  }
+
+  private async git(args: readonly string[]): Promise<{ code: number; output: string }> {
+    if (this.ports.git !== undefined) return this.ports.git(args, this.cwd)
+    try {
+      const result = await capture('git', args, { cwd: this.cwd })
+      return { code: result.code ?? 1, output: result.output }
+    } catch {
+      return { code: 1, output: '' }
+    }
   }
 
   /** Land one ticket per turn, with host-owned checks between every dispatch. */

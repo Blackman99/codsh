@@ -518,7 +518,7 @@ export class TerminalConsole {
    * @param replaces - lines already printed that these take the place of.
    */
   writeAll(lines: readonly string[], rule: string | readonly string[] = '', replaces: readonly string[] = []): void {
-    if (lines.length === 0) return
+    if (lines.length === 0 && replaces.length === 0) return
     if (this.screen !== undefined) {
       this.screen.append(lines, rule, replaces)
       return

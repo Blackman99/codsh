@@ -2,12 +2,12 @@
  * One `/ship` run: chrome and phase injection through the public seam only.
  */
 
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { ShipRun, wrapHostGoals } from '../src/ship-run.ts'
+import { ShipRun, wrapHostGoals, type ShipChildCreate, type ShipChildHandle, type ShipFoldBind } from '../src/ship-run.ts'
 import { snapshotPathFor } from '../src/ship-snapshot.ts'
 import { graphPathFor } from '../src/ship-graph.ts'
 import type { TeaserCounts } from '../src/ship-graph.ts'
@@ -1233,6 +1233,10 @@ describe('composition root', () => {
     expect(source).toContain('shipAskSettledHitl')
     expect(source).toContain('hitl: true')
     expect(source).not.toMatch(/hitl[\s\S]{0,80}subagent/)
+    expect(source).toContain('childCreate')
+    expect(source).toContain('bindRunnerView')
+    expect(source).toContain('createChild')
+    expect(source).toContain('liveChildren')
   })
 
   it('compiles and writes a Mission Contract at Confirm and prepends it later', async () => {
@@ -1683,5 +1687,209 @@ describe('composition root', () => {
     expect(prompts.length).toBeGreaterThan(0)
     expect(existsSync(graphPathFor(path))).toBe(true)
     expect(ship.shipGraph?.nodes.some(node => node.id === 'landing:1')).toBe(true)
+  })
+
+  const recordingChildCreate = (): ShipChildCreate & { created: Array<{ prompt: string; cwd?: string; graphKey: string }> } => {
+    const created: Array<{ prompt: string; cwd?: string; graphKey: string }> = []
+    return {
+      created,
+      async create(request) {
+        created.push({
+          prompt: request.prompt,
+          graphKey: request.graphKey,
+          ...(request.cwd === undefined ? {} : { cwd: request.cwd }),
+        })
+        const handle: ShipChildHandle = {
+          id: `child-${String(created.length)}`,
+          graphKey: request.graphKey,
+          label: request.label,
+          async dispose() {},
+        }
+        return handle
+      },
+    }
+  }
+
+  const recordingFolds = (): ShipFoldBind & { bound: Array<{ id: string; label: string }>; released: string[] } => {
+    const bound: Array<{ id: string; label: string }> = []
+    const released: string[] = []
+    return {
+      bound,
+      released,
+      bind(id, label) { bound.push({ id, label }) },
+      release(id) { released.push(id) },
+    }
+  }
+
+  const landingMarkdown = (): string => [
+    'Status: landing',
+    'Branch: ship/widget',
+    '',
+    '## Original Requirement',
+    '',
+    'Keep offline use.',
+    '',
+    '## Main Track',
+    '',
+    '**Idea.** Keep offline use.',
+    '**Track-1.** Hybrid compass.',
+    '',
+    '## Plan',
+    '',
+    '- [x] Ticket 1: Graph join (Track: 1)',
+    '- [ ] Ticket 2: Land the teaser (Track: 1)',
+  ].join('\n')
+
+  const writeResearch = (cwd: string, claimed: boolean): string => {
+    const dir = join(cwd, '.scratch', 'widget', 'wayfinder')
+    mkdirSync(dir, { recursive: true })
+    const body = [
+      '# Repo facts',
+      '',
+      'Type: research',
+      claimed ? 'Status: claimed' : 'Status: open',
+      '',
+    ].join('\n')
+    writeFileSync(join(dir, '01-repo-facts.md'), body)
+    return writeSpec(cwd, 'widget.md', [
+      'Status: wayfinding',
+      'Branch: ship/widget',
+      '',
+      '## Original Requirement',
+      '',
+      'Keep offline use.',
+      '',
+      '## Wayfinder',
+      '',
+      '[Map](../../.scratch/widget/wayfinder/map.md)',
+    ].join('\n'))
+  }
+
+  it('does not AFK-dispatch an unclaimed research ticket', async () => {
+    const cwd = mkdtempSync(join(tmpdir(), 'ship-run-'))
+    writeResearch(cwd, false)
+    const children = recordingChildCreate()
+    const prompts: string[] = []
+    const ship = new ShipRun(cwd, chrome, { childCreate: children })
+    await ship.run('', async prompt => {
+      prompts.push(prompt)
+      return prompts.length === 1 ? { hitl: true } : undefined
+    })
+    expect(children.created).toEqual([])
+    expect(prompts.length).toBeGreaterThan(0)
+  })
+
+  it('dispatches a claimed unblocked research ticket as an AFK child with no extra parent prompt', async () => {
+    const cwd = mkdtempSync(join(tmpdir(), 'ship-run-'))
+    writeResearch(cwd, true)
+    const children = recordingChildCreate()
+    const folds = recordingFolds()
+    const prompts: string[] = []
+    const ship = new ShipRun(cwd, chrome, { childCreate: children, folds })
+    await ship.run('', async prompt => {
+      prompts.push(prompt)
+      return undefined
+    })
+    expect(children.created).toHaveLength(1)
+    expect(children.created[0]?.graphKey).toBe('decision:local:1')
+    expect(children.created[0]?.cwd).toBe(join(cwd, '.scratch', 'widget', 'worktrees', 'decision-1'))
+    expect(folds.bound).toEqual([{ id: 'child-1', label: 'Repo facts' }])
+    expect(prompts).toHaveLength(1)
+    const scratch = readFileSync(join(cwd, '.scratch', 'widget', 'wayfinder', '01-repo-facts.md'), 'utf8')
+    expect(scratch).toMatch(/^Status:\s*claimed\b/imu)
+    expect(scratch).not.toMatch(/session-/iu)
+  })
+
+  it('writes landing Claim: claimed before worktree and dispatch, leaving the plan checkbox open', async () => {
+    const cwd = mkdtempSync(join(tmpdir(), 'ship-run-'))
+    const issues = join(cwd, '.scratch', 'widget', 'issues')
+    mkdirSync(issues, { recursive: true })
+    writeFileSync(join(issues, '02-land-the-teaser.md'), 'Ticket 2: Land the teaser\n')
+    const path = writeSpec(cwd, 'widget.md', landingMarkdown())
+    const children = recordingChildCreate()
+    const folds = recordingFolds()
+    const git: string[] = []
+    const prompts: string[] = []
+    const ship = new ShipRun(cwd, chrome, {
+      childCreate: children,
+      folds,
+      git: async (args, workCwd) => {
+        git.push(`${args.join(' ')} @ ${workCwd}`)
+        return { code: 0, output: '' }
+      },
+    })
+    await ship.run('', async prompt => { prompts.push(prompt) })
+    const scratch = readFileSync(join(issues, '02-land-the-teaser.md'), 'utf8')
+    expect(scratch).toMatch(/^Claim:\s*claimed\b/mu)
+    expect(scratch).not.toMatch(/Claim:\s*unclaimed/u)
+    expect(readFileSync(path, 'utf8')).toMatch(/- \[ \] Ticket 2:/u)
+    expect(children.created).toHaveLength(1)
+    expect(children.created[0]?.graphKey).toBe('landing:2')
+    expect(children.created[0]?.cwd).toBe(join(cwd, '.scratch', 'widget', 'worktrees', 'landing-2'))
+    expect(git.some(entry => entry.includes('worktree add'))).toBe(true)
+    const claimAt = git.findIndex(entry => /commit/.test(entry) && /Claim/.test(entry) === false)
+    const worktreeAt = git.findIndex(entry => entry.includes('worktree add'))
+    expect(worktreeAt).toBeGreaterThan(-1)
+    expect(claimAt === -1 || claimAt < worktreeAt || git.some(entry => /commit/.test(entry))).toBe(true)
+    expect(folds.bound[0]?.label).toBe('Ticket 2: Land the teaser')
+    expect(ship.shipGraph?.nodes.find(node => node.id === 'landing:2')?.claim).toBe('claimed')
+  })
+
+  it('reclaims a leftover worktree by writing Claim: claimed and paints no Fold without a Session', async () => {
+    const cwd = mkdtempSync(join(tmpdir(), 'ship-run-'))
+    const issues = join(cwd, '.scratch', 'widget', 'issues')
+    mkdirSync(issues, { recursive: true })
+    writeFileSync(join(issues, '02-land-the-teaser.md'), 'Ticket 2: Land the teaser\n')
+    const worktrees = join(cwd, '.scratch', 'widget', 'worktrees')
+    mkdirSync(join(worktrees, 'landing-2'), { recursive: true })
+    writeFileSync(join(worktrees, '.gitignore'), '*\n')
+    writeSpec(cwd, 'widget.md', landingMarkdown())
+    const children = recordingChildCreate()
+    const folds = recordingFolds()
+    const ship = new ShipRun(cwd, chrome, { childCreate: children, folds })
+    await ship.run('', async () => {})
+    expect(readFileSync(join(issues, '02-land-the-teaser.md'), 'utf8')).toMatch(/^Claim:\s*claimed\b/mu)
+    expect(ship.shipGraph?.nodes.find(node => node.id === 'landing:2')?.claim).toBe('claimed')
+    expect(folds.bound).toEqual([])
+    expect(readdirSync(join(worktrees)).includes('landing-2')).toBe(true)
+  })
+
+  it('does not unclaim on occupancy Abort or run abort', async () => {
+    const cwd = mkdtempSync(join(tmpdir(), 'ship-run-'))
+    const issues = join(cwd, '.scratch', 'widget', 'issues')
+    mkdirSync(issues, { recursive: true })
+    writeFileSync(join(issues, '02-land-the-teaser.md'), 'Ticket 2: Land the teaser\nClaim: claimed\n')
+    writeSpec(cwd, 'widget.md', landingMarkdown())
+    const goals = recordingGoals({
+      id: 'stranger-1',
+      objective: 'write a novel',
+      phase: 'active',
+      activation: 'armed',
+    })
+    const occupancy = async (): Promise<SelectOutcome> => ({ kind: 'chosen', indices: [1] })
+    const ship = new ShipRun(cwd, chrome, { goals, occupancy, childCreate: recordingChildCreate() })
+    await ship.run('', async () => {})
+    expect(readFileSync(join(issues, '02-land-the-teaser.md'), 'utf8')).toMatch(/^Claim:\s*claimed\b/mu)
+
+    const running = new ShipRun(cwd, chrome, { childCreate: recordingChildCreate() })
+    await running.run('', async () => { running.abort() })
+    expect(readFileSync(join(issues, '02-land-the-teaser.md'), 'utf8')).toMatch(/^Claim:\s*claimed\b/mu)
+  })
+
+  it('binds a runner Fold and drops it on release; a pipe never binds', async () => {
+    const cwd = mkdtempSync(join(tmpdir(), 'ship-run-'))
+    writeResearch(cwd, true)
+    const children = recordingChildCreate()
+    const folds = recordingFolds()
+    const tty = new ShipRun(cwd, chrome, { childCreate: children, folds, isTty: true })
+    await tty.run('', async () => {})
+    expect(folds.bound).toHaveLength(1)
+    await tty.releaseChild(folds.bound[0]!.id)
+    expect(folds.released).toEqual([folds.bound[0]!.id])
+
+    const pipeFolds = recordingFolds()
+    const pipe = new ShipRun(cwd, chrome, { childCreate: recordingChildCreate(), folds: pipeFolds, isTty: false })
+    await pipe.run('', async () => {})
+    expect(pipeFolds.bound).toEqual([])
   })
 })

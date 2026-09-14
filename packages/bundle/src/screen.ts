@@ -683,7 +683,16 @@ export class Screen {
    * @param lines - the lines to keep, already styled.
    */
   append(lines: readonly string[], rule: string | readonly string[] = '', replaces: readonly string[] = []): void {
-    if (lines.length === 0) return
+    if (lines.length === 0) {
+      if (replaces.length === 0) return
+      const before = this.physical.length
+      const offset = this.offset
+      if (this.takePlaceOf(replaces, [], rule) !== undefined) {
+        this.holdReader(before, offset)
+        this.render()
+      }
+      return
+    }
     const before = this.physical.length
     const offset = this.offset
     if (this.takePlaceOf(replaces, lines, rule) !== undefined) {

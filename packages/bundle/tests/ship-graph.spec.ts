@@ -14,6 +14,8 @@ import {
   parseShipGraph,
   readShipGraph,
   teaserCounts,
+  worktreeDirectory,
+  worktreeDirectoryParts,
   writeShipGraph,
   type DecisionChild,
   type JoinSources,
@@ -37,6 +39,16 @@ const github = (n: number, title: string, extra: Partial<DecisionChild> = {}): D
   id: `decision:github:Blackman99/codsh#${String(n)}`,
   title,
   ...extra,
+})
+
+describe('worktreeDirectory', () => {
+  it('maps graph keys to Track-10 directory names', () => {
+    expect(worktreeDirectory('landing:2')).toBe('landing-2')
+    expect(worktreeDirectory('decision:github:Blackman99/codsh#107')).toBe('decision-107')
+    expect(worktreeDirectory('decision:local:3')).toBe('decision-3')
+    expect(worktreeDirectoryParts('landing-2')).toEqual({ kind: 'landing', n: 2 })
+    expect(worktreeDirectoryParts('decision-107')).toEqual({ kind: 'decision', n: 107 })
+  })
 })
 
 describe('graphPathFor', () => {

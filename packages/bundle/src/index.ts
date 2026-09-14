@@ -50,7 +50,7 @@ import { notificationText, planNotification, runNotificationCommand } from './no
 import { PermissionRules } from './permissions.ts'
 import { rewindPoints, type RewindPoint } from './rewind.ts'
 import { NO_PROGRESS, advanceRound, roundActivity, type RoundProgress } from './round-watch.ts'
-import { ChildViews, childOwnedEvents, inProcessDescendants, ownsApproval, paintsViewedSession } from './child-view.ts'
+import { ChildViews, childOwnedEvents, graphKeyedSessions, inProcessDescendants, ownsApproval, paintsViewedSession, runnerFolds } from './child-view.ts'
 import type { ToolWorkflowAgentStartData } from '@deepseek-ai/dsh-tool-workflow/types'
 import type { QueueItem } from './queue.ts'
 import { bannerLines, resolveWelcomeKind } from './banner.ts'
@@ -495,6 +495,18 @@ interface ComposedSession {
    * @param boundary - the inclusive seq the seed runs through.
    */
   forkAnother(source: Session, boundary: number): Promise<AgentHandle>
+  /**
+   * Isolated AFK child via `agents.create({ meta: { cwd } })`. High-level
+   * spawn copies parent cwd and is the wrong isolation.
+   */
+  createChild(request: {
+    cwd?: string
+    parentSession: string
+    graphKey: string
+    label: string
+    role?: 'conflict' | 'repair'
+    parentAgent?: Agent
+  }): Promise<AgentHandle>
 }
 
 /**
@@ -551,12 +563,31 @@ async function compose(ctx: Context, config: Config, cwd: string): Promise<Compo
       setup,
     })
   }
+  const createChild = (request: {
+    cwd?: string
+    parentSession: string
+    graphKey: string
+    label: string
+    role?: 'conflict' | 'repair'
+    parentAgent?: Agent
+  }): Promise<AgentHandle> => agents.create({
+    sessionId: SessionId(`session-${randomUUID()}`),
+    ...(request.parentAgent === undefined ? {} : { parentAgent: request.parentAgent }),
+    meta: {
+      cwd: request.cwd ?? cwd,
+      parentSession: SessionId(request.parentSession),
+      ...preset === undefined ? {} : { agentPreset: preset.id },
+    },
+    agentOptions,
+    setup,
+  })
   const composed = {
     model: selection.model,
     selection: selected,
     createAnother,
     resumeAnother,
     forkAnother,
+    createChild,
     ...preset === undefined ? {} : { presetId: preset.id },
   }
   if (config.resume === '') return { handle: await createAnother(), ...composed }
@@ -1028,6 +1059,45 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
       : {}),
     flash: text => { emit([theme.dim(`  ${text}`)]) },
     isPlanMode: () => sessionFolds.planMode,
+    isTty: io.console.readsKeys,
+    childCreate: {
+      async create(request) {
+        const handle = await composed.createChild({
+          ...(request.cwd === undefined ? {} : { cwd: request.cwd }),
+          parentSession: live.agent.session.id,
+          graphKey: request.graphKey,
+          label: request.label,
+          ...(request.role === undefined ? {} : { role: request.role }),
+          parentAgent: live.agent,
+        })
+        handle.agent.followup(createUserMessage({
+          content: [{ type: 'text', text: request.prompt }],
+          source: { kind: 'plugin', plugin: 'coding-cli' },
+        }))
+        return {
+          id: handle.agent.session.id,
+          graphKey: request.graphKey,
+          label: request.label,
+          ...(request.role === undefined ? {} : { role: request.role }),
+          done: handle.agent.whenIdle().then(() => undefined),
+          dispose: () => handle.dispose(),
+        }
+      },
+    },
+    folds: {
+      bind(id, label) {
+        if (!io.console.readsKeys || childViews.current !== undefined) return
+        const lines = live.transcript.bindRunnerView(id, label)
+        if (lines.length === 0) return
+        prompt.setStreaming(undefined)
+        io.console.appendFold(lines, lines, '', live.transcript.takeLabel(), live.transcript.takeEnter())
+      },
+      release(id) {
+        const lines = live.transcript.dropRunnerView(id)
+        if (lines.length === 0) return
+        io.console.writeAll([], '', lines)
+      },
+    },
   })
   /** Set when a live `/ship` turn settled grill/wayfinder/preflight HITL. */
   let shipTurnHitl = false
@@ -1357,6 +1427,7 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
           readsKeys: io.console.readsKeys,
           welcomeKind: 'first',
         }, theme, io.console.contentColumns)) prompt.write(line)
+        paintRunnerFolds(live.transcript)
         return { kind: 'success', text: `new session ${live.agent.session.id}` }
       },
     }))
@@ -1714,10 +1785,33 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
         if (lines.length === 0) continue
         io.console.appendFold(lines, lines, transcript.takeRule(), transcript.takeLabel(), transcript.takeEnter(), undefined, transcript.takePendingCard())
       }
+      paintRunnerFolds(transcript)
     } finally {
       io.console.resumePainting()
     }
   }
+  /**
+   * Reconstruct runner Child view Folds from live Sessions that name a graph
+   * key. A leftover worktree with no Session is not a door. Off a TTY, none.
+   */
+  const paintRunnerFolds = (transcript: Transcript): void => {
+    if (!io.console.readsKeys || childViews.current !== undefined) return
+    const keyed = graphKeyedSessions(
+      sessions.list(),
+      ship.liveChildren.map(child => ({
+        id: child.id,
+        graphKey: child.graphKey,
+        label: child.label,
+        ...(child.role === undefined ? {} : { role: child.role }),
+      })),
+    )
+    for (const fold of runnerFolds(keyed)) {
+      const lines = transcript.bindRunnerView(fold.sessionId, fold.label)
+      if (lines.length === 0) continue
+      io.console.appendFold(lines, lines, '', transcript.takeLabel(), transcript.takeEnter())
+    }
+  }
+  if (config.resume !== '') paintRunnerFolds(live.transcript)
   /**
    * Open a child subagent's transcript on top of whatever is showing.
    * @param id - the child session the card named.
@@ -2127,7 +2221,10 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
     sessionCreatedAt = history.firstEventTime ?? Date.now()
     refold()
     prompt.setAccent(sessionFolds.planMode ? text => theme.pending(text) : undefined)
-    if (replayLog) replay(next.agent.session, live.transcript, io, theme)
+    if (replayLog) {
+      replay(next.agent.session, live.transcript, io, theme)
+      paintRunnerFolds(live.transcript)
+    }
     refreshStatus()
   }
 

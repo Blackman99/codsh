@@ -4,7 +4,8 @@
  * A Fold that names a child Session is a view. Clicking it pushes; Esc pops
  * one level. The composition root asks this module which Session the
  * transcript follows, which events paint, which inherited prefix a fork
- * replay skips, and which agents the keyboard answers approvals for.
+ * replay skips, which runner Folds reconstruct from live Sessions, and
+ * which agents the keyboard answers approvals for.
  * @module codsh-bundle/src/child-view
  */
 
@@ -115,6 +116,74 @@ declare module '@deepseek-ai/cordis' {
      */
     'subagent/start'(info: { id: string }): void
   }
+}
+
+/** One live in-process Session that names a Ship graph key. */
+export interface GraphKeyedSession {
+  /** Child Session id. */
+  readonly id: string
+  /** Native graph key this Session is bound to. */
+  readonly graphKey: string
+  /** Fold head: `Ticket N: <title>` or the decision name. */
+  readonly label: string
+  /** Set when the runner dispatched conflict or in-place repair. */
+  readonly role?: 'conflict' | 'repair'
+}
+
+/** One parent-viewport runner Fold, in graph-key order. */
+export interface RunnerFold {
+  readonly sessionId: string
+  readonly graphKey: string
+  /** Head text, including ` · conflict` / ` · repair` when two Sessions share a key. */
+  readonly label: string
+}
+
+const ROLE_RANK: Record<'conflict' | 'repair', number> = { conflict: 0, repair: 1 }
+
+/**
+ * Live Sessions that still exist in the store, joined to runner graph-key
+ * labels. A leftover worktree with no Session is not returned.
+ */
+export function graphKeyedSessions(
+  sessions: readonly { id: string }[],
+  children: readonly GraphKeyedSession[],
+): GraphKeyedSession[] {
+  const live = new Set(sessions.map(session => session.id))
+  return children.filter(child => live.has(child.id))
+}
+
+/**
+ * Parent-viewport runner Folds from live Sessions that name a graph key.
+ *
+ * `· conflict` / `· repair` only when one key has two live Sessions. A leftover
+ * worktree with no Session is not a door. Sorted by graph key.
+ * @param sessions - live in-process Sessions that name a graph key.
+ */
+export function runnerFolds(sessions: readonly GraphKeyedSession[]): RunnerFold[] {
+  const groups = new Map<string, GraphKeyedSession[]>()
+  for (const session of sessions) {
+    if (session.graphKey === '' || session.id === '') continue
+    const group = groups.get(session.graphKey)
+    if (group === undefined) groups.set(session.graphKey, [session])
+    else group.push(session)
+  }
+  const folds: RunnerFold[] = []
+  for (const key of [...groups.keys()].sort()) {
+    const group = groups.get(key) ?? []
+    const split = group.length === 2
+    const ordered = split
+      ? [...group].sort((a, b) => (a.role === undefined ? 2 : ROLE_RANK[a.role]) - (b.role === undefined ? 2 : ROLE_RANK[b.role]))
+      : group
+    for (const [index, session] of ordered.entries()) {
+      const suffix = split ? (session.role ?? (index === 0 ? 'conflict' : 'repair')) : undefined
+      folds.push({
+        sessionId: session.id,
+        graphKey: key,
+        label: suffix === undefined ? session.label : `${session.label} · ${suffix}`,
+      })
+    }
+  }
+  return folds
 }
 
 export function inProcessDescendants(liveId: string, sessions: readonly LiveSessionLineage[]): ReadonlySet<string> {

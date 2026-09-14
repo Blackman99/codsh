@@ -520,6 +520,8 @@ export class Transcript {
    * each single line it has to say.
    */
   private run: { rule: string; owner: string | undefined; bodied: boolean; close: string } | undefined
+  /** Runner-dispatched Child view Folds, keyed by child Session id. */
+  private readonly runnerViews = new Map<string, { label: string; lines: readonly string[] }>()
   /**
    * Consecutive unpaired results currently sharing one card at the tail.
    *
@@ -858,6 +860,50 @@ export class Transcript {
     this.label = matched.title
     this.pendingCard = original
     return lines
+  }
+
+  /**
+   * Paint a runner Child view Fold: `click to enter` without a parent
+   * `tool/call` and without waiting on `subagent/start`.
+   *
+   * Not a `subagent` card and not in a Card run. Head is the ticket or
+   * decision name already composed by the caller.
+   * @param childId - the child Session a click opens.
+   * @param label - Fold head, including ` · conflict` / ` · repair` when needed.
+   * @returns the door's lines, empty when `childId` or `label` is empty.
+   */
+  bindRunnerView(childId: string, label: string): string[] {
+    const { theme } = this.options
+    this.fold = undefined
+    this.rule = ''
+    this.prompt = undefined
+    this.promptPad = undefined
+    this.enter = undefined
+    this.page = undefined
+    this.written = []
+    this.pendingCard = []
+    this.label = ''
+    if (childId === '' || label === '') return []
+    this.endRun()
+    const hint = theme.dim('  click to enter')
+    const lines = [label, hint]
+    this.runnerViews.set(childId, { label, lines })
+    this.enter = childId
+    this.label = label
+    return lines
+  }
+
+  /**
+   * Drop a runner Fold after the runner releases that child.
+   * @param childId - the child Session that left.
+   * @returns the lines that were on screen, so the surface can take them off.
+   */
+  dropRunnerView(childId: string): string[] {
+    const view = this.runnerViews.get(childId)
+    this.runnerViews.delete(childId)
+    if (this.enter === childId) this.enter = undefined
+    if (view !== undefined && this.label === view.label) this.label = ''
+    return view === undefined ? [] : [...view.lines]
   }
 
   /**

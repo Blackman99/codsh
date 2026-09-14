@@ -136,6 +136,35 @@ const TEASER_HINT = 'click or Ctrl+G'
 const HINT_COLUMNS = 80
 
 /**
+ * Worktree directory name from a graph key: `landing-N`, `decision-<n>`.
+ * GitHub and local decisions both use the issue/filename integer.
+ * @param graphKey - `landing:N`, `decision:github:owner/repo#n`, or `decision:local:NN`.
+ */
+export function worktreeDirectory(graphKey: string): string | undefined {
+  const landing = /^landing:(\d+)$/u.exec(graphKey)
+  if (landing?.[1] !== undefined) return `landing-${landing[1]}`
+  const local = /^decision:local:(\d+)$/u.exec(graphKey)
+  if (local?.[1] !== undefined) return `decision-${local[1]}`
+  const github = /^decision:github:[^/]+\/[^#]+#(\d+)$/u.exec(graphKey)
+  if (github?.[1] !== undefined) return `decision-${github[1]}`
+  return undefined
+}
+
+/**
+ * Parse a worktree directory back to kind and integer.
+ * @param directory - `landing-N` or `decision-N`.
+ */
+export function worktreeDirectoryParts(
+  directory: string,
+): { kind: 'landing' | 'decision'; n: number } | undefined {
+  const landing = /^landing-(\d+)$/u.exec(directory)
+  if (landing?.[1] !== undefined) return { kind: 'landing', n: Number(landing[1]) }
+  const decision = /^decision-(\d+)$/u.exec(directory)
+  if (decision?.[1] !== undefined) return { kind: 'decision', n: Number(decision[1]) }
+  return undefined
+}
+
+/**
  * Adjacent sidecar for a spec: `widget.md` → `widget.ship.graph.json`.
  * @param specPath - absolute spec path.
  */
