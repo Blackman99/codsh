@@ -241,6 +241,7 @@ describe('joinShipGraph', () => {
     if (isJoinError(graph)) return
     expect(graph.nodes.filter(node => node.kind === 'decision')).toEqual([])
     expect(graph.nodes.map(node => node.id)).toEqual(['track:1', 'landing:1'])
+    expect(graph.nodes.some(node => node.id === 'hub' || node.title.toLowerCase().includes('hub'))).toBe(false)
   })
 
   it('omits claim on Track anchors', () => {

@@ -8,10 +8,11 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { ShipRun, wrapHostGoals, type ShipChildCreate, type ShipChildHandle, type ShipFoldBind } from '../src/ship-run.ts'
+import type { WebPanoramaBind, WebPanoramaBindRequest } from '../src/ship-run.ts'
 import { classifyConflictFiles, inspectConflictResolution } from '../src/ship-conflict.ts'
 import { snapshotPathFor } from '../src/ship-snapshot.ts'
-import { graphPathFor } from '../src/ship-graph.ts'
-import type { TeaserCounts } from '../src/ship-graph.ts'
+import { collectJoinSources, graphPathFor, isShipGraphJoinError, joinShipGraph } from '../src/ship-graph.ts'
+import type { ShipGraph, TeaserCounts } from '../src/ship-graph.ts'
 import type { Plan } from '../src/plan.ts'
 import type { SelectOutcome, SelectSpec } from '../src/selector.ts'
 import type { ShipChip } from '../src/status.ts'
@@ -1396,6 +1397,10 @@ describe('composition root', () => {
     expect(source).toContain('bindRunnerView')
     expect(source).toContain('createChild')
     expect(source).toContain('liveChildren')
+    expect(source).toContain('bindWebPanorama')
+    expect(source).toContain('openWebPanorama')
+    expect(source).toContain('bind: request => bindWebPanorama(request.graph)')
+    expect(source).toContain('open: url => { openWebPanorama(url) }')
   })
 
   it('compiles and writes a Mission Contract at Confirm and prepends it later', async () => {
@@ -2721,3 +2726,128 @@ async function waitFor(predicate: () => boolean, ms = 1000): Promise<void> {
     await new Promise<void>(resolve => { setTimeout(resolve, 0) })
   }
 }
+
+describe('Web panorama bind', () => {
+  const fakeBind = (): {
+    bind: WebPanoramaBind
+    requests: WebPanoramaBindRequest[]
+    urls: string[]
+    closed: string[]
+  } => {
+    const requests: WebPanoramaBindRequest[] = []
+    const urls: string[] = []
+    const closed: string[] = []
+    return {
+      requests,
+      urls,
+      closed,
+      bind: request => {
+        const url = `http://127.0.0.1:${49152 + requests.length}`
+        requests.push(request)
+        urls.push(url)
+        return { url, close: () => { closed.push(url) } }
+      },
+    }
+  }
+
+  const loopback = (text: string): boolean => /^http:\/\/127\.0\.0\.1:\d+$/u.test(text)
+
+  it('binds 127.0.0.1:0, flashes the URL, and serves the rebuilt graph (Track: 12)', async () => {
+    const cwd = mkdtempSync(join(tmpdir(), 'ship-run-'))
+    const path = writeSpec(cwd, 'widget.md', landing())
+    const fake = fakeBind()
+    const flashes: string[] = []
+    const opened: string[] = []
+    const ship = new ShipRun(cwd, chrome, {
+      bind: fake.bind,
+      flash: text => { flashes.push(text) },
+      open: url => { opened.push(url) },
+    })
+    await ship.run('', async () => { ship.abort() })
+    expect(fake.requests).toHaveLength(1)
+    expect(fake.requests[0]?.host).toBe('127.0.0.1')
+    expect(fake.requests[0]?.port).toBe(0)
+    expect(fake.requests[0]?.specPath).toBe(path)
+    expect(flashes.filter(loopback)).toEqual(fake.urls)
+    expect(opened).toEqual(fake.urls)
+    expect(fake.requests[0]?.graph()).toEqual(ship.shipGraph)
+    const markdown = readFileSync(path, 'utf8')
+    const collected = collectJoinSources(cwd, path, markdown)
+    expect(isShipGraphJoinError(collected)).toBe(false)
+    if (isShipGraphJoinError(collected)) return
+    const joined = joinShipGraph(collected)
+    expect(isShipGraphJoinError(joined)).toBe(false)
+    if (isShipGraphJoinError(joined)) return
+    expect(fake.requests[0]?.graph()).toEqual(joined)
+    expect(joined.nodes.filter(node => node.kind === 'decision')).toEqual([])
+    expect(joined.nodes.some(node => node.kind === 'track' && 'claim' in node)).toBe(false)
+    expect(joined.nodes.some(node => node.id === 'hub' || node.kind === 'hub' as never)).toBe(false)
+  })
+
+  it('prints the URL on a pipe with no overlay, no Fold, and no open (Track: 14)', async () => {
+    const cwd = mkdtempSync(join(tmpdir(), 'ship-run-'))
+    const path = writeSpec(cwd, 'widget.md', landing())
+    const fake = fakeBind()
+    const flashes: string[] = []
+    const opened: string[] = []
+    const ship = new ShipRun(cwd, chrome, {
+      bind: fake.bind,
+      flash: text => { flashes.push(text) },
+    })
+    await ship.run('', async () => { ship.abort() })
+    expect(fake.requests).toHaveLength(1)
+    expect(fake.requests[0]?.host).toBe('127.0.0.1')
+    expect(fake.requests[0]?.port).toBe(0)
+    expect(flashes.filter(loopback)).toEqual(fake.urls)
+    expect(opened).toEqual([])
+    expect(existsSync(graphPathFor(path))).toBe(true)
+  })
+
+  it('rebinds when the bound spec appears and closes on abort and end (Track: 12)', async () => {
+    const cwd = mkdtempSync(join(tmpdir(), 'ship-run-'))
+    const fake = fakeBind()
+    const flashes: string[] = []
+    const ship = new ShipRun(cwd, chrome, {
+      bind: fake.bind,
+      flash: text => { flashes.push(text) },
+    })
+    await ship.run('build a widget', async () => {
+      writeSpec(cwd, 'widget.md', [
+        'Status: wayfinding',
+        '',
+        '## Wayfinder',
+        '',
+        '[Map](../../map.md)',
+        '',
+        '## Main Track',
+        '',
+        '**Track-1.** Hybrid compass.',
+        '',
+        '## Plan',
+        '',
+        '- [ ] Ticket 1: Graph join (Track: 1)',
+      ].join('\n'))
+    })
+    expect(fake.requests.length).toBeGreaterThanOrEqual(2)
+    expect(fake.requests[0]?.specPath).toBeUndefined()
+    expect(fake.requests.at(-1)?.specPath).toBe(join(cwd, 'docs', 'specs', 'widget.md'))
+    expect(fake.closed[0]).toBe(fake.urls[0])
+    expect(fake.closed.at(-1)).toBe(fake.urls.at(-1))
+    expect(flashes.filter(loopback)).toEqual(fake.urls)
+    const served = fake.requests.at(-1)?.graph() as ShipGraph
+    expect(served.nodes.some(node => node.id === 'landing:1')).toBe(true)
+    expect(served.nodes.some(node => node.id === 'track:1')).toBe(true)
+    expect(served.nodes.some(node => node.kind === 'decision')).toBe(false)
+    expect(served.nodes.find(node => node.id === 'track:1')).not.toHaveProperty('claim')
+  })
+
+  it('closes the loopback handle when the run aborts (Track: 12)', async () => {
+    const cwd = mkdtempSync(join(tmpdir(), 'ship-run-'))
+    writeSpec(cwd, 'widget.md', landing())
+    const fake = fakeBind()
+    const ship = new ShipRun(cwd, chrome, { bind: fake.bind })
+    await ship.run('', async () => { ship.abort() })
+    expect(fake.urls).toHaveLength(1)
+    expect(fake.closed).toEqual(fake.urls)
+  })
+})

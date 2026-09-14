@@ -71,6 +71,7 @@ import {
   writeShipGraph,
 } from './ship-graph.ts'
 import type { ShipGraph, ShipGraphNode, TeaserCounts } from './ship-graph.ts'
+import { WEB_PANORAMA_LISTEN, type WebPanoramaHandle } from './ship-web.ts'
 import {
   freezeEqual,
   freezeText,
@@ -252,7 +253,27 @@ export interface ShipFoldBind {
 /** Optional git so tests can fake worktree add and claim commits. */
 export type ShipGit = (args: readonly string[], cwd: string) => Promise<{ code: number; output: string }>
 
-/** Optional ports the composition root wires: goals, occupancy, flash. */
+/** Loopback bind: `127.0.0.1` and an ephemeral port only. */
+export interface WebPanoramaBindRequest {
+  host: '127.0.0.1'
+  port: 0
+  /** Bound spec when one is pinned; omitted on an empty first canvas. */
+  specPath?: string
+  /** Live rebuilt graph; the page must not keep a second store. */
+  graph: () => ShipGraph | undefined
+}
+
+export type { WebPanoramaHandle }
+
+/** Bind the Web panorama. Production wires a real loopback helper. */
+export type WebPanoramaBind = (
+  request: WebPanoramaBindRequest,
+) => WebPanoramaHandle | Promise<WebPanoramaHandle>
+
+/** Optional open of the printed URL; TTY only. */
+export type WebPanoramaOpen = (url: string) => void
+
+/** Optional ports the composition root wires: goals, occupancy, flash, bind. */
 export interface ShipPorts {
   goals?: ShipGoals
   occupancy?: OccupancyAsk
@@ -279,6 +300,10 @@ export interface ShipPorts {
   proveDelivery?: () => Promise<'green' | 'red'>
   /** False on a pipe: sidecar still rebuilds, no Fold. Default true. */
   isTty?: boolean
+  /** Fake HTTP in tests; real `127.0.0.1` listen only at the composition root. */
+  bind?: WebPanoramaBind
+  /** Open the loopback URL; wired only on a TTY. */
+  open?: WebPanoramaOpen
 }
 
 /** Occupancy Selector title/header — a Selector, not a ship gate modal. */
@@ -394,6 +419,14 @@ export class ShipRun {
   private gitIdentity: { name: string; email: string } | undefined
   /** Git-named conflicted files a live Conflict-resolution child may fill. */
   private conflictAlignPaths: string[] | undefined
+  /** True while this invocation should keep one loopback server. */
+  private panoramaLive = false
+  /** Bound-spec key the live handle was rebound to (`''` when none). */
+  private panoramaSpec: string | undefined
+  /** Live loopback handle; closed on abort, end, or rebind. */
+  private panorama: WebPanoramaHandle | undefined
+  /** Drops an in-flight bind when a newer rebind or abort wins. */
+  private panoramaGen = 0
 
   constructor(
     private readonly cwd: string,
@@ -624,6 +657,7 @@ export class ShipRun {
     this.halted = true
     this.advance?.abort()
     this.stopWatch()
+    this.dropWebPanorama()
   }
 
   /**
@@ -686,6 +720,7 @@ export class ShipRun {
     this.inPlaceTicketId = undefined
     this.gitIdentity = undefined
     this.conflictAlignPaths = undefined
+    this.dropWebPanorama()
     this.startWatch()
     this.refresh()
     if (this.chip === undefined) this.setChip({ kind: 'wayfinder' })
@@ -698,10 +733,12 @@ export class ShipRun {
       }
       if (!await this.bindSpec(idea)) return
       if (!await this.occupy(idea)) return
+      this.panoramaLive = true
       this.persistSnapshot()
       this.rebuildGraph()
       this.reclaimLeftoverWorktrees()
       this.rebuildGraph()
+      await this.syncWebPanorama()
       if (!this.guardContract()) return
       if (this.stopIfBlocked()) return
       let previous = shipPhaseKind(this.status())
@@ -715,6 +752,7 @@ export class ShipRun {
         this.discoverBoundSpec()
         this.persistSnapshot()
         this.rebuildGraph()
+        await this.syncWebPanorama()
         if (!this.guardContract()) break
         if (this.stopIfBlocked()) break
         await this.syncCompass()
@@ -737,6 +775,7 @@ export class ShipRun {
         this.advance = undefined
         this.stopWatch()
         await this.interruptInPlaceRepair()
+        this.dropWebPanorama()
         this.refresh()
         if (
           !advance.signal.aborted
@@ -1374,6 +1413,69 @@ export class ShipRun {
   }
 
   /**
+   * One loopback server rebound to the bound spec. Same graph as the TTY.
+   * Missing bind degrades: `/ship` still writes the sidecar.
+   */
+  private async syncWebPanorama(): Promise<void> {
+    const bind = this.ports.bind
+    if (bind === undefined || !this.panoramaLive || this.inPlanMode() || this.contractInvalid) return
+    const specPath = this.followedSpec ?? this.graphSpec
+    const key = specPath ?? ''
+    if (this.panorama !== undefined && this.panoramaSpec === key) return
+    const gen = this.panoramaGen + 1
+    this.panoramaGen = gen
+    this.closeWebPanoramaHandle()
+    try {
+      const handle = await bind({
+        host: WEB_PANORAMA_LISTEN.host,
+        port: WEB_PANORAMA_LISTEN.port,
+        ...(specPath === undefined ? {} : { specPath }),
+        graph: () => this.graph,
+      })
+      if (gen !== this.panoramaGen || !this.panoramaLive) {
+        this.quietlyClose(handle)
+        return
+      }
+      this.panorama = handle
+      this.panoramaSpec = key
+      this.ports.flash?.(handle.url)
+      try {
+        this.ports.open?.(handle.url)
+      } catch {
+        // Optional open must not fail the run; the printed URL still stands.
+      }
+    } catch {
+      // Loopback is optional; the spec+sidecar path still binds.
+    }
+  }
+
+  /** Stop serving; a later `/ship` may bind again. */
+  private dropWebPanorama(): void {
+    this.panoramaLive = false
+    this.panoramaGen += 1
+    this.closeWebPanoramaHandle()
+    this.panoramaSpec = undefined
+  }
+
+  private closeWebPanoramaHandle(): void {
+    const handle = this.panorama
+    this.panorama = undefined
+    if (handle === undefined) return
+    this.quietlyClose(handle)
+  }
+
+  private quietlyClose(handle: WebPanoramaHandle): void {
+    try {
+      const result = handle.close()
+      if (result !== undefined && typeof result.then === 'function') {
+        void result.catch(() => undefined)
+      }
+    } catch {
+      // Already closed.
+    }
+  }
+
+  /**
    * Validate freeze against disk before and after every phase. Failures halt
    * the next phase and goal completion; they do not invent evidence.
    */
@@ -1952,6 +2054,7 @@ export class ShipRun {
     this.refresh()
     this.persistSnapshot()
     this.rebuildGraph()
+    await this.syncWebPanorama()
   }
 
   /**
@@ -2421,6 +2524,7 @@ export class ShipRun {
     this.persistSnapshot()
     if (this.contractInvalid || this.halted) return false
     if (this.stopIfBlocked()) return false
+    await this.syncWebPanorama()
     return result !== undefined && result.hitl === true
   }
 
