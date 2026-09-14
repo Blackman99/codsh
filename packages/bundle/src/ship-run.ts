@@ -97,6 +97,8 @@ export interface ShipChrome {
   setTodos?(): void
   /** Panorama teaser counts, absent when no graph is bound. */
   setTeaser?(counts: TeaserCounts | undefined): void
+  /** Bound Ship graph for the Panorama overlay; absent when none. */
+  setGraph?(graph: ShipGraph | undefined): void
 }
 
 /** Durable phase the session compass reports. */
@@ -670,6 +672,7 @@ export class ShipRun {
     this.snapshot = undefined
     this.graph = undefined
     this.graphSpec = undefined
+    this.chrome.setGraph?.(undefined)
     this.chrome.setTeaser?.(undefined)
     this.originalRequirement = undefined
     this.typedIdea = idea
@@ -1361,6 +1364,7 @@ export class ShipRun {
       return
     }
     this.graph = next
+    this.chrome.setGraph?.(next)
     this.chrome.setTeaser?.(teaserCounts(next))
     try {
       writeShipGraph(next, specPath)

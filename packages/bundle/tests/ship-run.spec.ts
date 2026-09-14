@@ -1832,17 +1832,20 @@ describe('composition root', () => {
     const cwd = mkdtempSync(join(tmpdir(), 'ship-run-'))
     const path = writeSpec(cwd, 'widget.md', landing())
     const teasers: Array<TeaserCounts | undefined> = []
+    const graphs: Array<unknown> = []
     const flashes: string[] = []
     const ship = new ShipRun(cwd, {
       setPlan: () => {},
       setChip: () => {},
       setTeaser: counts => { teasers.push(counts) },
+      setGraph: graph => { graphs.push(graph) },
     }, { flash: text => { flashes.push(text) } })
     ship.noteWritten([path])
     const sidecar = graphPathFor(path)
     expect(existsSync(sidecar)).toBe(true)
     expect(ship.shipTeaser).toEqual({ unclaimed: 1, claimed: 0, closed: 1 })
     expect(teasers.at(-1)).toEqual({ unclaimed: 1, claimed: 0, closed: 1 })
+    expect(graphs.at(-1)).toEqual(ship.shipGraph)
     writeFileSync(sidecar, '{not json')
     ship.refresh()
     expect(flashes).toEqual([])
