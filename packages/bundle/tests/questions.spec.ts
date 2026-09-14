@@ -5,7 +5,7 @@
 
 import type { AskUserQuestionItem, AskUserQuestionRequest } from '@deepseek-ai/dsh-user-questions'
 import { describe, expect, it } from 'vitest'
-import { detectShipGate, detectShipGrill, detectShipHitl, encodeAnswer, encodeFrontierAnswer, encodeGateAnswer, questionLines, shipAskSettledHitl, shipGateKind, TerminalQuestions } from '../src/questions.ts'
+import { autoConfirmShipGates, detectShipGate, detectShipGrill, detectShipHitl, encodeAnswer, encodeFrontierAnswer, encodeGateAnswer, questionLines, shipAskSettledHitl, shipGateKind, TerminalQuestions } from '../src/questions.ts'
 import { createTheme } from '../src/theme.ts'
 
 const theme = createTheme(false, {})
@@ -415,6 +415,51 @@ describe('ship gate detection', () => {
     expect(detectShipHitl('ship · deliver')).toBe(false)
     expect(detectShipHitl('Approach')).toBe(false)
     expect(detectShipHitl(undefined)).toBe(false)
+  })
+
+  it('auto-Confirms ship gates without opening GateModal and ignores occupancy / preflight', () => {
+    const confirmed: Array<1 | 2> = []
+    const gate1 = {
+      id: 'g1',
+      question: 'Confirm this spec?',
+      header: 'ship · gate 1/2',
+      options: [{ label: 'Confirm' }, { label: 'Edit' }, { label: 'Abort' }],
+    }
+    expect(autoConfirmShipGates([gate1], (gate) => {
+      confirmed.push(gate)
+      return true
+    })).toEqual({ answers: [{ id: 'g1', selected: ['Confirm'] }] })
+    expect(confirmed).toEqual([1])
+
+    const gate2 = { ...gate1, id: 'g2', header: 'ship · gate 2/2' }
+    expect(autoConfirmShipGates([gate2], () => true)).toEqual({
+      answers: [{ id: 'g2', selected: ['Confirm'] }],
+    })
+
+    const aborted = new AbortController()
+    aborted.abort()
+    const calls: Array<1 | 2> = []
+    expect(autoConfirmShipGates([gate1], (gate) => {
+      calls.push(gate)
+      return true
+    }, aborted.signal)).toEqual({ answers: [{ id: 'g1', selected: [] }] })
+    expect(calls).toEqual([])
+
+    expect(autoConfirmShipGates([gate1], () => false)).toEqual({
+      answers: [{ id: 'g1', selected: [] }],
+    })
+    expect(autoConfirmShipGates(
+      [{ id: 'p', question: 'Dirty tree?', header: 'ship · preflight', options: [{ label: 'Stash' }] }],
+      () => true,
+    )).toBeUndefined()
+    expect(autoConfirmShipGates(
+      [{ id: 'o', question: 'Replace?', header: 'ship · occupancy', options: [{ label: 'Replace' }] }],
+      () => true,
+    )).toBeUndefined()
+    expect(autoConfirmShipGates(
+      [{ id: 'g', question: 'Storage?', header: 'ship · grill', options: [{ label: 'SQLite' }] }],
+      () => true,
+    )).toBeUndefined()
   })
 
   it('treats a settled grill or wayfinder ask as HITL and ignores abort or empty answers', () => {

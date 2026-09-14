@@ -187,6 +187,34 @@ export function shipGateKind(question: AskUserQuestionItem): GateKind | undefine
 }
 
 /**
+ * Auto-Confirm `ship · gate 1/2` / `2/2` without opening GateModal.
+ *
+ * Occupancy, preflight, grill, and any mixed request stay on the TTY path.
+ * Esc / abort encodes empty selected and does not call `confirm`.
+ * @param questions - the request questions, in order.
+ * @param confirm - write Status + notice; false means do not Confirm.
+ * @param signal - the owning tool-call abort, when present.
+ */
+export function autoConfirmShipGates(
+  questions: readonly AskUserQuestionItem[],
+  confirm: (gate: 1 | 2) => boolean,
+  signal?: AbortSignal,
+): AskUserQuestionAnswer | undefined {
+  if (questions.length === 0) return undefined
+  if (!questions.every(question => detectShipGate(question.header) !== undefined)) return undefined
+  if (signal?.aborted === true) {
+    return { answers: questions.map(question => ({ id: question.id, selected: [] })) }
+  }
+  return {
+    answers: questions.map((question) => {
+      const gate = detectShipGate(question.header)
+      if (gate === undefined) return { id: question.id, selected: [] }
+      return confirm(gate) ? encodeGateAnswer(question, 'confirm') : { id: question.id, selected: [] }
+    }),
+  }
+}
+
+/**
  * Map a gate decision onto the ask_user_question answer encoding.
  * @param question - the question being answered.
  * @param action - what the GateModal returned.

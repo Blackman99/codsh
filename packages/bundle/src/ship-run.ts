@@ -321,6 +321,51 @@ export class ShipRun {
   }
 
   /**
+   * True while {@link ShipRun.run} owns an in-flight canned turn that has
+   * not aborted. Composition-root gate auto-Confirm uses this so a stray
+   * `ship · gate` ask outside `/ship` still opens GateModal.
+   */
+  get inFlight(): boolean {
+    return this.advance !== undefined && this.advance.signal.aborted !== true && !this.halted && !this.contractInvalid
+  }
+
+  /**
+   * Auto-Confirm gate 1 (`confirmed`) or gate 2 (`planned`).
+   *
+   * Writes the Status advance, flashes a transcript notice, and persists the
+   * snapshot (Mission Contract seal on gate 1). Esc / abort never Confirms.
+   * After the Main Track is sealed, gate 1 is a contradiction: write
+   * `## Blocker` and stop rather than reopening an Edit path.
+   * @param gate - 1 (to-spec) or 2 (to-tickets).
+   * @returns whether Confirm wrote Status.
+   */
+  confirmGate(gate: 1 | 2): boolean {
+    if (!this.inFlight || this.inPlanMode()) return false
+    const status = this.status()
+    const sealed = this.snapshot?.trackSealed === true
+      || this.sealedContract !== undefined
+      || this.sealedTrack !== undefined
+      || status === 'confirmed'
+      || status === 'planned'
+      || status === 'landing'
+      || status === 'shipped'
+    if (gate === 1 && sealed) {
+      this.writeSealedEditBlocker()
+      return false
+    }
+    if (gate === 1) {
+      if (shipPhaseKind(status) !== 'spec') return false
+      return this.writeStatusAdvance('confirmed', 'Confirmed ship · gate 1/2')
+    }
+    if (status === 'planned' || status === 'landing' || status === 'shipped') {
+      this.writeSealedEditBlocker()
+      return false
+    }
+    if (status !== 'confirmed') return false
+    return this.writeStatusAdvance('planned', 'Confirmed ship · gate 2/2')
+  }
+
+  /**
    * Note markdown the agent wrote, so the live spec can be found later.
    * @param paths - paths the event reported writing.
    */
@@ -495,6 +540,7 @@ export class ShipRun {
       if (!await this.occupy(idea)) return
       this.persistSnapshot()
       if (!this.guardContract()) return
+      if (this.stopIfBlocked()) return
       let previous = shipPhaseKind(this.status())
       await this.syncCompass()
       if (previous === 'land') { await this.runLanding(turn); return }
@@ -505,6 +551,7 @@ export class ShipRun {
         this.discoverBoundSpec()
         this.persistSnapshot()
         if (!this.guardContract()) break
+        if (this.stopIfBlocked()) break
         await this.syncCompass()
         const next = shipPhaseKind(this.status())
         if (next !== previous) {
@@ -1268,6 +1315,7 @@ export class ShipRun {
     if (!this.guardContract()) return false
     this.persistSnapshot()
     if (this.contractInvalid || this.halted) return false
+    if (this.stopIfBlocked()) return false
     return result !== undefined && result.hitl === true
   }
 
@@ -1306,6 +1354,55 @@ export class ShipRun {
     this.contractInvalid = true
     this.halted = true
     this.ports.flash?.(message)
+  }
+
+  /** Halt when `## Blocker` is still on disk; archived headings are ignored. */
+  private stopIfBlocked(): boolean {
+    const body = parseShipBlocker(this.followedMarkdown() ?? '')
+    if (body === undefined) return false
+    this.block(`Ship has an unresolved ## Blocker. Stopped; resolve it before resuming.\n${body}`)
+    return true
+  }
+
+  /**
+   * Runner-owned Status write for auto-Confirm. Snapshot persist seals the
+   * Mission Contract when Status becomes confirmed.
+   */
+  private writeStatusAdvance(next: 'confirmed' | 'planned', notice: string): boolean {
+    const specPath = this.followedSpec
+    if (specPath === undefined) return false
+    const markdown = this.followedMarkdown()
+    if (markdown === undefined) return false
+    const updated = markdown.replace(
+      /^Status:\s*(?:wayfinding|grilling|interviewing|confirmed|planned|landing|shipped)\b/imu,
+      `Status: ${next}`,
+    )
+    if (updated === markdown) return false
+    try {
+      writeFileSync(specPath, updated)
+    } catch {
+      return false
+    }
+    this.ports.flash?.(notice)
+    this.refresh()
+    this.persistSnapshot()
+    return !this.contractInvalid && !this.halted
+  }
+
+  /** After seal, an Edit-shaped gate is a Blocker, never an Edit modal. */
+  private writeSealedEditBlocker(): void {
+    const message = 'Sealed Main Track cannot be edited. A needed design change is a ## Blocker to archive, not an Edit modal.'
+    const specPath = this.followedSpec
+    const markdown = this.followedMarkdown()
+    if (specPath !== undefined && markdown !== undefined && parseShipBlocker(markdown) === undefined) {
+      const body = markdown.endsWith('\n') ? markdown : `${markdown}\n`
+      try {
+        writeFileSync(specPath, `${body}\n## Blocker\n\n${message}\n`)
+      } catch {
+        // Flash + halt still stop continuation even if the section cannot land.
+      }
+    }
+    this.block(`Ship has an unresolved ## Blocker. Stopped; resolve it before resuming.\n${message}`)
   }
 
   private specPaths(): string[] {
