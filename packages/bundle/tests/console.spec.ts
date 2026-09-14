@@ -139,6 +139,23 @@ describe('piped input', () => {
   })
 })
 
+describe('a fold off a terminal', () => {
+  it('writes the summary whichever form a terminal would open with', () => {
+    // A pipe has no key to fold with, and scripts want the digest: an open
+    // thought still lands as its clock row, its rule on the row and nothing
+    // of the deliberation.
+    const { console, output } = build()
+    console.appendFold(['thought for 1s'], ['thought for 1s', '  a line', '  another'], '✻ ', 'thinking', undefined, undefined, [], ['✻ ', '', ''], true)
+    expect(output.text).toBe('✻ thought for 1s\n')
+  })
+
+  it('gives each summary row its own rule when the rules differ by row', () => {
+    const { console, output } = build()
+    console.appendFold(['  ', 'thought for 1s', '  '], ['  ', 'thought for 1s', '  ', 'line'], ['', '✻ ', ''], 'thinking')
+    expect(output.text).toBe('  \n✻ thought for 1s\n  \n')
+  })
+})
+
 describe('terminal input', () => {
   it('takes raw mode and asks the terminal to mark pastes', () => {
     const { console: term, input, output } = build(true)

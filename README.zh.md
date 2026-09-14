@@ -87,7 +87,7 @@ dsh --profile code
 - 刚提交的提问占住视口顶部，回复从下方填进空出来的位置。往回读历史再回来，回来的是同一帧——滚轮和 PgDn 都落得回去。
 - 不管读到哪里，问出这段内容的那条提问会吸附在顶部；下一条提问再把它推走。
 - 右侧一列时间线标出当前在第几轮——刻度和箭头可点击跳转，悬停预览真实的提问内容。Shift+←/→ 是键盘上的同一件事，`/jump` 则是可搜索、可撤回的预览。`/rewind` 从你选定的某一轮之前分叉出对话继续；原会话留在 `/resume` 里，Esc Esc 仍然找回上一条提问。
-- 思考和长工具输出可折叠：点一块开一块，Ctrl+O 开合全部；手动开合的选择跨轮次保留。写完的回答始终整段留下。压缩——自动的，或 `/compact`——也留下一个折叠块：多少条历史、多少 token 变成了摘要、哪个模型写的，以及摘要本身；进行中 hint 行会显示 `compacting history…`。
+- 思考直接流进对话，停在它的计时行（`✻ thought for 3.2s`）下面保持展开，直到下一条提问把它折成这一行；每次工具调用只占一行——做了什么、`+n -m` 或 `· 12 lines`、`✔` 或 `✗`、失败时还带上原因——输出收在这一行后面。点一块开合一块，Ctrl+O 开合全部（有折着的就全部展开，都开着就全部折起）；手动开合过的块跨轮次保留那个形态。写完的回答始终整段留下。压缩——自动的，或 `/compact`——也留下一个折叠块：多少条历史、多少 token 变成了摘要、哪个模型写的，以及摘要本身；进行中 hint 行会显示 `compacting history…`。
 - 正在运行的进程内子代理是一个视图：子会话一出现，卡片就会写 `click to enter`。点进去后子代理的 transcript 替换父级并实时流出；Esc 回退一层。这里不能打字——这是查看，不是跟进。Workflow/Ralph 的回合仍然只是一行：那些子会话跑在 worker 线程里，点进去只会打不开。
 - `/view 1` 把一条回答摊成整屏，`/view 1:1` 打开它的第一个代码块；Esc 原样还回会话。`/copy` 用的是同一套编号——原始 Markdown，或去掉围栏的代码。
 - `/diff` 把未提交的改动送进同一个阅读器，而不是让它刷过去；装不下自己的 diff 卡片，点一下也在那里打开。管道里它依然只是若干行。
@@ -99,7 +99,7 @@ dsh --profile code
 - Ctrl+V 粘贴图片。光标停在 `[Image #N]` 上时，屏幕中央浮出一张预览卡：能画图的终端直接显示原图——Ghostty、kitty、WezTerm 走 Kitty graphics，iTerm2 走它自己的协议——其余终端显示彩色半块马赛克。Ctrl+O 或点一下卡片，用系统看图器打开原图。（原生视觉；DeepSeek 文本模型自动借用 Vision Exp；其他文本路由仍落盘并可选 sidecar。）
 - `/` 命令、`$` skill、`!` shell、`@` 文件 —— 菜单在输入框上方。⇧Tab 是 plan 模式。
 - agent 工作时照样可以打字，回车进入队列，输入框下方显示 `↳ queued: …`。排在一起的消息在回合结束时合并成一条发出，中间空一行；`!` 命令和 `/` 命令保持原来的顺序、单独执行。Ctrl+Q 或点击那一行打开队列面板：Enter 把一条拉回输入框编辑，`d` 删除，Shift+↑/↓ 调序，`s` 把它插进正在运行的回合。支持 kitty 键盘协议的终端上 Ctrl+Enter 直接从输入框插话，送达前显示为 `↳ steering:`。Esc 一律中断，队列保留并作为下一条消息发出。↑ 仍然逐条回溯。
-- `/ui compact|comfortable` 决定对话占多少地方。compact 是默认，上面描述的也都是它的形状；comfortable 只是多给空间——轮次之间空一行、思考流式时留两行预览、展开的 diff 更晚才切到分页器。这个选择会跨会话保存。
+- `/ui compact|comfortable` 决定对话占多少地方。compact 是默认，上面描述的也都是它的形状；comfortable 只是多给空间——轮次之间空一行、展开的 diff 更晚才切到分页器。这个选择会跨会话保存。
 - 审批、`/model`、`/resume`、`/thinking`（或 `/effort`）用方向键；还有 `/clear`、Esc Esc、`/init`、`/update`。`!cmd` 打在会话里，agent 看得到输出。
 - `/thinking [level]`（别名 `/effort`）配置模型思考深度（如 `off`、`low`、`high`、`max`，或快捷指令 `on`/`off`），支持 TTY 交互式选择、按模型独立持久化，并在状态栏 MetaBar（如 `deepseek-chat (high)`）及 `/status` 报告中常驻显示。
 - 状态栏显示下一次请求预计使用的上下文量与窗口容量，例如 `context 32k/128k (75% left)`。正常使用及 `/resume` 后都保持显示，剩余 25% 时警告，10% 时变红。未知数据用 `?` 表示，两项数据都未获得时不显示。窄终端优先省略目录、保留上下文，必要时缩为剩余百分比。`/status` 提供完整的 token 分类统计。
@@ -156,10 +156,11 @@ pnpm run test:e2e            # 打包、安装，驱动真实二进制
 pnpm run site:screens        # 用真实二进制重拍站点上的终端截屏
 ```
 
-`MOCK=<mode>` 用无 key 的 mock 模型启动：`write`（默认）、`bash`、`heredoc`、
+`MOCK=<mode>` 用无 key 的 mock 模型启动：`write`（默认）、`bash`、`fail`（打印一行后以 3 退出的命令）、`heredoc`、
 `slow`、`steer`（占住回合 3 秒并报告插话是否送达）、`tall`、`spec`、`markdown`、
-`reasoning`、`echo`、`context`（32k 输入用量、128k 窗口；`cli-mock-pro` 为 64k）、
-`ship-wayfinder`（`/ship SMALL_WAYFINDER` 验证确认后进入 grill；`/ship PENDING_WAYFINDER` 留下可续跑的规划记录）、`vision`，以及自动图像
+`reasoning`、`reasoning-slow`（长到来得及中断的思考）、`reason-write`（思考、写文件、再思考、回答）、`echo`、`todo`、`questions`、`workflow`、
+`context`（32k 输入用量、128k 窗口；`cli-mock-pro` 为 64k）、
+`ship-wayfinder`（`/ship SMALL_WAYFINDER` 验证确认后进入 grill；`/ship PENDING_WAYFINDER` 留下可续跑的规划记录）、`ship-delegate`、`ship-landing`、`vision`，以及自动图像
 描述背后的 `auto-vision`、`auto-vision-slow`、`auto-vision-fail`。`INSPECT=1`
 只对 app 进程打开 Node inspector，断点因此不会把它前面的构建一起停住。
 

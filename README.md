@@ -88,7 +88,7 @@ The [site](https://blackman99.github.io/codsh/) shows each one as a real capture
 - A submitted prompt takes the viewport top and its reply fills the space beneath it. Read back into history and the way home is the same frame: the wheel and PgDn land on it again.
 - Whatever you are reading, the prompt that asked for it pins itself at the top; the next prompt pushes it away.
 - A one-column timeline on the right marks the turn you are in — ticks and arrows click-jump, hover previews the real prompt lines. Shift+←/→ does it from the keyboard, and `/jump` is a searchable, reversible preview. `/rewind` forks the conversation from before a turn you pick and continues there; the original session stays in `/resume`, and Esc Esc still recalls the last prompt.
-- Thinking and long tool output fold: click one, Ctrl+O all, and what you opened by hand stays open across later turns. A finished answer stays whole. Compaction — automatic, or `/compact` — leaves a fold too: how many items and tokens became a summary, which model wrote it, and the summary itself; the hint row says `compacting history…` while it runs.
+- Thinking streams into the transcript and stays open under its clock (`✻ thought for 3.2s`) until the next prompt folds it to that row; every tool call is one row — what it did, `+n -m` or `· 12 lines`, `✔` or `✗`, and a failed row's reason — with the output behind it. Click a block to work it, Ctrl+O to work them all (it opens whatever is folded, and folds everything once nothing is), and what you opened or folded by hand keeps that form across later turns. A finished answer stays whole. Compaction — automatic, or `/compact` — leaves a fold too: how many items and tokens became a summary, which model wrote it, and the summary itself; the hint row says `compacting history…` while it runs.
 - A running in-process subagent is a view: as soon as the child exists, its card says `click to enter`. The child's transcript replaces the parent's and streams while it works; Esc pops one level. Typing there is refused — this is looking, not a follow-up. Workflow/Ralph rounds stay a line: those children run in a worker thread and no click could enter one.
 - `/view 1` opens an answer full screen, `/view 1:1` its first code block; Esc restores the conversation exactly. `/copy` addresses the same targets — raw Markdown, or fence-free code.
 - `/diff` reads uncommitted changes in the same reader rather than scrolling them past, and a diff card too long for its own body opens there on click. Piped, it stays lines.
@@ -100,7 +100,7 @@ The [site](https://blackman99.github.io/codsh/) shows each one as a real capture
 - Ctrl+V pastes images. While the cursor rests on the `[Image #N]` token a card centered over the transcript previews it: the picture itself wherever the terminal paints one — Ghostty, kitty and WezTerm through Kitty graphics, iTerm2 through its own — and a colour half-block mosaic everywhere else. Ctrl+O, or a click on the card, opens the original in the system viewer. (Native vision; DeepSeek text models borrow Vision Exp automatically; other text routes keep the file + optional sidecar fallback.)
 - `/` commands, `$` skills, `!` shell, `@` files — the menu sits above the box. ⇧Tab is plan mode.
 - Type while the agent works and the line queues, shown as `↳ queued: …` under the box. Prompts queued together go as ONE message when the turn ends, a blank line between them; a `!` line or `/` command keeps its place in the order and runs alone. Ctrl+Q, or a click on that row, opens the queue: Enter edits a line back into the box, `d` deletes, Shift+↑/↓ reorders, `s` steers it into the running turn. Ctrl+Enter steers straight from the box on terminals that speak the kitty keyboard protocol; the line shows as `↳ steering:` until the model takes it. Esc interrupts, queue and all — the queue then goes as the next message. ↑ still recalls the lines one at a time.
-- `/ui compact|comfortable` sets how much room the transcript takes. Compact is the default and the shape everything above is described in; comfortable only adds — a blank row between turns, a two-line preview while thinking streams, and a higher click-to-pager threshold on expanded diffs. The choice persists across sessions.
+- `/ui compact|comfortable` sets how much room the transcript takes. Compact is the default and the shape everything above is described in; comfortable only adds — a blank row between turns and a higher click-to-pager threshold on expanded diffs. The choice persists across sessions.
 - Approvals, `/model`, `/resume`, and `/thinking` (or `/effort`) are arrow-key widgets; `/clear`, Esc Esc, `/init`, and `/update` round it out. `!cmd` prints in-session and the agent sees it.
 - `/thinking [level]` (alias `/effort`) configures reasoning deliberation (e.g. `off`, `low`, `high`, `max`, or shortcuts `on`/`off`) with an interactive selector on TTY, per-model persistence, and active level tags in MetaBar (e.g. `deepseek-chat (high)`) and `/status`.
 - The status row shows the next request's estimated context usage and window capacity, e.g. `context 32k/128k (75% left)`. It stays visible during normal usage and after `/resume`, warns at 25% remaining, and turns red at 10%. Unknown figures show `?`; before either figure is available, the segment is absent. Narrow terminals drop the directory before context, falling back to the remaining percentage when needed. `/status` keeps the full token breakdown.
@@ -158,11 +158,15 @@ pnpm run site:screens        # re-shoot the site's terminals from the real binar
 ```
 
 `MOCK=<mode>` boots against the keyless mock model: `write` (the default),
-`bash`, `heredoc`, `slow`, `steer` (holds a turn 3s and reports whether a
-mid-turn message arrived), `tall`, `spec`, `markdown`, `reasoning`, `echo`,
+`bash`, `fail` (a command that prints a line and exits 3), `heredoc`, `slow`,
+`steer` (holds a turn 3s and reports whether a mid-turn message arrived),
+`tall`, `spec`, `markdown`, `reasoning`, `reasoning-slow` (a thought long
+enough to interrupt), `reason-write` (a thought, a write, a second thought,
+an answer), `echo`, `todo`, `questions`, `workflow`,
 `context` (32k input usage against a 128k window; 64k on `cli-mock-pro`),
 `ship-wayfinder` (`/ship SMALL_WAYFINDER` exercises the confirmed grill handoff;
-`/ship PENDING_WAYFINDER` leaves a resumable planning ledger),
+`/ship PENDING_WAYFINDER` leaves a resumable planning ledger), `ship-delegate`,
+`ship-landing`,
 `vision`, and the `auto-vision`, `auto-vision-slow`, `auto-vision-fail` trio
 behind the automatic image description. `INSPECT=1` opens the Node inspector on
 the app process alone, so a breakpoint does not stop the build that precedes it.

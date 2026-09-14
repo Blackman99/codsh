@@ -1,6 +1,6 @@
 /**
- * `/ui compact|comfortable`: parse, persist, thinking preview, and the
- * surfaces that must stay identical across densities.
+ * `/ui compact|comfortable`: parse, persist, and the surfaces that must stay
+ * identical across densities.
  */
 
 import { mkdtemp, readFile, writeFile } from 'node:fs/promises'
@@ -14,7 +14,6 @@ import {
   loadDensity,
   parseDensity,
   saveDensity,
-  thinkingStreamPreview,
 } from '../src/density.ts'
 import { GateModal } from '../src/gate-modal.ts'
 import { statusLine } from '../src/status.ts'
@@ -42,22 +41,6 @@ describe('parseDensity / densityReport', () => {
   it('raises the expanded-diff pager threshold in comfortable', () => {
     expect(DIFF_SOFT_CAP.compact).toBe(24)
     expect(DIFF_SOFT_CAP.comfortable).toBe(48)
-  })
-})
-
-describe('thinkingStreamPreview', () => {
-  const fallback = '✻ thinking'
-
-  it('keeps one live line in compact', () => {
-    expect(thinkingStreamPreview('compact', ['done'], 'live', fallback)).toBe('live')
-    expect(thinkingStreamPreview('compact', ['done'], undefined, fallback)).toBe('done')
-    expect(thinkingStreamPreview('compact', [], undefined, fallback)).toBe(fallback)
-  })
-
-  it('shows the last finished line plus the live one in comfortable', () => {
-    expect(thinkingStreamPreview('comfortable', ['a', 'b'], 'c', fallback)).toEqual(['b', 'c'])
-    expect(thinkingStreamPreview('comfortable', ['a', 'b'], undefined, fallback)).toEqual(['a', 'b'])
-    expect(thinkingStreamPreview('comfortable', [], 'only', fallback)).toBe('only')
   })
 })
 

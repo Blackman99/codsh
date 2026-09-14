@@ -9,7 +9,7 @@ import type { ToolCallView, ToolResultView } from '@deepseek-ai/dsh-tools'
 import { describe, expect, it } from 'vitest'
 import { createTheme, displayWidth } from '../src/theme.ts'
 import { gutter } from '../src/gutter.ts'
-import { Transcript, blockRules, childSessionId, formatAskUserQuestionResult, formatToolCardLine, presentAskUserQuestionResult, thinkingFold, thinkingFoldRules, type ToolPresenters } from '../src/transcript.ts'
+import { Transcript, blockRules, childSessionId, formatAskUserQuestionResult, formatToolCardLine, presentAskUserQuestionResult, thinkingFold, thinkingFoldRules, thinkingLineRule, thinkingOpenRows, type ToolPresenters } from '../src/transcript.ts'
 import type { Density } from '../src/density.ts'
 
 const theme = createTheme(false, {})
@@ -242,13 +242,17 @@ describe('tool cards', () => {
     expect(build().render(callEvent('c1', 'grep', { pattern: 'x' }))).toEqual(['● grep'])
   })
 
-  it('renders a terminal call as a command line with its workspace-relative cwd', () => {
+  it('renders a terminal call as one row naming the command and its workspace-relative cwd', () => {
     const call = (): ToolCallView => ({ card: 'terminal', title: 'pnpm test', cwd: '/repo/apps', description: 'run the suite' })
-    expect(build({ call }).render(callEvent('c1', 'bash', {}))).toEqual([
-      '● bash (apps)',
-      '  $ pnpm test',
-      '  run the suite',
-    ])
+    const result = (): ToolResultView => ({ card: 'terminal', title: 'pnpm test', output: 'ok' })
+    const transcript = build({ call, result })
+    // The row names what the finished row will name, so the result takes its
+    // place without the card growing and shrinking.
+    expect(transcript.render(callEvent('c1', 'bash', {}))).toEqual(['● pnpm test (apps)'])
+    // The description rides into the finished card's fold, over the output,
+    // and the count names both: it is what the row withholds.
+    expect(transcript.render(resultEvent('c1', 'ok'))).toEqual(['● pnpm test · 2 lines ✔', ''])
+    expect(transcript.takeFold()).toEqual(['● pnpm test · 2 lines ✔', '  run the suite', '  ok', ''])
   })
 
   it('records a diff call without painting — the result owns the one-liner', () => {
@@ -267,7 +271,8 @@ describe('tool cards', () => {
     const event = { type: 'tool/call', seq: 1, time: 0, data: { turn: 1, step: 1, callId: 'c1', name: 'bash', arguments: '{oops' } } as SessionEvent
     const transcript = build()
     expect(transcript.render(event)).toEqual(['● bash'])
-    expect(transcript.render(resultEvent('c1', 'out'))).toEqual(['● bash ✔', '  out', ''])
+    expect(transcript.render(resultEvent('c1', 'out'))).toEqual(['● bash · 1 line ✔', ''])
+    expect(transcript.takeFold()).toEqual(['● bash · 1 line ✔', '  out', ''])
   })
 
   it('degrades to the generic line when a call presenter throws', () => {
@@ -277,39 +282,88 @@ describe('tool cards', () => {
 })
 
 describe('tool results', () => {
-  it('pairs a result with its call and prints the body', () => {
+  it('pairs a result with its call and keeps the body behind the row', () => {
     const transcript = build()
     transcript.render(callEvent('c1', 'grep', {}))
-    // Completed tools always reprint one stable head line (marker · title · ✔).
-    expect(transcript.render(resultEvent('c1', 'two matches'))).toEqual(['● grep ✔', '  two matches', ''])
+    // Completed tools always reprint one stable head line (marker · title ·
+    // count · ✔); the body is the fold's, one click or Ctrl+O away.
+    expect(transcript.render(resultEvent('c1', 'two matches'))).toEqual(['● grep · 1 line ✔', ''])
+    expect(transcript.takeFold()).toEqual(['● grep · 1 line ✔', '  two matches', ''])
   })
 
-  it('marks a failed call', () => {
+  it('marks a failed call, and names its reason on the row', () => {
     const transcript = build()
     transcript.render(callEvent('c1', 'bash', {}))
-    expect(transcript.render(resultEvent('c1', 'exit 1', true))[0]).toBe('● bash ✗')
+    // One row still, but a failure says why: the first line of what came
+    // back rides in the stats, and a one-line reason needs no count.
+    expect(transcript.render(resultEvent('c1', 'exit 1', true))[0]).toBe('● bash exit 1 ✗')
+    expect(transcript.takeFold()).toEqual(['● bash exit 1 ✗', '  exit 1', ''])
+  })
+
+  it('cuts a long failure reason and counts the lines behind it', () => {
+    const transcript = build()
+    transcript.render(callEvent('c1', 'read', {}))
+    const text = `ENOENT: no such file or directory, open ${'/very/long/path/'.repeat(6)}a.ts\n    at readFile\n    at run`
+    const [row] = transcript.render(resultEvent('c1', text, true))
+    expect(row).toMatch(/^● read ENOENT: no such file or directory.*… · 3 lines ✗$/u)
+    // Half the width is the reason's room, so the title keeps its own.
+    expect(displayWidth(row ?? '')).toBeLessThan(80)
+    expect((transcript.takeFold() ?? []).join('\n')).toContain('at readFile')
+  })
+
+  it('takes the first line with text as the reason, and leaves no gap when the text opens blank', () => {
+    const transcript = build()
+    transcript.render(callEvent('c1', 'read', {}))
+    const [row] = transcript.render(resultEvent('c1', '\nENOENT: no such file or directory, open x.ts', true))
+    expect(row).toMatch(/^● read ENOENT: no such file or directory.* ✗$/u)
+    expect(row).not.toContain('  ')
+  })
+
+  it('counts the lines that carry text, the way the readout does', () => {
+    const result = (): ToolResultView => ({ card: 'terminal', title: 'pnpm test', output: 'a\n\nb\n\nc' })
+    const transcript = build({ result })
+    transcript.render(callEvent('c1', 'bash', {}))
+    // Two blank rows are in the fold, but not a reason to open the card.
+    expect(transcript.render(resultEvent('c1', 'ok'))).toEqual(['● pnpm test · 3 lines ✔', ''])
+    expect(transcript.takeFold()).toHaveLength(7)
+  })
+
+  it('budgets a pending command for the rule beside it, so the row never wraps', () => {
+    const colorTheme = createTheme(true, { COLORTERM: 'truecolor' })
+    const command = `pnpm exec vitest run ${'packages/bundle/tests/very-long-name.spec.ts '.repeat(3)}--reporter=dot`
+    const transcript = new Transcript({ theme: colorTheme, columns: 80, cwd: CWD }, {
+      call: (): ToolCallView => ({ card: 'terminal', title: command, cwd: '/repo/apps' }),
+      result: () => undefined,
+    })
+    const [, row = ''] = transcript.render(callEvent('c1', 'bash', {}))
+    // The screen paints `│ ` beside the row: the row itself fits what is left.
+    expect(displayWidth(row)).toBeLessThanOrEqual(80 - 2)
+    expect(row).toContain('(apps)')
+  })
+
+  it('names the executor reason when a terminal call failed before it printed', () => {
+    const result = (): ToolResultView => ({ card: 'terminal', title: 'pnpm test' })
+    const transcript = build({ result })
+    transcript.render(callEvent('c1', 'bash', {}))
+    // No exit code and no output: the row would say nothing about why, so
+    // it names what the result block says instead.
+    expect(transcript.render(resultEvent('c1', 'sandbox refused the command', true))[0]).toBe('● pnpm test sandbox refused the command ✗')
   })
 
   it('renders ask_user_question result directly as the user reply instead of raw json', () => {
     const transcript = build()
     transcript.render(callEvent('c1', 'ask_user_question', { questions: [{ id: 'q1', question: 'Which mode?' }] }))
     const resultJson = JSON.stringify({ answers: [{ id: 'q1', selected: ['Fast mode (Recommended)'] }] })
-    expect(transcript.render(resultEvent('c1', resultJson))).toEqual([
-      '● ask_user_question ✔',
-      '  Fast mode (Recommended)',
-      '',
-    ])
+    expect(transcript.render(resultEvent('c1', resultJson))).toEqual(['● ask_user_question · 1 line ✔', ''])
+    expect(transcript.takeFold()).toEqual(['● ask_user_question · 1 line ✔', '  Fast mode (Recommended)', ''])
   })
 
   it('renders custom reply for ask_user_question directly as plain text', () => {
     const transcript = build()
     transcript.render(callEvent('c1', 'ask_user_question', { questions: [{ id: 'q1', question: 'Any comments?' }] }))
     const resultJson = JSON.stringify({ answers: [{ id: 'q1', selected: [], custom: 'Please keep existing tests.' }] })
-    expect(transcript.render(resultEvent('c1', resultJson))).toEqual([
-      '● ask_user_question ✔',
-      '  Please keep existing tests.',
-      '',
-    ])
+    expect(transcript.render(resultEvent('c1', resultJson))).toEqual(['● ask_user_question · 1 line ✔', ''])
+    expect(transcript.takeFold()).toEqual(['● ask_user_question · 1 line ✔', '  Please keep existing tests.', ''])
   })
 
   it('renders multiple answers for ask_user_question on separate lines', () => {
@@ -326,12 +380,8 @@ describe('tool results', () => {
         { id: 'q2', custom: 'yes proceed' },
       ],
     })
-    expect(transcript.render(resultEvent('c1', resultJson))).toEqual([
-      '● ask_user_question ✔',
-      '  Production',
-      '  yes proceed',
-      '',
-    ])
+    expect(transcript.render(resultEvent('c1', resultJson))).toEqual(['● ask_user_question · 2 lines ✔', ''])
+    expect(transcript.takeFold()).toEqual(['● ask_user_question · 2 lines ✔', '  Production', '  yes proceed', ''])
   })
 
   it('renders no body when ask_user_question answers are empty (aborted/dismissed)', () => {
@@ -489,7 +539,8 @@ describe('tool results', () => {
     transcript.render(callEvent('c1', 'bash', {}))
     // No call presenter here, so the pending title was the tool name: the
     // result's own title differs, which is what brings the header back.
-    expect(transcript.render(resultEvent('c1', 'failed'))).toEqual(['● pnpm test (exit 1) ✔', '  failed', ''])
+    expect(transcript.render(resultEvent('c1', 'failed'))).toEqual(['● pnpm test (exit 1) · 1 line ✔', ''])
+    expect(transcript.takeFold()).toEqual(['● pnpm test (exit 1) · 1 line ✔', '  failed', ''])
   })
 
   it('reports a signal kill instead of an exit code', () => {
@@ -509,7 +560,9 @@ describe('tool results', () => {
     })
     const transcript = build({ result })
     transcript.render(callEvent('c1', 'grep', {}))
-    expect(transcript.render(resultEvent('c1', 'ok'))).toEqual(['● grep 1 results ✔', '  a.ts', '    3: const a = 1', ''])
+    // The count of results already says the row withholds something.
+    expect(transcript.render(resultEvent('c1', 'ok'))).toEqual(['● grep 1 results ✔', ''])
+    expect(transcript.takeFold()).toEqual(['● grep 1 results ✔', '  a.ts', '    3: const a = 1', ''])
   })
 
   it('marks a capped search as capped', () => {
@@ -529,18 +582,23 @@ describe('tool results', () => {
     transcript.render(callEvent('c1', 'bash', {}))
     const first = transcript.render(resultEvent('c1', 'ok'))
     expect(first[0]).toContain('export PATH=')
-    expect(first.join('\n')).toContain('Baseline three-bot start Playwright grep')
-    expect(first.join('\n')).toContain('Error: No tests found')
+    expect(first).toHaveLength(2)
+    const firstFull = transcript.takeFold() ?? []
+    expect(firstFull.join('\n')).toContain('Baseline three-bot start Playwright grep')
+    expect(firstFull.join('\n')).toContain('Error: No tests found')
 
     current = { name: 'Baseline three-bot refusal Playwright grep', output: 'Error: No tests found\n\nundefined\n/Users/zhaodongsheng/my-projects/openbot/apps/web:' }
     transcript.render(callEvent('c2', 'bash', {}))
     const second = transcript.render(resultEvent('c2', 'ok'))
-    expect(second.join('\n')).toContain('· 2')
-    expect(second.join('\n')).toContain('… +2 similar')
+    // One row for the run: the count says it holds more than one.
+    expect(second[0]).toContain('· 2 similar')
+    expect(second).toHaveLength(2)
     expect(second.join('\n')).not.toContain('Baseline three-bot refusal')
     const replaced = transcript.takePendingCard()
     expect(replaced[0]).toBe(first[0])
-    expect(replaced.join('\n')).toContain('● bash')
+    // The first card and the second call's pending row are what it replaces.
+    expect(replaced).toHaveLength(3)
+    expect(replaced[2]).toContain('● export PATH=')
     const full = transcript.takeFold() ?? []
     expect(full.join('\n')).toContain('Baseline three-bot start Playwright grep')
     expect(full.join('\n')).toContain('Baseline three-bot refusal Playwright grep')
@@ -548,8 +606,8 @@ describe('tool results', () => {
     current = { name: 'Baseline pairing Playwright grep', output: 'Error: No tests found\n\nundefined\n/Users/zhaodongsheng/my-projects/openbot/apps/web:' }
     transcript.render(callEvent('c3', 'bash', {}))
     const third = transcript.render(resultEvent('c3', 'ok'))
-    expect(third.join('\n')).toContain('· 3')
-    expect(third.join('\n')).toContain('… +3 similar')
+    expect(third[0]).toContain('· 3 similar')
+    expect(third).toHaveLength(2)
   })
 
   it('does not fold a later card whose command or output shape is different', () => {
@@ -565,13 +623,13 @@ describe('tool results', () => {
     index = 1
     transcript.render(callEvent('c2', 'bash', {}))
     const second = transcript.render(resultEvent('c2', 'ok'))
-    expect(second.join('\n')).toContain('· 2')
+    expect(second[0]).toContain('· 2 similar')
     index = 2
     transcript.render(callEvent('c3', 'bash', {}))
     const third = transcript.render(resultEvent('c3', 'ok'))
     expect(third[0]).toContain('git status')
-    expect(third[0]).not.toContain('· 3')
-    expect(third.join('\n')).toContain('On branch main')
+    expect(third[0]).not.toContain('similar')
+    expect((transcript.takeFold() ?? []).join('\n')).toContain('On branch main')
   })
 
   it('reprints one stable head with exit status rather than a continuation-only line', () => {
@@ -579,7 +637,7 @@ describe('tool results', () => {
     const result = (): ToolResultView => ({ card: 'terminal', title: 'pnpm test', output: 'out', exitCode: 1 })
     const transcript = build({ call, result })
     transcript.render(callEvent('c1', 'bash', {}))
-    expect(transcript.render(resultEvent('c1', 'failed'))).toEqual(['● pnpm test (exit 1) ✔', '  out', ''])
+    expect(transcript.render(resultEvent('c1', 'failed'))).toEqual(['● pnpm test (exit 1) · 1 line ✔', ''])
   })
 
   it('summarizes a read as a window of the file', () => {
@@ -596,7 +654,9 @@ describe('tool results', () => {
   })
 
   it('prints an unpaired result rather than dropping it', () => {
-    expect(build().render(resultEvent('missing', 'orphan'))).toEqual(['● (result)', '  orphan', ''])
+    const transcript = build()
+    expect(transcript.render(resultEvent('missing', 'orphan'))).toEqual(['● (result) · 1 line', ''])
+    expect(transcript.takeFold()).toEqual(['● (result) · 1 line', '  orphan', ''])
   })
 
   it('folds consecutive unpaired results into one card instead of stacking them', () => {
@@ -605,21 +665,19 @@ describe('tool results', () => {
     // filled the viewport with the same `(result)` head over and over.
     const transcript = build()
     const first = transcript.render(resultEvent('c1', 'alpha\nbeta'))
-    expect(first).toEqual(['● (result)', '  alpha', '  beta', ''])
-    expect(transcript.takeFold()).toBeUndefined()
+    expect(first).toEqual(['● (result) · 2 lines', ''])
+    expect(transcript.takeFold()).toEqual(['● (result) · 2 lines', '  alpha', '  beta', ''])
 
     const second = transcript.render(resultEvent('c2', 'gamma\ndelta'))
-    expect(second[0]).toBe('● (result) · 2')
-    expect(second.join('\n')).toContain('  … +2 results (click or Ctrl+O expands)')
-    expect(second.join('\n')).not.toContain('gamma')
+    expect(second).toEqual(['● (result) · 2 results', ''])
     expect(transcript.takePendingCard()).toEqual(first)
     const full = transcript.takeFold() ?? []
     expect(full.join('\n')).toContain('alpha')
     expect(full.join('\n')).toContain('gamma')
-    expect(full[0]).toBe('● (result) · 2')
+    expect(full[0]).toBe('● (result) · 2 results')
 
     const third = transcript.render(resultEvent('c3', 'epsilon'))
-    expect(third[0]).toBe('● (result) · 3')
+    expect(third[0]).toBe('● (result) · 3 results')
     expect(transcript.takePendingCard()).toEqual(second)
     expect((transcript.takeFold() ?? []).join('\n')).toContain('epsilon')
   })
@@ -632,17 +690,21 @@ describe('tool results', () => {
     )
     transcript.render(resultEvent('c1', 'alpha'))
     const second = transcript.render(resultEvent('c2', 'beta'))
-    expect(second[0]).toBe(colorTheme.bgTool(`  ${colorTheme.ok('●')} ${colorTheme.dim('(result) · 2')}`))
-    expect(second).toContain(colorTheme.bgTool(colorTheme.dim('  … +2 results (click or Ctrl+O expands)')))
+    // The pad the run opened with stays its inset when the head is rebuilt.
+    expect(second).toEqual([
+      colorTheme.bgTool('  '),
+      colorTheme.bgTool(`  ${colorTheme.ok('●')} ${colorTheme.dim('(result)')} ${colorTheme.dim('· 2 results')}`),
+      colorTheme.bgTool('  '),
+    ])
   })
 
   it('does not fold an unpaired result into a paired card of a different kind', () => {
     const transcript = build()
     transcript.render(callEvent('c1', 'bash', {}))
     const paired = transcript.render(resultEvent('c1', 'ok'))
-    expect(paired).toEqual(['● bash ✔', '  ok', ''])
+    expect(paired).toEqual(['● bash · 1 line ✔', ''])
     const orphan = transcript.render(resultEvent('missing', 'later'))
-    expect(orphan).toEqual(['● (result)', '  later', ''])
+    expect(orphan).toEqual(['● (result) · 1 line', ''])
     expect(transcript.takePendingCard()).toEqual([])
   })
 
@@ -650,7 +712,7 @@ describe('tool results', () => {
     const result = () => { throw new Error('presenter is broken') }
     const transcript = build({ result })
     transcript.render(callEvent('c1', 'grep', {}))
-    expect(transcript.render(resultEvent('c1', 'two matches'))).toEqual(['● grep ✔', '  two matches', ''])
+    expect(transcript.render(resultEvent('c1', 'two matches'))).toEqual(['● grep · 1 line ✔', ''])
   })
 
   it('confirms a completion that carries no body', () => {
@@ -694,7 +756,7 @@ describe('tool results', () => {
 
   it('shortens a workspace path a terminal presenter embedded in its command', () => {
     const call = (): ToolCallView => ({ card: 'terminal', title: 'cat /repo/src/a.ts' })
-    expect(build({ call }).render(callEvent('c1', 'bash', {}))).toEqual(['● bash', '  $ cat src/a.ts'])
+    expect(build({ call }).render(callEvent('c1', 'bash', {}))).toEqual(['● cat src/a.ts'])
   })
 
   it('does not claim a line for a created file\'s trailing newline', () => {
@@ -705,80 +767,85 @@ describe('tool results', () => {
     expect((transcript.takeFold() ?? []).join('\n')).toContain('+ only')
   })
 
-  it('collapses a long body behind a count that names the expand key', () => {
+  it('collapses a long body behind a count on the row', () => {
     const result = (): ToolResultView => ({ card: 'terminal', title: 'pnpm test', output: Array.from({ length: 30 }, (_, i) => `line ${i}`).join('\n') })
     const transcript = build({ result })
     transcript.render(callEvent('c1', 'bash', {}))
     const lines = transcript.render(resultEvent('c1', 'ok'))
-    // Five skimmable lines; the rest collapse behind an affordance, not a bare count.
-    expect(lines.join('\n')).toContain('line 4')
-    expect(lines.join('\n')).not.toContain('line 5')
-    expect(lines.at(-2)).toBe('  … +25 lines (click or Ctrl+O expands)')
+    // The row is the whole card: the count is the affordance, and the fold
+    // is where the lines are.
+    expect(lines).toEqual(['● pnpm test · 30 lines ✔', ''])
+    expect((transcript.takeFold() ?? []).join('\n')).toContain('line 29')
+  })
+
+  it('counts the description the call came with as a line behind the row', () => {
+    const call = (): ToolCallView => ({ card: 'terminal', title: 'pnpm test', description: 'run the suite' })
+    const result = (): ToolResultView => ({ card: 'terminal', title: 'pnpm test' })
+    const transcript = build({ call, result })
+    transcript.render(callEvent('c1', 'bash', {}))
+    // Nothing was printed, but the description rides in the fold as the
+    // context the call came with, and the row says one line is behind it.
+    expect(transcript.render(resultEvent('c1', ''))).toEqual(['● pnpm test · 1 line ✔', ''])
+    expect(transcript.takeFold()).toEqual(['● pnpm test · 1 line ✔', '  run the suite', ''])
   })
 })
 
-describe('a result line wider than the card', () => {
-  it('cuts a line wider than a few rows and keeps the whole line behind the fold', () => {
-    // One bash result carried a 49,616-character HTML line. Shown whole it
-    // wrapped to five hundred rows under a card that promised five lines.
+describe('a result body, whole behind its row', () => {
+  it('keeps a line wider than a few rows whole behind the fold', () => {
+    // One bash result carried a 49,616-character HTML line. The row never
+    // shows it; the fold holds it whole, so Ctrl+O reads what the row withheld.
     const wide = `<html>${'<div class="x"></div>'.repeat(200)}</html>`
     const result = (): ToolResultView => ({ card: 'terminal', title: 'curl', output: `${wide}\nshort tail` })
     const transcript = build({ result })
     transcript.render(callEvent('c1', 'bash', {}))
-    const lines = transcript.render(resultEvent('c1', 'ok'))
-    const shown = lines.find(line => line.includes('<html>')) ?? ''
-    // Three rows' worth at 80 columns, the ellipsis marking the cut.
-    expect(displayWidth(shown)).toBeLessThanOrEqual((80 - 4) * 3)
-    expect(shown.endsWith('…')).toBe(true)
-    expect(lines).toContain('  … a long line cut (click or Ctrl+O expands)')
-    expect(lines.join('\n')).toContain('short tail')
-    // The fold holds the line whole, so Ctrl+O reads what the card withheld.
+    expect(transcript.render(resultEvent('c1', 'ok'))).toEqual(['● curl · 2 lines ✔', ''])
     const full = transcript.takeFold() ?? []
     expect(full.some(line => line.includes(wide))).toBe(true)
+    expect(full.join('\n')).toContain('short tail')
   })
 
-  it('leaves a body of short lines uncut and unfolded', () => {
-    // Same title as the pending card, so no header returns: only the body.
+  it('keeps even a short body behind the row', () => {
+    // Same title as the pending card, so the row simply settles in place.
     const result = (): ToolResultView => ({ card: 'terminal', title: 'bash', output: 'a\tb\nc' })
     const transcript = build({ result })
     transcript.render(callEvent('c1', 'bash', {}))
-    // A tab is flattened at paint, not here: the line fits, so it is kept as it came.
-    expect(transcript.render(resultEvent('c1', 'ok'))).toEqual(['● bash ✔', '  a\tb', '  c', ''])
-    expect(transcript.takeFold()).toBeUndefined()
+    expect(transcript.render(resultEvent('c1', 'ok'))).toEqual(['● bash · 2 lines ✔', ''])
+    // A tab is flattened at paint, not here: the line is kept as it came.
+    expect(transcript.takeFold()).toEqual(['● bash · 2 lines ✔', '  a\tb', '  c', ''])
   })
 
-  it('counts both cuts once when a body is long and wide', () => {
+  it('counts lines, not the rows a wide line would wrap to', () => {
     const output = [`${'w'.repeat(500)}`, ...Array.from({ length: 10 }, (_, i) => `line ${i}`)].join('\n')
     const result = (): ToolResultView => ({ card: 'terminal', title: 'run', output })
     const transcript = build({ result })
     transcript.render(callEvent('c1', 'bash', {}))
-    const lines = transcript.render(resultEvent('c1', 'ok'))
-    expect(lines.at(-2)).toBe('  … +6 lines (click or Ctrl+O expands)')
-    expect(lines.some(line => line.includes('long line'))).toBe(false)
+    expect(transcript.render(resultEvent('c1', 'ok'))).toEqual(['● run · 11 lines ✔', ''])
     expect((transcript.takeFold() ?? []).join('\n')).toContain('w'.repeat(500))
   })
 
-  it('cuts wide lines in an unpaired raw result the same way', () => {
+  it('keeps an unpaired raw result whole behind its row the same way', () => {
     const transcript = build()
-    const lines = transcript.render(resultEvent('c9', 'y'.repeat(1000)))
-    expect(displayWidth(lines[1] ?? '')).toBeLessThanOrEqual((80 - 4) * 3)
+    expect(transcript.render(resultEvent('c9', 'y'.repeat(1000)))).toEqual(['● (result) · 1 line', ''])
     expect((transcript.takeFold() ?? []).join('\n')).toContain('y'.repeat(1000))
   })
 
-  it('paints an unpaired fold hint as part of the card, not a flush strip', () => {
+  it('paints an unpaired row with the panel fill, and its fold the same way', () => {
     // A resumed page-boundary result has no pending card to pair with. The
-    // body used to sit flush and the collapse hint was left un-backed, so a
-    // long path wrapped the full width and the `… +N lines` row punched a
-    // hole in the panel.
+    // row and the pad under it carry the tool fill, and so does every body
+    // line the fold keeps — no flush strip, no hole in the panel.
     const colorTheme = createTheme(true, { COLORTERM: 'truecolor' })
     const transcript = new Transcript(
       { theme: colorTheme, columns: 80, cwd: CWD },
       { call: () => undefined, result: () => undefined },
     )
     const lines = transcript.render(resultEvent('c9', Array.from({ length: 20 }, (_, i) => `line ${i}`).join('\n')))
-    const hint = lines.find(line => line.includes('click or Ctrl+O expands')) ?? ''
-    expect(hint).toBe(colorTheme.bgTool(colorTheme.dim('  … +15 lines (click or Ctrl+O expands)')))
-    expect(lines.some(line => line === colorTheme.bgTool(colorTheme.dim('  line 0')))).toBe(true)
+    expect(lines).toEqual([
+      colorTheme.bgTool('  '),
+      colorTheme.bgTool(`  ${colorTheme.ok('●')} ${colorTheme.dim('(result)')} ${colorTheme.dim('· 20 lines')}`),
+      colorTheme.bgTool('  '),
+    ])
+    const full = transcript.takeFold() ?? []
+    expect(full.some(line => line === colorTheme.bgTool(colorTheme.dim('  line 0')))).toBe(true)
   })
 })
 
@@ -789,7 +856,7 @@ describe('folding collapsed output', () => {
     const transcript = build({ result })
     transcript.render(callEvent('c1', 'bash', {}))
     const shown = transcript.render(resultEvent('c1', long))
-    expect(shown.join('\n')).toContain('… +15 lines (click or Ctrl+O expands)')
+    expect(shown).toEqual(['● run · 20 lines ✔', ''])
     const full = transcript.takeFold() ?? []
     // The full form replaces the whole block: same head, uncapped body.
     expect(full[0]).toContain('run')
@@ -854,6 +921,30 @@ describe('the forms a long block keeps', () => {
     const { summary, full } = thinkingFold(['  first'], theme)
     expect(summary[0]).toBe('thought')
     expect(full).toContain('thought')
+  })
+})
+
+describe('a thought while it streams', () => {
+  it('opens with a head the clock will replace, inside the panel', () => {
+    const colorTheme = createTheme(true, { COLORTERM: 'truecolor' })
+    const pad = colorTheme.bgThinking('  ')
+    const { rows, rules } = thinkingOpenRows(colorTheme)
+    expect(rows).toEqual([pad, colorTheme.bgThinking(colorTheme.dim('  thinking…')), pad])
+    // The glyph sits on the head alone; the pads are the panel's inset.
+    expect(rules).toEqual(['  ', blockRules(colorTheme).agent, '  '])
+    // A streamed line carries the same inset, so it lines up under the head.
+    expect(thinkingLineRule(colorTheme)).toBe('  ')
+  })
+
+  it('needs no panel without colour, and no rule down the body', () => {
+    // No fill says which block a row belongs to, so the glyph sits on the
+    // head — then the clock — alone, and the body's own indent lines up
+    // under it: a rule row by row would put ✻ down every deliberation line.
+    const { rows, rules } = thinkingOpenRows(theme)
+    expect(rows).toEqual(['thinking…'])
+    expect(rules).toBe('✻ ')
+    expect(thinkingLineRule(theme)).toBe('')
+    expect(thinkingFoldRules(theme, 2)).toEqual({ summary: '✻ ', full: ['✻ ', '', ''] })
   })
 })
 
@@ -938,8 +1029,9 @@ describe('a subagent card that is a view', () => {
     const transcript = build()
     transcript.render(callEvent('c1', 'subagent', {}))
     const lines = transcript.render(resultEvent('c1', 'started subagent child-9'))
-    expect(lines.join('\n')).toContain('started subagent child-9')
-    expect(lines.join('\n')).toContain('click to enter')
+    // The door is a row of its own; what the result said is in the fold.
+    expect(lines).toEqual(['● subagent · 1 line ✔', '  click to enter', ''])
+    expect((transcript.takeFold() ?? []).join('\n')).toContain('started subagent child-9')
     expect(transcript.takeEnter()).toBe('child-9')
     expect(transcript.takeLabel()).toBe('subagent')
     expect(transcript.takeEnter()).toBeUndefined()
@@ -999,8 +1091,9 @@ describe('a pending subagent card that is a view', () => {
     transcript.takePendingCard()
 
     const lines = transcript.render(resultEvent('c1', 'started subagent child-9'))
-    expect(lines.join('\n')).toContain('started subagent child-9')
-    expect(lines.join('\n')).toContain('click to enter')
+    // The door is a row of its own; what the result said is in the fold.
+    expect(lines).toEqual(['● subagent · 1 line ✔', '  click to enter', ''])
+    expect((transcript.takeFold() ?? []).join('\n')).toContain('started subagent child-9')
     expect(transcript.takeEnter()).toBe('child-9')
   })
 
@@ -1278,14 +1371,15 @@ describe('grok background differentiation across functional blocks', () => {
 
     const callLines = coloredTranscript.render(callEvent('c1', 'bash', {}))
     expect(callLines[0]).toBe(colorTheme.bgTool('  '))
-    expect(callLines[1]).toContain(colorTheme.bgTool(`  ${colorTheme.pending('●')} ${colorTheme.tool('bash')}`))
+    expect(callLines[1]).toContain(colorTheme.bgTool(`  ${colorTheme.pending('●')} ${colorTheme.tool('echo hi')}`))
 
     const resultLines = coloredTranscript.render(resultEvent('c1', 'hi'))
     expect(resultLines[0]?.startsWith('\u001B[48;2;14;18;24m')).toBe(true)
     expect(resultLines[0]).toBe(colorTheme.bgTool('  '))
     expect(resultLines[1]).toContain('echo hi')
-    expect(resultLines[2]).toBe(colorTheme.bgTool(colorTheme.dim('  hi')))
-    expect(resultLines[3]).toBe(colorTheme.bgTool('  '))
+    expect(resultLines[1]).toContain('1 line')
+    expect(resultLines[2]).toBe(colorTheme.bgTool('  '))
+    expect(coloredTranscript.takeFold()).toContain(colorTheme.bgTool(colorTheme.dim('  hi')))
 
     const errResultLines = coloredTranscript.render(resultEvent('c2', 'failed', true))
     expect(errResultLines[0]?.startsWith('\u001B[48;2;45;15;25m')).toBe(true)
@@ -1557,7 +1651,7 @@ describe('grok background differentiation across functional blocks', () => {
     expect(second[0]).not.toBe(pad)
   })
 
-  it('keeps a divider row between cards that have bodies', () => {
+  it('keeps the pad a run opened with when a later card rebuilds its head', () => {
     const colorTheme = createTheme(true, { COLORTERM: 'truecolor' })
     const pad = colorTheme.bgTool('  ')
     const colored = new Transcript(
@@ -1566,15 +1660,22 @@ describe('grok background differentiation across functional blocks', () => {
     )
 
     colored.render(callEvent('c1', 'bash', {}))
-    colored.render(resultEvent('c1', 'M one.ts'))
-    colored.render(callEvent('c2', 'bash', {}))
+    const first = colored.render(resultEvent('c1', 'M one.ts'))
+    // A one-row card lets the next pending row take over the pad it closed
+    // with, so the screen holds: pad, first head, pending row, pad.
+    const pendingRow = colored.render(callEvent('c2', 'bash', {}))
+    expect(colored.takePendingCard()).toEqual([pad])
     const second = colored.render(resultEvent('c2', 'M two.ts'))
 
-    // Nothing is superseded but the card's own pending form: the pad the first
-    // card closed with stays, and is the divider between the two.
-    expect(second[0]).not.toBe(pad)
-    expect(second[0]).toContain('git status')
+    // Same command, same shape: the second joins the first as a run. What it
+    // replaces is exactly what is on screen, pad included, and the rebuilt
+    // head keeps that pad as the panel's inset.
+    expect(colored.takePendingCard()).toEqual([first[0], first[1], pendingRow[0], pendingRow[1]])
+    expect(second[0]).toBe(pad)
+    expect(second[1]).toContain('git status')
+    expect(second[1]).toContain('· 2 similar')
     expect(second[second.length - 1]).toBe(pad)
+    expect(second).toHaveLength(3)
   })
 })
 

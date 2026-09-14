@@ -117,7 +117,10 @@ describe('dsh code (real profile, keyless model)', () => {
     const run = await runCodeCli({ tool: 'bash', args: ['-p', 'run the command'], input: 'y\n' })
 
     expect(run.stdout).toContain('allow bash')
-    expect(run.stdout).toContain('CODE_CLI_ROUND_TRIP')
+    // The digest: one row per call, saying how much it printed; the output
+    // itself stays behind the row a pipe has no key to open.
+    expect(run.stdout).toMatch(/● printf CODE_CLI_ROUND_TRIP · 2 lines ✔/u)
+    expect(run.stdout).not.toContain('│   CODE_CLI_ROUND_TRIP')
     expect(run.stdout).toContain('CODE_CLI_CALL_OK')
     expect(run.exitCode).toBe(0)
   }, E2E_TEST_TIMEOUT_MS)
@@ -283,10 +286,14 @@ describe('dsh code (real profile, keyless model)', () => {
   it('streams the model thinking dim, then the answer, without double-printing either', async () => {
     const run = await runCodeCli({ tool: 'reasoning', input: 'think it over\n/exit\n' })
 
-    // Collapsed by default: the transcript keeps a one-line summary, never the
-    // pages of deliberation, and the summary lands before the answer.
+    // The digest, whatever a terminal would open with: the transcript keeps
+    // a one-line summary, never the pages of deliberation — neither streamed
+    // as it arrived nor printed under the clock — and the summary lands
+    // before the answer.
     expect(run.stdout).toMatch(/✻ thought for [\d.]+s/u)
     expect(run.stdout).not.toContain('weighing the options carefully')
+    expect(run.stdout).not.toContain('CODE_CLI_THINKING')
+    expect(run.stdout).not.toContain('thinking…')
     expect(run.stdout.indexOf('✻ thought for')).toBeLessThan(run.stdout.indexOf('CODE_CLI_ANSWER'))
     expect(countOf(run.stdout, 'CODE_CLI_ANSWER after thinking')).toBe(1)
     expect(run.stdout).toMatch(/[\d.]+s \(thought [\d.]+s\) · \d+ tokens/u)

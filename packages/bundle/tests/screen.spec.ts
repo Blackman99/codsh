@@ -25,6 +25,9 @@ function host(rows = 10, columns = 20): ScreenHost & { out: string[]; size: { ro
 }
 
 /** The rows a frame painted, as `row => text`, from the emitted sequences. */
+/** Alias for {@link painted}, for tests that shadow the name. */
+const paintedRows = (data: string): Map<number, string> => painted(data)
+
 function painted(data: string): Map<number, string> {
   const rows = new Map<number, string>()
   for (const match of data.matchAll(/\u001B\[(\d+);1H\u001B\[K((?:[^\u001B]|\u001B\[[0-9;]*m)*)/gu)) {
@@ -1617,6 +1620,177 @@ describe('conversation timeline', () => {
 })
 
 describe('folds', () => {
+  it('opens a block expanded when asked, and moving on folds it', () => {
+    // A thought is read while it happens: it lands open, and only the next
+    // prompt folds it to its clock row — an automatic state, not a choice.
+    const sink = host(10, 40)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['status'], { row: 0, column: 0 }, false)
+    screen.appendFold(['clock', ''], ['clock', 'body a', 'body b', ''], '', 'thinking', undefined, undefined, [], undefined, true)
+    const open = [...painted(flush(sink)).values()].join('\n')
+    expect(open).toContain('body b')
+    expect(screen.foldsExpanded).toBe(true)
+
+    screen.collapseFolds()
+    const folded = [...painted(flush(sink)).values()].join('\n')
+    expect(folded).toContain('clock')
+    expect(folded).not.toContain('body b')
+  })
+
+  it('keeps an open block open past moving on once the person chose that form', () => {
+    const sink = host(10, 40)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['status'], { row: 0, column: 0 }, false)
+    screen.appendFold(['clock', ''], ['clock', 'body a', 'body b', ''], '', 'thinking', undefined, undefined, [], undefined, true)
+    flush(sink)
+    // A click folds it, a click on the clock opens it again: that second
+    // form is the person's own, and the next prompt leaves it alone.
+    screen.mouseDown(1, 2)
+    screen.mouseUp()
+    expect([...painted(flush(sink)).values()].join('\n')).not.toContain('body b')
+    screen.mouseDown(1, 2)
+    screen.mouseUp()
+    expect([...painted(flush(sink)).values()].join('\n')).toContain('body b')
+
+    screen.collapseFolds()
+    expect(painted(flush(sink)).size).toBe(0)
+    expect(screen.foldsExpanded).toBe(true)
+  })
+
+  it('takes the place of the rows a block streamed as, once, in its open form', () => {
+    // The thought streamed line by line under a `thinking…` head; when it
+    // ends the finished block stands where those rows were, not under them.
+    const sink = host(10, 40)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['status'], { row: 0, column: 0 }, false)
+    screen.append(['before'])
+    screen.append(['thinking…', 'line 1', 'line 2'])
+    flush(sink)
+    screen.appendFold(['clock'], ['clock', 'line 1', 'line 2', 'pad'], '', 'thinking', undefined, undefined, ['thinking…', 'line 1', 'line 2'], undefined, true)
+    // Only the rows that changed repaint: the head became the clock and the
+    // pad landed under the lines, which kept their rows.
+    const rows = painted(flush(sink))
+    expect(rows.get(2)).toBe('clock')
+    expect(rows.get(5)).toBe('pad')
+    expect([...rows.values()].join('\n')).not.toContain('thinking…')
+
+    // The fold is the whole block: folding it leaves the clock, and nothing
+    // of the streamed run behind it; opening it again paints the block once.
+    screen.toggleFolds()
+    const folded = painted(flush(sink))
+    expect(folded.get(1)).toBe('before')
+    expect(folded.get(2)).toBe('clock')
+    expect([...folded.values()].join('\n')).not.toContain('line 1')
+    screen.toggleFolds()
+    const opened = painted(flush(sink))
+    expect([opened.get(2), opened.get(3), opened.get(4), opened.get(5), opened.get(6)]).toEqual(['clock', 'line 1', 'line 2', 'pad', ''])
+  })
+
+  it('gives an open block its new clock in place, as one block', () => {
+    // A thought's clock gains its step total after the step ends. The
+    // collapsed form is a prefix of the open one, so the block must be found
+    // by what it holds, never by searching the rows for its summary.
+    const sink = host(12, 40)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['status'], { row: 0, column: 0 }, false)
+    screen.append(['before'])
+    screen.appendFold(['pad', 'thought for 1s', 'pad'], ['pad', 'thought for 1s', 'pad', 'line 1', 'line 2', 'pad'], '', 'thinking', undefined, undefined, [], undefined, true)
+    screen.append(['after'])
+    flush(sink)
+
+    screen.updateFold(
+      ['pad', 'thought for 1s', 'pad'],
+      ['pad', 'thought for 1s', 'pad', 'line 1', 'line 2', 'pad'],
+      ['pad', 'thought for 1s · total 2s', 'pad'],
+      ['pad', 'thought for 1s · total 2s', 'pad', 'line 1', 'line 2', 'pad'],
+    )
+    const updated = painted(flush(sink))
+    expect(updated.get(3)).toBe('thought for 1s · total 2s')
+    // Still one block: folding it takes the whole deliberation with it, and
+    // the row after it moves up to meet the clock.
+    screen.collapseFolds()
+    const folded = painted(flush(sink))
+    const text = [...folded.values()].join('\n')
+    expect(text).not.toContain('line 1')
+    expect(folded.get(5)).toBe('after')
+    expect(screen.toggleFolds()).toBe(true)
+    const reopened = [...painted(flush(sink)).values()].join('\n')
+    expect(reopened.split('line 2')).toHaveLength(2)
+    expect(reopened).toContain('thought for 1s · total 2s')
+  })
+
+  it('keeps a scrolled reader in place when a streamed block lands as its fold', () => {
+    const sink = host(6, 40)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['status'], { row: 0, column: 0 }, false)
+    screen.append(Array.from({ length: 10 }, (_, index) => `old ${index}`))
+    screen.append(['thinking…', 'line 1', 'line 2'])
+    screen.scrollBy(-6)
+    const before = painted(flush(sink))
+    expect(before.get(1)).toBe('old 2')
+
+    // The landed block is one row taller than what streamed; the rows the
+    // reader is on do not move for it.
+    screen.appendFold(['clock'], ['clock', 'line 1', 'line 2', 'pad'], '', 'thinking', undefined, undefined, ['thinking…', 'line 1', 'line 2'], undefined, true)
+    expect(painted(flush(sink)).size).toBe(0)
+    expect(screen.scrolledBy).toBe(7)
+  })
+
+  it('lands a block whole when a row was written into its streamed run', () => {
+    // The update check can answer while the first thought streams, so a
+    // notice lands between two deliberation lines. The finished block takes
+    // its own rows off wherever they stand and lands under the notice, once.
+    const pad = '\u001B[48;5;236m  \u001B[0m'
+    const sink = host(14, 40)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['status'], { row: 0, column: 0 }, false)
+    screen.append(['before'])
+    screen.append([pad, 'thinking…', pad, 'line one', 'line two'])
+    screen.append(['notice'])
+    screen.append(['line three'])
+    flush(sink)
+    const painted = [pad, 'thinking…', pad, 'line one', 'line two', 'line three']
+    screen.appendFold([pad, 'clock', pad], [pad, 'clock', pad, 'line one', 'line two', 'line three', pad], '', 'thinking', undefined, undefined, painted, undefined, true)
+    screen.toggleFolds()
+    screen.toggleFolds()
+    const rows = [...paintedRows(flush(sink)).entries()].sort((a, b) => a[0] - b[0]).map(([, text]) => text)
+    expect(rows.slice(0, 9)).toEqual(['before', 'notice', '', 'clock', '', 'line one', 'line two', 'line three', ''])
+    expect(rows.join('\n')).not.toContain('thinking…')
+    expect(rows.join('\n').split('line two')).toHaveLength(2)
+    // One fold, whole: folding it leaves the clock under the notice.
+    expect(screen.foldsExpanded).toBe(true)
+    screen.toggleFolds()
+    const folded = [...paintedRows(flush(sink)).entries()].sort((a, b) => a[0] - b[0]).map(([, text]) => text)
+    expect(folded.slice(0, 5)).toEqual(['before', 'notice', '', 'clock', ''])
+    expect(folded.join('\n')).not.toContain('line one')
+  })
+
+  it('points Ctrl+O at expanding when an open thought stands beside a one-row card', () => {
+    const sink = host(12, 40)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['status'], { row: 0, column: 0 }, false)
+    screen.appendFold(['clock'], ['clock', 'thought body'], '', 'thinking', undefined, undefined, [], undefined, true)
+    screen.appendFold(['● bash · 3 lines ✔'], ['● bash · 3 lines ✔', 'out 1', 'out 2', 'out 3'], '', 'bash')
+    flush(sink)
+    // Mixed forms: the first press opens what is closed, the next folds all.
+    expect(screen.foldsExpanded).toBe(false)
+    expect(screen.toggleFolds()).toBe(true)
+    const opened = [...painted(flush(sink)).values()].join('\n')
+    expect(opened).toContain('out 3')
+    expect(screen.foldsExpanded).toBe(true)
+    screen.toggleFolds()
+    const folded = [...painted(flush(sink)).values()].join('\n')
+    expect(folded).not.toContain('out 3')
+    expect(folded).not.toContain('thought body')
+  })
+
   it('preserves explicit choices while moving on collapses only automatic folds', () => {
     const sink = host(14, 40)
     const screen = new Screen(sink)
@@ -1818,7 +1992,8 @@ describe('folds', () => {
     screen.appendFold(['started subagent child-9', '  click to enter', ''], ['started subagent child-9', '  click to enter', ''], '', 'subagent', 'child-9')
     flush(sink)
 
-    expect(screen.mouseMove(1, 3)).toEqual({ label: 'subagent', lines: 3, expanded: false, enter: true })
+    // A door withholds nothing: both forms are the same rows.
+    expect(screen.mouseMove(1, 3)).toEqual({ label: 'subagent', lines: 0, expanded: false, enter: true })
     flush(sink)
     screen.mouseDown(1, 3)
     expect(screen.mouseUp()).toBeUndefined()
@@ -1842,7 +2017,7 @@ describe('folds', () => {
     screen.appendFold(view, view, '', 'subagent', 'child-9', undefined, pending)
     flush(sink)
 
-    expect(screen.mouseMove(1, 3)).toEqual({ label: 'subagent', lines: 2, expanded: false, enter: true })
+    expect(screen.mouseMove(1, 3)).toEqual({ label: 'subagent', lines: 0, expanded: false, enter: true })
     flush(sink)
     screen.mouseDown(1, 3)
     expect(screen.mouseUp()).toBeUndefined()
@@ -2190,8 +2365,9 @@ describe('the block under the pointer', () => {
     screen.appendFold(['summary', ''], ['full one', 'full two', ''], '', 'thinking')
     flush(sink)
 
-    // Row 2 is the block's summary line.
-    expect(screen.mouseMove(2, 3)).toEqual({ label: 'thinking', lines: 3, expanded: false })
+    // Row 2 is the block's summary line. The count is what the full form
+    // adds to it: two rows of content over the one the summary shows.
+    expect(screen.mouseMove(2, 3)).toEqual({ label: 'thinking', lines: 1, expanded: false })
     expect(flush(sink)).toContain('\u001B[48;5;236msummary')
   })
 
@@ -2236,7 +2412,7 @@ describe('the block under the pointer', () => {
     expect(flush(sink)).not.toBe('')
     // Moving along the same block: nothing on screen has changed, and motion
     // arrives a report per cell crossed.
-    expect(screen.mouseMove(2, 4)).toEqual({ label: 'thinking', lines: 2, expanded: false })
+    expect(screen.mouseMove(2, 4)).toEqual({ label: 'thinking', lines: 0, expanded: false })
     expect(flush(sink)).toBe('')
 
     // Off the block, the mark goes with it.
@@ -2505,7 +2681,7 @@ describe('the block under the pointer', () => {
     screen.toggleFolds()
     flush(sink)
 
-    expect(screen.mouseMove(2, 3)).toEqual({ label: 'Bash(pnpm test)', lines: 12, expanded: true })
+    expect(screen.mouseMove(2, 3)).toEqual({ label: 'Bash(pnpm test)', lines: 11, expanded: true })
     // The head is off the top; the visible body of the same block is still marked.
     expect(flush(sink)).toContain('\u001B[48;5;')
   })

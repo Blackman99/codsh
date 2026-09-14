@@ -5,8 +5,10 @@
  *
  * Tool cards come from the registered presenters rather than from tool names:
  * a tool declares its own render intent, and this module switches on the
- * resulting `card` tag. Consecutive cards with the same command and output
- * shape collapse into one fold rather than stacking.
+ * resulting `card` tag. Every completed card is one row — what it did, how
+ * much it produced, whether it worked — with the body behind the fold, the
+ * way Grok Build keeps tool calls to a line each; consecutive cards with the
+ * same command and output shape collapse into one fold rather than stacking.
  * @module codsh-bundle/src/transcript
  */
 
@@ -34,24 +36,15 @@ export type { GutterRole } from './gutter.ts'
 const DIFF_CONTEXT = 3
 
 /**
- * Result body lines printed for one completed call before the card collapses.
+ * Rows' worth of columns one diff line may take before the expanded card is
+ * too wide to read in place.
  *
- * Small on purpose: a long output in the transcript is skimmed, not read, and
- * the collapsed remainder is one click — or one Ctrl+O — away in full.
+ * A hunk line can be a whole page — a minified bundle, a JSON blob — and
+ * expanded in the transcript it wraps to hundreds of rows; the reader is
+ * where such a diff opens on click, the way one that outgrew the soft cap
+ * in length does.
  */
-const MAX_RESULT_LINES = 5
-
-/**
- * Rows' worth of columns one shown result line may take before it is cut.
- *
- * The body is capped at {@link MAX_RESULT_LINES} lines, but one line can be
- * a whole page — an HTML document a command printed, a minified bundle, a
- * JSON blob. Left whole it wraps to hundreds of rows, and the card that
- * promised five lines fills the screen many times over; one such line, 49,616
- * characters long, is what a resumed session spent its seconds on. The shown
- * form keeps this much of it, marked; the fold keeps the whole line.
- */
-const MAX_RESULT_LINE_ROWS = 3
+const DIFF_LINE_ROWS = 3
 
 /** The registered presenters, resolved against the agent's scope by the caller. */
 export interface ToolPresenters {
@@ -244,6 +237,40 @@ export function thinkingFold(
 }
 
 /**
+ * The rows a thought opens with while it streams: the panel's top pad, a
+ * `thinking…` head where the clock will stand, and the pad under it.
+ *
+ * Painted the moment the first reasoning delta lands, so the deliberation
+ * has a place to stream into line by line — a person follows a thought as
+ * it happens, not after. {@link thinkingFold} takes the run over when the
+ * thought ends, putting the clock where the head was.
+ * @param theme - styling for the head and the panel fill.
+ * @returns the rows and the rules they are drawn with.
+ */
+export function thinkingOpenRows(theme: Theme): { rows: string[]; rules: string | string[] } {
+  const text = theme.dim(`${cardIndent(theme)}thinking…`)
+  const head = theme.bgThinking(text)
+  const pad = blockPad(theme, text => theme.bgThinking(text))
+  const agentRule = blockRules(theme).agent
+  return {
+    rows: [...pad, head, ...pad],
+    rules: theme.colored ? ['  ', agentRule, '  '] : agentRule,
+  }
+}
+
+/**
+ * The rule one streamed deliberation row carries: the panel's inset inside a
+ * coloured theme, where the fill says which block the row belongs to, and
+ * nothing at all without one — the clock alone carries the glyph, and the
+ * body's own indent lines up under it either way.
+ * @param theme - the active theme.
+ * @returns the rule, `''` for none.
+ */
+export function thinkingLineRule(theme: Theme): string {
+  return theme.colored ? '  ' : ''
+}
+
+/**
  * Left rules for a thinking fold: the clock carries the agent gutter; pads
  * and body rows stay blank so the glyph sits on the clock only.
  * @param theme - styling for the agent glyph.
@@ -255,7 +282,12 @@ export function thinkingFoldRules(theme: Theme, bodyLines: number): {
   full?: string[]
 } {
   const agentRule = blockRules(theme).agent
-  if (!theme.colored) return { summary: agentRule }
+  if (!theme.colored) {
+    // No fill says which block a row belongs to, so the glyph sits on the
+    // clock alone and the body's own indent does the rest: a rule row by row
+    // would put ✻ down every line of the deliberation.
+    return { summary: agentRule, full: [agentRule, ...Array.from({ length: bodyLines }, () => '')] }
+  }
   const blank = '  '
   return {
     summary: [blank, agentRule, blank],
@@ -318,6 +350,60 @@ export function formatToolCardLine(
 /** Left inset that keeps a card's glyph clear of the block rule beside it. */
 function cardIndent(theme: Theme): string {
   return theme.colored ? '  ' : ''
+}
+
+/**
+ * The stats segment of a card row: its parts, joined, blanks dropped.
+ * @param parts - already-styled fragments, `''` for one that does not apply.
+ * @returns the segment, `''` when nothing applies.
+ */
+function withStats(...parts: readonly string[]): string {
+  return parts.filter(part => part !== '').join(' ')
+}
+
+/**
+ * What a one-row card says about the body it withholds.
+ *
+ * The row is the whole card until a click or Ctrl+O opens it, so it has to
+ * say there is something to open and how much: a count is that affordance.
+ * @param theme - styling for the muted count.
+ * @param lines - body lines behind the fold.
+ * @returns the styled `· N lines`, or `''` for nothing withheld.
+ */
+function withheldCount(theme: Theme, lines: number): string {
+  if (lines <= 0) return ''
+  return theme.dim(`· ${String(lines)} line${lines === 1 ? '' : 's'}`)
+}
+
+/**
+ * Lines that carry text, the way the hover readout counts them.
+ *
+ * A blank row in a command's output is not a line a person opens the card
+ * for, and the readout leaves it out, so the row's own count must too or
+ * the two figures disagree.
+ * @param lines - the styled body lines.
+ * @returns how many hold text.
+ */
+function contentCount(lines: readonly string[]): number {
+  return lines.filter(line => line.replaceAll(/\u001B\[[0-9;]*m/gu, '').trim() !== '').length
+}
+
+/**
+ * Whether an expanded diff is too big to read in place.
+ *
+ * Over the soft cap in lines, or carrying a line wider than a few rows, the
+ * expanded form only moves the scrolling problem into the transcript; a click
+ * opens the reader instead. Two lines of slack: a cap that hands a 25-line
+ * diff to the reader over a 24-line one saves nobody anything.
+ * @param lines - the styled hunk lines.
+ * @param limit - the density's soft cap.
+ * @param columns - display columns available to the card.
+ * @returns true when the reader should take it.
+ */
+function outgrows(lines: readonly string[], limit: number, columns: number): boolean {
+  if (lines.length > limit + 2) return true
+  const budget = Math.max(20, (columns - 4) * DIFF_LINE_ROWS)
+  return lines.some(line => displayWidth(oneRow(line)) > budget)
 }
 
 /**
@@ -441,7 +527,7 @@ export class Transcript {
    * call to pair with. Stacking each as its own preview fills the viewport
    * with the same `(result)` head; this run absorbs them into one fold.
    */
-  private orphanRun: { shown: string[]; full: string[]; count: number; failed: boolean } | undefined
+  private orphanRun: { shown: string[]; lead: string[]; full: string[]; count: number; failed: boolean } | undefined
   /**
    * Consecutive similar tool cards currently sharing one fold at the tail.
    *
@@ -454,6 +540,8 @@ export class Transcript {
   private similarRun: {
     key: string
     shown: string[]
+    /** The pad the run opened with, kept so a rebuilt head keeps its inset. */
+    lead: string[]
     members: string[][]
     count: number
     failed: boolean
@@ -805,6 +893,11 @@ export class Transcript {
         previous.lines = previous.lines.slice(0, -1)
         previous.closes = false
       }
+      // A similar run standing at the tail loses the same row: what a later
+      // member replaces has to be exactly what is on screen. Trimmed on the
+      // object itself, which {@link renderCall} restores by reference.
+      const similar = this.similarRun
+      if (similar !== undefined && similar.shown.at(-1) === open.close) similar.shown = similar.shown.slice(0, -1)
     }
     this.run = { rule: this.rule, owner: callId, bodied, close: close[0] ?? '' }
     return { lead: joined ? [] : blockPad(theme, bg), close, joined, supersedes }
@@ -851,16 +944,20 @@ export class Transcript {
     }
     if (view.card === 'terminal') {
       const header = view.cwd === undefined ? '' : theme.dim(` (${this.relative(view.cwd)})`)
-      const description = view.description === undefined ? [] : [theme.dim(`  ${view.description}`)]
       const command = this.relativizeIn(view.title)
       const lines = command.split('\n')
       const summary = lines.length > 1 ? `${lines[0] ?? ''} …` : command
-      const { lead, close } = card(true)
+      // One row while it runs, naming the command the finished row will name,
+      // so the result takes its place without the card growing and shrinking.
+      // The description rides into the finished card's fold.
+      const { lead, close } = card(false)
+      // The screen paints the tool rule beside this row; budget for what is
+      // left, or a long command wraps while it runs and snaps back when done.
+      const ruleWidth = displayWidth(oneRow(this.rule || blockRules(theme).tool))
+      const titleBudget = Math.max(8, columns - ruleWidth - 4 - displayWidth(oneRow(header)))
       return record(command, summary, [
         ...lead,
-        theme.bgTool(`${indent}${theme.pending('●')} ${theme.tool(name)}${header}`),
-        theme.bgTool(`  $ ${truncate(summary, columns - 4)}`),
-        ...description.map(d => theme.bgTool(d)),
+        theme.bgTool(`${indent}${theme.pending('●')} ${theme.tool(truncate(summary, titleBudget))}${header}`),
         ...close,
       ], view.description)
     }
@@ -876,7 +973,8 @@ export class Transcript {
     const locations = (view.locations ?? []).map(location => this.relative(location.path))
     const extra = this.extraPaths(title, locations)
     const { lead, close } = card(false)
-    const titleBudget = Math.max(8, columns - 4 - displayWidth(extra))
+    const ruleWidth = displayWidth(oneRow(this.rule || blockRules(theme).tool))
+    const titleBudget = Math.max(8, columns - ruleWidth - 4 - displayWidth(extra))
     return record(`${title}${extra}`, locations.length === 0 ? title : locations.join(', '), [
       ...lead,
       theme.bgTool(`${indent}${theme.pending('●')} ${truncate(title, titleBudget)}${theme.path(extra)}`),
@@ -907,22 +1005,23 @@ export class Transcript {
     const similar = this.absorbSimilar(pending, view, failed, block, bg)
     if (similar !== undefined) return similar
     const title = view?.title === undefined ? pending.title : this.relativizeIn(view.title)
-    const { suffix, body, full } = this.outcome(view, block, pending, failed)
+    const { suffix, full, withheld } = this.outcome(view, block, pending, failed)
     const enter = failed ? undefined : childSessionId(this.resultText(block.content))
     const hint = enter === undefined ? [] : [bg(theme.dim('  click to enter'))]
-    // One stable ToolCard line: ● · title · +n -m · ✔/✗. Truncate the title
-    // first so the stats and status survive a narrow terminal.
+    // One stable ToolCard line: ● · title · +n -m · N lines · ✔/✗. Truncate
+    // the title first so the stats and status survive a narrow terminal.
     const bullet = theme.ok('●')
     const done = failed ? theme.err('✗') : theme.ok('✔')
     // The screen paints the tool rule (`│ `) beside this line; budget the
     // headline for what's left so `+n -m` cannot wrap onto the next row.
     const ruleWidth = displayWidth(oneRow(this.rule || blockRules(theme).tool))
-    const head = [bg(formatToolCardLine(theme, this.columns - ruleWidth, bullet, title, suffix, done))]
-    const bodyLines = view?.card === 'diff' ? body : body.map(line => bg(line))
+    const stats = withStats(suffix, withheldCount(theme, withheld ?? 0))
+    const head = [bg(formatToolCardLine(theme, this.columns - ruleWidth, bullet, title, stats, done))]
     const fullLines = view?.card === 'diff' ? full : full?.map(line => bg(line))
-    // Diff cards stay collapsed on screen (hunks only in the fold).
-    const shown = view?.card === 'diff' ? [] : bodyLines
-    const bodied = shown.length > 0 || hint.length > 0
+    // The row is the card: whatever the call produced lives in the fold, and
+    // only a door to a child session adds a row under it.
+    const shown: string[] = []
+    const bodied = hint.length > 0
     // The card takes the place its pending form held, and keeps that form's
     // standing in the run: a result cannot re-open a panel its pending card
     // already joined, nor re-print a closing pad a later card took over.
@@ -947,6 +1046,7 @@ export class Transcript {
       this.similarRun = {
         key,
         shown: card,
+        lead: open,
         members: [[...head, ...fullLines ?? shown]],
         count: 1,
         failed,
@@ -979,23 +1079,23 @@ export class Transcript {
       return undefined
     }
     const { theme } = this.options
-    const { suffix, body, full } = this.outcome(view, block, pending, failed)
+    const { suffix, full, withheld } = this.outcome(view, block, pending, failed)
+    const memberStats = withStats(suffix, withheldCount(theme, withheld ?? 0))
     const member = [
-      bg(formatToolCardLine(theme, this.columns, theme.ok('●'), view?.title === undefined ? pending.title : this.relativizeIn(view.title), suffix, failed ? theme.err('✗') : theme.ok('✔'))),
-      ...(full ?? body).map(line => view?.card === 'diff' ? line : bg(line)),
+      bg(formatToolCardLine(theme, this.columns, theme.ok('●'), view?.title === undefined ? pending.title : this.relativizeIn(view.title), memberStats, failed ? theme.err('✗') : theme.ok('✔'))),
+      ...(full ?? []).map(line => view?.card === 'diff' ? line : bg(line)),
     ]
     const count = previous.count + 1
     const members = [...previous.members, member]
     const bullet = theme.ok('●')
     const done = failed ? theme.err('✗') : theme.ok('✔')
-    const countMark = theme.dim(`· ${String(count)}`)
     const ruleWidth = displayWidth(oneRow(this.rule || blockRules(theme).tool))
-    const stats = [countMark, previous.suffix].filter(part => part !== '').join(' ')
+    // One row for the run: the count is what says it holds more than one.
+    const stats = withStats(previous.suffix, theme.dim(`· ${String(count)} similar`))
     const head = bg(formatToolCardLine(theme, this.columns - ruleWidth, bullet, previous.title, stats, done))
-    const hint = theme.dim(`  … +${String(count)} similar (click or Ctrl+O expands)`)
     const close = blockClose(theme, bg)
-    const open = pending.joined ? [] : blockPad(theme, bg)
-    const card = [...open, head, bg(hint), ...close]
+    const open = previous.lead
+    const card = [...open, head, ...close]
     const fullCard = [...open, head, ...members.flatMap((entry, index) => index === 0 ? entry : ['', ...entry]), ...close]
     this.pendingCard = pending.lines.length > 0 ? [...previous.shown, ...pending.lines] : previous.shown
     this.fold = fullCard
@@ -1040,7 +1140,7 @@ export class Transcript {
     const { theme } = this.options
     const rawText = this.resultText(content)
     const text = failed ? rawText : formatAskUserQuestionResult(rawText)
-    const body = text.split('\n').map(line => theme.dim(`  ${line}`))
+    const body = text === '' ? [] : text.split('\n').map(line => theme.dim(`  ${line}`))
     const marker = failed ? theme.err('✗') : theme.ok('●')
     const enter = failed ? undefined : childSessionId(text)
     const hint = enter === undefined ? [] : [bg(theme.dim('  click to enter'))]
@@ -1049,29 +1149,26 @@ export class Transcript {
     if (joining && previous !== undefined) {
       const count = previous.count + 1
       const members = [...previous.full, '', ...body]
-      const title = theme.dim(`(result) · ${String(count)}`)
+      const title = withStats(theme.dim('(result)'), theme.dim(`· ${String(count)} results`))
       const head = bg(`${cardIndent(theme)}${marker} ${title}`)
       const close = blockClose(theme, bg)
-      const hintLine = theme.dim(`  … +${String(count)} results (click or Ctrl+O expands)`)
-      const card = [head, bg(hintLine), ...close]
-      const full = [head, ...members.map(line => bg(line)), ...close]
+      const card = [...previous.lead, head, ...close]
+      const full = [...previous.lead, head, ...members.map(line => bg(line)), ...close]
       this.pendingCard = previous.shown
       this.fold = full
       this.label = 'tool result'
-      this.orphanRun = { shown: card, full: members, count, failed }
+      this.orphanRun = { shown: card, lead: previous.lead, full: members, count, failed }
       this.run = { rule: this.rule, owner: undefined, bodied: true, close: close[0] ?? '' }
       return card
     }
 
-    const { body: capped, full } = this.capBody(body, MAX_RESULT_LINES)
-    const head = bg(`${cardIndent(theme)}${marker} ${theme.dim('(result)')}`)
+    const head = bg(`${cardIndent(theme)}${marker} ${withStats(theme.dim('(result)'), withheldCount(theme, contentCount(body)))}`)
     const { lead, close, supersedes } = this.joinRun(true, bg, blockClose(theme, bg))
     this.pendingCard = supersedes
-    const bodyLines = capped.map(line => bg(line))
-    const fullBody = (full ?? body).map(line => bg(line))
-    const shown = [...lead, head, ...bodyLines, ...hint, ...close]
+    const fullBody = body.map(line => bg(line))
+    const shown = [...lead, head, ...hint, ...close]
     const expanded = [...lead, head, ...fullBody, ...hint, ...close]
-    if (full !== undefined) {
+    if (body.length > 0) {
       this.fold = expanded
       this.label = 'tool result'
     }
@@ -1081,7 +1178,7 @@ export class Transcript {
       this.orphanRun = undefined
       return shown
     }
-    this.orphanRun = { shown, full: body, count: 1, failed }
+    this.orphanRun = { shown, lead, full: body, count: 1, failed }
     return shown
   }
 
@@ -1198,71 +1295,25 @@ export class Transcript {
   }
 
   /**
-   * Cut each shown result line to a few rows' worth of columns.
-   * @param lines - the styled body lines to show.
-   * @returns the lines as shown, and how many were cut.
-   */
-  private fit(lines: readonly string[]): { shown: string[]; cut: number } {
-    const budget = Math.max(20, (this.columns - 4) * MAX_RESULT_LINE_ROWS)
-    let cut = 0
-    const shown = lines.map((line) => {
-      // Measured flat, the way a row is painted; a line that fits is kept
-      // exactly as it came.
-      if (displayWidth(oneRow(line)) <= budget) return line
-      cut += 1
-      return truncate(line, budget)
-    })
-    return { shown, cut }
-  }
-
-  /**
-   * Cap a result body by line count and by line width.
+   * Render one completed call's status suffix and the body its fold keeps.
    *
-   * Either cut withholds part of the result, so either earns the fold that
-   * keeps the whole. The collapsed remainder names its key — an affordance,
-   * not just a count — and a body cut only for width says so the same way.
-   * @param lines - the rendered body, styled.
-   * @param limit - how many lines to show.
-   * @param hint - what the summary line promises, when not the default.
-   * @returns the body to show, and the full body when anything was withheld.
-   */
-  private capBody(lines: string[], limit: number, hint = 'click or Ctrl+O expands'): { body: string[]; full?: string[] } {
-    const { theme } = this.options
-    // If the excess over limit is only 1-2 lines, collapsing them saves nothing
-    // because the fold hint itself takes 1 line. Show them in full.
-    const slack = 2
-    if (lines.length <= limit + slack) {
-      const { shown, cut } = this.fit(lines)
-      if (cut === 0) return { body: shown }
-      const what = cut === 1 ? 'a long line' : `${String(cut)} long lines`
-      return { body: [...shown, theme.dim(`  … ${what} cut (${hint})`)], full: lines }
-    }
-    const { shown, cut } = this.fit(lines.slice(0, limit))
-    if (lines.length > limit) {
-      return { body: [...shown, theme.dim(`  … +${lines.length - limit} lines (${hint})`)], full: lines }
-    }
-    if (cut === 0) return { body: shown }
-    const what = cut === 1 ? 'a long line' : `${String(cut)} long lines`
-    return { body: [...shown, theme.dim(`  … ${what} cut (${hint})`)], full: lines }
-  }
-
-  /**
-   * Render one completed call's status suffix and body from its declared view.
+   * The row is the card, so nothing is shown under it: whatever the call
+   * produced — output, hits, hunks, read content, a generic result's text —
+   * is the full form a click or Ctrl+O swaps in. What a tool truncated before
+   * returning is upstream of the log and unrecoverable everywhere.
    * @param view - the result view, absent when no presenter answered.
    * @param block - the model-facing result block, used by the generic fallback.
    * @param pending - the recorded pending call, carrying command or description.
-   * @returns the suffix, the (possibly capped) body, and — when the cap dropped
-   *   lines, or a bodiless card withheld content — the full body for Ctrl-O.
+   * @returns the suffix; the full body when there is one; and, for a card
+   *   whose suffix does not already say how much it withholds, that count.
    */
   private outcome(
     view: ToolResultView | undefined,
     block: { content: ContentBlock[] },
     pending?: PendingCall,
     failed = false,
-  ): { suffix: string; body: string[]; full?: string[] } {
+  ): { suffix: string; full?: string[]; withheld?: number } {
     const { theme } = this.options
-    const capped = (lines: string[], limit: number, hint?: string): { body: string[]; full?: string[] } =>
-      this.capBody(lines, limit, hint)
     if (view?.card === 'diff') {
       // What the turn changed on disk. A `/ship` run keeps its plan in a spec
       // file, so the surface learns where that file is by watching it written.
@@ -1272,26 +1323,33 @@ export class Transcript {
       const stats = added === 0 && removed === 0
         ? ''
         : theme.muted(`+${added} -${removed}`)
-      // Default collapsed: one-line ToolCard; body lives in the fold until expand.
-      // Soft-cap still applies inside the expanded form; only then does a click
-      // open the reader (Ctrl+O still expands inline).
-      // Always fold the full hunks; optional reader when the expanded form is large.
-      const soft = capped(hunks, DIFF_SOFT_CAP[this.options.density ?? DEFAULT_DENSITY], 'click reads it · Ctrl+O expands')
-      if (soft.full !== undefined) this.page = unifiedDiffText(view.diffs, path => this.relative(path))
+      // The soft cap decides only where the hunks open: in place for a diff
+      // that fits, in the reader for one that would only move the scrolling
+      // problem into the transcript. Ctrl+O still expands either inline.
+      if (outgrows(hunks, DIFF_SOFT_CAP[this.options.density ?? DEFAULT_DENSITY], this.columns)) {
+        this.page = unifiedDiffText(view.diffs, path => this.relative(path))
+      }
       return hunks.length === 0
-        ? { suffix: stats, body: [] }
-        : { suffix: stats, body: [], full: hunks }
+        ? { suffix: stats }
+        : { suffix: stats, full: hunks }
     }
     if (view?.card === 'terminal') {
       const suffix = view.signal !== undefined
         ? theme.error(`(killed by ${view.signal})`)
         : view.exitCode !== undefined && view.exitCode !== 0 ? theme.error(`(exit ${view.exitCode})`) : ''
       const output = (view.output ?? '').trimEnd()
-      const desc = pending?.description
-      const descLines = desc !== undefined && desc !== '' ? [theme.dim(`  ${desc}`)] : []
-      const outputLines = output === '' ? [] : output.split('\n').map(line => theme.dim(`  ${line}`))
-      const body = [...descLines, ...outputLines]
-      return { suffix, ...capped(body, MAX_RESULT_LINES) }
+      // A failure with nothing printed and no exit to name is the executor's
+      // own: what the result block says is the reason, so the generic row
+      // below names it.
+      if (!failed || suffix !== '' || output !== '') {
+        const desc = pending?.description
+        const descLines = desc !== undefined && desc !== '' ? [theme.dim(`  ${desc}`)] : []
+        const outputLines = output === '' ? [] : output.split('\n').map(line => theme.dim(`  ${line}`))
+        const body = [...descLines, ...outputLines]
+        // The count is what the row withholds, the description the call came
+        // with included: it is the same figure the hover readout names.
+        return body.length === 0 ? { suffix } : { suffix, full: body, withheld: contentCount(body) }
+      }
     }
     if (view?.card === 'search') {
       const total = view.truncated ? `${view.total}+ (capped)` : String(view.total)
@@ -1301,7 +1359,8 @@ export class Transcript {
           theme.path(`  ${this.relative(file.path)}`),
           ...file.matches.map(match => theme.dim(`    ${match.lineNumber}: ${match.line}`)),
         ])
-      return { suffix: theme.dim(`${total} results`), ...capped(body, MAX_RESULT_LINES) }
+      const suffix = theme.dim(`${total} results`)
+      return body.length === 0 ? { suffix } : { suffix, full: body }
     }
     if (view?.card === 'read') {
       // The card shows no body, so the read content itself is the withheld
@@ -1309,7 +1368,6 @@ export class Transcript {
       const body = view.lines.map(line => theme.dim(`  ${line.number}: ${line.text}`))
       return {
         suffix: theme.dim(`${view.lines.length} of ${view.totalLines} lines`),
-        body: [],
         ...body.length === 0 ? {} : { full: body },
       }
     }
@@ -1319,9 +1377,19 @@ export class Transcript {
     }
     // A successful call whose result the model reads but a reader does not need
     // (an editor's confirmation line) stays out of the transcript body.
-    if (text === '') return { suffix: '', body: [] }
+    if (text === '') return { suffix: '' }
     const lines = text.split('\n').map(line => theme.dim(`  ${line}`))
-    return { suffix: '', ...capped(lines, MAX_RESULT_LINES) }
+    if (failed) {
+      // A failed row names its reason: the first line with text, cut to
+      // leave the title its room, with the whole of it behind the row. A
+      // column of ✗ rows that all look alike would say nothing about which
+      // file was missing or which call was refused.
+      const first = text.split('\n').find(line => line.trim() !== '') ?? ''
+      const reason = first === '' ? '' : theme.dim(truncate(first.trim(), Math.max(16, Math.floor(this.columns / 2))))
+      const count = contentCount(lines)
+      return { suffix: reason, full: lines, withheld: count > 1 ? count : 0 }
+    }
+    return { suffix: '', full: lines, withheld: contentCount(lines) }
   }
 
   /**

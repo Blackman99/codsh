@@ -101,7 +101,7 @@ it('paints a command that is a script as rows, never outside one', async () => {
 
     // The one-row summary names the command's first line...
     const asking = screenAt(output, 'Allow bash', 'last').alternate
-    expect(asking.some(row => row.includes("$ python3 - <<'EOF' …"))).toBe(true)
+    expect(asking.some(row => row.includes("● python3 - <<'EOF' …"))).toBe(true)
     // Default card is one line; the script body is not painted as its own rows.
     const done = screenAt(output, 'CODE_CLI_CALL_DENIED', 'last').alternate
     // The settled card took the place of the pending one rather than piling up

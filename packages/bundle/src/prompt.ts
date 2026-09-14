@@ -869,9 +869,13 @@ export class Prompt {
     // only when the block under the pointer changed — so this repaints then.
     if (key.kind === 'mouse-move') {
       const block = this.console.mouseMove(key.row, key.column)
+      // The count is what the block withholds, the same figure its own row
+      // names; a block that withholds nothing — a door to a child session —
+      // has no count to give.
+      const count = block === undefined || block.lines === 0 ? '' : ` · ${block.lines} line${block.lines === 1 ? '' : 's'}`
       const readout = block === undefined
         ? undefined
-        : this.theme.dim(`  ${block.label} · ${block.lines} lines · click to ${block.enter === true ? 'enter' : block.expanded ? 'fold' : 'expand'}`)
+        : this.theme.dim(`  ${block.label}${count} · click to ${block.enter === true ? 'enter' : block.expanded ? 'fold' : 'expand'}`)
       if (readout === this.hover) return
       this.hover = readout
       this.render()

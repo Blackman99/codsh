@@ -109,6 +109,33 @@ const THINKING = 'CODE_CLI_THINKING about the request\nweighing the options care
 /** The `reasoning` mode's visible answer, after the thinking ends. */
 const AFTERTHOUGHT = 'CODE_CLI_ANSWER after thinking'
 
+/** The `reason-write` mode's thought before its write call. */
+const FIRST_THOUGHT = 'CODE_CLI_FIRST_THOUGHT about the note\nplanning the write step'
+
+/** The `reason-write` mode's thought after the write landed. */
+const SECOND_THOUGHT = 'CODE_CLI_SECOND_THOUGHT after the write\nchecking what the write did'
+
+/** The `reason-write` mode's answer, closing the turn. */
+const REASONED_ANSWER = 'CODE_CLI_REASONED_ANSWER after the write'
+
+/** The `reasoning-slow` mode's thought: one line a beat, long enough to interrupt. */
+const SLOW_THOUGHT = Array.from({ length: 12 }, (_, index) => `CODE_CLI_SLOW_THINK_${index}`)
+
+/** The `reasoning-slow` mode's answer, if the thought is allowed to finish. */
+const SLOW_ANSWER = 'CODE_CLI_SLOW_ANSWER after thinking'
+
+/**
+ * How many prompts the person has sent, so a reply can say which turn it
+ * answers: a test that waits for the same words twice would otherwise match
+ * a repaint of the first answer.
+ * @param options - the request.
+ * @returns the count of real user messages, plugin context excluded.
+ */
+function userTurns(options: GenerateOptions): number {
+  return options.messages.filter(message =>
+    message.role === 'user' && message.content.some(block => block.type === 'text' && !block.text.startsWith('<'))).length
+}
+
 /** A tall write: enough diff lines that the terminal clips the card body. */
 const TALL_CONTENT = `${Array.from({ length: 45 }, (_, index) => `CODE_CLI_TALL_${index}`).join('\n')}\n`
 
@@ -162,6 +189,15 @@ const ARGUMENTS: Readonly<Record<string, Readonly<Record<string, unknown>>>> = {
     description: 'Carry newlines into a one-row region.',
     sandbox_permissions: 'danger-full-access',
     justification: 'The end-to-end test drives the approval prompt.',
+  },
+  // A command that prints and then fails: the card has a body to withhold
+  // and a non-zero exit to name on its one row. What it prints is spelled so
+  // it appears nowhere in the command itself, which the row shows.
+  fail: {
+    command: "sh -c 'printf CODE_CLI_%s_PRINTED FAIL; exit 3'",
+    description: 'Fail on purpose.',
+    sandbox_permissions: 'danger-full-access',
+    justification: 'The end-to-end test drives a failed call.',
   },
   slow: {
     command: `sleep ${SLOW_SECONDS}`,
@@ -660,6 +696,60 @@ class CodeCliMockAdapter extends LlmAdapter {
       yield { type: 'finish', reason: { kind: 'stop' } }
       return
     }
+    if (MOCK_MODE === 'reason-write') {
+      // A thought, a write, a second thought, an answer — one turn, the way
+      // a reasoning model works a tool: what the surface shows while a
+      // thought stays open and the card between two thoughts stays a row.
+      const worked = options.messages.at(-1)?.content.find(block => block.type === 'tool-result')
+      const thought = worked === undefined ? FIRST_THOUGHT : SECOND_THOUGHT
+      yield { type: 'block-start', index: 0, blockType: 'reasoning' }
+      for (const delta of splitDeltas(thought)) {
+        yield { type: 'reasoning-delta', index: 0, text: delta }
+      }
+      yield { type: 'block-end', index: 0, block: { type: 'reasoning', text: thought } }
+      if (worked === undefined) {
+        const args = JSON.stringify(ARGUMENTS.write)
+        const id = ToolCallId('code-cli-reason-write')
+        yield { type: 'block-start', index: 1, blockType: 'tool-call' }
+        yield { type: 'tool-call-delta', index: 1, id, name: 'write', argumentsDelta: args }
+        yield { type: 'block-end', index: 1, block: { type: 'tool-call', id, name: 'write', arguments: args } }
+        yield { type: 'usage', usage: { inputTokens: 6, outputTokens: 4 } }
+        yield { type: 'finish', reason: { kind: 'tool-calls' } }
+        return
+      }
+      const reply = `${REASONED_ANSWER} (turn ${String(userTurns(options))})`
+      yield { type: 'block-start', index: 1, blockType: 'text' }
+      for (const delta of splitDeltas(reply)) {
+        yield { type: 'text-delta', index: 1, text: delta }
+      }
+      yield { type: 'block-end', index: 1, block: { type: 'text', text: reply } }
+      yield { type: 'usage', usage: { inputTokens: 6, outputTokens: 8 } }
+      yield { type: 'finish', reason: { kind: 'stop' } }
+      return
+    }
+    if (MOCK_MODE === 'reasoning-slow') {
+      // A thought long enough to press Escape into: one finished line a beat,
+      // so what streamed so far is on screen when the interrupt lands.
+      yield { type: 'block-start', index: 0, blockType: 'reasoning' }
+      for (const line of SLOW_THOUGHT) {
+        await Promise.race([
+          new Promise(resolve => setTimeout(resolve, 250)),
+          new Promise(resolve => options.signal?.addEventListener('abort', resolve, { once: true })),
+        ])
+        if (options.signal?.aborted === true) {
+          yield { type: 'finish', reason: { kind: 'aborted', failure: { code: 'ABORTED', message: 'caller stopped' } } }
+          return
+        }
+        yield { type: 'reasoning-delta', index: 0, text: `${line}\n` }
+      }
+      yield { type: 'block-end', index: 0, block: { type: 'reasoning', text: SLOW_THOUGHT.join('\n') } }
+      yield { type: 'block-start', index: 1, blockType: 'text' }
+      yield { type: 'text-delta', index: 1, text: SLOW_ANSWER }
+      yield { type: 'block-end', index: 1, block: { type: 'text', text: SLOW_ANSWER } }
+      yield { type: 'usage', usage: { inputTokens: 6, outputTokens: 12 } }
+      yield { type: 'finish', reason: { kind: 'stop' } }
+      return
+    }
     if (process.env.DSH_CODE_CLI_MOCK_TOOL === 'reasoning') {
       // Reasoning first, text second — the order the real provider emits.
       yield { type: 'block-start', index: 0, blockType: 'reasoning' }
@@ -667,11 +757,14 @@ class CodeCliMockAdapter extends LlmAdapter {
         yield { type: 'reasoning-delta', index: 0, text: delta }
       }
       yield { type: 'block-end', index: 0, block: { type: 'reasoning', text: THINKING } }
+      // The turn is named so a second turn's answer is told apart from a
+      // repaint of the first.
+      const reply = `${AFTERTHOUGHT} (turn ${String(userTurns(options))})`
       yield { type: 'block-start', index: 1, blockType: 'text' }
-      for (const delta of splitDeltas(AFTERTHOUGHT)) {
+      for (const delta of splitDeltas(reply)) {
         yield { type: 'text-delta', index: 1, text: delta }
       }
-      yield { type: 'block-end', index: 1, block: { type: 'text', text: AFTERTHOUGHT } }
+      yield { type: 'block-end', index: 1, block: { type: 'text', text: reply } }
       yield { type: 'usage', usage: { inputTokens: 6, outputTokens: 8 } }
       yield { type: 'finish', reason: { kind: 'stop' } }
       return

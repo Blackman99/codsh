@@ -311,7 +311,7 @@ interface FindHit {
 export interface HoverBlock {
   /** What the block is, e.g. `thinking`. */
   label: string
-  /** Lines its full form holds. */
+  /** Lines its full form holds beyond the collapsed one, blanks excluded. */
   lines: number
   /** Whether it is showing that full form now. */
   expanded: boolean
@@ -684,7 +684,10 @@ export class Screen {
    */
   append(lines: readonly string[], rule: string | readonly string[] = '', replaces: readonly string[] = []): void {
     if (lines.length === 0) return
+    const before = this.physical.length
+    const offset = this.offset
     if (this.takePlaceOf(replaces, lines, rule) !== undefined) {
+      this.holdReader(before, offset)
       this.render()
       return
     }
@@ -969,6 +972,11 @@ export class Screen {
    * @param label - what the block is, for the hover readout that names it.
    * @param enter - child session a click opens instead of folding, when set.
    * @param page - raw text a click reads instead of expanding, when set.
+   * @param replaces - lines already printed that the block takes the place of.
+   * @param fullRule - the rule the full form is drawn with, when it differs.
+   * @param expanded - whether the block opens showing its full form. An open
+   *   block is still automatic: moving on folds it unless the person chose a
+   *   form by hand, the way a thought stays readable until the next prompt.
    */
   appendFold(
     summary: readonly string[],
@@ -979,43 +987,134 @@ export class Screen {
     page?: string,
     replaces: readonly string[] = [],
     fullRule?: string | readonly string[],
+    expanded = false,
   ): void {
-    const shown = summary
-    const at = this.takePlaceOf(replaces, shown, rule)
-    if (at !== undefined) {
-      this.folds.push({
-        at,
-        shownLength: shown.length,
-        summary: [...summary],
-        full: [...full],
-        expanded: false,
-        manual: false,
-        rule,
-        ...fullRule !== undefined ? { fullRule } : {},
-        label,
-        ...enter === undefined ? {} : { enter },
-        ...page === undefined ? {} : { page },
-      })
-      this.folds.sort((left, right) => left.at - right.at)
-      this.render()
-      return
-    }
-    this.folds.push({
+    const shown = expanded ? full : summary
+    const shownRule = expanded ? (fullRule ?? rule) : rule
+    const fold: Fold = {
       at: this.logical.length,
       shownLength: shown.length,
       summary: [...summary],
       full: [...full],
-      expanded: false,
+      expanded,
       manual: false,
       rule,
       ...fullRule !== undefined ? { fullRule } : {},
       label,
       ...enter === undefined ? {} : { enter },
       ...page === undefined ? {} : { page },
-    })
-    this.append(shown, rule)
+    }
+    const before = this.physical.length
+    const offset = this.offset
+    const at = this.takePlaceOf(replaces, shown, shownRule)
+    if (at !== undefined) {
+      fold.at = at
+      this.folds.push(fold)
+      this.folds.sort((left, right) => left.at - right.at)
+      this.holdReader(before, offset)
+      this.render()
+      return
+    }
+    // The run may have been split by a row written into it while it streamed
+    // — a notice landing mid-thought. Its rows are still its rows: taken off
+    // wherever they stand, so the block lands whole at the tail, under the
+    // stranger, instead of standing twice.
+    if (replaces.length > 0 && this.takeScatteredRun(replaces)) this.holdReader(before, offset)
+    fold.at = this.logical.length
+    this.folds.push(fold)
+    this.append(shown, shownRule)
   }
 
+  /**
+   * Take a block's already-printed rows off the screen when something was
+   * written between them.
+   *
+   * Pads are everywhere, so the head — the first row with text — is what
+   * places the run, and the pads over it must stand right above it; the rows
+   * after the head are found in order from there, skipping whatever landed
+   * between them. Anything short of every row found leaves the screen alone.
+   * @param rows - the rows the block printed, in order.
+   * @returns whether every row was found and removed.
+   */
+  private takeScatteredRun(rows: readonly string[]): boolean {
+    const isContent = (row: string): boolean => row.replaceAll(STYLES, '').trim() !== ''
+    const headIndex = rows.findIndex(isContent)
+    if (headIndex < 0) return false
+    const head = rows[headIndex] ?? ''
+    let headAt = -1
+    for (let at = this.logical.length - 1; at >= 0 && headAt < 0; at -= 1) {
+      if (this.logical[at] === head) headAt = at
+    }
+    const start = headAt - headIndex
+    if (headAt < 0 || start < 0) return false
+    for (let index = 0; index < headIndex; index += 1) {
+      if (this.logical[start + index] !== rows[index]) return false
+    }
+    const found = Array.from({ length: headIndex + 1 }, (_, index) => start + index)
+    let cursor = headAt + 1
+    for (let index = headIndex + 1; index < rows.length; index += 1) {
+      while (cursor < this.logical.length && this.logical[cursor] !== rows[index]) cursor += 1
+      if (cursor >= this.logical.length) return false
+      found.push(cursor)
+      cursor += 1
+    }
+    // Contiguous stretches, taken out last first so the earlier indices hold.
+    const stretches: { at: number; length: number }[] = []
+    for (const index of found) {
+      const last = stretches.at(-1)
+      if (last !== undefined && last.at + last.length === index) last.length += 1
+      else stretches.push({ at: index, length: 1 })
+    }
+    for (const stretch of stretches.reverse()) this.removeRows(stretch.at, stretch.length)
+    return true
+  }
+
+  /**
+   * Take `length` logical rows out at `at`; what stands after them moves up.
+   * @param at - logical index of the first row removed.
+   * @param length - how many rows go.
+   */
+  private removeRows(at: number, length: number): void {
+    this.mapFindHits(at, length, 0)
+    this.spliceLines(at, length, [], '')
+    for (const fold of this.folds) if (fold.at >= at + length) fold.at -= length
+    for (const prompt of this.prompts) if (prompt.at >= at + length) prompt.at -= length
+  }
+
+  /**
+   * Keep a reader where they were after a block changed height in place.
+   *
+   * Following the tail there is nothing to hold, and the new height clamps
+   * the offset; away from it, the reader's own distance from the tail is
+   * re-applied over the change, the way opening a block does — a thought
+   * landing under a person reading history must not slide the rows they
+   * are on.
+   * @param before - physical rows before the change.
+   * @param offset - the scroll offset before it.
+   */
+  private holdReader(before: number, offset: number): void {
+    this.offset = Math.min(this.offset, this.scrollLimit())
+    this.refreshTailAnchor()
+    if (offset > 0) {
+      this.offset = Math.min(this.scrollLimit(), Math.max(0, offset + this.physical.length - before))
+    }
+  }
+
+  /**
+   * Give a block new forms — a thought's clock gaining its step total — in
+   * whichever form it is showing, without moving the reader.
+   *
+   * The block is found by what it holds, newest first, never by searching the
+   * buffer for its rows: a collapsed clock is a prefix of the open block it
+   * belongs to, and a text search would find it inside the open form, swap
+   * only those rows, and leave the deliberation adrift under a second fold.
+   * @param oldSummary - the collapsed form the block was given.
+   * @param oldFull - the expanded form it was given.
+   * @param newSummary - the collapsed form to hold now.
+   * @param newFull - the expanded form to hold now.
+   * @param newRule - a rule for the collapsed form, when it changes.
+   * @param newFullRule - a rule for the expanded form, when it changes.
+   */
   updateFold(
     oldSummary: readonly string[],
     oldFull: readonly string[],
@@ -1024,40 +1123,30 @@ export class Screen {
     newRule?: string | readonly string[],
     newFullRule?: string | readonly string[],
   ): void {
-    const isSummary = this.lastRunOf(oldSummary) >= 0
-    const isFull = !isSummary && this.lastRunOf(oldFull) >= 0
-    if (!isSummary && !isFull) return
-
-    const oldFold = this.folds.find(f => f.summary.length === oldSummary.length && f.summary.every((line, i) => line === oldSummary[i]))
-    const rule = newRule ?? oldFold?.rule ?? ''
-    const fullRule = newFullRule ?? oldFold?.fullRule
-    const label = oldFold?.label ?? ''
-    const enter = oldFold?.enter
-    const page = oldFold?.page
-    const expanded = isFull
-    const manual = oldFold?.manual ?? false
-
-    const replaces = isSummary ? oldSummary : oldFull
-    const shown = isSummary ? newSummary : newFull
-    const currentRule = expanded ? (fullRule ?? rule) : rule
-    const at = this.takePlaceOf(replaces, shown, currentRule)
-    if (at !== undefined) {
-      this.folds.push({
-        at,
-        shownLength: shown.length,
-        summary: [...newSummary],
-        full: [...newFull],
-        expanded,
-        manual,
-        rule,
-        ...fullRule !== undefined ? { fullRule } : {},
-        label,
-        ...enter === undefined ? {} : { enter },
-        ...page === undefined ? {} : { page },
-      })
-      this.folds.sort((left, right) => left.at - right.at)
-      this.render()
+    const same = (left: readonly string[], right: readonly string[]): boolean =>
+      left.length === right.length && left.every((line, index) => line === right[index])
+    let fold: Fold | undefined
+    for (let index = this.folds.length - 1; index >= 0 && fold === undefined; index -= 1) {
+      const candidate = this.folds[index]
+      if (candidate !== undefined && same(candidate.summary, oldSummary) && same(candidate.full, oldFull)) fold = candidate
     }
+    if (fold === undefined) return
+    fold.summary = [...newSummary]
+    fold.full = [...newFull]
+    if (newRule !== undefined) fold.rule = newRule
+    if (newFullRule !== undefined) fold.fullRule = newFullRule
+    const shown = fold.expanded ? fold.full : fold.summary
+    const rule = fold.expanded ? (fold.fullRule ?? fold.rule) : fold.rule
+    const delta = shown.length - fold.shownLength
+    const before = this.physical.length
+    const offset = this.offset
+    this.mapFindHits(fold.at, fold.shownLength, shown.length)
+    this.spliceLines(fold.at, fold.shownLength, shown, rule)
+    fold.shownLength = shown.length
+    for (const other of this.folds) if (other !== fold && other.at > fold.at) other.at += delta
+    for (const prompt of this.prompts) if (prompt.fold !== fold && prompt.at > fold.at) prompt.at += delta
+    this.holdReader(before, offset)
+    this.render()
   }
 
   /**
@@ -1689,10 +1778,26 @@ export class Screen {
     if (fold === undefined) return undefined
     return {
       label: fold.label,
-      lines: fold.full.length,
+      lines: this.withheldLines(fold),
       expanded: fold.expanded,
       ...fold.enter === undefined ? {} : { enter: true },
     }
+  }
+
+  /**
+   * Rows a block's full form holds that its collapsed one does not, blank
+   * rows and panel padding excluded.
+   *
+   * What the readout counts is what the block's own row counts — a card
+   * says `· 12 lines` and the readout must not answer 16 — so the shared
+   * head, the pads, and the inner blanks are left out on both sides.
+   * @param fold - the block under the pointer.
+   * @returns the count the readout names.
+   */
+  private withheldLines(fold: Fold): number {
+    const content = (lines: readonly string[]): number =>
+      lines.filter(line => line.replaceAll(STYLES, '').trim() !== '').length
+    return Math.max(0, content(fold.full) - content(fold.summary))
   }
 
   /**
