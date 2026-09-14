@@ -218,6 +218,7 @@ describe('SHIP_PROMPT', () => {
     expect(grill).not.toContain('ship · gate 1/2')
     expect(grill).not.toContain('Strict Vertical Tracer Slicing')
     expect(grill).not.toContain('Strict Red-First Execution')
+    expect(grill).not.toContain('Conflict-resolution is not TDD')
 
     const spec = shipPromptFor('interviewing')
     expect(spec).toContain('Pure Synthesis, Zero Interrogation')
@@ -236,6 +237,7 @@ describe('SHIP_PROMPT', () => {
 
     const land = shipPromptFor('planned')
     expect(land).toContain('Strict Red-First Execution')
+    expect(land).toContain('Conflict-resolution is not TDD')
     expect(land).not.toContain('Phase 5 — done means verified')
     expect(shipPromptFor('landing', { verificationOnly: true })).toContain('dual-layer DoD')
     expect(land).not.toContain('Relentless Frontier Exploration')
@@ -375,6 +377,7 @@ describe('SHIP_PROMPT', () => {
     expect(SHIP_PROMPT).not.toContain('two consecutive turns with no checkbox progress')
     expect(SHIP_PROMPT).toContain('in-flight / Ready-set')
     expect(SHIP_PROMPT).toContain('There is no landing turn-budget breaker')
+    expect(SHIP_PROMPT).toContain('Conflict-resolution is not TDD')
   })
 
   it('freezes Main Track after Confirm so a contradiction is a blocker not a silent rewrite (Track: 3)', () => {
