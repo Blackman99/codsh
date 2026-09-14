@@ -9,6 +9,7 @@
     "test": "vitest run",
     "test:e2e": "pnpm run build && vitest run --config vitest.e2e.config.ts",
     "dev": "node scripts/dev.mjs",
+    "prototype:tty-panorama": "python3 -m http.server 8765 --directory packages/bundle/src",
     "sync:dsh": "node scripts/sync-dsh.mjs",
     "site:screens": "pnpm run build && CAPTURE_SCREENS=1 vitest run --config vitest.e2e.config.ts e2e/capture.e2e.ts && node scripts/site-frames.mjs",
     "site:build": "node scripts/site-frames.mjs",

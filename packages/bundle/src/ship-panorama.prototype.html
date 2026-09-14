@@ -1,0 +1,889 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>PROTOTYPE — TTY two-ring panorama overlay</title>
+  <!-- Three overlay layouts of the TTY panorama, switchable via ?variant=, as throwaway 120-col frames of the existing chrome. -->
+  <style>
+    :root {
+      --bg: #120c16;
+      --panel: #1c1322;
+      --term: #140d18;
+      --ink: #f3eaf6;
+      --muted: #9a879f;
+      --dim: #6e5b73;
+      --line: #3a2a44;
+      --accent: #7ee0d6;
+      --warn: #e6c36a;
+      --ok: #8fd98a;
+      --agent: #d7a6ff;
+      --err: #f08a8a;
+      --claim: #7eb8f7;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; background: var(--bg); color: var(--ink); }
+    body {
+      font: 15px/1.45 ui-sans-serif, system-ui, sans-serif;
+      padding: 28px 28px 108px;
+    }
+    h1 { font-size: 22px; font-weight: 620; letter-spacing: -0.03em; margin: 0 0 8px; }
+    .lede { color: var(--muted); max-width: 72rem; margin: 0 0 22px; }
+    .lede strong { color: var(--ink); font-weight: 600; }
+    .shell { display: grid; grid-template-columns: minmax(0, 1fr) 280px; gap: 22px; align-items: start; }
+    @media (max-width: 1100px) { .shell { grid-template-columns: 1fr; } }
+    .term-wrap {
+      background: var(--term);
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 14px 14px 10px;
+      box-shadow: 0 24px 80px rgba(0,0,0,.35);
+    }
+    .term-meta {
+      display: flex; justify-content: space-between; gap: 12px;
+      color: var(--dim); font: 12px/1.2 ui-monospace, SFMono-Regular, Menlo, monospace;
+      margin-bottom: 8px;
+    }
+    .ruler {
+      font: 11px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+      color: #4c3956;
+      white-space: pre;
+      overflow: hidden;
+      margin-bottom: 6px;
+    }
+    #term {
+      font: 13px/1.2 ui-monospace, SFMono-Regular, Menlo, monospace;
+      white-space: pre;
+      color: #e7d7ee;
+      min-height: 28em;
+      overflow: auto;
+    }
+    .s-muted { color: #8b738f; }
+    .s-dim { color: #6a556f; }
+    .s-accent { color: #7ee0d6; }
+    .s-warn { color: #e6c36a; }
+    .s-ok { color: #8fd98a; }
+    .s-agent { color: #d7a6ff; }
+    .s-claim { color: #7eb8f7; }
+    .s-open { color: #f3eaf6; }
+    .s-bold { font-weight: 700; }
+    .s-inv { background: #3d2a48; color: #f8eefb; }
+    .side h2 { font-size: 12px; letter-spacing: .12em; text-transform: uppercase; color: var(--dim); margin: 0 0 8px; }
+    .side section { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; margin-bottom: 12px; }
+    .scene-btn, .width-btn {
+      display: block; width: 100%; text-align: left; margin: 0 0 6px;
+      background: transparent; color: var(--ink); border: 1px solid var(--line);
+      border-radius: 8px; padding: 8px 10px; cursor: pointer; font: inherit;
+    }
+    .scene-btn[aria-current="true"], .width-btn[aria-current="true"] {
+      border-color: var(--accent); color: var(--accent);
+    }
+    .scene-btn small { display: block; color: var(--dim); font-size: 12px; }
+    #state {
+      font: 12px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace;
+      color: var(--muted); white-space: pre-wrap;
+    }
+    .keys { color: var(--dim); font-size: 12px; }
+    kbd {
+      font: 11px ui-monospace, SFMono-Regular, Menlo, monospace;
+      border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 4px;
+      padding: 0 5px; color: var(--ink);
+    }
+    .switcher {
+      position: fixed; left: 50%; bottom: 22px; transform: translateX(-50%);
+      display: flex; align-items: center; gap: 10px;
+      background: #f4ecf7; color: #1a101f; border-radius: 999px;
+      padding: 8px 10px; box-shadow: 0 10px 40px rgba(0,0,0,.45);
+      z-index: 20; font: 13px/1 ui-sans-serif, system-ui, sans-serif;
+    }
+    .switcher button {
+      width: 34px; height: 34px; border: 0; border-radius: 50%;
+      background: #1a101f; color: #f4ecf7; cursor: pointer; font-size: 16px;
+    }
+    .switcher .label { min-width: 16rem; text-align: center; font-weight: 600; }
+    .note { color: var(--muted); font-size: 13px; }
+  </style>
+</head>
+<body>
+  <h1>PROTOTYPE — TTY two-ring panorama overlay</h1>
+  <p class="lede">
+    Throwaway frames for <strong>TTY two-ring panorama overlay</strong>.
+    Question: at ~120 columns, are the three bucket words, ticket <em>names</em>,
+    and <code>Blocked by: &lt;name&gt;</code> readable — and does a pinned-by-default
+    fullscreen still work when the inner ring is empty?
+    Three layouts disagree about hierarchy. Scenes are the moments the ticket asked for.
+    This is not production chrome.
+  </p>
+  <div class="shell">
+    <div>
+      <div class="term-wrap">
+        <div class="term-meta">
+          <span id="meta-left">120 columns · overlay pinned</span>
+          <span id="meta-right">click the teaser · Ctrl+G · Esc</span>
+        </div>
+        <div class="ruler" id="ruler"></div>
+        <div id="term" tabindex="0"></div>
+      </div>
+      <p class="keys">
+        With the terminal focused:
+        <kbd>Esc</kbd> teaser
+        <kbd>Ctrl</kbd>+<kbd>G</kbd> toggle overlay
+        <kbd>Ctrl</kbd>+<kbd>T</kbd> todos/plan
+        <kbd>Ctrl</kbd>+<kbd>Q</kbd> queue
+        · or use the scene list.
+      </p>
+    </div>
+    <div class="side">
+      <section>
+        <h2>Scenes</h2>
+        <button class="scene-btn" data-scene="empty" aria-current="true">
+          Empty wayfinding · overlay
+          <small>pinned fullscreen · empty inner ring · no Track-N yet</small>
+        </button>
+        <button class="scene-btn" data-scene="empty-teaser">
+          Empty wayfinding · teaser
+          <small>待认领 0 · 已认领 0 · 已关闭 0 above the (absent) plan row</small>
+        </button>
+        <button class="scene-btn" data-scene="mixed">
+          Mixed rings · overlay
+          <small>claimed research + open grilling · outer landing tickets hanging off Track-N</small>
+        </button>
+        <button class="scene-btn" data-scene="teaser">
+          Mixed · teaser above the plan
+          <small>Esc from mixed · one line over the plan row · in-flight on the teaser</small>
+        </button>
+        <button class="scene-btn" data-scene="queue">
+          Exclusive with Queue
+          <small>overlay dismissed · queue panel occupies chrome</small>
+        </button>
+        <button class="scene-btn" data-scene="todos">
+          Exclusive with Todo/plan
+          <small>overlay dismissed · plan list occupies chrome</small>
+        </button>
+        <button class="scene-btn" data-scene="grill">
+          Grill HITL dismisses
+          <small>frontier card · overlay forced to teaser</small>
+        </button>
+      </section>
+      <section>
+        <h2>Width</h2>
+        <button class="width-btn" data-cols="120" aria-current="true">120 columns (the question)</button>
+        <button class="width-btn" data-cols="80">80 columns (stress)</button>
+      </section>
+      <section>
+        <h2>State after last action</h2>
+        <div id="state"></div>
+        <p class="note">In-flight is a teaser count, not a fourth bucket. Claimed ≠ child running.</p>
+      </section>
+    </div>
+  </div>
+  <div class="switcher" role="toolbar" aria-label="Overlay layout variant">
+    <button type="button" id="prev" aria-label="Previous variant">←</button>
+    <div class="label" id="variant-label">A — buckets then rings</div>
+    <button type="button" id="next" aria-label="Next variant">→</button>
+  </div>
+<script>
+const VARIANTS = [
+  { key: 'A', name: 'buckets then rings' },
+  { key: 'B', name: 'rings as columns; ticket may repeat under Track-N' },
+  { key: 'C', name: 'one ledger; tracks are a suffix' },
+];
+
+const INNER = [
+  { name: 'Graph node identity across tracker, spec, and cache', kind: 'grilling', bucket: 'closed' },
+  { name: 'How Claim is recorded when the runner dispatches', kind: 'grilling', bucket: 'closed' },
+  { name: 'Current /ship phase-stop contract surface', kind: 'research', bucket: 'claimed' },
+  { name: 'Merge order of a finished landing wave', kind: 'grilling', bucket: 'open', blockedBy: ['Conflict-resolution child\'s authority'] },
+  { name: 'TTY two-ring panorama overlay', kind: 'prototype', bucket: 'open' },
+];
+
+const OUTER = [
+  { name: 'wire Ctrl+G overlay and teaser row', kind: 'landing', bucket: 'claimed', tracks: ['Track-1'] },
+  { name: 'exclusive Queue and Todo with overlay', kind: 'landing', bucket: 'open', tracks: ['Track-1', 'Track-2'], blockedBy: ['wire Ctrl+G overlay and teaser row'] },
+  { name: 'grill HITL dismisses overlay to teaser', kind: 'landing', bucket: 'closed', tracks: ['Track-2'] },
+];
+
+const SCENES = {
+  empty: {
+    title: 'Empty wayfinding',
+    phase: 'wayfinder',
+    overlay: true,
+    exclusive: 'none',
+    inner: [],
+    outer: [],
+    inFlight: 0,
+    plan: null,
+    queue: [],
+    grill: null,
+  },
+  'empty-teaser': {
+    title: 'Empty wayfinding teaser',
+    phase: 'wayfinder',
+    overlay: false,
+    exclusive: 'none',
+    inner: [],
+    outer: [],
+    inFlight: 0,
+    plan: null,
+    queue: [],
+    grill: null,
+  },
+  mixed: {
+    title: 'Mixed rings',
+    phase: 'land',
+    land: '1/3',
+    overlay: true,
+    exclusive: 'none',
+    inner: INNER,
+    outer: OUTER,
+    inFlight: 1,
+    plan: { done: 1, total: 3, current: 'exclusive Queue and Todo with overlay' },
+    queue: [],
+    grill: null,
+  },
+  teaser: {
+    title: 'Teaser above the plan',
+    phase: 'land',
+    land: '1/3',
+    overlay: false,
+    exclusive: 'none',
+    inner: INNER,
+    outer: OUTER,
+    inFlight: 1,
+    plan: { done: 1, total: 3, current: 'exclusive Queue and Todo with overlay' },
+    queue: [],
+    grill: null,
+  },
+  queue: {
+    title: 'Exclusive with Queue',
+    phase: 'land',
+    land: '1/3',
+    overlay: false,
+    exclusive: 'queue',
+    inner: INNER,
+    outer: OUTER,
+    inFlight: 1,
+    plan: { done: 1, total: 3, current: 'exclusive Queue and Todo with overlay' },
+    queue: ['after merge, open the panorama', 'note the teaser in-flight count'],
+    grill: null,
+  },
+  todos: {
+    title: 'Exclusive with Todo/plan',
+    phase: 'land',
+    land: '1/3',
+    overlay: false,
+    exclusive: 'todos',
+    inner: INNER,
+    outer: OUTER,
+    inFlight: 1,
+    plan: { done: 1, total: 3, current: 'exclusive Queue and Todo with overlay', expanded: true },
+    queue: [],
+    grill: null,
+  },
+  grill: {
+    title: 'Grill HITL dismisses',
+    phase: 'grill',
+    overlay: false,
+    exclusive: 'grill',
+    inner: INNER,
+    outer: [],
+    inFlight: 1,
+    plan: null,
+    queue: [],
+    grill: {
+      question: 'When several landing children finish together, what is the merge order?',
+      recommended: 'Plan / topological order, even if a later ticket finished first',
+    },
+  },
+};
+
+const params = new URLSearchParams(location.search);
+let variant = (params.get('variant') || 'A').toUpperCase();
+if (!VARIANTS.some(v => v.key === variant)) variant = 'A';
+let sceneId = params.get('scene') || 'empty';
+if (!SCENES[sceneId]) sceneId = 'empty';
+let cols = Number(params.get('cols') || 120);
+if (cols !== 80 && cols !== 120) cols = 120;
+let lastAction = 'loaded';
+let flash = '';
+
+function cellW(ch) {
+  const cp = ch.codePointAt(0);
+  // Wide only for CJK / fullwidth, matching a TTY. Box drawing, ·, … stay 1.
+  return (cp >= 0x1100 && (
+    (cp <= 0x115f)
+    || (cp >= 0x2e80 && cp <= 0xa4cf && cp !== 0x303f)
+    || (cp >= 0xac00 && cp <= 0xd7a3)
+    || (cp >= 0xf900 && cp <= 0xfaff)
+    || (cp >= 0xfe10 && cp <= 0xfe19)
+    || (cp >= 0xfe30 && cp <= 0xfe6f)
+    || (cp >= 0xff00 && cp <= 0xff60)
+    || (cp >= 0xffe0 && cp <= 0xffe6)
+  )) ? 2 : 1;
+}
+function dw(s) {
+  let n = 0;
+  for (const ch of s.replace(/\u001b\[[0-9;]*m/g, '')) n += cellW(ch);
+  return n;
+}
+function sliceW(s, width) {
+  let n = 0, out = '';
+  for (const ch of s) {
+    const w = cellW(ch);
+    if (n + w > width) break;
+    out += ch; n += w;
+  }
+  return out;
+}
+function pad(s, width) {
+  const w = dw(s);
+  if (w === width) return s;
+  if (w < width) return s + ' '.repeat(width - w);
+  if (width <= 1) return sliceW(s, width);
+  return sliceW(s, width - 1) + '…';
+}
+function trunc(s, width) {
+  if (dw(s) <= width) return s;
+  if (width <= 1) return sliceW(s, width);
+  return sliceW(s, width - 1) + '…';
+}
+function span(cls, text) {
+  const esc = text.replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+  return `<span class="${cls}">${esc}</span>`;
+}
+function paint(width, parts) {
+  // parts: [{t, c?}] — layout by display width, then emit html
+  let used = 0;
+  const kept = [];
+  for (const part of parts) {
+    const w = dw(part.t);
+    if (used + w > width) {
+      const room = width - used;
+      if (room > 0) kept.push({ t: trunc(part.t, room), c: part.c });
+      used = width;
+      break;
+    }
+    kept.push(part); used += w;
+  }
+  const text = kept.map(p => p.t).join('') + ' '.repeat(Math.max(0, width - used));
+  // rebuild with classes on original pieces
+  let html = '';
+  let remain = width;
+  for (const part of kept) {
+    const piece = trunc(part.t, remain);
+    html += part.c ? span(part.c, piece) : piece.replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+    remain -= dw(piece);
+    if (remain <= 0) break;
+  }
+  if (remain > 0) html += ' '.repeat(remain);
+  return html;
+}
+function line(width, parts) { return paint(width, parts); }
+function blank(width) { return ' '.repeat(width); }
+
+function counts(scene) {
+  const nodes = [...scene.inner, ...scene.outer];
+  const of = b => nodes.filter(n => n.bucket === b).length;
+  return { open: of('open'), claimed: of('claimed'), closed: of('closed'), inFlight: scene.inFlight };
+}
+function teaserText(scene) {
+  const c = counts(scene);
+  const inf = c.inFlight > 0 ? ` · ${c.inFlight} in flight` : '';
+  return `  待认领 ${c.open} · 已认领 ${c.claimed} · 已关闭 ${c.closed}${inf} · click or Ctrl+G`;
+}
+function mark(bucket) {
+  if (bucket === 'closed') return { t: '✔', c: 's-ok' };
+  if (bucket === 'claimed') return { t: '●', c: 's-claim' };
+  return { t: '○', c: 's-warn' };
+}
+function bucketWord(bucket) {
+  if (bucket === 'closed') return { t: '已关闭', c: 's-ok' };
+  if (bucket === 'claimed') return { t: '已认领', c: 's-claim' };
+  return { t: '待认领', c: 's-warn' };
+}
+
+function boxRows(width, placeholder) {
+  const inner = Math.max(8, width - 4);
+  const budget = Math.max(1, inner - 2);
+  const text = trunc(placeholder, budget);
+  const pad = ' '.repeat(Math.max(0, budget - dw(text)));
+  return [
+    line(width, [{ t: '╭' + '─'.repeat(inner + 2) + '╮', c: 's-accent' }]),
+    paint(width, [
+      { t: '│ ', c: 's-accent' },
+      { t: '› ', c: 's-agent' },
+      { t: text, c: 's-dim' },
+      { t: pad },
+      { t: ' │', c: 's-accent' },
+    ]),
+    line(width, [{ t: '╰' + '─'.repeat(inner + 2) + '╯', c: 's-accent' }]),
+  ];
+}
+
+function statusRow(scene, width) {
+  const chip = scene.phase === 'wayfinder' ? 'ship · wayfinder'
+    : scene.phase === 'grill' ? 'ship · grill'
+    : `ship · land ${scene.land}`;
+  const chipClass = scene.phase === 'land' ? 's-agent' : 's-muted';
+  return paint(width, [
+    { t: chip, c: chipClass },
+    { t: ' · ', c: 's-muted' },
+    { t: 'grok-4.6', c: 's-muted' },
+    { t: ' · ', c: 's-muted' },
+    { t: 'context 12k/200k (94% left)', c: 's-muted' },
+    { t: ' · ', c: 's-muted' },
+    { t: '~/codsh (ship/auto-ship)', c: 's-muted' },
+  ]);
+}
+
+function planCollapsed(scene, width) {
+  if (!scene.plan) return [];
+  return [paint(width, [
+    { t: '  ◇', c: 's-accent' },
+    { t: ` plan ${scene.plan.done}/${scene.plan.total} · ${scene.plan.current}`, c: 's-open' },
+    { t: ' · click or Ctrl+T opens the list', c: 's-dim' },
+  ])];
+}
+function planExpanded(scene, width) {
+  if (!scene.plan) return [];
+  const tickets = [
+    { done: true, title: 'wire Ctrl+G overlay and teaser row' },
+    { done: false, current: true, title: 'exclusive Queue and Todo with overlay' },
+    { done: false, title: 'grill HITL dismisses overlay to teaser' },
+  ];
+  return [
+    paint(width, [
+      { t: '  ◇', c: 's-accent' },
+      { t: ` plan ${scene.plan.done}/${scene.plan.total}`, c: 's-open' },
+      { t: ' · click or Ctrl+T closes', c: 's-dim' },
+    ]),
+    ...tickets.map(t => paint(width, [
+      { t: '    ' },
+      t.done ? { t: '✔ ', c: 's-ok' } : t.current ? { t: '▶ ', c: 's-warn' } : { t: '○ ', c: 's-dim' },
+      { t: t.title, c: t.done ? 's-dim' : 's-open' },
+    ])),
+  ];
+}
+
+function queuePanel(scene, width) {
+  if (scene.exclusive !== 'queue') return [];
+  return [
+    paint(width, [{ t: '  queue 2', c: 's-accent' }, { t: ' · Ctrl+Q closes', c: 's-dim' }]),
+    paint(width, [{ t: '  ❯ ', c: 's-agent' }, { t: scene.queue[0] }]),
+    paint(width, [{ t: '    ' }, { t: scene.queue[1], c: 's-muted' }]),
+    paint(width, [{ t: '  [e] edit · [s] steer · Esc closes', c: 's-dim' }]),
+  ];
+}
+
+function frontier(scene, width) {
+  if (!scene.grill) return [];
+  const inner = Math.max(8, width - 2);
+  const rule = '─'.repeat(inner);
+  const wrapExact = (text, cls) => {
+    const rows = [];
+    let buf = '';
+    for (const ch of text) {
+      if (dw(buf + ch) > inner - 2) {
+        rows.push(paint(width, [{ t: '│ ', c: 's-muted' }, { t: pad(buf, inner - 2), c: cls }, { t: ' │', c: 's-muted' }]));
+        buf = ch;
+      } else buf += ch;
+    }
+    if (buf) rows.push(paint(width, [{ t: '│ ', c: 's-muted' }, { t: pad(buf, inner - 2), c: cls }, { t: ' │', c: 's-muted' }]));
+    return rows;
+  };
+  return [
+    line(width, [{ t: '┌' + rule + '┐', c: 's-muted' }]),
+    ...wrapExact(scene.grill.question, 's-open'),
+    paint(width, [
+      { t: '│ ', c: 's-muted' },
+      { t: pad('❯ [rec] ' + scene.grill.recommended, inner - 2), c: 's-accent' },
+      { t: ' │', c: 's-muted' },
+    ]),
+    paint(width, [
+      { t: '│ ', c: 's-muted' },
+      { t: pad('  Completion order (first green child merges first)', inner - 2) },
+      { t: ' │', c: 's-muted' },
+    ]),
+    paint(width, [
+      { t: '│ ', c: 's-muted' },
+      { t: pad('  ✎ Type your own answer', inner - 2), c: 's-dim' },
+      { t: ' │', c: 's-muted' },
+    ]),
+    paint(width, [
+      { t: '│ ', c: 's-muted' },
+      { t: pad('[y] take · [e] edit · [↑↓] pick · Esc dismisses overlay already', inner - 2), c: 's-dim' },
+      { t: ' │', c: 's-muted' },
+    ]),
+    line(width, [{ t: '└' + rule + '┘', c: 's-muted' }]),
+  ];
+}
+
+function chrome(scene, width) {
+  const rows = [];
+  rows.push(paint(width, [{ t: 'codsh', c: 's-agent' }, { t: '  /ship continues without a bare /ship', c: 's-dim' }]));
+  rows.push(blank(width));
+  if (scene.exclusive === 'grill') {
+    rows.push(...frontier(scene, width));
+  } else {
+    rows.push(...boxRows(width, scene.phase === 'wayfinder' ? '/ for commands, @ to mention' : 'steer the landing wave, or open the panorama'));
+  }
+  rows.push(...queuePanel(scene, width));
+  rows.push(paint(width, [{ t: teaserText(scene), c: scene.overlay ? 's-dim' : 's-open' }]));
+  if (scene.exclusive === 'todos') rows.push(...planExpanded(scene, width));
+  else rows.push(...planCollapsed(scene, width));
+  if (flash) rows.push(paint(width, [{ t: '  ' + flash, c: 's-warn' }]));
+  else rows.push(paint(width, [{ t: '  Esc interrupt · ? shortcuts', c: 's-dim' }]));
+  rows.push(statusRow(scene, width));
+  return rows;
+}
+
+function blocked(node, width, indent) {
+  if (!node.blockedBy || !node.blockedBy.length) return [];
+  const prefix = indent + 'Blocked by: ';
+  return [paint(width, [
+    { t: prefix, c: 's-dim' },
+    { t: node.blockedBy.join(' · '), c: 's-warn' },
+  ])];
+}
+
+function nodeBlock(node, width, indent) {
+  const hang = node.tracks && node.tracks.length ? ' · ' + node.tracks.join(' ') : '';
+  return [
+    paint(width, [
+      { t: indent },
+      mark(node.bucket),
+      { t: ' ' },
+      { t: node.name, c: node.bucket === 'closed' ? 's-dim' : 's-open' },
+    ]),
+    paint(width, [
+      { t: indent + '  ' },
+      { t: node.kind, c: 's-muted' },
+      { t: hang, c: 's-agent' },
+    ]),
+    ...blocked(node, width, indent + '  '),
+  ];
+}
+
+function groupByBucket(nodes) {
+  return {
+    open: nodes.filter(n => n.bucket === 'open'),
+    claimed: nodes.filter(n => n.bucket === 'claimed'),
+    closed: nodes.filter(n => n.bucket === 'closed'),
+  };
+}
+
+function overlayHeader(scene, width) {
+  const c = counts(scene);
+  const inner = Math.max(8, width - 2);
+  const rule = '─'.repeat(inner);
+  const title = ` panorama · 待认领 ${c.open} · 已认领 ${c.claimed} · 已关闭 ${c.closed}` +
+    (c.inFlight ? ` · ${c.inFlight} in flight` : '');
+  return [
+    paint(width, [{ t: '┌', c: 's-muted' }, { t: pad(title, inner), c: 's-bold' }, { t: '┐', c: 's-muted' }]),
+    paint(width, [
+      { t: '│ ', c: 's-muted' },
+      { t: pad('pinned · Esc teaser · click or Ctrl+G · exclusive with Queue / Todo', inner - 2), c: 's-dim' },
+      { t: ' │', c: 's-muted' },
+    ]),
+    line(width, [{ t: '├' + rule + '┤', c: 's-muted' }]),
+  ];
+}
+function overlayFooter(width, bodyLen) {
+  const inner = Math.max(8, width - 2);
+  return [
+    line(width, [{ t: '└' + '─'.repeat(inner) + '┘', c: 's-muted' }]),
+    paint(width, [{ t: `  Esc teaser · names, not numbers · ${bodyLen} rows`, c: 's-dim' }]),
+  ];
+}
+function framed(width, parts) {
+  const inner = Math.max(8, width - 2);
+  const content = (() => {
+    let used = 0; const bits = [];
+    for (const p of parts) {
+      const w = dw(p.t);
+      if (used + w > inner - 2) {
+        bits.push({ t: trunc(p.t, inner - 2 - used), c: p.c });
+        used = inner - 2;
+        break;
+      }
+      bits.push(p); used += w;
+    }
+    bits.push({ t: ' '.repeat(Math.max(0, inner - 2 - used)) });
+    return bits;
+  })();
+  return paint(width, [{ t: '│ ', c: 's-muted' }, ...content, { t: ' │', c: 's-muted' }]);
+}
+
+function overlayA(scene, width) {
+  const rows = [...overlayHeader(scene, width)];
+  const buckets = [
+    { key: 'open', title: '待认领' },
+    { key: 'claimed', title: '已认领' },
+    { key: 'closed', title: '已关闭' },
+  ];
+  const paintRing = (label, nodes, emptyNote) => {
+    rows.push(framed(width, [{ t: label, c: 's-accent' }]));
+    if (!nodes.length) {
+      rows.push(framed(width, [{ t: emptyNote, c: 's-dim' }]));
+      return;
+    }
+    const g = groupByBucket(nodes);
+    for (const b of buckets) {
+      const list = g[b.key];
+      rows.push(framed(width, [bucketWord(b.key === 'open' ? 'open' : b.key === 'claimed' ? 'claimed' : 'closed'), { t: `  ${list.length}` }]));
+      if (!list.length) {
+        rows.push(framed(width, [{ t: '  —', c: 's-dim' }]));
+        continue;
+      }
+      for (const n of list) {
+        rows.push(framed(width, [{ t: '  ' }, mark(n.bucket), { t: ' ' + n.name, c: n.bucket === 'closed' ? 's-dim' : 's-open' }]));
+        const extra = n.kind + (n.tracks?.length ? ' · ' + n.tracks.join(' ') : '');
+        rows.push(framed(width, [{ t: '    ' + extra, c: 's-muted' }]));
+        if (n.blockedBy?.length) {
+          rows.push(framed(width, [{ t: '    Blocked by: ', c: 's-dim' }, { t: n.blockedBy.join(' · '), c: 's-warn' }]));
+        }
+      }
+    }
+  };
+  paintRing('INNER RING · decision tickets', scene.inner, '  (empty — no decision tickets yet; a confirmed no-map looks like this)');
+  rows.push(framed(width, [{ t: ' ', c: 's-dim' }]));
+  paintRing('OUTER RING · landing tickets hanging off Track-N', scene.outer, '  (empty — no Track-N until Main Track seals)');
+  rows.push(...overlayFooter(width, rows.length));
+  return rows;
+}
+
+function overlayB(scene, width) {
+  const rows = [...overlayHeader(scene, width)];
+  const gutter = 1;
+  const col = Math.floor((width - 4 - gutter) / 2);
+  const pair = (leftParts, rightParts) => {
+    const L = padPlain(leftParts, col);
+    const R = padPlain(rightParts, col);
+    return paint(width, [
+      { t: '│ ', c: 's-muted' },
+      ...L,
+      { t: ' ' },
+      ...R,
+      { t: ' │', c: 's-muted' },
+    ]);
+  };
+  function padPlain(parts, w) {
+    let used = 0; const out = [];
+    for (const p of parts) {
+      const tw = dw(p.t);
+      if (used + tw > w) {
+        out.push({ t: trunc(p.t, w - used), c: p.c });
+        used = w;
+        break;
+      }
+      out.push(p); used += tw;
+    }
+    if (used < w) out.push({ t: ' '.repeat(w - used) });
+    return out;
+  }
+  rows.push(pair(
+    [{ t: 'INNER RING', c: 's-accent' }],
+    [{ t: 'OUTER RING by Track-N', c: 's-accent' }],
+  ));
+  const left = [];
+  if (!scene.inner.length) left.push([{ t: '(empty inner ring)', c: 's-dim' }]);
+  else for (const n of scene.inner) {
+    left.push([{ t: '' }, mark(n.bucket), { t: ' ' + n.name, c: n.bucket === 'closed' ? 's-dim' : 's-open' }]);
+    left.push([{ t: '  ' }, bucketWord(n.bucket), { t: ' · ' + n.kind, c: 's-muted' }]);
+    if (n.blockedBy?.length) left.push([{ t: '  Blocked by: ' + n.blockedBy.join(' · '), c: 's-warn' }]);
+  }
+  const right = [];
+  if (!scene.outer.length) right.push([{ t: '(empty — no Track-N yet)', c: 's-dim' }]);
+  else {
+    const tracks = [...new Set(scene.outer.flatMap(n => n.tracks || []))];
+    for (const tr of tracks) {
+      right.push([{ t: tr, c: 's-agent' }]);
+      for (const n of scene.outer.filter(x => x.tracks?.includes(tr))) {
+        right.push([{ t: '  ' }, mark(n.bucket), { t: ' ' + n.name, c: n.bucket === 'closed' ? 's-dim' : 's-open' }]);
+        right.push([{ t: '    ' }, bucketWord(n.bucket), { t: n.blockedBy?.length ? ' · Blocked by: ' + n.blockedBy.join(' · ') : '', c: 's-warn' }]);
+      }
+    }
+  }
+  const h = Math.max(left.length, right.length, 1);
+  for (let i = 0; i < h; i++) rows.push(pair(left[i] || [{ t: ' ' }], right[i] || [{ t: ' ' }]));
+  rows.push(...overlayFooter(width, rows.length));
+  return rows;
+}
+
+function overlayC(scene, width) {
+  const rows = [...overlayHeader(scene, width)];
+  rows.push(framed(width, [
+    { t: pad('  bkt', 8), c: 's-dim' },
+    { t: pad('ring', 6), c: 's-dim' },
+    { t: 'name · kind · Track-N · Blocked by: <name>', c: 's-dim' },
+  ]));
+  const emit = (ring, nodes, empty) => {
+    if (!nodes.length) {
+      rows.push(framed(width, [{ t: '  ' + empty, c: 's-dim' }]));
+      return;
+    }
+    for (const n of nodes) {
+      const b = bucketWord(n.bucket);
+      const ringLab = ring === 'inner' ? 'inner' : 'outer';
+      let rest = n.name;
+      const hang = [
+        n.kind,
+        ...(n.tracks || []),
+        ...(n.blockedBy?.length ? ['Blocked by: ' + n.blockedBy.join(' · ')] : []),
+      ].join(' · ');
+      rows.push(framed(width, [
+        { t: '  ' }, b, { t: '  ' },
+        { t: pad(ringLab, 6), c: 's-muted' },
+        { t: rest, c: n.bucket === 'closed' ? 's-dim' : 's-open' },
+      ]));
+      rows.push(framed(width, [{ t: '                ' + hang, c: 's-muted' }]));
+    }
+  };
+  rows.push(framed(width, [{ t: 'INNER', c: 's-accent' }]));
+  emit('inner', scene.inner, '(empty inner ring — 待认领 0 · 已认领 0 · 已关闭 0 lives on the teaser)');
+  rows.push(framed(width, [{ t: 'OUTER', c: 's-accent' }]));
+  emit('outer', scene.outer, '(empty outer ring — no landing tickets, no Track-N)');
+  rows.push(...overlayFooter(width, rows.length));
+  return rows;
+}
+
+function renderOverlay(scene, width) {
+  if (variant === 'B') return overlayB(scene, width);
+  if (variant === 'C') return overlayC(scene, width);
+  return overlayA(scene, width);
+}
+
+function fill(rows, height, width) {
+  const out = rows.slice();
+  while (out.length < height) out.push(blank(width));
+  return out.slice(0, height);
+}
+
+function render() {
+  const scene = { ...SCENES[sceneId] };
+  const height = 32;
+  const width = cols;
+  const rows = scene.overlay ? fill(renderOverlay(scene, width), height, width) : fill(chrome(scene, width), height, width);
+  document.getElementById('term').innerHTML = rows.join('\n');
+  document.getElementById('ruler').textContent = ruler(width);
+  const v = VARIANTS.find(x => x.key === variant);
+  document.getElementById('variant-label').textContent = `${variant} — ${v.name}`;
+  document.getElementById('meta-left').textContent =
+    `${width} columns · ${scene.overlay ? 'FULLSCREEN overlay (chrome hidden)' : 'chrome · teaser above plan'}`;
+  for (const btn of document.querySelectorAll('.scene-btn')) {
+    btn.setAttribute('aria-current', btn.dataset.scene === sceneId ? 'true' : 'false');
+  }
+  for (const btn of document.querySelectorAll('.width-btn')) {
+    btn.setAttribute('aria-current', Number(btn.dataset.cols) === cols ? 'true' : 'false');
+  }
+  const c = counts(scene);
+  document.getElementById('state').textContent =
+    `scene     ${scene.title}\n` +
+    `variant   ${variant} ${v.name}\n` +
+    `overlay   ${scene.overlay ? 'open (pinned fullscreen)' : 'closed'}\n` +
+    `exclusive ${scene.exclusive}\n` +
+    `teaser    待认领 ${c.open} · 已认领 ${c.claimed} · 已关闭 ${c.closed}` +
+    (c.inFlight ? ` · ${c.inFlight} in flight` : '') + '\n' +
+    `inner     ${scene.inner.length}   outer ${scene.outer.length}\n` +
+    `last      ${lastAction}` + (flash ? `\nflash     ${flash}` : '');
+  const url = new URL(location.href);
+  url.searchParams.set('variant', variant);
+  url.searchParams.set('scene', sceneId);
+  url.searchParams.set('cols', String(cols));
+  history.replaceState(null, '', url);
+}
+
+function ruler(width) {
+  let s = '';
+  for (let i = 1; i <= width; i++) s += i % 10 === 0 ? String((i / 10) % 10) : (i % 5 === 0 ? '·' : ' ');
+  return s;
+}
+
+function setScene(id, action) {
+  sceneId = id;
+  lastAction = action || `scene ${id}`;
+  flash = '';
+  render();
+}
+function family(id) {
+  return (id === 'empty' || id === 'empty-teaser') ? 'empty' : 'mixed';
+}
+function overlayOf(id) { return family(id) === 'empty' ? 'empty' : 'mixed'; }
+function teaserOf(id) { return family(id) === 'empty' ? 'empty-teaser' : 'teaser'; }
+
+function toggleOverlay() {
+  const scene = SCENES[sceneId];
+  if (scene.exclusive === 'grill') {
+    flash = 'grill HITL owns the screen — panorama stays on the teaser';
+    lastAction = 'Ctrl+G refused during grill';
+    render();
+    return;
+  }
+  if (scene.overlay) {
+    setScene(teaserOf(sceneId), 'Esc / Ctrl+G → teaser above the plan');
+    return;
+  }
+  if (scene.exclusive === 'queue' || scene.exclusive === 'todos') {
+    setScene(overlayOf(sceneId), 'Ctrl+G closed Queue/Todo and pinned overlay');
+    return;
+  }
+  setScene(overlayOf(sceneId), 'Ctrl+G / click teaser → overlay');
+}
+
+document.getElementById('prev').onclick = () => {
+  const i = VARIANTS.findIndex(v => v.key === variant);
+  variant = VARIANTS[(i + VARIANTS.length - 1) % VARIANTS.length].key;
+  lastAction = `variant ${variant}`;
+  render();
+};
+document.getElementById('next').onclick = () => {
+  const i = VARIANTS.findIndex(v => v.key === variant);
+  variant = VARIANTS[(i + 1) % VARIANTS.length].key;
+  lastAction = `variant ${variant}`;
+  render();
+};
+for (const btn of document.querySelectorAll('.scene-btn')) {
+  btn.onclick = () => setScene(btn.dataset.scene, `scene ${btn.dataset.scene}`);
+}
+for (const btn of document.querySelectorAll('.width-btn')) {
+  btn.onclick = () => { cols = Number(btn.dataset.cols); lastAction = `${cols} columns`; flash = ''; render(); };
+}
+document.getElementById('term').addEventListener('click', () => {
+  if (!SCENES[sceneId].overlay) toggleOverlay();
+});
+document.getElementById('term').addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') {
+    e.preventDefault();
+    if (SCENES[sceneId].overlay) setScene(teaserOf(sceneId), 'Esc → teaser');
+    else if (sceneId === 'queue' || sceneId === 'todos') setScene('teaser', 'Esc closed Queue/Todo; teaser remains');
+    return;
+  }
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'g') {
+    e.preventDefault();
+    toggleOverlay();
+    return;
+  }
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'q') {
+    e.preventDefault();
+    setScene('queue', 'Ctrl+Q → queue; overlay dismissed');
+    return;
+  }
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 't') {
+    e.preventDefault();
+    setScene('todos', 'Ctrl+T → plan list; overlay dismissed');
+    return;
+  }
+  if (e.key === 'ArrowLeft') { document.getElementById('prev').click(); e.preventDefault(); }
+  if (e.key === 'ArrowRight') { document.getElementById('next').click(); e.preventDefault(); }
+});
+window.addEventListener('keydown', (e) => {
+  const tag = document.activeElement?.tagName;
+  if (tag === 'INPUT' || tag === 'TEXTAREA' || document.activeElement?.isContentEditable) return;
+  if (e.key === 'ArrowLeft' && document.activeElement.id !== 'term') document.getElementById('prev').click();
+  if (e.key === 'ArrowRight' && document.activeElement.id !== 'term') document.getElementById('next').click();
+});
+render();
+document.getElementById('term').focus();
+</script>
+</body>
+</html>
