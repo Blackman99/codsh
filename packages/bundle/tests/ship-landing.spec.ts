@@ -5,9 +5,15 @@ import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { ShipRun, type ShipChildHandle, type ShipGit } from '../src/ship-run.ts'
 import {
+  cascadeClosedDependents,
+  dispatchedDependents,
   landingPlan,
   landingWavePrepend,
+  proofSweepCommitMessage,
   readySet,
+  sweepBlockerBody,
+  sweepProofTargets,
+  writeBlockerSection,
   type LandingTicket,
   type LandingWaveView,
 } from '../src/ship-landing.ts'
@@ -34,34 +40,47 @@ function writeIssue(cwd: string, n: number, title: string, extra = ''): void {
   writeFileSync(join(dir, `${String(n).padStart(2, '0')}-${title.toLowerCase().replace(/\s+/gu, '-')}.md`), `Ticket ${String(n)}: ${title}\n${extra}`)
 }
 
-function deferred(): { promise: Promise<void>; resolve: () => void } {
+function deferred(): { promise: Promise<void>; resolve: () => void; reject: (error: Error) => void } {
   let resolve = (): void => {}
-  const promise = new Promise<void>(next => { resolve = next })
-  return { promise, resolve }
+  let reject = (_error: Error): void => {}
+  const promise = new Promise<void>((next, fail) => {
+    resolve = next
+    reject = fail
+  })
+  return { promise, resolve, reject }
 }
 
 function waveChildren() {
-  const created: Array<{ graphKey: string; cwd?: string; prompt: string }> = []
-  const pending = new Map<string, { resolve: () => void; handle: ShipChildHandle }>()
+  const created: Array<{ graphKey: string; cwd?: string; prompt: string; role?: 'conflict' | 'repair' }> = []
+  const pending = new Map<string, { resolve: () => void; reject: (error: Error) => void; handle: ShipChildHandle }>()
   return {
     created,
     pending,
     finish(graphKey: string) { pending.get(graphKey)?.resolve() },
-    async create(request: { graphKey: string; label: string; prompt: string; cwd?: string }): Promise<ShipChildHandle> {
+    fail(graphKey: string, error = new Error('timeout')) { pending.get(graphKey)?.reject(error) },
+    async create(request: {
+      graphKey: string
+      label: string
+      prompt: string
+      cwd?: string
+      role?: 'conflict' | 'repair'
+    }): Promise<ShipChildHandle> {
       const wait = deferred()
       created.push({
         graphKey: request.graphKey,
         prompt: request.prompt,
         ...(request.cwd === undefined ? {} : { cwd: request.cwd }),
+        ...(request.role === undefined ? {} : { role: request.role }),
       })
       const handle: ShipChildHandle = {
         id: `child-${String(created.length)}`,
         graphKey: request.graphKey,
         label: request.label,
+        ...(request.role === undefined ? {} : { role: request.role }),
         done: wait.promise,
         async dispose() {},
       }
-      pending.set(request.graphKey, { resolve: wait.resolve, handle })
+      pending.set(request.graphKey, { resolve: wait.resolve, reject: wait.reject, handle })
       return handle
     },
   }
@@ -97,7 +116,7 @@ function fixture(
   checks = [false, false, false, false],
   opts: {
     blockers?: Array<string | undefined>
-    prove?: (ticket: { id: string }) => Promise<'green' | 'red'>
+    prove?: (ticket: { id: string; contract: string; kind: 'sweep' | 'land' }) => Promise<'green' | 'red'>
     children?: ReturnType<typeof waveChildren>
     git?: ShipGit & { log: string[] }
   } = {},
@@ -108,7 +127,12 @@ function fixture(
   const path = join(cwd, 'docs', 'specs', 'exports.md')
   writeFileSync(path, spec(checks, 'landing', 'Track-1: Offline only.', opts.blockers))
   for (const [index, done] of checks.entries()) {
-    if (!done) writeIssue(cwd, index + 1, `Capability ${index + 1}`)
+    writeIssue(
+      cwd,
+      index + 1,
+      `Capability ${index + 1}`,
+      done ? 'Claim: claimed\nProof: green\n' : '',
+    )
   }
   const messages: string[] = []
   const children = opts.children ?? waveChildren()
@@ -174,6 +198,45 @@ describe('Ready-set', () => {
     expect(text).toContain('Ticket 1:')
     expect(text).toContain('Ticket 3:')
     expect(text).not.toMatch(/Active Ticket/i)
+  })
+})
+
+describe('proof sweep helpers', () => {
+  it('sweeps currently-已关闭 plus already-landed 已认领 whose blockers are 已关闭', () => {
+    const t1 = { ...ticket('1'), done: true }
+    const t2 = ticket('2', ['1'])
+    const t3 = ticket('3')
+    const t4 = ticket('4')
+    const view: LandingWaveView = {
+      tickets: [t1, t2, t3, t4],
+      claimed: new Set(['1', '2', '3', '4']),
+      inFlight: new Set(['3']),
+      finished: new Set(['2']),
+      worktrees: new Set(['2', '3']),
+    }
+    expect(sweepProofTargets(view).map(row => row.id)).toEqual(['1', '4'])
+  })
+
+  it('unticks already-closed DAG dependents of a failed sibling, not every later-N', () => {
+    const t1 = { ...ticket('1'), done: true }
+    const t2 = { ...ticket('2', ['1']), done: true }
+    const t3 = { ...ticket('3'), done: true }
+    expect(cascadeClosedDependents([t1, t2, t3], new Set(['1']))).toEqual(['2'])
+    expect(dispatchedDependents([t1, t2, t3], new Set(['1']), new Set(['2', '3']))).toEqual(['2'])
+  })
+
+  it('writes one ledger commit that lists every ticket that failed this sweep', () => {
+    const t1 = ticket('1')
+    const t2 = { ...ticket('2'), done: true }
+    const body = sweepBlockerBody([t2, t1])
+    expect(body).toContain('Ticket 1:')
+    expect(body).toContain('Ticket 2:')
+    expect(proofSweepCommitMessage(t1, [t2])).toContain('ship: tick Ticket 1')
+    expect(proofSweepCommitMessage(undefined, [t1, t2])).toBe(`ship: proof sweep\n\n${body}`)
+    const next = writeBlockerSection('Status: landing\n\n## Plan\n\n- [x] Ticket 1: a\n', body)
+    expect(next).toMatch(/^## Blocker$/m)
+    expect(next).toContain('Ticket 1:')
+    expect(writeBlockerSection(next, undefined)).not.toMatch(/^## Blocker$/m)
   })
 })
 
@@ -334,5 +397,142 @@ describe('ship landing coordinator', () => {
     expect(plan.tickets[0]?.blockers).toEqual(['1'])
     expect(plan.active?.contract).toContain('(Track: 1)')
     expect(landingPlan('## Plan\n\n- [ ] Ticket 1: broken (Blocked by: 2)\n').error).toContain('Unknown')
+  })
+
+  it('after a Tick, a sibling 已关闭 that fails is unticked with Proof: red, Claim kept, and closed DAG dependents untick without rewriting Last proof', async () => {
+    const prove = async (ticket: { id: string; kind: 'sweep' | 'land' }): Promise<'green' | 'red'> => {
+      if (ticket.id === '1' && ticket.kind === 'land') return 'green'
+      if (ticket.id === '2') return 'red'
+      return 'green'
+    }
+    const { ship, path, cwd, children, git } = fixture([true, true, true, false], {
+      blockers: ['none', 'none', '2', 'none'],
+      prove,
+    })
+    const running = ship.run('', async () => {})
+    await waitUntil(() => children.created.length === 1)
+    expect(children.created.map(row => row.graphKey)).toEqual(['landing:4'])
+    children.finish('landing:4')
+    await running
+    const markdown = readFileSync(path, 'utf8')
+    expect(markdown).toMatch(/- \[x\] Ticket 1:/u)
+    expect(markdown).toMatch(/- \[ \] Ticket 2:/u)
+    expect(markdown).toMatch(/- \[ \] Ticket 3:/u)
+    expect(markdown).toMatch(/- \[x\] Ticket 4:/u)
+    expect(markdown).toMatch(/^## Blocker$/m)
+    expect(markdown).toContain('Ticket 2:')
+    const issue2 = readFileSync(join(cwd, '.scratch', 'exports', 'issues', '02-capability-2.md'), 'utf8')
+    expect(issue2).toMatch(/^Claim:\s*claimed\b/mu)
+    expect(issue2).toMatch(/^Proof:\s*red\b/mu)
+    const issue3 = readFileSync(join(cwd, '.scratch', 'exports', 'issues', '03-capability-3.md'), 'utf8')
+    expect(issue3).toMatch(/^Proof:\s*green\b/mu)
+    expect(issue3).toMatch(/^Claim:\s*claimed\b/mu)
+    const tickCommits = git.log.filter(entry => entry.includes('commit -m') && /tick Ticket 4|proof sweep/.test(entry))
+    expect(tickCommits).toHaveLength(1)
+  })
+
+  it('freezes new dispatch and further serial merges on a Blocker while in-flight independents finish as leftover 已认领', async () => {
+    const prove = async (ticket: { id: string; kind: 'sweep' | 'land' }): Promise<'green' | 'red'> => (
+      ticket.id === '1' && ticket.kind === 'land' ? 'red' : 'green'
+    )
+    const { ship, path, cwd, children, git } = fixture([false, false, false], {
+      blockers: ['none', 'none', 'none'],
+      prove,
+    })
+    const running = ship.run('', async () => {})
+    await waitUntil(() => children.created.length === 3)
+    children.finish('landing:1')
+    await waitUntil(() => git.log.some(entry => entry.includes('merge --no-ff') && /Ticket 1/.test(entry)))
+    await waitUntil(() => readFileSync(path, 'utf8').includes('## Blocker'))
+    expect(children.created).toHaveLength(3)
+    expect(git.log.filter(entry => entry.includes('merge --no-ff'))).toHaveLength(1)
+    children.finish('landing:2')
+    await new Promise(resolve => { setTimeout(resolve, 40) })
+    expect(git.log.filter(entry => entry.includes('merge --no-ff'))).toHaveLength(1)
+    expect(existsSync(join(cwd, '.scratch', 'exports', 'worktrees', 'landing-2'))).toBe(true)
+    expect(readFileSync(join(cwd, '.scratch', 'exports', 'issues', '02-capability-2.md'), 'utf8')).toMatch(/^Claim:\s*claimed\b/mu)
+    expect(children.created.map(row => row.graphKey).sort()).toEqual(['landing:1', 'landing:2', 'landing:3'])
+    ship.abort()
+    await running
+  })
+
+  it('drops already-dispatched dependents of an unticked ancestor, keeping Claim and the same landing-N names', async () => {
+    const prove = async (ticket: { id: string }): Promise<'green' | 'red'> => (ticket.id === '1' ? 'red' : 'green')
+    const { ship, cwd, children, git } = fixture([false, false], {
+      blockers: ['none', '1'],
+      prove,
+    })
+    mkdirSync(join(cwd, '.scratch', 'exports', 'worktrees', 'landing-2'), { recursive: true })
+    writeIssue(cwd, 2, 'Capability 2', 'Claim: claimed\n')
+    const running = ship.run('', async () => {})
+    await waitUntil(() => children.created.some(row => row.graphKey === 'landing:1'))
+    children.finish('landing:1')
+    await running
+    expect(existsSync(join(cwd, '.scratch', 'exports', 'worktrees', 'landing-2'))).toBe(false)
+    expect(readFileSync(join(cwd, '.scratch', 'exports', 'issues', '02-capability-2.md'), 'utf8')).toMatch(/^Claim:\s*claimed\b/mu)
+    expect(git.log.some(entry => /worktree remove/.test(entry) && /landing-2/.test(entry))).toBe(true)
+    expect(git.log.some(entry => /branch -D wt\/exports\/landing-2/.test(entry))).toBe(true)
+    expect(children.created.every(row => row.graphKey !== 'landing:2')).toBe(true)
+  })
+
+  it('resumes an unticked keep-commit as In-place repair on the parent cwd with no second land merge', async () => {
+    const { path, cwd, children, git, messages } = fixture([false, false], {
+      blockers: ['none', 'none'],
+    })
+    writeIssue(cwd, 1, 'Capability 1', 'Claim: claimed\nProof: red\n')
+    writeFileSync(path, spec([false, false], 'landing', 'Track-1: Offline only.', ['none', 'none']))
+    const ship = new ShipRun(cwd, { setPlan: () => {}, setChip: () => {} }, {
+      flash: text => { messages.push(text) },
+      childCreate: children,
+      git,
+    })
+    const running = ship.run('', async () => {})
+    await waitUntil(() => children.created.some(row => row.role === 'repair'))
+    const repair = children.created.find(row => row.role === 'repair')
+    expect(repair?.graphKey).toBe('landing:1')
+    expect(repair?.cwd === undefined || repair?.cwd === cwd).toBe(true)
+    expect(git.log.some(entry => entry.includes('merge --no-ff'))).toBe(false)
+    expect(children.created.every(row => row.graphKey !== 'landing:2' || row.role === 'repair')).toBe(true)
+    children.finish('landing:1')
+    await waitUntil(() => git.log.some(entry => /tick Ticket 1/.test(entry)))
+    expect(git.log.filter(entry => entry.includes('merge --no-ff'))).toHaveLength(0)
+    expect(readFileSync(path, 'utf8')).toMatch(/- \[x\] Ticket 1:/u)
+    ship.abort()
+    await running
+  })
+
+  it('interrupts In-place repair with reset --hard and no Blocker; crash snapshots, restores, and writes a Blocker', async () => {
+    const { path, cwd, messages } = fixture([false], { blockers: ['none'] })
+    writeIssue(cwd, 1, 'Capability 1', 'Claim: claimed\nProof: red\n')
+    writeFileSync(path, spec([false], 'landing', 'Track-1: Offline only.', ['none']))
+    const interruptGit = recordingGit()
+    const interruptChildren = waveChildren()
+    const interrupt = new ShipRun(cwd, { setPlan: () => {}, setChip: () => {} }, {
+      flash: text => { messages.push(text) },
+      childCreate: interruptChildren,
+      git: interruptGit,
+    })
+    const running = interrupt.run('', async () => {})
+    await waitUntil(() => interruptChildren.created.some(row => row.role === 'repair'))
+    interrupt.abort()
+    await running
+    expect(interruptGit.log.some(entry => entry.includes('reset --hard'))).toBe(true)
+    expect(readFileSync(path, 'utf8')).not.toMatch(/^## Blocker$/m)
+
+    const crashGit = recordingGit()
+    const crashChildren = waveChildren()
+    const crashMessages: string[] = []
+    const crash = new ShipRun(cwd, { setPlan: () => {}, setChip: () => {} }, {
+      flash: text => { crashMessages.push(text) },
+      childCreate: crashChildren,
+      git: crashGit,
+    })
+    const crashing = crash.run('', async () => {})
+    await waitUntil(() => crashChildren.created.some(row => row.role === 'repair'))
+    crashChildren.fail('landing:1')
+    await crashing
+    expect(crashGit.log.some(entry => entry.includes('reset --hard'))).toBe(true)
+    expect(readFileSync(path, 'utf8')).toMatch(/^## Blocker$/m)
+    expect(existsSync(join(cwd, '.scratch', 'exports', 'merge-snapshots'))).toBe(true)
   })
 })

@@ -13,12 +13,18 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, unlinkSync, w
 import { basename, dirname, join, resolve, sep } from 'node:path'
 import { parseMainTrack, parseOriginalRequirement, parsePlan, parseShipBlocker, parseShipStatus, parseSpecMetadata, pickLiveShip, planInFlight, plansEqual } from './plan.ts'
 import {
+  cascadeClosedDependents,
+  dispatchedDependents,
   landingPlan,
+  landingTicketTitle,
   landingWavePrepend,
   landMergeMessage,
+  proofSweepCommitMessage,
   readySet,
   sameLandingPlan,
-  tickCommitMessage,
+  sweepBlockerBody,
+  sweepProofTargets,
+  writeBlockerSection,
   worktreeCommitMessage,
   type LandingPlan,
   type LandingTicket,
@@ -258,10 +264,11 @@ export interface ShipPorts {
   folds?: ShipFoldBind
   git?: ShipGit
   /**
-   * Parent proof after a land merge. Unit tests fake this; absent is green.
-   * Do not run the real suite inside unit tests.
+   * Named proof after a land merge (`kind: 'land'`) or during a proof sweep
+   * (`kind: 'sweep'`). Unit tests fake this; absent is green. Do not run the
+   * real suite inside unit tests.
    */
-  prove?: (ticket: { id: string; contract: string }) => Promise<'green' | 'red'>
+  prove?: (ticket: { id: string; contract: string; kind: 'sweep' | 'land' }) => Promise<'green' | 'red'>
   /** False on a pipe: sidecar still rebuilds, no Fold. Default true. */
   isTty?: boolean
 }
@@ -364,6 +371,17 @@ export class ShipRun {
   private readonly children = new Map<string, ShipChildHandle>()
   /** Landing ticket ids whose child `done` settled this run; Ready-set input. */
   private readonly finishedLanding = new Set<string>()
+  /** Landing children whose `done` rejected (crash / timeout). */
+  private readonly crashedLanding = new Set<string>()
+  /**
+   * Blocker freeze: no new worktrees and no further serial merges. In-flight
+   * independents still settle as leftover 已认领.
+   */
+  private landingFrozen = false
+  /** Pre-child HEAD for an in-flight In-place repair; interrupt restores it. */
+  private inPlacePreHead: string | undefined
+  /** Landing ticket id currently in In-place repair, when any. */
+  private inPlaceTicketId: string | undefined
   /** Cached host `user.name` / `user.email` for runner-authored commits. */
   private gitIdentity: { name: string; email: string } | undefined
 
@@ -605,6 +623,10 @@ export class ShipRun {
     this.halted = false
     this.ignoredSpecs = new Set()
     this.finishedLanding.clear()
+    this.crashedLanding.clear()
+    this.landingFrozen = false
+    this.inPlacePreHead = undefined
+    this.inPlaceTicketId = undefined
     this.gitIdentity = undefined
     this.startWatch()
     this.refresh()
@@ -654,6 +676,7 @@ export class ShipRun {
       if (this.advance === advance) {
         this.advance = undefined
         this.stopWatch()
+        await this.interruptInPlaceRepair()
         this.refresh()
         if (
           !advance.signal.aborted
@@ -1358,12 +1381,15 @@ export class ShipRun {
   /**
    * Claim leftover worktrees, then AFK-dispatch unblocked research and
    * unclaimed landing tickets. No parent model turn is spent here.
+   * In-place repair runs on `ship/<slug>`; new 待认领 worktrees wait until
+   * that queue and Ready-set drain are idle.
    */
   private async reclaimAndDispatch(): Promise<void> {
     this.reclaimLeftoverWorktrees()
     this.rebuildGraph()
     if (this.halted || this.contractInvalid || this.inPlanMode()) return
     await this.dispatchResearch()
+    await this.dispatchInPlaceRepairs()
     await this.dispatchLandingChildren()
   }
 
@@ -1467,6 +1493,57 @@ export class ShipRun {
     return false
   }
 
+  private hasRepairChild(): boolean {
+    for (const child of this.children.values()) {
+      if (child.role === 'repair') return true
+    }
+    return false
+  }
+
+  private repairPrompt(node: ShipGraphNode): string {
+    const n = /^landing:(\d+)$/u.exec(node.id)?.[1] ?? ''
+    return [
+      `Ticket ${n}: ${node.title}`,
+      `Bound spec: ${this.followedSpec ?? ''}`,
+      'In-place repair on the parent ship/<slug> tree. The kept land merge is the base. Do not tick the plan checkbox. Children never commit. No second land merge.',
+      'Return at most 20 lines naming the result plus evidence paths.',
+    ].join('\n')
+  }
+
+  /**
+   * Resume of an unticked keep-commit: one In-place repair child on the
+   * parent `ship/<slug>` tree. New 待认领 worktrees wait until this is idle.
+   */
+  private async dispatchInPlaceRepairs(): Promise<void> {
+    if (this.ports.childCreate === undefined) return
+    if (shipPhaseKind(this.status()) !== 'land') return
+    if (this.landingFrozen || parseShipBlocker(this.followedMarkdown() ?? '') !== undefined) return
+    if (this.inPlaceTicketId !== undefined || this.hasRepairChild()) return
+    this.rebuildGraph()
+    const view = this.waveView()
+    const closed = new Set(view.tickets.filter(ticket => ticket.done).map(ticket => ticket.id))
+    const next = view.tickets
+      .filter(ticket => !ticket.done)
+      .filter(ticket => view.claimed.has(ticket.id))
+      .filter(ticket => !view.worktrees.has(ticket.id))
+      .filter(ticket => !view.inFlight.has(ticket.id))
+      .filter(ticket => ticket.blockers.every(id => closed.has(id)))
+      .slice()
+      .sort((a, b) => Number(a.id) - Number(b.id))[0]
+    if (next === undefined) return
+    const graphKey = `landing:${next.id}`
+    const node = this.graph?.nodes.find(candidate => candidate.id === graphKey) ?? {
+      id: graphKey,
+      kind: 'landing' as const,
+      title: landingTicketTitle(next.contract),
+      claim: 'claimed' as const,
+    }
+    const head = (await this.git(['rev-parse', 'HEAD'])).output.trim()
+    this.inPlacePreHead = head === '' ? 'HEAD' : head
+    this.inPlaceTicketId = next.id
+    await this.dispatchChild(node, this.repairPrompt(node), { cwd: this.cwd, role: 'repair' })
+  }
+
   private async dispatchResearch(): Promise<void> {
     if (this.ports.childCreate === undefined || this.graph === undefined) return
     const jobs: Promise<void>[] = []
@@ -1483,7 +1560,10 @@ export class ShipRun {
   private async dispatchLandingChildren(): Promise<void> {
     if (this.ports.childCreate === undefined || this.graph === undefined) return
     if (shipPhaseKind(this.status()) !== 'land') return
+    if (this.landingFrozen) return
     if (parseShipBlocker(this.followedMarkdown() ?? '') !== undefined) return
+    if (this.inPlaceTicketId !== undefined || this.hasRepairChild()) return
+    if (readySet(this.waveView()).length > 0) return
     const slug = this.slug()
     if (slug === undefined) return
     const pending: ShipGraphNode[] = []
@@ -1534,10 +1614,14 @@ export class ShipRun {
     await this.git(['commit', '-m', `ship: claim ${graphKey}`])
   }
 
-  private async dispatchChild(node: ShipGraphNode, prompt: string): Promise<void> {
+  private async dispatchChild(
+    node: ShipGraphNode,
+    prompt: string,
+    opts: { cwd?: string; role?: 'conflict' | 'repair' } = {},
+  ): Promise<void> {
     const create = this.ports.childCreate
     if (create === undefined) return
-    const cwd = await this.ensureWorktree(node.id)
+    const cwd = opts.role === 'repair' ? (opts.cwd ?? this.cwd) : opts.cwd ?? await this.ensureWorktree(node.id)
     const n = /^landing:(\d+)$/u.exec(node.id)?.[1]
     const label = n === undefined ? node.title : `Ticket ${n}: ${node.title}`
     try {
@@ -1546,17 +1630,21 @@ export class ShipRun {
         label,
         prompt,
         ...(cwd === undefined ? {} : { cwd }),
+        ...(opts.role === undefined ? {} : { role: opts.role }),
       })
       const landingId = this.landingTicketId(node.id)
-      const tracked = landingId === undefined || handle.done === undefined
-        ? handle
-        : {
-            ...handle,
-            done: Promise.resolve(handle.done).then(
-              () => { this.finishedLanding.add(landingId) },
-              () => { this.finishedLanding.add(landingId) },
-            ),
-          }
+      const tracked: ShipChildHandle = {
+        ...handle,
+        ...(opts.role === undefined ? {} : { role: opts.role }),
+        ...(landingId === undefined || handle.done === undefined
+          ? {}
+          : {
+              done: Promise.resolve(handle.done).then(
+                () => { this.finishedLanding.add(landingId) },
+                () => { this.crashedLanding.add(landingId) },
+              ),
+            }),
+      }
       this.children.set(tracked.id, tracked)
       if (this.ports.isTty !== false) this.ports.folds?.bind(tracked.id, label)
       if (landingId === undefined && tracked.done !== undefined) {
@@ -1564,6 +1652,10 @@ export class ShipRun {
       }
     } catch {
       this.ports.flash?.(`Could not dispatch ${label}`)
+      if (opts.role === 'repair') {
+        this.inPlaceTicketId = undefined
+        this.inPlacePreHead = undefined
+      }
     }
   }
 
@@ -1614,6 +1706,28 @@ export class ShipRun {
     return this.halted || this.advance?.signal.aborted === true || this.inPlanMode() || !this.guardContract()
   }
 
+  /** Drain freeze: no further serial merges. In-flight children still settle. */
+  private landingDrainFrozen(): boolean {
+    return this.landingFrozen || parseShipBlocker(this.followedMarkdown() ?? '') !== undefined
+  }
+
+  /** True when dispatch, in-place, or Ready-set can still move without a freeze. */
+  private canProgressLanding(): boolean {
+    if (this.landingDrainFrozen()) return false
+    if (this.inPlaceTicketId !== undefined || this.hasRepairChild()) return true
+    const view = this.waveView()
+    if (readySet(view).length > 0) return true
+    const closed = new Set(view.tickets.filter(ticket => ticket.done).map(ticket => ticket.id))
+    return view.tickets.some(ticket => {
+      if (ticket.done) return false
+      if (!ticket.blockers.every(id => closed.has(id))) return false
+      if (view.claimed.has(ticket.id)) {
+        return !view.worktrees.has(ticket.id) && !view.inFlight.has(ticket.id)
+      }
+      return !this.hasChildFor(`landing:${ticket.id}`)
+    })
+  }
+
   private waveView(): LandingWaveView {
     const tickets = landingPlan(this.followedMarkdown() ?? '').tickets
     const claimed = new Set<string>()
@@ -1625,7 +1739,7 @@ export class ShipRun {
     const inFlight = new Set<string>()
     for (const child of this.children.values()) {
       const id = this.landingTicketId(child.graphKey)
-      if (id === undefined || this.finishedLanding.has(id)) continue
+      if (id === undefined || this.finishedLanding.has(id) || this.crashedLanding.has(id)) continue
       inFlight.add(id)
     }
     const worktrees = new Set<string>()
@@ -1655,7 +1769,8 @@ export class ShipRun {
     while (!this.landingStopped()) {
       const markdown = this.followedMarkdown() ?? ''
       const blocker = parseShipBlocker(markdown)
-      if (blocker !== undefined) {
+      if (blocker !== undefined && this.waveView().inFlight.size === 0 && !this.hasRepairChild()) {
+        this.landingFrozen = true
         this.block(`Ship has an unresolved ## Blocker. Stopped; resolve it before resuming.\n${blocker}`)
         return
       }
@@ -1665,7 +1780,7 @@ export class ShipRun {
         this.block('Approved ship plan changed during a ticket turn. Stopped; restore the plan before resuming.')
         return
       }
-      if (plan.tickets.every(ticket => ticket.done)) {
+      if (plan.tickets.every(ticket => ticket.done) && parseShipBlocker(this.followedMarkdown() ?? '') === undefined) {
         await this.runLandingVerification(turn, plan)
         return
       }
@@ -1673,12 +1788,24 @@ export class ShipRun {
       await this.reclaimAndDispatch()
       await Promise.resolve()
       if (this.landingStopped()) return
-      await this.drainReadySet()
+      await this.settleCrashedRepairs()
+      await this.settleFinishedRepairs()
       if (this.landingStopped()) return
-      if (landingPlan(this.followedMarkdown() ?? '').tickets.every(ticket => ticket.done)) continue
+      if (!this.landingDrainFrozen()) await this.drainReadySet()
+      if (this.landingStopped()) return
+      if (landingPlan(this.followedMarkdown() ?? '').tickets.every(ticket => ticket.done)
+        && parseShipBlocker(this.followedMarkdown() ?? '') === undefined) continue
       if (this.waveView().inFlight.size > 0) {
         if (!await this.waitForLandingChild()) return
         continue
+      }
+      if (this.landingDrainFrozen()) {
+        this.landingFrozen = true
+        const recorded = parseShipBlocker(this.followedMarkdown() ?? '')
+        if (recorded !== undefined) {
+          this.block(`Ship has an unresolved ## Blocker. Stopped; resolve it before resuming.\n${recorded}`)
+        }
+        return
       }
       if (this.ports.childCreate === undefined) {
         const before = landingPlan(this.followedMarkdown() ?? '')
@@ -1689,7 +1816,9 @@ export class ShipRun {
         } else if (after.tickets.some((ticket, index) => ticket.done && !before.tickets[index]?.done)) {
           continue
         }
+        return
       }
+      if (this.canProgressLanding()) continue
       return
     }
   }
@@ -1697,7 +1826,7 @@ export class ShipRun {
   private async drainReadySet(): Promise<boolean> {
     let any = false
     for (;;) {
-      if (this.landingStopped()) return any
+      if (this.landingStopped() || this.landingDrainFrozen()) return any
       this.rebuildGraph()
       const next = readySet(this.waveView())[0]
       if (next === undefined) return any
@@ -1709,9 +1838,12 @@ export class ShipRun {
   private async waitForLandingChild(): Promise<boolean> {
     const pending = [...this.children.values()].filter(child => {
       const id = this.landingTicketId(child.graphKey)
-      return id !== undefined && !this.finishedLanding.has(id) && child.done !== undefined
+      return id !== undefined
+        && !this.finishedLanding.has(id)
+        && !this.crashedLanding.has(id)
+        && child.done !== undefined
     })
-    if (pending.length === 0) return false
+    if (pending.length === 0) return this.crashedLanding.size > 0
     const abort = this.advance?.signal
     await new Promise<void>(resolve => {
       let settled = false
@@ -1724,7 +1856,7 @@ export class ShipRun {
       abort?.addEventListener('abort', finish, { once: true })
       void Promise.race(pending.map(child => child.done ?? Promise.resolve())).then(finish, finish)
     })
-    return !this.landingStopped()
+    return this.advance?.signal.aborted !== true && !this.inPlanMode() && this.guardContract()
   }
 
   private async landTicket(ticket: LandingTicket): Promise<void> {
@@ -1736,7 +1868,7 @@ export class ShipRun {
     const ref = `wt/${slug}/${directory}`
     await this.git(['add', '-A'], worktree)
     await this.gitAsHost(['commit', '-m', worktreeCommitMessage(ticket)], worktree)
-    if (this.landingStopped()) return
+    if (this.landingStopped() || this.landingDrainFrozen()) return
     const merged = await this.gitAsHost(['merge', '--no-ff', '-m', landMergeMessage(ticket), ref])
     if (merged.code !== 0) {
       await this.git(['merge', '--abort'])
@@ -1751,29 +1883,215 @@ export class ShipRun {
       if (child.graphKey === graphKey) await this.releaseChild(child.id)
     }
     if (this.landingStopped()) return
-    const color = this.ports.prove === undefined ? 'green' : await this.ports.prove({ id: ticket.id, contract: ticket.contract })
+    const color = await this.proveTicket(ticket, 'land')
     this.writeLandingProof(Number(ticket.id), color)
-    if (color === 'green') await this.tickLanded(ticket)
+    await this.commitProofSweep(
+      color === 'green' ? ticket : undefined,
+      color === 'red' ? [ticket] : [],
+    )
     this.refresh()
     this.persistSnapshot()
     this.rebuildGraph()
   }
 
-  private async tickLanded(ticket: LandingTicket): Promise<void> {
+  private async proveTicket(ticket: LandingTicket, kind: 'sweep' | 'land'): Promise<'green' | 'red'> {
+    if (this.ports.prove === undefined) return 'green'
+    return this.ports.prove({ id: ticket.id, contract: ticket.contract, kind })
+  }
+
+  private tickCheckbox(markdown: string, id: string, done: boolean): string {
+    const mark = done ? 'x' : ' '
+    return markdown.replace(
+      new RegExp(`^([ \\t]*[-*][ \\t]+)\\[[ xX]\\]([ \\t]+Ticket\\s+${id}:)`, 'imu'),
+      `$1[${mark}]$2`,
+    )
+  }
+
+  /**
+   * After a land merge and after a Tick: named proofs of currently-已关闭
+   * plus already-landed 已认领 whose blockers are 已关闭. One ledger commit.
+   */
+  private async commitProofSweep(
+    ticked: LandingTicket | undefined,
+    seedFailed: readonly LandingTicket[] = [],
+  ): Promise<void> {
     const specPath = this.followedSpec
     if (specPath === undefined) return
-    let markdown = this.followedMarkdown() ?? ''
-    markdown = markdown.replace(
-      new RegExp(`^([ \\t]*[-*][ \\t]+)\\[[ xX]\\]([ \\t]+Ticket\\s+${ticket.id}:)`, 'imu'),
-      '$1[x]$2',
+    if (ticked !== undefined) {
+      const tickedMarkdown = this.tickCheckbox(this.followedMarkdown() ?? '', ticked.id, true)
+      writeFileSync(specPath, tickedMarkdown.endsWith('\n') ? tickedMarkdown : `${tickedMarkdown}\n`)
+    }
+    this.refresh()
+    this.rebuildGraph()
+    const view = this.waveView()
+    const failed: LandingTicket[] = [...seedFailed]
+    const skip = new Set([
+      ...seedFailed.map(ticket => ticket.id),
+      ...(ticked === undefined ? [] : [ticked.id]),
+    ])
+    for (const ticket of sweepProofTargets(view)) {
+      if (skip.has(ticket.id)) continue
+      const color = await this.proveTicket(ticket, 'sweep')
+      if (color === 'red') {
+        failed.push(ticket)
+        this.writeLandingProof(Number(ticket.id), 'red')
+      }
+    }
+    const closedDependents = cascadeClosedDependents(
+      landingPlan(this.followedMarkdown() ?? '').tickets,
+      new Set(failed.map(ticket => ticket.id)),
     )
+    let markdown = this.followedMarkdown() ?? ''
+    for (const ticket of failed) markdown = this.tickCheckbox(markdown, ticket.id, false)
+    for (const id of closedDependents) markdown = this.tickCheckbox(markdown, id, false)
+    if (failed.length > 0) markdown = writeBlockerSection(markdown, sweepBlockerBody(failed))
     writeFileSync(specPath, markdown.endsWith('\n') ? markdown : `${markdown}\n`)
     const slug = this.slug()
-    const scratch = slug === undefined
+    const scratchPaths: string[] = []
+    if (slug !== undefined) {
+      const ids = new Set([
+        ...(ticked === undefined ? [] : [ticked.id]),
+        ...failed.map(ticket => ticket.id),
+      ])
+      for (const id of ids) {
+        const path = this.scratchFile(join(this.cwd, '.scratch', slug, 'issues'), Number(id))
+        if (path !== undefined) scratchPaths.push(path)
+      }
+    }
+    await this.git(['add', '--', specPath, ...scratchPaths])
+    await this.gitAsHost(['commit', '-m', proofSweepCommitMessage(ticked, failed)])
+    if (failed.length > 0) {
+      this.landingFrozen = true
+      await this.dropDispatchedDependents(new Set(failed.map(ticket => ticket.id)))
+    }
+  }
+
+  private async dropDispatchedDependents(failed: ReadonlySet<string>): Promise<void> {
+    const tickets = landingPlan(this.followedMarkdown() ?? '').tickets
+    const dispatched = new Set<string>()
+    for (const ticket of tickets) {
+      const graphKey = `landing:${ticket.id}`
+      if (this.leftoverWorktree(graphKey) || this.hasChildFor(graphKey)) dispatched.add(ticket.id)
+    }
+    const drop = dispatchedDependents(tickets, failed, dispatched)
+    const slug = this.slug()
+    for (const id of drop) {
+      const graphKey = `landing:${id}`
+      const worktree = this.worktreePath(graphKey)
+      const directory = worktreeDirectory(graphKey)
+      if (worktree === undefined || directory === undefined || slug === undefined) continue
+      const ref = `wt/${slug}/${directory}`
+      await this.git(['worktree', 'remove', '--force', worktree])
+      await this.git(['branch', '-D', ref])
+      try { rmSync(worktree, { recursive: true, force: true }) } catch { /* Claim stays; same landing-N names */ }
+      this.finishedLanding.delete(id)
+      for (const child of [...this.children.values()]) {
+        if (child.graphKey === graphKey) await this.releaseChild(child.id)
+      }
+    }
+  }
+
+  private async settleFinishedRepairs(): Promise<void> {
+    const id = this.inPlaceTicketId
+    if (id === undefined || !this.finishedLanding.has(id)) return
+    const ticket = landingPlan(this.followedMarkdown() ?? '').tickets.find(row => row.id === id)
+    for (const child of [...this.children.values()]) {
+      if (child.role === 'repair' && this.landingTicketId(child.graphKey) === id) await this.releaseChild(child.id)
+    }
+    this.inPlaceTicketId = undefined
+    this.inPlacePreHead = undefined
+    this.finishedLanding.delete(id)
+    if (ticket === undefined) return
+    const color = await this.proveTicket(ticket, 'land')
+    this.writeLandingProof(Number(ticket.id), color)
+    await this.commitProofSweep(
+      color === 'green' ? ticket : undefined,
+      color === 'red' ? [ticket] : [],
+    )
+    this.refresh()
+    this.persistSnapshot()
+    this.rebuildGraph()
+  }
+
+  private async settleCrashedRepairs(): Promise<void> {
+    const crashed = [...this.crashedLanding]
+    if (crashed.length === 0) return
+    this.crashedLanding.clear()
+    for (const id of crashed) {
+      if (this.inPlaceTicketId === id) {
+        await this.failInPlaceRepair(id)
+        continue
+      }
+      this.finishedLanding.add(id)
+    }
+  }
+
+  private async interruptInPlaceRepair(): Promise<void> {
+    const id = this.inPlaceTicketId
+    const head = this.inPlacePreHead
+    if (id === undefined) return
+    this.inPlaceTicketId = undefined
+    this.inPlacePreHead = undefined
+    for (const child of [...this.children.values()]) {
+      if (child.role === 'repair' && this.landingTicketId(child.graphKey) === id) await this.releaseChild(child.id)
+    }
+    if (head !== undefined && head !== '') await this.git(['reset', '--hard', head])
+  }
+
+  private async failInPlaceRepair(id: string): Promise<void> {
+    const head = this.inPlacePreHead
+    const ticket = landingPlan(this.followedMarkdown() ?? '').tickets.find(row => row.id === id)
+    await this.writeMergeSnapshot(id)
+    if (head !== undefined && head !== '') await this.git(['reset', '--hard', head])
+    for (const child of [...this.children.values()]) {
+      if (child.role === 'repair' && this.landingTicketId(child.graphKey) === id) await this.releaseChild(child.id)
+    }
+    this.inPlaceTicketId = undefined
+    this.inPlacePreHead = undefined
+    this.landingFrozen = true
+    const specPath = this.followedSpec
+    if (specPath === undefined) return
+    const body = ticket === undefined
+      ? `- Ticket ${id} (In-place repair crashed)`
+      : sweepBlockerBody([ticket])
+    const markdown = writeBlockerSection(this.followedMarkdown() ?? '', body)
+    writeFileSync(specPath, markdown.endsWith('\n') ? markdown : `${markdown}\n`)
+    const slug = this.slug()
+    const snapshotIgnore = slug === undefined
       ? undefined
-      : this.scratchFile(join(this.cwd, '.scratch', slug, 'issues'), Number(ticket.id))
-    await this.git(['add', '--', specPath, ...(scratch === undefined ? [] : [scratch])])
-    await this.gitAsHost(['commit', '-m', tickCommitMessage(ticket)])
+      : join(this.cwd, '.scratch', slug, 'merge-snapshots', '.gitignore')
+    await this.git(['add', '--', specPath, ...(snapshotIgnore === undefined ? [] : [snapshotIgnore])])
+    await this.git(['add', '-f', '--', ...(await this.mergeSnapshotPaths(id))])
+    await this.gitAsHost(['commit', '-m', `ship: Blocker Ticket ${id} — In-place repair crashed`])
+    this.block(`Ship has an unresolved ## Blocker. Stopped; resolve it before resuming.\n${body}`)
+  }
+
+  private async writeMergeSnapshot(id: string): Promise<void> {
+    const slug = this.slug()
+    if (slug === undefined) return
+    const directory = worktreeDirectory(`landing:${id}`) ?? `landing-${id}`
+    const utc = new Date().toISOString().replace(/[:.]/gu, '-')
+    const root = join(this.cwd, '.scratch', slug, 'merge-snapshots')
+    mkdirSync(root, { recursive: true })
+    const ignore = join(root, '.gitignore')
+    if (!existsSync(ignore)) writeFileSync(ignore, '*\n')
+    const dest = join(root, directory, utc)
+    mkdirSync(dest, { recursive: true })
+    const status = await this.git(['status', '--porcelain'])
+    writeFileSync(join(dest, 'status.txt'), status.output)
+    writeFileSync(join(dest, 'note.txt'), `In-place repair of Ticket ${id} crashed or timed out.\n`)
+  }
+
+  private async mergeSnapshotPaths(id: string): Promise<string[]> {
+    const slug = this.slug()
+    const directory = worktreeDirectory(`landing:${id}`) ?? `landing-${id}`
+    if (slug === undefined) return []
+    const root = join(this.cwd, '.scratch', slug, 'merge-snapshots', directory)
+    try {
+      return readdirSync(root).map(name => join(root, name))
+    } catch {
+      return []
+    }
   }
 
   private writeLandingProof(n: number, color: 'green' | 'red'): void {
