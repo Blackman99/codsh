@@ -9,10 +9,21 @@
  * @module codsh-bundle/src/ship-run
  */
 
-import { existsSync, mkdirSync, readdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, unlinkSync, writeFileSync } from 'node:fs'
 import { basename, dirname, join, resolve, sep } from 'node:path'
-import { activeTicketBrief, parseMainTrack, parseOriginalRequirement, parsePlan, parseShipBlocker, parseShipStatus, parseSpecMetadata, pickLiveShip, planInFlight, plansEqual } from './plan.ts'
-import { landingPlan, sameLandingPlan } from './ship-landing.ts'
+import { parseMainTrack, parseOriginalRequirement, parsePlan, parseShipBlocker, parseShipStatus, parseSpecMetadata, pickLiveShip, planInFlight, plansEqual } from './plan.ts'
+import {
+  landingPlan,
+  landingWavePrepend,
+  landMergeMessage,
+  readySet,
+  sameLandingPlan,
+  tickCommitMessage,
+  worktreeCommitMessage,
+  type LandingPlan,
+  type LandingTicket,
+  type LandingWaveView,
+} from './ship-landing.ts'
 import type { Plan, ShipSpecFile } from './plan.ts'
 import { expandTemplate } from './custom-commands.ts'
 import type { SelectAsk } from './questions.ts'
@@ -246,6 +257,11 @@ export interface ShipPorts {
   /** Runner Fold bind; a pipe (`isTty: false`) never calls it. */
   folds?: ShipFoldBind
   git?: ShipGit
+  /**
+   * Parent proof after a land merge. Unit tests fake this; absent is green.
+   * Do not run the real suite inside unit tests.
+   */
+  prove?: (ticket: { id: string; contract: string }) => Promise<'green' | 'red'>
   /** False on a pipe: sidecar still rebuilds, no Fold. Default true. */
   isTty?: boolean
 }
@@ -346,6 +362,10 @@ export class ShipRun {
   private ignoredSpecs = new Set<string>()
   /** In-flight runner children, keyed by Session id. Claim never stores these. */
   private readonly children = new Map<string, ShipChildHandle>()
+  /** Landing ticket ids whose child `done` settled this run; Ready-set input. */
+  private readonly finishedLanding = new Set<string>()
+  /** Cached host `user.name` / `user.email` for runner-authored commits. */
+  private gitIdentity: { name: string; email: string } | undefined
 
   constructor(
     private readonly cwd: string,
@@ -584,6 +604,8 @@ export class ShipRun {
     this.contractInvalid = false
     this.halted = false
     this.ignoredSpecs = new Set()
+    this.finishedLanding.clear()
+    this.gitIdentity = undefined
     this.startWatch()
     this.refresh()
     if (this.chip === undefined) this.setChip({ kind: 'wayfinder' })
@@ -797,11 +819,11 @@ export class ShipRun {
     const specPath = this.followedSpec
     const landing = shipPhaseKind(status) === 'land' ? landingPlan(this.followedMarkdown() ?? '') : undefined
     const mission = this.missionForPrompt()
-    const ticket = this.activeTicketForPrompt()
-    const prepend = [track, mission, ticket].filter((part): part is string => part !== undefined).join('\n\n')
+    const allDone = landing !== undefined && landing.tickets.length > 0 && landing.tickets.every(ticket => ticket.done)
+    const prepend = [track, mission].filter((part): part is string => part !== undefined).join('\n\n')
     const prompt = shipPromptFor(status, {
-      ...(landing === undefined ? {} : { verificationOnly: landing.tickets.length > 0 && landing.active === undefined }),
-      ...(landing?.active === undefined ? {} : { activeTicket: landing.active.contract }),
+      ...(landing === undefined ? {} : { verificationOnly: allDone }),
+      ...(landing === undefined ? {} : { landingWave: landingWavePrepend(this.waveView()) }),
       ...(this.goalId === undefined ? {} : { goalId: this.goalId }),
       ...(prepend === '' ? {} : { track: prepend }),
       ...(original === undefined ? {} : { originalRequirement: original }),
@@ -810,27 +832,6 @@ export class ShipRun {
     // Parent expands `$ARGUMENTS` from originalRequirement before attaching
     // user/spec data. A first ledger still needs the typed idea filled in.
     return original === undefined ? expandTemplate(prompt, this.typedIdea) : prompt
-  }
-
-  /**
-   * Land/done only: inject the first unticked ticket as a local task pack so
-   * the executor cannot replan the whole plan each turn.
-   */
-  private activeTicketForPrompt(): string | undefined {
-    const kind = shipPhaseKind(this.status())
-    if (kind !== 'land' && kind !== 'done') return undefined
-    const specPath = this.followedSpec
-    if (specPath === undefined) return undefined
-    try {
-      const markdown = readFileSync(specPath, 'utf8')
-      const requirements = this.sealedContract?.requirements
-      const plan = parsePlan(markdown)
-      return activeTicketBrief({ ...plan, current: this.currentTicket() }, {
-        ...(requirements === undefined ? {} : { requirements }),
-      })
-    } catch {
-      return undefined
-    }
   }
 
   /** Complete the ship compass when this run's spec is shipped. */
@@ -1482,6 +1483,7 @@ export class ShipRun {
   private async dispatchLandingChildren(): Promise<void> {
     if (this.ports.childCreate === undefined || this.graph === undefined) return
     if (shipPhaseKind(this.status()) !== 'land') return
+    if (parseShipBlocker(this.followedMarkdown() ?? '') !== undefined) return
     const slug = this.slug()
     if (slug === undefined) return
     const pending: ShipGraphNode[] = []
@@ -1499,6 +1501,7 @@ export class ShipRun {
       await this.commitClaim(node.id)
     }
     await Promise.all(pending.map(node => this.dispatchChild(node, this.landingPrompt(node))))
+    await Promise.resolve()
   }
 
   private researchPrompt(node: ShipGraphNode): string {
@@ -1544,10 +1547,20 @@ export class ShipRun {
         prompt,
         ...(cwd === undefined ? {} : { cwd }),
       })
-      this.children.set(handle.id, handle)
-      if (this.ports.isTty !== false) this.ports.folds?.bind(handle.id, label)
-      if (handle.done !== undefined) {
-        void handle.done.then(() => this.releaseChild(handle.id), () => this.releaseChild(handle.id))
+      const landingId = this.landingTicketId(node.id)
+      const tracked = landingId === undefined || handle.done === undefined
+        ? handle
+        : {
+            ...handle,
+            done: Promise.resolve(handle.done).then(
+              () => { this.finishedLanding.add(landingId) },
+              () => { this.finishedLanding.add(landingId) },
+            ),
+          }
+      this.children.set(tracked.id, tracked)
+      if (this.ports.isTty !== false) this.ports.folds?.bind(tracked.id, label)
+      if (landingId === undefined && tracked.done !== undefined) {
+        void tracked.done.then(() => this.releaseChild(tracked.id), () => this.releaseChild(tracked.id))
       }
     } catch {
       this.ports.flash?.(`Could not dispatch ${label}`)
@@ -1564,73 +1577,253 @@ export class ShipRun {
     const ignore = join(root, '.gitignore')
     if (!existsSync(ignore)) writeFileSync(ignore, '*\n')
     if (!existsSync(abs)) {
-      const added = await this.git(['worktree', 'add', '-B', `wt/${slug}/${directory}`, abs])
-      if (added.code !== 0 && !existsSync(abs)) mkdirSync(abs, { recursive: true })
+      await this.git(['worktree', 'add', '-B', `wt/${slug}/${directory}`, abs])
+      if (!existsSync(abs)) mkdirSync(abs, { recursive: true })
     }
     return abs
   }
 
-  private async git(args: readonly string[]): Promise<{ code: number; output: string }> {
-    if (this.ports.git !== undefined) return this.ports.git(args, this.cwd)
+  private async git(args: readonly string[], cwd = this.cwd): Promise<{ code: number; output: string }> {
+    if (this.ports.git !== undefined) return this.ports.git(args, cwd)
     try {
-      const result = await capture('git', args, { cwd: this.cwd })
+      const result = await capture('git', args, { cwd })
       return { code: result.code ?? 1, output: result.output }
     } catch {
       return { code: 1, output: '' }
     }
   }
 
-  /** Land one ticket per turn, with host-owned checks between every dispatch. */
+  private async gitAsHost(args: readonly string[], cwd = this.cwd): Promise<{ code: number; output: string }> {
+    const identity = await this.hostGitIdentity()
+    return this.git(['-c', `user.name=${identity.name}`, '-c', `user.email=${identity.email}`, ...args], cwd)
+  }
+
+  private async hostGitIdentity(): Promise<{ name: string; email: string }> {
+    if (this.gitIdentity !== undefined) return this.gitIdentity
+    const name = (await this.git(['config', 'user.name'])).output.trim() || 'unknown'
+    const email = (await this.git(['config', 'user.email'])).output.trim() || 'unknown@unknown'
+    this.gitIdentity = { name, email }
+    return this.gitIdentity
+  }
+
+  private landingTicketId(graphKey: string): string | undefined {
+    return /^landing:(\d+)$/u.exec(graphKey)?.[1]
+  }
+
+  private landingStopped(): boolean {
+    return this.halted || this.advance?.signal.aborted === true || this.inPlanMode() || !this.guardContract()
+  }
+
+  private waveView(): LandingWaveView {
+    const tickets = landingPlan(this.followedMarkdown() ?? '').tickets
+    const claimed = new Set<string>()
+    for (const node of this.graph?.nodes ?? []) {
+      if (node.kind !== 'landing' || (node.claim !== 'claimed' && node.claim !== 'closed')) continue
+      const id = this.landingTicketId(node.id)
+      if (id !== undefined) claimed.add(id)
+    }
+    const inFlight = new Set<string>()
+    for (const child of this.children.values()) {
+      const id = this.landingTicketId(child.graphKey)
+      if (id === undefined || this.finishedLanding.has(id)) continue
+      inFlight.add(id)
+    }
+    const worktrees = new Set<string>()
+    for (const ticket of tickets) {
+      if (this.leftoverWorktree(`landing:${ticket.id}`)) worktrees.add(ticket.id)
+    }
+    return {
+      tickets,
+      claimed,
+      inFlight,
+      finished: new Set(this.finishedLanding),
+      worktrees,
+    }
+  }
+
+  /**
+   * Landing wave: dispatch is host-plane; this loop serial-merges Ready-set
+   * and proves. No parent turn per ticket and no n*3+1 breaker.
+   */
   private async runLanding(turn: ShipTurn): Promise<void> {
     const initial = landingPlan(this.followedMarkdown() ?? '')
     if (initial.tickets.length === 0) {
       this.block('Ship landing requires a non-empty approved ## Plan. Stopped; restore the approved tickets.')
       return
     }
-    const budget = initial.tickets.length * 3 + 1
-    let stalled = 0
-    for (let attempt = 0; attempt < budget; attempt += 1) {
-      if (this.halted || this.advance?.signal.aborted || this.inPlanMode() || !this.guardContract()) return
+    if (initial.error !== undefined) { this.block(initial.error); return }
+    while (!this.landingStopped()) {
       const markdown = this.followedMarkdown() ?? ''
       const blocker = parseShipBlocker(markdown)
-      if (blocker !== undefined) { this.block(`Ship has an unresolved ## Blocker. Stopped; resolve it before resuming.\n${blocker}`); return }
-      const before = landingPlan(markdown)
-      if (before.error !== undefined) { this.block(before.error); return }
+      if (blocker !== undefined) {
+        this.block(`Ship has an unresolved ## Blocker. Stopped; resolve it before resuming.\n${blocker}`)
+        return
+      }
+      const plan = landingPlan(markdown)
+      if (plan.error !== undefined) { this.block(plan.error); return }
+      if (!sameLandingPlan(initial, plan)) {
+        this.block('Approved ship plan changed during a ticket turn. Stopped; restore the plan before resuming.')
+        return
+      }
+      if (plan.tickets.every(ticket => ticket.done)) {
+        await this.runLandingVerification(turn, plan)
+        return
+      }
       await this.syncCompass()
-      await this.spendTurn(turn)
-      if (this.halted || this.advance?.signal.aborted || this.inPlanMode() || !this.guardContract()) return
-      const afterMarkdown = this.followedMarkdown() ?? ''
-      const after = landingPlan(afterMarkdown)
-      if (!sameLandingPlan(before, after)) { this.block('Approved ship plan changed during a ticket turn. Stopped; restore the plan before resuming.'); return }
-      if (after.error !== undefined) { this.block(after.error); return }
-      const newlyDone = after.tickets.filter((ticket, index) => ticket.done && !before.tickets[index]?.done)
-      if (newlyDone.length > 1 || newlyDone.some(ticket => ticket.id !== before.active?.id)) {
-        this.block('Ship turn completed tickets other than its Active Ticket. Stopped before another dispatch.')
-        return
+      await this.reclaimAndDispatch()
+      await Promise.resolve()
+      if (this.landingStopped()) return
+      await this.drainReadySet()
+      if (this.landingStopped()) return
+      if (landingPlan(this.followedMarkdown() ?? '').tickets.every(ticket => ticket.done)) continue
+      if (this.waveView().inFlight.size > 0) {
+        if (!await this.waitForLandingChild()) return
+        continue
       }
-      const next = shipPhaseKind(this.status())
-      if (next === 'done') {
-        if (before.active !== undefined || after.active !== undefined || parseShipBlocker(afterMarkdown) !== undefined) {
-          this.block('Ship may finish only in a separate final verification turn after every ticket is checked.')
-          return
+      if (this.ports.childCreate === undefined) {
+        const before = landingPlan(this.followedMarkdown() ?? '')
+        await this.spendTurn(turn)
+        const after = landingPlan(this.followedMarkdown() ?? '')
+        if (after.tickets.every(ticket => ticket.done) && !this.landingStopped()) {
+          await this.runLandingVerification(turn, after)
+        } else if (after.tickets.some((ticket, index) => ticket.done && !before.tickets[index]?.done)) {
+          continue
         }
-        this.verifyAndReconcile()
-        if (this.sealedContract?.acceptance.length && !this.lastVerify?.satisfied) {
-          const current = this.followedMarkdown()
-          if (current !== undefined && this.followedSpec !== undefined) {
-            writeFileSync(this.followedSpec, current.replace(/^Status:\s*shipped\b/imu, 'Status: landing'))
-          }
-          this.block('Verifier: acceptance evidence incomplete. Delivery blocked; restore proof evidence before resuming.')
-        }
-        return
       }
-      if (next !== 'land') { this.block(`Invalid ship phase transition during landing: ${next}. Stopped.`); return }
-      const degraded = after.tickets.some((ticket, index) => !ticket.done && before.tickets[index]?.done)
-      if (newlyDone.length === 0 && !degraded) stalled += 1
-      else stalled = 0
-      if (stalled >= 2) { this.block('Ship stopped after two consecutive turns without ticket progress. Inspect the evidence before resuming.'); return }
+      return
     }
-    this.block(`Ship stopped at its landing turn budget (${budget}). Progress remains on disk; inspect blockers before resuming.`)
+  }
+
+  private async drainReadySet(): Promise<boolean> {
+    let any = false
+    for (;;) {
+      if (this.landingStopped()) return any
+      this.rebuildGraph()
+      const next = readySet(this.waveView())[0]
+      if (next === undefined) return any
+      await this.landTicket(next)
+      any = true
+    }
+  }
+
+  private async waitForLandingChild(): Promise<boolean> {
+    const pending = [...this.children.values()].filter(child => {
+      const id = this.landingTicketId(child.graphKey)
+      return id !== undefined && !this.finishedLanding.has(id) && child.done !== undefined
+    })
+    if (pending.length === 0) return false
+    const abort = this.advance?.signal
+    await new Promise<void>(resolve => {
+      let settled = false
+      const finish = (): void => {
+        if (settled) return
+        settled = true
+        abort?.removeEventListener('abort', finish)
+        resolve()
+      }
+      abort?.addEventListener('abort', finish, { once: true })
+      void Promise.race(pending.map(child => child.done ?? Promise.resolve())).then(finish, finish)
+    })
+    return !this.landingStopped()
+  }
+
+  private async landTicket(ticket: LandingTicket): Promise<void> {
+    const slug = this.slug()
+    const graphKey = `landing:${ticket.id}`
+    const directory = worktreeDirectory(graphKey)
+    const worktree = this.worktreePath(graphKey)
+    if (slug === undefined || directory === undefined || worktree === undefined) return
+    const ref = `wt/${slug}/${directory}`
+    await this.git(['add', '-A'], worktree)
+    await this.gitAsHost(['commit', '-m', worktreeCommitMessage(ticket)], worktree)
+    if (this.landingStopped()) return
+    const merged = await this.gitAsHost(['merge', '--no-ff', '-m', landMergeMessage(ticket), ref])
+    if (merged.code !== 0) {
+      await this.git(['merge', '--abort'])
+      this.block(`Landing merge conflict on Ticket ${ticket.id}. Stopped; keep the worktree and ref.`)
+      return
+    }
+    await this.git(['worktree', 'remove', '--force', worktree])
+    await this.git(['branch', '-D', ref])
+    try { rmSync(worktree, { recursive: true, force: true }) } catch { /* leftover checkout must not block drain */ }
+    this.finishedLanding.delete(ticket.id)
+    for (const child of [...this.children.values()]) {
+      if (child.graphKey === graphKey) await this.releaseChild(child.id)
+    }
+    if (this.landingStopped()) return
+    const color = this.ports.prove === undefined ? 'green' : await this.ports.prove({ id: ticket.id, contract: ticket.contract })
+    this.writeLandingProof(Number(ticket.id), color)
+    if (color === 'green') await this.tickLanded(ticket)
+    this.refresh()
+    this.persistSnapshot()
+    this.rebuildGraph()
+  }
+
+  private async tickLanded(ticket: LandingTicket): Promise<void> {
+    const specPath = this.followedSpec
+    if (specPath === undefined) return
+    let markdown = this.followedMarkdown() ?? ''
+    markdown = markdown.replace(
+      new RegExp(`^([ \\t]*[-*][ \\t]+)\\[[ xX]\\]([ \\t]+Ticket\\s+${ticket.id}:)`, 'imu'),
+      '$1[x]$2',
+    )
+    writeFileSync(specPath, markdown.endsWith('\n') ? markdown : `${markdown}\n`)
+    const slug = this.slug()
+    const scratch = slug === undefined
+      ? undefined
+      : this.scratchFile(join(this.cwd, '.scratch', slug, 'issues'), Number(ticket.id))
+    await this.git(['add', '--', specPath, ...(scratch === undefined ? [] : [scratch])])
+    await this.gitAsHost(['commit', '-m', tickCommitMessage(ticket)])
+  }
+
+  private writeLandingProof(n: number, color: 'green' | 'red'): void {
+    const slug = this.slug()
+    if (slug === undefined) return
+    const path = this.scratchFile(join(this.cwd, '.scratch', slug, 'issues'), n)
+    if (path === undefined) return
+    let text = ''
+    try {
+      text = readFileSync(path, 'utf8')
+    } catch {
+      return
+    }
+    const line = `Proof: ${color}`
+    const next = /^Proof:\s*/imu.test(text)
+      ? text.replace(/^Proof:\s*.*$/imu, line)
+      : /^Claim:\s*.*$/imu.test(text)
+        ? text.replace(/^(Claim:\s*.*)$/imu, `$1\n${line}`)
+        : `${line}\n${text}`
+    writeFileSync(path, next.endsWith('\n') ? next : `${next}\n`)
+  }
+
+  private async runLandingVerification(turn: ShipTurn, before: LandingPlan): Promise<void> {
+    if (this.landingStopped()) return
+    await this.syncCompass()
+    await this.spendTurn(turn)
+    if (this.landingStopped()) return
+    const afterMarkdown = this.followedMarkdown() ?? ''
+    const after = landingPlan(afterMarkdown)
+    if (!sameLandingPlan(before, after)) {
+      this.block('Approved ship plan changed during a ticket turn. Stopped; restore the plan before resuming.')
+      return
+    }
+    const next = shipPhaseKind(this.status())
+    if (next === 'done') {
+      if (after.tickets.some(ticket => !ticket.done) || parseShipBlocker(afterMarkdown) !== undefined) {
+        this.block('Ship may finish only in a separate final verification turn after every ticket is checked.')
+        return
+      }
+      this.verifyAndReconcile(false)
+      if (this.sealedContract?.acceptance.length && !this.lastVerify?.satisfied) {
+        const current = this.followedMarkdown()
+        if (current !== undefined && this.followedSpec !== undefined) {
+          writeFileSync(this.followedSpec, current.replace(/^Status:\s*shipped\b/imu, 'Status: landing'))
+        }
+        this.block('Verifier: acceptance evidence incomplete. Delivery blocked; restore proof evidence before resuming.')
+      }
+      return
+    }
+    if (next !== 'land') this.block(`Invalid ship phase transition during landing: ${next}. Stopped.`)
   }
 
   private async spendTurn(turn: ShipTurn): Promise<boolean> {

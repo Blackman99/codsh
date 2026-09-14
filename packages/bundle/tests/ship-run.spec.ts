@@ -302,9 +302,12 @@ describe('ShipRun', () => {
     expect(ship.shipChip).toEqual({ kind: 'land', k: 1, n: 2 })
     expect(ship.shipPlan?.done).toBe(1)
     await ship.run('', async (prompt) => { prompts.push(prompt) })
-    expect(prompts).toHaveLength(2)
+    expect(prompts).toHaveLength(1)
     expect(prompts[0]).toContain('Strict Red-First Execution')
+    expect(prompts[0]).toContain('In-flight:')
+    expect(prompts[0]).toContain('Ready-set:')
     expect(prompts[0]).not.toContain('Relentless Frontier Exploration')
+    expect(prompts[0]).not.toContain('Active Ticket:')
     expect(chips.some(chip => chip?.kind === 'land')).toBe(true)
   })
 
@@ -858,7 +861,7 @@ describe('ShipRun', () => {
     expect(goals.log).not.toContain('complete:goal-new')
   })
 
-  it('puts the sealed track and spec path into the active ticket brief (Track: 4)', async () => {
+  it('puts the sealed track, spec path, and in-flight / Ready-set into the land prepend (Track: 4)', async () => {
     const cwd = mkdtempSync(join(tmpdir(), 'ship-run-'))
     const sealed = [
       '## Main Track',
@@ -874,7 +877,9 @@ describe('ShipRun', () => {
     expect(prompts).toHaveLength(1)
     expect(prompts[0]).toContain('**Idea.** Bind /goal into /ship.')
     expect(prompts[0]).toContain('**Track-1.** Hybrid compass.')
-    expect(prompts[0]).toContain('Active Ticket: Ticket 1: Goal')
+    expect(prompts[0]).toContain('In-flight:')
+    expect(prompts[0]).toContain('Ready-set:')
+    expect(prompts[0]).not.toContain('Active Ticket:')
     expect(prompts[0]).toContain(path)
   })
 
@@ -1371,10 +1376,10 @@ describe('composition root', () => {
       landShip.abort()
     })
     expect(landPrompts).toHaveLength(1)
-    expect(landPrompts[0]).toContain('## Active Ticket')
-    expect(landPrompts[0]).toContain('Ticket 1: Spec schema')
+    expect(landPrompts[0]).toContain('In-flight:')
+    expect(landPrompts[0]).toContain('Ready-set:')
     expect(landPrompts[0]).toContain('REQ-001')
-    expect(landPrompts[0]).not.toContain('Ticket 2: Prompt contracts')
+    expect(landPrompts[0]).not.toContain('Active Ticket:')
     expect(readFileSync(landPath, 'utf8')).toContain('**Idea.** Bind /goal into /ship.')
   })
 
@@ -1423,8 +1428,12 @@ describe('composition root', () => {
     expect(flashes.some(f => /Frozen ## Main Track/i.test(f))).toBe(true)
   })
 
-  it('advances land turns when the Active Ticket completes without a phase change', async () => {
+  it('lands independent tickets as a wave without one parent turn per ticket', async () => {
     const cwd = mkdtempSync(join(tmpdir(), 'ship-run-'))
+    const issues = join(cwd, '.scratch', 'widget', 'issues')
+    mkdirSync(issues, { recursive: true })
+    writeFileSync(join(issues, '01-spec-schema.md'), 'Ticket 1: Spec schema\n')
+    writeFileSync(join(issues, '02-prompt-contracts.md'), 'Ticket 2: Prompt contracts\n')
     const markdown = [
       'Status: planned',
       'Branch: ship/widget',
@@ -1443,23 +1452,57 @@ describe('composition root', () => {
       '',
       '## Plan',
       '',
-      '- [ ] Ticket 1: Spec schema (Track: 1)',
-      '- [ ] Ticket 2: Prompt contracts (Track: 2)',
+      '- [ ] Ticket 1: Spec schema (Blocked by: none) (Track: 1)',
+      '- [ ] Ticket 2: Prompt contracts (Blocked by: none) (Track: 2)',
     ].join('\n')
     const path = writeSpec(cwd, 'widget.md', markdown)
+    const created: string[] = []
+    const git: string[] = []
+    const children: ShipChildCreate = {
+      async create(request) {
+        created.push(request.graphKey)
+        const handle: ShipChildHandle = {
+          id: `child-${request.graphKey}`,
+          graphKey: request.graphKey,
+          label: request.label,
+          done: Promise.resolve(),
+          async dispose() {},
+        }
+        return handle
+      },
+    }
     const prompts: string[] = []
-    const ship = new ShipRun(cwd, chrome)
-    await ship.run('build a widget', async (prompt) => {
+    const ship = new ShipRun(cwd, chrome, {
+      childCreate: children,
+      git: async (args, workCwd) => {
+        git.push(`${args.join(' ')} @ ${workCwd}`)
+        if (args[0] === 'worktree' && args[1] === 'add') {
+          const dest = args[args.length - 1]
+          if (dest !== undefined && dest !== '') mkdirSync(dest, { recursive: true })
+        }
+        return { code: 0, output: '' }
+      },
+    })
+    await ship.run('build a widget', async prompt => {
       prompts.push(prompt)
-      if (prompts.length === 1) {
-        writeFileSync(path, markdown.replace('- [ ] Ticket 1: Spec schema (Track: 1)', '- [x] Ticket 1: Spec schema (Track: 1)'))
+      if (prompt.includes('Phase 5 — done means verified')) {
+        const landed = readFileSync(path, 'utf8')
+          .replace(/^Status:\s*\S+/mu, 'Status: shipped')
+        writeFileSync(path, landed.includes('## Verification')
+          ? landed
+          : `${landed.trimEnd()}\n\n## Verification\n\n- ACC-001: \`pnpm test\` exit 0\n`)
       }
     })
-    expect(prompts.length).toBeGreaterThanOrEqual(2)
-    expect(prompts[0]).toContain('Ticket 1: Spec schema')
-    expect(prompts[0]).not.toContain('Ticket 2: Prompt contracts')
-    expect(prompts[1]).toContain('Ticket 2: Prompt contracts')
-    expect(prompts[1]).not.toContain('Ticket 1: Spec schema')
+    expect(created.sort()).toEqual(['landing:1', 'landing:2'])
+    const land1 = git.findIndex(entry => entry.includes('merge --no-ff') && /Ticket 1/.test(entry))
+    const land2 = git.findIndex(entry => entry.includes('merge --no-ff') && /Ticket 2/.test(entry))
+    expect(land1).toBeGreaterThan(-1)
+    expect(land2).toBeGreaterThan(land1)
+    expect(prompts.some(prompt => prompt.includes('Phase 5 — done means verified'))).toBe(true)
+    expect(prompts.every(prompt => !prompt.includes('Active Ticket:'))).toBe(true)
+    expect(git.filter(entry => /tick Ticket/.test(entry))).toHaveLength(2)
+    expect(readFileSync(path, 'utf8')).toMatch(/- \[x\] Ticket 1:/u)
+    expect(readFileSync(path, 'utf8')).toMatch(/- \[x\] Ticket 2:/u)
   })
 
   it('halts and keeps the deleted Main Track on disk as evidence', async () => {

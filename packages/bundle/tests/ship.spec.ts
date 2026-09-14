@@ -63,9 +63,9 @@ describe('SHIP_PROMPT', () => {
     // Every criterion carries its own command; the final phase runs exactly those.
     expect(SHIP_PROMPT).toContain('names the exact command that proves it')
     expect(SHIP_PROMPT).toContain('run every proof command again yourself')
-    // The loop is bounded and stops on stall instead of spinning to the cap.
-    expect(SHIP_PROMPT).toContain('three per ticket plus final verification')
-    expect(SHIP_PROMPT).toContain('two consecutive turns with no checkbox progress')
+    expect(SHIP_PROMPT).toContain('in-flight / Ready-set')
+    expect(SHIP_PROMPT).not.toContain('three per ticket plus final verification')
+    expect(SHIP_PROMPT).not.toContain('two consecutive turns with no checkbox progress')
   })
 
   it('treats pasted images as requirements material', () => {
@@ -320,10 +320,10 @@ describe('SHIP_PROMPT', () => {
   it('delegates small-plan implementation without surrendering acceptance or user gates', () => {
     const land = shipPromptFor('landing')
     expect(land).not.toContain('implement in-session')
-    expect(land).toContain('one fresh-context subagent per unblocked ticket')
+    expect(land).toContain('parallel worktrees')
     expect(land).toContain('Re-run the ticket\'s proof commands against the integrated working tree')
     expect(land).toContain('A failed, partial, or out-of-scope result leaves the ticket unchecked')
-    expect(land).toContain('This turn may complete only the runner\'s Active Ticket')
+    expect(land).toContain('There is no landing turn-budget breaker')
     expect(land).toContain('Do not call ralph from /ship')
     expect(shipPromptFor('landing', { verificationOnly: true })).toContain('a missing requirement or an out-of-scope change')
     expect(land).toContain('If delegation is unavailable, state that limitation')
@@ -371,8 +371,10 @@ describe('SHIP_PROMPT', () => {
     expect(SHIP_PROMPT).toMatch(/\/goal stays disarmed/)
     expect(SHIP_PROMPT).not.toContain('the next /ship turn injects')
     expect(SHIP_PROMPT).toContain('empty inner ring')
-    expect(SHIP_PROMPT).toContain('three per ticket plus final verification')
-    expect(SHIP_PROMPT).toContain('two consecutive turns with no checkbox progress')
+    expect(SHIP_PROMPT).not.toContain('three per ticket plus final verification')
+    expect(SHIP_PROMPT).not.toContain('two consecutive turns with no checkbox progress')
+    expect(SHIP_PROMPT).toContain('in-flight / Ready-set')
+    expect(SHIP_PROMPT).toContain('There is no landing turn-budget breaker')
   })
 
   it('freezes Main Track after Confirm so a contradiction is a blocker not a silent rewrite (Track: 3)', () => {
@@ -398,21 +400,24 @@ describe('SHIP_PROMPT', () => {
     expect(SHIP_PROMPT).toMatch(/progress \(Status, checkboxes, proof logs\) remains writable/i)
   })
 
-  it('requires Track: on plan lines and a Track-N cite on the first red test or commit (Track: 4)', () => {
+  it('requires Track: on plan lines and a Track-N cite on the first red test or Worktree commit (Track: 4)', () => {
     const land = shipPromptFor('planned')
     expect(land).toContain('Track:')
     expect(land).toMatch(/first red test/)
-    expect(land).toMatch(/ticket commit/)
+    expect(land).toMatch(/Worktree commit/)
     expect(land).toMatch(/Track-N/)
     expect(SHIP_PROMPT).toContain('Track:')
     expect(SHIP_PROMPT).toMatch(/first red test/)
+    expect(SHIP_PROMPT).toMatch(/Worktree commit/)
   })
 
-  it('passes the original contract and selected ticket without starting a nested coordinator', () => {
+  it('passes the original contract and landing wave without starting a nested coordinator', () => {
     const track = '## Main Track\n\n**Idea.** Bind /goal into /ship.'
-    const land = shipPromptFor('landing', { track, specPath: 'docs/specs/goal.md', activeTicket: 'Ticket 4: offline export (Track: 1)' })
+    const landingWave = 'In-flight:\n- Ticket 4: offline export\nReady-set:\n- (none)'
+    const land = shipPromptFor('landing', { track, specPath: 'docs/specs/goal.md', landingWave })
     expect(land).toContain(track)
-    expect(land).toContain('Active Ticket: Ticket 4: offline export (Track: 1)')
+    expect(land).toContain(landingWave)
+    expect(land).not.toContain('Active Ticket:')
     expect(land).toContain('Bound spec: "docs/specs/goal.md"')
     expect(land).toContain('Do not call ralph from /ship')
     expect(land).not.toContain('call the ralph tool once')
@@ -426,9 +431,12 @@ describe('SHIP_PROMPT', () => {
     }
   })
 
-  it('tells land to implement only the Active Ticket pack', () => {
-    expect(shipPromptFor('planned')).toMatch(/Active Ticket/)
-    expect(SHIP_PROMPT).toMatch(/Active Ticket/)
+  it('tells land to prepend in-flight / Ready-set, not one Active Ticket', () => {
+    expect(shipPromptFor('planned')).toMatch(/in-flight \/ Ready-set/)
+    expect(shipPromptFor('planned')).not.toMatch(/This turn may complete only the runner's Active Ticket/)
+    expect(SHIP_PROMPT).toMatch(/in-flight \/ Ready-set/)
+    expect(SHIP_PROMPT).not.toContain('n*3+1')
+    expect(SHIP_PROMPT).not.toContain('two consecutive turns with no checkbox progress')
   })
 
   it('prepends the runner Mission Contract separately from the wording snapshot and ticket', () => {
@@ -440,17 +448,19 @@ describe('SHIP_PROMPT', () => {
       'Path: `.scratch/widget/mission.contract.json`',
       '- REQ-001 (Track: 1): Bind /goal into /ship.',
     ].join('\n')
+    const landingWave = 'In-flight:\n- Ticket 1: bind compass\nReady-set:\n- (none)'
     const land = shipPromptFor('landing', {
       track,
       mission,
       originalRequirement: 'Keep offline use.',
       specPath: 'docs/specs/widget.md',
-      activeTicket: 'Ticket 1: bind compass (Track: 1)',
+      landingWave,
     })
     expect(land.startsWith(`${track}\n\n${mission}`)).toBe(true)
     expect(land).toContain('## Original Requirement\n\nKeep offline use.')
     expect(land).toContain('Bound spec: "docs/specs/widget.md"')
-    expect(land).toContain('Active Ticket: Ticket 1: bind compass (Track: 1)')
+    expect(land).toContain(landingWave)
+    expect(land).not.toContain('Active Ticket:')
     expect(land).toContain('Strict Red-First Execution')
     expect(land).not.toContain('Phase 5 — done means verified')
     expect(land).toContain('Do not call ralph from /ship')
@@ -463,7 +473,7 @@ describe('SHIP_PROMPT', () => {
     const done = shipPromptFor('landing', {
       verificationOnly: true,
       mission,
-      activeTicket: 'Ticket 9: should not land during verification',
+      landingWave: 'In-flight:\n- (none)\nReady-set:\n- (none)',
     })
     expect(done).toContain(mission)
     expect(done).toContain('Phase 5 — done means verified')
@@ -473,7 +483,9 @@ describe('SHIP_PROMPT', () => {
     expect(done).toContain('do not rewrite `## Main Track` or the sealed Mission Contract')
     expect(done).not.toContain('Strict Red-First Execution')
     expect(done).not.toContain('After a Ralph loop returns')
-    expect(done).toContain('Active Ticket: Ticket 9: should not land during verification')
+    expect(done).not.toContain('Active Ticket:')
+    expect(done).toContain('In-flight:')
+    expect(done).toContain('Ready-set:')
   })
 
 })
