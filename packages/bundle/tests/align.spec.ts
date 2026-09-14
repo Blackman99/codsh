@@ -106,3 +106,18 @@ describe('alignAction', () => {
     expect(verdict.allow).toBe(false)
     expect(verdict.violatesScope).toBe(true)
   })
+
+  it('does not apply Alignment Gate to Conflict-resolution hunk bytes', () => {
+    const verdict = alignAction({
+      action: 'write src/greet.ts',
+      path: 'src/greet.ts',
+      toolName: 'write',
+    }, {
+      contract,
+      sealed: true,
+      activeTicket: { title: 'Ticket 1', done: false, trackIds: [1] },
+      conflictFiles: ['src/greet.ts'],
+    })
+    expect(verdict.allow).toBe(true)
+    expect(verdict.violatesScope).toBe(false)
+  })

@@ -30,6 +30,7 @@ import {
   type LandingTicket,
   type LandingWaveView,
 } from './ship-landing.ts'
+import { mergeSnapshotRepoPath, runMergeConflictResolution } from './ship-conflict.ts'
 import type { Plan, ShipSpecFile } from './plan.ts'
 import { expandTemplate } from './custom-commands.ts'
 import type { SelectAsk } from './questions.ts'
@@ -384,6 +385,8 @@ export class ShipRun {
   private inPlaceTicketId: string | undefined
   /** Cached host `user.name` / `user.email` for runner-authored commits. */
   private gitIdentity: { name: string; email: string } | undefined
+  /** Git-named conflicted files a live Conflict-resolution child may fill. */
+  private conflictAlignPaths: string[] | undefined
 
   constructor(
     private readonly cwd: string,
@@ -459,6 +462,7 @@ export class ShipRun {
       ...(this.sealedContract === undefined ? {} : { contract: this.sealedContract }),
       sealed: this.sealedContract !== undefined,
       ...(ticket === undefined ? {} : { activeTicket: ticket }),
+      ...(this.conflictAlignPaths === undefined ? {} : { conflictFiles: this.conflictAlignPaths }),
     })
     this.rememberAction(descriptor)
     return verdict
@@ -628,6 +632,7 @@ export class ShipRun {
     this.inPlacePreHead = undefined
     this.inPlaceTicketId = undefined
     this.gitIdentity = undefined
+    this.conflictAlignPaths = undefined
     this.startWatch()
     this.refresh()
     if (this.chip === undefined) this.setChip({ kind: 'wayfinder' })
@@ -1871,9 +1876,8 @@ export class ShipRun {
     if (this.landingStopped() || this.landingDrainFrozen()) return
     const merged = await this.gitAsHost(['merge', '--no-ff', '-m', landMergeMessage(ticket), ref])
     if (merged.code !== 0) {
-      await this.git(['merge', '--abort'])
-      this.block(`Landing merge conflict on Ticket ${ticket.id}. Stopped; keep the worktree and ref.`)
-      return
+      const resolved = await this.resolveLandMergeConflict(ticket, graphKey, directory, merged.output)
+      if (!resolved) return
     }
     await this.git(['worktree', 'remove', '--force', worktree])
     await this.git(['branch', '-D', ref])
@@ -1892,6 +1896,85 @@ export class ShipRun {
     this.refresh()
     this.persistSnapshot()
     this.rebuildGraph()
+  }
+
+  /**
+   * One Conflict-resolution child in the merge-target tree. Git conflict
+   * stays 已认领 on the same node and worktree id. Delivery Merge-back (#128)
+   * reuses {@link runMergeConflictResolution} with directory `delivery`.
+   */
+  private async resolveLandMergeConflict(
+    ticket: LandingTicket,
+    graphKey: string,
+    directory: string,
+    mergeOutput: string,
+  ): Promise<boolean> {
+    const slug = this.slug()
+    if (slug === undefined) return false
+    const title = landingTicketTitle(ticket.contract)
+    try {
+      const outcome = await runMergeConflictResolution({
+        targetCwd: this.cwd,
+        scratchSlugDir: join(this.cwd, '.scratch', slug),
+        directory,
+        graphKey,
+        label: `Ticket ${ticket.id}: ${title}`,
+        mergeOutput,
+        git: {
+          git: (args, cwd) => this.git(args, cwd),
+          gitAsHost: (args, cwd) => this.gitAsHost(args, cwd),
+        },
+        ...(this.ports.childCreate === undefined ? {} : { childCreate: this.ports.childCreate }),
+        ...(this.advance === undefined ? {} : { signal: this.advance.signal }),
+        halted: () => this.landingStopped(),
+        ...(this.ports.folds === undefined ? {} : { bindFold: (id, label) => this.ports.folds?.bind(id, label) }),
+        ...(this.ports.isTty === undefined ? {} : { isTty: this.ports.isTty }),
+        onChild: handle => { this.children.set(handle.id, handle) },
+        releaseChild: id => this.releaseChild(id),
+        onFillable: paths => { this.conflictAlignPaths = [...paths] },
+      })
+      if (outcome.kind === 'resolved') return true
+      if (outcome.kind === 'interrupt') {
+        this.abort()
+        return false
+      }
+      if (outcome.kind === 'failed') {
+        this.block(`Landing merge conflict on Ticket ${ticket.id}. Stopped; keep the worktree and ref.`)
+        return false
+      }
+      await this.recordConflictBlocker(ticket, outcome.snapshotDir, outcome.reason)
+      this.block(`Landing merge conflict on Ticket ${ticket.id} could not be filled. Stopped; keep the worktree and ref.`)
+      return false
+    } finally {
+      this.conflictAlignPaths = undefined
+    }
+  }
+
+  /** Force-add a Blocker-class Merge snapshot with the `## Blocker` commit. */
+  private async recordConflictBlocker(
+    ticket: LandingTicket,
+    snapshotDir: string,
+    reason: string,
+  ): Promise<void> {
+    const specPath = this.followedSpec
+    if (specPath === undefined) return
+    let markdown = this.followedMarkdown() ?? ''
+    if (parseShipBlocker(markdown) === undefined) {
+      const body = [
+        `Conflict-resolution skipped for Ticket ${ticket.id} (${reason}).`,
+        `Merge snapshot: ${mergeSnapshotRepoPath(this.cwd, snapshotDir)}`,
+        'The child was not asked to invent implementation. Worktree and ref stay 已认领.',
+      ].join('\n')
+      markdown = markdown.endsWith('\n') ? `${markdown}\n## Blocker\n\n${body}\n` : `${markdown}\n\n## Blocker\n\n${body}\n`
+      writeFileSync(specPath, markdown)
+    }
+    await this.git(['add', '--', specPath])
+    await this.git(['add', '-f', '--', snapshotDir])
+    await this.gitAsHost([
+      'commit',
+      '-m',
+      `ship: blocker Ticket ${ticket.id} — ${landingTicketTitle(ticket.contract)}`,
+    ])
   }
 
   private async proveTicket(ticket: LandingTicket, kind: 'sweep' | 'land'): Promise<'green' | 'red'> {

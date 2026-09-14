@@ -49,6 +49,11 @@ export interface AlignOptions {
   activeTicket?: PlanTicket
   /** True after Gate 1 Confirm. */
   sealed?: boolean
+  /**
+   * Git-named conflicted files a live Conflict-resolution child may fill.
+   * Alignment Gate does not apply to those hunk bytes.
+   */
+  conflictFiles?: readonly string[]
 }
 
 /**
@@ -59,6 +64,15 @@ export interface AlignOptions {
  * pass when they are not writes.
  */
 export function alignAction(descriptor: ActionDescriptor, opts: AlignOptions = {}): AlignVerdict {
+  if (isConflictResolutionWrite(descriptor, opts.conflictFiles)) {
+    return {
+      allow: true,
+      supportsRequirement: null,
+      taskId: descriptor.task ?? null,
+      violatesScope: false,
+      reasons: [],
+    }
+  }
   const reasons: string[] = []
   const contract = opts.contract
   const sealed = opts.sealed === true || contract !== undefined
@@ -261,6 +275,21 @@ function toolTask(args: unknown): string | undefined {
   return undefined
 }
 
+
+function isConflictResolutionWrite(
+  descriptor: ActionDescriptor,
+  conflictFiles: readonly string[] | undefined,
+): boolean {
+  if (conflictFiles === undefined || conflictFiles.length === 0) return false
+  if (descriptor.path === undefined) return false
+  const normalized = descriptor.path.replace(/\\/gu, '/')
+  return conflictFiles.some((file) => {
+    const listed = file.replace(/\\/gu, '/')
+    return normalized === listed
+      || normalized.endsWith(`/${listed}`)
+      || listed.endsWith(`/${normalized}`)
+  })
+}
 
 function mentions(descriptor: ActionDescriptor, text: string): boolean {
   const needle = text.toLowerCase()

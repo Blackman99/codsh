@@ -8,6 +8,7 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { ShipRun, wrapHostGoals, type ShipChildCreate, type ShipChildHandle, type ShipFoldBind } from '../src/ship-run.ts'
+import { classifyConflictFiles, inspectConflictResolution } from '../src/ship-conflict.ts'
 import { snapshotPathFor } from '../src/ship-snapshot.ts'
 import { graphPathFor } from '../src/ship-graph.ts'
 import type { TeaserCounts } from '../src/ship-graph.ts'
@@ -1936,3 +1937,394 @@ describe('composition root', () => {
     expect(pipeFolds.bound).toEqual([])
   })
 })
+
+describe('Conflict-resolution child', () => {
+  const conflictHunk = [
+    'export function greet(name: string): string {',
+    '<<<<<<< HEAD',
+    "  return `hi ${name}`",
+    '=======',
+    "  return `hello ${name}`",
+    '>>>>>>> wt/widget/landing-1',
+    '}',
+    '',
+  ].join('\n')
+
+  const filledHunk = [
+    'export function greet(name: string): string {',
+    "  return `hello ${name}`",
+    '}',
+    '',
+  ].join('\n')
+
+  it('classifies fillable source hunks and skips lockfile, protected, and no-marker paths', () => {
+    expect(classifyConflictFiles([{ path: 'src/greet.ts', content: conflictHunk }])).toEqual({
+      kind: 'fillable',
+      paths: ['src/greet.ts'],
+    })
+    expect(classifyConflictFiles([{ path: 'pnpm-lock.yaml', content: conflictHunk }])).toEqual({
+      kind: 'skip',
+      reason: 'lockfile',
+    })
+    expect(classifyConflictFiles([{
+      path: 'docs/notes.md',
+      content: '## Main Track\n\n<<<<<<< HEAD\na\n=======\nb\n>>>>>>> them\n',
+    }])).toEqual({ kind: 'skip', reason: 'protected-heading' })
+    expect(classifyConflictFiles([{ path: 'src/binary.bin', content: 'no markers' }])).toEqual({
+      kind: 'skip',
+      reason: 'no-marker',
+    })
+    expect(inspectConflictResolution(
+      [{ path: 'src/greet.ts', content: conflictHunk }],
+      [{ path: 'src/greet.ts', content: conflictHunk }],
+    )).toBe('leftover-markers')
+    expect(inspectConflictResolution(
+      [{ path: 'src/greet.ts', content: conflictHunk }],
+      [{ path: 'src/greet.ts', content: filledHunk }],
+      ['src/extra.ts'],
+    )).toBe('out-of-span')
+    expect(inspectConflictResolution(
+      [{ path: 'src/greet.ts', content: conflictHunk }],
+      [{ path: 'src/greet.ts', content: filledHunk }],
+    )).toBeUndefined()
+  })
+
+  function writeLandingSpec(cwd: string): string {
+    const issues = join(cwd, '.scratch', 'widget', 'issues')
+    mkdirSync(issues, { recursive: true })
+    writeFileSync(join(issues, '01-spec-schema.md'), 'Ticket 1: Spec schema\n')
+    return writeSpec(cwd, 'widget.md', [
+      'Status: planned',
+      'Branch: ship/widget',
+      '',
+      '## Main Track',
+      '',
+      '**Idea.** Bind /goal into /ship.',
+      '**Track-1.** Hybrid compass.',
+      '**Out of Scope.**',
+      '- No harness fork.',
+      '',
+      '## Acceptance Criteria',
+      '',
+      '1. `pnpm test` exits 0.',
+      '',
+      '## Plan',
+      '',
+      '- [ ] Ticket 1: Spec schema (Blocked by: none) (Track: 1)',
+    ].join('\n'))
+  }
+
+  function conflictGit(opts: {
+    cwd: string
+    conflictPath: string
+    conflictContent: string
+    fill?: string
+    unmerged?: string
+    porcelain?: string
+  }) {
+    const log: string[] = []
+    let merging = false
+    const unmerged = opts.unmerged ?? `100644 abc123 1\t${opts.conflictPath}\n100644 def456 2\t${opts.conflictPath}\n100644 ghi789 3\t${opts.conflictPath}\n`
+    return {
+      log,
+      git: async (args: readonly string[], workCwd: string) => {
+        log.push(`${args.join(' ')} @ ${workCwd}`)
+        if (args[0] === 'config' && args[1] === 'user.name') return { code: 0, output: 'Ada Lovelace\n' }
+        if (args[0] === 'config' && args[1] === 'user.email') return { code: 0, output: 'ada@example.com\n' }
+        if (args[0] === 'worktree' && args[1] === 'add') {
+          const dest = args[args.length - 1]
+          if (dest !== undefined && dest !== '') mkdirSync(dest, { recursive: true })
+        }
+        if (args.includes('merge') && args.includes('--no-ff')) {
+          merging = true
+          mkdirSync(join(opts.cwd, dirname(opts.conflictPath)), { recursive: true })
+          writeFileSync(join(opts.cwd, opts.conflictPath), opts.conflictContent)
+          return { code: 1, output: `CONFLICT (content): Merge conflict in ${opts.conflictPath}\nAutomatic merge failed\n` }
+        }
+        if (args[0] === 'ls-files' && args[1] === '-u') {
+          return { code: 0, output: merging ? unmerged : '' }
+        }
+        if (args[0] === 'diff' && args.includes('--diff-filter=U')) {
+          return { code: 0, output: merging ? `${opts.conflictPath}\n` : '' }
+        }
+        if (args[0] === 'status' && args.includes('--porcelain')) {
+          return { code: 0, output: opts.porcelain ?? (merging ? `UU ${opts.conflictPath}\n` : '') }
+        }
+        if (args[0] === 'add') {
+          if (opts.fill !== undefined && args.includes(opts.conflictPath)) {
+            writeFileSync(join(opts.cwd, opts.conflictPath), opts.fill)
+          }
+          return { code: 0, output: '' }
+        }
+        if (args.includes('merge') && args.includes('--continue')) {
+          merging = false
+          return { code: 0, output: '' }
+        }
+        if (args.includes('merge') && args.includes('--abort')) {
+          merging = false
+          return { code: 0, output: '' }
+        }
+        return { code: 0, output: '' }
+      },
+    }
+  }
+
+  it('dispatches one Conflict-resolution child in the merge-target tree then merge --continue', async () => {
+    const cwd = mkdtempSync(join(tmpdir(), 'ship-run-'))
+    writeLandingSpec(cwd)
+    const created: Array<{ graphKey: string; cwd?: string; role?: string; prompt: string }> = []
+    const git = conflictGit({ cwd, conflictPath: 'src/greet.ts', conflictContent: conflictHunk, fill: filledHunk })
+    const children: ShipChildCreate = {
+      async create(request) {
+        created.push({
+          graphKey: request.graphKey,
+          prompt: request.prompt,
+          ...(request.cwd === undefined ? {} : { cwd: request.cwd }),
+          ...(request.role === undefined ? {} : { role: request.role }),
+        })
+        if (request.role === 'conflict') writeFileSync(join(cwd, 'src/greet.ts'), filledHunk)
+        const handle: ShipChildHandle = {
+          id: `child-${request.graphKey}-${request.role ?? 'tdd'}`,
+          graphKey: request.graphKey,
+          label: request.label,
+          ...(request.role === undefined ? {} : { role: request.role }),
+          done: Promise.resolve(),
+          async dispose() {},
+        }
+        return handle
+      },
+    }
+    const ship = new ShipRun(cwd, chrome, { childCreate: children, git: git.git })
+    await ship.run('build a widget', async prompt => {
+      if (prompt.includes('Phase 5 — done means verified')) {
+        const path = join(cwd, 'docs', 'specs', 'widget.md')
+        const landed = readFileSync(path, 'utf8').replace(/^Status:\s*\S+/mu, 'Status: shipped')
+        writeFileSync(path, landed.includes('## Verification')
+          ? landed
+          : `${landed.trimEnd()}\n\n## Verification\n\n- ACC-001: \`pnpm test\` exit 0\n`)
+      }
+    })
+    const conflictKids = created.filter(row => row.role === 'conflict')
+    expect(conflictKids).toHaveLength(1)
+    expect(conflictKids[0]?.cwd).toBe(cwd)
+    expect(conflictKids[0]?.graphKey).toBe('landing:1')
+    expect(conflictKids[0]?.prompt).toContain('Conflict-resolution is not TDD')
+    expect(git.log.filter(entry => entry.includes('merge --continue'))).toHaveLength(1)
+    expect(git.log.some(entry => /add -- src\/greet\.ts/.test(entry))).toBe(true)
+    expect(git.log.some(entry => entry.includes('merge --abort'))).toBe(false)
+    expect(readFileSync(join(cwd, '.scratch', 'widget', 'issues', '01-spec-schema.md'), 'utf8')).toMatch(/^Claim:\s*claimed\b/mu)
+    expect(ship.shipGraph?.nodes.find(node => node.id === 'landing:1')?.claim).toBe('closed')
+    expect(readFileSync(join(cwd, 'docs', 'specs', 'widget.md'), 'utf8')).not.toContain('## Blocker')
+  })
+
+  it('skips lockfile conflicts: snapshot, abort, Blocker, no child', async () => {
+    const cwd = mkdtempSync(join(tmpdir(), 'ship-run-'))
+    writeLandingSpec(cwd)
+    const created: string[] = []
+    const git = conflictGit({
+      cwd,
+      conflictPath: 'pnpm-lock.yaml',
+      conflictContent: '<<<<<<< HEAD\na\n=======\nb\n>>>>>>> them\n',
+    })
+    const children: ShipChildCreate = {
+      async create(request) {
+        created.push(`${request.graphKey}:${request.role ?? 'tdd'}`)
+        return {
+          id: `child-${created.length}`,
+          graphKey: request.graphKey,
+          label: request.label,
+          done: Promise.resolve(),
+          async dispose() {},
+        }
+      },
+    }
+    const ship = new ShipRun(cwd, chrome, { childCreate: children, git: git.git })
+    await ship.run('build a widget', async () => {})
+    expect(created.filter(row => row.endsWith(':conflict'))).toEqual([])
+    expect(git.log.some(entry => entry.includes('merge --abort'))).toBe(true)
+    expect(git.log.some(entry => entry.includes('merge --continue'))).toBe(false)
+    expect(git.log.some(entry => entry.includes('add -f --') && entry.includes('merge-snapshots'))).toBe(true)
+    const spec = readFileSync(join(cwd, 'docs', 'specs', 'widget.md'), 'utf8')
+    expect(spec).toContain('## Blocker')
+    expect(spec).toContain('lockfile')
+    const snaps = join(cwd, '.scratch', 'widget', 'merge-snapshots')
+    expect(existsSync(join(snaps, '.gitignore'))).toBe(true)
+    expect(existsSync(join(snaps, 'landing-1'))).toBe(true)
+    expect(readFileSync(join(cwd, '.scratch', 'widget', 'issues', '01-spec-schema.md'), 'utf8')).toMatch(/^Claim:\s*claimed\b/mu)
+    expect(ship.shipGraph?.nodes.find(node => node.id === 'landing:1')?.claim).toBe('claimed')
+    expect(existsSync(join(cwd, '.scratch', 'widget', 'worktrees', 'landing-1'))).toBe(true)
+  })
+
+  it('skips protected-heading hunks and no-marker paths without dispatching a child', async () => {
+    const cwd = mkdtempSync(join(tmpdir(), 'ship-run-'))
+    const path = writeLandingSpec(cwd)
+    const created: string[] = []
+    const children: ShipChildCreate = {
+      async create(request) {
+        created.push(`${request.graphKey}:${request.role ?? 'tdd'}`)
+        return {
+          id: `child-${created.length}`,
+          graphKey: request.graphKey,
+          label: request.label,
+          done: Promise.resolve(),
+          async dispose() {},
+        }
+      },
+    }
+    const protectedHunk = [
+      '## Main Track',
+      '',
+      '<<<<<<< HEAD',
+      '**Track-1.** Hybrid compass.',
+      '=======',
+      '**Track-1.** Rewrite the sealed track.',
+      '>>>>>>> them',
+      '',
+    ].join('\n')
+    const git = conflictGit({ cwd, conflictPath: 'docs/notes.md', conflictContent: protectedHunk })
+    const ship = new ShipRun(cwd, chrome, { childCreate: children, git: git.git })
+    await ship.run('build a widget', async () => {})
+    expect(created.filter(row => row.endsWith(':conflict'))).toEqual([])
+    expect(readFileSync(path, 'utf8')).toContain('## Blocker')
+    expect(readFileSync(path, 'utf8')).toMatch(/protected-heading|Conflict-resolution skipped/u)
+
+    const cwd2 = mkdtempSync(join(tmpdir(), 'ship-run-'))
+    writeLandingSpec(cwd2)
+    const created2: string[] = []
+    const git2 = conflictGit({
+      cwd: cwd2,
+      conflictPath: 'src/binary.bin',
+      conflictContent: 'not a marker file',
+    })
+    const ship2 = new ShipRun(cwd2, chrome, {
+      childCreate: {
+        async create(request) {
+          created2.push(`${request.graphKey}:${request.role ?? 'tdd'}`)
+          return {
+            id: `child-${created2.length}`,
+            graphKey: request.graphKey,
+            label: request.label,
+            done: Promise.resolve(),
+            async dispose() {},
+          }
+        },
+      },
+      git: git2.git,
+    })
+    await ship2.run('build a widget', async () => {})
+    expect(created2.filter(row => row.endsWith(':conflict'))).toEqual([])
+    expect(readFileSync(join(cwd2, 'docs', 'specs', 'widget.md'), 'utf8')).toContain('## Blocker')
+    expect(git2.log.some(entry => entry.includes('merge --abort'))).toBe(true)
+  })
+
+  it('interrupts a Conflict-resolution child with snapshot and abort and no ## Blocker', async () => {
+    const cwd = mkdtempSync(join(tmpdir(), 'ship-run-'))
+    writeLandingSpec(cwd)
+    let resolveChild: () => void = () => {}
+    const childDone = new Promise<void>(resolve => { resolveChild = resolve })
+    const git = conflictGit({ cwd, conflictPath: 'src/greet.ts', conflictContent: conflictHunk })
+    let ship!: ShipRun
+    const children: ShipChildCreate = {
+      async create(request) {
+        if (request.role === 'conflict') queueMicrotask(() => { ship.abort() })
+        return {
+          id: `child-${request.graphKey}-${request.role ?? 'tdd'}`,
+          graphKey: request.graphKey,
+          label: request.label,
+          ...(request.role === undefined ? {} : { role: request.role }),
+          done: request.role === 'conflict' ? childDone : Promise.resolve(),
+          async dispose() {},
+        }
+      },
+    }
+    ship = new ShipRun(cwd, chrome, { childCreate: children, git: git.git })
+    const running = ship.run('build a widget', async () => {})
+    await waitFor(() => git.log.some(entry => entry.includes('merge --abort')))
+    resolveChild()
+    await running
+    expect(git.log.some(entry => entry.includes('merge --abort'))).toBe(true)
+    expect(git.log.some(entry => entry.includes('merge --continue'))).toBe(false)
+    expect(readFileSync(join(cwd, 'docs', 'specs', 'widget.md'), 'utf8')).not.toContain('## Blocker')
+    expect(existsSync(join(cwd, '.scratch', 'widget', 'merge-snapshots', 'landing-1'))).toBe(true)
+    expect(git.log.some(entry => entry.includes('add -f --') && entry.includes('merge-snapshots'))).toBe(false)
+    expect(readFileSync(join(cwd, '.scratch', 'widget', 'issues', '01-spec-schema.md'), 'utf8')).toMatch(/^Claim:\s*claimed\b/mu)
+  })
+
+  it('lets alignTool allow Conflict-resolution hunk writes without requirement mapping', async () => {
+    const cwd = mkdtempSync(join(tmpdir(), 'ship-run-'))
+    writeLandingSpec(cwd)
+    let resolveChild: () => void = () => {}
+    const childDone = new Promise<void>(resolve => { resolveChild = resolve })
+    const git = conflictGit({ cwd, conflictPath: 'src/greet.ts', conflictContent: conflictHunk, fill: filledHunk })
+    let ship!: ShipRun
+    let aligned: boolean | undefined
+    const children: ShipChildCreate = {
+      async create(request) {
+        if (request.role === 'conflict') {
+          writeFileSync(join(cwd, 'src/greet.ts'), filledHunk)
+          aligned = ship.alignTool('write', {
+            file_path: 'src/greet.ts',
+            content: filledHunk,
+            supports: ['REQ-999'],
+          }).allow
+        }
+        return {
+          id: `child-${request.graphKey}-${request.role ?? 'tdd'}`,
+          graphKey: request.graphKey,
+          label: request.label,
+          ...(request.role === undefined ? {} : { role: request.role }),
+          done: request.role === 'conflict' ? childDone : Promise.resolve(),
+          async dispose() {},
+        }
+      },
+    }
+    ship = new ShipRun(cwd, chrome, { childCreate: children, git: git.git })
+    const running = ship.run('build a widget', async prompt => {
+      if (prompt.includes('Phase 5 — done means verified')) {
+        const path = join(cwd, 'docs', 'specs', 'widget.md')
+        const landed = readFileSync(path, 'utf8').replace(/^Status:\s*\S+/mu, 'Status: shipped')
+        writeFileSync(path, landed.includes('## Verification')
+          ? landed
+          : `${landed.trimEnd()}\n\n## Verification\n\n- ACC-001: \`pnpm test\` exit 0\n`)
+      }
+    })
+    await waitFor(() => aligned !== undefined)
+    expect(aligned).toBe(true)
+    resolveChild()
+    await running
+  })
+
+  it('treats leftover markers after the child as snapshot + abort + Blocker', async () => {
+    const cwd = mkdtempSync(join(tmpdir(), 'ship-run-'))
+    writeLandingSpec(cwd)
+    const created: string[] = []
+    const git = conflictGit({ cwd, conflictPath: 'src/greet.ts', conflictContent: conflictHunk })
+    const children: ShipChildCreate = {
+      async create(request) {
+        created.push(`${request.graphKey}:${request.role ?? 'tdd'}`)
+        return {
+          id: `child-${created.length}`,
+          graphKey: request.graphKey,
+          label: request.label,
+          ...(request.role === undefined ? {} : { role: request.role }),
+          done: Promise.resolve(),
+          async dispose() {},
+        }
+      },
+    }
+    await new ShipRun(cwd, chrome, { childCreate: children, git: git.git }).run('build a widget', async () => {})
+    expect(created.filter(row => row.endsWith(':conflict'))).toHaveLength(1)
+    expect(git.log.some(entry => entry.includes('merge --abort'))).toBe(true)
+    expect(git.log.some(entry => entry.includes('merge --continue'))).toBe(false)
+    expect(readFileSync(join(cwd, 'docs', 'specs', 'widget.md'), 'utf8')).toContain('## Blocker')
+    expect(readFileSync(join(cwd, 'docs', 'specs', 'widget.md'), 'utf8')).toContain('leftover-markers')
+  })
+})
+
+async function waitFor(predicate: () => boolean, ms = 1000): Promise<void> {
+  const start = Date.now()
+  while (!predicate()) {
+    if (Date.now() - start > ms) throw new Error('timed out')
+    await new Promise<void>(resolve => { setTimeout(resolve, 0) })
+  }
+}
