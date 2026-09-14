@@ -6,14 +6,15 @@
  *
  * The profile install is expensive (a pnpm install), so it happens once per
  * run into a template home — and once across parallel files, behind a lock.
- * Each test gets a fresh home whose `profiles` directory is a symlink into
- * the template, keeping sessions, history, and installed presets test-local
- * while the heavyweight profile is shared.
+ * Each test gets a fresh home that copies the profile's own files and
+ * shares the installed modules: dsh rewrites `cordis.yml` on every boot with
+ * a non-atomic `writeFileSync`, so a shared file races under parallel workers
+ * (`config file must be a top-level array` when a sibling reads the hole).
  */
 
 import { createServer } from 'node:http'
 import { execFileSync } from 'node:child_process'
-import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { mkdtemp, symlink } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
@@ -133,6 +134,8 @@ function currentTemplateStamp(): string {
     join(bundleRoot, 'package.json'),
     join(bundleRoot, 'cordis.patch.yml'),
     join(bundleRoot, 'agent-presets'),
+    fileURLToPath(new URL('./heal-template.mjs', import.meta.url)),
+    require.resolve('@deepseek-ai/dsh/package.json'),
   ].map(stampPath).join('\n')
 }
 
@@ -177,6 +180,14 @@ function installTemplate(): void {
     env: { ...process.env, DSH_HOME: templateHome },
     stdio: 'pipe',
   })
+  // The first real boot is what writes the installation fallback. Per-test
+  // homes share that directory and copy `cordis.yml`, so the fallback has
+  // to exist on the template — a later heal under a cloned home writes to
+  // the clone while Node resolves through the symlink into the template.
+  execFileSync(process.execPath, [fileURLToPath(new URL('./heal-template.mjs', import.meta.url))], {
+    env: { ...process.env, DSH_HOME: templateHome },
+    stdio: 'pipe',
+  })
   // Spell the runtime as a registry version, the way a real install records
   // it. The suites drive the /update registration decision, which — like the
   // launcher — must move a registry version but never clobber a development
@@ -191,14 +202,47 @@ function installTemplate(): void {
 }
 
 /**
- * A fresh per-test home sharing the template's installed profile.
+ * A fresh per-test home sharing the template's installed modules.
+ *
+ * The packed `node_modules` trees stay linked: they are the expensive part
+ * and dsh does not rewrite them on boot. Everything else in the `code`
+ * profile — `cordis.yml` especially — is copied, so one test's boot cannot
+ * tear another test's include root.
  * @returns the home directory, disposable with the test's workspace.
  */
 export async function makeHome(): Promise<string> {
   const templateHome = ensureTemplateHome()
   const home = await mkdtemp(join(tmpdir(), 'codsh-e2e-home-'))
-  await symlink(join(templateHome, 'profiles'), join(home, 'profiles'))
+  await cloneTemplateProfiles(join(templateHome, 'profiles'), join(home, 'profiles'))
   return home
+}
+
+/**
+ * Clone a template `profiles` tree: share module directories, copy files.
+ *
+ * `$DSH_HOME/profiles/node_modules` and each profile's `node_modules` stay
+ * linked. Every other file — `cordis.yml` first — is a private copy.
+ * @param templateProfiles - the packed template's `profiles` directory.
+ * @param profiles - the per-test `profiles` directory to fill.
+ */
+export async function cloneTemplateProfiles(templateProfiles: string, profiles: string): Promise<void> {
+  mkdirSync(profiles, { recursive: true })
+  for (const name of readdirSync(templateProfiles)) {
+    const src = join(templateProfiles, name)
+    const dest = join(profiles, name)
+    if (name === 'node_modules' || !statSync(src).isDirectory()) {
+      await shareOrCopy(src, dest)
+      continue
+    }
+    mkdirSync(dest, { recursive: true })
+    for (const child of readdirSync(src)) await shareOrCopy(join(src, child), join(dest, child))
+  }
+}
+
+/** Link a module tree; copy a file that dsh may rewrite. */
+async function shareOrCopy(src: string, dest: string): Promise<void> {
+  if (statSync(src).isDirectory()) await symlink(src, dest)
+  else copyFileSync(src, dest)
 }
 
 /** One resolved launch: the command line and environment to boot `codsh`. */

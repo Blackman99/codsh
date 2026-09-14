@@ -62,7 +62,7 @@ jobs:
               .changeset/*.md|packages/*/CHANGELOG.md) continue ;;
               README.md|README.zh.md|CONTEXT.md|CONTRIBUTING.md|SECURITY.md|LICENSE) continue ;;
               docs/*|site/*|assets/*|packages/*/README.md) continue ;;
-              packages/bundle/tests/*|scripts/*.spec.mjs|vitest.config.ts) continue ;;
+              packages/bundle/tests/*|scripts/*.spec.mjs|e2e/*.spec.ts|vitest.config.ts) continue ;;
               packages/*/package.json)
                 beyond="$(git diff -U0 "$BASE" HEAD -- "$file" \
                   | grep -E '^[-+]' | grep -vE '^(\+\+\+|---)' \
