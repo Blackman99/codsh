@@ -209,6 +209,17 @@ _Avoid_: session fold state, global expanded mode
 The bottom-pinned rows: input box, menus, the Queue and Todo readouts, hint
 row, status row. Never scrolls.
 
+**Context readout**:
+The status row's `context used/window (N% left)` segment. `used` is the
+projected next-request pressure, falling back to the latest provider sample;
+it is not cumulative session usage. The session projection supplies both
+pressure and capacity, so replay restores them and compaction updates them.
+Available figures stay visible at normal pressure; missing figures are `?`,
+and no segment appears before either is known. Remaining capacity is muted
+above 25%, warning at 25% or below, and error at 10% or below. Narrow rows
+omit shortcuts, workspace, and model before context or workflow state, then
+shorten context to `N% left` if needed. `/status` retains the detailed counts.
+
 **Row**:
 One line of a frame, painted at a position of its own. A row is text and
 nothing else: a control character inside one is not a character but a cursor
@@ -361,37 +372,118 @@ _Avoid_: inject (dsh's model-facing context), interrupt, follow-up
 
 ### Workflows
 
+**Question batch**:
+One `ask_user_question` request, owned by `TerminalQuestions`. Each answer is
+stored by its position in the request; ← revisits an earlier question and →
+returns to the next visited one. Navigation outcomes are separate from answer
+data, so literal write-ins such as `back`, `next`, and `edit` remain text.
+The append-only Transcript receives one final summary per answered question
+when the batch settles, never intermediate revisions. Esc/dismiss or EOF
+ends the remaining batch; cancellation never opens another card. Accepted
+answers remain and unanswered questions return empty selections.
+
+`FrontierCard` owns the compact `ship · grill` presentation; ordinary choices
+use `Selector`. Both restore all submitted selections and write-ins on a
+revisit, retain a write-in draft while moving between options, and use Space
+to toggle multi-select choices and Enter to submit (the focused choice if
+nothing is checked). ←/→ edits the caret within a write-in before navigating
+at its boundary. Frontier uses `❯` for focus and `[x]` for checked choices,
+including without color. It wraps question context, the focused option's
+explanation, and navigation hints. Explicit write-in labels identify inline
+fields; incidental words in descriptions cannot convert concrete options
+into text inputs. A grill dismissal does not abort Ship or approve a gate.
+_Avoid_: navigation strings encoded as custom answers, per-visit transcript writes
+
 **Ship gates**:
 The two approvals in the `/ship` workflow — the confirmed spec file (gate 1)
-and the approved ticket breakdown (gate 2). Gate 1 Confirm seals the Main Track.
-Everything after gate 2 is autonomous. Grill-me runs first as the grill-me skill (recon, design tree,
-frontier rounds with recommended answers, exhaustion handshake); to-spec and
-to-tickets then run as those skills (exhaustive stories, vertical tickets
-with a DAG and per-ticket acceptance, `.scratch/` plus tracker when
-configured) without another interview. Landing follows the tdd skill: one
-red test witnessed failing, then minimal green, then the suite. Each `/ship`
-turn injects only the phase the spec's `Status:` names — grill, to-spec,
-to-tickets, and TDD do not share context. The MetaBar chip follows that
-Status (`ship · grill` / `spec` / `tickets` / `land k/n`). The spec file is the workflow's memory,
-not the conversation: the approved tickets live in it as checkboxes, its
-`Status:` line names the phase, a baseline run is recorded before any code,
-each green ticket is committed, and a bare `/ship` offers to resume
-whatever it finds unfinished. One module owns that memory for a session —
-Plan progress, the MetaBar chip, the spec poll, occupancy, the sealed-track
-snapshot, and the canned phase loop — so the runner only begins, notes a
-write, or aborts. Occupancy is a Selector, not a third gate. Chrome stays
-the MetaBar chip and plan row; there is no GoalBar.
-_Avoid_: checkpoints, review steps, GoalBar
+and the approved ticket breakdown (gate 2). Gate 1 Confirm seals the Main Track
+and acceptance criteria. Everything after gate 2 is autonomous. Wayfinder
+precedes grill as a planning-only contract: destination, named decision map,
+dependency-linked decision tickets, and a local-Markdown fallback when no
+tracker is configured. Charting stops; each later invocation resolves at most
+one non-research decision ticket. Unresolved work remains `wayfinding`;
+explicit confirmation of a clear route advances to `grilling`. A small clear
+route records a confirmed no-map handoff. The ledger's `## Wayfinder` section
+links the canonical map and its decisions, not a duplicate implementation plan.
+The bundled contract requires no external skill installation. Grill-me then
+runs as the grill-me skill (recon, design tree, frontier rounds with
+recommended answers, exhaustion handshake); to-spec and to-tickets then run as
+those skills (exhaustive stories, vertical tickets with a DAG and per-ticket
+acceptance, `.scratch/` plus tracker when configured) without another
+interview. Landing follows the tdd skill: one red test witnessed failing, then
+minimal green, then the suite. Each `/ship` turn injects only the phase the
+spec's `Status:` names, avoiding injection of all phase instructions at once.
+Earlier conversation remains in the parent; fresh-context children keep
+independent investigation and implementation output out of that history. `interviewing` still means to-spec for existing files; later
+status meanings remain unchanged. The MetaBar chip follows that Status
+(`ship · wayfinder` / `grill` / `spec` / `tickets` / `land k/n`). The runtime
+binds one spec for phase, goal, UI, and completion; several unfinished specs
+open a selector, and a pipe refuses the ambiguity. The spec file is the
+workflow's memory, not the conversation: the user's wording lives in
+`## Original Requirement`, distinct from the compact Main Track; approved
+tickets live as checkboxes; the `Status:` line names the phase; a baseline run
+is recorded before any code; each green ticket is committed; and a bare `/ship`
+resumes unfinished work without blanking the original requirement. Adjacent
+`<spec>.ship.json` is runner-managed persistence of the original requirement
+plus sealed Main Track and acceptance criteria at gate 1 when present. Later
+phases and resumed runs check that snapshot at phase boundaries; mismatch or
+corruption is a stop, not an accepted rewrite. A first snapshot cannot verify
+earlier history — limited protection, not a tamper-proof sandbox. Plan mode
+writes no snapshots. Coverage is original requirement → Track-N → acceptance →
+ticket → evidence. One module owns that memory for a session — Plan progress,
+the MetaBar chip, the spec poll, occupancy, the sealed-track snapshot, and the
+canned phase loop — so the runner only begins, notes a write, or aborts.
+Occupancy is a Selector, not a third gate. Chrome stays the MetaBar chip and
+plan row; there is no GoalBar.
+_Avoid_: checkpoints, review steps, GoalBar, in-session landing, process-only snapshot
+
+**Original Requirement**:
+The user's wording, kept in the spec as its own section. Clarifications refine
+the design; they never silently replace the original request. Distinct from
+Main Track. A bare `/ship` may omit a new idea; it must not blank this section.
+_Avoid_: live rewrite, idea slot as the only memory
+
+**Ship snapshot**:
+The adjacent `<spec>.ship.json` the runner owns. It records the original
+requirement and, after gate 1 Confirm, the sealed Main Track and acceptance
+criteria when those sections exist. The model must not edit, remove, or
+regenerate it, and children must not be asked to. Commit it unchanged with
+the spec so resumed checkouts retain the comparison baseline. Checks run at phase
+boundaries and on resume; a mismatch or corruption stops the run. A first
+snapshot has no earlier history to compare, so protection is limited — not a
+security sandbox. Plan mode writes none. Identity, snapshot, and phase checks
+plus review and real proofs are the guardrails; semantic zero drift is not
+claimed.
+_Avoid_: process-only snapshot, live reread, tamper-proof, security sandbox
 
 **Main Track**:
 The compact compass `/ship` writes into the spec: the one-sentence idea,
-numbered Track-N grill decisions, and Out of Scope — not the full spec.
-Gate 1 Confirm freezes it. Later phase turns are prepended with a process
-snapshot of that section captured at seal time, so landing cannot rewrite
-the design to match what it already built. A needed contradiction is a
-blocker, never a silent spec edit. Progress (Status, checkboxes, proof
-logs) remains writable.
+numbered Track-N grill decisions, and Out of Scope — not the full spec and
+not the Original Requirement. Gate 1 Confirm freezes it together with
+acceptance criteria. Later phase turns and resumed runs are bound to that
+sealed content via the runner snapshot, so landing cannot rewrite the design
+to match what it already built. A needed contradiction is a blocker, never a
+silent spec edit. Progress (Status, checkboxes, proof logs) remains writable.
 _Avoid_: live reread, silent rewrite, GoalBar
+
+**Ship delegation**:
+Fresh-context `subagent` is the default for investigation, research, ticket
+implementation, and independent review. Prefer `subagent`, not
+`subagent_fork`: copying the parent conversation defeats isolation. The parent
+keeps questions, gates, coordination, and independently re-runs final proofs.
+Children return at most 20 lines naming the result plus evidence/log paths.
+The working tree is shared: read-only work may run in parallel; writers and
+git mutations stay serial. All plans use one parent-coordinated fresh child
+per active unblocked ticket, at most one ticket per model turn. The runner
+validates the frozen goal, unchanged ticket contracts, dependencies and
+checkbox changes between turns. All checked tickets trigger a separate final
+verification turn. An unresolved `## Blocker`, two consecutive no-progress
+turns, or three turns per ticket plus one final-verification turn per invocation
+halts automatic continuation. Cascading re-verification may untick tickets
+and return to repair within the same budget. `/ship` never calls Ralph; its
+tool remains available outside the workflow for explicit requests. Missing
+delegation is stated as a limitation, not claimed as a child that ran.
+_Avoid_: in-session landing, fork history, semantic zero drift
 
 **Occupancy**:
 Before the first `/ship` phase turn, if an unrelated current `/goal` exists,

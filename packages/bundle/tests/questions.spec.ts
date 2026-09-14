@@ -172,7 +172,7 @@ describe('TerminalQuestions', () => {
   })
 
   it('restores a typed custom answer when going back to that question', async () => {
-    const priors: Array<{ custom?: string; selected?: string } | undefined> = []
+    const priors: Array<{ custom?: string; selected?: string | readonly string[] } | undefined> = []
     let whereVisits = 0
     let cacheVisits = 0
     const questions = new TerminalQuestions(
@@ -417,8 +417,8 @@ describe('ship gate detection', () => {
       custom: 'a file under docs/',
     })
     expect(encodeFrontierAnswer(q, { kind: 'dismiss' })).toEqual({ id: 'grill', selected: [] })
-    expect(encodeFrontierAnswer(q, { kind: 'back' })).toEqual({ id: 'grill', selected: [], custom: 'back' })
-    expect(encodeFrontierAnswer(q, { kind: 'next' })).toEqual({ id: 'grill', selected: [], custom: 'next' })
+    expect(encodeFrontierAnswer(q, { kind: 'back' })).toEqual({ id: 'grill', selected: [] })
+    expect(encodeFrontierAnswer(q, { kind: 'next' })).toEqual({ id: 'grill', selected: [] })
   })
 
   it('marks a write-in option from its label so the frontier card can type in place', async () => {

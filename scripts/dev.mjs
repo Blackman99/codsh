@@ -10,7 +10,9 @@
  *
  * `MOCK=<mode>` boots against the keyless e2e mock model instead of a real
  * key: `write` (the default), `bash`, `heredoc`, `slow`, `steer`, `tall`,
- * `spec`, `markdown`, `reasoning`, `echo`, `vision`, and the `auto-vision`,
+ * `spec`, `markdown`, `reasoning`, `echo`, `context`, `questions`, `ship-wayfinder`,
+ * `ship-delegate`, `ship-landing`,
+ * `vision`, and the `auto-vision`,
  * `auto-vision-slow`, `auto-vision-fail` trio behind automatic image
  * description. The list lives in `e2e/fixtures/mock-llm.src.ts`.
  * Arguments after `pnpm run dev` reach the app (`--resume`, `-p "task"`, …).

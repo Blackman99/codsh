@@ -46,7 +46,7 @@ describe('SHIP_PROMPT', () => {
     expect(SHIP_PROMPT).toContain('Status line is not `shipped`')
     expect(SHIP_PROMPT).toContain('resume')
     // The phase ledger the resume reads.
-    expect(SHIP_PROMPT).toContain('`Status:` line (interviewing, confirmed, planned, landing, shipped)')
+    expect(SHIP_PROMPT).toContain('`Status:` line (wayfinding, grilling, interviewing, confirmed, planned, landing, shipped)')
     // The approved tickets are written into the spec, not left in the conversation.
     expect(SHIP_PROMPT).toContain('`## Plan` section with one checkbox per ticket')
     expect(SHIP_PROMPT).toContain('re-read it before starting each ticket')
@@ -59,13 +59,13 @@ describe('SHIP_PROMPT', () => {
     expect(SHIP_PROMPT).toContain('commit after each ticket turns green')
   })
 
-  it('makes verification mechanical, and re-runs it after a Ralph loop', () => {
+  it('makes verification independent and bounds ticket coordination', () => {
     // Every criterion carries its own command; the final phase runs exactly those.
     expect(SHIP_PROMPT).toContain('names the exact command that proves it')
     expect(SHIP_PROMPT).toContain('run every proof command again yourself')
     // The loop is bounded and stops on stall instead of spinning to the cap.
-    expect(SHIP_PROMPT).toContain('three rounds per ticket')
-    expect(SHIP_PROMPT).toContain('two consecutive rounds that tick nothing')
+    expect(SHIP_PROMPT).toContain('three per ticket plus final verification')
+    expect(SHIP_PROMPT).toContain('two consecutive turns with no checkbox progress')
   })
 
   it('treats pasted images as requirements material', () => {
@@ -82,6 +82,24 @@ describe('SHIP_PROMPT', () => {
     expect(SHIP_PROMPT).toContain('Testing Decisions')
     expect(SHIP_PROMPT).toContain('tracer-bullet tickets')
     expect(SHIP_PROMPT).toContain('red before green')
+  })
+
+  it('charts decisions before grill and keeps unresolved maps resumable without implementing', () => {
+    const prompt = shipPromptFor(undefined)
+    expect(SHIP_PROMPT.indexOf('Before Phase 1 — wayfinder')).toBeLessThan(SHIP_PROMPT.indexOf('Phase 1 — grill-me'))
+    expect(prompt).toContain('produce decisions, not deliverables')
+    expect(prompt).toContain('wayfinder:map')
+    expect(prompt).toContain('local-markdown tracker')
+    expect(prompt).toContain('open, unblocked, unclaimed')
+    expect(prompt).toContain('claim it before work')
+    expect(prompt).toContain('research subagents')
+    expect(prompt).toContain('at most one non-research decision ticket per /ship invocation')
+    expect(prompt).toContain('Continue to grill (recommended, first) or Stop')
+    expect(prompt).toContain('Only an explicit Continue advances')
+    expect(prompt).toContain('no separate skill installation is required')
+    expect(prompt).toContain('Do not auto-loop through multiple decision tickets')
+    expect(prompt).toContain('Write no production implementation')
+    expect(prompt).toContain('## Wayfinder')
   })
 
   it('follows the grill-me skill: recon first, batched frontier, recommended answers, exhaustion handshake', () => {
@@ -168,12 +186,29 @@ describe('SHIP_PROMPT', () => {
     expect(SHIP_PROMPT).toContain('Keep branch for PR')
   })
 
-  it('injects grill, to-spec, to-tickets, and tdd as separate turns', () => {
-    const grill = shipPromptFor(undefined)
+  it('injects wayfinder, grill, to-spec, to-tickets, and tdd as separate turns', () => {
+    const wayfinder = shipPromptFor(undefined)
+    expect(wayfinder).toContain('Follow the wayfinder skill as the contract, not a summary of it')
+    expect(wayfinder).toContain('This turn is wayfinder only')
+    expect(wayfinder).toContain('ship · preflight')
+    expect(wayfinder).toContain('Status: wayfinding')
+    expect(wayfinder).toContain('Status: grilling')
+    expect(wayfinder).not.toContain('Relentless Frontier Exploration')
+    expect(wayfinder).not.toContain('Pure Synthesis, Zero Interrogation')
+    expect(wayfinder).not.toContain('Strict Vertical Tracer Slicing')
+    expect(wayfinder).not.toContain('Strict Red-First Execution')
+    const resumed = shipPromptFor('wayfinding')
+    expect(resumed).toContain('Follow the wayfinder skill as the contract, not a summary of it')
+    expect(resumed).not.toContain('git checkout -b')
+    expect(resumed).not.toContain('ship · preflight')
+
+    const grill = shipPromptFor('grilling')
     expect(grill).toContain('Follow the grill-me skill as the contract, not a summary of it')
-    expect(grill).toContain('This turn is pre-flight and grill only')
+    expect(grill).toContain('This turn is grill only')
     expect(grill).toContain('Status: interviewing')
-    expect(grill).toContain('ship · preflight')
+    expect(grill).toContain('## Wayfinder')
+    expect(grill).not.toContain('git checkout -b')
+    expect(grill).not.toContain('Follow the wayfinder skill as the contract')
     expect(grill).not.toContain('Pure Synthesis, Zero Interrogation')
     expect(grill).not.toContain('ship · gate 1/2')
     expect(grill).not.toContain('Strict Vertical Tracer Slicing')
@@ -196,13 +231,16 @@ describe('SHIP_PROMPT', () => {
 
     const land = shipPromptFor('planned')
     expect(land).toContain('Strict Red-First Execution')
-    expect(land).toContain('dual-layer DoD')
+    expect(land).not.toContain('Phase 5 — done means verified')
+    expect(shipPromptFor('landing', { verificationOnly: true })).toContain('dual-layer DoD')
     expect(land).not.toContain('Relentless Frontier Exploration')
     expect(land).not.toContain('Pure Synthesis, Zero Interrogation')
     expect(land).not.toContain('Strict Vertical Tracer Slicing')
     expect(shipPromptFor('landing')).toBe(land)
 
-    expect(shipPhaseKind(undefined)).toBe('grill')
+    expect(shipPhaseKind(undefined)).toBe('wayfinder')
+    expect(shipPhaseKind('wayfinding')).toBe('wayfinder')
+    expect(shipPhaseKind('grilling')).toBe('grill')
     expect(shipPhaseKind('interviewing')).toBe('spec')
     expect(shipPhaseKind('confirmed')).toBe('tickets')
     expect(shipPhaseKind('planned')).toBe('land')
@@ -212,7 +250,8 @@ describe('SHIP_PROMPT', () => {
 
   it('passes Goal-Id into grill so the spec header records the session compass (Track: 5)', () => {
     expect(SHIP_PROMPT).toContain('$GOAL_ID')
-    const grill = shipPromptFor(undefined, { goalId: 'goal-abc123' })
+    const grill = shipPromptFor('grilling', { goalId: 'goal-abc123' })
+    expect(shipPromptFor(undefined, { goalId: 'goal-abc123' })).toContain('Goal-Id: goal-abc123')
     expect(grill).toContain('goal-abc123')
     expect(grill).toContain('Goal-Id:')
     expect(grill).not.toContain('$GOAL_ID')
@@ -246,14 +285,51 @@ describe('SHIP_PROMPT', () => {
     expect(done.startsWith(track)).toBe(true)
     expect(done).toContain('dual-layer DoD')
 
-    const grill = shipPromptFor(undefined, { track })
-    expect(grill).not.toContain(track)
+    const grill = shipPromptFor('grilling', { track })
+    expect(shipPromptFor(undefined, { track })).toContain(track)
+    expect(grill).toContain(track)
     expect(grill).toContain('Follow the grill-me skill as the contract, not a summary of it')
+  })
+
+  it.each([undefined, 'wayfinding', 'grilling', 'interviewing', 'confirmed', 'planned', 'landing', 'shipped'] as const)(
+    'carries the original goal and bounded fresh-context delegation in %s', status => {
+      const originalRequirement = 'Keep literal $ARGUMENTS and $&; preserve offline use.\nNever upload files.'
+      const track = '## Main Track\n\nTrack-1: preserve $ARGUMENTS exactly.'
+      const specPath = '/repo/docs/specs/offline.md'
+      const prompt = shipPromptFor(status, { originalRequirement, track, specPath })
+      expect(prompt).toContain(`## Original Requirement\n\n${originalRequirement}`)
+      expect(prompt).toContain(`<idea>\n${originalRequirement}\n</idea>`)
+      expect(prompt).toContain(track)
+      expect(prompt).toContain(`Bound spec: ${JSON.stringify(specPath)}`)
+      expect(prompt).toContain('Prefer `subagent`, not `subagent_fork`')
+      expect(prompt).toContain('Research and review children are read-only')
+      expect(prompt).toContain('serialize implementation writers and git mutations')
+      expect(prompt).toContain('return at most 20 lines')
+      expect(prompt).toContain('Await every required child')
+      expect(prompt).toContain('original requirements to Track-N decisions, acceptance criteria, tickets, and proof evidence')
+      expect(prompt).toContain('never edit, remove, regenerate')
+      expect(prompt).toContain('Main Track and acceptance criteria are frozen')
+    },
+  )
+
+  it('delegates small-plan implementation without surrendering acceptance or user gates', () => {
+    const land = shipPromptFor('landing')
+    expect(land).not.toContain('implement in-session')
+    expect(land).toContain('one fresh-context subagent per unblocked ticket')
+    expect(land).toContain('Re-run the ticket\'s proof commands against the integrated working tree')
+    expect(land).toContain('A failed, partial, or out-of-scope result leaves the ticket unchecked')
+    expect(land).toContain('This turn may complete only the runner\'s Active Ticket')
+    expect(land).toContain('Do not call ralph from /ship')
+    expect(shipPromptFor('landing', { verificationOnly: true })).toContain('a missing requirement or an out-of-scope change')
+    expect(land).toContain('If delegation is unavailable, state that limitation')
+    expect(land).toContain('user decisions, approvals, coordination, and final acceptance')
   })
 
   it('forbids goal tools in every phase so the model cannot fight the runner (Track: 7)', () => {
     const phases = [
       shipPromptFor(undefined),
+      shipPromptFor('wayfinding'),
+      shipPromptFor('grilling'),
       shipPromptFor('interviewing'),
       shipPromptFor('confirmed'),
       shipPromptFor('planned'),
@@ -274,6 +350,8 @@ describe('SHIP_PROMPT', () => {
   it('freezes Main Track after Confirm so a contradiction is a blocker not a silent rewrite (Track: 3)', () => {
     const afterConfirm = [
       shipPromptFor(undefined),
+      shipPromptFor('wayfinding'),
+      shipPromptFor('grilling'),
       shipPromptFor('interviewing'),
       shipPromptFor('confirmed'),
       shipPromptFor('planned'),
@@ -302,14 +380,13 @@ describe('SHIP_PROMPT', () => {
     expect(SHIP_PROMPT).toMatch(/first red test/)
   })
 
-  it('puts the sealed Main Track plus the spec path into the Ralph objective (Track: 4)', () => {
+  it('passes the original contract and selected ticket without starting a nested coordinator', () => {
     const track = '## Main Track\n\n**Idea.** Bind /goal into /ship.'
-    const land = shipPromptFor('landing', { track })
-    expect(land).toContain('ralph')
+    const land = shipPromptFor('landing', { track, specPath: 'docs/specs/goal.md', activeTicket: 'Ticket 4: offline export (Track: 1)' })
     expect(land).toContain(track)
-    expect(land).toMatch(/objective/)
-    expect(land).toMatch(/sealed track/)
-    expect(land).toMatch(/spec (file )?path/)
-    expect(SHIP_PROMPT).toMatch(/sealed track/)
+    expect(land).toContain('Active Ticket: Ticket 4: offline export (Track: 1)')
+    expect(land).toContain('Bound spec: "docs/specs/goal.md"')
+    expect(land).toContain('Do not call ralph from /ship')
+    expect(land).not.toContain('call the ralph tool once')
   })
 })

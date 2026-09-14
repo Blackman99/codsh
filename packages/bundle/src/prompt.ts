@@ -1678,7 +1678,7 @@ export class Prompt {
     this.queueRowsAt = undefined
     if (this.frontier_ !== undefined) {
       const frame = this.frontier_.card.frame(this.theme, columns)
-      frontierCursor = frame.cursor
+      frontierCursor = frame.cursor === undefined ? undefined : { row: rows.length + frame.cursor.row, column: frame.cursor.column }
       rows.push(...frame.rows)
     }
     if (this.select_ !== undefined) {

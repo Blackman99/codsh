@@ -1,7 +1,7 @@
 /** Reading a `/ship` spec's plan: how many tickets, and which one is now. */
 
 import { describe, expect, it } from 'vitest'
-import { parseMainTrack, parsePlan, parseShipStatus, parseSpecMetadata, pickLiveShip, planInFlight, planReport, planRow, planSummary, plansEqual, workingLineProgress } from '../src/plan.ts'
+import { parseAcceptanceCriteria, parseMainTrack, parseOriginalRequirement, parsePlan, parseShipStatus, parseSpecMetadata, pickLiveShip, planInFlight, planReport, planRow, planSummary, plansEqual, workingLineProgress } from '../src/plan.ts'
 import { createTheme } from '../src/theme.ts'
 
 const theme = createTheme(false, {})
@@ -128,6 +128,8 @@ describe('parsePlan', () => {
 describe('parseShipStatus', () => {
   it('reads the Status phase from the spec', () => {
     expect(parseShipStatus(SPEC)).toBe('landing')
+    expect(parseShipStatus('Status: wayfinding\n')).toBe('wayfinding')
+    expect(parseShipStatus('Status: grilling\n')).toBe('grilling')
     expect(parseShipStatus('# Spec\n\nStatus: interviewing\n')).toBe('interviewing')
     expect(parseShipStatus('Status: shipped\n')).toBe('shipped')
   })
@@ -194,6 +196,51 @@ Goal-Id: goal-abc123
     const markdown = `## Main Track\n\n- [ ] Forking the harness\n- [x] A TTY GoalBar\n`
     expect(parsePlan(markdown).tickets).toEqual([])
     expect(parseMainTrack(markdown)).toContain('- [ ] Forking the harness')
+  })
+
+  it('keeps nested headings inside Main Track and Original Requirement', () => {
+    const markdown = `# Feature
+
+## Original Requirement
+
+Keep offline use.
+
+### Constraints
+
+Never upload files.
+
+## Requirement
+
+This is a design summary, not the original.
+
+## Main Track
+
+**Idea.** Preserve original wording.
+
+### Out of Scope
+
+- A TTY GoalBar
+
+## Plan
+
+- [ ] Ticket 1
+`
+    expect(parseOriginalRequirement(markdown)).toBe('Keep offline use.\n\n### Constraints\n\nNever upload files.')
+    expect(parseOriginalRequirement(markdown)).not.toContain('design summary')
+    expect(parseMainTrack(markdown)).toContain('**Idea.** Preserve original wording.')
+    expect(parseMainTrack(markdown)).toContain('### Out of Scope')
+    expect(parseMainTrack(markdown)).toContain('- A TTY GoalBar')
+    expect(parseMainTrack(markdown)).not.toContain('Ticket 1')
+  })
+
+  it('does not treat a Requirement heading as the original wording', () => {
+    expect(parseOriginalRequirement('# Feature\n\n## Requirement\n\nBuild a widget\n')).toBeUndefined()
+  })
+
+  it('reads Acceptance Criteria at any heading depth', () => {
+    const markdown = `### Acceptance Criteria\n\n1. \`pnpm test\` exits 0\n\n## Plan\n\n- [ ] Ticket 1\n`
+    expect(parseAcceptanceCriteria(markdown)).toContain('pnpm test')
+    expect(parseAcceptanceCriteria(markdown)).not.toContain('Ticket 1')
   })
 })
 

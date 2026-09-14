@@ -1,5 +1,7 @@
 # Bind /goal into /ship as a Main Track compass
 
+> Historical shipped design. The 2026-09-13 revision replaces the process-only snapshot and Markdown-only storage decisions with a runner-managed `<spec>.ship.json` comparison baseline and fresh-context delegation. Landing now uses one parent-coordinated ticket per turn with runner checks, rather than automatically routing larger plans through Ralph. See [CONTEXT.md](../../CONTEXT.md#main-track) for current behavior. The original approved decisions below remain as historical evidence.
+
 Status: shipped
 Branch: ship/ship-goal-main-track
 Base-Commit: 48b4b4b8dd06dff9e9ab98007add1e4c93ef12a0

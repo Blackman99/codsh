@@ -41,18 +41,21 @@ codsh
 
 ## `/ship`
 
-`/ship <一句话需求>` —— 前检隔离、先 grill、两次确认、自主 TDD、双层 DoD：
+`/ship <一句话需求>` —— 前检隔离、wayfinder、grill、两次确认、自主 TDD、双层 DoD：
 
 0. **前检与分支隔离** —— 检查工作区（有改动时弹出 `ship · preflight` 选择暂存/带走）；自动切出 `ship/<slug>` 独立特性分支，保护原分支不受污染。
-1. **Grill** —— 按 grill-me skill：先自己 recon，再按设计树访谈；每轮把当前未阻塞的 frontier 整批发问并给出推荐答案，`header` 为 `ship · grill`；←/→ 可回改本轮已答过的题；需要自填的选项聚焦后就是行内输入框。卡片把整道题换行显示，不再截成两行省略号。前沿清空并确认后才往下走。
-2. **Spec (Gate 1)** —— 按 to-spec skill 自动合成（穷尽用户故事、公开 seam、Out of Scope）。你确认。记录分支、基底 Commit、验收命令，并写一份 `.scratch/` 副本（配了 tracker 就发到 tracker）。
-3. **Tickets 与基线 (Gate 2)** —— 按 to-tickets skill 切成带 DAG 的垂直切片，每张票有原子验收清单和 `.scratch/.../issues/` 文件，并注入发版合规任务。你批准。先跑业务与仓库全局基线。
-4. **落地** —— 按 tdd skill：先写并亲眼看到一条失败测试，再写最少绿码，再跑全套；单 Ticket 3 轮修错熔断；续跑级联重验；每个变绿的 ticket 产生单次全绿提交。较大的计划以 fresh agent 的 Ralph 循环执行；一轮进行中，工作行显示这一轮及其最近一次调用（计划行已经钉在 chrome 里，不再叠一份进度），spec 里的勾选一变、计划行随即更新，轮次结束的那一行写明做了多少事——Esc 会中断整个循环，哪怕 ticket 还没做完。
-5. **完成 (双层 DoD)** —— 验收命令实跑 Exit Code 0 且仓库全局零新增报错；弹出合流选择（`ship · deliver`：合并、提 PR、保留分支）。
+1. **Wayfinder** —— 在 grill 前明确目标并解决待决问题。大型任务在已配置的 tracker 上建立带名称的决策图及有依赖关系的决策票；未配置时使用 `.scratch/<slug>/wayfinder/` 下的本地 Markdown。这些是决策，不是实施任务。尚未完成时停在 `Status: wayfinding`，裸 `/ship` 继续，每次最多解决一张非研究类决策票。路线已经明确的小任务会询问是否不建图直接继续。确认后改为 `Status: grilling`，下一轮再载入 grill。该合同随 codsh 提供，无需另装 skill。
+2. **Grill** —— 按 grill-me skill：先自己 recon，再按设计树访谈；每轮把当前未阻塞的 frontier 整批发问并给出推荐答案，`header` 为 `ship · grill`；←/→ 可回改本轮已答过的题；需要自填的选项聚焦后就是行内输入框。卡片把整道题换行显示，不再截成两行省略号。前沿清空并确认后才往下走。
+3. **Spec (Gate 1)** —— 按 to-spec skill 自动合成（穷尽用户故事、公开 seam、Out of Scope）。`## Original Requirement` 单独保留用户原话，与精简的 Main Track 分开。你确认。记录分支、基底 Commit、验收命令，并写一份 `.scratch/` 副本（配了 tracker 就发到 tracker）。
+4. **Tickets 与基线 (Gate 2)** —— 按 to-tickets skill 切成带 DAG 的垂直切片，每张票有原子验收清单和 `.scratch/.../issues/` 文件，并注入发版合规任务。你批准。先跑业务与仓库全局基线。
+5. **落地** —— 按 tdd skill：先写并亲眼看到一条失败测试，再写最少绿码，再跑全套；单 Ticket 3 轮修错熔断；续跑级联重验；每个变绿的 ticket 产生单次全绿提交。仓库调查、研究、单票实施和独立审查交给全新上下文的 `subagent`（不是 fork 历史）。父会话保留提问、闸门和协调，并独立重跑最终验收。子代理最多回 20 行，并给出证据/日志路径。工作树共享：只读调查可并行，写入和 git 变更必须串行。所有计划统一逐票推进：父会话为当前未阻塞票协调一个全新子代理，完成后结束本轮。运行器在派发下一票前检查目标快照、票的合同未变、依赖和勾选变化；全部票勾选后，另起一轮做最终验收。连续两轮没有勾选进展、存在未解决的 `## Blocker`，或达到单次调用的轮数预算（每票三轮加一轮最终验收），都会停止自动推进，磁盘进度仍可续跑。`/ship` 不调用 Ralph；该工具保留供流程之外显式请求使用。Esc 会中断协调，包括尚未完成的 ticket。
+6. **完成 (双层 DoD)** —— 验收命令实跑 Exit Code 0 且仓库全局零新增报错；弹出合流选择（`ship · deliver`：合并、提 PR、保留分支）。覆盖链是原始需求 → Track-N → 验收 → ticket → 证据；绿测试不能掩盖漏掉的需求或越界改动。
 
-每次 `/ship` 只注入一份合同（grill / to-spec / to-tickets / TDD），避免后面阶段把正在执行的合同挤掉。MetaBar 芯片和计划行跟着磁盘上的 Status 与勾选走。裸 `/ship` 会对已有进度级联重验后继续续跑未完成的 spec。
+每轮访谈中，↑/↓ 移动焦点；多选题用空格切换 `[x]` 勾选，Enter 提交（未勾选时，Enter 选中当前焦点项）。← 返回上一题，→ 回到下一道已访问的题，之前的选择和已提交的自填答案会恢复。编辑文字时，←/→ 优先移动光标，到达文本边界后才切换题目。切换选项会保留自填草稿。本轮结束时，每道已答题只输出一次最新提交的答案。Esc 关闭本轮剩余问题，不中止 `/ship`；尚未提交的题返回空答案。焦点选项的说明会完整显示，关闭颜色后仍可通过 `❯` 看出焦点。
 
-Gate 1 Confirm 会冻结 Main Track（一句话 idea、编号 Track-N 决策、Out of Scope），之后每一轮都前置这份快照，落地阶段不能改写设计。若会话里已有无关的 `/goal`，`/ship` 会先暂停它并弹出 `ship · occupancy`（Replace / Abort）；管道里自动 Replace。运行期间 `/goal` 显示带 `[ship]` 标记的指南针。Chrome 不变：不加新行，也没有 GoalBar。
+每次 `/ship` 只注入一份合同（wayfinder / grill / to-spec / to-tickets / TDD），避免后面阶段把正在执行的合同挤掉。运行时为阶段、goal、界面和完成绑定一份 spec。多份未完成 spec 会弹出选择器；管道里拒绝猜测。状态栏从 `ship · wayfinder` 开始，与计划行一起跟随这份绑定 spec。spec 的 `## Wayfinder` 保存决策图链接，供 grill 和规格合成读取。已有 `interviewing`、`confirmed`、`planned`、`landing` spec 保持原阶段含义，恢复时不重跑 wayfinder。裸 `/ship` 续跑未完成工作，且不会把原始需求抹空；恢复实施任务时先级联重验。
+
+Gate 1 Confirm 会封存 Main Track 和验收标准。运行器在相邻的 `<spec>.ship.json`（例如 `widget.md` → `widget.ship.json`）里持久化原始需求，以及确认时已有的封存 Main Track 和验收标准；这份文件由运行器管理，模型不得改、删或重生成。将它原样随 spec 提交，以便重新检出代码后仍保留比较基线。后续阶段和续跑在阶段边界核对该快照；不匹配或损坏就停下，而不是接受改写。第一份快照无法核对其之前的历史，因此这是有限保护，不是防篡改沙箱。plan 模式不写快照。goal 仍可选；裸 `/ship` 仍保留原始措辞。守卫是身份、快照、阶段检查，加上审查和实跑证明——不保证语义零漂移。若会话里已有无关的 `/goal`，`/ship` 会先暂停它并弹出 `ship · occupancy`（Replace / Abort）；管道里自动 Replace。运行期间 `/goal` 显示带 `[ship]` 标记的指南针。Chrome 不变：不加新行，也没有 GoalBar。
 
 ```sh
 /ship 让超长 diff 用分页器打开而不是刷屏滚过
@@ -99,6 +102,7 @@ dsh --profile code
 - `/ui compact|comfortable` 决定对话占多少地方。compact 是默认，上面描述的也都是它的形状；comfortable 只是多给空间——轮次之间空一行、思考流式时留两行预览、展开的 diff 更晚才切到分页器。这个选择会跨会话保存。
 - 审批、`/model`、`/resume`、`/thinking`（或 `/effort`）用方向键；还有 `/clear`、Esc Esc、`/init`、`/update`。`!cmd` 打在会话里，agent 看得到输出。
 - `/thinking [level]`（别名 `/effort`）配置模型思考深度（如 `off`、`low`、`high`、`max`，或快捷指令 `on`/`off`），支持 TTY 交互式选择、按模型独立持久化，并在状态栏 MetaBar（如 `deepseek-chat (high)`）及 `/status` 报告中常驻显示。
+- 状态栏显示下一次请求预计使用的上下文量与窗口容量，例如 `context 32k/128k (75% left)`。正常使用及 `/resume` 后都保持显示，剩余 25% 时警告，10% 时变红。未知数据用 `?` 表示，两项数据都未获得时不显示。窄终端优先省略目录、保留上下文，必要时缩为剩余百分比。`/status` 提供完整的 token 分类统计。
 - 人不在窗口时，等待决定或一轮超过十秒结束会响铃并发桌面通知：iTerm2、WezTerm、Ghostty、kitty、Windows Terminal 走 OSC 9，Terminal.app 走 `osascript`，其它 Linux 终端再加 `notify-send`；窗口有焦点时什么都不发。`bell` 和 `notify` 是两个开关。
 - 审批会点名这次调用——`Allow bash: git push origin main?`——第三个答案把它记下来：`bash(git push *)` 写进 `.dsh/permissions.local.json`（个人文件，请加入 gitignore），同一前缀在这个项目里不再询问。`.dsh/permissions.json`（可提交）和 `~/.dsh/permissions.json` 手写，形如 `{ "allow": ["tool", "tool(prefix *)", "tool(exact command)"] }`；复合命令——`&&`、`;`、`|`、换行——永远不匹配前缀。
 
@@ -154,7 +158,8 @@ pnpm run site:screens        # 用真实二进制重拍站点上的终端截屏
 
 `MOCK=<mode>` 用无 key 的 mock 模型启动：`write`（默认）、`bash`、`heredoc`、
 `slow`、`steer`（占住回合 3 秒并报告插话是否送达）、`tall`、`spec`、`markdown`、
-`reasoning`、`echo`、`vision`，以及自动图像
+`reasoning`、`echo`、`context`（32k 输入用量、128k 窗口；`cli-mock-pro` 为 64k）、
+`ship-wayfinder`（`/ship SMALL_WAYFINDER` 验证确认后进入 grill；`/ship PENDING_WAYFINDER` 留下可续跑的规划记录）、`vision`，以及自动图像
 描述背后的 `auto-vision`、`auto-vision-slow`、`auto-vision-fail`。`INSPECT=1`
 只对 app 进程打开 Node inspector，断点因此不会把它前面的构建一起停住。
 

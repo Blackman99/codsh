@@ -29,7 +29,7 @@ import {
   totalTokens,
   type StatusFacts,
 } from '../src/status.ts'
-import { createTheme } from '../src/theme.ts'
+import { createTheme, displayWidth } from '../src/theme.ts'
 
 const theme = createTheme(false, {})
 const dirs: string[] = []
@@ -261,7 +261,7 @@ describe('statusLine', () => {
     expect(statusLine({ ...base, shortcuts: true }, theme, 200)).toBe('m · /repo · ? shortcuts')
   })
 
-  it('keeps extras out of the glance line — preset, permission, tokens, routine context', () => {
+  it('shows context usage and window size while keeping cumulative usage and presets in /status', () => {
     const line = statusLine({
       ...base,
       preset: 'code-cli',
@@ -270,7 +270,38 @@ describe('statusLine', () => {
       usage,
       context: { contextWindow: 1000, projectedTokens: 250 },
     }, theme, 200)
-    expect(line).toBe('m · /repo (main)')
+    expect(line).toBe('m · context 250/1.0k (75% left) · /repo (main)')
+  })
+
+  it.each([
+    { context: { contextWindow: 128_000 }, shown: 'context ?/128k' },
+    { context: { projectedTokens: 12_000 }, shown: 'context 12k/?' },
+    { context: { contextWindow: 128_000, pressureTokens: 32_000 }, shown: 'context 32k/128k (75% left)' },
+    { context: { contextWindow: 128_000, projectedTokens: 0 }, shown: 'context 0/128k (100% left)' },
+    { context: { contextWindow: 128_000, pressureTokens: 120_000, projectedTokens: 32_000 }, shown: 'context 32k/128k (75% left)' },
+    { context: { contextWindow: 128_000, projectedTokens: 160_000 }, shown: 'context 160k/128k (0% left)' },
+    { context: { contextWindow: 0, pressureTokens: 32_000 }, shown: 'context 32k/?' },
+  ])('reports $shown without inventing missing measurements', ({ context, shown }) => {
+    expect(statusLine({ ...base, context }, theme, 200)).toBe(`m · ${shown} · /repo`)
+  })
+
+  it.each([40, 60, 80, 120])('keeps routine context on a %i-column terminal with a long workspace', columns => {
+    const line = statusLine({
+      ...base,
+      model: 'deepseek-chat',
+      reasoningEffort: 'high',
+      reasoningSupported: true,
+      shortcuts: true,
+      cwd: '/a/very/long/workspace/path/that/will/not/fit/in/the/status/row',
+      context: { contextWindow: 128_000, projectedTokens: 32_000 },
+    }, theme, columns)
+    expect(line).toContain('context 32k/128k (75% left)')
+    expect(displayWidth(line)).toBeLessThanOrEqual(columns)
+  })
+
+  it('keeps an explicit remaining percentage when even the context counts will not fit', () => {
+    expect(statusLine({ ...base, context: { contextWindow: 128_000, projectedTokens: 32_000 } }, theme, 12))
+      .toBe('75% left')
   })
 
   it('marks plan mode ahead of model and cwd', () => {
@@ -286,7 +317,8 @@ describe('statusLine', () => {
     expect(statusLine({ ...base, shipChip: { kind: 'land', k: 2, n: 3 } }, theme, 200)).toBe('ship · land 2/3 · m · /repo')
   })
 
-  it('paints grill, spec, tickets, verify, and done chips', () => {
+  it('paints wayfinder, grill, spec, tickets, verify, and done chips', () => {
+    expect(statusLine({ ...base, shipChip: { kind: 'wayfinder' } }, theme, 200)).toBe('ship · wayfinder · m · /repo')
     expect(statusLine({ ...base, shipChip: { kind: 'grill' } }, theme, 200)).toBe('ship · grill · m · /repo')
     expect(statusLine({ ...base, shipChip: { kind: 'spec' } }, theme, 200)).toBe('ship · spec · m · /repo')
     expect(statusLine({ ...base, shipChip: { kind: 'tickets' } }, theme, 200)).toBe('ship · tickets · m · /repo')
@@ -423,7 +455,8 @@ describe('status styling', () => {
     expect(flash).toContain('\u001B[32mship · land 2/3\u001B[0m')
   })
 
-  it('styles grill, spec, and tickets muted, verify muted, and done ok', () => {
+  it('styles wayfinder, grill, spec, and tickets muted, verify muted, and done ok', () => {
+    expect(statusLine({ ...base, shipChip: { kind: 'wayfinder' } }, colour, 200)).toContain(colour.muted('ship · wayfinder'))
     expect(statusLine({ ...base, shipChip: { kind: 'grill' } }, colour, 200)).toContain('\u001B[90mship · grill\u001B[0m')
     expect(statusLine({ ...base, shipChip: { kind: 'spec' } }, colour, 200)).toContain('\u001B[90mship · spec\u001B[0m')
     expect(statusLine({ ...base, shipChip: { kind: 'tickets' } }, colour, 200)).toContain('\u001B[90mship · tickets\u001B[0m')
@@ -433,6 +466,7 @@ describe('status styling', () => {
 
   it('keeps ship chips readable under NO_COLOR', () => {
     const plain = createTheme(true, { NO_COLOR: '1' })
+    expect(statusLine({ ...base, shipChip: { kind: 'wayfinder' } }, plain, 200)).toBe('ship · wayfinder · m · /repo')
     expect(statusLine({ ...base, shipChip: { kind: 'land', k: 2, n: 3 } }, plain, 200)).toBe('ship · land 2/3 · m · /repo')
     expect(statusLine({ ...base, shipChip: { kind: 'grill' } }, plain, 200)).toContain('ship · grill')
     expect(statusLine({ ...base, shipChip: { kind: 'spec' } }, plain, 200)).toContain('ship · spec')
@@ -453,14 +487,23 @@ describe('status styling', () => {
     expect(line).toContain('\u001B[90mm (high)\u001B[0m')
   })
 
-  it('escalates alarming context only; routine headroom stays off the glance', () => {
+  it('keeps routine context muted and warns at 25% and 10% remaining', () => {
     const at = (projected: number): string => statusLine({
       ...base,
       context: { contextWindow: 100, projectedTokens: projected },
     }, colour, 200)
-    expect(at(50)).not.toContain('50%')
-    expect(at(80)).toContain('\u001B[93m20%\u001B[0m')
-    expect(at(95)).toContain('\u001B[31m5%\u001B[0m')
+    expect(at(50)).toContain(colour.muted('context 50/100 (50% left)'))
+    expect(at(74)).toContain(colour.muted('context 74/100 (26% left)'))
+    expect(at(75)).toContain(colour.warn('context 75/100 (25% left)'))
+    expect(at(89)).toContain(colour.warn('context 89/100 (11% left)'))
+    expect(at(90)).toContain(colour.err('context 90/100 (10% left)'))
+    expect(at(95)).toContain(colour.err('context 95/100 (5% left)'))
+  })
+
+  it('keeps context labels and counts readable under NO_COLOR', () => {
+    const plain = createTheme(true, { NO_COLOR: '1' })
+    expect(statusLine({ ...base, context: { contextWindow: 128_000, projectedTokens: 32_000 } }, plain, 200))
+      .toBe('m · context 32k/128k (75% left) · /repo')
   })
 })
 
@@ -475,6 +518,8 @@ describe('ship chip helpers', () => {
   it('derives spec / tickets / land / verify / done from Status and the plan', () => {
     const landing = parsePlan('Status: landing\n\n## Plan\n\n- [x] a\n- [ ] b\n- [ ] c\n')
     expect(shipChipFromSpec(undefined, undefined)).toBeUndefined()
+    expect(shipChipFromSpec('wayfinding', undefined)).toEqual({ kind: 'wayfinder' })
+    expect(shipChipFromSpec('grilling', undefined)).toEqual({ kind: 'grill' })
     expect(shipChipFromSpec('interviewing', undefined)).toEqual({ kind: 'spec' })
     expect(shipChipFromSpec('confirmed', undefined)).toEqual({ kind: 'tickets' })
     expect(shipChipFromSpec('planned', landing)).toEqual({ kind: 'land', k: 2, n: 3 })

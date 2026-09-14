@@ -25,13 +25,16 @@ export interface FrontierOption {
 /** What one grill card is asking. */
 export interface FrontierSpec {
   question: string
+  detail?: string
   options: readonly FrontierOption[]
+  /** Space toggles choices; Enter submits the checked set. */
+  multi?: boolean
   /** Left goes to the previous consecutive question in this batch. */
   canBack?: boolean
   /** Right goes to the next already-answered question in this batch. */
   canForward?: boolean
   /** A previous answer to restore when revisiting this question. */
-  prior?: { selected?: string; custom?: string }
+  prior?: { selected?: string | readonly string[]; custom?: string }
 }
 
 /**
@@ -39,16 +42,12 @@ export interface FrontierSpec {
  *
  * `move` stays open; the others settle the card.
  */
-export type FrontierKey =
-  | { kind: 'accept'; value: string; custom?: true }
-  | { kind: 'dismiss' }
-  | { kind: 'back' }
-  | { kind: 'next' }
-  | { kind: 'move' }
+export type FrontierKey = FrontierOutcome | { kind: 'move' }
 
 /** How Prompt.frontier settled. */
 export type FrontierOutcome =
   | { kind: 'accept'; value: string; custom?: true }
+  | { kind: 'chosen'; values: string[] }
   | { kind: 'dismiss' }
   | { kind: 'back' }
   | { kind: 'next' }
@@ -131,6 +130,7 @@ export class FrontierCard {
   private draft = ''
   /** Insertion point inside {@link draft}, in code points. */
   private caret = 0
+  private readonly checked = new Set<number>()
   /** Model options plus the always-last custom write-in row. */
   private readonly options: readonly FrontierOption[]
 
@@ -143,8 +143,10 @@ export class FrontierCard {
       this.draft = prior.custom
       this.caret = Array.from(prior.custom).length
     } else if (prior?.selected !== undefined) {
-      const index = this.options.findIndex(option => option.label === prior.selected)
-      if (index >= 0) this.focus = index
+      const labels = typeof prior.selected === 'string' ? [prior.selected] : prior.selected
+      const indices = this.options.flatMap((option, index) => option.writeIn !== true && labels.includes(option.label) ? [index] : [])
+      if (indices[0] !== undefined) this.focus = indices[0]
+      if (spec.multi === true) indices.forEach(index => this.checked.add(index))
     }
   }
 
@@ -190,10 +192,25 @@ export class FrontierCard {
     const bottom = theme.muted(`└${rule}┘`)
     // Question stays default colour — the frame is the muted chrome.
     const body: string[] = asked.map(line => framed(line, theme, inner))
+    if (this.spec.detail !== undefined) {
+      body.push(...wrapStyled(this.spec.detail, inner).map(line => framed(theme.dim(line), theme, inner)))
+    }
+    const optionStart = body.length
     for (let index = this.offset; index < this.offset + visible; index += 1) {
       const option = this.options[index]
       if (option === undefined) continue
-      body.push(framed(this.optionRow(option, index === this.focus, theme, inner), theme, inner))
+      body.push(framed(this.optionRow(option, index, theme, inner), theme, inner))
+    }
+    // The option list stays compact; focusing a choice reveals its full
+    // explanation and any label that could not fit on the option row.
+    const focused = this.options[this.focus]
+    if (focused !== undefined && !this.writing()) {
+      if (displayWidth(focused.label) > Math.max(1, inner - this.optionGutter())) {
+        body.push(...wrapStyled(focused.label, inner).map(line => framed(line, theme, inner)))
+      }
+      if (focused.detail !== undefined) {
+        body.push(...wrapStyled(focused.detail, inner).map(line => framed(theme.dim(line), theme, inner)))
+      }
     }
     // Shared vocabulary: take / edit; Esc is back (dismiss), never abort.
     // y is ok (green); arrows are accent (cyan). Left revisits the previous
@@ -205,13 +222,22 @@ export class FrontierCard {
     ]
     const hint = writing
       ? [`${theme.ok('[enter]')} take`, `${theme.accent('[↑↓]')} pick`, ...nav].join(' · ')
-      : [`${theme.ok('[y]')} take`, '[e] edit', `${theme.accent('[↑↓]')} pick`, ...nav].join(' · ')
-    const rows = [top, ...body, framed(truncate(hint, inner), theme, inner), bottom]
-    const focusedRow = asked.length + (this.focus - this.offset)
+      : this.spec.multi === true
+        ? [`${theme.ok('[enter]')} take`, '[space] toggle', '[e] edit', `${theme.accent('[↑↓]')} pick`, ...nav].join(' · ')
+        : [`${theme.ok('[y]')} take`, '[e] edit', `${theme.accent('[↑↓]')} pick`, ...nav].join(' · ')
+    // Wrap between controls so narrow windows do not hide navigation keys.
+    const hints: string[] = []
+    for (const part of hint.split(' · ')) {
+      const last = hints.at(-1)
+      if (last !== undefined && plainWidth(`${last} · ${part}`) <= inner) hints[hints.length - 1] = `${last} · ${part}`
+      else hints.push(...wrapStyled(part, inner))
+    }
+    const rows = [top, ...body, ...hints.map(line => framed(line, theme, inner)), bottom]
+    const focusedRow = optionStart + (this.focus - this.offset)
     const points = Array.from(this.draft)
     const before = points.slice(0, this.caret).join('')
     const typed = this.draft === '' ? `${this.focusedLabel} ` : before
-    const caretColumn = 2 + REC_GUTTER + displayWidth(typed)
+    const caretColumn = 2 + this.optionGutter() + displayWidth(typed)
     return {
       rows: rows.map(row => truncate(row, width)),
       focus: this.focus,
@@ -277,7 +303,12 @@ export class FrontierCard {
     if (key.kind === 'right' && this.spec.canForward === true) return { kind: 'next' }
     if (key.kind === 'text') {
       const letter = key.text.toLowerCase()
-      if (letter === 'y') return this.acceptFocused()
+      if (this.spec.multi === true && key.text === ' ') {
+        if (this.checked.has(this.focus)) this.checked.delete(this.focus)
+        else this.checked.add(this.focus)
+        return { kind: 'move' }
+      }
+      if (letter === 'y' && this.spec.multi !== true) return this.acceptFocused()
       if (letter === 'e') {
         this.focusCustom()
         return { kind: 'move' }
@@ -305,19 +336,17 @@ export class FrontierCard {
 
   /** Whether the focused option is a write-in field. */
   private writing(): boolean {
-    return this.options[this.focus]?.writeIn === true || this.draft !== ''
+    return this.options[this.focus]?.writeIn === true
   }
 
-  /** Index of the always-last custom row. */
+  /** Find the supplied write-in row, whose position belongs to the question. */
   private customIndex(): number {
-    return Math.max(0, this.options.length - 1)
+    return this.options.findIndex(option => option.writeIn === true)
   }
 
-  /** Focus the custom row as an empty inline field. */
+  /** Focus the custom row, retaining any draft already typed. */
   private focusCustom(): void {
     this.focus = this.customIndex()
-    this.draft = ''
-    this.caret = 0
   }
 
   /** Accept the focused option, or the typed write-in text. */
@@ -326,6 +355,10 @@ export class FrontierCard {
       const value = this.draft.trim()
       if (value === '') return { kind: 'move' }
       return { kind: 'accept', value, custom: true }
+    }
+    if (this.spec.multi === true) {
+      const indices = this.checked.size > 0 ? [...this.checked].sort((a, b) => a - b) : [this.focus]
+      return { kind: 'chosen', values: indices.map(index => this.options[index]?.label ?? '') }
     }
     return { kind: 'accept', value: this.focusedLabel }
   }
@@ -338,22 +371,28 @@ export class FrontierCard {
     const count = this.options.length
     if (count === 0) return
     this.focus = (this.focus + delta % count + count) % count
-    this.draft = ''
-    this.caret = 0
+  }
+
+  /** Focus marker, optional checkbox, and recommendation gutter. */
+  private optionGutter(): number {
+    return 2 + (this.spec.multi === true ? 4 : 0) + REC_GUTTER
   }
 
   /**
    * One option line: recommended marked `[rec]` in ok, focus in accent.
    * @param option - the choice.
-   * @param focused - whether this row holds the keyboard.
+   * @param index - option index, used for focus and checked state.
    * @param theme - palette.
    * @param inner - columns inside the frame.
    */
-  private optionRow(option: FrontierOption, focused: boolean, theme: Theme, inner: number): string {
+  private optionRow(option: FrontierOption, index: number, theme: Theme, inner: number): string {
+    const focused = index === this.focus
     const rec = option.recommended === true
-    const mark = rec ? `${theme.ok('[rec]')} ` : ' '.repeat(REC_GUTTER)
-    const budget = Math.max(1, inner - REC_GUTTER)
-    if (focused && (option.writeIn === true || this.draft !== '')) {
+    const marker = focused ? theme.accent('❯ ') : '  '
+    const box = this.spec.multi !== true ? '' : option.writeIn === true ? '    ' : this.checked.has(index) ? '[x] ' : '[ ] '
+    const mark = `${marker}${box}${rec ? `${theme.ok('[rec]')} ` : ' '.repeat(REC_GUTTER)}`
+    const budget = Math.max(1, inner - this.optionGutter())
+    if (focused && option.writeIn === true) {
       const points = Array.from(this.draft)
       const shown = this.draft === ''
         ? `${option.label} ▌`

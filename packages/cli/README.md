@@ -13,8 +13,8 @@ Key: `DEEPSEEK_API_KEY`. Already have dsh? `npm i -g codsh-cli` is enough when t
 
 [![The /ship flow](https://raw.githubusercontent.com/Blackman99/codsh/main/assets/ship-demo.gif)](https://blackman99.github.io/codsh/)
 
-`/ship <one-sentence idea>` grills the idea as the grill-me skill, synthesizes a spec (to-spec), cuts it into tracer-bullet tickets
-(to-tickets), lands them with the tdd skill, and re-runs every criterion before it says done. The [site](https://blackman99.github.io/codsh/)
+`/ship <one-sentence idea>` starts with wayfinder to resolve the route and its open decisions, then grills the idea as the grill-me skill, synthesizes a spec (to-spec) that keeps the original wording distinct from the Main Track, cuts it into tracer-bullet tickets
+(to-tickets), lands them with the tdd skill via fresh-context `subagent`s (one parent-coordinated ticket per turn, with runner checks between tickets), and re-runs every criterion before it says done. One spec is bound per run; an adjacent runner-owned snapshot guards the original requirement and sealed track. The [site](https://blackman99.github.io/codsh/)
 shows the rest of the surface as real terminal captures.
 
 ## The launcher

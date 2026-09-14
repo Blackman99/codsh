@@ -1544,6 +1544,16 @@ describe('ship gate modal', () => {
 })
 
 describe('ship frontier card', () => {
+  it('positions the write-in cursor below any streaming rows', async () => {
+    const { prompt, console } = build()
+    prompt.setStreaming(['first streaming row', 'second streaming row'])
+    const pending = prompt.frontier({ question: 'Where?', options: [{ label: 'docs/' }] })
+    console.press({ kind: 'text', text: 'e' })
+    const last = console.draws.at(-1)
+    expect(last?.rows[last.cursor.row]).toContain('▌')
+    console.press({ kind: 'escape' })
+    await pending
+  })
   const grill = {
     question: 'Which storage?',
     options: [

@@ -44,8 +44,10 @@ export interface SelectSpec {
   filterable?: boolean
   /** Left goes to the previous consecutive question in this batch. */
   back?: boolean
+  /** Right returns to the next visited question in this batch. */
+  forward?: boolean
   /** A previous answer to restore when revisiting this question. */
-  prior?: { selected?: string; custom?: string }
+  prior?: { selected?: string | readonly string[]; custom?: string }
   /**
    * Whether only the keyboard may answer this one.
    *
@@ -61,6 +63,7 @@ export type SelectOutcome =
   | { kind: 'chosen'; indices: number[] }
   | { kind: 'custom'; value?: string }
   | { kind: 'back' }
+  | { kind: 'next' }
   | { kind: 'cancelled' }
 
 /** What a pointer is over, in the widget's own row space. */
@@ -109,8 +112,10 @@ export class Selector {
       this.draft = prior.custom
       this.caret = Array.from(prior.custom).length
     } else if (prior?.selected !== undefined) {
-      const index = spec.options.findIndex(option => option.label === prior.selected)
-      if (index >= 0) this.selected = index
+      const labels = typeof prior.selected === 'string' ? [prior.selected] : prior.selected
+      const indices = spec.options.flatMap((option, index) => labels.includes(option.label) ? [index] : [])
+      if (indices[0] !== undefined) this.selected = indices[0]
+      if (spec.multi === true) indices.forEach(index => this.checked.add(index))
     }
   }
 
@@ -232,15 +237,11 @@ export class Selector {
       case 'up':
         if (this.count === 0) return { kind: 'pending' }
         this.selected = (this.selected - 1 + this.count) % this.count
-        this.draft = ''
-        this.caret = 0
         return { kind: 'pending' }
       case 'down':
       case 'tab':
         if (this.count === 0) return { kind: 'pending' }
         this.selected = (this.selected + 1) % this.count
-        this.draft = ''
-        this.caret = 0
         return { kind: 'pending' }
       case 'enter':
         return this.accept(this.selected)
@@ -258,9 +259,12 @@ export class Selector {
       case 'right':
         if (this.isCustom(this.selected)) {
           const length = Array.from(this.draft).length
-          if (this.caret < length) this.caret += 1
-          return { kind: 'pending' }
+          if (this.caret < length) {
+            this.caret += 1
+            return { kind: 'pending' }
+          }
         }
+        if (this.spec.forward === true) return { kind: 'done', outcome: { kind: 'next' } }
         return { kind: 'pending' }
       case 'escape':
         // Back: leave without a choice. Not abort — the footer never paints it
@@ -291,6 +295,9 @@ export class Selector {
         return { kind: 'pending' }
       case 'text':
         return this.typed(key.text)
+      case 'paste':
+        // Pasted content is data, never option shortcuts or a submission.
+        return this.isCustom(this.selected) ? this.typed(key.text) : { kind: 'pending' }
       default:
         return { kind: 'pending' }
     }
@@ -318,8 +325,6 @@ export class Selector {
         // Once a filter is started, letters (including y) stay in the query.
         if (this.spec.custom !== undefined && letter === 'e') {
           this.selected = this.matching().length
-          this.draft = ''
-          this.caret = 0
           return { kind: 'pending' }
         }
         if (this.spec.multi !== true && letter === 'y') {
@@ -344,8 +349,6 @@ export class Selector {
     }
     if (this.spec.custom !== undefined && letter === 'e') {
       this.selected = this.matching().length
-      this.draft = ''
-      this.caret = 0
       return { kind: 'pending' }
     }
     // `y` ≡ Enter on single-select: take the focused row, same muscle memory
@@ -482,9 +485,11 @@ export class Selector {
    */
   private footer(theme: Theme): string {
     const parts = [`${theme.ok('[enter]')} take`]
+    if (this.spec.multi === true) parts.push(`${theme.accent('[space]')} toggle`)
     if (this.spec.multi !== true) parts.push(`${theme.ok('[y]')} take`)
     if (this.spec.custom !== undefined) parts.push(`${theme.muted('[e]')} edit`)
     if (this.spec.back === true) parts.push(`${theme.accent('[←]')} back`)
+    if (this.spec.forward === true) parts.push(`${theme.accent('[→]')} next`)
     parts.push(`${theme.warn('[esc]')} back`)
     return `  ${parts.join(' · ')}`
   }

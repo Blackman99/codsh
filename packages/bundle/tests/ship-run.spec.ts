@@ -2,12 +2,13 @@
  * One `/ship` run: chrome and phase injection through the public seam only.
  */
 
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { ShipRun, wrapHostGoals } from '../src/ship-run.ts'
+import { snapshotPathFor } from '../src/ship-snapshot.ts'
 import type { Plan } from '../src/plan.ts'
 import type { SelectOutcome, SelectSpec } from '../src/selector.ts'
 import type { ShipChip } from '../src/status.ts'
@@ -86,7 +87,7 @@ describe('ShipRun', () => {
     vi.useRealTimers()
   })
 
-  it('injects grill when no spec exists, then stops', async () => {
+  it('injects wayfinder before grill when no spec exists, then stops', async () => {
     const cwd = mkdtempSync(join(tmpdir(), 'ship-run-'))
     const prompts: string[] = []
     const chips: Array<ShipChip | undefined> = []
@@ -96,9 +97,78 @@ describe('ShipRun', () => {
     })
     await ship.run('build a widget', async (prompt) => { prompts.push(prompt) })
     expect(prompts).toHaveLength(1)
-    expect(prompts[0]).toContain('Follow the grill-me skill as the contract, not a summary of it')
+    expect(prompts[0]).toContain('Follow the wayfinder skill as the contract, not a summary of it')
+    expect(prompts[0]).not.toContain('Follow the grill-me skill as the contract, not a summary of it')
     expect(prompts[0]).not.toContain('Pure Synthesis, Zero Interrogation')
-    expect(chips[0]).toEqual({ kind: 'grill' })
+    expect(chips[0]).toEqual({ kind: 'wayfinder' })
+  })
+
+  it('hands off from wayfinder to grill and then spec in separate turns', async () => {
+    const cwd = mkdtempSync(join(tmpdir(), 'ship-run-'))
+    const prompts: string[] = []
+    const chips: Array<ShipChip | undefined> = []
+    const ship = new ShipRun(cwd, { setPlan: () => {}, setChip: chip => { chips.push(chip) } })
+    await ship.run('build a widget', async prompt => {
+      prompts.push(prompt)
+      if (prompts.length === 1) writeSpec(cwd, 'widget.md', 'Status: grilling\n\n## Wayfinder\n\n[Map](../../map.md)\n')
+      if (prompts.length === 2) writeSpec(cwd, 'widget.md', 'Status: interviewing\n')
+    })
+    expect(prompts).toHaveLength(3)
+    expect(prompts[0]).toContain('Follow the wayfinder skill')
+    expect(prompts[1]).toContain('Follow the grill-me skill')
+    expect(prompts[1]).not.toContain('Follow the wayfinder skill')
+    expect(prompts[2]).toContain('Pure Synthesis, Zero Interrogation')
+    expect(chips).toEqual([{ kind: 'wayfinder' }, { kind: 'grill' }, { kind: 'spec' }])
+  })
+
+  it('resumes an unresolved map without repeating pre-flight or entering grill', async () => {
+    const cwd = mkdtempSync(join(tmpdir(), 'ship-run-'))
+    writeSpec(cwd, 'widget.md', 'Status: wayfinding\n\n## Wayfinder\n\n[Map](../../map.md)\n')
+    const ship = new ShipRun(cwd, chrome)
+    const prompts: string[] = []
+    await ship.run('', async prompt => { prompts.push(prompt) })
+    expect(prompts).toHaveLength(1)
+    expect(prompts[0]).toContain('Follow the wayfinder skill')
+    expect(prompts[0]).not.toContain('git checkout -b')
+    expect(prompts[0]).not.toContain('Follow the grill-me skill')
+    expect(ship.shipChip).toEqual({ kind: 'wayfinder' })
+  })
+
+  it('does not enter grill after wayfinder is aborted even if the ledger advanced', async () => {
+    const cwd = mkdtempSync(join(tmpdir(), 'ship-run-'))
+    const ship = new ShipRun(cwd, chrome)
+    const prompts: string[] = []
+    await ship.run('widget', async prompt => {
+      prompts.push(prompt)
+      writeSpec(cwd, 'widget.md', 'Status: grilling\n')
+      ship.abort()
+    })
+    expect(prompts).toHaveLength(1)
+  })
+
+  it('does not jump backward into grill when a later phase rewrites the status', async () => {
+    const cwd = mkdtempSync(join(tmpdir(), 'ship-run-'))
+    const path = writeSpec(cwd, 'widget.md', 'Status: confirmed\n')
+    const ship = new ShipRun(cwd, chrome)
+    const prompts: string[] = []
+    await ship.run('', async prompt => {
+      prompts.push(prompt)
+      writeFileSync(path, 'Status: grilling\n')
+    })
+    expect(prompts).toHaveLength(1)
+    expect(prompts[0]).toContain('Strict Vertical Tracer Slicing')
+  })
+
+  it('resumes the grill handoff without repeating wayfinder', async () => {
+    const cwd = mkdtempSync(join(tmpdir(), 'ship-run-'))
+    writeSpec(cwd, 'widget.md', 'Status: grilling\n')
+    const ship = new ShipRun(cwd, chrome)
+    const prompts: string[] = []
+    await ship.run('', async prompt => { prompts.push(prompt) })
+    expect(prompts).toHaveLength(1)
+    expect(prompts[0]).toContain('Follow the grill-me skill')
+    expect(prompts[0]).not.toContain('Follow the wayfinder skill')
+    expect(ship.shipChip).toEqual({ kind: 'grill' })
   })
 
   it('injects to-spec then tickets when Status advances between turns', async () => {
@@ -129,7 +199,7 @@ describe('ShipRun', () => {
     expect(ship.shipChip).toEqual({ kind: 'land', k: 2, n: 2 })
     expect(ship.shipPlan?.done).toBe(1)
     await ship.run('', async (prompt) => { prompts.push(prompt) })
-    expect(prompts).toHaveLength(1)
+    expect(prompts).toHaveLength(2)
     expect(prompts[0]).toContain('Strict Red-First Execution')
     expect(prompts[0]).not.toContain('Relentless Frontier Exploration')
     expect(chips.some(chip => chip?.kind === 'land')).toBe(true)
@@ -174,7 +244,7 @@ describe('ShipRun', () => {
       setChip: chip => { chips.push(chip) },
     })
     await ship.run('new idea', async () => {})
-    expect(chips[0]).toEqual({ kind: 'grill' })
+    expect(chips[0]).toEqual({ kind: 'wayfinder' })
     expect(ship.shipPlan).toBeUndefined()
   })
 
@@ -211,7 +281,7 @@ describe('ShipRun', () => {
     })
     await vi.waitFor(() => { expect(prompts).toHaveLength(1) })
     writeFileSync(path, 'Status: confirmed\n')
-    const second = ship.run('two', async (prompt) => { prompts.push(prompt) })
+    const second = ship.run('', async (prompt) => { prompts.push(prompt) })
     resumeFirst()
     await Promise.all([first, second])
     expect(prompts).toHaveLength(2)
@@ -281,7 +351,7 @@ describe('ShipRun', () => {
     expect(goals.log).toEqual(['create:[ship] build a widget', 'pause:goal-new', 'inject'])
     expect(prompts).toHaveLength(1)
     expect(prompts[0]).toContain('goal-new')
-    expect(prompts[0]).toContain('Follow the grill-me skill as the contract, not a summary of it')
+    expect(prompts[0]).toContain('Follow the wayfinder skill as the contract, not a summary of it')
   })
 
   it('pauses a stranger then asks ship · occupancy before any inject (Track: 6)', async () => {
@@ -431,7 +501,7 @@ describe('ShipRun', () => {
     const missing = new ShipRun(cwd, chrome, { flash: text => { flashes.push(text) } })
     await missing.run('build a widget', async (prompt) => { prompts.push(prompt) })
     expect(prompts).toHaveLength(1)
-    expect(prompts[0]).toContain('Follow the grill-me skill as the contract, not a summary of it')
+    expect(prompts[0]).toContain('Follow the wayfinder skill as the contract, not a summary of it')
     expect(flashes).toEqual(['/goal was not updated'])
 
     const throwing: ShipGoals = {
@@ -577,7 +647,7 @@ describe('ShipRun', () => {
     expect(current.id).toBe('cleared')
   })
 
-  it('prepends the Confirm snapshot on later injects even if the file Main Track is rewritten (Track: 3,4)', async () => {
+  it('prepends the Confirm snapshot on later injects and halts if the file Main Track is rewritten (Track: 3,4)', async () => {
     const cwd = mkdtempSync(join(tmpdir(), 'ship-run-'))
     const sealed = [
       '## Main Track',
@@ -593,20 +663,20 @@ describe('ShipRun', () => {
     ].join('\n')
     const path = writeSpec(cwd, 'widget.md', `Status: interviewing\n\n${sealed}\n`)
     const prompts: string[] = []
-    const ship = new ShipRun(cwd, chrome)
+    const flashes: string[] = []
+    const ship = new ShipRun(cwd, chrome, { flash: text => { flashes.push(text) } })
     await ship.run('build a widget', async (prompt) => {
       prompts.push(prompt)
       if (prompts.length === 1) writeFileSync(path, `Status: confirmed\n\n${sealed}\n`)
       else if (prompts.length === 2) writeFileSync(path, `Status: planned\n\n${rewritten}\n`)
     })
-    expect(prompts).toHaveLength(3)
+    expect(prompts).toHaveLength(2)
     expect(prompts[0]).toContain('**Idea.** Bind /goal into /ship.')
     expect(prompts[0]).toContain('Pure Synthesis, Zero Interrogation')
     expect(prompts[1]).toContain('**Idea.** Bind /goal into /ship.')
     expect(prompts[1]).toContain('Strict Vertical Tracer Slicing')
-    expect(prompts[2]).toContain('**Idea.** Bind /goal into /ship.')
-    expect(prompts[2]).toContain('Strict Red-First Execution')
-    expect(prompts[2]).not.toContain('silently rewritten design')
+    expect(prompts[1]).not.toContain('silently rewritten design')
+    expect(flashes.some(text => /Main Track no longer matches/i.test(text))).toBe(true)
   })
 
   it('re-asserts a drifted or armed compass on later injects (Track: 1,7)', async () => {
@@ -658,7 +728,9 @@ describe('ShipRun', () => {
     await ship.run('build a widget', async (prompt) => {
       prompts.push(prompt)
       if (prompts.length === 1) writeFileSync(path, `Status: confirmed\n\n${sealed}\n`)
-      else writeFileSync(path, `Status: shipped\n\n${sealed}\n`)
+      else if (prompts.length === 2) writeFileSync(path, `Status: planned\n\n${sealed}\n\n## Plan\n\n- [ ] Ticket 1: Goal\n`)
+      else if (prompts.length === 3) writeFileSync(path, `Status: landing\n\n${sealed}\n\n## Plan\n\n- [x] Ticket 1: Goal\n`)
+      else writeFileSync(path, `Status: shipped\n\n${sealed}\n\n## Plan\n\n- [x] Ticket 1: Goal\n`)
     })
     expect(goals.log[0]).toBe('create:[ship] build a widget')
     expect(goals.log).toContain('edit:goal-new:[ship] ## Main Track\n\n**Idea.** Bind /goal into /ship.\n**Track-1.** Hybrid compass.')
@@ -682,7 +754,7 @@ describe('ShipRun', () => {
     expect(goals.log).not.toContain('complete:goal-new')
   })
 
-  it('puts the sealed track and spec path into the land Ralph objective (Track: 4)', async () => {
+  it('puts the sealed track and spec path into the active ticket brief (Track: 4)', async () => {
     const cwd = mkdtempSync(join(tmpdir(), 'ship-run-'))
     const sealed = [
       '## Main Track',
@@ -691,15 +763,345 @@ describe('ShipRun', () => {
       '**Track-1.** Hybrid compass.',
       '**Out of Scope.** No harness fork.',
     ].join('\n')
-    const path = writeSpec(cwd, 'widget.md', `Status: planned\n\n${sealed}\n`)
+    const path = writeSpec(cwd, 'widget.md', `Status: planned\n\n${sealed}\n\n## Plan\n\n- [ ] Ticket 1: Goal\n`)
     const prompts: string[] = []
     const ship = new ShipRun(cwd, chrome)
-    await ship.run('build a widget', async (prompt) => { prompts.push(prompt) })
+    await ship.run('build a widget', async (prompt) => { prompts.push(prompt); ship.abort() })
     expect(prompts).toHaveLength(1)
     expect(prompts[0]).toContain('**Idea.** Bind /goal into /ship.')
     expect(prompts[0]).toContain('**Track-1.** Hybrid compass.')
-    expect(prompts[0]).toMatch(/ralph/i)
+    expect(prompts[0]).toContain('Active Ticket: Ticket 1: Goal')
     expect(prompts[0]).toContain(path)
+  })
+
+  it('pins one bound spec and ignores a later unfinished markdown write', async () => {
+    const cwd = mkdtempSync(join(tmpdir(), 'ship-run-'))
+    const sealed = [
+      '## Original Requirement',
+      '',
+      'Bind /goal into /ship.',
+      '',
+      '## Main Track',
+      '',
+      '**Idea.** Bind /goal into /ship.',
+    ].join('\n')
+    const path = writeSpec(cwd, 'widget.md', `Status: interviewing\n\n${sealed}\n`)
+    const prompts: string[] = []
+    const ship = new ShipRun(cwd, chrome)
+    await ship.run('', async (prompt) => {
+      prompts.push(prompt)
+      const other = writeSpec(cwd, 'other.md', 'Status: landing\n\n## Original Requirement\n\nUnrelated work.\n\n## Plan\n\n- [x] steal\n')
+      ship.noteWritten([other])
+      if (prompts.length === 1) writeFileSync(path, `Status: confirmed\n\n${sealed}\n`)
+    })
+    expect(prompts).toHaveLength(2)
+    expect(prompts[0]).toContain('Bind /goal into /ship.')
+    expect(prompts[0]).toContain(JSON.stringify(path))
+    expect(prompts.every(prompt => !prompt.includes('Unrelated work.'))).toBe(true)
+    expect(prompts[1]).toContain('Strict Vertical Tracer Slicing')
+  })
+
+  it('resumes the frozen original across run instances even if the file track is rewritten', async () => {
+    const cwd = mkdtempSync(join(tmpdir(), 'ship-run-'))
+    const original = 'Keep offline use.\nNever upload files.'
+    const sealed = [
+      '## Original Requirement',
+      '',
+      original,
+      '',
+      '## Main Track',
+      '',
+      '**Idea.** Keep offline use.',
+      '**Track-1.** Local-only.',
+    ].join('\n')
+    const path = writeSpec(cwd, 'widget.md', `Status: interviewing\n\n${sealed}\n`)
+    const first = new ShipRun(cwd, chrome)
+    await first.run('', async (prompt) => {
+      expect(prompt).toContain(original)
+      writeFileSync(path, `Status: confirmed\n\n${sealed}\n`)
+    })
+    writeFileSync(path, `Status: planned\n\n${sealed}\n\n## Plan\n\n- [ ] Ticket 1: Offline\n`)
+    const prompts: string[] = []
+    const second = new ShipRun(cwd, chrome)
+    await second.run('', async (prompt) => { prompts.push(prompt); second.abort() })
+    expect(prompts).toHaveLength(1)
+    expect(prompts[0]).toContain(original)
+    expect(prompts[0]).toContain('**Idea.** Keep offline use.')
+    expect(prompts[0]).toContain(JSON.stringify(path))
+
+    writeFileSync(path, [
+      'Status: planned',
+      '',
+      '## Original Requirement',
+      '',
+      original,
+      '',
+      '## Main Track',
+      '',
+      '**Idea.** silently rewritten design.',
+    ].join('\n'))
+    const drifted: string[] = []
+    const flashes: string[] = []
+    const third = new ShipRun(cwd, chrome, { flash: text => { flashes.push(text) } })
+    await third.run('', async (prompt) => { drifted.push(prompt) })
+    expect(drifted).toEqual([])
+    expect(flashes.some(text => /Main Track no longer matches/i.test(text))).toBe(true)
+  })
+
+  it('blocks a typed idea that conflicts with the saved original', async () => {
+    const cwd = mkdtempSync(join(tmpdir(), 'ship-run-'))
+    const original = 'Keep offline use.'
+    writeSpec(cwd, 'widget.md', [
+      'Status: interviewing',
+      '',
+      '## Original Requirement',
+      '',
+      original,
+    ].join('\n'))
+    const flashes: string[] = []
+    const prompts: string[] = []
+    const ship = new ShipRun(cwd, chrome, { flash: text => { flashes.push(text) } })
+    await ship.run('build a different product', async (prompt) => { prompts.push(prompt) })
+    expect(prompts).toEqual([])
+    expect(flashes.some(text => /conflicts with the saved original/i.test(text))).toBe(true)
+  })
+
+  it('keeps a saved original on empty resume and never edits the compass to [ship] empty', async () => {
+    const cwd = mkdtempSync(join(tmpdir(), 'ship-run-'))
+    const original = 'Keep offline use.'
+    writeSpec(cwd, 'widget.md', [
+      'Status: interviewing',
+      '',
+      '## Original Requirement',
+      '',
+      original,
+    ].join('\n'))
+    const goals = recordingGoals()
+    const prompts: string[] = []
+    const ship = new ShipRun(cwd, chrome, { goals })
+    await ship.run('', async (prompt) => { prompts.push(prompt) })
+    expect(prompts).toHaveLength(1)
+    expect(prompts[0]).toContain(original)
+    expect(goals.log[0]).toBe(`create:[ship] ${original}`)
+    expect(goals.log.some(entry => entry === 'create:[ship] ' || entry === 'edit:goal-new:[ship] ')).toBe(false)
+  })
+
+  it('asks ship · spec when several unfinished specs exist, and blocks a pipe without a selector', async () => {
+    const cwd = mkdtempSync(join(tmpdir(), 'ship-run-'))
+    writeSpec(cwd, 'alpha.md', 'Status: interviewing\n\n## Original Requirement\n\nAlpha idea.\n')
+    writeSpec(cwd, 'beta.md', 'Status: landing\n\n## Original Requirement\n\nBeta idea.\n\n## Main Track\n\nTrack-1: Beta.\n\n## Plan\n\n- [ ] Ticket 1: Beta\n')
+    const asked: SelectSpec[] = []
+    const selectSpec = async (spec: SelectSpec): Promise<SelectOutcome> => {
+      asked.push(spec)
+      return { kind: 'chosen', indices: [1] }
+    }
+    const prompts: string[] = []
+    const ship = new ShipRun(cwd, chrome, { selectSpec })
+    await ship.run('', async (prompt) => { prompts.push(prompt); ship.abort() })
+    expect(asked).toHaveLength(1)
+    expect(asked[0]?.title).toBe('ship · spec')
+    expect(asked[0]?.options.map(option => option.label)).toEqual(['alpha.md', 'beta.md'])
+    expect(prompts).toHaveLength(1)
+    expect(prompts[0]).toContain('Beta idea.')
+    expect(prompts[0]).not.toContain('Alpha idea.')
+
+    const flashes: string[] = []
+    const blocked: string[] = []
+    const pipe = new ShipRun(cwd, chrome, { flash: text => { flashes.push(text) } })
+    await pipe.run('', async (prompt) => { blocked.push(prompt) })
+    expect(blocked).toEqual([])
+    expect(flashes.some(text => /Multiple unfinished specs/i.test(text))).toBe(true)
+  })
+
+  it('reuses occupancy with a distinct title when selectSpec is absent', async () => {
+    const cwd = mkdtempSync(join(tmpdir(), 'ship-run-'))
+    writeSpec(cwd, 'alpha.md', 'Status: interviewing\n\n## Original Requirement\n\nAlpha idea.\n')
+    writeSpec(cwd, 'beta.md', 'Status: landing\n\n## Original Requirement\n\nBeta idea.\n\n## Main Track\n\nTrack-1: Beta.\n\n## Plan\n\n- [ ] Ticket 1: Beta\n')
+    const asked: SelectSpec[] = []
+    const occupancy = async (spec: SelectSpec): Promise<SelectOutcome> => {
+      asked.push(spec)
+      return { kind: 'chosen', indices: [0] }
+    }
+    const prompts: string[] = []
+    const ship = new ShipRun(cwd, chrome, { occupancy })
+    await ship.run('', async (prompt) => { prompts.push(prompt) })
+    expect(asked[0]?.title).toBe('ship · spec')
+    expect(prompts[0]).toContain('Alpha idea.')
+  })
+
+  it('asks for a requirement on bare ship when there is no saved work', async () => {
+    const cwd = mkdtempSync(join(tmpdir(), 'ship-run-'))
+    const prompts: string[] = []
+    const ship = new ShipRun(cwd, chrome)
+    await ship.run('', async (prompt) => { prompts.push(prompt) })
+    expect(prompts).toHaveLength(1)
+    expect(prompts[0]).toContain('ask for the one-sentence requirement')
+  })
+
+  it('does not skip phases or loop backward when Status jumps', async () => {
+    const cwd = mkdtempSync(join(tmpdir(), 'ship-run-'))
+    const original = '## Original Requirement\n\nKeep offline use.\n'
+    const path = writeSpec(cwd, 'widget.md', `Status: interviewing\n\n${original}`)
+    const prompts: string[] = []
+    const ship = new ShipRun(cwd, chrome)
+    await ship.run('', async (prompt) => {
+      prompts.push(prompt)
+      writeFileSync(path, `Status: landing\n\n${original}`)
+    })
+    expect(prompts).toHaveLength(1)
+    expect(prompts[0]).toContain('Pure Synthesis, Zero Interrogation')
+    expect(prompts[0]).not.toContain('Strict Red-First Execution')
+  })
+
+  it('does not complete the goal when a turn throws even if Status says shipped', async () => {
+    const cwd = mkdtempSync(join(tmpdir(), 'ship-run-'))
+    const original = '## Original Requirement\n\nKeep offline use.\n'
+    const path = writeSpec(cwd, 'widget.md', `Status: interviewing\n\n${original}`)
+    const goals = recordingGoals()
+    const ship = new ShipRun(cwd, chrome, { goals })
+    await expect(ship.run('', async () => {
+      writeFileSync(path, `Status: shipped\n\n${original}`)
+      throw new Error('turn failed')
+    })).rejects.toThrow('turn failed')
+    expect(goals.log).not.toContain('complete:goal-new')
+  })
+
+  it('stays read-only in plan mode: one inject, no snapshot, no goal writes', async () => {
+    const cwd = mkdtempSync(join(tmpdir(), 'ship-run-'))
+    const original = 'Keep offline use.'
+    const path = writeSpec(cwd, 'widget.md', [
+      'Status: interviewing',
+      '',
+      '## Original Requirement',
+      '',
+      original,
+    ].join('\n'))
+    const goals = recordingGoals()
+    const prompts: string[] = []
+    const ship = new ShipRun(cwd, chrome, { goals, isPlanMode: () => true })
+    await ship.run('a new request that must not write', async (prompt) => {
+      prompts.push(prompt)
+      writeFileSync(path, `Status: confirmed\n\n## Original Requirement\n\n${original}\n`)
+    })
+    expect(prompts).toHaveLength(1)
+    expect(prompts[0]).toContain(original)
+    expect(goals.log).toEqual([])
+    expect(existsSync(snapshotPathFor(path))).toBe(false)
+  })
+
+  it('refuses a malformed snapshot without overwriting it', async () => {
+    const cwd = mkdtempSync(join(tmpdir(), 'ship-run-'))
+    const path = writeSpec(cwd, 'widget.md', 'Status: interviewing\n\n## Original Requirement\n\nKeep offline use.\n')
+    const sidecar = snapshotPathFor(path)
+    writeFileSync(sidecar, '{not json')
+    const flashes: string[] = []
+    const prompts: string[] = []
+    const ship = new ShipRun(cwd, chrome, { flash: text => { flashes.push(text) } })
+    await ship.run('', async (prompt) => { prompts.push(prompt) })
+    expect(prompts).toEqual([])
+    expect(flashes.some(text => /not valid JSON|corrupt/i.test(text))).toBe(true)
+    expect(readFileSync(sidecar, 'utf8')).toBe('{not json')
+  })
+
+  it('halts when a frozen original or Main Track is deleted after Confirm', async () => {
+    const cwd = mkdtempSync(join(tmpdir(), 'ship-run-'))
+    const sealed = [
+      '## Original Requirement',
+      '',
+      'Keep offline use.',
+      '',
+      '## Main Track',
+      '',
+      '**Idea.** Keep offline use.',
+    ].join('\n')
+    const path = writeSpec(cwd, 'widget.md', `Status: interviewing\n\n${sealed}\n`)
+    const flashes: string[] = []
+    const prompts: string[] = []
+    const ship = new ShipRun(cwd, chrome, { flash: text => { flashes.push(text) } })
+    await ship.run('', async (prompt) => {
+      prompts.push(prompt)
+      if (prompts.length === 1) writeFileSync(path, `Status: confirmed\n\n${sealed}\n`)
+      else writeFileSync(path, 'Status: planned\n\n## Requirement\n\nA design summary.\n')
+    })
+    expect(prompts).toHaveLength(2)
+    expect(flashes.some(text => /Frozen ## Original Requirement is missing|Frozen ## Main Track is missing/i.test(text))).toBe(true)
+  })
+
+  it('still validates disk when optional goals throw', async () => {
+    const cwd = mkdtempSync(join(tmpdir(), 'ship-run-'))
+    const original = 'Keep offline use.'
+    const path = writeSpec(cwd, 'widget.md', [
+      'Status: confirmed',
+      '',
+      '## Original Requirement',
+      '',
+      original,
+      '',
+      '## Main Track',
+      '',
+      '**Idea.** Keep offline use.',
+    ].join('\n'))
+    const first = new ShipRun(cwd, chrome)
+    await first.run('', async () => {})
+    writeFileSync(path, 'Status: confirmed\n\n## Requirement\n\nA design summary.\n')
+    const throwing: ShipGoals = {
+      async get() { throw new Error('no host') },
+      async create() { throw new Error('no host') },
+      async edit() { throw new Error('no host') },
+      async pause() { throw new Error('no host') },
+      async resume() { throw new Error('no host') },
+      async complete() { throw new Error('no host') },
+      async clear() { throw new Error('no host') },
+    }
+    const flashes: string[] = []
+    const prompts: string[] = []
+    const ship = new ShipRun(cwd, chrome, {
+      goals: throwing,
+      flash: text => { flashes.push(text) },
+    })
+    await ship.run('', async (prompt) => { prompts.push(prompt) })
+    expect(prompts).toEqual([])
+    expect(flashes.some(text => /Frozen ## Original Requirement is missing|Frozen ## Main Track is missing/i.test(text))).toBe(true)
+  })
+
+  it('does not substitute $ARGUMENTS that live in the original requirement or track', async () => {
+    const cwd = mkdtempSync(join(tmpdir(), 'ship-run-'))
+    const original = 'Keep literal $ARGUMENTS and $&; preserve offline use.'
+    writeSpec(cwd, 'widget.md', [
+      'Status: interviewing',
+      '',
+      '## Original Requirement',
+      '',
+      original,
+      '',
+      '## Main Track',
+      '',
+      'Track-1: preserve $ARGUMENTS exactly.',
+    ].join('\n'))
+    const prompts: string[] = []
+    const ship = new ShipRun(cwd, chrome)
+    await ship.run('', async (prompt) => { prompts.push(prompt) })
+    expect(prompts[0]).toContain(original)
+    expect(prompts[0]).toContain('Track-1: preserve $ARGUMENTS exactly.')
+    expect(prompts[0]?.includes('$ARGUMENTS')).toBe(true)
+  })
+
+  it('notices limited history on a legacy spec without claiming a historical seal', async () => {
+    const cwd = mkdtempSync(join(tmpdir(), 'ship-run-'))
+    writeSpec(cwd, 'widget.md', [
+      'Status: interviewing',
+      '',
+      '## Main Track',
+      '',
+      '**Idea.** Bind /goal into /ship.',
+    ].join('\n'))
+    const flashes: string[] = []
+    const prompts: string[] = []
+    const ship = new ShipRun(cwd, chrome, { flash: text => { flashes.push(text) } })
+    await ship.run('', async (prompt) => { prompts.push(prompt) })
+    expect(prompts).toHaveLength(1)
+    expect(prompts[0]).toContain('**Idea.** Bind /goal into /ship.')
+    expect(flashes.some(text => /Earlier history cannot be verified/i.test(text))).toBe(true)
   })
 })
 
@@ -712,5 +1114,8 @@ describe('composition root', () => {
     expect(source).toContain('prompt.setFlash')
     expect(source).not.toContain('GoalBar')
     expect(source).toMatch(/new ShipRun\([\s\S]*goals/)
+    expect(source).toContain('selectSpec')
+    expect(source).toContain('isPlanMode')
+    expect(source).toContain('sessionFolds.planMode')
   })
 })

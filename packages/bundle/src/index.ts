@@ -1021,9 +1021,13 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
   }, {
     ...(hostGoals === undefined ? {} : { goals: wrapHostGoals(hostGoals, () => live.agent) }),
     ...(io.console.readsKeys
-      ? { occupancy: (spec, signal) => prompt.select(spec, signal) }
+      ? {
+          occupancy: (spec, signal) => prompt.select(spec, signal),
+          selectSpec: (spec, signal) => prompt.select(spec, signal),
+        }
       : {}),
-    flash: text => { prompt.setFlash(theme.dim(`  ${text}`)) },
+    flash: text => { emit([theme.dim(`  ${text}`)]) },
+    isPlanMode: () => sessionFolds.planMode,
   })
   const spinner = new Spinner({
     setLive: (text) => { prompt.setHint(text) },

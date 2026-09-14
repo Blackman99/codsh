@@ -10,14 +10,29 @@
  */
 
 import { readdirSync, readFileSync } from 'node:fs'
-import { join } from 'node:path'
-import { parseMainTrack, parseShipStatus, parseSpecMetadata, pickLiveShip, planInFlight, plansEqual } from './plan.ts'
+import { basename, dirname, join, resolve, sep } from 'node:path'
+import { parseMainTrack, parseOriginalRequirement, parseShipBlocker, parseShipStatus, parseSpecMetadata, pickLiveShip, planInFlight, plansEqual } from './plan.ts'
+import { landingPlan, sameLandingPlan } from './ship-landing.ts'
 import type { Plan, ShipSpecFile } from './plan.ts'
 import { expandTemplate } from './custom-commands.ts'
 import type { SelectAsk } from './questions.ts'
 import { shipPhaseKind, shipPromptFor } from './ship.ts'
+import type { ShipPhaseKind } from './ship.ts'
 import { sameShipChip, shipChipFromSpec } from './status.ts'
 import type { ShipChip } from './status.ts'
+import {
+  freezeEqual,
+  freezeText,
+  headedMainTrack,
+  initialShipSnapshot,
+  isShipSnapshotError,
+  readShipSnapshot,
+  sealOriginalIfNeeded,
+  sealTrackIfNeeded,
+  validateSnapshotAgainstSpec,
+  writeShipSnapshot,
+} from './ship-snapshot.ts'
+import type { ShipSnapshot } from './ship-snapshot.ts'
 
 /** How long a land-ok flash or the done chip stays before the next paint. */
 const SHIP_CHIP_FLASH_MS = 400
@@ -152,17 +167,43 @@ export type ShipFlash = (text: string) => void
 export interface ShipPorts {
   goals?: ShipGoals
   occupancy?: OccupancyAsk
+  /** Choose among unfinished specs; falls back to occupancy with a distinct title. */
+  selectSpec?: OccupancyAsk
   flash?: ShipFlash
+  /** True while plan mode is holding; the runner stays read-only. */
+  isPlanMode?: () => boolean
 }
 
 /** Occupancy Selector title/header — a Selector, not a ship gate modal. */
 export const SHIP_OCCUPANCY_TITLE = 'ship · occupancy'
+
+/** Spec-choice Selector title — distinct from occupancy. */
+export const SHIP_SELECT_SPEC_TITLE = 'ship · spec'
 
 /** Prefix that marks a session compass as ours. */
 const SHIP_OBJECTIVE_PREFIX = '[ship] '
 
 /** Flash when the harness compass cannot be updated. */
 const GOAL_DEGRADED = '/goal was not updated'
+
+/** Flash when a legacy spec is inferred rather than historically sealed. */
+const LIMITED_HISTORY = 'No saved ship snapshot: using the current spec as the comparison baseline. Earlier history cannot be verified.'
+
+/** Flash when several unfinished specs exist and nothing can choose. */
+const AMBIGUOUS_SPECS = 'Multiple unfinished specs found. Choose one on a TTY; a pipe cannot pick arbitrarily. Stopped.'
+
+/** Flash when a bare resume has nothing to bind as the objective. */
+const NO_OBJECTIVE = 'No original requirement could be recovered. Stopped; type the one-sentence requirement or restore the spec.'
+
+/** Phase order the runner may advance; anything else is a skip or a back-step. */
+const PHASE_RANK: Record<ShipPhaseKind, number> = {
+  wayfinder: 0,
+  grill: 1,
+  spec: 2,
+  tickets: 3,
+  land: 4,
+  done: 5,
+}
 
 /** What the runner must do to spend a canned-command turn. */
 export interface ShipTurn {
@@ -177,6 +218,7 @@ export interface ShipTurn {
  */
 export class ShipRun {
   private readonly writtenDocs: string[] = []
+  private readonly knownSnapshots = new Map<string, ShipSnapshot>()
   private plan: Plan | undefined
   private chip: ShipChip | undefined
   private lastDone: number | undefined
@@ -189,6 +231,18 @@ export class ShipRun {
   private sealedTrack: string | undefined
   /** Spec this run is following; complete only if this file becomes shipped. */
   private followedSpec: string | undefined
+  /** Adjacent freeze for the bound spec; status, track, and original come from it. */
+  private snapshot: ShipSnapshot | undefined
+  /** Recovered original wording this run injects; never emptied on a resume. */
+  private originalRequirement: string | undefined
+  /** Typed idea this run started with; a conflicting resume must not overwrite the freeze. */
+  private typedIdea = ''
+  /** True once freeze validation failed; later phases and goal completion stay off. */
+  private contractInvalid = false
+  /** True when the current turn threw or aborted before a legal complete. */
+  private halted = false
+  /** Unfinished specs this run must not jump to. */
+  private ignoredSpecs = new Set<string>()
 
   constructor(
     private readonly cwd: string,
@@ -223,15 +277,29 @@ export class ShipRun {
   /** Re-read the live spec so the plan row and chip match the file on disk. */
   refresh(): void {
     const files: ShipSpecFile[] = []
-    for (const path of this.specPaths()) {
+    if (this.followedSpec !== undefined) {
       try {
+        const markdown = readFileSync(this.followedSpec, 'utf8')
         files.push({
-          path,
-          markdown: readFileSync(path, 'utf8'),
-          sessionWrite: this.writtenDocs.includes(path),
+          path: this.followedSpec,
+          markdown,
+          sessionWrite: true,
         })
       } catch {
-        // A spec that moved or will not read is simply not the progress.
+        return
+      }
+    } else {
+      for (const path of this.specPaths()) {
+        if (this.ignoredSpecs.has(resolve(path))) continue
+        try {
+          files.push({
+            path,
+            markdown: readFileSync(path, 'utf8'),
+            sessionWrite: this.writtenDocs.includes(path),
+          })
+        } catch {
+          // A spec that moved or will not read is simply not the progress.
+        }
       }
     }
     const picked = pickLiveShip(files)
@@ -247,47 +315,78 @@ export class ShipRun {
 
   /** Stop the phase loop and the spec poll. */
   abort(): void {
+    this.halted = true
     this.advance?.abort()
     this.stopWatch()
   }
 
   /**
    * Run the canned `/ship` command: inject the current phase, then the next
-   * when Status advances, until grill/done or Esc.
+   * when Status advances, until unchanged status, wayfinder/done, or Esc.
    * @param idea - the typed one-sentence requirement.
    * @param turn - spends one canned-command turn.
    */
   async run(idea: string, turn: ShipTurn): Promise<void> {
+    this.advance?.abort()
     this.chipCleared = false
     this.lastDone = undefined
     this.goalId = undefined
     this.sealedTrack = undefined
     this.followedSpec = undefined
+    this.snapshot = undefined
+    this.originalRequirement = undefined
+    this.typedIdea = idea
+    this.contractInvalid = false
+    this.halted = false
+    this.ignoredSpecs = new Set()
     this.startWatch()
     this.refresh()
-    if (this.chip === undefined) this.setChip({ kind: 'grill' })
-    this.advance?.abort()
+    if (this.chip === undefined) this.setChip({ kind: 'wayfinder' })
     const advance = new AbortController()
     this.advance = advance
     try {
+      if (this.inPlanMode()) {
+        await this.runPlanMode(idea, turn)
+        return
+      }
+      if (!await this.bindSpec(idea)) return
       if (!await this.occupy(idea)) return
+      this.persistSnapshot()
+      if (!this.guardContract()) return
       let previous = shipPhaseKind(this.status())
       await this.syncCompass()
-      await turn(expandTemplate(this.promptFor(), idea))
-      while (!advance.signal.aborted) {
+      if (previous === 'land') { await this.runLanding(turn); return }
+      await this.spendTurn(turn)
+      while (!advance.signal.aborted && !this.contractInvalid && !this.halted) {
+        if (this.inPlanMode()) { this.halted = true; break }
         this.refresh()
+        this.discoverBoundSpec()
+        this.persistSnapshot()
+        if (!this.guardContract()) break
         await this.syncCompass()
         const next = shipPhaseKind(this.status())
-        if (next === previous || next === 'done' || next === 'grill') break
+        if (!this.mayAdvance(previous, next)) break
         previous = next
-        await turn(expandTemplate(this.promptFor(), idea))
+        if (next === 'land') { await this.runLanding(turn); break }
+        await this.spendTurn(turn)
       }
+    } catch (error) {
+      this.halted = true
+      throw error
     } finally {
       if (this.advance === advance) {
         this.advance = undefined
         this.stopWatch()
         this.refresh()
-        if (!advance.signal.aborted && this.followedIsShipped()) await this.completeShipGoal()
+        if (
+          !advance.signal.aborted
+          && !this.halted
+          && !this.contractInvalid
+          && !this.inPlanMode()
+          && this.followedIsShipped()
+        ) {
+          await this.completeShipGoal()
+        }
       }
     }
   }
@@ -295,22 +394,29 @@ export class ShipRun {
   /**
    * Take the session compass before the first phase turn. Missing or throwing
    * goals degrade; a stranger is paused then asked; ours is reused.
+   * A conflicting typed idea never silently rewrites a saved original.
    * @param idea - the typed one-sentence requirement.
    * @returns false when occupancy Abort stops the run without injecting.
    */
   private async occupy(idea: string): Promise<boolean> {
+    if (this.followedSpec === undefined && this.placeholderObjective(idea) === undefined) return true
     if (this.ports.goals === undefined) {
       this.degrade()
       return true
     }
     try {
       const current = await this.ports.goals.get()
+      const objective = this.placeholderObjective(idea)
       if (current === undefined || current.phase === 'complete') {
-        await this.createPlaceholder(idea)
+        if (objective === undefined) {
+          this.degrade()
+          return true
+        }
+        await this.createPlaceholder(objective)
         return true
       }
       if (this.ours(current)) {
-        await this.ports.goals.edit(current.id, `${SHIP_OBJECTIVE_PREFIX}${idea}`)
+        if (objective !== undefined) await this.ports.goals.edit(current.id, objective)
         await this.ports.goals.pause(current.id)
         this.goalId = current.id
         return true
@@ -326,12 +432,22 @@ export class ShipRun {
         return false
       }
       await this.ports.goals.clear(current.id)
-      await this.createPlaceholder(idea)
+      if (objective === undefined) {
+        this.degrade()
+        return true
+      }
+      await this.createPlaceholder(objective)
       return true
     } catch {
       this.degrade()
       return true
     }
+  }
+
+  /** `[ship]` plus recovered original; never `[ship]` empty on a bare resume. */
+  private placeholderObjective(idea: string): string | undefined {
+    const recovered = freezeText(this.originalRequirement ?? idea)
+    return recovered === '' ? undefined : `${SHIP_OBJECTIVE_PREFIX}${recovered}`
   }
 
   /** Pause-then-ask: TTY Selector, cancel/Esc = Abort, absent ask = Replace. */
@@ -350,12 +466,12 @@ export class ShipRun {
     }
   }
 
-  /** Create `[ship] <idea>` then pause before the first turn is awaited. */
-  private async createPlaceholder(idea: string): Promise<void> {
+  /** Create `[ship] <objective>` then pause before the first turn is awaited. */
+  private async createPlaceholder(objective: string): Promise<void> {
     const goals = this.ports.goals
     if (goals === undefined) return
     try {
-      const created = await goals.create(`${SHIP_OBJECTIVE_PREFIX}${idea}`)
+      const created = await goals.create(objective)
       await goals.pause(created.id)
       this.goalId = created.id
     } catch {
@@ -376,15 +492,8 @@ export class ShipRun {
   }
 
   private specGoalId(): string | undefined {
-    for (const path of this.specPaths()) {
-      try {
-        const id = parseSpecMetadata(readFileSync(path, 'utf8')).goalId
-        if (id !== undefined) return id
-      } catch {
-        // A spec that moved is not occupancy's ours-marker.
-      }
-    }
-    return undefined
+    const markdown = this.followedMarkdown()
+    return markdown === undefined ? undefined : parseSpecMetadata(markdown).goalId
   }
 
   /**
@@ -421,21 +530,28 @@ export class ShipRun {
   }
 
   /**
-   * Phase prompt plus Goal-Id and the Main Track compass. After Confirm the
-   * track is the process snapshot, not a live reread the agent can rewrite.
-   * Land (and later) also carry the spec path so Ralph's objective can cite it.
+   * Phase prompt plus original, bound path, and Main Track. Workflow templates
+   * expand before user/spec data, so a literal `$ARGUMENTS` in the requirement
+   * is not substituted. After Confirm the track is the snapshot, not a live
+   * reread the agent can rewrite.
    */
   private promptFor(): string {
     const status = this.status()
     const track = this.trackForPrompt()
+    const original = this.originalRequirement
+    const specPath = this.followedSpec
+    const landing = shipPhaseKind(status) === 'land' ? landingPlan(this.followedMarkdown() ?? '') : undefined
     const prompt = shipPromptFor(status, {
+      ...(landing === undefined ? {} : { verificationOnly: landing.tickets.length > 0 && landing.active === undefined }),
+      ...(landing?.active === undefined ? {} : { activeTicket: landing.active.contract }),
       ...(this.goalId === undefined ? {} : { goalId: this.goalId }),
       ...(track === undefined ? {} : { track }),
+      ...(original === undefined ? {} : { originalRequirement: original }),
+      ...(specPath === undefined ? {} : { specPath }),
     })
-    const kind = shipPhaseKind(status)
-    if (kind !== 'land' && kind !== 'done') return prompt
-    const specPath = this.liveSpecPath()
-    return specPath === undefined ? prompt : `${prompt}\n\n${specPath}`
+    // Parent expands `$ARGUMENTS` from originalRequirement before attaching
+    // user/spec data. A first ledger still needs the typed idea filled in.
+    return original === undefined ? expandTemplate(prompt, this.typedIdea) : prompt
   }
 
   /** Complete the ship compass when this run's spec is shipped. */
@@ -460,10 +576,14 @@ export class ShipRun {
   }
 
   /**
-   * Draft track from disk until Confirm; then freeze a snapshot for this run.
+   * Draft track from the bound spec until Confirm; then freeze a snapshot.
    * Interviewing still prepends the live draft; later phases keep the seal.
    */
   private trackForPrompt(): string | undefined {
+    if (this.snapshot?.trackSealed === true && this.snapshot.mainTrack !== undefined) {
+      this.sealedTrack = this.snapshot.mainTrack
+      return this.snapshot.mainTrack
+    }
     if (this.sealedTrack !== undefined) return this.sealedTrack
     const live = this.liveTrack()
     if (live === undefined) return undefined
@@ -474,44 +594,354 @@ export class ShipRun {
     return live
   }
 
-  /** Compact Main Track on disk, headed so later phases prepend a real section. */
+  /** Compact Main Track on the bound spec, headed so later phases prepend a real section. */
   private liveTrack(): string | undefined {
-    for (const path of this.specPaths()) {
-      try {
-        const body = parseMainTrack(readFileSync(path, 'utf8'))
-        if (body !== undefined) return `## Main Track\n\n${body}`
-      } catch {
-        // A spec that moved is not the compass.
-      }
-    }
-    return undefined
+    const markdown = this.followedMarkdown()
+    if (markdown === undefined) return undefined
+    const body = parseMainTrack(markdown)
+    return body === undefined ? undefined : headedMainTrack(body)
   }
 
   private status() {
-    for (const path of this.specPaths()) {
-      try {
-        const status = parseShipStatus(readFileSync(path, 'utf8'))
-        if (status !== undefined && status !== 'shipped') {
-          this.followedSpec = path
-          return status
-        }
-      } catch {
-        // A spec that moved is not the phase ledger.
-      }
-    }
-    return undefined
+    const markdown = this.followedMarkdown()
+    if (markdown === undefined) return undefined
+    return parseShipStatus(markdown)
   }
 
-  /** Path of the live spec, including a session-written shipped file. */
-  private liveSpecPath(): string | undefined {
+  private followedMarkdown(): string | undefined {
+    if (this.followedSpec === undefined) return undefined
+    try {
+      return readFileSync(this.followedSpec, 'utf8')
+    } catch {
+      return undefined
+    }
+  }
+
+  /**
+   * Pin one canonical spec for this run. Other markdown writes cannot switch
+   * the binding. Several unfinished specs require an explicit choice.
+   */
+  private async bindSpec(idea: string): Promise<boolean> {
+    const unfinished = this.unfinishedSpecs()
+    let path: string | undefined
+    if (unfinished.length === 1) {
+      path = unfinished[0] ?? undefined
+    } else if (unfinished.length > 1) {
+      path = await this.chooseSpec(unfinished)
+      if (path === undefined) return false
+    }
+    if (path === undefined) {
+      this.originalRequirement = freezeText(idea) || undefined
+      return true
+    }
+    return this.adoptBoundSpec(path, idea)
+  }
+
+  private unfinishedSpecs(): string[] {
+    const seen = new Set<string>()
+    const paths: string[] = []
     for (const path of this.specPaths()) {
+      const absolute = resolve(path)
+      if (seen.has(absolute) || this.ignoredSpecs.has(absolute)) continue
+      seen.add(absolute)
       try {
-        if (parseShipStatus(readFileSync(path, 'utf8')) !== undefined) return path
+        const status = parseShipStatus(readFileSync(path, 'utf8'))
+        if (status !== undefined && status !== 'shipped') paths.push(absolute)
       } catch {
-        // A spec that moved is not the compass path.
+        // Unreadable files are not candidates.
       }
     }
-    return undefined
+    const specsDir = resolve(join(this.cwd, 'docs', 'specs'))
+    const inDir = paths.filter(path => dirname(path) === specsDir || path.startsWith(`${specsDir}${sep}`))
+    return inDir.length > 0 ? inDir : paths
+  }
+
+  /** Choose among unfinished specs; a pipe without a selector is a blocker. */
+  private async chooseSpec(paths: readonly string[]): Promise<string | undefined> {
+    const ask = this.ports.selectSpec ?? this.ports.occupancy
+    if (ask === undefined) {
+      this.block(AMBIGUOUS_SPECS)
+      return undefined
+    }
+    try {
+      const outcome = await ask({
+        title: SHIP_SELECT_SPEC_TITLE,
+        options: paths.map(path => ({ label: basename(path), detail: path })),
+      }, this.advance?.signal)
+      if (outcome.kind !== 'chosen' || outcome.indices[0] === undefined) {
+        this.block(AMBIGUOUS_SPECS)
+        return undefined
+      }
+      const chosen = paths[outcome.indices[0]]
+      if (chosen === undefined) {
+        this.block(AMBIGUOUS_SPECS)
+        return undefined
+      }
+      for (const path of paths) {
+        if (path !== chosen) this.ignoredSpecs.add(path)
+      }
+      return chosen
+    } catch {
+      this.block(AMBIGUOUS_SPECS)
+      return undefined
+    }
+  }
+
+  private adoptBoundSpec(path: string, idea: string): boolean {
+    let markdown: string
+    try {
+      markdown = readFileSync(path, 'utf8')
+    } catch {
+      this.block(`Bound spec is unreadable at ${path}. Stopped; restore the spec.`)
+      return false
+    }
+    const loaded = readShipSnapshot(path)
+    if (isShipSnapshotError(loaded)) {
+      this.block(loaded.error)
+      return false
+    }
+    const known = this.knownSnapshots.get(path)
+    if (known !== undefined && JSON.stringify(known) !== JSON.stringify(loaded)) {
+      this.block(`Ship snapshot is missing or changed beside ${path}. Stopped; restore the saved snapshot.`)
+      return false
+    }
+    let snapshot = loaded
+    if (snapshot === undefined) {
+      snapshot = initialShipSnapshot(path, markdown, idea)
+      if (snapshot === undefined) {
+        this.block(NO_OBJECTIVE)
+        return false
+      }
+      if (snapshot.limitedHistory === true || (snapshot.trackSealed && this.originalRequirement === undefined)) {
+        this.ports.flash?.(LIMITED_HISTORY)
+      }
+    }
+    const mismatch = this.conflictingIdea(snapshot, idea)
+    if (mismatch !== undefined) {
+      this.block(mismatch)
+      return false
+    }
+    const drift = validateSnapshotAgainstSpec(snapshot, path, markdown)
+    if (drift !== undefined) {
+      this.block(drift)
+      return false
+    }
+    this.followedSpec = path
+    this.snapshot = snapshot
+    this.originalRequirement = snapshot.originalRequirement === '' ? undefined : snapshot.originalRequirement
+    if (loaded === undefined && this.originalRequirement === undefined && freezeText(idea) !== '') {
+      this.originalRequirement = freezeText(idea)
+    }
+    if (snapshot.trackSealed && snapshot.mainTrack !== undefined) this.sealedTrack = snapshot.mainTrack
+    this.refresh()
+    return true
+  }
+
+  /**
+   * A typed idea that disagrees with a saved original is a blocker, never a
+   * silent reinterpretation. Empty resume keeps the freeze.
+   */
+  private conflictingIdea(snapshot: ShipSnapshot, idea: string): string | undefined {
+    const typed = freezeText(idea)
+    if (typed === '') return undefined
+    const saved = freezeText(snapshot.originalRequirement)
+    if (saved === '' || freezeEqual(typed, saved)) return undefined
+    return 'Typed idea conflicts with the saved original requirement. Stopped; resume with an empty /ship or start a separately approved spec.'
+  }
+
+  /**
+   * After a first ledger write, pin the new spec. Other unfinished files
+   * written later cannot steal a binding already made.
+   */
+  private discoverBoundSpec(): void {
+    if (this.followedSpec !== undefined) return
+    const unfinished = this.unfinishedSpecs()
+    const only = unfinished.length === 1 ? unfinished[0] : undefined
+    if (only !== undefined) {
+      this.adoptBoundSpec(only, this.originalRequirement ?? this.typedIdea)
+      return
+    }
+    if (unfinished.length > 1) this.block(AMBIGUOUS_SPECS)
+  }
+
+  /**
+   * Write or update the adjacent sidecar. Never invent a path from markdown,
+   * never overwrite a corrupt file, never claim a historical seal for legacy.
+   */
+  private persistSnapshot(): void {
+    if (this.inPlanMode() || this.contractInvalid || this.followedSpec === undefined) return
+    if (!this.guardContract()) return
+    const markdown = this.followedMarkdown()
+    if (markdown === undefined) {
+      this.block(`Bound spec is unreadable at ${this.followedSpec}. Stopped; restore the spec.`)
+      return
+    }
+    const loaded = readShipSnapshot(this.followedSpec)
+    if (isShipSnapshotError(loaded)) {
+      this.block(loaded.error)
+      return
+    }
+    let next = loaded ?? this.snapshot ?? initialShipSnapshot(this.followedSpec, markdown, this.originalRequirement ?? this.typedIdea)
+    if (next === undefined) return
+    next = { ...next, specPath: basename(this.followedSpec) }
+    next = sealOriginalIfNeeded(next, markdown)
+    next = sealTrackIfNeeded(next, markdown)
+    if (this.snapshot !== undefined) {
+      if (this.snapshot.originalSealed && next.originalRequirement !== this.snapshot.originalRequirement) {
+        this.block(`Frozen ## Original Requirement no longer matches ${this.followedSpec}. Stopped; restore the approved content.`)
+        return
+      }
+      if (this.snapshot.trackSealed && this.snapshot.mainTrack !== undefined
+        && next.mainTrack !== undefined && !freezeEqual(next.mainTrack, this.snapshot.mainTrack)) {
+        this.block(`Frozen ## Main Track no longer matches ${this.followedSpec}. Stopped; restore the approved content.`)
+        return
+      }
+    }
+    try {
+      writeShipSnapshot(next, this.followedSpec)
+      this.knownSnapshots.set(this.followedSpec, next)
+    } catch {
+      this.block(`Ship snapshot could not be written beside ${this.followedSpec}. Stopped.`)
+      return
+    }
+    this.snapshot = next
+    if (next.originalRequirement !== '') this.originalRequirement = next.originalRequirement
+    if (next.trackSealed && next.mainTrack !== undefined) this.sealedTrack = next.mainTrack
+  }
+
+  /**
+   * Validate freeze against disk before and after every phase. Failures halt
+   * the next phase and goal completion; they do not invent evidence.
+   */
+  private guardContract(): boolean {
+    if (this.contractInvalid) return false
+    if (this.followedSpec === undefined) return true
+    const markdown = this.followedMarkdown()
+    if (markdown === undefined) {
+      this.block(`Bound spec is unreadable at ${this.followedSpec}. Stopped; restore the spec.`)
+      return false
+    }
+    if (parseShipStatus(markdown) === undefined) {
+      this.block(`Bound spec has no valid Status at ${this.followedSpec}. Stopped; restore the last approved phase.`)
+      return false
+    }
+    const known = this.knownSnapshots.get(this.followedSpec)
+    if (known !== undefined) {
+      const loaded = readShipSnapshot(this.followedSpec)
+      if (JSON.stringify(loaded) !== JSON.stringify(known)) {
+        this.block(`Ship snapshot is missing or changed beside ${this.followedSpec}. Stopped; restore the saved snapshot.`)
+        return false
+      }
+    }
+    if (this.snapshot === undefined) return true
+    const drift = validateSnapshotAgainstSpec(this.snapshot, this.followedSpec, markdown)
+    if (drift !== undefined) {
+      this.block(drift)
+      return false
+    }
+    return true
+  }
+
+  /** Only a legal forward phase change may spend another turn. */
+  private mayAdvance(previous: ShipPhaseKind, next: ShipPhaseKind): boolean {
+    if (next === previous) return false
+    if (PHASE_RANK[next] !== PHASE_RANK[previous] + 1) {
+      this.block(`Invalid ship phase transition: ${previous} → ${next}. Stopped; restore the last approved phase.`)
+      return false
+    }
+    return next !== 'done'
+  }
+
+  /** Land one ticket per turn, with host-owned checks between every dispatch. */
+  private async runLanding(turn: ShipTurn): Promise<void> {
+    const initial = landingPlan(this.followedMarkdown() ?? '')
+    if (initial.tickets.length === 0) {
+      this.block('Ship landing requires a non-empty approved ## Plan. Stopped; restore the approved tickets.')
+      return
+    }
+    const budget = initial.tickets.length * 3 + 1
+    let stalled = 0
+    for (let attempt = 0; attempt < budget; attempt += 1) {
+      if (this.halted || this.advance?.signal.aborted || this.inPlanMode() || !this.guardContract()) return
+      const markdown = this.followedMarkdown() ?? ''
+      const blocker = parseShipBlocker(markdown)
+      if (blocker !== undefined) { this.block(`Ship has an unresolved ## Blocker. Stopped; resolve it before resuming.\n${blocker}`); return }
+      const before = landingPlan(markdown)
+      if (before.error !== undefined) { this.block(before.error); return }
+      await this.syncCompass()
+      await this.spendTurn(turn)
+      if (this.halted || this.advance?.signal.aborted || this.inPlanMode() || !this.guardContract()) return
+      const afterMarkdown = this.followedMarkdown() ?? ''
+      const after = landingPlan(afterMarkdown)
+      if (!sameLandingPlan(before, after)) { this.block('Approved ship plan changed during a ticket turn. Stopped; restore the plan before resuming.'); return }
+      if (after.error !== undefined) { this.block(after.error); return }
+      const newlyDone = after.tickets.filter((ticket, index) => ticket.done && !before.tickets[index]?.done)
+      if (newlyDone.length > 1 || newlyDone.some(ticket => ticket.id !== before.active?.id)) {
+        this.block('Ship turn completed tickets other than its Active Ticket. Stopped before another dispatch.')
+        return
+      }
+      const next = shipPhaseKind(this.status())
+      if (next === 'done') {
+        if (before.active !== undefined || after.active !== undefined || parseShipBlocker(afterMarkdown) !== undefined) {
+          this.block('Ship may finish only in a separate final verification turn after every ticket is checked.')
+        }
+        return
+      }
+      if (next !== 'land') { this.block(`Invalid ship phase transition during landing: ${next}. Stopped.`); return }
+      const degraded = after.tickets.some((ticket, index) => !ticket.done && before.tickets[index]?.done)
+      if (newlyDone.length === 0 && !degraded) stalled += 1
+      else stalled = 0
+      if (stalled >= 2) { this.block('Ship stopped after two consecutive turns without ticket progress. Inspect the evidence before resuming.'); return }
+    }
+    this.block(`Ship stopped at its landing turn budget (${budget}). Progress remains on disk; inspect blockers before resuming.`)
+  }
+
+  private async spendTurn(turn: ShipTurn): Promise<void> {
+    if (this.contractInvalid || this.halted) return
+    if (this.inPlanMode()) { this.halted = true; return }
+    if (!this.guardContract()) return
+    await turn(this.promptFor())
+    if (this.halted || this.advance?.signal.aborted === true || this.inPlanMode()) { this.halted = true; return }
+    this.discoverBoundSpec()
+    if (!this.guardContract()) return
+    this.persistSnapshot()
+  }
+
+  private inPlanMode(): boolean {
+    try {
+      return this.ports.isPlanMode?.() === true
+    } catch {
+      return false
+    }
+  }
+
+  /**
+   * Plan mode is interview-only: inject a read-only prompt and stop. No
+   * snapshot writes, occupancy, or goal mutations.
+   */
+  private async runPlanMode(idea: string, turn: ShipTurn): Promise<void> {
+    const unfinished = this.unfinishedSpecs()
+    if (unfinished.length === 1 && unfinished[0] !== undefined) {
+      this.followedSpec = unfinished[0]
+      const markdown = this.followedMarkdown()
+      if (markdown !== undefined) {
+        this.originalRequirement = parseOriginalRequirement(markdown)
+          ?? (freezeText(idea) === '' ? parseMainTrack(markdown) : freezeText(idea))
+      }
+    } else if (unfinished.length > 1) {
+      this.block(AMBIGUOUS_SPECS)
+      return
+    } else if (freezeText(idea) !== '') {
+      this.originalRequirement = freezeText(idea)
+    }
+    await turn(this.promptFor())
+  }
+
+  /** User-visible halt; optional goals stay unused so a throw cannot skip disk. */
+  private block(message: string): void {
+    this.contractInvalid = true
+    this.halted = true
+    this.ports.flash?.(message)
   }
 
   private specPaths(): string[] {

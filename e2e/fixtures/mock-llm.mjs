@@ -1,17 +1,22 @@
 /**
- * Keyless `cli-mock` adapter for the end-to-end suites: one real `write` call,
- * then a final answer quoting the tool's result. Plain JavaScript because the
- * installed dsh runs under plain Node, which cannot import TypeScript.
+ * Keyless `cli-mock` adapter for the terminal-surface end-to-end test: one real
+ * `write` call, then a final answer quoting the tool's result.
  *
- * `write` rather than `bash` because the write tool returns a diff result
- * view, which is what makes the run exercise the terminal's diff card instead
- * of its generic one.
- * @module codsh/e2e/fixtures/mock-llm
+ * `write` rather than `bash` because the write tool returns a
+ * {@link DiffResultView}, which is what makes the run exercise the terminal's
+ * diff card instead of its generic one.
+ * @module apps/cli/tests/fixtures/code-cli-mock-llm
  */
 
-import { existsSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { LlmAdapter, ReasoningEffortId, ToolCallId } from '@deepseek-ai/dsh-llm'
+
+import {
+  LlmAdapter,
+  ReasoningEffortId,
+  ToolCallId,
+
+} from '@deepseek-ai/dsh-llm'
 
 const OFF = ReasoningEffortId('off')
 const HIGH = ReasoningEffortId('high')
@@ -30,12 +35,9 @@ const MARKDOWN = [
   '',
   'Prose with **bold**, *em*, `inline_code`, and a [link](https://x.dev).',
   'An identifier like some_helper_name must survive intact.',
-  // Inline HTML where a model reaches for it instead of Markdown: a coloured
-  // figure, an entity, a bold tag. The surface paints and consumes them.
+  // Inline HTML where a model reaches for it instead of Markdown.
   'Gain: <font color="green">CODE_CLI_GAIN</font> &amp; <b>held</b>',
   '',
-  // The shapes real models produce constantly: emphasis wrapping code, and a
-  // table whose Chinese cells are far wider than any terminal.
   '- **`screen.ts`**: the viewport module',
   '- second bullet',
   '- third bullet keeps the answer long',
@@ -61,11 +63,11 @@ const MARKDOWN = [
 
 /**
  * Cut text into small fragments that do not respect line ends.
- * @param {string} text - the whole answer.
- * @returns {string[]} fragments whose concatenation is `text`.
+ * @param text - the whole answer.
+ * @returns fragments whose concatenation is `text`.
  */
-function splitDeltas(text) {
-  const deltas = []
+function splitDeltas(text        )           {
+  const deltas           = []
   for (let at = 0; at < text.length; at += 7) deltas.push(text.slice(at, at + 7))
   return deltas
 }
@@ -137,7 +139,12 @@ const HEREDOC_COMMAND = [
 ].join('\n')
 
 /** Call arguments per `DSH_CODE_CLI_MOCK_TOOL` mode. */
-const ARGUMENTS = {
+const ARGUMENTS                                                              = {
+  questions: { questions: [
+    { id: 'storage', header: 'ship · grill', question: 'Storage?', options: [{ label: 'SQLite', description: 'Recommended for local use.' }, { label: 'Postgres' }] },
+    { id: 'features', header: 'ship · grill', question: 'Features?', multi_select: true, options: [{ label: 'Tests' }, { label: 'Docs' }] },
+    { id: 'path', header: 'ship · grill', question: 'Path?', options: [{ label: 'docs/' }, { label: 'Type a path' }, { label: 'src/' }] },
+  ] },
   write: { file_path: join(process.cwd(), TARGET), content: CONTENT },
   bash: {
     command: `printf ${CONTENT.trim()}`,
@@ -178,9 +185,80 @@ const ARGUMENTS = {
   },
 }
 
+/** Collect plain text blocks from one mocked request. */
+function textBlocks(options                 )           {
+  return options.messages.flatMap(message =>
+    message.content.filter(block => block.type === 'text').map(block => block.text))
+}
+
+/**
+ * The original requirement the *prompt* still carries — never the live spec
+ * file, so a rewrite on disk cannot fake recovery.
+ */
+function promptIdea(texts                   )         {
+  for (const text of texts) {
+    const tagged = /<idea>\s*([\s\S]*?)\s*<\/idea>/u.exec(text)
+    const idea = tagged?.[1]?.trim() ?? ''
+    if (idea !== '') return idea
+  }
+  for (const text of texts) {
+    const section = /^## Original Requirement\n+([\s\S]*?)(?=\n## |\nBound spec:|\nThroughout \/ship|\n$)/mu.exec(text)
+    const body = section?.[1]?.trim() ?? ''
+    if (body !== '') return body.split('\n')[0] .trim()
+  }
+  return ''
+}
+
+/** Fresh-context policy token from the current `/ship` contract. */
+function hasSubagentPolicy(texts                   )          {
+  return texts.some(text => text.includes('Prefer `subagent`, not `subagent_fork`'))
+}
+
+/** Body of a `## Heading` section, or undefined when the heading is absent. */
+function sectionBody(markdown        , heading        )                     {
+  const re = new RegExp(`^## ${heading}\\s*$`, 'miu')
+  const lines = markdown.split(/\r\n|[\r\n]/u)
+  const body           = []
+  let inside = false
+  for (const line of lines) {
+    if (re.test(line)) {
+      inside = true
+      continue
+    }
+    if (inside && /^#{1,6}\s+/u.test(line)) break
+    if (inside) body.push(line)
+  }
+  if (!inside) return undefined
+  const text = body.join('\n').trim()
+  return text === '' ? undefined : text
+}
+
+/** Ledger the wayfinder fixture writes: original wording is stored verbatim. */
+function wayfinderLedger(idea        , pending         )         {
+  return [
+    '# Wayfinder fixture',
+    '',
+    `Status: ${pending ? 'wayfinding' : 'grilling'}`,
+    '',
+    '## Original Requirement',
+    '',
+    idea,
+    '',
+    '## Main Track',
+    '',
+    `**Idea.** ${idea}`,
+    '**Track-1.** Keep the original wording.',
+    '',
+    '## Wayfinder',
+    '',
+    pending ? 'Pending research remains.' : 'Small route confirmed; no map needed.',
+    '',
+  ].join('\n')
+}
+
 /** Emits one `write` call, then a closing message naming the result. */
 class CodeCliMockAdapter extends LlmAdapter {
-  listModels(provider) {
+           listModels(provider        )                                   {
     // Keep the advisory catalog text-only even in vision mode. Exact model
     // resolution below is the capability source; this pins the startup/stale
     // catalog case instead of letting cached discovery decide correctness.
@@ -190,11 +268,12 @@ class CodeCliMockAdapter extends LlmAdapter {
     ])
   }
 
-  async resolveModel(provider, model) {
+           async resolveModel(provider        , model        )                                {
     return {
       provider,
       id: model,
       name: model,
+      ...MOCK_MODE === 'context' ? { context: { contextWindow: model === 'cli-mock-pro' ? 64_000 : 128_000 } } : {},
       inputModalities: MOCK_MODE === 'vision'
         || (AUTO_VISION && model === 'deepseek-v4-flash-vision-exp')
         ? ['text', 'image']
@@ -206,7 +285,216 @@ class CodeCliMockAdapter extends LlmAdapter {
     }
   }
 
-  async * stream(options) {
+  async * stream(options                 )                             {
+    if (MOCK_MODE === 'ship-landing') {
+      const texts = textBlocks(options)
+      const prompt = texts.findLast(text => text.includes('Throughout /ship')) ?? ''
+      const active = /^Active Ticket: Ticket (\d+):/mu.exec(prompt)?.[1]
+      const result = options.messages.at(-1)?.content.find(block => block.type === 'tool-result')
+      const ledger = join(process.cwd(), 'docs', 'specs', 'landing-e2e.md')
+      if (result === undefined && existsSync(ledger)) {
+        const id = ToolCallId('landing-read')
+        const args = JSON.stringify({ file_path: ledger })
+        yield { type: 'block-start', index: 0, blockType: 'tool-call' }
+        yield { type: 'tool-call-delta', index: 0, id, name: 'read', argumentsDelta: args }
+        yield { type: 'block-end', index: 0, block: { type: 'tool-call', id, name: 'read', arguments: args } }
+        yield { type: 'finish', reason: { kind: 'tool-calls' } }
+        return
+      }
+      if (result?.toolCallId === 'landing-read' && result.isError !== true) {
+        const current = readFileSync(ledger, 'utf8')
+        const verification = prompt.includes('This turn is final verification only')
+        const drift = current.includes('DRIFT_AFTER_FIRST') && active === '1'
+        const content = active !== undefined
+          ? current.replace(`- [ ] Ticket ${active}:`, `- [x] Ticket ${active}:`).replace(drift ? 'Track-1: Keep offline exports.' : 'NEVER_MATCH', 'Track-1: Upload exports.')
+          : verification ? current.replace('Status: landing', 'Status: shipped') : current
+        const id = ToolCallId(`landing-${active ?? 'verify'}`)
+        const args = JSON.stringify({ file_path: ledger, content })
+        yield { type: 'block-start', index: 0, blockType: 'tool-call' }
+        yield { type: 'tool-call-delta', index: 0, id, name: 'write', argumentsDelta: args }
+        yield { type: 'block-end', index: 0, block: { type: 'tool-call', id, name: 'write', arguments: args } }
+        yield { type: 'finish', reason: { kind: 'tool-calls' } }
+        return
+      }
+      const reply = result?.isError ? 'SHIP_LANDING_ERROR'
+        : active === undefined ? 'SHIP_VERIFICATION_DONE' : `SHIP_TICKET_${active}_DONE`
+      yield { type: 'block-start', index: 0, blockType: 'text' }
+      yield { type: 'text-delta', index: 0, text: reply }
+      yield { type: 'block-end', index: 0, block: { type: 'text', text: reply } }
+      yield { type: 'finish', reason: { kind: 'stop' } }
+      return
+    }
+    if (MOCK_MODE === 'ship-wayfinder') {
+      const texts = textBlocks(options)
+      const prompt = texts.findLast(text =>
+        text.includes('This turn is wayfinder only')
+        || text.includes('This turn is grill only')
+        || text.includes('This turn is to-spec (gate 1) only')
+        || text.includes('This turn is tickets and baseline (gate 2) only')
+        || text.includes('This turn is only the phase that Status names')) ?? ''
+      const wayfinder = prompt.includes('This turn is wayfinder only')
+      const later = !wayfinder && (
+        prompt.includes('This turn is grill only')
+        || prompt.includes('This turn is to-spec (gate 1) only')
+        || prompt.includes('This turn is tickets and baseline (gate 2) only')
+        || prompt.includes('Strict Red-First Execution')
+        || prompt.includes('dual-layer DoD'))
+      const ledger = join(process.cwd(), 'docs', 'specs', 'wayfinder-e2e.md')
+      const idea = promptIdea([prompt])
+      const pending = idea.includes('PENDING_WAYFINDER') || texts.some(text => text.includes('PENDING_WAYFINDER'))
+      const result = options.messages.at(-1)?.content.find(block => block.type === 'tool-result')
+      const policy = hasSubagentPolicy(texts)
+      const recovered = idea !== ''
+      let call
+      let reply = ''
+      if (wayfinder && result === undefined && existsSync(ledger)) {
+        reply = `WAYFINDER_RESUMED original=${recovered ? idea : 'missing'} policy=${policy ? 'yes' : 'no'}`
+      } else if (result === undefined) {
+        call = { id: 'ship-wayfinder-question', name: 'ask_user_question', args: { questions: [{
+          id: 'route', header: wayfinder ? 'ship · wayfinder' : 'ship · grill',
+          question: wayfinder ? 'Is the route clear?' : 'Confirm the grill handoff?',
+          options: [{ label: 'Continue', description: 'Recommended.' }, { label: 'Stop' }],
+        }] } }
+      } else if (result.isError === true) {
+        reply = 'SHIP_FIXTURE_ERROR'
+      } else if (later) {
+        reply = `GRILL_CONTRACT_OK original=${recovered ? idea : 'missing'} policy=${policy ? 'yes' : 'no'}`
+      } else if (result.toolCallId === 'ship-wayfinder-question') {
+        const answer = result.content.filter(block => block.type === 'text').map(block => block.text).join('\n')
+        if (!answer.includes('Continue')) reply = 'WAYFINDER_STOPPED'
+        else call = { id: 'ship-wayfinder-ledger', name: 'write', args: {
+          file_path: ledger,
+          content: wayfinderLedger(idea === '' ? (pending ? 'PENDING_WAYFINDER' : 'SMALL_WAYFINDER') : idea, pending),
+        } }
+      } else {
+        reply = pending
+          ? `WAYFINDER_WAITING original=${recovered ? idea : 'missing'} policy=${policy ? 'yes' : 'no'}`
+          : `WAYFINDER_READY original=${recovered ? idea : 'missing'} policy=${policy ? 'yes' : 'no'}`
+      }
+      if (call !== undefined) {
+        const id = ToolCallId(call.id)
+        const args = JSON.stringify(call.args)
+        yield { type: 'block-start', index: 0, blockType: 'tool-call' }
+        yield { type: 'tool-call-delta', index: 0, id, name: call.name, argumentsDelta: args }
+        yield { type: 'block-end', index: 0, block: { type: 'tool-call', id, name: call.name, arguments: args } }
+        yield { type: 'usage', usage: { inputTokens: 3, outputTokens: 4 } }
+        yield { type: 'finish', reason: { kind: 'tool-calls' } }
+        return
+      }
+      yield { type: 'block-start', index: 0, blockType: 'text' }
+      yield { type: 'text-delta', index: 0, text: reply }
+      yield { type: 'block-end', index: 0, block: { type: 'text', text: reply } }
+      yield { type: 'usage', usage: { inputTokens: 3, outputTokens: 4 } }
+      yield { type: 'finish', reason: { kind: 'stop' } }
+      return
+    }
+    if (MOCK_MODE === 'ship-delegate') {
+      // Parent calls the real `subagent` tool; the child is told apart by the
+      // brief it actually received — never by pretending the parent proved it.
+      const texts = textBlocks(options)
+      if (!texts.some(text => text.includes('Throughout /ship') || text.includes('SHIP_DELEGATE_CHILD'))) {
+        const reply = 'SHIP_PARENT_READY'
+        yield { type: 'block-start', index: 0, blockType: 'text' }
+        yield { type: 'text-delta', index: 0, text: reply }
+        yield { type: 'block-end', index: 0, block: { type: 'text', text: reply } }
+        yield { type: 'finish', reason: { kind: 'stop' } }
+        return
+      }
+      const child = texts.some(text => text.includes('SHIP_DELEGATE_CHILD'))
+      const result = options.messages.at(-1)?.content.find(block => block.type === 'tool-result')
+      if (child) {
+        const worked = result
+        if (worked === undefined) {
+          const brief = texts.find(text => text.includes('SHIP_DELEGATE_CHILD')) ?? ''
+          const original = /## Original Requirement\n+([\s\S]*?)(?=\n## |\n$)/mu.exec(brief)?.[1]?.trim() ?? ''
+          const track = /## Main Track\n+([\s\S]*?)(?=\n## |\n$)/mu.exec(brief)?.[1]?.trim() ?? ''
+          const spec = /Bound spec:\s*(\S+)/u.exec(brief)?.[1] ?? ''
+          const evidence = join(process.cwd(), '.scratch', 'wayfinder-e2e', 'child-evidence.md')
+          const body = [
+            '# SHIP_CHILD_EVIDENCE',
+            '',
+            `original=${original === '' ? 'missing' : original}`,
+            `track=${track === '' ? 'missing' : 'yes'}`,
+            `bound=${spec === '' ? 'no' : 'yes'}`,
+            `policy=${hasSubagentPolicy(texts) ? 'yes' : 'no'}`,
+            `parent_history=${texts.some(text => text.includes('PARENT_CONTEXT_SENTINEL')) ? 'yes' : 'no'}`,
+            '',
+          ].join('\n')
+          const args = JSON.stringify({ file_path: evidence, content: body })
+          const id = ToolCallId('ship-delegate-child-write')
+          yield { type: 'block-start', index: 0, blockType: 'tool-call' }
+          yield { type: 'tool-call-delta', index: 0, id, name: 'write', argumentsDelta: args }
+          yield { type: 'block-end', index: 0, block: { type: 'tool-call', id, name: 'write', arguments: args } }
+          yield { type: 'usage', usage: { inputTokens: 2, outputTokens: 2 } }
+          yield { type: 'finish', reason: { kind: 'tool-calls' } }
+          return
+        }
+        const evidence = join(process.cwd(), '.scratch', 'wayfinder-e2e', 'child-evidence.md')
+        const recorded = existsSync(evidence) ? readFileSync(evidence, 'utf8') : ''
+        const reply = [
+          'SHIP_CHILD_OK',
+          recorded.match(/^original=.+$/mu)?.[0] ?? 'original=missing',
+          recorded.match(/^bound=.+$/mu)?.[0] ?? 'bound=no',
+          recorded.match(/^parent_history=.+$/mu)?.[0] ?? 'parent_history=unknown',
+          'evidence=.scratch/wayfinder-e2e/child-evidence.md',
+        ].join(' ')
+        yield { type: 'block-start', index: 0, blockType: 'text' }
+        yield { type: 'text-delta', index: 0, text: reply }
+        yield { type: 'block-end', index: 0, block: { type: 'text', text: reply } }
+        yield { type: 'usage', usage: { inputTokens: 2, outputTokens: 2 } }
+        yield { type: 'finish', reason: { kind: 'stop' } }
+        return
+      }
+      if (result === undefined) {
+        const idea = promptIdea(texts)
+        const specPath = texts.flatMap(text => {
+          const match = /Bound spec:\s*(\S+)/u.exec(text)
+          return match?.[1] === undefined ? [] : [match[1]]
+        })[0] ?? join(process.cwd(), 'docs', 'specs', 'wayfinder-e2e.md')
+        const current = texts.findLast(text => text.includes('Throughout /ship')) ?? ''
+        const track = sectionBody(current, 'Main Track') ?? 'missing'
+        const brief = [
+          'SHIP_DELEGATE_CHILD',
+          '',
+          'Read-only bounded brief. Do not reconstruct the goal from a conversation you do not have.',
+          '',
+          '## Original Requirement',
+          '',
+          idea === '' ? 'missing' : idea,
+          '',
+          `## Main Track\n\n${track}`,
+          '',
+          `Bound spec: ${specPath}`,
+          '',
+          'Prefer `subagent`, not `subagent_fork`; do not approve gates or modify the spec.',
+          'Exact question: report whether CONTEXT.md exists; write evidence only under .scratch/wayfinder-e2e/.',
+          'Allowed files: CONTEXT.md (read), .scratch/wayfinder-e2e/child-evidence.md (write).',
+          'Stop after returning at most 20 lines of evidence.',
+        ].join('\n')
+        const args = JSON.stringify({
+          description: 'Read-only ship brief',
+          prompt: brief,
+          run_in_background: false,
+        })
+        const id = ToolCallId('ship-delegate-parent')
+        yield { type: 'block-start', index: 0, blockType: 'tool-call' }
+        yield { type: 'tool-call-delta', index: 0, id, name: 'subagent', argumentsDelta: args }
+        yield { type: 'block-end', index: 0, block: { type: 'tool-call', id, name: 'subagent', arguments: args } }
+        yield { type: 'usage', usage: { inputTokens: 3, outputTokens: 4 } }
+        yield { type: 'finish', reason: { kind: 'tool-calls' } }
+        return
+      }
+      const returned = result.content.filter(block => block.type === 'text').map(block => block.text).join('\n')
+      const reply = result.isError === true
+        ? 'SHIP_DELEGATE_ERROR'
+        : `SHIP_DELEGATE_PARENT child=${returned.includes('SHIP_CHILD_OK') ? 'yes' : 'no'} original=${returned.includes('original=SMALL_WAYFINDER') ? 'yes' : 'no'} isolated=${returned.includes('parent_history=no') ? 'yes' : 'no'}`
+      yield { type: 'block-start', index: 0, blockType: 'text' }
+      yield { type: 'text-delta', index: 0, text: reply }
+      yield { type: 'block-end', index: 0, block: { type: 'text', text: reply } }
+      yield { type: 'usage', usage: { inputTokens: 3, outputTokens: 4 } }
+      yield { type: 'finish', reason: { kind: 'stop' } }
+      return
+    }
     if (MOCK_MODE === 'workflow') {
       const seen = options.messages.flatMap(message =>
         message.content.filter(block => block.type === 'text').map(block => block.text))
@@ -256,6 +544,15 @@ class CodeCliMockAdapter extends LlmAdapter {
       yield { type: 'text-delta', index: 0, text: reply }
       yield { type: 'block-end', index: 0, block: { type: 'text', text: reply } }
       yield { type: 'usage', usage: { inputTokens: 3, outputTokens: 3 } }
+      yield { type: 'finish', reason: { kind: 'stop' } }
+      return
+    }
+    if (MOCK_MODE === 'context') {
+      const reply = 'CONTEXT_REPLY_OK'
+      yield { type: 'block-start', index: 0, blockType: 'text' }
+      yield { type: 'text-delta', index: 0, text: reply }
+      yield { type: 'block-end', index: 0, block: { type: 'text', text: reply } }
+      yield { type: 'usage', usage: { inputTokens: 32_000, outputTokens: 4 } }
       yield { type: 'finish', reason: { kind: 'stop' } }
       return
     }
@@ -388,9 +685,10 @@ class CodeCliMockAdapter extends LlmAdapter {
       // not theirs to claim.
       const marker = texts.some(text => text.includes('CODE_CLI_CUSTOM_MARKER')) ? 'yes' : 'no'
       // /ship dispatched and expanded the typed idea into the current phase.
-      // Grill is the first injection: it names ask_user_question, not ralph —
-      // later phases get their own turn so TDD does not crowd the interview.
-      const ship = texts.some(text => text.includes('SHIP_E2E_IDEA') && text.includes('ask_user_question') && text.includes('grill-me')) ? 'yes' : 'no'
+      // Wayfinder is the first injection; later phases get separate turns.
+      const ship = texts.some(text => text.includes('SHIP_E2E_IDEA') && text.includes('ask_user_question') && text.includes('This turn is wayfinder only')) ? 'yes' : 'no'
+      const original = texts.some(text => /<idea>\s*add a SHIP_E2E_IDEA command\s*<\/idea>/u.test(text)) ? 'yes' : 'no'
+      const policy = texts.some(text => text.includes('Prefer `subagent`, not `subagent_fork`')) ? 'yes' : 'no'
       // A pasted image on a text-only route arrives as a <pasted-image> text
       // block: report the saved path and whether a description came along, so
       // the fallback and sidecar tests can read the proof off the transcript.
@@ -401,7 +699,7 @@ class CodeCliMockAdapter extends LlmAdapter {
       const image = pasted === undefined
         ? 'image=no'
         : `image=${savedAt ?? '?'} file=${savedAt !== undefined && existsSync(savedAt) ? 'yes' : 'no'} described=${pasted.includes('<description>') ? 'yes' : 'no'}`
-      const reply = `CODE_CLI_CTX bang=${bang} remembered=${remembered} marker=${marker} ship=${ship} ${image}`
+      const reply = `CODE_CLI_CTX bang=${bang} remembered=${remembered} marker=${marker} ship=${ship} original=${original} policy=${policy} ${image}`
       yield { type: 'block-start', index: 0, blockType: 'text' }
       yield { type: 'text-delta', index: 0, text: reply }
       yield { type: 'block-end', index: 0, block: { type: 'text', text: reply } }
@@ -429,7 +727,7 @@ class CodeCliMockAdapter extends LlmAdapter {
       // what reaches `ctx.approval` and therefore the keyboard. `slow` occupies
       // the turn long enough for a person to interrupt it.
       const mode = process.env.DSH_CODE_CLI_MOCK_TOOL ?? 'write'
-      const tool = mode === 'write' || mode === 'tall' || mode === 'spec' ? 'write' : mode === 'todo' ? 'todo_write' : 'bash'
+      const tool = mode === 'questions' ? 'ask_user_question' : mode === 'write' || mode === 'tall' || mode === 'spec' ? 'write' : mode === 'todo' ? 'todo_write' : 'bash'
       const args = JSON.stringify(ARGUMENTS[mode] ?? ARGUMENTS.write)
       const id = ToolCallId(`code-cli-${tool}`)
       yield { type: 'block-start', index: 0, blockType: 'tool-call' }
@@ -458,7 +756,9 @@ class CodeCliMockAdapter extends LlmAdapter {
     const failed = toolResult.isError === true
     // Naming the serving model is what lets a test prove a /model switch
     // reached the request rather than only the status display.
-    const reply = failed ? 'CODE_CLI_CALL_DENIED' : `CODE_CLI_CALL_OK via ${options.model}`
+    const reply = failed ? 'CODE_CLI_CALL_DENIED' : MOCK_MODE === 'questions'
+      ? `QUESTION_RESULT\n${toolResult.content.filter(block => block.type === 'text').map(block => block.text).join('\n')}\nQUESTIONS_DONE`
+      : `CODE_CLI_CALL_OK via ${options.model}`
     yield { type: 'block-start', index: 0, blockType: 'text' }
     // `spec` holds the turn open past the write, so the working line ticks
     // with the plan the write put on disk: a figure that only exists after
@@ -483,7 +783,7 @@ export const inject = ['llm']
  * Register the keyless `cli-mock` adapter.
  * @param ctx - plugin context carrying the LLM registry.
  */
-export function apply(ctx) {
+export function apply(ctx         )       {
   const providers = AUTO_VISION
     ? ['cli-mock', 'deepseek-official']
     : ['cli-mock']

@@ -24,6 +24,7 @@ import type { Theme } from './theme.ts'
  * so one paint path owns the label and the theme role.
  */
 export type ShipChip =
+  | { readonly kind: 'wayfinder' }
   | { readonly kind: 'grill' }
   | { readonly kind: 'spec' }
   | { readonly kind: 'tickets' }
@@ -237,6 +238,8 @@ export function displayPath(path: string, home: string = homedir()): string {
  */
 export function shipChipLabel(chip: ShipChip): string {
   switch (chip.kind) {
+    case 'wayfinder':
+      return 'ship · wayfinder'
     case 'grill':
       return 'ship · grill'
     case 'spec':
@@ -267,6 +270,7 @@ export function shipChipLabel(chip: ShipChip): string {
 export function paintShipChip(chip: ShipChip, theme: Theme): string {
   const label = shipChipLabel(chip)
   switch (chip.kind) {
+    case 'wayfinder':
     case 'grill':
     case 'spec':
     case 'tickets':
@@ -311,6 +315,8 @@ export function shipChipFromSpec(
   plan: Plan | undefined,
   flashOk = false,
 ): ShipChip | undefined {
+  if (status === 'wayfinding') return { kind: 'wayfinder' }
+  if (status === 'grilling') return { kind: 'grill' }
   if (status === 'shipped') return { kind: 'done' }
   if (plan !== undefined && plan.tickets.length > 0 && plan.current === undefined) return { kind: 'verify' }
   if ((status === 'planned' || status === 'landing') && plan !== undefined) {
@@ -392,8 +398,8 @@ export async function gitBranch(cwd: string): Promise<string | undefined> {
  */
 export function statusLine(facts: StatusFacts, theme: Theme, columns?: number): string {
   const left = contextLeftPercent(facts.context)
-  // Glance MetaBar: mode · model · cwd. Preset, permission, token totals, and
-  // routine context stay in `/status`; only alarming headroom surfaces here.
+  // Context is current request pressure, not cumulative session usage.
+  // Preset, permission, and cumulative token totals stay in `/status`.
   // Never accent on this line — accent is reserved for focus/selection.
   const sep = theme.muted(' · ')
   const chip = resolveShipChip(facts)
@@ -406,14 +412,18 @@ export function statusLine(facts: StatusFacts, theme: Theme, columns?: number): 
   const cwd = theme.muted(
     facts.branch === undefined ? displayPath(facts.cwd) : `${displayPath(facts.cwd)} (${facts.branch})`,
   )
-  const context = left === undefined || left > 25
+  const window = facts.context?.contextWindow
+  const next = facts.context?.projectedTokens ?? facts.context?.pressureTokens
+  const capacity = window !== undefined && window > 0 ? formatTokens(window) : '?'
+  const paintContext = left === undefined || left > 25 ? theme.muted : left <= 10 ? theme.err : theme.warn
+  const occupancy = `${next === undefined ? '?' : formatTokens(next)}/${capacity}`
+  const contextText = `${occupancy}${left === undefined ? '' : ` (${left}% left)`}`
+  const context = next === undefined && capacity === '?'
     ? undefined
-    : left <= 10 ? theme.err(`${left}%`) : theme.warn(`${left}%`)
+    : paintContext(`context ${contextText}`)
   const shortcuts = facts.shortcuts ? theme.muted('? shortcuts') : undefined
-  // Drop whole segments until the line fits: shortcuts first, then cwd, then
-  // model; keep the ship chip, mode, and alarming context. Never drop the ship
-  // chip first — same priority the gate chip already had. Omit columns => full
-  // line for a later re-fit.
+  // Drop shortcuts, cwd, then model before context or workflow state.
+  // Omit columns to keep the full line for a later re-fit.
   const tagged: { key: 'shipChip' | 'mode' | 'model' | 'context' | 'cwd' | 'shortcuts'; text: string }[] = [
     ...shipChip === undefined ? [] : [{ key: 'shipChip' as const, text: shipChip }],
     ...mode === undefined ? [] : [{ key: 'mode' as const, text: mode }],
@@ -428,6 +438,10 @@ export function statusLine(facts: StatusFacts, theme: Theme, columns?: number): 
   for (const drop of ['shortcuts', 'cwd', 'model'] as const) {
     if (displayWidth(join(kept.map(part => part.text))) <= columns) break
     kept = kept.filter(part => part.key !== drop)
+  }
+  if (displayWidth(join(kept.map(part => part.text))) > columns && context !== undefined) {
+    const compact = left === undefined ? occupancy : `${left}% left`
+    kept = kept.map(part => part.key === 'context' ? { ...part, text: paintContext(compact) } : part)
   }
   const line = join(kept.map(part => part.text))
   return displayWidth(line) <= columns ? line : truncate(line, columns)

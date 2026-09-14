@@ -76,6 +76,23 @@ async function runCodeCli(options: {
 }
 
 describe('dsh code (real profile, keyless model)', () => {
+  it('reports ambiguous ship specs on a pipe without spending a model turn', async () => {
+    const run = await runCodeCli({
+      tool: 'echo',
+      input: '/ship\n/exit\n',
+      setup: async cwd => {
+        const specs = join(cwd, 'docs', 'specs')
+        await mkdir(specs, { recursive: true })
+        for (const name of ['one', 'two']) {
+          await writeFile(join(specs, `${name}.md`), `Status: wayfinding\n\n## Original Requirement\n\n${name}\n`)
+        }
+      },
+    })
+    expect(run.stdout).toMatch(/(?:several|multiple|more than one|ambiguous|choose).*spec/i)
+    expect(run.stdout).not.toContain('CODE_CLI_CTX')
+    expect(run.exitCode).toBe(0)
+  }, E2E_TEST_TIMEOUT_MS)
+
   it('mounts the preset and renders a write through the diff card', async () => {
     const run = await runCodeCli({ tool: 'write', args: ['-p', 'create the note'], input: '' })
 
@@ -337,9 +354,17 @@ describe('dsh code (real profile, keyless model)', () => {
     const run = await runCodeCli({ tool: 'echo', input: '/ship add a SHIP_E2E_IDEA command\n/exit\n' })
 
     // The command echoes as typed; the request carries the current phase
-    // (grill first) with the idea substituted.
+    // (wayfinder first) with the idea substituted.
     expect(run.stdout).toContain('› /ship add a SHIP_E2E_IDEA command')
     expect(run.stdout).toContain('ship=yes')
+    expect(run.stdout).not.toContain('unknown command')
+  }, E2E_TEST_TIMEOUT_MS)
+
+  it('carries the original idea and Prefer `subagent`, not `subagent_fork` on /ship', async () => {
+    const run = await runCodeCli({ tool: 'echo', input: '/ship add a SHIP_E2E_IDEA command\n/exit\n' })
+    expect(run.stdout).toContain('ship=yes')
+    expect(run.stdout).toContain('original=yes')
+    expect(run.stdout).toContain('policy=yes')
     expect(run.stdout).not.toContain('unknown command')
   }, E2E_TEST_TIMEOUT_MS)
 })

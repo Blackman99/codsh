@@ -2,7 +2,7 @@
  * The plan a `/ship` spec carries, read from the file that holds it.
  *
  * The spec file is the workflow's memory: its `## Plan` section is one
- * checkbox per ticket, and a ralph round ticks the one it finished. So the
+ * checkbox per ticket, and the parent ticks the one it verified. So the
  * answer to "how far in" is on disk, not in the conversation — the round
  * number the workflow reports is a budget counter, and says nothing about how
  * much of the work is left.
@@ -30,7 +30,7 @@ export interface Plan {
 }
 
 /** Phases a `/ship` spec's `Status:` line names. */
-export type ShipStatus = 'interviewing' | 'confirmed' | 'planned' | 'landing' | 'shipped'
+export type ShipStatus = 'wayfinding' | 'grilling' | 'interviewing' | 'confirmed' | 'planned' | 'landing' | 'shipped'
 
 /** Metadata a `/ship` spec records in its header. */
 export interface SpecMetadata {
@@ -54,7 +54,7 @@ const HEADING = /^#{1,6}\s+/u
 const TICKET = /^\s*[-*]\s+\[([ xX])\]\s+(.*)$/u
 
 /** A spec's `Status:` phase line. */
-const STATUS_LINE = /^Status:\s*(interviewing|confirmed|planned|landing|shipped)\b/imu
+const STATUS_LINE = /^Status:\s*(wayfinding|grilling|interviewing|confirmed|planned|landing|shipped)\b/imu
 
 /** A spec's `Branch:` line. */
 const BRANCH_LINE = /^Branch:\s*(\S+)/imu
@@ -68,8 +68,17 @@ const ORIGINAL_BRANCH_LINE = /^Original-Branch:\s*(\S+)/imu
 /** A spec's `Goal-Id:` line — the session compass occupancy uses to recognize ours. */
 const GOAL_ID_LINE = /^Goal-Id:\s*(\S+)/imu
 
-/** A `## Main Track` heading, at any depth, in any case. */
-const MAIN_TRACK_HEADING = /^#{1,6}\s+main\s+track\s*$/iu
+/** A `## Main Track` title, at any depth, in any case. */
+const MAIN_TRACK_TITLE = /^main\s+track$/iu
+
+/** A dedicated `## Original Requirement` title; not a design-summary heading. */
+const ORIGINAL_REQUIREMENT_TITLE = /^original\s+requirement$/iu
+
+/** An `## Acceptance Criteria` title, at any depth, in any case. */
+const ACCEPTANCE_CRITERIA_TITLE = /^acceptance\s+criteria$/iu
+
+/** A markdown heading: capture depth and title. */
+const SECTION_HEADING = /^(#{1,6})\s+(.*?)\s*$/u
 
 /**
  * Read the tickets out of a spec's `## Plan` section.
@@ -80,7 +89,7 @@ const MAIN_TRACK_HEADING = /^#{1,6}\s+main\s+track\s*$/iu
  * @param markdown - the spec file's contents.
  * @returns the plan, empty when the file has no plan section.
  */
-export function parsePlan(markdown: string): Plan {
+export function parsePlan(markdown: string, opts: { rawTitles?: boolean } = {}): Plan {
   const tickets: PlanTicket[] = []
   let inside = false
   for (const line of markdown.split(/\r\n|[\r\n]/u)) {
@@ -103,7 +112,7 @@ export function parsePlan(markdown: string): Plan {
       .replace(/\s*\([^)]*(?:blocked\s+by|verification(?:\s+log)?)\s*:[^)]*\)/giu, '')
       .replace(/\s*\(\s*Track:\s*[^)]*\)/giu, '')
       .trim() || rawTitle
-    tickets.push({ title, done: (ticket[1] ?? ' ').toLowerCase() === 'x' })
+    tickets.push({ title: opts.rawTitles ? rawTitle : title, done: (ticket[1] ?? ' ').toLowerCase() === 'x' })
   }
   const done = tickets.filter(ticket => ticket.done).length
   return { tickets, done, current: tickets.find(ticket => !ticket.done) }
@@ -128,35 +137,101 @@ export function parseSpecMetadata(markdown: string): SpecMetadata {
 }
 
 /**
- * Read the compact Main Track section from a spec.
+ * Read a named markdown section, including nested headings.
  *
- * The section is the sealed compass (idea, Track-N decisions, Out of Scope),
- * not plan tickets. Checkboxes that happen to sit under it must not become
- * chrome work items — only `## Plan` is the ticket list.
+ * A deeper heading belongs to the section; a heading of the same or higher
+ * rank ends it. Empty bodies are absent so a blank heading is not a value.
  * @param markdown - the spec file's contents.
- * @returns the section body, or undefined when the file has no Main Track.
+ * @param title - the heading title to match, without hashes.
+ * @returns the section body, or undefined when the heading is missing or empty.
  */
-export function parseMainTrack(markdown: string): string | undefined {
+function parseNamedSection(markdown: string, title: RegExp): string | undefined {
   const body: string[] = []
-  let inside = false
+  let rank: number | undefined
+  let fence: string | undefined
   for (const line of markdown.split(/\r\n|[\r\n]/u)) {
-    if (MAIN_TRACK_HEADING.test(line)) {
-      inside = true
+    const marker = /^ {0,3}(`{3,}|~{3,})(.*)$/u.exec(line)
+    if (fence !== undefined) {
+      if (rank !== undefined) body.push(line)
+      if (marker?.[1] !== undefined && marker[1][0] === fence[0] && marker[1].length >= fence.length && marker[2]?.trim() === '') fence = undefined
       continue
     }
-    if (inside && HEADING.test(line)) break
-    if (inside) body.push(line)
+    if (marker?.[1] !== undefined) {
+      fence = marker[1]
+      if (rank !== undefined) body.push(line)
+      continue
+    }
+    const heading = SECTION_HEADING.exec(line)
+    if (heading !== null) {
+      const depth = heading[1]?.length ?? 0
+      const name = heading[2] ?? ''
+      if (rank === undefined) {
+        if (title.test(name)) {
+          rank = depth
+          continue
+        }
+      } else if (depth <= rank) {
+        break
+      }
+    }
+    if (rank !== undefined) body.push(line)
   }
-  if (!inside) return undefined
+  if (rank === undefined) return undefined
   const text = body.join('\n').trim()
   return text === '' ? undefined : text
 }
 
 /**
+ * Read the dedicated original requirement, including nested headings.
+ *
+ * This is the user's wording, not a design summary under Requirement or
+ * Problem Statement. Multiline text is preserved; only surrounding blank
+ * lines from the section edges are trimmed.
+ * @param markdown - the spec file's contents.
+ * @returns the section body, or undefined when the heading is missing or empty.
+ */
+export function parseOriginalRequirement(markdown: string): string | undefined {
+  return parseNamedSection(markdown, ORIGINAL_REQUIREMENT_TITLE)
+}
+
+/**
+ * Read acceptance criteria so a later edit cannot silently weaken proofs.
+ * @param markdown - the spec file's contents.
+ * @returns the section body, or undefined when the heading is missing or empty.
+ */
+export function parseAcceptanceCriteria(markdown: string): string | undefined {
+  return parseNamedSection(markdown, ACCEPTANCE_CRITERIA_TITLE)
+}
+
+/** Original wording in specs written before the dedicated original section. */
+export function parseLegacyRequirement(markdown: string): string | undefined {
+  return parseNamedSection(markdown, /^requirement$/iu)
+}
+
+/** An unresolved blocker stops automatic landing; archived sections use another title. */
+export function parseShipBlocker(markdown: string): string | undefined {
+  return parseNamedSection(markdown, /^blocker$/iu)
+}
+
+/**
+ * Read the compact Main Track section from a spec.
+ *
+ * The section is the sealed compass (idea, Track-N decisions, Out of Scope),
+ * not plan tickets. Nested headings under the track stay in the body; a
+ * same-or-higher heading ends it. Checkboxes that happen to sit under it
+ * must not become chrome work items — only `## Plan` is the ticket list.
+ * @param markdown - the spec file's contents.
+ * @returns the section body, or undefined when the file has no Main Track.
+ */
+export function parseMainTrack(markdown: string): string | undefined {
+  return parseNamedSection(markdown, MAIN_TRACK_TITLE)
+}
+
+/**
  * Read the workflow phase from a spec's `Status:` line.
  *
- * The line is the durable phase ledger `/ship` keeps on disk: interviewing,
- * confirmed, planned, landing, or shipped. Anything else is not a phase the
+ * The line is the durable phase ledger `/ship` keeps on disk: wayfinding,
+ * grilling, interviewing, confirmed, planned, landing, or shipped. Anything else is not a phase the
  * MetaBar chip knows how to name.
  * @param markdown - the spec file's contents.
  * @returns the phase, or undefined when the file has no Status line.
@@ -165,6 +240,8 @@ export function parseShipStatus(markdown: string): ShipStatus | undefined {
   const match = STATUS_LINE.exec(markdown)
   const value = match?.[1]?.toLowerCase()
   switch (value) {
+    case 'wayfinding':
+    case 'grilling':
     case 'interviewing':
     case 'confirmed':
     case 'planned':

@@ -29,6 +29,61 @@ describe('recommendedIndex', () => {
 })
 
 describe('FrontierCard', () => {
+  it('keeps question context and the focused choice explanation readable', () => {
+    const card = new FrontierCard({ ...spec, detail: 'Keep existing records.', options: [
+      { label: 'SQLite file', detail: 'Runs offline without a server.', recommended: true },
+      { label: 'Postgres', detail: 'Needs a separate server.' },
+    ] })
+    expect(card.frame(theme, 80).rows.join('\n')).toContain('Keep existing records.')
+    expect(card.frame(theme, 80).rows.join('\n')).toContain('Runs offline without a server.')
+    card.handleKey({ kind: 'down' })
+    expect(card.frame(theme, 80).rows.join('\n')).toContain('Needs a separate server.')
+  })
+
+  it('keeps the navigation and multi-select hints visible in narrow terminals', () => {
+    const card = new FrontierCard({ ...spec, multi: true, canBack: true, canForward: true })
+    const text = card.frame(theme, 40).rows.join('\n')
+    expect(text).toContain('[space] toggle')
+    expect(text).toContain('[←] back')
+    expect(text).toContain('[→] next')
+  })
+  it('toggles several options, removes a choice, and submits the checked set', () => {
+    const card = new FrontierCard({ ...spec, multi: true })
+    card.handleKey({ kind: 'text', text: ' ' })
+    card.handleKey({ kind: 'down' })
+    card.handleKey({ kind: 'text', text: ' ' })
+    expect(card.frame(theme, 80).rows.join('\n')).toContain('[space] toggle')
+    card.handleKey({ kind: 'up' })
+    card.handleKey({ kind: 'text', text: ' ' })
+    expect(card.handleKey({ kind: 'enter' })).toEqual({ kind: 'chosen', values: ['Postgres'] })
+  })
+
+  it('focuses the actual write-in row even when it is not last', () => {
+    const card = new FrontierCard({ question: 'Where?', options: [
+      { label: 'Type a path', writeIn: true }, { label: 'docs/' },
+    ] })
+    card.handleKey({ kind: 'down' })
+    card.handleKey({ kind: 'text', text: 'e' })
+    card.handleKey({ kind: 'text', text: 'src/' })
+    expect(card.handleKey({ kind: 'enter' })).toEqual({ kind: 'accept', value: 'src/', custom: true })
+  })
+
+  it('keeps a custom draft when looking at another option and returning', () => {
+    const card = new FrontierCard(spec)
+    card.handleKey({ kind: 'text', text: 'e' })
+    card.handleKey({ kind: 'text', text: 'my database' })
+    card.handleKey({ kind: 'up' })
+    expect(card.handleKey({ kind: 'enter' })).toEqual({ kind: 'accept', value: 'In-memory' })
+    card.handleKey({ kind: 'down' })
+    expect(card.handleKey({ kind: 'enter' })).toEqual({ kind: 'accept', value: 'my database', custom: true })
+  })
+
+  it('shows focus without relying on color', () => {
+    const card = new FrontierCard(spec)
+    card.handleKey({ kind: 'down' })
+    expect(card.frame(theme, 80).rows.find(row => row.includes('Postgres'))).toContain('❯')
+  })
+
   it('defaults focus to the recommended option', () => {
     const later = new FrontierCard({
       question: 'Pick',

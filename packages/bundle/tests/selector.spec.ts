@@ -34,6 +34,11 @@ function drive(selector: Selector, keys: Key[]) {
 }
 
 describe('single select', () => {
+  it('offers forward navigation after revisiting an earlier question', () => {
+    const selector = new Selector({ ...spec, forward: true })
+    expect(selector.view(theme, 100).join('\n')).toContain('[→] next')
+    expect(drive(selector, [key('right')])).toEqual({ kind: 'next' })
+  })
   it('accepts the marked option on Enter', () => {
     expect(drive(new Selector(spec), [key('enter')])).toEqual({ kind: 'chosen', indices: [0] })
   })
@@ -62,6 +67,15 @@ describe('single select', () => {
 
 describe('multi select', () => {
   const multi: SelectSpec = { ...spec, multi: true }
+
+  it('restores every checked option when revisiting', () => {
+    const selector = new Selector({ ...multi, prior: { selected: ['Yes, this time', 'No'] } })
+    expect(drive(selector, [key('enter')])).toEqual({ kind: 'chosen', indices: [0, 2] })
+  })
+
+  it('advertises the key that toggles choices', () => {
+    expect(new Selector(multi).view(theme, 80).join('\n')).toContain('[space] toggle')
+  })
 
   it('toggles with Space and confirms the checked set on Enter', () => {
     const outcome = drive(new Selector(multi), [
@@ -92,6 +106,15 @@ describe('multi select', () => {
 
 describe('the custom row', () => {
   const withCustom: SelectSpec = { ...spec, custom: '✎ Type your own answer' }
+
+  it('preserves the draft when moving away and back, including paste input', () => {
+    const selector = new Selector(withCustom)
+    selector.handle(key('up'))
+    selector.handle({ kind: 'paste', text: '自定义数据库' })
+    selector.handle(key('up'))
+    selector.handle(key('down'))
+    expect(drive(selector, [key('enter')])).toEqual({ kind: 'custom', value: '自定义数据库' })
+  })
 
   it('does not leave the custom row to type elsewhere — empty Enter stays on the field', () => {
     expect(drive(new Selector(withCustom), [key('up'), key('enter')])).toBeUndefined()
@@ -211,8 +234,8 @@ describe('the view', () => {
     const rows = selector.view(theme, 60)
     expect(rows[1]).toContain('◉')
     expect(rows[2]).toContain('○')
-    // Multi without a custom row: take / back, no edit key, no abort.
-    expect(rows.at(-1)).toContain('[enter] take · [esc] back')
+    // Multi without a custom row: take / toggle / back, no edit key, no abort.
+    expect(rows.at(-1)).toContain('[enter] take · [space] toggle · [esc] back')
     expect(rows.at(-1)).not.toContain('[e] edit')
     expect(rows.at(-1)).not.toMatch(/\[n\]/)
   })
