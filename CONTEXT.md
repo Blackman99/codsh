@@ -525,8 +525,21 @@ the runner pauses it then asks a Selector titled `ship · occupancy` —
 Replace or Abort. TTY Esc/cancel is Abort: resume the paused stranger and
 stop `/ship`. Off a TTY, auto-Replace. A goal is ours when its id matches
 the spec `Goal-Id:` or its objective starts with `[ship]`; ours is reused
-without asking. Occupancy is not a ship gate.
-_Avoid_: occupancy gate, silent steal, GoalBar
+without asking. Occupancy is not a ship gate and not a ticket row.
+_Avoid_: occupancy gate, silent steal, GoalBar, Claim
+
+**Panorama overlay**:
+The pinned fullscreen TTY projection of one bound spec's two-ring graph:
+inner ring then outer ring, 待认领 / 已认领 / 已关闭 on the ticket row,
+Track-N as a suffix. Distinct from the Panorama teaser and from the Web
+projection. Not a graph node. An empty inner ring is still this overlay.
+_Avoid_: Track-N grouping, hub row, Queue-style window, fourth bucket
+
+**Panorama teaser**:
+The one-line TTY chrome of the same graph — `待认领 n · 已认领 n · 已关闭 n`,
+plus in-flight when greater than zero — above the plan row. Distinct from
+Occupancy and from the MetaBar land chip (closed/total).
+_Avoid_: Occupancy, fourth bucket, land chip, plan row
 
 **Hybrid compass**:
 The spec stays durable memory; the harness `/goal` is a disarmed session
