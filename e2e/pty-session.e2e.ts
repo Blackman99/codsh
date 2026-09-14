@@ -29,7 +29,7 @@ describe.skipIf(process.platform === 'win32')('protocols and the session (real P
       // Start a turn whose tool occupies it.
       ['Welcome to codsh', 'take your time\n', 0],
       // The command is running; press Escape alone.
-      ['$ sleep', ESCAPE, 0],
+      ['re:●[^\\r\\n]{0,40}sleep 3', ESCAPE, 0],
       // The turn is cancelled, so the prompt comes back and accepts more.
       //
       // `/exit` is the assertion that Escape released the reader's decoder: a
@@ -39,7 +39,7 @@ describe.skipIf(process.platform === 'win32')('protocols and the session (real P
       ['interrupted', '/exit\n', 300],
     ])
 
-    expect(output).toContain('$ sleep')
+    expect(finalScreen(output).alternate.some(row => row.includes('● sleep 30'))).toBe(true)
     expect(output).toContain('interrupted')
     // The mocked model answers only after a tool result; a cancelled call
     // produces none, so its closing message must never appear.
@@ -102,7 +102,7 @@ describe.skipIf(process.platform === 'win32')('protocols and the session (real P
     const output = await drivePty('steer', [
       ['Welcome to codsh', `take your time${ENTER}`, 300],
       // CSI 13;5u is Ctrl+Enter: the line goes into the running turn.
-      ['$ sleep', `CODE_CLI_STEER_MARK now${ESCAPE}[13;5u`, 300],
+      ['re:●[^\\r\\n]{0,40}sleep 3', `CODE_CLI_STEER_MARK now${ESCAPE}[13;5u`, 300],
       ['re:steering:[^\\r\\n]{0,40}CODE_CLI_STEER_MARK', '', 0],
       ['seen=yes', `/exit${ENTER}`, 400],
     ])

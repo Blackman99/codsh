@@ -237,7 +237,7 @@ describe.skipIf(process.platform === 'win32')('typing and keys (real PTY)', () =
     // — there yet.
     const run = await drivePtySteps('steer', [
       ['Welcome to codsh', `go${ENTER}`, 300],
-      ['$ sleep', `!echo QUEUED_BANG${ENTER}after QUEUED_PROMPT${ENTER}`, 300],
+      ['re:●[^\\r\\n]{0,40}sleep 3', `!echo QUEUED_BANG${ENTER}after QUEUED_PROMPT${ENTER}`, 300],
       ['seen=', '', 0],
       ['$ echo QUEUED_BANG', '', 0],
       ['seen=', '', 0],

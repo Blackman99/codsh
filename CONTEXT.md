@@ -201,8 +201,11 @@ _Avoid_: macro, alias
 An ephemeral, per-Fold choice created by clicking a block or pressing Ctrl+O.
 Explicit expanded and collapsed choices survive streaming completion, resize,
 scrollback trimming, search, and later turns; moving on collapses only automatic
-fresh-output states. A clear or session replacement discards preferences, and
-replay creates capable but automatically collapsed Folds from durable events.
+fresh-output states — an open thought back to its clock. Moving on is a turn
+spent, a Prompt or a Canned command; an empty Enter, a command that only works
+the Chrome, and a `!` line are not turns and fold nothing. A clear, a session
+replacement, or the return from a Child view discards preferences, and replay
+creates capable but automatically collapsed Folds from durable events.
 _Avoid_: session fold state, global expanded mode
 
 **Chrome**:
@@ -236,9 +239,14 @@ _Avoid_: line (a transcript line may occupy several rows)
 **Fold**:
 A transcript block kept in both a summary and a full form, swappable in place
 — a click anywhere in the one under the pointer works it, Ctrl+O works them
-all — and collapsed when the conversation moves on. Thinking and long tool
-output are folds. A finished answer is transcript: it stays whole, a click
-does not work it, and the pointer resting on it names nothing.
+all: it opens whatever is folded, and folds everything once nothing is.
+Thinking is a Fold that opens open: it streams into the transcript under a
+`thinking…` head that becomes its clock (`✻ thought for 3.2s`), and stays
+open until the conversation moves on. Every tool card is a Fold that opens
+folded: one row naming the call, how much it produced (`+n -m`, `N results`,
+`· N lines`), and whether it worked, with the body behind it; a failed row
+also names its reason. A finished answer is transcript: it stays whole, a
+click does not work it, and the pointer resting on it names nothing.
 _Avoid_: collapse block, expandable section
 
 **Child view**:
@@ -253,9 +261,12 @@ _Avoid_: catalog, inspector, pager
 **Card run**:
 Tool cards that follow one another share one panel rather than each opening and
 closing one of its own. The first pads above, the last pads below, and inside
-the run a card with body rows keeps the pad above it as its divider while a
-bare one-liner takes that row over — so a batch of reads costs one row each
-rather than three. Any other block printed under a run ends it.
+the run a card with a row under its head — a door into a child Session —
+keeps the pad above it as its divider, and so does a run of similar cards,
+whose rebuilt head has to find its rows where it left them; a bare one-liner,
+which every other finished card is, takes that row over — so a batch of calls
+costs one row each rather than three. Any other block printed under a run
+ends it.
 _Avoid_: card group, merged cards
 
 **Rule**:
@@ -291,8 +302,8 @@ copy toast).
 
 **Hover readout**:
 The chrome row naming the fold the pointer rests on — what it is, how many
-lines it holds, whether a click opens or folds it — for as long as it rests
-there. Outranked by a flash, and it outranks the working indicator. It
+lines it withholds (the count its own row names; a door names none), whether
+a click opens, folds, or enters it — for as long as it rests there. Outranked by a flash, and it outranks the working indicator. It
 borrows that chrome row rather than adding one, so the box does not jump.
 Paired with a panel fill on every visible row of that block, the way
 opencode marks the block under the pointer; the readout is what still

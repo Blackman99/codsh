@@ -2,9 +2,10 @@
  * Transcript density: one `/ui compact|comfortable` axis.
  *
  * Compact is the default after the chrome redesign. Comfortable only adds
- * room — a blank row between turns, a two-line thinking preview while it
- * streams, a higher click-to-pager threshold on expanded diffs —
- * without touching GateModal, MetaBar, or folded ToolCards.
+ * room — a blank row between turns and a higher click-to-pager threshold on
+ * expanded diffs — without touching GateModal, MetaBar, or the one-row
+ * ToolCards. Thinking streams into the transcript in both, so neither needs
+ * a preview under the box.
  * @module codsh-bundle/src/density
  */
 
@@ -13,7 +14,7 @@ import { readFile, writeFile } from 'node:fs/promises'
 /** The two densities `/ui` switches. */
 export type Density = 'compact' | 'comfortable'
 
-/** Returning-user default: tight chrome, folded cards. */
+/** Returning-user default: tight chrome, one-row cards. */
 export const DEFAULT_DENSITY: Density = 'compact'
 
 /** Filename under the dsh home, beside `code-cli-history.json`. */
@@ -22,9 +23,9 @@ export const UI_PREFS_FILE = 'code-cli-ui.json'
 /**
  * Diff lines before a click opens the pager rather than expanding in place.
  *
- * Collapsed ToolCards stay one line either way. Ctrl-O still shows the full
- * hunks; this threshold only decides when the expanded form is large enough
- * to read in the pager.
+ * ToolCards are one row either way. Ctrl-O still shows the full hunks; this
+ * threshold only decides when the expanded form is large enough to read in
+ * the pager.
  */
 export const DIFF_SOFT_CAP: Record<Density, number> = {
   compact: 24,
@@ -49,28 +50,6 @@ export function parseDensity(raw: string): Density | undefined {
  */
 export function densityReport(density: Density): string {
   return `ui · ${density}`
-}
-
-/**
- * Live thinking rows while a thought streams: compact keeps one line,
- * comfortable shows two (the last finished line plus the one still arriving).
- * @param density - the live mode.
- * @param finished - thinking lines already complete this burst.
- * @param live - the in-progress line, when one is open.
- * @param fallback - shown when nothing has arrived yet.
- * @returns one row, or two for comfortable.
- */
-export function thinkingStreamPreview(
-  density: Density,
-  finished: readonly string[],
-  live: string | undefined,
-  fallback: string,
-): string | readonly string[] {
-  const current = live ?? finished.at(-1) ?? fallback
-  if (density === 'compact') return current
-  const prior = live === undefined ? finished.slice(-2, -1) : finished.slice(-1)
-  const rows = [...prior, current].filter(row => row !== '')
-  return rows.length <= 1 ? current : rows.slice(-2)
 }
 
 /**

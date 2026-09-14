@@ -260,3 +260,32 @@ describe('ThinkingTracker', () => {
     expect(tracker.flush()).toBeUndefined()
   })
 })
+
+describe('ThinkingTracker painted rows', () => {
+  it('hands back the rows the surface painted, then forgets them', () => {
+    const tracker = new ThinkingTracker(theme, () => 80)
+    expect(tracker.opened).toBe(false)
+    const step = tracker.push('first line\nsecond')
+    // The surface opens the block, then paints each finished line as it lands.
+    tracker.markPainted(['head'])
+    tracker.markPainted(step.lines)
+    expect(tracker.opened).toBe(true)
+    expect(tracker.paintedRows).toEqual(['head', '  first line'])
+
+    const flushed = tracker.flush()
+    // The partial line was never painted: it lands only with the fold.
+    expect(flushed?.painted).toEqual(['head', '  first line'])
+    expect(flushed?.lines).toEqual(['  first line', '  second'])
+    expect(tracker.opened).toBe(false)
+    expect(tracker.paintedRows).toEqual([])
+  })
+
+  it('drops painted rows with the rest of the thought on reset', () => {
+    const tracker = new ThinkingTracker(theme, () => 80)
+    tracker.push('abandoned\n')
+    tracker.markPainted(['head', '  abandoned'])
+    tracker.reset()
+    expect(tracker.opened).toBe(false)
+    expect(tracker.flush()).toBeUndefined()
+  })
+})

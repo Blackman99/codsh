@@ -23,7 +23,7 @@
             "pen": ""
           },
           {
-            "text": "installed preset into /var/folders/s6/7t1hr_t554l4nqkfxkpg8q2w0000gn/T/codsh-e2e-",
+            "text": "installed preset into /var/folders/y1/dnl_x6zd03v5f5wzbndy44tm0000gn/T/codsh-e2e-",
             "pen": "38;5;245"
           }
         ],
@@ -33,7 +33,7 @@
             "pen": ""
           },
           {
-            "text": "home-ptgNj2/.agent-presets/code-cli",
+            "text": "home-Zxsd9b/.agent-presets/code-cli",
             "pen": "38;5;245"
           }
         ],
@@ -246,8 +246,8 @@
       "note": "A submitted prompt takes the viewport top and the reply fills the space beneath it. Read back into history and the way home is the same frame: the wheel and PgDn land on it again.",
       "keep": [
         [
-          0,
-          5
+          3,
+          25
         ],
         [
           29,
@@ -261,16 +261,153 @@
             "pen": ""
           },
           {
+            "text": "installed preset into /var/folders/y1/dnl_x6zd03v5f5wzbndy44tm0000gn/T/codsh-e2e-",
+            "pen": "38;5;245"
+          }
+        ],
+        [
+          {
+            "text": "  ",
+            "pen": ""
+          },
+          {
+            "text": "home-dMqK3F/.agent-presets/code-cli",
+            "pen": "38;5;245"
+          }
+        ],
+        [],
+        [
+          {
+            "text": "           ",
+            "pen": ""
+          },
+          {
+            "text": "█▄▄",
+            "pen": "38;2;126;150;245"
+          }
+        ],
+        [
+          {
+            "text": "           ",
+            "pen": ""
+          },
+          {
+            "text": "█",
+            "pen": "38;2;126;150;245"
+          },
+          {
+            "text": " ",
+            "pen": ""
+          },
+          {
+            "text": "▀██",
+            "pen": "38;2;126;150;245"
+          }
+        ],
+        [
+          {
+            "text": "           ",
+            "pen": ""
+          },
+          {
+            "text": "█▄█▀▀",
+            "pen": "38;2;126;150;245"
+          }
+        ],
+        [
+          {
+            "text": "         ",
+            "pen": ""
+          },
+          {
+            "text": "▀██████▀",
+            "pen": "38;2;238;241;251"
+          }
+        ],
+        [
+          {
+            "text": "       ",
+            "pen": ""
+          },
+          {
+            "text": "█▄██▄▄██▄██▄",
+            "pen": "38;2;61;86;214"
+          }
+        ],
+        [
+          {
+            "text": "        ",
+            "pen": ""
+          },
+          {
+            "text": "▀▄▄",
+            "pen": "38;2;61;86;214"
+          },
+          {
+            "text": " ",
+            "pen": ""
+          },
+          {
+            "text": "██",
+            "pen": "38;2;61;86;214"
+          },
+          {
+            "text": " ",
+            "pen": ""
+          },
+          {
+            "text": "▄▄▀",
+            "pen": "38;2;61;86;214"
+          }
+        ],
+        [
+          {
+            "text": "          ",
+            "pen": ""
+          },
+          {
+            "text": "▀█▄▄█▀",
+            "pen": "38;2;61;86;214"
+          }
+        ],
+        [],
+        [
+          {
+            "text": "  ",
+            "pen": ""
+          },
+          {
+            "text": "✻",
+            "pen": "35"
+          },
+          {
+            "text": " Welcome to codsh · cli-mock · code-cli",
+            "pen": "90"
+          }
+        ],
+        [
+          {
+            "text": "  ",
+            "pen": ""
+          },
+          {
+            "text": "/help · /status · Tab · ⇧Tab plan · ESC · /exit",
+            "pen": "90"
+          }
+        ],
+        [],
+        [
+          {
+            "text": "  ",
+            "pen": ""
+          },
+          {
             "text": "› ",
             "pen": "36"
           },
           {
             "text": "                                                                               ",
-            "pen": "48;2;30;19;38"
-          },
-          {
-            "text": "↑",
-            "pen": ""
+            "pen": "48;5;53"
           }
         ],
         [
@@ -283,12 +420,8 @@
             "pen": "36"
           },
           {
-            "text": "  and what backs it off?                                                       ",
-            "pen": "48;2;30;19;38"
-          },
-          {
-            "text": "·",
-            "pen": "2"
+            "text": "  where does the retry live?                                                   ",
+            "pen": "48;5;53"
           }
         ],
         [
@@ -302,11 +435,17 @@
           },
           {
             "text": "                                                                               ",
-            "pen": "48;2;30;19;38"
+            "pen": "48;5;53"
+          }
+        ],
+        [
+          {
+            "text": "    ",
+            "pen": ""
           },
           {
-            "text": "●",
-            "pen": "36"
+            "text": "                                                                               ",
+            "pen": "48;5;236"
           }
         ],
         [
@@ -319,41 +458,53 @@
             "pen": "35"
           },
           {
-            "text": "  thought for 0.0s                                                             ",
-            "pen": "38;5;245;48;2;20;16;32"
+            "text": "  thought for 0.1s · total 0.1s                                                ",
+            "pen": "38;5;245;48;5;236"
+          }
+        ],
+        [
+          {
+            "text": "    ",
+            "pen": ""
           },
           {
-            "text": "↓",
-            "pen": "2"
+            "text": "                                                                               ",
+            "pen": "48;5;236"
           }
         ],
         [],
         [
           {
-            "text": "  CODE_CLI_ANSWER after thinking",
+            "text": "  CODE_CLI_ANSWER after thinking (turn 2)",
             "pen": ""
           }
         ],
         [],
+        [
+          {
+            "text": "  ",
+            "pen": ""
+          },
+          {
+            "text": "  0.1s (thought 0.1s) · 14 tokens",
+            "pen": "38;5;245"
+          }
+        ],
         [],
-        [],
-        [],
-        [],
-        [],
-        [],
-        [],
-        [],
-        [],
-        [],
-        [],
-        [],
-        [],
-        [],
-        [],
-        [],
-        [],
-        [],
-        [],
+        [
+          {
+            "text": "  ",
+            "pen": ""
+          },
+          {
+            "text": "› ",
+            "pen": "36"
+          },
+          {
+            "text": "                                                                               ",
+            "pen": "48;5;53"
+          }
+        ],
         [],
         [],
         [],
@@ -418,7 +569,7 @@
           },
           {
             "text": "⠋",
-            "pen": "38;5;214"
+            "pen": "38;5;172"
           },
           {
             "text": " working ",
@@ -435,7 +586,7 @@
             "pen": ""
           },
           {
-            "text": "cli-mock · ~/.cache/codsh/showcase · ? shortcuts",
+            "text": "cli-mock · context 59/? · ~/.cache/codsh/showcase · ? shortcuts",
             "pen": "90"
           }
         ]
@@ -448,10 +599,10 @@
       "keep": [
         [
           0,
-          20
+          19
         ],
         [
-          22,
+          21,
           33
         ]
       ],
@@ -462,8 +613,12 @@
             "pen": ""
           },
           {
-            "text": "                                                                                 ",
-            "pen": "48;2;30;19;38"
+            "text": "› ",
+            "pen": "36;48;5;53"
+          },
+          {
+            "text": "  explain the render path                                                      ",
+            "pen": "48;5;53"
           },
           {
             "text": "↑",
@@ -472,16 +627,8 @@
         ],
         [
           {
-            "text": "  ",
+            "text": "                                                                                   ",
             "pen": ""
-          },
-          {
-            "text": "› ",
-            "pen": "36;48;2;30;19;38"
-          },
-          {
-            "text": "  explain the render path                                                      ",
-            "pen": "48;2;30;19;38"
           },
           {
             "text": "●",
@@ -494,41 +641,16 @@
             "pen": ""
           },
           {
-            "text": "                                                                                 ",
-            "pen": "48;2;30;19;38"
-          },
-          {
-            "text": "·",
-            "pen": "2"
-          }
-        ],
-        [
-          {
-            "text": "  ",
-            "pen": ""
-          },
-          {
-            "text": "─────────────────────────────────────────────────────────────────────────────────",
-            "pen": "90"
-          },
-          {
-            "text": "↓",
-            "pen": ""
-          }
-        ],
-        [],
-        [
-          {
-            "text": "  ",
-            "pen": ""
-          },
-          {
             "text": "› ",
             "pen": "36"
           },
           {
             "text": "                                                                               ",
-            "pen": "48;2;30;19;38"
+            "pen": "48;5;53"
+          },
+          {
+            "text": "·",
+            "pen": "2"
           }
         ],
         [
@@ -542,7 +664,11 @@
           },
           {
             "text": "  now the input path                                                           ",
-            "pen": "48;2;30;19;38"
+            "pen": "48;5;53"
+          },
+          {
+            "text": "↓",
+            "pen": ""
           }
         ],
         [
@@ -556,9 +682,10 @@
           },
           {
             "text": "                                                                               ",
-            "pen": "48;2;30;19;38"
+            "pen": "48;5;53"
           }
         ],
+        [],
         [
           {
             "text": "  ",
@@ -566,7 +693,7 @@
           },
           {
             "text": "CODE_CLI_HEADING",
-            "pen": "1"
+            "pen": "38;5;172"
           }
         ],
         [],
@@ -593,7 +720,7 @@
           },
           {
             "text": "inline_code",
-            "pen": "38;5;214"
+            "pen": "38;5;172"
           },
           {
             "text": ", and a ",
@@ -622,6 +749,24 @@
             "pen": ""
           }
         ],
+        [
+          {
+            "text": "  Gain: ",
+            "pen": ""
+          },
+          {
+            "text": "CODE_CLI_GAIN",
+            "pen": "32"
+          },
+          {
+            "text": " & ",
+            "pen": ""
+          },
+          {
+            "text": "held",
+            "pen": "1"
+          }
+        ],
         [],
         [
           {
@@ -638,7 +783,7 @@
           },
           {
             "text": "screen.ts",
-            "pen": "38;5;214;1"
+            "pen": "38;5;172;1"
           },
           {
             "text": ": the viewport module",
@@ -907,6 +1052,16 @@
           },
           {
             "text": "│",
+            "pen": "38;5;245"
+          }
+        ],
+        [
+          {
+            "text": "  ",
+            "pen": ""
+          },
+          {
+            "text": "├────────┼──────────────────────────────────────────────────────────────────────┤",
             "pen": "38;5;245"
           }
         ],
@@ -980,7 +1135,7 @@
             "pen": ""
           },
           {
-            "text": "cli-mock · ~/.cache/codsh/showcase · ? shortcuts",
+            "text": "cli-mock · context 207/? · ~/.cache/codsh/showcase · ? shortcuts",
             "pen": "90"
           }
         ]
@@ -988,12 +1143,12 @@
     },
     {
       "id": "tool-call",
-      "title": "Tool calls as cards, with their diffs",
-      "note": "Every call renders through its presenter — a title, a status, and a diff — under a rule down the block’s left edge.",
+      "title": "Tool calls as one-row cards",
+      "note": "Every call renders through its presenter as one row — a title, +n -m, a status — under a rule down the block’s left edge; the diff itself is a click or Ctrl+O away.",
       "keep": [
         [
           0,
-          6
+          7
         ],
         [
           29,
@@ -1012,7 +1167,7 @@
           },
           {
             "text": "                                                                               ",
-            "pen": "48;2;30;19;38"
+            "pen": "48;5;53"
           }
         ],
         [
@@ -1026,7 +1181,7 @@
           },
           {
             "text": "  create the note                                                              ",
-            "pen": "48;2;30;19;38"
+            "pen": "48;5;53"
           }
         ],
         [
@@ -1040,7 +1195,7 @@
           },
           {
             "text": "                                                                               ",
-            "pen": "48;2;30;19;38"
+            "pen": "48;5;53"
           }
         ],
         [
@@ -1050,11 +1205,11 @@
           },
           {
             "text": "│ ",
-            "pen": "38;5;214"
+            "pen": "38;5;172"
           },
           {
             "text": "                                                                               ",
-            "pen": "48;2;14;18;24"
+            "pen": "48;5;235"
           }
         ],
         [
@@ -1064,39 +1219,39 @@
           },
           {
             "text": "│ ",
-            "pen": "38;5;214"
+            "pen": "38;5;172"
           },
           {
             "text": "  ",
-            "pen": "48;2;14;18;24"
+            "pen": "48;5;235"
           },
           {
             "text": "●",
-            "pen": "32;48;2;14;18;24"
+            "pen": "32;48;5;235"
           },
           {
             "text": " ",
-            "pen": "48;2;14;18;24"
+            "pen": "48;5;235"
           },
           {
             "text": "Write note.txt",
-            "pen": "38;5;214;48;2;14;18;24"
+            "pen": "38;5;172;48;5;235"
           },
           {
             "text": " ",
-            "pen": "48;2;14;18;24"
+            "pen": "48;5;235"
           },
           {
             "text": "+1 -0",
-            "pen": "90;48;2;14;18;24"
+            "pen": "90;48;5;235"
           },
           {
             "text": " ",
-            "pen": "48;2;14;18;24"
+            "pen": "48;5;235"
           },
           {
             "text": "✔                                                     ",
-            "pen": "32;48;2;14;18;24"
+            "pen": "32;48;5;235"
           }
         ],
         [
@@ -1106,13 +1261,14 @@
           },
           {
             "text": "│ ",
-            "pen": "38;5;214"
+            "pen": "38;5;172"
           },
           {
             "text": "                                                                               ",
-            "pen": "48;2;14;18;24"
+            "pen": "48;5;235"
           }
         ],
+        [],
         [
           {
             "text": "  CODE_CLI_CALL_OK via cli-mock",
@@ -1140,7 +1296,6 @@
         [],
         [],
         [],
-        [],
         [
           {
             "text": "  ",
@@ -1201,8 +1356,8 @@
             "pen": ""
           },
           {
-            "text": "⠋",
-            "pen": "38;5;214"
+            "text": "⠙",
+            "pen": "38;5;172"
           },
           {
             "text": " working ",
@@ -1219,7 +1374,7 @@
             "pen": ""
           },
           {
-            "text": "cli-mock · ~/.cache/codsh/showcase · ? shortcuts",
+            "text": "cli-mock · context 23/? · ~/.cache/codsh/showcase · ? shortcuts",
             "pen": "90"
           }
         ]
@@ -1227,15 +1382,15 @@
     },
     {
       "id": "fold-open",
-      "title": "One click opens the one block",
-      "note": "A click opens the block it lands on and a click anywhere inside folds it back; Ctrl+O still swaps every one at once.",
+      "title": "Thinking, open while you read it",
+      "note": "A thought streams into the transcript under a head that becomes its clock, and stays open until the next prompt folds it. A click folds it now, a click on the clock opens it again, and Ctrl+O swaps every block at once.",
       "keep": [
         [
           0,
-          11
+          10
         ],
         [
-          30,
+          29,
           33
         ]
       ],
@@ -1251,7 +1406,7 @@
           },
           {
             "text": "                                                                               ",
-            "pen": "48;2;30;19;38"
+            "pen": "48;5;53"
           }
         ],
         [
@@ -1265,7 +1420,7 @@
           },
           {
             "text": "  think it over                                                                ",
-            "pen": "48;2;30;19;38"
+            "pen": "48;5;53"
           }
         ],
         [
@@ -1279,21 +1434,17 @@
           },
           {
             "text": "                                                                               ",
-            "pen": "48;2;30;19;38"
+            "pen": "48;5;53"
           }
         ],
         [
           {
-            "text": "  ",
+            "text": "    ",
             "pen": ""
-          },
-          {
-            "text": "✻ ",
-            "pen": "35"
           },
           {
             "text": "                                                                               ",
-            "pen": "48;2;20;16;32"
+            "pen": "48;5;236"
           }
         ],
         [
@@ -1306,68 +1457,55 @@
             "pen": "35"
           },
           {
-            "text": "  thought for 0.0s                                                             ",
-            "pen": "38;5;245;48;2;20;16;32"
+            "text": "  thought for 0.1s                                                             ",
+            "pen": "38;5;245;48;5;236"
           }
         ],
         [
           {
-            "text": "  ",
+            "text": "    ",
             "pen": ""
           },
           {
-            "text": "✻ ",
-            "pen": "35"
+            "text": "                                                                               ",
+            "pen": "48;5;236"
+          }
+        ],
+        [
+          {
+            "text": "    ",
+            "pen": ""
           },
           {
             "text": "  CODE_CLI_THINKING about the request                                          ",
-            "pen": "38;5;245;48;2;20;16;32"
+            "pen": "38;5;245;48;5;236"
           }
         ],
         [
           {
-            "text": "  ",
+            "text": "    ",
             "pen": ""
-          },
-          {
-            "text": "✻ ",
-            "pen": "35"
           },
           {
             "text": "  weighing the options carefully                                               ",
-            "pen": "38;5;245;48;2;20;16;32"
+            "pen": "38;5;245;48;5;236"
           }
         ],
         [
           {
-            "text": "  ",
+            "text": "    ",
             "pen": ""
-          },
-          {
-            "text": "✻ ",
-            "pen": "35"
           },
           {
             "text": "                                                                               ",
-            "pen": "48;2;20;16;32"
+            "pen": "48;5;236"
           }
         ],
         [],
         [
           {
-            "text": "  CODE_CLI_ANSWER after thinking",
+            "text": "  CODE_CLI_ANSWER after thinking (turn 2)",
             "pen": ""
-          }
-        ],
-        [],
-        [
-          {
-            "text": "  ",
-            "pen": ""
-          },
-          {
-            "text": "  0.1s (thought 0.0s) · 14 tokens",
-            "pen": "38;5;245"
           }
         ],
         [],
@@ -1448,7 +1586,25 @@
             "pen": ""
           },
           {
-            "text": "cli-mock · ~/.cache/codsh/showcase · ? shortcuts",
+            "text": "⠙",
+            "pen": "38;5;172"
+          },
+          {
+            "text": " working ",
+            "pen": ""
+          },
+          {
+            "text": "0.1s · ESC to interrupt",
+            "pen": "38;5;245"
+          }
+        ],
+        [
+          {
+            "text": "  ",
+            "pen": ""
+          },
+          {
+            "text": "cli-mock · context 45/? · ~/.cache/codsh/showcase · ? shortcuts",
             "pen": "90"
           }
         ]
@@ -1461,7 +1617,7 @@
       "keep": [
         [
           0,
-          14
+          13
         ],
         [
           26,
@@ -1480,7 +1636,7 @@
           },
           {
             "text": "                                                                               ",
-            "pen": "48;2;30;19;38"
+            "pen": "48;5;53"
           }
         ],
         [
@@ -1494,7 +1650,7 @@
           },
           {
             "text": "  plan the work                                                                ",
-            "pen": "48;2;30;19;38"
+            "pen": "48;5;53"
           }
         ],
         [
@@ -1508,7 +1664,7 @@
           },
           {
             "text": "                                                                               ",
-            "pen": "48;2;30;19;38"
+            "pen": "48;5;53"
           }
         ],
         [
@@ -1518,11 +1674,11 @@
           },
           {
             "text": "│ ",
-            "pen": "38;5;214"
+            "pen": "38;5;172"
           },
           {
             "text": "                                                                               ",
-            "pen": "48;2;14;18;24"
+            "pen": "48;5;235"
           }
         ],
         [
@@ -1532,31 +1688,39 @@
           },
           {
             "text": "│ ",
-            "pen": "38;5;214"
+            "pen": "38;5;172"
           },
           {
             "text": "  ",
-            "pen": "48;2;14;18;24"
+            "pen": "48;5;235"
           },
           {
             "text": "●",
-            "pen": "32;48;2;14;18;24"
+            "pen": "32;48;5;235"
           },
           {
             "text": " ",
-            "pen": "48;2;14;18;24"
+            "pen": "48;5;235"
           },
           {
             "text": "Update todo list",
-            "pen": "38;5;214;48;2;14;18;24"
+            "pen": "38;5;172;48;5;235"
           },
           {
             "text": " ",
-            "pen": "48;2;14;18;24"
+            "pen": "48;5;235"
           },
           {
-            "text": "✔                                                         ",
-            "pen": "32;48;2;14;18;24"
+            "text": "· 1 line",
+            "pen": "38;5;245;48;5;235"
+          },
+          {
+            "text": " ",
+            "pen": "48;5;235"
+          },
+          {
+            "text": "✔                                                ",
+            "pen": "32;48;5;235"
           }
         ],
         [
@@ -1566,25 +1730,11 @@
           },
           {
             "text": "│ ",
-            "pen": "38;5;214"
-          },
-          {
-            "text": "  Updated todo list: 1 pending, 1 in progress, 1 completed.                    ",
-            "pen": "38;5;245;48;2;14;18;24"
-          }
-        ],
-        [
-          {
-            "text": "  ",
-            "pen": ""
-          },
-          {
-            "text": "│ ",
-            "pen": "38;5;214"
+            "pen": "38;5;172"
           },
           {
             "text": "                                                                               ",
-            "pen": "48;2;14;18;24"
+            "pen": "48;5;235"
           }
         ],
         [
@@ -1594,19 +1744,19 @@
           },
           {
             "text": "│ ",
-            "pen": "38;5;214"
+            "pen": "38;5;172"
           },
           {
             "text": "todos",
-            "pen": "38;5;214;48;2;14;18;24"
+            "pen": "38;5;172;48;5;235"
           },
           {
             "text": " ",
-            "pen": "48;2;14;18;24"
+            "pen": "48;5;235"
           },
           {
             "text": "1/3 · 1 in progress · 1 open                                             ",
-            "pen": "38;5;245;48;2;14;18;24"
+            "pen": "38;5;245;48;5;235"
           }
         ],
         [
@@ -1616,23 +1766,23 @@
           },
           {
             "text": "│ ",
-            "pen": "38;5;214"
+            "pen": "38;5;172"
           },
           {
             "text": "  ",
-            "pen": "48;2;14;18;24"
+            "pen": "48;5;235"
           },
           {
             "text": "✔",
-            "pen": "32;48;2;14;18;24"
+            "pen": "32;48;5;235"
           },
           {
             "text": " ",
-            "pen": "48;2;14;18;24"
+            "pen": "48;5;235"
           },
           {
             "text": "read the code                                                              ",
-            "pen": "38;5;245;48;2;14;18;24"
+            "pen": "38;5;245;48;5;235"
           }
         ],
         [
@@ -1642,19 +1792,19 @@
           },
           {
             "text": "│ ",
-            "pen": "38;5;214"
+            "pen": "38;5;172"
           },
           {
             "text": "  ",
-            "pen": "48;2;14;18;24"
+            "pen": "48;5;235"
           },
           {
             "text": "▶",
-            "pen": "38;5;214;48;2;14;18;24"
+            "pen": "38;5;172;48;5;235"
           },
           {
             "text": " write the fix                                                              ",
-            "pen": "48;2;14;18;24"
+            "pen": "48;5;235"
           }
         ],
         [
@@ -1664,19 +1814,19 @@
           },
           {
             "text": "│ ",
-            "pen": "38;5;214"
+            "pen": "38;5;172"
           },
           {
             "text": "  ",
-            "pen": "48;2;14;18;24"
+            "pen": "48;5;235"
           },
           {
             "text": "○",
-            "pen": "38;5;245;48;2;14;18;24"
+            "pen": "38;5;245;48;5;235"
           },
           {
             "text": " run the tests                                                              ",
-            "pen": "48;2;14;18;24"
+            "pen": "48;5;235"
           }
         ],
         [],
@@ -1708,6 +1858,7 @@
         [],
         [],
         [],
+        [],
         [
           {
             "text": "  ",
@@ -1769,7 +1920,7 @@
           },
           {
             "text": "todos",
-            "pen": "38;5;214"
+            "pen": "38;5;172"
           },
           {
             "text": " ",
@@ -1805,7 +1956,7 @@
           },
           {
             "text": "▶",
-            "pen": "38;5;214"
+            "pen": "38;5;172"
           },
           {
             "text": " write the fix",
@@ -1832,7 +1983,7 @@
             "pen": ""
           },
           {
-            "text": "cli-mock · ~/.cache/codsh/showcase · ? shortcuts",
+            "text": "cli-mock · context 23/? · ~/.cache/codsh/showcase · ? shortcuts",
             "pen": "90"
           }
         ]
@@ -1860,7 +2011,7 @@
           },
           {
             "text": "                                                                                 ",
-            "pen": "48;2;30;19;38"
+            "pen": "48;5;53"
           }
         ],
         [
@@ -1870,11 +2021,11 @@
           },
           {
             "text": "› ",
-            "pen": "36;48;2;30;19;38"
+            "pen": "36;48;5;53"
           },
           {
             "text": "  explain it                                                                   ",
-            "pen": "48;2;30;19;38"
+            "pen": "48;5;53"
           }
         ],
         [
@@ -1884,7 +2035,7 @@
           },
           {
             "text": "                                                                                 ",
-            "pen": "48;2;30;19;38"
+            "pen": "48;5;53"
           }
         ],
         [
@@ -2195,7 +2346,7 @@
           },
           {
             "text": "codsh",
-            "pen": "38;5;214"
+            "pen": "38;5;172"
           },
           {
             "text": "                                                                ",
@@ -2243,7 +2394,7 @@
           },
           {
             "text": "  ts                                                                             ",
-            "pen": "38;5;245;48;2;15;18;24"
+            "pen": "90;48;5;235"
           }
         ],
         [
@@ -2253,30 +2404,39 @@
           },
           {
             "text": "  ",
-            "pen": "48;2;15;18;24"
+            "pen": "48;5;235"
           },
           {
             "text": "const",
-            "pen": "35;48;2;15;18;24"
+            "pen": "38;5;176;48;5;235"
           },
           {
             "text": " answer = ",
-            "pen": "48;2;15;18;24"
+            "pen": "48;5;235"
           },
           {
             "text": "\"text\"",
-            "pen": "32;48;2;15;18;24"
+            "pen": "38;5;173;48;5;235"
           },
           {
             "text": " ",
-            "pen": "48;2;15;18;24"
+            "pen": "48;5;235"
           },
           {
             "text": "// a comment                                             ",
-            "pen": "48;2;15;18;24;2"
+            "pen": "48;5;235;2"
           }
         ],
-        [],
+        [
+          {
+            "text": "  ",
+            "pen": ""
+          },
+          {
+            "text": "                                                                                 ",
+            "pen": "48;5;235"
+          }
+        ],
         [
           {
             "text": "  ",
@@ -2348,7 +2508,7 @@
           },
           {
             "text": "⠋",
-            "pen": "38;5;214"
+            "pen": "38;5;172"
           },
           {
             "text": " working ",
@@ -2378,10 +2538,10 @@
       "keep": [
         [
           0,
-          13
+          14
         ],
         [
-          15,
+          16,
           33
         ]
       ],
@@ -2403,7 +2563,7 @@
           },
           {
             "text": "CODE_CLI_HEADING",
-            "pen": "1"
+            "pen": "38;5;172"
           }
         ],
         [],
@@ -2430,7 +2590,7 @@
           },
           {
             "text": "inline_code",
-            "pen": "38;5;214"
+            "pen": "38;5;172"
           },
           {
             "text": ", and a ",
@@ -2459,6 +2619,24 @@
             "pen": ""
           }
         ],
+        [
+          {
+            "text": "  Gain: ",
+            "pen": ""
+          },
+          {
+            "text": "CODE_CLI_GAIN",
+            "pen": "32"
+          },
+          {
+            "text": " & ",
+            "pen": ""
+          },
+          {
+            "text": "held",
+            "pen": "1"
+          }
+        ],
         [],
         [
           {
@@ -2475,7 +2653,7 @@
           },
           {
             "text": "screen.ts",
-            "pen": "38;5;214;1"
+            "pen": "38;5;172;1"
           },
           {
             "text": ": the viewport module",
@@ -2780,7 +2958,7 @@
           },
           {
             "text": "codsh",
-            "pen": "38;5;214"
+            "pen": "38;5;172"
           },
           {
             "text": "                                                                ",
@@ -2828,7 +3006,7 @@
           },
           {
             "text": "  ts",
-            "pen": "38;5;245;48;2;15;18;24"
+            "pen": "90;48;5;235"
           }
         ],
         [
@@ -2838,34 +3016,37 @@
           },
           {
             "text": "  ",
-            "pen": "48;2;15;18;24"
+            "pen": "48;5;235"
           },
           {
             "text": "const",
-            "pen": "35;48;2;15;18;24"
+            "pen": "38;5;176;48;5;235"
           },
           {
             "text": " answer = ",
-            "pen": "48;2;15;18;24"
+            "pen": "48;5;235"
           },
           {
             "text": "\"text\"",
-            "pen": "32;48;2;15;18;24"
+            "pen": "38;5;173;48;5;235"
           },
           {
             "text": " ",
-            "pen": "48;2;15;18;24"
+            "pen": "48;5;235"
           },
           {
             "text": "// a comment",
-            "pen": "48;2;15;18;24;2"
+            "pen": "48;5;235;2"
           }
         ],
-        [],
         [
           {
-            "text": "  CODE_CLI_CALL_STREAM_DONE",
+            "text": "  ",
             "pen": ""
+          },
+          {
+            "text": "  ",
+            "pen": "48;5;235"
           }
         ],
         [],
@@ -2875,7 +3056,7 @@
             "pen": ""
           },
           {
-            "text": "Esc closes · c copies · ↑↓/wheel · PgUp/PgDn · Home/End · 1-31/31",
+            "text": "Esc closes · c copies · ↑↓/wheel · PgUp/PgDn · Home/End · 1-32/33",
             "pen": "38;5;245"
           }
         ]

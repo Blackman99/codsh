@@ -513,9 +513,11 @@ export class TerminalConsole {
    * time in, and the per-append work — the trim check, the anchor, the frame —
    * is paid once for the block instead of once for every line in it.
    * @param lines - the lines to keep, in order.
-   * @param rule - a styled left rule marking which block they belong to.
+   * @param rule - a styled left rule marking which block they belong to, or
+   *   one per line when the block's rows differ.
+   * @param replaces - lines already printed that these take the place of.
    */
-  writeAll(lines: readonly string[], rule = '', replaces: readonly string[] = []): void {
+  writeAll(lines: readonly string[], rule: string | readonly string[] = '', replaces: readonly string[] = []): void {
     if (lines.length === 0) return
     if (this.screen !== undefined) {
       this.screen.append(lines, rule, replaces)
@@ -523,8 +525,9 @@ export class TerminalConsole {
     }
     // Pipe readers still need the gutter glyph (› / ✻ / │ / ·); colour is
     // already absent off a TTY. Blank separators stay blank.
-    for (const line of lines) {
-      const prefix = line === '' || rule === '' ? '' : rule
+    for (const [index, line] of lines.entries()) {
+      const ownRule = typeof rule === 'string' ? rule : (rule[index] ?? '')
+      const prefix = line === '' || ownRule === '' ? '' : ownRule
       this.output.write(`${prefix}${line}\n`)
       this.lastWritten = line
     }
@@ -593,10 +596,11 @@ export class TerminalConsole {
   }
 
   /**
-   * Keep one collapsible block: summary now, full form behind the toggle.
+   * Keep one collapsible block: one form now, the other behind the toggle.
    *
-   * Off a terminal only the summary is written — a pipe has no keys to toggle
-   * with, and scripts want the digest.
+   * Off a terminal only the summary is written, whichever form a terminal
+   * would open with — a pipe has no keys to toggle with, and scripts want
+   * the digest.
    * @param summary - the collapsed lines.
    * @param full - the expanded lines.
    * @param rule - a styled left rule for the whole block, `''` for none.
@@ -604,6 +608,9 @@ export class TerminalConsole {
    * is over.
    * @param enter - child session a click opens instead of folding, when set.
    * @param page - raw text a click reads instead of expanding, when set.
+   * @param replaces - lines already printed that the block takes the place of.
+   * @param fullRule - the rule the full form is drawn with, when it differs.
+   * @param expanded - whether a terminal shows the full form from the start.
    */
   appendFold(
     summary: readonly string[],
@@ -614,9 +621,10 @@ export class TerminalConsole {
     page?: string,
     replaces: readonly string[] = [],
     fullRule?: string | readonly string[],
+    expanded = false,
   ): void {
     if (this.screen !== undefined) {
-      this.screen.appendFold(summary, full, rule, label, enter, page, replaces, fullRule)
+      this.screen.appendFold(summary, full, rule, label, enter, page, replaces, fullRule, expanded)
       return
     }
     for (const [index, line] of summary.entries()) {

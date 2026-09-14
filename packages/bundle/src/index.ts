@@ -73,7 +73,6 @@ import {
   loadDensity,
   parseDensity,
   saveDensity,
-  thinkingStreamPreview,
   type Density,
 } from './density.ts'
 import { installPackagedPreset } from './preset-install.ts'
@@ -92,7 +91,7 @@ import {
   savePastedImage,
   visionConfigFromEnv,
 } from './vision.ts'
-import { TextStream, ThinkingTracker } from './streaming.ts'
+import { TextStream, ThinkingTracker, type ThinkingFlush } from './streaming.ts'
 import { PROFILE, bundleVersion, checkForUpdate, runtimeMove, runtimeRegisterCommand, runtimeSpec, runningDsh, updateCommand } from './update.ts'
 import { displayPath, formatSessionTime, formatTokens, formatTurnTime, gitBranch, sessionHistoryTiming, statusLine, statusReport, totalTokens } from './status.ts'
 import {
@@ -112,7 +111,7 @@ import type { PendingImage } from './prompt.ts'
 import type { TodoList } from './todos.ts'
 import type { StatusFacts } from './status.ts'
 import { backgroundIsLight, createTheme, truncate } from './theme.ts'
-import { FOLD_LABELS, Transcript, blockRules, presentAskUserQuestionResult, thinkingFold, thinkingFoldRules } from './transcript.ts'
+import { FOLD_LABELS, Transcript, blockRules, presentAskUserQuestionResult, thinkingFold, thinkingFoldRules, thinkingLineRule, thinkingOpenRows } from './transcript.ts'
 import type { Theme } from './theme.ts'
 
 /** Stable Cordis plugin name. */
@@ -1621,33 +1620,49 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
   // be swallowed. Tracking from step/start ensures deliberation time accurately
   // reflects the full thinking duration even when deltas arrive buffered.
   const thinking = new ThinkingTracker(theme, () => io.console.contentColumns)
-  // Thinking is collapsed by default, the way Claude shows it: while it
-  // streams only the current line is live on screen, and when it ends the
-  // transcript keeps a one-line summary with the full text one click (or
-  // Ctrl+O) away —
-  // pages of deliberation would otherwise bury the conversation.
+  // Thinking is open by default, the way Grok Build shows it: it streams into
+  // the transcript line by line under a `thinking…` head, and when it ends
+  // the head becomes the clock and the block stays readable — a Fold that the
+  // next prompt collapses to that one clock row, so history stays skimmable
+  // while the thought a person is following is on screen whole.
   let turnThinkingMs: number[] = []
   let stepStartedAt = 0
   let currentThought: { summary: readonly string[]; full: readonly string[]; lines: readonly string[]; elapsedMs: number; stepStartedAt: number } | undefined
   const getActiveThought = () => currentThought
+  /**
+   * Put a finished thought where its streamed rows stand.
+   *
+   * The clock takes the head's place, the closing pad lands, and the whole
+   * block becomes an open Fold. Off a terminal nothing streamed, so there is
+   * nothing to replace and the pipe gets the clock row, the digest it always got.
+   * @param transcript - the renderer that owns the run the thought closed.
+   * @param flushed - the thought, with the rows painted while it streamed.
+   */
+  const landThought = (transcript: Transcript, flushed: ThinkingFlush): void => {
+    prompt.setStreaming(undefined)
+    io.console.writeAll(transcript.endRun())
+    const { summary, full } = thinkingFold(flushed.lines, theme, flushed.elapsedMs / 1000)
+    // The step total is the parent's clock: a viewed child's thought must
+    // not become the block the parent's step end updates.
+    if (transcript === live.transcript) {
+      currentThought = { summary, full, lines: flushed.lines, elapsedMs: flushed.elapsedMs, stepStartedAt }
+    }
+    const rules = thinkingFoldRules(theme, flushed.lines.length)
+    io.console.appendFold(summary, full, rules.summary, FOLD_LABELS.thinking, undefined, undefined, flushed.painted, rules.full, true)
+  }
   const flushThinking = (): void => {
     const flushed = thinking.flush()
     if (flushed === undefined) return
     if (childViews.current !== undefined) return
-    prompt.setStreaming(undefined)
-    io.console.writeAll(live.transcript.endRun())
     turnThinkingMs.push(flushed.elapsedMs)
-    const { summary, full } = thinkingFold(flushed.lines, theme, flushed.elapsedMs / 1000)
-    currentThought = { summary, full, lines: flushed.lines, elapsedMs: flushed.elapsedMs, stepStartedAt }
-    const rules = thinkingFoldRules(theme, flushed.lines.length)
-    io.console.appendFold(summary, full, rules.summary, FOLD_LABELS.thinking, undefined, undefined, [], rules.full)
+    landThought(live.transcript, flushed)
   }
   /**
    * Append the lines an event produced, and show the line still being typed.
    * @param lines - finished lines for the transcript.
    * @param live - the in-progress line, or undefined to release the region.
    */
-  const emit = (lines: readonly string[], live?: string, rule = '', replaces: readonly string[] = []): void => {
+  const emit = (lines: readonly string[], live?: string, rule: string | readonly string[] = '', replaces: readonly string[] = []): void => {
     // Released before writing: the region is redrawn under every written line,
     // so leaving the superseded partial in place would reprint it each time.
     if (lines.length > 0) prompt.setStreaming(undefined)
@@ -1723,6 +1738,12 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
     } else {
       frame.session = session
     }
+    // The covered screen goes with the view, and its thought in flight with
+    // it: what streamed so far is not on the child's screen to replace, and
+    // what streams after the view closes opens a panel of its own. The view
+    // being covered may itself be a child, so its own tracker resets too.
+    currentView()?.thinking.reset()
+    thinking.reset()
     childViews.push(id)
     spinner.pause()
     showSession(session, frame.transcript)
@@ -1736,11 +1757,17 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
     const remaining = currentView()
     if (remaining === undefined) {
       live.transcript = new Transcript({ theme, columns: () => io.console.contentColumns, cwd, density }, presentersFor(ctx, live.agent))
+      // Back to the parent is a replay: history as the log holds it, folds
+      // collapsed, and no painted thought rows left from before the view.
+      thinking.reset()
+      currentThought = undefined
       showSession(live.agent.session, live.transcript)
       refreshStatus()
       if (live.agent.status === 'running') spinner.start()
       return
     }
+    // Back to a child is a replay too: nothing it painted before is on screen.
+    remaining.thinking.reset()
     showSession(remaining.session, remaining.transcript)
     refreshStatus()
   }
@@ -1901,12 +1928,21 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
     if (chunk.type === 'reasoning-delta') {
       if (chunk.text === '') return
       const step = tracker.push(chunk.text)
-      prompt.setStreaming(thinkingStreamPreview(
-        density,
-        tracker.currentLines,
-        step.live,
-        theme.dim('✻ thinking'),
-      ))
+      // Off a terminal nothing streams: the pipe gets the clock row when the
+      // thought ends, never the deliberation and then its digest.
+      if (!io.console.readsKeys) return
+      if (!tracker.opened) {
+        // The first delta opens the panel the thought will stand in: a head
+        // the clock will replace, and the pads that make it a panel.
+        io.console.writeAll(transcript.endRun())
+        const { rows, rules } = thinkingOpenRows(theme)
+        emit(rows, undefined, rules)
+        tracker.markPainted(rows)
+      }
+      // Finished lines land as they complete; only the line still being
+      // typed stays in the live region under the box.
+      emit(step.lines, step.live, thinkingLineRule(theme))
+      tracker.markPainted(step.lines)
       return
     }
     if (chunk.type === 'block-end' && chunk.block.type === 'reasoning') {
@@ -1945,13 +1981,8 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
   const landThinking = (transcript: Transcript, tracker: ThinkingTracker, onFlush?: (elapsedMs: number) => void): void => {
     const flushed = tracker.flush()
     if (flushed === undefined) return
-    prompt.setStreaming(undefined)
-    io.console.writeAll(transcript.endRun())
     onFlush?.(flushed.elapsedMs)
-    const { summary, full } = thinkingFold(flushed.lines, theme, flushed.elapsedMs / 1000)
-    currentThought = { summary, full, lines: flushed.lines, elapsedMs: flushed.elapsedMs, stepStartedAt }
-    const rules = thinkingFoldRules(theme, flushed.lines.length)
-    io.console.appendFold(summary, full, rules.summary, FOLD_LABELS.thinking, undefined, undefined, [], rules.full)
+    landThought(transcript, flushed)
   }
 
   /** Pause the indicator around a decision, and resume it if work continues. */
@@ -2341,6 +2372,11 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
     workflowRound = undefined
     turnThinkingMs = []
     thinking.reset()
+    // Moving on: a turn spent is what folds the last one's automatic open
+    // states — an open thought back to its clock — never an empty Enter, a
+    // chrome command, or a `!` line, none of which is a turn. A block the
+    // person opened or folded by hand keeps the form they gave it.
+    io.console.collapseFolds()
     const started = performance.now()
     currentThought = undefined
     io.console.setTitle(`⚡ dsh code — ${basename(cwd)}`)
@@ -2495,9 +2531,6 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
     const images = prompt.takeAttachments()
     const trimmed = line.trim()
     const surfaceOnlyView = /^\/view(?:\s|$)/u.test(trimmed)
-    // Moving on dismisses only automatic open states. A block the person
-    // explicitly opened remains part of their reading layout across turns.
-    if (!surfaceOnlyView) io.console.collapseFolds()
     if (trimmed === '') continue
     if (trimmed === '/exit' || trimmed === '/quit') break
     if (childViews.current !== undefined) {

@@ -139,6 +139,12 @@ export interface ThinkingFlush {
   lines: string[]
   /** Duration in milliseconds this thinking segment took. */
   elapsedMs: number
+  /**
+   * The rows the surface painted while the thought streamed — the head it
+   * opened with and every finished line since — so the finished block can
+   * take their place instead of piling up under them.
+   */
+  painted: string[]
 }
 
 /**
@@ -155,6 +161,8 @@ export interface ThinkingFlush {
 export class ThinkingTracker {
   private stream: TextStream
   private lines: string[] = []
+  /** What the surface has put on screen for the thought in flight. */
+  private painted: string[] = []
   private stepStartedAt = 0
   private thinkingStartedAt = 0
   private thinkingEndedAt = 0
@@ -171,10 +179,32 @@ export class ThinkingTracker {
     return this.lines
   }
 
+  /** Rows the surface has painted for the thought in flight, head included. */
+  get paintedRows(): readonly string[] {
+    return this.painted
+  }
+
+  /** Whether the surface has opened this thought on screen. */
+  get opened(): boolean {
+    return this.painted.length > 0
+  }
+
+  /**
+   * Note rows the surface put on screen for this thought.
+   *
+   * Kept here rather than in the surface because the thought is what they
+   * belong to: its flush hands them back, and a new turn drops them with it.
+   * @param rows - the rows exactly as appended, so a later search finds them.
+   */
+  markPainted(rows: readonly string[]): void {
+    this.painted.push(...rows)
+  }
+
   /** Reset state for a new turn. */
   reset(): void {
     this.stream = new TextStream(this.theme, this.columns, true)
     this.lines = []
+    this.painted = []
     this.stepStartedAt = 0
     this.thinkingStartedAt = 0
     this.thinkingEndedAt = 0
@@ -229,9 +259,11 @@ export class ThinkingTracker {
     const result: ThinkingFlush = {
       lines: this.lines,
       elapsedMs,
+      painted: this.painted,
     }
 
     this.lines = []
+    this.painted = []
     this.thinkingStartedAt = 0
     this.thinkingEndedAt = 0
     this.stream = new TextStream(this.theme, this.columns, true)

@@ -181,11 +181,12 @@ describe.skipIf(process.env.CAPTURE_SCREENS === undefined)('showcase frames', ()
       [
         ['Welcome to codsh', `where does the retry live?${ENTER}`, 300],
         ['CODE_CLI_ANSWER after thinking', `and what backs it off?${ENTER}`, 700],
-        ['', `/exit${ENTER}`, 900],
+        ['(turn 2)', '', 900],
+        ['', `/exit${ENTER}`, 400],
       ],
       // The second turn's answer: the first turn is above the viewport top by
       // then, which is the whole of what the gap does.
-      'CODE_CLI_ANSWER after thinking',
+      '(turn 2)',
     )
 
     // Reading back across a turn boundary: the owning prompt pins itself.
@@ -208,24 +209,24 @@ describe.skipIf(process.env.CAPTURE_SCREENS === undefined)('showcase frames', ()
       'rows above',
     )
 
-    // A tool call rendered as its card, with the diff the presenter produced.
+    // A tool call rendered as its one-row card, the diff behind it.
     await capture(
-      { id: 'tool-call', title: 'Tool calls as cards, with their diffs', note: 'Every call renders through its presenter — a title, a status, and a diff — under a rule down the block’s left edge.', from: '› create the note' },
+      { id: 'tool-call', title: 'Tool calls as one-row cards', note: 'Every call renders through its presenter as one row — a title, +n -m, a status — under a rule down the block’s left edge; the diff itself is a click or Ctrl+O away.', from: '› create the note' },
       'write',
       [['Welcome to codsh', `create the note${ENTER}`, 300], ['CODE_CLI_CALL_OK', '', 700], ['', `/exit${ENTER}`, 400]],
       'CODE_CLI_CALL_OK',
     )
 
-    // The same block opened by a click, which is the other half of the story.
+    // Thinking, open under its clock the moment it lands.
     await capture(
-      { id: 'fold-open', title: 'One click opens the one block', note: 'A click opens the block it lands on and a click anywhere inside folds it back; Ctrl+O still swaps every one at once.', from: '› think it over' },
+      { id: 'fold-open', title: 'Thinking, open while you read it', note: 'A thought streams into the transcript under a head that becomes its clock, and stays open until the next prompt folds it. A click folds it now, a click on the clock opens it again, and Ctrl+O swaps every block at once.', from: '› think it over' },
       'reasoning',
       [
         ['Welcome to codsh', `think it over${ENTER}`, 300],
-        ['thought for', `[<0;6;{row:thought for}M[<0;6;{row:thought for}m`, 900],
+        ['CODE_CLI_ANSWER after thinking', '', 900],
         ['', `/exit${ENTER}`, 400],
       ],
-      'weighing the options carefully',
+      'CODE_CLI_ANSWER after thinking',
     )
 
     // The todo list pinned in the chrome, then opened whole.
