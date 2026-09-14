@@ -1,5 +1,20 @@
 # codsh-bundle
 
+## 0.23.0
+
+### Minor Changes
+
+- 0c2f9e3: Mission Contract control plane for `/ship`: sealed contract at Confirm, write-tier restore, Active Ticket land packs, Alignment Gate, Drift Detector, and evidence-based Verifier.
+- 2f0ed56: Run wayfinder before the /ship grill interview. Keep decision mapping separate from implementation, persist unfinished maps through wayfinding/grilling states, and hand confirmed routes to grill in a fresh turn. Show the wayfinder stage in the status row, preserve map references for spec synthesis, and keep existing specs resumable at their original phase.
+
+### Patch Changes
+
+- 3defc71: chore: sync `@deepseek-ai/dsh-*` (and co-released cordis packages) to 0.1.5-rc.2
+- Integrate Mission Contract alignment and evidence checks with original-requirement snapshots and single-ticket coordination. Keep drift as a blocking condition rather than silently restoring changed requirements, apply action mapping to the same dependency-selected ticket, and require recorded acceptance evidence before final delivery. Preserve ticket progress until final verification instead of reconciling it after every write.
+- 2f0ed56: Bind one /ship spec for phase, goal, UI, and completion; several unfinished specs open a selector, and a pipe refuses the ambiguity. Keep the user's original wording in Original Requirement, distinct from Main Track. Persist that wording plus sealed Main Track and acceptance criteria, when present at gate 1, in an adjacent runner-owned snapshot checked at phase boundaries and on resume. Delegate investigation, research, ticket implementation, and review to fresh-context subagents; the parent keeps questions, gates, and final proofs. All plans use one parent-coordinated ticket per turn, with runner-owned goal, plan and progress checks before the next dispatch. Final verification is separate; unresolved blockers, no-progress turns and a turn budget stop automatic continuation. Ralph remains available as a separate explicit tool, not an automatic ship branch.
+- 2f0ed56: Fix consecutive question revisions so the transcript records each final answer once. Support multi-select in ship grill cards and restore all selections when revisiting. Preserve write-in drafts, separate navigation from custom answers, stop remaining questions on dismissal or cancellation, and fix question context, focus, cursor, navigation hints, and option classification.
+- 2f0ed56: Keep context usage, window capacity, and the remaining percentage visible in the status row during normal usage and after resuming a session. Preserve low-capacity warnings, show unknown measurements explicitly, and keep context ahead of the workspace and model when fitting narrow terminals.
+
 ## 0.22.4
 
 ### Patch Changes
