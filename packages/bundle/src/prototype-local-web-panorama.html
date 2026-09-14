@@ -1,0 +1,809 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>PROTOTYPE — Local Web node-link panorama</title>
+<style>
+  :root {
+    --bg: #0b0d0f;
+    --bg-panel: #101317;
+    --bg-raise: #151a1f;
+    --ink: #e8e6e1;
+    --ink-soft: #b6b8bb;
+    --user: #d98ce8;
+    --tool: #6fd6d0;
+    --ok: #8fce92;
+    --pending: #e6c67c;
+    --error: #ea8a8a;
+    --path: #8fb4ea;
+    --dim: #868b93;
+    --edge: #21262d;
+    --claim-open: #868b93;
+    --claim-taken: #e6c67c;
+    --claim-closed: #8fce92;
+    --kind-decision: #d98ce8;
+    --kind-landing: #8fb4ea;
+    --kind-track: #6fd6d0;
+    --mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", monospace;
+    --display: "Instrument Serif", "Iowan Old Style", Georgia, "Songti SC", serif;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--bg); color: var(--ink); font-family: var(--mono); }
+  body {
+    min-height: 100vh;
+    font-size: 13px;
+    line-height: 1.55;
+    background-image: repeating-linear-gradient(
+      0deg,
+      transparent,
+      transparent 3px,
+      rgba(255,255,255,0.012) 3px,
+      rgba(255,255,255,0.012) 4px
+    );
+  }
+  .page {
+    max-width: 1280px;
+    margin: 0 auto;
+    padding: 1.25rem 1.25rem 5rem;
+  }
+  .proto-mark {
+    display: inline-block;
+    border: 1px solid var(--pending);
+    color: var(--pending);
+    padding: 0.1rem 0.45rem;
+    font-size: 11px;
+    letter-spacing: 0.04em;
+  }
+  h1 {
+    font-family: var(--display);
+    font-weight: 400;
+    font-size: clamp(1.8rem, 3vw, 2.4rem);
+    line-height: 1.15;
+    margin: 0.6rem 0 0.4rem;
+  }
+  .question {
+    max-width: 72ch;
+    color: var(--ink-soft);
+    margin-bottom: 1.1rem;
+  }
+  .question strong { color: var(--ink); font-weight: 500; }
+  .chrome {
+    display: grid;
+    grid-template-columns: auto 1fr auto;
+    gap: 0.75rem 1.25rem;
+    align-items: baseline;
+    border-top: 1px solid var(--edge);
+    border-bottom: 1px solid var(--edge);
+    padding: 0.55rem 0;
+    margin-bottom: 0.9rem;
+    font-size: 12px;
+    color: var(--dim);
+  }
+  .chrome b { color: var(--tool); font-weight: 500; }
+  .chrome .spec { color: var(--path); }
+  .moments {
+    display: flex;
+    gap: 0.4rem;
+    margin-bottom: 0.75rem;
+    flex-wrap: wrap;
+  }
+  .moments button, .freeplay button {
+    font-family: inherit;
+    font-size: 12px;
+    background: transparent;
+    color: var(--ink-soft);
+    border: 1px solid var(--edge);
+    padding: 0.35rem 0.7rem;
+    cursor: pointer;
+  }
+  .moments button[aria-pressed="true"] {
+    border-color: var(--user);
+    color: var(--ink);
+    background: rgba(217, 140, 232, 0.08);
+  }
+  .moments button:focus-visible, .freeplay button:focus-visible, .node:focus-visible {
+    outline: 2px solid var(--user);
+    outline-offset: 2px;
+  }
+  .teaser {
+    font-size: 13px;
+    color: var(--ink);
+    margin: 0 0 0.85rem;
+    padding: 0.35rem 0;
+  }
+  .teaser .n { color: var(--ink-soft); }
+  .teaser em { font-style: normal; color: var(--dim); }
+  .stage {
+    display: grid;
+    grid-template-columns: minmax(0, 1.35fr) minmax(280px, 0.85fr);
+    gap: 1rem;
+    align-items: stretch;
+  }
+  @media (max-width: 860px) {
+    .stage { grid-template-columns: 1fr; }
+    .chrome { grid-template-columns: 1fr; }
+  }
+  .canvas-wrap {
+    background: var(--bg-panel);
+    border: 1px solid var(--edge);
+    min-height: 560px;
+    position: relative;
+  }
+  svg { width: 100%; height: auto; display: block; }
+  .ring-guide { fill: none; stroke: var(--edge); stroke-dasharray: 3 5; }
+  .ring-label { fill: var(--dim); font-size: 11px; font-family: var(--mono); }
+  .edge-block { stroke: var(--dim); stroke-width: 1.15; fill: none; opacity: 0.7; }
+  .edge-hang { stroke: var(--tool); stroke-width: 1.35; fill: none; opacity: 0.85; }
+  .edge-block.lit, .edge-hang.lit { opacity: 1; stroke-width: 2.1; }
+  .node { cursor: pointer; }
+  .node .halo { fill: none; stroke: transparent; stroke-width: 6; }
+  .node[aria-selected="true"] .halo { stroke: var(--ink); }
+  .node-label {
+    fill: var(--ink);
+    font-size: 10px;
+    font-family: var(--mono);
+  }
+  .node .hit { fill: transparent; }
+  .empty-note {
+    fill: var(--ink-soft);
+    font-size: 13px;
+    font-family: var(--display);
+  }
+  .empty-sub {
+    fill: var(--dim);
+    font-size: 11px;
+    font-family: var(--mono);
+  }
+  .side {
+    background: var(--bg-panel);
+    border: 1px solid var(--edge);
+    padding: 0.85rem 0.9rem 1rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.85rem;
+    min-height: 560px;
+  }
+  .side h2 {
+    font-size: 11px;
+    font-weight: 500;
+    color: var(--dim);
+    margin: 0 0 0.35rem;
+    letter-spacing: 0.02em;
+  }
+  .buckets { display: grid; gap: 0.55rem; }
+  .bucket {
+    border-left: 2px solid var(--claim-open);
+    padding-left: 0.55rem;
+  }
+  .bucket.taken { border-color: var(--claim-taken); }
+  .bucket.closed { border-color: var(--claim-closed); }
+  .bucket ol { margin: 0.15rem 0 0; padding: 0; list-style: none; }
+  .bucket li {
+    padding: 0.12rem 0;
+    color: var(--ink-soft);
+    cursor: pointer;
+  }
+  .bucket li[aria-selected="true"] { color: var(--ink); }
+  .bucket .kind { color: var(--dim); }
+  .brief {
+    border-top: 1px solid var(--edge);
+    padding-top: 0.7rem;
+    flex: 1;
+  }
+  .brief dl { margin: 0; }
+  .brief dt { color: var(--dim); font-size: 11px; margin-top: 0.45rem; }
+  .brief dd { margin: 0.1rem 0 0; color: var(--ink); }
+  .brief .stub { color: var(--dim); }
+  .state {
+    margin-top: 0.9rem;
+    background: var(--bg-raise);
+    border: 1px solid var(--edge);
+    padding: 0.7rem 0.85rem;
+    font-size: 11px;
+    color: var(--ink-soft);
+    white-space: pre-wrap;
+  }
+  .legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.65rem 1.1rem;
+    margin: 0.7rem 0 0;
+    color: var(--dim);
+    font-size: 11px;
+  }
+  .swatch {
+    display: inline-block;
+    width: 0.7rem; height: 0.7rem;
+    margin-right: 0.3rem;
+    vertical-align: -1px;
+    border: 1px solid currentColor;
+  }
+  .swatch.round { border-radius: 50%; }
+  .swatch.sq { border-radius: 2px; }
+  .swatch.dia { transform: rotate(45deg); }
+  .note {
+    max-width: 78ch;
+    margin-top: 1.1rem;
+    color: var(--ink-soft);
+  }
+  .note p { margin: 0.35rem 0; }
+</style>
+</head>
+<body>
+<div class="page">
+  <span class="proto-mark">PROTOTYPE — throwaway, not the product</span>
+  <h1>Local Web node-link panorama</h1>
+  <p class="question">
+    <strong>Question.</strong>
+    Is this loopback graph the same information as the TTY buckets (待认领 / 已认领 / 已关闭, inner then outer, Blocked by: name, Track-N hangers), just richer?
+    What would be misleading? Two moments, matching the TTY prototype: empty inner ring, then a mixed map with landing tickets on Track-N. Click a node for a stub brief / evidence slot.
+  </p>
+
+  <div class="chrome">
+    <div>loopback <b id="url">http://127.0.0.1:49152</b></div>
+    <div>bound <span class="spec" id="spec"></span></div>
+    <div>watching <span class="spec" id="sidecar"></span></div>
+  </div>
+
+  <div class="moments" role="tablist" aria-label="Moments">
+    <button type="button" id="tab-empty" aria-pressed="true">Moment 1 — empty inner ring</button>
+    <button type="button" id="tab-mixed" aria-pressed="false">Moment 2 — mixed two-ring</button>
+  </div>
+  <p class="teaser" id="teaser"></p>
+
+  <div class="stage">
+    <div class="canvas-wrap">
+      <svg id="svg" viewBox="0 0 840 640" role="img" aria-label="Ship graph canvas"></svg>
+    </div>
+    <aside class="side">
+      <div>
+        <h2>TTY buckets (same graph, list form)</h2>
+        <div class="buckets" id="buckets"></div>
+      </div>
+      <div class="brief" id="brief">
+        <h2>Node</h2>
+        <p class="stub">Click a node, or a bucket row. Track anchors have no Claim.</p>
+      </div>
+    </aside>
+  </div>
+
+  <div class="legend">
+    <span><i class="swatch round" style="border-color:var(--kind-decision)"></i>Decision · inner ring</span>
+    <span><i class="swatch sq" style="border-color:var(--kind-landing)"></i>Landing · outer ring</span>
+    <span><i class="swatch dia" style="border-color:var(--kind-track)"></i>Track anchor · not a ticket</span>
+    <span>stroke 待认领 / 已认领 / 已关闭</span>
+    <span>cyan line = hangs off Track-N</span>
+    <span>grey line = Blocked by</span>
+  </div>
+
+  <pre class="state" id="state"></pre>
+
+  <div class="note">
+    <p>This page is a static mock of the rebuilt cache, not a server. Moment 2 is a constructed mashup: open inner-ring tickets plus outer-ring landings, so both rings can be judged on one canvas. A real run may never show that overlap.</p>
+    <p>Open by double-click. Keys: 1 / 2 switch moments, Esc clears selection.</p>
+  </div>
+</div>
+<script>
+(function () {
+  const CX = 420, CY = 318;
+
+  function polar(r, deg) {
+    const a = (deg * Math.PI) / 180;
+    return { x: CX + r * Math.cos(a), y: CY + r * Math.sin(a) };
+  }
+
+  function at(r, deg, extra) {
+    return Object.assign(polar(r, deg), extra);
+  }
+
+  const EMPTY = {
+    id: "empty",
+    status: "wayfinding",
+    spec: "docs/specs/automatic-ship-continuation.md",
+    sidecar: "docs/specs/automatic-ship-continuation.ship.graph.json",
+    port: 49152,
+    caption: "Named map exists. Inner ring is empty by design — the map is not a node. No Track anchors until Main Track is sealed.",
+    nodes: [],
+    edges: []
+  };
+
+  const MIXED = {
+    id: "mixed",
+    status: "landing (constructed mashup)",
+    spec: "docs/specs/automatic-ship-continuation.md",
+    sidecar: "docs/specs/automatic-ship-continuation.ship.graph.json",
+    port: 49152,
+    caption: "Inner ring still has open HITL; outer ring already hangs off Track-N. Use this to compare graph vs buckets, not as a legal phase snapshot.",
+    nodes: [
+      at(132, -90, {
+        id: "decision:github:Blackman99/codsh#109",
+        kind: "decision",
+        title: "Current /ship phase-stop contract surface",
+        short: "phase-stop",
+        type: "research",
+        claim: "已关闭",
+        locator: "Blackman99/codsh#109",
+        brief: "Does today's /ship phase-stop still halt the parent after HITL, or may the runner continue?",
+        evidence: "research/ship-phase-stop-contract.md"
+      }),
+      at(132, -50, {
+        id: "decision:github:Blackman99/codsh#110",
+        kind: "decision",
+        title: "Conflict-resolution child's authority",
+        short: "conflict-child",
+        type: "grilling",
+        claim: "已关闭",
+        locator: "Blackman99/codsh#110",
+        brief: "What may a conflict-resolution child write, and who owns git?",
+        evidence: "issue comment on Conflict-resolution child's authority"
+      }),
+      at(132, -10, {
+        id: "decision:github:Blackman99/codsh#107",
+        kind: "decision",
+        title: "Graph node identity across tracker, spec, and cache",
+        short: "node identity",
+        type: "grilling",
+        claim: "已关闭",
+        locator: "Blackman99/codsh#107",
+        brief: "Native keys. Track-N are nodes. Sidecar is never identity.",
+        evidence: "issue comment on Graph node identity"
+      }),
+      at(132, 30, {
+        id: "decision:github:Blackman99/codsh#111",
+        kind: "decision",
+        title: "How Claim is recorded when the runner dispatches",
+        short: "claim record",
+        type: "grilling",
+        claim: "已关闭",
+        locator: "Blackman99/codsh#111",
+        brief: "Claim is the ticket bucket, not Occupancy. Sidecar never owns it.",
+        evidence: "issue comment on How Claim is recorded"
+      }),
+      at(132, 70, {
+        id: "decision:github:Blackman99/codsh#108",
+        kind: "decision",
+        title: "TTY two-ring panorama overlay",
+        short: "TTY overlay",
+        type: "prototype",
+        claim: "待认领",
+        locator: "Blackman99/codsh#108",
+        brief: "Pinned overlay, three buckets, inner then outer, Esc to teaser.",
+        evidence: "(empty — still 待认领)"
+      }),
+      at(132, 110, {
+        id: "decision:github:Blackman99/codsh#113",
+        kind: "decision",
+        title: "Local Web node-link panorama",
+        short: "Web panorama",
+        type: "prototype",
+        claim: "已认领",
+        locator: "Blackman99/codsh#113",
+        brief: "Loopback node-link of the same graph. This page.",
+        evidence: "(stub) prototype/local-web-node-link-panorama"
+      }),
+      at(132, 150, {
+        id: "decision:github:Blackman99/codsh#115",
+        kind: "decision",
+        title: "Ship graph sidecar fields and rebuild join",
+        short: "sidecar fields",
+        type: "grilling",
+        claim: "待认领",
+        locator: "Blackman99/codsh#115",
+        brief: "Exact <spec>.ship.graph.json fields. Schema, not a renderer.",
+        evidence: "(empty — still 待认领)"
+      }),
+      at(132, 190, {
+        id: "decision:github:Blackman99/codsh#112",
+        kind: "decision",
+        title: "Merge order of a finished landing wave",
+        short: "merge order",
+        type: "grilling",
+        claim: "待认领",
+        locator: "Blackman99/codsh#112",
+        brief: "When several landing children finish together, what is merge order?",
+        evidence: "(empty — still 待认领)"
+      }),
+      at(132, 230, {
+        id: "decision:github:Blackman99/codsh#114",
+        kind: "decision",
+        title: "Worktree branch names, merge commits, and squash authorship",
+        short: "worktree git",
+        type: "grilling",
+        claim: "已认领",
+        locator: "Blackman99/codsh#114",
+        brief: "Git identities for worktree refs, merge messages, squash authorship.",
+        evidence: "(stub) HITL in flight — 已认领 is taken, not proof a child is running"
+      }),
+      at(232, -150, {
+        id: "track:1",
+        kind: "track",
+        title: "Track-1 runner continues after HITL",
+        short: "Track-1",
+        claim: null,
+        brief: "Sealed Main Track sentence. Not a Decision ticket, not a Landing ticket.",
+        evidence: "(none — Track anchors have no proof slot)"
+      }),
+      at(232, -20, {
+        id: "track:2",
+        kind: "track",
+        title: "Track-2 AFK children without a parent turn",
+        short: "Track-2",
+        claim: null,
+        brief: "Sealed Main Track sentence. Landing tickets hang off this node.",
+        evidence: "(none — Track anchors have no proof slot)"
+      }),
+      at(232, 95, {
+        id: "track:3",
+        kind: "track",
+        title: "Track-3 two-ring panorama",
+        short: "Track-3",
+        claim: null,
+        brief: "Sealed Main Track sentence. Outer ring hangs here, many-to-many.",
+        evidence: "(none — Track anchors have no proof slot)"
+      }),
+      at(318, -155, {
+        id: "landing:1",
+        kind: "landing",
+        title: "Ticket 1: runner auto-continues after HITL",
+        short: "landing-1",
+        claim: "待认领",
+        locator: ".scratch/automatic-ship-continuation/issues/01-runner-continues.md",
+        brief: "Implement runner Status +1 continuation. Checkbox still [ ].",
+        evidence: "(empty — 待认领, no worktree yet)"
+      }),
+      at(318, -85, {
+        id: "landing:2",
+        kind: "landing",
+        title: "Ticket 2: dispatch AFK children in worktrees",
+        short: "landing-2",
+        claim: "已认领",
+        locator: ".scratch/automatic-ship-continuation/issues/02-afk-worktrees.md",
+        brief: "Claim: claimed on scratch. Worktree landing-2. Checkbox still [ ].",
+        evidence: "(stub) .scratch/.../worktrees/landing-2/ — in-flight is teaser, not this bucket"
+      }),
+      at(318, 10, {
+        id: "landing:3",
+        kind: "landing",
+        title: "Ticket 3: conflict-resolution child fills markers",
+        short: "landing-3",
+        claim: "已关闭",
+        locator: ".scratch/automatic-ship-continuation/issues/03-conflict-child.md",
+        brief: "Verified. Checkbox [x]. Claim line left in place.",
+        evidence: ".scratch/.../proof/03-conflict-child.log"
+      }),
+      at(318, 100, {
+        id: "landing:4",
+        kind: "landing",
+        title: "Ticket 4: TTY overlay + loopback Web of the same graph",
+        short: "landing-4",
+        claim: "待认领",
+        locator: ".scratch/automatic-ship-continuation/issues/04-panorama.md",
+        brief: "One canvas, two projections. Blocked by Ticket 2.",
+        evidence: "(empty — 待认领)"
+      })
+    ],
+    edges: [
+      { from: "decision:github:Blackman99/codsh#108", to: "decision:github:Blackman99/codsh#107", kind: "blocked-by" },
+      { from: "decision:github:Blackman99/codsh#108", to: "decision:github:Blackman99/codsh#111", kind: "blocked-by" },
+      { from: "decision:github:Blackman99/codsh#113", to: "decision:github:Blackman99/codsh#107", kind: "blocked-by" },
+      { from: "decision:github:Blackman99/codsh#113", to: "decision:github:Blackman99/codsh#111", kind: "blocked-by" },
+      { from: "decision:github:Blackman99/codsh#115", to: "decision:github:Blackman99/codsh#107", kind: "blocked-by" },
+      { from: "decision:github:Blackman99/codsh#115", to: "decision:github:Blackman99/codsh#111", kind: "blocked-by" },
+      { from: "decision:github:Blackman99/codsh#112", to: "decision:github:Blackman99/codsh#110", kind: "blocked-by" },
+      { from: "decision:github:Blackman99/codsh#112", to: "decision:github:Blackman99/codsh#111", kind: "blocked-by" },
+      { from: "decision:github:Blackman99/codsh#114", to: "decision:github:Blackman99/codsh#110", kind: "blocked-by" },
+      { from: "landing:4", to: "landing:2", kind: "blocked-by" },
+      { from: "landing:1", to: "track:1", kind: "hangs-off" },
+      { from: "landing:2", to: "track:1", kind: "hangs-off" },
+      { from: "landing:2", to: "track:2", kind: "hangs-off" },
+      { from: "landing:3", to: "track:2", kind: "hangs-off" },
+      { from: "landing:4", to: "track:3", kind: "hangs-off" }
+    ]
+  };
+
+  const GRAPHS = { empty: EMPTY, mixed: MIXED };
+
+  function tickets(graph) {
+    return graph.nodes.filter((n) => n.kind === "decision" || n.kind === "landing");
+  }
+
+  function counts(graph) {
+    const t = tickets(graph);
+    return {
+      待认领: t.filter((n) => n.claim === "待认领").length,
+      已认领: t.filter((n) => n.claim === "已认领").length,
+      已关闭: t.filter((n) => n.claim === "已关闭").length
+    };
+  }
+
+  function find(graph, id) {
+    return graph.nodes.find((n) => n.id === id);
+  }
+
+  function claimStroke(node) {
+    if (node.kind === "track") return "var(--kind-track)";
+    if (node.claim === "已关闭") return "var(--claim-closed)";
+    if (node.claim === "已认领") return "var(--claim-taken)";
+    return "var(--claim-open)";
+  }
+
+  function kindFill(node) {
+    if (node.kind === "decision") return "var(--bg)";
+    if (node.kind === "landing") return "var(--bg-raise)";
+    return "var(--bg-panel)";
+  }
+
+  let moment = "empty";
+  let selected = null;
+
+  const svg = document.getElementById("svg");
+  const bucketsEl = document.getElementById("buckets");
+  const briefEl = document.getElementById("brief");
+  const stateEl = document.getElementById("state");
+  const teaserEl = document.getElementById("teaser");
+
+  function render() {
+    const graph = GRAPHS[moment];
+    document.getElementById("url").textContent = "http://127.0.0.1:" + graph.port;
+    document.getElementById("spec").textContent = graph.spec;
+    document.getElementById("sidecar").textContent = graph.sidecar;
+    document.getElementById("tab-empty").setAttribute("aria-pressed", String(moment === "empty"));
+    document.getElementById("tab-mixed").setAttribute("aria-pressed", String(moment === "mixed"));
+
+    const c = counts(graph);
+    teaserEl.innerHTML =
+      "待认领 <span class=\"n\">" + c.待认领 + "</span> · 已认领 <span class=\"n\">" +
+      c.已认领 + "</span> · 已关闭 <span class=\"n\">" + c.已关闭 +
+      "</span> <em>in-flight is not a fourth bucket</em>";
+
+    draw(graph);
+    drawBuckets(graph);
+    drawBrief(graph);
+    drawState(graph);
+  }
+
+  function draw(graph) {
+    const ns = "http://www.w3.org/2000/svg";
+    while (svg.firstChild) svg.removeChild(svg.firstChild);
+
+    function el(name, attrs, text) {
+      const n = document.createElementNS(ns, name);
+      for (const k in attrs) n.setAttribute(k, attrs[k]);
+      if (text) n.textContent = text;
+      svg.appendChild(n);
+      return n;
+    }
+
+    el("circle", { class: "ring-guide", cx: CX, cy: CY, r: 132 });
+    el("circle", { class: "ring-guide", cx: CX, cy: CY, r: 232 });
+    el("circle", { class: "ring-guide", cx: CX, cy: CY, r: 318 });
+    el("text", { class: "ring-label", x: CX + 138, y: CY - 8 }, "inner");
+    el("text", { class: "ring-label", x: CX + 238, y: CY - 8 }, "Track-N");
+    el("text", { class: "ring-label", x: CX + 324, y: CY - 8 }, "outer");
+
+    if (graph.nodes.length === 0) {
+      el("text", { class: "empty-note", x: CX, y: CY - 6, "text-anchor": "middle" }, "No nodes");
+      el("text", { class: "empty-sub", x: CX, y: CY + 16, "text-anchor": "middle" }, graph.caption);
+      return;
+    }
+
+    const byId = {};
+    graph.nodes.forEach((n) => { byId[n.id] = n; });
+
+    graph.edges.forEach((e, i) => {
+      const a = byId[e.from], b = byId[e.to];
+      if (!a || !b) return;
+      const lit = selected && (e.from === selected || e.to === selected);
+      el("line", {
+        class: (e.kind === "hangs-off" ? "edge-hang" : "edge-block") + (lit ? " lit" : ""),
+        x1: a.x, y1: a.y, x2: b.x, y2: b.y,
+        "data-edge": String(i)
+      });
+    });
+
+    graph.nodes.forEach((n) => {
+      const g = document.createElementNS(ns, "g");
+      g.setAttribute("class", "node");
+      g.setAttribute("tabindex", "0");
+      g.setAttribute("data-id", n.id);
+      g.setAttribute("aria-selected", String(n.id === selected));
+      g.setAttribute("role", "button");
+      g.setAttribute("aria-label", n.title);
+
+      const left = n.x < CX;
+      const hit = document.createElementNS(ns, "rect");
+      hit.setAttribute("class", "hit");
+      hit.setAttribute("x", left ? n.x - 108 : n.x - 16);
+      hit.setAttribute("y", n.y - 16);
+      hit.setAttribute("width", 124);
+      hit.setAttribute("height", 32);
+      g.appendChild(hit);
+
+      const halo = document.createElementNS(ns, "circle");
+      halo.setAttribute("class", "halo");
+      halo.setAttribute("cx", n.x);
+      halo.setAttribute("cy", n.y);
+      halo.setAttribute("r", 16);
+      halo.setAttribute("pointer-events", "none");
+      g.appendChild(halo);
+
+      const stroke = claimStroke(n);
+      const fill = kindFill(n);
+      if (n.kind === "decision") {
+        const c = document.createElementNS(ns, "circle");
+        c.setAttribute("cx", n.x);
+        c.setAttribute("cy", n.y);
+        c.setAttribute("r", 9);
+        c.setAttribute("fill", fill);
+        c.setAttribute("stroke", stroke);
+        c.setAttribute("stroke-width", "2.2");
+        c.setAttribute("pointer-events", "none");
+        g.appendChild(c);
+      } else if (n.kind === "landing") {
+        const r = document.createElementNS(ns, "rect");
+        r.setAttribute("x", n.x - 8);
+        r.setAttribute("y", n.y - 8);
+        r.setAttribute("width", 16);
+        r.setAttribute("height", 16);
+        r.setAttribute("rx", 2);
+        r.setAttribute("fill", fill);
+        r.setAttribute("stroke", stroke);
+        r.setAttribute("stroke-width", "2.2");
+        r.setAttribute("pointer-events", "none");
+        g.appendChild(r);
+      } else {
+        const p = document.createElementNS(ns, "polygon");
+        const s = 8;
+        p.setAttribute("points", [n.x, n.y - s, n.x + s, n.y, n.x, n.y + s, n.x - s, n.y].join(" "));
+        p.setAttribute("fill", fill);
+        p.setAttribute("stroke", stroke);
+        p.setAttribute("stroke-width", "2.2");
+        p.setAttribute("pointer-events", "none");
+        g.appendChild(p);
+      }
+
+      const label = document.createElementNS(ns, "text");
+      label.setAttribute("class", "node-label");
+      label.setAttribute("x", left ? n.x - 14 : n.x + 14);
+      label.setAttribute("y", n.y + 4);
+      label.setAttribute("text-anchor", left ? "end" : "start");
+      label.setAttribute("pointer-events", "none");
+      label.textContent = n.short;
+      g.appendChild(label);
+
+      g.addEventListener("click", () => { selected = n.id; render(); });
+      g.addEventListener("keydown", (ev) => {
+        if (ev.key === "Enter" || ev.key === " ") {
+          ev.preventDefault();
+          selected = n.id;
+          render();
+        }
+      });
+      svg.appendChild(g);
+    });
+  }
+
+  function drawBuckets(graph) {
+    const groups = [
+      { key: "待认领", cls: "" },
+      { key: "已认领", cls: "taken" },
+      { key: "已关闭", cls: "closed" }
+    ];
+    bucketsEl.innerHTML = "";
+    const inner = tickets(graph).filter((n) => n.kind === "decision");
+    const outer = tickets(graph).filter((n) => n.kind === "landing");
+    groups.forEach((g) => {
+      const wrap = document.createElement("div");
+      wrap.className = "bucket " + g.cls;
+      const rows = []
+        .concat(inner.filter((n) => n.claim === g.key).map((n) => ({ n, ring: "inner" })))
+        .concat(outer.filter((n) => n.claim === g.key).map((n) => ({ n, ring: "outer" })));
+      wrap.innerHTML = "<strong>" + g.key + " " + rows.length + "</strong>";
+      const ol = document.createElement("ol");
+      if (rows.length === 0) {
+        const li = document.createElement("li");
+        li.textContent = "—";
+        ol.appendChild(li);
+      }
+      rows.forEach(({ n, ring }) => {
+        const li = document.createElement("li");
+        li.setAttribute("aria-selected", String(n.id === selected));
+        li.innerHTML = "<span class=\"kind\">" + ring + "</span> " + n.short;
+        li.addEventListener("click", () => { selected = n.id; render(); });
+        ol.appendChild(li);
+      });
+      wrap.appendChild(ol);
+      bucketsEl.appendChild(wrap);
+    });
+    const tracks = graph.nodes.filter((n) => n.kind === "track");
+    if (tracks.length) {
+      const wrap = document.createElement("div");
+      wrap.className = "bucket";
+      wrap.style.borderColor = "var(--kind-track)";
+      wrap.innerHTML = "<strong>Track anchors (not a bucket)</strong>";
+      const ol = document.createElement("ol");
+      tracks.forEach((n) => {
+        const li = document.createElement("li");
+        li.setAttribute("aria-selected", String(n.id === selected));
+        li.textContent = n.short;
+        li.addEventListener("click", () => { selected = n.id; render(); });
+        ol.appendChild(li);
+      });
+      wrap.appendChild(ol);
+      bucketsEl.appendChild(wrap);
+    }
+  }
+
+  function drawBrief(graph) {
+    const n = selected && find(graph, selected);
+    if (!n) {
+      briefEl.innerHTML = "<h2>Node</h2><p class=\"stub\">Click a node, or a bucket row. Track anchors have no Claim.</p>";
+      return;
+    }
+    const blocked = graph.edges
+      .filter((e) => e.kind === "blocked-by" && e.from === n.id)
+      .map((e) => {
+        const t = find(graph, e.to);
+        return t ? t.short : e.to;
+      });
+    const hangers = graph.edges
+      .filter((e) => e.kind === "hangs-off" && e.from === n.id)
+      .map((e) => {
+        const t = find(graph, e.to);
+        return t ? t.short : e.to;
+      });
+    briefEl.innerHTML =
+      "<h2>" + n.short + "</h2><dl>" +
+      "<dt>key</dt><dd>" + n.id + "</dd>" +
+      "<dt>kind</dt><dd>" + n.kind + (n.type ? " · " + n.type : "") + "</dd>" +
+      "<dt>Claim</dt><dd>" + (n.claim == null ? "— not a ticket" : n.claim) + "</dd>" +
+      (n.locator ? "<dt>locator</dt><dd>" + n.locator + "</dd>" : "") +
+      (blocked.length ? "<dt>Blocked by</dt><dd>" + blocked.join(", ") + "</dd>" : "") +
+      (hangers.length ? "<dt>hangs off</dt><dd>" + hangers.join(", ") + "</dd>" : "") +
+      "<dt>Brief (stub)</dt><dd>" + n.brief + "</dd>" +
+      "<dt>Evidence (stub)</dt><dd class=\"stub\">" + n.evidence + "</dd>" +
+      "</dl>";
+  }
+
+  function drawState(graph) {
+    const c = counts(graph);
+    const n = selected && find(graph, selected);
+    const lines = [
+      "moment: " + graph.id,
+      "Status: " + graph.status,
+      "nodes: " + graph.nodes.length +
+        " (decision " + graph.nodes.filter((x) => x.kind === "decision").length +
+        ", landing " + graph.nodes.filter((x) => x.kind === "landing").length +
+        ", track " + graph.nodes.filter((x) => x.kind === "track").length + ")",
+      "edges: " + graph.edges.length +
+        " (blocked-by " + graph.edges.filter((e) => e.kind === "blocked-by").length +
+        ", hangs-off " + graph.edges.filter((e) => e.kind === "hangs-off").length + ")",
+      "teaser tickets only: 待认领 " + c.待认领 + " · 已认领 " + c.已认领 + " · 已关闭 " + c.已关闭,
+      "selected: " + (n ? n.id : "(none)"),
+      graph.caption
+    ];
+    stateEl.textContent = lines.join("\n");
+  }
+
+  document.getElementById("tab-empty").addEventListener("click", () => {
+    moment = "empty";
+    selected = null;
+    render();
+  });
+  document.getElementById("tab-mixed").addEventListener("click", () => {
+    moment = "mixed";
+    selected = null;
+    render();
+  });
+  document.addEventListener("keydown", (ev) => {
+    if (ev.key === "1") { moment = "empty"; selected = null; render(); }
+    if (ev.key === "2") { moment = "mixed"; selected = null; render(); }
+    if (ev.key === "Escape") { selected = null; render(); }
+  });
+
+  render();
+})();
+</script>
+</body>
+</html>
