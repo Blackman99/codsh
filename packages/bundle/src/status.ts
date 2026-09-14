@@ -288,7 +288,7 @@ export function paintShipChip(chip: ShipChip, theme: Theme): string {
 
 /**
  * The landing chip for a plan that still has a current ticket: k is
- * `done + 1`, n is the ticket count.
+ * closed (ticked), n is the ticket count. In-flight is not on the chip.
  * @param plan - the plan read from the spec.
  * @param flashOk - when true, the next paint flashes ok for a landed ticket.
  * @returns the land chip, or undefined once every ticket is ticked.
@@ -296,8 +296,8 @@ export function paintShipChip(chip: ShipChip, theme: Theme): string {
 export function landChip(plan: Plan, flashOk = false): Extract<ShipChip, { kind: 'land' }> | undefined {
   if (plan.current === undefined || plan.tickets.length === 0) return undefined
   return flashOk
-    ? { kind: 'land', k: plan.done + 1, n: plan.tickets.length, flashOk: true }
-    : { kind: 'land', k: plan.done + 1, n: plan.tickets.length }
+    ? { kind: 'land', k: plan.done, n: plan.tickets.length, flashOk: true }
+    : { kind: 'land', k: plan.done, n: plan.tickets.length }
 }
 
 /**

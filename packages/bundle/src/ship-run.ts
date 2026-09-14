@@ -9,7 +9,7 @@
  * @module codsh-bundle/src/ship-run
  */
 
-import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, readdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs'
 import { basename, dirname, join, resolve, sep } from 'node:path'
 import { activeTicketBrief, parseMainTrack, parseOriginalRequirement, parsePlan, parseShipBlocker, parseShipStatus, parseSpecMetadata, pickLiveShip, planInFlight, plansEqual } from './plan.ts'
 import { landingPlan, sameLandingPlan } from './ship-landing.ts'
@@ -40,6 +40,17 @@ import type { ShipPhaseKind } from './ship.ts'
 import { sameShipChip, shipChipFromSpec } from './status.ts'
 import type { ShipChip } from './status.ts'
 import {
+  collectJoinSources,
+  graphPathFor,
+  isShipGraphDiscard,
+  isShipGraphJoinError,
+  joinShipGraph,
+  readShipGraph,
+  teaserCounts,
+  writeShipGraph,
+} from './ship-graph.ts'
+import type { ShipGraph, TeaserCounts } from './ship-graph.ts'
+import {
   freezeEqual,
   freezeText,
   headedMainTrack,
@@ -63,6 +74,8 @@ export interface ShipChrome {
   setPlan(plan: Plan | undefined): void
   setChip(chip: ShipChip | undefined): void
   setTodos?(): void
+  /** Panorama teaser counts, absent when no graph is bound. */
+  setTeaser?(counts: TeaserCounts | undefined): void
 }
 
 /** Durable phase the session compass reports. */
@@ -273,6 +286,10 @@ export class ShipRun {
   private followedSpec: string | undefined
   /** Adjacent freeze for the bound spec; status, track, and original come from it. */
   private snapshot: ShipSnapshot | undefined
+  /** Rebuilt panorama cache for the bound spec; never identity. */
+  private graph: ShipGraph | undefined
+  /** Live spec chrome is following; used to rebuild before bindSpec pins one. */
+  private graphSpec: string | undefined
   /** Recovered original wording this run injects; never emptied on a resume. */
   private originalRequirement: string | undefined
   /** Typed idea this run started with; a conflicting resume must not overwrite the freeze. */
@@ -298,6 +315,16 @@ export class ShipRun {
   /** The pinned plan, absent before tickets exist or after shipped. */
   get shipPlan(): Plan | undefined {
     return this.plan
+  }
+
+  /** Rebuilt Ship graph, absent until a join succeeds for the bound spec. */
+  get shipGraph(): ShipGraph | undefined {
+    return this.graph
+  }
+
+  /** Panorama teaser counts from ticket nodes, absent until a graph exists. */
+  get shipTeaser(): TeaserCounts | undefined {
+    return this.graph === undefined ? undefined : teaserCounts(this.graph)
   }
 
   /** Sealed Mission Contract for this run, absent before Confirm. */
@@ -333,6 +360,7 @@ export class ShipRun {
     }
     this.guardWrites(paths)
     if (paths.some(path => path.endsWith('.md'))) this.refresh()
+    else this.rebuildGraph()
     this.scanDrift()
     this.verifyAndReconcile(false)
   }
@@ -440,6 +468,7 @@ export class ShipRun {
     }
     const picked = pickLiveShip(files)
     if (picked === undefined) return
+    this.graphSpec = files.find(file => file.markdown === picked.markdown)?.path
     const live = planInFlight(picked.markdown, picked.plan)
     const next = live ? picked.plan : undefined
     if (!plansEqual(this.plan, next)) {
@@ -447,6 +476,7 @@ export class ShipRun {
       this.chrome.setPlan(next)
     }
     this.adoptChip(picked.markdown, picked.plan)
+    this.rebuildGraph()
   }
 
   /** Stop the phase loop and the spec poll. */
@@ -476,6 +506,9 @@ export class ShipRun {
     this.lastVerify = undefined
     this.followedSpec = undefined
     this.snapshot = undefined
+    this.graph = undefined
+    this.graphSpec = undefined
+    this.chrome.setTeaser?.(undefined)
     this.originalRequirement = undefined
     this.typedIdea = idea
     this.contractInvalid = false
@@ -494,6 +527,7 @@ export class ShipRun {
       if (!await this.bindSpec(idea)) return
       if (!await this.occupy(idea)) return
       this.persistSnapshot()
+      this.rebuildGraph()
       if (!this.guardContract()) return
       let previous = shipPhaseKind(this.status())
       await this.syncCompass()
@@ -504,6 +538,7 @@ export class ShipRun {
         this.refresh()
         this.discoverBoundSpec()
         this.persistSnapshot()
+        this.rebuildGraph()
         if (!this.guardContract()) break
         await this.syncCompass()
         const next = shipPhaseKind(this.status())
@@ -1136,7 +1171,47 @@ export class ShipRun {
     if (next.originalRequirement !== '') this.originalRequirement = next.originalRequirement
     if (next.trackSealed && next.mainTrack !== undefined) this.sealedTrack = next.mainTrack
     this.sealMissionContract()
+    this.rebuildGraph()
     this.scanDrift()
+  }
+
+  /**
+   * Rebuild the panorama cache from canonical sources. Missing or corrupt
+   * sidecar is discarded; a join failure stops `/ship` with no guessed cache.
+   * Disk write failure keeps the in-memory graph for the next rebuild.
+   */
+  private rebuildGraph(): void {
+    if (this.inPlanMode() || this.contractInvalid) return
+    const specPath = this.followedSpec ?? this.graphSpec
+    if (specPath === undefined) return
+    let markdown: string | undefined
+    try {
+      markdown = this.followedSpec === specPath ? this.followedMarkdown() : readFileSync(specPath, 'utf8')
+    } catch {
+      return
+    }
+    if (markdown === undefined) return
+    const loaded = readShipGraph(specPath)
+    if (isShipGraphDiscard(loaded)) {
+      try { unlinkSync(graphPathFor(specPath)) } catch { /* leftover cache is not identity */ }
+    }
+    const collected = collectJoinSources(this.cwd, specPath, markdown)
+    if (isShipGraphJoinError(collected)) {
+      this.block(collected.error)
+      return
+    }
+    const next = joinShipGraph(collected)
+    if (isShipGraphJoinError(next)) {
+      this.block(next.error)
+      return
+    }
+    this.graph = next
+    this.chrome.setTeaser?.(teaserCounts(next))
+    try {
+      writeShipGraph(next, specPath)
+    } catch {
+      // Keep the in-memory graph; retry the atomic write on the next rebuild.
+    }
   }
 
   /**

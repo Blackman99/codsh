@@ -1144,6 +1144,37 @@ describe('the surrounding rows', () => {
     expect(comfortable).toBe(compact)
   })
 
+  it('paints the panorama teaser above the plan row', () => {
+    const { prompt, console } = build()
+    prompt.setPlan({
+      tickets: [{ title: 'landed', done: true }, { title: 'in flight', done: false }],
+      done: 1,
+      current: { title: 'in flight', done: false },
+    })
+    prompt.setTeaser({ unclaimed: 1, claimed: 0, closed: 1 })
+    const rows = console.draws.at(-1)?.rows ?? []
+    const teaser = rows.findIndex(row => row.includes('待认领 1'))
+    const plan = rows.findIndex(row => row.includes('plan 1/2'))
+    expect(teaser).toBeGreaterThanOrEqual(0)
+    expect(plan).toBeGreaterThan(teaser)
+    expect(rows[teaser]).toContain('已认领 0')
+    expect(rows[teaser]).toContain('已关闭 1')
+    expect(rows[teaser]).not.toContain('in-flight')
+    expect(rows[plan]).toContain('click or Ctrl+T opens the list')
+  })
+
+  it('keeps empty-graph zeros on the teaser and hides in-flight at zero', () => {
+    const { prompt, console } = build()
+    prompt.setTeaser({ unclaimed: 0, claimed: 0, closed: 0 })
+    const row = (console.draws.at(-1)?.rows ?? []).find(line => line.includes('待认领 0')) ?? ''
+    expect(row).toContain('已认领 0')
+    expect(row).toContain('已关闭 0')
+    expect(row).not.toContain('in-flight')
+    prompt.setTeaser({ unclaimed: 0, claimed: 0, closed: 0 }, 2)
+    const flying = (console.draws.at(-1)?.rows ?? []).find(line => line.includes('待认领 0')) ?? ''
+    expect(flying).toContain('in-flight 2')
+  })
+
   it('gives the plan rows back when the plan is withdrawn', () => {
     const { prompt, console } = build()
     prompt.setPlan({

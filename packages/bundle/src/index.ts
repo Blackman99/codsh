@@ -1017,6 +1017,7 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
     setPlan: (plan) => { prompt.setPlan(plan) },
     setChip: () => { paintShipChrome() },
     setTodos: () => { prompt.setTodos(todoList(ctx, live.agent)) },
+    setTeaser: (counts) => { prompt.setTeaser(counts) },
   }, {
     ...(hostGoals === undefined ? {} : { goals: wrapHostGoals(hostGoals, () => live.agent) }),
     ...(io.console.readsKeys

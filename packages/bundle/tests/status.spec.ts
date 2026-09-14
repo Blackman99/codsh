@@ -508,10 +508,10 @@ describe('status styling', () => {
 })
 
 describe('ship chip helpers', () => {
-  it('counts land k as done+1 while a ticket is current', () => {
+  it('counts land k/n as closed/total while a ticket is current', () => {
     const plan = parsePlan('## Plan\n\n- [x] a\n- [ ] b\n- [ ] c\n')
-    expect(landChip(plan)).toEqual({ kind: 'land', k: 2, n: 3 })
-    expect(landChip(plan, true)).toEqual({ kind: 'land', k: 2, n: 3, flashOk: true })
+    expect(landChip(plan)).toEqual({ kind: 'land', k: 1, n: 3 })
+    expect(landChip(plan, true)).toEqual({ kind: 'land', k: 1, n: 3, flashOk: true })
     expect(landChip(parsePlan('## Plan\n\n- [x] a\n- [x] b\n'))).toBeUndefined()
   })
 
@@ -522,8 +522,8 @@ describe('ship chip helpers', () => {
     expect(shipChipFromSpec('grilling', undefined)).toEqual({ kind: 'grill' })
     expect(shipChipFromSpec('interviewing', undefined)).toEqual({ kind: 'spec' })
     expect(shipChipFromSpec('confirmed', undefined)).toEqual({ kind: 'tickets' })
-    expect(shipChipFromSpec('planned', landing)).toEqual({ kind: 'land', k: 2, n: 3 })
-    expect(shipChipFromSpec('landing', landing)).toEqual({ kind: 'land', k: 2, n: 3 })
+    expect(shipChipFromSpec('planned', landing)).toEqual({ kind: 'land', k: 1, n: 3 })
+    expect(shipChipFromSpec('landing', landing)).toEqual({ kind: 'land', k: 1, n: 3 })
     expect(shipChipFromSpec('landing', parsePlan('## Plan\n\n- [x] a\n- [x] b\n'))).toEqual({ kind: 'verify' })
     expect(shipChipFromSpec('shipped', landing)).toEqual({ kind: 'done' })
     expect(parseShipStatus('# Spec\n\nStatus: landing\n')).toBe('landing')
