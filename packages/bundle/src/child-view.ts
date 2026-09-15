@@ -114,7 +114,45 @@ declare module '@deepseek-ai/cordis' {
      * depending on `@deepseek-ai/dsh-subagent`.
      */
     'subagent/start'(info: { id: string }): void
+    /**
+     * The paired end: the run's terminal stop reason, the runtime's own
+     * verdict on how the child ended (`completed`, `error`, `aborted`,
+     * `max-tokens`, `refusal`) — what the parent is told, and so what the
+     * roster says.
+     */
+    'subagent/end'(info: { id: string; stopReason: string }): void
   }
+}
+
+declare module '@deepseek-ai/dsh-session/types' {
+  interface SessionEventMap {
+    /**
+     * The establishing provider's durable identity for a session-backed
+     * child, appended to the child's own log inside its initial turn. Only
+     * the creation `label` — the delegation's `description` — is read here;
+     * the bundle does not depend on `@deepseek-ai/dsh-subagent`, whose
+     * declaration this one narrows to the one field it names.
+     */
+    'subagent/descriptor': { readonly label?: string }
+  }
+}
+
+/**
+ * What a child's own log says it was started for: the `label` of the
+ * `subagent/descriptor` the establishing provider appended — the
+ * delegation's `description` — trimmed, or undefined when the log has none
+ * yet, or an empty one.
+ * @param events - the child's own events, inherited prefix already skipped.
+ * @returns the label, or undefined.
+ */
+export function descriptorLabel(events: readonly { type: string; data: unknown }[]): string | undefined {
+  for (const event of events) {
+    if (event.type !== 'subagent/descriptor') continue
+    const data = typeof event.data === 'object' && event.data !== null ? event.data as { label?: unknown } : {}
+    const label = typeof data.label === 'string' ? data.label.trim() : ''
+    return label === '' ? undefined : label
+  }
+  return undefined
 }
 
 export function inProcessDescendants(liveId: string, sessions: readonly LiveSessionLineage[]): ReadonlySet<string> {

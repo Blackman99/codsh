@@ -251,12 +251,49 @@ _Avoid_: collapse block, expandable section
 
 **Child view**:
 The nested Viewport of an in-process child's transcript. A Fold that names a
-child Session is a view: a click enters, Esc pops one level, and the child's
-thinking, text, and tool cards stream the way they do on the parent. The view
-is read-only; typing flashes that Esc returns. Fork views skip the inherited
-parent prefix. Worker-thread Workflow children are not views — their sessions
-are never in this process, so the round line never offers `click to enter`.
+child Session is a view, and so is a row of the Subagents panel: a click or
+Enter enters, Esc pops one level, and the child's thinking, text, and tool
+cards stream the way they do on the parent. Its status row is the child's
+title — the roster's mark, label, elapsed time, call count, and latest call,
+then `Esc returns to the parent`, which is cut last. From inside a view,
+another panel row swaps the view rather than stacking it — every open level
+drops once the door is known to open — so Esc still returns to the parent.
+The view is read-only; typing flashes that Esc
+returns. Fork views skip the inherited parent prefix. A child that has
+finished and left the store — every background child, the moment it idles —
+opens read-only from its persisted log. Worker-thread Workflow children are
+not views — their sessions are never in this process, so the round line
+never offers `click to enter`.
 _Avoid_: catalog, inspector, pager
+
+**Subagents readout**:
+The chrome row counting the children the live session started, by state —
+`subagents 3 · 2 running · 1 done · Ctrl+G` — for as long as the roster holds
+any. The roster is surface state fed by `subagent/start`, each direct
+child's own log (its `subagent/descriptor` names it; calls, turn starts,
+turn ends), and `subagent/end`, never a query over the store, which forgets
+a child that finished; grandchildren belong to the child that started them.
+`completed` is done; `error`, `max-tokens`, `refusal`, and a `blocked` turn
+(a refusal to the runtime) failed; `aborted` and `interrupted` stopped — an
+unfinished child is never `✔`. Its
+clocks tick once a second while any child runs, on the roster's own timer.
+A click on the row, or Ctrl+G, opens the Subagents panel in its place.
+Dropped with the session on `/clear` and `/resume`.
+_Avoid_: agent list, task pane
+
+**Subagents panel**:
+The roster opened in the readout's place: a header with the readout's counts
+and `Ctrl+G closes`, then a numbered list the shape of the Queue panel, one
+row per child — a mark (`▶` and `✔` are the todo readout's, `✗` the failed
+tool card's, `■` for a stopped child is this row's own), the label the
+child's log gave it, its elapsed time, its calls, and the latest one; the
+child on screen ends ` · viewing`. ↑/↓, Tab, Home/End, and digits move the
+mark; Enter or a click on a row enters that child's view; Esc or Ctrl+G
+closes (inside a Ctrl+R search, Ctrl+G cancels the search instead). It
+enters and nothing else — stopping a child is the model's own tool. One
+open panel at a time with the Todo readout and the Queue panel. `/subagents`
+prints the header without its key and the rows without the `❯` cursor.
+_Avoid_: dashboard, inspector
 
 **Card run**:
 Tool cards that follow one another share one panel rather than each opening and

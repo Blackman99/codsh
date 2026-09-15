@@ -39,6 +39,8 @@ export type Key =
   | { kind: 'clear-screen' }
   | { kind: 'expand-output' }
   | { kind: 'toggle-todos' }
+  /** Ctrl+G: open or close the subagents panel. */
+  | { kind: 'toggle-subagents' }
   /** Ctrl-Q: open or close the type-ahead queue panel. */
   | { kind: 'toggle-queue' }
   /** Ctrl-Enter: submit into the RUNNING turn rather than the queue. Kitty protocol only. */
@@ -221,6 +223,10 @@ const CONTROLS: Readonly<Record<string, Key>> = {
   '\u000C': { kind: 'clear-screen' },
   '\u000F': { kind: 'expand-output' },
   '\u0014': { kind: 'toggle-todos' },
+  // Ctrl+G opens the subagents panel — the key Grok Build gives its tasks
+  // pane. 0x07 is the bell byte, which raw mode delivers like any other; no
+  // editor binding wants it. The kitty form (CSI 103;5u) lands here too.
+  '\u0007': { kind: 'toggle-subagents' },
   // Ctrl+Q opens the queue panel. Raw mode clears IXON, so the byte arrives on
   // every terminal this surface lists; one with software flow control still
   // on swallows it silently, and the click on the queued row is the way in.

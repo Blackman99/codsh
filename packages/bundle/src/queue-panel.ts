@@ -52,7 +52,7 @@ function firstLine(text: string): string {
  * @param columns - display columns the whole row may use.
  * @returns the row, never wrapped.
  */
-function fitTrailer(body: string, trailer: string, columns: number): string {
+export function fitTrailer(body: string, trailer: string, columns: number): string {
   const withTrailer = `${body}${trailer}`
   if (displayWidth(withTrailer) <= columns) return withTrailer
   const budget = columns - displayWidth(trailer)

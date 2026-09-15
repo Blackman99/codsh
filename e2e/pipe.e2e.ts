@@ -20,7 +20,7 @@ import { E2E_TEST_TIMEOUT_MS, fakeRegistry, makeHome, overlayText, resolveLaunch
  * What the mocked model does: `write` needs no approval, `bash` escalates and so
  * asks for one, and `markdown` answers in prose instead of calling anything.
  */
-type MockTool = 'write' | 'bash' | 'markdown' | 'reasoning' | 'echo' | 'todo'
+type MockTool = 'write' | 'bash' | 'markdown' | 'reasoning' | 'echo' | 'todo' | 'subagents'
 
 /** One completed run of the terminal surface. */
 interface Run {
@@ -297,6 +297,23 @@ describe('dsh code (real profile, keyless model)', () => {
     expect(run.stdout.indexOf('✻ thought for')).toBeLessThan(run.stdout.indexOf('CODE_CLI_ANSWER'))
     expect(countOf(run.stdout, 'CODE_CLI_ANSWER after thinking')).toBe(1)
     expect(run.stdout).toMatch(/[\d.]+s \(thought [\d.]+s\) · \d+ tokens/u)
+  }, E2E_TEST_TIMEOUT_MS)
+
+  it('prints the subagents this session started on /subagents', async () => {
+    const run = await runCodeCli({ tool: 'subagents', input: '/subagents\ndelegate it\n/subagents\n/exit\n' })
+
+    // Before any delegation there is nothing to list; after it, the pipe has
+    // no chrome to open: the same roster the panel shows, header and one
+    // numbered row per child, whatever state they are in by the time the
+    // command runs.
+    expect(run.stdout).toContain('no subagents yet')
+    expect(run.stdout).toMatch(/subagents 2 · /u)
+    // Numbered in start order, and two children started in one step come
+    // up in either order.
+    expect(run.stdout).toMatch(/[12]\. [▶✔✗■] CODE_CLI_SUBAGENT_ONE brief · [\d.]+s/u)
+    expect(run.stdout).toMatch(/[12]\. [▶✔✗■] CODE_CLI_SUBAGENT_TWO brief · [\d.]+s/u)
+    expect(run.stdout.indexOf('no subagents yet')).toBeLessThan(run.stdout.indexOf('subagents 2 · '))
+    expect(run.exitCode).toBe(0)
   }, E2E_TEST_TIMEOUT_MS)
 
   it('runs a ! line locally and the next request sees its outcome', async () => {

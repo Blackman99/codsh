@@ -534,6 +534,82 @@ class CodeCliMockAdapter extends LlmAdapter {
       yield { type: 'finish', reason: { kind: 'stop' } }
       return
     }
+    if (MOCK_MODE === 'subagents') {
+      // The parent starts two children in the background in one step, then
+      // answers once both starts are in; each child holds a `sleep`, then
+      // ONE answers and TWO ends its turn with an error — a roster with one
+      // done and one failed. A background child that settles wakes the
+      // parent with a notice — a user message with no tool result — and
+      // the parent answers that with a count, never with another delegation.
+      const texts = textBlocks(options)
+      const childOne = texts.some(text => text.includes('SUBAGENT_CHILD_ONE'))
+      const childTwo = texts.some(text => text.includes('SUBAGENT_CHILD_TWO'))
+      const settled = options.messages.at(-1)?.content.find(block => block.type === 'tool-result')
+      if (childOne || childTwo) {
+        if (settled === undefined) {
+          // Long enough that the panel and the view open on a child that is
+          // still in the store, on a slow runner too.
+          const args = JSON.stringify({
+            command: childOne ? 'sleep 4' : 'sleep 3',
+            description: childOne ? 'Hold child one open.' : 'Hold child two open.',
+            timeoutMs: 20_000,
+          })
+          const id = ToolCallId(childOne ? 'subagent-child-one-bash' : 'subagent-child-two-bash')
+          yield { type: 'block-start', index: 0, blockType: 'tool-call' }
+          yield { type: 'tool-call-delta', index: 0, id, name: 'bash', argumentsDelta: args }
+          yield { type: 'block-end', index: 0, block: { type: 'tool-call', id, name: 'bash', arguments: args } }
+          yield { type: 'usage', usage: { inputTokens: 2, outputTokens: 2 } }
+          yield { type: 'finish', reason: { kind: 'tool-calls' } }
+          return
+        }
+        if (childTwo) {
+          yield { type: 'finish', reason: { kind: 'error', failure: { code: 'MOCK_CHILD_FAILED', message: 'child two failed on purpose' } } }
+          return
+        }
+        const reply = 'CHILD_ONE_DONE'
+        yield { type: 'block-start', index: 0, blockType: 'text' }
+        yield { type: 'text-delta', index: 0, text: reply }
+        yield { type: 'block-end', index: 0, block: { type: 'text', text: reply } }
+        yield { type: 'usage', usage: { inputTokens: 2, outputTokens: 2 } }
+        yield { type: 'finish', reason: { kind: 'stop' } }
+        return
+      }
+      const delegated = options.messages.some(message =>
+        message.role === 'assistant' && message.content.some(block => block.type === 'tool-call' && block.name === 'subagent'))
+      if (settled === undefined && delegated) {
+        const notices = texts.filter(text => text.startsWith('Background subagent ')).length
+        const reply = `CODE_CLI_SUBAGENTS_SETTLED n=${String(notices)}`
+        yield { type: 'block-start', index: 0, blockType: 'text' }
+        yield { type: 'text-delta', index: 0, text: reply }
+        yield { type: 'block-end', index: 0, block: { type: 'text', text: reply } }
+        yield { type: 'usage', usage: { inputTokens: 3, outputTokens: 3 } }
+        yield { type: 'finish', reason: { kind: 'stop' } }
+        return
+      }
+      if (settled === undefined) {
+        for (const [index, which] of ['ONE', 'TWO'].entries()) {
+          const args = JSON.stringify({
+            description: `CODE_CLI_SUBAGENT_${which} brief`,
+            prompt: `SUBAGENT_CHILD_${which}\n\nRun your command, then answer.`,
+            run_in_background: true,
+          })
+          const id = ToolCallId(`code-cli-subagent-${which.toLowerCase()}`)
+          yield { type: 'block-start', index, blockType: 'tool-call' }
+          yield { type: 'tool-call-delta', index, id, name: 'subagent', argumentsDelta: args }
+          yield { type: 'block-end', index, block: { type: 'tool-call', id, name: 'subagent', arguments: args } }
+        }
+        yield { type: 'usage', usage: { inputTokens: 9, outputTokens: 6 } }
+        yield { type: 'finish', reason: { kind: 'tool-calls' } }
+        return
+      }
+      const reply = 'CODE_CLI_SUBAGENTS_STARTED'
+      yield { type: 'block-start', index: 0, blockType: 'text' }
+      yield { type: 'text-delta', index: 0, text: reply }
+      yield { type: 'block-end', index: 0, block: { type: 'text', text: reply } }
+      yield { type: 'usage', usage: { inputTokens: 3, outputTokens: 3 } }
+      yield { type: 'finish', reason: { kind: 'stop' } }
+      return
+    }
     if (MOCK_MODE === 'workflow') {
       const seen = options.messages.flatMap(message =>
         message.content.filter(block => block.type === 'text').map(block => block.text))

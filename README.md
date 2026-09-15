@@ -90,6 +90,7 @@ The [site](https://blackman99.github.io/codsh/) shows each one as a real capture
 - A one-column timeline on the right marks the turn you are in — ticks and arrows click-jump, hover previews the real prompt lines. Shift+←/→ does it from the keyboard, and `/jump` is a searchable, reversible preview. `/rewind` forks the conversation from before a turn you pick and continues there; the original session stays in `/resume`, and Esc Esc still recalls the last prompt.
 - Thinking streams into the transcript and stays open under its clock (`✻ thought for 3.2s`) until the next prompt folds it to that row; every tool call is one row — what it did, `+n -m` or `· 12 lines`, `✔` or `✗`, and a failed row's reason — with the output behind it. Click a block to work it, Ctrl+O to work them all (it opens whatever is folded, and folds everything once nothing is), and what you opened or folded by hand keeps that form across later turns. A finished answer stays whole. Compaction — automatic, or `/compact` — leaves a fold too: how many items and tokens became a summary, which model wrote it, and the summary itself; the hint row says `compacting history…` while it runs.
 - A running in-process subagent is a view: as soon as the child exists, its card says `click to enter`. The child's transcript replaces the parent's and streams while it works; Esc pops one level. Typing there is refused — this is looking, not a follow-up. Workflow/Ralph rounds stay a line: those children run in a worker thread and no click could enter one.
+- The children a session started stay counted under the box — `subagents 2 · 1 running · 1 done · Ctrl+G`. Ctrl+G, or a click on that row, opens the list: each child's state, elapsed time, calls, and latest call; Enter or a click opens one, and its status row names it. A finished child stays listed and opens read-only. `/subagents` prints the same list.
 - `/view 1` opens an answer full screen, `/view 1:1` its first code block; Esc restores the conversation exactly. `/copy` addresses the same targets — raw Markdown, or fence-free code.
 - `/diff` reads uncommitted changes in the same reader rather than scrolling them past, and a diff card too long for its own body opens there on click. Piped, it stays lines.
 
@@ -162,7 +163,8 @@ pnpm run site:screens        # re-shoot the site's terminals from the real binar
 `steer` (holds a turn 3s and reports whether a mid-turn message arrived),
 `tall`, `spec`, `markdown`, `reasoning`, `reasoning-slow` (a thought long
 enough to interrupt), `reason-write` (a thought, a write, a second thought,
-an answer), `echo`, `todo`, `questions`, `workflow`,
+an answer), `echo`, `todo`, `questions`, `workflow`, `subagents` (two
+background children, one of which fails),
 `context` (32k input usage against a 128k window; 64k on `cli-mock-pro`),
 `ship-wayfinder` (`/ship SMALL_WAYFINDER` exercises the confirmed grill handoff;
 `/ship PENDING_WAYFINDER` leaves a resumable planning ledger), `ship-delegate`,

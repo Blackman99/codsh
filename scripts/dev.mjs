@@ -10,7 +10,7 @@
  *
  * `MOCK=<mode>` boots against the keyless e2e mock model instead of a real
  * key: `write` (the default), `bash`, `fail`, `heredoc`, `slow`, `steer`, `tall`,
- * `spec`, `markdown`, `reasoning`, `reasoning-slow`, `reason-write`, `echo`, `context`, `questions`, `ship-wayfinder`,
+ * `spec`, `markdown`, `reasoning`, `reasoning-slow`, `reason-write`, `echo`, `context`, `questions`, `subagents`, `ship-wayfinder`,
  * `ship-delegate`, `ship-landing`,
  * `vision`, and the `auto-vision`,
  * `auto-vision-slow`, `auto-vision-fail` trio behind automatic image

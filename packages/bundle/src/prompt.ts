@@ -27,6 +27,8 @@ import { MessageQueue } from './queue.ts'
 import { QueuePanel, queueRow, steerRefusal, steeringRow } from './queue-panel.ts'
 import type { QueueItem } from './queue.ts'
 import type { PanelAction, PanelTarget } from './queue-panel.ts'
+import { SubagentsPanel, subagentsRow } from './subagents.ts'
+import type { SubagentEntry, SubagentsAction } from './subagents.ts'
 import type { EncodedImageAttachment } from '@deepseek-ai/dsh-attachment/types'
 import type { ClipboardImage } from './clipboard-image.ts'
 import type { TerminalConsole } from './console.ts'
@@ -85,6 +87,13 @@ export interface PromptHandlers {
    * @returns 'steered' once the agent holds it; 'idle' when no turn was running to take it.
    */
   steer?(item: QueueItem): Promise<'steered' | 'idle'>
+  /**
+   * Enter or a click in the subagents panel: open that child's view.
+   * @param id - the child Session the row named.
+   */
+  enterSubagent?(id: string): void
+  /** The clock the subagents rows read for a running child's elapsed time. */
+  now?(): number
 }
 
 /**
@@ -167,6 +176,10 @@ type RegionTarget =
   | { kind: 'queue' }
   /** A row of the open queue panel. */
   | { kind: 'queue-panel'; target: PanelTarget }
+  /** The collapsed subagents readout: a click opens the panel. */
+  | { kind: 'subagents' }
+  /** A row of the open subagents panel. */
+  | { kind: 'subagents-panel'; target: PanelTarget }
 
 export class Prompt {
   private readonly editor: Editor
@@ -193,6 +206,17 @@ export class Prompt {
   private queueOpen = false
   /** Where the queue's rows sit among the chrome rows, and how many. */
   private queueRowsAt: { start: number; count: number } | undefined
+  /** The subagents the live session started, as the roster now holds them. */
+  private subagents: readonly SubagentEntry[] = []
+  /** The child whose view is on screen, so its panel row can say so. */
+  private viewingSubagent: string | undefined
+
+  /** The subagents panel's view state, meaningful while {@link subagentsOpen}. */
+  private readonly subagentsPanel = new SubagentsPanel()
+  /** Whether the subagents panel has the keyboard, in the readout's place. */
+  private subagentsOpen = false
+  /** Where the subagents rows sit among the chrome rows, and how many. */
+  private subagentsRowsAt: { start: number; count: number } | undefined
   /** Whether the submission in flight steers the running turn (Ctrl-Enter). */
   private steerNext = false
   /** Images pasted into the box, by the number their `[Image #N]` token wears. */
@@ -417,6 +441,40 @@ export class Prompt {
         && todo.status === this.todos[at]?.status)) return
     this.todos = todos
     this.render()
+  }
+
+  /**
+   * Set the subagents readout to the roster the session now holds.
+   *
+   * Compared by content, not identity: this is pushed on every child event,
+   * and a repaint per event would flicker the chrome for nothing.
+   * @param entries - the roster, in start order; empty drops the readout.
+   * @param viewing - the child whose view is on screen, if one is; its panel row says so.
+   */
+  setSubagents(entries: readonly SubagentEntry[], viewing?: string): void {
+    const same = viewing === this.viewingSubagent && entries.length === this.subagents.length && entries.every((entry, at) => {
+      const known = this.subagents[at]
+      return known !== undefined && known.id === entry.id && known.label === entry.label
+        && known.status === entry.status && known.calls === entry.calls && known.latest === entry.latest
+        && known.endedAt === entry.endedAt
+    })
+    if (same) return
+    this.subagents = entries
+    this.viewingSubagent = viewing
+    if (entries.length === 0) this.subagentsOpen = false
+    this.render()
+  }
+
+  /**
+   * A second passed with a child still running: repaint the clocks.
+   *
+   * The roster's own cadence, not the spinner's — the spinner is the
+   * parent's, paused inside a Child view and stopped when the parent's turn
+   * ends, and a child runs on after both. A roster with nothing running
+   * has no clock to move and nothing repaints.
+   */
+  tick(): void {
+    if (this.subagents.some(entry => entry.status === 'running')) this.render()
   }
 
   /**
@@ -654,6 +712,7 @@ export class Prompt {
     if (key.kind === 'interrupt') {
       this.shortcutsOpen = false
       this.queueOpen = false
+      this.subagentsOpen = false
       this.handlers.interrupt()
       return
     }
@@ -730,6 +789,7 @@ export class Prompt {
       // One open panel at a time: the chrome has room for a list, not two.
       this.todosExpanded = !this.todosExpanded
       this.queueOpen = false
+      this.subagentsOpen = false
       this.render()
       return
     }
@@ -737,6 +797,7 @@ export class Prompt {
       if (this.finding === undefined) {
         this.finding = ''
         this.queueOpen = false
+        this.subagentsOpen = false
         this.console.searchTranscript('')
       } else {
         this.console.nextTranscriptHit(1)
@@ -765,10 +826,25 @@ export class Prompt {
       this.toggleQueuePanel()
       return
     }
+    if (key.kind === 'toggle-subagents') {
+      // Ctrl+G is readline's way out of a Ctrl+R search, and a hand inside
+      // one presses it for that; the panel waits until the search is over.
+      if (this.editor.view.search !== undefined) {
+        this.editor.handle({ kind: 'escape' })
+        this.render()
+        return
+      }
+      this.toggleSubagentsPanel()
+      return
+    }
     // The open panel owns the keyboard, the way a selector does. The pointer
     // keeps its own path below, so a click on a panel row still lands there.
     if (this.queueOpen && !isPointerKey(key)) {
       this.onQueuePanelKey(key)
+      return
+    }
+    if (this.subagentsOpen && !isPointerKey(key)) {
+      this.applySubagentsAction(this.subagentsPanel.handle(key, this.subagents))
       return
     }
     // Scrolling belongs to the viewport, not to the buffer being edited.
@@ -1108,8 +1184,59 @@ export class Prompt {
     }
     this.todosExpanded = false
     this.shortcutsOpen = false
+    this.subagentsOpen = false
     this.queueOpen = true
     this.panel.reset()
+    this.render()
+  }
+
+  /** The chrome rows of the subagents: the readout, or the open panel in its place. */
+  private subagentsRows(columns: number): string[] {
+    if (this.subagents.length === 0) return []
+    if (this.subagentsOpen) return this.subagentsPanel.view(this.subagents, this.theme, columns, this.now(), this.viewingSubagent)
+    const row = subagentsRow(this.subagents, this.theme, columns)
+    return row === undefined ? [] : [row]
+  }
+
+  /** The clock the subagents rows read; injected so a test can hold it still. */
+  private now(): number {
+    return this.handlers.now?.() ?? performance.now()
+  }
+
+  /** Ctrl-G, or a click on the readout: open the panel, or fold it back. */
+  private toggleSubagentsPanel(): void {
+    if (this.select_ !== undefined) return
+    if (this.subagentsOpen) {
+      this.subagentsOpen = false
+      this.render()
+      return
+    }
+    if (this.subagents.length === 0) {
+      this.setFlash(this.theme.dim('  no subagents yet'))
+      return
+    }
+    if (this.finding !== undefined) {
+      this.finding = undefined
+      this.console.clearTranscriptSearch()
+    }
+    this.todosExpanded = false
+    this.shortcutsOpen = false
+    this.queueOpen = false
+    this.subagentsOpen = true
+    this.subagentsPanel.reset()
+    this.render()
+  }
+
+  /** Carry out what the subagents panel asked for, by key or by click. */
+  private applySubagentsAction(action: SubagentsAction): void {
+    if (action.kind === 'pending') {
+      this.render()
+      return
+    }
+    // Entering leaves the panel behind: the view replaces the transcript,
+    // and the readout is what greets the person on the way back.
+    this.subagentsOpen = false
+    if (action.kind === 'enter') this.handlers.enterSubagent?.(action.id)
     this.render()
   }
 
@@ -1396,6 +1523,12 @@ export class Prompt {
       this.render()
       return true
     }
+    const subagents = this.subagentsRowsAt
+    if (this.subagentsOpen && subagents !== undefined && region.index >= subagents.start && region.index < subagents.start + subagents.count) {
+      this.subagentsPanel.scrollBy(lines, this.subagents)
+      this.render()
+      return true
+    }
     const start = this.selectorRow
     const selecting = this.select_
     if (start === undefined || selecting === undefined) return false
@@ -1492,7 +1625,10 @@ export class Prompt {
       return
     }
     if (target.kind === 'todos') {
+      // One open panel at a time, by click as by key.
       this.todosExpanded = !this.todosExpanded
+      this.queueOpen = false
+      this.subagentsOpen = false
       this.render()
       return
     }
@@ -1502,6 +1638,14 @@ export class Prompt {
     }
     if (target.kind === 'queue-panel') {
       this.applyPanelAction(this.panel.click(target.target, this.queue.items))
+      return
+    }
+    if (target.kind === 'subagents') {
+      this.toggleSubagentsPanel()
+      return
+    }
+    if (target.kind === 'subagents-panel') {
+      this.applySubagentsAction(this.subagentsPanel.click(target.target, this.subagents))
       return
     }
     if (target.kind !== 'selector') return
@@ -1577,6 +1721,12 @@ export class Prompt {
       const target = this.panel.targetAt(row, this.queue.items)
       return target === undefined ? undefined : { kind: 'queue-panel', target }
     }
+    const subagents = this.subagentsRowsAt
+    if (subagents !== undefined && region.index >= subagents.start && region.index < subagents.start + subagents.count) {
+      if (!this.subagentsOpen) return { kind: 'subagents' }
+      const target = this.subagentsPanel.targetAt(region.index - subagents.start, this.subagents)
+      return target === undefined ? undefined : { kind: 'subagents-panel', target }
+    }
     const box = this.boxRows
     if (box === undefined) return undefined
     const row = region.index - box.start
@@ -1597,6 +1747,7 @@ export class Prompt {
     this.menuHover = target?.kind === 'candidate' ? target.index : undefined
     this.select_?.selector.setHovered(target?.kind === 'selector' ? target.target : undefined)
     this.panel.setHovered(target?.kind === 'queue-panel' ? target.target : undefined)
+    this.subagentsPanel.setHovered(target?.kind === 'subagents-panel' ? target.target : undefined)
     this.render()
   }
 
@@ -1607,6 +1758,7 @@ export class Prompt {
     this.menuHover = undefined
     this.select_?.selector.setHovered(undefined)
     this.panel.setHovered(undefined)
+    this.subagentsPanel.setHovered(undefined)
     this.render()
   }
 
@@ -1680,6 +1832,7 @@ export class Prompt {
     this.boxRows = undefined
     this.todoRowsAt = undefined
     this.queueRowsAt = undefined
+    this.subagentsRowsAt = undefined
     if (this.frontier_ !== undefined) {
       const frame = this.frontier_.card.frame(this.theme, columns)
       frontierCursor = frame.cursor === undefined ? undefined : { row: rows.length + frame.cursor.row, column: frame.cursor.column }
@@ -1702,7 +1855,7 @@ export class Prompt {
       menuOverlay = box.overlay
     }
     if (this.shortcutsOpen) {
-      rows.push(this.theme.dim(truncate('  Ctrl+R history · Ctrl+F find · Ctrl+O folds · Ctrl+T todos · Ctrl+Z undo', columns)))
+      rows.push(this.theme.dim(truncate('  Ctrl+R history · Ctrl+F find · Ctrl+O folds · Ctrl+T todos · Ctrl+G subagents · Ctrl+Z undo', columns)))
       rows.push(this.theme.dim(truncate('  Ctrl+Q queue · Ctrl+Enter steer · Ctrl+V image · Shift-Enter newline', columns)))
       rows.push(this.theme.dim(truncate('  Esc interrupt · ? closes', columns)))
       rows.push(this.theme.muted(truncate('  /status → model · permissions · tokens · context', columns)))
@@ -1717,6 +1870,11 @@ export class Prompt {
     const todo = this.todoRows(columns)
     if (todo.length > 0) this.todoRowsAt = { start: rows.length, count: todo.length }
     rows.push(...todo)
+    // The subagents the session started: one row under the todos, or the
+    // open panel in its place — the queue's own readout and panel, again.
+    const subagents = this.subagentsRows(columns)
+    if (subagents.length > 0) this.subagentsRowsAt = { start: rows.length, count: subagents.length }
+    rows.push(...subagents)
     // Detached from the tail the box would look like it had stopped receiving
     // output, so the viewport says so — over its own last row, never as another
     // chrome row, which would move the box while scrolling. The row is also the
@@ -1747,7 +1905,7 @@ export class Prompt {
     // display row it reads as content colliding with it, and the selector's ❯
     // marker is its own focus affordance.
     const writing = frontierCursor !== undefined
-    const focus = (this.select_ === undefined && this.frontier_ === undefined && !this.queueOpen && (this.engaged || this.reading)) || writing
+    const focus = (this.select_ === undefined && this.frontier_ === undefined && !this.queueOpen && !this.subagentsOpen && (this.engaged || this.reading)) || writing
     if (writing && frontierCursor !== undefined) cursor = frontierCursor
     else if (!focus) cursor = { row: rows.length - 1, column: 0 }
     // Frontier keeps the timeline: it is a card above the box, not a viewer.
@@ -1874,6 +2032,10 @@ function regionKey(target: RegionTarget): string {
   if (target.kind === 'queue') return 'queue'
   if (target.kind === 'queue-panel') {
     return target.target.kind === 'item' ? `queue:item:${String(target.target.index)}` : `queue:${target.target.kind}`
+  }
+  if (target.kind === 'subagents') return 'subagents'
+  if (target.kind === 'subagents-panel') {
+    return target.target.kind === 'item' ? `subagents:item:${String(target.target.index)}` : `subagents:${target.target.kind}`
   }
   return target.target.kind === 'custom' ? 'selector:custom' : `selector:${String(target.target.index)}`
 }
