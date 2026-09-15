@@ -172,24 +172,31 @@ describe.skipIf(process.platform === 'win32')('protocols and the session (real P
 
     // Replayed the way the terminal lived it: wide frames at the wide size,
     // then the emulator resizes exactly where the window did, then the rest.
-    const held = output.slice(0, output.indexOf(LEAVE_ALT))
-    const resizeAt = offsets[1] ?? 0
-    // The settled frame is the last whole one before `/exit` reaches the box:
-    // the turn is over by then, while counting frames from the tool marker
-    // judges the layout on whichever repaint happened to be in flight.
-    const typed = held.lastIndexOf('/exit')
-    const settled = held.lastIndexOf(SYNC_END, typed < 0 ? held.length : typed)
+    // offsets[k] is a byte length in the capture (spinner ticks and box
+    // drawing are multi-byte UTF-8); slicing the decoded string there
+    // lands past the resize on a slow runner.
+    const bytes = Buffer.from(output)
+    const leaveAt = bytes.indexOf(LEAVE_ALT)
+    const heldBytes = leaveAt < 0 ? bytes : bytes.subarray(0, leaveAt)
+    const resizeAt = Math.min(offsets[1] ?? 0, heldBytes.length)
+    // Step 4 types `/exit`. The last whole frame before that is the idle
+    // box at the new size; searching the bytes for `/exit` would hit the
+    // welcome line that names it.
+    const typedAt = Math.min(offsets[3] ?? heldBytes.length, heldBytes.length)
+    const sync = Buffer.from(SYNC_END)
+    const settled = heldBytes.subarray(0, typedAt).lastIndexOf(sync)
+    const until = settled < 0 ? typedAt : settled + sync.length
     const terminal = new Terminal(PTY_ROWS, PTY_COLUMNS)
-    terminal.feed(held.slice(0, resizeAt))
+    terminal.feed(heldBytes.subarray(0, resizeAt).toString())
     terminal.resize(PTY_ROWS, narrow)
-    terminal.feed(held.slice(resizeAt, settled < 0 ? held.length : settled + SYNC_END.length))
+    terminal.feed(heldBytes.subarray(resizeAt, until).toString())
     const rows = terminal.alternate
     const foot = rows.slice(-5)
     expect(foot.filter(row => row.trimStart().startsWith('╭─') && row.length > narrow / 2)).toHaveLength(1)
     expect(rows.findLastIndex(row => row.trimStart().startsWith('╰─') && row.length > narrow / 2)).toBeGreaterThanOrEqual(PTY_ROWS - 4)
     for (const row of rows) expect(row.length).toBeLessThanOrEqual(narrow)
     // The session kept working at the new size.
-    expect(held.includes('still here')).toBe(true)
+    expect(heldBytes.toString().includes('still here')).toBe(true)
   }, E2E_TEST_TIMEOUT_MS)
 })
 
