@@ -1,5 +1,12 @@
 # codsh-bundle
 
+## 0.24.0
+
+### Minor Changes
+
+- d12f168: Show the subagents a session started, the way Grok Build's tasks pane does. A row under the box counts them by state (`subagents 2 · 1 running · 1 done · Ctrl+H`) for as long as the session holds any; Ctrl+H or a click on it opens a numbered list with each child's mark, label, elapsed time, calls, and latest call; Enter or a click on a row enters that child's view, whose status row now names it and ticks with it; Esc returns. A finished child stays listed with its outcome and opens read-only from its persisted log. `/subagents` prints the same list for pipes.
+- e4d4efa: Show thinking open and keep tool calls to one row, the way Grok Build does. A thought streams into the transcript under a `thinking…` head that becomes its clock, and stays open until the next turn folds it to that row; a click folds or opens the one under the pointer, Ctrl+O opens whatever is folded and folds everything once nothing is, and a form chosen by hand survives later turns. Every tool card is one row — its title, `+n -m` or `· N lines`, `✔` or `✗`, and a failed row's reason — with the output behind it. An empty Enter, a chrome command, or a `!` line no longer folds anything: only a turn spent moves the conversation on. Pipes keep the digest: the clock row and the one-line cards. `/ui comfortable` no longer keeps a two-line thinking preview under the box, since finished lines are in the transcript for both densities.
+
 ## 0.23.0
 
 ### Minor Changes
