@@ -50,23 +50,24 @@ pinned revision bc7f02ed, read 2026-09-14).
    and are not in the parent's roster.
 2. **Subagents readout.** A chrome row under the box, beside the Todo
    readout, for as long as the roster holds anything:
-   `subagents 3 · 2 running · 1 done · Ctrl+G`, with `failed` and `stopped`
+   `subagents 3 · 2 running · 1 done · Ctrl+H`, with `failed` and `stopped`
    counted when present. One chrome row that appears once per session, the
    way the Todo readout does — the box moves up one row once; the open
    panel takes its place with up to twelve rows (header, eight entries,
-   the two overflow rows, footer), the way the Queue panel does. A click on the row, or `Ctrl+G` — Grok Build's key, free on every
-   terminal this surface lists — opens the panel; either closes it. One
-   open panel at a time with the Todo readout and the Queue panel, by key
-   and by click.
+   the two overflow rows, footer), the way the Queue panel does. A click
+   on the row, or `Ctrl+H`, opens the panel; either closes it. Grok
+   Build's pane is `Ctrl+G`, which Graph's Panorama overlay already owns.
+   One open panel at a time with the Todo readout and the Queue panel, by
+   key and by click.
 3. **Subagents panel.** A numbered list, keyboard-first, the shape the Queue
-   panel has: header `subagents 3 · 2 running · 1 done · Ctrl+G closes`
+   panel has: header `subagents 3 · 2 running · 1 done · Ctrl+H closes`
    (the readout's counts, so opening the panel hides nothing); one row per
    entry, newest last, `❯ 1. ▶ label · 12s · 3 calls · bash: sleep 2` while
    it runs (elapsed ticks once a second while any child runs), `✔ label ·
    8s · 2 calls` when done, `✗` failed, `■` stopped; the row of the child
    whose view is on screen ends ` · viewing`; footer `[enter] view · [esc]
    back`. ↑/↓, Tab, Home/End, and digits move the mark; Enter or a click on
-   a row enters that child's view; Esc or Ctrl+G closes.
+   a row enters that child's view; Esc or Ctrl+H closes.
 4. **Entering.** The panel enters through the existing Child view: the
    child's transcript replaces the parent's, streams while it runs, Esc pops
    one level, typing is refused. From inside a Child view, Enter on another
@@ -101,12 +102,13 @@ pinned revision bc7f02ed, read 2026-09-14).
 2. **Direct children only.** A grandchild is the child's business: its card
    and its own roster live in that child's view. Keeps the readout's counts
    honest for the turn a person is reading.
-3. **`Ctrl+G`, and a click on the readout.** Grok Build's key for the pane;
-   0x07 is unbound here and the kitty form decodes through the same
-   Ctrl+letter lookup. This takes the key Claude Code gives its external
-   editor; when the External `$EDITOR` row ships it takes opencode's
-   `/editor`. One exception: inside a Ctrl+R history search, Ctrl+G is
-   readline's abort and cancels the search instead. No `q` to close a
+3. **`Ctrl+H`, and a click on the readout.** Grok Build's pane is
+   `Ctrl+G`; Graph's Panorama overlay already owns that chord, so the
+   roster takes `Ctrl+H`. BS (0x08) is the legacy byte; DEL (0x7F) stays
+   Backspace, and the kitty form (`CSI 104;5u`) reports the letter rather
+   than Backspace. One exception: inside a Ctrl+R history search, Ctrl+H
+   cancels the search instead, so a terminal that sends BS for the chord
+   does not open the roster while editing a query. No `q` to close a
    view: Esc already does, and `q` is a letter the box accepts.
 4. **The panel enters, it does not steer or stop.** The request is 查看.
    Stopping a child is the model's `subagent_control`; the panel offers the
@@ -135,7 +137,7 @@ pinned revision bc7f02ed, read 2026-09-14).
 1. **US-1**: As a person whose turn started several subagents, I see a row
    under the box counting them by state, for as long as the session holds
    any.
-2. **US-2**: As a person who presses Ctrl+G or clicks that row, I get a
+2. **US-2**: As a person who presses Ctrl+H or clicks that row, I get a
    numbered list naming each subagent, its state, how long it has run, and
    what it is doing now.
 3. **US-3**: As a person who presses Enter or clicks a row, I am inside that
@@ -160,11 +162,12 @@ pinned revision bc7f02ed, read 2026-09-14).
    label?)` binds the oldest unbound `subagent`/`subagent_fork` call whose
    `subagentLabel` matches, else the oldest unbound one; `peekSubagentLabel()`
    names the next unbound call for a child whose log has no descriptor.
-3. **`packages/bundle/src/keys.ts`**: `\u0007` → `toggle-subagents`.
+3. **`packages/bundle/src/keys.ts`**: `\b` → `toggle-subagents`; DEL stays
+   Backspace; kitty `CSI 104;5u` is the same chord.
 4. **`packages/bundle/src/prompt.ts`**: `setSubagents(entries, viewing?)`
    (content-compared); `tick()` repaints while a child runs; the readout row
-   and the open panel among the chrome rows (after the todo rows); `Ctrl+G`
-   and the readout click toggle, Ctrl+G inside a history search cancels it;
+   and the open panel among the chrome rows (after the todo rows); `Ctrl+H`
+   and the readout click toggle, Ctrl+H inside a history search cancels it;
    panel keys route to the panel; `handlers.enterSubagent(id)` on
    Enter/click; one open panel at a time, the todo click included.
 5. **`packages/bundle/src/child-view.ts`**: declares `subagent/end` beside
@@ -203,17 +206,17 @@ pinned revision bc7f02ed, read 2026-09-14).
   outcome mapping, counts, readout row fit and trailer, panel header
   counts and `viewing`, keys/click/targets/window, report lines, title fit
   and call cap, single-span rows under a coloured theme), keys.spec
-  (`Ctrl+G` legacy and kitty), prompt.spec (readout pinned, panel opens on
+  (`Ctrl+H` legacy BS and kitty), prompt.spec (readout pinned, panel opens on
   key and click, Enter reports the id, one panel at a time by key and by
   click, Esc closes, empty-roster flash, digits stay out of the box, the
   roster emptying closes the panel, `tick` moves a running clock and
-  nothing else, `viewing`, Ctrl+G inside a search), transcript.spec
+  nothing else, `viewing`, Ctrl+H inside a search), transcript.spec
   (`peekSubagentLabel` FIFO skips bound calls; label-bound promotion).
 - **PTY e2e** (`e2e/pty-subagents.e2e.ts`), every case ending on
   `CODE_CLI_SUBAGENTS_SETTLED n=2` so `/exit` lands on an idle parent with
   no resident children: the readout counts two running past the parent's
   answer and settles to `1 done · 1 failed`, with no third child ever
-  started; Ctrl+G opens the panel with the counts header, both children
+  started; Ctrl+H opens the panel with the counts header, both children
   with their glyphs, and closes on Esc; Enter enters child ONE, whose view
   shows its `sleep 4` card and a title naming it, and Esc returns to the
   parent (its answer repainted, the card gone); a click on the readout

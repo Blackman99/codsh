@@ -39,7 +39,7 @@ export type Key =
   | { kind: 'clear-screen' }
   | { kind: 'expand-output' }
   | { kind: 'toggle-todos' }
-  /** Ctrl+G: open or close the subagents panel. */
+  /** Ctrl+H: open or close the subagents panel. */
   | { kind: 'toggle-subagents' }
   /** Ctrl-Q: open or close the type-ahead queue panel. */
   | { kind: 'toggle-queue' }
@@ -214,7 +214,11 @@ const CONTROLS: Readonly<Record<string, Key>> = {
   '\n': { kind: 'enter' },
   '\t': { kind: 'tab' },
   '\u007F': { kind: 'backspace' },
-  '\b': { kind: 'backspace' },
+  // Ctrl+H opens the subagents panel. BS (0x08) is that chord's legacy
+  // byte; DEL (0x7F) stays Backspace, which is what the terminals this
+  // surface lists send for the delete key. The kitty form reports the
+  // letter (`CSI 104;5u`), not Backspace.
+  '\b': { kind: 'toggle-subagents' },
   '\u0003': { kind: 'interrupt' },
   '\u0004': { kind: 'eof' },
   '\u0001': { kind: 'home' },
@@ -223,10 +227,6 @@ const CONTROLS: Readonly<Record<string, Key>> = {
   '\u000C': { kind: 'clear-screen' },
   '\u000F': { kind: 'expand-output' },
   '\u0014': { kind: 'toggle-todos' },
-  // Ctrl+G opens the subagents panel — the key Grok Build gives its tasks
-  // pane. 0x07 is the bell byte, which raw mode delivers like any other; no
-  // editor binding wants it. The kitty form (CSI 103;5u) lands here too.
-  '\u0007': { kind: 'toggle-subagents' },
   // Ctrl+Q opens the queue panel. Raw mode clears IXON, so the byte arrives on
   // every terminal this surface lists; one with software flow control still
   // on swallows it silently, and the click on the queued row is the way in.
@@ -404,6 +404,9 @@ export class KeyDecoder {
     // legacy terminal reaches steering through the queue panel instead.
     if (code === 13) return [ctrl ? { kind: 'steer' } : shift || alt ? { kind: 'newline' } : { kind: 'enter' }]
     if (code === 9) return [shift ? { kind: 'shift-tab' } : { kind: 'tab' }]
+    // Ctrl+H is the roster (letter `h`, 104). Backspace (8) stays delete —
+    // Control+Backspace is still kill-word, the same as Control+Delete.
+    if (ctrl && code === 104) return [{ kind: 'toggle-subagents' }]
     if (code === 127 || code === 8) return [alt || ctrl ? { kind: 'kill-word' } : { kind: 'backspace' }]
     // Redo lives only here: with Shift reported, Ctrl+Shift+Z is its own key.
     // A terminal reporting the shifted letter itself (`Z`) means the same.

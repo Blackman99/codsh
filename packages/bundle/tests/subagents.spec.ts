@@ -109,17 +109,17 @@ describe('SubagentRoster', () => {
 
 describe('the subagents readout', () => {
   it('counts the children by state and names the key', () => {
-    expect(subagentsRow(twoChildren().entries(), theme, 80)).toBe('  subagents 2 · 1 running · 1 done · Ctrl+G')
+    expect(subagentsRow(twoChildren().entries(), theme, 80)).toBe('  subagents 2 · 1 running · 1 done · Ctrl+H')
   })
 
   it('names only the states that have children', () => {
     const roster = new SubagentRoster()
     roster.start('a', 'x', 0)
     roster.start('b', 'y', 0)
-    expect(subagentsRow(roster.entries(), theme, 80)).toBe('  subagents 2 · 2 running · Ctrl+G')
+    expect(subagentsRow(roster.entries(), theme, 80)).toBe('  subagents 2 · 2 running · Ctrl+H')
     roster.settle('a', 'failed', 1)
     roster.settle('b', 'stopped', 1)
-    expect(subagentsRow(roster.entries(), theme, 80)).toBe('  subagents 2 · 1 failed · 1 stopped · Ctrl+G')
+    expect(subagentsRow(roster.entries(), theme, 80)).toBe('  subagents 2 · 1 failed · 1 stopped · Ctrl+H')
   })
 
   it('cuts the counts before dropping the key', () => {
@@ -206,7 +206,7 @@ describe('with colour on', () => {
     const row = subagentsRow(twoChildren().entries(), colored, 80) ?? ''
     // One opening and one closing SGR around the whole row.
     expect(spans(row)).toHaveLength(2)
-    expect(row).toContain('subagents 2 · 1 running · 1 done · Ctrl+G')
+    expect(row).toContain('subagents 2 · 1 running · 1 done · Ctrl+H')
   })
 
   it('keeps a row\'s figures in one span, and the header\'s key with its counts', () => {
@@ -214,7 +214,7 @@ describe('with colour on', () => {
     expect(subagentLine(running!, colored, 13_000)).toContain(' · 12s · 2 calls · read: CONTEXT.md')
     const panel = new SubagentsPanel()
     panel.reset()
-    expect(panel.view(twoChildren().entries(), colored, 120, 13_000)[0]).toContain(' 2 · 1 running · 1 done · Ctrl+G closes')
+    expect(panel.view(twoChildren().entries(), colored, 120, 13_000)[0]).toContain(' 2 · 1 running · 1 done · Ctrl+H closes')
     const title = subagentTitle(running!, colored, 13_000, 120)
     expect(title).toContain(' · Esc returns to the parent')
   })
@@ -228,7 +228,7 @@ describe('SubagentsPanel', () => {
     const panel = new SubagentsPanel()
     panel.reset()
     expect(panel.view(twoChildren().entries(), theme, 120, 13_000)).toEqual([
-      '  subagents 2 · 1 running · 1 done · Ctrl+G closes',
+      '  subagents 2 · 1 running · 1 done · Ctrl+H closes',
       '  ❯ 1. ▶ Investigate CONTEXT.md · 12s · 2 calls · read: CONTEXT.md',
       '    2. ✔ Write the evidence · 7.5s · 1 call · write: evidence.md',
       '    [enter] view · [esc] back',
@@ -239,7 +239,7 @@ describe('SubagentsPanel', () => {
     const panel = new SubagentsPanel()
     panel.reset()
     const narrow = panel.view(twoChildren().entries(), theme, 36, 13_000)
-    expect(narrow[0]?.endsWith(' · Ctrl+G closes')).toBe(true)
+    expect(narrow[0]?.endsWith(' · Ctrl+H closes')).toBe(true)
     expect(narrow[0]?.length).toBeLessThanOrEqual(36)
     const viewing = panel.view(twoChildren().entries(), theme, 120, 13_000, 'child-2')
     expect(viewing[2]).toBe('    2. ✔ Write the evidence · 7.5s · 1 call · write: evidence.md · viewing')

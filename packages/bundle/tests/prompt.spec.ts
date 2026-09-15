@@ -1650,23 +1650,23 @@ describe('the subagents readout and panel', () => {
     { id: 'child-2', label: 'Write the evidence', startedAt: 0, status: 'done', endedAt: 8_000, calls: 2, latest: 'write: evidence.md' },
   ]
 
-  it('pins the readout under the box and opens the panel on Ctrl-G', () => {
+  it('pins the readout under the box and opens the panel on Ctrl-H', () => {
     const { prompt, console } = build()
     prompt.setSubagents(entries())
-    expect(drawn(console)).toContain('subagents 2 · 1 running · 1 done · Ctrl+G')
+    expect(drawn(console)).toContain('subagents 2 · 1 running · 1 done · Ctrl+H')
     console.press({ kind: 'toggle-subagents' })
     const opened = drawn(console)
     // The header keeps the readout's counts and adds the way out.
-    expect(opened).toContain('subagents 2 · 1 running · 1 done · Ctrl+G closes')
+    expect(opened).toContain('subagents 2 · 1 running · 1 done · Ctrl+H closes')
     // The harness's terminal is narrow; the rows are cut to it, not wrapped.
     expect(opened).toContain('1. ▶ Investigate CONTEXT.md · 13s')
     expect(opened).toContain('2. ✔ Write the evidence · 8.0s')
     expect(opened).toContain('[enter] view')
     // The readout row itself is gone while the panel stands in its place.
-    expect((console.draws.at(-1)?.rows ?? []).some(row => row.trimEnd().endsWith('· Ctrl+G'))).toBe(false)
+    expect((console.draws.at(-1)?.rows ?? []).some(row => row.trimEnd().endsWith('· Ctrl+H'))).toBe(false)
     console.press({ kind: 'toggle-subagents' })
-    expect(drawn(console)).not.toContain('Ctrl+G closes')
-    expect(drawn(console)).toContain('subagents 2 · 1 running · 1 done · Ctrl+G')
+    expect(drawn(console)).not.toContain('Ctrl+H closes')
+    expect(drawn(console)).toContain('subagents 2 · 1 running · 1 done · Ctrl+H')
   })
 
   it('enters the marked child on Enter and leaves the panel behind', () => {
@@ -1676,7 +1676,7 @@ describe('the subagents readout and panel', () => {
     console.press({ kind: 'down' })
     console.press({ kind: 'enter' })
     expect(calls).toContain('enter:child-2')
-    expect(drawn(console)).not.toContain('Ctrl+G closes')
+    expect(drawn(console)).not.toContain('Ctrl+H closes')
   })
 
   it('opens the panel on a click on the readout, and enters on a click on a row', () => {
@@ -1688,27 +1688,27 @@ describe('the subagents readout and panel', () => {
     console.press({ kind: 'mouse-down', row: 9, column: 4 })
     console.press({ kind: 'mouse-up', row: 9, column: 4 })
     const rows = console.draws.at(-1)?.rows ?? []
-    expect(rows.join('\n')).toContain('Ctrl+G closes')
+    expect(rows.join('\n')).toContain('Ctrl+H closes')
     const second = rows.findIndex(row => row.includes('2. ✔ Write the evidence'))
     expect(second).toBeGreaterThanOrEqual(0)
     console.region = { region: 'chrome', index: second }
     console.press({ kind: 'mouse-down', row: 9, column: 4 })
     console.press({ kind: 'mouse-up', row: 9, column: 4 })
     expect(calls).toContain('enter:child-2')
-    expect(drawn(console)).not.toContain('Ctrl+G closes')
+    expect(drawn(console)).not.toContain('Ctrl+H closes')
   })
 
-  it('holds one open panel: Ctrl-G closes the queue, Ctrl-T closes the subagents', () => {
+  it('holds one open panel: Ctrl-H closes the queue, Ctrl-T closes the subagents', () => {
     const { prompt, console } = build()
     prompt.setSubagents(entries())
     submit(console, 'first')
     console.press({ kind: 'toggle-queue' })
     expect(drawn(console)).toContain('Ctrl+Q closes')
     console.press({ kind: 'toggle-subagents' })
-    expect(drawn(console)).toContain('Ctrl+G closes')
+    expect(drawn(console)).toContain('Ctrl+H closes')
     expect(drawn(console)).not.toContain('Ctrl+Q closes')
     console.press({ kind: 'toggle-todos' })
-    expect(drawn(console)).not.toContain('Ctrl+G closes')
+    expect(drawn(console)).not.toContain('Ctrl+H closes')
   })
 
   it('closes on Escape without interrupting', () => {
@@ -1717,7 +1717,7 @@ describe('the subagents readout and panel', () => {
     console.press({ kind: 'toggle-subagents' })
     console.press({ kind: 'escape' })
     expect(calls).not.toContain('escape')
-    expect(drawn(console)).not.toContain('Ctrl+G closes')
+    expect(drawn(console)).not.toContain('Ctrl+H closes')
     expect(drawn(console)).toContain('subagents 2 ·')
   })
 
@@ -1725,7 +1725,7 @@ describe('the subagents readout and panel', () => {
     const { prompt, console } = build()
     console.press({ kind: 'toggle-subagents' })
     expect(drawn(console)).toContain('no subagents yet')
-    expect(drawn(console)).not.toContain('Ctrl+G closes')
+    expect(drawn(console)).not.toContain('Ctrl+H closes')
     prompt.setSubagents(entries())
     expect(drawn(console)).toContain('subagents 2 ·')
     prompt.setSubagents([])
@@ -1736,9 +1736,9 @@ describe('the subagents readout and panel', () => {
     const { prompt, console } = build()
     prompt.setSubagents(entries())
     console.press({ kind: 'toggle-subagents' })
-    expect(drawn(console)).toContain('Ctrl+G closes')
+    expect(drawn(console)).toContain('Ctrl+H closes')
     prompt.setSubagents([])
-    expect(drawn(console)).not.toContain('Ctrl+G closes')
+    expect(drawn(console)).not.toContain('Ctrl+H closes')
     expect(drawn(console)).not.toContain('subagents 2 ·')
   })
 
@@ -1794,16 +1794,16 @@ describe('the subagents readout and panel', () => {
     prompt.setSubagents(entries())
     prompt.setTodos([{ content: 'first', status: 'in_progress' }])
     console.press({ kind: 'toggle-subagents' })
-    expect(drawn(console)).toContain('Ctrl+G closes')
+    expect(drawn(console)).toContain('Ctrl+H closes')
     const todos = (console.draws.at(-1)?.rows ?? []).findIndex(row => row.includes('todos '))
     expect(todos).toBeGreaterThanOrEqual(0)
     console.region = { region: 'chrome', index: todos }
     console.press({ kind: 'mouse-down', row: 9, column: 4 })
     console.press({ kind: 'mouse-up', row: 9, column: 4 })
-    expect(drawn(console)).not.toContain('Ctrl+G closes')
+    expect(drawn(console)).not.toContain('Ctrl+H closes')
   })
 
-  it('lets Ctrl-G abort a history search instead of opening the panel', () => {
+  it('lets Ctrl-H abort a history search instead of opening the panel', () => {
     const { prompt, console } = build()
     prompt.setSubagents(entries())
     submit(console, 'earlier line')
@@ -1811,10 +1811,10 @@ describe('the subagents readout and panel', () => {
     console.press({ kind: 'text', text: 'ear' })
     expect(drawn(console)).toContain('earlier line')
     console.press({ kind: 'toggle-subagents' })
-    expect(drawn(console)).not.toContain('Ctrl+G closes')
+    expect(drawn(console)).not.toContain('Ctrl+H closes')
     expect(prompt.empty).toBe(true)
     // Out of the search, the same key opens the panel.
     console.press({ kind: 'toggle-subagents' })
-    expect(drawn(console)).toContain('Ctrl+G closes')
+    expect(drawn(console)).toContain('Ctrl+H closes')
   })
 })

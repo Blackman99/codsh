@@ -268,7 +268,7 @@ _Avoid_: catalog, inspector, pager
 
 **Subagents readout**:
 The chrome row counting the children the live session started, by state —
-`subagents 3 · 2 running · 1 done · Ctrl+G` — for as long as the roster holds
+`subagents 3 · 2 running · 1 done · Ctrl+H` — for as long as the roster holds
 any. The roster is surface state fed by `subagent/start`, each direct
 child's own log (its `subagent/descriptor` names it; calls, turn starts,
 turn ends), and `subagent/end`, never a query over the store, which forgets
@@ -277,19 +277,19 @@ a child that finished; grandchildren belong to the child that started them.
 (a refusal to the runtime) failed; `aborted` and `interrupted` stopped — an
 unfinished child is never `✔`. Its
 clocks tick once a second while any child runs, on the roster's own timer.
-A click on the row, or Ctrl+G, opens the Subagents panel in its place.
+A click on the row, or Ctrl+H, opens the Subagents panel in its place.
 Dropped with the session on `/clear` and `/resume`.
 _Avoid_: agent list, task pane
 
 **Subagents panel**:
 The roster opened in the readout's place: a header with the readout's counts
-and `Ctrl+G closes`, then a numbered list the shape of the Queue panel, one
+and `Ctrl+H closes`, then a numbered list the shape of the Queue panel, one
 row per child — a mark (`▶` and `✔` are the todo readout's, `✗` the failed
 tool card's, `■` for a stopped child is this row's own), the label the
 child's log gave it, its elapsed time, its calls, and the latest one; the
 child on screen ends ` · viewing`. ↑/↓, Tab, Home/End, and digits move the
-mark; Enter or a click on a row enters that child's view; Esc or Ctrl+G
-closes (inside a Ctrl+R search, Ctrl+G cancels the search instead). It
+mark; Enter or a click on a row enters that child's view; Esc or Ctrl+H
+closes (inside a Ctrl+R search, Ctrl+H cancels the search instead). It
 enters and nothing else — stopping a child is the model's own tool. One
 open panel at a time with the Todo readout and the Queue panel. `/subagents`
 prints the header without its key and the rows without the `❯` cursor.

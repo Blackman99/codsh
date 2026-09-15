@@ -16,17 +16,17 @@ import { E2E_TEST_TIMEOUT_MS } from './harness.ts'
 import { drivePty, drivePtySteps, screenOf } from './pty-driver.ts'
 import { ENTER, ESCAPE, screenAt } from './pty-helpers.ts'
 
-/** Ctrl+G, as a terminal in raw mode sends it. */
-const CTRL_G = ''
+/** Ctrl+H, as a terminal in raw mode sends it. */
+const CTRL_H = ''
 
 /** Press and release without moving on the row that last painted `line`. */
 const clickOn = (line: string): string => `[<0;6;{row:${line}}M[<0;6;{row:${line}}m`
 
 /** The readout while both children run: one dim span, so the raw stream holds it whole. */
-const BOTH_RUNNING = 'subagents 2 · 2 running · Ctrl+G'
+const BOTH_RUNNING = 'subagents 2 · 2 running · Ctrl+H'
 
 /** The readout once both have ended: ONE completed, TWO failed on purpose. */
-const BOTH_SETTLED = 'subagents 2 · 1 done · 1 failed · Ctrl+G'
+const BOTH_SETTLED = 'subagents 2 · 1 done · 1 failed · Ctrl+H'
 
 /** The parent's answer to the second settlement notice: both gone, parent idle. */
 const ALL_SETTLED = 'CODE_CLI_SUBAGENTS_SETTLED n=2'
@@ -62,25 +62,25 @@ describe.skipIf(process.platform === 'win32')('the subagents roster (real PTY)',
     // The parent's turn is over — its answer is on screen — and the
     // children run on: the readout is the one thing that says so.
     const answered = screenAt(output, 'CODE_CLI_SUBAGENTS_STARTED').alternate
-    expect(answered.some(row => /subagents 2 · 2 running · Ctrl\+G/u.test(row))).toBe(true)
+    expect(answered.some(row => /subagents 2 · 2 running · Ctrl\+H/u.test(row))).toBe(true)
     const settled = screenAt(output, 'subagents 2 · 1 done · 1 failed').alternate
-    expect(settled.some(row => /subagents 2 · 1 done · 1 failed · Ctrl\+G/u.test(row))).toBe(true)
+    expect(settled.some(row => /subagents 2 · 1 done · 1 failed · Ctrl\+H/u.test(row))).toBe(true)
     // The settlements woke the parent, and the parent delegated nothing more.
     expect(output).not.toContain('subagents 3 ·')
   }, E2E_TEST_TIMEOUT_MS)
 
-  it('opens the panel on Ctrl+G, names each child with its state, and closes on Esc', async () => {
+  it('opens the panel on Ctrl+H, names each child with its state, and closes on Esc', async () => {
     const run = await drivePtySteps('subagents', [
       ['Welcome to codsh', `delegate it${ENTER}`, 300],
-      [BOTH_RUNNING, CTRL_G, 500],
-      ['Ctrl+G closes', ESCAPE, 400],
+      [BOTH_RUNNING, CTRL_H, 500],
+      ['Ctrl+H closes', ESCAPE, 400],
       [BOTH_SETTLED, '', 0],
       [ALL_SETTLED, `/exit${ENTER}`, 400],
     ], { timeoutMs: 60_000 })
     const opened = frame(run, 2)
     const closed = frame(run, 3)
     // The header keeps the readout's counts, and adds the way out.
-    expect(opened.some(row => row.includes('subagents 2 · 2 running · Ctrl+G closes'))).toBe(true)
+    expect(opened.some(row => row.includes('subagents 2 · 2 running · Ctrl+H closes'))).toBe(true)
     // Each child by number, mark, label, and clock, in the order they came
     // up; the first row is marked.
     expect(opened.some(row => /❯ 1\. ▶ CODE_CLI_SUBAGENT_(?:ONE|TWO) brief · [\d.]+s/u.test(row))).toBe(true)
@@ -89,16 +89,16 @@ describe.skipIf(process.platform === 'win32')('the subagents roster (real PTY)',
     expect(rowOf(opened, 'CODE_CLI_SUBAGENT_TWO brief')).toMatch(/▶ CODE_CLI_SUBAGENT_TWO brief · [\d.]+s/u)
     expect(opened.some(row => row.includes('[enter] view · [esc] back'))).toBe(true)
     // Esc folds the panel back to the readout; nothing else happened.
-    expect(closed.some(row => row.includes('Ctrl+G closes'))).toBe(false)
-    expect(closed.some(row => /subagents 2 · .*Ctrl\+G/u.test(row))).toBe(true)
+    expect(closed.some(row => row.includes('Ctrl+H closes'))).toBe(false)
+    expect(closed.some(row => /subagents 2 · .*Ctrl\+H/u.test(row))).toBe(true)
     expect(closed.some(row => row.includes('interrupted'))).toBe(false)
   }, E2E_TEST_TIMEOUT_MS)
 
   it('enters a child from the panel with Enter, titles its view, and returns on Esc', async () => {
     const run = await drivePtySteps('subagents', [
       ['Welcome to codsh', `delegate it${ENTER}`, 300],
-      [BOTH_RUNNING, CTRL_G, 500],
-      ['Ctrl+G closes', ENTER, 600],
+      [BOTH_RUNNING, CTRL_H, 500],
+      ['Ctrl+H closes', ENTER, 600],
       // Inside: the child's own card, and a status row naming the child.
       ['Esc returns to the parent', ESCAPE, 400],
       // The exit replay paints the parent's answer again: back for sure,
@@ -118,10 +118,10 @@ describe.skipIf(process.platform === 'win32')('the subagents roster (real PTY)',
     // back. The call is optional only because the view can open before the
     // child's `tool/call` lands.
     expect(rowOf(inside, 'Esc returns to the parent')).toMatch(new RegExp(`subagent ▶ ${entered.label} · [\\d.]+s( · 1 call · bash: ${entered.sleep})? · Esc returns to the parent`, 'u'))
-    expect(inside.some(row => row.includes('Ctrl+G closes'))).toBe(false)
+    expect(inside.some(row => row.includes('Ctrl+H closes'))).toBe(false)
     // Esc: the parent again, its answer back, the readout still counting.
     expect(back.some(row => row.includes('CODE_CLI_SUBAGENTS_STARTED'))).toBe(true)
-    expect(back.some(row => /subagents 2 · .*Ctrl\+G/u.test(row))).toBe(true)
+    expect(back.some(row => /subagents 2 · .*Ctrl\+H/u.test(row))).toBe(true)
     expect(back.some(row => row.includes('Esc returns to the parent'))).toBe(false)
     expect(back.some(row => row.includes(`● ${entered.sleep}`))).toBe(false)
   }, E2E_TEST_TIMEOUT_MS)
@@ -139,7 +139,7 @@ describe.skipIf(process.platform === 'win32')('the subagents roster (real PTY)',
     ], { timeoutMs: 60_000 })
     const opened = frame(run, 2)
     const inside = frame(run, 3)
-    expect(opened.some(row => row.includes('subagents 2 · 2 running · Ctrl+G closes'))).toBe(true)
+    expect(opened.some(row => row.includes('subagents 2 · 2 running · Ctrl+H closes'))).toBe(true)
     // Each label sits with its own call: the roster binds a child to the
     // card its log names, whichever came up first.
     expect(rowOf(opened, 'CODE_CLI_SUBAGENT_ONE brief')).toMatch(/bash: sleep 4/u)
@@ -153,8 +153,8 @@ describe.skipIf(process.platform === 'win32')('the subagents roster (real PTY)',
     const run = await drivePtySteps('subagents', [
       ['Welcome to codsh', `delegate it${ENTER}`, 300],
       // Both gone from the store, and the parent idle.
-      [ALL_SETTLED, CTRL_G, 500],
-      ['Ctrl+G closes', ENTER, 800],
+      [ALL_SETTLED, CTRL_H, 500],
+      ['Ctrl+H closes', ENTER, 800],
       // The door either opens or says why not; the assertion tells them
       // apart, so the step after Esc waits on nothing the door decides.
       ['re:Esc returns to the parent|no longer running', ESCAPE, 400],
@@ -163,7 +163,7 @@ describe.skipIf(process.platform === 'win32')('the subagents roster (real PTY)',
     const opened = frame(run, 2)
     const inside = frame(run, 3)
     // The roster says how each ended, with the work it did.
-    expect(opened.some(row => row.includes('subagents 2 · 1 done · 1 failed · Ctrl+G closes'))).toBe(true)
+    expect(opened.some(row => row.includes('subagents 2 · 1 done · 1 failed · Ctrl+H closes'))).toBe(true)
     expect(rowOf(opened, 'CODE_CLI_SUBAGENT_ONE brief')).toMatch(/\d\. ✔ CODE_CLI_SUBAGENT_ONE brief · [\d.]+s · 1 call · bash: sleep 4/u)
     expect(rowOf(opened, 'CODE_CLI_SUBAGENT_TWO brief')).toMatch(/\d\. ✗ CODE_CLI_SUBAGENT_TWO brief · [\d.]+s · 1 call · bash: sleep 3/u)
     // A finished child still opens: its transcript, read back whole from its

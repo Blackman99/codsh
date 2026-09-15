@@ -60,11 +60,15 @@ describe('KeyDecoder', () => {
     expect(decode('终端')).toEqual([{ kind: 'text', text: '终端' }])
   })
 
+  it('leaves Ctrl-G unbound, so Graph can take the panorama', () => {
+    expect(decode('\u0007')).toEqual([])
+  })
+
   it.each([
     { label: 'Enter submits', bytes: '\r', key: { kind: 'enter' } },
     { label: 'a line feed also submits', bytes: '\n', key: { kind: 'enter' } },
     { label: 'Tab', bytes: '\t', key: { kind: 'tab' } },
-    { label: 'Backspace', bytes: '\u007F', key: { kind: 'backspace' } },
+    { label: 'Backspace is DEL, not Ctrl-H', bytes: '\u007F', key: { kind: 'backspace' } },
     { label: 'Ctrl-C', bytes: '\u0003', key: { kind: 'interrupt' } },
     { label: 'Ctrl-D', bytes: '\u0004', key: { kind: 'eof' } },
     { label: 'Ctrl-A', bytes: '\u0001', key: { kind: 'home' } },
@@ -72,7 +76,7 @@ describe('KeyDecoder', () => {
     { label: 'Ctrl-W', bytes: '\u0017', key: { kind: 'kill-word' } },
     { label: 'Ctrl-L', bytes: '\u000C', key: { kind: 'clear-screen' } },
     { label: 'Ctrl-T', bytes: '\u0014', key: { kind: 'toggle-todos' } },
-    { label: 'Ctrl-G opens the subagents panel', bytes: '\u0007', key: { kind: 'toggle-subagents' } },
+    { label: 'Ctrl-H opens the subagents panel', bytes: '\b', key: { kind: 'toggle-subagents' } },
     { label: 'Ctrl-Q opens the queue', bytes: '\u0011', key: { kind: 'toggle-queue' } },
     { label: 'Ctrl-R searches history', bytes: '\u0012', key: { kind: 'history-search' } },
     { label: 'Ctrl-Z undoes (raw mode reads it, nothing suspends)', bytes: '\u001A', key: { kind: 'undo' } },
@@ -229,7 +233,8 @@ describe('KeyDecoder', () => {
     { label: 'Ctrl+O expands', bytes: `${ESC}[111;5u`, keys: [{ kind: 'expand-output' }] },
     { label: 'Ctrl+V pastes the clipboard image', bytes: `${ESC}[118;5u`, keys: [{ kind: 'paste-image' }] },
     { label: 'Ctrl+T opens the todo list', bytes: `${ESC}[116;5u`, keys: [{ kind: 'toggle-todos' }] },
-    { label: 'Ctrl+G opens the subagents panel', bytes: `${ESC}[103;5u`, keys: [{ kind: 'toggle-subagents' }] },
+    { label: 'Ctrl+H opens the subagents panel', bytes: `${ESC}[104;5u`, keys: [{ kind: 'toggle-subagents' }] },
+    { label: 'Ctrl+Backspace still kills a word', bytes: `${ESC}[8;5u`, keys: [{ kind: 'kill-word' }] },
     { label: 'Ctrl+R searches history', bytes: `${ESC}[114;5u`, keys: [{ kind: 'history-search' }] },
     { label: 'Ctrl+F searches the transcript', bytes: `${ESC}[102;5u`, keys: [{ kind: 'transcript-search' }] },
     { label: 'Alt+b steps a word left', bytes: `${ESC}[98;3u`, keys: [{ kind: 'word-left' }] },

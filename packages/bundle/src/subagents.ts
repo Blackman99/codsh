@@ -4,7 +4,8 @@
  * person opens on it to pick one, the `/subagents` report, and the title a
  * Child view carries while it shows one.
  *
- * Grok Build keeps the same roster in its tasks pane (Ctrl+G): a status mark,
+ * Grok Build keeps the same roster in its tasks pane (Ctrl+G). This
+ * surface uses Ctrl+H so Graph's Panorama overlay can keep Ctrl+G: a status mark,
  * the elapsed time, the label, and Enter to open one. Here the pane is a
  * chrome panel the shape the Queue panel has, and opening one is the Child
  * view the transcript already offers on a click.
@@ -43,7 +44,7 @@ export interface SubagentEntry {
 }
 
 /** The chord that opens and closes the panel, named in the readout's trailer. */
-export const SUBAGENTS_KEY = 'Ctrl+G'
+export const SUBAGENTS_KEY = 'Ctrl+H'
 
 /** Entries shown at once before the panel windows. */
 export const SUBAGENT_ROWS = 8
@@ -212,7 +213,7 @@ function countsText(entries: readonly SubagentEntry[]): string {
 
 /**
  * The collapsed readout: how many children, by state, in one line under the
- * box — `subagents 3 · 2 running · 1 done · Ctrl+G`.
+ * box — `subagents 3 · 2 running · 1 done · Ctrl+H`.
  *
  * One dim span, the way the queue row is, so a PTY wait can match it as raw
  * bytes; the key is cut before the counts are.
@@ -256,7 +257,7 @@ export function subagentLine(entry: SubagentEntry, theme: Theme, now: number, la
  * @param entries - the roster, in start order.
  * @param theme - styling.
  * @param columns - display columns available to the header.
- * @param trailer - what follows the counts: the panel's ` · Ctrl+G closes`, or nothing.
+ * @param trailer - what follows the counts: the panel's ` · Ctrl+H closes`, or nothing.
  * @returns the styled header, one row.
  */
 function header(entries: readonly SubagentEntry[], theme: Theme, columns: number, trailer: string): string {

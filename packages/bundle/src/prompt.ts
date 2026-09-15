@@ -827,8 +827,9 @@ export class Prompt {
       return
     }
     if (key.kind === 'toggle-subagents') {
-      // Ctrl+G is readline's way out of a Ctrl+R search, and a hand inside
-      // one presses it for that; the panel waits until the search is over.
+      // Inside a Ctrl+R search the panel waits: on a terminal that
+      // sends BS for Ctrl+H the same byte is a delete in the query, and
+      // cancelling the search is safer than opening the roster.
       if (this.editor.view.search !== undefined) {
         this.editor.handle({ kind: 'escape' })
         this.render()
@@ -1855,7 +1856,7 @@ export class Prompt {
       menuOverlay = box.overlay
     }
     if (this.shortcutsOpen) {
-      rows.push(this.theme.dim(truncate('  Ctrl+R history · Ctrl+F find · Ctrl+O folds · Ctrl+T todos · Ctrl+G subagents · Ctrl+Z undo', columns)))
+      rows.push(this.theme.dim(truncate('  Ctrl+R history · Ctrl+F find · Ctrl+O folds · Ctrl+T todos · Ctrl+H subagents · Ctrl+Z undo', columns)))
       rows.push(this.theme.dim(truncate('  Ctrl+Q queue · Ctrl+Enter steer · Ctrl+V image · Shift-Enter newline', columns)))
       rows.push(this.theme.dim(truncate('  Esc interrupt · ? closes', columns)))
       rows.push(this.theme.muted(truncate('  /status → model · permissions · tokens · context', columns)))
