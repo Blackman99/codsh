@@ -91,6 +91,7 @@ dsh --profile code
 - 右侧一列时间线标出当前在第几轮——刻度和箭头可点击跳转，悬停预览真实的提问内容。Shift+←/→ 是键盘上的同一件事，`/jump` 则是可搜索、可撤回的预览。`/rewind` 从你选定的某一轮之前分叉出对话继续；原会话留在 `/resume` 里，Esc Esc 仍然找回上一条提问。
 - 思考直接流进对话，停在它的计时行（`✻ thought for 3.2s`）下面保持展开，直到下一条提问把它折成这一行；每次工具调用只占一行——做了什么、`+n -m` 或 `· 12 lines`、`✔` 或 `✗`、失败时还带上原因——输出收在这一行后面。点一块开合一块，Ctrl+O 开合全部（有折着的就全部展开，都开着就全部折起）；手动开合过的块跨轮次保留那个形态。写完的回答始终整段留下。压缩——自动的，或 `/compact`——也留下一个折叠块：多少条历史、多少 token 变成了摘要、哪个模型写的，以及摘要本身；进行中 hint 行会显示 `compacting history…`。
 - 正在运行的进程内子代理是一个视图：子会话一出现，卡片就会写 `click to enter`。点进去后子代理的 transcript 替换父级并实时流出；Esc 回退一层。这里不能打字——这是查看，不是跟进。Workflow/Ralph 的回合仍然只是一行：那些子会话跑在 worker 线程里，点进去只会打不开。
+- 本会话发起的子代理常驻在输入框下方计数——`subagents 2 · 1 running · 1 done · Ctrl+H`。Ctrl+H 或点这一行打开列表：每个子代理的状态、用时、调用数和最近一次调用；Enter 或点击进入其中一个，状态行会写明是哪一个。跑完的子代理仍留在列表里，可以只读打开。`/subagents` 打印同一份列表。
 - `/view 1` 把一条回答摊成整屏，`/view 1:1` 打开它的第一个代码块；Esc 原样还回会话。`/copy` 用的是同一套编号——原始 Markdown，或去掉围栏的代码。
 - `/diff` 把未提交的改动送进同一个阅读器，而不是让它刷过去；装不下自己的 diff 卡片，点一下也在那里打开。管道里它依然只是若干行。
 
@@ -160,7 +161,7 @@ pnpm run site:screens        # 用真实二进制重拍站点上的终端截屏
 
 `MOCK=<mode>` 用无 key 的 mock 模型启动：`write`（默认）、`bash`、`fail`（打印一行后以 3 退出的命令）、`heredoc`、
 `slow`、`steer`（占住回合 3 秒并报告插话是否送达）、`tall`、`spec`、`markdown`、
-`reasoning`、`reasoning-slow`（长到来得及中断的思考）、`reason-write`（思考、写文件、再思考、回答）、`echo`、`todo`、`questions`、`workflow`、
+`reasoning`、`reasoning-slow`（长到来得及中断的思考）、`reason-write`（思考、写文件、再思考、回答）、`echo`、`todo`、`questions`、`workflow`、`subagents`（两个后台子代理，其中一个失败）、
 `context`（32k 输入用量、128k 窗口；`cli-mock-pro` 为 64k）、
 `ship-wayfinder`（`/ship SMALL_WAYFINDER` 验证确认后进入 grill；`/ship PENDING_WAYFINDER` 留下可续跑的规划记录）、`ship-delegate`、`ship-landing`、`vision`，以及自动图像
 描述背后的 `auto-vision`、`auto-vision-slow`、`auto-vision-fail`。`INSPECT=1`

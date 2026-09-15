@@ -1058,6 +1058,38 @@ describe('a pending subagent card that is a view', () => {
     expect(transcript.takeEnter()).toBeUndefined()
   })
 
+  it('names the next child by the oldest unbound call: description, else prompt, else the tool', () => {
+    const transcript = build()
+    expect(transcript.peekSubagentLabel()).toBeUndefined()
+    transcript.render(callEvent('c1', 'subagent', { description: 'Read-only ship brief', prompt: 'SHIP_DELEGATE_CHILD\n\nRead CONTEXT.md' }))
+    transcript.render(callEvent('c2', 'subagent', { prompt: '\nInvestigate the retry path\nand report' }))
+    transcript.render(callEvent('c3', 'subagent_fork', {}))
+    expect(transcript.peekSubagentLabel()).toBe('Read-only ship brief')
+    // FIFO skips the calls already bound to a child.
+    transcript.promotePendingView('child-1')
+    expect(transcript.peekSubagentLabel()).toBe('Investigate the retry path')
+    transcript.promotePendingView('child-2')
+    expect(transcript.peekSubagentLabel()).toBe('subagent_fork')
+    transcript.promotePendingView('child-3')
+    expect(transcript.peekSubagentLabel()).toBeUndefined()
+  })
+
+  it('binds the call whose label the child carries, whatever order the children came up in', () => {
+    const transcript = build()
+    transcript.render(callEvent('c1', 'subagent', { description: 'CODE_CLI_SUBAGENT_ONE brief' }))
+    transcript.render(callEvent('c2', 'subagent', { description: 'CODE_CLI_SUBAGENT_TWO brief' }))
+    // TWO came up first: its label picks the second card, not the oldest,
+    // which stays the next one to bind.
+    expect(transcript.promotePendingView('child-two', 'CODE_CLI_SUBAGENT_TWO brief').join('\n')).toContain('click to enter')
+    expect(transcript.takeEnter()).toBe('child-two')
+    expect(transcript.peekSubagentLabel()).toBe('CODE_CLI_SUBAGENT_ONE brief')
+    // A label no pending call carries falls back to the oldest unbound one.
+    expect(transcript.promotePendingView('child-one', 'something else').join('\n')).toContain('click to enter')
+    expect(transcript.takeEnter()).toBe('child-one')
+    expect(transcript.peekSubagentLabel()).toBeUndefined()
+    expect(transcript.promotePendingView('child-three', 'CODE_CLI_SUBAGENT_ONE brief')).toEqual([])
+  })
+
   it('promotes a pending subagent_fork call the same way', () => {
     const transcript = build()
     const pending = transcript.render(callEvent('c1', 'subagent_fork', {}))

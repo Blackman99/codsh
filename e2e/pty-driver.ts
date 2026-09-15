@@ -127,6 +127,12 @@ while time.monotonic() < deadline:
         if payload.startswith(b"@WINSZ:"):
             new_rows, new_cols = payload[7:].split(b"x")
             fcntl.ioctl(fd, termios.TIOCSWINSZ, struct.pack("HHHH", int(new_rows), int(new_cols), 0, 0))
+            # ioctl stores the size; Node fires resize on SIGWINCH. Linux
+            # does not always deliver that signal from TIOCSWINSZ alone.
+            try:
+                os.kill(pid, signal.SIGWINCH)
+            except ProcessLookupError:
+                pass
         else:
             os.write(fd, payload)
         step += 1

@@ -8,6 +8,7 @@ import { describe, expect, it } from 'vitest'
 import {
   ChildViews,
   childOwnedEvents,
+  descriptorLabel,
   graphKeyedSessions,
   inProcessDescendants,
   ownsApproval,
@@ -135,5 +136,23 @@ describe('runnerFolds', () => {
     expect(runnerFolds([
       { id: 'only', graphKey: 'landing:1', label: 'Ticket 1: Graph join' },
     ])[0]?.label).toBe('Ticket 1: Graph join')
+  })
+})
+
+describe('descriptorLabel', () => {
+  it('reads the trimmed creation label from the child\'s descriptor event', () => {
+    const events = [
+      { type: 'turn/start', data: {} },
+      { type: 'subagent/descriptor', data: { mode: 'continuable', label: '  Investigate CONTEXT.md  ' } },
+      { type: 'subagent/descriptor', data: { mode: 'continuable', label: 'later, ignored' } },
+    ]
+    expect(descriptorLabel(events)).toBe('Investigate CONTEXT.md')
+  })
+
+  it('answers nothing for a log with no descriptor, or an empty label', () => {
+    expect(descriptorLabel([{ type: 'turn/start', data: {} }])).toBeUndefined()
+    expect(descriptorLabel([{ type: 'subagent/descriptor', data: { mode: 'one-shot' } }])).toBeUndefined()
+    expect(descriptorLabel([{ type: 'subagent/descriptor', data: { label: '   ' } }])).toBeUndefined()
+    expect(descriptorLabel([{ type: 'subagent/descriptor', data: null }])).toBeUndefined()
   })
 })
