@@ -295,6 +295,22 @@ export function thinkingFoldRules(theme: Theme, bodyLines: number): {
   }
 }
 
+/**
+ * What a subagent call is for, in one line: the description the model gave
+ * it, else the first line of the prompt it sent, else the tool's own name.
+ * @param name - the tool the model called.
+ * @param args - the parsed call arguments.
+ * @returns the label.
+ */
+export function subagentLabel(name: string, args: unknown): string {
+  const record = typeof args === 'object' && args !== null ? args as Record<string, unknown> : {}
+  const description = typeof record['description'] === 'string' ? record['description'].trim() : ''
+  if (description !== '') return description.split('\n')[0] ?? description
+  const prompt = typeof record['prompt'] === 'string' ? record['prompt'] : ''
+  const first = prompt.split('\n').find(line => line.trim() !== '')?.trim() ?? ''
+  return first === '' ? name : first
+}
+
 /** Count added/removed lines across one or more file diffs. */
 function diffStats(diffs: readonly FileDiff[]): { added: number, removed: number } {
   let added = 0
@@ -499,6 +515,7 @@ export class Transcript {
   private enter: string | undefined
   /** Raw text a click on this card should read, when its body was capped. */
   private page: string | undefined
+  /** What the subagent call just promoted said it was for, for the roster. */
   /** Files the event just rendered reported writing, workspace-relative. */
   private written: readonly string[] = []
   /** Rounds a workflow started, keyed `runId:seq`: an end carries only the seq. */
@@ -815,13 +832,17 @@ export class Transcript {
    * child Session id, and rebuild that pending card as a view.
    *
    * `subagent/start` publishes the id as soon as the child exists — before the
-   * tool result — so a click can enter while the call is still running. Two
-   * unmatched pendings bind FIFO. The pending call stays recorded so a later
+   * tool result — so a click can enter while the call is still running. A
+   * label names the call to bind — the child's own log says what it was
+   * started for, and two children started in one step come up in either
+   * order; without one, or without a call that carries it, two unmatched
+   * pendings bind FIFO. The pending call stays recorded so a later
    * continuable start-result still pairs with it.
    * @param childId - the child Session the pending card should open.
+   * @param label - what the child says it was started for, when known.
    * @returns the view card's lines, empty when no unmatched pending call remains.
    */
-  promotePendingView(childId: string): string[] {
+  promotePendingView(childId: string, label?: string): string[] {
     const { theme } = this.options
     this.fold = undefined
     this.rule = ''
@@ -838,9 +859,16 @@ export class Transcript {
     for (const [callId, pending] of this.calls) {
       if (pending.enter !== undefined) continue
       if (pending.name !== 'subagent' && pending.name !== 'subagent_fork') continue
-      matched = pending
-      matchedId = callId
-      break
+      if (label !== undefined && subagentLabel(pending.name, pending.args) === label) {
+        matched = pending
+        matchedId = callId
+        break
+      }
+      if (matched === undefined) {
+        matched = pending
+        matchedId = callId
+        if (label === undefined) break
+      }
     }
     if (matched === undefined || matchedId === undefined) return []
     const bg = (text: string) => theme.bgTool(text)
@@ -858,6 +886,21 @@ export class Transcript {
     this.label = matched.title
     this.pendingCard = original
     return lines
+  }
+
+  /**
+   * What the oldest unbound `subagent` / `subagent_fork` call said it was
+   * for — the label {@link promotePendingView} would give the next child —
+   * for a roster that has to name a child before its card can be rebuilt.
+   * @returns the label, or undefined when no such call is pending.
+   */
+  peekSubagentLabel(): string | undefined {
+    for (const pending of this.calls.values()) {
+      if (pending.enter !== undefined) continue
+      if (pending.name !== 'subagent' && pending.name !== 'subagent_fork') continue
+      return subagentLabel(pending.name, pending.args)
+    }
+    return undefined
   }
 
   /**

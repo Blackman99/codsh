@@ -49,8 +49,9 @@ import { TerminalApproval, answerForKey, nameCall, type ApprovalAnswer } from '.
 import { notificationText, planNotification, runNotificationCommand } from './notify.ts'
 import { PermissionRules } from './permissions.ts'
 import { rewindPoints, type RewindPoint } from './rewind.ts'
-import { NO_PROGRESS, advanceRound, roundActivity, type RoundProgress } from './round-watch.ts'
-import { ChildViews, childOwnedEvents, inProcessDescendants, ownsApproval, paintsViewedSession } from './child-view.ts'
+import { NO_PROGRESS, advanceRound, describeCall, roundActivity, type RoundProgress } from './round-watch.ts'
+import { ChildViews, childOwnedEvents, descriptorLabel, inProcessDescendants, ownsApproval, paintsViewedSession } from './child-view.ts'
+import { SubagentRoster, outcomeStatus, subagentTitle, subagentsReport } from './subagents.ts'
 import type { ToolWorkflowAgentStartData } from '@deepseek-ai/dsh-tool-workflow/types'
 import type { QueueItem } from './queue.ts'
 import { bannerLines, resolveWelcomeKind } from './banner.ts'
@@ -298,6 +299,19 @@ function todoList(ctx: Context, agent: Agent): TodoList {
 }
 
 /**
+ * What a Viewport needs of the Session it shows: its id and its log.
+ *
+ * A live Session is one; so is a finished child read back from its persisted
+ * log, which no longer has a Session in the store to stream from but still
+ * has a transcript to read.
+ */
+interface ShownSession {
+  readonly id: string
+  snapshotEvents(): readonly SessionEvent[]
+  readonly inheritedEventCount: number
+}
+
+/**
  * Render every event a resumed session already holds, so the person sees the
  * conversation they are continuing.
  * @param session - the reconstructed session.
@@ -322,7 +336,7 @@ function replay(session: Session, transcript: Transcript, io: CliIo, theme: Them
  * @param io - the surface to write to.
  * @param theme - styling for the replayed thinking folds.
  */
-function replayEvents(session: Session, transcript: Transcript, io: CliIo, theme: Theme, events = session.snapshotEvents()): void {
+function replayEvents(session: ShownSession, transcript: Transcript, io: CliIo, theme: Theme, events = session.snapshotEvents()): void {
   const timing = indexReplayTiming(events)
   for (const event of events) {
     // Thinking is in the log but not in the renderer's visible text: replay it
@@ -617,11 +631,13 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
   const childViews = new ChildViews()
   /** Per-id frames for stacked views: transcript plus the streams that follow it. */
   const nested = new Map<string, {
-    session: Session
+    session: ShownSession
     transcript: Transcript
     stream: TextStream
     thinking: ThinkingTracker
   }>()
+  /** The subagents the live session started, for the readout, the panel, and the view's title. */
+  const roster = new SubagentRoster()
   const sessionFolds: FoldedFacts = { planMode: false }
   /** Fold plan mode and the permission preset over the live session's log. */
   const refold = (): void => {
@@ -879,6 +895,7 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
   let onInterruptKey: () => void = () => {}
   let onShipGate: (gate: 1 | 2 | undefined) => void = () => {}
   let onSteer: (item: QueueItem) => Promise<'steered' | 'idle'> = () => Promise.resolve('idle')
+  let onEnterSubagent: (id: string) => void = () => {}
   const prompt = new Prompt(io.console, theme, {
     commands: completable,
     paths: completePath,
@@ -888,6 +905,9 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
     interrupt: () => { onInterruptKey() },
     escape: () => { onEscapeKey() },
     steer: item => onSteer(item),
+    // Enter or a click in the subagents panel: open that child's view.
+    enterSubagent: (id) => { onEnterSubagent(id) },
+    now: () => performance.now(),
     // The outstanding read is already answered with nothing; ending input is
     // what makes the next one answer the same way.
     eof: () => { io.console.close() },
@@ -936,7 +956,7 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
     return id === undefined ? undefined : nested.get(id)
   }
   /** The Session whose transcript the Viewport is showing. */
-  const shownSession = (): Session => currentView()?.session ?? live.agent.session
+  const shownSession = (): ShownSession => currentView()?.session ?? live.agent.session
   // The baseline the indicator's token figure counts from, reset per turn.
   let turnBaseTokens = 0
   // The round a workflow is on. A ralph loop spends minutes inside one round,
@@ -962,6 +982,8 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
     timer: ReturnType<typeof setInterval>
   } | undefined
   const ROUND_POLL_MS = 1000
+  /** How often the subagents roster repaints its running clocks. */
+  const ROSTER_TICK_MS = 1000
   const stopRoundWatch = (): void => {
     if (roundWatch !== undefined) clearInterval(roundWatch.timer)
     roundWatch = undefined
@@ -1339,6 +1361,18 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
       },
     }))
     disposers.push(commands.register({
+      name: 'subagents',
+      description: 'print the subagents this session started, and how they are doing',
+      handler: () => {
+        // The readout and the panel answer this on a terminal; this is the
+        // same roster for the pipe shape, which has no chrome to open.
+        const lines = subagentsReport(roster.entries(), theme, io.console.columns, performance.now())
+        return lines.length === 0
+          ? { kind: 'success', text: 'no subagents yet' }
+          : { kind: 'success', text: lines.join('\n') }
+      },
+    }))
+    disposers.push(commands.register({
       name: 'clear',
       description: 'start a fresh session in place',
       handler: async () => {
@@ -1682,7 +1716,17 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
   refreshStatus = (): void => {
     if (!io.console.readsKeys) return
     if (childViews.current !== undefined) {
-      prompt.setStatus(theme.dim('subagent · Esc returns to the parent'))
+      // The view's title bar: which subagent this is and how it is doing,
+      // read at paint time so its clock ticks with the working line.
+      const viewedId = childViews.current.sessionId
+      prompt.setStatus((columns) => {
+        // A grandchild entered by its card is not on this roster: the plain
+        // row names the way out, and nothing else it cannot know.
+        const entry = roster.entry(viewedId)
+        return entry === undefined
+          ? theme.dim('subagent · Esc returns to the parent')
+          : subagentTitle(entry, theme, performance.now(), columns)
+      })
       return
     }
     prompt.setStatus(columns => statusLine({ ...facts(branch), ...shipFacts(), shortcuts: true }, theme, columns))
@@ -1700,14 +1744,17 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
    * @param session - the Session being shown.
    * @param transcript - the renderer that will own later events for it.
    */
-  const showSession = (session: Session, transcript: Transcript): void => {
+  const showSession = (session: ShownSession, transcript: Transcript): void => {
     io.console.clearScreen()
     io.console.suspendPainting()
     try {
       replayEvents(session, transcript, io, theme, childOwnedEvents(session.snapshotEvents(), session.inheritedEventCount))
+      // A child still waiting for its result is bound to the card its own
+      // log names, the way the start edge binds it: store order is not
+      // call order when two started in one step.
       for (const child of sessions.list()) {
         if (child.header.parentSession !== session.id) continue
-        const lines = transcript.promotePendingView(child.id)
+        const lines = transcript.promotePendingView(child.id, descriptorLabel(childOwnedEvents(child.snapshotEvents(), child.inheritedEventCount)))
         if (lines.length === 0) continue
         io.console.appendFold(lines, lines, transcript.takeRule(), transcript.takeLabel(), transcript.takeEnter(), undefined, transcript.takePendingCard())
       }
@@ -1748,6 +1795,7 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
     spinner.pause()
     showSession(session, frame.transcript)
     refreshStatus()
+    pushRoster()
   }
   /** Pop one Child view. Esc returns to the previous level, then the parent. */
   const exitView = (): void => {
@@ -1763,6 +1811,7 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
       currentThought = undefined
       showSession(live.agent.session, live.transcript)
       refreshStatus()
+      pushRoster()
       if (live.agent.status === 'running') spinner.start()
       return
     }
@@ -1770,8 +1819,134 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
     remaining.thinking.reset()
     showSession(remaining.session, remaining.transcript)
     refreshStatus()
+    pushRoster()
   }
-  io.console.setEnter(enterView)
+  /**
+   * One event of a child's own log, folded into its roster row: a tool call
+   * counts and names the latest, a turn start runs it, a turn end settles
+   * it, and the descriptor the provider appends names it for good.
+   * @param id - the child Session's id.
+   * @param event - one of its events.
+   */
+  const feedRoster = (id: string, event: SessionEvent): void => {
+    const kind: string = event.type
+    if (event.type === 'tool/call') {
+      roster.call(id, describeCall(event.data.name, event.data.arguments, (name, args) => presentersFor(ctx, live.agent).call(name, args)?.title))
+    } else if (kind === 'turn/start') {
+      roster.settle(id, 'running', performance.now())
+    } else if (event.type === 'turn/end') {
+      roster.settle(id, outcomeStatus(event.data.reason.kind), performance.now())
+    } else if (event.type === 'subagent/descriptor' && typeof event.data.label === 'string') {
+      roster.relabel(id, event.data.label)
+    }
+  }
+  /**
+   * The roster's own clock: once a second while any child runs, the chrome
+   * repaints its elapsed figures — the spinner's cadence is the parent's,
+   * paused inside a Child view and stopped when the parent's turn ends, and
+   * a child runs on after both. Nothing running, nothing ticking.
+   */
+  let rosterClock: ReturnType<typeof setInterval> | undefined
+  const stopRosterClock = (): void => {
+    if (rosterClock !== undefined) clearInterval(rosterClock)
+    rosterClock = undefined
+  }
+  disposers.push(stopRosterClock)
+  /** Push the roster to the chrome, and keep its clock in step with it. */
+  const pushRoster = (): void => {
+    const entries = roster.entries()
+    prompt.setSubagents(entries, childViews.current?.sessionId)
+    const running = entries.some(entry => entry.status === 'running')
+    if (running && rosterClock === undefined) {
+      rosterClock = setInterval(() => {
+        prompt.tick()
+        if (childViews.current !== undefined && roster.has(childViews.current.sessionId)) refreshStatus()
+      }, ROSTER_TICK_MS)
+      rosterClock.unref()
+    } else if (!running) {
+      stopRosterClock()
+    }
+  }
+  /**
+   * Open a child's transcript: live from the store while it is there, or
+   * read-only from its persisted log once it has finished and gone.
+   *
+   * A finished child's row stays on the roster, so the door must still open:
+   * the session query serves the log the store no longer holds, and the
+   * view shows it the way a resumed session is shown. Nothing streams into
+   * it — nothing is left to stream — and Esc pops it like any view.
+   * @param id - the child session the row or the card named.
+   */
+  /**
+   * Drop every open view without a repaint, for a view about to be pushed
+   * in their place: from inside a view, a roster row swaps rather than
+   * stacks, so Esc from the new view returns to the parent. The live
+   * transcript is rebuilt on that Esc, as after any view.
+   */
+  const dropViews = (): void => {
+    if (childViews.current === undefined) return
+    currentView()?.thinking.reset()
+    childViews.clear()
+    nested.clear()
+  }
+  let openingChild: string | undefined
+  const openChild = (id: string): void => {
+    if (childViews.current?.sessionId === id) {
+      prompt.setFlash(theme.dim('  already viewing this subagent'))
+      return
+    }
+    if (sessions.get(SessionId(id)) !== undefined) {
+      // Only once the door is known to open: a refused one leaves the
+      // person where they were.
+      if (roster.has(id)) dropViews()
+      enterView(id)
+      return
+    }
+    const query = ctx.get('sessionQuery')
+    if (query === undefined || !roster.has(id)) {
+      prompt.setFlash(theme.dim('  subagent is no longer running'))
+      return
+    }
+    if (openingChild === id) return
+    openingChild = id
+    void (async () => {
+      let observed
+      try {
+        observed = await query.observeSession(SessionId(id), { projectionMode: 'none' })
+      } catch {
+        openingChild = undefined
+        prompt.setFlash(theme.dim('  subagent is no longer running'))
+        return
+      }
+      try {
+        // The surface may have moved on during the read: the same child on
+        // screen by another door, or the roster replaced under it.
+        if (childViews.current?.sessionId === id || !roster.has(id)) return
+        const events = [...observed.events]
+        const { inheritedEventCount } = observed
+        const session: ShownSession = { id, snapshotEvents: () => events, inheritedEventCount }
+        const frame = {
+          session,
+          transcript: new Transcript({ theme, columns: () => io.console.contentColumns, cwd, density }, presentersFor(ctx, live.agent)),
+          stream: new TextStream(theme, () => io.console.contentColumns),
+          thinking: new ThinkingTracker(theme, () => io.console.contentColumns),
+        }
+        dropViews()
+        nested.set(id, frame)
+        thinking.reset()
+        childViews.push(id)
+        spinner.pause()
+        showSession(session, frame.transcript)
+        refreshStatus()
+        pushRoster()
+      } finally {
+        openingChild = undefined
+        observed[Symbol.dispose]()
+      }
+    })()
+  }
+  onEnterSubagent = openChild
+  io.console.setEnter(openChild)
   // A clicked diff card reads in the same transient reader `/diff` and `/view`
   // use; nothing about the transcript moves while it is open.
   io.console.setPager((text) => {
@@ -1779,6 +1954,14 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
   })
 
   ctx.on('session/event', (session: Session, event: SessionEvent) => {
+    // The roster follows each direct child's own log: the calls it makes,
+    // and the turns it starts and ends. Before anything else, so a child's
+    // row moves whether or not its transcript is the one on screen.
+    if (roster.has(session.id)) {
+      feedRoster(session.id, event)
+      pushRoster()
+      if (childViews.current?.sessionId === session.id) refreshStatus()
+    }
     // Parent chrome (mode, status, todos) still tracks the live agent even
     // while a child view is open; only the transcript follows the view.
     if (session === live.agent.session) {
@@ -2085,6 +2268,21 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
   ctx.on('subagent/start', (info) => {
     const child = sessions.get(SessionId(info.id))
     const parentId = child?.header.parentSession
+    // A direct child of the live session joins the roster the moment it
+    // exists, named by its own log where the provider has already written
+    // the descriptor, else by the oldest call still waiting for a child.
+    // Whatever it logged before this edge — a one-shot child's first turn
+    // can be under way — is folded in, so no call goes uncounted. A second
+    // start for a known child is a continuable one given another turn.
+    let label: string | undefined
+    if (parentId === live.agent.session.id || parentId === undefined) {
+      const fresh = !roster.has(info.id)
+      const logged = child === undefined ? [] : childOwnedEvents(child.snapshotEvents(), child.inheritedEventCount)
+      label = descriptorLabel(logged) ?? live.transcript.peekSubagentLabel()
+      roster.start(info.id, label ?? 'subagent', performance.now())
+      if (fresh) for (const event of logged) feedRoster(info.id, event)
+      pushRoster()
+    }
     const viewed = currentView()
     const onScreen = viewed !== undefined && viewed.session.id === parentId
     const parentOnScreen = childViews.current === undefined
@@ -2095,15 +2293,28 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
         ? live.transcript
         : undefined
     if (transcript === undefined) return
-    const lines = transcript.promotePendingView(info.id)
+    const lines = transcript.promotePendingView(info.id, label)
     if (lines.length === 0) return
     prompt.setStreaming(undefined)
     io.console.appendFold(lines, lines, transcript.takeRule(), transcript.takeLabel(), transcript.takeEnter(), undefined, transcript.takePendingCard())
   })
 
+  // The paired end is the runtime's verdict on how the child ended — what the
+  // parent is told — and so the row's, whatever its last turn said.
+  ctx.on('subagent/end', (info) => {
+    if (!roster.has(info.id)) return
+    roster.settle(info.id, outcomeStatus(info.stopReason), performance.now())
+    pushRoster()
+    if (childViews.current?.sessionId === info.id) refreshStatus()
+  })
+
   adopt = (next: AgentHandle, replayLog: boolean): void => {
     childViews.clear()
     nested.clear()
+    // Another session's children are its own; the roster starts over.
+    roster.clear()
+    stopRosterClock()
+    prompt.setSubagents([])
     prompt.setHint(undefined)
     stopRoundWatch()
     // A steer the retiring agent never took would sit in a disposed inbox.
