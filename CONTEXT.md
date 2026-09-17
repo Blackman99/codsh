@@ -372,7 +372,10 @@ inside a session or `codsh update` outside one; both run
 profile's runtime to match, so a profile that launches straight through dsh
 never waits for a boot to catch up. The boot's registration remains the catch
 for a runtime a bare `npm install -g codsh-cli` upgrade, or a failed move,
-left behind. `CODSH_UPDATE_CHECK=off` silences the automatic check but neither
+left behind. A leftover `node_modules` linked from another pnpm store (another
+pnpm major, or a moved store-dir) is dropped and the registration retried,
+because `dsh plugin add` is a thin `pnpm add` that otherwise refuses to run.
+`CODSH_UPDATE_CHECK=off` silences the automatic check but neither
 of those; `CODSH_UPDATE_REGISTRY` points every one of them at another
 registry.
 

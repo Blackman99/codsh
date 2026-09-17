@@ -386,6 +386,138 @@ describe.skipIf(process.platform === 'win32')('the codsh launcher', () => {
     }
   }, E2E_TEST_TIMEOUT_MS)
 
+  it('reinstalls profile modules linked from another pnpm store, then registers', async () => {
+    const home = await homeWithProfile({ 'codsh-bundle': '0.1.0' })
+    const fake = await mkdtemp(join(tmpdir(), 'codsh-update-store-bin-'))
+    const store = await mkdtemp(join(tmpdir(), 'codsh-old-store-'))
+    const currentStore = await mkdtemp(join(tmpdir(), 'codsh-new-store-'))
+    try {
+      const modules = join(home, 'profiles', 'code', 'node_modules')
+      mkdirSync(modules, { recursive: true })
+      writeFileSync(join(modules, '.modules.yaml'), `${JSON.stringify({ storeDir: store })}\n`)
+      writeFileSync(join(modules, 'stale'), 'linked from the previous store\n')
+      writeFake(join(fake, 'npm'), 'FAKE_NPM')
+      writeFileSync(join(fake, 'dsh'), `#!/usr/bin/env node
+console.log(\`FAKE_DSH \${process.argv.slice(2).join(' ')}\`)
+`, { mode: 0o755 })
+      writeFileSync(join(fake, 'pnpm'), `#!/usr/bin/env node
+if (process.argv[2] === 'store' && process.argv[3] === 'path') {
+  process.stdout.write(${JSON.stringify(currentStore)} + '\\n')
+  process.exit(0)
+}
+console.log(\`FAKE_PNPM \${process.argv.slice(2).join(' ')}\`)
+`, { mode: 0o755 })
+      const registry = await fakeRegistry('9.9.9')
+      try {
+        const result = await run(process.execPath, [wrapper, 'update'], {
+          env: {
+            ...process.env,
+            DSH_HOME: home,
+            DSH_BIN: join(fake, 'dsh'),
+            PATH: `${fake}${delimiter}${process.env.PATH ?? ''}`,
+            CODSH_UPDATE_REGISTRY: registry.base,
+          },
+        })
+
+        expect(result.stderr).toContain(`the code profile's node_modules were linked from ${store}, but pnpm now uses ${currentStore}`)
+        expect(existsSync(join(modules, 'stale'))).toBe(false)
+        expect(result.stdout).toContain('FAKE_DSH plugin --profile code add codsh-bundle@^9.9.9')
+        expect(result.stdout).toContain('codsh 9.9.9 installed · the code profile now carries codsh-bundle@^9.9.9')
+      } finally {
+        await registry.close()
+      }
+    } finally {
+      rmSync(home, { recursive: true, force: true })
+      rmSync(fake, { recursive: true, force: true })
+      rmSync(store, { recursive: true, force: true })
+      rmSync(currentStore, { recursive: true, force: true })
+    }
+  }, E2E_TEST_TIMEOUT_MS)
+
+  it('leaves profile modules in place when the pnpm store still matches', async () => {
+    const home = await homeWithProfile({ 'codsh-bundle': '0.1.0' })
+    const fake = await mkdtemp(join(tmpdir(), 'codsh-update-same-store-bin-'))
+    const store = await mkdtemp(join(tmpdir(), 'codsh-same-store-'))
+    try {
+      const modules = join(home, 'profiles', 'code', 'node_modules')
+      mkdirSync(modules, { recursive: true })
+      writeFileSync(join(modules, '.modules.yaml'), `${JSON.stringify({ storeDir: store })}\n`)
+      writeFileSync(join(modules, 'keep'), 'still valid\n')
+      writeFake(join(fake, 'npm'), 'FAKE_NPM')
+      writeFake(join(fake, 'dsh'), 'FAKE_DSH')
+      writeFileSync(join(fake, 'pnpm'), `#!/usr/bin/env node
+if (process.argv[2] === 'store' && process.argv[3] === 'path') {
+  process.stdout.write(${JSON.stringify(store)} + '\\n')
+  process.exit(0)
+}
+process.exit(0)
+`, { mode: 0o755 })
+      const registry = await fakeRegistry('9.9.9')
+      try {
+        const result = await run(process.execPath, [wrapper, 'update'], {
+          env: {
+            ...process.env,
+            DSH_HOME: home,
+            DSH_BIN: join(fake, 'dsh'),
+            PATH: `${fake}${delimiter}${process.env.PATH ?? ''}`,
+            CODSH_UPDATE_REGISTRY: registry.base,
+          },
+        })
+
+        expect(result.stderr).not.toContain('reinstalling them')
+        expect(readFileSync(join(modules, 'keep'), 'utf8')).toBe('still valid\n')
+        expect(result.stdout).toContain('FAKE_DSH plugin --profile code add codsh-bundle@^9.9.9')
+      } finally {
+        await registry.close()
+      }
+    } finally {
+      rmSync(home, { recursive: true, force: true })
+      rmSync(fake, { recursive: true, force: true })
+      rmSync(store, { recursive: true, force: true })
+    }
+  }, E2E_TEST_TIMEOUT_MS)
+
+  it('reinstalls a leftover store before the boot-time registration too', async () => {
+    const home = await homeWithProfile({ 'codsh-bundle': '0.0.1' })
+    const fake = await mkdtemp(join(tmpdir(), 'codsh-boot-store-bin-'))
+    const store = await mkdtemp(join(tmpdir(), 'codsh-boot-old-store-'))
+    const currentStore = await mkdtemp(join(tmpdir(), 'codsh-boot-new-store-'))
+    try {
+      const modules = join(home, 'profiles', 'code', 'node_modules')
+      mkdirSync(modules, { recursive: true })
+      writeFileSync(join(modules, '.modules.yaml'), `${JSON.stringify({ storeDir: store })}\n`)
+      writeFileSync(join(modules, 'stale'), 'linked from the previous store\n')
+      writeFake(join(fake, 'dsh'), 'FAKE_DSH')
+      writeFileSync(join(fake, 'pnpm'), `#!/usr/bin/env node
+if (process.argv[2] === 'store' && process.argv[3] === 'path') {
+  process.stdout.write(${JSON.stringify(currentStore)} + '\\n')
+  process.exit(0)
+}
+process.exit(0)
+`, { mode: 0o755 })
+      const env: NodeJS.ProcessEnv = {
+        ...process.env,
+        DSH_HOME: home,
+        DSH_BIN: join(fake, 'dsh'),
+        PATH: `${fake}${delimiter}${process.env.PATH ?? ''}`,
+      }
+      delete env.CODSH_BUNDLE_SPEC
+      const own = JSON.parse(readFileSync(join(repoRoot, 'packages', 'cli', 'package.json'), 'utf8')) as { version: string }
+
+      const result = await run(process.execPath, [wrapper, '-p', 'test the leftover store'], { env })
+
+      expect(result.stderr).toContain(`the code profile's node_modules were linked from ${store}, but pnpm now uses ${currentStore}`)
+      expect(existsSync(join(modules, 'stale'))).toBe(false)
+      expect(result.stdout).toContain(`FAKE_DSH plugin --profile code add codsh-bundle@^${own.version}`)
+      expect(result.stdout).toContain('FAKE_DSH --profile code -p test the leftover store')
+    } finally {
+      rmSync(home, { recursive: true, force: true })
+      rmSync(fake, { recursive: true, force: true })
+      rmSync(store, { recursive: true, force: true })
+      rmSync(currentStore, { recursive: true, force: true })
+    }
+  })
+
   it('fails loudly when the runtime cannot be registered', async () => {
     const home = await homeWithProfile({ 'codsh-bundle': '0.1.0' })
     const fake = await mkdtemp(join(tmpdir(), 'codsh-update-fail-bin-'))

@@ -22,11 +22,11 @@
 
 > npm: [`codsh-cli`](https://www.npmjs.com/package/codsh-cli) · command: `codsh`
 
-**`/ship`** takes one sentence to verified code. A terminal coding agent for DeepSeek — and any OpenAI-compatible endpoint.
+**codsh** is an autonomous terminal coding agent for DeepSeek — and any OpenAI-compatible endpoint — built directly on the [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) (dsh). Not a fork.
 
-A coding profile and a terminal of its own, on [dsh](https://github.com/deepseek-ai/deepseek-harness). Not a fork. For people who want DeepSeek (or their own gateway) instead of a closed agent.
+Its flagship feature, **`/ship`**, turns a one-sentence idea into fully verified code through an autonomous 7-stage engineering pipeline, with a built-in live task flow panorama across terminal and browser.
 
-Want to see what it can build? [Visit the gallery](https://blackman99.github.io/codsh/gallery.html) for original requests, real screenshots, and playable projects. Every project was built from a one-sentence request, with just one round of interaction and the recommended answer selected for every question.
+Want to see what it builds? [Visit the gallery](https://blackman99.github.io/codsh/gallery.html) for real projects, screenshots, and playable results. Every project was built from a **one-sentence request**, with just **one round of interaction** and the **recommended answer selected for every question**.
 
 [![The /ship flow](assets/ship-demo.gif)](https://blackman99.github.io/codsh/)
 
@@ -34,84 +34,59 @@ Want to see what it can build? [Visit the gallery](https://blackman99.github.io/
 
 ```sh
 npm install -g @deepseek-ai/dsh codsh-cli
+export DEEPSEEK_API_KEY="your-api-key"
 codsh
 ```
 
-Key: `DEEPSEEK_API_KEY`. Already have a matching dsh? `npm i -g codsh-cli` is enough. An older harness is refused at boot with the install line.
+Common flags:
+- `codsh -p "task"` — Run a non-interactive task directly
+- `codsh --continue` — Continue the last session
+- `codsh --resume <id>` — Resume a specific session
+- `codsh update` — Update launcher and profile runtime
 
-`codsh --resume <id>` · `codsh --continue` · `codsh -p "task"` · `codsh --version` · `codsh update`
-
-## `/ship`
+## `/ship`: One Sentence to Verified Code
 
 ```sh
 /ship let long diffs open in a pager instead of scrolling past
 ```
 
-`/ship <one-sentence idea>` walks that idea to verified code:
+`/ship` automates the complete engineering workflow from idea to delivery:
 
-1. **Pre-flight** — dirty-tree prompt; isolated `ship/<slug>` branch
-2. **Wayfinder** — name the destination and settle open decisions
-3. **Grill** — design-tree interview, with recommended answers
-4. **Spec (Gate 1)** — stories, public seams, Out of Scope; original wording kept
-5. **Tickets (Gate 2)** — vertical slices, a DAG, acceptance checklists
-6. **Landing** — TDD in parallel worktrees; merge and prove
-7. **Done** — acceptance plus no new repo failures; merge back
+1. **Pre-flight** — Checks git working tree state and creates an isolated `ship/<slug>` branch.
+2. **Wayfinder** — Clarifies core goals, constraints, and trade-offs.
+3. **Grill** — Interactive design interview with smart, recommended defaults.
+4. **Spec (Gate 1)** — Formulates user stories, public seams, and explicit Out of Scope boundaries.
+5. **Tickets (Gate 2)** — Decomposes work into vertical slices structured as an explicit dependency DAG.
+6. **Landing** — Dispatches tickets into parallel Git worktrees for TDD implementation and continuous integration.
+7. **Done** — Verifies acceptance criteria, ensures zero repo regressions, and merges back cleanly.
 
-You answer; the same `/ship` continues. `/goal` stays disarmed. While work is in progress, a panorama stays available: TTY overlay (`Ctrl+G` or the teaser), a one-line ticket count with the local Web flowchart URL on that row, and the flowchart itself — `/ship` does not open a browser.
+### Live Task Flow Panorama
+- **Live TTY Teaser**: Pinned status row showing real-time ticket counts (`待认领 n · 已认领 n · 已关闭 n`), in-flight parallel landing worktrees, and the Web flowchart URL.
+- **ASCII DAG Overlay (`Ctrl+G`)**: Instant fullscreen terminal visualization of task dependencies and claim states.
+- **Local Web Flowchart**: Interactive React Flow map (`127.0.0.1:<port>`) with decision context, recorded Q&As, and landing tickets.
 
-After verified delivery, the terminal clears the ship phase, ticket counts, plan, old todo readout, and settled subagent readout. Running children remain visible; `Ctrl+T` / `Ctrl+H` still open retained history, and the Web flowchart keeps the final graph. Interrupted or blocked work keeps its progress visible for resuming.
-
-Grill: ↑/↓ focus · Space toggles multi-select · Enter submits · ←/→ revisit · Esc closes the rest of the round.
-
-A dirty tree or an unrelated `/goal` asks first. Bare `/ship` resumes unfinished work. Ctrl-C stops coordination.
-
-Merge conflicts go to an agent automatically, including lockfile and modify/delete conflicts. It preserves both sides’ intent, retries validation failures up to three attempts, then continues landing and verification. Sealed-requirement conflicts or exhausted retries keep a recovery snapshot and report the specific blocker.
-
-The [gallery](https://blackman99.github.io/codsh/gallery.html) pairs original one-sentence requests with screenshots and playable results. Words for the workflow live in [CONTEXT.md](CONTEXT.md).
-
-## How it works
-
-`codsh` finds your dsh, registers [`codsh-bundle`](https://www.npmjs.com/package/codsh-bundle) into a `code` profile, and boots `dsh --profile code`.
-
-A session says so when a newer codsh is out. `codsh update` from the shell, `/update` from inside; both move the profile runtime too. `CODSH_UPDATE_CHECK=off` silences the automatic check.
-
-Skip the launcher:
-
-```sh
-dsh plugin --profile code add codsh-bundle
-dsh --profile code
-```
-
-Any OpenAI-compatible endpoint is a dsh route — declare it once, then `/model`.
+### Autonomous Resilience
+- **Automated Conflict Resolution**: Git merge conflicts (including lockfiles and renames) are autonomously resolved by agent sub-tasks with validation retries.
+- **Pause & Resume**: `Ctrl+C` safely pauses coordination; running a bare `/ship` resumes unfinished work from where it left off.
 
 ## The surface
 
-The [guide](https://blackman99.github.io/codsh/guide.html#see) includes real terminal captures. In brief:
+Designed for high-efficiency, keyboard-driven terminal development:
 
-- Alternate screen; the box stays at the bottom; quit gives the shell back.
-- The prompt you just sent pins at the top; its reply fills below. A right-hand timeline jumps turns (`Shift+←/→`, `/jump`). `/rewind` forks from a turn; the original stays in `/resume`.
-- Thinking streams and lands folded in a single row (`Ctrl+O` or click to expand). Each tool call is one row (`✔` / `✗`); the success bullet is dim, consecutive rows have a blank between them, and output is behind the row.
-- A running in-process child is a view (`click to enter`; Esc pops). `Ctrl+H` lists the session's children.
-- `/view`, `/copy`, `/diff` — answers, code blocks, uncommitted changes, in the same reader.
-- `/` commands, `$` skills, `!` shell, `@` files. `⇧Tab` is plan mode. Type while it works to queue (`Ctrl+Q`); Ctrl-C interrupts.
-- `Ctrl+V` pastes images. `/thinking` (alias `/effort`) sets deliberation. Status shows context left. Drag copies in the transcript, the box, and the chrome under it. Away from the window, a waiting decision rings and notifies.
-- Approvals name the call; the third answer remembers a prefix in `.dsh/permissions.local.json`.
-
-Off a TTY it is a line reader: no widgets, no drawing.
-
-## Terminals
-
-| Tier | Terminals | Meaning |
-|---|---|---|
-| First | iTerm2, Terminal.app, VS Code integrated terminal, tmux, Windows Terminal + WSL | a regression here blocks a release |
-| Second | Ghostty, kitty, Alacritty, Warp | a regression here is a bug, not a blocker |
-| Best-effort | native Windows (pwsh) | persistent terminals are unavailable there; the rest is expected to work |
-
-Kitty keyboard protocol, focus reports, OSC 11, and inline graphics take effect where the terminal answers; elsewhere the legacy path stays. Ctrl+Enter steering needs the kitty protocol; the queue panel's `s` does the same without it.
+- **Clean Terminal UI**: Full-screen alternate buffer; input stays pinned at the bottom; restores your shell cleanly on exit.
+- **Foldable Reasoning**: Streaming thoughts collapse into a single line (`Ctrl+O` or click to expand/collapse).
+- **Subagent Matrix**: Background and parallel subagents run in isolated views (`Ctrl+H` to list, click/enter to inspect, `Esc` to return).
+- **Timeline Navigation**: Jump between dialogue turns (`Shift+←/→`, `/jump`) or branch off from an earlier turn (`/rewind`).
+- **Shortcuts & Controls**:
+  - `Shift+Tab`: Toggle plan mode
+  - `Ctrl+Q`: Queue input while the agent is running
+  - `Ctrl+C`: Interrupt current execution
+  - `Ctrl+V`: Paste images directly from clipboard
+  - `/view`, `/diff`, `/copy`: Inspect files, uncommitted changes, or code blocks in a dedicated pager
 
 ## Third-party endpoints
 
-Declare the route once in `$DSH_HOME/settings.yaml` (default `~/.dsh/settings.yaml`), then pick it with `/model`:
+Connect to any OpenAI-compatible gateway in `$DSH_HOME/settings.yaml` (default `~/.dsh/settings.yaml`):
 
 ```yaml
 llm-pi-ai:
@@ -122,8 +97,8 @@ llm-pi-ai:
       api: openai-completions
       baseURL: https://gateway.acme.example/v1
       compat:
-        thinkingFormat: deepseek      # how a thinking level travels on the wire
-        supportsDeveloperRole: false  # system prompt as `system`, not `developer`
+        thinkingFormat: deepseek
+        supportsDeveloperRole: false
         maxTokensField: max_tokens
       models:
         - id: acme-large
@@ -131,16 +106,48 @@ llm-pi-ai:
           maxTokens: 4096
 ```
 
-`/model acme-gateway/acme-large` switches to it and saves it as the default. The key resolves per request from the named environment variable, then `$DSH_HOME/.credentials.yaml`, then `<cwd>/.env`, then `$DSH_HOME/.env`. Compat switches and per-model `reasoningEfforts` are in the `@deepseek-ai/dsh-llm-pi-ai` README.
+Switch and persist default model:
+```sh
+/model acme-gateway/acme-large
+```
+
+API keys resolve in order: specified environment variable → `$DSH_HOME/.credentials.yaml` → `<cwd>/.env` → `$DSH_HOME/.env`.
+
+## How it works
+
+`codsh` is a zero-dependency launcher that finds your local `dsh`, registers [`codsh-bundle`](https://www.npmjs.com/package/codsh-bundle) into a `code` profile, and boots `dsh --profile code`.
+
+To run directly via dsh:
+```sh
+dsh plugin --profile code add codsh-bundle
+dsh --profile code
+```
+
+## Terminals
+
+| Tier | Terminals | Support Level |
+|---|---|---|
+| First-class | iTerm2, Terminal.app, VS Code, tmux, Windows Terminal + WSL | Release-blocking compatibility |
+| Second-class | Ghostty, kitty, Alacritty, Warp | Fully supported; regressions handled as bugs |
+| Best-effort | Native Windows (pwsh) | Basic TTY support; persistent PTY unavailable |
+
+Supports Kitty keyboard protocol, focus reporting, OSC 11 color detection, and terminal image rendering where available.
 
 ## Development
 
-See [CONTRIBUTING.md](CONTRIBUTING.md). `pnpm run dev` · `pnpm test` · `pnpm run typecheck` · `pnpm run test:e2e`. This repo never forks the harness (`pnpm run sync:dsh`).
+See [CONTRIBUTING.md](CONTRIBUTING.md).
 
-## Talk to it
+```sh
+pnpm run dev          # Start local development surface
+pnpm test             # Run unit tests
+pnpm run typecheck    # TypeScript typecheck
+pnpm run test:e2e     # Run E2E tests
+```
 
-Bugs, Windows, other models, “I came from Claude Code” — open an [issue](https://github.com/Blackman99/codsh/issues). [Discussions](https://github.com/Blackman99/codsh/discussions) are on for longer threads.
+## Feedback
+
+Bugs, feature requests, or migrating from Claude Code / Cursor? Open an [issue](https://github.com/Blackman99/codsh/issues) or join the [Discussions](https://github.com/Blackman99/codsh/discussions).
 
 ## License
 
-MIT
+[MIT](LICENSE)

@@ -22,11 +22,11 @@
 
 > npm：[`codsh-cli`](https://www.npmjs.com/package/codsh-cli) · 命令：`codsh`
 
-**`/ship`** 把一句话变成已验证的代码。面向 DeepSeek —— 以及任何 OpenAI 兼容端点 —— 的终端编码 agent。
+**codsh** 是面向 DeepSeek —— 以及任何 OpenAI 兼容端点 —— 的终端编码 Agent，直接构建在 [dsh](https://github.com/deepseek-ai/deepseek-harness) 之上，绝非 fork。
 
-一个 coding profile，加上一个自成空间的终端，跑在 [dsh](https://github.com/deepseek-ai/deepseek-harness) 上。不是 fork。给想用 DeepSeek（或自己的网关）而不是闭源 agent 的人。
+核心命令 **`/ship`** 可将一句话需求自动转化为已验证的代码，提供贯穿终端与浏览器的即时任务流全景图。
 
-想看看实际能做出什么？[逛逛展示画廊](https://blackman99.github.io/codsh/gallery.zh.html)，查看原始需求、真实截图并试玩作品。所有项目均从一句话需求开始，仅经一轮交互，所有问题均采用推荐答案完成落地。
+想看看实际能做出什么？[逛逛展示画廊](https://blackman99.github.io/codsh/gallery.zh.html)，查看真实截图并试玩作品。所有项目均从**一句话需求**开始，仅经**一轮交互**，**所有问题均采用推荐答案**完成落地。
 
 [![/ship 流程](assets/ship-demo.zh.gif)](https://blackman99.github.io/codsh/zh.html)
 <p align="center"><a href="assets/codsh-ship-demo.zh.mp4">中文口播版 · 70 秒</a></p>
@@ -35,84 +35,59 @@
 
 ```sh
 npm install -g @deepseek-ai/dsh codsh-cli
+export DEEPSEEK_API_KEY="your-api-key"
 codsh
 ```
 
-密钥：`DEEPSEEK_API_KEY`。已经有匹配的 dsh？`npm i -g codsh-cli` 就够。太旧的话启动器会直接给出安装命令。
+常用命令与参数：
+- `codsh -p "任务"` — 直接执行非交互式任务
+- `codsh --continue` — 继续上一次会话
+- `codsh --resume <id>` — 恢复指定会话
+- `codsh update` — 升级启动器与 profile runtime
 
-`codsh --resume <id>` · `codsh --continue` · `codsh -p "任务"` · `codsh --version` · `codsh update`
-
-## `/ship`
+## `/ship`：一句话到已验证代码
 
 ```sh
 /ship 让超长 diff 用分页器打开而不是刷屏滚过
 ```
 
-`/ship <一句话需求>` 把这个想法走到已验证的代码：
+`/ship` 自动驱动 7 阶段工程交付流水线：
 
-1. **前检** — 工作区有改动会问；切出 `ship/<slug>` 独立分支
-2. **Wayfinder** — 明确目标，解决待决问题
-3. **Grill** — 按设计树访谈，带推荐答案
-4. **Spec（Gate 1）** — 用户故事、公开 seam、Out of Scope；原话单独保留
-5. **Tickets（Gate 2）** — 带 DAG 的垂直切片和验收清单
-6. **落地** — 并行 worktree 里做 TDD，再合并证明
-7. **完成** — 验收通过且仓库无新增失败；合回原分支
+1. **前检（Pre-flight）** — 检查工作区状态，创建独立的 `ship/<slug>` 分支。
+2. **Wayfinder** — 明确交付目标与关键约束，提前解决取舍决策。
+3. **Grill** — 结构化设计树访谈，每题自带推荐默认答案。
+4. **Spec（Gate 1）** — 产出用户故事、公开接缝与明确的 Out of Scope 边界。
+5. **Tickets（Gate 2）** — 拆解垂直切片，构建带显式依赖关系的 DAG 任务网。
+6. **落地（Landing）** — 在并行的 Git worktree 中执行 TDD 落地，持续集成与验证。
+7. **完成（Done）** — 全量验收通过且仓库无新增失败后，合回原分支。
 
-你回答问题，同一次 `/ship` 继续往下走。`/goal` 保持解除武装。流程进行中，全景持续可用：TTY overlay（`Ctrl+G` 或点 teaser）、一行票据计数并把本地 Web 流程图 URL 贴在这一行；`/ship` 默认不打开浏览器。
+### 即时任务流全景图
+- **终端 Teaser**：状态行常驻显示票据即时读数（`待认领 n · 已认领 n · 已关闭 n`）、并行 worktree 状态与 Web 流程图链接。
+- **双环 ASCII 全景浮层（`Ctrl+G`）**：终端内全屏查看任务依赖 DAG 与认领状态，按 `Ctrl+G` 或点击 Teaser 展开/收起。
+- **本地 Web 流程图**：本地回环 React Flow 可视化全景（`127.0.0.1:<port>`），完整展示决策背景、问答历史与阶段切片。
 
-通过验收并完成交付后，终端清理 ship 阶段、票据计数、计划、旧待办摘要和已结束子代理摘要。仍在运行的子代理继续显示；`Ctrl+T` / `Ctrl+H` 仍可打开保留的历史记录，Web 流程图保留最终结果。中断或受阻的流程保留进度，方便续跑。
-
-访谈：↑/↓ 焦点 · 空格切换多选 · Enter 提交 · ←/→ 回看 · Esc 关掉本轮剩下的题。
-
-工作区不干净、或已有无关 `/goal` 时会先问。裸 `/ship` 续跑未完成的工作。Ctrl-C 中断协调。
-
-合并冲突自动交给 agent 处理，包括锁文件和修改/删除冲突。它保留双方意图，校验失败时最多尝试三次，成功后继续落地和验证。涉及已封存需求的冲突、或重试耗尽时，会保留恢复快照并说明具体阻塞原因。
-
-[展示画廊](https://blackman99.github.io/codsh/gallery.zh.html) 收录原始的一句话需求、实际截图和可试玩的作品。流程用语见 [CONTEXT.md](CONTEXT.md)。
-
-## 它怎么跑
-
-`codsh` 找到你的 dsh，把 [`codsh-bundle`](https://www.npmjs.com/package/codsh-bundle) 注册进 `code` profile，然后启动 `dsh --profile code`。
-
-有新版本时会话里会有一行提示。`codsh update` 在 shell 里升级，`/update` 在会话里升级，两条路都会把 profile runtime 一并升好。`CODSH_UPDATE_CHECK=off` 关掉自动检查。
-
-不用启动器：
-
-```sh
-dsh plugin --profile code add codsh-bundle
-dsh --profile code
-```
-
-任何 OpenAI 兼容端点都是一条 dsh 路由 —— 声明一次，然后 `/model`。
+### 自主恢复与抗冲突
+- **自动冲突解决**：三方合并冲突（含 lockfile 与重命名冲突）自动由 agent 协调修复，保留双方意图并自动验证重试。
+- **安全中断与续跑**：随时按 `Ctrl+C` 安全中断；输入裸 `/ship` 即可继续未完成的任务。
 
 ## 界面
 
-[使用指南](https://blackman99.github.io/codsh/guide.zh.html#see) 收录了终端实机抓取。简要：
+专为纯键盘高效开发打造的终端交互界面：
 
-- 备用屏幕；输入框钉底；退出原样还回你的 shell。
-- 刚提交的提问钉在顶部，回复从下方填入。右侧时间线跳转轮次（`Shift+←/→`，`/jump`）。`/rewind` 从某一轮分叉；原会话留在 `/resume`。
-- 思考进行中和完成后默认都只占一行（`Ctrl+O` 或点击展开）。每次工具调用只占一行（`✔` / `✗`），成功时的点是淡色，连续行之间空一行，输出收在后面。
-- 正在运行的进程内子代理是一个视图（`click to enter`；Esc 弹出）。`Ctrl+H` 列出本会话的子代理。
-- `/view`、`/copy`、`/diff` —— 回答、代码块、未提交改动，同一个阅读器。
-- `/` 命令、`$` skill、`!` shell、`@` 文件。`⇧Tab` 是 plan 模式。agent 工作时照样可以打字进队列（`Ctrl+Q`）；Ctrl-C 中断。
-- `Ctrl+V` 粘贴图片。`/thinking`（别名 `/effort`）设置思考深度。状态栏显示上下文余量。在对话、输入框和底部 chrome 上拖选即可复制。人不在窗口时，等待决定会响铃并通知。
-- 审批会点名这次调用；第三个答案把前缀记进 `.dsh/permissions.local.json`。
-
-非 TTY 降级为行读取器：无组件、不绘制。
-
-## 终端
-
-| 等级 | 终端 | 含义 |
-|---|---|---|
-| 一等 | iTerm2、Terminal.app、VS Code 集成终端、tmux、Windows Terminal + WSL | 这里出回归就不能发版 |
-| 二等 | Ghostty、kitty、Alacritty、Warp | 这里出回归是 bug，不阻塞发版 |
-| 尽力支持 | 原生 Windows（pwsh） | 持久终端在那里不可用；其余功能应当可用 |
-
-Kitty 键盘协议、焦点上报、OSC 11、内联图像：终端答应了就生效，不答应走传统路径。Ctrl+Enter 插话需要 kitty 协议；队列面板里的 `s` 不需要。
+- **自成空间的终端界面**：备用屏幕全屏呈现，输入框钉底，退出后完整还回原始 shell。
+- **折叠式思考流**：思考过程默认只占单行，实时流式更新（按 `Ctrl+O` 或点击展开/折叠）。
+- **子代理视图矩阵**：后台与并行子代理以独立视图运行（按 `Ctrl+H` 查看列表，点击进入，`Esc` 退出）。
+- **时间线任意穿梭**：通过 `Shift+←/→` 或 `/jump` 快速跳转轮次；支持用 `/rewind` 从任意轮次分叉探索。
+- **快捷交互与操作**：
+  - `Shift+Tab`：切换 Plan 模式
+  - `Ctrl+Q`：Agent 响应时继续打字排队
+  - `Ctrl+C`：快速中断当前操作
+  - `Ctrl+V`：直接从剪贴板粘贴图片
+  - `/view`、`/diff`、`/copy`：在内置阅读器中查看文件、未提交改动或代码块
 
 ## 第三方端点
 
-在 `$DSH_HOME/settings.yaml`（默认 `~/.dsh/settings.yaml`）里声明一次，然后用 `/model` 选中：
+在 `$DSH_HOME/settings.yaml`（默认 `~/.dsh/settings.yaml`）中配置任何 OpenAI 兼容网关：
 
 ```yaml
 llm-pi-ai:
@@ -123,8 +98,8 @@ llm-pi-ai:
       api: openai-completions
       baseURL: https://gateway.acme.example/v1
       compat:
-        thinkingFormat: deepseek      # 思考等级在线上的写法
-        supportsDeveloperRole: false  # 系统提示用 system 而不是 developer 角色
+        thinkingFormat: deepseek
+        supportsDeveloperRole: false
         maxTokensField: max_tokens
       models:
         - id: acme-large
@@ -132,16 +107,48 @@ llm-pi-ai:
           maxTokens: 4096
 ```
 
-`/model acme-gateway/acme-large` 切换过去并保存为默认。密钥按请求解析，顺序是：指定的环境变量、`$DSH_HOME/.credentials.yaml`、`<cwd>/.env`、`$DSH_HOME/.env`。兼容开关和按模型的 `reasoningEfforts` 在 `@deepseek-ai/dsh-llm-pi-ai` 的 README 里。
+切换并设为默认模型：
+```sh
+/model acme-gateway/acme-large
+```
+
+密钥解析优先级：环境变量 → `$DSH_HOME/.credentials.yaml` → `<cwd>/.env` → `$DSH_HOME/.env`。
+
+## 它怎么跑
+
+`codsh` 是一个零依赖启动器，它定位本机的 `dsh`，将 [`codsh-bundle`](https://www.npmjs.com/package/codsh-bundle) 注册进 `code` profile，并启动 `dsh --profile code`。
+
+也可以直接使用 dsh 命令运行：
+```sh
+dsh plugin --profile code add codsh-bundle
+dsh --profile code
+```
+
+## 终端
+
+| 等级 | 终端 | 兼容标准 |
+|---|---|---|
+| 一等 | iTerm2、Terminal.app、VS Code 集成终端、tmux、Windows Terminal + WSL | 核心支持，阻塞发版标准 |
+| 二等 | Ghostty、kitty、Alacritty、Warp | 现代终端特性良好支持，出问题作 bug 处理 |
+| 尽力支持 | 原生 Windows（pwsh） | 基础交互可用，受限环境暂不支持持久 PTY |
+
+在支持的终端上自动启用 Kitty 键盘协议、焦点感知、OSC 11 颜色查询与内联图像。
 
 ## 开发
 
-见 [CONTRIBUTING.md](CONTRIBUTING.md)。`pnpm run dev` · `pnpm test` · `pnpm run typecheck` · `pnpm run test:e2e`。本仓库绝不 fork harness（`pnpm run sync:dsh`）。
+详见 [CONTRIBUTING.md](CONTRIBUTING.md)。
 
-## 说话
+```sh
+pnpm run dev          # 启动本地开发界面
+pnpm test             # 运行单元测试
+pnpm run typecheck    # TypeScript 类型检查
+pnpm run test:e2e     # 运行 E2E 测试
+```
 
-Windows、别的模型、从 Claude Code 迁过来、渲染不对 —— 开 [issue](https://github.com/Blackman99/codsh/issues)。长一点的话题走 [Discussions](https://github.com/Blackman99/codsh/discussions)。
+## 交流与反馈
+
+遇到问题、有新想法，或从 Claude Code / Cursor 迁移过来？欢迎提交 [Issue](https://github.com/Blackman99/codsh/issues) 或加入 [Discussions](https://github.com/Blackman99/codsh/discussions)。
 
 ## 许可
 
-MIT
+[MIT](LICENSE)

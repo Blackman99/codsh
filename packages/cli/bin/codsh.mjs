@@ -233,6 +233,87 @@ function run(args, launcher = dsh) {
   return result.status ?? 1
 }
 
+/** Compare pnpm store paths, ignoring trailing slashes and Windows separators. */
+function sameStore(left, right) {
+  const norm = value => value.replaceAll('\\', '/').replace(/\/+$/u, '')
+  return norm(left) === norm(right)
+}
+
+/**
+ * The store the code profile's node_modules were linked from, when pnpm wrote
+ * one down. Missing or unreadable is "no recorded store", not a crash.
+ */
+function profileStoreDir() {
+  const file = join(home, 'profiles', 'code', 'node_modules', '.modules.yaml')
+  if (!existsSync(file)) return undefined
+  try {
+    const text = readFileSync(file, 'utf8')
+    let value
+    try {
+      value = JSON.parse(text).storeDir
+    } catch {
+      value = /^storeDir:\s*["']?(.+?)["']?\s*$/mu.exec(text)?.[1]
+    }
+    return typeof value === 'string' && value !== '' ? value : undefined
+  } catch {
+    return undefined
+  }
+}
+
+/**
+ * The store the pnpm on PATH would use in the code profile.
+ * @returns the path, or undefined when pnpm cannot say.
+ */
+function currentPnpmStore() {
+  const cwd = join(home, 'profiles', 'code')
+  const result = spawnSync('pnpm', ['store', 'path'], {
+    encoding: 'utf8',
+    cwd: existsSync(cwd) ? cwd : homedir(),
+    shell: process.platform === 'win32',
+  })
+  if (result.status !== 0) return undefined
+  const line = String(result.stdout ?? '').trim().split('\n').filter(Boolean).at(-1)
+  return line === undefined || line === '' ? undefined : line
+}
+
+/** Drop the code profile's installed modules so the next pnpm add can relink them. */
+function dropProfileModules() {
+  const dir = join(home, 'profiles', 'code', 'node_modules')
+  if (!existsSync(dir)) return false
+  rmSync(dir, { recursive: true, force: true })
+  return true
+}
+
+/**
+ * Reinstall profile modules that were linked from another pnpm store.
+ *
+ * `dsh plugin add` is a thin `pnpm add` in the profile directory. pnpm refuses
+ * to run when an existing node_modules was linked from a different store
+ * (another pnpm major, or a moved store-dir) — which is what a leftover
+ * install from pnpm 11/12 looks like to the pnpm 10 on PATH. Dropping the
+ * modules lets the add finish; the lockfile and the rest of the profile stay.
+ * @returns whether anything was dropped.
+ */
+function healStaleStore() {
+  const recorded = profileStoreDir()
+  if (recorded === undefined) return false
+  const current = currentPnpmStore()
+  if (current === undefined || sameStore(recorded, current)) return false
+  console.error(`codsh: the code profile's node_modules were linked from ${recorded}, but pnpm now uses ${current} — reinstalling them`)
+  dropProfileModules()
+  return true
+}
+
+/**
+ * Register a spec into the code profile, healing a leftover pnpm store first.
+ * @param spec - the package spec `dsh plugin add` takes.
+ * @param launcher - the dsh to drive.
+ */
+function addPlugin(spec, launcher) {
+  healStaleStore()
+  return run(['plugin', '--profile', 'code', 'add', spec], launcher)
+}
+
 /** `a > b` for plain x.y.z versions, which is all this pair publishes. */
 function newer(a, b) {
   const pa = String(a).split('.').map(Number)
@@ -318,7 +399,7 @@ function registerRuntime(version) {
   const found = findDsh()
   if (found === undefined) return { status: 'deferred' }
   console.error(`codsh: registering ${spec} into the dsh code profile`)
-  return run(['plugin', '--profile', 'code', 'add', spec], found) === 0
+  return addPlugin(spec, found) === 0
     ? { status: 'registered', spec }
     : { status: 'failed', spec }
 }
@@ -326,7 +407,7 @@ function registerRuntime(version) {
 const spec = registration()
 if (spec !== undefined) {
   console.error(`codsh: registering ${spec} into the dsh code profile`)
-  const status = run(['plugin', '--profile', 'code', 'add', spec])
+  const status = addPlugin(spec, dsh)
   if (status !== 0) process.exit(status)
 }
 

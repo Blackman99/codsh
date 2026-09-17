@@ -53,7 +53,7 @@
       <span class="block__index reveal reveal-1">面向 DeepSeek 的终端编码 agent</span>
       <h1 class="reveal reveal-1">codsh<span class="caret">▍</span></h1>
       <p class="hero__sub reveal reveal-2">
-        <code>/ship</code> 把一句话变成已验证的代码。
+        <code>/ship</code> 把一句话变成已验证的代码，自带即时任务流程全景图。
         DeepSeek，或任何兼容端点。
       </p>
       <div class="hero__meta reveal reveal-2">
@@ -113,7 +113,7 @@
       <span class="block__index">01 — /ship</span>
       <h2>一句话到落地。</h2>
       <p class="lede">
-        两次确认。此后自主。
+        两次确认。此后自主——自带即时任务流程全景图。
       </p>
 
       <ol class="steps">
@@ -142,6 +142,13 @@
           <p>每条标准重跑并汇报。</p>
         </li>
       </ol>
+
+      <div class="defs" style="margin-top:2rem">
+        <div>
+          <code>全景图</code>
+          <p><strong>自带即时任务流程全景图</strong>，贯穿整个落地过程：状态行上方常驻一行全景 teaser，实时显示票据计数（<code>待认领 / 已认领 / 已关闭</code>）、并行中任务数与本地 Web 流程图 URL；按 <kbd>Ctrl+G</kbd> 或点击 teaser 即可在终端内展开全屏双环全景图浮层；在浏览器中打开本地回环 URL，还能浏览交互式分层流程图，查看决策背景、问答历史与并行落地进度——<code>/ship</code> 默认不强行弹窗。</p>
+        </div>
+      </div>
 
       <div class="shell" style="margin-top:2rem">
         <div class="shell__bar"><i class="shell__dot"></i> 在输入框里</div>
@@ -482,6 +489,7 @@
       </div>
 
       <div class="defs" style="margin-top:2.75rem">
+        <div><code>Ctrl+G</code><p>切换终端双环即时任务全景图浮层。状态行上方常驻一行全景 teaser，显示实时票据计数与本地 Web 流程图 URL。</p></div>
         <div><code>Shift+←/→</code><p>在真实轮次之间跳；<code>/jump</code> 预览一轮，Esc 原样还回。</p></div>
         <div><code>/copy</code><p><code>/copy N</code> 取一条回答的原始 Markdown，<code>/copy N:C</code> 取它的代码，不含围栏。</p></div>
         <div><code>Ctrl+V</code><p>粘贴图片，屏幕中央浮出预览卡——能画图的终端直接显示原图，其余终端用彩色马赛克，<code>Ctrl+O</code> 打开原图。原生视觉，或由 DeepSeek 文本模型借用 Vision Exp 描述一次。</p></div>
@@ -507,7 +515,7 @@
         <div><code>codsh --continue</code><p>接上当前工作区最近的那个会话。</p></div>
         <div><code>codsh -p "任务"</code><p>一次性 print 模式，面向脚本与管道。</p></div>
         <div><code>codsh --version</code><p>启动器版本、profile 里注册的运行时、以及这次找到的 dsh。</p></div>
-        <div><code>codsh update</code><p>在 shell 里升级这一对；<code>/update</code> 是会话里的同一件事，有新版本时会话自己会提示。</p></div>
+        <div><code>codsh update</code><p>在 shell 里升级这一对；<code>/update</code> 是会话里的同一件事，有新版本时会话自己会提示。code profile 的 <code>node_modules</code> 若是另一套 pnpm store 链过来的，启动器会清掉再重试注册。</p></div>
         <div><code>DEEPSEEK_API_KEY</code><p>模型密钥，从环境变量或 <code>.env</code> 读取。</p></div>
         <div><code>DSH_HOME</code><p>profile 存放位置，默认 <code>~/.dsh</code>；<code>DSH_BIN</code> 指定启动哪个 dsh。</p></div>
         <div><code>CODSH_CLIPBOARD</code><p><code>osc52</code>、<code>system</code> 或 <code>off</code>——收窄选中内容进剪贴板的通道。</p></div>

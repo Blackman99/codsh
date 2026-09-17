@@ -53,7 +53,7 @@
       <span class="block__index reveal reveal-1">A terminal coding agent for DeepSeek</span>
       <h1 class="reveal reveal-1">codsh<span class="caret">▍</span></h1>
       <p class="hero__sub reveal reveal-2">
-        <code>/ship</code> takes one sentence to verified code.
+        <code>/ship</code> takes one sentence to verified code, with a built-in live task flow panorama.
         DeepSeek, or any compatible endpoint.
       </p>
       <div class="hero__meta reveal reveal-2">
@@ -113,7 +113,7 @@
       <span class="block__index">01 — /ship</span>
       <h2>One sentence to shipped.</h2>
       <p class="lede">
-        Two approvals. Then autonomous.
+        Two approvals. Then autonomous — with a built-in live task flow panorama.
       </p>
 
       <ol class="steps">
@@ -142,6 +142,13 @@
           <p>Every criterion re-run and reported.</p>
         </li>
       </ol>
+
+      <div class="defs" style="margin-top:2rem">
+        <div>
+          <code>Panorama</code>
+          <p><strong>Built-in live task flow panorama</strong> across every phase: a single-line teaser with live ticket counts (<code>待认领 / 已认领 / 已关闭</code>) and in-flight worktrees sits above the plan row; <kbd>Ctrl+G</kbd> (or clicking the teaser) opens a fullscreen two-ring ASCII overlay of the whole DAG right in your terminal; and a local loopback React Flow diagram at <code>127.0.0.1</code> visualizes decision context, recorded Q&amp;As, and live landing progress without forcing a browser window open.</p>
+        </div>
+      </div>
 
       <div class="shell" style="margin-top:2rem">
         <div class="shell__bar"><i class="shell__dot"></i> in the box</div>
@@ -482,6 +489,7 @@
       </div>
 
       <div class="defs" style="margin-top:2.75rem">
+        <div><code>Ctrl+G</code><p>Toggle the TTY two-ring task flow panorama overlay. A live teaser sits above the plan row with real-time ticket counts and the local Web flowchart URL.</p></div>
         <div><code>Shift+←/→</code><p>Jump between real turns; <code>/jump</code> previews one and Esc puts the frame back.</p></div>
         <div><code>/copy</code><p><code>/copy N</code> takes an answer's raw Markdown, <code>/copy N:C</code> its code without the fence.</p></div>
         <div><code>Ctrl+V</code><p>Pastes an image, and a card centered over the transcript previews it — the picture itself wherever the terminal paints one, a colour mosaic elsewhere, <code>Ctrl+O</code> for the original. Native vision, or a DeepSeek text model borrowing Vision Exp for one description.</p></div>
@@ -507,7 +515,7 @@
         <div><code>codsh --continue</code><p>Pick up the most recent session in this workspace.</p></div>
         <div><code>codsh -p "task"</code><p>One-shot print mode, for scripts and pipes.</p></div>
         <div><code>codsh --version</code><p>The launcher, the runtime registered in the profile, and the dsh it found.</p></div>
-        <div><code>codsh update</code><p>Moves the pair from the shell. <code>/update</code> does it from inside a session; a session says so on its own when one is out.</p></div>
+        <div><code>codsh update</code><p>Moves the pair from the shell. <code>/update</code> does it from inside a session; a session says so on its own when one is out. A leftover profile <code>node_modules</code> from another pnpm store is dropped and the registration retried.</p></div>
         <div><code>DEEPSEEK_API_KEY</code><p>The model key, read from the environment or a <code>.env</code> file.</p></div>
         <div><code>DSH_HOME</code><p>Where profiles live; <code>~/.dsh</code> by default. <code>DSH_BIN</code> picks the dsh to launch.</p></div>
         <div><code>CODSH_CLIPBOARD</code><p><code>osc52</code>, <code>system</code>, or <code>off</code> — narrows how a selection reaches your clipboard.</p></div>

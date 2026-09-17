@@ -1,30 +1,30 @@
 # codsh-cli
 
-**`/ship`** takes one sentence to verified code. [codsh](https://github.com/Blackman99/codsh) is a
-terminal coding agent for DeepSeek — and any OpenAI-compatible endpoint — composed on the
-[DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) (dsh).
+**codsh** is a terminal coding agent for DeepSeek — and any OpenAI-compatible endpoint — built directly on the [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) (dsh).
+
+Its flagship command, **`/ship`**, turns a one-sentence idea into verified code through an autonomous 7-stage engineering pipeline with a real-time task flow panorama across terminal and browser.
 
 ```sh
 npm install -g @deepseek-ai/dsh codsh-cli
+export DEEPSEEK_API_KEY="your-api-key"
 codsh
 ```
 
-Key: `DEEPSEEK_API_KEY`. Already have dsh? `npm i -g codsh-cli` is enough when that dsh matches this release. An older harness is refused at boot with the install line.
-
 [![The /ship flow](https://raw.githubusercontent.com/Blackman99/codsh/main/assets/ship-demo.gif)](https://blackman99.github.io/codsh/)
 
-`/ship <one-sentence idea>`: wayfinder → grill → spec → tickets → landing.
-You answer; the same invocation continues. `/goal` stays disarmed. A panorama
-stays available: TTY overlay (`Ctrl+G` or the teaser), a one-line ticket count
-with the local Web flowchart URL on that row, and the flowchart itself —
-`/ship` does not open a browser. The
-[site](https://blackman99.github.io/codsh/) shows the rest as real terminal
-captures.
+## `/ship`
+
+`/ship <one-sentence idea>` automatically drives the complete engineering workflow:
+wayfinder → grill → spec → tickets → landing → done.
+
+- **Live Task Flow Panorama**: Real-time TTY teaser row, fullscreen ASCII DAG overlay (`Ctrl+G`), and local interactive Web flowchart (`127.0.0.1:<port>`).
+- **Autonomous Conflict Resolution**: Parallel git worktrees with automated merge conflict handling and validation.
 
 ## The launcher
 
-This package bundles nothing. It finds the dsh you already have (`DSH_BIN`, a resolvable `@deepseek-ai/dsh`, or `dsh` on PATH), registers the [`codsh-bundle`](https://www.npmjs.com/package/codsh-bundle) runtime into a dsh `code` profile on first run, and boots `dsh --profile code`. The found dsh must meet this release's harness floor (`codsh.requiresDsh` in this package's manifest); an older one is refused at boot with the install line. No dsh yet? `npm install -g @deepseek-ai/dsh` first.
+`codsh-cli` is a zero-dependency launcher that locates your installed `dsh`, registers the [`codsh-bundle`](https://www.npmjs.com/package/codsh-bundle) runtime into a `code` profile, and boots `dsh --profile code`.
 
-Set `DSH_BIN=/path/to/dsh` to pin a specific dsh; set `CODSH_BUNDLE_SPEC` to register a bundle other than the launcher's paired `codsh-bundle@^<version>` (development installs use a `file:` tarball here, which the launcher never overwrites).
+- `DSH_BIN=/path/to/dsh`: Pin a specific `dsh` executable.
+- `CODSH_BUNDLE_SPEC`: Point to an alternate bundle package or local tarball.
 
 Full documentation: [github.com/Blackman99/codsh](https://github.com/Blackman99/codsh)

@@ -27,6 +27,8 @@ describe('documentation site', () => {
       expect(read(home).split('\n').length).toBeLessThan(100)
       expect(read(home)).toContain(`href="${guide}"`)
       expect(read(home)).toContain(`href="${gallery}"`)
+      expect(read(home)).toMatch(new RegExp(`<a class="button" href="${guide.replaceAll('.', '\\.')}">`))
+      expect(read(home)).not.toMatch(/<a class="button" href="#[^"]*">/)
       expect(read(guide)).toContain('frames:start')
       expect(read(guide)).toContain(`href="${home}"`)
       expect(read(gallery)).toContain('做一个 web 版的荣誉勋章游戏')
