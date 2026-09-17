@@ -1,5 +1,23 @@
 # codsh
 
+## 0.24.0
+
+### Minor Changes
+
+- 698f622: Show the original requirement, overall Ship goal, and individual decision questions and user answers directly in the local Web graph. Persist human responses separately from the graph cache so they survive rebuilds and resumed runs, keep missing answers explicit, and support complete long-text inspection. Use English for all Web interface labels while preserving recorded source text verbatim.
+- 698f622: Replace the Web panorama's ring diagram with locally bundled React Flow sub-flows. Show six ordered layers from Wayfinder through Grill, Spec, Tickets, Landing, and Done, with nested workflow steps, live ticket claims, prerequisite/Track relations, phase navigation, and expand/collapse controls. Preserve the existing TTY projection and canonical graph identities. Read phase status from the spec, retain the last graph during connection failures, and serve browser assets locally without a CDN. Distinguish phase states and ticket claims with colored node fills, borders, and labeled badges, with a matching status legend and separate Track-anchor styling. Dedicate the entire vertical viewport in the center column to the flowchart, placing branding, spec path, phase navigation, canvas controls, ticket claims, inspector details, and legends neatly into the left and right sidebars.
+
+### Patch Changes
+
+- 698f622: Clarify in both gallery languages that every project was built from a one-sentence request with one round of interaction and recommended answers to every question, and add a prominent gallery invitation to both READMEs.
+- 698f622: Add the International Mall project to the bilingual gallery, with a real screenshot and a shoppable static snapshot.
+- 698f622: Add the Web Music Player project to the bilingual gallery, with a real screenshot and a playable static snapshot.
+- 698f622: Shorten the product README to install, `/ship` phases, surface, and links. Development MOCK modes move to CONTRIBUTING.
+- 698f622: Resolve landing and merge-back conflicts autonomously, including lockfiles and modify/delete conflicts, and retry validation feedback before reporting a blocker. Preserve clean auto-merged files instead of misclassifying them as unrelated edits, and finalize real merge and squash conflicts with the correct non-interactive Git commit. Keep sealed requirements, interruption recovery, and integrated proof checks intact.
+- 1946513: Keep `/ship` on the panorama teaser. The fullscreen overlay opens on Ctrl+G or a click on that row, not when the graph first binds.
+- 698f622: Avoid duplicate Wayfinder decision cards when a local ticket repeats a captured human response with a translated or reworded question. Reconcile unique matches in the Web projection, preserving the captured wording, ticket selection, and stored history; retain ambiguous matches, short confirmations, and changed answers.
+- 698f622: Simplify the bilingual site homepages, move detailed documentation into guide pages, and add a gallery of one-sentence projects with a real screenshot and playable WWII browser-game demo.
+
 ## 0.23.0
 
 ### Patch Changes
