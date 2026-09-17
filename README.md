@@ -28,8 +28,6 @@ Its flagship feature, **`/ship`**, turns a one-sentence idea into fully verified
 
 Want to see what it builds? [Visit the gallery](https://blackman99.github.io/codsh/gallery.html) for real projects, screenshots, and playable results. Every project was built from a **one-sentence request**, with just **one round of interaction** and the **recommended answer selected for every question**.
 
-[![The /ship flow](assets/ship-demo.gif)](https://blackman99.github.io/codsh/)
-
 ## Install
 
 ```sh

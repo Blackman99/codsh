@@ -10,8 +10,6 @@ export DEEPSEEK_API_KEY="your-api-key"
 codsh
 ```
 
-[![The /ship flow](https://raw.githubusercontent.com/Blackman99/codsh/main/assets/ship-demo.gif)](https://blackman99.github.io/codsh/)
-
 ## `/ship`
 
 `/ship <one-sentence idea>` automatically drives the complete engineering workflow:
