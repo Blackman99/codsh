@@ -1574,12 +1574,11 @@ export class Prompt {
   }
 
   /**
-   * Bind the Ship graph the overlay paints. On a TTY the overlay is pinned
-   * by default the first time a graph appears; a pipe never shows it.
+   * Bind the Ship graph the overlay paints. A TTY keeps the teaser; Ctrl+G
+   * or a click on that row opens the overlay. A pipe never shows either.
    * Clearing the graph returns chrome to the teaser (or none).
    */
   setGraph(graph: ShipGraph | undefined, inFlight?: number): void {
-    const firstBind = graph !== undefined && this.graph === undefined
     this.graph = graph
     if (graph === undefined) {
       this.panorama = undefined
@@ -1590,9 +1589,6 @@ export class Prompt {
     }
     if (this.panorama === undefined) this.panorama = new PanoramaOverlay(graph)
     else this.panorama.bind(graph)
-    if (firstBind && this.console.readsKeys && this.frontier_ === undefined && this.select_ === undefined) {
-      this.panoramaOpen = true
-    }
     this.teaser = teaserCounts(graph)
     this.teaserInFlight = inFlight ?? this.teaserInFlight
     this.render()

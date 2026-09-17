@@ -631,7 +631,6 @@ describe('selection', () => {
       ],
       edges: [{ from: 'landing:1', to: 'track:1', kind: 'hangs-off' }],
     })
-    console.press({ kind: 'toggle-panorama' })
     prompt.setSubagents([
       { id: 'child-1', label: 'Investigate CONTEXT.md', startedAt: 0, status: 'running', endedAt: undefined, calls: 1, latest: 'bash: sleep 2' },
     ])
@@ -1426,17 +1425,21 @@ describe('the surrounding rows', () => {
     })
     prompt.setGraph(overlayGraph())
     prompt.setWebUrl('http://127.0.0.1:49152')
-    expect((console.viewers.at(-1) ?? []).join('\n')).toContain('http://127.0.0.1:49152')
-    console.press({ kind: 'toggle-panorama' })
     const teaser = (console.draws.at(-1)?.rows ?? []).find(row => row.includes('待认领 1')) ?? ''
     expect(teaser).toContain('http://127.0.0.1:49152')
     expect(teaser).toContain('已认领 1')
+    expect(console.viewers.at(-1)).toBeUndefined()
+    console.press({ kind: 'toggle-panorama' })
+    expect((console.viewers.at(-1) ?? []).join('\n')).toContain('http://127.0.0.1:49152')
+    console.press({ kind: 'toggle-panorama' })
+    const teaserAgain = (console.draws.at(-1)?.rows ?? []).find(row => row.includes('待认领 1')) ?? ''
+    expect(teaserAgain).toContain('http://127.0.0.1:49152')
     prompt.setGraph(undefined)
     expect(drawn(console)).toContain('http://127.0.0.1:49152')
     expect(drawn(console)).not.toContain('待认领')
   })
 
-  it('pins the overlay by default when a graph is bound, and Ctrl+G toggles the teaser', () => {
+  it('keeps the teaser when a graph is bound, and Ctrl+G opens the overlay', () => {
     const { prompt, console } = build()
     prompt.setPlan({
       tickets: [{ title: 'Teaser paint', done: false }],
@@ -1444,6 +1447,11 @@ describe('the surrounding rows', () => {
       current: { title: 'Teaser paint', done: false },
     })
     prompt.setGraph(overlayGraph())
+    expect(console.viewers.at(-1)).toBeUndefined()
+    expect(drawn(console)).toContain('待认领 1')
+    expect(drawn(console)).toContain('plan 0/1')
+
+    console.press({ kind: 'toggle-panorama' })
     expect((console.viewers.at(-1) ?? []).join('\n')).toContain('Chart the map')
     expect((console.viewers.at(-1) ?? []).join('\n')).toContain('Teaser paint · Track-1')
     expect(drawn(console)).not.toContain('plan 0/1')
@@ -1451,10 +1459,6 @@ describe('the surrounding rows', () => {
     console.press({ kind: 'toggle-panorama' })
     expect(console.viewers.at(-1)).toBeUndefined()
     expect(drawn(console)).toContain('待认领 1')
-    expect(drawn(console)).toContain('plan 0/1')
-
-    console.press({ kind: 'toggle-panorama' })
-    expect((console.viewers.at(-1) ?? []).join('\n')).toContain('Chart the map')
   })
 
   it('toggles the overlay from a click on the teaser', () => {
@@ -1465,7 +1469,6 @@ describe('the surrounding rows', () => {
       current: { title: 'Teaser paint', done: false },
     })
     prompt.setGraph(overlayGraph())
-    console.press({ kind: 'toggle-panorama' })
     const rows = console.draws.at(-1)?.rows ?? []
     const teaser = rows.findIndex(row => row.includes('待认领 1'))
     expect(teaser).toBeGreaterThanOrEqual(0)
@@ -1483,6 +1486,8 @@ describe('the surrounding rows', () => {
       current: { title: 'Teaser paint', done: false },
     })
     prompt.setGraph(overlayGraph())
+    console.press({ kind: 'toggle-panorama' })
+    expect(console.viewers.at(-1)).not.toBeUndefined()
     console.press({ kind: 'escape' })
     expect(calls).not.toContain('escape')
     expect(console.viewers.at(-1)).toBeUndefined()
@@ -1493,6 +1498,8 @@ describe('the surrounding rows', () => {
   it('keeps an empty inner-ring overlay pinned with a body line', () => {
     const { prompt, console } = build()
     prompt.setGraph(emptyInnerGraph())
+    expect(console.viewers.at(-1)).toBeUndefined()
+    console.press({ kind: 'toggle-panorama' })
     const frame = (console.viewers.at(-1) ?? []).join('\n')
     expect(frame).toContain(EMPTY_INNER_RING)
     expect(frame).toContain('Land the teaser')
@@ -1503,6 +1510,7 @@ describe('the surrounding rows', () => {
     const { prompt, console } = build()
     prompt.setTodos([{ content: 'write the fix', status: 'in_progress' }])
     prompt.setGraph(overlayGraph())
+    console.press({ kind: 'toggle-panorama' })
     expect(console.viewers.at(-1)).not.toBeUndefined()
     console.press({ kind: 'toggle-todos' })
     expect(console.viewers.at(-1)).toBeUndefined()
@@ -1521,6 +1529,7 @@ describe('the surrounding rows', () => {
   it('dismisses the overlay to the teaser when grill HITL owns the screen', async () => {
     const { prompt, console, calls } = build()
     prompt.setGraph(overlayGraph())
+    console.press({ kind: 'toggle-panorama' })
     expect(console.viewers.at(-1)).not.toBeUndefined()
     const pending = prompt.frontier({
       question: 'Which storage?',

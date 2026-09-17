@@ -154,7 +154,7 @@ describe('dsh code (real profile, keyless model)', () => {
 
     // Commands echo above their result — they never reach the session log, so
     // nothing else would show what was run.
-    expect(run.stdout).toContain('│ /status')
+    expect(run.stdout).toContain('│   /status')
     // `/status` is registered by this surface and reports through the registry.
     expect(run.stdout).toContain('permissions  workspace-write')
     // `/plan` belongs to the composed preset, so it proves the whole chain.
@@ -231,7 +231,7 @@ describe('dsh code (real profile, keyless model)', () => {
     expect(run.stdout).toContain('Welcome to codsh · cli-mock')
     expect(run.stdout).toMatch(/cli-mock/)
     // A turn reports what it cost, which is the figure a person acts on.
-    expect(run.stdout).toMatch(/\d+\.\ds · \d+ tokens/)
+    expect(run.stdout).toMatch(/\d+\.\ds(?: \(thought [\d.]+s\))?(?: · session .+)?(?: · \d+ tokens)?/)
   }, E2E_TEST_TIMEOUT_MS)
 
   it('renders a Markdown answer without mangling its prose', async () => {

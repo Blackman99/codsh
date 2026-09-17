@@ -121,7 +121,7 @@ describe.skipIf(process.platform === 'win32')('protocols and the session (real P
     const final = finalScreen(output).alternate
     // One reply and one turn-cost line: the steer joined the running turn.
     expect(final.filter(row => row.includes('CODE_CLI_STEER seen='))).toHaveLength(1)
-    expect(final.filter(row => /^\s+\d+(?:\.\d+)?s · /u.test(row))).toHaveLength(1)
+    expect(final.filter(row => /│\s+\d+(?:\.\d+)?s(?: \(thought [\d.]+s\))?(?: · session .+)?(?: · \S+ tokens)?\s*$/u.test(row))).toHaveLength(1)
     expect(final.some(row => row.includes('seen=yes'))).toBe(true)
     expect(final.some(row => /│\s+CODE_CLI_STEER_MARK now/u.test(row))).toBe(true)
   }, E2E_TEST_TIMEOUT_MS)
@@ -242,13 +242,13 @@ describe.skipIf(process.platform === 'win32')('rewind (real PTY)', () => {
     const rewound = screenAt(output, 'rewound to before turn 3').alternate
     // The report wraps at 120 columns, so it is read off the screen with its
     // padding squeezed out: two session ids, and not the same one twice.
-    const said = /nowon(session-[\w-]+)·(session-[\w-]+)staysin\/resume/u.exec(rewound.join('').replaceAll(/\s+/gu, ''))
+    const said = /nowon(session-[\w-]+)·(session-[\w-]+)staysin\/resume/u.exec(rewound.join('').replaceAll(/[\s│|]/gu, ''))
     expect(said).not.toBeNull()
     expect(said?.[1]).not.toBe(said?.[2])
     // The replayed fork carries the first two turns and not the third.
     expect(rewound.some(row => row.includes('│   first request'))).toBe(true)
     expect(rewound.some(row => row.includes('│   second request'))).toBe(true)
     expect(rewound.some(row => row.includes('│   third request'))).toBe(false)
-    expect(plain).toContain('│ fourth request')
+    expect(plain).toMatch(/│\s+fourth request/u)
   }, E2E_TEST_TIMEOUT_MS)
 })

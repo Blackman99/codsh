@@ -146,12 +146,13 @@ commit. Delivery auto-picks Merge back: fast-forward when possible, else
 squash. Same conflict-retry rule. Red delivery resets Original-Branch and
 keeps `ship/<slug>`.
 
-**Track-11.** Panorama overlay: pinned-by-default alternate-screen fullscreen
-(Ctrl+G / click teaser), inner then outer, bucket on the row, Track-N suffix,
-wrap `Blocked by: <name>`, empty overlay kept, exclusive with Queue/Todo,
-grill HITL dismisses to the teaser. Panorama teaser: `待认领 n · 已认领 n ·
-已关闭 n` plus in-flight when greater than zero, plus the loopback URL when
-bound, above the plan row. Drop the key hint first when the line will not fit.
+**Track-11.** Panorama overlay: alternate-screen fullscreen opened by Ctrl+G
+or a click on the teaser (not pinned by default), inner then outer, bucket on
+the row, Track-N suffix, wrap `Blocked by: <name>`, empty overlay kept,
+exclusive with Queue/Todo, grill HITL dismisses to the teaser. Panorama
+teaser: `待认领 n · 已认领 n · 已关闭 n` plus in-flight when greater than
+zero, plus the loopback URL when bound, above the plan row. Drop the key
+hint first when the line will not fit.
 
 **Track-12.** Web panorama: `127.0.0.1` ephemeral port, one server for the
 TTY session. The URL is pinned on the Panorama teaser and overlay title; `/ship`

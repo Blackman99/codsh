@@ -15,8 +15,9 @@ Key: `DEEPSEEK_API_KEY`. Already have dsh? `npm i -g codsh-cli` is enough when t
 
 `/ship <one-sentence idea>`: wayfinder → grill → spec → tickets → landing.
 You answer; the same invocation continues. `/goal` stays disarmed. A panorama
-(TTY overlay, teaser with the Web flowchart URL, local Web flowchart) is always
-on; `/ship` does not open a browser. The
+stays available: TTY overlay (`Ctrl+G` or the teaser), a one-line ticket count
+with the local Web flowchart URL on that row, and the flowchart itself —
+`/ship` does not open a browser. The
 [site](https://blackman99.github.io/codsh/) shows the rest as real terminal
 captures.
 

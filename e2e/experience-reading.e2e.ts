@@ -16,7 +16,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { E2E_TEST_TIMEOUT_MS } from './harness.ts'
-import { PTY_COLUMNS, drivePty, drivePtySteps, screenOf, screenAt } from './pty-driver.ts'
+import { PTY_COLUMNS, PTY_ROWS, SYNC_END, drivePty, drivePtySteps, screenOf, screenAt } from './pty-driver.ts'
 import { ENTER } from './pty-helpers.ts'
 import { Terminal } from './vt.ts'
 
@@ -28,6 +28,17 @@ describe.skipIf(process.platform === 'win32')('the first five minutes: rendering
     ])
     const rows = screenAt(output, 'CODE_CLI_CALL_STREAM_DONE').alternate
     const text = rows.join('\n')
+    // The first bullets can scroll off a 40-row terminal once the table wraps,
+    // so the rendered identifier is read off the frames that still held it.
+    const probe = new Terminal(PTY_ROWS, PTY_COLUMNS)
+    let sawScreen = false
+    let sawGain = false
+    for (const frame of output.split(SYNC_END)) {
+      probe.feed(frame + SYNC_END)
+      const screen = probe.alternate.join('\n')
+      if (screen.includes('screen.ts')) sawScreen = true
+      if (screen.includes('Gain: CODE_CLI_GAIN & held')) sawGain = true
+    }
     // The wide Chinese table wrapped inside its cells — never raw pipe rows.
     expect(text).not.toContain('|---')
     expect(text).not.toContain('| 维度')
@@ -45,11 +56,11 @@ describe.skipIf(process.platform === 'win32')('the first five minutes: rendering
     // Bold-wrapped code lost its backticks and its stars.
     expect(text).not.toContain('`screen.ts`')
     expect(text).not.toContain('**')
-    expect(text).toContain('screen.ts')
+    expect(sawScreen).toBe(true)
     // Inline HTML painted, not printed: the gain reached the terminal in the
     // theme's green, the entity is its character, and no tag is on screen.
     expect(output).toContain('\u001B[32mCODE_CLI_GAIN\u001B[0m')
-    expect(rows.some(row => row.includes('Gain: CODE_CLI_GAIN & held'))).toBe(true)
+    expect(sawGain).toBe(true)
     expect(text).not.toContain('<font')
     expect(text).not.toContain('&amp;')
   }, E2E_TEST_TIMEOUT_MS)

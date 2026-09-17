@@ -107,7 +107,6 @@ describe.skipIf(process.platform === 'win32')('ship conflict-resolution (real PT
     try {
       const run = await drivePtySteps('ship-conflict', [
         ['Welcome to codsh', `/ship${ENTER}`, 200],
-        ['Esc teaser', ESCAPE, 200],
         ['SHIP_VERIFICATION_DONE', '\u0008', 1_000],
         ['Ctrl+H closes', ESCAPE, 300],
         ['', '\u0014', 300],
@@ -115,11 +114,11 @@ describe.skipIf(process.platform === 'win32')('ship conflict-resolution (real PT
         ['', '\u0007', 300],
         ['', `/exit${ENTER}`, 300],
       ], { cwd, columns, timeoutMs: 90_000 })
-      for (const index of [2, 4, 6, 7]) {
+      for (const index of [1, 3, 5, 6]) {
         expect(chrome(beforeStep(run, index, columns))).not.toMatch(/待认领|已认领|已关闭|plan \d|todos \d|subagents \d|ship ·/u)
       }
-      expect(beforeStep(run, 3, columns).join('\n')).toContain('Ctrl+H closes')
-      expect(beforeStep(run, 3, columns).join('\n')).toContain('done')
+      expect(beforeStep(run, 2, columns).join('\n')).toContain('Ctrl+H closes')
+      expect(beforeStep(run, 2, columns).join('\n')).toContain('done')
       expect(run.output).not.toContain('SHIP_CONFLICT_ERROR')
       expect(run.output).not.toContain('SHIP_CONFLICT_IDLE')
       expect(run.output).not.toContain('## Blocker')

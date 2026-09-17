@@ -772,10 +772,11 @@ without asking. Occupancy is not a ship gate and not a ticket row.
 _Avoid_: occupancy gate, silent steal, GoalBar, Claim
 
 **Panorama overlay**:
-The pinned fullscreen TTY projection of one bound spec's two-ring graph:
-inner ring then outer ring, 待认领 / 已认领 / 已关闭 on the ticket row,
-Track-N as a suffix. The title row also carries the loopback Web panorama
-URL when one is bound. Ctrl+G or a click on the teaser toggles it; exclusive
+The fullscreen TTY projection of one bound spec's two-ring graph: inner
+ring then outer ring, 待认领 / 已认领 / 已关闭 on the ticket row, Track-N
+as a suffix. The title row also carries the loopback Web panorama URL when
+one is bound. Binding a graph keeps the teaser; Ctrl+G or a click on that
+row opens the overlay, and Esc, Ctrl+G, or a click folds it back. Exclusive
 with Queue/Todo. Distinct from the Panorama teaser and from the Web
 panorama. Not a graph node. An empty inner ring is still this overlay.
 _Avoid_: Track-N grouping, hub row, Queue-style window, fourth bucket

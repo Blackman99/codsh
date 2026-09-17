@@ -167,7 +167,7 @@ describe.skipIf(process.platform === 'win32')('the first five minutes: menus, se
     // One reply and one turn-cost line, and the reply saw the mark: the steer
     // joined the running turn instead of starting one of its own.
     expect(final.filter(row => row.includes('CODE_CLI_STEER seen='))).toHaveLength(1)
-    expect(final.filter(row => /^\s+\d+(?:\.\d+)?s · /u.test(row))).toHaveLength(1)
+    expect(final.filter(row => /│\s+\d+(?:\.\d+)?s(?: \(thought [\d.]+s\))?(?: · session .+)?(?: · \S+ tokens)?\s*$/u.test(row))).toHaveLength(1)
     expect(final.some(row => row.includes('seen=yes'))).toBe(true)
     expect(final.some(row => /│\s+CODE_CLI_STEER_MARK now/u.test(row))).toBe(true)
   }, E2E_TEST_TIMEOUT_MS)

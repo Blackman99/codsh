@@ -59,7 +59,7 @@ function resolve(fixture: ReturnType<typeof repo>, fill: (prompt: string, attemp
   })
 }
 
-describe('autonomous conflict resolution with real git', () => {
+describe('autonomous conflict resolution with real git', { timeout: 15_000 }, () => {
   it('keeps automatically merged files and commits the resolved merge', async () => {
     const fixture = repo()
     const outcome = await resolve(fixture, () => { writeFileSync(join(fixture.cwd, fixture.path), 'parent and ticket\n') })

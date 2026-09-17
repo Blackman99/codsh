@@ -134,7 +134,7 @@ describe.skipIf(process.platform === 'win32')('the first five minutes: welcome, 
   it('gives a canned command the top of the viewport, like a typed prompt', async () => {
     const run = await drivePtySteps('anchor', [
       ['Welcome to codsh', `/ship let long diffs open in a pager${ENTER}`, 200],
-      ['Esc teaser', '\u001B', 0],
+      ['Ask anything', '', 0],
       ['ANCHOR_REPLY_1', '', 0],
       ['ANCHOR_REPLY_8', '', 0],
       ['ANCHOR_REPLY_12', `/exit${ENTER}`, 300],
@@ -180,7 +180,7 @@ describe.skipIf(process.platform === 'win32')('the first five minutes: welcome, 
     const captured = (offset: number | undefined): string => Buffer.from(run.output).subarray(0, offset).toString()
     const shown = screenOf(captured(run.offsets[1]), -1, 24).alternate
 
-    const echo = shown.findIndex(row => row.includes('│ /status'))
+    const echo = shown.findIndex(row => row.includes('│   /status'))
     expect(echo).toBeGreaterThan(0)
     // What was on screen before it is still above it. On a 24-row terminal the
     // taller chrome scrolls the lettermark off, so the welcome's help line —

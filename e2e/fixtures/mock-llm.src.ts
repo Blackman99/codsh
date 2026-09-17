@@ -376,40 +376,44 @@ class CodeCliMockAdapter extends LlmAdapter {
   async * stream(options: GenerateOptions): AsyncIterable<StreamChunk> {
     if (MOCK_MODE === 'ship-landing') {
       const texts = textBlocks(options)
-      const prompt = texts.findLast(text => text.includes('Throughout /ship')) ?? ''
-      const active = /^Active Ticket: Ticket (\d+):/mu.exec(prompt)?.[1]
+      const prompt = texts.findLast(text =>
+        text.includes('Throughout /ship')
+        || /^Ticket \d+:/mu.test(text)
+        || text.includes('This turn is final verification only')) ?? ''
+      const ticket = landingTicketId(prompt)
+      const verification = prompt.includes('This turn is final verification only')
       const result = options.messages.at(-1)?.content.find(block => block.type === 'tool-result')
-      const ledger = join(process.cwd(), 'docs', 'specs', 'landing-e2e.md')
-      if (result === undefined && existsSync(ledger)) {
-        const id = ToolCallId('landing-read')
-        const args = JSON.stringify({ file_path: ledger })
-        yield { type: 'block-start', index: 0, blockType: 'tool-call' }
-        yield { type: 'tool-call-delta', index: 0, id, name: 'read', argumentsDelta: args }
-        yield { type: 'block-end', index: 0, block: { type: 'tool-call', id, name: 'read', arguments: args } }
-        yield { type: 'finish', reason: { kind: 'tool-calls' } }
+      const root = process.cwd()
+      const ledger = join(root, 'docs', 'specs', 'landing-e2e.md')
+      if (ticket !== undefined) {
+        if (result === undefined) {
+          const issues = join(root, '.scratch', 'landing-e2e', 'issues')
+          const path = join(issues, `${ticket.padStart(2, '0')}-ticket.md`)
+          const existing = existsSync(path) ? readFileSync(path, 'utf8') : `Ticket ${ticket}: Export ${ticket}\n`
+          const withProof = /^Proof:\s*/imu.test(existing)
+            ? existing.replace(/^Proof:\s*.*$/imu, 'Proof: green')
+            : `${existing.trimEnd()}\nProof: green\n`
+          yield* mockToolCall(`landing-ticket-${ticket}`, 'write', { file_path: path, content: withProof })
+          return
+        }
+        yield* mockText(result.isError === true ? 'SHIP_LANDING_ERROR' : `SHIP_TICKET_${ticket}_DONE`)
         return
       }
-      if (result?.toolCallId === 'landing-read' && result.isError !== true) {
-        const current = readFileSync(ledger, 'utf8')
-        const verification = prompt.includes('This turn is final verification only')
-        const drift = current.includes('DRIFT_AFTER_FIRST') && active === '1'
-        const content = active !== undefined
-          ? current.replace(`- [ ] Ticket ${active}:`, `- [x] Ticket ${active}:`).replace(drift ? 'Track-1: Keep offline exports.' : 'NEVER_MATCH', 'Track-1: Upload exports.')
-          : verification ? `${current.replace('Status: landing', 'Status: shipped')}\n## Verification\n\n- ACC-001: \`pnpm test\` exit 0\n` : current
-        const id = ToolCallId(`landing-${active ?? 'verify'}`)
-        const args = JSON.stringify({ file_path: ledger, content })
-        yield { type: 'block-start', index: 0, blockType: 'tool-call' }
-        yield { type: 'tool-call-delta', index: 0, id, name: 'write', argumentsDelta: args }
-        yield { type: 'block-end', index: 0, block: { type: 'tool-call', id, name: 'write', arguments: args } }
-        yield { type: 'finish', reason: { kind: 'tool-calls' } }
+      if (verification) {
+        if (result === undefined && existsSync(ledger)) {
+          yield* mockToolCall('landing-read', 'read', { file_path: ledger })
+          return
+        }
+        if (result?.toolCallId === 'landing-read' && result.isError !== true) {
+          const current = readFileSync(ledger, 'utf8')
+          const content = `${current.replace('Status: landing', 'Status: shipped')}\n## Verification\n\n- ACC-001: \`pnpm test\` exit 0\n`
+          yield* mockToolCall('landing-verify', 'write', { file_path: ledger, content })
+          return
+        }
+        yield* mockText(result?.isError === true ? 'SHIP_LANDING_ERROR' : 'SHIP_VERIFICATION_DONE')
         return
       }
-      const reply = result?.isError ? 'SHIP_LANDING_ERROR'
-        : active === undefined ? 'SHIP_VERIFICATION_DONE' : `SHIP_TICKET_${active}_DONE`
-      yield { type: 'block-start', index: 0, blockType: 'text' }
-      yield { type: 'text-delta', index: 0, text: reply }
-      yield { type: 'block-end', index: 0, block: { type: 'text', text: reply } }
-      yield { type: 'finish', reason: { kind: 'stop' } }
+      yield* mockText('SHIP_LANDING_IDLE')
       return
     }
     if (MOCK_MODE === 'ship-wayfinder') {

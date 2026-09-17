@@ -194,7 +194,7 @@ describe.skipIf(process.platform === 'win32')('the first five minutes: timeline,
     ])
     const screen = finalScreen(output)
     // Exactly one cost line per turn — per-step reports would print several.
-    const costs = screen.alternate.filter(row => /^\s+\d+(?:\.\d+)?s( · .*tokens)?$/u.test(row))
+    const costs = screen.alternate.filter(row => /│\s+\d+(?:\.\d+)?s(?: \(thought [\d.]+s\))?(?: · session .+)?(?: · \S+ tokens)?\s*$/u.test(row))
     expect(costs).toHaveLength(1)
   }, E2E_TEST_TIMEOUT_MS)
 
