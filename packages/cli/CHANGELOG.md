@@ -1,5 +1,14 @@
 # codsh
 
+## 0.24.1
+
+### Patch Changes
+
+- 5f8ca29: When `codsh update` (or the next start) cannot register `codsh-bundle` because the code profile's `node_modules` were linked from a different pnpm store, drop those modules and retry. A leftover install from another pnpm major used to leave the launcher upgraded and the profile behind.
+- 5f8ca29: Streamline and optimize bilingual READMEs: focus on core `/ship` pipeline, live panorama, terminal controls, and quick start without redundant prose.
+- 5f8ca29: Highlight that `/ship` includes a built-in live task flow panorama across bilingual READMEs, launcher docs, and the documentation site.
+- 5f8ca29: Send the homepage Get started button to the matching guide instead of a same-page install anchor that does nothing on a typical screen.
+
 ## 0.24.0
 
 ### Minor Changes
