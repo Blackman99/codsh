@@ -48,6 +48,11 @@ export class TextStream {
     return this.seen
   }
 
+  /** The in-progress live line, when one is still being typed. */
+  get live(): string | undefined {
+    return this.liveText()
+  }
+
   /**
    * Take one text delta.
    * @param delta - the text fragment, which may contain any number of newlines.
@@ -189,6 +194,11 @@ export class ThinkingTracker {
     return this.painted.length > 0
   }
 
+  /** The in-progress thinking line, when one is still being typed. */
+  get live(): string | undefined {
+    return this.stream.live
+  }
+
   /**
    * Note rows the surface put on screen for this thought.
    *
@@ -198,6 +208,18 @@ export class ThinkingTracker {
    */
   markPainted(rows: readonly string[]): void {
     this.painted.push(...rows)
+  }
+
+  /**
+   * Replace the rows the surface currently shows for this thought.
+   *
+   * The in-progress head is one block that ticks in place: each frame
+   * takes the last one's place, so the clock that lands still finds the
+   * rows that are on screen.
+   * @param rows - the rows exactly as just painted.
+   */
+  replacePainted(rows: readonly string[]): void {
+    this.painted = [...rows]
   }
 
   /** Reset state for a new turn. */

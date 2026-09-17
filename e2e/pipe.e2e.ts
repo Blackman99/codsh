@@ -106,7 +106,7 @@ describe('dsh code (real profile, keyless model)', () => {
     expect(card).toEqual(['│ ● Write note.txt +1 -0 ✔'])
     // Print mode serves scripts: the task text came from the caller's own
     // command line, so it is not echoed back into the output.
-    expect(run.stdout).not.toContain('› create the note')
+    expect(run.stdout).not.toContain('│ create the note')
     expect(run.stdout).not.toContain('+ CODE_CLI_ROUND_TRIP')
     expect(run.stdout).toContain('CODE_CLI_CALL_OK')
     expect(run.written).toBe('CODE_CLI_ROUND_TRIP\n')
@@ -139,7 +139,7 @@ describe('dsh code (real profile, keyless model)', () => {
     expect(run.stdout).toContain('CODE_CLI_CALL_OK')
     // The person's own message is in the transcript: a pipe has no terminal
     // echo, so without this render it would appear nowhere at all.
-    expect(run.stdout).toContain('› create the note')
+    expect(run.stdout).toContain('│ create the note')
     expect(run.written).toBe('CODE_CLI_ROUND_TRIP\n')
     // Leaving prints the session id, which is what `--resume` takes.
     expect(run.stdout).toMatch(/session session-/)
@@ -154,7 +154,7 @@ describe('dsh code (real profile, keyless model)', () => {
 
     // Commands echo above their result — they never reach the session log, so
     // nothing else would show what was run.
-    expect(run.stdout).toContain('› /status')
+    expect(run.stdout).toContain('│ /status')
     // `/status` is registered by this surface and reports through the registry.
     expect(run.stdout).toContain('permissions  workspace-write')
     // `/plan` belongs to the composed preset, so it proves the whole chain.
@@ -290,11 +290,11 @@ describe('dsh code (real profile, keyless model)', () => {
     // a one-line summary, never the pages of deliberation — neither streamed
     // as it arrived nor printed under the clock — and the summary lands
     // before the answer.
-    expect(run.stdout).toMatch(/✻ thought for [\d.]+s/u)
+    expect(run.stdout).toMatch(/│ thought for [\d.]+s/u)
     expect(run.stdout).not.toContain('weighing the options carefully')
     expect(run.stdout).not.toContain('CODE_CLI_THINKING')
     expect(run.stdout).not.toContain('thinking…')
-    expect(run.stdout.indexOf('✻ thought for')).toBeLessThan(run.stdout.indexOf('CODE_CLI_ANSWER'))
+    expect(run.stdout.indexOf('│ thought for')).toBeLessThan(run.stdout.indexOf('CODE_CLI_ANSWER'))
     expect(countOf(run.stdout, 'CODE_CLI_ANSWER after thinking')).toBe(1)
     expect(run.stdout).toMatch(/[\d.]+s \(thought [\d.]+s\) · \d+ tokens/u)
   }, E2E_TEST_TIMEOUT_MS)
@@ -357,7 +357,7 @@ describe('dsh code (real profile, keyless model)', () => {
     })
 
     // The command echoes as typed; the request carries the expanded template.
-    expect(run.stdout).toContain('› /hello world')
+    expect(run.stdout).toContain('│ /hello world')
     expect(run.stdout).toContain('marker=yes')
     expect(run.stdout).not.toContain('unknown command')
   }, E2E_TEST_TIMEOUT_MS)
@@ -379,7 +379,7 @@ describe('dsh code (real profile, keyless model)', () => {
 
     // The command echoes as typed; the request carries the current phase
     // (wayfinder first) with the idea substituted, including Mission Contract freeze.
-    expect(run.stdout).toContain('› /ship add a SHIP_E2E_IDEA command')
+    expect(run.stdout).toContain('│ /ship add a SHIP_E2E_IDEA command')
     expect(run.stdout).toContain('ship=yes')
     expect(run.stdout).toContain('mission=yes')
     expect(run.stdout).not.toContain('unknown command')

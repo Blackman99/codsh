@@ -24,7 +24,7 @@ import { GateModal, gateChip } from './gate-modal.ts'
 import { Selector } from './selector.ts'
 import { FullscreenViewer } from './viewer.ts'
 import { DEFAULT_DENSITY, type Density } from './density.ts'
-import { truncate } from './theme.ts'
+import { columnIndex, displayWidth, markSpan, truncate } from './theme.ts'
 import { todoReport, todoRow } from './todos.ts'
 import { MessageQueue } from './queue.ts'
 import { QueuePanel, queueRow, steerRefusal, steeringRow } from './queue-panel.ts'
@@ -59,7 +59,7 @@ const TODO_ROWS = 10
 export interface PromptHandlers {
   /** Ctrl-C: stop the work, or leave. */
   interrupt(): void
-  /** Escape with nothing of the prompt's own to dismiss: stop the work. */
+  /** Escape with nothing of the prompt's own to dismiss: Child view or recall. */
   escape(): void
   /** Ctrl-D on an untouched prompt: leave. */
   eof(): void
@@ -174,6 +174,8 @@ type RegionTarget =
   | { kind: 'selector'; target: SelectorTarget }
   | { kind: 'candidate'; index: number }
   | { kind: 'caret'; row: number; cell: number }
+  /** A display-column span on the status row. */
+  | { kind: 'status'; cell: number }
   | { kind: 'todos' }
   /** The collapsed queue readout: a click opens the panel. */
   | { kind: 'queue' }
@@ -213,6 +215,8 @@ export class Prompt {
   private queueRowsAt: { start: number; count: number } | undefined
   /** The subagents the live session started, as the roster now holds them. */
   private subagents: readonly SubagentEntry[] = []
+  private readonly completedShipSubagents = new Set<string>()
+  private shipTodosRetired = false
   /** The child whose view is on screen, so its panel row can say so. */
   private viewingSubagent: string | undefined
 
@@ -284,6 +288,22 @@ export class Prompt {
   private pressedCaret: { row: number; column: number } | undefined
   /** Whether the box-owned press in flight has moved, which makes it a selection. */
   private boxDragging = false
+  /**
+   * Where a press landed on a chrome row's text, when it landed there.
+   *
+   * Display columns, 0-based, on the row the press started. A click is still
+   * that row's action, if it has one; a drag is Chrome selection, the same
+   * gesture the box and the Viewport already give.
+   */
+  private pressedChrome: { index: number; cell: number } | undefined
+  /** Whether the chrome-owned press in flight has moved, which makes it a selection. */
+  private chromeDragging = false
+  /** The marked span on one chrome row, display columns, until the next click. */
+  private chromeSelection: { index: number; start: number; end: number } | undefined
+  /** Chrome rows last painted, unmarked, so a selection can clamp into them. */
+  private chromePainted: string[] = []
+  /** Where the status row sits among the chrome rows, and the text it painted. */
+  private statusRowsAt: { start: number; text: string } | undefined
   /** Chrome rows last composed, so a drag that left the box can still clamp into it. */
   private chromeHeight = 0
   /** The row the pointer last marked, so a move that changes nothing repaints nothing. */
@@ -294,6 +314,8 @@ export class Prompt {
   private teaser: TeaserCounts | undefined
   /** Live in-flight count for the teaser; Fold Sessions land in a later ticket. */
   private teaserInFlight = 0
+  /** Loopback Web panorama URL pinned on the teaser / overlay title. */
+  private webUrl: string | undefined
   /** Bound Ship graph for the overlay; absent when no graph is bound. */
   private graph: ShipGraph | undefined
   /** Fullscreen overlay instance, created when a graph is first bound. */
@@ -453,12 +475,23 @@ export class Prompt {
    * Compared by content, not identity: this is pushed on every session event,
    * and a repaint per event would flicker the chrome for nothing.
    * @param todos - the current list, empty to drop the readout.
+   * @param written - a new write or session replacement, not a projection refresh.
    */
-  setTodos(todos: TodoList): void {
-    if (todos.length === this.todos.length
+  setTodos(todos: TodoList, written = false): void {
+    if (!(written && this.shipTodosRetired) && todos.length === this.todos.length
       && todos.every((todo, at) => todo.content === this.todos[at]?.content
         && todo.status === this.todos[at]?.status)) return
     this.todos = todos
+    this.shipTodosRetired = false
+    this.render()
+  }
+
+  /** Hide a delivered ship's readouts; explicit history panels still show their records. */
+  completeShip(): void {
+    this.shipTodosRetired = true
+    this.todosExpanded = false
+    for (const entry of this.subagents) this.completedShipSubagents.add(entry.id)
+    this.subagentsOpen = false
     this.render()
   }
 
@@ -480,7 +513,10 @@ export class Prompt {
     if (same) return
     this.subagents = entries
     this.viewingSubagent = viewing
-    if (entries.length === 0) this.subagentsOpen = false
+    if (entries.length === 0) {
+      this.subagentsOpen = false
+      this.completedShipSubagents.clear()
+    }
     this.render()
   }
 
@@ -920,8 +956,8 @@ export class Prompt {
     }
     // The rows below the transcript belong to whatever composed them, so a
     // pointer there never reaches the viewport: a press on an option acts on
-    // it, and a press on a border does nothing rather than starting a
-    // selection nobody asked for.
+    // it, a press on a chrome row selects, and a press on a border does
+    // nothing rather than starting a Viewport selection nobody asked for.
     if (key.kind === 'mouse-down' || key.kind === 'mouse-up' || key.kind === 'mouse-move' || key.kind === 'mouse-drag') {
       // ...unless the viewport anchored the gesture. A selection swept out of
       // the transcript is still that selection, so the drag that left and the
@@ -932,6 +968,8 @@ export class Prompt {
         this.pressedViewport = false
         this.pressedCaret = undefined
         this.boxDragging = false
+        this.pressedChrome = undefined
+        this.chromeDragging = false
       }
       if (key.kind === 'mouse-move' && this.pointerLeftWindow(key.row, key.column)) {
         this.dropPointerHover()
@@ -947,6 +985,12 @@ export class Prompt {
         // The box anchored the gesture. Sweeping out of it still selects, the
         // way a viewport drag that left the transcript keeps selecting: the
         // pointer is clamped to the nearest text rather than cancelling.
+        this.onRegionPointer(key.kind, undefined, key.column, key.row)
+        return
+      }
+      if (this.pressedChrome !== undefined && (key.kind === 'mouse-drag' || key.kind === 'mouse-up')) {
+        // A chrome row anchored the gesture. Sweeping off it still selects,
+        // clamped into the same line.
         this.onRegionPointer(key.kind, undefined, key.column, key.row)
         return
       }
@@ -967,6 +1011,10 @@ export class Prompt {
     // way opencode and Claude treat a selection as the intent to copy.
     if (key.kind === 'mouse-down') {
       this.pressedViewport = true
+      if (this.chromeSelection !== undefined) {
+        this.chromeSelection = undefined
+        this.render()
+      }
       this.console.mouseDown(key.row, key.column)
       return
     }
@@ -1021,8 +1069,15 @@ export class Prompt {
       void this.pasteImage()
       return
     }
+    // A chrome-row mark is chrome of its own: Escape drops it before it
+    // means leave, the way a Box selection does.
+    if (key.kind === 'escape' && this.chromeSelection !== undefined) {
+      this.chromeSelection = undefined
+      this.render()
+      return
+    }
     // The open list is chrome of its own: Escape folds it back to one line
-    // rather than aborting the session the way an empty box does.
+    // rather than falling through to Child-view pop or recall.
     if (key.kind === 'escape' && this.todosExpanded) {
       this.todosExpanded = false
       this.render()
@@ -1066,8 +1121,8 @@ export class Prompt {
         break
       }
       case 'escape':
-        // Escape means stop, whatever is queued: taking a line back is the
-        // panel's job (Ctrl-Q), so an interrupt is never one Escape short.
+        // Escape dismisses; taking a queued line back is the panel's job
+        // (Ctrl-Q). The owner decides what a leftover Escape means.
         this.handlers.escape()
         break
       case 'eof': {
@@ -1230,7 +1285,8 @@ export class Prompt {
   private subagentsRows(columns: number): string[] {
     if (this.subagents.length === 0) return []
     if (this.subagentsOpen) return this.subagentsPanel.view(this.subagents, this.theme, columns, this.now(), this.viewingSubagent)
-    const row = subagentsRow(this.subagents, this.theme, columns)
+    const visible = this.subagents.filter(entry => entry.status === 'running' || !this.completedShipSubagents.has(entry.id))
+    const row = subagentsRow(visible, this.theme, columns)
     return row === undefined ? [] : [row]
   }
 
@@ -1270,7 +1326,7 @@ export class Prompt {
       this.render()
       return
     }
-    // Entering leaves the panel behind: the view replaces the transcript,
+    // Entering leaves the panel behind: the view covers the transcript,
     // and the readout is what greets the person on the way back.
     this.subagentsOpen = false
     if (action.kind === 'enter') this.handlers.enterSubagent?.(action.id)
@@ -1450,6 +1506,7 @@ export class Prompt {
   private todoRows(columns: number): string[] {
     const plan = this.plan
     if (!this.todosExpanded) {
+      if (plan === undefined && this.shipTodosRetired) return []
       // Plan row stays below the panorama teaser: they are different
       // readouts of the same graph, and Occupancy is neither.
       const row = plan === undefined
@@ -1470,11 +1527,12 @@ export class Prompt {
     ]
   }
 
-  /** Panorama teaser above the plan row, empty when no graph is bound. */
+  /** Panorama teaser above the plan row; a leftover URL stays after counts retire. */
   private teaserRow(columns: number): string | undefined {
-    return this.teaser === undefined
-      ? undefined
-      : panoramaTeaser(this.teaser, this.theme, columns, this.teaserInFlight)
+    if (this.teaser !== undefined) {
+      return panoramaTeaser(this.teaser, this.theme, columns, this.teaserInFlight, this.webUrl)
+    }
+    return this.webUrl === undefined ? undefined : `  ${this.webUrl}`
   }
 
   /**
@@ -1502,6 +1560,16 @@ export class Prompt {
     if (same && this.teaserInFlight === inFlight) return
     this.teaser = counts
     this.teaserInFlight = inFlight
+    this.render()
+  }
+
+  /**
+   * Pin the loopback Web panorama URL on the teaser and overlay title.
+   * Clearing unbinds the chrome; the server may still be serving.
+   */
+  setWebUrl(url: string | undefined): void {
+    if (this.webUrl === url) return
+    this.webUrl = url
     this.render()
   }
 
@@ -1584,13 +1652,13 @@ export class Prompt {
     if (overlay === undefined) return
     const columns = this.console.contentColumns
     const rows = this.console.rows
-    if (key.kind === 'scroll') overlay.move({ kind: 'line', lines: key.lines }, this.theme, columns, rows)
-    else if (key.kind === 'turn') overlay.move({ kind: 'line', lines: key.direction }, this.theme, columns, rows)
-    else if (key.kind === 'up') overlay.move({ kind: 'line', lines: -1 }, this.theme, columns, rows)
-    else if (key.kind === 'down') overlay.move({ kind: 'line', lines: 1 }, this.theme, columns, rows)
-    else if (key.kind === 'page') overlay.move({ kind: 'page', direction: key.direction }, this.theme, columns, rows)
-    else if (key.kind === 'home') overlay.move({ kind: 'home' }, this.theme, columns, rows)
-    else if (key.kind === 'end' || key.kind === 'scroll-end') overlay.move({ kind: 'end' }, this.theme, columns, rows)
+    if (key.kind === 'scroll') overlay.move({ kind: 'line', lines: key.lines }, this.theme, columns, rows, this.webUrl)
+    else if (key.kind === 'turn') overlay.move({ kind: 'line', lines: key.direction }, this.theme, columns, rows, this.webUrl)
+    else if (key.kind === 'up') overlay.move({ kind: 'line', lines: -1 }, this.theme, columns, rows, this.webUrl)
+    else if (key.kind === 'down') overlay.move({ kind: 'line', lines: 1 }, this.theme, columns, rows, this.webUrl)
+    else if (key.kind === 'page') overlay.move({ kind: 'page', direction: key.direction }, this.theme, columns, rows, this.webUrl)
+    else if (key.kind === 'home') overlay.move({ kind: 'home' }, this.theme, columns, rows, this.webUrl)
+    else if (key.kind === 'end' || key.kind === 'scroll-end') overlay.move({ kind: 'end' }, this.theme, columns, rows, this.webUrl)
     else return
     this.render()
   }
@@ -1695,7 +1763,7 @@ export class Prompt {
    * Act on a pointer in the region below the transcript.
    * @param kind - which pointer event arrived.
    * @param region - the region and the row's index within it, or none when a
-   *   box-owned gesture has left the chrome and is being clamped back in.
+   *   box- or status-owned gesture has left the chrome and is being clamped back in.
    * @param column - terminal column, 1-based.
    * @param terminalRow - terminal row, 1-based.
    */
@@ -1717,6 +1785,15 @@ export class Prompt {
       return
     }
     if (kind === 'mouse-drag') {
+      if (this.pressedChrome !== undefined) {
+        this.chromeDragging = true
+        const span = orderedSpan(this.pressedChrome.cell, this.chromeCellAt(this.pressedChrome.index, column))
+        this.chromeSelection = span === undefined
+          ? undefined
+          : { index: this.pressedChrome.index, start: span.start, end: span.end }
+        this.render()
+        return
+      }
       if (this.pressedCaret === undefined) return
       this.boxDragging = true
       this.editor.select(this.pressedCaret, this.boxCaretAt(region, column, terminalRow))
@@ -1724,6 +1801,8 @@ export class Prompt {
       return
     }
     if (kind === 'mouse-down') {
+      const hadChrome = this.chromeSelection !== undefined
+      this.chromeSelection = undefined
       this.pressedTarget = target
       this.pressedCaret = target?.kind === 'caret'
         ? caretAt(
@@ -1735,10 +1814,53 @@ export class Prompt {
         )
         : undefined
       this.boxDragging = false
+      this.pressedChrome = region !== undefined && this.chromeSelectable(region.index, target)
+        ? { index: region.index, cell: this.chromeCellAt(region.index, column) }
+        : undefined
+      this.chromeDragging = false
+      if (this.pressedChrome !== undefined) {
+        if (target?.kind === 'status') {
+          const at = this.editor.view
+          this.editor.setCursor(at.row, at.column)
+        }
+        this.render()
+        return
+      }
+      if (hadChrome) this.render()
       return
     }
     const pressed = this.pressedTarget
     this.pressedTarget = undefined
+    const chromeAnchor = this.pressedChrome
+    this.pressedChrome = undefined
+    const chromeDragged = this.chromeDragging
+    this.chromeDragging = false
+    if (chromeAnchor !== undefined) {
+      if (chromeDragged) {
+        this.pressedCaret = undefined
+        this.boxDragging = false
+        const span = orderedSpan(chromeAnchor.cell, this.chromeCellAt(chromeAnchor.index, column))
+        this.chromeSelection = span === undefined
+          ? undefined
+          : { index: chromeAnchor.index, start: span.start, end: span.end }
+        const text = this.chromeSelectedText()
+        if (text !== '' && this.console.copyText(text)) {
+          const copied = text.split('\n').length
+          this.setFlash(this.theme.dim(copied > 1 ? `  ✓ copied ${copied} lines` : '  ✓ copied'))
+          return
+        }
+        this.render()
+        return
+      }
+      // A press that never moved is not a copy. A status click copies
+      // nothing; every other chrome row still acts on the click.
+      if (pressed?.kind === 'status') {
+        this.pressedCaret = undefined
+        this.boxDragging = false
+        if (this.chromeSelection !== undefined) this.render()
+        return
+      }
+    }
     const caret = this.pressedCaret
     this.pressedCaret = undefined
     const dragged = this.boxDragging
@@ -1841,6 +1963,88 @@ export class Prompt {
   }
 
   /**
+   * Whether a chrome row's text can be selected.
+   *
+   * Display-only rows always can. A clickable readout can too: a drag copies
+   * and a press that never moved still acts. A selector, a completion, or an
+   * open panel row stays a click, because the mark is what Enter would take.
+   * @param index - the chrome row.
+   * @param target - what sits on that row.
+   */
+  private chromeSelectable(index: number, target: RegionTarget | undefined): boolean {
+    if (target?.kind === 'selector' || target?.kind === 'candidate'
+      || target?.kind === 'queue-panel' || target?.kind === 'subagents-panel') {
+      return false
+    }
+    // Typed text still belongs to Box selection; an empty box's placeholder
+    // is paint, not buffer, so a drag copies the row the way chrome does.
+    if (target?.kind === 'caret') return this.editor.empty
+    if (target !== undefined) return true
+    const text = this.chromePainted[index]
+    return text !== undefined && text.trim() !== ''
+  }
+
+  /**
+   * Where a pointer sits on a chrome row, clamped into the painted text.
+   *
+   * A drag that left the row still has to land somewhere it drew: past the
+   * left edge is the start, past the right the end — the same near-miss rule
+   * Caret placement uses, on a single line.
+   * @param index - the chrome row the gesture started on.
+   * @param column - terminal column, 1-based.
+   */
+  private chromeCellAt(index: number, column: number): number {
+    const width = displayWidth(this.chromePainted[index] ?? '')
+    return Math.min(Math.max(0, column - 1 - GUTTER), width)
+  }
+
+  /** The plain text under the chrome-row selection, empty when nothing is selected. */
+  private chromeSelectedText(): string {
+    const span = this.chromeSelection
+    const text = span === undefined ? undefined : this.chromePainted[span.index]
+    if (span === undefined || text === undefined) return ''
+    const width = displayWidth(text)
+    const start = Math.min(span.start, width)
+    const end = Math.min(span.end, width)
+    if (start >= end) return ''
+    return text.slice(columnIndex(text, start), columnIndex(text, end)).replaceAll(/\u001B\[[0-9;]*m/gu, '')
+  }
+
+  /**
+   * Mark the selected chrome span on the composed rows, clamped into the
+   * line now painted there. A rewrite that lost the row drops the mark.
+   * A flash, find, or hover that borrowed the row keeps the mark for when
+   * the row comes back, rather than inverting the notice.
+   * @param rows - the unmarked chrome, mutated in place.
+   * @param overlayIndex - the borrowed row, when a notice is occupying it.
+   */
+  private markChromeSelection(rows: string[], overlayIndex?: number): void {
+    this.chromePainted = [...rows]
+    const span = this.chromeSelection
+    if (span === undefined) return
+    if (overlayIndex !== undefined && span.index === overlayIndex) return
+    const box = this.boxRows
+    if (box !== undefined && span.index >= box.start && span.index < box.start + box.count && !this.editor.empty) {
+      this.chromeSelection = undefined
+      return
+    }
+    const text = rows[span.index]
+    if (text === undefined) {
+      this.chromeSelection = undefined
+      return
+    }
+    const width = displayWidth(text)
+    const start = Math.min(span.start, width)
+    const end = Math.min(span.end, width)
+    if (start >= end) {
+      this.chromeSelection = undefined
+      return
+    }
+    this.chromeSelection = { index: span.index, start, end }
+    rows[span.index] = markSpan(text, start, end)
+  }
+
+  /**
    * What sits on one row of the region, when anything does.
    * @param region - the region and the row's index within it.
    * @returns the selector row under the pointer, or `undefined`.
@@ -1889,12 +2093,19 @@ export class Prompt {
       return target === undefined ? undefined : { kind: 'subagents-panel', target }
     }
     const box = this.boxRows
-    if (box === undefined) return undefined
-    const row = region.index - box.start
-    if (row < 0 || row >= box.count) return undefined
-    // The screen prepends its own gutter before every row it paints, so the
-    // column the terminal reports is that much wider than the row's own.
-    return { kind: 'caret', row, cell: column - 1 - GUTTER }
+    if (box !== undefined) {
+      const row = region.index - box.start
+      if (row >= 0 && row < box.count) {
+        // The screen prepends its own gutter before every row it paints, so the
+        // column the terminal reports is that much wider than the row's own.
+        return { kind: 'caret', row, cell: column - 1 - GUTTER }
+      }
+    }
+    const status = this.statusRowsAt
+    if (status !== undefined && region.index === status.start) {
+      return { kind: 'status', cell: column - 1 - GUTTER }
+    }
+    return undefined
   }
 
   /**
@@ -1974,15 +2185,21 @@ export class Prompt {
     if (!this.console.readsKeys) return
     const columns = this.console.contentColumns
     if (this.gate_ !== undefined) {
+      this.chromePainted = []
+      this.chromeSelection = undefined
       this.console.setViewer(this.gate_.modal.frame(this.theme, columns, this.console.rows).rows)
       return
     }
     if (this.view_ !== undefined) {
+      this.chromePainted = []
+      this.chromeSelection = undefined
       this.console.setViewer(this.view_.viewer.frame(this.theme, columns, this.console.rows).rows)
       return
     }
     if (this.panoramaShowing && this.panorama !== undefined) {
-      this.console.setViewer(this.panorama.frame(this.theme, columns, this.console.rows).rows)
+      this.chromePainted = []
+      this.chromeSelection = undefined
+      this.console.setViewer(this.panorama.frame(this.theme, columns, this.console.rows, this.webUrl).rows)
       this.paintedPanorama = true
       this.console.clearRegion()
       return
@@ -2005,6 +2222,8 @@ export class Prompt {
     this.queueRowsAt = undefined
     this.teaserRowsAt = undefined
     this.subagentsRowsAt = undefined
+    this.statusRowsAt = undefined
+    this.chromePainted = []
     if (this.frontier_ !== undefined) {
       const frame = this.frontier_.card.frame(this.theme, columns)
       frontierCursor = frame.cursor === undefined ? undefined : { row: rows.length + frame.cursor.row, column: frame.cursor.column }
@@ -2029,7 +2248,7 @@ export class Prompt {
     if (this.shortcutsOpen) {
       rows.push(this.theme.dim(truncate('  Ctrl+R history · Ctrl+F find · Ctrl+O folds · Ctrl+T todos · Ctrl+H subagents · Ctrl+Z undo', columns)))
       rows.push(this.theme.dim(truncate('  Ctrl+Q queue · Ctrl+Enter steer · Ctrl+V image · Shift-Enter newline', columns)))
-      rows.push(this.theme.dim(truncate('  Esc interrupt · ? closes', columns)))
+      rows.push(this.theme.dim(truncate('  Ctrl-C interrupt · ? closes', columns)))
       rows.push(this.theme.muted(truncate('  /status → model · permissions · tokens · context', columns)))
     }
     // What is waiting: a steer in flight, then the queue — one row, or the
@@ -2066,12 +2285,16 @@ export class Prompt {
     // keys it names are not the ones that apply.
     const hint = this.hint ?? (this.select_ === undefined && this.frontier_ === undefined ? this.legend : undefined)
     const overlay = this.flash ?? this.findRow(columns) ?? this.hover
+    const overlayIndex = overlay === undefined ? undefined : rows.length
     if (overlay !== undefined) rows.push(overlay)
     else if (hint !== undefined) rows.push(truncate(hint, columns))
     const statusText = typeof this.status === 'function' ? this.status(columns) : this.status
     if (statusText !== undefined && (overlay === undefined || hint !== undefined)) {
-      rows.push(truncate(statusText, columns))
+      const painted = truncate(statusText, columns)
+      this.statusRowsAt = { start: rows.length, text: painted }
+      rows.push(painted)
     }
+    this.markChromeSelection(rows, overlayIndex)
     this.chromeHeight = rows.length
     if (rows.length === 0) {
       this.console.setTimelineHidden(this.select_ !== undefined)
@@ -2168,6 +2391,13 @@ export class Prompt {
   }
 }
 
+/** A display-column span in order, left first; collapsed means nothing is selected. */
+function orderedSpan(anchor: number, focus: number): { start: number; end: number } | undefined {
+  const start = Math.min(anchor, focus)
+  const end = Math.max(anchor, focus)
+  return start === end ? undefined : { start, end }
+}
+
 /** Whether a key is the pointer — a button, a motion, or the wheel — rather than the keyboard. */
 function isPointerKey(key: Key): boolean {
   return key.kind === 'mouse-down' || key.kind === 'mouse-up' || key.kind === 'mouse-move' || key.kind === 'mouse-drag'
@@ -2204,6 +2434,7 @@ function regionKey(target: RegionTarget): string {
   // go one column over is still a person putting the cursor there, and the
   // release is the position they meant.
   if (target.kind === 'caret') return 'caret'
+  if (target.kind === 'status') return 'status'
   if (target.kind === 'candidate') return `candidate:${String(target.index)}`
   if (target.kind === 'todos') return 'todos'
   if (target.kind === 'teaser') return 'teaser'

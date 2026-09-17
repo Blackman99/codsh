@@ -10,11 +10,14 @@
 import { formatElapsed } from './status.ts'
 import type { Theme } from './theme.ts'
 
-/** Braille frames, one cell wide each, so the line never changes width. */
-const FRAMES = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'] as const
+/**
+ * Braille frames, one cell wide each, so a ticking line never changes width.
+ * Shared by the working indicator and the in-progress thinking head.
+ */
+export const SPINNER_FRAMES = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'] as const
 
-/** How often the frame advances. */
-const TICK_MS = 90
+/** How often the working indicator and the thinking head advance a frame. */
+export const SPINNER_TICK_MS = 90
 
 /** The console surface a spinner drives. */
 export interface LiveSurface {
@@ -42,7 +45,7 @@ export interface SpinnerLabel {
  */
 export function spinnerText(frame: number, elapsedMs: number, label: SpinnerLabel, theme: Theme): string {
   const elapsed = formatElapsed(elapsedMs)
-  const mark = FRAMES[frame % FRAMES.length] ?? FRAMES[0]
+  const mark = SPINNER_FRAMES[frame % SPINNER_FRAMES.length] ?? SPINNER_FRAMES[0]
   const extra = label.detail?.()
   const detail = extra === undefined || extra === '' ? '' : `${extra} · `
   return `${theme.pending(mark)} ${label.verb} ${theme.dim(`${elapsed} · ${detail}${label.interrupt} to interrupt`)}`
@@ -85,7 +88,7 @@ export class Spinner {
     if (this.startedAt === 0) this.startedAt = this.now()
     this.draw()
     // Unref'd so a spinner can never be the reason the process stays alive.
-    this.timer = setInterval(() => { this.frame += 1; this.draw() }, TICK_MS)
+    this.timer = setInterval(() => { this.frame += 1; this.draw() }, SPINNER_TICK_MS)
     this.timer.unref()
   }
 

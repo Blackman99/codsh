@@ -14,9 +14,73 @@ MOCK=markdown pnpm run dev    # keyless, against the e2e mock model
 MOCK=questions pnpm run dev   # consecutive ship questions, including multi-select
 MOCK=ship-landing pnpm run dev # per-ticket turns from docs/specs/landing-e2e.md
 MOCK=ship-delegate pnpm run dev  # real `subagent` child with a bounded ship brief
+MOCK=ship-conflict pnpm run dev  # landing worktrees, git conflict fill, then the next ticket
+                                 # seed the git fixture in e2e/pty-ship-conflict.e2e.ts, then type /ship
+pnpm run site:screens         # re-shoot the site's terminals from the real binary
 ```
 
-See the README's Development section for the full loop, the `MOCK` modes, and `INSPECT=1` debugging.
+`MOCK=<mode>` boots against the keyless mock model: `write` (the default),
+`bash`, `fail` (a command that prints a line and exits 3), `heredoc`, `slow`,
+`steer` (holds a turn 3s and reports whether a mid-turn message arrived),
+`tall`, `spec`, `markdown`, `reasoning`, `reasoning-slow` (a thought long
+enough to interrupt), `reason-write` (a thought, a write, a second thought,
+an answer), `echo`, `todo`, `questions`, `workflow`, `subagents` (two
+background children, one of which fails),
+`context` (32k input usage against a 128k window; 64k on `cli-mock-pro`),
+`ship-wayfinder` (`/ship SMALL_WAYFINDER` exercises the confirmed grill handoff;
+`/ship PENDING_WAYFINDER` leaves a resumable planning ledger), `ship-delegate`,
+`ship-landing`, `ship-conflict` (real git worktrees; the Conflict-resolution
+child fills git-named hunks and `/ship` continues),
+`vision`, and the `auto-vision`, `auto-vision-slow`, `auto-vision-fail` trio
+behind the automatic image description. The list lives in
+`e2e/fixtures/mock-llm.src.ts`. `INSPECT=1` opens the Node inspector on
+the app process alone, so a breakpoint does not stop the build that precedes it.
+
+`CODSH_TRACE=<path>` tees every byte the viewport writes, and the size it wrote
+them at, into a file. A frame that arrives corrupted is a disagreement between
+what the surface emitted and what the terminal did with it, and the emitted
+half is gone by the time anyone looks; replaying the file through a terminal
+emulator reproduces the screen it drew. Off unless the variable is set.
+
+`pnpm run sync:dsh` tracks published `@deepseek-ai/dsh-*` releases. This repo never forks the harness.
+
+`pnpm run build` also bundles the React Flow Web panorama from `ship-web-app.tsx`
+with `scripts/build-ship-web.mjs`. Its JavaScript and CSS are published under
+`codsh-bundle/lib/web/` and served locally; no CDN or frontend server is required.
+After browser-client edits, rebuild before opening the `/ship` loopback URL.
+Verify requirement/goal navigation, per-phase question/answer cards, long-text
+scrolling, skipped/missing answers, nested expand/collapse, ticket relations,
+live updates, and reconnect behavior on desktop and mobile; test both `/` and
+`/index.html`. Check English interface labels without translating user source
+text, and answer persistence across graph-cache rebuilds and resumed runs.
+
+## Documentation site
+
+`site/` is a static GitHub Pages site. `index.html` and `zh.html` are the short
+homepages; `guide.html` and `guide.zh.html` retain the workflow, terminal captures,
+and setup reference. `gallery.html` and `gallery.zh.html` show original requests
+and actual project results. Keep each English/Chinese pair in sync.
+
+- `pnpm run site:build` regenerates the terminal captures in the **guide** pages.
+- Preview with `python3 -m http.server 4177 --directory site`, then open
+  `http://localhost:4177/`. No frontend dependency installation is needed.
+- Gallery demos are checked-in builds under `site/demos/`. Pages deploys those
+  snapshots; it never needs the local example repository.
+  - The WWII game lives in `site/demos/medal-of-honor/`. Do not re-run
+    `scripts/site-demo.mjs` against the current `../test-codsh` tree — that
+    directory is now the Web Music Player.
+  - The International Mall lives in `site/demos/international-mall/`.
+  - Refresh the music player with `node scripts/site-music.mjs ../test-codsh` after
+    installing the example project's dependencies. It builds with
+    relative asset paths, and keeps its source revision and Lucide license
+    alongside the demo.
+- Gallery images belong in `site/assets/gallery/` and must be real captures of
+  the showcased project. Include the original prompt, device requirements,
+  provenance, and any relevant unofficial-project notice; do not invent entries.
+- Verify both languages on desktop and mobile: home → gallery → shop → gallery,
+  home → gallery → music player → gallery, and home → gallery → game → gallery,
+  language switches, expandable controls, guide scenes, and setup anchors. Also test
+  under a URL prefix (such as `/codsh/`) to match GitHub Pages hosting.
 
 ## Before you open a PR
 
@@ -29,7 +93,7 @@ pnpm run test:e2e e2e/pty-input.e2e.ts   # one suite; the build still runs first
 
 - Tests must declare directly imported packages in the workspace development dependencies; do not rely on transitive hoisting (the startup fixture imports `@deepseek-ai/cordis-plugin-include` directly).
 - New rendering or input behavior needs a test at the right level: pure modules (editor, markdown, transcript, …) get unit specs; anything about raw mode, repaints, or key timing gets a PTY e2e step.
-- The e2e suites are split by topic because Vitest parallelises by file and a run takes as long as its largest file: `pty-input`, `pty-selectors`, `pty-questions`, `pty-folds`, `pty-mouse`, `pty-session`, `pty-status`, `pty-ship`, `pty-ship-goal` for the raw-terminal behaviours, `experience-viewport`, `experience-navigation`, `experience-reading`, `experience-chrome` for the first-five-minutes checklist, plus `pipe`, `images`, and `wrapper`. Put a new step in the file whose topic it belongs to, and split a file that grows past about fifteen steps rather than letting it become the critical path. Shared PTY helpers (keys, `screenAt`, `boxTops`) live in `e2e/pty-helpers.ts`. Each e2e home copies the packed profile's own files (`cordis.yml` especially) and shares `node_modules` plus the installation fallback — dsh rewrites the include root on every boot, so a fully shared profile races under parallel files. The template heals that fallback once (`e2e/heal-template.mjs`) so a cloned home does not write it after Node has already resolved through the shared modules.
+- The e2e suites are split by topic because Vitest parallelises by file and a run takes as long as its largest file: `pty-input`, `pty-selectors`, `pty-questions`, `pty-folds`, `pty-mouse`, `pty-session`, `pty-status`, `pty-ship`, `pty-ship-goal`, `pty-ship-landing`, `pty-ship-conflict` for the raw-terminal behaviours, `experience-viewport`, `experience-navigation`, `experience-reading`, `experience-chrome` for the first-five-minutes checklist, plus `pipe`, `images`, and `wrapper`. Put a new step in the file whose topic it belongs to, and split a file that grows past about fifteen steps rather than letting it become the critical path. Shared PTY helpers (keys, `screenAt`, `boxTops`) live in `e2e/pty-helpers.ts`. Each e2e home copies the packed profile's own files (`cordis.yml` especially) and shares `node_modules` plus the installation fallback — dsh rewrites the include root on every boot, so a fully shared profile races under parallel files. The template heals that fallback once (`e2e/heal-template.mjs`) so a cloned home does not write it after Node has already resolved through the shared modules.
 - Surface work is not done at unit green. Drive the changed keys and chrome on a real TTY — the PTY e2e that paints the frame, or `MOCK=echo pnpm run dev` — before calling the row aligned. This is standard process, not optional.
 - The transcript is append-only and the renderer switches on presenter `card` tags, never tool names — keep both invariants.
 - Add a changeset (`pnpm changeset`) describing the user-visible change; releases are cut from accumulated changesets by CI. CI picks the end-to-end suites by what the diff can reach, and the lists are spelled out in `.github/workflows/ci.yml`: changelogs, changesets, a version line, prose, pictures, and unit specs (including `e2e/*.spec.ts`) run typecheck and the unit suites only; a diff confined to `packages/cli` runs the wrapper suite, and one confined to the image modules (vision, preview, paste, terminal graphics) runs the images suite; anything else in the diff runs everything. Extend the lists only for a path no other suite can observe.

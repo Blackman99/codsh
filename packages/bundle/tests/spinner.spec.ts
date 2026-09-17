@@ -4,11 +4,11 @@
  */
 
 import { describe, expect, it } from 'vitest'
-import { Spinner, spinnerText } from '../src/spinner.ts'
+import { SPINNER_FRAMES, Spinner, spinnerText } from '../src/spinner.ts'
 import { createTheme } from '../src/theme.ts'
 
 const theme = createTheme(false, {})
-const label = { verb: 'working', interrupt: 'ESC' }
+const label = { verb: 'working', interrupt: 'Ctrl-C' }
 
 /** Records what the surface was asked to display. */
 function surface(isTty: boolean) {
@@ -18,7 +18,7 @@ function surface(isTty: boolean) {
 
 describe('spinnerText', () => {
   it('names the elapsed time and the interrupt key', () => {
-    expect(spinnerText(0, 1500, label, theme)).toBe('⠋ working 1.5s · ESC to interrupt')
+    expect(spinnerText(0, 1500, label, theme)).toBe('⠋ working 1.5s · Ctrl-C to interrupt')
   })
 
   it('drops the decimal once the wait is long enough for it to be noise', () => {
@@ -35,7 +35,7 @@ describe('spinnerText', () => {
 
   it('cycles frames without running off the end', () => {
     const first = spinnerText(0, 0, label, theme)
-    const wrapped = spinnerText(10, 0, label, theme)
+    const wrapped = spinnerText(SPINNER_FRAMES.length, 0, label, theme)
     expect(wrapped).toBe(first)
   })
 })

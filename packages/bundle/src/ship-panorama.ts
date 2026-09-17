@@ -62,11 +62,12 @@ export class PanoramaOverlay {
     this.layout = undefined
   }
 
-  frame(theme: Theme, columns: number, rows: number): OverlayFrame {
+  frame(theme: Theme, columns: number, rows: number, url?: string): OverlayFrame {
     const height = Math.max(1, rows)
     const width = Math.max(1, columns)
     const counts = teaserCounts(this.graph)
-    const titleText = `panorama · 待认领 ${String(counts.unclaimed)} · 已认领 ${String(counts.claimed)} · 已关闭 ${String(counts.closed)}`
+    const link = url !== undefined && url !== '' ? ` · ${url}` : ''
+    const titleText = `panorama · 待认领 ${String(counts.unclaimed)} · 已认领 ${String(counts.claimed)} · 已关闭 ${String(counts.closed)}${link}`
     if (height === 1) {
       this.offset = 0
       return { rows: [truncate(titleText, width)], body: [], offset: 0, maxOffset: 0 }
@@ -91,8 +92,8 @@ export class PanoramaOverlay {
     }
   }
 
-  move(move: ViewerMove, theme: Theme, columns: number, rows: number): void {
-    const frame = this.frame(theme, columns, rows)
+  move(move: ViewerMove, theme: Theme, columns: number, rows: number, url?: string): void {
+    const frame = this.frame(theme, columns, rows, url)
     const page = Math.max(1, rows - 2)
     if (move.kind === 'home') this.offset = 0
     else if (move.kind === 'end') this.offset = frame.maxOffset

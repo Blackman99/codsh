@@ -5,6 +5,7 @@
 
 import type { AskUserQuestionItem, AskUserQuestionRequest } from '@deepseek-ai/dsh-user-questions'
 import { describe, expect, it } from 'vitest'
+import { encodeAskUserAnswers } from '../src/ship-answers.ts'
 import { autoConfirmShipGates, detectShipGate, detectShipGrill, detectShipHitl, encodeAnswer, encodeFrontierAnswer, encodeGateAnswer, questionLines, shipAskSettledHitl, shipGateKind, TerminalQuestions } from '../src/questions.ts'
 import { createTheme } from '../src/theme.ts'
 
@@ -460,6 +461,24 @@ describe('ship gate detection', () => {
       [{ id: 'g', question: 'Storage?', header: 'ship · grill', options: [{ label: 'SQLite' }] }],
       () => true,
     )).toBeUndefined()
+  })
+
+  it('keeps auto-Confirm encoding separate from human HITL capture', () => {
+    const gate = {
+      id: 'g1',
+      question: 'Confirm this spec?',
+      header: 'ship · gate 1/2',
+      options: [{ label: 'Confirm' }, { label: 'Edit' }, { label: 'Abort' }],
+    }
+    const auto = autoConfirmShipGates([gate], () => true)
+    expect(auto).toEqual({ answers: [{ id: 'g1', selected: ['Confirm'] }] })
+    expect(encodeAskUserAnswers(
+      [{ id: gate.id, question: gate.question, header: gate.header }],
+      auto?.answers,
+      'spec',
+    )).toEqual([
+      { id: 'g1', phase: 'spec', question: 'Confirm this spec?', answer: 'Confirm', source: 'Confirm this spec?' },
+    ])
   })
 
   it('treats a settled grill or wayfinder ask as HITL and ignores abort or empty answers', () => {

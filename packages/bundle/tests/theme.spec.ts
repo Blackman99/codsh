@@ -4,7 +4,7 @@
  */
 
 import { describe, expect, it } from 'vitest'
-import { backgroundIsLight, createTheme, displayWidth, graphemeAt, oneRow, parseColor, truncate } from '../src/theme.ts'
+import { backgroundIsLight, columnIndex, createTheme, displayWidth, graphemeAt, markSpan, oneRow, parseColor, truncate } from '../src/theme.ts'
 
 describe('createTheme', () => {
   it('emits sequences on a colour-capable terminal', () => {
@@ -54,7 +54,7 @@ describe('createTheme', () => {
     const theme = createTheme(true, { COLORTERM: 'truecolor' })
     expect(theme.bgUser('prompt')).toBe('\u001B[48;2;30;19;38mprompt\u001B[0m')
     expect(theme.bgTool('exec')).toBe('\u001B[48;2;14;18;24mexec\u001B[0m')
-    expect(theme.bgThinking('thought')).toBe('\u001B[48;2;20;16;32mthought\u001B[0m')
+    expect(theme.bgThinking('thought')).toBe('\u001B[48;2;32;28;44mthought\u001B[0m')
     expect(theme.bgError('failure')).toBe('\u001B[48;2;45;15;25mfailure\u001B[0m')
     expect(theme.bgCode('const x = 1')).toBe('\u001B[48;2;15;18;24mconst x = 1\u001B[0m')
     expect(theme.bgMeta('plan')).toBe('\u001B[48;2;18;20;26mplan\u001B[0m')
@@ -66,7 +66,7 @@ describe('createTheme', () => {
     const theme = createTheme(true, { TERM: 'xterm-256color' })
     expect(theme.bgUser('prompt')).toBe('\u001B[48;5;53mprompt\u001B[0m')
     expect(theme.bgTool('exec')).toBe('\u001B[48;5;235mexec\u001B[0m')
-    expect(theme.bgThinking('thought')).toBe('\u001B[48;5;236mthought\u001B[0m')
+    expect(theme.bgThinking('thought')).toBe('\u001B[48;5;237mthought\u001B[0m')
     expect(theme.bgError('failure')).toBe('\u001B[48;5;52mfailure\u001B[0m')
     expect(theme.diffAdd('+ line')).toBe('\u001B[48;5;22;38;5;120m+ line\u001B[0m')
     expect(theme.diffDel('- line')).toBe('\u001B[48;5;52;38;5;203m- line\u001B[0m')
@@ -77,7 +77,7 @@ describe('createTheme', () => {
     theme.setLight(true)
     expect(theme.bgUser('prompt')).toBe('\u001B[48;2;243;234;246mprompt\u001B[0m')
     expect(theme.bgTool('exec')).toBe('\u001B[48;2;243;245;248mexec\u001B[0m')
-    expect(theme.bgThinking('thought')).toBe('\u001B[48;2;245;242;250mthought\u001B[0m')
+    expect(theme.bgThinking('thought')).toBe('\u001B[48;2;246;243;252mthought\u001B[0m')
     expect(theme.bgError('failure')).toBe('\u001B[48;2;254;226;226mfailure\u001B[0m')
     expect(theme.diffAdd('+ line')).toBe('\u001B[48;2;236;253;245;38;2;22;101;52m+ line\u001B[0m')
     expect(theme.diffDel('- line')).toBe('\u001B[48;2;254;242;242;38;2;153;27;27m- line\u001B[0m')
@@ -305,5 +305,27 @@ describe('a row that must stay one row', () => {
     expect(truncate(multi, 200)).not.toContain('\n')
     expect(truncate(multi, 20)).not.toContain('\n')
     expect(displayWidth(truncate(multi, 20))).toBeLessThanOrEqual(20)
+  })
+})
+
+describe('columnIndex', () => {
+  it('skips styling and snaps past a wide character', () => {
+    expect(columnIndex('hello', 3)).toBe(3)
+    expect(columnIndex('\u001B[90mhello\u001B[0m', 0)).toBe('\u001B[90m'.length)
+    expect(columnIndex('\u001B[90mhello\u001B[0m', 3)).toBe('\u001B[90m'.length + 3)
+    expect(columnIndex('终端', 2)).toBe('终'.length)
+    expect(columnIndex('hello', 80)).toBe(5)
+  })
+})
+
+describe('markSpan', () => {
+  it('inverts a display-column span and re-arms after a reset', () => {
+    expect(markSpan('hello world', 0, 5)).toBe('\u001B[7mhello\u001B[27m world')
+    expect(markSpan('hello world', 5, 5)).toBe('hello world')
+    const styled = '\u001B[90mhello\u001B[0m world'
+    const marked = markSpan(styled, 0, 5)
+    expect(marked).toContain('\u001B[7m')
+    expect(marked).toContain('\u001B[27m')
+    expect(marked.replaceAll(/\u001B\[[0-9;]*m/gu, '')).toBe('hello world')
   })
 })

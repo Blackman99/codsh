@@ -1,6 +1,6 @@
 /**
  * What streams and what folds: the live region repainting as text arrives,
- * thinking streaming into the transcript and staying open under its clock,
+ * thinking streaming as a ticking `thinking…` head that lands folded under its clock,
  * tool cards settling to one row each with the body behind the fold, the
  * todo list and ship plan panels, workflow rounds, block rules, replayed
  * folds, and the fold `/compact` leaves behind.
@@ -9,7 +9,7 @@
 import { describe, expect, it } from 'vitest'
 import { E2E_TEST_TIMEOUT_MS } from './harness.ts'
 import { PTY_COLUMNS, PTY_ROWS, SYNC_END, drivePty, drivePtySteps, finalScreen, screenOf } from './pty-driver.ts'
-import { ENTER, ESCAPE, boxTops, screenAt, visible } from './pty-helpers.ts'
+import { CTRL_C, ENTER, boxTops, screenAt, visible } from './pty-helpers.ts'
 import { Terminal } from './vt.ts'
 
 describe.skipIf(process.platform === 'win32')('streaming, cards and folds (real PTY)', () => {
@@ -93,9 +93,8 @@ describe.skipIf(process.platform === 'win32')('streaming, cards and folds (real 
     const settled = screenAt(output, '(exit 3)').alternate
     const row = settled.find(row => row.includes('(exit 3)')) ?? ''
     // dsh's bash tool reports a non-zero exit rather than erroring it — the
-    // model decides how to react — so the row keeps its tick, and the exit
-    // status and the count are what say something went wrong.
-    expect(row).toMatch(/● sh -c .*\(exit 3\) · 2 lines ✔/u)
+    // model decides how to react — but the row still fails: ✗, not a green pass.
+    expect(row).toMatch(/● sh -c .*\(exit 3\) · 2 lines ✗/u)
     expect(settled.some(row => row.includes('CODE_CLI_FAIL_PRINTED'))).toBe(false)
     const expanded = screenAt(output, 'CODE_CLI_FAIL_PRINTED').alternate
     expect(expanded.some(row => /^\s*│\s+CODE_CLI_FAIL_PRINTED$/u.test(row.trimEnd()))).toBe(true)
@@ -113,30 +112,30 @@ describe.skipIf(process.platform === 'win32')('streaming, cards and folds (real 
     expect(rows.at(-1)).toMatch(/cli-mock/)
     // Submitting clears the box, so the transcript's own render is the only
     // copy of the message that survives — a row outside the box's borders.
-    expect(rows.map(visible)).toContain('›   create the note')
+    expect(rows.map(visible)).toContain('│   create the note')
   }, E2E_TEST_TIMEOUT_MS)
 
-  it('streams thinking into the transcript and leaves it open under its clock', async () => {
+  it('streams thinking as a head, then lands it folded under its clock', async () => {
     const output = await drivePty('reasoning', [
       ['Welcome to codsh', `think it over${ENTER}`, 300],
       ['CODE_CLI_ANSWER after thinking', `/exit${ENTER}`, 400],
     ])
 
-    // The panel opened with a head before the first line landed...
-    expect(output).toContain('thinking…')
-    // ...and the settled screen keeps the whole thought under its clock,
-    // above the answer, painted once: the streamed rows are what the
-    // finished block took the place of.
+    // The panel opened with a head before the first line landed, and the
+    // head ticked — a Braille frame rode with `thinking…`, and the working
+    // line named it. SGR sits between glyphs, so strip it before matching.
+    const plain = output.replaceAll(/\x1B\[[0-9;]*[A-Za-z]/gu, '')
+    expect(plain).toContain('thinking…')
+    expect(plain).toMatch(/[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏] thinking…/u)
+    expect(plain).toMatch(/thinking [\d.]+s/u)
+    // ...and the settled screen keeps the clock, the deliberation behind it.
     const rows = screenAt(output, 'CODE_CLI_ANSWER after thinking').alternate
-    const clock = rows.findIndex(row => /✻\s+thought for [\d.]+s/u.test(row))
-    const first = rows.findIndex(row => row.includes('CODE_CLI_THINKING about the request'))
-    const last = rows.findIndex(row => row.includes('weighing the options carefully'))
+    const clock = rows.findIndex(row => /│\s+thought for [\d.]+s/u.test(row))
     const answer = rows.findIndex(row => row.includes('CODE_CLI_ANSWER'))
     expect(clock).toBeGreaterThanOrEqual(0)
-    expect(first).toBeGreaterThan(clock)
-    expect(last).toBeGreaterThan(first)
-    expect(answer).toBeGreaterThan(last)
-    expect(rows.filter(row => row.includes('CODE_CLI_THINKING about the request'))).toHaveLength(1)
+    expect(answer).toBeGreaterThan(clock)
+    expect(rows.some(row => row.includes('CODE_CLI_THINKING about the request'))).toBe(false)
+    expect(rows.some(row => row.includes('weighing the options carefully'))).toBe(false)
     expect(rows.some(row => row.includes('thinking…'))).toBe(false)
   }, E2E_TEST_TIMEOUT_MS)
 
@@ -152,16 +151,14 @@ describe.skipIf(process.platform === 'win32')('streaming, cards and folds (real 
       ['\u2191 12 rows above', `/exit${ENTER}`, 400],
     ])
     const rows = screenAt(output, '\u2191 12 rows above').alternate
-    // Two clocks; only the live turn's thought is still open under its own.
-    const clocks = rows.flatMap((row, index) => /✻\s+thought for [\d.]+s/u.test(row) ? [index] : [])
+    // Two clocks; both thoughts stay folded unless opened by hand.
+    const clocks = rows.flatMap((row, index) => /│\s+thought for [\d.]+s/u.test(row) ? [index] : [])
     expect(clocks).toHaveLength(2)
-    const bodies = rows.flatMap((row, index) => row.includes('weighing the options carefully') ? [index] : [])
-    expect(bodies).toHaveLength(1)
-    expect(bodies[0]).toBeGreaterThan(clocks[1] ?? -1)
+    expect(rows.some(row => row.includes('weighing the options carefully'))).toBe(false)
     expect(rows.some(row => row.includes('second question'))).toBe(true)
   }, E2E_TEST_TIMEOUT_MS)
 
-  it('keeps a thought open around a tool call, and the card between them to one row', async () => {
+  it.each([60, 120])('keeps folded thoughts and the tool between them to one row at %i columns', async columns => {
     const wheelUp = '\u001B[<64;10;5M'
     const run = await drivePtySteps('reason-write', [
       ['Welcome to codsh', `create the note${ENTER}`, 300],
@@ -170,28 +167,30 @@ describe.skipIf(process.platform === 'win32')('streaming, cards and folds (real 
       // The turn's own tag: the first answer's repaints carry the same words.
       ['(turn 2)', wheelUp.repeat(16), 600],
       ['\u2191 16 rows above', `/exit${ENTER}`, 400],
-    ])
+    ], { columns })
     const captured = (offset: number | undefined): string => Buffer.from(run.output).subarray(0, offset).toString()
-    const settled = screenOf(captured(run.offsets[2]), -1).alternate
+    const settled = screenOf(captured(run.offsets[2]), -1, PTY_ROWS, columns).alternate
     const at = (needle: string): number => settled.findIndex(row => row.includes(needle))
-    // One turn, in order: a thought, the write as one row, a second thought,
-    // the answer — both thoughts open, the card's diff behind its row.
-    const firstClock = settled.findIndex(row => /✻\s+thought for/u.test(row))
-    const secondClock = settled.findIndex((row, index) => index > firstClock && /✻\s+thought for/u.test(row))
+    // One turn, in order: a thought clock, the write as one row, a second
+    // thought clock, the answer — both thoughts folded, the card's diff behind
+    // its row.
+    const firstClock = settled.findIndex(row => /│\s+thought for/u.test(row))
+    const secondClock = settled.findIndex((row, index) => index > firstClock && /│\s+thought for/u.test(row))
     expect(firstClock).toBeGreaterThanOrEqual(0)
-    expect(at('planning the write step')).toBeGreaterThan(firstClock)
-    expect(at('● Write note.txt +1 -0 ✔')).toBeGreaterThan(at('planning the write step'))
-    expect(secondClock).toBeGreaterThan(at('● Write note.txt +1 -0 ✔'))
-    expect(at('checking what the write did')).toBeGreaterThan(secondClock)
-    expect(at('CODE_CLI_REASONED_ANSWER')).toBeGreaterThan(at('checking what the write did'))
+    expect(at('● Write note.txt +1 -0 ✔')).toBe(firstClock + 1)
+    expect(secondClock).toBe(at('● Write note.txt +1 -0 ✔') + 1)
+    // The answer keeps its ordinary paragraph separator, outside the fold.
+    expect(settled[secondClock + 1]?.replace(/[│\s]/gu, '')).toBe('')
+    expect(at('CODE_CLI_REASONED_ANSWER')).toBe(secondClock + 2)
+    expect(settled.some(row => row.includes('planning the write step'))).toBe(false)
+    expect(settled.some(row => row.includes('checking what the write did'))).toBe(false)
     expect(settled.some(row => row.includes('+ CODE_CLI_ROUND_TRIP'))).toBe(false)
 
-    // Moving on folds the earlier turn's thoughts to their clocks and leaves
-    // the card as it was; the live turn's thoughts stay open.
-    const later = screenAt(run.output, '\u2191 16 rows above').alternate
-    expect(later.filter(row => /✻\s+thought for/u.test(row))).toHaveLength(4)
-    expect(later.filter(row => row.includes('planning the write step'))).toHaveLength(1)
-    expect(later.filter(row => row.includes('checking what the write did'))).toHaveLength(1)
+    // Moving on leaves both turns' thoughts folded; the card stays as it was.
+    const later = screenOf(run.output, run.output.indexOf('\u2191 16 rows above'), PTY_ROWS, columns).alternate
+    expect(later.filter(row => /│\s+thought for/u.test(row))).toHaveLength(4)
+    expect(later.some(row => row.includes('planning the write step'))).toBe(false)
+    expect(later.some(row => row.includes('checking what the write did'))).toBe(false)
     expect(later.filter(row => row.includes('● Write note.txt'))).toHaveLength(2)
   }, E2E_TEST_TIMEOUT_MS)
 
@@ -306,7 +305,7 @@ describe.skipIf(process.platform === 'win32')('streaming, cards and folds (real 
       probe.feed(frame + SYNC_END)
       // The verb is the tool's own name once a call is in flight, so the
       // working line is recognised by what only it carries.
-      if (probe.alternate.some(row => /E2E round \d.*ESC to interrupt/u.test(row))) namedARound = true
+      if (probe.alternate.some(row => /E2E round \d.*Ctrl-C to interrupt/u.test(row))) namedARound = true
       // The child's one write reached the working line while the round ran:
       // the round reads as work, not as a hang.
       if (probe.alternate.some(row => /E2E round \d · 1 call · write/u.test(row))) sawActivity = true
@@ -348,40 +347,43 @@ describe.skipIf(process.platform === 'win32')('streaming, cards and folds (real 
     expect(after.some(row => row.includes('and again'))).toBe(true)
   }, E2E_TEST_TIMEOUT_MS)
 
-  it('leaves an open thought alone for an empty Enter and a chrome command', async () => {
+  it('leaves a thought folded for an empty Enter and a chrome command', async () => {
     // Only a turn spent moves the conversation on. A nudge on Enter and a
-    // command that only works the chrome are not turns, and must not fold
-    // the thought a person is reading.
+    // command that only works the chrome are not turns, and must not open
+    // a thought that landed folded.
     const output = await drivePty('reasoning', [
       ['Welcome to codsh', `think it over${ENTER}`, 300],
       ['CODE_CLI_ANSWER after thinking', ENTER, 400],
       ['', `/status${ENTER}`, 400],
       // A `!` line runs in the shell and spends no turn either: its card
-      // lands under the open thought and folds nothing.
+      // lands under the clock and folds nothing.
       ['permissions', `!echo THOUGHT_BANG_MARK${ENTER}`, 400],
       ['re:\\$ echo THOUGHT_BANG_MARK', '', 600],
       ['', `/exit${ENTER}`, 400],
     ])
     const after = screenAt(output, 'permissions').alternate
-    expect(after.some(row => /✻\s+thought for [\d.]+s/u.test(row))).toBe(true)
-    expect(after.some(row => row.includes('weighing the options carefully'))).toBe(true)
+    expect(after.some(row => /│\s+thought for [\d.]+s/u.test(row))).toBe(true)
+    expect(after.some(row => row.includes('weighing the options carefully'))).toBe(false)
     const banged = finalScreen(output).alternate
     expect(banged.some(row => row.includes('$ echo THOUGHT_BANG_MARK'))).toBe(true)
-    expect(banged.some(row => row.includes('weighing the options carefully'))).toBe(true)
+    expect(banged.some(row => row.includes('weighing the options carefully'))).toBe(false)
   }, E2E_TEST_TIMEOUT_MS)
 
-  it('lands an interrupted thought as an open block, with what streamed so far', async () => {
-    // Escape cuts the thought off mid-stream: the lines already on screen
-    // become the block, under a clock, and nothing of the head remains.
+  it('lands an interrupted thought as a folded clock, with what streamed so far behind it', async () => {
+    // Ctrl-C cuts the thought off mid-stream: the clock takes the head's
+    // place, the deliberation stays behind the fold, and nothing of the
+    // head remains.
     const output = await drivePty('reasoning-slow', [
       ['Welcome to codsh', `think slowly${ENTER}`, 300],
-      ['CODE_CLI_SLOW_THINK_3', ESCAPE, 300],
+      // The deliberation stays off the transcript; the head is what is on
+      // screen when the interrupt has to land.
+      ['thinking…', CTRL_C, 400],
       ['interrupted', `/exit${ENTER}`, 400],
     ])
     const rows = screenAt(output, 'interrupted').alternate
-    expect(rows.some(row => /✻\s+thought for [\d.]+s/u.test(row))).toBe(true)
+    expect(rows.some(row => /│\s+thought for [\d.]+s/u.test(row))).toBe(true)
     expect(rows.some(row => row.includes('thinking…'))).toBe(false)
-    expect(rows.filter(row => row.includes('CODE_CLI_SLOW_THINK_3'))).toHaveLength(1)
+    expect(rows.some(row => row.includes('CODE_CLI_SLOW_THINK_3'))).toBe(false)
     expect(rows.some(row => row.includes('CODE_CLI_SLOW_THINK_11'))).toBe(false)
     expect(rows.some(row => row.includes('CODE_CLI_SLOW_ANSWER'))).toBe(false)
   }, E2E_TEST_TIMEOUT_MS)
@@ -398,7 +400,7 @@ describe.skipIf(process.platform === 'win32')('streaming, cards and folds (real 
       ['weighing the options carefully', `/exit${ENTER}`, 400],
     ])
     const replayed = screenAt(output, 'resumed session-').alternate
-    expect(replayed.some(row => /✻\s+thought/u.test(row))).toBe(true)
+    expect(replayed.some(row => /│\s+thought/u.test(row))).toBe(true)
     expect(replayed.some(row => row.includes('weighing the options carefully'))).toBe(false)
     const expanded = screenAt(output, 'weighing the options carefully', 'last').alternate
     expect(expanded.some(row => row.includes('weighing the options carefully'))).toBe(true)
@@ -454,13 +456,14 @@ describe.skipIf(process.platform === 'win32')('streaming, cards and folds (real 
       ['CODE_CLI_CALL_OK', `/exit${ENTER}`, 400],
     ])
 
-    const rows = screenAt(output, 'CODE_CLI_CALL_OK').alternate.map(visible)
-    // The person's own words carry the heavy mark; the tool block the light
-    // one — which is what tells two segments apart without a frame or a fill.
-    expect(rows).toContain('›   create the note')
+    const painted = screenAt(output, 'CODE_CLI_CALL_OK', 'last').alternate
+    const rows = painted.map(visible)
+    // One connecting │ on every block; colour — not a different glyph —
+    // says what the row is. Last paint is the flushed transcript; the first
+    // CODE_CLI_CALL_OK is the live line under the box, which has no rail.
+    expect(rows).toContain('│   create the note')
     expect(rows.some(row => row.includes('│ ') && row.includes('note.txt'))).toBe(true)
-    // What a person reads stays flush: the answer is not marked at all.
-    expect(rows.some(row => row.startsWith('CODE_CLI_CALL_OK'))).toBe(true)
+    expect(painted.some(row => /│/.test(row) && row.includes('CODE_CLI_CALL_OK'))).toBe(true)
   }, E2E_TEST_TIMEOUT_MS)
 
   it('replays history as folds, so a resumed long output still opens', async () => {
@@ -482,7 +485,7 @@ describe.skipIf(process.platform === 'win32')('streaming, cards and folds (real 
     // Replayed, before the key: the log's own message above a card still
     // collapsed to its summary — history as the turn left it.
     const replayed = screenAt(output, 'resumed session-').alternate
-    expect(replayed.map(visible)).toContain('›   create the tall note')
+    expect(replayed.map(visible)).toContain('│   create the tall note')
     expect(replayed.some(row => row.includes('● Write note.txt +45 -0 ✔'))).toBe(true)
     expect(replayed.some(row => row.includes('CODE_CLI_TALL_44'))).toBe(false)
 

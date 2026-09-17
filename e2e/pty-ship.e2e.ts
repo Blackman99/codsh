@@ -19,7 +19,8 @@ describe.skipIf(process.platform === 'win32')('ship wayfinder (real PTY)', () =>
       ['Welcome to codsh', `/ship SMALL_WAYFINDER${ENTER}`, 200],
       ['Is the route clear?', ENTER, 300],
       ['Confirm the grill handoff?', ENTER, 400],
-      ['GRILL_CONTRACT_OK', `/exit${ENTER}`, 300],
+      ['GRILL_CONTRACT_OK', ESCAPE, 300],
+      ['', `/exit${ENTER}`, 500],
     ], { columns })
     expect(beforeStep(run, 1, columns).join('\n')).toContain('ship · wayfinder')
     expect(beforeStep(run, 2, columns).join('\n')).toContain('ship · grill')
@@ -32,10 +33,12 @@ describe.skipIf(process.platform === 'win32')('ship wayfinder (real PTY)', () =>
     const run = await drivePtySteps('ship-wayfinder', [
       ['Welcome to codsh', `/ship PENDING_WAYFINDER${ENTER}`, 200],
       ['Is the route clear?', ENTER, 300],
+      ['', ESCAPE, 800],
       ['WAYFINDER_WAITING', `/ship${ENTER}`, 400],
-      ['WAYFINDER_RESUMED', `/exit${ENTER}`, 400],
+      ['WAYFINDER_RESUMED', ESCAPE, 400],
+      ['', `/exit${ENTER}`, 300],
     ])
-    expect(beforeStep(run, 2).at(-1)).toContain('ship · wayfinder')
+    expect(beforeStep(run, 3).at(-1)).toContain('ship · wayfinder')
     expect(run.output).not.toContain('Confirm the grill handoff?')
   }, E2E_TEST_TIMEOUT_MS)
 
@@ -43,7 +46,8 @@ describe.skipIf(process.platform === 'win32')('ship wayfinder (real PTY)', () =>
     const run = await drivePtySteps('ship-wayfinder', [
       ['Welcome to codsh', `/ship SMALL_WAYFINDER${ENTER}`, 200],
       ['Is the route clear?', answer, 300],
-      ['WAYFINDER_STOPPED', `/exit${ENTER}`, 300],
+      ['', ESCAPE, 600],
+      ['', `/exit${ENTER}`, 300],
     ])
     expect(run.output).not.toContain('Confirm the grill handoff?')
     expect(run.output).not.toContain('WAYFINDER_READY')
@@ -56,7 +60,8 @@ describe.skipIf(process.platform === 'win32')('ship wayfinder (real PTY)', () =>
         ['Welcome to codsh', `/ship SMALL_WAYFINDER${ENTER}`, 200],
         ['Is the route clear?', ENTER, 300],
         ['Confirm the grill handoff?', ENTER, 400],
-        ['GRILL_CONTRACT_OK original=SMALL_WAYFINDER policy=yes', `/exit${ENTER}`, 300],
+        ['GRILL_CONTRACT_OK original=SMALL_WAYFINDER policy=yes', ESCAPE, 300],
+        ['', `/exit${ENTER}`, 700],
       ], { cwd })
       expect(run.output).toContain('original=SMALL_WAYFINDER')
       expect(run.output).toContain('policy=yes')
@@ -66,6 +71,14 @@ describe.skipIf(process.platform === 'win32')('ship wayfinder (real PTY)', () =>
       expect(ledger).toContain('SMALL_WAYFINDER')
       expect(ledger).not.toContain('Small route confirmed; no map needed.\n\nStatus:')
       expect(ledger.match(/SMALL_WAYFINDER/g)?.length).toBeGreaterThanOrEqual(1)
+      const answers = JSON.parse(await readFile(join(cwd, 'docs', 'specs', 'wayfinder-e2e.ship.answers.json'), 'utf8'))
+      expect(answers.answers).toEqual(expect.arrayContaining([
+        expect.objectContaining({ phase: 'wayfinder', question: 'Is the route clear?', answer: expect.stringContaining('Continue') }),
+        expect.objectContaining({ phase: 'grill', question: 'Confirm the grill handoff?', answer: expect.any(String) }),
+      ]))
+      const graph = JSON.parse(await readFile(join(cwd, 'docs', 'specs', 'wayfinder-e2e.ship.graph.json'), 'utf8'))
+      expect(graph.originalRequirement).toBe('SMALL_WAYFINDER')
+      expect(graph.answers).toEqual(expect.arrayContaining(answers.answers))
     } finally {
       await rm(cwd, { recursive: true, force: true })
     }
@@ -77,8 +90,10 @@ describe.skipIf(process.platform === 'win32')('ship wayfinder (real PTY)', () =>
       const run = await drivePtySteps('ship-wayfinder', [
         ['Welcome to codsh', `/ship PENDING_WAYFINDER${ENTER}`, 200],
         ['Is the route clear?', ENTER, 300],
+        ['', ESCAPE, 800],
         ['WAYFINDER_WAITING original=PENDING_WAYFINDER policy=yes', `/ship${ENTER}`, 400],
-        ['WAYFINDER_RESUMED original=PENDING_WAYFINDER policy=yes', `/exit${ENTER}`, 400],
+        ['WAYFINDER_RESUMED original=PENDING_WAYFINDER policy=yes', ESCAPE, 400],
+        ['', `/exit${ENTER}`, 300],
       ], { cwd })
       expect(run.output).toContain('WAYFINDER_WAITING original=PENDING_WAYFINDER policy=yes')
       expect(run.output).toContain('WAYFINDER_RESUMED original=PENDING_WAYFINDER policy=yes')

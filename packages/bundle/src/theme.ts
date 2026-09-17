@@ -196,8 +196,8 @@ export function createTheme(isTty: boolean, env: Record<string, string | undefin
     : (truecolor ? '\u001B[48;2;14;18;24m' : palette ? '\u001B[48;5;235m' : '\u001B[40m')
 
   const getBgThinking = (): string => isLight
-    ? (truecolor ? '\u001B[48;2;245;242;250m' : palette ? '\u001B[48;5;255m' : '\u001B[47m')
-    : (truecolor ? '\u001B[48;2;20;16;32m' : palette ? '\u001B[48;5;236m' : '\u001B[40m')
+    ? (truecolor ? '\u001B[48;2;246;243;252m' : palette ? '\u001B[48;5;255m' : '\u001B[47m')
+    : (truecolor ? '\u001B[48;2;32;28;44m' : palette ? '\u001B[48;5;237m' : '\u001B[40m')
 
   const getBgError = (): string => isLight
     ? (truecolor ? '\u001B[48;2;254;226;226m' : palette ? '\u001B[48;5;224m' : '\u001B[41m')
@@ -521,6 +521,85 @@ export function oneRow(text: string, keepNewlines = false): string {
 
 /** Matches one SGR sequence at the start of a string. */
 const SGR_AT_START = /^\u001B\[[0-9;]*m/u
+
+/** Start reverse video, which is how a selection shows itself. */
+const INVERSE = '\u001B[7m'
+
+/** End reverse video only, leaving any other attributes alone. */
+const INVERSE_OFF = '\u001B[27m'
+
+/**
+ * The string index where a display column begins.
+ *
+ * Columns are what the mouse reports and characters are what strings hold;
+ * this is the bridge. A column landing inside a wide character snaps past it.
+ * Styling sequences cost no columns and are skipped.
+ * @param text - the string to scan, possibly carrying SGR sequences.
+ * @param column - display column, 0-based.
+ * @returns the index of the first character at or beyond that column.
+ */
+export function columnIndex(text: string, column: number): number {
+  let width = 0
+  let index = 0
+  const cluster = graphemeAt(text)
+  while (index < text.length) {
+    const sequence = SGR_AT_START.exec(text.slice(index))
+    if (sequence !== null) {
+      index += sequence[0].length
+      continue
+    }
+    if (width >= column) return index
+    const cell = cluster(index)
+    if (cell === '') break
+    width += displayWidth(cell)
+    index += cell.length
+  }
+  return text.length
+}
+
+/**
+ * Mark a display-column span in reverse video.
+ *
+ * A reset inside the span would drop the invert, so it is armed again after
+ * each one. A range that covers nothing is returned unchanged.
+ * @param text - the styled row.
+ * @param fromCol - first display column to mark, 0-based, inclusive.
+ * @param toCol - first display column to leave unmarked, exclusive.
+ * @returns the row with the span inverted.
+ */
+export function markSpan(text: string, fromCol: number, toCol: number): string {
+  text = oneRow(text)
+  if (fromCol >= toCol) return text
+  let width = 0
+  let out = ''
+  let at = 0
+  let inside = false
+  const cluster = graphemeAt(text)
+  while (at < text.length) {
+    const sequence = SGR_AT_START.exec(text.slice(at))
+    if (sequence !== null) {
+      out += sequence[0]
+      if (inside && sequence[0] === SGR.reset) out += INVERSE
+      at += sequence[0].length
+      continue
+    }
+    const cell = cluster(at)
+    if (cell === '') break
+    if (!inside && width < toCol && width + displayWidth(cell) > fromCol) {
+      out += INVERSE
+      inside = true
+    }
+    out += cell
+    width += displayWidth(cell)
+    at += cell.length
+    if (inside && width >= toCol) {
+      out += INVERSE_OFF
+      inside = false
+    }
+  }
+  if (inside) out += INVERSE_OFF
+  return out
+}
 
 /**
  * Shorten a string to at most `columns` display columns, marking the cut with

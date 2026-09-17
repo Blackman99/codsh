@@ -7,7 +7,9 @@
 
 import { readdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from 'node:fs'
 import { basename, dirname, join, resolve, sep } from 'node:path'
-import { parseMainTrack, parseShipStatus, parseTrackIds } from './plan.ts'
+import { essentialBlockedBy } from './ship-dag.ts'
+import { parseMainTrack, parseShipStatus, parseTrackIds, type ShipStatus } from './plan.ts'
+import { extractLocalDecisionAnswer, parseAnswerItems, shipGraphEnrichment } from './ship-answers.ts'
 import { isConfirmedStatus } from './ship-snapshot.ts'
 import { slugFromSpec } from './mission.ts'
 import { displayWidth } from './theme.ts'
@@ -27,6 +29,20 @@ export type ShipGraphEdgeKind = 'blocked-by' | 'hangs-off'
 
 /** wayfinder:* label / local Type: line, omitted when unknown. */
 export type DecisionTicketType = 'research' | 'prototype' | 'grilling' | 'task'
+
+/** Phase a captured human answer belongs to. */
+export type ShipUserAnswerPhase = 'wayfinder' | 'grill' | 'spec' | 'tickets' | 'landing' | 'done'
+
+/** One captured human question/answer for the Web panorama. */
+export interface ShipUserAnswer {
+  id: string
+  phase: ShipUserAnswerPhase
+  question: string
+  answer?: string
+  detail?: string
+  source?: string
+  ticketId?: string
+}
 
 /** One node in the rebuilt panorama cache. */
 export interface ShipGraphNode {
@@ -48,6 +64,14 @@ export interface ShipGraphEdge {
 export interface ShipGraph {
   version: typeof SHIP_GRAPH_VERSION
   specPath: string
+  /** Current ledger status, not inferred from ticket completion. */
+  status?: ShipStatus
+  /** Verbatim original requirement; never Main Track masquerading as the ask. */
+  originalRequirement?: string
+  /** Main Track Idea, else Wayfinder Destination, else the original requirement. */
+  objective?: string
+  /** Human answers; additive and independent of TTY node identity. */
+  answers?: ShipUserAnswer[]
   nodes: ShipGraphNode[]
   edges: ShipGraphEdge[]
 }
@@ -77,6 +101,12 @@ export interface DecisionChild {
   blockedBy?: string[]
   /** Body `Blocked by:` fallback, used only when `blockedBy` is omitted. */
   blockedByBody?: string[]
+  /** Explicit Question heading or metadata; research Resolution is not this. */
+  question?: string
+  /** Explicit User answer / User Answer heading or metadata. */
+  userAnswer?: string
+  /** Available raw question source text from the ticket. */
+  questionSource?: string
 }
 
 /** Injected landing scratch, keyed by filename integer `n`. */
@@ -103,6 +133,14 @@ export interface JoinSources {
   landingAssignees?: Readonly<Record<number, string>>
   /** Unreadable map that is not a recorded no-map: join failure. */
   mapError?: string
+  /** Named-map bodies used for Destination, never for plan-ticket guesses. */
+  mapTexts?: readonly string[]
+  /** Runner-owned answers restored into the live graph; not the canonical store. */
+  answers?: readonly ShipUserAnswer[]
+  /** Typed original before a spec exists, or a recovered freeze. */
+  originalRequirement?: string
+  /** Typed or recovered goal when the ledger has not refined one yet. */
+  objective?: string
 }
 
 /** Ticket-node Claim buckets for the Panorama teaser. Track anchors are excluded. */
@@ -123,9 +161,6 @@ const SECTION_HEADING = /^(#{1,6})\s+(.*?)\s*$/u
 const WAYFINDER_TITLE = /^wayfinder$/iu
 const NONE_BLOCKED = /^(?:none|nothing|n\/a|[-—–])$/iu
 const CLAIM_LINE = /^Claim:\s*claimed\b/imu
-const STATUS_CLAIMED = /^Status:\s*claimed\b/imu
-const STATUS_RESOLVED = /^Status:\s*resolved\b/imu
-const TYPE_LINE = /^Type:\s*(research|prototype|grilling|task)\b/imu
 const TICKET_TYPE: ReadonlySet<string> = new Set(['research', 'prototype', 'grilling', 'task'])
 const GITHUB_ISSUE = /https?:\/\/github\.com\/([^/\s]+)\/([^/\s]+)\/issues\/(\d+)/iu
 const GITHUB_SHORTHAND = /\b([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+)#(\d+)\b/u
@@ -134,6 +169,9 @@ const KIND_RANK: Record<ShipGraphNodeKind, number> = { decision: 0, track: 1, la
 const EDGE_RANK: Record<ShipGraphEdgeKind, number> = { 'blocked-by': 0, 'hangs-off': 1 }
 const TEASER_HINT = 'click or Ctrl+G'
 const HINT_COLUMNS = 80
+const LANDING_KEY = /^landing:(\d+)$/u
+
+export { essentialBlockedBy } from './ship-dag.ts'
 
 /**
  * Worktree directory name from a graph key: `landing-N`, `decision-<n>`.
@@ -141,7 +179,7 @@ const HINT_COLUMNS = 80
  * @param graphKey - `landing:N`, `decision:github:owner/repo#n`, or `decision:local:NN`.
  */
 export function worktreeDirectory(graphKey: string): string | undefined {
-  const landing = /^landing:(\d+)$/u.exec(graphKey)
+  const landing = LANDING_KEY.exec(graphKey)
   if (landing?.[1] !== undefined) return `landing-${landing[1]}`
   const local = /^decision:local:(\d+)$/u.exec(graphKey)
   if (local?.[1] !== undefined) return `decision-${local[1]}`
@@ -203,9 +241,16 @@ export function parseShipGraph(raw: string): ShipGraph | ShipGraphDiscard {
   if (record.version !== VERSION) return { discard: true }
   if (typeof record.specPath !== 'string' || record.specPath.trim() === '') return { discard: true }
   if (!Array.isArray(record.nodes) || !Array.isArray(record.edges)) return { discard: true }
+  const answers = parseAnswerItems(record.answers)
   return {
     version: VERSION,
     specPath: record.specPath,
+    ...(typeof record.status === 'string' && parseShipStatus(`Status: ${record.status}`) === record.status
+      ? { status: record.status as ShipStatus }
+      : {}),
+    ...(typeof record.originalRequirement === 'string' ? { originalRequirement: record.originalRequirement } : {}),
+    ...(typeof record.objective === 'string' ? { objective: record.objective } : {}),
+    ...(answers !== undefined && answers.length > 0 ? { answers } : {}),
     nodes: record.nodes as ShipGraphNode[],
     edges: record.edges as ShipGraphEdge[],
   }
@@ -268,7 +313,8 @@ export function joinShipGraph(input: JoinSources): ShipGraph | ShipGraphJoinErro
     ids.add(track.id)
   }
   const trackIds = new Set(tracks.map(track => track.id))
-  const trackSealed = isConfirmedStatus(parseShipStatus(input.markdown)) && tracks.length > 0
+  const status = parseShipStatus(input.markdown)
+  const trackSealed = isConfirmedStatus(status) && tracks.length > 0
 
   const outer = joinLandings(input, nodes, edges, ids, trackIds, trackSealed)
   if (outer !== undefined) return outer
@@ -276,14 +322,25 @@ export function joinShipGraph(input: JoinSources): ShipGraph | ShipGraphJoinErro
   return {
     version: VERSION,
     specPath,
+    ...(status === undefined ? {} : { status }),
+    ...shipGraphEnrichment({
+      markdown: input.markdown,
+      ...(input.mapTexts === undefined ? {} : { mapTexts: input.mapTexts }),
+      ...(input.mapChildren === undefined ? {} : { mapChildren: input.mapChildren }),
+      ...(input.answers === undefined ? {} : { answers: input.answers }),
+      ...(input.originalRequirement === undefined ? {} : { originalRequirement: input.originalRequirement }),
+      ...(input.objective === undefined ? {} : { objective: input.objective }),
+    }),
     nodes: sortNodes(nodes),
     edges: sortEdges(edges),
   }
 }
 
 /**
- * Read local wayfinder files and landing scratch from disk, then join.
- * GitHub is never contacted; native `blocked_by` must be injected by the caller.
+ * Read local wayfinder files, map-file children, and landing scratch, then
+ * join. A GitHub map pointer is not a decision ticket and does not hide the
+ * local inner ring. GitHub is never contacted; native `blocked_by` must be
+ * injected by the caller.
  */
 export function collectJoinSources(
   cwd: string,
@@ -292,24 +349,39 @@ export function collectJoinSources(
   extras: {
     mapChildren?: readonly DecisionChild[]
     mapError?: string
+    answers?: readonly ShipUserAnswer[]
+    originalRequirement?: string
+    objective?: string
   } = {},
 ): JoinSources | ShipGraphJoinError {
   const slug = slugFromSpec(markdown, specPath)
   const wayfinderDir = join(cwd, '.scratch', slug, 'wayfinder')
   const issuesDir = join(cwd, '.scratch', slug, 'issues')
-  const fromLinks = githubChildrenFromMarkdown(parseWayfinder(markdown) ?? markdown)
-  const local = extras.mapChildren === undefined && fromLinks.length === 0
-    ? readLocalDecisions(wayfinderDir)
-    : undefined
-  if (isShipGraphJoinError(local)) return local
+  const wayfinderBody = parseWayfinder(markdown) ?? markdown
+  const mapTexts = readMapTexts(cwd, slug, specPath, wayfinderBody)
+  let mapChildren = extras.mapChildren
+  if (mapChildren === undefined) {
+    const local = readLocalDecisions(wayfinderDir)
+    if (isShipGraphJoinError(local)) return local
+    const exclude = mapDecisionIds(wayfinderBody)
+    mapChildren = mergeDecisionChildren(
+      local,
+      githubChildrenFromMapFiles(cwd, slug, specPath, wayfinderBody, exclude),
+      githubChildrenFromText(wayfinderBody, exclude),
+    )
+  }
   const scratch = readLandingScratch(issuesDir)
   if (isShipGraphJoinError(scratch)) return scratch
   return {
     specPath,
     markdown,
-    mapChildren: extras.mapChildren ?? (fromLinks.length > 0 ? fromLinks : local ?? []),
+    mapChildren,
     landingScratch: scratch,
+    ...(mapTexts.length === 0 ? {} : { mapTexts }),
     ...(extras.mapError === undefined ? {} : { mapError: extras.mapError }),
+    ...(extras.answers === undefined ? {} : { answers: extras.answers }),
+    ...(extras.originalRequirement === undefined ? {} : { originalRequirement: extras.originalRequirement }),
+    ...(extras.objective === undefined ? {} : { objective: extras.objective }),
   }
 }
 
@@ -325,18 +397,20 @@ export function teaserCounts(graph: ShipGraph): TeaserCounts {
 
 /**
  * One-line Panorama teaser. Drops `click or Ctrl+G` first (at 80 columns,
- * or whenever the hint will not fit) and never drops a bucket word.
- * `in-flight` appears only when greater than zero.
+ * or whenever the hint will not fit) and never drops a bucket word or the
+ * loopback URL. `in-flight` appears only when greater than zero.
  */
 export function panoramaTeaser(
   counts: TeaserCounts,
   theme: Theme,
   columns: number,
   inFlight = 0,
+  url?: string,
 ): string {
   const buckets = `待认领 ${String(counts.unclaimed)} · 已认领 ${String(counts.claimed)} · 已关闭 ${String(counts.closed)}`
   const flight = inFlight > 0 ? ` · in-flight ${String(inFlight)}` : ''
-  const body = `  ${buckets}${flight}`
+  const link = url !== undefined && url !== '' ? ` · ${url}` : ''
+  const body = `  ${buckets}${flight}${link}`
   const trail = theme.dim(` · ${TEASER_HINT}`)
   const withHint = `${body}${trail}`
   if (columns > HINT_COLUMNS && displayWidth(withHint) <= columns) return withHint
@@ -414,12 +488,14 @@ function joinLandings(
       claim: landingClaim(row.done, scratch),
     })
   }
+  const blocked: ShipGraphEdge[] = []
+  const hangs: ShipGraphEdge[] = []
   for (const row of parsed) {
     const id = `landing:${String(row.n)}`
     for (const blocker of parseBlockedBy(row.raw)) {
       const to = `landing:${String(blocker)}`
       if (to === id || !ids.has(to)) continue
-      edges.push({ from: id, to, kind: 'blocked-by' })
+      blocked.push({ from: id, to, kind: 'blocked-by' })
     }
     for (const track of parseTrackIds(row.raw) ?? []) {
       const to = `track:${String(track)}`
@@ -427,9 +503,10 @@ function joinLandings(
         return { error: `Landing Ticket ${String(row.n)} hangs off Track-${String(track)}, which is not in the sealed Main Track. Stopped.` }
       }
       if (!trackIds.has(to)) continue
-      edges.push({ from: id, to, kind: 'hangs-off' })
+      hangs.push({ from: id, to, kind: 'hangs-off' })
     }
   }
+  edges.push(...essentialBlockedBy(blocked), ...hangs)
   return undefined
 }
 
@@ -599,19 +676,178 @@ function parseWayfinder(markdown: string): string | undefined {
   return text === '' ? undefined : text
 }
 
-function githubChildrenFromMarkdown(body: string): DecisionChild[] {
+/** Named-map locators: Canonical map lines and links titled Map / wayfinder:map. */
+function mapDecisionIds(body: string): Set<string> {
+  const ids = new Set<string>()
+  const addFrom = (text: string): void => {
+    for (const id of githubIdsIn(text)) ids.add(id)
+  }
+  for (const line of body.split(/\r\n|[\r\n]/u)) {
+    if (/canonical map\b/iu.test(line) || /wayfinder:map/iu.test(line)) addFrom(line)
+  }
+  for (const match of markdownLinks(body)) {
+    const title = (match[1] ?? '').trim()
+    if (/^(?:map|wayfinder:map)$/iu.test(title)) addFrom(match[2] ?? '')
+  }
+  return ids
+}
+
+function githubChildrenFromMapFiles(
+  cwd: string,
+  slug: string,
+  specPath: string,
+  wayfinderBody: string,
+  exclude: ReadonlySet<string>,
+): DecisionChild[] {
   const children: DecisionChild[] = []
   const seen = new Set<string>()
-  for (const match of body.matchAll(MD_LINK)) {
-    const href = match[2] ?? ''
-    const github = GITHUB_ISSUE.exec(href)
-    if (github === null) continue
-    const id = `decision:github:${github[1]}/${github[2]}#${github[3]}`
-    if (seen.has(id)) continue
-    seen.add(id)
-    children.push({ id, title: (match[1] ?? id).trim() || id })
+  for (const path of mapMarkdownPaths(cwd, slug, specPath, wayfinderBody)) {
+    let text = ''
+    try {
+      text = readFileSync(path, 'utf8')
+    } catch {
+      continue
+    }
+    const fileExclude = new Set([...exclude, ...mapDecisionIds(text)])
+    for (const child of githubChildrenFromText(text, fileExclude)) {
+      if (seen.has(child.id)) continue
+      seen.add(child.id)
+      children.push(child)
+    }
   }
   return children
+}
+
+function readMapTexts(cwd: string, slug: string, specPath: string, wayfinderBody: string): string[] {
+  const texts: string[] = []
+  for (const path of mapMarkdownPaths(cwd, slug, specPath, wayfinderBody)) {
+    try {
+      texts.push(readFileSync(path, 'utf8'))
+    } catch {
+      continue
+    }
+  }
+  return texts
+}
+
+function mapMarkdownPaths(cwd: string, slug: string, specPath: string, wayfinderBody: string): string[] {
+  const paths: string[] = []
+  const seen = new Set<string>()
+  const spec = resolve(specPath)
+  const add = (path: string): void => {
+    const absolute = resolve(path)
+    if (absolute === spec || seen.has(absolute)) return
+    if (isLocalDecisionFilename(basename(absolute))) return
+    seen.add(absolute)
+    paths.push(absolute)
+  }
+  for (const match of markdownLinks(wayfinderBody)) {
+    const href = (match[2] ?? '').trim()
+    if (href === '' || /^https?:/iu.test(href)) continue
+    const file = href.replace(/[?#].*$/u, '')
+    if (!file.toLowerCase().endsWith('.md')) continue
+    add(resolve(dirname(specPath), file))
+  }
+  add(join(cwd, '.scratch', slug, 'wayfinder', 'map.md'))
+  return paths
+}
+
+function githubChildrenFromText(body: string, exclude: ReadonlySet<string> = new Set()): DecisionChild[] {
+  const children: DecisionChild[] = []
+  const seen = new Set<string>()
+  const add = (id: string, title: string): void => {
+    if (exclude.has(id) || seen.has(id)) return
+    seen.add(id)
+    children.push({ id, title: title.trim() || id })
+  }
+  for (const match of markdownLinks(body)) {
+    const href = match[2] ?? ''
+    const github = href.match(GITHUB_ISSUE)
+    if (github === null) continue
+    add(githubDecisionId(github[1] ?? '', github[2] ?? '', github[3] ?? ''), (match[1] ?? '').trim())
+  }
+  for (const match of body.matchAll(githubIssueGlobal())) {
+    add(
+      githubDecisionId(match[1] ?? '', match[2] ?? '', match[3] ?? ''),
+      `${match[1]}/${match[2]}#${match[3]}`,
+    )
+  }
+  for (const match of body.matchAll(githubShorthandGlobal())) {
+    add(
+      githubDecisionId(match[1] ?? '', match[2] ?? '', match[3] ?? ''),
+      `${match[1]}/${match[2]}#${match[3]}`,
+    )
+  }
+  return children
+}
+
+function githubIdsIn(text: string): string[] {
+  const ids: string[] = []
+  for (const match of text.matchAll(githubIssueGlobal())) {
+    ids.push(githubDecisionId(match[1] ?? '', match[2] ?? '', match[3] ?? ''))
+  }
+  for (const match of text.matchAll(githubShorthandGlobal())) {
+    ids.push(githubDecisionId(match[1] ?? '', match[2] ?? '', match[3] ?? ''))
+  }
+  return ids
+}
+
+function markdownLinks(body: string): IterableIterator<RegExpExecArray> {
+  return body.matchAll(new RegExp(MD_LINK.source, 'gu'))
+}
+
+function githubIssueGlobal(): RegExp {
+  return new RegExp(GITHUB_ISSUE.source, 'giu')
+}
+
+function githubShorthandGlobal(): RegExp {
+  return new RegExp(GITHUB_SHORTHAND.source, 'gu')
+}
+
+function githubDecisionId(owner: string, repo: string, n: string): string {
+  return `decision:github:${owner}/${repo}#${n}`
+}
+
+function mergeDecisionChildren(...groups: readonly (readonly DecisionChild[] | undefined)[]): DecisionChild[] {
+  const children: DecisionChild[] = []
+  const seen = new Set<string>()
+  for (const group of groups) {
+    if (group === undefined) continue
+    for (const child of group) {
+      if (seen.has(child.id)) continue
+      seen.add(child.id)
+      children.push(child)
+    }
+  }
+  return children
+}
+
+/** Local decision identity for NN-slug.md and decision-NN-slug.md. */
+export function localDecisionNumber(name: string): number | undefined {
+  const match = /^(?:decision-)?(\d+)-.+\.md$/iu.exec(name)
+  return match === null ? undefined : Number(match[1])
+}
+
+function isLocalDecisionFilename(name: string): boolean {
+  return localDecisionNumber(name) !== undefined
+}
+
+/** Local ticket fields may be plain lines or Markdown list labels. */
+function localDecisionField(text: string, field: 'Status' | 'Type' | 'Blocked by'): string | undefined {
+  return decisionFieldPattern(field).exec(text)?.[1]?.trim()
+}
+
+function decisionFieldPattern(field: string): RegExp {
+  return new RegExp(`^[ \\t]*(?:[-*][ \\t]+)?(?:\\*\\*)?${field}(?:\\*\\*)?[ \\t]*:[ \\t]*(?:\\*\\*)?([^\\r\\n]*)$`, 'imu')
+}
+
+/** Replace the existing Status field instead of introducing a conflicting one. */
+export function claimLocalDecision(text: string): string {
+  const status = localDecisionField(text, 'Status')?.toLowerCase()
+  if (status !== undefined && /^(?:claimed|resolved|closed)\b/u.test(status)) return text
+  return status === undefined
+    ? `Status: claimed\n${text}`
+    : text.replace(decisionFieldPattern('Status'), 'Status: claimed')
 }
 
 function readLocalDecisions(dir: string): DecisionChild[] | ShipGraphJoinError {
@@ -624,9 +860,8 @@ function readLocalDecisions(dir: string): DecisionChild[] | ShipGraphJoinError {
   const children: DecisionChild[] = []
   const seen = new Set<number>()
   for (const name of names) {
-    const parsed = /^(\d+)-.+\.md$/iu.exec(name)
-    if (parsed === null) continue
-    const n = Number(parsed[1])
+    const n = localDecisionNumber(name)
+    if (n === undefined) continue
     if (seen.has(n)) {
       return { error: `Duplicate decision key decision:local:${String(n)}. Stopped; restore the map rather than guessing.` }
     }
@@ -638,15 +873,20 @@ function readLocalDecisions(dir: string): DecisionChild[] | ShipGraphJoinError {
       continue
     }
     const title = localTitle(text, name)
-    const type = TYPE_LINE.exec(text)?.[1]
+    const type = /^(?:wayfinder:)?(research|prototype|grilling|task)\b/iu.exec(localDecisionField(text, 'Type') ?? '')?.[1]?.toLowerCase()
+    const status = /^(claimed|resolved|closed)\b/iu.exec(localDecisionField(text, 'Status') ?? '')?.[1]?.toLowerCase()
     const blocked = parseDecisionBlockedBody(text)
+    const extracted = extractLocalDecisionAnswer(text)
     children.push({
       id: `decision:local:${String(n)}`,
       title,
-      ...(STATUS_RESOLVED.test(text) ? { closed: true } : {}),
-      ...(STATUS_CLAIMED.test(text) ? { claimed: true } : {}),
+      ...(status === 'resolved' || status === 'closed' ? { closed: true } : {}),
+      ...(status === 'claimed' ? { claimed: true } : {}),
       ...(type !== undefined && TICKET_TYPE.has(type) ? { ticketType: type as DecisionTicketType } : {}),
       ...(blocked.length === 0 ? {} : { blockedByBody: blocked }),
+      ...(extracted.question === undefined ? {} : { question: extracted.question }),
+      ...(extracted.userAnswer === undefined ? {} : { userAnswer: extracted.userAnswer }),
+      ...(extracted.source === undefined ? {} : { questionSource: extracted.source }),
     })
   }
   return children
@@ -689,13 +929,11 @@ function readLandingScratch(dir: string): LandingScratch[] | ShipGraphJoinError 
 function localTitle(text: string, filename: string): string {
   const heading = /^#\s+(.+)$/mu.exec(text)
   if (heading?.[1] !== undefined) return heading[1].trim()
-  return filename.replace(/^\d+-/u, '').replace(/\.md$/iu, '').replace(/-/gu, ' ')
+  return filename.replace(/^(?:decision-)?\d+-/iu, '').replace(/\.md$/iu, '').replace(/-/gu, ' ')
 }
 
 function parseDecisionBlockedBody(text: string): string[] {
-  const match = /^Blocked by:\s*(.+)$/imu.exec(text)
-  if (match === null) return []
-  const body = (match[1] ?? '').trim()
+  const body = localDecisionField(text, 'Blocked by') ?? ''
   if (body === '' || NONE_BLOCKED.test(body)) return []
   return body.split(/[,]+/u).map(part => part.trim()).filter(part => part !== '')
 }

@@ -1,13 +1,13 @@
 /**
- * The pointer on a real terminal: a drag selecting in the box or the
- * transcript and copying on release, and a click placing the cursor across a
- * wrap.
+ * The pointer on a real terminal: a drag selecting in the box, the
+ * transcript, a chrome row, or the status row and copying on release, and a
+ * click placing the cursor across a wrap.
  */
 
 import { describe, expect, it } from 'vitest'
 import { E2E_TEST_TIMEOUT_MS } from './harness.ts'
 import { LEAVE_ALT, PTY_ROWS, drivePty, drivePtySteps, screenOf } from './pty-driver.ts'
-import { ENTER, ESCAPE, screenAt } from './pty-helpers.ts'
+import { CTRL_C, ENTER, ESCAPE, screenAt } from './pty-helpers.ts'
 
 describe.skipIf(process.platform === 'win32')('mouse selection and copy (real PTY)', () => {
   it('selects text in the box with a drag and copies on release', async () => {
@@ -33,6 +33,75 @@ describe.skipIf(process.platform === 'win32')('mouse selection and copy (real PT
     expect(typed).toContain(copied)
     expect(copied).not.toContain('\u001B')
     expect(copied).not.toContain('›')
+  }, E2E_TEST_TIMEOUT_MS)
+
+  it('selects status-row text with a drag and copies on release', async () => {
+    // `? shortcuts` is unique to the status row on the welcome frame.
+    // Column 3 is the first content cell after the gutter.
+    const press = '\u001B[<0;3;{row:? shortcuts}M'
+    const drag = '\u001B[<32;50;{row:? shortcuts}M'
+    const release = '\u001B[<0;50;{row:? shortcuts}m'
+    const run = await drivePtySteps('write', [
+      ['Welcome to codsh', `${press}${drag}${release}`, 400],
+      ['copied', `/exit${ENTER}`, 500],
+    ], { rows: 16 })
+
+    const captured = (offset: number | undefined): string => Buffer.from(run.output).subarray(0, offset).toString()
+    const after = captured(run.offsets[2])
+    expect(after).toContain('\u001B[7m')
+    const osc = /\u001B\]52;c;([A-Za-z0-9+/=]+)\u0007/.exec(after)
+    expect(osc).not.toBeNull()
+    const copied = Buffer.from(osc?.[1] ?? '', 'base64').toString('utf8')
+    expect(copied).toContain('cli-mock')
+    expect(copied).not.toContain('\u001B')
+    const frame = screenAt(after, 'copied', 'last')
+    expect(frame.alternate.some(row => row.includes('✓ copied'))).toBe(true)
+  }, E2E_TEST_TIMEOUT_MS)
+
+  it('selects the empty-box placeholder with a drag and copies on release', async () => {
+    // The placeholder starts four cells into the content row, after the
+    // screen gutter plus the frame, a space, and the › gutter.
+    const press = '\u001B[<0;7;{row:Ask anything}M'
+    const drag = '\u001B[<32;10;{row:Ask anything}M'
+    const release = '\u001B[<0;10;{row:Ask anything}m'
+    const run = await drivePtySteps('write', [
+      ['Welcome to codsh', `${press}${drag}${release}`, 400],
+      ['copied', `/exit${ENTER}`, 500],
+    ], { rows: 16 })
+
+    const captured = (offset: number | undefined): string => Buffer.from(run.output).subarray(0, offset).toString()
+    const after = captured(run.offsets[2])
+    expect(after).toContain('\u001B[7m')
+    const osc = /\u001B\]52;c;([A-Za-z0-9+/=]+)\u0007/.exec(after)
+    expect(osc).not.toBeNull()
+    const copied = Buffer.from(osc?.[1] ?? '', 'base64').toString('utf8')
+    expect(copied).toContain('Ask')
+    expect(copied).not.toContain('\u001B')
+    const frame = screenAt(after, 'copied', 'last')
+    expect(frame.alternate.some(row => row.includes('✓ copied'))).toBe(true)
+  }, E2E_TEST_TIMEOUT_MS)
+
+  it('selects working-line text with a drag and copies on release', async () => {
+    const press = '\u001B[<0;5;{row:Ctrl-C to interrupt}M'
+    const drag = '\u001B[<32;12;{row:Ctrl-C to interrupt}M'
+    const release = '\u001B[<0;12;{row:Ctrl-C to interrupt}m'
+    const run = await drivePtySteps('slow', [
+      ['Welcome to codsh', `take your time${ENTER}`, 300],
+      ['Ctrl-C to interrupt', `${press}${drag}${release}`, 400],
+      ['copied', CTRL_C, 400],
+      ['interrupted', `/exit${ENTER}`, 500],
+    ], { rows: 16 })
+
+    const captured = (offset: number | undefined): string => Buffer.from(run.output).subarray(0, offset).toString()
+    const after = captured(run.offsets[2])
+    expect(after).toContain('\u001B[7m')
+    const osc = /\u001B\]52;c;([A-Za-z0-9+/=]+)\u0007/.exec(after)
+    expect(osc).not.toBeNull()
+    const copied = Buffer.from(osc?.[1] ?? '', 'base64').toString('utf8')
+    expect(copied.length).toBeGreaterThan(0)
+    expect(copied).not.toContain('\u001B')
+    const frame = screenAt(after, 'copied', 'last')
+    expect(frame.alternate.some(row => row.includes('✓ copied'))).toBe(true)
   }, E2E_TEST_TIMEOUT_MS)
 
   it('puts the cursor where the box was clicked, across a wrap', async () => {
@@ -72,7 +141,7 @@ describe.skipIf(process.platform === 'win32')('mouse selection and copy (real PT
     const osc = /\u001B\]52;c;([A-Za-z0-9+/=]+)\u0007/.exec(output)
     expect(osc).not.toBeNull()
     const copied = Buffer.from(osc?.[1] ?? '', 'base64').toString('utf8')
-    // Gutter `›` is paint, not copy: the turn is the prompt body + ToolCard line.
+    // Gutter `│` is paint, not copy: the turn is the prompt body + ToolCard line.
     expect(copied).toContain('create the note')
     expect(copied).toContain('● Write note.txt')
     expect(copied).toContain('CODE_CLI_CALL_OK')

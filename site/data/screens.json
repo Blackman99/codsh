@@ -153,7 +153,7 @@
             "pen": ""
           },
           {
-            "text": "/help · /status · Tab · ⇧Tab plan · ESC · /exit",
+            "text": "/help · /status · Tab · ⇧Tab plan · Ctrl-C · /exit",
             "pen": "90"
           }
         ],
@@ -391,7 +391,7 @@
             "pen": ""
           },
           {
-            "text": "/help · /status · Tab · ⇧Tab plan · ESC · /exit",
+            "text": "/help · /status · Tab · ⇧Tab plan · Ctrl-C · /exit",
             "pen": "90"
           }
         ],
@@ -576,7 +576,7 @@
             "pen": ""
           },
           {
-            "text": "0.0s · ESC to interrupt",
+            "text": "0.0s · Ctrl-C to interrupt",
             "pen": "38;5;245"
           }
         ],
@@ -1364,7 +1364,7 @@
             "pen": ""
           },
           {
-            "text": "0.1s · 14 tokens · ESC to interrupt",
+            "text": "0.1s · 14 tokens · Ctrl-C to interrupt",
             "pen": "38;5;245"
           }
         ],
@@ -1594,7 +1594,7 @@
             "pen": ""
           },
           {
-            "text": "0.1s · ESC to interrupt",
+            "text": "0.1s · Ctrl-C to interrupt",
             "pen": "38;5;245"
           }
         ],
@@ -2515,7 +2515,7 @@
             "pen": ""
           },
           {
-            "text": "0.0s · ESC to interrupt",
+            "text": "0.0s · Ctrl-C to interrupt",
             "pen": "38;5;245"
           }
         ],

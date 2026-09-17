@@ -1,5 +1,6 @@
 /** Per-ticket landing boundaries, distinct from the display-only plan. */
 import { parsePlan, parseTrackIds } from './plan.ts'
+import { essentialBlockedBy } from './ship-dag.ts'
 
 export interface LandingTicket {
   /** Full approved plan line, including dependencies and Track metadata. */
@@ -29,6 +30,10 @@ export function landingPlan(markdown: string): LandingPlan {
       blockers: none ? [] : (dependency.match(/\d+/gu) ?? ['unknown']),
     }
   })
+  const reduced = essentialLandingBlockers(tickets)
+  for (const ticket of tickets) {
+    ticket.blockers = reduced.get(ticket.id) ?? ticket.blockers
+  }
   const ids = new Set(tickets.map(ticket => ticket.id))
   const error = ids.size !== tickets.length ? 'Duplicate ticket IDs in the approved plan.'
     : tickets.some(ticket => ticket.blockers.some(id => !ids.has(id) || id === ticket.id))
@@ -43,6 +48,28 @@ export function landingPlan(markdown: string): LandingPlan {
     ...(error !== undefined ? { error }
       : active === undefined && tickets.some(ticket => !ticket.done) ? { error: 'No unblocked ticket remains; resolve the dependency cycle.' } : {}),
   }
+}
+
+/** Immediate landing waits; a numbered chain that restates a shared parent is dropped. */
+export function essentialLandingBlockers(
+  tickets: readonly Pick<LandingTicket, 'id' | 'blockers'>[],
+): Map<string, string[]> {
+  const edges = tickets.flatMap(ticket =>
+    ticket.blockers
+      .filter(id => id !== 'unknown')
+      .map(id => ({ from: `landing:${ticket.id}`, to: `landing:${id}`, kind: 'blocked-by' as const })),
+  )
+  const map = new Map(tickets.map(ticket => [ticket.id, [] as string[]]))
+  for (const edge of essentialBlockedBy(edges)) {
+    if (edge.kind !== 'blocked-by') continue
+    map.get(edge.from.slice('landing:'.length))?.push(edge.to.slice('landing:'.length))
+  }
+  for (const ticket of tickets) {
+    if (ticket.blockers.includes('unknown')) {
+      map.set(ticket.id, [...(map.get(ticket.id) ?? []), 'unknown'])
+    }
+  }
+  return map
 }
 
 /** Progress can change checkboxes, never the ticket contract inside a turn. */

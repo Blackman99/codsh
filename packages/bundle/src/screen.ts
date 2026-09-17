@@ -298,6 +298,44 @@ export type ViewportBookmark =
   | { kind: 'head'; logical: number; within: number }
   | { kind: 'turn'; turn: number; section: 'prompt' | 'response'; line: number; within: number }
 
+/**
+ * One covered Viewport: the transcript a Child view hid, restored on Esc.
+ *
+ * Arrays and Fold/prompt objects are the live buffer, not copies — identity
+ * is what sticky, pending-card replacement, and open folds need on the way
+ * back.
+ */
+interface CoveredTranscript {
+  logical: string[]
+  rules: string[]
+  physical: string[]
+  ruleWidths: number[]
+  physicalLogical: number[]
+  offset: number
+  tailAnchor: TurnPrompt | undefined
+  tailRows: number
+  installingTailAnchor: boolean
+  folds: Fold[]
+  prompts: TurnPrompt[]
+  promptLayoutCache: PromptLayout[] | undefined
+  ranges: { fold: Fold; from: number; to: number }[] | undefined
+  find: { query: string; hits: FindHit[]; index: number } | undefined
+  hovered: Fold | undefined
+  stickyOpen: TurnPrompt | undefined
+  pressedSticky: TurnPrompt | undefined
+  selection: {
+    anchor: { row: number; column: number }
+    focus: { row: number; column: number }
+    dragged: boolean
+    onContent: boolean
+  } | undefined
+  pressedTimeline: TurnPrompt | null | undefined
+  timelinePointer: { row: number; column: number } | undefined
+  pressedNotice: boolean
+  wrappedColumns: number
+  notice: string
+}
+
 /** One physical search match, plus its stable identity in the logical buffer. */
 interface FindHit {
   row: number
@@ -424,6 +462,12 @@ export class Screen {
   private ranges: { fold: Fold; from: number; to: number }[] | undefined
   /** Incremental find over the owned scrollback, absent when find is closed. */
   private find: { query: string; hits: FindHit[]; index: number } | undefined
+  /**
+   * Transcripts a Child view covered, oldest (the parent) first.
+   *
+   * Esc pops one; a roster swap restores the parent and drops the rest.
+   */
+  private readonly covered: CoveredTranscript[] = []
   /** The last painted frame, so a repaint only touches rows that changed. */
   private painted: string[] = []
   /** Width the current frame was painted at, to detect a resize. */
@@ -710,10 +754,7 @@ export class Screen {
     // An empty buffer is wrapped at whatever width its first lines take.
     if (this.logical.length === 0) this.wrappedColumns = this.host.columns()
     for (const [index, line] of lines.entries()) {
-      // A blank line keeps no rule: the separator between blocks would
-      // otherwise show as a lone mark hanging under the block it ended.
-      const ownRule = Array.isArray(rule) ? (rule[index] ?? '') : rule
-      const own = line === '' ? '' : ownRule
+      const own = Array.isArray(rule) ? (rule[index] ?? '') : rule
       this.logical.push(line)
       this.rules.push(own)
       for (const row of this.wrapLine(line, own, columns)) {
@@ -918,7 +959,7 @@ export class Screen {
           mapped = this.mapViewportAnchor(mapped, prompt.at, prompt.shownLength, shown.length)
           this.mapFindHits(prompt.at, prompt.shownLength, shown.length)
           this.logical.splice(prompt.at, prompt.shownLength, ...shown)
-          this.rules.splice(prompt.at, prompt.shownLength, ...shown.map(line => line === '' ? '' : prompt.rule))
+          this.rules.splice(prompt.at, prompt.shownLength, ...shown.map(() => prompt.rule))
         }
         prompt.shownLength = shown.length
         this.shiftAfter(prompt.at, delta, prompt, fold)
@@ -934,7 +975,7 @@ export class Screen {
           mapped = this.mapViewportAnchor(mapped, prompt.at, prompt.shownLength, shown.length)
           this.mapFindHits(prompt.at, prompt.shownLength, shown.length)
           this.logical.splice(prompt.at, prompt.shownLength, ...shown)
-          this.rules.splice(prompt.at, prompt.shownLength, ...shown.map(line => line === '' ? '' : prompt.rule))
+          this.rules.splice(prompt.at, prompt.shownLength, ...shown.map(() => prompt.rule))
         }
         const created: Fold = {
           at: prompt.at,
@@ -960,7 +1001,7 @@ export class Screen {
         mapped = this.mapViewportAnchor(mapped, prompt.at, prompt.shownLength, summary.length)
         this.mapFindHits(prompt.at, prompt.shownLength, summary.length)
         this.logical.splice(prompt.at, prompt.shownLength, ...summary)
-        this.rules.splice(prompt.at, prompt.shownLength, ...summary.map(line => line === '' ? '' : prompt.rule))
+        this.rules.splice(prompt.at, prompt.shownLength, ...summary.map(() => prompt.rule))
       }
       fold.shownLength = summary.length
       prompt.shownLength = summary.length
@@ -985,7 +1026,8 @@ export class Screen {
    * @param fullRule - the rule the full form is drawn with, when it differs.
    * @param expanded - whether the block opens showing its full form. An open
    *   block is still automatic: moving on folds it unless the person chose a
-   *   form by hand, the way a thought stays readable until the next prompt.
+   *   form by hand. Thoughts land folded, so this flag is for a thought the
+   *   person opened, or for any other block that starts expanded.
    */
   appendFold(
     summary: readonly string[],
@@ -1696,6 +1738,190 @@ export class Screen {
     this.render()
   }
 
+  /**
+   * Hide the current transcript so a Child view can paint in its place.
+   *
+   * Esc {@link uncoverTranscript uncovers} it exactly: the same rows, the
+   * same scroll offset, the same open folds. Replay would collapse those
+   * and land at the tail, which is how history went missing.
+   */
+  coverTranscript(): void {
+    this.covered.push(this.takeCovered())
+    this.installEmptyTranscript()
+    this.render()
+  }
+
+  /**
+   * Restore the transcript the current Child view covered.
+   * @returns whether a covered transcript was there to restore.
+   */
+  uncoverTranscript(): boolean {
+    const saved = this.covered.pop()
+    if (saved === undefined) return false
+    this.installCovered(saved)
+    this.render()
+    return true
+  }
+
+  /**
+   * Restore the parent transcript and drop every nested cover.
+   *
+   * A roster swap from inside a view returns to the parent, not to the
+   * child that was showing. Used before the new view covers again.
+   * @returns whether a parent transcript was there to restore.
+   */
+  restoreCoveredRoot(): boolean {
+    const saved = this.covered[0]
+    if (saved === undefined) return false
+    this.covered.length = 0
+    this.installCovered(saved)
+    this.render()
+    return true
+  }
+
+  /**
+   * Forget covered transcripts without restoring them.
+   *
+   * `/clear` and `/resume` replace the session; the covered parent belongs
+   * to the session that just ended.
+   */
+  discardCoveredTranscripts(): void {
+    this.covered.length = 0
+  }
+
+  /**
+   * Run `work` against the covered parent buffer, then put the Child view
+   * back. Parent events keep landing while a child is on screen, so Esc
+   * does not have to replay the log.
+   * @param work - writes that belong to the parent transcript.
+   */
+  withCoveredRoot(work: () => void): void {
+    this.withCoveredAt(0, work)
+  }
+
+  /**
+   * Run `work` against one covered buffer, then put the Child view back.
+   *
+   * `0` is the parent (covered when the first child opened). Each later
+   * index is the child that was showing when a deeper view covered it.
+   * @param index - 0 is the parent; `ChildViews.indexOf(id) + 1` for a child.
+   * @param work - writes that belong to that covered transcript.
+   */
+  withCoveredAt(index: number, work: () => void): void {
+    const saved = this.covered[index]
+    if (saved === undefined) {
+      // A missing slot while something is covered is a bad index, not a
+      // request to write the Child view currently on screen.
+      if (this.covered.length > 0) return
+      work()
+      return
+    }
+    const current = this.takeCovered()
+    const wasPainting = this.painting
+    this.painting = false
+    this.installCovered(saved, false)
+    try {
+      work()
+      this.covered[index] = this.takeCovered()
+    } finally {
+      this.installCovered(current, false)
+      this.painting = wasPainting
+    }
+  }
+
+  /** Snapshot the live buffer. Arrays and fold objects keep their identity. */
+  private takeCovered(): CoveredTranscript {
+    return {
+      logical: this.logical,
+      rules: this.rules,
+      physical: this.physical,
+      ruleWidths: this.ruleWidths,
+      physicalLogical: this.physicalLogical,
+      offset: this.offset,
+      tailAnchor: this.tailAnchor,
+      tailRows: this.tailRows,
+      installingTailAnchor: this.installingTailAnchor,
+      folds: this.folds,
+      prompts: this.prompts,
+      promptLayoutCache: this.promptLayoutCache,
+      ranges: this.ranges,
+      find: this.find,
+      hovered: this.hovered,
+      stickyOpen: this.stickyOpen,
+      pressedSticky: this.pressedSticky,
+      selection: this.selection,
+      pressedTimeline: this.pressedTimeline,
+      timelinePointer: this.timelinePointer,
+      pressedNotice: this.pressedNotice,
+      wrappedColumns: this.wrappedColumns,
+      notice: this.notice,
+    }
+  }
+
+  /** Put a covered snapshot on screen. */
+  private installCovered(saved: CoveredTranscript, invalidatePaint = true): void {
+    this.logical = saved.logical
+    this.rules = saved.rules
+    this.physical = saved.physical
+    this.ruleWidths = saved.ruleWidths
+    this.physicalLogical = saved.physicalLogical
+    this.offset = saved.offset
+    this.tailAnchor = saved.tailAnchor
+    this.tailRows = saved.tailRows
+    this.installingTailAnchor = saved.installingTailAnchor
+    this.folds = saved.folds
+    this.prompts = saved.prompts
+    this.promptLayoutCache = saved.promptLayoutCache
+    this.ranges = saved.ranges
+    this.find = saved.find
+    this.hovered = saved.hovered
+    this.stickyOpen = saved.stickyOpen
+    this.pressedSticky = saved.pressedSticky
+    this.selection = saved.selection
+    this.pressedTimeline = saved.pressedTimeline
+    this.timelinePointer = saved.timelinePointer
+    this.pressedNotice = saved.pressedNotice
+    this.wrappedColumns = saved.wrappedColumns
+    this.notice = saved.notice
+    this.refreshTailAnchor()
+    this.offset = Math.min(this.offset, this.scrollLimit())
+    if (invalidatePaint) {
+      this.painted = []
+      this.paintedTimeline = []
+      this.paintedColumns = 0
+    }
+  }
+
+  /** Empty the live buffer the way {@link clearTranscript} does, without painting. */
+  private installEmptyTranscript(): void {
+    this.logical = []
+    this.rules = []
+    this.physical = []
+    this.ruleWidths = []
+    this.physicalLogical = []
+    this.folds = []
+    this.prompts = []
+    this.promptLayoutCache = undefined
+    this.ranges = undefined
+    this.hovered = undefined
+    this.stickyOpen = undefined
+    this.pressedSticky = undefined
+    this.selection = undefined
+    this.pressedTimeline = undefined
+    this.timelinePointer = undefined
+    this.pressedNotice = false
+    this.find = undefined
+    this.offset = 0
+    this.tailAnchor = undefined
+    this.tailRows = 0
+    this.installingTailAnchor = false
+    this.notice = ''
+    this.wrappedColumns = this.host.columns()
+    this.painted = []
+    this.paintedTimeline = []
+    this.paintedColumns = 0
+  }
+
   /** Logical line and wrapped subrow currently at the top of transcript content. */
   private viewportAnchor(): ViewportAnchor | undefined {
     const row = this.frameLayout().first
@@ -2288,10 +2514,7 @@ export class Screen {
     const columns = this.contentColumns()
     const from = this.physicalStart(at)
     const to = this.physicalStart(at + removed)
-    const rules = shown.map((line, index) => {
-      const ownRule = Array.isArray(rule) ? (rule[index] ?? '') : rule
-      return line === '' ? '' : ownRule
-    })
+    const rules = shown.map((_, index) => (Array.isArray(rule) ? (rule[index] ?? '') : rule))
     const rows: string[] = []
     const widths: number[] = []
     const owners: number[] = []

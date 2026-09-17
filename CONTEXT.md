@@ -51,7 +51,8 @@ Shift+Left/Right moves one anchor; `/jump` previews an anchor while its selector
 moves, commits on Enter, and restores the exact prior Viewport on Escape.
 Plugin-sourced user-role messages never enter this index — including the
 template a Canned command expands into, whose echo is the Prompt that enters
-in its place.
+in its place. That echo shares the ordinary Prompt's background and text inset,
+including the fill on its text rows as well as its surrounding padding.
 
 **Prompt-top anchor**:
 Display-only tail space that places a newly submitted real-user Prompt at the
@@ -117,18 +118,21 @@ outright (`keyboardOnly`): an approval grants a tool for the rest of the
 session and cannot be taken back, so no click may decide it and no Pointer
 mark may suggest one could. Those rows belong to whatever
 composed them, so a pointer there never reaches the Viewport: a row that
-offers something acts on it, and a row that offers nothing does nothing rather
-than starting a selection. A press commits only where it is released, so
+offers something acts on it, a chrome row with text selects the way the box
+does, and a row that offers nothing does nothing rather than starting a
+Viewport selection. A press commits only where it is released, so
 sliding off before letting go takes it back. A gesture nonetheless belongs to
 where it began, through release: a drag the Viewport anchored keeps reaching it
 once the pointer has left, because sweeping past the last line and letting go
 over the input box is how a person selects to the end of what they can see, and
-a drag the box anchored keeps selecting the same way, clamped into its text.
+a drag the box or a chrome row anchored keeps selecting the same way, clamped
+into its text.
 The Viewport keeps press-to-anchor, drag-to-extend, release-to-copy, and the
 blank space under the last line anchors there too — a press with nowhere to
 land is still where the pointer was resting, though only a press that landed on
 a row can work that row's Fold. A press in the box that then moved is a Box
-selection, not a Viewport one.
+selection, not a Viewport one; a press on a chrome row that then moved is a
+Chrome selection.
 _Avoid_: click handler, hit area
 
 **List window**:
@@ -161,6 +165,18 @@ The span stays marked until the next click or move; typing, paste, and delete
 replace it. Escape dismisses it before it means leave.
 _Avoid_: input highlight, textarea selection
 
+**Chrome selection**:
+A mouse selection over a chrome row's painted text — the teaser, todos,
+subagents, working line, shortcuts overlay, empty-box placeholder, or status
+row. Press anchors, drag extends, release copies — the same gesture the
+Viewport gives the transcript and the box gives its typed text, because mouse
+reporting has taken the terminal's own selection. A press that never moved is
+still that row's click, if it has one, and copies nothing. The span stays
+marked until the next click or Escape; a rewrite of the facts clamps it into
+the new line. A selector, a completion, or an open panel row stays a click,
+because the mark is what Enter would take.
+_Avoid_: footer highlight, metabar selection, Status selection
+
 **Pointer mark**:
 The row a Region pointer rests on, shown as a dim `·` in the column `❯` marks
 from. One column answering two questions that cannot be confused: `❯` is what
@@ -176,6 +192,13 @@ How far a `/ship` run has got, read from the spec file's `## Plan` checkboxes
 rather than from the conversation — the spec file is the workflow's memory, and
 its boxes are the only place the work is counted. The chrome re-reads that
 file as tickets tick, and pins it as its own row (`plan k/n · current ticket`).
+A Ctrl-C, idle stop, or later typed continue does not freeze that row: the
+spec poll keeps following checkboxes until verified delivery retires chrome.
+Verified delivery retires the phase chip, plan, Panorama teaser and overlay,
+and the old Todo readout. Later session events cannot re-pin that completed
+run or apply its Mission Contract to unrelated work. The final graph remains
+available in the Web panorama, and its loopback URL stays on the chrome.
+Interrupted, blocked, or failed delivery keeps its resumable progress. Explicit Todo and Subagents panels retain history.
 The working line names a Workflow round
 while one is in flight; it reports `done/total` and the first unticked ticket
 only when no round is running, so the two rows never stack the same figure.
@@ -201,7 +224,8 @@ _Avoid_: macro, alias
 An ephemeral, per-Fold choice created by clicking a block or pressing Ctrl+O.
 Explicit expanded and collapsed choices survive streaming completion, resize,
 scrollback trimming, search, and later turns; moving on collapses only automatic
-fresh-output states — an open thought back to its clock. Moving on is a turn
+fresh-output states. Thoughts land folded, so moving on only folds a thought
+the person opened without choosing that form by hand. Moving on is a turn
 spent, a Prompt or a Canned command; an empty Enter, a command that only works
 the Chrome, and a `!` line are not turns and fold nothing. A clear, a session
 replacement, or the return from a Child view discards preferences, and replay
@@ -240,24 +264,36 @@ _Avoid_: line (a transcript line may occupy several rows)
 A transcript block kept in both a summary and a full form, swappable in place
 — a click anywhere in the one under the pointer works it, Ctrl+O works them
 all: it opens whatever is folded, and folds everything once nothing is.
-Thinking is a Fold that opens open: it streams into the transcript under a
-`thinking…` head that becomes its clock (`✻ thought for 3.2s`), and stays
-open until the conversation moves on. Every tool card is a Fold that opens
+Thinking is a Fold that opens folded: a `thinking…` head stands while it
+runs — ticking the same Braille frames as the working line, which names
+the thought `thinking` — and becomes its clock (`│ thought for 3.2s`)
+when it ends. Both heads occupy one row without vertical padding and without
+a panel fill — a full-width thinking background on the clock is a black bar
+between tool rows. The magenta `│` runs down the clock, the pads, and the
+expanded deliberation. Only the expanded form keeps the fill and its
+panel inset, behind a click or Ctrl+O. Every tool card is a Fold that opens
 folded: one row naming the call, how much it produced (`+n -m`, `N results`,
-`· N lines`), and whether it worked, with the body behind it; a failed row
-also names its reason. A finished answer is transcript: it stays whole, a
-click does not work it, and the pointer resting on it names nothing.
+`· N lines`), and whether it worked, with the body behind it and no panel
+fill. The success bullet is dim; the trailing `✔` stays green. A failed
+row also names its reason, and a non-zero terminal exit or a kill is a
+failure (`✗`), not a green pass. A finished answer is transcript:
+it stays whole, a click does not work it, and the pointer resting on it
+names nothing.
 _Avoid_: collapse block, expandable section
 
 **Child view**:
 The nested Viewport of an in-process child's transcript. A Fold that names a
 child Session is a view, and so is a row of the Subagents panel: a click or
 Enter enters, Esc pops one level, and the child's thinking, text, and tool
-cards stream the way they do on the parent. Its status row is the child's
-title — the roster's mark, label, elapsed time, call count, and latest call,
-then `Esc returns to the parent`, which is cut last. From inside a view,
-another panel row swaps the view rather than stacking it — every open level
-drops once the door is known to open — so Esc still returns to the parent.
+cards stream the way they do on the parent. Entering covers the parent's
+transcript rather than replaying over it — history, the scroll offset, and
+open folds stay on a stack — and Esc uncovers that same buffer, so a person
+can still read back. Parent events that land while looking keep writing into
+the covered buffer. Its status row is the child's title — the roster's mark,
+label, elapsed time, call count, and latest call, then `Esc returns to the
+parent`, which is cut last. From inside a view, another panel row swaps the
+view rather than stacking it — every open level drops once the door is known
+to open — so Esc still returns to the parent.
 The view is read-only; typing flashes that Esc returns. Fork views skip the
 inherited parent prefix. A runner-dispatched in-process child is a view
 without a parent tool call — that Fold is not a `subagent` card, not a
@@ -271,7 +307,10 @@ _Avoid_: catalog, inspector, pager, synthetic tool-call, Claim on the card
 **Subagents readout**:
 The chrome row counting the children the live session started, by state —
 `subagents 3 · 2 running · 1 done · Ctrl+H` — for as long as the roster holds
-any. The roster is surface state fed by `subagent/start`, each direct
+any, except settled entries retired from the readout after verified ship
+delivery. Those entries remain in the panel and `/subagents` report; running
+children stay visible and retire when they settle, while new children appear
+normally. The roster is surface state fed by `subagent/start`, each direct
 child's own log (its `subagent/descriptor` names it; calls, turn starts,
 turn ends), and `subagent/end`, never a query over the store, which forgets
 a child that finished; grandchildren belong to the child that started them.
@@ -298,21 +337,23 @@ prints the header without its key and the rows without the `❯` cursor.
 _Avoid_: dashboard, inspector
 
 **Card run**:
-Tool cards that follow one another share one panel rather than each opening and
-closing one of its own. The first pads above, the last pads below, and inside
-the run a card with a row under its head — a door into a child Session —
-keeps the pad above it as its divider, and so does a run of similar cards,
-whose rebuilt head has to find its rows where it left them; a bare one-liner,
-which every other finished card is, takes that row over — so a batch of calls
-costs one row each rather than three. Any other block printed under a run
-ends it. A runner Child view at the tail is not in a run.
+Tool cards that follow one another share one stretch of transcript rather
+than each opening a panel of its own. Consecutive one-row cards on a TTY
+open with a blank between them so the column of bullets can be scanned;
+piped output still closes each card with a blank. A door into a child
+Session is the only extra row under a head, and a run of similar cards
+rebuilds as one fold over the rows already on screen. Any other block
+printed under a run ends it. A runner Child view at the tail is not in a
+run.
 _Avoid_: card group, merged cards, runner Child view as a tool card
 
 **Rule**:
-The mark drawn down a transcript block's left edge to say where the block
-starts and ends — heavy for the person's own message, light for a tool block,
-error-coloured for a failed one, absent for what a person reads. Chrome, not
-content: it repeats on wrapped rows and never reaches the clipboard.
+The connecting `│` drawn down every transcript row, including blank
+separators that belong to a block. Colour — not a different character —
+says what the row is: cyan for the person's own message, magenta for
+thinking, dim for a tool card or runner notice, red for a failed one,
+muted for assistant prose and system chrome. Chrome, not content: it
+repeats on wrapped rows and never reaches the clipboard.
 _Avoid_: border, gutter, sidebar
 
 **Scrollback notice**:
@@ -397,7 +438,8 @@ Adjacent Prompts leave as ONE message, a blank line between them; a `!` or
 lands between the thoughts it separated. Shown as the `↳ queued:` chrome row
 (count, each line's first line, `Ctrl+Q`). Surface state, never the dsh inbox:
 the inbox holds only Steers. An interrupt leaves it alone, and it goes as the
-next message; Escape is always the interrupt.
+next message; Ctrl-C is always the interrupt. Escape dismisses overlays and
+Child views and does not stop the turn.
 _Avoid_: inbox, backlog, type-ahead buffer
 
 **Queue panel**:
@@ -428,7 +470,9 @@ stored by its position in the request; ← revisits an earlier question and →
 returns to the next visited one. Navigation outcomes are separate from answer
 data, so literal write-ins such as `back`, `next`, and `edit` remain text.
 The append-only Transcript receives one final summary per answered question
-when the batch settles, never intermediate revisions. Esc/dismiss or EOF
+when the batch settles, never intermediate revisions. Each summary is drawn
+with the tool `│` so the left rule continues through the answers
+instead of breaking where the person replied. Esc/dismiss or EOF
 ends the remaining batch; cancellation never opens another card. Accepted
 answers remain and unanswered questions return empty selections.
 
@@ -459,14 +503,16 @@ non-research ticket at a time. Unresolved work remains `wayfinding`;
 explicit confirmation of a clear route advances to `grilling`. A small clear
 route records a confirmed no-map handoff. The ledger's `## Wayfinder` section
 links the canonical map and its decisions, not a duplicate implementation plan.
-The bundled contract requires no external skill installation. Grill-me then
-runs as the grill-me skill (recon, design tree, frontier rounds with
-recommended answers, exhaustion handshake); to-spec and to-tickets then run as
-those skills (exhaustive stories, vertical tickets with a DAG and per-ticket
-acceptance, `.scratch/` plus tracker when configured) without another
-interview. Landing follows the tdd skill: one red test witnessed failing, then
-minimal green, then the suite. Each `/ship` turn injects only the phase the
-spec's `Status:` names, avoiding injection of all phase instructions at once.
+Each `/ship` turn injects the bundled contract for that phase. The model must
+not look up, read, or invoke a wayfinder, grill-me, to-spec, to-tickets, or
+tdd skill. Grill then runs from that injected contract (recon, design tree,
+frontier rounds with recommended answers, exhaustion handshake); to-spec and
+to-tickets then run from theirs (exhaustive stories, vertical tickets with a
+DAG and per-ticket acceptance, `.scratch/` plus tracker when configured)
+without another interview. Landing follows the injected TDD contract: one red
+test witnessed failing, then minimal green, then the suite. Each `/ship` turn
+injects only the phase the spec's `Status:` names, avoiding injection of all
+phase instructions at once.
 Earlier conversation remains in the parent; fresh-context children keep
 independent investigation and implementation output out of that history. `interviewing` still means to-spec for existing files; later
 status meanings remain unchanged. The MetaBar chip follows that Status
@@ -504,7 +550,8 @@ requirement and, after gate 1 Confirm, the sealed Main Track and acceptance
 criteria when those sections exist. The model must not edit, remove, or
 regenerate it, and children must not be asked to. Commit it unchanged with
 the spec so resumed checkouts retain the comparison baseline. Checks run at phase
-boundaries and on resume; a mismatch or corruption stops the run. A first
+boundaries and on resume; field values are compared independently of JSON key
+order. A missing, changed, or corrupt snapshot stops the run. A first
 snapshot has no earlier history to compare, so protection is limited — not a
 security sandbox. Plan mode writes none. Identity, snapshot, and phase checks
 plus review and real proofs are the guardrails; semantic zero drift is not
@@ -526,8 +573,12 @@ _Avoid_: live reread, silent rewrite, GoalBar
 A wayfinder child of the named map — a question, not a build slice. Its graph
 key is the tracker's native id: `decision:github:owner/repo#n`, or
 `decision:local:NN` from `.scratch/<slug>/wayfinder/NN-slug.md` when no
-tracker is configured. Distinct from a Landing ticket; it does not become a
-Track-N.
+tracker is configured. Existing `decision-NN-slug.md` names resolve to the same
+integer identity; duplicate integers across both forms are errors. Status,
+Type, and Blocked by accept plain lines or Markdown list labels; `closed`
+and `resolved` both close a decision, and `wayfinder:` type prefixes are accepted.
+Claim updates replace the existing Status and never reopen a closed decision.
+Distinct from a Landing ticket; it does not become a Track-N.
 _Avoid_: implementation ticket, graph uuid, plan checkbox
 
 **Landing ticket**:
@@ -547,7 +598,7 @@ Track anchors yet.
 _Avoid_: edge label, inner-ring node, Main Track hub
 
 **Ship graph**:
-The two-ring panorama of one bound spec: Decision tickets (inner ring),
+The canonical graph of one bound spec. The TTY projection groups Decision tickets (inner ring),
 Landing tickets (outer ring), and Track anchors. Rebuilt from those canonical
 sources into adjacent `<spec>.ship.graph.json`; the cache is not identity.
 Missing or corrupt cache is discarded and rebuilt; a join failure against
@@ -555,8 +606,14 @@ canonical sources stops the run. Ticket nodes carry a derived Claim token;
 decision nodes may carry `ticketType`. Edges are `blocked-by` and
 `hangs-off` only. Map, spec, Idea, worktree, child, Claim, Blocker,
 ACC-*, Panorama overlay, Panorama teaser, and Web panorama are not
-nodes. A confirmed no-map route has an empty inner ring, not a
-fourth node kind. `NN` in filenames is an integer (`01-foo.md` → `1`).
+nodes. A named-map locator (Canonical map, `[Map]`, `wayfinder:map`) is
+not a Decision ticket; local `.scratch/<slug>/wayfinder/NN-*.md` children
+still join when that pointer is present, and the named map file's GitHub
+children join when listed there. A confirmed no-map route has an empty
+inner ring, not a fourth node kind. `NN` in filenames is an integer
+(`01-foo.md` → `1`). The join re-runs as soon as a canonical source is
+written, so the overlay, teaser, and Web panorama show a new ticket
+without waiting for the next phase.
 _Avoid_: sidecar as source of truth, title matching, freeze-sidecar stop, fourth node kind
 
 **Ship delegation**:
@@ -567,7 +624,8 @@ keeps questions, gates, coordination, and independently re-runs final proofs.
 Children return at most 20 lines naming the result plus evidence/log paths.
 The working tree is shared: read-only work may run in parallel; writers and
 git mutations stay serial. Landing is a Landing wave: it dispatches every
-currently unblocked, unclaimed ticket in parallel worktrees; the parent
+currently unblocked, unclaimed ticket in parallel worktrees, including
+siblings that share a closed prerequisite; the parent
 serial-merges Ready-set then proves. An in-process child the runner dispatched is a Child view
 without a parent tool call. Whenever the parent Viewport is shown, one
 door per live Session that names the ticket's graph key, at the tail, in
@@ -599,7 +657,14 @@ and remains on disk for inspection); Implementation Decisions are semi-mutable (
 Plan, Baseline, and Verification are mutable world state. A land-phase HITL
 wake prepends the bound spec and the in-flight / Ready-set set, not a single
 Active Ticket line. An Alignment Gate refuses
-writes that lack requirement mapping or hit immutable memory. A Drift
+writes that lack requirement mapping or hit immutable memory. Those denials,
+and a Drift Detector flash, are runner notices drawn with the tool `│`
+so the left rule continues through them instead of breaking on every
+line. While a
+Conflict-resolution child is live, that gate does not apply to its
+writes — mapping, invented `supports`, and active-ticket Track checks
+stay off so marker fills are not refused as unmapped landing work;
+immutable control-plane paths are still refused. A Drift
 Detector scores plan/action drift against the seal and treats a rewritten
 Main Track as a blocker, not an accepted rewrite. An independent
 Verifier matches acceptance criteria to recorded evidence and reconciles
@@ -608,10 +673,19 @@ delivery and the ship goal do not complete without that evidence.
 _Avoid_: hand-authored JSON, prompt-only freeze, GoalBar, wording-snapshot substitute
 
 **Conflict-resolution child**:
-A one-shot fresh-context child that fills git conflict-marker hunks in the
-merge-target tree during a serial landing merge or delivery Merge-back. It is
-not an implementation child: no tests, glue, or git mutations; the runner
-owns add, commit, and abort.
+A fresh-context child that resolves git-named conflicts in the merge-target
+tree during serial landing or delivery Merge-back. Text hunks preserve the
+surrounding content; lockfiles/generated artifacts are regenerated, and
+modify/delete or binary conflicts use both versions and ticket intent.
+Validation failures feed back to a fresh child, up to three attempts per
+merge, without aborting between attempts. Already auto-merged files form a
+baseline, not an out-of-scope write. Sealed requirements stay protected.
+The runner owns staging, non-interactive commit, and rollback (squash uses
+`reset --merge`, not `merge --abort`). Unchanged markerless conflicts require
+explicit confirmation on retry, not a silent choice of ours. Related staged
+additions may be reconciled when Git represents a rename as modify/delete.
+Rollback failures are reported without creating a blocker commit in a pending
+merge. Success resumes landing and proof.
 _Avoid_: merge bot, TDD repair, conflict agent
 
 **Worktree branch**:
@@ -663,8 +737,10 @@ _Avoid_: Occupancy, graph node, fourth bucket, live-child, second claim store
 **Landing wave**:
 The standing set of in-flight landing worktrees plus the serial merge queue
 on `ship/<slug>`. Not a barrier that waits for every child to finish.
-Dispatch takes every currently unblocked, unclaimed landing ticket.
-_Avoid_: batch barrier, Track-N order, one Active Ticket
+Dispatch takes every currently unblocked, unclaimed landing ticket. Siblings
+of one closed prerequisite start together; a numbered `Blocked by: 1, 2`
+next to `Blocked by: 1` is that fan-out, not a second wait.
+_Avoid_: batch barrier, Track-N order, one Active Ticket, numbered chain
 
 **Ready-set**:
 Finished 已认领 landing children whose DAG blockers are already 已关闭.
@@ -698,22 +774,86 @@ _Avoid_: occupancy gate, silent steal, GoalBar, Claim
 **Panorama overlay**:
 The pinned fullscreen TTY projection of one bound spec's two-ring graph:
 inner ring then outer ring, 待认领 / 已认领 / 已关闭 on the ticket row,
-Track-N as a suffix. Ctrl+G or a click on the teaser toggles it; exclusive
+Track-N as a suffix. The title row also carries the loopback Web panorama
+URL when one is bound. Ctrl+G or a click on the teaser toggles it; exclusive
 with Queue/Todo. Distinct from the Panorama teaser and from the Web
 panorama. Not a graph node. An empty inner ring is still this overlay.
 _Avoid_: Track-N grouping, hub row, Queue-style window, fourth bucket
 
 **Panorama teaser**:
 The one-line TTY chrome of the same graph — `待认领 n · 已认领 n · 已关闭 n`,
-plus in-flight when greater than zero — above the plan row. Distinct from
-Occupancy, the MetaBar land chip (closed/total), and the Web panorama.
+plus in-flight when greater than zero, plus the loopback Web panorama URL
+when one is bound — above the plan row. In-flight is the live Landing-wave
+child count; a graph rebuild must not drop it to zero while a Child view
+Fold is still on screen. Distinct from Occupancy, the MetaBar land chip
+(closed/total), and the Web panorama itself.
 _Avoid_: Occupancy, fourth bucket, land chip, plan row
 
 **Web panorama**:
-The loopback node-link projection of one bound spec's Ship graph. Binds
-`127.0.0.1` on an ephemeral port; the URL is printed. Distinct
-from the Panorama overlay and the Panorama teaser. Not a second store.
-_Avoid_: dashboard, hub, site, graph UI
+The loopback React Flow projection of one bound spec's Ship graph. Six
+ordered layers: Wayfinder, Grill, Spec (Gate 1), Tickets (Gate 2), Landing,
+and Done. Each phase is a parent sub-flow containing descriptive steps;
+Decision tickets belong to Wayfinder, Track anchors to Spec, and Landing
+tickets to Landing. Original requirement and Ship goal nodes precede Wayfinder;
+question/answer nodes belong to the phase in which the user was asked. Context,
+answer, phase, and step nodes are view-only, not new graph kinds or Claim buckets.
+Graph metadata carries original wording, the overall objective, and recorded
+answers without changing canonical ticket identities. The runner saves human
+question/answer history in adjacent `<spec>.ship.answers.json`, independently of
+the disposable graph cache; resume restores it. Explicit local decision Question
+and User answer fields can supply historical answers. Research resolutions and
+automatic gate approvals are not user answers. Missing responses stay explicit.
+Web interface labels are English; source text remains verbatim, including its
+original language. The page title and heading are the typed original requirement
+after `/ship`, falling back to Ship Flow when none is recorded. Long text scrolls
+within nodes and remains complete in details.
+The optional graph `status` comes from the ledger; an absent status stays
+unknown, and step descriptions never claim independently observed completion.
+Node fills, borders, and labeled badges distinguish current (blue), passed
+(green), upcoming (gray), and unrecorded (purple/dashed) phase states. Ticket
+claims use gray/amber/green for unclaimed/claimed/closed; Track anchors use
+teal, never a ticket claim. The navigation and status legend use the same
+palette. Ticket claim colors appear only in the status legend, not as a
+duplicate count list in the left sidebar. Descriptive steps remain neutral, without inferred completion.
+Compact cards reserve explicit horizontal and vertical connection gaps; ticket
+relations are orthogonal. Cross-phase, skipping, reverse, cyclic, and skipped-rank
+edges use dedicated lanes outside the node columns, split left or right by the
+source column so two prerequisites never share one vertical run. Concurrent exits
+from one rank and concurrent entries into one rank use staggered horizontal
+channels. Adjacent same-column tickets keep the prerequisite arrow in the ticket
+lane; within-phase DAG edges that skip a rank also leave the columns so labels
+do not sit on cards. Landing tickets use a ranked DAG with extra column
+and rank gaps rather than a dense 3-wide wrap. Each decision ticket sits on the
+left of its answers, which stack on the right of that cluster, so the
+parent-to-answer edge is a short straight horizontal link at ticket mid-height
+even when the answer card is taller. CJK source text sizes cards by display
+width, not Latin character count. Unlinked answers stay a vertical sequence;
+when they follow ticket columns they join from those columns rather than from
+the last workflow step. Sibling dependents of one prerequisite share a rank and
+fork sideways instead of stacking. Research tickets do not invent user-answer
+cards. A local Wayfinder ticket's answer copy and a captured human response
+share one card when they match uniquely: exact question/answer text, or the
+same nonempty, non-generic answer when the question was translated or reworded.
+The card keeps the ticket identity and the captured question, source, and detail.
+Ambiguous matches, short confirmations, changed answers, and separate phases
+remain separate; the canonical answer history is never rewritten by this view.
+The current phase and its claimed tickets pulse; incoming phase sequence and
+within-phase guide edges flow in the arrow direction. Incoming ticket relations
+animate only for current-phase claimed targets and closed prerequisites (or Track
+anchors). This represents ledger/claim activity, not observed worker or step execution.
+Completed, upcoming, and unknown phases stay still; disconnected snapshots and
+reduced-motion preferences suppress animation. Collapsing retains aggregate activity.
+Flow arrows reverse the cache's relation direction: prerequisite → dependent,
+Track → supported ticket. Layers expand/collapse without changing graph keys.
+One `127.0.0.1` ephemeral port serves the HTML, bundled browser assets (no CDN),
+and `/graph.json` for the TTY session. The page polls the live graph without
+rebinding when `/ship` continues or a spec appears; zoom and selection survive
+updates. Connection failures retain the last graph with an automatic retry notice.
+The URL is pinned on the Panorama teaser and overlay title; `/ship` does not
+open a browser. Off a TTY the URL is printed once. On narrow screens, node
+details sit below the graph.
+Distinct from the Panorama overlay and the Panorama teaser. Not a second store.
+_Avoid_: dashboard, hub, site, graph UI, second port per `/ship`
 
 **Hybrid compass**:
 The spec stays durable memory; the harness `/goal` is a disarmed session

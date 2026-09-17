@@ -130,8 +130,8 @@ describe('piped input', () => {
   it('writes a prompt normally when no TTY exists to make it sticky', () => {
     const { console: term, output } = build()
     // Off a TTY the gutter still prefixes each content row so pipes keep role marks.
-    term.appendPrompt(['question', ''], '› ')
-    expect(output.text).toBe('› question\n\n')
+    term.appendPrompt(['question', ''], '│ ')
+    expect(output.text).toBe('│ question\n│ \n')
   })
 
   it('owns no keyboard', () => {
@@ -145,14 +145,14 @@ describe('a fold off a terminal', () => {
     // thought still lands as its clock row, its rule on the row and nothing
     // of the deliberation.
     const { console, output } = build()
-    console.appendFold(['thought for 1s'], ['thought for 1s', '  a line', '  another'], '✻ ', 'thinking', undefined, undefined, [], ['✻ ', '', ''], true)
-    expect(output.text).toBe('✻ thought for 1s\n')
+    console.appendFold(['thought for 1s'], ['thought for 1s', '  a line', '  another'], '│ ', 'thinking', undefined, undefined, [], ['│ ', '│ ', '│ '], true)
+    expect(output.text).toBe('│ thought for 1s\n')
   })
 
   it('gives each summary row its own rule when the rules differ by row', () => {
     const { console, output } = build()
-    console.appendFold(['  ', 'thought for 1s', '  '], ['  ', 'thought for 1s', '  ', 'line'], ['', '✻ ', ''], 'thinking')
-    expect(output.text).toBe('  \n✻ thought for 1s\n  \n')
+    console.appendFold(['  ', 'thought for 1s', '  '], ['  ', 'thought for 1s', '  ', 'line'], ['│ ', '│ ', '│ '], 'thinking')
+    expect(output.text).toBe('│   \n│ thought for 1s\n│   \n')
   })
 })
 
@@ -287,6 +287,25 @@ describe('the viewport it owns on a terminal', () => {
     expect([...rows.values()].join('')).not.toContain('forgettable')
     // A full-screen erase would take the person's buffer with it.
     expect(output.text).not.toContain('\u001B[2J')
+  })
+
+  it('covers and uncovers the transcript without losing history or the scroll offset', () => {
+    const { console: term, output } = tty(4, 40)
+    term.enterScreen()
+    term.setRegion(['status'], { row: 0, column: 0 }, false)
+    for (const line of ['one', 'two', 'three', 'four', 'five']) term.write(line)
+    term.scrollBy(-2)
+    expect(term.scrolledBy).toBe(2)
+    output.chunks.length = 0
+    term.coverTranscript()
+    expect(term.scrolledBy).toBe(0)
+    term.write('child')
+    expect(painted(output.text).get(1)).toBe('child')
+    output.chunks.length = 0
+    expect(term.uncoverTranscript()).toBe(true)
+    expect(term.scrolledBy).toBe(2)
+    expect([painted(output.text).get(1), painted(output.text).get(2), painted(output.text).get(3)]).toEqual(['one', 'two', 'three'])
+    expect(term.restoreCoveredRoot()).toBe(false)
   })
 
   it('reports whether the transcript buffer ends with a blank line', () => {

@@ -11,6 +11,7 @@ import { ShipRun, wrapHostGoals, type ShipChildCreate, type ShipChildHandle, typ
 import type { WebPanoramaBind, WebPanoramaBindRequest } from '../src/ship-run.ts'
 import { classifyConflictFiles, inspectConflictResolution } from '../src/ship-conflict.ts'
 import { snapshotPathFor } from '../src/ship-snapshot.ts'
+import { answersPathFor, encodeAskUserAnswers } from '../src/ship-answers.ts'
 import { collectJoinSources, graphPathFor, isShipGraphJoinError, joinShipGraph } from '../src/ship-graph.ts'
 import type { ShipGraph, TeaserCounts } from '../src/ship-graph.ts'
 import type { Plan } from '../src/plan.ts'
@@ -101,8 +102,8 @@ describe('ShipRun', () => {
     })
     await ship.run('build a widget', async (prompt) => { prompts.push(prompt) })
     expect(prompts).toHaveLength(1)
-    expect(prompts[0]).toContain('Follow the wayfinder skill as the contract, not a summary of it')
-    expect(prompts[0]).not.toContain('Follow the grill-me skill as the contract, not a summary of it')
+    expect(prompts[0]).toContain('This injected contract is the whole wayfinder phase')
+    expect(prompts[0]).not.toContain('This injected contract is the whole grill phase')
     expect(prompts[0]).not.toContain('Pure Synthesis, Zero Interrogation')
     expect(chips[0]).toEqual({ kind: 'wayfinder' })
   })
@@ -118,9 +119,9 @@ describe('ShipRun', () => {
       if (prompts.length === 2) writeSpec(cwd, 'widget.md', 'Status: interviewing\n')
     })
     expect(prompts).toHaveLength(3)
-    expect(prompts[0]).toContain('Follow the wayfinder skill')
-    expect(prompts[1]).toContain('Follow the grill-me skill')
-    expect(prompts[1]).not.toContain('Follow the wayfinder skill')
+    expect(prompts[0]).toContain('This injected contract is the whole wayfinder phase')
+    expect(prompts[1]).toContain('This injected contract is the whole grill phase')
+    expect(prompts[1]).not.toContain('This injected contract is the whole wayfinder phase')
     expect(prompts[2]).toContain('Pure Synthesis, Zero Interrogation')
     expect(chips).toEqual([{ kind: 'wayfinder' }, { kind: 'grill' }, { kind: 'spec' }])
   })
@@ -132,9 +133,9 @@ describe('ShipRun', () => {
     const prompts: string[] = []
     await ship.run('', async prompt => { prompts.push(prompt) })
     expect(prompts).toHaveLength(1)
-    expect(prompts[0]).toContain('Follow the wayfinder skill')
+    expect(prompts[0]).toContain('This injected contract is the whole wayfinder phase')
     expect(prompts[0]).not.toContain('git checkout -b')
-    expect(prompts[0]).not.toContain('Follow the grill-me skill')
+    expect(prompts[0]).not.toContain('This injected contract is the whole grill phase')
     expect(ship.shipChip).toEqual({ kind: 'wayfinder' })
   })
 
@@ -170,8 +171,8 @@ describe('ShipRun', () => {
     const prompts: string[] = []
     await ship.run('', async prompt => { prompts.push(prompt) })
     expect(prompts).toHaveLength(1)
-    expect(prompts[0]).toContain('Follow the grill-me skill')
-    expect(prompts[0]).not.toContain('Follow the wayfinder skill')
+    expect(prompts[0]).toContain('This injected contract is the whole grill phase')
+    expect(prompts[0]).not.toContain('This injected contract is the whole wayfinder phase')
     expect(ship.shipChip).toEqual({ kind: 'grill' })
   })
 
@@ -185,9 +186,9 @@ describe('ShipRun', () => {
       return prompts.length === 1 ? { hitl: true } : undefined
     })
     expect(prompts).toHaveLength(2)
-    expect(prompts[0]).toContain('Follow the grill-me skill')
-    expect(prompts[1]).toContain('Follow the grill-me skill')
-    expect(prompts[1]).not.toContain('Follow the wayfinder skill')
+    expect(prompts[0]).toContain('This injected contract is the whole grill phase')
+    expect(prompts[1]).toContain('This injected contract is the whole grill phase')
+    expect(prompts[1]).not.toContain('This injected contract is the whole wayfinder phase')
     expect(prompts[1]).not.toContain('Pure Synthesis, Zero Interrogation')
   })
 
@@ -214,9 +215,9 @@ describe('ShipRun', () => {
       return prompts.length === 1 ? { hitl: true } : undefined
     })
     expect(prompts).toHaveLength(2)
-    expect(prompts[0]).toContain('Follow the wayfinder skill')
-    expect(prompts[1]).toContain('Follow the wayfinder skill')
-    expect(prompts[1]).not.toContain('Follow the grill-me skill')
+    expect(prompts[0]).toContain('This injected contract is the whole wayfinder phase')
+    expect(prompts[1]).toContain('This injected contract is the whole wayfinder phase')
+    expect(prompts[1]).not.toContain('This injected contract is the whole grill phase')
     expect(prompts[1]).not.toContain('git checkout -b')
     expect(prompts[1]).not.toContain('ship · preflight')
     expect(ship.shipChip).toEqual({ kind: 'wayfinder' })
@@ -236,11 +237,11 @@ describe('ShipRun', () => {
     })
     expect(prompts).toHaveLength(2)
     expect(prompts[0]).toContain('ship · preflight')
-    expect(prompts[0]).toContain('Follow the wayfinder skill')
-    expect(prompts[1]).toContain('Follow the wayfinder skill')
+    expect(prompts[0]).toContain('This injected contract is the whole wayfinder phase')
+    expect(prompts[1]).toContain('This injected contract is the whole wayfinder phase')
     expect(prompts[1]).not.toContain('ship · preflight')
     expect(prompts[1]).not.toContain('git checkout -b')
-    expect(prompts[1]).not.toContain('Follow the grill-me skill')
+    expect(prompts[1]).not.toContain('This injected contract is the whole grill phase')
   })
 
   it('does not treat a gate HITL as auto-continue when Status is unchanged', async () => {
@@ -507,7 +508,7 @@ describe('ShipRun', () => {
     expect(ship.shipPlan).toBeUndefined()
   })
 
-  it('stops the poll when inject throws, then still refreshes', async () => {
+  it('stops pushing todos after inject throws, but keeps following the spec', async () => {
     vi.useFakeTimers()
     const cwd = mkdtempSync(join(tmpdir(), 'ship-run-'))
     const path = writeSpec(cwd, 'widget.md', 'Status: interviewing\n')
@@ -523,8 +524,11 @@ describe('ShipRun', () => {
     })).rejects.toThrow('turn failed')
     expect(ship.shipChip).toEqual({ kind: 'tickets' })
     const before = todos.length
+    writeFileSync(path, 'Status: landing\n\n## Plan\n\n- [x] Ticket 1: a\n- [ ] Ticket 2: b\n')
     await vi.advanceTimersByTimeAsync(1100)
     expect(todos.length).toBe(before)
+    expect(ship.shipPlan?.done).toBe(1)
+    expect(ship.shipChip).toEqual({ kind: 'land', k: 1, n: 2 })
   })
 
   it('aborts the first run when a second run starts', async () => {
@@ -610,7 +614,7 @@ describe('ShipRun', () => {
     expect(goals.log).toEqual(['create:[ship] build a widget', 'pause:goal-new', 'inject'])
     expect(prompts).toHaveLength(1)
     expect(prompts[0]).toContain('goal-new')
-    expect(prompts[0]).toContain('Follow the wayfinder skill as the contract, not a summary of it')
+    expect(prompts[0]).toContain('This injected contract is the whole wayfinder phase')
   })
 
   it('pauses a stranger then asks ship · occupancy before any inject (Track: 6)', async () => {
@@ -760,7 +764,7 @@ describe('ShipRun', () => {
     const missing = new ShipRun(cwd, chrome, { flash: text => { flashes.push(text) } })
     await missing.run('build a widget', async (prompt) => { prompts.push(prompt) })
     expect(prompts).toHaveLength(1)
-    expect(prompts[0]).toContain('Follow the wayfinder skill as the contract, not a summary of it')
+    expect(prompts[0]).toContain('This injected contract is the whole wayfinder phase')
     expect(flashes).toEqual(['/goal was not updated'])
 
     const throwing: ShipGoals = {
@@ -1392,15 +1396,23 @@ describe('composition root', () => {
     expect(source).toContain('hitl: true')
     expect(source).toContain('autoConfirmShipGates')
     expect(source).toContain('confirmGate')
+    expect(source).toContain('terminalQuestions.ask')
+    expect(source).toContain('ship.noteUserAnswers')
+    expect(source.indexOf('autoConfirmShipGates')).toBeLessThan(source.indexOf('terminalQuestions.ask'))
+    expect(source.indexOf('terminalQuestions.ask')).toBeLessThan(source.indexOf('ship.noteUserAnswers'))
+    expect(source).toContain('if (auto !== undefined) return auto')
+    expect(source).toContain('request.agent === undefined || request.agent === live.agent')
     expect(source).not.toMatch(/hitl[\s\S]{0,80}subagent/)
     expect(source).toContain('childCreate')
     expect(source).toContain('bindRunnerView')
     expect(source).toContain('createChild')
     expect(source).toContain('liveChildren')
     expect(source).toContain('bindWebPanorama')
-    expect(source).toContain('openWebPanorama')
+    expect(source).not.toContain('openWebPanorama')
     expect(source).toContain('bind: request => bindWebPanorama(request.graph)')
-    expect(source).toContain('open: url => { openWebPanorama(url) }')
+    expect(source).toContain('setWebUrl')
+    expect(source).not.toMatch(/open:\s*url\s*=>/)
+    expect(source).toContain('ship.closeWebPanorama()')
   })
 
   it('compiles and writes a Mission Contract at Confirm and prepends it later', async () => {
@@ -1861,6 +1873,236 @@ describe('composition root', () => {
     expect(JSON.parse(readFileSync(sidecar, 'utf8')).nodes.length).toBe(2)
   })
 
+  it('captures selected/custom/skipped HITL, ignores auto-Confirm, and keeps the graph cache out of the answer store', async () => {
+    const cwd = mkdtempSync(join(tmpdir(), 'ship-run-'))
+    const path = writeSpec(cwd, 'widget.md', [
+      'Status: grilling',
+      '',
+      '## Original Requirement',
+      '',
+      'Build a widget.',
+    ].join('\n'))
+    const flashes: string[] = []
+    const ship = new ShipRun(cwd, chrome, { flash: text => { flashes.push(text) } })
+    const questions = [
+      { id: 'storage', question: 'Storage?', header: 'ship · grill', detail: 'pick one' },
+      { id: 'name', question: 'Name it', header: 'ship · grill' },
+      { id: 'skip', question: 'Skip me?', header: 'ship · grill' },
+    ]
+    const answers = [
+      { id: 'storage', selected: ['SQLite'] },
+      { id: 'name', selected: [], custom: 'widget-core' },
+      { id: 'skip', selected: [] },
+    ]
+    await ship.run('', async () => {
+      expect(ship.noteUserAnswers(questions, answers)).toBe(true)
+      expect(ship.confirmGate(1)).toBe(false)
+      ship.abort()
+    })
+    const record = JSON.parse(readFileSync(answersPathFor(path), 'utf8')) as { answers: unknown[] }
+    expect(record.answers).toEqual(encodeAskUserAnswers(questions, answers, 'grill'))
+    expect(ship.shipGraph?.answers).toEqual(record.answers)
+    expect(ship.shipGraph?.originalRequirement).toBe('Build a widget.')
+    expect(ship.shipGraph?.objective).toBe('Build a widget.')
+    expect(JSON.parse(readFileSync(graphPathFor(path), 'utf8')).answers).toEqual(record.answers)
+    writeFileSync(graphPathFor(path), '{not json')
+    const resumed = new ShipRun(cwd, chrome)
+    await resumed.run('', async () => { resumed.abort() })
+    expect(JSON.parse(readFileSync(answersPathFor(path), 'utf8')).answers).toEqual(record.answers)
+    expect(resumed.shipGraph?.answers).toEqual(record.answers)
+    expect(flashes.some(text => /Confirmed ship · gate/i.test(text))).toBe(false)
+  })
+
+  it('does not label a limited-history Main Track fallback as the original user request', async () => {
+    const cwd = mkdtempSync(join(tmpdir(), 'ship-run-'))
+    writeSpec(cwd, 'legacy.md', 'Status: grilling\n\n## Main Track\n\n**Idea.** A later design summary.\n**Track-1.** Keep the design.\n')
+    const ship = new ShipRun(cwd, chrome)
+    await ship.run('', async () => { ship.abort() })
+    expect(ship.shipGraph?.originalRequirement).toBeUndefined()
+    expect(ship.shipGraph?.objective).toBe('A later design summary.')
+  })
+
+  it('buffers pre-spec answers onto the live graph, then persists them without duplicates', async () => {
+    const cwd = mkdtempSync(join(tmpdir(), 'ship-run-'))
+    const ship = new ShipRun(cwd, chrome)
+    const questions = [{ id: 'idea', question: 'What should we build?', header: 'ship · wayfinder' }]
+    const answers = [{ id: 'idea', selected: [], custom: 'build a widget' }]
+    await ship.run('build a widget', async () => {
+      expect(ship.noteUserAnswers(questions, answers)).toBe(true)
+      expect(ship.shipGraph?.originalRequirement).toBe('build a widget')
+      expect(ship.shipGraph?.objective).toBe('build a widget')
+      expect(ship.shipGraph?.answers).toEqual(encodeAskUserAnswers(questions, answers, 'wayfinder'))
+      expect(ship.shipGraph?.nodes).toEqual([])
+      writeSpec(cwd, 'widget.md', [
+        'Status: wayfinding',
+        '',
+        '## Original Requirement',
+        '',
+        'build a widget',
+      ].join('\n'))
+    })
+    const path = join(cwd, 'docs', 'specs', 'widget.md')
+    expect(JSON.parse(readFileSync(answersPathFor(path), 'utf8')).answers)
+      .toEqual(encodeAskUserAnswers(questions, answers, 'wayfinder'))
+    expect(ship.shipGraph?.answers).toHaveLength(1)
+  })
+
+  it('does not record HITL while plan mode holds, and does not contaminate another spec', async () => {
+    const cwd = mkdtempSync(join(tmpdir(), 'ship-run-'))
+    const widget = writeSpec(cwd, 'widget.md', 'Status: grilling\n\n## Original Requirement\n\nBuild a widget.\n')
+    const questions = [{ id: 'q1', question: 'Storage?', header: 'ship · grill' }]
+    const answers = [{ id: 'q1', selected: ['SQLite'] }]
+    const planned = new ShipRun(cwd, chrome, { isPlanMode: () => true })
+    await planned.run('', async () => {
+      expect(planned.noteUserAnswers(questions, answers)).toBe(false)
+    })
+    expect(existsSync(answersPathFor(widget))).toBe(false)
+
+    writeSpec(cwd, 'other.md', 'Status: grilling\n\n## Original Requirement\n\nSomething else.\n')
+    const chooseWidget = async (spec: SelectSpec): Promise<SelectOutcome> => {
+      const index = spec.options.findIndex(option => option.label === 'widget.md')
+      return { kind: 'chosen', indices: [index] }
+    }
+    const ship = new ShipRun(cwd, chrome, { selectSpec: chooseWidget })
+    await ship.run('', async () => {
+      expect(ship.noteUserAnswers(questions, answers)).toBe(true)
+      ship.abort()
+    })
+    expect(existsSync(answersPathFor(widget))).toBe(true)
+    expect(existsSync(answersPathFor(join(cwd, 'docs', 'specs', 'other.md')))).toBe(false)
+  })
+
+  it('makes answers sidecar write failures visible instead of claiming success', async () => {
+    const cwd = mkdtempSync(join(tmpdir(), 'ship-run-'))
+    const path = writeSpec(cwd, 'widget.md', 'Status: grilling\n\n## Original Requirement\n\nBuild a widget.\n')
+    mkdirSync(answersPathFor(path))
+    const flashes: string[] = []
+    const ship = new ShipRun(cwd, chrome, { flash: text => { flashes.push(text) } })
+    await ship.run('', async () => {
+      expect(ship.noteUserAnswers(
+        [{ id: 'q1', question: 'Storage?', header: 'ship · grill' }],
+        [{ id: 'q1', selected: ['SQLite'] }],
+      )).toBe(false)
+    })
+    expect(flashes.some(text => /answers record/i.test(text))).toBe(true)
+  })
+
+  it('restores local decision Question/User answer on rebuild without changing TTY node identity', () => {
+    const cwd = mkdtempSync(join(tmpdir(), 'ship-run-'))
+    const path = writeSpec(cwd, 'widget.md', [
+      'Status: wayfinding',
+      'Branch: ship/widget',
+      '',
+      '## Original Requirement',
+      '',
+      'Build a widget.',
+    ].join('\n'))
+    const ticket = join(cwd, '.scratch', 'widget', 'wayfinder', '01-auth-store.md')
+    mkdirSync(dirname(ticket), { recursive: true })
+    writeFileSync(ticket, [
+      '# Auth store',
+      '',
+      'Type: grilling',
+      'Status: resolved',
+      '',
+      '## Question',
+      '',
+      'Where should sessions live?',
+      '',
+      '## User Answer',
+      '',
+      'Keep them in SQLite.',
+      '',
+      '## Resolution',
+      '',
+      'Research found Redis already in prod.',
+    ].join('\n'))
+    const ship = new ShipRun(cwd, chrome)
+    ship.noteWritten([path, ticket])
+    expect(ship.shipGraph?.nodes.map(node => node.id)).toEqual(['decision:local:1'])
+    expect(ship.shipGraph?.answers).toEqual([
+      {
+        id: 'decision:local:1',
+        phase: 'wayfinder',
+        question: 'Where should sessions live?',
+        answer: 'Keep them in SQLite.',
+        source: 'Where should sessions live?',
+        ticketId: 'decision:local:1',
+      },
+    ])
+    expect(JSON.parse(readFileSync(answersPathFor(path), 'utf8')).answers).toEqual(ship.shipGraph?.answers)
+  })
+
+  it('paints a wayfinder ticket on the inner ring as soon as the file is written', () => {
+    const cwd = mkdtempSync(join(tmpdir(), 'ship-run-'))
+    const path = writeSpec(cwd, 'widget.md', [
+      'Status: wayfinding',
+      'Branch: ship/widget',
+      '',
+      '## Wayfinder',
+      '',
+      '[Map](https://github.com/Blackman99/codsh/issues/106)',
+    ].join('\n'))
+    const graphs: Array<ShipGraph | undefined> = []
+    const ship = new ShipRun(cwd, {
+      setPlan: () => {},
+      setChip: () => {},
+      setGraph: graph => { graphs.push(graph) },
+    })
+    ship.noteWritten([path])
+    expect(ship.shipGraph?.nodes.some(node => node.kind === 'decision')).toBe(false)
+
+    const ticket = join(cwd, '.scratch', 'widget', 'wayfinder', '01-repo-facts.md')
+    mkdirSync(dirname(ticket), { recursive: true })
+    writeFileSync(ticket, '# Repo facts\n\nType: research\nStatus: open\n')
+    ship.noteWritten([ticket])
+    expect(ship.shipGraph?.nodes.find(node => node.id === 'decision:local:1')).toMatchObject({
+      kind: 'decision',
+      title: 'Repo facts',
+      claim: 'unclaimed',
+      ticketType: 'research',
+    })
+    expect(graphs.at(-1)?.nodes.some(node => node.id === 'decision:local:1')).toBe(true)
+  })
+
+  it('paints landing tickets on the outer ring as soon as the approved plan is written', () => {
+    const cwd = mkdtempSync(join(tmpdir(), 'ship-run-'))
+    const path = writeSpec(cwd, 'widget.md', [
+      'Status: confirmed',
+      'Branch: ship/widget',
+      '',
+      '## Main Track',
+      '',
+      '**Track-1.** Hybrid compass.',
+    ].join('\n'))
+    const ship = new ShipRun(cwd, {
+      setPlan: () => {},
+      setChip: () => {},
+      setGraph: () => {},
+    })
+    ship.noteWritten([path])
+    expect(ship.shipGraph?.nodes.some(node => node.kind === 'landing')).toBe(false)
+
+    writeFileSync(path, [
+      'Status: planned',
+      'Branch: ship/widget',
+      '',
+      '## Main Track',
+      '',
+      '**Track-1.** Hybrid compass.',
+      '',
+      '## Plan',
+      '',
+      '- [ ] Ticket 1: Land the teaser (Track: 1)',
+    ].join('\n'))
+    ship.noteWritten([path])
+    expect(ship.shipGraph?.nodes.find(node => node.id === 'landing:1')).toMatchObject({
+      kind: 'landing',
+      title: 'Land the teaser',
+      claim: 'unclaimed',
+    })
+  })
+
   it('stops /ship on a Ticket N join failure with no guessed cache', async () => {
     const cwd = mkdtempSync(join(tmpdir(), 'ship-run-'))
     const path = writeSpec(cwd, 'widget.md', 'Status: landing\n\n## Plan\n\n- [ ] Land the teaser\n')
@@ -2020,16 +2262,23 @@ describe('composition root', () => {
       folds,
       git: async (args, workCwd) => {
         git.push(`${args.join(' ')} @ ${workCwd}`)
+        if (args[0] === 'worktree' && args[1] === 'add') {
+          const dest = args[args.length - 1]
+          if (dest !== undefined && dest !== '') mkdirSync(dest, { recursive: true })
+        }
         return { code: 0, output: '' }
       },
     })
-    await ship.run('', async prompt => { prompts.push(prompt) })
+    const running = ship.run('', async prompt => { prompts.push(prompt) })
+    await new Promise(resolve => { setTimeout(resolve, 20) })
     const scratch = readFileSync(join(issues, '02-land-the-teaser.md'), 'utf8')
     expect(scratch).toMatch(/^Claim:\s*claimed\b/mu)
     expect(scratch).not.toMatch(/Claim:\s*unclaimed/u)
     expect(readFileSync(path, 'utf8')).toMatch(/- \[ \] Ticket 2:/u)
     expect(children.created).toHaveLength(1)
     expect(children.created[0]?.graphKey).toBe('landing:2')
+    expect(children.created[0]?.prompt).toContain('Strict Red-First Execution')
+    expect(children.created[0]?.prompt).toContain('Ticket 2:')
     expect(children.created[0]?.cwd).toBe(join(cwd, '.scratch', 'widget', 'worktrees', 'landing-2'))
     expect(git.some(entry => entry.includes('worktree add'))).toBe(true)
     const claimAt = git.findIndex(entry => /commit/.test(entry) && /Claim/.test(entry) === false)
@@ -2038,6 +2287,8 @@ describe('composition root', () => {
     expect(claimAt === -1 || claimAt < worktreeAt || git.some(entry => /commit/.test(entry))).toBe(true)
     expect(folds.bound[0]?.label).toBe('Ticket 2: Land the teaser')
     expect(ship.shipGraph?.nodes.find(node => node.id === 'landing:2')?.claim).toBe('claimed')
+    ship.abort()
+    await running
   })
 
   it('reclaims a leftover worktree by writing Claim: claimed and paints no Fold without a Session', async () => {
@@ -2118,22 +2369,22 @@ describe('Conflict-resolution child', () => {
     '',
   ].join('\n')
 
-  it('classifies fillable source hunks and skips lockfile, protected, and no-marker paths', () => {
+  it('dispatches source, lockfile, and no-marker conflicts but protects sealed headings', () => {
     expect(classifyConflictFiles([{ path: 'src/greet.ts', content: conflictHunk }])).toEqual({
       kind: 'fillable',
       paths: ['src/greet.ts'],
     })
     expect(classifyConflictFiles([{ path: 'pnpm-lock.yaml', content: conflictHunk }])).toEqual({
-      kind: 'skip',
-      reason: 'lockfile',
+      kind: 'fillable',
+      paths: ['pnpm-lock.yaml'],
     })
     expect(classifyConflictFiles([{
       path: 'docs/notes.md',
       content: '## Main Track\n\n<<<<<<< HEAD\na\n=======\nb\n>>>>>>> them\n',
     }])).toEqual({ kind: 'skip', reason: 'protected-heading' })
     expect(classifyConflictFiles([{ path: 'src/binary.bin', content: 'no markers' }])).toEqual({
-      kind: 'skip',
-      reason: 'no-marker',
+      kind: 'fillable',
+      paths: ['src/binary.bin'],
     })
     expect(inspectConflictResolution(
       [{ path: 'src/greet.ts', content: conflictHunk }],
@@ -2230,7 +2481,7 @@ describe('Conflict-resolution child', () => {
     }
   }
 
-  it('dispatches one Conflict-resolution child in the merge-target tree then merge --continue', async () => {
+  it('dispatches one Conflict-resolution child in the merge-target tree then commit --no-edit', async () => {
     const cwd = mkdtempSync(join(tmpdir(), 'ship-run-'))
     writeLandingSpec(cwd)
     const created: Array<{ graphKey: string; cwd?: string; role?: string; prompt: string }> = []
@@ -2270,7 +2521,7 @@ describe('Conflict-resolution child', () => {
     expect(conflictKids[0]?.cwd).toBe(cwd)
     expect(conflictKids[0]?.graphKey).toBe('landing:1')
     expect(conflictKids[0]?.prompt).toContain('Conflict-resolution is not TDD')
-    expect(git.log.filter(entry => entry.includes('merge --continue'))).toHaveLength(1)
+    expect(git.log.filter(entry => entry.includes('commit --no-edit'))).toHaveLength(1)
     expect(git.log.some(entry => /add -- src\/greet\.ts/.test(entry))).toBe(true)
     expect(git.log.some(entry => entry.includes('merge --abort'))).toBe(false)
     expect(readFileSync(join(cwd, '.scratch', 'widget', 'issues', '01-spec-schema.md'), 'utf8')).toMatch(/^Claim:\s*claimed\b/mu)
@@ -2278,7 +2529,7 @@ describe('Conflict-resolution child', () => {
     expect(readFileSync(join(cwd, 'docs', 'specs', 'widget.md'), 'utf8')).not.toContain('## Blocker')
   })
 
-  it('skips lockfile conflicts: snapshot, abort, Blocker, no child', async () => {
+  it('resolves lockfile conflicts with a child and continues landing', async () => {
     const cwd = mkdtempSync(join(tmpdir(), 'ship-run-'))
     writeLandingSpec(cwd)
     const created: string[] = []
@@ -2290,6 +2541,7 @@ describe('Conflict-resolution child', () => {
     const children: ShipChildCreate = {
       async create(request) {
         created.push(`${request.graphKey}:${request.role ?? 'tdd'}`)
+        if (request.role === 'conflict') writeFileSync(join(cwd, 'pnpm-lock.yaml'), 'lockfileVersion: 9\n')
         return {
           id: `child-${created.length}`,
           graphKey: request.graphKey,
@@ -2300,23 +2552,16 @@ describe('Conflict-resolution child', () => {
       },
     }
     const ship = new ShipRun(cwd, chrome, { childCreate: children, git: git.git })
-    await ship.run('build a widget', async () => {})
-    expect(created.filter(row => row.endsWith(':conflict'))).toEqual([])
-    expect(git.log.some(entry => entry.includes('merge --abort'))).toBe(true)
-    expect(git.log.some(entry => entry.includes('merge --continue'))).toBe(false)
-    expect(git.log.some(entry => entry.includes('add -f --') && entry.includes('merge-snapshots'))).toBe(true)
-    const spec = readFileSync(join(cwd, 'docs', 'specs', 'widget.md'), 'utf8')
-    expect(spec).toContain('## Blocker')
-    expect(spec).toContain('lockfile')
-    const snaps = join(cwd, '.scratch', 'widget', 'merge-snapshots')
-    expect(existsSync(join(snaps, '.gitignore'))).toBe(true)
-    expect(existsSync(join(snaps, 'landing-1'))).toBe(true)
-    expect(readFileSync(join(cwd, '.scratch', 'widget', 'issues', '01-spec-schema.md'), 'utf8')).toMatch(/^Claim:\s*claimed\b/mu)
-    expect(ship.shipGraph?.nodes.find(node => node.id === 'landing:1')?.claim).toBe('claimed')
-    expect(existsSync(join(cwd, '.scratch', 'widget', 'worktrees', 'landing-1'))).toBe(true)
+    await ship.run('build a widget', async () => { ship.abort() })
+    expect(created.filter(row => row.endsWith(':conflict'))).toHaveLength(1)
+    expect(git.log.some(entry => entry.includes('merge --abort'))).toBe(false)
+    expect(git.log.some(entry => entry.includes('commit --no-edit'))).toBe(true)
+    expect(readFileSync(join(cwd, 'docs', 'specs', 'widget.md'), 'utf8')).not.toContain('## Blocker')
+    expect(ship.shipGraph?.nodes.find(node => node.id === 'landing:1')?.claim).toBe('closed')
+    expect(existsSync(join(cwd, '.scratch', 'widget', 'worktrees', 'landing-1'))).toBe(false)
   })
 
-  it('skips protected-heading hunks and no-marker paths without dispatching a child', async () => {
+  it('protects sealed-heading hunks but dispatches no-marker conflicts', async () => {
     const cwd = mkdtempSync(join(tmpdir(), 'ship-run-'))
     const path = writeLandingSpec(cwd)
     const created: string[] = []
@@ -2361,6 +2606,7 @@ describe('Conflict-resolution child', () => {
       childCreate: {
         async create(request) {
           created2.push(`${request.graphKey}:${request.role ?? 'tdd'}`)
+          if (request.role === 'conflict') writeFileSync(join(cwd2, 'src/binary.bin'), 'reconciled binary file')
           return {
             id: `child-${created2.length}`,
             graphKey: request.graphKey,
@@ -2372,10 +2618,11 @@ describe('Conflict-resolution child', () => {
       },
       git: git2.git,
     })
-    await ship2.run('build a widget', async () => {})
-    expect(created2.filter(row => row.endsWith(':conflict'))).toEqual([])
-    expect(readFileSync(join(cwd2, 'docs', 'specs', 'widget.md'), 'utf8')).toContain('## Blocker')
-    expect(git2.log.some(entry => entry.includes('merge --abort'))).toBe(true)
+    await ship2.run('build a widget', async () => { ship2.abort() })
+    expect(created2.filter(row => row.endsWith(':conflict'))).toHaveLength(1)
+    expect(readFileSync(join(cwd2, 'docs', 'specs', 'widget.md'), 'utf8')).not.toContain('## Blocker')
+    expect(git2.log.some(entry => entry.includes('commit --no-edit'))).toBe(true)
+    expect(git2.log.some(entry => entry.includes('merge --abort'))).toBe(false)
   })
 
   it('interrupts a Conflict-resolution child with snapshot and abort and no ## Blocker', async () => {
@@ -2404,7 +2651,7 @@ describe('Conflict-resolution child', () => {
     resolveChild()
     await running
     expect(git.log.some(entry => entry.includes('merge --abort'))).toBe(true)
-    expect(git.log.some(entry => entry.includes('merge --continue'))).toBe(false)
+    expect(git.log.some(entry => entry.includes('commit --no-edit'))).toBe(false)
     expect(readFileSync(join(cwd, 'docs', 'specs', 'widget.md'), 'utf8')).not.toContain('## Blocker')
     expect(existsSync(join(cwd, '.scratch', 'widget', 'merge-snapshots', 'landing-1'))).toBe(true)
     expect(git.log.some(entry => entry.includes('add -f --') && entry.includes('merge-snapshots'))).toBe(false)
@@ -2455,7 +2702,102 @@ describe('Conflict-resolution child', () => {
     await running
   })
 
-  it('treats leftover markers after the child as snapshot + abort + Blocker', async () => {
+  it('lets a live Conflict-resolution child fill hunks even when the landing ticket has no Track mapping', async () => {
+    const cwd = mkdtempSync(join(tmpdir(), 'ship-run-'))
+    const issues = join(cwd, '.scratch', 'widget', 'issues')
+    mkdirSync(issues, { recursive: true })
+    writeFileSync(join(issues, '01-spec-schema.md'), 'Ticket 1: Spec schema\n')
+    writeSpec(cwd, 'widget.md', [
+      'Status: planned',
+      'Branch: ship/widget',
+      '',
+      '## Main Track',
+      '',
+      '**Idea.** Bind /goal into /ship.',
+      '**Track-1.** Hybrid compass.',
+      '**Track-2.** WWII weaponry stays local.',
+      '**Out of Scope.**',
+      '- No harness fork.',
+      '',
+      '## Acceptance Criteria',
+      '',
+      '1. `pnpm test` exits 0.',
+      '',
+      '## Plan',
+      '',
+      '- [ ] Ticket 1: Spec schema (Blocked by: none) (Track: 2)',
+    ].join('\n'))
+    let resolveChild: () => void = () => {}
+    const childDone = new Promise<void>(resolve => { resolveChild = resolve })
+    const git = conflictGit({ cwd, conflictPath: 'src/weapons.ts', conflictContent: conflictHunk, fill: filledHunk })
+    let ship!: ShipRun
+    const aligned: Array<{ allow: boolean; reasons: string[] }> = []
+    const children: ShipChildCreate = {
+      async create(request) {
+        if (request.role === 'conflict') {
+          aligned.push(ship.alignTool('write', { file_path: join(cwd, 'src/weapons.ts'), content: filledHunk }))
+          aligned.push(ship.alignTool('write', {
+            target_file: './src/weapons.ts',
+            content: filledHunk,
+            supports: ['ACC-002', 'REQ-001', 'Track-2'],
+          }))
+          aligned.push(ship.alignTool('write', { content: filledHunk }))
+          writeFileSync(join(cwd, 'src/weapons.ts'), filledHunk)
+        }
+        return {
+          id: `child-${request.graphKey}-${request.role ?? 'tdd'}`,
+          graphKey: request.graphKey,
+          label: request.label,
+          ...(request.role === undefined ? {} : { role: request.role }),
+          done: request.role === 'conflict' ? childDone : Promise.resolve(),
+          async dispose() {},
+        }
+      },
+    }
+    ship = new ShipRun(cwd, chrome, { childCreate: children, git: git.git })
+    const running = ship.run('build a widget', async prompt => {
+      if (prompt.includes('Phase 5 — done means verified')) {
+        const path = join(cwd, 'docs', 'specs', 'widget.md')
+        const landed = readFileSync(path, 'utf8').replace(/^Status:\s*\S+/mu, 'Status: shipped')
+        writeFileSync(path, landed.includes('## Verification')
+          ? landed
+          : `${landed.trimEnd()}\n\n## Verification\n\n- ACC-001: \`pnpm test\` exit 0\n`)
+      }
+    })
+    await waitFor(() => aligned.length >= 3)
+    expect(aligned.every(row => row.allow)).toBe(true)
+    expect(aligned.flatMap(row => row.reasons)).toEqual([])
+    resolveChild()
+    await running
+    expect(git.log.filter(entry => entry.includes('commit --no-edit'))).toHaveLength(1)
+    expect(readFileSync(join(cwd, 'docs', 'specs', 'widget.md'), 'utf8')).not.toContain('## Blocker')
+    expect(readFileSync(join(cwd, 'docs', 'specs', 'widget.md'), 'utf8')).not.toContain('could not be filled')
+  })
+
+  it('does not create a blocker commit when rollback failed and a merge is still pending', async () => {
+    const cwd = mkdtempSync(join(tmpdir(), 'ship-run-'))
+    writeLandingSpec(cwd)
+    const git = conflictGit({ cwd, conflictPath: 'src/greet.ts', conflictContent: conflictHunk })
+    const flashes: string[] = []
+    const ship = new ShipRun(cwd, chrome, {
+      flash: message => { flashes.push(message) },
+      git: async (args, dir) => {
+        const result = await git.git(args, dir)
+        return args.includes('--abort') ? { code: 1, output: 'cannot abort' } : result
+      },
+      childCreate: {
+        async create(request) {
+          return { id: `child-${request.role ?? 'tdd'}`, graphKey: request.graphKey, label: request.label, done: Promise.resolve(), async dispose() {} }
+        },
+      },
+    })
+    await ship.run('build a widget', async () => {})
+    expect(git.log.some(entry => entry.includes('ship: blocker'))).toBe(false)
+    expect(readFileSync(join(cwd, 'docs/specs/widget.md'), 'utf8')).not.toContain('## Blocker')
+    expect(flashes.some(message => message.includes('could not roll back safely'))).toBe(true)
+  })
+
+  it('treats leftover markers after three attempts as snapshot + abort + Blocker', async () => {
     const cwd = mkdtempSync(join(tmpdir(), 'ship-run-'))
     writeLandingSpec(cwd)
     const created: string[] = []
@@ -2474,9 +2816,9 @@ describe('Conflict-resolution child', () => {
       },
     }
     await new ShipRun(cwd, chrome, { childCreate: children, git: git.git }).run('build a widget', async () => {})
-    expect(created.filter(row => row.endsWith(':conflict'))).toHaveLength(1)
+    expect(created.filter(row => row.endsWith(':conflict'))).toHaveLength(3)
     expect(git.log.some(entry => entry.includes('merge --abort'))).toBe(true)
-    expect(git.log.some(entry => entry.includes('merge --continue'))).toBe(false)
+    expect(git.log.some(entry => entry.includes('commit --no-edit'))).toBe(false)
     expect(readFileSync(join(cwd, 'docs', 'specs', 'widget.md'), 'utf8')).toContain('## Blocker')
     expect(readFileSync(join(cwd, 'docs', 'specs', 'widget.md'), 'utf8')).toContain('leftover-markers')
   })
@@ -2657,7 +2999,7 @@ describe('Delivery auto Merge-back', () => {
     expect(git.log.some(entry => /branch -[Dd] ship\/widget/.test(entry))).toBe(false)
   })
 
-  it('dispatches one Merge-back Conflict-resolution child with directory delivery', async () => {
+  it('retries Merge-back resolution before snapshotting an unresolved conflict', async () => {
     const cwd = mkdtempSync(join(tmpdir(), 'ship-run-'))
     writeDeliverySpec(cwd)
     const created: Array<{ graphKey: string; cwd?: string; role?: string }> = []
@@ -2689,13 +3031,42 @@ describe('Delivery auto Merge-back', () => {
       if (prompt.includes('Phase 5 — done means verified')) shipVerified(cwd)
     })
     const conflictKids = created.filter(row => row.role === 'conflict')
-    expect(conflictKids).toHaveLength(1)
+    expect(conflictKids).toHaveLength(3)
     expect(conflictKids[0]?.graphKey).toBe('delivery')
     expect(conflictKids[0]?.cwd).toBe(cwd)
-    expect(git.log.some(entry => entry.includes('merge --abort'))).toBe(true)
+    expect(git.log.some(entry => entry.includes('reset --merge HEAD'))).toBe(true)
+    expect(git.log.some(entry => entry.includes('merge --abort'))).toBe(false)
     expect(existsSync(join(cwd, '.scratch', 'widget', 'merge-snapshots', 'delivery'))).toBe(true)
     expect(readFileSync(join(cwd, 'docs', 'specs', 'widget.md'), 'utf8')).toContain('## Blocker')
     expect(git.branches.has('ship/widget')).toBe(true)
+  })
+
+  it('commits a resolved delivery squash with the spec title and re-proves before completion', async () => {
+    const cwd = mkdtempSync(join(tmpdir(), 'ship-run-'))
+    writeDeliverySpec(cwd)
+    const git = deliveryGit({ cwd, ff: false, squashConflict: true, conflictContent: conflictHunk })
+    const goals = recordingGoals()
+    let proved = 0
+    const ship = new ShipRun(cwd, chrome, {
+      git: git.git,
+      goals,
+      proveDelivery: async () => { proved++; return 'green' },
+      childCreate: {
+        async create(request) {
+          expect(request.role).toBe('conflict')
+          writeFileSync(join(cwd, 'src/greet.ts'), 'export function greet(name: string): string {\n  return `hello ${name}`\n}\n')
+          return { id: 'delivery-resolution', graphKey: request.graphKey, label: request.label, done: Promise.resolve(), async dispose() {} }
+        },
+      },
+    })
+    await ship.run('Keep offline use.', async prompt => {
+      if (prompt.includes('Phase 5 — done means verified')) shipVerified(cwd)
+    })
+    expect(git.log.some(entry => entry.includes('commit -m Keep offline use.'))).toBe(true)
+    expect(git.log.some(entry => entry.includes('merge --continue'))).toBe(false)
+    expect(git.log.some(entry => entry.includes('reset --merge'))).toBe(false)
+    expect(proved).toBe(1)
+    expect(goals.log).toContain('complete:goal-new')
   })
 
   it('resets Original-Branch on red delivery proof and keeps ship/<slug>', async () => {
@@ -2752,24 +3123,26 @@ describe('Web panorama bind', () => {
 
   const loopback = (text: string): boolean => /^http:\/\/127\.0\.0\.1:\d+$/u.test(text)
 
-  it('binds 127.0.0.1:0, flashes the URL, and serves the rebuilt graph (Track: 12)', async () => {
+  it('binds 127.0.0.1:0, pins the URL on chrome, and serves the rebuilt graph (Track: 12)', async () => {
     const cwd = mkdtempSync(join(tmpdir(), 'ship-run-'))
     const path = writeSpec(cwd, 'widget.md', landing())
     const fake = fakeBind()
     const flashes: string[] = []
-    const opened: string[] = []
-    const ship = new ShipRun(cwd, chrome, {
+    const urls: string[] = []
+    const ship = new ShipRun(cwd, {
+      ...chrome,
+      setWebUrl: url => { if (url !== undefined) urls.push(url) },
+    }, {
       bind: fake.bind,
       flash: text => { flashes.push(text) },
-      open: url => { opened.push(url) },
     })
     await ship.run('', async () => { ship.abort() })
     expect(fake.requests).toHaveLength(1)
     expect(fake.requests[0]?.host).toBe('127.0.0.1')
     expect(fake.requests[0]?.port).toBe(0)
     expect(fake.requests[0]?.specPath).toBe(path)
-    expect(flashes.filter(loopback)).toEqual(fake.urls)
-    expect(opened).toEqual(fake.urls)
+    expect(urls).toEqual(fake.urls)
+    expect(flashes.filter(loopback)).toEqual([])
     expect(fake.requests[0]?.graph()).toEqual(ship.shipGraph)
     const markdown = readFileSync(path, 'utf8')
     const collected = collectJoinSources(cwd, path, markdown)
@@ -2789,25 +3162,28 @@ describe('Web panorama bind', () => {
     const path = writeSpec(cwd, 'widget.md', landing())
     const fake = fakeBind()
     const flashes: string[] = []
-    const opened: string[] = []
     const ship = new ShipRun(cwd, chrome, {
       bind: fake.bind,
       flash: text => { flashes.push(text) },
+      isTty: false,
     })
     await ship.run('', async () => { ship.abort() })
     expect(fake.requests).toHaveLength(1)
     expect(fake.requests[0]?.host).toBe('127.0.0.1')
     expect(fake.requests[0]?.port).toBe(0)
     expect(flashes.filter(loopback)).toEqual(fake.urls)
-    expect(opened).toEqual([])
     expect(existsSync(graphPathFor(path))).toBe(true)
   })
 
-  it('rebinds when the bound spec appears and closes on abort and end (Track: 12)', async () => {
+  it('keeps one loopback URL so the opened page sees Track and landing after the spec appears (Track: 12)', async () => {
     const cwd = mkdtempSync(join(tmpdir(), 'ship-run-'))
     const fake = fakeBind()
     const flashes: string[] = []
-    const ship = new ShipRun(cwd, chrome, {
+    const urls: string[] = []
+    const ship = new ShipRun(cwd, {
+      ...chrome,
+      setWebUrl: url => { if (url !== undefined) urls.push(url) },
+    }, {
       bind: fake.bind,
       flash: text => { flashes.push(text) },
     })
@@ -2828,26 +3204,43 @@ describe('Web panorama bind', () => {
         '- [ ] Ticket 1: Graph join (Track: 1)',
       ].join('\n'))
     })
-    expect(fake.requests.length).toBeGreaterThanOrEqual(2)
+    expect(fake.requests).toHaveLength(1)
+    expect(fake.urls).toHaveLength(1)
+    expect(urls).toEqual(fake.urls)
+    expect(flashes.filter(loopback)).toEqual([])
     expect(fake.requests[0]?.specPath).toBeUndefined()
-    expect(fake.requests.at(-1)?.specPath).toBe(join(cwd, 'docs', 'specs', 'widget.md'))
-    expect(fake.closed[0]).toBe(fake.urls[0])
-    expect(fake.closed.at(-1)).toBe(fake.urls.at(-1))
-    expect(flashes.filter(loopback)).toEqual(fake.urls)
-    const served = fake.requests.at(-1)?.graph() as ShipGraph
+    const served = fake.requests[0]?.graph() as ShipGraph
     expect(served.nodes.some(node => node.id === 'landing:1')).toBe(true)
     expect(served.nodes.some(node => node.id === 'track:1')).toBe(true)
     expect(served.nodes.some(node => node.kind === 'decision')).toBe(false)
     expect(served.nodes.find(node => node.id === 'track:1')).not.toHaveProperty('claim')
+    expect(fake.closed).toEqual([])
+    ship.closeWebPanorama()
+    expect(fake.closed).toEqual(fake.urls)
   })
 
-  it('closes the loopback handle when the run aborts (Track: 12)', async () => {
+  it('keeps the same loopback across abort and a later /ship so the page hot-updates (Track: 12)', async () => {
     const cwd = mkdtempSync(join(tmpdir(), 'ship-run-'))
     writeSpec(cwd, 'widget.md', landing())
     const fake = fakeBind()
-    const ship = new ShipRun(cwd, chrome, { bind: fake.bind })
+    const urls: string[] = []
+    const ship = new ShipRun(cwd, {
+      ...chrome,
+      setWebUrl: url => { if (url !== undefined) urls.push(url) },
+    }, {
+      bind: fake.bind,
+    })
     await ship.run('', async () => { ship.abort() })
     expect(fake.urls).toHaveLength(1)
+    expect(fake.closed).toEqual([])
+    expect(urls).toEqual(fake.urls)
+    await ship.run('', async () => { ship.abort() })
+    expect(fake.requests).toHaveLength(1)
+    expect(fake.urls).toHaveLength(1)
+    expect(urls).toEqual(fake.urls)
+    expect(fake.requests[0]?.graph()).toEqual(ship.shipGraph)
+    expect(fake.closed).toEqual([])
+    ship.closeWebPanorama()
     expect(fake.closed).toEqual(fake.urls)
   })
 })

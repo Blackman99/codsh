@@ -51,7 +51,10 @@ pinned revision bc7f02ed, read 2026-09-14).
 2. **Subagents readout.** A chrome row under the box, beside the Todo
    readout, for as long as the roster holds anything:
    `subagents 3 · 2 running · 1 done · Ctrl+H`, with `failed` and `stopped`
-   counted when present. One chrome row that appears once per session, the
+   counted when present. Verified ship delivery hides settled entries from
+   this readout without deleting the roster; running entries remain until they
+   settle, and later children appear normally. `Ctrl+H` still opens all retained
+   entries, including those hidden from the readout. One chrome row that appears once per session, the
    way the Todo readout does — the box moves up one row once; the open
    panel takes its place with up to twelve rows (header, eight entries,
    the two overflow rows, footer), the way the Queue panel does. A click
@@ -61,7 +64,7 @@ pinned revision bc7f02ed, read 2026-09-14).
    key and by click.
 3. **Subagents panel.** A numbered list, keyboard-first, the shape the Queue
    panel has: header `subagents 3 · 2 running · 1 done · Ctrl+H closes`
-   (the readout's counts, so opening the panel hides nothing); one row per
+   (all retained entries, including completed ship history); one row per
    entry, newest last, `❯ 1. ▶ label · 12s · 3 calls · bash: sleep 2` while
    it runs (elapsed ticks once a second while any child runs), `✔ label ·
    8s · 2 calls` when done, `✗` failed, `■` stopped; the row of the child
@@ -69,7 +72,7 @@ pinned revision bc7f02ed, read 2026-09-14).
    back`. ↑/↓, Tab, Home/End, and digits move the mark; Enter or a click on
    a row enters that child's view; Esc or Ctrl+H closes.
 4. **Entering.** The panel enters through the existing Child view: the
-   child's transcript replaces the parent's, streams while it runs, Esc pops
+   child's transcript covers the parent's, streams while it runs, Esc pops
    one level, typing is refused. From inside a Child view, Enter on another
    row swaps the view — every open level drops and the chosen child pushes,
    once its door is known to open, so a refused door leaves the person

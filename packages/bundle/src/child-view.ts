@@ -50,6 +50,19 @@ export class ChildViews {
   clear(): void {
     this.stack.length = 0
   }
+
+  /**
+   * Where a Session sits on the stack, or undefined when it is not open.
+   *
+   * The covered-transcript stack stores the parent at 0, then each child
+   * that was covered by a deeper view: a Session at this index is restored
+   * from covered buffer `index + 1`.
+   * @param sessionId - the child Session to find.
+   */
+  indexOf(sessionId: string): number | undefined {
+    const at = this.stack.findIndex(view => view.sessionId === sessionId)
+    return at < 0 ? undefined : at
+  }
 }
 
 /**

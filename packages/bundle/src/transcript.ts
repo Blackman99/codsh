@@ -7,8 +7,10 @@
  * a tool declares its own render intent, and this module switches on the
  * resulting `card` tag. Every completed card is one row — what it did, how
  * much it produced, whether it worked — with the body behind the fold, the
- * way Grok Build keeps tool calls to a line each; consecutive cards with the
- * same command and output shape collapse into one fold rather than stacking.
+ * way Grok Build keeps tool calls to a line each, without a panel fill.
+ * A finished success bullet is dim; consecutive TTY cards open with a blank
+ * between them. Consecutive cards with the same command and output shape
+ * collapse into one fold rather than stacking.
  * @module codsh-bundle/src/transcript
  */
 
@@ -18,6 +20,7 @@ import { structuredPatch } from 'diff'
 import type {} from '@deepseek-ai/dsh-compaction/types'
 import type { ToolWorkflowAgentStartData } from '@deepseek-ai/dsh-tool-workflow/types'
 import { unifiedDiffText } from './diff.ts'
+import { SPINNER_FRAMES } from './spinner.ts'
 import { formatElapsed } from './status.ts'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
@@ -29,7 +32,7 @@ import { displayWidth, oneRow, truncate } from './theme.ts'
 import { todoReport } from './todos.ts'
 import type { Theme } from './theme.ts'
 
-export { blockRules, gutter } from './gutter.ts'
+export { blockRules, gutter, runnerNotice } from './gutter.ts'
 export type { GutterRole } from './gutter.ts'
 
 /** Context lines kept on each side of a rendered hunk. */
@@ -208,8 +211,9 @@ export function childSessionId(text: string): string | undefined {
  * behind it.
  *
  * Pages of reasoning would bury the conversation, so the transcript keeps a
- * one-line summary — the `✻` lives in the agent gutter via {@link blockRules} —
- * and hands the full body to the fold (click or Ctrl+O).
+ * one-line summary — the magenta `│` lives in the agent gutter via
+ * {@link blockRules}, with no panel fill — and hands the filled body to the
+ * fold (click or Ctrl+O).
  * @param lines - the rendered thinking lines, already styled.
  * @param theme - styling for the header.
  * @param seconds - how long the thinking took, when the surface timed it; a
@@ -222,77 +226,72 @@ export function thinkingFold(
   seconds?: number,
   totalSeconds?: number,
 ): { summary: string[], full: string[] } {
-  // Glyph lives in the agent gutter (`✻ `); the line is the clock only.
+  // Glyph lives in the agent gutter (`│ `); the line is the clock only.
   const baseClock = seconds === undefined ? 'thought' : `thought for ${formatElapsed(seconds * 1000)}`
   const clock = totalSeconds === undefined ? baseClock : `${baseClock} · total ${formatElapsed(totalSeconds * 1000)}`
   const text = theme.dim(`${cardIndent(theme)}${clock}`)
   const head = theme.bgThinking(text)
   const pad = blockPad(theme, text => theme.bgThinking(text))
   return {
-    // Pads are the panel's inset, not a gap between neighbouring cards.
-    // Collapsed and expanded both carry them so hover lights the whole panel.
-    summary: [...pad, head, ...pad],
+    // Collapsed is a separator between tool rows, not a panel: a full-width
+    // fill here is a black bar. The expanded body still carries the fill.
+    summary: [text],
     full: [...pad, head, ...pad, ...lines.map(line => theme.bgThinking(line)), ...pad],
   }
 }
 
 /**
- * The rows a thought opens with while it streams: the panel's top pad, a
- * `thinking…` head where the clock will stand, and the pad under it.
+ * The single `thinking…` row a thought opens with while it streams, replaced
+ * by the clock when it settles.
  *
- * Painted the moment the first reasoning delta lands, so the deliberation
- * has a place to stream into line by line — a person follows a thought as
- * it happens, not after. {@link thinkingFold} takes the run over when the
+ * Painted the moment the first reasoning delta lands. On a TTY the head
+ * ticks the same Braille frames as the working line, so a thought in
+ * flight reads as work rather than as a hang. The deliberation stays off
+ * the transcript until a click or Ctrl+O; only the line still being typed
+ * sits under the box. {@link thinkingFold} takes the run over when the
  * thought ends, putting the clock where the head was.
- * @param theme - styling for the head and the panel fill.
+ * @param theme - styling for the ticking head.
+ * @param frame - spinner frame index; omitted for the static first paint
+ *   and for pipes, which never tick.
  * @returns the rows and the rules they are drawn with.
  */
-export function thinkingOpenRows(theme: Theme): { rows: string[]; rules: string | string[] } {
-  const text = theme.dim(`${cardIndent(theme)}thinking…`)
-  const head = theme.bgThinking(text)
-  const pad = blockPad(theme, text => theme.bgThinking(text))
-  const agentRule = blockRules(theme).agent
+export function thinkingOpenRows(theme: Theme, frame = 0): { rows: string[]; rules: string | string[] } {
+  const mark = SPINNER_FRAMES[frame % SPINNER_FRAMES.length] ?? SPINNER_FRAMES[0]
+  const indent = cardIndent(theme)
+  const text = `${indent}${theme.pending(mark)} ${theme.dim('thinking…')}`
   return {
-    rows: [...pad, head, ...pad],
-    rules: theme.colored ? ['  ', agentRule, '  '] : agentRule,
+    rows: [text],
+    rules: blockRules(theme).agent,
   }
 }
 
 /**
- * The rule one streamed deliberation row carries: the panel's inset inside a
- * coloured theme, where the fill says which block the row belongs to, and
- * nothing at all without one — the clock alone carries the glyph, and the
- * body's own indent lines up under it either way.
+ * The rule one streamed deliberation row carries: the same agent `│` as the
+ * clock, so the rail continues through the thought instead of breaking on
+ * every pad and body line.
  * @param theme - the active theme.
- * @returns the rule, `''` for none.
+ * @returns the agent rule.
  */
 export function thinkingLineRule(theme: Theme): string {
-  return theme.colored ? '  ' : ''
+  return blockRules(theme).agent
 }
 
 /**
- * Left rules for a thinking fold: the clock carries the agent gutter; pads
- * and body rows stay blank so the glyph sits on the clock only.
+ * Left rules for a thinking fold: the agent `│` runs down the clock, the
+ * pads, and the deliberation so the rail does not break inside the block.
  * @param theme - styling for the agent glyph.
  * @param bodyLines - how many deliberation lines the expanded form carries.
- * @returns the collapsed rule and, when coloured, the expanded per-row rules.
+ * @returns the collapsed rule and the expanded per-row rules.
  */
 export function thinkingFoldRules(theme: Theme, bodyLines: number): {
   summary: string | string[]
   full?: string[]
 } {
   const agentRule = blockRules(theme).agent
-  if (!theme.colored) {
-    // No fill says which block a row belongs to, so the glyph sits on the
-    // clock alone and the body's own indent does the rest: a rule row by row
-    // would put ✻ down every line of the deliberation.
-    return { summary: agentRule, full: [agentRule, ...Array.from({ length: bodyLines }, () => '')] }
-  }
-  const blank = '  '
-  return {
-    summary: [blank, agentRule, blank],
-    full: [blank, agentRule, blank, ...Array.from({ length: bodyLines }, () => blank), blank],
-  }
+  const coloured = theme.colored
+  const padCount = coloured ? 3 : 0
+  const full = Array.from({ length: 1 + padCount + bodyLines }, () => agentRule)
+  return { summary: agentRule, full }
 }
 
 /**
@@ -334,11 +333,29 @@ function diffStats(diffs: readonly FileDiff[]): { added: number, removed: number
 }
 
 /**
+ * True when a terminal card ran and did not succeed: a non-zero exit or a
+ * kill signal. dsh's bash tool reports those as ordinary results rather than
+ * `isError`, but the row still must not paint a green pass.
+ */
+function terminalFailed(view: ToolResultView | undefined): boolean {
+  return view?.card === 'terminal'
+    && (view.signal !== undefined || (view.exitCode !== undefined && view.exitCode !== 0))
+}
+
+/** Leading bullet and trailing status for a completed tool card. */
+function toolCardMarks(theme: Theme, failed: boolean): { bullet: string; done: string } {
+  return failed
+    ? { bullet: theme.err('●'), done: theme.err('✗') }
+    : { bullet: theme.dim('●'), done: theme.ok('✔') }
+}
+
+/**
  * One ToolCard headline: bullet, title, optional +n -m, trailing status.
  *
  * Title truncates first so `+n -m` and the status glyph survive an 80-col
  * terminal; omit the stats segment when both counts are zero.
- * @param theme - styling for title and muted stats.
+ * @param _theme - kept so callers that already style the bullet, stats, and
+ *   status can pass the theme they used; the title itself is unhighlighted.
  * @param columns - display columns available for the line (rule excluded).
  * @param bullet - already-styled leading marker (`●` / pending).
  * @param title - plain card title.
@@ -347,7 +364,7 @@ function diffStats(diffs: readonly FileDiff[]): { added: number, removed: number
  * @returns the painted one-liner.
  */
 export function formatToolCardLine(
-  theme: Theme,
+  _theme: Theme,
   columns: number,
   bullet: string,
   title: string,
@@ -356,11 +373,11 @@ export function formatToolCardLine(
 ): string {
   const statsPart = stats === '' ? '' : ` ${stats}`
   const statusPart = ` ${status}`
-  const prefix = `${cardIndent(theme)}${bullet} `
+  const prefix = `${bullet} `
   const reserve = displayWidth(oneRow(`${prefix}${statsPart}${statusPart}`))
   const minBudget = columns <= 30 && title.length <= 16 ? title.length : 8
   const titleBudget = Math.max(minBudget, columns - reserve)
-  return `${prefix}${theme.tool(truncate(title, titleBudget))}${statsPart}${statusPart}`
+  return `${prefix}${truncate(title, titleBudget)}${statsPart}${statusPart}`
 }
 
 /** Left inset that keeps a card's glyph clear of the block rule beside it. */
@@ -442,7 +459,8 @@ function skeleton(text: string): string {
  * The blank row a background-filled block opens with.
  *
  * A block reads as a panel only when its text does not touch the panel edge.
- * Uncoloured output paints no panel and so gets no row.
+ * Uncoloured output paints no panel and so gets no row. Tool cards paint no
+ * panel; only expanded thinking keeps this inset.
  * @param theme - the active theme.
  * @param bg - the block's background wrapper.
  * @returns the padding row, or nothing at all when uncoloured.
@@ -454,15 +472,24 @@ function blockPad(theme: Theme, bg: (text: string) => string): string[] {
 /**
  * The row a block closes with.
  *
- * On a terminal it is the panel's lower padding, which also holds the next
- * block off it; piped output has no panel to pad, so the separator there is
- * the plain blank row it has always been.
+ * Tool cards have no panel to pad; piped output still wants a blank between
+ * them, the separator it has always been. A TTY run uses {@link runGap}
+ * instead, so the last card of a run does not leave a trailing hole.
  * @param theme - the active theme.
- * @param bg - the block's background wrapper.
  * @returns the closing row.
  */
-function blockClose(theme: Theme, bg: (text: string) => string): string[] {
-  return theme.colored ? [bg('  ')] : ['']
+function blockClose(theme: Theme): string[] {
+  return theme.colored ? [] : ['']
+}
+
+/**
+ * The blank a later card in a TTY run opens with, so consecutive one-liners
+ * do not stack flush. Piped output already closes each card with a blank.
+ * @param theme - the active theme.
+ * @returns the leading gap, or nothing off a TTY.
+ */
+function runGap(theme: Theme): string[] {
+  return theme.colored ? [''] : []
 }
 
 /**
@@ -492,7 +519,7 @@ function diffBody(diff: FileDiff, theme: Theme): string[] {
       const text = line.slice(1)
       if (line.startsWith('+')) lines.push(theme.diffAdd(`+ ${text}`))
       else if (line.startsWith('-')) lines.push(theme.diffDel(`- ${text}`))
-      else lines.push(theme.bgTool(theme.dim(`  ${text}`)))
+      else lines.push(theme.dim(`  ${text}`))
     }
   }
   return lines
@@ -529,12 +556,10 @@ export class Transcript {
   /**
    * The tool-card run standing at the tail of the transcript.
    *
-   * Cards that follow one another share a panel rather than each opening and
-   * closing one of their own: only the first pads above, and the closing pad
-   * moves down to whichever card is last. A card with body rows keeps the pad
-   * above it as the divider from the card before; a bare one-liner does not
-   * need one, which is what stops a run of reads from spending three rows on
-   * each single line it has to say.
+   * Cards that follow one another share a stretch rather than each opening
+   * and closing a panel of their own. A later one-liner on a TTY opens with
+   * a blank so the column of bullets can be scanned; piped output still
+   * closes each card with a blank instead.
    */
   private run: { rule: string; owner: string | undefined; bodied: boolean; close: string } | undefined
   /** Runner-dispatched Child view Folds, keyed by child Session id. */
@@ -641,11 +666,11 @@ export class Transcript {
    * @returns the lines to append to the transcript, empty when the event shows nothing.
    */
   render(event: SessionEvent): string[] {
-    // Only tool cards share a panel; anything else printed under one ends it,
-    // and its own leading rows are the gap.
-    const hadRun = this.run !== undefined
-    const lines = this.renderBlock(event, hadRun)
-    if (lines.length > 0 && event.type !== 'tool/call' && event.type !== 'tool/result' && event.type !== 'assistant/message') {
+    // Only tool cards share a stretch; anything else printed under one ends
+    // it. Empty assistant messages and step markers paint nothing, so they
+    // leave the run standing. A note with text is a block of its own.
+    const lines = this.renderBlock(event)
+    if (lines.length > 0 && event.type !== 'tool/call' && event.type !== 'tool/result') {
       this.run = undefined
       this.orphanRun = undefined
       this.similarRun = undefined
@@ -657,10 +682,9 @@ export class Transcript {
   /**
    * One appended event's finished lines, before the run bookkeeping.
    * @param event - the session event to render.
-   * @param hadRun - whether an active tool run was open immediately before this event.
    * @returns the block's lines, empty when the event paints nothing.
    */
-  private renderBlock(event: SessionEvent, hadRun = false): string[] {
+  private renderBlock(event: SessionEvent): string[] {
     const { theme } = this.options
     const rules = blockRules(theme)
     this.rule = ''
@@ -703,7 +727,8 @@ export class Transcript {
         if (text === '') return []
         const lines = trimOuterBlanks(renderMarkdown(text, theme, this.columns))
         if (lines.length === 0) return []
-        return hadRun ? [...lines, ''] : [...lines, '']
+        this.rule = rules.answer
+        return [...lines, '']
       }
       case 'tool/call':
         this.rule = rules.tool
@@ -718,7 +743,7 @@ export class Transcript {
         // The same renderer the pinned readout uses: the card is this write, the
         // readout is the list as it now stands, and they must not disagree.
         const lines = todoReport(event.data.todos, theme, this.columns)
-        return lines.length === 0 ? [] : [...lines.map(line => theme.bgTool(line)), '']
+        return lines.length === 0 ? [] : [...lines, '']
       }
       // Compaction — automatic under pressure, or `/compact` — used to leave no
       // trace but the shorter context: its summary replaces history through a
@@ -753,7 +778,7 @@ export class Transcript {
       // run: a head, a line as each round settles, and what stopped it.
       case 'tool-workflow/run-start':
         this.rule = rules.tool
-        return [theme.bgTool(`${theme.pending('●')} ${theme.tool(event.data.name)}`)]
+        return [`${theme.pending('●')} ${event.data.name}`]
       case 'tool-workflow/agent-start':
         // Nothing is appended for a start: the round that is running is named
         // in the working line, which is where a moving figure belongs. An
@@ -780,12 +805,12 @@ export class Transcript {
         // process's registry — clicking a round could only ever answer "no
         // longer running". Driven on a real terminal, that is exactly what it
         // answered. The line stands on its own.
-        if (event.data.outcome === 'completed') return [theme.bgTool(`  ${theme.success('✓')} ${label}${did}`)]
+        if (event.data.outcome === 'completed') return [`  ${theme.success('✓')} ${label}${did}`]
         return [theme.bgError(`  ${theme.error('✗')} ${label} ${theme.dim(`(${event.data.outcome})`)}${did}`)]
       }
       case 'tool-workflow/run-end':
         this.rule = rules.tool
-        return [theme.bgTool(theme.dim(`  ${event.data.stopReason}`)), '']
+        return [theme.dim(`  ${event.data.stopReason}`), '']
       default:
         // Merge-extensible map: an event this surface shows nothing for.
         return []
@@ -873,13 +898,9 @@ export class Transcript {
       }
     }
     if (matched === undefined || matchedId === undefined) return []
-    const bg = (text: string) => theme.bgTool(text)
-    const hint = bg(theme.dim('  click to enter'))
+    const hint = theme.dim('  click to enter')
     const original = [...matched.lines]
-    const close = theme.colored ? bg('  ') : undefined
-    const lines = matched.closes && close !== undefined && original.at(-1) === close
-      ? [...original.slice(0, -1), hint, close]
-      : [...original, hint]
+    const lines = [...original, hint]
     matched.enter = childId
     matched.lines = lines
     if (this.run?.owner === matchedId) this.run.bodied = true
@@ -912,6 +933,7 @@ export class Transcript {
     this.pendingCard = []
     this.label = ''
     if (childId === '' || label === '') return []
+    this.rule = blockRules(this.options.theme).tool
     this.endRun()
     const hint = theme.dim('  click to enter')
     const lines = [label, hint]
@@ -952,18 +974,15 @@ export class Transcript {
   /**
    * Open the tool-card run at the tail, or join the one already standing.
    *
-   * Joining means printing no pad above: the card before already closed with
-   * one, and that row is the divider between them. Two bare one-liners do not
-   * even need that — the newcomer takes over the closing pad — which is what
-   * stops a run of reads from spending three rows on each single line it has
-   * to say.
+   * Joining on a TTY prints a blank above the newcomer so consecutive
+   * one-liners are not flush. A pipe still spends its blank as the closer
+   * of each card instead.
    * @param bodied - whether the card prints rows under its head.
-   * @param bg - the card's background wrapper.
    * @param close - the rows the card ends with.
    * @param callId - the call the card belongs to, while it is pending.
    * @returns how to open and close the card, and the rows it supersedes.
    */
-  private joinRun(bodied: boolean, bg: (text: string) => string, close: string[], callId?: string): {
+  private joinRun(bodied: boolean, close: string[], callId?: string): {
     lead: string[]
     close: string[]
     joined: boolean
@@ -973,7 +992,7 @@ export class Transcript {
     const open = this.run
     const joined = open !== undefined && open.rule === this.rule
     let supersedes: string[] = []
-    if (joined && open !== undefined && !open.bodied && !bodied && theme.colored) {
+    if (joined && open !== undefined && !open.bodied && !bodied && theme.colored && open.close !== '') {
       // Neither card has anything under its head, so the row between them is
       // only a gap: the run's closing pad moves down under the newcomer.
       supersedes = [open.close]
@@ -989,7 +1008,7 @@ export class Transcript {
       if (similar !== undefined && similar.shown.at(-1) === open.close) similar.shown = similar.shown.slice(0, -1)
     }
     this.run = { rule: this.rule, owner: callId, bodied, close: close[0] ?? '' }
-    return { lead: joined ? [] : blockPad(theme, bg), close, joined, supersedes }
+    return { lead: joined ? runGap(theme) : [], close, joined, supersedes }
   }
 
   private renderCall(callId: string, name: string, rawArguments: string): string[] {
@@ -1017,7 +1036,7 @@ export class Transcript {
     // True until a later card takes the closing pad over.
     const closes = true
     const card = (bodied: boolean): { lead: string[]; close: string[] } => {
-      const opened = this.joinRun(bodied, text => theme.bgTool(text), blockPad(theme, text => theme.bgTool(text)), callId)
+      const opened = this.joinRun(bodied, [], callId)
       this.pendingCard = opened.supersedes
       joined = opened.joined
       return opened
@@ -1026,10 +1045,9 @@ export class Transcript {
       this.calls.set(callId, { name, args, title, summary, description, lines, joined, closes })
       return lines
     }
-    const indent = cardIndent(theme)
     if (view === undefined) {
       const { lead, close } = card(false)
-      return record(name, undefined, [...lead, theme.bgTool(`${indent}${theme.pending('●')} ${theme.tool(name)}`), ...close])
+      return record(name, undefined, [...lead, `${theme.pending('●')} ${name}`, ...close])
     }
     if (view.card === 'terminal') {
       const header = view.cwd === undefined ? '' : theme.dim(` (${this.relative(view.cwd)})`)
@@ -1046,7 +1064,7 @@ export class Transcript {
       const titleBudget = Math.max(8, columns - ruleWidth - 4 - displayWidth(oneRow(header)))
       return record(command, summary, [
         ...lead,
-        theme.bgTool(`${indent}${theme.pending('●')} ${theme.tool(truncate(summary, titleBudget))}${header}`),
+        `${theme.pending('●')} ${truncate(summary, titleBudget)}${header}`,
         ...close,
       ], view.description)
     }
@@ -1066,7 +1084,7 @@ export class Transcript {
     const titleBudget = Math.max(8, columns - ruleWidth - 4 - displayWidth(extra))
     return record(`${title}${extra}`, locations.length === 0 ? title : locations.join(', '), [
       ...lead,
-      theme.bgTool(`${indent}${theme.pending('●')} ${truncate(title, titleBudget)}${theme.path(extra)}`),
+      `${theme.pending('●')} ${truncate(title, titleBudget)}${theme.path(extra)}`,
       ...close,
     ])
   }
@@ -1083,14 +1101,17 @@ export class Transcript {
     const callId = message.source.callId
     const pending = this.calls.get(callId)
     this.calls.delete(callId)
-    const failed = error !== undefined || block.isError === true
-    if (failed) this.rule = blockRules(theme).error
-    const bg = failed ? (text: string) => theme.bgError(text) : (text: string) => theme.bgTool(text)
+    const reported = error !== undefined || block.isError === true
     if (pending === undefined) {
-      return this.renderOrphanResult(text => bg(text), failed, block.content)
+      if (reported) this.rule = blockRules(theme).error
+      const bg = reported ? (text: string) => theme.bgError(text) : (text: string) => text
+      return this.renderOrphanResult(text => bg(text), reported, block.content)
     }
     this.orphanRun = undefined
-    const view = this.safeResult(pending, block.content, failed, meta)
+    const view = this.safeResult(pending, block.content, reported, meta)
+    const failed = reported || terminalFailed(view)
+    if (failed) this.rule = blockRules(theme).error
+    const bg = failed ? (text: string) => theme.bgError(text) : (text: string) => text
     const similar = this.absorbSimilar(pending, view, failed, block, bg)
     if (similar !== undefined) return similar
     const title = view?.title === undefined ? pending.title : this.relativizeIn(view.title)
@@ -1099,8 +1120,7 @@ export class Transcript {
     const hint = enter === undefined ? [] : [bg(theme.dim('  click to enter'))]
     // One stable ToolCard line: ● · title · +n -m · N lines · ✔/✗. Truncate
     // the title first so the stats and status survive a narrow terminal.
-    const bullet = theme.ok('●')
-    const done = failed ? theme.err('✗') : theme.ok('✔')
+    const { bullet, done } = toolCardMarks(theme, failed)
     // The screen paints the tool rule (`│ `) beside this line; budget the
     // headline for what's left so `+n -m` cannot wrap onto the next row.
     const ruleWidth = displayWidth(oneRow(this.rule || blockRules(theme).tool))
@@ -1114,9 +1134,12 @@ export class Transcript {
     // The card takes the place its pending form held, and keeps that form's
     // standing in the run: a result cannot re-open a panel its pending card
     // already joined, nor re-print a closing pad a later card took over.
-    const { lead, close, supersedes } = this.joinRun(bodied, bg, blockClose(theme, bg))
+    const { lead, close, supersedes } = this.joinRun(bodied, blockClose(theme))
     const hasPendingLines = pending !== undefined && pending.lines.length > 0
-    const open = hasPendingLines ? (pending.joined ? [] : blockPad(theme, bg)) : lead
+    // A result that takes a pending card's place has to keep that card's
+    // leading gap; joinRun's `joined` is true for the first result too,
+    // because the pending already opened the run.
+    const open = hasPendingLines ? (pending.joined ? runGap(theme) : []) : lead
     const shut = !hasPendingLines || pending.closes ? close : []
     this.pendingCard = hasPendingLines ? pending.lines : supersedes
     // The fold swaps the WHOLE event's lines, so the expanded form repeats the
@@ -1170,19 +1193,18 @@ export class Transcript {
     const { theme } = this.options
     const { suffix, full, withheld } = this.outcome(view, block, pending, failed)
     const memberStats = withStats(suffix, withheldCount(theme, withheld ?? 0))
+    const { bullet, done } = toolCardMarks(theme, failed)
     const member = [
-      bg(formatToolCardLine(theme, this.columns, theme.ok('●'), view?.title === undefined ? pending.title : this.relativizeIn(view.title), memberStats, failed ? theme.err('✗') : theme.ok('✔'))),
+      bg(formatToolCardLine(theme, this.columns, bullet, view?.title === undefined ? pending.title : this.relativizeIn(view.title), memberStats, done)),
       ...(full ?? []).map(line => view?.card === 'diff' ? line : bg(line)),
     ]
     const count = previous.count + 1
     const members = [...previous.members, member]
-    const bullet = theme.ok('●')
-    const done = failed ? theme.err('✗') : theme.ok('✔')
     const ruleWidth = displayWidth(oneRow(this.rule || blockRules(theme).tool))
     // One row for the run: the count is what says it holds more than one.
     const stats = withStats(previous.suffix, theme.dim(`· ${String(count)} similar`))
     const head = bg(formatToolCardLine(theme, this.columns - ruleWidth, bullet, previous.title, stats, done))
-    const close = blockClose(theme, bg)
+    const close = blockClose(theme)
     const open = previous.lead
     const card = [...open, head, ...close]
     const fullCard = [...open, head, ...members.flatMap((entry, index) => index === 0 ? entry : ['', ...entry]), ...close]
@@ -1230,7 +1252,7 @@ export class Transcript {
     const rawText = this.resultText(content)
     const text = failed ? rawText : formatAskUserQuestionResult(rawText)
     const body = text === '' ? [] : text.split('\n').map(line => theme.dim(`  ${line}`))
-    const marker = failed ? theme.err('✗') : theme.ok('●')
+    const marker = failed ? theme.err('✗') : theme.dim('●')
     const enter = failed ? undefined : childSessionId(text)
     const hint = enter === undefined ? [] : [bg(theme.dim('  click to enter'))]
     const previous = this.orphanRun
@@ -1239,8 +1261,8 @@ export class Transcript {
       const count = previous.count + 1
       const members = [...previous.full, '', ...body]
       const title = withStats(theme.dim('(result)'), theme.dim(`· ${String(count)} results`))
-      const head = bg(`${cardIndent(theme)}${marker} ${title}`)
-      const close = blockClose(theme, bg)
+      const head = bg(`${marker} ${title}`)
+      const close = blockClose(theme)
       const card = [...previous.lead, head, ...close]
       const full = [...previous.lead, head, ...members.map(line => bg(line)), ...close]
       this.pendingCard = previous.shown
@@ -1251,8 +1273,8 @@ export class Transcript {
       return card
     }
 
-    const head = bg(`${cardIndent(theme)}${marker} ${withStats(theme.dim('(result)'), withheldCount(theme, contentCount(body)))}`)
-    const { lead, close, supersedes } = this.joinRun(true, bg, blockClose(theme, bg))
+    const head = bg(`${marker} ${withStats(theme.dim('(result)'), withheldCount(theme, contentCount(body)))}`)
+    const { lead, close, supersedes } = this.joinRun(true, blockClose(theme))
     this.pendingCard = supersedes
     const fullBody = body.map(line => bg(line))
     const shown = [...lead, head, ...hint, ...close]
@@ -1349,7 +1371,7 @@ export class Transcript {
 
   /**
    * The left rule for the block {@link render} just returned, `''` when the
-   * block stands flush.
+   * block painted nothing.
    *
    * Paired with the lines rather than baked into them: the rule repeats on
    * every row the block wraps to, which only the buffer that wraps them knows.
@@ -1362,12 +1384,6 @@ export class Transcript {
   }
 
   /**
-   * Explicit text-line count when the last block starts a response section.
-   *
-   * Only a real `source.kind === "user"` message sets it; plugin context may
-   * use the user role for the model but must never become navigation chrome.
-   */
-  /**
    * The padding row the prompt just rendered wants around it, and forgets it.
    * @returns the row, or undefined when the block paints no panel.
    */
@@ -1377,6 +1393,12 @@ export class Transcript {
     return pad
   }
 
+  /**
+   * Explicit text-line count when the last block starts a response section.
+   *
+   * Only a real `source.kind === "user"` message sets it; plugin context may
+   * use the user role for the model but must never become navigation chrome.
+   */
   takePrompt(): number | undefined {
     const prompt = this.prompt
     this.prompt = undefined

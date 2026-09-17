@@ -35,6 +35,16 @@ describe('ChildViews', () => {
     expect(views.pop()).toBeUndefined()
   })
 
+  it('names a Session\'s depth on the stack', () => {
+    const views = new ChildViews()
+    expect(views.indexOf('child')).toBeUndefined()
+    views.push('child')
+    views.push('grandchild')
+    expect(views.indexOf('child')).toBe(0)
+    expect(views.indexOf('grandchild')).toBe(1)
+    expect(views.indexOf('other')).toBeUndefined()
+  })
+
   it('forgets the whole stack on a session replacement', () => {
     const views = new ChildViews()
     views.push('child')

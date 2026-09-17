@@ -81,8 +81,8 @@ import { TerminalQuestions, autoConfirmShipGates, shipAskSettledHitl } from './q
 import { userShell } from './bang.ts'
 import { indexReplayTiming } from './replay-timing.ts'
 import { ShipRun, wrapHostGoals } from './ship-run.ts'
-import { bindWebPanorama, openWebPanorama } from './ship-web.ts'
-import { Spinner } from './spinner.ts'
+import { bindWebPanorama } from './ship-web.ts'
+import { Spinner, SPINNER_TICK_MS } from './spinner.ts'
 import {
   DEEPSEEK_VISION_MODEL,
   DEFAULT_IMAGE_LIMITS,
@@ -113,7 +113,7 @@ import type { PendingImage } from './prompt.ts'
 import type { TodoList } from './todos.ts'
 import type { StatusFacts } from './status.ts'
 import { backgroundIsLight, createTheme, truncate } from './theme.ts'
-import { FOLD_LABELS, Transcript, blockRules, presentAskUserQuestionResult, thinkingFold, thinkingFoldRules, thinkingLineRule, thinkingOpenRows } from './transcript.ts'
+import { FOLD_LABELS, Transcript, blockRules, presentAskUserQuestionResult, runnerNotice, thinkingFold, thinkingFoldRules, thinkingOpenRows } from './transcript.ts'
 import type { Theme } from './theme.ts'
 
 /** Stable Cordis plugin name. */
@@ -439,16 +439,16 @@ async function turn(agent: Agent, text: string, working?: Spinner, source: TurnS
 async function runCommand(ctx: Context, agent: Agent, line: string, io: CliIo, theme: Theme, signal: AbortSignal, images: readonly EncodedImageAttachment[] = [], quietSuccess = false): Promise<void> {
   const commands = ctx.get('commands')
   if (commands === undefined) {
-    io.console.write(theme.error('  commands are unavailable in this composition'))
+    io.console.write(theme.error('  commands are unavailable in this composition'), blockRules(theme).error)
     return
   }
   if (line === '/help' || line === '/') {
     const width = Math.max(...commands.list(agent).map(command => command.name.length), 'exit'.length)
     for (const command of commands.list(agent)) {
-      io.console.write(`  ${theme.tool(`/${command.name}`.padEnd(width + 1))}  ${theme.dim(command.description)}`)
+      io.console.write(`  ${theme.tool(`/${command.name}`.padEnd(width + 1))}  ${theme.dim(command.description)}`, blockRules(theme).meta)
     }
-    io.console.write(`  ${theme.tool('/exit'.padEnd(width + 1))}  ${theme.dim('leave the session')}`)
-    io.console.write('')
+    io.console.write(`  ${theme.tool('/exit'.padEnd(width + 1))}  ${theme.dim('leave the session')}`, blockRules(theme).meta)
+    io.console.write('', blockRules(theme).meta)
     return
   }
   // The whole line, slash included: `parseCommand` anchors on it, so a stripped
@@ -458,7 +458,7 @@ async function runCommand(ctx: Context, agent: Agent, line: string, io: CliIo, t
   const attachments: CommandSubmitAttachment[] = images.map(image => ({ type: 'image', ...image }))
   const execution = await commands.execute(agent, line, attachments, signal)
   if (execution === undefined) {
-    io.console.write(theme.error(`  unknown command: ${line}`))
+    io.console.write(theme.error(`  unknown command: ${line}`), blockRules(theme).error)
     return
   }
   // A command answers in text; dropping it left `/compact` and friends looking
@@ -467,9 +467,10 @@ async function runCommand(ctx: Context, agent: Agent, line: string, io: CliIo, t
   const report = result.kind === 'error' ? theme.error(result.text) : result.text
   if (quietSuccess && result.kind === 'success' && (report === undefined || report === '')) return
   if (report !== undefined && report !== '') {
-    for (const reported of report.split('\n')) io.console.write(`  ${reported}`)
+    const reportRule = result.kind === 'error' ? blockRules(theme).error : blockRules(theme).meta
+    for (const reported of report.split('\n')) io.console.write(`  ${reported}`, reportRule)
   }
-  io.console.write('')
+  io.console.write('', blockRules(theme).meta)
 }
 
 /** How long the second Escape has to arrive to recall the previous message. */
@@ -640,11 +641,11 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
   // Before the roster resolves anything: discovery re-reads its roots on every
   // call, so a preset placed here is visible to the resolve below.
   const preset = await installPackagedPreset()
-  if (preset.installed) io.console.write(theme.dim(`installed preset into ${preset.path}`))
+  if (preset.installed) io.console.write(theme.dim(`installed preset into ${preset.path}`), blockRules(theme).meta)
 
   const composed = await compose(ctx, config, cwd)
   if (composed === undefined) {
-    io.console.write(theme.error(`dsh: no session to resume${config.resume === 'latest' ? ` in ${cwd}` : ''}`))
+    io.console.write(theme.error(`dsh: no session to resume${config.resume === 'latest' ? ` in ${cwd}` : ''}`), blockRules(theme).error)
     io.exit(1)
     return
   }
@@ -752,7 +753,7 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
       session: live.agent.session.id,
       readsKeys: io.console.readsKeys,
       welcomeKind,
-    }, theme, io.console.contentColumns)) io.console.write(line)
+    }, theme, io.console.contentColumns)) io.console.write(line, blockRules(theme).meta)
   }
 
   // The version this build carries, and — off the boot's critical path — one
@@ -765,7 +766,7 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
   if (version !== undefined && io.console.readsKeys) {
     void checkForUpdate({ current: version, cachePath: updateCachePath }).then((status) => {
       if (status?.available !== true) return
-      io.console.write(theme.dim(`  ✻ codsh ${status.latest} is available · /update installs it`))
+      io.console.write(theme.dim(`  ✻ codsh ${status.latest} is available · /update installs it`), blockRules(theme).meta)
     })
   }
 
@@ -854,7 +855,7 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
     [dshHomePath('commands'), join(cwd, '.dsh', 'commands')],
     new Set([...(commands?.list(live.agent) ?? []).map(entry => entry.name), 'exit', 'quit', 'help', 'init', 'ship', 'status', 'model', 'thinking', 'effort', 'clear', 'resume', 'diff', 'jump', 'copy', 'view']),
   )
-  for (const warning of custom.warnings) io.console.write(theme.dim(`  skipped ${warning}`))
+  for (const warning of custom.warnings) io.console.write(theme.dim(`  skipped ${warning}`), blockRules(theme).meta)
   const customByName = new Map(custom.commands.map(command => [command.name, command]))
   // Read on each keystroke, not captured: the registry is scoped and changes
   // with the session's mode, and `/exit` is this surface's own.
@@ -953,7 +954,10 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
     // Ctrl-O toggles every collapsed block — or opens the original image when previewing one.
     expandOutput: () => {
       if (prompt.openActiveImage()) return
-      if (!io.console.toggleFolds()) prompt.write(theme.dim('  nothing to expand'))
+      if (!io.console.toggleFolds()) {
+        const notice = runnerNotice('nothing to expand', theme)
+        prompt.write(notice.line, notice.rule)
+      }
     },
     turn: (direction) => {
       const current = io.console.currentTurn
@@ -1066,26 +1070,32 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
    * refreshStatus is defined after the Prompt exists.
    */
   let paintShipChrome = (): void => {}
+  let shipBusy = (_active: boolean): void => {}
   const hostGoals = ctx.get('goals')
   const ship = new ShipRun(cwd, {
     setPlan: (plan) => { prompt.setPlan(plan) },
     setChip: () => { paintShipChrome() },
     setTodos: () => { prompt.setTodos(todoList(ctx, live.agent)) },
-    setTeaser: (counts) => { prompt.setTeaser(counts) },
-    setGraph: (graph) => { prompt.setGraph(graph) },
+    complete: () => { prompt.completeShip() },
+    setTeaser: (counts, inFlight) => { prompt.setTeaser(counts, inFlight) },
+    setGraph: (graph, inFlight) => { prompt.setGraph(graph, inFlight) },
+    setWebUrl: url => { prompt.setWebUrl(url) },
   }, {
     ...(hostGoals === undefined ? {} : { goals: wrapHostGoals(hostGoals, () => live.agent) }),
     ...(io.console.readsKeys
       ? {
           occupancy: (spec, signal) => prompt.select(spec, signal),
           selectSpec: (spec, signal) => prompt.select(spec, signal),
-          open: url => { openWebPanorama(url) },
         }
       : {}),
-    flash: text => { emit([theme.dim(`  ${text}`)]) },
+    flash: text => {
+      const notice = runnerNotice(text, theme)
+      emit([notice.line], undefined, notice.rule)
+    },
     isPlanMode: () => sessionFolds.planMode,
     bind: request => bindWebPanorama(request.graph),
     isTty: io.console.readsKeys,
+    busy: active => { shipBusy(active) },
     childCreate: {
       async create(request) {
         const handle = await composed.createChild({
@@ -1096,32 +1106,52 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
           ...(request.role === undefined ? {} : { role: request.role }),
           parentAgent: live.agent,
         })
+        handle.agent.session.append('subagent/descriptor', { label: request.label })
+        ctx.emit('subagent/start', { id: handle.agent.session.id })
         handle.agent.followup(createUserMessage({
           content: [{ type: 'text', text: request.prompt }],
           source: { kind: 'plugin', plugin: 'coding-cli' },
         }))
-        return {
+        const started = handle.agent.whenIdle()
+        void started.then(
+          () => {
+            ctx.emit('subagent/end', { id: handle.agent.session.id, stopReason: 'completed' })
+          },
+          () => {
+            ctx.emit('subagent/end', { id: handle.agent.session.id, stopReason: 'error' })
+          },
+        )
+        const child = {
           id: handle.agent.session.id,
           graphKey: request.graphKey,
           label: request.label,
           ...(request.role === undefined ? {} : { role: request.role }),
-          done: handle.agent.whenIdle().then(() => undefined),
+          done: started,
           dispose: () => handle.dispose(),
         }
+        return child
       },
     },
     folds: {
       bind(id, label) {
-        if (!io.console.readsKeys || childViews.current !== undefined) return
+        if (!io.console.readsKeys) return
         const lines = live.transcript.bindRunnerView(id, label)
         if (lines.length === 0) return
-        prompt.setStreaming(undefined)
-        io.console.appendFold(lines, lines, '', live.transcript.takeLabel(), live.transcript.takeEnter())
+        const paint = (): void => {
+          io.console.appendFold(lines, lines, live.transcript.takeRule(), live.transcript.takeLabel(), live.transcript.takeEnter())
+        }
+        if (childViews.current !== undefined) io.console.withCoveredRoot(paint)
+        else {
+          prompt.setStreaming(undefined)
+          paint()
+        }
       },
       release(id) {
         const lines = live.transcript.dropRunnerView(id)
         if (lines.length === 0) return
-        io.console.writeAll([], '', lines)
+        const paint = (): void => { io.console.writeAll([], '', lines) }
+        if (childViews.current !== undefined) io.console.withCoveredRoot(paint)
+        else paint()
       },
     },
   })
@@ -1132,7 +1162,7 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
     isTty: io.console.readsKeys,
   }, theme, {
     verb: 'working',
-    interrupt: io.console.readsKeys ? 'ESC' : 'Ctrl-C',
+    interrupt: 'Ctrl-C',
     detail: () => {
       const spent = (totalTokens(facts(branch).usage) ?? 0) - turnBaseTokens
       const tokens = spent > 0 ? `${formatTokens(spent)} tokens` : undefined
@@ -1150,6 +1180,10 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
       return [progress, activity === undefined ? undefined : truncate(activity, 48), tokens].filter(part => part !== undefined).join(' · ') || undefined
     },
   })
+  shipBusy = (active: boolean): void => {
+    if (active) spinner.start()
+    else spinner.stop()
+  }
   // Prompt history survives sessions, which is what makes Up-arrow at a fresh
   // prompt recall yesterday's work. A failure to read or write it costs the
   // history, never the session.
@@ -1464,7 +1498,7 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
           session: live.agent.session.id,
           readsKeys: io.console.readsKeys,
           welcomeKind: 'first',
-        }, theme, io.console.contentColumns)) prompt.write(line)
+        }, theme, io.console.contentColumns)) prompt.write(line, blockRules(theme).meta)
         paintRunnerFolds(live.transcript)
         return { kind: 'success', text: `new session ${live.agent.session.id}` }
       },
@@ -1580,7 +1614,7 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
         // A long diff written into the transcript is a diff that scrolls past.
         // Off a TTY there is nothing to open, and the lines are the output.
         if (!io.console.readsKeys) {
-          for (const line of text.split('\n')) prompt.write(styleDiffLine(line, theme))
+          for (const line of text.split('\n')) prompt.write(styleDiffLine(line, theme), blockRules(theme).tool)
           return { kind: 'success' }
         }
         await prompt.view({ title: 'Uncommitted changes', kind: 'diff', text }, signal)
@@ -1722,36 +1756,84 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
   const finishAnswer = (): void => {
     if (!stream.streamed) return
     const remaining = stream.flush()
-    // A Child view owns the Viewport; the parent's in-flight line is rebuilt
-    // from the log on the way back, so painting it here would land on the child.
-    if (childViews.current !== undefined) return
-    emit([...remaining, ''])
+    // A Child view owns the Viewport; the leftover lands on the covered parent
+    // so Esc still has the finished answer in history.
+    onParentBuffer(() => emit([...remaining, ''], undefined, blockRules(theme).answer))
   }
   // Reasoning gets its own stream and tracker: pushed into `stream`, its
   // deltas would mark the answer as already-shown and the visible text would
   // be swallowed. Tracking from step/start ensures deliberation time accurately
   // reflects the full thinking duration even when deltas arrive buffered.
   const thinking = new ThinkingTracker(theme, () => io.console.contentColumns)
-  // Thinking is open by default, the way Grok Build shows it: it streams into
-  // the transcript line by line under a `thinking…` head, and when it ends
-  // the head becomes the clock and the block stays readable — a Fold that the
-  // next prompt collapses to that one clock row, so history stays skimmable
-  // while the thought a person is following is on screen whole.
+  // Thinking is a Fold that opens folded: a `thinking…` head stands while it
+  // runs, ticks the same Braille frames as the working line, the line still
+  // being typed sits under the box, and when it ends the head becomes the
+  // clock with the deliberation behind a click or Ctrl+O.
+  /**
+   * Whether {@link emit} owns the live region. Off while writing the covered
+   * parent: that work must not steal the Child view's in-progress line.
+   */
+  let emitLive = true
   let turnThinkingMs: number[] = []
   let stepStartedAt = 0
   let currentThought: { summary: readonly string[]; full: readonly string[]; lines: readonly string[]; elapsedMs: number; stepStartedAt: number } | undefined
   const getActiveThought = () => currentThought
+  /** The thought the Viewport is showing, parent or Child view. */
+  const visibleThinking = (): ThinkingTracker => currentView()?.thinking ?? thinking
+  let thinkingPulse: NodeJS.Timeout | undefined
+  let thinkingFrame = 0
+  const stopThinkingPulse = (): void => {
+    if (thinkingPulse === undefined) return
+    clearInterval(thinkingPulse)
+    thinkingPulse = undefined
+    thinkingFrame = 0
+  }
   /**
-   * Put a finished thought where its streamed rows stand.
+   * Advance the visible thought's head one Braille frame, in place.
    *
-   * The clock takes the head's place, the closing pad lands, and the whole
-   * block becomes an open Fold. Off a terminal nothing streamed, so there is
-   * nothing to replace and the pipe gets the clock row, the digest it always got.
+   * Only the showing transcript is rewritten: a covered parent's head stays
+   * where it was until Esc uncovers it. Off a terminal there is no pulse.
+   */
+  const tickThinkingHead = (): void => {
+    if (!io.console.readsKeys) {
+      stopThinkingPulse()
+      return
+    }
+    const tracker = visibleThinking()
+    if (!tracker.opened) {
+      stopThinkingPulse()
+      return
+    }
+    thinkingFrame += 1
+    const previous = [...tracker.paintedRows]
+    const { rows, rules } = thinkingOpenRows(theme, thinkingFrame)
+    io.console.writeAll(rows, rules, previous)
+    tracker.replacePainted(rows)
+  }
+  const startThinkingPulse = (): void => {
+    if (thinkingPulse !== undefined || !io.console.readsKeys) return
+    if (!visibleThinking().opened) return
+    thinkingPulse = setInterval(tickThinkingHead, SPINNER_TICK_MS)
+    thinkingPulse.unref()
+  }
+  /**
+   * Put a finished thought where its streamed head stands.
+   *
+   * The clock takes the head's place and the block lands folded: the
+   * deliberation is behind a click or Ctrl+O. Off a terminal nothing streamed,
+   * so there is nothing to replace and the pipe gets the clock row, the digest
+   * it always got.
    * @param transcript - the renderer that owns the run the thought closed.
    * @param flushed - the thought, with the rows painted while it streamed.
    */
   const landThought = (transcript: Transcript, flushed: ThinkingFlush): void => {
-    prompt.setStreaming(undefined)
+    // The showing thought ended: freeze its head. A covered parent's land
+    // must not steal the Child view's pulse or working line.
+    if (emitLive) {
+      stopThinkingPulse()
+      spinner.setActivity('working')
+      prompt.setStreaming(undefined)
+    }
     io.console.writeAll(transcript.endRun())
     const { summary, full } = thinkingFold(flushed.lines, theme, flushed.elapsedMs / 1000)
     // The step total is the parent's clock: a viewed child's thought must
@@ -1760,15 +1842,44 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
       currentThought = { summary, full, lines: flushed.lines, elapsedMs: flushed.elapsedMs, stepStartedAt }
     }
     const rules = thinkingFoldRules(theme, flushed.lines.length)
-    io.console.appendFold(summary, full, rules.summary, FOLD_LABELS.thinking, undefined, undefined, flushed.painted, rules.full, true)
+    io.console.appendFold(summary, full, rules.summary, FOLD_LABELS.thinking, undefined, undefined, flushed.painted, rules.full)
   }
   const flushThinking = (): void => {
     const flushed = thinking.flush()
     if (flushed === undefined) return
-    if (childViews.current !== undefined) return
     turnThinkingMs.push(flushed.elapsedMs)
-    landThought(live.transcript, flushed)
+    onParentBuffer(() => landThought(live.transcript, flushed))
   }
+  /**
+   * Write onto the parent Viewport even while a Child view covers it.
+   *
+   * Parent events keep landing in the covered buffer so Esc restores history
+   * as it stood, including what happened while looking at the child.
+   * @param work - writes that belong to the parent transcript.
+   */
+  const onParentBuffer = (work: () => void): void => {
+    onCoveredBuffer(0, work)
+  }
+
+  /**
+   * Write onto a covered Viewport at `index` (0 is the parent).
+   * @param index - covered-stack index: 0 for the parent, `indexOf(id) + 1` for a child.
+   * @param work - writes that belong to that covered transcript.
+   */
+  const onCoveredBuffer = (index: number, work: () => void): void => {
+    if (childViews.current === undefined) {
+      work()
+      return
+    }
+    const previous = emitLive
+    emitLive = false
+    try {
+      io.console.withCoveredAt(index, work)
+    } finally {
+      emitLive = previous
+    }
+  }
+
   /**
    * Append the lines an event produced, and show the line still being typed.
    * @param lines - finished lines for the transcript.
@@ -1777,9 +1888,17 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
   const emit = (lines: readonly string[], live?: string, rule: string | readonly string[] = '', replaces: readonly string[] = []): void => {
     // Released before writing: the region is redrawn under every written line,
     // so leaving the superseded partial in place would reprint it each time.
-    if (lines.length > 0) prompt.setStreaming(undefined)
+    if (emitLive && lines.length > 0) prompt.setStreaming(undefined)
     io.console.writeAll(lines, rule, replaces)
-    prompt.setStreaming(live)
+    if (emitLive) prompt.setStreaming(live)
+  }
+
+  /** Put the in-progress line of the Session on screen back under the box. */
+  const restoreLiveRegion = (): void => {
+    const viewed = currentView()
+    prompt.setStreaming(viewed === undefined
+      ? (thinking.live ?? stream.live)
+      : (viewed.thinking.live ?? viewed.stream.live))
   }
 
   /**
@@ -1821,9 +1940,10 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
    * Replay a Session into the Viewport: child-owned events only in a Child view.
    * @param session - the Session being shown.
    * @param transcript - the renderer that will own later events for it.
+   * @param replace - whether to empty the live buffer first. A cover already did.
    */
-  const showSession = (session: ShownSession, transcript: Transcript): void => {
-    io.console.clearScreen()
+  const showSession = (session: ShownSession, transcript: Transcript, replace = true): void => {
+    if (replace) io.console.clearScreen()
     io.console.suspendPainting()
     try {
       replayEvents(session, transcript, io, theme, childOwnedEvents(session.snapshotEvents(), session.inheritedEventCount))
@@ -1859,7 +1979,7 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
     for (const fold of runnerFolds(keyed)) {
       const lines = transcript.bindRunnerView(fold.sessionId, fold.label)
       if (lines.length === 0) continue
-      io.console.appendFold(lines, lines, '', transcript.takeLabel(), transcript.takeEnter())
+      io.console.appendFold(lines, lines, transcript.takeRule(), transcript.takeLabel(), transcript.takeEnter())
     }
   }
   if (config.resume !== '') paintRunnerFolds(live.transcript)
@@ -1870,10 +1990,14 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
   const enterView = (id: string): void => {
     const session = sessions.get(SessionId(id))
     if (session === undefined) {
+      io.console.resumePainting()
       prompt.setFlash(theme.dim('  subagent is no longer running'))
       return
     }
-    if (childViews.current?.sessionId === id) return
+    if (childViews.current?.sessionId === id) {
+      io.console.resumePainting()
+      return
+    }
     let frame = nested.get(id)
     if (frame === undefined) {
       frame = {
@@ -1886,15 +2010,18 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
     } else {
       frame.session = session
     }
-    // The covered screen goes with the view, and its thought in flight with
-    // it: what streamed so far is not on the child's screen to replace, and
-    // what streams after the view closes opens a panel of its own. The view
-    // being covered may itself be a child, so its own tracker resets too.
-    currentView()?.thinking.reset()
-    thinking.reset()
+    // Cover, do not replay-over: the showing rows, scroll, and open folds
+    // stay on a stack until Esc. A thought in flight stays in its tracker so
+    // the live region can pick it up on the way back.
+    prompt.setStreaming(undefined)
+    io.console.suspendPainting()
+    io.console.coverTranscript()
     childViews.push(id)
+    stopThinkingPulse()
     spinner.pause()
-    showSession(session, frame.transcript)
+    showSession(session, frame.transcript, false)
+    restoreLiveRegion()
+    startThinkingPulse()
     refreshStatus()
     pushRoster()
   }
@@ -1903,24 +2030,30 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
     const closed = childViews.pop()
     if (closed === undefined) return
     nested.delete(closed.sessionId)
-    const remaining = currentView()
-    if (remaining === undefined) {
-      live.transcript = new Transcript({ theme, columns: () => io.console.contentColumns, cwd, density }, presentersFor(ctx, live.agent))
-      // Back to the parent is a replay: history as the log holds it, folds
-      // collapsed, and no painted thought rows left from before the view.
-      thinking.reset()
-      currentThought = undefined
-      showSession(live.agent.session, live.transcript)
-      refreshStatus()
-      pushRoster()
-      if (live.agent.status === 'running') spinner.start()
-      return
+    prompt.setStreaming(undefined)
+    if (!io.console.uncoverTranscript()) {
+      // No covered buffer — a session replacement, or a surface with no screen.
+      const remaining = currentView()
+      if (remaining === undefined) {
+        live.transcript = new Transcript({ theme, columns: () => io.console.contentColumns, cwd, density }, presentersFor(ctx, live.agent))
+        thinking.reset()
+        stopThinkingPulse()
+        currentThought = undefined
+        showSession(live.agent.session, live.transcript)
+      } else {
+        remaining.thinking.reset()
+        stopThinkingPulse()
+        showSession(remaining.session, remaining.transcript)
+      }
     }
-    // Back to a child is a replay too: nothing it painted before is on screen.
-    remaining.thinking.reset()
-    showSession(remaining.session, remaining.transcript)
+    restoreLiveRegion()
     refreshStatus()
     pushRoster()
+    if (childViews.current === undefined && live.agent.status === 'running') {
+      spinner.setActivity(thinking.opened ? 'thinking' : 'working')
+      spinner.start()
+    }
+    startThinkingPulse()
   }
   /**
    * One event of a child's own log, folded into its roster row: a tool call
@@ -1969,24 +2102,17 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
     }
   }
   /**
-   * Open a child's transcript: live from the store while it is there, or
-   * read-only from its persisted log once it has finished and gone.
-   *
-   * A finished child's row stays on the roster, so the door must still open:
-   * the session query serves the log the store no longer holds, and the
-   * view shows it the way a resumed session is shown. Nothing streams into
-   * it — nothing is left to stream — and Esc pops it like any view.
-   * @param id - the child session the row or the card named.
-   */
-  /**
    * Drop every open view without a repaint, for a view about to be pushed
    * in their place: from inside a view, a roster row swaps rather than
-   * stacks, so Esc from the new view returns to the parent. The live
-   * transcript is rebuilt on that Esc, as after any view.
+   * stacks, so Esc from the new view returns to the parent. The covered
+   * parent stays on the stack until that Esc.
    */
   const dropViews = (): void => {
     if (childViews.current === undefined) return
-    currentView()?.thinking.reset()
+    // Held until the replacement view paints: restoring the parent for a
+    // frame between two children would flash history nobody asked to see.
+    io.console.suspendPainting()
+    io.console.restoreCoveredRoot()
     childViews.clear()
     nested.clear()
   }
@@ -2034,10 +2160,15 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
         }
         dropViews()
         nested.set(id, frame)
-        thinking.reset()
+        prompt.setStreaming(undefined)
+        io.console.suspendPainting()
+        io.console.coverTranscript()
         childViews.push(id)
+        stopThinkingPulse()
         spinner.pause()
-        showSession(session, frame.transcript)
+        showSession(session, frame.transcript, false)
+        restoreLiveRegion()
+        startThinkingPulse()
         refreshStatus()
         pushRoster()
       } finally {
@@ -2072,12 +2203,22 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
       }
       if (KNOB_EVENTS.has(event.type)) refold()
       refreshStatus()
-      if (event.type === 'todo/write') prompt.setTodos(event.data.todos)
+      if (event.type === 'todo/write') prompt.setTodos(event.data.todos, true)
     }
     const viewed = currentView()
-    if (viewed !== undefined) {
-      if (!paintsViewedSession(childViews.current, session.id)) return
+    if (viewed !== undefined && paintsViewedSession(childViews.current, session.id)) {
       paintLive(viewed.transcript, viewed.stream, viewed.thinking, event)
+      return
+    }
+    const coveredAt = childViews.indexOf(session.id)
+    if (coveredAt !== undefined) {
+      const frame = nested.get(session.id)
+      if (frame !== undefined) {
+        // covered[0] is the parent; each stacked child is at indexOf + 1.
+        onCoveredBuffer(coveredAt + 1, () => {
+          paintLive(frame.transcript, frame.stream, frame.thinking, event)
+        })
+      }
       return
     }
     // `/clear` and `/resume` retire sessions; only the current one renders.
@@ -2090,7 +2231,7 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
       compacting = true
     }
     if (event.type === 'compaction/end') {
-      spinner.setActivity('working')
+      spinner.setActivity(thinking.opened ? 'thinking' : 'working')
       if (compacting) {
         compacting = false
         prompt.setHint(undefined)
@@ -2115,7 +2256,7 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
     // In print mode the task text came from the caller's own command line;
     // echoing it back would only make stdout harder to consume in scripts.
     if (config.print && event.type === 'user/message') return
-    paintLive(live.transcript, stream, thinking, event, {
+    const extras = {
       onStepStart: () => {
         stepStartedAt = performance.now()
       },
@@ -2129,10 +2270,15 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
           currentThought = undefined
         }
       },
-      onThinkingFlush: (elapsedMs) => {
+      onThinkingFlush: (elapsedMs: number) => {
         turnThinkingMs.push(elapsedMs)
       },
-    })
+    }
+    if (viewed !== undefined) {
+      onParentBuffer(() => { paintLive(live.transcript, stream, thinking, event, extras) })
+      return
+    }
+    paintLive(live.transcript, stream, thinking, event, extras)
   })
 
   /**
@@ -2162,13 +2308,15 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
       tracker.markStepEnd()
       extras?.onStepEnd?.()
     }
-    if (event.type === 'tool/call') spinner.setActivity(toolActivity(event.data.name))
-    if (event.type === 'tool/result') spinner.setActivity('working')
+    if (emitLive) {
+      if (event.type === 'tool/call') spinner.setActivity(toolActivity(event.data.name))
+      if (event.type === 'tool/result') spinner.setActivity(tracker.opened ? 'thinking' : 'working')
+    }
     if (event.type === 'assistant/message') {
       tracker.markReasoningEnd()
       landThinking(transcript, tracker, extras?.onThinkingFlush)
       if (textStream.streamed) {
-        emit([...textStream.flush(), ''])
+        emit([...textStream.flush(), ''], undefined, blockRules(theme).answer)
         return
       }
     }
@@ -2182,7 +2330,7 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
     const replaces = transcript.takePendingCard()
     ship.noteWritten(transcript.takeWritten())
     if (promptBlock !== undefined) {
-      prompt.setStreaming(undefined)
+      if (emitLive) prompt.setStreaming(undefined)
       io.console.appendPrompt(lines, rule, true, promptBlock, transcript.takePromptPad())
       return
     }
@@ -2190,7 +2338,7 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
       emit(lines, undefined, rule, replaces)
       return
     }
-    prompt.setStreaming(undefined)
+    if (emitLive) prompt.setStreaming(undefined)
     io.console.appendFold(lines, full ?? lines, rule, label, enter, page, replaces)
   }
   /**
@@ -2216,17 +2364,20 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
       // thought ends, never the deliberation and then its digest.
       if (!io.console.readsKeys) return
       if (!tracker.opened) {
-        // The first delta opens the panel the thought will stand in: a head
-        // the clock will replace, and the pads that make it a panel.
+        // The first delta puts a head the clock will replace; the body stays
+        // off the transcript until a click or Ctrl+O opens the fold. On a
+        // TTY the head ticks, and the working line names the thought.
         io.console.writeAll(transcript.endRun())
         const { rows, rules } = thinkingOpenRows(theme)
         emit(rows, undefined, rules)
         tracker.markPainted(rows)
+        if (emitLive) {
+          spinner.setActivity('thinking')
+          startThinkingPulse()
+        }
       }
-      // Finished lines land as they complete; only the line still being
-      // typed stays in the live region under the box.
-      emit(step.lines, step.live, thinkingLineRule(theme))
-      tracker.markPainted(step.lines)
+      // Only the line still being typed sits in the live region under the box.
+      prompt.setStreaming(step.live)
       return
     }
     if (chunk.type === 'block-end' && chunk.block.type === 'reasoning') {
@@ -2239,20 +2390,39 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
       landThinking(transcript, tracker, onThinkingFlush)
     }
     if (chunk.type !== 'text-delta') return
-    if (!textStream.streamed && !io.console.hasTrailingBlank()) emit([''])
+    if (!textStream.streamed && !io.console.hasTrailingBlank()) emit([''], undefined, blockRules(theme).answer)
     const step = textStream.push(chunk.text)
-    emit(step.lines, step.live)
+    emit(step.lines, step.live, blockRules(theme).answer)
   }
   ctx.on('agent/assistant-stream', (payload: { agent: Agent; frame: AssistantStreamFrame }) => {
     if (payload.frame.type !== 'chunk') return
+    const { chunk } = payload.frame
     const viewed = currentView()
     if (viewed !== undefined) {
-      if (!paintsViewedSession(childViews.current, payload.agent.session.id)) return
-      paintStreamChunk(viewed.transcript, viewed.stream, viewed.thinking, payload.frame.chunk)
+      if (paintsViewedSession(childViews.current, payload.agent.session.id)) {
+        paintStreamChunk(viewed.transcript, viewed.stream, viewed.thinking, chunk)
+        return
+      }
+      const coveredAt = childViews.indexOf(payload.agent.session.id)
+      if (coveredAt !== undefined) {
+        const frame = nested.get(payload.agent.session.id)
+        if (frame !== undefined) {
+          onCoveredBuffer(coveredAt + 1, () => {
+            paintStreamChunk(frame.transcript, frame.stream, frame.thinking, chunk)
+          })
+        }
+        return
+      }
+      if (payload.agent.session !== live.agent.session) return
+      onParentBuffer(() => {
+        paintStreamChunk(live.transcript, stream, thinking, chunk, (elapsedMs) => {
+          turnThinkingMs.push(elapsedMs)
+        })
+      })
       return
     }
     if (payload.agent.session !== live.agent.session) return
-    paintStreamChunk(live.transcript, stream, thinking, payload.frame.chunk, (elapsedMs) => {
+    paintStreamChunk(live.transcript, stream, thinking, chunk, (elapsedMs) => {
       turnThinkingMs.push(elapsedMs)
     })
   })
@@ -2301,7 +2471,10 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
     user: dshHomePath('permissions.json'),
   }, {
     label: path => path.startsWith(`${cwd}/`) ? path.slice(cwd.length + 1) : path,
-    warn: line => { prompt.write(theme.dim(`  ${line}`)) },
+    warn: line => {
+      const notice = runnerNotice(line, theme)
+      prompt.write(notice.line, notice.rule)
+    },
   })
 
   const approval = new TerminalApproval(
@@ -2312,11 +2485,14 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
         const named = summary === undefined ? theme.tool(toolName) : `${theme.tool(toolName)}: ${summary}`
         if (!io.console.readsKeys) {
           const detail = reason === undefined ? '' : ` ${theme.dim(reason)}`
-          prompt.write(`${theme.pending('?')} allow ${named}${detail}`)
+          prompt.write(`${theme.pending('?')} allow ${named}${detail}`, blockRules(theme).tool)
           const line = await prompt.readAnswer(signal)
           return line === undefined ? undefined : answerForKey(line) ?? 'reject'
         }
-        if (reason !== undefined) prompt.write(theme.dim(`  ${reason}`))
+        if (reason !== undefined) {
+          const notice = runnerNotice(reason, theme)
+          prompt.write(notice.line, notice.rule)
+        }
         // The third answer exists only when a rule is safe to offer: a compound
         // command has no prefix worth remembering, so it is asked every time.
         const answers: ApprovalAnswer[] = ['once', 'always', ...rule === undefined ? [] : ['remember' as const], 'reject']
@@ -2338,7 +2514,7 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
       }, `approval: ${nameCall(toolName, summary)}`),
     },
     theme,
-    (line) => { prompt.write(line) },
+    (line) => { prompt.write(line, blockRules(theme).tool) },
     callId => (currentView()?.transcript ?? live.transcript).pendingCall(callId),
     permissionRules,
   )
@@ -2359,10 +2535,16 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
   // noteWritten/guardWrites remain a post-write safety net for contract JSON restore.
   ctx.on('tools/pre-execute', async (exec, next) => {
     if (ship.missionContract === undefined) return next()
-    const verdict = ship.alignTool(exec.name, exec.arguments)
+    const agentSessionId = exec.agent?.session.id
+    const verdict = ship.alignTool(exec.name, exec.arguments, {
+      ...(agentSessionId === undefined ? {} : { agentSessionId: String(agentSessionId) }),
+    })
     if (verdict.allow) return next()
     const reason = verdict.reasons.join('; ') || 'Alignment Gate denied write — sealed Mission Contract holds'
-    prompt.write(theme.dim(`  ✗ ${reason}`))
+    const notice = runnerNotice(`✗ ${reason}`, theme)
+    if (exec.agent?.session.id === live.agent.session.id || exec.agent === undefined) {
+      prompt.write(notice.line, notice.rule)
+    }
     return { kind: 'deny' as const, reason }
   })
   // Host-plane lifecycle: the child Session exists before any tool result.
@@ -2386,18 +2568,28 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
     }
     const viewed = currentView()
     const onScreen = viewed !== undefined && viewed.session.id === parentId
-    const parentOnScreen = childViews.current === undefined
-      && (parentId === live.agent.session.id || parentId === undefined)
+    const parentOwned = parentId === live.agent.session.id || parentId === undefined
+    const coveredAt = parentId === undefined ? undefined : childViews.indexOf(parentId)
     const transcript = onScreen && viewed !== undefined
       ? viewed.transcript
-      : parentOnScreen
+      : parentOwned
         ? live.transcript
-        : undefined
+        : coveredAt !== undefined
+          ? nested.get(parentId)?.transcript
+          : undefined
     if (transcript === undefined) return
     const lines = transcript.promotePendingView(info.id, label)
     if (lines.length === 0) return
-    prompt.setStreaming(undefined)
-    io.console.appendFold(lines, lines, transcript.takeRule(), transcript.takeLabel(), transcript.takeEnter(), undefined, transcript.takePendingCard())
+    const paint = (): void => {
+      if (emitLive) prompt.setStreaming(undefined)
+      io.console.appendFold(lines, lines, transcript.takeRule(), transcript.takeLabel(), transcript.takeEnter(), undefined, transcript.takePendingCard())
+    }
+    if (onScreen || childViews.current === undefined) {
+      paint()
+      return
+    }
+    if (parentOwned) onParentBuffer(paint)
+    else if (coveredAt !== undefined) onCoveredBuffer(coveredAt + 1, paint)
   })
 
   // The paired end is the runtime's verdict on how the child ended — what the
@@ -2412,6 +2604,7 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
   adopt = (next: AgentHandle, replayLog: boolean): void => {
     childViews.clear()
     nested.clear()
+    io.console.discardCoveredTranscripts()
     // Another session's children are its own; the roster starts over.
     roster.clear()
     stopRosterClock()
@@ -2422,6 +2615,7 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
     reclaimSteers(live.agent)
     live.handle = next
     live.agent = next.agent
+    prompt.setTodos(todoList(ctx, live.agent), true)
     live.transcript = new Transcript({ theme, columns: () => io.console.contentColumns, cwd, density }, presentersFor(ctx, next.agent))
     // The viewport buffer is the RETIRED session's transcript; left in place,
     // /clear would clear nothing visible and /resume would replay under it.
@@ -2450,14 +2644,14 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
       // for the next turn: that line was typed before the question existed.
       { read: signal => prompt.readAnswer(signal) },
       theme,
-      (line) => { prompt.write(line) },
+      (line, rule) => { prompt.write(line, rule ?? '') },
       io.console.readsKeys ? async (spec, signal) => prompt.select(spec, signal) : undefined,
       io.console.readsKeys ? async (spec, signal) => prompt.gate(spec, signal) : undefined,
       io.console.readsKeys ? async (spec, signal) => prompt.frontier(spec, signal) : undefined,
     )
     ctx.on('user-questions/request', request => whileDeciding(async () => {
       // Live `/ship` gates never wait on GateModal. confirmGate no-ops after
-      // Esc / abort so auto-Confirm cannot trap a cancelled run.
+      // Ctrl-C / abort so auto-Confirm cannot trap a cancelled run.
       const auto = autoConfirmShipGates(
         request.questions,
         gate => ship.confirmGate(gate),
@@ -2466,6 +2660,9 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
       if (auto !== undefined) return auto
       const outcome = await terminalQuestions.ask(request)
       if (shipAskSettledHitl(request.questions, outcome.answers)) shipTurnHitl = true
+      if (request.agent === undefined || request.agent === live.agent) {
+        ship.noteUserAnswers(request.questions, outcome.answers)
+      }
       return outcome
     }, 'your answer'))
   }
@@ -2509,8 +2706,8 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
   })
   /**
    * Stop whatever the agent is doing. Cancelling an idle agent is a no-op, so
-   * the report is withheld unless there was work to stop — an Escape pressed at
-   * an empty prompt should look like nothing happened.
+   * the report is withheld unless there was work to stop — a Ctrl-C pressed at
+   * an idle prompt leaves instead.
    * @returns whether anything was running.
    */
   const interrupt = (): boolean => {
@@ -2519,6 +2716,7 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
     // the live region, and anything written under it would be followed by the
     // indicator redrawing itself as though the turn were still going.
     spinner.stop()
+    stopThinkingPulse()
     running?.abort()
     ship.abort()
     // A steer in flight comes back to the queue first; the inbox is kept so
@@ -2529,7 +2727,10 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
     // would erase it on the next write.
     flushThinking()
     finishAnswer()
-    if (busy) prompt.write(theme.dim('  interrupted'))
+    if (busy) {
+      const notice = runnerNotice('interrupted', theme)
+      prompt.write(notice.line, notice.rule)
+    }
     return busy
   }
 
@@ -2551,7 +2752,10 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
     io.exit(code)
   }
 
-  let lastInterrupt = 0
+  // Negative infinity so the first Ctrl-C is never a "repeat" of boot.
+  // Starting at 0 treated a press in the first two seconds as the second one
+  // and left instead of interrupting.
+  let lastInterrupt = Number.NEGATIVE_INFINITY
   // Escape at a quiet, empty prompt arms recall: the second press inside the
   // window puts the previous message back for editing.
   let recallArmed: NodeJS.Timeout | undefined
@@ -2560,7 +2764,10 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
       exitView()
       return
     }
-    if (interrupt()) return
+    // Escape dismisses overlays and Child views; it never stops the turn.
+    // While work is running, a press at the empty box is a no-op so it cannot
+    // arm recall over the working line.
+    if (live.agent.status === 'running' || running !== undefined) return
     if (!prompt.empty) return
     // Commands and passthroughs are not messages worth re-editing.
     const last = prompt.history.findLast(entry => !entry.startsWith('/') && !entry.startsWith('!'))
@@ -2579,15 +2786,16 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
     }, RECALL_WINDOW_MS)
     recallArmed.unref()
   }
-  // Ctrl-C leaves. It still interrupts first when there is work to stop, so the
-  // reflex does not end a session mid-turn, and it is the only interrupt off a
-  // terminal — where Escape cannot arrive before its line.
+  // Ctrl-C is the interrupt. It still leaves on a second press, so the reflex
+  // does not end a session mid-turn, and it is the only interrupt — on a
+  // terminal and off one, where Escape cannot arrive before its line.
   onInterruptKey = () => {
     const now = performance.now()
     const repeated = now - lastInterrupt < INTERRUPT_EXIT_WINDOW_MS
     lastInterrupt = now
     if (!repeated && interrupt()) {
-      prompt.write(theme.dim('  Ctrl-C again to exit'))
+      const notice = runnerNotice('Ctrl-C again to exit', theme)
+      prompt.write(notice.line, notice.rule)
       return
     }
     leave(130)
@@ -2699,15 +2907,23 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
     workflowRound = undefined
     turnThinkingMs = []
     thinking.reset()
+    stopThinkingPulse()
     // Moving on: a turn spent is what folds the last one's automatic open
-    // states — an open thought back to its clock — never an empty Enter, a
-    // chrome command, or a `!` line, none of which is a turn. A block the
-    // person opened or folded by hand keeps the form they gave it.
+    // states — never an empty Enter, a chrome command, or a `!` line, none of
+    // which is a turn. A block the person opened or folded by hand keeps the
+    // form they gave it. Thoughts land folded, so this only touches a thought
+    // the person opened without choosing that form by hand.
     io.console.collapseFolds()
     const started = performance.now()
     currentThought = undefined
     io.console.setTitle(`⚡ dsh code — ${basename(cwd)}`)
     try {
+      // A typed continue after `/ship` stopped must pick up ticks immediately,
+      // not wait for the next spec-poll interval. Skip when chrome was never
+      // bound — a workspace with leftover specs is not a live `/ship`.
+      if (ship.shipPlan !== undefined || ship.shipChip !== undefined || ship.shipGraph !== undefined) {
+        ship.refresh()
+      }
       await turn(live.agent, text, spinner, source, extra)
     } finally {
       // A steer the turn ended without taking goes back to the queue's head.
@@ -2733,8 +2949,9 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
     }
     const sessionElapsed = sessionTurns > 1 ? sessionActiveMs : undefined
     const cost = spent > 0 ? ` · ${formatTokens(spent)} tokens` : ''
-    prompt.write(theme.dim(`  ${formatTurnTime(elapsedMs, turnThinkingMs, sessionElapsed)}${cost}`))
-    prompt.write('')
+    const notice = runnerNotice(`${formatTurnTime(elapsedMs, turnThinkingMs, sessionElapsed)}${cost}`, theme)
+    prompt.write(notice.line, notice.rule)
+    prompt.write('', notice.rule)
   }
 
   // Ctrl-Enter, or `s` in the queue panel: the line goes into the RUNNING turn
@@ -2786,8 +3003,9 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
    * @param command - the line after the `!`.
    */
   const passthrough = async (command: string): Promise<void> => {
-    prompt.write(`${theme.pending('●')} ${theme.tool('bash')}`)
-    prompt.write(`  $ ${command}`)
+    const bangRule = blockRules(theme).tool
+    prompt.write(`${theme.pending('●')} ${theme.tool('bash')}`, bangRule)
+    prompt.write(`  $ ${command}`, bangRule)
     running = new AbortController()
     try {
       let streamed = 0
@@ -2799,19 +3017,19 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
           signal: running.signal,
           timeoutMs: config.bangTimeoutMs,
           onLine: (line) => {
-            if (streamed < config.bangOutputLines) prompt.write(`  ${line}`)
+            if (streamed < config.bangOutputLines) prompt.write(`  ${line}`, bangRule)
             streamed += 1
           },
         },
       )
       if (streamed > config.bangOutputLines) {
-        prompt.write(theme.dim(`  … ${streamed - config.bangOutputLines} more lines`))
+        prompt.write(theme.dim(`  … ${streamed - config.bangOutputLines} more lines`), bangRule)
       }
       const status = result.signal !== null
         ? theme.error(`  ✗ killed by ${result.signal}`)
         : result.code !== 0 ? theme.error(`  ✗ exit ${result.code ?? '?'}`) : undefined
-      if (status !== undefined) prompt.write(status)
-      prompt.write('')
+      if (status !== undefined) prompt.write(status, blockRules(theme).error)
+      prompt.write('', bangRule)
       const lines = result.output.trimEnd() === '' ? [] : result.output.trimEnd().split('\n')
       const kept = lines.slice(0, config.bangOutputLines)
       const dropped = lines.length - kept.length
@@ -2848,7 +3066,7 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
     } else {
       const status = statusLine({ ...facts(branch), ...shipFacts() }, theme, io.console.columns)
       if (status !== shownStatus) {
-        prompt.write(status)
+        prompt.write(status, blockRules(theme).meta)
         shownStatus = status
       }
     }
@@ -2885,13 +3103,14 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
       // viewport, exactly as a typed message does. One that only works the
       // chrome answers nothing, and would leave that space empty.
       if (!surfaceOnlyView) {
-        // Canned prompts share the user gutter; chrome-only commands keep › in
-        // the line because they are not a turn header.
+        // Canned prompts share the user rail; chrome-only commands sit on the
+        // tool rail because they are not a turn header.
         if (cannedPrompt) {
           const pad = theme.colored ? theme.bgUser('  ') : undefined
-          io.console.appendPrompt(pad === undefined ? [trimmed, ''] : [trimmed], blockRules(theme).user, true, 1, pad)
+          const text = theme.colored ? theme.bgUser(`  ${trimmed}`) : trimmed
+          io.console.appendPrompt(pad === undefined ? [text, ''] : [text], blockRules(theme).user, true, 1, pad)
         }
-        else prompt.write(`${theme.user('›')} ${trimmed}`)
+        else prompt.write(`  ${trimmed}`, blockRules(theme).tool)
       }
       if (name === 'init') {
         await answer(INIT_PROMPT, { kind: 'plugin', plugin: 'coding-cli' }, images)
@@ -2941,6 +3160,7 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
   } catch {
     // Losing the history file loses recall, never the session.
   }
+  ship.closeWebPanorama()
   for (const dispose of disposers.splice(0)) dispose()
   prompt.setEngaged(false)
   leave(0)

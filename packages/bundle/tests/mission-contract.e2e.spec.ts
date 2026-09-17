@@ -2,7 +2,7 @@
  * Mission Contract control plane — PR #101 composition e2e.
  *
  * Unit suites pin parsers (mission / align / drift / verify). ship-run.spec
- * pins seal + Active Ticket inject. This file is the designed e2e for the
+ * pins seal + Landing-wave prepend. This file is the designed e2e for the
  * control plane: one sealed run on a real temp workspace must refuse
  * immutable writes, flag drifted plans, and clear premature ticks without
  * acceptance evidence.
@@ -52,7 +52,7 @@ const SEALED = [
 ].join('\n')
 
 describe('Mission Contract control plane e2e', () => {
-  it('seals the contract, halts on a rewritten Main Track, and lands only the Active Ticket', async () => {
+  it('seals the contract, halts on a rewritten Main Track, and lands with in-flight / Ready-set', async () => {
     const cwd = mkdtempSync(join(tmpdir(), 'mission-e2e-'))
     const path = writeSpec(cwd, SEALED)
     const prompts: string[] = []
@@ -113,10 +113,10 @@ describe('Mission Contract control plane e2e', () => {
       landShip.abort()
     })
     expect(landPrompts).toHaveLength(1)
-    expect(landPrompts[0]).toContain('## Active Ticket')
-    expect(landPrompts[0]).toContain('Ticket 1: Spec schema')
+    expect(landPrompts[0]).toContain('In-flight:')
+    expect(landPrompts[0]).toContain('Ready-set:')
     expect(landPrompts[0]).toContain('REQ-001')
-    expect(landPrompts[0]).not.toContain('Ticket 2: Prompt contracts')
+    expect(landPrompts[0]).not.toContain('Active Ticket:')
     expect(readFileSync(landPath, 'utf8')).toContain('**Idea.** Bind /goal into /ship.')
   })
 
@@ -226,8 +226,8 @@ describe('Mission Contract control plane e2e', () => {
       '',
       '## Plan',
       '',
-      '- [ ] Ticket 1: Spec schema (Track: 1)',
-      '- [ ] Ticket 2: Prompt contracts (Track: 1)',
+      '- [x] Ticket 1: Spec schema (Track: 1)',
+      '- [x] Ticket 2: Prompt contracts (Track: 1)',
     ].join('\n')
     const path = writeSpec(cwd, landing)
     const flashes: string[] = []
@@ -237,18 +237,11 @@ describe('Mission Contract control plane e2e', () => {
     await ship.run('build a widget', async (prompt) => {
       prompts.push(prompt)
       const markdown = readFileSync(path, 'utf8')
-      if (markdown.includes('- [ ] Ticket 1')) {
-        writeFileSync(path, markdown.replace('- [ ] Ticket 1', '- [x] Ticket 1'))
-        return
-      }
-      if (markdown.includes('- [ ] Ticket 2')) {
-        writeFileSync(path, markdown.replace('- [ ] Ticket 2', '- [x] Ticket 2'))
-        return
-      }
       writeFileSync(path, markdown.replace(/^Status:\s*landing\b/imu, 'Status: shipped'))
     })
 
-    expect(prompts.length).toBeGreaterThanOrEqual(3)
+    expect(prompts).toHaveLength(1)
+    expect(prompts[0]).toContain('This turn is final verification only')
     expect(ship.missionContract).toBeDefined()
     const evidence = parseEvidenceFromSpec(readFileSync(path, 'utf8'))
     const verdict = ship.verifyVerdict ?? verifyAcceptance(ship.missionContract!, evidence)

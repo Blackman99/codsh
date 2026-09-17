@@ -27,6 +27,9 @@ const CARD_TITLE = 'Image #1'
 /** Ctrl+V, the paste-image binding. */
 const CTRL_V = ''
 
+/** Ctrl-C, which stops a running turn. */
+const CTRL_C = '\u0003'
+
 /** A 1×1 PNG: a real image, as small as one gets. */
 const TINY_PNG = Buffer.from(
   'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
@@ -63,7 +66,7 @@ describe.skipIf(process.platform === 'win32')('pasting an image (real PTY)', () 
     // the durable store, dimensions verified from the stored bytes.
     expect(rows.some(row => row.includes('CODE_CLI_VISION img=1 1x1:image/png'))).toBe(true)
     // The person's message shows the token and the meta line, not the bytes.
-    expect(rows.some(row => row.includes('›   [Image #1]'))).toBe(true)
+    expect(rows.some(row => row.includes('│   [Image #1]'))).toBe(true)
   }, E2E_TEST_TIMEOUT_MS)
 
   it('lets Vision Exp describe an image before DeepSeek Pro continues the turn', async () => {
@@ -86,7 +89,7 @@ describe.skipIf(process.platform === 'win32')('pasting an image (real PTY)', () 
       ['Welcome to codsh', `/model deepseek-official/deepseek-v4-pro${ENTER}`, 400],
       ['model deepseek-official/deepseek-v4-pro', CTRL_V, 400],
       ['image #1 attached', `what is this?${ENTER}`, 400],
-      ['describing image #1 with deepseek-v4-flash-vision-exp', '\u001B', 400],
+      ['describing image #1 with deepseek-v4-flash-vision-exp', CTRL_C, 400],
       ['', `/exit${ENTER}`, 2_500],
     ], { env: { CODSH_CLIPBOARD_IMAGE_CMD: await fixtureClipboard() } })
     const text = finalScreen(output).alternate.join(' ')

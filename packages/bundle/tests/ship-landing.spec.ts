@@ -51,7 +51,7 @@ function deferred(): { promise: Promise<void>; resolve: () => void; reject: (err
 }
 
 function waveChildren() {
-  const created: Array<{ graphKey: string; cwd?: string; prompt: string; role?: 'conflict' | 'repair' }> = []
+  const created: Array<{ id: string; graphKey: string; cwd?: string; prompt: string; role?: 'conflict' | 'repair' }> = []
   const pending = new Map<string, { resolve: () => void; reject: (error: Error) => void; handle: ShipChildHandle }>()
   return {
     created,
@@ -66,14 +66,16 @@ function waveChildren() {
       role?: 'conflict' | 'repair'
     }): Promise<ShipChildHandle> {
       const wait = deferred()
+      const id = `child-${String(created.length + 1)}`
       created.push({
+        id,
         graphKey: request.graphKey,
         prompt: request.prompt,
         ...(request.cwd === undefined ? {} : { cwd: request.cwd }),
         ...(request.role === undefined ? {} : { role: request.role }),
       })
       const handle: ShipChildHandle = {
-        id: `child-${String(created.length)}`,
+        id,
         graphKey: request.graphKey,
         label: request.label,
         ...(request.role === undefined ? {} : { role: request.role }),
@@ -253,8 +255,143 @@ describe('ship landing coordinator', () => {
     expect(git.log.some(entry => entry.includes('worktree add -B wt/exports/landing-1'))).toBe(true)
     expect(git.log.some(entry => entry.includes('worktree add -B wt/exports/landing-2'))).toBe(true)
     expect(readFileSync(join(cwd, '.scratch', 'exports', 'worktrees', '.gitignore'), 'utf8')).toContain('*')
+    expect(ship.inFlight).toBe(true)
+    expect(ship.liveChildren).toHaveLength(2)
     ship.abort()
     await running
+  })
+
+  it('dispatches sibling dependents of one closed ticket together even when later-N restates the chain', async () => {
+    const { ship, children, git } = fixture([true, false, false, false], {
+      blockers: ['none', '1', '1, 2', '1, 2, 3'],
+    })
+    const running = ship.run('', async () => {})
+    await waitUntil(() => children.created.length === 3)
+    expect(children.created.map(row => row.graphKey).sort()).toEqual([
+      'landing:2',
+      'landing:3',
+      'landing:4',
+    ])
+    expect(git.log.some(entry => entry.includes('worktree add -B wt/exports/landing-2'))).toBe(true)
+    expect(git.log.some(entry => entry.includes('worktree add -B wt/exports/landing-3'))).toBe(true)
+    expect(git.log.some(entry => entry.includes('worktree add -B wt/exports/landing-4'))).toBe(true)
+    ship.abort()
+    await running
+  })
+
+  it('serializes git worktree add while still creating a child per sibling ticket', async () => {
+    let concurrent = 0
+    let peak = 0
+    const base = recordingGit()
+    const git: ReturnType<typeof recordingGit> = Object.assign(
+      async (args: readonly string[], cwd: string) => {
+        if (args[0] === 'worktree' && args[1] === 'add') {
+          concurrent += 1
+          peak = Math.max(peak, concurrent)
+          await new Promise<void>(resolve => { setTimeout(resolve, 15) })
+          concurrent -= 1
+        }
+        return base(args, cwd)
+      },
+      { log: base.log },
+    )
+    const { ship, children } = fixture([false, false], { blockers: ['none', 'none'], git })
+    const running = ship.run('', async () => {})
+    await waitUntil(() => children.created.length === 2)
+    expect(peak).toBe(1)
+    expect(children.created.map(row => row.graphKey).sort()).toEqual(['landing:1', 'landing:2'])
+    ship.abort()
+    await running
+  })
+
+  it('keeps run() in flight while a landing child is unfinished and reports in-flight on the teaser', async () => {
+    const teasers: Array<{ counts: { unclaimed: number; claimed: number; closed: number } | undefined; inFlight?: number }> = []
+    const busy: boolean[] = []
+    const { path, cwd, children, git } = fixture([false, false], { blockers: ['none', '1'] })
+    const ship = new ShipRun(cwd, {
+      setPlan: () => {},
+      setChip: () => {},
+      setTeaser: (counts, inFlight) => {
+        teasers.push(inFlight === undefined ? { counts } : { counts, inFlight })
+      },
+    }, {
+      childCreate: children,
+      git,
+      busy: active => { busy.push(active) },
+    })
+    let finished = false
+    const running = ship.run('', async () => {}).then(() => { finished = true })
+    await waitUntil(() => children.created.length === 1)
+    await new Promise(resolve => { setTimeout(resolve, 20) })
+    ship.refresh()
+    expect(finished).toBe(false)
+    expect(ship.inFlight).toBe(true)
+    expect(ship.liveChildren).toHaveLength(1)
+    expect(teasers.some(row => (row.inFlight ?? 0) > 0)).toBe(true)
+    expect(busy.includes(true)).toBe(true)
+    expect(children.created[0]?.prompt).toContain('Strict Red-First Execution')
+    expect(readFileSync(path, 'utf8')).toMatch(/- \[ \] Ticket 1:/u)
+    ship.abort()
+    await running
+    expect(finished).toBe(true)
+    expect(busy.at(-1)).toBe(false)
+  })
+
+  it('keeps run() in flight when a landing child has no done promise', async () => {
+    const created: string[] = []
+    const { cwd, git } = fixture([false], { blockers: ['none'] })
+    const children: ReturnType<typeof waveChildren> = {
+      created: [],
+      pending: new Map(),
+      finish() {},
+      fail() {},
+      async create(request) {
+        created.push(request.graphKey)
+        return {
+          id: `child-${request.graphKey}`,
+          graphKey: request.graphKey,
+          label: request.label,
+          async dispose() {},
+        }
+      },
+    }
+    const ship = new ShipRun(cwd, { setPlan: () => {}, setChip: () => {} }, {
+      childCreate: children,
+      git,
+    })
+    let finished = false
+    const running = ship.run('', async () => {}).then(() => { finished = true })
+    await waitUntil(() => created.length === 1)
+    await new Promise(resolve => { setTimeout(resolve, 20) })
+    expect(finished).toBe(false)
+    expect(ship.inFlight).toBe(true)
+    expect(ship.liveChildren).toHaveLength(1)
+    ship.abort()
+    await running
+    expect(finished).toBe(true)
+  })
+
+  it('does not invent a worktree directory or dispatch when git worktree add fails', async () => {
+    const messages: string[] = []
+    const { cwd, children } = fixture([false], { blockers: ['none'] })
+    const git = recordingGit()
+    const original = git as ReturnType<typeof recordingGit>
+    const failing: ReturnType<typeof recordingGit> = Object.assign(
+      async (args: readonly string[], workCwd: string) => {
+        if (args[0] === 'worktree' && args[1] === 'add') return { code: 128, output: "fatal: invalid reference: HEAD\n" }
+        return original(args, workCwd)
+      },
+      { log: original.log },
+    )
+    const ship = new ShipRun(cwd, { setPlan: () => {}, setChip: () => {} }, {
+      flash: text => { messages.push(text) },
+      childCreate: children,
+      git: failing,
+    })
+    await ship.run('', async () => {})
+    expect(children.created).toHaveLength(0)
+    expect(existsSync(join(cwd, '.scratch', 'exports', 'worktrees', 'landing-1'))).toBe(false)
+    expect(messages.join('\n')).toMatch(/worktree|HEAD/i)
   })
 
   it('merges a finished independent later-N while an earlier-N is still running', async () => {
@@ -360,6 +497,29 @@ describe('ship landing coordinator', () => {
     await running
   })
 
+  it('aligns tool calls from parallel subagents with their respective tickets', async () => {
+    const { ship, path, children } = fixture([false, false], {
+      blockers: ['none', 'none'],
+    })
+    const base = spec([false, false], 'landing', 'Track-1: Offline only.\nTrack-2: Local format.', ['none', 'none'])
+    const second = '- [ ] Ticket 2: Capability 2 (Blocked by: none) (Track: 2)'
+    writeFileSync(path, base.replace('- [ ] Ticket 2: Capability 2 (Blocked by: none) (Track: 1)', second))
+    const running = ship.run('', async () => {})
+    await waitUntil(() => children.created.length === 2)
+    const child1 = children.created.find(c => c.graphKey === 'landing:1')!
+    const child2 = children.created.find(c => c.graphKey === 'landing:2')!
+    expect(child1).toBeDefined()
+    expect(child2).toBeDefined()
+    expect(ship.alignTool('write', { file_path: 'src/export1.ts', supports: ['REQ-001'] }, { agentSessionId: child1.id }).allow).toBe(true)
+    expect(ship.alignTool('write', { file_path: 'src/export1.ts', supports: ['REQ-002'] }, { agentSessionId: child1.id }).allow).toBe(false)
+    expect(ship.alignTool('write', { file_path: 'src/export2.ts', supports: ['REQ-002'] }, { agentSessionId: child2.id }).allow).toBe(true)
+    expect(ship.alignTool('write', { file_path: 'src/export2.ts', supports: ['REQ-001'] }, { agentSessionId: child2.id }).allow).toBe(false)
+    expect(ship.alignTool('write', { file_path: 'src/export1.ts' }, { agentSessionId: child1.id }).supportsRequirement).toBe('REQ-001')
+    expect(ship.alignTool('write', { file_path: 'src/export2.ts' }, { agentSessionId: child2.id }).supportsRequirement).toBe('REQ-002')
+    ship.abort()
+    await running
+  })
+
   it('requires acceptance evidence in the independent final verification turn', async () => {
     const cwd = mkdtempSync(join(tmpdir(), 'ship-landing-'))
     roots.push(cwd)
@@ -397,6 +557,23 @@ describe('ship landing coordinator', () => {
     expect(plan.tickets[0]?.blockers).toEqual(['1'])
     expect(plan.active?.contract).toContain('(Track: 1)')
     expect(landingPlan('## Plan\n\n- [ ] Ticket 1: broken (Blocked by: 2)\n').error).toContain('Unknown')
+  })
+
+  it('drops a numbered chain so siblings of one closed ticket are unblocked together', () => {
+    const plan = landingPlan([
+      '## Plan',
+      '',
+      '- [x] Ticket 1: Engine (Blocked by: none) (Track: 1)',
+      '- [ ] Ticket 2: Audio (Blocked by: 1) (Track: 1)',
+      '- [ ] Ticket 3: Arsenal (Blocked by: 1, 2) (Track: 1)',
+      '- [ ] Ticket 4: AI (Blocked by: 1, 2, 3) (Track: 1)',
+      '- [ ] Ticket 5: Mission (Blocked by: 2, 3) (Track: 1)',
+    ].join('\n'))
+    expect(plan.tickets.find(ticket => ticket.id === '2')?.blockers).toEqual(['1'])
+    expect(plan.tickets.find(ticket => ticket.id === '3')?.blockers).toEqual(['1'])
+    expect(plan.tickets.find(ticket => ticket.id === '4')?.blockers).toEqual(['1'])
+    expect(plan.tickets.find(ticket => ticket.id === '5')?.blockers).toEqual(['2', '3'])
+    expect(plan.error).toBeUndefined()
   })
 
   it('after a Tick, a sibling 已关闭 that fails is unticked with Proof: red, Claim kept, and closed DAG dependents untick without rewriting Last proof', async () => {

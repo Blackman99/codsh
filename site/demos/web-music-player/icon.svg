@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#3b82f6" />
+      <stop offset="50%" stop-color="#6366f1" />
+      <stop offset="100%" stop-color="#8b5cf6" />
+    </linearGradient>
+    <filter id="shadow" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="8" stdDeviation="16" flood-color="#000000" flood-opacity="0.4" />
+    </filter>
+  </defs>
+  <rect width="512" height="512" rx="112" fill="url(#bg)" />
+  <!-- Vinyl disc outer -->
+  <circle cx="256" cy="256" r="176" fill="#18181b" filter="url(#shadow)" />
+  <circle cx="256" cy="256" r="148" fill="none" stroke="#27272a" stroke-width="2" />
+  <circle cx="256" cy="256" r="120" fill="none" stroke="#27272a" stroke-width="2" />
+  <circle cx="256" cy="256" r="92" fill="none" stroke="#27272a" stroke-width="2" />
+  <circle cx="256" cy="256" r="64" fill="#3b82f6" />
+  <circle cx="256" cy="256" r="20" fill="#09090b" />
+  <!-- Musical Note Accent -->
+  <path d="M246 172 v92 a24 24 0 1 1 -18 -23.2 V196 l64 -16 v68 a24 24 0 1 1 -18 -23.2 V164 Z" fill="#ffffff" />
+</svg>

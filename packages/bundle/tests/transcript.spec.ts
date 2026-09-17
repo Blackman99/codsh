@@ -335,7 +335,7 @@ describe('tool results', () => {
       call: (): ToolCallView => ({ card: 'terminal', title: command, cwd: '/repo/apps' }),
       result: () => undefined,
     })
-    const [, row = ''] = transcript.render(callEvent('c1', 'bash', {}))
+    const [row = ''] = transcript.render(callEvent('c1', 'bash', {}))
     // The screen paints `│ ` beside the row: the row itself fits what is left.
     expect(displayWidth(row)).toBeLessThanOrEqual(80 - 2)
     expect(row).toContain('(apps)')
@@ -539,15 +539,37 @@ describe('tool results', () => {
     transcript.render(callEvent('c1', 'bash', {}))
     // No call presenter here, so the pending title was the tool name: the
     // result's own title differs, which is what brings the header back.
-    expect(transcript.render(resultEvent('c1', 'failed'))).toEqual(['● pnpm test (exit 1) · 1 line ✔', ''])
-    expect(transcript.takeFold()).toEqual(['● pnpm test (exit 1) · 1 line ✔', '  failed', ''])
+    // dsh reports a non-zero exit as an ordinary result; the row still fails.
+    expect(transcript.render(resultEvent('c1', 'failed'))).toEqual(['● pnpm test (exit 1) · 1 line ✗', ''])
+    expect(transcript.takeFold()).toEqual(['● pnpm test (exit 1) · 1 line ✗', '  failed', ''])
   })
 
   it('reports a signal kill instead of an exit code', () => {
     const result = (): ToolResultView => ({ card: 'terminal', title: 'sleep', signal: 'SIGTERM' })
     const transcript = build({ result })
     transcript.render(callEvent('c1', 'bash', {}))
-    expect(transcript.render(resultEvent('c1', ''))[0]).toBe('● sleep (killed by SIGTERM) ✔')
+    expect(transcript.render(resultEvent('c1', ''))[0]).toBe('● sleep (killed by SIGTERM) ✗')
+  })
+
+  it('paints a non-zero terminal exit as an error card, not a green pass', () => {
+    const colorTheme = createTheme(true, { COLORTERM: 'truecolor' })
+    const transcript = new Transcript({ theme: colorTheme, columns: 80, cwd: CWD }, {
+      call: (): ToolCallView => ({ card: 'terminal', title: 'git status --porcelain' }),
+      result: (): ToolResultView => ({
+        card: 'terminal',
+        title: 'git status --porcelain',
+        output: 'fatal: not a git repository',
+        exitCode: 128,
+      }),
+    })
+    transcript.render(callEvent('c1', 'bash', {}))
+    const [row = ''] = transcript.render(resultEvent('c1', 'fatal: not a git repository'))
+    expect(row.startsWith('\u001B[48;2;45;15;25m')).toBe(true)
+    expect(row).toContain(colorTheme.err('●'))
+    expect(row).toContain(colorTheme.err('✗'))
+    expect(row).not.toContain(colorTheme.ok('✔'))
+    expect(row).not.toContain(colorTheme.ok('●'))
+    expect(row).toContain(colorTheme.error('(exit 128)'))
   })
 
   it('groups search matches by file', () => {
@@ -596,7 +618,8 @@ describe('tool results', () => {
     expect(second.join('\n')).not.toContain('Baseline three-bot refusal')
     const replaced = transcript.takePendingCard()
     expect(replaced[0]).toBe(first[0])
-    // The first card and the second call's pending row are what it replaces.
+    // The first card (row plus its piped separator) and the second call's
+    // pending row are what it replaces.
     expect(replaced).toHaveLength(3)
     expect(replaced[2]).toContain('● export PATH=')
     const full = transcript.takeFold() ?? []
@@ -637,7 +660,7 @@ describe('tool results', () => {
     const result = (): ToolResultView => ({ card: 'terminal', title: 'pnpm test', output: 'out', exitCode: 1 })
     const transcript = build({ call, result })
     transcript.render(callEvent('c1', 'bash', {}))
-    expect(transcript.render(resultEvent('c1', 'failed'))).toEqual(['● pnpm test (exit 1) · 1 line ✔', ''])
+    expect(transcript.render(resultEvent('c1', 'failed'))).toEqual(['● pnpm test (exit 1) · 1 line ✗', ''])
   })
 
   it('summarizes a read as a window of the file', () => {
@@ -690,11 +713,8 @@ describe('tool results', () => {
     )
     transcript.render(resultEvent('c1', 'alpha'))
     const second = transcript.render(resultEvent('c2', 'beta'))
-    // The pad the run opened with stays its inset when the head is rebuilt.
     expect(second).toEqual([
-      colorTheme.bgTool('  '),
-      colorTheme.bgTool(`  ${colorTheme.ok('●')} ${colorTheme.dim('(result)')} ${colorTheme.dim('· 2 results')}`),
-      colorTheme.bgTool('  '),
+      `${colorTheme.dim('●')} ${colorTheme.dim('(result)')} ${colorTheme.dim('· 2 results')}`,
     ])
   })
 
@@ -829,10 +849,9 @@ describe('a result body, whole behind its row', () => {
     expect((transcript.takeFold() ?? []).join('\n')).toContain('y'.repeat(1000))
   })
 
-  it('paints an unpaired row with the panel fill, and its fold the same way', () => {
+  it('paints an unpaired row without a panel fill, and keeps the body behind it', () => {
     // A resumed page-boundary result has no pending card to pair with. The
-    // row and the pad under it carry the tool fill, and so does every body
-    // line the fold keeps — no flush strip, no hole in the panel.
+    // row is the card; the body lives in the fold, unhighlighted.
     const colorTheme = createTheme(true, { COLORTERM: 'truecolor' })
     const transcript = new Transcript(
       { theme: colorTheme, columns: 80, cwd: CWD },
@@ -840,12 +859,11 @@ describe('a result body, whole behind its row', () => {
     )
     const lines = transcript.render(resultEvent('c9', Array.from({ length: 20 }, (_, i) => `line ${i}`).join('\n')))
     expect(lines).toEqual([
-      colorTheme.bgTool('  '),
-      colorTheme.bgTool(`  ${colorTheme.ok('●')} ${colorTheme.dim('(result)')} ${colorTheme.dim('· 20 lines')}`),
-      colorTheme.bgTool('  '),
+      `${colorTheme.dim('●')} ${colorTheme.dim('(result)')} ${colorTheme.dim('· 20 lines')}`,
     ])
     const full = transcript.takeFold() ?? []
-    expect(full.some(line => line === colorTheme.bgTool(colorTheme.dim('  line 0')))).toBe(true)
+    expect(full).toContain(colorTheme.dim('  line 0'))
+    expect(full.every(line => !line.includes('\u001B[48;2;14;18;24m'))).toBe(true)
   })
 })
 
@@ -892,21 +910,23 @@ describe('the forms a long block keeps', () => {
     expect(full).toContain('  second')
   })
 
-  it('keeps inner pads on the collapsed clock so the glyph sits in a panel, not a hole', () => {
-    // The pads are the panel's inset, not a gap between neighbouring cards.
-    // Hover and the glyph both belong to that inset.
+  it('keeps the collapsed clock to one row and pads only the expanded body', () => {
     const colorTheme = createTheme(true, { COLORTERM: 'truecolor' })
     const pad = colorTheme.bgThinking('  ')
-    const clock = colorTheme.bgThinking(colorTheme.dim('  thought for 1.5s'))
+    const clock = colorTheme.dim('  thought for 1.5s')
+    const filled = colorTheme.bgThinking(clock)
     const { summary, full } = thinkingFold(['reasoning line'], colorTheme, 1.5)
-    expect(summary).toEqual([pad, clock, pad])
+    // Collapsed is a separator, not a panel: a full-width fill on the clock
+    // is a black bar between tool rows. The expanded body still has the fill.
+    expect(summary).toEqual([clock])
+    expect(summary[0]).not.toContain('\u001B[48;')
     expect(full[0]).toBe(pad)
-    expect(full[1]).toBe(clock)
+    expect(full[1]).toBe(filled)
     expect(full.at(-1)).toBe(pad)
     expect(full).toContain(colorTheme.bgThinking('reasoning line'))
     const rules = thinkingFoldRules(colorTheme, 1)
-    expect(rules.summary).toEqual(['  ', blockRules(colorTheme).agent, '  '])
-    expect(rules.full).toEqual(['  ', blockRules(colorTheme).agent, '  ', '  ', '  '])
+    expect(rules.summary).toBe(blockRules(colorTheme).agent)
+    expect(rules.full).toEqual(Array.from({ length: 5 }, () => blockRules(colorTheme).agent))
   })
 
   it('grows a unit for a long think, rather than counting seconds', () => {
@@ -925,39 +945,52 @@ describe('the forms a long block keeps', () => {
 })
 
 describe('a thought while it streams', () => {
-  it('opens with a head the clock will replace, inside the panel', () => {
+  it('opens with one ticking row that the clock will replace', () => {
     const colorTheme = createTheme(true, { COLORTERM: 'truecolor' })
-    const pad = colorTheme.bgThinking('  ')
     const { rows, rules } = thinkingOpenRows(colorTheme)
-    expect(rows).toEqual([pad, colorTheme.bgThinking(colorTheme.dim('  thinking…')), pad])
-    // The glyph sits on the head alone; the pads are the panel's inset.
-    expect(rules).toEqual(['  ', blockRules(colorTheme).agent, '  '])
+    const mark = colorTheme.pending('⠋')
+    expect(rows).toEqual([`  ${mark} ${colorTheme.dim('thinking…')}`])
+    expect(rows[0]).not.toContain('\u001B[48;')
+    expect(rules).toBe(blockRules(colorTheme).agent)
     // A streamed line carries the same inset, so it lines up under the head.
-    expect(thinkingLineRule(colorTheme)).toBe('  ')
+    expect(thinkingLineRule(colorTheme)).toBe(blockRules(colorTheme).agent)
   })
 
-  it('needs no panel without colour, and no rule down the body', () => {
-    // No fill says which block a row belongs to, so the glyph sits on the
-    // head — then the clock — alone, and the body's own indent lines up
-    // under it: a rule row by row would put ✻ down every deliberation line.
+  it('carries the agent │ down the clock, the pads, and the deliberation', () => {
     const { rows, rules } = thinkingOpenRows(theme)
-    expect(rows).toEqual(['thinking…'])
-    expect(rules).toBe('✻ ')
-    expect(thinkingLineRule(theme)).toBe('')
-    expect(thinkingFoldRules(theme, 2)).toEqual({ summary: '✻ ', full: ['✻ ', '', ''] })
+    expect(rows).toEqual(['⠋ thinking…'])
+    expect(rules).toBe('│ ')
+    expect(thinkingLineRule(theme)).toBe('│ ')
+    expect(thinkingFoldRules(theme, 2)).toEqual({ summary: '│ ', full: ['│ ', '│ ', '│ '] })
+    const colorTheme = createTheme(true, { COLORTERM: 'truecolor' })
+    const agent = blockRules(colorTheme).agent
+    expect(thinkingFoldRules(colorTheme, 1).full).toEqual([agent, agent, agent, agent, agent])
+  })
+
+  it('ticks the same Braille frames as the working line, without changing width', () => {
+    const first = thinkingOpenRows(theme, 0).rows[0]
+    const next = thinkingOpenRows(theme, 1).rows[0]
+    const wrapped = thinkingOpenRows(theme, 10).rows[0]
+    expect(first).toBe('⠋ thinking…')
+    expect(next).toBe('⠙ thinking…')
+    expect(wrapped).toBe(first)
+    expect(displayWidth(first ?? '')).toBe(displayWidth(next ?? ''))
   })
 })
 
 describe('which block a line belongs to', () => {
   const rules = blockRules(theme)
 
-  it('exposes the gutter glyphs without the old heavy bar', () => {
-    expect(rules.user).toBe('› ')
+  it('exposes one │ per role, without the old heavy bar or identity glyphs', () => {
+    expect(rules.user).toBe('│ ')
     expect(rules.tool).toBe('│ ')
     expect(rules.error).toBe('│ ')
-    expect(rules.agent).toBe('✻ ')
-    expect(rules.meta).toBe('· ')
+    expect(rules.agent).toBe('│ ')
+    expect(rules.meta).toBe('│ ')
+    expect(rules.answer).toBe('│ ')
     expect(rules.user).not.toContain('┃')
+    expect(rules.user).not.toContain('›')
+    expect(rules.agent).not.toContain('✻')
   })
 
   /** A user message event. */
@@ -988,9 +1021,16 @@ describe('which block a line belongs to', () => {
     expect(transcript.takeRule()).toBe(rules.error)
   })
 
-  it('leaves what a person reads flush', () => {
-    // An answer carries the conversation; ruling it too would mark everything
-    // equally and mark nothing.
+  it('re-marks a non-zero terminal exit in the error colour, even when the executor did not error it', () => {
+    const result = (): ToolResultView => ({ card: 'terminal', title: 'git status --porcelain', output: 'fatal', exitCode: 128 })
+    const transcript = build({ result })
+    transcript.render(callEvent('c1', 'bash', {}))
+    transcript.takeRule()
+    transcript.render(resultEvent('c1', 'fatal'))
+    expect(transcript.takeRule()).toBe(rules.error)
+  })
+
+  it('rules an answer with the muted │ so the rail continues through prose', () => {
     const transcript = build()
     transcript.render({
       type: 'assistant/message',
@@ -998,7 +1038,7 @@ describe('which block a line belongs to', () => {
       time: 0,
       data: { message: { content: [{ type: 'text', text: 'here you go' }] } },
     } as unknown as SessionEvent)
-    expect(transcript.takeRule()).toBe('')
+    expect(transcript.takeRule()).toBe(rules.answer)
   })
 
   it('takes the rule once, like the fold it travels with', () => {
@@ -1295,10 +1335,11 @@ describe('formatToolCardLine', () => {
 
   it('keeps gutter glyphs under NO_COLOR', () => {
     const plain = createTheme(false, { NO_COLOR: '1' })
-    expect(gutter('user', plain)).toBe('› ')
-    expect(gutter('thinking', plain)).toBe('✻ ')
+    expect(gutter('user', plain)).toBe('│ ')
+    expect(gutter('thinking', plain)).toBe('│ ')
     expect(gutter('tool', plain)).toBe('│ ')
-    expect(gutter('system', plain)).toBe('· ')
+    expect(gutter('system', plain)).toBe('│ ')
+    expect(gutter('answer', plain)).toBe('│ ')
     expect(formatToolCardLine(plain, 80, '●', 'Write x.ts', '+12 -3', '✔')).toBe('● Write x.ts +12 -3 ✔')
   })
 
@@ -1415,7 +1456,7 @@ describe('transcript density', () => {
 })
 
 describe('grok background differentiation across functional blocks', () => {
-  it('styles user, tool, thinking, and error blocks with distinct background colors', () => {
+  it('styles user, thinking, and error blocks, and leaves tool cards unhighlighted', () => {
     const colorTheme = createTheme(true, { COLORTERM: 'truecolor' })
     const coloredTranscript = new Transcript({ theme: colorTheme, columns: 80, cwd: CWD }, {
       call: (name) => name === 'bash' ? { card: 'terminal', title: 'echo hi' } : undefined,
@@ -1435,29 +1476,25 @@ describe('grok background differentiation across functional blocks', () => {
     expect(coloredTranscript.takePromptPad()).toBe(colorTheme.bgUser('  '))
 
     const callLines = coloredTranscript.render(callEvent('c1', 'bash', {}))
-    expect(callLines[0]).toBe(colorTheme.bgTool('  '))
-    expect(callLines[1]).toContain(colorTheme.bgTool(`  ${colorTheme.pending('●')} ${colorTheme.tool('echo hi')}`))
+    expect(callLines).toEqual([`${colorTheme.pending('●')} echo hi`])
+    expect(callLines[0]).not.toContain('\u001B[48;2;14;18;24m')
 
     const resultLines = coloredTranscript.render(resultEvent('c1', 'hi'))
-    expect(resultLines[0]?.startsWith('\u001B[48;2;14;18;24m')).toBe(true)
-    expect(resultLines[0]).toBe(colorTheme.bgTool('  '))
-    expect(resultLines[1]).toContain('echo hi')
-    expect(resultLines[1]).toContain('1 line')
-    expect(resultLines[2]).toBe(colorTheme.bgTool('  '))
-    expect(coloredTranscript.takeFold()).toContain(colorTheme.bgTool(colorTheme.dim('  hi')))
+    expect(resultLines[0]).toContain('echo hi')
+    expect(resultLines[0]).toContain('1 line')
+    expect(resultLines[0]).toContain(colorTheme.dim('●'))
+    expect(resultLines[0]).toContain(colorTheme.ok('✔'))
+    expect(resultLines[0]).not.toContain(colorTheme.ok('●'))
+    expect(resultLines.every(line => !line.includes('\u001B[48;2;14;18;24m'))).toBe(true)
+    expect(coloredTranscript.takeFold()).toContain(colorTheme.dim('  hi'))
 
     const errResultLines = coloredTranscript.render(resultEvent('c2', 'failed', true))
     expect(errResultLines[0]?.startsWith('\u001B[48;2;45;15;25m')).toBe(true)
-    expect(errResultLines[0]).toBe(colorTheme.bgError('  '))
-    expect(errResultLines[1]).toContain('✗')
+    expect(errResultLines[0]).toBe(colorTheme.bgError(`${colorTheme.err('✗')} ${colorTheme.dim('(result)')} ${colorTheme.dim('· 1 line')}`))
 
     const think = thinkingFold(['reasoning line'], colorTheme, 1.5)
-    // Collapsed and expanded both inset the clock with the thinking panel fill.
-    expect(think.summary).toEqual([
-      colorTheme.bgThinking('  '),
-      colorTheme.bgThinking(colorTheme.dim('  thought for 1.5s')),
-      colorTheme.bgThinking('  '),
-    ])
+    // Only the expanded body needs vertical padding and a panel fill.
+    expect(think.summary).toEqual([colorTheme.dim('  thought for 1.5s')])
     expect(think.full[0]).toBe(colorTheme.bgThinking('  '))
     expect(think.full[1]).toBe(colorTheme.bgThinking(colorTheme.dim('  thought for 1.5s')))
     expect(think.full[2]).toBe(colorTheme.bgThinking('  '))
@@ -1465,27 +1502,21 @@ describe('grok background differentiation across functional blocks', () => {
     expect(think.full[4]).toBe(colorTheme.bgThinking('  '))
   })
 
-  it('pads every pending card, whatever its presenter answered', () => {
+  it('paints every pending card as one unhighlighted row', () => {
     const colorTheme = createTheme(true, { COLORTERM: 'truecolor' })
-    const pad = colorTheme.bgTool('  ')
 
-    // No presenter at all: the generic name-only card.
     const generic = new Transcript(
       { columns: 80, theme: colorTheme, cwd: CWD },
       { call: () => undefined, result: () => undefined },
     ).render(callEvent('c1', 'bash', {}))
-    expect(generic[0]).toBe(pad)
-    expect(generic[1]).toContain(colorTheme.tool('bash'))
-    expect(generic[2]).toBe(pad)
+    expect(generic).toEqual([`${colorTheme.pending('●')} bash`])
 
-    // A presenter answering with locations: the file card.
     const located = new Transcript(
       { columns: 80, theme: colorTheme, cwd: CWD },
       { call: (): ToolCallView => ({ card: 'generic', title: 'Read README.md', locations: [{ path: '/repo/README.md' }] }), result: () => undefined },
     ).render(callEvent('c1', 'read', {}))
-    expect(located[0]).toBe(pad)
-    expect(located[1]).toContain('Read README.md')
-    expect(located[2]).toBe(pad)
+    expect(located[0]).toContain('Read README.md')
+    expect(located).toHaveLength(1)
   })
 
   it('leaves uncoloured output unpadded, since it paints no panel to inset', () => {
@@ -1495,27 +1526,47 @@ describe('grok background differentiation across functional blocks', () => {
     expect(plain).toEqual(['● bash'])
   })
 
-  it('opens a tool panel with its own top pad after thinking ended the run', () => {
+  it('opens the next tool card as one row after thinking ended the run', () => {
     const colorTheme = createTheme(true, { COLORTERM: 'truecolor' })
-    const pad = colorTheme.bgTool('  ')
     const colored = new Transcript(
       { columns: 80, theme: colorTheme, cwd: CWD },
       { call: () => undefined, result: () => undefined },
     )
     colored.render(callEvent('c1', 'read', {}))
     colored.render(resultEvent('c1', ''))
-    // Closing the run must not insert an unstyled blank: neighbouring panels
-    // meet at their inner pads, and a gap here is the hole between an Edit
-    // card and the thought clock.
     expect(colored.endRun()).toEqual([])
     const next = colored.render(callEvent('c2', 'grep', {}))
-    expect(next[0]).toBe(pad)
-    expect(next[1]).toContain(colorTheme.tool('grep'))
+    expect(next).toEqual([`${colorTheme.pending('●')} grep`])
   })
 
-  it('gives a run of one-line cards a single shared panel', () => {
+  it('keeps piped consecutive cards on one row each with a blank closer', () => {
+    const transcript = build()
+    transcript.render(callEvent('c1', 'read', {}))
+    expect(transcript.render(resultEvent('c1', ''))).toEqual(['● read ✔', ''])
+    const pending = transcript.render(callEvent('c2', 'grep', {}))
+    expect(pending).toEqual(['● grep'])
+    expect(transcript.render(resultEvent('c2', ''))).toEqual(['● grep ✔', ''])
+  })
+
+  it('dims a finished success bullet and keeps the green status glyph', () => {
     const colorTheme = createTheme(true, { COLORTERM: 'truecolor' })
-    const pad = colorTheme.bgTool('  ')
+    const colored = new Transcript(
+      { columns: 80, theme: colorTheme, cwd: CWD },
+      {
+        call: (): ToolCallView => ({ card: 'generic', title: 'Read a.ts' }),
+        result: (): ToolResultView => ({ card: 'generic', title: 'Read a.ts' }),
+      },
+    )
+    colored.render(callEvent('c1', 'read', {}))
+    const [row = ''] = colored.render(resultEvent('c1', ''))
+    expect(row.startsWith(colorTheme.dim('●'))).toBe(true)
+    expect(row).toContain(colorTheme.ok('✔'))
+    expect(row).not.toContain(colorTheme.ok('●'))
+    expect(row).not.toContain(colorTheme.pending('●'))
+  })
+
+  it('leaves a blank row between consecutive one-line cards on a TTY', () => {
+    const colorTheme = createTheme(true, { COLORTERM: 'truecolor' })
     let file = 'a.ts'
     const colored = new Transcript(
       { columns: 80, theme: colorTheme, cwd: CWD },
@@ -1525,30 +1576,27 @@ describe('grok background differentiation across functional blocks', () => {
       },
     )
 
-    // The first card opens the panel and closes it.
     colored.render(callEvent('c1', 'read', {}))
     const first = colored.render(resultEvent('c1', ''))
-    expect(first[0]).toBe(pad)
-    expect(first[1]).toContain('Read a.ts')
-    expect(first[2]).toBe(pad)
+    expect(first[0]).toContain('Read a.ts')
+    expect(first).toHaveLength(1)
 
-    // The second takes that closing pad over rather than opening a panel of
-    // its own, so the two cards end up as adjacent rows of one panel.
     file = 'b.ts'
     const pending = colored.render(callEvent('c2', 'read', {}))
-    expect(colored.takePendingCard()).toEqual([pad])
-    expect(pending[0]).toContain('Read b.ts')
-    expect(pending[1]).toBe(pad)
+    expect(colored.takePendingCard()).toEqual([])
+    expect(pending[0]).toBe('')
+    expect(pending[1]).toContain('Read b.ts')
+    expect(pending).toHaveLength(2)
 
     const second = colored.render(resultEvent('c2', ''))
     expect(colored.takePendingCard()).toEqual(pending)
-    expect(second[0]).toContain('Read b.ts')
-    expect(second[1]).toBe(pad)
+    expect(second[0]).toBe('')
+    expect(second[1]).toContain('Read b.ts')
+    expect(second).toHaveLength(2)
   })
 
-  it('gives a run of diff cards a single shared panel', () => {
+  it('leaves a blank row between consecutive diff cards on a TTY', () => {
     const colorTheme = createTheme(true, { COLORTERM: 'truecolor' })
-    const pad = colorTheme.bgTool('  ')
     const colored = new Transcript(
       { columns: 80, theme: colorTheme, cwd: CWD },
       {
@@ -1557,24 +1605,21 @@ describe('grok background differentiation across functional blocks', () => {
       },
     )
 
-    // First diff call produces no pending lines, and result opens the panel
     expect(colored.render(callEvent('c1', 'a.ts', {}))).toEqual([])
     const first = colored.render(resultEvent('c1', ''))
-    expect(first[0]).toBe(pad)
-    expect(first[1]).toContain('Edit a.ts')
-    expect(first[2]).toBe(pad)
+    expect(first[0]).toContain('Edit a.ts')
+    expect(first).toHaveLength(1)
 
-    // Second diff call also produces no pending lines, and its result takes over the closing pad
     expect(colored.render(callEvent('c2', 'b.ts', {}))).toEqual([])
     const second = colored.render(resultEvent('c2', ''))
-    expect(colored.takePendingCard()).toEqual([pad])
-    expect(second[0]).toContain('Edit b.ts')
-    expect(second[1]).toBe(pad)
+    expect(colored.takePendingCard()).toEqual([])
+    expect(second[0]).toBe('')
+    expect(second[1]).toContain('Edit b.ts')
+    expect(second).toHaveLength(2)
   })
 
-  it('keeps consecutive read cards in one panel with no gap between them', () => {
+  it('leaves a blank row between consecutive read cards on a TTY', () => {
     const colorTheme = createTheme(true, { COLORTERM: 'truecolor' })
-    const pad = colorTheme.bgTool('  ')
     let file = 'questions.spec.ts'
     const colored = new Transcript(
       { columns: 80, theme: colorTheme, cwd: CWD },
@@ -1591,21 +1636,19 @@ describe('grok background differentiation across functional blocks', () => {
     )
     colored.render(callEvent('c1', 'read', {}))
     const first = colored.render(resultEvent('c1', 'ok'))
-    expect(first[0]).toBe(pad)
-    expect(first[1]).toContain('Read questions.spec.ts')
-    expect(first[2]).toBe(pad)
+    expect(first[0]).toContain('Read questions.spec.ts')
+    expect(first).toHaveLength(1)
 
     file = 'prompt.spec.ts'
     colored.render(callEvent('c2', 'read', {}))
     const second = colored.render(resultEvent('c2', 'ok'))
-    expect(second.filter(line => line === pad)).toHaveLength(1)
-    expect(second[0]).toContain('Read prompt.spec.ts')
-    expect(second[1]).toBe(pad)
+    expect(second[0]).toBe('')
+    expect(second[1]).toContain('Read prompt.spec.ts')
+    expect(second).toHaveLength(2)
   })
 
-  it('keeps consecutive edit cards in one panel with no gap between them', () => {
+  it('leaves a blank row between consecutive edit cards on a TTY', () => {
     const colorTheme = createTheme(true, { COLORTERM: 'truecolor' })
-    const pad = colorTheme.bgTool('  ')
     let file = 'questions.spec.ts'
     const colored = new Transcript(
       { columns: 80, theme: colorTheme, cwd: CWD },
@@ -1620,21 +1663,19 @@ describe('grok background differentiation across functional blocks', () => {
     )
     expect(colored.render(callEvent('c1', 'edit', {}))).toEqual([])
     const first = colored.render(resultEvent('c1', 'ok'))
-    expect(first[0]).toBe(pad)
-    expect(first[1]).toContain('Edit questions.spec.ts')
-    expect(first[2]).toBe(pad)
+    expect(first[0]).toContain('Edit questions.spec.ts')
+    expect(first).toHaveLength(1)
 
     file = 'ship.spec.ts'
     expect(colored.render(callEvent('c2', 'edit', {}))).toEqual([])
     const second = colored.render(resultEvent('c2', 'ok'))
-    expect(second.filter(line => line === pad)).toHaveLength(1)
-    expect(second[0]).toContain('Edit ship.spec.ts')
-    expect(second[1]).toBe(pad)
+    expect(second[0]).toBe('')
+    expect(second[1]).toContain('Edit ship.spec.ts')
+    expect(second).toHaveLength(2)
   })
 
   it('keeps the tool run open across intervening empty assistant messages and step boundaries', () => {
     const colorTheme = createTheme(true, { COLORTERM: 'truecolor' })
-    const pad = colorTheme.bgTool('  ')
     let file = 'a.ts'
     const colored = new Transcript(
       { columns: 80, theme: colorTheme, cwd: CWD },
@@ -1647,7 +1688,6 @@ describe('grok background differentiation across functional blocks', () => {
     colored.render(callEvent('c1', 'read', {}))
     colored.render(resultEvent('c1', ''))
 
-    // In a real agent turn, step transitions and text-free assistant messages arrive between tool calls
     const stepEnd = { type: 'step/end', seq: 3, time: 0, data: { turn: 1, step: 1 } } as SessionEvent
     const stepStart = { type: 'step/start', seq: 4, time: 0, data: { turn: 1, step: 2 } } as SessionEvent
     const emptyAssistant = {
@@ -1661,22 +1701,22 @@ describe('grok background differentiation across functional blocks', () => {
     expect(colored.render(stepStart)).toEqual([])
     expect(colored.render(emptyAssistant)).toEqual([])
 
-    // The second call must still join the same panel rather than opening a new one with leading pad
     file = 'b.ts'
     const pending = colored.render(callEvent('c2', 'read', {}))
-    expect(colored.takePendingCard()).toEqual([pad])
-    expect(pending[0]).toContain('Read b.ts')
-    expect(pending[1]).toBe(pad)
+    expect(colored.takePendingCard()).toEqual([])
+    expect(pending[0]).toBe('')
+    expect(pending[1]).toContain('Read b.ts')
+    expect(pending).toHaveLength(2)
 
     const second = colored.render(resultEvent('c2', ''))
     expect(colored.takePendingCard()).toEqual(pending)
-    expect(second[0]).toContain('Read b.ts')
-    expect(second[1]).toBe(pad)
+    expect(second[0]).toBe('')
+    expect(second[1]).toContain('Read b.ts')
+    expect(second).toHaveLength(2)
   })
 
-  it('does not open a new panel after a short assistant note between tool cards', () => {
+  it('does not insert a gap after a short assistant note between tool cards', () => {
     const colorTheme = createTheme(true, { COLORTERM: 'truecolor' })
-    const pad = colorTheme.bgTool('  ')
     let file = 'questions.spec.ts'
     const colored = new Transcript(
       { columns: 80, theme: colorTheme, cwd: CWD },
@@ -1711,14 +1751,14 @@ describe('grok background differentiation across functional blocks', () => {
     file = 'prompt.spec.ts'
     colored.render(callEvent('c2', 'read', {}))
     const second = colored.render(resultEvent('c2', 'ok'))
-    expect(second.filter(line => line === pad)).toHaveLength(1)
+    // The note already separates the cards, so this stretch does not open
+    // with another blank of its own.
     expect(second[0]).toContain('Read prompt.spec.ts')
-    expect(second[0]).not.toBe(pad)
+    expect(second).toHaveLength(1)
   })
 
-  it('keeps the pad a run opened with when a later card rebuilds its head', () => {
+  it('rebuilds a similar-run head over the rows already on screen', () => {
     const colorTheme = createTheme(true, { COLORTERM: 'truecolor' })
-    const pad = colorTheme.bgTool('  ')
     const colored = new Transcript(
       { columns: 80, theme: colorTheme, cwd: CWD },
       { call: (): ToolCallView => ({ card: 'terminal', title: 'git status' }), result: () => undefined },
@@ -1726,21 +1766,14 @@ describe('grok background differentiation across functional blocks', () => {
 
     colored.render(callEvent('c1', 'bash', {}))
     const first = colored.render(resultEvent('c1', 'M one.ts'))
-    // A one-row card lets the next pending row take over the pad it closed
-    // with, so the screen holds: pad, first head, pending row, pad.
     const pendingRow = colored.render(callEvent('c2', 'bash', {}))
-    expect(colored.takePendingCard()).toEqual([pad])
+    expect(colored.takePendingCard()).toEqual([])
     const second = colored.render(resultEvent('c2', 'M two.ts'))
 
-    // Same command, same shape: the second joins the first as a run. What it
-    // replaces is exactly what is on screen, pad included, and the rebuilt
-    // head keeps that pad as the panel's inset.
-    expect(colored.takePendingCard()).toEqual([first[0], first[1], pendingRow[0], pendingRow[1]])
-    expect(second[0]).toBe(pad)
-    expect(second[1]).toContain('git status')
-    expect(second[1]).toContain('· 2 similar')
-    expect(second[second.length - 1]).toBe(pad)
-    expect(second).toHaveLength(3)
+    expect(colored.takePendingCard()).toEqual([first[0], pendingRow[0], pendingRow[1]])
+    expect(second[0]).toContain('git status')
+    expect(second[0]).toContain('· 2 similar')
+    expect(second).toHaveLength(1)
   })
 })
 

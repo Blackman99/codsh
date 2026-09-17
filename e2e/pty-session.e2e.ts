@@ -1,5 +1,5 @@
 /**
- * The terminal protocols and the session's lifecycle: Escape interrupting a
+ * The terminal protocols and the session's lifecycle: Ctrl-C interrupting a
  * turn, the kitty keyboard protocol, focus and background reports, resize,
  * the replayable trace, `/clear` and `/resume`, desktop notifications, and
  * rewinding to an earlier turn.
@@ -10,32 +10,27 @@ import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { E2E_TEST_TIMEOUT_MS } from './harness.ts'
 import { LEAVE_ALT, PTY_COLUMNS, PTY_ROWS, SYNC_END, drivePty, drivePtySteps, finalScreen } from './pty-driver.ts'
-import { ENTER, ESCAPE, screenAt, visible } from './pty-helpers.ts'
+import { CTRL_C, ENTER, ESCAPE, screenAt, visible } from './pty-helpers.ts'
 import { Terminal } from './vt.ts'
 
 describe.skipIf(process.platform === 'win32')('protocols and the session (real PTY)', () => {
-  it('offers Escape as the interrupt on a terminal', async () => {
+  it('offers Ctrl-C as the interrupt on a terminal', async () => {
     const output = await drivePty('write', [
       ['Welcome to codsh', '/exit\n', 0],
     ])
 
-    // The banner names whichever interrupt this surface can actually offer.
-    expect(output).toContain('⇧Tab plan · ESC')
-    expect(output).not.toContain('Ctrl-C interrupts')
+    // The banner names the key that stops a turn, on a TTY and off one.
+    expect(output).toContain('⇧Tab plan · Ctrl-C')
+    expect(output).not.toContain('⇧Tab plan · ESC')
   }, E2E_TEST_TIMEOUT_MS)
 
   it('cancels a running turn and returns to the prompt', async () => {
     const output = await drivePty('slow', [
       // Start a turn whose tool occupies it.
       ['Welcome to codsh', 'take your time\n', 0],
-      // The command is running; press Escape alone.
-      ['re:●[^\\r\\n]{0,40}sleep 3', ESCAPE, 0],
+      // The command is running; Ctrl-C stops it.
+      ['re:●[^\\r\\n]{0,40}sleep 3', CTRL_C, 0],
       // The turn is cancelled, so the prompt comes back and accepts more.
-      //
-      // `/exit` is the assertion that Escape released the reader's decoder: a
-      // still-suspended decoder consumes the leading slash as the byte that
-      // would have identified an arrow key, leaving `exit` — an ordinary prompt
-      // that starts another turn instead of leaving, which times out here.
       ['interrupted', '/exit\n', 300],
     ])
 
@@ -46,6 +41,21 @@ describe.skipIf(process.platform === 'win32')('protocols and the session (real P
     expect(output).not.toContain('CODE_CLI_CALL_OK')
     // Leaving normally after the interrupt proves the session survived it.
     expect(output).toMatch(/session session-/)
+  }, E2E_TEST_TIMEOUT_MS)
+
+  it('leaves a running turn alone on Escape', async () => {
+    const { output, offsets } = await drivePtySteps('slow', [
+      ['Welcome to codsh', 'take your time\n', 0],
+      ['re:●[^\\r\\n]{0,40}sleep 3', ESCAPE, 0],
+      // Escape is dismiss, not stop: settle, then Ctrl-C is what cancels.
+      ['', CTRL_C, 400],
+      ['interrupted', '/exit\n', 300],
+    ])
+
+    const untilCtrlC = Buffer.from(output).subarray(0, offsets[2] ?? 0).toString()
+    expect(untilCtrlC).not.toContain('interrupted')
+    expect(output).toContain('interrupted')
+    expect(output).not.toContain('CODE_CLI_CALL_OK')
   }, E2E_TEST_TIMEOUT_MS)
 
   it('records a replayable trace of what it drew, when asked to', async () => {
@@ -93,7 +103,7 @@ describe.skipIf(process.platform === 'win32')('protocols and the session (real P
     expect(typing[boxRow + 1] ?? '').toContain('second')
     // ...and the transcript echoes the one two-line message.
     const done = screenAt(output, 'CODE_CLI_CALL_OK').alternate
-    const echo = done.findIndex(row => visible(row).startsWith('›   first'))
+    const echo = done.findIndex(row => visible(row).startsWith('│   first'))
     expect(echo).toBeGreaterThanOrEqual(0)
     expect(done[echo + 1] ?? '').toContain('second')
   }, E2E_TEST_TIMEOUT_MS)
@@ -113,7 +123,7 @@ describe.skipIf(process.platform === 'win32')('protocols and the session (real P
     expect(final.filter(row => row.includes('CODE_CLI_STEER seen='))).toHaveLength(1)
     expect(final.filter(row => /^\s+\d+(?:\.\d+)?s · /u.test(row))).toHaveLength(1)
     expect(final.some(row => row.includes('seen=yes'))).toBe(true)
-    expect(final.some(row => /›\s+CODE_CLI_STEER_MARK now/u.test(row))).toBe(true)
+    expect(final.some(row => /│\s+CODE_CLI_STEER_MARK now/u.test(row))).toBe(true)
   }, E2E_TEST_TIMEOUT_MS)
 
   it('reads focus and background reports: no bell while focused, light palette adopted', async () => {
@@ -153,7 +163,7 @@ describe.skipIf(process.platform === 'win32')('protocols and the session (real P
     const rows = screenAt(output, 'resumed session-', 'last').alternate.map(visible)
     // Switching sessions clears the retired viewport, then replays the resumed
     // log: exactly one echo, and none of the interim session's chatter.
-    expect(rows.filter(row => row === '›   remember DELTA_ONE')).toHaveLength(1)
+    expect(rows.filter(row => row === '│   remember DELTA_ONE')).toHaveLength(1)
     expect(rows.some(row => row.includes('new session session-'))).toBe(false)
     // The window title tracks the surface on a real terminal.
     expect(output).toContain('\u001B]2;dsh code —')
@@ -236,9 +246,9 @@ describe.skipIf(process.platform === 'win32')('rewind (real PTY)', () => {
     expect(said).not.toBeNull()
     expect(said?.[1]).not.toBe(said?.[2])
     // The replayed fork carries the first two turns and not the third.
-    expect(rewound.some(row => row.includes('›   first request'))).toBe(true)
-    expect(rewound.some(row => row.includes('›   second request'))).toBe(true)
-    expect(rewound.some(row => row.includes('›   third request'))).toBe(false)
-    expect(plain).toContain('› fourth request')
+    expect(rewound.some(row => row.includes('│   first request'))).toBe(true)
+    expect(rewound.some(row => row.includes('│   second request'))).toBe(true)
+    expect(rewound.some(row => row.includes('│   third request'))).toBe(false)
+    expect(plain).toContain('│ fourth request')
   }, E2E_TEST_TIMEOUT_MS)
 })

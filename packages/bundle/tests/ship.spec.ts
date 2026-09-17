@@ -39,11 +39,22 @@ describe('SHIP_PROMPT', () => {
     expect(SHIP_PROMPT).toContain('detail')
     expect(SHIP_PROMPT).toMatch(/runner auto-Confirm/i)
     expect(SHIP_PROMPT).toMatch(/transcript notice/i)
-    expect(SHIP_PROMPT).toMatch(/Interrupt or Esc aborts/i)
+    expect(SHIP_PROMPT).toMatch(/Ctrl-C interrupt aborts/i)
     expect(SHIP_PROMPT).toMatch(/no Edit modal/i)
     expect(SHIP_PROMPT).toContain('## Blocker')
     expect(SHIP_PROMPT).not.toContain('Edit means revise the spec and ask again')
     expect(SHIP_PROMPT).not.toContain('Fold Edit answers back in and present again')
+  })
+
+  it('preserves explicit Question / User answer sections and the runner-owned answer record', () => {
+    expect(SHIP_PROMPT).toContain('`<spec>.ship.answers.json`')
+    expect(SHIP_PROMPT).toContain('runner-owned answer record')
+    expect(SHIP_PROMPT).toContain('Question')
+    expect(SHIP_PROMPT).toContain('User answer')
+    expect(SHIP_PROMPT).toMatch(/do not overwrite those sections with a synthesis/i)
+    expect(shipPromptFor(undefined)).toContain('Question')
+    expect(shipPromptFor(undefined)).toContain('User answer')
+    expect(shipPromptFor(undefined)).toMatch(/research ticket's Resolution is findings, never the user answer/i)
   })
 
   it('makes the spec file the durable memory: status, resume, plan on disk', () => {
@@ -91,7 +102,7 @@ describe('SHIP_PROMPT', () => {
 
   it('charts decisions before grill and keeps unresolved maps resumable without implementing', () => {
     const prompt = shipPromptFor(undefined)
-    expect(SHIP_PROMPT.indexOf('Before Phase 1 — wayfinder')).toBeLessThan(SHIP_PROMPT.indexOf('Phase 1 — grill-me'))
+    expect(SHIP_PROMPT.indexOf('Before Phase 1 — wayfinder')).toBeLessThan(SHIP_PROMPT.indexOf('Phase 1 — grill'))
     expect(prompt).toContain('produce decisions, not deliverables')
     expect(prompt).toContain('wayfinder:map')
     expect(prompt).toContain('local-markdown tracker')
@@ -100,7 +111,8 @@ describe('SHIP_PROMPT', () => {
     expect(prompt).toContain('research subagents')
     expect(prompt).toContain('Continue to grill (recommended, first) or Stop')
     expect(prompt).toContain('Only an explicit Continue advances')
-    expect(prompt).toContain('no separate skill installation is required')
+    expect(prompt).toContain('This injected contract is the whole wayfinder phase')
+    expect(prompt).toContain('Do not look up, read, or invoke a wayfinder skill')
     expect(prompt).toContain('at most one non-research decision ticket per parent wake')
     expect(prompt).not.toContain('at most one non-research decision ticket per /ship invocation')
     expect(prompt).not.toContain('Do not auto-loop through multiple decision tickets')
@@ -112,8 +124,9 @@ describe('SHIP_PROMPT', () => {
     expect(prompt).toContain('## Wayfinder')
   })
 
-  it('follows the grill-me skill: recon first, batched frontier, recommended answers, exhaustion handshake', () => {
-    expect(SHIP_PROMPT).toContain('Follow the grill-me skill as the contract, not a summary of it')
+  it('injects the grill contract: recon first, batched frontier, recommended answers, exhaustion handshake', () => {
+    expect(SHIP_PROMPT).toContain('This injected contract is the whole grill phase')
+    expect(SHIP_PROMPT).toContain('Do not look up, read, or invoke a grill-me skill')
     expect(SHIP_PROMPT).toContain('Relentless Frontier Exploration')
     expect(SHIP_PROMPT).toContain('One Question Round per Turn')
     expect(SHIP_PROMPT).toContain('Autonomous Fact Extraction')
@@ -127,7 +140,7 @@ describe('SHIP_PROMPT', () => {
     expect(SHIP_PROMPT).toContain('never ask the user what inspection can reveal')
   })
 
-  it('follows the to-spec skill: exhaustive stories, public seams, tracker or scratch, no interrogation', () => {
+  it('injects the to-spec contract: exhaustive stories, public seams, tracker or scratch, no interrogation', () => {
     expect(SHIP_PROMPT).toContain('Pure Synthesis, Zero Interrogation')
     expect(SHIP_PROMPT).toContain('As an <actor>, I want a <feature>, so that <benefit>')
     expect(SHIP_PROMPT).toContain('Edge cases and failure states are covered as distinct stories')
@@ -138,9 +151,11 @@ describe('SHIP_PROMPT', () => {
     expect(SHIP_PROMPT).toContain('/setup-engineering-workflows')
   })
 
-  it('follows the to-tickets skill: vertical slices, DAG, per-ticket acceptance, no parent mutation', () => {
+  it('injects the to-tickets contract: vertical slices, DAG, per-ticket acceptance, no parent mutation', () => {
     expect(SHIP_PROMPT).toContain('Strict Vertical Tracer Slicing')
     expect(SHIP_PROMPT).toContain('Blocked by:')
+    expect(SHIP_PROMPT).toContain('not `Blocked by: 1, 2`')
+    expect(SHIP_PROMPT).toContain('parallel worktree children')
     expect(SHIP_PROMPT).toContain('single fresh context window')
     expect(SHIP_PROMPT).toContain('expand–contract')
     expect(SHIP_PROMPT).toContain('.scratch/<kebab-case-slug>/issues/')
@@ -148,7 +163,8 @@ describe('SHIP_PROMPT', () => {
     expect(SHIP_PROMPT).toContain('Never close, resolve, or corrupt parent tracker issues')
   })
 
-  it('follows the tdd skill: one red test witnessed failing, then minimal green, then the suite', () => {
+  it('injects the landing TDD contract: one red test witnessed failing, then minimal green, then the suite', () => {
+    expect(shipPromptFor('planned')).toContain('Strict Red-First Execution')
     expect(SHIP_PROMPT).toContain('Strict Red-First Execution')
     expect(SHIP_PROMPT).toContain('witness it fail for the right reason')
     expect(SHIP_PROMPT).toContain('Independent Expected Values')
@@ -203,7 +219,8 @@ describe('SHIP_PROMPT', () => {
 
   it('injects wayfinder, grill, to-spec, to-tickets, and tdd as separate turns', () => {
     const wayfinder = shipPromptFor(undefined)
-    expect(wayfinder).toContain('Follow the wayfinder skill as the contract, not a summary of it')
+    expect(wayfinder).toContain('This injected contract is the whole wayfinder phase')
+    expect(wayfinder).toContain('Do not look up, read, or invoke a wayfinder skill')
     expect(wayfinder).toContain('This turn is wayfinder only')
     expect(wayfinder).toContain('ship · preflight')
     expect(wayfinder).toContain('Status: wayfinding')
@@ -213,17 +230,17 @@ describe('SHIP_PROMPT', () => {
     expect(wayfinder).not.toContain('Strict Vertical Tracer Slicing')
     expect(wayfinder).not.toContain('Strict Red-First Execution')
     const resumed = shipPromptFor('wayfinding')
-    expect(resumed).toContain('Follow the wayfinder skill as the contract, not a summary of it')
+    expect(resumed).toContain('This injected contract is the whole wayfinder phase')
     expect(resumed).not.toContain('git checkout -b')
     expect(resumed).not.toContain('ship · preflight')
 
     const grill = shipPromptFor('grilling')
-    expect(grill).toContain('Follow the grill-me skill as the contract, not a summary of it')
+    expect(grill).toContain('This injected contract is the whole grill phase')
     expect(grill).toContain('This turn is grill only')
     expect(grill).toContain('Status: interviewing')
     expect(grill).toContain('## Wayfinder')
     expect(grill).not.toContain('git checkout -b')
-    expect(grill).not.toContain('Follow the wayfinder skill as the contract')
+    expect(grill).not.toContain('This injected contract is the whole wayfinder phase')
     expect(grill).not.toContain('Pure Synthesis, Zero Interrogation')
     expect(grill).not.toContain('ship · gate 1/2')
     expect(grill).not.toContain('Strict Vertical Tracer Slicing')
@@ -248,6 +265,11 @@ describe('SHIP_PROMPT', () => {
     const land = shipPromptFor('planned')
     expect(land).toContain('Strict Red-First Execution')
     expect(land).toContain('Conflict-resolution is not TDD')
+    expect(land).toContain('Alignment Gate does not apply to those resolution writes')
+    expect(land).toContain('Resolve autonomously')
+    expect(land).toContain('up to three attempts')
+    expect(land).toContain('regenerate conflicted lockfiles')
+    expect(land).not.toContain('Every write must map to a requirement id')
     expect(land).not.toContain('Phase 5 — done means verified')
     expect(shipPromptFor('landing', { verificationOnly: true })).toContain('dual-layer DoD')
     expect(land).not.toContain('Relentless Frontier Exploration')
@@ -305,7 +327,20 @@ describe('SHIP_PROMPT', () => {
     const grill = shipPromptFor('grilling', { track })
     expect(shipPromptFor(undefined, { track })).toContain(track)
     expect(grill).toContain(track)
-    expect(grill).toContain('Follow the grill-me skill as the contract, not a summary of it')
+    expect(grill).toContain('This injected contract is the whole grill phase')
+  })
+
+  it('never tells the model to look up a skill', () => {
+    const statuses = [undefined, 'wayfinding', 'grilling', 'interviewing', 'confirmed', 'planned', 'landing', 'shipped'] as const
+    for (const status of statuses) {
+      const prompt = shipPromptFor(status)
+      expect(prompt).toContain('Do not look up, read, or invoke a wayfinder, grill-me, to-spec, to-tickets, or tdd skill')
+      expect(prompt).not.toContain('Follow the wayfinder skill')
+      expect(prompt).not.toContain('Follow the grill-me skill')
+      expect(prompt).not.toContain('Follow the to-spec skill')
+      expect(prompt).not.toMatch(/follow the to-tickets skill/i)
+      expect(prompt).not.toContain('If an installed wayfinder is available, consult it')
+    }
   })
 
   it.each([undefined, 'wayfinding', 'grilling', 'interviewing', 'confirmed', 'planned', 'landing', 'shipped'] as const)(
@@ -333,6 +368,7 @@ describe('SHIP_PROMPT', () => {
     const land = shipPromptFor('landing')
     expect(land).not.toContain('implement in-session')
     expect(land).toContain('parallel worktrees')
+    expect(land).toContain('siblings of one closed prerequisite all start together')
     expect(land).toContain('Re-run the ticket\'s proof commands against the integrated working tree')
     expect(land).toContain('A failed, partial, or out-of-scope result leaves the ticket unchecked')
     expect(land).toContain('There is no landing turn-budget breaker')

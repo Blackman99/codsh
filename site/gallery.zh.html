@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="zh-Hans">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>展示画廊 — codsh</title>
+<meta name="description" content="看看一句话需求生成的作品：原始需求、真实截图，以及可直接试玩的 Web 游戏、国际商城与音乐播放器。">
+<meta name="color-scheme" content="dark">
+<link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
+<link rel="canonical" href="https://blackman99.github.io/codsh/gallery.zh.html">
+<link rel="alternate" hreflang="en" href="gallery.html">
+<link rel="alternate" hreflang="zh-Hans" href="gallery.zh.html">
+<meta property="og:title" content="展示画廊 — codsh">
+<meta property="og:description" content="一句话需求，实际生成的作品。">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://blackman99.github.io/codsh/gallery.zh.html">
+<meta property="og:image" content="https://blackman99.github.io/codsh/assets/gallery/medal-of-honor.webp">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="stylesheet" href="assets/pages.css">
+</head>
+<body>
+<a class="skip-link" href="#main">跳到正文</a>
+<header class="site-header">
+  <a class="brand" href="zh.html" aria-label="codsh 首页"><img src="assets/logo.svg" alt="" width="28" height="28">codsh</a>
+  <nav aria-label="主导航">
+    <a href="guide.zh.html">使用指南</a>
+    <a href="gallery.zh.html" aria-current="page">展示画廊</a>
+    <a href="https://github.com/Blackman99/codsh">GitHub</a>
+    <a href="gallery.html" hreflang="en" lang="en">English</a>
+  </nav>
+</header>
+<main class="page" id="main">
+  <div class="page-heading">
+    <h1>一句话开始的作品。</h1>
+    <p>画廊中的所有项目均从一句话需求开始，仅经一轮交互，所有问题均采用推荐答案，随后由 codsh 完成落地。查看原始需求、真实截图，也亲自试试结果。</p>
+  </div>
+  <article class="exhibit" id="international-mall" aria-labelledby="mall-title">
+    <header class="exhibit-header">
+      <h2 id="mall-title">国际商城</h2>
+      <p>双语跨境商店</p>
+    </header>
+    <div class="exhibit-main">
+      <figure>
+        <img src="assets/gallery/international-mall.webp" alt="商城首页：双语顶栏、货币切换，以及数码、时尚和家居商品网格" width="1440" height="900" fetchpriority="high">
+        <figcaption>浏览器实际运行截图</figcaption>
+      </figure>
+      <div>
+        <p class="prompt-label">最初的一句话</p>
+        <blockquote><p>做一个国际商城</p></blockquote>
+        <p class="exhibit-description">双语 B2C 店面，支持美元、欧元、人民币和日元标价，含精选商品、购物车、模拟国际结账与订单追踪。</p>
+        <ul class="tags" aria-label="技术栈"><li>Next.js</li><li>TypeScript</li><li>Tailwind CSS</li></ul>
+        <div class="actions"><a class="button" href="demos/international-mall/index.html">打开商城逛逛</a></div>
+        <p class="device-note">桌面和手机浏览器均可使用。结账为模拟流程，订单只保存在本浏览器中，不会真实扣款。</p>
+      </div>
+    </div>
+    <details class="exhibit-details">
+      <summary>购物与作品说明</summary>
+      <div class="details-grid">
+        <div>
+          <h3>怎么逛</h3>
+          <dl class="controls">
+            <dt>EN / 中文</dt><dd>切换界面与商品文案</dd>
+            <dt>USD EUR CNY JPY</dt><dd>全站商品与购物车价格即时换算</dd>
+            <dt>商品目录</dt><dd>按分类筛选、搜索、打开详情并加入购物车</dd>
+            <dt>结账</dt><dd>访客地址、标准/加急配送，模拟信用卡 / PayPal / Apple Pay</dd>
+            <dt>追踪</dt><dd>用确认页上的订单号查询物流状态</dd>
+          </dl>
+        </div>
+        <div>
+          <h3>从需求到结果</h3>
+          <p>引文保留了项目需求文档中的原话。这个项目同样仅经一轮交互，所有问题均采用推荐答案，由 codsh 完成规划与实现；收录的是该项目的构建快照，订单保存在浏览器中，而不是服务端文件。</p>
+        </div>
+      </div>
+    </details>
+  </article>
+  <article class="exhibit" id="medal-of-honor" aria-labelledby="game-title">
+    <header class="exhibit-header">
+      <h2 id="game-title">荣誉勋章 · Web 版</h2>
+      <p>3D 第一人称射击游戏</p>
+    </header>
+    <div class="exhibit-main">
+      <figure>
+        <img src="assets/gallery/medal-of-honor.webp" alt="游戏实机画面：第一人称持枪站在战壕中，前方是碉堡，左上角显示任务目标" width="1440" height="900" loading="lazy">
+        <figcaption>浏览器实际运行截图</figcaption>
+      </figure>
+      <div>
+        <p class="prompt-label">最初的一句话</p>
+        <blockquote><p>做一个 web 版的荣誉勋章游戏</p></blockquote>
+        <p class="exhibit-description">一款致敬经典二战射击游戏的浏览器作品。穿过战壕、潜入碉堡，使用 M1 加兰德与汤姆逊完成三阶段任务。</p>
+        <ul class="tags" aria-label="技术栈"><li>Three.js</li><li>TypeScript</li><li>Web Audio</li></ul>
+        <div class="actions"><a class="button" href="demos/medal-of-honor/index.html">打开游戏试玩</a></div>
+        <p class="device-note">需要桌面浏览器、键盘和鼠标。手机可浏览截图，游戏暂不支持触屏操控。</p>
+      </div>
+    </div>
+    <details class="exhibit-details">
+      <summary>玩法与作品说明</summary>
+      <div class="details-grid">
+        <div>
+          <h3>操作方式</h3>
+          <dl class="controls">
+            <dt>点击开始</dt><dd>进入战场并锁定鼠标</dd>
+            <dt>W A S D / 鼠标</dt><dd>移动 / 环视</dd>
+            <dt>左键 / 右键</dt><dd>射击 / 瞄准</dd>
+            <dt>1 / 2 / R</dt><dd>切换武器 / 换弹</dd>
+            <dt>Shift / 空格</dt><dd>冲刺 / 跳跃</dd>
+            <dt>Esc</dt><dd>释放鼠标</dd>
+          </dl>
+        </div>
+        <div>
+          <h3>从需求到结果</h3>
+          <p>引文保留了项目需求文档中的原话。这个项目同样仅经一轮交互，所有问题均采用推荐答案，由 codsh 完成规划与实现；试玩收录的是该项目的构建快照。</p>
+          <p class="disclaimer">非官方致敬作品，与《荣誉勋章》及其权利方无关联。名称仅用于说明原始需求与灵感来源。</p>
+        </div>
+      </div>
+    </details>
+  </article>
+  <article class="exhibit" id="web-music-player" aria-labelledby="music-title">
+    <header class="exhibit-header">
+      <h2 id="music-title">Web 音乐播放器</h2>
+      <p>桌面级本地音乐应用</p>
+    </header>
+    <div class="exhibit-main">
+      <figure>
+        <img src="assets/gallery/web-music-player.webp" alt="桌面音乐播放器界面：侧边栏导航、曲目列表、频谱可视化与底部常驻控制栏" width="1440" height="900" loading="lazy">
+        <figcaption>浏览器实际运行截图</figcaption>
+      </figure>
+      <div>
+        <p class="prompt-label">最初的一句话</p>
+        <blockquote><p>做一个 web 音乐播放器，但是要像本地应用一样</p></blockquote>
+        <p class="exhibit-description">纯前端运行的桌面级音乐播放器。直接访问本地音频文件夹无需上传云端，配有 10 段专业图形均衡器、实时频谱波形可视化，以及时间戳同步歌词滚动显示。</p>
+        <ul class="tags" aria-label="技术栈"><li>React</li><li>TypeScript</li><li>Web Audio</li><li>Tailwind CSS</li></ul>
+        <div class="actions"><a class="button" href="demos/web-music-player/index.html">打开音乐播放器</a></div>
+        <p class="device-note">现代浏览器均可直接试听内置示范曲目；打开本地文件夹功能在支持 File System Access API 的桌面浏览器中效果最佳。</p>
+      </div>
+    </div>
+    <details class="exhibit-details">
+      <summary>使用与作品说明</summary>
+      <div class="details-grid">
+        <div>
+          <h3>怎么使用</h3>
+          <dl class="controls">
+            <dt>播放 / 暂停</dt><dd>点击曲目或按空格键播放内置示范音频</dd>
+            <dt>10 段均衡器</dt><dd>打开 EQ 弹窗微调各频段增益或选择摇滚、流行等预设</dd>
+            <dt>频谱可视化</dt><dd>在柱状频谱、波形和关闭之间随时切换</dd>
+            <dt>同步歌词</dt><dd>按 L 键或点击歌词图标展开毫秒级同步滚动的歌词抽屉</dd>
+            <dt>本地文件夹</dt><dd>点击“打开本地文件夹”零上传导入自己的音乐库</dd>
+          </dl>
+        </div>
+        <div>
+          <h3>从需求到结果</h3>
+          <p>引文保留了项目需求文档中的原话。这个项目同样仅经一轮交互，所有问题均采用推荐答案，由 codsh 完成规划与实现；收录的是该项目的构建快照，曲库与偏好持久化保存在 IndexedDB 中。</p>
+        </div>
+      </div>
+    </details>
+  </article>
+</main>
+<footer class="site-footer">
+  <span>codsh · MIT · 基于 DeepSeek Harness</span>
+  <nav aria-label="更多链接"><a href="zh.html">返回首页</a><a href="guide.zh.html#ship">用 /ship 开始自己的作品</a></nav>
+</footer>
+</body>
+</html>

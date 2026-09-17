@@ -484,6 +484,217 @@ describe('selection', () => {
     expect(console.copied).toEqual([])
   })
 
+  it('selects on the status row on a drag and copies on release', () => {
+    const { prompt, console } = build()
+    void prompt.read()
+    prompt.setLegend('  ? shortcuts')
+    prompt.setStatus('model · 12k tokens')
+    const status = (console.draws.at(-1)?.rows ?? []).findIndex(row => row.includes('model · 12k tokens'))
+    expect(status).toBeGreaterThanOrEqual(0)
+
+    // Column 3 is the first character after the gutter; column 8 is past "model".
+    console.region = { region: 'chrome', index: status }
+    console.press({ kind: 'mouse-down', row: 9, column: 3 })
+    console.press({ kind: 'mouse-drag', row: 9, column: 8 })
+    console.press({ kind: 'mouse-up', row: 9, column: 8 })
+
+    expect(console.copied).toEqual(['model'])
+    const drawn = console.draws.at(-1)?.rows.join('\n') ?? ''
+    expect(drawn).toContain('\u001B[7mmodel\u001B[27m')
+    expect(drawn).toContain('12k tokens')
+    expect(console.pointer).toEqual([])
+  })
+
+  it('does not copy a click on the status row, and Escape drops the mark', () => {
+    const { prompt, console } = build()
+    void prompt.read()
+    prompt.setLegend('  ? shortcuts')
+    prompt.setStatus('model · 12k tokens')
+    const status = (console.draws.at(-1)?.rows ?? []).findIndex(row => row.includes('model · 12k tokens'))
+    console.region = { region: 'chrome', index: status }
+    console.press({ kind: 'mouse-down', row: 9, column: 3 })
+    console.press({ kind: 'mouse-up', row: 9, column: 3 })
+    expect(console.copied).toEqual([])
+
+    console.press({ kind: 'mouse-down', row: 9, column: 3 })
+    console.press({ kind: 'mouse-drag', row: 9, column: 8 })
+    console.press({ kind: 'mouse-up', row: 9, column: 8 })
+    expect(console.copied).toEqual(['model'])
+    console.press({ kind: 'escape' })
+    const drawn = console.draws.at(-1)?.rows.join('\n') ?? ''
+    expect(drawn).toContain('model · 12k tokens')
+    expect(drawn).not.toContain('\u001B[7m')
+  })
+
+  it('still copies a status drag that leaves the row', () => {
+    const { prompt, console } = build()
+    void prompt.read()
+    prompt.setLegend('  ? shortcuts')
+    prompt.setStatus('model · 12k tokens')
+    const status = (console.draws.at(-1)?.rows ?? []).findIndex(row => row.includes('model · 12k tokens'))
+    console.region = { region: 'chrome', index: status }
+    console.press({ kind: 'mouse-down', row: 9, column: 3 })
+    // Swept up into the box and past the end of the line; the gesture still
+    // belongs to the status row and clamps to its text.
+    console.region = { region: 'chrome', index: 1 }
+    console.press({ kind: 'mouse-drag', row: 6, column: 80 })
+    console.press({ kind: 'mouse-up', row: 6, column: 80 })
+    expect(console.copied).toEqual(['model · 12k tokens'])
+  })
+
+  it('copies the status row as plain text, without styling', () => {
+    const { prompt, console } = build()
+    void prompt.read()
+    prompt.setLegend('  ? shortcuts')
+    prompt.setStatus('\u001B[90mmodel\u001B[0m · 12k tokens')
+    const status = (console.draws.at(-1)?.rows ?? []).findIndex(row => row.includes('model'))
+    expect(status).toBeGreaterThanOrEqual(0)
+    console.region = { region: 'chrome', index: status }
+    console.press({ kind: 'mouse-down', row: 9, column: 3 })
+    console.press({ kind: 'mouse-drag', row: 9, column: 8 })
+    console.press({ kind: 'mouse-up', row: 9, column: 8 })
+    expect(console.copied).toEqual(['model'])
+    expect(console.copied[0]).not.toContain('\u001B')
+  })
+
+  it('keeps a status-row mark after the copy toast gives the row back', () => {
+    vi.useFakeTimers()
+    try {
+      const { prompt, console } = build()
+      void prompt.read()
+      prompt.setStatus('model · 12k tokens')
+      const status = (console.draws.at(-1)?.rows ?? []).findIndex(row => row.includes('model · 12k tokens'))
+      console.region = { region: 'chrome', index: status }
+      console.press({ kind: 'mouse-down', row: 9, column: 3 })
+      console.press({ kind: 'mouse-drag', row: 9, column: 8 })
+      console.press({ kind: 'mouse-up', row: 9, column: 8 })
+      expect(console.copied).toEqual(['model'])
+      // No legend: the toast borrows the status row until it expires.
+      expect(console.draws.at(-1)?.rows.at(-1)).toContain('✓ copied')
+      vi.advanceTimersByTime(1500)
+      const restored = console.draws.at(-1)?.rows.join('\n') ?? ''
+      expect(restored).toContain('\u001B[7mmodel\u001B[27m')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('selects chrome-row text on a drag and copies on release', () => {
+    vi.useFakeTimers()
+    try {
+      const { prompt, console } = build()
+      void prompt.read()
+      prompt.setLegend('  ? shortcuts')
+      prompt.setHint('subagent 2m 58s · 73k tokens · Ctrl-C to interrupt')
+      prompt.setTeaser({ unclaimed: 0, claimed: 0, closed: 0 })
+      prompt.setWebUrl('http://127.0.0.1:53336')
+      prompt.setSubagents([
+        { id: 'child-1', label: 'Investigate CONTEXT.md', startedAt: 0, status: 'running', endedAt: undefined, calls: 1, latest: 'bash: sleep 2' },
+      ])
+      const rows = (): string[] => console.draws.at(-1)?.rows ?? []
+      const dragCopy = (needle: string, from: number, to: number, copied: string, mark = true): void => {
+        const index = rows().findIndex(row => row.includes(needle))
+        expect(index).toBeGreaterThanOrEqual(0)
+        console.region = { region: 'chrome', index }
+        console.press({ kind: 'mouse-down', row: 9, column: from })
+        console.press({ kind: 'mouse-drag', row: 9, column: to })
+        console.press({ kind: 'mouse-up', row: 9, column: to })
+        expect(console.copied.at(-1)).toBe(copied)
+        expect(console.copied.at(-1)).not.toContain('\u001B')
+        if (mark) expect(rows().join('\n')).toContain(`\u001B[7m${copied}\u001B[27m`)
+        vi.advanceTimersByTime(1500)
+      }
+
+      // Column 3 is the first character after the gutter. The teaser and
+      // subagents rows pad two spaces, so their labels start two cells later.
+      dragCopy('待认领 0', 5, 11, '待认领')
+      expect(console.viewers.at(-1)).toBeUndefined()
+      dragCopy('subagents 1', 5, 14, 'subagents')
+      expect(drawn(console)).not.toContain('Ctrl+H closes')
+      // The toast borrows the working line, so the mark cannot stay on it.
+      dragCopy('subagent 2m 58s', 3, 11, 'subagent', false)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('does not copy a click on a chrome row, and still acts on it', () => {
+    const { prompt, console } = build()
+    void prompt.read()
+    prompt.setHint('subagent 2m 58s · Ctrl-C to interrupt')
+    prompt.setGraph({
+      version: 1,
+      specPath: 'widget.md',
+      nodes: [
+        { id: 'track:1', kind: 'track', title: 'Empty inner ring.' },
+        { id: 'landing:1', kind: 'landing', title: 'Land the teaser', claim: 'unclaimed' },
+      ],
+      edges: [{ from: 'landing:1', to: 'track:1', kind: 'hangs-off' }],
+    })
+    console.press({ kind: 'toggle-panorama' })
+    prompt.setSubagents([
+      { id: 'child-1', label: 'Investigate CONTEXT.md', startedAt: 0, status: 'running', endedAt: undefined, calls: 1, latest: 'bash: sleep 2' },
+    ])
+    const rows = (): string[] => console.draws.at(-1)?.rows ?? []
+    const click = (needle: string): void => {
+      const index = rows().findIndex(row => row.includes(needle))
+      expect(index).toBeGreaterThanOrEqual(0)
+      console.region = { region: 'chrome', index }
+      console.press({ kind: 'mouse-down', row: 9, column: 4 })
+      console.press({ kind: 'mouse-up', row: 9, column: 4 })
+    }
+
+    click('待认领')
+    expect(console.copied).toEqual([])
+    expect((console.viewers.at(-1) ?? []).join('\n')).toContain('Land the teaser')
+    console.press({ kind: 'toggle-panorama' })
+    expect(console.viewers.at(-1)).toBeUndefined()
+
+    click('subagents 1')
+    expect(console.copied).toEqual([])
+    expect(drawn(console)).toContain('Ctrl+H closes')
+    console.press({ kind: 'toggle-subagents' })
+
+    click('subagent 2m 58s')
+    expect(console.copied).toEqual([])
+    expect(drawn(console)).toContain('subagent 2m 58s')
+  })
+
+  it('still copies a chrome-row drag that leaves the row', () => {
+    const { prompt, console } = build()
+    void prompt.read()
+    prompt.setHint('subagent 2m 58s · Ctrl-C to interrupt')
+    const hint = (console.draws.at(-1)?.rows ?? []).findIndex(row => row.includes('subagent 2m 58s'))
+    expect(hint).toBeGreaterThanOrEqual(0)
+    console.region = { region: 'chrome', index: hint }
+    console.press({ kind: 'mouse-down', row: 9, column: 3 })
+    console.region = { region: 'chrome', index: 1 }
+    console.press({ kind: 'mouse-drag', row: 6, column: 80 })
+    console.press({ kind: 'mouse-up', row: 6, column: 80 })
+    expect(console.copied).toEqual(['subagent 2m 58s · Ctrl-C to interrupt'])
+  })
+
+  it('selects the empty-box placeholder on a drag and copies on release', () => {
+    const console = fakeConsole(true)
+    const prompt = new Prompt(console as never, theme, sources, {
+      interrupt: () => {},
+      escape: () => {},
+      eof: () => {},
+    }, 'Ask anything · / for commands')
+    void prompt.read()
+    const box = (console.draws.at(-1)?.rows ?? []).findIndex(row => row.includes('Ask anything'))
+    expect(box).toBeGreaterThanOrEqual(0)
+    // The placeholder starts four cells into the content row, after the
+    // screen gutter plus the frame, a space, and the › gutter.
+    console.region = { region: 'chrome', index: box }
+    console.press({ kind: 'mouse-down', row: 9, column: 7 })
+    console.press({ kind: 'mouse-drag', row: 9, column: 10 })
+    console.press({ kind: 'mouse-up', row: 9, column: 10 })
+    expect(console.copied).toEqual(['Ask'])
+    expect(console.copied[0]).not.toContain('\u001B')
+    expect((console.draws.at(-1)?.rows ?? []).join('\n')).toContain('\u001B[7mAsk\u001B[27m')
+  })
+
   it('turns the wheel on the list the pointer is over', async () => {
     const { prompt, console } = build()
     const deciding = prompt.select({
@@ -622,12 +833,13 @@ describe('fullscreen viewing', () => {
 })
 
 describe('the surrounding rows', () => {
-  it('leaves the queue alone on Escape and lets the owner interrupt', () => {
+  it('leaves the queue alone on Escape and reports the key to the owner', () => {
     const { prompt, console, calls } = build()
     submit(console, 'later work')
     console.press({ kind: 'escape' })
-    // Escape means stop; taking a line back is the panel's job.
+    // Taking a line back is the panel's job; Escape never pops the queue.
     expect(calls).toContain('escape')
+    expect(calls).not.toContain('interrupt')
     expect(prompt.queued.map(item => item.text)).toEqual(['later work'])
     expect(drawn(console)).toContain('queued: later work')
   })
@@ -1204,6 +1416,26 @@ describe('the surrounding rows', () => {
     edges: [{ from: 'landing:1', to: 'track:1', kind: 'hangs-off' }],
   })
 
+  it('pins the web panorama URL on the overlay title and on the teaser after Esc', () => {
+    const { prompt, console } = build()
+    console.columns = 120
+    prompt.setPlan({
+      tickets: [{ title: 'Teaser paint', done: false }],
+      done: 0,
+      current: { title: 'Teaser paint', done: false },
+    })
+    prompt.setGraph(overlayGraph())
+    prompt.setWebUrl('http://127.0.0.1:49152')
+    expect((console.viewers.at(-1) ?? []).join('\n')).toContain('http://127.0.0.1:49152')
+    console.press({ kind: 'toggle-panorama' })
+    const teaser = (console.draws.at(-1)?.rows ?? []).find(row => row.includes('待认领 1')) ?? ''
+    expect(teaser).toContain('http://127.0.0.1:49152')
+    expect(teaser).toContain('已认领 1')
+    prompt.setGraph(undefined)
+    expect(drawn(console)).toContain('http://127.0.0.1:49152')
+    expect(drawn(console)).not.toContain('待认领')
+  })
+
   it('pins the overlay by default when a graph is bound, and Ctrl+G toggles the teaser', () => {
     const { prompt, console } = build()
     prompt.setPlan({
@@ -1524,6 +1756,8 @@ describe('the surrounding rows', () => {
     const opened = console.draws.at(-1)?.rows ?? []
     expect(opened.some(row => row.includes('Ctrl+R history'))).toBe(true)
     expect(opened.some(row => row.includes('Ctrl+Q queue'))).toBe(true)
+    expect(opened.some(row => row.includes('Ctrl-C interrupt'))).toBe(true)
+    expect(opened.some(row => row.includes('Esc interrupt'))).toBe(false)
     expect(opened.some(row => row.includes('/status'))).toBe(true)
     expect(opened.some(row => row.includes('model · permissions · tokens · context'))).toBe(true)
     console.press({ kind: 'escape' })
@@ -1812,6 +2046,41 @@ describe('the subagents readout and panel', () => {
     { id: 'child-1', label: 'Investigate CONTEXT.md', startedAt: 0, status: 'running', endedAt: undefined, calls: 1, latest: 'bash: sleep 2' },
     { id: 'child-2', label: 'Write the evidence', startedAt: 0, status: 'done', endedAt: 8_000, calls: 2, latest: 'write: evidence.md' },
   ]
+
+  it('retires ship readouts without erasing history or hiding running and new work', () => {
+    const { prompt, console, calls } = build()
+    const todos = [{ content: 'Ship sub-step', status: 'pending' as const }]
+    prompt.setTodos(todos)
+    prompt.setSubagents(entries())
+    prompt.completeShip()
+    expect(drawn(console)).not.toContain('todos')
+    expect(drawn(console)).toContain('subagents 1 · 1 running')
+    prompt.setTodos(todos.map(todo => ({ ...todo })))
+    prompt.setSubagents(entries())
+    expect(drawn(console)).not.toContain('todos')
+    expect(drawn(console)).not.toContain('1 done')
+    const settled = entries().map(entry => ({ ...entry, status: 'done' as const, endedAt: 9_000 }))
+    prompt.setSubagents(settled)
+    expect(drawn(console)).not.toContain('subagents')
+    console.press({ kind: 'toggle-subagents' })
+    expect(drawn(console)).toContain('subagents 2 · 2 done')
+    console.press({ kind: 'down' })
+    console.press({ kind: 'enter' })
+    expect(calls).toContain('enter:child-2')
+    expect(drawn(console)).not.toContain('subagents')
+    console.press({ kind: 'toggle-todos' })
+    expect(drawn(console)).toContain('Ship sub-step')
+    console.press({ kind: 'toggle-todos' })
+    expect(drawn(console)).not.toContain('todos')
+    prompt.setTodos(todos, true)
+    expect(drawn(console)).toContain('Ship sub-step')
+    prompt.setSubagents([...settled, { ...entries()[0]!, id: 'new-child' }])
+    expect(drawn(console)).toContain('subagents 1 · 1 running')
+    prompt.setTodos([{ content: 'New work', status: 'in_progress' }])
+    expect(drawn(console)).toContain('New work')
+    prompt.setSubagents(entries())
+    expect(drawn(console)).toContain('subagents 1 · 1 running')
+  })
 
   it('pins the readout under the box and opens the panel on Ctrl-H', () => {
     const { prompt, console } = build()

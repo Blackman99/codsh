@@ -1,18 +1,49 @@
 # Thinking Open, Tool Rows Collapsed
 
-Status: shipped
+Status: shipped (thinking default reversed 2026-09-15)
+
+Owner 2026-09-15: thinking lands folded again, and tool cards paint no
+highlight. The one-row tool cards, the `thinking…` head while a thought
+runs, the clock, click/Ctrl+O, and the pipe digest stay. What changed is
+the default form: the deliberation stays behind the clock until a click
+or Ctrl+O, and a tool row has no panel fill and no amber title.
+
+Owner 2026-09-16: the in-progress head ticks. While a thought streams, the
+`thinking…` row advances the same Braille frames as the working line, and
+the hint row's verb is `thinking`. Pipes still never stream the head.
+
+Owner 2026-09-16: streaming and collapsed thinking each occupy a single row,
+like a tool summary. Vertical panel padding remains only in the expanded form.
+
+Owner 2026-09-16: the collapsed clock and the in-progress `thinking…` head
+carry no `bgThinking` fill. A full-width thinking background on that one
+row is a near-black bar between tool cards; the fill stays on the expanded
+deliberation only, and that fill is a lighter violet so it reads as a
+panel rather than a blackout.
+
+Owner 2026-09-16: a terminal card that exited non-zero or was killed is a
+failed row (`✗`, error rule), not a green pass. dsh still reports the
+result without `isError`; the surface is what fails it.
+
+Owner 2026-09-17: a finished success bullet is dim, not green — the trailing
+`✔` still says it worked. Consecutive one-row cards on a TTY open with a
+blank between them; a pipe still closes each card with a blank.
 
 ## Requirement
 
 当前的核心渲染逻辑是"思考折叠，工具展示"；期望反过来："思考展示，工具折叠"。
 UI/UX 参考 Grok 官方 CLI（Grok Build）。
 
+Owner 2026-09-15 reversed the thinking default back to folded (Claude-like)
+while keeping tool rows collapsed. Grok Build remains the reference for
+one-row cards, not for an open thought.
+
 ## Problem Statement
 
 A reasoning model's deliberation is the part of a turn a person actually
 wants to follow while it happens: it says what the agent is about to do and
 why. codsh showed it as one live line under the box and then kept a one-row
-clock (`✻ thought for 3.2s`) with the text behind a click or Ctrl+O. Tool
+clock (`│ thought for 3.2s`) with the text behind a click or Ctrl+O. Tool
 cards went the other way: a completed `bash` printed its head and up to five
 body lines, a `grep` its first matches, a generic result its first lines —
 so the transcript filled with output the person skims while the thinking
@@ -56,14 +87,17 @@ Read from the pager crate's user guide and configuration reference at
 
 ## Solution
 
-1. **Thinking streams into the transcript, open.** The first reasoning delta
-   opens the thinking panel in place — its top pad, a `✻ thinking…` head, and
-   the pad under it — and every finished line lands under that head as it
-   completes, the way an answer's lines do. Only the line still being typed
-   stays in the live region under the box. When the thought ends, the head
-   becomes the clock (`thought for 3.2s`, later `· total 4.1s` when the step
-   ends), the closing pad lands, and the block is registered as a Fold that
-   is **expanded** and **automatic**.
+1. **Thinking streams as a head, then lands folded.** The first reasoning
+   delta puts a single magenta `│ thinking…` row in place — without vertical panel
+   padding, and on a TTY a Braille spinner that ticks in place —
+   and the line still being typed stays in the live region under the box.
+   The working line names the thought `thinking` until it lands. Finished
+   deliberation lines are not appended to the transcript while it runs.
+   When the thought ends, the head becomes the clock (`thought for 3.2s`,
+   later `· total 4.1s` when the step ends) and the block is registered as
+   a Fold that is **collapsed** and **automatic**. The clock stays one row
+   without a panel fill; only an expanded Fold retains the panel's vertical
+   padding and fill.
 2. **Moving on folds it.** The next turn spent — a prompt, or a canned
    command that expands into one — collapses an automatic open thought to its
    clock row, exactly as the Fold preference already says for fresh-output
@@ -73,9 +107,11 @@ Read from the pager crate's user guide and configuration reference at
    Replay creates collapsed thinking folds — history is what a resumed
    session reads back through — and returning from a Child view is a replay.
 3. **Every tool card is one row.** A completed call is
-   `● title · stats ✔` (or `✗`), and the whole body — command output, search
+   `● title · stats ✔` (or `✗`) — the success bullet is dim, the trailing
+   `✔` stays green — and the whole body — command output, search
    hits, read content, diff hunks, a generic result's text — lives in the
-   fold. The stats segment says what the row withholds: `+n -m` for a diff,
+   fold. A later card in a TTY run opens with a blank so consecutive
+   one-liners are not flush; a pipe still closes each card with a blank. The stats segment says what the row withholds: `+n -m` for a diff,
    `N results` for a search, `N of M lines` for a read, and for a terminal or
    generic result a new `· N lines` count of everything behind the row — the
    description a terminal call came with included, so the count and the
@@ -94,7 +130,8 @@ Read from the pager crate's user guide and configuration reference at
    nothing is. With an open thought and a collapsed card on screen the first
    press opens the card, the next folds both — a click is the gesture for
    folding the one thought. The hover readout names an open thought as
-   `thinking · N lines · click to fold` and a collapsed card as
+   `thinking · N lines · click to expand` when folded, or `click to fold`
+   when open, and a collapsed card as
    `title · N lines · click to expand`, where N is what the block withholds —
    the same figure the card's own row carries — and a door names no count.
 5. **A pipe gets the digest.** Off a terminal there are no keys to expand
@@ -117,7 +154,7 @@ Read from the pager crate's user guide and configuration reference at
    spent, never an empty Enter or a chrome command: a nudge on Enter while
    reading must not fold what is being read.
 2. **The collapsed thought stays the clock row.** Grok Build keeps a
-   three-line preview (`truncated_lines = 3`); codsh keeps `✻ thought for Xs`
+   three-line preview (`truncated_lines = 3`); codsh keeps `│ thought for Xs`
    so the hover readout, the replay contract, and the sticky/timeline row
    arithmetic are untouched. A collapsed thought is one a person has moved
    past; the clock says how much was there.
@@ -127,22 +164,24 @@ Read from the pager crate's user guide and configuration reference at
    makes the transcript's shape depend on outcomes — and an agentic loop's
    retries are exactly the failures a person skims — but a column of `✗`
    rows that all look alike would say nothing, so the row carries the reason.
-   A non-zero exit is not a failure to the row: dsh's bash tool reports it
-   and leaves the reaction to the model, so the row keeps its tick and says
-   `(exit N)` or `(killed by SIGTERM)` beside the count.
+   A non-zero exit or a kill is a failure to the row even when dsh reports
+   it without `isError`: the model still decides how to react, but the card
+   paints `✗` and the error rule, and says `(exit N)` or
+   `(killed by SIGTERM)` beside the count. A green tick on a failed command
+   is a lie.
 4. **No new key.** Grok Build's `e`/`E`/`Ctrl+E` map onto codsh's click and
    Ctrl+O; Ctrl+E is end-of-line in the box and stays that.
 5. **`●` stays the bullet; the count is the affordance.** Grok Build draws a
    `›` on foldable entries. codsh's cards already carry the Claude-shaped
-   `●` with a status glyph, and every row that withholds a body now says how
-   much (`· 12 lines`); the hover readout says what a click does.
+   `●` with a status glyph — dim on success, red on failure — and every row
+   that withholds a body now says how much (`· 12 lines`); the hover readout
+   says what a click does.
 6. **Pipes keep the digest.** A script reading `codsh -p` output wants the
    answer, not the deliberation or a command's output; the clock row and the
    one-line card are what it gets, unchanged.
-7. **Uncoloured terminals rule the clock alone.** Without a panel fill the
-   `✻` sits on the clock row only; the deliberation's own indent lines up
-   under it, and a rule repeated down every row would be the block's whole
-   look on a `NO_COLOR` terminal.
+7. **The rail is always `│`.** Colour — not a different glyph — says what
+   the row is. Uncoloured terminals still draw `│` down the clock, the pads,
+   and the deliberation so the connecting line does not break.
 8. **The step total finds its block by identity.** The collapsed clock is a
    prefix of the open block, so the screen must never search its rows for a
    summary to update; `updateFold` finds the Fold by the forms it was given
@@ -155,9 +194,9 @@ Read from the pager crate's user guide and configuration reference at
 
 ## User Stories
 
-1. **US-1**: As a person watching a reasoning model work, I see its thinking
-   land line by line in the transcript, under a `thinking…` head that becomes
-   the clock when it ends, and it stays open while the tool calls and the
+1. **US-1**: As a person watching a reasoning model work, I see a
+   `thinking…` head tick while it runs, then a clock when it ends, with
+   the deliberation behind a click or Ctrl+O while the tool calls and the
    answer follow it.
 2. **US-2**: As a person reading a long session, an earlier turn's thoughts
    are one clock row each, and a click on the clock opens the one I want.
@@ -177,11 +216,13 @@ Read from the pager crate's user guide and configuration reference at
    results; the pending terminal card is one row; `absorbSimilar` and the
    orphan run drop their hint rows; `capBody`/`fit`/`MAX_RESULT_*` go, with
    the diff pager threshold kept as a plain predicate. New helpers
-   `thinkingOpenRows(theme)` (the streaming head and its rules) and
+   `thinkingOpenRows(theme, frame?)` (the streaming head and its rules; the
+   optional frame is the same Braille cycle as the working line) and
    `thinkingLineRule(theme)` (the rule one streamed deliberation row carries).
 2. **`packages/bundle/src/streaming.ts`**: `ThinkingTracker` records the rows
-   the surface has painted for the thought in flight (`markPainted`) and
-   hands them back with the flush, so the finished fold can take their place.
+   the surface has painted for the thought in flight (`markPainted`,
+   `replacePainted` when the head ticks) and hands them back with the flush,
+   so the finished fold can take their place.
 3. **`packages/bundle/src/screen.ts` / `console.ts`**: `appendFold` takes an
    `expanded` flag; an expanded fold shows its full form from the start and
    is automatic (moving on collapses it). A block that takes the place of
@@ -189,10 +230,11 @@ Read from the pager crate's user guide and configuration reference at
    `updateFold` finds its block by identity and swaps the form it shows. The
    hover readout counts what a block withholds. Off a terminal the summary
    is written regardless.
-4. **`packages/bundle/src/index.ts`**: `paintStreamChunk` opens the panel on
-   the first reasoning delta — on a terminal only — and emits finished lines
-   as they arrive; `landThinking` replaces the painted run with the expanded
-   fold; `flushThinking` (interrupt) shares the path; `collapseFolds` moves
+4. **`packages/bundle/src/index.ts`**: `paintStreamChunk` puts the head on
+   the first reasoning delta — on a terminal only — names the working line
+   `thinking`, and ticks the head in place until it lands; the live line
+   stays under the box; `landThinking` replaces the painted head with the folded
+   clock; `flushThinking` (interrupt) shares the path; `collapseFolds` moves
    from the read loop into `answer()`, so only a turn spent moves on;
    entering and leaving a Child view resets the parent's tracker; the
    comfortable two-line preview is gone.
@@ -205,14 +247,16 @@ Read from the pager crate's user guide and configuration reference at
 ## Testing Decisions
 
 - **Unit**: transcript.spec (one-row cards, counts, pending row, similar and
-  orphan runs, fold contents, thinking open rows), streaming.spec (painted
-  rows through push/flush/reset), screen.spec (expanded folds: shown full,
-  collapse on moving on, manual choice kept, replace-in-place, Ctrl+O
-  direction with mixed folds), console.spec (pipe digest), density.spec.
-- **PTY e2e** (`pty-folds`, `experience-navigation`): thinking lands open and
-  stays open past the answer; a click on the open thought folds it and a
-  click on the clock re-opens it; Ctrl+O folds an open thought; moving on
-  folds an untouched thought; a hand choice survives the next turn; a
+  orphan runs, fold contents, thinking clock rows, unhighlighted tool
+  rows, dim success bullets, TTY run gaps, ticking thinking head), streaming.spec (painted head through
+  push/flush/reset, replacePainted), screen.spec (folds, collapse on moving
+  on, manual choice kept, replace-in-place, in-place thinking-head ticks,
+  Ctrl+O direction with mixed folds), console.spec (pipe digest),
+  density.spec.
+- **PTY e2e** (`pty-folds`, `experience-navigation`): thinking lands folded
+  under its clock; a click on the clock opens it and a click inside folds
+  it; Ctrl+O opens a folded thought; moving on leaves it folded; a hand
+  choice survives the next turn; a
   terminal card is one row that opens on click and on Ctrl+O; a failed call
   is one `✗` row; a thought followed by a tool call and another thought keeps
   both open and the card closed; replay restores collapsed folds; the hover

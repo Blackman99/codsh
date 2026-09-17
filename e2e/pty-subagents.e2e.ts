@@ -101,7 +101,7 @@ describe.skipIf(process.platform === 'win32')('the subagents roster (real PTY)',
       ['Ctrl+H closes', ENTER, 600],
       // Inside: the child's own card, and a status row naming the child.
       ['Esc returns to the parent', ESCAPE, 400],
-      // The exit replay paints the parent's answer again: back for sure,
+      // Uncovering the parent paints its answer again: back for sure,
       // once the repaint has settled.
       ['CODE_CLI_SUBAGENTS_STARTED', '', 400],
       [BOTH_SETTLED, '', 0],
@@ -110,7 +110,7 @@ describe.skipIf(process.platform === 'win32')('the subagents roster (real PTY)',
     const entered = firstOnRoster(frame(run, 2))
     const inside = frame(run, 3)
     const back = frame(run, 4)
-    // The child's transcript replaced the parent's: its `sleep` card is
+    // The child's transcript covers the parent's: its `sleep` card is
     // there and the parent's answer is not.
     expect(inside.some(row => row.includes(`● ${entered.sleep}`))).toBe(true)
     expect(inside.some(row => row.includes('CODE_CLI_SUBAGENTS_STARTED'))).toBe(false)

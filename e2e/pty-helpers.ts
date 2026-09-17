@@ -39,6 +39,9 @@ export const visible = (row: string): string => row.replace(/^ {2}/u, '').trimEn
 /** The bare Escape byte, which is what a person pressing the key sends. */
 export const ESCAPE = '\u001B'
 
+/** Ctrl-C, which is what a person pressing the interrupt key sends. */
+export const CTRL_C = '\u0003'
+
 /** Enter, as a terminal in raw mode sends it. */
 export const ENTER = '\r'
 

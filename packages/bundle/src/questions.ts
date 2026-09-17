@@ -18,6 +18,7 @@ import { FRONTIER_CUSTOM_LABEL, type FrontierOutcome, type FrontierSpec } from '
 import { gateTitle } from './gate-modal.ts'
 import { renderMarkdown } from './markdown.ts'
 import type { GateAction, GateKind, GateModalSpec } from './gate-modal.ts'
+import { blockRules } from './gutter.ts'
 import type { SelectOutcome, SelectSpec } from './selector.ts'
 import type { Theme } from './theme.ts'
 
@@ -296,7 +297,7 @@ export class TerminalQuestions {
   constructor(
     private readonly reader: LineReader,
     private readonly theme: Theme,
-    private readonly write: (line: string) => void,
+    private readonly write: (line: string, rule?: string) => void,
     /** The arrow-key selection, offered only where keys can arrive. */
     private readonly select?: SelectAsk,
     /** The /ship full-screen gate, offered only on a TTY. */
@@ -343,8 +344,9 @@ export class TerminalQuestions {
     }
     // A question stays editable until the batch settles. The transcript is
     // append-only, so publish only its final value, in request order.
+    const rule = blockRules(this.theme).tool
     for (const summary of summaries) {
-      if (summary !== undefined) this.write(this.theme.dim(summary))
+      if (summary !== undefined) this.write(this.theme.dim(summary), rule)
     }
     return { answers: request.questions.map((question, at) => answers[at] ?? { id: question.id, selected: [] }) }
   }
@@ -385,7 +387,7 @@ export class TerminalQuestions {
         const shown = action.note.trim() === '' ? 'edit' : action.note.trim()
         return { kind: 'answer', answer, summary: `  ✎ ${shown}` }
       } else {
-        if (!signal?.aborted) this.write(this.theme.dim('  aborted'))
+        if (!signal?.aborted) this.write(this.theme.dim('  aborted'), blockRules(this.theme).tool)
         return { kind: 'cancelled' }
       }
     }

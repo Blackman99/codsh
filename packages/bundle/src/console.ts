@@ -407,6 +407,58 @@ export class TerminalConsole {
   }
 
   /**
+   * Hide the current transcript so a Child view can paint in its place.
+   * Esc {@link uncoverTranscript uncovers} it with history and scroll intact.
+   */
+  coverTranscript(): void {
+    this.screen?.coverTranscript()
+  }
+
+  /**
+   * Restore the transcript the current Child view covered.
+   * @returns whether a covered transcript was there to restore.
+   */
+  uncoverTranscript(): boolean {
+    return this.screen?.uncoverTranscript() ?? false
+  }
+
+  /**
+   * Restore the parent transcript and drop every nested cover.
+   * @returns whether a parent transcript was there to restore.
+   */
+  restoreCoveredRoot(): boolean {
+    return this.screen?.restoreCoveredRoot() ?? false
+  }
+
+  /**
+   * Forget covered transcripts without restoring them — `/clear` and `/resume`.
+   */
+  discardCoveredTranscripts(): void {
+    this.screen?.discardCoveredTranscripts()
+  }
+
+  /**
+   * Run `work` against the covered parent buffer, then put the Child view back.
+   * @param work - writes that belong to the parent transcript.
+   */
+  withCoveredRoot(work: () => void): void {
+    this.withCoveredAt(0, work)
+  }
+
+  /**
+   * Run `work` against one covered buffer, then put the Child view back.
+   * @param index - 0 is the parent; `ChildViews.indexOf(id) + 1` for a child.
+   * @param work - writes that belong to that covered transcript.
+   */
+  withCoveredAt(index: number, work: () => void): void {
+    if (this.screen === undefined) {
+      work()
+      return
+    }
+    this.screen.withCoveredAt(index, work)
+  }
+
+  /**
    * Route decoded keys to a handler.
    * @param handler - receives every key while registered.
    * @returns a disposer that removes it.
@@ -523,11 +575,11 @@ export class TerminalConsole {
       this.screen.append(lines, rule, replaces)
       return
     }
-    // Pipe readers still need the gutter glyph (› / ✻ / │ / ·); colour is
-    // already absent off a TTY. Blank separators stay blank.
+    // Pipe readers still need the gutter glyph (`│`); colour is already
+    // absent off a TTY. Blank separators keep the same prefix.
     for (const [index, line] of lines.entries()) {
       const ownRule = typeof rule === 'string' ? rule : (rule[index] ?? '')
-      const prefix = line === '' || ownRule === '' ? '' : ownRule
+      const prefix = ownRule === '' ? '' : ownRule
       this.output.write(`${prefix}${line}\n`)
       this.lastWritten = line
     }
@@ -565,7 +617,7 @@ export class TerminalConsole {
    * A TTY records the prompt boundary for sticky history navigation. A pipe
    * has no viewport, so it receives the exact ordinary transcript lines.
    * @param lines - rendered prompt lines, including its separator.
-   * @param rule - the user's styled left rule; omitted from redirected output.
+   * @param rule - the user's styled left rule; pipes still prefix every row.
    * @param anchor - false while replaying retained session history.
    * @param explicitLines - logical text lines the person entered, excluding metadata.
    */
@@ -575,7 +627,7 @@ export class TerminalConsole {
       return
     }
     for (const line of lines) {
-      const prefix = line === '' || rule === '' ? '' : rule
+      const prefix = rule === '' ? '' : rule
       this.output.write(`${prefix}${line}\n`)
     }
   }
@@ -629,7 +681,7 @@ export class TerminalConsole {
     }
     for (const [index, line] of summary.entries()) {
       const ownRule = Array.isArray(rule) ? (rule[index] ?? '') : rule
-      const prefix = line === '' || ownRule === '' ? '' : ownRule
+      const prefix = ownRule === '' ? '' : ownRule
       this.output.write(`${prefix}${line}\n`)
     }
   }

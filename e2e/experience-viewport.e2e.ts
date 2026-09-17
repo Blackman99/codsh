@@ -134,14 +134,24 @@ describe.skipIf(process.platform === 'win32')('the first five minutes: welcome, 
   it('gives a canned command the top of the viewport, like a typed prompt', async () => {
     const run = await drivePtySteps('anchor', [
       ['Welcome to codsh', `/ship let long diffs open in a pager${ENTER}`, 200],
+      ['Esc teaser', '\u001B', 0],
       ['ANCHOR_REPLY_1', '', 0],
       ['ANCHOR_REPLY_8', '', 0],
       ['ANCHOR_REPLY_12', `/exit${ENTER}`, 300],
     ], { rows: 12 })
 
     const captured = (offset: number | undefined): string => Buffer.from(run.output).subarray(0, offset).toString()
-    const first = screenOf(captured(run.offsets[1]), -1, 12).alternate
-    const filling = screenOf(captured(run.offsets[2]), -1, 12).alternate
+    const firstScreen = screenOf(captured(run.offsets[2]), -1, 12)
+    const fillingScreen = screenOf(captured(run.offsets[3]), -1, 12)
+    const first = firstScreen.alternate
+    const filling = fillingScreen.alternate
+    for (const screen of [firstScreen, fillingScreen]) {
+      const prompt = screen.styledAlternate[1]?.find(run => run.text.includes('/ship'))
+      const pad = screen.styledAlternate[0]?.find(run => run.pen.includes('48;'))
+      expect(pad).toBeDefined()
+      expect(prompt?.pen).toBe(pad?.pen)
+      expect(prompt?.text.trimEnd()).toMatch(/^  \/ship/u)
+    }
 
     // The echo takes the place a submitted message takes, and the reply fills
     // the space under it rather than pushing it up the screen.
@@ -170,7 +180,7 @@ describe.skipIf(process.platform === 'win32')('the first five minutes: welcome, 
     const captured = (offset: number | undefined): string => Buffer.from(run.output).subarray(0, offset).toString()
     const shown = screenOf(captured(run.offsets[1]), -1, 24).alternate
 
-    const echo = shown.findIndex(row => row.includes('› /status'))
+    const echo = shown.findIndex(row => row.includes('│ /status'))
     expect(echo).toBeGreaterThan(0)
     // What was on screen before it is still above it. On a 24-row terminal the
     // taller chrome scrolls the lettermark off, so the welcome's help line —

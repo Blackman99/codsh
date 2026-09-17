@@ -8,6 +8,7 @@
     "allowImportingTsExtensions": true,
     "rewriteRelativeImportExtensions": true,
     "strict": true,
+    "jsx": "react-jsx",
     "noUncheckedIndexedAccess": true,
     "exactOptionalPropertyTypes": true,
     "noImplicitOverride": true,
@@ -17,5 +18,5 @@
     "types": ["node"],
     "noEmit": true
   },
-  "include": ["packages/bundle/src/**/*.ts", "packages/bundle/tests/**/*.ts", "e2e/**/*.ts", "*.config.ts"]
+  "include": ["packages/bundle/src/**/*.ts", "packages/bundle/src/**/*.tsx", "packages/bundle/tests/**/*.ts", "e2e/**/*.ts", "*.config.ts"]
 }

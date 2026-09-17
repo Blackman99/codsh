@@ -211,15 +211,15 @@ describe.skipIf(process.env.CAPTURE_SCREENS === undefined)('showcase frames', ()
 
     // A tool call rendered as its one-row card, the diff behind it.
     await capture(
-      { id: 'tool-call', title: 'Tool calls as one-row cards', note: 'Every call renders through its presenter as one row — a title, +n -m, a status — under a rule down the block’s left edge; the diff itself is a click or Ctrl+O away.', from: '› create the note' },
+      { id: 'tool-call', title: 'Tool calls as one-row cards', note: 'Every call renders through its presenter as one row — a title, +n -m, a status — under a rule down the block’s left edge; the diff itself is a click or Ctrl+O away.', from: '│ create the note' },
       'write',
       [['Welcome to codsh', `create the note${ENTER}`, 300], ['CODE_CLI_CALL_OK', '', 700], ['', `/exit${ENTER}`, 400]],
       'CODE_CLI_CALL_OK',
     )
 
-    // Thinking, open under its clock the moment it lands.
+    // Thinking, folded under its clock the moment it lands.
     await capture(
-      { id: 'fold-open', title: 'Thinking, open while you read it', note: 'A thought streams into the transcript under a head that becomes its clock, and stays open until the next prompt folds it. A click folds it now, a click on the clock opens it again, and Ctrl+O swaps every block at once.', from: '› think it over' },
+      { id: 'fold-open', title: 'Thinking, folded until you open it', note: 'A thought streams as a ticking `thinking…` head that becomes its clock, folded, with the deliberation behind a click or Ctrl+O. A click on the clock opens it, a click inside folds it, and Ctrl+O swaps every block at once.', from: '│ think it over' },
       'reasoning',
       [
         ['Welcome to codsh', `think it over${ENTER}`, 300],
@@ -231,7 +231,7 @@ describe.skipIf(process.env.CAPTURE_SCREENS === undefined)('showcase frames', ()
 
     // The todo list pinned in the chrome, then opened whole.
     await capture(
-      { id: 'todos', title: 'Todos that stay in view', note: 'A pinned row holds the agent’s list over the status row instead of scrolling away with the write; Ctrl+T opens it whole.', from: '› plan the work' },
+      { id: 'todos', title: 'Todos that stay in view', note: 'A pinned row holds the agent’s list over the status row instead of scrolling away with the write; Ctrl+T opens it whole.', from: '│ plan the work' },
       'todo',
       [['Welcome to codsh', `plan the work${ENTER}`, 400], ['todos', CTRL_T, 900], ['', `/exit${ENTER}`, 400]],
       // A marker only the chrome paints: a transcript marker would cut the

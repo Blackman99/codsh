@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Gallery — codsh</title>
+<meta name="description" content="Explore projects started from one-sentence requests: original prompts, real screenshots, a playable browser game, a shoppable storefront, and a desktop-grade music player.">
+<meta name="color-scheme" content="dark">
+<link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
+<link rel="canonical" href="https://blackman99.github.io/codsh/gallery.html">
+<link rel="alternate" hreflang="en" href="gallery.html">
+<link rel="alternate" hreflang="zh-Hans" href="gallery.zh.html">
+<meta property="og:title" content="Gallery — codsh">
+<meta property="og:description" content="One-sentence requests. Real projects.">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://blackman99.github.io/codsh/gallery.html">
+<meta property="og:image" content="https://blackman99.github.io/codsh/assets/gallery/medal-of-honor.webp">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="stylesheet" href="assets/pages.css">
+</head>
+<body>
+<a class="skip-link" href="#main">Skip to content</a>
+<header class="site-header">
+  <a class="brand" href="index.html" aria-label="codsh home"><img src="assets/logo.svg" alt="" width="28" height="28">codsh</a>
+  <nav aria-label="Main navigation">
+    <a href="guide.html">Guide</a>
+    <a href="gallery.html" aria-current="page">Gallery</a>
+    <a href="https://github.com/Blackman99/codsh">GitHub</a>
+    <a href="gallery.zh.html" hreflang="zh-Hans" lang="zh-Hans">中文</a>
+  </nav>
+</header>
+<main class="page" id="main">
+  <div class="page-heading">
+    <h1>It started with a sentence.</h1>
+    <p>Every project in this gallery was built with codsh from a one-sentence request, with just one round of interaction and the recommended answer selected for every question. Explore the original requests, real screenshots, and playable results.</p>
+  </div>
+  <article class="exhibit" id="international-mall" aria-labelledby="mall-title">
+    <header class="exhibit-header">
+      <h2 id="mall-title">International Mall</h2>
+      <p>Bilingual cross-border shop</p>
+    </header>
+    <div class="exhibit-main">
+      <figure>
+        <img src="assets/gallery/international-mall.webp" alt="Storefront homepage with a bilingual header, currency switcher, and a grid of electronics, fashion and home products" width="1440" height="900" fetchpriority="high">
+        <figcaption>Captured from the shop running in a browser</figcaption>
+      </figure>
+      <div>
+        <p class="prompt-label">The original request</p>
+        <blockquote lang="zh-Hans"><p>做一个国际商城</p></blockquote>
+        <p class="translation">“Make an international mall.”</p>
+        <p class="exhibit-description">A bilingual B2C storefront with USD, EUR, CNY and JPY prices, a curated catalog, cart, simulated international checkout, and order tracking.</p>
+        <ul class="tags" aria-label="Built with"><li>Next.js</li><li>TypeScript</li><li>Tailwind CSS</li></ul>
+        <div class="actions"><a class="button" href="demos/international-mall/index.html">Open the shop</a></div>
+        <p class="device-note">Works in a desktop or mobile browser. Checkout is simulated and stays in this browser; it does not charge a real account.</p>
+      </div>
+    </div>
+    <details class="exhibit-details">
+      <summary>Shopping notes</summary>
+      <div class="details-grid">
+        <div>
+          <h3>How to shop</h3>
+          <dl class="controls">
+            <dt>EN / 中文</dt><dd>Switch the interface and product copy</dd>
+            <dt>USD EUR CNY JPY</dt><dd>Recalculate prices across the catalog and cart</dd>
+            <dt>Catalog</dt><dd>Filter by category, search, open a product, add to cart</dd>
+            <dt>Checkout</dt><dd>Guest address, Standard or Express shipping, simulated card / PayPal / Apple Pay</dd>
+            <dt>Track</dt><dd>Look up the order with the confirmation ID</dd>
+          </dl>
+        </div>
+        <div>
+          <h3>From request to result</h3>
+          <p>The quote preserves the original wording from the project spec. This project also used just one round of interaction, with the recommended answer selected for every question, before codsh completed planning and implementation. This demo is a built snapshot of the resulting project; orders persist in the browser instead of a server file.</p>
+        </div>
+      </div>
+    </details>
+  </article>
+  <article class="exhibit" id="medal-of-honor" aria-labelledby="game-title">
+    <header class="exhibit-header">
+      <h2 id="game-title">Medal of Honor · Web</h2>
+      <p>3D first-person shooter</p>
+    </header>
+    <div class="exhibit-main">
+      <figure>
+        <img src="assets/gallery/medal-of-honor.webp" alt="In-game first-person view of a rifle in a trench, a bunker ahead and mission objectives at the top left" width="1440" height="900" loading="lazy">
+        <figcaption>Captured from the game running in a browser</figcaption>
+      </figure>
+      <div>
+        <p class="prompt-label">The original request</p>
+        <blockquote lang="zh-Hans"><p>做一个 web 版的荣誉勋章游戏</p></blockquote>
+        <p class="translation">“Make a web version of Medal of Honor.”</p>
+        <p class="exhibit-description">A browser tribute to the classic WWII shooter. Cross the trenches, enter the bunker, and take on three mission stages with an M1 Garand and a Thompson.</p>
+        <ul class="tags" aria-label="Built with"><li>Three.js</li><li>TypeScript</li><li>Web Audio</li></ul>
+        <div class="actions"><a class="button" href="demos/medal-of-honor/index.html">Play the game</a></div>
+        <p class="device-note">Requires a desktop browser, keyboard and mouse. Screenshots work on mobile; touch controls are not supported.</p>
+      </div>
+    </div>
+    <details class="exhibit-details">
+      <summary>Controls and project notes</summary>
+      <div class="details-grid">
+        <div>
+          <h3>How to play</h3>
+          <dl class="controls">
+            <dt>Click deploy</dt><dd>Enter the battlefield and lock the pointer</dd>
+            <dt>W A S D / Mouse</dt><dd>Move / look around</dd>
+            <dt>Left / right click</dt><dd>Fire / aim</dd>
+            <dt>1 / 2 / R</dt><dd>Switch weapons / reload</dd>
+            <dt>Shift / Space</dt><dd>Sprint / jump</dd>
+            <dt>Esc</dt><dd>Release the pointer</dd>
+          </dl>
+        </div>
+        <div>
+          <h3>From request to result</h3>
+          <p>The quote preserves the original wording from the project spec. This project also used just one round of interaction, with the recommended answer selected for every question, before codsh completed planning and implementation. This demo is a built snapshot of the resulting project.</p>
+          <p class="disclaimer">An unofficial tribute, unaffiliated with Medal of Honor or its rights holders. The name describes the original request and inspiration.</p>
+        </div>
+      </div>
+    </details>
+  </article>
+  <article class="exhibit" id="web-music-player" aria-labelledby="music-title">
+    <header class="exhibit-header">
+      <h2 id="music-title">Web Music Player</h2>
+      <p>Desktop-grade local audio app</p>
+    </header>
+    <div class="exhibit-main">
+      <figure>
+        <img src="assets/gallery/web-music-player.webp" alt="Desktop music player interface with a sidebar, track table, audio visualizer, and persistent playback controls" width="1440" height="900" loading="lazy">
+        <figcaption>Captured from the music player running in a browser</figcaption>
+      </figure>
+      <div>
+        <p class="prompt-label">The original request</p>
+        <blockquote lang="zh-Hans"><p>做一个 web 音乐播放器，但是要像本地应用一样</p></blockquote>
+        <p class="translation">“Make a web music player, but like a local app.”</p>
+        <p class="exhibit-description">A desktop-grade audio player running entirely client-side. Access local folders directly without uploads, tune the sound with a 10-band equalizer, watch the real-time spectrum visualizer, and follow synchronized LRC lyrics.</p>
+        <ul class="tags" aria-label="Built with"><li>React</li><li>TypeScript</li><li>Web Audio</li><li>Tailwind CSS</li></ul>
+        <div class="actions"><a class="button" href="demos/web-music-player/index.html">Open the music player</a></div>
+        <p class="device-note">Works in modern browsers with bundled sample tracks. Accessing local folders uses the File System Access API on desktop browsers.</p>
+      </div>
+    </div>
+    <details class="exhibit-details">
+      <summary>Playback and app notes</summary>
+      <div class="details-grid">
+        <div>
+          <h3>How to listen</h3>
+          <dl class="controls">
+            <dt>Play / Pause</dt><dd>Click any track or press Space to audition bundled sample tracks</dd>
+            <dt>10-Band EQ</dt><dd>Open the equalizer modal to adjust bands or choose genre presets</dd>
+            <dt>Visualizer</dt><dd>Toggle between bar spectrum, wave modes, or off</dd>
+            <dt>Lyrics</dt><dd>Press L or click Lyrics to open the synchronized scrolling lyric drawer</dd>
+            <dt>Local Folder</dt><dd>Click Open Local Folder to read your own audio files with zero upload</dd>
+          </dl>
+        </div>
+        <div>
+          <h3>From request to result</h3>
+          <p>The quote preserves the original wording from the project spec. This project also used just one round of interaction, with the recommended answer selected for every question, before codsh completed planning and implementation. This demo is a built snapshot of the resulting project; library state and equalizer settings persist in IndexedDB.</p>
+        </div>
+      </div>
+    </details>
+  </article>
+</main>
+<footer class="site-footer">
+  <span>codsh · MIT · Built on DeepSeek Harness</span>
+  <nav aria-label="More links"><a href="index.html">Back home</a><a href="guide.html#ship">Start your own with /ship</a></nav>
+</footer>
+</body>
+</html>

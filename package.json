@@ -20,6 +20,7 @@
     "@deepseek-ai/cordis-plugin-group": "^1.0.2",
     "@deepseek-ai/cordis-plugin-include": "^1.0.7",
     "@deepseek-ai/cordis-plugin-loader": "^1.0.3",
+    "@deepseek-ai/dsh": "^0.1.5-rc.2",
     "@deepseek-ai/dsh-agent": "^0.1.5-rc.2",
     "@deepseek-ai/dsh-agent-default-model": "^0.1.5-rc.2",
     "@deepseek-ai/dsh-anonymous-user-id": "^0.1.5-rc.2",
@@ -58,13 +59,13 @@
     "@deepseek-ai/dsh-util-workspace-path": "^0.1.5-rc.2",
     "@deepseek-ai/dsh-workflow": "^0.1.5-rc.2",
     "@types/node": "^24.0.0",
+    "esbuild": "^0.28.2",
     "execa": "^9.0.0",
     "semver": "^7.8.5",
     "tsdown": "^0.15.0",
     "tsx": "^4.20.0",
     "typescript": "^5.9.0",
-    "vitest": "^4.0.0",
-    "@deepseek-ai/dsh": "^0.1.5-rc.2"
+    "vitest": "^4.0.0"
   },
   "engines": {
     "node": ">=22.19"

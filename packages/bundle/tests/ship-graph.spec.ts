@@ -8,7 +8,10 @@ import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import {
+  collectJoinSources,
+  essentialBlockedBy,
   graphPathFor,
+  isShipGraphJoinError,
   joinShipGraph,
   panoramaTeaser,
   parseShipGraph,
@@ -61,6 +64,70 @@ describe('graphPathFor', () => {
 })
 
 describe('joinShipGraph', () => {
+  it.each(['wayfinding', 'grilling', 'interviewing', 'confirmed', 'planned', 'landing', 'shipped'] as const)('retains ledger status %s through graph serialization', status => {
+    const graph = joinShipGraph(sources({ specPath: 'widget.md', markdown: `Status: ${status}` }))
+    expect(isJoinError(graph)).toBe(false)
+    if (isJoinError(graph)) return
+    expect(graph.status).toBe(status)
+    expect(parseShipGraph(JSON.stringify(graph))).toEqual(graph)
+  })
+
+  it('accepts legacy graphs without status and drops invalid cached status', () => {
+    const graph = { version: 1, specPath: 'widget.md', nodes: [], edges: [] }
+    expect(parseShipGraph(JSON.stringify(graph))).toEqual(graph)
+    expect(parseShipGraph(JSON.stringify({ ...graph, status: 'unknown' }))).toEqual(graph)
+  })
+
+  it('keeps exact originalRequirement and Main Track Idea objective, never a plan-ticket guess', () => {
+    const graph = joinShipGraph(sources({
+      specPath: 'widget.md',
+      markdown: [
+        'Status: interviewing',
+        '',
+        '## Original Requirement',
+        '',
+        'Build a widget',
+        'that works offline.',
+        '',
+        '## Wayfinder',
+        '',
+        'Destination: Chart the route.',
+        '',
+        '## Main Track',
+        '',
+        '**Idea.** One canvas for the person.',
+        '**Track-1.** Hybrid compass.',
+        '',
+        '## Plan',
+        '',
+        '- [ ] Ticket 1: Land the teaser (Track: 1)',
+      ].join('\n'),
+    }))
+    expect(isJoinError(graph)).toBe(false)
+    if (isJoinError(graph)) return
+    expect(graph.originalRequirement).toBe('Build a widget\nthat works offline.')
+    expect(graph.objective).toBe('One canvas for the person.')
+    expect(graph.nodes.map(node => node.id)).toEqual(['track:1', 'landing:1'])
+  })
+
+  it('accepts an old v1 cache without answers and restores answers from join extras', () => {
+    const cached = { version: 1, specPath: 'widget.md', nodes: [], edges: [] }
+    expect(parseShipGraph(JSON.stringify(cached))).toEqual(cached)
+    const graph = joinShipGraph(sources({
+      specPath: 'widget.md',
+      markdown: 'Status: grilling\n\n## Original Requirement\n\nBuild a widget.\n',
+      answers: [{ id: 'q1', phase: 'grill', question: 'Storage?', answer: 'SQLite' }],
+    }))
+    expect(isJoinError(graph)).toBe(false)
+    if (isJoinError(graph)) return
+    expect(graph.originalRequirement).toBe('Build a widget.')
+    expect(graph.objective).toBe('Build a widget.')
+    expect(graph.answers).toEqual([
+      { id: 'q1', phase: 'grill', question: 'Storage?', answer: 'SQLite' },
+    ])
+    expect(graph.nodes).toEqual([])
+  })
+
   it('pins native keys, derived Claim, blocked-by and hangs-off', () => {
     const markdown = [
       'Status: landing',
@@ -132,6 +199,55 @@ describe('joinShipGraph', () => {
       { from: 'landing:1', to: 'track:1', kind: 'hangs-off' },
       { from: 'landing:2', to: 'track:1', kind: 'hangs-off' },
       { from: 'landing:2', to: 'track:2', kind: 'hangs-off' },
+    ])
+  })
+
+  it('drops a numbered landing chain so siblings of one prerequisite fan out', () => {
+    const edges = essentialBlockedBy([
+      { from: 'landing:2', to: 'landing:1', kind: 'blocked-by' },
+      { from: 'landing:3', to: 'landing:1', kind: 'blocked-by' },
+      { from: 'landing:3', to: 'landing:2', kind: 'blocked-by' },
+      { from: 'landing:4', to: 'landing:1', kind: 'blocked-by' },
+      { from: 'landing:4', to: 'landing:2', kind: 'blocked-by' },
+      { from: 'landing:4', to: 'landing:3', kind: 'blocked-by' },
+      { from: 'landing:5', to: 'landing:2', kind: 'blocked-by' },
+      { from: 'landing:5', to: 'landing:3', kind: 'blocked-by' },
+      { from: 'landing:1', to: 'track:1', kind: 'hangs-off' },
+    ])
+    expect(edges.filter(edge => edge.kind === 'blocked-by')).toEqual([
+      { from: 'landing:2', to: 'landing:1', kind: 'blocked-by' },
+      { from: 'landing:3', to: 'landing:1', kind: 'blocked-by' },
+      { from: 'landing:4', to: 'landing:1', kind: 'blocked-by' },
+      { from: 'landing:5', to: 'landing:2', kind: 'blocked-by' },
+      { from: 'landing:5', to: 'landing:3', kind: 'blocked-by' },
+    ])
+    expect(edges).toContainEqual({ from: 'landing:1', to: 'track:1', kind: 'hangs-off' })
+    const graph = joinShipGraph(sources({
+      specPath: '/repo/docs/specs/honor.md',
+      markdown: [
+        'Status: landing',
+        '',
+        '## Main Track',
+        '',
+        '**Track-1.** Playable FPS.',
+        '',
+        '## Plan',
+        '',
+        '- [x] Ticket 1: Engine (Blocked by: none) (Track: 1)',
+        '- [ ] Ticket 2: Audio (Blocked by: 1) (Track: 1)',
+        '- [ ] Ticket 3: Arsenal (Blocked by: 1, 2) (Track: 1)',
+        '- [ ] Ticket 4: AI (Blocked by: 1, 2, 3) (Track: 1)',
+        '- [ ] Ticket 5: Mission (Blocked by: 2, 3) (Track: 1)',
+      ].join('\n'),
+    }))
+    expect(isJoinError(graph)).toBe(false)
+    if (isJoinError(graph)) return
+    expect(graph.edges.filter(edge => edge.kind === 'blocked-by')).toEqual([
+      { from: 'landing:2', to: 'landing:1', kind: 'blocked-by' },
+      { from: 'landing:3', to: 'landing:1', kind: 'blocked-by' },
+      { from: 'landing:4', to: 'landing:1', kind: 'blocked-by' },
+      { from: 'landing:5', to: 'landing:2', kind: 'blocked-by' },
+      { from: 'landing:5', to: 'landing:3', kind: 'blocked-by' },
     ])
   })
 
@@ -362,6 +478,117 @@ describe('joinShipGraph', () => {
   })
 })
 
+describe('collectJoinSources', () => {
+  const wayfinding = [
+    'Status: wayfinding',
+    'Branch: ship/widget',
+    '',
+    '## Wayfinder',
+    '',
+    '[Map](https://github.com/Blackman99/codsh/issues/106)',
+  ].join('\n')
+
+  it('unions local wayfinder tickets with a published map pointer (empty inner ring is not a skipped local ring)', () => {
+    const cwd = mkdtempSync(join(tmpdir(), 'ship-graph-'))
+    const spec = join(cwd, 'docs', 'specs', 'widget.md')
+    mkdirSync(dirname(spec), { recursive: true })
+    writeFileSync(spec, wayfinding)
+    const dir = join(cwd, '.scratch', 'widget', 'wayfinder')
+    mkdirSync(dir, { recursive: true })
+    writeFileSync(join(dir, '01-repo-facts.md'), [
+      '# Repo facts',
+      '',
+      'Type: research',
+      'Status: open',
+      '',
+    ].join('\n'))
+    const collected = collectJoinSources(cwd, spec, wayfinding)
+    expect(isShipGraphJoinError(collected)).toBe(false)
+    if (isShipGraphJoinError(collected)) return
+    expect(collected.mapChildren).toEqual([
+      { id: 'decision:local:1', title: 'Repo facts', ticketType: 'research' },
+    ])
+    const graph = joinShipGraph(collected)
+    expect(isJoinError(graph)).toBe(false)
+    if (isJoinError(graph)) return
+    expect(graph.nodes.filter(node => node.kind === 'decision')).toEqual([
+      {
+        id: 'decision:local:1',
+        kind: 'decision',
+        title: 'Repo facts',
+        claim: 'unclaimed',
+        ticketType: 'research',
+      },
+    ])
+    expect(graph.nodes.some(node => node.id.includes('#106'))).toBe(false)
+  })
+
+  it('reads GitHub decision tickets from the local map, not the map issue itself', () => {
+    const cwd = mkdtempSync(join(tmpdir(), 'ship-graph-'))
+    const spec = join(cwd, 'docs', 'specs', 'widget.md')
+    mkdirSync(dirname(spec), { recursive: true })
+    const markdown = [
+      'Status: wayfinding',
+      'Branch: ship/widget',
+      '',
+      '## Wayfinder',
+      '',
+      'Canonical map: [Automatic /ship continuation](https://github.com/Blackman99/codsh/issues/106).',
+      '',
+      '[Map](../../.scratch/widget/wayfinder/map.md)',
+    ].join('\n')
+    writeFileSync(spec, markdown)
+    const dir = join(cwd, '.scratch', 'widget', 'wayfinder')
+    mkdirSync(dir, { recursive: true })
+    writeFileSync(join(dir, 'map.md'), [
+      '# wayfinder:map',
+      '',
+      'Canonical map: [Automatic /ship continuation](https://github.com/Blackman99/codsh/issues/106).',
+      '',
+      '- [Graph node identity](https://github.com/Blackman99/codsh/issues/107)',
+      '- Blackman99/codsh#115',
+    ].join('\n'))
+    const collected = collectJoinSources(cwd, spec, markdown)
+    expect(isShipGraphJoinError(collected)).toBe(false)
+    if (isShipGraphJoinError(collected)) return
+    expect(collected.mapChildren?.map(child => child.id)).toEqual([
+      'decision:github:Blackman99/codsh#107',
+      'decision:github:Blackman99/codsh#115',
+    ])
+    expect(collected.mapChildren?.some(child => child.id.endsWith('#106'))).toBe(false)
+  })
+
+  it('keeps local wayfinder tickets beside GitHub children listed on the named map', () => {
+    const cwd = mkdtempSync(join(tmpdir(), 'ship-graph-'))
+    const spec = join(cwd, 'docs', 'specs', 'widget.md')
+    mkdirSync(dirname(spec), { recursive: true })
+    const markdown = [
+      'Status: wayfinding',
+      'Branch: ship/widget',
+      '',
+      '## Wayfinder',
+      '',
+      '[Map](../../.scratch/widget/wayfinder/map.md)',
+    ].join('\n')
+    writeFileSync(spec, markdown)
+    const dir = join(cwd, '.scratch', 'widget', 'wayfinder')
+    mkdirSync(dir, { recursive: true })
+    writeFileSync(join(dir, 'map.md'), [
+      '# wayfinder:map',
+      '',
+      '- [Graph node identity](https://github.com/Blackman99/codsh/issues/107)',
+    ].join('\n'))
+    writeFileSync(join(dir, '01-repo-facts.md'), '# Repo facts\n\nType: research\nStatus: open\n')
+    const collected = collectJoinSources(cwd, spec, markdown)
+    expect(isShipGraphJoinError(collected)).toBe(false)
+    if (isShipGraphJoinError(collected)) return
+    expect(collected.mapChildren?.map(child => child.id)).toEqual([
+      'decision:local:1',
+      'decision:github:Blackman99/codsh#107',
+    ])
+  })
+})
+
 describe('sidecar cache', () => {
   it('discards missing, invalid, and unknown-version sidecars', () => {
     const cwd = mkdtempSync(join(tmpdir(), 'ship-graph-'))
@@ -466,5 +693,21 @@ describe('panoramaTeaser', () => {
     expect(row).toContain('待认领 0')
     expect(row).toContain('已认领 0')
     expect(row).toContain('已关闭 0')
+  })
+
+  it('pins the loopback URL on the teaser and drops the key hint first', () => {
+    const url = 'http://127.0.0.1:49152'
+    const wide = panoramaTeaser(buckets, theme, 120, 0, url)
+    expect(wide).toContain('待认领 1')
+    expect(wide).toContain(url)
+    expect(wide).toContain('click or Ctrl+G')
+    expect(displayWidth(wide)).toBeLessThanOrEqual(120)
+
+    const narrow = panoramaTeaser(buckets, theme, 80, 2, url)
+    expect(narrow).toContain('待认领 1')
+    expect(narrow).toContain('in-flight 2')
+    expect(narrow).toContain(url)
+    expect(narrow).not.toContain('click or Ctrl+G')
+    expect(displayWidth(narrow)).toBeLessThanOrEqual(80)
   })
 })

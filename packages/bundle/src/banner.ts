@@ -82,7 +82,7 @@ export interface BannerFacts {
   preset?: string | undefined
   /** Session identity, shown on the returning greeting. */
   session: string
-  /** Whether Escape can reach the surface; decides which interrupt is named. */
+  /** Whether the surface owns a keyboard; decides whether the ASCII mark fits. */
   readsKeys: boolean
   /**
    * Which greeting to paint.
@@ -146,13 +146,12 @@ function returningLines(facts: BannerFacts, theme: Theme, columns: number): stri
  */
 function firstLines(facts: BannerFacts, theme: Theme, columns: number): string[] {
   const composition = compositionOf(facts)
-  const interrupt = facts.readsKeys ? 'ESC' : 'Ctrl-C'
   const welcome = truncate(
     `${theme.agent('✻')}${theme.muted(` Welcome to codsh · ${composition}`)}`,
     columns,
   )
   const tips = truncate(
-    theme.muted(`/help · /status · Tab · ⇧Tab plan · ${interrupt} · /exit`),
+    theme.muted('/help · /status · Tab · ⇧Tab plan · Ctrl-C · /exit'),
     columns,
   )
   // A terminal wide enough gets the mark. Off a terminal (or squeezed) the

@@ -236,6 +236,18 @@ describe('painting', () => {
     expect(frame.endsWith('\u001B[?2026l')).toBe(true)
   })
 
+  it('keeps the left rule on a blank separator so the rail does not break', () => {
+    const sink = host(6, 40)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['status'], { row: 0, column: 0 }, false)
+    screen.append(['● Write spec.md', '', '● Read spec.md'], '│ ')
+    const rows = painted(flush(sink))
+    expect(rows.get(1)).toBe('│ ● Write spec.md')
+    expect(rows.get(2)).toBe('│')
+    expect(rows.get(3)).toBe('│ ● Read spec.md')
+  })
+
   it('repaints only the rows that changed', () => {
     const sink = host(5, 20)
     const screen = new Screen(sink)
@@ -274,7 +286,8 @@ describe('scrolling', () => {
 
     const rows = painted(flush(sink))
     expect(rows.get(1)).toBe('| › anchored question')
-    expect([rows.get(2), rows.get(3), rows.get(4), rows.get(5), rows.get(6)]).toEqual(['', '', '', '', ''])
+    expect(rows.get(2)).toBe('|')
+    expect([rows.get(3), rows.get(4), rows.get(5), rows.get(6)]).toEqual(['', '', '', ''])
     screen.mouseDown(6, 5)
     screen.mouseDrag(5, 5)
     expect(screen.mouseUp()).toBeUndefined()
@@ -840,10 +853,10 @@ describe('scrolling', () => {
     screen.toggleFolds()
     const expanded = flush(sink)
     expect(expanded).toContain('fourth line')
-    expect(painted(expanded).get(5) ?? '').toBe('')
+    expect(painted(expanded).get(5) ?? '').toBe('|')
 
     screen.toggleFolds()
-    expect(painted(flush(sink)).get(4) ?? '').toBe('')
+    expect(painted(flush(sink)).get(4) ?? '').toBe('|')
   })
 
   it('keeps a manually expanded prompt non-sticky across moving on until manually folded again', () => {
@@ -910,6 +923,104 @@ describe('scrolling', () => {
       'fresh 5',
       'fresh 6',
     ])
+  })
+
+  it('restores a covered transcript at the same scroll offset, so Esc from a Child view can still read history', () => {
+    const sink = host(6, 40)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['status'], { row: 0, column: 0 }, false)
+    screen.append(Array.from({ length: 10 }, (_, index) => `parent ${String(index)}`))
+    screen.scrollBy(-3)
+    const offset = screen.scrolledBy
+    expect(offset).toBeGreaterThan(0)
+    const before = [...painted(flush(sink)).values()]
+    expect(before.some(row => row.includes('parent 2'))).toBe(true)
+
+    screen.coverTranscript()
+    expect(screen.scrolledBy).toBe(0)
+    screen.append(['child only'])
+    const covered = [...painted(flush(sink)).values()]
+    expect(covered.some(row => row.includes('child only'))).toBe(true)
+    expect(covered.some(row => row.includes('parent 2'))).toBe(false)
+
+    expect(screen.uncoverTranscript()).toBe(true)
+    expect(screen.scrolledBy).toBe(offset)
+    const after = [...painted(flush(sink)).values()]
+    expect(after).toEqual(before)
+    screen.scrollBy(-offset)
+    expect(screen.scrolledBy).toBeGreaterThan(offset)
+    expect([...painted(flush(sink)).values()].some(row => row.includes('parent 0'))).toBe(true)
+    expect(screen.uncoverTranscript()).toBe(false)
+  })
+
+  it('restores an expanded fold after covering, rather than replaying it collapsed', () => {
+    const sink = host(8, 40)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['status'], { row: 0, column: 0 }, false)
+    screen.appendFold(['summary row'], ['full a', 'full b'], '', 'thinking')
+    expect(screen.toggleFolds()).toBe(true)
+    expect(screen.foldsExpanded).toBe(true)
+
+    screen.coverTranscript()
+    screen.appendFold(['child summary'], ['child full'])
+    expect(screen.uncoverTranscript()).toBe(true)
+    expect(screen.foldsExpanded).toBe(true)
+    expect([...painted(flush(sink)).values()].join('\n')).toContain('full a')
+  })
+
+  it('drops nested covers and returns the first buffer, the way a roster swap returns to the parent', () => {
+    const sink = host(6, 40)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['status'], { row: 0, column: 0 }, false)
+    screen.append(['parent line'])
+    screen.coverTranscript()
+    screen.append(['child line'])
+    screen.coverTranscript()
+    screen.append(['grandchild line'])
+    expect(screen.restoreCoveredRoot()).toBe(true)
+    const rows = [...painted(flush(sink)).values()]
+    expect(rows.some(row => row.includes('parent line'))).toBe(true)
+    expect(rows.some(row => row.includes('child line'))).toBe(false)
+    expect(screen.uncoverTranscript()).toBe(false)
+  })
+
+  it('keeps writing the covered parent while a Child view is on screen', () => {
+    const sink = host(6, 40)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['status'], { row: 0, column: 0 }, false)
+    screen.append(['parent before'])
+    screen.coverTranscript()
+    screen.append(['child only'])
+    screen.withCoveredRoot(() => { screen.append(['parent during']) })
+    expect([...painted(flush(sink)).values()].some(row => row.includes('child only'))).toBe(true)
+    expect(screen.uncoverTranscript()).toBe(true)
+    const rows = [...painted(flush(sink)).values()].join('\n')
+    expect(rows).toContain('parent before')
+    expect(rows).toContain('parent during')
+    expect(rows).not.toContain('child only')
+  })
+
+  it('writes into a nested covered buffer without painting it', () => {
+    const sink = host(6, 40)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['status'], { row: 0, column: 0 }, false)
+    screen.append(['parent'])
+    screen.coverTranscript()
+    screen.append(['child'])
+    screen.coverTranscript()
+    screen.append(['grandchild'])
+    screen.withCoveredAt(1, () => { screen.append(['child during']) })
+    expect([...painted(flush(sink)).values()].join('\n')).toContain('grandchild')
+    expect(screen.uncoverTranscript()).toBe(true)
+    const child = [...painted(flush(sink)).values()].join('\n')
+    expect(child).toContain('child')
+    expect(child).toContain('child during')
+    expect(child).not.toContain('grandchild')
   })
 
   it('keeps a retained prompt linked to its fold after scrollback trimming', () => {
@@ -1667,9 +1778,9 @@ describe('folds', () => {
     screen.enter()
     screen.setChrome(['status'], { row: 0, column: 0 }, false)
     screen.append(['before'])
-    screen.append(['thinking…', 'line 1', 'line 2'])
+    screen.append(['⠋ thinking…', 'line 1', 'line 2'])
     flush(sink)
-    screen.appendFold(['clock'], ['clock', 'line 1', 'line 2', 'pad'], '', 'thinking', undefined, undefined, ['thinking…', 'line 1', 'line 2'], undefined, true)
+    screen.appendFold(['clock'], ['clock', 'line 1', 'line 2', 'pad'], '', 'thinking', undefined, undefined, ['⠋ thinking…', 'line 1', 'line 2'], undefined, true)
     // Only the rows that changed repaint: the head became the clock and the
     // pad landed under the lines, which kept their rows.
     const rows = painted(flush(sink))
@@ -1687,6 +1798,24 @@ describe('folds', () => {
     screen.toggleFolds()
     const opened = painted(flush(sink))
     expect([opened.get(2), opened.get(3), opened.get(4), opened.get(5), opened.get(6)]).toEqual(['clock', 'line 1', 'line 2', 'pad', ''])
+  })
+
+  it('replaces an in-progress thinking head in place as its frame ticks', () => {
+    const sink = host(8, 40)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['status'], { row: 0, column: 0 }, false)
+    screen.append(['before'])
+    screen.append(['⠋ thinking…'])
+    flush(sink)
+    screen.append(['⠙ thinking…'], '', ['⠋ thinking…'])
+    const ticked = painted(flush(sink))
+    expect(ticked.get(2)).toBe('⠙ thinking…')
+    expect([...ticked.values()].join('\n')).not.toContain('⠋')
+    screen.appendFold(['clock'], ['clock', 'line'], '', 'thinking', undefined, undefined, ['⠙ thinking…'])
+    const landed = painted(flush(sink))
+    expect(landed.get(2)).toBe('clock')
+    expect([...landed.values()].join('\n')).not.toContain('thinking…')
   })
 
   it('gives an open block its new clock in place, as one block', () => {
@@ -1729,14 +1858,14 @@ describe('folds', () => {
     screen.enter()
     screen.setChrome(['status'], { row: 0, column: 0 }, false)
     screen.append(Array.from({ length: 10 }, (_, index) => `old ${index}`))
-    screen.append(['thinking…', 'line 1', 'line 2'])
+    screen.append(['⠋ thinking…', 'line 1', 'line 2'])
     screen.scrollBy(-6)
     const before = painted(flush(sink))
     expect(before.get(1)).toBe('old 2')
 
     // The landed block is one row taller than what streamed; the rows the
     // reader is on do not move for it.
-    screen.appendFold(['clock'], ['clock', 'line 1', 'line 2', 'pad'], '', 'thinking', undefined, undefined, ['thinking…', 'line 1', 'line 2'], undefined, true)
+    screen.appendFold(['clock'], ['clock', 'line 1', 'line 2', 'pad'], '', 'thinking', undefined, undefined, ['⠋ thinking…', 'line 1', 'line 2'], undefined, true)
     expect(painted(flush(sink)).size).toBe(0)
     expect(screen.scrolledBy).toBe(7)
   })
@@ -1751,11 +1880,11 @@ describe('folds', () => {
     screen.enter()
     screen.setChrome(['status'], { row: 0, column: 0 }, false)
     screen.append(['before'])
-    screen.append([pad, 'thinking…', pad, 'line one', 'line two'])
+    screen.append([pad, '⠋ thinking…', pad, 'line one', 'line two'])
     screen.append(['notice'])
     screen.append(['line three'])
     flush(sink)
-    const painted = [pad, 'thinking…', pad, 'line one', 'line two', 'line three']
+    const painted = [pad, '⠋ thinking…', pad, 'line one', 'line two', 'line three']
     screen.appendFold([pad, 'clock', pad], [pad, 'clock', pad, 'line one', 'line two', 'line three', pad], '', 'thinking', undefined, undefined, painted, undefined, true)
     screen.toggleFolds()
     screen.toggleFolds()
@@ -2462,7 +2591,7 @@ describe('the block under the pointer', () => {
     const thinkPad = '\u001B[48;2;20;16;32m  \u001B[0m'
     const think = '\u001B[48;2;20;16;32mthought for 40s\u001B[0m'
     screen.appendFold([toolPad, tool, toolPad], [toolPad, tool, 'full', toolPad], '', 'Read a.ts')
-    screen.appendFold([thinkPad, think, thinkPad], [thinkPad, think, 'reasoning', thinkPad], ['  ', '✻ ', '  '], 'thinking', undefined, undefined, [], ['  ', '✻ ', '  ', '  '])
+    screen.appendFold([thinkPad, think, thinkPad], [thinkPad, think, 'reasoning', thinkPad], ['│ ', '│ ', '│ '], 'thinking', undefined, undefined, [], ['│ ', '│ ', '│ ', '│ '])
     flush(sink)
 
     // Rows: 1 tool pad, 2 Read, 3 tool close pad, 4 thought pad, 5 clock.
@@ -2488,12 +2617,12 @@ describe('the block under the pointer', () => {
     screen.appendFold(
       [thinkPad, think, thinkPad],
       [thinkPad, think, 'reasoning', thinkPad],
-      ['  ', '✻ ', '  '],
+      ['│ ', '│ ', '│ '],
       'thinking',
       undefined,
       undefined,
       [],
-      ['  ', '✻ ', '  ', '  '],
+      ['│ ', '│ ', '│ ', '│ '],
     )
     screen.appendFold([toolPad, read, toolPad], [toolPad, read, 'full', toolPad], '', 'Read access.ts')
     screen.appendFold([grep, toolPad], [grep, 'matches', toolPad], '', 'Grep PROJECT_GOAL_TOOLS', undefined, undefined, [toolPad])
@@ -2502,7 +2631,7 @@ describe('the block under the pointer', () => {
     // Rows: 1 thought pad, 2 clock, 3 thought pad, 4 tool pad, 5 Read, 6 Grep.
     expect(screen.mouseMove(2, 5)?.label).toBe('thinking')
     const frame = flush(sink)
-    expect(frame).toContain('\u001B[48;5;236m✻ thought for 26s')
+    expect(frame).toContain('\u001B[48;5;236m│ thought for 26s')
     expect(frame).not.toContain('\u001B[48;5;236m● Read access.ts')
     expect(frame).not.toContain('\u001B[48;5;236m● Grep PROJECT_GOAL_TOOLS')
     expect(screen.mouseMove(5, 5)?.label).toBe('Read access.ts')
@@ -2522,17 +2651,17 @@ describe('the block under the pointer', () => {
     screen.appendFold(
       [thinkPad, think, thinkPad, toolPad, read, grep],
       [thinkPad, think, 'reasoning', thinkPad],
-      ['  ', '✻ ', '  '],
+      ['│ ', '│ ', '│ '],
       'thinking',
       undefined,
       undefined,
       [],
-      ['  ', '✻ ', '  ', '  '],
+      ['│ ', '│ ', '│ ', '│ '],
     )
     flush(sink)
     expect(screen.mouseMove(2, 8)?.label).toBe('thinking')
     const frame = flush(sink)
-    expect(frame).toContain('\u001B[48;5;236m✻ thought for 26s')
+    expect(frame).toContain('\u001B[48;5;236m│ thought for 26s')
     expect(frame).not.toContain('\u001B[48;5;236m● Read access.ts')
     expect(frame).not.toContain('\u001B[48;5;236m● Grep PROJECT_GOAL_TOOLS')
     expect(screen.mouseMove(5, 8)).toBeUndefined()
@@ -2554,12 +2683,12 @@ describe('the block under the pointer', () => {
     screen.appendFold(
       [thinkPad, think, thinkPad],
       [thinkPad, think, 'reasoning', thinkPad],
-      ['  ', '✻ ', '  '],
+      ['│ ', '│ ', '│ '],
       'thinking',
       undefined,
       undefined,
       [],
-      ['  ', '✻ ', '  ', '  '],
+      ['│ ', '│ ', '│ ', '│ '],
     )
     screen.appendFold([toolPad, readA, toolPad], [toolPad, readA, toolPad], '', 'Read access.ts')
     screen.appendFold([readB], [readB], '', 'Read tools.ts', undefined, undefined, [toolPad])
@@ -2568,7 +2697,7 @@ describe('the block under the pointer', () => {
 
     expect(screen.mouseMove(2, 8)?.label).toBe('thinking')
     const thoughtHover = flush(sink)
-    expect(thoughtHover).toContain('\u001B[48;5;236m✻ thought for 26s')
+    expect(thoughtHover).toContain('\u001B[48;5;236m│ thought for 26s')
     expect(thoughtHover).not.toContain('\u001B[48;5;236m● Read access.ts')
     expect(thoughtHover).not.toContain('\u001B[48;5;236m● Read tools.ts')
     expect(thoughtHover).not.toContain('\u001B[48;5;236m● Grep PROJECT_GOAL_TOOLS')
@@ -2577,7 +2706,7 @@ describe('the block under the pointer', () => {
     expect(screen.mouseMove(5, 8)?.label).toBe('Read access.ts')
     const readHover = flush(sink)
     expect(readHover).toContain('\u001B[48;5;236m● Read access.ts')
-    expect(readHover).not.toContain('\u001B[48;5;236m✻ thought for 26s')
+    expect(readHover).not.toContain('\u001B[48;5;236m│ thought for 26s')
     expect(readHover).not.toContain('\u001B[48;5;236m● Grep PROJECT_GOAL_TOOLS')
   })
 
@@ -2763,7 +2892,7 @@ describe('the rule down a block\'s edge', () => {
     expect(rows.get(3)).toBe('| xxxxxx')
   })
 
-  it('leaves the blank line between blocks unmarked', () => {
+  it('keeps the left rule on the blank line between blocks', () => {
     const sink = host(5, 20)
     const screen = new Screen(sink)
     screen.enter()
@@ -2772,9 +2901,7 @@ describe('the rule down a block\'s edge', () => {
     screen.append(['head', ''], '| ')
     const rows = painted(flush(sink))
     expect(rows.get(1)).toBe('| head')
-    // A lone mark hanging under the block it ended would read as a row of it.
-    // An unchanged empty row is not repainted at all, which says the same thing.
-    expect(rows.get(2) ?? '').toBe('')
+    expect(rows.get(2) ?? '').toBe('|')
   })
 
   it('hands over the text without the rule it swept across', () => {
@@ -3244,16 +3371,16 @@ describe('overlay graphics', () => {
     const text = '\u001B[48;2;20;16;32mthought for 2.0s\u001B[0m'
     const summary = [pad, text, pad]
     const full = [pad, text, '\u001B[48;2;20;16;32mreasoning\u001B[0m', pad]
-    screen.appendFold(summary, full, ['  ', '✻ ', '  '], 'thinking', undefined, undefined, [], ['  ', '✻ ', '  ', '  '])
+    screen.appendFold(summary, full, ['│ ', '│ ', '│ '], 'thinking', undefined, undefined, [], ['│ ', '│ ', '│ ', '│ '])
     const initial = flush(sink)
-    // Collapsed, the clock still carries the ✻; pads are inset, not a gap.
+    // Collapsed, the clock still carries the │; pads keep the same rail.
     expect(initial).toContain('thought for 2.0s')
-    expect(initial.split('✻').length - 1).toBe(1)
+    expect(initial.split('│').length - 1).toBeGreaterThanOrEqual(1)
 
     expect(screen.mouseMove(1, 5)?.label).toBe('thinking')
     expect(screen.mouseMove(2, 5)?.label).toBe('thinking')
     const frame = flush(sink)
-    expect(frame).toContain('\u001B[48;5;236m✻ thought for 2.0s')
+    expect(frame).toContain('\u001B[48;5;236m│ thought for 2.0s')
     const hoverCount = frame.split('\u001B[48;5;236m').length - 1
     expect(hoverCount).toBeGreaterThanOrEqual(3)
   })

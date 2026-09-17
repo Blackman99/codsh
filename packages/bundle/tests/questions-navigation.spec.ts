@@ -3,6 +3,7 @@ import type { AskUserQuestionRequest } from '@deepseek-ai/dsh-user-questions'
 import { describe, expect, it, vi } from 'vitest'
 import { FrontierCard, type FrontierOutcome } from '../src/frontier-card.ts'
 import { TerminalQuestions } from '../src/questions.ts'
+import { blockRules } from '../src/gutter.ts'
 import { createTheme } from '../src/theme.ts'
 
 const theme = createTheme(false, {})
@@ -58,6 +59,34 @@ describe('consecutive question answers', () => {
       { id: 'path', selected: ['docs/'] },
     ] })
     expect(output).toEqual(['  ✓ Postgres', '  ✓ Memory', '  ✓ docs/'])
+  })
+
+  it('draws the tool gutter beside each settled answer so the left rule does not break', async () => {
+    const output: Array<{ line: string; rule?: string }> = []
+    const color = createTheme(true, {})
+    const provider = new TerminalQuestions(
+      { read: async () => undefined },
+      color,
+      (line, rule) => {
+        output.push(rule === undefined ? { line } : { line, rule })
+      },
+      undefined,
+      undefined,
+      async spec => ({ kind: 'accept', value: spec.options[0]?.label ?? '' }),
+    )
+    expect(await provider.ask({
+      ...request,
+      questions: request.questions.slice(0, 2),
+    })).toEqual({ answers: [
+      { id: 'storage', selected: ['SQLite'] },
+      { id: 'cache', selected: ['Memory'] },
+    ] })
+    const rule = blockRules(color).tool
+    expect(output).toEqual([
+      { line: color.dim('  ✓ SQLite'), rule },
+      { line: color.dim('  ✓ Memory'), rule },
+    ])
+    expect(rule).toContain('│')
   })
 
   it.each(['back', 'next', 'edit'])('keeps the literal custom answer %s as data', async (custom) => {

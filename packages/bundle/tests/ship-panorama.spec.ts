@@ -180,6 +180,16 @@ describe('PanoramaOverlay', () => {
     assertFits(narrow.rows, 80)
   })
 
+  it('pins the loopback URL on the overlay title row', () => {
+    const overlay = new PanoramaOverlay(mixedGraph())
+    const url = 'http://127.0.0.1:49152'
+    const frame = overlay.frame(theme, 120, 24, url)
+    expect(frame.rows[0]).toContain('待认领')
+    expect(frame.rows[0]).toContain(url)
+    expect(frame.body.every(row => !row.includes(url))).toBe(true)
+    assertFits(frame.rows, 120)
+  })
+
   it('keeps the empty inner-ring body on the fullscreen, not a skip to the teaser', () => {
     const overlay = new PanoramaOverlay(emptyInnerGraph())
     const frame = overlay.frame(theme, 120, 12)

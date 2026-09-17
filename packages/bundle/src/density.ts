@@ -4,7 +4,7 @@
  * Compact is the default after the chrome redesign. Comfortable only adds
  * room — a blank row between turns and a higher click-to-pager threshold on
  * expanded diffs — without touching GateModal, MetaBar, or the one-row
- * ToolCards. Thinking streams into the transcript in both, so neither needs
+ * ToolCards. Thinking lands as a folded clock in both, so neither needs
  * a preview under the box.
  * @module codsh-bundle/src/density
  */

@@ -159,8 +159,10 @@ describe('TextStream', () => {
     expect(stream.streamed).toBe(false)
     stream.push('text')
     expect(stream.streamed).toBe(true)
+    expect(stream.live).toBeDefined()
     stream.flush()
     expect(stream.streamed).toBe(false)
+    expect(stream.live).toBeUndefined()
   })
 
   it('ignores an empty delta', () => {
@@ -194,6 +196,7 @@ describe('ThinkingTracker', () => {
     tracker.markStepStart(1000)
 
     tracker.push('token 1 ', 2000)
+    expect(tracker.live).toBeDefined()
     tracker.push('token 2\n', 3000)
     tracker.markReasoningEnd(5000)
     const result = tracker.flush(5000)
@@ -287,5 +290,14 @@ describe('ThinkingTracker painted rows', () => {
     tracker.reset()
     expect(tracker.opened).toBe(false)
     expect(tracker.flush()).toBeUndefined()
+  })
+
+  it('replaces the painted head in place so a later flush finds the current rows', () => {
+    const tracker = new ThinkingTracker(theme, () => 80)
+    tracker.push('line\n')
+    tracker.markPainted(['⠋ thinking…'])
+    tracker.replacePainted(['⠙ thinking…'])
+    expect(tracker.paintedRows).toEqual(['⠙ thinking…'])
+    expect(tracker.flush()?.painted).toEqual(['⠙ thinking…'])
   })
 })

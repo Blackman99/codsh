@@ -34,7 +34,12 @@ describe.skipIf(process.platform === 'win32')('consecutive ship questions (real 
     expect(final.match(/✓ Tests, Docs/g)).toHaveLength(1)
     expect(final.match(/✓ next/g)).toHaveLength(1)
     expect(final).not.toContain('✓ SQLite')
-    const compact = final.replace(/\s+/g, '')
+    // The tool gutter continues through the settled answers; without it the
+    // left rule breaks on every reply.
+    expect(final).toMatch(/│\s*✓ Postgres/)
+    expect(final).toMatch(/│\s*✓ Tests, Docs/)
+    expect(final).toMatch(/│\s*✓ next/)
+    const compact = final.replace(/[│\s]/gu, '')
     expect(compact).toContain('"selected":["Postgres"]')
     expect(compact).toContain('"selected":["Tests","Docs"]')
     expect(compact).toContain('"custom":"next"')

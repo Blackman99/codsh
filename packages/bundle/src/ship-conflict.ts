@@ -1,16 +1,12 @@
 /**
- * Conflict-resolution: classify git-named unmerged files, snapshot a mid-merge
- * abort, and run one fill child in the merge-target tree. The runner still
- * owns add, `merge --continue`, and `merge --abort`.
- *
- * Landing serial merge and delivery Merge-back share this helper; pass the
- * landing directory name or `delivery`.
+ * Autonomous conflict resolution in the merge-target tree, shared by landing
+ * and delivery. The runner validates each attempt and owns Git finalization.
  * @module codsh-bundle/src/ship-conflict
  */
 
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, lstatSync, mkdirSync, readFileSync, readlinkSync, writeFileSync } from 'node:fs'
 import { dirname, join, relative, sep } from 'node:path'
-import { classifySpecHeading, writeAllowed } from './mission.ts'
+import { classifyPath, classifySpecHeading, writeAllowed } from './mission.ts'
 import type { ShipChildCreate, ShipChildHandle, ShipGit } from './ship-run.ts'
 
 /** Opening / split / closing conflict-marker lines git writes. */
@@ -26,10 +22,10 @@ const GENERATED_DIR = /(?:^|[/\\])(?:dist|build|\.next|coverage|out)[/\\]/iu
 export type ConflictSkipReason =
   | 'protected-heading'
   | 'no-marker'
-  | 'lockfile'
   | 'leftover-markers'
   | 'out-of-span'
-  | 'malformed-markers'
+  | 'git-failed'
+  | 'unconfirmed-resolution'
 
 export type ConflictClassify =
   | { kind: 'fillable'; paths: string[] }
@@ -38,6 +34,7 @@ export type ConflictClassify =
 export interface ConflictFile {
   path: string
   content: string | undefined
+  bytes?: Buffer
 }
 
 export interface MergeConflictGit {
@@ -55,6 +52,8 @@ export interface MergeConflictRun {
   graphKey: string
   label: string
   mergeOutput: string
+  /** Squash merges have no MERGE_HEAD and need an explicit commit message. */
+  squashMessage?: string
   git: MergeConflictGit
   childCreate?: ShipChildCreate
   signal?: AbortSignal
@@ -70,8 +69,8 @@ export interface MergeConflictRun {
 
 export type MergeConflictOutcome =
   | { kind: 'resolved' }
-  | { kind: 'blocker'; snapshotDir: string; reason: ConflictSkipReason }
-  | { kind: 'interrupt'; snapshotDir: string }
+  | { kind: 'blocker'; snapshotDir: string; reason: ConflictSkipReason; rollbackFailed?: boolean }
+  | { kind: 'interrupt'; snapshotDir: string; rollbackFailed?: boolean }
   | { kind: 'failed' }
 
 /** Filesystem-safe UTC stamp for a Merge snapshot directory. */
@@ -88,9 +87,9 @@ export function mergeSnapshotDir(scratchSlugDir: string, directory: string, utc:
 export function unmergedPathsFromLs(output: string): string[] {
   const paths: string[] = []
   const seen = new Set<string>()
-  for (const line of output.split(/\r\n|[\r\n]/u)) {
+  for (const line of output.includes('\0') ? output.split('\0') : output.split(/\r\n|[\r\n]/u)) {
     const tab = line.indexOf('\t')
-    const path = tab >= 0 ? line.slice(tab + 1).trim() : ''
+    const path = tab >= 0 ? line.slice(tab + 1) : ''
     if (path === '' || seen.has(path)) continue
     seen.add(path)
     paths.push(path)
@@ -195,20 +194,19 @@ function malformedMarkers(content: string): boolean {
   return state !== 'out'
 }
 
-/**
- * Skip vs dispatch. Unit of protection is the hunk span. Any skip reason
- * refuses the whole merge — the child is not asked to invent implementation.
- */
+/** Only immutable contract conflicts require a decision instead of a child. */
 export function classifyConflictFiles(files: readonly ConflictFile[]): ConflictClassify {
   if (files.length === 0) return { kind: 'skip', reason: 'no-marker' }
   const paths: string[] = []
   for (const file of files) {
-    if (isGeneratedConflictPath(file.path)) return { kind: 'skip', reason: 'lockfile' }
+    if (!writeAllowed(classifyPath(file.path))) return { kind: 'skip', reason: 'protected-heading' }
     const content = file.content
-    if (content === undefined || content.includes('\0')) return { kind: 'skip', reason: 'no-marker' }
-    if (malformedMarkers(content)) return { kind: 'skip', reason: 'malformed-markers' }
-    if (!hasConflictMarkers(content)) return { kind: 'skip', reason: 'no-marker' }
-    if (hunkTouchesProtectedHeading(content)) return { kind: 'skip', reason: 'protected-heading' }
+    if (/\.md$/iu.test(file.path) && content !== undefined) {
+      const protectedContent = hasConflictMarkers(content)
+        ? hunkTouchesProtectedHeading(content)
+        : content.split(/\r?\n/u).some(line => headingProtected(headingName(line)))
+      if (protectedContent) return { kind: 'skip', reason: 'protected-heading' }
+    }
     paths.push(file.path)
   }
   return { kind: 'fillable', paths }
@@ -229,7 +227,9 @@ export function inspectConflictResolution(
     const was = previous.get(file.path)
     const now = file.content ?? ''
     if (hasConflictMarkers(now)) return 'leftover-markers'
-    if (was === undefined) return 'out-of-span'
+    if (!previous.has(file.path)) return 'out-of-span'
+    if (isGeneratedConflictPath(file.path) || was === undefined || was.includes('\0')
+      || !hasConflictMarkers(was) || malformedMarkers(was)) continue
     const check = spansPreserved(was, now)
     if (check !== undefined) return check
   }
@@ -244,36 +244,33 @@ function spansPreserved(before: string, after: string): ConflictSkipReason | und
   if (hasConflictMarkers(after)) return 'leftover-markers'
   const parts = linePieces(before)
   if (!parts.some(part => part.kind === 'hunk')) return before === after ? undefined : 'out-of-span'
-  let rest = after
+  let cursor = 0
   for (let index = 0; index < parts.length; index++) {
     const part = parts[index]
-    if (part === undefined) continue
-    if (part.kind === 'plain') {
-      if (!rest.startsWith(part.text)) return 'out-of-span'
-      rest = rest.slice(part.text.length)
-      continue
-    }
-    const nextPlain = parts.slice(index + 1).find(item => item.kind === 'plain')
-    if (nextPlain === undefined || nextPlain.text === '') {
-      rest = ''
-      continue
-    }
-    const at = rest.indexOf(nextPlain.text)
-    if (at < 0) return 'out-of-span'
-    rest = rest.slice(at)
+    if (part?.kind !== 'plain') continue
+    const at = index === 0 ? 0
+      : index === parts.length - 1 ? after.length - part.text.length
+        : after.indexOf(part.text, cursor)
+    if (at < cursor || !after.startsWith(part.text, at)) return 'out-of-span'
+    cursor = at + part.text.length
   }
-  return rest === '' ? undefined : 'out-of-span'
+  return undefined
 }
 
 /** Porcelain paths that are not the unmerged set. */
 export function extraStatusPaths(porcelain: string, unmerged: ReadonlySet<string>): string[] {
   const extra: string[] = []
-  for (const line of porcelain.split(/\r\n|[\r\n]/u)) {
+  const nul = porcelain.includes('\0')
+  const records = nul ? porcelain.split('\0') : porcelain.split(/\r\n|[\r\n]/u)
+  const add = (path: string): void => {
+    if (path !== '' && !unmerged.has(path) && !isScratchNoise(path)) extra.push(path)
+  }
+  for (let i = 0; i < records.length; i++) {
+    const line = records[i] ?? ''
     if (line.length < 4) continue
     const raw = line.slice(3)
-    const path = (raw.includes(' -> ') ? raw.slice(raw.lastIndexOf(' -> ') + 4) : raw).trim()
-    if (path === '' || unmerged.has(path) || isScratchNoise(path)) continue
-    extra.push(path)
+    add(nul ? raw : (raw.includes(' -> ') ? raw.slice(raw.lastIndexOf(' -> ') + 4) : raw).trim())
+    if (nul && /[RC]/u.test(line.slice(0, 2))) add(records[++i] ?? '')
   }
   return extra
 }
@@ -302,33 +299,37 @@ export function writeMergeSnapshot(opts: {
     if (file.content === undefined) continue
     const dest = join(dir, 'files', file.path.split(/[/\\]/u).join(sep))
     mkdirSync(dirname(dest), { recursive: true })
-    writeFileSync(dest, file.content)
+    writeFileSync(dest, file.bytes ?? file.content)
   }
   return dir
 }
 
-/** Fresh-context brief: fill hunks only; not TDD; no git mutations. */
-export function conflictResolutionPrompt(paths: readonly string[]): string {
-  const list = paths.length === 0 ? '- (none)' : paths.map(path => `- ${path}`).join('\n')
+/** Fresh-context brief with validation feedback from the previous attempt. */
+export function conflictResolutionPrompt(paths: readonly string[], feedback?: string): string {
   return [
-    'Conflict-resolution is not TDD.',
-    'Fill `<<<<<<<` / `=======` / `>>>>>>>` hunks only in these git-named conflicted files in this merge-target tree:',
-    list,
-    'Keep both sides\' non-overlapping intent. Do not add tests, glue, symbol renames, or chase-green edits.',
-    'Do not run git add, commit, merge, or abort. The runner owns those.',
+    'Conflict-resolution is not TDD. Resolve this merge autonomously and keep the workflow moving; do not stop or ask the user merely because Git reported a conflict.',
+    'Resolve these git-named conflicted files in this merge-target tree:',
+    ...paths.map(path => `- ${path}`),
+    'Inspect git status, git diff, and index stages (:1:path, :2:path, :3:path) to understand both sides. Keep both sides\' non-overlapping intent and preserve unrelated content.',
+    'For text conflicts, fill the marker hunks. For lockfiles or generated artifacts, regenerate them with the repository tooling from the merged source; never concatenate lockfiles. For modify/delete, rename, or binary conflicts, reconcile the versions or deletion using their history and ticket intent.',
+    'Only change the listed paths. Do not add unrelated implementation, tests, symbol renames, or change sealed requirements. Run relevant checks and report the actual results.',
+    'Do not run git commit, merge, reset, checkout, or abort. Use file tools (or git show to read versions); the runner owns staging, commit, and rollback. Only when retry feedback requests explicit confirmation may you git add -- <path> for those listed unchanged conflicts after comparing both sides.',
+    'Do not invent requirement ids, Track-N, or `supports` for these writes. Alignment Gate does not apply to conflict resolution.',
+    ...(feedback === undefined ? [] : [`The previous attempt did not pass validation:\n${feedback}\nContinue from the current files, fix the reported problem, and finish resolving all listed conflicts.`]),
   ].join('\n')
 }
 
 function readConflictFile(targetCwd: string, path: string): ConflictFile {
   try {
-    return { path, content: readFileSync(join(targetCwd, path), 'utf8') }
+    const bytes = readFileSync(join(targetCwd, path))
+    return { path, content: bytes.toString('utf8'), bytes }
   } catch {
     return { path, content: undefined }
   }
 }
 
 async function listedUnmerged(git: ShipGit, cwd: string): Promise<string[]> {
-  const listed = await git(['ls-files', '-u'], cwd)
+  const listed = await git(['ls-files', '-u', '-z'], cwd)
   const fromLs = unmergedPathsFromLs(listed.output)
   if (fromLs.length > 0) return fromLs
   const diff = await git(['diff', '--name-only', '--diff-filter=U'], cwd)
@@ -339,132 +340,186 @@ function aborted(signal: AbortSignal | undefined, halted: (() => boolean) | unde
   return signal?.aborted === true || halted?.() === true
 }
 
-function waitAbort(signal: AbortSignal | undefined): Promise<never> {
-  return new Promise((_, reject) => {
-    if (signal === undefined) return
-    if (signal.aborted) {
-      reject(new Error('aborted'))
-      return
-    }
-    signal.addEventListener('abort', () => reject(new Error('aborted')), { once: true })
+async function waitChild(finished: Promise<void>, signal?: AbortSignal): Promise<void> {
+  if (signal === undefined) return finished
+  let stop: () => void = () => {}
+  const interrupted = new Promise<never>((_, reject) => {
+    stop = () => { reject(new Error('aborted')) }
+    if (signal.aborted) stop()
+    else signal.addEventListener('abort', stop, { once: true })
   })
+  try { await Promise.race([finished, interrupted]) }
+  finally { signal.removeEventListener('abort', stop) }
 }
 
-/**
- * One Conflict-resolution child per merge, in the merge-target tree.
- * Snapshots then `merge --abort` on skip, leftover fills, interrupt, or crash.
- * Success: runner `git add` and `merge --continue`. Never a second dispatch.
- */
+function indexEntries(output: string, allowed: ReadonlySet<string>): Map<string, string> {
+  const entries = new Map<string, string>()
+  for (const row of output.split('\0')) {
+    const tab = row.indexOf('\t')
+    if (tab < 0) continue
+    const path = row.slice(tab + 1)
+    if (!allowed.has(path) && !isScratchNoise(path)) entries.set(path, row.slice(0, tab))
+  }
+  return entries
+}
+
+function fileFingerprint(cwd: string, path: string): string | undefined {
+  try {
+    const full = join(cwd, path)
+    const stat = lstatSync(full)
+    if (stat.isSymbolicLink()) return `link:${readlinkSync(full)}`
+    if (!stat.isFile()) return `mode:${stat.mode}`
+    return `${stat.mode}:${readFileSync(full).toString('base64')}`
+  } catch { return undefined }
+}
+
+/** Retry validation failures without aborting an otherwise recoverable merge. */
 export async function runMergeConflictResolution(opts: MergeConflictRun): Promise<MergeConflictOutcome> {
   const { targetCwd, scratchSlugDir, directory, mergeOutput } = opts
   const utc = mergeSnapshotUtc(opts.now)
   const unmerged = await listedUnmerged(opts.git.git, targetCwd)
+  // Rename/delete reports may leave the incoming name staged at stage zero.
+  const stageList = await opts.git.git(['ls-files', '--stage', '-z'], targetCwd)
+  const stagedPaths = unmergedPathsFromLs(stageList.output)
+  if (/^CONFLICT \(modify\/delete\)/mu.test(mergeOutput)) {
+    // Git can represent a heavily edited rename as an add plus modify/delete.
+    const additions = await opts.git.git(['diff', '--cached', '--name-only', '--diff-filter=A', '-z'], targetCwd)
+    if (additions.code === 0) {
+      for (const path of additions.output.split('\0').filter(Boolean)) {
+        if (!unmerged.includes(path)) unmerged.push(path)
+      }
+    }
+  }
+  for (const line of mergeOutput.split('\n').filter(line => /^CONFLICT \((?:rename|file\/directory)/u.test(line))) {
+    for (const path of stagedPaths) {
+      if (!unmerged.includes(path) && line.includes(path)) unmerged.push(path)
+    }
+  }
+  const abortMerge = async (): Promise<boolean> => {
+    // A squash has no MERGE_HEAD. reset --merge preserves unrelated local edits.
+    const result = await opts.git.git(opts.squashMessage === undefined ? ['merge', '--abort'] : ['reset', '--merge', 'HEAD'], targetCwd)
+    return result.code === 0
+  }
   if (unmerged.length === 0) {
-    await opts.git.git(['merge', '--abort'], targetCwd)
+    await abortMerge()
     return { kind: 'failed' }
   }
   const files = unmerged.map(path => readConflictFile(targetCwd, path))
-  const classified = classifyConflictFiles(files)
-
+  const protectionFiles = [...files]
+  for (const file of files.filter(file => /\.md$/iu.test(file.path) && file.content === undefined)) {
+    for (const stage of [1, 2, 3]) {
+      const version = await opts.git.git(['show', `:${stage}:${file.path}`], targetCwd)
+      if (version.code === 0) protectionFiles.push({ path: file.path, content: version.output })
+    }
+  }
+  const classified = classifyConflictFiles(protectionFiles)
+  if (classified.kind === 'fillable') classified.paths = [...new Set(classified.paths)]
+  const initialContent = new Map(unmerged.map(path => [path, fileFingerprint(targetCwd, path)]))
+  const allowed = new Set(unmerged)
+  const baselineStatus = await opts.git.git(['status', '--porcelain', '-z', '--untracked-files=all'], targetCwd)
+  const baselinePaths = new Set(extraStatusPaths(baselineStatus.output, allowed))
+  const baseline = new Map([...baselinePaths].map(path => [path, fileFingerprint(targetCwd, path)]))
+  const indexBefore = await opts.git.git(['ls-files', '--stage', '-z'], targetCwd)
+  const baselineIndex = indexEntries(indexBefore.output, allowed)
+  let feedback: string | undefined
+  let extras: string[] = []
   const snapshot = (reason?: ConflictSkipReason): string => writeMergeSnapshot({
-    scratchSlugDir,
-    directory,
-    utc,
-    gitOutput: mergeOutput,
+    scratchSlugDir, directory, utc,
+    gitOutput: [mergeOutput, feedback].filter(Boolean).join('\n'),
     unmerged,
-    files: unmerged.map(path => readConflictFile(targetCwd, path)),
+    files: [...new Set([...unmerged, ...extras])].map(path => readConflictFile(targetCwd, path)),
     ...(reason === undefined ? {} : { reason }),
   })
-
-  const abortMerge = async (): Promise<void> => {
-    await opts.git.git(['merge', '--abort'], targetCwd)
-  }
-
-  if (aborted(opts.signal, opts.halted)) {
+  const interrupt = async (): Promise<MergeConflictOutcome> => {
     const snapshotDir = snapshot()
-    await abortMerge()
-    return { kind: 'interrupt', snapshotDir }
+    const rolledBack = await abortMerge()
+    return { kind: 'interrupt', snapshotDir, ...(!rolledBack ? { rollbackFailed: true } : {}) }
   }
-
-  if (classified.kind === 'skip' || opts.childCreate === undefined) {
-    const reason = classified.kind === 'skip' ? classified.reason : 'no-marker'
+  const blocker = async (reason: ConflictSkipReason): Promise<MergeConflictOutcome> => {
     const snapshotDir = snapshot(reason)
-    await abortMerge()
-    return { kind: 'blocker', snapshotDir, reason }
+    const rolledBack = await abortMerge()
+    return { kind: 'blocker', snapshotDir, reason, ...(!rolledBack ? { rollbackFailed: true } : {}) }
+  }
+  if (aborted(opts.signal, opts.halted)) return interrupt()
+  if (stageList.code !== 0 || baselineStatus.code !== 0 || indexBefore.code !== 0) {
+    feedback = [baselineStatus.output, indexBefore.output].join('\n')
+    return blocker('git-failed')
+  }
+  if (classified.kind === 'skip' || opts.childCreate === undefined) {
+    return blocker(classified.kind === 'skip' ? classified.reason : 'no-marker')
   }
 
   opts.onFillable?.(classified.paths)
-  const create = opts.childCreate
-  let handle: ShipChildHandle
-  try {
-    handle = await create.create({
-      graphKey: opts.graphKey,
-      label: opts.label,
-      prompt: conflictResolutionPrompt(classified.paths),
-      cwd: targetCwd,
-      role: 'conflict',
-    })
-  } catch {
-    const snapshotDir = snapshot()
-    await abortMerge()
-    return { kind: 'interrupt', snapshotDir }
-  }
-  const tracked: ShipChildHandle = {
-    ...handle,
-    role: handle.role ?? 'conflict',
-    graphKey: opts.graphKey,
-    label: opts.label,
-  }
-  const release = async (): Promise<void> => {
-    if (opts.releaseChild !== undefined) {
-      await opts.releaseChild(tracked.id)
-      return
-    }
+  let rejected: ConflictSkipReason = 'leftover-markers'
+  for (let attempt = 0; attempt < 3; attempt++) {
+    if (aborted(opts.signal, opts.halted)) return interrupt()
+    let tracked: ShipChildHandle | undefined
     try {
-      await tracked.dispose()
+      const handle = await opts.childCreate.create({
+        graphKey: opts.graphKey,
+        label: opts.label,
+        prompt: `${conflictResolutionPrompt(classified.paths, feedback)}\n\nMerge context: ${opts.label} (${opts.graphKey})\nGit reported:\n${mergeOutput}`,
+        cwd: targetCwd,
+        role: 'conflict',
+      })
+      tracked = { ...handle, role: 'conflict', graphKey: opts.graphKey, label: opts.label }
+      opts.onChild?.(tracked)
+      if (aborted(opts.signal, opts.halted)) throw new Error('aborted')
+      if (opts.isTty !== false) opts.bindFold?.(tracked.id, opts.label)
+      await waitChild(tracked.done ?? Promise.resolve(), opts.signal)
     } catch {
-      // Dispose is best-effort after kill or crash.
+      if (tracked !== undefined) {
+        if (opts.releaseChild !== undefined) await opts.releaseChild(tracked.id)
+        else await tracked.dispose().catch(() => {})
+      }
+      return interrupt()
     }
-  }
-  const interrupt = async (): Promise<MergeConflictOutcome> => {
-    await release()
-    const snapshotDir = snapshot()
-    await abortMerge()
-    return { kind: 'interrupt', snapshotDir }
-  }
-  opts.onChild?.(tracked)
-  if (aborted(opts.signal, opts.halted)) return interrupt()
-  if (opts.isTty !== false) opts.bindFold?.(tracked.id, opts.label)
+    if (opts.releaseChild !== undefined) await opts.releaseChild(tracked.id)
+    else await tracked.dispose().catch(() => {})
+    if (aborted(opts.signal, opts.halted)) return interrupt()
 
-  const finished = tracked.done ?? Promise.resolve()
-  try {
-    if (opts.signal === undefined) await finished
-    else await Promise.race([finished, waitAbort(opts.signal)])
-  } catch {
-    return interrupt()
-  }
-  if (aborted(opts.signal, opts.halted)) return interrupt()
+    const status = await opts.git.git(['status', '--porcelain', '-z', '--untracked-files=all'], targetCwd)
+    const candidates = new Set([...baseline.keys(), ...extraStatusPaths(status.output, allowed)])
+    const currentIndex = await opts.git.git(['ls-files', '--stage', '-z'], targetCwd)
+    if (status.code !== 0 || currentIndex.code !== 0) {
+      rejected = 'git-failed'
+      feedback = `git-failed: ${status.output}\n${currentIndex.output}`
+      continue
+    }
+    const index = indexEntries(currentIndex.output, allowed)
+    const indexChanges = [...new Set([...baselineIndex.keys(), ...index.keys()])]
+      .filter(path => baselineIndex.get(path) !== index.get(path))
+    extras = [...new Set([
+      ...[...candidates].filter(path => !baseline.has(path) || fileFingerprint(targetCwd, path) !== baseline.get(path)),
+      ...indexChanges,
+    ])]
+    const after = classified.paths.map(path => readConflictFile(targetCwd, path))
+    const pending = await listedUnmerged(opts.git.git, targetCwd)
+    const unchanged = files.filter(file => pending.includes(file.path)
+      && (file.content === undefined || !hasConflictMarkers(file.content))
+      && fileFingerprint(targetCwd, file.path) === initialContent.get(file.path)).map(file => file.path)
+    const invalid = inspectConflictResolution(files, after, extras)
+      ?? (unchanged.length > 0 ? 'unconfirmed-resolution' : undefined)
+    if (invalid !== undefined) {
+      rejected = invalid
+      feedback = `${invalid}${extras.length === 0 ? '' : `: restore unrelated files: ${extras.join(', ')}`}${unchanged.length === 0 ? '' : `: ${unchanged.join(', ')} are unchanged and still unmerged. Resolve their content, or explicitly stage only these paths with git add -- <path> to confirm keeping the current version after comparing both sides.`}`
+      continue
+    }
 
-  const after = classified.paths.map(path => readConflictFile(targetCwd, path))
-  const status = await opts.git.git(['status', '--porcelain'], targetCwd)
-  const extra = extraStatusPaths(status.output, new Set(classified.paths))
-  const rejected = inspectConflictResolution(files, after, extra)
-  if (rejected !== undefined) {
-    await release()
-    const snapshotDir = snapshot(rejected)
-    await abortMerge()
-    return { kind: 'blocker', snapshotDir, reason: rejected }
+    const indexed = new Set(unmergedPathsFromLs(currentIndex.output))
+    const stagePaths = classified.paths.filter(path => indexed.has(path) || fileFingerprint(targetCwd, path) !== undefined)
+    const added = stagePaths.length === 0 ? { code: 0, output: '' }
+      : await opts.git.git(['add', '--', ...stagePaths], targetCwd)
+    if (aborted(opts.signal, opts.halted)) return interrupt()
+    const committed = added.code !== 0 ? added : await opts.git.gitAsHost(
+      opts.squashMessage === undefined ? ['commit', '--no-edit'] : ['commit', '-m', opts.squashMessage],
+      targetCwd,
+    )
+    if (committed.code === 0) return { kind: 'resolved' }
+    rejected = 'git-failed'
+    feedback = `git-failed: ${committed.output}`
   }
-
-  await opts.git.git(['add', '--', ...classified.paths], targetCwd)
-  const continued = await opts.git.gitAsHost(['merge', '--continue', '--no-edit'], targetCwd)
-  await release()
-  if (continued.code !== 0) {
-    const snapshotDir = snapshot('leftover-markers')
-    await abortMerge()
-    return { kind: 'blocker', snapshotDir, reason: 'leftover-markers' }
-  }
-  return { kind: 'resolved' }
+  return blocker(rejected)
 }
 
 /** Path of a Merge snapshot relative to the merge-target / repo root. */

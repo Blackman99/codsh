@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { alignAction } from '../src/align.ts'
+import { alignAction, descriptorFromToolCall } from '../src/align.ts'
 import { compileMissionContract } from '../src/mission.ts'
 
 const SPEC = `
@@ -120,4 +120,91 @@ describe('alignAction', () => {
     })
     expect(verdict.allow).toBe(true)
     expect(verdict.violatesScope).toBe(false)
+  })
+
+  it('does not map Conflict-resolution writes onto the active landing ticket', () => {
+    const opts = {
+      contract,
+      sealed: true,
+      activeTicket: { title: 'Ticket 2: WWII Weaponry', done: false, trackIds: [2] },
+      conflictFiles: ['src/weapons/ballistics.ts'],
+    }
+    const unmapped = alignAction({
+      action: 'write',
+      toolName: 'write',
+    }, opts)
+    expect(unmapped.allow).toBe(true)
+    expect(unmapped.reasons).toEqual([])
+
+    const invented = alignAction({
+      action: 'write src/weapons/ballistics.ts',
+      path: 'src/weapons/ballistics.ts',
+      toolName: 'write',
+      supports: ['ACC-002', 'REQ-001', 'Track-2'],
+    }, opts)
+    expect(invented.allow).toBe(true)
+    expect(invented.reasons).toEqual([])
+
+    const viaTarget = descriptorFromToolCall('write', {
+      target_file: './src/weapons/ballistics.ts',
+      content: 'export {}\n',
+    })
+    expect(alignAction(viaTarget, opts).allow).toBe(true)
+  })
+
+  it('still refuses immutable contract writes during Conflict-resolution', () => {
+    const verdict = alignAction({
+      action: 'write mission.contract.json',
+      path: '.scratch/widget/mission.contract.json',
+      toolName: 'write',
+    }, {
+      contract,
+      sealed: true,
+      conflictFiles: ['src/weapons/ballistics.ts'],
+    })
+    expect(verdict.allow).toBe(false)
+    expect(verdict.violatesScope).toBe(true)
+  })
+
+  it('allows writes citing acceptance criteria as supports', () => {
+    const verdict = alignAction({
+      action: 'write src/test.ts',
+      path: 'src/test.ts',
+      toolName: 'write',
+      supports: ['ACC-001'],
+    }, {
+      contract,
+      sealed: true,
+      activeTicket: { title: 'Ticket 1', done: false, trackIds: [1] },
+    })
+    expect(verdict.allow).toBe(true)
+    expect(verdict.supportsRequirement).toBe('ACC-001')
+  })
+
+  it('normalizes acceptance criteria and requirement numbers', () => {
+    const accVerdict = alignAction({
+      action: 'write src/test.ts',
+      path: 'src/test.ts',
+      toolName: 'write',
+      supports: ['ACC-1'],
+    }, {
+      contract,
+      sealed: true,
+      activeTicket: { title: 'Ticket 1', done: false, trackIds: [1] },
+    })
+    expect(accVerdict.allow).toBe(true)
+    expect(accVerdict.supportsRequirement).toBe('ACC-001')
+
+    const reqVerdict = alignAction({
+      action: 'write src/x.ts',
+      path: 'src/x.ts',
+      toolName: 'write',
+      supports: ['REQ-1'],
+    }, {
+      contract,
+      sealed: true,
+      activeTicket: { title: 'Ticket 1', done: false, trackIds: [1] },
+    })
+    expect(reqVerdict.allow).toBe(true)
+    expect(reqVerdict.supportsRequirement).toBe('REQ-001')
   })

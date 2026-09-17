@@ -3,7 +3,9 @@
  *
  * An action must name which requirement / ticket it supports. Writes that hit
  * immutable control-plane memory, or that support nothing while a sealed
- * contract is live, are refused. This is deterministic — not a model reminder.
+ * contract is live, are refused. A live Conflict-resolution child filling
+ * merge hunks is exempt from mapping and Track checks. This is deterministic
+ * — not a model reminder.
  * @module codsh-bundle/src/align
  */
 
@@ -51,9 +53,50 @@ export interface AlignOptions {
   sealed?: boolean
   /**
    * Git-named conflicted files a live Conflict-resolution child may fill.
-   * Alignment Gate does not apply to those hunk bytes.
+   * Alignment Gate does not apply while this set is non-empty: mapping,
+   * invented supports, and active-ticket Track checks stay off so marker
+   * fills are not refused as unmapped landing work. Immutable control-plane
+   * paths are still refused.
    */
   conflictFiles?: readonly string[]
+}
+
+function findRequirementOrAcceptance(
+  contract: MissionContract,
+  id: string,
+): { kind: 'req' | 'acc'; id: string; track?: number[] | undefined } | undefined {
+  const reqExact = contract.requirements.find(r => r.id.toLowerCase() === id.toLowerCase())
+  if (reqExact !== undefined) return { kind: 'req', id: reqExact.id, track: reqExact.track }
+
+  const reqMatch = /^REQ-(\d+)$/iu.exec(id)
+  if (reqMatch !== null) {
+    const num = Number(reqMatch[1])
+    const norm = `REQ-${String(num).padStart(3, '0')}`
+    const req = contract.requirements.find(r => r.id === norm)
+    if (req !== undefined) return { kind: 'req', id: req.id, track: req.track }
+  }
+
+  const accExact = contract.acceptance.find(a => a.id.toLowerCase() === id.toLowerCase())
+  if (accExact !== undefined) return { kind: 'acc', id: accExact.id }
+
+  const accMatch = /^ACC-(\d+)$/iu.exec(id)
+  if (accMatch !== null) {
+    const num = Number(accMatch[1])
+    const norm = `ACC-${String(num).padStart(3, '0')}`
+    const acc = contract.acceptance.find(a => a.id === norm)
+    if (acc !== undefined) return { kind: 'acc', id: acc.id }
+  }
+
+  const trackMatch = /^(?:Track-)?(\d+)$/iu.exec(id)
+  if (trackMatch !== null) {
+    const trackNum = Number(trackMatch[1])
+    const matchingReq = contract.requirements.find(r => r.track?.includes(trackNum))
+    if (matchingReq !== undefined) {
+      return { kind: 'req', id: matchingReq.id, track: matchingReq.track }
+    }
+  }
+
+  return undefined
 }
 
 /**
@@ -64,15 +107,6 @@ export interface AlignOptions {
  * pass when they are not writes.
  */
 export function alignAction(descriptor: ActionDescriptor, opts: AlignOptions = {}): AlignVerdict {
-  if (isConflictResolutionWrite(descriptor, opts.conflictFiles)) {
-    return {
-      allow: true,
-      supportsRequirement: null,
-      taskId: descriptor.task ?? null,
-      violatesScope: false,
-      reasons: [],
-    }
-  }
   const reasons: string[] = []
   const contract = opts.contract
   const sealed = opts.sealed === true || contract !== undefined
@@ -82,6 +116,28 @@ export function alignAction(descriptor: ActionDescriptor, opts: AlignOptions = {
 
   const mutating = isMutatingTool(descriptor.toolName)
     || /\b(modify|write|edit|create|delete|overwrite)\b/iu.test(descriptor.action)
+
+  if (isConflictResolutionSession(opts.conflictFiles)) {
+    if (mutating && descriptor.path !== undefined) {
+      const tier = classifyPath(descriptor.path)
+      if (!writeAllowed(tier)) {
+        return {
+          allow: false,
+          supportsRequirement: null,
+          taskId,
+          violatesScope: true,
+          reasons: [`path ${descriptor.path} is ${tier}`],
+        }
+      }
+    }
+    return {
+      allow: true,
+      supportsRequirement: null,
+      taskId,
+      violatesScope: false,
+      reasons: [],
+    }
+  }
 
   // Immutable paths/sections only bind writes — reading mission.contract.json
   // is required by land prompts.
@@ -111,12 +167,12 @@ export function alignAction(descriptor: ActionDescriptor, opts: AlignOptions = {
 
     const supports = descriptor.supports ?? []
     for (const id of supports) {
-      const req = contract.requirements.find(item => item.id === id)
-      if (req === undefined) {
+      const match = findRequirementOrAcceptance(contract, id)
+      if (match === undefined) {
         reasons.push(`unknown requirement ${id}`)
         continue
       }
-      supportsRequirement ??= req.id
+      supportsRequirement ??= match.id
     }
 
     if (opts.activeTicket !== undefined) {
@@ -128,10 +184,18 @@ export function alignAction(descriptor: ActionDescriptor, opts: AlignOptions = {
             .filter(req => req.track?.some(n => track.includes(n)))
             .map(req => req.id),
         )
-        for (const id of supports) {
-          if (!allowed.has(id)) {
-            reasons.push(`${id} is outside active ticket Track: ${track.join(',')}`)
-            violatesScope = true
+        if (allowed.size > 0) {
+          for (const id of supports) {
+            const match = findRequirementOrAcceptance(contract, id)
+            if (match?.kind === 'acc') {
+              // Acceptance criteria are global to the contract; not track-restricted
+              continue
+            }
+            const matchId = match?.id ?? id
+            if (!allowed.has(matchId)) {
+              reasons.push(`${id} is outside active ticket Track: ${track.join(',')}`)
+              violatesScope = true
+            }
           }
         }
       }
@@ -141,7 +205,7 @@ export function alignAction(descriptor: ActionDescriptor, opts: AlignOptions = {
     // (or explicitly write-shaped actions) need a requirement mapping on land.
     const looksLikeWrite = isMutatingTool(descriptor.toolName)
       || /\b(modify|write|edit|create|delete|overwrite)\b/iu.test(descriptor.action)
-    if (looksLikeWrite && supports.length === 0 && opts.activeTicket !== undefined) {
+    if (looksLikeWrite && supports.length === 0 && opts.activeTicket !== undefined && contract.requirements.length > 0) {
       reasons.push('write has no requirement mapping (supports)')
       violatesScope = true
     }
@@ -240,10 +304,10 @@ export function proposeSpecMarkdown(args: unknown, current: string | undefined):
   return undefined
 }
 
-function toolPath(args: unknown): string | undefined {
+export function toolPath(args: unknown): string | undefined {
   if (args === null || typeof args !== 'object') return undefined
   const record = args as Record<string, unknown>
-  for (const key of ['file_path', 'filePath', 'path', 'target', 'filename']) {
+  for (const key of ['file_path', 'filePath', 'target_file', 'path', 'target', 'filename']) {
     const value = record[key]
     if (typeof value === 'string' && value !== '') return value
   }
@@ -276,19 +340,8 @@ function toolTask(args: unknown): string | undefined {
 }
 
 
-function isConflictResolutionWrite(
-  descriptor: ActionDescriptor,
-  conflictFiles: readonly string[] | undefined,
-): boolean {
-  if (conflictFiles === undefined || conflictFiles.length === 0) return false
-  if (descriptor.path === undefined) return false
-  const normalized = descriptor.path.replace(/\\/gu, '/')
-  return conflictFiles.some((file) => {
-    const listed = file.replace(/\\/gu, '/')
-    return normalized === listed
-      || normalized.endsWith(`/${listed}`)
-      || listed.endsWith(`/${normalized}`)
-  })
+function isConflictResolutionSession(conflictFiles: readonly string[] | undefined): boolean {
+  return conflictFiles !== undefined && conflictFiles.length > 0
 }
 
 function mentions(descriptor: ActionDescriptor, text: string): boolean {

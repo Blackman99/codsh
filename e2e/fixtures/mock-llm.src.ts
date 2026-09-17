@@ -253,6 +253,55 @@ function hasSubagentPolicy(texts: readonly string[]): boolean {
   return texts.some(text => text.includes('Prefer `subagent`, not `subagent_fork`'))
 }
 
+/** Git-named paths listed in a Conflict-resolution brief. */
+function conflictPathsFromPrompt(prompt: string): string[] {
+  const paths: string[] = []
+  for (const line of prompt.split(/\r\n|[\r\n]/u)) {
+    const match = /^- (\S+)$/u.exec(line.trimEnd())
+    if (match?.[1] !== undefined && !match[1].startsWith('(')) paths.push(match[1])
+  }
+  return paths
+}
+
+/** Ticket id from a landing or Active Ticket child brief. */
+function landingTicketId(prompt: string): string | undefined {
+  return /^(?:Active Ticket: )?Ticket (\d+):/mu.exec(prompt)?.[1]
+}
+
+/** Replace conflict-marker hunks, keeping both sides' non-overlapping intent. */
+function fillConflictHunks(content: string): string {
+  return content.replace(
+    /^<<<<<<<.*\n([\s\S]*?)^=======\s*\n([\s\S]*?)^>>>>>>>.*\n/gmu,
+    (_all, ours: string, theirs: string) => {
+      const combined = `${ours}\n${theirs}`
+      if (combined.includes('hello') && combined.includes('hi')) {
+        return '  return `hello and hi ${name}`\n'
+      }
+      return ours
+    },
+  )
+}
+
+/** Yield one mocked tool call, then stop for the tool result. */
+function* mockToolCall(id: string, name: string, args: unknown): Generator<StreamChunk> {
+  const toolId = ToolCallId(id)
+  const encoded = JSON.stringify(args)
+  yield { type: 'block-start', index: 0, blockType: 'tool-call' }
+  yield { type: 'tool-call-delta', index: 0, id: toolId, name, argumentsDelta: encoded }
+  yield { type: 'block-end', index: 0, block: { type: 'tool-call', id: toolId, name, arguments: encoded } }
+  yield { type: 'usage', usage: { inputTokens: 2, outputTokens: 2 } }
+  yield { type: 'finish', reason: { kind: 'tool-calls' } }
+}
+
+/** Yield a mocked text reply. */
+function* mockText(reply: string): Generator<StreamChunk> {
+  yield { type: 'block-start', index: 0, blockType: 'text' }
+  yield { type: 'text-delta', index: 0, text: reply }
+  yield { type: 'block-end', index: 0, block: { type: 'text', text: reply } }
+  yield { type: 'usage', usage: { inputTokens: 2, outputTokens: 2 } }
+  yield { type: 'finish', reason: { kind: 'stop' } }
+}
+
 /** Body of a `## Heading` section, or undefined when the heading is absent. */
 function sectionBody(markdown: string, heading: string): string | undefined {
   const re = new RegExp(`^## ${heading}\\s*$`, 'miu')
@@ -534,6 +583,110 @@ class CodeCliMockAdapter extends LlmAdapter {
       yield { type: 'finish', reason: { kind: 'stop' } }
       return
     }
+    if (MOCK_MODE === 'ship-conflict') {
+      // Real `/ship` landing: TDD children write ticket files in worktrees;
+      // the Conflict-resolution child fills git-named hunks in the merge-target
+      // tree. The first fill can leave markers so the runner retries.
+      const texts = textBlocks(options)
+      if (texts.some(text => text.includes('SHIP_CLEANUP_HISTORY_CHILD'))) {
+        yield* mockText('SHIP_CLEANUP_HISTORY_OK')
+        return
+      }
+      const prompt = texts.findLast(text =>
+        text.includes('Conflict-resolution is not TDD')
+        || text.includes('Throughout /ship')
+        || /^Ticket \d+:/mu.test(text)
+        || text.includes('This turn is final verification only')) ?? ''
+      const conflict = prompt.includes('Conflict-resolution is not TDD')
+        && prompt.includes('git-named conflicted files')
+        && !prompt.includes('Strict Red-First Execution')
+      const verification = prompt.includes('This turn is final verification only')
+      const ticket = landingTicketId(prompt)
+      const result = options.messages.at(-1)?.content.find(block => block.type === 'tool-result')
+      const root = process.cwd()
+      const ledger = 'docs/specs/conflict-e2e.md'
+      if (conflict) {
+        const listed = conflictPathsFromPrompt(prompt)
+        const path = listed.find(name => existsSync(join(root, name))) ?? listed[0]
+        const retry = prompt.includes('The previous attempt did not pass validation')
+        if (path === undefined) {
+          yield* mockText('SHIP_CONFLICT_ERROR no git-named conflicted files')
+          return
+        }
+        if (result === undefined) {
+          yield* mockToolCall(retry ? 'ship-conflict-retry-read' : 'ship-conflict-read', 'read', { file_path: path })
+          return
+        }
+        if (result.isError === true) {
+          yield* mockText('SHIP_CONFLICT_ERROR')
+          return
+        }
+        if (result.toolCallId === 'ship-conflict-read' || result.toolCallId === 'ship-conflict-retry-read') {
+          const current = existsSync(join(root, path)) ? readFileSync(join(root, path), 'utf8') : ''
+          const content = retry ? fillConflictHunks(current) : current
+          yield* mockToolCall(retry ? 'ship-conflict-retry' : 'ship-conflict-fill', 'write', { file_path: path, content })
+          return
+        }
+        yield* mockText(retry ? 'SHIP_CONFLICT_FILLED' : 'SHIP_CONFLICT_LEFT_MARKERS')
+        return
+      }
+      if (ticket !== undefined) {
+        const greet = 'src/greet.ts'
+        const extra = ticket === '1' ? 'src/first.ts' : ticket === '2' ? 'automatically-merged.txt' : 'src/third.ts'
+        const greetContent = ticket === '1'
+          ? "export function greet(name: string): string {\n  return `hello ${name}`\n}\n"
+          : ticket === '2'
+            ? "export function greet(name: string): string {\n  return `hi ${name}`\n}\n"
+            : undefined
+        const extraContent = ticket === '1' ? 'export const first = true\n'
+          : ticket === '2' ? 'preserve this ticket addition\n'
+            : 'export const third = true\n'
+        if (result === undefined) {
+          if (greetContent !== undefined && existsSync(join(root, greet))) {
+            yield* mockToolCall(`ship-conflict-ticket-${ticket}-read`, 'read', { file_path: greet })
+            return
+          }
+          yield* mockToolCall(`ship-conflict-ticket-${ticket}`, 'write', { file_path: extra, content: extraContent })
+          return
+        }
+        if (result.isError === true) {
+          yield* mockText('SHIP_CONFLICT_ERROR')
+          return
+        }
+        if (result.toolCallId === `ship-conflict-ticket-${ticket}-read` && greetContent !== undefined) {
+          yield* mockToolCall(`ship-conflict-ticket-${ticket}-greet`, 'write', { file_path: greet, content: greetContent })
+          return
+        }
+        if (result.toolCallId === `ship-conflict-ticket-${ticket}-greet`) {
+          yield* mockToolCall(`ship-conflict-ticket-${ticket}`, 'write', { file_path: extra, content: extraContent })
+          return
+        }
+        yield* mockText(`SHIP_TICKET_${ticket}_DONE`)
+        return
+      }
+      if (verification) {
+        if (result === undefined && existsSync(join(root, ledger)) && readFileSync(join(root, ledger), 'utf8').includes('CLEANUP_HISTORY')) {
+          yield* mockToolCall('ship-cleanup-history', 'subagent', {
+            description: 'Completed ship history', prompt: 'SHIP_CLEANUP_HISTORY_CHILD: Return the verification summary.', run_in_background: false,
+          })
+          return
+        }
+        if ((result === undefined || result.toolCallId === 'ship-cleanup-history') && existsSync(join(root, ledger))) {
+          yield* mockToolCall('ship-conflict-verify-read', 'read', { file_path: ledger })
+          return
+        }
+        if (result?.toolCallId === 'ship-conflict-verify-read' && result.isError !== true) {
+          const current = readFileSync(join(root, ledger), 'utf8')
+          const content = `${current.replace('Status: landing', 'Status: shipped')}\n## Verification\n\n- ACC-001: \`true\` exit 0\n`
+          yield* mockToolCall('ship-conflict-verify', 'write', { file_path: ledger, content })
+          return
+        }
+        yield* mockText(result?.isError === true ? 'SHIP_CONFLICT_ERROR' : 'SHIP_VERIFICATION_DONE')
+        return
+      }
+      yield* mockText('SHIP_CONFLICT_IDLE')
+      return
+    }
     if (MOCK_MODE === 'subagents') {
       // The parent starts two children in the background in one step, then
       // answers once both starts are in; each child holds a `sleep`, then
@@ -775,7 +928,7 @@ class CodeCliMockAdapter extends LlmAdapter {
     if (MOCK_MODE === 'reason-write') {
       // A thought, a write, a second thought, an answer — one turn, the way
       // a reasoning model works a tool: what the surface shows while a
-      // thought stays open and the card between two thoughts stays a row.
+      // thought lands folded and the card between two thoughts stays a row.
       const worked = options.messages.at(-1)?.content.find(block => block.type === 'tool-result')
       const thought = worked === undefined ? FIRST_THOUGHT : SECOND_THOUGHT
       yield { type: 'block-start', index: 0, blockType: 'reasoning' }
@@ -805,7 +958,7 @@ class CodeCliMockAdapter extends LlmAdapter {
     }
     if (MOCK_MODE === 'reasoning-slow') {
       // A thought long enough to press Escape into: one finished line a beat,
-      // so what streamed so far is on screen when the interrupt lands.
+      // so the tracker has content behind the head when the interrupt lands.
       yield { type: 'block-start', index: 0, blockType: 'reasoning' }
       for (const line of SLOW_THOUGHT) {
         await Promise.race([

@@ -259,7 +259,7 @@ function inject(page, name, html) {
 const data = JSON.parse(readFileSync(dataPath, 'utf8'))
 // Every capture is a switcher scene; the hero holds the hand-authored /ship
 // demo, the one screen on the page that is not a capture.
-for (const [file, lang] of [['index.html', 'en'], ['zh.html', 'zh']]) {
+for (const [file, lang] of [['guide.html', 'en'], ['guide.zh.html', 'zh']]) {
   const path = join(root, 'site', file)
   let page = readFileSync(path, 'utf8')
   page = inject(page, 'frames', renderScenes(data.scenes, lang))

@@ -4,14 +4,28 @@
  *
  * The runner calls {@link ShipRun.run} for the canned command, {@link
  * ShipRun.noteWritten} when a tool writes markdown, and {@link ShipRun.abort}
- * on Esc. Chip, plan, poll, occupancy, the goals port, Claim writes,
- * AFK child-create, Fold bind, and phase injection stay behind this seam.
+ * on Ctrl-C. Abort and idle stop the phase loop, not the spec poll: unfinished
+ * chrome still follows checkboxes if the person continues in a later turn.
+ * Chip, plan, poll, occupancy, the goals port, Claim writes, AFK child-create,
+ * Fold bind, and phase injection stay behind this seam.
  * @module codsh-bundle/src/ship-run
  */
 
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, unlinkSync, writeFileSync } from 'node:fs'
 import { basename, dirname, join, resolve, sep } from 'node:path'
+import { isDeepStrictEqual } from 'node:util'
 import { parseMainTrack, parseOriginalRequirement, parsePlan, parseShipBlocker, parseShipStatus, parseSpecMetadata, pickLiveShip, planInFlight, plansEqual } from './plan.ts'
+import {
+  encodeAskUserAnswers,
+  isShipAnswersError,
+  mergeShipAnswers,
+  phaseFromShipStatus,
+  readShipAnswers,
+  shipAnswerListsEqual,
+  writeShipAnswers,
+  type ShipAskAnswer,
+  type ShipAskQuestion,
+} from './ship-answers.ts'
 import {
   cascadeClosedDependents,
   dispatchedDependents,
@@ -31,7 +45,8 @@ import {
   type LandingWaveView,
 } from './ship-landing.ts'
 import { mergeSnapshotRepoPath, runMergeConflictResolution } from './ship-conflict.ts'
-import type { Plan, ShipSpecFile } from './plan.ts'
+import type { Plan, PlanTicket, ShipSpecFile } from './plan.ts'
+import { essentialBlockedBy } from './ship-dag.ts'
 import { expandTemplate } from './custom-commands.ts'
 import type { SelectAsk } from './questions.ts'
 import {
@@ -47,7 +62,7 @@ import {
   writeMissionContract,
 } from './mission.ts'
 import type { MissionContract } from './mission.ts'
-import { alignAction, descriptorFromToolCall, isMutatingTool, proposeSpecMarkdown } from './align.ts'
+import { alignAction, descriptorFromToolCall, isMutatingTool, proposeSpecMarkdown, toolPath } from './align.ts'
 import type { ActionDescriptor, AlignVerdict } from './align.ts'
 import { detectDrift, DRIFT_FLASH_AT } from './drift.ts'
 import type { DriftReport } from './drift.ts'
@@ -59,18 +74,20 @@ import { sameShipChip, shipChipFromSpec } from './status.ts'
 import type { ShipChip } from './status.ts'
 import { capture } from './capture.ts'
 import {
+  claimLocalDecision,
   collectJoinSources,
   graphPathFor,
   isShipGraphDiscard,
   isShipGraphJoinError,
   joinShipGraph,
+  localDecisionNumber,
   readShipGraph,
   teaserCounts,
   worktreeDirectory,
   worktreeDirectoryParts,
   writeShipGraph,
 } from './ship-graph.ts'
-import type { ShipGraph, ShipGraphNode, TeaserCounts } from './ship-graph.ts'
+import { SHIP_GRAPH_VERSION, type ShipGraph, type ShipGraphNode, type ShipUserAnswer, type TeaserCounts } from './ship-graph.ts'
 import { WEB_PANORAMA_LISTEN, type WebPanoramaHandle } from './ship-web.ts'
 import {
   freezeEqual,
@@ -96,10 +113,14 @@ export interface ShipChrome {
   setPlan(plan: Plan | undefined): void
   setChip(chip: ShipChip | undefined): void
   setTodos?(): void
+  /** Retire transient readouts after verified delivery, keeping session history. */
+  complete?(): void
   /** Panorama teaser counts, absent when no graph is bound. */
-  setTeaser?(counts: TeaserCounts | undefined): void
+  setTeaser?(counts: TeaserCounts | undefined, inFlight?: number): void
   /** Bound Ship graph for the Panorama overlay; absent when none. */
-  setGraph?(graph: ShipGraph | undefined): void
+  setGraph?(graph: ShipGraph | undefined, inFlight?: number): void
+  /** Loopback URL pinned on the teaser / overlay title; absent when unbound. */
+  setWebUrl?(url: string | undefined): void
 }
 
 /** Durable phase the session compass reports. */
@@ -270,9 +291,6 @@ export type WebPanoramaBind = (
   request: WebPanoramaBindRequest,
 ) => WebPanoramaHandle | Promise<WebPanoramaHandle>
 
-/** Optional open of the printed URL; TTY only. */
-export type WebPanoramaOpen = (url: string) => void
-
 /** Optional ports the composition root wires: goals, occupancy, flash, bind. */
 export interface ShipPorts {
   goals?: ShipGoals
@@ -300,10 +318,13 @@ export interface ShipPorts {
   proveDelivery?: () => Promise<'green' | 'red'>
   /** False on a pipe: sidecar still rebuilds, no Fold. Default true. */
   isTty?: boolean
+  /**
+   * True while the runner is waiting on AFK landing children. The composition
+   * root uses this to keep the working line instead of an idle prompt.
+   */
+  busy?: (active: boolean) => void
   /** Fake HTTP in tests; real `127.0.0.1` listen only at the composition root. */
   bind?: WebPanoramaBind
-  /** Open the loopback URL; wired only on a TTY. */
-  open?: WebPanoramaOpen
 }
 
 /** Occupancy Selector title/header — a Selector, not a ship gate modal. */
@@ -366,6 +387,7 @@ export class ShipRun {
   private chip: ShipChip | undefined
   private lastDone: number | undefined
   private chipCleared = false
+  private completed = false
   private flashTimer: ReturnType<typeof setTimeout> | undefined
   private watch: ReturnType<typeof setInterval> | undefined
   private advance: AbortController | undefined
@@ -394,6 +416,12 @@ export class ShipRun {
   private originalRequirement: string | undefined
   /** Typed idea this run started with; a conflicting resume must not overwrite the freeze. */
   private typedIdea = ''
+  /** Runner-owned human answers for the live graph; canonical store is the answers sidecar. */
+  private answers: ShipUserAnswer[] = []
+  /** Spec path the current answers sidecar belongs to; prevents cross-spec contamination. */
+  private answersSpec: string | undefined
+  /** Buffered HITL answers captured before a spec exists. */
+  private pendingAnswers: ShipUserAnswer[] = []
   /** True once freeze validation failed; later phases and goal completion stay off. */
   private contractInvalid = false
   /** True when the current turn threw or aborted before a legal complete. */
@@ -406,6 +434,10 @@ export class ShipRun {
   private readonly finishedLanding = new Set<string>()
   /** Landing children whose `done` rejected (crash / timeout). */
   private readonly crashedLanding = new Set<string>()
+  /** Graph keys whose worktree add failed this run; do not retry in a tight loop. */
+  private readonly failedWorktrees = new Set<string>()
+  /** Git worktree add is a repo lock; independent tickets still run in parallel. */
+  private worktreeAdd: Promise<void> = Promise.resolve()
   /**
    * Blocker freeze: no new worktrees and no further serial merges. In-flight
    * independents still settle as leftover 已认领.
@@ -421,11 +453,9 @@ export class ShipRun {
   private conflictAlignPaths: string[] | undefined
   /** True while this invocation should keep one loopback server. */
   private panoramaLive = false
-  /** Bound-spec key the live handle was rebound to (`''` when none). */
-  private panoramaSpec: string | undefined
-  /** Live loopback handle; closed on abort, end, or rebind. */
+  /** Live loopback handle; closed on abort or end. */
   private panorama: WebPanoramaHandle | undefined
-  /** Drops an in-flight bind when a newer rebind or abort wins. */
+  /** Drops an in-flight bind when abort or end wins. */
   private panoramaGen = 0
 
   constructor(
@@ -451,7 +481,7 @@ export class ShipRun {
 
   /** Panorama teaser counts from ticket nodes, absent until a graph exists. */
   get shipTeaser(): TeaserCounts | undefined {
-    return this.graph === undefined ? undefined : teaserCounts(this.graph)
+    return this.completed || this.graph === undefined ? undefined : teaserCounts(this.graph)
   }
 
   /** Sealed Mission Contract for this run, absent before Confirm. */
@@ -484,10 +514,27 @@ export class ShipRun {
   }
 
   /**
+   * Record actual human `ask_user_question` answers after the terminal ask.
+   * Auto-Confirm results must not be passed here. Child / plan-mode / idle
+   * requests are ignored. Persistence failures flash and do not claim success.
+   */
+  noteUserAnswers(questions: readonly ShipAskQuestion[], answers: readonly ShipAskAnswer[] | undefined): boolean {
+    if (!this.inFlight || this.inPlanMode()) return false
+    const records = encodeAskUserAnswers(questions, answers, this.liveAnswerPhase())
+    if (records.length === 0) return true
+    if (this.followedSpec === undefined) {
+      this.pendingAnswers = mergeShipAnswers(this.pendingAnswers, records)
+      this.publishLiveGraph()
+      return true
+    }
+    return this.persistAnswers(records)
+  }
+
+  /**
    * Auto-Confirm gate 1 (`confirmed`) or gate 2 (`planned`).
    *
    * Writes the Status advance, flashes a transcript notice, and persists the
-   * snapshot (Mission Contract seal on gate 1). Esc / abort never Confirms.
+   * snapshot (Mission Contract seal on gate 1). Ctrl-C / abort never Confirms.
    * After the Main Track is sealed, gate 1 is a contradiction: write
    * `## Blocker` and stop rather than reopening an Edit path.
    * @param gate - 1 (to-spec) or 2 (to-tickets).
@@ -524,6 +571,7 @@ export class ShipRun {
    * @param paths - paths the event reported writing.
    */
   noteWritten(paths: readonly string[]): void {
+    if (this.completed) return
     for (const path of paths) {
       if (!path.endsWith('.md')) continue
       const already = this.writtenDocs.indexOf(path)
@@ -541,15 +589,16 @@ export class ShipRun {
    * Alignment Gate for one action descriptor. Public so the surface can refuse
    * a tool before it runs; also used for write-path guards.
    */
-  align(descriptor: ActionDescriptor): AlignVerdict {
-    const ticket = this.currentTicket()
+  align(descriptor: ActionDescriptor, opts: { isChild?: boolean; ticket?: PlanTicket | undefined } = {}): AlignVerdict {
+    const resolving = this.conflictAlignPaths !== undefined && this.conflictAlignPaths.length > 0
+    const ticket = resolving ? undefined : (opts.ticket ?? this.currentTicket())
     const verdict = alignAction(descriptor, {
       ...(this.sealedContract === undefined ? {} : { contract: this.sealedContract }),
       sealed: this.sealedContract !== undefined,
       ...(ticket === undefined ? {} : { activeTicket: ticket }),
       ...(this.conflictAlignPaths === undefined ? {} : { conflictFiles: this.conflictAlignPaths }),
     })
-    this.rememberAction(descriptor)
+    if (!resolving && !opts.isChild) this.rememberAction(descriptor)
     return verdict
   }
 
@@ -558,9 +607,39 @@ export class ShipRun {
    * Land turns auto-fill Active Ticket Track→REQ supports when the model
    * omitted them, so legitimate ticket writes are not fail-closed as unmapped.
    */
-  alignTool(toolName: string, args: unknown): AlignVerdict {
-    const ticket = this.currentTicket()
-    const supports = this.activeTicketSupports(ticket)
+  alignTool(
+    toolName: string,
+    args: unknown,
+    opts: { agentSessionId?: string } = {},
+  ): AlignVerdict {
+    const resolving = this.conflictAlignPaths !== undefined && this.conflictAlignPaths.length > 0
+    let child: ShipChildHandle | undefined
+    if (opts.agentSessionId !== undefined) {
+      child = this.children.get(opts.agentSessionId)
+    }
+    // Conflict-resolution hunk fills are not implementation writes.
+    if (child?.role === 'conflict') {
+      return { allow: true, reasons: [], violatesScope: false, supportsRequirement: null, taskId: null }
+    }
+    let ticket: PlanTicket | undefined
+    if (child !== undefined) {
+      const landingId = this.landingTicketId(child.graphKey)
+      if (landingId !== undefined) {
+        ticket = this.ticketById(landingId)
+      }
+    }
+    const path = toolPath(args)
+    if (ticket === undefined && !resolving && path !== undefined) {
+      const match = /[/\\]worktrees[/\\]landing-(\d+)(?:[/\\]|$)/u.exec(path)
+      const matchedId = match?.[1]
+      if (matchedId !== undefined) {
+        ticket = this.ticketById(matchedId)
+      }
+    }
+    if (ticket === undefined && !resolving) {
+      ticket = this.currentTicket()
+    }
+    const supports = resolving ? undefined : this.activeTicketSupports(ticket)
     let descriptor = descriptorFromToolCall(toolName, args, {
       ...(supports === undefined ? {} : { supports }),
       ...(ticket === undefined ? {} : { task: ticket.title }),
@@ -569,7 +648,7 @@ export class ShipRun {
     if (section !== undefined) {
       descriptor = { ...descriptor, section }
     }
-    return this.align(descriptor)
+    return this.align(descriptor, { isChild: child !== undefined, ...(ticket === undefined ? {} : { ticket }) })
   }
 
   /**
@@ -613,6 +692,7 @@ export class ShipRun {
 
   /** Re-read the live spec so the plan row and chip match the file on disk. */
   refresh(): void {
+    if (this.completed) return
     const files: ShipSpecFile[] = []
     if (this.followedSpec !== undefined) {
       try {
@@ -640,23 +720,34 @@ export class ShipRun {
       }
     }
     const picked = pickLiveShip(files)
-    if (picked === undefined) return
-    this.graphSpec = files.find(file => file.markdown === picked.markdown)?.path
-    const live = planInFlight(picked.markdown, picked.plan)
-    const next = live ? picked.plan : undefined
-    if (!plansEqual(this.plan, next)) {
-      this.plan = next
-      this.chrome.setPlan(next)
+    if (picked !== undefined) {
+      this.graphSpec = files.find(file => file.markdown === picked.markdown)?.path
+      const live = planInFlight(picked.markdown, picked.plan)
+      const next = live ? picked.plan : undefined
+      if (!plansEqual(this.plan, next)) {
+        this.plan = next
+        this.chrome.setPlan(next)
+      }
+      this.adoptChip(picked.markdown, picked.plan)
     }
-    this.adoptChip(picked.markdown, picked.plan)
     this.rebuildGraph()
   }
 
-  /** Stop the phase loop and the spec poll. Claim stays; Occupancy end does not unclaim. */
+  /**
+   * Stop the phase loop. Claim stays; Occupancy end does not unclaim.
+   * The spec poll keeps running so pinned chrome still follows later ticks.
+   */
   abort(): void {
     this.halted = true
     this.advance?.abort()
-    this.stopWatch()
+    if (!this.completed) this.ensureWatch()
+  }
+
+  /**
+   * Close the session loopback. `/ship` abort and idle leave the page up so
+   * it can hot-update; the composition root calls this on process leave.
+   */
+  closeWebPanorama(): void {
     this.dropWebPanorama()
   }
 
@@ -674,6 +765,7 @@ export class ShipRun {
       // Dispose is best-effort; the Fold still has to leave.
     }
     this.ports.folds?.release(id)
+    this.publishTeaser()
   }
 
   /**
@@ -687,12 +779,19 @@ export class ShipRun {
   /**
    * Run the canned `/ship` command: inject the current phase, then the next
    * when Status advances or grill/wayfinder/preflight HITL settled, until
-   * unchanged idle status, done, or Esc.
+   * unchanged idle status, done, or Ctrl-C.
    * @param idea - the typed one-sentence requirement.
    * @param turn - spends one canned-command turn.
    */
   async run(idea: string, turn: ShipTurn): Promise<void> {
     this.advance?.abort()
+    this.clearFlash()
+    this.completed = false
+    if (this.plan !== undefined) {
+      this.plan = undefined
+      this.chrome.setPlan(undefined)
+    }
+    if (this.chip !== undefined) this.setChip(undefined)
     this.chipCleared = false
     this.lastDone = undefined
     this.goalId = undefined
@@ -706,21 +805,25 @@ export class ShipRun {
     this.snapshot = undefined
     this.graph = undefined
     this.graphSpec = undefined
-    this.chrome.setGraph?.(undefined)
-    this.chrome.setTeaser?.(undefined)
+    this.chrome.setGraph?.(undefined, 0)
+    this.chrome.setTeaser?.(undefined, 0)
     this.originalRequirement = undefined
     this.typedIdea = idea
+    this.answers = []
+    this.answersSpec = undefined
+    this.pendingAnswers = []
     this.contractInvalid = false
     this.halted = false
     this.ignoredSpecs = new Set()
     this.finishedLanding.clear()
     this.crashedLanding.clear()
+    this.failedWorktrees.clear()
+    this.worktreeAdd = Promise.resolve()
     this.landingFrozen = false
     this.inPlacePreHead = undefined
     this.inPlaceTicketId = undefined
     this.gitIdentity = undefined
     this.conflictAlignPaths = undefined
-    this.dropWebPanorama()
     this.startWatch()
     this.refresh()
     if (this.chip === undefined) this.setChip({ kind: 'wayfinder' })
@@ -734,6 +837,7 @@ export class ShipRun {
       if (!await this.bindSpec(idea)) return
       if (!await this.occupy(idea)) return
       this.panoramaLive = true
+      this.flushPendingAnswers()
       this.persistSnapshot()
       this.rebuildGraph()
       this.reclaimLeftoverWorktrees()
@@ -773,9 +877,7 @@ export class ShipRun {
     } finally {
       if (this.advance === advance) {
         this.advance = undefined
-        this.stopWatch()
         await this.interruptInPlaceRepair()
-        this.dropWebPanorama()
         this.refresh()
         if (
           !advance.signal.aborted
@@ -784,8 +886,9 @@ export class ShipRun {
           && !this.inPlanMode()
           && this.followedIsShipped()
         ) {
-          await this.completeShipGoal()
+          if (await this.completeShipGoal()) this.complete()
         }
+        if (!this.completed) this.ensureWatch()
       }
     }
   }
@@ -956,22 +1059,44 @@ export class ShipRun {
     return original === undefined ? expandTemplate(prompt, this.typedIdea) : prompt
   }
 
+  /** Retain the final graph for the web page, but release this run's live chrome and guards. */
+  private complete(): void {
+    this.completed = true
+    this.stopWatch()
+    this.clearFlash()
+    this.plan = undefined
+    this.lastDone = undefined
+    this.chipCleared = true
+    this.sealedContract = undefined
+    this.sealedContractPath = undefined
+    this.sealedTrack = undefined
+    this.recentActions = []
+    this.lastDrift = undefined
+    this.chrome.setPlan(undefined)
+    this.chrome.setGraph?.(undefined, 0)
+    this.chrome.setTeaser?.(undefined, 0)
+    this.chrome.complete?.()
+    this.setChip(undefined)
+  }
+
   /** Complete the ship compass when this run's spec is shipped. */
-  private async completeShipGoal(): Promise<void> {
-    const goals = this.ports.goals
-    if (goals === undefined || this.goalId === undefined) return
+  private async completeShipGoal(): Promise<boolean> {
     if (this.sealedContract !== undefined && this.sealedContract.acceptance.length > 0) {
       this.verifyAndReconcile(false)
       if (this.lastVerify === undefined || !this.lastVerify.satisfied) {
         this.ports.flash?.(VERIFY_INCOMPLETE)
-        return
+        return false
       }
     }
-    try {
-      await goals.complete(this.goalId)
-    } catch {
-      this.degrade()
+    const goals = this.ports.goals
+    if (goals !== undefined && this.goalId !== undefined) {
+      try {
+        await goals.complete(this.goalId)
+      } catch {
+        this.degrade()
+      }
     }
+    return true
   }
 
   /** True when the spec this run followed now says shipped. */
@@ -1109,13 +1234,29 @@ export class ShipRun {
     }
   }
 
-  private currentTicket() {
+  private ticketById(id: string): PlanTicket | undefined {
+    const specPath = this.followedSpec
+    if (specPath === undefined) return undefined
+    try {
+      const markdown = readFileSync(specPath, 'utf8')
+      return parsePlan(markdown).tickets.find(ticket => {
+        const raw = ticket.raw ?? ticket.title
+        const tid = /^Ticket\s+(\d+)\s*:/iu.exec(raw)?.[1]
+        return tid === id
+      })
+    } catch {
+      return undefined
+    }
+  }
+
+  private currentTicket(): PlanTicket | undefined {
     const specPath = this.followedSpec
     if (specPath === undefined) return undefined
     try {
       const markdown = readFileSync(specPath, 'utf8')
       const active = landingPlan(markdown).active
-      return active === undefined ? undefined : parsePlan(markdown).tickets.find(ticket => ticket.raw === active.contract)
+      if (active === undefined) return undefined
+      return parsePlan(markdown).tickets.find(ticket => (ticket.raw ?? ticket.title) === active.contract)
     } catch {
       return undefined
     }
@@ -1127,11 +1268,14 @@ export class ShipRun {
   ): string[] | undefined {
     if (ticket === undefined || this.sealedContract === undefined) return undefined
     const track = ticket.trackIds ?? []
-    if (track.length === 0) return undefined
-    const ids = this.sealedContract.requirements
-      .filter(req => req.track?.some(n => track.includes(n)))
-      .map(req => req.id)
-    return ids.length === 0 ? undefined : ids
+    if (track.length > 0) {
+      const ids = this.sealedContract.requirements
+        .filter(req => req.track?.some(n => track.includes(n)))
+        .map(req => req.id)
+      if (ids.length > 0) return ids
+    }
+    const all = this.sealedContract.requirements.map(req => req.id)
+    return all.length === 0 ? undefined : all
   }
 
   private rememberAction(descriptor: ActionDescriptor): void {
@@ -1177,6 +1321,7 @@ export class ShipRun {
     }
     if (path === undefined) {
       this.originalRequirement = freezeText(idea) || undefined
+      this.publishLiveGraph()
       return true
     }
     return this.adoptBoundSpec(path, idea)
@@ -1261,7 +1406,7 @@ export class ShipRun {
       }
     }
     const known = this.knownSnapshots.get(path)
-    if (known !== undefined && JSON.stringify(known) !== JSON.stringify(loaded)) {
+    if (known !== undefined && !isDeepStrictEqual(known, loaded)) {
       this.block(`Ship snapshot is missing or changed beside ${path}. Stopped; restore the saved snapshot.`)
       return false
     }
@@ -1293,6 +1438,8 @@ export class ShipRun {
       this.originalRequirement = freezeText(idea)
     }
     if (snapshot.trackSealed && snapshot.mainTrack !== undefined) this.sealedTrack = snapshot.mainTrack
+    if (!this.loadAnswers(path)) return false
+    this.flushPendingAnswers()
     this.refresh()
     return true
   }
@@ -1378,7 +1525,7 @@ export class ShipRun {
    * Disk write failure keeps the in-memory graph for the next rebuild.
    */
   private rebuildGraph(): void {
-    if (this.inPlanMode() || this.contractInvalid) return
+    if (this.completed || this.inPlanMode() || this.contractInvalid) return
     const specPath = this.followedSpec ?? this.graphSpec
     if (specPath === undefined) return
     let markdown: string | undefined
@@ -1392,7 +1539,8 @@ export class ShipRun {
     if (isShipGraphDiscard(loaded)) {
       try { unlinkSync(graphPathFor(specPath)) } catch { /* leftover cache is not identity */ }
     }
-    const collected = collectJoinSources(this.cwd, specPath, markdown)
+    if (this.ownsAnswers(specPath) && !this.loadAnswers(specPath)) return
+    const collected = collectJoinSources(this.cwd, specPath, markdown, this.joinAnswerExtras(specPath))
     if (isShipGraphJoinError(collected)) {
       this.block(collected.error)
       return
@@ -1403,8 +1551,8 @@ export class ShipRun {
       return
     }
     this.graph = next
-    this.chrome.setGraph?.(next)
-    this.chrome.setTeaser?.(teaserCounts(next))
+    this.publishTeaser()
+    if (this.ownsAnswers(specPath)) this.syncAnswersFromGraph(next, specPath)
     try {
       writeShipGraph(next, specPath)
     } catch {
@@ -1412,19 +1560,144 @@ export class ShipRun {
     }
   }
 
+  /** Pre-spec live graph: typed original/goal plus pending answers, no guessed tickets. */
+  private publishLiveGraph(): void {
+    if (this.followedSpec !== undefined || this.inPlanMode() || this.contractInvalid) return
+    const original = freezeText(this.originalRequirement ?? this.typedIdea)
+    const pending = this.pendingAnswers
+    if (original === '' && pending.length === 0) return
+    const graph: ShipGraph = {
+      version: SHIP_GRAPH_VERSION,
+      specPath: '',
+      ...(original === '' ? {} : { originalRequirement: original, objective: original }),
+      ...(pending.length === 0 ? {} : { answers: pending }),
+      nodes: [],
+      edges: [],
+    }
+    this.graph = graph
+    this.publishTeaser()
+  }
+
+  /** Push teaser counts plus live in-flight so a graph rebuild cannot drop the count. */
+  private publishTeaser(): void {
+    if (this.completed) return
+    const inFlight = this.unreleasedLandingCount()
+    if (this.graph === undefined) {
+      this.chrome.setGraph?.(undefined, inFlight)
+      this.chrome.setTeaser?.(undefined, inFlight)
+      return
+    }
+    this.chrome.setGraph?.(this.graph, inFlight)
+    this.chrome.setTeaser?.(teaserCounts(this.graph), inFlight)
+  }
+
+  /** Unreleased landing children still bound as Folds, including Ready-set waiting to merge. */
+  private unreleasedLandingCount(): number {
+    let count = 0
+    for (const child of this.children.values()) {
+      if (this.landingTicketId(child.graphKey) !== undefined) count += 1
+    }
+    return count
+  }
+
+  private ownsAnswers(specPath: string): boolean {
+    return this.followedSpec === specPath || this.followedSpec === undefined
+  }
+
+  private joinAnswerExtras(specPath: string): {
+    answers?: readonly ShipUserAnswer[]
+    originalRequirement?: string
+    objective?: string
+  } {
+    const answers = this.ownsAnswers(specPath)
+      ? mergeShipAnswers(
+        this.answersSpec === specPath || this.followedSpec === specPath ? this.answers : undefined,
+        this.pendingAnswers,
+      )
+      : undefined
+    const original = this.followedSpec === specPath && this.snapshot?.limitedHistory !== true ? this.originalRequirement : undefined
+    return {
+      ...(answers === undefined || answers.length === 0 ? {} : { answers }),
+      ...(original === undefined ? {} : { originalRequirement: original }),
+    }
+  }
+
+  private liveAnswerPhase() {
+    return phaseFromShipStatus(this.status())
+  }
+
+  private loadAnswers(specPath: string): boolean {
+    const loaded = readShipAnswers(specPath)
+    if (isShipAnswersError(loaded)) {
+      this.block(loaded.error)
+      return false
+    }
+    const remembered = this.answersSpec === specPath ? this.answers : undefined
+    this.answersSpec = specPath
+    this.answers = mergeShipAnswers(loaded?.answers, remembered)
+    return true
+  }
+
+  private flushPendingAnswers(): void {
+    if (this.followedSpec === undefined || this.pendingAnswers.length === 0) return
+    const pending = this.pendingAnswers
+    this.pendingAnswers = []
+    this.persistAnswers(pending)
+  }
+
+  private persistAnswers(incoming: readonly ShipUserAnswer[]): boolean {
+    const specPath = this.followedSpec
+    if (specPath === undefined) {
+      this.pendingAnswers = mergeShipAnswers(this.pendingAnswers, incoming)
+      this.publishLiveGraph()
+      return true
+    }
+    if (!this.loadAnswers(specPath)) return false
+    const next = mergeShipAnswers(this.answers, incoming)
+    const record = { version: 1 as const, specPath: basename(specPath), answers: next }
+    try {
+      writeShipAnswers(record, specPath)
+    } catch {
+      this.block(`Ship answers record could not be written beside ${specPath}. Stopped.`)
+      return false
+    }
+    this.answers = next
+    this.answersSpec = specPath
+    this.rebuildGraph()
+    return true
+  }
+
+  /** Persist local-decision answers into the runner-owned record; never the reverse. */
+  private syncAnswersFromGraph(graph: ShipGraph, specPath: string): void {
+    if (this.contractInvalid || this.inPlanMode() || !this.ownsAnswers(specPath)) return
+    const merged = mergeShipAnswers(this.answersSpec === specPath ? this.answers : undefined, graph.answers)
+    if (shipAnswerListsEqual(merged, this.answers) && this.answersSpec === specPath) {
+      const existing = readShipAnswers(specPath)
+      if (!isShipAnswersError(existing) && existing !== undefined) return
+    }
+    if (merged.length === 0) return
+    try {
+      writeShipAnswers({ version: 1, specPath: basename(specPath), answers: merged }, specPath)
+    } catch {
+      this.block(`Ship answers record could not be written beside ${specPath}. Stopped.`)
+      return
+    }
+    this.answers = merged
+    this.answersSpec = specPath
+  }
+
   /**
-   * One loopback server rebound to the bound spec. Same graph as the TTY.
-   * Missing bind degrades: `/ship` still writes the sidecar.
+   * One loopback server for the TTY session. Bind once; the getter is the live
+   * rebuilt graph, so later `/ship` turns and a spec that appears later all
+   * hot-update the same URL. Missing bind degrades: `/ship` still writes the sidecar.
    */
   private async syncWebPanorama(): Promise<void> {
     const bind = this.ports.bind
     if (bind === undefined || !this.panoramaLive || this.inPlanMode() || this.contractInvalid) return
+    if (this.panorama !== undefined) return
     const specPath = this.followedSpec ?? this.graphSpec
-    const key = specPath ?? ''
-    if (this.panorama !== undefined && this.panoramaSpec === key) return
     const gen = this.panoramaGen + 1
     this.panoramaGen = gen
-    this.closeWebPanoramaHandle()
     try {
       const handle = await bind({
         host: WEB_PANORAMA_LISTEN.host,
@@ -1437,29 +1710,26 @@ export class ShipRun {
         return
       }
       this.panorama = handle
-      this.panoramaSpec = key
-      this.ports.flash?.(handle.url)
-      try {
-        this.ports.open?.(handle.url)
-      } catch {
-        // Optional open must not fail the run; the printed URL still stands.
-      }
+      this.chrome.setWebUrl?.(handle.url)
+      // A pipe has no teaser row: print the URL once. A TTY pins it on the
+      // panorama line and does not open a browser.
+      if (this.ports.isTty === false) this.ports.flash?.(handle.url)
     } catch {
       // Loopback is optional; the spec+sidecar path still binds.
     }
   }
 
-  /** Stop serving; a later `/ship` may bind again. */
+  /** Stop serving. Only process leave should call this. */
   private dropWebPanorama(): void {
     this.panoramaLive = false
     this.panoramaGen += 1
     this.closeWebPanoramaHandle()
-    this.panoramaSpec = undefined
   }
 
   private closeWebPanoramaHandle(): void {
     const handle = this.panorama
     this.panorama = undefined
+    this.chrome.setWebUrl?.(undefined)
     if (handle === undefined) return
     this.quietlyClose(handle)
   }
@@ -1494,7 +1764,7 @@ export class ShipRun {
     const known = this.knownSnapshots.get(this.followedSpec)
     if (known !== undefined) {
       const loaded = readShipSnapshot(this.followedSpec)
-      if (JSON.stringify(loaded) !== JSON.stringify(known)) {
+      if (!isDeepStrictEqual(loaded, known)) {
         this.block(`Ship snapshot is missing or changed beside ${this.followedSpec}. Stopped; restore the saved snapshot.`)
         return false
       }
@@ -1615,7 +1885,7 @@ export class ShipRun {
 
   private writeDecisionClaim(slug: string, n: number): boolean {
     const dir = join(this.cwd, '.scratch', slug, 'wayfinder')
-    const path = this.scratchFile(dir, n)
+    const path = this.scratchFile(dir, n, true)
     if (path === undefined) return false
     let text = ''
     try {
@@ -1623,28 +1893,28 @@ export class ShipRun {
     } catch {
       return false
     }
-    if (/^Status:\s*claimed\b/imu.test(text)) return false
-    const next = /^Status:\s*/imu.test(text)
-      ? text.replace(/^Status:\s*.*$/imu, 'Status: claimed')
-      : `Status: claimed\n${text}`
+    const next = claimLocalDecision(text)
+    if (next === text) return false
     writeFileSync(path, next.endsWith('\n') ? next : `${next}\n`)
     return true
   }
 
-  private scratchFile(dir: string, n: number): string | undefined {
+  private scratchFile(dir: string, n: number, decision = false): string | undefined {
     let names: string[] = []
     try {
       names = readdirSync(dir)
     } catch {
       return undefined
     }
-    const match = names.find(name => new RegExp(`^0*${String(n)}-.+\\.md$`, 'u').test(name))
+    const match = names.find(name => decision
+      ? localDecisionNumber(name) === n
+      : new RegExp(`^0*${String(n)}-.+\\.md$`, 'u').test(name))
     return match === undefined ? undefined : join(dir, match)
   }
 
   private unblocked(id: string): boolean {
     if (this.graph === undefined) return false
-    return this.graph.edges
+    return essentialBlockedBy(this.graph.edges)
       .filter(edge => edge.from === id && edge.kind === 'blocked-by')
       .every(edge => this.graph?.nodes.find(node => node.id === edge.to)?.claim === 'closed')
   }
@@ -1690,6 +1960,7 @@ export class ShipRun {
       .filter(ticket => view.claimed.has(ticket.id))
       .filter(ticket => !view.worktrees.has(ticket.id))
       .filter(ticket => !view.inFlight.has(ticket.id))
+      .filter(ticket => this.landingProof(ticket.id) === 'red')
       .filter(ticket => ticket.blockers.every(id => closed.has(id)))
       .slice()
       .sort((a, b) => Number(a.id) - Number(b.id))[0]
@@ -1759,12 +2030,19 @@ export class ShipRun {
 
   private landingPrompt(node: ShipGraphNode): string {
     const n = /^landing:(\d+)$/u.exec(node.id)?.[1] ?? ''
+    const ticket = landingPlan(this.followedMarkdown() ?? '').tickets.find(row => row.id === n)
     return [
       `Ticket ${n}: ${node.title}`,
       `Bound spec: ${this.followedSpec ?? ''}`,
+      ticket === undefined ? undefined : `Approved plan line: ${ticket.contract}`,
       'Implement only this ticket in this worktree. Do not tick the plan checkbox; Claim is already written.',
-      'Return at most 20 lines naming the result plus evidence paths. Children never commit.',
-    ].join('\n')
+      'Children never commit. Return at most 20 lines naming the result plus evidence paths.',
+      shipPromptFor('landing', {
+        ...(this.followedSpec === undefined ? {} : { specPath: this.followedSpec }),
+        ...(this.originalRequirement === undefined ? {} : { originalRequirement: this.originalRequirement }),
+        landingWave: landingWavePrepend(this.waveView()),
+      }),
+    ].filter((part): part is string => part !== undefined && part !== '').join('\n\n')
   }
 
   private async commitClaim(graphKey: string): Promise<void> {
@@ -1784,9 +2062,17 @@ export class ShipRun {
   ): Promise<void> {
     const create = this.ports.childCreate
     if (create === undefined) return
-    const cwd = opts.role === 'repair' ? (opts.cwd ?? this.cwd) : opts.cwd ?? await this.ensureWorktree(node.id)
+    const landing = this.landingTicketId(node.id) !== undefined && opts.role !== 'repair'
+    const isolated = opts.role !== 'repair' && (landing || node.kind === 'decision')
+    const cwd = opts.role === 'repair'
+      ? (opts.cwd ?? this.cwd)
+      : opts.cwd ?? (isolated ? await this.ensureWorktree(node.id) : undefined)
     const n = /^landing:(\d+)$/u.exec(node.id)?.[1]
     const label = n === undefined ? node.title : `Ticket ${n}: ${node.title}`
+    if (landing && cwd === undefined) {
+      this.ports.flash?.(`Could not create worktree for ${label}`)
+      return
+    }
     try {
       const handle = await create.create({
         graphKey: node.id,
@@ -1809,6 +2095,7 @@ export class ShipRun {
             }),
       }
       this.children.set(tracked.id, tracked)
+      this.publishTeaser()
       if (this.ports.isTty !== false) this.ports.folds?.bind(tracked.id, label)
       if (landingId === undefined && tracked.done !== undefined) {
         void tracked.done.then(() => this.releaseChild(tracked.id), () => this.releaseChild(tracked.id))
@@ -1823,6 +2110,18 @@ export class ShipRun {
   }
 
   private async ensureWorktree(graphKey: string): Promise<string | undefined> {
+    const previous = this.worktreeAdd
+    let release = (): void => {}
+    this.worktreeAdd = new Promise(resolve => { release = resolve })
+    await previous
+    try {
+      return await this.addWorktree(graphKey)
+    } finally {
+      release()
+    }
+  }
+
+  private async addWorktree(graphKey: string): Promise<string | undefined> {
     const abs = this.worktreePath(graphKey)
     const slug = this.slug()
     const directory = worktreeDirectory(graphKey)
@@ -1832,10 +2131,32 @@ export class ShipRun {
     const ignore = join(root, '.gitignore')
     if (!existsSync(ignore)) writeFileSync(ignore, '*\n')
     if (!existsSync(abs)) {
-      await this.git(['worktree', 'add', '-B', `wt/${slug}/${directory}`, abs])
-      if (!existsSync(abs)) mkdirSync(abs, { recursive: true })
+      const added = await this.git(['worktree', 'add', '-B', `wt/${slug}/${directory}`, abs])
+      const landing = this.landingTicketId(graphKey) !== undefined
+      if (added.code !== 0) {
+        this.failedWorktrees.add(graphKey)
+        this.ports.flash?.(`Could not create worktree for ${graphKey}: ${added.output.trim() || `exit ${String(added.code)}`}`)
+        if (landing) return undefined
+      }
+      if (!existsSync(abs)) {
+        if (landing && added.code !== 0) return undefined
+        mkdirSync(abs, { recursive: true })
+      }
     }
     return abs
+  }
+
+  private landingProof(id: string): 'green' | 'red' | undefined {
+    const slug = this.slug()
+    if (slug === undefined) return undefined
+    const path = this.scratchFile(join(this.cwd, '.scratch', slug, 'issues'), Number(id))
+    if (path === undefined) return undefined
+    try {
+      const match = /^Proof:\s*(green|red)\b/imu.exec(readFileSync(path, 'utf8'))
+      return match?.[1] === 'green' || match?.[1] === 'red' ? match[1] : undefined
+    } catch {
+      return undefined
+    }
   }
 
   private async git(args: readonly string[], cwd = this.cwd): Promise<{ code: number; output: string }> {
@@ -1884,10 +2205,15 @@ export class ShipRun {
     return view.tickets.some(ticket => {
       if (ticket.done) return false
       if (!ticket.blockers.every(id => closed.has(id))) return false
+      const graphKey = `landing:${ticket.id}`
+      if (this.failedWorktrees.has(graphKey)) return false
       if (view.claimed.has(ticket.id)) {
-        return !view.worktrees.has(ticket.id) && !view.inFlight.has(ticket.id)
+        if (this.landingProof(ticket.id) === 'red') {
+          return !view.worktrees.has(ticket.id) && !view.inFlight.has(ticket.id)
+        }
+        return false
       }
-      return !this.hasChildFor(`landing:${ticket.id}`)
+      return !this.hasChildFor(graphKey) && !this.leftoverWorktree(graphKey)
     })
   }
 
@@ -1929,60 +2255,73 @@ export class ShipRun {
       return
     }
     if (initial.error !== undefined) { this.block(initial.error); return }
-    while (!this.landingStopped()) {
-      const markdown = this.followedMarkdown() ?? ''
-      const blocker = parseShipBlocker(markdown)
-      if (blocker !== undefined && this.waveView().inFlight.size === 0 && !this.hasRepairChild()) {
-        this.landingFrozen = true
-        this.block(`Ship has an unresolved ## Blocker. Stopped; resolve it before resuming.\n${blocker}`)
-        return
-      }
-      const plan = landingPlan(markdown)
-      if (plan.error !== undefined) { this.block(plan.error); return }
-      if (!sameLandingPlan(initial, plan)) {
-        this.block('Approved ship plan changed during a ticket turn. Stopped; restore the plan before resuming.')
-        return
-      }
-      if (plan.tickets.every(ticket => ticket.done) && parseShipBlocker(this.followedMarkdown() ?? '') === undefined) {
-        await this.runLandingVerification(turn, plan)
-        return
-      }
-      await this.syncCompass()
-      await this.reclaimAndDispatch()
-      await Promise.resolve()
-      if (this.landingStopped()) return
-      await this.settleCrashedRepairs()
-      await this.settleFinishedRepairs()
-      if (this.landingStopped()) return
-      if (!this.landingDrainFrozen()) await this.drainReadySet()
-      if (this.landingStopped()) return
-      if (landingPlan(this.followedMarkdown() ?? '').tickets.every(ticket => ticket.done)
-        && parseShipBlocker(this.followedMarkdown() ?? '') === undefined) continue
-      if (this.waveView().inFlight.size > 0) {
-        if (!await this.waitForLandingChild()) return
-        continue
-      }
-      if (this.landingDrainFrozen()) {
-        this.landingFrozen = true
-        const recorded = parseShipBlocker(this.followedMarkdown() ?? '')
-        if (recorded !== undefined) {
-          this.block(`Ship has an unresolved ## Blocker. Stopped; resolve it before resuming.\n${recorded}`)
+    this.ports.busy?.(true)
+    try {
+      while (!this.landingStopped()) {
+        const markdown = this.followedMarkdown() ?? ''
+        const blocker = parseShipBlocker(markdown)
+        if (blocker !== undefined && this.waveView().inFlight.size === 0 && !this.hasRepairChild()) {
+          this.landingFrozen = true
+          this.block(`Ship has an unresolved ## Blocker. Stopped; resolve it before resuming.\n${blocker}`)
+          return
         }
-        return
-      }
-      if (this.ports.childCreate === undefined) {
-        const before = landingPlan(this.followedMarkdown() ?? '')
-        await this.spendTurn(turn)
-        const after = landingPlan(this.followedMarkdown() ?? '')
-        if (after.tickets.every(ticket => ticket.done) && !this.landingStopped()) {
-          await this.runLandingVerification(turn, after)
-        } else if (after.tickets.some((ticket, index) => ticket.done && !before.tickets[index]?.done)) {
+        const plan = landingPlan(markdown)
+        if (plan.error !== undefined) { this.block(plan.error); return }
+        if (!sameLandingPlan(initial, plan)) {
+          this.block('Approved ship plan changed during a ticket turn. Stopped; restore the plan before resuming.')
+          return
+        }
+        if (plan.tickets.every(ticket => ticket.done) && parseShipBlocker(this.followedMarkdown() ?? '') === undefined) {
+          await this.runLandingVerification(turn, plan)
+          return
+        }
+        await this.syncCompass()
+        await this.reclaimAndDispatch()
+        await Promise.resolve()
+        if (this.landingStopped()) return
+        await this.settleCrashedRepairs()
+        await this.settleFinishedRepairs()
+        if (this.landingStopped()) return
+        if (!this.landingDrainFrozen()) await this.drainReadySet()
+        if (this.landingStopped()) return
+        if (landingPlan(this.followedMarkdown() ?? '').tickets.every(ticket => ticket.done)
+          && parseShipBlocker(this.followedMarkdown() ?? '') === undefined) continue
+        if (this.waitableLandingChildren().length > 0) {
+          if (!await this.waitForLandingChild()) return
+          continue
+        }
+        if (this.landingDrainFrozen()) {
+          this.landingFrozen = true
+          const recorded = parseShipBlocker(this.followedMarkdown() ?? '')
+          if (recorded !== undefined) {
+            this.block(`Ship has an unresolved ## Blocker. Stopped; resolve it before resuming.\n${recorded}`)
+          }
+          return
+        }
+        if (this.ports.childCreate === undefined) {
+          const before = landingPlan(this.followedMarkdown() ?? '')
+          await this.spendTurn(turn)
+          const after = landingPlan(this.followedMarkdown() ?? '')
+          if (after.tickets.every(ticket => ticket.done) && !this.landingStopped()) {
+            await this.runLandingVerification(turn, after)
+          } else if (after.tickets.some((ticket, index) => ticket.done && !before.tickets[index]?.done)) {
+            continue
+          }
+          return
+        }
+        if (this.canProgressLanding()) continue
+        if (this.unreleasedLandingCount() > 0 && this.waitableLandingChildren().length > 0) {
+          if (!await this.waitForLandingChild()) return
+          continue
+        }
+        if (this.unreleasedLandingCount() > 0) {
+          await this.waitForLandingPoll()
           continue
         }
         return
       }
-      if (this.canProgressLanding()) continue
-      return
+    } finally {
+      this.ports.busy?.(false)
     }
   }
 
@@ -1998,16 +2337,39 @@ export class ShipRun {
     }
   }
 
-  private async waitForLandingChild(): Promise<boolean> {
-    const pending = [...this.children.values()].filter(child => {
+  private waitableLandingChildren(): ShipChildHandle[] {
+    return [...this.children.values()].filter(child => {
       const id = this.landingTicketId(child.graphKey)
       return id !== undefined
         && !this.finishedLanding.has(id)
         && !this.crashedLanding.has(id)
         && child.done !== undefined
     })
+  }
+
+  private async waitForLandingChild(): Promise<boolean> {
+    const pending = this.waitableLandingChildren()
     if (pending.length === 0) return this.crashedLanding.size > 0
+    return this.waitForLandingPromises(pending.map(child => child.done ?? Promise.resolve()))
+  }
+
+  /** Brief pause so a Fold with no `done` does not busy-spin or drop to the idle prompt. */
+  private async waitForLandingPoll(): Promise<void> {
     const abort = this.advance?.signal
+    if (abort?.aborted === true) return
+    await new Promise<void>(resolve => {
+      const timer = setTimeout(resolve, SHIP_POLL_MS)
+      timer.unref()
+      abort?.addEventListener('abort', () => {
+        clearTimeout(timer)
+        resolve()
+      }, { once: true })
+    })
+  }
+
+  private async waitForLandingPromises(pending: readonly Promise<void>[]): Promise<boolean> {
+    const abort = this.advance?.signal
+    if (abort?.aborted === true) return false
     await new Promise<void>(resolve => {
       let settled = false
       const finish = (): void => {
@@ -2017,7 +2379,9 @@ export class ShipRun {
         resolve()
       }
       abort?.addEventListener('abort', finish, { once: true })
-      void Promise.race(pending.map(child => child.done ?? Promise.resolve())).then(finish, finish)
+      if (pending.length > 0) {
+        void Promise.race(pending).then(finish, finish)
+      }
     })
     return this.advance?.signal.aborted !== true && !this.inPlanMode() && this.guardContract()
   }
@@ -2058,7 +2422,7 @@ export class ShipRun {
   }
 
   /**
-   * One Conflict-resolution child in the merge-target tree. Git conflict
+   * Conflict-resolution attempts in the merge-target tree. Git conflict
    * stays 已认领 on the same node and worktree id. Delivery Merge-back (#128)
    * reuses {@link runMergeConflictResolution} with directory `delivery`.
    */
@@ -2094,6 +2458,7 @@ export class ShipRun {
       })
       if (outcome.kind === 'resolved') return true
       if (outcome.kind === 'interrupt') {
+        if (outcome.rollbackFailed === true) this.ports.flash?.(`Conflict resolution interrupted, but Git rollback failed. Merge left intact. Snapshot: ${outcome.snapshotDir}`)
         this.abort()
         return false
       }
@@ -2101,8 +2466,12 @@ export class ShipRun {
         this.block(`Landing merge conflict on Ticket ${ticket.id}. Stopped; keep the worktree and ref.`)
         return false
       }
+      if (outcome.rollbackFailed === true) {
+        this.block(`Landing conflict resolution on Ticket ${ticket.id} could not roll back safely. Merge left intact; no blocker commit was created. Snapshot: ${outcome.snapshotDir}`)
+        return false
+      }
       await this.recordConflictBlocker(ticket, outcome.snapshotDir, outcome.reason)
-      this.block(`Landing merge conflict on Ticket ${ticket.id} could not be filled. Stopped; keep the worktree and ref.`)
+      this.block(`Landing conflict resolution on Ticket ${ticket.id} needs attention (${outcome.reason}). Keep the worktree and ref. Snapshot: ${outcome.snapshotDir}`)
       return false
     } finally {
       this.conflictAlignPaths = undefined
@@ -2120,9 +2489,9 @@ export class ShipRun {
     let markdown = this.followedMarkdown() ?? ''
     if (parseShipBlocker(markdown) === undefined) {
       const body = [
-        `Conflict-resolution skipped for Ticket ${ticket.id} (${reason}).`,
+        `Conflict-resolution could not complete for Ticket ${ticket.id} (${reason}).`,
         `Merge snapshot: ${mergeSnapshotRepoPath(this.cwd, snapshotDir)}`,
-        'The child was not asked to invent implementation. Worktree and ref stay 已认领.',
+        'Automatic resolution preserved the worktree and ref as 已认领. Review the validation failure and snapshot before resuming.',
       ].join('\n')
       markdown = markdown.endsWith('\n') ? `${markdown}\n## Blocker\n\n${body}\n` : `${markdown}\n\n## Blocker\n\n${body}\n`
       writeFileSync(specPath, markdown)
@@ -2373,7 +2742,7 @@ export class ShipRun {
         this.block('Ship may finish only in a separate final verification turn after every ticket is checked.')
         return
       }
-      this.verifyAndReconcile(false)
+      this.verifyAndReconcile(true)
       if (this.sealedContract?.acceptance.length && !this.lastVerify?.satisfied) {
         const current = this.followedMarkdown()
         if (current !== undefined && this.followedSpec !== undefined) {
@@ -2465,6 +2834,7 @@ export class ShipRun {
         graphKey: 'delivery',
         label: 'Merge-back',
         mergeOutput,
+        squashMessage: this.deliveryCommitMessage(),
         git: {
           git: (args, cwd) => this.git(args, cwd),
           gitAsHost: (args, cwd) => this.gitAsHost(args, cwd),
@@ -2480,6 +2850,7 @@ export class ShipRun {
       })
       if (outcome.kind === 'resolved') return true
       if (outcome.kind === 'interrupt') {
+        if (outcome.rollbackFailed === true) this.ports.flash?.(`Conflict resolution interrupted, but Git rollback failed. Merge left intact. Snapshot: ${outcome.snapshotDir}`)
         this.abort()
         return false
       }
@@ -2487,8 +2858,12 @@ export class ShipRun {
         this.block('Merge-back conflict could not be classified. Stopped; keep ship/<slug>.')
         return false
       }
+      if (outcome.rollbackFailed === true) {
+        this.block(`Merge-back conflict resolution could not roll back safely. Merge left intact; no blocker commit was created. Snapshot: ${outcome.snapshotDir}`)
+        return false
+      }
       await this.recordDeliveryConflictBlocker(outcome.snapshotDir, outcome.reason)
-      this.block('Merge-back conflict could not be filled. Stopped; keep ship/<slug>.')
+      this.block(`Merge-back conflict resolution needs attention (${outcome.reason}). Keep ship/<slug>. Snapshot: ${outcome.snapshotDir}`)
       return false
     } finally {
       this.conflictAlignPaths = undefined
@@ -2501,9 +2876,9 @@ export class ShipRun {
     let markdown = this.followedMarkdown() ?? ''
     if (parseShipBlocker(markdown) === undefined) {
       const body = [
-        `Conflict-resolution skipped for Merge-back (${reason}).`,
+        `Conflict-resolution could not complete for Merge-back (${reason}).`,
         `Merge snapshot: ${mergeSnapshotRepoPath(this.cwd, snapshotDir)}`,
-        'The child was not asked to invent implementation. ship/<slug> stays as the recovery vehicle.',
+        'Automatic resolution preserved ship/<slug> for recovery. Review the validation failure and snapshot before resuming.',
       ].join('\n')
       markdown = markdown.endsWith('\n') ? `${markdown}\n## Blocker\n\n${body}\n` : `${markdown}\n\n## Blocker\n\n${body}\n`
       writeFileSync(specPath, markdown)
@@ -2642,6 +3017,10 @@ export class ShipRun {
     const derived = shipChipFromSpec(status, usable, flash)
     if (derived === undefined) return
     if (derived.kind === 'done') {
+      if (this.advance !== undefined || this.halted || this.contractInvalid) {
+        this.setChip({ kind: 'verify' })
+        return
+      }
       if (this.chip?.kind === 'done') return
       this.setChip(derived, 'clear')
       return
@@ -2681,11 +3060,18 @@ export class ShipRun {
     this.watch = undefined
   }
 
+  /** Keep following the spec after abort or idle until verified delivery retires chrome. */
+  private ensureWatch(): void {
+    if (this.completed || this.watch !== undefined) return
+    if (this.followedSpec === undefined && this.plan === undefined && this.graph === undefined && this.chip === undefined) return
+    this.startWatch()
+  }
+
   private startWatch(): void {
     this.stopWatch()
     this.watch = setInterval(() => {
       this.refresh()
-      this.chrome.setTodos?.()
+      if (this.advance !== undefined) this.chrome.setTodos?.()
     }, SHIP_POLL_MS)
     this.watch.unref()
   }

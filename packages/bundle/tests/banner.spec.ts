@@ -37,7 +37,7 @@ describe('bannerLines', () => {
     expect(lines.some(line => line.includes('▀') || line.includes('▄'))).toBe(true)
     expect(lines.some(line => line.includes('✻ Welcome to codsh'))).toBe(true)
     expect(lines.join('\n')).toContain('deepseek-v4-flash')
-    expect(lines.join('\n')).toContain('/help · /status · Tab · ⇧Tab plan · ESC · /exit')
+    expect(lines.join('\n')).toContain('/help · /status · Tab · ⇧Tab plan · Ctrl-C · /exit')
     expect(lines.join('\n')).not.toContain('for commands')
   })
 
@@ -62,9 +62,10 @@ describe('bannerLines', () => {
     expect(bannerLines({ ...facts, welcomeKind: 'returning' }, plain, 100).join('\n')).toContain('✻')
   })
 
-  it('names ESC on a terminal and Ctrl-C off one', () => {
-    expect(bannerLines(facts, theme, 100).join('\n')).toContain('ESC')
+  it('names Ctrl-C as the interrupt on a terminal and off one', () => {
+    expect(bannerLines(facts, theme, 100).join('\n')).toContain('Ctrl-C')
     expect(bannerLines({ ...facts, readsKeys: false }, theme, 100).join('\n')).toContain('Ctrl-C')
+    expect(bannerLines(facts, theme, 100).join('\n')).not.toContain('ESC')
   })
 
   it('never exceeds the terminal width', () => {

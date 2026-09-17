@@ -98,9 +98,9 @@ describe.skipIf(process.platform === 'win32')('typing and keys (real PTY)', () =
     // The echo keeps the block's shape: the marker on the first row, the
     // continuation aligned under it, both outside the box's borders.
     const rows = screen.alternate.map(visible)
-    const echo = rows.indexOf('›   first')
+    const echo = rows.indexOf('│   first')
     expect(echo).toBeGreaterThanOrEqual(0)
-    expect(rows[echo + 1]).toBe('›   second')
+    expect(rows[echo + 1]).toBe('│   second')
   }, E2E_TEST_TIMEOUT_MS)
 
   it('recalls the previous submission with the up arrow', async () => {
@@ -244,7 +244,7 @@ describe.skipIf(process.platform === 'win32')('typing and keys (real PTY)', () =
       ['seen=', `/exit${ENTER}`, 400],
     ])
     const at = (step: number): string[] => screenOf(run.output.slice(0, run.offsets[step - 1]), -1).alternate
-    const promptRow = /›\s+after QUEUED_PROMPT/u
+    const promptRow = /│\s+after QUEUED_PROMPT/u
     // When the shell card had just appeared, the prompt typed after it had
     // not started its turn; by the end it had.
     expect(at(4).some(row => row.includes('$ echo QUEUED_BANG'))).toBe(true)
