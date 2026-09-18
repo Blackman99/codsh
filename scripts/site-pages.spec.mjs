@@ -52,6 +52,21 @@ describe('documentation site', () => {
     }
   })
 
+  it('names the model and thinking level on every gallery project', () => {
+    for (const [gallery, modelLabel, thinkingLabel] of [
+      ['gallery.html', 'Model', 'Thinking'],
+      ['gallery.zh.html', '模型', '思考等级'],
+    ]) {
+      const html = read(gallery)
+      for (const id of ['international-mall', 'medal-of-honor', 'web-music-player']) {
+        const article = html.match(new RegExp(`<article class="exhibit" id="${id}"[\\s\\S]*?</article>`))?.[0] ?? ''
+        expect(article).toContain('class="exhibit-model"')
+        expect(article).toContain(`<dt>${modelLabel}</dt><dd>Gemini 3.8 Flash</dd>`)
+        expect(article).toContain(`<dt>${thinkingLabel}</dt><dd>max</dd>`)
+      }
+    }
+  })
+
   it('invites README readers to the matching gallery before installation', () => {
     for (const [file, heading, gallery, invitation, conditions] of [
       ['README.md', '## Install', 'gallery.html', 'Visit the gallery', ['one-sentence request', 'one round of interaction', 'recommended answer selected for every question']],

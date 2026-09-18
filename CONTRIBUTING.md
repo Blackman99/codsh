@@ -75,8 +75,9 @@ and actual project results. Keep each English/Chinese pair in sync.
     relative asset paths, and keeps its source revision and Lucide license
     alongside the demo.
 - Gallery images belong in `site/assets/gallery/` and must be real captures of
-  the showcased project. Include the original prompt, device requirements,
-  provenance, and any relevant unofficial-project notice; do not invent entries.
+  the showcased project. Include the original prompt, the model and thinking
+  level used to build it, device requirements, provenance, and any relevant
+  unofficial-project notice; do not invent entries.
 - Verify both languages on desktop and mobile: home → gallery → shop → gallery,
   home → gallery → music player → gallery, and home → gallery → game → gallery,
   language switches, expandable controls, guide scenes, and setup anchors. Also test

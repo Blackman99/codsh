@@ -66,6 +66,9 @@ blockquote { font-size: clamp(1.35rem, 2.5vw, 1.65rem); line-height: 1.5; paddin
 blockquote p { color: var(--ink); }
 .translation { margin-top: 0.8rem; font-size: 0.9rem; }
 .exhibit-description { margin-top: 1.4rem; }
+.exhibit-model { display: grid; grid-template-columns: auto 1fr; gap: 0.35rem 1rem; margin: 1.1rem 0 0; font-size: 0.85rem; }
+.exhibit-model dt { color: var(--muted); }
+.exhibit-model dd { margin: 0; color: var(--ink); font-family: var(--mono); }
 .tags { display: flex; flex-wrap: wrap; gap: 0.5rem; list-style: none; margin: 1.2rem 0 0; padding: 0; }
 .tags li { font-size: 0.75rem; color: var(--muted); border: 1px solid var(--edge); border-radius: 4px; padding: 0.12rem 0.55rem; }
 .device-note { font-size: 0.85rem; margin-top: 0.75rem; }
