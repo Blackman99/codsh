@@ -1,5 +1,18 @@
 # codsh-bundle
 
+## 0.24.1
+
+### Patch Changes
+
+- 43b5da1: `pnpm run dev` now boots with the machine's custom providers and default model from `~/.dsh`, instead of an empty scratch home. `MOCK=<mode>` still pins the keyless mock.
+- 7a17e3f: Name the model and thinking level on every gallery project. The three current exhibits were built with Gemini 3.8 Flash at thinking max.
+- 5f8ca29: When `codsh update` (or the next start) cannot register `codsh-bundle` because the code profile's `node_modules` were linked from a different pnpm store, drop those modules and retry. A leftover install from another pnpm major used to leave the launcher upgraded and the profile behind.
+- 5f8ca29: Streamline and optimize bilingual READMEs: focus on core `/ship` pipeline, live panorama, terminal controls, and quick start without redundant prose.
+- 60bad81: Remove outdated /ship demo GIF and recording from bilingual READMEs and package docs.
+- 5f8ca29: Highlight that `/ship` includes a built-in live task flow panorama across bilingual READMEs, launcher docs, and the documentation site.
+- 5f8ca29: Send the homepage Get started button to the matching guide instead of a same-page install anchor that does nothing on a typical screen.
+- a608609: Even out the transcript's vertical rhythm on a TTY. Blocks are one blank row apart: a runner notice and an answer open one blank under the block before them instead of sitting flush, the tool rows of one run stack flush so a segment of calls reads as one, and the thought clock is a caption that takes no blank on either side.
+
 ## 0.24.0
 
 ### Minor Changes
