@@ -15,15 +15,18 @@
  * `vision`, and the `auto-vision`,
  * `auto-vision-slow`, `auto-vision-fail` trio behind automatic image
  * description. The list lives in `e2e/fixtures/mock-llm.src.ts`.
+ * Without MOCK, the loop imports the machine's custom providers, default
+ * model, and credentials from `$DSH_HOME` (or `CODSH_DEV_USER_HOME`).
  * Arguments after `pnpm run dev` reach the app (`--resume`, `-p "task"`, …).
  */
 
 import { execFileSync, spawnSync } from 'node:child_process'
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { homedir, tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { createRequire } from 'node:module'
+import { prepareDevModelConfig, resolveMachineHome } from './dev-machine-models.mjs'
 
 const require = createRequire(import.meta.url)
 const repo = fileURLToPath(new URL('..', import.meta.url))
@@ -90,7 +93,18 @@ if (!existsSync(installed)) {
 
 const args = ['--profile', 'code']
 const mock = process.env.MOCK
-if (mock !== undefined && mock !== '') {
+const mockEnabled = mock !== undefined && mock !== ''
+const machineHome = resolveMachineHome(process.env, homedir(), home)
+const modelConfig = prepareDevModelConfig({ machineHome, devHome: home, mock: mockEnabled })
+for (const patch of modelConfig.extraPatches) args.push('--patch', patch)
+if (modelConfig.extraPatches.length > 0 || modelConfig.imported.length > 0) {
+  const bits = [
+    ...modelConfig.extraPatches.length > 0 ? ['profile patch'] : [],
+    ...modelConfig.imported,
+  ]
+  console.error(`codsh dev: using machine models from ${machineHome} (${bits.join(', ')})`)
+}
+if (mockEnabled) {
   const overlay = join(home, 'mock.cordis.patch.yml')
   mkdirSync(home, { recursive: true })
   writeFileSync(overlay, [

@@ -9,7 +9,7 @@ Not sending a patch? Open an [issue](https://github.com/Blackman99/codsh/issues)
 
 ```sh
 pnpm install
-pnpm run dev              # build → sync into .dev-home → boot (seconds per loop)
+pnpm run dev              # build → sync into .dev-home → boot with ~/.dsh models
 MOCK=markdown pnpm run dev    # keyless, against the e2e mock model
 MOCK=questions pnpm run dev   # consecutive ship questions, including multi-select
 MOCK=ship-landing pnpm run dev # per-ticket turns from docs/specs/landing-e2e.md
@@ -35,6 +35,12 @@ child fills git-named hunks and `/ship` continues),
 behind the automatic image description. The list lives in
 `e2e/fixtures/mock-llm.src.ts`. `INSPECT=1` opens the Node inspector on
 the app process alone, so a breakpoint does not stop the build that precedes it.
+
+Without `MOCK`, the loop imports the machine's custom providers, default
+model, credentials, and thinking prefs from `$DSH_HOME` (default `~/.dsh`)
+into `.dev-home`, so `/model` matches the installed `codsh`. A process
+`DSH_HOME` that already points at `.dev-home` is skipped; set
+`CODSH_DEV_USER_HOME` to another home in that case.
 
 `CODSH_TRACE=<path>` tees every byte the viewport writes, and the size it wrote
 them at, into a file. A frame that arrives corrupted is a disagreement between
