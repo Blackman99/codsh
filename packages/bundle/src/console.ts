@@ -592,6 +592,15 @@ export class TerminalConsole {
   }
 
   /**
+   * The rule the transcript's last row carries, `''` off a screen or when
+   * empty. A pipe keeps no rules: it closes every block with a blank instead.
+   * @returns the styled rule exactly as it was appended.
+   */
+  tailRule(): string {
+    return this.screen?.tailRule() ?? ''
+  }
+
+  /**
    * Where a terminal row falls in the region below the transcript.
    * @param row - terminal row, 1-based.
    * @returns the region and index, or `undefined` off a terminal or for a row

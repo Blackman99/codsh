@@ -97,7 +97,9 @@ Read from the pager crate's user guide and configuration reference at
    later `· total 4.1s` when the step ends) and the block is registered as
    a Fold that is **collapsed** and **automatic**. The clock stays one row
    without a panel fill; only an expanded Fold retains the panel's vertical
-   padding and fill.
+   padding and fill. The head, and so the clock, is a caption: it takes no
+   blank of its own, sits flush under the row before it, and the block that
+   follows — a card, the answer — opens none under it.
 2. **Moving on folds it.** The next turn spent — a prompt, or a canned
    command that expands into one — collapses an automatic open thought to its
    clock row, exactly as the Fold preference already says for fresh-output
@@ -110,8 +112,12 @@ Read from the pager crate's user guide and configuration reference at
    `● title · stats ✔` (or `✗`) — the success bullet is dim, the trailing
    `✔` stays green — and the whole body — command output, search
    hits, read content, diff hunks, a generic result's text — lives in the
-   fold. A later card in a TTY run opens with a blank so consecutive
-   one-liners are not flush; a pipe still closes each card with a blank. The stats segment says what the row withholds: `+n -m` for a diff,
+   fold. Any two TTY blocks are one blank apart: the first card of a run
+   opens with a blank unless the transcript already ends on one, the cards
+   inside a run stack flush — a failed row keeps its place in the run — and
+   a runner notice or an answer landing under a run opens with one too,
+   though none under a thought clock; a pipe still closes each card with a
+   blank. The stats segment says what the row withholds: `+n -m` for a diff,
    `N results` for a search, `N of M lines` for a read, and for a terminal or
    generic result a new `· N lines` count of everything behind the row — the
    description a terminal call came with included, so the count and the

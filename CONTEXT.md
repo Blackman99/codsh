@@ -338,14 +338,28 @@ _Avoid_: dashboard, inspector
 
 **Card run**:
 Tool cards that follow one another share one stretch of transcript rather
-than each opening a panel of its own. Consecutive one-row cards on a TTY
-open with a blank between them so the column of bullets can be scanned;
-piped output still closes each card with a blank. A door into a child
-Session is the only extra row under a head, and a run of similar cards
-rebuilds as one fold over the rows already on screen. Any other block
-printed under a run ends it. A runner Child view at the tail is not in a
-run.
+than each opening a panel of its own. Consecutive cards on a TTY stack
+flush — a failed row among them included — so a run reads as one segment,
+and the Block gap on either side is what sets it off; piped output still
+closes each card with a blank. A door into a child Session is the only
+extra row under a head, and a run of similar cards rebuilds as one fold
+over the rows already on screen. Any other block printed under a run ends
+it and opens one Block gap below it. A runner Child view at the tail is not
+in a run.
 _Avoid_: card group, merged cards, runner Child view as a tool card
+
+**Block gap**:
+The one blank row between any two blocks on a TTY. A block that does not
+follow a blank — the first card of a Card run, a runner notice, an answer,
+a compaction summary — opens with one under its own rule; an answer still
+closes with its own. A thought clock (and the `thinking…` head before it)
+is a caption, not a block: it takes no blank of its own, sits flush under
+the row before it, and the block after it opens none, so a step reads as
+its cards, its clock, and its answer. Rows that continue a block take none
+either: the later cards of a run, a card's `click to enter` door, a
+workflow's round and stop lines under its head, an approval note under the
+pending card it explains. A pipe closes each block with a blank instead.
+_Avoid_: margin, padding, spacer
 
 **Rule**:
 The connecting `│` drawn down every transcript row, including blank

@@ -171,17 +171,16 @@ describe.skipIf(process.platform === 'win32')('streaming, cards and folds (real 
     const captured = (offset: number | undefined): string => Buffer.from(run.output).subarray(0, offset).toString()
     const settled = screenOf(captured(run.offsets[2]), -1, PTY_ROWS, columns).alternate
     const at = (needle: string): number => settled.findIndex(row => row.includes(needle))
-    // One turn, in order: a thought clock, the write as one row, a second
-    // thought clock, the answer — both thoughts folded, the card's diff behind
-    // its row.
+    // One turn, flush, in order: a thought clock, the write as one row, a
+    // second thought clock, the answer — both thoughts folded, the card's
+    // diff behind its row. A clock is a caption, so nothing opens a blank
+    // under it and it opens none of its own.
     const firstClock = settled.findIndex(row => /│\s+thought for/u.test(row))
     const secondClock = settled.findIndex((row, index) => index > firstClock && /│\s+thought for/u.test(row))
     expect(firstClock).toBeGreaterThanOrEqual(0)
     expect(at('● Write note.txt +1 -0 ✔')).toBe(firstClock + 1)
     expect(secondClock).toBe(at('● Write note.txt +1 -0 ✔') + 1)
-    // The answer keeps its ordinary paragraph separator, outside the fold.
-    expect(settled[secondClock + 1]?.replace(/[│\s]/gu, '')).toBe('')
-    expect(at('CODE_CLI_REASONED_ANSWER')).toBe(secondClock + 2)
+    expect(at('CODE_CLI_REASONED_ANSWER')).toBe(secondClock + 1)
     expect(settled.some(row => row.includes('planning the write step'))).toBe(false)
     expect(settled.some(row => row.includes('checking what the write did'))).toBe(false)
     expect(settled.some(row => row.includes('+ CODE_CLI_ROUND_TRIP'))).toBe(false)

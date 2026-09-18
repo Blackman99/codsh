@@ -49,6 +49,25 @@ function cell(data: string, row: number, column: number): string | undefined {
 /** Everything written since the last checkpoint, joined. */
 const flush = (sink: { out: string[] }): string => sink.out.splice(0).join('')
 
+describe('the tail rule', () => {
+  it('names the rule the last row was drawn with, and nothing when empty', () => {
+    const sink = host()
+    const screen = new Screen(sink)
+    screen.enter()
+    expect(screen.tailRule()).toBe('')
+    screen.append(['● Read a.ts'], '│t')
+    expect(screen.tailRule()).toBe('│t')
+    // A clock lands under the card with the agent rule: the block after it
+    // reads this and opens no blank.
+    screen.append(['  thought for 1s'], '│a')
+    expect(screen.tailRule()).toBe('│a')
+    expect(screen.hasTrailingBlank()).toBe(false)
+    screen.append([''], '│a')
+    expect(screen.tailRule()).toBe('│a')
+    expect(screen.hasTrailingBlank()).toBe(true)
+  })
+})
+
 describe('entering and leaving', () => {
   it('pushes the kitty keyboard flag on entry and pops it before leaving', () => {
     const sink = host()

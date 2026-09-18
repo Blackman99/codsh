@@ -355,6 +355,7 @@ function replayEvents(session: ShownSession, transcript: Transcript, io: CliIo, 
         const totalSeconds = timing.stepTotalSeconds(event.data.turn, event.data.step)
         const { summary, full } = thinkingFold(lines, theme, seconds, totalSeconds)
         const rules = thinkingFoldRules(theme, lines.length)
+        // The clock is a caption: no blank of its own above or below.
         io.console.appendFold(summary, full, rules.summary, FOLD_LABELS.thinking, undefined, undefined, [], rules.full)
       }
     }
@@ -628,6 +629,42 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
   if (sessions === undefined) return
   const cwd = process.cwd()
   const theme = createTheme(io.console.isTty, process.env)
+  /**
+   * Whether a block appended now wants a blank above it.
+   *
+   * No when the transcript is empty or already ends on a blank, and no
+   * under a thought clock: the clock is a caption that sits flush against
+   * the row before it and the block after it. Otherwise yes, so any two
+   * blocks are one row apart. A pipe is asked only about the blank; it
+   * draws no coloured rule a clock could be told by.
+   * @returns whether to open with a blank.
+   */
+  const gapWanted = (): boolean => {
+    if (io.console.hasTrailingBlank()) return false
+    return !(theme.colored && io.console.tailRule() === blockRules(theme).agent)
+  }
+  /**
+   * Open a block one blank under the one before it.
+   *
+   * On a TTY any two blocks are one row apart: a block whose tail wants a
+   * gap writes one first, under its own rule, so a notice or an answer
+   * landing under a tool card is not flush against it. Pipes close each
+   * block with a blank instead and need none.
+   * @param rule - the rule of the block about to open.
+   */
+  const gapBefore = (rule: string | readonly string[]): void => {
+    if (!theme.colored || !gapWanted()) return
+    io.console.writeAll([''], typeof rule === 'string' ? rule : rule[0] ?? '')
+  }
+  /**
+   * Print a runner notice as a block of its own, one blank under whatever
+   * stands before it.
+   * @param notice - the styled line and its rule.
+   */
+  const writeNotice = (notice: { line: string; rule: string }): void => {
+    gapBefore(notice.rule)
+    prompt.write(notice.line, notice.rule)
+  }
   // The viewport asks OSC 11 on entry; a light answer swaps in the readable
   // secondary-text shade for everything rendered from then on.
   io.console.onBackground((payload) => {
@@ -658,7 +695,7 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
   const live = {
     handle: composed.handle,
     agent: composed.handle.agent,
-    transcript: new Transcript({ theme, columns: () => io.console.contentColumns, cwd, density }, presentersFor(ctx, composed.handle.agent)),
+    transcript: new Transcript({ theme, columns: () => io.console.contentColumns, cwd, density, gapWanted }, presentersFor(ctx, composed.handle.agent)),
   }
   /** Nested Child views; empty means the parent transcript. */
   const childViews = new ChildViews()
@@ -955,8 +992,7 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
     expandOutput: () => {
       if (prompt.openActiveImage()) return
       if (!io.console.toggleFolds()) {
-        const notice = runnerNotice('nothing to expand', theme)
-        prompt.write(notice.line, notice.rule)
+        writeNotice(runnerNotice('nothing to expand', theme))
       }
     },
     turn: (direction) => {
@@ -1090,6 +1126,7 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
       : {}),
     flash: text => {
       const notice = runnerNotice(text, theme)
+      gapBefore(notice.rule)
       emit([notice.line], undefined, notice.rule)
     },
     isPlanMode: () => sessionFolds.planMode,
@@ -2002,7 +2039,7 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
     if (frame === undefined) {
       frame = {
         session,
-        transcript: new Transcript({ theme, columns: () => io.console.contentColumns, cwd, density }, presentersFor(ctx, live.agent)),
+        transcript: new Transcript({ theme, columns: () => io.console.contentColumns, cwd, density, gapWanted }, presentersFor(ctx, live.agent)),
         stream: new TextStream(theme, () => io.console.contentColumns),
         thinking: new ThinkingTracker(theme, () => io.console.contentColumns),
       }
@@ -2035,7 +2072,7 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
       // No covered buffer — a session replacement, or a surface with no screen.
       const remaining = currentView()
       if (remaining === undefined) {
-        live.transcript = new Transcript({ theme, columns: () => io.console.contentColumns, cwd, density }, presentersFor(ctx, live.agent))
+        live.transcript = new Transcript({ theme, columns: () => io.console.contentColumns, cwd, density, gapWanted }, presentersFor(ctx, live.agent))
         thinking.reset()
         stopThinkingPulse()
         currentThought = undefined
@@ -2154,7 +2191,7 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
         const session: ShownSession = { id, snapshotEvents: () => events, inheritedEventCount }
         const frame = {
           session,
-          transcript: new Transcript({ theme, columns: () => io.console.contentColumns, cwd, density }, presentersFor(ctx, live.agent)),
+          transcript: new Transcript({ theme, columns: () => io.console.contentColumns, cwd, density, gapWanted }, presentersFor(ctx, live.agent)),
           stream: new TextStream(theme, () => io.console.contentColumns),
           thinking: new ThinkingTracker(theme, () => io.console.contentColumns),
         }
@@ -2390,7 +2427,7 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
       landThinking(transcript, tracker, onThinkingFlush)
     }
     if (chunk.type !== 'text-delta') return
-    if (!textStream.streamed && !io.console.hasTrailingBlank()) emit([''], undefined, blockRules(theme).answer)
+    if (!textStream.streamed && gapWanted()) emit([''], undefined, blockRules(theme).answer)
     const step = textStream.push(chunk.text)
     emit(step.lines, step.live, blockRules(theme).answer)
   }
@@ -2472,8 +2509,7 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
   }, {
     label: path => path.startsWith(`${cwd}/`) ? path.slice(cwd.length + 1) : path,
     warn: line => {
-      const notice = runnerNotice(line, theme)
-      prompt.write(notice.line, notice.rule)
+      writeNotice(runnerNotice(line, theme))
     },
   })
 
@@ -2543,7 +2579,7 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
     const reason = verdict.reasons.join('; ') || 'Alignment Gate denied write — sealed Mission Contract holds'
     const notice = runnerNotice(`✗ ${reason}`, theme)
     if (exec.agent?.session.id === live.agent.session.id || exec.agent === undefined) {
-      prompt.write(notice.line, notice.rule)
+      writeNotice(notice)
     }
     return { kind: 'deny' as const, reason }
   })
@@ -2616,7 +2652,7 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
     live.handle = next
     live.agent = next.agent
     prompt.setTodos(todoList(ctx, live.agent), true)
-    live.transcript = new Transcript({ theme, columns: () => io.console.contentColumns, cwd, density }, presentersFor(ctx, next.agent))
+    live.transcript = new Transcript({ theme, columns: () => io.console.contentColumns, cwd, density, gapWanted }, presentersFor(ctx, next.agent))
     // The viewport buffer is the RETIRED session's transcript; left in place,
     // /clear would clear nothing visible and /resume would replay under it.
     io.console.clearScreen()
@@ -2728,8 +2764,7 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
     flushThinking()
     finishAnswer()
     if (busy) {
-      const notice = runnerNotice('interrupted', theme)
-      prompt.write(notice.line, notice.rule)
+      writeNotice(runnerNotice('interrupted', theme))
     }
     return busy
   }
@@ -2950,7 +2985,7 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
     const sessionElapsed = sessionTurns > 1 ? sessionActiveMs : undefined
     const cost = spent > 0 ? ` · ${formatTokens(spent)} tokens` : ''
     const notice = runnerNotice(`${formatTurnTime(elapsedMs, turnThinkingMs, sessionElapsed)}${cost}`, theme)
-    prompt.write(notice.line, notice.rule)
+    writeNotice(notice)
     prompt.write('', notice.rule)
   }
 

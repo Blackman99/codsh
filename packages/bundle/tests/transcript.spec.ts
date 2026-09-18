@@ -918,6 +918,7 @@ describe('the forms a long block keeps', () => {
     const { summary, full } = thinkingFold(['reasoning line'], colorTheme, 1.5)
     // Collapsed is a separator, not a panel: a full-width fill on the clock
     // is a black bar between tool rows. The expanded body still has the fill.
+    // The clock is a caption: no blank of its own above or below either.
     expect(summary).toEqual([clock])
     expect(summary[0]).not.toContain('\u001B[48;')
     expect(full[0]).toBe(pad)
@@ -1565,7 +1566,7 @@ describe('grok background differentiation across functional blocks', () => {
     expect(row).not.toContain(colorTheme.pending('●'))
   })
 
-  it('leaves a blank row between consecutive one-line cards on a TTY', () => {
+  it('stacks consecutive one-line cards flush on a TTY', () => {
     const colorTheme = createTheme(true, { COLORTERM: 'truecolor' })
     let file = 'a.ts'
     const colored = new Transcript(
@@ -1584,18 +1585,16 @@ describe('grok background differentiation across functional blocks', () => {
     file = 'b.ts'
     const pending = colored.render(callEvent('c2', 'read', {}))
     expect(colored.takePendingCard()).toEqual([])
-    expect(pending[0]).toBe('')
-    expect(pending[1]).toContain('Read b.ts')
-    expect(pending).toHaveLength(2)
+    expect(pending).toHaveLength(1)
+    expect(pending[0]).toContain('Read b.ts')
 
     const second = colored.render(resultEvent('c2', ''))
     expect(colored.takePendingCard()).toEqual(pending)
-    expect(second[0]).toBe('')
-    expect(second[1]).toContain('Read b.ts')
-    expect(second).toHaveLength(2)
+    expect(second).toHaveLength(1)
+    expect(second[0]).toContain('Read b.ts')
   })
 
-  it('leaves a blank row between consecutive diff cards on a TTY', () => {
+  it('stacks consecutive diff cards flush on a TTY', () => {
     const colorTheme = createTheme(true, { COLORTERM: 'truecolor' })
     const colored = new Transcript(
       { columns: 80, theme: colorTheme, cwd: CWD },
@@ -1613,12 +1612,11 @@ describe('grok background differentiation across functional blocks', () => {
     expect(colored.render(callEvent('c2', 'b.ts', {}))).toEqual([])
     const second = colored.render(resultEvent('c2', ''))
     expect(colored.takePendingCard()).toEqual([])
-    expect(second[0]).toBe('')
-    expect(second[1]).toContain('Edit b.ts')
-    expect(second).toHaveLength(2)
+    expect(second[0]).toContain('Edit b.ts')
+    expect(second).toHaveLength(1)
   })
 
-  it('leaves a blank row between consecutive read cards on a TTY', () => {
+  it('stacks consecutive read cards flush on a TTY', () => {
     const colorTheme = createTheme(true, { COLORTERM: 'truecolor' })
     let file = 'questions.spec.ts'
     const colored = new Transcript(
@@ -1642,12 +1640,11 @@ describe('grok background differentiation across functional blocks', () => {
     file = 'prompt.spec.ts'
     colored.render(callEvent('c2', 'read', {}))
     const second = colored.render(resultEvent('c2', 'ok'))
-    expect(second[0]).toBe('')
-    expect(second[1]).toContain('Read prompt.spec.ts')
-    expect(second).toHaveLength(2)
+    expect(second[0]).toContain('Read prompt.spec.ts')
+    expect(second).toHaveLength(1)
   })
 
-  it('leaves a blank row between consecutive edit cards on a TTY', () => {
+  it('stacks consecutive edit cards flush on a TTY', () => {
     const colorTheme = createTheme(true, { COLORTERM: 'truecolor' })
     let file = 'questions.spec.ts'
     const colored = new Transcript(
@@ -1669,9 +1666,8 @@ describe('grok background differentiation across functional blocks', () => {
     file = 'ship.spec.ts'
     expect(colored.render(callEvent('c2', 'edit', {}))).toEqual([])
     const second = colored.render(resultEvent('c2', 'ok'))
-    expect(second[0]).toBe('')
-    expect(second[1]).toContain('Edit ship.spec.ts')
-    expect(second).toHaveLength(2)
+    expect(second[0]).toContain('Edit ship.spec.ts')
+    expect(second).toHaveLength(1)
   })
 
   it('keeps the tool run open across intervening empty assistant messages and step boundaries', () => {
@@ -1704,15 +1700,13 @@ describe('grok background differentiation across functional blocks', () => {
     file = 'b.ts'
     const pending = colored.render(callEvent('c2', 'read', {}))
     expect(colored.takePendingCard()).toEqual([])
-    expect(pending[0]).toBe('')
-    expect(pending[1]).toContain('Read b.ts')
-    expect(pending).toHaveLength(2)
+    expect(pending).toHaveLength(1)
+    expect(pending[0]).toContain('Read b.ts')
 
     const second = colored.render(resultEvent('c2', ''))
     expect(colored.takePendingCard()).toEqual(pending)
-    expect(second[0]).toBe('')
-    expect(second[1]).toContain('Read b.ts')
-    expect(second).toHaveLength(2)
+    expect(second).toHaveLength(1)
+    expect(second[0]).toContain('Read b.ts')
   })
 
   it('does not insert a gap after a short assistant note between tool cards', () => {
@@ -1770,7 +1764,9 @@ describe('grok background differentiation across functional blocks', () => {
     expect(colored.takePendingCard()).toEqual([])
     const second = colored.render(resultEvent('c2', 'M two.ts'))
 
-    expect(colored.takePendingCard()).toEqual([first[0], pendingRow[0], pendingRow[1]])
+    // The pending row stacked flush under the first card; both give way.
+    expect(pendingRow).toHaveLength(1)
+    expect(colored.takePendingCard()).toEqual([first[0], pendingRow[0]])
     expect(second[0]).toContain('git status')
     expect(second[0]).toContain('· 2 similar')
     expect(second).toHaveLength(1)
@@ -1843,5 +1839,103 @@ describe('presentAskUserQuestionResult', () => {
       isError: true,
     }
     expect(presentAskUserQuestionResult(result)).toBeUndefined()
+  })
+})
+
+describe('block gaps on a TTY', () => {
+  const colorTheme = createTheme(true, { COLORTERM: 'truecolor' })
+  const answer = (text: string): SessionEvent => ({
+    type: 'assistant/message',
+    seq: 3,
+    time: 0,
+    data: { turn: 1, step: 2, message: { role: 'assistant', content: [{ type: 'text', text }], source: { kind: 'model' } } },
+  } as unknown as SessionEvent)
+  const summary: SessionEvent = {
+    type: 'compaction/summary',
+    seq: 9,
+    time: 0,
+    data: {
+      compactionId: 'cp1',
+      summary: [{ type: 'text', text: 'what happened' }],
+      shadowedRange: { start: 1, end: 3 },
+      shadowedSeqs: [1, 2, 3],
+      shadowedTokenCount: 120,
+      provider: 'cli-mock',
+      model: 'cli-mock',
+      rawOutput: [{ type: 'text', text: 'what happened' }],
+      llmStreamCall: true,
+    },
+  } as unknown as SessionEvent
+  const readCards = (): ToolPresenters => ({
+    call: (): ToolCallView => ({ card: 'generic', title: 'Read a.ts' }),
+    result: (): ToolResultView => ({ card: 'generic', title: 'Read a.ts' }),
+  })
+
+  it('opens the first card of a run one blank under a block that left none', () => {
+    let wanted = true
+    const colored = new Transcript({ columns: 80, theme: colorTheme, cwd: CWD, gapWanted: () => wanted }, readCards())
+    const pending = colored.render(callEvent('c1', 'read', {}))
+    expect(pending).toHaveLength(2)
+    expect(pending[0]).toBe('')
+    expect(pending[1]).toContain('Read a.ts')
+    // The finished card takes the pending card's place, gap included, even
+    // though the transcript now ends on that pending row rather than a blank.
+    const first = colored.render(resultEvent('c1', ''))
+    expect(colored.takePendingCard()).toEqual(pending)
+    expect(first).toHaveLength(2)
+    expect(first[0]).toBe('')
+    expect(first[1]).toContain('Read a.ts')
+    wanted = false
+    colored.render(answer('done'))
+    // A tail that wants no gap — a blank already there — is not doubled.
+    const next = colored.render(callEvent('c2', 'read', {}))
+    expect(next).toHaveLength(1)
+    expect(next[0]).toContain('Read a.ts')
+  })
+
+  it('keeps a card that follows a failed one flush in the run', () => {
+    let wanted = false
+    const colored = new Transcript({ columns: 80, theme: colorTheme, cwd: CWD, gapWanted: () => wanted }, readCards())
+    colored.render(callEvent('c1', 'read', {}))
+    const failed = colored.render(resultEvent('c1', 'no such file', true))
+    expect(failed).toHaveLength(1)
+    expect(failed[0]).toContain('✗')
+    wanted = true
+    // The failed row's red rule is its own; the run goes on under it, so
+    // the next card stacks flush rather than opening a gap of its own.
+    const next = colored.render(callEvent('c2', 'read', {}))
+    expect(next).toHaveLength(1)
+    expect(next[0]).toContain('Read a.ts')
+  })
+
+  it('opens an answer with a blank unless the transcript already ends on one', () => {
+    let wanted = true
+    const colored = new Transcript({ columns: 80, theme: colorTheme, cwd: CWD, gapWanted: () => wanted }, readCards())
+    expect(colored.render(answer('All done!'))).toEqual(['', 'All done!', ''])
+    wanted = false
+    expect(colored.render(answer('All done!'))).toEqual(['All done!', ''])
+  })
+
+  it('keeps the gap a summary opened with in its fold', () => {
+    const colored = new Transcript({ columns: 80, theme: colorTheme, cwd: CWD, gapWanted: () => true }, readCards())
+    const lines = colored.render(summary)
+    expect(lines[0]).toBe('')
+    expect(lines[1]).toContain('compacted 3 history items')
+    const fold = colored.takeFold()
+    expect(fold?.[0]).toBe('')
+    expect(fold?.[1]).toBe(lines[1])
+  })
+
+  it('leaves a pipe to its closing blanks', () => {
+    const piped = new Transcript({ columns: 80, theme, cwd: CWD, gapWanted: () => true }, readCards())
+    const pending = piped.render(callEvent('c1', 'read', {}))
+    expect(pending[0]).toContain('Read a.ts')
+    expect(piped.render(answer('done'))).toEqual(['done', ''])
+  })
+
+  it('opens no gap when no surface answers for the tail', () => {
+    const colored = new Transcript({ columns: 80, theme: colorTheme, cwd: CWD }, readCards())
+    expect(colored.render(callEvent('c1', 'read', {}))).toHaveLength(1)
+    expect(colored.render(answer('done'))).toEqual(['done', ''])
   })
 })

@@ -720,6 +720,17 @@ export class Screen {
   }
 
   /**
+   * The rule the transcript's last row was drawn with, `''` when empty.
+   *
+   * A block deciding whether to open with a blank asks what it lands under:
+   * a thought clock, drawn with the agent rule, takes no gap after it.
+   * @returns the styled rule exactly as it was appended.
+   */
+  tailRule(): string {
+    return this.rules.at(-1) ?? ''
+  }
+
+  /**
    * Append finished transcript lines.
    *
    * Following the tail is the default; a person who has scrolled up stays

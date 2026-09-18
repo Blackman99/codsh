@@ -8,9 +8,13 @@
  * resulting `card` tag. Every completed card is one row — what it did, how
  * much it produced, whether it worked — with the body behind the fold, the
  * way Grok Build keeps tool calls to a line each, without a panel fill.
- * A finished success bullet is dim; consecutive TTY cards open with a blank
- * between them. Consecutive cards with the same command and output shape
- * collapse into one fold rather than stacking.
+ * A finished success bullet is dim. On a TTY any two blocks are one blank
+ * row apart: a card that opens a run, an answer, or a summary opens with a
+ * blank unless the surface says none is wanted — the transcript already
+ * ends on one, or on a thought clock, which sits flush against both its
+ * neighbours — while the cards inside a run stack flush. Consecutive cards
+ * with the same command and output shape collapse into one fold rather
+ * than stacking.
  * @module codsh-bundle/src/transcript
  */
 
@@ -49,6 +53,20 @@ const DIFF_CONTEXT = 3
  */
 const DIFF_LINE_ROWS = 3
 
+/**
+ * Event kinds whose rows continue the block before them rather than opening
+ * one: tool cards run their own gaps, the prompt is placed by the screen,
+ * and a workflow's round and stop lines stand under its head.
+ */
+const CONTINUES_BLOCK: ReadonlySet<string> = new Set([
+  'tool/call',
+  'tool/result',
+  'user/message',
+  'tool-workflow/agent-start',
+  'tool-workflow/agent-end',
+  'tool-workflow/run-end',
+])
+
 /** The registered presenters, resolved against the agent's scope by the caller. */
 export interface ToolPresenters {
   /**
@@ -77,6 +95,16 @@ export interface TranscriptOptions {
   cwd: string
   /** Transcript density. Compact is the default; comfortable adds turn gaps. */
   density?: Density
+  /**
+   * Whether a block appended now wants a blank above it.
+   *
+   * The surface answers from its tail: no when the transcript is empty or
+   * already ends on a blank, and no under a thought clock, which is a
+   * caption that sits flush against what follows it; otherwise yes, so any
+   * two blocks are one row apart whichever kind either is. A renderer with
+   * no surface behind it opens no gaps.
+   */
+  gapWanted?: () => boolean
 }
 
 /** One pending call, kept until its result pairs with it. */
@@ -101,8 +129,12 @@ interface PendingCall {
    * card takes over the closing pad this one printed.
    */
   lines: readonly string[]
-  /** Whether the pending card joined a run rather than opening one. */
-  joined: boolean
+  /**
+   * The gap the pending card opened with — the run's blank, or the block
+   * gap under whatever stood before — so the finished card takes exactly
+   * the place it held.
+   */
+  lead: readonly string[]
   /** Whether the closing pad it printed is still its own. */
   closes: boolean
   /**
@@ -233,8 +265,9 @@ export function thinkingFold(
   const head = theme.bgThinking(text)
   const pad = blockPad(theme, text => theme.bgThinking(text))
   return {
-    // Collapsed is a separator between tool rows, not a panel: a full-width
-    // fill here is a black bar. The expanded body still carries the fill.
+    // Collapsed is a caption between rows, not a panel: a full-width fill
+    // here is a black bar, and a blank of its own above or below would push
+    // the step apart. The expanded body still carries the fill and pads.
     summary: [text],
     full: [...pad, head, ...pad, ...lines.map(line => theme.bgThinking(line)), ...pad],
   }
@@ -473,23 +506,14 @@ function blockPad(theme: Theme, bg: (text: string) => string): string[] {
  * The row a block closes with.
  *
  * Tool cards have no panel to pad; piped output still wants a blank between
- * them, the separator it has always been. A TTY run uses {@link runGap}
- * instead, so the last card of a run does not leave a trailing hole.
+ * them, the separator it has always been. On a TTY the block that follows
+ * a run opens with its own gap instead, so the last card of a run does not
+ * leave a trailing hole.
  * @param theme - the active theme.
  * @returns the closing row.
  */
 function blockClose(theme: Theme): string[] {
   return theme.colored ? [] : ['']
-}
-
-/**
- * The blank a later card in a TTY run opens with, so consecutive one-liners
- * do not stack flush. Piped output already closes each card with a blank.
- * @param theme - the active theme.
- * @returns the leading gap, or nothing off a TTY.
- */
-function runGap(theme: Theme): string[] {
-  return theme.colored ? [''] : []
 }
 
 /**
@@ -561,7 +585,7 @@ export class Transcript {
    * a blank so the column of bullets can be scanned; piped output still
    * closes each card with a blank instead.
    */
-  private run: { rule: string; owner: string | undefined; bodied: boolean; close: string } | undefined
+  private run: { owner: string | undefined; bodied: boolean; close: string } | undefined
   /** Runner-dispatched Child view Folds, keyed by child Session id. */
   private readonly runnerViews = new Map<string, { label: string; lines: readonly string[] }>()
   /**
@@ -612,6 +636,20 @@ export class Transcript {
   }
 
   /**
+   * The blank a TTY block opens with when the surface wants one — its tail
+   * is neither a blank nor a thought clock — so any two blocks are one row
+   * apart.
+   *
+   * Off a TTY every block closes with a blank instead, and a renderer with
+   * no surface behind it opens none.
+   * @returns the gap, or nothing.
+   */
+  private gapBefore(): string[] {
+    if (!this.options.theme.colored) return []
+    return this.options.gapWanted?.() === true ? [''] : []
+  }
+
+  /**
    * Shorten an absolute path inside the workspace to a workspace-relative one.
    * @param path - the model-facing path a card carries.
    * @returns the display path.
@@ -646,11 +684,11 @@ export class Transcript {
   }
 
   /**
-   * Close an active tool run, so subsequent tools open in a new panel.
+   * Close an active tool run, so subsequent tools open a run of their own.
    *
-   * Neighbouring panels already carry their own inner pads, so this must not
-   * insert an unstyled blank — that hole is the gap between an Edit card and
-   * the thought clock. The next block still opens with its own top pad.
+   * It prints no row: the block that follows — a thought clock, a notice,
+   * the next card — opens with its own gap, so the gap under a run is one
+   * blank whichever block takes it.
    * @returns nothing; the run is closed in memory only.
    */
   endRun(): string[] {
@@ -669,7 +707,16 @@ export class Transcript {
     // Only tool cards share a stretch; anything else printed under one ends
     // it. Empty assistant messages and step markers paint nothing, so they
     // leave the run standing. A note with text is a block of its own.
-    const lines = this.renderBlock(event)
+    let lines = this.renderBlock(event)
+    if (lines.length > 0 && !CONTINUES_BLOCK.has(event.type)) {
+      // A block opens one row under the one before it. The fold swaps the
+      // whole block, so the expanded form carries the same gap.
+      const gap = this.gapBefore()
+      if (gap.length > 0) {
+        lines = [...gap, ...lines]
+        if (this.fold !== undefined) this.fold = [...gap, ...this.fold]
+      }
+    }
     if (lines.length > 0 && event.type !== 'tool/call' && event.type !== 'tool/result') {
       this.run = undefined
       this.orphanRun = undefined
@@ -974,9 +1021,10 @@ export class Transcript {
   /**
    * Open the tool-card run at the tail, or join the one already standing.
    *
-   * Joining on a TTY prints a blank above the newcomer so consecutive
-   * one-liners are not flush. A pipe still spends its blank as the closer
-   * of each card instead.
+   * Joining on a TTY prints nothing above the newcomer: the cards of a run
+   * stack flush, and the block gap under whatever stood before is what the
+   * run opens with. A pipe still spends its blank as the closer of each
+   * card instead.
    * @param bodied - whether the card prints rows under its head.
    * @param close - the rows the card ends with.
    * @param callId - the call the card belongs to, while it is pending.
@@ -990,7 +1038,9 @@ export class Transcript {
   } {
     const { theme } = this.options
     const open = this.run
-    const joined = open !== undefined && open.rule === this.rule
+    // A failed row keeps its place in the run: the rule is the row's own,
+    // not a panel its neighbours would have to share.
+    const joined = open !== undefined
     let supersedes: string[] = []
     if (joined && open !== undefined && !open.bodied && !bodied && theme.colored && open.close !== '') {
       // Neither card has anything under its head, so the row between them is
@@ -1007,8 +1057,8 @@ export class Transcript {
       const similar = this.similarRun
       if (similar !== undefined && similar.shown.at(-1) === open.close) similar.shown = similar.shown.slice(0, -1)
     }
-    this.run = { rule: this.rule, owner: callId, bodied, close: close[0] ?? '' }
-    return { lead: joined ? runGap(theme) : [], close, joined, supersedes }
+    this.run = { owner: callId, bodied, close: close[0] ?? '' }
+    return { lead: joined ? [] : this.gapBefore(), close, joined, supersedes }
   }
 
   private renderCall(callId: string, name: string, rawArguments: string): string[] {
@@ -1032,17 +1082,17 @@ export class Transcript {
       args = undefined
     }
     const view = this.safeCall(name, args)
-    let joined = false
+    let opening: readonly string[] = []
     // True until a later card takes the closing pad over.
     const closes = true
     const card = (bodied: boolean): { lead: string[]; close: string[] } => {
       const opened = this.joinRun(bodied, [], callId)
       this.pendingCard = opened.supersedes
-      joined = opened.joined
+      opening = opened.lead
       return opened
     }
     const record = (title: string, summary: string | undefined, lines: string[], description?: string): string[] => {
-      this.calls.set(callId, { name, args, title, summary, description, lines, joined, closes })
+      this.calls.set(callId, { name, args, title, summary, description, lines, lead: opening, closes })
       return lines
     }
     if (view === undefined) {
@@ -1136,10 +1186,9 @@ export class Transcript {
     // already joined, nor re-print a closing pad a later card took over.
     const { lead, close, supersedes } = this.joinRun(bodied, blockClose(theme))
     const hasPendingLines = pending !== undefined && pending.lines.length > 0
-    // A result that takes a pending card's place has to keep that card's
-    // leading gap; joinRun's `joined` is true for the first result too,
-    // because the pending already opened the run.
-    const open = hasPendingLines ? (pending.joined ? runGap(theme) : []) : lead
+    // A result that takes a pending card's place keeps the gap that card
+    // opened with; one whose pending form stayed off screen opens its own.
+    const open = hasPendingLines ? [...pending.lead] : lead
     const shut = !hasPendingLines || pending.closes ? close : []
     this.pendingCard = hasPendingLines ? pending.lines : supersedes
     // The fold swaps the WHOLE event's lines, so the expanded form repeats the
@@ -1212,7 +1261,7 @@ export class Transcript {
     this.fold = fullCard
     this.label = previous.title
     this.similarRun = { ...previous, shown: card, members, count, suffix: previous.suffix }
-    this.run = { rule: this.rule, owner: undefined, bodied: true, close: close[0] ?? '' }
+    this.run = { owner: undefined, bodied: true, close: close[0] ?? '' }
     return card
   }
 
@@ -1269,7 +1318,7 @@ export class Transcript {
       this.fold = full
       this.label = 'tool result'
       this.orphanRun = { shown: card, lead: previous.lead, full: members, count, failed }
-      this.run = { rule: this.rule, owner: undefined, bodied: true, close: close[0] ?? '' }
+      this.run = { owner: undefined, bodied: true, close: close[0] ?? '' }
       return card
     }
 
