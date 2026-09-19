@@ -13,6 +13,10 @@
       "sha256": "a3668ea188c9c70ae54e1cf9200095e4ee907f2cd43b87f01925c2661035d65c"
     },
     {
+      "path": "crates/codegen/ptyctl/src/pty.rs",
+      "sha256": "9d064729f1d2c4dc4691a356b9e5c3f3e922cf6ff794273f9b40189a92221c68"
+    },
+    {
       "path": "crates/codegen/xai-codebase-graph/src/bin/bench_file_listing.rs",
       "sha256": "c87f5e2916a56ef564129a6ab5d65835137a1a4c9fcc6a89afc2787c3364064d"
     },
@@ -43,6 +47,18 @@
     {
       "path": "crates/codegen/xai-fast-worktree/src/discovery.rs",
       "sha256": "e0d39387cf434e2ea59dd3c9c25c55c0512324791a3057aee6151efcd5024585"
+    },
+    {
+      "path": "crates/codegen/xai-fast-worktree/src/git/probe.rs",
+      "sha256": "b53bbaada1b92018b53f52fef83acb78bc0f14e211cb404a725267e26b6077c0"
+    },
+    {
+      "path": "crates/codegen/xai-fast-worktree/src/git/safety.rs",
+      "sha256": "c5ab2800b58ac173a92476d42b237cd5b642718d71450122230dc8d5bef973f7"
+    },
+    {
+      "path": "crates/codegen/xai-fast-worktree/src/git/safety/reachability.rs",
+      "sha256": "1d6a39980116c4939e5534f46f4f6fd8c4befe68c715070e95d850fa26a344a7"
     },
     {
       "path": "crates/codegen/xai-fast-worktree/src/git/safety_tests/gate.rs",
@@ -83,6 +99,10 @@
     {
       "path": "crates/codegen/xai-grok-agent/src/builder.rs",
       "sha256": "ec6e20aac7e8410840764b845f0ece6bb81998232c40ee9a85edb9102a7d2b95"
+    },
+    {
+      "path": "crates/codegen/xai-grok-agent/src/plugins/git_install.rs",
+      "sha256": "879ae93afd724eb3bf68f9a584b4c09ff23af088f231cc155462cc9bd8d9d797"
     },
     {
       "path": "crates/codegen/xai-grok-agent/src/plugins/hooks_adapter.rs",
@@ -509,6 +529,10 @@
       "sha256": "fd028184ffb420ef6eea7d22bdf4fbb87e91c3daa251da688448703be307e066"
     },
     {
+      "path": "crates/codegen/xai-grok-pager/src/app/mermaid_worker.rs",
+      "sha256": "8200e773e580a1860cce90c65fb770771ca4fc231f9ecb8a837eaf67f733448f"
+    },
+    {
       "path": "crates/codegen/xai-grok-pager/src/app/mod.rs",
       "sha256": "5ecb51c6faa8d74e9f7f357b61b98bcdae21c14bf32ae52fb073e60576efe6ba"
     },
@@ -523,6 +547,10 @@
     {
       "path": "crates/codegen/xai-grok-pager/src/app/session_startup.rs",
       "sha256": "d9f2f32cf9cba2ff7020fcd5bfec00f9ac8529f900902124a4e8dfc696a5bf3c"
+    },
+    {
+      "path": "crates/codegen/xai-grok-pager/src/app/status_line/command.rs",
+      "sha256": "46cd701b17f63c488e98c8d1183902afcdc31dc466e3564016d588f82361e473"
     },
     {
       "path": "crates/codegen/xai-grok-pager/src/app/subscription.rs",
@@ -2857,6 +2885,10 @@
       "sha256": "16d3b1428041be041411a6b9b992e04a20c9ea871c956d0ca16bf1241d203de5"
     },
     {
+      "path": "crates/codegen/xai-grok-test-support/src/process.rs",
+      "sha256": "1c679fc09bbe569a436a76cb96ccba4b8968891d8eedf353325b084110af9056"
+    },
+    {
       "path": "crates/codegen/xai-grok-test-support/src/sandbox.rs",
       "sha256": "b1c21b23a2b87426b4010d0c47dfd489aa24b6c0fa8361832fa447e69f3f15ea"
     },
@@ -3607,6 +3639,14 @@
     {
       "path": "crates/codegen/xai-grok-workspace/src/envrc.rs",
       "sha256": "0db910c32680ed48644811fa6d88d5d564f2914f4c37934ac6f07db66ae6804e"
+    },
+    {
+      "path": "crates/codegen/xai-grok-workspace/src/export_github.rs",
+      "sha256": "8621310ed22fe5a8ae2d723645b3b0aeb85900d5eb44f911554af69c3fd58fa5"
+    },
+    {
+      "path": "crates/codegen/xai-grok-workspace/src/file_system/git_status.rs",
+      "sha256": "51ce9f495333bc9a453f5694f3e2f7ade406f5c24cfe5e95bb70805c5e1893d8"
     },
     {
       "path": "crates/codegen/xai-grok-workspace/src/folder_trust.rs",
@@ -18413,6 +18453,45 @@
       ]
     },
     {
+      "key": "environment:CLAUDE_PROJECT_DIR",
+      "category": "environment",
+      "name": "CLAUDE_PROJECT_DIR",
+      "observations": [
+        {
+          "locator": "binary-guide:10-hooks.md#L494",
+          "scope": "binary-guide",
+          "excerpt": "| `CLAUDE_PROJECT_DIR`  | Absolute path to the workspace root. A Claude Code-compatible alias for `GROK_WORKSPACE_ROOT`, set for every hook. |"
+        },
+        {
+          "locator": "source:crates/codegen/xai-grok-hooks/src/runner/command.rs#L225",
+          "scope": "source-environment-provisional",
+          "excerpt": ".env(\"CLAUDE_PROJECT_DIR\", env_root.as_ref())"
+        },
+        {
+          "locator": "source-guide:10-hooks.md#L494",
+          "scope": "source-guide",
+          "excerpt": "| `CLAUDE_PROJECT_DIR`  | Absolute path to the workspace root. A Claude Code-compatible alias for `GROK_WORKSPACE_ROOT`, set for every hook. |"
+        }
+      ]
+    },
+    {
+      "key": "environment:CLICOLOR_FORCE",
+      "category": "environment",
+      "name": "CLICOLOR_FORCE",
+      "observations": [
+        {
+          "locator": "source:crates/codegen/xai-grok-shell/src/extensions/pr.rs#L90",
+          "scope": "source-environment-provisional",
+          "excerpt": "cmd.env(\"CLICOLOR_FORCE\", \"0\");"
+        },
+        {
+          "locator": "source:crates/codegen/xai-grok-shell/src/extensions/pr.rs#L142",
+          "scope": "source-environment-provisional",
+          "excerpt": "cmd.env(\"CLICOLOR_FORCE\", \"0\");"
+        }
+      ]
+    },
+    {
       "key": "environment:CODEX_CONFIG",
       "category": "environment",
       "name": "CODEX_CONFIG",
@@ -18479,6 +18558,11 @@
           "excerpt": "| **Truecolor** (24-bit) | Full RGB color. All themes render as designed. | `COLORTERM=truecolor` or equivalent terminal capability |"
         },
         {
+          "locator": "source:crates/codegen/ptyctl/src/pty.rs#L125",
+          "scope": "source-environment-provisional",
+          "excerpt": "cmd.env(\"COLORTERM\", \"truecolor\");"
+        },
+        {
           "locator": "source:crates/codegen/xai-grok-pager-render/src/theme/color_support.rs#L184",
           "scope": "source-environment-provisional",
           "excerpt": "let colorterm = env.get(\"COLORTERM\").map(|value| value.to_ascii_lowercase());"
@@ -18487,6 +18571,11 @@
           "locator": "source-guide:06-theming.md#L115",
           "scope": "source-guide",
           "excerpt": "| **Truecolor** (24-bit) | Full RGB color. All themes render as designed. | `COLORTERM=truecolor` or equivalent terminal capability |"
+        },
+        {
+          "locator": "source:crates/codegen/xai-grok-shell-terminal/src/pty_session.rs#L280",
+          "scope": "source-environment-provisional",
+          "excerpt": "cmd.env(\"COLORTERM\", \"truecolor\");"
         }
       ]
     },
@@ -18504,6 +18593,11 @@
           "locator": "source-guide:25-status-line.md#L59",
           "scope": "source-guide",
           "excerpt": "- **Environment.** Scripts run in the session's working directory, then the repository root, then the pager's own, whichever is a local path first, with a 10 second timeout, after which the row shows `[status line: timed out]`. `COLUMNS` and `LINES` describe the row the script fills, not the window. No shell rc files run (`BASH_ENV` and `ENV` are cleared), and `GIT_OPTIONAL_LOCKS=0`. Pagers and editors are neutralized the same way the rest of Grok neutralizes them, so a `git` or `gh` call inside your script will not block waiting for one."
+        },
+        {
+          "locator": "source:crates/codegen/xai-grok-pager/src/app/status_line/command.rs#L262",
+          "scope": "source-environment-provisional",
+          "excerpt": ".env(\"COLUMNS\", cols.to_string())"
         }
       ]
     },
@@ -18627,6 +18721,40 @@
       ]
     },
     {
+      "key": "environment:GIT_AUTHOR_EMAIL",
+      "category": "environment",
+      "name": "GIT_AUTHOR_EMAIL",
+      "observations": [
+        {
+          "locator": "source:crates/codegen/xai-grok-workspace/src/export_github.rs#L326",
+          "scope": "source-environment-provisional",
+          "excerpt": ".env(\"GIT_AUTHOR_EMAIL\", AUTHOR_EMAIL)"
+        },
+        {
+          "locator": "source:crates/common/xai-test-utils/src/git.rs#L105",
+          "scope": "source-environment-provisional",
+          "excerpt": ".env(\"GIT_AUTHOR_EMAIL\", \"test@test.com\")"
+        }
+      ]
+    },
+    {
+      "key": "environment:GIT_AUTHOR_NAME",
+      "category": "environment",
+      "name": "GIT_AUTHOR_NAME",
+      "observations": [
+        {
+          "locator": "source:crates/codegen/xai-grok-workspace/src/export_github.rs#L325",
+          "scope": "source-environment-provisional",
+          "excerpt": ".env(\"GIT_AUTHOR_NAME\", AUTHOR_NAME)"
+        },
+        {
+          "locator": "source:crates/common/xai-test-utils/src/git.rs#L104",
+          "scope": "source-environment-provisional",
+          "excerpt": ".env(\"GIT_AUTHOR_NAME\", \"Test User\")"
+        }
+      ]
+    },
+    {
       "key": "environment:GIT_BIN_PATH",
       "category": "environment",
       "name": "GIT_BIN_PATH",
@@ -18654,6 +18782,40 @@
       ]
     },
     {
+      "key": "environment:GIT_COMMITTER_EMAIL",
+      "category": "environment",
+      "name": "GIT_COMMITTER_EMAIL",
+      "observations": [
+        {
+          "locator": "source:crates/codegen/xai-grok-workspace/src/export_github.rs#L328",
+          "scope": "source-environment-provisional",
+          "excerpt": ".env(\"GIT_COMMITTER_EMAIL\", AUTHOR_EMAIL)"
+        },
+        {
+          "locator": "source:crates/common/xai-test-utils/src/git.rs#L107",
+          "scope": "source-environment-provisional",
+          "excerpt": ".env(\"GIT_COMMITTER_EMAIL\", \"test@test.com\")"
+        }
+      ]
+    },
+    {
+      "key": "environment:GIT_COMMITTER_NAME",
+      "category": "environment",
+      "name": "GIT_COMMITTER_NAME",
+      "observations": [
+        {
+          "locator": "source:crates/codegen/xai-grok-workspace/src/export_github.rs#L327",
+          "scope": "source-environment-provisional",
+          "excerpt": ".env(\"GIT_COMMITTER_NAME\", AUTHOR_NAME)"
+        },
+        {
+          "locator": "source:crates/common/xai-test-utils/src/git.rs#L106",
+          "scope": "source-environment-provisional",
+          "excerpt": ".env(\"GIT_COMMITTER_NAME\", \"Test User\")"
+        }
+      ]
+    },
+    {
       "key": "environment:GIT_CONFIG_GLOBAL",
       "category": "environment",
       "name": "GIT_CONFIG_GLOBAL",
@@ -18662,6 +18824,23 @@
           "locator": "source:crates/codegen/xai-fast-worktree/src/git/safety_tests/gate.rs#L231",
           "scope": "source-environment-provisional",
           "excerpt": "std::env::var_os(\"GIT_CONFIG_GLOBAL\").is_some(),"
+        },
+        {
+          "locator": "source:crates/common/xai-test-utils/src/git.rs#L109",
+          "scope": "source-environment-provisional",
+          "excerpt": "\"GIT_CONFIG_GLOBAL\","
+        }
+      ]
+    },
+    {
+      "key": "environment:GIT_CONFIG_NOSYSTEM",
+      "category": "environment",
+      "name": "GIT_CONFIG_NOSYSTEM",
+      "observations": [
+        {
+          "locator": "source:crates/common/xai-test-utils/src/git.rs#L112",
+          "scope": "source-environment-provisional",
+          "excerpt": ".env(\"GIT_CONFIG_NOSYSTEM\", \"1\")"
         }
       ]
     },
@@ -18671,9 +18850,38 @@
       "name": "GIT_DIR",
       "observations": [
         {
+          "locator": "source:crates/codegen/xai-fast-worktree/src/git/safety/reachability.rs#L126",
+          "scope": "source-environment-provisional",
+          "excerpt": "command.env(\"GIT_DIR\", surviving_dir);"
+        },
+        {
           "locator": "source:crates/codegen/xai-fast-worktree/src/git/safety_tests/gate.rs#L212",
           "scope": "source-environment-provisional",
           "excerpt": "std::env::var_os(\"GIT_DIR\").is_some(),"
+        }
+      ]
+    },
+    {
+      "key": "environment:GIT_EXEC_PATH",
+      "category": "environment",
+      "name": "GIT_EXEC_PATH",
+      "observations": [
+        {
+          "locator": "source:crates/codegen/xai-tty-utils/src/lib.rs#L1035",
+          "scope": "source-environment-provisional",
+          "excerpt": "cmd.env(\"GIT_EXEC_PATH\", exec_path);"
+        }
+      ]
+    },
+    {
+      "key": "environment:GIT_GRAFT_FILE",
+      "category": "environment",
+      "name": "GIT_GRAFT_FILE",
+      "observations": [
+        {
+          "locator": "source:crates/codegen/xai-fast-worktree/src/git/safety.rs#L321",
+          "scope": "source-environment-provisional",
+          "excerpt": "command.env(\"GIT_GRAFT_FILE\", NO_SUCH_PATH);"
         }
       ]
     },
@@ -18691,6 +18899,45 @@
           "locator": "source-guide:25-status-line.md#L59",
           "scope": "source-guide",
           "excerpt": "- **Environment.** Scripts run in the session's working directory, then the repository root, then the pager's own, whichever is a local path first, with a 10 second timeout, after which the row shows `[status line: timed out]`. `COLUMNS` and `LINES` describe the row the script fills, not the window. No shell rc files run (`BASH_ENV` and `ENV` are cleared), and `GIT_OPTIONAL_LOCKS=0`. Pagers and editors are neutralized the same way the rest of Grok neutralizes them, so a `git` or `gh` call inside your script will not block waiting for one."
+        },
+        {
+          "locator": "source:crates/codegen/xai-grok-pager/src/app/status_line/command.rs#L261",
+          "scope": "source-environment-provisional",
+          "excerpt": ".env(\"GIT_OPTIONAL_LOCKS\", \"0\")"
+        },
+        {
+          "locator": "source:crates/codegen/xai-grok-workspace/src/file_system/git_status.rs#L81",
+          "scope": "source-environment-provisional",
+          "excerpt": "cmd.env(\"GIT_OPTIONAL_LOCKS\", \"0\");"
+        }
+      ]
+    },
+    {
+      "key": "environment:GIT_TERMINAL_PROMPT",
+      "category": "environment",
+      "name": "GIT_TERMINAL_PROMPT",
+      "observations": [
+        {
+          "locator": "source:crates/codegen/xai-grok-workspace/src/export_github.rs#L324",
+          "scope": "source-environment-provisional",
+          "excerpt": ".env(\"GIT_TERMINAL_PROMPT\", \"0\")"
+        },
+        {
+          "locator": "source:crates/common/xai-test-utils/src/git.rs#L113",
+          "scope": "source-environment-provisional",
+          "excerpt": ".env(\"GIT_TERMINAL_PROMPT\", \"0\")"
+        }
+      ]
+    },
+    {
+      "key": "environment:GIT_WORK_TREE",
+      "category": "environment",
+      "name": "GIT_WORK_TREE",
+      "observations": [
+        {
+          "locator": "source:crates/codegen/xai-fast-worktree/src/git/safety/reachability.rs#L127",
+          "scope": "source-environment-provisional",
+          "excerpt": "command.env(\"GIT_WORK_TREE\", surviving_dir);"
         }
       ]
     },
@@ -27975,6 +28222,45 @@
       ]
     },
     {
+      "key": "environment:LANG",
+      "category": "environment",
+      "name": "LANG",
+      "observations": [
+        {
+          "locator": "source:crates/codegen/xai-grok-shell-terminal/src/pty_session.rs#L281",
+          "scope": "source-environment-provisional",
+          "excerpt": "cmd.env(\"LANG\", \"en_US.UTF-8\");"
+        }
+      ]
+    },
+    {
+      "key": "environment:LC_ALL",
+      "category": "environment",
+      "name": "LC_ALL",
+      "observations": [
+        {
+          "locator": "source:crates/codegen/xai-grok-shell-terminal/src/pty_session.rs#L282",
+          "scope": "source-environment-provisional",
+          "excerpt": "cmd.env(\"LC_ALL\", \"en_US.UTF-8\");"
+        },
+        {
+          "locator": "source:crates/codegen/xai-grok-workspace/src/session/git.rs#L2830",
+          "scope": "source-environment-provisional",
+          "excerpt": "cmd.env(\"LC_ALL\", \"C\");"
+        },
+        {
+          "locator": "source:crates/codegen/xai-grok-workspace/src/session/git.rs#L2855",
+          "scope": "source-environment-provisional",
+          "excerpt": "cmd.env(\"LC_ALL\", \"C\");"
+        },
+        {
+          "locator": "source:crates/common/xai-test-utils/src/git.rs#L116",
+          "scope": "source-environment-provisional",
+          "excerpt": ".env(\"LC_ALL\", \"C\");"
+        }
+      ]
+    },
+    {
       "key": "environment:LC_GROK_APPEARANCE",
       "category": "environment",
       "name": "LC_GROK_APPEARANCE",
@@ -27993,6 +28279,11 @@
           "locator": "source-guide:06-theming.md#L97",
           "scope": "source-guide",
           "excerpt": "| **SSH / tmux / headless** | `GROK_APPEARANCE` or `LC_GROK_APPEARANCE` (`dark`/`light`), then `COLORFGBG`, then a startup OSC 11 background query. `grok wrap ssh …` stamps `LC_GROK_APPEARANCE` from the local OS theme so it survives SSH into the login shell. New tmux sessions inherit it only if the tmux server/session was created with that env (or `update-environment` includes it). OSC 11 is DCS-wrapped for tmux ≥ 3.3 when tmux is the immediate terminal (not an editor `:terminal`); reaching the outer emulator also needs `allow-passthrough`, and replies are best-effort. |"
+        },
+        {
+          "locator": "source:crates/codegen/xai-grok-pager/src/pty_wrap.rs#L30",
+          "scope": "source-environment-provisional",
+          "excerpt": "cmd.env(\"LC_GROK_APPEARANCE\", value);"
         }
       ]
     },
@@ -28005,6 +28296,11 @@
           "locator": "source:crates/codegen/xai-grok-pager-render/src/clipboard/mod.rs#L41",
           "scope": "source-environment-provisional",
           "excerpt": "|| std::env::var_os(\"LC_GROK_OSC52_SINK\").is_some()"
+        },
+        {
+          "locator": "source:crates/codegen/xai-grok-pager/src/pty_wrap.rs#L26",
+          "scope": "source-environment-provisional",
+          "excerpt": "cmd.env(\"LC_GROK_OSC52_SINK\", \"1\");"
         }
       ]
     },
@@ -28044,6 +28340,11 @@
           "locator": "source-guide:25-status-line.md#L59",
           "scope": "source-guide",
           "excerpt": "- **Environment.** Scripts run in the session's working directory, then the repository root, then the pager's own, whichever is a local path first, with a 10 second timeout, after which the row shows `[status line: timed out]`. `COLUMNS` and `LINES` describe the row the script fills, not the window. No shell rc files run (`BASH_ENV` and `ENV` are cleared), and `GIT_OPTIONAL_LOCKS=0`. Pagers and editors are neutralized the same way the rest of Grok neutralizes them, so a `git` or `gh` call inside your script will not block waiting for one."
+        },
+        {
+          "locator": "source:crates/codegen/xai-grok-pager/src/app/status_line/command.rs#L263",
+          "scope": "source-environment-provisional",
+          "excerpt": ".env(\"LINES\", lines.to_string())"
         }
       ]
     },
@@ -28066,6 +28367,18 @@
           "locator": "source:crates/codegen/xai-tty-utils/src/bundled_git.rs#L79",
           "scope": "source-environment-provisional",
           "excerpt": "let local = std::env::var_os(\"LOCALAPPDATA\")?;"
+        }
+      ]
+    },
+    {
+      "key": "environment:MALLOC_CONF",
+      "category": "environment",
+      "name": "MALLOC_CONF",
+      "observations": [
+        {
+          "locator": "source:crates/codegen/xai-grok-pager/src/app/mermaid_worker.rs#L306",
+          "scope": "source-environment-provisional",
+          "excerpt": ".env(\"MALLOC_CONF\", \"narenas:1\");"
         }
       ]
     },
@@ -28190,6 +28503,16 @@
           "locator": "source-guide:06-theming.md#L119",
           "scope": "source-guide",
           "excerpt": "When you set `NO_COLOR`, Grok emits no color and renders in monochrome."
+        },
+        {
+          "locator": "source:crates/codegen/xai-grok-shell/src/extensions/pr.rs#L89",
+          "scope": "source-environment-provisional",
+          "excerpt": "cmd.env(\"NO_COLOR\", \"1\");"
+        },
+        {
+          "locator": "source:crates/codegen/xai-grok-shell/src/extensions/pr.rs#L141",
+          "scope": "source-environment-provisional",
+          "excerpt": "cmd.env(\"NO_COLOR\", \"1\");"
         }
       ]
     },
@@ -29595,6 +29918,11 @@
           "excerpt": "let current_path = std::env::var(\"PATH\").unwrap_or_default();"
         },
         {
+          "locator": "source:crates/codegen/xai-grok-tools/src/computer/local/terminal.rs#L3242",
+          "scope": "source-environment-provisional",
+          "excerpt": "cmd.env(\"PATH\", path);"
+        },
+        {
           "locator": "source:crates/codegen/xai-grok-voice/src/audio/capture_linux.rs#L130",
           "scope": "source-environment-provisional",
           "excerpt": "let Some(path) = std::env::var_os(\"PATH\") else {"
@@ -29603,6 +29931,11 @@
           "locator": "source:crates/codegen/xai-tty-utils/src/bundled_git.rs#L199",
           "scope": "source-environment-provisional",
           "excerpt": "(None, PathBase::Process) => std::env::var_os(\"PATH\").unwrap_or_default(),"
+        },
+        {
+          "locator": "source:crates/codegen/xai-tty-utils/src/bundled_git.rs#L213",
+          "scope": "source-environment-provisional",
+          "excerpt": "cmd.env(\"PATH\", path);"
         },
         {
           "locator": "source:crates/common/xai-test-utils/src/git.rs#L29",
@@ -29704,9 +30037,19 @@
           "excerpt": "Set `RUST_LOG` to control the verbosity of the file log and headless stderr output. (The TUI's on-screen tracing pane uses a fixed filter and ignores `RUST_LOG`.) In the TUI, file logging defaults to `DEBUG`; in headless mode (`-p`), `RUST_LOG` defaults to `off` so only the answer is printed — set `RUST_LOG=error` (or broader) to see logs on stderr."
         },
         {
+          "locator": "binary-guide:05-configuration.md#L798",
+          "scope": "binary-guide",
+          "excerpt": "| `RUST_LOG` | Log level filter (e.g. `debug`); controls the `GROK_LOG_FILE` log and headless stderr output |"
+        },
+        {
           "locator": "binary-guide:10-hooks.md#L664",
           "scope": "binary-guide",
           "excerpt": "- **See errors?** Capture logs by launching with `RUST_LOG=debug GROK_LOG_FILE=/tmp/grok.log grok`, then check `/tmp/grok.log`."
+        },
+        {
+          "locator": "binary-guide:14-headless-mode.md#L548",
+          "scope": "binary-guide",
+          "excerpt": "| `RUST_LOG`                     | Log level filter (e.g. `debug`). Headless logs to stderr.     |"
         },
         {
           "locator": "binary-guide:14-headless-mode.md#L588",
@@ -29729,9 +30072,19 @@
           "excerpt": "Set `RUST_LOG` to control the verbosity of the file log and headless stderr output. (The TUI's on-screen tracing pane uses a fixed filter and ignores `RUST_LOG`.) In the TUI, file logging defaults to `DEBUG`; in headless mode (`-p`), `RUST_LOG` defaults to `off` so only the answer is printed — set `RUST_LOG=error` (or broader) to see logs on stderr."
         },
         {
+          "locator": "source-guide:05-configuration.md#L798",
+          "scope": "source-guide",
+          "excerpt": "| `RUST_LOG` | Log level filter (e.g. `debug`); controls the `GROK_LOG_FILE` log and headless stderr output |"
+        },
+        {
           "locator": "source-guide:10-hooks.md#L664",
           "scope": "source-guide",
           "excerpt": "- **See errors?** Capture logs by launching with `RUST_LOG=debug GROK_LOG_FILE=/tmp/grok.log grok`, then check `/tmp/grok.log`."
+        },
+        {
+          "locator": "source-guide:14-headless-mode.md#L548",
+          "scope": "source-guide",
+          "excerpt": "| `RUST_LOG`                     | Log level filter (e.g. `debug`). Headless logs to stderr.     |"
         },
         {
           "locator": "source-guide:14-headless-mode.md#L588",
@@ -29752,6 +30105,21 @@
           "locator": "source:crates/codegen/xai-grok-shell/src/leader/mod.rs#L1643",
           "scope": "source-environment-provisional",
           "excerpt": ".or_else(|_| std::env::var(\"RUST_LOG\"))"
+        },
+        {
+          "locator": "source:crates/codegen/xai-grok-shell/src/leader/mod.rs#L1645",
+          "scope": "source-environment-provisional",
+          "excerpt": "cmd.env(\"RUST_LOG\", leader_log);"
+        },
+        {
+          "locator": "source:crates/codegen/xai-grok-test-support/src/leader.rs#L194",
+          "scope": "source-environment-provisional",
+          "excerpt": ".env(\"RUST_LOG\", \"xai_grok_shell=debug,xai_grok_login=debug\");"
+        },
+        {
+          "locator": "source:crates/codegen/xai-grok-test-support/src/leader.rs#L577",
+          "scope": "source-environment-provisional",
+          "excerpt": ".env(\"RUST_LOG\", \"xai_grok_shell=debug,xai_grok_login=debug\"),"
         }
       ]
     },
@@ -29929,9 +30297,19 @@
       "name": "TERM",
       "observations": [
         {
+          "locator": "source:crates/codegen/ptyctl/src/pty.rs#L124",
+          "scope": "source-environment-provisional",
+          "excerpt": "cmd.env(\"TERM\", \"xterm-256color\");"
+        },
+        {
           "locator": "source:crates/codegen/xai-grok-otel/src/config.rs#L43",
           "scope": "source-environment-provisional",
           "excerpt": ".or_else(|| std::env::var(\"TERM\").ok())"
+        },
+        {
+          "locator": "source:crates/codegen/xai-grok-shell-terminal/src/pty_session.rs#L279",
+          "scope": "source-environment-provisional",
+          "excerpt": "cmd.env(\"TERM\", \"xterm-256color\");"
         },
         {
           "locator": "source:crates/codegen/xai-grok-telemetry/src/external/providers.rs#L144",

@@ -122,10 +122,15 @@ blocks and sandbox write protection need real effects, MCP headers/stdio belong 
 MCP, model headers to providers, ACP updates to protocol/session replay, and plan
 feedback to plan review rather than telemetry. ACP `x.ai/review/comment` instead
 records cloud code-review events and requires consent/destination acceptance.
-Environment extraction recognizes literal reads, named constants, env-map lookups
-and key loops, unprefixed documentation and assignment-form hints such as
-`COLORTERM=truecolor`. Source/build controls remain provisional, not released
-capabilities. Interactive help/docs/diagnostics require real terminal acceptance;
+Environment extraction recognizes literal reads/setters, named constants, env-map
+lookups and key loops, enclosing environment-variable tables, and assignment-form
+hints such as `COLORTERM=truecolor`. Alias ownership follows explicit “Also ENV”
+config-reference relationships before lexical namespaces; incidental mentions are
+not aliases. Local hook identity variables must not inherit remote-workspace
+ownership. `/vim-mode` is scrollback navigation, not prompt Vim editing, and
+`/import-claude` imports configuration rather than session histories. Overlay
+allowlists require effect-based security acceptance. Source/build controls remain
+provisional, not released capabilities. Interactive help/docs/diagnostics require real terminal acceptance;
 feature-gated panes retain explicit availability blockers until exercised.
 The portable checker requires independent source-only coverage as well as captured
 behavior; paired deletion from discovery and inventory must fail. Source evidence

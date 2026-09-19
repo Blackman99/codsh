@@ -117,9 +117,13 @@ or configuration defaults cannot displace functional section owners.
 
 Important reconciliations:
 
-- UI approval/yolo, follow-up routing, child cancellation and readline/Vim settings
-  belong to permissions, queue/steer, cancellation/child lifecycle and prompt editing,
-  respectively. Alternate-screen TOML examples retain screen-mode ownership.
+- UI approval/yolo, follow-up routing/merging, child cancellation and `simple_mode`
+  belong to permissions, queue/steer, cancellation/child lifecycle and prompt editing.
+  Screen mode, voice capture/keybindings/language, fork model selection and rewind
+  confirmation retain their functional owners rather than appearance-only tests.
+  `/vim-mode` and `ui.vim_mode` instead control scrollback navigation/copy and the
+  off-mode transition back to prompt focus. Alternate-screen TOML examples retain
+  screen-mode ownership.
   `toolset.bash`, questions and web restrictions use their tool domains; compatible
   Hooks/MCP switches do not inherit Skills ownership. Managed MCP, model endpoint,
   folder-trust and permission environment aliases follow their actual effects.
@@ -127,6 +131,18 @@ Important reconciliations:
   pinned-source evidence with renderer ownership. Extraction accepts unprefixed
   env hints, assignment forms, env-map lookups and literal key-loop lookups; the
   generic CLI syntax placeholder `KEY=value` is not an environment identity.
+  Enclosing environment-table headings and process `.env("NAME", ...)` injection
+  are also extracted. `CLAUDE_PROJECT_DIR` and `GROK_WORKSPACE_ROOT` belong to
+  hook runner identity/override protection, not remote workspaces. Explicit config
+  alias relationships drive documented environment ownership; incidental mentions
+  such as a crash file under `$GROK_HOME` do not reclassify that variable.
+- `GROK_CONFIG`/`GROK_CONFIG_PATH` and their guide contracts include management,
+  permission and child-environment security acceptance. Tests must attempt forbidden
+  process/auth/endpoint/trust/discovery/env-value injections and confirm the soft
+  allowlist, raw-disk gates, requirements/MDM precedence and malformed-input fallback.
+- `/import-claude` belongs to #193 configuration import: permissions, environment,
+  MCP servers, hooks and paths, not #194 session-history import. Planned acceptance
+  preserves originals, requires explicit selection and retains trust/credential gates.
 - ACP `x.ai/review/comment` and `/delete` upload code-review citation/tombstone
   events, unlike plan review. Their #147/#192 acceptance checks consent, configured
   destination and actual outbound records; an immediate protocol acknowledgement

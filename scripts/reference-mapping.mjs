@@ -12,8 +12,8 @@ const namespace = (name, table, separator = '.') => Object.keys(table)
 
 const slashOwners = groups({
   137: 'cancel', 138: 'clear new home welcome', 140: 'effort m model', 142: 'always-approve auto yolo',
-  149: 'full fullscreen minimal', 150: 'edit-prompt history ml multiline vim-mode', 151: 'btw queue',
-  152: 'find jump timeline toggle-mouse-reporting', 153: 'expand log transcript',
+  149: 'full fullscreen minimal', 150: 'edit-prompt history ml multiline', 151: 'btw queue',
+  152: 'find jump timeline toggle-mouse-reporting vim-mode', 153: 'expand log transcript',
   154: 'announcements compact-mode config debug docs gboom guides help howto onboarding preferences prefs scroll-debug settings t theme timestamps tour tutorial',
   155: 'copy doctor exit quit terminal-check terminal-info terminal-setup', 158: 'voice',
   159: 'agents-dashboard cd dashboard info recap rename resume session-info sessions status summarize title',
@@ -22,7 +22,7 @@ const slashOwners = groups({
   165: 'marketplace', 166: 'plugin plugins reload-plugins', 167: 'mcps', 175: 'tasks', 177: 'loop',
   179: 'plan plan-view show-plan view-plan', 180: 'goal', 181: 'workflow', 184: 'workflows',
   185: 'mem memory remember', 186: 'dream flush', 187: 'imagine', 188: 'imagine-video',
-  189: 'login logout', 192: 'feedback privacy', 194: 'import-claude', 197: 'cost usage',
+  189: 'login logout', 192: 'feedback privacy', 193: 'import-claude', 197: 'cost usage',
   198: 'changelog release-notes', 206: 'deep-research',
 })
 const toolOwners = groups({
@@ -83,6 +83,9 @@ const configOwners = {
   'ui.default_selected_permission': 142, 'ui.permission_mode': 142, 'ui.remember_tool_approvals': 142,
   'ui.disable_bypass_permissions_mode': 142, 'ui.yolo': 142, 'ui.approval_mode': 142,
   'ui.follow_up_behavior': 151, 'ui.cancel_subagents_on_turn_cancel': 137, 'ui.simple_mode': 150,
+  'ui.combine_queued_prompts': 151, 'ui.confirm_before_rewind': 160, 'ui.fork_secondary_model': 140,
+  'ui.screen_mode': 149, 'ui.vim_mode': 152,
+  'ui.voice_capture_mode': 158, 'ui.voice_keybind_enabled': 158, 'ui.voice_stt_language': 158,
   'session': 138, 'session.auto_compact_threshold_percent': 161, 'session.load_envrc': 144,
   'storage': 138, 'storage.cleanup': 162, 'cli': 139,
   'cli.auto_update': 198, 'cli.channel': 198, 'cli.installer': 198, 'cli.npm_registry': 198,
@@ -162,10 +165,10 @@ const guideSections = {
     'Block Content': [153], 'Blocking cards': [179, 142, 137], 'Destructive Action Confirmation': [162],
     'Agent-Level': [150, 152], 'View (Scrollback)': [153] },
   '04': { 'Memory': [185], 'Hooks and Plugins': [164, 166], 'Skills as Slash Commands': [163] },
-  '05': { 'Authentication': [189], 'Custom models': [140], 'Default selected permission': [142], 'Enterprise deployment': [141, 189],
+  '05': { 'Injecting config with `GROK_CONFIG`': [139, 141, 142, 144], 'Authentication': [189], 'Custom models': [140], 'Default selected permission': [142], 'Enterprise deployment': [141, 189],
     'MCP servers': [167], 'LSP servers': [169], 'Memory': [185], 'Plugins': [166], 'Skills': [163], 'Subagents': [172],
     'Notification hooks': [164, 155], 'Notifications': [155], 'Telemetry': [192], 'Logging': [192], 'Version pinning': [141, 198],
-    'Goal mode and background workflows': [180, 181], 'Input mode': [150], 'Vim mode': [150], 'Screen mode': [149],
+    'Goal mode and background workflows': [180, 181], 'Input mode': [150], 'Vim mode': [152], 'Screen mode': [149],
     'pager.toml (appearance configuration)': [154], 'Animation': [154], 'Block configuration': [154], 'Prompt': [154], 'Scrollback': [154],
     'Terminal': [154], 'Status line': [154], 'Scrolling': [152], 'Snap prompt to top on send': [154], 'Terminal support matrix': [155] },
   '06': { 'Minimal Mode Has No Theming': [154, 149], 'Plugins UI': [154, 166] },
@@ -293,6 +296,9 @@ const envNamespaces = {
   GROK_MANAGED_MCPS: 167, GROK_MANAGED_MCP: 167, GROK_XAI_API_BASE_URL: 140,
   GROK_FOLDER_TRUST: 141, GROK_DEFAULT_SELECTED_PERMISSION: 142, GROK_DEFAULT_PERMISSION_MODE: 142, GROK_AUTO_PERMISSION_MODE: 142,
   COLORFGBG: 154, COLORTERM: 154, LC_GROK_THEME: 154,
+  GROK_THEME: 154, GROK_APPEARANCE: 154, LC_GROK_APPEARANCE: 154, NO_COLOR: 154,
+  GROK_WORKSPACE_ROOT: 164, CLAUDE_PROJECT_DIR: 164, GROK_HOOK: 164, GROK_SESSION_ID: 164,
+  GROK_ASK_USER_QUESTION: 179,
   BROWSER: 155, COLUMNS: 154, LINES: 154, ENV: 144, GIT_OPTIONAL_LOCKS: 154, HOME: 139, PATH: 139,
   GROK_MODEL: 140, GROK_MODELS: 140, GROK_DEFAULT_MODEL: 140, GROK_CUSTOM_MODELS: 140,
   GROK_PERMISSION: 142, GROK_AUTO_MODE: 142, GROK_REMEMBER_TOOL_APPROVALS: 142, GROK_REMEMBER_MODE: 142,
@@ -307,6 +313,13 @@ const envNamespaces = {
   GROK_VOICE: 158, GROK_VIDEO: 188, GROK_IMAGE_GEN: 187, GROK_IMAGE_EDIT: 187,
 }
 function environmentOwner(item) {
+  const linked = unique(item.observations.filter(o => /^(?:binary|source)-guide:26-config-reference\.md#/u.test(o.locator))
+    .flatMap(o => o.excerpt.split('\n').filter(line => [...line.matchAll(/\bAlso\s+`?([A-Z][A-Z0-9_]+)/gu)].some(match => match[1] === item.name))
+      .map(line => line.match(/^\|\s*`([a-z_][a-z0-9_.<>-]*)`\s*\|/u)?.[1]).filter(Boolean))
+    .map(configOwner))
+  if (linked.length === 1) return linked[0]
+  const compatible = item.name.match(/^GROK_(CLAUDE|CURSOR|CODEX)_(AGENTS|RULES|SKILLS|HOOKS|MCPS)_ENABLED$/u)
+  if (compatible) return configOwner(`compat.${compatible[1].toLowerCase()}.${compatible[2].toLowerCase()}`)
   const explicit = namespace(item.name, envNamespaces, '_')
   if (explicit) return explicit
   const config = item.name.replace(/^GROK_/u, '').toLowerCase()
@@ -355,8 +368,10 @@ export function mapOwners(item, contexts = new Map()) {
   if (['setting', 'documented-setting'].includes(item.category)) {
     if (field === 'ui.disable_bypass_permissions_mode') owners.push(141)
     if (field === 'ui.cancel_subagents_on_turn_cancel') owners.push(173)
+    if (field === 'ui.fork_secondary_model') owners.push(160)
     if (field === 'toolset.bash.auto_background_on_timeout') owners.push(175)
   }
+  if (item.category === 'environment' && ['GROK_CONFIG', 'GROK_CONFIG_PATH'].includes(item.name)) owners = [139, 141, 142, 144]
   if (owners.includes(177)) owners.push(178)
   return unique(owners)
 }
@@ -372,6 +387,10 @@ export function mapAcceptance(item, owners, contexts = new Map()) {
   const field = item.category === 'documented-setting' ? item.name.slice(item.name.indexOf(':') + 1) : item.name
   const headings = item.observations.flatMap(o => contexts.get(o.locator) ?? [])
   return owners.map(ticket => {
+    if (ticket === 141 && (headings.includes('Injecting config with `GROK_CONFIG`') || ['GROK_CONFIG', 'GROK_CONFIG_PATH'].includes(item.name))) return 'PARITY-141-overlay'
+    if (ticket === 152 && (command === 'vim-mode' || field === 'ui.vim_mode' || guide === '05' && headings.includes('Vim mode'))) return 'PARITY-152-vim-scrollback'
+    if (ticket === 193 && command === 'import-claude') return 'PARITY-193-claude-config'
+    if (ticket === 164 && ['CLAUDE_PROJECT_DIR', 'GROK_WORKSPACE_ROOT', 'GROK_HOOK_EVENT', 'GROK_HOOK_NAME', 'GROK_SESSION_ID'].includes(item.name)) return 'PARITY-164-environment'
     if (ticket === 137 && field === 'ui.cancel_subagents_on_turn_cancel') return 'PARITY-137-children'
     if (ticket === 192 && /^x\.ai\/review(?:\/|$)/u.test(item.name)) return 'PARITY-192-review-upload'
     if (ticket === 142) return 'PARITY-142-security-effects'

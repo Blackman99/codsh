@@ -485,6 +485,104 @@ describe('frozen reference coverage register', () => {
     expect(items.some(item => item.key === 'environment:NOT_AN_ENV')).toBe(false)
   })
 
+  it.each([
+    ['ui.combine_queued_prompts', [151]], ['ui.confirm_before_rewind', [160]],
+    ['ui.fork_secondary_model', [140, 160]], ['ui.screen_mode', [149]],
+    ['ui.voice_capture_mode', [158]], ['ui.voice_keybind_enabled', [158]], ['ui.voice_stt_language', [158]],
+    ['ui.vim_mode', [152]],
+  ])('keeps operational UI control %s out of renderer-only acceptance', (name, owners) => {
+    const register = read('inventory.json'), row = register.items.find(item => item.key === `setting:${name}`)
+    expect(row.tickets).toEqual(owners)
+    expect(row.acceptance).not.toContain('PARITY-154')
+    for (const owner of owners) expect(row.acceptance.some(id => register.acceptance.find(test => test.id === id)?.ticket === owner)).toBe(true)
+  })
+
+  it.each([
+    ['GROK_CLAUDE_HOOKS_ENABLED', 164], ['GROK_CURSOR_HOOKS_ENABLED', 164], ['GROK_CODEX_MCPS_ENABLED', 167],
+    ['GROK_DISABLE_API_KEY_AUTH', 189], ['GROK_MANAGED_CONFIG_URL', 141], ['GROK_WEB_FETCH_PROXY', 171],
+    ['GROK_ASK_USER_QUESTION_TIMEOUT_SECS', 179], ['GROK_ASK_USER_QUESTION_TIMEOUT_ENABLED', 179],
+    ['GROK_THEME', 154], ['GROK_APPEARANCE', 154], ['LC_GROK_APPEARANCE', 154], ['NO_COLOR', 154],
+    ['GROK_WORKSPACE_ROOT', 164],
+  ])('routes documented alias %s to its functional domain', (name, owner) => {
+    const row = read('inventory.json').items.find(item => item.key === `environment:${name}`)
+    expect(row.tickets).toEqual([owner])
+  })
+
+  it('specifies actual queue, fork, mode and voice configuration effects', () => {
+    const tests = read('inventory.json').acceptance
+    expect(tests.find(test => test.id === 'PARITY-151').then).toMatch(/provider requests.*turn counts.*merging/)
+    expect(tests.find(test => test.id === 'PARITY-160').then).toMatch(/secondary provider.*fork model/)
+    expect(tests.find(test => test.id === 'PARITY-160').failure).toMatch(/dismissal leaves history unchanged/)
+    expect(tests.find(test => test.id === 'PARITY-149').then).toMatch(/persisted default.*restart/)
+    expect(tests.find(test => test.id === 'PARITY-158').then).toMatch(/voice_stt_language.*voice.language.*provider requests/)
+  })
+
+  it('uses explicit config-reference alias relationships rather than lexical prefixes', () => {
+    const item = { category: 'environment', name: 'GROK_WORKSPACE_SAMPLE', key: 'environment:GROK_WORKSPACE_SAMPLE', observations: [
+      { locator: 'binary-guide:26-config-reference.md#L1', excerpt: '| `compat.cursor.hooks` | `boolean` | Scan hooks. Also GROK_WORKSPACE_SAMPLE. |' },
+    ] }
+    expect(mapOwners(item)).toEqual([164])
+    expect(mapOwners({ ...item, observations: [{ ...item.observations[0], excerpt: '| `endpoints.managed_config_url` | `string` | Also GROK_WORKSPACE_SAMPLE. |' }] })).toEqual([141])
+    expect(mapOwners({ ...item, name: 'GROK_HOME', key: 'environment:GROK_HOME', observations: [{ ...item.observations[0], excerpt: '| `diagnostics.crash_handler` | Writes under GROK_HOME. Also GROK_CRASH_HANDLER. |' }] })).toEqual([139])
+    expect(read('inventory.json').items.find(item => item.key === 'environment:GROK_WORKSPACE_COMMAND').tickets).toContain(190)
+  })
+
+  it('requires fail-closed overlay acceptance without confusing config injection with grants', () => {
+    const register = read('inventory.json')
+    const rows = register.items.filter(item => item.key.includes('05-configuration.md:Injecting config with `GROK_CONFIG`') || ['environment:GROK_CONFIG', 'environment:GROK_CONFIG_PATH'].includes(item.key))
+    expect(rows.length).toBeGreaterThan(3)
+    for (const row of rows) {
+      expect(row.tickets, row.key).toEqual(expect.arrayContaining([139, 141, 142, 144]))
+      expect(row.acceptance, row.key).toContain('PARITY-141-overlay')
+    }
+    const test = register.acceptance.find(test => test.id === 'PARITY-141-overlay')
+    expect(test.then).toMatch(/requirements.*MDM.*allowlist/)
+    expect(test.then).toMatch(/no.*process.*network.*trust/)
+    expect(test.failure).toMatch(/malformed.*file.*fallback/)
+  })
+
+  it('separates scrollback Vim navigation and configuration import from prompt editing and session import', () => {
+    const register = read('inventory.json')
+    for (const name of ['slash:vim-mode', 'setting:ui.vim_mode', 'guide-section:04-slash-commands.md:`/vim-mode`', 'guide-section:05-configuration.md:Vim mode']) {
+      const row = register.items.find(item => item.key === name)
+      expect(row.tickets).toEqual([152])
+      expect(row.acceptance).toContain('PARITY-152-vim-scrollback')
+    }
+    expect(register.items.find(item => item.key === 'setting:ui.simple_mode').tickets).toEqual([150])
+    for (const name of ['slash:import-claude', 'guide-section:04-slash-commands.md:`/import-claude`']) {
+      const row = register.items.find(item => item.key === name)
+      expect(row.tickets).toEqual([193])
+      expect(row.acceptance).toContain('PARITY-193-claude-config')
+    }
+    const navigation = register.acceptance.find(test => test.id === 'PARITY-152-vim-scrollback')
+    expect(navigation.then).toMatch(/scrollback.*focus.*prompt/)
+    const imported = register.acceptance.find(test => test.id === 'PARITY-193-claude-config')
+    expect(imported.when).toMatch(/permissions.*MCP.*hooks/)
+    expect(imported.failure).toMatch(/trust.*credentials.*unchanged/)
+  })
+
+  it('discovers injected variables from enclosing environment tables and process env setters', () => {
+    const text = '## Environment Variables\nRunner contract.\n\n### Always injected\nThese are reserved.\n\n| Variable | Description |\n| --- | --- |\n| `CLAUDE_PROJECT_DIR` | Current workspace root. |\n\n## Output\n| Field | Description |\n| --- | --- |\n| `NOT_ENV` | An output label. |'
+    const sources = [{ path: 'crates/hooks/runner.rs', text: 'cmd.env("CLAUDE_PROJECT_DIR", root).env("CHILD_CONTEXT", context);\nconst LABEL: &str = "NOT_ENV";' }]
+    const items = extractSurfaces({ commands: [], guides: [{ file: '10-hooks.md', text }] }, sources)
+    const item = items.find(item => item.key === 'environment:CLAUDE_PROJECT_DIR')
+    expect(item).toBeDefined()
+    expect(item.observations.some(o => o.scope === 'binary-guide')).toBe(true)
+    expect(item.observations.some(o => o.locator.startsWith('source:'))).toBe(true)
+    expect(items.some(item => item.key === 'environment:CHILD_CONTEXT')).toBe(true)
+    expect(items.some(item => item.key === 'environment:NOT_ENV')).toBe(false)
+    const alias = read('discovery.json').items.find(item => item.key === 'environment:CLAUDE_PROJECT_DIR')
+    expect(alias).toBeDefined()
+    for (const scope of ['binary-guide', 'source-guide', 'source-environment-provisional']) expect(alias.observations.some(o => o.scope === scope), scope).toBe(true)
+    for (const name of ['CLAUDE_PROJECT_DIR', 'GROK_WORKSPACE_ROOT']) {
+      const row = read('inventory.json').items.find(item => item.key === `environment:${name}`)
+      expect(row.tickets).toEqual([164])
+      expect(row.acceptance).toContain('PARITY-164-environment')
+    }
+    const scenario = read('inventory.json').acceptance.find(test => test.id === 'PARITY-164-environment')
+    expect(scenario.then).toMatch(/real workspace.*reserved.*spoof/)
+  })
+
   it('extracts commands and flags, including nested help and aliases', () => {
     const capture = { guides: [], commands: [{ args: ['memory', '--help'], exit: 0,
       stdout: 'Usage: grok memory [COMMAND]\n\nCommands:\n  list  List notes\n  help  Help\n\nOptions:\n  -h, --help  Help\n      --json  JSON [aliases: --machine]\n' }] }
