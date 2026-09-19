@@ -172,6 +172,38 @@ describe('recorded installed reference evidence', () => {
     }
   })
 
+  it('records supplemental small-command recognition/refusal without claiming active behavior', () => {
+    const supplemental = load('small-command-observations.json')
+    expect(supplemental.binarySha256).toBe(capture.binarySha256)
+    expect(supplemental.reference).toBe(capture.reference)
+    expect(supplemental.network).toBe('deny all')
+    expect(supplemental.boundary).toMatch(/remain unverified/)
+    expect(supplemental.terminals).toHaveLength(2)
+    for (const terminal of supplemental.terminals) {
+      const bytes = Buffer.concat(terminal.events.filter(e => e.bytesBase64).map(e => Buffer.from(e.bytesBase64, 'base64')))
+      expect(createHash('sha256').update(bytes).digest('hex')).toBe(terminal.outputSha256)
+      expect(bytes.length).toBe(terminal.outputBytes)
+      expect(terminal.events.filter(e => e.output).map(e => e.output).join('')).toBe(bytes.toString('utf8'))
+      expect(screenAt(terminal, 'announcements-invalid')).toContain('Usage: /announcements hide | show')
+      if (terminal.mode === 'fullscreen') {
+        expect(screenAt(terminal, 'gboom-no-session')).toContain('GBOOM needs a graphics-capable terminal')
+        expect(screenAt(terminal, 'gboom-dismiss')).not.toContain('GBOOM needs a graphics-capable terminal')
+        expect(screenAt(terminal, 'cd-picker')).toContain('/cd path')
+        expect(screenAt(terminal, 'location-picker-open')).toContain('Change directory')
+        expect(screenAt(terminal, 'location-picker-dismiss')).not.toContain('Change directory')
+        expect(screenAt(terminal, 'cd-invalid')).toContain('Not a directory:')
+        expect(screenAt(terminal, 'dashboard-open')).toContain('No agents yet')
+      } else {
+        expect(screenAt(terminal, 'dashboard-open')).toContain("isn't available in minimal mode")
+        expect(screenAt(terminal, 'dashboard-open')).toContain('/fullscreen')
+      }
+      expect(screenAt(terminal, 'after-small-draft')).toContain('AFTER_SMALL_PROBE')
+      expect(terminal.exit).toBe(0)
+      expect(terminal.forcedCleanup).toBe(false)
+      expect(terminal.restoredAlternateScreen).toBe(terminal.mode === 'fullscreen')
+    }
+  })
+
   it('observes four real headless formats through only the fixture provider', () => {
     expect(model.commands).toHaveLength(4)
     for (const command of model.commands) {

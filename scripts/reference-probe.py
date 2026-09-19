@@ -103,7 +103,7 @@ class Reference:
                 'elapsedMs': (time.perf_counter_ns() - start) / 1e6,
                 'stdout': stdout.decode(errors='replace'), 'stderr': stderr.decode(errors='replace')}
 
-    def terminal(self, mode, environment=None, tutorial=False, ui_tools=False):
+    def terminal(self, mode, environment=None, tutorial=False, ui_tools=False, small_commands=False):
         env = {**self.env, **(environment or {})}
         start = time.perf_counter_ns()
         pid, fd = pty.fork()
@@ -169,7 +169,25 @@ class Reference:
             first_frame = elapsed() if ready else None
             send('draft', b'REFERENCE133', b'REFERENCE133')
             send('clear-draft', b'\x03')
-            if ui_tools:
+            if small_commands:
+                send('announcements-invalid', b'/announcements invalid\r', sync)
+                send('announcements-hide', b'/announcements hide\r', sync)
+                send('announcements-show', b'/announcements show\r', sync)
+                send('cd-outside-dashboard', b'/cd\r', sync)
+                send('gboom-no-session', b'/gboom\r', sync)
+                send('gboom-dismiss', b'\x1b')
+                send('dashboard-open', b'/dashboard\r', sync)
+                send('cd-picker', b'/cd\r', sync)
+                send('cd-picker-dismiss', b'\x1b')
+                send('cd-clear-placeholder', b'\x03')
+                if mode == 'fullscreen':
+                    send('location-picker-open', b'\x0c', sync)
+                    send('location-picker-dismiss', b'\x1b')
+                send('cd-invalid', b'/cd /REFERENCE133_MISSING\r', sync)
+                send('dashboard-dismiss', b'\x1b')
+                send('after-small-draft', b'AFTER_SMALL_PROBE', b'AFTER_SMALL_PROBE')
+                send('after-small-clear', b'\x03')
+            elif ui_tools:
                 send('help-open', b'/help\r', b'Commands')
                 send('help-filter', b'How-to', sync)
                 send('help-dismiss', b'\x1b')
@@ -238,6 +256,7 @@ def main():
     parser.add_argument('--binary', type=Path, required=True)
     parser.add_argument('--output', type=Path, required=True)
     parser.add_argument('--samples', type=int, default=5)
+    parser.add_argument('--small-commands-only', action='store_true', help='Capture only supplemental idle/no-session interactive command probes.')
     parser.add_argument('--source-evidence', type=Path, default=Path(__file__).parent.parent / 'docs/rewrite/reference/source-evidence.json')
     args = parser.parse_args()
     if platform.system() != 'Darwin' or not Path('/usr/bin/sandbox-exec').exists():
@@ -247,6 +266,18 @@ def main():
     binary = args.binary.resolve(strict=True)
     validate_binary(binary)
     args.output.mkdir(parents=True, exist_ok=False)
+    if args.small_commands_only:
+        result = {'reference': VERSION, 'binarySha256': digest(binary.read_bytes()), 'network': 'deny all',
+                  'boundary': 'Idle/no-session recognition and refusal only; banners, new-agent cwd, active overlay and argument passthrough remain unverified.'}
+        with tempfile.TemporaryDirectory(prefix='codsh-reference-133-small-') as tmp:
+            reference = Reference(binary, Path(tmp).resolve())
+            result['terminals'] = [reference.terminal(mode, small_commands=True) for mode in ['fullscreen', 'minimal']]
+            encoded = json.dumps(result, ensure_ascii=False, indent=2)
+            (args.output / 'observations.json').write_text(encoded + '\n')
+        if any(item['exit'] != 0 or item['forcedCleanup'] or item['firstFrameMs'] is None for item in result['terminals']):
+            raise SystemExit('Supplemental PTY failed; raw observations preserved.')
+        print(json.dumps({'smallCommandProbes': len(result['terminals']), 'output': str(args.output)}))
+        return
     result = {'schemaVersion': 1, 'reference': VERSION, 'binarySha256': digest(binary.read_bytes()),
               'capturedAt': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()),
               'machine': {'system': platform.system(), 'release': platform.release(),

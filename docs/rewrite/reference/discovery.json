@@ -5,6 +5,14 @@
   "binarySha256": "9cd26b579840f0f5c9148a8059ad651904c08b41b7f2ef0b4ec04b9ba898844e",
   "inputs": [
     {
+      "path": "crates/build/xai-proto-build/src/find_protoc.rs",
+      "sha256": "c1fa9ed84a5243cd6660256c0eefe2fcb2d3cb95cac9e8ef64248ca20dc77f2f"
+    },
+    {
+      "path": "crates/codegen/ptyctl-cli/src/registry.rs",
+      "sha256": "a3668ea188c9c70ae54e1cf9200095e4ee907f2cd43b87f01925c2661035d65c"
+    },
+    {
       "path": "crates/codegen/xai-codebase-graph/src/bin/bench_file_listing.rs",
       "sha256": "c87f5e2916a56ef564129a6ab5d65835137a1a4c9fcc6a89afc2787c3364064d"
     },
@@ -21,16 +29,36 @@
       "sha256": "1e8b18df3359062ebab6e7aae382aa35b0a4d1810fbe7cf7b32b18044c0630d5"
     },
     {
+      "path": "crates/codegen/xai-fast-worktree/src/bin/worktree_lifecycle_bench/runtime.rs",
+      "sha256": "6cec7e8d5e1d5e5d1f74d5c4757827eb98a0b2e0c835025fd42b77461e05721c"
+    },
+    {
+      "path": "crates/codegen/xai-fast-worktree/src/btrfs/detect.rs",
+      "sha256": "263d19be225aa85b1457b0ab83be561111f251d837d27a3b259b6db6412ca08b"
+    },
+    {
       "path": "crates/codegen/xai-fast-worktree/src/db/mod.rs",
       "sha256": "b217b552be685291b5f5b971d635297557a95e250bb5a806e9c9d9f7c59304e3"
+    },
+    {
+      "path": "crates/codegen/xai-fast-worktree/src/discovery.rs",
+      "sha256": "e0d39387cf434e2ea59dd3c9c25c55c0512324791a3057aee6151efcd5024585"
     },
     {
       "path": "crates/codegen/xai-fast-worktree/src/git/safety_tests/gate.rs",
       "sha256": "aa318123d58425b770af1355619be84b89dd1eead3ffa97203d1855df3ed0a79"
     },
     {
+      "path": "crates/codegen/xai-fast-worktree/src/worktree/mod.rs",
+      "sha256": "9cafefa3378fddfac50578bc3a087eab6c11cb265070bf5bb6cb3dee96449c8c"
+    },
+    {
       "path": "crates/codegen/xai-file-utils/src/queue.rs",
       "sha256": "e30daaddef9c6df719fa9681d942abb5bdb29d67d6665e46795f5f5442aead89"
+    },
+    {
+      "path": "crates/codegen/xai-file-utils/src/workspace_classifier.rs",
+      "sha256": "00f0be027d3273cc0580a018b4f785e75e219a1178b94314ae0d544a37e57221"
     },
     {
       "path": "crates/codegen/xai-fsnotify/examples/watch_stats.rs",
@@ -51,6 +79,10 @@
     {
       "path": "crates/codegen/xai-gix-status/src/lib.rs",
       "sha256": "685242c3ac8dcc0df712ea2f6530118075e6307253a8f47fe10a586e5f615e25"
+    },
+    {
+      "path": "crates/codegen/xai-grok-agent/src/builder.rs",
+      "sha256": "ec6e20aac7e8410840764b845f0ece6bb81998232c40ee9a85edb9102a7d2b95"
     },
     {
       "path": "crates/codegen/xai-grok-agent/src/plugins/hooks_adapter.rs",
@@ -121,6 +153,14 @@
       "sha256": "a85d4e5b29b300923e1a3ab4c7f52ccb1fbc074c9f9ec0f82194086bf7cdf1cb"
     },
     {
+      "path": "crates/codegen/xai-grok-foreign-sessions/src/claude.rs",
+      "sha256": "3cd34da08fefd278926958818a078009efe9f0fae85b0e0ad5ebdf0f02edeb19"
+    },
+    {
+      "path": "crates/codegen/xai-grok-foreign-sessions/src/codex/mod.rs",
+      "sha256": "bc53358da812186fb76b5c49fcf4a88b69ead77cef83d737104875af27a1828a"
+    },
+    {
       "path": "crates/codegen/xai-grok-hooks/src/config.rs",
       "sha256": "799cf9089e6ff7bea1fabe5ae0a46c6d977977f2fe0bee0f38e9cd8f0c7606c2"
     },
@@ -185,6 +225,18 @@
       "sha256": "5bd2ca7b479d7cc3a0a8f3b39a3a0962d2abcc9237424a328de7acce1a8ab7d7"
     },
     {
+      "path": "crates/codegen/xai-grok-markdown/bin/md_mermaid_test.rs",
+      "sha256": "b7463743139569077b608c26194d507c9bf7b769fde92af2aac364ad2655a6ab"
+    },
+    {
+      "path": "crates/codegen/xai-grok-markdown/build.rs",
+      "sha256": "7a3611eba57fb2451011a7ac877ebbbff34af41f1d1b51a3588801089a2dc50d"
+    },
+    {
+      "path": "crates/codegen/xai-grok-markdown/src/colors.rs",
+      "sha256": "380d6c2a9a17075d34aed165ddfe4199e1f817310c851d1bb4f0b998593b897e"
+    },
+    {
       "path": "crates/codegen/xai-grok-mcp/src/lib.rs",
       "sha256": "7c85148693004aa533cad73b977b9cceb8dbd502d4963dd8fe49f19abeafb768"
     },
@@ -195,6 +247,14 @@
     {
       "path": "crates/codegen/xai-grok-memory/src/index.rs",
       "sha256": "71cb5c8d1dc7e46babd495fa8793e0f0fb92a9cd04c89d0904092fd63cdd2b03"
+    },
+    {
+      "path": "crates/codegen/xai-grok-memory/src/storage.rs",
+      "sha256": "b301cb395ad8e6c48edd0d69bfd859e60f0df27273e48221a1013c70c54918ae"
+    },
+    {
+      "path": "crates/codegen/xai-grok-otel/src/config.rs",
+      "sha256": "3a2ce58b051c4fb97134b1d394ec601910440bed328c299feb81c3910ea15a8d"
     },
     {
       "path": "crates/codegen/xai-grok-otel/src/otlp.rs",
@@ -215,6 +275,10 @@
     {
       "path": "crates/codegen/xai-grok-pager-pty-harness/src/content.rs",
       "sha256": "418afd1d4efa8390ca8e7dc78a9c939803e7fad40bc1af01b0bbb679c8430630"
+    },
+    {
+      "path": "crates/codegen/xai-grok-pager-pty-harness/src/env.rs",
+      "sha256": "5dbfec0497b475d047b209c535abfbc4146f6542e94950808a201481c970ce8d"
     },
     {
       "path": "crates/codegen/xai-grok-pager-pty-harness/src/flows.rs",
@@ -267,6 +331,10 @@
     {
       "path": "crates/codegen/xai-grok-pager-render/src/theme/cache.rs",
       "sha256": "71283387fe5373479f539159d5b6a71a3052ca3a62ff86eaea49a44a16ed9e6b"
+    },
+    {
+      "path": "crates/codegen/xai-grok-pager-render/src/theme/color_support.rs",
+      "sha256": "ac5fd9431ff3187dd9f14cd800c2855815c418d7f4ba111b9c0ae97235140ade"
     },
     {
       "path": "crates/codegen/xai-grok-pager-render/src/theme/env_appearance.rs",
@@ -389,6 +457,10 @@
       "sha256": "67bd2202b57c701811d2b01c055c083d7af81e4e7436e5e0ee5654a1949f78d2"
     },
     {
+      "path": "crates/codegen/xai-grok-pager/examples/mermaid_playground.rs",
+      "sha256": "eed554af88f24c63b846cc1c9e5e909f7651c50af2aaecce6f35d72b244df2fb"
+    },
+    {
       "path": "crates/codegen/xai-grok-pager/src/app/acp_handler/settings.rs",
       "sha256": "1cfae50efd919a36c8f3b0a62751c56b6a8b91c101b5058dc9492fd533053d11"
     },
@@ -425,6 +497,10 @@
       "sha256": "374ef4a17c765eb6c19596b0c4fc4ce75ed427906716f343b8ae6c9807aeab31"
     },
     {
+      "path": "crates/codegen/xai-grok-pager/src/app/external_editor.rs",
+      "sha256": "db2e6ffb6459b0afdcb9211ccbca8a4a74ce5ec24a39e4cd54e5d5736ef8f40a"
+    },
+    {
       "path": "crates/codegen/xai-grok-pager/src/app/leader_cluster/mod.rs",
       "sha256": "fd028184ffb420ef6eea7d22bdf4fbb87e91c3daa251da688448703be307e066"
     },
@@ -451,6 +527,10 @@
     {
       "path": "crates/codegen/xai-grok-pager/src/completions_cmd.rs",
       "sha256": "ca3e9e9c918440c3adf55a06105a45b4a18d6153635ad24670252d538f322373"
+    },
+    {
+      "path": "crates/codegen/xai-grok-pager/src/diagnostics/fix.rs",
+      "sha256": "dab094e2a4afc6e79e483a5e025f642f183f94f870fbc51e08b880c30b83cbd2"
     },
     {
       "path": "crates/codegen/xai-grok-pager/src/disk_usage_cmd/display.rs",
@@ -861,6 +941,10 @@
       "sha256": "a6c16a563ef1723bb4d975da4a553fa0be5b91ac131ea64d4b445be50f19e911"
     },
     {
+      "path": "crates/codegen/xai-grok-plugin-marketplace/src/git.rs",
+      "sha256": "af9280e2a8199631a9b7a9e56e96a33854f705114473f7aac142e3c5c022519b"
+    },
+    {
       "path": "crates/codegen/xai-grok-plugin-marketplace/src/installer.rs",
       "sha256": "d9efb50cdaf4d6b732186d35ee99bf72dd319e3d5a16c1178d424125cc6a15a8"
     },
@@ -871,6 +955,14 @@
     {
       "path": "crates/codegen/xai-grok-sampler/src/shared_http.rs",
       "sha256": "75e919946fb52b887f9bb0a905d8244596b0228235b1eed8313b76d50f8b5943"
+    },
+    {
+      "path": "crates/codegen/xai-grok-sandbox/src/paths.rs",
+      "sha256": "f11f8764e685a018ad7930edb52d9f8dc6559269974037a40905ac60cbcd0b7e"
+    },
+    {
+      "path": "crates/codegen/xai-grok-secrets/src/sanitizer.rs",
+      "sha256": "c251a151bee50f09ccaa508dc5a61e93757c1311be0d0bc444d6b2bde5b78674"
     },
     {
       "path": "crates/codegen/xai-grok-session-search/src/fts.rs",
@@ -889,8 +981,24 @@
       "sha256": "08d5cc924fc76bb34a7b580d2cc705a10be85e79351bb44a8c4635810d725669"
     },
     {
+      "path": "crates/codegen/xai-grok-shell-base/src/util/subprocess.rs",
+      "sha256": "2ea25621c5c348f21b7d240cab8e6502f9f533af99455fa9f15ad8746febb1fd"
+    },
+    {
+      "path": "crates/codegen/xai-grok-shell-terminal/src/pty_session.rs",
+      "sha256": "0eafc2f3f4ecb936b847d56ac5b8ca82c461a719dc4a24d9be7bfd1c4033eee5"
+    },
+    {
       "path": "crates/codegen/xai-grok-shell-terminal/src/streaming_local_terminal.rs",
       "sha256": "e91561896bab9c30520ed75e77be5f8ef789bf7ee7aea6864e0363bc9ad08f82"
+    },
+    {
+      "path": "crates/codegen/xai-grok-shell/benches/child_replay_lookup.rs",
+      "sha256": "6bb3471f27ef96e3d8d541a2868795059c52bb1c41af8dc0d24737f1a61d3f79"
+    },
+    {
+      "path": "crates/codegen/xai-grok-shell/benches/fork_copy.rs",
+      "sha256": "dfebec42ac629e84e8b83c8ee1d58b5eb802cc13c8e3fff9e50524efaf4b0f08"
     },
     {
       "path": "crates/codegen/xai-grok-shell/benches/session_list.rs",
@@ -2665,6 +2773,10 @@
       "sha256": "66f22f8295dd366151ee5e215d6a591f3e10ba9b8a8c87402cbb8ae8e66d654b"
     },
     {
+      "path": "crates/codegen/xai-grok-subagent-resolution/src/definition.rs",
+      "sha256": "f6918cd388a8bfe6fbd118ee377b1ff3ab2360eb593b56c2321c06bb67106709"
+    },
+    {
       "path": "crates/codegen/xai-grok-telemetry/src/client.rs",
       "sha256": "713b4c3411ec56e6c5ecb591c5f28b552421bd33fec55160b09c2ec1ba0b12d8"
     },
@@ -2703,6 +2815,10 @@
     {
       "path": "crates/codegen/xai-grok-telemetry/src/logs/sampling_log.rs",
       "sha256": "72999a5a46803a7021b998caf3d1784745ffbdbcb5e633fe17addb08d3bc9fda"
+    },
+    {
+      "path": "crates/codegen/xai-grok-telemetry/src/sentry.rs",
+      "sha256": "cdffe03e3a3338c502e79e9c119382391604b751c7718ab007e4d8e34cd21691"
     },
     {
       "path": "crates/codegen/xai-grok-telemetry/src/spans/instrumentation.rs",
@@ -2759,6 +2875,14 @@
     {
       "path": "crates/codegen/xai-grok-tools/src/computer/local/embedded_search_tools.rs",
       "sha256": "98953e91679621345bfa97ff16f44da614cc88e1165e0a61482e4b5e3066dc8d"
+    },
+    {
+      "path": "crates/codegen/xai-grok-tools/src/computer/local/shell_state.rs",
+      "sha256": "5e3c07d844e39935933a50accb97482e22f11b24fdde1f58c1d35cb2161d42d3"
+    },
+    {
+      "path": "crates/codegen/xai-grok-tools/src/computer/local/static_shell.rs",
+      "sha256": "fe0f5014fde21a6a7ff7b410d1577f25445295acefb8354ad8d84b836b0a2fec"
     },
     {
       "path": "crates/codegen/xai-grok-tools/src/computer/local/terminal.rs",
@@ -3421,6 +3545,10 @@
       "sha256": "33b480c7420c51f71ddabd11866aa732cdfab6093e8dd86ccc157472a50f44e7"
     },
     {
+      "path": "crates/codegen/xai-grok-tools/src/tool_taxonomy.rs",
+      "sha256": "23e4428672beb7da4eea0fe5b360c1c9572c3f485ddf88e8bd2704c0c12910db"
+    },
+    {
       "path": "crates/codegen/xai-grok-tools/src/types/compat.rs",
       "sha256": "72b6e89d06b61c253531e66d440d58887100704e03a51dd0cdd8715a1008ae02"
     },
@@ -3441,8 +3569,16 @@
       "sha256": "0710544a30112232a73d1e923a931d7770a90105813a6bcef26224c12c066bff"
     },
     {
+      "path": "crates/codegen/xai-grok-update/src/windows_payload.rs",
+      "sha256": "fe45564e1c9e9dbe08c35b5812c11dd6b943f02510598fea2131b148b16cd97f"
+    },
+    {
       "path": "crates/codegen/xai-grok-version/src/lib.rs",
       "sha256": "e48e64f30b2ba8061d0c68bc7140849f27f287a2ee40c3261d29ea4c8862ce06"
+    },
+    {
+      "path": "crates/codegen/xai-grok-voice/src/audio/capture_linux.rs",
+      "sha256": "f72adbd828603938496ac9a37efa07bb3e7d1d0303b0525adb6a7d980cc8eafb"
     },
     {
       "path": "crates/codegen/xai-grok-voice/src/audio/capture_subprocess.rs",
@@ -3475,6 +3611,10 @@
     {
       "path": "crates/codegen/xai-grok-workspace/src/handle.rs",
       "sha256": "afdd57d415d035cb81c3b6463d95e59a77587b8f315f90a5b7c2e6a2c1d6653b"
+    },
+    {
+      "path": "crates/codegen/xai-grok-workspace/src/hub_server.rs",
+      "sha256": "4132b23c895f7cfd512134a22197d35646dd5a8ce2ca7a9d72e9494e677efbd9"
     },
     {
       "path": "crates/codegen/xai-grok-workspace/src/image_capabilities.rs",
@@ -3521,12 +3661,24 @@
       "sha256": "21896cfd72a5741d0cb71f309252eb9249b8a01417eb423de4e93c27d4dec39a"
     },
     {
+      "path": "crates/codegen/xai-tty-utils/src/bundled_git.rs",
+      "sha256": "a7dc5c7ba89b342b9e77b2dee7f0e898d7365eb5dde60f6cfc57e9dfacafde3f"
+    },
+    {
       "path": "crates/codegen/xai-tty-utils/src/lib.rs",
       "sha256": "4acdd71133015bdef4d536d9a2ce2f2ad7ae825c64b0b18f013e39a746285fc9"
     },
     {
       "path": "crates/common/xai-computer-hub-sdk/src/admission.rs",
       "sha256": "db4c67fca73ba4620db6a6fdba96242698182841c8b95bf089864b509728d120"
+    },
+    {
+      "path": "crates/common/xai-computer-hub-sdk/src/discovery.rs",
+      "sha256": "b8892bb203110b6260afd9e94afde5323fdf56792e383e960ca6abb1fbb04f5e"
+    },
+    {
+      "path": "crates/common/xai-test-utils/src/git.rs",
+      "sha256": "6a3fe0a7a286b4c84b298b590b72dfad268f051372799b34df54ae9b7d6abde0"
     },
     {
       "path": "crates/common/xai-tool-types/src/task.rs",
@@ -17916,6 +18068,405 @@
       ]
     },
     {
+      "key": "environment:ALACRITTY_SOCKET",
+      "category": "environment",
+      "name": "ALACRITTY_SOCKET",
+      "observations": [
+        {
+          "locator": "source:crates/codegen/xai-grok-markdown/src/colors.rs#L117",
+          "scope": "source-environment-provisional",
+          "excerpt": "|| env::var(\"ALACRITTY_SOCKET\").is_ok()"
+        }
+      ]
+    },
+    {
+      "key": "environment:BASH_ENV",
+      "category": "environment",
+      "name": "BASH_ENV",
+      "observations": [
+        {
+          "locator": "binary-guide:25-status-line.md#L59",
+          "scope": "binary-guide",
+          "excerpt": "- **Environment.** Scripts run in the session's working directory, then the repository root, then the pager's own, whichever is a local path first, with a 10 second timeout, after which the row shows `[status line: timed out]`. `COLUMNS` and `LINES` describe the row the script fills, not the window. No shell rc files run (`BASH_ENV` and `ENV` are cleared), and `GIT_OPTIONAL_LOCKS=0`. Pagers and editors are neutralized the same way the rest of Grok neutralizes them, so a `git` or `gh` call inside your script will not block waiting for one."
+        },
+        {
+          "locator": "source-guide:25-status-line.md#L59",
+          "scope": "source-guide",
+          "excerpt": "- **Environment.** Scripts run in the session's working directory, then the repository root, then the pager's own, whichever is a local path first, with a 10 second timeout, after which the row shows `[status line: timed out]`. `COLUMNS` and `LINES` describe the row the script fills, not the window. No shell rc files run (`BASH_ENV` and `ENV` are cleared), and `GIT_OPTIONAL_LOCKS=0`. Pagers and editors are neutralized the same way the rest of Grok neutralizes them, so a `git` or `gh` call inside your script will not block waiting for one."
+        }
+      ]
+    },
+    {
+      "key": "environment:BAZEL_EXECUTION_ROOT",
+      "category": "environment",
+      "name": "BAZEL_EXECUTION_ROOT",
+      "observations": [
+        {
+          "locator": "source:crates/codegen/xai-grok-shell/build.rs#L153",
+          "scope": "source-environment-provisional",
+          "excerpt": "|| env::var_os(\"BAZEL_EXECUTION_ROOT\").is_some()"
+        }
+      ]
+    },
+    {
+      "key": "environment:BAZEL_OUTPUT_BASE",
+      "category": "environment",
+      "name": "BAZEL_OUTPUT_BASE",
+      "observations": [
+        {
+          "locator": "source:crates/codegen/xai-grok-shell/build.rs#L154",
+          "scope": "source-environment-provisional",
+          "excerpt": "|| env::var_os(\"BAZEL_OUTPUT_BASE\").is_some()"
+        }
+      ]
+    },
+    {
+      "key": "environment:BAZEL_WORKSPACE",
+      "category": "environment",
+      "name": "BAZEL_WORKSPACE",
+      "observations": [
+        {
+          "locator": "source:crates/codegen/xai-grok-shell/build.rs#L151",
+          "scope": "source-environment-provisional",
+          "excerpt": "env::var_os(\"BAZEL_WORKSPACE\").is_some()"
+        }
+      ]
+    },
+    {
+      "key": "environment:BENCH_REPO_ROOT",
+      "category": "environment",
+      "name": "BENCH_REPO_ROOT",
+      "observations": [
+        {
+          "locator": "source:crates/codegen/xai-codebase-graph/src/bin/bench_file_listing.rs#L18",
+          "scope": "source-environment-provisional",
+          "excerpt": "} else if let Ok(p) = std::env::var(\"BENCH_REPO_ROOT\").or_else(|_| std::env::var(\"XAI_ROOT\")) {"
+        },
+        {
+          "locator": "source:crates/codegen/xai-codebase-graph/src/bin/bench_index.rs#L18",
+          "scope": "source-environment-provisional",
+          "excerpt": "} else if let Ok(p) = std::env::var(\"BENCH_REPO_ROOT\").or_else(|_| std::env::var(\"XAI_ROOT\")) {"
+        }
+      ]
+    },
+    {
+      "key": "environment:BUILD_WORKSPACE_DIRECTORY",
+      "category": "environment",
+      "name": "BUILD_WORKSPACE_DIRECTORY",
+      "observations": [
+        {
+          "locator": "source:crates/codegen/xai-grok-shell/build.rs#L152",
+          "scope": "source-environment-provisional",
+          "excerpt": "|| env::var_os(\"BUILD_WORKSPACE_DIRECTORY\").is_some()"
+        }
+      ]
+    },
+    {
+      "key": "environment:BYOBU_CONFIG_DIR",
+      "category": "environment",
+      "name": "BYOBU_CONFIG_DIR",
+      "observations": [
+        {
+          "locator": "source:crates/codegen/xai-grok-pager/src/diagnostics/fix.rs#L92",
+          "scope": "source-environment-provisional",
+          "excerpt": "let byobu_config_dir = std::env::var_os(\"BYOBU_CONFIG_DIR\").map(PathBuf::from);"
+        }
+      ]
+    },
+    {
+      "key": "environment:CARGO",
+      "category": "environment",
+      "name": "CARGO",
+      "observations": [
+        {
+          "locator": "source:crates/codegen/xai-grok-pager-pty-harness/src/env.rs#L31",
+          "scope": "source-environment-provisional",
+          "excerpt": "let cargo = std::env::var(\"CARGO\").unwrap_or_else(|_| \"cargo\".to_owned());"
+        },
+        {
+          "locator": "source:crates/codegen/xai-grok-test-support/src/env.rs#L121",
+          "scope": "source-environment-provisional",
+          "excerpt": "let cargo = std::env::var(\"CARGO\").unwrap_or_else(|_| \"cargo\".to_string());"
+        }
+      ]
+    },
+    {
+      "key": "environment:CARGO_CFG_TARGET_ARCH",
+      "category": "environment",
+      "name": "CARGO_CFG_TARGET_ARCH",
+      "observations": [
+        {
+          "locator": "source:crates/codegen/xai-grok-shell/build.rs#L72",
+          "scope": "source-environment-provisional",
+          "excerpt": "let target_arch = env::var(\"CARGO_CFG_TARGET_ARCH\").unwrap_or_default();"
+        },
+        {
+          "locator": "source:crates/codegen/xai-grok-tools/build.rs#L77",
+          "scope": "source-environment-provisional",
+          "excerpt": "let target_arch = env::var(\"CARGO_CFG_TARGET_ARCH\").unwrap_or_default();"
+        },
+        {
+          "locator": "source:crates/codegen/xai-grok-tools/build.rs#L291",
+          "scope": "source-environment-provisional",
+          "excerpt": "let target_arch = env::var(\"CARGO_CFG_TARGET_ARCH\").unwrap_or_default();"
+        }
+      ]
+    },
+    {
+      "key": "environment:CARGO_CFG_TARGET_ENV",
+      "category": "environment",
+      "name": "CARGO_CFG_TARGET_ENV",
+      "observations": [
+        {
+          "locator": "source:crates/codegen/xai-grok-pager-bin/build.rs#L44",
+          "scope": "source-environment-provisional",
+          "excerpt": "&& std::env::var(\"CARGO_CFG_TARGET_ENV\").as_deref() == Ok(\"msvc\")"
+        }
+      ]
+    },
+    {
+      "key": "environment:CARGO_CFG_TARGET_OS",
+      "category": "environment",
+      "name": "CARGO_CFG_TARGET_OS",
+      "observations": [
+        {
+          "locator": "source:crates/codegen/xai-grok-pager-bin/build.rs#L43",
+          "scope": "source-environment-provisional",
+          "excerpt": "if std::env::var(\"CARGO_CFG_TARGET_OS\").as_deref() == Ok(\"windows\")"
+        },
+        {
+          "locator": "source:crates/codegen/xai-grok-shell/build.rs#L44",
+          "scope": "source-environment-provisional",
+          "excerpt": "let target_os = env::var(\"CARGO_CFG_TARGET_OS\").unwrap_or_default();"
+        },
+        {
+          "locator": "source:crates/codegen/xai-grok-tools/build.rs#L65",
+          "scope": "source-environment-provisional",
+          "excerpt": "let target_os = env::var(\"CARGO_CFG_TARGET_OS\").unwrap_or_default();"
+        },
+        {
+          "locator": "source:crates/codegen/xai-grok-tools/build.rs#L224",
+          "scope": "source-environment-provisional",
+          "excerpt": "if env::var(\"CARGO_CFG_TARGET_OS\").as_deref() == Ok(\"windows\") {"
+        },
+        {
+          "locator": "source:crates/codegen/xai-grok-tools/build.rs#L266",
+          "scope": "source-environment-provisional",
+          "excerpt": "let target_os = env::var(\"CARGO_CFG_TARGET_OS\").unwrap_or_default();"
+        }
+      ]
+    },
+    {
+      "key": "environment:CARGO_FEATURE_PI",
+      "category": "environment",
+      "name": "CARGO_FEATURE_PI",
+      "observations": [
+        {
+          "locator": "source:crates/codegen/xai-grok-tools/build.rs#L56",
+          "scope": "source-environment-provisional",
+          "excerpt": "if env::var_os(\"CARGO_FEATURE_PI\").is_none() {"
+        }
+      ]
+    },
+    {
+      "key": "environment:CARGO_MANIFEST_DIR",
+      "category": "environment",
+      "name": "CARGO_MANIFEST_DIR",
+      "observations": [
+        {
+          "locator": "source:crates/codegen/xai-grok-shell/build.rs#L29",
+          "scope": "source-environment-provisional",
+          "excerpt": "let manifest_dir = PathBuf::from(env::var(\"CARGO_MANIFEST_DIR\")?);"
+        }
+      ]
+    },
+    {
+      "key": "environment:CARGO_PKG_VERSION",
+      "category": "environment",
+      "name": "CARGO_PKG_VERSION",
+      "observations": [
+        {
+          "locator": "source:crates/codegen/xai-grok-pager-bin/build.rs#L35",
+          "scope": "source-environment-provisional",
+          "excerpt": ".or_else(|_| std::env::var(\"CARGO_PKG_VERSION\"))"
+        }
+      ]
+    },
+    {
+      "key": "environment:CARGO_TARGET_DIR",
+      "category": "environment",
+      "name": "CARGO_TARGET_DIR",
+      "observations": [
+        {
+          "locator": "source:crates/codegen/xai-grok-pager-pty-harness/src/env.rs#L15",
+          "scope": "source-environment-provisional",
+          "excerpt": "Ok(std::env::var_os(\"CARGO_TARGET_DIR\")"
+        },
+        {
+          "locator": "source:crates/codegen/xai-grok-test-support/src/env.rs#L106",
+          "scope": "source-environment-provisional",
+          "excerpt": "std::env::var_os(\"CARGO_TARGET_DIR\")"
+        }
+      ]
+    },
+    {
+      "key": "environment:CARGO_TARGET_TMPDIR",
+      "category": "environment",
+      "name": "CARGO_TARGET_TMPDIR",
+      "observations": [
+        {
+          "locator": "source:crates/codegen/xai-grok-shell/src/upload/trace.rs#L1214",
+          "scope": "source-environment-provisional",
+          "excerpt": "|| std::env::var_os(\"CARGO_TARGET_TMPDIR\").is_some()"
+        }
+      ]
+    },
+    {
+      "key": "environment:CHILD_REPLAY_LOOKUP_HOME",
+      "category": "environment",
+      "name": "CHILD_REPLAY_LOOKUP_HOME",
+      "observations": [
+        {
+          "locator": "source:crates/codegen/xai-grok-shell/benches/child_replay_lookup.rs#L138",
+          "scope": "source-environment-provisional",
+          "excerpt": "if let Some(home) = std::env::var_os(\"CHILD_REPLAY_LOOKUP_HOME\") {"
+        }
+      ]
+    },
+    {
+      "key": "environment:CI",
+      "category": "environment",
+      "name": "CI",
+      "observations": [
+        {
+          "locator": "source:crates/codegen/xai-grok-telemetry/src/client.rs#L173",
+          "scope": "source-environment-provisional",
+          "excerpt": "std::env::var(\"CI\").is_ok_and(|v| !v.is_empty() && v != \"0\" && v.to_lowercase() != \"false\")"
+        }
+      ]
+    },
+    {
+      "key": "environment:CLAUDE_CONFIG_DIR",
+      "category": "environment",
+      "name": "CLAUDE_CONFIG_DIR",
+      "observations": [
+        {
+          "locator": "source:crates/codegen/xai-grok-foreign-sessions/src/claude.rs#L31",
+          "scope": "source-environment-provisional",
+          "excerpt": "let Some(config_dir) = std::env::var_os(\"CLAUDE_CONFIG_DIR\")"
+        },
+        {
+          "locator": "source:crates/codegen/xai-grok-foreign-sessions/src/claude.rs#L45",
+          "scope": "source-environment-provisional",
+          "excerpt": "let Some(config_dir) = std::env::var_os(\"CLAUDE_CONFIG_DIR\")"
+        }
+      ]
+    },
+    {
+      "key": "environment:CLAUDE_PLUGIN_DATA",
+      "category": "environment",
+      "name": "CLAUDE_PLUGIN_DATA",
+      "observations": [
+        {
+          "locator": "binary-guide:09-plugins.md#L438",
+          "scope": "binary-guide",
+          "excerpt": "Grok sets these and overrides any same-named value in the hook's `env` map (the `CLAUDE_PLUGIN_ROOT` and `CLAUDE_PLUGIN_DATA` aliases are set too). See the [Hooks guide](10-hooks.md) for every variable passed to hooks."
+        },
+        {
+          "locator": "source-guide:09-plugins.md#L438",
+          "scope": "source-guide",
+          "excerpt": "Grok sets these and overrides any same-named value in the hook's `env` map (the `CLAUDE_PLUGIN_ROOT` and `CLAUDE_PLUGIN_DATA` aliases are set too). See the [Hooks guide](10-hooks.md) for every variable passed to hooks."
+        }
+      ]
+    },
+    {
+      "key": "environment:CLAUDE_PLUGIN_ROOT",
+      "category": "environment",
+      "name": "CLAUDE_PLUGIN_ROOT",
+      "observations": [
+        {
+          "locator": "binary-guide:09-plugins.md#L438",
+          "scope": "binary-guide",
+          "excerpt": "Grok sets these and overrides any same-named value in the hook's `env` map (the `CLAUDE_PLUGIN_ROOT` and `CLAUDE_PLUGIN_DATA` aliases are set too). See the [Hooks guide](10-hooks.md) for every variable passed to hooks."
+        },
+        {
+          "locator": "source-guide:09-plugins.md#L438",
+          "scope": "source-guide",
+          "excerpt": "Grok sets these and overrides any same-named value in the hook's `env` map (the `CLAUDE_PLUGIN_ROOT` and `CLAUDE_PLUGIN_DATA` aliases are set too). See the [Hooks guide](10-hooks.md) for every variable passed to hooks."
+        }
+      ]
+    },
+    {
+      "key": "environment:CODEX_CONFIG",
+      "category": "environment",
+      "name": "CODEX_CONFIG",
+      "observations": [
+        {
+          "locator": "binary-guide:05-configuration.md#L30",
+          "scope": "binary-guide",
+          "excerpt": "The overlay is **deep-merged** on top of your `config.toml` (it overrides only the keys it sets), placed above the user/managed layers but **below** `requirements.toml` / MDM so an enterprise pin still wins. A malformed blob is ignored with a warning. This mirrors `CODEX_CONFIG` from the `codex-acp` adapter (a JSON object merged into the session config); Grok is ACP-native, so the overlay lives in the agent itself. It only affects settings read from the merged config, and it is **not** a permission-escalation path. The overlay is confined, fail-closed, to an **allowlist** of soft settings (`models`, `features`, a narrowed `toolset`, and a `shell_environment_policy` limited to its filter fields, which select among env names the launcher already controls and cannot inject an env value into tool subprocesses); every other table is dropped at the choke point, so the overlay cannot spawn commands, set auth policy, redirect network traffic, elevate trust, or add a discovery source. Even on the allowlisted settings, a specific set of security gates read the raw disk layers rather than the overlay. The `ConfigLayers::env_overlay` rustdoc is the canonical list of what the overlay can and cannot reach and which gates read it overlay-free; see also the [internal environment-variables reference](../internal/22-environment-variables.md). Use `GROK_DEFAULT_SELECTED_PERMISSION` for headless permission control. For example, to set the default reasoning effort:"
+        },
+        {
+          "locator": "source-guide:05-configuration.md#L30",
+          "scope": "source-guide",
+          "excerpt": "The overlay is **deep-merged** on top of your `config.toml` (it overrides only the keys it sets), placed above the user/managed layers but **below** `requirements.toml` / MDM so an enterprise pin still wins. A malformed blob is ignored with a warning. This mirrors `CODEX_CONFIG` from the `codex-acp` adapter (a JSON object merged into the session config); Grok is ACP-native, so the overlay lives in the agent itself. It only affects settings read from the merged config, and it is **not** a permission-escalation path. The overlay is confined, fail-closed, to an **allowlist** of soft settings (`models`, `features`, a narrowed `toolset`, and a `shell_environment_policy` limited to its filter fields, which select among env names the launcher already controls and cannot inject an env value into tool subprocesses); every other table is dropped at the choke point, so the overlay cannot spawn commands, set auth policy, redirect network traffic, elevate trust, or add a discovery source. Even on the allowlisted settings, a specific set of security gates read the raw disk layers rather than the overlay. The `ConfigLayers::env_overlay` rustdoc is the canonical list of what the overlay can and cannot reach and which gates read it overlay-free; see also the [internal environment-variables reference](../internal/22-environment-variables.md). Use `GROK_DEFAULT_SELECTED_PERMISSION` for headless permission control. For example, to set the default reasoning effort:"
+        }
+      ]
+    },
+    {
+      "key": "environment:CODEX_HOME",
+      "category": "environment",
+      "name": "CODEX_HOME",
+      "observations": [
+        {
+          "locator": "source:crates/codegen/xai-grok-foreign-sessions/src/codex/mod.rs#L19",
+          "scope": "source-environment-provisional",
+          "excerpt": "let Some(codex_home) = std::env::var_os(\"CODEX_HOME\")"
+        },
+        {
+          "locator": "source:crates/codegen/xai-grok-foreign-sessions/src/codex/mod.rs#L33",
+          "scope": "source-environment-provisional",
+          "excerpt": "let Some(codex_home) = std::env::var_os(\"CODEX_HOME\")"
+        }
+      ]
+    },
+    {
+      "key": "environment:COMPUTER_HUB_URL",
+      "category": "environment",
+      "name": "COMPUTER_HUB_URL",
+      "observations": [
+        {
+          "locator": "source:crates/common/xai-computer-hub-sdk/src/discovery.rs#L28",
+          "scope": "source-environment-provisional",
+          "excerpt": "let raw = std::env::var(\"COMPUTER_HUB_URL\")"
+        }
+      ]
+    },
+    {
+      "key": "environment:COMPUTERNAME",
+      "category": "environment",
+      "name": "COMPUTERNAME",
+      "observations": [
+        {
+          "locator": "source:crates/codegen/xai-sqlite-journal/src/lib.rs#L287",
+          "scope": "source-environment-provisional",
+          "excerpt": "std::env::var(\"COMPUTERNAME\").ok()"
+        }
+      ]
+    },
+    {
+      "key": "environment:DISABLE_TELEMETRY",
+      "category": "environment",
+      "name": "DISABLE_TELEMETRY",
+      "observations": [
+        {
+          "locator": "source:crates/codegen/xai-grok-shell/src/agent/config.rs#L2434",
+          "scope": "source-environment-provisional",
+          "excerpt": "\"in_env_disable_telemetry\": std::env::var(\"DISABLE_TELEMETRY\").ok(),"
+        }
+      ]
+    },
+    {
       "key": "environment:DISPLAY",
       "category": "environment",
       "name": "DISPLAY",
@@ -17939,6 +18490,98 @@
           "locator": "source-guide:21-terminal-support.md#L126",
           "scope": "source-guide",
           "excerpt": "- An unmodified middle click reads PRIMARY only when `DISPLAY` is set. Under"
+        },
+        {
+          "locator": "source:crates/codegen/xai-grok-shared/src/clipboard.rs#L381",
+          "scope": "source-environment-provisional",
+          "excerpt": "if std::env::var_os(\"DISPLAY\").is_some() || std::env::var_os(\"WAYLAND_DISPLAY\").is_some() {"
+        }
+      ]
+    },
+    {
+      "key": "environment:EDITOR",
+      "category": "environment",
+      "name": "EDITOR",
+      "observations": [
+        {
+          "locator": "source:crates/codegen/xai-grok-pager/src/app/external_editor.rs#L139",
+          "scope": "source-environment-provisional",
+          "excerpt": "let editor = std::env::var(\"EDITOR\").ok();"
+        }
+      ]
+    },
+    {
+      "key": "environment:FORK_BENCH_MB",
+      "category": "environment",
+      "name": "FORK_BENCH_MB",
+      "observations": [
+        {
+          "locator": "source:crates/codegen/xai-grok-shell/benches/fork_copy.rs#L20",
+          "scope": "source-environment-provisional",
+          "excerpt": "let target_mb: u64 = std::env::var(\"FORK_BENCH_MB\")"
+        }
+      ]
+    },
+    {
+      "key": "environment:GIT_BIN_PATH",
+      "category": "environment",
+      "name": "GIT_BIN_PATH",
+      "observations": [
+        {
+          "locator": "source:crates/codegen/xai-grok-shell-base/src/util/subprocess.rs#L33",
+          "scope": "source-environment-provisional",
+          "excerpt": "let Some(raw) = env::var_os(\"GIT_BIN_PATH\") else {"
+        },
+        {
+          "locator": "source:crates/codegen/xai-grok-shell/src/test_support/mod.rs#L35",
+          "scope": "source-environment-provisional",
+          "excerpt": "if let Ok(git_bin) = std::env::var(\"GIT_BIN_PATH\") {"
+        },
+        {
+          "locator": "source:crates/codegen/xai-tty-utils/src/lib.rs#L1009",
+          "scope": "source-environment-provisional",
+          "excerpt": "let git = match std::env::var(\"GIT_BIN_PATH\") {"
+        },
+        {
+          "locator": "source:crates/common/xai-test-utils/src/git.rs#L21",
+          "scope": "source-environment-provisional",
+          "excerpt": "if let Ok(git_bin) = std::env::var(\"GIT_BIN_PATH\") {"
+        }
+      ]
+    },
+    {
+      "key": "environment:GIT_CONFIG_GLOBAL",
+      "category": "environment",
+      "name": "GIT_CONFIG_GLOBAL",
+      "observations": [
+        {
+          "locator": "source:crates/codegen/xai-fast-worktree/src/git/safety_tests/gate.rs#L231",
+          "scope": "source-environment-provisional",
+          "excerpt": "std::env::var_os(\"GIT_CONFIG_GLOBAL\").is_some(),"
+        }
+      ]
+    },
+    {
+      "key": "environment:GIT_DIR",
+      "category": "environment",
+      "name": "GIT_DIR",
+      "observations": [
+        {
+          "locator": "source:crates/codegen/xai-fast-worktree/src/git/safety_tests/gate.rs#L212",
+          "scope": "source-environment-provisional",
+          "excerpt": "std::env::var_os(\"GIT_DIR\").is_some(),"
+        }
+      ]
+    },
+    {
+      "key": "environment:GITHUB_ACTIONS",
+      "category": "environment",
+      "name": "GITHUB_ACTIONS",
+      "observations": [
+        {
+          "locator": "source:crates/build/xai-proto-build/src/find_protoc.rs#L24",
+          "scope": "source-environment-provisional",
+          "excerpt": "env::var_os(\"GITHUB_ACTIONS\").is_some()"
         }
       ]
     },
@@ -27075,6 +27718,263 @@
       ]
     },
     {
+      "key": "environment:GROVE_DATA_DIR",
+      "category": "environment",
+      "name": "GROVE_DATA_DIR",
+      "observations": [
+        {
+          "locator": "source:crates/codegen/xai-fast-worktree/src/db/mod.rs#L508",
+          "scope": "source-environment-provisional",
+          "excerpt": "self.prev_grove_data_dir = std::env::var_os(\"GROVE_DATA_DIR\");"
+        }
+      ]
+    },
+    {
+      "key": "environment:HISTFILE",
+      "category": "environment",
+      "name": "HISTFILE",
+      "observations": [
+        {
+          "locator": "source:crates/codegen/xai-grok-shell/src/extensions/suggest/history_provider.rs#L240",
+          "scope": "source-environment-provisional",
+          "excerpt": "let histfile = std::env::var(\"HISTFILE\").ok().map(PathBuf::from);"
+        }
+      ]
+    },
+    {
+      "key": "environment:HOME",
+      "category": "environment",
+      "name": "HOME",
+      "observations": [
+        {
+          "locator": "source:crates/codegen/xai-fast-worktree/src/db/mod.rs#L509",
+          "scope": "source-environment-provisional",
+          "excerpt": "self.prev_home = std::env::var_os(\"HOME\");"
+        },
+        {
+          "locator": "source:crates/codegen/xai-grok-login/src/manager.rs#L277",
+          "scope": "source-environment-provisional",
+          "excerpt": "\"HOME\": std::env::var(\"HOME\").unwrap_or_else(|_| \"(unset)\".into()),"
+        },
+        {
+          "locator": "source:crates/codegen/xai-grok-pager/src/test_util.rs#L269",
+          "scope": "source-environment-provisional",
+          "excerpt": "let home = std::env::var(\"HOME\")"
+        },
+        {
+          "locator": "source:crates/codegen/xai-grok-secrets/src/sanitizer.rs#L149",
+          "scope": "source-environment-provisional",
+          "excerpt": "std::env::var(\"HOME\")"
+        },
+        {
+          "locator": "source:crates/codegen/xai-grok-shell/src/agent/mvp_agent/acp_agent.rs#L447",
+          "scope": "source-environment-provisional",
+          "excerpt": "\"HOME\": std::env::var(\"HOME\").unwrap_or_else(|_| \"(unset)\".into()),"
+        }
+      ]
+    },
+    {
+      "key": "environment:HOSTNAME",
+      "category": "environment",
+      "name": "HOSTNAME",
+      "observations": [
+        {
+          "locator": "source:crates/codegen/xai-grok-telemetry/src/id.rs#L180",
+          "scope": "source-environment-provisional",
+          "excerpt": "match std::env::var(\"HOSTNAME\") {"
+        },
+        {
+          "locator": "source:crates/codegen/xai-grok-workspace/src/upload/environment.rs#L146",
+          "scope": "source-environment-provisional",
+          "excerpt": "std::env::var(\"HOSTNAME\").ok().filter(|h| !h.is_empty()),"
+        }
+      ]
+    },
+    {
+      "key": "environment:ITERM_PROFILE",
+      "category": "environment",
+      "name": "ITERM_PROFILE",
+      "observations": [
+        {
+          "locator": "source:crates/codegen/xai-grok-markdown/src/colors.rs#L114",
+          "scope": "source-environment-provisional",
+          "excerpt": "|| env::var(\"ITERM_PROFILE\").is_ok()"
+        }
+      ]
+    },
+    {
+      "key": "environment:ITERM_SESSION_ID",
+      "category": "environment",
+      "name": "ITERM_SESSION_ID",
+      "observations": [
+        {
+          "locator": "source:crates/codegen/xai-grok-markdown/src/colors.rs#L113",
+          "scope": "source-environment-provisional",
+          "excerpt": "env::var(\"ITERM_SESSION_ID\").is_ok()"
+        }
+      ]
+    },
+    {
+      "key": "environment:KITTY_WINDOW_ID",
+      "category": "environment",
+      "name": "KITTY_WINDOW_ID",
+      "observations": [
+        {
+          "locator": "source:crates/codegen/xai-grok-markdown/src/colors.rs#L116",
+          "scope": "source-environment-provisional",
+          "excerpt": "|| env::var(\"KITTY_WINDOW_ID\").is_ok()"
+        }
+      ]
+    },
+    {
+      "key": "environment:LC_GROK_APPEARANCE",
+      "category": "environment",
+      "name": "LC_GROK_APPEARANCE",
+      "observations": [
+        {
+          "locator": "binary-guide:06-theming.md#L97",
+          "scope": "binary-guide",
+          "excerpt": "| **SSH / tmux / headless** | `GROK_APPEARANCE` or `LC_GROK_APPEARANCE` (`dark`/`light`), then `COLORFGBG`, then a startup OSC 11 background query. `grok wrap ssh …` stamps `LC_GROK_APPEARANCE` from the local OS theme so it survives SSH into the login shell. New tmux sessions inherit it only if the tmux server/session was created with that env (or `update-environment` includes it). OSC 11 is DCS-wrapped for tmux ≥ 3.3 when tmux is the immediate terminal (not an editor `:terminal`); reaching the outer emulator also needs `allow-passthrough`, and replies are best-effort. |"
+        },
+        {
+          "locator": "source-guide:06-theming.md#L97",
+          "scope": "source-guide",
+          "excerpt": "| **SSH / tmux / headless** | `GROK_APPEARANCE` or `LC_GROK_APPEARANCE` (`dark`/`light`), then `COLORFGBG`, then a startup OSC 11 background query. `grok wrap ssh …` stamps `LC_GROK_APPEARANCE` from the local OS theme so it survives SSH into the login shell. New tmux sessions inherit it only if the tmux server/session was created with that env (or `update-environment` includes it). OSC 11 is DCS-wrapped for tmux ≥ 3.3 when tmux is the immediate terminal (not an editor `:terminal`); reaching the outer emulator also needs `allow-passthrough`, and replies are best-effort. |"
+        }
+      ]
+    },
+    {
+      "key": "environment:LC_GROK_OSC52_SINK",
+      "category": "environment",
+      "name": "LC_GROK_OSC52_SINK",
+      "observations": [
+        {
+          "locator": "source:crates/codegen/xai-grok-pager-render/src/clipboard/mod.rs#L41",
+          "scope": "source-environment-provisional",
+          "excerpt": "|| std::env::var_os(\"LC_GROK_OSC52_SINK\").is_some()"
+        }
+      ]
+    },
+    {
+      "key": "environment:LOCALAPPDATA",
+      "category": "environment",
+      "name": "LOCALAPPDATA",
+      "observations": [
+        {
+          "locator": "source:crates/codegen/xai-grok-config/src/shell.rs#L111",
+          "scope": "source-environment-provisional",
+          "excerpt": "std::env::var(\"LOCALAPPDATA\")"
+        },
+        {
+          "locator": "source:crates/codegen/xai-grok-update/src/windows_payload.rs#L205",
+          "scope": "source-environment-provisional",
+          "excerpt": "let local = std::env::var_os(\"LOCALAPPDATA\")?;"
+        },
+        {
+          "locator": "source:crates/codegen/xai-tty-utils/src/bundled_git.rs#L79",
+          "scope": "source-environment-provisional",
+          "excerpt": "let local = std::env::var_os(\"LOCALAPPDATA\")?;"
+        }
+      ]
+    },
+    {
+      "key": "environment:MAX_MCP_OUTPUT_BYTES",
+      "category": "environment",
+      "name": "MAX_MCP_OUTPUT_BYTES",
+      "observations": [
+        {
+          "locator": "binary-guide:07-mcp-servers.md#L49",
+          "scope": "binary-guide",
+          "excerpt": "> - env `GROK_MAX_MCP_OUTPUT_BYTES` or `MAX_MCP_OUTPUT_BYTES` (bytes; Grok-native"
+        },
+        {
+          "locator": "source-guide:07-mcp-servers.md#L49",
+          "scope": "source-guide",
+          "excerpt": "> - env `GROK_MAX_MCP_OUTPUT_BYTES` or `MAX_MCP_OUTPUT_BYTES` (bytes; Grok-native"
+        },
+        {
+          "locator": "source:crates/codegen/xai-grok-tools/src/util/mcp_truncate.rs#L39",
+          "scope": "source-environment-provisional",
+          "excerpt": "pub const ENV_MAX_MCP_OUTPUT_BYTES: &str = \"MAX_MCP_OUTPUT_BYTES\";"
+        }
+      ]
+    },
+    {
+      "key": "environment:MCP_INIT_STRATEGY",
+      "category": "environment",
+      "name": "MCP_INIT_STRATEGY",
+      "observations": [
+        {
+          "locator": "source:crates/codegen/xai-grok-shell/src/session/acp_types.rs#L641",
+          "scope": "source-environment-provisional",
+          "excerpt": "match std::env::var(\"MCP_INIT_STRATEGY\") {"
+        }
+      ]
+    },
+    {
+      "key": "environment:MCP_REMINDER_MODE",
+      "category": "environment",
+      "name": "MCP_REMINDER_MODE",
+      "observations": [
+        {
+          "locator": "source:crates/codegen/xai-grok-shell/src/session/acp_session_impl/mcp_snapshot.rs#L60",
+          "scope": "source-environment-provisional",
+          "excerpt": "match std::env::var(\"MCP_REMINDER_MODE\")"
+        }
+      ]
+    },
+    {
+      "key": "environment:MCP_TIMEOUT",
+      "category": "environment",
+      "name": "MCP_TIMEOUT",
+      "observations": [
+        {
+          "locator": "binary-guide:07-mcp-servers.md#L39",
+          "scope": "binary-guide",
+          "excerpt": "> per server, you can change the default for all servers via the `MCP_TIMEOUT`"
+        },
+        {
+          "locator": "source-guide:07-mcp-servers.md#L39",
+          "scope": "source-guide",
+          "excerpt": "> per server, you can change the default for all servers via the `MCP_TIMEOUT`"
+        },
+        {
+          "locator": "source:crates/codegen/xai-grok-shell/src/util/config/resolve/mcp.rs#L93",
+          "scope": "source-environment-provisional",
+          "excerpt": "const ENV_MCP_TIMEOUT_MS: &str = \"MCP_TIMEOUT\";"
+        }
+      ]
+    },
+    {
+      "key": "environment:MERMAID_SAMPLE",
+      "category": "environment",
+      "name": "MERMAID_SAMPLE",
+      "observations": [
+        {
+          "locator": "source:crates/codegen/xai-grok-markdown/bin/md_mermaid_test.rs#L81",
+          "scope": "source-environment-provisional",
+          "excerpt": "let sample = std::env::var(\"MERMAID_SAMPLE\")"
+        },
+        {
+          "locator": "source:crates/codegen/xai-grok-pager/examples/mermaid_playground.rs#L42",
+          "scope": "source-environment-provisional",
+          "excerpt": "let sample = std::env::var(\"MERMAID_SAMPLE\")"
+        }
+      ]
+    },
+    {
+      "key": "environment:MERMAID_WIDTH",
+      "category": "environment",
+      "name": "MERMAID_WIDTH",
+      "observations": [
+        {
+          "locator": "source:crates/codegen/xai-grok-markdown/bin/md_mermaid_test.rs#L86",
+          "scope": "source-environment-provisional",
+          "excerpt": "let width = std::env::var(\"MERMAID_WIDTH\")"
+        }
+      ]
+    },
+    {
       "key": "environment:NO_COLOR",
       "category": "environment",
       "name": "NO_COLOR",
@@ -27085,9 +27985,31 @@
           "excerpt": "When you set `NO_COLOR`, Grok emits no color and renders in monochrome."
         },
         {
+          "locator": "source:crates/codegen/xai-grok-markdown/src/colors.rs#L49",
+          "scope": "source-environment-provisional",
+          "excerpt": "if std::env::var_os(\"NO_COLOR\").is_some() {"
+        },
+        {
+          "locator": "source:crates/codegen/xai-grok-pager-render/src/theme/color_support.rs#L99",
+          "scope": "source-environment-provisional",
+          "excerpt": "if std::env::var_os(\"NO_COLOR\").is_some() {"
+        },
+        {
           "locator": "source-guide:06-theming.md#L119",
           "scope": "source-guide",
           "excerpt": "When you set `NO_COLOR`, Grok emits no color and renders in monochrome."
+        }
+      ]
+    },
+    {
+      "key": "environment:NPM_TOKEN",
+      "category": "environment",
+      "name": "NPM_TOKEN",
+      "observations": [
+        {
+          "locator": "source:crates/codegen/xai-grok-update/src/auto_update.rs#L2290",
+          "scope": "source-environment-provisional",
+          "excerpt": "if let Ok(token) = std::env::var(\"NPM_TOKEN\") {"
         }
       ]
     },
@@ -28375,6 +29297,398 @@
       ]
     },
     {
+      "key": "environment:OUT_DIR",
+      "category": "environment",
+      "name": "OUT_DIR",
+      "observations": [
+        {
+          "locator": "source:crates/codegen/xai-grok-markdown/build.rs#L18",
+          "scope": "source-environment-provisional",
+          "excerpt": "Path::new(&env::var(\"OUT_DIR\").unwrap()).join(\"syntaxes.bin\"),"
+        },
+        {
+          "locator": "source:crates/codegen/xai-grok-shell/build.rs#L33",
+          "scope": "source-environment-provisional",
+          "excerpt": "PathBuf::from(env::var(\"OUT_DIR\")?)"
+        },
+        {
+          "locator": "source:crates/codegen/xai-grok-shell/build.rs#L37",
+          "scope": "source-environment-provisional",
+          "excerpt": "PathBuf::from(env::var(\"OUT_DIR\")?)"
+        },
+        {
+          "locator": "source:crates/codegen/xai-grok-tools/build.rs#L60",
+          "scope": "source-environment-provisional",
+          "excerpt": "let gen_dir = PathBuf::from(env::var(\"OUT_DIR\")?).join(\"bundle-fd\");"
+        },
+        {
+          "locator": "source:crates/codegen/xai-grok-tools/build.rs#L232",
+          "scope": "source-environment-provisional",
+          "excerpt": "let gen_dir = PathBuf::from(env::var(\"OUT_DIR\")?).join(format!(\"bundle-{name}\"));"
+        },
+        {
+          "locator": "source:crates/codegen/xai-grok-tools/build.rs#L253",
+          "scope": "source-environment-provisional",
+          "excerpt": "let gen_dir = PathBuf::from(env::var(\"OUT_DIR\")?).join(\"bundle-rg\");"
+        }
+      ]
+    },
+    {
+      "key": "environment:PAGER",
+      "category": "environment",
+      "name": "PAGER",
+      "observations": [
+        {
+          "locator": "source:crates/codegen/xai-grok-pager/src/app/event_loop.rs#L843",
+          "scope": "source-environment-provisional",
+          "excerpt": "let pager = std::env::var(\"PAGER\")"
+        }
+      ]
+    },
+    {
+      "key": "environment:PAGER_BINARY",
+      "category": "environment",
+      "name": "PAGER_BINARY",
+      "observations": [
+        {
+          "locator": "source:crates/codegen/xai-grok-pager-pty-harness/src/env.rs#L67",
+          "scope": "source-environment-provisional",
+          "excerpt": "if let Ok(path) = std::env::var(\"PAGER_BINARY\") {"
+        }
+      ]
+    },
+    {
+      "key": "environment:PATH",
+      "category": "environment",
+      "name": "PATH",
+      "observations": [
+        {
+          "locator": "source:crates/codegen/xai-fast-worktree/src/bin/worktree_lifecycle_bench/runtime.rs#L746",
+          "scope": "source-environment-provisional",
+          "excerpt": "std::env::var_os(\"PATH\")"
+        },
+        {
+          "locator": "source:crates/codegen/xai-grok-pager/src/diagnostics/fix.rs#L1479",
+          "scope": "source-environment-provisional",
+          "excerpt": "find_on_path_in(name, std::env::split_paths(&std::env::var_os(\"PATH\")?))"
+        },
+        {
+          "locator": "source:crates/codegen/xai-grok-shell/src/extensions/suggest/path_provider.rs#L108",
+          "scope": "source-environment-provisional",
+          "excerpt": "let current_path = std::env::var(\"PATH\").unwrap_or_default();"
+        },
+        {
+          "locator": "source:crates/codegen/xai-grok-shell/src/extensions/suggest/path_provider.rs#L139",
+          "scope": "source-environment-provisional",
+          "excerpt": "let path_var = std::env::var(\"PATH\").unwrap_or_default();"
+        },
+        {
+          "locator": "source:crates/codegen/xai-grok-shell/src/test_support/mod.rs#L43",
+          "scope": "source-environment-provisional",
+          "excerpt": "let cur = std::env::var(\"PATH\").unwrap_or_default();"
+        },
+        {
+          "locator": "source:crates/codegen/xai-grok-tools/src/computer/local/terminal.rs#L3173",
+          "scope": "source-environment-provisional",
+          "excerpt": "let current_path = std::env::var(\"PATH\").unwrap_or_default();"
+        },
+        {
+          "locator": "source:crates/codegen/xai-grok-voice/src/audio/capture_linux.rs#L130",
+          "scope": "source-environment-provisional",
+          "excerpt": "let Some(path) = std::env::var_os(\"PATH\") else {"
+        },
+        {
+          "locator": "source:crates/codegen/xai-tty-utils/src/bundled_git.rs#L199",
+          "scope": "source-environment-provisional",
+          "excerpt": "(None, PathBase::Process) => std::env::var_os(\"PATH\").unwrap_or_default(),"
+        },
+        {
+          "locator": "source:crates/common/xai-test-utils/src/git.rs#L29",
+          "scope": "source-environment-provisional",
+          "excerpt": "let current_path = std::env::var(\"PATH\").unwrap_or_default();"
+        }
+      ]
+    },
+    {
+      "key": "environment:PROFILE",
+      "category": "environment",
+      "name": "PROFILE",
+      "observations": [
+        {
+          "locator": "source:crates/codegen/xai-grok-shell/build.rs#L22",
+          "scope": "source-environment-provisional",
+          "excerpt": "let is_release = env::var(\"PROFILE\").as_deref() == Ok(\"release\");"
+        },
+        {
+          "locator": "source:crates/codegen/xai-grok-tools/build.rs#L71",
+          "scope": "source-environment-provisional",
+          "excerpt": "let is_release = env::var(\"PROFILE\").as_deref() == Ok(\"release\");"
+        },
+        {
+          "locator": "source:crates/codegen/xai-grok-tools/build.rs#L258",
+          "scope": "source-environment-provisional",
+          "excerpt": "let is_release = env::var(\"PROFILE\").as_deref() == Ok(\"release\");"
+        }
+      ]
+    },
+    {
+      "key": "environment:PROGRAMFILES",
+      "category": "environment",
+      "name": "PROGRAMFILES",
+      "observations": [
+        {
+          "locator": "source:crates/codegen/xai-grok-config/src/shell.rs#L105",
+          "scope": "source-environment-provisional",
+          "excerpt": "std::env::var(\"PROGRAMFILES\")"
+        }
+      ]
+    },
+    {
+      "key": "environment:PROTOC",
+      "category": "environment",
+      "name": "PROTOC",
+      "observations": [
+        {
+          "locator": "source:crates/build/xai-proto-build/src/find_protoc.rs#L43",
+          "scope": "source-environment-provisional",
+          "excerpt": "if let Ok(protoc_env) = env::var(\"PROTOC\") {"
+        }
+      ]
+    },
+    {
+      "key": "environment:PTYCTL_SESSION_DIR",
+      "category": "environment",
+      "name": "PTYCTL_SESSION_DIR",
+      "observations": [
+        {
+          "locator": "source:crates/codegen/ptyctl-cli/src/registry.rs#L22",
+          "scope": "source-environment-provisional",
+          "excerpt": "if let Ok(dir) = std::env::var(\"PTYCTL_SESSION_DIR\") {"
+        }
+      ]
+    },
+    {
+      "key": "environment:RG_BIN_PATH",
+      "category": "environment",
+      "name": "RG_BIN_PATH",
+      "observations": [
+        {
+          "locator": "source:crates/codegen/xai-grok-tools/src/implementations/grok_build/grep/ripgrep.rs#L50",
+          "scope": "source-environment-provisional",
+          "excerpt": "if let Ok(p) = std::env::var(\"RG_BIN_PATH\") {"
+        }
+      ]
+    },
+    {
+      "key": "environment:RUNFILES_DIR",
+      "category": "environment",
+      "name": "RUNFILES_DIR",
+      "observations": [
+        {
+          "locator": "source:crates/codegen/xai-grok-tools/src/implementations/grok_build/grep/ripgrep.rs#L53",
+          "scope": "source-environment-provisional",
+          "excerpt": "if let Ok(rf) = std::env::var(\"RUNFILES_DIR\")"
+        }
+      ]
+    },
+    {
+      "key": "environment:RUST_LOG",
+      "category": "environment",
+      "name": "RUST_LOG",
+      "observations": [
+        {
+          "locator": "source:crates/codegen/xai-grok-shell/src/leader/mod.rs#L1643",
+          "scope": "source-environment-provisional",
+          "excerpt": ".or_else(|_| std::env::var(\"RUST_LOG\"))"
+        }
+      ]
+    },
+    {
+      "key": "environment:RUST_TEST_THREADS",
+      "category": "environment",
+      "name": "RUST_TEST_THREADS",
+      "observations": [
+        {
+          "locator": "source:crates/codegen/xai-grok-shell/src/upload/trace.rs#L1213",
+          "scope": "source-environment-provisional",
+          "excerpt": "if std::env::var_os(\"RUST_TEST_THREADS\").is_some()"
+        }
+      ]
+    },
+    {
+      "key": "environment:SENTRY_DSN",
+      "category": "environment",
+      "name": "SENTRY_DSN",
+      "observations": [
+        {
+          "locator": "source:crates/codegen/xai-grok-telemetry/src/sentry.rs#L39",
+          "scope": "source-environment-provisional",
+          "excerpt": "let dsn = std::env::var(\"SENTRY_DSN\")"
+        }
+      ]
+    },
+    {
+      "key": "environment:SHELL",
+      "category": "environment",
+      "name": "SHELL",
+      "observations": [
+        {
+          "locator": "source:crates/codegen/xai-grok-agent/src/builder.rs#L1422",
+          "scope": "source-environment-provisional",
+          "excerpt": "std::env::var(\"SHELL\").unwrap_or_else(|_| \"/bin/bash\".into())"
+        },
+        {
+          "locator": "source:crates/codegen/xai-grok-config/src/shell.rs#L339",
+          "scope": "source-environment-provisional",
+          "excerpt": "match std::env::var(\"SHELL\") {"
+        },
+        {
+          "locator": "source:crates/codegen/xai-grok-config/src/shell.rs#L377",
+          "scope": "source-environment-provisional",
+          "excerpt": "if let Ok(s) = std::env::var(\"SHELL\") {"
+        },
+        {
+          "locator": "source:crates/codegen/xai-grok-pager/src/diagnostics/fix.rs#L90",
+          "scope": "source-environment-provisional",
+          "excerpt": "let shell = std::env::var_os(\"SHELL\").map(PathBuf::from);"
+        },
+        {
+          "locator": "source:crates/codegen/xai-grok-pager/src/doctor_cmd/mod.rs#L205",
+          "scope": "source-environment-provisional",
+          "excerpt": "let shell = std::env::var_os(\"SHELL\")?;"
+        },
+        {
+          "locator": "source:crates/codegen/xai-grok-pager/src/wrap_cmd.rs#L168",
+          "scope": "source-environment-provisional",
+          "excerpt": "resolve_shell(std::env::var(\"SHELL\").ok().as_deref())"
+        },
+        {
+          "locator": "source:crates/codegen/xai-grok-shell-terminal/src/pty_session.rs#L696",
+          "scope": "source-environment-provisional",
+          "excerpt": "let path = std::env::var(\"SHELL\").unwrap_or_else(|_| \"/bin/bash\".to_string());"
+        },
+        {
+          "locator": "source:crates/codegen/xai-grok-shell/src/extensions/suggest/history_provider.rs#L228",
+          "scope": "source-environment-provisional",
+          "excerpt": "let shell = std::env::var(\"SHELL\").unwrap_or_default();"
+        },
+        {
+          "locator": "source:crates/codegen/xai-grok-shell/src/session/acp_session_impl/tool_dispatch.rs#L146",
+          "scope": "source-environment-provisional",
+          "excerpt": "std::env::var(\"SHELL\")"
+        },
+        {
+          "locator": "source:crates/codegen/xai-grok-shell/src/session/user_message.rs#L64",
+          "scope": "source-environment-provisional",
+          "excerpt": "std::env::var(\"SHELL\").unwrap_or_else(|_| \"/bin/sh\".to_string())"
+        },
+        {
+          "locator": "source:crates/codegen/xai-grok-subagent-resolution/src/definition.rs#L275",
+          "scope": "source-environment-provisional",
+          "excerpt": "shell_path: std::env::var(\"SHELL\").ok(),"
+        },
+        {
+          "locator": "source:crates/codegen/xai-grok-workspace/src/hub_server.rs#L425",
+          "scope": "source-environment-provisional",
+          "excerpt": "let shell = std::env::var(\"SHELL\")"
+        }
+      ]
+    },
+    {
+      "key": "environment:SSH_CLIENT",
+      "category": "environment",
+      "name": "SSH_CLIENT",
+      "observations": [
+        {
+          "locator": "source:crates/codegen/xai-grok-shared/src/clipboard.rs#L373",
+          "scope": "source-environment-provisional",
+          "excerpt": "|| std::env::var_os(\"SSH_CLIENT\").is_some()"
+        }
+      ]
+    },
+    {
+      "key": "environment:SSH_CONNECTION",
+      "category": "environment",
+      "name": "SSH_CONNECTION",
+      "observations": [
+        {
+          "locator": "source:crates/codegen/xai-grok-shared/src/clipboard.rs#L371",
+          "scope": "source-environment-provisional",
+          "excerpt": "std::env::var_os(\"SSH_CONNECTION\").is_some()"
+        }
+      ]
+    },
+    {
+      "key": "environment:SSH_TTY",
+      "category": "environment",
+      "name": "SSH_TTY",
+      "observations": [
+        {
+          "locator": "source:crates/codegen/xai-grok-shared/src/clipboard.rs#L372",
+          "scope": "source-environment-provisional",
+          "excerpt": "|| std::env::var_os(\"SSH_TTY\").is_some()"
+        }
+      ]
+    },
+    {
+      "key": "environment:SSL_CERT_FILE",
+      "category": "environment",
+      "name": "SSL_CERT_FILE",
+      "observations": [
+        {
+          "locator": "source:crates/codegen/xai-grok-extra-ca/src/lib.rs#L20",
+          "scope": "source-environment-provisional",
+          "excerpt": "pub const ENV_SSL_CERT_FILE: &str = \"SSL_CERT_FILE\";"
+        }
+      ]
+    },
+    {
+      "key": "environment:SUDO_ASKPASS",
+      "category": "environment",
+      "name": "SUDO_ASKPASS",
+      "observations": [
+        {
+          "locator": "source:crates/codegen/xai-grok-tools/src/computer/local/shell_state.rs#L63",
+          "scope": "source-environment-provisional",
+          "excerpt": "match std::env::var(\"SUDO_ASKPASS\") {"
+        },
+        {
+          "locator": "source:crates/codegen/xai-grok-tools/src/computer/local/static_shell.rs#L45",
+          "scope": "source-environment-provisional",
+          "excerpt": "match std::env::var(\"SUDO_ASKPASS\") {"
+        }
+      ]
+    },
+    {
+      "key": "environment:TEMP",
+      "category": "environment",
+      "name": "TEMP",
+      "observations": [
+        {
+          "locator": "source:crates/codegen/xai-file-utils/src/workspace_classifier.rs#L90",
+          "scope": "source-environment-provisional",
+          "excerpt": "if let Ok(temp) = std::env::var(\"TEMP\").or_else(|_| std::env::var(\"TMP\")) {"
+        }
+      ]
+    },
+    {
+      "key": "environment:TERM",
+      "category": "environment",
+      "name": "TERM",
+      "observations": [
+        {
+          "locator": "source:crates/codegen/xai-grok-otel/src/config.rs#L43",
+          "scope": "source-environment-provisional",
+          "excerpt": ".or_else(|| std::env::var(\"TERM\").ok())"
+        },
+        {
+          "locator": "source:crates/codegen/xai-grok-telemetry/src/external/providers.rs#L144",
+          "scope": "source-environment-provisional",
+          "excerpt": ".or_else(|| std::env::var(\"TERM\").ok())"
+        }
+      ]
+    },
+    {
       "key": "environment:TERM_PROGRAM",
       "category": "environment",
       "name": "TERM_PROGRAM",
@@ -28385,9 +29699,120 @@
           "excerpt": "`TERM_PROGRAM` is not forwarded. Use `Alt+Enter` to insert a newline; `/doctor`"
         },
         {
+          "locator": "source:crates/codegen/xai-grok-markdown/src/colors.rs#L87",
+          "scope": "source-environment-provisional",
+          "excerpt": "if let Ok(prog) = env::var(\"TERM_PROGRAM\") {"
+        },
+        {
+          "locator": "source:crates/codegen/xai-grok-otel/src/config.rs#L41",
+          "scope": "source-environment-provisional",
+          "excerpt": "if let Some(terminal_type) = std::env::var(\"TERM_PROGRAM\")"
+        },
+        {
           "locator": "source-guide:21-terminal-support.md#L211",
           "scope": "source-guide",
           "excerpt": "`TERM_PROGRAM` is not forwarded. Use `Alt+Enter` to insert a newline; `/doctor`"
+        },
+        {
+          "locator": "source:crates/codegen/xai-grok-telemetry/src/external/providers.rs#L142",
+          "scope": "source-environment-provisional",
+          "excerpt": "if let Some(terminal_type) = std::env::var(\"TERM_PROGRAM\")"
+        }
+      ]
+    },
+    {
+      "key": "environment:TEST_SRCDIR",
+      "category": "environment",
+      "name": "TEST_SRCDIR",
+      "observations": [
+        {
+          "locator": "source:crates/codegen/xai-grok-shell/src/config_docs/mod.rs#L106",
+          "scope": "source-environment-provisional",
+          "excerpt": "if let Some(srcdir) = std::env::var_os(\"TEST_SRCDIR\") {"
+        }
+      ]
+    },
+    {
+      "key": "environment:TMP",
+      "category": "environment",
+      "name": "TMP",
+      "observations": [
+        {
+          "locator": "source:crates/codegen/xai-file-utils/src/workspace_classifier.rs#L90",
+          "scope": "source-environment-provisional",
+          "excerpt": "if let Ok(temp) = std::env::var(\"TEMP\").or_else(|_| std::env::var(\"TMP\")) {"
+        }
+      ]
+    },
+    {
+      "key": "environment:TMPDIR",
+      "category": "environment",
+      "name": "TMPDIR",
+      "observations": [
+        {
+          "locator": "source:crates/codegen/xai-grok-sandbox/src/paths.rs#L60",
+          "scope": "source-environment-provisional",
+          "excerpt": "if let Ok(tmpdir) = std::env::var(\"TMPDIR\") {"
+        }
+      ]
+    },
+    {
+      "key": "environment:USERPROFILE",
+      "category": "environment",
+      "name": "USERPROFILE",
+      "observations": [
+        {
+          "locator": "source:crates/codegen/xai-grok-secrets/src/sanitizer.rs#L151",
+          "scope": "source-environment-provisional",
+          "excerpt": ".or_else(|| std::env::var(\"USERPROFILE\").ok())"
+        }
+      ]
+    },
+    {
+      "key": "environment:VISUAL",
+      "category": "environment",
+      "name": "VISUAL",
+      "observations": [
+        {
+          "locator": "source:crates/codegen/xai-grok-pager/src/app/external_editor.rs#L138",
+          "scope": "source-environment-provisional",
+          "excerpt": "let visual = std::env::var(\"VISUAL\").ok();"
+        }
+      ]
+    },
+    {
+      "key": "environment:WAYLAND_DISPLAY",
+      "category": "environment",
+      "name": "WAYLAND_DISPLAY",
+      "observations": [
+        {
+          "locator": "source:crates/codegen/xai-grok-shared/src/clipboard.rs#L381",
+          "scope": "source-environment-provisional",
+          "excerpt": "if std::env::var_os(\"DISPLAY\").is_some() || std::env::var_os(\"WAYLAND_DISPLAY\").is_some() {"
+        }
+      ]
+    },
+    {
+      "key": "environment:WEZTERM_VERSION",
+      "category": "environment",
+      "name": "WEZTERM_VERSION",
+      "observations": [
+        {
+          "locator": "source:crates/codegen/xai-grok-markdown/src/colors.rs#L115",
+          "scope": "source-environment-provisional",
+          "excerpt": "|| env::var(\"WEZTERM_VERSION\").is_ok()"
+        }
+      ]
+    },
+    {
+      "key": "environment:WORKSPACE_CLIENT_FS_QUERIES",
+      "category": "environment",
+      "name": "WORKSPACE_CLIENT_FS_QUERIES",
+      "observations": [
+        {
+          "locator": "source:crates/codegen/xai-grok-workspace/src/hub_server.rs#L168",
+          "scope": "source-environment-provisional",
+          "excerpt": "std::env::var(\"WORKSPACE_CLIENT_FS_QUERIES\").as_deref(),"
         }
       ]
     },
@@ -28803,6 +30228,18 @@
           "locator": "source:crates/codegen/xai-grok-tools/src/implementations/grok_build/task/backend.rs#L719",
           "scope": "source-environment-provisional",
           "excerpt": "pub const VALIDATE_TYPE_TIMEOUT_ENV_VAR: &str = \"XAI_VALIDATE_TYPE_TIMEOUT_MS\";"
+        }
+      ]
+    },
+    {
+      "key": "environment:XDG_DATA_HOME",
+      "category": "environment",
+      "name": "XDG_DATA_HOME",
+      "observations": [
+        {
+          "locator": "source:crates/codegen/xai-fast-worktree/src/db/mod.rs#L507",
+          "scope": "source-environment-provisional",
+          "excerpt": "self.prev_xdg_data_home = std::env::var_os(\"XDG_DATA_HOME\");"
         }
       ]
     },

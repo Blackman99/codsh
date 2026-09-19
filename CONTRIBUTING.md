@@ -68,6 +68,8 @@ legacy behavior or import the new Rust client. Run its portable checks with:
 
 ```sh
 node scripts/reference-inventory.mjs check
+node scripts/reference-mapping.mjs docs/rewrite/reference .scratch/reference-inventory.json
+diff -u docs/rewrite/reference/inventory.json .scratch/reference-inventory.json
 pnpm exec vitest run scripts/reference-inventory.spec.mjs scripts/reference-evidence.spec.mjs
 ```
 
@@ -107,9 +109,16 @@ The validator resolves capture/guide/schema/source-fragment evidence and enforce
 the binary pin; changing a locator and recomputing the inventory digest is not
 verification. Audit semantic ownership: terminal gestures need their actual
 UI/session behavior, and headless input options need provider-wire assertions.
-Classify by the contract's context, not isolated words: permission matching and
-authorization require security-effect acceptance, not Skills or authentication
-scenarios. Interactive help/docs/diagnostics require real terminal acceptance;
+`reference-mapping.mjs` and `reference-scenarios.mjs` are the committed mapping
+source. Regeneration uses captured ticket metadata, exact guide heading ancestry,
+namespace defaults and narrow contextual overrides; it needs no scratch generator
+or GitHub access. The checker rejects owner/scenario drift even when IDs and stories
+are internally consistent. Classify by context, not isolated words: hook prompt
+blocks and sandbox write protection need real effects, MCP headers/stdio belong to
+MCP, model headers to providers, ACP updates to protocol/session replay, and plan
+feedback to review rather than telemetry. Environment extraction also recognizes
+literal env reads, named env constants and documented controls without requiring a
+vendor prefix; source/build controls remain provisional, not released capabilities. Interactive help/docs/diagnostics require real terminal acceptance;
 feature-gated panes retain explicit availability blockers until exercised.
 The portable checker requires independent source-only coverage as well as captured
 behavior; paired deletion from discovery and inventory must fail. Source evidence
@@ -120,8 +129,15 @@ The driver defaults to the checked-in `source-evidence.json`; use
 paths as unverified. The offline probe also covers compatibility options, paired
 FPS runs, fullscreen/minimal tutorial navigation, and help/docs palette/reader
 filtering, scrolling, aliases, dismissal, debug FPS toggling and error recovery.
-It does not open the personal browser or verify live dock resources. The model
-probe rejects malformed structured output and missing terminal events.
+It does not open the personal browser or verify live dock resources. For only the
+supplemental small-command observations, run `reference-probe.py` with
+`--small-commands-only --binary /absolute/path/to/grok-1.0.34 --output .scratch/reference-small`.
+This avoids regenerating valid performance/headless captures. Its two PTYs record
+announcement usage, unsupported-graphics GBOOM refusal, dashboard location picker
+opening/dismissal via Ctrl+L, the `/cd` autocomplete placeholder and invalid path,
+minimal dashboard refusal, typing and clean quit. It does not establish populated
+banners, new-agent cwd, overlay rendering or argument passthrough. The model probe
+rejects malformed structured output and missing terminal events.
 Freeze measured numeric performance thresholds before collecting candidate data.
 Run the ordinary typecheck and full unit suite for changes to these workflows.
 

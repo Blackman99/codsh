@@ -20,6 +20,11 @@ unproven. The preceding inspected export declares 1.0.32, not 1.0.34.
   Acceptance scenarios are parameterized by the exact discovery row and its
   quoted contract, not merely by a feature-family label. They are **planned**,
   not executable candidate tests or passing results.
+- `small-command-observations.json`: two supplemental offline PTYs from the same
+  frozen binary. They retain byte-exact announcement usage, GBOOM graphics refusal,
+  dashboard/location-picker and minimal-mode outcomes. They are separate from the
+  unchanged original captures and performance samples. Actual banners, a subsequent
+  agent's cwd, active overlay rendering and argument passthrough remain unverified.
 - `source-evidence.json`: source file hashes and line counts, exact referenced
   line fragments, public guide text, independently extracted source-surface
   expectations, and command enum/argument relationships from the clean pinned
@@ -96,7 +101,46 @@ retains over-inclusive source metadata pending classification. It cannot prove
 absence of undocumented or account-gated behavior. Feature/service/platform
 variants described in each excerpt remain required even when not runnable here.
 
+Ownership is reproducible using committed `scripts/reference-mapping.mjs` and
+`reference-scenarios.mjs`, not an untracked generator. The mapping reads exact
+ancestor headings from retained guides, applies guide defaults and narrow section
+overrides, and dispatches ACP/config/command names by their namespace. A shared
+word such as “update,” “headers,” “prompt” or “feedback” cannot override a domain.
+The checker regenerates owners and scenarios to detect internally consistent but
+semantically wrong register edits. Tests exercise cross-category and nested-heading
+collisions as well as concrete frozen rows. Captured ticket metadata is reused;
+regeneration does not contact GitHub.
+
 Important reconciliations:
+
+- All hook-guide behaviors stay under #164. UserPromptSubmit adds #151/#138 and
+  checks blocked text exclusion from provider context/durable history, suspended
+  queues, observe-only automatic turns, local recall and documented fail-open timeout.
+- All sandbox-guide contracts have #143/#144 actual confinement acceptance,
+  including kernel write denial, parent rename protection, symlink refusal and
+  fail-closed startup. Security rows in getting-started, headless, plugins, model
+  requirements and configuration guides retain their security owners too.
+- MCP stdio/HTTP/SSE, headers, session IDs and remote authentication use #167/#168
+  handshake/result/reconnect scenarios. `MCP_TIMEOUT` and `MAX_MCP_OUTPUT_BYTES`
+  have individual binary-guide, source-guide and source-declaration evidence;
+  precedence, millisecond rounding, malformed values, byte truncation and spill
+  remain planned installed-MCP tests, not measured enforcement claims. Extraction
+  includes documented env names and literal env reads/named constants beyond
+  GROK/XAI/OTEL prefixes, retaining build/platform controls provisionally.
+- Model headers use #140 wire assertions, including case-insensitive inheritance,
+  environment/static precedence and no leakage to media services. Every ACP row
+  retains #147; session updates/replay/chunks additionally involve #148/#138 and
+  require pagination, order, completion, routing and explicit errors. Plan feedback
+  is #179 review/revision behavior, not #192 product feedback.
+- `/announcements`, `/cd` and `/gboom` have dedicated banner, dashboard-cwd and
+  overlay/passthrough acceptance. The supplemental PTYs establish only observed
+  idle/error behavior: `/cd` initially leaves an autocomplete placeholder; Ctrl+L
+  opens the actual location picker. A following invalid path includes that retained
+  placeholder. No agent was dispatched, banner injected or graphics capability
+  fabricated; these full 1.0.34 behaviors remain explicitly unverified. No-op
+  show/hide and unavailable commands can emit no new frame, so their failed raw
+  frame-wait markers are retained and are not promoted to behavioral success;
+  evidence tests assert reconstructed screens only for actually observed outcomes.
 
 - The entire permissions-and-safety guide maps to #142's effect-based rule/mode
   acceptance, with #164 hook-ordering, #141 administration and #143/#144

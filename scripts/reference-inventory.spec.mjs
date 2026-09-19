@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs'
 import { createHash } from 'node:crypto'
 import { describe, expect, it } from 'vitest'
 import { checkInventory, extractSurfaces, loadEvidence, sourceCommands } from './reference-inventory.mjs'
+import { buildRegister, guideContexts, mapOwners } from './reference-mapping.mjs'
 
 const read = name => JSON.parse(readFileSync(new URL(`../docs/rewrite/reference/${name}`, import.meta.url), 'utf8'))
 
@@ -225,6 +226,175 @@ describe('frozen reference coverage register', () => {
       expect(row.acceptance).toContain('PARITY-152-dock')
       expect(row.blocker).toMatch(/availability.*unverified/i)
     }
+  })
+
+  it('reproduces the register from committed guide/namespace rules and rejects keyword collisions', () => {
+    const register = read('inventory.json')
+    expect(buildRegister(read('discovery.json'), register.tickets, loadEvidence())).toEqual(register)
+    const rows = [
+      ['07-mcp-servers.md', 'Session updates and stdio headers', [167]],
+      ['10-hooks.md', 'Prompt feedback and shell result updates', [164]],
+      ['11-custom-models.md', 'Default headers and auth refresh', [140]],
+      ['15-agent-mode.md', 'Streaming update notifications', [147]],
+      ['18-sandbox.md', 'Global paths and parent rename', [143, 144]],
+      ['19-plan-mode.md', 'Feedback updates and prompt history', [179]],
+      ['12-project-rules.md', 'Commit requirements and instructions', [163]],
+      ['27-grok-clone.md', 'History and authentication', [191]],
+    ]
+    for (const [file, title, owners] of rows) {
+      const capture = { commands: [], guides: [{ file, text: `## ${title}\nAn observable contract.\n\n| Field | Behavior |\n| --- | --- |\n| headers | updates |` }] }
+      const contexts = guideContexts({ capture, source: { guides: [] } })
+      for (const item of extractSurfaces(capture, [])) expect(mapOwners(item, contexts), item.key).toEqual(owners)
+    }
+    for (const item of read('discovery.json').items.filter(item => item.category === 'acp-extension')) {
+      expect(mapOwners(item), item.key).toContain(147)
+      expect(mapOwners(item), item.key).not.toContain(198)
+    }
+  })
+
+  it('rejects internally consistent but semantically wrong owners and weakened scenarios', () => {
+    const register = read('inventory.json'), discovery = read('discovery.json')
+    const row = register.items.find(item => item.key === 'acp-extension:x.ai/session/update')
+    row.tickets = [198]
+    row.stories = register.tickets.find(ticket => ticket.number === 198).stories
+    row.acceptance = ['PARITY-198']
+    expect(checkInventory(register, discovery).join('\n')).toMatch(/contextual mapping drift/)
+    const weakened = read('inventory.json')
+    weakened.acceptance.find(scenario => scenario.id === 'PARITY-164-prompt').then = 'The UI looks correct.'
+    expect(checkInventory(weakened, discovery).join('\n')).toMatch(/contextual acceptance drift/)
+  })
+
+  it('uses ancestor context for nested guide paragraphs and command options', () => {
+    const capture = { commands: [], guides: [
+      { file: '10-hooks.md', text: '## UserPromptSubmit Decision Control\n### Failure handling\nA delayed hook result.' },
+      { file: '07-mcp-servers.md', text: '## HTTP/SSE Transport (Remote Server)\n### Headers\nA session header.' },
+      { file: '04-slash-commands.md', text: '## `/docs`\n### Options\nA title or web target.' },
+    ] }
+    const contexts = guideContexts({ capture, source: { guides: [] } })
+    for (const item of extractSurfaces(capture, []).filter(item => item.category === 'guide-behavior')) {
+      const expected = item.name.startsWith('10-') ? [164, 151, 138] : item.name.startsWith('07-') ? [167, 168] : [154]
+      expect(mapOwners(item, contexts), item.key).toEqual(expected)
+    }
+  })
+
+  it('keeps guide security contracts with their enforcing owners across guide boundaries', () => {
+    const register = read('inventory.json')
+    for (const [key, owners, scenario] of [
+      ['10-hooks.md:UserPromptSubmit Decision Control', [164, 151, 138], 'PARITY-164-prompt'],
+      ['18-sandbox.md:Direct global write protection', [143, 144], 'PARITY-143-confinement'],
+      ['18-sandbox.md:Direct global hook write protection', [143, 144], 'PARITY-143-confinement'],
+      ['09-plugins.md:Trust and security', [165, 141], 'PARITY-141'],
+      ['14-headless-mode.md:Permission Rules (`--allow` / `--deny`)', [142], 'PARITY-142-security-effects'],
+      ['01-getting-started.md:Permissions', [142], 'PARITY-142-security-effects'],
+      ['11-custom-models.md:Fleet allowlist (`requirements.toml`)', [140, 141], 'PARITY-141'],
+    ]) {
+      const rows = register.items.filter(row => row.key === `guide-section:${key}` || row.key.startsWith(`guide-behavior:${key}:`))
+      expect(rows.length, key).toBeGreaterThan(0)
+      for (const row of rows) {
+        expect(row.tickets, row.key).toEqual(expect.arrayContaining(owners))
+        expect(row.acceptance, row.key).toContain(scenario)
+        expect(row.tickets, row.key).not.toContain(150)
+        expect(row.tickets, row.key).not.toContain(169)
+      }
+    }
+    for (const key of ['setting:ui.permission_mode', 'setting:ui.remember_tool_approvals', 'setting:ui.disable_bypass_permissions_mode', 'environment:GROK_REMEMBER_TOOL_APPROVALS', 'guide-item:14-headless-mode.md:Command-Line Options:`--deny <RULE>`']) {
+      const row = register.items.find(row => row.key === key)
+      expect(row.tickets, key).toContain(142)
+      expect(row.acceptance, key).toContain('PARITY-142-security-effects')
+    }
+    const prompt = register.acceptance.find(row => row.id === 'PARITY-164-prompt')
+    expect(prompt.then).toMatch(/provider context.*durable history/)
+    expect(prompt.then).toMatch(/queue.*suspend/)
+    expect(prompt.failure).toMatch(/observe-only/)
+    expect(prompt.failure).toMatch(/timeout/)
+    const confinement = register.acceptance.find(row => row.id === 'PARITY-143-confinement')
+    expect(confinement.then).toMatch(/kernel.*denial/)
+    expect(confinement.when).toMatch(/parent.*rename/)
+    expect(confinement.failure).toMatch(/symlink.*refus/)
+  })
+
+  it('assigns MCP transports and model headers by namespace, not shared words', () => {
+    const register = read('inventory.json')
+    for (const section of ['HTTP/SSE Transport (Remote Server)', 'stdio Transport (Local Process)', 'Streamable HTTP with Session ID', 'Local stdio', 'Native HTTP (hosted services)']) {
+      const row = register.items.find(row => row.key === `guide-section:07-mcp-servers.md:${section}`)
+      expect(row.tickets).toContain(167)
+      expect(row.acceptance).toContain('PARITY-167-transport')
+      expect(row.tickets).not.toContain(147)
+      expect(row.tickets).not.toContain(148)
+      expect(row.tickets).not.toContain(145)
+      if (/HTTP/.test(section)) expect(row.tickets).toContain(168)
+    }
+    for (const key of ['setting:models.extra_headers', 'setting:model.<id>.env_http_headers', 'documented-setting:05-configuration.md:models.extra_headers', 'documented-setting:11-custom-models.md:model.gateway.env_http_headers', 'guide-section:11-custom-models.md:Global Default Headers', 'guide-section:11-custom-models.md:Environment-Variable Headers']) {
+      const row = register.items.find(row => row.key === key)
+      expect(row.tickets).toEqual([140])
+      expect(row.acceptance).toContain('PARITY-140-headers')
+    }
+    const transport = register.acceptance.find(row => row.id === 'PARITY-167-transport')
+    expect(transport.when).toMatch(/handshake.*stdio.*HTTP.*SSE/)
+    expect(transport.then).toMatch(/session.*header/)
+    expect(transport.failure).toMatch(/reconnect/)
+    const headers = register.acceptance.find(row => row.id === 'PARITY-140-headers')
+    expect(headers.then).toMatch(/case-insensitive/)
+    expect(headers.failure).toMatch(/unset.*blank/)
+  })
+
+  it('keeps ACP updates in protocol/session ownership and plan feedback in plan review', () => {
+    const register = read('inventory.json')
+    for (const name of ['x.ai/session/update', 'x.ai/session/updates', 'x.ai/session/updates/chunk']) {
+      const row = register.items.find(row => row.key === `acp-extension:${name}`)
+      expect(row.tickets).toEqual([147, 148, 138])
+      expect(row.acceptance).toContain('PARITY-147-updates')
+    }
+    for (const key of ['acp-extension:x.ai/models/update', 'acp-extension:x.ai/settings/update', 'acp-extension:x.ai/announcements/update', 'guide-section:15-agent-mode.md:Streaming updates']) {
+      const row = register.items.find(row => row.key === key)
+      expect(row.tickets).toContain(147)
+      expect(row.tickets).not.toContain(198)
+    }
+    const row = register.items.find(row => row.key === 'guide-section:19-plan-mode.md:Providing Feedback')
+    expect(row.tickets).toEqual([179])
+    expect(row.acceptance).toContain('PARITY-179-review')
+    const updates = register.acceptance.find(row => row.id === 'PARITY-147-updates')
+    expect(updates.when).toMatch(/replay.*pagination.*chunk/)
+    expect(updates.then).toMatch(/order.*completion.*routing/)
+    const plan = register.acceptance.find(row => row.id === 'PARITY-179-review')
+    expect(plan.then).toMatch(/plan mode.*active/)
+    expect(plan.failure).toMatch(/command.*approval/)
+  })
+
+  it('assigns small interactive commands to stateful scenarios without claiming source availability', () => {
+    const register = read('inventory.json')
+    for (const [name, ticket, scenario] of [['announcements', 154, 'PARITY-154-announcements'], ['cd', 159, 'PARITY-159-location'], ['gboom', 154, 'PARITY-154-gboom']]) {
+      const row = register.items.find(row => row.key === `slash:${name}`)
+      expect(row.tickets).toContain(ticket)
+      expect(row.acceptance).toContain(scenario)
+      expect(row.acceptance).not.toContain('PARITY-145')
+      expect(row.blocker).toMatch(/1\.0\.34.*unverified/)
+    }
+    expect(register.acceptance.find(row => row.id === 'PARITY-154-announcements').then).toMatch(/conditional visibility/)
+    expect(register.acceptance.find(row => row.id === 'PARITY-159-location').then).toMatch(/subsequent.*cwd/)
+    expect(register.acceptance.find(row => row.id === 'PARITY-154-gboom').when).toMatch(/argument passthrough/)
+  })
+
+  it('discovers compatibility environment controls without a vendor-prefix allowlist', () => {
+    const sources = [{ path: 'crates/config.rs', text: 'const ENV_START: &str = "MCP_TIMEOUT";\npub const ENV_LIMIT: &str = "MAX_MCP_OUTPUT_BYTES";\nstd::env::var_os("COMPAT_CUSTOM_LIMIT");\nconst EVENT_NAME: &str = "NOT_AN_ENVIRONMENT_CONTROL";' }]
+    const guides = [{ file: '07-mcp-servers.md', text: '## Configuration\nUse the `MCP_TIMEOUT` environment variable.\nEnvironment override: `MAX_MCP_OUTPUT_BYTES`.\nUse `COMPAT_DOC_LIMIT`\nenvironment variable for the cap.' }]
+    const items = extractSurfaces({ commands: [], guides }, sources)
+    for (const name of ['MCP_TIMEOUT', 'MAX_MCP_OUTPUT_BYTES', 'COMPAT_CUSTOM_LIMIT', 'COMPAT_DOC_LIMIT']) expect(items.some(row => row.key === `environment:${name}`), name).toBe(true)
+    expect(items.some(row => row.key === 'environment:NOT_AN_ENVIRONMENT_CONTROL')).toBe(false)
+    for (const name of ['MCP_TIMEOUT', 'MAX_MCP_OUTPUT_BYTES']) {
+      const item = read('discovery.json').items.find(row => row.key === `environment:${name}`)
+      expect(item, name).toBeDefined()
+      expect(item.observations.some(o => o.scope === 'binary-guide')).toBe(true)
+      expect(item.observations.some(o => o.locator.startsWith('source:'))).toBe(true)
+      const row = read('inventory.json').items.find(row => row.key === item.key)
+      expect(row.tickets).toContain(167)
+      expect(row.acceptance).toContain('PARITY-167-limits')
+    }
+    const limits = read('inventory.json').acceptance.find(row => row.id === 'PARITY-167-limits')
+    expect(limits.then).toMatch(/MCP_TIMEOUT.*round.*GROK_MCP_STARTUP_TIMEOUT_SECS/)
+    expect(limits.then).toMatch(/GROK_MAX_MCP_OUTPUT_BYTES.*MAX_MCP_OUTPUT_BYTES/)
+    expect(limits.then).toMatch(/truncation.*spill/)
+    expect(limits.failure).toMatch(/malformed.*zero.*overflow/)
   })
 
   it('extracts commands and flags, including nested help and aliases', () => {

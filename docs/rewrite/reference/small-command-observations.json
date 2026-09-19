@@ -1,0 +1,872 @@
+{
+  "reference": "1.0.34 (3736acbc8658)",
+  "binarySha256": "9cd26b579840f0f5c9148a8059ad651904c08b41b7f2ef0b4ec04b9ba898844e",
+  "network": "deny all",
+  "boundary": "Idle/no-session recognition and refusal only; banners, new-agent cwd, active overlay and argument passthrough remain unverified.",
+  "terminals": [
+    {
+      "mode": "fullscreen",
+      "environment": {},
+      "initialSize": [
+        32,
+        100
+      ],
+      "events": [
+        {
+          "ms": 28.550292,
+          "output": "\u001b]0;grok\u0007\u001b[?1049h\u001b[?1000h\u001b[?1002h\u001b[?1003h\u001b[?1015h\u001b[?1006h\u001b[?1004h\u001b[?2004h\u001b[?25l\u001b]12;rgb:c6/c6/c6\u0007",
+          "bytesBase64": "G10wO2dyb2sHG1s/MTA0OWgbWz8xMDAwaBtbPzEwMDJoG1s/MTAwM2gbWz8xMDE1aBtbPzEwMDZoG1s/MTAwNGgbWz8yMDA0aBtbPzI1bBtdMTI7cmdiOmM2L2M2L2M2Bw=="
+        },
+        {
+          "ms": 379.891667,
+          "output": "\u001b[>0q",
+          "bytesBase64": "G1s+MHE="
+        },
+        {
+          "ms": 381.115209,
+          "output": "\u001b[?2026h\u001b[1;1H\u001b[39;48;5;233m                                                                                                    \u001b[2;1H  \u001b[38;5;240;48;5;233m/p/v/f/s/7/T/codsh-reference-133-small-qtg3d6zx/workspace\u001b[39;48;5;233m                                         \u001b[3;1H                                                                                                    \u001b[4;1H                                                                                                    \u001b[5;1H                                                                                                    \u001b[6;1H                                                                                                    \u001b[7;1H   \u001b[38;5;236;48;5;233m╭────────────────────────────────────────────────────────────────────────────────────────────╮\u001b[39;48;5;233m   \u001b[8;",
+          "bytesBase64": "G1s/MjAyNmgbWzE7MUgbWzM5OzQ4OzU7MjMzbSAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzI7MUggIBtbMzg7NTsyNDA7NDg7NTsyMzNtL3Avdi9mL3MvNy9UL2NvZHNoLXJlZmVyZW5jZS0xMzMtc21hbGwtcXRnM2Q2engvd29ya3NwYWNlG1szOTs0ODs1OzIzM20gICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbMzsxSCAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzQ7MUggICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgG1s1OzFIICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbNjsxSCAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzc7MUggICAbWzM4OzU7MjM2OzQ4OzU7MjMzbeKVreKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKVrhtbMzk7NDg7NTsyMzNtICAgG1s4Ow=="
+        },
+        {
+          "ms": 381.143417,
+          "output": "1H   \u001b[38;5;236;48;5;233m│\u001b[39;48;5;233m                                                                                            \u001b[38;5;236;48;5;233m│\u001b[39;48;5;233m   \u001b[9;1H   \u001b[38;5;236;48;5;233m│\u001b[39;48;5;233m  \u001b[38;5;242;48;5;233m⠀⠀⠀⠀⠀⠀⣀⣀⡀⠀⠀⠀⢀⠄\u001b[39;48;5;233m   \u001b[1m\u001b[38;5;254;48;5;233mGrok Build  \u001b[22m\u001b[38;5;242;48;5;233m1.0.34\u001b[39;48;5;233m                                                       \u001b[38;5;236;48;5;233m│\u001b[39;48;5;233m   \u001b[10;1H   \u001b[38;5;236;48;5;233m│\u001b[39;48;5;233m  \u001b[38;5;242;48;5;233m⠀⠀⠀⣠⣾⠿⠛⠛⠛⠛⢀⡴⠁⠀\u001b[39;48;5;233m   \u001b[38;5;242;48;5;233mThanks for trying Grok Build, give feedback with /feedback!\u001b[39;48;5;233m              \u001b[38;5;236;48;5;233m│\u001b[39;48;5;233m   \u001b[11;1H   \u001b[38;5;236;48;5;233m│\u001b[39;48;5;233m  \u001b[38;5;242;48;5;233m⠀⠀⣼⡟⠁⠀⠀⠀⢀⡴⠻⣿⡀⠀\u001b[39;48;5;233m                                                                            \u001b[38;5;236;48;5;233m│\u001b[39;48;5;233m   \u001b[12;1H   \u001b[38;5;236;48;5;233m",
+          "bytesBase64": "MUggICAbWzM4OzU7MjM2OzQ4OzU7MjMzbeKUghtbMzk7NDg7NTsyMzNtICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzM4OzU7MjM2OzQ4OzU7MjMzbeKUghtbMzk7NDg7NTsyMzNtICAgG1s5OzFIICAgG1szODs1OzIzNjs0ODs1OzIzM23ilIIbWzM5OzQ4OzU7MjMzbSAgG1szODs1OzI0Mjs0ODs1OzIzM23ioIDioIDioIDioIDioIDioIDio4Dio4DioYDioIDioIDioIDiooDioIQbWzM5OzQ4OzU7MjMzbSAgIBtbMW0bWzM4OzU7MjU0OzQ4OzU7MjMzbUdyb2sgQnVpbGQgIBtbMjJtG1szODs1OzI0Mjs0ODs1OzIzM20xLjAuMzQbWzM5OzQ4OzU7MjMzbSAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzM4OzU7MjM2OzQ4OzU7MjMzbeKUghtbMzk7NDg7NTsyMzNtICAgG1sxMDsxSCAgIBtbMzg7NTsyMzY7NDg7NTsyMzNt4pSCG1szOTs0ODs1OzIzM20gIBtbMzg7NTsyNDI7NDg7NTsyMzNt4qCA4qCA4qCA4qOg4qO+4qC/4qCb4qCb4qCb4qCb4qKA4qG04qCB4qCAG1szOTs0ODs1OzIzM20gICAbWzM4OzU7MjQyOzQ4OzU7MjMzbVRoYW5rcyBmb3IgdHJ5aW5nIEdyb2sgQnVpbGQsIGdpdmUgZmVlZGJhY2sgd2l0aCAvZmVlZGJhY2shG1szOTs0ODs1OzIzM20gICAgICAgICAgICAgIBtbMzg7NTsyMzY7NDg7NTsyMzNt4pSCG1szOTs0ODs1OzIzM20gICAbWzExOzFIICAgG1szODs1OzIzNjs0ODs1OzIzM23ilIIbWzM5OzQ4OzU7MjMzbSAgG1szODs1OzI0Mjs0ODs1OzIzM23ioIDioIDio7zioZ/ioIHioIDioIDioIDiooDiobTioLvio7/ioYDioIAbWzM5OzQ4OzU7MjMzbSAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzM4OzU7MjM2OzQ4OzU7MjMzbeKUghtbMzk7NDg7NTsyMzNtICAgG1sxMjsxSCAgIBtbMzg7NTsyMzY7NDg7NTsyMzNt4g=="
+        },
+        {
+          "ms": 381.155667,
+          "output": "│\u001b[39;48;5;233m  \u001b[38;5;242;48;5;233m⠀⠀⣿⡇⠀⠀⠀⠔⠁⠀⠀⣿⡇⠀\u001b[39;48;5;233m   \u001b[1m\u001b[38;5;254;48;5;233mNew worktree\u001b[22m\u001b[39;48;5;233m                                                     \u001b[38;5;243;48;5;233mctrl+w\u001b[39;48;5;233m  \u001b[38;5;236;48;5;233m│\u001b[39;48;5;233m   \u001b[13;1H   \u001b[38;5;236;48;5;233m│\u001b[39;48;5;233m  \u001b[38;5;242;48;5;233m⠀⠀⢹⣷⠀⠀⠀⠀⠀⢀⣴⡿⠀⠀\u001b[39;48;5;233m   \u001b[1m\u001b[38;5;254;48;5;233mResume session\u001b[22m\u001b[39;48;5;233m                                                   \u001b[38;5;243;48;5;233mctrl+r\u001b[39;48;5;233m  \u001b[38;5;236;48;5;233m│\u001b[39;48;5;233m   \u001b[14;1H   \u001b[38;5;236;48;5;233m│\u001b[39;48;5;233m  \u001b[38;5;242;48;5;233m⠀⢀⠞⠁⠠⢶⣶⣶⣶⠿⠋⠀⠀⠀\u001b[39;48;5;233m   \u001b[1m\u001b[38;5;254;48;5;233mChangelog\u001b[22m\u001b[39;48;5;233m                                                                \u001b[38;5;236;48;5;233m│\u001b[39;48;5;233m   \u001b[15;1H   \u001b[38;5;236;48;5;233m│\u001b[39;48;5;233m  \u001b[38;5;242;48;5;233m⠐⠁⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀\u001b[39;48;5;233m   \u001b[1m\u001b[3",
+          "bytesBase64": "lIIbWzM5OzQ4OzU7MjMzbSAgG1szODs1OzI0Mjs0ODs1OzIzM23ioIDioIDio7/ioYfioIDioIDioIDioJTioIHioIDioIDio7/ioYfioIAbWzM5OzQ4OzU7MjMzbSAgIBtbMW0bWzM4OzU7MjU0OzQ4OzU7MjMzbU5ldyB3b3JrdHJlZRtbMjJtG1szOTs0ODs1OzIzM20gICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbMzg7NTsyNDM7NDg7NTsyMzNtY3RybCt3G1szOTs0ODs1OzIzM20gIBtbMzg7NTsyMzY7NDg7NTsyMzNt4pSCG1szOTs0ODs1OzIzM20gICAbWzEzOzFIICAgG1szODs1OzIzNjs0ODs1OzIzM23ilIIbWzM5OzQ4OzU7MjMzbSAgG1szODs1OzI0Mjs0ODs1OzIzM23ioIDioIDiornio7fioIDioIDioIDioIDioIDiooDio7Tiob/ioIDioIAbWzM5OzQ4OzU7MjMzbSAgIBtbMW0bWzM4OzU7MjU0OzQ4OzU7MjMzbVJlc3VtZSBzZXNzaW9uG1syMm0bWzM5OzQ4OzU7MjMzbSAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbMzg7NTsyNDM7NDg7NTsyMzNtY3RybCtyG1szOTs0ODs1OzIzM20gIBtbMzg7NTsyMzY7NDg7NTsyMzNt4pSCG1szOTs0ODs1OzIzM20gICAbWzE0OzFIICAgG1szODs1OzIzNjs0ODs1OzIzM23ilIIbWzM5OzQ4OzU7MjMzbSAgG1szODs1OzI0Mjs0ODs1OzIzM23ioIDiooDioJ7ioIHioKDiorbio7bio7bio7bioL/ioIvioIDioIDioIAbWzM5OzQ4OzU7MjMzbSAgIBtbMW0bWzM4OzU7MjU0OzQ4OzU7MjMzbUNoYW5nZWxvZxtbMjJtG1szOTs0ODs1OzIzM20gICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgG1szODs1OzIzNjs0ODs1OzIzM23ilIIbWzM5OzQ4OzU7MjMzbSAgIBtbMTU7MUggICAbWzM4OzU7MjM2OzQ4OzU7MjMzbeKUghtbMzk7NDg7NTsyMzNtICAbWzM4OzU7MjQyOzQ4OzU7MjMzbeKgkOKggeKggOKggOKggOKggOKggOKggOKggOKggOKggOKggOKggOKggBtbMzk7NDg7NTsyMzNtICAgG1sxbRtbMw=="
+        },
+        {
+          "ms": 381.170167,
+          "output": "8;5;254;48;5;233mQuit\u001b[22m\u001b[39;48;5;233m                                                             \u001b[38;5;243;48;5;233mctrl+q\u001b[39;48;5;233m  \u001b[38;5;236;48;5;233m│\u001b[39;48;5;233m   \u001b[16;1H   \u001b[38;5;236;48;5;233m│\u001b[39;48;5;233m                                                                                            \u001b[38;5;236;48;5;233m│\u001b[39;48;5;233m   \u001b[17;1H   \u001b[38;5;236;48;5;233m╰────────────────────────────────────────────────────────────────────────────────────────────╯\u001b[39;48;5;233m   \u001b[18;1H                                                                                                    \u001b[19;1H                                                                                                    \u001b[20;1H                                                                                                    \u001b[21;1H     ",
+          "bytesBase64": "ODs1OzI1NDs0ODs1OzIzM21RdWl0G1syMm0bWzM5OzQ4OzU7MjMzbSAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzM4OzU7MjQzOzQ4OzU7MjMzbWN0cmwrcRtbMzk7NDg7NTsyMzNtICAbWzM4OzU7MjM2OzQ4OzU7MjMzbeKUghtbMzk7NDg7NTsyMzNtICAgG1sxNjsxSCAgIBtbMzg7NTsyMzY7NDg7NTsyMzNt4pSCG1szOTs0ODs1OzIzM20gICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbMzg7NTsyMzY7NDg7NTsyMzNt4pSCG1szOTs0ODs1OzIzM20gICAbWzE3OzFIICAgG1szODs1OzIzNjs0ODs1OzIzM23ilbDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDila8bWzM5OzQ4OzU7MjMzbSAgIBtbMTg7MUggICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgG1sxOTsxSCAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzIwOzFIICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbMjE7MUggICAgIA=="
+        },
+        {
+          "ms": 381.192542,
+          "output": "                                                                                               \u001b[22;1H                                                                                                    \u001b[23;1H                                                                                                    \u001b[24;1H                                                                                                    \u001b[25;1H                                                                                                    \u001b[26;1H                                                                                                    \u001b[27;1H  \u001b[38;5;239;48;5;233m╭──────────────────────────────────────────────────────────────────────────────────────────────╮\u001b[39;48;5;233m  \u001b[28;1H  \u001b[38;5;239;48;5;233m│\u001b[38;5;254;48;5;233m \u001b[38;5;2",
+          "bytesBase64": "ICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzIyOzFIICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbMjM7MUggICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgG1syNDsxSCAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzI1OzFIICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbMjY7MUggICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgG1syNzsxSCAgG1szODs1OzIzOTs0ODs1OzIzM23ila3ilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDila4bWzM5OzQ4OzU7MjMzbSAgG1syODsxSCAgG1szODs1OzIzOTs0ODs1OzIzM23ilIIbWzM4OzU7MjU0OzQ4OzU7MjMzbSAbWzM4OzU7Mg=="
+        },
+        {
+          "ms": 381.205375,
+          "output": "51;48;5;233m❯ \u001b[38;5;254;48;5;233m                                                                                           \u001b[38;5;239;48;5;233m│\u001b[39;48;5;233m  \u001b[29;1H  \u001b[38;5;239;48;5;233m╰────────────────────────────────────────────────────────────────────────── \u001b[38;5;244;48;5;233mreference-fixture\u001b[38;5;239;48;5;233m ─╯\u001b[39;48;5;233m  \u001b[30;1H                                                                                                    \u001b[31;1H                                                                            \u001b[38;5;242;48;5;233mLogged in with API key\u001b[39;48;5;233m  \u001b[32;1H                                                                                                    \u001b[39m\u001b[49m\u001b[59m\u001b[0m\u001b[28;7H\u001b[?25h\u001b[?2026l",
+          "bytesBase64": "NTE7NDg7NTsyMzNt4p2vIBtbMzg7NTsyNTQ7NDg7NTsyMzNtICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbMzg7NTsyMzk7NDg7NTsyMzNt4pSCG1szOTs0ODs1OzIzM20gIBtbMjk7MUggIBtbMzg7NTsyMzk7NDg7NTsyMzNt4pWw4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSAIBtbMzg7NTsyNDQ7NDg7NTsyMzNtcmVmZXJlbmNlLWZpeHR1cmUbWzM4OzU7MjM5OzQ4OzU7MjMzbSDilIDila8bWzM5OzQ4OzU7MjMzbSAgG1szMDsxSCAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzMxOzFIICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbMzg7NTsyNDI7NDg7NTsyMzNtTG9nZ2VkIGluIHdpdGggQVBJIGtleRtbMzk7NDg7NTsyMzNtICAbWzMyOzFIICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbMzltG1s0OW0bWzU5bRtbMG0bWzI4OzdIG1s/MjVoG1s/MjAyNmw="
+        },
+        {
+          "ms": 446.139375,
+          "output": "\u001b[?2026h\u001b[15;7H\u001b[38;5;243;48;5;233m⠐\u001b[39m\u001b[49m\u001b[59m\u001b[0m\u001b[28;7H\u001b[?2026l",
+          "bytesBase64": "G1s/MjAyNmgbWzE1OzdIG1szODs1OzI0Mzs0ODs1OzIzM23ioJAbWzM5bRtbNDltG1s1OW0bWzBtG1syODs3SBtbPzIwMjZs"
+        },
+        {
+          "ms": 531.384,
+          "action": "draft",
+          "offset": 6190,
+          "inputHex": "5245464552454e4345313333",
+          "observedMs": 571.602417,
+          "markerFound": true,
+          "endOffset": 7524
+        },
+        {
+          "ms": 535.968292,
+          "output": "\u001b[?2026h\u001b[2;3H\u001b[38;5;251;48;5;233m/p/v/f/s/7/T/codsh-reference-133-small-qtg3d6zx/workspace\u001b[2;74H\u001b[38;5;254;48;5;233m1.5K / 128K\u001b[38;5;238;48;5;233m │ \u001b[38;5;242;48;5;233m[Dashboard]\u001b[7;4H\u001b[39;48;5;233m                                                                                              \u001b[8;4H \u001b[8;97H \u001b[9;4H \u001b[9;7H              \u001b[9;24H                  \u001b[9;97H \u001b[10;4H \u001b[10;7H              \u001b[10;24H                                                           \u001b[10;97H \u001b[11;4H \u001b[11;7H              \u001b[11;97H \u001b[12;4H \u001b[12;7H              \u001b[12;24H            \u001b[12;89H      \u001b[12;97H \u001b[13;4H \u001b[13;7H              \u001b[13;24H              \u001b[13;89H      \u001b[13;97H \u001b[14;4H \u001b[14;7H              \u001b[14;24H         \u001b[14;97H \u001b[15;4H \u001b[15;7H              \u001b[15;24H    \u001b[15;89H      \u001b[15;97H \u001b[16;4H \u001b[16;97H \u001b[17;4H                                                                                              \u001b[28;7H\u001b[38;5;254;48;5;233mREFERENCE133\u001b[31;3H\u001b[1m\u001b[38;5;251;48;5;233mEnter\u001b[22m\u001b[38;5;242;48;5;233m:send\u001b[2m  │  \u001b[22m\u001b[1",
+          "bytesBase64": "G1s/MjAyNmgbWzI7M0gbWzM4OzU7MjUxOzQ4OzU7MjMzbS9wL3YvZi9zLzcvVC9jb2RzaC1yZWZlcmVuY2UtMTMzLXNtYWxsLXF0ZzNkNnp4L3dvcmtzcGFjZRtbMjs3NEgbWzM4OzU7MjU0OzQ4OzU7MjMzbTEuNUsgLyAxMjhLG1szODs1OzIzODs0ODs1OzIzM20g4pSCIBtbMzg7NTsyNDI7NDg7NTsyMzNtW0Rhc2hib2FyZF0bWzc7NEgbWzM5OzQ4OzU7MjMzbSAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzg7NEggG1s4Ozk3SCAbWzk7NEggG1s5OzdIICAgICAgICAgICAgICAbWzk7MjRIICAgICAgICAgICAgICAgICAgG1s5Ozk3SCAbWzEwOzRIIBtbMTA7N0ggICAgICAgICAgICAgIBtbMTA7MjRIICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzEwOzk3SCAbWzExOzRIIBtbMTE7N0ggICAgICAgICAgICAgIBtbMTE7OTdIIBtbMTI7NEggG1sxMjs3SCAgICAgICAgICAgICAgG1sxMjsyNEggICAgICAgICAgICAbWzEyOzg5SCAgICAgIBtbMTI7OTdIIBtbMTM7NEggG1sxMzs3SCAgICAgICAgICAgICAgG1sxMzsyNEggICAgICAgICAgICAgIBtbMTM7ODlIICAgICAgG1sxMzs5N0ggG1sxNDs0SCAbWzE0OzdIICAgICAgICAgICAgICAbWzE0OzI0SCAgICAgICAgIBtbMTQ7OTdIIBtbMTU7NEggG1sxNTs3SCAgICAgICAgICAgICAgG1sxNTsyNEggICAgG1sxNTs4OUggICAgICAbWzE1Ozk3SCAbWzE2OzRIIBtbMTY7OTdIIBtbMTc7NEggICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgG1syODs3SBtbMzg7NTsyNTQ7NDg7NTsyMzNtUkVGRVJFTkNFMTMzG1szMTszSBtbMW0bWzM4OzU7MjUxOzQ4OzU7MjMzbUVudGVyG1syMm0bWzM4OzU7MjQyOzQ4OzU7MjMzbTpzZW5kG1sybSAg4pSCICAbWzIybRtbMQ=="
+        },
+        {
+          "ms": 535.999917,
+          "output": "m\u001b[38;5;251;48;5;233mOpt+Enter\u001b[22m\u001b[38;5;242;48;5;233m:newline\u001b[2m  │  \u001b[22m\u001b[1m\u001b[38;5;251;48;5;233mShift+Tab\u001b[22m\u001b[38;5;242;48;5;233m:mode\u001b[2m  │  \u001b[22m\u001b[1m\u001b[38;5;251;48;5;233mCtrl+x\u001b[22m\u001b[38;5;242;48;5;233m:shortcuts        \u001b[31;84H  \u001b[31;87H    \u001b[31;92H   \u001b[31;96H   \u001b[39m\u001b[49m\u001b[59m\u001b[0m\u001b[28;19H\u001b[?2026l",
+          "bytesBase64": "bRtbMzg7NTsyNTE7NDg7NTsyMzNtT3B0K0VudGVyG1syMm0bWzM4OzU7MjQyOzQ4OzU7MjMzbTpuZXdsaW5lG1sybSAg4pSCICAbWzIybRtbMW0bWzM4OzU7MjUxOzQ4OzU7MjMzbVNoaWZ0K1RhYhtbMjJtG1szODs1OzI0Mjs0ODs1OzIzM206bW9kZRtbMm0gIOKUgiAgG1syMm0bWzFtG1szODs1OzI1MTs0ODs1OzIzM21DdHJsK3gbWzIybRtbMzg7NTsyNDI7NDg7NTsyMzNtOnNob3J0Y3V0cyAgICAgICAgG1szMTs4NEggIBtbMzE7ODdIICAgIBtbMzE7OTJIICAgG1szMTs5NkggICAbWzM5bRtbNDltG1s1OW0bWzBtG1syODsxOUgbWz8yMDI2bA=="
+        },
+        {
+          "ms": 736.6805,
+          "action": "clear-draft",
+          "offset": 7524,
+          "inputHex": "03",
+          "observedMs": 1041.600875,
+          "markerFound": null,
+          "endOffset": 7800
+        },
+        {
+          "ms": 736.906542,
+          "output": "\u001b[?2026h\u001b[28;7H\u001b[38;5;254;48;5;233m            \u001b[31;3H\u001b[1m\u001b[38;5;251;48;5;233mShift+Tab\u001b[22m\u001b[38;5;242;48;5;233m:mode\u001b[31;18H\u001b[2m │  \u001b[22m\u001b[1m\u001b[38;5;251;48;5;233mCtrl+x\u001b[22m\u001b[38;5;242;48;5;233m:shortcuts                                     \u001b[39m\u001b[49m\u001b[59m\u001b[0m\u001b[28;7H\u001b[?2026l",
+          "bytesBase64": "G1s/MjAyNmgbWzI4OzdIG1szODs1OzI1NDs0ODs1OzIzM20gICAgICAgICAgICAbWzMxOzNIG1sxbRtbMzg7NTsyNTE7NDg7NTsyMzNtU2hpZnQrVGFiG1syMm0bWzM4OzU7MjQyOzQ4OzU7MjMzbTptb2RlG1szMTsxOEgbWzJtIOKUgiAgG1syMm0bWzFtG1szODs1OzI1MTs0ODs1OzIzM21DdHJsK3gbWzIybRtbMzg7NTsyNDI7NDg7NTsyMzNtOnNob3J0Y3V0cyAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzM5bRtbNDltG1s1OW0bWzBtG1syODs3SBtbPzIwMjZs"
+        },
+        {
+          "ms": 1209.110209,
+          "action": "announcements-invalid",
+          "offset": 7800,
+          "inputHex": "2f616e6e6f756e63656d656e747320696e76616c69640d",
+          "observedMs": 1250.710584,
+          "markerFound": true,
+          "endOffset": 7901
+        },
+        {
+          "ms": 1214.304042,
+          "output": "\u001b[?2026h\u001b[4;6H\u001b[38;5;242;48;5;233mUsage: /announcements hide | show\u001b[39m\u001b[49m\u001b[59m\u001b[0m\u001b[28;7H\u001b[?2026l",
+          "bytesBase64": "G1s/MjAyNmgbWzQ7NkgbWzM4OzU7MjQyOzQ4OzU7MjMzbVVzYWdlOiAvYW5ub3VuY2VtZW50cyBoaWRlIHwgc2hvdxtbMzltG1s0OW0bWzU5bRtbMG0bWzI4OzdIG1s/MjAyNmw="
+        },
+        {
+          "ms": 1415.879459,
+          "action": "announcements-hide",
+          "offset": 7901,
+          "inputHex": "2f616e6e6f756e63656d656e747320686964650d",
+          "observedMs": 5419.491375,
+          "markerFound": false,
+          "endOffset": 7901
+        },
+        {
+          "ms": 5583.092709,
+          "action": "announcements-show",
+          "offset": 7901,
+          "inputHex": "2f616e6e6f756e63656d656e74732073686f770d",
+          "observedMs": 9584.36525,
+          "markerFound": false,
+          "endOffset": 7901
+        },
+        {
+          "ms": 9739.317917,
+          "action": "cd-outside-dashboard",
+          "offset": 7901,
+          "inputHex": "2f63640d",
+          "observedMs": 13751.256084,
+          "markerFound": false,
+          "endOffset": 7901
+        },
+        {
+          "ms": 13914.170084,
+          "action": "gboom-no-session",
+          "offset": 7901,
+          "inputHex": "2f67626f6f6d0d",
+          "observedMs": 13957.751084,
+          "markerFound": true,
+          "endOffset": 8065
+        },
+        {
+          "ms": 13917.855625,
+          "output": "\u001b[?2026h\u001b[25;7H\u001b[1m\u001b[38;5;251;48;5;233m No demons here: GBOOM needs a graphics-capable terminal (kitty, Ghostty, WezTerm, iTerm2) \u001b[39m\u001b[49m\u001b[59m\u001b[0m\u001b[28;7H\u001b[?2026l",
+          "bytesBase64": "G1s/MjAyNmgbWzI1OzdIG1sxbRtbMzg7NTsyNTE7NDg7NTsyMzNtIE5vIGRlbW9ucyBoZXJlOiBHQk9PTSBuZWVkcyBhIGdyYXBoaWNzLWNhcGFibGUgdGVybWluYWwgKGtpdHR5LCBHaG9zdHR5LCBXZXpUZXJtLCBpVGVybTIpIBtbMzltG1s0OW0bWzU5bRtbMG0bWzI4OzdIG1s/MjAyNmw="
+        },
+        {
+          "ms": 14124.100667,
+          "action": "gboom-dismiss",
+          "offset": 8065,
+          "inputHex": "1b",
+          "observedMs": 14426.277667,
+          "markerFound": null,
+          "endOffset": 8219
+        },
+        {
+          "ms": 14124.693042,
+          "output": "\u001b[?2026h\u001b[25;7H\u001b[39;48;5;233m                                                                                           \u001b[39m\u001b[49m\u001b[59m\u001b[0m\u001b[28;7H\u001b[?2026l",
+          "bytesBase64": "G1s/MjAyNmgbWzI1OzdIG1szOTs0ODs1OzIzM20gICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgG1szOW0bWzQ5bRtbNTltG1swbRtbMjg7N0gbWz8yMDI2bA=="
+        },
+        {
+          "ms": 14584.558125,
+          "action": "dashboard-open",
+          "offset": 8219,
+          "inputHex": "2f64617368626f6172640d",
+          "observedMs": 14631.837417,
+          "markerFound": true,
+          "endOffset": 9704
+        },
+        {
+          "ms": 14588.938125,
+          "output": "\u001b[?2026h\u001b[2;60H\u001b[38;5;240;48;5;233m [Choose\u001b[38;5;238;48;5;233m Ctrl+l\u001b[38;5;240;48;5;233m]\u001b[39;48;5;233m                       \u001b[4;3H\u001b[38;5;149;48;5;233m+ New Agent\u001b[39;48;5;233m                         \u001b[4;84H\u001b[38;5;242;48;5;233mWorktree\u001b[38;5;238;48;5;233m Ctrl+w\u001b[7;4H\u001b[38;5;242;48;5;233mLoading sessions…\u001b[27;3H\u001b[38;5;236;48;5;233m╭──────────────────────────────────────────────────────────────────────────────────────────────╮\u001b[28;3H│\u001b[39;48;5;233m \u001b[28;7H\u001b[38;5;240;48;5;233mDispatch a new agent\u001b[39;48;5;233m                                                                       \u001b[38;5;236;48;5;233m│\u001b[29;3H╰─────────────────────────────────────────────────────────────────────",
+          "bytesBase64": "G1s/MjAyNmgbWzI7NjBIG1szODs1OzI0MDs0ODs1OzIzM20gW0Nob29zZRtbMzg7NTsyMzg7NDg7NTsyMzNtIEN0cmwrbBtbMzg7NTsyNDA7NDg7NTsyMzNtXRtbMzk7NDg7NTsyMzNtICAgICAgICAgICAgICAgICAgICAgICAbWzQ7M0gbWzM4OzU7MTQ5OzQ4OzU7MjMzbSsgTmV3IEFnZW50G1szOTs0ODs1OzIzM20gICAgICAgICAgICAgICAgICAgICAgICAgG1s0Ozg0SBtbMzg7NTsyNDI7NDg7NTsyMzNtV29ya3RyZWUbWzM4OzU7MjM4OzQ4OzU7MjMzbSBDdHJsK3cbWzc7NEgbWzM4OzU7MjQyOzQ4OzU7MjMzbUxvYWRpbmcgc2Vzc2lvbnPigKYbWzI3OzNIG1szODs1OzIzNjs0ODs1OzIzM23ila3ilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDila4bWzI4OzNI4pSCG1szOTs0ODs1OzIzM20gG1syODs3SBtbMzg7NTsyNDA7NDg7NTsyMzNtRGlzcGF0Y2ggYSBuZXcgYWdlbnQbWzM5OzQ4OzU7MjMzbSAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgG1szODs1OzIzNjs0ODs1OzIzM23ilIIbWzI5OzNI4pWw4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4g=="
+        },
+        {
+          "ms": 14588.990542,
+          "output": "────── \u001b[38;5;240;48;5;233mreference-fixture\u001b[38;5;236;48;5;233m ╯\u001b[31;3H\u001b[1m\u001b[38;5;251;48;5;233mEnter\u001b[22m\u001b[38;5;242;48;5;233m:create\u001b[2m  │\u001b[31;19H \u001b[22m\u001b[1m\u001b[38;5;251;48;5;233mTab\u001b[22m\u001b[38;5;242;48;5;233m:input\u001b[2m  │  \u001b[22m\u001b[1m\u001b[38;5;251;48;5;233m?\u001b[22m\u001b[38;5;242;48;5;233m:shortcuts\u001b[31;99H  \u001b[39m\u001b[49m\u001b[59m\u001b[0m\u001b[?25l\u001b[?2026l",
+          "bytesBase64": "lIDilIDilIDilIDilIDilIAgG1szODs1OzI0MDs0ODs1OzIzM21yZWZlcmVuY2UtZml4dHVyZRtbMzg7NTsyMzY7NDg7NTsyMzNtIOKVrxtbMzE7M0gbWzFtG1szODs1OzI1MTs0ODs1OzIzM21FbnRlchtbMjJtG1szODs1OzI0Mjs0ODs1OzIzM206Y3JlYXRlG1sybSAg4pSCG1szMTsxOUggG1syMm0bWzFtG1szODs1OzI1MTs0ODs1OzIzM21UYWIbWzIybRtbMzg7NTsyNDI7NDg7NTsyMzNtOmlucHV0G1sybSAg4pSCICAbWzIybRtbMW0bWzM4OzU7MjUxOzQ4OzU7MjMzbT8bWzIybRtbMzg7NTsyNDI7NDg7NTsyMzNtOnNob3J0Y3V0cxtbMzE7OTlIICAbWzM5bRtbNDltG1s1OW0bWzBtG1s/MjVsG1s/MjAyNmw="
+        },
+        {
+          "ms": 14589.387792,
+          "output": "\u001b[?2026h\u001b[7;4H\u001b[38;5;242;48;5;233mN\u001b[7;6H agent\u001b[7;13H yet, type a prompt to start one.\u001b[39m\u001b[49m\u001b[59m\u001b[0m\u001b[?2026l",
+          "bytesBase64": "G1s/MjAyNmgbWzc7NEgbWzM4OzU7MjQyOzQ4OzU7MjMzbU4bWzc7NkggYWdlbnQbWzc7MTNIIHlldCwgdHlwZSBhIHByb21wdCB0byBzdGFydCBvbmUuG1szOW0bWzQ5bRtbNTltG1swbRtbPzIwMjZs"
+        },
+        {
+          "ms": 14788.797792,
+          "action": "cd-picker",
+          "offset": 9704,
+          "inputHex": "2f63640d",
+          "observedMs": 14832.153542,
+          "markerFound": true,
+          "endOffset": 10857
+        },
+        {
+          "ms": 14792.942042,
+          "output": "\u001b[?2026h\u001b[27;3H\u001b[38;5;237;48;5;233m╭──────────────────────────────────────────────────────────────────────────────────────────────╮\u001b[28;3H│\u001b[28;7H\u001b[38;5;111;48;5;233m/cd\u001b[38;5;254;48;5;233m \u001b[38;5;242;48;5;233mpath\u001b[38;5;254;48;5;233m                                                                                  \u001b[28;98H\u001b[38;5;237;48;5;233m│\u001b[29;3H╰─────────────────────────────────────────────────────────────────────────── \u001b[38;5;244;48;5;233mreference-fixture\u001b[38;5;237;48;5;233m ╯\u001b[31;9H\u001b[38;5;242;48;5;233msend\u001b[2m  │\u001b[31;17H \u001b[22m\u001b[1m\u001b[38;5;251;48;5;233mCtrl+s\u001b[22m\u001b[38;5;242;48;5;233m:send+open\u001b[2m  │  \u001b[22m\u001b[1m\u001b[38;5;251;48;5;233mShift+Tab\u001b[22m\u001b[38;5;242;48",
+          "bytesBase64": "G1s/MjAyNmgbWzI3OzNIG1szODs1OzIzNzs0ODs1OzIzM23ila3ilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDila4bWzI4OzNI4pSCG1syODs3SBtbMzg7NTsxMTE7NDg7NTsyMzNtL2NkG1szODs1OzI1NDs0ODs1OzIzM20gG1szODs1OzI0Mjs0ODs1OzIzM21wYXRoG1szODs1OzI1NDs0ODs1OzIzM20gICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgG1syODs5OEgbWzM4OzU7MjM3OzQ4OzU7MjMzbeKUghtbMjk7M0jilbDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIAgG1szODs1OzI0NDs0ODs1OzIzM21yZWZlcmVuY2UtZml4dHVyZRtbMzg7NTsyMzc7NDg7NTsyMzNtIOKVrxtbMzE7OUgbWzM4OzU7MjQyOzQ4OzU7MjMzbXNlbmQbWzJtICDilIIbWzMxOzE3SCAbWzIybRtbMW0bWzM4OzU7MjUxOzQ4OzU7MjMzbUN0cmwrcxtbMjJtG1szODs1OzI0Mjs0ODs1OzIzM206c2VuZCtvcGVuG1sybSAg4pSCICAbWzIybRtbMW0bWzM4OzU7MjUxOzQ4OzU7MjMzbVNoaWZ0K1RhYhtbMjJtG1szODs1OzI0Mjs0OA=="
+        },
+        {
+          "ms": 14792.988584,
+          "output": ";5;233m:mode\u001b[2m  │  \u001b[22m\u001b[1m\u001b[38;5;251;48;5;233m?\u001b[22m\u001b[38;5;242;48;5;233m:shortcuts\u001b[39m\u001b[49m\u001b[59m\u001b[0m\u001b[28;11H\u001b[?25h\u001b[?2026l",
+          "bytesBase64": "OzU7MjMzbTptb2RlG1sybSAg4pSCICAbWzIybRtbMW0bWzM4OzU7MjUxOzQ4OzU7MjMzbT8bWzIybRtbMzg7NTsyNDI7NDg7NTsyMzNtOnNob3J0Y3V0cxtbMzltG1s0OW0bWzU5bRtbMG0bWzI4OzExSBtbPzI1aBtbPzIwMjZs"
+        },
+        {
+          "ms": 14985.796667,
+          "action": "cd-picker-dismiss",
+          "offset": 10857,
+          "inputHex": "1b",
+          "observedMs": 15290.365875,
+          "markerFound": null,
+          "endOffset": 11729
+        },
+        {
+          "ms": 14985.997,
+          "output": "\u001b[?2026h\u001b[27;3H\u001b[38;5;236;48;5;233m╭──────────────────────────────────────────────────────────────────────────────────────────────╮\u001b[28;3H│\u001b[28;5H\u001b[38;5;240;48;5;233m❯ \u001b[28;98H\u001b[38;5;236;48;5;233m│\u001b[29;3H╰─────────────────────────────────────────────────────────────────────────── \u001b[38;5;240;48;5;233mreference-fixture\u001b[38;5;236;48;5;233m ╯\u001b[31;39H\u001b[1m\u001b[38;5;251;48;5;233mTab\u001b[22m\u001b[38;5;242;48;5;233m:input\u001b[2m  │  \u001b[22m\u001b[1m\u001b[38;5;251;48;5;233m?\u001b[22m\u001b[38;5;242;48;5;233m:shortcuts     \u001b[39m\u001b[49m\u001b[59m\u001b[0m\u001b[?25l\u001b[?2026l",
+          "bytesBase64": "G1s/MjAyNmgbWzI3OzNIG1szODs1OzIzNjs0ODs1OzIzM23ila3ilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDila4bWzI4OzNI4pSCG1syODs1SBtbMzg7NTsyNDA7NDg7NTsyMzNt4p2vIBtbMjg7OThIG1szODs1OzIzNjs0ODs1OzIzM23ilIIbWzI5OzNI4pWw4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSAIBtbMzg7NTsyNDA7NDg7NTsyMzNtcmVmZXJlbmNlLWZpeHR1cmUbWzM4OzU7MjM2OzQ4OzU7MjMzbSDila8bWzMxOzM5SBtbMW0bWzM4OzU7MjUxOzQ4OzU7MjMzbVRhYhtbMjJtG1szODs1OzI0Mjs0ODs1OzIzM206aW5wdXQbWzJtICDilIIgIBtbMjJtG1sxbRtbMzg7NTsyNTE7NDg7NTsyMzNtPxtbMjJtG1szODs1OzI0Mjs0ODs1OzIzM206c2hvcnRjdXRzICAgICAbWzM5bRtbNDltG1s1OW0bWzBtG1s/MjVsG1s/MjAyNmw="
+        },
+        {
+          "ms": 15453.703167,
+          "action": "cd-clear-placeholder",
+          "offset": 11729,
+          "inputHex": "03",
+          "observedMs": 15758.749542,
+          "markerFound": null,
+          "endOffset": 11881
+        },
+        {
+          "ms": 15453.882584,
+          "output": "\u001b[?2026h\u001b[31;3H\u001b[1m\u001b[38;5;251;48;5;233mCtrl+c\u001b[22m\u001b[38;5;242;48;5;233m:press again to quit                                   \u001b[39m\u001b[49m\u001b[59m\u001b[0m\u001b[?2026l",
+          "bytesBase64": "G1s/MjAyNmgbWzMxOzNIG1sxbRtbMzg7NTsyNTE7NDg7NTsyMzNtQ3RybCtjG1syMm0bWzM4OzU7MjQyOzQ4OzU7MjMzbTpwcmVzcyBhZ2FpbiB0byBxdWl0ICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzM5bRtbNDltG1s1OW0bWzBtG1s/MjAyNmw="
+        },
+        {
+          "ms": 15926.322167,
+          "action": "location-picker-open",
+          "offset": 11881,
+          "inputHex": "0c",
+          "observedMs": 15969.245959,
+          "markerFound": true,
+          "endOffset": 15674
+        },
+        {
+          "ms": 15927.775,
+          "output": "\u001b[?2026h\u001b[5;21H\u001b[38;5;240;48;5;233m┌─ \u001b[1m\u001b[38;5;254;48;5;233mChange directory\u001b[22m\u001b[38;5;240;48;5;233m ───────────────────────────────── [✗] ─┐\u001b[6;21H│\u001b[38;5;254;48;5;233m                                                          \u001b[38;5;240;48;5;233m│\u001b[7;21H│\u001b[38;5;254;48;5;233m  \u001b[38;5;242;48;5;233m path: \u001b[38;5;233;48;5;254m \u001b[38;5;254;48;5;233m                                                \u001b[38;5;240;48;5;233m│\u001b[8;21H│\u001b[38;5;254;48;5;233m  \u001b[38;5;240;48;5;233m──────────────────────────────────────────────────────\u001b[38;5;254;48;5;233m  \u001b[38;5;240;48;5;233m│\u001b[9;21H│\u001b[38;5;254;48;5;233m  \u001b[38;5;240;48;5;237m◆ \u001b[1m\u001b[38;5;254;48;5;237mworkspace\u001b[22m                  \u001b[38;5;242;48;5;237m/private/var/folders/s6…\u001b[38;5;254;48;5;237m \u001b[38;5;254;48;5;233m  \u001b[38;5;240;48;5;233m│\u001b[10;21H│\u001b[38;5;254;48;5;233m        ",
+          "bytesBase64": "G1s/MjAyNmgbWzU7MjFIG1szODs1OzI0MDs0ODs1OzIzM23ilIzilIAgG1sxbRtbMzg7NTsyNTQ7NDg7NTsyMzNtQ2hhbmdlIGRpcmVjdG9yeRtbMjJtG1szODs1OzI0MDs0ODs1OzIzM20g4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSAIFvinJddIOKUgOKUkBtbNjsyMUjilIIbWzM4OzU7MjU0OzQ4OzU7MjMzbSAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzM4OzU7MjQwOzQ4OzU7MjMzbeKUghtbNzsyMUjilIIbWzM4OzU7MjU0OzQ4OzU7MjMzbSAgG1szODs1OzI0Mjs0ODs1OzIzM20gcGF0aDogG1szODs1OzIzMzs0ODs1OzI1NG0gG1szODs1OzI1NDs0ODs1OzIzM20gICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzM4OzU7MjQwOzQ4OzU7MjMzbeKUghtbODsyMUjilIIbWzM4OzU7MjU0OzQ4OzU7MjMzbSAgG1szODs1OzI0MDs0ODs1OzIzM23ilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIAbWzM4OzU7MjU0OzQ4OzU7MjMzbSAgG1szODs1OzI0MDs0ODs1OzIzM23ilIIbWzk7MjFI4pSCG1szODs1OzI1NDs0ODs1OzIzM20gIBtbMzg7NTsyNDA7NDg7NTsyMzdt4peGIBtbMW0bWzM4OzU7MjU0OzQ4OzU7MjM3bXdvcmtzcGFjZRtbMjJtICAgICAgICAgICAgICAgICAgG1szODs1OzI0Mjs0ODs1OzIzN20vcHJpdmF0ZS92YXIvZm9sZGVycy9zNuKAphtbMzg7NTsyNTQ7NDg7NTsyMzdtIBtbMzg7NTsyNTQ7NDg7NTsyMzNtICAbWzM4OzU7MjQwOzQ4OzU7MjMzbeKUghtbMTA7MjFI4pSCG1szODs1OzI1NDs0ODs1OzIzM20gICAgICAgIA=="
+        },
+        {
+          "ms": 15927.825042,
+          "output": "                                                  \u001b[38;5;240;48;5;233m│\u001b[11;21H│\u001b[38;5;254;48;5;233m                                                          \u001b[38;5;240;48;5;233m│\u001b[12;21H│\u001b[38;5;254;48;5;233m                                                          \u001b[38;5;240;48;5;233m│\u001b[13;21H│\u001b[38;5;254;48;5;233m                                                          \u001b[38;5;240;48;5;233m│\u001b[14;21H│\u001b[38;5;254;48;5;233m                                                          \u001b[38;5;240;48;5;233m│\u001b[15;21H│\u001b[38;5;254;48;5;233m                                                          \u001b[38;5;240;48;5;233m│\u001b[16;21H│\u001b[38;5;254;48;5;233m                                                          \u001b[38;5;240;48;5;233m│\u001b[17;21H│\u001b[38;5;254;48;5;233m                                                          \u001b[38;5;240;48;5;233m│\u001b[18;21H│\u001b[38;5;254;48;5;233m                                                          \u001b[38;5;240;48;5;233m│\u001b[19;21H│\u001b[38;5;254;48;5;233m                        ",
+          "bytesBase64": "ICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzM4OzU7MjQwOzQ4OzU7MjMzbeKUghtbMTE7MjFI4pSCG1szODs1OzI1NDs0ODs1OzIzM20gICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgG1szODs1OzI0MDs0ODs1OzIzM23ilIIbWzEyOzIxSOKUghtbMzg7NTsyNTQ7NDg7NTsyMzNtICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbMzg7NTsyNDA7NDg7NTsyMzNt4pSCG1sxMzsyMUjilIIbWzM4OzU7MjU0OzQ4OzU7MjMzbSAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzM4OzU7MjQwOzQ4OzU7MjMzbeKUghtbMTQ7MjFI4pSCG1szODs1OzI1NDs0ODs1OzIzM20gICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgG1szODs1OzI0MDs0ODs1OzIzM23ilIIbWzE1OzIxSOKUghtbMzg7NTsyNTQ7NDg7NTsyMzNtICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbMzg7NTsyNDA7NDg7NTsyMzNt4pSCG1sxNjsyMUjilIIbWzM4OzU7MjU0OzQ4OzU7MjMzbSAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzM4OzU7MjQwOzQ4OzU7MjMzbeKUghtbMTc7MjFI4pSCG1szODs1OzI1NDs0ODs1OzIzM20gICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgG1szODs1OzI0MDs0ODs1OzIzM23ilIIbWzE4OzIxSOKUghtbMzg7NTsyNTQ7NDg7NTsyMzNtICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbMzg7NTsyNDA7NDg7NTsyMzNt4pSCG1sxOTsyMUjilIIbWzM4OzU7MjU0OzQ4OzU7MjMzbSAgICAgICAgICAgICAgICAgICAgICAgIA=="
+        },
+        {
+          "ms": 15927.836125,
+          "output": "                                  \u001b[38;5;240;48;5;233m│\u001b[20;21H│\u001b[38;5;254;48;5;233m                                                          \u001b[38;5;240;48;5;233m│\u001b[21;21H│\u001b[38;5;254;48;5;233m                                                          \u001b[38;5;240;48;5;233m│\u001b[22;21H│\u001b[38;5;254;48;5;233m                                                          \u001b[38;5;240;48;5;233m│\u001b[23;21H│\u001b[38;5;254;48;5;233m                                                          \u001b[38;5;240;48;5;233m│\u001b[24;21H│\u001b[38;5;254;48;5;233m                                                          \u001b[38;5;240;48;5;233m│\u001b[25;21H│\u001b[38;5;254;48;5;233m                                                          \u001b[38;5;240;48;5;233m│\u001b[26;21H│\u001b[38;5;254;48;5;233m                                                          \u001b[38;5;240;48;5;233m│\u001b[27;21H│\u001b[38;5;254;48;5;233m  \u001b[1m\u001b[38;5;251;48;5;233m↑↓\u001b[22m\u001b[38;5;242;48;5;233m nav\u001b[38;5;240;48;5;233m  |  \u001b[1m\u001b[38;5;251;48;5;233mTab\u001b[22m\u001b[38;5;242;48;5;233m complete\u001b[38;",
+          "bytesBase64": "ICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbMzg7NTsyNDA7NDg7NTsyMzNt4pSCG1syMDsyMUjilIIbWzM4OzU7MjU0OzQ4OzU7MjMzbSAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzM4OzU7MjQwOzQ4OzU7MjMzbeKUghtbMjE7MjFI4pSCG1szODs1OzI1NDs0ODs1OzIzM20gICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgG1szODs1OzI0MDs0ODs1OzIzM23ilIIbWzIyOzIxSOKUghtbMzg7NTsyNTQ7NDg7NTsyMzNtICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbMzg7NTsyNDA7NDg7NTsyMzNt4pSCG1syMzsyMUjilIIbWzM4OzU7MjU0OzQ4OzU7MjMzbSAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzM4OzU7MjQwOzQ4OzU7MjMzbeKUghtbMjQ7MjFI4pSCG1szODs1OzI1NDs0ODs1OzIzM20gICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgG1szODs1OzI0MDs0ODs1OzIzM23ilIIbWzI1OzIxSOKUghtbMzg7NTsyNTQ7NDg7NTsyMzNtICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbMzg7NTsyNDA7NDg7NTsyMzNt4pSCG1syNjsyMUjilIIbWzM4OzU7MjU0OzQ4OzU7MjMzbSAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzM4OzU7MjQwOzQ4OzU7MjMzbeKUghtbMjc7MjFI4pSCG1szODs1OzI1NDs0ODs1OzIzM20gIBtbMW0bWzM4OzU7MjUxOzQ4OzU7MjMzbeKGkeKGkxtbMjJtG1szODs1OzI0Mjs0ODs1OzIzM20gbmF2G1szODs1OzI0MDs0ODs1OzIzM20gIHwgIBtbMW0bWzM4OzU7MjUxOzQ4OzU7MjMzbVRhYhtbMjJtG1szODs1OzI0Mjs0ODs1OzIzM20gY29tcGxldGUbWzM4Ow=="
+        },
+        {
+          "ms": 15927.847334,
+          "output": "5;240;48;5;233m  |  \u001b[1m\u001b[38;5;251;48;5;233mEnter\u001b[22m\u001b[38;5;242;48;5;233m select\u001b[38;5;240;48;5;233m  |  \u001b[1m\u001b[38;5;251;48;5;233mEsc\u001b[22m\u001b[38;5;242;48;5;233m close\u001b[38;5;254;48;5;233m  \u001b[38;5;240;48;5;233m│\u001b[28;21H└──────────────────────────────────────────────────────────┘\u001b[31;3H\u001b[1m\u001b[38;5;251;48;5;233mEnter\u001b[22m\u001b[38;5;242;48;5;233m:send\u001b[2m  │  \u001b[22m\u001b[1m\u001b[38;5;251;48;5;233mCtrl+s\u001b[22m\u001b[38;5;242;48;5;233m:send+open\u001b[2m  │  \u001b[22m\u001b[1m\u001b[38;5;251;48;5;233mTab\u001b[22m\u001b[38;5;242;48;5;233m:input\u001b[2m  │  \u001b[22m\u001b[1m\u001b[38;5;251;48;5;233m?\u001b[22m\u001b[38;5;242;48;5;233m:shortcuts\u001b[39m\u001b[49m\u001b[59m\u001b[0m\u001b[?2026l",
+          "bytesBase64": "NTsyNDA7NDg7NTsyMzNtICB8ICAbWzFtG1szODs1OzI1MTs0ODs1OzIzM21FbnRlchtbMjJtG1szODs1OzI0Mjs0ODs1OzIzM20gc2VsZWN0G1szODs1OzI0MDs0ODs1OzIzM20gIHwgIBtbMW0bWzM4OzU7MjUxOzQ4OzU7MjMzbUVzYxtbMjJtG1szODs1OzI0Mjs0ODs1OzIzM20gY2xvc2UbWzM4OzU7MjU0OzQ4OzU7MjMzbSAgG1szODs1OzI0MDs0ODs1OzIzM23ilIIbWzI4OzIxSOKUlOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUmBtbMzE7M0gbWzFtG1szODs1OzI1MTs0ODs1OzIzM21FbnRlchtbMjJtG1szODs1OzI0Mjs0ODs1OzIzM206c2VuZBtbMm0gIOKUgiAgG1syMm0bWzFtG1szODs1OzI1MTs0ODs1OzIzM21DdHJsK3MbWzIybRtbMzg7NTsyNDI7NDg7NTsyMzNtOnNlbmQrb3BlbhtbMm0gIOKUgiAgG1syMm0bWzFtG1szODs1OzI1MTs0ODs1OzIzM21UYWIbWzIybRtbMzg7NTsyNDI7NDg7NTsyMzNtOmlucHV0G1sybSAg4pSCICAbWzIybRtbMW0bWzM4OzU7MjUxOzQ4OzU7MjMzbT8bWzIybRtbMzg7NTsyNDI7NDg7NTsyMzNtOnNob3J0Y3V0cxtbMzltG1s0OW0bWzU5bRtbMG0bWz8yMDI2bA=="
+        },
+        {
+          "ms": 16127.846875,
+          "action": "location-picker-dismiss",
+          "offset": 15674,
+          "inputHex": "1b",
+          "observedMs": 16430.801792,
+          "markerFound": null,
+          "endOffset": 17544
+        },
+        {
+          "ms": 16128.028334,
+          "output": "\u001b[?2026h\u001b[5;21H\u001b[39;48;5;233m                                                            \u001b[6;21H                                                            \u001b[7;21H\u001b[38;5;242;48;5;233mpe a prompt to start one.\u001b[39;48;5;233m                                   \u001b[8;21H                                                            \u001b[9;21H                                                            \u001b[10;21H                                                            \u001b[11;21H                                                            \u001b[12;21H                                                            \u001b[13;21H                                                            \u001b[14;21H                                                            \u001b[15;21H                                                            \u001b[16;21H                                                            \u001b[17;21H                                                            \u001b[18;21H                                                            \u001b[19;21H             ",
+          "bytesBase64": "G1s/MjAyNmgbWzU7MjFIG1szOTs0ODs1OzIzM20gICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzY7MjFIICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgG1s3OzIxSBtbMzg7NTsyNDI7NDg7NTsyMzNtcGUgYSBwcm9tcHQgdG8gc3RhcnQgb25lLhtbMzk7NDg7NTsyMzNtICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzg7MjFIICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgG1s5OzIxSCAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbMTA7MjFIICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgG1sxMTsyMUggICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzEyOzIxSCAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbMTM7MjFIICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgG1sxNDsyMUggICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzE1OzIxSCAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbMTY7MjFIICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgG1sxNzsyMUggICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzE4OzIxSCAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbMTk7MjFIICAgICAgICAgICAgIA=="
+        },
+        {
+          "ms": 16128.074917,
+          "output": "                                               \u001b[20;21H                                                            \u001b[21;21H                                                            \u001b[22;21H                                                            \u001b[23;21H                                                            \u001b[24;21H                                                            \u001b[25;21H                                                            \u001b[26;21H                                                            \u001b[27;21H\u001b[38;5;236;48;5;233m────────────────────────────────────────────────────────────\u001b[28;21H\u001b[38;5;254;48;5;233m                                                            \u001b[39m\u001b[49m\u001b[59m\u001b[0m\u001b[?2026l",
+          "bytesBase64": "ICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzIwOzIxSCAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbMjE7MjFIICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgG1syMjsyMUggICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzIzOzIxSCAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbMjQ7MjFIICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgG1syNTsyMUggICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzI2OzIxSCAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbMjc7MjFIG1szODs1OzIzNjs0ODs1OzIzM23ilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIAbWzI4OzIxSBtbMzg7NTsyNTQ7NDg7NTsyMzNtICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgG1szOW0bWzQ5bRtbNTltG1swbRtbPzIwMjZs"
+        },
+        {
+          "ms": 16593.234167,
+          "action": "cd-invalid",
+          "offset": 17544,
+          "inputHex": "2f6364202f5245464552454e43453133335f4d495353494e470d",
+          "observedMs": 16642.150584,
+          "markerFound": true,
+          "endOffset": 18626
+        },
+        {
+          "ms": 16598.298709,
+          "output": "\u001b[?2026h\u001b[27;3H\u001b[38;5;237;48;5;233m╭────────────────────────────────────────────────\u001b[1m\u001b[38;5;251;48;5;233m ✗ Not a directory: /cd /REFERENCE133_MISSING \u001b[22m\u001b[38;5;237;48;5;233m╮\u001b[28;3H│\u001b[28;5H\u001b[38;5;251;48;5;233m❯ \u001b[39;48;5;233m                                                                                          \u001b[28;98H\u001b[38;5;237;48;5;233m│\u001b[29;3H╰─────────────────────────────────────────────────────────────────────────── \u001b[38;5;244;48;5;233mreference-fixture\u001b[38;5;237;48;5;233m ╯\u001b[31;9H\u001b[38;5;242;48;5;233mcreate\u001b[2m \u001b[31;17H│  \u001b[22m\u001b[1m\u001b[38;5;251;48;5;233mTab\u001b[22m\u001b[38;5;242;48;5;233m:list\u001b[2m  │  \u001b[22m\u001b[1m\u001b[38;5;251;48;5;233mShift+\u001b[31;43H\u001b[22m\u001b[38;5;242;48;5;233mmode\u001b[2m \u001b[31;49H│ \u001b[31;52H\u001b[22m\u001b[1m\u001b[38;5;251;48;5;233m?\u001b[22m\u001b[38;5;242;48",
+          "bytesBase64": "G1s/MjAyNmgbWzI3OzNIG1szODs1OzIzNzs0ODs1OzIzM23ila3ilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIAbWzFtG1szODs1OzI1MTs0ODs1OzIzM20g4pyXIE5vdCBhIGRpcmVjdG9yeTogL2NkIC9SRUZFUkVOQ0UxMzNfTUlTU0lORyAbWzIybRtbMzg7NTsyMzc7NDg7NTsyMzNt4pWuG1syODszSOKUghtbMjg7NUgbWzM4OzU7MjUxOzQ4OzU7MjMzbeKdryAbWzM5OzQ4OzU7MjMzbSAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbMjg7OThIG1szODs1OzIzNzs0ODs1OzIzM23ilIIbWzI5OzNI4pWw4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSAIBtbMzg7NTsyNDQ7NDg7NTsyMzNtcmVmZXJlbmNlLWZpeHR1cmUbWzM4OzU7MjM3OzQ4OzU7MjMzbSDila8bWzMxOzlIG1szODs1OzI0Mjs0ODs1OzIzM21jcmVhdGUbWzJtIBtbMzE7MTdI4pSCICAbWzIybRtbMW0bWzM4OzU7MjUxOzQ4OzU7MjMzbVRhYhtbMjJtG1szODs1OzI0Mjs0ODs1OzIzM206bGlzdBtbMm0gIOKUgiAgG1syMm0bWzFtG1szODs1OzI1MTs0ODs1OzIzM21TaGlmdCsbWzMxOzQzSBtbMjJtG1szODs1OzI0Mjs0ODs1OzIzM21tb2RlG1sybSAbWzMxOzQ5SOKUgiAbWzMxOzUySBtbMjJtG1sxbRtbMzg7NTsyNTE7NDg7NTsyMzNtPxtbMjJtG1szODs1OzI0Mjs0OA=="
+        },
+        {
+          "ms": 16598.35775,
+          "output": ";5;233m:shortcuts \u001b[39m\u001b[49m\u001b[59m\u001b[0m\u001b[28;7H\u001b[?25h\u001b[?2026l",
+          "bytesBase64": "OzU7MjMzbTpzaG9ydGN1dHMgG1szOW0bWzQ5bRtbNTltG1swbRtbMjg7N0gbWz8yNWgbWz8yMDI2bA=="
+        },
+        {
+          "ms": 16796.673,
+          "action": "dashboard-dismiss",
+          "offset": 18626,
+          "inputHex": "1b",
+          "observedMs": 17104.752959,
+          "markerFound": null,
+          "endOffset": 19508
+        },
+        {
+          "ms": 16796.836834,
+          "output": "\u001b[?2026h\u001b[27;3H\u001b[38;5;236;48;5;233m╭──────────────────────────────────────────────────────────────────────────────────────────────╮\u001b[28;3H│\u001b[28;7H\u001b[38;5;240;48;5;233mDispatch a new agent\u001b[28;98H\u001b[38;5;236;48;5;233m│\u001b[29;3H╰─────────────────────────────────────────────────────────────────────────── \u001b[38;5;240;48;5;233mreference-fixture\u001b[38;5;236;48;5;233m ╯\u001b[31;24H\u001b[38;5;242;48;5;233minput\u001b[31;30H\u001b[2m │\u001b[31;33H \u001b[22m\u001b[1m\u001b[38;5;251;48;5;233m?\u001b[22m\u001b[38;5;242;48;5;233m:shortcuts                  \u001b[39m\u001b[49m\u001b[59m\u001b[0m\u001b[?25l\u001b[?2026l",
+          "bytesBase64": "G1s/MjAyNmgbWzI3OzNIG1szODs1OzIzNjs0ODs1OzIzM23ila3ilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDila4bWzI4OzNI4pSCG1syODs3SBtbMzg7NTsyNDA7NDg7NTsyMzNtRGlzcGF0Y2ggYSBuZXcgYWdlbnQbWzI4Ozk4SBtbMzg7NTsyMzY7NDg7NTsyMzNt4pSCG1syOTszSOKVsOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgCAbWzM4OzU7MjQwOzQ4OzU7MjMzbXJlZmVyZW5jZS1maXh0dXJlG1szODs1OzIzNjs0ODs1OzIzM20g4pWvG1szMTsyNEgbWzM4OzU7MjQyOzQ4OzU7MjMzbWlucHV0G1szMTszMEgbWzJtIOKUghtbMzE7MzNIIBtbMjJtG1sxbRtbMzg7NTsyNTE7NDg7NTsyMzNtPxtbMjJtG1szODs1OzI0Mjs0ODs1OzIzM206c2hvcnRjdXRzICAgICAgICAgICAgICAgICAgG1szOW0bWzQ5bRtbNTltG1swbRtbPzI1bBtbPzIwMjZs"
+        },
+        {
+          "ms": 17267.688959,
+          "action": "after-small-draft",
+          "offset": 19508,
+          "inputHex": "41465445525f534d414c4c5f50524f4245",
+          "observedMs": 17312.693834,
+          "markerFound": true,
+          "endOffset": 20601
+        },
+        {
+          "ms": 17271.658875,
+          "output": "\u001b[?2026h\u001b[27;3H\u001b[38;5;237;48;5;233m╭──────────────────────────────────────────────────────────────────────────────────────────────╮\u001b[28;3H│\u001b[28;7H\u001b[38;5;254;48;5;233mAFTER_SMALL_PROBE                                                                         \u001b[28;98H\u001b[38;5;237;48;5;233m│\u001b[29;3H╰─────────────────────────────────────────────────────────────────────────── \u001b[38;5;244;48;5;233mreference-fixture\u001b[38;5;237;48;5;233m ╯\u001b[31;9H\u001b[38;5;242;48;5;233msend\u001b[2m  │\u001b[31;17H \u001b[22m\u001b[1m\u001b[38;5;251;48;5;233mCtrl+s\u001b[22m\u001b[38;5;242;48;5;233m:send+open\u001b[2m  │  \u001b[22m\u001b[1m\u001b[38;5;251;48;5;233mShift+Tab\u001b[22m\u001b[38;5;242;48;5;233m:mode\u001b[2m  │  \u001b[22m\u001b[1m\u001b[38;5;251;48;5;233m?\u001b[22m\u001b[",
+          "bytesBase64": "G1s/MjAyNmgbWzI3OzNIG1szODs1OzIzNzs0ODs1OzIzM23ila3ilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDila4bWzI4OzNI4pSCG1syODs3SBtbMzg7NTsyNTQ7NDg7NTsyMzNtQUZURVJfU01BTExfUFJPQkUgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgG1syODs5OEgbWzM4OzU7MjM3OzQ4OzU7MjMzbeKUghtbMjk7M0jilbDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIAgG1szODs1OzI0NDs0ODs1OzIzM21yZWZlcmVuY2UtZml4dHVyZRtbMzg7NTsyMzc7NDg7NTsyMzNtIOKVrxtbMzE7OUgbWzM4OzU7MjQyOzQ4OzU7MjMzbXNlbmQbWzJtICDilIIbWzMxOzE3SCAbWzIybRtbMW0bWzM4OzU7MjUxOzQ4OzU7MjMzbUN0cmwrcxtbMjJtG1szODs1OzI0Mjs0ODs1OzIzM206c2VuZCtvcGVuG1sybSAg4pSCICAbWzIybRtbMW0bWzM4OzU7MjUxOzQ4OzU7MjMzbVNoaWZ0K1RhYhtbMjJtG1szODs1OzI0Mjs0ODs1OzIzM206bW9kZRtbMm0gIOKUgiAgG1syMm0bWzFtG1szODs1OzI1MTs0ODs1OzIzM20/G1syMm0bWw=="
+        },
+        {
+          "ms": 17271.698959,
+          "output": "38;5;242;48;5;233m:shortcuts\u001b[39m\u001b[49m\u001b[59m\u001b[0m\u001b[28;24H\u001b[?25h\u001b[?2026l",
+          "bytesBase64": "Mzg7NTsyNDI7NDg7NTsyMzNtOnNob3J0Y3V0cxtbMzltG1s0OW0bWzU5bRtbMG0bWzI4OzI0SBtbPzI1aBtbPzIwMjZs"
+        },
+        {
+          "ms": 17470.460167,
+          "action": "after-small-clear",
+          "offset": 20601,
+          "inputHex": "03",
+          "observedMs": 17774.475042,
+          "markerFound": null,
+          "endOffset": 21028
+        },
+        {
+          "ms": 17470.628417,
+          "output": "\u001b[?2026h\u001b[28;7H\u001b[39;48;5;233m                                                                                          \u001b[31;9H\u001b[38;5;242;48;5;233mcreate\u001b[2m \u001b[31;17H│  \u001b[22m\u001b[1m\u001b[38;5;251;48;5;233mTab\u001b[22m\u001b[38;5;242;48;5;233m:list\u001b[2m  │  \u001b[22m\u001b[1m\u001b[38;5;251;48;5;233mShift+Tab\u001b[22m\u001b[38;5;242;48;5;233m:mode\u001b[2m  │  \u001b[22m\u001b[1m\u001b[38;5;251;48;5;233m?\u001b[22m\u001b[38;5;242;48;5;233m:shortcuts      \u001b[39m\u001b[49m\u001b[59m\u001b[0m\u001b[28;7H\u001b[?2026l",
+          "bytesBase64": "G1s/MjAyNmgbWzI4OzdIG1szOTs0ODs1OzIzM20gICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzMxOzlIG1szODs1OzI0Mjs0ODs1OzIzM21jcmVhdGUbWzJtIBtbMzE7MTdI4pSCICAbWzIybRtbMW0bWzM4OzU7MjUxOzQ4OzU7MjMzbVRhYhtbMjJtG1szODs1OzI0Mjs0ODs1OzIzM206bGlzdBtbMm0gIOKUgiAgG1syMm0bWzFtG1szODs1OzI1MTs0ODs1OzIzM21TaGlmdCtUYWIbWzIybRtbMzg7NTsyNDI7NDg7NTsyMzNtOm1vZGUbWzJtICDilIIgIBtbMjJtG1sxbRtbMzg7NTsyNTE7NDg7NTsyMzNtPxtbMjJtG1szODs1OzI0Mjs0ODs1OzIzM206c2hvcnRjdXRzICAgICAgG1szOW0bWzQ5bRtbNTltG1swbRtbMjg7N0gbWz8yMDI2bA=="
+        },
+        {
+          "ms": 17936.883542,
+          "action": "quit",
+          "offset": 21028,
+          "inputHex": "2f717569740d",
+          "observedMs": 18012.685167,
+          "markerFound": null,
+          "endOffset": 21135
+        },
+        {
+          "ms": 17941.232125,
+          "output": "\u001b]0;grok\u0007",
+          "bytesBase64": "G10wO2dyb2sH"
+        },
+        {
+          "ms": 17941.714167,
+          "output": "\u001b[2J",
+          "bytesBase64": "G1sySg=="
+        },
+        {
+          "ms": 17943.077834,
+          "output": "\u001b]9;4;0;0\u0007\u001b[?2026l\u001b]112\u0007\u001b[?1000l\u001b[?1002l\u001b[?1003l\u001b[?1015l\u001b[?1006l\u001b[?2004l\u001b[?1004l",
+          "bytesBase64": "G105OzQ7MDswBxtbPzIwMjZsG10xMTIHG1s/MTAwMGwbWz8xMDAybBtbPzEwMDNsG1s/MTAxNWwbWz8xMDA2bBtbPzIwMDRsG1s/MTAwNGw="
+        },
+        {
+          "ms": 17943.085959,
+          "output": "\u001b[?25h\u001b[?1049l",
+          "bytesBase64": "G1s/MjVoG1s/MTA0OWw="
+        }
+      ],
+      "firstFrameMs": 381.21275,
+      "rss": [
+        {
+          "action": "draft",
+          "ms": 575.370375,
+          "rssKiB": 99216
+        },
+        {
+          "action": "clear-draft",
+          "ms": 1045.234875,
+          "rssKiB": 99216
+        },
+        {
+          "action": "announcements-invalid",
+          "ms": 1254.099417,
+          "rssKiB": 100912
+        },
+        {
+          "action": "announcements-hide",
+          "ms": 5426.800834,
+          "rssKiB": 100976
+        },
+        {
+          "action": "announcements-show",
+          "ms": 9587.801834,
+          "rssKiB": 100672
+        },
+        {
+          "action": "cd-outside-dashboard",
+          "ms": 13759.143709,
+          "rssKiB": 100720
+        },
+        {
+          "action": "gboom-no-session",
+          "ms": 13961.417375,
+          "rssKiB": 100800
+        },
+        {
+          "action": "gboom-dismiss",
+          "ms": 14433.221209,
+          "rssKiB": 100816
+        },
+        {
+          "action": "dashboard-open",
+          "ms": 14636.564625,
+          "rssKiB": 101952
+        },
+        {
+          "action": "cd-picker",
+          "ms": 14835.604,
+          "rssKiB": 101968
+        },
+        {
+          "action": "cd-picker-dismiss",
+          "ms": 15294.691542,
+          "rssKiB": 101968
+        },
+        {
+          "action": "cd-clear-placeholder",
+          "ms": 15765.656542,
+          "rssKiB": 102112
+        },
+        {
+          "action": "location-picker-open",
+          "ms": 15972.872459,
+          "rssKiB": 102496
+        },
+        {
+          "action": "location-picker-dismiss",
+          "ms": 16434.664542,
+          "rssKiB": 102496
+        },
+        {
+          "action": "cd-invalid",
+          "ms": 16645.700459,
+          "rssKiB": 102480
+        },
+        {
+          "action": "dashboard-dismiss",
+          "ms": 17110.917834,
+          "rssKiB": 102480
+        },
+        {
+          "action": "after-small-draft",
+          "ms": 17316.4665,
+          "rssKiB": 102496
+        },
+        {
+          "action": "after-small-clear",
+          "ms": 17779.2725,
+          "rssKiB": 102688
+        },
+        {
+          "action": "quit",
+          "ms": 18016.15675,
+          "rssKiB": 0
+        }
+      ],
+      "exit": 0,
+      "forcedCleanup": false,
+      "restoredAlternateScreen": true,
+      "outputBytes": 21135,
+      "outputSha256": "c8ca6e96b6c401058e1d82314e6b26045acb84f0d379f246d8b1325ec62516fc"
+    },
+    {
+      "mode": "minimal",
+      "environment": {},
+      "initialSize": [
+        32,
+        100
+      ],
+      "events": [
+        {
+          "ms": 23.877458,
+          "output": "\u001b]0;grok\u0007\u001b[?1004h\u001b[?2004h\u001b[?25l",
+          "bytesBase64": "G10wO2dyb2sHG1s/MTAwNGgbWz8yMDA0aBtbPzI1bA=="
+        },
+        {
+          "ms": 44.201208,
+          "output": "\u001b[6n",
+          "bytesBase64": "G1s2bg=="
+        },
+        {
+          "ms": 44.220667,
+          "replyHex": "1b5b313b3152"
+        },
+        {
+          "ms": 44.273625,
+          "output": "\n\n\n\n\n\n\n\n\n",
+          "bytesBase64": "CgoKCgoKCgoK"
+        },
+        {
+          "ms": 287.372667,
+          "output": "\u001b[>0q",
+          "bytesBase64": "G1s+MHE="
+        },
+        {
+          "ms": 287.76125,
+          "output": "\u001b[?2026h\u001b[?2026h\u001b[1;1H\u001b[2mSigning in… starting your session.\u001b[39m\u001b[49m\u001b[59m\u001b[0m\u001b[?2026l",
+          "bytesBase64": "G1s/MjAyNmgbWz8yMDI2aBtbMTsxSBtbMm1TaWduaW5nIGlu4oCmIHN0YXJ0aW5nIHlvdXIgc2Vzc2lvbi4bWzM5bRtbNDltG1s1OW0bWzBtG1s/MjAyNmw="
+        },
+        {
+          "ms": 288.161125,
+          "output": "\u001b[?2026h\u001b[1;1H\u001b[J",
+          "bytesBase64": "G1s/MjAyNmgbWzE7MUgbW0o="
+        },
+        {
+          "ms": 288.210958,
+          "output": "\u001b[1;1H╭──────────────────────────────────────────────────────────────────────────────────────────────────╮\u001b[2;1H│                                                                                                  │\u001b[3;1H│                                            ⠀⠀⠀⣀⣤⣤⣀⠀⠀⡠                                            │\u001b[4;1H│                                            ⠀⢀⡾⠋⠁⠀⢁⢴⡎⠀                                            │\u001b[5;1H│                                            ⠀⢸⡇⠀⠀⠐⠁⢀⣿⠀                                            │\u001b[6;1H│                                            ⠀⢈⠗⢀⣀⣀⣠⡾⠃⠀                                            │\u001b[7;1H│                                            ⠐⠁⠀⠈⠉⠉⠉⠀⠀⠀     ",
+          "bytesBase64": "G1sxOzFI4pWt4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pWuG1syOzFI4pSCICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICDilIIbWzM7MUjilIIgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIOKggOKggOKggOKjgOKjpOKjpOKjgOKggOKggOKhoCAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAg4pSCG1s0OzFI4pSCICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICDioIDiooDiob7ioIvioIHioIDiooHiorTioY7ioIAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIOKUghtbNTsxSOKUgiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAg4qCA4qK44qGH4qCA4qCA4qCQ4qCB4qKA4qO/4qCAICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICDilIIbWzY7MUjilIIgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIOKggOKiiOKgl+KigOKjgOKjgOKjoOKhvuKgg+KggCAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAg4pSCG1s3OzFI4pSCICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICDioJDioIHioIDioIjioInioInioInioIDioIDioIAgICAgIA=="
+        },
+        {
+          "ms": 288.225042,
+          "output": "                                       │\u001b[8;1H│                                                                                                  │\u001b[9;1H│ \u001b[1mGrok Build\u001b[22m\u001b[2m\u001b[2m  v1.0.34\u001b[22m                                                                              │\u001b[10;1H│ \u001b[2m/private/var/folders/s6/7t1hr_t554l4nqkfxkpg8q2w0000gn/T/codsh-reference-133-small-qtg3d6zx/work\u001b[22m │\u001b[11;1H│ \u001b[2mModel · reference-fixture\u001b[22m                                                                        │\u001b[12;1H│ \u001b[2m/help for commands\u001b[22m                                                                               │\u001b[13;1H│                                                                                                  │\u001b[14;1H╰──────────────────────────────────────────────────────────────────────────────────────",
+          "bytesBase64": "ICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAg4pSCG1s4OzFI4pSCICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICDilIIbWzk7MUjilIIgG1sxbUdyb2sgQnVpbGQbWzIybRtbMm0bWzJtICB2MS4wLjM0G1syMm0gICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICDilIIbWzEwOzFI4pSCIBtbMm0vcHJpdmF0ZS92YXIvZm9sZGVycy9zNi83dDFocl90NTU0bDRucWtmeGtwZzhxMncwMDAwZ24vVC9jb2RzaC1yZWZlcmVuY2UtMTMzLXNtYWxsLXF0ZzNkNnp4L3dvcmsbWzIybSDilIIbWzExOzFI4pSCIBtbMm1Nb2RlbCDCtyByZWZlcmVuY2UtZml4dHVyZRtbMjJtICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAg4pSCG1sxMjsxSOKUgiAbWzJtL2hlbHAgZm9yIGNvbW1hbmRzG1syMm0gICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAg4pSCG1sxMzsxSOKUgiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAg4pSCG1sxNDsxSOKVsOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgA=="
+        },
+        {
+          "ms": 288.236583,
+          "output": "────────────╯\u001b[39m\u001b[49m\u001b[59m\u001b[0m\u001b[15;1H\u001b[J\u001b[15;1H\u001b[J\u001b[15;1H\u001b[J",
+          "bytesBase64": "4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pWvG1szOW0bWzQ5bRtbNTltG1swbRtbMTU7MUgbW0obWzE1OzFIG1tKG1sxNTsxSBtbSg=="
+        },
+        {
+          "ms": 288.306417,
+          "output": "\u001b[?2026h\u001b[15;1H⠋\u001b[15;3HStarting\u001b[15;12Hsession…\u001b[15;21H0.0s\u001b[16;1H❯\u001b[17;1Hreference-fixture\u001b[2m · \u001b[22mctrl+o\u001b[17;28Htranscript\u001b[39m\u001b[49m\u001b[59m\u001b[0m\u001b[16;3H\u001b[?25h\u001b[?2026l",
+          "bytesBase64": "G1s/MjAyNmgbWzE1OzFI4qCLG1sxNTszSFN0YXJ0aW5nG1sxNTsxMkhzZXNzaW9u4oCmG1sxNTsyMUgwLjBzG1sxNjsxSOKdrxtbMTc7MUhyZWZlcmVuY2UtZml4dHVyZRtbMm0gwrcgG1syMm1jdHJsK28bWzE3OzI4SHRyYW5zY3JpcHQbWzM5bRtbNDltG1s1OW0bWzBtG1sxNjszSBtbPzI1aBtbPzIwMjZs"
+        },
+        {
+          "ms": 346.146417,
+          "output": "\u001b[?2026h\u001b[?2026h\u001b[15;1H\u001b[2mminimal · /help                                                                                     \u001b[39m\u001b[49m\u001b[59m\u001b[0m\u001b[16;3H\u001b[?2026l",
+          "bytesBase64": "G1s/MjAyNmgbWz8yMDI2aBtbMTU7MUgbWzJtbWluaW1hbCDCtyAvaGVscCAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzM5bRtbNDltG1s1OW0bWzBtG1sxNjszSBtbPzIwMjZs"
+        },
+        {
+          "ms": 355.478792,
+          "output": "\u001b[?2026h\u001b[?2026h\u001b[17;21H1.5K /\u001b[17;28H128K (1%)\u001b[2m · \u001b[22mctrl+o\u001b[17;47Htranscript\u001b[39m\u001b[49m\u001b[59m\u001b[0m\u001b[16;3H\u001b[?2026l",
+          "bytesBase64": "G1s/MjAyNmgbWz8yMDI2aBtbMTc7MjFIMS41SyAvG1sxNzsyOEgxMjhLICgxJSkbWzJtIMK3IBtbMjJtY3RybCtvG1sxNzs0N0h0cmFuc2NyaXB0G1szOW0bWzQ5bRtbNTltG1swbRtbMTY7M0gbWz8yMDI2bA=="
+        },
+        {
+          "ms": 449.479167,
+          "action": "draft",
+          "offset": 2745,
+          "inputHex": "5245464552454e4345313333",
+          "observedMs": 490.077,
+          "markerFound": true,
+          "endOffset": 2815
+        },
+        {
+          "ms": 452.890292,
+          "output": "\u001b[?2026h\u001b[?2026h\u001b[16;3HREFERENCE133\u001b[39m\u001b[49m\u001b[59m\u001b[0m\u001b[16;15H\u001b[?2026l",
+          "bytesBase64": "G1s/MjAyNmgbWz8yMDI2aBtbMTY7M0hSRUZFUkVOQ0UxMzMbWzM5bRtbNDltG1s1OW0bWzBtG1sxNjsxNUgbWz8yMDI2bA=="
+        },
+        {
+          "ms": 644.732708,
+          "action": "clear-draft",
+          "offset": 2815,
+          "inputHex": "03",
+          "observedMs": 956.74725,
+          "markerFound": null,
+          "endOffset": 2884
+        },
+        {
+          "ms": 644.904458,
+          "output": "\u001b[?2026h\u001b[?2026h\u001b[16;3H            \u001b[39m\u001b[49m\u001b[59m\u001b[0m\u001b[16;3H\u001b[?2026l",
+          "bytesBase64": "G1s/MjAyNmgbWz8yMDI2aBtbMTY7M0ggICAgICAgICAgICAbWzM5bRtbNDltG1s1OW0bWzBtG1sxNjszSBtbPzIwMjZs"
+        },
+        {
+          "ms": 1120.342375,
+          "action": "announcements-invalid",
+          "offset": 2884,
+          "inputHex": "2f616e6e6f756e63656d656e747320696e76616c69640d",
+          "observedMs": 1167.511792,
+          "markerFound": true,
+          "endOffset": 3317
+        },
+        {
+          "ms": 1125.000917,
+          "output": "\u001b[?2026h\u001b[15;1H\u001b[2mUsage: /announcements hide | show\u001b[22m                                                                   \u001b[39m\u001b[49m\u001b[59m\u001b[0m\u001b[16;1H\u001b[J",
+          "bytesBase64": "G1s/MjAyNmgbWzE1OzFIG1sybVVzYWdlOiAvYW5ub3VuY2VtZW50cyBoaWRlIHwgc2hvdxtbMjJtICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbMzltG1s0OW0bWzU5bRtbMG0bWzE2OzFIG1tK"
+        },
+        {
+          "ms": 1125.036042,
+          "output": "\u001b[?2026h\u001b[16;1H\u001b[2mminimal · /help                                                                                     \u001b[17;1H\u001b[22m❯\u001b[18;1Hreference-fixture\u001b[2m · \u001b[22m1.5K\u001b[18;26H/\u001b[18;28H128K\u001b[18;33H(1%)\u001b[2m · \u001b[22mctrl+o\u001b[18;47Htranscript\u001b[39m\u001b[49m\u001b[59m\u001b[0m\u001b[17;3H\u001b[?2026l",
+          "bytesBase64": "G1s/MjAyNmgbWzE2OzFIG1sybW1pbmltYWwgwrcgL2hlbHAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgG1sxNzsxSBtbMjJt4p2vG1sxODsxSHJlZmVyZW5jZS1maXh0dXJlG1sybSDCtyAbWzIybTEuNUsbWzE4OzI2SC8bWzE4OzI4SDEyOEsbWzE4OzMzSCgxJSkbWzJtIMK3IBtbMjJtY3RybCtvG1sxODs0N0h0cmFuc2NyaXB0G1szOW0bWzQ5bRtbNTltG1swbRtbMTc7M0gbWz8yMDI2bA=="
+        },
+        {
+          "ms": 1324.6495,
+          "action": "announcements-hide",
+          "offset": 3317,
+          "inputHex": "2f616e6e6f756e63656d656e747320686964650d",
+          "observedMs": 5336.115417,
+          "markerFound": false,
+          "endOffset": 3317
+        },
+        {
+          "ms": 5497.74725,
+          "action": "announcements-show",
+          "offset": 3317,
+          "inputHex": "2f616e6e6f756e63656d656e74732073686f770d",
+          "observedMs": 9512.530208,
+          "markerFound": false,
+          "endOffset": 3317
+        },
+        {
+          "ms": 9672.681833,
+          "action": "cd-outside-dashboard",
+          "offset": 3317,
+          "inputHex": "2f63640d",
+          "observedMs": 13683.807667,
+          "markerFound": false,
+          "endOffset": 3317
+        },
+        {
+          "ms": 13838.26325,
+          "action": "gboom-no-session",
+          "offset": 3317,
+          "inputHex": "2f67626f6f6d0d",
+          "observedMs": 17838.331042,
+          "markerFound": false,
+          "endOffset": 3317
+        },
+        {
+          "ms": 18001.436042,
+          "action": "gboom-dismiss",
+          "offset": 3317,
+          "inputHex": "1b",
+          "observedMs": 18301.947625,
+          "markerFound": null,
+          "endOffset": 3317
+        },
+        {
+          "ms": 18462.919417,
+          "action": "dashboard-open",
+          "offset": 3317,
+          "inputHex": "2f64617368626f6172640d",
+          "observedMs": 18506.87875,
+          "markerFound": true,
+          "endOffset": 3866
+        },
+        {
+          "ms": 18467.227333,
+          "output": "\u001b[?2026h\u001b[16;1H\u001b[2m/dashboard isn't available in minimal mode (minimal is single-session). Run /fullscreen to switch\u001b[22m   \u001b[17;1H\u001b[2mthis session.\u001b[22m                                                                                       \u001b[39m\u001b[49m\u001b[59m\u001b[0m\u001b[18;1H\u001b[J",
+          "bytesBase64": "G1s/MjAyNmgbWzE2OzFIG1sybS9kYXNoYm9hcmQgaXNuJ3QgYXZhaWxhYmxlIGluIG1pbmltYWwgbW9kZSAobWluaW1hbCBpcyBzaW5nbGUtc2Vzc2lvbikuIFJ1biAvZnVsbHNjcmVlbiB0byBzd2l0Y2gbWzIybSAgIBtbMTc7MUgbWzJtdGhpcyBzZXNzaW9uLhtbMjJtICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgG1szOW0bWzQ5bRtbNTltG1swbRtbMTg7MUgbW0o="
+        },
+        {
+          "ms": 18467.263208,
+          "output": "\u001b[?2026h\u001b[18;1H\u001b[2mminimal · /help                                                                                     \u001b[19;1H\u001b[22m❯\u001b[20;1Hreference-fixture\u001b[2m · \u001b[22m1.5K\u001b[20;26H/\u001b[20;28H128K\u001b[20;33H(1%)\u001b[2m · \u001b[22mctrl+o\u001b[20;47Htranscript\u001b[39m\u001b[49m\u001b[59m\u001b[0m\u001b[19;3H\u001b[?2026l",
+          "bytesBase64": "G1s/MjAyNmgbWzE4OzFIG1sybW1pbmltYWwgwrcgL2hlbHAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgG1sxOTsxSBtbMjJt4p2vG1syMDsxSHJlZmVyZW5jZS1maXh0dXJlG1sybSDCtyAbWzIybTEuNUsbWzIwOzI2SC8bWzIwOzI4SDEyOEsbWzIwOzMzSCgxJSkbWzJtIMK3IBtbMjJtY3RybCtvG1syMDs0N0h0cmFuc2NyaXB0G1szOW0bWzQ5bRtbNTltG1swbRtbMTk7M0gbWz8yMDI2bA=="
+        },
+        {
+          "ms": 18664.871125,
+          "action": "cd-picker",
+          "offset": 3866,
+          "inputHex": "2f63640d",
+          "observedMs": 22666.376208,
+          "markerFound": false,
+          "endOffset": 3866
+        },
+        {
+          "ms": 22828.670042,
+          "action": "cd-picker-dismiss",
+          "offset": 3866,
+          "inputHex": "1b",
+          "observedMs": 23137.659,
+          "markerFound": null,
+          "endOffset": 3866
+        },
+        {
+          "ms": 23298.142958,
+          "action": "cd-clear-placeholder",
+          "offset": 3866,
+          "inputHex": "03",
+          "observedMs": 23603.588917,
+          "markerFound": null,
+          "endOffset": 4035
+        },
+        {
+          "ms": 23298.278375,
+          "output": "\u001b[?2026h\u001b[?2026h\u001b[20;1H\u001b[38;5;3;49mpress Ctrl+c again to quit                                                                          \u001b[39m\u001b[49m\u001b[59m\u001b[0m\u001b[19;3H\u001b[?2026l",
+          "bytesBase64": "G1s/MjAyNmgbWz8yMDI2aBtbMjA7MUgbWzM4OzU7Mzs0OW1wcmVzcyBDdHJsK2MgYWdhaW4gdG8gcXVpdCAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgG1szOW0bWzQ5bRtbNTltG1swbRtbMTk7M0gbWz8yMDI2bA=="
+        },
+        {
+          "ms": 23762.267667,
+          "action": "cd-invalid",
+          "offset": 4035,
+          "inputHex": "2f6364202f5245464552454e43453133335f4d495353494e470d",
+          "observedMs": 23807.025,
+          "markerFound": true,
+          "endOffset": 4212
+        },
+        {
+          "ms": 23766.536875,
+          "output": "\u001b[?2026h\u001b[?2026h\u001b[20;1Hreference-fixture\u001b[2m · \u001b[22m1.5K / 128K (1%)\u001b[2m · \u001b[22mctrl+o transcript                                            \u001b[39m\u001b[49m\u001b[59m\u001b[0m\u001b[19;3H\u001b[?2026l",
+          "bytesBase64": "G1s/MjAyNmgbWz8yMDI2aBtbMjA7MUhyZWZlcmVuY2UtZml4dHVyZRtbMm0gwrcgG1syMm0xLjVLIC8gMTI4SyAoMSUpG1sybSDCtyAbWzIybWN0cmwrbyB0cmFuc2NyaXB0ICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzM5bRtbNDltG1s1OW0bWzBtG1sxOTszSBtbPzIwMjZs"
+        },
+        {
+          "ms": 23965.727958,
+          "action": "dashboard-dismiss",
+          "offset": 4212,
+          "inputHex": "1b",
+          "observedMs": 24268.085625,
+          "markerFound": null,
+          "endOffset": 4212
+        },
+        {
+          "ms": 24432.039708,
+          "action": "after-small-draft",
+          "offset": 4212,
+          "inputHex": "41465445525f534d414c4c5f50524f4245",
+          "observedMs": 24476.019292,
+          "markerFound": true,
+          "endOffset": 4287
+        },
+        {
+          "ms": 24435.958708,
+          "output": "\u001b[?2026h\u001b[?2026h\u001b[19;3HAFTER_SMALL_PROBE\u001b[39m\u001b[49m\u001b[59m\u001b[0m\u001b[19;20H\u001b[?2026l",
+          "bytesBase64": "G1s/MjAyNmgbWz8yMDI2aBtbMTk7M0hBRlRFUl9TTUFMTF9QUk9CRRtbMzltG1s0OW0bWzU5bRtbMG0bWzE5OzIwSBtbPzIwMjZs"
+        },
+        {
+          "ms": 24635.213375,
+          "action": "after-small-clear",
+          "offset": 4287,
+          "inputHex": "03",
+          "observedMs": 24941.556875,
+          "markerFound": null,
+          "endOffset": 4361
+        },
+        {
+          "ms": 24635.341417,
+          "output": "\u001b[?2026h\u001b[?2026h\u001b[19;3H                 \u001b[39m\u001b[49m\u001b[59m\u001b[0m\u001b[19;3H\u001b[?2026l",
+          "bytesBase64": "G1s/MjAyNmgbWz8yMDI2aBtbMTk7M0ggICAgICAgICAgICAgICAgIBtbMzltG1s0OW0bWzU5bRtbMG0bWzE5OzNIG1s/MjAyNmw="
+        },
+        {
+          "ms": 25098.4085,
+          "action": "quit",
+          "offset": 4361,
+          "inputHex": "2f717569740d",
+          "observedMs": 25172.511375,
+          "markerFound": null,
+          "endOffset": 4551
+        },
+        {
+          "ms": 25102.807333,
+          "output": "\u001b]0;grok\u0007",
+          "bytesBase64": "G10wO2dyb2sH"
+        },
+        {
+          "ms": 25105.135167,
+          "output": "\u001b]9;4;0;0\u0007\u001b[?2026l\u001b[?1000l\u001b[?1002l\u001b[?1003l\u001b[?1015l\u001b[?1006l\u001b[?2004l\u001b[?1004l",
+          "bytesBase64": "G105OzQ7MDswBxtbPzIwMjZsG1s/MTAwMGwbWz8xMDAybBtbPzEwMDNsG1s/MTAxNWwbWz8xMDA2bBtbPzIwMDRsG1s/MTAwNGw="
+        },
+        {
+          "ms": 25105.147833,
+          "output": "\u001b[21;1H\u001b[?25h\n",
+          "bytesBase64": "G1syMTsxSBtbPzI1aAo="
+        },
+        {
+          "ms": 25169.80775,
+          "output": "\r\nResume this session with:\r\n  grok --minimal --resume 01a0bb59-3a1b-7393-babf-86761e0ec272\r\n",
+          "bytesBase64": "DQpSZXN1bWUgdGhpcyBzZXNzaW9uIHdpdGg6DQogIGdyb2sgLS1taW5pbWFsIC0tcmVzdW1lIDAxYTBiYjU5LTNhMWItNzM5My1iYWJmLTg2NzYxZTBlYzI3Mg0K"
+        }
+      ],
+      "firstFrameMs": 288.230292,
+      "rss": [
+        {
+          "action": "draft",
+          "ms": 494.243833,
+          "rssKiB": 93280
+        },
+        {
+          "action": "clear-draft",
+          "ms": 960.502875,
+          "rssKiB": 93248
+        },
+        {
+          "action": "announcements-invalid",
+          "ms": 1170.991083,
+          "rssKiB": 94064
+        },
+        {
+          "action": "announcements-hide",
+          "ms": 5340.631542,
+          "rssKiB": 94144
+        },
+        {
+          "action": "announcements-show",
+          "ms": 9517.2685,
+          "rssKiB": 94096
+        },
+        {
+          "action": "cd-outside-dashboard",
+          "ms": 13687.890375,
+          "rssKiB": 94192
+        },
+        {
+          "action": "gboom-no-session",
+          "ms": 17845.513417,
+          "rssKiB": 94192
+        },
+        {
+          "action": "gboom-dismiss",
+          "ms": 18306.04075,
+          "rssKiB": 94208
+        },
+        {
+          "action": "dashboard-open",
+          "ms": 18512.400333,
+          "rssKiB": 94272
+        },
+        {
+          "action": "cd-picker",
+          "ms": 22669.856833,
+          "rssKiB": 94272
+        },
+        {
+          "action": "cd-picker-dismiss",
+          "ms": 23143.247792,
+          "rssKiB": 94272
+        },
+        {
+          "action": "cd-clear-placeholder",
+          "ms": 23607.662458,
+          "rssKiB": 94272
+        },
+        {
+          "action": "cd-invalid",
+          "ms": 23810.425833,
+          "rssKiB": 94288
+        },
+        {
+          "action": "dashboard-dismiss",
+          "ms": 24271.487708,
+          "rssKiB": 94288
+        },
+        {
+          "action": "after-small-draft",
+          "ms": 24479.354958,
+          "rssKiB": 94288
+        },
+        {
+          "action": "after-small-clear",
+          "ms": 24948.351917,
+          "rssKiB": 94288
+        },
+        {
+          "action": "quit",
+          "ms": 25176.239542,
+          "rssKiB": 0
+        }
+      ],
+      "exit": 0,
+      "forcedCleanup": false,
+      "restoredAlternateScreen": false,
+      "outputBytes": 4551,
+      "outputSha256": "95712ab9a221b3925db60f1dcdda21afe59ad7a955bd4c33e196d56fada9fab3"
+    }
+  ]
+}

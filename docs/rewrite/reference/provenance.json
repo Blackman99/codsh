@@ -278,7 +278,7 @@
     "acp-extension": 264,
     "cli": 99,
     "documented-setting": 454,
-    "environment": 519,
+    "environment": 599,
     "feature": 20,
     "flag": 641,
     "guide-behavior": 1680,
@@ -292,6 +292,6 @@
     "source-command": 77,
     "tool": 52
   },
-  "sourceEvidenceSha256": "506f47318a9285c690a371a0a64095b2c8b1f29a87ad3362a018c7d63aaba762",
+  "sourceEvidenceSha256": "e4cf6fbf7d7a8c7215bde74c12c022ba0935eeecb22ccf72be90c24cdec5d60b",
   "evidenceBoundary": "Help/schema/doc/source observation is not candidate parity. All candidate rows remain pending-parity."
 }

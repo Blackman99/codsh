@@ -3,6 +3,7 @@ import { execFileSync } from 'node:child_process'
 import { readFileSync, readdirSync, writeFileSync } from 'node:fs'
 import { resolve, join } from 'node:path'
 import { pathToFileURL } from 'node:url'
+import { buildRegister } from './reference-mapping.mjs'
 
 export const SOURCE_COMMIT = 'a28ee2b2063426e8816e380ccea528b9de95e5da'
 export const BINARY_SHA256 = '9cd26b579840f0f5c9148a8059ad651904c08b41b7f2ef0b4ec04b9ba898844e'
@@ -18,6 +19,15 @@ function files(root, path) {
   }).sort()
 }
 
+function environmentControls(text) {
+  const controls = new Map()
+  const add = (name, offset) => controls.set(`${offset}:${name}`, { name, offset })
+  for (const match of text.matchAll(/"((?:GROK_|XAI_|OTEL_|DO_NOT_TRACK)[A-Z0-9_]*)"/gu)) add(match[1], match.index)
+  for (const match of text.matchAll(/(?:\b(?:std::)?env::(?:var|var_os)|\b(?:var|var_os))\s*\(\s*"([A-Z][A-Z0-9_]+)"/gu)) add(match[1], match.index + match[0].indexOf('"'))
+  for (const match of text.matchAll(/\bconst\s+(?:ENV_[A-Z0-9_]+|[A-Z0-9_]+_ENV(?:_VAR)?)\s*:\s*&str\s*=\s*"([A-Z][A-Z0-9_]+)"/gu)) add(match[1], match.index + match[0].indexOf('"'))
+  return [...controls.values()]
+}
+
 export function sourceInputs(root) {
   const paths = new Set([
     `${codegen}xai-grok-config-types/src/registry.rs`,
@@ -28,8 +38,8 @@ export function sourceInputs(root) {
     ...files(root, `${codegen}xai-grok-shell/src`).filter(path => path.endsWith('.rs')),
     ...files(root, `${codegen}xai-grok-tools-api/src`).filter(path => path.endsWith('.rs')),
     ...files(root, `${pager}docs/user-guide`).filter(path => path.endsWith('.md')),
-    ...files(root, 'crates').filter(path => path.endsWith('.rs') && /"(?:GROK_|XAI_|OTEL_|DO_NOT_TRACK)[A-Z0-9_]*"/u.test(readFileSync(join(root, path), 'utf8'))),
-    ...files(root, 'prod').filter(path => path.endsWith('.rs') && /"(?:GROK_|XAI_|OTEL_|DO_NOT_TRACK)[A-Z0-9_]*"/u.test(readFileSync(join(root, path), 'utf8'))),
+    ...files(root, 'crates').filter(path => path.endsWith('.rs') && environmentControls(readFileSync(join(root, path), 'utf8')).length > 0),
+    ...files(root, 'prod').filter(path => path.endsWith('.rs') && environmentControls(readFileSync(join(root, path), 'utf8')).length > 0),
   ])
   return [...paths].filter(path => !/(?:\/tests?\/|_tests\.rs$|\/tests\.rs$)/u.test(path))
     .sort().map(path => ({ path, text: readFileSync(join(root, path), 'utf8') }))
@@ -150,6 +160,10 @@ export function extractSurfaces(capture, sources) {
       for (const match of line.matchAll(/\b(?:GROK_[A-Z0-9_]+|XAI_API_KEY|DO_NOT_TRACK|OTEL_[A-Z0-9_]+)\b/gu)) {
         add('environment', match[0], line, locator, origin)
       }
+      const context = lines.slice(Math.max(0, index - 1), index + 2).join('\n')
+      if (/\benv(?:ironment)?(?:[ -](?:variable|override|control))?\b/iu.test(context)) {
+        for (const match of line.matchAll(/`([A-Z][A-Z0-9]*_[A-Z0-9_]+)`/gu)) add('environment', match[1], line, locator, origin)
+      }
       if (line.startsWith('```')) {
         code = !code
         toml = code && line === '```toml'
@@ -218,8 +232,8 @@ export function extractSurfaces(capture, sources) {
     }
     const production = text.replace(/#\[cfg\(test\)\]\s*(?:pub\s+)?mod\s+\w+\s*;/gu, value => value.replace(/[^\n]/gu, ' ')).split(/#\[cfg\(test\)\]\s*mod \w+\s*\{/u)[0]
     const at = offset => `source:${path}#L${production.slice(0, offset).split('\n').length}`
-    for (const match of production.matchAll(/"((?:GROK_|XAI_|OTEL_|DO_NOT_TRACK)[A-Z0-9_]*)"/gu)) {
-      add('environment', match[1], production.split('\n')[production.slice(0, match.index).split('\n').length - 1].trim(), at(match.index), 'source-environment-provisional')
+    for (const { name, offset } of environmentControls(production)) {
+      add('environment', name, production.split('\n')[production.slice(0, offset).split('\n').length - 1].trim(), at(offset), 'source-environment-provisional')
     }
     if (path.startsWith(`${pager}src/`) && !path.includes('/slash/')) {
       for (const match of production.matchAll(/#\[(?:arg|command|clap)\(([\s\S]*?)\)\]/gu)) {
@@ -385,6 +399,15 @@ export function checkInventory(register, discovery, evidence = loadEvidence()) {
     if (!tickets.has(test.ticket)) errors.push(`acceptance ticket ${test.id}`)
   }
   if (register.discoverySha256 !== sha256(JSON.stringify(discovery))) errors.push('discovery digest mismatch')
+  try {
+    const mapped = buildRegister(discovery, register.tickets, evidence)
+    const expectedMappings = new Map(mapped.items.map(item => [item.key, item]))
+    for (const item of register.items) {
+      const expected = expectedMappings.get(item.key)
+      if (expected && ['tickets', 'stories', 'acceptance', 'blocker'].some(field => JSON.stringify(item[field]) !== JSON.stringify(expected[field]))) errors.push(`contextual mapping drift ${item.key}`)
+    }
+    if (JSON.stringify(register.acceptance) !== JSON.stringify(mapped.acceptance)) errors.push('contextual acceptance drift')
+  } catch (error) { errors.push(`contextual mapping error: ${error.message}`) }
   return errors
 }
 
