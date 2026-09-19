@@ -13,6 +13,51 @@ probe = module_from_spec(spec)
 spec.loader.exec_module(probe)
 
 
+def validate_output(command):
+    if command['exit'] != 0 or command.get('timedOut'):
+        raise ValueError('Reference command failed')
+    output_format = command['args'][command['args'].index('--output-format') + 1]
+    text = command['stdout']
+    marker = 'REFERENCE_LOCAL_OK'
+    if output_format == 'plain':
+        valid = text.strip() == marker
+    elif output_format == 'json':
+        value = json.loads(text)
+        valid = (isinstance(value, dict) and value.get('text') == marker
+                 and value.get('stopReason') == 'end_turn'
+                 and bool(value.get('sessionId')) and bool(value.get('requestId')))
+    else:
+        events = [json.loads(line) for line in text.splitlines() if line.strip()]
+        if not events or any(not isinstance(event, dict) for event in events):
+            raise ValueError('Expected structured stream events')
+        if output_format == 'streaming-json':
+            ends = [event for event in events if event.get('type') == 'end']
+            valid = (len(ends) == 1 and events[-1] is ends[0]
+                     and ends[0].get('stopReason') == 'end_turn'
+                     and bool(ends[0].get('sessionId')) and bool(ends[0].get('requestId'))
+                     and ''.join(event.get('data', '') for event in events if event.get('type') == 'text') == marker)
+        elif output_format == 'streaming-messages-json':
+            ends = [event for event in events if event.get('type') == 'result']
+            init = events[0]
+            assistants = [event for event in events if event.get('type') == 'assistant']
+            valid = (init.get('type') == 'system' and init.get('subtype') == 'init'
+                     and init.get('model') == 'reference-fixture' and bool(init.get('session_id'))
+                     and len(ends) == 1 and events[-1] is ends[0]
+                     and ends[0].get('subtype') == 'success' and ends[0].get('is_error') is False
+                     and ends[0].get('result') == marker and ends[0].get('stop_reason') == 'end_turn'
+                     and ends[0].get('session_id') == init.get('session_id')
+                     and len(assistants) == 1
+                     and assistants[0].get('session_id') == init.get('session_id')
+                     and assistants[0].get('message', {}).get('role') == 'assistant'
+                     and assistants[0].get('message', {}).get('model') == 'reference-fixture'
+                     and assistants[0].get('message', {}).get('stop_reason') == 'end_turn'
+                     and ''.join(block.get('text', '') for block in assistants[0].get('message', {}).get('content', []) if block.get('type') == 'text') == marker)
+        else:
+            raise ValueError('Unknown output format')
+    if not valid:
+        raise ValueError(f'Invalid {output_format} content or terminal record')
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--binary', required=True, type=Path)
@@ -76,8 +121,8 @@ def main():
         server.shutdown()
         server.server_close()
         worker.join()
-    if any(item['exit'] != 0 or 'REFERENCE_LOCAL_OK' not in item['stdout'] for item in observations):
-        raise SystemExit('Reference output assertion failed; inspect the recorded evidence.')
+    for observation in observations:
+        validate_output(observation)
     print(f'Passed {len(observations)} installed headless formats; {len(requests)} loopback requests.')
 
 

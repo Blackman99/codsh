@@ -5,6 +5,8 @@ import { resolve, join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 
 export const SOURCE_COMMIT = 'a28ee2b2063426e8816e380ccea528b9de95e5da'
+export const BINARY_SHA256 = '9cd26b579840f0f5c9148a8059ad651904c08b41b7f2ef0b4ec04b9ba898844e'
+const evidenceRoot = new URL('../docs/rewrite/reference/', import.meta.url)
 const sha256 = text => createHash('sha256').update(text).digest('hex')
 const codegen = 'crates/codegen/'
 const pager = `${codegen}xai-grok-pager/`
@@ -26,6 +28,8 @@ export function sourceInputs(root) {
     ...files(root, `${codegen}xai-grok-shell/src`).filter(path => path.endsWith('.rs')),
     ...files(root, `${codegen}xai-grok-tools-api/src`).filter(path => path.endsWith('.rs')),
     ...files(root, `${pager}docs/user-guide`).filter(path => path.endsWith('.md')),
+    ...files(root, 'crates').filter(path => path.endsWith('.rs') && /"(?:GROK_|XAI_|OTEL_|DO_NOT_TRACK)[A-Z0-9_]*"/u.test(readFileSync(join(root, path), 'utf8'))),
+    ...files(root, 'prod').filter(path => path.endsWith('.rs') && /"(?:GROK_|XAI_|OTEL_|DO_NOT_TRACK)[A-Z0-9_]*"/u.test(readFileSync(join(root, path), 'utf8'))),
   ])
   return [...paths].filter(path => !/(?:\/tests?\/|_tests\.rs$|\/tests\.rs$)/u.test(path))
     .sort().map(path => ({ path, text: readFileSync(join(root, path), 'utf8') }))
@@ -47,7 +51,17 @@ export function extractSurfaces(capture, sources) {
       add('tool', tool.name, JSON.stringify(tool), `model:requests/${index}/tools/${tool.name}`, 'binary-model-schema')
     }
   }
+  for (const [index, terminal] of (capture.environmentProbes ?? []).entries()) {
+    if (terminal.environment?.GROK_FPS === '1') {
+      const eventIndex = terminal.events.findIndex(event => /fps/iu.test(event.output ?? ''))
+      if (eventIndex >= 0) add('environment', 'GROK_FPS', terminal.events[eventIndex].output,
+        `capture:environmentProbes/${index}/events/${eventIndex}`, 'binary-pty-observation')
+    }
+  }
   for (const [index, command] of capture.commands.entries()) {
+    if (command.exit === 2 && command.args.length === 1 && /^--[a-zA-Z]/u.test(command.args[0]) && /a value is required|requires a value/u.test(command.stderr) && !/unexpected argument/u.test(command.stderr)) {
+      add('flag', `grok:${command.args[0]}`, command.stderr, `capture:commands/${index}`, 'binary-argument-recognition')
+    }
     if (command.exit !== 0 || command.args.at(-1) !== '--help') continue
     const path = command.args.slice(0, -1).join(' ')
     const locator = `capture:commands/${index}`
@@ -63,7 +77,7 @@ export function extractSurfaces(capture, sources) {
       }
     }
     for (const line of command.stdout.split('\n')) {
-      if (!/^\s+(?:-[a-zA-Z], )?--[a-z]/u.test(line) && !line.includes('[aliases:')) continue
+      if (!/^\s+(?:-[a-zA-Z], )?--[a-z]/u.test(line) && !line.includes('[aliases:') && !line.includes('alias:')) continue
       for (const flag of line.matchAll(/(?<![a-zA-Z0-9-])--?[a-zA-Z][a-zA-Z0-9-]*/gu)) {
         add('flag', `${path || 'grok'}:${flag[0]}`, line.trim(), locator, 'binary-help')
       }
@@ -145,13 +159,23 @@ export function extractSurfaces(capture, sources) {
     }
     const production = text.replace(/#\[cfg\(test\)\]\s*(?:pub\s+)?mod\s+\w+\s*;/gu, value => value.replace(/[^\n]/gu, ' ')).split(/#\[cfg\(test\)\]\s*mod \w+\s*\{/u)[0]
     const at = offset => `source:${path}#L${production.slice(0, offset).split('\n').length}`
+    for (const match of production.matchAll(/"((?:GROK_|XAI_|OTEL_|DO_NOT_TRACK)[A-Z0-9_]*)"/gu)) {
+      add('environment', match[1], production.split('\n')[production.slice(0, match.index).split('\n').length - 1].trim(), at(match.index), 'source-environment-provisional')
+    }
     if (path.startsWith(`${pager}src/`) && !path.includes('/slash/')) {
-      for (const match of production.matchAll(/#\[(?:arg|command)\(([\s\S]*?)\)\]/gu)) {
+      for (const match of production.matchAll(/#\[(?:arg|command|clap)\(([\s\S]*?)\)\]/gu)) {
         if (/arg\(skip\)/u.test(match[0])) continue
-        for (const flag of match[1].matchAll(/(?:long|(?:visible_)?alias)\s*=\s*"([a-z][a-z0-9-]*)"/gu)) {
-          add('source-cli', `${path}:--${flag[1]}`, match[0], at(match.index), 'source-declaration')
+        for (const flag of match[1].matchAll(/\b(?:long|(?:visible_)?alias)\s*=\s*"(-*[a-zA-Z][a-zA-Z0-9-]*)"/gu)) {
+          const prefix = match[0].startsWith('#[command(') ? '' : '--'
+          add('source-cli', `${path}:${prefix}${flag[1]}`, match[0], at(match.index), 'source-declaration')
         }
-        if (/(?:^|[\s,])long(?:[\s,]|$)/u.test(match[1])) {
+        for (const short of match[1].matchAll(/\bshort(?:_alias)?\s*=\s*'([a-zA-Z])'/gu)) {
+          add('source-cli', `${path}:-${short[1]}`, match[0], at(match.index), 'source-declaration')
+        }
+        for (const aliases of match[1].matchAll(/(?:visible_)?aliases\s*=\s*&?\[([^\]]*)\]/gu)) {
+          for (const alias of aliases[1].matchAll(/"([a-zA-Z][a-zA-Z0-9-]*)"/gu)) add('source-cli', `${path}:--${alias[1]}`, match[0], at(match.index), 'source-declaration')
+        }
+        if (/(?:^|,)\s*long\s*(?:,|$)/u.test(match[1])) {
           const field = production.slice(match.index + match[0].length).match(/^\s*(?:pub )?([a-z][a-z0-9_]*):/u)
           if (field) add('source-cli', `${path}:--${field[1].replaceAll('_', '-')}`, match[0], at(match.index), 'source-declaration')
         }
@@ -166,7 +190,7 @@ export function extractSurfaces(capture, sources) {
     if (path.includes('/slash/commands/')) {
       for (const match of production.matchAll(/slash_meta!\s*\{\s*name: "([^"]+)"[\s\S]*?\n    \}/gu)) {
         add('slash', match[1], match[0], at(match.index), 'source-registry')
-        const aliases = match[0].match(/aliases: &\[([^\]]*)\]/u)?.[1] ?? ''
+        const aliases = match[0].match(/aliases:\s*&?\[([^\]]*)\]/u)?.[1] ?? ''
         for (const alias of aliases.matchAll(/"([^"]+)"/gu)) add('slash', alias[1], match[0], at(match.index), 'source-registry')
       }
       for (const match of production.matchAll(/fn name\(&self\) -> &str \{\s*"([^"]+)"/gu)) {
@@ -203,8 +227,67 @@ export function extractSurfaces(capture, sources) {
   return [...items.values()].sort((a, b) => a.key.localeCompare(b.key, 'en'))
 }
 
-export function checkInventory(register, discovery) {
+export function loadEvidence(root = evidenceRoot) {
+  const read = name => JSON.parse(readFileSync(root instanceof URL ? new URL(name, root) : join(root, name), 'utf8'))
+  return { capture: read('observations.json'), model: read('model-observations.json'),
+    provenance: read('provenance.json'), source: read('source-evidence.json') }
+}
+
+export function sourceEvidence(discovery, sources) {
+  const byPath = new Map(sources.map(source => [source.path, source.text]))
+  const fragments = new Map(), lengths = new Map()
+  for (const item of discovery.items) for (const observation of item.observations) lengths.set(observation.locator, Math.max(lengths.get(observation.locator) ?? 0, observation.excerpt.split('\n').length))
+  for (const item of discovery.items) for (const observation of item.observations) {
+    const match = observation.locator.match(/^source:([^#]+)#L(\d+)$/u)
+    if (!match || fragments.has(observation.locator)) continue
+    const text = byPath.get(match[1])
+    if (text === undefined) throw new Error(`Missing source ${match[1]}`)
+    const lines = text.split('\n'), start = Number(match[2])
+    const length = lengths.get(observation.locator)
+    if (start < 1 || start + length - 1 > lines.length) throw new Error(`Invalid source line ${observation.locator}`)
+    fragments.set(observation.locator, { path: match[1], startLine: start,
+      text: lines.slice(start - 1, start - 1 + length).join('\n') })
+  }
+  const referenced = new Set([...fragments.values()].map(fragment => fragment.path))
+  return { sourceCommit: SOURCE_COMMIT,
+    files: sources.filter(source => referenced.has(source.path) || source.path.endsWith('.md')).map(({ path, text }) => ({ path, sha256: sha256(text), lineCount: text.split('\n').length })),
+    guides: sources.filter(source => source.path.endsWith('.md')).map(({ path, text }) => ({ path, text })),
+    fragments: Object.fromEntries(fragments) }
+}
+
+export function checkInventory(register, discovery, evidence = loadEvidence()) {
   const errors = [], keys = new Set()
+  const { capture, model, provenance, source } = evidence
+  if ([discovery.binarySha256, capture.binarySha256, model.binarySha256, provenance.behavior.binarySha256].some(hash => hash !== BINARY_SHA256)) errors.push('binary provenance mismatch')
+  if (source.sourceCommit !== SOURCE_COMMIT || provenance.source.commit !== SOURCE_COMMIT) errors.push('source provenance mismatch')
+  if ([capture.reference, model.reference].some(version => version !== '1.0.34 (3736acbc8658)') || provenance.behavior.version !== '1.0.34' || provenance.behavior.build !== '3736acbc8658') errors.push('binary version provenance mismatch')
+  const inputs = new Map(discovery.inputs.map(input => [input.path, input.sha256]))
+  const sourceFiles = new Map(source.files.map(file => [file.path, file]))
+  if (sha256(`${JSON.stringify(source, null, 2)}\n`) !== provenance.sourceEvidenceSha256) errors.push('source evidence digest mismatch')
+  for (const guide of source.guides) if (sha256(guide.text) !== sourceFiles.get(guide.path)?.sha256) errors.push(`source guide hash mismatch ${guide.path}`)
+  for (const file of source.files) if (inputs.get(file.path) !== file.sha256) errors.push(`source hash mismatch ${file.path}`)
+  for (const guide of capture.guides) {
+    if (sha256(guide.text) !== guide.sha256 || discovery.guides.find(item => item.file === guide.file)?.sha256 !== guide.sha256) errors.push(`guide hash mismatch ${guide.file}`)
+  }
+  const expected = new Map(extractSurfaces({ ...capture, modelRequests: model.requests }, source.guides).map(item => [item.key, item]))
+  const actual = new Map(discovery.items.map(item => [item.key, item]))
+  for (const [key, item] of expected) {
+    if (!actual.has(key)) errors.push(`missing observed surface ${key}`)
+    for (const observation of item.observations) if (!actual.get(key)?.observations.some(value => value.locator === observation.locator && value.excerpt === observation.excerpt)) errors.push(`missing observed evidence ${key}`)
+  }
+  for (const item of discovery.items) for (const observation of item.observations) {
+    const match = observation.locator.match(/^source:([^#]+)#L(\d+)$/u)
+    let resolved
+    if (match) {
+      const file = sourceFiles.get(match[1]), fragment = source.fragments[observation.locator]
+      resolved = file && Number(match[2]) > 0 && Number(match[2]) <= file.lineCount
+        && fragment?.path === match[1] && fragment.startLine === Number(match[2])
+        && fragment.text.includes(observation.excerpt)
+    } else {
+      resolved = expected.get(item.key)?.observations.some(value => value.locator === observation.locator && value.excerpt === observation.excerpt && value.scope === observation.scope)
+    }
+    if (!resolved) errors.push(`unresolved evidence ${item.key}: ${observation.locator}`)
+  }
   if (discovery.sourceCommit !== SOURCE_COMMIT || discovery.reference !== '1.0.34 (3736acbc8658)') errors.push('reference provenance mismatch')
   if (new Set(discovery.items.map(item => item.key)).size !== discovery.items.length) errors.push('duplicate discovery identity')
   if (new Set(register.acceptance.map(item => item.id)).size !== register.acceptance.length) errors.push('duplicate acceptance identity')
@@ -239,7 +322,7 @@ export function checkInventory(register, discovery) {
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
   const [action, ...args] = process.argv.slice(2)
   if (action === 'extract') {
-    const [capturePath, sourceRoot, output, modelPath] = args
+    const [capturePath, sourceRoot, output, modelPath, evidencePath] = args
     if (execFileSync('git', ['-C', sourceRoot, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim() !== SOURCE_COMMIT) throw new Error('Source commit mismatch')
     if (execFileSync('git', ['-C', sourceRoot, 'status', '--porcelain'], { encoding: 'utf8' }).trim()) throw new Error('Source checkout is modified')
     const capture = JSON.parse(readFileSync(capturePath, 'utf8'))
@@ -251,15 +334,17 @@ if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1]
       guides: capture.guides.map(({ file, sha256 }) => ({ file, sha256 })),
       items: extractSurfaces(capture, inputs) }
     writeFileSync(output, `${JSON.stringify(discovery, null, 2)}\n`)
+    const evidence = sourceEvidence(discovery, inputs)
+    if (evidencePath) writeFileSync(evidencePath, `${JSON.stringify(evidence, null, 2)}\n`)
     console.log(`Discovered ${discovery.items.length} itemized surfaces.`)
   } else if (action === 'check') {
     const root = args[0] ?? 'docs/rewrite/reference'
     const register = JSON.parse(readFileSync(join(root, 'inventory.json'), 'utf8'))
     const discovery = JSON.parse(readFileSync(join(root, 'discovery.json'), 'utf8'))
-    const errors = checkInventory(register, discovery)
+    const errors = checkInventory(register, discovery, loadEvidence(root))
     if (errors.length) { console.error(errors.join('\n')); process.exitCode = 1 }
     else console.log(`Complete mapping: ${register.items.length} surfaces; parity remains pending.`)
   } else {
-    throw new Error('Usage: reference-inventory.mjs extract CAPTURE SOURCE OUTPUT [MODEL_CAPTURE] | check [DIRECTORY]')
+    throw new Error('Usage: reference-inventory.mjs extract CAPTURE SOURCE OUTPUT [MODEL_CAPTURE] [SOURCE_EVIDENCE_OUTPUT] | check [DIRECTORY]')
   }
 }

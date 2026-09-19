@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs'
+import { createHash } from 'node:crypto'
 import { describe, expect, it } from 'vitest'
-import { checkInventory, extractSurfaces } from './reference-inventory.mjs'
+import { checkInventory, extractSurfaces, loadEvidence } from './reference-inventory.mjs'
 
 const read = name => JSON.parse(readFileSync(new URL(`../docs/rewrite/reference/${name}`, import.meta.url), 'utf8'))
 
@@ -67,6 +68,69 @@ describe('frozen reference coverage register', () => {
     register.items[0].acceptance = ['PARITY-133']
     expect(checkInventory(register, read('discovery.json')).join('\n')).toMatch(/invalid evidence/)
     expect(checkInventory(register, read('discovery.json')).join('\n')).toMatch(/test mapping/)
+  })
+
+  it('rejects nonexistent evidence and mismatched binary pins even after digest recomputation', () => {
+    for (const mutation of ['capture', 'source', 'binary']) {
+      const register = read('inventory.json'), discovery = read('discovery.json')
+      if (mutation === 'binary') discovery.binarySha256 = '0'.repeat(64)
+      else {
+        const item = discovery.items.find(item => item.observations.some(o => o.locator.startsWith(`${mutation}:`)))
+        const observation = item.observations.find(o => o.locator.startsWith(`${mutation}:`))
+        const invalid = mutation === 'capture' ? 'capture:commands/999999' : observation.locator.replace(/#L\d+$/, '#L999999')
+        register.items.find(row => row.key === item.key).evidence = [invalid]
+        observation.locator = invalid
+      }
+      register.discoverySha256 = createHash('sha256').update(JSON.stringify(discovery)).digest('hex')
+      expect(checkInventory(register, discovery).join('\n')).toMatch(mutation === 'binary' ? /binary.*provenance/ : /unresolved evidence/)
+    }
+  })
+
+  it('checks actual guide and source evidence content, not only reference labels', () => {
+    const evidence = loadEvidence()
+    evidence.capture.guides[0].text += '\ninvented line'
+    const locator = Object.keys(evidence.source.fragments)[0]
+    evidence.source.fragments[locator].text = 'invented source'
+    expect(checkInventory(read('inventory.json'), read('discovery.json'), evidence).join('\n')).toMatch(/guide hash mismatch/)
+    expect(checkInventory(read('inventory.json'), read('discovery.json'), evidence).join('\n')).toMatch(/source evidence digest mismatch/)
+    expect(checkInventory(read('inventory.json'), read('discovery.json'), evidence).join('\n')).toMatch(/unresolved evidence/)
+  })
+
+  it('extracts clap attributes, camelCase aliases, macro aliases and source environment controls', () => {
+    const capture = { commands: [], guides: [] }
+    const sources = [
+      { path: 'crates/codegen/xai-grok-pager/src/app/cli.rs', text: '#[clap(long = "allow", alias = "allowedTools")]\npub allow_rules: String,\n#[clap(long, hide = true)]\npub compaction_mode: String,' },
+      { path: 'crates/codegen/xai-grok-pager/src/slash/commands/recap.rs', text: 'slash_meta! {\n name: "recap",\n aliases: ["summarize"],\n    }' },
+      { path: 'crates/codegen/xai-grok-pager/src/views/fps_hud.rs', text: 'std::env::var("GROK_FPS").ok()' },
+    ]
+    const keys = new Set(extractSurfaces(capture, sources).map(item => item.key))
+    expect(keys.has('source-cli:crates/codegen/xai-grok-pager/src/app/cli.rs:--allowedTools')).toBe(true)
+    expect(keys.has('source-cli:crates/codegen/xai-grok-pager/src/app/cli.rs:--allow-rules')).toBe(false)
+    expect(keys.has('source-cli:crates/codegen/xai-grok-pager/src/app/cli.rs:--compaction-mode')).toBe(true)
+    expect(keys.has('slash:summarize')).toBe(true)
+    expect(keys.has('environment:GROK_FPS')).toBe(true)
+  })
+
+  it('assigns automation input, global shortcuts and rendering controls to applicable acceptance', () => {
+    const register = read('inventory.json')
+    for (const flag of ['--prompt-file', '--prompt-json', '--system-prompt-override']) {
+      const row = register.items.find(item => item.key === `flag:grok:${flag}`)
+      expect(row.tickets).toContain(145)
+      expect(row.acceptance).toContain('PARITY-145-input')
+    }
+    for (const row of register.items.filter(item => item.key.startsWith('keybinding:03-keyboard-shortcuts.md:Global'))) {
+      expect(row.tickets).not.toContain(169)
+    }
+    expect(register.items.find(item => item.key === 'pager-setting:animation.fps').tickets).toContain(154)
+    const fps = read('discovery.json').items.find(item => item.key === 'environment:GROK_FPS')
+    expect(fps.observations.some(observation => observation.scope === 'binary-pty-observation')).toBe(true)
+    for (const alias of ['log', 'summarize']) expect(register.items.some(item => item.key === `slash:${alias}`)).toBe(true)
+    for (const [key, owners] of [
+      ['Ctrl+G', [150, 175]], ['Ctrl+M', [140, 150]],
+    ]) {
+      const row = register.items.find(item => item.key === `keybinding:03-keyboard-shortcuts.md:Agent-Level:\`${key}\``)
+      for (const owner of owners) expect(row.tickets).toContain(owner)
+    }
   })
 
   it('extracts commands and flags, including nested help and aliases', () => {

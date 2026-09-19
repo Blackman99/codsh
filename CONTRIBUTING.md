@@ -94,14 +94,21 @@ commit (this is research, not an application import):
 ```sh
 git clone https://github.com/xai-org/grok-build.git .scratch/reference-source
 git -C .scratch/reference-source checkout --detach a28ee2b2063426e8816e380ccea528b9de95e5da
-node scripts/reference-inventory.mjs extract docs/rewrite/reference/observations.json .scratch/reference-source .scratch/reference-discovery.json docs/rewrite/reference/model-observations.json
+node scripts/reference-inventory.mjs extract docs/rewrite/reference/observations.json .scratch/reference-source .scratch/reference-discovery.json docs/rewrite/reference/model-observations.json .scratch/reference-source-evidence.json
 diff -u docs/rewrite/reference/discovery.json .scratch/reference-discovery.json
+diff -u docs/rewrite/reference/source-evidence.json .scratch/reference-source-evidence.json
 ```
 
 Every discovered item needs a story, owning ticket, observable acceptance scenario
 and evidence or explicit blocker. A source declaration or guide is not runtime
 verification; planned acceptance scenarios are not passing tests. Add newly
 found behavior instead of weakening the extraction or shrinking the register.
+The validator resolves capture/guide/schema/source-fragment evidence and enforces
+the binary pin; changing a locator and recomputing the inventory digest is not
+verification. Audit semantic ownership: terminal gestures need their actual
+UI/session behavior, and headless input options need provider-wire assertions.
+The offline probe includes compatibility-option recognition and paired FPS runs;
+the model probe rejects malformed structured output and missing terminal events.
 Freeze measured numeric performance thresholds before collecting candidate data.
 Run the ordinary typecheck and full unit suite for changes to these workflows.
 

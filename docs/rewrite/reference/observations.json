@@ -898,6 +898,66 @@
       "elapsedMs": 16.861917,
       "stdout": "",
       "stderr": "error: invalid value 'not-a-format' for '--output-format <OUTPUT_FORMAT>'\n  [possible values: plain, json, streaming-json, streaming-messages-json]\n\nFor more information, try '--help'.\n"
+    },
+    {
+      "args": [
+        "--allowedTools"
+      ],
+      "exit": 2,
+      "timedOut": false,
+      "elapsedMs": 17.513167,
+      "stdout": "",
+      "stderr": "error: a value is required for '--allow <RULE>' but none was supplied\n\nFor more information, try '--help'.\n"
+    },
+    {
+      "args": [
+        "--disallowedTools"
+      ],
+      "exit": 2,
+      "timedOut": false,
+      "elapsedMs": 17.281375,
+      "stdout": "",
+      "stderr": "error: a value is required for '--deny <RULE>' but none was supplied\n\nFor more information, try '--help'.\n"
+    },
+    {
+      "args": [
+        "--system-prompt"
+      ],
+      "exit": 2,
+      "timedOut": false,
+      "elapsedMs": 16.413875,
+      "stdout": "",
+      "stderr": "error: a value is required for '--system-prompt-override <PROMPT>' but none was supplied\n\nFor more information, try '--help'.\n"
+    },
+    {
+      "args": [
+        "--append-system-prompt"
+      ],
+      "exit": 2,
+      "timedOut": false,
+      "elapsedMs": 17.025125,
+      "stdout": "",
+      "stderr": "error: a value is required for '--rules <RULES>' but none was supplied\n\nFor more information, try '--help'.\n"
+    },
+    {
+      "args": [
+        "--compaction-mode"
+      ],
+      "exit": 2,
+      "timedOut": false,
+      "elapsedMs": 16.625833,
+      "stdout": "",
+      "stderr": "error: a value is required for '--compaction-mode <MODE>' but none was supplied\n\nFor more information, try '--help'.\n"
+    },
+    {
+      "args": [
+        "--compaction-detail"
+      ],
+      "exit": 2,
+      "timedOut": false,
+      "elapsedMs": 16.873,
+      "stdout": "",
+      "stderr": "error: a value is required for '--compaction-detail <DETAIL>' but none was supplied\n\nFor more information, try '--help'.\n"
     }
   ],
   "terminals": [
@@ -3866,5 +3926,575 @@
       "text": "# grok clone\n\n`grok clone` fetches a Git repository into a Grove content store and mounts a\nprojected working tree (NFS on macOS, FUSE on Linux). Each invocation reads\n`GROK_CLONE` / `GROVE_CLONE` in this process, then grok enable-all\n(`GROK_GROVE` or `[cli] grove` in `~/.grok/config.toml`), then `[clone] enabled`\nin Grove config (`~/.config/grove/config.toml`). The Grove daemon does not\nauthorize Clone IPC.\n\nThis does **not** enable Grove for session / `-w` worktrees. Those use a\nseparate gate (`GROK_WORKTREE_TYPE` and `[cli] grove_worktree` in\n`~/.grok/config.toml`; see [Configuration reference](26-config-reference.md)).\n`GROK_WORKTREE_TYPE` and `[cli] grove_worktree` do **not** enable `grok clone`.\n`GROK_CLONE` / `GROVE_CLONE` / `[clone] enabled` do **not** enable session /\n`-w` Grove.\n\nTo turn **both** surfaces on without touching the specific knobs:\n\n```bash\nexport GROK_GROVE=1\n# or in ~/.grok/config.toml:\n# [cli]\n# grove = true\n```\n\nSpecific knobs still win: `GROK_WORKTREE_TYPE=copy` keeps session worktrees on\ncopy while clone can stay on; `GROK_CLONE=0` keeps `grok clone` off while\nworktrees can stay on.\n\n```bash\ngrok clone <url> [dir] [--branch NAME] [--cone PATH]... [--full-history]\n```\n\n## History\n\n**Default is a depth-1 bootstrap** of the selected branch (`blob:none` +\n`--depth=1`). Only that branch is advertised as a remote-tracking ref.\n\nUse `--full-history` when you need complete commit history, tags, or every\nremote branch at clone time (the previous default).\n\nAfter a depth-1 clone, these commands deepen **only the selected branch**:\n\n```bash\ngit fetch --deepen=N origin\ngit fetch --unshallow origin\n```\n\nFetching another branch needs an explicit depth-limited refspec. An ordinary\n`git fetch origin` or `git fetch origin other` will not pull that branch's\nfull history through the default refspec:\n\n```bash\ngit fetch --depth=1 origin refs/heads/NAME:refs/remotes/origin/NAME\n```\n\nA default shallow clone requires a Grove daemon that understands the\n`clone_shallow` RPC. If the client refuses, restart or update the daemon (or\npass `--full-history`):\n\n```bash\ngrove daemon --foreground\n```\n\nOn macOS you can also install a KeepAlive agent:\n\n```bash\ngrove doctor --install-agent\n```\n\n## Authentication\n\nGit credentials for a clone belong to the **Grove daemon**, not to `grok login`.\nThe two are separate worlds:\n\n| World | Covers | Commands | Store |\n|-------|--------|----------|-------|\n| Grok | the model and API | `grok login`, `grok logout` | `~/.grok/auth.json` |\n| Grove Git | the remote this clone fetches from | `grove status`, `grove reload-credentials` | the daemon's credential cell, built from `auth_mode` in Grove config (`git credential` helper, a carrier token file, or `GROVE_AUTH_TOKEN`) |\n\n`grok clone` never reads `~/.grok/auth.json` for Git. Signing into Grok does not\ngive the daemon a credential for the remote, and neither does\n`[clone] enabled = true`: that flag is a **product gate** deciding whether\n`grok clone` runs at all, not authorization for GitHub.\n\nWhen Grove classifies a failure as a credential problem, the clone prints the\nclass and the commands that own it, without the remote URL:\n\n```\nGrove Git credentials rejected (unavailable).\nGrove Git credentials belong to the Grove daemon, not `grok login`.\nCheck `grove status` then `grove reload-credentials`.\n```\n\n| Class | Meaning | Next step |\n|-------|---------|-----------|\n| `unavailable` | the daemon had no usable credential, or the remote rejected it | `grove status` names the live provider; fix that source, then `grove reload-credentials` |\n| `expired-static` | the token expired and this deployment does not refresh tokens | start a new session, or enable `GROVE_TOKEN_ROTATION=expected` |\n| `carrier-stale` | the daemon waited for a carrier rewrite and still holds the rejected token | wait for the rewrite, or `grove reload-credentials` |\n| `other` | the credential provider failed for another reason | `grove status`, then `grove reload-credentials` |\n\nOnly `expired-static` and `carrier-stale` add their own line to the message. The\nadvice for `unavailable` depends on which provider the daemon holds, and the\nclone never reads that, so it stays on `grove status` and `grove doctor`.\n\nOne credential rejection stays unclassified: when a token cannot see a private\nrepository, GitHub answers as if the repository did not exist. That is\nindistinguishable from a typo in a public URL, so the clone reports it as a\nmissing repository rather than guessing at credentials.\n\n`grove status` prints a daemon-scoped auth block even with no mounts:\n\n```\n  auth: mode=auto live=git-delegate health=ok last=- reload=supported\n        hint=credentials look healthy\n```\n\n`mode` is the configured `auth_mode`; `live` is the provider the daemon actually\nholds. `mode` and `live` can disagree — that is the case\n`grove reload-credentials` exists to fix. For example, with `auth_mode = auto`,\na daemon that started before a token file was written stays on `git-delegate`\nuntil the cell is rebuilt.\n\n```bash\ngrove reload-credentials\n# grove: credentials reloaded → token-file\n```\n\nReload rebuilds the cell from env and disk and prints the provider it landed on;\nit prints no secrets. It cannot create a login: with `auto` or `git` and no\ncarrier token, configure `git credential` or `gh auth` first, then reload.\n\n`grove doctor` reports the same fields as one finding: `auth.ok`,\n`auth.degraded`, `auth.unavailable`, `auth.daemon-down`, or `auth.old-daemon`.\n\n## Daemon\n\n`grok clone` uses a live Grove daemon. If the control socket is down, it starts\n`grove daemon --foreground` as a detached process (so exiting or Ctrl-C on\n`grok` does not take the daemon or its mounts down) and waits for the socket.\n\nThe `grove` binary is resolved from `PATH`, then from the directory of the\n`grok` executable (for example `~/.grok/bin/grove` next to `grok`). There is\nno separate install location. macOS has no PATH package for grove; build it\nfrom the monorepo:\n\n```bash\ncargo build -p grove --release\n```\n\nOn Linux, clone needs a usable FUSE before it starts a daemon: `/dev/fuse` must\nexist, and either this user can open it or a setuid `fusermount3` / `fusermount`\nhelper is on `PATH` (Grove mounts through either route). Missing FUSE is a hard\nerror with install commands, not a hang. When a daemon is already running the\ncheck is skipped, since that daemon may hold privileges this process does not.\n\nWindows is not supported (no ProjFS backend). Use `git clone`, or run\n`grok clone` on macOS or Linux.\n"
     }
   ],
-  "sandboxProfile": "(version 1)(allow default)(deny network*)(deny file-write*)(allow file-write* (subpath \"<ROOT>\") (literal \"/dev/tty\"))(deny file-read* (subpath \"<PERSONAL_HOME>\") (subpath \"/etc/grok\") (subpath \"/Library/Managed Preferences\") (subpath \"/Library/Application Support/ClaudeCode\"))(allow file-read* (literal \"<BINARY>\"))(deny mach-lookup (global-name \"com.apple.securityd\"))"
+  "sandboxProfile": "(version 1)(allow default)(deny network*)(deny file-write*)(allow file-write* (subpath \"<ROOT>\") (literal \"/dev/tty\"))(deny file-read* (subpath \"<PERSONAL_HOME>\") (subpath \"/etc/grok\") (subpath \"/Library/Managed Preferences\") (subpath \"/Library/Application Support/ClaudeCode\"))(allow file-read* (literal \"<BINARY>\"))(deny mach-lookup (global-name \"com.apple.securityd\"))",
+  "environmentProbes": [
+    {
+      "mode": "fullscreen",
+      "environment": {
+        "GROK_FPS": "0"
+      },
+      "initialSize": [
+        32,
+        100
+      ],
+      "events": [
+        {
+          "ms": 37.050875,
+          "output": "\u001b]0;grok\u0007\u001b[?1049h\u001b[?1000h\u001b[?1002h\u001b[?1003h\u001b[?1015h\u001b[?1006h\u001b[?1004h\u001b[?2004h\u001b[?25l\u001b]12;rgb:c6/c6/c6\u0007",
+          "bytesBase64": "G10wO2dyb2sHG1s/MTA0OWgbWz8xMDAwaBtbPzEwMDJoG1s/MTAwM2gbWz8xMDE1aBtbPzEwMDZoG1s/MTAwNGgbWz8yMDA0aBtbPzI1bBtdMTI7cmdiOmM2L2M2L2M2Bw=="
+        },
+        {
+          "ms": 380.484083,
+          "output": "\u001b[>0q",
+          "bytesBase64": "G1s+MHE="
+        },
+        {
+          "ms": 381.769166,
+          "output": "\u001b[?2026h\u001b[1;1H\u001b[39;48;5;233m                                                                                                    \u001b[2;1H  \u001b[38;5;240;48;5;233m/p/v/f/s/7/T/codsh-reference-133-mp77zqh2/workspace\u001b[39;48;5;233m                                               \u001b[3;1H                                                                                                    \u001b[4;1H                                                                                                    \u001b[5;1H                                                                                                    \u001b[6;1H                                                                                                    \u001b[7;1H   \u001b[38;5;236;48;5;233m╭────────────────────────────────────────────────────────────────────────────────────────────╮\u001b[39;48;5;233m   \u001b[8;",
+          "bytesBase64": "G1s/MjAyNmgbWzE7MUgbWzM5OzQ4OzU7MjMzbSAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzI7MUggIBtbMzg7NTsyNDA7NDg7NTsyMzNtL3Avdi9mL3MvNy9UL2NvZHNoLXJlZmVyZW5jZS0xMzMtbXA3N3pxaDIvd29ya3NwYWNlG1szOTs0ODs1OzIzM20gICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbMzsxSCAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzQ7MUggICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgG1s1OzFIICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbNjsxSCAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzc7MUggICAbWzM4OzU7MjM2OzQ4OzU7MjMzbeKVreKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKVrhtbMzk7NDg7NTsyMzNtICAgG1s4Ow=="
+        },
+        {
+          "ms": 381.791,
+          "output": "1H   \u001b[38;5;236;48;5;233m│\u001b[39;48;5;233m                                                                                            \u001b[38;5;236;48;5;233m│\u001b[39;48;5;233m   \u001b[9;1H   \u001b[38;5;236;48;5;233m│\u001b[39;48;5;233m  \u001b[38;5;242;48;5;233m⠀⠀⠀⠀⠀⠀⣀⣀⡀⠀⠀⠀⢀⠄\u001b[39;48;5;233m   \u001b[1m\u001b[38;5;254;48;5;233mGrok Build  \u001b[22m\u001b[38;5;242;48;5;233m1.0.34\u001b[39;48;5;233m                                                       \u001b[38;5;236;48;5;233m│\u001b[39;48;5;233m   \u001b[10;1H   \u001b[38;5;236;48;5;233m│\u001b[39;48;5;233m  \u001b[38;5;242;48;5;233m⠀⠀⠀⣠⣾⠿⠛⠛⠛⠛⢀⡴⠁⠀\u001b[39;48;5;233m   \u001b[38;5;242;48;5;233mThanks for trying Grok Build, give feedback with /feedback!\u001b[39;48;5;233m              \u001b[38;5;236;48;5;233m│\u001b[39;48;5;233m   \u001b[11;1H   \u001b[38;5;236;48;5;233m│\u001b[39;48;5;233m  \u001b[38;5;242;48;5;233m⠀⠀⣼⡟⠁⠀⠀⠀⢀⡴⠻⣿⡀⠀\u001b[39;48;5;233m                                                                            \u001b[38;5;236;48;5;233m│\u001b[39;48;5;233m   \u001b[12;1H   \u001b[38;5;236;48;5;233m",
+          "bytesBase64": "MUggICAbWzM4OzU7MjM2OzQ4OzU7MjMzbeKUghtbMzk7NDg7NTsyMzNtICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzM4OzU7MjM2OzQ4OzU7MjMzbeKUghtbMzk7NDg7NTsyMzNtICAgG1s5OzFIICAgG1szODs1OzIzNjs0ODs1OzIzM23ilIIbWzM5OzQ4OzU7MjMzbSAgG1szODs1OzI0Mjs0ODs1OzIzM23ioIDioIDioIDioIDioIDioIDio4Dio4DioYDioIDioIDioIDiooDioIQbWzM5OzQ4OzU7MjMzbSAgIBtbMW0bWzM4OzU7MjU0OzQ4OzU7MjMzbUdyb2sgQnVpbGQgIBtbMjJtG1szODs1OzI0Mjs0ODs1OzIzM20xLjAuMzQbWzM5OzQ4OzU7MjMzbSAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzM4OzU7MjM2OzQ4OzU7MjMzbeKUghtbMzk7NDg7NTsyMzNtICAgG1sxMDsxSCAgIBtbMzg7NTsyMzY7NDg7NTsyMzNt4pSCG1szOTs0ODs1OzIzM20gIBtbMzg7NTsyNDI7NDg7NTsyMzNt4qCA4qCA4qCA4qOg4qO+4qC/4qCb4qCb4qCb4qCb4qKA4qG04qCB4qCAG1szOTs0ODs1OzIzM20gICAbWzM4OzU7MjQyOzQ4OzU7MjMzbVRoYW5rcyBmb3IgdHJ5aW5nIEdyb2sgQnVpbGQsIGdpdmUgZmVlZGJhY2sgd2l0aCAvZmVlZGJhY2shG1szOTs0ODs1OzIzM20gICAgICAgICAgICAgIBtbMzg7NTsyMzY7NDg7NTsyMzNt4pSCG1szOTs0ODs1OzIzM20gICAbWzExOzFIICAgG1szODs1OzIzNjs0ODs1OzIzM23ilIIbWzM5OzQ4OzU7MjMzbSAgG1szODs1OzI0Mjs0ODs1OzIzM23ioIDioIDio7zioZ/ioIHioIDioIDioIDiooDiobTioLvio7/ioYDioIAbWzM5OzQ4OzU7MjMzbSAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzM4OzU7MjM2OzQ4OzU7MjMzbeKUghtbMzk7NDg7NTsyMzNtICAgG1sxMjsxSCAgIBtbMzg7NTsyMzY7NDg7NTsyMzNt4g=="
+        },
+        {
+          "ms": 381.803625,
+          "output": "│\u001b[39;48;5;233m  \u001b[38;5;242;48;5;233m⠀⠀⣿⡇⠀⠀⠀⠔⠁⠀⠀⣿⡇⠀\u001b[39;48;5;233m   \u001b[1m\u001b[38;5;254;48;5;233mNew worktree\u001b[22m\u001b[39;48;5;233m                                                     \u001b[38;5;243;48;5;233mctrl+w\u001b[39;48;5;233m  \u001b[38;5;236;48;5;233m│\u001b[39;48;5;233m   \u001b[13;1H   \u001b[38;5;236;48;5;233m│\u001b[39;48;5;233m  \u001b[38;5;242;48;5;233m⠀⠀⢹⣷⠀⠀⠀⠀⠀⢀⣴⡿⠀⠀\u001b[39;48;5;233m   \u001b[1m\u001b[38;5;254;48;5;233mResume session\u001b[22m\u001b[39;48;5;233m                                                   \u001b[38;5;243;48;5;233mctrl+r\u001b[39;48;5;233m  \u001b[38;5;236;48;5;233m│\u001b[39;48;5;233m   \u001b[14;1H   \u001b[38;5;236;48;5;233m│\u001b[39;48;5;233m  \u001b[38;5;242;48;5;233m⠀⢀⠞⠁⠠⢶⣶⣶⣶⠿⠋⠀⠀⠀\u001b[39;48;5;233m   \u001b[1m\u001b[38;5;254;48;5;233mChangelog\u001b[22m\u001b[39;48;5;233m                                                                \u001b[38;5;236;48;5;233m│\u001b[39;48;5;233m   \u001b[15;1H   \u001b[38;5;236;48;5;233m│\u001b[39;48;5;233m  \u001b[38;5;242;48;5;233m⠐⠁⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀\u001b[39;48;5;233m   \u001b[1m\u001b[3",
+          "bytesBase64": "lIIbWzM5OzQ4OzU7MjMzbSAgG1szODs1OzI0Mjs0ODs1OzIzM23ioIDioIDio7/ioYfioIDioIDioIDioJTioIHioIDioIDio7/ioYfioIAbWzM5OzQ4OzU7MjMzbSAgIBtbMW0bWzM4OzU7MjU0OzQ4OzU7MjMzbU5ldyB3b3JrdHJlZRtbMjJtG1szOTs0ODs1OzIzM20gICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbMzg7NTsyNDM7NDg7NTsyMzNtY3RybCt3G1szOTs0ODs1OzIzM20gIBtbMzg7NTsyMzY7NDg7NTsyMzNt4pSCG1szOTs0ODs1OzIzM20gICAbWzEzOzFIICAgG1szODs1OzIzNjs0ODs1OzIzM23ilIIbWzM5OzQ4OzU7MjMzbSAgG1szODs1OzI0Mjs0ODs1OzIzM23ioIDioIDiornio7fioIDioIDioIDioIDioIDiooDio7Tiob/ioIDioIAbWzM5OzQ4OzU7MjMzbSAgIBtbMW0bWzM4OzU7MjU0OzQ4OzU7MjMzbVJlc3VtZSBzZXNzaW9uG1syMm0bWzM5OzQ4OzU7MjMzbSAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbMzg7NTsyNDM7NDg7NTsyMzNtY3RybCtyG1szOTs0ODs1OzIzM20gIBtbMzg7NTsyMzY7NDg7NTsyMzNt4pSCG1szOTs0ODs1OzIzM20gICAbWzE0OzFIICAgG1szODs1OzIzNjs0ODs1OzIzM23ilIIbWzM5OzQ4OzU7MjMzbSAgG1szODs1OzI0Mjs0ODs1OzIzM23ioIDiooDioJ7ioIHioKDiorbio7bio7bio7bioL/ioIvioIDioIDioIAbWzM5OzQ4OzU7MjMzbSAgIBtbMW0bWzM4OzU7MjU0OzQ4OzU7MjMzbUNoYW5nZWxvZxtbMjJtG1szOTs0ODs1OzIzM20gICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgG1szODs1OzIzNjs0ODs1OzIzM23ilIIbWzM5OzQ4OzU7MjMzbSAgIBtbMTU7MUggICAbWzM4OzU7MjM2OzQ4OzU7MjMzbeKUghtbMzk7NDg7NTsyMzNtICAbWzM4OzU7MjQyOzQ4OzU7MjMzbeKgkOKggeKggOKggOKggOKggOKggOKggOKggOKggOKggOKggOKggOKggBtbMzk7NDg7NTsyMzNtICAgG1sxbRtbMw=="
+        },
+        {
+          "ms": 381.819625,
+          "output": "8;5;254;48;5;233mQuit\u001b[22m\u001b[39;48;5;233m                                                             \u001b[38;5;243;48;5;233mctrl+q\u001b[39;48;5;233m  \u001b[38;5;236;48;5;233m│\u001b[39;48;5;233m   \u001b[16;1H   \u001b[38;5;236;48;5;233m│\u001b[39;48;5;233m                                                                                            \u001b[38;5;236;48;5;233m│\u001b[39;48;5;233m   \u001b[17;1H   \u001b[38;5;236;48;5;233m╰────────────────────────────────────────────────────────────────────────────────────────────╯\u001b[39;48;5;233m   \u001b[18;1H                                                                                                    \u001b[19;1H                                                                                                    \u001b[20;1H                                                                                                    \u001b[21;1H     ",
+          "bytesBase64": "ODs1OzI1NDs0ODs1OzIzM21RdWl0G1syMm0bWzM5OzQ4OzU7MjMzbSAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzM4OzU7MjQzOzQ4OzU7MjMzbWN0cmwrcRtbMzk7NDg7NTsyMzNtICAbWzM4OzU7MjM2OzQ4OzU7MjMzbeKUghtbMzk7NDg7NTsyMzNtICAgG1sxNjsxSCAgIBtbMzg7NTsyMzY7NDg7NTsyMzNt4pSCG1szOTs0ODs1OzIzM20gICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbMzg7NTsyMzY7NDg7NTsyMzNt4pSCG1szOTs0ODs1OzIzM20gICAbWzE3OzFIICAgG1szODs1OzIzNjs0ODs1OzIzM23ilbDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDila8bWzM5OzQ4OzU7MjMzbSAgIBtbMTg7MUggICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgG1sxOTsxSCAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzIwOzFIICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbMjE7MUggICAgIA=="
+        },
+        {
+          "ms": 381.833875,
+          "output": "                                                                                               \u001b[22;1H                                                                                                    \u001b[23;1H                                                                                                    \u001b[24;1H                                                                                                    \u001b[25;1H                                                                                                    \u001b[26;1H                                                                                                    \u001b[27;1H  \u001b[38;5;239;48;5;233m╭──────────────────────────────────────────────────────────────────────────────────────────────╮\u001b[39;48;5;233m  \u001b[28;1H  \u001b[38;5;239;48;5;233m│\u001b[38;5;254;48;5;233m \u001b[38;5;2",
+          "bytesBase64": "ICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzIyOzFIICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbMjM7MUggICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgG1syNDsxSCAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzI1OzFIICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbMjY7MUggICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgG1syNzsxSCAgG1szODs1OzIzOTs0ODs1OzIzM23ila3ilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDila4bWzM5OzQ4OzU7MjMzbSAgG1syODsxSCAgG1szODs1OzIzOTs0ODs1OzIzM23ilIIbWzM4OzU7MjU0OzQ4OzU7MjMzbSAbWzM4OzU7Mg=="
+        },
+        {
+          "ms": 381.846791,
+          "output": "51;48;5;233m❯ \u001b[38;5;254;48;5;233m                                                                                           \u001b[38;5;239;48;5;233m│\u001b[39;48;5;233m  \u001b[29;1H  \u001b[38;5;239;48;5;233m╰────────────────────────────────────────────────────────────────────────── \u001b[38;5;244;48;5;233mreference-fixture\u001b[38;5;239;48;5;233m ─╯\u001b[39;48;5;233m  \u001b[30;1H                                                                                                    \u001b[31;1H                                                                            \u001b[38;5;242;48;5;233mLogged in with API key\u001b[39;48;5;233m  \u001b[32;1H                                                                                                    \u001b[39m\u001b[49m\u001b[59m\u001b[0m\u001b[28;7H\u001b[?25h\u001b[?2026l",
+          "bytesBase64": "NTE7NDg7NTsyMzNt4p2vIBtbMzg7NTsyNTQ7NDg7NTsyMzNtICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbMzg7NTsyMzk7NDg7NTsyMzNt4pSCG1szOTs0ODs1OzIzM20gIBtbMjk7MUggIBtbMzg7NTsyMzk7NDg7NTsyMzNt4pWw4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSAIBtbMzg7NTsyNDQ7NDg7NTsyMzNtcmVmZXJlbmNlLWZpeHR1cmUbWzM4OzU7MjM5OzQ4OzU7MjMzbSDilIDila8bWzM5OzQ4OzU7MjMzbSAgG1szMDsxSCAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzMxOzFIICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbMzg7NTsyNDI7NDg7NTsyMzNtTG9nZ2VkIGluIHdpdGggQVBJIGtleRtbMzk7NDg7NTsyMzNtICAbWzMyOzFIICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbMzltG1s0OW0bWzU5bRtbMG0bWzI4OzdIG1s/MjVoG1s/MjAyNmw="
+        },
+        {
+          "ms": 445.317625,
+          "output": "\u001b[?2026h\u001b[15;7H\u001b[38;5;243;48;5;233m⠐\u001b[39m\u001b[49m\u001b[59m\u001b[0m\u001b[28;7H\u001b[?2026l",
+          "bytesBase64": "G1s/MjAyNmgbWzE1OzdIG1szODs1OzI0Mzs0ODs1OzIzM23ioJAbWzM5bRtbNDltG1s1OW0bWzBtG1syODs3SBtbPzIwMjZs"
+        },
+        {
+          "ms": 537.978208,
+          "action": "draft",
+          "offset": 6190,
+          "inputHex": "5245464552454e4345313333",
+          "observedMs": 575.217666,
+          "markerFound": true,
+          "endOffset": 7518
+        },
+        {
+          "ms": 543.445041,
+          "output": "\u001b[?2026h\u001b[2;3H\u001b[38;5;251;48;5;233m/p/v/f/s/7/T/codsh-reference-133-mp77zqh2/workspace\u001b[2;74H\u001b[38;5;254;48;5;233m1.5K / 128K\u001b[38;5;238;48;5;233m │ \u001b[38;5;242;48;5;233m[Dashboard]\u001b[7;4H\u001b[39;48;5;233m                                                                                              \u001b[8;4H \u001b[8;97H \u001b[9;4H \u001b[9;7H              \u001b[9;24H                  \u001b[9;97H \u001b[10;4H \u001b[10;7H              \u001b[10;24H                                                           \u001b[10;97H \u001b[11;4H \u001b[11;7H              \u001b[11;97H \u001b[12;4H \u001b[12;7H              \u001b[12;24H            \u001b[12;89H      \u001b[12;97H \u001b[13;4H \u001b[13;7H              \u001b[13;24H              \u001b[13;89H      \u001b[13;97H \u001b[14;4H \u001b[14;7H              \u001b[14;24H         \u001b[14;97H \u001b[15;4H \u001b[15;7H              \u001b[15;24H    \u001b[15;89H      \u001b[15;97H \u001b[16;4H \u001b[16;97H \u001b[17;4H                                                                                              \u001b[28;7H\u001b[38;5;254;48;5;233mREFERENCE133\u001b[31;3H\u001b[1m\u001b[38;5;251;48;5;233mEnter\u001b[22m\u001b[38;5;242;48;5;233m:send\u001b[2m  │  \u001b[22m\u001b[1m\u001b[38;",
+          "bytesBase64": "G1s/MjAyNmgbWzI7M0gbWzM4OzU7MjUxOzQ4OzU7MjMzbS9wL3YvZi9zLzcvVC9jb2RzaC1yZWZlcmVuY2UtMTMzLW1wNzd6cWgyL3dvcmtzcGFjZRtbMjs3NEgbWzM4OzU7MjU0OzQ4OzU7MjMzbTEuNUsgLyAxMjhLG1szODs1OzIzODs0ODs1OzIzM20g4pSCIBtbMzg7NTsyNDI7NDg7NTsyMzNtW0Rhc2hib2FyZF0bWzc7NEgbWzM5OzQ4OzU7MjMzbSAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzg7NEggG1s4Ozk3SCAbWzk7NEggG1s5OzdIICAgICAgICAgICAgICAbWzk7MjRIICAgICAgICAgICAgICAgICAgG1s5Ozk3SCAbWzEwOzRIIBtbMTA7N0ggICAgICAgICAgICAgIBtbMTA7MjRIICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzEwOzk3SCAbWzExOzRIIBtbMTE7N0ggICAgICAgICAgICAgIBtbMTE7OTdIIBtbMTI7NEggG1sxMjs3SCAgICAgICAgICAgICAgG1sxMjsyNEggICAgICAgICAgICAbWzEyOzg5SCAgICAgIBtbMTI7OTdIIBtbMTM7NEggG1sxMzs3SCAgICAgICAgICAgICAgG1sxMzsyNEggICAgICAgICAgICAgIBtbMTM7ODlIICAgICAgG1sxMzs5N0ggG1sxNDs0SCAbWzE0OzdIICAgICAgICAgICAgICAbWzE0OzI0SCAgICAgICAgIBtbMTQ7OTdIIBtbMTU7NEggG1sxNTs3SCAgICAgICAgICAgICAgG1sxNTsyNEggICAgG1sxNTs4OUggICAgICAbWzE1Ozk3SCAbWzE2OzRIIBtbMTY7OTdIIBtbMTc7NEggICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgG1syODs3SBtbMzg7NTsyNTQ7NDg7NTsyMzNtUkVGRVJFTkNFMTMzG1szMTszSBtbMW0bWzM4OzU7MjUxOzQ4OzU7MjMzbUVudGVyG1syMm0bWzM4OzU7MjQyOzQ4OzU7MjMzbTpzZW5kG1sybSAg4pSCICAbWzIybRtbMW0bWzM4Ow=="
+        },
+        {
+          "ms": 543.478583,
+          "output": "5;251;48;5;233mOpt+Enter\u001b[22m\u001b[38;5;242;48;5;233m:newline\u001b[2m  │  \u001b[22m\u001b[1m\u001b[38;5;251;48;5;233mShift+Tab\u001b[22m\u001b[38;5;242;48;5;233m:mode\u001b[2m  │  \u001b[22m\u001b[1m\u001b[38;5;251;48;5;233mCtrl+x\u001b[22m\u001b[38;5;242;48;5;233m:shortcuts        \u001b[31;84H  \u001b[31;87H    \u001b[31;92H   \u001b[31;96H   \u001b[39m\u001b[49m\u001b[59m\u001b[0m\u001b[28;19H\u001b[?2026l",
+          "bytesBase64": "NTsyNTE7NDg7NTsyMzNtT3B0K0VudGVyG1syMm0bWzM4OzU7MjQyOzQ4OzU7MjMzbTpuZXdsaW5lG1sybSAg4pSCICAbWzIybRtbMW0bWzM4OzU7MjUxOzQ4OzU7MjMzbVNoaWZ0K1RhYhtbMjJtG1szODs1OzI0Mjs0ODs1OzIzM206bW9kZRtbMm0gIOKUgiAgG1syMm0bWzFtG1szODs1OzI1MTs0ODs1OzIzM21DdHJsK3gbWzIybRtbMzg7NTsyNDI7NDg7NTsyMzNtOnNob3J0Y3V0cyAgICAgICAgG1szMTs4NEggIBtbMzE7ODdIICAgIBtbMzE7OTJIICAgG1szMTs5NkggICAbWzM5bRtbNDltG1s1OW0bWzBtG1syODsxOUgbWz8yMDI2bA=="
+        },
+        {
+          "ms": 735.58525,
+          "action": "clear-draft",
+          "offset": 7518,
+          "inputHex": "03",
+          "observedMs": 1042.862791,
+          "markerFound": null,
+          "endOffset": 7794
+        },
+        {
+          "ms": 735.8195,
+          "output": "\u001b[?2026h\u001b[28;7H\u001b[38;5;254;48;5;233m            \u001b[31;3H\u001b[1m\u001b[38;5;251;48;5;233mShift+Tab\u001b[22m\u001b[38;5;242;48;5;233m:mode\u001b[31;18H\u001b[2m │  \u001b[22m\u001b[1m\u001b[38;5;251;48;5;233mCtrl+x\u001b[22m\u001b[38;5;242;48;5;233m:shortcuts                                     \u001b[39m\u001b[49m\u001b[59m\u001b[0m\u001b[28;7H\u001b[?2026l",
+          "bytesBase64": "G1s/MjAyNmgbWzI4OzdIG1szODs1OzI1NDs0ODs1OzIzM20gICAgICAgICAgICAbWzMxOzNIG1sxbRtbMzg7NTsyNTE7NDg7NTsyMzNtU2hpZnQrVGFiG1syMm0bWzM4OzU7MjQyOzQ4OzU7MjMzbTptb2RlG1szMTsxOEgbWzJtIOKUgiAgG1syMm0bWzFtG1szODs1OzI1MTs0ODs1OzIzM21DdHJsK3gbWzIybRtbMzg7NTsyNDI7NDg7NTsyMzNtOnNob3J0Y3V0cyAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzM5bRtbNDltG1s1OW0bWzBtG1syODs3SBtbPzIwMjZs"
+        },
+        {
+          "ms": 1200.787041,
+          "action": "settings-open",
+          "offset": 7794,
+          "inputHex": "2f73657474696e67730d",
+          "observedMs": 1241.726291,
+          "markerFound": true,
+          "endOffset": 13187
+        },
+        {
+          "ms": 1205.376,
+          "output": "\u001b[?2026h\u001b[4;16H\u001b[38;5;240;48;5;233m┌─ \u001b[1m\u001b[38;5;254;48;5;233mSettings\u001b[22m\u001b[38;5;240;48;5;233m ─────────────────────────────────────────────────── [✗] ─┐\u001b[5;16H│\u001b[38;5;254;48;5;233m                                                                    \u001b[38;5;240;48;5;233m│\u001b[6;16H│\u001b[38;5;254;48;5;233m  \u001b[38;5;240;48;5;233m / to search\u001b[38;5;254;48;5;233m                                                      \u001b[38;5;240;48;5;233m│\u001b[7;16H│\u001b[38;5;254;48;5;233m  \u001b[38;5;240;48;5;233m────────────────────────────────────────────────────────────────\u001b[38;5;254;48;5;233m  \u001b[38;5;240;48;5;233m│\u001b[8;16H│\u001b[38;5;254;48;5;233m  \u001b[1m\u001b[38;5;242;48;5;233m Appearance \u001b[22m\u001b[38;5;240;48;5;233m───────────────────────────────",
+          "bytesBase64": "G1s/MjAyNmgbWzQ7MTZIG1szODs1OzI0MDs0ODs1OzIzM23ilIzilIAgG1sxbRtbMzg7NTsyNTQ7NDg7NTsyMzNtU2V0dGluZ3MbWzIybRtbMzg7NTsyNDA7NDg7NTsyMzNtIOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgCBb4pyXXSDilIDilJAbWzU7MTZI4pSCG1szODs1OzI1NDs0ODs1OzIzM20gICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbMzg7NTsyNDA7NDg7NTsyMzNt4pSCG1s2OzE2SOKUghtbMzg7NTsyNTQ7NDg7NTsyMzNtICAbWzM4OzU7MjQwOzQ4OzU7MjMzbSAvIHRvIHNlYXJjaBtbMzg7NTsyNTQ7NDg7NTsyMzNtICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgG1szODs1OzI0MDs0ODs1OzIzM23ilIIbWzc7MTZI4pSCG1szODs1OzI1NDs0ODs1OzIzM20gIBtbMzg7NTsyNDA7NDg7NTsyMzNt4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSAG1szODs1OzI1NDs0ODs1OzIzM20gIBtbMzg7NTsyNDA7NDg7NTsyMzNt4pSCG1s4OzE2SOKUghtbMzg7NTsyNTQ7NDg7NTsyMzNtICAbWzFtG1szODs1OzI0Mjs0ODs1OzIzM20gQXBwZWFyYW5jZSAbWzIybRtbMzg7NTsyNDA7NDg7NTsyMzNt4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4g=="
+        },
+        {
+          "ms": 1205.4135,
+          "output": "─────────────────────\u001b[38;5;254;48;5;233m  \u001b[38;5;240;48;5;233m│\u001b[9;16H│\u001b[38;5;254;48;5;233m  \u001b[1m\u001b[38;5;254;48;5;237m▸ Compact mode\u001b[22m                                           \u001b[38;5;242;48;5;237moff\u001b[38;5;254;48;5;237m    \u001b[38;5;254;48;5;233m  \u001b[38;5;240;48;5;233m│\u001b[10;16H│\u001b[38;5;254;48;5;233m  ▸ Default screen mode                             \u001b[38;5;251;48;5;233mFullscreen\u001b[38;5;254;48;5;233m \u001b[38;5;242;48;5;233m ›\u001b[38;5;254;48;5;233m   \u001b[38;5;240;48;5;233m│\u001b[11;16H│\u001b[38;5;254;48;5;233m  ▸ Show timestamps                                         \u001b[38;5;251;48;5;233mon\u001b[38;5;254;48;5;233m      \u001b[38;5;240;48;5;233m│\u001b[12;16H│\u001b[38;5;254;48;5;233m  ▸ Timeline sidebar                                       \u001b[38;5;242;48;5;233moff\u001b[38;5;254;48;5;233m      \u001b[38;5;240;48;5;233m│\u001b[13;16H│\u001b[38;5;254;48;5;233m  ▸ Snap prompt to top on send                              \u001b[38;5;251;48;5;233mon\u001b[38;5;254;48;5;233m      \u001b[38;5;240;48;5;233m│\u001b[14;16",
+          "bytesBase64": "lIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIAbWzM4OzU7MjU0OzQ4OzU7MjMzbSAgG1szODs1OzI0MDs0ODs1OzIzM23ilIIbWzk7MTZI4pSCG1szODs1OzI1NDs0ODs1OzIzM20gIBtbMW0bWzM4OzU7MjU0OzQ4OzU7MjM3beKWuCBDb21wYWN0IG1vZGUbWzIybSAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzM4OzU7MjQyOzQ4OzU7MjM3bW9mZhtbMzg7NTsyNTQ7NDg7NTsyMzdtICAgIBtbMzg7NTsyNTQ7NDg7NTsyMzNtICAbWzM4OzU7MjQwOzQ4OzU7MjMzbeKUghtbMTA7MTZI4pSCG1szODs1OzI1NDs0ODs1OzIzM20gIOKWuCBEZWZhdWx0IHNjcmVlbiBtb2RlICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzM4OzU7MjUxOzQ4OzU7MjMzbUZ1bGxzY3JlZW4bWzM4OzU7MjU0OzQ4OzU7MjMzbSAbWzM4OzU7MjQyOzQ4OzU7MjMzbSDigLobWzM4OzU7MjU0OzQ4OzU7MjMzbSAgIBtbMzg7NTsyNDA7NDg7NTsyMzNt4pSCG1sxMTsxNkjilIIbWzM4OzU7MjU0OzQ4OzU7MjMzbSAg4pa4IFNob3cgdGltZXN0YW1wcyAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgG1szODs1OzI1MTs0ODs1OzIzM21vbhtbMzg7NTsyNTQ7NDg7NTsyMzNtICAgICAgG1szODs1OzI0MDs0ODs1OzIzM23ilIIbWzEyOzE2SOKUghtbMzg7NTsyNTQ7NDg7NTsyMzNtICDilrggVGltZWxpbmUgc2lkZWJhciAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbMzg7NTsyNDI7NDg7NTsyMzNtb2ZmG1szODs1OzI1NDs0ODs1OzIzM20gICAgICAbWzM4OzU7MjQwOzQ4OzU7MjMzbeKUghtbMTM7MTZI4pSCG1szODs1OzI1NDs0ODs1OzIzM20gIOKWuCBTbmFwIHByb21wdCB0byB0b3Agb24gc2VuZCAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbMzg7NTsyNTE7NDg7NTsyMzNtb24bWzM4OzU7MjU0OzQ4OzU7MjMzbSAgICAgIBtbMzg7NTsyNDA7NDg7NTsyMzNt4pSCG1sxNDsxNg=="
+        },
+        {
+          "ms": 1205.432166,
+          "output": "H│\u001b[38;5;254;48;5;233m  ▸ Disable vim input mode                                  \u001b[38;5;251;48;5;233mon\u001b[38;5;254;48;5;233m      \u001b[38;5;240;48;5;233m│\u001b[15;16H│\u001b[38;5;254;48;5;233m  ▸ Vim scrollback navigation                              \u001b[38;5;242;48;5;233moff\u001b[38;5;254;48;5;233m      \u001b[38;5;240;48;5;233m│\u001b[16;16H│\u001b[38;5;254;48;5;233m  ▸ Theme                                           \u001b[38;5;251;48;5;233mGrok Night\u001b[38;5;254;48;5;233m \u001b[38;5;242;48;5;233m ›\u001b[38;5;254;48;5;233m   \u001b[38;5;240;48;5;233m│\u001b[17;16H│\u001b[38;5;254;48;5;233m  ▸ Auto dark theme                                 \u001b[38;5;251;48;5;233mGrok Night\u001b[38;5;254;48;5;233m \u001b[38;5;242;48;5;233m ›\u001b[38;5;254;48;5;233m   \u001b[38;5;240;48;5;233m│\u001b[18;16H│\u001b[38;5;254;48;5;233m  ▸ Auto light theme                                  \u001b[38;5;251;48;5;233mGrok Day\u001b[38;5;254;48;5;233m \u001b[38;5;242;48;5;233m ›\u001b[38;5;254;48;5;233m   \u001b[38;5;240;48;5;233m│\u001b[19;16H│\u001b[38;5;254;48;5;233m  ▸ Render Mermaid diagrams                         ",
+          "bytesBase64": "SOKUghtbMzg7NTsyNTQ7NDg7NTsyMzNtICDilrggRGlzYWJsZSB2aW0gaW5wdXQgbW9kZSAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzM4OzU7MjUxOzQ4OzU7MjMzbW9uG1szODs1OzI1NDs0ODs1OzIzM20gICAgICAbWzM4OzU7MjQwOzQ4OzU7MjMzbeKUghtbMTU7MTZI4pSCG1szODs1OzI1NDs0ODs1OzIzM20gIOKWuCBWaW0gc2Nyb2xsYmFjayBuYXZpZ2F0aW9uICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgG1szODs1OzI0Mjs0ODs1OzIzM21vZmYbWzM4OzU7MjU0OzQ4OzU7MjMzbSAgICAgIBtbMzg7NTsyNDA7NDg7NTsyMzNt4pSCG1sxNjsxNkjilIIbWzM4OzU7MjU0OzQ4OzU7MjMzbSAg4pa4IFRoZW1lICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbMzg7NTsyNTE7NDg7NTsyMzNtR3JvayBOaWdodBtbMzg7NTsyNTQ7NDg7NTsyMzNtIBtbMzg7NTsyNDI7NDg7NTsyMzNtIOKAuhtbMzg7NTsyNTQ7NDg7NTsyMzNtICAgG1szODs1OzI0MDs0ODs1OzIzM23ilIIbWzE3OzE2SOKUghtbMzg7NTsyNTQ7NDg7NTsyMzNtICDilrggQXV0byBkYXJrIHRoZW1lICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgG1szODs1OzI1MTs0ODs1OzIzM21Hcm9rIE5pZ2h0G1szODs1OzI1NDs0ODs1OzIzM20gG1szODs1OzI0Mjs0ODs1OzIzM20g4oC6G1szODs1OzI1NDs0ODs1OzIzM20gICAbWzM4OzU7MjQwOzQ4OzU7MjMzbeKUghtbMTg7MTZI4pSCG1szODs1OzI1NDs0ODs1OzIzM20gIOKWuCBBdXRvIGxpZ2h0IHRoZW1lICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbMzg7NTsyNTE7NDg7NTsyMzNtR3JvayBEYXkbWzM4OzU7MjU0OzQ4OzU7MjMzbSAbWzM4OzU7MjQyOzQ4OzU7MjMzbSDigLobWzM4OzU7MjU0OzQ4OzU7MjMzbSAgIBtbMzg7NTsyNDA7NDg7NTsyMzNt4pSCG1sxOTsxNkjilIIbWzM4OzU7MjU0OzQ4OzU7MjMzbSAg4pa4IFJlbmRlciBNZXJtYWlkIGRpYWdyYW1zICAgICAgICAgICAgICAgICAgICAgICAgIA=="
+        },
+        {
+          "ms": 1205.439125,
+          "output": "      \u001b[38;5;251;48;5;233mAuto\u001b[38;5;254;48;5;233m \u001b[38;5;242;48;5;233m ›\u001b[38;5;254;48;5;233m   \u001b[38;5;240;48;5;233m│\u001b[20;16H│\u001b[38;5;254;48;5;233m  ▸ Max thoughts width                                     \u001b[38;5;251;48;5;233m120\u001b[38;5;254;48;5;233m      \u001b[38;5;240;48;5;233m│\u001b[21;16H│\u001b[38;5;254;48;5;233m  ▸ Show thinking blocks                                    \u001b[38;5;251;48;5;233mon\u001b[38;5;254;48;5;233m      \u001b[38;5;240;48;5;233m│\u001b[22;16H│\u001b[38;5;254;48;5;233m  ▸ Respect manual folds                                   \u001b[38;5;242;48;5;233moff\u001b[38;5;254;48;5;233m      \u001b[38;5;240;48;5;233m│\u001b[23;16H│\u001b[38;5;254;48;5;233m  ▸ Group tool calls                                        \u001b[38;5;251;48;5;233mon\u001b[38;5;254;48;5;233m      \u001b[38;5;240;48;5;233m│\u001b[24;16H│\u001b[38;5;254;48;5;233m                                                                    \u001b[38;5;240;48;5;233m│\u001b[25;16H│\u001b[38;5;254;48;5;233m                 \u001b[3m\u001b[38;5;240;48;5;233mTip · Ask Grok to change a setting\u001b[23m\u001b[38;5;254;48",
+          "bytesBase64": "ICAgICAgG1szODs1OzI1MTs0ODs1OzIzM21BdXRvG1szODs1OzI1NDs0ODs1OzIzM20gG1szODs1OzI0Mjs0ODs1OzIzM20g4oC6G1szODs1OzI1NDs0ODs1OzIzM20gICAbWzM4OzU7MjQwOzQ4OzU7MjMzbeKUghtbMjA7MTZI4pSCG1szODs1OzI1NDs0ODs1OzIzM20gIOKWuCBNYXggdGhvdWdodHMgd2lkdGggICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgG1szODs1OzI1MTs0ODs1OzIzM20xMjAbWzM4OzU7MjU0OzQ4OzU7MjMzbSAgICAgIBtbMzg7NTsyNDA7NDg7NTsyMzNt4pSCG1syMTsxNkjilIIbWzM4OzU7MjU0OzQ4OzU7MjMzbSAg4pa4IFNob3cgdGhpbmtpbmcgYmxvY2tzICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgG1szODs1OzI1MTs0ODs1OzIzM21vbhtbMzg7NTsyNTQ7NDg7NTsyMzNtICAgICAgG1szODs1OzI0MDs0ODs1OzIzM23ilIIbWzIyOzE2SOKUghtbMzg7NTsyNTQ7NDg7NTsyMzNtICDilrggUmVzcGVjdCBtYW51YWwgZm9sZHMgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbMzg7NTsyNDI7NDg7NTsyMzNtb2ZmG1szODs1OzI1NDs0ODs1OzIzM20gICAgICAbWzM4OzU7MjQwOzQ4OzU7MjMzbeKUghtbMjM7MTZI4pSCG1szODs1OzI1NDs0ODs1OzIzM20gIOKWuCBHcm91cCB0b29sIGNhbGxzICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbMzg7NTsyNTE7NDg7NTsyMzNtb24bWzM4OzU7MjU0OzQ4OzU7MjMzbSAgICAgIBtbMzg7NTsyNDA7NDg7NTsyMzNt4pSCG1syNDsxNkjilIIbWzM4OzU7MjU0OzQ4OzU7MjMzbSAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgG1szODs1OzI0MDs0ODs1OzIzM23ilIIbWzI1OzE2SOKUghtbMzg7NTsyNTQ7NDg7NTsyMzNtICAgICAgICAgICAgICAgICAbWzNtG1szODs1OzI0MDs0ODs1OzIzM21UaXAgwrcgQXNrIEdyb2sgdG8gY2hhbmdlIGEgc2V0dGluZxtbMjNtG1szODs1OzI1NDs0OA=="
+        },
+        {
+          "ms": 1205.448708,
+          "output": ";5;233m                 \u001b[38;5;240;48;5;233m│\u001b[26;16H│\u001b[38;5;254;48;5;233m                                                                    \u001b[38;5;240;48;5;233m│\u001b[27;16H│\u001b[38;5;254;48;5;233m   \u001b[1m\u001b[38;5;251;48;5;233m↑/↓/j/k\u001b[22m\u001b[38;5;242;48;5;233m nav\u001b[38;5;240;48;5;233m  |  \u001b[1m\u001b[38;5;251;48;5;233mg/G\u001b[22m\u001b[38;5;242;48;5;233m top/btm\u001b[38;5;240;48;5;233m  |  \u001b[1m\u001b[38;5;251;48;5;233mSpace\u001b[22m\u001b[38;5;242;48;5;233m toggle\u001b[38;5;240;48;5;233m  |  \u001b[1m\u001b[38;5;251;48;5;233mEnter\u001b[22m\u001b[38;5;242;48;5;233m toggle\u001b[38;5;254;48;5;233m    \u001b[38;5;240;48;5;233m│\u001b[28;16H│\u001b[28;26H\u001b[1m\u001b[38;5;251;48;5;233m→\u001b[22m\u001b[38;5;242;48;5;233m expand\u001b[38;5;240;48;5;233m  |  \u001b[1m\u001b[38;5;251;48;5;233m/\u001b[22m\u001b[38;5;242;48;5;233m search\u001b[38;5;240;48;5;233m  |  \u001b[1m\u001b[38;5;251;48;5;233md\u001b[22m\u001b[38;5;242;48;5;233m reset\u001b[38;5;240;48;5;233m  |  \u001b[1m\u001b[38;5;251;48;5;233mF2/Esc\u001b[22m\u001b[38;5;242;48;5;233m close\u001b[28;85H\u001b[38;5;240;48;5;233m│\u001b[29;16H└────────────────────────────",
+          "bytesBase64": "OzU7MjMzbSAgICAgICAgICAgICAgICAgG1szODs1OzI0MDs0ODs1OzIzM23ilIIbWzI2OzE2SOKUghtbMzg7NTsyNTQ7NDg7NTsyMzNtICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzM4OzU7MjQwOzQ4OzU7MjMzbeKUghtbMjc7MTZI4pSCG1szODs1OzI1NDs0ODs1OzIzM20gICAbWzFtG1szODs1OzI1MTs0ODs1OzIzM23ihpEv4oaTL2ovaxtbMjJtG1szODs1OzI0Mjs0ODs1OzIzM20gbmF2G1szODs1OzI0MDs0ODs1OzIzM20gIHwgIBtbMW0bWzM4OzU7MjUxOzQ4OzU7MjMzbWcvRxtbMjJtG1szODs1OzI0Mjs0ODs1OzIzM20gdG9wL2J0bRtbMzg7NTsyNDA7NDg7NTsyMzNtICB8ICAbWzFtG1szODs1OzI1MTs0ODs1OzIzM21TcGFjZRtbMjJtG1szODs1OzI0Mjs0ODs1OzIzM20gdG9nZ2xlG1szODs1OzI0MDs0ODs1OzIzM20gIHwgIBtbMW0bWzM4OzU7MjUxOzQ4OzU7MjMzbUVudGVyG1syMm0bWzM4OzU7MjQyOzQ4OzU7MjMzbSB0b2dnbGUbWzM4OzU7MjU0OzQ4OzU7MjMzbSAgICAbWzM4OzU7MjQwOzQ4OzU7MjMzbeKUghtbMjg7MTZI4pSCG1syODsyNkgbWzFtG1szODs1OzI1MTs0ODs1OzIzM23ihpIbWzIybRtbMzg7NTsyNDI7NDg7NTsyMzNtIGV4cGFuZBtbMzg7NTsyNDA7NDg7NTsyMzNtICB8ICAbWzFtG1szODs1OzI1MTs0ODs1OzIzM20vG1syMm0bWzM4OzU7MjQyOzQ4OzU7MjMzbSBzZWFyY2gbWzM4OzU7MjQwOzQ4OzU7MjMzbSAgfCAgG1sxbRtbMzg7NTsyNTE7NDg7NTsyMzNtZBtbMjJtG1szODs1OzI0Mjs0ODs1OzIzM20gcmVzZXQbWzM4OzU7MjQwOzQ4OzU7MjMzbSAgfCAgG1sxbRtbMzg7NTsyNTE7NDg7NTsyMzNtRjIvRXNjG1syMm0bWzM4OzU7MjQyOzQ4OzU7MjMzbSBjbG9zZRtbMjg7ODVIG1szODs1OzI0MDs0ODs1OzIzM23ilIIbWzI5OzE2SOKUlOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgA=="
+        },
+        {
+          "ms": 1205.457416,
+          "output": "────────────────────────────────────────┘\u001b[31;3H\u001b[39;48;5;233m                                                                                                \u001b[39m\u001b[49m\u001b[59m\u001b[0m\u001b[?25l\u001b[?2026l",
+          "bytesBase64": "4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSYG1szMTszSBtbMzk7NDg7NTsyMzNtICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgG1szOW0bWzQ5bRtbNTltG1swbRtbPzI1bBtbPzIwMjZs"
+        },
+        {
+          "ms": 1406.6345,
+          "action": "settings-scroll",
+          "offset": 13187,
+          "inputHex": "1b5b367e",
+          "observedMs": 1447.831375,
+          "markerFound": true,
+          "endOffset": 13958
+        },
+        {
+          "ms": 1406.964708,
+          "output": "\u001b[?2026h\u001b[9;19H\u001b[38;5;254;48;5;233m▸ Compact mode                                           \u001b[38;5;242;48;5;233moff\u001b[38;5;254;48;5;233m    \u001b[19;19H\u001b[1m\u001b[38;5;254;48;5;237m▸ Render Mermaid diagrams\u001b[22m                               \u001b[38;5;251;48;5;237mAuto\u001b[38;5;254;48;5;237m \u001b[38;5;242;48;5;237m ›\u001b[38;5;254;48;5;237m \u001b[27;20H\u001b[38;5;254;48;5;233m \u001b[1m\u001b[38;5;251;48;5;233m↑/↓/j/k\u001b[22m\u001b[38;5;242;48;5;233m nav\u001b[27;33H\u001b[38;5;240;48;5;233m |\u001b[27;36H \u001b[1m\u001b[38;5;251;48;5;233mg/G\u001b[22m\u001b[38;5;242;48;5;233m top/btm\u001b[27;49H\u001b[38;5;240;48;5;233m |\u001b[27;52H \u001b[1m\u001b[38;5;251;48;5;233mSpace\u001b[22m\u001b[38;5;242;48;5;233m to\u001b[27;62Hgle\u001b[27;66H\u001b[38;5;240;48;5;233m |\u001b[27;69H \u001b[1m\u001b[38;5;251;48;5;233mEnter\u001b[22m\u001b[38;5;242;48;5;233m edit\u001b[38;5;254;48;5;233m \u001b[39m\u001b[49m\u001b[59m\u001b[0m\u001b[?2026l",
+          "bytesBase64": "G1s/MjAyNmgbWzk7MTlIG1szODs1OzI1NDs0ODs1OzIzM23ilrggQ29tcGFjdCBtb2RlICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbMzg7NTsyNDI7NDg7NTsyMzNtb2ZmG1szODs1OzI1NDs0ODs1OzIzM20gICAgG1sxOTsxOUgbWzFtG1szODs1OzI1NDs0ODs1OzIzN23ilrggUmVuZGVyIE1lcm1haWQgZGlhZ3JhbXMbWzIybSAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzM4OzU7MjUxOzQ4OzU7MjM3bUF1dG8bWzM4OzU7MjU0OzQ4OzU7MjM3bSAbWzM4OzU7MjQyOzQ4OzU7MjM3bSDigLobWzM4OzU7MjU0OzQ4OzU7MjM3bSAbWzI3OzIwSBtbMzg7NTsyNTQ7NDg7NTsyMzNtIBtbMW0bWzM4OzU7MjUxOzQ4OzU7MjMzbeKGkS/ihpMvai9rG1syMm0bWzM4OzU7MjQyOzQ4OzU7MjMzbSBuYXYbWzI3OzMzSBtbMzg7NTsyNDA7NDg7NTsyMzNtIHwbWzI3OzM2SCAbWzFtG1szODs1OzI1MTs0ODs1OzIzM21nL0cbWzIybRtbMzg7NTsyNDI7NDg7NTsyMzNtIHRvcC9idG0bWzI3OzQ5SBtbMzg7NTsyNDA7NDg7NTsyMzNtIHwbWzI3OzUySCAbWzFtG1szODs1OzI1MTs0ODs1OzIzM21TcGFjZRtbMjJtG1szODs1OzI0Mjs0ODs1OzIzM20gdG8bWzI3OzYySGdsZRtbMjc7NjZIG1szODs1OzI0MDs0ODs1OzIzM20gfBtbMjc7NjlIIBtbMW0bWzM4OzU7MjUxOzQ4OzU7MjMzbUVudGVyG1syMm0bWzM4OzU7MjQyOzQ4OzU7MjMzbSBlZGl0G1szODs1OzI1NDs0ODs1OzIzM20gG1szOW0bWzQ5bRtbNTltG1swbRtbPzIwMjZs"
+        },
+        {
+          "ms": 1616.144541,
+          "action": "resize-narrow",
+          "offset": 13958,
+          "size": [
+            24,
+            80
+          ],
+          "observedMs": 1673.541916,
+          "markerFound": true,
+          "endOffset": 19352
+        },
+        {
+          "ms": 1634.507041,
+          "output": "\u001b[?2026h\u001b[2J",
+          "bytesBase64": "G1s/MjAyNmgbWzJK"
+        },
+        {
+          "ms": 1635.10425,
+          "output": "\u001b[1;1H\u001b[39;48;5;233m                                                                                \u001b[2;1H  \u001b[38;5;251;48;5;233m/p/v/f/s/7/T/codsh-reference-133-mp77zqh2/workspa…\u001b[39;48;5;233m \u001b[38;5;254;48;5;233m1.5K / 128K\u001b[38;5;238;48;5;233m │ \u001b[38;5;242;48;5;233m[Dashboard]\u001b[39;48;5;233m  \u001b[3;1H                                                                                \u001b[4;1H            \u001b[38;5;240;48;5;233m┌─ \u001b[1m\u001b[38;5;254;48;5;233mSettings\u001b[22m\u001b[38;5;240;48;5;233m ───────────────────────────────────── [✗] ─┐\u001b[39;48;5;233m            \u001b[5;1H            \u001b[38;5;240;48;5;233m│\u001b[38;5;254;48;5;233m                                                      \u001b[38;5;240;48;5;233m│\u001b[39;48;5;233m            \u001b[6;1H            \u001b[38;5;240;48;5;233m│\u001b[38;5;254;48;5;233m  \u001b[38;5;240;48;5;233m / to search\u001b[38;5;254;48;5;233m                                        \u001b[38;5;240;48;5;233m│\u001b[39;48;5;233m            \u001b[7;1H            \u001b",
+          "bytesBase64": "G1sxOzFIG1szOTs0ODs1OzIzM20gICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbMjsxSCAgG1szODs1OzI1MTs0ODs1OzIzM20vcC92L2Yvcy83L1QvY29kc2gtcmVmZXJlbmNlLTEzMy1tcDc3enFoMi93b3Jrc3Bh4oCmG1szOTs0ODs1OzIzM20gG1szODs1OzI1NDs0ODs1OzIzM20xLjVLIC8gMTI4SxtbMzg7NTsyMzg7NDg7NTsyMzNtIOKUgiAbWzM4OzU7MjQyOzQ4OzU7MjMzbVtEYXNoYm9hcmRdG1szOTs0ODs1OzIzM20gIBtbMzsxSCAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgG1s0OzFIICAgICAgICAgICAgG1szODs1OzI0MDs0ODs1OzIzM23ilIzilIAgG1sxbRtbMzg7NTsyNTQ7NDg7NTsyMzNtU2V0dGluZ3MbWzIybRtbMzg7NTsyNDA7NDg7NTsyMzNtIOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgCBb4pyXXSDilIDilJAbWzM5OzQ4OzU7MjMzbSAgICAgICAgICAgIBtbNTsxSCAgICAgICAgICAgIBtbMzg7NTsyNDA7NDg7NTsyMzNt4pSCG1szODs1OzI1NDs0ODs1OzIzM20gICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzM4OzU7MjQwOzQ4OzU7MjMzbeKUghtbMzk7NDg7NTsyMzNtICAgICAgICAgICAgG1s2OzFIICAgICAgICAgICAgG1szODs1OzI0MDs0ODs1OzIzM23ilIIbWzM4OzU7MjU0OzQ4OzU7MjMzbSAgG1szODs1OzI0MDs0ODs1OzIzM20gLyB0byBzZWFyY2gbWzM4OzU7MjU0OzQ4OzU7MjMzbSAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzM4OzU7MjQwOzQ4OzU7MjMzbeKUghtbMzk7NDg7NTsyMzNtICAgICAgICAgICAgG1s3OzFIICAgICAgICAgICAgGw=="
+        },
+        {
+          "ms": 1635.129208,
+          "output": "[38;5;240;48;5;233m│\u001b[38;5;254;48;5;233m  \u001b[38;5;240;48;5;233m──────────────────────────────────────────────────\u001b[38;5;254;48;5;233m  \u001b[38;5;240;48;5;233m│\u001b[39;48;5;233m            \u001b[8;1H            \u001b[38;5;240;48;5;233m│\u001b[38;5;254;48;5;233m  ▸ Snap prompt to top on send                \u001b[38;5;251;48;5;233mon\u001b[38;5;254;48;5;233m      \u001b[38;5;240;48;5;233m│\u001b[39;48;5;233m            \u001b[9;1H            \u001b[38;5;240;48;5;233m│\u001b[38;5;254;48;5;233m  ▸ Disable vim input mode                    \u001b[38;5;251;48;5;233mon\u001b[38;5;254;48;5;233m      \u001b[38;5;240;48;5;233m│\u001b[39;48;5;233m            \u001b[10;1H            \u001b[38;5;240;48;5;233m│\u001b[38;5;254;48;5;233m  ▸ Vim scrollback navigation                \u001b[38;5;242;48;5;233moff\u001b[38;5;254;48;5;233m      \u001b[38;5;240;48;5;233m│\u001b[39;48;5;233m            \u001b[11;1H            \u001b[38;5;240;48;5;233m│\u001b[38;5;254;48;5;233m  ▸ Theme                             \u001b[38;5;251;48;5;23",
+          "bytesBase64": "WzM4OzU7MjQwOzQ4OzU7MjMzbeKUghtbMzg7NTsyNTQ7NDg7NTsyMzNtICAbWzM4OzU7MjQwOzQ4OzU7MjMzbeKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgBtbMzg7NTsyNTQ7NDg7NTsyMzNtICAbWzM4OzU7MjQwOzQ4OzU7MjMzbeKUghtbMzk7NDg7NTsyMzNtICAgICAgICAgICAgG1s4OzFIICAgICAgICAgICAgG1szODs1OzI0MDs0ODs1OzIzM23ilIIbWzM4OzU7MjU0OzQ4OzU7MjMzbSAg4pa4IFNuYXAgcHJvbXB0IHRvIHRvcCBvbiBzZW5kICAgICAgICAgICAgICAgIBtbMzg7NTsyNTE7NDg7NTsyMzNtb24bWzM4OzU7MjU0OzQ4OzU7MjMzbSAgICAgIBtbMzg7NTsyNDA7NDg7NTsyMzNt4pSCG1szOTs0ODs1OzIzM20gICAgICAgICAgICAbWzk7MUggICAgICAgICAgICAbWzM4OzU7MjQwOzQ4OzU7MjMzbeKUghtbMzg7NTsyNTQ7NDg7NTsyMzNtICDilrggRGlzYWJsZSB2aW0gaW5wdXQgbW9kZSAgICAgICAgICAgICAgICAgICAgG1szODs1OzI1MTs0ODs1OzIzM21vbhtbMzg7NTsyNTQ7NDg7NTsyMzNtICAgICAgG1szODs1OzI0MDs0ODs1OzIzM23ilIIbWzM5OzQ4OzU7MjMzbSAgICAgICAgICAgIBtbMTA7MUggICAgICAgICAgICAbWzM4OzU7MjQwOzQ4OzU7MjMzbeKUghtbMzg7NTsyNTQ7NDg7NTsyMzNtICDilrggVmltIHNjcm9sbGJhY2sgbmF2aWdhdGlvbiAgICAgICAgICAgICAgICAbWzM4OzU7MjQyOzQ4OzU7MjMzbW9mZhtbMzg7NTsyNTQ7NDg7NTsyMzNtICAgICAgG1szODs1OzI0MDs0ODs1OzIzM23ilIIbWzM5OzQ4OzU7MjMzbSAgICAgICAgICAgIBtbMTE7MUggICAgICAgICAgICAbWzM4OzU7MjQwOzQ4OzU7MjMzbeKUghtbMzg7NTsyNTQ7NDg7NTsyMzNtICDilrggVGhlbWUgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbMzg7NTsyNTE7NDg7NTsyMw=="
+        },
+        {
+          "ms": 1635.141666,
+          "output": "3mGrok Night\u001b[38;5;254;48;5;233m \u001b[38;5;242;48;5;233m ›\u001b[38;5;254;48;5;233m   \u001b[38;5;240;48;5;233m│\u001b[39;48;5;233m            \u001b[12;1H            \u001b[38;5;240;48;5;233m│\u001b[38;5;254;48;5;233m  ▸ Auto dark theme                   \u001b[38;5;251;48;5;233mGrok Night\u001b[38;5;254;48;5;233m \u001b[38;5;242;48;5;233m ›\u001b[38;5;254;48;5;233m   \u001b[38;5;240;48;5;233m│\u001b[39;48;5;233m            \u001b[13;1H            \u001b[38;5;240;48;5;233m│\u001b[38;5;254;48;5;233m  ▸ Auto light theme                    \u001b[38;5;251;48;5;233mGrok Day\u001b[38;5;254;48;5;233m \u001b[38;5;242;48;5;233m ›\u001b[38;5;254;48;5;233m   \u001b[38;5;240;48;5;233m│\u001b[39;48;5;233m            \u001b[14;1H            \u001b[38;5;240;48;5;233m│\u001b[38;5;254;48;5;233m  \u001b[1m\u001b[38;5;254;48;5;237m▸ Render Mermaid diagrams\u001b[22m                 \u001b[38;5;251;48;5;237mAuto\u001b[38;5;254;48;5;237m \u001b[38;5;242;48;5;237m ›\u001b[38;5;254;48;5;237m \u001b[38;5;254;48;5;233m  \u001b[38;5;240;48;5;233m│\u001b[39;48;5;233m            \u001b[15;1H            \u001b[38;5;240;48;5;233m│\u001b[38;5;254;48;5;233m                                     ",
+          "bytesBase64": "M21Hcm9rIE5pZ2h0G1szODs1OzI1NDs0ODs1OzIzM20gG1szODs1OzI0Mjs0ODs1OzIzM20g4oC6G1szODs1OzI1NDs0ODs1OzIzM20gICAbWzM4OzU7MjQwOzQ4OzU7MjMzbeKUghtbMzk7NDg7NTsyMzNtICAgICAgICAgICAgG1sxMjsxSCAgICAgICAgICAgIBtbMzg7NTsyNDA7NDg7NTsyMzNt4pSCG1szODs1OzI1NDs0ODs1OzIzM20gIOKWuCBBdXRvIGRhcmsgdGhlbWUgICAgICAgICAgICAgICAgICAgG1szODs1OzI1MTs0ODs1OzIzM21Hcm9rIE5pZ2h0G1szODs1OzI1NDs0ODs1OzIzM20gG1szODs1OzI0Mjs0ODs1OzIzM20g4oC6G1szODs1OzI1NDs0ODs1OzIzM20gICAbWzM4OzU7MjQwOzQ4OzU7MjMzbeKUghtbMzk7NDg7NTsyMzNtICAgICAgICAgICAgG1sxMzsxSCAgICAgICAgICAgIBtbMzg7NTsyNDA7NDg7NTsyMzNt4pSCG1szODs1OzI1NDs0ODs1OzIzM20gIOKWuCBBdXRvIGxpZ2h0IHRoZW1lICAgICAgICAgICAgICAgICAgICAbWzM4OzU7MjUxOzQ4OzU7MjMzbUdyb2sgRGF5G1szODs1OzI1NDs0ODs1OzIzM20gG1szODs1OzI0Mjs0ODs1OzIzM20g4oC6G1szODs1OzI1NDs0ODs1OzIzM20gICAbWzM4OzU7MjQwOzQ4OzU7MjMzbeKUghtbMzk7NDg7NTsyMzNtICAgICAgICAgICAgG1sxNDsxSCAgICAgICAgICAgIBtbMzg7NTsyNDA7NDg7NTsyMzNt4pSCG1szODs1OzI1NDs0ODs1OzIzM20gIBtbMW0bWzM4OzU7MjU0OzQ4OzU7MjM3beKWuCBSZW5kZXIgTWVybWFpZCBkaWFncmFtcxtbMjJtICAgICAgICAgICAgICAgICAbWzM4OzU7MjUxOzQ4OzU7MjM3bUF1dG8bWzM4OzU7MjU0OzQ4OzU7MjM3bSAbWzM4OzU7MjQyOzQ4OzU7MjM3bSDigLobWzM4OzU7MjU0OzQ4OzU7MjM3bSAbWzM4OzU7MjU0OzQ4OzU7MjMzbSAgG1szODs1OzI0MDs0ODs1OzIzM23ilIIbWzM5OzQ4OzU7MjMzbSAgICAgICAgICAgIBtbMTU7MUggICAgICAgICAgICAbWzM4OzU7MjQwOzQ4OzU7MjMzbeKUghtbMzg7NTsyNTQ7NDg7NTsyMzNtICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIA=="
+        },
+        {
+          "ms": 1635.151458,
+          "output": "                 \u001b[38;5;240;48;5;233m│\u001b[39;48;5;233m            \u001b[16;1H            \u001b[38;5;240;48;5;233m│\u001b[38;5;254;48;5;233m          \u001b[3m\u001b[38;5;240;48;5;233mTip · Ask Grok to change a setting\u001b[23m\u001b[38;5;254;48;5;233m          \u001b[38;5;240;48;5;233m│\u001b[39;48;5;233m            \u001b[17;1H            \u001b[38;5;240;48;5;233m│\u001b[38;5;254;48;5;233m                                                      \u001b[38;5;240;48;5;233m│\u001b[39;48;5;233m            \u001b[18;1H            \u001b[38;5;240;48;5;233m│\u001b[38;5;254;48;5;233m     \u001b[1m\u001b[38;5;251;48;5;233m↑/↓/j/k\u001b[22m\u001b[38;5;242;48;5;233m nav\u001b[38;5;240;48;5;233m  |  \u001b[1m\u001b[38;5;251;48;5;233mg/G\u001b[22m\u001b[38;5;242;48;5;233m top/btm\u001b[38;5;240;48;5;233m  |  \u001b[1m\u001b[38;5;251;48;5;233mSpace\u001b[22m\u001b[38;5;242;48;5;233m toggle\u001b[38;5;254;48;5;233m     \u001b[38;5;240;48;5;233m│\u001b[39;48;5;233m            \u001b[19;1H  \u001b[38;5;239;48;5;233m╭─────────\u001b[38;5;240;48;5;233m│\u001b[38;5;254;48;5;233m   \u001b[1m\u001b[38;5;251;48;5;233mEnter\u001b[22m\u001b[38;5;242;48;5;233m edit\u001b[38;5;240;48;5;233m  |  \u001b[1m\u001b[38;5;25",
+          "bytesBase64": "ICAgICAgICAgICAgICAgICAbWzM4OzU7MjQwOzQ4OzU7MjMzbeKUghtbMzk7NDg7NTsyMzNtICAgICAgICAgICAgG1sxNjsxSCAgICAgICAgICAgIBtbMzg7NTsyNDA7NDg7NTsyMzNt4pSCG1szODs1OzI1NDs0ODs1OzIzM20gICAgICAgICAgG1szbRtbMzg7NTsyNDA7NDg7NTsyMzNtVGlwIMK3IEFzayBHcm9rIHRvIGNoYW5nZSBhIHNldHRpbmcbWzIzbRtbMzg7NTsyNTQ7NDg7NTsyMzNtICAgICAgICAgIBtbMzg7NTsyNDA7NDg7NTsyMzNt4pSCG1szOTs0ODs1OzIzM20gICAgICAgICAgICAbWzE3OzFIICAgICAgICAgICAgG1szODs1OzI0MDs0ODs1OzIzM23ilIIbWzM4OzU7MjU0OzQ4OzU7MjMzbSAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbMzg7NTsyNDA7NDg7NTsyMzNt4pSCG1szOTs0ODs1OzIzM20gICAgICAgICAgICAbWzE4OzFIICAgICAgICAgICAgG1szODs1OzI0MDs0ODs1OzIzM23ilIIbWzM4OzU7MjU0OzQ4OzU7MjMzbSAgICAgG1sxbRtbMzg7NTsyNTE7NDg7NTsyMzNt4oaRL+KGky9qL2sbWzIybRtbMzg7NTsyNDI7NDg7NTsyMzNtIG5hdhtbMzg7NTsyNDA7NDg7NTsyMzNtICB8ICAbWzFtG1szODs1OzI1MTs0ODs1OzIzM21nL0cbWzIybRtbMzg7NTsyNDI7NDg7NTsyMzNtIHRvcC9idG0bWzM4OzU7MjQwOzQ4OzU7MjMzbSAgfCAgG1sxbRtbMzg7NTsyNTE7NDg7NTsyMzNtU3BhY2UbWzIybRtbMzg7NTsyNDI7NDg7NTsyMzNtIHRvZ2dsZRtbMzg7NTsyNTQ7NDg7NTsyMzNtICAgICAbWzM4OzU7MjQwOzQ4OzU7MjMzbeKUghtbMzk7NDg7NTsyMzNtICAgICAgICAgICAgG1sxOTsxSCAgG1szODs1OzIzOTs0ODs1OzIzM23ila3ilIDilIDilIDilIDilIDilIDilIDilIDilIAbWzM4OzU7MjQwOzQ4OzU7MjMzbeKUghtbMzg7NTsyNTQ7NDg7NTsyMzNtICAgG1sxbRtbMzg7NTsyNTE7NDg7NTsyMzNtRW50ZXIbWzIybRtbMzg7NTsyNDI7NDg7NTsyMzNtIGVkaXQbWzM4OzU7MjQwOzQ4OzU7MjMzbSAgfCAgG1sxbRtbMzg7NTsyNQ=="
+        },
+        {
+          "ms": 1635.161875,
+          "output": "1;48;5;233m→\u001b[22m\u001b[38;5;242;48;5;233m expand\u001b[38;5;240;48;5;233m  |  \u001b[1m\u001b[38;5;251;48;5;233m/\u001b[22m\u001b[38;5;242;48;5;233m search\u001b[38;5;240;48;5;233m  |  \u001b[1m\u001b[38;5;251;48;5;233md\u001b[22m\u001b[38;5;242;48;5;233m reset\u001b[38;5;254;48;5;233m   \u001b[38;5;240;48;5;233m│\u001b[38;5;239;48;5;233m─────────╮\u001b[39;48;5;233m  \u001b[20;1H  \u001b[38;5;239;48;5;233m│\u001b[38;5;254;48;5;233m \u001b[38;5;251;48;5;233m❯ \u001b[38;5;254;48;5;233m      \u001b[38;5;240;48;5;233m│\u001b[38;5;254;48;5;233m                     \u001b[1m\u001b[38;5;251;48;5;233mF2/Esc\u001b[22m\u001b[38;5;242;48;5;233m close\u001b[38;5;254;48;5;233m                     \u001b[38;5;240;48;5;233m│\u001b[38;5;254;48;5;233m         \u001b[38;5;239;48;5;233m│\u001b[39;48;5;233m  \u001b[21;1H  \u001b[38;5;239;48;5;233m╰─────────\u001b[38;5;240;48;5;233m└──────────────────────────────────────────────────────┘\u001b[38;5;244;48;5;233mfixture\u001b[38;5;239;48;5;233m ─╯\u001b[39;48;5;233m  \u001b[22;1H                   ",
+          "bytesBase64": "MTs0ODs1OzIzM23ihpIbWzIybRtbMzg7NTsyNDI7NDg7NTsyMzNtIGV4cGFuZBtbMzg7NTsyNDA7NDg7NTsyMzNtICB8ICAbWzFtG1szODs1OzI1MTs0ODs1OzIzM20vG1syMm0bWzM4OzU7MjQyOzQ4OzU7MjMzbSBzZWFyY2gbWzM4OzU7MjQwOzQ4OzU7MjMzbSAgfCAgG1sxbRtbMzg7NTsyNTE7NDg7NTsyMzNtZBtbMjJtG1szODs1OzI0Mjs0ODs1OzIzM20gcmVzZXQbWzM4OzU7MjU0OzQ4OzU7MjMzbSAgIBtbMzg7NTsyNDA7NDg7NTsyMzNt4pSCG1szODs1OzIzOTs0ODs1OzIzM23ilIDilIDilIDilIDilIDilIDilIDilIDilIDila4bWzM5OzQ4OzU7MjMzbSAgG1syMDsxSCAgG1szODs1OzIzOTs0ODs1OzIzM23ilIIbWzM4OzU7MjU0OzQ4OzU7MjMzbSAbWzM4OzU7MjUxOzQ4OzU7MjMzbeKdryAbWzM4OzU7MjU0OzQ4OzU7MjMzbSAgICAgIBtbMzg7NTsyNDA7NDg7NTsyMzNt4pSCG1szODs1OzI1NDs0ODs1OzIzM20gICAgICAgICAgICAgICAgICAgICAbWzFtG1szODs1OzI1MTs0ODs1OzIzM21GMi9Fc2MbWzIybRtbMzg7NTsyNDI7NDg7NTsyMzNtIGNsb3NlG1szODs1OzI1NDs0ODs1OzIzM20gICAgICAgICAgICAgICAgICAgICAbWzM4OzU7MjQwOzQ4OzU7MjMzbeKUghtbMzg7NTsyNTQ7NDg7NTsyMzNtICAgICAgICAgG1szODs1OzIzOTs0ODs1OzIzM23ilIIbWzM5OzQ4OzU7MjMzbSAgG1syMTsxSCAgG1szODs1OzIzOTs0ODs1OzIzM23ilbDilIDilIDilIDilIDilIDilIDilIDilIDilIAbWzM4OzU7MjQwOzQ4OzU7MjMzbeKUlOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUmBtbMzg7NTsyNDQ7NDg7NTsyMzNtZml4dHVyZRtbMzg7NTsyMzk7NDg7NTsyMzNtIOKUgOKVrxtbMzk7NDg7NTsyMzNtICAbWzIyOzFIICAgICAgICAgICAgICAgICAgIA=="
+        },
+        {
+          "ms": 1635.178708,
+          "output": "                                                             \u001b[23;1H                                                                                \u001b[24;1H                                                                                \u001b[39m\u001b[49m\u001b[59m\u001b[0m\u001b[?2026l",
+          "bytesBase64": "ICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbMjM7MUggICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbMjQ7MUggICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbMzltG1s0OW0bWzU5bRtbMG0bWz8yMDI2bA=="
+        },
+        {
+          "ms": 1837.912458,
+          "action": "settings-close",
+          "offset": 19352,
+          "inputHex": "1b",
+          "observedMs": 2150.740375,
+          "markerFound": null,
+          "endOffset": 21008
+        },
+        {
+          "ms": 1990.472125,
+          "output": "\u001b[?2026h\u001b[4;13H\u001b[39;48;5;233m                                                        \u001b[5;13H                                                        \u001b[6;13H                                                        \u001b[7;13H                                                        \u001b[8;13H                                                        \u001b[9;13H                                                        \u001b[10;13H                                                        \u001b[11;13H                                                        \u001b[12;13H                                                        \u001b[13;13H                                                        \u001b[14;13H                                                        \u001b[15;13H                                                        \u001b[16;13H                                                        \u001b[17;13H                                                        \u001b[18;13H                                                        \u001b[19;13H\u001b[38;5;239;48;5;233m──────",
+          "bytesBase64": "G1s/MjAyNmgbWzQ7MTNIG1szOTs0ODs1OzIzM20gICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbNTsxM0ggICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbNjsxM0ggICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbNzsxM0ggICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbODsxM0ggICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbOTsxM0ggICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbMTA7MTNIICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzExOzEzSCAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgG1sxMjsxM0ggICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbMTM7MTNIICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzE0OzEzSCAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgG1sxNTsxM0ggICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbMTY7MTNIICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzE3OzEzSCAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgG1sxODsxM0ggICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbMTk7MTNIG1szODs1OzIzOTs0ODs1OzIzM23ilIDilIDilIDilIDilIDilIDilA=="
+        },
+        {
+          "ms": 1990.517916,
+          "output": "──────────────────────────────────────────────────\u001b[20;13H\u001b[38;5;254;48;5;233m \u001b[20;35H            \u001b[20;68H \u001b[21;13H\u001b[38;5;239;48;5;233m───────────────────────────────────────────── \u001b[38;5;244;48;5;233mreference-\u001b[23;3H\u001b[1m\u001b[38;5;251;48;5;233mShift+Tab\u001b[22m\u001b[38;5;242;48;5;233m:mode\u001b[2m  │  \u001b[22m\u001b[1m\u001b[38;5;251;48;5;233mCtrl+x\u001b[22m\u001b[38;5;242;48;5;233m:shortcuts                                         \u001b[39m\u001b[49m\u001b[59m\u001b[0m\u001b[20;7H\u001b[?25h\u001b[?2026l",
+          "bytesBase64": "gOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgBtbMjA7MTNIG1szODs1OzI1NDs0ODs1OzIzM20gG1syMDszNUggICAgICAgICAgICAbWzIwOzY4SCAbWzIxOzEzSBtbMzg7NTsyMzk7NDg7NTsyMzNt4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSAIBtbMzg7NTsyNDQ7NDg7NTsyMzNtcmVmZXJlbmNlLRtbMjM7M0gbWzFtG1szODs1OzI1MTs0ODs1OzIzM21TaGlmdCtUYWIbWzIybRtbMzg7NTsyNDI7NDg7NTsyMzNtOm1vZGUbWzJtICDilIIgIBtbMjJtG1sxbRtbMzg7NTsyNTE7NDg7NTsyMzNtQ3RybCt4G1syMm0bWzM4OzU7MjQyOzQ4OzU7MjMzbTpzaG9ydGN1dHMgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbMzltG1s0OW0bWzU5bRtbMG0bWzIwOzdIG1s/MjVoG1s/MjAyNmw="
+        },
+        {
+          "ms": 2310.025958,
+          "action": "quit",
+          "offset": 21008,
+          "inputHex": "2f717569740d",
+          "observedMs": 2385.76025,
+          "markerFound": null,
+          "endOffset": 21198
+        },
+        {
+          "ms": 2314.515583,
+          "output": "\u001b]0;grok\u0007",
+          "bytesBase64": "G10wO2dyb2sH"
+        },
+        {
+          "ms": 2315.094458,
+          "output": "\u001b[2J",
+          "bytesBase64": "G1sySg=="
+        },
+        {
+          "ms": 2316.621125,
+          "output": "\u001b]9;4;0;0\u0007\u001b[?2026l\u001b]112\u0007\u001b[?1000l\u001b[?1002l\u001b[?1003l\u001b[?1015l\u001b[?1006l\u001b[?2004l",
+          "bytesBase64": "G105OzQ7MDswBxtbPzIwMjZsG10xMTIHG1s/MTAwMGwbWz8xMDAybBtbPzEwMDNsG1s/MTAxNWwbWz8xMDA2bBtbPzIwMDRs"
+        },
+        {
+          "ms": 2316.631875,
+          "output": "\u001b[?1004l\u001b[?25h\u001b[?1049l",
+          "bytesBase64": "G1s/MTAwNGwbWz8yNWgbWz8xMDQ5bA=="
+        },
+        {
+          "ms": 2382.882125,
+          "output": "\r\nResume this session with:\r\n  grok --resume 01a0bae4-82f5-7c63-9bf9-93363194d1f6\r\n",
+          "bytesBase64": "DQpSZXN1bWUgdGhpcyBzZXNzaW9uIHdpdGg6DQogIGdyb2sgLS1yZXN1bWUgMDFhMGJhZTQtODJmNS03YzYzLTliZjktOTMzNjMxOTRkMWY2DQo="
+        }
+      ],
+      "firstFrameMs": 381.855166,
+      "rss": [
+        {
+          "action": "draft",
+          "ms": 578.49925,
+          "rssKiB": 99232
+        },
+        {
+          "action": "clear-draft",
+          "ms": 1047.160958,
+          "rssKiB": 99232
+        },
+        {
+          "action": "settings-open",
+          "ms": 1245.9375,
+          "rssKiB": 99968
+        },
+        {
+          "action": "settings-scroll",
+          "ms": 1453.093083,
+          "rssKiB": 100000
+        },
+        {
+          "action": "resize-narrow",
+          "ms": 1678.798666,
+          "rssKiB": 100016
+        },
+        {
+          "action": "settings-close",
+          "ms": 2156.588916,
+          "rssKiB": 100032
+        },
+        {
+          "action": "quit",
+          "ms": 2389.051041,
+          "rssKiB": 0
+        }
+      ],
+      "exit": 0,
+      "forcedCleanup": false,
+      "restoredAlternateScreen": true,
+      "outputBytes": 21198,
+      "outputSha256": "312cc008d4c0fd48a243f4a7b987a6a6d5c65f819da3d46709420b96f360abb1"
+    },
+    {
+      "mode": "fullscreen",
+      "environment": {
+        "GROK_FPS": "1"
+      },
+      "initialSize": [
+        32,
+        100
+      ],
+      "events": [
+        {
+          "ms": 22.922916,
+          "output": "\u001b]0;grok\u0007\u001b[?1049h\u001b[?1000h\u001b[?1002h\u001b[?1003h\u001b[?1015h\u001b[?1006h\u001b[?1004h\u001b[?2004h\u001b[?25l\u001b]12;rgb:c6/c6/c6\u0007",
+          "bytesBase64": "G10wO2dyb2sHG1s/MTA0OWgbWz8xMDAwaBtbPzEwMDJoG1s/MTAwM2gbWz8xMDE1aBtbPzEwMDZoG1s/MTAwNGgbWz8yMDA0aBtbPzI1bBtdMTI7cmdiOmM2L2M2L2M2Bw=="
+        },
+        {
+          "ms": 294.263041,
+          "output": "\u001b[>0q",
+          "bytesBase64": "G1s+MHE="
+        },
+        {
+          "ms": 295.504708,
+          "output": "\u001b[?2026h\u001b[1;1H\u001b[39;48;5;233m                                                                    \u001b[38;5;3;48;5;0mfps debug  (/debug fps)         \u001b[2;1H\u001b[39;48;5;233m  \u001b[38;5;240;48;5;233m/p/v/f/s/7/T/codsh-reference-133-mp77zqh2/workspace\u001b[39;48;5;233m               \u001b[38;5;15;48;5;0mfps:- p50:- p95:-               \u001b[3;1H\u001b[39;48;5;233m                                                                                                    \u001b[4;1H                                                                                                    \u001b[5;1H                                                                                                    \u001b[6;1H                                                                                                    \u001b[7;1H   \u001b[38;5;236;48;5;233m╭───────────────────────────────────────────────────────────────────────────────",
+          "bytesBase64": "G1s/MjAyNmgbWzE7MUgbWzM5OzQ4OzU7MjMzbSAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgG1szODs1OzM7NDg7NTswbWZwcyBkZWJ1ZyAgKC9kZWJ1ZyBmcHMpICAgICAgICAgG1syOzFIG1szOTs0ODs1OzIzM20gIBtbMzg7NTsyNDA7NDg7NTsyMzNtL3Avdi9mL3MvNy9UL2NvZHNoLXJlZmVyZW5jZS0xMzMtbXA3N3pxaDIvd29ya3NwYWNlG1szOTs0ODs1OzIzM20gICAgICAgICAgICAgICAbWzM4OzU7MTU7NDg7NTswbWZwczotIHA1MDotIHA5NTotICAgICAgICAgICAgICAgG1szOzFIG1szOTs0ODs1OzIzM20gICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgG1s0OzFIICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbNTsxSCAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzY7MUggICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgG1s3OzFIICAgG1szODs1OzIzNjs0ODs1OzIzM23ila3ilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilA=="
+        },
+        {
+          "ms": 295.527583,
+          "output": "─────────────╮\u001b[39;48;5;233m   \u001b[8;1H   \u001b[38;5;236;48;5;233m│\u001b[39;48;5;233m                                                                                            \u001b[38;5;236;48;5;233m│\u001b[39;48;5;233m   \u001b[9;1H   \u001b[38;5;236;48;5;233m│\u001b[39;48;5;233m  \u001b[38;5;242;48;5;233m⠀⠀⠀⠀⠀⠀⣀⣀⡀⠀⠀⠀⢀⠄\u001b[39;48;5;233m   \u001b[1m\u001b[38;5;254;48;5;233mGrok Build  \u001b[22m\u001b[38;5;242;48;5;233m1.0.34\u001b[39;48;5;233m                                                       \u001b[38;5;236;48;5;233m│\u001b[39;48;5;233m   \u001b[10;1H   \u001b[38;5;236;48;5;233m│\u001b[39;48;5;233m  \u001b[38;5;242;48;5;233m⠀⠀⠀⣠⣾⠿⠛⠛⠛⠛⢀⡴⠁⠀\u001b[39;48;5;233m   \u001b[38;5;242;48;5;233mThanks for trying Grok Build, give feedback with /feedback!\u001b[39;48;5;233m              \u001b[38;5;236;48;5;233m│\u001b[39;48;5;233m   \u001b[11;1H   \u001b[38;5;236;48;5;233m│\u001b[39;48;5;233m  \u001b[38;5;242;48;5;233m⠀⠀⣼⡟⠁⠀⠀⠀⢀⡴⠻⣿⡀⠀\u001b[39;48;5;233m                                                                            \u001b[38;5;236",
+          "bytesBase64": "gOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKVrhtbMzk7NDg7NTsyMzNtICAgG1s4OzFIICAgG1szODs1OzIzNjs0ODs1OzIzM23ilIIbWzM5OzQ4OzU7MjMzbSAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgG1szODs1OzIzNjs0ODs1OzIzM23ilIIbWzM5OzQ4OzU7MjMzbSAgIBtbOTsxSCAgIBtbMzg7NTsyMzY7NDg7NTsyMzNt4pSCG1szOTs0ODs1OzIzM20gIBtbMzg7NTsyNDI7NDg7NTsyMzNt4qCA4qCA4qCA4qCA4qCA4qCA4qOA4qOA4qGA4qCA4qCA4qCA4qKA4qCEG1szOTs0ODs1OzIzM20gICAbWzFtG1szODs1OzI1NDs0ODs1OzIzM21Hcm9rIEJ1aWxkICAbWzIybRtbMzg7NTsyNDI7NDg7NTsyMzNtMS4wLjM0G1szOTs0ODs1OzIzM20gICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgG1szODs1OzIzNjs0ODs1OzIzM23ilIIbWzM5OzQ4OzU7MjMzbSAgIBtbMTA7MUggICAbWzM4OzU7MjM2OzQ4OzU7MjMzbeKUghtbMzk7NDg7NTsyMzNtICAbWzM4OzU7MjQyOzQ4OzU7MjMzbeKggOKggOKggOKjoOKjvuKgv+Kgm+Kgm+Kgm+Kgm+KigOKhtOKggeKggBtbMzk7NDg7NTsyMzNtICAgG1szODs1OzI0Mjs0ODs1OzIzM21UaGFua3MgZm9yIHRyeWluZyBHcm9rIEJ1aWxkLCBnaXZlIGZlZWRiYWNrIHdpdGggL2ZlZWRiYWNrIRtbMzk7NDg7NTsyMzNtICAgICAgICAgICAgICAbWzM4OzU7MjM2OzQ4OzU7MjMzbeKUghtbMzk7NDg7NTsyMzNtICAgG1sxMTsxSCAgIBtbMzg7NTsyMzY7NDg7NTsyMzNt4pSCG1szOTs0ODs1OzIzM20gIBtbMzg7NTsyNDI7NDg7NTsyMzNt4qCA4qCA4qO84qGf4qCB4qCA4qCA4qCA4qKA4qG04qC74qO/4qGA4qCAG1szOTs0ODs1OzIzM20gICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgG1szODs1OzIzNg=="
+        },
+        {
+          "ms": 295.539541,
+          "output": ";48;5;233m│\u001b[39;48;5;233m   \u001b[12;1H   \u001b[38;5;236;48;5;233m│\u001b[39;48;5;233m  \u001b[38;5;242;48;5;233m⠀⠀⣿⡇⠀⠀⠀⠔⠁⠀⠀⣿⡇⠀\u001b[39;48;5;233m   \u001b[1m\u001b[38;5;254;48;5;233mNew worktree\u001b[22m\u001b[39;48;5;233m                                                     \u001b[38;5;243;48;5;233mctrl+w\u001b[39;48;5;233m  \u001b[38;5;236;48;5;233m│\u001b[39;48;5;233m   \u001b[13;1H   \u001b[38;5;236;48;5;233m│\u001b[39;48;5;233m  \u001b[38;5;242;48;5;233m⠀⠀⢹⣷⠀⠀⠀⠀⠀⢀⣴⡿⠀⠀\u001b[39;48;5;233m   \u001b[1m\u001b[38;5;254;48;5;233mResume session\u001b[22m\u001b[39;48;5;233m                                                   \u001b[38;5;243;48;5;233mctrl+r\u001b[39;48;5;233m  \u001b[38;5;236;48;5;233m│\u001b[39;48;5;233m   \u001b[14;1H   \u001b[38;5;236;48;5;233m│\u001b[39;48;5;233m  \u001b[38;5;242;48;5;233m⠀⢀⠞⠁⠠⢶⣶⣶⣶⠿⠋⠀⠀⠀\u001b[39;48;5;233m   \u001b[1m\u001b[38;5;254;48;5;233mChangelog\u001b[22m\u001b[39;48;5;233m                                                                \u001b[38;5;236;48;5;233m│\u001b[39;48;5;233m   \u001b[15;1H   \u001b[38;5;236;48;5;233m│\u001b[39;48;5;233m  \u001b[38;5;242;48;5;233m⠐",
+          "bytesBase64": "OzQ4OzU7MjMzbeKUghtbMzk7NDg7NTsyMzNtICAgG1sxMjsxSCAgIBtbMzg7NTsyMzY7NDg7NTsyMzNt4pSCG1szOTs0ODs1OzIzM20gIBtbMzg7NTsyNDI7NDg7NTsyMzNt4qCA4qCA4qO/4qGH4qCA4qCA4qCA4qCU4qCB4qCA4qCA4qO/4qGH4qCAG1szOTs0ODs1OzIzM20gICAbWzFtG1szODs1OzI1NDs0ODs1OzIzM21OZXcgd29ya3RyZWUbWzIybRtbMzk7NDg7NTsyMzNtICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzM4OzU7MjQzOzQ4OzU7MjMzbWN0cmwrdxtbMzk7NDg7NTsyMzNtICAbWzM4OzU7MjM2OzQ4OzU7MjMzbeKUghtbMzk7NDg7NTsyMzNtICAgG1sxMzsxSCAgIBtbMzg7NTsyMzY7NDg7NTsyMzNt4pSCG1szOTs0ODs1OzIzM20gIBtbMzg7NTsyNDI7NDg7NTsyMzNt4qCA4qCA4qK54qO34qCA4qCA4qCA4qCA4qCA4qKA4qO04qG/4qCA4qCAG1szOTs0ODs1OzIzM20gICAbWzFtG1szODs1OzI1NDs0ODs1OzIzM21SZXN1bWUgc2Vzc2lvbhtbMjJtG1szOTs0ODs1OzIzM20gICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzM4OzU7MjQzOzQ4OzU7MjMzbWN0cmwrchtbMzk7NDg7NTsyMzNtICAbWzM4OzU7MjM2OzQ4OzU7MjMzbeKUghtbMzk7NDg7NTsyMzNtICAgG1sxNDsxSCAgIBtbMzg7NTsyMzY7NDg7NTsyMzNt4pSCG1szOTs0ODs1OzIzM20gIBtbMzg7NTsyNDI7NDg7NTsyMzNt4qCA4qKA4qCe4qCB4qCg4qK24qO24qO24qO24qC/4qCL4qCA4qCA4qCAG1szOTs0ODs1OzIzM20gICAbWzFtG1szODs1OzI1NDs0ODs1OzIzM21DaGFuZ2Vsb2cbWzIybRtbMzk7NDg7NTsyMzNtICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbMzg7NTsyMzY7NDg7NTsyMzNt4pSCG1szOTs0ODs1OzIzM20gICAbWzE1OzFIICAgG1szODs1OzIzNjs0ODs1OzIzM23ilIIbWzM5OzQ4OzU7MjMzbSAgG1szODs1OzI0Mjs0ODs1OzIzM23ioJDioA=="
+        },
+        {
+          "ms": 295.552625,
+          "output": "⠁⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀\u001b[39;48;5;233m   \u001b[1m\u001b[38;5;254;48;5;233mQuit\u001b[22m\u001b[39;48;5;233m                                                             \u001b[38;5;243;48;5;233mctrl+q\u001b[39;48;5;233m  \u001b[38;5;236;48;5;233m│\u001b[39;48;5;233m   \u001b[16;1H   \u001b[38;5;236;48;5;233m│\u001b[39;48;5;233m                                                                                            \u001b[38;5;236;48;5;233m│\u001b[39;48;5;233m   \u001b[17;1H   \u001b[38;5;236;48;5;233m╰────────────────────────────────────────────────────────────────────────────────────────────╯\u001b[39;48;5;233m   \u001b[18;1H                                                                                                    \u001b[19;1H                                                                                                    \u001b[20;1H                                                   ",
+          "bytesBase64": "geKggOKggOKggOKggOKggOKggOKggOKggOKggOKggOKggOKggBtbMzk7NDg7NTsyMzNtICAgG1sxbRtbMzg7NTsyNTQ7NDg7NTsyMzNtUXVpdBtbMjJtG1szOTs0ODs1OzIzM20gICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgG1szODs1OzI0Mzs0ODs1OzIzM21jdHJsK3EbWzM5OzQ4OzU7MjMzbSAgG1szODs1OzIzNjs0ODs1OzIzM23ilIIbWzM5OzQ4OzU7MjMzbSAgIBtbMTY7MUggICAbWzM4OzU7MjM2OzQ4OzU7MjMzbeKUghtbMzk7NDg7NTsyMzNtICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzM4OzU7MjM2OzQ4OzU7MjMzbeKUghtbMzk7NDg7NTsyMzNtICAgG1sxNzsxSCAgIBtbMzg7NTsyMzY7NDg7NTsyMzNt4pWw4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pWvG1szOTs0ODs1OzIzM20gICAbWzE4OzFIICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbMTk7MUggICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgG1syMDsxSCAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIA=="
+        },
+        {
+          "ms": 295.566125,
+          "output": "                                                 \u001b[21;1H                                                                                                    \u001b[22;1H                                                                                                    \u001b[23;1H                                                                                                    \u001b[24;1H                                                                                                    \u001b[25;1H                                                                                                    \u001b[26;1H                                                                                                    \u001b[27;1H  \u001b[38;5;239;48;5;233m╭──────────────────────────────────────────────────────────────────────────────────────────────╮\u001b[39;48;5;233m  ",
+          "bytesBase64": "ICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbMjE7MUggICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgG1syMjsxSCAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzIzOzFIICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbMjQ7MUggICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgG1syNTsxSCAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzI2OzFIICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbMjc7MUggIBtbMzg7NTsyMzk7NDg7NTsyMzNt4pWt4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pWuG1szOTs0ODs1OzIzM20gIA=="
+        },
+        {
+          "ms": 295.580291,
+          "output": "\u001b[28;1H  \u001b[38;5;239;48;5;233m│\u001b[38;5;254;48;5;233m \u001b[38;5;251;48;5;233m❯ \u001b[38;5;254;48;5;233m                                                                                           \u001b[38;5;239;48;5;233m│\u001b[39;48;5;233m  \u001b[29;1H  \u001b[38;5;239;48;5;233m╰────────────────────────────────────────────────────────────────────────── \u001b[38;5;244;48;5;233mreference-fixture\u001b[38;5;239;48;5;233m ─╯\u001b[39;48;5;233m  \u001b[30;1H                                                                                                    \u001b[31;1H                                                                            \u001b[38;5;242;48;5;233mLogged in with API key\u001b[39;48;5;233m  \u001b[32;1H                                                                                                    \u001b[39m\u001b[49m\u001b[59m\u001b[0m\u001b[28;7H\u001b[?25h\u001b[?2026l",
+          "bytesBase64": "G1syODsxSCAgG1szODs1OzIzOTs0ODs1OzIzM23ilIIbWzM4OzU7MjU0OzQ4OzU7MjMzbSAbWzM4OzU7MjUxOzQ4OzU7MjMzbeKdryAbWzM4OzU7MjU0OzQ4OzU7MjMzbSAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzM4OzU7MjM5OzQ4OzU7MjMzbeKUghtbMzk7NDg7NTsyMzNtICAbWzI5OzFIICAbWzM4OzU7MjM5OzQ4OzU7MjMzbeKVsOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgCAbWzM4OzU7MjQ0OzQ4OzU7MjMzbXJlZmVyZW5jZS1maXh0dXJlG1szODs1OzIzOTs0ODs1OzIzM20g4pSA4pWvG1szOTs0ODs1OzIzM20gIBtbMzA7MUggICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgG1szMTsxSCAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzM4OzU7MjQyOzQ4OzU7MjMzbUxvZ2dlZCBpbiB3aXRoIEFQSSBrZXkbWzM5OzQ4OzU7MjMzbSAgG1szMjsxSCAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzM5bRtbNDltG1s1OW0bWzBtG1syODs3SBtbPzI1aBtbPzIwMjZs"
+        },
+        {
+          "ms": 363.751541,
+          "output": "\u001b[?2026h\u001b[15;7H\u001b[38;5;243;48;5;233m⠐\u001b[39m\u001b[49m\u001b[59m\u001b[0m\u001b[28;7H\u001b[?2026l",
+          "bytesBase64": "G1s/MjAyNmgbWzE1OzdIG1szODs1OzI0Mzs0ODs1OzIzM23ioJAbWzM5bRtbNDltG1s1OW0bWzBtG1syODs3SBtbPzIwMjZs"
+        },
+        {
+          "ms": 453.868166,
+          "action": "draft",
+          "offset": 6251,
+          "inputHex": "5245464552454e4345313333",
+          "observedMs": 497.235291,
+          "markerFound": true,
+          "endOffset": 7485
+        },
+        {
+          "ms": 458.444916,
+          "output": "\u001b[?2026h\u001b[2;3H\u001b[38;5;251;48;5;233m/p/v/f/s/7/T/codsh-reference-133-mp77zqh2/workspace\u001b[7;4H\u001b[39;48;5;233m                                                                                              \u001b[8;4H \u001b[8;97H \u001b[9;4H \u001b[9;7H              \u001b[9;24H                  \u001b[9;97H \u001b[10;4H \u001b[10;7H              \u001b[10;24H                                                           \u001b[10;97H \u001b[11;4H \u001b[11;7H              \u001b[11;97H \u001b[12;4H \u001b[12;7H              \u001b[12;24H            \u001b[12;89H      \u001b[12;97H \u001b[13;4H \u001b[13;7H              \u001b[13;24H              \u001b[13;89H      \u001b[13;97H \u001b[14;4H \u001b[14;7H              \u001b[14;24H         \u001b[14;97H \u001b[15;4H \u001b[15;7H              \u001b[15;24H    \u001b[15;89H      \u001b[15;97H \u001b[16;4H \u001b[16;97H \u001b[17;4H                                                                                              \u001b[28;7H\u001b[38;5;254;48;5;233mREFERENCE133\u001b[31;3H\u001b[1m\u001b[38;5;251;48;5;233mEnter\u001b[22m\u001b[38;5;242;48;5;233m:send\u001b[2m  │  \u001b[22m\u001b[1m\u001b[38;5;251;48;5;233mOpt+Enter\u001b[22m\u001b[38;5;242;48;5;233m:newline\u001b[2m  │  \u001b[22m\u001b[1m\u001b[38;5;251;48;5;2",
+          "bytesBase64": "G1s/MjAyNmgbWzI7M0gbWzM4OzU7MjUxOzQ4OzU7MjMzbS9wL3YvZi9zLzcvVC9jb2RzaC1yZWZlcmVuY2UtMTMzLW1wNzd6cWgyL3dvcmtzcGFjZRtbNzs0SBtbMzk7NDg7NTsyMzNtICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbODs0SCAbWzg7OTdIIBtbOTs0SCAbWzk7N0ggICAgICAgICAgICAgIBtbOTsyNEggICAgICAgICAgICAgICAgICAbWzk7OTdIIBtbMTA7NEggG1sxMDs3SCAgICAgICAgICAgICAgG1sxMDsyNEggICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbMTA7OTdIIBtbMTE7NEggG1sxMTs3SCAgICAgICAgICAgICAgG1sxMTs5N0ggG1sxMjs0SCAbWzEyOzdIICAgICAgICAgICAgICAbWzEyOzI0SCAgICAgICAgICAgIBtbMTI7ODlIICAgICAgG1sxMjs5N0ggG1sxMzs0SCAbWzEzOzdIICAgICAgICAgICAgICAbWzEzOzI0SCAgICAgICAgICAgICAgG1sxMzs4OUggICAgICAbWzEzOzk3SCAbWzE0OzRIIBtbMTQ7N0ggICAgICAgICAgICAgIBtbMTQ7MjRIICAgICAgICAgG1sxNDs5N0ggG1sxNTs0SCAbWzE1OzdIICAgICAgICAgICAgICAbWzE1OzI0SCAgICAbWzE1Ozg5SCAgICAgIBtbMTU7OTdIIBtbMTY7NEggG1sxNjs5N0ggG1sxNzs0SCAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzI4OzdIG1szODs1OzI1NDs0ODs1OzIzM21SRUZFUkVOQ0UxMzMbWzMxOzNIG1sxbRtbMzg7NTsyNTE7NDg7NTsyMzNtRW50ZXIbWzIybRtbMzg7NTsyNDI7NDg7NTsyMzNtOnNlbmQbWzJtICDilIIgIBtbMjJtG1sxbRtbMzg7NTsyNTE7NDg7NTsyMzNtT3B0K0VudGVyG1syMm0bWzM4OzU7MjQyOzQ4OzU7MjMzbTpuZXdsaW5lG1sybSAg4pSCICAbWzIybRtbMW0bWzM4OzU7MjUxOzQ4OzU7Mg=="
+        },
+        {
+          "ms": 458.475208,
+          "output": "33mShift+Tab\u001b[22m\u001b[38;5;242;48;5;233m:mode\u001b[2m  │  \u001b[22m\u001b[1m\u001b[38;5;251;48;5;233mCtrl+x\u001b[22m\u001b[38;5;242;48;5;233m:shortcuts        \u001b[31;84H  \u001b[31;87H    \u001b[31;92H   \u001b[31;96H   \u001b[39m\u001b[49m\u001b[59m\u001b[0m\u001b[28;19H\u001b[?2026l",
+          "bytesBase64": "MzNtU2hpZnQrVGFiG1syMm0bWzM4OzU7MjQyOzQ4OzU7MjMzbTptb2RlG1sybSAg4pSCICAbWzIybRtbMW0bWzM4OzU7MjUxOzQ4OzU7MjMzbUN0cmwreBtbMjJtG1szODs1OzI0Mjs0ODs1OzIzM206c2hvcnRjdXRzICAgICAgICAbWzMxOzg0SCAgG1szMTs4N0ggICAgG1szMTs5MkggICAbWzMxOzk2SCAgIBtbMzltG1s0OW0bWzU5bRtbMG0bWzI4OzE5SBtbPzIwMjZs"
+        },
+        {
+          "ms": 659.498458,
+          "action": "clear-draft",
+          "offset": 7485,
+          "inputHex": "03",
+          "observedMs": 962.313416,
+          "markerFound": null,
+          "endOffset": 7815
+        },
+        {
+          "ms": 659.741,
+          "output": "\u001b[?2026h\u001b[2;73H\u001b[38;5;15;48;5;0m4999 p50:0.1ms\u001b[2;88Hp95:0.7ms\u001b[28;7H\u001b[38;5;254;48;5;233m            \u001b[31;3H\u001b[1m\u001b[38;5;251;48;5;233mShift+Tab\u001b[22m\u001b[38;5;242;48;5;233m:mode\u001b[31;18H\u001b[2m │  \u001b[22m\u001b[1m\u001b[38;5;251;48;5;233mCtrl+x\u001b[22m\u001b[38;5;242;48;5;233m:shortcuts                                     \u001b[39m\u001b[49m\u001b[59m\u001b[0m\u001b[28;7H\u001b[?2026l",
+          "bytesBase64": "G1s/MjAyNmgbWzI7NzNIG1szODs1OzE1OzQ4OzU7MG00OTk5IHA1MDowLjFtcxtbMjs4OEhwOTU6MC43bXMbWzI4OzdIG1szODs1OzI1NDs0ODs1OzIzM20gICAgICAgICAgICAbWzMxOzNIG1sxbRtbMzg7NTsyNTE7NDg7NTsyMzNtU2hpZnQrVGFiG1syMm0bWzM4OzU7MjQyOzQ4OzU7MjMzbTptb2RlG1szMTsxOEgbWzJtIOKUgiAgG1syMm0bWzFtG1szODs1OzI1MTs0ODs1OzIzM21DdHJsK3gbWzIybRtbMzg7NTsyNDI7NDg7NTsyMzNtOnNob3J0Y3V0cyAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzM5bRtbNDltG1s1OW0bWzBtG1syODs3SBtbPzIwMjZs"
+        },
+        {
+          "ms": 1125.864541,
+          "action": "settings-open",
+          "offset": 7815,
+          "inputHex": "2f73657474696e67730d",
+          "observedMs": 1164.764458,
+          "markerFound": true,
+          "endOffset": 13236
+        },
+        {
+          "ms": 1130.276166,
+          "output": "\u001b[?2026h\u001b[2;73H\u001b[38;5;15;48;5;0m5087\u001b[4;16H\u001b[38;5;240;48;5;233m┌─ \u001b[1m\u001b[38;5;254;48;5;233mSettings\u001b[22m\u001b[38;5;240;48;5;233m ─────────────────────────────────────────────────── [✗] ─┐\u001b[5;16H│\u001b[38;5;254;48;5;233m                                                                    \u001b[38;5;240;48;5;233m│\u001b[6;16H│\u001b[38;5;254;48;5;233m  \u001b[38;5;240;48;5;233m / to search\u001b[38;5;254;48;5;233m                                                      \u001b[38;5;240;48;5;233m│\u001b[7;16H│\u001b[38;5;254;48;5;233m  \u001b[38;5;240;48;5;233m────────────────────────────────────────────────────────────────\u001b[38;5;254;48;5;233m  \u001b[38;5;240;48;5;233m│\u001b[8;16H│\u001b[38;5;254;48;5;233m  \u001b[1m\u001b[38;5;242;48;5;233m Appearance \u001b[22m\u001b[38;5;240;48;5;233m──────────────────────",
+          "bytesBase64": "G1s/MjAyNmgbWzI7NzNIG1szODs1OzE1OzQ4OzU7MG01MDg3G1s0OzE2SBtbMzg7NTsyNDA7NDg7NTsyMzNt4pSM4pSAIBtbMW0bWzM4OzU7MjU0OzQ4OzU7MjMzbVNldHRpbmdzG1syMm0bWzM4OzU7MjQwOzQ4OzU7MjMzbSDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIAgW+Kcl10g4pSA4pSQG1s1OzE2SOKUghtbMzg7NTsyNTQ7NDg7NTsyMzNtICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzM4OzU7MjQwOzQ4OzU7MjMzbeKUghtbNjsxNkjilIIbWzM4OzU7MjU0OzQ4OzU7MjMzbSAgG1szODs1OzI0MDs0ODs1OzIzM20gLyB0byBzZWFyY2gbWzM4OzU7MjU0OzQ4OzU7MjMzbSAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbMzg7NTsyNDA7NDg7NTsyMzNt4pSCG1s3OzE2SOKUghtbMzg7NTsyNTQ7NDg7NTsyMzNtICAbWzM4OzU7MjQwOzQ4OzU7MjMzbeKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgBtbMzg7NTsyNTQ7NDg7NTsyMzNtICAbWzM4OzU7MjQwOzQ4OzU7MjMzbeKUghtbODsxNkjilIIbWzM4OzU7MjU0OzQ4OzU7MjMzbSAgG1sxbRtbMzg7NTsyNDI7NDg7NTsyMzNtIEFwcGVhcmFuY2UgG1syMm0bWzM4OzU7MjQwOzQ4OzU7MjMzbeKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgA=="
+        },
+        {
+          "ms": 1130.327041,
+          "output": "──────────────────────────────\u001b[38;5;254;48;5;233m  \u001b[38;5;240;48;5;233m│\u001b[9;16H│\u001b[38;5;254;48;5;233m  \u001b[1m\u001b[38;5;254;48;5;237m▸ Compact mode\u001b[22m                                           \u001b[38;5;242;48;5;237moff\u001b[38;5;254;48;5;237m    \u001b[38;5;254;48;5;233m  \u001b[38;5;240;48;5;233m│\u001b[10;16H│\u001b[38;5;254;48;5;233m  ▸ Default screen mode                             \u001b[38;5;251;48;5;233mFullscreen\u001b[38;5;254;48;5;233m \u001b[38;5;242;48;5;233m ›\u001b[38;5;254;48;5;233m   \u001b[38;5;240;48;5;233m│\u001b[11;16H│\u001b[38;5;254;48;5;233m  ▸ Show timestamps                                         \u001b[38;5;251;48;5;233mon\u001b[38;5;254;48;5;233m      \u001b[38;5;240;48;5;233m│\u001b[12;16H│\u001b[38;5;254;48;5;233m  ▸ Timeline sidebar                                       \u001b[38;5;242;48;5;233moff\u001b[38;5;254;48;5;233m      \u001b[38;5;240;48;5;233m│\u001b[13;16H│\u001b[38;5;254;48;5;233m  ▸ Snap prompt to top on send                              \u001b[38;5;251;48;5;233mon\u001b[38;5;254;48;5;233m      \u001b[",
+          "bytesBase64": "4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSAG1szODs1OzI1NDs0ODs1OzIzM20gIBtbMzg7NTsyNDA7NDg7NTsyMzNt4pSCG1s5OzE2SOKUghtbMzg7NTsyNTQ7NDg7NTsyMzNtICAbWzFtG1szODs1OzI1NDs0ODs1OzIzN23ilrggQ29tcGFjdCBtb2RlG1syMm0gICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgG1szODs1OzI0Mjs0ODs1OzIzN21vZmYbWzM4OzU7MjU0OzQ4OzU7MjM3bSAgICAbWzM4OzU7MjU0OzQ4OzU7MjMzbSAgG1szODs1OzI0MDs0ODs1OzIzM23ilIIbWzEwOzE2SOKUghtbMzg7NTsyNTQ7NDg7NTsyMzNtICDilrggRGVmYXVsdCBzY3JlZW4gbW9kZSAgICAgICAgICAgICAgICAgICAgICAgICAgICAgG1szODs1OzI1MTs0ODs1OzIzM21GdWxsc2NyZWVuG1szODs1OzI1NDs0ODs1OzIzM20gG1szODs1OzI0Mjs0ODs1OzIzM20g4oC6G1szODs1OzI1NDs0ODs1OzIzM20gICAbWzM4OzU7MjQwOzQ4OzU7MjMzbeKUghtbMTE7MTZI4pSCG1szODs1OzI1NDs0ODs1OzIzM20gIOKWuCBTaG93IHRpbWVzdGFtcHMgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbMzg7NTsyNTE7NDg7NTsyMzNtb24bWzM4OzU7MjU0OzQ4OzU7MjMzbSAgICAgIBtbMzg7NTsyNDA7NDg7NTsyMzNt4pSCG1sxMjsxNkjilIIbWzM4OzU7MjU0OzQ4OzU7MjMzbSAg4pa4IFRpbWVsaW5lIHNpZGViYXIgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzM4OzU7MjQyOzQ4OzU7MjMzbW9mZhtbMzg7NTsyNTQ7NDg7NTsyMzNtICAgICAgG1szODs1OzI0MDs0ODs1OzIzM23ilIIbWzEzOzE2SOKUghtbMzg7NTsyNTQ7NDg7NTsyMzNtICDilrggU25hcCBwcm9tcHQgdG8gdG9wIG9uIHNlbmQgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzM4OzU7MjUxOzQ4OzU7MjMzbW9uG1szODs1OzI1NDs0ODs1OzIzM20gICAgICAbWw=="
+        },
+        {
+          "ms": 1130.36475,
+          "output": "38;5;240;48;5;233m│\u001b[14;16H│\u001b[38;5;254;48;5;233m  ▸ Disable vim input mode                                  \u001b[38;5;251;48;5;233mon\u001b[38;5;254;48;5;233m      \u001b[38;5;240;48;5;233m│\u001b[15;16H│\u001b[38;5;254;48;5;233m  ▸ Vim scrollback navigation                              \u001b[38;5;242;48;5;233moff\u001b[38;5;254;48;5;233m      \u001b[38;5;240;48;5;233m│\u001b[16;16H│\u001b[38;5;254;48;5;233m  ▸ Theme                                           \u001b[38;5;251;48;5;233mGrok Night\u001b[38;5;254;48;5;233m \u001b[38;5;242;48;5;233m ›\u001b[38;5;254;48;5;233m   \u001b[38;5;240;48;5;233m│\u001b[17;16H│\u001b[38;5;254;48;5;233m  ▸ Auto dark theme                                 \u001b[38;5;251;48;5;233mGrok Night\u001b[38;5;254;48;5;233m \u001b[38;5;242;48;5;233m ›\u001b[38;5;254;48;5;233m   \u001b[38;5;240;48;5;233m│\u001b[18;16H│\u001b[38;5;254;48;5;233m  ▸ Auto light theme                                  \u001b[38;5;251;48;5;233mGrok Day\u001b[38;5;254;48;5;233m \u001b[38;5;242;48;5;233m ›\u001b[38;5;254;48;5;233m   \u001b[38;5;240;48;5;233m│\u001b[19;16H│\u001b[38;5;254;48;5;233m  ▸ Render Mermaid diagr",
+          "bytesBase64": "Mzg7NTsyNDA7NDg7NTsyMzNt4pSCG1sxNDsxNkjilIIbWzM4OzU7MjU0OzQ4OzU7MjMzbSAg4pa4IERpc2FibGUgdmltIGlucHV0IG1vZGUgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgG1szODs1OzI1MTs0ODs1OzIzM21vbhtbMzg7NTsyNTQ7NDg7NTsyMzNtICAgICAgG1szODs1OzI0MDs0ODs1OzIzM23ilIIbWzE1OzE2SOKUghtbMzg7NTsyNTQ7NDg7NTsyMzNtICDilrggVmltIHNjcm9sbGJhY2sgbmF2aWdhdGlvbiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbMzg7NTsyNDI7NDg7NTsyMzNtb2ZmG1szODs1OzI1NDs0ODs1OzIzM20gICAgICAbWzM4OzU7MjQwOzQ4OzU7MjMzbeKUghtbMTY7MTZI4pSCG1szODs1OzI1NDs0ODs1OzIzM20gIOKWuCBUaGVtZSAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzM4OzU7MjUxOzQ4OzU7MjMzbUdyb2sgTmlnaHQbWzM4OzU7MjU0OzQ4OzU7MjMzbSAbWzM4OzU7MjQyOzQ4OzU7MjMzbSDigLobWzM4OzU7MjU0OzQ4OzU7MjMzbSAgIBtbMzg7NTsyNDA7NDg7NTsyMzNt4pSCG1sxNzsxNkjilIIbWzM4OzU7MjU0OzQ4OzU7MjMzbSAg4pa4IEF1dG8gZGFyayB0aGVtZSAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbMzg7NTsyNTE7NDg7NTsyMzNtR3JvayBOaWdodBtbMzg7NTsyNTQ7NDg7NTsyMzNtIBtbMzg7NTsyNDI7NDg7NTsyMzNtIOKAuhtbMzg7NTsyNTQ7NDg7NTsyMzNtICAgG1szODs1OzI0MDs0ODs1OzIzM23ilIIbWzE4OzE2SOKUghtbMzg7NTsyNTQ7NDg7NTsyMzNtICDilrggQXV0byBsaWdodCB0aGVtZSAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzM4OzU7MjUxOzQ4OzU7MjMzbUdyb2sgRGF5G1szODs1OzI1NDs0ODs1OzIzM20gG1szODs1OzI0Mjs0ODs1OzIzM20g4oC6G1szODs1OzI1NDs0ODs1OzIzM20gICAbWzM4OzU7MjQwOzQ4OzU7MjMzbeKUghtbMTk7MTZI4pSCG1szODs1OzI1NDs0ODs1OzIzM20gIOKWuCBSZW5kZXIgTWVybWFpZCBkaWFncg=="
+        },
+        {
+          "ms": 1130.380083,
+          "output": "ams                               \u001b[38;5;251;48;5;233mAuto\u001b[38;5;254;48;5;233m \u001b[38;5;242;48;5;233m ›\u001b[38;5;254;48;5;233m   \u001b[38;5;240;48;5;233m│\u001b[20;16H│\u001b[38;5;254;48;5;233m  ▸ Max thoughts width                                     \u001b[38;5;251;48;5;233m120\u001b[38;5;254;48;5;233m      \u001b[38;5;240;48;5;233m│\u001b[21;16H│\u001b[38;5;254;48;5;233m  ▸ Show thinking blocks                                    \u001b[38;5;251;48;5;233mon\u001b[38;5;254;48;5;233m      \u001b[38;5;240;48;5;233m│\u001b[22;16H│\u001b[38;5;254;48;5;233m  ▸ Respect manual folds                                   \u001b[38;5;242;48;5;233moff\u001b[38;5;254;48;5;233m      \u001b[38;5;240;48;5;233m│\u001b[23;16H│\u001b[38;5;254;48;5;233m  ▸ Group tool calls                                        \u001b[38;5;251;48;5;233mon\u001b[38;5;254;48;5;233m      \u001b[38;5;240;48;5;233m│\u001b[24;16H│\u001b[38;5;254;48;5;233m                                                                    \u001b[38;5;240;48;5;233m│\u001b[25;16H│\u001b[38;5;254;48;5;233m                 \u001b[3m\u001b[38;5;240;48;5;233mTip · Ask Grok to change",
+          "bytesBase64": "YW1zICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbMzg7NTsyNTE7NDg7NTsyMzNtQXV0bxtbMzg7NTsyNTQ7NDg7NTsyMzNtIBtbMzg7NTsyNDI7NDg7NTsyMzNtIOKAuhtbMzg7NTsyNTQ7NDg7NTsyMzNtICAgG1szODs1OzI0MDs0ODs1OzIzM23ilIIbWzIwOzE2SOKUghtbMzg7NTsyNTQ7NDg7NTsyMzNtICDilrggTWF4IHRob3VnaHRzIHdpZHRoICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbMzg7NTsyNTE7NDg7NTsyMzNtMTIwG1szODs1OzI1NDs0ODs1OzIzM20gICAgICAbWzM4OzU7MjQwOzQ4OzU7MjMzbeKUghtbMjE7MTZI4pSCG1szODs1OzI1NDs0ODs1OzIzM20gIOKWuCBTaG93IHRoaW5raW5nIGJsb2NrcyAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbMzg7NTsyNTE7NDg7NTsyMzNtb24bWzM4OzU7MjU0OzQ4OzU7MjMzbSAgICAgIBtbMzg7NTsyNDA7NDg7NTsyMzNt4pSCG1syMjsxNkjilIIbWzM4OzU7MjU0OzQ4OzU7MjMzbSAg4pa4IFJlc3BlY3QgbWFudWFsIGZvbGRzICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzM4OzU7MjQyOzQ4OzU7MjMzbW9mZhtbMzg7NTsyNTQ7NDg7NTsyMzNtICAgICAgG1szODs1OzI0MDs0ODs1OzIzM23ilIIbWzIzOzE2SOKUghtbMzg7NTsyNTQ7NDg7NTsyMzNtICDilrggR3JvdXAgdG9vbCBjYWxscyAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzM4OzU7MjUxOzQ4OzU7MjMzbW9uG1szODs1OzI1NDs0ODs1OzIzM20gICAgICAbWzM4OzU7MjQwOzQ4OzU7MjMzbeKUghtbMjQ7MTZI4pSCG1szODs1OzI1NDs0ODs1OzIzM20gICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbMzg7NTsyNDA7NDg7NTsyMzNt4pSCG1syNTsxNkjilIIbWzM4OzU7MjU0OzQ4OzU7MjMzbSAgICAgICAgICAgICAgICAgG1szbRtbMzg7NTsyNDA7NDg7NTsyMzNtVGlwIMK3IEFzayBHcm9rIHRvIGNoYW5nZQ=="
+        },
+        {
+          "ms": 1130.389208,
+          "output": " a setting\u001b[23m\u001b[38;5;254;48;5;233m                 \u001b[38;5;240;48;5;233m│\u001b[26;16H│\u001b[38;5;254;48;5;233m                                                                    \u001b[38;5;240;48;5;233m│\u001b[27;16H│\u001b[38;5;254;48;5;233m   \u001b[1m\u001b[38;5;251;48;5;233m↑/↓/j/k\u001b[22m\u001b[38;5;242;48;5;233m nav\u001b[38;5;240;48;5;233m  |  \u001b[1m\u001b[38;5;251;48;5;233mg/G\u001b[22m\u001b[38;5;242;48;5;233m top/btm\u001b[38;5;240;48;5;233m  |  \u001b[1m\u001b[38;5;251;48;5;233mSpace\u001b[22m\u001b[38;5;242;48;5;233m toggle\u001b[38;5;240;48;5;233m  |  \u001b[1m\u001b[38;5;251;48;5;233mEnter\u001b[22m\u001b[38;5;242;48;5;233m toggle\u001b[38;5;254;48;5;233m    \u001b[38;5;240;48;5;233m│\u001b[28;16H│\u001b[28;26H\u001b[1m\u001b[38;5;251;48;5;233m→\u001b[22m\u001b[38;5;242;48;5;233m expand\u001b[38;5;240;48;5;233m  |  \u001b[1m\u001b[38;5;251;48;5;233m/\u001b[22m\u001b[38;5;242;48;5;233m search\u001b[38;5;240;48;5;233m  |  \u001b[1m\u001b[38;5;251;48;5;233md\u001b[22m\u001b[38;5;242;48;5;233m reset\u001b[38;5;240;48;5;233m  |  \u001b[1m\u001b[38;5;251;48;5;233mF2/Esc\u001b[22m\u001b[38;5;242;48;5;233m close\u001b[28;85H\u001b[38;5;240;48;5;233m│\u001b[29;16H└──────────────────",
+          "bytesBase64": "IGEgc2V0dGluZxtbMjNtG1szODs1OzI1NDs0ODs1OzIzM20gICAgICAgICAgICAgICAgIBtbMzg7NTsyNDA7NDg7NTsyMzNt4pSCG1syNjsxNkjilIIbWzM4OzU7MjU0OzQ4OzU7MjMzbSAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgG1szODs1OzI0MDs0ODs1OzIzM23ilIIbWzI3OzE2SOKUghtbMzg7NTsyNTQ7NDg7NTsyMzNtICAgG1sxbRtbMzg7NTsyNTE7NDg7NTsyMzNt4oaRL+KGky9qL2sbWzIybRtbMzg7NTsyNDI7NDg7NTsyMzNtIG5hdhtbMzg7NTsyNDA7NDg7NTsyMzNtICB8ICAbWzFtG1szODs1OzI1MTs0ODs1OzIzM21nL0cbWzIybRtbMzg7NTsyNDI7NDg7NTsyMzNtIHRvcC9idG0bWzM4OzU7MjQwOzQ4OzU7MjMzbSAgfCAgG1sxbRtbMzg7NTsyNTE7NDg7NTsyMzNtU3BhY2UbWzIybRtbMzg7NTsyNDI7NDg7NTsyMzNtIHRvZ2dsZRtbMzg7NTsyNDA7NDg7NTsyMzNtICB8ICAbWzFtG1szODs1OzI1MTs0ODs1OzIzM21FbnRlchtbMjJtG1szODs1OzI0Mjs0ODs1OzIzM20gdG9nZ2xlG1szODs1OzI1NDs0ODs1OzIzM20gICAgG1szODs1OzI0MDs0ODs1OzIzM23ilIIbWzI4OzE2SOKUghtbMjg7MjZIG1sxbRtbMzg7NTsyNTE7NDg7NTsyMzNt4oaSG1syMm0bWzM4OzU7MjQyOzQ4OzU7MjMzbSBleHBhbmQbWzM4OzU7MjQwOzQ4OzU7MjMzbSAgfCAgG1sxbRtbMzg7NTsyNTE7NDg7NTsyMzNtLxtbMjJtG1szODs1OzI0Mjs0ODs1OzIzM20gc2VhcmNoG1szODs1OzI0MDs0ODs1OzIzM20gIHwgIBtbMW0bWzM4OzU7MjUxOzQ4OzU7MjMzbWQbWzIybRtbMzg7NTsyNDI7NDg7NTsyMzNtIHJlc2V0G1szODs1OzI0MDs0ODs1OzIzM20gIHwgIBtbMW0bWzM4OzU7MjUxOzQ4OzU7MjMzbUYyL0VzYxtbMjJtG1szODs1OzI0Mjs0ODs1OzIzM20gY2xvc2UbWzI4Ozg1SBtbMzg7NTsyNDA7NDg7NTsyMzNt4pSCG1syOTsxNkjilJTilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilA=="
+        },
+        {
+          "ms": 1130.421166,
+          "output": "──────────────────────────────────────────────────┘\u001b[31;3H\u001b[39;48;5;233m                                                                                                \u001b[39m\u001b[49m\u001b[59m\u001b[0m\u001b[?25l\u001b[?2026l",
+          "bytesBase64": "gOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUmBtbMzE7M0gbWzM5OzQ4OzU7MjMzbSAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbMzltG1s0OW0bWzU5bRtbMG0bWz8yNWwbWz8yMDI2bA=="
+        },
+        {
+          "ms": 1325.832833,
+          "action": "settings-scroll",
+          "offset": 13236,
+          "inputHex": "1b5b367e",
+          "observedMs": 1365.949541,
+          "markerFound": true,
+          "endOffset": 14007
+        },
+        {
+          "ms": 1326.115458,
+          "output": "\u001b[?2026h\u001b[9;19H\u001b[38;5;254;48;5;233m▸ Compact mode                                           \u001b[38;5;242;48;5;233moff\u001b[38;5;254;48;5;233m    \u001b[19;19H\u001b[1m\u001b[38;5;254;48;5;237m▸ Render Mermaid diagrams\u001b[22m                               \u001b[38;5;251;48;5;237mAuto\u001b[38;5;254;48;5;237m \u001b[38;5;242;48;5;237m ›\u001b[38;5;254;48;5;237m \u001b[27;20H\u001b[38;5;254;48;5;233m \u001b[1m\u001b[38;5;251;48;5;233m↑/↓/j/k\u001b[22m\u001b[38;5;242;48;5;233m nav\u001b[27;33H\u001b[38;5;240;48;5;233m |\u001b[27;36H \u001b[1m\u001b[38;5;251;48;5;233mg/G\u001b[22m\u001b[38;5;242;48;5;233m top/btm\u001b[27;49H\u001b[38;5;240;48;5;233m |\u001b[27;52H \u001b[1m\u001b[38;5;251;48;5;233mSpace\u001b[22m\u001b[38;5;242;48;5;233m to\u001b[27;62Hgle\u001b[27;66H\u001b[38;5;240;48;5;233m |\u001b[27;69H \u001b[1m\u001b[38;5;251;48;5;233mEnter\u001b[22m\u001b[38;5;242;48;5;233m edit\u001b[38;5;254;48;5;233m \u001b[39m\u001b[49m\u001b[59m\u001b[0m\u001b[?2026l",
+          "bytesBase64": "G1s/MjAyNmgbWzk7MTlIG1szODs1OzI1NDs0ODs1OzIzM23ilrggQ29tcGFjdCBtb2RlICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbMzg7NTsyNDI7NDg7NTsyMzNtb2ZmG1szODs1OzI1NDs0ODs1OzIzM20gICAgG1sxOTsxOUgbWzFtG1szODs1OzI1NDs0ODs1OzIzN23ilrggUmVuZGVyIE1lcm1haWQgZGlhZ3JhbXMbWzIybSAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzM4OzU7MjUxOzQ4OzU7MjM3bUF1dG8bWzM4OzU7MjU0OzQ4OzU7MjM3bSAbWzM4OzU7MjQyOzQ4OzU7MjM3bSDigLobWzM4OzU7MjU0OzQ4OzU7MjM3bSAbWzI3OzIwSBtbMzg7NTsyNTQ7NDg7NTsyMzNtIBtbMW0bWzM4OzU7MjUxOzQ4OzU7MjMzbeKGkS/ihpMvai9rG1syMm0bWzM4OzU7MjQyOzQ4OzU7MjMzbSBuYXYbWzI3OzMzSBtbMzg7NTsyNDA7NDg7NTsyMzNtIHwbWzI3OzM2SCAbWzFtG1szODs1OzI1MTs0ODs1OzIzM21nL0cbWzIybRtbMzg7NTsyNDI7NDg7NTsyMzNtIHRvcC9idG0bWzI3OzQ5SBtbMzg7NTsyNDA7NDg7NTsyMzNtIHwbWzI3OzUySCAbWzFtG1szODs1OzI1MTs0ODs1OzIzM21TcGFjZRtbMjJtG1szODs1OzI0Mjs0ODs1OzIzM20gdG8bWzI3OzYySGdsZRtbMjc7NjZIG1szODs1OzI0MDs0ODs1OzIzM20gfBtbMjc7NjlIIBtbMW0bWzM4OzU7MjUxOzQ4OzU7MjMzbUVudGVyG1syMm0bWzM4OzU7MjQyOzQ4OzU7MjMzbSBlZGl0G1szODs1OzI1NDs0ODs1OzIzM20gG1szOW0bWzQ5bRtbNTltG1swbRtbPzIwMjZs"
+        },
+        {
+          "ms": 1531.530666,
+          "action": "resize-narrow",
+          "offset": 14007,
+          "size": [
+            24,
+            80
+          ],
+          "observedMs": 1583.346041,
+          "markerFound": true,
+          "endOffset": 19370
+        },
+        {
+          "ms": 1550.733083,
+          "output": "\u001b[?2026h\u001b[2J",
+          "bytesBase64": "G1s/MjAyNmgbWzJK"
+        },
+        {
+          "ms": 1551.316291,
+          "output": "\u001b[1;1H\u001b[39;48;5;233m                                                \u001b[38;5;3;48;5;0mfps debug  (/debug fps)         \u001b[2;1H\u001b[39;48;5;233m  \u001b[38;5;251;48;5;233m/p/v/f/s/7/T/codsh-reference-133-mp77zqh2/work\u001b[38;5;15;48;5;0mfps:5072 p50:0.1ms p95:0.6ms    \u001b[3;1H\u001b[39;48;5;233m                                                                                \u001b[4;1H            \u001b[38;5;240;48;5;233m┌─ \u001b[1m\u001b[38;5;254;48;5;233mSettings\u001b[22m\u001b[38;5;240;48;5;233m ───────────────────────────────────── [✗] ─┐\u001b[39;48;5;233m            \u001b[5;1H            \u001b[38;5;240;48;5;233m│\u001b[38;5;254;48;5;233m                                                      \u001b[38;5;240;48;5;233m│\u001b[39;48;5;233m            \u001b[6;1H            \u001b[38;5;240;48;5;233m│\u001b[38;5;254;48;5;233m  \u001b[38;5;240;48;5;233m / to search\u001b[38;5;254;48;5;233m                                        \u001b[38;5;240;48;5;233m│\u001b[39;48;5;233m            \u001b[7;1H            \u001b[38;5;240;48;5;233m│\u001b[38;5;25",
+          "bytesBase64": "G1sxOzFIG1szOTs0ODs1OzIzM20gICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzM4OzU7Mzs0ODs1OzBtZnBzIGRlYnVnICAoL2RlYnVnIGZwcykgICAgICAgICAbWzI7MUgbWzM5OzQ4OzU7MjMzbSAgG1szODs1OzI1MTs0ODs1OzIzM20vcC92L2Yvcy83L1QvY29kc2gtcmVmZXJlbmNlLTEzMy1tcDc3enFoMi93b3JrG1szODs1OzE1OzQ4OzU7MG1mcHM6NTA3MiBwNTA6MC4xbXMgcDk1OjAuNm1zICAgIBtbMzsxSBtbMzk7NDg7NTsyMzNtICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzQ7MUggICAgICAgICAgICAbWzM4OzU7MjQwOzQ4OzU7MjMzbeKUjOKUgCAbWzFtG1szODs1OzI1NDs0ODs1OzIzM21TZXR0aW5ncxtbMjJtG1szODs1OzI0MDs0ODs1OzIzM20g4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSAIFvinJddIOKUgOKUkBtbMzk7NDg7NTsyMzNtICAgICAgICAgICAgG1s1OzFIICAgICAgICAgICAgG1szODs1OzI0MDs0ODs1OzIzM23ilIIbWzM4OzU7MjU0OzQ4OzU7MjMzbSAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbMzg7NTsyNDA7NDg7NTsyMzNt4pSCG1szOTs0ODs1OzIzM20gICAgICAgICAgICAbWzY7MUggICAgICAgICAgICAbWzM4OzU7MjQwOzQ4OzU7MjMzbeKUghtbMzg7NTsyNTQ7NDg7NTsyMzNtICAbWzM4OzU7MjQwOzQ4OzU7MjMzbSAvIHRvIHNlYXJjaBtbMzg7NTsyNTQ7NDg7NTsyMzNtICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbMzg7NTsyNDA7NDg7NTsyMzNt4pSCG1szOTs0ODs1OzIzM20gICAgICAgICAgICAbWzc7MUggICAgICAgICAgICAbWzM4OzU7MjQwOzQ4OzU7MjMzbeKUghtbMzg7NTsyNQ=="
+        },
+        {
+          "ms": 1551.332666,
+          "output": "4;48;5;233m  \u001b[38;5;240;48;5;233m──────────────────────────────────────────────────\u001b[38;5;254;48;5;233m  \u001b[38;5;240;48;5;233m│\u001b[39;48;5;233m            \u001b[8;1H            \u001b[38;5;240;48;5;233m│\u001b[38;5;254;48;5;233m  ▸ Snap prompt to top on send                \u001b[38;5;251;48;5;233mon\u001b[38;5;254;48;5;233m      \u001b[38;5;240;48;5;233m│\u001b[39;48;5;233m            \u001b[9;1H            \u001b[38;5;240;48;5;233m│\u001b[38;5;254;48;5;233m  ▸ Disable vim input mode                    \u001b[38;5;251;48;5;233mon\u001b[38;5;254;48;5;233m      \u001b[38;5;240;48;5;233m│\u001b[39;48;5;233m            \u001b[10;1H            \u001b[38;5;240;48;5;233m│\u001b[38;5;254;48;5;233m  ▸ Vim scrollback navigation                \u001b[38;5;242;48;5;233moff\u001b[38;5;254;48;5;233m      \u001b[38;5;240;48;5;233m│\u001b[39;48;5;233m            \u001b[11;1H            \u001b[38;5;240;48;5;233m│\u001b[38;5;254;48;5;233m  ▸ Theme                             \u001b[38;5;251;48;5;233mGrok Night\u001b[38;5;254;48;5;233",
+          "bytesBase64": "NDs0ODs1OzIzM20gIBtbMzg7NTsyNDA7NDg7NTsyMzNt4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSAG1szODs1OzI1NDs0ODs1OzIzM20gIBtbMzg7NTsyNDA7NDg7NTsyMzNt4pSCG1szOTs0ODs1OzIzM20gICAgICAgICAgICAbWzg7MUggICAgICAgICAgICAbWzM4OzU7MjQwOzQ4OzU7MjMzbeKUghtbMzg7NTsyNTQ7NDg7NTsyMzNtICDilrggU25hcCBwcm9tcHQgdG8gdG9wIG9uIHNlbmQgICAgICAgICAgICAgICAgG1szODs1OzI1MTs0ODs1OzIzM21vbhtbMzg7NTsyNTQ7NDg7NTsyMzNtICAgICAgG1szODs1OzI0MDs0ODs1OzIzM23ilIIbWzM5OzQ4OzU7MjMzbSAgICAgICAgICAgIBtbOTsxSCAgICAgICAgICAgIBtbMzg7NTsyNDA7NDg7NTsyMzNt4pSCG1szODs1OzI1NDs0ODs1OzIzM20gIOKWuCBEaXNhYmxlIHZpbSBpbnB1dCBtb2RlICAgICAgICAgICAgICAgICAgICAbWzM4OzU7MjUxOzQ4OzU7MjMzbW9uG1szODs1OzI1NDs0ODs1OzIzM20gICAgICAbWzM4OzU7MjQwOzQ4OzU7MjMzbeKUghtbMzk7NDg7NTsyMzNtICAgICAgICAgICAgG1sxMDsxSCAgICAgICAgICAgIBtbMzg7NTsyNDA7NDg7NTsyMzNt4pSCG1szODs1OzI1NDs0ODs1OzIzM20gIOKWuCBWaW0gc2Nyb2xsYmFjayBuYXZpZ2F0aW9uICAgICAgICAgICAgICAgIBtbMzg7NTsyNDI7NDg7NTsyMzNtb2ZmG1szODs1OzI1NDs0ODs1OzIzM20gICAgICAbWzM4OzU7MjQwOzQ4OzU7MjMzbeKUghtbMzk7NDg7NTsyMzNtICAgICAgICAgICAgG1sxMTsxSCAgICAgICAgICAgIBtbMzg7NTsyNDA7NDg7NTsyMzNt4pSCG1szODs1OzI1NDs0ODs1OzIzM20gIOKWuCBUaGVtZSAgICAgICAgICAgICAgICAgICAgICAgICAgICAgG1szODs1OzI1MTs0ODs1OzIzM21Hcm9rIE5pZ2h0G1szODs1OzI1NDs0ODs1OzIzMw=="
+        },
+        {
+          "ms": 1551.342708,
+          "output": "m \u001b[38;5;242;48;5;233m ›\u001b[38;5;254;48;5;233m   \u001b[38;5;240;48;5;233m│\u001b[39;48;5;233m            \u001b[12;1H            \u001b[38;5;240;48;5;233m│\u001b[38;5;254;48;5;233m  ▸ Auto dark theme                   \u001b[38;5;251;48;5;233mGrok Night\u001b[38;5;254;48;5;233m \u001b[38;5;242;48;5;233m ›\u001b[38;5;254;48;5;233m   \u001b[38;5;240;48;5;233m│\u001b[39;48;5;233m            \u001b[13;1H            \u001b[38;5;240;48;5;233m│\u001b[38;5;254;48;5;233m  ▸ Auto light theme                    \u001b[38;5;251;48;5;233mGrok Day\u001b[38;5;254;48;5;233m \u001b[38;5;242;48;5;233m ›\u001b[38;5;254;48;5;233m   \u001b[38;5;240;48;5;233m│\u001b[39;48;5;233m            \u001b[14;1H            \u001b[38;5;240;48;5;233m│\u001b[38;5;254;48;5;233m  \u001b[1m\u001b[38;5;254;48;5;237m▸ Render Mermaid diagrams\u001b[22m                 \u001b[38;5;251;48;5;237mAuto\u001b[38;5;254;48;5;237m \u001b[38;5;242;48;5;237m ›\u001b[38;5;254;48;5;237m \u001b[38;5;254;48;5;233m  \u001b[38;5;240;48;5;233m│\u001b[39;48;5;233m            \u001b[15;1H            \u001b[38;5;240;48;5;233m│\u001b[38;5;254;48;5;233m                                                      \u001b[38;5;240;48;",
+          "bytesBase64": "bSAbWzM4OzU7MjQyOzQ4OzU7MjMzbSDigLobWzM4OzU7MjU0OzQ4OzU7MjMzbSAgIBtbMzg7NTsyNDA7NDg7NTsyMzNt4pSCG1szOTs0ODs1OzIzM20gICAgICAgICAgICAbWzEyOzFIICAgICAgICAgICAgG1szODs1OzI0MDs0ODs1OzIzM23ilIIbWzM4OzU7MjU0OzQ4OzU7MjMzbSAg4pa4IEF1dG8gZGFyayB0aGVtZSAgICAgICAgICAgICAgICAgICAbWzM4OzU7MjUxOzQ4OzU7MjMzbUdyb2sgTmlnaHQbWzM4OzU7MjU0OzQ4OzU7MjMzbSAbWzM4OzU7MjQyOzQ4OzU7MjMzbSDigLobWzM4OzU7MjU0OzQ4OzU7MjMzbSAgIBtbMzg7NTsyNDA7NDg7NTsyMzNt4pSCG1szOTs0ODs1OzIzM20gICAgICAgICAgICAbWzEzOzFIICAgICAgICAgICAgG1szODs1OzI0MDs0ODs1OzIzM23ilIIbWzM4OzU7MjU0OzQ4OzU7MjMzbSAg4pa4IEF1dG8gbGlnaHQgdGhlbWUgICAgICAgICAgICAgICAgICAgIBtbMzg7NTsyNTE7NDg7NTsyMzNtR3JvayBEYXkbWzM4OzU7MjU0OzQ4OzU7MjMzbSAbWzM4OzU7MjQyOzQ4OzU7MjMzbSDigLobWzM4OzU7MjU0OzQ4OzU7MjMzbSAgIBtbMzg7NTsyNDA7NDg7NTsyMzNt4pSCG1szOTs0ODs1OzIzM20gICAgICAgICAgICAbWzE0OzFIICAgICAgICAgICAgG1szODs1OzI0MDs0ODs1OzIzM23ilIIbWzM4OzU7MjU0OzQ4OzU7MjMzbSAgG1sxbRtbMzg7NTsyNTQ7NDg7NTsyMzdt4pa4IFJlbmRlciBNZXJtYWlkIGRpYWdyYW1zG1syMm0gICAgICAgICAgICAgICAgIBtbMzg7NTsyNTE7NDg7NTsyMzdtQXV0bxtbMzg7NTsyNTQ7NDg7NTsyMzdtIBtbMzg7NTsyNDI7NDg7NTsyMzdtIOKAuhtbMzg7NTsyNTQ7NDg7NTsyMzdtIBtbMzg7NTsyNTQ7NDg7NTsyMzNtICAbWzM4OzU7MjQwOzQ4OzU7MjMzbeKUghtbMzk7NDg7NTsyMzNtICAgICAgICAgICAgG1sxNTsxSCAgICAgICAgICAgIBtbMzg7NTsyNDA7NDg7NTsyMzNt4pSCG1szODs1OzI1NDs0ODs1OzIzM20gICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzM4OzU7MjQwOzQ4Ow=="
+        },
+        {
+          "ms": 1551.353541,
+          "output": "5;233m│\u001b[39;48;5;233m            \u001b[16;1H            \u001b[38;5;240;48;5;233m│\u001b[38;5;254;48;5;233m          \u001b[3m\u001b[38;5;240;48;5;233mTip · Ask Grok to change a setting\u001b[23m\u001b[38;5;254;48;5;233m          \u001b[38;5;240;48;5;233m│\u001b[39;48;5;233m            \u001b[17;1H            \u001b[38;5;240;48;5;233m│\u001b[38;5;254;48;5;233m                                                      \u001b[38;5;240;48;5;233m│\u001b[39;48;5;233m            \u001b[18;1H            \u001b[38;5;240;48;5;233m│\u001b[38;5;254;48;5;233m     \u001b[1m\u001b[38;5;251;48;5;233m↑/↓/j/k\u001b[22m\u001b[38;5;242;48;5;233m nav\u001b[38;5;240;48;5;233m  |  \u001b[1m\u001b[38;5;251;48;5;233mg/G\u001b[22m\u001b[38;5;242;48;5;233m top/btm\u001b[38;5;240;48;5;233m  |  \u001b[1m\u001b[38;5;251;48;5;233mSpace\u001b[22m\u001b[38;5;242;48;5;233m toggle\u001b[38;5;254;48;5;233m     \u001b[38;5;240;48;5;233m│\u001b[39;48;5;233m            \u001b[19;1H  \u001b[38;5;239;48;5;233m╭─────────\u001b[38;5;240;48;5;233m│\u001b[38;5;254;48;5;233m   \u001b[1m\u001b[38;5;251;48;5;233mEnter\u001b[22m\u001b[38;5;242;48;5;233m edit\u001b[38;5;240;48;5;233m  |  \u001b[1m\u001b[38;5;251;48;5;233m→\u001b[22m\u001b[38;5;242;4",
+          "bytesBase64": "NTsyMzNt4pSCG1szOTs0ODs1OzIzM20gICAgICAgICAgICAbWzE2OzFIICAgICAgICAgICAgG1szODs1OzI0MDs0ODs1OzIzM23ilIIbWzM4OzU7MjU0OzQ4OzU7MjMzbSAgICAgICAgICAbWzNtG1szODs1OzI0MDs0ODs1OzIzM21UaXAgwrcgQXNrIEdyb2sgdG8gY2hhbmdlIGEgc2V0dGluZxtbMjNtG1szODs1OzI1NDs0ODs1OzIzM20gICAgICAgICAgG1szODs1OzI0MDs0ODs1OzIzM23ilIIbWzM5OzQ4OzU7MjMzbSAgICAgICAgICAgIBtbMTc7MUggICAgICAgICAgICAbWzM4OzU7MjQwOzQ4OzU7MjMzbeKUghtbMzg7NTsyNTQ7NDg7NTsyMzNtICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgG1szODs1OzI0MDs0ODs1OzIzM23ilIIbWzM5OzQ4OzU7MjMzbSAgICAgICAgICAgIBtbMTg7MUggICAgICAgICAgICAbWzM4OzU7MjQwOzQ4OzU7MjMzbeKUghtbMzg7NTsyNTQ7NDg7NTsyMzNtICAgICAbWzFtG1szODs1OzI1MTs0ODs1OzIzM23ihpEv4oaTL2ovaxtbMjJtG1szODs1OzI0Mjs0ODs1OzIzM20gbmF2G1szODs1OzI0MDs0ODs1OzIzM20gIHwgIBtbMW0bWzM4OzU7MjUxOzQ4OzU7MjMzbWcvRxtbMjJtG1szODs1OzI0Mjs0ODs1OzIzM20gdG9wL2J0bRtbMzg7NTsyNDA7NDg7NTsyMzNtICB8ICAbWzFtG1szODs1OzI1MTs0ODs1OzIzM21TcGFjZRtbMjJtG1szODs1OzI0Mjs0ODs1OzIzM20gdG9nZ2xlG1szODs1OzI1NDs0ODs1OzIzM20gICAgIBtbMzg7NTsyNDA7NDg7NTsyMzNt4pSCG1szOTs0ODs1OzIzM20gICAgICAgICAgICAbWzE5OzFIICAbWzM4OzU7MjM5OzQ4OzU7MjMzbeKVreKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgBtbMzg7NTsyNDA7NDg7NTsyMzNt4pSCG1szODs1OzI1NDs0ODs1OzIzM20gICAbWzFtG1szODs1OzI1MTs0ODs1OzIzM21FbnRlchtbMjJtG1szODs1OzI0Mjs0ODs1OzIzM20gZWRpdBtbMzg7NTsyNDA7NDg7NTsyMzNtICB8ICAbWzFtG1szODs1OzI1MTs0ODs1OzIzM23ihpIbWzIybRtbMzg7NTsyNDI7NA=="
+        },
+        {
+          "ms": 1551.365083,
+          "output": "8;5;233m expand\u001b[38;5;240;48;5;233m  |  \u001b[1m\u001b[38;5;251;48;5;233m/\u001b[22m\u001b[38;5;242;48;5;233m search\u001b[38;5;240;48;5;233m  |  \u001b[1m\u001b[38;5;251;48;5;233md\u001b[22m\u001b[38;5;242;48;5;233m reset\u001b[38;5;254;48;5;233m   \u001b[38;5;240;48;5;233m│\u001b[38;5;239;48;5;233m─────────╮\u001b[39;48;5;233m  \u001b[20;1H  \u001b[38;5;239;48;5;233m│\u001b[38;5;254;48;5;233m \u001b[38;5;251;48;5;233m❯ \u001b[38;5;254;48;5;233m      \u001b[38;5;240;48;5;233m│\u001b[38;5;254;48;5;233m                     \u001b[1m\u001b[38;5;251;48;5;233mF2/Esc\u001b[22m\u001b[38;5;242;48;5;233m close\u001b[38;5;254;48;5;233m                     \u001b[38;5;240;48;5;233m│\u001b[38;5;254;48;5;233m         \u001b[38;5;239;48;5;233m│\u001b[39;48;5;233m  \u001b[21;1H  \u001b[38;5;239;48;5;233m╰─────────\u001b[38;5;240;48;5;233m└──────────────────────────────────────────────────────┘\u001b[38;5;244;48;5;233mfixture\u001b[38;5;239;48;5;233m ─╯\u001b[39;48;5;233m  \u001b[22;1H                                                  ",
+          "bytesBase64": "ODs1OzIzM20gZXhwYW5kG1szODs1OzI0MDs0ODs1OzIzM20gIHwgIBtbMW0bWzM4OzU7MjUxOzQ4OzU7MjMzbS8bWzIybRtbMzg7NTsyNDI7NDg7NTsyMzNtIHNlYXJjaBtbMzg7NTsyNDA7NDg7NTsyMzNtICB8ICAbWzFtG1szODs1OzI1MTs0ODs1OzIzM21kG1syMm0bWzM4OzU7MjQyOzQ4OzU7MjMzbSByZXNldBtbMzg7NTsyNTQ7NDg7NTsyMzNtICAgG1szODs1OzI0MDs0ODs1OzIzM23ilIIbWzM4OzU7MjM5OzQ4OzU7MjMzbeKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKVrhtbMzk7NDg7NTsyMzNtICAbWzIwOzFIICAbWzM4OzU7MjM5OzQ4OzU7MjMzbeKUghtbMzg7NTsyNTQ7NDg7NTsyMzNtIBtbMzg7NTsyNTE7NDg7NTsyMzNt4p2vIBtbMzg7NTsyNTQ7NDg7NTsyMzNtICAgICAgG1szODs1OzI0MDs0ODs1OzIzM23ilIIbWzM4OzU7MjU0OzQ4OzU7MjMzbSAgICAgICAgICAgICAgICAgICAgIBtbMW0bWzM4OzU7MjUxOzQ4OzU7MjMzbUYyL0VzYxtbMjJtG1szODs1OzI0Mjs0ODs1OzIzM20gY2xvc2UbWzM4OzU7MjU0OzQ4OzU7MjMzbSAgICAgICAgICAgICAgICAgICAgIBtbMzg7NTsyNDA7NDg7NTsyMzNt4pSCG1szODs1OzI1NDs0ODs1OzIzM20gICAgICAgICAbWzM4OzU7MjM5OzQ4OzU7MjMzbeKUghtbMzk7NDg7NTsyMzNtICAbWzIxOzFIICAbWzM4OzU7MjM5OzQ4OzU7MjMzbeKVsOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgBtbMzg7NTsyNDA7NDg7NTsyMzNt4pSU4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSYG1szODs1OzI0NDs0ODs1OzIzM21maXh0dXJlG1szODs1OzIzOTs0ODs1OzIzM20g4pSA4pWvG1szOTs0ODs1OzIzM20gIBtbMjI7MUggICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIA=="
+        },
+        {
+          "ms": 1551.380833,
+          "output": "                              \u001b[23;1H                                                                                \u001b[24;1H                                                                                \u001b[39m\u001b[49m\u001b[59m\u001b[0m\u001b[?2026l",
+          "bytesBase64": "ICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgG1syMzsxSCAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgG1syNDsxSCAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgG1szOW0bWzQ5bRtbNTltG1swbRtbPzIwMjZs"
+        },
+        {
+          "ms": 1737.047958,
+          "action": "settings-close",
+          "offset": 19370,
+          "inputHex": "1b",
+          "observedMs": 2041.327375,
+          "markerFound": null,
+          "endOffset": 21062
+        },
+        {
+          "ms": 1888.483958,
+          "output": "\u001b[?2026h\u001b[2;53H\u001b[38;5;15;48;5;0m4546\u001b[2;74H7\u001b[4;13H\u001b[39;48;5;233m                                                        \u001b[5;13H                                                        \u001b[6;13H                                                        \u001b[7;13H                                                        \u001b[8;13H                                                        \u001b[9;13H                                                        \u001b[10;13H                                                        \u001b[11;13H                                                        \u001b[12;13H                                                        \u001b[13;13H                                                        \u001b[14;13H                                                        \u001b[15;13H                                                        \u001b[16;13H                                                        \u001b[17;13H                                                        \u001b[18;13H                                                        \u001b[19;13H\u001b[38",
+          "bytesBase64": "G1s/MjAyNmgbWzI7NTNIG1szODs1OzE1OzQ4OzU7MG00NTQ2G1syOzc0SDcbWzQ7MTNIG1szOTs0ODs1OzIzM20gICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbNTsxM0ggICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbNjsxM0ggICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbNzsxM0ggICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbODsxM0ggICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbOTsxM0ggICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbMTA7MTNIICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzExOzEzSCAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgG1sxMjsxM0ggICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbMTM7MTNIICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzE0OzEzSCAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgG1sxNTsxM0ggICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbMTY7MTNIICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzE3OzEzSCAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgG1sxODsxM0ggICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbMTk7MTNIG1szOA=="
+        },
+        {
+          "ms": 1888.530458,
+          "output": ";5;239;48;5;233m────────────────────────────────────────────────────────\u001b[20;13H\u001b[38;5;254;48;5;233m \u001b[20;35H            \u001b[20;68H \u001b[21;13H\u001b[38;5;239;48;5;233m───────────────────────────────────────────── \u001b[38;5;244;48;5;233mreference-\u001b[23;3H\u001b[1m\u001b[38;5;251;48;5;233mShift+Tab\u001b[22m\u001b[38;5;242;48;5;233m:mode\u001b[2m  │  \u001b[22m\u001b[1m\u001b[38;5;251;48;5;233mCtrl+x\u001b[22m\u001b[38;5;242;48;5;233m:shortcuts                                         \u001b[39m\u001b[49m\u001b[59m\u001b[0m\u001b[20;7H\u001b[?25h\u001b[?2026l",
+          "bytesBase64": "OzU7MjM5OzQ4OzU7MjMzbeKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgBtbMjA7MTNIG1szODs1OzI1NDs0ODs1OzIzM20gG1syMDszNUggICAgICAgICAgICAbWzIwOzY4SCAbWzIxOzEzSBtbMzg7NTsyMzk7NDg7NTsyMzNt4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSAIBtbMzg7NTsyNDQ7NDg7NTsyMzNtcmVmZXJlbmNlLRtbMjM7M0gbWzFtG1szODs1OzI1MTs0ODs1OzIzM21TaGlmdCtUYWIbWzIybRtbMzg7NTsyNDI7NDg7NTsyMzNtOm1vZGUbWzJtICDilIIgIBtbMjJtG1sxbRtbMzg7NTsyNTE7NDg7NTsyMzNtQ3RybCt4G1syMm0bWzM4OzU7MjQyOzQ4OzU7MjMzbTpzaG9ydGN1dHMgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbMzltG1s0OW0bWzU5bRtbMG0bWzIwOzdIG1s/MjVoG1s/MjAyNmw="
+        },
+        {
+          "ms": 2205.895666,
+          "action": "quit",
+          "offset": 21062,
+          "inputHex": "2f717569740d",
+          "observedMs": 2280.520375,
+          "markerFound": null,
+          "endOffset": 21252
+        },
+        {
+          "ms": 2209.9835,
+          "output": "\u001b]0;grok\u0007",
+          "bytesBase64": "G10wO2dyb2sH"
+        },
+        {
+          "ms": 2210.287583,
+          "output": "\u001b[2J",
+          "bytesBase64": "G1sySg=="
+        },
+        {
+          "ms": 2211.815416,
+          "output": "\u001b]9;4;0;0\u0007\u001b[?2026l\u001b]112\u0007\u001b[?1000l\u001b[?1002l\u001b[?1003l\u001b[?1015l\u001b[?1006l\u001b[?2004l\u001b[?1004l\u001b[?25h\u001b[?1049l",
+          "bytesBase64": "G105OzQ7MDswBxtbPzIwMjZsG10xMTIHG1s/MTAwMGwbWz8xMDAybBtbPzEwMDNsG1s/MTAxNWwbWz8xMDA2bBtbPzIwMDRsG1s/MTAwNGwbWz8yNWgbWz8xMDQ5bA=="
+        },
+        {
+          "ms": 2277.787125,
+          "output": "\r\nResume this session with:\r\n  grok --resume 01a0bae4-8bf3-7dd0-b323-19957db5700c\r\n",
+          "bytesBase64": "DQpSZXN1bWUgdGhpcyBzZXNzaW9uIHdpdGg6DQogIGdyb2sgLS1yZXN1bWUgMDFhMGJhZTQtOGJmMy03ZGQwLWIzMjMtMTk5NTdkYjU3MDBjDQo="
+        }
+      ],
+      "firstFrameMs": 295.590708,
+      "rss": [
+        {
+          "action": "draft",
+          "ms": 500.995958,
+          "rssKiB": 98480
+        },
+        {
+          "action": "clear-draft",
+          "ms": 965.874541,
+          "rssKiB": 98448
+        },
+        {
+          "action": "settings-open",
+          "ms": 1168.178041,
+          "rssKiB": 99248
+        },
+        {
+          "action": "settings-scroll",
+          "ms": 1371.661416,
+          "rssKiB": 99328
+        },
+        {
+          "action": "resize-narrow",
+          "ms": 1586.99725,
+          "rssKiB": 99344
+        },
+        {
+          "action": "settings-close",
+          "ms": 2045.303,
+          "rssKiB": 99344
+        },
+        {
+          "action": "quit",
+          "ms": 2283.810625,
+          "rssKiB": 0
+        }
+      ],
+      "exit": 0,
+      "forcedCleanup": false,
+      "restoredAlternateScreen": true,
+      "outputBytes": 21252,
+      "outputSha256": "bc980bfb734ddbe1f266331d8686000c7c793ef4fdbd0cc24ba3bfa672a4601c"
+    }
+  ],
+  "supplementCapturedAt": "2026-09-19T18:18:51Z"
 }

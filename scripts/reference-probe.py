@@ -103,13 +103,14 @@ class Reference:
                 'elapsedMs': (time.perf_counter_ns() - start) / 1e6,
                 'stdout': stdout.decode(errors='replace'), 'stderr': stderr.decode(errors='replace')}
 
-    def terminal(self, mode):
+    def terminal(self, mode, environment=None):
+        env = {**self.env, **(environment or {})}
         start = time.perf_counter_ns()
         pid, fd = pty.fork()
         if pid == 0:
             os.chdir(self.work)
             os.execve('/usr/bin/sandbox-exec', ['sandbox-exec', '-p', self.profile,
-                                               str(self.binary), '--' + mode], self.env)
+                                               str(self.binary), '--' + mode], env)
         fcntl.ioctl(fd, termios.TIOCSWINSZ, struct.pack('HHHH', 32, 100, 0, 0))
         events, output, rss = [], bytearray(), []
         decoder = codecs.getincrementaldecoder('utf-8')(errors='replace')
@@ -182,7 +183,7 @@ class Reference:
                 os.kill(pid, signal.SIGKILL)
                 _, status = os.waitpid(pid, 0)
             os.close(fd)
-        return {'mode': mode, 'initialSize': [32, 100], 'events': events,
+        return {'mode': mode, 'environment': environment or {}, 'initialSize': [32, 100], 'events': events,
                 'firstFrameMs': first_frame, 'rss': rss,
                 'exit': os.waitstatus_to_exitcode(status),
                 'forcedCleanup': os.waitstatus_to_exitcode(status) == -signal.SIGKILL,
@@ -241,6 +242,13 @@ def main():
         for command in [['inspect', '--json'], ['sessions', 'list'],
                         ['--not-a-real-option'], ['--output-format', 'not-a-format']]:
             result['commands'].append(reference.command(command))
+        for flag in ['--allowedTools', '--disallowedTools', '--system-prompt', '--append-system-prompt', '--compaction-mode', '--compaction-detail']:
+            observation = reference.command([flag])
+            result['commands'].append(observation)
+            if observation['exit'] != 2 or 'a value is required' not in observation['stderr'] or 'unexpected argument' in observation['stderr']:
+                raise RuntimeError(f'Unrecognized compatibility syntax: {flag}')
+        result['environmentProbes'] = [reference.terminal('fullscreen', {'GROK_FPS': '0'}),
+                                       reference.terminal('fullscreen', {'GROK_FPS': '1'})]
         for mode in ['fullscreen', 'minimal']:
             for index in range(args.samples):
                 observation = reference.terminal(mode)
@@ -258,10 +266,14 @@ def main():
         (args.output / 'observations.json').write_text(encoded + '\n')
     if any(item['exit'] != 0 or item['forcedCleanup'] or item['firstFrameMs'] is None
            or any(event.get('markerFound') is False for event in item['events'])
-           for item in result['terminals']):
+           for item in result['terminals'] + result['environmentProbes']):
         raise SystemExit('Reference PTY assertion failed; raw observations were preserved.')
+    fps = [any('fps' in event.get('output', '').lower() for event in terminal['events'])
+           for terminal in result['environmentProbes']]
+    if fps != [False, True]:
+        raise SystemExit('GROK_FPS paired observation failed; raw evidence was preserved.')
     print(json.dumps({'commands': len(result['commands']), 'guides': len(result['guides']),
-                      'terminals': len(result['terminals']), 'output': str(args.output)}))
+                      'terminals': len(result['terminals']), 'environmentProbes': len(result['environmentProbes']), 'output': str(args.output)}))
 
 
 if __name__ == '__main__':

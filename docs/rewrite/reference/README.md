@@ -20,9 +20,12 @@ unproven. The preceding inspected export declares 1.0.32, not 1.0.34.
   Acceptance scenarios are parameterized by the exact discovery row and its
   quoted contract, not merely by a feature-family label. They are **planned**,
   not executable candidate tests or passing results.
-- `observations.json`: 76 actual CLI observations, all 27 guides emitted by the
-  pinned binary into a fresh home, ten real PTY recordings (five per mode), and
-  five process-start samples. PTY chunks retain base64 bytes, timestamps,
+- `source-evidence.json`: source file hashes and line counts, exact referenced
+  line fragments and public guide text, extracted from the clean pinned checkout.
+  These are research quotations, not an imported/buildable Rust application.
+- `observations.json`: 82 actual CLI observations, all 27 guides emitted by the
+  pinned binary into a fresh home, ten baseline PTY recordings (five per mode),
+  paired `GROK_FPS=0/1` PTY observations, and five process-start samples. PTY chunks retain base64 bytes, timestamps,
   actions, sizes, sampled RSS and hashes. No personal session was copied.
 - `model-observations.json`: four real headless formats driven by a deterministic
   loopback-only SSE model fixture; actual advertised tool schemas are retained.
@@ -42,6 +45,8 @@ unproven. The preceding inspected export declares 1.0.32, not 1.0.34.
 ### Locator semantics
 
 `capture:commands/N` selects `observations.json.commands[N]`.
+`capture:environmentProbes/N/events/M` selects a raw output event from an isolated
+paired environment probe.
 `model:requests/N/tools/NAME` selects a tool schema in the model capture.
 `binary-guide:FILE#Lx` selects line x of the named embedded guide in observations.
 `source-guide:FILE#Lx` selects the pinned public pager `docs/user-guide/FILE`.
@@ -53,9 +58,13 @@ observations are retained rather than resolved by silently choosing the newer on
 
 The machine check requires set equality between discovery and inventory, unique
 identities, valid story/ticket ownership, an acceptance scenario for every owner,
-real evidence locators and explicit pending blockers. Tests deliberately delete
-rows, duplicate identities, remove owners and fabricate verification to prove the
-check rejects them. Re-extraction from the pinned clean source checkout and raw
+resolved evidence locators and explicit pending blockers. It re-extracts captured
+commands, guides and model schemas; checks source path/line bounds and exact quoted
+fragments; and enforces the pinned binary hash across discovery, captures and
+provenance. Source evidence itself is hashed in provenance and can be regenerated
+from the pinned checkout. Tests deliberately delete rows, duplicate identities,
+remove owners, invent capture/source locations, alter binary hashes, and fabricate
+verification—even after recomputing the register digest—to prove rejection. Re-extraction from the pinned clean source checkout and raw
 captures detects discovery drift; review any diff rather than regenerating a
 smaller register to make validation green.
 
@@ -63,12 +72,28 @@ The extraction covers the complete recursive **visible** installed help tree,
 all binary-emitted guide headings/behavior paragraphs/table rows, all published
 config-reference fields and all TOML example fields (including pager/Grove settings), source slash registries and
 macros, tool IDs/constants, boolean feature registry, source CLI declarations
-(including hidden options), and named public ACP declarations. It intentionally
+(including `clap` attributes, camelCase compatibility aliases and hidden options),
+quoted environment-control names throughout the exported Rust crates and `prod/`,
+and named public ACP declarations. Source environment controls remain provisional
+unless separately observed; build/test/service knobs are not automatically release
+features. It intentionally
 retains over-inclusive source metadata pending classification. It cannot prove
 absence of undocumented or account-gated behavior. Feature/service/platform
 variants described in each excerpt remain required even when not runnable here.
 
 Important reconciliations:
+
+- Isolated missing-value probes confirm recognition of `--allowedTools`,
+  `--disallowedTools`, `--system-prompt`, `--append-system-prompt`,
+  `--compaction-mode` and `--compaction-detail`. Recognition is not proof of
+  their execution semantics. `/log` and `/summarize` are recorded source aliases.
+- Paired real terminal runs show the FPS overlay with `GROK_FPS=1` and no overlay
+  with `0`. Its renderer acceptance is separate from CLI help. Global shortcuts
+  are assigned by action/context; headless input file/JSON/system-prompt options
+  have provider-wire acceptance rather than composer-editing scenarios.
+- Both the executable model probe and retained-evidence tests parse every
+  structured format. They verify text, stop reason, session identity and exactly
+  one final `end`/`result` record; marker text alone is not passing evidence.
 
 - Installed help includes `clone` and `cursor-worker`; public source availability
   alone does not establish build-flag parity. Remote-worker connection belongs to

@@ -263,5 +263,5 @@
       "reason": "Five-run pilot is insufficient for a stable p95; freeze 30-run thresholds before candidate measurement."
     }
   ],
-  "captureSha256": "09ab748ebfff68a2bcbc4242d87b336283895b3dca670441b3547256335f0f0a"
+  "captureSha256": "06a46b8997a93d57b7908f8edc71c9b41699648d6b36bed6339226b819d7e938"
 }

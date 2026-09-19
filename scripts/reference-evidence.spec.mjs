@@ -5,6 +5,34 @@ import { Terminal } from '../e2e/vt.ts'
 import { percentile, summarize } from './reference-baseline.mjs'
 
 const load = file => JSON.parse(readFileSync(new URL(`../docs/rewrite/reference/${file}`, import.meta.url), 'utf8'))
+function validateOutput(command) {
+  if (command.exit !== 0 || command.timedOut) throw new Error('Command failed')
+  const format = command.args.at(-1), marker = 'REFERENCE_LOCAL_OK'
+  const require = condition => { if (!condition) throw new Error(`Invalid ${format} output`) }
+  if (format === 'plain') return require(command.stdout.trim() === marker)
+  if (format === 'json') {
+    const value = JSON.parse(command.stdout)
+    return require(value.text === marker && value.stopReason === 'end_turn' && value.sessionId && value.requestId)
+  }
+  const events = command.stdout.trim().split('\n').map(line => JSON.parse(line))
+  require(events.every(event => event && typeof event === 'object'))
+  const terminal = events.at(-1)
+  if (format === 'streaming-json') {
+    require(events.filter(event => event.type === 'end').length === 1 && terminal.type === 'end')
+    require(terminal.stopReason === 'end_turn' && terminal.sessionId && terminal.requestId)
+    require(events.filter(event => event.type === 'text').map(event => event.data).join('') === marker)
+  } else {
+    const init = events[0], answers = events.filter(event => event.type === 'assistant')
+    require(init.type === 'system' && init.subtype === 'init' && init.model === 'reference-fixture' && init.session_id)
+    require(events.filter(event => event.type === 'result').length === 1 && terminal.type === 'result')
+    require(terminal.subtype === 'success' && terminal.is_error === false && terminal.result === marker && terminal.stop_reason === 'end_turn')
+    require(terminal.session_id === init.session_id && answers.length === 1 && answers[0].session_id === init.session_id)
+    const message = answers[0].message
+    require(message.role === 'assistant' && message.model === 'reference-fixture' && message.stop_reason === 'end_turn')
+    require(message.content.filter(block => block.type === 'text').map(block => block.text).join('') === marker)
+  }
+}
+
 const capture = load('observations.json')
 const model = load('model-observations.json')
 
@@ -60,12 +88,40 @@ describe('recorded installed reference evidence', () => {
     }
   })
 
+  it('rejects malformed structured output, missing/duplicate terminals and content-free success', () => {
+    for (const command of model.commands.filter(command => command.args.at(-1) !== 'plain')) {
+      expect(() => validateOutput({ ...command, stdout: 'REFERENCE_LOCAL_OK\nNOT JSON' })).toThrow()
+      expect(() => validateOutput({ ...command, stdout: command.stdout.replaceAll('REFERENCE_LOCAL_OK', 'wrong') })).toThrow()
+      if (command.args.at(-1).startsWith('streaming')) {
+        const lines = command.stdout.trim().split('\n')
+        expect(() => validateOutput({ ...command, stdout: lines.slice(0, -1).join('\n') })).toThrow()
+        expect(() => validateOutput({ ...command, stdout: [...lines, lines.at(-1)].join('\n') })).toThrow()
+      }
+    }
+  })
+
+  it('records compatibility option recognition and the actual FPS overlay toggle', () => {
+    for (const flag of ['--allowedTools', '--disallowedTools', '--system-prompt', '--append-system-prompt', '--compaction-mode', '--compaction-detail']) {
+      const command = capture.commands.find(command => command.args.length === 1 && command.args[0] === flag)
+      expect(command.exit).toBe(2)
+      expect(command.stderr).toContain('a value is required')
+      expect(command.stderr).not.toContain('unexpected argument')
+    }
+    const [disabled, enabled] = capture.environmentProbes
+    expect(screenAt(disabled, 'draft')).not.toMatch(/FPS/i)
+    expect(screenAt(enabled, 'draft')).toMatch(/FPS/i)
+    for (const terminal of [disabled, enabled]) {
+      expect(terminal.exit).toBe(0)
+      expect(terminal.restoredAlternateScreen).toBe(true)
+    }
+  })
+
   it('observes four real headless formats through only the fixture provider', () => {
     expect(model.commands).toHaveLength(4)
     for (const command of model.commands) {
       expect(command.exit).toBe(0)
       expect(command.timedOut).toBe(false)
-      expect(command.stdout).toContain('REFERENCE_LOCAL_OK')
+      expect(() => validateOutput(command)).not.toThrow()
     }
     const requests = model.requests.filter(request => request.method === 'POST')
     expect(requests.length).toBeGreaterThanOrEqual(4)
