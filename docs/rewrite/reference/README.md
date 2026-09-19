@@ -21,11 +21,13 @@ unproven. The preceding inspected export declares 1.0.32, not 1.0.34.
   quoted contract, not merely by a feature-family label. They are **planned**,
   not executable candidate tests or passing results.
 - `source-evidence.json`: source file hashes and line counts, exact referenced
-  line fragments and public guide text, extracted from the clean pinned checkout.
-  These are research quotations, not an imported/buildable Rust application.
-- `observations.json`: 82 actual CLI observations, all 27 guides emitted by the
+  line fragments, public guide text, independently extracted source-surface
+  expectations, and command enum/argument relationships from the clean pinned
+  checkout. Expectations are generated directly from source, not from surviving
+  discovery rows. These are research quotations, not a buildable Rust import.
+- `observations.json`: 98 actual CLI observations, all 27 guides emitted by the
   pinned binary into a fresh home, ten baseline PTY recordings (five per mode),
-  paired `GROK_FPS=0/1` PTY observations, and five process-start samples. PTY chunks retain base64 bytes, timestamps,
+  paired `GROK_FPS=0/1` PTYs, fullscreen/minimal tutorial PTYs, and five process-start samples. PTY chunks retain base64 bytes, timestamps,
   actions, sizes, sampled RSS and hashes. No personal session was copied.
 - `model-observations.json`: four real headless formats driven by a deterministic
   loopback-only SSE model fixture; actual advertised tool schemas are retained.
@@ -46,7 +48,8 @@ unproven. The preceding inspected export declares 1.0.32, not 1.0.34.
 
 `capture:commands/N` selects `observations.json.commands[N]`.
 `capture:environmentProbes/N/events/M` selects a raw output event from an isolated
-paired environment probe.
+paired environment probe. `capture:tutorialProbes/N/events/M` selects an output
+event from the real tutorial/alias/mode probe.
 `model:requests/N/tools/NAME` selects a tool schema in the model capture.
 `binary-guide:FILE#Lx` selects line x of the named embedded guide in observations.
 `source-guide:FILE#Lx` selects the pinned public pager `docs/user-guide/FILE`.
@@ -62,13 +65,23 @@ resolved evidence locators and explicit pending blockers. It re-extracts capture
 commands, guides and model schemas; checks source path/line bounds and exact quoted
 fragments; and enforces the pinned binary hash across discovery, captures and
 provenance. Source evidence itself is hashed in provenance and can be regenerated
-from the pinned checkout. Tests deliberately delete rows, duplicate identities,
+from the pinned checkout. The portable check also requires every independently
+extracted source surface and observation—even if removed from both discovery and
+inventory—and every source-derived command path must have an actual help probe.
+Tests delete all source-only rows together, or individual source declarations,
+while recomputing the register digest; those mutations must fail.
+Tests deliberately delete rows, duplicate identities,
 remove owners, invent capture/source locations, alter binary hashes, and fabricate
 verification—even after recomputing the register digest—to prove rejection. Re-extraction from the pinned clean source checkout and raw
 captures detects discovery drift; review any diff rather than regenerating a
 smaller register to make validation green.
 
-The extraction covers the complete recursive **visible** installed help tree,
+The help probe seeds traversal with source-declared command enums and their
+nested argument relationships, including hidden roots and aliases, then expands
+the visible binary help tree. Every invocation ends in `--help`; no share, remote
+start/stop, login, update or plugin action is executed. Source-only paths rejected
+by the frozen binary are recorded as unavailable/unverified, not silently removed.
+The extraction covers that combined installed help tree,
 all binary-emitted guide headings/behavior paragraphs/table rows, all published
 config-reference fields and all TOML example fields (including pager/Grove settings), source slash registries and
 macros, tool IDs/constants, boolean feature registry, source CLI declarations
@@ -82,6 +95,16 @@ absence of undocumented or account-gated behavior. Feature/service/platform
 variants described in each excerpt remain required even when not runnable here.
 
 Important reconciliations:
+
+- Hidden `share` and `workspace start/pause/resume/stop/restart/status`, `list`
+  alias and all their observed flags are itemized. Sharing belongs to #162;
+  workspace exposure, its gate and hub URL belong to #190 with a controlled-hub
+  acceptance scenario. Help recognition is not a remote-execution claim.
+- `/tutorial`, `/tour`, `/onboarding` and tutorial behavior rows belong to #154's
+  dedicated interactive acceptance. Real PTYs opened topics, moved next/previous,
+  returned to the list, dismissed aliases and continued typing; minimal mode
+  refused with the fullscreen remedy. Existing-session draft/queue preservation
+  remains part of downstream acceptance, not inferred from these idle probes.
 
 - Isolated missing-value probes confirm recognition of `--allowedTools`,
   `--disallowedTools`, `--system-prompt`, `--append-system-prompt`,

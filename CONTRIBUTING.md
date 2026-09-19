@@ -107,8 +107,15 @@ The validator resolves capture/guide/schema/source-fragment evidence and enforce
 the binary pin; changing a locator and recomputing the inventory digest is not
 verification. Audit semantic ownership: terminal gestures need their actual
 UI/session behavior, and headless input options need provider-wire assertions.
-The offline probe includes compatibility-option recognition and paired FPS runs;
-the model probe rejects malformed structured output and missing terminal events.
+The portable checker requires independent source-only coverage as well as captured
+behavior; paired deletion from discovery and inventory must fail. Source evidence
+contains command enum/argument relationships that seed hidden-command help probes.
+The driver defaults to the checked-in `source-evidence.json`; use
+`--source-evidence <path>` for a freshly regenerated artifact. All command-tree probes append
+`--help`, never execute the underlying operation, and retain rejected source-only
+paths as unverified. The offline probe also covers compatibility options, paired
+FPS runs, and fullscreen/minimal tutorial navigation/aliases/dismissal. The model
+probe rejects malformed structured output and missing terminal events.
 Freeze measured numeric performance thresholds before collecting candidate data.
 Run the ordinary typecheck and full unit suite for changes to these workflows.
 

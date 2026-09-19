@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs'
 import { createHash } from 'node:crypto'
 import { describe, expect, it } from 'vitest'
-import { checkInventory, extractSurfaces, loadEvidence } from './reference-inventory.mjs'
+import { checkInventory, extractSurfaces, loadEvidence, sourceCommands } from './reference-inventory.mjs'
 
 const read = name => JSON.parse(readFileSync(new URL(`../docs/rewrite/reference/${name}`, import.meta.url), 'utf8'))
 
@@ -94,6 +94,65 @@ describe('frozen reference coverage register', () => {
     expect(checkInventory(read('inventory.json'), read('discovery.json'), evidence).join('\n')).toMatch(/guide hash mismatch/)
     expect(checkInventory(read('inventory.json'), read('discovery.json'), evidence).join('\n')).toMatch(/source evidence digest mismatch/)
     expect(checkInventory(read('inventory.json'), read('discovery.json'), evidence).join('\n')).toMatch(/unresolved evidence/)
+  })
+
+  it('rejects paired deletion of source-only rows even with a recomputed register digest', () => {
+    for (const removed of ['all-source-only', 'environment:GROK_WORKSPACE_COMMAND', 'source-cli:crates/codegen/xai-grok-pager/src/app/cli.rs:--allowedTools']) {
+      const register = read('inventory.json'), discovery = read('discovery.json')
+      const keys = new Set(discovery.items.filter(item => removed === 'all-source-only'
+        ? item.observations.every(o => o.locator.startsWith('source:')) : item.key === removed).map(item => item.key))
+      expect(keys.size).toBeGreaterThan(0)
+      discovery.items = discovery.items.filter(item => !keys.has(item.key))
+      register.items = register.items.filter(item => !keys.has(item.key))
+      register.discoverySha256 = createHash('sha256').update(JSON.stringify(discovery)).digest('hex')
+      expect(checkInventory(register, discovery).join('\n')).toMatch(/missing source/)
+    }
+  })
+
+  it('requires source observation coverage even when the shared identity survives', () => {
+    const register = read('inventory.json'), discovery = read('discovery.json')
+    const item = discovery.items.find(row => row.key === 'environment:GROK_FPS')
+    item.observations = item.observations.filter(observation => !observation.locator.startsWith('source:'))
+    register.items.find(row => row.key === item.key).evidence = item.observations.map(observation => observation.locator)
+    register.discoverySha256 = createHash('sha256').update(JSON.stringify(discovery)).digest('hex')
+    expect(checkInventory(register, discovery).join('\n')).toMatch(/missing source evidence/)
+  })
+
+  it('requires hidden-command help observations rather than a source-only inventory label', () => {
+    const evidence = loadEvidence()
+    evidence.capture.commands = evidence.capture.commands.filter(command => command.args[0] !== 'workspace')
+    expect(checkInventory(read('inventory.json'), read('discovery.json'), evidence).join('\n')).toMatch(/missing source command probe workspace/)
+  })
+
+  it('discovers hidden command enum variants and aliases independently of visible help', () => {
+    const text = '#[derive(Debug, Subcommand)]\npub enum Command {\n    #[command(hide = true)]\n    Share(ShareArgs),\n    #[command(name = "workspace", visible_alias = "ws", hide = true)]\n    Workspace {\n        #[arg(long)]\n        json: bool,\n    },\n}\n'
+    const items = extractSurfaces({ commands: [], guides: [] }, [{ path: 'crates/codegen/xai-grok-pager/src/app/cli.rs', text }])
+    expect(items.some(item => item.key === 'source-command:Command:share')).toBe(true)
+    expect(items.some(item => item.key === 'source-command:Command:workspace')).toBe(true)
+    expect(items.some(item => item.key === 'source-command:Command:ws')).toBe(true)
+    expect(items.some(item => item.key === 'source-command:Command:json')).toBe(false)
+  })
+
+  it('follows nested command enums through argument structs and tuple/inline variants', () => {
+    const path = 'crates/codegen/xai-grok-pager/src/app/cli.rs'
+    const text = '#[derive(Subcommand)]\npub enum Command {\n    Workspace(WorkspaceArgs),\n}\npub struct WorkspaceArgs {\n    #[command(subcommand)]\n    pub command: WorkspaceCommand,\n}\n#[derive(Subcommand)]\npub enum WorkspaceCommand {\n    #[command(visible_alias = "list")]\n    Status,\n    Db {\n        #[command(subcommand)]\n        command: DbCommand,\n    },\n}\n#[derive(Subcommand)]\npub enum DbCommand {\n    Rebuild,\n}\n'
+    const result = sourceCommands([{ path, text }]).flatMap(item => item.commands.map(path => path.join(' ')))
+    expect(result).toContain('workspace status')
+    expect(result).toContain('workspace list')
+    expect(result).toContain('workspace db rebuild')
+  })
+
+  it('maps hidden remote commands and interactive tutorial behavior to actual acceptance', () => {
+    const rows = read('inventory.json').items
+    for (const command of ['workspace', 'workspace start', 'workspace pause', 'workspace resume', 'workspace stop', 'workspace restart', 'workspace status', 'workspace list']) {
+      expect(rows.find(row => row.key === `cli:${command}`).tickets).toContain(190)
+    }
+    expect(rows.find(row => row.key === 'cli:share').tickets).toContain(162)
+    for (const name of ['tutorial', 'tour', 'onboarding']) {
+      const row = rows.find(row => row.key === `slash:${name}`)
+      expect(row.tickets).toContain(154)
+      expect(row.acceptance).toContain('PARITY-154-tutorial')
+    }
   })
 
   it('extracts clap attributes, camelCase aliases, macro aliases and source environment controls', () => {

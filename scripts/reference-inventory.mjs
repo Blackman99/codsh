@@ -35,6 +35,45 @@ export function sourceInputs(root) {
     .sort().map(path => ({ path, text: readFileSync(join(root, path), 'utf8') }))
 }
 
+export function sourceCommands(sources) {
+  const declarations = [], children = new Map()
+  for (const { text } of sources) {
+    for (const structure of text.matchAll(/\bstruct\s+(\w+)\s*\{([\s\S]*?)^\}/gmu)) {
+      const child = structure[2].match(/#\[(?:command|clap)\(subcommand\)\]\s*(?:pub\s+)?\w+:\s*(?:Option<)?(\w+)/u)?.[1]
+      if (child) children.set(structure[1], child)
+    }
+  }
+  for (const { path, text } of sources.filter(source => source.path.startsWith(`${pager}src/`))) {
+    for (const enumeration of text.matchAll(/#\[derive\([^\]]*\bSubcommand\b[^\]]*\)\]\s*(?:pub(?:\([^)]*\))?\s+)?enum\s+(\w+)\s*\{([\s\S]*?)^\}/gmu)) {
+      const body = enumeration[2], offset = enumeration.index + enumeration[0].indexOf(body)
+      let previous = 0
+      for (const variant of body.matchAll(/^    ([A-Z]\w*)\s*(?:\([^\n]*\)|\{|,)/gmu)) {
+        const attributes = body.slice(previous, variant.index)
+        const explicit = [...attributes.matchAll(/#\[(?:command|clap)\([\s\S]*?\)\]/gu)].map(match => match[0]).join('\n')
+        const canonical = explicit.match(/\bname\s*=\s*"([^"]+)"/u)?.[1]
+          ?? variant[1].replace(/([a-z0-9])([A-Z])/gu, '$1-$2').toLowerCase()
+        const names = [canonical, ...[...explicit.matchAll(/\b(?:visible_)?alias\s*=\s*"([^"]+)"/gu)].map(match => match[1])]
+        const line = text.slice(0, offset + variant.index).split('\n').length
+        const payload = variant[0].match(/\((?:Box<)?(?:[\w]+::)*(\w+)/u)?.[1]
+        const inline = variant[0].endsWith('{') ? body.slice(variant.index).split(/^    \},?/mu)[0] : ''
+        const child = children.get(payload) ?? inline.match(/#\[(?:command|clap)\(subcommand\)\]\s*\w+:\s*(\w+)/u)?.[1]
+        for (const name of names) declarations.push({ enumName: enumeration[1], name, canonical, child, path, line, excerpt: variant[0] })
+        previous = variant.index + variant[0].length
+      }
+    }
+  }
+  const paths = new Map(), visit = (name, prefix, seen = new Set()) => {
+    if (seen.has(name)) throw new Error(`Recursive command enum ${name}`)
+    for (const declaration of declarations.filter(item => item.enumName === name)) {
+      const command = [...prefix, declaration.name]
+      paths.set(command.join(' '), declaration)
+      if (declaration.child) visit(declaration.child, command, new Set([...seen, name]))
+    }
+  }
+  visit('Command', [])
+  return declarations.map(declaration => ({ ...declaration, commands: [...paths].filter(([, item]) => item === declaration).map(([command]) => command.split(' ')) }))
+}
+
 /** Discovery records declarations and documentation, never runtime parity. */
 export function extractSurfaces(capture, sources) {
   const items = new Map()
@@ -46,9 +85,21 @@ export function extractSurfaces(capture, sources) {
     }
     items.set(key, item)
   }
+  for (const declaration of sourceCommands(sources)) {
+    add('source-command', `${declaration.enumName}:${declaration.name}`, declaration.excerpt,
+      `source:${declaration.path}#L${declaration.line}`, 'source-command-provisional')
+  }
   for (const [index, request] of (capture.modelRequests ?? []).entries()) {
     for (const tool of request.tools ?? []) {
       add('tool', tool.name, JSON.stringify(tool), `model:requests/${index}/tools/${tool.name}`, 'binary-model-schema')
+    }
+  }
+  for (const [index, terminal] of (capture.tutorialProbes ?? []).entries()) {
+    for (const name of ['tutorial', 'tour', 'onboarding']) {
+      const action = terminal.events.find(event => event.action === `${name}-open`)
+      const eventIndex = terminal.events.findIndex(event => event.output && action && event.ms >= action.ms && event.ms <= action.observedMs)
+      if (eventIndex >= 0) add('slash', name, terminal.events[eventIndex].output,
+        `capture:tutorialProbes/${index}/events/${eventIndex}`, 'binary-pty-observation')
     }
   }
   for (const [index, terminal] of (capture.environmentProbes ?? []).entries()) {
@@ -250,6 +301,8 @@ export function sourceEvidence(discovery, sources) {
   }
   const referenced = new Set([...fragments.values()].map(fragment => fragment.path))
   return { sourceCommit: SOURCE_COMMIT,
+    surfaces: extractSurfaces({ commands: [], guides: [] }, sources).filter(item => item.observations.some(observation => observation.locator.startsWith('source:'))),
+    commands: sourceCommands(sources),
     files: sources.filter(source => referenced.has(source.path) || source.path.endsWith('.md')).map(({ path, text }) => ({ path, sha256: sha256(text), lineCount: text.split('\n').length })),
     guides: sources.filter(source => source.path.endsWith('.md')).map(({ path, text }) => ({ path, text })),
     fragments: Object.fromEntries(fragments) }
@@ -271,6 +324,14 @@ export function checkInventory(register, discovery, evidence = loadEvidence()) {
   }
   const expected = new Map(extractSurfaces({ ...capture, modelRequests: model.requests }, source.guides).map(item => [item.key, item]))
   const actual = new Map(discovery.items.map(item => [item.key, item]))
+  for (const item of source.surfaces ?? []) {
+    if (!actual.has(item.key)) errors.push(`missing source surface ${item.key}`)
+    for (const observation of item.observations) if (!actual.get(item.key)?.observations.some(value => value.locator === observation.locator && value.excerpt === observation.excerpt && value.scope === observation.scope)) errors.push(`missing source evidence ${item.key}`)
+  }
+  if (!source.surfaces?.length) errors.push('missing source coverage expectations')
+  for (const declaration of source.commands ?? []) for (const command of declaration.commands) {
+    if (!capture.commands.some(observation => JSON.stringify(observation.args) === JSON.stringify([...command, '--help']))) errors.push(`missing source command probe ${command.join(' ')}`)
+  }
   for (const [key, item] of expected) {
     if (!actual.has(key)) errors.push(`missing observed surface ${key}`)
     for (const observation of item.observations) if (!actual.get(key)?.observations.some(value => value.locator === observation.locator && value.excerpt === observation.excerpt)) errors.push(`missing observed evidence ${key}`)

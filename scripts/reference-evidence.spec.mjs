@@ -116,6 +116,34 @@ describe('recorded installed reference evidence', () => {
     }
   })
 
+  it('replays the tutorial as an interactive overlay with aliases and mode refusal', () => {
+    const [full, minimal] = capture.tutorialProbes
+    expect(screenAt(full, 'tutorial-open')).toContain('Welcome to Grok Build')
+    expect(screenAt(full, 'tutorial-topic')).toContain('Fear not')
+    expect(screenAt(full, 'tutorial-next')).toContain('Keep typing while Grok works')
+    expect(screenAt(full, 'tutorial-previous')).toContain('Fear not')
+    expect(screenAt(full, 'tutorial-list')).toContain('2/9 explored')
+    for (const alias of ['tutorial', 'tour', 'onboarding']) {
+      expect(screenAt(full, `${alias}-open`)).toContain('Welcome to Grok Build')
+      expect(screenAt(full, `${alias}-dismiss`)).not.toContain('Pick a topic')
+      expect(screenAt(minimal, `${alias}-open`)).toContain("isn't available in minimal mode")
+      expect(screenAt(minimal, `${alias}-open`)).toContain('/fullscreen')
+    }
+    for (const terminal of [full, minimal]) {
+      expect(screenAt(terminal, 'after-tutorial-draft')).toContain('AFTER_TUTORIAL')
+      expect(terminal.exit).toBe(0)
+      expect(terminal.forcedCleanup).toBe(false)
+    }
+  })
+
+  it('captures help for hidden command trees without executing their actions', () => {
+    for (const path of [['share'], ['workspace'], ...['start', 'pause', 'resume', 'stop', 'restart', 'status', 'list'].map(name => ['workspace', name])]) {
+      const command = capture.commands.find(item => JSON.stringify(item.args) === JSON.stringify([...path, '--help']))
+      expect(command.exit).toBe(0)
+      expect(command.stdout).toContain('Usage: grok')
+    }
+  })
+
   it('observes four real headless formats through only the fixture provider', () => {
     expect(model.commands).toHaveLength(4)
     for (const command of model.commands) {

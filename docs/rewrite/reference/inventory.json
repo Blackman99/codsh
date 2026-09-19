@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "discoverySha256": "4619f741c29bf0fd40645d81af253c51f5fc6a07ec4027f97481841613ba08f1",
+  "discoverySha256": "772c227ab7c96a2451739fdc8ac317cf2d72a2c06c8632075680cd22516dba9a",
   "tickets": [
     {
       "number": 133,
@@ -1569,6 +1569,26 @@
       "then": "FPS overlay visibility and actual rendering cadence follow the reference without becoming conversation content; normal terminal teardown succeeds",
       "failure": "invalid rate, disabled animation and narrow terminal do not hang, corrupt frames or affect prompt text",
       "boundary": "real terminal frames and monotonic timing, not CLI help"
+    },
+    {
+      "id": "PARITY-154-tutorial",
+      "ticket": 154,
+      "status": "planned",
+      "given": "fullscreen and minimal real PTYs with an existing session, draft, reading position and queued prompts",
+      "when": "open /tutorial, /tour and /onboarding; navigate topic list, open a topic, move next/previous, scroll/resize, and dismiss topic/list independently",
+      "then": "fullscreen shows the same interactive topic content and explored state; dismissal restores focus/session/draft/queue/reading state without creating a conversation turn; aliases are equivalent",
+      "failure": "minimal refuses with the fullscreen remedy rather than an invisible modal; Escape and invalid navigation preserve unrelated state and terminal teardown",
+      "boundary": "installed real terminal; visible topic frames, state preservation and mode refusal, not --help"
+    },
+    {
+      "id": "PARITY-190-workspace",
+      "ticket": 190,
+      "status": "planned",
+      "given": "a controlled configured hub, two isolated workspace directories and an explicitly selected leader PID",
+      "when": "exercise workspace start/pause/resume/stop/restart/status and list alias with cwd, leader/no-leader, PID, hub-url and JSON variants",
+      "then": "actual exposure/drain/reconnect state agrees with status JSON and selected workspace/owner; stop leaves the leader running as specified; restart preserves the requested configuration",
+      "failure": "disabled gate, invalid PID, rejected authentication, unreachable hub and interruption do not expose a different workspace or duplicate remote execution",
+      "boundary": "installed command interface and controlled remote service; help-only recognition is not execution evidence"
     }
   ],
   "items": [
@@ -6818,7 +6838,8 @@
       ],
       "status": "pending-parity",
       "evidence": [
-        "capture:commands/5"
+        "capture:commands/5",
+        "capture:commands/97"
       ],
       "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
     },
@@ -6916,7 +6937,8 @@
       ],
       "status": "pending-parity",
       "evidence": [
-        "capture:commands/1"
+        "capture:commands/1",
+        "capture:commands/84"
       ],
       "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
     },
@@ -7685,7 +7707,8 @@
       ],
       "status": "pending-parity",
       "evidence": [
-        "capture:commands/17"
+        "capture:commands/17",
+        "capture:commands/94"
       ],
       "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
     },
@@ -7704,7 +7727,8 @@
       ],
       "status": "pending-parity",
       "evidence": [
-        "capture:commands/17"
+        "capture:commands/17",
+        "capture:commands/93"
       ],
       "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
     },
@@ -7901,6 +7925,25 @@
       "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
     },
     {
+      "key": "cli:share",
+      "stories": [
+        30,
+        62,
+        63
+      ],
+      "tickets": [
+        162
+      ],
+      "acceptance": [
+        "PARITY-162"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "capture:commands/82"
+      ],
+      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
+    },
+    {
       "key": "cli:trace",
       "stories": [
         30,
@@ -7976,7 +8019,8 @@
       ],
       "status": "pending-parity",
       "evidence": [
-        "capture:commands/1"
+        "capture:commands/1",
+        "capture:commands/83"
       ],
       "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
     },
@@ -7999,6 +8043,184 @@
       "evidence": [
         "capture:commands/1",
         "capture:commands/23"
+      ],
+      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
+    },
+    {
+      "key": "cli:workspace",
+      "stories": [
+        60,
+        61,
+        62
+      ],
+      "tickets": [
+        190
+      ],
+      "acceptance": [
+        "PARITY-190-workspace"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "capture:commands/85"
+      ],
+      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
+    },
+    {
+      "key": "cli:workspace help",
+      "stories": [
+        60,
+        61,
+        62
+      ],
+      "tickets": [
+        190
+      ],
+      "acceptance": [
+        "PARITY-190-workspace"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "capture:commands/85"
+      ],
+      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
+    },
+    {
+      "key": "cli:workspace list",
+      "stories": [
+        60,
+        61,
+        62
+      ],
+      "tickets": [
+        190
+      ],
+      "acceptance": [
+        "PARITY-190-workspace"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "capture:commands/85",
+        "capture:commands/92"
+      ],
+      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
+    },
+    {
+      "key": "cli:workspace pause",
+      "stories": [
+        60,
+        61,
+        62
+      ],
+      "tickets": [
+        190
+      ],
+      "acceptance": [
+        "PARITY-190-workspace"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "capture:commands/85",
+        "capture:commands/87"
+      ],
+      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
+    },
+    {
+      "key": "cli:workspace restart",
+      "stories": [
+        60,
+        61,
+        62
+      ],
+      "tickets": [
+        190
+      ],
+      "acceptance": [
+        "PARITY-190-workspace"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "capture:commands/85",
+        "capture:commands/90"
+      ],
+      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
+    },
+    {
+      "key": "cli:workspace resume",
+      "stories": [
+        60,
+        61,
+        62
+      ],
+      "tickets": [
+        190
+      ],
+      "acceptance": [
+        "PARITY-190-workspace"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "capture:commands/85",
+        "capture:commands/88"
+      ],
+      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
+    },
+    {
+      "key": "cli:workspace start",
+      "stories": [
+        60,
+        61,
+        62
+      ],
+      "tickets": [
+        190
+      ],
+      "acceptance": [
+        "PARITY-190-workspace"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "capture:commands/85",
+        "capture:commands/86"
+      ],
+      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
+    },
+    {
+      "key": "cli:workspace status",
+      "stories": [
+        60,
+        61,
+        62
+      ],
+      "tickets": [
+        190
+      ],
+      "acceptance": [
+        "PARITY-190-workspace"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "capture:commands/85",
+        "capture:commands/91"
+      ],
+      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
+    },
+    {
+      "key": "cli:workspace stop",
+      "stories": [
+        60,
+        61,
+        62
+      ],
+      "tickets": [
+        190
+      ],
+      "acceptance": [
+        "PARITY-190-workspace"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "capture:commands/85",
+        "capture:commands/89"
       ],
       "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
     },
@@ -8223,7 +8445,26 @@
       ],
       "status": "pending-parity",
       "evidence": [
-        "capture:commands/24"
+        "capture:commands/24",
+        "capture:commands/95"
+      ],
+      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
+    },
+    {
+      "key": "cli:worktree prune",
+      "stories": [
+        29,
+        44
+      ],
+      "tickets": [
+        174
+      ],
+      "acceptance": [
+        "PARITY-174"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "capture:commands/96"
       ],
       "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
     },
@@ -26018,16 +26259,15 @@
     {
       "key": "environment:GROK_WORKSPACE_COMMAND",
       "stories": [
-        8,
-        34,
-        35,
-        63
+        60,
+        61,
+        62
       ],
       "tickets": [
-        139
+        190
       ],
       "acceptance": [
-        "PARITY-139"
+        "PARITY-190-workspace"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -30109,6 +30349,139 @@
       "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
     },
     {
+      "key": "flag:cursor-worker list:--debug",
+      "stories": [
+        60,
+        61,
+        62
+      ],
+      "tickets": [
+        190
+      ],
+      "acceptance": [
+        "PARITY-190"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "capture:commands/97"
+      ],
+      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
+    },
+    {
+      "key": "flag:cursor-worker list:--debug-file",
+      "stories": [
+        60,
+        61,
+        62
+      ],
+      "tickets": [
+        190
+      ],
+      "acceptance": [
+        "PARITY-190"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "capture:commands/97"
+      ],
+      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
+    },
+    {
+      "key": "flag:cursor-worker list:--help",
+      "stories": [
+        60,
+        61,
+        62
+      ],
+      "tickets": [
+        190
+      ],
+      "acceptance": [
+        "PARITY-190"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "capture:commands/97"
+      ],
+      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
+    },
+    {
+      "key": "flag:cursor-worker list:--json",
+      "stories": [
+        60,
+        61,
+        62
+      ],
+      "tickets": [
+        190
+      ],
+      "acceptance": [
+        "PARITY-190"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "capture:commands/97"
+      ],
+      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
+    },
+    {
+      "key": "flag:cursor-worker list:--leader-socket",
+      "stories": [
+        60,
+        61,
+        62
+      ],
+      "tickets": [
+        190
+      ],
+      "acceptance": [
+        "PARITY-190"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "capture:commands/97"
+      ],
+      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
+    },
+    {
+      "key": "flag:cursor-worker list:--pid",
+      "stories": [
+        60,
+        61,
+        62
+      ],
+      "tickets": [
+        190
+      ],
+      "acceptance": [
+        "PARITY-190"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "capture:commands/97"
+      ],
+      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
+    },
+    {
+      "key": "flag:cursor-worker list:-h",
+      "stories": [
+        60,
+        61,
+        62
+      ],
+      "tickets": [
+        190
+      ],
+      "acceptance": [
+        "PARITY-190"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "capture:commands/97"
+      ],
+      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
+    },
+    {
       "key": "flag:cursor-worker start:--debug",
       "stories": [
         60,
@@ -30784,6 +31157,120 @@
       "status": "pending-parity",
       "evidence": [
         "capture:commands/6"
+      ],
+      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
+    },
+    {
+      "key": "flag:disk-usage:--debug",
+      "stories": [
+        30,
+        62,
+        63
+      ],
+      "tickets": [
+        162
+      ],
+      "acceptance": [
+        "PARITY-162"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "capture:commands/84"
+      ],
+      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
+    },
+    {
+      "key": "flag:disk-usage:--debug-file",
+      "stories": [
+        30,
+        62,
+        63
+      ],
+      "tickets": [
+        162
+      ],
+      "acceptance": [
+        "PARITY-162"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "capture:commands/84"
+      ],
+      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
+    },
+    {
+      "key": "flag:disk-usage:--help",
+      "stories": [
+        30,
+        62,
+        63
+      ],
+      "tickets": [
+        162
+      ],
+      "acceptance": [
+        "PARITY-162"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "capture:commands/84"
+      ],
+      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
+    },
+    {
+      "key": "flag:disk-usage:--json",
+      "stories": [
+        30,
+        62,
+        63
+      ],
+      "tickets": [
+        162
+      ],
+      "acceptance": [
+        "PARITY-162"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "capture:commands/84"
+      ],
+      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
+    },
+    {
+      "key": "flag:disk-usage:--leader-socket",
+      "stories": [
+        30,
+        62,
+        63
+      ],
+      "tickets": [
+        162
+      ],
+      "acceptance": [
+        "PARITY-162"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "capture:commands/84"
+      ],
+      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
+    },
+    {
+      "key": "flag:disk-usage:-h",
+      "stories": [
+        30,
+        62,
+        63
+      ],
+      "tickets": [
+        162
+      ],
+      "acceptance": [
+        "PARITY-162"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "capture:commands/84"
       ],
       "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
     },
@@ -35322,6 +35809,272 @@
       "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
     },
     {
+      "key": "flag:plugin remove:--confirm",
+      "stories": [
+        37,
+        38,
+        41
+      ],
+      "tickets": [
+        166
+      ],
+      "acceptance": [
+        "PARITY-166"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "capture:commands/94"
+      ],
+      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
+    },
+    {
+      "key": "flag:plugin remove:--debug",
+      "stories": [
+        37,
+        38,
+        41
+      ],
+      "tickets": [
+        166
+      ],
+      "acceptance": [
+        "PARITY-166"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "capture:commands/94"
+      ],
+      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
+    },
+    {
+      "key": "flag:plugin remove:--debug-file",
+      "stories": [
+        37,
+        38,
+        41
+      ],
+      "tickets": [
+        166
+      ],
+      "acceptance": [
+        "PARITY-166"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "capture:commands/94"
+      ],
+      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
+    },
+    {
+      "key": "flag:plugin remove:--help",
+      "stories": [
+        37,
+        38,
+        41
+      ],
+      "tickets": [
+        166
+      ],
+      "acceptance": [
+        "PARITY-166"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "capture:commands/94"
+      ],
+      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
+    },
+    {
+      "key": "flag:plugin remove:--keep-data",
+      "stories": [
+        37,
+        38,
+        41
+      ],
+      "tickets": [
+        166
+      ],
+      "acceptance": [
+        "PARITY-166"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "capture:commands/94"
+      ],
+      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
+    },
+    {
+      "key": "flag:plugin remove:--leader-socket",
+      "stories": [
+        37,
+        38,
+        41
+      ],
+      "tickets": [
+        166
+      ],
+      "acceptance": [
+        "PARITY-166"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "capture:commands/94"
+      ],
+      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
+    },
+    {
+      "key": "flag:plugin remove:-h",
+      "stories": [
+        37,
+        38,
+        41
+      ],
+      "tickets": [
+        166
+      ],
+      "acceptance": [
+        "PARITY-166"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "capture:commands/94"
+      ],
+      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
+    },
+    {
+      "key": "flag:plugin rm:--confirm",
+      "stories": [
+        37,
+        38,
+        41
+      ],
+      "tickets": [
+        166
+      ],
+      "acceptance": [
+        "PARITY-166"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "capture:commands/93"
+      ],
+      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
+    },
+    {
+      "key": "flag:plugin rm:--debug",
+      "stories": [
+        37,
+        38,
+        41
+      ],
+      "tickets": [
+        166
+      ],
+      "acceptance": [
+        "PARITY-166"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "capture:commands/93"
+      ],
+      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
+    },
+    {
+      "key": "flag:plugin rm:--debug-file",
+      "stories": [
+        37,
+        38,
+        41
+      ],
+      "tickets": [
+        166
+      ],
+      "acceptance": [
+        "PARITY-166"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "capture:commands/93"
+      ],
+      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
+    },
+    {
+      "key": "flag:plugin rm:--help",
+      "stories": [
+        37,
+        38,
+        41
+      ],
+      "tickets": [
+        166
+      ],
+      "acceptance": [
+        "PARITY-166"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "capture:commands/93"
+      ],
+      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
+    },
+    {
+      "key": "flag:plugin rm:--keep-data",
+      "stories": [
+        37,
+        38,
+        41
+      ],
+      "tickets": [
+        166
+      ],
+      "acceptance": [
+        "PARITY-166"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "capture:commands/93"
+      ],
+      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
+    },
+    {
+      "key": "flag:plugin rm:--leader-socket",
+      "stories": [
+        37,
+        38,
+        41
+      ],
+      "tickets": [
+        166
+      ],
+      "acceptance": [
+        "PARITY-166"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "capture:commands/93"
+      ],
+      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
+    },
+    {
+      "key": "flag:plugin rm:-h",
+      "stories": [
+        37,
+        38,
+        41
+      ],
+      "tickets": [
+        166
+      ],
+      "acceptance": [
+        "PARITY-166"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "capture:commands/93"
+      ],
+      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
+    },
+    {
       "key": "flag:plugin tag:--debug",
       "stories": [
         37,
@@ -36444,6 +37197,101 @@
       "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
     },
     {
+      "key": "flag:share:--debug",
+      "stories": [
+        30,
+        62,
+        63
+      ],
+      "tickets": [
+        162
+      ],
+      "acceptance": [
+        "PARITY-162"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "capture:commands/82"
+      ],
+      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
+    },
+    {
+      "key": "flag:share:--debug-file",
+      "stories": [
+        30,
+        62,
+        63
+      ],
+      "tickets": [
+        162
+      ],
+      "acceptance": [
+        "PARITY-162"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "capture:commands/82"
+      ],
+      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
+    },
+    {
+      "key": "flag:share:--help",
+      "stories": [
+        30,
+        62,
+        63
+      ],
+      "tickets": [
+        162
+      ],
+      "acceptance": [
+        "PARITY-162"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "capture:commands/82"
+      ],
+      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
+    },
+    {
+      "key": "flag:share:--leader-socket",
+      "stories": [
+        30,
+        62,
+        63
+      ],
+      "tickets": [
+        162
+      ],
+      "acceptance": [
+        "PARITY-162"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "capture:commands/82"
+      ],
+      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
+    },
+    {
+      "key": "flag:share:-h",
+      "stories": [
+        30,
+        62,
+        63
+      ],
+      "tickets": [
+        162
+      ],
+      "acceptance": [
+        "PARITY-162"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "capture:commands/82"
+      ],
+      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
+    },
+    {
       "key": "flag:trace:--debug",
       "stories": [
         30,
@@ -36942,6 +37790,114 @@
       "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
     },
     {
+      "key": "flag:v:--debug",
+      "stories": [
+        57,
+        70
+      ],
+      "tickets": [
+        145
+      ],
+      "acceptance": [
+        "PARITY-145"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "capture:commands/83"
+      ],
+      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
+    },
+    {
+      "key": "flag:v:--debug-file",
+      "stories": [
+        57,
+        70
+      ],
+      "tickets": [
+        145
+      ],
+      "acceptance": [
+        "PARITY-145"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "capture:commands/83"
+      ],
+      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
+    },
+    {
+      "key": "flag:v:--help",
+      "stories": [
+        57,
+        70
+      ],
+      "tickets": [
+        145
+      ],
+      "acceptance": [
+        "PARITY-145"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "capture:commands/83"
+      ],
+      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
+    },
+    {
+      "key": "flag:v:--json",
+      "stories": [
+        57,
+        70
+      ],
+      "tickets": [
+        145
+      ],
+      "acceptance": [
+        "PARITY-145"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "capture:commands/83"
+      ],
+      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
+    },
+    {
+      "key": "flag:v:--leader-socket",
+      "stories": [
+        57,
+        70
+      ],
+      "tickets": [
+        145
+      ],
+      "acceptance": [
+        "PARITY-145"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "capture:commands/83"
+      ],
+      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
+    },
+    {
+      "key": "flag:v:-h",
+      "stories": [
+        57,
+        70
+      ],
+      "tickets": [
+        145
+      ],
+      "acceptance": [
+        "PARITY-145"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "capture:commands/83"
+      ],
+      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
+    },
+    {
       "key": "flag:version:--debug",
       "stories": [
         6,
@@ -37064,6 +38020,1146 @@
       "status": "pending-parity",
       "evidence": [
         "capture:commands/23"
+      ],
+      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
+    },
+    {
+      "key": "flag:workspace list:--debug",
+      "stories": [
+        60,
+        61,
+        62
+      ],
+      "tickets": [
+        190
+      ],
+      "acceptance": [
+        "PARITY-190-workspace"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "capture:commands/92"
+      ],
+      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
+    },
+    {
+      "key": "flag:workspace list:--debug-file",
+      "stories": [
+        60,
+        61,
+        62
+      ],
+      "tickets": [
+        190
+      ],
+      "acceptance": [
+        "PARITY-190-workspace"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "capture:commands/92"
+      ],
+      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
+    },
+    {
+      "key": "flag:workspace list:--help",
+      "stories": [
+        60,
+        61,
+        62
+      ],
+      "tickets": [
+        190
+      ],
+      "acceptance": [
+        "PARITY-190-workspace"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "capture:commands/92"
+      ],
+      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
+    },
+    {
+      "key": "flag:workspace list:--json",
+      "stories": [
+        60,
+        61,
+        62
+      ],
+      "tickets": [
+        190
+      ],
+      "acceptance": [
+        "PARITY-190-workspace"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "capture:commands/92"
+      ],
+      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
+    },
+    {
+      "key": "flag:workspace list:--leader-socket",
+      "stories": [
+        60,
+        61,
+        62
+      ],
+      "tickets": [
+        190
+      ],
+      "acceptance": [
+        "PARITY-190-workspace"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "capture:commands/92"
+      ],
+      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
+    },
+    {
+      "key": "flag:workspace list:--pid",
+      "stories": [
+        60,
+        61,
+        62
+      ],
+      "tickets": [
+        190
+      ],
+      "acceptance": [
+        "PARITY-190-workspace"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "capture:commands/92"
+      ],
+      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
+    },
+    {
+      "key": "flag:workspace list:-h",
+      "stories": [
+        60,
+        61,
+        62
+      ],
+      "tickets": [
+        190
+      ],
+      "acceptance": [
+        "PARITY-190-workspace"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "capture:commands/92"
+      ],
+      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
+    },
+    {
+      "key": "flag:workspace pause:--debug",
+      "stories": [
+        60,
+        61,
+        62
+      ],
+      "tickets": [
+        190
+      ],
+      "acceptance": [
+        "PARITY-190-workspace"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "capture:commands/87"
+      ],
+      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
+    },
+    {
+      "key": "flag:workspace pause:--debug-file",
+      "stories": [
+        60,
+        61,
+        62
+      ],
+      "tickets": [
+        190
+      ],
+      "acceptance": [
+        "PARITY-190-workspace"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "capture:commands/87"
+      ],
+      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
+    },
+    {
+      "key": "flag:workspace pause:--help",
+      "stories": [
+        60,
+        61,
+        62
+      ],
+      "tickets": [
+        190
+      ],
+      "acceptance": [
+        "PARITY-190-workspace"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "capture:commands/87"
+      ],
+      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
+    },
+    {
+      "key": "flag:workspace pause:--json",
+      "stories": [
+        60,
+        61,
+        62
+      ],
+      "tickets": [
+        190
+      ],
+      "acceptance": [
+        "PARITY-190-workspace"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "capture:commands/87"
+      ],
+      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
+    },
+    {
+      "key": "flag:workspace pause:--leader-socket",
+      "stories": [
+        60,
+        61,
+        62
+      ],
+      "tickets": [
+        190
+      ],
+      "acceptance": [
+        "PARITY-190-workspace"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "capture:commands/87"
+      ],
+      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
+    },
+    {
+      "key": "flag:workspace pause:--pid",
+      "stories": [
+        60,
+        61,
+        62
+      ],
+      "tickets": [
+        190
+      ],
+      "acceptance": [
+        "PARITY-190-workspace"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "capture:commands/87"
+      ],
+      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
+    },
+    {
+      "key": "flag:workspace pause:-h",
+      "stories": [
+        60,
+        61,
+        62
+      ],
+      "tickets": [
+        190
+      ],
+      "acceptance": [
+        "PARITY-190-workspace"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "capture:commands/87"
+      ],
+      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
+    },
+    {
+      "key": "flag:workspace restart:--cwd",
+      "stories": [
+        60,
+        61,
+        62
+      ],
+      "tickets": [
+        190
+      ],
+      "acceptance": [
+        "PARITY-190-workspace"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "capture:commands/90"
+      ],
+      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
+    },
+    {
+      "key": "flag:workspace restart:--debug",
+      "stories": [
+        60,
+        61,
+        62
+      ],
+      "tickets": [
+        190
+      ],
+      "acceptance": [
+        "PARITY-190-workspace"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "capture:commands/90"
+      ],
+      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
+    },
+    {
+      "key": "flag:workspace restart:--debug-file",
+      "stories": [
+        60,
+        61,
+        62
+      ],
+      "tickets": [
+        190
+      ],
+      "acceptance": [
+        "PARITY-190-workspace"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "capture:commands/90"
+      ],
+      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
+    },
+    {
+      "key": "flag:workspace restart:--help",
+      "stories": [
+        60,
+        61,
+        62
+      ],
+      "tickets": [
+        190
+      ],
+      "acceptance": [
+        "PARITY-190-workspace"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "capture:commands/90"
+      ],
+      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
+    },
+    {
+      "key": "flag:workspace restart:--hub-url",
+      "stories": [
+        60,
+        61,
+        62
+      ],
+      "tickets": [
+        190
+      ],
+      "acceptance": [
+        "PARITY-190-workspace"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "capture:commands/90"
+      ],
+      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
+    },
+    {
+      "key": "flag:workspace restart:--json",
+      "stories": [
+        60,
+        61,
+        62
+      ],
+      "tickets": [
+        190
+      ],
+      "acceptance": [
+        "PARITY-190-workspace"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "capture:commands/90"
+      ],
+      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
+    },
+    {
+      "key": "flag:workspace restart:--leader",
+      "stories": [
+        60,
+        61,
+        62
+      ],
+      "tickets": [
+        190
+      ],
+      "acceptance": [
+        "PARITY-190-workspace"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "capture:commands/90"
+      ],
+      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
+    },
+    {
+      "key": "flag:workspace restart:--leader-socket",
+      "stories": [
+        60,
+        61,
+        62
+      ],
+      "tickets": [
+        190
+      ],
+      "acceptance": [
+        "PARITY-190-workspace"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "capture:commands/90"
+      ],
+      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
+    },
+    {
+      "key": "flag:workspace restart:--no-leader",
+      "stories": [
+        60,
+        61,
+        62
+      ],
+      "tickets": [
+        190
+      ],
+      "acceptance": [
+        "PARITY-190-workspace"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "capture:commands/90"
+      ],
+      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
+    },
+    {
+      "key": "flag:workspace restart:-h",
+      "stories": [
+        60,
+        61,
+        62
+      ],
+      "tickets": [
+        190
+      ],
+      "acceptance": [
+        "PARITY-190-workspace"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "capture:commands/90"
+      ],
+      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
+    },
+    {
+      "key": "flag:workspace resume:--debug",
+      "stories": [
+        60,
+        61,
+        62
+      ],
+      "tickets": [
+        190
+      ],
+      "acceptance": [
+        "PARITY-190-workspace"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "capture:commands/88"
+      ],
+      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
+    },
+    {
+      "key": "flag:workspace resume:--debug-file",
+      "stories": [
+        60,
+        61,
+        62
+      ],
+      "tickets": [
+        190
+      ],
+      "acceptance": [
+        "PARITY-190-workspace"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "capture:commands/88"
+      ],
+      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
+    },
+    {
+      "key": "flag:workspace resume:--help",
+      "stories": [
+        60,
+        61,
+        62
+      ],
+      "tickets": [
+        190
+      ],
+      "acceptance": [
+        "PARITY-190-workspace"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "capture:commands/88"
+      ],
+      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
+    },
+    {
+      "key": "flag:workspace resume:--json",
+      "stories": [
+        60,
+        61,
+        62
+      ],
+      "tickets": [
+        190
+      ],
+      "acceptance": [
+        "PARITY-190-workspace"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "capture:commands/88"
+      ],
+      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
+    },
+    {
+      "key": "flag:workspace resume:--leader-socket",
+      "stories": [
+        60,
+        61,
+        62
+      ],
+      "tickets": [
+        190
+      ],
+      "acceptance": [
+        "PARITY-190-workspace"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "capture:commands/88"
+      ],
+      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
+    },
+    {
+      "key": "flag:workspace resume:--pid",
+      "stories": [
+        60,
+        61,
+        62
+      ],
+      "tickets": [
+        190
+      ],
+      "acceptance": [
+        "PARITY-190-workspace"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "capture:commands/88"
+      ],
+      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
+    },
+    {
+      "key": "flag:workspace resume:-h",
+      "stories": [
+        60,
+        61,
+        62
+      ],
+      "tickets": [
+        190
+      ],
+      "acceptance": [
+        "PARITY-190-workspace"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "capture:commands/88"
+      ],
+      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
+    },
+    {
+      "key": "flag:workspace start:--cwd",
+      "stories": [
+        60,
+        61,
+        62
+      ],
+      "tickets": [
+        190
+      ],
+      "acceptance": [
+        "PARITY-190-workspace"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "capture:commands/86"
+      ],
+      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
+    },
+    {
+      "key": "flag:workspace start:--debug",
+      "stories": [
+        60,
+        61,
+        62
+      ],
+      "tickets": [
+        190
+      ],
+      "acceptance": [
+        "PARITY-190-workspace"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "capture:commands/86"
+      ],
+      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
+    },
+    {
+      "key": "flag:workspace start:--debug-file",
+      "stories": [
+        60,
+        61,
+        62
+      ],
+      "tickets": [
+        190
+      ],
+      "acceptance": [
+        "PARITY-190-workspace"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "capture:commands/86"
+      ],
+      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
+    },
+    {
+      "key": "flag:workspace start:--help",
+      "stories": [
+        60,
+        61,
+        62
+      ],
+      "tickets": [
+        190
+      ],
+      "acceptance": [
+        "PARITY-190-workspace"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "capture:commands/86"
+      ],
+      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
+    },
+    {
+      "key": "flag:workspace start:--hub-url",
+      "stories": [
+        60,
+        61,
+        62
+      ],
+      "tickets": [
+        190
+      ],
+      "acceptance": [
+        "PARITY-190-workspace"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "capture:commands/86"
+      ],
+      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
+    },
+    {
+      "key": "flag:workspace start:--json",
+      "stories": [
+        60,
+        61,
+        62
+      ],
+      "tickets": [
+        190
+      ],
+      "acceptance": [
+        "PARITY-190-workspace"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "capture:commands/86"
+      ],
+      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
+    },
+    {
+      "key": "flag:workspace start:--leader",
+      "stories": [
+        60,
+        61,
+        62
+      ],
+      "tickets": [
+        190
+      ],
+      "acceptance": [
+        "PARITY-190-workspace"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "capture:commands/86"
+      ],
+      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
+    },
+    {
+      "key": "flag:workspace start:--leader-socket",
+      "stories": [
+        60,
+        61,
+        62
+      ],
+      "tickets": [
+        190
+      ],
+      "acceptance": [
+        "PARITY-190-workspace"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "capture:commands/86"
+      ],
+      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
+    },
+    {
+      "key": "flag:workspace start:--no-leader",
+      "stories": [
+        60,
+        61,
+        62
+      ],
+      "tickets": [
+        190
+      ],
+      "acceptance": [
+        "PARITY-190-workspace"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "capture:commands/86"
+      ],
+      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
+    },
+    {
+      "key": "flag:workspace start:-h",
+      "stories": [
+        60,
+        61,
+        62
+      ],
+      "tickets": [
+        190
+      ],
+      "acceptance": [
+        "PARITY-190-workspace"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "capture:commands/86"
+      ],
+      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
+    },
+    {
+      "key": "flag:workspace status:--debug",
+      "stories": [
+        60,
+        61,
+        62
+      ],
+      "tickets": [
+        190
+      ],
+      "acceptance": [
+        "PARITY-190-workspace"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "capture:commands/91"
+      ],
+      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
+    },
+    {
+      "key": "flag:workspace status:--debug-file",
+      "stories": [
+        60,
+        61,
+        62
+      ],
+      "tickets": [
+        190
+      ],
+      "acceptance": [
+        "PARITY-190-workspace"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "capture:commands/91"
+      ],
+      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
+    },
+    {
+      "key": "flag:workspace status:--help",
+      "stories": [
+        60,
+        61,
+        62
+      ],
+      "tickets": [
+        190
+      ],
+      "acceptance": [
+        "PARITY-190-workspace"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "capture:commands/91"
+      ],
+      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
+    },
+    {
+      "key": "flag:workspace status:--json",
+      "stories": [
+        60,
+        61,
+        62
+      ],
+      "tickets": [
+        190
+      ],
+      "acceptance": [
+        "PARITY-190-workspace"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "capture:commands/91"
+      ],
+      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
+    },
+    {
+      "key": "flag:workspace status:--leader-socket",
+      "stories": [
+        60,
+        61,
+        62
+      ],
+      "tickets": [
+        190
+      ],
+      "acceptance": [
+        "PARITY-190-workspace"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "capture:commands/91"
+      ],
+      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
+    },
+    {
+      "key": "flag:workspace status:--pid",
+      "stories": [
+        60,
+        61,
+        62
+      ],
+      "tickets": [
+        190
+      ],
+      "acceptance": [
+        "PARITY-190-workspace"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "capture:commands/91"
+      ],
+      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
+    },
+    {
+      "key": "flag:workspace status:-h",
+      "stories": [
+        60,
+        61,
+        62
+      ],
+      "tickets": [
+        190
+      ],
+      "acceptance": [
+        "PARITY-190-workspace"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "capture:commands/91"
+      ],
+      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
+    },
+    {
+      "key": "flag:workspace stop:--debug",
+      "stories": [
+        60,
+        61,
+        62
+      ],
+      "tickets": [
+        190
+      ],
+      "acceptance": [
+        "PARITY-190-workspace"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "capture:commands/89"
+      ],
+      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
+    },
+    {
+      "key": "flag:workspace stop:--debug-file",
+      "stories": [
+        60,
+        61,
+        62
+      ],
+      "tickets": [
+        190
+      ],
+      "acceptance": [
+        "PARITY-190-workspace"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "capture:commands/89"
+      ],
+      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
+    },
+    {
+      "key": "flag:workspace stop:--help",
+      "stories": [
+        60,
+        61,
+        62
+      ],
+      "tickets": [
+        190
+      ],
+      "acceptance": [
+        "PARITY-190-workspace"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "capture:commands/89"
+      ],
+      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
+    },
+    {
+      "key": "flag:workspace stop:--json",
+      "stories": [
+        60,
+        61,
+        62
+      ],
+      "tickets": [
+        190
+      ],
+      "acceptance": [
+        "PARITY-190-workspace"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "capture:commands/89"
+      ],
+      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
+    },
+    {
+      "key": "flag:workspace stop:--leader-socket",
+      "stories": [
+        60,
+        61,
+        62
+      ],
+      "tickets": [
+        190
+      ],
+      "acceptance": [
+        "PARITY-190-workspace"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "capture:commands/89"
+      ],
+      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
+    },
+    {
+      "key": "flag:workspace stop:--pid",
+      "stories": [
+        60,
+        61,
+        62
+      ],
+      "tickets": [
+        190
+      ],
+      "acceptance": [
+        "PARITY-190-workspace"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "capture:commands/89"
+      ],
+      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
+    },
+    {
+      "key": "flag:workspace stop:-h",
+      "stories": [
+        60,
+        61,
+        62
+      ],
+      "tickets": [
+        190
+      ],
+      "acceptance": [
+        "PARITY-190-workspace"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "capture:commands/89"
+      ],
+      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
+    },
+    {
+      "key": "flag:workspace:--debug",
+      "stories": [
+        60,
+        61,
+        62
+      ],
+      "tickets": [
+        190
+      ],
+      "acceptance": [
+        "PARITY-190-workspace"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "capture:commands/85"
+      ],
+      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
+    },
+    {
+      "key": "flag:workspace:--debug-file",
+      "stories": [
+        60,
+        61,
+        62
+      ],
+      "tickets": [
+        190
+      ],
+      "acceptance": [
+        "PARITY-190-workspace"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "capture:commands/85"
+      ],
+      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
+    },
+    {
+      "key": "flag:workspace:--help",
+      "stories": [
+        60,
+        61,
+        62
+      ],
+      "tickets": [
+        190
+      ],
+      "acceptance": [
+        "PARITY-190-workspace"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "capture:commands/85"
+      ],
+      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
+    },
+    {
+      "key": "flag:workspace:--leader-socket",
+      "stories": [
+        60,
+        61,
+        62
+      ],
+      "tickets": [
+        190
+      ],
+      "acceptance": [
+        "PARITY-190-workspace"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "capture:commands/85"
+      ],
+      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
+    },
+    {
+      "key": "flag:workspace:-h",
+      "stories": [
+        60,
+        61,
+        62
+      ],
+      "tickets": [
+        190
+      ],
+      "acceptance": [
+        "PARITY-190-workspace"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "capture:commands/85"
       ],
       "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
     },
@@ -37982,6 +40078,330 @@
       "status": "pending-parity",
       "evidence": [
         "capture:commands/57"
+      ],
+      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
+    },
+    {
+      "key": "flag:worktree ls:--all",
+      "stories": [
+        29,
+        44
+      ],
+      "tickets": [
+        174
+      ],
+      "acceptance": [
+        "PARITY-174"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "capture:commands/95"
+      ],
+      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
+    },
+    {
+      "key": "flag:worktree ls:--debug",
+      "stories": [
+        29,
+        44
+      ],
+      "tickets": [
+        174
+      ],
+      "acceptance": [
+        "PARITY-174"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "capture:commands/95"
+      ],
+      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
+    },
+    {
+      "key": "flag:worktree ls:--debug-file",
+      "stories": [
+        29,
+        44
+      ],
+      "tickets": [
+        174
+      ],
+      "acceptance": [
+        "PARITY-174"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "capture:commands/95"
+      ],
+      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
+    },
+    {
+      "key": "flag:worktree ls:--help",
+      "stories": [
+        29,
+        44
+      ],
+      "tickets": [
+        174
+      ],
+      "acceptance": [
+        "PARITY-174"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "capture:commands/95"
+      ],
+      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
+    },
+    {
+      "key": "flag:worktree ls:--json",
+      "stories": [
+        29,
+        44
+      ],
+      "tickets": [
+        174
+      ],
+      "acceptance": [
+        "PARITY-174"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "capture:commands/95"
+      ],
+      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
+    },
+    {
+      "key": "flag:worktree ls:--leader-socket",
+      "stories": [
+        29,
+        44
+      ],
+      "tickets": [
+        174
+      ],
+      "acceptance": [
+        "PARITY-174"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "capture:commands/95"
+      ],
+      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
+    },
+    {
+      "key": "flag:worktree ls:--repo",
+      "stories": [
+        29,
+        44
+      ],
+      "tickets": [
+        174
+      ],
+      "acceptance": [
+        "PARITY-174"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "capture:commands/95"
+      ],
+      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
+    },
+    {
+      "key": "flag:worktree ls:--type",
+      "stories": [
+        29,
+        44
+      ],
+      "tickets": [
+        174
+      ],
+      "acceptance": [
+        "PARITY-174"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "capture:commands/95"
+      ],
+      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
+    },
+    {
+      "key": "flag:worktree ls:-h",
+      "stories": [
+        29,
+        44
+      ],
+      "tickets": [
+        174
+      ],
+      "acceptance": [
+        "PARITY-174"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "capture:commands/95"
+      ],
+      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
+    },
+    {
+      "key": "flag:worktree prune:--debug",
+      "stories": [
+        29,
+        44
+      ],
+      "tickets": [
+        174
+      ],
+      "acceptance": [
+        "PARITY-174"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "capture:commands/96"
+      ],
+      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
+    },
+    {
+      "key": "flag:worktree prune:--debug-file",
+      "stories": [
+        29,
+        44
+      ],
+      "tickets": [
+        174
+      ],
+      "acceptance": [
+        "PARITY-174"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "capture:commands/96"
+      ],
+      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
+    },
+    {
+      "key": "flag:worktree prune:--dry-run",
+      "stories": [
+        29,
+        44
+      ],
+      "tickets": [
+        174
+      ],
+      "acceptance": [
+        "PARITY-174"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "capture:commands/96"
+      ],
+      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
+    },
+    {
+      "key": "flag:worktree prune:--force",
+      "stories": [
+        29,
+        44
+      ],
+      "tickets": [
+        174
+      ],
+      "acceptance": [
+        "PARITY-174"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "capture:commands/96"
+      ],
+      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
+    },
+    {
+      "key": "flag:worktree prune:--help",
+      "stories": [
+        29,
+        44
+      ],
+      "tickets": [
+        174
+      ],
+      "acceptance": [
+        "PARITY-174"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "capture:commands/96"
+      ],
+      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
+    },
+    {
+      "key": "flag:worktree prune:--leader-socket",
+      "stories": [
+        29,
+        44
+      ],
+      "tickets": [
+        174
+      ],
+      "acceptance": [
+        "PARITY-174"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "capture:commands/96"
+      ],
+      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
+    },
+    {
+      "key": "flag:worktree prune:--max-age",
+      "stories": [
+        29,
+        44
+      ],
+      "tickets": [
+        174
+      ],
+      "acceptance": [
+        "PARITY-174"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "capture:commands/96"
+      ],
+      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
+    },
+    {
+      "key": "flag:worktree prune:-f",
+      "stories": [
+        29,
+        44
+      ],
+      "tickets": [
+        174
+      ],
+      "acceptance": [
+        "PARITY-174"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "capture:commands/96"
+      ],
+      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
+    },
+    {
+      "key": "flag:worktree prune:-h",
+      "stories": [
+        29,
+        44
+      ],
+      "tickets": [
+        174
+      ],
+      "acceptance": [
+        "PARITY-174"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "capture:commands/96"
       ],
       "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
     },
@@ -43609,14 +46029,14 @@
     {
       "key": "guide-behavior:04-slash-commands.md:`/tutorial`:1",
       "stories": [
-        57,
-        70
+        17,
+        35
       ],
       "tickets": [
-        145
+        154
       ],
       "acceptance": [
-        "PARITY-145"
+        "PARITY-154-tutorial"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -43628,14 +46048,14 @@
     {
       "key": "guide-behavior:04-slash-commands.md:`/tutorial`:3",
       "stories": [
-        57,
-        70
+        17,
+        35
       ],
       "tickets": [
-        145
+        154
       ],
       "acceptance": [
-        "PARITY-145"
+        "PARITY-154-tutorial"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -86452,14 +88872,14 @@
     {
       "key": "guide-section:04-slash-commands.md:`/tutorial`",
       "stories": [
-        57,
-        70
+        17,
+        35
       ],
       "tickets": [
-        145
+        154
       ],
       "acceptance": [
-        "PARITY-145"
+        "PARITY-154-tutorial"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -110382,17 +112802,19 @@
     {
       "key": "slash:onboarding",
       "stories": [
-        57,
-        70
+        17,
+        35
       ],
       "tickets": [
-        145
+        154
       ],
       "acceptance": [
-        "PARITY-145"
+        "PARITY-154-tutorial"
       ],
       "status": "pending-parity",
       "evidence": [
+        "capture:tutorialProbes/0/events/54",
+        "capture:tutorialProbes/1/events/25",
         "binary-guide:04-slash-commands.md#L384",
         "source-guide:04-slash-commands.md#L387",
         "source:crates/codegen/xai-grok-pager/src/slash/commands/tutorial.rs#L14"
@@ -111142,17 +113564,19 @@
     {
       "key": "slash:tour",
       "stories": [
-        57,
-        70
+        17,
+        35
       ],
       "tickets": [
-        145
+        154
       ],
       "acceptance": [
-        "PARITY-145"
+        "PARITY-154-tutorial"
       ],
       "status": "pending-parity",
       "evidence": [
+        "capture:tutorialProbes/0/events/45",
+        "capture:tutorialProbes/1/events/22",
         "binary-guide:04-slash-commands.md#L384",
         "source-guide:04-slash-commands.md#L387",
         "source:crates/codegen/xai-grok-pager/src/slash/commands/tutorial.rs#L14"
@@ -111182,17 +113606,19 @@
     {
       "key": "slash:tutorial",
       "stories": [
-        57,
-        70
+        17,
+        35
       ],
       "tickets": [
-        145
+        154
       ],
       "acceptance": [
-        "PARITY-145"
+        "PARITY-154-tutorial"
       ],
       "status": "pending-parity",
       "evidence": [
+        "capture:tutorialProbes/0/events/15",
+        "capture:tutorialProbes/1/events/19",
         "binary-guide:04-slash-commands.md#L159",
         "binary-guide:04-slash-commands.md#L376",
         "source-guide:04-slash-commands.md#L159",
@@ -112142,14 +114568,15 @@
     {
       "key": "source-cli:crates/codegen/xai-grok-pager/src/app/cli.rs:--hub-url",
       "stories": [
-        57,
-        70
+        60,
+        61,
+        62
       ],
       "tickets": [
-        145
+        190
       ],
       "acceptance": [
-        "PARITY-145"
+        "PARITY-190-workspace"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -114377,6 +116804,1433 @@
       "status": "pending-parity",
       "evidence": [
         "source:crates/codegen/xai-grok-pager/src/worktree_cmd/mod.rs#L43"
+      ],
+      "blocker": "Source export is 1.0.35, not a proven 1.0.34 match; verify availability and semantics against the frozen binary before candidate implementation."
+    },
+    {
+      "key": "source-command:AgentCmd:headless",
+      "stories": [
+        59,
+        60,
+        62
+      ],
+      "tickets": [
+        148
+      ],
+      "acceptance": [
+        "PARITY-148"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "source:crates/codegen/xai-grok-pager/src/app/cli.rs#L334"
+      ],
+      "blocker": "Source export is 1.0.35, not a proven 1.0.34 match; verify availability and semantics against the frozen binary before candidate implementation."
+    },
+    {
+      "key": "source-command:AgentCmd:leader",
+      "stories": [
+        59,
+        60,
+        62
+      ],
+      "tickets": [
+        148
+      ],
+      "acceptance": [
+        "PARITY-148"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "source:crates/codegen/xai-grok-pager/src/app/cli.rs#L338"
+      ],
+      "blocker": "Source export is 1.0.35, not a proven 1.0.34 match; verify availability and semantics against the frozen binary before candidate implementation."
+    },
+    {
+      "key": "source-command:AgentCmd:serve",
+      "stories": [
+        59,
+        60,
+        62
+      ],
+      "tickets": [
+        148
+      ],
+      "acceptance": [
+        "PARITY-148"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "source:crates/codegen/xai-grok-pager/src/app/cli.rs#L336"
+      ],
+      "blocker": "Source export is 1.0.35, not a proven 1.0.34 match; verify availability and semantics against the frozen binary before candidate implementation."
+    },
+    {
+      "key": "source-command:AgentCmd:stdio",
+      "stories": [
+        58,
+        59
+      ],
+      "tickets": [
+        147
+      ],
+      "acceptance": [
+        "PARITY-147"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "source:crates/codegen/xai-grok-pager/src/app/cli.rs#L332"
+      ],
+      "blocker": "Source export is 1.0.35, not a proven 1.0.34 match; verify availability and semantics against the frozen binary before candidate implementation."
+    },
+    {
+      "key": "source-command:Command:agent",
+      "stories": [
+        58,
+        59
+      ],
+      "tickets": [
+        147
+      ],
+      "acceptance": [
+        "PARITY-147"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "source:crates/codegen/xai-grok-pager/src/app/cli.rs#L10"
+      ],
+      "blocker": "Source export is 1.0.35, not a proven 1.0.34 match; verify availability and semantics against the frozen binary before candidate implementation."
+    },
+    {
+      "key": "source-command:Command:completions",
+      "stories": [
+        57,
+        70
+      ],
+      "tickets": [
+        145
+      ],
+      "acceptance": [
+        "PARITY-145"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "source:crates/codegen/xai-grok-pager/src/app/cli.rs#L126"
+      ],
+      "blocker": "Source export is 1.0.35, not a proven 1.0.34 match; verify availability and semantics against the frozen binary before candidate implementation."
+    },
+    {
+      "key": "source-command:Command:dashboard",
+      "stories": [
+        28,
+        59
+      ],
+      "tickets": [
+        159
+      ],
+      "acceptance": [
+        "PARITY-159"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "source:crates/codegen/xai-grok-pager/src/app/cli.rs#L144"
+      ],
+      "blocker": "Source export is 1.0.35, not a proven 1.0.34 match; verify availability and semantics against the frozen binary before candidate implementation."
+    },
+    {
+      "key": "source-command:Command:disk-usage",
+      "stories": [
+        30,
+        62,
+        63
+      ],
+      "tickets": [
+        162
+      ],
+      "acceptance": [
+        "PARITY-162"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "source:crates/codegen/xai-grok-pager/src/app/cli.rs#L135"
+      ],
+      "blocker": "Source export is 1.0.35, not a proven 1.0.34 match; verify availability and semantics against the frozen binary before candidate implementation."
+    },
+    {
+      "key": "source-command:Command:doctor",
+      "stories": [
+        15,
+        18,
+        70
+      ],
+      "tickets": [
+        155
+      ],
+      "acceptance": [
+        "PARITY-155"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "source:crates/codegen/xai-grok-pager/src/app/cli.rs#L18"
+      ],
+      "blocker": "Source export is 1.0.35, not a proven 1.0.34 match; verify availability and semantics against the frozen binary before candidate implementation."
+    },
+    {
+      "key": "source-command:Command:du",
+      "stories": [
+        30,
+        62,
+        63
+      ],
+      "tickets": [
+        162
+      ],
+      "acceptance": [
+        "PARITY-162"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "source:crates/codegen/xai-grok-pager/src/app/cli.rs#L135"
+      ],
+      "blocker": "Source export is 1.0.35, not a proven 1.0.34 match; verify availability and semantics against the frozen binary before candidate implementation."
+    },
+    {
+      "key": "source-command:Command:export",
+      "stories": [
+        30,
+        62,
+        63
+      ],
+      "tickets": [
+        162
+      ],
+      "acceptance": [
+        "PARITY-162"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "source:crates/codegen/xai-grok-pager/src/app/cli.rs#L85"
+      ],
+      "blocker": "Source export is 1.0.35, not a proven 1.0.34 match; verify availability and semantics against the frozen binary before candidate implementation."
+    },
+    {
+      "key": "source-command:Command:inspect",
+      "stories": [
+        8,
+        34,
+        35,
+        63
+      ],
+      "tickets": [
+        139
+      ],
+      "acceptance": [
+        "PARITY-139"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "source:crates/codegen/xai-grok-pager/src/app/cli.rs#L12"
+      ],
+      "blocker": "Source export is 1.0.35, not a proven 1.0.34 match; verify availability and semantics against the frozen binary before candidate implementation."
+    },
+    {
+      "key": "source-command:Command:leader",
+      "stories": [
+        59,
+        60,
+        62
+      ],
+      "tickets": [
+        148
+      ],
+      "acceptance": [
+        "PARITY-148"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "source:crates/codegen/xai-grok-pager/src/app/cli.rs#L20"
+      ],
+      "blocker": "Source export is 1.0.35, not a proven 1.0.34 match; verify availability and semantics against the frozen binary before candidate implementation."
+    },
+    {
+      "key": "source-command:Command:login",
+      "stories": [
+        8,
+        34,
+        36,
+        60
+      ],
+      "tickets": [
+        189
+      ],
+      "acceptance": [
+        "PARITY-189"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "source:crates/codegen/xai-grok-pager/src/app/cli.rs#L24"
+      ],
+      "blocker": "Source export is 1.0.35, not a proven 1.0.34 match; verify availability and semantics against the frozen binary before candidate implementation."
+    },
+    {
+      "key": "source-command:Command:logout",
+      "stories": [
+        8,
+        34,
+        36,
+        60
+      ],
+      "tickets": [
+        189
+      ],
+      "acceptance": [
+        "PARITY-189"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "source:crates/codegen/xai-grok-pager/src/app/cli.rs#L22"
+      ],
+      "blocker": "Source export is 1.0.35, not a proven 1.0.34 match; verify availability and semantics against the frozen binary before candidate implementation."
+    },
+    {
+      "key": "source-command:Command:mcp",
+      "stories": [
+        39,
+        41
+      ],
+      "tickets": [
+        167
+      ],
+      "acceptance": [
+        "PARITY-167"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "source:crates/codegen/xai-grok-pager/src/app/cli.rs#L44"
+      ],
+      "blocker": "Source export is 1.0.35, not a proven 1.0.34 match; verify availability and semantics against the frozen binary before candidate implementation."
+    },
+    {
+      "key": "source-command:Command:memory",
+      "stories": [
+        51,
+        63
+      ],
+      "tickets": [
+        185
+      ],
+      "acceptance": [
+        "PARITY-185"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "source:crates/codegen/xai-grok-pager/src/app/cli.rs#L48"
+      ],
+      "blocker": "Source export is 1.0.35, not a proven 1.0.34 match; verify availability and semantics against the frozen binary before candidate implementation."
+    },
+    {
+      "key": "source-command:Command:models",
+      "stories": [
+        32,
+        33,
+        34
+      ],
+      "tickets": [
+        140
+      ],
+      "acceptance": [
+        "PARITY-140"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "source:crates/codegen/xai-grok-pager/src/app/cli.rs#L50"
+      ],
+      "blocker": "Source export is 1.0.35, not a proven 1.0.34 match; verify availability and semantics against the frozen binary before candidate implementation."
+    },
+    {
+      "key": "source-command:Command:plugin",
+      "stories": [
+        37,
+        38,
+        41
+      ],
+      "tickets": [
+        166
+      ],
+      "acceptance": [
+        "PARITY-166"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "source:crates/codegen/xai-grok-pager/src/app/cli.rs#L46"
+      ],
+      "blocker": "Source export is 1.0.35, not a proven 1.0.34 match; verify availability and semantics against the frozen binary before candidate implementation."
+    },
+    {
+      "key": "source-command:Command:sessions",
+      "stories": [
+        28,
+        59
+      ],
+      "tickets": [
+        159
+      ],
+      "acceptance": [
+        "PARITY-159"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "source:crates/codegen/xai-grok-pager/src/app/cli.rs#L52"
+      ],
+      "blocker": "Source export is 1.0.35, not a proven 1.0.34 match; verify availability and semantics against the frozen binary before candidate implementation."
+    },
+    {
+      "key": "source-command:Command:setup",
+      "stories": [
+        8,
+        34,
+        36,
+        60
+      ],
+      "tickets": [
+        189
+      ],
+      "acceptance": [
+        "PARITY-189"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "source:crates/codegen/xai-grok-pager/src/app/cli.rs#L56"
+      ],
+      "blocker": "Source export is 1.0.35, not a proven 1.0.34 match; verify availability and semantics against the frozen binary before candidate implementation."
+    },
+    {
+      "key": "source-command:Command:share",
+      "stories": [
+        30,
+        62,
+        63
+      ],
+      "tickets": [
+        162
+      ],
+      "acceptance": [
+        "PARITY-162"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "source:crates/codegen/xai-grok-pager/src/app/cli.rs#L63"
+      ],
+      "blocker": "Source export is 1.0.35, not a proven 1.0.34 match; verify availability and semantics against the frozen binary before candidate implementation."
+    },
+    {
+      "key": "source-command:Command:trace",
+      "stories": [
+        30,
+        63,
+        64
+      ],
+      "tickets": [
+        192
+      ],
+      "acceptance": [
+        "PARITY-192"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "source:crates/codegen/xai-grok-pager/src/app/cli.rs#L87"
+      ],
+      "blocker": "Source export is 1.0.35, not a proven 1.0.34 match; verify availability and semantics against the frozen binary before candidate implementation."
+    },
+    {
+      "key": "source-command:Command:update",
+      "stories": [
+        6,
+        7,
+        69,
+        70,
+        73
+      ],
+      "tickets": [
+        198
+      ],
+      "acceptance": [
+        "PARITY-198"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "source:crates/codegen/xai-grok-pager/src/app/cli.rs#L89"
+      ],
+      "blocker": "Source export is 1.0.35, not a proven 1.0.34 match; verify availability and semantics against the frozen binary before candidate implementation."
+    },
+    {
+      "key": "source-command:Command:usage",
+      "stories": [
+        17,
+        33,
+        64
+      ],
+      "tickets": [
+        197
+      ],
+      "acceptance": [
+        "PARITY-197"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "source:crates/codegen/xai-grok-pager/src/app/cli.rs#L54"
+      ],
+      "blocker": "Source export is 1.0.35, not a proven 1.0.34 match; verify availability and semantics against the frozen binary before candidate implementation."
+    },
+    {
+      "key": "source-command:Command:v",
+      "stories": [
+        57,
+        70
+      ],
+      "tickets": [
+        145
+      ],
+      "acceptance": [
+        "PARITY-145"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "source:crates/codegen/xai-grok-pager/src/app/cli.rs#L120"
+      ],
+      "blocker": "Source export is 1.0.35, not a proven 1.0.34 match; verify availability and semantics against the frozen binary before candidate implementation."
+    },
+    {
+      "key": "source-command:Command:version",
+      "stories": [
+        6,
+        7,
+        69,
+        70,
+        73
+      ],
+      "tickets": [
+        198
+      ],
+      "acceptance": [
+        "PARITY-198"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "source:crates/codegen/xai-grok-pager/src/app/cli.rs#L120"
+      ],
+      "blocker": "Source export is 1.0.35, not a proven 1.0.34 match; verify availability and semantics against the frozen binary before candidate implementation."
+    },
+    {
+      "key": "source-command:Command:workspace",
+      "stories": [
+        60,
+        61,
+        62
+      ],
+      "tickets": [
+        190
+      ],
+      "acceptance": [
+        "PARITY-190-workspace"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "source:crates/codegen/xai-grok-pager/src/app/cli.rs#L140"
+      ],
+      "blocker": "Source export is 1.0.35, not a proven 1.0.34 match; verify availability and semantics against the frozen binary before candidate implementation."
+    },
+    {
+      "key": "source-command:Command:worktree",
+      "stories": [
+        29,
+        44
+      ],
+      "tickets": [
+        174
+      ],
+      "acceptance": [
+        "PARITY-174"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "source:crates/codegen/xai-grok-pager/src/app/cli.rs#L132"
+      ],
+      "blocker": "Source export is 1.0.35, not a proven 1.0.34 match; verify availability and semantics against the frozen binary before candidate implementation."
+    },
+    {
+      "key": "source-command:Command:wrap",
+      "stories": [
+        15,
+        18,
+        70
+      ],
+      "tickets": [
+        155
+      ],
+      "acceptance": [
+        "PARITY-155"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "source:crates/codegen/xai-grok-pager/src/app/cli.rs#L83"
+      ],
+      "blocker": "Source export is 1.0.35, not a proven 1.0.34 match; verify availability and semantics against the frozen binary before candidate implementation."
+    },
+    {
+      "key": "source-command:DoctorCommand:fix",
+      "stories": [
+        15,
+        18,
+        70
+      ],
+      "tickets": [
+        155
+      ],
+      "acceptance": [
+        "PARITY-155"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "source:crates/codegen/xai-grok-pager/src/doctor_cmd/mod.rs#L26"
+      ],
+      "blocker": "Source export is 1.0.35, not a proven 1.0.34 match; verify availability and semantics against the frozen binary before candidate implementation."
+    },
+    {
+      "key": "source-command:LeaderMgmtCommand:info",
+      "stories": [
+        59,
+        60,
+        62
+      ],
+      "tickets": [
+        148
+      ],
+      "acceptance": [
+        "PARITY-148"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "source:crates/codegen/xai-grok-pager/src/app/cli.rs#L180"
+      ],
+      "blocker": "Source export is 1.0.35, not a proven 1.0.34 match; verify availability and semantics against the frozen binary before candidate implementation."
+    },
+    {
+      "key": "source-command:LeaderMgmtCommand:kill",
+      "stories": [
+        59,
+        60,
+        62
+      ],
+      "tickets": [
+        148
+      ],
+      "acceptance": [
+        "PARITY-148"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "source:crates/codegen/xai-grok-pager/src/app/cli.rs#L188"
+      ],
+      "blocker": "Source export is 1.0.35, not a proven 1.0.34 match; verify availability and semantics against the frozen binary before candidate implementation."
+    },
+    {
+      "key": "source-command:LeaderMgmtCommand:list",
+      "stories": [
+        59,
+        60,
+        62
+      ],
+      "tickets": [
+        148
+      ],
+      "acceptance": [
+        "PARITY-148"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "source:crates/codegen/xai-grok-pager/src/app/cli.rs#L174"
+      ],
+      "blocker": "Source export is 1.0.35, not a proven 1.0.34 match; verify availability and semantics against the frozen binary before candidate implementation."
+    },
+    {
+      "key": "source-command:MarketplaceCommand:add",
+      "stories": [
+        41
+      ],
+      "tickets": [
+        165
+      ],
+      "acceptance": [
+        "PARITY-165"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "source:crates/codegen/xai-grok-pager/src/plugin_cmd.rs#L175"
+      ],
+      "blocker": "Source export is 1.0.35, not a proven 1.0.34 match; verify availability and semantics against the frozen binary before candidate implementation."
+    },
+    {
+      "key": "source-command:MarketplaceCommand:list",
+      "stories": [
+        41
+      ],
+      "tickets": [
+        165
+      ],
+      "acceptance": [
+        "PARITY-165"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "source:crates/codegen/xai-grok-pager/src/plugin_cmd.rs#L169"
+      ],
+      "blocker": "Source export is 1.0.35, not a proven 1.0.34 match; verify availability and semantics against the frozen binary before candidate implementation."
+    },
+    {
+      "key": "source-command:MarketplaceCommand:remove",
+      "stories": [
+        41
+      ],
+      "tickets": [
+        165
+      ],
+      "acceptance": [
+        "PARITY-165"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "source:crates/codegen/xai-grok-pager/src/plugin_cmd.rs#L183"
+      ],
+      "blocker": "Source export is 1.0.35, not a proven 1.0.34 match; verify availability and semantics against the frozen binary before candidate implementation."
+    },
+    {
+      "key": "source-command:MarketplaceCommand:update",
+      "stories": [
+        41
+      ],
+      "tickets": [
+        165
+      ],
+      "acceptance": [
+        "PARITY-165"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "source:crates/codegen/xai-grok-pager/src/plugin_cmd.rs#L188"
+      ],
+      "blocker": "Source export is 1.0.35, not a proven 1.0.34 match; verify availability and semantics against the frozen binary before candidate implementation."
+    },
+    {
+      "key": "source-command:McpCommand:add",
+      "stories": [
+        39,
+        41
+      ],
+      "tickets": [
+        167
+      ],
+      "acceptance": [
+        "PARITY-167"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "source:crates/codegen/xai-grok-pager/src/mcp_cmd.rs#L73"
+      ],
+      "blocker": "Source export is 1.0.35, not a proven 1.0.34 match; verify availability and semantics against the frozen binary before candidate implementation."
+    },
+    {
+      "key": "source-command:McpCommand:disable",
+      "stories": [
+        39,
+        41
+      ],
+      "tickets": [
+        167
+      ],
+      "acceptance": [
+        "PARITY-167"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "source:crates/codegen/xai-grok-pager/src/mcp_cmd.rs#L89"
+      ],
+      "blocker": "Source export is 1.0.35, not a proven 1.0.34 match; verify availability and semantics against the frozen binary before candidate implementation."
+    },
+    {
+      "key": "source-command:McpCommand:doctor",
+      "stories": [
+        39,
+        41
+      ],
+      "tickets": [
+        167
+      ],
+      "acceptance": [
+        "PARITY-167"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "source:crates/codegen/xai-grok-pager/src/mcp_cmd.rs#L94"
+      ],
+      "blocker": "Source export is 1.0.35, not a proven 1.0.34 match; verify availability and semantics against the frozen binary before candidate implementation."
+    },
+    {
+      "key": "source-command:McpCommand:enable",
+      "stories": [
+        39,
+        41
+      ],
+      "tickets": [
+        167
+      ],
+      "acceptance": [
+        "PARITY-167"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "source:crates/codegen/xai-grok-pager/src/mcp_cmd.rs#L84"
+      ],
+      "blocker": "Source export is 1.0.35, not a proven 1.0.34 match; verify availability and semantics against the frozen binary before candidate implementation."
+    },
+    {
+      "key": "source-command:McpCommand:list",
+      "stories": [
+        39,
+        41
+      ],
+      "tickets": [
+        167
+      ],
+      "acceptance": [
+        "PARITY-167"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "source:crates/codegen/xai-grok-pager/src/mcp_cmd.rs#L67"
+      ],
+      "blocker": "Source export is 1.0.35, not a proven 1.0.34 match; verify availability and semantics against the frozen binary before candidate implementation."
+    },
+    {
+      "key": "source-command:McpCommand:remove",
+      "stories": [
+        39,
+        41
+      ],
+      "tickets": [
+        167
+      ],
+      "acceptance": [
+        "PARITY-167"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "source:crates/codegen/xai-grok-pager/src/mcp_cmd.rs#L75"
+      ],
+      "blocker": "Source export is 1.0.35, not a proven 1.0.34 match; verify availability and semantics against the frozen binary before candidate implementation."
+    },
+    {
+      "key": "source-command:MemoryCommand:clear",
+      "stories": [
+        51,
+        63
+      ],
+      "tickets": [
+        185
+      ],
+      "acceptance": [
+        "PARITY-185"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "source:crates/codegen/xai-grok-pager/src/memory_cmd.rs#L17"
+      ],
+      "blocker": "Source export is 1.0.35, not a proven 1.0.34 match; verify availability and semantics against the frozen binary before candidate implementation."
+    },
+    {
+      "key": "source-command:PluginCommand:details",
+      "stories": [
+        37,
+        38,
+        41
+      ],
+      "tickets": [
+        166
+      ],
+      "acceptance": [
+        "PARITY-166"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "source:crates/codegen/xai-grok-pager/src/plugin_cmd.rs#L131"
+      ],
+      "blocker": "Source export is 1.0.35, not a proven 1.0.34 match; verify availability and semantics against the frozen binary before candidate implementation."
+    },
+    {
+      "key": "source-command:PluginCommand:disable",
+      "stories": [
+        37,
+        38,
+        41
+      ],
+      "tickets": [
+        166
+      ],
+      "acceptance": [
+        "PARITY-166"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "source:crates/codegen/xai-grok-pager/src/plugin_cmd.rs#L126"
+      ],
+      "blocker": "Source export is 1.0.35, not a proven 1.0.34 match; verify availability and semantics against the frozen binary before candidate implementation."
+    },
+    {
+      "key": "source-command:PluginCommand:enable",
+      "stories": [
+        37,
+        38,
+        41
+      ],
+      "tickets": [
+        166
+      ],
+      "acceptance": [
+        "PARITY-166"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "source:crates/codegen/xai-grok-pager/src/plugin_cmd.rs#L121"
+      ],
+      "blocker": "Source export is 1.0.35, not a proven 1.0.34 match; verify availability and semantics against the frozen binary before candidate implementation."
+    },
+    {
+      "key": "source-command:PluginCommand:install",
+      "stories": [
+        41
+      ],
+      "tickets": [
+        165
+      ],
+      "acceptance": [
+        "PARITY-165"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "source:crates/codegen/xai-grok-pager/src/plugin_cmd.rs#L95"
+      ],
+      "blocker": "Source export is 1.0.35, not a proven 1.0.34 match; verify availability and semantics against the frozen binary before candidate implementation."
+    },
+    {
+      "key": "source-command:PluginCommand:list",
+      "stories": [
+        37,
+        38,
+        41
+      ],
+      "tickets": [
+        166
+      ],
+      "acceptance": [
+        "PARITY-166"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "source:crates/codegen/xai-grok-pager/src/plugin_cmd.rs#L86"
+      ],
+      "blocker": "Source export is 1.0.35, not a proven 1.0.34 match; verify availability and semantics against the frozen binary before candidate implementation."
+    },
+    {
+      "key": "source-command:PluginCommand:marketplace",
+      "stories": [
+        41
+      ],
+      "tickets": [
+        165
+      ],
+      "acceptance": [
+        "PARITY-165"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "source:crates/codegen/xai-grok-pager/src/plugin_cmd.rs#L157"
+      ],
+      "blocker": "Source export is 1.0.35, not a proven 1.0.34 match; verify availability and semantics against the frozen binary before candidate implementation."
+    },
+    {
+      "key": "source-command:PluginCommand:remove",
+      "stories": [
+        37,
+        38,
+        41
+      ],
+      "tickets": [
+        166
+      ],
+      "acceptance": [
+        "PARITY-166"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "source:crates/codegen/xai-grok-pager/src/plugin_cmd.rs#L105"
+      ],
+      "blocker": "Source export is 1.0.35, not a proven 1.0.34 match; verify availability and semantics against the frozen binary before candidate implementation."
+    },
+    {
+      "key": "source-command:PluginCommand:rm",
+      "stories": [
+        37,
+        38,
+        41
+      ],
+      "tickets": [
+        166
+      ],
+      "acceptance": [
+        "PARITY-166"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "source:crates/codegen/xai-grok-pager/src/plugin_cmd.rs#L105"
+      ],
+      "blocker": "Source export is 1.0.35, not a proven 1.0.34 match; verify availability and semantics against the frozen binary before candidate implementation."
+    },
+    {
+      "key": "source-command:PluginCommand:tag",
+      "stories": [
+        37,
+        38,
+        41
+      ],
+      "tickets": [
+        166
+      ],
+      "acceptance": [
+        "PARITY-166"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "source:crates/codegen/xai-grok-pager/src/plugin_cmd.rs#L142"
+      ],
+      "blocker": "Source export is 1.0.35, not a proven 1.0.34 match; verify availability and semantics against the frozen binary before candidate implementation."
+    },
+    {
+      "key": "source-command:PluginCommand:uninstall",
+      "stories": [
+        41
+      ],
+      "tickets": [
+        165
+      ],
+      "acceptance": [
+        "PARITY-165"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "source:crates/codegen/xai-grok-pager/src/plugin_cmd.rs#L105"
+      ],
+      "blocker": "Source export is 1.0.35, not a proven 1.0.34 match; verify availability and semantics against the frozen binary before candidate implementation."
+    },
+    {
+      "key": "source-command:PluginCommand:update",
+      "stories": [
+        41
+      ],
+      "tickets": [
+        165
+      ],
+      "acceptance": [
+        "PARITY-165"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "source:crates/codegen/xai-grok-pager/src/plugin_cmd.rs#L116"
+      ],
+      "blocker": "Source export is 1.0.35, not a proven 1.0.34 match; verify availability and semantics against the frozen binary before candidate implementation."
+    },
+    {
+      "key": "source-command:PluginCommand:validate",
+      "stories": [
+        37,
+        38,
+        41
+      ],
+      "tickets": [
+        166
+      ],
+      "acceptance": [
+        "PARITY-166"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "source:crates/codegen/xai-grok-pager/src/plugin_cmd.rs#L136"
+      ],
+      "blocker": "Source export is 1.0.35, not a proven 1.0.34 match; verify availability and semantics against the frozen binary before candidate implementation."
+    },
+    {
+      "key": "source-command:SessionsCommand:delete",
+      "stories": [
+        30,
+        62,
+        63
+      ],
+      "tickets": [
+        162
+      ],
+      "acceptance": [
+        "PARITY-162"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "source:crates/codegen/xai-grok-pager/src/sessions_cmd.rs#L30"
+      ],
+      "blocker": "Source export is 1.0.35, not a proven 1.0.34 match; verify availability and semantics against the frozen binary before candidate implementation."
+    },
+    {
+      "key": "source-command:SessionsCommand:list",
+      "stories": [
+        28,
+        59
+      ],
+      "tickets": [
+        159
+      ],
+      "acceptance": [
+        "PARITY-159"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "source:crates/codegen/xai-grok-pager/src/sessions_cmd.rs#L16"
+      ],
+      "blocker": "Source export is 1.0.35, not a proven 1.0.34 match; verify availability and semantics against the frozen binary before candidate implementation."
+    },
+    {
+      "key": "source-command:SessionsCommand:search",
+      "stories": [
+        28,
+        59
+      ],
+      "tickets": [
+        159
+      ],
+      "acceptance": [
+        "PARITY-159"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "source:crates/codegen/xai-grok-pager/src/sessions_cmd.rs#L22"
+      ],
+      "blocker": "Source export is 1.0.35, not a proven 1.0.34 match; verify availability and semantics against the frozen binary before candidate implementation."
+    },
+    {
+      "key": "source-command:WorkspaceMgmtCommand:list",
+      "stories": [
+        60,
+        61,
+        62
+      ],
+      "tickets": [
+        190
+      ],
+      "acceptance": [
+        "PARITY-190-workspace"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "source:crates/codegen/xai-grok-pager/src/app/cli.rs#L227"
+      ],
+      "blocker": "Source export is 1.0.35, not a proven 1.0.34 match; verify availability and semantics against the frozen binary before candidate implementation."
+    },
+    {
+      "key": "source-command:WorkspaceMgmtCommand:pause",
+      "stories": [
+        60,
+        61,
+        62
+      ],
+      "tickets": [
+        190
+      ],
+      "acceptance": [
+        "PARITY-190-workspace"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "source:crates/codegen/xai-grok-pager/src/app/cli.rs#L200"
+      ],
+      "blocker": "Source export is 1.0.35, not a proven 1.0.34 match; verify availability and semantics against the frozen binary before candidate implementation."
+    },
+    {
+      "key": "source-command:WorkspaceMgmtCommand:restart",
+      "stories": [
+        60,
+        61,
+        62
+      ],
+      "tickets": [
+        190
+      ],
+      "acceptance": [
+        "PARITY-190-workspace"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "source:crates/codegen/xai-grok-pager/src/app/cli.rs#L224"
+      ],
+      "blocker": "Source export is 1.0.35, not a proven 1.0.34 match; verify availability and semantics against the frozen binary before candidate implementation."
+    },
+    {
+      "key": "source-command:WorkspaceMgmtCommand:resume",
+      "stories": [
+        60,
+        61,
+        62
+      ],
+      "tickets": [
+        190
+      ],
+      "acceptance": [
+        "PARITY-190-workspace"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "source:crates/codegen/xai-grok-pager/src/app/cli.rs#L208"
+      ],
+      "blocker": "Source export is 1.0.35, not a proven 1.0.34 match; verify availability and semantics against the frozen binary before candidate implementation."
+    },
+    {
+      "key": "source-command:WorkspaceMgmtCommand:start",
+      "stories": [
+        60,
+        61,
+        62
+      ],
+      "tickets": [
+        190
+      ],
+      "acceptance": [
+        "PARITY-190-workspace"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "source:crates/codegen/xai-grok-pager/src/app/cli.rs#L198"
+      ],
+      "blocker": "Source export is 1.0.35, not a proven 1.0.34 match; verify availability and semantics against the frozen binary before candidate implementation."
+    },
+    {
+      "key": "source-command:WorkspaceMgmtCommand:status",
+      "stories": [
+        60,
+        61,
+        62
+      ],
+      "tickets": [
+        190
+      ],
+      "acceptance": [
+        "PARITY-190-workspace"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "source:crates/codegen/xai-grok-pager/src/app/cli.rs#L227"
+      ],
+      "blocker": "Source export is 1.0.35, not a proven 1.0.34 match; verify availability and semantics against the frozen binary before candidate implementation."
+    },
+    {
+      "key": "source-command:WorkspaceMgmtCommand:stop",
+      "stories": [
+        60,
+        61,
+        62
+      ],
+      "tickets": [
+        190
+      ],
+      "acceptance": [
+        "PARITY-190-workspace"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "source:crates/codegen/xai-grok-pager/src/app/cli.rs#L216"
+      ],
+      "blocker": "Source export is 1.0.35, not a proven 1.0.34 match; verify availability and semantics against the frozen binary before candidate implementation."
+    },
+    {
+      "key": "source-command:WorktreeCommand:db",
+      "stories": [
+        29,
+        44
+      ],
+      "tickets": [
+        174
+      ],
+      "acceptance": [
+        "PARITY-174"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "source:crates/codegen/xai-grok-pager/src/worktree_cmd/mod.rs#L58"
+      ],
+      "blocker": "Source export is 1.0.35, not a proven 1.0.34 match; verify availability and semantics against the frozen binary before candidate implementation."
+    },
+    {
+      "key": "source-command:WorktreeCommand:gc",
+      "stories": [
+        29,
+        44
+      ],
+      "tickets": [
+        174
+      ],
+      "acceptance": [
+        "PARITY-174"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "source:crates/codegen/xai-grok-pager/src/worktree_cmd/mod.rs#L44"
+      ],
+      "blocker": "Source export is 1.0.35, not a proven 1.0.34 match; verify availability and semantics against the frozen binary before candidate implementation."
+    },
+    {
+      "key": "source-command:WorktreeCommand:list",
+      "stories": [
+        29,
+        44
+      ],
+      "tickets": [
+        174
+      ],
+      "acceptance": [
+        "PARITY-174"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "source:crates/codegen/xai-grok-pager/src/worktree_cmd/mod.rs#L21"
+      ],
+      "blocker": "Source export is 1.0.35, not a proven 1.0.34 match; verify availability and semantics against the frozen binary before candidate implementation."
+    },
+    {
+      "key": "source-command:WorktreeCommand:ls",
+      "stories": [
+        29,
+        44
+      ],
+      "tickets": [
+        174
+      ],
+      "acceptance": [
+        "PARITY-174"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "source:crates/codegen/xai-grok-pager/src/worktree_cmd/mod.rs#L21"
+      ],
+      "blocker": "Source export is 1.0.35, not a proven 1.0.34 match; verify availability and semantics against the frozen binary before candidate implementation."
+    },
+    {
+      "key": "source-command:WorktreeCommand:prune",
+      "stories": [
+        29,
+        44
+      ],
+      "tickets": [
+        174
+      ],
+      "acceptance": [
+        "PARITY-174"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "source:crates/codegen/xai-grok-pager/src/worktree_cmd/mod.rs#L44"
+      ],
+      "blocker": "Source export is 1.0.35, not a proven 1.0.34 match; verify availability and semantics against the frozen binary before candidate implementation."
+    },
+    {
+      "key": "source-command:WorktreeCommand:rm",
+      "stories": [
+        29,
+        44
+      ],
+      "tickets": [
+        174
+      ],
+      "acceptance": [
+        "PARITY-174"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "source:crates/codegen/xai-grok-pager/src/worktree_cmd/mod.rs#L34"
+      ],
+      "blocker": "Source export is 1.0.35, not a proven 1.0.34 match; verify availability and semantics against the frozen binary before candidate implementation."
+    },
+    {
+      "key": "source-command:WorktreeCommand:show",
+      "stories": [
+        29,
+        44
+      ],
+      "tickets": [
+        174
+      ],
+      "acceptance": [
+        "PARITY-174"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "source:crates/codegen/xai-grok-pager/src/worktree_cmd/mod.rs#L32"
+      ],
+      "blocker": "Source export is 1.0.35, not a proven 1.0.34 match; verify availability and semantics against the frozen binary before candidate implementation."
+    },
+    {
+      "key": "source-command:WorktreeDbCommand:path",
+      "stories": [
+        29,
+        44
+      ],
+      "tickets": [
+        174
+      ],
+      "acceptance": [
+        "PARITY-174"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "source:crates/codegen/xai-grok-pager/src/worktree_cmd/mod.rs#L70"
+      ],
+      "blocker": "Source export is 1.0.35, not a proven 1.0.34 match; verify availability and semantics against the frozen binary before candidate implementation."
+    },
+    {
+      "key": "source-command:WorktreeDbCommand:rebuild",
+      "stories": [
+        29,
+        44
+      ],
+      "tickets": [
+        174
+      ],
+      "acceptance": [
+        "PARITY-174"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "source:crates/codegen/xai-grok-pager/src/worktree_cmd/mod.rs#L66"
+      ],
+      "blocker": "Source export is 1.0.35, not a proven 1.0.34 match; verify availability and semantics against the frozen binary before candidate implementation."
+    },
+    {
+      "key": "source-command:WorktreeDbCommand:stats",
+      "stories": [
+        29,
+        44
+      ],
+      "tickets": [
+        174
+      ],
+      "acceptance": [
+        "PARITY-174"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "source:crates/codegen/xai-grok-pager/src/worktree_cmd/mod.rs#L68"
       ],
       "blocker": "Source export is 1.0.35, not a proven 1.0.34 match; verify availability and semantics against the frozen binary before candidate implementation."
     },

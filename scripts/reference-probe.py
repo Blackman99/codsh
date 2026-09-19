@@ -103,7 +103,7 @@ class Reference:
                 'elapsedMs': (time.perf_counter_ns() - start) / 1e6,
                 'stdout': stdout.decode(errors='replace'), 'stderr': stderr.decode(errors='replace')}
 
-    def terminal(self, mode, environment=None):
+    def terminal(self, mode, environment=None, tutorial=False):
         env = {**self.env, **(environment or {})}
         start = time.perf_counter_ns()
         pid, fd = pty.fork()
@@ -169,10 +169,26 @@ class Reference:
             first_frame = elapsed() if ready else None
             send('draft', b'REFERENCE133', b'REFERENCE133')
             send('clear-draft', b'\x03')
-            send('settings-open', b'/settings\r', b'Compact mode')
-            send('settings-scroll', b'\x1b[6~', sync)
-            send('resize-narrow', b'', sync, (24, 80))
-            send('settings-close', b'\x1b')
+            if tutorial:
+                marker = b'Welcome to Grok Build' if mode == 'fullscreen' else b"isn't available in minimal mode"
+                send('tutorial-open', b'/tutorial\r', marker)
+                if mode == 'fullscreen':
+                    send('tutorial-topic', b'\r', b'Coming from')
+                    send('tutorial-next', b'\x1b[C', sync)
+                    send('tutorial-previous', b'\x1b[D', sync)
+                    send('tutorial-list', b'\x1b', b'explored')
+                    send('tutorial-dismiss', b'\x1b')
+                for alias in ['tour', 'onboarding']:
+                    send(f'{alias}-open', f'/{alias}\r'.encode(), marker)
+                    if mode == 'fullscreen':
+                        send(f'{alias}-dismiss', b'\x1b')
+                send('after-tutorial-draft', b'AFTER_TUTORIAL', b'AFTER_TUTORIAL')
+                send('after-tutorial-clear', b'\x03')
+            else:
+                send('settings-open', b'/settings\r', b'Compact mode')
+                send('settings-scroll', b'\x1b[6~', sync)
+                send('resize-narrow', b'', sync, (24, 80))
+                send('settings-close', b'\x1b')
             send('quit', b'/quit\r')
             read_for(1)
             waited, value = os.waitpid(pid, os.WNOHANG)
@@ -203,6 +219,7 @@ def main():
     parser.add_argument('--binary', type=Path, required=True)
     parser.add_argument('--output', type=Path, required=True)
     parser.add_argument('--samples', type=int, default=5)
+    parser.add_argument('--source-evidence', type=Path, default=Path(__file__).parent.parent / 'docs/rewrite/reference/source-evidence.json')
     args = parser.parse_args()
     if platform.system() != 'Darwin' or not Path('/usr/bin/sandbox-exec').exists():
         parser.error('This driver requires macOS sandbox-exec; it never falls back to unconfined execution.')
@@ -225,7 +242,14 @@ def main():
         result['commands'].append(version)
         if version['exit'] != 0 or json.loads(version['stdout'])['currentVersion'] != VERSION:
             raise RuntimeError('Reference version mismatch')
-        pending, visited = [[]], set()
+        source = json.loads(args.source_evidence.read_text())
+        if source.get('sourceCommit') != 'a28ee2b2063426e8816e380ccea528b9de95e5da' or not source.get('commands'):
+            raise RuntimeError('Pinned source command expectations are required')
+        source_paths = [path for declaration in source['commands'] for path in declaration['commands']]
+        if any(not path or any(not re.fullmatch(r'[a-z][a-z0-9-]*', part) for part in path) for path in source_paths):
+            raise RuntimeError('Invalid source command path')
+        pending, visited = [[], *source_paths], set()
+        result['sourceCommandCommit'] = source['sourceCommit']
         while pending:
             command = pending.pop(0)
             key = tuple(command)
@@ -235,10 +259,17 @@ def main():
             observation = reference.command([*command, '--help'])
             result['commands'].append(observation)
             if observation['exit'] != 0:
-                raise RuntimeError(f'Help failed: {command}')
+                if command not in source_paths:
+                    raise RuntimeError(f'Help failed: {command}')
+                observation['sourceAvailability'] = 'unverified-or-unavailable-in-frozen-binary'
+                continue
             for child in help_commands(observation['stdout']):
                 if child != 'help':
                     pending.append([*command, child])
+            for line in observation['stdout'].splitlines():
+                match = re.match(r'  ([a-z][a-z0-9-]*)\s{2,}.*\[aliases: ([^\]]+)\]', line)
+                if match:
+                    pending.extend([*command, alias.strip()] for alias in match[2].split(','))
         for command in [['inspect', '--json'], ['sessions', 'list'],
                         ['--not-a-real-option'], ['--output-format', 'not-a-format']]:
             result['commands'].append(reference.command(command))
@@ -249,6 +280,7 @@ def main():
                 raise RuntimeError(f'Unrecognized compatibility syntax: {flag}')
         result['environmentProbes'] = [reference.terminal('fullscreen', {'GROK_FPS': '0'}),
                                        reference.terminal('fullscreen', {'GROK_FPS': '1'})]
+        result['tutorialProbes'] = [reference.terminal(mode, tutorial=True) for mode in ['fullscreen', 'minimal']]
         for mode in ['fullscreen', 'minimal']:
             for index in range(args.samples):
                 observation = reference.terminal(mode)
@@ -266,14 +298,14 @@ def main():
         (args.output / 'observations.json').write_text(encoded + '\n')
     if any(item['exit'] != 0 or item['forcedCleanup'] or item['firstFrameMs'] is None
            or any(event.get('markerFound') is False for event in item['events'])
-           for item in result['terminals'] + result['environmentProbes']):
+           for item in result['terminals'] + result['environmentProbes'] + result['tutorialProbes']):
         raise SystemExit('Reference PTY assertion failed; raw observations were preserved.')
     fps = [any('fps' in event.get('output', '').lower() for event in terminal['events'])
            for terminal in result['environmentProbes']]
     if fps != [False, True]:
         raise SystemExit('GROK_FPS paired observation failed; raw evidence was preserved.')
     print(json.dumps({'commands': len(result['commands']), 'guides': len(result['guides']),
-                      'terminals': len(result['terminals']), 'environmentProbes': len(result['environmentProbes']), 'output': str(args.output)}))
+                      'terminals': len(result['terminals']), 'environmentProbes': len(result['environmentProbes']), 'tutorialProbes': len(result['tutorialProbes']), 'output': str(args.output)}))
 
 
 if __name__ == '__main__':

@@ -958,6 +958,194 @@
       "elapsedMs": 16.873,
       "stdout": "",
       "stderr": "error: a value is required for '--compaction-detail <DETAIL>' but none was supplied\n\nFor more information, try '--help'.\n"
+    },
+    {
+      "args": [
+        "share",
+        "--help"
+      ],
+      "exit": 0,
+      "timedOut": false,
+      "elapsedMs": 17.066083,
+      "stdout": "Share a session and print the share URL\n\nUsage: grok share [OPTIONS] <SESSION_ID>\n\nArguments:\n  <SESSION_ID>  Session ID to share\n\nOptions:\n      --debug                 Enable debug logging\n      --debug-file <FILE>     Write debug logs to FILE\n  -h, --help                  Print help\n      --leader-socket <PATH>  Use a custom leader socket path instead of the default `~/.grok/leader.sock`. A local/branch build can thus run an isolated leader without colliding with the default one already running on the machine Name it `~/.grok/leader-*.sock` to keep `grok leader list/kill` able to find it; any other location works but won't be auto-discovered\n",
+      "stderr": ""
+    },
+    {
+      "args": [
+        "v",
+        "--help"
+      ],
+      "exit": 0,
+      "timedOut": false,
+      "elapsedMs": 16.164083,
+      "stdout": "Print version information\n\nUsage: grok version [OPTIONS]\n\nOptions:\n      --json                  Emit machine-readable JSON output\n      --debug                 Enable debug logging\n      --debug-file <FILE>     Write debug logs to FILE\n  -h, --help                  Print help\n      --leader-socket <PATH>  Use a custom leader socket path instead of the default `~/.grok/leader.sock`. A local/branch build can thus run an isolated leader without colliding with the default one already running on the machine Name it `~/.grok/leader-*.sock` to keep `grok leader list/kill` able to find it; any other location works but won't be auto-discovered\n",
+      "stderr": ""
+    },
+    {
+      "args": [
+        "disk-usage",
+        "--help"
+      ],
+      "exit": 0,
+      "timedOut": false,
+      "elapsedMs": 17.104625,
+      "stdout": "Show what the grok home (~/.grok) uses on disk\n\nUsage: grok du [OPTIONS]\n\nOptions:\n      --json                  Emit machine-readable JSON output\n      --debug                 Enable debug logging\n      --debug-file <FILE>     Write debug logs to FILE\n  -h, --help                  Print help\n      --leader-socket <PATH>  Use a custom leader socket path instead of the default `~/.grok/leader.sock`. A local/branch build can thus run an isolated leader without colliding with the default one already running on the machine Name it `~/.grok/leader-*.sock` to keep `grok leader list/kill` able to find it; any other location works but won't be auto-discovered\n\nLists every top-level directory in the grok home, largest first, then every worktree under `worktrees/` and `worktree_pool/` with its size, age, and label. To reclaim space, preview a sweep with `grok worktree gc --max-age 7d --dry-run`: without `--max-age`, gc expires nothing, it visits only worktrees the registry tracks, and it keeps a worktree whose work it cannot find elsewhere.\n",
+      "stderr": ""
+    },
+    {
+      "args": [
+        "workspace",
+        "--help"
+      ],
+      "exit": 0,
+      "timedOut": false,
+      "elapsedMs": 15.875708,
+      "stdout": "Expose this workspace to the Computer Hub (via the leader).\n\nDisabled by default and enabled server-side per account; set `GROK_WORKSPACE_COMMAND=1` to enable it locally for testing.\n\nUsage: grok workspace [OPTIONS] <COMMAND>\n\nCommands:\n  start    Start (or update) the workspace-to-hub exposure\n  pause    Drain and disconnect from the hub, keeping the exposure warm\n  resume   Reconnect a paused exposure to the hub\n  stop     Stop exposing the workspace (the leader keeps running)\n  restart  Restart the exposure (stop, then start with the given options)\n  status   Show the current workspace-exposure status [aliases: list]\n  help     Print this message or the help of the given subcommand(s)\n\nOptions:\n      --debug\n          Enable debug logging\n\n      --debug-file <FILE>\n          Write debug logs to FILE\n\n  -h, --help\n          Print help (see a summary with '-h')\n\n      --leader-socket <PATH>\n          Use a custom leader socket path instead of the default `~/.grok/leader.sock`. A local/branch build can thus run an isolated leader without colliding with the default one already running on the machine Name it `~/.grok/leader-*.sock` to keep `grok leader list/kill` able to find it; any other location works but won't be auto-discovered\n",
+      "stderr": ""
+    },
+    {
+      "args": [
+        "workspace",
+        "start",
+        "--help"
+      ],
+      "exit": 0,
+      "timedOut": false,
+      "elapsedMs": 16.399709,
+      "stdout": "Start (or update) the workspace-to-hub exposure\n\nUsage: grok workspace start [OPTIONS]\n\nOptions:\n      --hub-url <URL>         Computer Hub WebSocket URL (default: `[hub].url`, then the prod hub)\n      --cwd <DIR>             Workspace root directory to expose. Defaults to the current directory\n      --leader                Force leader mode for this command, overriding config\n      --no-leader             Refuse to start even when config enables leader mode\n      --json                  Emit machine-readable JSON output\n      --debug                 Enable debug logging\n      --debug-file <FILE>     Write debug logs to FILE\n  -h, --help                  Print help\n      --leader-socket <PATH>  Use a custom leader socket path instead of the default `~/.grok/leader.sock`. A local/branch build can thus run an isolated leader without colliding with the default one already running on the machine Name it `~/.grok/leader-*.sock` to keep `grok leader list/kill` able to find it; any other location works but won't be auto-discovered\n",
+      "stderr": ""
+    },
+    {
+      "args": [
+        "workspace",
+        "pause",
+        "--help"
+      ],
+      "exit": 0,
+      "timedOut": false,
+      "elapsedMs": 15.929625,
+      "stdout": "Drain and disconnect from the hub, keeping the exposure warm\n\nUsage: grok workspace pause [OPTIONS]\n\nOptions:\n      --pid <PID>             Leader process ID from `grok leader list`\n      --json                  Emit machine-readable JSON output\n      --debug                 Enable debug logging\n      --debug-file <FILE>     Write debug logs to FILE\n  -h, --help                  Print help\n      --leader-socket <PATH>  Use a custom leader socket path instead of the default `~/.grok/leader.sock`. A local/branch build can thus run an isolated leader without colliding with the default one already running on the machine Name it `~/.grok/leader-*.sock` to keep `grok leader list/kill` able to find it; any other location works but won't be auto-discovered\n",
+      "stderr": ""
+    },
+    {
+      "args": [
+        "workspace",
+        "resume",
+        "--help"
+      ],
+      "exit": 0,
+      "timedOut": false,
+      "elapsedMs": 17.571459,
+      "stdout": "Reconnect a paused exposure to the hub\n\nUsage: grok workspace resume [OPTIONS]\n\nOptions:\n      --pid <PID>             Leader process ID from `grok leader list`\n      --json                  Emit machine-readable JSON output\n      --debug                 Enable debug logging\n      --debug-file <FILE>     Write debug logs to FILE\n  -h, --help                  Print help\n      --leader-socket <PATH>  Use a custom leader socket path instead of the default `~/.grok/leader.sock`. A local/branch build can thus run an isolated leader without colliding with the default one already running on the machine Name it `~/.grok/leader-*.sock` to keep `grok leader list/kill` able to find it; any other location works but won't be auto-discovered\n",
+      "stderr": ""
+    },
+    {
+      "args": [
+        "workspace",
+        "stop",
+        "--help"
+      ],
+      "exit": 0,
+      "timedOut": false,
+      "elapsedMs": 17.34825,
+      "stdout": "Stop exposing the workspace (the leader keeps running)\n\nUsage: grok workspace stop [OPTIONS]\n\nOptions:\n      --pid <PID>             Leader process ID from `grok leader list`\n      --json                  Emit machine-readable JSON output\n      --debug                 Enable debug logging\n      --debug-file <FILE>     Write debug logs to FILE\n  -h, --help                  Print help\n      --leader-socket <PATH>  Use a custom leader socket path instead of the default `~/.grok/leader.sock`. A local/branch build can thus run an isolated leader without colliding with the default one already running on the machine Name it `~/.grok/leader-*.sock` to keep `grok leader list/kill` able to find it; any other location works but won't be auto-discovered\n",
+      "stderr": ""
+    },
+    {
+      "args": [
+        "workspace",
+        "restart",
+        "--help"
+      ],
+      "exit": 0,
+      "timedOut": false,
+      "elapsedMs": 17.228917,
+      "stdout": "Restart the exposure (stop, then start with the given options)\n\nUsage: grok workspace restart [OPTIONS]\n\nOptions:\n      --hub-url <URL>         Computer Hub WebSocket URL (default: `[hub].url`, then the prod hub)\n      --cwd <DIR>             Workspace root directory to expose. Defaults to the current directory\n      --leader                Force leader mode for this command, overriding config\n      --no-leader             Refuse to start even when config enables leader mode\n      --json                  Emit machine-readable JSON output\n      --debug                 Enable debug logging\n      --debug-file <FILE>     Write debug logs to FILE\n  -h, --help                  Print help\n      --leader-socket <PATH>  Use a custom leader socket path instead of the default `~/.grok/leader.sock`. A local/branch build can thus run an isolated leader without colliding with the default one already running on the machine Name it `~/.grok/leader-*.sock` to keep `grok leader list/kill` able to find it; any other location works but won't be auto-discovered\n",
+      "stderr": ""
+    },
+    {
+      "args": [
+        "workspace",
+        "status",
+        "--help"
+      ],
+      "exit": 0,
+      "timedOut": false,
+      "elapsedMs": 17.129625,
+      "stdout": "Show the current workspace-exposure status\n\nUsage: grok workspace status [OPTIONS]\n\nOptions:\n      --pid <PID>             Leader process ID from `grok leader list`\n      --json                  Emit machine-readable JSON output\n      --debug                 Enable debug logging\n      --debug-file <FILE>     Write debug logs to FILE\n  -h, --help                  Print help\n      --leader-socket <PATH>  Use a custom leader socket path instead of the default `~/.grok/leader.sock`. A local/branch build can thus run an isolated leader without colliding with the default one already running on the machine Name it `~/.grok/leader-*.sock` to keep `grok leader list/kill` able to find it; any other location works but won't be auto-discovered\n",
+      "stderr": ""
+    },
+    {
+      "args": [
+        "workspace",
+        "list",
+        "--help"
+      ],
+      "exit": 0,
+      "timedOut": false,
+      "elapsedMs": 16.674292,
+      "stdout": "Show the current workspace-exposure status\n\nUsage: grok workspace status [OPTIONS]\n\nOptions:\n      --pid <PID>             Leader process ID from `grok leader list`\n      --json                  Emit machine-readable JSON output\n      --debug                 Enable debug logging\n      --debug-file <FILE>     Write debug logs to FILE\n  -h, --help                  Print help\n      --leader-socket <PATH>  Use a custom leader socket path instead of the default `~/.grok/leader.sock`. A local/branch build can thus run an isolated leader without colliding with the default one already running on the machine Name it `~/.grok/leader-*.sock` to keep `grok leader list/kill` able to find it; any other location works but won't be auto-discovered\n",
+      "stderr": ""
+    },
+    {
+      "args": [
+        "plugin",
+        "rm",
+        "--help"
+      ],
+      "exit": 0,
+      "timedOut": false,
+      "elapsedMs": 16.96975,
+      "stdout": "Uninstall an installed plugin by name\n\nUsage: grok plugin uninstall [OPTIONS] <NAME>\n\nArguments:\n  <NAME>  Plugin name (as shown by `grok plugin list`)\n\nOptions:\n      --confirm               Skip confirmation for multi-plugin repos\n      --keep-data             Preserve the plugin's persistent data directory\n      --debug                 Enable debug logging\n      --debug-file <FILE>     Write debug logs to FILE\n  -h, --help                  Print help\n      --leader-socket <PATH>  Use a custom leader socket path instead of the default `~/.grok/leader.sock`. A local/branch build can thus run an isolated leader without colliding with the default one already running on the machine Name it `~/.grok/leader-*.sock` to keep `grok leader list/kill` able to find it; any other location works but won't be auto-discovered\n",
+      "stderr": ""
+    },
+    {
+      "args": [
+        "plugin",
+        "remove",
+        "--help"
+      ],
+      "exit": 0,
+      "timedOut": false,
+      "elapsedMs": 17.611791,
+      "stdout": "Uninstall an installed plugin by name\n\nUsage: grok plugin uninstall [OPTIONS] <NAME>\n\nArguments:\n  <NAME>  Plugin name (as shown by `grok plugin list`)\n\nOptions:\n      --confirm               Skip confirmation for multi-plugin repos\n      --keep-data             Preserve the plugin's persistent data directory\n      --debug                 Enable debug logging\n      --debug-file <FILE>     Write debug logs to FILE\n  -h, --help                  Print help\n      --leader-socket <PATH>  Use a custom leader socket path instead of the default `~/.grok/leader.sock`. A local/branch build can thus run an isolated leader without colliding with the default one already running on the machine Name it `~/.grok/leader-*.sock` to keep `grok leader list/kill` able to find it; any other location works but won't be auto-discovered\n",
+      "stderr": ""
+    },
+    {
+      "args": [
+        "worktree",
+        "ls",
+        "--help"
+      ],
+      "exit": 0,
+      "timedOut": false,
+      "elapsedMs": 15.733959,
+      "stdout": "List tracked worktrees\n\nUsage: grok worktree list [OPTIONS]\n\nOptions:\n      --repo <REPO>           \n      --type <TYPE>           \n      --json                  \n      --all                   \n      --debug                 Enable debug logging\n      --debug-file <FILE>     Write debug logs to FILE\n  -h, --help                  Print help\n      --leader-socket <PATH>  Use a custom leader socket path instead of the default `~/.grok/leader.sock`. A local/branch build can thus run an isolated leader without colliding with the default one already running on the machine Name it `~/.grok/leader-*.sock` to keep `grok leader list/kill` able to find it; any other location works but won't be auto-discovered\n",
+      "stderr": ""
+    },
+    {
+      "args": [
+        "worktree",
+        "prune",
+        "--help"
+      ],
+      "exit": 0,
+      "timedOut": false,
+      "elapsedMs": 16.39175,
+      "stdout": "Remove expired worktrees, keeping any whose work would not survive\n\nUsage: grok worktree gc [OPTIONS]\n\nOptions:\n      --dry-run               Report what would be removed without removing it\n      --max-age <MAX_AGE>     Expire worktrees idle longer than this, e.g. `7d`. Without it, nothing expires\n  -f, --force                 Skip the live-process and protected-path guards. This does not override the safety check; use `grok worktree rm` for that\n      --debug                 Enable debug logging\n      --debug-file <FILE>     Write debug logs to FILE\n  -h, --help                  Print help\n      --leader-socket <PATH>  Use a custom leader socket path instead of the default `~/.grok/leader.sock`. A local/branch build can thus run an isolated leader without colliding with the default one already running on the machine Name it `~/.grok/leader-*.sock` to keep `grok leader list/kill` able to find it; any other location works but won't be auto-discovered\n",
+      "stderr": ""
+    },
+    {
+      "args": [
+        "cursor-worker",
+        "list",
+        "--help"
+      ],
+      "exit": 0,
+      "timedOut": false,
+      "elapsedMs": 17.444791,
+      "stdout": "Show the current worker status and its Cloud Agent claims\n\nUsage: grok cursor-worker status [OPTIONS]\n\nOptions:\n      --pid <PID>             Leader process ID from `grok leader list`\n      --json                  Emit machine-readable JSON output\n      --debug                 Enable debug logging\n      --debug-file <FILE>     Write debug logs to FILE\n  -h, --help                  Print help\n      --leader-socket <PATH>  Use a custom leader socket path instead of the default `~/.grok/leader.sock`. A local/branch build can thus run an isolated leader without colliding with the default one already running on the machine Name it `~/.grok/leader-*.sock` to keep `grok leader list/kill` able to find it; any other location works but won't be auto-discovered\n",
+      "stderr": ""
     }
   ],
   "terminals": [
@@ -4496,5 +4684,796 @@
       "outputSha256": "bc980bfb734ddbe1f266331d8686000c7c793ef4fdbd0cc24ba3bfa672a4601c"
     }
   ],
-  "supplementCapturedAt": "2026-09-19T18:18:51Z"
+  "supplementCapturedAt": "2026-09-19T18:18:51Z",
+  "tutorialProbes": [
+    {
+      "mode": "fullscreen",
+      "environment": {},
+      "initialSize": [
+        32,
+        100
+      ],
+      "events": [
+        {
+          "ms": 23.044333,
+          "output": "\u001b]0;grok\u0007\u001b[?1049h\u001b[?1000h\u001b[?1002h\u001b[?1003h\u001b[?1015h\u001b[?1006h\u001b[?1004h\u001b[?2004h\u001b[?25l\u001b]12;rgb:c6/c6/c6\u0007",
+          "bytesBase64": "G10wO2dyb2sHG1s/MTA0OWgbWz8xMDAwaBtbPzEwMDJoG1s/MTAwM2gbWz8xMDE1aBtbPzEwMDZoG1s/MTAwNGgbWz8yMDA0aBtbPzI1bBtdMTI7cmdiOmM2L2M2L2M2Bw=="
+        },
+        {
+          "ms": 289.962916,
+          "output": "\u001b[>0q",
+          "bytesBase64": "G1s+MHE="
+        },
+        {
+          "ms": 291.243708,
+          "output": "\u001b[?2026h\u001b[1;1H\u001b[39;48;5;233m                                                                                                    \u001b[2;1H  \u001b[38;5;240;48;5;233m/p/v/f/s/7/T/codsh-reference-133-8ilsxd49/workspace\u001b[39;48;5;233m                                               \u001b[3;1H                                                                                                    \u001b[4;1H                                                                                                    \u001b[5;1H                                                                                                    \u001b[6;1H                                                                                                    \u001b[7;1H   \u001b[38;5;236;48;5;233m╭────────────────────────────────────────────────────────────────────────────────────────────╮\u001b[39;48;5;233m   \u001b[8;",
+          "bytesBase64": "G1s/MjAyNmgbWzE7MUgbWzM5OzQ4OzU7MjMzbSAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzI7MUggIBtbMzg7NTsyNDA7NDg7NTsyMzNtL3Avdi9mL3MvNy9UL2NvZHNoLXJlZmVyZW5jZS0xMzMtOGlsc3hkNDkvd29ya3NwYWNlG1szOTs0ODs1OzIzM20gICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbMzsxSCAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzQ7MUggICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgG1s1OzFIICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbNjsxSCAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzc7MUggICAbWzM4OzU7MjM2OzQ4OzU7MjMzbeKVreKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKVrhtbMzk7NDg7NTsyMzNtICAgG1s4Ow=="
+        },
+        {
+          "ms": 291.27075,
+          "output": "1H   \u001b[38;5;236;48;5;233m│\u001b[39;48;5;233m                                                                                            \u001b[38;5;236;48;5;233m│\u001b[39;48;5;233m   \u001b[9;1H   \u001b[38;5;236;48;5;233m│\u001b[39;48;5;233m  \u001b[38;5;242;48;5;233m⠀⠀⠀⠀⠀⠀⣀⣀⡀⠀⠀⠀⢀⠄\u001b[39;48;5;233m   \u001b[1m\u001b[38;5;254;48;5;233mGrok Build  \u001b[22m\u001b[38;5;242;48;5;233m1.0.34\u001b[39;48;5;233m                                                       \u001b[38;5;236;48;5;233m│\u001b[39;48;5;233m   \u001b[10;1H   \u001b[38;5;236;48;5;233m│\u001b[39;48;5;233m  \u001b[38;5;242;48;5;233m⠀⠀⠀⣠⣾⠿⠛⠛⠛⠛⢀⡴⠁⠀\u001b[39;48;5;233m   \u001b[38;5;242;48;5;233mThanks for trying Grok Build, give feedback with /feedback!\u001b[39;48;5;233m              \u001b[38;5;236;48;5;233m│\u001b[39;48;5;233m   \u001b[11;1H   \u001b[38;5;236;48;5;233m│\u001b[39;48;5;233m  \u001b[38;5;242;48;5;233m⠀⠀⣼⡟⠁⠀⠀⠀⢀⡴⠻⣿⡀⠀\u001b[39;48;5;233m                                                                            \u001b[38;5;236;48;5;233m│\u001b[39;48;5;233m   \u001b[12;1H   \u001b[38;5;236;48;5;233m",
+          "bytesBase64": "MUggICAbWzM4OzU7MjM2OzQ4OzU7MjMzbeKUghtbMzk7NDg7NTsyMzNtICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzM4OzU7MjM2OzQ4OzU7MjMzbeKUghtbMzk7NDg7NTsyMzNtICAgG1s5OzFIICAgG1szODs1OzIzNjs0ODs1OzIzM23ilIIbWzM5OzQ4OzU7MjMzbSAgG1szODs1OzI0Mjs0ODs1OzIzM23ioIDioIDioIDioIDioIDioIDio4Dio4DioYDioIDioIDioIDiooDioIQbWzM5OzQ4OzU7MjMzbSAgIBtbMW0bWzM4OzU7MjU0OzQ4OzU7MjMzbUdyb2sgQnVpbGQgIBtbMjJtG1szODs1OzI0Mjs0ODs1OzIzM20xLjAuMzQbWzM5OzQ4OzU7MjMzbSAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzM4OzU7MjM2OzQ4OzU7MjMzbeKUghtbMzk7NDg7NTsyMzNtICAgG1sxMDsxSCAgIBtbMzg7NTsyMzY7NDg7NTsyMzNt4pSCG1szOTs0ODs1OzIzM20gIBtbMzg7NTsyNDI7NDg7NTsyMzNt4qCA4qCA4qCA4qOg4qO+4qC/4qCb4qCb4qCb4qCb4qKA4qG04qCB4qCAG1szOTs0ODs1OzIzM20gICAbWzM4OzU7MjQyOzQ4OzU7MjMzbVRoYW5rcyBmb3IgdHJ5aW5nIEdyb2sgQnVpbGQsIGdpdmUgZmVlZGJhY2sgd2l0aCAvZmVlZGJhY2shG1szOTs0ODs1OzIzM20gICAgICAgICAgICAgIBtbMzg7NTsyMzY7NDg7NTsyMzNt4pSCG1szOTs0ODs1OzIzM20gICAbWzExOzFIICAgG1szODs1OzIzNjs0ODs1OzIzM23ilIIbWzM5OzQ4OzU7MjMzbSAgG1szODs1OzI0Mjs0ODs1OzIzM23ioIDioIDio7zioZ/ioIHioIDioIDioIDiooDiobTioLvio7/ioYDioIAbWzM5OzQ4OzU7MjMzbSAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzM4OzU7MjM2OzQ4OzU7MjMzbeKUghtbMzk7NDg7NTsyMzNtICAgG1sxMjsxSCAgIBtbMzg7NTsyMzY7NDg7NTsyMzNt4g=="
+        },
+        {
+          "ms": 291.280083,
+          "output": "│\u001b[39;48;5;233m  \u001b[38;5;242;48;5;233m⠀⠀⣿⡇⠀⠀⠀⠔⠁⠀⠀⣿⡇⠀\u001b[39;48;5;233m   \u001b[1m\u001b[38;5;254;48;5;233mNew worktree\u001b[22m\u001b[39;48;5;233m                                                     \u001b[38;5;243;48;5;233mctrl+w\u001b[39;48;5;233m  \u001b[38;5;236;48;5;233m│\u001b[39;48;5;233m   \u001b[13;1H   \u001b[38;5;236;48;5;233m│\u001b[39;48;5;233m  \u001b[38;5;242;48;5;233m⠀⠀⢹⣷⠀⠀⠀⠀⠀⢀⣴⡿⠀⠀\u001b[39;48;5;233m   \u001b[1m\u001b[38;5;254;48;5;233mResume session\u001b[22m\u001b[39;48;5;233m                                                   \u001b[38;5;243;48;5;233mctrl+r\u001b[39;48;5;233m  \u001b[38;5;236;48;5;233m│\u001b[39;48;5;233m   \u001b[14;1H   \u001b[38;5;236;48;5;233m│\u001b[39;48;5;233m  \u001b[38;5;242;48;5;233m⠀⢀⠞⠁⠠⢶⣶⣶⣶⠿⠋⠀⠀⠀\u001b[39;48;5;233m   \u001b[1m\u001b[38;5;254;48;5;233mChangelog\u001b[22m\u001b[39;48;5;233m                                                                \u001b[38;5;236;48;5;233m│\u001b[39;48;5;233m   \u001b[15;1H   \u001b[38;5;236;48;5;233m│\u001b[39;48;5;233m  \u001b[38;5;242;48;5;233m⠐⠁⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀\u001b[39;48;5;233m   \u001b[1m\u001b[3",
+          "bytesBase64": "lIIbWzM5OzQ4OzU7MjMzbSAgG1szODs1OzI0Mjs0ODs1OzIzM23ioIDioIDio7/ioYfioIDioIDioIDioJTioIHioIDioIDio7/ioYfioIAbWzM5OzQ4OzU7MjMzbSAgIBtbMW0bWzM4OzU7MjU0OzQ4OzU7MjMzbU5ldyB3b3JrdHJlZRtbMjJtG1szOTs0ODs1OzIzM20gICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbMzg7NTsyNDM7NDg7NTsyMzNtY3RybCt3G1szOTs0ODs1OzIzM20gIBtbMzg7NTsyMzY7NDg7NTsyMzNt4pSCG1szOTs0ODs1OzIzM20gICAbWzEzOzFIICAgG1szODs1OzIzNjs0ODs1OzIzM23ilIIbWzM5OzQ4OzU7MjMzbSAgG1szODs1OzI0Mjs0ODs1OzIzM23ioIDioIDiornio7fioIDioIDioIDioIDioIDiooDio7Tiob/ioIDioIAbWzM5OzQ4OzU7MjMzbSAgIBtbMW0bWzM4OzU7MjU0OzQ4OzU7MjMzbVJlc3VtZSBzZXNzaW9uG1syMm0bWzM5OzQ4OzU7MjMzbSAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbMzg7NTsyNDM7NDg7NTsyMzNtY3RybCtyG1szOTs0ODs1OzIzM20gIBtbMzg7NTsyMzY7NDg7NTsyMzNt4pSCG1szOTs0ODs1OzIzM20gICAbWzE0OzFIICAgG1szODs1OzIzNjs0ODs1OzIzM23ilIIbWzM5OzQ4OzU7MjMzbSAgG1szODs1OzI0Mjs0ODs1OzIzM23ioIDiooDioJ7ioIHioKDiorbio7bio7bio7bioL/ioIvioIDioIDioIAbWzM5OzQ4OzU7MjMzbSAgIBtbMW0bWzM4OzU7MjU0OzQ4OzU7MjMzbUNoYW5nZWxvZxtbMjJtG1szOTs0ODs1OzIzM20gICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgG1szODs1OzIzNjs0ODs1OzIzM23ilIIbWzM5OzQ4OzU7MjMzbSAgIBtbMTU7MUggICAbWzM4OzU7MjM2OzQ4OzU7MjMzbeKUghtbMzk7NDg7NTsyMzNtICAbWzM4OzU7MjQyOzQ4OzU7MjMzbeKgkOKggeKggOKggOKggOKggOKggOKggOKggOKggOKggOKggOKggOKggBtbMzk7NDg7NTsyMzNtICAgG1sxbRtbMw=="
+        },
+        {
+          "ms": 291.291875,
+          "output": "8;5;254;48;5;233mQuit\u001b[22m\u001b[39;48;5;233m                                                             \u001b[38;5;243;48;5;233mctrl+q\u001b[39;48;5;233m  \u001b[38;5;236;48;5;233m│\u001b[39;48;5;233m   \u001b[16;1H   \u001b[38;5;236;48;5;233m│\u001b[39;48;5;233m                                                                                            \u001b[38;5;236;48;5;233m│\u001b[39;48;5;233m   \u001b[17;1H   \u001b[38;5;236;48;5;233m╰────────────────────────────────────────────────────────────────────────────────────────────╯\u001b[39;48;5;233m   \u001b[18;1H                                                                                                    \u001b[19;1H                                                                                                    \u001b[20;1H                                                                                                    \u001b[21;1H     ",
+          "bytesBase64": "ODs1OzI1NDs0ODs1OzIzM21RdWl0G1syMm0bWzM5OzQ4OzU7MjMzbSAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzM4OzU7MjQzOzQ4OzU7MjMzbWN0cmwrcRtbMzk7NDg7NTsyMzNtICAbWzM4OzU7MjM2OzQ4OzU7MjMzbeKUghtbMzk7NDg7NTsyMzNtICAgG1sxNjsxSCAgIBtbMzg7NTsyMzY7NDg7NTsyMzNt4pSCG1szOTs0ODs1OzIzM20gICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbMzg7NTsyMzY7NDg7NTsyMzNt4pSCG1szOTs0ODs1OzIzM20gICAbWzE3OzFIICAgG1szODs1OzIzNjs0ODs1OzIzM23ilbDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDila8bWzM5OzQ4OzU7MjMzbSAgIBtbMTg7MUggICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgG1sxOTsxSCAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzIwOzFIICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbMjE7MUggICAgIA=="
+        },
+        {
+          "ms": 291.306791,
+          "output": "                                                                                               \u001b[22;1H                                                                                                    \u001b[23;1H                                                                                                    \u001b[24;1H                                                                                                    \u001b[25;1H                                                                                                    \u001b[26;1H                                                                                                    \u001b[27;1H  \u001b[38;5;239;48;5;233m╭──────────────────────────────────────────────────────────────────────────────────────────────╮\u001b[39;48;5;233m  \u001b[28;1H  \u001b[38;5;239;48;5;233m│\u001b[38;5;254;48;5;233m \u001b[38;5;2",
+          "bytesBase64": "ICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzIyOzFIICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbMjM7MUggICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgG1syNDsxSCAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzI1OzFIICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbMjY7MUggICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgG1syNzsxSCAgG1szODs1OzIzOTs0ODs1OzIzM23ila3ilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDila4bWzM5OzQ4OzU7MjMzbSAgG1syODsxSCAgG1szODs1OzIzOTs0ODs1OzIzM23ilIIbWzM4OzU7MjU0OzQ4OzU7MjMzbSAbWzM4OzU7Mg=="
+        },
+        {
+          "ms": 291.320208,
+          "output": "51;48;5;233m❯ \u001b[38;5;254;48;5;233m                                                                                           \u001b[38;5;239;48;5;233m│\u001b[39;48;5;233m  \u001b[29;1H  \u001b[38;5;239;48;5;233m╰────────────────────────────────────────────────────────────────────────── \u001b[38;5;244;48;5;233mreference-fixture\u001b[38;5;239;48;5;233m ─╯\u001b[39;48;5;233m  \u001b[30;1H                                                                                                    \u001b[31;1H                                                                            \u001b[38;5;242;48;5;233mLogged in with API key\u001b[39;48;5;233m  \u001b[32;1H                                                                                                    \u001b[39m\u001b[49m\u001b[59m\u001b[0m\u001b[28;7H\u001b[?25h\u001b[?2026l",
+          "bytesBase64": "NTE7NDg7NTsyMzNt4p2vIBtbMzg7NTsyNTQ7NDg7NTsyMzNtICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbMzg7NTsyMzk7NDg7NTsyMzNt4pSCG1szOTs0ODs1OzIzM20gIBtbMjk7MUggIBtbMzg7NTsyMzk7NDg7NTsyMzNt4pWw4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSAIBtbMzg7NTsyNDQ7NDg7NTsyMzNtcmVmZXJlbmNlLWZpeHR1cmUbWzM4OzU7MjM5OzQ4OzU7MjMzbSDilIDila8bWzM5OzQ4OzU7MjMzbSAgG1szMDsxSCAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzMxOzFIICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbMzg7NTsyNDI7NDg7NTsyMzNtTG9nZ2VkIGluIHdpdGggQVBJIGtleRtbMzk7NDg7NTsyMzNtICAbWzMyOzFIICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbMzltG1s0OW0bWzU5bRtbMG0bWzI4OzdIG1s/MjVoG1s/MjAyNmw="
+        },
+        {
+          "ms": 355.301833,
+          "output": "\u001b[?2026h\u001b[15;7H\u001b[38;5;243;48;5;233m⠐\u001b[39m\u001b[49m\u001b[59m\u001b[0m\u001b[28;7H\u001b[?2026l",
+          "bytesBase64": "G1s/MjAyNmgbWzE1OzdIG1szODs1OzI0Mzs0ODs1OzIzM23ioJAbWzM5bRtbNDltG1s1OW0bWzBtG1syODs3SBtbPzIwMjZs"
+        },
+        {
+          "ms": 446.950708,
+          "action": "draft",
+          "offset": 6190,
+          "inputHex": "5245464552454e4345313333",
+          "observedMs": 487.384333,
+          "markerFound": true,
+          "endOffset": 7518
+        },
+        {
+          "ms": 451.619291,
+          "output": "\u001b[?2026h\u001b[2;3H\u001b[38;5;251;48;5;233m/p/v/f/s/7/T/codsh-reference-133-8ilsxd49/workspace\u001b[2;74H\u001b[38;5;254;48;5;233m1.5K / 128K\u001b[38;5;238;48;5;233m │ \u001b[38;5;242;48;5;233m[Dashboard]\u001b[7;4H\u001b[39;48;5;233m                                                                                              \u001b[8;4H \u001b[8;97H \u001b[9;4H \u001b[9;7H              \u001b[9;24H                  \u001b[9;97H \u001b[10;4H \u001b[10;7H              \u001b[10;24H                                                           \u001b[10;97H \u001b[11;4H \u001b[11;7H              \u001b[11;97H \u001b[12;4H \u001b[12;7H              \u001b[12;24H            \u001b[12;89H      \u001b[12;97H \u001b[13;4H \u001b[13;7H              \u001b[13;24H              \u001b[13;89H      \u001b[13;97H \u001b[14;4H \u001b[14;7H              \u001b[14;24H         \u001b[14;97H \u001b[15;4H \u001b[15;7H              \u001b[15;24H    \u001b[15;89H      \u001b[15;97H \u001b[16;4H \u001b[16;97H \u001b[17;4H                                                                                              \u001b[28;7H\u001b[38;5;254;48;5;233mREFERENCE133\u001b[31;3H\u001b[1m\u001b[38;5;251;48;5;233mEnter\u001b[22m\u001b[38;5;242;48;5;233m:send\u001b[2m  │  \u001b[22m\u001b[1m\u001b[38;",
+          "bytesBase64": "G1s/MjAyNmgbWzI7M0gbWzM4OzU7MjUxOzQ4OzU7MjMzbS9wL3YvZi9zLzcvVC9jb2RzaC1yZWZlcmVuY2UtMTMzLThpbHN4ZDQ5L3dvcmtzcGFjZRtbMjs3NEgbWzM4OzU7MjU0OzQ4OzU7MjMzbTEuNUsgLyAxMjhLG1szODs1OzIzODs0ODs1OzIzM20g4pSCIBtbMzg7NTsyNDI7NDg7NTsyMzNtW0Rhc2hib2FyZF0bWzc7NEgbWzM5OzQ4OzU7MjMzbSAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzg7NEggG1s4Ozk3SCAbWzk7NEggG1s5OzdIICAgICAgICAgICAgICAbWzk7MjRIICAgICAgICAgICAgICAgICAgG1s5Ozk3SCAbWzEwOzRIIBtbMTA7N0ggICAgICAgICAgICAgIBtbMTA7MjRIICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzEwOzk3SCAbWzExOzRIIBtbMTE7N0ggICAgICAgICAgICAgIBtbMTE7OTdIIBtbMTI7NEggG1sxMjs3SCAgICAgICAgICAgICAgG1sxMjsyNEggICAgICAgICAgICAbWzEyOzg5SCAgICAgIBtbMTI7OTdIIBtbMTM7NEggG1sxMzs3SCAgICAgICAgICAgICAgG1sxMzsyNEggICAgICAgICAgICAgIBtbMTM7ODlIICAgICAgG1sxMzs5N0ggG1sxNDs0SCAbWzE0OzdIICAgICAgICAgICAgICAbWzE0OzI0SCAgICAgICAgIBtbMTQ7OTdIIBtbMTU7NEggG1sxNTs3SCAgICAgICAgICAgICAgG1sxNTsyNEggICAgG1sxNTs4OUggICAgICAbWzE1Ozk3SCAbWzE2OzRIIBtbMTY7OTdIIBtbMTc7NEggICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgG1syODs3SBtbMzg7NTsyNTQ7NDg7NTsyMzNtUkVGRVJFTkNFMTMzG1szMTszSBtbMW0bWzM4OzU7MjUxOzQ4OzU7MjMzbUVudGVyG1syMm0bWzM4OzU7MjQyOzQ4OzU7MjMzbTpzZW5kG1sybSAg4pSCICAbWzIybRtbMW0bWzM4Ow=="
+        },
+        {
+          "ms": 451.648666,
+          "output": "5;251;48;5;233mOpt+Enter\u001b[22m\u001b[38;5;242;48;5;233m:newline\u001b[2m  │  \u001b[22m\u001b[1m\u001b[38;5;251;48;5;233mShift+Tab\u001b[22m\u001b[38;5;242;48;5;233m:mode\u001b[2m  │  \u001b[22m\u001b[1m\u001b[38;5;251;48;5;233mCtrl+x\u001b[22m\u001b[38;5;242;48;5;233m:shortcuts        \u001b[31;84H  \u001b[31;87H    \u001b[31;92H   \u001b[31;96H   \u001b[39m\u001b[49m\u001b[59m\u001b[0m\u001b[28;19H\u001b[?2026l",
+          "bytesBase64": "NTsyNTE7NDg7NTsyMzNtT3B0K0VudGVyG1syMm0bWzM4OzU7MjQyOzQ4OzU7MjMzbTpuZXdsaW5lG1sybSAg4pSCICAbWzIybRtbMW0bWzM4OzU7MjUxOzQ4OzU7MjMzbVNoaWZ0K1RhYhtbMjJtG1szODs1OzI0Mjs0ODs1OzIzM206bW9kZRtbMm0gIOKUgiAgG1syMm0bWzFtG1szODs1OzI1MTs0ODs1OzIzM21DdHJsK3gbWzIybRtbMzg7NTsyNDI7NDg7NTsyMzNtOnNob3J0Y3V0cyAgICAgICAgG1szMTs4NEggIBtbMzE7ODdIICAgIBtbMzE7OTJIICAgG1szMTs5NkggICAbWzM5bRtbNDltG1s1OW0bWzBtG1syODsxOUgbWz8yMDI2bA=="
+        },
+        {
+          "ms": 641.39925,
+          "action": "clear-draft",
+          "offset": 7518,
+          "inputHex": "03",
+          "observedMs": 942.2465,
+          "markerFound": null,
+          "endOffset": 7794
+        },
+        {
+          "ms": 641.623541,
+          "output": "\u001b[?2026h\u001b[28;7H\u001b[38;5;254;48;5;233m            \u001b[31;3H\u001b[1m\u001b[38;5;251;48;5;233mShift+Tab\u001b[22m\u001b[38;5;242;48;5;233m:mode\u001b[31;18H\u001b[2m │  \u001b[22m\u001b[1m\u001b[38;5;251;48;5;233mCtrl+x\u001b[22m\u001b[38;5;242;48;5;233m:shortcuts                                     \u001b[39m\u001b[49m\u001b[59m\u001b[0m\u001b[28;7H\u001b[?2026l",
+          "bytesBase64": "G1s/MjAyNmgbWzI4OzdIG1szODs1OzI1NDs0ODs1OzIzM20gICAgICAgICAgICAbWzMxOzNIG1sxbRtbMzg7NTsyNTE7NDg7NTsyMzNtU2hpZnQrVGFiG1syMm0bWzM4OzU7MjQyOzQ4OzU7MjMzbTptb2RlG1szMTsxOEgbWzJtIOKUgiAgG1syMm0bWzFtG1szODs1OzI1MTs0ODs1OzIzM21DdHJsK3gbWzIybRtbMzg7NTsyNDI7NDg7NTsyMzNtOnNob3J0Y3V0cyAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzM5bRtbNDltG1s1OW0bWzBtG1syODs3SBtbPzIwMjZs"
+        },
+        {
+          "ms": 1105.06375,
+          "action": "tutorial-open",
+          "offset": 7794,
+          "inputHex": "2f7475746f7269616c0d",
+          "observedMs": 1150.392791,
+          "markerFound": true,
+          "endOffset": 12060
+        },
+        {
+          "ms": 1109.661416,
+          "output": "\u001b[?2026h\u001b[5;21H\u001b[38;5;240;48;5;233m┌─ \u001b[1m\u001b[38;5;254;48;5;233mWelcome to Grok Build\u001b[22m\u001b[38;5;240;48;5;233m ──────────────────────────── [✗] ─┐\u001b[6;21H│\u001b[38;5;254;48;5;233m                                                          \u001b[38;5;240;48;5;233m│\u001b[7;21H│\u001b[38;5;254;48;5;233m  \u001b[38;5;243;48;5;233mQuick tips to get the most out of Grok Build.\u001b[38;5;254;48;5;233m           \u001b[38;5;240;48;5;233m│\u001b[8;21H│\u001b[38;5;254;48;5;233m  \u001b[38;5;243;48;5;233mPick a topic. Esc when you're done.\u001b[38;5;254;48;5;233m                     \u001b[38;5;240;48;5;233m│\u001b[9;21H│\u001b[38;5;254;48;5;233m                                                          \u001b[38;5;240;48;5;233m│\u001b[10;21H│\u001b[38;5;254;48;5;233m  \u001b[38;5;240;48;5;237m◆ \u001b[1m\u001b[38;5;254;48;5;237mComing from Claude, Cursor, or Codex?\u001b[22m              \u001b[38;5;254;48;5;233m  \u001b[38;5;240;48;5;240m█\u001b[38;5;240;48;5;233m│\u001b[11;21H│\u001b[38;5;254;48;5;233m      \u001b[38;5;242;48;5;233myour settings, rules & skill",
+          "bytesBase64": "G1s/MjAyNmgbWzU7MjFIG1szODs1OzI0MDs0ODs1OzIzM23ilIzilIAgG1sxbRtbMzg7NTsyNTQ7NDg7NTsyMzNtV2VsY29tZSB0byBHcm9rIEJ1aWxkG1syMm0bWzM4OzU7MjQwOzQ4OzU7MjMzbSDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIAgW+Kcl10g4pSA4pSQG1s2OzIxSOKUghtbMzg7NTsyNTQ7NDg7NTsyMzNtICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbMzg7NTsyNDA7NDg7NTsyMzNt4pSCG1s3OzIxSOKUghtbMzg7NTsyNTQ7NDg7NTsyMzNtICAbWzM4OzU7MjQzOzQ4OzU7MjMzbVF1aWNrIHRpcHMgdG8gZ2V0IHRoZSBtb3N0IG91dCBvZiBHcm9rIEJ1aWxkLhtbMzg7NTsyNTQ7NDg7NTsyMzNtICAgICAgICAgICAbWzM4OzU7MjQwOzQ4OzU7MjMzbeKUghtbODsyMUjilIIbWzM4OzU7MjU0OzQ4OzU7MjMzbSAgG1szODs1OzI0Mzs0ODs1OzIzM21QaWNrIGEgdG9waWMuIEVzYyB3aGVuIHlvdSdyZSBkb25lLhtbMzg7NTsyNTQ7NDg7NTsyMzNtICAgICAgICAgICAgICAgICAgICAgG1szODs1OzI0MDs0ODs1OzIzM23ilIIbWzk7MjFI4pSCG1szODs1OzI1NDs0ODs1OzIzM20gICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgG1szODs1OzI0MDs0ODs1OzIzM23ilIIbWzEwOzIxSOKUghtbMzg7NTsyNTQ7NDg7NTsyMzNtICAbWzM4OzU7MjQwOzQ4OzU7MjM3beKXhiAbWzFtG1szODs1OzI1NDs0ODs1OzIzN21Db21pbmcgZnJvbSBDbGF1ZGUsIEN1cnNvciwgb3IgQ29kZXg/G1syMm0gICAgICAgICAgICAgIBtbMzg7NTsyNTQ7NDg7NTsyMzNtICAbWzM4OzU7MjQwOzQ4OzU7MjQwbeKWiBtbMzg7NTsyNDA7NDg7NTsyMzNt4pSCG1sxMTsyMUjilIIbWzM4OzU7MjU0OzQ4OzU7MjMzbSAgICAgIBtbMzg7NTsyNDI7NDg7NTsyMzNteW91ciBzZXR0aW5ncywgcnVsZXMgJiBza2lsbA=="
+        },
+        {
+          "ms": 1109.699416,
+          "output": "s carry over\u001b[38;5;254;48;5;233m           \u001b[38;5;240;48;5;240m█\u001b[38;5;240;48;5;233m│\u001b[12;21H│\u001b[38;5;254;48;5;233m  \u001b[38;5;240;48;5;233m◆ \u001b[38;5;254;48;5;233mYour First Prompt                                    \u001b[38;5;240;48;5;240m█\u001b[38;5;240;48;5;233m│\u001b[13;21H│\u001b[38;5;254;48;5;233m      \u001b[38;5;242;48;5;233msend, queue, cancel\u001b[38;5;254;48;5;233m                                \u001b[38;5;240;48;5;240m█\u001b[38;5;240;48;5;233m│\u001b[14;21H│\u001b[38;5;254;48;5;233m  \u001b[38;5;240;48;5;233m◆ \u001b[38;5;254;48;5;233mAttach Files, Images & Paste                         \u001b[38;5;240;48;5;240m█\u001b[38;5;240;48;5;233m│\u001b[15;21H│\u001b[38;5;254;48;5;233m      \u001b[38;5;242;48;5;233m@files, line ranges, screenshots\u001b[38;5;254;48;5;233m                   \u001b[38;5;240;48;5;240m█\u001b[38;5;240;48;5;233m│\u001b[16;21H│\u001b[38;5;254;48;5;233m  \u001b[38;5;240;48;5;233m◆ \u001b[38;5;254;48;5;233mFinding Your Way Around                              \u001b[38;5;240;48;5;240m█\u001b[38;5;240;48;5;233m│\u001b[17;21H│\u001b[38;5;254;48;5;233m      \u001b[38;5;242;48;5;233mfo",
+          "bytesBase64": "cyBjYXJyeSBvdmVyG1szODs1OzI1NDs0ODs1OzIzM20gICAgICAgICAgIBtbMzg7NTsyNDA7NDg7NTsyNDBt4paIG1szODs1OzI0MDs0ODs1OzIzM23ilIIbWzEyOzIxSOKUghtbMzg7NTsyNTQ7NDg7NTsyMzNtICAbWzM4OzU7MjQwOzQ4OzU7MjMzbeKXhiAbWzM4OzU7MjU0OzQ4OzU7MjMzbVlvdXIgRmlyc3QgUHJvbXB0ICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgG1szODs1OzI0MDs0ODs1OzI0MG3ilogbWzM4OzU7MjQwOzQ4OzU7MjMzbeKUghtbMTM7MjFI4pSCG1szODs1OzI1NDs0ODs1OzIzM20gICAgICAbWzM4OzU7MjQyOzQ4OzU7MjMzbXNlbmQsIHF1ZXVlLCBjYW5jZWwbWzM4OzU7MjU0OzQ4OzU7MjMzbSAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgG1szODs1OzI0MDs0ODs1OzI0MG3ilogbWzM4OzU7MjQwOzQ4OzU7MjMzbeKUghtbMTQ7MjFI4pSCG1szODs1OzI1NDs0ODs1OzIzM20gIBtbMzg7NTsyNDA7NDg7NTsyMzNt4peGIBtbMzg7NTsyNTQ7NDg7NTsyMzNtQXR0YWNoIEZpbGVzLCBJbWFnZXMgJiBQYXN0ZSAgICAgICAgICAgICAgICAgICAgICAgICAbWzM4OzU7MjQwOzQ4OzU7MjQwbeKWiBtbMzg7NTsyNDA7NDg7NTsyMzNt4pSCG1sxNTsyMUjilIIbWzM4OzU7MjU0OzQ4OzU7MjMzbSAgICAgIBtbMzg7NTsyNDI7NDg7NTsyMzNtQGZpbGVzLCBsaW5lIHJhbmdlcywgc2NyZWVuc2hvdHMbWzM4OzU7MjU0OzQ4OzU7MjMzbSAgICAgICAgICAgICAgICAgICAbWzM4OzU7MjQwOzQ4OzU7MjQwbeKWiBtbMzg7NTsyNDA7NDg7NTsyMzNt4pSCG1sxNjsyMUjilIIbWzM4OzU7MjU0OzQ4OzU7MjMzbSAgG1szODs1OzI0MDs0ODs1OzIzM23il4YgG1szODs1OzI1NDs0ODs1OzIzM21GaW5kaW5nIFlvdXIgV2F5IEFyb3VuZCAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbMzg7NTsyNDA7NDg7NTsyNDBt4paIG1szODs1OzI0MDs0ODs1OzIzM23ilIIbWzE3OzIxSOKUghtbMzg7NTsyNTQ7NDg7NTsyMzNtICAgICAgG1szODs1OzI0Mjs0ODs1OzIzM21mbw=="
+        },
+        {
+          "ms": 1109.708041,
+          "output": "cus, scrollback, panes\u001b[38;5;254;48;5;233m                           \u001b[38;5;240;48;5;240m█\u001b[38;5;240;48;5;233m│\u001b[18;21H│\u001b[38;5;254;48;5;233m  \u001b[38;5;240;48;5;233m◆ \u001b[38;5;254;48;5;233mSlash Commands                                       \u001b[38;5;240;48;5;240m█\u001b[38;5;240;48;5;233m│\u001b[19;21H│\u001b[38;5;254;48;5;233m      \u001b[38;5;242;48;5;233m/help  /model  /resume  and Ctrl+P\u001b[38;5;254;48;5;233m                 \u001b[38;5;240;48;5;240m█\u001b[38;5;240;48;5;233m│\u001b[20;21H│\u001b[38;5;254;48;5;233m  \u001b[38;5;240;48;5;233m◆ \u001b[38;5;254;48;5;233mParallel Work: Worktrees                             \u001b[38;5;240;48;5;240m█\u001b[38;5;240;48;5;233m│\u001b[21;21H│\u001b[38;5;254;48;5;233m      \u001b[38;5;242;48;5;233misolated sessions on one repo\u001b[38;5;254;48;5;233m                      \u001b[38;5;240;48;5;240m█\u001b[38;5;240;48;5;233m│\u001b[22;21H│\u001b[38;5;254;48;5;233m  \u001b[38;5;240;48;5;233m◆ \u001b[38;5;254;48;5;233mPlan Mode & Permissions                              \u001b[38;5;240;48;5;240m█\u001b[38;5;240;48;5;233m│\u001b[23;21H│\u001b[38;5;254;48;5;233m  ",
+          "bytesBase64": "Y3VzLCBzY3JvbGxiYWNrLCBwYW5lcxtbMzg7NTsyNTQ7NDg7NTsyMzNtICAgICAgICAgICAgICAgICAgICAgICAgICAgG1szODs1OzI0MDs0ODs1OzI0MG3ilogbWzM4OzU7MjQwOzQ4OzU7MjMzbeKUghtbMTg7MjFI4pSCG1szODs1OzI1NDs0ODs1OzIzM20gIBtbMzg7NTsyNDA7NDg7NTsyMzNt4peGIBtbMzg7NTsyNTQ7NDg7NTsyMzNtU2xhc2ggQ29tbWFuZHMgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzM4OzU7MjQwOzQ4OzU7MjQwbeKWiBtbMzg7NTsyNDA7NDg7NTsyMzNt4pSCG1sxOTsyMUjilIIbWzM4OzU7MjU0OzQ4OzU7MjMzbSAgICAgIBtbMzg7NTsyNDI7NDg7NTsyMzNtL2hlbHAgIC9tb2RlbCAgL3Jlc3VtZSAgYW5kIEN0cmwrUBtbMzg7NTsyNTQ7NDg7NTsyMzNtICAgICAgICAgICAgICAgICAbWzM4OzU7MjQwOzQ4OzU7MjQwbeKWiBtbMzg7NTsyNDA7NDg7NTsyMzNt4pSCG1syMDsyMUjilIIbWzM4OzU7MjU0OzQ4OzU7MjMzbSAgG1szODs1OzI0MDs0ODs1OzIzM23il4YgG1szODs1OzI1NDs0ODs1OzIzM21QYXJhbGxlbCBXb3JrOiBXb3JrdHJlZXMgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbMzg7NTsyNDA7NDg7NTsyNDBt4paIG1szODs1OzI0MDs0ODs1OzIzM23ilIIbWzIxOzIxSOKUghtbMzg7NTsyNTQ7NDg7NTsyMzNtICAgICAgG1szODs1OzI0Mjs0ODs1OzIzM21pc29sYXRlZCBzZXNzaW9ucyBvbiBvbmUgcmVwbxtbMzg7NTsyNTQ7NDg7NTsyMzNtICAgICAgICAgICAgICAgICAgICAgIBtbMzg7NTsyNDA7NDg7NTsyNDBt4paIG1szODs1OzI0MDs0ODs1OzIzM23ilIIbWzIyOzIxSOKUghtbMzg7NTsyNTQ7NDg7NTsyMzNtICAbWzM4OzU7MjQwOzQ4OzU7MjMzbeKXhiAbWzM4OzU7MjU0OzQ4OzU7MjMzbVBsYW4gTW9kZSAmIFBlcm1pc3Npb25zICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgG1szODs1OzI0MDs0ODs1OzI0MG3ilogbWzM4OzU7MjQwOzQ4OzU7MjMzbeKUghtbMjM7MjFI4pSCG1szODs1OzI1NDs0ODs1OzIzM20gIA=="
+        },
+        {
+          "ms": 1109.713791,
+          "output": "    \u001b[38;5;242;48;5;233mreview the approach before it acts\u001b[38;5;254;48;5;233m                 \u001b[38;5;240;48;5;240m█\u001b[38;5;240;48;5;233m│\u001b[24;21H│\u001b[38;5;254;48;5;233m  \u001b[38;5;240;48;5;233m◆ \u001b[38;5;254;48;5;233mMake It Yours                                        \u001b[38;5;240;48;5;240m█\u001b[38;5;240;48;5;233m│\u001b[25;21H│\u001b[38;5;254;48;5;233m      \u001b[38;5;242;48;5;233mjust ask: AGENTS.md, memory, themes\u001b[38;5;254;48;5;233m                 \u001b[38;5;240;48;5;233m│\u001b[26;21H│\u001b[38;5;254;48;5;233m       \u001b[1m\u001b[38;5;251;48;5;233m0/9\u001b[22m\u001b[38;5;242;48;5;233m explored\u001b[38;5;240;48;5;233m  |  \u001b[1m\u001b[38;5;251;48;5;233m↑/↓\u001b[22m\u001b[38;5;242;48;5;233m navigate\u001b[38;5;240;48;5;233m  |  \u001b[1m\u001b[38;5;251;48;5;233mEnter\u001b[22m\u001b[38;5;242;48;5;233m open\u001b[38;5;254;48;5;233m       \u001b[38;5;240;48;5;233m│\u001b[27;21H│\u001b[38;5;254;48;5;233m                         \u001b[1m\u001b[38;5;251;48;5;233mEsc\u001b[22m\u001b[38;5;242;48;5;233m done\u001b[38;5;254;48;5;233m                         \u001b[38;5;240;48;5;233m│\u001b[28;21H└─────────────",
+          "bytesBase64": "ICAgIBtbMzg7NTsyNDI7NDg7NTsyMzNtcmV2aWV3IHRoZSBhcHByb2FjaCBiZWZvcmUgaXQgYWN0cxtbMzg7NTsyNTQ7NDg7NTsyMzNtICAgICAgICAgICAgICAgICAbWzM4OzU7MjQwOzQ4OzU7MjQwbeKWiBtbMzg7NTsyNDA7NDg7NTsyMzNt4pSCG1syNDsyMUjilIIbWzM4OzU7MjU0OzQ4OzU7MjMzbSAgG1szODs1OzI0MDs0ODs1OzIzM23il4YgG1szODs1OzI1NDs0ODs1OzIzM21NYWtlIEl0IFlvdXJzICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbMzg7NTsyNDA7NDg7NTsyNDBt4paIG1szODs1OzI0MDs0ODs1OzIzM23ilIIbWzI1OzIxSOKUghtbMzg7NTsyNTQ7NDg7NTsyMzNtICAgICAgG1szODs1OzI0Mjs0ODs1OzIzM21qdXN0IGFzazogQUdFTlRTLm1kLCBtZW1vcnksIHRoZW1lcxtbMzg7NTsyNTQ7NDg7NTsyMzNtICAgICAgICAgICAgICAgICAbWzM4OzU7MjQwOzQ4OzU7MjMzbeKUghtbMjY7MjFI4pSCG1szODs1OzI1NDs0ODs1OzIzM20gICAgICAgG1sxbRtbMzg7NTsyNTE7NDg7NTsyMzNtMC85G1syMm0bWzM4OzU7MjQyOzQ4OzU7MjMzbSBleHBsb3JlZBtbMzg7NTsyNDA7NDg7NTsyMzNtICB8ICAbWzFtG1szODs1OzI1MTs0ODs1OzIzM23ihpEv4oaTG1syMm0bWzM4OzU7MjQyOzQ4OzU7MjMzbSBuYXZpZ2F0ZRtbMzg7NTsyNDA7NDg7NTsyMzNtICB8ICAbWzFtG1szODs1OzI1MTs0ODs1OzIzM21FbnRlchtbMjJtG1szODs1OzI0Mjs0ODs1OzIzM20gb3BlbhtbMzg7NTsyNTQ7NDg7NTsyMzNtICAgICAgIBtbMzg7NTsyNDA7NDg7NTsyMzNt4pSCG1syNzsyMUjilIIbWzM4OzU7MjU0OzQ4OzU7MjMzbSAgICAgICAgICAgICAgICAgICAgICAgICAbWzFtG1szODs1OzI1MTs0ODs1OzIzM21Fc2MbWzIybRtbMzg7NTsyNDI7NDg7NTsyMzNtIGRvbmUbWzM4OzU7MjU0OzQ4OzU7MjMzbSAgICAgICAgICAgICAgICAgICAgICAgICAbWzM4OzU7MjQwOzQ4OzU7MjMzbeKUghtbMjg7MjFI4pSU4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4g=="
+        },
+        {
+          "ms": 1109.722875,
+          "output": "─────────────────────────────────────────────┘\u001b[39m\u001b[49m\u001b[59m\u001b[0m\u001b[?25l\u001b[?2026l",
+          "bytesBase64": "lIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilJgbWzM5bRtbNDltG1s1OW0bWzBtG1s/MjVsG1s/MjAyNmw="
+        },
+        {
+          "ms": 1313.618125,
+          "action": "tutorial-topic",
+          "offset": 12060,
+          "inputHex": "0d",
+          "observedMs": 1354.329625,
+          "markerFound": true,
+          "endOffset": 16773
+        },
+        {
+          "ms": 1319.064125,
+          "output": "\u001b[?2026h\u001b[5;11H\u001b[38;5;240;48;5;233m┌─ \u001b[1m\u001b[38;5;254;48;5;233mComing from Claude, Cu\u001b[5;37Hsor, or Codex?\u001b[22m\u001b[38;5;240;48;5;233m \u001b[5;74H─────\u001b[5;80H──── [✗] ─┐\u001b[6;11H│\u001b[38;5;254;48;5;233m          \u001b[6;80H          \u001b[38;5;240;48;5;233m│\u001b[7;11H│\u001b[38;5;254;48;5;233m  \u001b[38;5;251;48;5;233mFear not — your settings, rules, and skills come with you. Grok Build\u001b[38;5;254;48;5;233m       \u001b[38;5;240;48;5;233m│\u001b[8;11H│\u001b[38;5;254;48;5;233m  \u001b[38;5;251;48;5;233mreads the same project conventions other agents use, and imports the rest.\u001b[38;5;254;48;5;233m  \u001b[38;5;240;48;5;233m│\u001b[9;11H│\u001b[38;5;254;48;5;233m          \u001b[9;80H          \u001b[38;5;240;48;5;233m│\u001b[10;11H│\u001b[38;5;254;48;5;233m  \u001b[1m\u001b[38;5;111;48;5;233mPicked up automatically\u001b[22m\u001b[38;5;254;48;5;233m                                        \u001b[10;79H           \u001b[38;5;240;48;5;233m│\u001b[11;11H│\u001b[38;5;254;48;5;233m          \u001b[11;28H                                        \u001b[11;79H           \u001b[38;5;240;48;5;233m│\u001b[12;11H│\u001b[",
+          "bytesBase64": "G1s/MjAyNmgbWzU7MTFIG1szODs1OzI0MDs0ODs1OzIzM23ilIzilIAgG1sxbRtbMzg7NTsyNTQ7NDg7NTsyMzNtQ29taW5nIGZyb20gQ2xhdWRlLCBDdRtbNTszN0hzb3IsIG9yIENvZGV4PxtbMjJtG1szODs1OzI0MDs0ODs1OzIzM20gG1s1Ozc0SOKUgOKUgOKUgOKUgOKUgBtbNTs4MEjilIDilIDilIDilIAgW+Kcl10g4pSA4pSQG1s2OzExSOKUghtbMzg7NTsyNTQ7NDg7NTsyMzNtICAgICAgICAgIBtbNjs4MEggICAgICAgICAgG1szODs1OzI0MDs0ODs1OzIzM23ilIIbWzc7MTFI4pSCG1szODs1OzI1NDs0ODs1OzIzM20gIBtbMzg7NTsyNTE7NDg7NTsyMzNtRmVhciBub3Qg4oCUIHlvdXIgc2V0dGluZ3MsIHJ1bGVzLCBhbmQgc2tpbGxzIGNvbWUgd2l0aCB5b3UuIEdyb2sgQnVpbGQbWzM4OzU7MjU0OzQ4OzU7MjMzbSAgICAgICAbWzM4OzU7MjQwOzQ4OzU7MjMzbeKUghtbODsxMUjilIIbWzM4OzU7MjU0OzQ4OzU7MjMzbSAgG1szODs1OzI1MTs0ODs1OzIzM21yZWFkcyB0aGUgc2FtZSBwcm9qZWN0IGNvbnZlbnRpb25zIG90aGVyIGFnZW50cyB1c2UsIGFuZCBpbXBvcnRzIHRoZSByZXN0LhtbMzg7NTsyNTQ7NDg7NTsyMzNtICAbWzM4OzU7MjQwOzQ4OzU7MjMzbeKUghtbOTsxMUjilIIbWzM4OzU7MjU0OzQ4OzU7MjMzbSAgICAgICAgICAbWzk7ODBIICAgICAgICAgIBtbMzg7NTsyNDA7NDg7NTsyMzNt4pSCG1sxMDsxMUjilIIbWzM4OzU7MjU0OzQ4OzU7MjMzbSAgG1sxbRtbMzg7NTsxMTE7NDg7NTsyMzNtUGlja2VkIHVwIGF1dG9tYXRpY2FsbHkbWzIybRtbMzg7NTsyNTQ7NDg7NTsyMzNtICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbMTA7NzlIICAgICAgICAgICAbWzM4OzU7MjQwOzQ4OzU7MjMzbeKUghtbMTE7MTFI4pSCG1szODs1OzI1NDs0ODs1OzIzM20gICAgICAgICAgG1sxMTsyOEggICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgG1sxMTs3OUggICAgICAgICAgIBtbMzg7NTsyNDA7NDg7NTsyMzNt4pSCG1sxMjsxMUjilIIbWw=="
+        },
+        {
+          "ms": 1319.105541,
+          "output": "38;5;254;48;5;233m  \u001b[38;5;242;48;5;233m• \u001b[1m\u001b[38;5;251;48;5;233mRules & instructions\u001b[22m — \u001b[1m\u001b[38;5;67;48;5;233mAGENTS.md\u001b[22m\u001b[38;5;251;48;5;233m (the Codex/OpenCode convention),\u001b[38;5;254;48;5;233m         \u001b[38;5;240;48;5;233m│\u001b[13;11H│\u001b[38;5;254;48;5;233m    \u001b[1m\u001b[38;5;67;48;5;233mCLAUDE.md\u001b[22m\u001b[38;5;251;48;5;233m (including nested ones), and \u001b[1m\u001b[38;5;67;48;5;233m*.md\u001b[22m\u001b[38;5;251;48;5;233m rules under\u001b[13;79H\u001b[38;5;254;48;5;233m           \u001b[38;5;240;48;5;233m│\u001b[14;11H│\u001b[38;5;254;48;5;233m    \u001b[1m\u001b[38;5;67;48;5;233m.claude/rules/\u001b[22m\u001b[38;5;251;48;5;233m and \u001b[1m\u001b[38;5;67;48;5;233m.cursor/rules/\u001b[22m\u001b[38;5;251;48;5;233m.\u001b[38;5;254;48;5;233m    \u001b[14;79H           \u001b[38;5;240;48;5;233m│\u001b[15;11H│\u001b[38;5;254;48;5;233m  \u001b[38;5;242;48;5;233m• \u001b[1m\u001b[38;5;251;48;5;233mSkills & custom commands\u001b[22m — \u001b[1m\u001b[38;5;67;48;5;233m~/.claude/skills/\u001b[22m\u001b[38;5;251;48;5;233m, \u001b[1m\u001b[38;5;67;48;5;233m~/.claude/commands/\u001b[22m\u001b[38;5;251;48;5;233m,\u001b[38;5;254;48;5;233m        \u001b[38;5;240;48;5;233m│\u001b[16",
+          "bytesBase64": "Mzg7NTsyNTQ7NDg7NTsyMzNtICAbWzM4OzU7MjQyOzQ4OzU7MjMzbeKAoiAbWzFtG1szODs1OzI1MTs0ODs1OzIzM21SdWxlcyAmIGluc3RydWN0aW9ucxtbMjJtIOKAlCAbWzFtG1szODs1OzY3OzQ4OzU7MjMzbUFHRU5UUy5tZBtbMjJtG1szODs1OzI1MTs0ODs1OzIzM20gKHRoZSBDb2RleC9PcGVuQ29kZSBjb252ZW50aW9uKSwbWzM4OzU7MjU0OzQ4OzU7MjMzbSAgICAgICAgIBtbMzg7NTsyNDA7NDg7NTsyMzNt4pSCG1sxMzsxMUjilIIbWzM4OzU7MjU0OzQ4OzU7MjMzbSAgICAbWzFtG1szODs1OzY3OzQ4OzU7MjMzbUNMQVVERS5tZBtbMjJtG1szODs1OzI1MTs0ODs1OzIzM20gKGluY2x1ZGluZyBuZXN0ZWQgb25lcyksIGFuZCAbWzFtG1szODs1OzY3OzQ4OzU7MjMzbSoubWQbWzIybRtbMzg7NTsyNTE7NDg7NTsyMzNtIHJ1bGVzIHVuZGVyG1sxMzs3OUgbWzM4OzU7MjU0OzQ4OzU7MjMzbSAgICAgICAgICAgG1szODs1OzI0MDs0ODs1OzIzM23ilIIbWzE0OzExSOKUghtbMzg7NTsyNTQ7NDg7NTsyMzNtICAgIBtbMW0bWzM4OzU7Njc7NDg7NTsyMzNtLmNsYXVkZS9ydWxlcy8bWzIybRtbMzg7NTsyNTE7NDg7NTsyMzNtIGFuZCAbWzFtG1szODs1OzY3OzQ4OzU7MjMzbS5jdXJzb3IvcnVsZXMvG1syMm0bWzM4OzU7MjUxOzQ4OzU7MjMzbS4bWzM4OzU7MjU0OzQ4OzU7MjMzbSAgICAbWzE0Ozc5SCAgICAgICAgICAgG1szODs1OzI0MDs0ODs1OzIzM23ilIIbWzE1OzExSOKUghtbMzg7NTsyNTQ7NDg7NTsyMzNtICAbWzM4OzU7MjQyOzQ4OzU7MjMzbeKAoiAbWzFtG1szODs1OzI1MTs0ODs1OzIzM21Ta2lsbHMgJiBjdXN0b20gY29tbWFuZHMbWzIybSDigJQgG1sxbRtbMzg7NTs2Nzs0ODs1OzIzM21+Ly5jbGF1ZGUvc2tpbGxzLxtbMjJtG1szODs1OzI1MTs0ODs1OzIzM20sIBtbMW0bWzM4OzU7Njc7NDg7NTsyMzNtfi8uY2xhdWRlL2NvbW1hbmRzLxtbMjJtG1szODs1OzI1MTs0ODs1OzIzM20sG1szODs1OzI1NDs0ODs1OzIzM20gICAgICAgIBtbMzg7NTsyNDA7NDg7NTsyMzNt4pSCG1sxNg=="
+        },
+        {
+          "ms": 1319.117083,
+          "output": ";11H│\u001b[38;5;254;48;5;233m    \u001b[1m\u001b[38;5;67;48;5;233m~/.cursor/skills/\u001b[22m\u001b[38;5;251;48;5;233m, and their project-level twins. Flat command \u001b[1m\u001b[38;5;67;48;5;233m.md\u001b[22m\u001b[38;5;254;48;5;233m        \u001b[38;5;240;48;5;233m│\u001b[17;11H│\u001b[38;5;254;48;5;233m    \u001b[38;5;251;48;5;233mfiles become slash commands here too.\u001b[17;79H\u001b[38;5;254;48;5;233m           \u001b[38;5;240;48;5;233m│\u001b[18;11H│\u001b[38;5;254;48;5;233m  \u001b[38;5;242;48;5;233m• \u001b[1m\u001b[38;5;251;48;5;233mMCP servers\u001b[22m — from \u001b[1m\u001b[38;5;67;48;5;233m~/.claude.json\u001b[22m\u001b[38;5;251;48;5;233m, \u001b[1m\u001b[38;5;67;48;5;233m.cursor/mcp.json\u001b[22m\u001b[38;5;251;48;5;233m, and project\u001b[38;5;254;48;5;233m          \u001b[38;5;240;48;5;233m│\u001b[19;11H│\u001b[38;5;254;48;5;233m    \u001b[1m\u001b[38;5;67;48;5;233m.mcp.json\u001b[22m\u001b[38;5;251;48;5;233m.\u001b[19;28H\u001b[38;5;254;48;5;233m                                  \u001b[19;79H           \u001b[38;5;240;48;5;233m│\u001b[20;11H│\u001b[38;5;254;48;5;233m  \u001b[38;5;242;48;5;233m• \u001b[1m\u001b[38;5;251;48;5;233mHooks\u001b[22m — from \u001b[1m\u001b[38;5;67;48;5;233m.claude/settings.json\u001b[2",
+          "bytesBase64": "OzExSOKUghtbMzg7NTsyNTQ7NDg7NTsyMzNtICAgIBtbMW0bWzM4OzU7Njc7NDg7NTsyMzNtfi8uY3Vyc29yL3NraWxscy8bWzIybRtbMzg7NTsyNTE7NDg7NTsyMzNtLCBhbmQgdGhlaXIgcHJvamVjdC1sZXZlbCB0d2lucy4gRmxhdCBjb21tYW5kIBtbMW0bWzM4OzU7Njc7NDg7NTsyMzNtLm1kG1syMm0bWzM4OzU7MjU0OzQ4OzU7MjMzbSAgICAgICAgG1szODs1OzI0MDs0ODs1OzIzM23ilIIbWzE3OzExSOKUghtbMzg7NTsyNTQ7NDg7NTsyMzNtICAgIBtbMzg7NTsyNTE7NDg7NTsyMzNtZmlsZXMgYmVjb21lIHNsYXNoIGNvbW1hbmRzIGhlcmUgdG9vLhtbMTc7NzlIG1szODs1OzI1NDs0ODs1OzIzM20gICAgICAgICAgIBtbMzg7NTsyNDA7NDg7NTsyMzNt4pSCG1sxODsxMUjilIIbWzM4OzU7MjU0OzQ4OzU7MjMzbSAgG1szODs1OzI0Mjs0ODs1OzIzM23igKIgG1sxbRtbMzg7NTsyNTE7NDg7NTsyMzNtTUNQIHNlcnZlcnMbWzIybSDigJQgZnJvbSAbWzFtG1szODs1OzY3OzQ4OzU7MjMzbX4vLmNsYXVkZS5qc29uG1syMm0bWzM4OzU7MjUxOzQ4OzU7MjMzbSwgG1sxbRtbMzg7NTs2Nzs0ODs1OzIzM20uY3Vyc29yL21jcC5qc29uG1syMm0bWzM4OzU7MjUxOzQ4OzU7MjMzbSwgYW5kIHByb2plY3QbWzM4OzU7MjU0OzQ4OzU7MjMzbSAgICAgICAgICAbWzM4OzU7MjQwOzQ4OzU7MjMzbeKUghtbMTk7MTFI4pSCG1szODs1OzI1NDs0ODs1OzIzM20gICAgG1sxbRtbMzg7NTs2Nzs0ODs1OzIzM20ubWNwLmpzb24bWzIybRtbMzg7NTsyNTE7NDg7NTsyMzNtLhtbMTk7MjhIG1szODs1OzI1NDs0ODs1OzIzM20gICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgG1sxOTs3OUggICAgICAgICAgIBtbMzg7NTsyNDA7NDg7NTsyMzNt4pSCG1syMDsxMUjilIIbWzM4OzU7MjU0OzQ4OzU7MjMzbSAgG1szODs1OzI0Mjs0ODs1OzIzM23igKIgG1sxbRtbMzg7NTsyNTE7NDg7NTsyMzNtSG9va3MbWzIybSDigJQgZnJvbSAbWzFtG1szODs1OzY3OzQ4OzU7MjMzbS5jbGF1ZGUvc2V0dGluZ3MuanNvbhtbMg=="
+        },
+        {
+          "ms": 1319.123583,
+          "output": "2m\u001b[38;5;251;48;5;233m, including matcher aliases like\u001b[38;5;254;48;5;233m        \u001b[38;5;240;48;5;233m│\u001b[21;11H│\u001b[38;5;254;48;5;233m    \u001b[1m\u001b[38;5;67;48;5;233mBash\u001b[22m\u001b[38;5;251;48;5;233m, so most hooks run unchanged.\u001b[38;5;254;48;5;233m       \u001b[21;79H           \u001b[38;5;240;48;5;233m│\u001b[22;11H│\u001b[38;5;254;48;5;233m          \u001b[22;24H      \u001b[22;31H    \u001b[22;36H \u001b[22;38H           \u001b[22;79H           \u001b[38;5;240;48;5;233m│\u001b[23;11H│\u001b[38;5;254;48;5;233m  \u001b[1m\u001b[38;5;111;48;5;233mOne-step import\u001b[22m\u001b[38;5;254;48;5;233m                                 \u001b[23;79H           \u001b[38;5;240;48;5;233m│\u001b[24;11H│\u001b[38;5;254;48;5;233m          \u001b[24;24H      \u001b[24;31H  \u001b[24;34H     \u001b[24;79H           \u001b[38;5;240;48;5;233m│\u001b[25;11H│\u001b[38;5;254;48;5;233m  \u001b[1m\u001b[38;5;67;48;5;233m/import-claude\u001b[22m\u001b[38;5;251;48;5;233m scans your \u001b[1m\u001b[38;5;67;48;5;233m~/.claude\u001b[22m\u001b[38;5;251;48;5;233m settings — permissions, env\u001b[25;78Hvars, MCP\u001b[38;5;254;48;5;233m   \u001b[38;5;240;48;5;233m│\u001b[26;11H│\u001b[38;5;254;48;5;233m          \u001b[26;2",
+          "bytesBase64": "Mm0bWzM4OzU7MjUxOzQ4OzU7MjMzbSwgaW5jbHVkaW5nIG1hdGNoZXIgYWxpYXNlcyBsaWtlG1szODs1OzI1NDs0ODs1OzIzM20gICAgICAgIBtbMzg7NTsyNDA7NDg7NTsyMzNt4pSCG1syMTsxMUjilIIbWzM4OzU7MjU0OzQ4OzU7MjMzbSAgICAbWzFtG1szODs1OzY3OzQ4OzU7MjMzbUJhc2gbWzIybRtbMzg7NTsyNTE7NDg7NTsyMzNtLCBzbyBtb3N0IGhvb2tzIHJ1biB1bmNoYW5nZWQuG1szODs1OzI1NDs0ODs1OzIzM20gICAgICAgG1syMTs3OUggICAgICAgICAgIBtbMzg7NTsyNDA7NDg7NTsyMzNt4pSCG1syMjsxMUjilIIbWzM4OzU7MjU0OzQ4OzU7MjMzbSAgICAgICAgICAbWzIyOzI0SCAgICAgIBtbMjI7MzFIICAgIBtbMjI7MzZIIBtbMjI7MzhIICAgICAgICAgICAbWzIyOzc5SCAgICAgICAgICAgG1szODs1OzI0MDs0ODs1OzIzM23ilIIbWzIzOzExSOKUghtbMzg7NTsyNTQ7NDg7NTsyMzNtICAbWzFtG1szODs1OzExMTs0ODs1OzIzM21PbmUtc3RlcCBpbXBvcnQbWzIybRtbMzg7NTsyNTQ7NDg7NTsyMzNtICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgG1syMzs3OUggICAgICAgICAgIBtbMzg7NTsyNDA7NDg7NTsyMzNt4pSCG1syNDsxMUjilIIbWzM4OzU7MjU0OzQ4OzU7MjMzbSAgICAgICAgICAbWzI0OzI0SCAgICAgIBtbMjQ7MzFIICAbWzI0OzM0SCAgICAgG1syNDs3OUggICAgICAgICAgIBtbMzg7NTsyNDA7NDg7NTsyMzNt4pSCG1syNTsxMUjilIIbWzM4OzU7MjU0OzQ4OzU7MjMzbSAgG1sxbRtbMzg7NTs2Nzs0ODs1OzIzM20vaW1wb3J0LWNsYXVkZRtbMjJtG1szODs1OzI1MTs0ODs1OzIzM20gc2NhbnMgeW91ciAbWzFtG1szODs1OzY3OzQ4OzU7MjMzbX4vLmNsYXVkZRtbMjJtG1szODs1OzI1MTs0ODs1OzIzM20gc2V0dGluZ3Mg4oCUIHBlcm1pc3Npb25zLCBlbnYbWzI1Ozc4SHZhcnMsIE1DUBtbMzg7NTsyNTQ7NDg7NTsyMzNtICAgG1szODs1OzI0MDs0ODs1OzIzM23ilIIbWzI2OzExSOKUghtbMzg7NTsyNTQ7NDg7NTsyMzNtICAgICAgICAgIBtbMjY7Mg=="
+        },
+        {
+          "ms": 1319.134958,
+          "output": "9H                                            \u001b[26;80H          \u001b[38;5;240;48;5;233m│\u001b[27;11H│\u001b[38;5;254;48;5;233m    \u001b[1m\u001b[38;5;251;48;5;233m↑/↓\u001b[22m\u001b[38;5;242;48;5;233m scroll\u001b[38;5;240;48;5;233m  |  \u001b[1m\u001b[38;5;251;48;5;233m→\u001b[22m\u001b[38;5;242;48;5;233m next: Your First Pr\u001b[27;53Hmpt\u001b[38;5;240;48;5;233m  |  \u001b[1m\u001b[38;5;251;48;5;233md\u001b[22m\u001b[38;5;242;48;5;233m go deeper\u001b[38;5;240;48;5;233m  |  \u001b[1m\u001b[38;5;251;48;5;233mEsc\u001b[22m\u001b[38;5;242;48;5;233m list\u001b[38;5;254;48;5;233m     \u001b[38;5;240;48;5;233m│\u001b[28;11H└──────────\u001b[28;80H──────────┘\u001b[39m\u001b[49m\u001b[59m\u001b[0m\u001b[?2026l",
+          "bytesBase64": "OUggICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbMjY7ODBIICAgICAgICAgIBtbMzg7NTsyNDA7NDg7NTsyMzNt4pSCG1syNzsxMUjilIIbWzM4OzU7MjU0OzQ4OzU7MjMzbSAgICAbWzFtG1szODs1OzI1MTs0ODs1OzIzM23ihpEv4oaTG1syMm0bWzM4OzU7MjQyOzQ4OzU7MjMzbSBzY3JvbGwbWzM4OzU7MjQwOzQ4OzU7MjMzbSAgfCAgG1sxbRtbMzg7NTsyNTE7NDg7NTsyMzNt4oaSG1syMm0bWzM4OzU7MjQyOzQ4OzU7MjMzbSBuZXh0OiBZb3VyIEZpcnN0IFByG1syNzs1M0htcHQbWzM4OzU7MjQwOzQ4OzU7MjMzbSAgfCAgG1sxbRtbMzg7NTsyNTE7NDg7NTsyMzNtZBtbMjJtG1szODs1OzI0Mjs0ODs1OzIzM20gZ28gZGVlcGVyG1szODs1OzI0MDs0ODs1OzIzM20gIHwgIBtbMW0bWzM4OzU7MjUxOzQ4OzU7MjMzbUVzYxtbMjJtG1szODs1OzI0Mjs0ODs1OzIzM20gbGlzdBtbMzg7NTsyNTQ7NDg7NTsyMzNtICAgICAbWzM4OzU7MjQwOzQ4OzU7MjMzbeKUghtbMjg7MTFI4pSU4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSAG1syODs4MEjilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilJgbWzM5bRtbNDltG1s1OW0bWzBtG1s/MjAyNmw="
+        },
+        {
+          "ms": 1520.80275,
+          "action": "tutorial-next",
+          "offset": 16773,
+          "inputHex": "1b5b43",
+          "observedMs": 1564.462166,
+          "markerFound": true,
+          "endOffset": 19625
+        },
+        {
+          "ms": 1521.355791,
+          "output": "\u001b[?2026h\u001b[5;14H\u001b[1m\u001b[38;5;254;48;5;233mY\u001b[5;16Hur First Prompt\u001b[22m\u001b[38;5;240;48;5;233m ────────────────────\u001b[7;14H\u001b[38;5;251;48;5;233mGrok\u001b[7;19HBuild\u001b[7;25His a\u001b[7;30Hconversation with an\u001b[7;51Hagent that can read you\u001b[7;75H code, run\u001b[8;14Hcommands,\u001b[8;24Hand edit files — right here in\u001b[8;55Hyour terminal.\u001b[38;5;254;48;5;233m                   \u001b[10;14H\u001b[38;5;251;48;5;233mType what you want and press \u001b[1m\u001b[38;5;67;48;5;233mEnter\u001b[22m\u001b[38;5;251;48;5;233m. Grok streams its work into the\u001b[11;14H\u001b[1mscrollback\u001b[22m above the prompt: responses, shell commands, file edits.\u001b[12;14H\u001b[38;5;254;48;5;233m                                                                   \u001b[13;14H\u001b[1m\u001b[38;5;111;48;5;233mKeep typing while Grok works\u001b[22m\u001b[38;5;254;48;5;233m                             \u001b[14;16H                                  \u001b[15;14H\u001b[38;5;251;48;5;233mWhile a turn is running, \u001b[1m\u001b[38;5;67;48;5;233mEnter\u001b[22m\u001b[38;5;251;48;5;233m \u001b[1mqueues\u001b[22m your next\u001b[15;62Hmessage instead ",
+          "bytesBase64": "G1s/MjAyNmgbWzU7MTRIG1sxbRtbMzg7NTsyNTQ7NDg7NTsyMzNtWRtbNTsxNkh1ciBGaXJzdCBQcm9tcHQbWzIybRtbMzg7NTsyNDA7NDg7NTsyMzNtIOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgBtbNzsxNEgbWzM4OzU7MjUxOzQ4OzU7MjMzbUdyb2sbWzc7MTlIQnVpbGQbWzc7MjVIaXMgYRtbNzszMEhjb252ZXJzYXRpb24gd2l0aCBhbhtbNzs1MUhhZ2VudCB0aGF0IGNhbiByZWFkIHlvdRtbNzs3NUggY29kZSwgcnVuG1s4OzE0SGNvbW1hbmRzLBtbODsyNEhhbmQgZWRpdCBmaWxlcyDigJQgcmlnaHQgaGVyZSBpbhtbODs1NUh5b3VyIHRlcm1pbmFsLhtbMzg7NTsyNTQ7NDg7NTsyMzNtICAgICAgICAgICAgICAgICAgIBtbMTA7MTRIG1szODs1OzI1MTs0ODs1OzIzM21UeXBlIHdoYXQgeW91IHdhbnQgYW5kIHByZXNzIBtbMW0bWzM4OzU7Njc7NDg7NTsyMzNtRW50ZXIbWzIybRtbMzg7NTsyNTE7NDg7NTsyMzNtLiBHcm9rIHN0cmVhbXMgaXRzIHdvcmsgaW50byB0aGUbWzExOzE0SBtbMW1zY3JvbGxiYWNrG1syMm0gYWJvdmUgdGhlIHByb21wdDogcmVzcG9uc2VzLCBzaGVsbCBjb21tYW5kcywgZmlsZSBlZGl0cy4bWzEyOzE0SBtbMzg7NTsyNTQ7NDg7NTsyMzNtICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbMTM7MTRIG1sxbRtbMzg7NTsxMTE7NDg7NTsyMzNtS2VlcCB0eXBpbmcgd2hpbGUgR3JvayB3b3JrcxtbMjJtG1szODs1OzI1NDs0ODs1OzIzM20gICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbMTQ7MTZIICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbMTU7MTRIG1szODs1OzI1MTs0ODs1OzIzM21XaGlsZSBhIHR1cm4gaXMgcnVubmluZywgG1sxbRtbMzg7NTs2Nzs0ODs1OzIzM21FbnRlchtbMjJtG1szODs1OzI1MTs0ODs1OzIzM20gG1sxbXF1ZXVlcxtbMjJtIHlvdXIgbmV4dBtbMTU7NjJIbWVzc2FnZSBpbnN0ZWFkIA=="
+        },
+        {
+          "ms": 1521.41525,
+          "output": "of\u001b[38;5;254;48;5;233m  \u001b[16;14H\u001b[38;5;251;48;5;233minterrupting. Change\u001b[16;35Hyour mind? Press \u001b[1m\u001b[38;5;67;48;5;233mEnter\u001b[22m\u001b[38;5;251;48;5;233m on the empty\u001b[16;71Hpro\u001b[16;75Hpt to stop\u001b[17;14Hthe current turn \u001b[17;32Hnd\u001b[17;35Hsend the\u001b[17;44Hqueued message right away.\u001b[18;14H\u001b[38;5;254;48;5;233m                                                                  \u001b[19;14H\u001b[1m\u001b[38;5;111;48;5;233mYou are always in control\u001b[20;14H\u001b[22m\u001b[38;5;254;48;5;233m                                                                    \u001b[21;14H\u001b[38;5;242;48;5;233m• \u001b[1m\u001b[38;5;67;48;5;233mCtrl+C\u001b[22m\u001b[38;5;251;48;5;233m —\u001b[21;25Hcancel a running tur\u001b[21;46H (with a draft, the first press only\u001b[22;14Hclears it). \u001b[1m\u001b[38;5;67;48;5;233mEsc\u001b[22m\u001b[38;5;251;48;5;233m does not cancel; it reminds you to use \u001b[1m\u001b[38;5;67;48;5;233mCtrl+C\u001b[22m\u001b[38;5;251;48;5;233m.\u001b[23;14H\u001b[38;5;242;48;5;233m• \u001b[1m\u001b[38;5;67;48;5;233mEsc Esc\u001b[22m\u001b[38;5;251;48;5;233m while idle — clear the prompt; with an empty prompt, open\u001b[24;16Hthe rewind p",
+          "bytesBase64": "b2YbWzM4OzU7MjU0OzQ4OzU7MjMzbSAgG1sxNjsxNEgbWzM4OzU7MjUxOzQ4OzU7MjMzbWludGVycnVwdGluZy4gQ2hhbmdlG1sxNjszNUh5b3VyIG1pbmQ/IFByZXNzIBtbMW0bWzM4OzU7Njc7NDg7NTsyMzNtRW50ZXIbWzIybRtbMzg7NTsyNTE7NDg7NTsyMzNtIG9uIHRoZSBlbXB0eRtbMTY7NzFIcHJvG1sxNjs3NUhwdCB0byBzdG9wG1sxNzsxNEh0aGUgY3VycmVudCB0dXJuIBtbMTc7MzJIbmQbWzE3OzM1SHNlbmQgdGhlG1sxNzs0NEhxdWV1ZWQgbWVzc2FnZSByaWdodCBhd2F5LhtbMTg7MTRIG1szODs1OzI1NDs0ODs1OzIzM20gICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzE5OzE0SBtbMW0bWzM4OzU7MTExOzQ4OzU7MjMzbVlvdSBhcmUgYWx3YXlzIGluIGNvbnRyb2wbWzIwOzE0SBtbMjJtG1szODs1OzI1NDs0ODs1OzIzM20gICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbMjE7MTRIG1szODs1OzI0Mjs0ODs1OzIzM23igKIgG1sxbRtbMzg7NTs2Nzs0ODs1OzIzM21DdHJsK0MbWzIybRtbMzg7NTsyNTE7NDg7NTsyMzNtIOKAlBtbMjE7MjVIY2FuY2VsIGEgcnVubmluZyB0dXIbWzIxOzQ2SCAod2l0aCBhIGRyYWZ0LCB0aGUgZmlyc3QgcHJlc3Mgb25seRtbMjI7MTRIY2xlYXJzIGl0KS4gG1sxbRtbMzg7NTs2Nzs0ODs1OzIzM21Fc2MbWzIybRtbMzg7NTsyNTE7NDg7NTsyMzNtIGRvZXMgbm90IGNhbmNlbDsgaXQgcmVtaW5kcyB5b3UgdG8gdXNlIBtbMW0bWzM4OzU7Njc7NDg7NTsyMzNtQ3RybCtDG1syMm0bWzM4OzU7MjUxOzQ4OzU7MjMzbS4bWzIzOzE0SBtbMzg7NTsyNDI7NDg7NTsyMzNt4oCiIBtbMW0bWzM4OzU7Njc7NDg7NTsyMzNtRXNjIEVzYxtbMjJtG1szODs1OzI1MTs0ODs1OzIzM20gd2hpbGUgaWRsZSDigJQgY2xlYXIgdGhlIHByb21wdDsgd2l0aCBhbiBlbXB0eSBwcm9tcHQsIG9wZW4bWzI0OzE2SHRoZSByZXdpbmQgcA=="
+        },
+        {
+          "ms": 1521.430708,
+          "output": "icker instead. Cleared something by accident? \u001b[1m\u001b[38;5;67;48;5;233mCtrl+Z\u001b[22m\u001b[38;5;251;48;5;233m undoes.\u001b[25;14H\u001b[38;5;242;48;5;233m• \u001b[1m\u001b[38;5;67;48;5;233mCtrl+Q\u001b[22m\u001b[38;5;251;48;5;233m — quit (\u001b[1m\u001b[38;5;67;48;5;233mCtrl+D\u001b[22m\u001b[38;5;251;48;5;233m in VS Code-family terminals), pre\u001b[25;72Hs\u001b[25;74Htwice.\u001b[38;5;254;48;5;233m       \u001b[26;17H\u001b[1m\u001b[38;5;251;48;5;233m↑/↓\u001b[22m\u001b[38;5;242;48;5;233m scroll\u001b[38;5;240;48;5;233m  |  \u001b[1m\u001b[38;5;251;48;5;233m→\u001b[22m\u001b[38;5;242;48;5;233m next: Attach Files, Images & Paste\u001b[38;5;240;48;5;233m  |  \u001b[1m\u001b[38;5;251;48;5;233md\u001b[22m\u001b[38;5;242;48;5;233m go deeper\u001b[27;16H\u001b[38;5;254;48;5;233m                               \u001b[1m\u001b[38;5;251;48;5;233mEsc\u001b[22m\u001b[38;5;242;48;5;233m list\u001b[38;5;254;48;5;233m                              \u001b[39m\u001b[49m\u001b[59m\u001b[0m\u001b[?2026l",
+          "bytesBase64": "aWNrZXIgaW5zdGVhZC4gQ2xlYXJlZCBzb21ldGhpbmcgYnkgYWNjaWRlbnQ/IBtbMW0bWzM4OzU7Njc7NDg7NTsyMzNtQ3RybCtaG1syMm0bWzM4OzU7MjUxOzQ4OzU7MjMzbSB1bmRvZXMuG1syNTsxNEgbWzM4OzU7MjQyOzQ4OzU7MjMzbeKAoiAbWzFtG1szODs1OzY3OzQ4OzU7MjMzbUN0cmwrURtbMjJtG1szODs1OzI1MTs0ODs1OzIzM20g4oCUIHF1aXQgKBtbMW0bWzM4OzU7Njc7NDg7NTsyMzNtQ3RybCtEG1syMm0bWzM4OzU7MjUxOzQ4OzU7MjMzbSBpbiBWUyBDb2RlLWZhbWlseSB0ZXJtaW5hbHMpLCBwcmUbWzI1OzcySHMbWzI1Ozc0SHR3aWNlLhtbMzg7NTsyNTQ7NDg7NTsyMzNtICAgICAgIBtbMjY7MTdIG1sxbRtbMzg7NTsyNTE7NDg7NTsyMzNt4oaRL+KGkxtbMjJtG1szODs1OzI0Mjs0ODs1OzIzM20gc2Nyb2xsG1szODs1OzI0MDs0ODs1OzIzM20gIHwgIBtbMW0bWzM4OzU7MjUxOzQ4OzU7MjMzbeKGkhtbMjJtG1szODs1OzI0Mjs0ODs1OzIzM20gbmV4dDogQXR0YWNoIEZpbGVzLCBJbWFnZXMgJiBQYXN0ZRtbMzg7NTsyNDA7NDg7NTsyMzNtICB8ICAbWzFtG1szODs1OzI1MTs0ODs1OzIzM21kG1syMm0bWzM4OzU7MjQyOzQ4OzU7MjMzbSBnbyBkZWVwZXIbWzI3OzE2SBtbMzg7NTsyNTQ7NDg7NTsyMzNtICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbMW0bWzM4OzU7MjUxOzQ4OzU7MjMzbUVzYxtbMjJtG1szODs1OzI0Mjs0ODs1OzIzM20gbGlzdBtbMzg7NTsyNTQ7NDg7NTsyMzNtICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgG1szOW0bWzQ5bRtbNTltG1swbRtbPzIwMjZs"
+        },
+        {
+          "ms": 1721.695,
+          "action": "tutorial-previous",
+          "offset": 19625,
+          "inputHex": "1b5b44",
+          "observedMs": 1759.643375,
+          "markerFound": true,
+          "endOffset": 22929
+        },
+        {
+          "ms": 1722.16675,
+          "output": "\u001b[?2026h\u001b[5;14H\u001b[1m\u001b[38;5;254;48;5;233mC\u001b[5;16Hming from Claude, Cursor, or Codex?\u001b[22m\u001b[38;5;240;48;5;233m \u001b[7;14H\u001b[38;5;251;48;5;233mFear\u001b[7;19Hnot —\u001b[7;25Hyour\u001b[7;30Hsettings, rules, and\u001b[7;51Hskills come with you. G\u001b[7;75Hok Build\u001b[38;5;254;48;5;233m  \u001b[8;14H\u001b[38;5;251;48;5;233mreads the\u001b[8;24Hsame project conventions other\u001b[8;55Hagents use, and imports the rest.\u001b[10;14H\u001b[1m\u001b[38;5;111;48;5;233mPicked up automatically\u001b[22m\u001b[38;5;254;48;5;233m                                           \u001b[11;14H                                                                   \u001b[12;14H\u001b[38;5;242;48;5;233m• \u001b[1m\u001b[38;5;251;48;5;233mRules & instructions\u001b[22m — \u001b[1m\u001b[38;5;67;48;5;233mAGENTS.md\u001b[22m\u001b[38;5;251;48;5;233m (the Codex/OpenCode convention),\u001b[13;14H\u001b[38;5;254;48;5;233m  \u001b[1m\u001b[38;5;67;48;5;233mCLAUDE.md\u001b[22m\u001b[38;5;251;48;5;233m (including nested ones), and \u001b[1m\u001b[38;5;67;48;5;233m*.md\u001b[22m\u001b[38;5;251;48;5;233m rules under\u001b[14;16H\u001b[1m\u001b[38;5;67;48;5;233m.claude/rules/\u001b[22m\u001b[38;5;251;48;5;233m and \u001b[1m\u001b[38;5;67;48;5;233m",
+          "bytesBase64": "G1s/MjAyNmgbWzU7MTRIG1sxbRtbMzg7NTsyNTQ7NDg7NTsyMzNtQxtbNTsxNkhtaW5nIGZyb20gQ2xhdWRlLCBDdXJzb3IsIG9yIENvZGV4PxtbMjJtG1szODs1OzI0MDs0ODs1OzIzM20gG1s3OzE0SBtbMzg7NTsyNTE7NDg7NTsyMzNtRmVhchtbNzsxOUhub3Qg4oCUG1s3OzI1SHlvdXIbWzc7MzBIc2V0dGluZ3MsIHJ1bGVzLCBhbmQbWzc7NTFIc2tpbGxzIGNvbWUgd2l0aCB5b3UuIEcbWzc7NzVIb2sgQnVpbGQbWzM4OzU7MjU0OzQ4OzU7MjMzbSAgG1s4OzE0SBtbMzg7NTsyNTE7NDg7NTsyMzNtcmVhZHMgdGhlG1s4OzI0SHNhbWUgcHJvamVjdCBjb252ZW50aW9ucyBvdGhlchtbODs1NUhhZ2VudHMgdXNlLCBhbmQgaW1wb3J0cyB0aGUgcmVzdC4bWzEwOzE0SBtbMW0bWzM4OzU7MTExOzQ4OzU7MjMzbVBpY2tlZCB1cCBhdXRvbWF0aWNhbGx5G1syMm0bWzM4OzU7MjU0OzQ4OzU7MjMzbSAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzExOzE0SCAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzEyOzE0SBtbMzg7NTsyNDI7NDg7NTsyMzNt4oCiIBtbMW0bWzM4OzU7MjUxOzQ4OzU7MjMzbVJ1bGVzICYgaW5zdHJ1Y3Rpb25zG1syMm0g4oCUIBtbMW0bWzM4OzU7Njc7NDg7NTsyMzNtQUdFTlRTLm1kG1syMm0bWzM4OzU7MjUxOzQ4OzU7MjMzbSAodGhlIENvZGV4L09wZW5Db2RlIGNvbnZlbnRpb24pLBtbMTM7MTRIG1szODs1OzI1NDs0ODs1OzIzM20gIBtbMW0bWzM4OzU7Njc7NDg7NTsyMzNtQ0xBVURFLm1kG1syMm0bWzM4OzU7MjUxOzQ4OzU7MjMzbSAoaW5jbHVkaW5nIG5lc3RlZCBvbmVzKSwgYW5kIBtbMW0bWzM4OzU7Njc7NDg7NTsyMzNtKi5tZBtbMjJtG1szODs1OzI1MTs0ODs1OzIzM20gcnVsZXMgdW5kZXIbWzE0OzE2SBtbMW0bWzM4OzU7Njc7NDg7NTsyMzNtLmNsYXVkZS9ydWxlcy8bWzIybRtbMzg7NTsyNTE7NDg7NTsyMzNtIGFuZCAbWzFtG1szODs1OzY3OzQ4OzU7MjMzbQ=="
+        },
+        {
+          "ms": 1722.228083,
+          "output": ".cursor/rules/\u001b[22m\u001b[38;5;251;48;5;233m.\u001b[15;14H\u001b[38;5;242;48;5;233m• \u001b[1m\u001b[38;5;251;48;5;233mSkills & custom commands\u001b[22m — \u001b[1m\u001b[38;5;67;48;5;233m~/.claude/skills/\u001b[22m\u001b[38;5;251;48;5;233m,\u001b[15;62H\u001b[1m\u001b[38;5;67;48;5;233m~/.claude/commands/\u001b[22m\u001b[38;5;251;48;5;233m,\u001b[16;14H\u001b[38;5;254;48;5;233m  \u001b[1m\u001b[38;5;67;48;5;233m~/.cursor/skills/\u001b[22m\u001b[38;5;251;48;5;233m,\u001b[16;35Hand their project-level twins. Flat\u001b[16;71Hcom\u001b[16;75Hand \u001b[1m\u001b[38;5;67;48;5;233m.md\u001b[22m\u001b[38;5;254;48;5;233m   \u001b[17;14H  \u001b[38;5;251;48;5;233mfiles become sl\u001b[17;32Hsh\u001b[17;35Hcommands\u001b[17;44Hhere too.\u001b[38;5;254;48;5;233m                 \u001b[18;14H\u001b[38;5;242;48;5;233m• \u001b[1m\u001b[38;5;251;48;5;233mMCP servers\u001b[22m — from \u001b[1m\u001b[38;5;67;48;5;233m~/.claude.json\u001b[22m\u001b[38;5;251;48;5;233m, \u001b[1m\u001b[38;5;67;48;5;233m.cursor/mcp.json\u001b[22m\u001b[38;5;251;48;5;233m, and project\u001b[19;14H\u001b[38;5;254;48;5;233m  \u001b[1m\u001b[38;5;67;48;5;233m.mcp.json\u001b[22m\u001b[38;5;251;48;5;233m.\u001b[38;5;254;48;5;233m             \u001b[20;14H\u001b[38;5;242;48;5;233m• \u001b[1m\u001b[38;5;251;48;5;233mHooks\u001b[22m ",
+          "bytesBase64": "LmN1cnNvci9ydWxlcy8bWzIybRtbMzg7NTsyNTE7NDg7NTsyMzNtLhtbMTU7MTRIG1szODs1OzI0Mjs0ODs1OzIzM23igKIgG1sxbRtbMzg7NTsyNTE7NDg7NTsyMzNtU2tpbGxzICYgY3VzdG9tIGNvbW1hbmRzG1syMm0g4oCUIBtbMW0bWzM4OzU7Njc7NDg7NTsyMzNtfi8uY2xhdWRlL3NraWxscy8bWzIybRtbMzg7NTsyNTE7NDg7NTsyMzNtLBtbMTU7NjJIG1sxbRtbMzg7NTs2Nzs0ODs1OzIzM21+Ly5jbGF1ZGUvY29tbWFuZHMvG1syMm0bWzM4OzU7MjUxOzQ4OzU7MjMzbSwbWzE2OzE0SBtbMzg7NTsyNTQ7NDg7NTsyMzNtICAbWzFtG1szODs1OzY3OzQ4OzU7MjMzbX4vLmN1cnNvci9za2lsbHMvG1syMm0bWzM4OzU7MjUxOzQ4OzU7MjMzbSwbWzE2OzM1SGFuZCB0aGVpciBwcm9qZWN0LWxldmVsIHR3aW5zLiBGbGF0G1sxNjs3MUhjb20bWzE2Ozc1SGFuZCAbWzFtG1szODs1OzY3OzQ4OzU7MjMzbS5tZBtbMjJtG1szODs1OzI1NDs0ODs1OzIzM20gICAbWzE3OzE0SCAgG1szODs1OzI1MTs0ODs1OzIzM21maWxlcyBiZWNvbWUgc2wbWzE3OzMySHNoG1sxNzszNUhjb21tYW5kcxtbMTc7NDRIaGVyZSB0b28uG1szODs1OzI1NDs0ODs1OzIzM20gICAgICAgICAgICAgICAgIBtbMTg7MTRIG1szODs1OzI0Mjs0ODs1OzIzM23igKIgG1sxbRtbMzg7NTsyNTE7NDg7NTsyMzNtTUNQIHNlcnZlcnMbWzIybSDigJQgZnJvbSAbWzFtG1szODs1OzY3OzQ4OzU7MjMzbX4vLmNsYXVkZS5qc29uG1syMm0bWzM4OzU7MjUxOzQ4OzU7MjMzbSwgG1sxbRtbMzg7NTs2Nzs0ODs1OzIzM20uY3Vyc29yL21jcC5qc29uG1syMm0bWzM4OzU7MjUxOzQ4OzU7MjMzbSwgYW5kIHByb2plY3QbWzE5OzE0SBtbMzg7NTsyNTQ7NDg7NTsyMzNtICAbWzFtG1szODs1OzY3OzQ4OzU7MjMzbS5tY3AuanNvbhtbMjJtG1szODs1OzI1MTs0ODs1OzIzM20uG1szODs1OzI1NDs0ODs1OzIzM20gICAgICAgICAgICAgG1syMDsxNEgbWzM4OzU7MjQyOzQ4OzU7MjMzbeKAoiAbWzFtG1szODs1OzI1MTs0ODs1OzIzM21Ib29rcxtbMjJtIA=="
+        },
+        {
+          "ms": 1722.237625,
+          "output": "— from \u001b[1m\u001b[38;5;67;48;5;233m.claude/settings.json\u001b[22m\u001b[38;5;251;48;5;233m, including matcher aliases like\u001b[21;14H\u001b[38;5;254;48;5;233m  \u001b[1m\u001b[38;5;67;48;5;233mBash\u001b[22m\u001b[38;5;251;48;5;233m, so\u001b[21;25Hmost hooks run uncha\u001b[21;46Hged.\u001b[38;5;254;48;5;233m                                \u001b[22;14H                                                              \u001b[23;14H\u001b[1m\u001b[38;5;111;48;5;233mOne-step import\u001b[22m\u001b[38;5;254;48;5;233m                                                    \u001b[24;16H                                                                        \u001b[25;14H\u001b[1m\u001b[38;5;67;48;5;233m/import-claude\u001b[22m\u001b[38;5;251;48;5;233m scans your \u001b[1m\u001b[38;5;67;48;5;233m~/.claude\u001b[22m\u001b[38;5;251;48;5;233m settings — permission\u001b[25;72H,\u001b[25;74Henv\u001b[38;5;254;48;5;233m \u001b[38;5;251;48;5;233mvars, MCP\u001b[26;17H\u001b[38;5;254;48;5;233m                                                                   \u001b[27;16H\u001b[1m\u001b[38;5;251;48;5;233m↑/↓\u001b[22m\u001b[38;5;242;48;5;233m scroll\u001b[38;5;240;48;5;233m  |  \u001b[1m\u001b[38;5;251;48;5;233m→\u001b[22m\u001b[38;5",
+          "bytesBase64": "4oCUIGZyb20gG1sxbRtbMzg7NTs2Nzs0ODs1OzIzM20uY2xhdWRlL3NldHRpbmdzLmpzb24bWzIybRtbMzg7NTsyNTE7NDg7NTsyMzNtLCBpbmNsdWRpbmcgbWF0Y2hlciBhbGlhc2VzIGxpa2UbWzIxOzE0SBtbMzg7NTsyNTQ7NDg7NTsyMzNtICAbWzFtG1szODs1OzY3OzQ4OzU7MjMzbUJhc2gbWzIybRtbMzg7NTsyNTE7NDg7NTsyMzNtLCBzbxtbMjE7MjVIbW9zdCBob29rcyBydW4gdW5jaGEbWzIxOzQ2SGdlZC4bWzM4OzU7MjU0OzQ4OzU7MjMzbSAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgG1syMjsxNEggICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbMjM7MTRIG1sxbRtbMzg7NTsxMTE7NDg7NTsyMzNtT25lLXN0ZXAgaW1wb3J0G1syMm0bWzM4OzU7MjU0OzQ4OzU7MjMzbSAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzI0OzE2SCAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbMjU7MTRIG1sxbRtbMzg7NTs2Nzs0ODs1OzIzM20vaW1wb3J0LWNsYXVkZRtbMjJtG1szODs1OzI1MTs0ODs1OzIzM20gc2NhbnMgeW91ciAbWzFtG1szODs1OzY3OzQ4OzU7MjMzbX4vLmNsYXVkZRtbMjJtG1szODs1OzI1MTs0ODs1OzIzM20gc2V0dGluZ3Mg4oCUIHBlcm1pc3Npb24bWzI1OzcySCwbWzI1Ozc0SGVudhtbMzg7NTsyNTQ7NDg7NTsyMzNtIBtbMzg7NTsyNTE7NDg7NTsyMzNtdmFycywgTUNQG1syNjsxN0gbWzM4OzU7MjU0OzQ4OzU7MjMzbSAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzI3OzE2SBtbMW0bWzM4OzU7MjUxOzQ4OzU7MjMzbeKGkS/ihpMbWzIybRtbMzg7NTsyNDI7NDg7NTsyMzNtIHNjcm9sbBtbMzg7NTsyNDA7NDg7NTsyMzNtICB8ICAbWzFtG1szODs1OzI1MTs0ODs1OzIzM23ihpIbWzIybRtbMzg7NQ=="
+        },
+        {
+          "ms": 1722.249791,
+          "output": ";242;48;5;233m next: Your First Prompt\u001b[38;5;240;48;5;233m  |  \u001b[1m\u001b[38;5;251;48;5;233md\u001b[22m\u001b[38;5;242;48;5;233m go deeper\u001b[38;5;240;48;5;233m  |  \u001b[1m\u001b[38;5;251;48;5;233mEsc\u001b[22m\u001b[38;5;242;48;5;233m list\u001b[39m\u001b[49m\u001b[59m\u001b[0m\u001b[?2026l",
+          "bytesBase64": "OzI0Mjs0ODs1OzIzM20gbmV4dDogWW91ciBGaXJzdCBQcm9tcHQbWzM4OzU7MjQwOzQ4OzU7MjMzbSAgfCAgG1sxbRtbMzg7NTsyNTE7NDg7NTsyMzNtZBtbMjJtG1szODs1OzI0Mjs0ODs1OzIzM20gZ28gZGVlcGVyG1szODs1OzI0MDs0ODs1OzIzM20gIHwgIBtbMW0bWzM4OzU7MjUxOzQ4OzU7MjMzbUVzYxtbMjJtG1szODs1OzI0Mjs0ODs1OzIzM20gbGlzdBtbMzltG1s0OW0bWzU5bRtbMG0bWz8yMDI2bA=="
+        },
+        {
+          "ms": 1916.23725,
+          "action": "tutorial-list",
+          "offset": 22929,
+          "inputHex": "1b",
+          "observedMs": 2106.826458,
+          "markerFound": true,
+          "endOffset": 27971
+        },
+        {
+          "ms": 2069.202291,
+          "output": "\u001b[?2026h\u001b[5;11H\u001b[39;48;5;233m          \u001b[38;5;240;48;5;233m┌─ \u001b[1m\u001b[38;5;254;48;5;233mWelcome to G\u001b[5;37Hok Build\u001b[22m\u001b[38;5;240;48;5;233m ──────\u001b[5;74H [✗] \u001b[5;80H┐\u001b[39;48;5;233m          \u001b[6;11H          \u001b[38;5;240;48;5;233m│\u001b[6;80H│\u001b[39;48;5;233m          \u001b[7;11H          \u001b[38;5;240;48;5;233m│\u001b[38;5;254;48;5;233m  \u001b[38;5;243;48;5;233mQuick tips to get the most out of Grok Build.\u001b[38;5;254;48;5;233m           \u001b[38;5;240;48;5;233m│\u001b[39;48;5;233m          \u001b[8;11H          \u001b[38;5;240;48;5;233m│\u001b[38;5;254;48;5;233m  \u001b[38;5;243;48;5;233mPick a topic. Esc when you're done.\u001b[38;5;254;48;5;233m                     \u001b[38;5;240;48;5;233m│\u001b[39;48;5;233m          \u001b[9;11H          \u001b[38;5;240;48;5;233m│\u001b[9;80H│\u001b[39;48;5;233m          \u001b[10;11H          \u001b[38;5;240;48;5;233m│\u001b[38;5;254;48;5;233m  \u001b[38;5;240;48;5;237m◆ \u001b[1m\u001b[38;5;254;48;5;237mComing from Claude, Cursor, or Codex?\u001b[22m \u001b[38;5;149;48;5;237m✓\u001b[38;5;254;48;5;237m            \u001b[10;79H\u001b[38;5;240;48;5;240m█\u001b[38;5;240;48;5;2",
+          "bytesBase64": "G1s/MjAyNmgbWzU7MTFIG1szOTs0ODs1OzIzM20gICAgICAgICAgG1szODs1OzI0MDs0ODs1OzIzM23ilIzilIAgG1sxbRtbMzg7NTsyNTQ7NDg7NTsyMzNtV2VsY29tZSB0byBHG1s1OzM3SG9rIEJ1aWxkG1syMm0bWzM4OzU7MjQwOzQ4OzU7MjMzbSDilIDilIDilIDilIDilIDilIAbWzU7NzRIIFvinJddIBtbNTs4MEjilJAbWzM5OzQ4OzU7MjMzbSAgICAgICAgICAbWzY7MTFIICAgICAgICAgIBtbMzg7NTsyNDA7NDg7NTsyMzNt4pSCG1s2OzgwSOKUghtbMzk7NDg7NTsyMzNtICAgICAgICAgIBtbNzsxMUggICAgICAgICAgG1szODs1OzI0MDs0ODs1OzIzM23ilIIbWzM4OzU7MjU0OzQ4OzU7MjMzbSAgG1szODs1OzI0Mzs0ODs1OzIzM21RdWljayB0aXBzIHRvIGdldCB0aGUgbW9zdCBvdXQgb2YgR3JvayBCdWlsZC4bWzM4OzU7MjU0OzQ4OzU7MjMzbSAgICAgICAgICAgG1szODs1OzI0MDs0ODs1OzIzM23ilIIbWzM5OzQ4OzU7MjMzbSAgICAgICAgICAbWzg7MTFIICAgICAgICAgIBtbMzg7NTsyNDA7NDg7NTsyMzNt4pSCG1szODs1OzI1NDs0ODs1OzIzM20gIBtbMzg7NTsyNDM7NDg7NTsyMzNtUGljayBhIHRvcGljLiBFc2Mgd2hlbiB5b3UncmUgZG9uZS4bWzM4OzU7MjU0OzQ4OzU7MjMzbSAgICAgICAgICAgICAgICAgICAgIBtbMzg7NTsyNDA7NDg7NTsyMzNt4pSCG1szOTs0ODs1OzIzM20gICAgICAgICAgG1s5OzExSCAgICAgICAgICAbWzM4OzU7MjQwOzQ4OzU7MjMzbeKUghtbOTs4MEjilIIbWzM5OzQ4OzU7MjMzbSAgICAgICAgICAbWzEwOzExSCAgICAgICAgICAbWzM4OzU7MjQwOzQ4OzU7MjMzbeKUghtbMzg7NTsyNTQ7NDg7NTsyMzNtICAbWzM4OzU7MjQwOzQ4OzU7MjM3beKXhiAbWzFtG1szODs1OzI1NDs0ODs1OzIzN21Db21pbmcgZnJvbSBDbGF1ZGUsIEN1cnNvciwgb3IgQ29kZXg/G1syMm0gG1szODs1OzE0OTs0ODs1OzIzN23inJMbWzM4OzU7MjU0OzQ4OzU7MjM3bSAgICAgICAgICAgIBtbMTA7NzlIG1szODs1OzI0MDs0ODs1OzI0MG3ilogbWzM4OzU7MjQwOzQ4OzU7Mg=="
+        },
+        {
+          "ms": 2069.263333,
+          "output": "33m│\u001b[39;48;5;233m          \u001b[11;11H          \u001b[38;5;240;48;5;233m│\u001b[11;28H\u001b[38;5;242;48;5;233myour settings, rules & skills carry over\u001b[11;79H\u001b[38;5;240;48;5;240m█\u001b[38;5;240;48;5;233m│\u001b[39;48;5;233m          \u001b[12;11H          \u001b[38;5;240;48;5;233m│\u001b[38;5;254;48;5;233m  \u001b[38;5;240;48;5;233m◆ \u001b[38;5;254;48;5;233mYour First Prompt \u001b[38;5;149;48;5;233m✓\u001b[38;5;254;48;5;233m                                  \u001b[38;5;240;48;5;240m█\u001b[38;5;240;48;5;233m│\u001b[39;48;5;233m          \u001b[13;11H          \u001b[38;5;240;48;5;233m│\u001b[38;5;254;48;5;233m      \u001b[38;5;242;48;5;233msend, queue, cancel\u001b[38;5;254;48;5;233m                        \u001b[13;79H\u001b[38;5;240;48;5;240m█\u001b[38;5;240;48;5;233m│\u001b[39;48;5;233m          \u001b[14;11H          \u001b[38;5;240;48;5;233m│\u001b[38;5;254;48;5;233m  \u001b[38;5;240;48;5;233m◆ \u001b[38;5;254;48;5;233mAttach Files, Images & Paste\u001b[14;79H\u001b[38;5;240;48;5;240m█\u001b[38;5;240;48;5;233m│\u001b[39;48;5;233m          \u001b[15;11H          \u001b[38;5;240;48;5;233m│\u001b[38;5;254;48;5;233m      \u001b[38;5;242;48;5;233m@files,",
+          "bytesBase64": "MzNt4pSCG1szOTs0ODs1OzIzM20gICAgICAgICAgG1sxMTsxMUggICAgICAgICAgG1szODs1OzI0MDs0ODs1OzIzM23ilIIbWzExOzI4SBtbMzg7NTsyNDI7NDg7NTsyMzNteW91ciBzZXR0aW5ncywgcnVsZXMgJiBza2lsbHMgY2Fycnkgb3ZlchtbMTE7NzlIG1szODs1OzI0MDs0ODs1OzI0MG3ilogbWzM4OzU7MjQwOzQ4OzU7MjMzbeKUghtbMzk7NDg7NTsyMzNtICAgICAgICAgIBtbMTI7MTFIICAgICAgICAgIBtbMzg7NTsyNDA7NDg7NTsyMzNt4pSCG1szODs1OzI1NDs0ODs1OzIzM20gIBtbMzg7NTsyNDA7NDg7NTsyMzNt4peGIBtbMzg7NTsyNTQ7NDg7NTsyMzNtWW91ciBGaXJzdCBQcm9tcHQgG1szODs1OzE0OTs0ODs1OzIzM23inJMbWzM4OzU7MjU0OzQ4OzU7MjMzbSAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzM4OzU7MjQwOzQ4OzU7MjQwbeKWiBtbMzg7NTsyNDA7NDg7NTsyMzNt4pSCG1szOTs0ODs1OzIzM20gICAgICAgICAgG1sxMzsxMUggICAgICAgICAgG1szODs1OzI0MDs0ODs1OzIzM23ilIIbWzM4OzU7MjU0OzQ4OzU7MjMzbSAgICAgIBtbMzg7NTsyNDI7NDg7NTsyMzNtc2VuZCwgcXVldWUsIGNhbmNlbBtbMzg7NTsyNTQ7NDg7NTsyMzNtICAgICAgICAgICAgICAgICAgICAgICAgG1sxMzs3OUgbWzM4OzU7MjQwOzQ4OzU7MjQwbeKWiBtbMzg7NTsyNDA7NDg7NTsyMzNt4pSCG1szOTs0ODs1OzIzM20gICAgICAgICAgG1sxNDsxMUggICAgICAgICAgG1szODs1OzI0MDs0ODs1OzIzM23ilIIbWzM4OzU7MjU0OzQ4OzU7MjMzbSAgG1szODs1OzI0MDs0ODs1OzIzM23il4YgG1szODs1OzI1NDs0ODs1OzIzM21BdHRhY2ggRmlsZXMsIEltYWdlcyAmIFBhc3RlG1sxNDs3OUgbWzM4OzU7MjQwOzQ4OzU7MjQwbeKWiBtbMzg7NTsyNDA7NDg7NTsyMzNt4pSCG1szOTs0ODs1OzIzM20gICAgICAgICAgG1sxNTsxMUggICAgICAgICAgG1szODs1OzI0MDs0ODs1OzIzM23ilIIbWzM4OzU7MjU0OzQ4OzU7MjMzbSAgICAgIBtbMzg7NTsyNDI7NDg7NTsyMzNtQGZpbGVzLA=="
+        },
+        {
+          "ms": 2069.271875,
+          "output": " line ranges, screenshots\u001b[38;5;254;48;5;233m                   \u001b[38;5;240;48;5;240m█\u001b[38;5;240;48;5;233m│\u001b[39;48;5;233m          \u001b[16;11H          \u001b[38;5;240;48;5;233m│\u001b[38;5;254;48;5;233m  \u001b[38;5;240;48;5;233m◆ \u001b[38;5;254;48;5;233mFinding Your Way Around                              \u001b[38;5;240;48;5;240m█\u001b[38;5;240;48;5;233m│\u001b[39;48;5;233m          \u001b[17;11H          \u001b[38;5;240;48;5;233m│\u001b[38;5;254;48;5;233m      \u001b[38;5;242;48;5;233mfocus, scrollback, panes\u001b[38;5;254;48;5;233m \u001b[17;79H\u001b[38;5;240;48;5;240m█\u001b[38;5;240;48;5;233m│\u001b[39;48;5;233m          \u001b[18;11H          \u001b[38;5;240;48;5;233m│\u001b[38;5;254;48;5;233m  \u001b[38;5;240;48;5;233m◆ \u001b[38;5;254;48;5;233mSlash Commands                                       \u001b[38;5;240;48;5;240m█\u001b[38;5;240;48;5;233m│\u001b[39;48;5;233m          \u001b[19;11H          \u001b[38;5;240;48;5;233m│\u001b[38;5;254;48;5;233m    \u001b[19;28H\u001b[38;5;242;48;5;233m/help  /model  /resume  and Ctrl+P\u001b[19;79H\u001b[38;5;240;48;5;240m█\u001b[38;5;240;48;5;233m│\u001b[39;48;5;233m          \u001b[20;11H       ",
+          "bytesBase64": "IGxpbmUgcmFuZ2VzLCBzY3JlZW5zaG90cxtbMzg7NTsyNTQ7NDg7NTsyMzNtICAgICAgICAgICAgICAgICAgIBtbMzg7NTsyNDA7NDg7NTsyNDBt4paIG1szODs1OzI0MDs0ODs1OzIzM23ilIIbWzM5OzQ4OzU7MjMzbSAgICAgICAgICAbWzE2OzExSCAgICAgICAgICAbWzM4OzU7MjQwOzQ4OzU7MjMzbeKUghtbMzg7NTsyNTQ7NDg7NTsyMzNtICAbWzM4OzU7MjQwOzQ4OzU7MjMzbeKXhiAbWzM4OzU7MjU0OzQ4OzU7MjMzbUZpbmRpbmcgWW91ciBXYXkgQXJvdW5kICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgG1szODs1OzI0MDs0ODs1OzI0MG3ilogbWzM4OzU7MjQwOzQ4OzU7MjMzbeKUghtbMzk7NDg7NTsyMzNtICAgICAgICAgIBtbMTc7MTFIICAgICAgICAgIBtbMzg7NTsyNDA7NDg7NTsyMzNt4pSCG1szODs1OzI1NDs0ODs1OzIzM20gICAgICAbWzM4OzU7MjQyOzQ4OzU7MjMzbWZvY3VzLCBzY3JvbGxiYWNrLCBwYW5lcxtbMzg7NTsyNTQ7NDg7NTsyMzNtIBtbMTc7NzlIG1szODs1OzI0MDs0ODs1OzI0MG3ilogbWzM4OzU7MjQwOzQ4OzU7MjMzbeKUghtbMzk7NDg7NTsyMzNtICAgICAgICAgIBtbMTg7MTFIICAgICAgICAgIBtbMzg7NTsyNDA7NDg7NTsyMzNt4pSCG1szODs1OzI1NDs0ODs1OzIzM20gIBtbMzg7NTsyNDA7NDg7NTsyMzNt4peGIBtbMzg7NTsyNTQ7NDg7NTsyMzNtU2xhc2ggQ29tbWFuZHMgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzM4OzU7MjQwOzQ4OzU7MjQwbeKWiBtbMzg7NTsyNDA7NDg7NTsyMzNt4pSCG1szOTs0ODs1OzIzM20gICAgICAgICAgG1sxOTsxMUggICAgICAgICAgG1szODs1OzI0MDs0ODs1OzIzM23ilIIbWzM4OzU7MjU0OzQ4OzU7MjMzbSAgICAbWzE5OzI4SBtbMzg7NTsyNDI7NDg7NTsyMzNtL2hlbHAgIC9tb2RlbCAgL3Jlc3VtZSAgYW5kIEN0cmwrUBtbMTk7NzlIG1szODs1OzI0MDs0ODs1OzI0MG3ilogbWzM4OzU7MjQwOzQ4OzU7MjMzbeKUghtbMzk7NDg7NTsyMzNtICAgICAgICAgIBtbMjA7MTFIICAgICAgIA=="
+        },
+        {
+          "ms": 2069.287833,
+          "output": "   \u001b[38;5;240;48;5;233m│\u001b[38;5;254;48;5;233m  \u001b[38;5;240;48;5;233m◆ \u001b[38;5;254;48;5;233mParallel Work: Worktrees                             \u001b[38;5;240;48;5;240m█\u001b[38;5;240;48;5;233m│\u001b[39;48;5;233m          \u001b[21;11H          \u001b[38;5;240;48;5;233m│\u001b[38;5;254;48;5;233m      \u001b[38;5;242;48;5;233misolated sessions on one repo\u001b[21;79H\u001b[38;5;240;48;5;240m█\u001b[38;5;240;48;5;233m│\u001b[39;48;5;233m          \u001b[22;11H          \u001b[38;5;240;48;5;233m│\u001b[22;24H◆ \u001b[38;5;254;48;5;233mPlan\u001b[22;31HMode\u001b[22;36H&\u001b[22;38HPermissions\u001b[22;79H\u001b[38;5;240;48;5;240m█\u001b[38;5;240;48;5;233m│\u001b[39;48;5;233m          \u001b[23;11H          \u001b[38;5;240;48;5;233m│\u001b[38;5;254;48;5;233m      \u001b[38;5;242;48;5;233mreview the approach before it acts\u001b[23;79H\u001b[38;5;240;48;5;240m█\u001b[38;5;240;48;5;233m│\u001b[39;48;5;233m          \u001b[24;11H          \u001b[38;5;240;48;5;233m│\u001b[24;24H◆ \u001b[38;5;254;48;5;233mMake\u001b[24;31HIt\u001b[24;34HYours\u001b[24;79H\u001b[38;5;240;48;5;240m█\u001b[38;5;240;48;5;233m│\u001b[39;48;5;233m          \u001b[25;11H          \u001b[38;5;240;48;5;233m│\u001b[",
+          "bytesBase64": "ICAgG1szODs1OzI0MDs0ODs1OzIzM23ilIIbWzM4OzU7MjU0OzQ4OzU7MjMzbSAgG1szODs1OzI0MDs0ODs1OzIzM23il4YgG1szODs1OzI1NDs0ODs1OzIzM21QYXJhbGxlbCBXb3JrOiBXb3JrdHJlZXMgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbMzg7NTsyNDA7NDg7NTsyNDBt4paIG1szODs1OzI0MDs0ODs1OzIzM23ilIIbWzM5OzQ4OzU7MjMzbSAgICAgICAgICAbWzIxOzExSCAgICAgICAgICAbWzM4OzU7MjQwOzQ4OzU7MjMzbeKUghtbMzg7NTsyNTQ7NDg7NTsyMzNtICAgICAgG1szODs1OzI0Mjs0ODs1OzIzM21pc29sYXRlZCBzZXNzaW9ucyBvbiBvbmUgcmVwbxtbMjE7NzlIG1szODs1OzI0MDs0ODs1OzI0MG3ilogbWzM4OzU7MjQwOzQ4OzU7MjMzbeKUghtbMzk7NDg7NTsyMzNtICAgICAgICAgIBtbMjI7MTFIICAgICAgICAgIBtbMzg7NTsyNDA7NDg7NTsyMzNt4pSCG1syMjsyNEjil4YgG1szODs1OzI1NDs0ODs1OzIzM21QbGFuG1syMjszMUhNb2RlG1syMjszNkgmG1syMjszOEhQZXJtaXNzaW9ucxtbMjI7NzlIG1szODs1OzI0MDs0ODs1OzI0MG3ilogbWzM4OzU7MjQwOzQ4OzU7MjMzbeKUghtbMzk7NDg7NTsyMzNtICAgICAgICAgIBtbMjM7MTFIICAgICAgICAgIBtbMzg7NTsyNDA7NDg7NTsyMzNt4pSCG1szODs1OzI1NDs0ODs1OzIzM20gICAgICAbWzM4OzU7MjQyOzQ4OzU7MjMzbXJldmlldyB0aGUgYXBwcm9hY2ggYmVmb3JlIGl0IGFjdHMbWzIzOzc5SBtbMzg7NTsyNDA7NDg7NTsyNDBt4paIG1szODs1OzI0MDs0ODs1OzIzM23ilIIbWzM5OzQ4OzU7MjMzbSAgICAgICAgICAbWzI0OzExSCAgICAgICAgICAbWzM4OzU7MjQwOzQ4OzU7MjMzbeKUghtbMjQ7MjRI4peGIBtbMzg7NTsyNTQ7NDg7NTsyMzNtTWFrZRtbMjQ7MzFISXQbWzI0OzM0SFlvdXJzG1syNDs3OUgbWzM4OzU7MjQwOzQ4OzU7MjQwbeKWiBtbMzg7NTsyNDA7NDg7NTsyMzNt4pSCG1szOTs0ODs1OzIzM20gICAgICAgICAgG1syNTsxMUggICAgICAgICAgG1szODs1OzI0MDs0ODs1OzIzM23ilIIbWw=="
+        },
+        {
+          "ms": 2069.297708,
+          "output": "38;5;254;48;5;233m      \u001b[38;5;242;48;5;233mjust ask: AGENTS.md, memory, themes\u001b[38;5;254;48;5;233m              \u001b[25;78H  \u001b[38;5;240;48;5;233m│\u001b[39;48;5;233m          \u001b[26;11H          \u001b[38;5;240;48;5;233m│\u001b[26;29H\u001b[1m\u001b[38;5;251;48;5;233m2/9\u001b[22m\u001b[38;5;242;48;5;233m explored\u001b[38;5;240;48;5;233m  |  \u001b[1m\u001b[38;5;251;48;5;233m↑/↓\u001b[22m\u001b[38;5;242;48;5;233m navigate\u001b[38;5;240;48;5;233m  |  \u001b[1m\u001b[38;5;251;48;5;233mEnter\u001b[22m\u001b[38;5;242;48;5;233m open\u001b[26;80H\u001b[38;5;240;48;5;233m│\u001b[39;48;5;233m          \u001b[27;11H\u001b[38;5;239;48;5;233m──────────\u001b[38;5;240;48;5;233m│\u001b[38;5;254;48;5;233m                         \u001b[1m\u001b[38;5;251;48;5;233mEsc\u001b[22m\u001b[38;5;242;48;5;233m d\u001b[27;53Hne\u001b[38;5;254;48;5;233m                         \u001b[38;5;240;48;5;233m│\u001b[38;5;239;48;5;233m──────────\u001b[28;11H\u001b[38;5;254;48;5;233m          \u001b[38;5;240;48;5;233m└\u001b[28;80H┘\u001b[38;5;254;48;5;233m          \u001b[39m\u001b[49m\u001b[59m\u001b[0m\u001b[?2026l",
+          "bytesBase64": "Mzg7NTsyNTQ7NDg7NTsyMzNtICAgICAgG1szODs1OzI0Mjs0ODs1OzIzM21qdXN0IGFzazogQUdFTlRTLm1kLCBtZW1vcnksIHRoZW1lcxtbMzg7NTsyNTQ7NDg7NTsyMzNtICAgICAgICAgICAgICAbWzI1Ozc4SCAgG1szODs1OzI0MDs0ODs1OzIzM23ilIIbWzM5OzQ4OzU7MjMzbSAgICAgICAgICAbWzI2OzExSCAgICAgICAgICAbWzM4OzU7MjQwOzQ4OzU7MjMzbeKUghtbMjY7MjlIG1sxbRtbMzg7NTsyNTE7NDg7NTsyMzNtMi85G1syMm0bWzM4OzU7MjQyOzQ4OzU7MjMzbSBleHBsb3JlZBtbMzg7NTsyNDA7NDg7NTsyMzNtICB8ICAbWzFtG1szODs1OzI1MTs0ODs1OzIzM23ihpEv4oaTG1syMm0bWzM4OzU7MjQyOzQ4OzU7MjMzbSBuYXZpZ2F0ZRtbMzg7NTsyNDA7NDg7NTsyMzNtICB8ICAbWzFtG1szODs1OzI1MTs0ODs1OzIzM21FbnRlchtbMjJtG1szODs1OzI0Mjs0ODs1OzIzM20gb3BlbhtbMjY7ODBIG1szODs1OzI0MDs0ODs1OzIzM23ilIIbWzM5OzQ4OzU7MjMzbSAgICAgICAgICAbWzI3OzExSBtbMzg7NTsyMzk7NDg7NTsyMzNt4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSAG1szODs1OzI0MDs0ODs1OzIzM23ilIIbWzM4OzU7MjU0OzQ4OzU7MjMzbSAgICAgICAgICAgICAgICAgICAgICAgICAbWzFtG1szODs1OzI1MTs0ODs1OzIzM21Fc2MbWzIybRtbMzg7NTsyNDI7NDg7NTsyMzNtIGQbWzI3OzUzSG5lG1szODs1OzI1NDs0ODs1OzIzM20gICAgICAgICAgICAgICAgICAgICAgICAgG1szODs1OzI0MDs0ODs1OzIzM23ilIIbWzM4OzU7MjM5OzQ4OzU7MjMzbeKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgBtbMjg7MTFIG1szODs1OzI1NDs0ODs1OzIzM20gICAgICAgICAgG1szODs1OzI0MDs0ODs1OzIzM23ilJQbWzI4OzgwSOKUmBtbMzg7NTsyNTQ7NDg7NTsyMzNtICAgICAgICAgIBtbMzltG1s0OW0bWzU5bRtbMG0bWz8yMDI2bA=="
+        },
+        {
+          "ms": 2262.039416,
+          "action": "tutorial-dismiss",
+          "offset": 27971,
+          "inputHex": "1b",
+          "observedMs": 2562.684375,
+          "markerFound": null,
+          "endOffset": 29820
+        },
+        {
+          "ms": 2413.544416,
+          "output": "\u001b[?2026h\u001b[5;21H\u001b[39;48;5;233m                                                            \u001b[6;21H                                                            \u001b[7;21H                                                            \u001b[8;21H                                                            \u001b[9;21H                                                            \u001b[10;21H                                                            \u001b[11;21H                                                            \u001b[12;21H                                                            \u001b[13;21H                                                            \u001b[14;21H                                                            \u001b[15;21H                                                            \u001b[16;21H                                                            \u001b[17;21H                                                            \u001b[18;21H                                                            \u001b[19;21H                                               ",
+          "bytesBase64": "G1s/MjAyNmgbWzU7MjFIG1szOTs0ODs1OzIzM20gICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzY7MjFIICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgG1s3OzIxSCAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbODsyMUggICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzk7MjFIICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgG1sxMDsyMUggICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzExOzIxSCAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbMTI7MjFIICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgG1sxMzsyMUggICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzE0OzIxSCAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbMTU7MjFIICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgG1sxNjsyMUggICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzE3OzIxSCAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbMTg7MjFIICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgG1sxOTsyMUggICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIA=="
+        },
+        {
+          "ms": 2413.609166,
+          "output": "             \u001b[20;21H                                                            \u001b[21;21H                                                            \u001b[22;21H                                                            \u001b[23;21H                                                            \u001b[24;21H                                                            \u001b[25;21H                                                            \u001b[26;21H                                                            \u001b[27;21H\u001b[38;5;239;48;5;233m────────────────────────────────────────────────────────────\u001b[28;21H\u001b[38;5;254;48;5;233m                                                            \u001b[39m\u001b[49m\u001b[59m\u001b[0m\u001b[28;7H\u001b[?25h\u001b[?2026l",
+          "bytesBase64": "ICAgICAgICAgICAgIBtbMjA7MjFIICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgG1syMTsyMUggICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzIyOzIxSCAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbMjM7MjFIICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgG1syNDsyMUggICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzI1OzIxSCAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbMjY7MjFIICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgG1syNzsyMUgbWzM4OzU7MjM5OzQ4OzU7MjMzbeKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgBtbMjg7MjFIG1szODs1OzI1NDs0ODs1OzIzM20gICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzM5bRtbNDltG1s1OW0bWzBtG1syODs3SBtbPzI1aBtbPzIwMjZs"
+        },
+        {
+          "ms": 2719.910625,
+          "action": "tour-open",
+          "offset": 29820,
+          "inputHex": "2f746f75720d",
+          "observedMs": 2759.153958,
+          "markerFound": true,
+          "endOffset": 34086
+        },
+        {
+          "ms": 2724.261,
+          "output": "\u001b[?2026h\u001b[5;21H\u001b[38;5;240;48;5;233m┌─ \u001b[1m\u001b[38;5;254;48;5;233mWelcome to Grok Build\u001b[22m\u001b[38;5;240;48;5;233m ──────────────────────────── [✗] ─┐\u001b[6;21H│\u001b[38;5;254;48;5;233m                                                          \u001b[38;5;240;48;5;233m│\u001b[7;21H│\u001b[38;5;254;48;5;233m  \u001b[38;5;243;48;5;233mQuick tips to get the most out of Grok Build.\u001b[38;5;254;48;5;233m           \u001b[38;5;240;48;5;233m│\u001b[8;21H│\u001b[38;5;254;48;5;233m  \u001b[38;5;243;48;5;233mPick a topic. Esc when you're done.\u001b[38;5;254;48;5;233m                     \u001b[38;5;240;48;5;233m│\u001b[9;21H│\u001b[38;5;254;48;5;233m                                                          \u001b[38;5;240;48;5;233m│\u001b[10;21H│\u001b[38;5;254;48;5;233m  \u001b[38;5;240;48;5;237m◆ \u001b[1m\u001b[38;5;254;48;5;237mComing from Claude, Cursor, or Codex?\u001b[22m              \u001b[38;5;254;48;5;233m  \u001b[38;5;240;48;5;240m█\u001b[38;5;240;48;5;233m│\u001b[11;21H│\u001b[38;5;254;48;5;233m      \u001b[38;5;242;48;5;233myour settings, rules & skill",
+          "bytesBase64": "G1s/MjAyNmgbWzU7MjFIG1szODs1OzI0MDs0ODs1OzIzM23ilIzilIAgG1sxbRtbMzg7NTsyNTQ7NDg7NTsyMzNtV2VsY29tZSB0byBHcm9rIEJ1aWxkG1syMm0bWzM4OzU7MjQwOzQ4OzU7MjMzbSDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIAgW+Kcl10g4pSA4pSQG1s2OzIxSOKUghtbMzg7NTsyNTQ7NDg7NTsyMzNtICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbMzg7NTsyNDA7NDg7NTsyMzNt4pSCG1s3OzIxSOKUghtbMzg7NTsyNTQ7NDg7NTsyMzNtICAbWzM4OzU7MjQzOzQ4OzU7MjMzbVF1aWNrIHRpcHMgdG8gZ2V0IHRoZSBtb3N0IG91dCBvZiBHcm9rIEJ1aWxkLhtbMzg7NTsyNTQ7NDg7NTsyMzNtICAgICAgICAgICAbWzM4OzU7MjQwOzQ4OzU7MjMzbeKUghtbODsyMUjilIIbWzM4OzU7MjU0OzQ4OzU7MjMzbSAgG1szODs1OzI0Mzs0ODs1OzIzM21QaWNrIGEgdG9waWMuIEVzYyB3aGVuIHlvdSdyZSBkb25lLhtbMzg7NTsyNTQ7NDg7NTsyMzNtICAgICAgICAgICAgICAgICAgICAgG1szODs1OzI0MDs0ODs1OzIzM23ilIIbWzk7MjFI4pSCG1szODs1OzI1NDs0ODs1OzIzM20gICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgG1szODs1OzI0MDs0ODs1OzIzM23ilIIbWzEwOzIxSOKUghtbMzg7NTsyNTQ7NDg7NTsyMzNtICAbWzM4OzU7MjQwOzQ4OzU7MjM3beKXhiAbWzFtG1szODs1OzI1NDs0ODs1OzIzN21Db21pbmcgZnJvbSBDbGF1ZGUsIEN1cnNvciwgb3IgQ29kZXg/G1syMm0gICAgICAgICAgICAgIBtbMzg7NTsyNTQ7NDg7NTsyMzNtICAbWzM4OzU7MjQwOzQ4OzU7MjQwbeKWiBtbMzg7NTsyNDA7NDg7NTsyMzNt4pSCG1sxMTsyMUjilIIbWzM4OzU7MjU0OzQ4OzU7MjMzbSAgICAgIBtbMzg7NTsyNDI7NDg7NTsyMzNteW91ciBzZXR0aW5ncywgcnVsZXMgJiBza2lsbA=="
+        },
+        {
+          "ms": 2724.318541,
+          "output": "s carry over\u001b[38;5;254;48;5;233m           \u001b[38;5;240;48;5;240m█\u001b[38;5;240;48;5;233m│\u001b[12;21H│\u001b[38;5;254;48;5;233m  \u001b[38;5;240;48;5;233m◆ \u001b[38;5;254;48;5;233mYour First Prompt                                    \u001b[38;5;240;48;5;240m█\u001b[38;5;240;48;5;233m│\u001b[13;21H│\u001b[38;5;254;48;5;233m      \u001b[38;5;242;48;5;233msend, queue, cancel\u001b[38;5;254;48;5;233m                                \u001b[38;5;240;48;5;240m█\u001b[38;5;240;48;5;233m│\u001b[14;21H│\u001b[38;5;254;48;5;233m  \u001b[38;5;240;48;5;233m◆ \u001b[38;5;254;48;5;233mAttach Files, Images & Paste                         \u001b[38;5;240;48;5;240m█\u001b[38;5;240;48;5;233m│\u001b[15;21H│\u001b[38;5;254;48;5;233m      \u001b[38;5;242;48;5;233m@files, line ranges, screenshots\u001b[38;5;254;48;5;233m                   \u001b[38;5;240;48;5;240m█\u001b[38;5;240;48;5;233m│\u001b[16;21H│\u001b[38;5;254;48;5;233m  \u001b[38;5;240;48;5;233m◆ \u001b[38;5;254;48;5;233mFinding Your Way Around                              \u001b[38;5;240;48;5;240m█\u001b[38;5;240;48;5;233m│\u001b[17;21H│\u001b[38;5;254;48;5;233m      \u001b[38;5;242;48;5;233mfo",
+          "bytesBase64": "cyBjYXJyeSBvdmVyG1szODs1OzI1NDs0ODs1OzIzM20gICAgICAgICAgIBtbMzg7NTsyNDA7NDg7NTsyNDBt4paIG1szODs1OzI0MDs0ODs1OzIzM23ilIIbWzEyOzIxSOKUghtbMzg7NTsyNTQ7NDg7NTsyMzNtICAbWzM4OzU7MjQwOzQ4OzU7MjMzbeKXhiAbWzM4OzU7MjU0OzQ4OzU7MjMzbVlvdXIgRmlyc3QgUHJvbXB0ICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgG1szODs1OzI0MDs0ODs1OzI0MG3ilogbWzM4OzU7MjQwOzQ4OzU7MjMzbeKUghtbMTM7MjFI4pSCG1szODs1OzI1NDs0ODs1OzIzM20gICAgICAbWzM4OzU7MjQyOzQ4OzU7MjMzbXNlbmQsIHF1ZXVlLCBjYW5jZWwbWzM4OzU7MjU0OzQ4OzU7MjMzbSAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgG1szODs1OzI0MDs0ODs1OzI0MG3ilogbWzM4OzU7MjQwOzQ4OzU7MjMzbeKUghtbMTQ7MjFI4pSCG1szODs1OzI1NDs0ODs1OzIzM20gIBtbMzg7NTsyNDA7NDg7NTsyMzNt4peGIBtbMzg7NTsyNTQ7NDg7NTsyMzNtQXR0YWNoIEZpbGVzLCBJbWFnZXMgJiBQYXN0ZSAgICAgICAgICAgICAgICAgICAgICAgICAbWzM4OzU7MjQwOzQ4OzU7MjQwbeKWiBtbMzg7NTsyNDA7NDg7NTsyMzNt4pSCG1sxNTsyMUjilIIbWzM4OzU7MjU0OzQ4OzU7MjMzbSAgICAgIBtbMzg7NTsyNDI7NDg7NTsyMzNtQGZpbGVzLCBsaW5lIHJhbmdlcywgc2NyZWVuc2hvdHMbWzM4OzU7MjU0OzQ4OzU7MjMzbSAgICAgICAgICAgICAgICAgICAbWzM4OzU7MjQwOzQ4OzU7MjQwbeKWiBtbMzg7NTsyNDA7NDg7NTsyMzNt4pSCG1sxNjsyMUjilIIbWzM4OzU7MjU0OzQ4OzU7MjMzbSAgG1szODs1OzI0MDs0ODs1OzIzM23il4YgG1szODs1OzI1NDs0ODs1OzIzM21GaW5kaW5nIFlvdXIgV2F5IEFyb3VuZCAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbMzg7NTsyNDA7NDg7NTsyNDBt4paIG1szODs1OzI0MDs0ODs1OzIzM23ilIIbWzE3OzIxSOKUghtbMzg7NTsyNTQ7NDg7NTsyMzNtICAgICAgG1szODs1OzI0Mjs0ODs1OzIzM21mbw=="
+        },
+        {
+          "ms": 2724.325833,
+          "output": "cus, scrollback, panes\u001b[38;5;254;48;5;233m                           \u001b[38;5;240;48;5;240m█\u001b[38;5;240;48;5;233m│\u001b[18;21H│\u001b[38;5;254;48;5;233m  \u001b[38;5;240;48;5;233m◆ \u001b[38;5;254;48;5;233mSlash Commands                                       \u001b[38;5;240;48;5;240m█\u001b[38;5;240;48;5;233m│\u001b[19;21H│\u001b[38;5;254;48;5;233m      \u001b[38;5;242;48;5;233m/help  /model  /resume  and Ctrl+P\u001b[38;5;254;48;5;233m                 \u001b[38;5;240;48;5;240m█\u001b[38;5;240;48;5;233m│\u001b[20;21H│\u001b[38;5;254;48;5;233m  \u001b[38;5;240;48;5;233m◆ \u001b[38;5;254;48;5;233mParallel Work: Worktrees                             \u001b[38;5;240;48;5;240m█\u001b[38;5;240;48;5;233m│\u001b[21;21H│\u001b[38;5;254;48;5;233m      \u001b[38;5;242;48;5;233misolated sessions on one repo\u001b[38;5;254;48;5;233m                      \u001b[38;5;240;48;5;240m█\u001b[38;5;240;48;5;233m│\u001b[22;21H│\u001b[38;5;254;48;5;233m  \u001b[38;5;240;48;5;233m◆ \u001b[38;5;254;48;5;233mPlan Mode & Permissions                              \u001b[38;5;240;48;5;240m█\u001b[38;5;240;48;5;233m│\u001b[23;21H│\u001b[38;5;254;48;5;233m  ",
+          "bytesBase64": "Y3VzLCBzY3JvbGxiYWNrLCBwYW5lcxtbMzg7NTsyNTQ7NDg7NTsyMzNtICAgICAgICAgICAgICAgICAgICAgICAgICAgG1szODs1OzI0MDs0ODs1OzI0MG3ilogbWzM4OzU7MjQwOzQ4OzU7MjMzbeKUghtbMTg7MjFI4pSCG1szODs1OzI1NDs0ODs1OzIzM20gIBtbMzg7NTsyNDA7NDg7NTsyMzNt4peGIBtbMzg7NTsyNTQ7NDg7NTsyMzNtU2xhc2ggQ29tbWFuZHMgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzM4OzU7MjQwOzQ4OzU7MjQwbeKWiBtbMzg7NTsyNDA7NDg7NTsyMzNt4pSCG1sxOTsyMUjilIIbWzM4OzU7MjU0OzQ4OzU7MjMzbSAgICAgIBtbMzg7NTsyNDI7NDg7NTsyMzNtL2hlbHAgIC9tb2RlbCAgL3Jlc3VtZSAgYW5kIEN0cmwrUBtbMzg7NTsyNTQ7NDg7NTsyMzNtICAgICAgICAgICAgICAgICAbWzM4OzU7MjQwOzQ4OzU7MjQwbeKWiBtbMzg7NTsyNDA7NDg7NTsyMzNt4pSCG1syMDsyMUjilIIbWzM4OzU7MjU0OzQ4OzU7MjMzbSAgG1szODs1OzI0MDs0ODs1OzIzM23il4YgG1szODs1OzI1NDs0ODs1OzIzM21QYXJhbGxlbCBXb3JrOiBXb3JrdHJlZXMgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbMzg7NTsyNDA7NDg7NTsyNDBt4paIG1szODs1OzI0MDs0ODs1OzIzM23ilIIbWzIxOzIxSOKUghtbMzg7NTsyNTQ7NDg7NTsyMzNtICAgICAgG1szODs1OzI0Mjs0ODs1OzIzM21pc29sYXRlZCBzZXNzaW9ucyBvbiBvbmUgcmVwbxtbMzg7NTsyNTQ7NDg7NTsyMzNtICAgICAgICAgICAgICAgICAgICAgIBtbMzg7NTsyNDA7NDg7NTsyNDBt4paIG1szODs1OzI0MDs0ODs1OzIzM23ilIIbWzIyOzIxSOKUghtbMzg7NTsyNTQ7NDg7NTsyMzNtICAbWzM4OzU7MjQwOzQ4OzU7MjMzbeKXhiAbWzM4OzU7MjU0OzQ4OzU7MjMzbVBsYW4gTW9kZSAmIFBlcm1pc3Npb25zICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgG1szODs1OzI0MDs0ODs1OzI0MG3ilogbWzM4OzU7MjQwOzQ4OzU7MjMzbeKUghtbMjM7MjFI4pSCG1szODs1OzI1NDs0ODs1OzIzM20gIA=="
+        },
+        {
+          "ms": 2724.339166,
+          "output": "    \u001b[38;5;242;48;5;233mreview the approach before it acts\u001b[38;5;254;48;5;233m                 \u001b[38;5;240;48;5;240m█\u001b[38;5;240;48;5;233m│\u001b[24;21H│\u001b[38;5;254;48;5;233m  \u001b[38;5;240;48;5;233m◆ \u001b[38;5;254;48;5;233mMake It Yours                                        \u001b[38;5;240;48;5;240m█\u001b[38;5;240;48;5;233m│\u001b[25;21H│\u001b[38;5;254;48;5;233m      \u001b[38;5;242;48;5;233mjust ask: AGENTS.md, memory, themes\u001b[38;5;254;48;5;233m                 \u001b[38;5;240;48;5;233m│\u001b[26;21H│\u001b[38;5;254;48;5;233m       \u001b[1m\u001b[38;5;251;48;5;233m0/9\u001b[22m\u001b[38;5;242;48;5;233m explored\u001b[38;5;240;48;5;233m  |  \u001b[1m\u001b[38;5;251;48;5;233m↑/↓\u001b[22m\u001b[38;5;242;48;5;233m navigate\u001b[38;5;240;48;5;233m  |  \u001b[1m\u001b[38;5;251;48;5;233mEnter\u001b[22m\u001b[38;5;242;48;5;233m open\u001b[38;5;254;48;5;233m       \u001b[38;5;240;48;5;233m│\u001b[27;21H│\u001b[38;5;254;48;5;233m                         \u001b[1m\u001b[38;5;251;48;5;233mEsc\u001b[22m\u001b[38;5;242;48;5;233m done\u001b[38;5;254;48;5;233m                         \u001b[38;5;240;48;5;233m│\u001b[28;21H└─────────────",
+          "bytesBase64": "ICAgIBtbMzg7NTsyNDI7NDg7NTsyMzNtcmV2aWV3IHRoZSBhcHByb2FjaCBiZWZvcmUgaXQgYWN0cxtbMzg7NTsyNTQ7NDg7NTsyMzNtICAgICAgICAgICAgICAgICAbWzM4OzU7MjQwOzQ4OzU7MjQwbeKWiBtbMzg7NTsyNDA7NDg7NTsyMzNt4pSCG1syNDsyMUjilIIbWzM4OzU7MjU0OzQ4OzU7MjMzbSAgG1szODs1OzI0MDs0ODs1OzIzM23il4YgG1szODs1OzI1NDs0ODs1OzIzM21NYWtlIEl0IFlvdXJzICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbMzg7NTsyNDA7NDg7NTsyNDBt4paIG1szODs1OzI0MDs0ODs1OzIzM23ilIIbWzI1OzIxSOKUghtbMzg7NTsyNTQ7NDg7NTsyMzNtICAgICAgG1szODs1OzI0Mjs0ODs1OzIzM21qdXN0IGFzazogQUdFTlRTLm1kLCBtZW1vcnksIHRoZW1lcxtbMzg7NTsyNTQ7NDg7NTsyMzNtICAgICAgICAgICAgICAgICAbWzM4OzU7MjQwOzQ4OzU7MjMzbeKUghtbMjY7MjFI4pSCG1szODs1OzI1NDs0ODs1OzIzM20gICAgICAgG1sxbRtbMzg7NTsyNTE7NDg7NTsyMzNtMC85G1syMm0bWzM4OzU7MjQyOzQ4OzU7MjMzbSBleHBsb3JlZBtbMzg7NTsyNDA7NDg7NTsyMzNtICB8ICAbWzFtG1szODs1OzI1MTs0ODs1OzIzM23ihpEv4oaTG1syMm0bWzM4OzU7MjQyOzQ4OzU7MjMzbSBuYXZpZ2F0ZRtbMzg7NTsyNDA7NDg7NTsyMzNtICB8ICAbWzFtG1szODs1OzI1MTs0ODs1OzIzM21FbnRlchtbMjJtG1szODs1OzI0Mjs0ODs1OzIzM20gb3BlbhtbMzg7NTsyNTQ7NDg7NTsyMzNtICAgICAgIBtbMzg7NTsyNDA7NDg7NTsyMzNt4pSCG1syNzsyMUjilIIbWzM4OzU7MjU0OzQ4OzU7MjMzbSAgICAgICAgICAgICAgICAgICAgICAgICAbWzFtG1szODs1OzI1MTs0ODs1OzIzM21Fc2MbWzIybRtbMzg7NTsyNDI7NDg7NTsyMzNtIGRvbmUbWzM4OzU7MjU0OzQ4OzU7MjMzbSAgICAgICAgICAgICAgICAgICAgICAgICAbWzM4OzU7MjQwOzQ4OzU7MjMzbeKUghtbMjg7MjFI4pSU4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4g=="
+        },
+        {
+          "ms": 2724.352291,
+          "output": "─────────────────────────────────────────────┘\u001b[39m\u001b[49m\u001b[59m\u001b[0m\u001b[?25l\u001b[?2026l",
+          "bytesBase64": "lIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilJgbWzM5bRtbNDltG1s1OW0bWzBtG1s/MjVsG1s/MjAyNmw="
+        },
+        {
+          "ms": 2916.593875,
+          "action": "tour-dismiss",
+          "offset": 34086,
+          "inputHex": "1b",
+          "observedMs": 3229.900083,
+          "markerFound": null,
+          "endOffset": 35935
+        },
+        {
+          "ms": 3067.477375,
+          "output": "\u001b[?2026h\u001b[5;21H\u001b[39;48;5;233m                                                            \u001b[6;21H                                                            \u001b[7;21H                                                            \u001b[8;21H                                                            \u001b[9;21H                                                            \u001b[10;21H                                                            \u001b[11;21H                                                            \u001b[12;21H                                                            \u001b[13;21H                                                            \u001b[14;21H                                                            \u001b[15;21H                                                            \u001b[16;21H                                                            \u001b[17;21H                                                            \u001b[18;21H                                                            \u001b[19;21H                                               ",
+          "bytesBase64": "G1s/MjAyNmgbWzU7MjFIG1szOTs0ODs1OzIzM20gICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzY7MjFIICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgG1s3OzIxSCAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbODsyMUggICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzk7MjFIICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgG1sxMDsyMUggICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzExOzIxSCAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbMTI7MjFIICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgG1sxMzsyMUggICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzE0OzIxSCAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbMTU7MjFIICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgG1sxNjsyMUggICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzE3OzIxSCAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbMTg7MjFIICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgG1sxOTsyMUggICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIA=="
+        },
+        {
+          "ms": 3067.546083,
+          "output": "             \u001b[20;21H                                                            \u001b[21;21H                                                            \u001b[22;21H                                                            \u001b[23;21H                                                            \u001b[24;21H                                                            \u001b[25;21H                                                            \u001b[26;21H                                                            \u001b[27;21H\u001b[38;5;239;48;5;233m────────────────────────────────────────────────────────────\u001b[28;21H\u001b[38;5;254;48;5;233m                                                            \u001b[39m\u001b[49m\u001b[59m\u001b[0m\u001b[28;7H\u001b[?25h\u001b[?2026l",
+          "bytesBase64": "ICAgICAgICAgICAgIBtbMjA7MjFIICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgG1syMTsyMUggICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzIyOzIxSCAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbMjM7MjFIICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgG1syNDsyMUggICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzI1OzIxSCAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbMjY7MjFIICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgG1syNzsyMUgbWzM4OzU7MjM5OzQ4OzU7MjMzbeKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgBtbMjg7MjFIG1szODs1OzI1NDs0ODs1OzIzM20gICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzM5bRtbNDltG1s1OW0bWzBtG1syODs3SBtbPzI1aBtbPzIwMjZs"
+        },
+        {
+          "ms": 3386.603333,
+          "action": "onboarding-open",
+          "offset": 35935,
+          "inputHex": "2f6f6e626f617264696e670d",
+          "observedMs": 3426.072541,
+          "markerFound": true,
+          "endOffset": 40201
+        },
+        {
+          "ms": 3391.062083,
+          "output": "\u001b[?2026h\u001b[5;21H\u001b[38;5;240;48;5;233m┌─ \u001b[1m\u001b[38;5;254;48;5;233mWelcome to Grok Build\u001b[22m\u001b[38;5;240;48;5;233m ──────────────────────────── [✗] ─┐\u001b[6;21H│\u001b[38;5;254;48;5;233m                                                          \u001b[38;5;240;48;5;233m│\u001b[7;21H│\u001b[38;5;254;48;5;233m  \u001b[38;5;243;48;5;233mQuick tips to get the most out of Grok Build.\u001b[38;5;254;48;5;233m           \u001b[38;5;240;48;5;233m│\u001b[8;21H│\u001b[38;5;254;48;5;233m  \u001b[38;5;243;48;5;233mPick a topic. Esc when you're done.\u001b[38;5;254;48;5;233m                     \u001b[38;5;240;48;5;233m│\u001b[9;21H│\u001b[38;5;254;48;5;233m                                                          \u001b[38;5;240;48;5;233m│\u001b[10;21H│\u001b[38;5;254;48;5;233m  \u001b[38;5;240;48;5;237m◆ \u001b[1m\u001b[38;5;254;48;5;237mComing from Claude, Cursor, or Codex?\u001b[22m              \u001b[38;5;254;48;5;233m  \u001b[38;5;240;48;5;240m█\u001b[38;5;240;48;5;233m│\u001b[11;21H│\u001b[38;5;254;48;5;233m      \u001b[38;5;242;48;5;233myour settings, rules & skill",
+          "bytesBase64": "G1s/MjAyNmgbWzU7MjFIG1szODs1OzI0MDs0ODs1OzIzM23ilIzilIAgG1sxbRtbMzg7NTsyNTQ7NDg7NTsyMzNtV2VsY29tZSB0byBHcm9rIEJ1aWxkG1syMm0bWzM4OzU7MjQwOzQ4OzU7MjMzbSDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIAgW+Kcl10g4pSA4pSQG1s2OzIxSOKUghtbMzg7NTsyNTQ7NDg7NTsyMzNtICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbMzg7NTsyNDA7NDg7NTsyMzNt4pSCG1s3OzIxSOKUghtbMzg7NTsyNTQ7NDg7NTsyMzNtICAbWzM4OzU7MjQzOzQ4OzU7MjMzbVF1aWNrIHRpcHMgdG8gZ2V0IHRoZSBtb3N0IG91dCBvZiBHcm9rIEJ1aWxkLhtbMzg7NTsyNTQ7NDg7NTsyMzNtICAgICAgICAgICAbWzM4OzU7MjQwOzQ4OzU7MjMzbeKUghtbODsyMUjilIIbWzM4OzU7MjU0OzQ4OzU7MjMzbSAgG1szODs1OzI0Mzs0ODs1OzIzM21QaWNrIGEgdG9waWMuIEVzYyB3aGVuIHlvdSdyZSBkb25lLhtbMzg7NTsyNTQ7NDg7NTsyMzNtICAgICAgICAgICAgICAgICAgICAgG1szODs1OzI0MDs0ODs1OzIzM23ilIIbWzk7MjFI4pSCG1szODs1OzI1NDs0ODs1OzIzM20gICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgG1szODs1OzI0MDs0ODs1OzIzM23ilIIbWzEwOzIxSOKUghtbMzg7NTsyNTQ7NDg7NTsyMzNtICAbWzM4OzU7MjQwOzQ4OzU7MjM3beKXhiAbWzFtG1szODs1OzI1NDs0ODs1OzIzN21Db21pbmcgZnJvbSBDbGF1ZGUsIEN1cnNvciwgb3IgQ29kZXg/G1syMm0gICAgICAgICAgICAgIBtbMzg7NTsyNTQ7NDg7NTsyMzNtICAbWzM4OzU7MjQwOzQ4OzU7MjQwbeKWiBtbMzg7NTsyNDA7NDg7NTsyMzNt4pSCG1sxMTsyMUjilIIbWzM4OzU7MjU0OzQ4OzU7MjMzbSAgICAgIBtbMzg7NTsyNDI7NDg7NTsyMzNteW91ciBzZXR0aW5ncywgcnVsZXMgJiBza2lsbA=="
+        },
+        {
+          "ms": 3391.121125,
+          "output": "s carry over\u001b[38;5;254;48;5;233m           \u001b[38;5;240;48;5;240m█\u001b[38;5;240;48;5;233m│\u001b[12;21H│\u001b[38;5;254;48;5;233m  \u001b[38;5;240;48;5;233m◆ \u001b[38;5;254;48;5;233mYour First Prompt                                    \u001b[38;5;240;48;5;240m█\u001b[38;5;240;48;5;233m│\u001b[13;21H│\u001b[38;5;254;48;5;233m      \u001b[38;5;242;48;5;233msend, queue, cancel\u001b[38;5;254;48;5;233m                                \u001b[38;5;240;48;5;240m█\u001b[38;5;240;48;5;233m│\u001b[14;21H│\u001b[38;5;254;48;5;233m  \u001b[38;5;240;48;5;233m◆ \u001b[38;5;254;48;5;233mAttach Files, Images & Paste                         \u001b[38;5;240;48;5;240m█\u001b[38;5;240;48;5;233m│\u001b[15;21H│\u001b[38;5;254;48;5;233m      \u001b[38;5;242;48;5;233m@files, line ranges, screenshots\u001b[38;5;254;48;5;233m                   \u001b[38;5;240;48;5;240m█\u001b[38;5;240;48;5;233m│\u001b[16;21H│\u001b[38;5;254;48;5;233m  \u001b[38;5;240;48;5;233m◆ \u001b[38;5;254;48;5;233mFinding Your Way Around                              \u001b[38;5;240;48;5;240m█\u001b[38;5;240;48;5;233m│\u001b[17;21H│\u001b[38;5;254;48;5;233m      \u001b[38;5;242;48;5;233mfo",
+          "bytesBase64": "cyBjYXJyeSBvdmVyG1szODs1OzI1NDs0ODs1OzIzM20gICAgICAgICAgIBtbMzg7NTsyNDA7NDg7NTsyNDBt4paIG1szODs1OzI0MDs0ODs1OzIzM23ilIIbWzEyOzIxSOKUghtbMzg7NTsyNTQ7NDg7NTsyMzNtICAbWzM4OzU7MjQwOzQ4OzU7MjMzbeKXhiAbWzM4OzU7MjU0OzQ4OzU7MjMzbVlvdXIgRmlyc3QgUHJvbXB0ICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgG1szODs1OzI0MDs0ODs1OzI0MG3ilogbWzM4OzU7MjQwOzQ4OzU7MjMzbeKUghtbMTM7MjFI4pSCG1szODs1OzI1NDs0ODs1OzIzM20gICAgICAbWzM4OzU7MjQyOzQ4OzU7MjMzbXNlbmQsIHF1ZXVlLCBjYW5jZWwbWzM4OzU7MjU0OzQ4OzU7MjMzbSAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgG1szODs1OzI0MDs0ODs1OzI0MG3ilogbWzM4OzU7MjQwOzQ4OzU7MjMzbeKUghtbMTQ7MjFI4pSCG1szODs1OzI1NDs0ODs1OzIzM20gIBtbMzg7NTsyNDA7NDg7NTsyMzNt4peGIBtbMzg7NTsyNTQ7NDg7NTsyMzNtQXR0YWNoIEZpbGVzLCBJbWFnZXMgJiBQYXN0ZSAgICAgICAgICAgICAgICAgICAgICAgICAbWzM4OzU7MjQwOzQ4OzU7MjQwbeKWiBtbMzg7NTsyNDA7NDg7NTsyMzNt4pSCG1sxNTsyMUjilIIbWzM4OzU7MjU0OzQ4OzU7MjMzbSAgICAgIBtbMzg7NTsyNDI7NDg7NTsyMzNtQGZpbGVzLCBsaW5lIHJhbmdlcywgc2NyZWVuc2hvdHMbWzM4OzU7MjU0OzQ4OzU7MjMzbSAgICAgICAgICAgICAgICAgICAbWzM4OzU7MjQwOzQ4OzU7MjQwbeKWiBtbMzg7NTsyNDA7NDg7NTsyMzNt4pSCG1sxNjsyMUjilIIbWzM4OzU7MjU0OzQ4OzU7MjMzbSAgG1szODs1OzI0MDs0ODs1OzIzM23il4YgG1szODs1OzI1NDs0ODs1OzIzM21GaW5kaW5nIFlvdXIgV2F5IEFyb3VuZCAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbMzg7NTsyNDA7NDg7NTsyNDBt4paIG1szODs1OzI0MDs0ODs1OzIzM23ilIIbWzE3OzIxSOKUghtbMzg7NTsyNTQ7NDg7NTsyMzNtICAgICAgG1szODs1OzI0Mjs0ODs1OzIzM21mbw=="
+        },
+        {
+          "ms": 3391.128083,
+          "output": "cus, scrollback, panes\u001b[38;5;254;48;5;233m                           \u001b[38;5;240;48;5;240m█\u001b[38;5;240;48;5;233m│\u001b[18;21H│\u001b[38;5;254;48;5;233m  \u001b[38;5;240;48;5;233m◆ \u001b[38;5;254;48;5;233mSlash Commands                                       \u001b[38;5;240;48;5;240m█\u001b[38;5;240;48;5;233m│\u001b[19;21H│\u001b[38;5;254;48;5;233m      \u001b[38;5;242;48;5;233m/help  /model  /resume  and Ctrl+P\u001b[38;5;254;48;5;233m                 \u001b[38;5;240;48;5;240m█\u001b[38;5;240;48;5;233m│\u001b[20;21H│\u001b[38;5;254;48;5;233m  \u001b[38;5;240;48;5;233m◆ \u001b[38;5;254;48;5;233mParallel Work: Worktrees                             \u001b[38;5;240;48;5;240m█\u001b[38;5;240;48;5;233m│\u001b[21;21H│\u001b[38;5;254;48;5;233m      \u001b[38;5;242;48;5;233misolated sessions on one repo\u001b[38;5;254;48;5;233m                      \u001b[38;5;240;48;5;240m█\u001b[38;5;240;48;5;233m│\u001b[22;21H│\u001b[38;5;254;48;5;233m  \u001b[38;5;240;48;5;233m◆ \u001b[38;5;254;48;5;233mPlan Mode & Permissions                              \u001b[38;5;240;48;5;240m█\u001b[38;5;240;48;5;233m│\u001b[23;21H│\u001b[38;5;254;48;5;233m  ",
+          "bytesBase64": "Y3VzLCBzY3JvbGxiYWNrLCBwYW5lcxtbMzg7NTsyNTQ7NDg7NTsyMzNtICAgICAgICAgICAgICAgICAgICAgICAgICAgG1szODs1OzI0MDs0ODs1OzI0MG3ilogbWzM4OzU7MjQwOzQ4OzU7MjMzbeKUghtbMTg7MjFI4pSCG1szODs1OzI1NDs0ODs1OzIzM20gIBtbMzg7NTsyNDA7NDg7NTsyMzNt4peGIBtbMzg7NTsyNTQ7NDg7NTsyMzNtU2xhc2ggQ29tbWFuZHMgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzM4OzU7MjQwOzQ4OzU7MjQwbeKWiBtbMzg7NTsyNDA7NDg7NTsyMzNt4pSCG1sxOTsyMUjilIIbWzM4OzU7MjU0OzQ4OzU7MjMzbSAgICAgIBtbMzg7NTsyNDI7NDg7NTsyMzNtL2hlbHAgIC9tb2RlbCAgL3Jlc3VtZSAgYW5kIEN0cmwrUBtbMzg7NTsyNTQ7NDg7NTsyMzNtICAgICAgICAgICAgICAgICAbWzM4OzU7MjQwOzQ4OzU7MjQwbeKWiBtbMzg7NTsyNDA7NDg7NTsyMzNt4pSCG1syMDsyMUjilIIbWzM4OzU7MjU0OzQ4OzU7MjMzbSAgG1szODs1OzI0MDs0ODs1OzIzM23il4YgG1szODs1OzI1NDs0ODs1OzIzM21QYXJhbGxlbCBXb3JrOiBXb3JrdHJlZXMgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbMzg7NTsyNDA7NDg7NTsyNDBt4paIG1szODs1OzI0MDs0ODs1OzIzM23ilIIbWzIxOzIxSOKUghtbMzg7NTsyNTQ7NDg7NTsyMzNtICAgICAgG1szODs1OzI0Mjs0ODs1OzIzM21pc29sYXRlZCBzZXNzaW9ucyBvbiBvbmUgcmVwbxtbMzg7NTsyNTQ7NDg7NTsyMzNtICAgICAgICAgICAgICAgICAgICAgIBtbMzg7NTsyNDA7NDg7NTsyNDBt4paIG1szODs1OzI0MDs0ODs1OzIzM23ilIIbWzIyOzIxSOKUghtbMzg7NTsyNTQ7NDg7NTsyMzNtICAbWzM4OzU7MjQwOzQ4OzU7MjMzbeKXhiAbWzM4OzU7MjU0OzQ4OzU7MjMzbVBsYW4gTW9kZSAmIFBlcm1pc3Npb25zICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgG1szODs1OzI0MDs0ODs1OzI0MG3ilogbWzM4OzU7MjQwOzQ4OzU7MjMzbeKUghtbMjM7MjFI4pSCG1szODs1OzI1NDs0ODs1OzIzM20gIA=="
+        },
+        {
+          "ms": 3391.133458,
+          "output": "    \u001b[38;5;242;48;5;233mreview the approach before it acts\u001b[38;5;254;48;5;233m                 \u001b[38;5;240;48;5;240m█\u001b[38;5;240;48;5;233m│\u001b[24;21H│\u001b[38;5;254;48;5;233m  \u001b[38;5;240;48;5;233m◆ \u001b[38;5;254;48;5;233mMake It Yours                                        \u001b[38;5;240;48;5;240m█\u001b[38;5;240;48;5;233m│\u001b[25;21H│\u001b[38;5;254;48;5;233m      \u001b[38;5;242;48;5;233mjust ask: AGENTS.md, memory, themes\u001b[38;5;254;48;5;233m                 \u001b[38;5;240;48;5;233m│\u001b[26;21H│\u001b[38;5;254;48;5;233m       \u001b[1m\u001b[38;5;251;48;5;233m0/9\u001b[22m\u001b[38;5;242;48;5;233m explored\u001b[38;5;240;48;5;233m  |  \u001b[1m\u001b[38;5;251;48;5;233m↑/↓\u001b[22m\u001b[38;5;242;48;5;233m navigate\u001b[38;5;240;48;5;233m  |  \u001b[1m\u001b[38;5;251;48;5;233mEnter\u001b[22m\u001b[38;5;242;48;5;233m open\u001b[38;5;254;48;5;233m       \u001b[38;5;240;48;5;233m│\u001b[27;21H│\u001b[38;5;254;48;5;233m                         \u001b[1m\u001b[38;5;251;48;5;233mEsc\u001b[22m\u001b[38;5;242;48;5;233m done\u001b[38;5;254;48;5;233m                         \u001b[38;5;240;48;5;233m│\u001b[28;21H└─────────────",
+          "bytesBase64": "ICAgIBtbMzg7NTsyNDI7NDg7NTsyMzNtcmV2aWV3IHRoZSBhcHByb2FjaCBiZWZvcmUgaXQgYWN0cxtbMzg7NTsyNTQ7NDg7NTsyMzNtICAgICAgICAgICAgICAgICAbWzM4OzU7MjQwOzQ4OzU7MjQwbeKWiBtbMzg7NTsyNDA7NDg7NTsyMzNt4pSCG1syNDsyMUjilIIbWzM4OzU7MjU0OzQ4OzU7MjMzbSAgG1szODs1OzI0MDs0ODs1OzIzM23il4YgG1szODs1OzI1NDs0ODs1OzIzM21NYWtlIEl0IFlvdXJzICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbMzg7NTsyNDA7NDg7NTsyNDBt4paIG1szODs1OzI0MDs0ODs1OzIzM23ilIIbWzI1OzIxSOKUghtbMzg7NTsyNTQ7NDg7NTsyMzNtICAgICAgG1szODs1OzI0Mjs0ODs1OzIzM21qdXN0IGFzazogQUdFTlRTLm1kLCBtZW1vcnksIHRoZW1lcxtbMzg7NTsyNTQ7NDg7NTsyMzNtICAgICAgICAgICAgICAgICAbWzM4OzU7MjQwOzQ4OzU7MjMzbeKUghtbMjY7MjFI4pSCG1szODs1OzI1NDs0ODs1OzIzM20gICAgICAgG1sxbRtbMzg7NTsyNTE7NDg7NTsyMzNtMC85G1syMm0bWzM4OzU7MjQyOzQ4OzU7MjMzbSBleHBsb3JlZBtbMzg7NTsyNDA7NDg7NTsyMzNtICB8ICAbWzFtG1szODs1OzI1MTs0ODs1OzIzM23ihpEv4oaTG1syMm0bWzM4OzU7MjQyOzQ4OzU7MjMzbSBuYXZpZ2F0ZRtbMzg7NTsyNDA7NDg7NTsyMzNtICB8ICAbWzFtG1szODs1OzI1MTs0ODs1OzIzM21FbnRlchtbMjJtG1szODs1OzI0Mjs0ODs1OzIzM20gb3BlbhtbMzg7NTsyNTQ7NDg7NTsyMzNtICAgICAgIBtbMzg7NTsyNDA7NDg7NTsyMzNt4pSCG1syNzsyMUjilIIbWzM4OzU7MjU0OzQ4OzU7MjMzbSAgICAgICAgICAgICAgICAgICAgICAgICAbWzFtG1szODs1OzI1MTs0ODs1OzIzM21Fc2MbWzIybRtbMzg7NTsyNDI7NDg7NTsyMzNtIGRvbmUbWzM4OzU7MjU0OzQ4OzU7MjMzbSAgICAgICAgICAgICAgICAgICAgICAgICAbWzM4OzU7MjQwOzQ4OzU7MjMzbeKUghtbMjg7MjFI4pSU4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4g=="
+        },
+        {
+          "ms": 3391.143,
+          "output": "─────────────────────────────────────────────┘\u001b[39m\u001b[49m\u001b[59m\u001b[0m\u001b[?25l\u001b[?2026l",
+          "bytesBase64": "lIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilJgbWzM5bRtbNDltG1s1OW0bWzBtG1s/MjVsG1s/MjAyNmw="
+        },
+        {
+          "ms": 3580.214125,
+          "action": "onboarding-dismiss",
+          "offset": 40201,
+          "inputHex": "1b",
+          "observedMs": 3890.959958,
+          "markerFound": null,
+          "endOffset": 42050
+        },
+        {
+          "ms": 3733.34675,
+          "output": "\u001b[?2026h\u001b[5;21H\u001b[39;48;5;233m                                                            \u001b[6;21H                                                            \u001b[7;21H                                                            \u001b[8;21H                                                            \u001b[9;21H                                                            \u001b[10;21H                                                            \u001b[11;21H                                                            \u001b[12;21H                                                            \u001b[13;21H                                                            \u001b[14;21H                                                            \u001b[15;21H                                                            \u001b[16;21H                                                            \u001b[17;21H                                                            \u001b[18;21H                                                            \u001b[19;21H                                               ",
+          "bytesBase64": "G1s/MjAyNmgbWzU7MjFIG1szOTs0ODs1OzIzM20gICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzY7MjFIICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgG1s3OzIxSCAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbODsyMUggICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzk7MjFIICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgG1sxMDsyMUggICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzExOzIxSCAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbMTI7MjFIICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgG1sxMzsyMUggICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzE0OzIxSCAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbMTU7MjFIICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgG1sxNjsyMUggICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzE3OzIxSCAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbMTg7MjFIICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgG1sxOTsyMUggICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIA=="
+        },
+        {
+          "ms": 3733.410583,
+          "output": "             \u001b[20;21H                                                            \u001b[21;21H                                                            \u001b[22;21H                                                            \u001b[23;21H                                                            \u001b[24;21H                                                            \u001b[25;21H                                                            \u001b[26;21H                                                            \u001b[27;21H\u001b[38;5;239;48;5;233m────────────────────────────────────────────────────────────\u001b[28;21H\u001b[38;5;254;48;5;233m                                                            \u001b[39m\u001b[49m\u001b[59m\u001b[0m\u001b[28;7H\u001b[?25h\u001b[?2026l",
+          "bytesBase64": "ICAgICAgICAgICAgIBtbMjA7MjFIICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgG1syMTsyMUggICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzIyOzIxSCAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbMjM7MjFIICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgG1syNDsyMUggICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzI1OzIxSCAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbMjY7MjFIICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgG1syNzsyMUgbWzM4OzU7MjM5OzQ4OzU7MjMzbeKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgBtbMjg7MjFIG1szODs1OzI1NDs0ODs1OzIzM20gICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzM5bRtbNDltG1s1OW0bWzBtG1syODs3SBtbPzI1aBtbPzIwMjZs"
+        },
+        {
+          "ms": 4048.924041,
+          "action": "after-tutorial-draft",
+          "offset": 42050,
+          "inputHex": "41465445525f5455544f5249414c",
+          "observedMs": 4089.361166,
+          "markerFound": true,
+          "endOffset": 42449
+        },
+        {
+          "ms": 4052.422541,
+          "output": "\u001b[?2026h\u001b[28;7H\u001b[38;5;254;48;5;233mAFTER_TUTORIAL\u001b[31;3H\u001b[1m\u001b[38;5;251;48;5;233mEnter\u001b[22m\u001b[38;5;242;48;5;233m:send\u001b[2m  │ \u001b[31;18H\u001b[22m\u001b[1m\u001b[38;5;251;48;5;233mOpt+Enter\u001b[22m\u001b[38;5;242;48;5;233m:newline\u001b[2m  │  \u001b[22m\u001b[1m\u001b[38;5;251;48;5;233mShift+Tab\u001b[22m\u001b[38;5;242;48;5;233m:mode\u001b[2m  │  \u001b[22m\u001b[1m\u001b[38;5;251;48;5;233mCtrl+x\u001b[22m\u001b[38;5;242;48;5;233m:shortcuts\u001b[39m\u001b[49m\u001b[59m\u001b[0m\u001b[28;21H\u001b[?2026l",
+          "bytesBase64": "G1s/MjAyNmgbWzI4OzdIG1szODs1OzI1NDs0ODs1OzIzM21BRlRFUl9UVVRPUklBTBtbMzE7M0gbWzFtG1szODs1OzI1MTs0ODs1OzIzM21FbnRlchtbMjJtG1szODs1OzI0Mjs0ODs1OzIzM206c2VuZBtbMm0gIOKUgiAbWzMxOzE4SBtbMjJtG1sxbRtbMzg7NTsyNTE7NDg7NTsyMzNtT3B0K0VudGVyG1syMm0bWzM4OzU7MjQyOzQ4OzU7MjMzbTpuZXdsaW5lG1sybSAg4pSCICAbWzIybRtbMW0bWzM4OzU7MjUxOzQ4OzU7MjMzbVNoaWZ0K1RhYhtbMjJtG1szODs1OzI0Mjs0ODs1OzIzM206bW9kZRtbMm0gIOKUgiAgG1syMm0bWzFtG1szODs1OzI1MTs0ODs1OzIzM21DdHJsK3gbWzIybRtbMzg7NTsyNDI7NDg7NTsyMzNtOnNob3J0Y3V0cxtbMzltG1s0OW0bWzU5bRtbMG0bWzI4OzIxSBtbPzIwMjZs"
+        },
+        {
+          "ms": 4254.70525,
+          "action": "after-tutorial-clear",
+          "offset": 42449,
+          "inputHex": "03",
+          "observedMs": 4556.845875,
+          "markerFound": null,
+          "endOffset": 42727
+        },
+        {
+          "ms": 4254.92925,
+          "output": "\u001b[?2026h\u001b[28;7H\u001b[38;5;254;48;5;233m              \u001b[31;3H\u001b[1m\u001b[38;5;251;48;5;233mShift+Tab\u001b[22m\u001b[38;5;242;48;5;233m:mode\u001b[31;18H\u001b[2m │  \u001b[22m\u001b[1m\u001b[38;5;251;48;5;233mCtrl+x\u001b[22m\u001b[38;5;242;48;5;233m:shortcuts                                     \u001b[39m\u001b[49m\u001b[59m\u001b[0m\u001b[28;7H\u001b[?2026l",
+          "bytesBase64": "G1s/MjAyNmgbWzI4OzdIG1szODs1OzI1NDs0ODs1OzIzM20gICAgICAgICAgICAgIBtbMzE7M0gbWzFtG1szODs1OzI1MTs0ODs1OzIzM21TaGlmdCtUYWIbWzIybRtbMzg7NTsyNDI7NDg7NTsyMzNtOm1vZGUbWzMxOzE4SBtbMm0g4pSCICAbWzIybRtbMW0bWzM4OzU7MjUxOzQ4OzU7MjMzbUN0cmwreBtbMjJtG1szODs1OzI0Mjs0ODs1OzIzM206c2hvcnRjdXRzICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbMzltG1s0OW0bWzU5bRtbMG0bWzI4OzdIG1s/MjAyNmw="
+        },
+        {
+          "ms": 4717.382291,
+          "action": "quit",
+          "offset": 42727,
+          "inputHex": "2f717569740d",
+          "observedMs": 4793.763333,
+          "markerFound": null,
+          "endOffset": 42917
+        },
+        {
+          "ms": 4721.60925,
+          "output": "\u001b]0;grok\u0007",
+          "bytesBase64": "G10wO2dyb2sH"
+        },
+        {
+          "ms": 4722.056125,
+          "output": "\u001b[2J",
+          "bytesBase64": "G1sySg=="
+        },
+        {
+          "ms": 4723.584666,
+          "output": "\u001b]9;4;0;0\u0007\u001b[?2026l\u001b]112\u0007\u001b[?1000l\u001b[?1002l\u001b[?1003l\u001b[?1015l\u001b[?1006l\u001b[?2004l",
+          "bytesBase64": "G105OzQ7MDswBxtbPzIwMjZsG10xMTIHG1s/MTAwMGwbWz8xMDAybBtbPzEwMDNsG1s/MTAxNWwbWz8xMDA2bBtbPzIwMDRs"
+        },
+        {
+          "ms": 4723.594833,
+          "output": "\u001b[?1004l\u001b[?25h\u001b[?1049l",
+          "bytesBase64": "G1s/MTAwNGwbWz8yNWgbWz8xMDQ5bA=="
+        },
+        {
+          "ms": 4790.892,
+          "output": "\r\nResume this session with:\r\n  grok --resume 01a0bb10-b2b7-7353-9b95-294b0c8ce8b7\r\n",
+          "bytesBase64": "DQpSZXN1bWUgdGhpcyBzZXNzaW9uIHdpdGg6DQogIGdyb2sgLS1yZXN1bWUgMDFhMGJiMTAtYjJiNy03MzUzLTliOTUtMjk0YjBjOGNlOGI3DQo="
+        }
+      ],
+      "firstFrameMs": 291.32825,
+      "rss": [
+        {
+          "action": "draft",
+          "ms": 490.762833,
+          "rssKiB": 98944
+        },
+        {
+          "action": "clear-draft",
+          "ms": 946.314125,
+          "rssKiB": 98912
+        },
+        {
+          "action": "tutorial-open",
+          "ms": 1155.368791,
+          "rssKiB": 99632
+        },
+        {
+          "action": "tutorial-topic",
+          "ms": 1358.212166,
+          "rssKiB": 102320
+        },
+        {
+          "action": "tutorial-next",
+          "ms": 1568.537666,
+          "rssKiB": 102336
+        },
+        {
+          "action": "tutorial-previous",
+          "ms": 1764.376,
+          "rssKiB": 102384
+        },
+        {
+          "action": "tutorial-list",
+          "ms": 2111.1945,
+          "rssKiB": 102384
+        },
+        {
+          "action": "tutorial-dismiss",
+          "ms": 2567.593,
+          "rssKiB": 102432
+        },
+        {
+          "action": "tour-open",
+          "ms": 2762.584833,
+          "rssKiB": 102528
+        },
+        {
+          "action": "tour-dismiss",
+          "ms": 3233.915583,
+          "rssKiB": 102544
+        },
+        {
+          "action": "onboarding-open",
+          "ms": 3429.604,
+          "rssKiB": 102560
+        },
+        {
+          "action": "onboarding-dismiss",
+          "ms": 3894.88625,
+          "rssKiB": 102560
+        },
+        {
+          "action": "after-tutorial-draft",
+          "ms": 4095.179333,
+          "rssKiB": 102560
+        },
+        {
+          "action": "after-tutorial-clear",
+          "ms": 4560.518,
+          "rssKiB": 102560
+        },
+        {
+          "action": "quit",
+          "ms": 4797.418,
+          "rssKiB": 0
+        }
+      ],
+      "exit": 0,
+      "forcedCleanup": false,
+      "restoredAlternateScreen": true,
+      "outputBytes": 42917,
+      "outputSha256": "29c2aa7e3bccd2a28c584ce491ccd54b441c4b7c40a4b3ddd2e945264713691d"
+    },
+    {
+      "mode": "minimal",
+      "environment": {},
+      "initialSize": [
+        32,
+        100
+      ],
+      "events": [
+        {
+          "ms": 22.619958,
+          "output": "\u001b]0;grok\u0007\u001b[?1004h\u001b[?2004h\u001b[?25l",
+          "bytesBase64": "G10wO2dyb2sHG1s/MTAwNGgbWz8yMDA0aBtbPzI1bA=="
+        },
+        {
+          "ms": 43.28075,
+          "output": "\u001b[6n",
+          "bytesBase64": "G1s2bg=="
+        },
+        {
+          "ms": 43.298542,
+          "replyHex": "1b5b313b3152"
+        },
+        {
+          "ms": 43.3335,
+          "output": "\n\n\n\n\n\n\n\n\n",
+          "bytesBase64": "CgoKCgoKCgoK"
+        },
+        {
+          "ms": 285.98975,
+          "output": "\u001b[>0q",
+          "bytesBase64": "G1s+MHE="
+        },
+        {
+          "ms": 286.45575,
+          "output": "\u001b[?2026h\u001b[?2026h\u001b[1;1H\u001b[2mSigning in… starting your session.\u001b[39m\u001b[49m\u001b[59m\u001b[0m\u001b[?2026l",
+          "bytesBase64": "G1s/MjAyNmgbWz8yMDI2aBtbMTsxSBtbMm1TaWduaW5nIGlu4oCmIHN0YXJ0aW5nIHlvdXIgc2Vzc2lvbi4bWzM5bRtbNDltG1s1OW0bWzBtG1s/MjAyNmw="
+        },
+        {
+          "ms": 286.831458,
+          "output": "\u001b[?2026h\u001b[1;1H",
+          "bytesBase64": "G1s/MjAyNmgbWzE7MUg="
+        },
+        {
+          "ms": 286.839208,
+          "output": "\u001b[J",
+          "bytesBase64": "G1tK"
+        },
+        {
+          "ms": 286.865708,
+          "output": "\u001b[1;1H╭──────────────────────────────────────────────────────────────────────────────────────────────────╮\u001b[2;1H│                                                                                                  │\u001b[3;1H│                                            ⠀⠀⠀⣀⣤⣤⣀⠀⠀⡠                                            │\u001b[4;1H│                                            ⠀⢀⡾⠋⠁⠀⢁⢴⡎⠀                                            │\u001b[5;1H│                                            ⠀⢸⡇⠀⠀⠐⠁⢀⣿⠀                                            │\u001b[6;1H│                                            ⠀⢈⠗⢀⣀⣀⣠⡾⠃⠀                                            │\u001b[7;1H│                                            ⠐⠁⠀⠈⠉⠉⠉⠀⠀⠀     ",
+          "bytesBase64": "G1sxOzFI4pWt4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pWuG1syOzFI4pSCICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICDilIIbWzM7MUjilIIgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIOKggOKggOKggOKjgOKjpOKjpOKjgOKggOKggOKhoCAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAg4pSCG1s0OzFI4pSCICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICDioIDiooDiob7ioIvioIHioIDiooHiorTioY7ioIAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIOKUghtbNTsxSOKUgiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAg4qCA4qK44qGH4qCA4qCA4qCQ4qCB4qKA4qO/4qCAICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICDilIIbWzY7MUjilIIgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIOKggOKiiOKgl+KigOKjgOKjgOKjoOKhvuKgg+KggCAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAg4pSCG1s3OzFI4pSCICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICDioJDioIHioIDioIjioInioInioInioIDioIDioIAgICAgIA=="
+        },
+        {
+          "ms": 286.878583,
+          "output": "                                       │\u001b[8;1H│                                                                                                  │\u001b[9;1H│ \u001b[1mGrok Build\u001b[22m\u001b[2m\u001b[2m  v1.0.34\u001b[22m                                                                              │\u001b[10;1H│ \u001b[2m<ROOT>/workspace\u001b[22m  │\u001b[11;1H│ \u001b[2mModel · reference-fixture\u001b[22m                                                                        │\u001b[12;1H│ \u001b[2m/help for commands\u001b[22m                                                                               │\u001b[13;1H│                                                                                                  │\u001b[14;1H╰──────────────────────────────────────────────────────────────────────────────────────",
+          "bytesBase64": "ICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAg4pSCG1s4OzFI4pSCICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICDilIIbWzk7MUjilIIgG1sxbUdyb2sgQnVpbGQbWzIybRtbMm0bWzJtICB2MS4wLjM0G1syMm0gICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICDilIIbWzEwOzFI4pSCIBtbMm0vcHJpdmF0ZS92YXIvZm9sZGVycy9zNi83dDFocl90NTU0bDRucWtmeGtwZzhxMncwMDAwZ24vVC9jb2RzaC1yZWZlcmVuY2UtMTMzLThpbHN4ZDQ5L3dvcmtzcGFjZRtbMjJtICDilIIbWzExOzFI4pSCIBtbMm1Nb2RlbCDCtyByZWZlcmVuY2UtZml4dHVyZRtbMjJtICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAg4pSCG1sxMjsxSOKUgiAbWzJtL2hlbHAgZm9yIGNvbW1hbmRzG1syMm0gICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAg4pSCG1sxMzsxSOKUgiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAg4pSCG1sxNDsxSOKVsOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgA=="
+        },
+        {
+          "ms": 286.89,
+          "output": "────────────╯\u001b[39m\u001b[49m\u001b[59m\u001b[0m\u001b[15;1H\u001b[J\u001b[15;1H\u001b[J\u001b[15;1H\u001b[J",
+          "bytesBase64": "4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pWvG1szOW0bWzQ5bRtbNTltG1swbRtbMTU7MUgbW0obWzE1OzFIG1tKG1sxNTsxSBtbSg=="
+        },
+        {
+          "ms": 286.968417,
+          "output": "\u001b[?2026h\u001b[15;1H⠋\u001b[15;3HStarting\u001b[15;12Hsession…\u001b[15;21H0.0s\u001b[16;1H❯\u001b[17;1Hreference-fixture\u001b[2m · \u001b[22mctrl+o\u001b[17;28Htranscript\u001b[39m\u001b[49m\u001b[59m\u001b[0m\u001b[16;3H\u001b[?25h\u001b[?2026l",
+          "bytesBase64": "G1s/MjAyNmgbWzE1OzFI4qCLG1sxNTszSFN0YXJ0aW5nG1sxNTsxMkhzZXNzaW9u4oCmG1sxNTsyMUgwLjBzG1sxNjsxSOKdrxtbMTc7MUhyZWZlcmVuY2UtZml4dHVyZRtbMm0gwrcgG1syMm1jdHJsK28bWzE3OzI4SHRyYW5zY3JpcHQbWzM5bRtbNDltG1s1OW0bWzBtG1sxNjszSBtbPzI1aBtbPzIwMjZs"
+        },
+        {
+          "ms": 341.413208,
+          "output": "\u001b[?2026h\u001b[?2026h\u001b[15;1H\u001b[2mminimal · /help                                                                                     \u001b[39m\u001b[49m\u001b[59m\u001b[0m\u001b[16;3H\u001b[?2026l",
+          "bytesBase64": "G1s/MjAyNmgbWz8yMDI2aBtbMTU7MUgbWzJtbWluaW1hbCDCtyAvaGVscCAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzM5bRtbNDltG1s1OW0bWzBtG1sxNjszSBtbPzIwMjZs"
+        },
+        {
+          "ms": 351.444125,
+          "output": "\u001b[?2026h\u001b[?2026h\u001b[17;21H1.5K /\u001b[17;28H128K (1%)\u001b[2m · \u001b[22mctrl+o\u001b[17;47Htranscript\u001b[39m\u001b[49m\u001b[59m\u001b[0m\u001b[16;3H\u001b[?2026l",
+          "bytesBase64": "G1s/MjAyNmgbWz8yMDI2aBtbMTc7MjFIMS41SyAvG1sxNzsyOEgxMjhLICgxJSkbWzJtIMK3IBtbMjJtY3RybCtvG1sxNzs0N0h0cmFuc2NyaXB0G1szOW0bWzQ5bRtbNTltG1swbRtbMTY7M0gbWz8yMDI2bA=="
+        },
+        {
+          "ms": 450.362167,
+          "action": "draft",
+          "offset": 2745,
+          "inputHex": "5245464552454e4345313333",
+          "observedMs": 490.468792,
+          "markerFound": true,
+          "endOffset": 2815
+        },
+        {
+          "ms": 454.24125,
+          "output": "\u001b[?2026h\u001b[?2026h\u001b[16;3HREFERENCE133\u001b[39m\u001b[49m\u001b[59m\u001b[0m\u001b[16;15H\u001b[?2026l",
+          "bytesBase64": "G1s/MjAyNmgbWz8yMDI2aBtbMTY7M0hSRUZFUkVOQ0UxMzMbWzM5bRtbNDltG1s1OW0bWzBtG1sxNjsxNUgbWz8yMDI2bA=="
+        },
+        {
+          "ms": 644.407667,
+          "action": "clear-draft",
+          "offset": 2815,
+          "inputHex": "03",
+          "observedMs": 951.635542,
+          "markerFound": null,
+          "endOffset": 2884
+        },
+        {
+          "ms": 644.550708,
+          "output": "\u001b[?2026h\u001b[?2026h\u001b[16;3H            \u001b[39m\u001b[49m\u001b[59m\u001b[0m\u001b[16;3H\u001b[?2026l",
+          "bytesBase64": "G1s/MjAyNmgbWz8yMDI2aBtbMTY7M0ggICAgICAgICAgICAbWzM5bRtbNDltG1s1OW0bWzBtG1sxNjszSBtbPzIwMjZs"
+        },
+        {
+          "ms": 1109.136208,
+          "action": "tutorial-open",
+          "offset": 2884,
+          "inputHex": "2f7475746f7269616c0d",
+          "observedMs": 1151.190583,
+          "markerFound": true,
+          "endOffset": 3433
+        },
+        {
+          "ms": 1113.5975,
+          "output": "\u001b[?2026h\u001b[15;1H\u001b[2m/tutorial isn't available in minimal mode (the tutorial overlay needs fullscreen). Run /fullscreen\u001b[22m  \u001b[16;1H\u001b[2mto switch this session.\u001b[22m                                                                             \u001b[39m\u001b[49m\u001b[59m\u001b[0m\u001b[17;1H\u001b[J",
+          "bytesBase64": "G1s/MjAyNmgbWzE1OzFIG1sybS90dXRvcmlhbCBpc24ndCBhdmFpbGFibGUgaW4gbWluaW1hbCBtb2RlICh0aGUgdHV0b3JpYWwgb3ZlcmxheSBuZWVkcyBmdWxsc2NyZWVuKS4gUnVuIC9mdWxsc2NyZWVuG1syMm0gIBtbMTY7MUgbWzJtdG8gc3dpdGNoIHRoaXMgc2Vzc2lvbi4bWzIybSAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgG1szOW0bWzQ5bRtbNTltG1swbRtbMTc7MUgbW0o="
+        },
+        {
+          "ms": 1113.645667,
+          "output": "\u001b[?2026h\u001b[17;1H\u001b[2mminimal · /help                                                                                     \u001b[18;1H\u001b[22m❯\u001b[19;1Hreference-fixture\u001b[2m · \u001b[22m1.5K\u001b[19;26H/\u001b[19;28H128K\u001b[19;33H(1%)\u001b[2m · \u001b[22mctrl+o\u001b[19;47Htranscript\u001b[39m\u001b[49m\u001b[59m\u001b[0m\u001b[18;3H\u001b[?2026l",
+          "bytesBase64": "G1s/MjAyNmgbWzE3OzFIG1sybW1pbmltYWwgwrcgL2hlbHAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgG1sxODsxSBtbMjJt4p2vG1sxOTsxSHJlZmVyZW5jZS1maXh0dXJlG1sybSDCtyAbWzIybTEuNUsbWzE5OzI2SC8bWzE5OzI4SDEyOEsbWzE5OzMzSCgxJSkbWzJtIMK3IBtbMjJtY3RybCtvG1sxOTs0N0h0cmFuc2NyaXB0G1szOW0bWzQ5bRtbNTltG1swbRtbMTg7M0gbWz8yMDI2bA=="
+        },
+        {
+          "ms": 1315.409583,
+          "action": "tour-open",
+          "offset": 3433,
+          "inputHex": "2f746f75720d",
+          "observedMs": 1362.889292,
+          "markerFound": true,
+          "endOffset": 3982
+        },
+        {
+          "ms": 1319.576708,
+          "output": "\u001b[?2026h\u001b[17;1H\u001b[2m/tour isn't available in minimal mode (the tutorial overlay needs fullscreen). Run /fullscreen to\u001b[22m   \u001b[18;1H\u001b[2mswitch this session.\u001b[22m                                                                                \u001b[39m\u001b[49m\u001b[59m\u001b[0m\u001b[19;1H\u001b[J",
+          "bytesBase64": "G1s/MjAyNmgbWzE3OzFIG1sybS90b3VyIGlzbid0IGF2YWlsYWJsZSBpbiBtaW5pbWFsIG1vZGUgKHRoZSB0dXRvcmlhbCBvdmVybGF5IG5lZWRzIGZ1bGxzY3JlZW4pLiBSdW4gL2Z1bGxzY3JlZW4gdG8bWzIybSAgIBtbMTg7MUgbWzJtc3dpdGNoIHRoaXMgc2Vzc2lvbi4bWzIybSAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgG1szOW0bWzQ5bRtbNTltG1swbRtbMTk7MUgbW0o="
+        },
+        {
+          "ms": 1319.631333,
+          "output": "\u001b[?2026h\u001b[19;1H\u001b[2mminimal · /help                                                                                     \u001b[20;1H\u001b[22m❯\u001b[21;1Hreference-fixture\u001b[2m · \u001b[22m1.5K\u001b[21;26H/\u001b[21;28H128K\u001b[21;33H(1%)\u001b[2m · \u001b[22mctrl+o\u001b[21;47Htranscript\u001b[39m\u001b[49m\u001b[59m\u001b[0m\u001b[20;3H\u001b[?2026l",
+          "bytesBase64": "G1s/MjAyNmgbWzE5OzFIG1sybW1pbmltYWwgwrcgL2hlbHAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgG1syMDsxSBtbMjJt4p2vG1syMTsxSHJlZmVyZW5jZS1maXh0dXJlG1sybSDCtyAbWzIybTEuNUsbWzIxOzI2SC8bWzIxOzI4SDEyOEsbWzIxOzMzSCgxJSkbWzJtIMK3IBtbMjJtY3RybCtvG1syMTs0N0h0cmFuc2NyaXB0G1szOW0bWzQ5bRtbNTltG1swbRtbMjA7M0gbWz8yMDI2bA=="
+        },
+        {
+          "ms": 1528.253833,
+          "action": "onboarding-open",
+          "offset": 3982,
+          "inputHex": "2f6f6e626f617264696e670d",
+          "observedMs": 1566.061917,
+          "markerFound": true,
+          "endOffset": 4522
+        },
+        {
+          "ms": 1532.52775,
+          "output": "\u001b[?2026h\u001b[19;1H\u001b[2m/onboarding isn't available in minimal mode (the tutorial overlay needs fullscreen). Run /fullscreen\u001b[20;1Hto switch this session.\u001b[22m                                                                             \u001b[39m\u001b[49m\u001b[59m\u001b[0m\u001b[21;1H\u001b[J",
+          "bytesBase64": "G1s/MjAyNmgbWzE5OzFIG1sybS9vbmJvYXJkaW5nIGlzbid0IGF2YWlsYWJsZSBpbiBtaW5pbWFsIG1vZGUgKHRoZSB0dXRvcmlhbCBvdmVybGF5IG5lZWRzIGZ1bGxzY3JlZW4pLiBSdW4gL2Z1bGxzY3JlZW4bWzIwOzFIdG8gc3dpdGNoIHRoaXMgc2Vzc2lvbi4bWzIybSAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgG1szOW0bWzQ5bRtbNTltG1swbRtbMjE7MUgbW0o="
+        },
+        {
+          "ms": 1532.587292,
+          "output": "\u001b[?2026h\u001b[21;1H\u001b[2mminimal · /help                                                                                     \u001b[22;1H\u001b[22m❯\u001b[23;1Hreference-fixture\u001b[2m · \u001b[22m1.5K\u001b[23;26H/\u001b[23;28H128K\u001b[23;33H(1%)\u001b[2m · \u001b[22mctrl+o\u001b[23;47Htranscript\u001b[39m\u001b[49m\u001b[59m\u001b[0m\u001b[22;3H\u001b[?2026l",
+          "bytesBase64": "G1s/MjAyNmgbWzIxOzFIG1sybW1pbmltYWwgwrcgL2hlbHAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgG1syMjsxSBtbMjJt4p2vG1syMzsxSHJlZmVyZW5jZS1maXh0dXJlG1sybSDCtyAbWzIybTEuNUsbWzIzOzI2SC8bWzIzOzI4SDEyOEsbWzIzOzMzSCgxJSkbWzJtIMK3IBtbMjJtY3RybCtvG1syMzs0N0h0cmFuc2NyaXB0G1szOW0bWzQ5bRtbNTltG1swbRtbMjI7M0gbWz8yMDI2bA=="
+        },
+        {
+          "ms": 1726.576542,
+          "action": "after-tutorial-draft",
+          "offset": 4522,
+          "inputHex": "41465445525f5455544f5249414c",
+          "observedMs": 1765.491208,
+          "markerFound": true,
+          "endOffset": 4594
+        },
+        {
+          "ms": 1730.500208,
+          "output": "\u001b[?2026h\u001b[?2026h\u001b[22;3HAFTER_TUTORIAL\u001b[39m\u001b[49m\u001b[59m\u001b[0m\u001b[22;17H\u001b[?2026l",
+          "bytesBase64": "G1s/MjAyNmgbWz8yMDI2aBtbMjI7M0hBRlRFUl9UVVRPUklBTBtbMzltG1s0OW0bWzU5bRtbMG0bWzIyOzE3SBtbPzIwMjZs"
+        },
+        {
+          "ms": 1922.324917,
+          "action": "after-tutorial-clear",
+          "offset": 4594,
+          "inputHex": "03",
+          "observedMs": 2232.110792,
+          "markerFound": null,
+          "endOffset": 4665
+        },
+        {
+          "ms": 1922.444292,
+          "output": "\u001b[?2026h\u001b[?2026h\u001b[22;3H              \u001b[39m\u001b[49m\u001b[59m\u001b[0m\u001b[22;3H\u001b[?2026l",
+          "bytesBase64": "G1s/MjAyNmgbWz8yMDI2aBtbMjI7M0ggICAgICAgICAgICAgIBtbMzltG1s0OW0bWzU5bRtbMG0bWzIyOzNIG1s/MjAyNmw="
+        },
+        {
+          "ms": 2392.285292,
+          "action": "quit",
+          "offset": 4665,
+          "inputHex": "2f717569740d",
+          "observedMs": 2467.742875,
+          "markerFound": null,
+          "endOffset": 4855
+        },
+        {
+          "ms": 2396.518875,
+          "output": "\u001b]0;grok\u0007",
+          "bytesBase64": "G10wO2dyb2sH"
+        },
+        {
+          "ms": 2398.564833,
+          "output": "\u001b]9;4;0;0\u0007\u001b[?2026l\u001b[?1000l\u001b[?1002l\u001b[?1003l\u001b[?1015l\u001b[?1006l\u001b[?2004l\u001b[?1004l",
+          "bytesBase64": "G105OzQ7MDswBxtbPzIwMjZsG1s/MTAwMGwbWz8xMDAybBtbPzEwMDNsG1s/MTAxNWwbWz8xMDA2bBtbPzIwMDRsG1s/MTAwNGw="
+        },
+        {
+          "ms": 2398.573583,
+          "output": "\u001b[24",
+          "bytesBase64": "G1syNA=="
+        },
+        {
+          "ms": 2398.576417,
+          "output": ";1H\u001b[?25h\n",
+          "bytesBase64": "OzFIG1s/MjVoCg=="
+        },
+        {
+          "ms": 2464.973417,
+          "output": "\r\nResume this session with:\r\n  grok --minimal --resume 01a0bb10-c570-7f61-988b-10d0f8c7b41b\r\n",
+          "bytesBase64": "DQpSZXN1bWUgdGhpcyBzZXNzaW9uIHdpdGg6DQogIGdyb2sgLS1taW5pbWFsIC0tcmVzdW1lIDAxYTBiYjEwLWM1NzAtN2Y2MS05ODhiLTEwZDBmOGM3YjQxYg0K"
+        }
+      ],
+      "firstFrameMs": 286.883417,
+      "rss": [
+        {
+          "action": "draft",
+          "ms": 493.940125,
+          "rssKiB": 92896
+        },
+        {
+          "action": "clear-draft",
+          "ms": 957.687875,
+          "rssKiB": 92864
+        },
+        {
+          "action": "tutorial-open",
+          "ms": 1154.955208,
+          "rssKiB": 93552
+        },
+        {
+          "action": "tour-open",
+          "ms": 1366.581708,
+          "rssKiB": 93616
+        },
+        {
+          "action": "onboarding-open",
+          "ms": 1569.690083,
+          "rssKiB": 93648
+        },
+        {
+          "action": "after-tutorial-draft",
+          "ms": 1770.324125,
+          "rssKiB": 93648
+        },
+        {
+          "action": "after-tutorial-clear",
+          "ms": 2238.241958,
+          "rssKiB": 93680
+        },
+        {
+          "action": "quit",
+          "ms": 2472.418917,
+          "rssKiB": 0
+        }
+      ],
+      "exit": 0,
+      "forcedCleanup": false,
+      "restoredAlternateScreen": false,
+      "outputBytes": 4855,
+      "outputSha256": "138414ac98bb0f0e58124d0f960f80831efbf1d89f9c27a9eebeb03b69c66c5e"
+    }
+  ],
+  "hiddenCommandCapturedAt": "2026-09-19T19:07:02Z",
+  "sourceCommandCommit": "a28ee2b2063426e8816e380ccea528b9de95e5da"
 }

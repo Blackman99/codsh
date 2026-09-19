@@ -7531,6 +7531,11 @@
           "locator": "capture:commands/5",
           "scope": "binary-help",
           "excerpt": "Alias of status: Show the current worker status and its Cloud Agent claims [aliases: list]"
+        },
+        {
+          "locator": "capture:commands/97",
+          "scope": "binary-help",
+          "excerpt": "Show the current worker status and its Cloud Agent claims"
         }
       ]
     },
@@ -7611,6 +7616,11 @@
           "locator": "capture:commands/1",
           "scope": "binary-help",
           "excerpt": "Alias of du: Show what the grok home (~/.grok) uses on disk [aliases: disk-usage]"
+        },
+        {
+          "locator": "capture:commands/84",
+          "scope": "binary-help",
+          "excerpt": "Show what the grok home (~/.grok) uses on disk"
         }
       ]
     },
@@ -8251,6 +8261,11 @@
           "locator": "capture:commands/17",
           "scope": "binary-help",
           "excerpt": "Alias of uninstall: Uninstall an installed plugin by name [aliases: rm, remove]"
+        },
+        {
+          "locator": "capture:commands/94",
+          "scope": "binary-help",
+          "excerpt": "Uninstall an installed plugin by name"
         }
       ]
     },
@@ -8263,6 +8278,11 @@
           "locator": "capture:commands/17",
           "scope": "binary-help",
           "excerpt": "Alias of uninstall: Uninstall an installed plugin by name [aliases: rm, remove]"
+        },
+        {
+          "locator": "capture:commands/93",
+          "scope": "binary-help",
+          "excerpt": "Uninstall an installed plugin by name"
         }
       ]
     },
@@ -8432,6 +8452,18 @@
       ]
     },
     {
+      "key": "cli:share",
+      "category": "cli",
+      "name": "share",
+      "observations": [
+        {
+          "locator": "capture:commands/82",
+          "scope": "binary-help",
+          "excerpt": "Share a session and print the share URL"
+        }
+      ]
+    },
+    {
       "key": "cli:trace",
       "category": "cli",
       "name": "trace",
@@ -8491,6 +8523,11 @@
           "locator": "capture:commands/1",
           "scope": "binary-help",
           "excerpt": "Alias of version: Print version information [aliases: v]"
+        },
+        {
+          "locator": "capture:commands/83",
+          "scope": "binary-help",
+          "excerpt": "Print version information"
         }
       ]
     },
@@ -8508,6 +8545,149 @@
           "locator": "capture:commands/23",
           "scope": "binary-help",
           "excerpt": "Print version information"
+        }
+      ]
+    },
+    {
+      "key": "cli:workspace",
+      "category": "cli",
+      "name": "workspace",
+      "observations": [
+        {
+          "locator": "capture:commands/85",
+          "scope": "binary-help",
+          "excerpt": "Expose this workspace to the Computer Hub (via the leader)."
+        }
+      ]
+    },
+    {
+      "key": "cli:workspace help",
+      "category": "cli",
+      "name": "workspace help",
+      "observations": [
+        {
+          "locator": "capture:commands/85",
+          "scope": "binary-help",
+          "excerpt": "Print this message or the help of the given subcommand(s)"
+        }
+      ]
+    },
+    {
+      "key": "cli:workspace list",
+      "category": "cli",
+      "name": "workspace list",
+      "observations": [
+        {
+          "locator": "capture:commands/85",
+          "scope": "binary-help",
+          "excerpt": "Alias of status: Show the current workspace-exposure status [aliases: list]"
+        },
+        {
+          "locator": "capture:commands/92",
+          "scope": "binary-help",
+          "excerpt": "Show the current workspace-exposure status"
+        }
+      ]
+    },
+    {
+      "key": "cli:workspace pause",
+      "category": "cli",
+      "name": "workspace pause",
+      "observations": [
+        {
+          "locator": "capture:commands/85",
+          "scope": "binary-help",
+          "excerpt": "Drain and disconnect from the hub, keeping the exposure warm"
+        },
+        {
+          "locator": "capture:commands/87",
+          "scope": "binary-help",
+          "excerpt": "Drain and disconnect from the hub, keeping the exposure warm"
+        }
+      ]
+    },
+    {
+      "key": "cli:workspace restart",
+      "category": "cli",
+      "name": "workspace restart",
+      "observations": [
+        {
+          "locator": "capture:commands/85",
+          "scope": "binary-help",
+          "excerpt": "Restart the exposure (stop, then start with the given options)"
+        },
+        {
+          "locator": "capture:commands/90",
+          "scope": "binary-help",
+          "excerpt": "Restart the exposure (stop, then start with the given options)"
+        }
+      ]
+    },
+    {
+      "key": "cli:workspace resume",
+      "category": "cli",
+      "name": "workspace resume",
+      "observations": [
+        {
+          "locator": "capture:commands/85",
+          "scope": "binary-help",
+          "excerpt": "Reconnect a paused exposure to the hub"
+        },
+        {
+          "locator": "capture:commands/88",
+          "scope": "binary-help",
+          "excerpt": "Reconnect a paused exposure to the hub"
+        }
+      ]
+    },
+    {
+      "key": "cli:workspace start",
+      "category": "cli",
+      "name": "workspace start",
+      "observations": [
+        {
+          "locator": "capture:commands/85",
+          "scope": "binary-help",
+          "excerpt": "Start (or update) the workspace-to-hub exposure"
+        },
+        {
+          "locator": "capture:commands/86",
+          "scope": "binary-help",
+          "excerpt": "Start (or update) the workspace-to-hub exposure"
+        }
+      ]
+    },
+    {
+      "key": "cli:workspace status",
+      "category": "cli",
+      "name": "workspace status",
+      "observations": [
+        {
+          "locator": "capture:commands/85",
+          "scope": "binary-help",
+          "excerpt": "Show the current workspace-exposure status [aliases: list]"
+        },
+        {
+          "locator": "capture:commands/91",
+          "scope": "binary-help",
+          "excerpt": "Show the current workspace-exposure status"
+        }
+      ]
+    },
+    {
+      "key": "cli:workspace stop",
+      "category": "cli",
+      "name": "workspace stop",
+      "observations": [
+        {
+          "locator": "capture:commands/85",
+          "scope": "binary-help",
+          "excerpt": "Stop exposing the workspace (the leader keeps running)"
+        },
+        {
+          "locator": "capture:commands/89",
+          "scope": "binary-help",
+          "excerpt": "Stop exposing the workspace (the leader keeps running)"
         }
       ]
     },
@@ -8697,6 +8877,23 @@
           "locator": "capture:commands/24",
           "scope": "binary-help",
           "excerpt": "Alias of list: List tracked worktrees [aliases: ls]"
+        },
+        {
+          "locator": "capture:commands/95",
+          "scope": "binary-help",
+          "excerpt": "List tracked worktrees"
+        }
+      ]
+    },
+    {
+      "key": "cli:worktree prune",
+      "category": "cli",
+      "name": "worktree prune",
+      "observations": [
+        {
+          "locator": "capture:commands/96",
+          "scope": "binary-help",
+          "excerpt": "Remove expired worktrees, keeping any whose work would not survive"
         }
       ]
     },
@@ -29702,6 +29899,90 @@
       ]
     },
     {
+      "key": "flag:cursor-worker list:--debug",
+      "category": "flag",
+      "name": "cursor-worker list:--debug",
+      "observations": [
+        {
+          "locator": "capture:commands/97",
+          "scope": "binary-help",
+          "excerpt": "--debug                 Enable debug logging"
+        }
+      ]
+    },
+    {
+      "key": "flag:cursor-worker list:--debug-file",
+      "category": "flag",
+      "name": "cursor-worker list:--debug-file",
+      "observations": [
+        {
+          "locator": "capture:commands/97",
+          "scope": "binary-help",
+          "excerpt": "--debug-file <FILE>     Write debug logs to FILE"
+        }
+      ]
+    },
+    {
+      "key": "flag:cursor-worker list:--help",
+      "category": "flag",
+      "name": "cursor-worker list:--help",
+      "observations": [
+        {
+          "locator": "capture:commands/97",
+          "scope": "binary-help",
+          "excerpt": "-h, --help                  Print help"
+        }
+      ]
+    },
+    {
+      "key": "flag:cursor-worker list:--json",
+      "category": "flag",
+      "name": "cursor-worker list:--json",
+      "observations": [
+        {
+          "locator": "capture:commands/97",
+          "scope": "binary-help",
+          "excerpt": "--json                  Emit machine-readable JSON output"
+        }
+      ]
+    },
+    {
+      "key": "flag:cursor-worker list:--leader-socket",
+      "category": "flag",
+      "name": "cursor-worker list:--leader-socket",
+      "observations": [
+        {
+          "locator": "capture:commands/97",
+          "scope": "binary-help",
+          "excerpt": "--leader-socket <PATH>  Use a custom leader socket path instead of the default `~/.grok/leader.sock`. A local/branch build can thus run an isolated leader without colliding with the default one already running on the machine Name it `~/.grok/leader-*.sock` to keep `grok leader list/kill` able to find it; any other location works but won't be auto-discovered"
+        }
+      ]
+    },
+    {
+      "key": "flag:cursor-worker list:--pid",
+      "category": "flag",
+      "name": "cursor-worker list:--pid",
+      "observations": [
+        {
+          "locator": "capture:commands/97",
+          "scope": "binary-help",
+          "excerpt": "--pid <PID>             Leader process ID from `grok leader list`"
+        }
+      ]
+    },
+    {
+      "key": "flag:cursor-worker list:-h",
+      "category": "flag",
+      "name": "cursor-worker list:-h",
+      "observations": [
+        {
+          "locator": "capture:commands/97",
+          "scope": "binary-help",
+          "excerpt": "-h, --help                  Print help"
+        }
+      ]
+    },
+    {
       "key": "flag:cursor-worker start:--debug",
       "category": "flag",
       "name": "cursor-worker start:--debug",
@@ -30128,6 +30409,78 @@
       "observations": [
         {
           "locator": "capture:commands/6",
+          "scope": "binary-help",
+          "excerpt": "-h, --help                  Print help"
+        }
+      ]
+    },
+    {
+      "key": "flag:disk-usage:--debug",
+      "category": "flag",
+      "name": "disk-usage:--debug",
+      "observations": [
+        {
+          "locator": "capture:commands/84",
+          "scope": "binary-help",
+          "excerpt": "--debug                 Enable debug logging"
+        }
+      ]
+    },
+    {
+      "key": "flag:disk-usage:--debug-file",
+      "category": "flag",
+      "name": "disk-usage:--debug-file",
+      "observations": [
+        {
+          "locator": "capture:commands/84",
+          "scope": "binary-help",
+          "excerpt": "--debug-file <FILE>     Write debug logs to FILE"
+        }
+      ]
+    },
+    {
+      "key": "flag:disk-usage:--help",
+      "category": "flag",
+      "name": "disk-usage:--help",
+      "observations": [
+        {
+          "locator": "capture:commands/84",
+          "scope": "binary-help",
+          "excerpt": "-h, --help                  Print help"
+        }
+      ]
+    },
+    {
+      "key": "flag:disk-usage:--json",
+      "category": "flag",
+      "name": "disk-usage:--json",
+      "observations": [
+        {
+          "locator": "capture:commands/84",
+          "scope": "binary-help",
+          "excerpt": "--json                  Emit machine-readable JSON output"
+        }
+      ]
+    },
+    {
+      "key": "flag:disk-usage:--leader-socket",
+      "category": "flag",
+      "name": "disk-usage:--leader-socket",
+      "observations": [
+        {
+          "locator": "capture:commands/84",
+          "scope": "binary-help",
+          "excerpt": "--leader-socket <PATH>  Use a custom leader socket path instead of the default `~/.grok/leader.sock`. A local/branch build can thus run an isolated leader without colliding with the default one already running on the machine Name it `~/.grok/leader-*.sock` to keep `grok leader list/kill` able to find it; any other location works but won't be auto-discovered"
+        }
+      ]
+    },
+    {
+      "key": "flag:disk-usage:-h",
+      "category": "flag",
+      "name": "disk-usage:-h",
+      "observations": [
+        {
+          "locator": "capture:commands/84",
           "scope": "binary-help",
           "excerpt": "-h, --help                  Print help"
         }
@@ -33106,6 +33459,174 @@
       ]
     },
     {
+      "key": "flag:plugin remove:--confirm",
+      "category": "flag",
+      "name": "plugin remove:--confirm",
+      "observations": [
+        {
+          "locator": "capture:commands/94",
+          "scope": "binary-help",
+          "excerpt": "--confirm               Skip confirmation for multi-plugin repos"
+        }
+      ]
+    },
+    {
+      "key": "flag:plugin remove:--debug",
+      "category": "flag",
+      "name": "plugin remove:--debug",
+      "observations": [
+        {
+          "locator": "capture:commands/94",
+          "scope": "binary-help",
+          "excerpt": "--debug                 Enable debug logging"
+        }
+      ]
+    },
+    {
+      "key": "flag:plugin remove:--debug-file",
+      "category": "flag",
+      "name": "plugin remove:--debug-file",
+      "observations": [
+        {
+          "locator": "capture:commands/94",
+          "scope": "binary-help",
+          "excerpt": "--debug-file <FILE>     Write debug logs to FILE"
+        }
+      ]
+    },
+    {
+      "key": "flag:plugin remove:--help",
+      "category": "flag",
+      "name": "plugin remove:--help",
+      "observations": [
+        {
+          "locator": "capture:commands/94",
+          "scope": "binary-help",
+          "excerpt": "-h, --help                  Print help"
+        }
+      ]
+    },
+    {
+      "key": "flag:plugin remove:--keep-data",
+      "category": "flag",
+      "name": "plugin remove:--keep-data",
+      "observations": [
+        {
+          "locator": "capture:commands/94",
+          "scope": "binary-help",
+          "excerpt": "--keep-data             Preserve the plugin's persistent data directory"
+        }
+      ]
+    },
+    {
+      "key": "flag:plugin remove:--leader-socket",
+      "category": "flag",
+      "name": "plugin remove:--leader-socket",
+      "observations": [
+        {
+          "locator": "capture:commands/94",
+          "scope": "binary-help",
+          "excerpt": "--leader-socket <PATH>  Use a custom leader socket path instead of the default `~/.grok/leader.sock`. A local/branch build can thus run an isolated leader without colliding with the default one already running on the machine Name it `~/.grok/leader-*.sock` to keep `grok leader list/kill` able to find it; any other location works but won't be auto-discovered"
+        }
+      ]
+    },
+    {
+      "key": "flag:plugin remove:-h",
+      "category": "flag",
+      "name": "plugin remove:-h",
+      "observations": [
+        {
+          "locator": "capture:commands/94",
+          "scope": "binary-help",
+          "excerpt": "-h, --help                  Print help"
+        }
+      ]
+    },
+    {
+      "key": "flag:plugin rm:--confirm",
+      "category": "flag",
+      "name": "plugin rm:--confirm",
+      "observations": [
+        {
+          "locator": "capture:commands/93",
+          "scope": "binary-help",
+          "excerpt": "--confirm               Skip confirmation for multi-plugin repos"
+        }
+      ]
+    },
+    {
+      "key": "flag:plugin rm:--debug",
+      "category": "flag",
+      "name": "plugin rm:--debug",
+      "observations": [
+        {
+          "locator": "capture:commands/93",
+          "scope": "binary-help",
+          "excerpt": "--debug                 Enable debug logging"
+        }
+      ]
+    },
+    {
+      "key": "flag:plugin rm:--debug-file",
+      "category": "flag",
+      "name": "plugin rm:--debug-file",
+      "observations": [
+        {
+          "locator": "capture:commands/93",
+          "scope": "binary-help",
+          "excerpt": "--debug-file <FILE>     Write debug logs to FILE"
+        }
+      ]
+    },
+    {
+      "key": "flag:plugin rm:--help",
+      "category": "flag",
+      "name": "plugin rm:--help",
+      "observations": [
+        {
+          "locator": "capture:commands/93",
+          "scope": "binary-help",
+          "excerpt": "-h, --help                  Print help"
+        }
+      ]
+    },
+    {
+      "key": "flag:plugin rm:--keep-data",
+      "category": "flag",
+      "name": "plugin rm:--keep-data",
+      "observations": [
+        {
+          "locator": "capture:commands/93",
+          "scope": "binary-help",
+          "excerpt": "--keep-data             Preserve the plugin's persistent data directory"
+        }
+      ]
+    },
+    {
+      "key": "flag:plugin rm:--leader-socket",
+      "category": "flag",
+      "name": "plugin rm:--leader-socket",
+      "observations": [
+        {
+          "locator": "capture:commands/93",
+          "scope": "binary-help",
+          "excerpt": "--leader-socket <PATH>  Use a custom leader socket path instead of the default `~/.grok/leader.sock`. A local/branch build can thus run an isolated leader without colliding with the default one already running on the machine Name it `~/.grok/leader-*.sock` to keep `grok leader list/kill` able to find it; any other location works but won't be auto-discovered"
+        }
+      ]
+    },
+    {
+      "key": "flag:plugin rm:-h",
+      "category": "flag",
+      "name": "plugin rm:-h",
+      "observations": [
+        {
+          "locator": "capture:commands/93",
+          "scope": "binary-help",
+          "excerpt": "-h, --help                  Print help"
+        }
+      ]
+    },
+    {
       "key": "flag:plugin tag:--debug",
       "category": "flag",
       "name": "plugin tag:--debug",
@@ -33838,6 +34359,66 @@
       ]
     },
     {
+      "key": "flag:share:--debug",
+      "category": "flag",
+      "name": "share:--debug",
+      "observations": [
+        {
+          "locator": "capture:commands/82",
+          "scope": "binary-help",
+          "excerpt": "--debug                 Enable debug logging"
+        }
+      ]
+    },
+    {
+      "key": "flag:share:--debug-file",
+      "category": "flag",
+      "name": "share:--debug-file",
+      "observations": [
+        {
+          "locator": "capture:commands/82",
+          "scope": "binary-help",
+          "excerpt": "--debug-file <FILE>     Write debug logs to FILE"
+        }
+      ]
+    },
+    {
+      "key": "flag:share:--help",
+      "category": "flag",
+      "name": "share:--help",
+      "observations": [
+        {
+          "locator": "capture:commands/82",
+          "scope": "binary-help",
+          "excerpt": "-h, --help                  Print help"
+        }
+      ]
+    },
+    {
+      "key": "flag:share:--leader-socket",
+      "category": "flag",
+      "name": "share:--leader-socket",
+      "observations": [
+        {
+          "locator": "capture:commands/82",
+          "scope": "binary-help",
+          "excerpt": "--leader-socket <PATH>  Use a custom leader socket path instead of the default `~/.grok/leader.sock`. A local/branch build can thus run an isolated leader without colliding with the default one already running on the machine Name it `~/.grok/leader-*.sock` to keep `grok leader list/kill` able to find it; any other location works but won't be auto-discovered"
+        }
+      ]
+    },
+    {
+      "key": "flag:share:-h",
+      "category": "flag",
+      "name": "share:-h",
+      "observations": [
+        {
+          "locator": "capture:commands/82",
+          "scope": "binary-help",
+          "excerpt": "-h, --help                  Print help"
+        }
+      ]
+    },
+    {
       "key": "flag:trace:--debug",
       "category": "flag",
       "name": "trace:--debug",
@@ -34143,6 +34724,78 @@
       ]
     },
     {
+      "key": "flag:v:--debug",
+      "category": "flag",
+      "name": "v:--debug",
+      "observations": [
+        {
+          "locator": "capture:commands/83",
+          "scope": "binary-help",
+          "excerpt": "--debug                 Enable debug logging"
+        }
+      ]
+    },
+    {
+      "key": "flag:v:--debug-file",
+      "category": "flag",
+      "name": "v:--debug-file",
+      "observations": [
+        {
+          "locator": "capture:commands/83",
+          "scope": "binary-help",
+          "excerpt": "--debug-file <FILE>     Write debug logs to FILE"
+        }
+      ]
+    },
+    {
+      "key": "flag:v:--help",
+      "category": "flag",
+      "name": "v:--help",
+      "observations": [
+        {
+          "locator": "capture:commands/83",
+          "scope": "binary-help",
+          "excerpt": "-h, --help                  Print help"
+        }
+      ]
+    },
+    {
+      "key": "flag:v:--json",
+      "category": "flag",
+      "name": "v:--json",
+      "observations": [
+        {
+          "locator": "capture:commands/83",
+          "scope": "binary-help",
+          "excerpt": "--json                  Emit machine-readable JSON output"
+        }
+      ]
+    },
+    {
+      "key": "flag:v:--leader-socket",
+      "category": "flag",
+      "name": "v:--leader-socket",
+      "observations": [
+        {
+          "locator": "capture:commands/83",
+          "scope": "binary-help",
+          "excerpt": "--leader-socket <PATH>  Use a custom leader socket path instead of the default `~/.grok/leader.sock`. A local/branch build can thus run an isolated leader without colliding with the default one already running on the machine Name it `~/.grok/leader-*.sock` to keep `grok leader list/kill` able to find it; any other location works but won't be auto-discovered"
+        }
+      ]
+    },
+    {
+      "key": "flag:v:-h",
+      "category": "flag",
+      "name": "v:-h",
+      "observations": [
+        {
+          "locator": "capture:commands/83",
+          "scope": "binary-help",
+          "excerpt": "-h, --help                  Print help"
+        }
+      ]
+    },
+    {
       "key": "flag:version:--debug",
       "category": "flag",
       "name": "version:--debug",
@@ -34211,6 +34864,726 @@
           "locator": "capture:commands/23",
           "scope": "binary-help",
           "excerpt": "-h, --help                  Print help"
+        }
+      ]
+    },
+    {
+      "key": "flag:workspace list:--debug",
+      "category": "flag",
+      "name": "workspace list:--debug",
+      "observations": [
+        {
+          "locator": "capture:commands/92",
+          "scope": "binary-help",
+          "excerpt": "--debug                 Enable debug logging"
+        }
+      ]
+    },
+    {
+      "key": "flag:workspace list:--debug-file",
+      "category": "flag",
+      "name": "workspace list:--debug-file",
+      "observations": [
+        {
+          "locator": "capture:commands/92",
+          "scope": "binary-help",
+          "excerpt": "--debug-file <FILE>     Write debug logs to FILE"
+        }
+      ]
+    },
+    {
+      "key": "flag:workspace list:--help",
+      "category": "flag",
+      "name": "workspace list:--help",
+      "observations": [
+        {
+          "locator": "capture:commands/92",
+          "scope": "binary-help",
+          "excerpt": "-h, --help                  Print help"
+        }
+      ]
+    },
+    {
+      "key": "flag:workspace list:--json",
+      "category": "flag",
+      "name": "workspace list:--json",
+      "observations": [
+        {
+          "locator": "capture:commands/92",
+          "scope": "binary-help",
+          "excerpt": "--json                  Emit machine-readable JSON output"
+        }
+      ]
+    },
+    {
+      "key": "flag:workspace list:--leader-socket",
+      "category": "flag",
+      "name": "workspace list:--leader-socket",
+      "observations": [
+        {
+          "locator": "capture:commands/92",
+          "scope": "binary-help",
+          "excerpt": "--leader-socket <PATH>  Use a custom leader socket path instead of the default `~/.grok/leader.sock`. A local/branch build can thus run an isolated leader without colliding with the default one already running on the machine Name it `~/.grok/leader-*.sock` to keep `grok leader list/kill` able to find it; any other location works but won't be auto-discovered"
+        }
+      ]
+    },
+    {
+      "key": "flag:workspace list:--pid",
+      "category": "flag",
+      "name": "workspace list:--pid",
+      "observations": [
+        {
+          "locator": "capture:commands/92",
+          "scope": "binary-help",
+          "excerpt": "--pid <PID>             Leader process ID from `grok leader list`"
+        }
+      ]
+    },
+    {
+      "key": "flag:workspace list:-h",
+      "category": "flag",
+      "name": "workspace list:-h",
+      "observations": [
+        {
+          "locator": "capture:commands/92",
+          "scope": "binary-help",
+          "excerpt": "-h, --help                  Print help"
+        }
+      ]
+    },
+    {
+      "key": "flag:workspace pause:--debug",
+      "category": "flag",
+      "name": "workspace pause:--debug",
+      "observations": [
+        {
+          "locator": "capture:commands/87",
+          "scope": "binary-help",
+          "excerpt": "--debug                 Enable debug logging"
+        }
+      ]
+    },
+    {
+      "key": "flag:workspace pause:--debug-file",
+      "category": "flag",
+      "name": "workspace pause:--debug-file",
+      "observations": [
+        {
+          "locator": "capture:commands/87",
+          "scope": "binary-help",
+          "excerpt": "--debug-file <FILE>     Write debug logs to FILE"
+        }
+      ]
+    },
+    {
+      "key": "flag:workspace pause:--help",
+      "category": "flag",
+      "name": "workspace pause:--help",
+      "observations": [
+        {
+          "locator": "capture:commands/87",
+          "scope": "binary-help",
+          "excerpt": "-h, --help                  Print help"
+        }
+      ]
+    },
+    {
+      "key": "flag:workspace pause:--json",
+      "category": "flag",
+      "name": "workspace pause:--json",
+      "observations": [
+        {
+          "locator": "capture:commands/87",
+          "scope": "binary-help",
+          "excerpt": "--json                  Emit machine-readable JSON output"
+        }
+      ]
+    },
+    {
+      "key": "flag:workspace pause:--leader-socket",
+      "category": "flag",
+      "name": "workspace pause:--leader-socket",
+      "observations": [
+        {
+          "locator": "capture:commands/87",
+          "scope": "binary-help",
+          "excerpt": "--leader-socket <PATH>  Use a custom leader socket path instead of the default `~/.grok/leader.sock`. A local/branch build can thus run an isolated leader without colliding with the default one already running on the machine Name it `~/.grok/leader-*.sock` to keep `grok leader list/kill` able to find it; any other location works but won't be auto-discovered"
+        }
+      ]
+    },
+    {
+      "key": "flag:workspace pause:--pid",
+      "category": "flag",
+      "name": "workspace pause:--pid",
+      "observations": [
+        {
+          "locator": "capture:commands/87",
+          "scope": "binary-help",
+          "excerpt": "--pid <PID>             Leader process ID from `grok leader list`"
+        }
+      ]
+    },
+    {
+      "key": "flag:workspace pause:-h",
+      "category": "flag",
+      "name": "workspace pause:-h",
+      "observations": [
+        {
+          "locator": "capture:commands/87",
+          "scope": "binary-help",
+          "excerpt": "-h, --help                  Print help"
+        }
+      ]
+    },
+    {
+      "key": "flag:workspace restart:--cwd",
+      "category": "flag",
+      "name": "workspace restart:--cwd",
+      "observations": [
+        {
+          "locator": "capture:commands/90",
+          "scope": "binary-help",
+          "excerpt": "--cwd <DIR>             Workspace root directory to expose. Defaults to the current directory"
+        }
+      ]
+    },
+    {
+      "key": "flag:workspace restart:--debug",
+      "category": "flag",
+      "name": "workspace restart:--debug",
+      "observations": [
+        {
+          "locator": "capture:commands/90",
+          "scope": "binary-help",
+          "excerpt": "--debug                 Enable debug logging"
+        }
+      ]
+    },
+    {
+      "key": "flag:workspace restart:--debug-file",
+      "category": "flag",
+      "name": "workspace restart:--debug-file",
+      "observations": [
+        {
+          "locator": "capture:commands/90",
+          "scope": "binary-help",
+          "excerpt": "--debug-file <FILE>     Write debug logs to FILE"
+        }
+      ]
+    },
+    {
+      "key": "flag:workspace restart:--help",
+      "category": "flag",
+      "name": "workspace restart:--help",
+      "observations": [
+        {
+          "locator": "capture:commands/90",
+          "scope": "binary-help",
+          "excerpt": "-h, --help                  Print help"
+        }
+      ]
+    },
+    {
+      "key": "flag:workspace restart:--hub-url",
+      "category": "flag",
+      "name": "workspace restart:--hub-url",
+      "observations": [
+        {
+          "locator": "capture:commands/90",
+          "scope": "binary-help",
+          "excerpt": "--hub-url <URL>         Computer Hub WebSocket URL (default: `[hub].url`, then the prod hub)"
+        }
+      ]
+    },
+    {
+      "key": "flag:workspace restart:--json",
+      "category": "flag",
+      "name": "workspace restart:--json",
+      "observations": [
+        {
+          "locator": "capture:commands/90",
+          "scope": "binary-help",
+          "excerpt": "--json                  Emit machine-readable JSON output"
+        }
+      ]
+    },
+    {
+      "key": "flag:workspace restart:--leader",
+      "category": "flag",
+      "name": "workspace restart:--leader",
+      "observations": [
+        {
+          "locator": "capture:commands/90",
+          "scope": "binary-help",
+          "excerpt": "--leader                Force leader mode for this command, overriding config"
+        }
+      ]
+    },
+    {
+      "key": "flag:workspace restart:--leader-socket",
+      "category": "flag",
+      "name": "workspace restart:--leader-socket",
+      "observations": [
+        {
+          "locator": "capture:commands/90",
+          "scope": "binary-help",
+          "excerpt": "--leader-socket <PATH>  Use a custom leader socket path instead of the default `~/.grok/leader.sock`. A local/branch build can thus run an isolated leader without colliding with the default one already running on the machine Name it `~/.grok/leader-*.sock` to keep `grok leader list/kill` able to find it; any other location works but won't be auto-discovered"
+        }
+      ]
+    },
+    {
+      "key": "flag:workspace restart:--no-leader",
+      "category": "flag",
+      "name": "workspace restart:--no-leader",
+      "observations": [
+        {
+          "locator": "capture:commands/90",
+          "scope": "binary-help",
+          "excerpt": "--no-leader             Refuse to start even when config enables leader mode"
+        }
+      ]
+    },
+    {
+      "key": "flag:workspace restart:-h",
+      "category": "flag",
+      "name": "workspace restart:-h",
+      "observations": [
+        {
+          "locator": "capture:commands/90",
+          "scope": "binary-help",
+          "excerpt": "-h, --help                  Print help"
+        }
+      ]
+    },
+    {
+      "key": "flag:workspace resume:--debug",
+      "category": "flag",
+      "name": "workspace resume:--debug",
+      "observations": [
+        {
+          "locator": "capture:commands/88",
+          "scope": "binary-help",
+          "excerpt": "--debug                 Enable debug logging"
+        }
+      ]
+    },
+    {
+      "key": "flag:workspace resume:--debug-file",
+      "category": "flag",
+      "name": "workspace resume:--debug-file",
+      "observations": [
+        {
+          "locator": "capture:commands/88",
+          "scope": "binary-help",
+          "excerpt": "--debug-file <FILE>     Write debug logs to FILE"
+        }
+      ]
+    },
+    {
+      "key": "flag:workspace resume:--help",
+      "category": "flag",
+      "name": "workspace resume:--help",
+      "observations": [
+        {
+          "locator": "capture:commands/88",
+          "scope": "binary-help",
+          "excerpt": "-h, --help                  Print help"
+        }
+      ]
+    },
+    {
+      "key": "flag:workspace resume:--json",
+      "category": "flag",
+      "name": "workspace resume:--json",
+      "observations": [
+        {
+          "locator": "capture:commands/88",
+          "scope": "binary-help",
+          "excerpt": "--json                  Emit machine-readable JSON output"
+        }
+      ]
+    },
+    {
+      "key": "flag:workspace resume:--leader-socket",
+      "category": "flag",
+      "name": "workspace resume:--leader-socket",
+      "observations": [
+        {
+          "locator": "capture:commands/88",
+          "scope": "binary-help",
+          "excerpt": "--leader-socket <PATH>  Use a custom leader socket path instead of the default `~/.grok/leader.sock`. A local/branch build can thus run an isolated leader without colliding with the default one already running on the machine Name it `~/.grok/leader-*.sock` to keep `grok leader list/kill` able to find it; any other location works but won't be auto-discovered"
+        }
+      ]
+    },
+    {
+      "key": "flag:workspace resume:--pid",
+      "category": "flag",
+      "name": "workspace resume:--pid",
+      "observations": [
+        {
+          "locator": "capture:commands/88",
+          "scope": "binary-help",
+          "excerpt": "--pid <PID>             Leader process ID from `grok leader list`"
+        }
+      ]
+    },
+    {
+      "key": "flag:workspace resume:-h",
+      "category": "flag",
+      "name": "workspace resume:-h",
+      "observations": [
+        {
+          "locator": "capture:commands/88",
+          "scope": "binary-help",
+          "excerpt": "-h, --help                  Print help"
+        }
+      ]
+    },
+    {
+      "key": "flag:workspace start:--cwd",
+      "category": "flag",
+      "name": "workspace start:--cwd",
+      "observations": [
+        {
+          "locator": "capture:commands/86",
+          "scope": "binary-help",
+          "excerpt": "--cwd <DIR>             Workspace root directory to expose. Defaults to the current directory"
+        }
+      ]
+    },
+    {
+      "key": "flag:workspace start:--debug",
+      "category": "flag",
+      "name": "workspace start:--debug",
+      "observations": [
+        {
+          "locator": "capture:commands/86",
+          "scope": "binary-help",
+          "excerpt": "--debug                 Enable debug logging"
+        }
+      ]
+    },
+    {
+      "key": "flag:workspace start:--debug-file",
+      "category": "flag",
+      "name": "workspace start:--debug-file",
+      "observations": [
+        {
+          "locator": "capture:commands/86",
+          "scope": "binary-help",
+          "excerpt": "--debug-file <FILE>     Write debug logs to FILE"
+        }
+      ]
+    },
+    {
+      "key": "flag:workspace start:--help",
+      "category": "flag",
+      "name": "workspace start:--help",
+      "observations": [
+        {
+          "locator": "capture:commands/86",
+          "scope": "binary-help",
+          "excerpt": "-h, --help                  Print help"
+        }
+      ]
+    },
+    {
+      "key": "flag:workspace start:--hub-url",
+      "category": "flag",
+      "name": "workspace start:--hub-url",
+      "observations": [
+        {
+          "locator": "capture:commands/86",
+          "scope": "binary-help",
+          "excerpt": "--hub-url <URL>         Computer Hub WebSocket URL (default: `[hub].url`, then the prod hub)"
+        }
+      ]
+    },
+    {
+      "key": "flag:workspace start:--json",
+      "category": "flag",
+      "name": "workspace start:--json",
+      "observations": [
+        {
+          "locator": "capture:commands/86",
+          "scope": "binary-help",
+          "excerpt": "--json                  Emit machine-readable JSON output"
+        }
+      ]
+    },
+    {
+      "key": "flag:workspace start:--leader",
+      "category": "flag",
+      "name": "workspace start:--leader",
+      "observations": [
+        {
+          "locator": "capture:commands/86",
+          "scope": "binary-help",
+          "excerpt": "--leader                Force leader mode for this command, overriding config"
+        }
+      ]
+    },
+    {
+      "key": "flag:workspace start:--leader-socket",
+      "category": "flag",
+      "name": "workspace start:--leader-socket",
+      "observations": [
+        {
+          "locator": "capture:commands/86",
+          "scope": "binary-help",
+          "excerpt": "--leader-socket <PATH>  Use a custom leader socket path instead of the default `~/.grok/leader.sock`. A local/branch build can thus run an isolated leader without colliding with the default one already running on the machine Name it `~/.grok/leader-*.sock` to keep `grok leader list/kill` able to find it; any other location works but won't be auto-discovered"
+        }
+      ]
+    },
+    {
+      "key": "flag:workspace start:--no-leader",
+      "category": "flag",
+      "name": "workspace start:--no-leader",
+      "observations": [
+        {
+          "locator": "capture:commands/86",
+          "scope": "binary-help",
+          "excerpt": "--no-leader             Refuse to start even when config enables leader mode"
+        }
+      ]
+    },
+    {
+      "key": "flag:workspace start:-h",
+      "category": "flag",
+      "name": "workspace start:-h",
+      "observations": [
+        {
+          "locator": "capture:commands/86",
+          "scope": "binary-help",
+          "excerpt": "-h, --help                  Print help"
+        }
+      ]
+    },
+    {
+      "key": "flag:workspace status:--debug",
+      "category": "flag",
+      "name": "workspace status:--debug",
+      "observations": [
+        {
+          "locator": "capture:commands/91",
+          "scope": "binary-help",
+          "excerpt": "--debug                 Enable debug logging"
+        }
+      ]
+    },
+    {
+      "key": "flag:workspace status:--debug-file",
+      "category": "flag",
+      "name": "workspace status:--debug-file",
+      "observations": [
+        {
+          "locator": "capture:commands/91",
+          "scope": "binary-help",
+          "excerpt": "--debug-file <FILE>     Write debug logs to FILE"
+        }
+      ]
+    },
+    {
+      "key": "flag:workspace status:--help",
+      "category": "flag",
+      "name": "workspace status:--help",
+      "observations": [
+        {
+          "locator": "capture:commands/91",
+          "scope": "binary-help",
+          "excerpt": "-h, --help                  Print help"
+        }
+      ]
+    },
+    {
+      "key": "flag:workspace status:--json",
+      "category": "flag",
+      "name": "workspace status:--json",
+      "observations": [
+        {
+          "locator": "capture:commands/91",
+          "scope": "binary-help",
+          "excerpt": "--json                  Emit machine-readable JSON output"
+        }
+      ]
+    },
+    {
+      "key": "flag:workspace status:--leader-socket",
+      "category": "flag",
+      "name": "workspace status:--leader-socket",
+      "observations": [
+        {
+          "locator": "capture:commands/91",
+          "scope": "binary-help",
+          "excerpt": "--leader-socket <PATH>  Use a custom leader socket path instead of the default `~/.grok/leader.sock`. A local/branch build can thus run an isolated leader without colliding with the default one already running on the machine Name it `~/.grok/leader-*.sock` to keep `grok leader list/kill` able to find it; any other location works but won't be auto-discovered"
+        }
+      ]
+    },
+    {
+      "key": "flag:workspace status:--pid",
+      "category": "flag",
+      "name": "workspace status:--pid",
+      "observations": [
+        {
+          "locator": "capture:commands/91",
+          "scope": "binary-help",
+          "excerpt": "--pid <PID>             Leader process ID from `grok leader list`"
+        }
+      ]
+    },
+    {
+      "key": "flag:workspace status:-h",
+      "category": "flag",
+      "name": "workspace status:-h",
+      "observations": [
+        {
+          "locator": "capture:commands/91",
+          "scope": "binary-help",
+          "excerpt": "-h, --help                  Print help"
+        }
+      ]
+    },
+    {
+      "key": "flag:workspace stop:--debug",
+      "category": "flag",
+      "name": "workspace stop:--debug",
+      "observations": [
+        {
+          "locator": "capture:commands/89",
+          "scope": "binary-help",
+          "excerpt": "--debug                 Enable debug logging"
+        }
+      ]
+    },
+    {
+      "key": "flag:workspace stop:--debug-file",
+      "category": "flag",
+      "name": "workspace stop:--debug-file",
+      "observations": [
+        {
+          "locator": "capture:commands/89",
+          "scope": "binary-help",
+          "excerpt": "--debug-file <FILE>     Write debug logs to FILE"
+        }
+      ]
+    },
+    {
+      "key": "flag:workspace stop:--help",
+      "category": "flag",
+      "name": "workspace stop:--help",
+      "observations": [
+        {
+          "locator": "capture:commands/89",
+          "scope": "binary-help",
+          "excerpt": "-h, --help                  Print help"
+        }
+      ]
+    },
+    {
+      "key": "flag:workspace stop:--json",
+      "category": "flag",
+      "name": "workspace stop:--json",
+      "observations": [
+        {
+          "locator": "capture:commands/89",
+          "scope": "binary-help",
+          "excerpt": "--json                  Emit machine-readable JSON output"
+        }
+      ]
+    },
+    {
+      "key": "flag:workspace stop:--leader-socket",
+      "category": "flag",
+      "name": "workspace stop:--leader-socket",
+      "observations": [
+        {
+          "locator": "capture:commands/89",
+          "scope": "binary-help",
+          "excerpt": "--leader-socket <PATH>  Use a custom leader socket path instead of the default `~/.grok/leader.sock`. A local/branch build can thus run an isolated leader without colliding with the default one already running on the machine Name it `~/.grok/leader-*.sock` to keep `grok leader list/kill` able to find it; any other location works but won't be auto-discovered"
+        }
+      ]
+    },
+    {
+      "key": "flag:workspace stop:--pid",
+      "category": "flag",
+      "name": "workspace stop:--pid",
+      "observations": [
+        {
+          "locator": "capture:commands/89",
+          "scope": "binary-help",
+          "excerpt": "--pid <PID>             Leader process ID from `grok leader list`"
+        }
+      ]
+    },
+    {
+      "key": "flag:workspace stop:-h",
+      "category": "flag",
+      "name": "workspace stop:-h",
+      "observations": [
+        {
+          "locator": "capture:commands/89",
+          "scope": "binary-help",
+          "excerpt": "-h, --help                  Print help"
+        }
+      ]
+    },
+    {
+      "key": "flag:workspace:--debug",
+      "category": "flag",
+      "name": "workspace:--debug",
+      "observations": [
+        {
+          "locator": "capture:commands/85",
+          "scope": "binary-help",
+          "excerpt": "--debug"
+        }
+      ]
+    },
+    {
+      "key": "flag:workspace:--debug-file",
+      "category": "flag",
+      "name": "workspace:--debug-file",
+      "observations": [
+        {
+          "locator": "capture:commands/85",
+          "scope": "binary-help",
+          "excerpt": "--debug-file <FILE>"
+        }
+      ]
+    },
+    {
+      "key": "flag:workspace:--help",
+      "category": "flag",
+      "name": "workspace:--help",
+      "observations": [
+        {
+          "locator": "capture:commands/85",
+          "scope": "binary-help",
+          "excerpt": "-h, --help"
+        }
+      ]
+    },
+    {
+      "key": "flag:workspace:--leader-socket",
+      "category": "flag",
+      "name": "workspace:--leader-socket",
+      "observations": [
+        {
+          "locator": "capture:commands/85",
+          "scope": "binary-help",
+          "excerpt": "--leader-socket <PATH>"
+        }
+      ]
+    },
+    {
+      "key": "flag:workspace:-h",
+      "category": "flag",
+      "name": "workspace:-h",
+      "observations": [
+        {
+          "locator": "capture:commands/85",
+          "scope": "binary-help",
+          "excerpt": "-h, --help"
         }
       ]
     },
@@ -34821,6 +36194,222 @@
       "observations": [
         {
           "locator": "capture:commands/57",
+          "scope": "binary-help",
+          "excerpt": "-h, --help                  Print help"
+        }
+      ]
+    },
+    {
+      "key": "flag:worktree ls:--all",
+      "category": "flag",
+      "name": "worktree ls:--all",
+      "observations": [
+        {
+          "locator": "capture:commands/95",
+          "scope": "binary-help",
+          "excerpt": "--all"
+        }
+      ]
+    },
+    {
+      "key": "flag:worktree ls:--debug",
+      "category": "flag",
+      "name": "worktree ls:--debug",
+      "observations": [
+        {
+          "locator": "capture:commands/95",
+          "scope": "binary-help",
+          "excerpt": "--debug                 Enable debug logging"
+        }
+      ]
+    },
+    {
+      "key": "flag:worktree ls:--debug-file",
+      "category": "flag",
+      "name": "worktree ls:--debug-file",
+      "observations": [
+        {
+          "locator": "capture:commands/95",
+          "scope": "binary-help",
+          "excerpt": "--debug-file <FILE>     Write debug logs to FILE"
+        }
+      ]
+    },
+    {
+      "key": "flag:worktree ls:--help",
+      "category": "flag",
+      "name": "worktree ls:--help",
+      "observations": [
+        {
+          "locator": "capture:commands/95",
+          "scope": "binary-help",
+          "excerpt": "-h, --help                  Print help"
+        }
+      ]
+    },
+    {
+      "key": "flag:worktree ls:--json",
+      "category": "flag",
+      "name": "worktree ls:--json",
+      "observations": [
+        {
+          "locator": "capture:commands/95",
+          "scope": "binary-help",
+          "excerpt": "--json"
+        }
+      ]
+    },
+    {
+      "key": "flag:worktree ls:--leader-socket",
+      "category": "flag",
+      "name": "worktree ls:--leader-socket",
+      "observations": [
+        {
+          "locator": "capture:commands/95",
+          "scope": "binary-help",
+          "excerpt": "--leader-socket <PATH>  Use a custom leader socket path instead of the default `~/.grok/leader.sock`. A local/branch build can thus run an isolated leader without colliding with the default one already running on the machine Name it `~/.grok/leader-*.sock` to keep `grok leader list/kill` able to find it; any other location works but won't be auto-discovered"
+        }
+      ]
+    },
+    {
+      "key": "flag:worktree ls:--repo",
+      "category": "flag",
+      "name": "worktree ls:--repo",
+      "observations": [
+        {
+          "locator": "capture:commands/95",
+          "scope": "binary-help",
+          "excerpt": "--repo <REPO>"
+        }
+      ]
+    },
+    {
+      "key": "flag:worktree ls:--type",
+      "category": "flag",
+      "name": "worktree ls:--type",
+      "observations": [
+        {
+          "locator": "capture:commands/95",
+          "scope": "binary-help",
+          "excerpt": "--type <TYPE>"
+        }
+      ]
+    },
+    {
+      "key": "flag:worktree ls:-h",
+      "category": "flag",
+      "name": "worktree ls:-h",
+      "observations": [
+        {
+          "locator": "capture:commands/95",
+          "scope": "binary-help",
+          "excerpt": "-h, --help                  Print help"
+        }
+      ]
+    },
+    {
+      "key": "flag:worktree prune:--debug",
+      "category": "flag",
+      "name": "worktree prune:--debug",
+      "observations": [
+        {
+          "locator": "capture:commands/96",
+          "scope": "binary-help",
+          "excerpt": "--debug                 Enable debug logging"
+        }
+      ]
+    },
+    {
+      "key": "flag:worktree prune:--debug-file",
+      "category": "flag",
+      "name": "worktree prune:--debug-file",
+      "observations": [
+        {
+          "locator": "capture:commands/96",
+          "scope": "binary-help",
+          "excerpt": "--debug-file <FILE>     Write debug logs to FILE"
+        }
+      ]
+    },
+    {
+      "key": "flag:worktree prune:--dry-run",
+      "category": "flag",
+      "name": "worktree prune:--dry-run",
+      "observations": [
+        {
+          "locator": "capture:commands/96",
+          "scope": "binary-help",
+          "excerpt": "--dry-run               Report what would be removed without removing it"
+        }
+      ]
+    },
+    {
+      "key": "flag:worktree prune:--force",
+      "category": "flag",
+      "name": "worktree prune:--force",
+      "observations": [
+        {
+          "locator": "capture:commands/96",
+          "scope": "binary-help",
+          "excerpt": "-f, --force                 Skip the live-process and protected-path guards. This does not override the safety check; use `grok worktree rm` for that"
+        }
+      ]
+    },
+    {
+      "key": "flag:worktree prune:--help",
+      "category": "flag",
+      "name": "worktree prune:--help",
+      "observations": [
+        {
+          "locator": "capture:commands/96",
+          "scope": "binary-help",
+          "excerpt": "-h, --help                  Print help"
+        }
+      ]
+    },
+    {
+      "key": "flag:worktree prune:--leader-socket",
+      "category": "flag",
+      "name": "worktree prune:--leader-socket",
+      "observations": [
+        {
+          "locator": "capture:commands/96",
+          "scope": "binary-help",
+          "excerpt": "--leader-socket <PATH>  Use a custom leader socket path instead of the default `~/.grok/leader.sock`. A local/branch build can thus run an isolated leader without colliding with the default one already running on the machine Name it `~/.grok/leader-*.sock` to keep `grok leader list/kill` able to find it; any other location works but won't be auto-discovered"
+        }
+      ]
+    },
+    {
+      "key": "flag:worktree prune:--max-age",
+      "category": "flag",
+      "name": "worktree prune:--max-age",
+      "observations": [
+        {
+          "locator": "capture:commands/96",
+          "scope": "binary-help",
+          "excerpt": "--max-age <MAX_AGE>     Expire worktrees idle longer than this, e.g. `7d`. Without it, nothing expires"
+        }
+      ]
+    },
+    {
+      "key": "flag:worktree prune:-f",
+      "category": "flag",
+      "name": "worktree prune:-f",
+      "observations": [
+        {
+          "locator": "capture:commands/96",
+          "scope": "binary-help",
+          "excerpt": "-f, --force                 Skip the live-process and protected-path guards. This does not override the safety check; use `grok worktree rm` for that"
+        }
+      ]
+    },
+    {
+      "key": "flag:worktree prune:-h",
+      "category": "flag",
+      "name": "worktree prune:-h",
+      "observations": [
+        {
+          "locator": "capture:commands/96",
           "scope": "binary-help",
           "excerpt": "-h, --help                  Print help"
         }
@@ -97968,6 +99557,16 @@
       "name": "onboarding",
       "observations": [
         {
+          "locator": "capture:tutorialProbes/0/events/54",
+          "scope": "binary-pty-observation",
+          "excerpt": "\u001b[?2026h\u001b[5;21H\u001b[38;5;240;48;5;233m┌─ \u001b[1m\u001b[38;5;254;48;5;233mWelcome to Grok Build\u001b[22m\u001b[38;5;240;48;5;233m ──────────────────────────── [✗] ─┐\u001b[6;21H│\u001b[38;5;254;48;5;233m                                                          \u001b[38;5;240;48;5;233m│\u001b[7;21H│\u001b[38;5;254;48;5;233m  \u001b[38;5;243;48;5;233mQuick tips to get the most out of Grok Build.\u001b[38;5;254;48;5;233m           \u001b[38;5;240;48;5;233m│\u001b[8;21H│\u001b[38;5;254;48;5;233m  \u001b[38;5;243;48;5;233mPick a topic. Esc when you're done.\u001b[38;5;254;48;5;233m                     \u001b[38;5;240;48;5;233m│\u001b[9;21H│\u001b[38;5;254;48;5;233m                                                          \u001b[38;5;240;48;5;233m│\u001b[10;21H│\u001b[38;5;254;48;5;233m  \u001b[38;5;240;48;5;237m◆ \u001b[1m\u001b[38;5;254;48;5;237mComing from Claude, Cursor, or Codex?\u001b[22m              \u001b[38;5;254;48;5;233m  \u001b[38;5;240;48;5;240m█\u001b[38;5;240;48;5;233m│\u001b[11;21H│\u001b[38;5;254;48;5;233m      \u001b[38;5;242;48;5;233myour settings, rules & skill"
+        },
+        {
+          "locator": "capture:tutorialProbes/1/events/25",
+          "scope": "binary-pty-observation",
+          "excerpt": "\u001b[?2026h\u001b[19;1H\u001b[2m/onboarding isn't available in minimal mode (the tutorial overlay needs fullscreen). Run /fullscreen\u001b[20;1Hto switch this session.\u001b[22m                                                                             \u001b[39m\u001b[49m\u001b[59m\u001b[0m\u001b[21;1H\u001b[J"
+        },
+        {
           "locator": "binary-guide:04-slash-commands.md#L384",
           "scope": "binary-guide",
           "excerpt": "Aliases: `/tour`, `/onboarding`"
@@ -98807,6 +100406,16 @@
       "name": "tour",
       "observations": [
         {
+          "locator": "capture:tutorialProbes/0/events/45",
+          "scope": "binary-pty-observation",
+          "excerpt": "\u001b[?2026h\u001b[5;21H\u001b[38;5;240;48;5;233m┌─ \u001b[1m\u001b[38;5;254;48;5;233mWelcome to Grok Build\u001b[22m\u001b[38;5;240;48;5;233m ──────────────────────────── [✗] ─┐\u001b[6;21H│\u001b[38;5;254;48;5;233m                                                          \u001b[38;5;240;48;5;233m│\u001b[7;21H│\u001b[38;5;254;48;5;233m  \u001b[38;5;243;48;5;233mQuick tips to get the most out of Grok Build.\u001b[38;5;254;48;5;233m           \u001b[38;5;240;48;5;233m│\u001b[8;21H│\u001b[38;5;254;48;5;233m  \u001b[38;5;243;48;5;233mPick a topic. Esc when you're done.\u001b[38;5;254;48;5;233m                     \u001b[38;5;240;48;5;233m│\u001b[9;21H│\u001b[38;5;254;48;5;233m                                                          \u001b[38;5;240;48;5;233m│\u001b[10;21H│\u001b[38;5;254;48;5;233m  \u001b[38;5;240;48;5;237m◆ \u001b[1m\u001b[38;5;254;48;5;237mComing from Claude, Cursor, or Codex?\u001b[22m              \u001b[38;5;254;48;5;233m  \u001b[38;5;240;48;5;240m█\u001b[38;5;240;48;5;233m│\u001b[11;21H│\u001b[38;5;254;48;5;233m      \u001b[38;5;242;48;5;233myour settings, rules & skill"
+        },
+        {
+          "locator": "capture:tutorialProbes/1/events/22",
+          "scope": "binary-pty-observation",
+          "excerpt": "\u001b[?2026h\u001b[17;1H\u001b[2m/tour isn't available in minimal mode (the tutorial overlay needs fullscreen). Run /fullscreen to\u001b[22m   \u001b[18;1H\u001b[2mswitch this session.\u001b[22m                                                                                \u001b[39m\u001b[49m\u001b[59m\u001b[0m\u001b[19;1H\u001b[J"
+        },
+        {
           "locator": "binary-guide:04-slash-commands.md#L384",
           "scope": "binary-guide",
           "excerpt": "Aliases: `/tour`, `/onboarding`"
@@ -98840,6 +100449,16 @@
       "category": "slash",
       "name": "tutorial",
       "observations": [
+        {
+          "locator": "capture:tutorialProbes/0/events/15",
+          "scope": "binary-pty-observation",
+          "excerpt": "\u001b[?2026h\u001b[5;21H\u001b[38;5;240;48;5;233m┌─ \u001b[1m\u001b[38;5;254;48;5;233mWelcome to Grok Build\u001b[22m\u001b[38;5;240;48;5;233m ──────────────────────────── [✗] ─┐\u001b[6;21H│\u001b[38;5;254;48;5;233m                                                          \u001b[38;5;240;48;5;233m│\u001b[7;21H│\u001b[38;5;254;48;5;233m  \u001b[38;5;243;48;5;233mQuick tips to get the most out of Grok Build.\u001b[38;5;254;48;5;233m           \u001b[38;5;240;48;5;233m│\u001b[8;21H│\u001b[38;5;254;48;5;233m  \u001b[38;5;243;48;5;233mPick a topic. Esc when you're done.\u001b[38;5;254;48;5;233m                     \u001b[38;5;240;48;5;233m│\u001b[9;21H│\u001b[38;5;254;48;5;233m                                                          \u001b[38;5;240;48;5;233m│\u001b[10;21H│\u001b[38;5;254;48;5;233m  \u001b[38;5;240;48;5;237m◆ \u001b[1m\u001b[38;5;254;48;5;237mComing from Claude, Cursor, or Codex?\u001b[22m              \u001b[38;5;254;48;5;233m  \u001b[38;5;240;48;5;240m█\u001b[38;5;240;48;5;233m│\u001b[11;21H│\u001b[38;5;254;48;5;233m      \u001b[38;5;242;48;5;233myour settings, rules & skill"
+        },
+        {
+          "locator": "capture:tutorialProbes/1/events/19",
+          "scope": "binary-pty-observation",
+          "excerpt": "\u001b[?2026h\u001b[15;1H\u001b[2m/tutorial isn't available in minimal mode (the tutorial overlay needs fullscreen). Run /fullscreen\u001b[22m  \u001b[16;1H\u001b[2mto switch this session.\u001b[22m                                                                             \u001b[39m\u001b[49m\u001b[59m\u001b[0m\u001b[17;1H\u001b[J"
+        },
         {
           "locator": "binary-guide:04-slash-commands.md#L159",
           "scope": "binary-guide",
@@ -101222,6 +102841,930 @@
           "locator": "source:crates/codegen/xai-grok-pager/src/worktree_cmd/mod.rs#L43",
           "scope": "source-declaration",
           "excerpt": "#[command(alias = \"prune\")]"
+        }
+      ]
+    },
+    {
+      "key": "source-command:AgentCmd:headless",
+      "category": "source-command",
+      "name": "AgentCmd:headless",
+      "observations": [
+        {
+          "locator": "source:crates/codegen/xai-grok-pager/src/app/cli.rs#L334",
+          "scope": "source-command-provisional",
+          "excerpt": "    Headless(HeadlessArgs)"
+        }
+      ]
+    },
+    {
+      "key": "source-command:AgentCmd:leader",
+      "category": "source-command",
+      "name": "AgentCmd:leader",
+      "observations": [
+        {
+          "locator": "source:crates/codegen/xai-grok-pager/src/app/cli.rs#L338",
+          "scope": "source-command-provisional",
+          "excerpt": "    Leader(LeaderArgs)"
+        }
+      ]
+    },
+    {
+      "key": "source-command:AgentCmd:serve",
+      "category": "source-command",
+      "name": "AgentCmd:serve",
+      "observations": [
+        {
+          "locator": "source:crates/codegen/xai-grok-pager/src/app/cli.rs#L336",
+          "scope": "source-command-provisional",
+          "excerpt": "    Serve(ServeArgs)"
+        }
+      ]
+    },
+    {
+      "key": "source-command:AgentCmd:stdio",
+      "category": "source-command",
+      "name": "AgentCmd:stdio",
+      "observations": [
+        {
+          "locator": "source:crates/codegen/xai-grok-pager/src/app/cli.rs#L332",
+          "scope": "source-command-provisional",
+          "excerpt": "    Stdio,"
+        }
+      ]
+    },
+    {
+      "key": "source-command:Command:agent",
+      "category": "source-command",
+      "name": "Command:agent",
+      "observations": [
+        {
+          "locator": "source:crates/codegen/xai-grok-pager/src/app/cli.rs#L10",
+          "scope": "source-command-provisional",
+          "excerpt": "    Agent(Box<AgentArgs>)"
+        }
+      ]
+    },
+    {
+      "key": "source-command:Command:completions",
+      "category": "source-command",
+      "name": "Command:completions",
+      "observations": [
+        {
+          "locator": "source:crates/codegen/xai-grok-pager/src/app/cli.rs#L126",
+          "scope": "source-command-provisional",
+          "excerpt": "    Completions {"
+        }
+      ]
+    },
+    {
+      "key": "source-command:Command:dashboard",
+      "category": "source-command",
+      "name": "Command:dashboard",
+      "observations": [
+        {
+          "locator": "source:crates/codegen/xai-grok-pager/src/app/cli.rs#L144",
+          "scope": "source-command-provisional",
+          "excerpt": "    Dashboard,"
+        }
+      ]
+    },
+    {
+      "key": "source-command:Command:disk-usage",
+      "category": "source-command",
+      "name": "Command:disk-usage",
+      "observations": [
+        {
+          "locator": "source:crates/codegen/xai-grok-pager/src/app/cli.rs#L135",
+          "scope": "source-command-provisional",
+          "excerpt": "    DiskUsage(crate::disk_usage_cmd::DiskUsageArgs)"
+        }
+      ]
+    },
+    {
+      "key": "source-command:Command:doctor",
+      "category": "source-command",
+      "name": "Command:doctor",
+      "observations": [
+        {
+          "locator": "source:crates/codegen/xai-grok-pager/src/app/cli.rs#L18",
+          "scope": "source-command-provisional",
+          "excerpt": "    Doctor(crate::doctor_cmd::DoctorArgs)"
+        }
+      ]
+    },
+    {
+      "key": "source-command:Command:du",
+      "category": "source-command",
+      "name": "Command:du",
+      "observations": [
+        {
+          "locator": "source:crates/codegen/xai-grok-pager/src/app/cli.rs#L135",
+          "scope": "source-command-provisional",
+          "excerpt": "    DiskUsage(crate::disk_usage_cmd::DiskUsageArgs)"
+        }
+      ]
+    },
+    {
+      "key": "source-command:Command:export",
+      "category": "source-command",
+      "name": "Command:export",
+      "observations": [
+        {
+          "locator": "source:crates/codegen/xai-grok-pager/src/app/cli.rs#L85",
+          "scope": "source-command-provisional",
+          "excerpt": "    Export(crate::export_cmd::ExportArgs)"
+        }
+      ]
+    },
+    {
+      "key": "source-command:Command:inspect",
+      "category": "source-command",
+      "name": "Command:inspect",
+      "observations": [
+        {
+          "locator": "source:crates/codegen/xai-grok-pager/src/app/cli.rs#L12",
+          "scope": "source-command-provisional",
+          "excerpt": "    Inspect {"
+        }
+      ]
+    },
+    {
+      "key": "source-command:Command:leader",
+      "category": "source-command",
+      "name": "Command:leader",
+      "observations": [
+        {
+          "locator": "source:crates/codegen/xai-grok-pager/src/app/cli.rs#L20",
+          "scope": "source-command-provisional",
+          "excerpt": "    Leader(LeaderMgmtArgs)"
+        }
+      ]
+    },
+    {
+      "key": "source-command:Command:login",
+      "category": "source-command",
+      "name": "Command:login",
+      "observations": [
+        {
+          "locator": "source:crates/codegen/xai-grok-pager/src/app/cli.rs#L24",
+          "scope": "source-command-provisional",
+          "excerpt": "    Login {"
+        }
+      ]
+    },
+    {
+      "key": "source-command:Command:logout",
+      "category": "source-command",
+      "name": "Command:logout",
+      "observations": [
+        {
+          "locator": "source:crates/codegen/xai-grok-pager/src/app/cli.rs#L22",
+          "scope": "source-command-provisional",
+          "excerpt": "    Logout,"
+        }
+      ]
+    },
+    {
+      "key": "source-command:Command:mcp",
+      "category": "source-command",
+      "name": "Command:mcp",
+      "observations": [
+        {
+          "locator": "source:crates/codegen/xai-grok-pager/src/app/cli.rs#L44",
+          "scope": "source-command-provisional",
+          "excerpt": "    Mcp(crate::mcp_cmd::McpArgs)"
+        }
+      ]
+    },
+    {
+      "key": "source-command:Command:memory",
+      "category": "source-command",
+      "name": "Command:memory",
+      "observations": [
+        {
+          "locator": "source:crates/codegen/xai-grok-pager/src/app/cli.rs#L48",
+          "scope": "source-command-provisional",
+          "excerpt": "    Memory(crate::memory_cmd::MemoryArgs)"
+        }
+      ]
+    },
+    {
+      "key": "source-command:Command:models",
+      "category": "source-command",
+      "name": "Command:models",
+      "observations": [
+        {
+          "locator": "source:crates/codegen/xai-grok-pager/src/app/cli.rs#L50",
+          "scope": "source-command-provisional",
+          "excerpt": "    Models,"
+        }
+      ]
+    },
+    {
+      "key": "source-command:Command:plugin",
+      "category": "source-command",
+      "name": "Command:plugin",
+      "observations": [
+        {
+          "locator": "source:crates/codegen/xai-grok-pager/src/app/cli.rs#L46",
+          "scope": "source-command-provisional",
+          "excerpt": "    Plugin(crate::plugin_cmd::PluginArgs)"
+        }
+      ]
+    },
+    {
+      "key": "source-command:Command:sessions",
+      "category": "source-command",
+      "name": "Command:sessions",
+      "observations": [
+        {
+          "locator": "source:crates/codegen/xai-grok-pager/src/app/cli.rs#L52",
+          "scope": "source-command-provisional",
+          "excerpt": "    Sessions(crate::sessions_cmd::SessionsArgs)"
+        }
+      ]
+    },
+    {
+      "key": "source-command:Command:setup",
+      "category": "source-command",
+      "name": "Command:setup",
+      "observations": [
+        {
+          "locator": "source:crates/codegen/xai-grok-pager/src/app/cli.rs#L56",
+          "scope": "source-command-provisional",
+          "excerpt": "    Setup {"
+        }
+      ]
+    },
+    {
+      "key": "source-command:Command:share",
+      "category": "source-command",
+      "name": "Command:share",
+      "observations": [
+        {
+          "locator": "source:crates/codegen/xai-grok-pager/src/app/cli.rs#L63",
+          "scope": "source-command-provisional",
+          "excerpt": "    Share(crate::share_cmd::ShareArgs)"
+        }
+      ]
+    },
+    {
+      "key": "source-command:Command:trace",
+      "category": "source-command",
+      "name": "Command:trace",
+      "observations": [
+        {
+          "locator": "source:crates/codegen/xai-grok-pager/src/app/cli.rs#L87",
+          "scope": "source-command-provisional",
+          "excerpt": "    Trace(crate::trace_cmd::TraceArgs)"
+        }
+      ]
+    },
+    {
+      "key": "source-command:Command:update",
+      "category": "source-command",
+      "name": "Command:update",
+      "observations": [
+        {
+          "locator": "source:crates/codegen/xai-grok-pager/src/app/cli.rs#L89",
+          "scope": "source-command-provisional",
+          "excerpt": "    Update {"
+        }
+      ]
+    },
+    {
+      "key": "source-command:Command:usage",
+      "category": "source-command",
+      "name": "Command:usage",
+      "observations": [
+        {
+          "locator": "source:crates/codegen/xai-grok-pager/src/app/cli.rs#L54",
+          "scope": "source-command-provisional",
+          "excerpt": "    Usage(crate::usage_cmd::UsageArgs)"
+        }
+      ]
+    },
+    {
+      "key": "source-command:Command:v",
+      "category": "source-command",
+      "name": "Command:v",
+      "observations": [
+        {
+          "locator": "source:crates/codegen/xai-grok-pager/src/app/cli.rs#L120",
+          "scope": "source-command-provisional",
+          "excerpt": "    Version {"
+        }
+      ]
+    },
+    {
+      "key": "source-command:Command:version",
+      "category": "source-command",
+      "name": "Command:version",
+      "observations": [
+        {
+          "locator": "source:crates/codegen/xai-grok-pager/src/app/cli.rs#L120",
+          "scope": "source-command-provisional",
+          "excerpt": "    Version {"
+        }
+      ]
+    },
+    {
+      "key": "source-command:Command:workspace",
+      "category": "source-command",
+      "name": "Command:workspace",
+      "observations": [
+        {
+          "locator": "source:crates/codegen/xai-grok-pager/src/app/cli.rs#L140",
+          "scope": "source-command-provisional",
+          "excerpt": "    Workspace(WorkspaceMgmtArgs)"
+        }
+      ]
+    },
+    {
+      "key": "source-command:Command:worktree",
+      "category": "source-command",
+      "name": "Command:worktree",
+      "observations": [
+        {
+          "locator": "source:crates/codegen/xai-grok-pager/src/app/cli.rs#L132",
+          "scope": "source-command-provisional",
+          "excerpt": "    Worktree(crate::worktree_cmd::WorktreeArgs)"
+        }
+      ]
+    },
+    {
+      "key": "source-command:Command:wrap",
+      "category": "source-command",
+      "name": "Command:wrap",
+      "observations": [
+        {
+          "locator": "source:crates/codegen/xai-grok-pager/src/app/cli.rs#L83",
+          "scope": "source-command-provisional",
+          "excerpt": "    Wrap(WrapArgs)"
+        }
+      ]
+    },
+    {
+      "key": "source-command:DoctorCommand:fix",
+      "category": "source-command",
+      "name": "DoctorCommand:fix",
+      "observations": [
+        {
+          "locator": "source:crates/codegen/xai-grok-pager/src/doctor_cmd/mod.rs#L26",
+          "scope": "source-command-provisional",
+          "excerpt": "    Fix(FixArgs)"
+        }
+      ]
+    },
+    {
+      "key": "source-command:LeaderMgmtCommand:info",
+      "category": "source-command",
+      "name": "LeaderMgmtCommand:info",
+      "observations": [
+        {
+          "locator": "source:crates/codegen/xai-grok-pager/src/app/cli.rs#L180",
+          "scope": "source-command-provisional",
+          "excerpt": "    Info {"
+        }
+      ]
+    },
+    {
+      "key": "source-command:LeaderMgmtCommand:kill",
+      "category": "source-command",
+      "name": "LeaderMgmtCommand:kill",
+      "observations": [
+        {
+          "locator": "source:crates/codegen/xai-grok-pager/src/app/cli.rs#L188",
+          "scope": "source-command-provisional",
+          "excerpt": "    Kill,"
+        }
+      ]
+    },
+    {
+      "key": "source-command:LeaderMgmtCommand:list",
+      "category": "source-command",
+      "name": "LeaderMgmtCommand:list",
+      "observations": [
+        {
+          "locator": "source:crates/codegen/xai-grok-pager/src/app/cli.rs#L174",
+          "scope": "source-command-provisional",
+          "excerpt": "    List {"
+        }
+      ]
+    },
+    {
+      "key": "source-command:MarketplaceCommand:add",
+      "category": "source-command",
+      "name": "MarketplaceCommand:add",
+      "observations": [
+        {
+          "locator": "source:crates/codegen/xai-grok-pager/src/plugin_cmd.rs#L175",
+          "scope": "source-command-provisional",
+          "excerpt": "    Add {"
+        }
+      ]
+    },
+    {
+      "key": "source-command:MarketplaceCommand:list",
+      "category": "source-command",
+      "name": "MarketplaceCommand:list",
+      "observations": [
+        {
+          "locator": "source:crates/codegen/xai-grok-pager/src/plugin_cmd.rs#L169",
+          "scope": "source-command-provisional",
+          "excerpt": "    List {"
+        }
+      ]
+    },
+    {
+      "key": "source-command:MarketplaceCommand:remove",
+      "category": "source-command",
+      "name": "MarketplaceCommand:remove",
+      "observations": [
+        {
+          "locator": "source:crates/codegen/xai-grok-pager/src/plugin_cmd.rs#L183",
+          "scope": "source-command-provisional",
+          "excerpt": "    Remove {"
+        }
+      ]
+    },
+    {
+      "key": "source-command:MarketplaceCommand:update",
+      "category": "source-command",
+      "name": "MarketplaceCommand:update",
+      "observations": [
+        {
+          "locator": "source:crates/codegen/xai-grok-pager/src/plugin_cmd.rs#L188",
+          "scope": "source-command-provisional",
+          "excerpt": "    Update {"
+        }
+      ]
+    },
+    {
+      "key": "source-command:McpCommand:add",
+      "category": "source-command",
+      "name": "McpCommand:add",
+      "observations": [
+        {
+          "locator": "source:crates/codegen/xai-grok-pager/src/mcp_cmd.rs#L73",
+          "scope": "source-command-provisional",
+          "excerpt": "    Add(AddArgs)"
+        }
+      ]
+    },
+    {
+      "key": "source-command:McpCommand:disable",
+      "category": "source-command",
+      "name": "McpCommand:disable",
+      "observations": [
+        {
+          "locator": "source:crates/codegen/xai-grok-pager/src/mcp_cmd.rs#L89",
+          "scope": "source-command-provisional",
+          "excerpt": "    Disable {"
+        }
+      ]
+    },
+    {
+      "key": "source-command:McpCommand:doctor",
+      "category": "source-command",
+      "name": "McpCommand:doctor",
+      "observations": [
+        {
+          "locator": "source:crates/codegen/xai-grok-pager/src/mcp_cmd.rs#L94",
+          "scope": "source-command-provisional",
+          "excerpt": "    Doctor {"
+        }
+      ]
+    },
+    {
+      "key": "source-command:McpCommand:enable",
+      "category": "source-command",
+      "name": "McpCommand:enable",
+      "observations": [
+        {
+          "locator": "source:crates/codegen/xai-grok-pager/src/mcp_cmd.rs#L84",
+          "scope": "source-command-provisional",
+          "excerpt": "    Enable {"
+        }
+      ]
+    },
+    {
+      "key": "source-command:McpCommand:list",
+      "category": "source-command",
+      "name": "McpCommand:list",
+      "observations": [
+        {
+          "locator": "source:crates/codegen/xai-grok-pager/src/mcp_cmd.rs#L67",
+          "scope": "source-command-provisional",
+          "excerpt": "    List {"
+        }
+      ]
+    },
+    {
+      "key": "source-command:McpCommand:remove",
+      "category": "source-command",
+      "name": "McpCommand:remove",
+      "observations": [
+        {
+          "locator": "source:crates/codegen/xai-grok-pager/src/mcp_cmd.rs#L75",
+          "scope": "source-command-provisional",
+          "excerpt": "    Remove {"
+        }
+      ]
+    },
+    {
+      "key": "source-command:MemoryCommand:clear",
+      "category": "source-command",
+      "name": "MemoryCommand:clear",
+      "observations": [
+        {
+          "locator": "source:crates/codegen/xai-grok-pager/src/memory_cmd.rs#L17",
+          "scope": "source-command-provisional",
+          "excerpt": "    Clear {"
+        }
+      ]
+    },
+    {
+      "key": "source-command:PluginCommand:details",
+      "category": "source-command",
+      "name": "PluginCommand:details",
+      "observations": [
+        {
+          "locator": "source:crates/codegen/xai-grok-pager/src/plugin_cmd.rs#L131",
+          "scope": "source-command-provisional",
+          "excerpt": "    Details {"
+        }
+      ]
+    },
+    {
+      "key": "source-command:PluginCommand:disable",
+      "category": "source-command",
+      "name": "PluginCommand:disable",
+      "observations": [
+        {
+          "locator": "source:crates/codegen/xai-grok-pager/src/plugin_cmd.rs#L126",
+          "scope": "source-command-provisional",
+          "excerpt": "    Disable {"
+        }
+      ]
+    },
+    {
+      "key": "source-command:PluginCommand:enable",
+      "category": "source-command",
+      "name": "PluginCommand:enable",
+      "observations": [
+        {
+          "locator": "source:crates/codegen/xai-grok-pager/src/plugin_cmd.rs#L121",
+          "scope": "source-command-provisional",
+          "excerpt": "    Enable {"
+        }
+      ]
+    },
+    {
+      "key": "source-command:PluginCommand:install",
+      "category": "source-command",
+      "name": "PluginCommand:install",
+      "observations": [
+        {
+          "locator": "source:crates/codegen/xai-grok-pager/src/plugin_cmd.rs#L95",
+          "scope": "source-command-provisional",
+          "excerpt": "    Install {"
+        }
+      ]
+    },
+    {
+      "key": "source-command:PluginCommand:list",
+      "category": "source-command",
+      "name": "PluginCommand:list",
+      "observations": [
+        {
+          "locator": "source:crates/codegen/xai-grok-pager/src/plugin_cmd.rs#L86",
+          "scope": "source-command-provisional",
+          "excerpt": "    List {"
+        }
+      ]
+    },
+    {
+      "key": "source-command:PluginCommand:marketplace",
+      "category": "source-command",
+      "name": "PluginCommand:marketplace",
+      "observations": [
+        {
+          "locator": "source:crates/codegen/xai-grok-pager/src/plugin_cmd.rs#L157",
+          "scope": "source-command-provisional",
+          "excerpt": "    Marketplace(MarketplaceArgs)"
+        }
+      ]
+    },
+    {
+      "key": "source-command:PluginCommand:remove",
+      "category": "source-command",
+      "name": "PluginCommand:remove",
+      "observations": [
+        {
+          "locator": "source:crates/codegen/xai-grok-pager/src/plugin_cmd.rs#L105",
+          "scope": "source-command-provisional",
+          "excerpt": "    Uninstall {"
+        }
+      ]
+    },
+    {
+      "key": "source-command:PluginCommand:rm",
+      "category": "source-command",
+      "name": "PluginCommand:rm",
+      "observations": [
+        {
+          "locator": "source:crates/codegen/xai-grok-pager/src/plugin_cmd.rs#L105",
+          "scope": "source-command-provisional",
+          "excerpt": "    Uninstall {"
+        }
+      ]
+    },
+    {
+      "key": "source-command:PluginCommand:tag",
+      "category": "source-command",
+      "name": "PluginCommand:tag",
+      "observations": [
+        {
+          "locator": "source:crates/codegen/xai-grok-pager/src/plugin_cmd.rs#L142",
+          "scope": "source-command-provisional",
+          "excerpt": "    Tag {"
+        }
+      ]
+    },
+    {
+      "key": "source-command:PluginCommand:uninstall",
+      "category": "source-command",
+      "name": "PluginCommand:uninstall",
+      "observations": [
+        {
+          "locator": "source:crates/codegen/xai-grok-pager/src/plugin_cmd.rs#L105",
+          "scope": "source-command-provisional",
+          "excerpt": "    Uninstall {"
+        }
+      ]
+    },
+    {
+      "key": "source-command:PluginCommand:update",
+      "category": "source-command",
+      "name": "PluginCommand:update",
+      "observations": [
+        {
+          "locator": "source:crates/codegen/xai-grok-pager/src/plugin_cmd.rs#L116",
+          "scope": "source-command-provisional",
+          "excerpt": "    Update {"
+        }
+      ]
+    },
+    {
+      "key": "source-command:PluginCommand:validate",
+      "category": "source-command",
+      "name": "PluginCommand:validate",
+      "observations": [
+        {
+          "locator": "source:crates/codegen/xai-grok-pager/src/plugin_cmd.rs#L136",
+          "scope": "source-command-provisional",
+          "excerpt": "    Validate {"
+        }
+      ]
+    },
+    {
+      "key": "source-command:SessionsCommand:delete",
+      "category": "source-command",
+      "name": "SessionsCommand:delete",
+      "observations": [
+        {
+          "locator": "source:crates/codegen/xai-grok-pager/src/sessions_cmd.rs#L30",
+          "scope": "source-command-provisional",
+          "excerpt": "    Delete {"
+        }
+      ]
+    },
+    {
+      "key": "source-command:SessionsCommand:list",
+      "category": "source-command",
+      "name": "SessionsCommand:list",
+      "observations": [
+        {
+          "locator": "source:crates/codegen/xai-grok-pager/src/sessions_cmd.rs#L16",
+          "scope": "source-command-provisional",
+          "excerpt": "    List {"
+        }
+      ]
+    },
+    {
+      "key": "source-command:SessionsCommand:search",
+      "category": "source-command",
+      "name": "SessionsCommand:search",
+      "observations": [
+        {
+          "locator": "source:crates/codegen/xai-grok-pager/src/sessions_cmd.rs#L22",
+          "scope": "source-command-provisional",
+          "excerpt": "    Search {"
+        }
+      ]
+    },
+    {
+      "key": "source-command:WorkspaceMgmtCommand:list",
+      "category": "source-command",
+      "name": "WorkspaceMgmtCommand:list",
+      "observations": [
+        {
+          "locator": "source:crates/codegen/xai-grok-pager/src/app/cli.rs#L227",
+          "scope": "source-command-provisional",
+          "excerpt": "    Status {"
+        }
+      ]
+    },
+    {
+      "key": "source-command:WorkspaceMgmtCommand:pause",
+      "category": "source-command",
+      "name": "WorkspaceMgmtCommand:pause",
+      "observations": [
+        {
+          "locator": "source:crates/codegen/xai-grok-pager/src/app/cli.rs#L200",
+          "scope": "source-command-provisional",
+          "excerpt": "    Pause {"
+        }
+      ]
+    },
+    {
+      "key": "source-command:WorkspaceMgmtCommand:restart",
+      "category": "source-command",
+      "name": "WorkspaceMgmtCommand:restart",
+      "observations": [
+        {
+          "locator": "source:crates/codegen/xai-grok-pager/src/app/cli.rs#L224",
+          "scope": "source-command-provisional",
+          "excerpt": "    Restart(WorkspaceStartArgs)"
+        }
+      ]
+    },
+    {
+      "key": "source-command:WorkspaceMgmtCommand:resume",
+      "category": "source-command",
+      "name": "WorkspaceMgmtCommand:resume",
+      "observations": [
+        {
+          "locator": "source:crates/codegen/xai-grok-pager/src/app/cli.rs#L208",
+          "scope": "source-command-provisional",
+          "excerpt": "    Resume {"
+        }
+      ]
+    },
+    {
+      "key": "source-command:WorkspaceMgmtCommand:start",
+      "category": "source-command",
+      "name": "WorkspaceMgmtCommand:start",
+      "observations": [
+        {
+          "locator": "source:crates/codegen/xai-grok-pager/src/app/cli.rs#L198",
+          "scope": "source-command-provisional",
+          "excerpt": "    Start(WorkspaceStartArgs)"
+        }
+      ]
+    },
+    {
+      "key": "source-command:WorkspaceMgmtCommand:status",
+      "category": "source-command",
+      "name": "WorkspaceMgmtCommand:status",
+      "observations": [
+        {
+          "locator": "source:crates/codegen/xai-grok-pager/src/app/cli.rs#L227",
+          "scope": "source-command-provisional",
+          "excerpt": "    Status {"
+        }
+      ]
+    },
+    {
+      "key": "source-command:WorkspaceMgmtCommand:stop",
+      "category": "source-command",
+      "name": "WorkspaceMgmtCommand:stop",
+      "observations": [
+        {
+          "locator": "source:crates/codegen/xai-grok-pager/src/app/cli.rs#L216",
+          "scope": "source-command-provisional",
+          "excerpt": "    Stop {"
+        }
+      ]
+    },
+    {
+      "key": "source-command:WorktreeCommand:db",
+      "category": "source-command",
+      "name": "WorktreeCommand:db",
+      "observations": [
+        {
+          "locator": "source:crates/codegen/xai-grok-pager/src/worktree_cmd/mod.rs#L58",
+          "scope": "source-command-provisional",
+          "excerpt": "    Db {"
+        }
+      ]
+    },
+    {
+      "key": "source-command:WorktreeCommand:gc",
+      "category": "source-command",
+      "name": "WorktreeCommand:gc",
+      "observations": [
+        {
+          "locator": "source:crates/codegen/xai-grok-pager/src/worktree_cmd/mod.rs#L44",
+          "scope": "source-command-provisional",
+          "excerpt": "    Gc {"
+        }
+      ]
+    },
+    {
+      "key": "source-command:WorktreeCommand:list",
+      "category": "source-command",
+      "name": "WorktreeCommand:list",
+      "observations": [
+        {
+          "locator": "source:crates/codegen/xai-grok-pager/src/worktree_cmd/mod.rs#L21",
+          "scope": "source-command-provisional",
+          "excerpt": "    List {"
+        }
+      ]
+    },
+    {
+      "key": "source-command:WorktreeCommand:ls",
+      "category": "source-command",
+      "name": "WorktreeCommand:ls",
+      "observations": [
+        {
+          "locator": "source:crates/codegen/xai-grok-pager/src/worktree_cmd/mod.rs#L21",
+          "scope": "source-command-provisional",
+          "excerpt": "    List {"
+        }
+      ]
+    },
+    {
+      "key": "source-command:WorktreeCommand:prune",
+      "category": "source-command",
+      "name": "WorktreeCommand:prune",
+      "observations": [
+        {
+          "locator": "source:crates/codegen/xai-grok-pager/src/worktree_cmd/mod.rs#L44",
+          "scope": "source-command-provisional",
+          "excerpt": "    Gc {"
+        }
+      ]
+    },
+    {
+      "key": "source-command:WorktreeCommand:rm",
+      "category": "source-command",
+      "name": "WorktreeCommand:rm",
+      "observations": [
+        {
+          "locator": "source:crates/codegen/xai-grok-pager/src/worktree_cmd/mod.rs#L34",
+          "scope": "source-command-provisional",
+          "excerpt": "    Rm {"
+        }
+      ]
+    },
+    {
+      "key": "source-command:WorktreeCommand:show",
+      "category": "source-command",
+      "name": "WorktreeCommand:show",
+      "observations": [
+        {
+          "locator": "source:crates/codegen/xai-grok-pager/src/worktree_cmd/mod.rs#L32",
+          "scope": "source-command-provisional",
+          "excerpt": "    Show {"
+        }
+      ]
+    },
+    {
+      "key": "source-command:WorktreeDbCommand:path",
+      "category": "source-command",
+      "name": "WorktreeDbCommand:path",
+      "observations": [
+        {
+          "locator": "source:crates/codegen/xai-grok-pager/src/worktree_cmd/mod.rs#L70",
+          "scope": "source-command-provisional",
+          "excerpt": "    Path,"
+        }
+      ]
+    },
+    {
+      "key": "source-command:WorktreeDbCommand:rebuild",
+      "category": "source-command",
+      "name": "WorktreeDbCommand:rebuild",
+      "observations": [
+        {
+          "locator": "source:crates/codegen/xai-grok-pager/src/worktree_cmd/mod.rs#L66",
+          "scope": "source-command-provisional",
+          "excerpt": "    Rebuild,"
+        }
+      ]
+    },
+    {
+      "key": "source-command:WorktreeDbCommand:stats",
+      "category": "source-command",
+      "name": "WorktreeDbCommand:stats",
+      "observations": [
+        {
+          "locator": "source:crates/codegen/xai-grok-pager/src/worktree_cmd/mod.rs#L68",
+          "scope": "source-command-provisional",
+          "excerpt": "    Stats,"
         }
       ]
     },
