@@ -5475,5 +5475,1279 @@
     }
   ],
   "hiddenCommandCapturedAt": "2026-09-19T19:07:02Z",
-  "sourceCommandCommit": "a28ee2b2063426e8816e380ccea528b9de95e5da"
+  "sourceCommandCommit": "a28ee2b2063426e8816e380ccea528b9de95e5da",
+  "uiProbes": [
+    {
+      "mode": "fullscreen",
+      "environment": {},
+      "initialSize": [
+        32,
+        100
+      ],
+      "events": [
+        {
+          "ms": 22.389292,
+          "output": "\u001b]0;grok\u0007\u001b[?1049h\u001b[?1000h\u001b[?1002h\u001b[?1003h\u001b[?1015h\u001b[?1006h\u001b[?1004h\u001b[?2004h\u001b[?25l\u001b]12;rgb:c6/c6/c6\u0007",
+          "bytesBase64": "G10wO2dyb2sHG1s/MTA0OWgbWz8xMDAwaBtbPzEwMDJoG1s/MTAwM2gbWz8xMDE1aBtbPzEwMDZoG1s/MTAwNGgbWz8yMDA0aBtbPzI1bBtdMTI7cmdiOmM2L2M2L2M2Bw=="
+        },
+        {
+          "ms": 283.460792,
+          "output": "\u001b[>0q",
+          "bytesBase64": "G1s+MHE="
+        },
+        {
+          "ms": 284.658417,
+          "output": "\u001b[?2026h\u001b[1;1H\u001b[39;48;5;233m                                                                                                    \u001b[2;1H  \u001b[38;5;240;48;5;233m/p/v/f/s/7/T/codsh-reference-133-e44f0szs/workspace\u001b[39;48;5;233m                                               \u001b[3;1H                                                                                                    \u001b[4;1H                                                                                                    \u001b[5;1H                                                                                                    \u001b[6;1H                                                                                                    \u001b[7;1H   \u001b[38;5;236;48;5;233m╭────────────────────────────────────────────────────────────────────────────────────────────╮\u001b[39;48;5;233m   \u001b[8;",
+          "bytesBase64": "G1s/MjAyNmgbWzE7MUgbWzM5OzQ4OzU7MjMzbSAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzI7MUggIBtbMzg7NTsyNDA7NDg7NTsyMzNtL3Avdi9mL3MvNy9UL2NvZHNoLXJlZmVyZW5jZS0xMzMtZTQ0ZjBzenMvd29ya3NwYWNlG1szOTs0ODs1OzIzM20gICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbMzsxSCAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzQ7MUggICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgG1s1OzFIICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbNjsxSCAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzc7MUggICAbWzM4OzU7MjM2OzQ4OzU7MjMzbeKVreKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKVrhtbMzk7NDg7NTsyMzNtICAgG1s4Ow=="
+        },
+        {
+          "ms": 284.681875,
+          "output": "1H   \u001b[38;5;236;48;5;233m│\u001b[39;48;5;233m                                                                                            \u001b[38;5;236;48;5;233m│\u001b[39;48;5;233m   \u001b[9;1H   \u001b[38;5;236;48;5;233m│\u001b[39;48;5;233m  \u001b[38;5;242;48;5;233m⠀⠀⠀⠀⠀⠀⣀⣀⡀⠀⠀⠀⢀⠄\u001b[39;48;5;233m   \u001b[1m\u001b[38;5;254;48;5;233mGrok Build  \u001b[22m\u001b[38;5;242;48;5;233m1.0.34\u001b[39;48;5;233m                                                       \u001b[38;5;236;48;5;233m│\u001b[39;48;5;233m   \u001b[10;1H   \u001b[38;5;236;48;5;233m│\u001b[39;48;5;233m  \u001b[38;5;242;48;5;233m⠀⠀⠀⣠⣾⠿⠛⠛⠛⠛⢀⡴⠁⠀\u001b[39;48;5;233m   \u001b[38;5;242;48;5;233mThanks for trying Grok Build, give feedback with /feedback!\u001b[39;48;5;233m              \u001b[38;5;236;48;5;233m│\u001b[39;48;5;233m   \u001b[11;1H   \u001b[38;5;236;48;5;233m│\u001b[39;48;5;233m  \u001b[38;5;242;48;5;233m⠀⠀⣼⡟⠁⠀⠀⠀⢀⡴⠻⣿⡀⠀\u001b[39;48;5;233m                                                                            \u001b[38;5;236;48;5;233m│\u001b[39;48;5;233m   \u001b[12;1H   \u001b[38;5;236;48;5;233m",
+          "bytesBase64": "MUggICAbWzM4OzU7MjM2OzQ4OzU7MjMzbeKUghtbMzk7NDg7NTsyMzNtICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzM4OzU7MjM2OzQ4OzU7MjMzbeKUghtbMzk7NDg7NTsyMzNtICAgG1s5OzFIICAgG1szODs1OzIzNjs0ODs1OzIzM23ilIIbWzM5OzQ4OzU7MjMzbSAgG1szODs1OzI0Mjs0ODs1OzIzM23ioIDioIDioIDioIDioIDioIDio4Dio4DioYDioIDioIDioIDiooDioIQbWzM5OzQ4OzU7MjMzbSAgIBtbMW0bWzM4OzU7MjU0OzQ4OzU7MjMzbUdyb2sgQnVpbGQgIBtbMjJtG1szODs1OzI0Mjs0ODs1OzIzM20xLjAuMzQbWzM5OzQ4OzU7MjMzbSAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzM4OzU7MjM2OzQ4OzU7MjMzbeKUghtbMzk7NDg7NTsyMzNtICAgG1sxMDsxSCAgIBtbMzg7NTsyMzY7NDg7NTsyMzNt4pSCG1szOTs0ODs1OzIzM20gIBtbMzg7NTsyNDI7NDg7NTsyMzNt4qCA4qCA4qCA4qOg4qO+4qC/4qCb4qCb4qCb4qCb4qKA4qG04qCB4qCAG1szOTs0ODs1OzIzM20gICAbWzM4OzU7MjQyOzQ4OzU7MjMzbVRoYW5rcyBmb3IgdHJ5aW5nIEdyb2sgQnVpbGQsIGdpdmUgZmVlZGJhY2sgd2l0aCAvZmVlZGJhY2shG1szOTs0ODs1OzIzM20gICAgICAgICAgICAgIBtbMzg7NTsyMzY7NDg7NTsyMzNt4pSCG1szOTs0ODs1OzIzM20gICAbWzExOzFIICAgG1szODs1OzIzNjs0ODs1OzIzM23ilIIbWzM5OzQ4OzU7MjMzbSAgG1szODs1OzI0Mjs0ODs1OzIzM23ioIDioIDio7zioZ/ioIHioIDioIDioIDiooDiobTioLvio7/ioYDioIAbWzM5OzQ4OzU7MjMzbSAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzM4OzU7MjM2OzQ4OzU7MjMzbeKUghtbMzk7NDg7NTsyMzNtICAgG1sxMjsxSCAgIBtbMzg7NTsyMzY7NDg7NTsyMzNt4g=="
+        },
+        {
+          "ms": 284.693083,
+          "output": "│\u001b[39;48;5;233m  \u001b[38;5;242;48;5;233m⠀⠀⣿⡇⠀⠀⠀⠔⠁⠀⠀⣿⡇⠀\u001b[39;48;5;233m   \u001b[1m\u001b[38;5;254;48;5;233mNew worktree\u001b[22m\u001b[39;48;5;233m                                                     \u001b[38;5;243;48;5;233mctrl+w\u001b[39;48;5;233m  \u001b[38;5;236;48;5;233m│\u001b[39;48;5;233m   \u001b[13;1H   \u001b[38;5;236;48;5;233m│\u001b[39;48;5;233m  \u001b[38;5;242;48;5;233m⠀⠀⢹⣷⠀⠀⠀⠀⠀⢀⣴⡿⠀⠀\u001b[39;48;5;233m   \u001b[1m\u001b[38;5;254;48;5;233mResume session\u001b[22m\u001b[39;48;5;233m                                                   \u001b[38;5;243;48;5;233mctrl+r\u001b[39;48;5;233m  \u001b[38;5;236;48;5;233m│\u001b[39;48;5;233m   \u001b[14;1H   \u001b[38;5;236;48;5;233m│\u001b[39;48;5;233m  \u001b[38;5;242;48;5;233m⠀⢀⠞⠁⠠⢶⣶⣶⣶⠿⠋⠀⠀⠀\u001b[39;48;5;233m   \u001b[1m\u001b[38;5;254;48;5;233mChangelog\u001b[22m\u001b[39;48;5;233m                                                                \u001b[38;5;236;48;5;233m│\u001b[39;48;5;233m   \u001b[15;1H   \u001b[38;5;236;48;5;233m│\u001b[39;48;5;233m  \u001b[38;5;242;48;5;233m⠐⠁⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀\u001b[39;48;5;233m   \u001b[1m\u001b[3",
+          "bytesBase64": "lIIbWzM5OzQ4OzU7MjMzbSAgG1szODs1OzI0Mjs0ODs1OzIzM23ioIDioIDio7/ioYfioIDioIDioIDioJTioIHioIDioIDio7/ioYfioIAbWzM5OzQ4OzU7MjMzbSAgIBtbMW0bWzM4OzU7MjU0OzQ4OzU7MjMzbU5ldyB3b3JrdHJlZRtbMjJtG1szOTs0ODs1OzIzM20gICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbMzg7NTsyNDM7NDg7NTsyMzNtY3RybCt3G1szOTs0ODs1OzIzM20gIBtbMzg7NTsyMzY7NDg7NTsyMzNt4pSCG1szOTs0ODs1OzIzM20gICAbWzEzOzFIICAgG1szODs1OzIzNjs0ODs1OzIzM23ilIIbWzM5OzQ4OzU7MjMzbSAgG1szODs1OzI0Mjs0ODs1OzIzM23ioIDioIDiornio7fioIDioIDioIDioIDioIDiooDio7Tiob/ioIDioIAbWzM5OzQ4OzU7MjMzbSAgIBtbMW0bWzM4OzU7MjU0OzQ4OzU7MjMzbVJlc3VtZSBzZXNzaW9uG1syMm0bWzM5OzQ4OzU7MjMzbSAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbMzg7NTsyNDM7NDg7NTsyMzNtY3RybCtyG1szOTs0ODs1OzIzM20gIBtbMzg7NTsyMzY7NDg7NTsyMzNt4pSCG1szOTs0ODs1OzIzM20gICAbWzE0OzFIICAgG1szODs1OzIzNjs0ODs1OzIzM23ilIIbWzM5OzQ4OzU7MjMzbSAgG1szODs1OzI0Mjs0ODs1OzIzM23ioIDiooDioJ7ioIHioKDiorbio7bio7bio7bioL/ioIvioIDioIDioIAbWzM5OzQ4OzU7MjMzbSAgIBtbMW0bWzM4OzU7MjU0OzQ4OzU7MjMzbUNoYW5nZWxvZxtbMjJtG1szOTs0ODs1OzIzM20gICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgG1szODs1OzIzNjs0ODs1OzIzM23ilIIbWzM5OzQ4OzU7MjMzbSAgIBtbMTU7MUggICAbWzM4OzU7MjM2OzQ4OzU7MjMzbeKUghtbMzk7NDg7NTsyMzNtICAbWzM4OzU7MjQyOzQ4OzU7MjMzbeKgkOKggeKggOKggOKggOKggOKggOKggOKggOKggOKggOKggOKggOKggBtbMzk7NDg7NTsyMzNtICAgG1sxbRtbMw=="
+        },
+        {
+          "ms": 284.705333,
+          "output": "8;5;254;48;5;233mQuit\u001b[22m\u001b[39;48;5;233m                                                             \u001b[38;5;243;48;5;233mctrl+q\u001b[39;48;5;233m  \u001b[38;5;236;48;5;233m│\u001b[39;48;5;233m   \u001b[16;1H   \u001b[38;5;236;48;5;233m│\u001b[39;48;5;233m                                                                                            \u001b[38;5;236;48;5;233m│\u001b[39;48;5;233m   \u001b[17;1H   \u001b[38;5;236;48;5;233m╰────────────────────────────────────────────────────────────────────────────────────────────╯\u001b[39;48;5;233m   \u001b[18;1H                                                                                                    \u001b[19;1H                                                                                                    \u001b[20;1H                                                                                                    \u001b[21;1H     ",
+          "bytesBase64": "ODs1OzI1NDs0ODs1OzIzM21RdWl0G1syMm0bWzM5OzQ4OzU7MjMzbSAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzM4OzU7MjQzOzQ4OzU7MjMzbWN0cmwrcRtbMzk7NDg7NTsyMzNtICAbWzM4OzU7MjM2OzQ4OzU7MjMzbeKUghtbMzk7NDg7NTsyMzNtICAgG1sxNjsxSCAgIBtbMzg7NTsyMzY7NDg7NTsyMzNt4pSCG1szOTs0ODs1OzIzM20gICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbMzg7NTsyMzY7NDg7NTsyMzNt4pSCG1szOTs0ODs1OzIzM20gICAbWzE3OzFIICAgG1szODs1OzIzNjs0ODs1OzIzM23ilbDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDila8bWzM5OzQ4OzU7MjMzbSAgIBtbMTg7MUggICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgG1sxOTsxSCAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzIwOzFIICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbMjE7MUggICAgIA=="
+        },
+        {
+          "ms": 284.717667,
+          "output": "                                                                                               \u001b[22;1H                                                                                                    \u001b[23;1H                                                                                                    \u001b[24;1H                                                                                                    \u001b[25;1H                                                                                                    \u001b[26;1H                                                                                                    \u001b[27;1H  \u001b[38;5;239;48;5;233m╭──────────────────────────────────────────────────────────────────────────────────────────────╮\u001b[39;48;5;233m  \u001b[28;1H  \u001b[38;5;239;48;5;233m│\u001b[38;5;254;48;5;233m \u001b[38;5;2",
+          "bytesBase64": "ICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzIyOzFIICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbMjM7MUggICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgG1syNDsxSCAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzI1OzFIICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbMjY7MUggICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgG1syNzsxSCAgG1szODs1OzIzOTs0ODs1OzIzM23ila3ilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDila4bWzM5OzQ4OzU7MjMzbSAgG1syODsxSCAgG1szODs1OzIzOTs0ODs1OzIzM23ilIIbWzM4OzU7MjU0OzQ4OzU7MjMzbSAbWzM4OzU7Mg=="
+        },
+        {
+          "ms": 284.728125,
+          "output": "51;48;5;233m❯ \u001b[38;5;254;48;5;233m                                                                                           \u001b[38;5;239;48;5;233m│\u001b[39;48;5;233m  \u001b[29;1H  \u001b[38;5;239;48;5;233m╰────────────────────────────────────────────────────────────────────────── \u001b[38;5;244;48;5;233mreference-fixture\u001b[38;5;239;48;5;233m ─╯\u001b[39;48;5;233m  \u001b[30;1H                                                                                                    \u001b[31;1H                                                                            \u001b[38;5;242;48;5;233mLogged in with API key\u001b[39;48;5;233m  \u001b[32;1H                                                                                                    \u001b[39m\u001b[49m\u001b[59m\u001b[0m\u001b[28;7H\u001b[?25h\u001b[?2026l",
+          "bytesBase64": "NTE7NDg7NTsyMzNt4p2vIBtbMzg7NTsyNTQ7NDg7NTsyMzNtICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbMzg7NTsyMzk7NDg7NTsyMzNt4pSCG1szOTs0ODs1OzIzM20gIBtbMjk7MUggIBtbMzg7NTsyMzk7NDg7NTsyMzNt4pWw4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSAIBtbMzg7NTsyNDQ7NDg7NTsyMzNtcmVmZXJlbmNlLWZpeHR1cmUbWzM4OzU7MjM5OzQ4OzU7MjMzbSDilIDila8bWzM5OzQ4OzU7MjMzbSAgG1szMDsxSCAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzMxOzFIICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbMzg7NTsyNDI7NDg7NTsyMzNtTG9nZ2VkIGluIHdpdGggQVBJIGtleRtbMzk7NDg7NTsyMzNtICAbWzMyOzFIICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbMzltG1s0OW0bWzU5bRtbMG0bWzI4OzdIG1s/MjVoG1s/MjAyNmw="
+        },
+        {
+          "ms": 348.392875,
+          "output": "\u001b[?2026h\u001b[15;7H\u001b[38;5;243;48;5;233m⠐\u001b[39m\u001b[49m\u001b[59m\u001b[0m\u001b[28;7H\u001b[?2026l",
+          "bytesBase64": "G1s/MjAyNmgbWzE1OzdIG1szODs1OzI0Mzs0ODs1OzIzM23ioJAbWzM5bRtbNDltG1s1OW0bWzBtG1syODs3SBtbPzIwMjZs"
+        },
+        {
+          "ms": 441.201417,
+          "action": "draft",
+          "offset": 6190,
+          "inputHex": "5245464552454e4345313333",
+          "observedMs": 482.125667,
+          "markerFound": true,
+          "endOffset": 7518
+        },
+        {
+          "ms": 445.532792,
+          "output": "\u001b[?2026h\u001b[2;3H\u001b[38;5;251;48;5;233m/p/v/f/s/7/T/codsh-reference-133-e44f0szs/workspace\u001b[2;74H\u001b[38;5;254;48;5;233m1.5K / 128K\u001b[38;5;238;48;5;233m │ \u001b[38;5;242;48;5;233m[Dashboard]\u001b[7;4H\u001b[39;48;5;233m                                                                                              \u001b[8;4H \u001b[8;97H \u001b[9;4H \u001b[9;7H              \u001b[9;24H                  \u001b[9;97H \u001b[10;4H \u001b[10;7H              \u001b[10;24H                                                           \u001b[10;97H \u001b[11;4H \u001b[11;7H              \u001b[11;97H \u001b[12;4H \u001b[12;7H              \u001b[12;24H            \u001b[12;89H      \u001b[12;97H \u001b[13;4H \u001b[13;7H              \u001b[13;24H              \u001b[13;89H      \u001b[13;97H \u001b[14;4H \u001b[14;7H              \u001b[14;24H         \u001b[14;97H \u001b[15;4H \u001b[15;7H              \u001b[15;24H    \u001b[15;89H      \u001b[15;97H \u001b[16;4H \u001b[16;97H \u001b[17;4H                                                                                              \u001b[28;7H\u001b[38;5;254;48;5;233mREFERENCE133\u001b[31;3H\u001b[1m\u001b[38;5;251;48;5;233mEnter\u001b[22m\u001b[38;5;242;48;5;233m:send\u001b[2m  │  \u001b[22m\u001b[1m\u001b[38;",
+          "bytesBase64": "G1s/MjAyNmgbWzI7M0gbWzM4OzU7MjUxOzQ4OzU7MjMzbS9wL3YvZi9zLzcvVC9jb2RzaC1yZWZlcmVuY2UtMTMzLWU0NGYwc3pzL3dvcmtzcGFjZRtbMjs3NEgbWzM4OzU7MjU0OzQ4OzU7MjMzbTEuNUsgLyAxMjhLG1szODs1OzIzODs0ODs1OzIzM20g4pSCIBtbMzg7NTsyNDI7NDg7NTsyMzNtW0Rhc2hib2FyZF0bWzc7NEgbWzM5OzQ4OzU7MjMzbSAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzg7NEggG1s4Ozk3SCAbWzk7NEggG1s5OzdIICAgICAgICAgICAgICAbWzk7MjRIICAgICAgICAgICAgICAgICAgG1s5Ozk3SCAbWzEwOzRIIBtbMTA7N0ggICAgICAgICAgICAgIBtbMTA7MjRIICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzEwOzk3SCAbWzExOzRIIBtbMTE7N0ggICAgICAgICAgICAgIBtbMTE7OTdIIBtbMTI7NEggG1sxMjs3SCAgICAgICAgICAgICAgG1sxMjsyNEggICAgICAgICAgICAbWzEyOzg5SCAgICAgIBtbMTI7OTdIIBtbMTM7NEggG1sxMzs3SCAgICAgICAgICAgICAgG1sxMzsyNEggICAgICAgICAgICAgIBtbMTM7ODlIICAgICAgG1sxMzs5N0ggG1sxNDs0SCAbWzE0OzdIICAgICAgICAgICAgICAbWzE0OzI0SCAgICAgICAgIBtbMTQ7OTdIIBtbMTU7NEggG1sxNTs3SCAgICAgICAgICAgICAgG1sxNTsyNEggICAgG1sxNTs4OUggICAgICAbWzE1Ozk3SCAbWzE2OzRIIBtbMTY7OTdIIBtbMTc7NEggICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgG1syODs3SBtbMzg7NTsyNTQ7NDg7NTsyMzNtUkVGRVJFTkNFMTMzG1szMTszSBtbMW0bWzM4OzU7MjUxOzQ4OzU7MjMzbUVudGVyG1syMm0bWzM4OzU7MjQyOzQ4OzU7MjMzbTpzZW5kG1sybSAg4pSCICAbWzIybRtbMW0bWzM4Ow=="
+        },
+        {
+          "ms": 445.559625,
+          "output": "5;251;48;5;233mOpt+Enter\u001b[22m\u001b[38;5;242;48;5;233m:newline\u001b[2m  │  \u001b[22m\u001b[1m\u001b[38;5;251;48;5;233mShift+Tab\u001b[22m\u001b[38;5;242;48;5;233m:mode\u001b[2m  │  \u001b[22m\u001b[1m\u001b[38;5;251;48;5;233mCtrl+x\u001b[22m\u001b[38;5;242;48;5;233m:shortcuts        \u001b[31;84H  \u001b[31;87H    \u001b[31;92H   \u001b[31;96H   \u001b[39m\u001b[49m\u001b[59m\u001b[0m\u001b[28;19H\u001b[?2026l",
+          "bytesBase64": "NTsyNTE7NDg7NTsyMzNtT3B0K0VudGVyG1syMm0bWzM4OzU7MjQyOzQ4OzU7MjMzbTpuZXdsaW5lG1sybSAg4pSCICAbWzIybRtbMW0bWzM4OzU7MjUxOzQ4OzU7MjMzbVNoaWZ0K1RhYhtbMjJtG1szODs1OzI0Mjs0ODs1OzIzM206bW9kZRtbMm0gIOKUgiAgG1syMm0bWzFtG1szODs1OzI1MTs0ODs1OzIzM21DdHJsK3gbWzIybRtbMzg7NTsyNDI7NDg7NTsyMzNtOnNob3J0Y3V0cyAgICAgICAgG1szMTs4NEggIBtbMzE7ODdIICAgIBtbMzE7OTJIICAgG1szMTs5NkggICAbWzM5bRtbNDltG1s1OW0bWzBtG1syODsxOUgbWz8yMDI2bA=="
+        },
+        {
+          "ms": 643.167833,
+          "action": "clear-draft",
+          "offset": 7518,
+          "inputHex": "03",
+          "observedMs": 950.319958,
+          "markerFound": null,
+          "endOffset": 7794
+        },
+        {
+          "ms": 643.414542,
+          "output": "\u001b[?2026h\u001b[28;7H\u001b[38;5;254;48;5;233m            \u001b[31;3H\u001b[1m\u001b[38;5;251;48;5;233mShift+Tab\u001b[22m\u001b[38;5;242;48;5;233m:mode\u001b[31;18H\u001b[2m │  \u001b[22m\u001b[1m\u001b[38;5;251;48;5;233mCtrl+x\u001b[22m\u001b[38;5;242;48;5;233m:shortcuts                                     \u001b[39m\u001b[49m\u001b[59m\u001b[0m\u001b[28;7H\u001b[?2026l",
+          "bytesBase64": "G1s/MjAyNmgbWzI4OzdIG1szODs1OzI1NDs0ODs1OzIzM20gICAgICAgICAgICAbWzMxOzNIG1sxbRtbMzg7NTsyNTE7NDg7NTsyMzNtU2hpZnQrVGFiG1syMm0bWzM4OzU7MjQyOzQ4OzU7MjMzbTptb2RlG1szMTsxOEgbWzJtIOKUgiAgG1syMm0bWzFtG1szODs1OzI1MTs0ODs1OzIzM21DdHJsK3gbWzIybRtbMzg7NTsyNDI7NDg7NTsyMzNtOnNob3J0Y3V0cyAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzM5bRtbNDltG1s1OW0bWzBtG1syODs3SBtbPzIwMjZs"
+        },
+        {
+          "ms": 1105.235625,
+          "action": "help-open",
+          "offset": 7794,
+          "inputHex": "2f68656c700d",
+          "observedMs": 1143.981125,
+          "markerFound": true,
+          "endOffset": 12395
+        },
+        {
+          "ms": 1109.519792,
+          "output": "\u001b[?2026h\u001b[5;26H\u001b[38;5;240;48;5;233m┌─ \u001b[1m\u001b[38;5;254;48;5;233mCommands\u001b[22m\u001b[38;5;240;48;5;233m ─────────────────────────────── [✗] ─┐\u001b[6;26H│\u001b[38;5;254;48;5;233m                                                \u001b[38;5;240;48;5;233m│\u001b[7;26H│\u001b[38;5;254;48;5;233m  \u001b[38;5;242;48;5;233m search: \u001b[38;5;233;48;5;254m \u001b[38;5;254;48;5;233m                                    \u001b[38;5;240;48;5;233m│\u001b[8;26H│────────────────────────────────────────────────│\u001b[9;26H│\u001b[38;5;254;48;5;233m  \u001b[1m\u001b[38;5;242;48;5;233m Session \u001b[22m\u001b[38;5;240;48;5;233m──────────────────────────────────\u001b[38;5;254;48;5;233m  \u001b[38;5;240;48;5;240m█\u001b[38;5;240;48;5;233m│\u001b[10;26H│\u001b[38;5;254;48;5;233m  \u001b[38;5;240;48;5;233m◆ \u001b[38;5;254;48;5;233mNew Session                       \u001b[38;5;242;48;5;233mCtrl+N\u001b[",
+          "bytesBase64": "G1s/MjAyNmgbWzU7MjZIG1szODs1OzI0MDs0ODs1OzIzM23ilIzilIAgG1sxbRtbMzg7NTsyNTQ7NDg7NTsyMzNtQ29tbWFuZHMbWzIybRtbMzg7NTsyNDA7NDg7NTsyMzNtIOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgCBb4pyXXSDilIDilJAbWzY7MjZI4pSCG1szODs1OzI1NDs0ODs1OzIzM20gICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzM4OzU7MjQwOzQ4OzU7MjMzbeKUghtbNzsyNkjilIIbWzM4OzU7MjU0OzQ4OzU7MjMzbSAgG1szODs1OzI0Mjs0ODs1OzIzM20gc2VhcmNoOiAbWzM4OzU7MjMzOzQ4OzU7MjU0bSAbWzM4OzU7MjU0OzQ4OzU7MjMzbSAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbMzg7NTsyNDA7NDg7NTsyMzNt4pSCG1s4OzI2SOKUguKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUghtbOTsyNkjilIIbWzM4OzU7MjU0OzQ4OzU7MjMzbSAgG1sxbRtbMzg7NTsyNDI7NDg7NTsyMzNtIFNlc3Npb24gG1syMm0bWzM4OzU7MjQwOzQ4OzU7MjMzbeKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgBtbMzg7NTsyNTQ7NDg7NTsyMzNtICAbWzM4OzU7MjQwOzQ4OzU7MjQwbeKWiBtbMzg7NTsyNDA7NDg7NTsyMzNt4pSCG1sxMDsyNkjilIIbWzM4OzU7MjU0OzQ4OzU7MjMzbSAgG1szODs1OzI0MDs0ODs1OzIzM23il4YgG1szODs1OzI1NDs0ODs1OzIzM21OZXcgU2Vzc2lvbiAgICAgICAgICAgICAgICAgICAgICAgG1szODs1OzI0Mjs0ODs1OzIzM21DdHJsK04bWw=="
+        },
+        {
+          "ms": 1109.589875,
+          "output": "38;5;254;48;5;233m   \u001b[38;5;240;48;5;240m█\u001b[38;5;240;48;5;233m│\u001b[11;26H│\u001b[38;5;254;48;5;233m  \u001b[38;5;240;48;5;233m◆ \u001b[38;5;254;48;5;233mNew Session in Workt…  \u001b[38;5;242;48;5;233mCtrl+P → worktree\u001b[38;5;254;48;5;233m   \u001b[38;5;240;48;5;240m█\u001b[38;5;240;48;5;233m│\u001b[12;26H│\u001b[38;5;254;48;5;233m  \u001b[38;5;240;48;5;233m◆ \u001b[38;5;254;48;5;233mAgent Dashboard               \u001b[38;5;242;48;5;233m/dashboard\u001b[38;5;254;48;5;233m   \u001b[38;5;240;48;5;240m█\u001b[38;5;240;48;5;233m│\u001b[13;26H│\u001b[38;5;254;48;5;233m  \u001b[38;5;240;48;5;233m◆ \u001b[38;5;254;48;5;233mBack to Home                       \u001b[38;5;242;48;5;233m/home\u001b[38;5;254;48;5;233m   \u001b[38;5;240;48;5;240m█\u001b[38;5;240;48;5;233m│\u001b[14;26H│\u001b[38;5;254;48;5;233m  \u001b[38;5;240;48;5;233m◆ \u001b[38;5;254;48;5;233mDelete This Session              \u001b[38;5;242;48;5;233m/delete\u001b[38;5;254;48;5;233m   \u001b[38;5;240;48;5;240m█\u001b[38;5;240;48;5;233m│\u001b[15;26H│\u001b[38;5;254;48;5;233m  \u001b[38;5;240;48;5;233m◆ \u001b[38;5;254;48;5;233mResume Session                   \u001b[38;5;242;48;5;233",
+          "bytesBase64": "Mzg7NTsyNTQ7NDg7NTsyMzNtICAgG1szODs1OzI0MDs0ODs1OzI0MG3ilogbWzM4OzU7MjQwOzQ4OzU7MjMzbeKUghtbMTE7MjZI4pSCG1szODs1OzI1NDs0ODs1OzIzM20gIBtbMzg7NTsyNDA7NDg7NTsyMzNt4peGIBtbMzg7NTsyNTQ7NDg7NTsyMzNtTmV3IFNlc3Npb24gaW4gV29ya3TigKYgIBtbMzg7NTsyNDI7NDg7NTsyMzNtQ3RybCtQIOKGkiB3b3JrdHJlZRtbMzg7NTsyNTQ7NDg7NTsyMzNtICAgG1szODs1OzI0MDs0ODs1OzI0MG3ilogbWzM4OzU7MjQwOzQ4OzU7MjMzbeKUghtbMTI7MjZI4pSCG1szODs1OzI1NDs0ODs1OzIzM20gIBtbMzg7NTsyNDA7NDg7NTsyMzNt4peGIBtbMzg7NTsyNTQ7NDg7NTsyMzNtQWdlbnQgRGFzaGJvYXJkICAgICAgICAgICAgICAgG1szODs1OzI0Mjs0ODs1OzIzM20vZGFzaGJvYXJkG1szODs1OzI1NDs0ODs1OzIzM20gICAbWzM4OzU7MjQwOzQ4OzU7MjQwbeKWiBtbMzg7NTsyNDA7NDg7NTsyMzNt4pSCG1sxMzsyNkjilIIbWzM4OzU7MjU0OzQ4OzU7MjMzbSAgG1szODs1OzI0MDs0ODs1OzIzM23il4YgG1szODs1OzI1NDs0ODs1OzIzM21CYWNrIHRvIEhvbWUgICAgICAgICAgICAgICAgICAgICAgIBtbMzg7NTsyNDI7NDg7NTsyMzNtL2hvbWUbWzM4OzU7MjU0OzQ4OzU7MjMzbSAgIBtbMzg7NTsyNDA7NDg7NTsyNDBt4paIG1szODs1OzI0MDs0ODs1OzIzM23ilIIbWzE0OzI2SOKUghtbMzg7NTsyNTQ7NDg7NTsyMzNtICAbWzM4OzU7MjQwOzQ4OzU7MjMzbeKXhiAbWzM4OzU7MjU0OzQ4OzU7MjMzbURlbGV0ZSBUaGlzIFNlc3Npb24gICAgICAgICAgICAgIBtbMzg7NTsyNDI7NDg7NTsyMzNtL2RlbGV0ZRtbMzg7NTsyNTQ7NDg7NTsyMzNtICAgG1szODs1OzI0MDs0ODs1OzI0MG3ilogbWzM4OzU7MjQwOzQ4OzU7MjMzbeKUghtbMTU7MjZI4pSCG1szODs1OzI1NDs0ODs1OzIzM20gIBtbMzg7NTsyNDA7NDg7NTsyMzNt4peGIBtbMzg7NTsyNTQ7NDg7NTsyMzNtUmVzdW1lIFNlc3Npb24gICAgICAgICAgICAgICAgICAgG1szODs1OzI0Mjs0ODs1OzIzMw=="
+        },
+        {
+          "ms": 1109.599833,
+          "output": "m/resume\u001b[38;5;254;48;5;233m   \u001b[38;5;240;48;5;240m█\u001b[38;5;240;48;5;233m│\u001b[16;26H│\u001b[38;5;254;48;5;233m  \u001b[38;5;240;48;5;233m◆ \u001b[38;5;254;48;5;233mRename Session                  \u001b[38;5;242;48;5;233m/rename \u001b[38;5;254;48;5;233m   \u001b[38;5;240;48;5;240m█\u001b[38;5;240;48;5;233m│\u001b[17;26H│\u001b[38;5;254;48;5;233m  \u001b[38;5;240;48;5;233m◆ \u001b[38;5;254;48;5;233mSession Info               \u001b[38;5;242;48;5;233m/session-info\u001b[38;5;254;48;5;233m    \u001b[38;5;240;48;5;233m│\u001b[18;26H│\u001b[38;5;254;48;5;233m  \u001b[38;5;240;48;5;233m◆ \u001b[38;5;254;48;5;233mSend Feedback                  \u001b[38;5;242;48;5;233m/feedback\u001b[38;5;254;48;5;233m    \u001b[38;5;240;48;5;233m│\u001b[19;26H│\u001b[38;5;254;48;5;233m                                                \u001b[38;5;240;48;5;233m│\u001b[20;26H│\u001b[38;5;254;48;5;233m  \u001b[1m\u001b[38;5;242;48;5;233m Context \u001b[22m\u001b[38;5;240;48;5;233m──────────────────────────────────\u001b[38;5;254;48;5;233m   \u001b[38;5;240;48;5;233m│\u001b[21;26H│\u001b[38;5;254;48;5;233m ",
+          "bytesBase64": "bS9yZXN1bWUbWzM4OzU7MjU0OzQ4OzU7MjMzbSAgIBtbMzg7NTsyNDA7NDg7NTsyNDBt4paIG1szODs1OzI0MDs0ODs1OzIzM23ilIIbWzE2OzI2SOKUghtbMzg7NTsyNTQ7NDg7NTsyMzNtICAbWzM4OzU7MjQwOzQ4OzU7MjMzbeKXhiAbWzM4OzU7MjU0OzQ4OzU7MjMzbVJlbmFtZSBTZXNzaW9uICAgICAgICAgICAgICAgICAgG1szODs1OzI0Mjs0ODs1OzIzM20vcmVuYW1lIBtbMzg7NTsyNTQ7NDg7NTsyMzNtICAgG1szODs1OzI0MDs0ODs1OzI0MG3ilogbWzM4OzU7MjQwOzQ4OzU7MjMzbeKUghtbMTc7MjZI4pSCG1szODs1OzI1NDs0ODs1OzIzM20gIBtbMzg7NTsyNDA7NDg7NTsyMzNt4peGIBtbMzg7NTsyNTQ7NDg7NTsyMzNtU2Vzc2lvbiBJbmZvICAgICAgICAgICAgICAgG1szODs1OzI0Mjs0ODs1OzIzM20vc2Vzc2lvbi1pbmZvG1szODs1OzI1NDs0ODs1OzIzM20gICAgG1szODs1OzI0MDs0ODs1OzIzM23ilIIbWzE4OzI2SOKUghtbMzg7NTsyNTQ7NDg7NTsyMzNtICAbWzM4OzU7MjQwOzQ4OzU7MjMzbeKXhiAbWzM4OzU7MjU0OzQ4OzU7MjMzbVNlbmQgRmVlZGJhY2sgICAgICAgICAgICAgICAgICAbWzM4OzU7MjQyOzQ4OzU7MjMzbS9mZWVkYmFjaxtbMzg7NTsyNTQ7NDg7NTsyMzNtICAgIBtbMzg7NTsyNDA7NDg7NTsyMzNt4pSCG1sxOTsyNkjilIIbWzM4OzU7MjU0OzQ4OzU7MjMzbSAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbMzg7NTsyNDA7NDg7NTsyMzNt4pSCG1syMDsyNkjilIIbWzM4OzU7MjU0OzQ4OzU7MjMzbSAgG1sxbRtbMzg7NTsyNDI7NDg7NTsyMzNtIENvbnRleHQgG1syMm0bWzM4OzU7MjQwOzQ4OzU7MjMzbeKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgBtbMzg7NTsyNTQ7NDg7NTsyMzNtICAgG1szODs1OzI0MDs0ODs1OzIzM23ilIIbWzIxOzI2SOKUghtbMzg7NTsyNTQ7NDg7NTsyMzNtIA=="
+        },
+        {
+          "ms": 1109.605958,
+          "output": " \u001b[38;5;240;48;5;233m◆ \u001b[38;5;254;48;5;233mCompact History                 \u001b[38;5;242;48;5;233m/compact\u001b[38;5;254;48;5;233m    \u001b[38;5;240;48;5;233m│\u001b[22;26H│\u001b[38;5;254;48;5;233m  \u001b[38;5;240;48;5;233m◆ \u001b[38;5;254;48;5;233mContext Usage                   \u001b[38;5;242;48;5;233m/context\u001b[38;5;254;48;5;233m    \u001b[38;5;240;48;5;233m│\u001b[23;26H│\u001b[38;5;254;48;5;233m  \u001b[38;5;240;48;5;233m◆ \u001b[38;5;254;48;5;233mView Plan                     \u001b[38;5;242;48;5;233m/view-plan\u001b[38;5;254;48;5;233m    \u001b[38;5;240;48;5;233m│\u001b[24;26H│\u001b[38;5;254;48;5;233m  \u001b[38;5;240;48;5;233m◆ \u001b[38;5;254;48;5;233mMemory                           \u001b[38;5;242;48;5;233m/memory\u001b[38;5;254;48;5;233m    \u001b[38;5;240;48;5;233m│\u001b[25;26H│\u001b[38;5;254;48;5;233m                                                \u001b[38;5;240;48;5;233m│\u001b[26;26H│\u001b[38;5;254;48;5;233m                                                \u001b[38;5;240;48;5;233m│\u001b[27;26H│\u001b[38;5;254;48;5;233m     \u001b[1m\u001b[38;5;251;48;5;233m↑/↓\u001b[22m\u001b[38;5;242;48;5;233m nav\u001b[38;5;240;48;5;233m",
+          "bytesBase64": "IBtbMzg7NTsyNDA7NDg7NTsyMzNt4peGIBtbMzg7NTsyNTQ7NDg7NTsyMzNtQ29tcGFjdCBIaXN0b3J5ICAgICAgICAgICAgICAgICAbWzM4OzU7MjQyOzQ4OzU7MjMzbS9jb21wYWN0G1szODs1OzI1NDs0ODs1OzIzM20gICAgG1szODs1OzI0MDs0ODs1OzIzM23ilIIbWzIyOzI2SOKUghtbMzg7NTsyNTQ7NDg7NTsyMzNtICAbWzM4OzU7MjQwOzQ4OzU7MjMzbeKXhiAbWzM4OzU7MjU0OzQ4OzU7MjMzbUNvbnRleHQgVXNhZ2UgICAgICAgICAgICAgICAgICAgG1szODs1OzI0Mjs0ODs1OzIzM20vY29udGV4dBtbMzg7NTsyNTQ7NDg7NTsyMzNtICAgIBtbMzg7NTsyNDA7NDg7NTsyMzNt4pSCG1syMzsyNkjilIIbWzM4OzU7MjU0OzQ4OzU7MjMzbSAgG1szODs1OzI0MDs0ODs1OzIzM23il4YgG1szODs1OzI1NDs0ODs1OzIzM21WaWV3IFBsYW4gICAgICAgICAgICAgICAgICAgICAbWzM4OzU7MjQyOzQ4OzU7MjMzbS92aWV3LXBsYW4bWzM4OzU7MjU0OzQ4OzU7MjMzbSAgICAbWzM4OzU7MjQwOzQ4OzU7MjMzbeKUghtbMjQ7MjZI4pSCG1szODs1OzI1NDs0ODs1OzIzM20gIBtbMzg7NTsyNDA7NDg7NTsyMzNt4peGIBtbMzg7NTsyNTQ7NDg7NTsyMzNtTWVtb3J5ICAgICAgICAgICAgICAgICAgICAgICAgICAgG1szODs1OzI0Mjs0ODs1OzIzM20vbWVtb3J5G1szODs1OzI1NDs0ODs1OzIzM20gICAgG1szODs1OzI0MDs0ODs1OzIzM23ilIIbWzI1OzI2SOKUghtbMzg7NTsyNTQ7NDg7NTsyMzNtICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgG1szODs1OzI0MDs0ODs1OzIzM23ilIIbWzI2OzI2SOKUghtbMzg7NTsyNTQ7NDg7NTsyMzNtICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgG1szODs1OzI0MDs0ODs1OzIzM23ilIIbWzI3OzI2SOKUghtbMzg7NTsyNTQ7NDg7NTsyMzNtICAgICAbWzFtG1szODs1OzI1MTs0ODs1OzIzM23ihpEv4oaTG1syMm0bWzM4OzU7MjQyOzQ4OzU7MjMzbSBuYXYbWzM4OzU7MjQwOzQ4OzU7MjMzbQ=="
+        },
+        {
+          "ms": 1109.614708,
+          "output": "  |  \u001b[1m\u001b[38;5;251;48;5;233mEnter\u001b[22m\u001b[38;5;242;48;5;233m select\u001b[38;5;240;48;5;233m  |  \u001b[1m\u001b[38;5;251;48;5;233mEsc\u001b[22m\u001b[38;5;242;48;5;233m close\u001b[38;5;254;48;5;233m     \u001b[38;5;240;48;5;233m│\u001b[28;26H└────────────────────────────────────────────────┘\u001b[31;3H\u001b[39;48;5;233m                                                                                                \u001b[39m\u001b[49m\u001b[59m\u001b[0m\u001b[?25l\u001b[?2026l",
+          "bytesBase64": "ICB8ICAbWzFtG1szODs1OzI1MTs0ODs1OzIzM21FbnRlchtbMjJtG1szODs1OzI0Mjs0ODs1OzIzM20gc2VsZWN0G1szODs1OzI0MDs0ODs1OzIzM20gIHwgIBtbMW0bWzM4OzU7MjUxOzQ4OzU7MjMzbUVzYxtbMjJtG1szODs1OzI0Mjs0ODs1OzIzM20gY2xvc2UbWzM4OzU7MjU0OzQ4OzU7MjMzbSAgICAgG1szODs1OzI0MDs0ODs1OzIzM23ilIIbWzI4OzI2SOKUlOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUmBtbMzE7M0gbWzM5OzQ4OzU7MjMzbSAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbMzltG1s0OW0bWzU5bRtbMG0bWz8yNWwbWz8yMDI2bA=="
+        },
+        {
+          "ms": 1299.094542,
+          "action": "help-filter",
+          "offset": 12395,
+          "inputHex": "486f772d746f",
+          "observedMs": 1335.422042,
+          "markerFound": true,
+          "endOffset": 13380
+        },
+        {
+          "ms": 1301.976583,
+          "output": "\u001b[?2026h\u001b[7;38H\u001b[38;5;254;48;5;233mHow-to\u001b[38;5;233;48;5;254m \u001b[9;30H\u001b[1m\u001b[38;5;242;48;5;233mOther \u001b[22m\u001b[38;5;240;48;5;233m──\u001b[9;72H─\u001b[9;74H\u001b[38;5;254;48;5;233m \u001b[10;31HHo\u001b[10;34H-to Guides\u001b[10;65H  \u001b[38;5;242;48;5;233m/docs\u001b[10;74H\u001b[38;5;254;48;5;233m \u001b[11;29H     \u001b[11;35H       \u001b[11;43H  \u001b[11;46H      \u001b[11;54H                 \u001b[11;74H \u001b[12;29H       \u001b[12;37H         \u001b[12;61H          \u001b[12;74H \u001b[13;29H      \u001b[13;36H  \u001b[13;39H    \u001b[13;66H     \u001b[13;74H \u001b[14;29H        \u001b[14;38H    \u001b[14;43H       \u001b[14;64H       \u001b[14;74H \u001b[15;29H        \u001b[15;38H       \u001b[15;64H       \u001b[15;74H \u001b[16;29H        \u001b[16;38H       \u001b[16;63H        \u001b[16;74H \u001b[17;29H         \u001b[17;39H    \u001b[17;58H             \u001b[18;29H      \u001b[18;36H        \u001b[18;62H         \u001b[20;29H                                           \u001b[21;29H         \u001b[21;39H       \u001b[21;63H        \u001b[22;29H         \u001b[22;39H     \u001b[22;63H        \u001b[23;29H      \u001b[23;36H    \u001b[23;61H          \u001b[24;29H        \u001b[24;64H       \u001b[39m\u001b[49m\u001b[59m\u001b[0m\u001b[?2026l",
+          "bytesBase64": "G1s/MjAyNmgbWzc7MzhIG1szODs1OzI1NDs0ODs1OzIzM21Ib3ctdG8bWzM4OzU7MjMzOzQ4OzU7MjU0bSAbWzk7MzBIG1sxbRtbMzg7NTsyNDI7NDg7NTsyMzNtT3RoZXIgG1syMm0bWzM4OzU7MjQwOzQ4OzU7MjMzbeKUgOKUgBtbOTs3MkjilIAbWzk7NzRIG1szODs1OzI1NDs0ODs1OzIzM20gG1sxMDszMUhIbxtbMTA7MzRILXRvIEd1aWRlcxtbMTA7NjVIICAbWzM4OzU7MjQyOzQ4OzU7MjMzbS9kb2NzG1sxMDs3NEgbWzM4OzU7MjU0OzQ4OzU7MjMzbSAbWzExOzI5SCAgICAgG1sxMTszNUggICAgICAgG1sxMTs0M0ggIBtbMTE7NDZIICAgICAgG1sxMTs1NEggICAgICAgICAgICAgICAgIBtbMTE7NzRIIBtbMTI7MjlIICAgICAgIBtbMTI7MzdIICAgICAgICAgG1sxMjs2MUggICAgICAgICAgG1sxMjs3NEggG1sxMzsyOUggICAgICAbWzEzOzM2SCAgG1sxMzszOUggICAgG1sxMzs2NkggICAgIBtbMTM7NzRIIBtbMTQ7MjlIICAgICAgICAbWzE0OzM4SCAgICAbWzE0OzQzSCAgICAgICAbWzE0OzY0SCAgICAgICAbWzE0Ozc0SCAbWzE1OzI5SCAgICAgICAgG1sxNTszOEggICAgICAgG1sxNTs2NEggICAgICAgG1sxNTs3NEggG1sxNjsyOUggICAgICAgIBtbMTY7MzhIICAgICAgIBtbMTY7NjNIICAgICAgICAbWzE2Ozc0SCAbWzE3OzI5SCAgICAgICAgIBtbMTc7MzlIICAgIBtbMTc7NThIICAgICAgICAgICAgIBtbMTg7MjlIICAgICAgG1sxODszNkggICAgICAgIBtbMTg7NjJIICAgICAgICAgG1syMDsyOUggICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgG1syMTsyOUggICAgICAgICAbWzIxOzM5SCAgICAgICAbWzIxOzYzSCAgICAgICAgG1syMjsyOUggICAgICAgICAbWzIyOzM5SCAgICAgG1syMjs2M0ggICAgICAgIBtbMjM7MjlIICAgICAgG1syMzszNkggICAgG1syMzs2MUggICAgICAgICAgG1syNDsyOUggICAgICAgIBtbMjQ7NjRIICAgICAgIBtbMzltG1s0OW0bWzU5bRtbMG0bWz8yMDI2bA=="
+        },
+        {
+          "ms": 1490.568042,
+          "action": "help-dismiss",
+          "offset": 13380,
+          "inputHex": "1b",
+          "observedMs": 1797.586708,
+          "markerFound": null,
+          "endOffset": 15360
+        },
+        {
+          "ms": 1642.451208,
+          "output": "\u001b[?2026h\u001b[7;38H\u001b[38;5;233;48;5;254m \u001b[38;5;254;48;5;233m      \u001b[9;30H\u001b[1m\u001b[38;5;242;48;5;233mSession \u001b[9;72H\u001b[22m\u001b[38;5;254;48;5;233m \u001b[9;74H\u001b[38;5;240;48;5;240m█\u001b[10;31H\u001b[38;5;254;48;5;233mNe\u001b[10;34H Session  \u001b[10;65H\u001b[38;5;242;48;5;233mCtrl+N\u001b[38;5;254;48;5;233m \u001b[10;74H\u001b[38;5;240;48;5;240m█\u001b[11;29H\u001b[38;5;240;48;5;233m◆ \u001b[38;5;254;48;5;233mNew\u001b[11;35HSession\u001b[11;43Hin\u001b[11;46HWorkt…\u001b[11;54H\u001b[38;5;242;48;5;233mCtrl+P → worktree\u001b[11;74H\u001b[38;5;240;48;5;240m█\u001b[12;29H\u001b[38;5;240;48;5;233m◆ \u001b[38;5;254;48;5;233mAgent\u001b[12;37HDashboard\u001b[12;61H\u001b[38;5;242;48;5;233m/dashboard\u001b[12;74H\u001b[38;5;240;48;5;240m█\u001b[13;29H\u001b[38;5;240;48;5;233m◆ \u001b[38;5;254;48;5;233mBack\u001b[13;36Hto\u001b[13;39HHome\u001b[13;66H\u001b[38;5;242;48;5;233m/home\u001b[13;74H\u001b[38;5;240;48;5;240m█\u001b[14;29H\u001b[38;5;240;48;5;233m◆ \u001b[38;5;254;48;5;233mDelete\u001b[14;38HThis\u001b[14;43HSession\u001b[14;64H\u001b[38;5;242;48;5;233m/delete\u001b[14;74H\u001b[38;5;240;48;5;240m█\u001b[15;29H\u001b[38;5;240;48;5;233m◆ \u001b[38;5;254;48;5;233mResume\u001b[15;38HSession\u001b[15;64H\u001b[38;5;242;48;5;233m/resume\u001b[15;74H",
+          "bytesBase64": "G1s/MjAyNmgbWzc7MzhIG1szODs1OzIzMzs0ODs1OzI1NG0gG1szODs1OzI1NDs0ODs1OzIzM20gICAgICAbWzk7MzBIG1sxbRtbMzg7NTsyNDI7NDg7NTsyMzNtU2Vzc2lvbiAbWzk7NzJIG1syMm0bWzM4OzU7MjU0OzQ4OzU7MjMzbSAbWzk7NzRIG1szODs1OzI0MDs0ODs1OzI0MG3ilogbWzEwOzMxSBtbMzg7NTsyNTQ7NDg7NTsyMzNtTmUbWzEwOzM0SCBTZXNzaW9uICAbWzEwOzY1SBtbMzg7NTsyNDI7NDg7NTsyMzNtQ3RybCtOG1szODs1OzI1NDs0ODs1OzIzM20gG1sxMDs3NEgbWzM4OzU7MjQwOzQ4OzU7MjQwbeKWiBtbMTE7MjlIG1szODs1OzI0MDs0ODs1OzIzM23il4YgG1szODs1OzI1NDs0ODs1OzIzM21OZXcbWzExOzM1SFNlc3Npb24bWzExOzQzSGluG1sxMTs0NkhXb3JrdOKAphtbMTE7NTRIG1szODs1OzI0Mjs0ODs1OzIzM21DdHJsK1Ag4oaSIHdvcmt0cmVlG1sxMTs3NEgbWzM4OzU7MjQwOzQ4OzU7MjQwbeKWiBtbMTI7MjlIG1szODs1OzI0MDs0ODs1OzIzM23il4YgG1szODs1OzI1NDs0ODs1OzIzM21BZ2VudBtbMTI7MzdIRGFzaGJvYXJkG1sxMjs2MUgbWzM4OzU7MjQyOzQ4OzU7MjMzbS9kYXNoYm9hcmQbWzEyOzc0SBtbMzg7NTsyNDA7NDg7NTsyNDBt4paIG1sxMzsyOUgbWzM4OzU7MjQwOzQ4OzU7MjMzbeKXhiAbWzM4OzU7MjU0OzQ4OzU7MjMzbUJhY2sbWzEzOzM2SHRvG1sxMzszOUhIb21lG1sxMzs2NkgbWzM4OzU7MjQyOzQ4OzU7MjMzbS9ob21lG1sxMzs3NEgbWzM4OzU7MjQwOzQ4OzU7MjQwbeKWiBtbMTQ7MjlIG1szODs1OzI0MDs0ODs1OzIzM23il4YgG1szODs1OzI1NDs0ODs1OzIzM21EZWxldGUbWzE0OzM4SFRoaXMbWzE0OzQzSFNlc3Npb24bWzE0OzY0SBtbMzg7NTsyNDI7NDg7NTsyMzNtL2RlbGV0ZRtbMTQ7NzRIG1szODs1OzI0MDs0ODs1OzI0MG3ilogbWzE1OzI5SBtbMzg7NTsyNDA7NDg7NTsyMzNt4peGIBtbMzg7NTsyNTQ7NDg7NTsyMzNtUmVzdW1lG1sxNTszOEhTZXNzaW9uG1sxNTs2NEgbWzM4OzU7MjQyOzQ4OzU7MjMzbS9yZXN1bWUbWzE1Ozc0SA=="
+        },
+        {
+          "ms": 1642.495875,
+          "output": "\u001b[38;5;240;48;5;240m█\u001b[16;29H\u001b[38;5;240;48;5;233m◆ \u001b[38;5;254;48;5;233mRename\u001b[16;38HSession\u001b[16;63H\u001b[38;5;242;48;5;233m/rename \u001b[16;74H\u001b[38;5;240;48;5;240m█\u001b[17;29H\u001b[38;5;240;48;5;233m◆ \u001b[38;5;254;48;5;233mSession\u001b[17;39HInfo\u001b[17;58H\u001b[38;5;242;48;5;233m/session-info\u001b[18;29H\u001b[38;5;240;48;5;233m◆ \u001b[38;5;254;48;5;233mSend\u001b[18;36HFeedback\u001b[18;62H\u001b[38;5;242;48;5;233m/feedback\u001b[20;29H\u001b[1m Context \u001b[22m\u001b[38;5;240;48;5;233m──────────────────────────────────\u001b[21;29H◆ \u001b[38;5;254;48;5;233mCompact\u001b[21;39HHistory\u001b[21;63H\u001b[38;5;242;48;5;233m/compact\u001b[22;29H\u001b[38;5;240;48;5;233m◆ \u001b[38;5;254;48;5;233mContext\u001b[22;39HUsage\u001b[22;63H\u001b[38;5;242;48;5;233m/context\u001b[23;29H\u001b[38;5;240;48;5;233m◆ \u001b[38;5;254;48;5;233mView\u001b[23;36HPlan\u001b[23;61H\u001b[38;5;242;48;5;233m/view-plan\u001b[24;29H\u001b[38;5;240;48;5;233m◆ \u001b[38;5;254;48;5;233mMemory\u001b[24;64H\u001b[38;5;242;48;5;233m/memory\u001b[39m\u001b[49m\u001b[59m\u001b[0m\u001b[?2026l",
+          "bytesBase64": "G1szODs1OzI0MDs0ODs1OzI0MG3ilogbWzE2OzI5SBtbMzg7NTsyNDA7NDg7NTsyMzNt4peGIBtbMzg7NTsyNTQ7NDg7NTsyMzNtUmVuYW1lG1sxNjszOEhTZXNzaW9uG1sxNjs2M0gbWzM4OzU7MjQyOzQ4OzU7MjMzbS9yZW5hbWUgG1sxNjs3NEgbWzM4OzU7MjQwOzQ4OzU7MjQwbeKWiBtbMTc7MjlIG1szODs1OzI0MDs0ODs1OzIzM23il4YgG1szODs1OzI1NDs0ODs1OzIzM21TZXNzaW9uG1sxNzszOUhJbmZvG1sxNzs1OEgbWzM4OzU7MjQyOzQ4OzU7MjMzbS9zZXNzaW9uLWluZm8bWzE4OzI5SBtbMzg7NTsyNDA7NDg7NTsyMzNt4peGIBtbMzg7NTsyNTQ7NDg7NTsyMzNtU2VuZBtbMTg7MzZIRmVlZGJhY2sbWzE4OzYySBtbMzg7NTsyNDI7NDg7NTsyMzNtL2ZlZWRiYWNrG1syMDsyOUgbWzFtIENvbnRleHQgG1syMm0bWzM4OzU7MjQwOzQ4OzU7MjMzbeKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgBtbMjE7MjlI4peGIBtbMzg7NTsyNTQ7NDg7NTsyMzNtQ29tcGFjdBtbMjE7MzlISGlzdG9yeRtbMjE7NjNIG1szODs1OzI0Mjs0ODs1OzIzM20vY29tcGFjdBtbMjI7MjlIG1szODs1OzI0MDs0ODs1OzIzM23il4YgG1szODs1OzI1NDs0ODs1OzIzM21Db250ZXh0G1syMjszOUhVc2FnZRtbMjI7NjNIG1szODs1OzI0Mjs0ODs1OzIzM20vY29udGV4dBtbMjM7MjlIG1szODs1OzI0MDs0ODs1OzIzM23il4YgG1szODs1OzI1NDs0ODs1OzIzM21WaWV3G1syMzszNkhQbGFuG1syMzs2MUgbWzM4OzU7MjQyOzQ4OzU7MjMzbS92aWV3LXBsYW4bWzI0OzI5SBtbMzg7NTsyNDA7NDg7NTsyMzNt4peGIBtbMzg7NTsyNTQ7NDg7NTsyMzNtTWVtb3J5G1syNDs2NEgbWzM4OzU7MjQyOzQ4OzU7MjMzbS9tZW1vcnkbWzM5bRtbNDltG1s1OW0bWzBtG1s/MjAyNmw="
+        },
+        {
+          "ms": 1954.463708,
+          "action": "help-close",
+          "offset": 15360,
+          "inputHex": "1b",
+          "observedMs": 2263.889917,
+          "markerFound": null,
+          "endOffset": 17161
+        },
+        {
+          "ms": 2106.278333,
+          "output": "\u001b[?2026h\u001b[5;26H\u001b[39;48;5;233m                                                  \u001b[6;26H                                                  \u001b[7;26H                                                  \u001b[8;26H                                                  \u001b[9;26H                                                  \u001b[10;26H                                                  \u001b[11;26H                                                  \u001b[12;26H                                                  \u001b[13;26H                                                  \u001b[14;26H                                                  \u001b[15;26H                                                  \u001b[16;26H                                                  \u001b[17;26H                                                  \u001b[18;26H                                                  \u001b[19;26H                                                  \u001b[20;26H                                                  \u001b[21;26H                                                  \u001b[22;26H             ",
+          "bytesBase64": "G1s/MjAyNmgbWzU7MjZIG1szOTs0ODs1OzIzM20gICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbNjsyNkggICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbNzsyNkggICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbODsyNkggICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbOTsyNkggICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbMTA7MjZIICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzExOzI2SCAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgG1sxMjsyNkggICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbMTM7MjZIICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzE0OzI2SCAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgG1sxNTsyNkggICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbMTY7MjZIICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzE3OzI2SCAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgG1sxODsyNkggICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbMTk7MjZIICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzIwOzI2SCAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgG1syMTsyNkggICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbMjI7MjZIICAgICAgICAgICAgIA=="
+        },
+        {
+          "ms": 2106.349875,
+          "output": "                                     \u001b[23;26H                                                  \u001b[24;26H                                                  \u001b[25;26H                                                  \u001b[26;26H                                                  \u001b[27;26H\u001b[38;5;239;48;5;233m──────────────────────────────────────────────────\u001b[28;26H\u001b[38;5;254;48;5;233m                                                  \u001b[31;3H\u001b[1m\u001b[38;5;251;48;5;233mShift+Tab\u001b[22m\u001b[38;5;242;48;5;233m:mode\u001b[2m  │  \u001b[22m\u001b[1m\u001b[38;5;251;48;5;233mCtrl+x\u001b[22m\u001b[38;5;242;48;5;233m:shortcuts                                                             \u001b[39m\u001b[49m\u001b[59m\u001b[0m\u001b[28;7H\u001b[?25h\u001b[?2026l",
+          "bytesBase64": "ICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbMjM7MjZIICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzI0OzI2SCAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgG1syNTsyNkggICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbMjY7MjZIICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzI3OzI2SBtbMzg7NTsyMzk7NDg7NTsyMzNt4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSAG1syODsyNkgbWzM4OzU7MjU0OzQ4OzU7MjMzbSAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgG1szMTszSBtbMW0bWzM4OzU7MjUxOzQ4OzU7MjMzbVNoaWZ0K1RhYhtbMjJtG1szODs1OzI0Mjs0ODs1OzIzM206bW9kZRtbMm0gIOKUgiAgG1syMm0bWzFtG1szODs1OzI1MTs0ODs1OzIzM21DdHJsK3gbWzIybRtbMzg7NTsyNDI7NDg7NTsyMzNtOnNob3J0Y3V0cyAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzM5bRtbNDltG1s1OW0bWzBtG1syODs3SBtbPzI1aBtbPzIwMjZs"
+        },
+        {
+          "ms": 2421.870083,
+          "action": "docs-open",
+          "offset": 17161,
+          "inputHex": "2f646f63730d",
+          "observedMs": 2466.998208,
+          "markerFound": true,
+          "endOffset": 21594
+        },
+        {
+          "ms": 2426.2485,
+          "output": "\u001b[?2026h\u001b[5;16H\u001b[38;5;240;48;5;233m┌─ \u001b[1m\u001b[38;5;254;48;5;233mHow-to Guides\u001b[22m\u001b[38;5;240;48;5;233m ────────────────────────────────────────────── [✗] ─┐\u001b[6;16H│\u001b[38;5;254;48;5;233m                                                                    \u001b[38;5;240;48;5;233m│\u001b[7;16H│\u001b[38;5;254;48;5;233m  \u001b[38;5;240;48;5;233m / to search\u001b[38;5;254;48;5;233m                                                      \u001b[38;5;240;48;5;233m│\u001b[8;16H│────────────────────────────────────────────────────────────────────│\u001b[9;16H│\u001b[38;5;254;48;5;233m  \u001b[38;5;240;48;5;237m◆ \u001b[1m\u001b[38;5;254;48;5;237mGetting Started\u001b[22m                                              \u001b[38;5;254;48;5;233m  \u001b[38;5;240;48;5;240m█\u001b[38;5;240;48;5;233m│\u001b[10;16H│\u001b[38;5;254;48;5;233m      \u001b[38;5;242;48;5;23",
+          "bytesBase64": "G1s/MjAyNmgbWzU7MTZIG1szODs1OzI0MDs0ODs1OzIzM23ilIzilIAgG1sxbRtbMzg7NTsyNTQ7NDg7NTsyMzNtSG93LXRvIEd1aWRlcxtbMjJtG1szODs1OzI0MDs0ODs1OzIzM20g4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSAIFvinJddIOKUgOKUkBtbNjsxNkjilIIbWzM4OzU7MjU0OzQ4OzU7MjMzbSAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgG1szODs1OzI0MDs0ODs1OzIzM23ilIIbWzc7MTZI4pSCG1szODs1OzI1NDs0ODs1OzIzM20gIBtbMzg7NTsyNDA7NDg7NTsyMzNtIC8gdG8gc2VhcmNoG1szODs1OzI1NDs0ODs1OzIzM20gICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzM4OzU7MjQwOzQ4OzU7MjMzbeKUghtbODsxNkjilILilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIIbWzk7MTZI4pSCG1szODs1OzI1NDs0ODs1OzIzM20gIBtbMzg7NTsyNDA7NDg7NTsyMzdt4peGIBtbMW0bWzM4OzU7MjU0OzQ4OzU7MjM3bUdldHRpbmcgU3RhcnRlZBtbMjJtICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbMzg7NTsyNTQ7NDg7NTsyMzNtICAbWzM4OzU7MjQwOzQ4OzU7MjQwbeKWiBtbMzg7NTsyNDA7NDg7NTsyMzNt4pSCG1sxMDsxNkjilIIbWzM4OzU7MjU0OzQ4OzU7MjMzbSAgICAgIBtbMzg7NTsyNDI7NDg7NTsyMw=="
+        },
+        {
+          "ms": 2426.306833,
+          "output": "3mInstallation, first launch, and basic interaction\u001b[38;5;254;48;5;233m            \u001b[38;5;240;48;5;240m█\u001b[38;5;240;48;5;233m│\u001b[11;16H│\u001b[38;5;254;48;5;233m  \u001b[38;5;240;48;5;233m◆ \u001b[38;5;254;48;5;233mAuthentication                                                 \u001b[38;5;240;48;5;240m█\u001b[38;5;240;48;5;233m│\u001b[12;16H│\u001b[38;5;254;48;5;233m      \u001b[38;5;242;48;5;233mBrowser login, API keys, OIDC, external auth providers\u001b[38;5;254;48;5;233m       \u001b[38;5;240;48;5;240m█\u001b[38;5;240;48;5;233m│\u001b[13;16H│\u001b[38;5;254;48;5;233m  \u001b[38;5;240;48;5;233m◆ \u001b[38;5;254;48;5;233mKeyboard Shortcuts                                              \u001b[38;5;240;48;5;233m│\u001b[14;16H│\u001b[38;5;254;48;5;233m      \u001b[38;5;242;48;5;233mComplete reference for all TUI key bindings\u001b[38;5;254;48;5;233m                   \u001b[38;5;240;48;5;233m│\u001b[15;16H│\u001b[38;5;254;48;5;233m  \u001b[38;5;240;48;5;233m◆ \u001b[38;5;254;48;5;233mSlash Commands                                                  \u001b[38;5;240;48;5;233m│\u001b[16;16H│\u001b[38;5;254;48;5;233m    ",
+          "bytesBase64": "M21JbnN0YWxsYXRpb24sIGZpcnN0IGxhdW5jaCwgYW5kIGJhc2ljIGludGVyYWN0aW9uG1szODs1OzI1NDs0ODs1OzIzM20gICAgICAgICAgICAbWzM4OzU7MjQwOzQ4OzU7MjQwbeKWiBtbMzg7NTsyNDA7NDg7NTsyMzNt4pSCG1sxMTsxNkjilIIbWzM4OzU7MjU0OzQ4OzU7MjMzbSAgG1szODs1OzI0MDs0ODs1OzIzM23il4YgG1szODs1OzI1NDs0ODs1OzIzM21BdXRoZW50aWNhdGlvbiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzM4OzU7MjQwOzQ4OzU7MjQwbeKWiBtbMzg7NTsyNDA7NDg7NTsyMzNt4pSCG1sxMjsxNkjilIIbWzM4OzU7MjU0OzQ4OzU7MjMzbSAgICAgIBtbMzg7NTsyNDI7NDg7NTsyMzNtQnJvd3NlciBsb2dpbiwgQVBJIGtleXMsIE9JREMsIGV4dGVybmFsIGF1dGggcHJvdmlkZXJzG1szODs1OzI1NDs0ODs1OzIzM20gICAgICAgG1szODs1OzI0MDs0ODs1OzI0MG3ilogbWzM4OzU7MjQwOzQ4OzU7MjMzbeKUghtbMTM7MTZI4pSCG1szODs1OzI1NDs0ODs1OzIzM20gIBtbMzg7NTsyNDA7NDg7NTsyMzNt4peGIBtbMzg7NTsyNTQ7NDg7NTsyMzNtS2V5Ym9hcmQgU2hvcnRjdXRzICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbMzg7NTsyNDA7NDg7NTsyMzNt4pSCG1sxNDsxNkjilIIbWzM4OzU7MjU0OzQ4OzU7MjMzbSAgICAgIBtbMzg7NTsyNDI7NDg7NTsyMzNtQ29tcGxldGUgcmVmZXJlbmNlIGZvciBhbGwgVFVJIGtleSBiaW5kaW5ncxtbMzg7NTsyNTQ7NDg7NTsyMzNtICAgICAgICAgICAgICAgICAgIBtbMzg7NTsyNDA7NDg7NTsyMzNt4pSCG1sxNTsxNkjilIIbWzM4OzU7MjU0OzQ4OzU7MjMzbSAgG1szODs1OzI0MDs0ODs1OzIzM23il4YgG1szODs1OzI1NDs0ODs1OzIzM21TbGFzaCBDb21tYW5kcyAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgG1szODs1OzI0MDs0ODs1OzIzM23ilIIbWzE2OzE2SOKUghtbMzg7NTsyNTQ7NDg7NTsyMzNtICAgIA=="
+        },
+        {
+          "ms": 2426.318375,
+          "output": "  \u001b[38;5;242;48;5;233mAll / commands, including goals, research, and workflow\u001b[38;5;254;48;5;233m       \u001b[38;5;240;48;5;233m│\u001b[17;16H│\u001b[38;5;254;48;5;233m      \u001b[38;5;242;48;5;233mmanagement\u001b[38;5;254;48;5;233m                                                    \u001b[38;5;240;48;5;233m│\u001b[18;16H│\u001b[38;5;254;48;5;233m  \u001b[38;5;240;48;5;233m◆ \u001b[38;5;254;48;5;233mConfiguration                                                   \u001b[38;5;240;48;5;233m│\u001b[19;16H│\u001b[38;5;254;48;5;233m      \u001b[38;5;242;48;5;233mconfig.toml, pager.toml, environment variables, file\u001b[38;5;254;48;5;233m          \u001b[38;5;240;48;5;233m│\u001b[20;16H│\u001b[38;5;254;48;5;233m      \u001b[38;5;242;48;5;233mlocations\u001b[38;5;254;48;5;233m                                                     \u001b[38;5;240;48;5;233m│\u001b[21;16H│\u001b[38;5;254;48;5;233m  \u001b[38;5;240;48;5;233m◆ \u001b[38;5;254;48;5;233mTheming and Appearance                                          \u001b[38;5;240;48;5;233m│\u001b[22;16H│\u001b[38;5;254;48;5;233m      \u001b[38;5;242;48;5;233mThemes, color support, pag",
+          "bytesBase64": "ICAbWzM4OzU7MjQyOzQ4OzU7MjMzbUFsbCAvIGNvbW1hbmRzLCBpbmNsdWRpbmcgZ29hbHMsIHJlc2VhcmNoLCBhbmQgd29ya2Zsb3cbWzM4OzU7MjU0OzQ4OzU7MjMzbSAgICAgICAbWzM4OzU7MjQwOzQ4OzU7MjMzbeKUghtbMTc7MTZI4pSCG1szODs1OzI1NDs0ODs1OzIzM20gICAgICAbWzM4OzU7MjQyOzQ4OzU7MjMzbW1hbmFnZW1lbnQbWzM4OzU7MjU0OzQ4OzU7MjMzbSAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzM4OzU7MjQwOzQ4OzU7MjMzbeKUghtbMTg7MTZI4pSCG1szODs1OzI1NDs0ODs1OzIzM20gIBtbMzg7NTsyNDA7NDg7NTsyMzNt4peGIBtbMzg7NTsyNTQ7NDg7NTsyMzNtQ29uZmlndXJhdGlvbiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbMzg7NTsyNDA7NDg7NTsyMzNt4pSCG1sxOTsxNkjilIIbWzM4OzU7MjU0OzQ4OzU7MjMzbSAgICAgIBtbMzg7NTsyNDI7NDg7NTsyMzNtY29uZmlnLnRvbWwsIHBhZ2VyLnRvbWwsIGVudmlyb25tZW50IHZhcmlhYmxlcywgZmlsZRtbMzg7NTsyNTQ7NDg7NTsyMzNtICAgICAgICAgIBtbMzg7NTsyNDA7NDg7NTsyMzNt4pSCG1syMDsxNkjilIIbWzM4OzU7MjU0OzQ4OzU7MjMzbSAgICAgIBtbMzg7NTsyNDI7NDg7NTsyMzNtbG9jYXRpb25zG1szODs1OzI1NDs0ODs1OzIzM20gICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbMzg7NTsyNDA7NDg7NTsyMzNt4pSCG1syMTsxNkjilIIbWzM4OzU7MjU0OzQ4OzU7MjMzbSAgG1szODs1OzI0MDs0ODs1OzIzM23il4YgG1szODs1OzI1NDs0ODs1OzIzM21UaGVtaW5nIGFuZCBBcHBlYXJhbmNlICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgG1szODs1OzI0MDs0ODs1OzIzM23ilIIbWzIyOzE2SOKUghtbMzg7NTsyNTQ7NDg7NTsyMzNtICAgICAgG1szODs1OzI0Mjs0ODs1OzIzM21UaGVtZXMsIGNvbG9yIHN1cHBvcnQsIHBhZw=="
+        },
+        {
+          "ms": 2426.327542,
+          "output": "er.toml customization\u001b[38;5;254;48;5;233m               \u001b[38;5;240;48;5;233m│\u001b[23;16H│\u001b[38;5;254;48;5;233m  \u001b[38;5;240;48;5;233m◆ \u001b[38;5;254;48;5;233mMCP Servers                                                     \u001b[38;5;240;48;5;233m│\u001b[24;16H│\u001b[38;5;254;48;5;233m                                                                    \u001b[38;5;240;48;5;233m│\u001b[25;16H│\u001b[38;5;254;48;5;233m      \u001b[3m\u001b[38;5;240;48;5;233mTip · Ask Grok about the docs · ~/.grok/docs/user-guide\u001b[23m\u001b[38;5;254;48;5;233m       \u001b[38;5;240;48;5;233m│\u001b[26;16H│\u001b[38;5;254;48;5;233m                                                                    \u001b[38;5;240;48;5;233m│\u001b[27;16H│\u001b[38;5;254;48;5;233m               \u001b[1m\u001b[38;5;251;48;5;233m↑/↓\u001b[22m\u001b[38;5;242;48;5;233m nav\u001b[38;5;240;48;5;233m  |  \u001b[1m\u001b[38;5;251;48;5;233mEnter\u001b[22m\u001b[38;5;242;48;5;233m select\u001b[38;5;240;48;5;233m  |  \u001b[1m\u001b[38;5;251;48;5;233mEsc\u001b[22m\u001b[38;5;242;48;5;233m close\u001b[38;5;254;48;5;233m               \u001b[38;5;240;48;5;233m│\u001b[28;16H└──────",
+          "bytesBase64": "ZXIudG9tbCBjdXN0b21pemF0aW9uG1szODs1OzI1NDs0ODs1OzIzM20gICAgICAgICAgICAgICAbWzM4OzU7MjQwOzQ4OzU7MjMzbeKUghtbMjM7MTZI4pSCG1szODs1OzI1NDs0ODs1OzIzM20gIBtbMzg7NTsyNDA7NDg7NTsyMzNt4peGIBtbMzg7NTsyNTQ7NDg7NTsyMzNtTUNQIFNlcnZlcnMgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbMzg7NTsyNDA7NDg7NTsyMzNt4pSCG1syNDsxNkjilIIbWzM4OzU7MjU0OzQ4OzU7MjMzbSAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgG1szODs1OzI0MDs0ODs1OzIzM23ilIIbWzI1OzE2SOKUghtbMzg7NTsyNTQ7NDg7NTsyMzNtICAgICAgG1szbRtbMzg7NTsyNDA7NDg7NTsyMzNtVGlwIMK3IEFzayBHcm9rIGFib3V0IHRoZSBkb2NzIMK3IH4vLmdyb2svZG9jcy91c2VyLWd1aWRlG1syM20bWzM4OzU7MjU0OzQ4OzU7MjMzbSAgICAgICAbWzM4OzU7MjQwOzQ4OzU7MjMzbeKUghtbMjY7MTZI4pSCG1szODs1OzI1NDs0ODs1OzIzM20gICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbMzg7NTsyNDA7NDg7NTsyMzNt4pSCG1syNzsxNkjilIIbWzM4OzU7MjU0OzQ4OzU7MjMzbSAgICAgICAgICAgICAgIBtbMW0bWzM4OzU7MjUxOzQ4OzU7MjMzbeKGkS/ihpMbWzIybRtbMzg7NTsyNDI7NDg7NTsyMzNtIG5hdhtbMzg7NTsyNDA7NDg7NTsyMzNtICB8ICAbWzFtG1szODs1OzI1MTs0ODs1OzIzM21FbnRlchtbMjJtG1szODs1OzI0Mjs0ODs1OzIzM20gc2VsZWN0G1szODs1OzI0MDs0ODs1OzIzM20gIHwgIBtbMW0bWzM4OzU7MjUxOzQ4OzU7MjMzbUVzYxtbMjJtG1szODs1OzI0Mjs0ODs1OzIzM20gY2xvc2UbWzM4OzU7MjU0OzQ4OzU7MjMzbSAgICAgICAgICAgICAgIBtbMzg7NTsyNDA7NDg7NTsyMzNt4pSCG1syODsxNkjilJTilIDilIDilIDilIDilIDilIDilA=="
+        },
+        {
+          "ms": 2426.33925,
+          "output": "──────────────────────────────────────────────────────────────┘\u001b[31;3H\u001b[39;48;5;233m                                                                                                \u001b[39m\u001b[49m\u001b[59m\u001b[0m\u001b[?25l\u001b[?2026l",
+          "bytesBase64": "gOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUmBtbMzE7M0gbWzM5OzQ4OzU7MjMzbSAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbMzltG1s0OW0bWzU5bRtbMG0bWz8yNWwbWz8yMDI2bA=="
+        },
+        {
+          "ms": 2622.646833,
+          "action": "docs-select",
+          "offset": 21594,
+          "inputHex": "0d",
+          "observedMs": 2687.165417,
+          "markerFound": true,
+          "endOffset": 25102
+        },
+        {
+          "ms": 2646.171417,
+          "output": "\u001b[?2026h\u001b[5;11H\u001b[38;5;240;48;5;233m┌─ \u001b[1m\u001b[38;5;254;48;5;233mGetting S\u001b[5;24Harted\u001b[22m\u001b[38;5;240;48;5;233m ───\u001b[5;79H───── [✗] ─┐\u001b[6;11H│\u001b[38;5;254;48;5;233m     \u001b[6;85H     \u001b[38;5;240;48;5;233m│\u001b[7;11H│\u001b[38;5;254;48;5;233m  \u001b[1m\u001b[38;5;37;48;5;233mGetting Started\u001b[22m\u001b[38;5;254;48;5;233m  \u001b[7;85H     \u001b[38;5;240;48;5;233m│\u001b[8;11H│\u001b[38;5;254;48;5;233m                                                                              \u001b[38;5;240;48;5;233m│\u001b[9;11H│\u001b[38;5;254;48;5;233m  \u001b[38;5;251;48;5;233mGrok Build is a terminal-based AI coding assistant from SpaceXAI. It runs\u001b[38;5;254;48;5;233m   \u001b[38;5;240;48;5;233m│\u001b[10;11H│\u001b[38;5;254;48;5;233m  \u001b[38;5;251;48;5;233mas a TUI (Terminal User Interface) that understands your codebase,\u001b[10;84H\u001b[38;5;254;48;5;233m      \u001b[38;5;240;48;5;233m│\u001b[11;11H│\u001b[38;5;254;48;5;233m  \u001b[38;5;251;48;5;233mexecutes shell commands, edits files, searches the web, and manages tasks.\u001b[38;5;254;48;5;233m  \u001b[38;5;240;48;5;233m│\u001b[12;11H│\u001b[38",
+          "bytesBase64": "G1s/MjAyNmgbWzU7MTFIG1szODs1OzI0MDs0ODs1OzIzM23ilIzilIAgG1sxbRtbMzg7NTsyNTQ7NDg7NTsyMzNtR2V0dGluZyBTG1s1OzI0SGFydGVkG1syMm0bWzM4OzU7MjQwOzQ4OzU7MjMzbSDilIDilIDilIAbWzU7NzlI4pSA4pSA4pSA4pSA4pSAIFvinJddIOKUgOKUkBtbNjsxMUjilIIbWzM4OzU7MjU0OzQ4OzU7MjMzbSAgICAgG1s2Ozg1SCAgICAgG1szODs1OzI0MDs0ODs1OzIzM23ilIIbWzc7MTFI4pSCG1szODs1OzI1NDs0ODs1OzIzM20gIBtbMW0bWzM4OzU7Mzc7NDg7NTsyMzNtR2V0dGluZyBTdGFydGVkG1syMm0bWzM4OzU7MjU0OzQ4OzU7MjMzbSAgG1s3Ozg1SCAgICAgG1szODs1OzI0MDs0ODs1OzIzM23ilIIbWzg7MTFI4pSCG1szODs1OzI1NDs0ODs1OzIzM20gICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzM4OzU7MjQwOzQ4OzU7MjMzbeKUghtbOTsxMUjilIIbWzM4OzU7MjU0OzQ4OzU7MjMzbSAgG1szODs1OzI1MTs0ODs1OzIzM21Hcm9rIEJ1aWxkIGlzIGEgdGVybWluYWwtYmFzZWQgQUkgY29kaW5nIGFzc2lzdGFudCBmcm9tIFNwYWNlWEFJLiBJdCBydW5zG1szODs1OzI1NDs0ODs1OzIzM20gICAbWzM4OzU7MjQwOzQ4OzU7MjMzbeKUghtbMTA7MTFI4pSCG1szODs1OzI1NDs0ODs1OzIzM20gIBtbMzg7NTsyNTE7NDg7NTsyMzNtYXMgYSBUVUkgKFRlcm1pbmFsIFVzZXIgSW50ZXJmYWNlKSB0aGF0IHVuZGVyc3RhbmRzIHlvdXIgY29kZWJhc2UsG1sxMDs4NEgbWzM4OzU7MjU0OzQ4OzU7MjMzbSAgICAgIBtbMzg7NTsyNDA7NDg7NTsyMzNt4pSCG1sxMTsxMUjilIIbWzM4OzU7MjU0OzQ4OzU7MjMzbSAgG1szODs1OzI1MTs0ODs1OzIzM21leGVjdXRlcyBzaGVsbCBjb21tYW5kcywgZWRpdHMgZmlsZXMsIHNlYXJjaGVzIHRoZSB3ZWIsIGFuZCBtYW5hZ2VzIHRhc2tzLhtbMzg7NTsyNTQ7NDg7NTsyMzNtICAbWzM4OzU7MjQwOzQ4OzU7MjMzbeKUghtbMTI7MTFI4pSCG1szOA=="
+        },
+        {
+          "ms": 2646.23075,
+          "output": ";5;254;48;5;233m     \u001b[12;23H                                                      \u001b[12;84H      \u001b[38;5;240;48;5;233m│\u001b[13;11H│\u001b[38;5;254;48;5;233m  \u001b[38;5;251;48;5;233mYou can use it interactively as a full-screen TUI, run it headlessly for\u001b[38;5;254;48;5;233m    \u001b[38;5;240;48;5;233m│\u001b[14;11H│\u001b[38;5;254;48;5;233m  \u001b[38;5;251;48;5;233mscripting and CI/CD, or integrate it into editors via the Agent Client\u001b[14;85H\u001b[38;5;254;48;5;233m     \u001b[38;5;240;48;5;233m│\u001b[15;11H│\u001b[38;5;254;48;5;233m  \u001b[38;5;251;48;5;233mProtocol (ACP).\u001b[38;5;254;48;5;233m      \u001b[15;85H     \u001b[38;5;240;48;5;233m│\u001b[16;11H│\u001b[38;5;254;48;5;233m     \u001b[16;23H                                                       \u001b[16;85H     \u001b[38;5;240;48;5;233m│\u001b[17;11H│\u001b[38;5;254;48;5;233m  \u001b[38;5;242;48;5;233m───\u001b[17;23H\u001b[38;5;254;48;5;233m          \u001b[17;85H     \u001b[38;5;240;48;5;233m│\u001b[18;11H│\u001b[38;5;254;48;5;233m     \u001b[18;19H               \u001b[18;85H     \u001b[38;5;240;48;5;233m│\u001b[19;11H│\u001b[38;5;254;48;5;233m  \u001b[1m\u001b[38;5;111;48;5;233m",
+          "bytesBase64": "OzU7MjU0OzQ4OzU7MjMzbSAgICAgG1sxMjsyM0ggICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzEyOzg0SCAgICAgIBtbMzg7NTsyNDA7NDg7NTsyMzNt4pSCG1sxMzsxMUjilIIbWzM4OzU7MjU0OzQ4OzU7MjMzbSAgG1szODs1OzI1MTs0ODs1OzIzM21Zb3UgY2FuIHVzZSBpdCBpbnRlcmFjdGl2ZWx5IGFzIGEgZnVsbC1zY3JlZW4gVFVJLCBydW4gaXQgaGVhZGxlc3NseSBmb3IbWzM4OzU7MjU0OzQ4OzU7MjMzbSAgICAbWzM4OzU7MjQwOzQ4OzU7MjMzbeKUghtbMTQ7MTFI4pSCG1szODs1OzI1NDs0ODs1OzIzM20gIBtbMzg7NTsyNTE7NDg7NTsyMzNtc2NyaXB0aW5nIGFuZCBDSS9DRCwgb3IgaW50ZWdyYXRlIGl0IGludG8gZWRpdG9ycyB2aWEgdGhlIEFnZW50IENsaWVudBtbMTQ7ODVIG1szODs1OzI1NDs0ODs1OzIzM20gICAgIBtbMzg7NTsyNDA7NDg7NTsyMzNt4pSCG1sxNTsxMUjilIIbWzM4OzU7MjU0OzQ4OzU7MjMzbSAgG1szODs1OzI1MTs0ODs1OzIzM21Qcm90b2NvbCAoQUNQKS4bWzM4OzU7MjU0OzQ4OzU7MjMzbSAgICAgIBtbMTU7ODVIICAgICAbWzM4OzU7MjQwOzQ4OzU7MjMzbeKUghtbMTY7MTFI4pSCG1szODs1OzI1NDs0ODs1OzIzM20gICAgIBtbMTY7MjNIICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbMTY7ODVIICAgICAbWzM4OzU7MjQwOzQ4OzU7MjMzbeKUghtbMTc7MTFI4pSCG1szODs1OzI1NDs0ODs1OzIzM20gIBtbMzg7NTsyNDI7NDg7NTsyMzNt4pSA4pSA4pSAG1sxNzsyM0gbWzM4OzU7MjU0OzQ4OzU7MjMzbSAgICAgICAgICAbWzE3Ozg1SCAgICAgG1szODs1OzI0MDs0ODs1OzIzM23ilIIbWzE4OzExSOKUghtbMzg7NTsyNTQ7NDg7NTsyMzNtICAgICAbWzE4OzE5SCAgICAgICAgICAgICAgIBtbMTg7ODVIICAgICAbWzM4OzU7MjQwOzQ4OzU7MjMzbeKUghtbMTk7MTFI4pSCG1szODs1OzI1NDs0ODs1OzIzM20gIBtbMW0bWzM4OzU7MTExOzQ4OzU7MjMzbQ=="
+        },
+        {
+          "ms": 2646.23925,
+          "output": "Installation\u001b[22m\u001b[38;5;254;48;5;233m                                                 \u001b[19;85H     \u001b[38;5;240;48;5;233m│\u001b[20;11H│\u001b[38;5;254;48;5;233m     \u001b[20;23H         \u001b[20;85H     \u001b[38;5;240;48;5;233m│\u001b[21;11H│\u001b[38;5;254;48;5;233m  \u001b[38;5;251;48;5;233mInstall the latest stable release (macOS, Linux, or Windows via Git Bash):\u001b[38;5;254;48;5;233m  \u001b[38;5;240;48;5;233m│\u001b[22;11H│\u001b[38;5;254;48;5;233m     \u001b[22;23H                                               \u001b[22;85H     \u001b[38;5;240;48;5;233m│\u001b[23;11H│\u001b[38;5;254;48;5;233m  \u001b[38;5;111;48;5;234mcurl\u001b[38;5;117;48;5;234m -\u001b[38;5;179;48;5;234mfsSL\u001b[38;5;111;48;5;234m https://x.ai/cli/install.sh\u001b[38;5;249;48;5;234m \u001b[38;5;141;48;5;234m|\u001b[38;5;249;48;5;234m \u001b[38;5;111;48;5;234mbash\u001b[23;85H\u001b[38;5;254;48;5;233m     \u001b[38;5;240;48;5;233m│\u001b[24;11H│\u001b[38;5;254;48;5;233m     \u001b[24;85H     \u001b[38;5;240;48;5;233m│\u001b[25;11H│\u001b[38;5;254;48;5;233m  \u001b[38;5;251;48;5;233mInstall a specific version:\u001b[38;5;254;48;5;233m                                     \u001b[25;85H   ",
+          "bytesBase64": "SW5zdGFsbGF0aW9uG1syMm0bWzM4OzU7MjU0OzQ4OzU7MjMzbSAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzE5Ozg1SCAgICAgG1szODs1OzI0MDs0ODs1OzIzM23ilIIbWzIwOzExSOKUghtbMzg7NTsyNTQ7NDg7NTsyMzNtICAgICAbWzIwOzIzSCAgICAgICAgIBtbMjA7ODVIICAgICAbWzM4OzU7MjQwOzQ4OzU7MjMzbeKUghtbMjE7MTFI4pSCG1szODs1OzI1NDs0ODs1OzIzM20gIBtbMzg7NTsyNTE7NDg7NTsyMzNtSW5zdGFsbCB0aGUgbGF0ZXN0IHN0YWJsZSByZWxlYXNlIChtYWNPUywgTGludXgsIG9yIFdpbmRvd3MgdmlhIEdpdCBCYXNoKTobWzM4OzU7MjU0OzQ4OzU7MjMzbSAgG1szODs1OzI0MDs0ODs1OzIzM23ilIIbWzIyOzExSOKUghtbMzg7NTsyNTQ7NDg7NTsyMzNtICAgICAbWzIyOzIzSCAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgG1syMjs4NUggICAgIBtbMzg7NTsyNDA7NDg7NTsyMzNt4pSCG1syMzsxMUjilIIbWzM4OzU7MjU0OzQ4OzU7MjMzbSAgG1szODs1OzExMTs0ODs1OzIzNG1jdXJsG1szODs1OzExNzs0ODs1OzIzNG0gLRtbMzg7NTsxNzk7NDg7NTsyMzRtZnNTTBtbMzg7NTsxMTE7NDg7NTsyMzRtIGh0dHBzOi8veC5haS9jbGkvaW5zdGFsbC5zaBtbMzg7NTsyNDk7NDg7NTsyMzRtIBtbMzg7NTsxNDE7NDg7NTsyMzRtfBtbMzg7NTsyNDk7NDg7NTsyMzRtIBtbMzg7NTsxMTE7NDg7NTsyMzRtYmFzaBtbMjM7ODVIG1szODs1OzI1NDs0ODs1OzIzM20gICAgIBtbMzg7NTsyNDA7NDg7NTsyMzNt4pSCG1syNDsxMUjilIIbWzM4OzU7MjU0OzQ4OzU7MjMzbSAgICAgG1syNDs4NUggICAgIBtbMzg7NTsyNDA7NDg7NTsyMzNt4pSCG1syNTsxMUjilIIbWzM4OzU7MjU0OzQ4OzU7MjMzbSAgG1szODs1OzI1MTs0ODs1OzIzM21JbnN0YWxsIGEgc3BlY2lmaWMgdmVyc2lvbjobWzM4OzU7MjU0OzQ4OzU7MjMzbSAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzI1Ozg1SCAgIA=="
+        },
+        {
+          "ms": 2646.250167,
+          "output": "  \u001b[38;5;240;48;5;233m│\u001b[26;11H│\u001b[38;5;254;48;5;233m     \u001b[26;85H     \u001b[38;5;240;48;5;233m│\u001b[27;11H│\u001b[38;5;254;48;5;233m     \u001b[27;32H       \u001b[1m\u001b[38;5;251;48;5;233m↑/↓\u001b[22m\u001b[38;5;242;48;5;233m scroll\u001b[38;5;240;48;5;233m  |  \u001b[1m\u001b[38;5;251;48;5;233mEsc\u001b[22m\u001b[38;5;242;48;5;233m back\u001b[38;5;254;48;5;233m        \u001b[27;85H     \u001b[38;5;240;48;5;233m│\u001b[28;11H└─────\u001b[28;85H─────┘\u001b[39m\u001b[49m\u001b[59m\u001b[0m\u001b[?2026l",
+          "bytesBase64": "ICAbWzM4OzU7MjQwOzQ4OzU7MjMzbeKUghtbMjY7MTFI4pSCG1szODs1OzI1NDs0ODs1OzIzM20gICAgIBtbMjY7ODVIICAgICAbWzM4OzU7MjQwOzQ4OzU7MjMzbeKUghtbMjc7MTFI4pSCG1szODs1OzI1NDs0ODs1OzIzM20gICAgIBtbMjc7MzJIICAgICAgIBtbMW0bWzM4OzU7MjUxOzQ4OzU7MjMzbeKGkS/ihpMbWzIybRtbMzg7NTsyNDI7NDg7NTsyMzNtIHNjcm9sbBtbMzg7NTsyNDA7NDg7NTsyMzNtICB8ICAbWzFtG1szODs1OzI1MTs0ODs1OzIzM21Fc2MbWzIybRtbMzg7NTsyNDI7NDg7NTsyMzNtIGJhY2sbWzM4OzU7MjU0OzQ4OzU7MjMzbSAgICAgICAgG1syNzs4NUggICAgIBtbMzg7NTsyNDA7NDg7NTsyMzNt4pSCG1syODsxMUjilJTilIDilIDilIDilIDilIAbWzI4Ozg1SOKUgOKUgOKUgOKUgOKUgOKUmBtbMzltG1s0OW0bWzU5bRtbMG0bWz8yMDI2bA=="
+        },
+        {
+          "ms": 2851.7865,
+          "action": "docs-scroll",
+          "offset": 25102,
+          "inputHex": "1b5b367e",
+          "observedMs": 2888.082,
+          "markerFound": true,
+          "endOffset": 26840
+        },
+        {
+          "ms": 2852.103042,
+          "output": "\u001b[?2026h\u001b[7;14H\u001b[38;5;111;48;5;234mcurl\u001b[38;5;117;48;5;234m -\u001b[38;5;179;48;5;234mfsSL\u001b[38;5;111;48;5;234m https://x.ai/cli/install.sh\u001b[38;5;249;48;5;234m \u001b[38;5;141;48;5;234m|\u001b[38;5;249;48;5;234m \u001b[38;5;111;48;5;234mbash\u001b[38;5;117;48;5;234m -\u001b[38;5;179;48;5;234ms\u001b[38;5;111;48;5;234m 0.1.42\u001b[9;14H\u001b[38;5;251;48;5;233mOn \u001b[1mWindows (PowerShell)\u001b[22m, use the native PowerShell\u001b[9;65Hinstaller:\u001b[38;5;254;48;5;233m            \u001b[10;14H                                                                  \u001b[11;14H\u001b[38;5;251;48;5;234mirm https://x.ai/cli/install.ps1 | iex\u001b[38;5;254;48;5;233m                                    \u001b[13;14H\u001b[38;5;251;48;5;233mInstall\u001b[13;22Ha specific vers\u001b[13;38Hon:\u001b[38;5;254;48;5;233m                                             \u001b[14;14H                                                                      \u001b[15;14H\u001b[38;5;251;48;5;234m$env:GROK_VERSION=\"0.1.42\"; irm https://x.ai/cli/install.ps1 | iex\u001b[17;14H\u001b[38;5;251;48;5;233mThe PowerShell installer automatically adds \u001b[1m\u001b[38;5;67;48;5;233m%U",
+          "bytesBase64": "G1s/MjAyNmgbWzc7MTRIG1szODs1OzExMTs0ODs1OzIzNG1jdXJsG1szODs1OzExNzs0ODs1OzIzNG0gLRtbMzg7NTsxNzk7NDg7NTsyMzRtZnNTTBtbMzg7NTsxMTE7NDg7NTsyMzRtIGh0dHBzOi8veC5haS9jbGkvaW5zdGFsbC5zaBtbMzg7NTsyNDk7NDg7NTsyMzRtIBtbMzg7NTsxNDE7NDg7NTsyMzRtfBtbMzg7NTsyNDk7NDg7NTsyMzRtIBtbMzg7NTsxMTE7NDg7NTsyMzRtYmFzaBtbMzg7NTsxMTc7NDg7NTsyMzRtIC0bWzM4OzU7MTc5OzQ4OzU7MjM0bXMbWzM4OzU7MTExOzQ4OzU7MjM0bSAwLjEuNDIbWzk7MTRIG1szODs1OzI1MTs0ODs1OzIzM21PbiAbWzFtV2luZG93cyAoUG93ZXJTaGVsbCkbWzIybSwgdXNlIHRoZSBuYXRpdmUgUG93ZXJTaGVsbBtbOTs2NUhpbnN0YWxsZXI6G1szODs1OzI1NDs0ODs1OzIzM20gICAgICAgICAgICAbWzEwOzE0SCAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbMTE7MTRIG1szODs1OzI1MTs0ODs1OzIzNG1pcm0gaHR0cHM6Ly94LmFpL2NsaS9pbnN0YWxsLnBzMSB8IGlleBtbMzg7NTsyNTQ7NDg7NTsyMzNtICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgG1sxMzsxNEgbWzM4OzU7MjUxOzQ4OzU7MjMzbUluc3RhbGwbWzEzOzIySGEgc3BlY2lmaWMgdmVycxtbMTM7MzhIb246G1szODs1OzI1NDs0ODs1OzIzM20gICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzE0OzE0SCAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzE1OzE0SBtbMzg7NTsyNTE7NDg7NTsyMzRtJGVudjpHUk9LX1ZFUlNJT049IjAuMS40MiI7IGlybSBodHRwczovL3guYWkvY2xpL2luc3RhbGwucHMxIHwgaWV4G1sxNzsxNEgbWzM4OzU7MjUxOzQ4OzU7MjMzbVRoZSBQb3dlclNoZWxsIGluc3RhbGxlciBhdXRvbWF0aWNhbGx5IGFkZHMgG1sxbRtbMzg7NTs2Nzs0ODs1OzIzM20lVQ=="
+        },
+        {
+          "ms": 2852.170167,
+          "output": "SERPROFILE%\\.grok\\bin\u001b[22m\u001b[38;5;251;48;5;233m to\u001b[18;14Hyour User PATH. Alternatively, install via \u001b[4m\u001b[38;5;110;48;5;233mGit for Windows\u001b[24m\u001b[38;5;242;48;5;233m (https://\u001b[19;14Hgitforwindows.org/)\u001b[38;5;251;48;5;233m (Git Bash) or MSYS2 using the bash script above. WSL\u001b[20;14Husers get the Linux binary automatically.\u001b[21;14H\u001b[38;5;254;48;5;233m                                                                          \u001b[22;14H\u001b[38;5;251;48;5;233mVerify the installation:\u001b[23;14H\u001b[38;5;254;48;5;233m                                             \u001b[24;14H\u001b[38;5;111;48;5;234mgrok\u001b[38;5;117;48;5;234m --\u001b[38;5;179;48;5;234mversion\u001b[25;14H\u001b[38;5;254;48;5;233m                           \u001b[39m\u001b[49m\u001b[59m\u001b[0m\u001b[?2026l",
+          "bytesBase64": "U0VSUFJPRklMRSVcLmdyb2tcYmluG1syMm0bWzM4OzU7MjUxOzQ4OzU7MjMzbSB0bxtbMTg7MTRIeW91ciBVc2VyIFBBVEguIEFsdGVybmF0aXZlbHksIGluc3RhbGwgdmlhIBtbNG0bWzM4OzU7MTEwOzQ4OzU7MjMzbUdpdCBmb3IgV2luZG93cxtbMjRtG1szODs1OzI0Mjs0ODs1OzIzM20gKGh0dHBzOi8vG1sxOTsxNEhnaXRmb3J3aW5kb3dzLm9yZy8pG1szODs1OzI1MTs0ODs1OzIzM20gKEdpdCBCYXNoKSBvciBNU1lTMiB1c2luZyB0aGUgYmFzaCBzY3JpcHQgYWJvdmUuIFdTTBtbMjA7MTRIdXNlcnMgZ2V0IHRoZSBMaW51eCBiaW5hcnkgYXV0b21hdGljYWxseS4bWzIxOzE0SBtbMzg7NTsyNTQ7NDg7NTsyMzNtICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzIyOzE0SBtbMzg7NTsyNTE7NDg7NTsyMzNtVmVyaWZ5IHRoZSBpbnN0YWxsYXRpb246G1syMzsxNEgbWzM4OzU7MjU0OzQ4OzU7MjMzbSAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbMjQ7MTRIG1szODs1OzExMTs0ODs1OzIzNG1ncm9rG1szODs1OzExNzs0ODs1OzIzNG0gLS0bWzM4OzU7MTc5OzQ4OzU7MjM0bXZlcnNpb24bWzI1OzE0SBtbMzg7NTsyNTQ7NDg7NTsyMzNtICAgICAgICAgICAgICAgICAgICAgICAgICAgG1szOW0bWzQ5bRtbNTltG1swbRtbPzIwMjZs"
+        },
+        {
+          "ms": 3043.464292,
+          "action": "docs-reader-dismiss",
+          "offset": 26840,
+          "inputHex": "1b",
+          "observedMs": 3355.835458,
+          "markerFound": null,
+          "endOffset": 31168
+        },
+        {
+          "ms": 3195.886208,
+          "output": "\u001b[?2026h\u001b[5;11H\u001b[39;48;5;233m     \u001b[38;5;240;48;5;233m┌─ \u001b[1m\u001b[38;5;254;48;5;233mHow-\u001b[5;24Ho Guides\u001b[22m\u001b[38;5;240;48;5;233m \u001b[5;79H [✗] ─┐\u001b[39;48;5;233m     \u001b[6;11H     \u001b[38;5;240;48;5;233m│\u001b[6;85H│\u001b[39;48;5;233m     \u001b[7;11H     \u001b[38;5;240;48;5;233m│\u001b[38;5;254;48;5;233m  \u001b[38;5;240;48;5;233m / to search\u001b[38;5;254;48;5;233m                                      \u001b[7;85H\u001b[38;5;240;48;5;233m│\u001b[39;48;5;233m     \u001b[8;11H     \u001b[38;5;240;48;5;233m│────────────────────────────────────────────────────────────────────│\u001b[39;48;5;233m     \u001b[9;11H     \u001b[38;5;240;48;5;233m│\u001b[38;5;254;48;5;233m  \u001b[38;5;240;48;5;237m◆ \u001b[1m\u001b[38;5;254;48;5;237mGetting Started\u001b[22m                                              \u001b[9;84H\u001b[38;5;240;48;5;240m█\u001b[38;5;240;48;5;233m│\u001b[39;48;5;233m     \u001b[10;11H     \u001b[38;5;240;48;5;233m│\u001b[10;23H\u001b[38;5;242;48;5;233mInstallation, first launch,",
+          "bytesBase64": "G1s/MjAyNmgbWzU7MTFIG1szOTs0ODs1OzIzM20gICAgIBtbMzg7NTsyNDA7NDg7NTsyMzNt4pSM4pSAIBtbMW0bWzM4OzU7MjU0OzQ4OzU7MjMzbUhvdy0bWzU7MjRIbyBHdWlkZXMbWzIybRtbMzg7NTsyNDA7NDg7NTsyMzNtIBtbNTs3OUggW+Kcl10g4pSA4pSQG1szOTs0ODs1OzIzM20gICAgIBtbNjsxMUggICAgIBtbMzg7NTsyNDA7NDg7NTsyMzNt4pSCG1s2Ozg1SOKUghtbMzk7NDg7NTsyMzNtICAgICAbWzc7MTFIICAgICAbWzM4OzU7MjQwOzQ4OzU7MjMzbeKUghtbMzg7NTsyNTQ7NDg7NTsyMzNtICAbWzM4OzU7MjQwOzQ4OzU7MjMzbSAvIHRvIHNlYXJjaBtbMzg7NTsyNTQ7NDg7NTsyMzNtICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzc7ODVIG1szODs1OzI0MDs0ODs1OzIzM23ilIIbWzM5OzQ4OzU7MjMzbSAgICAgG1s4OzExSCAgICAgG1szODs1OzI0MDs0ODs1OzIzM23ilILilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIIbWzM5OzQ4OzU7MjMzbSAgICAgG1s5OzExSCAgICAgG1szODs1OzI0MDs0ODs1OzIzM23ilIIbWzM4OzU7MjU0OzQ4OzU7MjMzbSAgG1szODs1OzI0MDs0ODs1OzIzN23il4YgG1sxbRtbMzg7NTsyNTQ7NDg7NTsyMzdtR2V0dGluZyBTdGFydGVkG1syMm0gICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgG1s5Ozg0SBtbMzg7NTsyNDA7NDg7NTsyNDBt4paIG1szODs1OzI0MDs0ODs1OzIzM23ilIIbWzM5OzQ4OzU7MjMzbSAgICAgG1sxMDsxMUggICAgIBtbMzg7NTsyNDA7NDg7NTsyMzNt4pSCG1sxMDsyM0gbWzM4OzU7MjQyOzQ4OzU7MjMzbUluc3RhbGxhdGlvbiwgZmlyc3QgbGF1bmNoLA=="
+        },
+        {
+          "ms": 3195.960583,
+          "output": " and basic interaction\u001b[10;84H\u001b[38;5;240;48;5;240m█\u001b[38;5;240;48;5;233m│\u001b[39;48;5;233m     \u001b[11;11H     \u001b[38;5;240;48;5;233m│\u001b[38;5;254;48;5;233m  \u001b[38;5;240;48;5;233m◆ \u001b[38;5;254;48;5;233mAuthentication                 \u001b[11;84H\u001b[38;5;240;48;5;240m█\u001b[38;5;240;48;5;233m│\u001b[39;48;5;233m     \u001b[12;11H     \u001b[38;5;240;48;5;233m│\u001b[12;23H\u001b[38;5;242;48;5;233mBrowser login, API keys, OIDC, external auth providers\u001b[12;84H\u001b[38;5;240;48;5;240m█\u001b[38;5;240;48;5;233m│\u001b[39;48;5;233m     \u001b[13;11H     \u001b[38;5;240;48;5;233m│\u001b[38;5;254;48;5;233m  \u001b[38;5;240;48;5;233m◆ \u001b[38;5;254;48;5;233mKeyboard Shortcuts  \u001b[13;85H\u001b[38;5;240;48;5;233m│\u001b[39;48;5;233m     \u001b[14;11H     \u001b[38;5;240;48;5;233m│\u001b[14;23H\u001b[38;5;242;48;5;233mComplete reference for all TUI key bindings\u001b[14;85H\u001b[38;5;240;48;5;233m│\u001b[39;48;5;233m     \u001b[15;11H     \u001b[38;5;240;48;5;233m│\u001b[38;5;254;48;5;233m  \u001b[38;5;240;48;5;233m◆ \u001b[38;5;254;48;5;233mSlash Commands                                             \u001b[15;85H\u001b[38;5;240;48;5;233m│\u001b[39;48;5;2",
+          "bytesBase64": "IGFuZCBiYXNpYyBpbnRlcmFjdGlvbhtbMTA7ODRIG1szODs1OzI0MDs0ODs1OzI0MG3ilogbWzM4OzU7MjQwOzQ4OzU7MjMzbeKUghtbMzk7NDg7NTsyMzNtICAgICAbWzExOzExSCAgICAgG1szODs1OzI0MDs0ODs1OzIzM23ilIIbWzM4OzU7MjU0OzQ4OzU7MjMzbSAgG1szODs1OzI0MDs0ODs1OzIzM23il4YgG1szODs1OzI1NDs0ODs1OzIzM21BdXRoZW50aWNhdGlvbiAgICAgICAgICAgICAgICAgG1sxMTs4NEgbWzM4OzU7MjQwOzQ4OzU7MjQwbeKWiBtbMzg7NTsyNDA7NDg7NTsyMzNt4pSCG1szOTs0ODs1OzIzM20gICAgIBtbMTI7MTFIICAgICAbWzM4OzU7MjQwOzQ4OzU7MjMzbeKUghtbMTI7MjNIG1szODs1OzI0Mjs0ODs1OzIzM21Ccm93c2VyIGxvZ2luLCBBUEkga2V5cywgT0lEQywgZXh0ZXJuYWwgYXV0aCBwcm92aWRlcnMbWzEyOzg0SBtbMzg7NTsyNDA7NDg7NTsyNDBt4paIG1szODs1OzI0MDs0ODs1OzIzM23ilIIbWzM5OzQ4OzU7MjMzbSAgICAgG1sxMzsxMUggICAgIBtbMzg7NTsyNDA7NDg7NTsyMzNt4pSCG1szODs1OzI1NDs0ODs1OzIzM20gIBtbMzg7NTsyNDA7NDg7NTsyMzNt4peGIBtbMzg7NTsyNTQ7NDg7NTsyMzNtS2V5Ym9hcmQgU2hvcnRjdXRzICAbWzEzOzg1SBtbMzg7NTsyNDA7NDg7NTsyMzNt4pSCG1szOTs0ODs1OzIzM20gICAgIBtbMTQ7MTFIICAgICAbWzM4OzU7MjQwOzQ4OzU7MjMzbeKUghtbMTQ7MjNIG1szODs1OzI0Mjs0ODs1OzIzM21Db21wbGV0ZSByZWZlcmVuY2UgZm9yIGFsbCBUVUkga2V5IGJpbmRpbmdzG1sxNDs4NUgbWzM4OzU7MjQwOzQ4OzU7MjMzbeKUghtbMzk7NDg7NTsyMzNtICAgICAbWzE1OzExSCAgICAgG1szODs1OzI0MDs0ODs1OzIzM23ilIIbWzM4OzU7MjU0OzQ4OzU7MjMzbSAgG1szODs1OzI0MDs0ODs1OzIzM23il4YgG1szODs1OzI1NDs0ODs1OzIzM21TbGFzaCBDb21tYW5kcyAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbMTU7ODVIG1szODs1OzI0MDs0ODs1OzIzM23ilIIbWzM5OzQ4OzU7Mg=="
+        },
+        {
+          "ms": 3195.971,
+          "output": "33m     \u001b[16;11H     \u001b[38;5;240;48;5;233m│\u001b[16;23H\u001b[38;5;242;48;5;233mAll / commands, including goals, research, and workflow\u001b[16;85H\u001b[38;5;240;48;5;233m│\u001b[39;48;5;233m     \u001b[17;11H     \u001b[38;5;240;48;5;233m│\u001b[38;5;254;48;5;233m      \u001b[38;5;242;48;5;233mmanagement\u001b[38;5;254;48;5;233m                                                   \u001b[17;85H\u001b[38;5;240;48;5;233m│\u001b[39;48;5;233m     \u001b[18;11H     \u001b[38;5;240;48;5;233m│\u001b[38;5;254;48;5;233m  \u001b[38;5;240;48;5;233m◆ \u001b[38;5;254;48;5;233mConfiguration                                                \u001b[18;85H\u001b[38;5;240;48;5;233m│\u001b[39;48;5;233m     \u001b[19;11H     \u001b[38;5;240;48;5;233m│\u001b[38;5;254;48;5;233m      \u001b[38;5;242;48;5;233mc\u001b[19;25Hnfig.toml, pager.toml, environment variables, file\u001b[38;5;254;48;5;233m          \u001b[38;5;240;48;5;233m│\u001b[39;48;5;233m     \u001b[20;11H     \u001b[38;5;240;48;5;233m│\u001b[38;5;254;48;5;233m      \u001b[38;5;242;48;5;233mlocations\u001b[38;5;254;48;5;233m                       \u001b[20;85H\u001b[38;5;240;48;5;233m│\u001b[39;48;5;233m     \u001b[21;11H     \u001b[38;5;240;",
+          "bytesBase64": "MzNtICAgICAbWzE2OzExSCAgICAgG1szODs1OzI0MDs0ODs1OzIzM23ilIIbWzE2OzIzSBtbMzg7NTsyNDI7NDg7NTsyMzNtQWxsIC8gY29tbWFuZHMsIGluY2x1ZGluZyBnb2FscywgcmVzZWFyY2gsIGFuZCB3b3JrZmxvdxtbMTY7ODVIG1szODs1OzI0MDs0ODs1OzIzM23ilIIbWzM5OzQ4OzU7MjMzbSAgICAgG1sxNzsxMUggICAgIBtbMzg7NTsyNDA7NDg7NTsyMzNt4pSCG1szODs1OzI1NDs0ODs1OzIzM20gICAgICAbWzM4OzU7MjQyOzQ4OzU7MjMzbW1hbmFnZW1lbnQbWzM4OzU7MjU0OzQ4OzU7MjMzbSAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbMTc7ODVIG1szODs1OzI0MDs0ODs1OzIzM23ilIIbWzM5OzQ4OzU7MjMzbSAgICAgG1sxODsxMUggICAgIBtbMzg7NTsyNDA7NDg7NTsyMzNt4pSCG1szODs1OzI1NDs0ODs1OzIzM20gIBtbMzg7NTsyNDA7NDg7NTsyMzNt4peGIBtbMzg7NTsyNTQ7NDg7NTsyMzNtQ29uZmlndXJhdGlvbiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbMTg7ODVIG1szODs1OzI0MDs0ODs1OzIzM23ilIIbWzM5OzQ4OzU7MjMzbSAgICAgG1sxOTsxMUggICAgIBtbMzg7NTsyNDA7NDg7NTsyMzNt4pSCG1szODs1OzI1NDs0ODs1OzIzM20gICAgICAbWzM4OzU7MjQyOzQ4OzU7MjMzbWMbWzE5OzI1SG5maWcudG9tbCwgcGFnZXIudG9tbCwgZW52aXJvbm1lbnQgdmFyaWFibGVzLCBmaWxlG1szODs1OzI1NDs0ODs1OzIzM20gICAgICAgICAgG1szODs1OzI0MDs0ODs1OzIzM23ilIIbWzM5OzQ4OzU7MjMzbSAgICAgG1syMDsxMUggICAgIBtbMzg7NTsyNDA7NDg7NTsyMzNt4pSCG1szODs1OzI1NDs0ODs1OzIzM20gICAgICAbWzM4OzU7MjQyOzQ4OzU7MjMzbWxvY2F0aW9ucxtbMzg7NTsyNTQ7NDg7NTsyMzNtICAgICAgICAgICAgICAgICAgICAgICAbWzIwOzg1SBtbMzg7NTsyNDA7NDg7NTsyMzNt4pSCG1szOTs0ODs1OzIzM20gICAgIBtbMjE7MTFIICAgICAbWzM4OzU7MjQwOw=="
+        },
+        {
+          "ms": 3195.976667,
+          "output": "48;5;233m│\u001b[21;19H◆ \u001b[38;5;254;48;5;233mTheming\u001b[21;29Hand\u001b[21;33HAppearance\u001b[21;85H\u001b[38;5;240;48;5;233m│\u001b[39;48;5;233m     \u001b[22;11H     \u001b[38;5;240;48;5;233m│\u001b[38;5;254;48;5;233m      \u001b[38;5;242;48;5;233mThemes, color support, pager.toml customization\u001b[22;85H\u001b[38;5;240;48;5;233m│\u001b[39;48;5;233m     \u001b[23;11H     \u001b[38;5;240;48;5;233m│\u001b[23;19H◆ \u001b[38;5;254;48;5;233mMCP\u001b[23;25HServers\u001b[23;85H\u001b[38;5;240;48;5;233m│\u001b[39;48;5;233m     \u001b[24;11H     \u001b[38;5;240;48;5;233m│\u001b[38;5;254;48;5;233m           \u001b[24;85H\u001b[38;5;240;48;5;233m│\u001b[39;48;5;233m     \u001b[25;11H     \u001b[38;5;240;48;5;233m│\u001b[25;23H\u001b[3mTip · Ask Grok about the docs · ~/.grok/docs/user-guide\u001b[25;85H\u001b[23m│\u001b[39;48;5;233m     \u001b[26;11H     \u001b[38;5;240;48;5;233m│\u001b[26;85H│\u001b[39;48;5;233m     \u001b[27;11H\u001b[38;5;239;48;5;233m─────\u001b[38;5;240;48;5;233m│\u001b[27;32H\u001b[1m\u001b[38;5;251;48;5;233m↑/↓\u001b[22m\u001b[38;5;242;48;5;233m nav\u001b[38;5;240;48;5;233m  |  \u001b[1m\u001b[38;5;251;48;5;233mEnter\u001b[22m\u001b[38;5;242;48;5;233m select\u001b[38;5;240;48;5;233m  |  \u001b[1m\u001b[38;5;",
+          "bytesBase64": "NDg7NTsyMzNt4pSCG1syMTsxOUjil4YgG1szODs1OzI1NDs0ODs1OzIzM21UaGVtaW5nG1syMTsyOUhhbmQbWzIxOzMzSEFwcGVhcmFuY2UbWzIxOzg1SBtbMzg7NTsyNDA7NDg7NTsyMzNt4pSCG1szOTs0ODs1OzIzM20gICAgIBtbMjI7MTFIICAgICAbWzM4OzU7MjQwOzQ4OzU7MjMzbeKUghtbMzg7NTsyNTQ7NDg7NTsyMzNtICAgICAgG1szODs1OzI0Mjs0ODs1OzIzM21UaGVtZXMsIGNvbG9yIHN1cHBvcnQsIHBhZ2VyLnRvbWwgY3VzdG9taXphdGlvbhtbMjI7ODVIG1szODs1OzI0MDs0ODs1OzIzM23ilIIbWzM5OzQ4OzU7MjMzbSAgICAgG1syMzsxMUggICAgIBtbMzg7NTsyNDA7NDg7NTsyMzNt4pSCG1syMzsxOUjil4YgG1szODs1OzI1NDs0ODs1OzIzM21NQ1AbWzIzOzI1SFNlcnZlcnMbWzIzOzg1SBtbMzg7NTsyNDA7NDg7NTsyMzNt4pSCG1szOTs0ODs1OzIzM20gICAgIBtbMjQ7MTFIICAgICAbWzM4OzU7MjQwOzQ4OzU7MjMzbeKUghtbMzg7NTsyNTQ7NDg7NTsyMzNtICAgICAgICAgICAbWzI0Ozg1SBtbMzg7NTsyNDA7NDg7NTsyMzNt4pSCG1szOTs0ODs1OzIzM20gICAgIBtbMjU7MTFIICAgICAbWzM4OzU7MjQwOzQ4OzU7MjMzbeKUghtbMjU7MjNIG1szbVRpcCDCtyBBc2sgR3JvayBhYm91dCB0aGUgZG9jcyDCtyB+Ly5ncm9rL2RvY3MvdXNlci1ndWlkZRtbMjU7ODVIG1syM23ilIIbWzM5OzQ4OzU7MjMzbSAgICAgG1syNjsxMUggICAgIBtbMzg7NTsyNDA7NDg7NTsyMzNt4pSCG1syNjs4NUjilIIbWzM5OzQ4OzU7MjMzbSAgICAgG1syNzsxMUgbWzM4OzU7MjM5OzQ4OzU7MjMzbeKUgOKUgOKUgOKUgOKUgBtbMzg7NTsyNDA7NDg7NTsyMzNt4pSCG1syNzszMkgbWzFtG1szODs1OzI1MTs0ODs1OzIzM23ihpEv4oaTG1syMm0bWzM4OzU7MjQyOzQ4OzU7MjMzbSBuYXYbWzM4OzU7MjQwOzQ4OzU7MjMzbSAgfCAgG1sxbRtbMzg7NTsyNTE7NDg7NTsyMzNtRW50ZXIbWzIybRtbMzg7NTsyNDI7NDg7NTsyMzNtIHNlbGVjdBtbMzg7NTsyNDA7NDg7NTsyMzNtICB8ICAbWzFtG1szODs1Ow=="
+        },
+        {
+          "ms": 3195.985917,
+          "output": "251;48;5;233mEsc\u001b[22m\u001b[38;5;242;48;5;233m close\u001b[27;85H\u001b[38;5;240;48;5;233m│\u001b[38;5;239;48;5;233m─────\u001b[28;11H\u001b[38;5;254;48;5;233m     \u001b[38;5;240;48;5;233m└\u001b[28;85H┘\u001b[38;5;254;48;5;233m     \u001b[39m\u001b[49m\u001b[59m\u001b[0m\u001b[?2026l",
+          "bytesBase64": "MjUxOzQ4OzU7MjMzbUVzYxtbMjJtG1szODs1OzI0Mjs0ODs1OzIzM20gY2xvc2UbWzI3Ozg1SBtbMzg7NTsyNDA7NDg7NTsyMzNt4pSCG1szODs1OzIzOTs0ODs1OzIzM23ilIDilIDilIDilIDilIAbWzI4OzExSBtbMzg7NTsyNTQ7NDg7NTsyMzNtICAgICAbWzM4OzU7MjQwOzQ4OzU7MjMzbeKUlBtbMjg7ODVI4pSYG1szODs1OzI1NDs0ODs1OzIzM20gICAgIBtbMzltG1s0OW0bWzU5bRtbMG0bWz8yMDI2bA=="
+        },
+        {
+          "ms": 3521.664042,
+          "action": "docs-close",
+          "offset": 31168,
+          "inputHex": "1b",
+          "observedMs": 3824.53175,
+          "markerFound": null,
+          "endOffset": 33489
+        },
+        {
+          "ms": 3674.164542,
+          "output": "\u001b[?2026h\u001b[5;16H\u001b[39;48;5;233m                                                                      \u001b[6;16H                                                                      \u001b[7;16H                                                                      \u001b[8;16H                                                                      \u001b[9;16H                                                                      \u001b[10;16H                                                                      \u001b[11;16H                                                                      \u001b[12;16H                                                                      \u001b[13;16H                                                                      \u001b[14;16H                                                                      \u001b[15;16H                                                                      \u001b[16;16H                                                                      \u001b[17;16H                                                               ",
+          "bytesBase64": "G1s/MjAyNmgbWzU7MTZIG1szOTs0ODs1OzIzM20gICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgG1s2OzE2SCAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzc7MTZIICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbODsxNkggICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgG1s5OzE2SCAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzEwOzE2SCAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzExOzE2SCAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzEyOzE2SCAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzEzOzE2SCAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzE0OzE2SCAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzE1OzE2SCAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzE2OzE2SCAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzE3OzE2SCAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIA=="
+        },
+        {
+          "ms": 3674.226917,
+          "output": "       \u001b[18;16H                                                                      \u001b[19;16H                                                                      \u001b[20;16H                                                                      \u001b[21;16H                                                                      \u001b[22;16H                                                                      \u001b[23;16H                                                                      \u001b[24;16H                                                                      \u001b[25;16H                                                                      \u001b[26;16H                                                                      \u001b[27;16H\u001b[38;5;239;48;5;233m──────────────────────────────────────────────────────────────────────\u001b[28;16H\u001b[38;5;254;48;5;233m                                                 ",
+          "bytesBase64": "ICAgICAgIBtbMTg7MTZIICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbMTk7MTZIICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbMjA7MTZIICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbMjE7MTZIICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbMjI7MTZIICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbMjM7MTZIICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbMjQ7MTZIICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbMjU7MTZIICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbMjY7MTZIICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbMjc7MTZIG1szODs1OzIzOTs0ODs1OzIzM23ilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIAbWzI4OzE2SBtbMzg7NTsyNTQ7NDg7NTsyMzNtICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIA=="
+        },
+        {
+          "ms": 3674.238,
+          "output": "                     \u001b[31;3H\u001b[1m\u001b[38;5;251;48;5;233mShift+Tab\u001b[22m\u001b[38;5;242;48;5;233m:mode\u001b[2m  │  \u001b[22m\u001b[1m\u001b[38;5;251;48;5;233mCtrl+x\u001b[22m\u001b[38;5;242;48;5;233m:shortcuts                                                             \u001b[39m\u001b[49m\u001b[59m\u001b[0m\u001b[28;7H\u001b[?25h\u001b[?2026l",
+          "bytesBase64": "ICAgICAgICAgICAgICAgICAgICAgG1szMTszSBtbMW0bWzM4OzU7MjUxOzQ4OzU7MjMzbVNoaWZ0K1RhYhtbMjJtG1szODs1OzI0Mjs0ODs1OzIzM206bW9kZRtbMm0gIOKUgiAgG1syMm0bWzFtG1szODs1OzI1MTs0ODs1OzIzM21DdHJsK3gbWzIybRtbMzg7NTsyNDI7NDg7NTsyMzNtOnNob3J0Y3V0cyAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzM5bRtbNDltG1s1OW0bWzBtG1syODs3SBtbPzI1aBtbPzIwMjZs"
+        },
+        {
+          "ms": 3985.151333,
+          "action": "howto-open",
+          "offset": 33489,
+          "inputHex": "2f686f77746f0d",
+          "observedMs": 4029.19275,
+          "markerFound": true,
+          "endOffset": 37922
+        },
+        {
+          "ms": 3988.304125,
+          "output": "\u001b[?2026h\u001b[5;16H\u001b[38;5;240;48;5;233m┌─ \u001b[1m\u001b[38;5;254;48;5;233mHow-to Guides\u001b[22m\u001b[38;5;240;48;5;233m ────────────────────────────────────────────── [✗] ─┐\u001b[6;16H│\u001b[38;5;254;48;5;233m                                                                    \u001b[38;5;240;48;5;233m│\u001b[7;16H│\u001b[38;5;254;48;5;233m  \u001b[38;5;240;48;5;233m / to search\u001b[38;5;254;48;5;233m                                                      \u001b[38;5;240;48;5;233m│\u001b[8;16H│────────────────────────────────────────────────────────────────────│\u001b[9;16H│\u001b[38;5;254;48;5;233m  \u001b[38;5;240;48;5;237m◆ \u001b[1m\u001b[38;5;254;48;5;237mGetting Started\u001b[22m                                              \u001b[38;5;254;48;5;233m  \u001b[38;5;240;48;5;240m█\u001b[38;5;240;48;5;233m│\u001b[10;16H│\u001b[38;5;254;48;5;233m      \u001b[38;5;242;48;5;23",
+          "bytesBase64": "G1s/MjAyNmgbWzU7MTZIG1szODs1OzI0MDs0ODs1OzIzM23ilIzilIAgG1sxbRtbMzg7NTsyNTQ7NDg7NTsyMzNtSG93LXRvIEd1aWRlcxtbMjJtG1szODs1OzI0MDs0ODs1OzIzM20g4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSAIFvinJddIOKUgOKUkBtbNjsxNkjilIIbWzM4OzU7MjU0OzQ4OzU7MjMzbSAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgG1szODs1OzI0MDs0ODs1OzIzM23ilIIbWzc7MTZI4pSCG1szODs1OzI1NDs0ODs1OzIzM20gIBtbMzg7NTsyNDA7NDg7NTsyMzNtIC8gdG8gc2VhcmNoG1szODs1OzI1NDs0ODs1OzIzM20gICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzM4OzU7MjQwOzQ4OzU7MjMzbeKUghtbODsxNkjilILilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIIbWzk7MTZI4pSCG1szODs1OzI1NDs0ODs1OzIzM20gIBtbMzg7NTsyNDA7NDg7NTsyMzdt4peGIBtbMW0bWzM4OzU7MjU0OzQ4OzU7MjM3bUdldHRpbmcgU3RhcnRlZBtbMjJtICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbMzg7NTsyNTQ7NDg7NTsyMzNtICAbWzM4OzU7MjQwOzQ4OzU7MjQwbeKWiBtbMzg7NTsyNDA7NDg7NTsyMzNt4pSCG1sxMDsxNkjilIIbWzM4OzU7MjU0OzQ4OzU7MjMzbSAgICAgIBtbMzg7NTsyNDI7NDg7NTsyMw=="
+        },
+        {
+          "ms": 3988.361333,
+          "output": "3mInstallation, first launch, and basic interaction\u001b[38;5;254;48;5;233m            \u001b[38;5;240;48;5;240m█\u001b[38;5;240;48;5;233m│\u001b[11;16H│\u001b[38;5;254;48;5;233m  \u001b[38;5;240;48;5;233m◆ \u001b[38;5;254;48;5;233mAuthentication                                                 \u001b[38;5;240;48;5;240m█\u001b[38;5;240;48;5;233m│\u001b[12;16H│\u001b[38;5;254;48;5;233m      \u001b[38;5;242;48;5;233mBrowser login, API keys, OIDC, external auth providers\u001b[38;5;254;48;5;233m       \u001b[38;5;240;48;5;240m█\u001b[38;5;240;48;5;233m│\u001b[13;16H│\u001b[38;5;254;48;5;233m  \u001b[38;5;240;48;5;233m◆ \u001b[38;5;254;48;5;233mKeyboard Shortcuts                                              \u001b[38;5;240;48;5;233m│\u001b[14;16H│\u001b[38;5;254;48;5;233m      \u001b[38;5;242;48;5;233mComplete reference for all TUI key bindings\u001b[38;5;254;48;5;233m                   \u001b[38;5;240;48;5;233m│\u001b[15;16H│\u001b[38;5;254;48;5;233m  \u001b[38;5;240;48;5;233m◆ \u001b[38;5;254;48;5;233mSlash Commands                                                  \u001b[38;5;240;48;5;233m│\u001b[16;16H│\u001b[38;5;254;48;5;233m    ",
+          "bytesBase64": "M21JbnN0YWxsYXRpb24sIGZpcnN0IGxhdW5jaCwgYW5kIGJhc2ljIGludGVyYWN0aW9uG1szODs1OzI1NDs0ODs1OzIzM20gICAgICAgICAgICAbWzM4OzU7MjQwOzQ4OzU7MjQwbeKWiBtbMzg7NTsyNDA7NDg7NTsyMzNt4pSCG1sxMTsxNkjilIIbWzM4OzU7MjU0OzQ4OzU7MjMzbSAgG1szODs1OzI0MDs0ODs1OzIzM23il4YgG1szODs1OzI1NDs0ODs1OzIzM21BdXRoZW50aWNhdGlvbiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzM4OzU7MjQwOzQ4OzU7MjQwbeKWiBtbMzg7NTsyNDA7NDg7NTsyMzNt4pSCG1sxMjsxNkjilIIbWzM4OzU7MjU0OzQ4OzU7MjMzbSAgICAgIBtbMzg7NTsyNDI7NDg7NTsyMzNtQnJvd3NlciBsb2dpbiwgQVBJIGtleXMsIE9JREMsIGV4dGVybmFsIGF1dGggcHJvdmlkZXJzG1szODs1OzI1NDs0ODs1OzIzM20gICAgICAgG1szODs1OzI0MDs0ODs1OzI0MG3ilogbWzM4OzU7MjQwOzQ4OzU7MjMzbeKUghtbMTM7MTZI4pSCG1szODs1OzI1NDs0ODs1OzIzM20gIBtbMzg7NTsyNDA7NDg7NTsyMzNt4peGIBtbMzg7NTsyNTQ7NDg7NTsyMzNtS2V5Ym9hcmQgU2hvcnRjdXRzICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbMzg7NTsyNDA7NDg7NTsyMzNt4pSCG1sxNDsxNkjilIIbWzM4OzU7MjU0OzQ4OzU7MjMzbSAgICAgIBtbMzg7NTsyNDI7NDg7NTsyMzNtQ29tcGxldGUgcmVmZXJlbmNlIGZvciBhbGwgVFVJIGtleSBiaW5kaW5ncxtbMzg7NTsyNTQ7NDg7NTsyMzNtICAgICAgICAgICAgICAgICAgIBtbMzg7NTsyNDA7NDg7NTsyMzNt4pSCG1sxNTsxNkjilIIbWzM4OzU7MjU0OzQ4OzU7MjMzbSAgG1szODs1OzI0MDs0ODs1OzIzM23il4YgG1szODs1OzI1NDs0ODs1OzIzM21TbGFzaCBDb21tYW5kcyAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgG1szODs1OzI0MDs0ODs1OzIzM23ilIIbWzE2OzE2SOKUghtbMzg7NTsyNTQ7NDg7NTsyMzNtICAgIA=="
+        },
+        {
+          "ms": 3988.371042,
+          "output": "  \u001b[38;5;242;48;5;233mAll / commands, including goals, research, and workflow\u001b[38;5;254;48;5;233m       \u001b[38;5;240;48;5;233m│\u001b[17;16H│\u001b[38;5;254;48;5;233m      \u001b[38;5;242;48;5;233mmanagement\u001b[38;5;254;48;5;233m                                                    \u001b[38;5;240;48;5;233m│\u001b[18;16H│\u001b[38;5;254;48;5;233m  \u001b[38;5;240;48;5;233m◆ \u001b[38;5;254;48;5;233mConfiguration                                                   \u001b[38;5;240;48;5;233m│\u001b[19;16H│\u001b[38;5;254;48;5;233m      \u001b[38;5;242;48;5;233mconfig.toml, pager.toml, environment variables, file\u001b[38;5;254;48;5;233m          \u001b[38;5;240;48;5;233m│\u001b[20;16H│\u001b[38;5;254;48;5;233m      \u001b[38;5;242;48;5;233mlocations\u001b[38;5;254;48;5;233m                                                     \u001b[38;5;240;48;5;233m│\u001b[21;16H│\u001b[38;5;254;48;5;233m  \u001b[38;5;240;48;5;233m◆ \u001b[38;5;254;48;5;233mTheming and Appearance                                          \u001b[38;5;240;48;5;233m│\u001b[22;16H│\u001b[38;5;254;48;5;233m      \u001b[38;5;242;48;5;233mThemes, color support, pag",
+          "bytesBase64": "ICAbWzM4OzU7MjQyOzQ4OzU7MjMzbUFsbCAvIGNvbW1hbmRzLCBpbmNsdWRpbmcgZ29hbHMsIHJlc2VhcmNoLCBhbmQgd29ya2Zsb3cbWzM4OzU7MjU0OzQ4OzU7MjMzbSAgICAgICAbWzM4OzU7MjQwOzQ4OzU7MjMzbeKUghtbMTc7MTZI4pSCG1szODs1OzI1NDs0ODs1OzIzM20gICAgICAbWzM4OzU7MjQyOzQ4OzU7MjMzbW1hbmFnZW1lbnQbWzM4OzU7MjU0OzQ4OzU7MjMzbSAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzM4OzU7MjQwOzQ4OzU7MjMzbeKUghtbMTg7MTZI4pSCG1szODs1OzI1NDs0ODs1OzIzM20gIBtbMzg7NTsyNDA7NDg7NTsyMzNt4peGIBtbMzg7NTsyNTQ7NDg7NTsyMzNtQ29uZmlndXJhdGlvbiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbMzg7NTsyNDA7NDg7NTsyMzNt4pSCG1sxOTsxNkjilIIbWzM4OzU7MjU0OzQ4OzU7MjMzbSAgICAgIBtbMzg7NTsyNDI7NDg7NTsyMzNtY29uZmlnLnRvbWwsIHBhZ2VyLnRvbWwsIGVudmlyb25tZW50IHZhcmlhYmxlcywgZmlsZRtbMzg7NTsyNTQ7NDg7NTsyMzNtICAgICAgICAgIBtbMzg7NTsyNDA7NDg7NTsyMzNt4pSCG1syMDsxNkjilIIbWzM4OzU7MjU0OzQ4OzU7MjMzbSAgICAgIBtbMzg7NTsyNDI7NDg7NTsyMzNtbG9jYXRpb25zG1szODs1OzI1NDs0ODs1OzIzM20gICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbMzg7NTsyNDA7NDg7NTsyMzNt4pSCG1syMTsxNkjilIIbWzM4OzU7MjU0OzQ4OzU7MjMzbSAgG1szODs1OzI0MDs0ODs1OzIzM23il4YgG1szODs1OzI1NDs0ODs1OzIzM21UaGVtaW5nIGFuZCBBcHBlYXJhbmNlICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgG1szODs1OzI0MDs0ODs1OzIzM23ilIIbWzIyOzE2SOKUghtbMzg7NTsyNTQ7NDg7NTsyMzNtICAgICAgG1szODs1OzI0Mjs0ODs1OzIzM21UaGVtZXMsIGNvbG9yIHN1cHBvcnQsIHBhZw=="
+        },
+        {
+          "ms": 3988.38025,
+          "output": "er.toml customization\u001b[38;5;254;48;5;233m               \u001b[38;5;240;48;5;233m│\u001b[23;16H│\u001b[38;5;254;48;5;233m  \u001b[38;5;240;48;5;233m◆ \u001b[38;5;254;48;5;233mMCP Servers                                                     \u001b[38;5;240;48;5;233m│\u001b[24;16H│\u001b[38;5;254;48;5;233m                                                                    \u001b[38;5;240;48;5;233m│\u001b[25;16H│\u001b[38;5;254;48;5;233m      \u001b[3m\u001b[38;5;240;48;5;233mTip · Ask Grok about the docs · ~/.grok/docs/user-guide\u001b[23m\u001b[38;5;254;48;5;233m       \u001b[38;5;240;48;5;233m│\u001b[26;16H│\u001b[38;5;254;48;5;233m                                                                    \u001b[38;5;240;48;5;233m│\u001b[27;16H│\u001b[38;5;254;48;5;233m               \u001b[1m\u001b[38;5;251;48;5;233m↑/↓\u001b[22m\u001b[38;5;242;48;5;233m nav\u001b[38;5;240;48;5;233m  |  \u001b[1m\u001b[38;5;251;48;5;233mEnter\u001b[22m\u001b[38;5;242;48;5;233m select\u001b[38;5;240;48;5;233m  |  \u001b[1m\u001b[38;5;251;48;5;233mEsc\u001b[22m\u001b[38;5;242;48;5;233m close\u001b[38;5;254;48;5;233m               \u001b[38;5;240;48;5;233m│\u001b[28;16H└──────",
+          "bytesBase64": "ZXIudG9tbCBjdXN0b21pemF0aW9uG1szODs1OzI1NDs0ODs1OzIzM20gICAgICAgICAgICAgICAbWzM4OzU7MjQwOzQ4OzU7MjMzbeKUghtbMjM7MTZI4pSCG1szODs1OzI1NDs0ODs1OzIzM20gIBtbMzg7NTsyNDA7NDg7NTsyMzNt4peGIBtbMzg7NTsyNTQ7NDg7NTsyMzNtTUNQIFNlcnZlcnMgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbMzg7NTsyNDA7NDg7NTsyMzNt4pSCG1syNDsxNkjilIIbWzM4OzU7MjU0OzQ4OzU7MjMzbSAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgG1szODs1OzI0MDs0ODs1OzIzM23ilIIbWzI1OzE2SOKUghtbMzg7NTsyNTQ7NDg7NTsyMzNtICAgICAgG1szbRtbMzg7NTsyNDA7NDg7NTsyMzNtVGlwIMK3IEFzayBHcm9rIGFib3V0IHRoZSBkb2NzIMK3IH4vLmdyb2svZG9jcy91c2VyLWd1aWRlG1syM20bWzM4OzU7MjU0OzQ4OzU7MjMzbSAgICAgICAbWzM4OzU7MjQwOzQ4OzU7MjMzbeKUghtbMjY7MTZI4pSCG1szODs1OzI1NDs0ODs1OzIzM20gICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbMzg7NTsyNDA7NDg7NTsyMzNt4pSCG1syNzsxNkjilIIbWzM4OzU7MjU0OzQ4OzU7MjMzbSAgICAgICAgICAgICAgIBtbMW0bWzM4OzU7MjUxOzQ4OzU7MjMzbeKGkS/ihpMbWzIybRtbMzg7NTsyNDI7NDg7NTsyMzNtIG5hdhtbMzg7NTsyNDA7NDg7NTsyMzNtICB8ICAbWzFtG1szODs1OzI1MTs0ODs1OzIzM21FbnRlchtbMjJtG1szODs1OzI0Mjs0ODs1OzIzM20gc2VsZWN0G1szODs1OzI0MDs0ODs1OzIzM20gIHwgIBtbMW0bWzM4OzU7MjUxOzQ4OzU7MjMzbUVzYxtbMjJtG1szODs1OzI0Mjs0ODs1OzIzM20gY2xvc2UbWzM4OzU7MjU0OzQ4OzU7MjMzbSAgICAgICAgICAgICAgIBtbMzg7NTsyNDA7NDg7NTsyMzNt4pSCG1syODsxNkjilJTilIDilIDilIDilIDilIDilIDilA=="
+        },
+        {
+          "ms": 3988.393,
+          "output": "──────────────────────────────────────────────────────────────┘\u001b[31;3H\u001b[39;48;5;233m                                                                                                \u001b[39m\u001b[49m\u001b[59m\u001b[0m\u001b[?25l\u001b[?2026l",
+          "bytesBase64": "gOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUmBtbMzE7M0gbWzM5OzQ4OzU7MjMzbSAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbMzltG1s0OW0bWzU5bRtbMG0bWz8yNWwbWz8yMDI2bA=="
+        },
+        {
+          "ms": 4188.650208,
+          "action": "howto-dismiss",
+          "offset": 37922,
+          "inputHex": "1b",
+          "observedMs": 4489.098042,
+          "markerFound": null,
+          "endOffset": 40243
+        },
+        {
+          "ms": 4341.953292,
+          "output": "\u001b[?2026h\u001b[5;16H\u001b[39;48;5;233m                                                                      \u001b[6;16H                                                                      \u001b[7;16H                                                                      \u001b[8;16H                                                                      \u001b[9;16H                                                                      \u001b[10;16H                                                                      \u001b[11;16H                                                                      \u001b[12;16H                                                                      \u001b[13;16H                                                                      \u001b[14;16H                                                                      \u001b[15;16H                                                                      \u001b[16;16H                                                                      \u001b[17;16H                                                               ",
+          "bytesBase64": "G1s/MjAyNmgbWzU7MTZIG1szOTs0ODs1OzIzM20gICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgG1s2OzE2SCAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzc7MTZIICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbODsxNkggICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgG1s5OzE2SCAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzEwOzE2SCAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzExOzE2SCAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzEyOzE2SCAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzEzOzE2SCAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzE0OzE2SCAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzE1OzE2SCAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzE2OzE2SCAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzE3OzE2SCAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIA=="
+        },
+        {
+          "ms": 4342.016083,
+          "output": "       \u001b[18;16H                                                                      \u001b[19;16H                                                                      \u001b[20;16H                                                                      \u001b[21;16H                                                                      \u001b[22;16H                                                                      \u001b[23;16H                                                                      \u001b[24;16H                                                                      \u001b[25;16H                                                                      \u001b[26;16H                                                                      \u001b[27;16H\u001b[38;5;239;48;5;233m──────────────────────────────────────────────────────────────────────\u001b[28;16H\u001b[38;5;254;48;5;233m                                                 ",
+          "bytesBase64": "ICAgICAgIBtbMTg7MTZIICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbMTk7MTZIICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbMjA7MTZIICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbMjE7MTZIICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbMjI7MTZIICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbMjM7MTZIICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbMjQ7MTZIICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbMjU7MTZIICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbMjY7MTZIICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbMjc7MTZIG1szODs1OzIzOTs0ODs1OzIzM23ilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIAbWzI4OzE2SBtbMzg7NTsyNTQ7NDg7NTsyMzNtICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIA=="
+        },
+        {
+          "ms": 4342.027417,
+          "output": "                     \u001b[31;3H\u001b[1m\u001b[38;5;251;48;5;233mShift+Tab\u001b[22m\u001b[38;5;242;48;5;233m:mode\u001b[2m  │  \u001b[22m\u001b[1m\u001b[38;5;251;48;5;233mCtrl+x\u001b[22m\u001b[38;5;242;48;5;233m:shortcuts                                                             \u001b[39m\u001b[49m\u001b[59m\u001b[0m\u001b[28;7H\u001b[?25h\u001b[?2026l",
+          "bytesBase64": "ICAgICAgICAgICAgICAgICAgICAgG1szMTszSBtbMW0bWzM4OzU7MjUxOzQ4OzU7MjMzbVNoaWZ0K1RhYhtbMjJtG1szODs1OzI0Mjs0ODs1OzIzM206bW9kZRtbMm0gIOKUgiAgG1syMm0bWzFtG1szODs1OzI1MTs0ODs1OzIzM21DdHJsK3gbWzIybRtbMzg7NTsyNDI7NDg7NTsyMzNtOnNob3J0Y3V0cyAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzM5bRtbNDltG1s1OW0bWzBtG1syODs3SBtbPzI1aBtbPzIwMjZs"
+        },
+        {
+          "ms": 4649.305375,
+          "action": "guides-open",
+          "offset": 40243,
+          "inputHex": "2f6775696465730d",
+          "observedMs": 4691.364083,
+          "markerFound": true,
+          "endOffset": 44676
+        },
+        {
+          "ms": 4653.704667,
+          "output": "\u001b[?2026h\u001b[5;16H\u001b[38;5;240;48;5;233m┌─ \u001b[1m\u001b[38;5;254;48;5;233mHow-to Guides\u001b[22m\u001b[38;5;240;48;5;233m ────────────────────────────────────────────── [✗] ─┐\u001b[6;16H│\u001b[38;5;254;48;5;233m                                                                    \u001b[38;5;240;48;5;233m│\u001b[7;16H│\u001b[38;5;254;48;5;233m  \u001b[38;5;240;48;5;233m / to search\u001b[38;5;254;48;5;233m                                                      \u001b[38;5;240;48;5;233m│\u001b[8;16H│────────────────────────────────────────────────────────────────────│\u001b[9;16H│\u001b[38;5;254;48;5;233m  \u001b[38;5;240;48;5;237m◆ \u001b[1m\u001b[38;5;254;48;5;237mGetting Started\u001b[22m                                              \u001b[38;5;254;48;5;233m  \u001b[38;5;240;48;5;240m█\u001b[38;5;240;48;5;233m│\u001b[10;16H│\u001b[38;5;254;48;5;233m      \u001b[38;5;242;48;5;23",
+          "bytesBase64": "G1s/MjAyNmgbWzU7MTZIG1szODs1OzI0MDs0ODs1OzIzM23ilIzilIAgG1sxbRtbMzg7NTsyNTQ7NDg7NTsyMzNtSG93LXRvIEd1aWRlcxtbMjJtG1szODs1OzI0MDs0ODs1OzIzM20g4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSAIFvinJddIOKUgOKUkBtbNjsxNkjilIIbWzM4OzU7MjU0OzQ4OzU7MjMzbSAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgG1szODs1OzI0MDs0ODs1OzIzM23ilIIbWzc7MTZI4pSCG1szODs1OzI1NDs0ODs1OzIzM20gIBtbMzg7NTsyNDA7NDg7NTsyMzNtIC8gdG8gc2VhcmNoG1szODs1OzI1NDs0ODs1OzIzM20gICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzM4OzU7MjQwOzQ4OzU7MjMzbeKUghtbODsxNkjilILilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIIbWzk7MTZI4pSCG1szODs1OzI1NDs0ODs1OzIzM20gIBtbMzg7NTsyNDA7NDg7NTsyMzdt4peGIBtbMW0bWzM4OzU7MjU0OzQ4OzU7MjM3bUdldHRpbmcgU3RhcnRlZBtbMjJtICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbMzg7NTsyNTQ7NDg7NTsyMzNtICAbWzM4OzU7MjQwOzQ4OzU7MjQwbeKWiBtbMzg7NTsyNDA7NDg7NTsyMzNt4pSCG1sxMDsxNkjilIIbWzM4OzU7MjU0OzQ4OzU7MjMzbSAgICAgIBtbMzg7NTsyNDI7NDg7NTsyMw=="
+        },
+        {
+          "ms": 4653.756708,
+          "output": "3mInstallation, first launch, and basic interaction\u001b[38;5;254;48;5;233m            \u001b[38;5;240;48;5;240m█\u001b[38;5;240;48;5;233m│\u001b[11;16H│\u001b[38;5;254;48;5;233m  \u001b[38;5;240;48;5;233m◆ \u001b[38;5;254;48;5;233mAuthentication                                                 \u001b[38;5;240;48;5;240m█\u001b[38;5;240;48;5;233m│\u001b[12;16H│\u001b[38;5;254;48;5;233m      \u001b[38;5;242;48;5;233mBrowser login, API keys, OIDC, external auth providers\u001b[38;5;254;48;5;233m       \u001b[38;5;240;48;5;240m█\u001b[38;5;240;48;5;233m│\u001b[13;16H│\u001b[38;5;254;48;5;233m  \u001b[38;5;240;48;5;233m◆ \u001b[38;5;254;48;5;233mKeyboard Shortcuts                                              \u001b[38;5;240;48;5;233m│\u001b[14;16H│\u001b[38;5;254;48;5;233m      \u001b[38;5;242;48;5;233mComplete reference for all TUI key bindings\u001b[38;5;254;48;5;233m                   \u001b[38;5;240;48;5;233m│\u001b[15;16H│\u001b[38;5;254;48;5;233m  \u001b[38;5;240;48;5;233m◆ \u001b[38;5;254;48;5;233mSlash Commands                                                  \u001b[38;5;240;48;5;233m│\u001b[16;16H│\u001b[38;5;254;48;5;233m    ",
+          "bytesBase64": "M21JbnN0YWxsYXRpb24sIGZpcnN0IGxhdW5jaCwgYW5kIGJhc2ljIGludGVyYWN0aW9uG1szODs1OzI1NDs0ODs1OzIzM20gICAgICAgICAgICAbWzM4OzU7MjQwOzQ4OzU7MjQwbeKWiBtbMzg7NTsyNDA7NDg7NTsyMzNt4pSCG1sxMTsxNkjilIIbWzM4OzU7MjU0OzQ4OzU7MjMzbSAgG1szODs1OzI0MDs0ODs1OzIzM23il4YgG1szODs1OzI1NDs0ODs1OzIzM21BdXRoZW50aWNhdGlvbiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzM4OzU7MjQwOzQ4OzU7MjQwbeKWiBtbMzg7NTsyNDA7NDg7NTsyMzNt4pSCG1sxMjsxNkjilIIbWzM4OzU7MjU0OzQ4OzU7MjMzbSAgICAgIBtbMzg7NTsyNDI7NDg7NTsyMzNtQnJvd3NlciBsb2dpbiwgQVBJIGtleXMsIE9JREMsIGV4dGVybmFsIGF1dGggcHJvdmlkZXJzG1szODs1OzI1NDs0ODs1OzIzM20gICAgICAgG1szODs1OzI0MDs0ODs1OzI0MG3ilogbWzM4OzU7MjQwOzQ4OzU7MjMzbeKUghtbMTM7MTZI4pSCG1szODs1OzI1NDs0ODs1OzIzM20gIBtbMzg7NTsyNDA7NDg7NTsyMzNt4peGIBtbMzg7NTsyNTQ7NDg7NTsyMzNtS2V5Ym9hcmQgU2hvcnRjdXRzICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbMzg7NTsyNDA7NDg7NTsyMzNt4pSCG1sxNDsxNkjilIIbWzM4OzU7MjU0OzQ4OzU7MjMzbSAgICAgIBtbMzg7NTsyNDI7NDg7NTsyMzNtQ29tcGxldGUgcmVmZXJlbmNlIGZvciBhbGwgVFVJIGtleSBiaW5kaW5ncxtbMzg7NTsyNTQ7NDg7NTsyMzNtICAgICAgICAgICAgICAgICAgIBtbMzg7NTsyNDA7NDg7NTsyMzNt4pSCG1sxNTsxNkjilIIbWzM4OzU7MjU0OzQ4OzU7MjMzbSAgG1szODs1OzI0MDs0ODs1OzIzM23il4YgG1szODs1OzI1NDs0ODs1OzIzM21TbGFzaCBDb21tYW5kcyAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgG1szODs1OzI0MDs0ODs1OzIzM23ilIIbWzE2OzE2SOKUghtbMzg7NTsyNTQ7NDg7NTsyMzNtICAgIA=="
+        },
+        {
+          "ms": 4653.769042,
+          "output": "  \u001b[38;5;242;48;5;233mAll / commands, including goals, research, and workflow\u001b[38;5;254;48;5;233m       \u001b[38;5;240;48;5;233m│\u001b[17;16H│\u001b[38;5;254;48;5;233m      \u001b[38;5;242;48;5;233mmanagement\u001b[38;5;254;48;5;233m                                                    \u001b[38;5;240;48;5;233m│\u001b[18;16H│\u001b[38;5;254;48;5;233m  \u001b[38;5;240;48;5;233m◆ \u001b[38;5;254;48;5;233mConfiguration                                                   \u001b[38;5;240;48;5;233m│\u001b[19;16H│\u001b[38;5;254;48;5;233m      \u001b[38;5;242;48;5;233mconfig.toml, pager.toml, environment variables, file\u001b[38;5;254;48;5;233m          \u001b[38;5;240;48;5;233m│\u001b[20;16H│\u001b[38;5;254;48;5;233m      \u001b[38;5;242;48;5;233mlocations\u001b[38;5;254;48;5;233m                                                     \u001b[38;5;240;48;5;233m│\u001b[21;16H│\u001b[38;5;254;48;5;233m  \u001b[38;5;240;48;5;233m◆ \u001b[38;5;254;48;5;233mTheming and Appearance                                          \u001b[38;5;240;48;5;233m│\u001b[22;16H│\u001b[38;5;254;48;5;233m      \u001b[38;5;242;48;5;233mThemes, color support, pag",
+          "bytesBase64": "ICAbWzM4OzU7MjQyOzQ4OzU7MjMzbUFsbCAvIGNvbW1hbmRzLCBpbmNsdWRpbmcgZ29hbHMsIHJlc2VhcmNoLCBhbmQgd29ya2Zsb3cbWzM4OzU7MjU0OzQ4OzU7MjMzbSAgICAgICAbWzM4OzU7MjQwOzQ4OzU7MjMzbeKUghtbMTc7MTZI4pSCG1szODs1OzI1NDs0ODs1OzIzM20gICAgICAbWzM4OzU7MjQyOzQ4OzU7MjMzbW1hbmFnZW1lbnQbWzM4OzU7MjU0OzQ4OzU7MjMzbSAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzM4OzU7MjQwOzQ4OzU7MjMzbeKUghtbMTg7MTZI4pSCG1szODs1OzI1NDs0ODs1OzIzM20gIBtbMzg7NTsyNDA7NDg7NTsyMzNt4peGIBtbMzg7NTsyNTQ7NDg7NTsyMzNtQ29uZmlndXJhdGlvbiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbMzg7NTsyNDA7NDg7NTsyMzNt4pSCG1sxOTsxNkjilIIbWzM4OzU7MjU0OzQ4OzU7MjMzbSAgICAgIBtbMzg7NTsyNDI7NDg7NTsyMzNtY29uZmlnLnRvbWwsIHBhZ2VyLnRvbWwsIGVudmlyb25tZW50IHZhcmlhYmxlcywgZmlsZRtbMzg7NTsyNTQ7NDg7NTsyMzNtICAgICAgICAgIBtbMzg7NTsyNDA7NDg7NTsyMzNt4pSCG1syMDsxNkjilIIbWzM4OzU7MjU0OzQ4OzU7MjMzbSAgICAgIBtbMzg7NTsyNDI7NDg7NTsyMzNtbG9jYXRpb25zG1szODs1OzI1NDs0ODs1OzIzM20gICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbMzg7NTsyNDA7NDg7NTsyMzNt4pSCG1syMTsxNkjilIIbWzM4OzU7MjU0OzQ4OzU7MjMzbSAgG1szODs1OzI0MDs0ODs1OzIzM23il4YgG1szODs1OzI1NDs0ODs1OzIzM21UaGVtaW5nIGFuZCBBcHBlYXJhbmNlICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgG1szODs1OzI0MDs0ODs1OzIzM23ilIIbWzIyOzE2SOKUghtbMzg7NTsyNTQ7NDg7NTsyMzNtICAgICAgG1szODs1OzI0Mjs0ODs1OzIzM21UaGVtZXMsIGNvbG9yIHN1cHBvcnQsIHBhZw=="
+        },
+        {
+          "ms": 4653.778083,
+          "output": "er.toml customization\u001b[38;5;254;48;5;233m               \u001b[38;5;240;48;5;233m│\u001b[23;16H│\u001b[38;5;254;48;5;233m  \u001b[38;5;240;48;5;233m◆ \u001b[38;5;254;48;5;233mMCP Servers                                                     \u001b[38;5;240;48;5;233m│\u001b[24;16H│\u001b[38;5;254;48;5;233m                                                                    \u001b[38;5;240;48;5;233m│\u001b[25;16H│\u001b[38;5;254;48;5;233m      \u001b[3m\u001b[38;5;240;48;5;233mTip · Ask Grok about the docs · ~/.grok/docs/user-guide\u001b[23m\u001b[38;5;254;48;5;233m       \u001b[38;5;240;48;5;233m│\u001b[26;16H│\u001b[38;5;254;48;5;233m                                                                    \u001b[38;5;240;48;5;233m│\u001b[27;16H│\u001b[38;5;254;48;5;233m               \u001b[1m\u001b[38;5;251;48;5;233m↑/↓\u001b[22m\u001b[38;5;242;48;5;233m nav\u001b[38;5;240;48;5;233m  |  \u001b[1m\u001b[38;5;251;48;5;233mEnter\u001b[22m\u001b[38;5;242;48;5;233m select\u001b[38;5;240;48;5;233m  |  \u001b[1m\u001b[38;5;251;48;5;233mEsc\u001b[22m\u001b[38;5;242;48;5;233m close\u001b[38;5;254;48;5;233m               \u001b[38;5;240;48;5;233m│\u001b[28;16H└──────",
+          "bytesBase64": "ZXIudG9tbCBjdXN0b21pemF0aW9uG1szODs1OzI1NDs0ODs1OzIzM20gICAgICAgICAgICAgICAbWzM4OzU7MjQwOzQ4OzU7MjMzbeKUghtbMjM7MTZI4pSCG1szODs1OzI1NDs0ODs1OzIzM20gIBtbMzg7NTsyNDA7NDg7NTsyMzNt4peGIBtbMzg7NTsyNTQ7NDg7NTsyMzNtTUNQIFNlcnZlcnMgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbMzg7NTsyNDA7NDg7NTsyMzNt4pSCG1syNDsxNkjilIIbWzM4OzU7MjU0OzQ4OzU7MjMzbSAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgG1szODs1OzI0MDs0ODs1OzIzM23ilIIbWzI1OzE2SOKUghtbMzg7NTsyNTQ7NDg7NTsyMzNtICAgICAgG1szbRtbMzg7NTsyNDA7NDg7NTsyMzNtVGlwIMK3IEFzayBHcm9rIGFib3V0IHRoZSBkb2NzIMK3IH4vLmdyb2svZG9jcy91c2VyLWd1aWRlG1syM20bWzM4OzU7MjU0OzQ4OzU7MjMzbSAgICAgICAbWzM4OzU7MjQwOzQ4OzU7MjMzbeKUghtbMjY7MTZI4pSCG1szODs1OzI1NDs0ODs1OzIzM20gICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbMzg7NTsyNDA7NDg7NTsyMzNt4pSCG1syNzsxNkjilIIbWzM4OzU7MjU0OzQ4OzU7MjMzbSAgICAgICAgICAgICAgIBtbMW0bWzM4OzU7MjUxOzQ4OzU7MjMzbeKGkS/ihpMbWzIybRtbMzg7NTsyNDI7NDg7NTsyMzNtIG5hdhtbMzg7NTsyNDA7NDg7NTsyMzNtICB8ICAbWzFtG1szODs1OzI1MTs0ODs1OzIzM21FbnRlchtbMjJtG1szODs1OzI0Mjs0ODs1OzIzM20gc2VsZWN0G1szODs1OzI0MDs0ODs1OzIzM20gIHwgIBtbMW0bWzM4OzU7MjUxOzQ4OzU7MjMzbUVzYxtbMjJtG1szODs1OzI0Mjs0ODs1OzIzM20gY2xvc2UbWzM4OzU7MjU0OzQ4OzU7MjMzbSAgICAgICAgICAgICAgIBtbMzg7NTsyNDA7NDg7NTsyMzNt4pSCG1syODsxNkjilJTilIDilIDilIDilIDilIDilIDilA=="
+        },
+        {
+          "ms": 4653.785375,
+          "output": "──────────────────────────────────────────────────────────────┘\u001b[31;3H\u001b[39;48;5;233m                                                                                                \u001b[39m\u001b[49m\u001b[59m\u001b[0m\u001b[?25l\u001b[?2026l",
+          "bytesBase64": "gOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUmBtbMzE7M0gbWzM5OzQ4OzU7MjMzbSAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbMzltG1s0OW0bWzU5bRtbMG0bWz8yNWwbWz8yMDI2bA=="
+        },
+        {
+          "ms": 4848.714458,
+          "action": "guides-dismiss",
+          "offset": 44676,
+          "inputHex": "1b",
+          "observedMs": 5152.657833,
+          "markerFound": null,
+          "endOffset": 46997
+        },
+        {
+          "ms": 5001.661542,
+          "output": "\u001b[?2026h\u001b[5;16H\u001b[39;48;5;233m                                                                      \u001b[6;16H                                                                      \u001b[7;16H                                                                      \u001b[8;16H                                                                      \u001b[9;16H                                                                      \u001b[10;16H                                                                      \u001b[11;16H                                                                      \u001b[12;16H                                                                      \u001b[13;16H                                                                      \u001b[14;16H                                                                      \u001b[15;16H                                                                      \u001b[16;16H                                                                      \u001b[17;16H                                                               ",
+          "bytesBase64": "G1s/MjAyNmgbWzU7MTZIG1szOTs0ODs1OzIzM20gICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgG1s2OzE2SCAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzc7MTZIICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbODsxNkggICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgG1s5OzE2SCAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzEwOzE2SCAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzExOzE2SCAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzEyOzE2SCAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzEzOzE2SCAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzE0OzE2SCAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzE1OzE2SCAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzE2OzE2SCAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzE3OzE2SCAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIA=="
+        },
+        {
+          "ms": 5001.725167,
+          "output": "       \u001b[18;16H                                                                      \u001b[19;16H                                                                      \u001b[20;16H                                                                      \u001b[21;16H                                                                      \u001b[22;16H                                                                      \u001b[23;16H                                                                      \u001b[24;16H                                                                      \u001b[25;16H                                                                      \u001b[26;16H                                                                      \u001b[27;16H\u001b[38;5;239;48;5;233m──────────────────────────────────────────────────────────────────────\u001b[28;16H\u001b[38;5;254;48;5;233m                                                 ",
+          "bytesBase64": "ICAgICAgIBtbMTg7MTZIICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbMTk7MTZIICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbMjA7MTZIICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbMjE7MTZIICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbMjI7MTZIICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbMjM7MTZIICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbMjQ7MTZIICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbMjU7MTZIICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbMjY7MTZIICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbMjc7MTZIG1szODs1OzIzOTs0ODs1OzIzM23ilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIAbWzI4OzE2SBtbMzg7NTsyNTQ7NDg7NTsyMzNtICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIA=="
+        },
+        {
+          "ms": 5001.734792,
+          "output": "                     \u001b[31;3H\u001b[1m\u001b[38;5;251;48;5;233mShift+Tab\u001b[22m\u001b[38;5;242;48;5;233m:mode\u001b[2m  │  \u001b[22m\u001b[1m\u001b[38;5;251;48;5;233mCtrl+x\u001b[22m\u001b[38;5;242;48;5;233m:shortcuts                                                             \u001b[39m\u001b[49m\u001b[59m\u001b[0m\u001b[28;7H\u001b[?25h\u001b[?2026l",
+          "bytesBase64": "ICAgICAgICAgICAgICAgICAgICAgG1szMTszSBtbMW0bWzM4OzU7MjUxOzQ4OzU7MjMzbVNoaWZ0K1RhYhtbMjJtG1szODs1OzI0Mjs0ODs1OzIzM206bW9kZRtbMm0gIOKUgiAgG1syMm0bWzFtG1szODs1OzI1MTs0ODs1OzIzM21DdHJsK3gbWzIybRtbMzg7NTsyNDI7NDg7NTsyMzNtOnNob3J0Y3V0cyAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzM5bRtbNDltG1s1OW0bWzBtG1syODs3SBtbPzI1aBtbPzIwMjZs"
+        },
+        {
+          "ms": 5317.737083,
+          "action": "docs-invalid",
+          "offset": 46997,
+          "inputHex": "2f646f6373205245464552454e43455f4e4f5f535543485f47554944450d",
+          "observedMs": 5364.123542,
+          "markerFound": true,
+          "endOffset": 47185
+        },
+        {
+          "ms": 5321.941292,
+          "output": "\u001b[?2026h\u001b[4;6H\u001b[38;5;242;48;5;233mUnknown docs target \"REFERENCE_NO_SUCH_GUIDE\". Try /docs, /docs web, or a guide title\u001b[5;6H(e.g. /docs Getting Started).\u001b[39m\u001b[49m\u001b[59m\u001b[0m\u001b[28;7H\u001b[?2026l",
+          "bytesBase64": "G1s/MjAyNmgbWzQ7NkgbWzM4OzU7MjQyOzQ4OzU7MjMzbVVua25vd24gZG9jcyB0YXJnZXQgIlJFRkVSRU5DRV9OT19TVUNIX0dVSURFIi4gVHJ5IC9kb2NzLCAvZG9jcyB3ZWIsIG9yIGEgZ3VpZGUgdGl0bGUbWzU7NkgoZS5nLiAvZG9jcyBHZXR0aW5nIFN0YXJ0ZWQpLhtbMzltG1s0OW0bWzU5bRtbMG0bWzI4OzdIG1s/MjAyNmw="
+        },
+        {
+          "ms": 5526.894375,
+          "action": "debug-open",
+          "offset": 47185,
+          "inputHex": "2f6465627567206670730d",
+          "observedMs": 5565.893792,
+          "markerFound": true,
+          "endOffset": 47338
+        },
+        {
+          "ms": 5530.8525,
+          "output": "\u001b[?2026h\u001b[1;69H\u001b[38;5;3;48;5;0mfps debug  (/debug fps)         \u001b[2;69H\u001b[38;5;15;48;5;0mfps:- p50:- p95:-               \u001b[39m\u001b[49m\u001b[59m\u001b[0m\u001b[28;7H\u001b[?2026l",
+          "bytesBase64": "G1s/MjAyNmgbWzE7NjlIG1szODs1OzM7NDg7NTswbWZwcyBkZWJ1ZyAgKC9kZWJ1ZyBmcHMpICAgICAgICAgG1syOzY5SBtbMzg7NTsxNTs0ODs1OzBtZnBzOi0gcDUwOi0gcDk1Oi0gICAgICAgICAgICAgICAbWzM5bRtbNDltG1s1OW0bWzBtG1syODs3SBtbPzIwMjZs"
+        },
+        {
+          "ms": 5722.555875,
+          "action": "debug-off",
+          "offset": 47338,
+          "inputHex": "2f6465627567206670730d",
+          "observedMs": 6037.220542,
+          "markerFound": null,
+          "endOffset": 47548
+        },
+        {
+          "ms": 5726.803917,
+          "output": "\u001b[?2026h\u001b[1;69H\u001b[39;48;5;233m                                \u001b[2;69H     \u001b[38;5;254;48;5;233m1.5K / 128K\u001b[38;5;238;48;5;233m │ \u001b[38;5;242;48;5;233m[Dashboard]\u001b[39;48;5;233m  \u001b[39m\u001b[49m\u001b[59m\u001b[0m\u001b[28;7H\u001b[?2026l",
+          "bytesBase64": "G1s/MjAyNmgbWzE7NjlIG1szOTs0ODs1OzIzM20gICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbMjs2OUggICAgIBtbMzg7NTsyNTQ7NDg7NTsyMzNtMS41SyAvIDEyOEsbWzM4OzU7MjM4OzQ4OzU7MjMzbSDilIIgG1szODs1OzI0Mjs0ODs1OzIzM21bRGFzaGJvYXJkXRtbMzk7NDg7NTsyMzNtICAbWzM5bRtbNDltG1s1OW0bWzBtG1syODs3SBtbPzIwMjZs"
+        },
+        {
+          "ms": 6191.687792,
+          "action": "debug-invalid",
+          "offset": 47548,
+          "inputHex": "2f6465627567205245464552454e43455f494e56414c49440d",
+          "observedMs": 6236.488333,
+          "markerFound": true,
+          "endOffset": 48011
+        },
+        {
+          "ms": 6195.53725,
+          "output": "\u001b[?2026h\u001b[4;14H\u001b[38;5;242;48;5;233m/debug option 'R\u001b[4;31HF\u001b[4;33HRENCE_INVALID'. Usage: /debug [scroll|fps|log]\u001b[39;48;5;233m            \u001b[5;6H                             \u001b[6;100H\u001b[38;5;234;48;5;234m█\u001b[7;100H█\u001b[8;100H█\u001b[9;100H█\u001b[10;100H█\u001b[11;100H█\u001b[12;100H█\u001b[13;100H█\u001b[14;100H█\u001b[15;100H█\u001b[16;100H█\u001b[17;100H█\u001b[18;100H█\u001b[19;100H█\u001b[20;100H█\u001b[21;100H█\u001b[22;100H█\u001b[23;100H█\u001b[24;100H█\u001b[25;100H█\u001b[39m\u001b[49m\u001b[59m\u001b[0m\u001b[28;7H\u001b[?2026l",
+          "bytesBase64": "G1s/MjAyNmgbWzQ7MTRIG1szODs1OzI0Mjs0ODs1OzIzM20vZGVidWcgb3B0aW9uICdSG1s0OzMxSEYbWzQ7MzNIUkVOQ0VfSU5WQUxJRCcuIFVzYWdlOiAvZGVidWcgW3Njcm9sbHxmcHN8bG9nXRtbMzk7NDg7NTsyMzNtICAgICAgICAgICAgG1s1OzZIICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzY7MTAwSBtbMzg7NTsyMzQ7NDg7NTsyMzRt4paIG1s3OzEwMEjilogbWzg7MTAwSOKWiBtbOTsxMDBI4paIG1sxMDsxMDBI4paIG1sxMTsxMDBI4paIG1sxMjsxMDBI4paIG1sxMzsxMDBI4paIG1sxNDsxMDBI4paIG1sxNTsxMDBI4paIG1sxNjsxMDBI4paIG1sxNzsxMDBI4paIG1sxODsxMDBI4paIG1sxOTsxMDBI4paIG1syMDsxMDBI4paIG1syMTsxMDBI4paIG1syMjsxMDBI4paIG1syMzsxMDBI4paIG1syNDsxMDBI4paIG1syNTsxMDBI4paIG1szOW0bWzQ5bRtbNTltG1swbRtbMjg7N0gbWz8yMDI2bA=="
+        },
+        {
+          "ms": 6394.14025,
+          "action": "after-ui-draft",
+          "offset": 48011,
+          "inputHex": "41465445525f55495f50524f4245",
+          "observedMs": 6437.959667,
+          "markerFound": true,
+          "endOffset": 48410
+        },
+        {
+          "ms": 6397.463708,
+          "output": "\u001b[?2026h\u001b[28;7H\u001b[38;5;254;48;5;233mAFTER_UI_PROBE\u001b[31;3H\u001b[1m\u001b[38;5;251;48;5;233mEnter\u001b[22m\u001b[38;5;242;48;5;233m:send\u001b[2m  │ \u001b[31;18H\u001b[22m\u001b[1m\u001b[38;5;251;48;5;233mOpt+Enter\u001b[22m\u001b[38;5;242;48;5;233m:newline\u001b[2m  │  \u001b[22m\u001b[1m\u001b[38;5;251;48;5;233mShift+Tab\u001b[22m\u001b[38;5;242;48;5;233m:mode\u001b[2m  │  \u001b[22m\u001b[1m\u001b[38;5;251;48;5;233mCtrl+x\u001b[22m\u001b[38;5;242;48;5;233m:shortcuts\u001b[39m\u001b[49m\u001b[59m\u001b[0m\u001b[28;21H\u001b[?2026l",
+          "bytesBase64": "G1s/MjAyNmgbWzI4OzdIG1szODs1OzI1NDs0ODs1OzIzM21BRlRFUl9VSV9QUk9CRRtbMzE7M0gbWzFtG1szODs1OzI1MTs0ODs1OzIzM21FbnRlchtbMjJtG1szODs1OzI0Mjs0ODs1OzIzM206c2VuZBtbMm0gIOKUgiAbWzMxOzE4SBtbMjJtG1sxbRtbMzg7NTsyNTE7NDg7NTsyMzNtT3B0K0VudGVyG1syMm0bWzM4OzU7MjQyOzQ4OzU7MjMzbTpuZXdsaW5lG1sybSAg4pSCICAbWzIybRtbMW0bWzM4OzU7MjUxOzQ4OzU7MjMzbVNoaWZ0K1RhYhtbMjJtG1szODs1OzI0Mjs0ODs1OzIzM206bW9kZRtbMm0gIOKUgiAgG1syMm0bWzFtG1szODs1OzI1MTs0ODs1OzIzM21DdHJsK3gbWzIybRtbMzg7NTsyNDI7NDg7NTsyMzNtOnNob3J0Y3V0cxtbMzltG1s0OW0bWzU5bRtbMG0bWzI4OzIxSBtbPzIwMjZs"
+        },
+        {
+          "ms": 6598.148875,
+          "action": "after-ui-clear",
+          "offset": 48410,
+          "inputHex": "03",
+          "observedMs": 6901.436125,
+          "markerFound": null,
+          "endOffset": 48688
+        },
+        {
+          "ms": 6598.484333,
+          "output": "\u001b[?2026h\u001b[28;7H\u001b[38;5;254;48;5;233m              \u001b[31;3H\u001b[1m\u001b[38;5;251;48;5;233mShift+Tab\u001b[22m\u001b[38;5;242;48;5;233m:mode\u001b[31;18H\u001b[2m │  \u001b[22m\u001b[1m\u001b[38;5;251;48;5;233mCtrl+x\u001b[22m\u001b[38;5;242;48;5;233m:shortcuts                                     \u001b[39m\u001b[49m\u001b[59m\u001b[0m\u001b[28;7H\u001b[?2026l",
+          "bytesBase64": "G1s/MjAyNmgbWzI4OzdIG1szODs1OzI1NDs0ODs1OzIzM20gICAgICAgICAgICAgIBtbMzE7M0gbWzFtG1szODs1OzI1MTs0ODs1OzIzM21TaGlmdCtUYWIbWzIybRtbMzg7NTsyNDI7NDg7NTsyMzNtOm1vZGUbWzMxOzE4SBtbMm0g4pSCICAbWzIybRtbMW0bWzM4OzU7MjUxOzQ4OzU7MjMzbUN0cmwreBtbMjJtG1szODs1OzI0Mjs0ODs1OzIzM206c2hvcnRjdXRzICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbMzltG1s0OW0bWzU5bRtbMG0bWzI4OzdIG1s/MjAyNmw="
+        },
+        {
+          "ms": 7064.602792,
+          "action": "quit",
+          "offset": 48688,
+          "inputHex": "2f717569740d",
+          "observedMs": 7137.910042,
+          "markerFound": null,
+          "endOffset": 48878
+        },
+        {
+          "ms": 7068.643333,
+          "output": "\u001b]0;grok\u0007",
+          "bytesBase64": "G10wO2dyb2sH"
+        },
+        {
+          "ms": 7069.050708,
+          "output": "\u001b[2J",
+          "bytesBase64": "G1sySg=="
+        },
+        {
+          "ms": 7070.568333,
+          "output": "\u001b]9;4;0;0\u0007\u001b[?2026l\u001b]112\u0007\u001b[?1000l\u001b[?1002l\u001b[?1003l\u001b[?1015l\u001b[?1006l\u001b[?2004l",
+          "bytesBase64": "G105OzQ7MDswBxtbPzIwMjZsG10xMTIHG1s/MTAwMGwbWz8xMDAybBtbPzEwMDNsG1s/MTAxNWwbWz8xMDA2bBtbPzIwMDRs"
+        },
+        {
+          "ms": 7070.577333,
+          "output": "\u001b[?1004l\u001b[?25h\u001b[?1049l",
+          "bytesBase64": "G1s/MTAwNGwbWz8yNWgbWz8xMDQ5bA=="
+        },
+        {
+          "ms": 7134.935875,
+          "output": "\r\nResume this session with:\r\n  grok --resume 01a0bb2f-82d8-7263-9aa8-5f49f8137ed9\r\n",
+          "bytesBase64": "DQpSZXN1bWUgdGhpcyBzZXNzaW9uIHdpdGg6DQogIGdyb2sgLS1yZXN1bWUgMDFhMGJiMmYtODJkOC03MjYzLTlhYTgtNWY0OWY4MTM3ZWQ5DQo="
+        }
+      ],
+      "firstFrameMs": 284.734875,
+      "rss": [
+        {
+          "action": "draft",
+          "ms": 485.407333,
+          "rssKiB": 98592
+        },
+        {
+          "action": "clear-draft",
+          "ms": 954.371292,
+          "rssKiB": 98560
+        },
+        {
+          "action": "help-open",
+          "ms": 1147.598625,
+          "rssKiB": 99200
+        },
+        {
+          "action": "help-filter",
+          "ms": 1338.966792,
+          "rssKiB": 99232
+        },
+        {
+          "action": "help-dismiss",
+          "ms": 1801.823083,
+          "rssKiB": 99232
+        },
+        {
+          "action": "help-close",
+          "ms": 2269.286542,
+          "rssKiB": 99264
+        },
+        {
+          "action": "docs-open",
+          "ms": 2470.467542,
+          "rssKiB": 99376
+        },
+        {
+          "action": "docs-select",
+          "ms": 2691.010708,
+          "rssKiB": 117616
+        },
+        {
+          "action": "docs-scroll",
+          "ms": 2891.888583,
+          "rssKiB": 117632
+        },
+        {
+          "action": "docs-reader-dismiss",
+          "ms": 3359.578667,
+          "rssKiB": 117632
+        },
+        {
+          "action": "docs-close",
+          "ms": 3830.133167,
+          "rssKiB": 117648
+        },
+        {
+          "action": "howto-open",
+          "ms": 4033.157583,
+          "rssKiB": 117232
+        },
+        {
+          "action": "howto-dismiss",
+          "ms": 4494.005667,
+          "rssKiB": 117232
+        },
+        {
+          "action": "guides-open",
+          "ms": 4695.98475,
+          "rssKiB": 117232
+        },
+        {
+          "action": "guides-dismiss",
+          "ms": 5160.406042,
+          "rssKiB": 117184
+        },
+        {
+          "action": "docs-invalid",
+          "ms": 5368.2675,
+          "rssKiB": 117696
+        },
+        {
+          "action": "debug-open",
+          "ms": 5569.441875,
+          "rssKiB": 117696
+        },
+        {
+          "action": "debug-off",
+          "ms": 6041.48325,
+          "rssKiB": 117648
+        },
+        {
+          "action": "debug-invalid",
+          "ms": 6240.274458,
+          "rssKiB": 117648
+        },
+        {
+          "action": "after-ui-draft",
+          "ms": 6443.717917,
+          "rssKiB": 117648
+        },
+        {
+          "action": "after-ui-clear",
+          "ms": 6905.102958,
+          "rssKiB": 117664
+        },
+        {
+          "action": "quit",
+          "ms": 7141.528292,
+          "rssKiB": 0
+        }
+      ],
+      "exit": 0,
+      "forcedCleanup": false,
+      "restoredAlternateScreen": true,
+      "outputBytes": 48878,
+      "outputSha256": "b0ddec3782f4bbf5ca9bdca427c1cfe019e4feb5fb0dd8c62cd695dd00d19d39"
+    },
+    {
+      "mode": "minimal",
+      "environment": {},
+      "initialSize": [
+        32,
+        100
+      ],
+      "events": [
+        {
+          "ms": 23.460916,
+          "output": "\u001b]0;grok\u0007\u001b[?1004h\u001b[?2004h\u001b[?25l",
+          "bytesBase64": "G10wO2dyb2sHG1s/MTAwNGgbWz8yMDA0aBtbPzI1bA=="
+        },
+        {
+          "ms": 45.501541,
+          "output": "\u001b[6n",
+          "bytesBase64": "G1s2bg=="
+        },
+        {
+          "ms": 45.52025,
+          "replyHex": "1b5b313b3152"
+        },
+        {
+          "ms": 45.572416,
+          "output": "\n\n\n\n\n\n\n\n\n",
+          "bytesBase64": "CgoKCgoKCgoK"
+        },
+        {
+          "ms": 286.244041,
+          "output": "\u001b[>0q",
+          "bytesBase64": "G1s+MHE="
+        },
+        {
+          "ms": 286.651791,
+          "output": "\u001b[?2026h\u001b[?2026h\u001b[1;1H\u001b[2mSigning in… starting your session.\u001b[39m\u001b[49m\u001b[59m\u001b[0m\u001b[?2026l",
+          "bytesBase64": "G1s/MjAyNmgbWz8yMDI2aBtbMTsxSBtbMm1TaWduaW5nIGlu4oCmIHN0YXJ0aW5nIHlvdXIgc2Vzc2lvbi4bWzM5bRtbNDltG1s1OW0bWzBtG1s/MjAyNmw="
+        },
+        {
+          "ms": 287.0435,
+          "output": "\u001b[?2026h\u001b[1;1H\u001b[J",
+          "bytesBase64": "G1s/MjAyNmgbWzE7MUgbW0o="
+        },
+        {
+          "ms": 287.093875,
+          "output": "\u001b[1;1H╭──────────────────────────────────────────────────────────────────────────────────────────────────╮\u001b[2;1H│                                                                                                  │\u001b[3;1H│                                            ⠀⠀⠀⣀⣤⣤⣀⠀⠀⡠                                            │\u001b[4;1H│                                            ⠀⢀⡾⠋⠁⠀⢁⢴⡎⠀                                            │\u001b[5;1H│                                            ⠀⢸⡇⠀⠀⠐⠁⢀⣿⠀                                            │\u001b[6;1H│                                            ⠀⢈⠗⢀⣀⣀⣠⡾⠃⠀                                            │\u001b[7;1H│                                            ⠐⠁⠀⠈⠉⠉⠉⠀⠀⠀     ",
+          "bytesBase64": "G1sxOzFI4pWt4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pWuG1syOzFI4pSCICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICDilIIbWzM7MUjilIIgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIOKggOKggOKggOKjgOKjpOKjpOKjgOKggOKggOKhoCAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAg4pSCG1s0OzFI4pSCICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICDioIDiooDiob7ioIvioIHioIDiooHiorTioY7ioIAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIOKUghtbNTsxSOKUgiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAg4qCA4qK44qGH4qCA4qCA4qCQ4qCB4qKA4qO/4qCAICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICDilIIbWzY7MUjilIIgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIOKggOKiiOKgl+KigOKjgOKjgOKjoOKhvuKgg+KggCAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAg4pSCG1s3OzFI4pSCICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICDioJDioIHioIDioIjioInioInioInioIDioIDioIAgICAgIA=="
+        },
+        {
+          "ms": 287.111958,
+          "output": "                                       │\u001b[8;1H│                                                                                                  │\u001b[9;1H│ \u001b[1mGrok Build\u001b[22m\u001b[2m\u001b[2m  v1.0.34\u001b[22m                                                                              │\u001b[10;1H│ \u001b[2m<ROOT>/workspace\u001b[22m  │\u001b[11;1H│ \u001b[2mModel · reference-fixture\u001b[22m                                                                        │\u001b[12;1H│ \u001b[2m/help for commands\u001b[22m                                                                               │\u001b[13;1H│                                                                                                  │\u001b[14;1H╰──────────────────────────────────────────────────────────────────────────────────────",
+          "bytesBase64": "ICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAg4pSCG1s4OzFI4pSCICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICDilIIbWzk7MUjilIIgG1sxbUdyb2sgQnVpbGQbWzIybRtbMm0bWzJtICB2MS4wLjM0G1syMm0gICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICDilIIbWzEwOzFI4pSCIBtbMm0vcHJpdmF0ZS92YXIvZm9sZGVycy9zNi83dDFocl90NTU0bDRucWtmeGtwZzhxMncwMDAwZ24vVC9jb2RzaC1yZWZlcmVuY2UtMTMzLWU0NGYwc3pzL3dvcmtzcGFjZRtbMjJtICDilIIbWzExOzFI4pSCIBtbMm1Nb2RlbCDCtyByZWZlcmVuY2UtZml4dHVyZRtbMjJtICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAg4pSCG1sxMjsxSOKUgiAbWzJtL2hlbHAgZm9yIGNvbW1hbmRzG1syMm0gICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAg4pSCG1sxMzsxSOKUgiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAg4pSCG1sxNDsxSOKVsOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgA=="
+        },
+        {
+          "ms": 287.125291,
+          "output": "────────────╯\u001b[39m\u001b[49m\u001b[59m\u001b[0m\u001b[15;1H\u001b[J",
+          "bytesBase64": "4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pWvG1szOW0bWzQ5bRtbNTltG1swbRtbMTU7MUgbW0o="
+        },
+        {
+          "ms": 287.130875,
+          "output": "\u001b[15;1H\u001b[J\u001b[15;1H\u001b[J",
+          "bytesBase64": "G1sxNTsxSBtbShtbMTU7MUgbW0o="
+        },
+        {
+          "ms": 287.203,
+          "output": "\u001b[?2026h\u001b[15;1H⠋\u001b[15;3HStarting\u001b[15;12Hsession…\u001b[15;21H0.0s\u001b[16;1H❯\u001b[17;1Hreference-fixture\u001b[2m · \u001b[22mctrl+o\u001b[17;28Htranscript\u001b[39m\u001b[49m\u001b[59m\u001b[0m\u001b[16;3H\u001b[?25h\u001b[?2026l",
+          "bytesBase64": "G1s/MjAyNmgbWzE1OzFI4qCLG1sxNTszSFN0YXJ0aW5nG1sxNTsxMkhzZXNzaW9u4oCmG1sxNTsyMUgwLjBzG1sxNjsxSOKdrxtbMTc7MUhyZWZlcmVuY2UtZml4dHVyZRtbMm0gwrcgG1syMm1jdHJsK28bWzE3OzI4SHRyYW5zY3JpcHQbWzM5bRtbNDltG1s1OW0bWzBtG1sxNjszSBtbPzI1aBtbPzIwMjZs"
+        },
+        {
+          "ms": 349.309791,
+          "output": "\u001b[?2026h\u001b[?2026h\u001b[15;1H\u001b[2mminimal · /help                                                                                     \u001b[39m\u001b[49m\u001b[59m\u001b[0m\u001b[16;3H\u001b[?2026l",
+          "bytesBase64": "G1s/MjAyNmgbWz8yMDI2aBtbMTU7MUgbWzJtbWluaW1hbCDCtyAvaGVscCAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzM5bRtbNDltG1s1OW0bWzBtG1sxNjszSBtbPzIwMjZs"
+        },
+        {
+          "ms": 357.040666,
+          "output": "\u001b[?2026h\u001b[?2026h\u001b[17;21H1.5K /\u001b[17;28H128K (1%)\u001b[2m · \u001b[22mctrl+o\u001b[17;47Htranscript\u001b[39m\u001b[49m\u001b[59m\u001b[0m\u001b[16;3H\u001b[?2026l",
+          "bytesBase64": "G1s/MjAyNmgbWz8yMDI2aBtbMTc7MjFIMS41SyAvG1sxNzsyOEgxMjhLICgxJSkbWzJtIMK3IBtbMjJtY3RybCtvG1sxNzs0N0h0cmFuc2NyaXB0G1szOW0bWzQ5bRtbNTltG1swbRtbMTY7M0gbWz8yMDI2bA=="
+        },
+        {
+          "ms": 447.447875,
+          "action": "draft",
+          "offset": 2745,
+          "inputHex": "5245464552454e4345313333",
+          "observedMs": 484.94175,
+          "markerFound": true,
+          "endOffset": 2815
+        },
+        {
+          "ms": 451.270625,
+          "output": "\u001b[?2026h\u001b[?2026h\u001b[16;3HREFERENCE133\u001b[39m\u001b[49m\u001b[59m\u001b[0m\u001b[16;15H\u001b[?2026l",
+          "bytesBase64": "G1s/MjAyNmgbWz8yMDI2aBtbMTY7M0hSRUZFUkVOQ0UxMzMbWzM5bRtbNDltG1s1OW0bWzBtG1sxNjsxNUgbWz8yMDI2bA=="
+        },
+        {
+          "ms": 640.488958,
+          "action": "clear-draft",
+          "offset": 2815,
+          "inputHex": "03",
+          "observedMs": 941.632416,
+          "markerFound": null,
+          "endOffset": 2884
+        },
+        {
+          "ms": 640.626833,
+          "output": "\u001b[?2026h\u001b[?2026h\u001b[16;3H            \u001b[39m\u001b[49m\u001b[59m\u001b[0m\u001b[16;3H\u001b[?2026l",
+          "bytesBase64": "G1s/MjAyNmgbWz8yMDI2aBtbMTY7M0ggICAgICAgICAgICAbWzM5bRtbNDltG1s1OW0bWzBtG1sxNjszSBtbPzIwMjZs"
+        },
+        {
+          "ms": 1106.372708,
+          "action": "help-open",
+          "offset": 2884,
+          "inputHex": "2f68656c700d",
+          "observedMs": 1150.762125,
+          "markerFound": true,
+          "endOffset": 4559
+        },
+        {
+          "ms": 1110.620333,
+          "output": "\u001b[?2026h\u001b[15;1H\u001b[J",
+          "bytesBase64": "G1s/MjAyNmgbWzE1OzFIG1tK"
+        },
+        {
+          "ms": 1110.653583,
+          "output": "\u001b[15;1H\u001b[J",
+          "bytesBase64": "G1sxNTsxSBtbSg=="
+        },
+        {
+          "ms": 1110.765916,
+          "output": "\u001b[?2026h\u001b[15;3H\u001b[1mCommands\u001b[17;4H\u001b[22msearch:\u001b[17;12H\u001b[7m \u001b[18;1H\u001b[27m────────────────────────────────────────────────────────────────────────────────────────────────────\u001b[19;3H\u001b[1m Session \u001b[22m──────────────────────────────────────────────────────────────────────────────────────\u001b[20;3H◆\u001b[20;5HNew\u001b[20;9HSession\u001b[20;91HCtrl+N\u001b[21;3H◆\u001b[21;5HNew\u001b[21;9HSession\u001b[21;17Hin\u001b[21;20HWorktree\u001b[21;80HCtrl+P\u001b[21;87H→\u001b[21;89Hworktree\u001b[22;3H◆\u001b[22;5HBack\u001b[22;10Hto\u001b[22;13HHome\u001b[22;92H/home\u001b[23;3H◆\u001b[23;5HDelete\u001b[23;12HThis\u001b[23;17HSession\u001b[23;90H/delete\u001b[24;3H◆\u001b[24;5HResume\u001b[24;12HSession\u001b[24;90H/resume\u001b[25;3H◆\u001b[25;5HRename\u001b[25;12HSession\u001b[25;89H/",
+          "bytesBase64": "G1s/MjAyNmgbWzE1OzNIG1sxbUNvbW1hbmRzG1sxNzs0SBtbMjJtc2VhcmNoOhtbMTc7MTJIG1s3bSAbWzE4OzFIG1syN23ilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIAbWzE5OzNIG1sxbSBTZXNzaW9uIBtbMjJt4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSAG1syMDszSOKXhhtbMjA7NUhOZXcbWzIwOzlIU2Vzc2lvbhtbMjA7OTFIQ3RybCtOG1syMTszSOKXhhtbMjE7NUhOZXcbWzIxOzlIU2Vzc2lvbhtbMjE7MTdIaW4bWzIxOzIwSFdvcmt0cmVlG1syMTs4MEhDdHJsK1AbWzIxOzg3SOKGkhtbMjE7ODlId29ya3RyZWUbWzIyOzNI4peGG1syMjs1SEJhY2sbWzIyOzEwSHRvG1syMjsxM0hIb21lG1syMjs5MkgvaG9tZRtbMjM7M0jil4YbWzIzOzVIRGVsZXRlG1syMzsxMkhUaGlzG1syMzsxN0hTZXNzaW9uG1syMzs5MEgvZGVsZXRlG1syNDszSOKXhhtbMjQ7NUhSZXN1bWUbWzI0OzEySFNlc3Npb24bWzI0OzkwSC9yZXN1bWUbWzI1OzNI4peGG1syNTs1SFJlbmFtZRtbMjU7MTJIU2Vzc2lvbhtbMjU7ODlILw=="
+        },
+        {
+          "ms": 1110.786375,
+          "output": "rename\u001b[26;3H◆\u001b[26;5HSession\u001b[26;13HInfo\u001b[26;84H/session-info\u001b[27;3H◆\u001b[27;5HSend\u001b[27;10HFeedback\u001b[27;88H/feedback\u001b[29;3H\u001b[1m Context \u001b[22m──────────────────────────────────────────────────────────────────────────────────────\u001b[30;3H◆\u001b[30;5HCompact\u001b[30;13HHistory\u001b[30;89H/compact\u001b[32;32H\u001b[1m↑/↓\u001b[22m\u001b[2m\u001b[2m nav\u001b[32;41H\u001b[22m|\u001b[32;44H\u001b[1mEnter\u001b[22m\u001b[2m\u001b[2m select\u001b[32;58H\u001b[22m|\u001b[32;61H\u001b[1mEsc\u001b[22m\u001b[2m\u001b[2m close\u001b[39m\u001b[49m\u001b[59m\u001b[0m\u001b[?25l\u001b[?2026l",
+          "bytesBase64": "cmVuYW1lG1syNjszSOKXhhtbMjY7NUhTZXNzaW9uG1syNjsxM0hJbmZvG1syNjs4NEgvc2Vzc2lvbi1pbmZvG1syNzszSOKXhhtbMjc7NUhTZW5kG1syNzsxMEhGZWVkYmFjaxtbMjc7ODhIL2ZlZWRiYWNrG1syOTszSBtbMW0gQ29udGV4dCAbWzIybeKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgBtbMzA7M0jil4YbWzMwOzVIQ29tcGFjdBtbMzA7MTNISGlzdG9yeRtbMzA7ODlIL2NvbXBhY3QbWzMyOzMySBtbMW3ihpEv4oaTG1syMm0bWzJtG1sybSBuYXYbWzMyOzQxSBtbMjJtfBtbMzI7NDRIG1sxbUVudGVyG1syMm0bWzJtG1sybSBzZWxlY3QbWzMyOzU4SBtbMjJtfBtbMzI7NjFIG1sxbUVzYxtbMjJtG1sybRtbMm0gY2xvc2UbWzM5bRtbNDltG1s1OW0bWzBtG1s/MjVsG1s/MjAyNmw="
+        },
+        {
+          "ms": 1307.835083,
+          "action": "help-filter",
+          "offset": 4559,
+          "inputHex": "486f772d746f",
+          "observedMs": 1348.654541,
+          "markerFound": true,
+          "endOffset": 5284
+        },
+        {
+          "ms": 1311.754958,
+          "output": "\u001b[?2026h\u001b[?2026h\u001b[17;12HHow-to\u001b[7m \u001b[19;4H\u001b[27m\u001b[1mOther \u001b[22m──\u001b[19;98H─\u001b[20;5HHo\u001b[20;8H-to Guides\u001b[20;91H  /docs\u001b[21;3H \u001b[21;5H   \u001b[21;9H       \u001b[21;17H  \u001b[21;20H        \u001b[21;80H      \u001b[21;87H \u001b[21;89H        \u001b[22;3H \u001b[22;5H    \u001b[22;10H  \u001b[22;13H    \u001b[22;92H     \u001b[23;3H \u001b[23;5H      \u001b[23;12H    \u001b[23;17H       \u001b[23;90H       \u001b[24;3H \u001b[24;5H      \u001b[24;12H       \u001b[24;90H       \u001b[25;3H \u001b[25;5H      \u001b[25;12H       \u001b[25;89H       \u001b[26;3H \u001b[26;5H       \u001b[26;13H    \u001b[26;84H             \u001b[27;3H \u001b[27;5H    \u001b[27;10H        \u001b[27;88H         \u001b[29;3H                                                                                               \u001b[30;3H \u001b[30;5H       \u001b[30;13H       \u001b[30;89H        \u001b[39m\u001b[49m\u001b[59m\u001b[0m\u001b[?2026l",
+          "bytesBase64": "G1s/MjAyNmgbWz8yMDI2aBtbMTc7MTJISG93LXRvG1s3bSAbWzE5OzRIG1syN20bWzFtT3RoZXIgG1syMm3ilIDilIAbWzE5Ozk4SOKUgBtbMjA7NUhIbxtbMjA7OEgtdG8gR3VpZGVzG1syMDs5MUggIC9kb2NzG1syMTszSCAbWzIxOzVIICAgG1syMTs5SCAgICAgICAbWzIxOzE3SCAgG1syMTsyMEggICAgICAgIBtbMjE7ODBIICAgICAgG1syMTs4N0ggG1syMTs4OUggICAgICAgIBtbMjI7M0ggG1syMjs1SCAgICAbWzIyOzEwSCAgG1syMjsxM0ggICAgG1syMjs5MkggICAgIBtbMjM7M0ggG1syMzs1SCAgICAgIBtbMjM7MTJIICAgIBtbMjM7MTdIICAgICAgIBtbMjM7OTBIICAgICAgIBtbMjQ7M0ggG1syNDs1SCAgICAgIBtbMjQ7MTJIICAgICAgIBtbMjQ7OTBIICAgICAgIBtbMjU7M0ggG1syNTs1SCAgICAgIBtbMjU7MTJIICAgICAgIBtbMjU7ODlIICAgICAgIBtbMjY7M0ggG1syNjs1SCAgICAgICAbWzI2OzEzSCAgICAbWzI2Ozg0SCAgICAgICAgICAgICAbWzI3OzNIIBtbMjc7NUggICAgG1syNzsxMEggICAgICAgIBtbMjc7ODhIICAgICAgICAgG1syOTszSCAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgG1szMDszSCAbWzMwOzVIICAgICAgIBtbMzA7MTNIICAgICAgIBtbMzA7ODlIICAgICAgICAbWzM5bRtbNDltG1s1OW0bWzBtG1s/MjAyNmw="
+        },
+        {
+          "ms": 1509.500333,
+          "action": "help-dismiss",
+          "offset": 5284,
+          "inputHex": "1b",
+          "observedMs": 1821.361541,
+          "markerFound": null,
+          "endOffset": 6202
+        },
+        {
+          "ms": 1663.27225,
+          "output": "\u001b[?2026h\u001b[?2026h\u001b[17;12H\u001b[7m \u001b[27m      \u001b[19;4H\u001b[1mSession \u001b[19;98H\u001b[22m \u001b[20;5HNe\u001b[20;8H Session  \u001b[20;91HCtrl+N \u001b[21;3H◆\u001b[21;5HNew\u001b[21;9HSession\u001b[21;17Hin\u001b[21;20HWorktree\u001b[21;80HCtrl+P\u001b[21;87H→\u001b[21;89Hworktree\u001b[22;3H◆\u001b[22;5HBack\u001b[22;10Hto\u001b[22;13HHome\u001b[22;92H/home\u001b[23;3H◆\u001b[23;5HDelete\u001b[23;12HThis\u001b[23;17HSession\u001b[23;90H/delete\u001b[24;3H◆\u001b[24;5HResume\u001b[24;12HSession\u001b[24;90H/resume\u001b[25;3H◆\u001b[25;5HRename\u001b[25;12HSession\u001b[25;89H/rename\u001b[26;3H◆\u001b[26;5HSession\u001b[26;13HInfo\u001b[26;84H/session-info\u001b[27;3H◆\u001b[27;5HSend\u001b[27;10HFeedback\u001b[27;88H/feedback\u001b[29;3H\u001b[1m Context \u001b[22m──────────────────────────────────────────────────────────────────────────────────────\u001b[30;3H◆\u001b[30;5HCompact\u001b[30;13HHistory\u001b[30;89H/compact\u001b[39m\u001b[49m\u001b[59m\u001b[0m\u001b[?2026l",
+          "bytesBase64": "G1s/MjAyNmgbWz8yMDI2aBtbMTc7MTJIG1s3bSAbWzI3bSAgICAgIBtbMTk7NEgbWzFtU2Vzc2lvbiAbWzE5Ozk4SBtbMjJtIBtbMjA7NUhOZRtbMjA7OEggU2Vzc2lvbiAgG1syMDs5MUhDdHJsK04gG1syMTszSOKXhhtbMjE7NUhOZXcbWzIxOzlIU2Vzc2lvbhtbMjE7MTdIaW4bWzIxOzIwSFdvcmt0cmVlG1syMTs4MEhDdHJsK1AbWzIxOzg3SOKGkhtbMjE7ODlId29ya3RyZWUbWzIyOzNI4peGG1syMjs1SEJhY2sbWzIyOzEwSHRvG1syMjsxM0hIb21lG1syMjs5MkgvaG9tZRtbMjM7M0jil4YbWzIzOzVIRGVsZXRlG1syMzsxMkhUaGlzG1syMzsxN0hTZXNzaW9uG1syMzs5MEgvZGVsZXRlG1syNDszSOKXhhtbMjQ7NUhSZXN1bWUbWzI0OzEySFNlc3Npb24bWzI0OzkwSC9yZXN1bWUbWzI1OzNI4peGG1syNTs1SFJlbmFtZRtbMjU7MTJIU2Vzc2lvbhtbMjU7ODlIL3JlbmFtZRtbMjY7M0jil4YbWzI2OzVIU2Vzc2lvbhtbMjY7MTNISW5mbxtbMjY7ODRIL3Nlc3Npb24taW5mbxtbMjc7M0jil4YbWzI3OzVIU2VuZBtbMjc7MTBIRmVlZGJhY2sbWzI3Ozg4SC9mZWVkYmFjaxtbMjk7M0gbWzFtIENvbnRleHQgG1syMm3ilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIAbWzMwOzNI4peGG1szMDs1SENvbXBhY3QbWzMwOzEzSEhpc3RvcnkbWzMwOzg5SC9jb21wYWN0G1szOW0bWzQ5bRtbNTltG1swbRtbPzIwMjZs"
+        },
+        {
+          "ms": 1984.320541,
+          "action": "help-close",
+          "offset": 6202,
+          "inputHex": "1b",
+          "observedMs": 2294.246625,
+          "markerFound": null,
+          "endOffset": 6516
+        },
+        {
+          "ms": 2136.326625,
+          "output": "\u001b[?2026h\u001b[15;1H\u001b[J\u001b[15;1H\u001b[J",
+          "bytesBase64": "G1s/MjAyNmgbWzE1OzFIG1tKG1sxNTsxSBtbSg=="
+        },
+        {
+          "ms": 2136.384958,
+          "output": "\u001b[?2026h\u001b[15;1H\u001b[2mminimal · /help                                                                                     \u001b[16;1H\u001b[22m❯\u001b[17;1Hreference-fixture\u001b[2m · \u001b[22m1.5K\u001b[17;26H/\u001b[17;28H128K\u001b[17;33H(1%)\u001b[2m · \u001b[22mctrl+o\u001b[17;47Htranscript\u001b[39m\u001b[49m\u001b[59m\u001b[0m\u001b[16;3H\u001b[?25h\u001b[?2026l",
+          "bytesBase64": "G1s/MjAyNmgbWzE1OzFIG1sybW1pbmltYWwgwrcgL2hlbHAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgG1sxNjsxSBtbMjJt4p2vG1sxNzsxSHJlZmVyZW5jZS1maXh0dXJlG1sybSDCtyAbWzIybTEuNUsbWzE3OzI2SC8bWzE3OzI4SDEyOEsbWzE3OzMzSCgxJSkbWzJtIMK3IBtbMjJtY3RybCtvG1sxNzs0N0h0cmFuc2NyaXB0G1szOW0bWzQ5bRtbNTltG1swbRtbMTY7M0gbWz8yNWgbWz8yMDI2bA=="
+        },
+        {
+          "ms": 2455.47475,
+          "action": "docs-open",
+          "offset": 6516,
+          "inputHex": "2f646f63730d",
+          "observedMs": 2492.332083,
+          "markerFound": true,
+          "endOffset": 8431
+        },
+        {
+          "ms": 2459.597916,
+          "output": "\u001b[?2026h\u001b[15;1H\u001b[J\u001b[15;1H\u001b[J",
+          "bytesBase64": "G1s/MjAyNmgbWzE1OzFIG1tKG1sxNTsxSBtbSg=="
+        },
+        {
+          "ms": 2459.719916,
+          "output": "\u001b[?2026h\u001b[15;3H\u001b[1mHow-to Guides\u001b[17;4H\u001b[22m/\u001b[17;6Hto\u001b[17;9Hsearch\u001b[18;1H────────────────────────────────────────────────────────────────────────────────────────────────────\u001b[19;3H\u001b[38;5;6;49m◆ \u001b[1mGetting Started\u001b[19;52H\u001b[22mInstallation, first launch, and basic intera…\u001b[20;3H\u001b[39;49m◆\u001b[20;5HAuthentication\u001b[20;52HBrowser\u001b[20;60Hlogin,\u001b[20;67HAPI\u001b[20;71Hkeys,\u001b[20;77HOIDC,\u001b[20;83Hexternal\u001b[20;92Hauth…\u001b[21;3H◆\u001b[21;5HKeyboard\u001b[21;14HShortcuts\u001b[21;54HComplete\u001b[21;63Hreference\u001b[21;73Hfor\u001b[21;77Hall\u001b[21;81HTUI\u001b[21;85Hkey\u001b[21;89Hbindings\u001b[22;3H◆\u001b[22;5HSlash\u001b[22;11HCommands\u001b[22;52HAll\u001b[22;56H/\u001b[22;58Hcommands,\u001b[22;68Hincluding\u001b[22;78Hgoals,\u001b[22;85Hresearch,\u001b[22;95Ha…\u001b[23;3H◆\u001b[23;5HConfiguration\u001b[23;52Hconfig.toml,\u001b[23;65Hpager.toml,\u001b[23;77Henvironment\u001b[23;89Hvariabl…\u001b[24;3H◆\u001b[24;5HTheming\u001b[24;13Hand\u001b",
+          "bytesBase64": "G1s/MjAyNmgbWzE1OzNIG1sxbUhvdy10byBHdWlkZXMbWzE3OzRIG1syMm0vG1sxNzs2SHRvG1sxNzs5SHNlYXJjaBtbMTg7MUjilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIAbWzE5OzNIG1szODs1OzY7NDlt4peGIBtbMW1HZXR0aW5nIFN0YXJ0ZWQbWzE5OzUySBtbMjJtSW5zdGFsbGF0aW9uLCBmaXJzdCBsYXVuY2gsIGFuZCBiYXNpYyBpbnRlcmHigKYbWzIwOzNIG1szOTs0OW3il4YbWzIwOzVIQXV0aGVudGljYXRpb24bWzIwOzUySEJyb3dzZXIbWzIwOzYwSGxvZ2luLBtbMjA7NjdIQVBJG1syMDs3MUhrZXlzLBtbMjA7NzdIT0lEQywbWzIwOzgzSGV4dGVybmFsG1syMDs5MkhhdXRo4oCmG1syMTszSOKXhhtbMjE7NUhLZXlib2FyZBtbMjE7MTRIU2hvcnRjdXRzG1syMTs1NEhDb21wbGV0ZRtbMjE7NjNIcmVmZXJlbmNlG1syMTs3M0hmb3IbWzIxOzc3SGFsbBtbMjE7ODFIVFVJG1syMTs4NUhrZXkbWzIxOzg5SGJpbmRpbmdzG1syMjszSOKXhhtbMjI7NUhTbGFzaBtbMjI7MTFIQ29tbWFuZHMbWzIyOzUySEFsbBtbMjI7NTZILxtbMjI7NThIY29tbWFuZHMsG1syMjs2OEhpbmNsdWRpbmcbWzIyOzc4SGdvYWxzLBtbMjI7ODVIcmVzZWFyY2gsG1syMjs5NUhh4oCmG1syMzszSOKXhhtbMjM7NUhDb25maWd1cmF0aW9uG1syMzs1Mkhjb25maWcudG9tbCwbWzIzOzY1SHBhZ2VyLnRvbWwsG1syMzs3N0hlbnZpcm9ubWVudBtbMjM7ODlIdmFyaWFibOKAphtbMjQ7M0jil4YbWzI0OzVIVGhlbWluZxtbMjQ7MTNIYW5kGw=="
+        },
+        {
+          "ms": 2459.756583,
+          "output": "[24;17HAppearance\u001b[24;52HThemes,\u001b[24;60Hcolor\u001b[24;66Hsupport,\u001b[24;75Hpager.toml\u001b[24;86Hcustomizat…\u001b[25;3H◆\u001b[25;5HMCP\u001b[25;9HServers\u001b[25;52HSetting\u001b[25;60Hup\u001b[25;63Hexternal\u001b[25;72Htool\u001b[25;77Hintegrations\u001b[25;90Hvia\u001b[25;94HMCP\u001b[26;3H◆\u001b[26;5HSkills\u001b[26;54HCreating\u001b[26;63Hand\u001b[26;67Husing\u001b[26;73Hreusable\u001b[26;82Hprompt\u001b[26;89Hpackages\u001b[27;3H◆\u001b[27;5HPlugins\u001b[27;13Hand\u001b[27;17HMarketplace\u001b[27;52HInstalling,\u001b[27;64Hmanaging,\u001b[27;74Hand\u001b[27;78Hcreating\u001b[27;87Hplugin\u001b[27;94Hpa…\u001b[28;3H◆\u001b[28;5HHooks\u001b[28;52HProject\u001b[28;60Hlifecycle\u001b[28;70Hscripts\u001b[28;78Hfor\u001b[28;82Hpre/post\u001b[28;91Htool-…\u001b[30;9H\u001b[3mTip · Ask Grok about the docs (~/.grok/docs/user-guide), e.g. \"how do I set up MCP?\"\u001b[32;32H\u001b[23m\u001b[1m↑/↓\u001b[22m\u001b[2m\u001b[2m nav\u001b[32;41H\u001b[22m|\u001b[32;44H\u001b[1mEnter\u001b[22m\u001b[2m\u001b[2m select\u001b[32;58H\u001b[22m|\u001b[32;61H\u001b[1mEsc\u001b[22m\u001b[2m\u001b[2m close\u001b[39m\u001b[49m\u001b[59m\u001b[0m\u001b[?25l\u001b[?2026l",
+          "bytesBase64": "WzI0OzE3SEFwcGVhcmFuY2UbWzI0OzUySFRoZW1lcywbWzI0OzYwSGNvbG9yG1syNDs2NkhzdXBwb3J0LBtbMjQ7NzVIcGFnZXIudG9tbBtbMjQ7ODZIY3VzdG9taXphdOKAphtbMjU7M0jil4YbWzI1OzVITUNQG1syNTs5SFNlcnZlcnMbWzI1OzUySFNldHRpbmcbWzI1OzYwSHVwG1syNTs2M0hleHRlcm5hbBtbMjU7NzJIdG9vbBtbMjU7NzdIaW50ZWdyYXRpb25zG1syNTs5MEh2aWEbWzI1Ozk0SE1DUBtbMjY7M0jil4YbWzI2OzVIU2tpbGxzG1syNjs1NEhDcmVhdGluZxtbMjY7NjNIYW5kG1syNjs2N0h1c2luZxtbMjY7NzNIcmV1c2FibGUbWzI2OzgySHByb21wdBtbMjY7ODlIcGFja2FnZXMbWzI3OzNI4peGG1syNzs1SFBsdWdpbnMbWzI3OzEzSGFuZBtbMjc7MTdITWFya2V0cGxhY2UbWzI3OzUySEluc3RhbGxpbmcsG1syNzs2NEhtYW5hZ2luZywbWzI3Ozc0SGFuZBtbMjc7NzhIY3JlYXRpbmcbWzI3Ozg3SHBsdWdpbhtbMjc7OTRIcGHigKYbWzI4OzNI4peGG1syODs1SEhvb2tzG1syODs1MkhQcm9qZWN0G1syODs2MEhsaWZlY3ljbGUbWzI4OzcwSHNjcmlwdHMbWzI4Ozc4SGZvchtbMjg7ODJIcHJlL3Bvc3QbWzI4OzkxSHRvb2wt4oCmG1szMDs5SBtbM21UaXAgwrcgQXNrIEdyb2sgYWJvdXQgdGhlIGRvY3MgKH4vLmdyb2svZG9jcy91c2VyLWd1aWRlKSwgZS5nLiAiaG93IGRvIEkgc2V0IHVwIE1DUD8iG1szMjszMkgbWzIzbRtbMW3ihpEv4oaTG1syMm0bWzJtG1sybSBuYXYbWzMyOzQxSBtbMjJtfBtbMzI7NDRIG1sxbUVudGVyG1syMm0bWzJtG1sybSBzZWxlY3QbWzMyOzU4SBtbMjJtfBtbMzI7NjFIG1sxbUVzYxtbMjJtG1sybRtbMm0gY2xvc2UbWzM5bRtbNDltG1s1OW0bWzBtG1s/MjVsG1s/MjAyNmw="
+        },
+        {
+          "ms": 2648.309666,
+          "action": "docs-select",
+          "offset": 8431,
+          "inputHex": "0d",
+          "observedMs": 2710.377125,
+          "markerFound": true,
+          "endOffset": 10183
+        },
+        {
+          "ms": 2671.645458,
+          "output": "\u001b[?2026h\u001b[?2026h\u001b[15;3H\u001b[1mGetting Started\u001b[17;3H\u001b[4mGetting Started\u001b[18;1H\u001b[22m\u001b[24m                                                                                                    \u001b[19;3HGrok Build is a terminal-based\u001b[19;34HAI\u001b[19;37Hcoding\u001b[19;44Hassistant from SpaceXAI. It runs as a TUI (Terminal  \u001b[20;3HUser Interf\u001b[20;15Hce) that\u001b[20;24Hunderstands\u001b[20;36Hyour\u001b[20;41Hcodebase,\u001b[20;51Hexecut\u001b[20;58Hs\u001b[20;60Hshell commands, edits files, searches\u001b[21;3Hthe web, and manage\u001b[21;24Htasks.\u001b[21;54H        \u001b[21;63H         \u001b[21;73H   \u001b[21;77H   \u001b[21;81H   \u001b[21;85H   \u001b[21;89H        \u001b[22;3H \u001b[22;5H     \u001b[22;11H        \u001b[22;52H   \u001b[22;56H \u001b[22;58H         \u001b[22;68H         \u001b[22;78H      \u001b[22;85H         \u001b[22;95H  \u001b[23;3HYou can \u001b[23;12Hse \u001b[23;16Ht interactively\u001b[23;32Has\u001b[23;35Ha\u001b[23;37Hfull-screen\u001b[23;49HTUI, run i\u001b[23;60H headlessly for scripti\u001b[23;84Hg and CI/CD, or\u001b[24;3Hintegrate\u001b[24;13Hit into editors\u001b[24;29Hvia\u001b[24;33Hthe\u001b[24;37HAgent\u001b[24;43HClient\u001b[24;50HProtocol (ACP).\u001b[24;66H        \u001b[24;75H         ",
+          "bytesBase64": "G1s/MjAyNmgbWz8yMDI2aBtbMTU7M0gbWzFtR2V0dGluZyBTdGFydGVkG1sxNzszSBtbNG1HZXR0aW5nIFN0YXJ0ZWQbWzE4OzFIG1syMm0bWzI0bSAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzE5OzNIR3JvayBCdWlsZCBpcyBhIHRlcm1pbmFsLWJhc2VkG1sxOTszNEhBSRtbMTk7MzdIY29kaW5nG1sxOTs0NEhhc3Npc3RhbnQgZnJvbSBTcGFjZVhBSS4gSXQgcnVucyBhcyBhIFRVSSAoVGVybWluYWwgIBtbMjA7M0hVc2VyIEludGVyZhtbMjA7MTVIY2UpIHRoYXQbWzIwOzI0SHVuZGVyc3RhbmRzG1syMDszNkh5b3VyG1syMDs0MUhjb2RlYmFzZSwbWzIwOzUxSGV4ZWN1dBtbMjA7NThIcxtbMjA7NjBIc2hlbGwgY29tbWFuZHMsIGVkaXRzIGZpbGVzLCBzZWFyY2hlcxtbMjE7M0h0aGUgd2ViLCBhbmQgbWFuYWdlG1syMTsyNEh0YXNrcy4bWzIxOzU0SCAgICAgICAgG1syMTs2M0ggICAgICAgICAbWzIxOzczSCAgIBtbMjE7NzdIICAgG1syMTs4MUggICAbWzIxOzg1SCAgIBtbMjE7ODlIICAgICAgICAbWzIyOzNIIBtbMjI7NUggICAgIBtbMjI7MTFIICAgICAgICAbWzIyOzUySCAgIBtbMjI7NTZIIBtbMjI7NThIICAgICAgICAgG1syMjs2OEggICAgICAgICAbWzIyOzc4SCAgICAgIBtbMjI7ODVIICAgICAgICAgG1syMjs5NUggIBtbMjM7M0hZb3UgY2FuIBtbMjM7MTJIc2UgG1syMzsxNkh0IGludGVyYWN0aXZlbHkbWzIzOzMySGFzG1syMzszNUhhG1syMzszN0hmdWxsLXNjcmVlbhtbMjM7NDlIVFVJLCBydW4gaRtbMjM7NjBIIGhlYWRsZXNzbHkgZm9yIHNjcmlwdGkbWzIzOzg0SGcgYW5kIENJL0NELCBvchtbMjQ7M0hpbnRlZ3JhdGUbWzI0OzEzSGl0IGludG8gZWRpdG9ycxtbMjQ7MjlIdmlhG1syNDszM0h0aGUbWzI0OzM3SEFnZW50G1syNDs0M0hDbGllbnQbWzI0OzUwSFByb3RvY29sIChBQ1ApLhtbMjQ7NjZIICAgICAgICAbWzI0Ozc1SCAgICAgICAgIA=="
+        },
+        {
+          "ms": 2671.699958,
+          "output": " \u001b[24;86H           \u001b[25;3H \u001b[25;5H   \u001b[25;9H       \u001b[25;52H       \u001b[25;60H  \u001b[25;63H        \u001b[25;72H    \u001b[25;77H            \u001b[25;90H   \u001b[25;94H   \u001b[26;3H───     \u001b[26;54H        \u001b[26;63H   \u001b[26;67H     \u001b[26;73H        \u001b[26;82H      \u001b[26;89H        \u001b[27;3H \u001b[27;5H       \u001b[27;13H   \u001b[27;17H           \u001b[27;52H           \u001b[27;64H         \u001b[27;74H   \u001b[27;78H        \u001b[27;87H      \u001b[27;94H   \u001b[28;3H\u001b[1mInstallation\u001b[28;52H\u001b[22m       \u001b[28;60H         \u001b[28;70H       \u001b[28;78H   \u001b[28;82H        \u001b[28;91H      \u001b[30;3HInstall the latest stable release (macOS, Linux, or Windows via Git Bash):                \u001b[32;32H       \u001b[1m↑/↓\u001b[22m\u001b[2m\u001b[2m scroll\u001b[22m  |  \u001b[1mEsc\u001b[22m\u001b[2m\u001b[2m back\u001b[22m        \u001b[39m\u001b[49m\u001b[59m\u001b[0m\u001b[?2026l",
+          "bytesBase64": "IBtbMjQ7ODZIICAgICAgICAgICAbWzI1OzNIIBtbMjU7NUggICAbWzI1OzlIICAgICAgIBtbMjU7NTJIICAgICAgIBtbMjU7NjBIICAbWzI1OzYzSCAgICAgICAgG1syNTs3MkggICAgG1syNTs3N0ggICAgICAgICAgICAbWzI1OzkwSCAgIBtbMjU7OTRIICAgG1syNjszSOKUgOKUgOKUgCAgICAgG1syNjs1NEggICAgICAgIBtbMjY7NjNIICAgG1syNjs2N0ggICAgIBtbMjY7NzNIICAgICAgICAbWzI2OzgySCAgICAgIBtbMjY7ODlIICAgICAgICAbWzI3OzNIIBtbMjc7NUggICAgICAgG1syNzsxM0ggICAbWzI3OzE3SCAgICAgICAgICAgG1syNzs1MkggICAgICAgICAgIBtbMjc7NjRIICAgICAgICAgG1syNzs3NEggICAbWzI3Ozc4SCAgICAgICAgG1syNzs4N0ggICAgICAbWzI3Ozk0SCAgIBtbMjg7M0gbWzFtSW5zdGFsbGF0aW9uG1syODs1MkgbWzIybSAgICAgICAbWzI4OzYwSCAgICAgICAgIBtbMjg7NzBIICAgICAgIBtbMjg7NzhIICAgG1syODs4MkggICAgICAgIBtbMjg7OTFIICAgICAgG1szMDszSEluc3RhbGwgdGhlIGxhdGVzdCBzdGFibGUgcmVsZWFzZSAobWFjT1MsIExpbnV4LCBvciBXaW5kb3dzIHZpYSBHaXQgQmFzaCk6ICAgICAgICAgICAgICAgIBtbMzI7MzJIICAgICAgIBtbMW3ihpEv4oaTG1syMm0bWzJtG1sybSBzY3JvbGwbWzIybSAgfCAgG1sxbUVzYxtbMjJtG1sybRtbMm0gYmFjaxtbMjJtICAgICAgICAbWzM5bRtbNDltG1s1OW0bWzBtG1s/MjAyNmw="
+        },
+        {
+          "ms": 2872.502625,
+          "action": "docs-scroll",
+          "offset": 10183,
+          "inputHex": "1b5b367e",
+          "observedMs": 2910.253375,
+          "markerFound": true,
+          "endOffset": 11798
+        },
+        {
+          "ms": 2872.711041,
+          "output": "\u001b[?2026h\u001b[?2026h\u001b[17;3H               \u001b[18;3HOn\u001b[18;6H\u001b[1mWindows (PowerShell)\u001b[22m,\u001b[18;28Huse\u001b[18;32Hthe\u001b[18;36Hnative\u001b[18;43HPowerShell\u001b[18;54Hinstaller:\u001b[19;3H    \u001b[19;8H     \u001b[19;14H  \u001b[19;17H \u001b[19;19H              \u001b[19;34H  \u001b[19;37H      \u001b[19;44H         \u001b[19;54H    \u001b[19;59H         \u001b[19;69H  \u001b[19;72H    \u001b[19;77H  \u001b[19;80H \u001b[19;82H   \u001b[19;86H         \u001b[20;3Hirm https://x.ai/cli/i\u001b[20;26Hstall.ps1\u001b[20;36H| iex         \u001b[20;51H        \u001b[20;60H     \u001b[20;66H         \u001b[20;76H     \u001b[20;82H      \u001b[20;89H        \u001b[21;3H   \u001b[21;7H    \u001b[21;12H   \u001b[21;16H       \u001b[21;24H      \u001b[22;3HInstall\u001b[22;11Ha\u001b[22;13Hspecific\u001b[22;22Hversion:\u001b[23;3H   \u001b[23;7H   \u001b[23;11H   \u001b[23;15H  \u001b[23;18H             \u001b[23;32H  \u001b[23;35H \u001b[23;37H           \u001b[23;49H    \u001b[23;54H   \u001b[23;58H  \u001b[23;61H          \u001b[23;72H   \u001b[23;76H         \u001b[23;86H   \u001b[23;90H      \u001b[23;97H  \u001b[24;3H$env:GROK_VERSION=\"0.1.42\"; irm https://x.ai/cli/insta\u001b[24;58Hl.ps1 |\u001b[24;66Hiex\u001b[26;3HThe\u001b[26;7HPowerShell\u001b[26;18Hinstaller\u001b[26;28Hautomatically\u001b[26;42Hadds\u001b[26;47H\u001b[1m\u001b[",
+          "bytesBase64": "G1s/MjAyNmgbWz8yMDI2aBtbMTc7M0ggICAgICAgICAgICAgICAbWzE4OzNIT24bWzE4OzZIG1sxbVdpbmRvd3MgKFBvd2VyU2hlbGwpG1syMm0sG1sxODsyOEh1c2UbWzE4OzMySHRoZRtbMTg7MzZIbmF0aXZlG1sxODs0M0hQb3dlclNoZWxsG1sxODs1NEhpbnN0YWxsZXI6G1sxOTszSCAgICAbWzE5OzhIICAgICAbWzE5OzE0SCAgG1sxOTsxN0ggG1sxOTsxOUggICAgICAgICAgICAgIBtbMTk7MzRIICAbWzE5OzM3SCAgICAgIBtbMTk7NDRIICAgICAgICAgG1sxOTs1NEggICAgG1sxOTs1OUggICAgICAgICAbWzE5OzY5SCAgG1sxOTs3MkggICAgG1sxOTs3N0ggIBtbMTk7ODBIIBtbMTk7ODJIICAgG1sxOTs4NkggICAgICAgICAbWzIwOzNIaXJtIGh0dHBzOi8veC5haS9jbGkvaRtbMjA7MjZIc3RhbGwucHMxG1syMDszNkh8IGlleCAgICAgICAgIBtbMjA7NTFIICAgICAgICAbWzIwOzYwSCAgICAgG1syMDs2NkggICAgICAgICAbWzIwOzc2SCAgICAgG1syMDs4MkggICAgICAbWzIwOzg5SCAgICAgICAgG1syMTszSCAgIBtbMjE7N0ggICAgG1syMTsxMkggICAbWzIxOzE2SCAgICAgICAbWzIxOzI0SCAgICAgIBtbMjI7M0hJbnN0YWxsG1syMjsxMUhhG1syMjsxM0hzcGVjaWZpYxtbMjI7MjJIdmVyc2lvbjobWzIzOzNIICAgG1syMzs3SCAgIBtbMjM7MTFIICAgG1syMzsxNUggIBtbMjM7MThIICAgICAgICAgICAgIBtbMjM7MzJIICAbWzIzOzM1SCAbWzIzOzM3SCAgICAgICAgICAgG1syMzs0OUggICAgG1syMzs1NEggICAbWzIzOzU4SCAgG1syMzs2MUggICAgICAgICAgG1syMzs3MkggICAbWzIzOzc2SCAgICAgICAgIBtbMjM7ODZIICAgG1syMzs5MEggICAgICAbWzIzOzk3SCAgG1syNDszSCRlbnY6R1JPS19WRVJTSU9OPSIwLjEuNDIiOyBpcm0gaHR0cHM6Ly94LmFpL2NsaS9pbnN0YRtbMjQ7NThIbC5wczEgfBtbMjQ7NjZIaWV4G1syNjszSFRoZRtbMjY7N0hQb3dlclNoZWxsG1syNjsxOEhpbnN0YWxsZXIbWzI2OzI4SGF1dG9tYXRpY2FsbHkbWzI2OzQySGFkZHMbWzI2OzQ3SBtbMW0bWw=="
+        },
+        {
+          "ms": 2872.773708,
+          "output": "38;5;6;49m%USERPROFILE%\\.grok\\bin\u001b[26;71H\u001b[22m\u001b[39;49mto\u001b[26;74Hyour\u001b[26;79HUser\u001b[26;84HPATH.\u001b[27;3HAlternatively,\u001b[27;18Hinstall\u001b[27;26Hvia\u001b[27;30H\u001b[4m\u001b[38;5;4;49mGit for Windows\u001b[27;46H\u001b[24m\u001b[39;49m(https://gitforwindows.org/)\u001b[27;75H(Git\u001b[27;80HBash)\u001b[27;86Hor\u001b[27;89HMSYS2\u001b[28;3Husing the bash\u001b[28;18Hscript\u001b[28;25Habove.\u001b[28;32HWSL\u001b[28;36Husers\u001b[28;42Hget\u001b[28;46Hthe\u001b[28;50HLinux\u001b[28;56Hbinary\u001b[28;63Hautomatically.\u001b[30;3HVerify the ins\u001b[30;18Hallation: \u001b[30;29H       \u001b[30;37H       \u001b[30;45H      \u001b[30;52H  \u001b[30;55H       \u001b[30;63H   \u001b[30;67H   \u001b[30;71H      \u001b[39m\u001b[49m\u001b[59m\u001b[0m\u001b[?2026l",
+          "bytesBase64": "Mzg7NTs2OzQ5bSVVU0VSUFJPRklMRSVcLmdyb2tcYmluG1syNjs3MUgbWzIybRtbMzk7NDltdG8bWzI2Ozc0SHlvdXIbWzI2Ozc5SFVzZXIbWzI2Ozg0SFBBVEguG1syNzszSEFsdGVybmF0aXZlbHksG1syNzsxOEhpbnN0YWxsG1syNzsyNkh2aWEbWzI3OzMwSBtbNG0bWzM4OzU7NDs0OW1HaXQgZm9yIFdpbmRvd3MbWzI3OzQ2SBtbMjRtG1szOTs0OW0oaHR0cHM6Ly9naXRmb3J3aW5kb3dzLm9yZy8pG1syNzs3NUgoR2l0G1syNzs4MEhCYXNoKRtbMjc7ODZIb3IbWzI3Ozg5SE1TWVMyG1syODszSHVzaW5nIHRoZSBiYXNoG1syODsxOEhzY3JpcHQbWzI4OzI1SGFib3ZlLhtbMjg7MzJIV1NMG1syODszNkh1c2VycxtbMjg7NDJIZ2V0G1syODs0Nkh0aGUbWzI4OzUwSExpbnV4G1syODs1NkhiaW5hcnkbWzI4OzYzSGF1dG9tYXRpY2FsbHkuG1szMDszSFZlcmlmeSB0aGUgaW5zG1szMDsxOEhhbGxhdGlvbjogG1szMDsyOUggICAgICAgG1szMDszN0ggICAgICAgG1szMDs0NUggICAgICAbWzMwOzUySCAgG1szMDs1NUggICAgICAgG1szMDs2M0ggICAbWzMwOzY3SCAgIBtbMzA7NzFIICAgICAgG1szOW0bWzQ5bRtbNTltG1swbRtbPzIwMjZs"
+        },
+        {
+          "ms": 3066.252791,
+          "action": "docs-reader-dismiss",
+          "offset": 11798,
+          "inputHex": "1b",
+          "observedMs": 3378.554333,
+          "markerFound": null,
+          "endOffset": 13818
+        },
+        {
+          "ms": 3219.845083,
+          "output": "\u001b[?2026h\u001b[?2026h\u001b[15;3H\u001b[1mHow-to Guides\u001b[22m  \u001b[17;4H/\u001b[17;6Hto\u001b[17;9Hsearch\u001b[18;1H────────────────────────────────────────────────────────────────────────────────────────────────────\u001b[19;3H\u001b[38;5;6;49m◆ \u001b[1mGetting Started\u001b[19;52H\u001b[22mInstallation, first launch, and basic intera…\u001b[20;3H\u001b[39;49m◆ Authentication                \u001b[20;36H \u001b[20;38H   \u001b[20;52HBrowser\u001b[20;60Hlogin,\u001b[20;67HAPI\u001b[20;71Hkeys,\u001b[20;77HOIDC,\u001b[20;83Hexternal\u001b[20;92Hauth…\u001b[21;3H◆\u001b[21;5HKeyboard\u001b[21;14HShortcuts\u001b[21;54HComplete\u001b[21;63Hreference\u001b[21;73Hfor\u001b[21;77Hall\u001b[21;81HTUI\u001b[21;85Hkey\u001b[21;89Hbindings\u001b[22;3H◆ Sl\u001b[22;8Hsh\u001b[22;11HCommands  \u001b[22;22H        \u001b[22;52HAll\u001b[22;56H/\u001b[22;58Hcommands,\u001b[22;68Hincluding\u001b[22;78Hgoals,\u001b[22;85Hresearch,\u001b[22;95Ha…\u001b[23;3H◆\u001b[23;5HConfiguration\u001b[23;52Hconfig.toml,\u001b[23;65Hpager.toml,\u001b[23;77Henviron",
+          "bytesBase64": "G1s/MjAyNmgbWz8yMDI2aBtbMTU7M0gbWzFtSG93LXRvIEd1aWRlcxtbMjJtICAbWzE3OzRILxtbMTc7Nkh0bxtbMTc7OUhzZWFyY2gbWzE4OzFI4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSAG1sxOTszSBtbMzg7NTs2OzQ5beKXhiAbWzFtR2V0dGluZyBTdGFydGVkG1sxOTs1MkgbWzIybUluc3RhbGxhdGlvbiwgZmlyc3QgbGF1bmNoLCBhbmQgYmFzaWMgaW50ZXJh4oCmG1syMDszSBtbMzk7NDlt4peGIEF1dGhlbnRpY2F0aW9uICAgICAgICAgICAgICAgIBtbMjA7MzZIIBtbMjA7MzhIICAgG1syMDs1MkhCcm93c2VyG1syMDs2MEhsb2dpbiwbWzIwOzY3SEFQSRtbMjA7NzFIa2V5cywbWzIwOzc3SE9JREMsG1syMDs4M0hleHRlcm5hbBtbMjA7OTJIYXV0aOKAphtbMjE7M0jil4YbWzIxOzVIS2V5Ym9hcmQbWzIxOzE0SFNob3J0Y3V0cxtbMjE7NTRIQ29tcGxldGUbWzIxOzYzSHJlZmVyZW5jZRtbMjE7NzNIZm9yG1syMTs3N0hhbGwbWzIxOzgxSFRVSRtbMjE7ODVIa2V5G1syMTs4OUhiaW5kaW5ncxtbMjI7M0jil4YgU2wbWzIyOzhIc2gbWzIyOzExSENvbW1hbmRzICAbWzIyOzIySCAgICAgICAgG1syMjs1MkhBbGwbWzIyOzU2SC8bWzIyOzU4SGNvbW1hbmRzLBtbMjI7NjhIaW5jbHVkaW5nG1syMjs3OEhnb2FscywbWzIyOzg1SHJlc2VhcmNoLBtbMjI7OTVIYeKAphtbMjM7M0jil4YbWzIzOzVIQ29uZmlndXJhdGlvbhtbMjM7NTJIY29uZmlnLnRvbWwsG1syMzs2NUhwYWdlci50b21sLBtbMjM7NzdIZW52aXJvbg=="
+        },
+        {
+          "ms": 3219.906083,
+          "output": "ment\u001b[23;89Hvariabl…\u001b[24;3H◆ Theming and Appearance   \u001b[24;31H   \u001b[24;35H                 Themes, color\u001b[24;66Hsupport,\u001b[24;75Hpager.toml\u001b[24;86Hcustomizat…\u001b[25;3H◆\u001b[25;5HMCP\u001b[25;9HServers\u001b[25;52HSetting\u001b[25;60Hup\u001b[25;63Hexternal\u001b[25;72Htool\u001b[25;77Hintegrations\u001b[25;90Hvia\u001b[25;94HMCP\u001b[26;3H◆ Skills      \u001b[26;18H         \u001b[26;28H             \u001b[26;42H    \u001b[26;47H       Creating and using reusable prompt packages\u001b[27;3H◆ Plugins and Marketp\u001b[27;25Hace \u001b[27;30H               \u001b[27;46H      Installing, managin\u001b[27;72H, and cre\u001b[27;82Hting plugin pa…\u001b[28;3H◆ Hooks  \u001b[28;13H    \u001b[28;18H      \u001b[28;25H      \u001b[28;32H   \u001b[28;36H     \u001b[28;42H   \u001b[28;46H   \u001b[28;50H  Project lifecycle s\u001b[28;72Hripts\u001b[28;78Hfor\u001b[28;82Hpre/post\u001b[28;91Htool-…\u001b[30;3H      \u001b[3mTip · Ask Grok about the docs (~/.grok/docs/user-guide), e.g. \"how do I set up MCP?\"\u001b[32;32H\u001b[23m\u001b[1m↑/↓\u001b[22m\u001b[2m\u001b[2m nav\u001b[22m  |  \u001b[1mEnter\u001b[22m\u001b[2m\u001b[2m select\u001b[22m  |  \u001b[1mEsc\u001b[22m\u001b[2m\u001b[2m close\u001b[39m\u001b[49m\u001b[59m\u001b[0m\u001b[?2026l",
+          "bytesBase64": "bWVudBtbMjM7ODlIdmFyaWFibOKAphtbMjQ7M0jil4YgVGhlbWluZyBhbmQgQXBwZWFyYW5jZSAgIBtbMjQ7MzFIICAgG1syNDszNUggICAgICAgICAgICAgICAgIFRoZW1lcywgY29sb3IbWzI0OzY2SHN1cHBvcnQsG1syNDs3NUhwYWdlci50b21sG1syNDs4NkhjdXN0b21pemF04oCmG1syNTszSOKXhhtbMjU7NUhNQ1AbWzI1OzlIU2VydmVycxtbMjU7NTJIU2V0dGluZxtbMjU7NjBIdXAbWzI1OzYzSGV4dGVybmFsG1syNTs3Mkh0b29sG1syNTs3N0hpbnRlZ3JhdGlvbnMbWzI1OzkwSHZpYRtbMjU7OTRITUNQG1syNjszSOKXhiBTa2lsbHMgICAgICAbWzI2OzE4SCAgICAgICAgIBtbMjY7MjhIICAgICAgICAgICAgIBtbMjY7NDJIICAgIBtbMjY7NDdIICAgICAgIENyZWF0aW5nIGFuZCB1c2luZyByZXVzYWJsZSBwcm9tcHQgcGFja2FnZXMbWzI3OzNI4peGIFBsdWdpbnMgYW5kIE1hcmtldHAbWzI3OzI1SGFjZSAbWzI3OzMwSCAgICAgICAgICAgICAgIBtbMjc7NDZIICAgICAgSW5zdGFsbGluZywgbWFuYWdpbhtbMjc7NzJILCBhbmQgY3JlG1syNzs4Mkh0aW5nIHBsdWdpbiBwYeKAphtbMjg7M0jil4YgSG9va3MgIBtbMjg7MTNIICAgIBtbMjg7MThIICAgICAgG1syODsyNUggICAgICAbWzI4OzMySCAgIBtbMjg7MzZIICAgICAbWzI4OzQySCAgIBtbMjg7NDZIICAgG1syODs1MEggIFByb2plY3QgbGlmZWN5Y2xlIHMbWzI4OzcySHJpcHRzG1syODs3OEhmb3IbWzI4OzgySHByZS9wb3N0G1syODs5MUh0b29sLeKAphtbMzA7M0ggICAgICAbWzNtVGlwIMK3IEFzayBHcm9rIGFib3V0IHRoZSBkb2NzICh+Ly5ncm9rL2RvY3MvdXNlci1ndWlkZSksIGUuZy4gImhvdyBkbyBJIHNldCB1cCBNQ1A/IhtbMzI7MzJIG1syM20bWzFt4oaRL+KGkxtbMjJtG1sybRtbMm0gbmF2G1syMm0gIHwgIBtbMW1FbnRlchtbMjJtG1sybRtbMm0gc2VsZWN0G1syMm0gIHwgIBtbMW1Fc2MbWzIybRtbMm0bWzJtIGNsb3NlG1szOW0bWzQ5bRtbNTltG1swbRtbPzIwMjZs"
+        },
+        {
+          "ms": 3540.640625,
+          "action": "docs-close",
+          "offset": 13818,
+          "inputHex": "1b",
+          "observedMs": 3841.19825,
+          "markerFound": null,
+          "endOffset": 14132
+        },
+        {
+          "ms": 3693.312666,
+          "output": "\u001b[?2026h\u001b[15;1H\u001b[J\u001b[15;1H\u001b[J",
+          "bytesBase64": "G1s/MjAyNmgbWzE1OzFIG1tKG1sxNTsxSBtbSg=="
+        },
+        {
+          "ms": 3693.363333,
+          "output": "\u001b[?2026h\u001b[15;1H\u001b[2mminimal · /help                                                                                     \u001b[16;1H\u001b[22m❯\u001b[17;1Hreference-fixture\u001b[2m · \u001b[22m1.5K\u001b[17;26H/\u001b[17;28H128K\u001b[17;33H(1%)\u001b[2m · \u001b[22mctrl+o\u001b[17;47Htranscript\u001b[39m\u001b[49m\u001b[59m\u001b[0m\u001b[16;3H\u001b[?25h\u001b[?2026l",
+          "bytesBase64": "G1s/MjAyNmgbWzE1OzFIG1sybW1pbmltYWwgwrcgL2hlbHAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgG1sxNjsxSBtbMjJt4p2vG1sxNzsxSHJlZmVyZW5jZS1maXh0dXJlG1sybSDCtyAbWzIybTEuNUsbWzE3OzI2SC8bWzE3OzI4SDEyOEsbWzE3OzMzSCgxJSkbWzJtIMK3IBtbMjJtY3RybCtvG1sxNzs0N0h0cmFuc2NyaXB0G1szOW0bWzQ5bRtbNTltG1swbRtbMTY7M0gbWz8yNWgbWz8yMDI2bA=="
+        },
+        {
+          "ms": 4008.008291,
+          "action": "howto-open",
+          "offset": 14132,
+          "inputHex": "2f686f77746f0d",
+          "observedMs": 4050.327833,
+          "markerFound": true,
+          "endOffset": 16047
+        },
+        {
+          "ms": 4011.730375,
+          "output": "\u001b[?2026h\u001b[15;1H\u001b[J\u001b[15;1H\u001b[J",
+          "bytesBase64": "G1s/MjAyNmgbWzE1OzFIG1tKG1sxNTsxSBtbSg=="
+        },
+        {
+          "ms": 4011.846583,
+          "output": "\u001b[?2026h\u001b[15;3H\u001b[1mHow-to Guides\u001b[17;4H\u001b[22m/\u001b[17;6Hto\u001b[17;9Hsearch\u001b[18;1H────────────────────────────────────────────────────────────────────────────────────────────────────\u001b[19;3H\u001b[38;5;6;49m◆ \u001b[1mGetting Started\u001b[19;52H\u001b[22mInstallation, first launch, and basic intera…\u001b[20;3H\u001b[39;49m◆\u001b[20;5HAuthentication\u001b[20;52HBrowser\u001b[20;60Hlogin,\u001b[20;67HAPI\u001b[20;71Hkeys,\u001b[20;77HOIDC,\u001b[20;83Hexternal\u001b[20;92Hauth…\u001b[21;3H◆\u001b[21;5HKeyboard\u001b[21;14HShortcuts\u001b[21;54HComplete\u001b[21;63Hreference\u001b[21;73Hfor\u001b[21;77Hall\u001b[21;81HTUI\u001b[21;85Hkey\u001b[21;89Hbindings\u001b[22;3H◆\u001b[22;5HSlash\u001b[22;11HCommands\u001b[22;52HAll\u001b[22;56H/\u001b[22;58Hcommands,\u001b[22;68Hincluding\u001b[22;78Hgoals,\u001b[22;85Hresearch,\u001b[22;95Ha…\u001b[23;3H◆\u001b[23;5HConfiguration\u001b[23;52Hconfig.toml,\u001b[23;65Hpager.toml,\u001b[23;77Henvironment\u001b[23;89Hvariabl…\u001b[24;3H◆\u001b[24;5HTheming\u001b[24;13Hand\u001b",
+          "bytesBase64": "G1s/MjAyNmgbWzE1OzNIG1sxbUhvdy10byBHdWlkZXMbWzE3OzRIG1syMm0vG1sxNzs2SHRvG1sxNzs5SHNlYXJjaBtbMTg7MUjilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIAbWzE5OzNIG1szODs1OzY7NDlt4peGIBtbMW1HZXR0aW5nIFN0YXJ0ZWQbWzE5OzUySBtbMjJtSW5zdGFsbGF0aW9uLCBmaXJzdCBsYXVuY2gsIGFuZCBiYXNpYyBpbnRlcmHigKYbWzIwOzNIG1szOTs0OW3il4YbWzIwOzVIQXV0aGVudGljYXRpb24bWzIwOzUySEJyb3dzZXIbWzIwOzYwSGxvZ2luLBtbMjA7NjdIQVBJG1syMDs3MUhrZXlzLBtbMjA7NzdIT0lEQywbWzIwOzgzSGV4dGVybmFsG1syMDs5MkhhdXRo4oCmG1syMTszSOKXhhtbMjE7NUhLZXlib2FyZBtbMjE7MTRIU2hvcnRjdXRzG1syMTs1NEhDb21wbGV0ZRtbMjE7NjNIcmVmZXJlbmNlG1syMTs3M0hmb3IbWzIxOzc3SGFsbBtbMjE7ODFIVFVJG1syMTs4NUhrZXkbWzIxOzg5SGJpbmRpbmdzG1syMjszSOKXhhtbMjI7NUhTbGFzaBtbMjI7MTFIQ29tbWFuZHMbWzIyOzUySEFsbBtbMjI7NTZILxtbMjI7NThIY29tbWFuZHMsG1syMjs2OEhpbmNsdWRpbmcbWzIyOzc4SGdvYWxzLBtbMjI7ODVIcmVzZWFyY2gsG1syMjs5NUhh4oCmG1syMzszSOKXhhtbMjM7NUhDb25maWd1cmF0aW9uG1syMzs1Mkhjb25maWcudG9tbCwbWzIzOzY1SHBhZ2VyLnRvbWwsG1syMzs3N0hlbnZpcm9ubWVudBtbMjM7ODlIdmFyaWFibOKAphtbMjQ7M0jil4YbWzI0OzVIVGhlbWluZxtbMjQ7MTNIYW5kGw=="
+        },
+        {
+          "ms": 4011.881291,
+          "output": "[24;17HAppearance\u001b[24;52HThemes,\u001b[24;60Hcolor\u001b[24;66Hsupport,\u001b[24;75Hpager.toml\u001b[24;86Hcustomizat…\u001b[25;3H◆\u001b[25;5HMCP\u001b[25;9HServers\u001b[25;52HSetting\u001b[25;60Hup\u001b[25;63Hexternal\u001b[25;72Htool\u001b[25;77Hintegrations\u001b[25;90Hvia\u001b[25;94HMCP\u001b[26;3H◆\u001b[26;5HSkills\u001b[26;54HCreating\u001b[26;63Hand\u001b[26;67Husing\u001b[26;73Hreusable\u001b[26;82Hprompt\u001b[26;89Hpackages\u001b[27;3H◆\u001b[27;5HPlugins\u001b[27;13Hand\u001b[27;17HMarketplace\u001b[27;52HInstalling,\u001b[27;64Hmanaging,\u001b[27;74Hand\u001b[27;78Hcreating\u001b[27;87Hplugin\u001b[27;94Hpa…\u001b[28;3H◆\u001b[28;5HHooks\u001b[28;52HProject\u001b[28;60Hlifecycle\u001b[28;70Hscripts\u001b[28;78Hfor\u001b[28;82Hpre/post\u001b[28;91Htool-…\u001b[30;9H\u001b[3mTip · Ask Grok about the docs (~/.grok/docs/user-guide), e.g. \"how do I set up MCP?\"\u001b[32;32H\u001b[23m\u001b[1m↑/↓\u001b[22m\u001b[2m\u001b[2m nav\u001b[32;41H\u001b[22m|\u001b[32;44H\u001b[1mEnter\u001b[22m\u001b[2m\u001b[2m select\u001b[32;58H\u001b[22m|\u001b[32;61H\u001b[1mEsc\u001b[22m\u001b[2m\u001b[2m close\u001b[39m\u001b[49m\u001b[59m\u001b[0m\u001b[?25l\u001b[?2026l",
+          "bytesBase64": "WzI0OzE3SEFwcGVhcmFuY2UbWzI0OzUySFRoZW1lcywbWzI0OzYwSGNvbG9yG1syNDs2NkhzdXBwb3J0LBtbMjQ7NzVIcGFnZXIudG9tbBtbMjQ7ODZIY3VzdG9taXphdOKAphtbMjU7M0jil4YbWzI1OzVITUNQG1syNTs5SFNlcnZlcnMbWzI1OzUySFNldHRpbmcbWzI1OzYwSHVwG1syNTs2M0hleHRlcm5hbBtbMjU7NzJIdG9vbBtbMjU7NzdIaW50ZWdyYXRpb25zG1syNTs5MEh2aWEbWzI1Ozk0SE1DUBtbMjY7M0jil4YbWzI2OzVIU2tpbGxzG1syNjs1NEhDcmVhdGluZxtbMjY7NjNIYW5kG1syNjs2N0h1c2luZxtbMjY7NzNIcmV1c2FibGUbWzI2OzgySHByb21wdBtbMjY7ODlIcGFja2FnZXMbWzI3OzNI4peGG1syNzs1SFBsdWdpbnMbWzI3OzEzSGFuZBtbMjc7MTdITWFya2V0cGxhY2UbWzI3OzUySEluc3RhbGxpbmcsG1syNzs2NEhtYW5hZ2luZywbWzI3Ozc0SGFuZBtbMjc7NzhIY3JlYXRpbmcbWzI3Ozg3SHBsdWdpbhtbMjc7OTRIcGHigKYbWzI4OzNI4peGG1syODs1SEhvb2tzG1syODs1MkhQcm9qZWN0G1syODs2MEhsaWZlY3ljbGUbWzI4OzcwSHNjcmlwdHMbWzI4Ozc4SGZvchtbMjg7ODJIcHJlL3Bvc3QbWzI4OzkxSHRvb2wt4oCmG1szMDs5SBtbM21UaXAgwrcgQXNrIEdyb2sgYWJvdXQgdGhlIGRvY3MgKH4vLmdyb2svZG9jcy91c2VyLWd1aWRlKSwgZS5nLiAiaG93IGRvIEkgc2V0IHVwIE1DUD8iG1szMjszMkgbWzIzbRtbMW3ihpEv4oaTG1syMm0bWzJtG1sybSBuYXYbWzMyOzQxSBtbMjJtfBtbMzI7NDRIG1sxbUVudGVyG1syMm0bWzJtG1sybSBzZWxlY3QbWzMyOzU4SBtbMjJtfBtbMzI7NjFIG1sxbUVzYxtbMjJtG1sybRtbMm0gY2xvc2UbWzM5bRtbNDltG1s1OW0bWzBtG1s/MjVsG1s/MjAyNmw="
+        },
+        {
+          "ms": 4215.031083,
+          "action": "howto-dismiss",
+          "offset": 16047,
+          "inputHex": "1b",
+          "observedMs": 4519.636,
+          "markerFound": null,
+          "endOffset": 16361
+        },
+        {
+          "ms": 4367.851375,
+          "output": "\u001b[?2026h\u001b[15;1H\u001b[J\u001b[15;1H\u001b[J",
+          "bytesBase64": "G1s/MjAyNmgbWzE1OzFIG1tKG1sxNTsxSBtbSg=="
+        },
+        {
+          "ms": 4367.903625,
+          "output": "\u001b[?2026h\u001b[15;1H\u001b[2mminimal · /help                                                                                     \u001b[16;1H\u001b[22m❯\u001b[17;1Hreference-fixture\u001b[2m · \u001b[22m1.5K\u001b[17;26H/\u001b[17;28H128K\u001b[17;33H(1%)\u001b[2m · \u001b[22mctrl+o\u001b[17;47Htranscript\u001b[39m\u001b[49m\u001b[59m\u001b[0m\u001b[16;3H\u001b[?25h\u001b[?2026l",
+          "bytesBase64": "G1s/MjAyNmgbWzE1OzFIG1sybW1pbmltYWwgwrcgL2hlbHAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgG1sxNjsxSBtbMjJt4p2vG1sxNzsxSHJlZmVyZW5jZS1maXh0dXJlG1sybSDCtyAbWzIybTEuNUsbWzE3OzI2SC8bWzE3OzI4SDEyOEsbWzE3OzMzSCgxJSkbWzJtIMK3IBtbMjJtY3RybCtvG1sxNzs0N0h0cmFuc2NyaXB0G1szOW0bWzQ5bRtbNTltG1swbRtbMTY7M0gbWz8yNWgbWz8yMDI2bA=="
+        },
+        {
+          "ms": 4680.750166,
+          "action": "guides-open",
+          "offset": 16361,
+          "inputHex": "2f6775696465730d",
+          "observedMs": 4726.544875,
+          "markerFound": true,
+          "endOffset": 18276
+        },
+        {
+          "ms": 4684.91675,
+          "output": "\u001b[?2026h\u001b[15;1H\u001b[J\u001b[15;1H\u001b[J",
+          "bytesBase64": "G1s/MjAyNmgbWzE1OzFIG1tKG1sxNTsxSBtbSg=="
+        },
+        {
+          "ms": 4685.033708,
+          "output": "\u001b[?2026h\u001b[15;3H\u001b[1mHow-to Guides\u001b[17;4H\u001b[22m/\u001b[17;6Hto\u001b[17;9Hsearch\u001b[18;1H────────────────────────────────────────────────────────────────────────────────────────────────────\u001b[19;3H\u001b[38;5;6;49m◆ \u001b[1mGetting Started\u001b[19;52H\u001b[22mInstallation, first launch, and basic intera…\u001b[20;3H\u001b[39;49m◆\u001b[20;5HAuthentication\u001b[20;52HBrowser\u001b[20;60Hlogin,\u001b[20;67HAPI\u001b[20;71Hkeys,\u001b[20;77HOIDC,\u001b[20;83Hexternal\u001b[20;92Hauth…\u001b[21;3H◆\u001b[21;5HKeyboard\u001b[21;14HShortcuts\u001b[21;54HComplete\u001b[21;63Hreference\u001b[21;73Hfor\u001b[21;77Hall\u001b[21;81HTUI\u001b[21;85Hkey\u001b[21;89Hbindings\u001b[22;3H◆\u001b[22;5HSlash\u001b[22;11HCommands\u001b[22;52HAll\u001b[22;56H/\u001b[22;58Hcommands,\u001b[22;68Hincluding\u001b[22;78Hgoals,\u001b[22;85Hresearch,\u001b[22;95Ha…\u001b[23;3H◆\u001b[23;5HConfiguration\u001b[23;52Hconfig.toml,\u001b[23;65Hpager.toml,\u001b[23;77Henvironment\u001b[23;89Hvariabl…\u001b[24;3H◆\u001b[24;5HTheming\u001b[24;13Hand\u001b",
+          "bytesBase64": "G1s/MjAyNmgbWzE1OzNIG1sxbUhvdy10byBHdWlkZXMbWzE3OzRIG1syMm0vG1sxNzs2SHRvG1sxNzs5SHNlYXJjaBtbMTg7MUjilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIAbWzE5OzNIG1szODs1OzY7NDlt4peGIBtbMW1HZXR0aW5nIFN0YXJ0ZWQbWzE5OzUySBtbMjJtSW5zdGFsbGF0aW9uLCBmaXJzdCBsYXVuY2gsIGFuZCBiYXNpYyBpbnRlcmHigKYbWzIwOzNIG1szOTs0OW3il4YbWzIwOzVIQXV0aGVudGljYXRpb24bWzIwOzUySEJyb3dzZXIbWzIwOzYwSGxvZ2luLBtbMjA7NjdIQVBJG1syMDs3MUhrZXlzLBtbMjA7NzdIT0lEQywbWzIwOzgzSGV4dGVybmFsG1syMDs5MkhhdXRo4oCmG1syMTszSOKXhhtbMjE7NUhLZXlib2FyZBtbMjE7MTRIU2hvcnRjdXRzG1syMTs1NEhDb21wbGV0ZRtbMjE7NjNIcmVmZXJlbmNlG1syMTs3M0hmb3IbWzIxOzc3SGFsbBtbMjE7ODFIVFVJG1syMTs4NUhrZXkbWzIxOzg5SGJpbmRpbmdzG1syMjszSOKXhhtbMjI7NUhTbGFzaBtbMjI7MTFIQ29tbWFuZHMbWzIyOzUySEFsbBtbMjI7NTZILxtbMjI7NThIY29tbWFuZHMsG1syMjs2OEhpbmNsdWRpbmcbWzIyOzc4SGdvYWxzLBtbMjI7ODVIcmVzZWFyY2gsG1syMjs5NUhh4oCmG1syMzszSOKXhhtbMjM7NUhDb25maWd1cmF0aW9uG1syMzs1Mkhjb25maWcudG9tbCwbWzIzOzY1SHBhZ2VyLnRvbWwsG1syMzs3N0hlbnZpcm9ubWVudBtbMjM7ODlIdmFyaWFibOKAphtbMjQ7M0jil4YbWzI0OzVIVGhlbWluZxtbMjQ7MTNIYW5kGw=="
+        },
+        {
+          "ms": 4685.064083,
+          "output": "[24;17HAppearance\u001b[24;52HThemes,\u001b[24;60Hcolor\u001b[24;66Hsupport,\u001b[24;75Hpager.toml\u001b[24;86Hcustomizat…\u001b[25;3H◆\u001b[25;5HMCP\u001b[25;9HServers\u001b[25;52HSetting\u001b[25;60Hup\u001b[25;63Hexternal\u001b[25;72Htool\u001b[25;77Hintegrations\u001b[25;90Hvia\u001b[25;94HMCP\u001b[26;3H◆\u001b[26;5HSkills\u001b[26;54HCreating\u001b[26;63Hand\u001b[26;67Husing\u001b[26;73Hreusable\u001b[26;82Hprompt\u001b[26;89Hpackages\u001b[27;3H◆\u001b[27;5HPlugins\u001b[27;13Hand\u001b[27;17HMarketplace\u001b[27;52HInstalling,\u001b[27;64Hmanaging,\u001b[27;74Hand\u001b[27;78Hcreating\u001b[27;87Hplugin\u001b[27;94Hpa…\u001b[28;3H◆\u001b[28;5HHooks\u001b[28;52HProject\u001b[28;60Hlifecycle\u001b[28;70Hscripts\u001b[28;78Hfor\u001b[28;82Hpre/post\u001b[28;91Htool-…\u001b[30;9H\u001b[3mTip · Ask Grok about the docs (~/.grok/docs/user-guide), e.g. \"how do I set up MCP?\"\u001b[32;32H\u001b[23m\u001b[1m↑/↓\u001b[22m\u001b[2m\u001b[2m nav\u001b[32;41H\u001b[22m|\u001b[32;44H\u001b[1mEnter\u001b[22m\u001b[2m\u001b[2m select\u001b[32;58H\u001b[22m|\u001b[32;61H\u001b[1mEsc\u001b[22m\u001b[2m\u001b[2m close\u001b[39m\u001b[49m\u001b[59m\u001b[0m\u001b[?25l\u001b[?2026l",
+          "bytesBase64": "WzI0OzE3SEFwcGVhcmFuY2UbWzI0OzUySFRoZW1lcywbWzI0OzYwSGNvbG9yG1syNDs2NkhzdXBwb3J0LBtbMjQ7NzVIcGFnZXIudG9tbBtbMjQ7ODZIY3VzdG9taXphdOKAphtbMjU7M0jil4YbWzI1OzVITUNQG1syNTs5SFNlcnZlcnMbWzI1OzUySFNldHRpbmcbWzI1OzYwSHVwG1syNTs2M0hleHRlcm5hbBtbMjU7NzJIdG9vbBtbMjU7NzdIaW50ZWdyYXRpb25zG1syNTs5MEh2aWEbWzI1Ozk0SE1DUBtbMjY7M0jil4YbWzI2OzVIU2tpbGxzG1syNjs1NEhDcmVhdGluZxtbMjY7NjNIYW5kG1syNjs2N0h1c2luZxtbMjY7NzNIcmV1c2FibGUbWzI2OzgySHByb21wdBtbMjY7ODlIcGFja2FnZXMbWzI3OzNI4peGG1syNzs1SFBsdWdpbnMbWzI3OzEzSGFuZBtbMjc7MTdITWFya2V0cGxhY2UbWzI3OzUySEluc3RhbGxpbmcsG1syNzs2NEhtYW5hZ2luZywbWzI3Ozc0SGFuZBtbMjc7NzhIY3JlYXRpbmcbWzI3Ozg3SHBsdWdpbhtbMjc7OTRIcGHigKYbWzI4OzNI4peGG1syODs1SEhvb2tzG1syODs1MkhQcm9qZWN0G1syODs2MEhsaWZlY3ljbGUbWzI4OzcwSHNjcmlwdHMbWzI4Ozc4SGZvchtbMjg7ODJIcHJlL3Bvc3QbWzI4OzkxSHRvb2wt4oCmG1szMDs5SBtbM21UaXAgwrcgQXNrIEdyb2sgYWJvdXQgdGhlIGRvY3MgKH4vLmdyb2svZG9jcy91c2VyLWd1aWRlKSwgZS5nLiAiaG93IGRvIEkgc2V0IHVwIE1DUD8iG1szMjszMkgbWzIzbRtbMW3ihpEv4oaTG1syMm0bWzJtG1sybSBuYXYbWzMyOzQxSBtbMjJtfBtbMzI7NDRIG1sxbUVudGVyG1syMm0bWzJtG1sybSBzZWxlY3QbWzMyOzU4SBtbMjJtfBtbMzI7NjFIG1sxbUVzYxtbMjJtG1sybRtbMm0gY2xvc2UbWzM5bRtbNDltG1s1OW0bWzBtG1s/MjVsG1s/MjAyNmw="
+        },
+        {
+          "ms": 4884.630541,
+          "action": "guides-dismiss",
+          "offset": 18276,
+          "inputHex": "1b",
+          "observedMs": 5186.295375,
+          "markerFound": null,
+          "endOffset": 18590
+        },
+        {
+          "ms": 5036.645333,
+          "output": "\u001b[?2026h\u001b[15;1H\u001b[J\u001b[15;1H\u001b[J",
+          "bytesBase64": "G1s/MjAyNmgbWzE1OzFIG1tKG1sxNTsxSBtbSg=="
+        },
+        {
+          "ms": 5036.703541,
+          "output": "\u001b[?2026h\u001b[15;1H\u001b[2mminimal · /help                                                                                     \u001b[16;1H\u001b[22m❯\u001b[17;1Hreference-fixture\u001b[2m · \u001b[22m1.5K\u001b[17;26H/\u001b[17;28H128K\u001b[17;33H(1%)\u001b[2m · \u001b[22mctrl+o\u001b[17;47Htranscript\u001b[39m\u001b[49m\u001b[59m\u001b[0m\u001b[16;3H\u001b[?25h\u001b[?2026l",
+          "bytesBase64": "G1s/MjAyNmgbWzE1OzFIG1sybW1pbmltYWwgwrcgL2hlbHAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgG1sxNjsxSBtbMjJt4p2vG1sxNzsxSHJlZmVyZW5jZS1maXh0dXJlG1sybSDCtyAbWzIybTEuNUsbWzE3OzI2SC8bWzE3OzI4SDEyOEsbWzE3OzMzSCgxJSkbWzJtIMK3IBtbMjJtY3RybCtvG1sxNzs0N0h0cmFuc2NyaXB0G1szOW0bWzQ5bRtbNTltG1swbRtbMTY7M0gbWz8yNWgbWz8yMDI2bA=="
+        },
+        {
+          "ms": 5347.536041,
+          "action": "docs-invalid",
+          "offset": 18590,
+          "inputHex": "2f646f6373205245464552454e43455f4e4f5f535543485f47554944450d",
+          "observedMs": 5391.469416,
+          "markerFound": true,
+          "endOffset": 19139
+        },
+        {
+          "ms": 5351.929833,
+          "output": "\u001b[?2026h\u001b[15;1H\u001b[2mUnknown docs target \"REFERENCE_NO_SUCH_GUIDE\". Try /docs, /docs web, or a guide title (e.g. /docs\u001b[22m   \u001b[16;1H\u001b[2mGetting Started).\u001b[22m                                                                                   \u001b[39m\u001b[49m\u001b[59m\u001b[0m\u001b[17;1H\u001b[J",
+          "bytesBase64": "G1s/MjAyNmgbWzE1OzFIG1sybVVua25vd24gZG9jcyB0YXJnZXQgIlJFRkVSRU5DRV9OT19TVUNIX0dVSURFIi4gVHJ5IC9kb2NzLCAvZG9jcyB3ZWIsIG9yIGEgZ3VpZGUgdGl0bGUgKGUuZy4gL2RvY3MbWzIybSAgIBtbMTY7MUgbWzJtR2V0dGluZyBTdGFydGVkKS4bWzIybSAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgG1szOW0bWzQ5bRtbNTltG1swbRtbMTc7MUgbW0o="
+        },
+        {
+          "ms": 5351.987125,
+          "output": "\u001b[?2026h\u001b[17;1H\u001b[2mminimal · /help                                                                                     \u001b[18;1H\u001b[22m❯\u001b[19;1Hreference-fixture\u001b[2m · \u001b[22m1.5K\u001b[19;26H/\u001b[19;28H128K\u001b[19;33H(1%)\u001b[2m · \u001b[22mctrl+o\u001b[19;47Htranscript\u001b[39m\u001b[49m\u001b[59m\u001b[0m\u001b[18;3H\u001b[?2026l",
+          "bytesBase64": "G1s/MjAyNmgbWzE3OzFIG1sybW1pbmltYWwgwrcgL2hlbHAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgG1sxODsxSBtbMjJt4p2vG1sxOTsxSHJlZmVyZW5jZS1maXh0dXJlG1sybSDCtyAbWzIybTEuNUsbWzE5OzI2SC8bWzE5OzI4SDEyOEsbWzE5OzMzSCgxJSkbWzJtIMK3IBtbMjJtY3RybCtvG1sxOTs0N0h0cmFuc2NyaXB0G1szOW0bWzQ5bRtbNTltG1swbRtbMTg7M0gbWz8yMDI2bA=="
+        },
+        {
+          "ms": 5550.520041,
+          "action": "debug-open",
+          "offset": 19139,
+          "inputHex": "2f6465627567206670730d",
+          "observedMs": 5854.250541,
+          "markerFound": null,
+          "endOffset": 19139
+        },
+        {
+          "ms": 6020.164541,
+          "action": "debug-off",
+          "offset": 19139,
+          "inputHex": "2f6465627567206670730d",
+          "observedMs": 6327.792333,
+          "markerFound": null,
+          "endOffset": 19139
+        },
+        {
+          "ms": 6489.644541,
+          "action": "debug-invalid",
+          "offset": 19139,
+          "inputHex": "2f6465627567205245464552454e43455f494e56414c49440d",
+          "observedMs": 6533.408125,
+          "markerFound": true,
+          "endOffset": 19572
+        },
+        {
+          "ms": 6493.544416,
+          "output": "\u001b[?2026h\u001b[17;1H\u001b[2mUnknown /debug option 'REFERENCE_INVALID'. Usage: /debug [scroll|fps|log]\u001b[22m                           \u001b[39m\u001b[49m\u001b[59m\u001b[0m\u001b[18;1H\u001b[J",
+          "bytesBase64": "G1s/MjAyNmgbWzE3OzFIG1sybVVua25vd24gL2RlYnVnIG9wdGlvbiAnUkVGRVJFTkNFX0lOVkFMSUQnLiBVc2FnZTogL2RlYnVnIFtzY3JvbGx8ZnBzfGxvZ10bWzIybSAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbMzltG1s0OW0bWzU5bRtbMG0bWzE4OzFIG1tK"
+        },
+        {
+          "ms": 6493.598375,
+          "output": "\u001b[?2026h\u001b[18;1H\u001b[2mminimal · /help                                                                                     \u001b[19;1H\u001b[22m❯\u001b[20;1Hreference-fixture\u001b[2m · \u001b[22m1.5K\u001b[20;26H/\u001b[20;28H128K\u001b[20;33H(1%)\u001b[2m · \u001b[22mctrl+o\u001b[20;47Htranscript\u001b[39m\u001b[49m\u001b[59m\u001b[0m\u001b[19;3H\u001b[?2026l",
+          "bytesBase64": "G1s/MjAyNmgbWzE4OzFIG1sybW1pbmltYWwgwrcgL2hlbHAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgG1sxOTsxSBtbMjJt4p2vG1syMDsxSHJlZmVyZW5jZS1maXh0dXJlG1sybSDCtyAbWzIybTEuNUsbWzIwOzI2SC8bWzIwOzI4SDEyOEsbWzIwOzMzSCgxJSkbWzJtIMK3IBtbMjJtY3RybCtvG1syMDs0N0h0cmFuc2NyaXB0G1szOW0bWzQ5bRtbNTltG1swbRtbMTk7M0gbWz8yMDI2bA=="
+        },
+        {
+          "ms": 6695.12,
+          "action": "after-ui-draft",
+          "offset": 19572,
+          "inputHex": "41465445525f55495f50524f4245",
+          "observedMs": 6735.303333,
+          "markerFound": true,
+          "endOffset": 19644
+        },
+        {
+          "ms": 6697.7935,
+          "output": "\u001b[?2026h\u001b[?2026h\u001b[19;3HAFTER_UI_PROBE\u001b[39m\u001b[49m\u001b[59m\u001b[0m\u001b[19;17H\u001b[?2026l",
+          "bytesBase64": "G1s/MjAyNmgbWz8yMDI2aBtbMTk7M0hBRlRFUl9VSV9QUk9CRRtbMzltG1s0OW0bWzU5bRtbMG0bWzE5OzE3SBtbPzIwMjZs"
+        },
+        {
+          "ms": 6898.625291,
+          "action": "after-ui-clear",
+          "offset": 19644,
+          "inputHex": "03",
+          "observedMs": 7209.177916,
+          "markerFound": null,
+          "endOffset": 19715
+        },
+        {
+          "ms": 6898.763,
+          "output": "\u001b[?2026h\u001b[?2026h\u001b[19;3H              \u001b[39m\u001b[49m\u001b[59m\u001b[0m\u001b[19;3H\u001b[?2026l",
+          "bytesBase64": "G1s/MjAyNmgbWz8yMDI2aBtbMTk7M0ggICAgICAgICAgICAgIBtbMzltG1s0OW0bWzU5bRtbMG0bWzE5OzNIG1s/MjAyNmw="
+        },
+        {
+          "ms": 7365.568166,
+          "action": "quit",
+          "offset": 19715,
+          "inputHex": "2f717569740d",
+          "observedMs": 7439.135708,
+          "markerFound": null,
+          "endOffset": 19905
+        },
+        {
+          "ms": 7369.99225,
+          "output": "\u001b]0;grok\u0007",
+          "bytesBase64": "G10wO2dyb2sH"
+        },
+        {
+          "ms": 7372.390541,
+          "output": "\u001b]9;4;0;0\u0007\u001b[?2026l\u001b[?1000l\u001b[?1002l\u001b[?1003l\u001b[?1015l\u001b[?1006l\u001b[?2004l\u001b[?1004l",
+          "bytesBase64": "G105OzQ7MDswBxtbPzIwMjZsG1s/MTAwMGwbWz8xMDAybBtbPzEwMDNsG1s/MTAxNWwbWz8xMDA2bBtbPzIwMDRsG1s/MTAwNGw="
+        },
+        {
+          "ms": 7372.400916,
+          "output": "\u001b[21;",
+          "bytesBase64": "G1syMTs="
+        },
+        {
+          "ms": 7372.403958,
+          "output": "1H\u001b[?25h\n",
+          "bytesBase64": "MUgbWz8yNWgK"
+        },
+        {
+          "ms": 7436.35925,
+          "output": "\r\nResume this session with:\r\n  grok --minimal --resume 01a0bb2f-9ec0-7772-81f6-e6710170ae16\r\n",
+          "bytesBase64": "DQpSZXN1bWUgdGhpcyBzZXNzaW9uIHdpdGg6DQogIGdyb2sgLS1taW5pbWFsIC0tcmVzdW1lIDAxYTBiYjJmLTllYzAtNzc3Mi04MWY2LWU2NzEwMTcwYWUxNg0K"
+        }
+      ],
+      "firstFrameMs": 287.118166,
+      "rss": [
+        {
+          "action": "draft",
+          "ms": 490.166708,
+          "rssKiB": 93280
+        },
+        {
+          "action": "clear-draft",
+          "ms": 946.91525,
+          "rssKiB": 93248
+        },
+        {
+          "action": "help-open",
+          "ms": 1154.307791,
+          "rssKiB": 94112
+        },
+        {
+          "action": "help-filter",
+          "ms": 1352.483833,
+          "rssKiB": 94176
+        },
+        {
+          "action": "help-dismiss",
+          "ms": 1825.813916,
+          "rssKiB": 94176
+        },
+        {
+          "action": "help-close",
+          "ms": 2299.050958,
+          "rssKiB": 94208
+        },
+        {
+          "action": "docs-open",
+          "ms": 2496.36825,
+          "rssKiB": 94256
+        },
+        {
+          "action": "docs-select",
+          "ms": 2714.165833,
+          "rssKiB": 112768
+        },
+        {
+          "action": "docs-scroll",
+          "ms": 2914.092583,
+          "rssKiB": 112784
+        },
+        {
+          "action": "docs-reader-dismiss",
+          "ms": 3383.882375,
+          "rssKiB": 112800
+        },
+        {
+          "action": "docs-close",
+          "ms": 3846.057333,
+          "rssKiB": 112800
+        },
+        {
+          "action": "howto-open",
+          "ms": 4053.766416,
+          "rssKiB": 112320
+        },
+        {
+          "action": "howto-dismiss",
+          "ms": 4523.4305,
+          "rssKiB": 112320
+        },
+        {
+          "action": "guides-open",
+          "ms": 4730.2635,
+          "rssKiB": 112320
+        },
+        {
+          "action": "guides-dismiss",
+          "ms": 5190.402,
+          "rssKiB": 112272
+        },
+        {
+          "action": "docs-invalid",
+          "ms": 5397.084875,
+          "rssKiB": 112400
+        },
+        {
+          "action": "debug-open",
+          "ms": 5859.36525,
+          "rssKiB": 112400
+        },
+        {
+          "action": "debug-off",
+          "ms": 6331.838375,
+          "rssKiB": 112432
+        },
+        {
+          "action": "debug-invalid",
+          "ms": 6536.94025,
+          "rssKiB": 112432
+        },
+        {
+          "action": "after-ui-draft",
+          "ms": 6742.050041,
+          "rssKiB": 112432
+        },
+        {
+          "action": "after-ui-clear",
+          "ms": 7213.213333,
+          "rssKiB": 112432
+        },
+        {
+          "action": "quit",
+          "ms": 7442.506916,
+          "rssKiB": 0
+        }
+      ],
+      "exit": 0,
+      "forcedCleanup": false,
+      "restoredAlternateScreen": false,
+      "outputBytes": 19905,
+      "outputSha256": "5e58d8562173dac90888056c7e5fb1e8eb2b07b235e0e0899a65ed8054438ce0"
+    }
+  ],
+  "uiCapturedAt": "2026-09-19T19:40:34Z"
 }

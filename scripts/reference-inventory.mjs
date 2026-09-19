@@ -102,6 +102,14 @@ export function extractSurfaces(capture, sources) {
         `capture:tutorialProbes/${index}/events/${eventIndex}`, 'binary-pty-observation')
     }
   }
+  for (const [index, terminal] of (capture.uiProbes ?? []).entries()) {
+    for (const name of ['help', 'docs', 'howto', 'guides', 'debug']) {
+      const action = terminal.events.find(event => event.action === `${name}-open`)
+      const eventIndex = terminal.events.findIndex(event => event.output && action && event.ms >= action.ms && event.ms <= action.observedMs)
+      if (eventIndex >= 0) add('slash', name, terminal.events[eventIndex].output,
+        `capture:uiProbes/${index}/events/${eventIndex}`, 'binary-pty-observation')
+    }
+  }
   for (const [index, terminal] of (capture.environmentProbes ?? []).entries()) {
     if (terminal.environment?.GROK_FPS === '1') {
       const eventIndex = terminal.events.findIndex(event => /fps/iu.test(event.output ?? ''))

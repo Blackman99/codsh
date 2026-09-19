@@ -107,6 +107,10 @@ The validator resolves capture/guide/schema/source-fragment evidence and enforce
 the binary pin; changing a locator and recomputing the inventory digest is not
 verification. Audit semantic ownership: terminal gestures need their actual
 UI/session behavior, and headless input options need provider-wire assertions.
+Classify by the contract's context, not isolated words: permission matching and
+authorization require security-effect acceptance, not Skills or authentication
+scenarios. Interactive help/docs/diagnostics require real terminal acceptance;
+feature-gated panes retain explicit availability blockers until exercised.
 The portable checker requires independent source-only coverage as well as captured
 behavior; paired deletion from discovery and inventory must fail. Source evidence
 contains command enum/argument relationships that seed hidden-command help probes.
@@ -114,7 +118,9 @@ The driver defaults to the checked-in `source-evidence.json`; use
 `--source-evidence <path>` for a freshly regenerated artifact. All command-tree probes append
 `--help`, never execute the underlying operation, and retain rejected source-only
 paths as unverified. The offline probe also covers compatibility options, paired
-FPS runs, and fullscreen/minimal tutorial navigation/aliases/dismissal. The model
+FPS runs, fullscreen/minimal tutorial navigation, and help/docs palette/reader
+filtering, scrolling, aliases, dismissal, debug FPS toggling and error recovery.
+It does not open the personal browser or verify live dock resources. The model
 probe rejects malformed structured output and missing terminal events.
 Freeze measured numeric performance thresholds before collecting candidate data.
 Run the ordinary typecheck and full unit suite for changes to these workflows.

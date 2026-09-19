@@ -103,7 +103,7 @@ class Reference:
                 'elapsedMs': (time.perf_counter_ns() - start) / 1e6,
                 'stdout': stdout.decode(errors='replace'), 'stderr': stderr.decode(errors='replace')}
 
-    def terminal(self, mode, environment=None, tutorial=False):
+    def terminal(self, mode, environment=None, tutorial=False, ui_tools=False):
         env = {**self.env, **(environment or {})}
         start = time.perf_counter_ns()
         pid, fd = pty.fork()
@@ -169,7 +169,26 @@ class Reference:
             first_frame = elapsed() if ready else None
             send('draft', b'REFERENCE133', b'REFERENCE133')
             send('clear-draft', b'\x03')
-            if tutorial:
+            if ui_tools:
+                send('help-open', b'/help\r', b'Commands')
+                send('help-filter', b'How-to', sync)
+                send('help-dismiss', b'\x1b')
+                send('help-close', b'\x1b')
+                send('docs-open', b'/docs\r', b'How-to Guides')
+                send('docs-select', b'\r', sync)
+                send('docs-scroll', b'\x1b[6~', sync)
+                send('docs-reader-dismiss', b'\x1b')
+                send('docs-close', b'\x1b')
+                for alias in ['howto', 'guides']:
+                    send(f'{alias}-open', f'/{alias}\r'.encode(), b'How-to Guides')
+                    send(f'{alias}-dismiss', b'\x1b')
+                send('docs-invalid', b'/docs REFERENCE_NO_SUCH_GUIDE\r', b'Unknown docs target')
+                send('debug-open', b'/debug fps\r', b'fps debug' if mode == 'fullscreen' else None)
+                send('debug-off', b'/debug fps\r')
+                send('debug-invalid', b'/debug REFERENCE_INVALID\r', sync)
+                send('after-ui-draft', b'AFTER_UI_PROBE', b'AFTER_UI_PROBE')
+                send('after-ui-clear', b'\x03')
+            elif tutorial:
                 marker = b'Welcome to Grok Build' if mode == 'fullscreen' else b"isn't available in minimal mode"
                 send('tutorial-open', b'/tutorial\r', marker)
                 if mode == 'fullscreen':
@@ -281,6 +300,7 @@ def main():
         result['environmentProbes'] = [reference.terminal('fullscreen', {'GROK_FPS': '0'}),
                                        reference.terminal('fullscreen', {'GROK_FPS': '1'})]
         result['tutorialProbes'] = [reference.terminal(mode, tutorial=True) for mode in ['fullscreen', 'minimal']]
+        result['uiProbes'] = [reference.terminal(mode, ui_tools=True) for mode in ['fullscreen', 'minimal']]
         for mode in ['fullscreen', 'minimal']:
             for index in range(args.samples):
                 observation = reference.terminal(mode)
@@ -298,14 +318,14 @@ def main():
         (args.output / 'observations.json').write_text(encoded + '\n')
     if any(item['exit'] != 0 or item['forcedCleanup'] or item['firstFrameMs'] is None
            or any(event.get('markerFound') is False for event in item['events'])
-           for item in result['terminals'] + result['environmentProbes'] + result['tutorialProbes']):
+           for item in result['terminals'] + result['environmentProbes'] + result['tutorialProbes'] + result['uiProbes']):
         raise SystemExit('Reference PTY assertion failed; raw observations were preserved.')
     fps = [any('fps' in event.get('output', '').lower() for event in terminal['events'])
            for terminal in result['environmentProbes']]
     if fps != [False, True]:
         raise SystemExit('GROK_FPS paired observation failed; raw evidence was preserved.')
     print(json.dumps({'commands': len(result['commands']), 'guides': len(result['guides']),
-                      'terminals': len(result['terminals']), 'environmentProbes': len(result['environmentProbes']), 'tutorialProbes': len(result['tutorialProbes']), 'output': str(args.output)}))
+                      'terminals': len(result['terminals']), 'environmentProbes': len(result['environmentProbes']), 'tutorialProbes': len(result['tutorialProbes']), 'uiProbes': len(result['uiProbes']), 'output': str(args.output)}))
 
 
 if __name__ == '__main__':

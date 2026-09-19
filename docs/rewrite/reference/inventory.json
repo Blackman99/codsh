@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "discoverySha256": "772c227ab7c96a2451739fdc8ac317cf2d72a2c06c8632075680cd22516dba9a",
+  "discoverySha256": "df7dd7af4f9f5cd415f8e7f23ee75d92e6ad40a17df059f7ea243bb90c92cb28",
   "tickets": [
     {
       "number": 133,
@@ -1589,6 +1589,56 @@
       "then": "actual exposure/drain/reconnect state agrees with status JSON and selected workspace/owner; stop leaves the leader running as specified; restart preserves the requested configuration",
       "failure": "disabled gate, invalid PID, rejected authentication, unreachable hub and interruption do not expose a different workspace or duplicate remote execution",
       "boundary": "installed command interface and controlled remote service; help-only recognition is not execution evidence"
+    },
+    {
+      "id": "PARITY-142-security-effects",
+      "ticket": 142,
+      "status": "planned",
+      "given": "an isolated repository, protected canary files, synthetic MCP/web endpoints, remembered grants, and conflicting allow/ask/deny rules from CLI and every supported config scope",
+      "when": "exercise each documented mode and rule family against direct tools and real shell segments, including prefix/glob boundaries, chained commands, wrappers, lexical traversal, symlink targets, read-only exemptions and dangerous commands",
+      "then": "assert actual permitted effects and unchanged protected state on denial; observed prompts and grant persistence follow deny-over-ask-over-allow and the documented mode exceptions; nonmatching allow rules do not become a closed allowlist",
+      "failure": "malformed rules, unresolved paths, stale approvals, noninteractive ask and cross-project grants cannot silently authorize unintended effects; PreToolUse denial remains effective under automatic approval and hook allow does not override a deny",
+      "boundary": "installed product tool/approval lifecycle plus filesystem/process/service effects; not Skills discovery, OAuth login or composer editing"
+    },
+    {
+      "id": "PARITY-154-help",
+      "ticket": 154,
+      "status": "planned",
+      "given": "fullscreen and minimal real PTYs with a draft, queue and known command catalog",
+      "when": "open /help or Ctrl+P, filter the command palette, navigate results, select a local command and dismiss through Escape",
+      "then": "the visible filtered selection executes the intended command once; dismissal restores focus and unrelated draft/queue/session state; no model turn is submitted merely by opening help",
+      "failure": "empty/no-match query, mode-filtered commands, resize and cancellation leave an operable prompt and do not invoke a hidden selection",
+      "boundary": "real terminal command-palette interaction and session effects, not command-line --help"
+    },
+    {
+      "id": "PARITY-154-docs",
+      "ticket": 154,
+      "status": "planned",
+      "given": "fullscreen and minimal PTYs, bundled guide content and a controlled browser opener",
+      "when": "open /docs, /howto and /guides; filter/select/read/scroll a guide, use a title argument, dismiss nested views and exercise web target through the controlled opener",
+      "then": "the selected title and complete document render in the correct view; aliases agree and dismissal restores prompt/focus without sending a model request; explicit web target opens only the documented URL",
+      "failure": "unknown title, no-match search, narrow resize, opener failure and cancellation are actionable and preserve session/draft/queue",
+      "boundary": "real terminal picker/viewer and controlled OS opener; offline probe does not launch a personal browser"
+    },
+    {
+      "id": "PARITY-154-debug",
+      "ticket": 154,
+      "status": "planned",
+      "given": "real PTYs in each supported mode with synthetic transcript and an isolated diagnostic-output directory",
+      "when": "invoke /debug status, fps, scroll and log; toggle twice, use /scroll-debug alias, submit an invalid subcommand and quit",
+      "then": "reported toggle state agrees with actual overlays and local diagnostic file effects; changing diagnostics preserves prompt/transcript and release visibility rules; off removes the overlay",
+      "failure": "unsupported mode, invalid subcommand, unwritable log directory and resize return explicit outcomes and clean terminal teardown without sending data externally",
+      "boundary": "real terminal frames and actual local log effects; FPS-only observation does not verify every diagnostic variant"
+    },
+    {
+      "id": "PARITY-152-dock",
+      "ticket": 152,
+      "status": "planned",
+      "given": "real fullscreen/minimal PTYs with the dock gate disabled and enabled, multiple queued prompts, child agents, tasks and watchers",
+      "when": "establish frozen-binary availability, then focus/open/switch/close each consolidated dock pane, navigate selections, resize and switch sessions while items update",
+      "then": "only supported variants expose the dock; pane focus and selected item identify the correct live resource; dismissal restores draft/reading position and no queue/task is executed by navigation",
+      "failure": "disabled gate, empty or stale pane, canceled child/task and unsupported mode remain explicit with no invisible input trap or fabricated progress",
+      "boundary": "real terminal interaction plus queue/child/task state; availability is unverified until the feature-enabled frozen reference is exercised"
     }
   ],
   "items": [
@@ -17022,7 +17072,7 @@
         142
       ],
       "acceptance": [
-        "PARITY-142"
+        "PARITY-142-security-effects"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -17044,7 +17094,7 @@
         142
       ],
       "acceptance": [
-        "PARITY-142"
+        "PARITY-142-security-effects"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -17066,7 +17116,7 @@
         142
       ],
       "acceptance": [
-        "PARITY-142"
+        "PARITY-142-security-effects"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -17088,7 +17138,7 @@
         142
       ],
       "acceptance": [
-        "PARITY-142"
+        "PARITY-142-security-effects"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -17108,7 +17158,7 @@
         142
       ],
       "acceptance": [
-        "PARITY-142"
+        "PARITY-142-security-effects"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -17130,7 +17180,7 @@
         142
       ],
       "acceptance": [
-        "PARITY-142"
+        "PARITY-142-security-effects"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -20833,16 +20883,32 @@
     {
       "key": "environment:GROK_DOCK",
       "stories": [
-        8,
-        34,
-        35,
-        63
+        11,
+        15,
+        18,
+        19,
+        20,
+        21,
+        43,
+        59,
+        45,
+        47,
+        62,
+        46
       ],
       "tickets": [
-        139
+        152,
+        151,
+        173,
+        175,
+        176
       ],
       "acceptance": [
-        "PARITY-139"
+        "PARITY-152-dock",
+        "PARITY-151",
+        "PARITY-173",
+        "PARITY-175",
+        "PARITY-176"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -20851,7 +20917,7 @@
         "source:crates/codegen/xai-grok-pager-pty-harness/src/scenarios/empty_enter_send_now.rs#L76",
         "source-guide:26-config-reference.md#L209"
       ],
-      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
+      "blocker": "Dock availability and enabled-mode behavior in frozen 1.0.34 remain unverified; source/config declarations are not runtime verification. Exercise pane interactions and state effects before claiming parity."
     },
     {
       "key": "environment:GROK_DOCK_V2",
@@ -28779,20 +28845,38 @@
     {
       "key": "feature:dock",
       "stories": [
-        57,
-        70
+        11,
+        15,
+        18,
+        19,
+        20,
+        21,
+        43,
+        59,
+        45,
+        47,
+        62,
+        46
       ],
       "tickets": [
-        145
+        152,
+        151,
+        173,
+        175,
+        176
       ],
       "acceptance": [
-        "PARITY-145"
+        "PARITY-152-dock",
+        "PARITY-151",
+        "PARITY-173",
+        "PARITY-175",
+        "PARITY-176"
       ],
       "status": "pending-parity",
       "evidence": [
         "source:crates/codegen/xai-grok-config-types/src/registry.rs#L234"
       ],
-      "blocker": "Source export is 1.0.35, not a proven 1.0.34 match; verify availability and semantics against the frozen binary before candidate implementation."
+      "blocker": "Dock availability and enabled-mode behavior in frozen 1.0.34 remain unverified; source/config declarations are not runtime verification. Exercise pane interactions and state effects before claiming parity."
     },
     {
       "key": "feature:feedback",
@@ -44884,14 +44968,14 @@
     {
       "key": "guide-behavior:04-slash-commands.md:`/docs`:1",
       "stories": [
-        57,
-        70
+        17,
+        35
       ],
       "tickets": [
-        145
+        154
       ],
       "acceptance": [
-        "PARITY-145"
+        "PARITY-154-docs"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -44903,14 +44987,14 @@
     {
       "key": "guide-behavior:04-slash-commands.md:`/docs`:3",
       "stories": [
-        57,
-        70
+        17,
+        35
       ],
       "tickets": [
-        145
+        154
       ],
       "acceptance": [
-        "PARITY-145"
+        "PARITY-154-docs"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -69256,7 +69340,7 @@
         142
       ],
       "acceptance": [
-        "PARITY-142"
+        "PARITY-142-security-effects"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -69276,7 +69360,7 @@
         142
       ],
       "acceptance": [
-        "PARITY-142"
+        "PARITY-142-security-effects"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -69296,7 +69380,7 @@
         142
       ],
       "acceptance": [
-        "PARITY-142"
+        "PARITY-142-security-effects"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -69308,14 +69392,20 @@
     {
       "key": "guide-behavior:22-permissions-and-safety.md:2. Native Configuration (`~/.grok/config.toml` and `.grok/config.toml`):2",
       "stories": [
-        17,
-        35
+        24,
+        25,
+        27,
+        35,
+        36,
+        37
       ],
       "tickets": [
-        154
+        142,
+        141
       ],
       "acceptance": [
-        "PARITY-154"
+        "PARITY-142-security-effects",
+        "PARITY-141"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -69327,14 +69417,20 @@
     {
       "key": "guide-behavior:22-permissions-and-safety.md:2. Native Configuration (`~/.grok/config.toml` and `.grok/config.toml`):3",
       "stories": [
-        17,
-        35
+        24,
+        25,
+        27,
+        35,
+        36,
+        37
       ],
       "tickets": [
-        154
+        142,
+        141
       ],
       "acceptance": [
-        "PARITY-154"
+        "PARITY-142-security-effects",
+        "PARITY-141"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -69346,14 +69442,20 @@
     {
       "key": "guide-behavior:22-permissions-and-safety.md:2. Native Configuration (`~/.grok/config.toml` and `.grok/config.toml`):4",
       "stories": [
-        17,
-        35
+        24,
+        25,
+        27,
+        35,
+        36,
+        37
       ],
       "tickets": [
-        154
+        142,
+        141
       ],
       "acceptance": [
-        "PARITY-154"
+        "PARITY-142-security-effects",
+        "PARITY-141"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -69365,14 +69467,20 @@
     {
       "key": "guide-behavior:22-permissions-and-safety.md:2. Native Configuration (`~/.grok/config.toml` and `.grok/config.toml`):5",
       "stories": [
-        17,
-        35
+        24,
+        25,
+        27,
+        35,
+        36,
+        37
       ],
       "tickets": [
-        154
+        142,
+        141
       ],
       "acceptance": [
-        "PARITY-154"
+        "PARITY-142-security-effects",
+        "PARITY-141"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -69384,14 +69492,20 @@
     {
       "key": "guide-behavior:22-permissions-and-safety.md:2. Native Configuration (`~/.grok/config.toml` and `.grok/config.toml`):6",
       "stories": [
-        17,
-        35
+        24,
+        25,
+        27,
+        35,
+        36,
+        37
       ],
       "tickets": [
-        154
+        142,
+        141
       ],
       "acceptance": [
-        "PARITY-154"
+        "PARITY-142-security-effects",
+        "PARITY-141"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -69403,14 +69517,20 @@
     {
       "key": "guide-behavior:22-permissions-and-safety.md:2. Native Configuration (`~/.grok/config.toml` and `.grok/config.toml`):7",
       "stories": [
-        17,
-        35
+        24,
+        25,
+        27,
+        35,
+        36,
+        37
       ],
       "tickets": [
-        154
+        142,
+        141
       ],
       "acceptance": [
-        "PARITY-154"
+        "PARITY-142-security-effects",
+        "PARITY-141"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -69422,14 +69542,20 @@
     {
       "key": "guide-behavior:22-permissions-and-safety.md:2. Native Configuration (`~/.grok/config.toml` and `.grok/config.toml`):9",
       "stories": [
-        17,
-        35
+        24,
+        25,
+        27,
+        35,
+        36,
+        37
       ],
       "tickets": [
-        154
+        142,
+        141
       ],
       "acceptance": [
-        "PARITY-154"
+        "PARITY-142-security-effects",
+        "PARITY-141"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -69441,14 +69567,15 @@
     {
       "key": "guide-behavior:22-permissions-and-safety.md:3. Claude Code Compatibility (`.claude/settings.json`):1",
       "stories": [
-        17,
-        35
+        24,
+        25,
+        27
       ],
       "tickets": [
-        154
+        142
       ],
       "acceptance": [
-        "PARITY-154"
+        "PARITY-142-security-effects"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -69460,14 +69587,15 @@
     {
       "key": "guide-behavior:22-permissions-and-safety.md:3. Claude Code Compatibility (`.claude/settings.json`):2",
       "stories": [
-        17,
-        35
+        24,
+        25,
+        27
       ],
       "tickets": [
-        154
+        142
       ],
       "acceptance": [
-        "PARITY-154"
+        "PARITY-142-security-effects"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -69479,14 +69607,15 @@
     {
       "key": "guide-behavior:22-permissions-and-safety.md:3. Claude Code Compatibility (`.claude/settings.json`):4",
       "stories": [
-        17,
-        35
+        24,
+        25,
+        27
       ],
       "tickets": [
-        154
+        142
       ],
       "acceptance": [
-        "PARITY-154"
+        "PARITY-142-security-effects"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -69498,14 +69627,15 @@
     {
       "key": "guide-behavior:22-permissions-and-safety.md:3. Claude Code Compatibility (`.claude/settings.json`):5",
       "stories": [
-        17,
-        35
+        24,
+        25,
+        27
       ],
       "tickets": [
-        154
+        142
       ],
       "acceptance": [
-        "PARITY-154"
+        "PARITY-142-security-effects"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -69517,14 +69647,15 @@
     {
       "key": "guide-behavior:22-permissions-and-safety.md:3. Claude Code Compatibility (`.claude/settings.json`):6",
       "stories": [
-        17,
-        35
+        24,
+        25,
+        27
       ],
       "tickets": [
-        154
+        142
       ],
       "acceptance": [
-        "PARITY-154"
+        "PARITY-142-security-effects"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -69536,14 +69667,15 @@
     {
       "key": "guide-behavior:22-permissions-and-safety.md:3. Claude Code Compatibility (`.claude/settings.json`):7",
       "stories": [
-        17,
-        35
+        24,
+        25,
+        27
       ],
       "tickets": [
-        154
+        142
       ],
       "acceptance": [
-        "PARITY-154"
+        "PARITY-142-security-effects"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -69555,14 +69687,15 @@
     {
       "key": "guide-behavior:22-permissions-and-safety.md:3. Claude Code Compatibility (`.claude/settings.json`):8",
       "stories": [
-        17,
-        35
+        24,
+        25,
+        27
       ],
       "tickets": [
-        154
+        142
       ],
       "acceptance": [
-        "PARITY-154"
+        "PARITY-142-security-effects"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -69582,7 +69715,7 @@
         142
       ],
       "acceptance": [
-        "PARITY-142"
+        "PARITY-142-security-effects"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -69602,7 +69735,7 @@
         142
       ],
       "acceptance": [
-        "PARITY-142"
+        "PARITY-142-security-effects"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -69622,7 +69755,7 @@
         142
       ],
       "acceptance": [
-        "PARITY-142"
+        "PARITY-142-security-effects"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -69642,7 +69775,7 @@
         142
       ],
       "acceptance": [
-        "PARITY-142"
+        "PARITY-142-security-effects"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -69662,7 +69795,7 @@
         142
       ],
       "acceptance": [
-        "PARITY-142"
+        "PARITY-142-security-effects"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -69674,14 +69807,15 @@
     {
       "key": "guide-behavior:22-permissions-and-safety.md:Bash Rules:1",
       "stories": [
-        12,
-        37
+        24,
+        25,
+        27
       ],
       "tickets": [
-        163
+        142
       ],
       "acceptance": [
-        "PARITY-163"
+        "PARITY-142-security-effects"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -69693,14 +69827,15 @@
     {
       "key": "guide-behavior:22-permissions-and-safety.md:Bash Rules:10",
       "stories": [
-        12,
-        37
+        24,
+        25,
+        27
       ],
       "tickets": [
-        163
+        142
       ],
       "acceptance": [
-        "PARITY-163"
+        "PARITY-142-security-effects"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -69712,14 +69847,15 @@
     {
       "key": "guide-behavior:22-permissions-and-safety.md:Bash Rules:11",
       "stories": [
-        12,
-        37
+        24,
+        25,
+        27
       ],
       "tickets": [
-        163
+        142
       ],
       "acceptance": [
-        "PARITY-163"
+        "PARITY-142-security-effects"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -69731,14 +69867,15 @@
     {
       "key": "guide-behavior:22-permissions-and-safety.md:Bash Rules:2",
       "stories": [
-        12,
-        37
+        24,
+        25,
+        27
       ],
       "tickets": [
-        163
+        142
       ],
       "acceptance": [
-        "PARITY-163"
+        "PARITY-142-security-effects"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -69750,14 +69887,15 @@
     {
       "key": "guide-behavior:22-permissions-and-safety.md:Bash Rules:3",
       "stories": [
-        12,
-        37
+        24,
+        25,
+        27
       ],
       "tickets": [
-        163
+        142
       ],
       "acceptance": [
-        "PARITY-163"
+        "PARITY-142-security-effects"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -69769,14 +69907,15 @@
     {
       "key": "guide-behavior:22-permissions-and-safety.md:Bash Rules:4",
       "stories": [
-        12,
-        37
+        24,
+        25,
+        27
       ],
       "tickets": [
-        163
+        142
       ],
       "acceptance": [
-        "PARITY-163"
+        "PARITY-142-security-effects"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -69788,14 +69927,15 @@
     {
       "key": "guide-behavior:22-permissions-and-safety.md:Bash Rules:5",
       "stories": [
-        12,
-        37
+        24,
+        25,
+        27
       ],
       "tickets": [
-        163
+        142
       ],
       "acceptance": [
-        "PARITY-163"
+        "PARITY-142-security-effects"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -69807,14 +69947,15 @@
     {
       "key": "guide-behavior:22-permissions-and-safety.md:Bash Rules:6",
       "stories": [
-        12,
-        37
+        24,
+        25,
+        27
       ],
       "tickets": [
-        163
+        142
       ],
       "acceptance": [
-        "PARITY-163"
+        "PARITY-142-security-effects"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -69826,14 +69967,15 @@
     {
       "key": "guide-behavior:22-permissions-and-safety.md:Bash Rules:7",
       "stories": [
-        12,
-        37
+        24,
+        25,
+        27
       ],
       "tickets": [
-        163
+        142
       ],
       "acceptance": [
-        "PARITY-163"
+        "PARITY-142-security-effects"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -69845,14 +69987,15 @@
     {
       "key": "guide-behavior:22-permissions-and-safety.md:Bash Rules:8",
       "stories": [
-        12,
-        37
+        24,
+        25,
+        27
       ],
       "tickets": [
-        163
+        142
       ],
       "acceptance": [
-        "PARITY-163"
+        "PARITY-142-security-effects"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -69864,14 +70007,15 @@
     {
       "key": "guide-behavior:22-permissions-and-safety.md:Bash Rules:9",
       "stories": [
-        12,
-        37
+        24,
+        25,
+        27
       ],
       "tickets": [
-        163
+        142
       ],
       "acceptance": [
-        "PARITY-163"
+        "PARITY-142-security-effects"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -69885,13 +70029,18 @@
       "stories": [
         24,
         25,
-        27
+        27,
+        35,
+        36,
+        37
       ],
       "tickets": [
-        142
+        142,
+        141
       ],
       "acceptance": [
-        "PARITY-142"
+        "PARITY-142-security-effects",
+        "PARITY-141"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -69905,13 +70054,18 @@
       "stories": [
         24,
         25,
-        27
+        27,
+        35,
+        36,
+        37
       ],
       "tickets": [
-        142
+        142,
+        141
       ],
       "acceptance": [
-        "PARITY-142"
+        "PARITY-142-security-effects",
+        "PARITY-141"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -69923,14 +70077,21 @@
     {
       "key": "guide-behavior:22-permissions-and-safety.md:Combining with the Sandbox:1",
       "stories": [
+        24,
+        25,
+        27,
         26,
-        27
+        62
       ],
       "tickets": [
-        143
+        142,
+        143,
+        144
       ],
       "acceptance": [
-        "PARITY-143"
+        "PARITY-142-security-effects",
+        "PARITY-143",
+        "PARITY-144"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -69942,14 +70103,21 @@
     {
       "key": "guide-behavior:22-permissions-and-safety.md:Combining with the Sandbox:2",
       "stories": [
+        24,
+        25,
+        27,
         26,
-        27
+        62
       ],
       "tickets": [
-        143
+        142,
+        143,
+        144
       ],
       "acceptance": [
-        "PARITY-143"
+        "PARITY-142-security-effects",
+        "PARITY-143",
+        "PARITY-144"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -69961,14 +70129,21 @@
     {
       "key": "guide-behavior:22-permissions-and-safety.md:Combining with the Sandbox:3",
       "stories": [
+        24,
+        25,
+        27,
         26,
-        27
+        62
       ],
       "tickets": [
-        143
+        142,
+        143,
+        144
       ],
       "acceptance": [
-        "PARITY-143"
+        "PARITY-142-security-effects",
+        "PARITY-143",
+        "PARITY-144"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -69980,14 +70155,21 @@
     {
       "key": "guide-behavior:22-permissions-and-safety.md:Combining with the Sandbox:4",
       "stories": [
+        24,
+        25,
+        27,
         26,
-        27
+        62
       ],
       "tickets": [
-        143
+        142,
+        143,
+        144
       ],
       "acceptance": [
-        "PARITY-143"
+        "PARITY-142-security-effects",
+        "PARITY-143",
+        "PARITY-144"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -70007,7 +70189,7 @@
         142
       ],
       "acceptance": [
-        "PARITY-142"
+        "PARITY-142-security-effects"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -70027,7 +70209,7 @@
         142
       ],
       "acceptance": [
-        "PARITY-142"
+        "PARITY-142-security-effects"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -70041,13 +70223,18 @@
       "stories": [
         24,
         25,
-        27
+        27,
+        35,
+        36,
+        37
       ],
       "tickets": [
-        142
+        142,
+        141
       ],
       "acceptance": [
-        "PARITY-142"
+        "PARITY-142-security-effects",
+        "PARITY-141"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -70061,13 +70248,18 @@
       "stories": [
         24,
         25,
-        27
+        27,
+        35,
+        36,
+        37
       ],
       "tickets": [
-        142
+        142,
+        141
       ],
       "acceptance": [
-        "PARITY-142"
+        "PARITY-142-security-effects",
+        "PARITY-141"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -70081,13 +70273,18 @@
       "stories": [
         24,
         25,
-        27
+        27,
+        35,
+        36,
+        37
       ],
       "tickets": [
-        142
+        142,
+        141
       ],
       "acceptance": [
-        "PARITY-142"
+        "PARITY-142-security-effects",
+        "PARITY-141"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -70101,13 +70298,18 @@
       "stories": [
         24,
         25,
-        27
+        27,
+        35,
+        36,
+        37
       ],
       "tickets": [
-        142
+        142,
+        141
       ],
       "acceptance": [
-        "PARITY-142"
+        "PARITY-142-security-effects",
+        "PARITY-141"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -70127,7 +70329,7 @@
         142
       ],
       "acceptance": [
-        "PARITY-142"
+        "PARITY-142-security-effects"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -70147,7 +70349,7 @@
         142
       ],
       "acceptance": [
-        "PARITY-142"
+        "PARITY-142-security-effects"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -70161,13 +70363,16 @@
       "stories": [
         24,
         25,
-        27
+        27,
+        38
       ],
       "tickets": [
-        142
+        142,
+        164
       ],
       "acceptance": [
-        "PARITY-142"
+        "PARITY-142-security-effects",
+        "PARITY-164"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -70181,13 +70386,16 @@
       "stories": [
         24,
         25,
-        27
+        27,
+        38
       ],
       "tickets": [
-        142
+        142,
+        164
       ],
       "acceptance": [
-        "PARITY-142"
+        "PARITY-142-security-effects",
+        "PARITY-164"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -70201,13 +70409,16 @@
       "stories": [
         24,
         25,
-        27
+        27,
+        38
       ],
       "tickets": [
-        142
+        142,
+        164
       ],
       "acceptance": [
-        "PARITY-142"
+        "PARITY-142-security-effects",
+        "PARITY-164"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -70219,16 +70430,18 @@
     {
       "key": "guide-behavior:22-permissions-and-safety.md:How a tool call is authorized:1",
       "stories": [
-        8,
-        34,
-        36,
-        60
+        24,
+        25,
+        27,
+        38
       ],
       "tickets": [
-        189
+        142,
+        164
       ],
       "acceptance": [
-        "PARITY-189"
+        "PARITY-142-security-effects",
+        "PARITY-164"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -70240,16 +70453,18 @@
     {
       "key": "guide-behavior:22-permissions-and-safety.md:How a tool call is authorized:2",
       "stories": [
-        8,
-        34,
-        36,
-        60
+        24,
+        25,
+        27,
+        38
       ],
       "tickets": [
-        189
+        142,
+        164
       ],
       "acceptance": [
-        "PARITY-189"
+        "PARITY-142-security-effects",
+        "PARITY-164"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -70261,16 +70476,18 @@
     {
       "key": "guide-behavior:22-permissions-and-safety.md:How a tool call is authorized:3",
       "stories": [
-        8,
-        34,
-        36,
-        60
+        24,
+        25,
+        27,
+        38
       ],
       "tickets": [
-        189
+        142,
+        164
       ],
       "acceptance": [
-        "PARITY-189"
+        "PARITY-142-security-effects",
+        "PARITY-164"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -70282,16 +70499,18 @@
     {
       "key": "guide-behavior:22-permissions-and-safety.md:How a tool call is authorized:4",
       "stories": [
-        8,
-        34,
-        36,
-        60
+        24,
+        25,
+        27,
+        38
       ],
       "tickets": [
-        189
+        142,
+        164
       ],
       "acceptance": [
-        "PARITY-189"
+        "PARITY-142-security-effects",
+        "PARITY-164"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -70303,16 +70522,18 @@
     {
       "key": "guide-behavior:22-permissions-and-safety.md:How a tool call is authorized:5",
       "stories": [
-        8,
-        34,
-        36,
-        60
+        24,
+        25,
+        27,
+        38
       ],
       "tickets": [
-        189
+        142,
+        164
       ],
       "acceptance": [
-        "PARITY-189"
+        "PARITY-142-security-effects",
+        "PARITY-164"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -70324,16 +70545,18 @@
     {
       "key": "guide-behavior:22-permissions-and-safety.md:How a tool call is authorized:6",
       "stories": [
-        8,
-        34,
-        36,
-        60
+        24,
+        25,
+        27,
+        38
       ],
       "tickets": [
-        189
+        142,
+        164
       ],
       "acceptance": [
-        "PARITY-189"
+        "PARITY-142-security-effects",
+        "PARITY-164"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -70345,16 +70568,18 @@
     {
       "key": "guide-behavior:22-permissions-and-safety.md:How a tool call is authorized:7",
       "stories": [
-        8,
-        34,
-        36,
-        60
+        24,
+        25,
+        27,
+        38
       ],
       "tickets": [
-        189
+        142,
+        164
       ],
       "acceptance": [
-        "PARITY-189"
+        "PARITY-142-security-effects",
+        "PARITY-164"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -70366,16 +70591,18 @@
     {
       "key": "guide-behavior:22-permissions-and-safety.md:How a tool call is authorized:8",
       "stories": [
-        8,
-        34,
-        36,
-        60
+        24,
+        25,
+        27,
+        38
       ],
       "tickets": [
-        189
+        142,
+        164
       ],
       "acceptance": [
-        "PARITY-189"
+        "PARITY-142-security-effects",
+        "PARITY-164"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -70395,7 +70622,7 @@
         142
       ],
       "acceptance": [
-        "PARITY-142"
+        "PARITY-142-security-effects"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -70415,7 +70642,7 @@
         142
       ],
       "acceptance": [
-        "PARITY-142"
+        "PARITY-142-security-effects"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -70435,7 +70662,7 @@
         142
       ],
       "acceptance": [
-        "PARITY-142"
+        "PARITY-142-security-effects"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -70455,7 +70682,7 @@
         142
       ],
       "acceptance": [
-        "PARITY-142"
+        "PARITY-142-security-effects"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -70475,7 +70702,7 @@
         142
       ],
       "acceptance": [
-        "PARITY-142"
+        "PARITY-142-security-effects"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -70495,7 +70722,7 @@
         142
       ],
       "acceptance": [
-        "PARITY-142"
+        "PARITY-142-security-effects"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -70515,7 +70742,7 @@
         142
       ],
       "acceptance": [
-        "PARITY-142"
+        "PARITY-142-security-effects"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -70535,7 +70762,7 @@
         142
       ],
       "acceptance": [
-        "PARITY-142"
+        "PARITY-142-security-effects"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -70555,7 +70782,7 @@
         142
       ],
       "acceptance": [
-        "PARITY-142"
+        "PARITY-142-security-effects"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -70575,7 +70802,7 @@
         142
       ],
       "acceptance": [
-        "PARITY-142"
+        "PARITY-142-security-effects"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -70587,14 +70814,15 @@
     {
       "key": "guide-behavior:22-permissions-and-safety.md:MCP Rules:1",
       "stories": [
-        39,
-        41
+        24,
+        25,
+        27
       ],
       "tickets": [
-        167
+        142
       ],
       "acceptance": [
-        "PARITY-167"
+        "PARITY-142-security-effects"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -70606,14 +70834,15 @@
     {
       "key": "guide-behavior:22-permissions-and-safety.md:MCP Rules:2",
       "stories": [
-        39,
-        41
+        24,
+        25,
+        27
       ],
       "tickets": [
-        167
+        142
       ],
       "acceptance": [
-        "PARITY-167"
+        "PARITY-142-security-effects"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -70625,15 +70854,15 @@
     {
       "key": "guide-behavior:22-permissions-and-safety.md:Operations That Never Prompt by Default:1",
       "stories": [
-        11,
-        12,
-        14
+        24,
+        25,
+        27
       ],
       "tickets": [
-        150
+        142
       ],
       "acceptance": [
-        "PARITY-150"
+        "PARITY-142-security-effects"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -70653,7 +70882,7 @@
         142
       ],
       "acceptance": [
-        "PARITY-142"
+        "PARITY-142-security-effects"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -70673,7 +70902,7 @@
         142
       ],
       "acceptance": [
-        "PARITY-142"
+        "PARITY-142-security-effects"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -70693,7 +70922,7 @@
         142
       ],
       "acceptance": [
-        "PARITY-142"
+        "PARITY-142-security-effects"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -70713,7 +70942,7 @@
         142
       ],
       "acceptance": [
-        "PARITY-142"
+        "PARITY-142-security-effects"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -70733,7 +70962,7 @@
         142
       ],
       "acceptance": [
-        "PARITY-142"
+        "PARITY-142-security-effects"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -70753,7 +70982,7 @@
         142
       ],
       "acceptance": [
-        "PARITY-142"
+        "PARITY-142-security-effects"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -70773,7 +71002,7 @@
         142
       ],
       "acceptance": [
-        "PARITY-142"
+        "PARITY-142-security-effects"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -70785,15 +71014,15 @@
     {
       "key": "guide-behavior:22-permissions-and-safety.md:Read-Only Shell Commands:1",
       "stories": [
-        19,
-        23,
-        26
+        24,
+        25,
+        27
       ],
       "tickets": [
-        170
+        142
       ],
       "acceptance": [
-        "PARITY-170"
+        "PARITY-142-security-effects"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -70805,15 +71034,15 @@
     {
       "key": "guide-behavior:22-permissions-and-safety.md:Read-Only Shell Commands:2",
       "stories": [
-        19,
-        23,
-        26
+        24,
+        25,
+        27
       ],
       "tickets": [
-        170
+        142
       ],
       "acceptance": [
-        "PARITY-170"
+        "PARITY-142-security-effects"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -70825,15 +71054,15 @@
     {
       "key": "guide-behavior:22-permissions-and-safety.md:Read-Only Shell Commands:3",
       "stories": [
-        19,
-        23,
-        26
+        24,
+        25,
+        27
       ],
       "tickets": [
-        170
+        142
       ],
       "acceptance": [
-        "PARITY-170"
+        "PARITY-142-security-effects"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -70845,15 +71074,15 @@
     {
       "key": "guide-behavior:22-permissions-and-safety.md:Read-Only Shell Commands:4",
       "stories": [
-        19,
-        23,
-        26
+        24,
+        25,
+        27
       ],
       "tickets": [
-        170
+        142
       ],
       "acceptance": [
-        "PARITY-170"
+        "PARITY-142-security-effects"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -70865,15 +71094,15 @@
     {
       "key": "guide-behavior:22-permissions-and-safety.md:Read-Only Shell Commands:5",
       "stories": [
-        19,
-        23,
-        26
+        24,
+        25,
+        27
       ],
       "tickets": [
-        170
+        142
       ],
       "acceptance": [
-        "PARITY-170"
+        "PARITY-142-security-effects"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -70885,15 +71114,15 @@
     {
       "key": "guide-behavior:22-permissions-and-safety.md:Read-Only Shell Commands:6",
       "stories": [
-        19,
-        23,
-        26
+        24,
+        25,
+        27
       ],
       "tickets": [
-        170
+        142
       ],
       "acceptance": [
-        "PARITY-170"
+        "PARITY-142-security-effects"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -70905,15 +71134,15 @@
     {
       "key": "guide-behavior:22-permissions-and-safety.md:Read-Only Shell Commands:7",
       "stories": [
-        19,
-        23,
-        26
+        24,
+        25,
+        27
       ],
       "tickets": [
-        170
+        142
       ],
       "acceptance": [
-        "PARITY-170"
+        "PARITY-142-security-effects"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -70925,15 +71154,15 @@
     {
       "key": "guide-behavior:22-permissions-and-safety.md:Read-Only Shell Commands:8",
       "stories": [
-        19,
-        23,
-        26
+        24,
+        25,
+        27
       ],
       "tickets": [
-        170
+        142
       ],
       "acceptance": [
-        "PARITY-170"
+        "PARITY-142-security-effects"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -70945,15 +71174,15 @@
     {
       "key": "guide-behavior:22-permissions-and-safety.md:Read-Only Shell Commands:9",
       "stories": [
-        19,
-        23,
-        26
+        24,
+        25,
+        27
       ],
       "tickets": [
-        170
+        142
       ],
       "acceptance": [
-        "PARITY-170"
+        "PARITY-142-security-effects"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -70973,7 +71202,7 @@
         142
       ],
       "acceptance": [
-        "PARITY-142"
+        "PARITY-142-security-effects"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -70985,14 +71214,15 @@
     {
       "key": "guide-behavior:22-permissions-and-safety.md:Read, Edit, and Grep Rules:1",
       "stories": [
-        12,
-        37
+        24,
+        25,
+        27
       ],
       "tickets": [
-        163
+        142
       ],
       "acceptance": [
-        "PARITY-163"
+        "PARITY-142-security-effects"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -71004,14 +71234,15 @@
     {
       "key": "guide-behavior:22-permissions-and-safety.md:Read, Edit, and Grep Rules:2",
       "stories": [
-        12,
-        37
+        24,
+        25,
+        27
       ],
       "tickets": [
-        163
+        142
       ],
       "acceptance": [
-        "PARITY-163"
+        "PARITY-142-security-effects"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -71023,14 +71254,15 @@
     {
       "key": "guide-behavior:22-permissions-and-safety.md:Read, Edit, and Grep Rules:3",
       "stories": [
-        12,
-        37
+        24,
+        25,
+        27
       ],
       "tickets": [
-        163
+        142
       ],
       "acceptance": [
-        "PARITY-163"
+        "PARITY-142-security-effects"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -71042,13 +71274,17 @@
     {
       "key": "guide-behavior:22-permissions-and-safety.md:Restricting Bash to Specific Commands with a Hook:1",
       "stories": [
+        24,
         25,
+        27,
         38
       ],
       "tickets": [
+        142,
         164
       ],
       "acceptance": [
+        "PARITY-142-security-effects",
         "PARITY-164"
       ],
       "status": "pending-parity",
@@ -71061,13 +71297,17 @@
     {
       "key": "guide-behavior:22-permissions-and-safety.md:Restricting Bash to Specific Commands with a Hook:2",
       "stories": [
+        24,
         25,
+        27,
         38
       ],
       "tickets": [
+        142,
         164
       ],
       "acceptance": [
+        "PARITY-142-security-effects",
         "PARITY-164"
       ],
       "status": "pending-parity",
@@ -71088,7 +71328,7 @@
         142
       ],
       "acceptance": [
-        "PARITY-142"
+        "PARITY-142-security-effects"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -71108,7 +71348,7 @@
         142
       ],
       "acceptance": [
-        "PARITY-142"
+        "PARITY-142-security-effects"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -71128,7 +71368,7 @@
         142
       ],
       "acceptance": [
-        "PARITY-142"
+        "PARITY-142-security-effects"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -71148,7 +71388,7 @@
         142
       ],
       "acceptance": [
-        "PARITY-142"
+        "PARITY-142-security-effects"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -71168,7 +71408,7 @@
         142
       ],
       "acceptance": [
-        "PARITY-142"
+        "PARITY-142-security-effects"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -71180,14 +71420,15 @@
     {
       "key": "guide-behavior:22-permissions-and-safety.md:WebFetch Rules:1",
       "stories": [
-        12,
-        37
+        24,
+        25,
+        27
       ],
       "tickets": [
-        163
+        142
       ],
       "acceptance": [
-        "PARITY-163"
+        "PARITY-142-security-effects"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -71201,13 +71442,18 @@
       "stories": [
         24,
         25,
-        27
+        27,
+        35,
+        36,
+        37
       ],
       "tickets": [
-        142
+        142,
+        141
       ],
       "acceptance": [
-        "PARITY-142"
+        "PARITY-142-security-effects",
+        "PARITY-141"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -71221,13 +71467,18 @@
       "stories": [
         24,
         25,
-        27
+        27,
+        35,
+        36,
+        37
       ],
       "tickets": [
-        142
+        142,
+        141
       ],
       "acceptance": [
-        "PARITY-142"
+        "PARITY-142-security-effects",
+        "PARITY-141"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -71241,13 +71492,18 @@
       "stories": [
         24,
         25,
-        27
+        27,
+        35,
+        36,
+        37
       ],
       "tickets": [
-        142
+        142,
+        141
       ],
       "acceptance": [
-        "PARITY-142"
+        "PARITY-142-security-effects",
+        "PARITY-141"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -71261,13 +71517,18 @@
       "stories": [
         24,
         25,
-        27
+        27,
+        35,
+        36,
+        37
       ],
       "tickets": [
-        142
+        142,
+        141
       ],
       "acceptance": [
-        "PARITY-142"
+        "PARITY-142-security-effects",
+        "PARITY-141"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -71281,13 +71542,18 @@
       "stories": [
         24,
         25,
-        27
+        27,
+        35,
+        36,
+        37
       ],
       "tickets": [
-        142
+        142,
+        141
       ],
       "acceptance": [
-        "PARITY-142"
+        "PARITY-142-security-effects",
+        "PARITY-141"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -83258,13 +83524,18 @@
       "stories": [
         24,
         25,
-        27
+        27,
+        35,
+        36,
+        37
       ],
       "tickets": [
-        142
+        142,
+        141
       ],
       "acceptance": [
-        "PARITY-142"
+        "PARITY-142-security-effects",
+        "PARITY-141"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -83278,13 +83549,18 @@
       "stories": [
         24,
         25,
-        27
+        27,
+        35,
+        36,
+        37
       ],
       "tickets": [
-        142
+        142,
+        141
       ],
       "acceptance": [
-        "PARITY-142"
+        "PARITY-142-security-effects",
+        "PARITY-141"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -83298,13 +83574,18 @@
       "stories": [
         24,
         25,
-        27
+        27,
+        35,
+        36,
+        37
       ],
       "tickets": [
-        142
+        142,
+        141
       ],
       "acceptance": [
-        "PARITY-142"
+        "PARITY-142-security-effects",
+        "PARITY-141"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -83318,13 +83599,18 @@
       "stories": [
         24,
         25,
-        27
+        27,
+        35,
+        36,
+        37
       ],
       "tickets": [
-        142
+        142,
+        141
       ],
       "acceptance": [
-        "PARITY-142"
+        "PARITY-142-security-effects",
+        "PARITY-141"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -83344,7 +83630,7 @@
         142
       ],
       "acceptance": [
-        "PARITY-142"
+        "PARITY-142-security-effects"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -83364,7 +83650,7 @@
         142
       ],
       "acceptance": [
-        "PARITY-142"
+        "PARITY-142-security-effects"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -83384,7 +83670,7 @@
         142
       ],
       "acceptance": [
-        "PARITY-142"
+        "PARITY-142-security-effects"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -83404,7 +83690,7 @@
         142
       ],
       "acceptance": [
-        "PARITY-142"
+        "PARITY-142-security-effects"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -83424,7 +83710,7 @@
         142
       ],
       "acceptance": [
-        "PARITY-142"
+        "PARITY-142-security-effects"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -83444,7 +83730,7 @@
         142
       ],
       "acceptance": [
-        "PARITY-142"
+        "PARITY-142-security-effects"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -83464,7 +83750,7 @@
         142
       ],
       "acceptance": [
-        "PARITY-142"
+        "PARITY-142-security-effects"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -83484,7 +83770,7 @@
         142
       ],
       "acceptance": [
-        "PARITY-142"
+        "PARITY-142-security-effects"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -83504,7 +83790,7 @@
         142
       ],
       "acceptance": [
-        "PARITY-142"
+        "PARITY-142-security-effects"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -83524,7 +83810,7 @@
         142
       ],
       "acceptance": [
-        "PARITY-142"
+        "PARITY-142-security-effects"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -83544,7 +83830,7 @@
         142
       ],
       "acceptance": [
-        "PARITY-142"
+        "PARITY-142-security-effects"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -83564,7 +83850,7 @@
         142
       ],
       "acceptance": [
-        "PARITY-142"
+        "PARITY-142-security-effects"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -88076,14 +88362,14 @@
     {
       "key": "guide-section:04-slash-commands.md:`/docs`",
       "stories": [
-        57,
-        70
+        17,
+        35
       ],
       "tickets": [
-        145
+        154
       ],
       "acceptance": [
-        "PARITY-145"
+        "PARITY-154-docs"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -97662,7 +97948,7 @@
         142
       ],
       "acceptance": [
-        "PARITY-142"
+        "PARITY-142-security-effects"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -97674,14 +97960,20 @@
     {
       "key": "guide-section:22-permissions-and-safety.md:2. Native Configuration (`~/.grok/config.toml` and `.grok/config.toml`)",
       "stories": [
-        17,
-        35
+        24,
+        25,
+        27,
+        35,
+        36,
+        37
       ],
       "tickets": [
-        154
+        142,
+        141
       ],
       "acceptance": [
-        "PARITY-154"
+        "PARITY-142-security-effects",
+        "PARITY-141"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -97693,14 +97985,15 @@
     {
       "key": "guide-section:22-permissions-and-safety.md:3. Claude Code Compatibility (`.claude/settings.json`)",
       "stories": [
-        17,
-        35
+        24,
+        25,
+        27
       ],
       "tickets": [
-        154
+        142
       ],
       "acceptance": [
-        "PARITY-154"
+        "PARITY-142-security-effects"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -97720,7 +98013,7 @@
         142
       ],
       "acceptance": [
-        "PARITY-142"
+        "PARITY-142-security-effects"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -97740,7 +98033,7 @@
         142
       ],
       "acceptance": [
-        "PARITY-142"
+        "PARITY-142-security-effects"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -97760,7 +98053,7 @@
         142
       ],
       "acceptance": [
-        "PARITY-142"
+        "PARITY-142-security-effects"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -97780,7 +98073,7 @@
         142
       ],
       "acceptance": [
-        "PARITY-142"
+        "PARITY-142-security-effects"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -97792,14 +98085,15 @@
     {
       "key": "guide-section:22-permissions-and-safety.md:Bash Rules",
       "stories": [
-        12,
-        37
+        24,
+        25,
+        27
       ],
       "tickets": [
-        163
+        142
       ],
       "acceptance": [
-        "PARITY-163"
+        "PARITY-142-security-effects"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -97813,13 +98107,18 @@
       "stories": [
         24,
         25,
-        27
+        27,
+        35,
+        36,
+        37
       ],
       "tickets": [
-        142
+        142,
+        141
       ],
       "acceptance": [
-        "PARITY-142"
+        "PARITY-142-security-effects",
+        "PARITY-141"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -97831,14 +98130,21 @@
     {
       "key": "guide-section:22-permissions-and-safety.md:Combining with the Sandbox",
       "stories": [
+        24,
+        25,
+        27,
         26,
-        27
+        62
       ],
       "tickets": [
-        143
+        142,
+        143,
+        144
       ],
       "acceptance": [
-        "PARITY-143"
+        "PARITY-142-security-effects",
+        "PARITY-143",
+        "PARITY-144"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -97858,7 +98164,7 @@
         142
       ],
       "acceptance": [
-        "PARITY-142"
+        "PARITY-142-security-effects"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -97878,7 +98184,7 @@
         142
       ],
       "acceptance": [
-        "PARITY-142"
+        "PARITY-142-security-effects"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -97892,13 +98198,18 @@
       "stories": [
         24,
         25,
-        27
+        27,
+        35,
+        36,
+        37
       ],
       "tickets": [
-        142
+        142,
+        141
       ],
       "acceptance": [
-        "PARITY-142"
+        "PARITY-142-security-effects",
+        "PARITY-141"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -97918,7 +98229,7 @@
         142
       ],
       "acceptance": [
-        "PARITY-142"
+        "PARITY-142-security-effects"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -97932,13 +98243,16 @@
       "stories": [
         24,
         25,
-        27
+        27,
+        38
       ],
       "tickets": [
-        142
+        142,
+        164
       ],
       "acceptance": [
-        "PARITY-142"
+        "PARITY-142-security-effects",
+        "PARITY-164"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -97952,13 +98266,16 @@
       "stories": [
         24,
         25,
-        27
+        27,
+        38
       ],
       "tickets": [
-        142
+        142,
+        164
       ],
       "acceptance": [
-        "PARITY-142"
+        "PARITY-142-security-effects",
+        "PARITY-164"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -97970,16 +98287,18 @@
     {
       "key": "guide-section:22-permissions-and-safety.md:How a tool call is authorized",
       "stories": [
-        8,
-        34,
-        36,
-        60
+        24,
+        25,
+        27,
+        38
       ],
       "tickets": [
-        189
+        142,
+        164
       ],
       "acceptance": [
-        "PARITY-189"
+        "PARITY-142-security-effects",
+        "PARITY-164"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -97999,7 +98318,7 @@
         142
       ],
       "acceptance": [
-        "PARITY-142"
+        "PARITY-142-security-effects"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -98019,7 +98338,7 @@
         142
       ],
       "acceptance": [
-        "PARITY-142"
+        "PARITY-142-security-effects"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -98039,7 +98358,7 @@
         142
       ],
       "acceptance": [
-        "PARITY-142"
+        "PARITY-142-security-effects"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -98059,7 +98378,7 @@
         142
       ],
       "acceptance": [
-        "PARITY-142"
+        "PARITY-142-security-effects"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -98071,14 +98390,15 @@
     {
       "key": "guide-section:22-permissions-and-safety.md:MCP Rules",
       "stories": [
-        39,
-        41
+        24,
+        25,
+        27
       ],
       "tickets": [
-        167
+        142
       ],
       "acceptance": [
-        "PARITY-167"
+        "PARITY-142-security-effects"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -98090,15 +98410,15 @@
     {
       "key": "guide-section:22-permissions-and-safety.md:Operations That Never Prompt by Default",
       "stories": [
-        11,
-        12,
-        14
+        24,
+        25,
+        27
       ],
       "tickets": [
-        150
+        142
       ],
       "acceptance": [
-        "PARITY-150"
+        "PARITY-142-security-effects"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -98118,7 +98438,7 @@
         142
       ],
       "acceptance": [
-        "PARITY-142"
+        "PARITY-142-security-effects"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -98138,7 +98458,7 @@
         142
       ],
       "acceptance": [
-        "PARITY-142"
+        "PARITY-142-security-effects"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -98158,7 +98478,7 @@
         142
       ],
       "acceptance": [
-        "PARITY-142"
+        "PARITY-142-security-effects"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -98170,16 +98490,15 @@
     {
       "key": "guide-section:22-permissions-and-safety.md:Read-Only Code Reviewer",
       "stories": [
-        10,
-        14,
-        15,
-        23
+        24,
+        25,
+        27
       ],
       "tickets": [
-        153
+        142
       ],
       "acceptance": [
-        "PARITY-153"
+        "PARITY-142-security-effects"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -98191,15 +98510,15 @@
     {
       "key": "guide-section:22-permissions-and-safety.md:Read-Only Shell Commands",
       "stories": [
-        19,
-        23,
-        26
+        24,
+        25,
+        27
       ],
       "tickets": [
-        170
+        142
       ],
       "acceptance": [
-        "PARITY-170"
+        "PARITY-142-security-effects"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -98219,7 +98538,7 @@
         142
       ],
       "acceptance": [
-        "PARITY-142"
+        "PARITY-142-security-effects"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -98231,14 +98550,15 @@
     {
       "key": "guide-section:22-permissions-and-safety.md:Read, Edit, and Grep Rules",
       "stories": [
-        12,
-        37
+        24,
+        25,
+        27
       ],
       "tickets": [
-        163
+        142
       ],
       "acceptance": [
-        "PARITY-163"
+        "PARITY-142-security-effects"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -98250,13 +98570,17 @@
     {
       "key": "guide-section:22-permissions-and-safety.md:Restricting Bash to Specific Commands with a Hook",
       "stories": [
+        24,
         25,
+        27,
         38
       ],
       "tickets": [
+        142,
         164
       ],
       "acceptance": [
+        "PARITY-142-security-effects",
         "PARITY-164"
       ],
       "status": "pending-parity",
@@ -98277,7 +98601,7 @@
         142
       ],
       "acceptance": [
-        "PARITY-142"
+        "PARITY-142-security-effects"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -98297,7 +98621,7 @@
         142
       ],
       "acceptance": [
-        "PARITY-142"
+        "PARITY-142-security-effects"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -98317,7 +98641,7 @@
         142
       ],
       "acceptance": [
-        "PARITY-142"
+        "PARITY-142-security-effects"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -98337,7 +98661,7 @@
         142
       ],
       "acceptance": [
-        "PARITY-142"
+        "PARITY-142-security-effects"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -98349,14 +98673,15 @@
     {
       "key": "guide-section:22-permissions-and-safety.md:WebFetch Rules",
       "stories": [
-        12,
-        37
+        24,
+        25,
+        27
       ],
       "tickets": [
-        163
+        142
       ],
       "acceptance": [
-        "PARITY-163"
+        "PARITY-142-security-effects"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -98370,13 +98695,18 @@
       "stories": [
         24,
         25,
-        27
+        27,
+        35,
+        36,
+        37
       ],
       "tickets": [
-        142
+        142,
+        141
       ],
       "acceptance": [
-        "PARITY-142"
+        "PARITY-142-security-effects",
+        "PARITY-141"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -105723,23 +106053,39 @@
     {
       "key": "setting:features.dock",
       "stories": [
-        8,
-        34,
-        35,
-        63
+        11,
+        15,
+        18,
+        19,
+        20,
+        21,
+        43,
+        59,
+        45,
+        47,
+        62,
+        46
       ],
       "tickets": [
-        139
+        152,
+        151,
+        173,
+        175,
+        176
       ],
       "acceptance": [
-        "PARITY-139"
+        "PARITY-152-dock",
+        "PARITY-151",
+        "PARITY-173",
+        "PARITY-175",
+        "PARITY-176"
       ],
       "status": "pending-parity",
       "evidence": [
         "binary-guide:26-config-reference.md#L223",
         "source-guide:26-config-reference.md#L209"
       ],
-      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
+      "blocker": "Dock availability and enabled-mode behavior in frozen 1.0.34 remain unverified; source/config declarations are not runtime verification. Exercise pane interactions and state effects before claiming parity."
     },
     {
       "key": "setting:features.feedback",
@@ -111758,20 +112104,21 @@
     {
       "key": "slash:debug",
       "stories": [
-        57,
-        70
+        17,
+        35
       ],
       "tickets": [
-        145
+        154
       ],
       "acceptance": [
-        "PARITY-145"
+        "PARITY-154-debug"
       ],
       "status": "pending-parity",
       "evidence": [
+        "capture:uiProbes/0/events/75",
         "source:crates/codegen/xai-grok-pager/src/slash/commands/debug.rs#L35"
       ],
-      "blocker": "Source export is 1.0.35, not a proven 1.0.34 match; verify availability and semantics against the frozen binary before candidate implementation."
+      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
     },
     {
       "key": "slash:deep-research",
@@ -111819,17 +112166,19 @@
     {
       "key": "slash:docs",
       "stories": [
-        57,
-        70
+        17,
+        35
       ],
       "tickets": [
-        145
+        154
       ],
       "acceptance": [
-        "PARITY-145"
+        "PARITY-154-docs"
       ],
       "status": "pending-parity",
       "evidence": [
+        "capture:uiProbes/0/events/29",
+        "capture:uiProbes/1/events/31",
         "binary-guide:04-slash-commands.md#L362",
         "binary-guide:04-slash-commands.md#L372",
         "binary-guide:04-slash-commands.md#L373",
@@ -112174,17 +112523,19 @@
     {
       "key": "slash:guides",
       "stories": [
-        57,
-        70
+        17,
+        35
       ],
       "tickets": [
-        145
+        154
       ],
       "acceptance": [
-        "PARITY-145"
+        "PARITY-154-docs"
       ],
       "status": "pending-parity",
       "evidence": [
+        "capture:uiProbes/0/events/63",
+        "capture:uiProbes/1/events/54",
         "binary-guide:04-slash-commands.md#L364",
         "source-guide:04-slash-commands.md#L367",
         "source:crates/codegen/xai-grok-pager/src/slash/commands/docs.rs#L19"
@@ -112194,20 +112545,22 @@
     {
       "key": "slash:help",
       "stories": [
-        57,
-        70
+        17,
+        35
       ],
       "tickets": [
-        145
+        154
       ],
       "acceptance": [
-        "PARITY-145"
+        "PARITY-154-help"
       ],
       "status": "pending-parity",
       "evidence": [
+        "capture:uiProbes/0/events/15",
+        "capture:uiProbes/1/events/19",
         "source:crates/codegen/xai-grok-pager/src/slash/commands/help.rs#L13"
       ],
-      "blocker": "Source export is 1.0.35, not a proven 1.0.34 match; verify availability and semantics against the frozen binary before candidate implementation."
+      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
     },
     {
       "key": "slash:history",
@@ -112379,17 +112732,19 @@
     {
       "key": "slash:howto",
       "stories": [
-        57,
-        70
+        17,
+        35
       ],
       "tickets": [
-        145
+        154
       ],
       "acceptance": [
-        "PARITY-145"
+        "PARITY-154-docs"
       ],
       "status": "pending-parity",
       "evidence": [
+        "capture:uiProbes/0/events/53",
+        "capture:uiProbes/1/events/47",
         "binary-guide:04-slash-commands.md#L364",
         "source-guide:04-slash-commands.md#L367",
         "source:crates/codegen/xai-grok-pager/src/slash/commands/docs.rs#L19"
@@ -113176,14 +113531,14 @@
     {
       "key": "slash:scroll-debug",
       "stories": [
-        57,
-        70
+        17,
+        35
       ],
       "tickets": [
-        145
+        154
       ],
       "acceptance": [
-        "PARITY-145"
+        "PARITY-154-debug"
       ],
       "status": "pending-parity",
       "evidence": [

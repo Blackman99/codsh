@@ -144,6 +144,34 @@ describe('recorded installed reference evidence', () => {
     }
   })
 
+  it('drives interactive help, guide readers, aliases and diagnostics in both modes', () => {
+    for (const terminal of capture.uiProbes) {
+      const bytes = Buffer.concat(terminal.events.filter(event => event.bytesBase64).map(event => Buffer.from(event.bytesBase64, 'base64')))
+      expect(createHash('sha256').update(bytes).digest('hex')).toBe(terminal.outputSha256)
+      expect(screenAt(terminal, 'help-open')).toContain('Commands')
+      expect(screenAt(terminal, 'help-filter')).toContain('How-to Guides')
+      expect(screenAt(terminal, 'help-filter')).not.toContain('Delete This Session')
+      expect(screenAt(terminal, 'help-close')).not.toContain('Enter select')
+      expect(screenAt(terminal, 'docs-open')).toContain('How-to Guides')
+      expect(screenAt(terminal, 'docs-select')).toContain('terminal-based AI coding assistant')
+      expect(screenAt(terminal, 'docs-scroll')).not.toBe(screenAt(terminal, 'docs-select'))
+      expect(screenAt(terminal, 'docs-reader-dismiss')).toContain('How-to Guides')
+      expect(screenAt(terminal, 'docs-close')).not.toContain('Enter select')
+      for (const alias of ['howto', 'guides']) {
+        expect(screenAt(terminal, `${alias}-open`)).toContain('How-to Guides')
+        expect(screenAt(terminal, `${alias}-dismiss`)).not.toContain('Enter select')
+      }
+      expect(screenAt(terminal, 'docs-invalid')).toContain('Unknown docs target')
+      if (terminal.mode === 'fullscreen') expect(screenAt(terminal, 'debug-open')).toContain('fps debug')
+      expect(screenAt(terminal, 'debug-off')).not.toContain('fps debug')
+      expect(screenAt(terminal, 'debug-invalid')).toContain('Unknown /debug option')
+      expect(screenAt(terminal, 'after-ui-draft')).toContain('AFTER_UI_PROBE')
+      expect(terminal.exit).toBe(0)
+      expect(terminal.forcedCleanup).toBe(false)
+      expect(terminal.restoredAlternateScreen).toBe(terminal.mode === 'fullscreen')
+    }
+  })
+
   it('observes four real headless formats through only the fixture provider', () => {
     expect(model.commands).toHaveLength(4)
     for (const command of model.commands) {

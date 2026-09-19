@@ -27,7 +27,8 @@ unproven. The preceding inspected export declares 1.0.32, not 1.0.34.
   discovery rows. These are research quotations, not a buildable Rust import.
 - `observations.json`: 98 actual CLI observations, all 27 guides emitted by the
   pinned binary into a fresh home, ten baseline PTY recordings (five per mode),
-  paired `GROK_FPS=0/1` PTYs, fullscreen/minimal tutorial PTYs, and five process-start samples. PTY chunks retain base64 bytes, timestamps,
+  paired `GROK_FPS=0/1` PTYs, fullscreen/minimal tutorial and help/docs/debug
+  PTYs, and five process-start samples. PTY chunks retain base64 bytes, timestamps,
   actions, sizes, sampled RSS and hashes. No personal session was copied.
 - `model-observations.json`: four real headless formats driven by a deterministic
   loopback-only SSE model fixture; actual advertised tool schemas are retained.
@@ -49,7 +50,8 @@ unproven. The preceding inspected export declares 1.0.32, not 1.0.34.
 `capture:commands/N` selects `observations.json.commands[N]`.
 `capture:environmentProbes/N/events/M` selects a raw output event from an isolated
 paired environment probe. `capture:tutorialProbes/N/events/M` selects an output
-event from the real tutorial/alias/mode probe.
+event from the real tutorial/alias/mode probe. `capture:uiProbes/N/events/M`
+selects a help palette, guide reader or diagnostic probe event.
 `model:requests/N/tools/NAME` selects a tool schema in the model capture.
 `binary-guide:FILE#Lx` selects line x of the named embedded guide in observations.
 `source-guide:FILE#Lx` selects the pinned public pager `docs/user-guide/FILE`.
@@ -95,6 +97,23 @@ absence of undocumented or account-gated behavior. Feature/service/platform
 variants described in each excerpt remain required even when not runnable here.
 
 Important reconciliations:
+
+- The entire permissions-and-safety guide maps to #142's effect-based rule/mode
+  acceptance, with #164 hook-ordering, #141 administration and #143/#144
+  confinement owners where applicable. Permission “rules,” “authorization” and
+  “prompt” do not mean Skills discovery, OAuth or composer editing. These are
+  planned controlled-effect tests, not security behavior verified by #133.
+- `/help` is a command palette; `/docs`, `/howto` and `/guides` are interactive
+  guide pickers/readers. #154 scenarios cover filtering, selection, scrolling,
+  aliases, invalid targets and nested dismissal. `/debug` and `/scroll-debug`
+  have separate real-terminal/local-log acceptance. Offline observations cover
+  palettes/readers, fullscreen FPS toggle, error paths and prompt recovery;
+  browser opening, other diagnostic variants and active draft/queue preservation
+  remain downstream work.
+- The dock gate/config/environment entries map to #152's pane-navigation
+  acceptance plus queue/child/task/watcher owners. Frozen 1.0.34 enabled-dock
+  availability and behavior remain explicitly unverified; a declaration is not
+  evidence of working panes. The idle help/docs/debug probe does not verify dock.
 
 - Hidden `share` and `workspace start/pause/resume/stop/restart/status`, `list`
   alias and all their observed flags are itemized. Sharing belongs to #162;

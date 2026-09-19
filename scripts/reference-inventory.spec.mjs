@@ -192,6 +192,41 @@ describe('frozen reference coverage register', () => {
     }
   })
 
+  it('assigns the entire permission guide to security effects rather than keyword lookalikes', () => {
+    const register = read('inventory.json')
+    const rows = register.items.filter(item => item.key.includes(':22-permissions-and-safety.md:'))
+    expect(rows.length).toBeGreaterThan(100)
+    for (const row of rows) {
+      expect(row.tickets, row.key).toContain(142)
+      expect(row.tickets, row.key).not.toContain(163)
+      expect(row.tickets, row.key).not.toContain(189)
+      expect(row.tickets, row.key).not.toContain(150)
+      expect(row.acceptance, row.key).toContain('PARITY-142-security-effects')
+      if (/How a tool call is authorized|with a Hook|Allow Only `git`/.test(row.key)) expect(row.tickets).toContain(164)
+    }
+  })
+
+  it('requires real-PTY acceptance for help, docs, diagnostics and dock controls', () => {
+    const register = read('inventory.json')
+    for (const [name, scenario] of [['help', 'PARITY-154-help'], ['docs', 'PARITY-154-docs'], ['howto', 'PARITY-154-docs'], ['guides', 'PARITY-154-docs'], ['debug', 'PARITY-154-debug'], ['scroll-debug', 'PARITY-154-debug']]) {
+      const row = register.items.find(item => item.key === `slash:${name}`)
+      expect(row.tickets).toContain(154)
+      expect(row.acceptance).toContain(scenario)
+      expect(row.acceptance).not.toContain('PARITY-145')
+    }
+    for (const row of register.items.filter(item => /^(?:guide-section|guide-behavior):04-slash-commands\.md:`\/(?:docs|help|debug)`/.test(item.key))) {
+      expect(row.tickets, row.key).toContain(154)
+      expect(row.acceptance, row.key).not.toContain('PARITY-145')
+    }
+    expect(register.items.find(item => item.key === 'flag:grok:--help').tickets).toEqual([145])
+    for (const key of ['feature:dock', 'setting:features.dock', 'environment:GROK_DOCK']) {
+      const row = register.items.find(item => item.key === key)
+      expect(row.tickets).toContain(152)
+      expect(row.acceptance).toContain('PARITY-152-dock')
+      expect(row.blocker).toMatch(/availability.*unverified/i)
+    }
+  })
+
   it('extracts commands and flags, including nested help and aliases', () => {
     const capture = { guides: [], commands: [{ args: ['memory', '--help'], exit: 0,
       stdout: 'Usage: grok memory [COMMAND]\n\nCommands:\n  list  List notes\n  help  Help\n\nOptions:\n  -h, --help  Help\n      --json  JSON [aliases: --machine]\n' }] }

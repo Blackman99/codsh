@@ -98314,6 +98314,11 @@
       "name": "debug",
       "observations": [
         {
+          "locator": "capture:uiProbes/0/events/75",
+          "scope": "binary-pty-observation",
+          "excerpt": "\u001b[?2026h\u001b[1;69H\u001b[38;5;3;48;5;0mfps debug  (/debug fps)         \u001b[2;69H\u001b[38;5;15;48;5;0mfps:- p50:- p95:-               \u001b[39m\u001b[49m\u001b[59m\u001b[0m\u001b[28;7H\u001b[?2026l"
+        },
+        {
           "locator": "source:crates/codegen/xai-grok-pager/src/slash/commands/debug.rs#L35",
           "scope": "source-registry",
           "excerpt": "slash_meta! {\n        name: \"debug\",\n        description: \"Toggle debug overlays\",\n        usage: \"/debug [scroll|fps|log]\",\n        takes_args: true,\n        arg_placeholder: \"scroll | fps | log\",\n    }"
@@ -98369,6 +98374,16 @@
       "category": "slash",
       "name": "docs",
       "observations": [
+        {
+          "locator": "capture:uiProbes/0/events/29",
+          "scope": "binary-pty-observation",
+          "excerpt": "\u001b[?2026h\u001b[5;16H\u001b[38;5;240;48;5;233m┌─ \u001b[1m\u001b[38;5;254;48;5;233mHow-to Guides\u001b[22m\u001b[38;5;240;48;5;233m ────────────────────────────────────────────── [✗] ─┐\u001b[6;16H│\u001b[38;5;254;48;5;233m                                                                    \u001b[38;5;240;48;5;233m│\u001b[7;16H│\u001b[38;5;254;48;5;233m  \u001b[38;5;240;48;5;233m / to search\u001b[38;5;254;48;5;233m                                                      \u001b[38;5;240;48;5;233m│\u001b[8;16H│────────────────────────────────────────────────────────────────────│\u001b[9;16H│\u001b[38;5;254;48;5;233m  \u001b[38;5;240;48;5;237m◆ \u001b[1m\u001b[38;5;254;48;5;237mGetting Started\u001b[22m                                              \u001b[38;5;254;48;5;233m  \u001b[38;5;240;48;5;240m█\u001b[38;5;240;48;5;233m│\u001b[10;16H│\u001b[38;5;254;48;5;233m      \u001b[38;5;242;48;5;23"
+        },
+        {
+          "locator": "capture:uiProbes/1/events/31",
+          "scope": "binary-pty-observation",
+          "excerpt": "\u001b[?2026h\u001b[15;1H\u001b[J\u001b[15;1H\u001b[J"
+        },
         {
           "locator": "binary-guide:04-slash-commands.md#L362",
           "scope": "binary-guide",
@@ -98837,6 +98852,16 @@
       "name": "guides",
       "observations": [
         {
+          "locator": "capture:uiProbes/0/events/63",
+          "scope": "binary-pty-observation",
+          "excerpt": "\u001b[?2026h\u001b[5;16H\u001b[38;5;240;48;5;233m┌─ \u001b[1m\u001b[38;5;254;48;5;233mHow-to Guides\u001b[22m\u001b[38;5;240;48;5;233m ────────────────────────────────────────────── [✗] ─┐\u001b[6;16H│\u001b[38;5;254;48;5;233m                                                                    \u001b[38;5;240;48;5;233m│\u001b[7;16H│\u001b[38;5;254;48;5;233m  \u001b[38;5;240;48;5;233m / to search\u001b[38;5;254;48;5;233m                                                      \u001b[38;5;240;48;5;233m│\u001b[8;16H│────────────────────────────────────────────────────────────────────│\u001b[9;16H│\u001b[38;5;254;48;5;233m  \u001b[38;5;240;48;5;237m◆ \u001b[1m\u001b[38;5;254;48;5;237mGetting Started\u001b[22m                                              \u001b[38;5;254;48;5;233m  \u001b[38;5;240;48;5;240m█\u001b[38;5;240;48;5;233m│\u001b[10;16H│\u001b[38;5;254;48;5;233m      \u001b[38;5;242;48;5;23"
+        },
+        {
+          "locator": "capture:uiProbes/1/events/54",
+          "scope": "binary-pty-observation",
+          "excerpt": "\u001b[?2026h\u001b[15;1H\u001b[J\u001b[15;1H\u001b[J"
+        },
+        {
           "locator": "binary-guide:04-slash-commands.md#L364",
           "scope": "binary-guide",
           "excerpt": "Browse the built-in How-to Guides, open the online Build docs, or jump straight to a guide by title. Aliases: `/howto`, `/guides`."
@@ -98858,6 +98883,16 @@
       "category": "slash",
       "name": "help",
       "observations": [
+        {
+          "locator": "capture:uiProbes/0/events/15",
+          "scope": "binary-pty-observation",
+          "excerpt": "\u001b[?2026h\u001b[5;26H\u001b[38;5;240;48;5;233m┌─ \u001b[1m\u001b[38;5;254;48;5;233mCommands\u001b[22m\u001b[38;5;240;48;5;233m ─────────────────────────────── [✗] ─┐\u001b[6;26H│\u001b[38;5;254;48;5;233m                                                \u001b[38;5;240;48;5;233m│\u001b[7;26H│\u001b[38;5;254;48;5;233m  \u001b[38;5;242;48;5;233m search: \u001b[38;5;233;48;5;254m \u001b[38;5;254;48;5;233m                                    \u001b[38;5;240;48;5;233m│\u001b[8;26H│────────────────────────────────────────────────│\u001b[9;26H│\u001b[38;5;254;48;5;233m  \u001b[1m\u001b[38;5;242;48;5;233m Session \u001b[22m\u001b[38;5;240;48;5;233m──────────────────────────────────\u001b[38;5;254;48;5;233m  \u001b[38;5;240;48;5;240m█\u001b[38;5;240;48;5;233m│\u001b[10;26H│\u001b[38;5;254;48;5;233m  \u001b[38;5;240;48;5;233m◆ \u001b[38;5;254;48;5;233mNew Session                       \u001b[38;5;242;48;5;233mCtrl+N\u001b["
+        },
+        {
+          "locator": "capture:uiProbes/1/events/19",
+          "scope": "binary-pty-observation",
+          "excerpt": "\u001b[?2026h\u001b[15;1H\u001b[J"
+        },
         {
           "locator": "source:crates/codegen/xai-grok-pager/src/slash/commands/help.rs#L13",
           "scope": "source-registry",
@@ -99066,6 +99101,16 @@
       "category": "slash",
       "name": "howto",
       "observations": [
+        {
+          "locator": "capture:uiProbes/0/events/53",
+          "scope": "binary-pty-observation",
+          "excerpt": "\u001b[?2026h\u001b[5;16H\u001b[38;5;240;48;5;233m┌─ \u001b[1m\u001b[38;5;254;48;5;233mHow-to Guides\u001b[22m\u001b[38;5;240;48;5;233m ────────────────────────────────────────────── [✗] ─┐\u001b[6;16H│\u001b[38;5;254;48;5;233m                                                                    \u001b[38;5;240;48;5;233m│\u001b[7;16H│\u001b[38;5;254;48;5;233m  \u001b[38;5;240;48;5;233m / to search\u001b[38;5;254;48;5;233m                                                      \u001b[38;5;240;48;5;233m│\u001b[8;16H│────────────────────────────────────────────────────────────────────│\u001b[9;16H│\u001b[38;5;254;48;5;233m  \u001b[38;5;240;48;5;237m◆ \u001b[1m\u001b[38;5;254;48;5;237mGetting Started\u001b[22m                                              \u001b[38;5;254;48;5;233m  \u001b[38;5;240;48;5;240m█\u001b[38;5;240;48;5;233m│\u001b[10;16H│\u001b[38;5;254;48;5;233m      \u001b[38;5;242;48;5;23"
+        },
+        {
+          "locator": "capture:uiProbes/1/events/47",
+          "scope": "binary-pty-observation",
+          "excerpt": "\u001b[?2026h\u001b[15;1H\u001b[J\u001b[15;1H\u001b[J"
+        },
         {
           "locator": "binary-guide:04-slash-commands.md#L364",
           "scope": "binary-guide",
