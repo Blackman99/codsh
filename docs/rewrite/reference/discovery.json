@@ -14033,6 +14033,23 @@
       ]
     },
     {
+      "key": "documented-setting:07-mcp-servers.md:mcp.max_output_bytes",
+      "category": "documented-setting",
+      "name": "07-mcp-servers.md:mcp.max_output_bytes",
+      "observations": [
+        {
+          "locator": "binary-guide:07-mcp-servers.md#L57",
+          "scope": "binary-guide",
+          "excerpt": "> max_output_bytes = 40000"
+        },
+        {
+          "locator": "source-guide:07-mcp-servers.md#L57",
+          "scope": "source-guide",
+          "excerpt": "> max_output_bytes = 40000"
+        }
+      ]
+    },
+    {
       "key": "documented-setting:08-skills.md:skills.disabled",
       "category": "documented-setting",
       "name": "08-skills.md:skills.disabled",
@@ -42163,12 +42180,46 @@
         {
           "locator": "binary-guide:03-keyboard-shortcuts.md#L445",
           "scope": "binary-guide",
-          "excerpt": "> **Cmd+A is gated to Ghostty.** Grok's in-app `Cmd+A` handler is only\n> wired up when the detected terminal is Ghostty. Other terminals\n> either swallow `Cmd+A` at the terminal layer (Apple Terminal, default\n> iTerm2) or apply their own in-terminal \"Select All\" behaviour (Kitty,\n> WezTerm). On a non-Ghostty terminal, the binding does nothing and the\n> key falls through to the terminal's native behaviour.\n>\n> On Ghostty, add the one-line unbind to `~/.config/ghostty/config` so\n> the keystroke reaches the running TUI:\n>\n> ```ini\n> keybind = cmd+a=unbind\n> ```\n>\n> After Ghostty reloads (it watches the config file), `Cmd+A` in the\n> prompt selects every character in the prompt buffer, including pasted\n> image chips. Image chips are always path-free (`[Image #N]`); the\n> filepath (when known) appears only in the image preview overlay on\n> hover or when the cursor is on/right after the chip."
+          "excerpt": "> **Cmd+A is gated to Ghostty.** Grok's in-app `Cmd+A` handler is only\n> wired up when the detected terminal is Ghostty. Other terminals\n> either swallow `Cmd+A` at the terminal layer (Apple Terminal, default\n> iTerm2) or apply their own in-terminal \"Select All\" behaviour (Kitty,\n> WezTerm). On a non-Ghostty terminal, the binding does nothing and the\n> key falls through to the terminal's native behaviour."
         },
         {
           "locator": "source-guide:03-keyboard-shortcuts.md#L445",
           "scope": "source-guide",
-          "excerpt": "> **Cmd+A is gated to Ghostty.** Grok's in-app `Cmd+A` handler is only\n> wired up when the detected terminal is Ghostty. Other terminals\n> either swallow `Cmd+A` at the terminal layer (Apple Terminal, default\n> iTerm2) or apply their own in-terminal \"Select All\" behaviour (Kitty,\n> WezTerm). On a non-Ghostty terminal, the binding does nothing and the\n> key falls through to the terminal's native behaviour.\n>\n> On Ghostty, add the one-line unbind to `~/.config/ghostty/config` so\n> the keystroke reaches the running TUI:\n>\n> ```ini\n> keybind = cmd+a=unbind\n> ```\n>\n> After Ghostty reloads (it watches the config file), `Cmd+A` in the\n> prompt selects every character in the prompt buffer, including pasted\n> image chips. Image chips are always path-free (`[Image #N]`); the\n> filepath (when known) appears only in the image preview overlay on\n> hover or when the cursor is on/right after the chip."
+          "excerpt": "> **Cmd+A is gated to Ghostty.** Grok's in-app `Cmd+A` handler is only\n> wired up when the detected terminal is Ghostty. Other terminals\n> either swallow `Cmd+A` at the terminal layer (Apple Terminal, default\n> iTerm2) or apply their own in-terminal \"Select All\" behaviour (Kitty,\n> WezTerm). On a non-Ghostty terminal, the binding does nothing and the\n> key falls through to the terminal's native behaviour."
+        }
+      ]
+    },
+    {
+      "key": "guide-behavior:03-keyboard-shortcuts.md:When prompt is focused:6",
+      "category": "guide-behavior",
+      "name": "03-keyboard-shortcuts.md:When prompt is focused:6",
+      "observations": [
+        {
+          "locator": "binary-guide:03-keyboard-shortcuts.md#L445",
+          "scope": "binary-guide",
+          "excerpt": "> On Ghostty, add the one-line unbind to `~/.config/ghostty/config` so\n> the keystroke reaches the running TUI:"
+        },
+        {
+          "locator": "source-guide:03-keyboard-shortcuts.md#L445",
+          "scope": "source-guide",
+          "excerpt": "> On Ghostty, add the one-line unbind to `~/.config/ghostty/config` so\n> the keystroke reaches the running TUI:"
+        }
+      ]
+    },
+    {
+      "key": "guide-behavior:03-keyboard-shortcuts.md:When prompt is focused:8",
+      "category": "guide-behavior",
+      "name": "03-keyboard-shortcuts.md:When prompt is focused:8",
+      "observations": [
+        {
+          "locator": "binary-guide:03-keyboard-shortcuts.md#L445",
+          "scope": "binary-guide",
+          "excerpt": "> After Ghostty reloads (it watches the config file), `Cmd+A` in the\n> prompt selects every character in the prompt buffer, including pasted\n> image chips. Image chips are always path-free (`[Image #N]`); the\n> filepath (when known) appears only in the image preview overlay on\n> hover or when the cursor is on/right after the chip."
+        },
+        {
+          "locator": "source-guide:03-keyboard-shortcuts.md#L445",
+          "scope": "source-guide",
+          "excerpt": "> After Ghostty reloads (it watches the config file), `Cmd+A` in the\n> prompt selects every character in the prompt buffer, including pasted\n> image chips. Image chips are always path-free (`[Image #N]`); the\n> filepath (when known) appears only in the image preview overlay on\n> hover or when the cursor is on/right after the chip."
         }
       ]
     },
@@ -46993,12 +47044,63 @@
         {
           "locator": "binary-guide:07-mcp-servers.md#L23",
           "scope": "binary-guide",
-          "excerpt": "> **Global startup-timeout override:** instead of setting `startup_timeout_sec`\n> per server, you can change the default for all servers via the `MCP_TIMEOUT`\n> environment variable (milliseconds, compatible with Claude Code) or\n> `GROK_MCP_STARTUP_TIMEOUT_SECS` (seconds). A per-server `startup_timeout_sec`\n> still takes precedence over both. Cold-start `npx`/`uvx` servers that download\n> packages on first launch often need this; the default is 30s.\n>\n> **MCP tool-result size cap:** large MCP / `use_tool` results are truncated\n> inline (full payload spilled under the session `mcp/` folder). Default is\n> **20_000 bytes**. Override via:\n>\n> - env `GROK_MAX_MCP_OUTPUT_BYTES` or `MAX_MCP_OUTPUT_BYTES` (bytes; Grok-native\n>   wins if both set; Claude-style name, but we bound by **bytes** not tokens)\n> - `config.toml` — user-level (`~/.grok/config.toml`) **or repo-level**\n>   (`.grok/config.toml` anywhere on the cwd → git-root chain; the deepest\n>   file wins, and the repo value applies only once the folder is trusted):\n>\n> ```toml\n> [mcp]\n> max_output_bytes = 40000\n> ```\n>\n> Precedence: requirements.toml > env > repo `.grok/config.toml` >\n> user/managed config > default. Repo edits apply to running sessions in that\n> directory via config hot-reload."
+          "excerpt": "> **Global startup-timeout override:** instead of setting `startup_timeout_sec`\n> per server, you can change the default for all servers via the `MCP_TIMEOUT`\n> environment variable (milliseconds, compatible with Claude Code) or\n> `GROK_MCP_STARTUP_TIMEOUT_SECS` (seconds). A per-server `startup_timeout_sec`\n> still takes precedence over both. Cold-start `npx`/`uvx` servers that download\n> packages on first launch often need this; the default is 30s."
         },
         {
           "locator": "source-guide:07-mcp-servers.md#L23",
           "scope": "source-guide",
-          "excerpt": "> **Global startup-timeout override:** instead of setting `startup_timeout_sec`\n> per server, you can change the default for all servers via the `MCP_TIMEOUT`\n> environment variable (milliseconds, compatible with Claude Code) or\n> `GROK_MCP_STARTUP_TIMEOUT_SECS` (seconds). A per-server `startup_timeout_sec`\n> still takes precedence over both. Cold-start `npx`/`uvx` servers that download\n> packages on first launch often need this; the default is 30s.\n>\n> **MCP tool-result size cap:** large MCP / `use_tool` results are truncated\n> inline (full payload spilled under the session `mcp/` folder). Default is\n> **20_000 bytes**. Override via:\n>\n> - env `GROK_MAX_MCP_OUTPUT_BYTES` or `MAX_MCP_OUTPUT_BYTES` (bytes; Grok-native\n>   wins if both set; Claude-style name, but we bound by **bytes** not tokens)\n> - `config.toml` — user-level (`~/.grok/config.toml`) **or repo-level**\n>   (`.grok/config.toml` anywhere on the cwd → git-root chain; the deepest\n>   file wins, and the repo value applies only once the folder is trusted):\n>\n> ```toml\n> [mcp]\n> max_output_bytes = 40000\n> ```\n>\n> Precedence: requirements.toml > env > repo `.grok/config.toml` >\n> user/managed config > default. Repo edits apply to running sessions in that\n> directory via config hot-reload."
+          "excerpt": "> **Global startup-timeout override:** instead of setting `startup_timeout_sec`\n> per server, you can change the default for all servers via the `MCP_TIMEOUT`\n> environment variable (milliseconds, compatible with Claude Code) or\n> `GROK_MCP_STARTUP_TIMEOUT_SECS` (seconds). A per-server `startup_timeout_sec`\n> still takes precedence over both. Cold-start `npx`/`uvx` servers that download\n> packages on first launch often need this; the default is 30s."
+        }
+      ]
+    },
+    {
+      "key": "guide-behavior:07-mcp-servers.md:stdio Transport (Local Process):4",
+      "category": "guide-behavior",
+      "name": "07-mcp-servers.md:stdio Transport (Local Process):4",
+      "observations": [
+        {
+          "locator": "binary-guide:07-mcp-servers.md#L23",
+          "scope": "binary-guide",
+          "excerpt": "> **MCP tool-result size cap:** large MCP / `use_tool` results are truncated\n> inline (full payload spilled under the session `mcp/` folder). Default is\n> **20_000 bytes**. Override via:"
+        },
+        {
+          "locator": "source-guide:07-mcp-servers.md#L23",
+          "scope": "source-guide",
+          "excerpt": "> **MCP tool-result size cap:** large MCP / `use_tool` results are truncated\n> inline (full payload spilled under the session `mcp/` folder). Default is\n> **20_000 bytes**. Override via:"
+        }
+      ]
+    },
+    {
+      "key": "guide-behavior:07-mcp-servers.md:stdio Transport (Local Process):5",
+      "category": "guide-behavior",
+      "name": "07-mcp-servers.md:stdio Transport (Local Process):5",
+      "observations": [
+        {
+          "locator": "binary-guide:07-mcp-servers.md#L23",
+          "scope": "binary-guide",
+          "excerpt": "> - env `GROK_MAX_MCP_OUTPUT_BYTES` or `MAX_MCP_OUTPUT_BYTES` (bytes; Grok-native\n>   wins if both set; Claude-style name, but we bound by **bytes** not tokens)\n> - `config.toml` — user-level (`~/.grok/config.toml`) **or repo-level**\n>   (`.grok/config.toml` anywhere on the cwd → git-root chain; the deepest\n>   file wins, and the repo value applies only once the folder is trusted):"
+        },
+        {
+          "locator": "source-guide:07-mcp-servers.md#L23",
+          "scope": "source-guide",
+          "excerpt": "> - env `GROK_MAX_MCP_OUTPUT_BYTES` or `MAX_MCP_OUTPUT_BYTES` (bytes; Grok-native\n>   wins if both set; Claude-style name, but we bound by **bytes** not tokens)\n> - `config.toml` — user-level (`~/.grok/config.toml`) **or repo-level**\n>   (`.grok/config.toml` anywhere on the cwd → git-root chain; the deepest\n>   file wins, and the repo value applies only once the folder is trusted):"
+        }
+      ]
+    },
+    {
+      "key": "guide-behavior:07-mcp-servers.md:stdio Transport (Local Process):7",
+      "category": "guide-behavior",
+      "name": "07-mcp-servers.md:stdio Transport (Local Process):7",
+      "observations": [
+        {
+          "locator": "binary-guide:07-mcp-servers.md#L23",
+          "scope": "binary-guide",
+          "excerpt": "> Precedence: requirements.toml > env > repo `.grok/config.toml` >\n> user/managed config > default. Repo edits apply to running sessions in that\n> directory via config hot-reload."
+        },
+        {
+          "locator": "source-guide:07-mcp-servers.md#L23",
+          "scope": "source-guide",
+          "excerpt": "> Precedence: requirements.toml > env > repo `.grok/config.toml` >\n> user/managed config > default. Repo edits apply to running sessions in that\n> directory via config hot-reload."
         }
       ]
     },
@@ -60284,12 +60386,12 @@
         {
           "locator": "binary-guide:18-sandbox.md#L92",
           "scope": "binary-guide",
-          "excerpt": "> **Globs in `deny`:** An entry is a **glob** if it contains `*`, `?`, or `[`.\n> Those characters **always** mean glob — to deny a literal file whose name\n> contains them, name a parent directory instead. The supported, gitignore-style\n> subset is:\n>\n> - `*` — any run of characters within one path segment (stops at `/`)\n> - `?` — exactly one character within a segment\n> - `**` — spans directories (as a whole path segment, e.g. `**/`, `a/**`); `**/`\n>   also matches zero directories, so `**/.env` matches `.env` and `sub/.env`\n> - `[abc]` / `[a-z]` — character classes; a leading `!` **or** `^` negates\n>   (`[!a]` and `[^a]` both mean \"not `a`\")\n>\n> Brace alternation (`{a,b}`), backslash-escapes, empty path segments (a\n> doubled `//` or a trailing `/`), `.` or `..` segments, and the unusual class\n> forms `[]…]` (literal `]` first) and POSIX `[[:…:]]` are **not** supported,\n> so the two platforms\n> can never interpret a glob differently. A glob using an unsupported\n> metacharacter, or one that is malformed, makes Grok **refuse to start** (fail\n> closed) on **both** platforms — write `*.pem` and `*.key` as separate entries\n> rather than `*.{pem,key}`.\n>\n> Relative globs are anchored at the workspace; absolute globs (e.g.\n> `/home/**/.ssh`) at their literal prefix. Non-glob entries keep exact-path\n> matching. A relative glob matches **only inside the workspace**. To deny\n> files elsewhere, write the entry as an absolute path. Enforcement otherwise\n> differs by platform:\n>\n> - **macOS is airtight:** each glob becomes a Seatbelt regex applied at runtime,\n>   so matching files are denied **even if created after Grok starts**.\n> - **Linux is best-effort:** a mount namespace can't glob at runtime, so each\n>   glob is expanded to the files that **exist at launch** and those are bound\n>   over. Files created **later** that match a glob are **not** covered — name\n>   exact paths for anything that must be airtight on Linux. A matched symlink\n>   is masked together with its resolved target. A glob that matches too many\n>   files, or whose tree is too deep or broad to scan, makes Grok **refuse to\n>   start** rather than under-enforce; the error names the globs and the\n>   directory where the scan stopped. The launch scan starts at each glob's\n>   literal prefix and includes gitignored and hidden files, so on very large\n>   workspaces prefer anchored globs (`certs/**/*.pem` scans only `certs/`)\n>   over bare `**` patterns."
+          "excerpt": "> **Globs in `deny`:** An entry is a **glob** if it contains `*`, `?`, or `[`.\n> Those characters **always** mean glob — to deny a literal file whose name\n> contains them, name a parent directory instead. The supported, gitignore-style\n> subset is:"
         },
         {
           "locator": "source-guide:18-sandbox.md#L95",
           "scope": "source-guide",
-          "excerpt": "> **Globs in `deny`:** An entry is a **glob** if it contains `*`, `?`, or `[`.\n> Those characters **always** mean glob — to deny a literal file whose name\n> contains them, name a parent directory instead. The supported, gitignore-style\n> subset is:\n>\n> - `*` — any run of characters within one path segment (stops at `/`)\n> - `?` — exactly one character within a segment\n> - `**` — spans directories (as a whole path segment, e.g. `**/`, `a/**`); `**/`\n>   also matches zero directories, so `**/.env` matches `.env` and `sub/.env`\n> - `[abc]` / `[a-z]` — character classes; a leading `!` **or** `^` negates\n>   (`[!a]` and `[^a]` both mean \"not `a`\")\n>\n> Brace alternation (`{a,b}`), backslash-escapes, empty path segments (a\n> doubled `//` or a trailing `/`), `.` or `..` segments, and the unusual class\n> forms `[]…]` (literal `]` first) and POSIX `[[:…:]]` are **not** supported,\n> so the two platforms\n> can never interpret a glob differently. A glob using an unsupported\n> metacharacter, or one that is malformed, makes Grok **refuse to start** (fail\n> closed) on **both** platforms — write `*.pem` and `*.key` as separate entries\n> rather than `*.{pem,key}`.\n>\n> Relative globs are anchored at the workspace; absolute globs (e.g.\n> `/home/**/.ssh`) at their literal prefix. Non-glob entries keep exact-path\n> matching. A relative glob matches **only inside the workspace**. To deny\n> files elsewhere, write the entry as an absolute path. Enforcement otherwise\n> differs by platform:\n>\n> - **macOS is airtight:** each glob becomes a Seatbelt regex applied at runtime,\n>   so matching files are denied **even if created after Grok starts**.\n> - **Linux is best-effort:** a mount namespace can't glob at runtime, so each\n>   glob is expanded to the files that **exist at launch** and those are bound\n>   over. Files created **later** that match a glob are **not** covered — name\n>   exact paths for anything that must be airtight on Linux. A matched symlink\n>   is masked together with its resolved target. A glob that matches too many\n>   files, or whose tree is too deep or broad to scan, makes Grok **refuse to\n>   start** rather than under-enforce; the error names the globs and the\n>   directory where the scan stopped. The launch scan starts at each glob's\n>   literal prefix and includes gitignored and hidden files, so on very large\n>   workspaces prefer anchored globs (`certs/**/*.pem` scans only `certs/`)\n>   over bare `**` patterns."
+          "excerpt": "> **Globs in `deny`:** An entry is a **glob** if it contains `*`, `?`, or `[`.\n> Those characters **always** mean glob — to deny a literal file whose name\n> contains them, name a parent directory instead. The supported, gitignore-style\n> subset is:"
         }
       ]
     },
@@ -60297,6 +60399,74 @@
       "key": "guide-behavior:18-sandbox.md:Custom Profile Fields:5",
       "category": "guide-behavior",
       "name": "18-sandbox.md:Custom Profile Fields:5",
+      "observations": [
+        {
+          "locator": "binary-guide:18-sandbox.md#L92",
+          "scope": "binary-guide",
+          "excerpt": "> - `*` — any run of characters within one path segment (stops at `/`)\n> - `?` — exactly one character within a segment\n> - `**` — spans directories (as a whole path segment, e.g. `**/`, `a/**`); `**/`\n>   also matches zero directories, so `**/.env` matches `.env` and `sub/.env`\n> - `[abc]` / `[a-z]` — character classes; a leading `!` **or** `^` negates\n>   (`[!a]` and `[^a]` both mean \"not `a`\")"
+        },
+        {
+          "locator": "source-guide:18-sandbox.md#L95",
+          "scope": "source-guide",
+          "excerpt": "> - `*` — any run of characters within one path segment (stops at `/`)\n> - `?` — exactly one character within a segment\n> - `**` — spans directories (as a whole path segment, e.g. `**/`, `a/**`); `**/`\n>   also matches zero directories, so `**/.env` matches `.env` and `sub/.env`\n> - `[abc]` / `[a-z]` — character classes; a leading `!` **or** `^` negates\n>   (`[!a]` and `[^a]` both mean \"not `a`\")"
+        }
+      ]
+    },
+    {
+      "key": "guide-behavior:18-sandbox.md:Custom Profile Fields:6",
+      "category": "guide-behavior",
+      "name": "18-sandbox.md:Custom Profile Fields:6",
+      "observations": [
+        {
+          "locator": "binary-guide:18-sandbox.md#L92",
+          "scope": "binary-guide",
+          "excerpt": "> Brace alternation (`{a,b}`), backslash-escapes, empty path segments (a\n> doubled `//` or a trailing `/`), `.` or `..` segments, and the unusual class\n> forms `[]…]` (literal `]` first) and POSIX `[[:…:]]` are **not** supported,\n> so the two platforms\n> can never interpret a glob differently. A glob using an unsupported\n> metacharacter, or one that is malformed, makes Grok **refuse to start** (fail\n> closed) on **both** platforms — write `*.pem` and `*.key` as separate entries\n> rather than `*.{pem,key}`."
+        },
+        {
+          "locator": "source-guide:18-sandbox.md#L95",
+          "scope": "source-guide",
+          "excerpt": "> Brace alternation (`{a,b}`), backslash-escapes, empty path segments (a\n> doubled `//` or a trailing `/`), `.` or `..` segments, and the unusual class\n> forms `[]…]` (literal `]` first) and POSIX `[[:…:]]` are **not** supported,\n> so the two platforms\n> can never interpret a glob differently. A glob using an unsupported\n> metacharacter, or one that is malformed, makes Grok **refuse to start** (fail\n> closed) on **both** platforms — write `*.pem` and `*.key` as separate entries\n> rather than `*.{pem,key}`."
+        }
+      ]
+    },
+    {
+      "key": "guide-behavior:18-sandbox.md:Custom Profile Fields:7",
+      "category": "guide-behavior",
+      "name": "18-sandbox.md:Custom Profile Fields:7",
+      "observations": [
+        {
+          "locator": "binary-guide:18-sandbox.md#L92",
+          "scope": "binary-guide",
+          "excerpt": "> Relative globs are anchored at the workspace; absolute globs (e.g.\n> `/home/**/.ssh`) at their literal prefix. Non-glob entries keep exact-path\n> matching. A relative glob matches **only inside the workspace**. To deny\n> files elsewhere, write the entry as an absolute path. Enforcement otherwise\n> differs by platform:"
+        },
+        {
+          "locator": "source-guide:18-sandbox.md#L95",
+          "scope": "source-guide",
+          "excerpt": "> Relative globs are anchored at the workspace; absolute globs (e.g.\n> `/home/**/.ssh`) at their literal prefix. Non-glob entries keep exact-path\n> matching. A relative glob matches **only inside the workspace**. To deny\n> files elsewhere, write the entry as an absolute path. Enforcement otherwise\n> differs by platform:"
+        }
+      ]
+    },
+    {
+      "key": "guide-behavior:18-sandbox.md:Custom Profile Fields:8",
+      "category": "guide-behavior",
+      "name": "18-sandbox.md:Custom Profile Fields:8",
+      "observations": [
+        {
+          "locator": "binary-guide:18-sandbox.md#L92",
+          "scope": "binary-guide",
+          "excerpt": "> - **macOS is airtight:** each glob becomes a Seatbelt regex applied at runtime,\n>   so matching files are denied **even if created after Grok starts**.\n> - **Linux is best-effort:** a mount namespace can't glob at runtime, so each\n>   glob is expanded to the files that **exist at launch** and those are bound\n>   over. Files created **later** that match a glob are **not** covered — name\n>   exact paths for anything that must be airtight on Linux. A matched symlink\n>   is masked together with its resolved target. A glob that matches too many\n>   files, or whose tree is too deep or broad to scan, makes Grok **refuse to\n>   start** rather than under-enforce; the error names the globs and the\n>   directory where the scan stopped. The launch scan starts at each glob's\n>   literal prefix and includes gitignored and hidden files, so on very large\n>   workspaces prefer anchored globs (`certs/**/*.pem` scans only `certs/`)\n>   over bare `**` patterns."
+        },
+        {
+          "locator": "source-guide:18-sandbox.md#L95",
+          "scope": "source-guide",
+          "excerpt": "> - **macOS is airtight:** each glob becomes a Seatbelt regex applied at runtime,\n>   so matching files are denied **even if created after Grok starts**.\n> - **Linux is best-effort:** a mount namespace can't glob at runtime, so each\n>   glob is expanded to the files that **exist at launch** and those are bound\n>   over. Files created **later** that match a glob are **not** covered — name\n>   exact paths for anything that must be airtight on Linux. A matched symlink\n>   is masked together with its resolved target. A glob that matches too many\n>   files, or whose tree is too deep or broad to scan, makes Grok **refuse to\n>   start** rather than under-enforce; the error names the globs and the\n>   directory where the scan stopped. The launch scan starts at each glob's\n>   literal prefix and includes gitignored and hidden files, so on very large\n>   workspaces prefer anchored globs (`certs/**/*.pem` scans only `certs/`)\n>   over bare `**` patterns."
+        }
+      ]
+    },
+    {
+      "key": "guide-behavior:18-sandbox.md:Custom Profile Fields:9",
+      "category": "guide-behavior",
+      "name": "18-sandbox.md:Custom Profile Fields:9",
       "observations": [
         {
           "locator": "binary-guide:18-sandbox.md#L92",

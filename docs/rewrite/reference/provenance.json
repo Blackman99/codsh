@@ -277,11 +277,11 @@
   "counts": {
     "acp-extension": 264,
     "cli": 99,
-    "documented-setting": 454,
+    "documented-setting": 455,
     "environment": 642,
     "feature": 20,
     "flag": 641,
-    "guide-behavior": 1690,
+    "guide-behavior": 1699,
     "guide-item": 628,
     "guide-section": 699,
     "keybinding": 115,

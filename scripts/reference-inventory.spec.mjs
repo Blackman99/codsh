@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs'
 import { createHash } from 'node:crypto'
 import { describe, expect, it } from 'vitest'
 import { checkInventory, extractSurfaces, loadEvidence, sourceCommands } from './reference-inventory.mjs'
-import { buildRegister, guideContexts, mapOwners } from './reference-mapping.mjs'
+import { buildRegister, guideContexts, guideLines, mapOwners } from './reference-mapping.mjs'
 
 const read = name => JSON.parse(readFileSync(new URL(`../docs/rewrite/reference/${name}`, import.meta.url), 'utf8'))
 
@@ -728,6 +728,133 @@ describe('frozen reference coverage register', () => {
     expect(scenarios.find(row => row.id === 'PARITY-141-campaigns').then).toMatch(/requirements.*GROK_CAMPAIGNS=0/)
     expect(scenarios.find(row => row.id === 'PARITY-171-policy').then).toMatch(/authoritative.*model.*session start/)
     expect(scenarios.find(row => row.id === 'PARITY-186').then).toMatch(/capture_enabled.*capture_status_enabled/)
+  })
+
+  it.each(['> ', '> > '])('extracts TOML inside %s quote containers without turning code into prose', quote => {
+    const text = `## Limits\n${quote}A quoted introduction.\n${quote}\n${quote}\`\`\`toml\n${quote}[mcp]\n${quote}# Not a heading\n${quote}max_output_bytes = 40000\n${quote}\`\`\`\n${quote}Security prose after the fence.\n\n## Next\nOrdinary prose.`
+    const capture = { commands: [], guides: [{ file: '07-mcp-servers.md', text }] }
+    const items = extractSurfaces(capture, [])
+    const setting = items.find(item => item.key === 'documented-setting:07-mcp-servers.md:mcp.max_output_bytes')
+    expect(setting?.observations[0].excerpt).toBe(`${quote}max_output_bytes = 40000`)
+    expect(items.filter(item => item.category === 'guide-behavior').some(item => item.observations.some(o => o.excerpt.includes('max_output_bytes')))).toBe(false)
+    expect(items.filter(item => item.category === 'guide-behavior').some(item => item.observations.some(o => o.excerpt.includes('Security prose')))).toBe(true)
+    expect(guideContexts({ capture, source: { guides: [] } }).get('binary-guide:07-mcp-servers.md#L9')).toEqual(['Limits'])
+    expect(guideLines('> ```toml\n> [mcp]\n## Outside')[2].heading?.[2]).toBe('Outside')
+    expect(guideLines('```text\n> ```\n# Still code\n```')[2].code).toBe(true)
+  })
+
+  it('extracts the actual frozen and pinned blockquoted MCP example with exact locators', () => {
+    const evidence = loadEvidence(), capture = { commands: [], guides: evidence.capture.guides.filter(g => g.file === '07-mcp-servers.md') }
+    const sources = evidence.source.guides.filter(g => g.path.endsWith('/07-mcp-servers.md'))
+    for (const items of [extractSurfaces(capture, sources), read('discovery.json').items]) {
+      const item = items.find(item => item.key === 'documented-setting:07-mcp-servers.md:mcp.max_output_bytes')
+      expect(item).toBeDefined()
+      for (const scope of ['binary-guide', 'source-guide']) expect(item.observations).toContainEqual({ locator: `${scope}:07-mcp-servers.md#L57`, scope, excerpt: '> max_output_bytes = 40000' })
+      expect(items.filter(item => item.category === 'guide-behavior' && item.name.startsWith('07-mcp-servers.md:')).some(item => item.observations.some(o => o.excerpt.includes('> ```toml')))).toBe(false)
+    }
+    const row = read('inventory.json').items.find(item => item.key === 'documented-setting:07-mcp-servers.md:mcp.max_output_bytes')
+    expect(row.tickets).toEqual([167])
+    expect(row.acceptance).toContain('PARITY-167-limits')
+  })
+
+  it.each(['scroll_speed', 'scroll_mode', 'scroll_lines', 'invert_scroll', 'mouse_reporting_toggle'])('maps %s settings and aliases to input effects consistently', field => {
+    const register = read('inventory.json')
+    for (const key of [`setting:ui.${field}`, `environment:GROK_${field.toUpperCase()}`]) {
+      const row = register.items.find(item => item.key === key)
+      expect(row.tickets, key).toEqual([152])
+      expect(row.acceptance).toEqual([field === 'mouse_reporting_toggle' ? 'PARITY-152-mouse-capture' : 'PARITY-152-scroll-input'])
+    }
+    for (const row of register.items.filter(item => item.key === `documented-setting:05-configuration.md:ui.${field}`)) {
+      expect(row.tickets).toEqual([152])
+      expect(row.acceptance).toContain('PARITY-152-scroll-input')
+    }
+    expect(register.items.find(item => item.key === 'setting:ui.cursor_blink').tickets).toEqual([154])
+  })
+
+  it('assigns ghost-text editing and suggestion model parameters to their distinct functional contracts', () => {
+    const register = read('inventory.json')
+    for (const key of ['setting:ui.prompt_suggestions', 'environment:GROK_PROMPT_SUGGESTIONS']) {
+      const row = register.items.find(item => item.key === key)
+      expect(row.tickets).toEqual([150])
+      expect(row.acceptance).toContain('PARITY-150-suggestions')
+    }
+    for (const key of ['environment:GROK_PROMPT_SUGGESTIONS_MODEL', 'setting:models.prompt_suggestion', 'setting:prompt_suggestions.max_output_tokens', 'setting:prompt_suggestions.temperature', 'setting:prompt_suggestions.reasoning_effort']) {
+      const row = register.items.find(item => item.key === key)
+      expect(row.tickets).toEqual([140])
+      expect(row.acceptance).toContain('PARITY-140-suggestions')
+    }
+    expect(register.items.find(item => item.key === 'environment:GROK_PROMPT_SUGGESTIONS_MODEL').blocker).toMatch(/Source export is 1.0.35/)
+  })
+
+  it('distinguishes metadata-only session saves and memory diagnostics from manual and model-backed memory', () => {
+    const register = read('inventory.json')
+    for (const key of ['documented-setting:05-configuration.md:memory.session.save_on_end', 'guide-item:13-memory.md:Configuration Reference > Core Settings (`[memory]`):`session.save_on_end`', 'guide-section:13-memory.md:Automatic Saves']) {
+      const row = register.items.find(item => item.key === key)
+      expect(row.tickets).toContain(186)
+      expect(row.acceptance).toContain('PARITY-186-session-metadata')
+    }
+    const log = register.items.find(item => item.key === 'environment:GROK_MEMORY_LOG')
+    expect(log.tickets).toEqual([186, 192])
+    expect(log.acceptance).toContain('PARITY-186-memory-log')
+    expect(log.blocker).toMatch(/Source export is 1.0.35/)
+    expect(register.items.find(item => item.key === 'slash:remember').tickets).toEqual([185])
+    expect(register.items.find(item => item.key === 'setting:memory_v2.capture_enabled').acceptance).not.toContain('PARITY-186-session-metadata')
+  })
+
+  it('assigns every memory-guide compaction pruning row to retained-context effects', () => {
+    const rows = read('inventory.json').items.filter(item => item.key.includes('13-memory.md:') && item.key.includes('Pruning Settings (`[compaction.pruning]`)'))
+    expect(rows.filter(row => row.key.startsWith('guide-item:'))).toHaveLength(6)
+    expect(rows.some(row => row.key.startsWith('guide-section:'))).toBe(true)
+    expect(rows.some(row => row.key.startsWith('guide-behavior:'))).toBe(true)
+    for (const row of rows) {
+      expect(row.tickets, row.key).toEqual([161])
+      expect(row.acceptance, row.key).toEqual(['PARITY-161-pruning'])
+    }
+  })
+
+  it.each(['GROK_DEBUG_LOG', 'GROK_LOG_SAMPLING', 'GROK_INSTRUMENTATION', 'GROK_INSTRUMENTATION_LOG', 'GROK_LEADER_LOG', 'GROK_SCROLL_LOG'])('retains provisional diagnostic effects for %s', name => {
+    const row = read('inventory.json').items.find(item => item.key === `environment:${name}`)
+    expect(row.tickets).toEqual([192])
+    expect(row.acceptance).toEqual(['PARITY-192-diagnostic-controls'])
+    expect(row.blocker).toMatch(/Source export is 1.0.35/)
+  })
+
+  it('keeps inherited shell startup variables under child-environment and status-line acceptance', () => {
+    const register = read('inventory.json')
+    for (const name of ['BASH_ENV', 'ENV']) {
+      const row = register.items.find(item => item.key === `environment:${name}`)
+      expect(row.tickets).toEqual([144, 154])
+      expect(row.acceptance).toContain('PARITY-144-status-line-env')
+    }
+    const rows = read('discovery.json').items.filter(item => item.name.startsWith('25-status-line.md:') && item.observations.some(o => o.excerpt.includes('BASH_ENV')))
+    for (const item of rows) expect(register.items.find(row => row.key === item.key).acceptance).toContain('PARITY-144-status-line-env')
+  })
+
+  it('routes web-fetch enablement, proxy and domain controls to fetch effects instead of search-only policy', () => {
+    const register = read('inventory.json')
+    for (const key of ['environment:GROK_WEB_FETCH', 'environment:GROK_DISABLE_WEB_FETCH', 'environment:GROK_WEB_FETCH_PROXY', 'setting:toolset.web_fetch.proxy_endpoint', 'setting:toolset.web_fetch.allowed_domains', 'documented-setting:05-configuration.md:toolset.web_fetch.proxy_endpoint', 'documented-setting:05-configuration.md:toolset.web_fetch.allowed_domains', 'feature:web_fetch', 'setting:features.web_fetch', 'tool:web_fetch']) {
+      const row = register.items.find(item => item.key === key)
+      expect(row, key).toBeDefined()
+      expect(row.acceptance, key).toContain('PARITY-171-fetch-controls')
+      expect(row.acceptance, key).not.toContain('PARITY-171-policy')
+    }
+    for (const key of ['environment:GROK_WEB_FETCH_ALLOW_LOCAL', 'setting:toolset.web_search.allowed_domains', 'setting:toolset.web_search.excluded_domains']) expect(register.items.find(item => item.key === key).acceptance).toContain('PARITY-171-policy')
+    expect(register.items.find(item => item.key === 'guide-section:05-configuration.md:Tool configuration').acceptance).toEqual(expect.arrayContaining(['PARITY-171-fetch-controls', 'PARITY-171-policy']))
+    expect(register.acceptance.find(item => item.id === 'PARITY-171-fetch-controls').then).toMatch(/empty fetch allowlist blocks all.*unlike an empty search list/)
+  })
+
+  it('specifies concrete effects for the independently reviewed neighboring controls', () => {
+    const scenarios = new Map(read('inventory.json').acceptance.map(item => [item.id, item]))
+    expect(scenarios.get('PARITY-152-scroll-input').then).toMatch(/classification.*direction.*distance.*reading position/)
+    expect(scenarios.get('PARITY-152-mouse-capture').then).toMatch(/mouse capture.*native.*selection/)
+    expect(scenarios.get('PARITY-150-suggestions').then).toMatch(/Tab.*Right.*prefix.*Esc.*stale/)
+    expect(scenarios.get('PARITY-140-suggestions').then).toMatch(/provider.*model.*tokens.*temperature.*effort/)
+    expect(scenarios.get('PARITY-186-session-metadata').then).toMatch(/metadata.*no.*model call/)
+    expect(scenarios.get('PARITY-186-memory-log').then).toMatch(/disabled.*default.*redirect/)
+    expect(scenarios.get('PARITY-161-pruning').then).toMatch(/provider context.*protected.*head.*tail.*placeholder/)
+    expect(scenarios.get('PARITY-144-status-line-env').then).toMatch(/canary.*unchanged/)
+    expect(scenarios.get('PARITY-192-diagnostic-controls').then).toMatch(/debug.*sampling.*instrumentation.*leader.*scroll/)
+    expect(scenarios.get('PARITY-171-fetch-controls').then).toMatch(/disabled.*proxy.*allowlist.*redirect/)
   })
 
   it('extracts commands and flags, including nested help and aliases', () => {

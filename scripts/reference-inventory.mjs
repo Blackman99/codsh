@@ -163,7 +163,7 @@ export function extractSurfaces(capture, sources) {
     let section = '', table = '', codeTable = '', lastSetting = ''
     const scanned = guideLines(text), lines = scanned.map(row => row.line), headings = []
     for (const [index, row] of scanned.entries()) {
-      const { line, code, fence, language, heading } = row
+      const { line, content: markup, code, fence, language, heading } = row
       if (heading) { headings.length = heading[1].length; headings[heading[1].length - 1] = heading[2] }
       const locator = `${origin}:${file}#L${index + 1}`
       for (const match of line.matchAll(/\b(?:GROK_[A-Z0-9_]+|XAI_API_KEY|DO_NOT_TRACK|OTEL_[A-Z0-9_]+)\b/gu)) {
@@ -172,7 +172,7 @@ export function extractSurfaces(capture, sources) {
       const context = lines.slice(Math.max(0, index - 1), index + 2).join('\n')
       const environmentText = line.replace(/`KEY=value`/gu, '')
       if (!code && headings.some(heading => /environment variables/iu.test(heading))) {
-        const variable = line.match(/^\|\s*`([A-Z][A-Z0-9_]+)`\s*\|/u)?.[1]
+        const variable = markup.match(/^\|\s*`([A-Z][A-Z0-9_]+)`\s*\|/u)?.[1]
         if (variable) add('environment', variable, line, locator, origin)
       }
       if (/\benv(?:ironment)?(?:[ -](?:variable|override|control))?\b/iu.test(context.replace(/--env\b/gu, ''))) {
@@ -196,9 +196,9 @@ export function extractSurfaces(capture, sources) {
       }
       if (code) {
         if (language === 'toml') {
-          const heading = line.match(/^\[\[?([^\]]+)\]\]?/u)
+          const heading = markup.match(/^\[\[?([^\]]+)\]\]?/u)
           if (heading) codeTable = heading[1]
-          const field = line.match(/^([a-z_][a-z0-9_]*)\s*=/u)
+          const field = markup.match(/^([a-z_][a-z0-9_]*)\s*=/u)
           if (field) {
             lastSetting = `${codeTable ? `${codeTable}.` : ''}${field[1]}`
             add('documented-setting', `${file}:${lastSetting}`, line, locator, origin)
@@ -221,13 +221,13 @@ export function extractSurfaces(capture, sources) {
           const flush = () => {
             if (!paragraph.length) return
             paragraphIndex++
-            if (!paragraph.some(row => row.code) && !paragraph[0].line.startsWith('|')) {
+            if (!paragraph.some(row => row.code) && !paragraph[0].content.startsWith('|')) {
               add('guide-behavior', `${file}:${heading[2]}:${paragraphIndex}`, paragraph.map(row => row.line).join('\n'), locator, origin)
             }
             paragraph = []
           }
           for (const row of body) {
-            if (!row.line.trim()) flush()
+            if (!row.content.trim()) flush()
             else {
               if (paragraph.length && paragraph.at(-1).code !== row.code) flush()
               paragraph.push(row)
@@ -236,10 +236,10 @@ export function extractSurfaces(capture, sources) {
           flush()
         }
       }
-      if (line.startsWith('|')) {
-        if (!table && !/^\|[\s:|-]+\|$/u.test(line)) { table = line; continue }
-        if (/^\|[\s:|-]+\|$/u.test(line)) continue
-        const cells = line.split(/(?<!\\)\|/u).slice(1, -1).map(value => value.trim())
+      if (markup.startsWith('|')) {
+        if (!table && !/^\|[\s:|-]+\|$/u.test(markup)) { table = line; continue }
+        if (/^\|[\s:|-]+\|$/u.test(markup)) continue
+        const cells = markup.split(/(?<!\\)\|/u).slice(1, -1).map(value => value.trim())
         if (cells.length < 2 || !cells[0]) continue
         let category = 'guide-item'
         if (file.startsWith('26-') && table.includes('| Key |') && /^`[a-z_][^`]*`$/u.test(cells[0])) category = 'setting'

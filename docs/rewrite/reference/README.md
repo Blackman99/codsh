@@ -118,9 +118,12 @@ or configuration defaults cannot displace functional section owners.
 Important reconciliations:
 
 - A shared fence-aware Markdown scan drives section boundaries and mapping context.
-  Backtick/tilde fences, marker lengths, TOML comments and blank lines inside code
-  cannot truncate following security prose or create headings. Fenced examples stay
-  quoted in section evidence rather than masquerading as behavior paragraphs.
+  Backtick/tilde fences, marker lengths, nested blockquote containers, TOML comments
+  and blank lines inside code cannot truncate following security prose or create
+  headings. Container-normalized syntax yields individual TOML settings (including
+  the quoted MCP `max_output_bytes` example); quotations and locators retain the
+  original bytes. Fenced examples stay in section evidence rather than masquerading
+  as behavior paragraphs.
   The restored Tool configuration prose retains authoritative search policy,
   model-override prohibition, allow/block conflict warnings, session-start loading,
   questionnaire precedence and loopback-only fetch exceptions under functional owners.
@@ -142,6 +145,23 @@ Important reconciliations:
   semantics have separate scenarios. Source-only screen-mode injection, workflow
   concurrency and web-fetch-disable controls remain provisional. No new runtime
   availability or enforcement is inferred from these extraction/mapping corrections.
+- Scroll speed/mode/lines/inversion and mouse capture use #152 input-effect tests,
+  consistently across config, TOML examples and environment aliases. Ghost-text
+  acceptance/prefix/dismissal/stale-response behavior uses #150; suggestion-model
+  pins and token/temperature/effort controls use #140 provider-wire acceptance.
+- Legacy `memory.session.save_on_end` uses #186 metadata-only, no-model-call
+  acceptance, separate from memory-v2 capture. Memory logging has #186/#192 file
+  effects and an explicit build/availability caveat. The memory guide's pruning
+  subsection uses #161 retained/provider-context tests, not manual note operations.
+- Debug, sampling, instrumentation, leader and scroll logging controls use #192
+  diagnostic-artifact/filter/destination acceptance and stay source-provisional.
+  Status-line `BASH_ENV`/`ENV` removal uses #144/#154 and inherited rc-file canaries,
+  not merely a configuration display. No new diagnostic upload is authorized.
+- Fetch enablement, egress proxy and domain overrides have a separate #171 scenario
+  from authoritative search policy and loopback exceptions. Mixed section rows
+  retain both scenarios: an empty fetch allowlist blocks all requests, whereas the
+  documented empty search list is unbounded. Model/network effects still require
+  downstream installed-product verification.
 
 - UI approval/yolo, follow-up routing/merging, child cancellation and `simple_mode`
   belong to permissions, queue/steer, cancellation/child lifecycle and prompt editing.

@@ -122,9 +122,10 @@ blocks and sandbox write protection need real effects, MCP headers/stdio belong 
 MCP, model headers to providers, ACP updates to protocol/session replay, and plan
 feedback to plan review rather than telemetry. ACP `x.ai/review/comment` instead
 records cloud code-review events and requires consent/destination acceptance.
-Section extraction and owner context share a fence-aware Markdown scan: code
-comments cannot hide subsequent prose, and fenced examples are retained as section
-evidence, not standalone behavior paragraphs. Audit extraction deltas for actual
+Section extraction and owner context share a fence-aware Markdown scan, including
+nested blockquote containers: normalize syntax for TOML fields while preserving
+original quotation bytes and line locators. Code comments cannot hide subsequent
+prose, and fenced examples remain section evidence, not behavior paragraphs. Audit extraction deltas for actual
 prose preservation rather than preserving misclassified code-fragment identities.
 Environment extraction recognizes literal reads/setters, named constants, env-map
 lookups and key loops, enclosing environment-variable tables, assignment-form hints
@@ -134,7 +135,14 @@ Guide-qualified variables and assignment forms resolve to canonical functional
 owners; a path mentioning a variable is not itself an environment identity.
 Workflow budget/lifecycle subcontracts keep #182/#183 even under a slash owner;
 actual memory-v2 capture/Dream controls use #186 and campaign patches use #139/#141.
-Keep documented gates separate from newer source-only overrides in acceptance. Alias ownership follows explicit “Also ENV”
+Keep documented gates separate from newer source-only overrides in acceptance.
+Audit control effects across canonical/config/example/alias representations: scrolling
+and mouse capture are input behavior, ghost text differs from its model routing,
+legacy metadata saves differ from model-backed capture, and pruning is compaction.
+Diagnostics require real file/filter/destination checks and status-line environment
+sanitization requires rc-file canaries. Fetch proxy/domain/enablement tests must not
+be replaced by search-policy acceptance; mixed rows may require both scenarios.
+Alias ownership follows explicit “Also ENV”
 config-reference relationships before lexical namespaces; incidental mentions are
 not aliases. Local hook identity variables must not inherit remote-workspace
 ownership. `/vim-mode` is scrollback navigation, not prompt Vim editing, and

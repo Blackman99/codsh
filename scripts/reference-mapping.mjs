@@ -73,7 +73,7 @@ const flagOwners = groups({
 const configOwners = {
   ...groups({139: 'harness hints paths path_not_found_hints doom_loop_recovery campaigns', 140: 'model models model_providers',
     141: 'fail_closed', 142: 'permission auto_mode default_auto_mode', 143: 'sandbox', 144: 'shell_environment_policy',
-    148: 'relay', 150: 'prompt_suggestions', 154: 'announcements ui animation scrollback prompt terminal',
+    148: 'relay', 154: 'announcements ui animation scrollback prompt terminal',
     158: 'voice', 159: 'dashboard', 163: 'agent skills compat', 164: 'hooks', 165: 'marketplace', 166: 'plugins',
     167: 'mcp mcp_servers managed_mcps disabled_mcp_servers disabled_mcp_tools',
     171: 'disable_web_search', 172: 'subagents', 174: 'worktree', 180: 'goal', 181: 'workflows',
@@ -85,6 +85,8 @@ const configOwners = {
   'ui.follow_up_behavior': 151, 'ui.cancel_subagents_on_turn_cancel': 137, 'ui.simple_mode': 150,
   'ui.combine_queued_prompts': 151, 'ui.confirm_before_rewind': 160, 'ui.fork_secondary_model': 140,
   'ui.screen_mode': 149, 'ui.vim_mode': 152,
+  'ui.scroll_speed': 152, 'ui.scroll_mode': 152, 'ui.scroll_lines': 152, 'ui.invert_scroll': 152,
+  'ui.mouse_reporting_toggle': 152, 'ui.prompt_suggestions': 150, 'prompt_suggestions': 140,
   'ui.voice_capture_mode': 158, 'ui.voice_keybind_enabled': 158, 'ui.voice_stt_language': 158,
   'session': 138, 'session.auto_compact_threshold_percent': 161, 'session.load_envrc': 144,
   'storage': 138, 'storage.cleanup': 162, 'cli': 139,
@@ -103,7 +105,7 @@ const configOwners = {
   'tools.zdr_video_output_s3': 192, 'toolset': 169,
   'toolset.bash': 170, 'toolset.ask_user_question': 179,
   'toolset.web_fetch': 171, 'toolset.web_search': 171,
-  'memory.dream': 186, 'memory.flush': 186, 'memory.embedding': 186,
+  'memory.dream': 186, 'memory.flush': 186, 'memory.embedding': 186, 'memory.session.save_on_end': 186,
   'memory_v2.capture_enabled': 186, 'memory_v2.capture_status_enabled': 186,
   'memory_v2.automatic_dream_enabled': 186, 'memory_v2.manual_dream_enabled': 186,
   'memory_v2.archived_retention_days': 186, 'memory_v2.job_retention_days': 186,
@@ -185,7 +187,7 @@ const guideSections = {
   '10': { 'UserPromptSubmit Decision Control': [164, 151, 138], 'Security Notes': [164, 141, 142],
     'Example: Safe Shell Guard': [164, 142], 'Output (Blocking Hooks)': [164, 142], 'How a Hook Resolves': [164, 142] },
   '11': { 'Fleet allowlist (`requirements.toml`)': [140, 141], 'Enterprise Deployment': [140, 141, 189] },
-  '13': { 'Auto-Dream': [186], 'Automatic Saves': [186], 'Dream Consolidation with /dream': [186], 'Dream Settings (`[memory.dream]`)': [186],
+  '13': { 'Pruning Settings (`[compaction.pruning]`)': [161], 'Auto-Dream': [186], 'Automatic Saves': [186], 'Dream Consolidation with /dream': [186], 'Dream Settings (`[memory.dream]`)': [186],
     'Saving Rich Knowledge with /flush': [186], 'Flush Settings (`[compaction.memory_flush]`)': [186], 'Embedding Settings (`[memory.embedding]`)': [186] },
   '14': { 'Always-approve for automation': [142], 'Permission Rules (`--allow` / `--deny`)': [142], 'Tool Filtering': [142],
     'Authentication for Headless Environments': [189], 'Interrupted Headless Runs': [137, 138], 'Session Management in Headless Mode': [138],
@@ -215,12 +217,17 @@ const guideSections = {
 export function guideLines(text) {
   let fence
   return text.split('\n').map(line => {
-    const marker = line.match(/^ {0,3}(`{3,}|~{3,})(.*)$/u)
+    const containers = [line]
+    while (/^ {0,3}>/u.test(containers.at(-1))) containers.push(containers.at(-1).replace(/^ {0,3}> ?/u, ''))
+    const depth = containers.length - 1
+    if (fence && depth < fence.depth) fence = undefined
+    const content = containers[fence?.depth ?? depth]
+    const marker = content.match(/^ {0,3}(`{3,}|~{3,})(.*)$/u)
     const closing = fence && marker && marker[1][0] === fence.marker && marker[1].length >= fence.length && !marker[2].trim()
     const opening = !fence && marker && (marker[1][0] !== '`' || !marker[2].includes('`'))
-    if (opening) fence = { marker: marker[1][0], length: marker[1].length, language: marker[2].trim() }
-    const result = { line, code: Boolean(fence), fence: Boolean(opening || closing), language: fence?.language,
-      heading: !fence ? line.match(/^ {0,3}(#{1,6}) (.+)/u) : null }
+    if (opening) fence = { marker: marker[1][0], length: marker[1].length, language: marker[2].trim(), depth }
+    const result = { line, content, code: Boolean(fence), fence: Boolean(opening || closing), language: fence?.language,
+      heading: !fence ? content.match(/^ {0,3}(#{1,6}) (.+)/u) : null }
     if (closing) fence = undefined
     return result
   })
@@ -231,10 +238,10 @@ export function guideContexts(evidence) {
   for (const [origin, guides] of [['binary-guide', evidence.capture.guides], ['source-guide', evidence.source.guides]]) {
     for (const guide of guides) {
       const file = guide.file ?? guide.path.split('/').at(-1), headings = []
-      guideLines(guide.text).forEach(({ line, heading }, index) => {
+      guideLines(guide.text).forEach(({ content: line, heading, code }, index) => {
         if (heading) { headings.length = heading[1].length; headings[heading[1].length - 1] = heading[2] }
         contexts.set(`${origin}:${file}#L${index + 1}`, headings.filter(Boolean))
-        if (file === '26-config-reference.md') {
+        if (!code && file === '26-config-reference.md') {
           const field = line.match(/^\|\s*`([a-z_][a-z0-9_.<>-]*)`\s*\|/u)?.[1]
           if (field) for (const match of line.matchAll(/\bAlso\s+`?([A-Z][A-Z0-9_]+)/gu)) {
             const key = `environment:${match[1]}`
@@ -266,6 +273,7 @@ function guideMapping(item, contexts) {
     const flag = cell.match(/`(--?[A-Za-z][A-Za-z-]*)/u)?.[1]
     if (flag) return [flagOwners[flag.replace(/^-+/u, '')] ?? 145]
   }
+  if (guide === '13' && headings.includes('Core Settings (`[memory]`)') && cell === '`session.save_on_end`') return [186]
   if (guide === '10' && cell === '`UserPromptSubmit`') return [164, 151, 138]
   if (['05', '26'].includes(guide) && cell === '`requirements.toml`') return [141]
   if (guide === '05' && cell === '`.grok/sandbox.toml`') return [139, 143, 144]
@@ -331,11 +339,14 @@ const envNamespaces = {
   GROK_WEB_FETCH: 171, GROK_DISABLE_WEB_FETCH: 171,
   GROK_SCREEN_MODE: 149, GROK_EXIT_TIMEOUT_SECS: 155,
   GROK_WORKFLOWS: [181, 180], GROK_WORKFLOW_MAX_CONCURRENT_AGENTS: 182,
-  GROK_LOG_FILE: 192, RUST_LOG: 192,
+  GROK_LOG_FILE: 192, RUST_LOG: 192, GROK_DEBUG_LOG: 192, GROK_LOG_SAMPLING: 192,
+  GROK_INSTRUMENTATION: 192, GROK_LEADER_LOG: 192, GROK_SCROLL_LOG: 192, GROK_MEMORY_LOG: [186, 192],
+  GROK_SCROLL_SPEED: 152, GROK_SCROLL_MODE: 152, GROK_SCROLL_LINES: 152, GROK_INVERT_SCROLL: 152,
+  GROK_MOUSE_REPORTING_TOGGLE: 152, GROK_PROMPT_SUGGESTIONS: 150, GROK_PROMPT_SUGGESTIONS_MODEL: 140,
   GROK_CLONE: 191, GROVE_CLONE: 191, GROVE_AUTH_TOKEN: [189, 191], GROVE_TOKEN_ROTATION: [189, 191],
   PATHEXT: [167, 200, 201], GROK_CAMPAIGNS: [139, 141],
   GROK_ASK_USER_QUESTION: 179,
-  BROWSER: 155, COLUMNS: 154, LINES: 154, ENV: 144, GIT_OPTIONAL_LOCKS: 154, HOME: 139, PATH: 139,
+  BROWSER: 155, COLUMNS: 154, LINES: 154, ENV: [144, 154], BASH_ENV: [144, 154], GIT_OPTIONAL_LOCKS: 154, HOME: 139, PATH: 139,
   GROK_MODEL: 140, GROK_MODELS: 140, GROK_DEFAULT_MODEL: 140, GROK_CUSTOM_MODELS: 140,
   GROK_PERMISSION: 142, GROK_AUTO_MODE: 142, GROK_REMEMBER_TOOL_APPROVALS: 142, GROK_REMEMBER_MODE: 142,
   GROK_DISABLE_BYPASS_PERMISSIONS_MODE: 142, GROK_YOLO: 142, GROK_ALWAYS_APPROVE: 142,
@@ -424,6 +435,8 @@ export function mapOwners(item, contexts = new Map()) {
   }
   if (item.name.startsWith('13-memory.md:') && headings.includes('Memory Notifications') && /automatic (?:Dream|flush)/u.test(text)
     || item.name === '26-config-reference.md:`memory`' && /memory_v2\.(?:capture|automatic_dream|manual_dream)/u.test(text)) owners.push(186)
+  if (item.name.startsWith('25-status-line.md:') && /`BASH_ENV`|`ENV`/u.test(text)) owners.push(144)
+  if (item.name === '13-memory.md:Core Settings (`[memory]`)' && /session\.save_on_end/u.test(text)) owners.push(186)
   if (campaignControl(item, contexts)) owners = [139, 141]
   if (item.category === 'environment' && ['GROK_CONFIG', 'GROK_CONFIG_PATH'].includes(item.name)) owners = [139, 141, 142, 144]
   if (owners.includes(177)) owners.push(178)
@@ -447,11 +460,30 @@ export function mapAcceptance(item, owners, contexts = new Map()) {
   const command = commandName(item, contexts), guide = item.name.slice(0, 2)
   const field = item.category === 'documented-setting' ? item.name.slice(item.name.indexOf(':') + 1) : item.name
   const headings = item.observations.flatMap(o => contexts.get(o.locator) ?? [])
-  return owners.map(ticket => {
+  const text = item.observations.map(o => o.excerpt).join('\n')
+  return owners.flatMap(ticket => {
+    if (ticket === 152 && (/^ui\.(?:scroll_speed|scroll_mode|scroll_lines|invert_scroll)$/u.test(field) || /^GROK_(?:SCROLL_SPEED|SCROLL_MODE|SCROLL_LINES|INVERT_SCROLL)$/u.test(item.name) || guide === '05' && headings.includes('Scrolling'))) return 'PARITY-152-scroll-input'
+    if (ticket === 152 && (field === 'ui.mouse_reporting_toggle' || item.name === 'GROK_MOUSE_REPORTING_TOGGLE')) return 'PARITY-152-mouse-capture'
+    if (ticket === 150 && (field === 'ui.prompt_suggestions' || item.name === 'GROK_PROMPT_SUGGESTIONS')) return 'PARITY-150-suggestions'
+    if (ticket === 140 && (/^prompt_suggestions\./u.test(field) || field === 'models.prompt_suggestion' || item.name === 'GROK_PROMPT_SUGGESTIONS_MODEL')) return 'PARITY-140-suggestions'
+    if (ticket === 186 && (field === 'memory.session.save_on_end' || guide === '13' && (headings.includes('Automatic Saves') || headings.includes('Core Settings (`[memory]`)') && /session\.save_on_end/u.test(text)))) return 'PARITY-186-session-metadata'
+    if (ticket === 186 && item.name === 'GROK_MEMORY_LOG') return 'PARITY-186-memory-log'
+    if (ticket === 161 && (field.startsWith('compaction.pruning.') || guide === '13' && headings.includes('Pruning Settings (`[compaction.pruning]`)'))) return 'PARITY-161-pruning'
+    if (ticket === 144 && (['BASH_ENV', 'ENV'].includes(item.name) || guide === '25' && /`BASH_ENV`|`ENV`/u.test(text))) return 'PARITY-144-status-line-env'
+    if (ticket === 192 && /^GROK_(?:DEBUG_LOG|LOG_SAMPLING|INSTRUMENTATION(?:_LOG)?|LEADER_LOG|SCROLL_LOG|MEMORY_LOG)$/u.test(item.name)) return 'PARITY-192-diagnostic-controls'
     if (ticket === 141 && item.name === 'GROK_CAMPAIGNS_OVERRIDE') return 'PARITY-141-campaign-override'
     if (ticket === 141 && campaignControl(item, contexts)) return 'PARITY-141-campaigns'
     if (ticket === 149 && ['GROK_SCREEN_MODE', 'GROK_SCREEN_MODE_SWITCH'].includes(item.name)) return 'PARITY-149-exec'
-    if (ticket === 171 && (/^toolset\.web_(?:search|fetch)\./u.test(field) || /^GROK_WEB_FETCH/u.test(item.name) || guide === '05' && headings.includes('Tool configuration'))) return 'PARITY-171-policy'
+    if (ticket === 171) {
+      const scenarios = []
+      const toolSection = guide === '05' && headings.includes('Tool configuration') && item.category.startsWith('guide-')
+      if (['web_fetch', 'features.web_fetch', 'GROK_WEB_FETCH', 'GROK_DISABLE_WEB_FETCH', 'GROK_WEB_FETCH_PROXY'].includes(field)
+        || /^toolset\.web_fetch\.(?:proxy_endpoint|allowed_domains)$/u.test(field)
+        || toolSection && /proxy_endpoint|\[toolset\.web_fetch\][\s\S]*allowed_domains/u.test(text)) scenarios.push('PARITY-171-fetch-controls')
+      if (/^toolset\.web_search\./u.test(field) || ['toolset.web_fetch.allow_local', 'GROK_WEB_FETCH_ALLOW_LOCAL'].includes(field)
+        || toolSection && /web_search|allow_local/u.test(text)) scenarios.push('PARITY-171-policy')
+      if (scenarios.length) return scenarios
+    }
     if (ticket === 164 && ['GROK_EVENT', 'GROK_MESSAGE'].includes(item.name)) return 'PARITY-164-notification'
     if (ticket === 155 && item.name === 'GROK_EXIT_TIMEOUT_SECS') return 'PARITY-155-teardown'
     if (ticket === 192 && ['GROK_LOG_FILE', 'RUST_LOG'].includes(item.name)) return 'PARITY-192-local-logs'
@@ -468,7 +500,7 @@ export function mapAcceptance(item, owners, contexts = new Map()) {
     if (ticket === 147 && (/x\.ai\/session\/(?:updates?(?:\/|`|$)|prompt_complete(?:`|$))/u.test(item.name) || item.name.includes('15-agent-mode.md:Streaming updates'))) return 'PARITY-147-updates'
     if (ticket === 179 && guide === '19') return 'PARITY-179-review'
     if (ticket === 140 && (/^(?:models\.|model\.|model_providers\.)/u.test(field) && /headers/u.test(field) || guide === '11' && /Headers/u.test(item.name))) return 'PARITY-140-headers'
-    if (ticket === 167) return /^(?:GROK_)?(?:MCP_TIMEOUT|MCP_STARTUP_TIMEOUT_SECS|MAX_MCP_OUTPUT_BYTES)$|^mcp\.max_output_bytes$|startup_timeout_sec|tool_timeout/u.test(item.name) ? 'PARITY-167-limits' : 'PARITY-167-transport'
+    if (ticket === 167) return /^(?:GROK_)?(?:MCP_TIMEOUT|MCP_STARTUP_TIMEOUT_SECS|MAX_MCP_OUTPUT_BYTES)$|(?:^|:)mcp\.max_output_bytes$|startup_timeout_sec|tool_timeout/u.test(item.name) ? 'PARITY-167-limits' : 'PARITY-167-transport'
     if (ticket === 168) return 'PARITY-168-remote'
     if (ticket === 154) {
       const scenario = { help: 'help', docs: 'docs', howto: 'docs', guides: 'docs', debug: 'debug', 'scroll-debug': 'debug', tutorial: 'tutorial', tour: 'tutorial', onboarding: 'tutorial', announcements: 'announcements', gboom: 'gboom' }[command]
