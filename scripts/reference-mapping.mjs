@@ -81,7 +81,8 @@ const configOwners = {
     192: 'diagnostics feedback privacy telemetry', 198: 'version_overrides'}),
   'terminal.alt_screen': 149, 'ui.disable_plugins': 166,
   'ui.default_selected_permission': 142, 'ui.permission_mode': 142, 'ui.remember_tool_approvals': 142,
-  'ui.disable_bypass_permissions_mode': 142,
+  'ui.disable_bypass_permissions_mode': 142, 'ui.yolo': 142, 'ui.approval_mode': 142,
+  'ui.follow_up_behavior': 151, 'ui.cancel_subagents_on_turn_cancel': 137, 'ui.simple_mode': 150,
   'session': 138, 'session.auto_compact_threshold_percent': 161, 'session.load_envrc': 144,
   'storage': 138, 'storage.cleanup': 162, 'cli': 139,
   'cli.auto_update': 198, 'cli.channel': 198, 'cli.installer': 198, 'cli.npm_registry': 198,
@@ -97,11 +98,15 @@ const configOwners = {
   'tools': 139, 'tools.respect_gitignore': 169, 'tools.disable_zdr_incompatible_tools': 192,
   'tools.media_gen.max_parallel_image_gen_calls': 187, 'tools.media_gen.max_parallel_video_gen_calls': 188,
   'tools.zdr_video_output_s3': 192, 'toolset': 169,
+  'toolset.bash': 170, 'toolset.ask_user_question': 179,
+  'toolset.web_fetch': 171, 'toolset.web_search': 171,
   'memory.dream': 186, 'memory.flush': 186, 'memory.embedding': 186, 'memory_v2.capture': 186,
   'compaction': 161, 'compaction.memory_flush': 186,
   'workflows.catalog': 184, 'workflows.budget': 182,
 }
 function configOwner(name) {
+  const compatible = name.match(/^compat\.[^.]+\.(hooks|mcps)(?:\.|$)/u)
+  if (compatible) return compatible[1] === 'hooks' ? 164 : 167
   if (name.startsWith('features.')) return featureOwners[name.slice(9)] ?? 139
   return namespace(name, configOwners) ?? 139
 }
@@ -121,7 +126,7 @@ const acpOwners = {
   'memory': 185, 'memory/flush': 186, 'memory/dream': 186, 'memoryMode': 185,
   'queue': 151, 'interject': 151, 'btw': 151, 'prompt_history': 150, 'suggest': 150, 'suggestPrompt': 150,
   'recap': 159, 'titleIsManual': 159, 'compact_conversation': 161, 'rewind': 160, 'restore_code': 160,
-  'review': 179, 'ask_user_question': 179, 'exit_plan_mode': 179, 'toggle_plan_mode': 179,
+  'review': 192, 'ask_user_question': 179, 'exit_plan_mode': 179, 'toggle_plan_mode': 179,
   'feedback': 192, 'privacy': 192, 'consent': 192, 'telemetry': 192,
   'debug/trigger_feedback': 192, 'debug/arm_auto_compact': 161,
   'code': 169, 'codeNavigation': 169, 'fs': 169, 'fs/delete_file': 136, 'fs/write_file': 136,
@@ -234,12 +239,18 @@ function guideMapping(item, contexts) {
   if (guide === '05' && cell === '`.grok/sandbox.toml`') return [139, 143, 144]
   if (guide === '18') return [143, 144]
   const override = paths.map(path => [...path].reverse().map(heading => guideSections[guide]?.[heading]).find(Boolean)).filter(Boolean)
+  if (item.category === 'documented-setting' && ['05', '06', '26'].includes(guide)) {
+    const field = item.name.slice(file.length + 1), owner = configOwner(field)
+    const contextual = override.flat()
+    // Generic config/appearance defaults must not replace a functional section owner.
+    if (contextual.length && (owner === 139 || (owner === 154 && field.startsWith('ui.') && !Object.hasOwn(configOwners, field)))) return unique(contextual)
+    return unique([owner, ...contextual])
+  }
   if (override.length) return unique(override.flat())
   if (guide === '26') {
     const name = headings.at(-1)?.match(/^`([^`]+)`$/u)?.[1]
     if (name) return [configOwner(name)]
   }
-  if (item.category === 'documented-setting' && ['05', '26'].includes(guide)) return [configOwner(item.name.slice(file.length + 1))]
   if (guide === '15') {
     const method = item.name.match(/x\.ai\/[\w/-]+/u)?.[0]
     if (method) return protocolOwners(method)
@@ -279,6 +290,10 @@ function keyOwners(item) {
 
 const envNamespaces = {
   GROK_MCP: 167, MCP: 167, GROK_MAX_MCP_OUTPUT_BYTES: 167, MAX_MCP_OUTPUT_BYTES: 167,
+  GROK_MANAGED_MCPS: 167, GROK_MANAGED_MCP: 167, GROK_XAI_API_BASE_URL: 140,
+  GROK_FOLDER_TRUST: 141, GROK_DEFAULT_SELECTED_PERMISSION: 142, GROK_DEFAULT_PERMISSION_MODE: 142, GROK_AUTO_PERMISSION_MODE: 142,
+  COLORFGBG: 154, COLORTERM: 154, LC_GROK_THEME: 154,
+  BROWSER: 155, COLUMNS: 154, LINES: 154, ENV: 144, GIT_OPTIONAL_LOCKS: 154, HOME: 139, PATH: 139,
   GROK_MODEL: 140, GROK_MODELS: 140, GROK_DEFAULT_MODEL: 140, GROK_CUSTOM_MODELS: 140,
   GROK_PERMISSION: 142, GROK_AUTO_MODE: 142, GROK_REMEMBER_TOOL_APPROVALS: 142, GROK_REMEMBER_MODE: 142,
   GROK_DISABLE_BYPASS_PERMISSIONS_MODE: 142, GROK_YOLO: 142, GROK_ALWAYS_APPROVE: 142,
@@ -337,7 +352,11 @@ export function mapOwners(item, contexts = new Map()) {
   const field = item.category === 'documented-setting' ? item.name.slice(item.name.indexOf(':') + 1) : item.name
   if (['setting', 'documented-setting'].includes(item.category) && /^mcp_servers\.[^.]+\.(?:headers|url|type|oauth(?:_.*)?|bearer_token_env_var|expose_image_base64)$/u.test(field)) owners.push(168)
   if (['flag', 'source-cli'].includes(item.category) && owners.includes(167) && /:(?:--(?:header|transport|type|url)|-H|-t)$/u.test(item.name)) owners.push(168)
-  if (['setting', 'documented-setting'].includes(item.category) && field === 'ui.disable_bypass_permissions_mode') owners.push(141)
+  if (['setting', 'documented-setting'].includes(item.category)) {
+    if (field === 'ui.disable_bypass_permissions_mode') owners.push(141)
+    if (field === 'ui.cancel_subagents_on_turn_cancel') owners.push(173)
+    if (field === 'toolset.bash.auto_background_on_timeout') owners.push(175)
+  }
   if (owners.includes(177)) owners.push(178)
   return unique(owners)
 }
@@ -353,6 +372,8 @@ export function mapAcceptance(item, owners, contexts = new Map()) {
   const field = item.category === 'documented-setting' ? item.name.slice(item.name.indexOf(':') + 1) : item.name
   const headings = item.observations.flatMap(o => contexts.get(o.locator) ?? [])
   return owners.map(ticket => {
+    if (ticket === 137 && field === 'ui.cancel_subagents_on_turn_cancel') return 'PARITY-137-children'
+    if (ticket === 192 && /^x\.ai\/review(?:\/|$)/u.test(item.name)) return 'PARITY-192-review-upload'
     if (ticket === 142) return 'PARITY-142-security-effects'
     if (ticket === 143) return 'PARITY-143-confinement'
     if (ticket === 164 && guide === '10' && (item.name.includes('UserPromptSubmit') || headings.includes('UserPromptSubmit Decision Control'))) return 'PARITY-164-prompt'

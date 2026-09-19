@@ -317,6 +317,10 @@
       "sha256": "093022383b465f147d339285b0c29acfbf94913eef602ae0bff213fb75006bd1"
     },
     {
+      "path": "crates/codegen/xai-grok-pager-render/src/host/mod.rs",
+      "sha256": "595061599c68a2960ad2411bdf1cf0bf2a7072b9c5bf366776751da0ecfe62a6"
+    },
+    {
       "path": "crates/codegen/xai-grok-pager-render/src/input/scroll_log.rs",
       "sha256": "fc0031833864ab0225e08468855a45c3d8b462fc3036ac9d6fecf2a37ffc3fa5"
     },
@@ -18150,6 +18154,18 @@
       ]
     },
     {
+      "key": "environment:BROWSER",
+      "category": "environment",
+      "name": "BROWSER",
+      "observations": [
+        {
+          "locator": "source:crates/codegen/xai-grok-pager-render/src/link_opener.rs#L28",
+          "scope": "source-environment-provisional",
+          "excerpt": "if env.get(\"BROWSER\").is_some_and(|v| !v.is_empty()) {"
+        }
+      ]
+    },
+    {
       "key": "environment:BUILD_WORKSPACE_DIRECTORY",
       "category": "environment",
       "name": "BUILD_WORKSPACE_DIRECTORY",
@@ -18431,6 +18447,67 @@
       ]
     },
     {
+      "key": "environment:COLORFGBG",
+      "category": "environment",
+      "name": "COLORFGBG",
+      "observations": [
+        {
+          "locator": "binary-guide:06-theming.md#L97",
+          "scope": "binary-guide",
+          "excerpt": "| **SSH / tmux / headless** | `GROK_APPEARANCE` or `LC_GROK_APPEARANCE` (`dark`/`light`), then `COLORFGBG`, then a startup OSC 11 background query. `grok wrap ssh …` stamps `LC_GROK_APPEARANCE` from the local OS theme so it survives SSH into the login shell. New tmux sessions inherit it only if the tmux server/session was created with that env (or `update-environment` includes it). OSC 11 is DCS-wrapped for tmux ≥ 3.3 when tmux is the immediate terminal (not an editor `:terminal`); reaching the outer emulator also needs `allow-passthrough`, and replies are best-effort. |"
+        },
+        {
+          "locator": "source:crates/codegen/xai-grok-pager-render/src/theme/env_appearance.rs#L36",
+          "scope": "source-environment-provisional",
+          "excerpt": "parse_colorfgbg(env_nonempty(env, \"COLORFGBG\"))"
+        },
+        {
+          "locator": "source-guide:06-theming.md#L97",
+          "scope": "source-guide",
+          "excerpt": "| **SSH / tmux / headless** | `GROK_APPEARANCE` or `LC_GROK_APPEARANCE` (`dark`/`light`), then `COLORFGBG`, then a startup OSC 11 background query. `grok wrap ssh …` stamps `LC_GROK_APPEARANCE` from the local OS theme so it survives SSH into the login shell. New tmux sessions inherit it only if the tmux server/session was created with that env (or `update-environment` includes it). OSC 11 is DCS-wrapped for tmux ≥ 3.3 when tmux is the immediate terminal (not an editor `:terminal`); reaching the outer emulator also needs `allow-passthrough`, and replies are best-effort. |"
+        }
+      ]
+    },
+    {
+      "key": "environment:COLORTERM",
+      "category": "environment",
+      "name": "COLORTERM",
+      "observations": [
+        {
+          "locator": "binary-guide:06-theming.md#L115",
+          "scope": "binary-guide",
+          "excerpt": "| **Truecolor** (24-bit) | Full RGB color. All themes render as designed. | `COLORTERM=truecolor` or equivalent terminal capability |"
+        },
+        {
+          "locator": "source:crates/codegen/xai-grok-pager-render/src/theme/color_support.rs#L184",
+          "scope": "source-environment-provisional",
+          "excerpt": "let colorterm = env.get(\"COLORTERM\").map(|value| value.to_ascii_lowercase());"
+        },
+        {
+          "locator": "source-guide:06-theming.md#L115",
+          "scope": "source-guide",
+          "excerpt": "| **Truecolor** (24-bit) | Full RGB color. All themes render as designed. | `COLORTERM=truecolor` or equivalent terminal capability |"
+        }
+      ]
+    },
+    {
+      "key": "environment:COLUMNS",
+      "category": "environment",
+      "name": "COLUMNS",
+      "observations": [
+        {
+          "locator": "binary-guide:25-status-line.md#L59",
+          "scope": "binary-guide",
+          "excerpt": "- **Environment.** Scripts run in the session's working directory, then the repository root, then the pager's own, whichever is a local path first, with a 10 second timeout, after which the row shows `[status line: timed out]`. `COLUMNS` and `LINES` describe the row the script fills, not the window. No shell rc files run (`BASH_ENV` and `ENV` are cleared), and `GIT_OPTIONAL_LOCKS=0`. Pagers and editors are neutralized the same way the rest of Grok neutralizes them, so a `git` or `gh` call inside your script will not block waiting for one."
+        },
+        {
+          "locator": "source-guide:25-status-line.md#L59",
+          "scope": "source-guide",
+          "excerpt": "- **Environment.** Scripts run in the session's working directory, then the repository root, then the pager's own, whichever is a local path first, with a 10 second timeout, after which the row shows `[status line: timed out]`. `COLUMNS` and `LINES` describe the row the script fills, not the window. No shell rc files run (`BASH_ENV` and `ENV` are cleared), and `GIT_OPTIONAL_LOCKS=0`. Pagers and editors are neutralized the same way the rest of Grok neutralizes them, so a `git` or `gh` call inside your script will not block waiting for one."
+        }
+      ]
+    },
+    {
       "key": "environment:COMPUTER_HUB_URL",
       "category": "environment",
       "name": "COMPUTER_HUB_URL",
@@ -18482,6 +18559,16 @@
           "excerpt": "- An unmodified middle click reads PRIMARY only when `DISPLAY` is set. Under"
         },
         {
+          "locator": "source:crates/codegen/xai-grok-pager-render/src/host/mod.rs#L86",
+          "scope": "source-environment-provisional",
+          "excerpt": "} else if env.get(\"DISPLAY\").is_some_and(|v| !v.is_empty()) {"
+        },
+        {
+          "locator": "source:crates/codegen/xai-grok-pager-render/src/link_opener.rs#L32",
+          "scope": "source-environment-provisional",
+          "excerpt": "|| env.get(\"DISPLAY\").is_some_and(|v| !v.is_empty())"
+        },
+        {
           "locator": "source-guide:03-keyboard-shortcuts.md#L298",
           "scope": "source-guide",
           "excerpt": "- An unmodified middle click in Grok reads **PRIMARY**, the current mouse selection, only when `DISPLAY` is non-empty. Pure X11 can use its native reader fallback; XWayland requires `xclip` or `xsel` on `PATH` so Grok reads the X11 selection rather than Wayland PRIMARY. The press is handled once; the release does not paste again."
@@ -18507,6 +18594,23 @@
           "locator": "source:crates/codegen/xai-grok-pager/src/app/external_editor.rs#L139",
           "scope": "source-environment-provisional",
           "excerpt": "let editor = std::env::var(\"EDITOR\").ok();"
+        }
+      ]
+    },
+    {
+      "key": "environment:ENV",
+      "category": "environment",
+      "name": "ENV",
+      "observations": [
+        {
+          "locator": "binary-guide:25-status-line.md#L59",
+          "scope": "binary-guide",
+          "excerpt": "- **Environment.** Scripts run in the session's working directory, then the repository root, then the pager's own, whichever is a local path first, with a 10 second timeout, after which the row shows `[status line: timed out]`. `COLUMNS` and `LINES` describe the row the script fills, not the window. No shell rc files run (`BASH_ENV` and `ENV` are cleared), and `GIT_OPTIONAL_LOCKS=0`. Pagers and editors are neutralized the same way the rest of Grok neutralizes them, so a `git` or `gh` call inside your script will not block waiting for one."
+        },
+        {
+          "locator": "source-guide:25-status-line.md#L59",
+          "scope": "source-guide",
+          "excerpt": "- **Environment.** Scripts run in the session's working directory, then the repository root, then the pager's own, whichever is a local path first, with a 10 second timeout, after which the row shows `[status line: timed out]`. `COLUMNS` and `LINES` describe the row the script fills, not the window. No shell rc files run (`BASH_ENV` and `ENV` are cleared), and `GIT_OPTIONAL_LOCKS=0`. Pagers and editors are neutralized the same way the rest of Grok neutralizes them, so a `git` or `gh` call inside your script will not block waiting for one."
         }
       ]
     },
@@ -18570,6 +18674,23 @@
           "locator": "source:crates/codegen/xai-fast-worktree/src/git/safety_tests/gate.rs#L212",
           "scope": "source-environment-provisional",
           "excerpt": "std::env::var_os(\"GIT_DIR\").is_some(),"
+        }
+      ]
+    },
+    {
+      "key": "environment:GIT_OPTIONAL_LOCKS",
+      "category": "environment",
+      "name": "GIT_OPTIONAL_LOCKS",
+      "observations": [
+        {
+          "locator": "binary-guide:25-status-line.md#L59",
+          "scope": "binary-guide",
+          "excerpt": "- **Environment.** Scripts run in the session's working directory, then the repository root, then the pager's own, whichever is a local path first, with a 10 second timeout, after which the row shows `[status line: timed out]`. `COLUMNS` and `LINES` describe the row the script fills, not the window. No shell rc files run (`BASH_ENV` and `ENV` are cleared), and `GIT_OPTIONAL_LOCKS=0`. Pagers and editors are neutralized the same way the rest of Grok neutralizes them, so a `git` or `gh` call inside your script will not block waiting for one."
+        },
+        {
+          "locator": "source-guide:25-status-line.md#L59",
+          "scope": "source-guide",
+          "excerpt": "- **Environment.** Scripts run in the session's working directory, then the repository root, then the pager's own, whichever is a local path first, with a 10 second timeout, after which the row shows `[status line: timed out]`. `COLUMNS` and `LINES` describe the row the script fills, not the window. No shell rc files run (`BASH_ENV` and `ENV` are cleared), and `GIT_OPTIONAL_LOCKS=0`. Pagers and editors are neutralized the same way the rest of Grok neutralizes them, so a `git` or `gh` call inside your script will not block waiting for one."
         }
       ]
     },
@@ -27730,6 +27851,23 @@
       ]
     },
     {
+      "key": "environment:GROVE_TOKEN_ROTATION",
+      "category": "environment",
+      "name": "GROVE_TOKEN_ROTATION",
+      "observations": [
+        {
+          "locator": "binary-guide:27-grok-clone.md#L98",
+          "scope": "binary-guide",
+          "excerpt": "| `expired-static` | the token expired and this deployment does not refresh tokens | start a new session, or enable `GROVE_TOKEN_ROTATION=expected` |"
+        },
+        {
+          "locator": "source-guide:27-grok-clone.md#L91",
+          "scope": "source-guide",
+          "excerpt": "| `expired-static` | the token expired and this deployment does not refresh tokens | start a new session, or enable `GROVE_TOKEN_ROTATION=expected` |"
+        }
+      ]
+    },
+    {
       "key": "environment:HISTFILE",
       "category": "environment",
       "name": "HISTFILE",
@@ -27747,6 +27885,11 @@
       "name": "HOME",
       "observations": [
         {
+          "locator": "binary-guide:18-sandbox.md#L246",
+          "scope": "binary-guide",
+          "excerpt": "Grok builds the child environment in order: it starts from `inherit` (`all` keeps everything, `core` keeps a small platform set such as `PATH` and `HOME`, `none` starts empty); drops the built-in secret patterns `*KEY*`, `*SECRET*`, and `*TOKEN*` unless `ignore_default_excludes = true`; drops any `exclude` matches; applies `set`; and, when `include_only` is non-empty, keeps only the matching names. Patterns are case-insensitive globs (`*`, `?`)."
+        },
+        {
           "locator": "source:crates/codegen/xai-fast-worktree/src/db/mod.rs#L509",
           "scope": "source-environment-provisional",
           "excerpt": "self.prev_home = std::env::var_os(\"HOME\");"
@@ -27755,6 +27898,11 @@
           "locator": "source:crates/codegen/xai-grok-login/src/manager.rs#L277",
           "scope": "source-environment-provisional",
           "excerpt": "\"HOME\": std::env::var(\"HOME\").unwrap_or_else(|_| \"(unset)\".into()),"
+        },
+        {
+          "locator": "source-guide:18-sandbox.md#L249",
+          "scope": "source-guide",
+          "excerpt": "Grok builds the child environment in order: it starts from `inherit` (`all` keeps everything, `core` keeps a small platform set such as `PATH` and `HOME`, `none` starts empty); drops the built-in secret patterns `*KEY*`, `*SECRET*`, and `*TOKEN*` unless `ignore_default_excludes = true`; drops any `exclude` matches; applies `set`; and, when `include_only` is non-empty, keeps only the matching names. Patterns are case-insensitive globs (`*`, `?`)."
         },
         {
           "locator": "source:crates/codegen/xai-grok-pager/src/test_util.rs#L269",
@@ -27837,6 +27985,11 @@
           "excerpt": "| **SSH / tmux / headless** | `GROK_APPEARANCE` or `LC_GROK_APPEARANCE` (`dark`/`light`), then `COLORFGBG`, then a startup OSC 11 background query. `grok wrap ssh …` stamps `LC_GROK_APPEARANCE` from the local OS theme so it survives SSH into the login shell. New tmux sessions inherit it only if the tmux server/session was created with that env (or `update-environment` includes it). OSC 11 is DCS-wrapped for tmux ≥ 3.3 when tmux is the immediate terminal (not an editor `:terminal`); reaching the outer emulator also needs `allow-passthrough`, and replies are best-effort. |"
         },
         {
+          "locator": "source:crates/codegen/xai-grok-pager-render/src/theme/env_appearance.rs#L30",
+          "scope": "source-environment-provisional",
+          "excerpt": ".or_else(|| parse_appearance_var(env_nonempty(env, \"LC_GROK_APPEARANCE\")))"
+        },
+        {
           "locator": "source-guide:06-theming.md#L97",
           "scope": "source-guide",
           "excerpt": "| **SSH / tmux / headless** | `GROK_APPEARANCE` or `LC_GROK_APPEARANCE` (`dark`/`light`), then `COLORFGBG`, then a startup OSC 11 background query. `grok wrap ssh …` stamps `LC_GROK_APPEARANCE` from the local OS theme so it survives SSH into the login shell. New tmux sessions inherit it only if the tmux server/session was created with that env (or `update-environment` includes it). OSC 11 is DCS-wrapped for tmux ≥ 3.3 when tmux is the immediate terminal (not an editor `:terminal`); reaching the outer emulator also needs `allow-passthrough`, and replies are best-effort. |"
@@ -27852,6 +28005,45 @@
           "locator": "source:crates/codegen/xai-grok-pager-render/src/clipboard/mod.rs#L41",
           "scope": "source-environment-provisional",
           "excerpt": "|| std::env::var_os(\"LC_GROK_OSC52_SINK\").is_some()"
+        }
+      ]
+    },
+    {
+      "key": "environment:LC_GROK_THEME",
+      "category": "environment",
+      "name": "LC_GROK_THEME",
+      "observations": [
+        {
+          "locator": "binary-guide:06-theming.md#L101",
+          "scope": "binary-guide",
+          "excerpt": "You can also set `GROK_THEME` (or `LC_GROK_THEME`) to force a theme or `auto` without editing `config.toml`."
+        },
+        {
+          "locator": "source:crates/codegen/xai-grok-pager-render/src/theme/cache.rs#L193",
+          "scope": "source-environment-provisional",
+          "excerpt": "for key in [\"GROK_THEME\", \"LC_GROK_THEME\"] {"
+        },
+        {
+          "locator": "source-guide:06-theming.md#L101",
+          "scope": "source-guide",
+          "excerpt": "You can also set `GROK_THEME` (or `LC_GROK_THEME`) to force a theme or `auto` without editing `config.toml`."
+        }
+      ]
+    },
+    {
+      "key": "environment:LINES",
+      "category": "environment",
+      "name": "LINES",
+      "observations": [
+        {
+          "locator": "binary-guide:25-status-line.md#L59",
+          "scope": "binary-guide",
+          "excerpt": "- **Environment.** Scripts run in the session's working directory, then the repository root, then the pager's own, whichever is a local path first, with a 10 second timeout, after which the row shows `[status line: timed out]`. `COLUMNS` and `LINES` describe the row the script fills, not the window. No shell rc files run (`BASH_ENV` and `ENV` are cleared), and `GIT_OPTIONAL_LOCKS=0`. Pagers and editors are neutralized the same way the rest of Grok neutralizes them, so a `git` or `gh` call inside your script will not block waiting for one."
+        },
+        {
+          "locator": "source-guide:25-status-line.md#L59",
+          "scope": "source-guide",
+          "excerpt": "- **Environment.** Scripts run in the session's working directory, then the repository root, then the pager's own, whichever is a local path first, with a 10 second timeout, after which the row shows `[status line: timed out]`. `COLUMNS` and `LINES` describe the row the script fills, not the window. No shell rc files run (`BASH_ENV` and `ENV` are cleared), and `GIT_OPTIONAL_LOCKS=0`. Pagers and editors are neutralized the same way the rest of Grok neutralizes them, so a `git` or `gh` call inside your script will not block waiting for one."
         }
       ]
     },
@@ -29363,9 +29555,19 @@
       "name": "PATH",
       "observations": [
         {
+          "locator": "binary-guide:18-sandbox.md#L246",
+          "scope": "binary-guide",
+          "excerpt": "Grok builds the child environment in order: it starts from `inherit` (`all` keeps everything, `core` keeps a small platform set such as `PATH` and `HOME`, `none` starts empty); drops the built-in secret patterns `*KEY*`, `*SECRET*`, and `*TOKEN*` unless `ignore_default_excludes = true`; drops any `exclude` matches; applies `set`; and, when `include_only` is non-empty, keeps only the matching names. Patterns are case-insensitive globs (`*`, `?`)."
+        },
+        {
           "locator": "source:crates/codegen/xai-fast-worktree/src/bin/worktree_lifecycle_bench/runtime.rs#L746",
           "scope": "source-environment-provisional",
           "excerpt": "std::env::var_os(\"PATH\")"
+        },
+        {
+          "locator": "source-guide:18-sandbox.md#L249",
+          "scope": "source-guide",
+          "excerpt": "Grok builds the child environment in order: it starts from `inherit` (`all` keeps everything, `core` keeps a small platform set such as `PATH` and `HOME`, `none` starts empty); drops the built-in secret patterns `*KEY*`, `*SECRET*`, and `*TOKEN*` unless `ignore_default_excludes = true`; drops any `exclude` matches; applies `set`; and, when `include_only` is non-empty, keeps only the matching names. Patterns are case-insensitive globs (`*`, `?`)."
         },
         {
           "locator": "source:crates/codegen/xai-grok-pager/src/diagnostics/fix.rs#L1479",
@@ -29496,6 +29698,56 @@
       "category": "environment",
       "name": "RUST_LOG",
       "observations": [
+        {
+          "locator": "binary-guide:02-authentication.md#L337",
+          "scope": "binary-guide",
+          "excerpt": "Set `RUST_LOG` to control the verbosity of the file log and headless stderr output. (The TUI's on-screen tracing pane uses a fixed filter and ignores `RUST_LOG`.) In the TUI, file logging defaults to `DEBUG`; in headless mode (`-p`), `RUST_LOG` defaults to `off` so only the answer is printed — set `RUST_LOG=error` (or broader) to see logs on stderr."
+        },
+        {
+          "locator": "binary-guide:10-hooks.md#L664",
+          "scope": "binary-guide",
+          "excerpt": "- **See errors?** Capture logs by launching with `RUST_LOG=debug GROK_LOG_FILE=/tmp/grok.log grok`, then check `/tmp/grok.log`."
+        },
+        {
+          "locator": "binary-guide:14-headless-mode.md#L588",
+          "scope": "binary-guide",
+          "excerpt": "- For debugging, raise the log level and capture stderr: `RUST_LOG=debug grok -p \"...\" 2> debug.log`."
+        },
+        {
+          "locator": "binary-guide:17-sessions.md#L332",
+          "scope": "binary-guide",
+          "excerpt": "The report measures a single filesystem, the one holding the grok home. A directory on any other filesystem stays out of the total and is counted in `other_filesystem_dirs`, and its worktree rows show `-` for size (`null` in `--json`). A top-level symlink to a directory, such as a relocated `worktrees`, is counted in `unfollowed_dir_symlinks`; its target stays out of the total, though the rows below it are still sized. Directories and entries the report could not read are counted in `unreadable_dirs` and `unstatable_entries`. Run `RUST_LOG=debug grok du` to name each one."
+        },
+        {
+          "locator": "binary-guide:22-permissions-and-safety.md#L336",
+          "scope": "binary-guide",
+          "excerpt": "Each segment is normalized before rules are matched. Leading environment assignments such as `RUST_LOG=debug` are stripped, and a fixed set of wrappers (`timeout`, `nice`, `ionice`, `chrt`, `stdbuf`, `env`) is peeled away, so rules match the inner command: `Bash(npm test *)` approves `RUST_LOG=debug timeout 30 npm test --workers=4`. This applies to `deny`, `ask`, and `allow` rules, remembered grants, and the read-only command list."
+        },
+        {
+          "locator": "source-guide:02-authentication.md#L336",
+          "scope": "source-guide",
+          "excerpt": "Set `RUST_LOG` to control the verbosity of the file log and headless stderr output. (The TUI's on-screen tracing pane uses a fixed filter and ignores `RUST_LOG`.) In the TUI, file logging defaults to `DEBUG`; in headless mode (`-p`), `RUST_LOG` defaults to `off` so only the answer is printed — set `RUST_LOG=error` (or broader) to see logs on stderr."
+        },
+        {
+          "locator": "source-guide:10-hooks.md#L664",
+          "scope": "source-guide",
+          "excerpt": "- **See errors?** Capture logs by launching with `RUST_LOG=debug GROK_LOG_FILE=/tmp/grok.log grok`, then check `/tmp/grok.log`."
+        },
+        {
+          "locator": "source-guide:14-headless-mode.md#L588",
+          "scope": "source-guide",
+          "excerpt": "- For debugging, raise the log level and capture stderr: `RUST_LOG=debug grok -p \"...\" 2> debug.log`."
+        },
+        {
+          "locator": "source-guide:17-sessions.md#L332",
+          "scope": "source-guide",
+          "excerpt": "The report measures a single filesystem, the one holding the grok home. A directory on any other filesystem stays out of the total and is counted in `other_filesystem_dirs`, and its worktree rows show `-` for size (`null` in `--json`). A top-level symlink to a directory, such as a relocated `worktrees`, is counted in `unfollowed_dir_symlinks`; its target stays out of the total, though the rows below it are still sized. Directories and entries the report could not read are counted in `unreadable_dirs` and `unstatable_entries`. Run `RUST_LOG=debug grok du` to name each one."
+        },
+        {
+          "locator": "source-guide:22-permissions-and-safety.md#L336",
+          "scope": "source-guide",
+          "excerpt": "Each segment is normalized before rules are matched. Leading environment assignments such as `RUST_LOG=debug` are stripped, and a fixed set of wrappers (`timeout`, `nice`, `ionice`, `chrt`, `stdbuf`, `env`) is peeled away, so rules match the inner command: `Bash(npm test *)` approves `RUST_LOG=debug timeout 30 npm test --workers=4`. This applies to `deny`, `ask`, and `allow` rules, remembered grants, and the read-only command list."
+        },
         {
           "locator": "source:crates/codegen/xai-grok-shell/src/leader/mod.rs#L1643",
           "scope": "source-environment-provisional",
@@ -29785,6 +30037,16 @@
       "category": "environment",
       "name": "WAYLAND_DISPLAY",
       "observations": [
+        {
+          "locator": "source:crates/codegen/xai-grok-pager-render/src/host/mod.rs#L84",
+          "scope": "source-environment-provisional",
+          "excerpt": "if env.get(\"WAYLAND_DISPLAY\").is_some_and(|v| !v.is_empty()) {"
+        },
+        {
+          "locator": "source:crates/codegen/xai-grok-pager-render/src/link_opener.rs#L31",
+          "scope": "source-environment-provisional",
+          "excerpt": "env.get(\"WAYLAND_DISPLAY\").is_some_and(|v| !v.is_empty())"
+        },
         {
           "locator": "source:crates/codegen/xai-grok-shared/src/clipboard.rs#L381",
           "scope": "source-environment-provisional",

@@ -113,12 +113,19 @@ UI/session behavior, and headless input options need provider-wire assertions.
 source. Regeneration uses captured ticket metadata, exact guide heading ancestry,
 namespace defaults and narrow contextual overrides; it needs no scratch generator
 or GitHub access. The checker rejects owner/scenario drift even when IDs and stories
-are internally consistent. Classify by context, not isolated words: hook prompt
+are internally consistent; regeneration alone is not an independent semantic oracle.
+Expected-owner regressions must be grounded in the quoted contract. Repeated TOML
+settings retain their functional namespace owner as well as contextual enterprise
+owners; broad `ui`, `toolset` and `compat` groups do not imply appearance or file
+search behavior. Classify by context, not isolated words: hook prompt
 blocks and sandbox write protection need real effects, MCP headers/stdio belong to
 MCP, model headers to providers, ACP updates to protocol/session replay, and plan
-feedback to review rather than telemetry. Environment extraction also recognizes
-literal env reads, named env constants and documented controls without requiring a
-vendor prefix; source/build controls remain provisional, not released capabilities. Interactive help/docs/diagnostics require real terminal acceptance;
+feedback to plan review rather than telemetry. ACP `x.ai/review/comment` instead
+records cloud code-review events and requires consent/destination acceptance.
+Environment extraction recognizes literal reads, named constants, env-map lookups
+and key loops, unprefixed documentation and assignment-form hints such as
+`COLORTERM=truecolor`. Source/build controls remain provisional, not released
+capabilities. Interactive help/docs/diagnostics require real terminal acceptance;
 feature-gated panes retain explicit availability blockers until exercised.
 The portable checker requires independent source-only coverage as well as captured
 behavior; paired deletion from discovery and inventory must fail. Source evidence

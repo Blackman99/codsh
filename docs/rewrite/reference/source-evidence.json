@@ -3785,6 +3785,18 @@
       ]
     },
     {
+      "key": "environment:BROWSER",
+      "category": "environment",
+      "name": "BROWSER",
+      "observations": [
+        {
+          "locator": "source:crates/codegen/xai-grok-pager-render/src/link_opener.rs#L28",
+          "scope": "source-environment-provisional",
+          "excerpt": "if env.get(\"BROWSER\").is_some_and(|v| !v.is_empty()) {"
+        }
+      ]
+    },
+    {
       "key": "environment:BUILD_WORKSPACE_DIRECTORY",
       "category": "environment",
       "name": "BUILD_WORKSPACE_DIRECTORY",
@@ -4015,6 +4027,40 @@
       ]
     },
     {
+      "key": "environment:COLORFGBG",
+      "category": "environment",
+      "name": "COLORFGBG",
+      "observations": [
+        {
+          "locator": "source:crates/codegen/xai-grok-pager-render/src/theme/env_appearance.rs#L36",
+          "scope": "source-environment-provisional",
+          "excerpt": "parse_colorfgbg(env_nonempty(env, \"COLORFGBG\"))"
+        },
+        {
+          "locator": "source-guide:06-theming.md#L97",
+          "scope": "source-guide",
+          "excerpt": "| **SSH / tmux / headless** | `GROK_APPEARANCE` or `LC_GROK_APPEARANCE` (`dark`/`light`), then `COLORFGBG`, then a startup OSC 11 background query. `grok wrap ssh …` stamps `LC_GROK_APPEARANCE` from the local OS theme so it survives SSH into the login shell. New tmux sessions inherit it only if the tmux server/session was created with that env (or `update-environment` includes it). OSC 11 is DCS-wrapped for tmux ≥ 3.3 when tmux is the immediate terminal (not an editor `:terminal`); reaching the outer emulator also needs `allow-passthrough`, and replies are best-effort. |"
+        }
+      ]
+    },
+    {
+      "key": "environment:COLORTERM",
+      "category": "environment",
+      "name": "COLORTERM",
+      "observations": [
+        {
+          "locator": "source:crates/codegen/xai-grok-pager-render/src/theme/color_support.rs#L184",
+          "scope": "source-environment-provisional",
+          "excerpt": "let colorterm = env.get(\"COLORTERM\").map(|value| value.to_ascii_lowercase());"
+        },
+        {
+          "locator": "source-guide:06-theming.md#L115",
+          "scope": "source-guide",
+          "excerpt": "| **Truecolor** (24-bit) | Full RGB color. All themes render as designed. | `COLORTERM=truecolor` or equivalent terminal capability |"
+        }
+      ]
+    },
+    {
       "key": "environment:COMPUTER_HUB_URL",
       "category": "environment",
       "name": "COMPUTER_HUB_URL",
@@ -4055,6 +4101,16 @@
       "category": "environment",
       "name": "DISPLAY",
       "observations": [
+        {
+          "locator": "source:crates/codegen/xai-grok-pager-render/src/host/mod.rs#L86",
+          "scope": "source-environment-provisional",
+          "excerpt": "} else if env.get(\"DISPLAY\").is_some_and(|v| !v.is_empty()) {"
+        },
+        {
+          "locator": "source:crates/codegen/xai-grok-pager-render/src/link_opener.rs#L32",
+          "scope": "source-environment-provisional",
+          "excerpt": "|| env.get(\"DISPLAY\").is_some_and(|v| !v.is_empty())"
+        },
         {
           "locator": "source-guide:03-keyboard-shortcuts.md#L298",
           "scope": "source-guide",
@@ -11695,6 +11751,11 @@
           "excerpt": "\"HOME\": std::env::var(\"HOME\").unwrap_or_else(|_| \"(unset)\".into()),"
         },
         {
+          "locator": "source-guide:18-sandbox.md#L249",
+          "scope": "source-guide",
+          "excerpt": "Grok builds the child environment in order: it starts from `inherit` (`all` keeps everything, `core` keeps a small platform set such as `PATH` and `HOME`, `none` starts empty); drops the built-in secret patterns `*KEY*`, `*SECRET*`, and `*TOKEN*` unless `ignore_default_excludes = true`; drops any `exclude` matches; applies `set`; and, when `include_only` is non-empty, keeps only the matching names. Patterns are case-insensitive globs (`*`, `?`)."
+        },
+        {
           "locator": "source:crates/codegen/xai-grok-pager/src/test_util.rs#L269",
           "scope": "source-environment-provisional",
           "excerpt": "let home = std::env::var(\"HOME\")"
@@ -11765,6 +11826,23 @@
       ]
     },
     {
+      "key": "environment:LC_GROK_APPEARANCE",
+      "category": "environment",
+      "name": "LC_GROK_APPEARANCE",
+      "observations": [
+        {
+          "locator": "source:crates/codegen/xai-grok-pager-render/src/theme/env_appearance.rs#L30",
+          "scope": "source-environment-provisional",
+          "excerpt": ".or_else(|| parse_appearance_var(env_nonempty(env, \"LC_GROK_APPEARANCE\")))"
+        },
+        {
+          "locator": "source-guide:06-theming.md#L97",
+          "scope": "source-guide",
+          "excerpt": "| **SSH / tmux / headless** | `GROK_APPEARANCE` or `LC_GROK_APPEARANCE` (`dark`/`light`), then `COLORFGBG`, then a startup OSC 11 background query. `grok wrap ssh …` stamps `LC_GROK_APPEARANCE` from the local OS theme so it survives SSH into the login shell. New tmux sessions inherit it only if the tmux server/session was created with that env (or `update-environment` includes it). OSC 11 is DCS-wrapped for tmux ≥ 3.3 when tmux is the immediate terminal (not an editor `:terminal`); reaching the outer emulator also needs `allow-passthrough`, and replies are best-effort. |"
+        }
+      ]
+    },
+    {
       "key": "environment:LC_GROK_OSC52_SINK",
       "category": "environment",
       "name": "LC_GROK_OSC52_SINK",
@@ -11773,6 +11851,23 @@
           "locator": "source:crates/codegen/xai-grok-pager-render/src/clipboard/mod.rs#L41",
           "scope": "source-environment-provisional",
           "excerpt": "|| std::env::var_os(\"LC_GROK_OSC52_SINK\").is_some()"
+        }
+      ]
+    },
+    {
+      "key": "environment:LC_GROK_THEME",
+      "category": "environment",
+      "name": "LC_GROK_THEME",
+      "observations": [
+        {
+          "locator": "source:crates/codegen/xai-grok-pager-render/src/theme/cache.rs#L193",
+          "scope": "source-environment-provisional",
+          "excerpt": "for key in [\"GROK_THEME\", \"LC_GROK_THEME\"] {"
+        },
+        {
+          "locator": "source-guide:06-theming.md#L101",
+          "scope": "source-guide",
+          "excerpt": "You can also set `GROK_THEME` (or `LC_GROK_THEME`) to force a theme or `auto` without editing `config.toml`."
         }
       ]
     },
@@ -12925,6 +13020,11 @@
           "excerpt": "std::env::var_os(\"PATH\")"
         },
         {
+          "locator": "source-guide:18-sandbox.md#L249",
+          "scope": "source-guide",
+          "excerpt": "Grok builds the child environment in order: it starts from `inherit` (`all` keeps everything, `core` keeps a small platform set such as `PATH` and `HOME`, `none` starts empty); drops the built-in secret patterns `*KEY*`, `*SECRET*`, and `*TOKEN*` unless `ignore_default_excludes = true`; drops any `exclude` matches; applies `set`; and, when `include_only` is non-empty, keeps only the matching names. Patterns are case-insensitive globs (`*`, `?`)."
+        },
+        {
           "locator": "source:crates/codegen/xai-grok-pager/src/diagnostics/fix.rs#L1479",
           "scope": "source-environment-provisional",
           "excerpt": "find_on_path_in(name, std::env::split_paths(&std::env::var_os(\"PATH\")?))"
@@ -13053,6 +13153,31 @@
       "category": "environment",
       "name": "RUST_LOG",
       "observations": [
+        {
+          "locator": "source-guide:02-authentication.md#L336",
+          "scope": "source-guide",
+          "excerpt": "Set `RUST_LOG` to control the verbosity of the file log and headless stderr output. (The TUI's on-screen tracing pane uses a fixed filter and ignores `RUST_LOG`.) In the TUI, file logging defaults to `DEBUG`; in headless mode (`-p`), `RUST_LOG` defaults to `off` so only the answer is printed — set `RUST_LOG=error` (or broader) to see logs on stderr."
+        },
+        {
+          "locator": "source-guide:10-hooks.md#L664",
+          "scope": "source-guide",
+          "excerpt": "- **See errors?** Capture logs by launching with `RUST_LOG=debug GROK_LOG_FILE=/tmp/grok.log grok`, then check `/tmp/grok.log`."
+        },
+        {
+          "locator": "source-guide:14-headless-mode.md#L588",
+          "scope": "source-guide",
+          "excerpt": "- For debugging, raise the log level and capture stderr: `RUST_LOG=debug grok -p \"...\" 2> debug.log`."
+        },
+        {
+          "locator": "source-guide:17-sessions.md#L332",
+          "scope": "source-guide",
+          "excerpt": "The report measures a single filesystem, the one holding the grok home. A directory on any other filesystem stays out of the total and is counted in `other_filesystem_dirs`, and its worktree rows show `-` for size (`null` in `--json`). A top-level symlink to a directory, such as a relocated `worktrees`, is counted in `unfollowed_dir_symlinks`; its target stays out of the total, though the rows below it are still sized. Directories and entries the report could not read are counted in `unreadable_dirs` and `unstatable_entries`. Run `RUST_LOG=debug grok du` to name each one."
+        },
+        {
+          "locator": "source-guide:22-permissions-and-safety.md#L336",
+          "scope": "source-guide",
+          "excerpt": "Each segment is normalized before rules are matched. Leading environment assignments such as `RUST_LOG=debug` are stripped, and a fixed set of wrappers (`timeout`, `nice`, `ionice`, `chrt`, `stdbuf`, `env`) is peeled away, so rules match the inner command: `Bash(npm test *)` approves `RUST_LOG=debug timeout 30 npm test --workers=4`. This applies to `deny`, `ask`, and `allow` rules, remembered grants, and the read-only command list."
+        },
         {
           "locator": "source:crates/codegen/xai-grok-shell/src/leader/mod.rs#L1643",
           "scope": "source-environment-provisional",
@@ -13337,6 +13462,16 @@
       "category": "environment",
       "name": "WAYLAND_DISPLAY",
       "observations": [
+        {
+          "locator": "source:crates/codegen/xai-grok-pager-render/src/host/mod.rs#L84",
+          "scope": "source-environment-provisional",
+          "excerpt": "if env.get(\"WAYLAND_DISPLAY\").is_some_and(|v| !v.is_empty()) {"
+        },
+        {
+          "locator": "source:crates/codegen/xai-grok-pager-render/src/link_opener.rs#L31",
+          "scope": "source-environment-provisional",
+          "excerpt": "env.get(\"WAYLAND_DISPLAY\").is_some_and(|v| !v.is_empty())"
+        },
         {
           "locator": "source:crates/codegen/xai-grok-shared/src/clipboard.rs#L381",
           "scope": "source-environment-provisional",
@@ -21462,6 +21597,11 @@
       "lineCount": 684
     },
     {
+      "path": "crates/codegen/xai-grok-pager-render/src/host/mod.rs",
+      "sha256": "595061599c68a2960ad2411bdf1cf0bf2a7072b9c5bf366776751da0ecfe62a6",
+      "lineCount": 184
+    },
+    {
       "path": "crates/codegen/xai-grok-pager-render/src/input/scroll_log.rs",
       "sha256": "fc0031833864ab0225e08468855a45c3d8b462fc3036ac9d6fecf2a37ffc3fa5",
       "lineCount": 260
@@ -25442,6 +25582,11 @@
       "startLine": 18,
       "text": "    } else if let Ok(p) = std::env::var(\"BENCH_REPO_ROOT\").or_else(|_| std::env::var(\"XAI_ROOT\")) {"
     },
+    "source:crates/codegen/xai-grok-pager-render/src/link_opener.rs#L28": {
+      "path": "crates/codegen/xai-grok-pager-render/src/link_opener.rs",
+      "startLine": 28,
+      "text": "    if env.get(\"BROWSER\").is_some_and(|v| !v.is_empty()) {"
+    },
     "source:crates/codegen/xai-grok-shell/build.rs#L152": {
       "path": "crates/codegen/xai-grok-shell/build.rs",
       "startLine": 152,
@@ -25567,6 +25712,16 @@
       "startLine": 33,
       "text": "    let Some(codex_home) = std::env::var_os(\"CODEX_HOME\")"
     },
+    "source:crates/codegen/xai-grok-pager-render/src/theme/env_appearance.rs#L36": {
+      "path": "crates/codegen/xai-grok-pager-render/src/theme/env_appearance.rs",
+      "startLine": 36,
+      "text": "    parse_colorfgbg(env_nonempty(env, \"COLORFGBG\"))"
+    },
+    "source:crates/codegen/xai-grok-pager-render/src/theme/color_support.rs#L184": {
+      "path": "crates/codegen/xai-grok-pager-render/src/theme/color_support.rs",
+      "startLine": 184,
+      "text": "    let colorterm = env.get(\"COLORTERM\").map(|value| value.to_ascii_lowercase());"
+    },
     "source:crates/common/xai-computer-hub-sdk/src/discovery.rs#L28": {
       "path": "crates/common/xai-computer-hub-sdk/src/discovery.rs",
       "startLine": 28,
@@ -25581,6 +25736,16 @@
       "path": "crates/codegen/xai-grok-shell/src/agent/config.rs",
       "startLine": 2434,
       "text": "            \"in_env_disable_telemetry\": std::env::var(\"DISABLE_TELEMETRY\").ok(),"
+    },
+    "source:crates/codegen/xai-grok-pager-render/src/host/mod.rs#L86": {
+      "path": "crates/codegen/xai-grok-pager-render/src/host/mod.rs",
+      "startLine": 86,
+      "text": "                } else if env.get(\"DISPLAY\").is_some_and(|v| !v.is_empty()) {"
+    },
+    "source:crates/codegen/xai-grok-pager-render/src/link_opener.rs#L32": {
+      "path": "crates/codegen/xai-grok-pager-render/src/link_opener.rs",
+      "startLine": 32,
+      "text": "        || env.get(\"DISPLAY\").is_some_and(|v| !v.is_empty())"
     },
     "source:crates/codegen/xai-grok-shared/src/clipboard.rs#L381": {
       "path": "crates/codegen/xai-grok-shared/src/clipboard.rs",
@@ -28702,6 +28867,11 @@
       "startLine": 116,
       "text": "        || env::var(\"KITTY_WINDOW_ID\").is_ok()"
     },
+    "source:crates/codegen/xai-grok-pager-render/src/theme/env_appearance.rs#L30": {
+      "path": "crates/codegen/xai-grok-pager-render/src/theme/env_appearance.rs",
+      "startLine": 30,
+      "text": "        .or_else(|| parse_appearance_var(env_nonempty(env, \"LC_GROK_APPEARANCE\")))"
+    },
     "source:crates/codegen/xai-grok-pager-render/src/clipboard/mod.rs#L41": {
       "path": "crates/codegen/xai-grok-pager-render/src/clipboard/mod.rs",
       "startLine": 41,
@@ -29406,6 +29576,16 @@
       "path": "crates/codegen/xai-grok-pager/src/app/external_editor.rs",
       "startLine": 138,
       "text": "    let visual = std::env::var(\"VISUAL\").ok();"
+    },
+    "source:crates/codegen/xai-grok-pager-render/src/host/mod.rs#L84": {
+      "path": "crates/codegen/xai-grok-pager-render/src/host/mod.rs",
+      "startLine": 84,
+      "text": "                if env.get(\"WAYLAND_DISPLAY\").is_some_and(|v| !v.is_empty()) {"
+    },
+    "source:crates/codegen/xai-grok-pager-render/src/link_opener.rs#L31": {
+      "path": "crates/codegen/xai-grok-pager-render/src/link_opener.rs",
+      "startLine": 31,
+      "text": "    env.get(\"WAYLAND_DISPLAY\").is_some_and(|v| !v.is_empty())"
     },
     "source:crates/codegen/xai-grok-markdown/src/colors.rs#L115": {
       "path": "crates/codegen/xai-grok-markdown/src/colors.rs",

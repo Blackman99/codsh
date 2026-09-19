@@ -109,9 +109,28 @@ word such as “update,” “headers,” “prompt” or “feedback” cannot 
 The checker regenerates owners and scenarios to detect internally consistent but
 semantically wrong register edits. Tests exercise cross-category and nested-heading
 collisions as well as concrete frozen rows. Captured ticket metadata is reused;
-regeneration does not contact GitHub.
+regeneration does not contact GitHub. Reproducibility is a consistency check, not
+an independent oracle for correct ownership: regression expectations are grounded
+in guide/source contracts. Merged documented settings retain their functional
+namespace owners alongside contextual enterprise requirements; generic appearance
+or configuration defaults cannot displace functional section owners.
 
 Important reconciliations:
+
+- UI approval/yolo, follow-up routing, child cancellation and readline/Vim settings
+  belong to permissions, queue/steer, cancellation/child lifecycle and prompt editing,
+  respectively. Alternate-screen TOML examples retain screen-mode ownership.
+  `toolset.bash`, questions and web restrictions use their tool domains; compatible
+  Hooks/MCP switches do not inherit Skills ownership. Managed MCP, model endpoint,
+  folder-trust and permission environment aliases follow their actual effects.
+- `COLORFGBG`, `LC_GROK_THEME` and `COLORTERM` have individual frozen-guide and
+  pinned-source evidence with renderer ownership. Extraction accepts unprefixed
+  env hints, assignment forms, env-map lookups and literal key-loop lookups; the
+  generic CLI syntax placeholder `KEY=value` is not an environment identity.
+- ACP `x.ai/review/comment` and `/delete` upload code-review citation/tombstone
+  events, unlike plan review. Their #147/#192 acceptance checks consent, configured
+  destination and actual outbound records; an immediate protocol acknowledgement
+  does not prove asynchronous upload completion.
 
 - All hook-guide behaviors stay under #164. UserPromptSubmit adds #151/#138 and
   checks blocked text exclusion from provider context/durable history, suspended

@@ -25,6 +25,12 @@ function environmentControls(text) {
   for (const match of text.matchAll(/"((?:GROK_|XAI_|OTEL_|DO_NOT_TRACK)[A-Z0-9_]*)"/gu)) add(match[1], match.index)
   for (const match of text.matchAll(/(?:\b(?:std::)?env::(?:var|var_os)|\b(?:var|var_os))\s*\(\s*"([A-Z][A-Z0-9_]+)"/gu)) add(match[1], match.index + match[0].indexOf('"'))
   for (const match of text.matchAll(/\bconst\s+(?:ENV_[A-Z0-9_]+|[A-Z0-9_]+_ENV(?:_VAR)?)\s*:\s*&str\s*=\s*"([A-Z][A-Z0-9_]+)"/gu)) add(match[1], match.index + match[0].indexOf('"'))
+  for (const match of text.matchAll(/\benv\.get\(\s*"([A-Z][A-Z0-9_]+)"|\benv_nonempty\(\s*\w+\s*,\s*"([A-Z][A-Z0-9_]+)"/gu)) add(match[1] ?? match[2], match.index + match[0].indexOf('"'))
+  for (const loop of text.matchAll(/\bfor\s+(\w+)\s+in\s+\[([^\]]+)\]\s*\{([^}]+)\}/gu)) {
+    if (!new RegExp(`\\benv\\s*\\.get\\(\\s*${loop[1]}\\s*\\)`, 'u').test(loop[3])) continue
+    const offset = loop.index + loop[0].indexOf('[') + 1
+    for (const match of loop[2].matchAll(/"([A-Z][A-Z0-9_]+)"/gu)) add(match[1], offset + match.index)
+  }
   return [...controls.values()]
 }
 
@@ -161,8 +167,12 @@ export function extractSurfaces(capture, sources) {
         add('environment', match[0], line, locator, origin)
       }
       const context = lines.slice(Math.max(0, index - 1), index + 2).join('\n')
+      const environmentText = line.replace(/`KEY=value`/gu, '')
       if (/\benv(?:ironment)?(?:[ -](?:variable|override|control))?\b/iu.test(context)) {
-        for (const match of line.matchAll(/`([A-Z][A-Z0-9]*_[A-Z0-9_]+)`/gu)) add('environment', match[1], line, locator, origin)
+        for (const match of environmentText.matchAll(/`([A-Z][A-Z0-9_]+)(?:=[^`]+)?`/gu)) add('environment', match[1], line, locator, origin)
+      }
+      for (const match of environmentText.matchAll(/\b[Ss]et\s+`([A-Z][A-Z0-9_]+)`(?:\s*\(or\s+`([A-Z][A-Z0-9_]+)`\))?|`([A-Z][A-Z0-9_]+)=[^`]+`/gu)) {
+        for (const name of match.slice(1).filter(Boolean)) add('environment', name, line, locator, origin)
       }
       if (line.startsWith('```')) {
         code = !code

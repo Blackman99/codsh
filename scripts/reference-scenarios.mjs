@@ -69,6 +69,16 @@ const scenarios={
   210:['synthetic prior sessions with unsupported and sensitive records','run the inventoried session-learning flow','selected content and memory provenance are explicit','unavailable provider and unsupported records never masquerade as complete learning'],
 }
 const contextual = [
+  { id: 'PARITY-137-children', ticket: 137,
+    given: 'a delayed parent turn, two real controlled child tasks and an unrelated session with retained draft and queue',
+    when: 'cancel the parent with ask, always_stop and always_continue settings; answer or dismiss the ask card, then reconnect and inspect child status/output',
+    then: 'actual child process lifecycle and cancellation events match the selected policy; stopped children cannot keep making effects, continued children retain their owner and output, and unrelated session work survives',
+    failure: 'stale approval, dismissed ask, already-completed child and disconnect never misreport a running child as stopped or apply cancellation to another session' },
+  { id: 'PARITY-192-review-upload', ticket: 192,
+    given: 'an external ACP client, synthetic code-review citations and a controlled outbound collector with consent disabled and explicitly enabled',
+    when: 'send x.ai/review/comment with citation/session identity and x.ai/review/comment/delete for its tombstone; inspect protocol responses and actual outbound records',
+    then: 'assert explicit consent and configured destination before any upload; create/tombstone payloads, IDs and session routing match recorded effects, with no plan approval or model revision implied',
+    failure: 'protocol acknowledgement is not proof of upload completion; absent configuration, denied consent, expired auth, malformed requests and asynchronous upload failure cannot leak data or fabricate successful delivery' },
   { id: 'PARITY-164-prompt', ticket: 164,
     given: 'a recording local provider, durable synthetic session, queued prompts and hooks returning exit 2, JSON block, allow, crash and delay',
     when: 'submit a typed prompt, then edit/resend/discard it and restart the session; run automatic task/scheduler/child turns under the same hook',

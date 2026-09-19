@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "discoverySha256": "ac848f25cce48beb18d868419848618194973c0698874cd610dad0cfb65f5954",
+  "discoverySha256": "876b1c4c8877e640771f4f5d43b922e8b8142955071f2f67fb9416e74be9a513",
   "tickets": [
     {
       "number": 133,
@@ -870,6 +870,26 @@
     }
   ],
   "acceptance": [
+    {
+      "id": "PARITY-137-children",
+      "ticket": 137,
+      "given": "a delayed parent turn, two real controlled child tasks and an unrelated session with retained draft and queue",
+      "when": "cancel the parent with ask, always_stop and always_continue settings; answer or dismiss the ask card, then reconnect and inspect child status/output",
+      "then": "actual child process lifecycle and cancellation events match the selected policy; stopped children cannot keep making effects, continued children retain their owner and output, and unrelated session work survives",
+      "failure": "stale approval, dismissed ask, already-completed child and disconnect never misreport a running child as stopped or apply cancellation to another session",
+      "status": "planned",
+      "boundary": "installed-product/public-protocol and controlled effects; source declarations are not measured frozen-binary parity"
+    },
+    {
+      "id": "PARITY-192-review-upload",
+      "ticket": 192,
+      "given": "an external ACP client, synthetic code-review citations and a controlled outbound collector with consent disabled and explicitly enabled",
+      "when": "send x.ai/review/comment with citation/session identity and x.ai/review/comment/delete for its tombstone; inspect protocol responses and actual outbound records",
+      "then": "assert explicit consent and configured destination before any upload; create/tombstone payloads, IDs and session routing match recorded effects, with no plan approval or model revision implied",
+      "failure": "protocol acknowledgement is not proof of upload completion; absent configuration, denied consent, expired auth, malformed requests and asynchronous upload failure cannot leak data or fabricate successful delivery",
+      "status": "planned",
+      "boundary": "installed-product/public-protocol and controlled effects; source declarations are not measured frozen-binary parity"
+    },
     {
       "id": "PARITY-164-prompt",
       "ticket": 164,
@@ -5541,16 +5561,17 @@
       "stories": [
         58,
         59,
-        22,
-        50
+        30,
+        63,
+        64
       ],
       "tickets": [
         147,
-        179
+        192
       ],
       "acceptance": [
         "PARITY-147",
-        "PARITY-179"
+        "PARITY-192-review-upload"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -5564,16 +5585,17 @@
       "stories": [
         58,
         59,
-        22,
-        50
+        30,
+        63,
+        64
       ],
       "tickets": [
         147,
-        179
+        192
       ],
       "acceptance": [
         "PARITY-147",
-        "PARITY-179"
+        "PARITY-192-review-upload"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -5586,16 +5608,17 @@
       "stories": [
         58,
         59,
-        22,
-        50
+        30,
+        63,
+        64
       ],
       "tickets": [
         147,
-        179
+        192
       ],
       "acceptance": [
         "PARITY-147",
-        "PARITY-179"
+        "PARITY-192-review-upload"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -9750,6 +9773,11 @@
     {
       "key": "documented-setting:05-configuration.md:cli.auto_update",
       "stories": [
+        6,
+        7,
+        69,
+        70,
+        73,
         24,
         35,
         36,
@@ -9759,10 +9787,12 @@
         60
       ],
       "tickets": [
+        198,
         141,
         189
       ],
       "acceptance": [
+        "PARITY-198",
         "PARITY-141",
         "PARITY-189"
       ],
@@ -9778,23 +9808,23 @@
     {
       "key": "documented-setting:05-configuration.md:cli.maximum_version",
       "stories": [
-        24,
-        35,
-        36,
-        37,
         6,
         7,
         69,
         70,
-        73
+        73,
+        24,
+        35,
+        36,
+        37
       ],
       "tickets": [
-        141,
-        198
+        198,
+        141
       ],
       "acceptance": [
-        "PARITY-141",
-        "PARITY-198"
+        "PARITY-198",
+        "PARITY-141"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -9806,23 +9836,23 @@
     {
       "key": "documented-setting:05-configuration.md:cli.minimum_version",
       "stories": [
-        24,
-        35,
-        36,
-        37,
         6,
         7,
         69,
         70,
-        73
+        73,
+        24,
+        35,
+        36,
+        37
       ],
       "tickets": [
-        141,
-        198
+        198,
+        141
       ],
       "acceptance": [
-        "PARITY-141",
-        "PARITY-198"
+        "PARITY-198",
+        "PARITY-141"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -9909,14 +9939,14 @@
     {
       "key": "documented-setting:05-configuration.md:compat.claude.hooks",
       "stories": [
-        12,
-        37
+        25,
+        38
       ],
       "tickets": [
-        163
+        164
       ],
       "acceptance": [
-        "PARITY-163"
+        "PARITY-164"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -9928,14 +9958,14 @@
     {
       "key": "documented-setting:05-configuration.md:compat.claude.mcps",
       "stories": [
-        12,
-        37
+        39,
+        41
       ],
       "tickets": [
-        163
+        167
       ],
       "acceptance": [
-        "PARITY-163"
+        "PARITY-167-transport"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -10042,14 +10072,14 @@
     {
       "key": "documented-setting:05-configuration.md:compat.cursor.hooks",
       "stories": [
-        12,
-        37
+        25,
+        38
       ],
       "tickets": [
-        163
+        164
       ],
       "acceptance": [
-        "PARITY-163"
+        "PARITY-164"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -10061,14 +10091,14 @@
     {
       "key": "documented-setting:05-configuration.md:compat.cursor.mcps",
       "stories": [
-        12,
-        37
+        39,
+        41
       ],
       "tickets": [
-        163
+        167
       ],
       "acceptance": [
-        "PARITY-163"
+        "PARITY-167-transport"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -10236,6 +10266,9 @@
     {
       "key": "documented-setting:05-configuration.md:features.telemetry",
       "stories": [
+        30,
+        63,
+        64,
         24,
         35,
         36,
@@ -10245,10 +10278,12 @@
         60
       ],
       "tickets": [
+        192,
         141,
         189
       ],
       "acceptance": [
+        "PARITY-192",
         "PARITY-141",
         "PARITY-189"
       ],
@@ -10604,13 +10639,17 @@
     {
       "key": "documented-setting:05-configuration.md:memory.embedding.dimensions",
       "stories": [
-        51,
-        63
+        52,
+        63,
+        64,
+        51
       ],
       "tickets": [
+        186,
         185
       ],
       "acceptance": [
+        "PARITY-186",
         "PARITY-185"
       ],
       "status": "pending-parity",
@@ -10756,19 +10795,23 @@
     {
       "key": "documented-setting:05-configuration.md:model.company-grok.base_url",
       "stories": [
+        32,
+        33,
+        34,
         24,
         35,
         36,
         37,
         8,
-        34,
         60
       ],
       "tickets": [
+        140,
         141,
         189
       ],
       "acceptance": [
+        "PARITY-140",
         "PARITY-141",
         "PARITY-189"
       ],
@@ -10782,19 +10825,23 @@
     {
       "key": "documented-setting:05-configuration.md:model.company-grok.context_window",
       "stories": [
+        32,
+        33,
+        34,
         24,
         35,
         36,
         37,
         8,
-        34,
         60
       ],
       "tickets": [
+        140,
         141,
         189
       ],
       "acceptance": [
+        "PARITY-140",
         "PARITY-141",
         "PARITY-189"
       ],
@@ -10808,19 +10855,23 @@
     {
       "key": "documented-setting:05-configuration.md:model.company-grok.model",
       "stories": [
+        32,
+        33,
+        34,
         24,
         35,
         36,
         37,
         8,
-        34,
         60
       ],
       "tickets": [
+        140,
         141,
         189
       ],
       "acceptance": [
+        "PARITY-140",
         "PARITY-141",
         "PARITY-189"
       ],
@@ -10834,19 +10885,23 @@
     {
       "key": "documented-setting:05-configuration.md:model.company-grok.name",
       "stories": [
+        32,
+        33,
+        34,
         24,
         35,
         36,
         37,
         8,
-        34,
         60
       ],
       "tickets": [
+        140,
         141,
         189
       ],
       "acceptance": [
+        "PARITY-140",
         "PARITY-141",
         "PARITY-189"
       ],
@@ -11120,19 +11175,23 @@
     {
       "key": "documented-setting:05-configuration.md:models.default",
       "stories": [
+        32,
+        33,
+        34,
         24,
         35,
         36,
         37,
         8,
-        34,
         60
       ],
       "tickets": [
+        140,
         141,
         189
       ],
       "acceptance": [
+        "PARITY-140",
         "PARITY-141",
         "PARITY-189"
       ],
@@ -12588,13 +12647,18 @@
     {
       "key": "documented-setting:05-configuration.md:terminal.alt_screen",
       "stories": [
+        11,
+        16,
+        18,
         17,
         35
       ],
       "tickets": [
+        149,
         154
       ],
       "acceptance": [
+        "PARITY-149",
         "PARITY-154"
       ],
       "status": "pending-parity",
@@ -12626,14 +12690,14 @@
     {
       "key": "documented-setting:05-configuration.md:toolset.ask_user_question.timeout_enabled",
       "stories": [
-        13,
-        23
+        22,
+        50
       ],
       "tickets": [
-        169
+        179
       ],
       "acceptance": [
-        "PARITY-169"
+        "PARITY-179"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -12645,14 +12709,14 @@
     {
       "key": "documented-setting:05-configuration.md:toolset.ask_user_question.timeout_secs",
       "stories": [
-        13,
-        23
+        22,
+        50
       ],
       "tickets": [
-        169
+        179
       ],
       "acceptance": [
-        "PARITY-169"
+        "PARITY-179"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -12664,14 +12728,15 @@
     {
       "key": "documented-setting:05-configuration.md:toolset.bash.output_byte_limit",
       "stories": [
-        13,
-        23
+        19,
+        23,
+        26
       ],
       "tickets": [
-        169
+        170
       ],
       "acceptance": [
-        "PARITY-169"
+        "PARITY-170"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -12683,14 +12748,15 @@
     {
       "key": "documented-setting:05-configuration.md:toolset.bash.timeout_secs",
       "stories": [
-        13,
-        23
+        19,
+        23,
+        26
       ],
       "tickets": [
-        169
+        170
       ],
       "acceptance": [
-        "PARITY-169"
+        "PARITY-170"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -12702,14 +12768,13 @@
     {
       "key": "documented-setting:05-configuration.md:toolset.web_fetch.allow_local",
       "stories": [
-        13,
-        23
+        55
       ],
       "tickets": [
-        169
+        171
       ],
       "acceptance": [
-        "PARITY-169"
+        "PARITY-171"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -12721,14 +12786,13 @@
     {
       "key": "documented-setting:05-configuration.md:toolset.web_fetch.allowed_domains",
       "stories": [
-        13,
-        23
+        55
       ],
       "tickets": [
-        169
+        171
       ],
       "acceptance": [
-        "PARITY-169"
+        "PARITY-171"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -12740,14 +12804,13 @@
     {
       "key": "documented-setting:05-configuration.md:toolset.web_fetch.proxy_endpoint",
       "stories": [
-        13,
-        23
+        55
       ],
       "tickets": [
-        169
+        171
       ],
       "acceptance": [
-        "PARITY-169"
+        "PARITY-171"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -12759,14 +12822,13 @@
     {
       "key": "documented-setting:05-configuration.md:toolset.web_search.allowed_domains",
       "stories": [
-        13,
-        23
+        55
       ],
       "tickets": [
-        169
+        171
       ],
       "acceptance": [
-        "PARITY-169"
+        "PARITY-171"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -12819,14 +12881,15 @@
     {
       "key": "documented-setting:05-configuration.md:ui.follow_up_behavior",
       "stories": [
-        17,
-        35
+        19,
+        20,
+        21
       ],
       "tickets": [
-        154
+        151
       ],
       "acceptance": [
-        "PARITY-154"
+        "PARITY-151"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -13364,18 +13427,18 @@
     {
       "key": "documented-setting:05-configuration.md:workflows.enabled",
       "stories": [
-        33,
-        50,
         48,
-        49
+        49,
+        33,
+        50
       ],
       "tickets": [
-        180,
-        181
+        181,
+        180
       ],
       "acceptance": [
-        "PARITY-180",
-        "PARITY-181"
+        "PARITY-181",
+        "PARITY-180"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -14342,14 +14405,15 @@
     {
       "key": "documented-setting:06-theming.md:terminal.alt_screen",
       "stories": [
-        17,
-        35
+        11,
+        16,
+        18
       ],
       "tickets": [
-        154
+        149
       ],
       "acceptance": [
-        "PARITY-154"
+        "PARITY-149"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -20048,6 +20112,25 @@
       "blocker": "Source export is 1.0.35, not a proven 1.0.34 match; verify availability and semantics against the frozen binary before candidate implementation."
     },
     {
+      "key": "environment:BROWSER",
+      "stories": [
+        15,
+        18,
+        70
+      ],
+      "tickets": [
+        155
+      ],
+      "acceptance": [
+        "PARITY-155"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "source:crates/codegen/xai-grok-pager-render/src/link_opener.rs#L28"
+      ],
+      "blocker": "Source export is 1.0.35, not a proven 1.0.34 match; verify availability and semantics against the frozen binary before candidate implementation."
+    },
+    {
       "key": "environment:BUILD_WORKSPACE_DIRECTORY",
       "stories": [
         8,
@@ -20415,6 +20498,65 @@
       "blocker": "Source export is 1.0.35, not a proven 1.0.34 match; verify availability and semantics against the frozen binary before candidate implementation."
     },
     {
+      "key": "environment:COLORFGBG",
+      "stories": [
+        17,
+        35
+      ],
+      "tickets": [
+        154
+      ],
+      "acceptance": [
+        "PARITY-154"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "binary-guide:06-theming.md#L97",
+        "source:crates/codegen/xai-grok-pager-render/src/theme/env_appearance.rs#L36",
+        "source-guide:06-theming.md#L97"
+      ],
+      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
+    },
+    {
+      "key": "environment:COLORTERM",
+      "stories": [
+        17,
+        35
+      ],
+      "tickets": [
+        154
+      ],
+      "acceptance": [
+        "PARITY-154"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "binary-guide:06-theming.md#L115",
+        "source:crates/codegen/xai-grok-pager-render/src/theme/color_support.rs#L184",
+        "source-guide:06-theming.md#L115"
+      ],
+      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
+    },
+    {
+      "key": "environment:COLUMNS",
+      "stories": [
+        17,
+        35
+      ],
+      "tickets": [
+        154
+      ],
+      "acceptance": [
+        "PARITY-154"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "binary-guide:25-status-line.md#L59",
+        "source-guide:25-status-line.md#L59"
+      ],
+      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
+    },
+    {
       "key": "environment:COMPUTER_HUB_URL",
       "stories": [
         8,
@@ -20492,6 +20634,8 @@
       "evidence": [
         "binary-guide:03-keyboard-shortcuts.md#L298",
         "binary-guide:21-terminal-support.md#L126",
+        "source:crates/codegen/xai-grok-pager-render/src/host/mod.rs#L86",
+        "source:crates/codegen/xai-grok-pager-render/src/link_opener.rs#L32",
         "source-guide:03-keyboard-shortcuts.md#L298",
         "source-guide:21-terminal-support.md#L126",
         "source:crates/codegen/xai-grok-shared/src/clipboard.rs#L381"
@@ -20517,6 +20661,26 @@
         "source:crates/codegen/xai-grok-pager/src/app/external_editor.rs#L139"
       ],
       "blocker": "Source export is 1.0.35, not a proven 1.0.34 match; verify availability and semantics against the frozen binary before candidate implementation."
+    },
+    {
+      "key": "environment:ENV",
+      "stories": [
+        26,
+        27,
+        62
+      ],
+      "tickets": [
+        144
+      ],
+      "acceptance": [
+        "PARITY-144"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "binary-guide:25-status-line.md#L59",
+        "source-guide:25-status-line.md#L59"
+      ],
+      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
     },
     {
       "key": "environment:FORK_BENCH_MB",
@@ -20600,6 +20764,25 @@
         "source:crates/codegen/xai-fast-worktree/src/git/safety_tests/gate.rs#L212"
       ],
       "blocker": "Source export is 1.0.35, not a proven 1.0.34 match; verify availability and semantics against the frozen binary before candidate implementation."
+    },
+    {
+      "key": "environment:GIT_OPTIONAL_LOCKS",
+      "stories": [
+        17,
+        35
+      ],
+      "tickets": [
+        154
+      ],
+      "acceptance": [
+        "PARITY-154"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "binary-guide:25-status-line.md#L59",
+        "source-guide:25-status-line.md#L59"
+      ],
+      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
     },
     {
       "key": "environment:GITHUB_ACTIONS",
@@ -21222,16 +21405,15 @@
     {
       "key": "environment:GROK_AUTO_PERMISSION_MODE",
       "stories": [
-        8,
-        34,
-        35,
-        63
+        24,
+        25,
+        27
       ],
       "tickets": [
-        139
+        142
       ],
       "acceptance": [
-        "PARITY-139"
+        "PARITY-142-security-effects"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -22694,16 +22876,15 @@
     {
       "key": "environment:GROK_DEFAULT_PERMISSION_MODE",
       "stories": [
-        8,
-        34,
-        35,
-        63
+        24,
+        25,
+        27
       ],
       "tickets": [
-        139
+        142
       ],
       "acceptance": [
-        "PARITY-139"
+        "PARITY-142-security-effects"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -22715,16 +22896,15 @@
     {
       "key": "environment:GROK_DEFAULT_SELECTED_PERMISSION",
       "stories": [
-        8,
-        34,
-        35,
-        63
+        24,
+        25,
+        27
       ],
       "tickets": [
-        139
+        142
       ],
       "acceptance": [
-        "PARITY-139"
+        "PARITY-142-security-effects"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -23370,14 +23550,16 @@
     {
       "key": "environment:GROK_FOLDER_TRUST",
       "stories": [
-        25,
-        38
+        24,
+        35,
+        36,
+        37
       ],
       "tickets": [
-        164
+        141
       ],
       "acceptance": [
-        "PARITY-164"
+        "PARITY-141"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -24618,16 +24800,14 @@
     {
       "key": "environment:GROK_MANAGED_MCP_GATEWAY_TOOLS_ENABLED",
       "stories": [
-        8,
-        34,
-        35,
-        63
+        39,
+        41
       ],
       "tickets": [
-        139
+        167
       ],
       "acceptance": [
-        "PARITY-139"
+        "PARITY-167-transport"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -24640,16 +24820,14 @@
     {
       "key": "environment:GROK_MANAGED_MCPS_ENABLED",
       "stories": [
-        8,
-        34,
-        35,
-        63
+        39,
+        41
       ],
       "tickets": [
-        139
+        167
       ],
       "acceptance": [
-        "PARITY-139"
+        "PARITY-167-transport"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -29622,16 +29800,15 @@
     {
       "key": "environment:GROK_XAI_API_BASE_URL",
       "stories": [
-        8,
-        34,
-        35,
-        63
+        32,
+        33,
+        34
       ],
       "tickets": [
-        139
+        140
       ],
       "acceptance": [
-        "PARITY-139"
+        "PARITY-140"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -29688,6 +29865,25 @@
       "blocker": "Source export is 1.0.35, not a proven 1.0.34 match; verify availability and semantics against the frozen binary before candidate implementation."
     },
     {
+      "key": "environment:GROVE_TOKEN_ROTATION",
+      "stories": [
+        44,
+        61
+      ],
+      "tickets": [
+        191
+      ],
+      "acceptance": [
+        "PARITY-191"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "binary-guide:27-grok-clone.md#L98",
+        "source-guide:27-grok-clone.md#L91"
+      ],
+      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
+    },
+    {
       "key": "environment:HISTFILE",
       "stories": [
         8,
@@ -29723,13 +29919,15 @@
       ],
       "status": "pending-parity",
       "evidence": [
+        "binary-guide:18-sandbox.md#L246",
         "source:crates/codegen/xai-fast-worktree/src/db/mod.rs#L509",
         "source:crates/codegen/xai-grok-login/src/manager.rs#L277",
+        "source-guide:18-sandbox.md#L249",
         "source:crates/codegen/xai-grok-pager/src/test_util.rs#L269",
         "source:crates/codegen/xai-grok-secrets/src/sanitizer.rs#L149",
         "source:crates/codegen/xai-grok-shell/src/agent/mvp_agent/acp_agent.rs#L447"
       ],
-      "blocker": "Source export is 1.0.35, not a proven 1.0.34 match; verify availability and semantics against the frozen binary before candidate implementation."
+      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
     },
     {
       "key": "environment:HOSTNAME",
@@ -29829,6 +30027,7 @@
       "status": "pending-parity",
       "evidence": [
         "binary-guide:06-theming.md#L97",
+        "source:crates/codegen/xai-grok-pager-render/src/theme/env_appearance.rs#L30",
         "source-guide:06-theming.md#L97"
       ],
       "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
@@ -29852,6 +30051,45 @@
         "source:crates/codegen/xai-grok-pager-render/src/clipboard/mod.rs#L41"
       ],
       "blocker": "Source export is 1.0.35, not a proven 1.0.34 match; verify availability and semantics against the frozen binary before candidate implementation."
+    },
+    {
+      "key": "environment:LC_GROK_THEME",
+      "stories": [
+        17,
+        35
+      ],
+      "tickets": [
+        154
+      ],
+      "acceptance": [
+        "PARITY-154"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "binary-guide:06-theming.md#L101",
+        "source:crates/codegen/xai-grok-pager-render/src/theme/cache.rs#L193",
+        "source-guide:06-theming.md#L101"
+      ],
+      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
+    },
+    {
+      "key": "environment:LINES",
+      "stories": [
+        17,
+        35
+      ],
+      "tickets": [
+        154
+      ],
+      "acceptance": [
+        "PARITY-154"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "binary-guide:25-status-line.md#L59",
+        "source-guide:25-status-line.md#L59"
+      ],
+      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
     },
     {
       "key": "environment:LOCALAPPDATA",
@@ -31020,7 +31258,9 @@
       ],
       "status": "pending-parity",
       "evidence": [
+        "binary-guide:18-sandbox.md#L246",
         "source:crates/codegen/xai-fast-worktree/src/bin/worktree_lifecycle_bench/runtime.rs#L746",
+        "source-guide:18-sandbox.md#L249",
         "source:crates/codegen/xai-grok-pager/src/diagnostics/fix.rs#L1479",
         "source:crates/codegen/xai-grok-shell/src/extensions/suggest/path_provider.rs#L108",
         "source:crates/codegen/xai-grok-shell/src/extensions/suggest/path_provider.rs#L139",
@@ -31030,7 +31270,7 @@
         "source:crates/codegen/xai-tty-utils/src/bundled_git.rs#L199",
         "source:crates/common/xai-test-utils/src/git.rs#L29"
       ],
-      "blocker": "Source export is 1.0.35, not a proven 1.0.34 match; verify availability and semantics against the frozen binary before candidate implementation."
+      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
     },
     {
       "key": "environment:PROFILE",
@@ -31170,9 +31410,19 @@
       ],
       "status": "pending-parity",
       "evidence": [
+        "binary-guide:02-authentication.md#L337",
+        "binary-guide:10-hooks.md#L664",
+        "binary-guide:14-headless-mode.md#L588",
+        "binary-guide:17-sessions.md#L332",
+        "binary-guide:22-permissions-and-safety.md#L336",
+        "source-guide:02-authentication.md#L336",
+        "source-guide:10-hooks.md#L664",
+        "source-guide:14-headless-mode.md#L588",
+        "source-guide:17-sessions.md#L332",
+        "source-guide:22-permissions-and-safety.md#L336",
         "source:crates/codegen/xai-grok-shell/src/leader/mod.rs#L1643"
       ],
-      "blocker": "Source export is 1.0.35, not a proven 1.0.34 match; verify availability and semantics against the frozen binary before candidate implementation."
+      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
     },
     {
       "key": "environment:RUST_TEST_THREADS",
@@ -31526,6 +31776,8 @@
       ],
       "status": "pending-parity",
       "evidence": [
+        "source:crates/codegen/xai-grok-pager-render/src/host/mod.rs#L84",
+        "source:crates/codegen/xai-grok-pager-render/src/link_opener.rs#L31",
         "source:crates/codegen/xai-grok-shared/src/clipboard.rs#L381"
       ],
       "blocker": "Source export is 1.0.35, not a proven 1.0.34 match; verify availability and semantics against the frozen binary before candidate implementation."
@@ -109828,14 +110080,14 @@
     {
       "key": "setting:compat.claude.hooks",
       "stories": [
-        12,
-        37
+        25,
+        38
       ],
       "tickets": [
-        163
+        164
       ],
       "acceptance": [
-        "PARITY-163"
+        "PARITY-164"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -109847,14 +110099,14 @@
     {
       "key": "setting:compat.claude.mcps",
       "stories": [
-        12,
-        37
+        39,
+        41
       ],
       "tickets": [
-        163
+        167
       ],
       "acceptance": [
-        "PARITY-163"
+        "PARITY-167-transport"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -109904,14 +110156,14 @@
     {
       "key": "setting:compat.codex.hooks",
       "stories": [
-        12,
-        37
+        25,
+        38
       ],
       "tickets": [
-        163
+        164
       ],
       "acceptance": [
-        "PARITY-163"
+        "PARITY-164"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -109961,14 +110213,14 @@
     {
       "key": "setting:compat.cursor.hooks",
       "stories": [
-        12,
-        37
+        25,
+        38
       ],
       "tickets": [
-        163
+        164
       ],
       "acceptance": [
-        "PARITY-163"
+        "PARITY-164"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -109980,14 +110232,14 @@
     {
       "key": "setting:compat.cursor.mcps",
       "stories": [
-        12,
-        37
+        39,
+        41
       ],
       "tickets": [
-        163
+        167
       ],
       "acceptance": [
-        "PARITY-163"
+        "PARITY-167-transport"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -115252,14 +115504,14 @@
     {
       "key": "setting:toolset.ask_user_question.timeout_secs",
       "stories": [
-        13,
-        23
+        22,
+        50
       ],
       "tickets": [
-        169
+        179
       ],
       "acceptance": [
-        "PARITY-169"
+        "PARITY-179"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -115271,14 +115523,20 @@
     {
       "key": "setting:toolset.bash.auto_background_on_timeout",
       "stories": [
-        13,
-        23
+        19,
+        23,
+        26,
+        45,
+        47,
+        62
       ],
       "tickets": [
-        169
+        170,
+        175
       ],
       "acceptance": [
-        "PARITY-169"
+        "PARITY-170",
+        "PARITY-175"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -115290,14 +115548,15 @@
     {
       "key": "setting:toolset.bash.login_shell_capture",
       "stories": [
-        13,
-        23
+        19,
+        23,
+        26
       ],
       "tickets": [
-        169
+        170
       ],
       "acceptance": [
-        "PARITY-169"
+        "PARITY-170"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -115309,14 +115568,15 @@
     {
       "key": "setting:toolset.bash.max_timeout_secs",
       "stories": [
-        13,
-        23
+        19,
+        23,
+        26
       ],
       "tickets": [
-        169
+        170
       ],
       "acceptance": [
-        "PARITY-169"
+        "PARITY-170"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -115328,14 +115588,15 @@
     {
       "key": "setting:toolset.bash.output_byte_limit",
       "stories": [
-        13,
-        23
+        19,
+        23,
+        26
       ],
       "tickets": [
-        169
+        170
       ],
       "acceptance": [
-        "PARITY-169"
+        "PARITY-170"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -115347,14 +115608,15 @@
     {
       "key": "setting:toolset.bash.timeout_secs",
       "stories": [
-        13,
-        23
+        19,
+        23,
+        26
       ],
       "tickets": [
-        169
+        170
       ],
       "acceptance": [
-        "PARITY-169"
+        "PARITY-170"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -115385,14 +115647,13 @@
     {
       "key": "setting:toolset.web_fetch.allowed_domains",
       "stories": [
-        13,
-        23
+        55
       ],
       "tickets": [
-        169
+        171
       ],
       "acceptance": [
-        "PARITY-169"
+        "PARITY-171"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -115404,14 +115665,13 @@
     {
       "key": "setting:toolset.web_fetch.proxy_endpoint",
       "stories": [
-        13,
-        23
+        55
       ],
       "tickets": [
-        169
+        171
       ],
       "acceptance": [
-        "PARITY-169"
+        "PARITY-171"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -115423,14 +115683,13 @@
     {
       "key": "setting:toolset.web_search.allowed_domains",
       "stories": [
-        13,
-        23
+        55
       ],
       "tickets": [
-        169
+        171
       ],
       "acceptance": [
-        "PARITY-169"
+        "PARITY-171"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -115442,14 +115701,13 @@
     {
       "key": "setting:toolset.web_search.excluded_domains",
       "stories": [
-        13,
-        23
+        55
       ],
       "tickets": [
-        169
+        171
       ],
       "acceptance": [
-        "PARITY-169"
+        "PARITY-171"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -115461,14 +115719,15 @@
     {
       "key": "setting:ui.approval_mode",
       "stories": [
-        17,
-        35
+        24,
+        25,
+        27
       ],
       "tickets": [
-        154
+        142
       ],
       "acceptance": [
-        "PARITY-154"
+        "PARITY-142-security-effects"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -115518,14 +115777,19 @@
     {
       "key": "setting:ui.cancel_subagents_on_turn_cancel",
       "stories": [
-        17,
-        35
+        19,
+        62,
+        75,
+        43,
+        59
       ],
       "tickets": [
-        154
+        137,
+        173
       ],
       "acceptance": [
-        "PARITY-154"
+        "PARITY-137-children",
+        "PARITY-173"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -115829,14 +116093,15 @@
     {
       "key": "setting:ui.follow_up_behavior",
       "stories": [
-        17,
-        35
+        19,
+        20,
+        21
       ],
       "tickets": [
-        154
+        151
       ],
       "acceptance": [
-        "PARITY-154"
+        "PARITY-151"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -116211,14 +116476,15 @@
     {
       "key": "setting:ui.simple_mode",
       "stories": [
-        17,
-        35
+        11,
+        12,
+        14
       ],
       "tickets": [
-        154
+        150
       ],
       "acceptance": [
-        "PARITY-154"
+        "PARITY-150"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -116382,14 +116648,15 @@
     {
       "key": "setting:ui.yolo",
       "stories": [
-        17,
-        35
+        24,
+        25,
+        27
       ],
       "tickets": [
-        154
+        142
       ],
       "acceptance": [
-        "PARITY-154"
+        "PARITY-142-security-effects"
       ],
       "status": "pending-parity",
       "evidence": [

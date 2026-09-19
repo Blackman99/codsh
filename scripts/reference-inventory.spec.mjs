@@ -397,6 +397,94 @@ describe('frozen reference coverage register', () => {
     expect(limits.failure).toMatch(/malformed.*zero.*overflow/)
   })
 
+  it.each([
+    ['ui.yolo', [142]], ['ui.approval_mode', [142]], ['ui.follow_up_behavior', [151]],
+    ['ui.cancel_subagents_on_turn_cancel', [137, 173]], ['ui.simple_mode', [150]],
+    ['toolset.bash.auto_background_on_timeout', [170, 175]], ['toolset.bash.login_shell_capture', [170]],
+    ['toolset.bash.max_timeout_secs', [170]], ['toolset.bash.output_byte_limit', [170]], ['toolset.bash.timeout_secs', [170]],
+    ['toolset.ask_user_question.timeout_secs', [179]], ['toolset.web_fetch.allowed_domains', [171]],
+    ['toolset.web_fetch.proxy_endpoint', [171]], ['toolset.web_search.allowed_domains', [171]], ['toolset.web_search.excluded_domains', [171]],
+    ['compat.claude.hooks', [164]], ['compat.codex.hooks', [164]], ['compat.cursor.hooks', [164]],
+    ['compat.claude.mcps', [167]], ['compat.cursor.mcps', [167]],
+  ])('assigns functional configuration %s to effect-based owners', (name, owners) => {
+    const register = read('inventory.json'), row = register.items.find(item => item.key === `setting:${name}`)
+    expect(row.tickets).toEqual(owners)
+    expect(row.acceptance).not.toContain('PARITY-154')
+    expect(row.acceptance).not.toContain('PARITY-169')
+    for (const owner of owners) expect(row.acceptance.some(id => register.acceptance.find(test => test.id === id)?.ticket === owner)).toBe(true)
+    if (name === 'ui.cancel_subagents_on_turn_cancel') {
+      expect(row.acceptance).toContain('PARITY-137-children')
+      const scenario = register.acceptance.find(test => test.id === 'PARITY-137-children')
+      expect(scenario.when).toMatch(/ask.*always_stop.*always_continue/)
+      expect(scenario.then).toMatch(/actual child.*lifecycle/)
+    }
+  })
+
+  it.each([
+    ['GROK_MANAGED_MCPS_ENABLED', 167], ['GROK_MANAGED_MCP_GATEWAY_TOOLS_ENABLED', 167],
+    ['GROK_XAI_API_BASE_URL', 140], ['GROK_FOLDER_TRUST', 141],
+    ['GROK_DEFAULT_SELECTED_PERMISSION', 142], ['GROK_DEFAULT_PERMISSION_MODE', 142], ['GROK_AUTO_PERMISSION_MODE', 142],
+  ])('maps functional environment alias %s independently of the guide mentioning it', (name, owner) => {
+    const register = read('inventory.json'), row = register.items.find(item => item.key === `environment:${name}`)
+    expect(row.tickets).toEqual([owner])
+    expect(row.acceptance.some(id => register.acceptance.find(test => test.id === id)?.ticket === owner)).toBe(true)
+  })
+
+  it('keeps namespace ownership when documented settings merge general and enterprise observations', () => {
+    const text = '## General settings\n```toml\n[models]\ndefault = "general"\n[features]\ntelemetry = false\n[cli]\nauto_update = true\n```\n## Enterprise deployment\n```toml\n[models]\ndefault = "company"\n[features]\ntelemetry = false\n[cli]\nauto_update = false\n```'
+    const capture = { commands: [], guides: [{ file: '05-configuration.md', text }] }
+    const contexts = guideContexts({ capture, source: { guides: [] } })
+    const items = extractSurfaces(capture, []).filter(item => item.category === 'documented-setting')
+    const register = read('inventory.json')
+    for (const [field, owner] of [['models.default', 140], ['features.telemetry', 192], ['cli.auto_update', 198]]) {
+      const name = `05-configuration.md:${field}`, item = items.find(item => item.name === name)
+      expect(item.observations).toHaveLength(2)
+      expect(mapOwners(item, contexts)).toEqual([owner, 141, 189])
+      expect(mapOwners({ ...item, observations: [...item.observations].reverse() }, contexts)).toEqual([owner, 141, 189])
+      const row = register.items.find(item => item.key === `documented-setting:${name}`)
+      expect(row.tickets).toEqual([owner, 141, 189])
+      expect(row.acceptance).toContain(`PARITY-${owner}`)
+    }
+    const terminal = register.items.find(item => item.key === 'documented-setting:06-theming.md:terminal.alt_screen')
+    expect(terminal.tickets).toContain(149)
+    expect(terminal.acceptance).toContain('PARITY-149')
+  })
+
+  it('keeps code-review uploads separate from local plan-review feedback', () => {
+    const register = read('inventory.json')
+    for (const name of ['x.ai/review/comment', 'x.ai/review/comment/delete']) {
+      const row = register.items.find(item => item.key === `acp-extension:${name}`)
+      expect(row.tickets).toEqual([147, 192])
+      expect(row.acceptance).toContain('PARITY-192-review-upload')
+      expect(row.tickets).not.toContain(179)
+    }
+    const upload = register.acceptance.find(test => test.id === 'PARITY-192-review-upload')
+    expect(upload.when).toMatch(/citation.*tombstone/)
+    expect(upload.then).toMatch(/consent.*destination/)
+    expect(upload.failure).toMatch(/acknowledg.*upload/)
+    expect(register.items.find(item => item.key === 'guide-section:19-plan-mode.md:Providing Feedback').tickets).toEqual([179])
+  })
+
+  it('extracts unprefixed and assignment-form environment hints from docs and source', () => {
+    const capture = { commands: [], guides: [{ file: '06-theming.md', text: '## Detection\nEnvironment fallback: `COLORFGBG`.\n\nSet `LC_GROK_THEME` to force a theme.\n\n| Level | Detection |\n| --- | --- |\n| Truecolor | `COLORTERM=truecolor` |\n\nSet `ALTCONSOLE` to select a console.\nThe `RGB` acronym describes colors.\n\nThe --env flag accepts `KEY=value`.' }] }
+    const sources = [{ path: 'crates/theme.rs', text: 'env.get("COLORTERM");\nparse_colorfgbg(env_nonempty(env, "COLORFGBG"));\nfor key in ["GROK_THEME", "LC_GROK_THEME"] {\n    env.get(key);\n}\nconst LABEL: &str = "NOT_AN_ENV";' }]
+    const items = extractSurfaces(capture, sources)
+    for (const name of ['COLORFGBG', 'LC_GROK_THEME', 'COLORTERM']) {
+      const item = items.find(item => item.key === `environment:${name}`)
+      expect(item, name).toBeDefined()
+      expect(item.observations.some(o => o.scope === 'binary-guide')).toBe(true)
+      expect(item.observations.some(o => o.locator.startsWith('source:'))).toBe(true)
+      const actual = read('discovery.json').items.find(item => item.key === `environment:${name}`)
+      expect(actual, name).toBeDefined()
+      for (const scope of ['binary-guide', 'source-guide', 'source-environment-provisional']) expect(actual.observations.some(o => o.scope === scope), `${name}:${scope}`).toBe(true)
+      expect(read('inventory.json').items.find(item => item.key === actual.key).tickets).toEqual([154])
+    }
+    expect(items.some(item => item.key === 'environment:ALTCONSOLE')).toBe(true)
+    expect(items.some(item => item.key === 'environment:RGB')).toBe(false)
+    expect(items.some(item => item.key === 'environment:KEY')).toBe(false)
+    expect(items.some(item => item.key === 'environment:NOT_AN_ENV')).toBe(false)
+  })
+
   it('extracts commands and flags, including nested help and aliases', () => {
     const capture = { guides: [], commands: [{ args: ['memory', '--help'], exit: 0,
       stdout: 'Usage: grok memory [COMMAND]\n\nCommands:\n  list  List notes\n  help  Help\n\nOptions:\n  -h, --help  Help\n      --json  JSON [aliases: --machine]\n' }] }
