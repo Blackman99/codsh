@@ -1,0 +1,295 @@
+{
+  "schemaVersion": 1,
+  "behavior": {
+    "version": "1.0.34",
+    "build": "3736acbc8658",
+    "binarySha256": "9cd26b579840f0f5c9148a8059ad651904c08b41b7f2ef0b4ec04b9ba898844e",
+    "evidence": "observations.json#/commands/0",
+    "redistributedBinary": false
+  },
+  "source": {
+    "repository": "https://github.com/xai-org/grok-build",
+    "commit": "a28ee2b2063426e8816e380ccea528b9de95e5da",
+    "sourceRevision": "e8563f8f182296ebb53cadb3e1eab7615d76408e",
+    "declaredVersion": "1.0.35",
+    "role": "pinned research and future import input; no Rust source imported by #133",
+    "previousExport": {
+      "commit": "482711333c7195dc16a272777f86086d615e2afb",
+      "sourceRevision": "be7ce6e8cffe46d20bef9834b211616082ee866b",
+      "declaredVersion": "1.0.32"
+    },
+    "exactBinaryMapping": "unproven; neither export establishes a 1.0.34 build match",
+    "upstreamBuildStatus": "not built; no Rust application changes in this ticket"
+  },
+  "license": {
+    "firstParty": "Apache-2.0",
+    "evidence": [
+      {
+        "path": "Cargo.lock",
+        "sha256": "19826d5ea498597bfd6df6dc79829f3719605fc46ff27f42029f87b36d414491",
+        "url": "https://github.com/xai-org/grok-build/blob/a28ee2b2063426e8816e380ccea528b9de95e5da/Cargo.lock"
+      },
+      {
+        "path": "Cargo.toml",
+        "sha256": "3c39bf0ff5923faee5d7acbf65c6d263d8da64cba93bc2a4c5e378ba23de9e2f",
+        "url": "https://github.com/xai-org/grok-build/blob/a28ee2b2063426e8816e380ccea528b9de95e5da/Cargo.toml"
+      },
+      {
+        "path": "LICENSE",
+        "sha256": "116f7778b9802e569b7fa3a532b17bd80eb13c67837def01eed093d4ea472f28",
+        "url": "https://github.com/xai-org/grok-build/blob/a28ee2b2063426e8816e380ccea528b9de95e5da/LICENSE"
+      },
+      {
+        "path": "README.md",
+        "sha256": "322066de9f5bc136295bd0ae4f1752cef3d8dcb1a8f9d88044609e7b6d7abcf7",
+        "url": "https://github.com/xai-org/grok-build/blob/a28ee2b2063426e8816e380ccea528b9de95e5da/README.md"
+      },
+      {
+        "path": "SOURCE_REV",
+        "sha256": "c548cf3a5fa05d0e5494744945ef2085cb2448aab8dd01ac27789c3fe1569f7f",
+        "url": "https://github.com/xai-org/grok-build/blob/a28ee2b2063426e8816e380ccea528b9de95e5da/SOURCE_REV"
+      },
+      {
+        "path": "THIRD-PARTY-NOTICES",
+        "sha256": "dcbdd42b8fe45aa28f67a7b9e82d9feadec2b958c050158aeaac460eba651d07",
+        "url": "https://github.com/xai-org/grok-build/blob/a28ee2b2063426e8816e380ccea528b9de95e5da/THIRD-PARTY-NOTICES"
+      },
+      {
+        "path": "crates/codegen/xai-grok-pager-bin/Cargo.toml",
+        "sha256": "eff156f9d665ae2e79b2f3fec969fa894cff4589b1bb62b6f9c9f06a2553b30c",
+        "url": "https://github.com/xai-org/grok-build/blob/a28ee2b2063426e8816e380ccea528b9de95e5da/crates/codegen/xai-grok-pager-bin/Cargo.toml"
+      },
+      {
+        "path": "crates/codegen/xai-grok-pager/Cargo.toml",
+        "sha256": "d3735ad11d2de7e8a9357184eb0ec6d8a45e0d82d1dd31916bb1fb5204a355dc",
+        "url": "https://github.com/xai-org/grok-build/blob/a28ee2b2063426e8816e380ccea528b9de95e5da/crates/codegen/xai-grok-pager/Cargo.toml"
+      },
+      {
+        "path": "crates/codegen/xai-grok-tools/THIRD_PARTY_NOTICES.md",
+        "sha256": "e8785a6098a7ee780cd2db35745b8e53061cfb1b6da19147a308579466ea4e50",
+        "url": "https://github.com/xai-org/grok-build/blob/a28ee2b2063426e8816e380ccea528b9de95e5da/crates/codegen/xai-grok-tools/THIRD_PARTY_NOTICES.md"
+      },
+      {
+        "path": "third_party/NOTICE",
+        "sha256": "73aafdd2cb8c153f041fd202d2930745372ed1154681197283a2ab5c789532d3",
+        "url": "https://github.com/xai-org/grok-build/blob/a28ee2b2063426e8816e380ccea528b9de95e5da/third_party/NOTICE"
+      },
+      {
+        "path": "third_party/dagre_rust/LICENCE",
+        "sha256": "a889108923afc6438024de73f47b0ca05f1b98ee82c3b3ac12952fdc399d6b50",
+        "url": "https://github.com/xai-org/grok-build/blob/a28ee2b2063426e8816e380ccea528b9de95e5da/third_party/dagre_rust/LICENCE"
+      },
+      {
+        "path": "third_party/graphlib_rust/LICENCE",
+        "sha256": "a889108923afc6438024de73f47b0ca05f1b98ee82c3b3ac12952fdc399d6b50",
+        "url": "https://github.com/xai-org/grok-build/blob/a28ee2b2063426e8816e380ccea528b9de95e5da/third_party/graphlib_rust/LICENCE"
+      },
+      {
+        "path": "third_party/mermaid-to-svg/LICENSE",
+        "sha256": "2fa086dac6480e9d9a6e51f5eb84926e757436f38e1b548b51f5bac98dbacc98",
+        "url": "https://github.com/xai-org/grok-build/blob/a28ee2b2063426e8816e380ccea528b9de95e5da/third_party/mermaid-to-svg/LICENSE"
+      },
+      {
+        "path": "third_party/mermaid-to-svg/THIRD_PARTY_NOTICES",
+        "sha256": "e120df1276140b52dcc4a1c8fdd7db5596ddd67f7f60157eddb72e02367f6644",
+        "url": "https://github.com/xai-org/grok-build/blob/a28ee2b2063426e8816e380ccea528b9de95e5da/third_party/mermaid-to-svg/THIRD_PARTY_NOTICES"
+      },
+      {
+        "path": "third_party/ordered_hashmap/LICENCE",
+        "sha256": "a889108923afc6438024de73f47b0ca05f1b98ee82c3b3ac12952fdc399d6b50",
+        "url": "https://github.com/xai-org/grok-build/blob/a28ee2b2063426e8816e380ccea528b9de95e5da/third_party/ordered_hashmap/LICENCE"
+      }
+    ],
+    "requirements": [
+      "Retain upstream license, applicable notices and copyright at import/distribution.",
+      "Record local Rust modifications prominently under Apache-2.0 section 4(b).",
+      "Recompute shipped dependency/license closure after selecting crates; upstream full-product notices are not a codsh SBOM.",
+      "Keep Codex Apache-2.0 and opencode MIT port notices; preserve Mermaid ancestry and vendored component licenses.",
+      "Review MPL-2.0 file-level duties, Unicode/CDLA notices and libgit2 linking exception for actual distributed artifacts.",
+      "Public source license is not permission to redistribute the installed proprietary release binary or claim official endorsement."
+    ],
+    "modifications": "Only extraction into discovery records and independently authored probes; preserved notice files are byte-identical."
+  },
+  "guideReconciliation": [
+    {
+      "file": "01-getting-started.md",
+      "binarySha256": "30920ff22fe3cfa6faf2eb9c6d85f1a045470971376ce5fa513154efacc8e5fb",
+      "publicSourceSha256": "355d747b2f30de662ed3f106877d7f35f441112d5e54ca705086d00a88bbf315",
+      "identical": false
+    },
+    {
+      "file": "02-authentication.md",
+      "binarySha256": "1dc2f15c7b4ffdd0111db6eec2ce6448b1e55ad81d3900f30500d8ebdfccaaeb",
+      "publicSourceSha256": "4e2d87b5edded0aa676349ab44bf0a297669f64aeb635f3f3cd3e2e265931c63",
+      "identical": false
+    },
+    {
+      "file": "03-keyboard-shortcuts.md",
+      "binarySha256": "4b00f8cfae4e9d1c9e5041ff4b997f29fc8a97d527e05d8707e42f24e39c94cb",
+      "publicSourceSha256": "4b00f8cfae4e9d1c9e5041ff4b997f29fc8a97d527e05d8707e42f24e39c94cb",
+      "identical": true
+    },
+    {
+      "file": "04-slash-commands.md",
+      "binarySha256": "db0cb7f140cc414256c357d5ff6f3883845f889a66338ea07f24feca76de5bbb",
+      "publicSourceSha256": "48004b28ea295564d09bd6773649db032f0ab31519f35d491bc6133fc5a2bed0",
+      "identical": false
+    },
+    {
+      "file": "05-configuration.md",
+      "binarySha256": "2ed70353e4f9c9d4c399a2cbd5a5ca16323ca133bf60c10d6eb3c56657123a36",
+      "publicSourceSha256": "ac4f8b0579b9f775aff6c0276cd605f5128493ade3579e932faf35260c3e9427",
+      "identical": false
+    },
+    {
+      "file": "06-theming.md",
+      "binarySha256": "957ccc193782ce9df51bedf2a17125f532d4d4553ffcc2a87aa7537d3097ee1a",
+      "publicSourceSha256": "957ccc193782ce9df51bedf2a17125f532d4d4553ffcc2a87aa7537d3097ee1a",
+      "identical": true
+    },
+    {
+      "file": "07-mcp-servers.md",
+      "binarySha256": "cc9c0dc6ad74095ef4b0da8a312b3bce88ac1ff08578335d4888a5b8dc697395",
+      "publicSourceSha256": "cc9c0dc6ad74095ef4b0da8a312b3bce88ac1ff08578335d4888a5b8dc697395",
+      "identical": true
+    },
+    {
+      "file": "08-skills.md",
+      "binarySha256": "6ed785b7e4c1c064a170abe69187202ce36a28ef08523483d7b240ab257c5da1",
+      "publicSourceSha256": "229c822ec7c387fa9da5ef5cf3414231202c39ce302c4e65e908d666e14a83c5",
+      "identical": false
+    },
+    {
+      "file": "09-plugins.md",
+      "binarySha256": "9fa694f43feebcdbd393f20e0d0d691d3352b2c3e565c13917378eac82a61cd4",
+      "publicSourceSha256": "9fa694f43feebcdbd393f20e0d0d691d3352b2c3e565c13917378eac82a61cd4",
+      "identical": true
+    },
+    {
+      "file": "10-hooks.md",
+      "binarySha256": "6af6cda5df56a02b194a96a59939f7b18e562983cd6f8c04f8f0c2d22a64a0d9",
+      "publicSourceSha256": "6ca445ada74cb3b5fd89ae3431358b45aaacba49ead63108f7f48a57feb24023",
+      "identical": false
+    },
+    {
+      "file": "11-custom-models.md",
+      "binarySha256": "d41d9ff5942eb84d8c8f73f7c0bad82b34d5b9a282b30e687770aa050f36e00a",
+      "publicSourceSha256": "d41d9ff5942eb84d8c8f73f7c0bad82b34d5b9a282b30e687770aa050f36e00a",
+      "identical": true
+    },
+    {
+      "file": "12-project-rules.md",
+      "binarySha256": "160380abbee8bb7c0a94809b3f563f9fccde8d9592d1261aff0186b13a2e290b",
+      "publicSourceSha256": "160380abbee8bb7c0a94809b3f563f9fccde8d9592d1261aff0186b13a2e290b",
+      "identical": true
+    },
+    {
+      "file": "13-memory.md",
+      "binarySha256": "fe164e09859a8fe9d6890c9b82eee3cbf3f5e4bc4da7710e772d134ff0bcf55b",
+      "publicSourceSha256": "8962cb00151b0de9bf742946447dbce1c8730655a3fe6bbfd666254914499e0e",
+      "identical": false
+    },
+    {
+      "file": "14-headless-mode.md",
+      "binarySha256": "2dd1302d88dc39276866e09a7c34501ecbe0e53b34a17f49e6908356ba1c98a9",
+      "publicSourceSha256": "248d83a99ec6fbeb0443754b98cc195b3ab44168bf30a2f110e3188d4045f230",
+      "identical": false
+    },
+    {
+      "file": "15-agent-mode.md",
+      "binarySha256": "17f6088ffd7ba636e8dff4ba37255d11920865492b9f23b7e1e91f838fafe185",
+      "publicSourceSha256": "17f6088ffd7ba636e8dff4ba37255d11920865492b9f23b7e1e91f838fafe185",
+      "identical": true
+    },
+    {
+      "file": "16-subagents.md",
+      "binarySha256": "e7213c7181b9fb2188e346c8977e25832e183118020552c541ca1bafc5be2496",
+      "publicSourceSha256": "00f0ea680d63c7993da551fe3790b9c1998c7a2c8970f72bade4c12649b1409e",
+      "identical": false
+    },
+    {
+      "file": "17-sessions.md",
+      "binarySha256": "2e728c7f53201df625582093aa5e626c081d7b51389093f4359b184407e99d61",
+      "publicSourceSha256": "2e728c7f53201df625582093aa5e626c081d7b51389093f4359b184407e99d61",
+      "identical": true
+    },
+    {
+      "file": "18-sandbox.md",
+      "binarySha256": "327816d24c153880828b72bc03385f36bccaa369d839d8ad7870cbb409375d84",
+      "publicSourceSha256": "f19f7596dabcfe31f190605cc77cdb2e7ab67c2b9975d28e5af4a5928d0960b3",
+      "identical": false
+    },
+    {
+      "file": "19-plan-mode.md",
+      "binarySha256": "768ac26bb78f22ac696674a2188856ce3ee90c2ae71fa04af10462dc0adb7105",
+      "publicSourceSha256": "768ac26bb78f22ac696674a2188856ce3ee90c2ae71fa04af10462dc0adb7105",
+      "identical": true
+    },
+    {
+      "file": "20-background-tasks.md",
+      "binarySha256": "309e90beaf775e9263be8f4bca7a564f9c4de15834d548ed8c9eb5a455f9fa2f",
+      "publicSourceSha256": "309e90beaf775e9263be8f4bca7a564f9c4de15834d548ed8c9eb5a455f9fa2f",
+      "identical": true
+    },
+    {
+      "file": "21-terminal-support.md",
+      "binarySha256": "f694595298cf19db43e88ae7cb459c6b53e749fc6b0a6d015e6212ce70a9774e",
+      "publicSourceSha256": "f694595298cf19db43e88ae7cb459c6b53e749fc6b0a6d015e6212ce70a9774e",
+      "identical": true
+    },
+    {
+      "file": "22-permissions-and-safety.md",
+      "binarySha256": "918ad092e92261e5c09c46f04c87acccf10b41a2945c97857ce0d5c57c12267d",
+      "publicSourceSha256": "918ad092e92261e5c09c46f04c87acccf10b41a2945c97857ce0d5c57c12267d",
+      "identical": true
+    },
+    {
+      "file": "23-dashboard.md",
+      "binarySha256": "a4b4f2a5d48b8f5bf15d1327b9274af51e980405bf5259fc40613a51545e86ed",
+      "publicSourceSha256": "118d490c1da93ad481c4082714868f0eb1c167dc36237c6bc0e3e167bd7221df",
+      "identical": false
+    },
+    {
+      "file": "24-monitoring-usage.md",
+      "binarySha256": "1518dc540b48fdad9f72d94ac66f589374c14b3b5b148db34f107504e878d1d9",
+      "publicSourceSha256": "1518dc540b48fdad9f72d94ac66f589374c14b3b5b148db34f107504e878d1d9",
+      "identical": true
+    },
+    {
+      "file": "25-status-line.md",
+      "binarySha256": "3200adfa3740a7bca6e4079a47d1a2a80801813edd7e1818ae4773bb488ab48c",
+      "publicSourceSha256": "3200adfa3740a7bca6e4079a47d1a2a80801813edd7e1818ae4773bb488ab48c",
+      "identical": true
+    },
+    {
+      "file": "26-config-reference.md",
+      "binarySha256": "ddf1a48ef060b6cf8e3073ded0410b3b3dda2fa38a016181a4dbd5b006e40967",
+      "publicSourceSha256": "bd14f643e359cfb6c49b1d131d5540508defee94c2bcf049b89a6a0ad39b9353",
+      "identical": false
+    },
+    {
+      "file": "27-grok-clone.md",
+      "binarySha256": "2f52454cf6c8c4ad864d2c195703082a33adb01eb00ec96afc9a28e1c4105046",
+      "publicSourceSha256": "39b858c36cdfd1d5ac08638ab95485439aa4fce2274639a52492a0a2d38fce0d",
+      "identical": false
+    }
+  ],
+  "counts": {
+    "acp-extension": 264,
+    "cli": 88,
+    "documented-setting": 454,
+    "environment": 224,
+    "feature": 20,
+    "flag": 519,
+    "guide-behavior": 1680,
+    "guide-item": 645,
+    "guide-section": 699,
+    "keybinding": 115,
+    "pager-setting": 55,
+    "setting": 384,
+    "slash": 113,
+    "source-cli": 139,
+    "tool": 52
+  },
+  "evidenceBoundary": "Help/schema/doc/source observation is not candidate parity. All candidate rows remain pending-parity."
+}

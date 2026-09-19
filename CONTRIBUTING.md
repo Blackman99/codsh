@@ -60,6 +60,51 @@ live updates, and reconnect behavior on desktop and mobile; test both `/` and
 `/index.html`. Check English interface labels without translating user source
 text, and answer persistence across graph-cache rebuilds and resumed runs.
 
+## Frozen Grok rewrite reference (#133)
+
+The parallel rewrite's research register is in
+[`docs/rewrite/reference/`](docs/rewrite/reference/README.md). It does not alter
+legacy behavior or import the new Rust client. Run its portable checks with:
+
+```sh
+node scripts/reference-inventory.mjs check
+pnpm exec vitest run scripts/reference-inventory.spec.mjs scripts/reference-evidence.spec.mjs
+```
+
+To reproduce reference observations on macOS, use Python 3.10+ and the exact
+installed Grok 1.0.34/build 3736acbc8658 binary. The driver creates a temporary
+HOME/GROK_HOME/workspace, denies personal-home reads and nonessential networking,
+and never reads real auth or sessions. Output directories must be new.
+
+```sh
+python3 scripts/reference-probe-test.py
+python3 scripts/reference-probe.py --binary /absolute/path/to/grok-1.0.34 --output .scratch/reference-run --samples 5
+python3 scripts/reference-model-probe.py --binary /absolute/path/to/grok-1.0.34 --output .scratch/reference-model.json
+node scripts/reference-baseline.mjs .scratch/reference-run/observations.json .scratch/reference-baseline.json
+```
+
+The model probe serves deterministic SSE on one loopback port, with a synthetic
+key and no paid calls. The main probe denies all network access. Both require
+`sandbox-exec`; do not remove confinement to make a probe run on another platform.
+Native Linux/Windows drivers and full performance workloads remain downstream.
+
+Reconcile discovery using a clean public source checkout pinned at the recorded
+commit (this is research, not an application import):
+
+```sh
+git clone https://github.com/xai-org/grok-build.git .scratch/reference-source
+git -C .scratch/reference-source checkout --detach a28ee2b2063426e8816e380ccea528b9de95e5da
+node scripts/reference-inventory.mjs extract docs/rewrite/reference/observations.json .scratch/reference-source .scratch/reference-discovery.json docs/rewrite/reference/model-observations.json
+diff -u docs/rewrite/reference/discovery.json .scratch/reference-discovery.json
+```
+
+Every discovered item needs a story, owning ticket, observable acceptance scenario
+and evidence or explicit blocker. A source declaration or guide is not runtime
+verification; planned acceptance scenarios are not passing tests. Add newly
+found behavior instead of weakening the extraction or shrinking the register.
+Freeze measured numeric performance thresholds before collecting candidate data.
+Run the ordinary typecheck and full unit suite for changes to these workflows.
+
 ## Documentation site
 
 `site/` is a static GitHub Pages site. `index.html` and `zh.html` are the short

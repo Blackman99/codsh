@@ -3,6 +3,15 @@
 A terminal coding agent composed on the dsh plugin runtime, whose interaction
 design deliberately aligns with the best of today's agent CLIs.
 
+## Parallel rewrite boundary
+
+The language and interaction rules below describe the legacy Launcher/Bundle.
+For the separately developed Rust/dsh path, [ADR-0002](docs/adr/0002-frozen-grok-rewrite-reference.md)
+selects frozen Grok 1.0.34 behavior instead of Claude-first arbitration and
+allows minimal native scrollback alongside fullscreen. It does not change the
+legacy Viewport, keybindings, data or tests. The itemized reference register
+lives under `docs/rewrite/reference/`; declarations are not parity evidence.
+
 ## Language
 
 ### Product shape

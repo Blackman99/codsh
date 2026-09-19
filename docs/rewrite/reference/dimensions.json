@@ -1,0 +1,699 @@
+{
+  "schemaVersion": 1,
+  "rows": [
+    {
+      "kind": "mode",
+      "name": "fullscreen",
+      "dependency": "PTY alternate-screen support; no model needed for welcome/settings",
+      "tickets": [
+        149,
+        152,
+        153
+      ],
+      "inventoryKeys": [
+        "flag:grok:--fullscreen",
+        "slash:fullscreen"
+      ],
+      "status": "observed-offline-welcome-settings-exit"
+    },
+    {
+      "kind": "mode",
+      "name": "minimal",
+      "dependency": "Native terminal scrollback; mode-only commands must refuse correctly",
+      "tickets": [
+        149,
+        155
+      ],
+      "inventoryKeys": [
+        "flag:grok:--minimal",
+        "slash:minimal"
+      ],
+      "status": "observed-offline-welcome-settings-exit"
+    },
+    {
+      "kind": "mode",
+      "name": "fullscreen without alternate screen",
+      "dependency": "Inline terminal lifecycle distinct from minimal",
+      "tickets": [
+        149,
+        155
+      ],
+      "inventoryKeys": [
+        "flag:grok:--no-alt-screen"
+      ],
+      "status": "pending"
+    },
+    {
+      "kind": "mode",
+      "name": "plain",
+      "dependency": "Configured model protocol; deterministic local SSE fixture available",
+      "tickets": [
+        145,
+        146
+      ],
+      "inventoryKeys": [
+        "guide-section:14-headless-mode.md:plain (default)"
+      ],
+      "status": "observed-local-model"
+    },
+    {
+      "kind": "mode",
+      "name": "json",
+      "dependency": "Configured model protocol; deterministic local SSE fixture available",
+      "tickets": [
+        145,
+        146
+      ],
+      "inventoryKeys": [
+        "guide-section:14-headless-mode.md:json"
+      ],
+      "status": "observed-local-model"
+    },
+    {
+      "kind": "mode",
+      "name": "streaming-json",
+      "dependency": "Configured model protocol; deterministic local SSE fixture available",
+      "tickets": [
+        145,
+        146
+      ],
+      "inventoryKeys": [
+        "guide-section:14-headless-mode.md:streaming-json"
+      ],
+      "status": "observed-local-model"
+    },
+    {
+      "kind": "mode",
+      "name": "streaming-messages-json",
+      "dependency": "Configured model protocol; deterministic local SSE fixture available",
+      "tickets": [
+        145,
+        146
+      ],
+      "inventoryKeys": [
+        "guide-section:14-headless-mode.md:streaming-messages-json"
+      ],
+      "status": "observed-local-model"
+    },
+    {
+      "kind": "mode",
+      "name": "ACP stdio",
+      "dependency": "External JSON-RPC client; actual capability negotiation still pending",
+      "tickets": [
+        147
+      ],
+      "inventoryKeys": [
+        "cli:agent stdio"
+      ],
+      "status": "pending"
+    },
+    {
+      "kind": "mode",
+      "name": "shared leader/server/relay",
+      "dependency": "One session owner, configurable transport/auth service",
+      "tickets": [
+        148,
+        190
+      ],
+      "inventoryKeys": [
+        "cli:agent leader",
+        "cli:agent serve",
+        "cli:agent headless"
+      ],
+      "status": "pending"
+    },
+    {
+      "kind": "mode",
+      "name": "simple/Vim input and navigation",
+      "dependency": "Terminal key encoding and focus context",
+      "tickets": [
+        150,
+        152
+      ],
+      "inventoryKeys": [
+        "guide-section:03-keyboard-shortcuts.md:Input Modes",
+        "slash:vim-mode"
+      ],
+      "status": "pending"
+    },
+    {
+      "kind": "mode",
+      "name": "permission/plan/auto/always-approve",
+      "dependency": "Rules, hooks and confinement remain separate enforcement layers",
+      "tickets": [
+        141,
+        142,
+        143,
+        144,
+        179
+      ],
+      "inventoryKeys": [
+        "guide-section:22-permissions-and-safety.md:Available modes",
+        "slash:auto",
+        "slash:plan",
+        "slash:always-approve"
+      ],
+      "status": "pending"
+    },
+    {
+      "kind": "platform",
+      "name": "macOS",
+      "dependency": "Native PTY, clipboard, microphone, Seatbelt and NFS variants",
+      "tickets": [
+        198,
+        201,
+        209
+      ],
+      "inventoryKeys": [
+        "guide-section:01-getting-started.md:Installation",
+        "guide-section:18-sandbox.md:Platform Support"
+      ],
+      "status": "partial-macos-pty-only"
+    },
+    {
+      "kind": "platform",
+      "name": "Linux",
+      "dependency": "Native PTY, X11/Wayland clipboard, confinement and FUSE variants",
+      "tickets": [
+        199,
+        201,
+        209
+      ],
+      "inventoryKeys": [
+        "guide-section:01-getting-started.md:Installation",
+        "guide-section:18-sandbox.md:Platform Support"
+      ],
+      "status": "pending-native-host"
+    },
+    {
+      "kind": "platform",
+      "name": "Windows",
+      "dependency": "Native PowerShell/console, clipboard, shell and confinement; not WSL",
+      "tickets": [
+        200,
+        201,
+        209
+      ],
+      "inventoryKeys": [
+        "guide-section:01-getting-started.md:Installation",
+        "guide-section:18-sandbox.md:Platform Support"
+      ],
+      "status": "pending-native-host"
+    },
+    {
+      "kind": "terminal",
+      "name": "Apple Terminal",
+      "dependency": "Verify actual key, mouse, color, clipboard, notification and teardown support; TERM=xterm-256color probe is not this emulator",
+      "tickets": [
+        155,
+        201
+      ],
+      "inventoryKeys": [
+        "guide-section:21-terminal-support.md:Detected Terminals"
+      ],
+      "status": "pending"
+    },
+    {
+      "kind": "terminal",
+      "name": "Ghostty",
+      "dependency": "Verify actual key, mouse, color, clipboard, notification and teardown support; TERM=xterm-256color probe is not this emulator",
+      "tickets": [
+        155,
+        201
+      ],
+      "inventoryKeys": [
+        "guide-section:21-terminal-support.md:Detected Terminals"
+      ],
+      "status": "pending"
+    },
+    {
+      "kind": "terminal",
+      "name": "iTerm2",
+      "dependency": "Verify actual key, mouse, color, clipboard, notification and teardown support; TERM=xterm-256color probe is not this emulator",
+      "tickets": [
+        155,
+        201
+      ],
+      "inventoryKeys": [
+        "guide-section:21-terminal-support.md:Detected Terminals"
+      ],
+      "status": "pending"
+    },
+    {
+      "kind": "terminal",
+      "name": "Warp",
+      "dependency": "Verify actual key, mouse, color, clipboard, notification and teardown support; TERM=xterm-256color probe is not this emulator",
+      "tickets": [
+        155,
+        201
+      ],
+      "inventoryKeys": [
+        "guide-section:21-terminal-support.md:Detected Terminals"
+      ],
+      "status": "pending"
+    },
+    {
+      "kind": "terminal",
+      "name": "WezTerm",
+      "dependency": "Verify actual key, mouse, color, clipboard, notification and teardown support; TERM=xterm-256color probe is not this emulator",
+      "tickets": [
+        155,
+        201
+      ],
+      "inventoryKeys": [
+        "guide-section:21-terminal-support.md:Detected Terminals"
+      ],
+      "status": "pending"
+    },
+    {
+      "kind": "terminal",
+      "name": "Kitty",
+      "dependency": "Verify actual key, mouse, color, clipboard, notification and teardown support; TERM=xterm-256color probe is not this emulator",
+      "tickets": [
+        155,
+        201
+      ],
+      "inventoryKeys": [
+        "guide-section:21-terminal-support.md:Detected Terminals"
+      ],
+      "status": "pending"
+    },
+    {
+      "kind": "terminal",
+      "name": "Alacritty",
+      "dependency": "Verify actual key, mouse, color, clipboard, notification and teardown support; TERM=xterm-256color probe is not this emulator",
+      "tickets": [
+        155,
+        201
+      ],
+      "inventoryKeys": [
+        "guide-section:21-terminal-support.md:Detected Terminals"
+      ],
+      "status": "pending"
+    },
+    {
+      "kind": "terminal",
+      "name": "Rio",
+      "dependency": "Verify actual key, mouse, color, clipboard, notification and teardown support; TERM=xterm-256color probe is not this emulator",
+      "tickets": [
+        155,
+        201
+      ],
+      "inventoryKeys": [
+        "guide-section:21-terminal-support.md:Detected Terminals"
+      ],
+      "status": "pending"
+    },
+    {
+      "kind": "terminal",
+      "name": "foot",
+      "dependency": "Verify actual key, mouse, color, clipboard, notification and teardown support; TERM=xterm-256color probe is not this emulator",
+      "tickets": [
+        155,
+        201
+      ],
+      "inventoryKeys": [
+        "guide-section:21-terminal-support.md:Detected Terminals"
+      ],
+      "status": "pending"
+    },
+    {
+      "kind": "terminal",
+      "name": "VS Code",
+      "dependency": "Verify actual key, mouse, color, clipboard, notification and teardown support; TERM=xterm-256color probe is not this emulator",
+      "tickets": [
+        155,
+        201
+      ],
+      "inventoryKeys": [
+        "guide-section:21-terminal-support.md:Detected Terminals"
+      ],
+      "status": "pending"
+    },
+    {
+      "kind": "terminal",
+      "name": "Cursor",
+      "dependency": "Verify actual key, mouse, color, clipboard, notification and teardown support; TERM=xterm-256color probe is not this emulator",
+      "tickets": [
+        155,
+        201
+      ],
+      "inventoryKeys": [
+        "guide-section:21-terminal-support.md:Detected Terminals"
+      ],
+      "status": "pending"
+    },
+    {
+      "kind": "terminal",
+      "name": "Windsurf",
+      "dependency": "Verify actual key, mouse, color, clipboard, notification and teardown support; TERM=xterm-256color probe is not this emulator",
+      "tickets": [
+        155,
+        201
+      ],
+      "inventoryKeys": [
+        "guide-section:21-terminal-support.md:Detected Terminals"
+      ],
+      "status": "pending"
+    },
+    {
+      "kind": "terminal",
+      "name": "Zed",
+      "dependency": "Verify actual key, mouse, color, clipboard, notification and teardown support; TERM=xterm-256color probe is not this emulator",
+      "tickets": [
+        155,
+        201
+      ],
+      "inventoryKeys": [
+        "guide-section:21-terminal-support.md:Detected Terminals"
+      ],
+      "status": "pending"
+    },
+    {
+      "kind": "terminal",
+      "name": "JetBrains",
+      "dependency": "Verify actual key, mouse, color, clipboard, notification and teardown support; TERM=xterm-256color probe is not this emulator",
+      "tickets": [
+        155,
+        201
+      ],
+      "inventoryKeys": [
+        "guide-section:21-terminal-support.md:Detected Terminals"
+      ],
+      "status": "pending"
+    },
+    {
+      "kind": "terminal",
+      "name": "Grok Desktop",
+      "dependency": "Verify actual key, mouse, color, clipboard, notification and teardown support; TERM=xterm-256color probe is not this emulator",
+      "tickets": [
+        155,
+        201
+      ],
+      "inventoryKeys": [
+        "guide-section:21-terminal-support.md:Detected Terminals"
+      ],
+      "status": "pending"
+    },
+    {
+      "kind": "terminal",
+      "name": "VTE",
+      "dependency": "Verify actual key, mouse, color, clipboard, notification and teardown support; TERM=xterm-256color probe is not this emulator",
+      "tickets": [
+        155,
+        201
+      ],
+      "inventoryKeys": [
+        "guide-section:21-terminal-support.md:Detected Terminals"
+      ],
+      "status": "pending"
+    },
+    {
+      "kind": "terminal",
+      "name": "Windows Terminal",
+      "dependency": "Verify actual key, mouse, color, clipboard, notification and teardown support; TERM=xterm-256color probe is not this emulator",
+      "tickets": [
+        155,
+        201
+      ],
+      "inventoryKeys": [
+        "guide-section:21-terminal-support.md:Detected Terminals"
+      ],
+      "status": "pending"
+    },
+    {
+      "kind": "terminal",
+      "name": "tmux",
+      "dependency": "Verify actual key, mouse, color, clipboard, notification and teardown support; TERM=xterm-256color probe is not this emulator",
+      "tickets": [
+        155,
+        201
+      ],
+      "inventoryKeys": [
+        "guide-section:21-terminal-support.md:Detected Terminals"
+      ],
+      "status": "pending"
+    },
+    {
+      "kind": "terminal",
+      "name": "SSH",
+      "dependency": "Verify actual key, mouse, color, clipboard, notification and teardown support; TERM=xterm-256color probe is not this emulator",
+      "tickets": [
+        155,
+        201
+      ],
+      "inventoryKeys": [
+        "guide-section:21-terminal-support.md:Detected Terminals"
+      ],
+      "status": "pending"
+    },
+    {
+      "kind": "terminal",
+      "name": "Byobu",
+      "dependency": "Verify actual key, mouse, color, clipboard, notification and teardown support; TERM=xterm-256color probe is not this emulator",
+      "tickets": [
+        155,
+        201
+      ],
+      "inventoryKeys": [
+        "guide-section:21-terminal-support.md:Detected Terminals"
+      ],
+      "status": "pending"
+    },
+    {
+      "kind": "terminal",
+      "name": "GNU screen",
+      "dependency": "Verify actual key, mouse, color, clipboard, notification and teardown support; TERM=xterm-256color probe is not this emulator",
+      "tickets": [
+        155,
+        201
+      ],
+      "inventoryKeys": [
+        "guide-section:21-terminal-support.md:Detected Terminals"
+      ],
+      "status": "pending"
+    },
+    {
+      "kind": "terminal",
+      "name": "Zellij",
+      "dependency": "Verify actual key, mouse, color, clipboard, notification and teardown support; TERM=xterm-256color probe is not this emulator",
+      "tickets": [
+        155,
+        201
+      ],
+      "inventoryKeys": [
+        "guide-section:21-terminal-support.md:Detected Terminals"
+      ],
+      "status": "pending"
+    },
+    {
+      "kind": "service",
+      "name": "model inference",
+      "dependency": "Configured Chat Completions, Responses or Messages provider; no implicit fallback",
+      "tickets": [
+        140
+      ],
+      "inventoryKeys": [
+        "guide-section:11-custom-models.md:Supported API Backends"
+      ],
+      "status": "pending"
+    },
+    {
+      "kind": "service",
+      "name": "OAuth browser/device/OIDC/helper",
+      "dependency": "Configurable identity provider and token lifecycle; official entitlements excluded",
+      "tickets": [
+        189
+      ],
+      "inventoryKeys": [
+        "guide-section:02-authentication.md:Browser Login (Default)",
+        "guide-section:02-authentication.md:Device Code Flow",
+        "guide-section:02-authentication.md:OIDC (Customer SSO)",
+        "guide-section:02-authentication.md:External Auth Provider"
+      ],
+      "status": "pending"
+    },
+    {
+      "kind": "service",
+      "name": "managed config/model catalog",
+      "dependency": "Signed requirements and configured catalog/management destinations",
+      "tickets": [
+        141
+      ],
+      "inventoryKeys": [
+        "setting:endpoints.managed_config_url",
+        "setting:endpoints.models_list_url"
+      ],
+      "status": "pending"
+    },
+    {
+      "kind": "service",
+      "name": "remote MCP",
+      "dependency": "HTTP/auth, resource content and elicitation service",
+      "tickets": [
+        168
+      ],
+      "inventoryKeys": [
+        "guide-section:07-mcp-servers.md:Native HTTP (hosted services)"
+      ],
+      "status": "pending"
+    },
+    {
+      "kind": "service",
+      "name": "marketplaces",
+      "dependency": "Configured git/archive marketplace with trust and integrity",
+      "tickets": [
+        165
+      ],
+      "inventoryKeys": [
+        "setting:marketplace.sources",
+        "setting:marketplace.require_sha"
+      ],
+      "status": "pending"
+    },
+    {
+      "kind": "service",
+      "name": "web search/fetch",
+      "dependency": "Configured services, citations, redirects and domain policy",
+      "tickets": [
+        171
+      ],
+      "inventoryKeys": [
+        "tool:web_search",
+        "tool:web_fetch"
+      ],
+      "status": "pending"
+    },
+    {
+      "kind": "service",
+      "name": "image generation/edit",
+      "dependency": "Replaceable media service; account-specific limits unverified",
+      "tickets": [
+        187
+      ],
+      "inventoryKeys": [
+        "tool:image_gen",
+        "tool:image_edit"
+      ],
+      "status": "pending"
+    },
+    {
+      "kind": "service",
+      "name": "video generation",
+      "dependency": "Replaceable asynchronous service with reference/keyframe/voice support",
+      "tickets": [
+        188
+      ],
+      "inventoryKeys": [
+        "tool:image_to_video",
+        "tool:reference_to_video"
+      ],
+      "status": "pending"
+    },
+    {
+      "kind": "service",
+      "name": "voice transcription",
+      "dependency": "Device permission and configured STT destination",
+      "tickets": [
+        158
+      ],
+      "inventoryKeys": [
+        "setting:voice.api_base",
+        "slash:voice"
+      ],
+      "status": "pending"
+    },
+    {
+      "kind": "service",
+      "name": "remote workspace/private worker",
+      "dependency": "Deployable substitute with explicit identity and capability boundaries",
+      "tickets": [
+        190
+      ],
+      "inventoryKeys": [
+        "cli:cursor-worker",
+        "acp-extension:x.ai/workspaces/list"
+      ],
+      "status": "pending"
+    },
+    {
+      "kind": "service",
+      "name": "Grove clone/mount",
+      "dependency": "Configured clone service, git credentials and OS mount capability",
+      "tickets": [
+        191
+      ],
+      "inventoryKeys": [
+        "cli:clone",
+        "guide-section:27-grok-clone.md:Authentication"
+      ],
+      "status": "pending"
+    },
+    {
+      "kind": "service",
+      "name": "feedback/trace/observability",
+      "dependency": "Explicit consent, configurable destination; rewrite defaults off",
+      "tickets": [
+        192
+      ],
+      "inventoryKeys": [
+        "setting:endpoints.feedback_base_url",
+        "setting:endpoints.trace_upload_url",
+        "setting:telemetry.otel_endpoint"
+      ],
+      "status": "pending"
+    },
+    {
+      "kind": "service",
+      "name": "session sharing",
+      "dependency": "Explicit disclosure through configured share service",
+      "tickets": [
+        162
+      ],
+      "inventoryKeys": [
+        "slash:share",
+        "acp-extension:x.ai/share_session"
+      ],
+      "status": "pending"
+    },
+    {
+      "kind": "service",
+      "name": "memory embedding/summary/consolidation",
+      "dependency": "Configured background model routes and cost disclosure",
+      "tickets": [
+        186
+      ],
+      "inventoryKeys": [
+        "guide-section:13-memory.md:Embedding Settings (`[memory.embedding]`)",
+        "slash:flush",
+        "slash:dream"
+      ],
+      "status": "pending"
+    },
+    {
+      "kind": "service",
+      "name": "version/update",
+      "dependency": "Configured release registry, signed/artifact checks and rollback",
+      "tickets": [
+        198
+      ],
+      "inventoryKeys": [
+        "cli:update",
+        "cli:version"
+      ],
+      "status": "pending"
+    },
+    {
+      "kind": "service",
+      "name": "research workflow",
+      "dependency": "Search/model providers with independent evidence verification",
+      "tickets": [
+        206
+      ],
+      "inventoryKeys": [
+        "slash:deep-research"
+      ],
+      "status": "pending"
+    }
+  ]
+}
