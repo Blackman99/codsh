@@ -358,6 +358,14 @@ const envNamespaces = {
   GROK_TELEMETRY: 192, GROK_FEEDBACK: 192, GROK_TRACE: 192, OTEL: 192, DO_NOT_TRACK: 192,
   GROK_DISABLE_AUTOUPDATER: 198, GROK_FPS: 154, GROK_DOCK: 152,
   GROK_VOICE: 158, GROK_VIDEO: 188, GROK_IMAGE_GEN: 187, GROK_IMAGE_EDIT: 187,
+  DISPLAY: [155, 199, 201], WAYLAND_DISPLAY: [155, 199, 201],
+  SSH_CONNECTION: [155, 201], SSH_TTY: [155, 201], SSH_CLIENT: [155, 201],
+  EDITOR: 150, VISUAL: 150, GROK_VERSION: 200,
+  GROK_SCROLL_DEBUG: 154, GROK_MIN_DRAW_MS: 154, GROK_SCROLL_CADENCE_MS: 154, GROK_DISPLAY_REFRESH_PROBE_ENABLED: 154,
+  GROK_SUGGESTIONS: 150, GROK_SUGGESTIONS_AI_MODEL: 140,
+  GROK_SESSION_SUMMARY_MODEL: 140, GROK_IMAGE_DESCRIPTION_MODEL: 140, GROK_MAX_CONCURRENT_SUBAGENTS: 172,
+  GROK_LOGIN_ENV: 170, GROK_LOGIN_DEVICE_FLOW: 189,
+  GROK_AUTO_COMPACT_THRESHOLD_PERCENT: 161, GROK_COMPACTION_WALL_CLOCK_SECS: 161, GROK_HOOKS_LOG: 192,
 }
 function environmentIdentity(item) {
   return item.category === 'environment' ? item.name.match(/(?:^|:)`?([A-Z][A-Z0-9_]+)(?:=[^`]+)?`?$/u)?.[1] ?? item.name : item.name
@@ -368,6 +376,7 @@ function environmentOwner(item, contexts) {
       .map(line => line.match(/^\|\s*`([a-z_][a-z0-9_.<>-]*)`\s*\|/u)?.[1]).filter(Boolean))]
     .map(configOwner))
   if (linked.length === 1) return linked[0]
+  if (['GROK_GOAL', 'GROK_GOAL_CLASSIFIER', 'GROK_GOAL_PLANNER', 'GROK_GOAL_SUMMARY'].includes(item.name)) return 180
   const compatible = item.name.match(/^GROK_(CLAUDE|CURSOR|CODEX)_(AGENTS|RULES|SKILLS|HOOKS|MCPS)_ENABLED$/u)
   if (compatible) return configOwner(`compat.${compatible[1].toLowerCase()}.${compatible[2].toLowerCase()}`)
   const explicit = namespace(item.name, envNamespaces, '_')
@@ -424,6 +433,7 @@ export function mapOwners(item, contexts = new Map()) {
   }
   if (['setting', 'documented-setting'].includes(item.category) && ['memory_v2.enabled', 'memory_v2.rollout', 'memory_v2.file_writes_enabled'].includes(field)) owners.push(186)
   if (['setting', 'documented-setting'].includes(item.category) && field === 'workflows.enabled') owners.push(180)
+  if (field === 'sandbox.auto_allow_bash' || item.category === 'environment' && item.name === 'GROK_SANDBOX_AUTO_ALLOW_BASH') owners.push(142)
   const headings = item.observations.flatMap(o => contexts.get(o.locator) ?? [])
   const text = item.observations.map(o => o.excerpt).join('\n')
   const command = commandName(item, contexts)
@@ -435,6 +445,9 @@ export function mapOwners(item, contexts = new Map()) {
   }
   if (item.name.startsWith('13-memory.md:') && headings.includes('Memory Notifications') && /automatic (?:Dream|flush)/u.test(text)
     || item.name === '26-config-reference.md:`memory`' && /memory_v2\.(?:capture|automatic_dream|manual_dream)/u.test(text)) owners.push(186)
+  const memory = memorySubcontracts(item, contexts)
+  if (memory.capture || memory.diagnostics) owners.push(186)
+  if (memory.privacy) owners.push(192)
   if (item.name.startsWith('25-status-line.md:') && /`BASH_ENV`|`ENV`/u.test(text)) owners.push(144)
   if (item.name === '13-memory.md:Core Settings (`[memory]`)' && /session\.save_on_end/u.test(text)) owners.push(186)
   if (campaignControl(item, contexts)) owners = [139, 141]
@@ -455,13 +468,38 @@ function campaignControl(item, contexts) {
     || item.category === 'environment' && /^GROK_CAMPAIGNS(?:_|$)/u.test(environmentIdentity(item))
     || item.name.startsWith('26-config-reference.md:') && item.observations.some(o => contexts.get(o.locator)?.includes('`campaigns`'))
 }
+function memorySubcontracts(item, contexts) {
+  const text = item.name.startsWith('13-memory.md:') ? item.observations
+    .filter(o => contexts.get(o.locator)?.some(heading => ['How memory is organized', 'Direct Editing'].includes(heading)))
+    .map(o => o.excerpt).join('\n') : ''
+  return { capture: /`\/(?:flush|dream)`/u.test(text), diagnostics: /capture\s+cursors|consolidation lease/u.test(text),
+    privacy: /Memory product telemetry/u.test(text) }
+}
 export function mapAcceptance(item, owners, contexts = new Map()) {
   if (item.category === 'environment') item = { ...item, name: environmentIdentity(item), key: `environment:${environmentIdentity(item)}` }
   const command = commandName(item, contexts), guide = item.name.slice(0, 2)
   const field = item.category === 'documented-setting' ? item.name.slice(item.name.indexOf(':') + 1) : item.name
   const headings = item.observations.flatMap(o => contexts.get(o.locator) ?? [])
   const text = item.observations.map(o => o.excerpt).join('\n')
+  const memory = memorySubcontracts(item, contexts)
   return owners.flatMap(ticket => {
+    if (ticket === 155 && ['DISPLAY', 'WAYLAND_DISPLAY', 'SSH_CONNECTION', 'SSH_TTY', 'SSH_CLIENT'].includes(item.name)) return 'PARITY-155-clipboard-routing'
+    if (ticket === 150 && ['EDITOR', 'VISUAL'].includes(item.name)) return 'PARITY-150-external-editor'
+    if (ticket === 200 && item.name === 'GROK_VERSION') return 'PARITY-200-version-selection'
+    if (ticket === 154 && item.name === 'GROK_SCROLL_DEBUG') return 'PARITY-154-scroll-hud'
+    if (ticket === 154 && (['GROK_MIN_DRAW_MS', 'GROK_SCROLL_CADENCE_MS', 'GROK_DISPLAY_REFRESH_PROBE_ENABLED', 'GROK_DISPLAY_REFRESH_AUTO_CADENCE'].includes(item.name) || field.startsWith('ui.display_refresh.'))) return 'PARITY-154-cadence'
+    if (ticket === 150 && ['GROK_SUGGESTIONS', 'GROK_SUGGESTIONS_AI'].includes(item.name)) return 'PARITY-150-shell-suggestions'
+    if (ticket === 140 && item.name === 'GROK_SUGGESTIONS_AI_MODEL') return 'PARITY-140-shell-suggestions'
+    if (ticket === 140 && ['GROK_SESSION_SUMMARY_MODEL', 'GROK_IMAGE_DESCRIPTION_MODEL', 'models.session_summary', 'models.image_description'].includes(field)) return 'PARITY-140-background-models'
+    if (ticket === 172 && ['GROK_MAX_CONCURRENT_SUBAGENTS', 'subagents.max_concurrent'].includes(field)) return 'PARITY-172-admission'
+    if (ticket === 170 && ['GROK_LOGIN_ENV', 'toolset.bash.login_shell_capture'].includes(field)) return 'PARITY-170-login-environment'
+    if (ticket === 189 && item.name === 'GROK_LOGIN_DEVICE_FLOW') return 'PARITY-189-device-flow'
+    if (ticket === 180 && (/^GROK_GOAL(?:_|$)/u.test(item.name) || field.startsWith('goal.'))) return 'PARITY-180-controls'
+    if (ticket === 161 && ['GROK_AUTO_COMPACT_THRESHOLD_PERCENT', 'GROK_COMPACTION_WALL_CLOCK_SECS', 'session.auto_compact_threshold_percent'].includes(field)) return 'PARITY-161-trigger-budget'
+    if (ticket === 192 && item.name === 'GROK_HOOKS_LOG') return 'PARITY-192-hooks-log'
+    if (ticket === 142 && ['sandbox.auto_allow_bash', 'GROK_SANDBOX_AUTO_ALLOW_BASH'].includes(field)) return 'PARITY-142-sandbox-auto-approval'
+    if (ticket === 186 && memory.diagnostics) return [...(memory.capture ? ['PARITY-186'] : []), 'PARITY-186-diagnostics']
+    if (ticket === 192 && memory.privacy) return 'PARITY-192-memory-privacy'
     if (ticket === 152 && (/^ui\.(?:scroll_speed|scroll_mode|scroll_lines|invert_scroll)$/u.test(field) || /^GROK_(?:SCROLL_SPEED|SCROLL_MODE|SCROLL_LINES|INVERT_SCROLL)$/u.test(item.name) || guide === '05' && headings.includes('Scrolling'))) return 'PARITY-152-scroll-input'
     if (ticket === 152 && (field === 'ui.mouse_reporting_toggle' || item.name === 'GROK_MOUSE_REPORTING_TOGGLE')) return 'PARITY-152-mouse-capture'
     if (ticket === 150 && (field === 'ui.prompt_suggestions' || item.name === 'GROK_PROMPT_SUGGESTIONS')) return 'PARITY-150-suggestions'

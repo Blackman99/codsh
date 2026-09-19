@@ -162,6 +162,21 @@ Important reconciliations:
   retain both scenarios: an empty fetch allowlist blocks all requests, whereas the
   documented empty search list is unbounded. Model/network effects still require
   downstream installed-product verification.
+- Display and SSH controls retain clipboard/terminal and applicable native-platform
+  owners; `VISUAL`/`EDITOR` require an actual external-editor round trip and precedence,
+  and `GROK_VERSION` retains the documented Windows installer selection contract.
+  Shell-completion controls use input/provider scenarios distinct from next-prompt
+  ghost text. Startup paint/scroll clocks, display probing and the scroll HUD use
+  measured cadence/overlay acceptance, not generic configuration inspection.
+- Background summary/image model aliases, child admission, login-shell environment,
+  device login, goal role gates and compaction trigger/time controls retain their
+  functional owners. Source-only controls remain provisional. `GROK_HOOKS_LOG` is
+  diagnostic output with opt-in path/append/target-filter checks, not hook authority.
+- Memory organization paragraphs keep only their quoted subcontracts: completed-turn
+  capture/Dream and local queue/lease diagnostics add #186, telemetry content exclusions
+  add #192, and manual-only paragraphs stay #185. Source/binary paragraph-number
+  collisions retain both contracts. Sandbox Bash auto-approval adds #142 prompt,
+  deny/ask/classifier/hook checks without dropping #143 confinement acceptance.
 
 - UI approval/yolo, follow-up routing/merging, child cancellation and `simple_mode`
   belong to permissions, queue/steer, cancellation/child lifecycle and prompt editing.

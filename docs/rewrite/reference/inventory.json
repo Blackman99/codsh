@@ -871,6 +871,176 @@
   ],
   "acceptance": [
     {
+      "id": "PARITY-155-clipboard-routing",
+      "ticket": 155,
+      "given": "native Linux X11/Wayland/XWayland fixtures, controlled clipboard helpers and local/SSH/container terminals with independent selection sentinels",
+      "when": "vary DISPLAY, WAYLAND_DISPLAY and each SSH marker, then copy, Ctrl+V, middle-click press/release and terminal-native paste",
+      "then": "PRIMARY is read only on eligible display-backed middle-click and CLIPBOARD never falls back to PRIMARY; SSH routes preserve the distinction between remote process and local terminal selections; helper/native/OSC52 routing reflects actual display and terminal capabilities, with no duplicate release paste",
+      "failure": "missing XWayland helpers, empty/unavailable display, denied clipboard and disconnected SSH expose a truthful fallback without reading the wrong selection or claiming delivery; source-only controls remain provisional until exercised",
+      "status": "planned",
+      "boundary": "installed-product/public-protocol and controlled effects; source declarations are not measured frozen-binary parity"
+    },
+    {
+      "id": "PARITY-150-external-editor",
+      "ticket": 150,
+      "given": "a real PTY with a Unicode multiline draft and controlled editor executables in an isolated PATH",
+      "when": "invoke external editing with quoted arguments, blank and conflicting VISUAL/EDITOR values, then save, cancel or fail the editor",
+      "then": "nonblank VISUAL wins over EDITOR and then vi; the selected process receives the intended draft file, successful edits round-trip into the same composer without submission, and terminal ownership returns after exit",
+      "failure": "malformed argv, missing executable, nonzero exit, canceled editing and session changes preserve the original draft and restore terminal modes rather than applying stale text",
+      "status": "planned",
+      "boundary": "installed-product/public-protocol and controlled effects; source declarations are not measured frozen-binary parity"
+    },
+    {
+      "id": "PARITY-200-version-selection",
+      "ticket": 200,
+      "given": "an isolated native Windows installation and a controlled registry with distinct version artifacts",
+      "when": "install with GROK_VERSION explicitly set, unset and invalid through the native PowerShell installer contract",
+      "then": "the requested version selects the matching native Windows artifact and the installed version agrees; User PATH gains the intended bin directory without selecting a WSL/Linux artifact or changing another installation",
+      "failure": "unknown version, failed download, incompatible artifact and interrupted install preserve the previous working installation and report failure; documented selection is not evidence that native Windows parity already passed",
+      "status": "planned",
+      "boundary": "installed-product/public-protocol and controlled effects; source declarations are not measured frozen-binary parity"
+    },
+    {
+      "id": "PARITY-154-scroll-hud",
+      "ticket": 154,
+      "given": "real fullscreen/minimal PTYs with synthetic scrolling and an isolated settings file",
+      "when": "start with GROK_SCROLL_DEBUG unset, empty, zero and nonempty, toggle /scroll-debug live, scroll and quit",
+      "then": "the diagnostic HUD appears only for the enabled runtime state, reflects scroll activity and does not persist a settings preference or become conversation content",
+      "failure": "unsupported mode, narrow resize and teardown do not trap input or leave stale overlays; source-declared environment availability must be checked separately from slash-command observations",
+      "status": "planned",
+      "boundary": "installed-product/public-protocol and controlled effects; source declarations are not measured frozen-binary parity"
+    },
+    {
+      "id": "PARITY-154-cadence",
+      "ticket": 154,
+      "given": "real PTYs with a controlled display-refresh probe, render timestamps and distinct probe/auto-cadence policy layers",
+      "when": "vary GROK_MIN_DRAW_MS, GROK_SCROLL_CADENCE_MS and display-refresh probe/auto-cadence controls, then stream, scroll, resize and restart",
+      "then": "actual paint and scroll clocks use startup-resolved cadences clamped to 1–100 ms; explicit clocks override automatic derivation, disabling probing avoids probe work, and both explicit clocks remove the synchronous cadence-probe dependency; content and reading position remain unchanged",
+      "failure": "blank or malformed cadence inputs use the documented defaults, out-of-range values clamp, and unavailable refresh measurement cannot fabricate a measured rate or hang startup",
+      "status": "planned",
+      "boundary": "installed-product/public-protocol and controlled effects; source declarations are not measured frozen-binary parity"
+    },
+    {
+      "id": "PARITY-150-shell-suggestions",
+      "ticket": 150,
+      "given": "a real composer in Bash mode with deterministic shell completions, history and a recording AI suggestion endpoint",
+      "when": "vary GROK_SUGGESTIONS and GROK_SUGGESTIONS_AI, type partial commands, explicitly request Tab completion and deliver stale responses",
+      "then": "Tab-triggered completion remains available with as-you-type suggestions off; the AI gate controls AI suggestions independently and ghost/dropdown acceptance edits only the intended command, not next-prompt suggestions after a conversation turn",
+      "failure": "empty results, delayed stale completion, canceled input and disabled AI preserve typed text and never execute a suggested shell command merely by displaying or selecting it",
+      "status": "planned",
+      "boundary": "installed-product/public-protocol and controlled effects; source declarations are not measured frozen-binary parity"
+    },
+    {
+      "id": "PARITY-140-shell-suggestions",
+      "ticket": 140,
+      "given": "an external client and recording suggestion providers with distinct model IDs",
+      "when": "set GROK_SUGGESTIONS_AI_MODEL, enable AI shell suggestions and request completion for a partial Bash command",
+      "then": "the x.ai/suggest request carries the selected model and the actual provider request uses that model for shell completion without changing the conversation or next-prompt model",
+      "failure": "empty model override, unsupported model, canceled request and malformed response follow the measured fallback/error contract without hidden provider substitution or command execution",
+      "status": "planned",
+      "boundary": "installed-product/public-protocol and controlled effects; source declarations are not measured frozen-binary parity"
+    },
+    {
+      "id": "PARITY-140-background-models",
+      "ticket": 140,
+      "given": "recording providers with separate session, summary and vision model routes plus synthetic conversations/images",
+      "when": "vary models.session_summary/models.image_description and their environment overrides, trigger each background operation and inspect outgoing requests",
+      "then": "summary and image-description calls reach the selected provider/model with only their intended content; override and fallback origins remain inspectable while the main conversation model stays unchanged",
+      "failure": "blank pins, missing vision capability, failed authentication and cancellation cannot silently route to another provider or fabricate a summary/description; newer-source aliases retain availability blockers",
+      "status": "planned",
+      "boundary": "installed-product/public-protocol and controlled effects; source declarations are not measured frozen-binary parity"
+    },
+    {
+      "id": "PARITY-172-admission",
+      "ticket": 172,
+      "given": "one parent with delayed real controlled children, an unrelated session and conflicting environment/config concurrency values",
+      "when": "launch at and beyond GROK_MAX_CONCURRENT_SUBAGENTS/subagents.max_concurrent, complete or cancel a child and retry admission",
+      "then": "actual active child count respects the resolved bound and released slots admit work according to the reference; over-cap outcomes match real execution rather than progress labels, independently of workflow cumulative budgets",
+      "failure": "invalid/zero/negative limits follow measured fallback, canceled or failed children release resources, and limit exhaustion neither launches hidden children nor reports unexecuted tasks as successful",
+      "status": "planned",
+      "boundary": "installed-product/public-protocol and controlled effects; source declarations are not measured frozen-binary parity"
+    },
+    {
+      "id": "PARITY-170-login-environment",
+      "ticket": 170,
+      "given": "an isolated login shell with a harmless environment sentinel and conflicting requirements, env, overlay and disk capture settings",
+      "when": "toggle GROK_LOGIN_ENV/toolset.bash.login_shell_capture and execute a controlled shell tool with capture enabled and disabled",
+      "then": "login-shell environment capture changes the actual child environment as configured; requirements/MDM override env, followed by overlay, user, managed, remote and default true, with no unauthorized environment or credential transfer",
+      "failure": "capture timeout, malformed configuration, denied shell startup and cancellation remain explicit without silently reusing a stale environment or leaving capture children running",
+      "status": "planned",
+      "boundary": "installed-product/public-protocol and controlled effects; source declarations are not measured frozen-binary parity"
+    },
+    {
+      "id": "PARITY-189-device-flow",
+      "ticket": 189,
+      "given": "controlled OAuth device-code and loopback identity fixtures plus a separately configured enterprise OIDC fixture",
+      "when": "vary explicit login flags, GROK_LOGIN_DEVICE_FLOW, configuration and remote settings, then complete, reject or cancel authentication",
+      "then": "CLI overrides env, config and remote selection before the loopback default; device transport is used only for supported OAuth providers while enterprise OIDC stays loopback; actual token destination and selected transport agree",
+      "failure": "expired/denied device codes, loopback bind failure, browser refusal and cancellation cannot reuse personal credentials or report a successful login without fixture authentication",
+      "status": "planned",
+      "boundary": "installed-product/public-protocol and controlled effects; source declarations are not measured frozen-binary parity"
+    },
+    {
+      "id": "PARITY-180-controls",
+      "ticket": 180,
+      "given": "a bounded goal, recording classifier/planner/summary providers and independently controlled workflow and goal gates",
+      "when": "vary GROK_GOAL and its classifier/planner/summary switches against config and remote settings, then start, pause and complete a goal",
+      "then": "classifier, planner and summary defaults follow the resolved goal master switch and their overrides govern actual role calls; the remote master kill-switch remains authoritative, and disabling workflows changes the goal driver rather than silently disabling goal availability",
+      "failure": "disabled roles cannot fabricate planning, classification or completion evidence; provider failure and cancellation leave the goal incomplete and do not start unbounded work",
+      "status": "planned",
+      "boundary": "installed-product/public-protocol and controlled effects; source declarations are not measured frozen-binary parity"
+    },
+    {
+      "id": "PARITY-161-trigger-budget",
+      "ticket": 161,
+      "given": "controlled context usage, a delayed compaction provider and distinct environment, per-model, session and remote threshold values",
+      "when": "cross automatic compaction thresholds, vary GROK_AUTO_COMPACT_THRESHOLD_PERCENT and GROK_COMPACTION_WALL_CLOCK_SECS, then cancel or exceed the time budget",
+      "then": "actual compaction begins at the resolved threshold using the selected child model where applicable; wall-clock budget limits the operation and zero disables that budget, while low positive budgets warn rather than clamp; retained context and projected usage match actual provider results",
+      "failure": "threshold values outside 0–100 are ignored, malformed budget falls through to remote/default, and timeout/cancel cannot fabricate a completed summary or erase recoverable history",
+      "status": "planned",
+      "boundary": "installed-product/public-protocol and controlled effects; source declarations are not measured frozen-binary parity"
+    },
+    {
+      "id": "PARITY-192-hooks-log",
+      "ticket": 192,
+      "given": "isolated logs and synthetic hook/plugin events plus unrelated tracing events, with outbound diagnostics disabled",
+      "when": "vary GROK_HOOKS_LOG between unset, disabled, boolean-enabled and explicit paths, then emit eligible and unrelated events",
+      "then": "enabled logs append only the configured hook/plugin target events to the default hooks.log or selected path; unset and disabled forms create no log, and logging never changes hook authorization or blocking decisions",
+      "failure": "unwritable destinations and cancellation do not claim file delivery, leak secrets or enable uploads; source-only availability remains unverified until exercised",
+      "status": "planned",
+      "boundary": "installed-product/public-protocol and controlled effects; source declarations are not measured frozen-binary parity"
+    },
+    {
+      "id": "PARITY-186-diagnostics",
+      "ticket": 186,
+      "given": "synthetic memory capture jobs in known queued, pending, consolidated and archived states with a controlled clock and lease holder",
+      "when": "open /memory diagnostics with s, copy with y, advance capture/consolidation state and inspect again",
+      "then": "capture cursor, queue count, pending age, lease state, outcomes and archive counts match actual local state; copy contains the same content-free diagnostics and does not initiate a capture or edit notes",
+      "failure": "stale leases, failed jobs and missing state are explicit rather than reported as successful consolidation; diagnostics and copy exclude user content and secrets",
+      "status": "planned",
+      "boundary": "installed-product/public-protocol and controlled effects; source declarations are not measured frozen-binary parity"
+    },
+    {
+      "id": "PARITY-192-memory-privacy",
+      "ticket": 192,
+      "given": "a controlled telemetry collector, disabled then consent-enabled analytics and synthetic memory content containing unique sensitive sentinels",
+      "when": "capture, consolidate, inspect and fail memory jobs while recording emitted local diagnostics and any outbound telemetry",
+      "then": "memory product telemetry contains only fixed enums, booleans, counts and durations; prompts, statements, topic names, keywords, paths, model output and free-form errors never appear in payloads, and disabled analytics sends nothing",
+      "failure": "provider errors, malformed notes, copy diagnostics and retries cannot leak sentinel content or enable telemetry implicitly",
+      "status": "planned",
+      "boundary": "installed-product/public-protocol and controlled effects; source declarations are not measured frozen-binary parity"
+    },
+    {
+      "id": "PARITY-142-sandbox-auto-approval",
+      "ticket": 142,
+      "given": "active/inactive sandbox profiles, real harmless Bash canaries, explicit deny/ask rules, classifier outcomes and blocking/ask hooks",
+      "when": "toggle sandbox.auto_allow_bash/GROK_SANDBOX_AUTO_ALLOW_BASH and request Bash commands with eligible and forced-prompt policies",
+      "then": "eligible sandboxed Bash skips the permission prompt only when the gate permits it; deny rules still prevent effects, ask policy and hook/classifier-required prompts remain, and protected edits cannot use sandbox convenience as an approval bypass",
+      "failure": "inactive or failed confinement never implies auto-approval; stale decisions, canceled prompts and classifier timeout/unavailability cannot authorize a blocked operation; actual canary effects agree with both approval and confinement outcomes",
+      "status": "planned",
+      "boundary": "installed-product/public-protocol and controlled effects; source declarations are not measured frozen-binary parity"
+    },
+    {
       "id": "PARITY-152-scroll-input",
       "ticket": 152,
       "given": "a real PTY with a long numbered transcript, wheel and trackpad event fixtures, terminal-specific defaults and a retained composer draft",
@@ -12362,7 +12532,7 @@
         161
       ],
       "acceptance": [
-        "PARITY-161"
+        "PARITY-161-trigger-budget"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -21238,16 +21408,24 @@
     {
       "key": "environment:DISPLAY",
       "stories": [
-        8,
-        34,
-        35,
-        63
+        15,
+        18,
+        70,
+        7,
+        69,
+        26,
+        53,
+        54
       ],
       "tickets": [
-        139
+        155,
+        199,
+        201
       ],
       "acceptance": [
-        "PARITY-139"
+        "PARITY-155-clipboard-routing",
+        "PARITY-199",
+        "PARITY-201"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -21264,16 +21442,15 @@
     {
       "key": "environment:EDITOR",
       "stories": [
-        8,
-        34,
-        35,
-        63
+        11,
+        12,
+        14
       ],
       "tickets": [
-        139
+        150
       ],
       "acceptance": [
-        "PARITY-139"
+        "PARITY-150-external-editor"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -22189,16 +22366,15 @@
     {
       "key": "environment:GROK_AUTO_COMPACT_THRESHOLD_PERCENT",
       "stories": [
-        8,
-        34,
-        35,
-        63
+        31,
+        32,
+        33
       ],
       "tickets": [
-        139
+        161
       ],
       "acceptance": [
-        "PARITY-139"
+        "PARITY-161-trigger-budget"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -23198,16 +23374,15 @@
     {
       "key": "environment:GROK_COMPACTION_WALL_CLOCK_SECS",
       "stories": [
-        8,
-        34,
-        35,
-        63
+        31,
+        32,
+        33
       ],
       "tickets": [
-        139
+        161
       ],
       "acceptance": [
-        "PARITY-139"
+        "PARITY-161-trigger-budget"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -23942,7 +24117,7 @@
         154
       ],
       "acceptance": [
-        "PARITY-154"
+        "PARITY-154-cadence"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -23955,16 +24130,14 @@
     {
       "key": "environment:GROK_DISPLAY_REFRESH_PROBE_ENABLED",
       "stories": [
-        8,
-        34,
-        35,
-        63
+        17,
+        35
       ],
       "tickets": [
-        139
+        154
       ],
       "acceptance": [
-        "PARITY-139"
+        "PARITY-154-cadence"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -24563,16 +24736,14 @@
     {
       "key": "environment:GROK_GOAL",
       "stories": [
-        8,
-        34,
-        35,
-        63
+        33,
+        50
       ],
       "tickets": [
-        139
+        180
       ],
       "acceptance": [
-        "PARITY-139"
+        "PARITY-180-controls"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -24583,16 +24754,14 @@
     {
       "key": "environment:GROK_GOAL_CLASSIFIER",
       "stories": [
-        8,
-        34,
-        35,
-        63
+        33,
+        50
       ],
       "tickets": [
-        139
+        180
       ],
       "acceptance": [
-        "PARITY-139"
+        "PARITY-180-controls"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -24623,16 +24792,14 @@
     {
       "key": "environment:GROK_GOAL_PLANNER",
       "stories": [
-        8,
-        34,
-        35,
-        63
+        33,
+        50
       ],
       "tickets": [
-        139
+        180
       ],
       "acceptance": [
-        "PARITY-139"
+        "PARITY-180-controls"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -24683,16 +24850,14 @@
     {
       "key": "environment:GROK_GOAL_SUMMARY",
       "stories": [
-        8,
-        34,
-        35,
-        63
+        33,
+        50
       ],
       "tickets": [
-        139
+        180
       ],
       "acceptance": [
-        "PARITY-139"
+        "PARITY-180-controls"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -24969,14 +25134,15 @@
     {
       "key": "environment:GROK_HOOKS_LOG",
       "stories": [
-        25,
-        38
+        30,
+        63,
+        64
       ],
       "tickets": [
-        164
+        192
       ],
       "acceptance": [
-        "PARITY-164"
+        "PARITY-192-hooks-log"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -25049,16 +25215,15 @@
     {
       "key": "environment:GROK_IMAGE_DESCRIPTION_MODEL",
       "stories": [
-        8,
-        34,
-        35,
-        63
+        32,
+        33,
+        34
       ],
       "tickets": [
-        139
+        140
       ],
       "acceptance": [
-        "PARITY-139"
+        "PARITY-140-background-models"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -25430,14 +25595,14 @@
       "stories": [
         8,
         34,
-        35,
-        63
+        36,
+        60
       ],
       "tickets": [
-        139
+        189
       ],
       "acceptance": [
-        "PARITY-139"
+        "PARITY-189-device-flow"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -25449,16 +25614,15 @@
     {
       "key": "environment:GROK_LOGIN_ENV",
       "stories": [
-        8,
-        34,
-        35,
-        63
+        19,
+        23,
+        26
       ],
       "tickets": [
-        139
+        170
       ],
       "acceptance": [
-        "PARITY-139"
+        "PARITY-170-login-environment"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -25656,16 +25820,15 @@
     {
       "key": "environment:GROK_MAX_CONCURRENT_SUBAGENTS",
       "stories": [
-        8,
-        34,
-        35,
-        63
+        42,
+        43,
+        47
       ],
       "tickets": [
-        139
+        172
       ],
       "acceptance": [
-        "PARITY-139"
+        "PARITY-172-admission"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -26098,16 +26261,14 @@
     {
       "key": "environment:GROK_MIN_DRAW_MS",
       "stories": [
-        8,
-        34,
-        35,
-        63
+        17,
+        35
       ],
       "tickets": [
-        139
+        154
       ],
       "acceptance": [
-        "PARITY-139"
+        "PARITY-154-cadence"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -27129,13 +27290,17 @@
       "key": "environment:GROK_SANDBOX_AUTO_ALLOW_BASH",
       "stories": [
         26,
-        27
+        27,
+        24,
+        25
       ],
       "tickets": [
-        143
+        143,
+        142
       ],
       "acceptance": [
-        "PARITY-143-confinement"
+        "PARITY-143-confinement",
+        "PARITY-142-sandbox-auto-approval"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -27207,16 +27372,14 @@
     {
       "key": "environment:GROK_SCROLL_CADENCE_MS",
       "stories": [
-        8,
-        34,
-        35,
-        63
+        17,
+        35
       ],
       "tickets": [
-        139
+        154
       ],
       "acceptance": [
-        "PARITY-139"
+        "PARITY-154-cadence"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -27227,16 +27390,14 @@
     {
       "key": "environment:GROK_SCROLL_DEBUG",
       "stories": [
-        8,
-        34,
-        35,
-        63
+        17,
+        35
       ],
       "tickets": [
-        139
+        154
       ],
       "acceptance": [
-        "PARITY-139"
+        "PARITY-154-scroll-hud"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -27509,16 +27670,15 @@
     {
       "key": "environment:GROK_SESSION_SUMMARY_MODEL",
       "stories": [
-        8,
-        34,
-        35,
-        63
+        32,
+        33,
+        34
       ],
       "tickets": [
-        139
+        140
       ],
       "acceptance": [
-        "PARITY-139"
+        "PARITY-140-background-models"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -27991,16 +28151,15 @@
     {
       "key": "environment:GROK_SUGGESTIONS",
       "stories": [
-        8,
-        34,
-        35,
-        63
+        11,
+        12,
+        14
       ],
       "tickets": [
-        139
+        150
       ],
       "acceptance": [
-        "PARITY-139"
+        "PARITY-150-shell-suggestions"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -28011,16 +28170,15 @@
     {
       "key": "environment:GROK_SUGGESTIONS_AI",
       "stories": [
-        8,
-        34,
-        35,
-        63
+        11,
+        12,
+        14
       ],
       "tickets": [
-        139
+        150
       ],
       "acceptance": [
-        "PARITY-139"
+        "PARITY-150-shell-suggestions"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -28031,16 +28189,15 @@
     {
       "key": "environment:GROK_SUGGESTIONS_AI_MODEL",
       "stories": [
-        8,
-        34,
-        35,
-        63
+        32,
+        33,
+        34
       ],
       "tickets": [
-        139
+        140
       ],
       "acceptance": [
-        "PARITY-139"
+        "PARITY-140-shell-suggestions"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -29118,16 +29275,15 @@
     {
       "key": "environment:GROK_VERSION",
       "stories": [
-        8,
-        34,
-        35,
-        63
+        7,
+        18,
+        69
       ],
       "tickets": [
-        139
+        200
       ],
       "acceptance": [
-        "PARITY-139"
+        "PARITY-200-version-selection"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -32426,16 +32582,21 @@
     {
       "key": "environment:SSH_CLIENT",
       "stories": [
-        8,
-        34,
-        35,
-        63
+        15,
+        18,
+        70,
+        26,
+        53,
+        54,
+        69
       ],
       "tickets": [
-        139
+        155,
+        201
       ],
       "acceptance": [
-        "PARITY-139"
+        "PARITY-155-clipboard-routing",
+        "PARITY-201"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -32446,16 +32607,21 @@
     {
       "key": "environment:SSH_CONNECTION",
       "stories": [
-        8,
-        34,
-        35,
-        63
+        15,
+        18,
+        70,
+        26,
+        53,
+        54,
+        69
       ],
       "tickets": [
-        139
+        155,
+        201
       ],
       "acceptance": [
-        "PARITY-139"
+        "PARITY-155-clipboard-routing",
+        "PARITY-201"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -32466,16 +32632,21 @@
     {
       "key": "environment:SSH_TTY",
       "stories": [
-        8,
-        34,
-        35,
-        63
+        15,
+        18,
+        70,
+        26,
+        53,
+        54,
+        69
       ],
       "tickets": [
-        139
+        155,
+        201
       ],
       "acceptance": [
-        "PARITY-139"
+        "PARITY-155-clipboard-routing",
+        "PARITY-201"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -32673,16 +32844,15 @@
     {
       "key": "environment:VISUAL",
       "stories": [
-        8,
-        34,
-        35,
-        63
+        11,
+        12,
+        14
       ],
       "tickets": [
-        139
+        150
       ],
       "acceptance": [
-        "PARITY-139"
+        "PARITY-150-external-editor"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -32693,16 +32863,24 @@
     {
       "key": "environment:WAYLAND_DISPLAY",
       "stories": [
-        8,
-        34,
-        35,
-        63
+        15,
+        18,
+        70,
+        7,
+        69,
+        26,
+        53,
+        54
       ],
       "tickets": [
-        139
+        155,
+        199,
+        201
       ],
       "acceptance": [
-        "PARITY-139"
+        "PARITY-155-clipboard-routing",
+        "PARITY-199",
+        "PARITY-201"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -63030,13 +63208,17 @@
       "key": "guide-behavior:13-memory.md:Direct Editing:1",
       "stories": [
         51,
-        63
+        63,
+        52,
+        64
       ],
       "tickets": [
-        185
+        185,
+        186
       ],
       "acceptance": [
-        "PARITY-185"
+        "PARITY-185",
+        "PARITY-186"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -63299,13 +63481,17 @@
       "key": "guide-behavior:13-memory.md:How memory is organized:2",
       "stories": [
         51,
-        63
+        63,
+        52,
+        64
       ],
       "tickets": [
-        185
+        185,
+        186
       ],
       "acceptance": [
-        "PARITY-185"
+        "PARITY-185",
+        "PARITY-186"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -63337,13 +63523,20 @@
       "key": "guide-behavior:13-memory.md:How memory is organized:4",
       "stories": [
         51,
-        63
+        63,
+        52,
+        64,
+        30
       ],
       "tickets": [
-        185
+        185,
+        186,
+        192
       ],
       "acceptance": [
-        "PARITY-185"
+        "PARITY-185",
+        "PARITY-186-diagnostics",
+        "PARITY-192-memory-privacy"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -63356,13 +63549,17 @@
       "key": "guide-behavior:13-memory.md:How memory is organized:5",
       "stories": [
         51,
-        63
+        63,
+        30,
+        64
       ],
       "tickets": [
-        185
+        185,
+        192
       ],
       "acceptance": [
-        "PARITY-185"
+        "PARITY-185",
+        "PARITY-192-memory-privacy"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -99954,13 +100151,17 @@
       "key": "guide-section:13-memory.md:Direct Editing",
       "stories": [
         51,
-        63
+        63,
+        52,
+        64
       ],
       "tickets": [
-        185
+        185,
+        186
       ],
       "acceptance": [
-        "PARITY-185"
+        "PARITY-185",
+        "PARITY-186"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -100148,13 +100349,21 @@
       "key": "guide-section:13-memory.md:How memory is organized",
       "stories": [
         51,
-        63
+        63,
+        52,
+        64,
+        30
       ],
       "tickets": [
-        185
+        185,
+        186,
+        192
       ],
       "acceptance": [
-        "PARITY-185"
+        "PARITY-185",
+        "PARITY-186",
+        "PARITY-186-diagnostics",
+        "PARITY-192-memory-privacy"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -112945,7 +113154,7 @@
         180
       ],
       "acceptance": [
-        "PARITY-180"
+        "PARITY-180-controls"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -115195,7 +115404,7 @@
         140
       ],
       "acceptance": [
-        "PARITY-140"
+        "PARITY-140-background-models"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -115315,7 +115524,7 @@
         140
       ],
       "acceptance": [
-        "PARITY-140"
+        "PARITY-140-background-models"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -115731,13 +115940,17 @@
       "key": "setting:sandbox.auto_allow_bash",
       "stories": [
         26,
-        27
+        27,
+        24,
+        25
       ],
       "tickets": [
-        143
+        143,
+        142
       ],
       "acceptance": [
-        "PARITY-143-confinement"
+        "PARITY-143-confinement",
+        "PARITY-142-sandbox-auto-approval"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -115776,7 +115989,7 @@
         161
       ],
       "acceptance": [
-        "PARITY-161"
+        "PARITY-161-trigger-budget"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -116015,7 +116228,7 @@
         172
       ],
       "acceptance": [
-        "PARITY-172"
+        "PARITY-172-admission"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -116755,7 +116968,7 @@
         170
       ],
       "acceptance": [
-        "PARITY-170"
+        "PARITY-170-login-environment"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -117281,7 +117494,7 @@
         154
       ],
       "acceptance": [
-        "PARITY-154"
+        "PARITY-154-cadence"
       ],
       "status": "pending-parity",
       "evidence": [

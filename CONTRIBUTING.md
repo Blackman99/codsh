@@ -142,6 +142,12 @@ legacy metadata saves differ from model-backed capture, and pruning is compactio
 Diagnostics require real file/filter/destination checks and status-line environment
 sanitization requires rc-file canaries. Fetch proxy/domain/enablement tests must not
 be replaced by search-policy acceptance; mixed rows may require both scenarios.
+Keep shell completion separate from next-prompt suggestions, diagnostic logging from
+hook authority, and sandbox auto-approval from confinement. Terminal/editor/platform
+aliases and background model/admission/login/goal/compaction controls need observable
+functional effects. Memory prose must retain capture, queue/lease diagnostics and
+telemetry privacy only where quoted; merged source/binary paragraph identities can
+carry different contracts without proving either runtime behavior.
 Alias ownership follows explicit “Also ENV”
 config-reference relationships before lexical namespaces; incidental mentions are
 not aliases. Local hook identity variables must not inherit remote-workspace

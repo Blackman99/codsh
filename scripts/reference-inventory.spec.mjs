@@ -857,6 +857,108 @@ describe('frozen reference coverage register', () => {
     expect(scenarios.get('PARITY-171-fetch-controls').then).toMatch(/disabled.*proxy.*allowlist.*redirect/)
   })
 
+  it.each([
+    ['DISPLAY', [155, 199, 201], 'PARITY-155-clipboard-routing'],
+    ['WAYLAND_DISPLAY', [155, 199, 201], 'PARITY-155-clipboard-routing'],
+    ['SSH_CONNECTION', [155, 201], 'PARITY-155-clipboard-routing'],
+    ['SSH_TTY', [155, 201], 'PARITY-155-clipboard-routing'],
+    ['SSH_CLIENT', [155, 201], 'PARITY-155-clipboard-routing'],
+    ['EDITOR', [150], 'PARITY-150-external-editor'], ['VISUAL', [150], 'PARITY-150-external-editor'],
+    ['GROK_VERSION', [200], 'PARITY-200-version-selection'],
+    ['GROK_SCROLL_DEBUG', [154], 'PARITY-154-scroll-hud'],
+    ['GROK_MIN_DRAW_MS', [154], 'PARITY-154-cadence'], ['GROK_SCROLL_CADENCE_MS', [154], 'PARITY-154-cadence'],
+    ['GROK_DISPLAY_REFRESH_PROBE_ENABLED', [154], 'PARITY-154-cadence'],
+    ['GROK_SUGGESTIONS', [150], 'PARITY-150-shell-suggestions'], ['GROK_SUGGESTIONS_AI', [150], 'PARITY-150-shell-suggestions'],
+    ['GROK_SUGGESTIONS_AI_MODEL', [140], 'PARITY-140-shell-suggestions'],
+    ['GROK_SESSION_SUMMARY_MODEL', [140], 'PARITY-140-background-models'], ['GROK_IMAGE_DESCRIPTION_MODEL', [140], 'PARITY-140-background-models'],
+    ['GROK_MAX_CONCURRENT_SUBAGENTS', [172], 'PARITY-172-admission'],
+    ['GROK_LOGIN_ENV', [170], 'PARITY-170-login-environment'], ['GROK_LOGIN_DEVICE_FLOW', [189], 'PARITY-189-device-flow'],
+    ['GROK_GOAL', [180], 'PARITY-180-controls'], ['GROK_GOAL_CLASSIFIER', [180], 'PARITY-180-controls'],
+    ['GROK_GOAL_PLANNER', [180], 'PARITY-180-controls'], ['GROK_GOAL_SUMMARY', [180], 'PARITY-180-controls'],
+    ['GROK_AUTO_COMPACT_THRESHOLD_PERCENT', [161], 'PARITY-161-trigger-budget'], ['GROK_COMPACTION_WALL_CLOCK_SECS', [161], 'PARITY-161-trigger-budget'],
+    ['GROK_HOOKS_LOG', [192], 'PARITY-192-hooks-log'],
+  ])('preserves the explicit functional contract and availability of %s', (name, owners, scenario) => {
+    const register = read('inventory.json'), item = read('discovery.json').items.find(item => item.key === `environment:${name}`)
+    const row = register.items.find(row => row.key === item.key)
+    expect(row.tickets, item.key).toEqual(owners)
+    expect(row.acceptance).toContain(scenario)
+    expect(row.acceptance).not.toContain('PARITY-139')
+    const contexts = guideContexts(loadEvidence())
+    expect(mapOwners({ ...item, name: `05-configuration.md:Environment variables:\`${name}\`` }, contexts)).toEqual(owners)
+    if (!['DISPLAY', 'GROK_VERSION'].includes(name)) {
+      expect(item.observations.every(o => !o.scope.startsWith('binary'))).toBe(true)
+      expect(row.blocker).toMatch(/Source export is 1.0.35/)
+    }
+  })
+
+  it('uses matching effect scenarios for documented counterparts without conflating neighboring controls', () => {
+    const rows = new Map(read('inventory.json').items.map(row => [row.key, row]))
+    for (const [key, scenario] of [
+      ['models.session_summary', 'PARITY-140-background-models'], ['models.image_description', 'PARITY-140-background-models'],
+      ['subagents.max_concurrent', 'PARITY-172-admission'], ['ui.display_refresh.auto_cadence_enabled', 'PARITY-154-cadence'],
+      ['goal.enabled', 'PARITY-180-controls'], ['toolset.bash.login_shell_capture', 'PARITY-170-login-environment'],
+      ['session.auto_compact_threshold_percent', 'PARITY-161-trigger-budget'],
+    ]) expect(rows.get(`setting:${key}`).acceptance, key).toContain(scenario)
+    expect(rows.get('environment:GROK_SUGGESTIONS').acceptance).not.toContain('PARITY-150-suggestions')
+    expect(rows.get('environment:GROK_PROMPT_SUGGESTIONS').acceptance).toContain('PARITY-150-suggestions')
+    expect(rows.get('environment:GROK_HOOKS_LOG').tickets).not.toContain(164)
+    expect(rows.get('environment:GROK_HOOK_EVENT').tickets).toEqual([164])
+    expect(rows.get('environment:GROK_GOAL').tickets).not.toContain(181)
+    expect(rows.get('environment:GROK_WORKFLOWS').tickets).toEqual([181, 180])
+  })
+
+  it('maps memory capture and privacy by quoted paragraph, retaining source/binary conflicts', () => {
+    const register = read('inventory.json'), discovery = read('discovery.json'), contexts = guideContexts(loadEvidence())
+    for (const [suffix, owners] of [
+      ['How memory is organized:1', [185]], ['How memory is organized:2', [185, 186]],
+      ['How memory is organized:3', [185]], ['How memory is organized:4', [185, 186, 192]],
+      ['How memory is organized:5', [185, 192]], ['How memory is organized:6', [185]],
+      ['Direct Editing:1', [185, 186]], ['Direct Editing:2', [185]],
+    ]) {
+      const key = `guide-behavior:13-memory.md:${suffix}`
+      expect(register.items.find(row => row.key === key).tickets, key).toEqual(owners)
+    }
+    const section = register.items.find(row => row.key === 'guide-section:13-memory.md:How memory is organized')
+    expect(section.tickets).toEqual([185, 186, 192])
+    expect(section.acceptance).toEqual(expect.arrayContaining(['PARITY-186', 'PARITY-186-diagnostics', 'PARITY-192-memory-privacy']))
+    const mixed = discovery.items.find(item => item.key === 'guide-behavior:13-memory.md:How memory is organized:4')
+    expect(mapOwners({ ...mixed, observations: mixed.observations.filter(o => o.scope === 'binary-guide') }, contexts)).toEqual([185, 186])
+    expect(mapOwners({ ...mixed, observations: mixed.observations.filter(o => o.scope === 'source-guide') }, contexts)).toEqual([185, 192])
+    const capture = { commands: [], guides: [{ file: '13-memory.md', text: '## How memory is organized\nEdit or search a manual note.\n\nA completed turn produces observations for `/dream`.\n\nMemory product telemetry contains only counts and durations.' }] }
+    const ctx = guideContexts({ capture, source: { guides: [] } })
+    for (const item of extractSurfaces(capture, []).filter(item => item.category === 'guide-behavior')) {
+      const text = item.observations[0].excerpt
+      expect(mapOwners(item, ctx)).toEqual(text.includes('completed turn') ? [185, 186] : text.includes('telemetry') ? [185, 192] : [185])
+    }
+  })
+
+  it('retains sandbox confinement while adding the distinct Bash approval decision contract', () => {
+    const register = read('inventory.json')
+    for (const key of ['setting:sandbox.auto_allow_bash', 'environment:GROK_SANDBOX_AUTO_ALLOW_BASH']) {
+      const row = register.items.find(item => item.key === key)
+      expect(row.tickets).toEqual([143, 142])
+      expect(row.acceptance).toEqual(['PARITY-143-confinement', 'PARITY-142-sandbox-auto-approval'])
+    }
+    expect(register.items.find(item => item.key === 'setting:sandbox.profile').tickets).toEqual([143])
+    const item = read('discovery.json').items.find(item => item.key === 'environment:GROK_SANDBOX_AUTO_ALLOW_BASH')
+    expect(mapOwners({ ...item, name: '05-configuration.md:Environment variables:`GROK_SANDBOX_AUTO_ALLOW_BASH`' }, guideContexts(loadEvidence()))).toEqual([143, 142])
+  })
+
+  it('requires actual effects for the newly reviewed aliases, diagnostics and approval gates', () => {
+    const tests = new Map(read('inventory.json').acceptance.map(test => [test.id, test]))
+    for (const [id, pattern] of [
+      ['PARITY-155-clipboard-routing', /PRIMARY.*CLIPBOARD.*SSH/], ['PARITY-150-external-editor', /VISUAL.*EDITOR.*vi.*draft/],
+      ['PARITY-200-version-selection', /requested version.*native Windows.*PATH/], ['PARITY-154-scroll-hud', /HUD.*persist/],
+      ['PARITY-154-cadence', /paint.*scroll.*1.*100/], ['PARITY-150-shell-suggestions', /Tab.*completion.*AI/],
+      ['PARITY-140-shell-suggestions', /x.ai\/suggest.*model.*provider/], ['PARITY-140-background-models', /summary.*image.*provider/],
+      ['PARITY-172-admission', /actual.*child.*bound/], ['PARITY-170-login-environment', /login.*environment.*child/],
+      ['PARITY-189-device-flow', /CLI.*env.*config.*loopback/], ['PARITY-180-controls', /classifier.*planner.*summary/],
+      ['PARITY-161-trigger-budget', /threshold.*wall-clock.*zero/], ['PARITY-192-hooks-log', /append.*target.*authorization/],
+      ['PARITY-186-diagnostics', /cursor.*queue.*lease.*copy/], ['PARITY-192-memory-privacy', /enums.*booleans.*counts.*durations/],
+      ['PARITY-142-sandbox-auto-approval', /prompt.*deny.*ask.*hook/],
+    ]) expect(tests.get(id)?.then, id).toMatch(pattern)
+  })
+
   it('extracts commands and flags, including nested help and aliases', () => {
     const capture = { guides: [], commands: [{ args: ['memory', '--help'], exit: 0,
       stdout: 'Usage: grok memory [COMMAND]\n\nCommands:\n  list  List notes\n  help  Help\n\nOptions:\n  -h, --help  Help\n      --json  JSON [aliases: --machine]\n' }] }
