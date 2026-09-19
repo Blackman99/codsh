@@ -8,7 +8,10 @@ const read = name => JSON.parse(readFileSync(new URL(`../docs/rewrite/reference/
 
 describe('frozen reference coverage register', () => {
   it('covers every discovered item with a story, ticket, acceptance and evidence or blocker', () => {
-    expect(checkInventory(read('inventory.json'), read('discovery.json'))).toEqual([])
+    const discovery = read('discovery.json')
+    expect(checkInventory(read('inventory.json'), discovery)).toEqual([])
+    const counts = Object.fromEntries([...new Set(discovery.items.map(item => item.category))].map(category => [category, discovery.items.filter(item => item.category === category).length]))
+    expect(read('provenance.json').counts).toEqual(counts)
   })
 
   it('detects deletion, duplicate identity, unmapped behavior, and fabricated verification', () => {
@@ -581,6 +584,150 @@ describe('frozen reference coverage register', () => {
     }
     const scenario = read('inventory.json').acceptance.find(test => test.id === 'PARITY-164-environment')
     expect(scenario.then).toMatch(/real workspace.*reserved.*spoof/)
+  })
+
+  it.each(['```', '~~~~', '````'])('keeps security prose after %s fenced comments and ignores fake headings', fence => {
+    const text = `## Tool configuration\n\n${fence}toml\n[toolset.web_search]\n# A code comment, not a heading\n\nallowed_domains = ["example.test"]\n\n### Not a section\n${fence}\n\nThe configured web_search policy is authoritative; the model cannot override it.\n\n## Next section\nUnrelated prose.`
+    const capture = { commands: [], guides: [{ file: '05-configuration.md', text }] }
+    const items = extractSurfaces(capture, []), contexts = guideContexts({ capture, source: { guides: [] } })
+    const section = items.find(item => item.key === 'guide-section:05-configuration.md:Tool configuration')
+    expect(section.observations[0].excerpt).toContain('the model cannot override it')
+    expect(section.observations[0].excerpt).not.toContain('Unrelated prose')
+    expect(items.some(item => item.category === 'guide-section' && item.name.endsWith('Not a section'))).toBe(false)
+    const prose = items.find(item => item.category === 'guide-behavior' && item.observations[0].excerpt.includes('authoritative'))
+    expect(prose).toBeDefined()
+    expect(mapOwners(prose, contexts)).toContain(171)
+    expect(items.filter(item => item.category === 'guide-behavior').some(item => item.observations[0].excerpt.includes('Not a section'))).toBe(false)
+    expect(items.some(item => item.name === '05-configuration.md:toolset.web_search.allowed_domains')).toBe(true)
+    expect(contexts.get('binary-guide:05-configuration.md#L13')).toEqual(['Tool configuration'])
+  })
+
+  it('recognizes fence length and marker before emitting immediately adjacent security prose', () => {
+    const text = '## Tool configuration\nBefore the example.\n````toml\n# Not a heading\n```\n~~~\n## Still code\n````\nweb_search remains authoritative.\n## Next\nOther prose.'
+    const items = extractSurfaces({ commands: [], guides: [{ file: '05-configuration.md', text }] }, [])
+    const prose = items.filter(item => item.category === 'guide-behavior').flatMap(item => item.observations.map(o => o.excerpt))
+    expect(prose).toContain('Before the example.')
+    expect(prose).toContain('web_search remains authoritative.')
+    expect(prose.some(text => text.includes('Still code'))).toBe(false)
+    expect(items.some(item => item.category === 'guide-section' && item.name.endsWith('Still code'))).toBe(false)
+  })
+
+  it('discovers documented process controls without requiring a prefix or underscore', () => {
+    const text = '## Clone\nThe process reads\n`CLONESWITCH` / `OTHERCLONE` before its configuration.\n\n| Credential | Input |\n| --- | --- |\n| Git | a credential helper, a carrier token file, or `CARRIERTOKEN` |\n\nResolve the launcher on `PATH` (honoring `EXECEXT`) before spawning.\n\n## Output\n`STATUS_CODE`, `JSON` and `RGB` are output labels, not controls.\nThe --env flag takes `KEY=value`.'
+    const items = extractSurfaces({ commands: [], guides: [{ file: '27-grok-clone.md', text }] }, [])
+    for (const name of ['CLONESWITCH', 'OTHERCLONE', 'CARRIERTOKEN', 'EXECEXT']) expect(items.some(item => item.key === `environment:${name}`), name).toBe(true)
+    for (const name of ['STATUS_CODE', 'JSON', 'RGB', 'KEY']) expect(items.some(item => item.key === `environment:${name}`), name).toBe(false)
+  })
+
+  it.each([
+    ['GROVE_CLONE', [191]], ['GROVE_AUTH_TOKEN', [189, 191]], ['PATHEXT', [167, 200, 201]],
+    ['GROK_WEB_FETCH_ALLOW_LOCAL', [171]], ['GROK_DISABLE_WEB_FETCH', [171]],
+    ['GROK_EVENT', [164, 155]], ['GROK_MESSAGE', [164, 155]],
+    ['GROK_SCREEN_MODE_SWITCH', [149]], ['GROK_SCREEN_MODE', [149]], ['GROK_EXIT_TIMEOUT_SECS', [155]],
+    ['GROK_WORKFLOWS', [181, 180]], ['GROK_WORKFLOW_MAX_CONCURRENT_AGENTS', [182]],
+    ['GROK_LOG_FILE', [192]], ['RUST_LOG', [192]], ['GROK_DOCK', [152, 151, 173, 175, 176]],
+  ])('retains the functional contract of %s across canonical and guide-qualified identities', (name, owners) => {
+    const discovery = read('discovery.json'), register = read('inventory.json')
+    const item = discovery.items.find(item => item.key === `environment:${name}`)
+    expect(item, name).toBeDefined()
+    expect(register.items.find(row => row.key === item.key).tickets).toEqual(owners)
+    expect(mapOwners({ ...item, name: `05-configuration.md:Environment variables:\`${name}\`` })).toEqual(owners)
+    if (['GROVE_CLONE', 'GROVE_AUTH_TOKEN', 'PATHEXT'].includes(name)) {
+      expect(item.observations.some(o => o.scope === 'binary-guide')).toBe(true)
+      expect(item.observations.some(o => /binary-(?:pty|model)/u.test(o.scope))).toBe(false)
+      expect(register.items.find(row => row.key === item.key).blocker).toMatch(/require downstream/)
+    }
+  })
+
+  it('normalizes all guide-qualified environment owners and acceptance to their canonical controls', () => {
+    const register = read('inventory.json'), rows = new Map(register.items.map(item => [item.key, item]))
+    for (const item of read('discovery.json').items.filter(item => item.category === 'environment' && item.name.includes('.md:'))) {
+      const name = item.name.match(/`([A-Z][A-Z0-9_]+)(?:=[^`]+)?`$/u)?.[1]
+      expect(name, item.key).toBeDefined()
+      const canonical = rows.get(`environment:${name}`), row = rows.get(item.key)
+      expect(row.tickets, item.key).toEqual(canonical.tickets)
+      expect(row.acceptance, item.key).toEqual(canonical.acceptance)
+    }
+  })
+
+  it('retains authoritative web policy and questionnaire prose after the frozen TOML fence', () => {
+    const discovery = read('discovery.json'), register = read('inventory.json')
+    for (const [text, owners] of [['SSRF fail-closed', [171]], ['The model\'s per-call allowlist', [171, 139, 141]], ['`timeout_secs` must be a positive integer', [179, 139, 141]]]) {
+      const item = discovery.items.find(item => item.key.startsWith('guide-behavior:05-configuration.md:Tool configuration:') && item.observations.some(o => o.excerpt.includes(text)))
+      expect(item, text).toBeDefined()
+      expect(register.items.find(row => row.key === item.key).tickets).toEqual(expect.arrayContaining(owners))
+      expect(item.observations.some(o => o.scope === 'binary-guide')).toBe(true)
+      expect(item.observations.some(o => o.scope === 'source-guide')).toBe(true)
+    }
+  })
+
+  it('preserves quoted workflow subcontracts without assigning every workflow owner to every paragraph', () => {
+    const capture = { commands: [], guides: [{ file: '04-slash-commands.md', text: '## `/deep-research <query>`\nOnly verified claims appear in the report.\n\nThe `agent_budget` caps calls; `parallel()` panels queue at the concurrency limit.\n\n## `/workflow`\nA same-process pause/resume uses committed results; process restart does not resume.\n\n## `/workflows`\nBrowse the saved workflow catalog.' }] }
+    const contexts = guideContexts({ capture, source: { guides: [] } })
+    for (const item of extractSurfaces(capture, []).filter(item => item.category === 'guide-behavior')) {
+      const text = item.observations[0].excerpt
+      const owners = text.includes('verified claims') ? [206] : text.includes('agent_budget') ? [206, 182] : text.includes('pause/resume') ? [181, 183] : [184]
+      expect(mapOwners(item, contexts), item.key).toEqual(owners)
+    }
+    const discovery = read('discovery.json'), register = read('inventory.json')
+    for (const key of ['slash:workflow', 'tool:workflow']) expect(register.items.find(row => row.key === key).tickets).toEqual([181, 182, 183, 184])
+    expect(register.items.find(row => row.key === 'guide-section:05-configuration.md:Goal mode and background workflows').tickets).toEqual([180, 181, 183, 184])
+    for (const [fragment, owners] of [['absolute cumulative `agent_budget`', [206, 182]], ['A same-process pause/resume', [181, 183, 184]], ['A budget-limited run is different', [181, 182, 183]], ['browse-only catalog', [184, 183]]]) {
+      const rows = discovery.items.filter(item => item.key.startsWith('guide-behavior:04-slash-commands.md:') && item.observations.some(o => o.excerpt.includes(fragment)))
+      expect(rows.length, fragment).toBeGreaterThan(0)
+      for (const item of rows) expect(register.items.find(row => row.key === item.key).tickets, item.key).toEqual(expect.arrayContaining(owners))
+    }
+  })
+
+  it('does not confuse env assignments with paths or configuration file table identities', () => {
+    const capture = { commands: [], guides: [{ file: '10-hooks.md', text: '## Hooks in Config Files\n| File | Tier |\n| --- | --- |\n| `managed_config.toml` (`$GROK_HOME`, `/etc/grok`) | Managed |\n\n## Environment Variables\n| Variable | Description |\n| --- | --- |\n| `UNPREFIXED` | Runner input |\n| `GROK_MEMORY=0` | Disable memory |' }] }
+    const items = extractSurfaces(capture, [])
+    expect(items.some(item => item.category === 'environment' && item.name.includes('managed_config.toml'))).toBe(false)
+    expect(items.some(item => item.category === 'guide-item' && item.name.includes('managed_config.toml'))).toBe(true)
+    expect(items.some(item => item.key === 'environment:UNPREFIXED')).toBe(true)
+    const assigned = items.find(item => item.category === 'environment' && item.name.endsWith('`GROK_MEMORY=0`'))
+    expect(mapOwners(assigned)).toEqual([185])
+  })
+
+  it('keeps source-only neighbors provisional and distinguishes campaign override and screen exec semantics', () => {
+    const discovery = read('discovery.json'), register = read('inventory.json')
+    for (const name of ['GROK_DISABLE_WEB_FETCH', 'GROK_SCREEN_MODE', 'GROK_WORKFLOW_MAX_CONCURRENT_AGENTS', 'GROK_CAMPAIGNS_OVERRIDE']) {
+      const item = discovery.items.find(row => row.key === `environment:${name}`)
+      expect(item.observations.every(o => !o.scope.startsWith('binary'))).toBe(true)
+      const row = register.items.find(row => row.key === item.key)
+      expect(row.blocker).toMatch(/Source export is 1.0.35/)
+      expect(row.status).toBe('pending-parity')
+    }
+    expect(register.items.find(row => row.key === 'environment:GROK_CAMPAIGNS_OVERRIDE').acceptance).toContain('PARITY-141-campaign-override')
+    expect(register.items.find(row => row.key === 'environment:GROK_SCREEN_MODE_SWITCH').acceptance).toContain('PARITY-149-exec')
+    expect(register.acceptance.find(row => row.id === 'PARITY-141-campaign-override').then).toMatch(/over the kill switch.*requirements precedence/)
+    expect(register.acceptance.find(row => row.id === 'PARITY-149-exec').then).toMatch(/same session.*without resubmitting/)
+  })
+
+  it('maps actual memory-v2 capture, Dream and retention fields without reclassifying manual memory', () => {
+    const rows = read('inventory.json').items
+    for (const field of ['capture_enabled', 'capture_status_enabled', 'automatic_dream_enabled', 'manual_dream_enabled', 'archived_retention_days', 'job_retention_days']) {
+      expect(rows.find(row => row.key === `setting:memory_v2.${field}`).tickets).toEqual([186])
+    }
+    for (const field of ['enabled', 'rollout', 'file_writes_enabled']) expect(rows.find(row => row.key === `setting:memory_v2.${field}`).tickets).toEqual([185, 186])
+    for (const row of rows.filter(row => /^(?:setting|documented-setting):(?:[^:]+:)?memory\.dream\./u.test(row.key))) expect(row.tickets, row.key).toContain(186)
+    for (const key of ['guide-section:13-memory.md:Memory Notifications', 'guide-section:26-config-reference.md:`memory`']) expect(rows.find(row => row.key === key).tickets).toEqual([185, 186])
+    expect(rows.find(row => row.key === 'guide-behavior:13-memory.md:Memory Notifications:1').tickets).toEqual([185])
+    expect(rows.find(row => row.key === 'setting:memory.enabled').tickets).toEqual([185])
+    expect(rows.find(row => row.key === 'slash:memory').tickets).toEqual([185])
+  })
+
+  it('maps campaign patches to effective precedence and locked requirements rather than rendering', () => {
+    const rows = read('inventory.json').items
+    for (const key of ['setting:campaigns', 'setting:features.campaigns', 'environment:GROK_CAMPAIGNS', 'environment:GROK_CAMPAIGNS_OVERRIDE', 'guide-section:26-config-reference.md:`campaigns`']) {
+      expect(rows.find(row => row.key === key).tickets, key).toEqual([139, 141])
+    }
+    expect(mapOwners({ category: 'feature', name: 'campaigns', key: 'feature:campaigns', observations: [] })).toEqual([139, 141])
+    expect(rows.find(row => row.key === 'setting:announcements').tickets).toEqual([154])
+    const scenarios = read('inventory.json').acceptance
+    expect(scenarios.find(row => row.id === 'PARITY-141-campaigns').then).toMatch(/requirements.*GROK_CAMPAIGNS=0/)
+    expect(scenarios.find(row => row.id === 'PARITY-171-policy').then).toMatch(/authoritative.*model.*session start/)
+    expect(scenarios.find(row => row.id === 'PARITY-186').then).toMatch(/capture_enabled.*capture_status_enabled/)
   })
 
   it('extracts commands and flags, including nested help and aliases', () => {

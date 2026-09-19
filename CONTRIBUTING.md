@@ -122,9 +122,19 @@ blocks and sandbox write protection need real effects, MCP headers/stdio belong 
 MCP, model headers to providers, ACP updates to protocol/session replay, and plan
 feedback to plan review rather than telemetry. ACP `x.ai/review/comment` instead
 records cloud code-review events and requires consent/destination acceptance.
+Section extraction and owner context share a fence-aware Markdown scan: code
+comments cannot hide subsequent prose, and fenced examples are retained as section
+evidence, not standalone behavior paragraphs. Audit extraction deltas for actual
+prose preservation rather than preserving misclassified code-fragment identities.
 Environment extraction recognizes literal reads/setters, named constants, env-map
-lookups and key loops, enclosing environment-variable tables, and assignment-form
-hints such as `COLORTERM=truecolor`. Alias ownership follows explicit “Also ENV”
+lookups and key loops, enclosing environment-variable tables, assignment-form hints
+such as `COLORTERM=truecolor`, and documented process reads, credential inputs and
+launcher-resolution controls without vendor-prefix or underscore requirements.
+Guide-qualified variables and assignment forms resolve to canonical functional
+owners; a path mentioning a variable is not itself an environment identity.
+Workflow budget/lifecycle subcontracts keep #182/#183 even under a slash owner;
+actual memory-v2 capture/Dream controls use #186 and campaign patches use #139/#141.
+Keep documented gates separate from newer source-only overrides in acceptance. Alias ownership follows explicit “Also ENV”
 config-reference relationships before lexical namespaces; incidental mentions are
 not aliases. Local hook identity variables must not inherit remote-workspace
 ownership. `/vim-mode` is scrollback navigation, not prompt Vim editing, and

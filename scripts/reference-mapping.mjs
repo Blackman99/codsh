@@ -37,9 +37,9 @@ const toolOwners = groups({
   188: 'image_to_video reference_to_video', 190: 'deploy_app init_or_update_app', 192: 'send_feedback',
 })
 const featureOwners = groups({
-  136: 'write_file', 137: 'cancel_rewind', 140: 'image_gen_model_override image_edit_model_override',
+  136: 'write_file', 137: 'cancel_rewind', 139: 'campaigns', 140: 'image_gen_model_override image_edit_model_override',
   141: 'managed_config', 142: 'remember_mode support_permission', 152: 'dock',
-  154: 'terminal_theme campaigns', 158: 'voice_mode', 159: 'session_recap session_search title_refresh turn_summary',
+  154: 'terminal_theme', 158: 'voice_mode', 159: 'session_recap session_search title_refresh turn_summary',
   161: 'compaction_detail compaction_mode compaction_tool_choice compaction_verbatim_input two_pass_compaction',
   163: 'repo_status_in_system_prompt', 167: 'mcp_auto_restart mcp_liveness_watchers mcp_push_server_status mcp_recursive_config_watch',
   169: 'codebase_indexing lsp_tools', 171: 'backend_tools web_fetch', 173: 'active_agent_messages',
@@ -71,9 +71,9 @@ const flagOwners = groups({
 })
 
 const configOwners = {
-  ...groups({139: 'harness hints paths path_not_found_hints doom_loop_recovery', 140: 'model models model_providers',
+  ...groups({139: 'harness hints paths path_not_found_hints doom_loop_recovery campaigns', 140: 'model models model_providers',
     141: 'fail_closed', 142: 'permission auto_mode default_auto_mode', 143: 'sandbox', 144: 'shell_environment_policy',
-    148: 'relay', 150: 'prompt_suggestions', 154: 'announcements campaigns ui animation scrollback prompt terminal',
+    148: 'relay', 150: 'prompt_suggestions', 154: 'announcements ui animation scrollback prompt terminal',
     158: 'voice', 159: 'dashboard', 163: 'agent skills compat', 164: 'hooks', 165: 'marketplace', 166: 'plugins',
     167: 'mcp mcp_servers managed_mcps disabled_mcp_servers disabled_mcp_tools',
     171: 'disable_web_search', 172: 'subagents', 174: 'worktree', 180: 'goal', 181: 'workflows',
@@ -103,7 +103,10 @@ const configOwners = {
   'tools.zdr_video_output_s3': 192, 'toolset': 169,
   'toolset.bash': 170, 'toolset.ask_user_question': 179,
   'toolset.web_fetch': 171, 'toolset.web_search': 171,
-  'memory.dream': 186, 'memory.flush': 186, 'memory.embedding': 186, 'memory_v2.capture': 186,
+  'memory.dream': 186, 'memory.flush': 186, 'memory.embedding': 186,
+  'memory_v2.capture_enabled': 186, 'memory_v2.capture_status_enabled': 186,
+  'memory_v2.automatic_dream_enabled': 186, 'memory_v2.manual_dream_enabled': 186,
+  'memory_v2.archived_retention_days': 186, 'memory_v2.job_retention_days': 186,
   'compaction': 161, 'compaction.memory_flush': 186,
   'workflows.catalog': 184, 'workflows.budget': 182,
 }
@@ -209,17 +212,35 @@ const guideSections = {
   '26': { 'managed_config.toml': [141], 'requirements.toml': [141], 'What happens when a setting is refused': [141, 139] },
 }
 
+export function guideLines(text) {
+  let fence
+  return text.split('\n').map(line => {
+    const marker = line.match(/^ {0,3}(`{3,}|~{3,})(.*)$/u)
+    const closing = fence && marker && marker[1][0] === fence.marker && marker[1].length >= fence.length && !marker[2].trim()
+    const opening = !fence && marker && (marker[1][0] !== '`' || !marker[2].includes('`'))
+    if (opening) fence = { marker: marker[1][0], length: marker[1].length, language: marker[2].trim() }
+    const result = { line, code: Boolean(fence), fence: Boolean(opening || closing), language: fence?.language,
+      heading: !fence ? line.match(/^ {0,3}(#{1,6}) (.+)/u) : null }
+    if (closing) fence = undefined
+    return result
+  })
+}
+
 export function guideContexts(evidence) {
   const contexts = new Map()
   for (const [origin, guides] of [['binary-guide', evidence.capture.guides], ['source-guide', evidence.source.guides]]) {
     for (const guide of guides) {
       const file = guide.file ?? guide.path.split('/').at(-1), headings = []
-      let fenced = false
-      guide.text.split('\n').forEach((line, index) => {
-        if (line.startsWith('```')) fenced = !fenced
-        const heading = !fenced && line.match(/^(#{1,6}) (.+)/u)
+      guideLines(guide.text).forEach(({ line, heading }, index) => {
         if (heading) { headings.length = heading[1].length; headings[heading[1].length - 1] = heading[2] }
         contexts.set(`${origin}:${file}#L${index + 1}`, headings.filter(Boolean))
+        if (file === '26-config-reference.md') {
+          const field = line.match(/^\|\s*`([a-z_][a-z0-9_.<>-]*)`\s*\|/u)?.[1]
+          if (field) for (const match of line.matchAll(/\bAlso\s+`?([A-Z][A-Z0-9_]+)/gu)) {
+            const key = `environment:${match[1]}`
+            contexts.set(key, unique([...(contexts.get(key) ?? []), field]))
+          }
+        }
       })
     }
   }
@@ -232,6 +253,14 @@ function guideMapping(item, contexts) {
   const headings = unique(paths.flat())
   const command = commandName(item, contexts)
   if (command && slashOwners[command]) return [slashOwners[command]]
+  if (guide === '05' && headings.includes('Tool configuration') && item.category !== 'documented-setting') {
+    const text = item.observations.map(o => o.excerpt).join('\n'), owners = []
+    if (/web_fetch|web_search|allow_local/u.test(text)) owners.push(171)
+    if (/ask_user_question/u.test(text)) owners.push(179)
+    if (/toolset\.bash/u.test(text)) owners.push(170)
+    if (/requirements/u.test(text)) owners.push(139, 141)
+    return owners.length ? owners : [139]
+  }
   const cell = item.category === 'guide-item' ? item.name.split(':').at(-1) : ''
   if (['01', '14'].includes(guide)) {
     const flag = cell.match(/`(--?[A-Za-z][A-Za-z-]*)/u)?.[1]
@@ -298,6 +327,13 @@ const envNamespaces = {
   COLORFGBG: 154, COLORTERM: 154, LC_GROK_THEME: 154,
   GROK_THEME: 154, GROK_APPEARANCE: 154, LC_GROK_APPEARANCE: 154, NO_COLOR: 154,
   GROK_WORKSPACE_ROOT: 164, CLAUDE_PROJECT_DIR: 164, GROK_HOOK: 164, GROK_SESSION_ID: 164,
+  GROK_EVENT: [164, 155], GROK_MESSAGE: [164, 155],
+  GROK_WEB_FETCH: 171, GROK_DISABLE_WEB_FETCH: 171,
+  GROK_SCREEN_MODE: 149, GROK_EXIT_TIMEOUT_SECS: 155,
+  GROK_WORKFLOWS: [181, 180], GROK_WORKFLOW_MAX_CONCURRENT_AGENTS: 182,
+  GROK_LOG_FILE: 192, RUST_LOG: 192,
+  GROK_CLONE: 191, GROVE_CLONE: 191, GROVE_AUTH_TOKEN: [189, 191], GROVE_TOKEN_ROTATION: [189, 191],
+  PATHEXT: [167, 200, 201], GROK_CAMPAIGNS: [139, 141],
   GROK_ASK_USER_QUESTION: 179,
   BROWSER: 155, COLUMNS: 154, LINES: 154, ENV: 144, GIT_OPTIONAL_LOCKS: 154, HOME: 139, PATH: 139,
   GROK_MODEL: 140, GROK_MODELS: 140, GROK_DEFAULT_MODEL: 140, GROK_CUSTOM_MODELS: 140,
@@ -306,16 +342,19 @@ const envNamespaces = {
   GROK_SANDBOX: 143, GROK_SHELL_ENVIRONMENT: 144,
   GROK_HOOKS: 164, GROK_PLUGIN: 166, GROK_PLUGINS: 166, GROK_MARKETPLACE: 165,
   GROK_MEMORY: 185, GROK_WORKTREE: 174, GROK_SUBAGENT: 172, GROK_SUBAGENTS: 172,
-  GROK_WORKSPACE: 190, GROK_CURSOR_WORKER: 190, GROK_GROVE: 191,
+  GROK_WORKSPACE: 190, GROK_CURSOR_WORKER: 190, GROK_CLI_CHAT_PROXY_BASE_URL: 190, GROK_GROVE: 191,
   GROK_AUTH: 189, GROK_OIDC: 189, GROK_API_KEY: 189, XAI_API_KEY: 189,
   GROK_TELEMETRY: 192, GROK_FEEDBACK: 192, GROK_TRACE: 192, OTEL: 192, DO_NOT_TRACK: 192,
   GROK_DISABLE_AUTOUPDATER: 198, GROK_FPS: 154, GROK_DOCK: 152,
   GROK_VOICE: 158, GROK_VIDEO: 188, GROK_IMAGE_GEN: 187, GROK_IMAGE_EDIT: 187,
 }
-function environmentOwner(item) {
-  const linked = unique(item.observations.filter(o => /^(?:binary|source)-guide:26-config-reference\.md#/u.test(o.locator))
+function environmentIdentity(item) {
+  return item.category === 'environment' ? item.name.match(/(?:^|:)`?([A-Z][A-Z0-9_]+)(?:=[^`]+)?`?$/u)?.[1] ?? item.name : item.name
+}
+function environmentOwner(item, contexts) {
+  const linked = unique([...(contexts.get(`environment:${item.name}`) ?? []), ...item.observations.filter(o => /^(?:binary|source)-guide:26-config-reference\.md#/u.test(o.locator))
     .flatMap(o => o.excerpt.split('\n').filter(line => [...line.matchAll(/\bAlso\s+`?([A-Z][A-Z0-9_]+)/gu)].some(match => match[1] === item.name))
-      .map(line => line.match(/^\|\s*`([a-z_][a-z0-9_.<>-]*)`\s*\|/u)?.[1]).filter(Boolean))
+      .map(line => line.match(/^\|\s*`([a-z_][a-z0-9_.<>-]*)`\s*\|/u)?.[1]).filter(Boolean))]
     .map(configOwner))
   if (linked.length === 1) return linked[0]
   const compatible = item.name.match(/^GROK_(CLAUDE|CURSOR|CODEX)_(AGENTS|RULES|SKILLS|HOOKS|MCPS)_ENABLED$/u)
@@ -341,6 +380,7 @@ function flagOwner(item) {
 const commandEnums = { AgentCmd: 'agent', LeaderMgmtCommand: 'leader', WorkspaceMgmtCommand: 'workspace', DoctorCommand: 'doctor', McpCommand: 'mcp', MemoryCommand: 'memory', PluginCommand: 'plugin', MarketplaceCommand: 'plugin marketplace', SessionsCommand: 'sessions', WorktreeCommand: 'worktree', WorktreeDbCommand: 'worktree db' }
 
 export function mapOwners(item, contexts = new Map()) {
+  if (item.category === 'environment') item = { ...item, name: environmentIdentity(item), key: `environment:${environmentIdentity(item)}` }
   let owners
   if (/^\d\d-[^:]+\.md:|^README\.md:/u.test(item.name) && !['keybinding', 'environment'].includes(item.category)) owners = guideMapping(item, contexts)
   else switch (item.category) {
@@ -357,7 +397,7 @@ export function mapOwners(item, contexts = new Map()) {
     case 'flag': case 'source-cli': owners = [flagOwner(item)]; break
     case 'setting': owners = [configOwner(item.name)]; break
     case 'pager-setting': owners = [item.name === 'terminal.alt_screen' ? 149 : item.name.includes('disable_plugins') ? 166 : 154]; break
-    case 'environment': owners = [environmentOwner(item)]; break
+    case 'environment': owners = [environmentOwner(item, contexts)].flat(); break
     default: throw new Error(`Unclassified category: ${item.key}`)
   }
   if (owners.some(owner => !owner)) throw new Error(`Unclassified identity: ${item.key}`)
@@ -371,6 +411,20 @@ export function mapOwners(item, contexts = new Map()) {
     if (field === 'ui.fork_secondary_model') owners.push(160)
     if (field === 'toolset.bash.auto_background_on_timeout') owners.push(175)
   }
+  if (['setting', 'documented-setting'].includes(item.category) && ['memory_v2.enabled', 'memory_v2.rollout', 'memory_v2.file_writes_enabled'].includes(field)) owners.push(186)
+  if (['setting', 'documented-setting'].includes(item.category) && field === 'workflows.enabled') owners.push(180)
+  const headings = item.observations.flatMap(o => contexts.get(o.locator) ?? [])
+  const text = item.observations.map(o => o.excerpt).join('\n')
+  const command = commandName(item, contexts)
+  if (['workflow', 'workflows', 'deep-research'].includes(command) || item.category === 'tool' && item.name === 'workflow'
+    || item.category.startsWith('guide-') && item.name.startsWith('05-configuration.md:') && headings.includes('Goal mode and background workflows')) {
+    if (/agent_budget|agent-budget|\b(?:budget|concurrency|parallel\(\))/iu.test(text)) owners.push(182)
+    if (/\/workflow (?:runs|pause|resume|stop)|\bpause\/resume\b|\bbudget-limited\b|\bprocess restart|session-unique display|\bpause, resume, stop/iu.test(text)) owners.push(183)
+    if (/\.grok\/workflows\/|saved workflow|workflow catalog/iu.test(text)) owners.push(184)
+  }
+  if (item.name.startsWith('13-memory.md:') && headings.includes('Memory Notifications') && /automatic (?:Dream|flush)/u.test(text)
+    || item.name === '26-config-reference.md:`memory`' && /memory_v2\.(?:capture|automatic_dream|manual_dream)/u.test(text)) owners.push(186)
+  if (campaignControl(item, contexts)) owners = [139, 141]
   if (item.category === 'environment' && ['GROK_CONFIG', 'GROK_CONFIG_PATH'].includes(item.name)) owners = [139, 141, 142, 144]
   if (owners.includes(177)) owners.push(178)
   return unique(owners)
@@ -382,11 +436,26 @@ function commandName(item, contexts = new Map()) {
   return item.name.match(/`\/([a-z][a-z0-9-]*)/u)?.[1]
     ?? item.observations.flatMap(o => contexts.get(o.locator) ?? []).reverse().map(heading => heading.match(/^`\/([a-z][a-z0-9-]*)/u)?.[1]).find(Boolean)
 }
+function campaignControl(item, contexts) {
+  const field = item.category === 'documented-setting' ? item.name.slice(item.name.indexOf(':') + 1) : item.name
+  return ['setting', 'documented-setting', 'feature'].includes(item.category) && ['campaigns', 'features.campaigns'].includes(field)
+    || item.category === 'environment' && /^GROK_CAMPAIGNS(?:_|$)/u.test(environmentIdentity(item))
+    || item.name.startsWith('26-config-reference.md:') && item.observations.some(o => contexts.get(o.locator)?.includes('`campaigns`'))
+}
 export function mapAcceptance(item, owners, contexts = new Map()) {
+  if (item.category === 'environment') item = { ...item, name: environmentIdentity(item), key: `environment:${environmentIdentity(item)}` }
   const command = commandName(item, contexts), guide = item.name.slice(0, 2)
   const field = item.category === 'documented-setting' ? item.name.slice(item.name.indexOf(':') + 1) : item.name
   const headings = item.observations.flatMap(o => contexts.get(o.locator) ?? [])
   return owners.map(ticket => {
+    if (ticket === 141 && item.name === 'GROK_CAMPAIGNS_OVERRIDE') return 'PARITY-141-campaign-override'
+    if (ticket === 141 && campaignControl(item, contexts)) return 'PARITY-141-campaigns'
+    if (ticket === 149 && ['GROK_SCREEN_MODE', 'GROK_SCREEN_MODE_SWITCH'].includes(item.name)) return 'PARITY-149-exec'
+    if (ticket === 171 && (/^toolset\.web_(?:search|fetch)\./u.test(field) || /^GROK_WEB_FETCH/u.test(item.name) || guide === '05' && headings.includes('Tool configuration'))) return 'PARITY-171-policy'
+    if (ticket === 164 && ['GROK_EVENT', 'GROK_MESSAGE'].includes(item.name)) return 'PARITY-164-notification'
+    if (ticket === 155 && item.name === 'GROK_EXIT_TIMEOUT_SECS') return 'PARITY-155-teardown'
+    if (ticket === 192 && ['GROK_LOG_FILE', 'RUST_LOG'].includes(item.name)) return 'PARITY-192-local-logs'
+    if (ticket === 167 && item.name === 'PATHEXT') return 'PARITY-167-launcher'
     if (ticket === 141 && (headings.includes('Injecting config with `GROK_CONFIG`') || ['GROK_CONFIG', 'GROK_CONFIG_PATH'].includes(item.name))) return 'PARITY-141-overlay'
     if (ticket === 152 && (command === 'vim-mode' || field === 'ui.vim_mode' || guide === '05' && headings.includes('Vim mode'))) return 'PARITY-152-vim-scrollback'
     if (ticket === 193 && command === 'import-claude') return 'PARITY-193-claude-config'

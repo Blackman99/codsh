@@ -3,7 +3,7 @@ import { execFileSync } from 'node:child_process'
 import { readFileSync, readdirSync, writeFileSync } from 'node:fs'
 import { resolve, join } from 'node:path'
 import { pathToFileURL } from 'node:url'
-import { buildRegister } from './reference-mapping.mjs'
+import { buildRegister, guideLines } from './reference-mapping.mjs'
 
 export const SOURCE_COMMIT = 'a28ee2b2063426e8816e380ccea528b9de95e5da'
 export const BINARY_SHA256 = '9cd26b579840f0f5c9148a8059ad651904c08b41b7f2ef0b4ec04b9ba898844e'
@@ -160,13 +160,11 @@ export function extractSurfaces(capture, sources) {
     }
   }
   function document(file, text, origin) {
-    let section = '', code = false, toml = false, table = '', codeTable = '', lastSetting = ''
-    const lines = text.split('\n'), headings = []
-    for (const [index, line] of lines.entries()) {
-      if (!code) {
-        const heading = line.match(/^(#{1,6}) (.+)/u)
-        if (heading) { headings.length = heading[1].length; headings[heading[1].length - 1] = heading[2] }
-      }
+    let section = '', table = '', codeTable = '', lastSetting = ''
+    const scanned = guideLines(text), lines = scanned.map(row => row.line), headings = []
+    for (const [index, row] of scanned.entries()) {
+      const { line, code, fence, language, heading } = row
+      if (heading) { headings.length = heading[1].length; headings[heading[1].length - 1] = heading[2] }
       const locator = `${origin}:${file}#L${index + 1}`
       for (const match of line.matchAll(/\b(?:GROK_[A-Z0-9_]+|XAI_API_KEY|DO_NOT_TRACK|OTEL_[A-Z0-9_]+)\b/gu)) {
         add('environment', match[0], line, locator, origin)
@@ -177,20 +175,27 @@ export function extractSurfaces(capture, sources) {
         const variable = line.match(/^\|\s*`([A-Z][A-Z0-9_]+)`\s*\|/u)?.[1]
         if (variable) add('environment', variable, line, locator, origin)
       }
-      if (/\benv(?:ironment)?(?:[ -](?:variable|override|control))?\b/iu.test(context)) {
+      if (/\benv(?:ironment)?(?:[ -](?:variable|override|control))?\b/iu.test(context.replace(/--env\b/gu, ''))) {
         for (const match of environmentText.matchAll(/`([A-Z][A-Z0-9_]+)(?:=[^`]+)?`/gu)) add('environment', match[1], line, locator, origin)
       }
       for (const match of environmentText.matchAll(/\b[Ss]et\s+`([A-Z][A-Z0-9_]+)`(?:\s*\(or\s+`([A-Z][A-Z0-9_]+)`\))?|`([A-Z][A-Z0-9_]+)=[^`]+`/gu)) {
         for (const name of match.slice(1).filter(Boolean)) add('environment', name, line, locator, origin)
       }
-      if (line.startsWith('```')) {
-        code = !code
-        toml = code && line === '```toml'
+      const processControls = /\b(?:reads?|checks?|honor(?:s|ing)?)\s+((?:\n\s*)?`[A-Z][A-Z0-9_]+`(?:\s*(?:\/|,|or|and)\s*`[A-Z][A-Z0-9_]+`)*)/gu
+      for (const match of context.matchAll(processControls)) {
+        for (const variable of match[1].matchAll(/`([A-Z][A-Z0-9_]+)`/gu)) {
+          if (line.includes(variable[0])) add('environment', variable[1], line, locator, origin)
+        }
+      }
+      if (/\b(?:credential|token)\b/iu.test(line)) {
+        for (const match of line.matchAll(/\b(?:or|from|via)\s+`([A-Z][A-Z0-9_]+)`/gu)) add('environment', match[1], line, locator, origin)
+      }
+      if (fence) {
         codeTable = ''
         continue
       }
       if (code) {
-        if (toml) {
+        if (language === 'toml') {
           const heading = line.match(/^\[\[?([^\]]+)\]\]?/u)
           if (heading) codeTable = heading[1]
           const field = line.match(/^([a-z_][a-z0-9_]*)\s*=/u)
@@ -204,21 +209,31 @@ export function extractSurfaces(capture, sources) {
         }
         continue
       }
-      const heading = line.match(/^(#{2,6}) (.+)/u)
-      if (heading) {
+      if (heading && heading[1].length >= 2) {
         section = heading[1].length === 2 ? heading[2] : `${section.split(' > ')[0]} > ${heading[2]}`
         table = ''
         const body = []
-        for (let next = index + 1; next < lines.length && !/^#{1,6} /u.test(lines[next]); next++) {
-          body.push(lines[next])
-        }
-        if (body.join('\n').trim()) {
-          add('guide-section', `${file}:${heading[2]}`, body.join('\n').trim(), locator, origin)
-          for (const [paragraphIndex, paragraph] of body.join('\n').trim().split(/\n\s*\n/u).entries()) {
-            if (!paragraph.startsWith('|') && !paragraph.startsWith('```')) {
-              add('guide-behavior', `${file}:${heading[2]}:${paragraphIndex + 1}`, paragraph, locator, origin)
+        for (let next = index + 1; next < scanned.length && !scanned[next].heading; next++) body.push(scanned[next])
+        const content = body.map(row => row.line).join('\n').trim()
+        if (content) {
+          add('guide-section', `${file}:${heading[2]}`, content, locator, origin)
+          let paragraphIndex = 0, paragraph = []
+          const flush = () => {
+            if (!paragraph.length) return
+            paragraphIndex++
+            if (!paragraph.some(row => row.code) && !paragraph[0].line.startsWith('|')) {
+              add('guide-behavior', `${file}:${heading[2]}:${paragraphIndex}`, paragraph.map(row => row.line).join('\n'), locator, origin)
+            }
+            paragraph = []
+          }
+          for (const row of body) {
+            if (!row.line.trim()) flush()
+            else {
+              if (paragraph.length && paragraph.at(-1).code !== row.code) flush()
+              paragraph.push(row)
             }
           }
+          flush()
         }
       }
       if (line.startsWith('|')) {
@@ -229,7 +244,7 @@ export function extractSurfaces(capture, sources) {
         let category = 'guide-item'
         if (file.startsWith('26-') && table.includes('| Key |') && /^`[a-z_][^`]*`$/u.test(cells[0])) category = 'setting'
         else if (file.startsWith('03-')) category = 'keybinding'
-        else if (cells[0].includes('GROK_')) category = 'environment'
+        else if (/^`[A-Z][A-Z0-9_]*(?:=[^`]+)?`$/u.test(cells[0]) && (headings.some(heading => /environment variables/iu.test(heading)) || /^`GROK_/u.test(cells[0]))) category = 'environment'
         const name = category === 'setting' ? cells[0].replaceAll('`', '') : `${file}:${section}:${cells[0]}`
         add(category, name, `${table}\n${line}`, locator, origin)
       }

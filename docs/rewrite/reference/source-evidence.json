@@ -13493,6 +13493,11 @@
           "excerpt": "- **See errors?** Capture logs by launching with `RUST_LOG=debug GROK_LOG_FILE=/tmp/grok.log grok`, then check `/tmp/grok.log`."
         },
         {
+          "locator": "source-guide:14-headless-mode.md#L547",
+          "scope": "source-guide",
+          "excerpt": "| `GROK_LOG_FILE`                | Path to a log file (used verbatim as the path; works in headless and TUI, honors `RUST_LOG`) |"
+        },
+        {
           "locator": "source-guide:14-headless-mode.md#L548",
           "scope": "source-guide",
           "excerpt": "| `RUST_LOG`                     | Log level filter (e.g. `debug`). Headless logs to stderr.     |"

@@ -117,6 +117,32 @@ or configuration defaults cannot displace functional section owners.
 
 Important reconciliations:
 
+- A shared fence-aware Markdown scan drives section boundaries and mapping context.
+  Backtick/tilde fences, marker lengths, TOML comments and blank lines inside code
+  cannot truncate following security prose or create headings. Fenced examples stay
+  quoted in section evidence rather than masquerading as behavior paragraphs.
+  The restored Tool configuration prose retains authoritative search policy,
+  model-override prohibition, allow/block conflict warnings, session-start loading,
+  questionnaire precedence and loopback-only fetch exceptions under functional owners.
+- Documented process reads, credential inputs and launcher-resolution controls are
+  discovered without requiring a vendor prefix or underscore: `GROVE_CLONE`,
+  `GROVE_AUTH_TOKEN` and `PATHEXT` retain clone/auth/MCP/native-platform ownership.
+  Canonical and guide-qualified environment names (including assignments) share
+  ownership and acceptance; file/path rows mentioning `$GROK_HOME` remain file/path
+  contracts. Web/local-network, notification hooks, screen switching, teardown,
+  workflow/goal and local-log controls cannot fall back to generic config alone.
+- Quoted workflow budget/concurrency and run-lifecycle subcontracts add #182/#183
+  alongside #181/#184/#206 only where the evidence describes them, including the
+  captured workflow tool schema. Memory-v2 capture/status, Dream and retention use
+  #186; shared enablement/rollout/write gates retain both manual and automatic memory
+  owners. Manual `/memory` and `/remember` behavior is not reclassified as capture.
+- Campaign patches and feature/environment gates use #139 effective precedence and
+  #141 locked-requirements acceptance, not renderer tests. The documented
+  `GROK_CAMPAIGNS=0` kill switch and source-only `GROK_CAMPAIGNS_OVERRIDE` replacement
+  semantics have separate scenarios. Source-only screen-mode injection, workflow
+  concurrency and web-fetch-disable controls remain provisional. No new runtime
+  availability or enforcement is inferred from these extraction/mapping corrections.
+
 - UI approval/yolo, follow-up routing/merging, child cancellation and `simple_mode`
   belong to permissions, queue/steer, cancellation/child lifecycle and prompt editing.
   Screen mode, voice capture/keybindings/language, fork model selection and rewind

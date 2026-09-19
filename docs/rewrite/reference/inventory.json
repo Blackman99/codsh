@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "discoverySha256": "ebeaadb7c53b204abd19003d5999454cf319f265c5d1a6269ca49d031be586be",
+  "discoverySha256": "7814b552c8302b7cffe909ecb840a5aed1cf5db6cd118a8f57a7d21d2ab55194",
   "tickets": [
     {
       "number": 133,
@@ -871,6 +871,86 @@
   ],
   "acceptance": [
     {
+      "id": "PARITY-141-campaigns",
+      "ticket": 141,
+      "given": "isolated managed, user and requirements configs with conflicting campaign patches from a controlled deployment",
+      "when": "enable features.campaigns, apply named campaigns and vary GROK_CAMPAIGNS, then inspect effective values and origins",
+      "then": "campaign patches remain below requirements; GROK_CAMPAIGNS=0 still disables remote campaign patches even when requirements enable the feature; effective config and actual consuming operations agree",
+      "failure": "malformed or unavailable patches and conflicting locked values cannot silently override requirements, contact an unconfigured deployment or become a renderer-only success",
+      "status": "planned",
+      "boundary": "installed-product/public-protocol and controlled effects; source declarations are not measured frozen-binary parity"
+    },
+    {
+      "id": "PARITY-141-campaign-override",
+      "ticket": 141,
+      "given": "a source-declared GROK_CAMPAIGNS_OVERRIDE control whose frozen-binary availability must first be established, conflicting requirements and controlled campaign sources",
+      "when": "provide a replacement JSON array, an empty array and malformed JSON with the campaign kill switch both enabled and disabled",
+      "then": "the source contract replaces all campaign sources even over the kill switch, but restores requirements precedence after patch application; empty input arrays suppress campaigns",
+      "failure": "malformed JSON suppresses campaigns rather than falling back to remote sources; unavailable frozen-binary behavior remains unverified and cannot be inferred from the newer source",
+      "status": "planned",
+      "boundary": "installed-product/public-protocol and controlled effects; source declarations are not measured frozen-binary parity"
+    },
+    {
+      "id": "PARITY-149-exec",
+      "ticket": 149,
+      "given": "a real PTY and synthetic persisted session, with GROK_SCREEN_MODE availability checked separately from the documented GROK_SCREEN_MODE_SWITCH control",
+      "when": "compare the default in-place transition with GROK_SCREEN_MODE_SWITCH=exec, recording process identity, resumed session, mode and terminal teardown",
+      "then": "default switching stays in process, while exec relaunches the pager into the same session and requested mode without resubmitting the original prompt or rewriting the saved default",
+      "failure": "failed relaunch reports the resume remedy without pretending draft/queue state survived an exec; unsupported terminal behavior and source-only mode injection remain explicit until measured",
+      "status": "planned",
+      "boundary": "installed-product/public-protocol and controlled effects; source declarations are not measured frozen-binary parity"
+    },
+    {
+      "id": "PARITY-171-policy",
+      "ticket": 171,
+      "given": "recording backend-hosted and client-fallback search services plus controlled public, loopback, private, link-local and metadata fetch targets",
+      "when": "set web-search allow/block lists and conflicting model-call domains, vary web-fetch allow_local in TOML and environment, then change config mid-session and start a new session",
+      "then": "configured search policy is authoritative and ignores model-call allowlists; allow wins over block with a warning, empty/absent policy is unbounded, and policy loads at session start on both routes; fetch resolves TOML over env over default off and only explicit loopback hosts are added by allow_local",
+      "failure": "private, link-local and cloud-metadata targets stay blocked, including redirect/resolution escapes; model arguments cannot bypass configured blocks and a session cannot silently pick up a mid-session policy edit",
+      "status": "planned",
+      "boundary": "installed-product/public-protocol and controlled effects; source declarations are not measured frozen-binary parity"
+    },
+    {
+      "id": "PARITY-164-notification",
+      "ticket": 164,
+      "given": "a local recording notification hook, isolated sessions and focused/unfocused terminal fixtures",
+      "when": "trigger configured notification events and capture the child environment under event, focus and timeout filters",
+      "then": "GROK_EVENT, GROK_MESSAGE and GROK_SESSION_ID carry the actual selected event, message and owning session; disabled or filtered events spawn no hook",
+      "failure": "hook failure, timeout, cancellation and session switch cannot fabricate delivery, leak another session message or launch an unconfigured notification command",
+      "status": "planned",
+      "boundary": "installed-product/public-protocol and controlled effects; source declarations are not measured frozen-binary parity"
+    },
+    {
+      "id": "PARITY-155-teardown",
+      "ticket": 155,
+      "given": "a real PTY with controlled normal and deliberately hanging teardown and isolated owned children",
+      "when": "quit with GROK_EXIT_TIMEOUT_SECS unset, positive and zero, recording process exit and terminal modes",
+      "then": "normal quit restores terminal modes; hanging teardown follows the documented 20-second default or selected timeout, with hard exit five seconds later; zero disables the watchdog rather than exiting immediately",
+      "failure": "invalid values follow the frozen fallback; forced teardown must not leave owned processes running or falsely report graceful session completion",
+      "status": "planned",
+      "boundary": "installed-product/public-protocol and controlled effects; source declarations are not measured frozen-binary parity"
+    },
+    {
+      "id": "PARITY-192-local-logs",
+      "ticket": 192,
+      "given": "isolated TUI and headless sessions, a controlled log directory and disabled outbound diagnostics",
+      "when": "set GROK_LOG_FILE to absolute and literal relative paths and vary RUST_LOG while recording stdout, stderr and the local file",
+      "then": "the exact file path is used; RUST_LOG filters file logs and headless stderr without changing the fixed TUI tracing-pane filter; headless defaults off and structured stdout remains parseable",
+      "failure": "unwritable paths and malformed filters are explicit without secret disclosure or implicit upload; cancellation closes local output cleanly",
+      "status": "planned",
+      "boundary": "installed-product/public-protocol and controlled effects; source declarations are not measured frozen-binary parity"
+    },
+    {
+      "id": "PARITY-167-launcher",
+      "ticket": 167,
+      "given": "a native Windows MCP fixture with controlled PATH, PATHEXT, npm-style cmd shims and competing executable names",
+      "when": "initialize MCP using a bare command, absolute path and separator-containing path",
+      "then": "bare names resolve on PATH honoring PATHEXT and launch the intended shim without a manual cmd /c wrapper; explicit paths are used as-is and the real MCP handshake succeeds",
+      "failure": "missing launcher, invalid extension order and spawn failure report initialization failure rather than claiming callable tools or launching an unintended executable",
+      "status": "planned",
+      "boundary": "installed-product/public-protocol and controlled effects; source declarations are not measured frozen-binary parity"
+    },
+    {
       "id": "PARITY-141-overlay",
       "ticket": 141,
       "given": "an isolated installed ACP/CLI client with conflicting disk requirements/managed settings, inline/file overlays and process, network and trust canaries",
@@ -1504,20 +1584,20 @@
       "id": "PARITY-182",
       "ticket": 182,
       "status": "planned",
-      "given": "a Rhai parallel panel at and beyond the configured budget",
-      "when": "admit the inventoried concurrent child calls",
-      "then": "admission count, concurrency and barriers honor the frozen limits",
-      "failure": "over-budget panel launches no partial unauthorized children",
+      "given": "a Rhai workflow with sequential and parallel children, schema-correction retries and a recording provider",
+      "when": "launch through slash/tool JSON and flags with default, boundary and invalid agent_budget values and an independent host concurrency cap",
+      "then": "agent_budget defaults to 128 with explicit range 1–1024; each agent call or panel item spends one slot, schema retries do not; budget() reports total/spent/reserved zero/remaining; the default 32 active-child cap queues larger panels as a barrier independently of cumulative admission",
+      "failure": "over-budget panels launch no partial children; invalid bounds, child failure and cancellation preserve ordering, report unexecuted items and leak no agents",
       "boundary": "installed-product/public-protocol; exact discovery row is the parameter; reference observation required before candidate comparison"
     },
     {
       "id": "PARITY-183",
       "ticket": 183,
       "status": "planned",
-      "given": "a workflow with committed and uncommitted host results",
-      "when": "pause, stop and resume the inventoried run",
-      "then": "same-process continuation uses the original script and committed results",
-      "failure": "process restart remains interrupted; uncertain side effects are not exactly-once",
+      "given": "duplicate named workflow runs with committed and uncommitted host results in fullscreen and text clients",
+      "when": "pause, resume and stop by unique display name, inspect phases/results, raise a budget-limited run cap through the tool, then restart the process",
+      "then": "same-process continuation uses the original immutable script, args, cap and committed results; ordinary pause resumes, but budget-limited runs require a cap above admitted calls and reject bare resume; UI and text views agree and completion reaches the correct owner once",
+      "failure": "process restart remains interrupted; uncertain side effects are not exactly-once and may repeat if uncommitted; cancellation stops actual children without changing another run",
       "boundary": "installed-product/public-protocol; exact discovery row is the parameter; reference observation required before candidate comparison"
     },
     {
@@ -1544,10 +1624,10 @@
       "id": "PARITY-186",
       "ticket": 186,
       "status": "planned",
-      "given": "queued synthetic memory observations and configured model routes",
-      "when": "capture, flush or consolidate the inventoried operation",
-      "then": "provider destination, cost and retained notes are observable",
-      "failure": "lease conflict, provider failure and cancellation preserve recoverable state",
+      "given": "queued synthetic memory observations, configured recording providers and separate legacy/v2 storage fixtures",
+      "when": "vary v2 enablement/rollout, capture and automatic/manual Dream gates, file writes and retention; capture, flush, consolidate and reopen the resulting memory across sessions",
+      "then": "capture_enabled controls extraction while capture_status_enabled controls lifecycle UI, not processing; generated content and committed-file links agree; automatic/manual Dream gates are independent; provider destination, content scope, cost, retained notes and job/archive expiry are observable without conflating storage generations",
+      "failure": "disabled file writes fail closed before scaffolding; lease conflicts, provider failure, cancellation and restart preserve manual edits and recoverable state; turning background processing off does not delete existing memory or expose secrets in diagnostics",
       "boundary": "installed-product/public-protocol; exact discovery row is the parameter; reference observation required before candidate comparison"
     },
     {
@@ -12814,7 +12894,7 @@
         171
       ],
       "acceptance": [
-        "PARITY-171"
+        "PARITY-171-policy"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -12832,7 +12912,7 @@
         171
       ],
       "acceptance": [
-        "PARITY-171"
+        "PARITY-171-policy"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -12850,7 +12930,7 @@
         171
       ],
       "acceptance": [
-        "PARITY-171"
+        "PARITY-171-policy"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -12868,7 +12948,7 @@
         171
       ],
       "acceptance": [
-        "PARITY-171"
+        "PARITY-171-policy"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -19200,14 +19280,14 @@
       "stories": [
         8,
         34,
-        35,
-        63
+        36,
+        60
       ],
       "tickets": [
-        139
+        189
       ],
       "acceptance": [
-        "PARITY-139"
+        "PARITY-189"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -19221,14 +19301,14 @@
       "stories": [
         8,
         34,
-        35,
-        63
+        36,
+        60
       ],
       "tickets": [
-        139
+        189
       ],
       "acceptance": [
-        "PARITY-139"
+        "PARITY-189"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -19242,14 +19322,14 @@
       "stories": [
         8,
         34,
-        35,
-        63
+        36,
+        60
       ],
       "tickets": [
-        139
+        189
       ],
       "acceptance": [
-        "PARITY-139"
+        "PARITY-189"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -19263,14 +19343,14 @@
       "stories": [
         8,
         34,
-        35,
-        63
+        36,
+        60
       ],
       "tickets": [
-        139
+        189
       ],
       "acceptance": [
-        "PARITY-139"
+        "PARITY-189"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -19284,14 +19364,14 @@
       "stories": [
         8,
         34,
-        35,
-        63
+        36,
+        60
       ],
       "tickets": [
-        139
+        189
       ],
       "acceptance": [
-        "PARITY-139"
+        "PARITY-189"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -19305,14 +19385,14 @@
       "stories": [
         8,
         34,
-        35,
-        63
+        36,
+        60
       ],
       "tickets": [
-        139
+        189
       ],
       "acceptance": [
-        "PARITY-139"
+        "PARITY-189"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -19322,18 +19402,38 @@
       "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
     },
     {
-      "key": "environment:05-configuration.md:Environment variables > Endpoints:`GROK_CLI_CHAT_PROXY_BASE_URL`",
+      "key": "environment:05-configuration.md:Environment variables > Authentication:`XAI_API_KEY`",
       "stories": [
         8,
         34,
-        35,
-        63
+        36,
+        60
       ],
       "tickets": [
-        139
+        189
       ],
       "acceptance": [
-        "PARITY-139"
+        "PARITY-189"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "binary-guide:05-configuration.md#L766",
+        "source-guide:05-configuration.md#L766"
+      ],
+      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
+    },
+    {
+      "key": "environment:05-configuration.md:Environment variables > Endpoints:`GROK_CLI_CHAT_PROXY_BASE_URL`",
+      "stories": [
+        60,
+        61,
+        62
+      ],
+      "tickets": [
+        190
+      ],
+      "acceptance": [
+        "PARITY-190"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -19345,16 +19445,14 @@
     {
       "key": "environment:05-configuration.md:Environment variables > Features:`GROK_AGENT`",
       "stories": [
-        8,
-        34,
-        35,
-        63
+        12,
+        37
       ],
       "tickets": [
-        139
+        163
       ],
       "acceptance": [
-        "PARITY-139"
+        "PARITY-163"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -19366,16 +19464,15 @@
     {
       "key": "environment:05-configuration.md:Environment variables > Features:`GROK_EXIT_TIMEOUT_SECS`",
       "stories": [
-        8,
-        34,
-        35,
-        63
+        15,
+        18,
+        70
       ],
       "tickets": [
-        139
+        155
       ],
       "acceptance": [
-        "PARITY-139"
+        "PARITY-155-teardown"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -19387,16 +19484,14 @@
     {
       "key": "environment:05-configuration.md:Environment variables > Features:`GROK_MEMORY`",
       "stories": [
-        8,
-        34,
-        35,
+        51,
         63
       ],
       "tickets": [
-        139
+        185
       ],
       "acceptance": [
-        "PARITY-139"
+        "PARITY-185"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -19408,16 +19503,14 @@
     {
       "key": "environment:05-configuration.md:Environment variables > Features:`GROK_SANDBOX`",
       "stories": [
-        8,
-        34,
-        35,
-        63
+        26,
+        27
       ],
       "tickets": [
-        139
+        143
       ],
       "acceptance": [
-        "PARITY-139"
+        "PARITY-143-confinement"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -19429,16 +19522,15 @@
     {
       "key": "environment:05-configuration.md:Environment variables > Features:`GROK_SUBAGENTS`",
       "stories": [
-        8,
-        34,
-        35,
-        63
+        42,
+        43,
+        47
       ],
       "tickets": [
-        139
+        172
       ],
       "acceptance": [
-        "PARITY-139"
+        "PARITY-172"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -19450,16 +19542,13 @@
     {
       "key": "environment:05-configuration.md:Environment variables > Features:`GROK_WEB_FETCH_ALLOW_LOCAL`",
       "stories": [
-        8,
-        34,
-        35,
-        63
+        55
       ],
       "tickets": [
-        139
+        171
       ],
       "acceptance": [
-        "PARITY-139"
+        "PARITY-171-policy"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -19471,16 +19560,13 @@
     {
       "key": "environment:05-configuration.md:Environment variables > Features:`GROK_WEB_FETCH`",
       "stories": [
-        8,
-        34,
-        35,
-        63
+        55
       ],
       "tickets": [
-        139
+        171
       ],
       "acceptance": [
-        "PARITY-139"
+        "PARITY-171-policy"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -19492,16 +19578,18 @@
     {
       "key": "environment:05-configuration.md:Environment variables > Features:`GROK_WORKFLOWS`",
       "stories": [
-        8,
-        34,
-        35,
-        63
+        48,
+        49,
+        33,
+        50
       ],
       "tickets": [
-        139
+        181,
+        180
       ],
       "acceptance": [
-        "PARITY-139"
+        "PARITY-181",
+        "PARITY-180"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -19513,21 +19601,40 @@
     {
       "key": "environment:05-configuration.md:Environment variables > Logging:`GROK_LOG_FILE`",
       "stories": [
-        8,
-        34,
-        35,
-        63
+        30,
+        63,
+        64
       ],
       "tickets": [
-        139
+        192
       ],
       "acceptance": [
-        "PARITY-139"
+        "PARITY-192-local-logs"
       ],
       "status": "pending-parity",
       "evidence": [
         "binary-guide:05-configuration.md#L797",
         "source-guide:05-configuration.md#L797"
+      ],
+      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
+    },
+    {
+      "key": "environment:05-configuration.md:Environment variables > Logging:`RUST_LOG`",
+      "stories": [
+        30,
+        63,
+        64
+      ],
+      "tickets": [
+        192
+      ],
+      "acceptance": [
+        "PARITY-192-local-logs"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "binary-guide:05-configuration.md#L798",
+        "source-guide:05-configuration.md#L798"
       ],
       "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
     },
@@ -19555,16 +19662,14 @@
     {
       "key": "environment:05-configuration.md:Environment variables > Paths:`GROK_RESPECT_GITIGNORE`",
       "stories": [
-        8,
-        34,
-        35,
-        63
+        13,
+        23
       ],
       "tickets": [
-        139
+        169
       ],
       "acceptance": [
-        "PARITY-139"
+        "PARITY-169"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -19578,14 +19683,14 @@
       "stories": [
         8,
         34,
-        35,
-        63
+        36,
+        60
       ],
       "tickets": [
-        139
+        189
       ],
       "acceptance": [
-        "PARITY-139"
+        "PARITY-189"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -19597,16 +19702,15 @@
     {
       "key": "environment:05-configuration.md:Environment variables > Telemetry:`GROK_EXTERNAL_OTEL`",
       "stories": [
-        8,
-        34,
-        35,
-        63
+        30,
+        63,
+        64
       ],
       "tickets": [
-        139
+        192
       ],
       "acceptance": [
-        "PARITY-139"
+        "PARITY-192"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -19618,16 +19722,15 @@
     {
       "key": "environment:05-configuration.md:Environment variables > Telemetry:`GROK_FEEDBACK_ENABLED`",
       "stories": [
-        8,
-        34,
-        35,
-        63
+        30,
+        63,
+        64
       ],
       "tickets": [
-        139
+        192
       ],
       "acceptance": [
-        "PARITY-139"
+        "PARITY-192"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -19639,16 +19742,15 @@
     {
       "key": "environment:05-configuration.md:Environment variables > Telemetry:`GROK_TELEMETRY_ENABLED`",
       "stories": [
-        8,
-        34,
-        35,
-        63
+        30,
+        63,
+        64
       ],
       "tickets": [
-        139
+        192
       ],
       "acceptance": [
-        "PARITY-139"
+        "PARITY-192"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -19660,16 +19762,15 @@
     {
       "key": "environment:05-configuration.md:Environment variables > Telemetry:`GROK_TELEMETRY_MIXPANEL_ENABLED`",
       "stories": [
-        8,
-        34,
-        35,
-        63
+        30,
+        63,
+        64
       ],
       "tickets": [
-        139
+        192
       ],
       "acceptance": [
-        "PARITY-139"
+        "PARITY-192"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -19681,16 +19782,15 @@
     {
       "key": "environment:05-configuration.md:Environment variables > Telemetry:`GROK_TELEMETRY_TRACE_UPLOAD`",
       "stories": [
-        8,
-        34,
-        35,
-        63
+        30,
+        63,
+        64
       ],
       "tickets": [
-        139
+        192
       ],
       "acceptance": [
-        "PARITY-139"
+        "PARITY-192"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -19702,13 +19802,15 @@
     {
       "key": "environment:09-plugins.md:Reference > Environment variables in plugin hooks:`GROK_PLUGIN_DATA`",
       "stories": [
+        37,
+        38,
         41
       ],
       "tickets": [
-        165
+        166
       ],
       "acceptance": [
-        "PARITY-165"
+        "PARITY-166"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -19720,13 +19822,15 @@
     {
       "key": "environment:09-plugins.md:Reference > Environment variables in plugin hooks:`GROK_PLUGIN_ROOT`",
       "stories": [
+        37,
+        38,
         41
       ],
       "tickets": [
-        165
+        166
       ],
       "acceptance": [
-        "PARITY-165"
+        "PARITY-166"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -19736,35 +19840,17 @@
       "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
     },
     {
-      "key": "environment:10-hooks.md:Hooks in Config Files:`managed_config.toml` (`$GROK_HOME`, `/etc/grok`)",
-      "stories": [
-        25,
-        38
-      ],
-      "tickets": [
-        164
-      ],
-      "acceptance": [
-        "PARITY-164"
-      ],
-      "status": "pending-parity",
-      "evidence": [
-        "binary-guide:10-hooks.md#L202",
-        "source-guide:10-hooks.md#L202"
-      ],
-      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
-    },
-    {
       "key": "environment:10-hooks.md:Writing Hook Scripts > Plugin hook variables:`GROK_PLUGIN_DATA`",
       "stories": [
-        25,
-        38
+        37,
+        38,
+        41
       ],
       "tickets": [
-        164
+        166
       ],
       "acceptance": [
-        "PARITY-164"
+        "PARITY-166"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -19776,6 +19862,26 @@
     {
       "key": "environment:10-hooks.md:Writing Hook Scripts > Plugin hook variables:`GROK_PLUGIN_ROOT`",
       "stories": [
+        37,
+        38,
+        41
+      ],
+      "tickets": [
+        166
+      ],
+      "acceptance": [
+        "PARITY-166"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "binary-guide:10-hooks.md#L504",
+        "source-guide:10-hooks.md#L504"
+      ],
+      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
+    },
+    {
+      "key": "environment:10-hooks.md:Writing Hook Scripts > Runner-injected variables (always available):`CLAUDE_PROJECT_DIR`",
+      "stories": [
         25,
         38
       ],
@@ -19783,12 +19889,12 @@
         164
       ],
       "acceptance": [
-        "PARITY-164"
+        "PARITY-164-environment"
       ],
       "status": "pending-parity",
       "evidence": [
-        "binary-guide:10-hooks.md#L504",
-        "source-guide:10-hooks.md#L504"
+        "binary-guide:10-hooks.md#L494",
+        "source-guide:10-hooks.md#L494"
       ],
       "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
     },
@@ -19802,7 +19908,7 @@
         164
       ],
       "acceptance": [
-        "PARITY-164"
+        "PARITY-164-environment"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -19821,7 +19927,7 @@
         164
       ],
       "acceptance": [
-        "PARITY-164"
+        "PARITY-164-environment"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -19840,7 +19946,7 @@
         164
       ],
       "acceptance": [
-        "PARITY-164"
+        "PARITY-164-environment"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -19859,7 +19965,7 @@
         164
       ],
       "acceptance": [
-        "PARITY-164"
+        "PARITY-164-environment"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -19909,37 +20015,37 @@
       "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
     },
     {
-      "key": "environment:12-project-rules.md:Supported File Names > Rules Directories:`$GROK_HOME/rules/` (default `~/.grok/rules/`)",
+      "key": "environment:11-custom-models.md:Custom Models Endpoint > Environment Variables:`XAI_API_KEY`",
       "stories": [
-        12,
-        37
+        8,
+        34,
+        36,
+        60
       ],
       "tickets": [
-        163
+        189
       ],
       "acceptance": [
-        "PARITY-163"
+        "PARITY-189"
       ],
       "status": "pending-parity",
       "evidence": [
-        "binary-guide:12-project-rules.md#L42",
-        "source-guide:12-project-rules.md#L42"
+        "binary-guide:11-custom-models.md#L320",
+        "source-guide:11-custom-models.md#L320"
       ],
       "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
     },
     {
       "key": "environment:14-headless-mode.md:Additional Headless Flags:`GROK_MEMORY=0`",
       "stories": [
-        8,
-        34,
-        35,
+        51,
         63
       ],
       "tickets": [
-        139
+        185
       ],
       "acceptance": [
-        "PARITY-139"
+        "PARITY-185"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -19972,16 +20078,15 @@
     {
       "key": "environment:14-headless-mode.md:Environment Variables for Headless:`GROK_LOG_FILE`",
       "stories": [
-        8,
-        34,
-        35,
-        63
+        30,
+        63,
+        64
       ],
       "tickets": [
-        139
+        192
       ],
       "acceptance": [
-        "PARITY-139"
+        "PARITY-192-local-logs"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -19991,18 +20096,60 @@
       "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
     },
     {
-      "key": "environment:14-headless-mode.md:Update Check Suppression:`GROK_DISABLE_AUTOUPDATER=1`",
+      "key": "environment:14-headless-mode.md:Environment Variables for Headless:`RUST_LOG`",
+      "stories": [
+        30,
+        63,
+        64
+      ],
+      "tickets": [
+        192
+      ],
+      "acceptance": [
+        "PARITY-192-local-logs"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "binary-guide:14-headless-mode.md#L548",
+        "source-guide:14-headless-mode.md#L548"
+      ],
+      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
+    },
+    {
+      "key": "environment:14-headless-mode.md:Environment Variables for Headless:`XAI_API_KEY`",
       "stories": [
         8,
         34,
-        35,
-        63
+        36,
+        60
       ],
       "tickets": [
-        139
+        189
       ],
       "acceptance": [
-        "PARITY-139"
+        "PARITY-189"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "binary-guide:14-headless-mode.md#L545",
+        "source-guide:14-headless-mode.md#L545"
+      ],
+      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
+    },
+    {
+      "key": "environment:14-headless-mode.md:Update Check Suppression:`GROK_DISABLE_AUTOUPDATER=1`",
+      "stories": [
+        6,
+        7,
+        69,
+        70,
+        73
+      ],
+      "tickets": [
+        198
+      ],
+      "acceptance": [
+        "PARITY-198"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -20028,6 +20175,266 @@
       "evidence": [
         "binary-guide:24-monitoring-usage.md#L81",
         "source-guide:24-monitoring-usage.md#L81"
+      ],
+      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
+    },
+    {
+      "key": "environment:24-monitoring-usage.md:Environment variables:`OTEL_EXPORTER_OTLP_ENDPOINT`",
+      "stories": [
+        30,
+        63,
+        64
+      ],
+      "tickets": [
+        192
+      ],
+      "acceptance": [
+        "PARITY-192"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "binary-guide:24-monitoring-usage.md#L86",
+        "source-guide:24-monitoring-usage.md#L86"
+      ],
+      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
+    },
+    {
+      "key": "environment:24-monitoring-usage.md:Environment variables:`OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE`",
+      "stories": [
+        30,
+        63,
+        64
+      ],
+      "tickets": [
+        192
+      ],
+      "acceptance": [
+        "PARITY-192"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "binary-guide:24-monitoring-usage.md#L94",
+        "source-guide:24-monitoring-usage.md#L94"
+      ],
+      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
+    },
+    {
+      "key": "environment:24-monitoring-usage.md:Environment variables:`OTEL_EXPORTER_OTLP_PROTOCOL`",
+      "stories": [
+        30,
+        63,
+        64
+      ],
+      "tickets": [
+        192
+      ],
+      "acceptance": [
+        "PARITY-192"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "binary-guide:24-monitoring-usage.md#L84",
+        "source-guide:24-monitoring-usage.md#L84"
+      ],
+      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
+    },
+    {
+      "key": "environment:24-monitoring-usage.md:Environment variables:`OTEL_EXPORTER_OTLP_TIMEOUT`",
+      "stories": [
+        30,
+        63,
+        64
+      ],
+      "tickets": [
+        192
+      ],
+      "acceptance": [
+        "PARITY-192"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "binary-guide:24-monitoring-usage.md#L91",
+        "source-guide:24-monitoring-usage.md#L91"
+      ],
+      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
+    },
+    {
+      "key": "environment:24-monitoring-usage.md:Environment variables:`OTEL_LOG_ASSISTANT_RESPONSES`",
+      "stories": [
+        30,
+        63,
+        64
+      ],
+      "tickets": [
+        192
+      ],
+      "acceptance": [
+        "PARITY-192"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "binary-guide:24-monitoring-usage.md#L98",
+        "source-guide:24-monitoring-usage.md#L98"
+      ],
+      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
+    },
+    {
+      "key": "environment:24-monitoring-usage.md:Environment variables:`OTEL_LOG_TOOL_CONTENT`",
+      "stories": [
+        30,
+        63,
+        64
+      ],
+      "tickets": [
+        192
+      ],
+      "acceptance": [
+        "PARITY-192"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "binary-guide:24-monitoring-usage.md#L100",
+        "source-guide:24-monitoring-usage.md#L100"
+      ],
+      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
+    },
+    {
+      "key": "environment:24-monitoring-usage.md:Environment variables:`OTEL_LOG_TOOL_DETAILS`",
+      "stories": [
+        30,
+        63,
+        64
+      ],
+      "tickets": [
+        192
+      ],
+      "acceptance": [
+        "PARITY-192"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "binary-guide:24-monitoring-usage.md#L99",
+        "source-guide:24-monitoring-usage.md#L99"
+      ],
+      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
+    },
+    {
+      "key": "environment:24-monitoring-usage.md:Environment variables:`OTEL_LOG_USER_PROMPTS`",
+      "stories": [
+        30,
+        63,
+        64
+      ],
+      "tickets": [
+        192
+      ],
+      "acceptance": [
+        "PARITY-192"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "binary-guide:24-monitoring-usage.md#L97",
+        "source-guide:24-monitoring-usage.md#L97"
+      ],
+      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
+    },
+    {
+      "key": "environment:24-monitoring-usage.md:Environment variables:`OTEL_LOGS_EXPORTER`",
+      "stories": [
+        30,
+        63,
+        64
+      ],
+      "tickets": [
+        192
+      ],
+      "acceptance": [
+        "PARITY-192"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "binary-guide:24-monitoring-usage.md#L83",
+        "source-guide:24-monitoring-usage.md#L83"
+      ],
+      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
+    },
+    {
+      "key": "environment:24-monitoring-usage.md:Environment variables:`OTEL_METRIC_EXPORT_INTERVAL`",
+      "stories": [
+        30,
+        63,
+        64
+      ],
+      "tickets": [
+        192
+      ],
+      "acceptance": [
+        "PARITY-192"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "binary-guide:24-monitoring-usage.md#L92",
+        "source-guide:24-monitoring-usage.md#L92"
+      ],
+      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
+    },
+    {
+      "key": "environment:24-monitoring-usage.md:Environment variables:`OTEL_METRICS_EXPORTER`",
+      "stories": [
+        30,
+        63,
+        64
+      ],
+      "tickets": [
+        192
+      ],
+      "acceptance": [
+        "PARITY-192"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "binary-guide:24-monitoring-usage.md#L82",
+        "source-guide:24-monitoring-usage.md#L82"
+      ],
+      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
+    },
+    {
+      "key": "environment:24-monitoring-usage.md:Environment variables:`OTEL_METRICS_INCLUDE_SESSION_ID`",
+      "stories": [
+        30,
+        63,
+        64
+      ],
+      "tickets": [
+        192
+      ],
+      "acceptance": [
+        "PARITY-192"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "binary-guide:24-monitoring-usage.md#L95",
+        "source-guide:24-monitoring-usage.md#L95"
+      ],
+      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
+    },
+    {
+      "key": "environment:24-monitoring-usage.md:Environment variables:`OTEL_METRICS_INCLUDE_VERSION`",
+      "stories": [
+        30,
+        63,
+        64
+      ],
+      "tickets": [
+        192
+      ],
+      "acceptance": [
+        "PARITY-192"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "binary-guide:24-monitoring-usage.md#L96",
+        "source-guide:24-monitoring-usage.md#L96"
       ],
       "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
     },
@@ -21812,14 +22219,21 @@
     {
       "key": "environment:GROK_CAMPAIGNS",
       "stories": [
-        17,
-        35
+        8,
+        34,
+        35,
+        63,
+        24,
+        36,
+        37
       ],
       "tickets": [
-        154
+        139,
+        141
       ],
       "acceptance": [
-        "PARITY-154"
+        "PARITY-139",
+        "PARITY-141-campaigns"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -21835,13 +22249,18 @@
         8,
         34,
         35,
-        63
+        63,
+        24,
+        36,
+        37
       ],
       "tickets": [
-        139
+        139,
+        141
       ],
       "acceptance": [
-        "PARITY-139"
+        "PARITY-139",
+        "PARITY-141-campaign-override"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -22198,16 +22617,15 @@
     {
       "key": "environment:GROK_CLI_CHAT_PROXY_BASE_URL",
       "stories": [
-        8,
-        34,
-        36,
-        60
+        60,
+        61,
+        62
       ],
       "tickets": [
-        189
+        190
       ],
       "acceptance": [
-        "PARITY-189"
+        "PARITY-190"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -23350,16 +23768,13 @@
     {
       "key": "environment:GROK_DISABLE_WEB_FETCH",
       "stories": [
-        8,
-        34,
-        35,
-        63
+        55
       ],
       "tickets": [
-        139
+        171
       ],
       "acceptance": [
-        "PARITY-139"
+        "PARITY-171"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -23569,16 +23984,19 @@
     {
       "key": "environment:GROK_EVENT",
       "stories": [
-        8,
-        34,
-        35,
-        63
+        25,
+        38,
+        15,
+        18,
+        70
       ],
       "tickets": [
-        139
+        164,
+        155
       ],
       "acceptance": [
-        "PARITY-139"
+        "PARITY-164-notification",
+        "PARITY-155"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -23611,16 +24029,15 @@
     {
       "key": "environment:GROK_EXIT_TIMEOUT_SECS",
       "stories": [
-        8,
-        34,
-        35,
-        63
+        15,
+        18,
+        70
       ],
       "tickets": [
-        139
+        155
       ],
       "acceptance": [
-        "PARITY-139"
+        "PARITY-155-teardown"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -24819,16 +25236,15 @@
     {
       "key": "environment:GROK_LOG_FILE",
       "stories": [
-        8,
-        34,
-        35,
-        63
+        30,
+        63,
+        64
       ],
       "tickets": [
-        139
+        192
       ],
       "acceptance": [
-        "PARITY-139"
+        "PARITY-192-local-logs"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -25523,16 +25939,19 @@
     {
       "key": "environment:GROK_MESSAGE",
       "stories": [
-        8,
-        34,
-        35,
-        63
+        25,
+        38,
+        15,
+        18,
+        70
       ],
       "tickets": [
-        139
+        164,
+        155
       ],
       "acceptance": [
-        "PARITY-139"
+        "PARITY-164-notification",
+        "PARITY-155"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -26617,16 +27036,15 @@
     {
       "key": "environment:GROK_SCREEN_MODE",
       "stories": [
-        8,
-        34,
-        35,
-        63
+        11,
+        16,
+        18
       ],
       "tickets": [
-        139
+        149
       ],
       "acceptance": [
-        "PARITY-139"
+        "PARITY-149-exec"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -26637,16 +27055,15 @@
     {
       "key": "environment:GROK_SCREEN_MODE_SWITCH",
       "stories": [
-        8,
-        34,
-        35,
-        63
+        11,
+        16,
+        18
       ],
       "tickets": [
-        139
+        149
       ],
       "acceptance": [
-        "PARITY-139"
+        "PARITY-149-exec"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -28657,7 +29074,7 @@
         171
       ],
       "acceptance": [
-        "PARITY-171"
+        "PARITY-171-policy"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -28672,16 +29089,13 @@
     {
       "key": "environment:GROK_WEB_FETCH_ALLOW_LOCAL",
       "stories": [
-        8,
-        34,
-        35,
-        63
+        55
       ],
       "tickets": [
-        139
+        171
       ],
       "acceptance": [
-        "PARITY-139"
+        "PARITY-171-policy"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -28703,7 +29117,7 @@
         171
       ],
       "acceptance": [
-        "PARITY-171"
+        "PARITY-171-policy"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -28761,16 +29175,14 @@
     {
       "key": "environment:GROK_WORKFLOW_MAX_CONCURRENT_AGENTS",
       "stories": [
-        8,
-        34,
-        35,
-        63
+        48,
+        49
       ],
       "tickets": [
-        139
+        182
       ],
       "acceptance": [
-        "PARITY-139"
+        "PARITY-182"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -28781,16 +29193,18 @@
     {
       "key": "environment:GROK_WORKFLOWS",
       "stories": [
-        8,
-        34,
-        35,
-        63
+        48,
+        49,
+        33,
+        50
       ],
       "tickets": [
-        139
+        181,
+        180
       ],
       "acceptance": [
-        "PARITY-139"
+        "PARITY-181",
+        "PARITY-180"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -30074,6 +30488,49 @@
       "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
     },
     {
+      "key": "environment:GROVE_AUTH_TOKEN",
+      "stories": [
+        8,
+        34,
+        36,
+        60,
+        44,
+        61
+      ],
+      "tickets": [
+        189,
+        191
+      ],
+      "acceptance": [
+        "PARITY-189",
+        "PARITY-191"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "binary-guide:27-grok-clone.md#L79"
+      ],
+      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
+    },
+    {
+      "key": "environment:GROVE_CLONE",
+      "stories": [
+        44,
+        61
+      ],
+      "tickets": [
+        191
+      ],
+      "acceptance": [
+        "PARITY-191"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "binary-guide:27-grok-clone.md#L5",
+        "source-guide:27-grok-clone.md#L5"
+      ],
+      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
+    },
+    {
       "key": "environment:GROVE_DATA_DIR",
       "stories": [
         8,
@@ -30096,13 +30553,19 @@
     {
       "key": "environment:GROVE_TOKEN_ROTATION",
       "stories": [
+        8,
+        34,
+        36,
+        60,
         44,
         61
       ],
       "tickets": [
+        189,
         191
       ],
       "acceptance": [
+        "PARITY-189",
         "PARITY-191"
       ],
       "status": "pending-parity",
@@ -31568,6 +32031,35 @@
       "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
     },
     {
+      "key": "environment:PATHEXT",
+      "stories": [
+        39,
+        41,
+        7,
+        18,
+        69,
+        26,
+        53,
+        54
+      ],
+      "tickets": [
+        167,
+        200,
+        201
+      ],
+      "acceptance": [
+        "PARITY-167-launcher",
+        "PARITY-200",
+        "PARITY-201"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "binary-guide:07-mcp-servers.md#L333",
+        "source-guide:07-mcp-servers.md#L333"
+      ],
+      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
+    },
+    {
       "key": "environment:PROFILE",
       "stories": [
         8,
@@ -31692,22 +32184,22 @@
     {
       "key": "environment:RUST_LOG",
       "stories": [
-        8,
-        34,
-        35,
-        63
+        30,
+        63,
+        64
       ],
       "tickets": [
-        139
+        192
       ],
       "acceptance": [
-        "PARITY-139"
+        "PARITY-192-local-logs"
       ],
       "status": "pending-parity",
       "evidence": [
         "binary-guide:02-authentication.md#L337",
         "binary-guide:05-configuration.md#L798",
         "binary-guide:10-hooks.md#L664",
+        "binary-guide:14-headless-mode.md#L547",
         "binary-guide:14-headless-mode.md#L548",
         "binary-guide:14-headless-mode.md#L588",
         "binary-guide:17-sessions.md#L332",
@@ -31715,6 +32207,7 @@
         "source-guide:02-authentication.md#L336",
         "source-guide:05-configuration.md#L798",
         "source-guide:10-hooks.md#L664",
+        "source-guide:14-headless-mode.md#L547",
         "source-guide:14-headless-mode.md#L548",
         "source-guide:14-headless-mode.md#L588",
         "source-guide:17-sessions.md#L332",
@@ -44799,6 +45292,27 @@
       "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
     },
     {
+      "key": "guide-behavior:01-getting-started.md:Common Launch Options:13",
+      "stories": [
+        8,
+        34,
+        35,
+        63
+      ],
+      "tickets": [
+        139
+      ],
+      "acceptance": [
+        "PARITY-139"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "binary-guide:01-getting-started.md#L180",
+        "source-guide:01-getting-started.md#L179"
+      ],
+      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
+    },
+    {
       "key": "guide-behavior:01-getting-started.md:File References:1",
       "stories": [
         13,
@@ -45623,6 +46137,48 @@
       "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
     },
     {
+      "key": "guide-behavior:02-authentication.md:2. Configure the CLI:3",
+      "stories": [
+        8,
+        34,
+        36,
+        60
+      ],
+      "tickets": [
+        189
+      ],
+      "acceptance": [
+        "PARITY-189"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "binary-guide:02-authentication.md#L67",
+        "source-guide:02-authentication.md#L67"
+      ],
+      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
+    },
+    {
+      "key": "guide-behavior:02-authentication.md:2. Configure the CLI:5",
+      "stories": [
+        8,
+        34,
+        36,
+        60
+      ],
+      "tickets": [
+        189
+      ],
+      "acceptance": [
+        "PARITY-189"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "binary-guide:02-authentication.md#L67",
+        "source-guide:02-authentication.md#L67"
+      ],
+      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
+    },
+    {
       "key": "guide-behavior:02-authentication.md:3. Run `grok`:1",
       "stories": [
         8,
@@ -45896,6 +46452,27 @@
       "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
     },
     {
+      "key": "guide-behavior:02-authentication.md:Automatic Credential Refresh:6",
+      "stories": [
+        8,
+        34,
+        36,
+        60
+      ],
+      "tickets": [
+        189
+      ],
+      "acceptance": [
+        "PARITY-189"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "binary-guide:02-authentication.md#L259",
+        "source-guide:02-authentication.md#L259"
+      ],
+      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
+    },
+    {
       "key": "guide-behavior:02-authentication.md:Browser Login (Default):1",
       "stories": [
         8,
@@ -45960,6 +46537,27 @@
     },
     {
       "key": "guide-behavior:02-authentication.md:Configuration:1",
+      "stories": [
+        8,
+        34,
+        36,
+        60
+      ],
+      "tickets": [
+        189
+      ],
+      "acceptance": [
+        "PARITY-189"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "binary-guide:02-authentication.md#L160",
+        "source-guide:02-authentication.md#L160"
+      ],
+      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
+    },
+    {
+      "key": "guide-behavior:02-authentication.md:Configuration:3",
       "stories": [
         8,
         34,
@@ -46706,48 +47304,6 @@
     },
     {
       "key": "guide-behavior:02-authentication.md:Token Refresh:2",
-      "stories": [
-        8,
-        34,
-        36,
-        60
-      ],
-      "tickets": [
-        189
-      ],
-      "acceptance": [
-        "PARITY-189"
-      ],
-      "status": "pending-parity",
-      "evidence": [
-        "binary-guide:02-authentication.md#L180",
-        "source-guide:02-authentication.md#L180"
-      ],
-      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
-    },
-    {
-      "key": "guide-behavior:02-authentication.md:Token Refresh:4",
-      "stories": [
-        8,
-        34,
-        36,
-        60
-      ],
-      "tickets": [
-        189
-      ],
-      "acceptance": [
-        "PARITY-189"
-      ],
-      "status": "pending-parity",
-      "evidence": [
-        "binary-guide:02-authentication.md#L180",
-        "source-guide:02-authentication.md#L180"
-      ],
-      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
-    },
-    {
-      "key": "guide-behavior:02-authentication.md:Token Refresh:5",
       "stories": [
         8,
         34,
@@ -48676,13 +49232,17 @@
         48,
         49,
         50,
-        55
+        55,
+        47,
+        62
       ],
       "tickets": [
-        206
+        206,
+        183
       ],
       "acceptance": [
-        "PARITY-206"
+        "PARITY-206",
+        "PARITY-183"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -48700,10 +49260,12 @@
         55
       ],
       "tickets": [
-        206
+        206,
+        182
       ],
       "acceptance": [
-        "PARITY-206"
+        "PARITY-206",
+        "PARITY-182"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -50075,13 +50637,19 @@
       "key": "guide-behavior:04-slash-commands.md:`/workflow`:1",
       "stories": [
         48,
-        49
+        49,
+        47,
+        62
       ],
       "tickets": [
-        181
+        181,
+        183,
+        184
       ],
       "acceptance": [
-        "PARITY-181"
+        "PARITY-181",
+        "PARITY-183",
+        "PARITY-184"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -50094,13 +50662,19 @@
       "key": "guide-behavior:04-slash-commands.md:`/workflow`:2",
       "stories": [
         48,
-        49
+        49,
+        47,
+        62
       ],
       "tickets": [
-        181
+        181,
+        183,
+        184
       ],
       "acceptance": [
-        "PARITY-181"
+        "PARITY-181",
+        "PARITY-183",
+        "PARITY-184"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -50113,13 +50687,19 @@
       "key": "guide-behavior:04-slash-commands.md:`/workflow`:4",
       "stories": [
         48,
-        49
+        49,
+        47,
+        62
       ],
       "tickets": [
-        181
+        181,
+        182,
+        183
       ],
       "acceptance": [
-        "PARITY-181"
+        "PARITY-181",
+        "PARITY-182",
+        "PARITY-183"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -50132,13 +50712,21 @@
       "key": "guide-behavior:04-slash-commands.md:`/workflow`:5",
       "stories": [
         48,
-        49
+        49,
+        47,
+        62
       ],
       "tickets": [
-        181
+        181,
+        182,
+        183,
+        184
       ],
       "acceptance": [
-        "PARITY-181"
+        "PARITY-181",
+        "PARITY-182",
+        "PARITY-183",
+        "PARITY-184"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -50151,13 +50739,19 @@
       "key": "guide-behavior:04-slash-commands.md:`/workflow`:6",
       "stories": [
         48,
-        49
+        49,
+        47,
+        62
       ],
       "tickets": [
-        181
+        181,
+        182,
+        183
       ],
       "acceptance": [
-        "PARITY-181"
+        "PARITY-181",
+        "PARITY-182",
+        "PARITY-183"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -50170,13 +50764,17 @@
       "key": "guide-behavior:04-slash-commands.md:`/workflows`:1",
       "stories": [
         48,
-        49
+        49,
+        47,
+        62
       ],
       "tickets": [
-        184
+        184,
+        183
       ],
       "acceptance": [
-        "PARITY-184"
+        "PARITY-184",
+        "PARITY-183"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -50343,27 +50941,6 @@
     },
     {
       "key": "guide-behavior:05-configuration.md:Authentication:1",
-      "stories": [
-        8,
-        34,
-        36,
-        60
-      ],
-      "tickets": [
-        189
-      ],
-      "acceptance": [
-        "PARITY-189"
-      ],
-      "status": "pending-parity",
-      "evidence": [
-        "binary-guide:05-configuration.md#L235",
-        "source-guide:05-configuration.md#L235"
-      ],
-      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
-    },
-    {
-      "key": "guide-behavior:05-configuration.md:Authentication:3",
       "stories": [
         8,
         34,
@@ -50571,110 +51148,6 @@
       "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
     },
     {
-      "key": "guide-behavior:05-configuration.md:Enterprise deployment:3",
-      "stories": [
-        24,
-        35,
-        36,
-        37,
-        8,
-        34,
-        60
-      ],
-      "tickets": [
-        141,
-        189
-      ],
-      "acceptance": [
-        "PARITY-141",
-        "PARITY-189"
-      ],
-      "status": "pending-parity",
-      "evidence": [
-        "binary-guide:05-configuration.md#L627",
-        "source-guide:05-configuration.md#L627"
-      ],
-      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
-    },
-    {
-      "key": "guide-behavior:05-configuration.md:Enterprise deployment:4",
-      "stories": [
-        24,
-        35,
-        36,
-        37,
-        8,
-        34,
-        60
-      ],
-      "tickets": [
-        141,
-        189
-      ],
-      "acceptance": [
-        "PARITY-141",
-        "PARITY-189"
-      ],
-      "status": "pending-parity",
-      "evidence": [
-        "binary-guide:05-configuration.md#L627",
-        "source-guide:05-configuration.md#L627"
-      ],
-      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
-    },
-    {
-      "key": "guide-behavior:05-configuration.md:Enterprise deployment:5",
-      "stories": [
-        24,
-        35,
-        36,
-        37,
-        8,
-        34,
-        60
-      ],
-      "tickets": [
-        141,
-        189
-      ],
-      "acceptance": [
-        "PARITY-141",
-        "PARITY-189"
-      ],
-      "status": "pending-parity",
-      "evidence": [
-        "binary-guide:05-configuration.md#L627",
-        "source-guide:05-configuration.md#L627"
-      ],
-      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
-    },
-    {
-      "key": "guide-behavior:05-configuration.md:Enterprise deployment:6",
-      "stories": [
-        24,
-        35,
-        36,
-        37,
-        8,
-        34,
-        60
-      ],
-      "tickets": [
-        141,
-        189
-      ],
-      "acceptance": [
-        "PARITY-141",
-        "PARITY-189"
-      ],
-      "status": "pending-parity",
-      "evidence": [
-        "binary-guide:05-configuration.md#L627",
-        "source-guide:05-configuration.md#L627"
-      ],
-      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
-    },
-    {
       "key": "guide-behavior:05-configuration.md:Enterprise deployment:7",
       "stories": [
         24,
@@ -50742,27 +51215,6 @@
       "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
     },
     {
-      "key": "guide-behavior:05-configuration.md:General settings:2",
-      "stories": [
-        8,
-        34,
-        35,
-        63
-      ],
-      "tickets": [
-        139
-      ],
-      "acceptance": [
-        "PARITY-139"
-      ],
-      "status": "pending-parity",
-      "evidence": [
-        "binary-guide:05-configuration.md#L42",
-        "source-guide:05-configuration.md#L42"
-      ],
-      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
-    },
-    {
       "key": "guide-behavior:05-configuration.md:Goal mode and background workflows:1",
       "stories": [
         33,
@@ -50795,11 +51247,13 @@
       ],
       "tickets": [
         180,
-        181
+        181,
+        184
       ],
       "acceptance": [
         "PARITY-180",
-        "PARITY-181"
+        "PARITY-181",
+        "PARITY-184"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -50818,11 +51272,13 @@
       ],
       "tickets": [
         180,
-        181
+        181,
+        184
       ],
       "acceptance": [
         "PARITY-180",
-        "PARITY-181"
+        "PARITY-181",
+        "PARITY-184"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -50837,15 +51293,19 @@
         33,
         50,
         48,
-        49
+        49,
+        47,
+        62
       ],
       "tickets": [
         180,
-        181
+        181,
+        183
       ],
       "acceptance": [
         "PARITY-180",
-        "PARITY-181"
+        "PARITY-181",
+        "PARITY-183"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -50856,48 +51316,6 @@
     },
     {
       "key": "guide-behavior:05-configuration.md:Harness compatibility:1",
-      "stories": [
-        8,
-        34,
-        35,
-        63
-      ],
-      "tickets": [
-        139
-      ],
-      "acceptance": [
-        "PARITY-139"
-      ],
-      "status": "pending-parity",
-      "evidence": [
-        "binary-guide:05-configuration.md#L383",
-        "source-guide:05-configuration.md#L383"
-      ],
-      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
-    },
-    {
-      "key": "guide-behavior:05-configuration.md:Harness compatibility:3",
-      "stories": [
-        8,
-        34,
-        35,
-        63
-      ],
-      "tickets": [
-        139
-      ],
-      "acceptance": [
-        "PARITY-139"
-      ],
-      "status": "pending-parity",
-      "evidence": [
-        "binary-guide:05-configuration.md#L383",
-        "source-guide:05-configuration.md#L383"
-      ],
-      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
-    },
-    {
-      "key": "guide-behavior:05-configuration.md:Harness compatibility:4",
       "stories": [
         8,
         34,
@@ -51436,44 +51854,6 @@
       "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
     },
     {
-      "key": "guide-behavior:05-configuration.md:MCP servers:3",
-      "stories": [
-        39,
-        41
-      ],
-      "tickets": [
-        167
-      ],
-      "acceptance": [
-        "PARITY-167-transport"
-      ],
-      "status": "pending-parity",
-      "evidence": [
-        "binary-guide:05-configuration.md#L281",
-        "source-guide:05-configuration.md#L281"
-      ],
-      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
-    },
-    {
-      "key": "guide-behavior:05-configuration.md:MCP servers:4",
-      "stories": [
-        39,
-        41
-      ],
-      "tickets": [
-        167
-      ],
-      "acceptance": [
-        "PARITY-167-transport"
-      ],
-      "status": "pending-parity",
-      "evidence": [
-        "binary-guide:05-configuration.md#L281",
-        "source-guide:05-configuration.md#L281"
-      ],
-      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
-    },
-    {
       "key": "guide-behavior:05-configuration.md:MCP servers:5",
       "stories": [
         39,
@@ -51550,101 +51930,6 @@
       "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
     },
     {
-      "key": "guide-behavior:05-configuration.md:Memory:3",
-      "stories": [
-        51,
-        63
-      ],
-      "tickets": [
-        185
-      ],
-      "acceptance": [
-        "PARITY-185"
-      ],
-      "status": "pending-parity",
-      "evidence": [
-        "binary-guide:05-configuration.md#L312",
-        "source-guide:05-configuration.md#L312"
-      ],
-      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
-    },
-    {
-      "key": "guide-behavior:05-configuration.md:Memory:4",
-      "stories": [
-        51,
-        63
-      ],
-      "tickets": [
-        185
-      ],
-      "acceptance": [
-        "PARITY-185"
-      ],
-      "status": "pending-parity",
-      "evidence": [
-        "binary-guide:05-configuration.md#L312",
-        "source-guide:05-configuration.md#L312"
-      ],
-      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
-    },
-    {
-      "key": "guide-behavior:05-configuration.md:Memory:5",
-      "stories": [
-        51,
-        63
-      ],
-      "tickets": [
-        185
-      ],
-      "acceptance": [
-        "PARITY-185"
-      ],
-      "status": "pending-parity",
-      "evidence": [
-        "binary-guide:05-configuration.md#L312",
-        "source-guide:05-configuration.md#L312"
-      ],
-      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
-    },
-    {
-      "key": "guide-behavior:05-configuration.md:Memory:6",
-      "stories": [
-        51,
-        63
-      ],
-      "tickets": [
-        185
-      ],
-      "acceptance": [
-        "PARITY-185"
-      ],
-      "status": "pending-parity",
-      "evidence": [
-        "binary-guide:05-configuration.md#L312",
-        "source-guide:05-configuration.md#L312"
-      ],
-      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
-    },
-    {
-      "key": "guide-behavior:05-configuration.md:Memory:7",
-      "stories": [
-        51,
-        63
-      ],
-      "tickets": [
-        185
-      ],
-      "acceptance": [
-        "PARITY-185"
-      ],
-      "status": "pending-parity",
-      "evidence": [
-        "binary-guide:05-configuration.md#L312",
-        "source-guide:05-configuration.md#L312"
-      ],
-      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
-    },
-    {
       "key": "guide-behavior:05-configuration.md:Notification hooks:1",
       "stories": [
         25,
@@ -51670,26 +51955,6 @@
     },
     {
       "key": "guide-behavior:05-configuration.md:Notifications:1",
-      "stories": [
-        15,
-        18,
-        70
-      ],
-      "tickets": [
-        155
-      ],
-      "acceptance": [
-        "PARITY-155"
-      ],
-      "status": "pending-parity",
-      "evidence": [
-        "binary-guide:05-configuration.md#L443",
-        "source-guide:05-configuration.md#L443"
-      ],
-      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
-    },
-    {
-      "key": "guide-behavior:05-configuration.md:Notifications:3",
       "stories": [
         15,
         18,
@@ -51954,63 +52219,6 @@
       "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
     },
     {
-      "key": "guide-behavior:05-configuration.md:Scrollback:2",
-      "stories": [
-        17,
-        35
-      ],
-      "tickets": [
-        154
-      ],
-      "acceptance": [
-        "PARITY-154"
-      ],
-      "status": "pending-parity",
-      "evidence": [
-        "binary-guide:05-configuration.md#L689",
-        "source-guide:05-configuration.md#L689"
-      ],
-      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
-    },
-    {
-      "key": "guide-behavior:05-configuration.md:Scrollback:3",
-      "stories": [
-        17,
-        35
-      ],
-      "tickets": [
-        154
-      ],
-      "acceptance": [
-        "PARITY-154"
-      ],
-      "status": "pending-parity",
-      "evidence": [
-        "binary-guide:05-configuration.md#L689",
-        "source-guide:05-configuration.md#L689"
-      ],
-      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
-    },
-    {
-      "key": "guide-behavior:05-configuration.md:Scrollback:4",
-      "stories": [
-        17,
-        35
-      ],
-      "tickets": [
-        154
-      ],
-      "acceptance": [
-        "PARITY-154"
-      ],
-      "status": "pending-parity",
-      "evidence": [
-        "binary-guide:05-configuration.md#L689",
-        "source-guide:05-configuration.md#L689"
-      ],
-      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
-    },
-    {
       "key": "guide-behavior:05-configuration.md:Scrollback:5",
       "stories": [
         17,
@@ -52031,6 +52239,26 @@
     },
     {
       "key": "guide-behavior:05-configuration.md:Scrolling:1",
+      "stories": [
+        11,
+        15,
+        18
+      ],
+      "tickets": [
+        152
+      ],
+      "acceptance": [
+        "PARITY-152"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "binary-guide:05-configuration.md#L184",
+        "source-guide:05-configuration.md#L184"
+      ],
+      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
+    },
+    {
+      "key": "guide-behavior:05-configuration.md:Scrolling:4",
       "stories": [
         11,
         15,
@@ -52122,46 +52350,6 @@
       "evidence": [
         "binary-guide:05-configuration.md#L530",
         "source-guide:05-configuration.md#L530"
-      ],
-      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
-    },
-    {
-      "key": "guide-behavior:05-configuration.md:Subagents:2",
-      "stories": [
-        42,
-        43,
-        47
-      ],
-      "tickets": [
-        172
-      ],
-      "acceptance": [
-        "PARITY-172"
-      ],
-      "status": "pending-parity",
-      "evidence": [
-        "binary-guide:05-configuration.md#L342",
-        "source-guide:05-configuration.md#L342"
-      ],
-      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
-    },
-    {
-      "key": "guide-behavior:05-configuration.md:Subagents:3",
-      "stories": [
-        42,
-        43,
-        47
-      ],
-      "tickets": [
-        172
-      ],
-      "acceptance": [
-        "PARITY-172"
-      ],
-      "status": "pending-parity",
-      "evidence": [
-        "binary-guide:05-configuration.md#L342",
-        "source-guide:05-configuration.md#L342"
       ],
       "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
     },
@@ -52347,18 +52535,15 @@
       "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
     },
     {
-      "key": "guide-behavior:05-configuration.md:Tool configuration:2",
+      "key": "guide-behavior:05-configuration.md:Tool configuration:5",
       "stories": [
-        8,
-        34,
-        35,
-        63
+        55
       ],
       "tickets": [
-        139
+        171
       ],
       "acceptance": [
-        "PARITY-139"
+        "PARITY-171-policy"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -52368,18 +52553,26 @@
       "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
     },
     {
-      "key": "guide-behavior:05-configuration.md:Tool configuration:3",
+      "key": "guide-behavior:05-configuration.md:Tool configuration:6",
       "stories": [
+        55,
         8,
         34,
         35,
-        63
+        63,
+        24,
+        36,
+        37
       ],
       "tickets": [
-        139
+        171,
+        139,
+        141
       ],
       "acceptance": [
-        "PARITY-139"
+        "PARITY-171-policy",
+        "PARITY-139",
+        "PARITY-141"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -52389,18 +52582,27 @@
       "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
     },
     {
-      "key": "guide-behavior:05-configuration.md:Tool configuration:4",
+      "key": "guide-behavior:05-configuration.md:Tool configuration:7",
       "stories": [
+        22,
+        50,
         8,
         34,
         35,
-        63
+        63,
+        24,
+        36,
+        37
       ],
       "tickets": [
-        139
+        179,
+        139,
+        141
       ],
       "acceptance": [
-        "PARITY-139"
+        "PARITY-179",
+        "PARITY-139",
+        "PARITY-141"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -53854,6 +54056,139 @@
       "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
     },
     {
+      "key": "guide-behavior:07-mcp-servers.md:CLI Management:11",
+      "stories": [
+        39,
+        41
+      ],
+      "tickets": [
+        167
+      ],
+      "acceptance": [
+        "PARITY-167-transport"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "binary-guide:07-mcp-servers.md#L95",
+        "source-guide:07-mcp-servers.md#L95"
+      ],
+      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
+    },
+    {
+      "key": "guide-behavior:07-mcp-servers.md:CLI Management:12",
+      "stories": [
+        39,
+        41
+      ],
+      "tickets": [
+        167
+      ],
+      "acceptance": [
+        "PARITY-167-transport"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "binary-guide:07-mcp-servers.md#L95",
+        "source-guide:07-mcp-servers.md#L95"
+      ],
+      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
+    },
+    {
+      "key": "guide-behavior:07-mcp-servers.md:CLI Management:13",
+      "stories": [
+        39,
+        41
+      ],
+      "tickets": [
+        167
+      ],
+      "acceptance": [
+        "PARITY-167-transport"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "binary-guide:07-mcp-servers.md#L95",
+        "source-guide:07-mcp-servers.md#L95"
+      ],
+      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
+    },
+    {
+      "key": "guide-behavior:07-mcp-servers.md:CLI Management:14",
+      "stories": [
+        39,
+        41
+      ],
+      "tickets": [
+        167
+      ],
+      "acceptance": [
+        "PARITY-167-transport"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "binary-guide:07-mcp-servers.md#L95",
+        "source-guide:07-mcp-servers.md#L95"
+      ],
+      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
+    },
+    {
+      "key": "guide-behavior:07-mcp-servers.md:CLI Management:15",
+      "stories": [
+        39,
+        41
+      ],
+      "tickets": [
+        167
+      ],
+      "acceptance": [
+        "PARITY-167-transport"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "binary-guide:07-mcp-servers.md#L95",
+        "source-guide:07-mcp-servers.md#L95"
+      ],
+      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
+    },
+    {
+      "key": "guide-behavior:07-mcp-servers.md:CLI Management:16",
+      "stories": [
+        39,
+        41
+      ],
+      "tickets": [
+        167
+      ],
+      "acceptance": [
+        "PARITY-167-transport"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "binary-guide:07-mcp-servers.md#L95",
+        "source-guide:07-mcp-servers.md#L95"
+      ],
+      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
+    },
+    {
+      "key": "guide-behavior:07-mcp-servers.md:CLI Management:17",
+      "stories": [
+        39,
+        41
+      ],
+      "tickets": [
+        167
+      ],
+      "acceptance": [
+        "PARITY-167-transport"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "binary-guide:07-mcp-servers.md#L95",
+        "source-guide:07-mcp-servers.md#L95"
+      ],
+      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
+    },
+    {
       "key": "guide-behavior:07-mcp-servers.md:Compatibility:1",
       "stories": [
         39,
@@ -54069,6 +54404,44 @@
       "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
     },
     {
+      "key": "guide-behavior:07-mcp-servers.md:Local stdio:5",
+      "stories": [
+        39,
+        41
+      ],
+      "tickets": [
+        167
+      ],
+      "acceptance": [
+        "PARITY-167-transport"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "binary-guide:07-mcp-servers.md#L309",
+        "source-guide:07-mcp-servers.md#L309"
+      ],
+      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
+    },
+    {
+      "key": "guide-behavior:07-mcp-servers.md:Local stdio:6",
+      "stories": [
+        39,
+        41
+      ],
+      "tickets": [
+        167
+      ],
+      "acceptance": [
+        "PARITY-167-transport"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "binary-guide:07-mcp-servers.md#L309",
+        "source-guide:07-mcp-servers.md#L309"
+      ],
+      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
+    },
+    {
       "key": "guide-behavior:07-mcp-servers.md:MCP OAuth:1",
       "stories": [
         39,
@@ -54135,73 +54508,7 @@
       "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
     },
     {
-      "key": "guide-behavior:07-mcp-servers.md:Native HTTP (hosted services):3",
-      "stories": [
-        39,
-        41,
-        40
-      ],
-      "tickets": [
-        167,
-        168
-      ],
-      "acceptance": [
-        "PARITY-167-transport",
-        "PARITY-168-remote"
-      ],
-      "status": "pending-parity",
-      "evidence": [
-        "binary-guide:07-mcp-servers.md#L271",
-        "source-guide:07-mcp-servers.md#L271"
-      ],
-      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
-    },
-    {
-      "key": "guide-behavior:07-mcp-servers.md:Native HTTP (hosted services):4",
-      "stories": [
-        39,
-        41,
-        40
-      ],
-      "tickets": [
-        167,
-        168
-      ],
-      "acceptance": [
-        "PARITY-167-transport",
-        "PARITY-168-remote"
-      ],
-      "status": "pending-parity",
-      "evidence": [
-        "binary-guide:07-mcp-servers.md#L271",
-        "source-guide:07-mcp-servers.md#L271"
-      ],
-      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
-    },
-    {
       "key": "guide-behavior:07-mcp-servers.md:Native HTTP (hosted services):5",
-      "stories": [
-        39,
-        41,
-        40
-      ],
-      "tickets": [
-        167,
-        168
-      ],
-      "acceptance": [
-        "PARITY-167-transport",
-        "PARITY-168-remote"
-      ],
-      "status": "pending-parity",
-      "evidence": [
-        "binary-guide:07-mcp-servers.md#L271",
-        "source-guide:07-mcp-servers.md#L271"
-      ],
-      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
-    },
-    {
-      "key": "guide-behavior:07-mcp-servers.md:Native HTTP (hosted services):7",
       "stories": [
         39,
         41,
@@ -54260,6 +54567,120 @@
       "evidence": [
         "binary-guide:07-mcp-servers.md#L149",
         "source-guide:07-mcp-servers.md#L149"
+      ],
+      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
+    },
+    {
+      "key": "guide-behavior:07-mcp-servers.md:Project-Scoped MCP Servers:4",
+      "stories": [
+        39,
+        41
+      ],
+      "tickets": [
+        167
+      ],
+      "acceptance": [
+        "PARITY-167-transport"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "binary-guide:07-mcp-servers.md#L149",
+        "source-guide:07-mcp-servers.md#L149"
+      ],
+      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
+    },
+    {
+      "key": "guide-behavior:07-mcp-servers.md:Project-Scoped MCP Servers:5",
+      "stories": [
+        39,
+        41
+      ],
+      "tickets": [
+        167
+      ],
+      "acceptance": [
+        "PARITY-167-transport"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "binary-guide:07-mcp-servers.md#L149",
+        "source-guide:07-mcp-servers.md#L149"
+      ],
+      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
+    },
+    {
+      "key": "guide-behavior:07-mcp-servers.md:Project-Scoped MCP Servers:7",
+      "stories": [
+        39,
+        41
+      ],
+      "tickets": [
+        167
+      ],
+      "acceptance": [
+        "PARITY-167-transport"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "binary-guide:07-mcp-servers.md#L149",
+        "source-guide:07-mcp-servers.md#L149"
+      ],
+      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
+    },
+    {
+      "key": "guide-behavior:07-mcp-servers.md:Project-Scoped MCP Servers:8",
+      "stories": [
+        39,
+        41
+      ],
+      "tickets": [
+        167
+      ],
+      "acceptance": [
+        "PARITY-167-transport"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "binary-guide:07-mcp-servers.md#L149",
+        "source-guide:07-mcp-servers.md#L149"
+      ],
+      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
+    },
+    {
+      "key": "guide-behavior:07-mcp-servers.md:Project-Scoped MCP Servers:9",
+      "stories": [
+        39,
+        41
+      ],
+      "tickets": [
+        167
+      ],
+      "acceptance": [
+        "PARITY-167-transport"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "binary-guide:07-mcp-servers.md#L149",
+        "source-guide:07-mcp-servers.md#L149"
+      ],
+      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
+    },
+    {
+      "key": "guide-behavior:07-mcp-servers.md:Server Not Starting:3",
+      "stories": [
+        39,
+        41
+      ],
+      "tickets": [
+        167
+      ],
+      "acceptance": [
+        "PARITY-167-transport"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "binary-guide:07-mcp-servers.md#L372",
+        "source-guide:07-mcp-servers.md#L372"
       ],
       "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
     },
@@ -56271,24 +56692,6 @@
       "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
     },
     {
-      "key": "guide-behavior:09-plugins.md:In config.toml:3",
-      "stories": [
-        41
-      ],
-      "tickets": [
-        165
-      ],
-      "acceptance": [
-        "PARITY-165"
-      ],
-      "status": "pending-parity",
-      "evidence": [
-        "binary-guide:09-plugins.md#L32",
-        "source-guide:09-plugins.md#L32"
-      ],
-      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
-    },
-    {
       "key": "guide-behavior:09-plugins.md:In settings.json:1",
       "stories": [
         41
@@ -56689,7 +57092,113 @@
       "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
     },
     {
+      "key": "guide-behavior:09-plugins.md:Restrict which marketplaces can be added:6",
+      "stories": [
+        41,
+        24,
+        35,
+        36,
+        37
+      ],
+      "tickets": [
+        165,
+        141
+      ],
+      "acceptance": [
+        "PARITY-165",
+        "PARITY-141"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "binary-guide:09-plugins.md#L274",
+        "source-guide:09-plugins.md#L274"
+      ],
+      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
+    },
+    {
+      "key": "guide-behavior:09-plugins.md:Restrict which marketplaces can be added:7",
+      "stories": [
+        41,
+        24,
+        35,
+        36,
+        37
+      ],
+      "tickets": [
+        165,
+        141
+      ],
+      "acceptance": [
+        "PARITY-165",
+        "PARITY-141"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "binary-guide:09-plugins.md#L274",
+        "source-guide:09-plugins.md#L274"
+      ],
+      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
+    },
+    {
       "key": "guide-behavior:09-plugins.md:Restrict which MCP servers can run:1",
+      "stories": [
+        41,
+        24,
+        35,
+        36,
+        37,
+        39
+      ],
+      "tickets": [
+        165,
+        141,
+        167,
+        204
+      ],
+      "acceptance": [
+        "PARITY-165",
+        "PARITY-141",
+        "PARITY-167-transport",
+        "PARITY-204"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "binary-guide:09-plugins.md#L302",
+        "source-guide:09-plugins.md#L302"
+      ],
+      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
+    },
+    {
+      "key": "guide-behavior:09-plugins.md:Restrict which MCP servers can run:15",
+      "stories": [
+        41,
+        24,
+        35,
+        36,
+        37,
+        39
+      ],
+      "tickets": [
+        165,
+        141,
+        167,
+        204
+      ],
+      "acceptance": [
+        "PARITY-165",
+        "PARITY-141",
+        "PARITY-167-transport",
+        "PARITY-204"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "binary-guide:09-plugins.md#L302",
+        "source-guide:09-plugins.md#L302"
+      ],
+      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
+    },
+    {
+      "key": "guide-behavior:09-plugins.md:Restrict which MCP servers can run:16",
       "stories": [
         41,
         24,
@@ -56864,6 +57373,54 @@
     },
     {
       "key": "guide-behavior:09-plugins.md:Roll a marketplace out to everyone:1",
+      "stories": [
+        41,
+        24,
+        35,
+        36,
+        37
+      ],
+      "tickets": [
+        165,
+        141
+      ],
+      "acceptance": [
+        "PARITY-165",
+        "PARITY-141"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "binary-guide:09-plugins.md#L255",
+        "source-guide:09-plugins.md#L255"
+      ],
+      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
+    },
+    {
+      "key": "guide-behavior:09-plugins.md:Roll a marketplace out to everyone:4",
+      "stories": [
+        41,
+        24,
+        35,
+        36,
+        37
+      ],
+      "tickets": [
+        165,
+        141
+      ],
+      "acceptance": [
+        "PARITY-165",
+        "PARITY-141"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "binary-guide:09-plugins.md#L255",
+        "source-guide:09-plugins.md#L255"
+      ],
+      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
+    },
+    {
+      "key": "guide-behavior:09-plugins.md:Roll a marketplace out to everyone:5",
       "stories": [
         41,
         24,
@@ -57709,6 +58266,29 @@
     },
     {
       "key": "guide-behavior:10-hooks.md:Example: Safe Shell Guard:3",
+      "stories": [
+        25,
+        38,
+        24,
+        27
+      ],
+      "tickets": [
+        164,
+        142
+      ],
+      "acceptance": [
+        "PARITY-164",
+        "PARITY-142-security-effects"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "binary-guide:10-hooks.md#L603",
+        "source-guide:10-hooks.md#L603"
+      ],
+      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
+    },
+    {
+      "key": "guide-behavior:10-hooks.md:Example: Safe Shell Guard:7",
       "stories": [
         25,
         38,
@@ -58737,45 +59317,7 @@
       "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
     },
     {
-      "key": "guide-behavior:10-hooks.md:Quick Start:2",
-      "stories": [
-        25,
-        38
-      ],
-      "tickets": [
-        164
-      ],
-      "acceptance": [
-        "PARITY-164"
-      ],
-      "status": "pending-parity",
-      "evidence": [
-        "binary-guide:10-hooks.md#L30",
-        "source-guide:10-hooks.md#L30"
-      ],
-      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
-    },
-    {
       "key": "guide-behavior:10-hooks.md:Quick Start:3",
-      "stories": [
-        25,
-        38
-      ],
-      "tickets": [
-        164
-      ],
-      "acceptance": [
-        "PARITY-164"
-      ],
-      "status": "pending-parity",
-      "evidence": [
-        "binary-guide:10-hooks.md#L30",
-        "source-guide:10-hooks.md#L30"
-      ],
-      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
-    },
-    {
-      "key": "guide-behavior:10-hooks.md:Quick Start:4",
       "stories": [
         25,
         38
@@ -59477,6 +60019,25 @@
       "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
     },
     {
+      "key": "guide-behavior:10-hooks.md:Stop Decision Control:36",
+      "stories": [
+        25,
+        38
+      ],
+      "tickets": [
+        164
+      ],
+      "acceptance": [
+        "PARITY-164"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "binary-guide:10-hooks.md#L331",
+        "source-guide:10-hooks.md#L331"
+      ],
+      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
+    },
+    {
       "key": "guide-behavior:10-hooks.md:Stop Decision Control:4",
       "stories": [
         25,
@@ -60055,26 +60616,6 @@
       "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
     },
     {
-      "key": "guide-behavior:11-custom-models.md:AWS Bedrock (Mantle):3",
-      "stories": [
-        32,
-        33,
-        34
-      ],
-      "tickets": [
-        140
-      ],
-      "acceptance": [
-        "PARITY-140"
-      ],
-      "status": "pending-parity",
-      "evidence": [
-        "binary-guide:11-custom-models.md#L255",
-        "source-guide:11-custom-models.md#L255"
-      ],
-      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
-    },
-    {
       "key": "guide-behavior:11-custom-models.md:Config Default:1",
       "stories": [
         32,
@@ -60111,6 +60652,26 @@
       "evidence": [
         "binary-guide:11-custom-models.md#L57",
         "source-guide:11-custom-models.md#L57"
+      ],
+      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
+    },
+    {
+      "key": "guide-behavior:11-custom-models.md:Config File Alternative:3",
+      "stories": [
+        32,
+        33,
+        34
+      ],
+      "tickets": [
+        140
+      ],
+      "acceptance": [
+        "PARITY-140"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "binary-guide:11-custom-models.md#L331",
+        "source-guide:11-custom-models.md#L331"
       ],
       "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
     },
@@ -60316,126 +60877,6 @@
     },
     {
       "key": "guide-behavior:11-custom-models.md:Enterprise Deployment:1",
-      "stories": [
-        32,
-        33,
-        34,
-        24,
-        35,
-        36,
-        37,
-        8,
-        60
-      ],
-      "tickets": [
-        140,
-        141,
-        189
-      ],
-      "acceptance": [
-        "PARITY-140",
-        "PARITY-141",
-        "PARITY-189"
-      ],
-      "status": "pending-parity",
-      "evidence": [
-        "binary-guide:11-custom-models.md#L397",
-        "source-guide:11-custom-models.md#L397"
-      ],
-      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
-    },
-    {
-      "key": "guide-behavior:11-custom-models.md:Enterprise Deployment:3",
-      "stories": [
-        32,
-        33,
-        34,
-        24,
-        35,
-        36,
-        37,
-        8,
-        60
-      ],
-      "tickets": [
-        140,
-        141,
-        189
-      ],
-      "acceptance": [
-        "PARITY-140",
-        "PARITY-141",
-        "PARITY-189"
-      ],
-      "status": "pending-parity",
-      "evidence": [
-        "binary-guide:11-custom-models.md#L397",
-        "source-guide:11-custom-models.md#L397"
-      ],
-      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
-    },
-    {
-      "key": "guide-behavior:11-custom-models.md:Enterprise Deployment:4",
-      "stories": [
-        32,
-        33,
-        34,
-        24,
-        35,
-        36,
-        37,
-        8,
-        60
-      ],
-      "tickets": [
-        140,
-        141,
-        189
-      ],
-      "acceptance": [
-        "PARITY-140",
-        "PARITY-141",
-        "PARITY-189"
-      ],
-      "status": "pending-parity",
-      "evidence": [
-        "binary-guide:11-custom-models.md#L397",
-        "source-guide:11-custom-models.md#L397"
-      ],
-      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
-    },
-    {
-      "key": "guide-behavior:11-custom-models.md:Enterprise Deployment:5",
-      "stories": [
-        32,
-        33,
-        34,
-        24,
-        35,
-        36,
-        37,
-        8,
-        60
-      ],
-      "tickets": [
-        140,
-        141,
-        189
-      ],
-      "acceptance": [
-        "PARITY-140",
-        "PARITY-141",
-        "PARITY-189"
-      ],
-      "status": "pending-parity",
-      "evidence": [
-        "binary-guide:11-custom-models.md#L397",
-        "source-guide:11-custom-models.md#L397"
-      ],
-      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
-    },
-    {
-      "key": "guide-behavior:11-custom-models.md:Enterprise Deployment:6",
       "stories": [
         32,
         33,
@@ -60927,6 +61368,26 @@
       "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
     },
     {
+      "key": "guide-behavior:11-custom-models.md:Overriding Built-in Models:4",
+      "stories": [
+        32,
+        33,
+        34
+      ],
+      "tickets": [
+        140
+      ],
+      "acceptance": [
+        "PARITY-140"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "binary-guide:11-custom-models.md#L185",
+        "source-guide:11-custom-models.md#L185"
+      ],
+      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
+    },
+    {
       "key": "guide-behavior:11-custom-models.md:Priority Order:1",
       "stories": [
         32,
@@ -61127,6 +61588,26 @@
       "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
     },
     {
+      "key": "guide-behavior:11-custom-models.md:Using Custom Models:5",
+      "stories": [
+        32,
+        33,
+        34
+      ],
+      "tickets": [
+        140
+      ],
+      "acceptance": [
+        "PARITY-140"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "binary-guide:11-custom-models.md#L378",
+        "source-guide:11-custom-models.md#L378"
+      ],
+      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
+    },
+    {
       "key": "guide-behavior:11-custom-models.md:Web Search Model:1",
       "stories": [
         32,
@@ -61187,7 +61668,7 @@
       "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
     },
     {
-      "key": "guide-behavior:11-custom-models.md:Web Search Model:7",
+      "key": "guide-behavior:11-custom-models.md:Web Search Model:8",
       "stories": [
         32,
         33,
@@ -61207,22 +61688,21 @@
       "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
     },
     {
-      "key": "guide-behavior:11-custom-models.md:Web Search Model:8",
+      "key": "guide-behavior:12-project-rules.md:Architecture Notes:3",
       "stories": [
-        32,
-        33,
-        34
+        12,
+        37
       ],
       "tickets": [
-        140
+        163
       ],
       "acceptance": [
-        "PARITY-140"
+        "PARITY-163"
       ],
       "status": "pending-parity",
       "evidence": [
-        "binary-guide:11-custom-models.md#L350",
-        "source-guide:11-custom-models.md#L350"
+        "binary-guide:12-project-rules.md#L138",
+        "source-guide:12-project-rules.md#L138"
       ],
       "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
     },
@@ -61494,6 +61974,44 @@
     },
     {
       "key": "guide-behavior:12-project-rules.md:Gitignore Filtering:1",
+      "stories": [
+        12,
+        37
+      ],
+      "tickets": [
+        163
+      ],
+      "acceptance": [
+        "PARITY-163"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "binary-guide:12-project-rules.md#L189",
+        "source-guide:12-project-rules.md#L189"
+      ],
+      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
+    },
+    {
+      "key": "guide-behavior:12-project-rules.md:Gitignore Filtering:3",
+      "stories": [
+        12,
+        37
+      ],
+      "tickets": [
+        163
+      ],
+      "acceptance": [
+        "PARITY-163"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "binary-guide:12-project-rules.md#L189",
+        "source-guide:12-project-rules.md#L189"
+      ],
+      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
+    },
+    {
+      "key": "guide-behavior:12-project-rules.md:Gitignore Filtering:4",
       "stories": [
         12,
         37
@@ -62241,6 +62759,44 @@
       "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
     },
     {
+      "key": "guide-behavior:13-memory.md:CLI Commands:7",
+      "stories": [
+        51,
+        63
+      ],
+      "tickets": [
+        185
+      ],
+      "acceptance": [
+        "PARITY-185"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "binary-guide:13-memory.md#L331",
+        "source-guide:13-memory.md#L333"
+      ],
+      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
+    },
+    {
+      "key": "guide-behavior:13-memory.md:CLI Commands:8",
+      "stories": [
+        51,
+        63
+      ],
+      "tickets": [
+        185
+      ],
+      "acceptance": [
+        "PARITY-185"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "binary-guide:13-memory.md#L331",
+        "source-guide:13-memory.md#L333"
+      ],
+      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
+    },
+    {
       "key": "guide-behavior:13-memory.md:Direct Editing:1",
       "stories": [
         51,
@@ -62834,13 +63390,17 @@
       "key": "guide-behavior:13-memory.md:Memory Notifications:3",
       "stories": [
         51,
-        63
+        63,
+        52,
+        64
       ],
       "tickets": [
-        185
+        185,
+        186
       ],
       "acceptance": [
-        "PARITY-185"
+        "PARITY-185",
+        "PARITY-186"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -64083,6 +64643,27 @@
       "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
     },
     {
+      "key": "guide-behavior:14-headless-mode.md:Named Sessions (`-s`):5",
+      "stories": [
+        28,
+        59,
+        62,
+        75
+      ],
+      "tickets": [
+        138
+      ],
+      "acceptance": [
+        "PARITY-138"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "binary-guide:14-headless-mode.md#L333",
+        "source-guide:14-headless-mode.md#L333"
+      ],
+      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
+    },
+    {
       "key": "guide-behavior:14-headless-mode.md:Output Formats:1",
       "stories": [
         33,
@@ -64143,6 +64724,46 @@
     },
     {
       "key": "guide-behavior:14-headless-mode.md:Permission Rules (`--allow` / `--deny`):4",
+      "stories": [
+        24,
+        25,
+        27
+      ],
+      "tickets": [
+        142
+      ],
+      "acceptance": [
+        "PARITY-142-security-effects"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "binary-guide:14-headless-mode.md#L84",
+        "source-guide:14-headless-mode.md#L84"
+      ],
+      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
+    },
+    {
+      "key": "guide-behavior:14-headless-mode.md:Permission Rules (`--allow` / `--deny`):8",
+      "stories": [
+        24,
+        25,
+        27
+      ],
+      "tickets": [
+        142
+      ],
+      "acceptance": [
+        "PARITY-142-security-effects"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "binary-guide:14-headless-mode.md#L84",
+        "source-guide:14-headless-mode.md#L84"
+      ],
+      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
+    },
+    {
+      "key": "guide-behavior:14-headless-mode.md:Permission Rules (`--allow` / `--deny`):9",
       "stories": [
         24,
         25,
@@ -64276,177 +64897,6 @@
       "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
     },
     {
-      "key": "guide-behavior:14-headless-mode.md:Python Wrapper:10",
-      "stories": [
-        33,
-        57
-      ],
-      "tickets": [
-        146
-      ],
-      "acceptance": [
-        "PARITY-146"
-      ],
-      "status": "pending-parity",
-      "evidence": [
-        "binary-guide:14-headless-mode.md#L439",
-        "source-guide:14-headless-mode.md#L439"
-      ],
-      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
-    },
-    {
-      "key": "guide-behavior:14-headless-mode.md:Python Wrapper:11",
-      "stories": [
-        33,
-        57
-      ],
-      "tickets": [
-        146
-      ],
-      "acceptance": [
-        "PARITY-146"
-      ],
-      "status": "pending-parity",
-      "evidence": [
-        "binary-guide:14-headless-mode.md#L439",
-        "source-guide:14-headless-mode.md#L439"
-      ],
-      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
-    },
-    {
-      "key": "guide-behavior:14-headless-mode.md:Python Wrapper:3",
-      "stories": [
-        33,
-        57
-      ],
-      "tickets": [
-        146
-      ],
-      "acceptance": [
-        "PARITY-146"
-      ],
-      "status": "pending-parity",
-      "evidence": [
-        "binary-guide:14-headless-mode.md#L439",
-        "source-guide:14-headless-mode.md#L439"
-      ],
-      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
-    },
-    {
-      "key": "guide-behavior:14-headless-mode.md:Python Wrapper:4",
-      "stories": [
-        33,
-        57
-      ],
-      "tickets": [
-        146
-      ],
-      "acceptance": [
-        "PARITY-146"
-      ],
-      "status": "pending-parity",
-      "evidence": [
-        "binary-guide:14-headless-mode.md#L439",
-        "source-guide:14-headless-mode.md#L439"
-      ],
-      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
-    },
-    {
-      "key": "guide-behavior:14-headless-mode.md:Python Wrapper:5",
-      "stories": [
-        33,
-        57
-      ],
-      "tickets": [
-        146
-      ],
-      "acceptance": [
-        "PARITY-146"
-      ],
-      "status": "pending-parity",
-      "evidence": [
-        "binary-guide:14-headless-mode.md#L439",
-        "source-guide:14-headless-mode.md#L439"
-      ],
-      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
-    },
-    {
-      "key": "guide-behavior:14-headless-mode.md:Python Wrapper:6",
-      "stories": [
-        33,
-        57
-      ],
-      "tickets": [
-        146
-      ],
-      "acceptance": [
-        "PARITY-146"
-      ],
-      "status": "pending-parity",
-      "evidence": [
-        "binary-guide:14-headless-mode.md#L439",
-        "source-guide:14-headless-mode.md#L439"
-      ],
-      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
-    },
-    {
-      "key": "guide-behavior:14-headless-mode.md:Python Wrapper:7",
-      "stories": [
-        33,
-        57
-      ],
-      "tickets": [
-        146
-      ],
-      "acceptance": [
-        "PARITY-146"
-      ],
-      "status": "pending-parity",
-      "evidence": [
-        "binary-guide:14-headless-mode.md#L439",
-        "source-guide:14-headless-mode.md#L439"
-      ],
-      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
-    },
-    {
-      "key": "guide-behavior:14-headless-mode.md:Python Wrapper:8",
-      "stories": [
-        33,
-        57
-      ],
-      "tickets": [
-        146
-      ],
-      "acceptance": [
-        "PARITY-146"
-      ],
-      "status": "pending-parity",
-      "evidence": [
-        "binary-guide:14-headless-mode.md#L439",
-        "source-guide:14-headless-mode.md#L439"
-      ],
-      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
-    },
-    {
-      "key": "guide-behavior:14-headless-mode.md:Python Wrapper:9",
-      "stories": [
-        33,
-        57
-      ],
-      "tickets": [
-        146
-      ],
-      "acceptance": [
-        "PARITY-146"
-      ],
-      "status": "pending-parity",
-      "evidence": [
-        "binary-guide:14-headless-mode.md#L439",
-        "source-guide:14-headless-mode.md#L439"
-      ],
-      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
-    },
-    {
       "key": "guide-behavior:14-headless-mode.md:Read-Only `~/.grok`:1",
       "stories": [
         33,
@@ -64544,7 +64994,45 @@
       "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
     },
     {
+      "key": "guide-behavior:14-headless-mode.md:Shell Script:6",
+      "stories": [
+        33,
+        57
+      ],
+      "tickets": [
+        146
+      ],
+      "acceptance": [
+        "PARITY-146"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "binary-guide:14-headless-mode.md#L505",
+        "source-guide:14-headless-mode.md#L505"
+      ],
+      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
+    },
+    {
       "key": "guide-behavior:14-headless-mode.md:Standard Input:1",
+      "stories": [
+        57,
+        70
+      ],
+      "tickets": [
+        145
+      ],
+      "acceptance": [
+        "PARITY-145"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "binary-guide:14-headless-mode.md#L395",
+        "source-guide:14-headless-mode.md#L395"
+      ],
+      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
+    },
+    {
+      "key": "guide-behavior:14-headless-mode.md:Standard Input:5",
       "stories": [
         57,
         70
@@ -65286,7 +65774,47 @@
       "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
     },
     {
+      "key": "guide-behavior:14-headless-mode.md:Tool Filtering:10",
+      "stories": [
+        24,
+        25,
+        27
+      ],
+      "tickets": [
+        142
+      ],
+      "acceptance": [
+        "PARITY-142-security-effects"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "binary-guide:14-headless-mode.md#L49",
+        "source-guide:14-headless-mode.md#L49"
+      ],
+      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
+    },
+    {
       "key": "guide-behavior:14-headless-mode.md:Tool Filtering:2",
+      "stories": [
+        24,
+        25,
+        27
+      ],
+      "tickets": [
+        142
+      ],
+      "acceptance": [
+        "PARITY-142-security-effects"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "binary-guide:14-headless-mode.md#L49",
+        "source-guide:14-headless-mode.md#L49"
+      ],
+      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
+    },
+    {
+      "key": "guide-behavior:14-headless-mode.md:Tool Filtering:6",
       "stories": [
         24,
         25,
@@ -65486,6 +66014,63 @@
       "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
     },
     {
+      "key": "guide-behavior:15-agent-mode.md:Automation and SDKs:4",
+      "stories": [
+        58,
+        59
+      ],
+      "tickets": [
+        147
+      ],
+      "acceptance": [
+        "PARITY-147"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "binary-guide:15-agent-mode.md#L7",
+        "source-guide:15-agent-mode.md#L7"
+      ],
+      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
+    },
+    {
+      "key": "guide-behavior:15-agent-mode.md:Automation and SDKs:6",
+      "stories": [
+        58,
+        59
+      ],
+      "tickets": [
+        147
+      ],
+      "acceptance": [
+        "PARITY-147"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "binary-guide:15-agent-mode.md#L7",
+        "source-guide:15-agent-mode.md#L7"
+      ],
+      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
+    },
+    {
+      "key": "guide-behavior:15-agent-mode.md:Automation and SDKs:7",
+      "stories": [
+        58,
+        59
+      ],
+      "tickets": [
+        147
+      ],
+      "acceptance": [
+        "PARITY-147"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "binary-guide:15-agent-mode.md#L7",
+        "source-guide:15-agent-mode.md#L7"
+      ],
+      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
+    },
+    {
       "key": "guide-behavior:15-agent-mode.md:Compatible clients:2",
       "stories": [
         58,
@@ -65543,235 +66128,7 @@
       "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
     },
     {
-      "key": "guide-behavior:15-agent-mode.md:Integration example: a TypeScript ACP client:10",
-      "stories": [
-        58,
-        59
-      ],
-      "tickets": [
-        147
-      ],
-      "acceptance": [
-        "PARITY-147"
-      ],
-      "status": "pending-parity",
-      "evidence": [
-        "binary-guide:15-agent-mode.md#L245",
-        "source-guide:15-agent-mode.md#L245"
-      ],
-      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
-    },
-    {
-      "key": "guide-behavior:15-agent-mode.md:Integration example: a TypeScript ACP client:11",
-      "stories": [
-        58,
-        59
-      ],
-      "tickets": [
-        147
-      ],
-      "acceptance": [
-        "PARITY-147"
-      ],
-      "status": "pending-parity",
-      "evidence": [
-        "binary-guide:15-agent-mode.md#L245",
-        "source-guide:15-agent-mode.md#L245"
-      ],
-      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
-    },
-    {
-      "key": "guide-behavior:15-agent-mode.md:Integration example: a TypeScript ACP client:12",
-      "stories": [
-        58,
-        59
-      ],
-      "tickets": [
-        147
-      ],
-      "acceptance": [
-        "PARITY-147"
-      ],
-      "status": "pending-parity",
-      "evidence": [
-        "binary-guide:15-agent-mode.md#L245",
-        "source-guide:15-agent-mode.md#L245"
-      ],
-      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
-    },
-    {
-      "key": "guide-behavior:15-agent-mode.md:Integration example: a TypeScript ACP client:13",
-      "stories": [
-        58,
-        59
-      ],
-      "tickets": [
-        147
-      ],
-      "acceptance": [
-        "PARITY-147"
-      ],
-      "status": "pending-parity",
-      "evidence": [
-        "binary-guide:15-agent-mode.md#L245",
-        "source-guide:15-agent-mode.md#L245"
-      ],
-      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
-    },
-    {
       "key": "guide-behavior:15-agent-mode.md:Integration example: a TypeScript ACP client:14",
-      "stories": [
-        58,
-        59
-      ],
-      "tickets": [
-        147
-      ],
-      "acceptance": [
-        "PARITY-147"
-      ],
-      "status": "pending-parity",
-      "evidence": [
-        "binary-guide:15-agent-mode.md#L245",
-        "source-guide:15-agent-mode.md#L245"
-      ],
-      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
-    },
-    {
-      "key": "guide-behavior:15-agent-mode.md:Integration example: a TypeScript ACP client:2",
-      "stories": [
-        58,
-        59
-      ],
-      "tickets": [
-        147
-      ],
-      "acceptance": [
-        "PARITY-147"
-      ],
-      "status": "pending-parity",
-      "evidence": [
-        "binary-guide:15-agent-mode.md#L245",
-        "source-guide:15-agent-mode.md#L245"
-      ],
-      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
-    },
-    {
-      "key": "guide-behavior:15-agent-mode.md:Integration example: a TypeScript ACP client:3",
-      "stories": [
-        58,
-        59
-      ],
-      "tickets": [
-        147
-      ],
-      "acceptance": [
-        "PARITY-147"
-      ],
-      "status": "pending-parity",
-      "evidence": [
-        "binary-guide:15-agent-mode.md#L245",
-        "source-guide:15-agent-mode.md#L245"
-      ],
-      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
-    },
-    {
-      "key": "guide-behavior:15-agent-mode.md:Integration example: a TypeScript ACP client:4",
-      "stories": [
-        58,
-        59
-      ],
-      "tickets": [
-        147
-      ],
-      "acceptance": [
-        "PARITY-147"
-      ],
-      "status": "pending-parity",
-      "evidence": [
-        "binary-guide:15-agent-mode.md#L245",
-        "source-guide:15-agent-mode.md#L245"
-      ],
-      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
-    },
-    {
-      "key": "guide-behavior:15-agent-mode.md:Integration example: a TypeScript ACP client:5",
-      "stories": [
-        58,
-        59
-      ],
-      "tickets": [
-        147
-      ],
-      "acceptance": [
-        "PARITY-147"
-      ],
-      "status": "pending-parity",
-      "evidence": [
-        "binary-guide:15-agent-mode.md#L245",
-        "source-guide:15-agent-mode.md#L245"
-      ],
-      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
-    },
-    {
-      "key": "guide-behavior:15-agent-mode.md:Integration example: a TypeScript ACP client:6",
-      "stories": [
-        58,
-        59
-      ],
-      "tickets": [
-        147
-      ],
-      "acceptance": [
-        "PARITY-147"
-      ],
-      "status": "pending-parity",
-      "evidence": [
-        "binary-guide:15-agent-mode.md#L245",
-        "source-guide:15-agent-mode.md#L245"
-      ],
-      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
-    },
-    {
-      "key": "guide-behavior:15-agent-mode.md:Integration example: a TypeScript ACP client:7",
-      "stories": [
-        58,
-        59
-      ],
-      "tickets": [
-        147
-      ],
-      "acceptance": [
-        "PARITY-147"
-      ],
-      "status": "pending-parity",
-      "evidence": [
-        "binary-guide:15-agent-mode.md#L245",
-        "source-guide:15-agent-mode.md#L245"
-      ],
-      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
-    },
-    {
-      "key": "guide-behavior:15-agent-mode.md:Integration example: a TypeScript ACP client:8",
-      "stories": [
-        58,
-        59
-      ],
-      "tickets": [
-        147
-      ],
-      "acceptance": [
-        "PARITY-147"
-      ],
-      "status": "pending-parity",
-      "evidence": [
-        "binary-guide:15-agent-mode.md#L245",
-        "source-guide:15-agent-mode.md#L245"
-      ],
-      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
-    },
-    {
-      "key": "guide-behavior:15-agent-mode.md:Integration example: a TypeScript ACP client:9",
       "stories": [
         58,
         59
@@ -66525,6 +66882,54 @@
       "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
     },
     {
+      "key": "guide-behavior:16-subagents.md:Custom Roles and Personas:5",
+      "stories": [
+        42,
+        43,
+        47,
+        12,
+        37
+      ],
+      "tickets": [
+        172,
+        163
+      ],
+      "acceptance": [
+        "PARITY-172",
+        "PARITY-163"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "binary-guide:16-subagents.md#L279",
+        "source-guide:16-subagents.md#L279"
+      ],
+      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
+    },
+    {
+      "key": "guide-behavior:16-subagents.md:Custom Roles and Personas:6",
+      "stories": [
+        42,
+        43,
+        47,
+        12,
+        37
+      ],
+      "tickets": [
+        172,
+        163
+      ],
+      "acceptance": [
+        "PARITY-172",
+        "PARITY-163"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "binary-guide:16-subagents.md#L279",
+        "source-guide:16-subagents.md#L279"
+      ],
+      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
+    },
+    {
       "key": "guide-behavior:16-subagents.md:Depth Limits:1",
       "stories": [
         42,
@@ -66566,6 +66971,26 @@
     },
     {
       "key": "guide-behavior:16-subagents.md:Disabling Subagents:1",
+      "stories": [
+        42,
+        43,
+        47
+      ],
+      "tickets": [
+        172
+      ],
+      "acceptance": [
+        "PARITY-172"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "binary-guide:16-subagents.md#L28",
+        "source-guide:16-subagents.md#L28"
+      ],
+      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
+    },
+    {
+      "key": "guide-behavior:16-subagents.md:Disabling Subagents:4",
       "stories": [
         42,
         43,
@@ -67068,30 +67493,6 @@
       "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
     },
     {
-      "key": "guide-behavior:16-subagents.md:Input/Output Contracts:3",
-      "stories": [
-        42,
-        43,
-        47,
-        12,
-        37
-      ],
-      "tickets": [
-        172,
-        163
-      ],
-      "acceptance": [
-        "PARITY-172",
-        "PARITY-163"
-      ],
-      "status": "pending-parity",
-      "evidence": [
-        "binary-guide:16-subagents.md#L106",
-        "source-guide:16-subagents.md#L106"
-      ],
-      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
-    },
-    {
       "key": "guide-behavior:16-subagents.md:Input/Output Contracts:4",
       "stories": [
         42,
@@ -67381,31 +67782,6 @@
     },
     {
       "key": "guide-behavior:16-subagents.md:Per-Type Toggles and Model Overrides:1",
-      "stories": [
-        42,
-        43,
-        47,
-        32,
-        33,
-        34
-      ],
-      "tickets": [
-        172,
-        140
-      ],
-      "acceptance": [
-        "PARITY-172",
-        "PARITY-140"
-      ],
-      "status": "pending-parity",
-      "evidence": [
-        "binary-guide:16-subagents.md#L264",
-        "source-guide:16-subagents.md#L264"
-      ],
-      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
-    },
-    {
-      "key": "guide-behavior:16-subagents.md:Per-Type Toggles and Model Overrides:3",
       "stories": [
         42,
         43,
@@ -68461,54 +68837,6 @@
       "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
     },
     {
-      "key": "guide-behavior:17-sessions.md:Agent stdio Session Management:3",
-      "stories": [
-        58,
-        59,
-        28,
-        62,
-        75
-      ],
-      "tickets": [
-        147,
-        138
-      ],
-      "acceptance": [
-        "PARITY-147",
-        "PARITY-138"
-      ],
-      "status": "pending-parity",
-      "evidence": [
-        "binary-guide:17-sessions.md#L229",
-        "source-guide:17-sessions.md#L229"
-      ],
-      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
-    },
-    {
-      "key": "guide-behavior:17-sessions.md:Agent stdio Session Management:4",
-      "stories": [
-        58,
-        59,
-        28,
-        62,
-        75
-      ],
-      "tickets": [
-        147,
-        138
-      ],
-      "acceptance": [
-        "PARITY-147",
-        "PARITY-138"
-      ],
-      "status": "pending-parity",
-      "evidence": [
-        "binary-guide:17-sessions.md#L229",
-        "source-guide:17-sessions.md#L229"
-      ],
-      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
-    },
-    {
       "key": "guide-behavior:17-sessions.md:Agent stdio Session Management:5",
       "stories": [
         58,
@@ -68738,46 +69066,6 @@
     },
     {
       "key": "guide-behavior:17-sessions.md:Checking Disk Usage:16",
-      "stories": [
-        30,
-        62,
-        63
-      ],
-      "tickets": [
-        162
-      ],
-      "acceptance": [
-        "PARITY-162"
-      ],
-      "status": "pending-parity",
-      "evidence": [
-        "binary-guide:17-sessions.md#L307",
-        "source-guide:17-sessions.md#L307"
-      ],
-      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
-    },
-    {
-      "key": "guide-behavior:17-sessions.md:Checking Disk Usage:3",
-      "stories": [
-        30,
-        62,
-        63
-      ],
-      "tickets": [
-        162
-      ],
-      "acceptance": [
-        "PARITY-162"
-      ],
-      "status": "pending-parity",
-      "evidence": [
-        "binary-guide:17-sessions.md#L307",
-        "source-guide:17-sessions.md#L307"
-      ],
-      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
-    },
-    {
-      "key": "guide-behavior:17-sessions.md:Checking Disk Usage:4",
       "stories": [
         30,
         62,
@@ -69239,6 +69527,82 @@
     },
     {
       "key": "guide-behavior:17-sessions.md:Headless Session Management:1",
+      "stories": [
+        28,
+        59
+      ],
+      "tickets": [
+        159
+      ],
+      "acceptance": [
+        "PARITY-159"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "binary-guide:17-sessions.md#L202",
+        "source-guide:17-sessions.md#L202"
+      ],
+      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
+    },
+    {
+      "key": "guide-behavior:17-sessions.md:Headless Session Management:5",
+      "stories": [
+        28,
+        59
+      ],
+      "tickets": [
+        159
+      ],
+      "acceptance": [
+        "PARITY-159"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "binary-guide:17-sessions.md#L202",
+        "source-guide:17-sessions.md#L202"
+      ],
+      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
+    },
+    {
+      "key": "guide-behavior:17-sessions.md:Headless Session Management:6",
+      "stories": [
+        28,
+        59
+      ],
+      "tickets": [
+        159
+      ],
+      "acceptance": [
+        "PARITY-159"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "binary-guide:17-sessions.md#L202",
+        "source-guide:17-sessions.md#L202"
+      ],
+      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
+    },
+    {
+      "key": "guide-behavior:17-sessions.md:Headless Session Management:7",
+      "stories": [
+        28,
+        59
+      ],
+      "tickets": [
+        159
+      ],
+      "acceptance": [
+        "PARITY-159"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "binary-guide:17-sessions.md#L202",
+        "source-guide:17-sessions.md#L202"
+      ],
+      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
+    },
+    {
+      "key": "guide-behavior:17-sessions.md:Headless Session Management:9",
       "stories": [
         28,
         59
@@ -69805,7 +70169,85 @@
       "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
     },
     {
+      "key": "guide-behavior:17-sessions.md:The grok sessions Subcommand:5",
+      "stories": [
+        28,
+        59
+      ],
+      "tickets": [
+        159
+      ],
+      "acceptance": [
+        "PARITY-159"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "binary-guide:17-sessions.md#L260",
+        "source-guide:17-sessions.md#L260"
+      ],
+      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
+    },
+    {
+      "key": "guide-behavior:17-sessions.md:The grok sessions Subcommand:6",
+      "stories": [
+        28,
+        59
+      ],
+      "tickets": [
+        159
+      ],
+      "acceptance": [
+        "PARITY-159"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "binary-guide:17-sessions.md#L260",
+        "source-guide:17-sessions.md#L260"
+      ],
+      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
+    },
+    {
       "key": "guide-behavior:17-sessions.md:The grok usage Subcommand:1",
+      "stories": [
+        17,
+        33,
+        64
+      ],
+      "tickets": [
+        197
+      ],
+      "acceptance": [
+        "PARITY-197"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "binary-guide:17-sessions.md#L279",
+        "source-guide:17-sessions.md#L279"
+      ],
+      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
+    },
+    {
+      "key": "guide-behavior:17-sessions.md:The grok usage Subcommand:4",
+      "stories": [
+        17,
+        33,
+        64
+      ],
+      "tickets": [
+        197
+      ],
+      "acceptance": [
+        "PARITY-197"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "binary-guide:17-sessions.md#L279",
+        "source-guide:17-sessions.md#L279"
+      ],
+      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
+    },
+    {
+      "key": "guide-behavior:17-sessions.md:The grok usage Subcommand:5",
       "stories": [
         17,
         33,
@@ -70145,6 +70587,72 @@
     },
     {
       "key": "guide-behavior:18-sandbox.md:Custom Profiles:1",
+      "stories": [
+        26,
+        27,
+        62
+      ],
+      "tickets": [
+        143,
+        144
+      ],
+      "acceptance": [
+        "PARITY-143-confinement",
+        "PARITY-144"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "binary-guide:18-sandbox.md#L62",
+        "source-guide:18-sandbox.md#L65"
+      ],
+      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
+    },
+    {
+      "key": "guide-behavior:18-sandbox.md:Custom Profiles:6",
+      "stories": [
+        26,
+        27,
+        62
+      ],
+      "tickets": [
+        143,
+        144
+      ],
+      "acceptance": [
+        "PARITY-143-confinement",
+        "PARITY-144"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "binary-guide:18-sandbox.md#L62",
+        "source-guide:18-sandbox.md#L65"
+      ],
+      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
+    },
+    {
+      "key": "guide-behavior:18-sandbox.md:Custom Profiles:8",
+      "stories": [
+        26,
+        27,
+        62
+      ],
+      "tickets": [
+        143,
+        144
+      ],
+      "acceptance": [
+        "PARITY-143-confinement",
+        "PARITY-144"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "binary-guide:18-sandbox.md#L62",
+        "source-guide:18-sandbox.md#L65"
+      ],
+      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
+    },
+    {
+      "key": "guide-behavior:18-sandbox.md:Custom Profiles:9",
       "stories": [
         26,
         27,
@@ -70833,6 +71341,28 @@
       "evidence": [
         "binary-guide:18-sandbox.md#L38",
         "source-guide:18-sandbox.md#L38"
+      ],
+      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
+    },
+    {
+      "key": "guide-behavior:18-sandbox.md:Quick Start:4",
+      "stories": [
+        26,
+        27,
+        62
+      ],
+      "tickets": [
+        143,
+        144
+      ],
+      "acceptance": [
+        "PARITY-143-confinement",
+        "PARITY-144"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "binary-guide:18-sandbox.md#L9",
+        "source-guide:18-sandbox.md#L9"
       ],
       "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
     },
@@ -74569,6 +75099,26 @@
       "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
     },
     {
+      "key": "guide-behavior:22-permissions-and-safety.md:Always-approve with hard limits:5",
+      "stories": [
+        24,
+        25,
+        27
+      ],
+      "tickets": [
+        142
+      ],
+      "acceptance": [
+        "PARITY-142-security-effects"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "binary-guide:22-permissions-and-safety.md#L76",
+        "source-guide:22-permissions-and-safety.md#L76"
+      ],
+      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
+    },
+    {
       "key": "guide-behavior:22-permissions-and-safety.md:Always-approve:1",
       "stories": [
         24,
@@ -75226,6 +75776,75 @@
       "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
     },
     {
+      "key": "guide-behavior:22-permissions-and-safety.md:Example: Allow Only `git` and `gh`:12",
+      "stories": [
+        24,
+        25,
+        27,
+        38
+      ],
+      "tickets": [
+        142,
+        164
+      ],
+      "acceptance": [
+        "PARITY-142-security-effects",
+        "PARITY-164"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "binary-guide:22-permissions-and-safety.md#L431",
+        "source-guide:22-permissions-and-safety.md#L431"
+      ],
+      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
+    },
+    {
+      "key": "guide-behavior:22-permissions-and-safety.md:Example: Allow Only `git` and `gh`:13",
+      "stories": [
+        24,
+        25,
+        27,
+        38
+      ],
+      "tickets": [
+        142,
+        164
+      ],
+      "acceptance": [
+        "PARITY-142-security-effects",
+        "PARITY-164"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "binary-guide:22-permissions-and-safety.md#L431",
+        "source-guide:22-permissions-and-safety.md#L431"
+      ],
+      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
+    },
+    {
+      "key": "guide-behavior:22-permissions-and-safety.md:Example: Allow Only `git` and `gh`:14",
+      "stories": [
+        24,
+        25,
+        27,
+        38
+      ],
+      "tickets": [
+        142,
+        164
+      ],
+      "acceptance": [
+        "PARITY-142-security-effects",
+        "PARITY-164"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "binary-guide:22-permissions-and-safety.md#L431",
+        "source-guide:22-permissions-and-safety.md#L431"
+      ],
+      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
+    },
+    {
       "key": "guide-behavior:22-permissions-and-safety.md:Example: Allow Only `git` and `gh`:3",
       "stories": [
         24,
@@ -75717,6 +76336,86 @@
     },
     {
       "key": "guide-behavior:22-permissions-and-safety.md:Per-Command \"Always Allow\":1",
+      "stories": [
+        24,
+        25,
+        27
+      ],
+      "tickets": [
+        142
+      ],
+      "acceptance": [
+        "PARITY-142-security-effects"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "binary-guide:22-permissions-and-safety.md#L395",
+        "source-guide:22-permissions-and-safety.md#L395"
+      ],
+      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
+    },
+    {
+      "key": "guide-behavior:22-permissions-and-safety.md:Per-Command \"Always Allow\":3",
+      "stories": [
+        24,
+        25,
+        27
+      ],
+      "tickets": [
+        142
+      ],
+      "acceptance": [
+        "PARITY-142-security-effects"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "binary-guide:22-permissions-and-safety.md#L395",
+        "source-guide:22-permissions-and-safety.md#L395"
+      ],
+      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
+    },
+    {
+      "key": "guide-behavior:22-permissions-and-safety.md:Per-Command \"Always Allow\":4",
+      "stories": [
+        24,
+        25,
+        27
+      ],
+      "tickets": [
+        142
+      ],
+      "acceptance": [
+        "PARITY-142-security-effects"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "binary-guide:22-permissions-and-safety.md#L395",
+        "source-guide:22-permissions-and-safety.md#L395"
+      ],
+      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
+    },
+    {
+      "key": "guide-behavior:22-permissions-and-safety.md:Per-Command \"Always Allow\":5",
+      "stories": [
+        24,
+        25,
+        27
+      ],
+      "tickets": [
+        142
+      ],
+      "acceptance": [
+        "PARITY-142-security-effects"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "binary-guide:22-permissions-and-safety.md#L395",
+        "source-guide:22-permissions-and-safety.md#L395"
+      ],
+      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
+    },
+    {
+      "key": "guide-behavior:22-permissions-and-safety.md:Per-Command \"Always Allow\":6",
       "stories": [
         24,
         25,
@@ -77204,44 +77903,6 @@
       "blocker": "Source export is 1.0.35, not a proven 1.0.34 match; verify availability and semantics against the frozen binary before candidate implementation."
     },
     {
-      "key": "guide-behavior:23-dashboard.md:What you see:2",
-      "stories": [
-        28,
-        59
-      ],
-      "tickets": [
-        159
-      ],
-      "acceptance": [
-        "PARITY-159"
-      ],
-      "status": "pending-parity",
-      "evidence": [
-        "binary-guide:23-dashboard.md#L27",
-        "source-guide:23-dashboard.md#L27"
-      ],
-      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
-    },
-    {
-      "key": "guide-behavior:23-dashboard.md:What you see:3",
-      "stories": [
-        28,
-        59
-      ],
-      "tickets": [
-        159
-      ],
-      "acceptance": [
-        "PARITY-159"
-      ],
-      "status": "pending-parity",
-      "evidence": [
-        "binary-guide:23-dashboard.md#L27",
-        "source-guide:23-dashboard.md#L27"
-      ],
-      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
-    },
-    {
       "key": "guide-behavior:23-dashboard.md:What you see:4",
       "stories": [
         28,
@@ -77376,6 +78037,106 @@
       "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
     },
     {
+      "key": "guide-behavior:24-monitoring-usage.md:Config file:3",
+      "stories": [
+        30,
+        63,
+        64
+      ],
+      "tickets": [
+        192
+      ],
+      "acceptance": [
+        "PARITY-192"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "binary-guide:24-monitoring-usage.md#L129",
+        "source-guide:24-monitoring-usage.md#L129"
+      ],
+      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
+    },
+    {
+      "key": "guide-behavior:24-monitoring-usage.md:Config file:4",
+      "stories": [
+        30,
+        63,
+        64
+      ],
+      "tickets": [
+        192
+      ],
+      "acceptance": [
+        "PARITY-192"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "binary-guide:24-monitoring-usage.md#L129",
+        "source-guide:24-monitoring-usage.md#L129"
+      ],
+      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
+    },
+    {
+      "key": "guide-behavior:24-monitoring-usage.md:Config file:5",
+      "stories": [
+        30,
+        63,
+        64
+      ],
+      "tickets": [
+        192
+      ],
+      "acceptance": [
+        "PARITY-192"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "binary-guide:24-monitoring-usage.md#L129",
+        "source-guide:24-monitoring-usage.md#L129"
+      ],
+      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
+    },
+    {
+      "key": "guide-behavior:24-monitoring-usage.md:Config file:6",
+      "stories": [
+        30,
+        63,
+        64
+      ],
+      "tickets": [
+        192
+      ],
+      "acceptance": [
+        "PARITY-192"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "binary-guide:24-monitoring-usage.md#L129",
+        "source-guide:24-monitoring-usage.md#L129"
+      ],
+      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
+    },
+    {
+      "key": "guide-behavior:24-monitoring-usage.md:Config file:7",
+      "stories": [
+        30,
+        63,
+        64
+      ],
+      "tickets": [
+        192
+      ],
+      "acceptance": [
+        "PARITY-192"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "binary-guide:24-monitoring-usage.md#L129",
+        "source-guide:24-monitoring-usage.md#L129"
+      ],
+      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
+    },
+    {
       "key": "guide-behavior:24-monitoring-usage.md:Debugging:1",
       "stories": [
         30,
@@ -77412,66 +78173,6 @@
       "evidence": [
         "binary-guide:24-monitoring-usage.md#L275",
         "source-guide:24-monitoring-usage.md#L275"
-      ],
-      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
-    },
-    {
-      "key": "guide-behavior:24-monitoring-usage.md:Example collector config:2",
-      "stories": [
-        30,
-        63,
-        64
-      ],
-      "tickets": [
-        192
-      ],
-      "acceptance": [
-        "PARITY-192"
-      ],
-      "status": "pending-parity",
-      "evidence": [
-        "binary-guide:24-monitoring-usage.md#L330",
-        "source-guide:24-monitoring-usage.md#L330"
-      ],
-      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
-    },
-    {
-      "key": "guide-behavior:24-monitoring-usage.md:Example collector config:3",
-      "stories": [
-        30,
-        63,
-        64
-      ],
-      "tickets": [
-        192
-      ],
-      "acceptance": [
-        "PARITY-192"
-      ],
-      "status": "pending-parity",
-      "evidence": [
-        "binary-guide:24-monitoring-usage.md#L330",
-        "source-guide:24-monitoring-usage.md#L330"
-      ],
-      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
-    },
-    {
-      "key": "guide-behavior:24-monitoring-usage.md:Example collector config:4",
-      "stories": [
-        30,
-        63,
-        64
-      ],
-      "tickets": [
-        192
-      ],
-      "acceptance": [
-        "PARITY-192"
-      ],
-      "status": "pending-parity",
-      "evidence": [
-        "binary-guide:24-monitoring-usage.md#L330",
-        "source-guide:24-monitoring-usage.md#L330"
       ],
       "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
     },
@@ -78576,6 +79277,44 @@
     },
     {
       "key": "guide-behavior:27-grok-clone.md:Authentication:11",
+      "stories": [
+        44,
+        61
+      ],
+      "tickets": [
+        191
+      ],
+      "acceptance": [
+        "PARITY-191"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "binary-guide:27-grok-clone.md#L71",
+        "source-guide:27-grok-clone.md#L67"
+      ],
+      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
+    },
+    {
+      "key": "guide-behavior:27-grok-clone.md:Authentication:13",
+      "stories": [
+        44,
+        61
+      ],
+      "tickets": [
+        191
+      ],
+      "acceptance": [
+        "PARITY-191"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "binary-guide:27-grok-clone.md#L71",
+        "source-guide:27-grok-clone.md#L67"
+      ],
+      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
+    },
+    {
+      "key": "guide-behavior:27-grok-clone.md:Authentication:14",
       "stories": [
         44,
         61
@@ -80540,47 +81279,6 @@
       "evidence": [
         "binary-guide:05-configuration.md#L164",
         "source-guide:05-configuration.md#L164"
-      ],
-      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
-    },
-    {
-      "key": "guide-item:05-configuration.md:Environment variables > Authentication:`XAI_API_KEY`",
-      "stories": [
-        8,
-        34,
-        36,
-        60
-      ],
-      "tickets": [
-        189
-      ],
-      "acceptance": [
-        "PARITY-189"
-      ],
-      "status": "pending-parity",
-      "evidence": [
-        "binary-guide:05-configuration.md#L766",
-        "source-guide:05-configuration.md#L766"
-      ],
-      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
-    },
-    {
-      "key": "guide-item:05-configuration.md:Environment variables > Logging:`RUST_LOG`",
-      "stories": [
-        30,
-        63,
-        64
-      ],
-      "tickets": [
-        192
-      ],
-      "acceptance": [
-        "PARITY-192"
-      ],
-      "status": "pending-parity",
-      "evidence": [
-        "binary-guide:05-configuration.md#L798",
-        "source-guide:05-configuration.md#L798"
       ],
       "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
     },
@@ -83329,6 +84027,25 @@
       "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
     },
     {
+      "key": "guide-item:10-hooks.md:Hooks in Config Files:`managed_config.toml` (`$GROK_HOME`, `/etc/grok`)",
+      "stories": [
+        25,
+        38
+      ],
+      "tickets": [
+        164
+      ],
+      "acceptance": [
+        "PARITY-164"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "binary-guide:10-hooks.md#L202",
+        "source-guide:10-hooks.md#L202"
+      ],
+      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
+    },
+    {
       "key": "guide-item:10-hooks.md:Hooks in Config Files:`requirements.toml` (user and system)",
       "stories": [
         25,
@@ -83576,45 +84293,6 @@
       "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
     },
     {
-      "key": "guide-item:10-hooks.md:Writing Hook Scripts > Runner-injected variables (always available):`CLAUDE_PROJECT_DIR`",
-      "stories": [
-        25,
-        38
-      ],
-      "tickets": [
-        164
-      ],
-      "acceptance": [
-        "PARITY-164"
-      ],
-      "status": "pending-parity",
-      "evidence": [
-        "binary-guide:10-hooks.md#L494",
-        "source-guide:10-hooks.md#L494"
-      ],
-      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
-    },
-    {
-      "key": "guide-item:11-custom-models.md:Custom Models Endpoint > Environment Variables:`XAI_API_KEY`",
-      "stories": [
-        32,
-        33,
-        34
-      ],
-      "tickets": [
-        140
-      ],
-      "acceptance": [
-        "PARITY-140"
-      ],
-      "status": "pending-parity",
-      "evidence": [
-        "binary-guide:11-custom-models.md#L320",
-        "source-guide:11-custom-models.md#L320"
-      ],
-      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
-    },
-    {
       "key": "guide-item:11-custom-models.md:Supported API Backends:`\"chat_completions\"`",
       "stories": [
         32,
@@ -83766,6 +84444,25 @@
       "evidence": [
         "binary-guide:12-project-rules.md#L44",
         "source-guide:12-project-rules.md#L44"
+      ],
+      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
+    },
+    {
+      "key": "guide-item:12-project-rules.md:Supported File Names > Rules Directories:`$GROK_HOME/rules/` (default `~/.grok/rules/`)",
+      "stories": [
+        12,
+        37
+      ],
+      "tickets": [
+        163
+      ],
+      "acceptance": [
+        "PARITY-163"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "binary-guide:12-project-rules.md#L42",
+        "source-guide:12-project-rules.md#L42"
       ],
       "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
     },
@@ -85628,44 +86325,6 @@
       "evidence": [
         "binary-guide:14-headless-mode.md#L25",
         "source-guide:14-headless-mode.md#L25"
-      ],
-      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
-    },
-    {
-      "key": "guide-item:14-headless-mode.md:Environment Variables for Headless:`RUST_LOG`",
-      "stories": [
-        33,
-        57
-      ],
-      "tickets": [
-        146
-      ],
-      "acceptance": [
-        "PARITY-146"
-      ],
-      "status": "pending-parity",
-      "evidence": [
-        "binary-guide:14-headless-mode.md#L548",
-        "source-guide:14-headless-mode.md#L548"
-      ],
-      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
-    },
-    {
-      "key": "guide-item:14-headless-mode.md:Environment Variables for Headless:`XAI_API_KEY`",
-      "stories": [
-        33,
-        57
-      ],
-      "tickets": [
-        146
-      ],
-      "acceptance": [
-        "PARITY-146"
-      ],
-      "status": "pending-parity",
-      "evidence": [
-        "binary-guide:14-headless-mode.md#L545",
-        "source-guide:14-headless-mode.md#L545"
       ],
       "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
     },
@@ -89372,26 +90031,6 @@
       "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
     },
     {
-      "key": "guide-item:24-monitoring-usage.md:Environment variables:`OTEL_EXPORTER_OTLP_ENDPOINT`",
-      "stories": [
-        30,
-        63,
-        64
-      ],
-      "tickets": [
-        192
-      ],
-      "acceptance": [
-        "PARITY-192"
-      ],
-      "status": "pending-parity",
-      "evidence": [
-        "binary-guide:24-monitoring-usage.md#L86",
-        "source-guide:24-monitoring-usage.md#L86"
-      ],
-      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
-    },
-    {
       "key": "guide-item:24-monitoring-usage.md:Environment variables:`OTEL_EXPORTER_OTLP_HEADERS` (+ signal-specific variants)",
       "stories": [
         30,
@@ -89448,246 +90087,6 @@
       "evidence": [
         "binary-guide:24-monitoring-usage.md#L85",
         "source-guide:24-monitoring-usage.md#L85"
-      ],
-      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
-    },
-    {
-      "key": "guide-item:24-monitoring-usage.md:Environment variables:`OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE`",
-      "stories": [
-        30,
-        63,
-        64
-      ],
-      "tickets": [
-        192
-      ],
-      "acceptance": [
-        "PARITY-192"
-      ],
-      "status": "pending-parity",
-      "evidence": [
-        "binary-guide:24-monitoring-usage.md#L94",
-        "source-guide:24-monitoring-usage.md#L94"
-      ],
-      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
-    },
-    {
-      "key": "guide-item:24-monitoring-usage.md:Environment variables:`OTEL_EXPORTER_OTLP_PROTOCOL`",
-      "stories": [
-        30,
-        63,
-        64
-      ],
-      "tickets": [
-        192
-      ],
-      "acceptance": [
-        "PARITY-192"
-      ],
-      "status": "pending-parity",
-      "evidence": [
-        "binary-guide:24-monitoring-usage.md#L84",
-        "source-guide:24-monitoring-usage.md#L84"
-      ],
-      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
-    },
-    {
-      "key": "guide-item:24-monitoring-usage.md:Environment variables:`OTEL_EXPORTER_OTLP_TIMEOUT`",
-      "stories": [
-        30,
-        63,
-        64
-      ],
-      "tickets": [
-        192
-      ],
-      "acceptance": [
-        "PARITY-192"
-      ],
-      "status": "pending-parity",
-      "evidence": [
-        "binary-guide:24-monitoring-usage.md#L91",
-        "source-guide:24-monitoring-usage.md#L91"
-      ],
-      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
-    },
-    {
-      "key": "guide-item:24-monitoring-usage.md:Environment variables:`OTEL_LOG_ASSISTANT_RESPONSES`",
-      "stories": [
-        30,
-        63,
-        64
-      ],
-      "tickets": [
-        192
-      ],
-      "acceptance": [
-        "PARITY-192"
-      ],
-      "status": "pending-parity",
-      "evidence": [
-        "binary-guide:24-monitoring-usage.md#L98",
-        "source-guide:24-monitoring-usage.md#L98"
-      ],
-      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
-    },
-    {
-      "key": "guide-item:24-monitoring-usage.md:Environment variables:`OTEL_LOG_TOOL_CONTENT`",
-      "stories": [
-        30,
-        63,
-        64
-      ],
-      "tickets": [
-        192
-      ],
-      "acceptance": [
-        "PARITY-192"
-      ],
-      "status": "pending-parity",
-      "evidence": [
-        "binary-guide:24-monitoring-usage.md#L100",
-        "source-guide:24-monitoring-usage.md#L100"
-      ],
-      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
-    },
-    {
-      "key": "guide-item:24-monitoring-usage.md:Environment variables:`OTEL_LOG_TOOL_DETAILS`",
-      "stories": [
-        30,
-        63,
-        64
-      ],
-      "tickets": [
-        192
-      ],
-      "acceptance": [
-        "PARITY-192"
-      ],
-      "status": "pending-parity",
-      "evidence": [
-        "binary-guide:24-monitoring-usage.md#L99",
-        "source-guide:24-monitoring-usage.md#L99"
-      ],
-      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
-    },
-    {
-      "key": "guide-item:24-monitoring-usage.md:Environment variables:`OTEL_LOG_USER_PROMPTS`",
-      "stories": [
-        30,
-        63,
-        64
-      ],
-      "tickets": [
-        192
-      ],
-      "acceptance": [
-        "PARITY-192"
-      ],
-      "status": "pending-parity",
-      "evidence": [
-        "binary-guide:24-monitoring-usage.md#L97",
-        "source-guide:24-monitoring-usage.md#L97"
-      ],
-      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
-    },
-    {
-      "key": "guide-item:24-monitoring-usage.md:Environment variables:`OTEL_LOGS_EXPORTER`",
-      "stories": [
-        30,
-        63,
-        64
-      ],
-      "tickets": [
-        192
-      ],
-      "acceptance": [
-        "PARITY-192"
-      ],
-      "status": "pending-parity",
-      "evidence": [
-        "binary-guide:24-monitoring-usage.md#L83",
-        "source-guide:24-monitoring-usage.md#L83"
-      ],
-      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
-    },
-    {
-      "key": "guide-item:24-monitoring-usage.md:Environment variables:`OTEL_METRIC_EXPORT_INTERVAL`",
-      "stories": [
-        30,
-        63,
-        64
-      ],
-      "tickets": [
-        192
-      ],
-      "acceptance": [
-        "PARITY-192"
-      ],
-      "status": "pending-parity",
-      "evidence": [
-        "binary-guide:24-monitoring-usage.md#L92",
-        "source-guide:24-monitoring-usage.md#L92"
-      ],
-      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
-    },
-    {
-      "key": "guide-item:24-monitoring-usage.md:Environment variables:`OTEL_METRICS_EXPORTER`",
-      "stories": [
-        30,
-        63,
-        64
-      ],
-      "tickets": [
-        192
-      ],
-      "acceptance": [
-        "PARITY-192"
-      ],
-      "status": "pending-parity",
-      "evidence": [
-        "binary-guide:24-monitoring-usage.md#L82",
-        "source-guide:24-monitoring-usage.md#L82"
-      ],
-      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
-    },
-    {
-      "key": "guide-item:24-monitoring-usage.md:Environment variables:`OTEL_METRICS_INCLUDE_SESSION_ID`",
-      "stories": [
-        30,
-        63,
-        64
-      ],
-      "tickets": [
-        192
-      ],
-      "acceptance": [
-        "PARITY-192"
-      ],
-      "status": "pending-parity",
-      "evidence": [
-        "binary-guide:24-monitoring-usage.md#L95",
-        "source-guide:24-monitoring-usage.md#L95"
-      ],
-      "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
-    },
-    {
-      "key": "guide-item:24-monitoring-usage.md:Environment variables:`OTEL_METRICS_INCLUDE_VERSION`",
-      "stories": [
-        30,
-        63,
-        64
-      ],
-      "tickets": [
-        192
-      ],
-      "acceptance": [
-        "PARITY-192"
-      ],
-      "status": "pending-parity",
-      "evidence": [
-        "binary-guide:24-monitoring-usage.md#L96",
-        "source-guide:24-monitoring-usage.md#L96"
       ],
       "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
     },
@@ -93425,13 +93824,19 @@
         48,
         49,
         50,
-        55
+        55,
+        47,
+        62
       ],
       "tickets": [
-        206
+        206,
+        182,
+        183
       ],
       "acceptance": [
-        "PARITY-206"
+        "PARITY-206",
+        "PARITY-182",
+        "PARITY-183"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -94349,13 +94754,21 @@
       "key": "guide-section:04-slash-commands.md:`/workflow`",
       "stories": [
         48,
-        49
+        49,
+        47,
+        62
       ],
       "tickets": [
-        181
+        181,
+        182,
+        183,
+        184
       ],
       "acceptance": [
-        "PARITY-181"
+        "PARITY-181",
+        "PARITY-182",
+        "PARITY-183",
+        "PARITY-184"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -94368,13 +94781,17 @@
       "key": "guide-section:04-slash-commands.md:`/workflows`",
       "stories": [
         48,
-        49
+        49,
+        47,
+        62
       ],
       "tickets": [
-        184
+        184,
+        183
       ],
       "acceptance": [
-        "PARITY-184"
+        "PARITY-184",
+        "PARITY-183"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -94722,15 +95139,21 @@
         33,
         50,
         48,
-        49
+        49,
+        47,
+        62
       ],
       "tickets": [
         180,
-        181
+        181,
+        183,
+        184
       ],
       "acceptance": [
         "PARITY-180",
-        "PARITY-181"
+        "PARITY-181",
+        "PARITY-183",
+        "PARITY-184"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -95320,16 +95743,33 @@
     {
       "key": "guide-section:05-configuration.md:Tool configuration",
       "stories": [
+        55,
+        22,
+        50,
+        19,
+        23,
+        26,
         8,
         34,
         35,
-        63
+        63,
+        24,
+        36,
+        37
       ],
       "tickets": [
-        139
+        171,
+        179,
+        170,
+        139,
+        141
       ],
       "acceptance": [
-        "PARITY-139"
+        "PARITY-171-policy",
+        "PARITY-179",
+        "PARITY-170",
+        "PARITY-139",
+        "PARITY-141"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -99504,13 +99944,17 @@
       "key": "guide-section:13-memory.md:Memory Notifications",
       "stories": [
         51,
-        63
+        63,
+        52,
+        64
       ],
       "tickets": [
-        185
+        185,
+        186
       ],
       "acceptance": [
-        "PARITY-185"
+        "PARITY-185",
+        "PARITY-186"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -104863,14 +105307,21 @@
     {
       "key": "guide-section:26-config-reference.md:`campaigns`",
       "stories": [
-        17,
-        35
+        8,
+        34,
+        35,
+        63,
+        24,
+        36,
+        37
       ],
       "tickets": [
-        154
+        139,
+        141
       ],
       "acceptance": [
-        "PARITY-154"
+        "PARITY-139",
+        "PARITY-141-campaigns"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -105316,13 +105767,17 @@
       "key": "guide-section:26-config-reference.md:`memory`",
       "stories": [
         51,
-        63
+        63,
+        52,
+        64
       ],
       "tickets": [
-        185
+        185,
+        186
       ],
       "acceptance": [
-        "PARITY-185"
+        "PARITY-185",
+        "PARITY-186"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -110080,14 +110535,21 @@
     {
       "key": "setting:campaigns",
       "stories": [
-        17,
-        35
+        8,
+        34,
+        35,
+        63,
+        24,
+        36,
+        37
       ],
       "tickets": [
-        154
+        139,
+        141
       ],
       "acceptance": [
-        "PARITY-154"
+        "PARITY-139",
+        "PARITY-141-campaigns"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -111305,14 +111767,21 @@
     {
       "key": "setting:features.campaigns",
       "stories": [
-        17,
-        35
+        8,
+        34,
+        35,
+        63,
+        24,
+        36,
+        37
       ],
       "tickets": [
-        154
+        139,
+        141
       ],
       "acceptance": [
-        "PARITY-154"
+        "PARITY-139",
+        "PARITY-141-campaigns"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -113227,14 +113696,15 @@
     {
       "key": "setting:memory_v2.archived_retention_days",
       "stories": [
-        51,
-        63
+        52,
+        63,
+        64
       ],
       "tickets": [
-        185
+        186
       ],
       "acceptance": [
-        "PARITY-185"
+        "PARITY-186"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -113246,14 +113716,15 @@
     {
       "key": "setting:memory_v2.automatic_dream_enabled",
       "stories": [
-        51,
-        63
+        52,
+        63,
+        64
       ],
       "tickets": [
-        185
+        186
       ],
       "acceptance": [
-        "PARITY-185"
+        "PARITY-186"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -113265,14 +113736,15 @@
     {
       "key": "setting:memory_v2.capture_enabled",
       "stories": [
-        51,
-        63
+        52,
+        63,
+        64
       ],
       "tickets": [
-        185
+        186
       ],
       "acceptance": [
-        "PARITY-185"
+        "PARITY-186"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -113284,14 +113756,15 @@
     {
       "key": "setting:memory_v2.capture_status_enabled",
       "stories": [
-        51,
-        63
+        52,
+        63,
+        64
       ],
       "tickets": [
-        185
+        186
       ],
       "acceptance": [
-        "PARITY-185"
+        "PARITY-186"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -113304,13 +113777,17 @@
       "key": "setting:memory_v2.enabled",
       "stories": [
         51,
-        63
+        63,
+        52,
+        64
       ],
       "tickets": [
-        185
+        185,
+        186
       ],
       "acceptance": [
-        "PARITY-185"
+        "PARITY-185",
+        "PARITY-186"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -113323,13 +113800,17 @@
       "key": "setting:memory_v2.file_writes_enabled",
       "stories": [
         51,
-        63
+        63,
+        52,
+        64
       ],
       "tickets": [
-        185
+        185,
+        186
       ],
       "acceptance": [
-        "PARITY-185"
+        "PARITY-185",
+        "PARITY-186"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -113341,14 +113822,15 @@
     {
       "key": "setting:memory_v2.job_retention_days",
       "stories": [
-        51,
-        63
+        52,
+        63,
+        64
       ],
       "tickets": [
-        185
+        186
       ],
       "acceptance": [
-        "PARITY-185"
+        "PARITY-186"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -113360,14 +113842,15 @@
     {
       "key": "setting:memory_v2.manual_dream_enabled",
       "stories": [
-        51,
-        63
+        52,
+        63,
+        64
       ],
       "tickets": [
-        185
+        186
       ],
       "acceptance": [
-        "PARITY-185"
+        "PARITY-186"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -113380,13 +113863,17 @@
       "key": "setting:memory_v2.rollout",
       "stories": [
         51,
-        63
+        63,
+        52,
+        64
       ],
       "tickets": [
-        185
+        185,
+        186
       ],
       "acceptance": [
-        "PARITY-185"
+        "PARITY-185",
+        "PARITY-186"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -116022,7 +116509,7 @@
         171
       ],
       "acceptance": [
-        "PARITY-171"
+        "PARITY-171-policy"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -116040,7 +116527,7 @@
         171
       ],
       "acceptance": [
-        "PARITY-171"
+        "PARITY-171-policy"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -116058,7 +116545,7 @@
         171
       ],
       "acceptance": [
-        "PARITY-171"
+        "PARITY-171-policy"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -116076,7 +116563,7 @@
         171
       ],
       "acceptance": [
-        "PARITY-171"
+        "PARITY-171-policy"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -117125,13 +117612,17 @@
       "key": "setting:workflows.enabled",
       "stories": [
         48,
-        49
+        49,
+        33,
+        50
       ],
       "tickets": [
-        181
+        181,
+        180
       ],
       "acceptance": [
-        "PARITY-181"
+        "PARITY-181",
+        "PARITY-180"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -119543,13 +120034,21 @@
       "key": "slash:workflow",
       "stories": [
         48,
-        49
+        49,
+        47,
+        62
       ],
       "tickets": [
-        181
+        181,
+        182,
+        183,
+        184
       ],
       "acceptance": [
-        "PARITY-181"
+        "PARITY-181",
+        "PARITY-182",
+        "PARITY-183",
+        "PARITY-184"
       ],
       "status": "pending-parity",
       "evidence": [
@@ -125303,13 +125802,21 @@
       "key": "tool:workflow",
       "stories": [
         48,
-        49
+        49,
+        47,
+        62
       ],
       "tickets": [
-        181
+        181,
+        182,
+        183,
+        184
       ],
       "acceptance": [
-        "PARITY-181"
+        "PARITY-181",
+        "PARITY-182",
+        "PARITY-183",
+        "PARITY-184"
       ],
       "status": "pending-parity",
       "evidence": [
