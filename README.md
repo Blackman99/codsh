@@ -52,7 +52,11 @@ mismatch or missing dsh is refused instead of faked as success. It reuses licens
 Grok Rust UI components, requires no official account, and does not start the
 legacy Bundle, official agent core, update check, telemetry, or feedback upload.
 Enter submits the draft through dsh when connected, or reports that execution is
-unavailable without sending it.
+unavailable without sending it. File read, write, and edit run through real dsh
+tools. The UI shows the pending operation and the dsh-supplied diff, then `y`
+allows that call once and `n` rejects it with no write. Missing files, tool
+errors, cancelled or duplicate approval replies are shown as failures, never as
+success.
 
 The preview uses `~/.codsh-rust/dsh` and Profile `rust`, ignores inherited
 `DSH_HOME`, provider credentials and Grok settings, and never migrates legacy

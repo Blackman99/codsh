@@ -50,8 +50,9 @@ Any `..` component in `GROK_HOME` is intentionally refused, even for a separate
 existing Home; use a path without parent traversal instead of relying on guessed
 symlink semantics. Default `~/.dsh` and `~/.grok` remain protected with overrides.
 Enter submits the draft through dsh when ACP is connected, and otherwise
-reports that execution is unavailable. `Ctrl+Q`/`Ctrl+D` quits; `Ctrl+C`
-clears a draft or quits when empty.
+reports that execution is unavailable. File read/write/edit run through dsh
+tools; `y` allows one pending file mutation and `n` rejects it with no write.
+`Ctrl+Q`/`Ctrl+D` quits; `Ctrl+C` clears a draft or quits when empty.
 
 Maintainers run `pnpm run build:rust` before locally packing this package. The
 candidate carries its native binary, dependency/license records, and digest;

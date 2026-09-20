@@ -1,6 +1,6 @@
 import { spawn } from 'node:child_process'
 import { createInterface } from 'node:readline'
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync, readdirSync } from 'node:fs'
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, existsSync, readdirSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { createRequire } from 'node:module'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -45,6 +45,7 @@ function startAgent(mode) {
   })
   const pending = new Map()
   const updates = []
+  const permissions = []
   const frames = []
   const stderr = []
   createInterface({ input: child.stdout }).on('line', line => {
@@ -52,6 +53,7 @@ function startAgent(mode) {
     let msg
     try { msg = JSON.parse(line) } catch { return }
     if (msg.method === 'session/update') updates.push(msg.params)
+    if (msg.method === 'session/request_permission') permissions.push(msg)
     if (msg.id != null && pending.has(msg.id)) {
       const waiter = pending.get(msg.id)
       pending.delete(msg.id)
@@ -67,7 +69,19 @@ function startAgent(mode) {
       setTimeout(() => reject(new Error(`timeout waiting for ${method}: ${stderr.join('')}`)), 20000)
     })
   }
-  return { root, home, cwd, child, send, updates, frames, stderr }
+  function reply(id, result) {
+    child.stdin.write(`${JSON.stringify({ jsonrpc: '2.0', id, result })}\n`)
+  }
+  return { root, home, cwd, child, send, reply, updates, permissions, frames, stderr }
+}
+
+async function waitUntil(predicate, timeout = 15000, detail = 'condition') {
+  const deadline = Date.now() + timeout
+  while (Date.now() < deadline) {
+    if (predicate()) return
+    await new Promise(resolve => setTimeout(resolve, 30))
+  }
+  throw new Error(`timeout waiting for ${detail}`)
 }
 
 async function handshake(agent, cwd = agent.cwd) {
@@ -200,6 +214,118 @@ describe('public ACP/JSON-RPC against real dsh', () => {
       agent.child.kill('SIGTERM')
     }
   }, 30000)
+
+  it('asks once for a real dsh file edit, writes on allow, and ignores a duplicate reply', async () => {
+    const agent = startAgent('file-edit')
+    try {
+      expect(rustAcpOverlay()).toContain('rust-acp-file-approval')
+      writeFileSync(join(agent.cwd, 'note.txt'), 'alpha\n')
+      const { session } = await handshake(agent)
+      const prompt = agent.send(3, 'session/prompt', {
+        sessionId: session.sessionId,
+        prompt: [{ type: 'text', text: 'edit the note' }],
+      })
+      await waitUntil(() => agent.permissions.length > 0, 20000, 'permission request')
+      const permission = agent.permissions[0]
+      const callId = permission.params.toolCall.toolCallId
+      const read = agent.updates.find(update => update.update.sessionUpdate === 'tool_call' && update.update.title === 'read')
+      const edit = agent.updates.find(update => update.update.sessionUpdate === 'tool_call' && update.update.title === 'edit')
+      expect(read.update.rawInput).toEqual({ file_path: 'note.txt' })
+      expect(edit.update.rawInput).toMatchObject({ file_path: 'note.txt', old_string: 'alpha', new_string: 'ALPHA' })
+      expect(edit.update.toolCallId).toBe(callId)
+      expect(permission.params.options.map(option => option.optionId)).toEqual(['allow-once', 'reject-once'])
+      const outcome = { outcome: { outcome: 'selected', optionId: 'allow-once' } }
+      agent.reply(permission.id, outcome)
+      agent.reply(permission.id, outcome)
+      const result = await prompt
+      expect(result.stopReason).toBe('end_turn')
+      const done = agent.updates.find(update =>
+        update.update.sessionUpdate === 'tool_call_update' && update.update.toolCallId === callId)
+      expect(done.update.status).toBe('completed')
+      expect(JSON.stringify(done.update.content)).toMatch(/updated successfully|Updated file|Created file/u)
+      expect(readFileSync(join(agent.cwd, 'note.txt'), 'utf8')).toBe('ALPHA\n')
+      const answer = agent.updates.filter(update => update.update.sessionUpdate === 'agent_message_chunk').at(-1)
+      expect(answer.update.content.text).toContain('RUST_ACP_FILE_DONE')
+      await agent.send(4, 'session/close', { sessionId: session.sessionId })
+    } finally {
+      agent.child.stdin.end()
+      agent.child.kill('SIGTERM')
+    }
+  }, 45000)
+
+  it('leaves the file unchanged when the linked permission is rejected', async () => {
+    const agent = startAgent('file-edit')
+    try {
+      writeFileSync(join(agent.cwd, 'note.txt'), 'alpha\n')
+      const { session } = await handshake(agent)
+      const prompt = agent.send(3, 'session/prompt', {
+        sessionId: session.sessionId,
+        prompt: [{ type: 'text', text: 'edit the note' }],
+      })
+      await waitUntil(() => agent.permissions.length > 0, 20000, 'permission request')
+      agent.reply(agent.permissions[0].id, { outcome: { outcome: 'selected', optionId: 'reject-once' } })
+      const result = await prompt
+      expect(result.stopReason).toBe('end_turn')
+      const failed = agent.updates.find(update => update.update.sessionUpdate === 'tool_call_update' && update.update.status === 'failed')
+      expect(failed).toBeTruthy()
+      expect(JSON.stringify(failed.update.content).toLowerCase()).not.toContain('success')
+      expect(readFileSync(join(agent.cwd, 'note.txt'), 'utf8')).toBe('alpha\n')
+      const answer = agent.updates.filter(update => update.update.sessionUpdate === 'agent_message_chunk').at(-1)
+      expect(answer.update.content.text).toContain('RUST_ACP_FILE_ERROR')
+      await agent.send(4, 'session/close', { sessionId: session.sessionId })
+    } finally {
+      agent.child.stdin.end()
+      agent.child.kill('SIGTERM')
+    }
+  }, 45000)
+
+  it('reports missing files and tool errors without fabricating success', async () => {
+    const missing = startAgent('file-missing')
+    try {
+      const { session } = await handshake(missing)
+      const result = await missing.send(3, 'session/prompt', {
+        sessionId: session.sessionId,
+        prompt: [{ type: 'text', text: 'read the missing note' }],
+      })
+      expect(result.stopReason).toBe('end_turn')
+      expect(missing.permissions).toEqual([])
+      const failed = missing.updates.find(update => update.update.sessionUpdate === 'tool_call_update')
+      expect(failed.update.status).toBe('failed')
+      expect(JSON.stringify(failed.update.content)).toMatch(/not found/i)
+      expect(JSON.stringify(failed.update.content).toLowerCase()).not.toContain('success')
+      expect(existsSync(join(missing.cwd, 'missing-note.txt'))).toBe(false)
+      const answer = missing.updates.filter(update => update.update.sessionUpdate === 'agent_message_chunk').at(-1)
+      expect(answer.update.content.text).toContain('RUST_ACP_FILE_ERROR')
+      await missing.send(4, 'session/close', { sessionId: session.sessionId })
+    } finally {
+      missing.child.stdin.end()
+      missing.child.kill('SIGTERM')
+    }
+
+    const failing = startAgent('file-error')
+    try {
+      writeFileSync(join(failing.cwd, 'note.txt'), 'alpha\n')
+      const { session } = await handshake(failing)
+      const prompt = failing.send(3, 'session/prompt', {
+        sessionId: session.sessionId,
+        prompt: [{ type: 'text', text: 'edit with a missing hunk' }],
+      })
+      await waitUntil(() => failing.permissions.length > 0, 20000, 'error-path permission')
+      failing.reply(failing.permissions[0].id, { outcome: { outcome: 'selected', optionId: 'allow-once' } })
+      const result = await prompt
+      expect(result.stopReason).toBe('end_turn')
+      const failed = failing.updates.find(update => update.update.sessionUpdate === 'tool_call_update' && update.update.status === 'failed')
+      expect(failed).toBeTruthy()
+      expect(JSON.stringify(failed.update.content).toLowerCase()).not.toContain('success')
+      expect(readFileSync(join(failing.cwd, 'note.txt'), 'utf8')).toBe('alpha\n')
+      const answer = failing.updates.filter(update => update.update.sessionUpdate === 'agent_message_chunk').at(-1)
+      expect(answer.update.content.text).toContain('RUST_ACP_FILE_ERROR')
+      await failing.send(4, 'session/close', { sessionId: session.sessionId })
+    } finally {
+      failing.child.stdin.end()
+      failing.child.kill('SIGTERM')
+    }
+  }, 45000)
 
   it('returns ACP v1 when the client offers an unsupported version', async () => {
     const agent = startAgent('echo')

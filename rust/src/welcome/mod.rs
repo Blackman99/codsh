@@ -32,7 +32,7 @@ pub fn render(frame: &mut Frame, draft: &TextArea, notice: &str, selected: Optio
         .desired_height(content.width.saturating_sub(4))
         .clamp(1, 5)
         + 2;
-    let tip_height = notice.lines().count().clamp(2, 12) as u16;
+    let tip_height = notice.lines().count().clamp(2, 24) as u16;
     let layout = layout::WelcomeLayout::compute(layout::WelcomeLayoutInput {
         content_area: content,
         menu_height: 3,

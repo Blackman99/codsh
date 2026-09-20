@@ -2,7 +2,7 @@ mod acp;
 mod theme;
 mod welcome;
 
-use acp::{AcpClient, AcpEvent};
+use acp::{AcpClient, AcpEvent, PendingPermission};
 use crossterm::cursor::{Hide, Show};
 use crossterm::event::{
     self, DisableBracketedPaste, EnableBracketedPaste, Event, KeyCode, KeyEventKind, KeyModifiers,
@@ -80,12 +80,22 @@ fn profile() -> io::Result<()> {
     Ok(())
 }
 
+struct ToolRow {
+    id: String,
+    title: String,
+    status: String,
+    diff: String,
+    result: String,
+}
+
 struct Turn {
     user: String,
     thought: String,
     answer: String,
     error: Option<String>,
     message_id: Option<String>,
+    tools: Vec<ToolRow>,
+    permission: Option<PendingPermission>,
     done: bool,
 }
 
@@ -105,11 +115,20 @@ fn connect() -> Result<AcpClient, String> {
     Ok(client)
 }
 
-fn status_line(client: Option<&AcpClient>, inflight: bool, last_error: &str) -> String {
+fn status_line(
+    client: Option<&AcpClient>,
+    inflight: bool,
+    last_error: &str,
+    awaiting_approval: bool,
+) -> String {
     if !last_error.is_empty() && client.is_none() {
         return format!("{UNAVAILABLE}\n{last_error}");
     }
     match client {
+        Some(client) if awaiting_approval => format!(
+            "Connected to dsh ACP session {}.\nAllow this dsh file tool? y=allow once  n=reject",
+            client.session_id.as_deref().unwrap_or("unknown")
+        ),
         Some(client) if inflight => format!(
             "Connected to dsh ACP session {}.\nStreaming turn…",
             client.session_id.as_deref().unwrap_or("unknown")
@@ -122,6 +141,17 @@ fn status_line(client: Option<&AcpClient>, inflight: bool, last_error: &str) -> 
     }
 }
 
+fn compact_tool_result(text: &str) -> String {
+    if let Some(body) = text
+        .split("<content>\n")
+        .nth(1)
+        .and_then(|rest| rest.split("\n</content>").next())
+    {
+        return body.lines().take(12).collect::<Vec<_>>().join("\n");
+    }
+    text.lines().take(12).collect::<Vec<_>>().join("\n")
+}
+
 fn render_transcript(status: &str, turns: &[Turn]) -> String {
     let mut out = status.to_string();
     for turn in turns {
@@ -131,14 +161,48 @@ fn render_transcript(status: &str, turns: &[Turn]) -> String {
             out.push_str("\n[thought] ");
             out.push_str(&turn.thought);
         }
+        for tool in &turn.tools {
+            out.push_str("\n[tool ");
+            out.push_str(&tool.title);
+            out.push(' ');
+            out.push_str(&tool.id);
+            out.push(' ');
+            out.push_str(&tool.status);
+            out.push(']');
+            if !tool.diff.is_empty() {
+                out.push('\n');
+                out.push_str(&tool.diff);
+            }
+            if !tool.result.is_empty() {
+                out.push('\n');
+                out.push_str(&compact_tool_result(&tool.result));
+            }
+        }
         if !turn.answer.is_empty() {
             out.push('\n');
             out.push_str(&turn.answer);
         }
+        if let Some(permission) = &turn.permission {
+            out.push_str("\nAllow ");
+            let name = turn
+                .tools
+                .iter()
+                .find(|tool| tool.id == permission.tool_call_id)
+                .map(|tool| tool.title.as_str())
+                .unwrap_or("tool");
+            out.push_str(name);
+            out.push(' ');
+            out.push_str(&permission.tool_call_id);
+            out.push_str("? y=allow once  n=reject");
+        }
         if let Some(error) = &turn.error {
             out.push_str("\n[error] ");
             out.push_str(error);
-        } else if turn.done && turn.answer.is_empty() && turn.thought.is_empty() {
+        } else if turn.done
+            && turn.answer.is_empty()
+            && turn.thought.is_empty()
+            && turn.tools.is_empty()
+        {
             out.push_str("\n[empty answer]");
         } else if !turn.done {
             out.push('…');
@@ -171,9 +235,61 @@ fn apply_events(turns: &mut [Turn], inflight: &mut bool, events: Vec<AcpEvent>) 
                     turn.answer.push_str(&text);
                 }
             }
+            AcpEvent::ToolCall {
+                tool_call_id,
+                title,
+                status,
+                diff,
+                ..
+            } => {
+                if let Some(turn) = turns.last_mut() {
+                    if let Some(tool) = turn.tools.iter_mut().find(|tool| tool.id == tool_call_id) {
+                        tool.title = title;
+                        tool.status = status;
+                        if !diff.is_empty() {
+                            tool.diff = diff;
+                        }
+                    } else {
+                        turn.tools.push(ToolRow {
+                            id: tool_call_id,
+                            title,
+                            status,
+                            diff,
+                            result: String::new(),
+                        });
+                    }
+                }
+            }
+            AcpEvent::ToolCallUpdate {
+                tool_call_id,
+                status,
+                content,
+                ..
+            } => {
+                if let Some(turn) = turns.last_mut() {
+                    if let Some(tool) = turn.tools.iter_mut().find(|tool| tool.id == tool_call_id) {
+                        tool.status = status.clone();
+                        if !content.is_empty() {
+                            tool.result = content;
+                        }
+                    } else {
+                        turn.tools.push(ToolRow {
+                            id: tool_call_id.clone(),
+                            title: "tool".into(),
+                            status: status.clone(),
+                            diff: String::new(),
+                            result: content,
+                        });
+                    }
+                    if status == "failed" && turn.error.is_none() {
+                        turn.error = Some(format!("tool {tool_call_id} failed"));
+                    }
+                }
+            }
             AcpEvent::PromptFinished { .. } => {
                 if let Some(turn) = turns.last_mut() {
                     turn.done = true;
+                    turn.permission = None;
                 }
                 *inflight = false;
             }
@@ -183,6 +299,7 @@ fn apply_events(turns: &mut [Turn], inflight: &mut bool, events: Vec<AcpEvent>) 
                 {
                     turn.error = Some(message);
                     turn.done = true;
+                    turn.permission = None;
                 }
                 *inflight = false;
             }
@@ -199,16 +316,30 @@ fn apply_events(turns: &mut [Turn], inflight: &mut bool, events: Vec<AcpEvent>) 
                 {
                     turn.error = Some(detail.clone());
                     turn.done = true;
+                    turn.permission = None;
                 }
                 disconnect = Some(detail);
                 *inflight = false;
             }
+            AcpEvent::PermissionRequest {
+                request_id,
+                session_id,
+                tool_call_id,
+                options,
+            } => {
+                if let Some(turn) = turns.last_mut() {
+                    turn.permission = Some(PendingPermission {
+                        request_id,
+                        session_id,
+                        tool_call_id,
+                        options,
+                    });
+                }
+            }
             AcpEvent::PermissionCancelled { .. } => {
                 if let Some(turn) = turns.last_mut() {
-                    turn.error = Some("permission request cancelled".into());
-                    turn.done = true;
+                    turn.permission = None;
                 }
-                *inflight = false;
             }
         }
     }
@@ -227,7 +358,7 @@ fn run() -> io::Result<()> {
         }
         [flag] if flag == "--help" || flag == "-h" => {
             println!(
-                "codsh --rust\n\nIsolated Rust client. Real dsh executes turns over ACP/JSON-RPC stdio.\nHome: ~/.codsh-rust/dsh; Profile: rust. Legacy codsh is unchanged.\nCtrl+Q/Ctrl+D: quit; Ctrl+C: clear draft, then quit; Enter: submit prompt.\nOptions: --help, --version. Other options are not yet supported."
+                "codsh --rust\n\nIsolated Rust client. Real dsh executes turns over ACP/JSON-RPC stdio.\nHome: ~/.codsh-rust/dsh; Profile: rust. Legacy codsh is unchanged.\nFile read/edit/write run through dsh tools; y allows once, n rejects with no write.\nCtrl+Q/Ctrl+D: quit; Ctrl+C: clear draft, then quit; Enter: submit prompt.\nOptions: --help, --version. Other options are not yet supported."
             );
             return Ok(());
         }
@@ -278,8 +409,11 @@ fn run() -> io::Result<()> {
             last_error = detail;
             client = None;
         }
-        let notice =
-            render_transcript(&status_line(client.as_ref(), inflight, &last_error), &turns);
+        let awaiting = turns.last().is_some_and(|turn| turn.permission.is_some());
+        let notice = render_transcript(
+            &status_line(client.as_ref(), inflight, &last_error, awaiting),
+            &turns,
+        );
         terminal.draw(|frame| {
             welcome::render(frame, &draft, &notice, selected);
         })?;
@@ -290,8 +424,27 @@ fn run() -> io::Result<()> {
             Event::Key(key) if key.kind != KeyEventKind::Release => {
                 if key.modifiers.contains(KeyModifiers::CONTROL) {
                     match key.code {
-                        KeyCode::Char('q' | 'd') => break,
+                        KeyCode::Char('q' | 'd') => {
+                            if let (Some(turn), Some(active)) = (turns.last_mut(), client.as_mut())
+                                && let Some(permission) = turn.permission.take()
+                            {
+                                let _ = active.cancel_permission(&permission.request_id);
+                            }
+                            break;
+                        }
                         KeyCode::Char('c') => {
+                            if let (Some(turn), Some(active)) = (turns.last_mut(), client.as_mut())
+                                && let Some(permission) = turn.permission.take()
+                            {
+                                match active.cancel_permission(&permission.request_id) {
+                                    Ok(()) => {
+                                        turn.error = Some("permission request cancelled".into());
+                                        last_error.clear();
+                                    }
+                                    Err(error) => last_error = error.message,
+                                }
+                                continue;
+                            }
                             if draft.is_empty() {
                                 break;
                             }
@@ -300,6 +453,26 @@ fn run() -> io::Result<()> {
                             continue;
                         }
                         _ => {}
+                    }
+                }
+                if let (Some(turn), Some(active)) = (turns.last_mut(), client.as_mut())
+                    && let Some(permission) = turn.permission.clone()
+                    && key.modifiers.is_empty()
+                {
+                    let option = match key.code {
+                        KeyCode::Char('y') | KeyCode::Enter => Some("allow-once"),
+                        KeyCode::Char('n') => Some("reject-once"),
+                        _ => None,
+                    };
+                    if let Some(option_id) = option {
+                        match active.answer_permission(&permission.request_id, option_id) {
+                            Ok(()) => {
+                                turn.permission = None;
+                                last_error.clear();
+                            }
+                            Err(error) => last_error = error.message,
+                        }
+                        continue;
                     }
                 }
                 match key.code {
@@ -334,6 +507,8 @@ fn run() -> io::Result<()> {
                                             answer: String::new(),
                                             error: None,
                                             message_id: None,
+                                            tools: Vec::new(),
+                                            permission: None,
                                             done: false,
                                         });
                                         draft.set_text("");

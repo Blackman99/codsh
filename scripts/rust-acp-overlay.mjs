@@ -5,7 +5,11 @@ export function rustAcpMockUrl() {
   return pathToFileURL(resolve(fileURLToPath(new URL('../e2e/fixtures/rust-acp-mock-llm.mjs', import.meta.url)))).href
 }
 
-export function rustAcpOverlay(mockUrl = rustAcpMockUrl()) {
+export function rustAcpFileApprovalUrl() {
+  return pathToFileURL(resolve(fileURLToPath(new URL('../packages/cli/bin/rust-acp-file-approval.mjs', import.meta.url)))).href
+}
+
+export function rustAcpOverlay(mockUrl = rustAcpMockUrl(), approvalUrl = rustAcpFileApprovalUrl()) {
   return [
     '- id: acp',
     '  config:',
@@ -20,6 +24,8 @@ export function rustAcpOverlay(mockUrl = rustAcpMockUrl()) {
     '- insert:',
     '    - id: rust-acp-mock-llm',
     `      name: '${mockUrl}'`,
+    '    - id: rust-acp-file-approval',
+    `      name: '${approvalUrl}'`,
     '',
   ].join('\n')
 }

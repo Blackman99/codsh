@@ -306,10 +306,15 @@ durable sessions. The mock model, when used, is a dsh provider-boundary fixture
 (`CODSH_ACP_PATCH`, `DSH_CODE_CLI_MOCK_TOOL`), not a stub of the Rust client or
 dsh core. Enter submits the draft through dsh when connected. Missing dsh, ACP
 protocol mismatch, empty answers, mid-stream failure, and disconnect are shown
-as failures or empty results, never as success. File-tool approval, cancellation,
-and resume remain later tickets. `test:rust:pty` now also runs
-`scripts/rust-turn-pty-test.py` against the packed native candidate. Public ACP
-framing is covered by `scripts/rust-acp-protocol.spec.mjs`.
+as failures or empty results, never as success. File read/write/edit run through
+released dsh tools. The Rust UI correlates `session/request_permission` with the
+tool-call id, shows the pending operation and dsh-supplied diff, allows once with
+`y`, and rejects with `n` without writing. Missing files, tool errors, cancelled
+approvals, and duplicate replies are observable failures. Cancellation and resume
+remain later tickets. `test:rust:pty` now also runs
+`scripts/rust-turn-pty-test.py` and `scripts/rust-file-pty-test.py` against the
+packed native candidate. Public ACP framing, including file-tool permission, is
+covered by `scripts/rust-acp-protocol.spec.mjs`.
 
 ## Documentation site
 

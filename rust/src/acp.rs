@@ -1,5 +1,5 @@
 use serde_json::{Value, json};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::io::{self, BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Child, ChildStdin, Command, Stdio};
@@ -36,9 +36,45 @@ pub enum AcpEvent {
     Disconnected {
         detail: String,
     },
+    ToolCall {
+        session_id: String,
+        tool_call_id: String,
+        title: String,
+        kind: String,
+        status: String,
+        raw_input: Value,
+        diff: String,
+    },
+    ToolCallUpdate {
+        session_id: String,
+        tool_call_id: String,
+        status: String,
+        content: String,
+    },
+    PermissionRequest {
+        request_id: Value,
+        session_id: String,
+        tool_call_id: String,
+        options: Vec<PermissionChoice>,
+    },
     PermissionCancelled {
         session_id: String,
     },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PermissionChoice {
+    pub option_id: String,
+    pub name: String,
+    pub kind: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PendingPermission {
+    pub request_id: Value,
+    pub session_id: String,
+    pub tool_call_id: String,
+    pub options: Vec<PermissionChoice>,
 }
 
 #[derive(Debug)]
@@ -54,6 +90,116 @@ impl std::fmt::Display for AcpError {
 
 impl std::error::Error for AcpError {}
 
+fn json_id_key(id: &Value) -> String {
+    id.to_string()
+}
+
+fn permission_choices(value: &Value) -> Vec<PermissionChoice> {
+    value
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|option| {
+            Some(PermissionChoice {
+                option_id: option.get("optionId")?.as_str()?.to_string(),
+                name: option
+                    .get("name")
+                    .and_then(Value::as_str)
+                    .unwrap_or("")
+                    .to_string(),
+                kind: option
+                    .get("kind")
+                    .and_then(Value::as_str)
+                    .unwrap_or("")
+                    .to_string(),
+            })
+        })
+        .collect()
+}
+
+fn tool_update_text(update: &Value) -> String {
+    let mut out = String::new();
+    let Some(items) = update.get("content").and_then(Value::as_array) else {
+        return out;
+    };
+    for item in items {
+        if item.get("type").and_then(Value::as_str) == Some("diff") {
+            if !out.is_empty() {
+                out.push('\n');
+            }
+            out.push_str(&proposed_diff(
+                "edit",
+                &json!({
+                    "file_path": item.get("path").and_then(Value::as_str).unwrap_or(""),
+                    "old_string": item.get("oldText").and_then(Value::as_str).unwrap_or(""),
+                    "new_string": item.get("newText").and_then(Value::as_str).unwrap_or(""),
+                }),
+            ));
+            continue;
+        }
+        if let Some(text) = item.pointer("/content/text").and_then(Value::as_str) {
+            if !out.is_empty() {
+                out.push('\n');
+            }
+            out.push_str(text);
+        }
+    }
+    out
+}
+
+pub fn proposed_diff(title: &str, raw_input: &Value) -> String {
+    let path = raw_input
+        .get("file_path")
+        .and_then(Value::as_str)
+        .unwrap_or("");
+    match title {
+        "write" => {
+            let content = raw_input
+                .get("content")
+                .and_then(Value::as_str)
+                .unwrap_or("");
+            let mut lines = vec![
+                format!("write {path}"),
+                "--- /dev/null".into(),
+                format!("+++ b/{path}"),
+            ];
+            for line in content.split_inclusive('\n') {
+                let body = line.trim_end_matches(['\n', '\r']);
+                lines.push(format!("+{body}"));
+            }
+            if content.is_empty() {
+                lines.push("+".into());
+            }
+            lines.join("\n")
+        }
+        "edit" => {
+            let old = raw_input
+                .get("old_string")
+                .and_then(Value::as_str)
+                .unwrap_or("");
+            let new = raw_input
+                .get("new_string")
+                .and_then(Value::as_str)
+                .unwrap_or("");
+            let mut lines = vec![
+                format!("edit {path}"),
+                format!("--- a/{path}"),
+                format!("+++ b/{path}"),
+            ];
+            for line in old.split_inclusive('\n') {
+                lines.push(format!("-{}", line.trim_end_matches(['\n', '\r'])));
+            }
+            for line in new.split_inclusive('\n') {
+                lines.push(format!("+{}", line.trim_end_matches(['\n', '\r'])));
+            }
+            lines.join("\n")
+        }
+        "read" => format!("read {path}"),
+        _ if !path.is_empty() => format!("{title} {path}"),
+        _ => title.to_string(),
+    }
+}
+
 pub struct AcpClient {
     child: Child,
     stdin: Option<ChildStdin>,
@@ -63,6 +209,8 @@ pub struct AcpClient {
     completed: HashMap<u64, Result<Value, AcpError>>,
     pub session_id: Option<String>,
     disconnected: Option<String>,
+    pub pending_permission: Option<PendingPermission>,
+    answered_permissions: HashSet<String>,
 }
 
 enum Line {
@@ -209,6 +357,8 @@ impl AcpClient {
             completed: HashMap::new(),
             session_id: None,
             disconnected: None,
+            pending_permission: None,
+            answered_permissions: HashSet::new(),
         })
     }
 
@@ -259,6 +409,69 @@ impl AcpClient {
             .to_string();
         self.session_id = Some(session_id.clone());
         Ok(session_id)
+    }
+
+    pub fn answer_permission(
+        &mut self,
+        request_id: &Value,
+        option_id: &str,
+    ) -> Result<(), AcpError> {
+        let key = json_id_key(request_id);
+        if self.answered_permissions.contains(&key) {
+            return Err(AcpError {
+                message: "stale or duplicate permission reply".into(),
+            });
+        }
+        let pending = self.pending_permission.as_ref().ok_or_else(|| AcpError {
+            message: "no pending permission".into(),
+        })?;
+        if json_id_key(&pending.request_id) != key {
+            return Err(AcpError {
+                message: "stale permission reply".into(),
+            });
+        }
+        if !pending
+            .options
+            .iter()
+            .any(|option| option.option_id == option_id)
+        {
+            return Err(AcpError {
+                message: format!("unknown permission option {option_id}"),
+            });
+        }
+        self.write_raw(json!({
+            "jsonrpc": "2.0",
+            "id": request_id,
+            "result": { "outcome": { "outcome": "selected", "optionId": option_id } },
+        }))?;
+        self.answered_permissions.insert(key);
+        self.pending_permission = None;
+        Ok(())
+    }
+
+    pub fn cancel_permission(&mut self, request_id: &Value) -> Result<(), AcpError> {
+        let key = json_id_key(request_id);
+        if self.answered_permissions.contains(&key) {
+            return Err(AcpError {
+                message: "stale or duplicate permission reply".into(),
+            });
+        }
+        let pending = self.pending_permission.as_ref().ok_or_else(|| AcpError {
+            message: "no pending permission".into(),
+        })?;
+        if json_id_key(&pending.request_id) != key {
+            return Err(AcpError {
+                message: "stale permission reply".into(),
+            });
+        }
+        self.write_raw(json!({
+            "jsonrpc": "2.0",
+            "id": request_id,
+            "result": { "outcome": { "outcome": "cancelled" } },
+        }))?;
+        self.answered_permissions.insert(key);
+        self.pending_permission = None;
+        Ok(())
     }
 
     pub fn submit_prompt(&mut self, text: &str) -> Result<u64, AcpError> {
@@ -343,6 +556,9 @@ impl AcpClient {
     }
 
     pub fn shutdown(&mut self) {
+        if let Some(pending) = self.pending_permission.clone() {
+            let _ = self.cancel_permission(&pending.request_id);
+        }
         let _ = self.close_session(Duration::from_millis(400));
         self.stdin.take();
         let _ = self.child.kill();
@@ -430,19 +646,51 @@ impl AcpClient {
         params: Value,
     ) -> Vec<AcpEvent> {
         if method == "session/request_permission" {
-            if let Some(id) = id {
+            let Some(request_id) = id else {
+                return vec![AcpEvent::RpcError {
+                    request_id: None,
+                    code: -32600,
+                    message: "permission request omitted id".into(),
+                }];
+            };
+            let mut replaced = Vec::new();
+            if let Some(previous) = self.pending_permission.take() {
                 let _ = self.write_raw(json!({
                     "jsonrpc": "2.0",
-                    "id": id,
+                    "id": previous.request_id,
                     "result": { "outcome": { "outcome": "cancelled" } },
                 }));
+                self.answered_permissions
+                    .insert(json_id_key(&previous.request_id));
+                replaced.push(AcpEvent::PermissionCancelled {
+                    session_id: previous.session_id,
+                });
             }
             let session_id = params
                 .get("sessionId")
                 .and_then(Value::as_str)
                 .unwrap_or("")
                 .to_string();
-            return vec![AcpEvent::PermissionCancelled { session_id }];
+            let tool_call_id = params
+                .pointer("/toolCall/toolCallId")
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .to_string();
+            let options = permission_choices(params.get("options").unwrap_or(&Value::Null));
+            let pending = PendingPermission {
+                request_id: request_id.clone(),
+                session_id: session_id.clone(),
+                tool_call_id: tool_call_id.clone(),
+                options: options.clone(),
+            };
+            self.pending_permission = Some(pending);
+            replaced.push(AcpEvent::PermissionRequest {
+                request_id,
+                session_id,
+                tool_call_id,
+                options,
+            });
+            return replaced;
         }
         if let Some(id) = id {
             let _ = self.write_raw(json!({
@@ -493,6 +741,57 @@ impl AcpClient {
                 message_id,
                 text,
             }],
+            "tool_call" => {
+                let tool_call_id = update
+                    .get("toolCallId")
+                    .and_then(Value::as_str)
+                    .unwrap_or("")
+                    .to_string();
+                let title = update
+                    .get("title")
+                    .and_then(Value::as_str)
+                    .unwrap_or("")
+                    .to_string();
+                let tool_kind = update
+                    .get("kind")
+                    .and_then(Value::as_str)
+                    .unwrap_or("other")
+                    .to_string();
+                let status = update
+                    .get("status")
+                    .and_then(Value::as_str)
+                    .unwrap_or("pending")
+                    .to_string();
+                let raw_input = update.get("rawInput").cloned().unwrap_or(Value::Null);
+                let diff = proposed_diff(&title, &raw_input);
+                vec![AcpEvent::ToolCall {
+                    session_id,
+                    tool_call_id,
+                    title,
+                    kind: tool_kind,
+                    status,
+                    raw_input,
+                    diff,
+                }]
+            }
+            "tool_call_update" => {
+                let tool_call_id = update
+                    .get("toolCallId")
+                    .and_then(Value::as_str)
+                    .unwrap_or("")
+                    .to_string();
+                let status = update
+                    .get("status")
+                    .and_then(Value::as_str)
+                    .unwrap_or("")
+                    .to_string();
+                vec![AcpEvent::ToolCallUpdate {
+                    session_id,
+                    tool_call_id,
+                    status,
+                    content: tool_update_text(&update),
+                }]
+            }
             _ => Vec::new(),
         }
     }
@@ -596,14 +895,20 @@ mod tests {
     }
 
     fn spawn_fake(mode: &str) -> AcpClient {
+        spawn_fake_env(mode, Vec::new())
+    }
+
+    fn spawn_fake_env(mode: &str, extra: Vec<(String, String)>) -> AcpClient {
         let cwd = std::env::temp_dir();
+        let mut env = vec![
+            ("PATH".into(), std::env::var("PATH").unwrap_or_default()),
+            ("FAKE_ACP_MODE".into(), mode.into()),
+        ];
+        env.extend(extra);
         AcpClient::spawn(SpawnSpec {
             program: node_program(),
             args: vec![fake_agent().to_string_lossy().into_owned()],
-            env: vec![
-                ("PATH".into(), std::env::var("PATH").unwrap_or_default()),
-                ("FAKE_ACP_MODE".into(), mode.into()),
-            ],
+            env,
             cwd,
             stderr_log: None,
         })
@@ -795,5 +1100,322 @@ mod tests {
                 .to_lowercase()
                 .contains("not found")
         );
+    }
+
+    fn wait_permission(client: &mut AcpClient) -> PendingPermission {
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while Instant::now() < deadline {
+            for event in client.pump(Duration::from_millis(50)) {
+                if let AcpEvent::PermissionRequest {
+                    request_id,
+                    session_id,
+                    tool_call_id,
+                    options,
+                } = event
+                {
+                    return PendingPermission {
+                        request_id,
+                        session_id,
+                        tool_call_id,
+                        options,
+                    };
+                }
+            }
+        }
+        panic!("missing permission request");
+    }
+
+    #[test]
+    fn proposed_diff_uses_dsh_tool_arguments() {
+        let write = proposed_diff(
+            "write",
+            &json!({"file_path": "note.txt", "content": "hello\nworld"}),
+        );
+        assert!(write.contains("write note.txt"), "{write}");
+        assert!(write.contains("+hello"), "{write}");
+        assert!(write.contains("+world"), "{write}");
+        let edit = proposed_diff(
+            "edit",
+            &json!({"file_path": "note.txt", "old_string": "alpha", "new_string": "ALPHA"}),
+        );
+        assert!(edit.contains("edit note.txt"), "{edit}");
+        assert!(edit.contains("-alpha"), "{edit}");
+        assert!(edit.contains("+ALPHA"), "{edit}");
+        assert_eq!(
+            proposed_diff("read", &json!({"file_path": "note.txt"})),
+            "read note.txt"
+        );
+    }
+
+    #[test]
+    fn permission_allow_once_executes_and_duplicate_reply_is_rejected() {
+        let target = tempfile::NamedTempFile::new().unwrap();
+        let path = target.path().to_string_lossy().into_owned();
+        let mut client =
+            spawn_fake_env("permission", vec![("FAKE_ACP_TARGET".into(), path.clone())]);
+        client
+            .initialize(Duration::from_secs(2))
+            .expect("initialize");
+        client
+            .new_session(&std::env::temp_dir(), Duration::from_secs(2))
+            .expect("session");
+        let prompt = client.submit_prompt("edit").unwrap();
+        let mut tool = None;
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while Instant::now() < deadline {
+            for event in client.pump(Duration::from_millis(50)) {
+                if let AcpEvent::ToolCall {
+                    tool_call_id, diff, ..
+                } = event
+                {
+                    tool = Some((tool_call_id, diff));
+                }
+            }
+            if client.pending_permission.is_some() && tool.is_some() {
+                break;
+            }
+        }
+        let permission = client
+            .pending_permission
+            .clone()
+            .expect("permission request");
+        let (tool_call_id, diff) = tool.expect("tool call");
+        assert_eq!(permission.tool_call_id, tool_call_id);
+        assert!(diff.contains("write note.txt"), "{diff}");
+        assert!(diff.contains("+FAKE_ACP_WROTE"), "{diff}");
+        client
+            .answer_permission(&permission.request_id, "allow-once")
+            .expect("allow");
+        let duplicate = client
+            .answer_permission(&permission.request_id, "allow-once")
+            .expect_err("duplicate");
+        assert!(
+            duplicate.message.contains("duplicate") || duplicate.message.contains("stale"),
+            "{duplicate}"
+        );
+        let mut finished = false;
+        let mut result = None;
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while Instant::now() < deadline {
+            for event in client.pump(Duration::from_millis(50)) {
+                match event {
+                    AcpEvent::ToolCallUpdate {
+                        tool_call_id: id,
+                        status,
+                        content,
+                        ..
+                    } if id == tool_call_id => {
+                        result = Some((status, content));
+                    }
+                    AcpEvent::PromptFinished { request_id, .. } if request_id == prompt => {
+                        finished = true;
+                    }
+                    _ => {}
+                }
+            }
+            if finished && result.is_some() {
+                break;
+            }
+        }
+        assert!(finished);
+        let (status, content) = result.expect("tool result");
+        assert_eq!(status, "completed");
+        assert!(content.contains("Created file"), "{content}");
+        assert_eq!(
+            std::fs::read_to_string(&path).unwrap(),
+            "FAKE_ACP_WROTE count=1\n"
+        );
+    }
+
+    #[test]
+    fn permission_reject_and_cancel_have_no_write_side_effect() {
+        let target = tempfile::NamedTempFile::new().unwrap();
+        let path = target.path().to_string_lossy().into_owned();
+        std::fs::write(&path, "original\n").unwrap();
+        let mut client =
+            spawn_fake_env("permission", vec![("FAKE_ACP_TARGET".into(), path.clone())]);
+        client
+            .initialize(Duration::from_secs(2))
+            .expect("initialize");
+        client
+            .new_session(&std::env::temp_dir(), Duration::from_secs(2))
+            .expect("session");
+        let _ = client.submit_prompt("edit").unwrap();
+        let permission = wait_permission(&mut client);
+        client
+            .answer_permission(&permission.request_id, "reject-once")
+            .expect("reject");
+        let deadline = Instant::now() + Duration::from_secs(2);
+        let mut failed = false;
+        while Instant::now() < deadline {
+            for event in client.pump(Duration::from_millis(50)) {
+                if let AcpEvent::ToolCallUpdate {
+                    status, content, ..
+                } = event
+                {
+                    assert_eq!(status, "failed");
+                    assert!(!content.to_lowercase().contains("success"), "{content}");
+                    failed = true;
+                }
+            }
+            if failed {
+                break;
+            }
+        }
+        assert!(failed);
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "original\n");
+
+        let mut client =
+            spawn_fake_env("permission", vec![("FAKE_ACP_TARGET".into(), path.clone())]);
+        client
+            .initialize(Duration::from_secs(2))
+            .expect("initialize");
+        client
+            .new_session(&std::env::temp_dir(), Duration::from_secs(2))
+            .expect("session");
+        let _ = client.submit_prompt("again").unwrap();
+        let permission = wait_permission(&mut client);
+        client
+            .cancel_permission(&permission.request_id)
+            .expect("cancel");
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while Instant::now() < deadline {
+            let _ = client.pump(Duration::from_millis(50));
+            if std::fs::read_to_string(&path).unwrap() != "original\n" {
+                panic!("cancelled permission wrote the file");
+            }
+        }
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "original\n");
+    }
+
+    #[test]
+    fn stale_permission_reply_is_not_success() {
+        let target = tempfile::NamedTempFile::new().unwrap();
+        let path = target.path().to_string_lossy().into_owned();
+        std::fs::write(&path, "original\n").unwrap();
+        let mut client = spawn_fake_env(
+            "permission-stale",
+            vec![("FAKE_ACP_TARGET".into(), path.clone())],
+        );
+        client
+            .initialize(Duration::from_secs(2))
+            .expect("initialize");
+        client
+            .new_session(&std::env::temp_dir(), Duration::from_secs(2))
+            .expect("session");
+        let _ = client.submit_prompt("edit").unwrap();
+        let mut seen = Vec::new();
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while Instant::now() < deadline {
+            for event in client.pump(Duration::from_millis(50)) {
+                if let AcpEvent::PermissionRequest {
+                    request_id,
+                    session_id,
+                    tool_call_id,
+                    options,
+                } = event
+                {
+                    seen.push(PendingPermission {
+                        request_id,
+                        session_id,
+                        tool_call_id,
+                        options,
+                    });
+                }
+            }
+            if seen.len() >= 2 {
+                break;
+            }
+        }
+        assert!(
+            seen.len() >= 2,
+            "need two permission requests, got {}",
+            seen.len()
+        );
+        let first = seen[0].clone();
+        let second = seen[1].clone();
+        assert_ne!(first.request_id, second.request_id);
+        let stale = client
+            .answer_permission(&first.request_id, "allow-once")
+            .expect_err("stale");
+        assert!(stale.message.contains("stale"), "{stale}");
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "original\n");
+        client
+            .answer_permission(&second.request_id, "allow-once")
+            .expect("later allow");
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while Instant::now() < deadline {
+            let _ = client.pump(Duration::from_millis(50));
+            if std::fs::read_to_string(&path).ok().as_deref() == Some("FAKE_ACP_WROTE count=1\n") {
+                break;
+            }
+        }
+        assert_eq!(
+            std::fs::read_to_string(&path).unwrap(),
+            "FAKE_ACP_WROTE count=1\n"
+        );
+    }
+
+    #[test]
+    fn missing_file_and_tool_error_are_failed_not_success() {
+        let mut client = ready("file-missing");
+        let id = client.submit_prompt("read missing").unwrap();
+        let mut failed = None;
+        let mut finished = false;
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while Instant::now() < deadline {
+            for event in client.pump(Duration::from_millis(50)) {
+                match event {
+                    AcpEvent::ToolCallUpdate {
+                        status, content, ..
+                    } => {
+                        failed = Some((status, content));
+                    }
+                    AcpEvent::PromptFinished { request_id, .. } if request_id == id => {
+                        finished = true;
+                    }
+                    _ => {}
+                }
+            }
+            if failed.is_some() && finished {
+                break;
+            }
+        }
+        let (status, content) = failed.expect("failed tool");
+        assert_eq!(status, "failed");
+        assert!(content.contains("not found"), "{content}");
+        assert!(!content.to_lowercase().contains("success"), "{content}");
+        assert!(finished);
+
+        let mut client = ready("file-error");
+        let id = client.submit_prompt("bad edit").unwrap();
+        let mut failed = None;
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while Instant::now() < deadline {
+            for event in client.pump(Duration::from_millis(50)) {
+                match event {
+                    AcpEvent::ToolCallUpdate {
+                        status, content, ..
+                    } => {
+                        failed = Some((status, content));
+                    }
+                    AcpEvent::PromptFinished { request_id, .. } if request_id == id => {}
+                    _ => {}
+                }
+            }
+            if failed
+                .as_ref()
+                .is_some_and(|(status, _)| status == "failed")
+            {
+                break;
+            }
+        }
+        let (status, content) = failed.expect("tool error");
+        assert_eq!(status, "failed");
+        assert!(
+            content.contains("Error") || content.contains("not found"),
+            "{content}"
+        );
+        assert!(!content.to_lowercase().contains("success"), "{content}");
     }
 }

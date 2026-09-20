@@ -1,8 +1,9 @@
 /**
  * Keyless LLM adapter at the dsh provider boundary for Rust ACP turn tests.
- * Modes: echo (default), reasoning, empty, fail-stream.
+ * Modes: echo (default), reasoning, empty, fail-stream, file-edit, file-write,
+ * file-missing, file-error.
  */
-import { LlmAdapter, ReasoningEffortId } from '@deepseek-ai/dsh-llm'
+import { LlmAdapter, ReasoningEffortId, ToolCallId } from '@deepseek-ai/dsh-llm'
 
 const OFF = ReasoningEffortId('off')
 const HIGH = ReasoningEffortId('high')
@@ -18,6 +19,102 @@ function userTexts(options) {
   return options.messages
     .filter(message => message.role === 'user')
     .flatMap(message => message.content.filter(block => block.type === 'text').map(block => block.text))
+}
+
+function toolResults(options) {
+  return options.messages.flatMap(message => message.content.filter(block => block.type === 'tool-result'))
+}
+
+function resultText(result) {
+  return (result?.content ?? [])
+    .filter(block => block.type === 'text')
+    .map(block => block.text)
+    .join('\n')
+}
+
+function* mockToolCall(id, name, args) {
+  const toolId = ToolCallId(id)
+  const encoded = JSON.stringify(args)
+  yield { type: 'block-start', index: 0, blockType: 'tool-call' }
+  yield { type: 'tool-call-delta', index: 0, id: toolId, name, argumentsDelta: encoded }
+  yield { type: 'block-end', index: 0, block: { type: 'tool-call', id: toolId, name, arguments: encoded } }
+  yield { type: 'usage', usage: { inputTokens: 2, outputTokens: 2 } }
+  yield { type: 'finish', reason: { kind: 'tool-calls' } }
+}
+
+function* mockText(reply) {
+  yield { type: 'block-start', index: 0, blockType: 'text' }
+  yield { type: 'text-delta', index: 0, text: reply }
+  yield { type: 'block-end', index: 0, block: { type: 'text', text: reply } }
+  yield { type: 'usage', usage: { inputTokens: 2, outputTokens: 2 } }
+  yield { type: 'finish', reason: { kind: 'stop' } }
+}
+
+function* fileToolTurn(options) {
+  const done = toolResults(options)
+  if (MODE === 'file-missing') {
+    if (done.length === 0) {
+      yield* mockToolCall('rust-acp-read-missing', 'read', { file_path: 'missing-note.txt' })
+      return
+    }
+    const last = done.at(-1)
+    yield* mockText(`RUST_ACP_FILE_ERROR ${resultText(last)}`)
+    return
+  }
+  if (MODE === 'file-write') {
+    if (done.length === 0) {
+      yield* mockToolCall('rust-acp-write', 'write', {
+        file_path: 'created.txt',
+        content: 'RUST_ACP_CREATED\n',
+      })
+      return
+    }
+    const last = done.at(-1)
+    if (last?.isError === true) {
+      yield* mockText(`RUST_ACP_FILE_ERROR ${resultText(last)}`)
+      return
+    }
+    yield* mockText(`RUST_ACP_FILE_DONE ${resultText(last)}`)
+    return
+  }
+  if (MODE === 'file-error') {
+    if (done.length === 0) {
+      yield* mockToolCall('rust-acp-read', 'read', { file_path: 'note.txt' })
+      return
+    }
+    if (done.length === 1 && done[0]?.isError !== true) {
+      yield* mockToolCall('rust-acp-edit-miss', 'edit', {
+        file_path: 'note.txt',
+        old_string: 'NO_SUCH_HUNK',
+        new_string: 'patched',
+      })
+      return
+    }
+    yield* mockText(`RUST_ACP_FILE_ERROR ${resultText(done.at(-1))}`)
+    return
+  }
+  if (done.length === 0) {
+    yield* mockToolCall('rust-acp-read', 'read', { file_path: 'note.txt' })
+    return
+  }
+  if (done.length === 1 && done[0]?.isError === true) {
+    yield* mockText(`RUST_ACP_FILE_ERROR ${resultText(done[0])}`)
+    return
+  }
+  if (done.length === 1) {
+    yield* mockToolCall('rust-acp-edit', 'edit', {
+      file_path: 'note.txt',
+      old_string: 'alpha',
+      new_string: 'ALPHA',
+    })
+    return
+  }
+  const last = done.at(-1)
+  if (last?.isError === true) {
+    yield* mockText(`RUST_ACP_FILE_ERROR ${resultText(last)}`)
+    return
+  }
+  yield* mockText(`RUST_ACP_FILE_DONE ${resultText(last)}`)
 }
 
 class RustAcpMockAdapter extends LlmAdapter {
@@ -42,6 +139,10 @@ class RustAcpMockAdapter extends LlmAdapter {
 
   async * stream(options) {
     const turn = String(userTurns(options))
+    if (MODE === 'file-edit' || MODE === 'file-write' || MODE === 'file-missing' || MODE === 'file-error') {
+      yield* fileToolTurn(options)
+      return
+    }
     if (MODE === 'empty') {
       yield { type: 'finish', reason: { kind: 'stop' } }
       return

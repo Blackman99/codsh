@@ -3,7 +3,7 @@ import { existsSync, lstatSync, mkdirSync, readFileSync, realpathSync, statSync,
 import { createRequire } from 'node:module'
 import { homedir } from 'node:os'
 import { basename, dirname, join, resolve } from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import { createHash } from 'node:crypto'
 
 const requireFromHere = createRequire(import.meta.url)
@@ -138,6 +138,12 @@ export async function launchRust(args) {
     }
     for (const key of ['PATH', 'TERM', 'TERM_PROGRAM', 'COLORTERM', 'LANG', 'LC_ALL', 'LC_CTYPE', 'NO_COLOR', 'SystemRoot', 'WINDIR', 'CODSH_ACP_PATCH', 'DSH_CODE_CLI_MOCK_TOOL', 'FAKE_ACP_MODE', 'FAKE_ACP_VERSION']) {
       if (process.env[key] !== undefined) env[key] = process.env[key]
+    }
+    if (!helpOnly && env.CODSH_ACP_PATCH === undefined) {
+      const plugin = fileURLToPath(new URL('./rust-acp-file-approval.mjs', import.meta.url))
+      const overlay = join(root, 'dsh', 'rust-file-approval.yml')
+      writeFileSync(overlay, `- insert:\n    - id: rust-acp-file-approval\n      name: '${pathToFileURL(plugin).href}'\n`)
+      env.CODSH_ACP_PATCH = overlay
     }
     return await new Promise(resolveExit => {
       const child = spawn(binary, args, { env, stdio: 'inherit', shell: false })
