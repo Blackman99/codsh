@@ -49,7 +49,7 @@ def spawn_inspect(launcher, cwd, env, extra):
 
 
 def pty_session(name, launcher, cwd, env, output, extra=(), typed=None, wait_before=(), wait_after=(),
-                after_visible=None, quit=True, cols=100, rows=30):
+                then_typed=None, then_wait=(), after_visible=None, quit=True, cols=100, rows=30):
     master, slave = pty.openpty()
     fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack('HHHH', rows, cols, 0, 0))
     original = termios.tcgetattr(slave)
@@ -97,6 +97,13 @@ def pty_session(name, launcher, cwd, env, output, extra=(), typed=None, wait_bef
                 wait_visible(prefix)
         for marker in wait_after:
             wait_visible(marker, 25)
+        if then_typed:
+            os.write(master, then_typed.encode())
+            prefix = then_typed.split('\r', 1)[0]
+            if prefix:
+                wait_visible(prefix)
+        for marker in then_wait:
+            wait_visible(marker, 25)
         shown = visible()
         if quit:
             os.write(master, b'\x11')
@@ -131,7 +138,7 @@ def main():
         cwd = work / 'workspace'
         cwd.mkdir()
         (cwd / '.git').mkdir()
-        (cwd / 'AGENTS.md').write_text('# untrusted project instructions\n')
+        (cwd / 'AGENTS.md').write_text('# MARKER_UNTRUSTED_INSTRUCTIONS\n')
         grok_ws = cwd / '.grok'
         grok_ws.mkdir()
         (grok_ws / 'hooks').mkdir()
@@ -195,10 +202,14 @@ env_key = "XAI_API_KEY"
         denied = pty_session('trust-deny', launcher, cwd, base_env, output,
                              wait_before=['Trust this workspace', 'hooks'],
                              typed='n',
-                             wait_after=['Connected to dsh ACP'])
+                             wait_after=['Connected to dsh ACP'],
+                             then_typed='TOKEN_DENY_PROMPT\r',
+                             then_wait=['RUST_ACP_ANSWER', 'TOKEN_DENY_PROMPT'])
         assert denied['exit'] == 0
         assert not (cwd / 'canary').exists()
-        results['pty-deny'] = {'exit': denied['exit'], 'canary': False}
+        assert 'MARKER_UNTRUSTED_INSTRUCTIONS' not in denied['screen']
+        assert 'Instructions from: AGENTS.md' not in denied['screen']
+        results['pty-deny'] = {'exit': denied['exit'], 'canary': False, 'instructions': False}
 
         inspect_denied = spawn_inspect(launcher, cwd, base_env, ['inspect', '--json'])
         assert inspect_denied.returncode == 0, inspect_denied.stderr + inspect_denied.stdout
