@@ -71,7 +71,9 @@ tools; `y` allows one pending file mutation and `n` rejects it with no write.
 work; an empty draft cancels a running turn through dsh, or quits when idle
 before any turn. Esc never cancels a turn or pending approval.
 `--continue` resumes the last dsh session in this directory; `--resume <id>`
-loads that session. Interrupted tools are shown as unknown and not replayed.
+loads that session. `--fork-session` copies conversation into a new session id.
+`/rewind` and `/fork` are conversation-only; `--restore-code` is refused.
+Interrupted tools are shown as unknown and not replayed.
 A second client is refused while this process holds write ownership.
 `--minimal` / `--fullscreen` and `/minimal` / `/fullscreen` switch the official
 alternate-screen and native-history renderers in the current process without

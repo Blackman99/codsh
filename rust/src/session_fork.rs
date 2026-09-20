@@ -1,0 +1,293 @@
+use serde_json::Value;
+use std::path::{Path, PathBuf};
+use std::process::Command;
+
+use crate::session_history::{HistoryError, RestoredTurn, project_turns};
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RewindPoint {
+    pub turn: u32,
+    pub summary: String,
+    pub boundary: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ForkResult {
+    pub session_id: String,
+    pub parent_session: String,
+    pub inherited_event_count: u64,
+    pub turns: Vec<RestoredTurn>,
+    pub files_restored: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UiPrefs {
+    pub confirm_before_rewind: bool,
+    pub fork_secondary_model: Option<String>,
+}
+
+impl Default for UiPrefs {
+    fn default() -> Self {
+        Self {
+            confirm_before_rewind: true,
+            fork_secondary_model: None,
+        }
+    }
+}
+
+pub fn helper_path() -> PathBuf {
+    if let Some(path) = std::env::var_os("CODSH_SESSION_FORK") {
+        return PathBuf::from(path);
+    }
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../packages/cli/bin/rust-acp-session-fork.mjs")
+}
+
+pub fn config_path(home: &Path) -> PathBuf {
+    home.join("config.toml")
+}
+
+pub fn load_prefs(home: &Path) -> UiPrefs {
+    let Ok(body) = std::fs::read_to_string(config_path(home)) else {
+        return UiPrefs::default();
+    };
+    parse_prefs(&body)
+}
+
+pub fn parse_prefs(body: &str) -> UiPrefs {
+    let mut prefs = UiPrefs::default();
+    let mut in_ui = false;
+    for line in body.lines() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() || trimmed.starts_with('#') {
+            continue;
+        }
+        if trimmed.starts_with('[') {
+            in_ui = trimmed.eq_ignore_ascii_case("[ui]");
+            continue;
+        }
+        if !in_ui {
+            continue;
+        }
+        let Some((key, value)) = trimmed.split_once('=') else {
+            continue;
+        };
+        let key = key.trim();
+        let value = value.trim().trim_matches('"').trim_matches('\'');
+        if key == "confirm_before_rewind" {
+            prefs.confirm_before_rewind = !matches!(value, "false" | "0" | "no");
+        } else if key == "fork_secondary_model" && !value.is_empty() {
+            prefs.fork_secondary_model = Some(value.to_string());
+        }
+    }
+    prefs
+}
+
+pub fn save_confirm_before_rewind(home: &Path, enabled: bool) -> std::io::Result<()> {
+    let path = config_path(home);
+    let existing = std::fs::read_to_string(&path).unwrap_or_default();
+    let mut lines: Vec<String> = Vec::new();
+    let mut in_ui = false;
+    let mut wrote = false;
+    let mut has_ui = false;
+    for line in existing.lines() {
+        let trimmed = line.trim();
+        if trimmed.eq_ignore_ascii_case("[ui]") {
+            in_ui = true;
+            has_ui = true;
+            lines.push(line.to_string());
+            continue;
+        }
+        if trimmed.starts_with('[') {
+            if in_ui && !wrote {
+                lines.push(format!("confirm_before_rewind = {enabled}"));
+                wrote = true;
+            }
+            in_ui = false;
+        }
+        if in_ui && trimmed.starts_with("confirm_before_rewind") {
+            lines.push(format!("confirm_before_rewind = {enabled}"));
+            wrote = true;
+            continue;
+        }
+        lines.push(line.to_string());
+    }
+    if !has_ui {
+        if !lines.is_empty() && !lines.last().is_some_and(|line| line.is_empty()) {
+            lines.push(String::new());
+        }
+        lines.push("[ui]".into());
+        lines.push(format!("confirm_before_rewind = {enabled}"));
+    } else if in_ui && !wrote {
+        lines.push(format!("confirm_before_rewind = {enabled}"));
+    }
+    std::fs::write(path, format!("{}\n", lines.join("\n")))
+}
+
+pub fn project_points(value: &Value) -> Result<Vec<RewindPoint>, HistoryError> {
+    if value.get("ok").and_then(Value::as_bool) == Some(false) {
+        let message = value
+            .get("error")
+            .and_then(Value::as_str)
+            .unwrap_or("failed to list rewind points")
+            .to_string();
+        return Err(HistoryError {
+            damaged: message.contains("damaged") || message.contains("corrupt"),
+            message,
+        });
+    }
+    let Some(items) = value.get("rewindPoints").and_then(Value::as_array) else {
+        return Ok(Vec::new());
+    };
+    Ok(items
+        .iter()
+        .filter_map(|item| {
+            Some(RewindPoint {
+                turn: item.get("turn").and_then(Value::as_u64)? as u32,
+                summary: item
+                    .get("summary")
+                    .and_then(Value::as_str)
+                    .unwrap_or("")
+                    .to_string(),
+                boundary: item.get("boundary").and_then(Value::as_u64)?,
+            })
+        })
+        .collect())
+}
+
+fn run_helper(dsh_home: &Path, args: &[&str]) -> Result<Value, HistoryError> {
+    let node = std::env::var_os("CODSH_NODE").unwrap_or_else(|| "node".into());
+    let output = Command::new(node)
+        .arg(helper_path())
+        .args(args)
+        .env("DSH_HOME", dsh_home)
+        .output()
+        .map_err(|error| HistoryError {
+            message: format!("cannot fork dsh session: {error}"),
+            damaged: false,
+        })?;
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let value: Value =
+        serde_json::from_str(stdout.lines().last().unwrap_or("{}")).unwrap_or(Value::Null);
+    if !output.status.success() {
+        let message = value
+            .get("error")
+            .and_then(Value::as_str)
+            .map(str::to_string)
+            .unwrap_or_else(|| String::from_utf8_lossy(&output.stderr).trim().to_string());
+        return Err(HistoryError {
+            damaged: output.status.code() == Some(2) || message.contains("damaged"),
+            message: if message.is_empty() {
+                "cannot fork dsh session".into()
+            } else {
+                message
+            },
+        });
+    }
+    Ok(value)
+}
+
+pub fn list_points(dsh_home: &Path, session_id: &str) -> Result<Vec<RewindPoint>, HistoryError> {
+    project_points(&run_helper(
+        dsh_home,
+        &["--session-id", session_id, "--list"],
+    )?)
+}
+
+pub fn fork_conversation(
+    dsh_home: &Path,
+    session_id: &str,
+    boundary: Option<u64>,
+    child_id: Option<&str>,
+) -> Result<ForkResult, HistoryError> {
+    let mut args = vec!["--session-id".to_string(), session_id.to_string()];
+    let boundary_text = boundary.map(|value| value.to_string());
+    if let Some(value) = boundary_text.as_deref() {
+        args.push("--boundary".into());
+        args.push(value.to_string());
+    }
+    if let Some(id) = child_id {
+        args.push("--child-id".into());
+        args.push(id.to_string());
+    }
+    let argv: Vec<&str> = args.iter().map(String::as_str).collect();
+    let value = run_helper(dsh_home, &argv)?;
+    let session = value
+        .get("sessionId")
+        .and_then(Value::as_str)
+        .ok_or_else(|| HistoryError {
+            message: "fork omitted session id".into(),
+            damaged: false,
+        })?;
+    let parent = value
+        .get("parentSession")
+        .and_then(Value::as_str)
+        .unwrap_or(session_id);
+    Ok(ForkResult {
+        session_id: session.to_string(),
+        parent_session: parent.to_string(),
+        inherited_event_count: value
+            .get("inheritedEventCount")
+            .and_then(Value::as_u64)
+            .unwrap_or(0),
+        turns: project_turns(&value)?,
+        files_restored: value
+            .get("filesRestored")
+            .and_then(Value::as_bool)
+            .unwrap_or(false),
+    })
+}
+
+pub fn restore_code_error() -> String {
+    "Conversation rewind/fork does not restore files; --restore-code is unavailable on the dsh execution core (no repository snapshot).".into()
+}
+
+pub fn worktree_error() -> String {
+    "Isolated directory / worktree fork is not part of this slice; omit --worktree.".into()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn parse_confirm_and_fork_model_prefs() {
+        let prefs = parse_prefs(
+            "[ui]\nconfirm_before_rewind = false\nfork_secondary_model = \"cli-mock-fork\"\n",
+        );
+        assert!(!prefs.confirm_before_rewind);
+        assert_eq!(prefs.fork_secondary_model.as_deref(), Some("cli-mock-fork"));
+        assert!(parse_prefs("").confirm_before_rewind);
+    }
+
+    #[test]
+    fn projects_rewind_points_and_fork_result() {
+        let value = json!({
+            "ok": true,
+            "sessionId": "child",
+            "parentSession": "parent",
+            "isSeeded": true,
+            "inheritedEventCount": 4,
+            "filesRestored": false,
+            "rewindPoints": [
+                {"turn": 1, "summary": "first", "boundary": 4},
+                {"turn": 2, "summary": "second", "boundary": 8}
+            ],
+            "turns": [{
+                "user": "first",
+                "thought": "",
+                "answer": "ok",
+                "tools": [],
+                "error": null,
+                "cancelled": false,
+                "interrupted": false
+            }]
+        });
+        let points = project_points(&value).expect("points");
+        assert_eq!(points[0].summary, "first");
+        assert_eq!(points[1].boundary, 8);
+        let turns = project_turns(&value).expect("turns");
+        assert_eq!(turns[0].user, "first");
+        assert!(!value["filesRestored"].as_bool().unwrap());
+    }
+}

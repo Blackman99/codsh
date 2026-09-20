@@ -6,7 +6,7 @@ import { createRequire } from 'node:module'
 import { afterEach, describe, expect, it } from 'vitest'
 import { rustAcpOverlay } from './rust-acp-overlay.mjs'
 import { fileURLToPath } from 'node:url'
-import { projectTurns, projectSession, liveSurfaceSeqs, projectBreakdown } from '../packages/cli/bin/rust-acp-session-read.mjs'
+import { projectTurns, projectSession, liveSurfaceSeqs, projectBreakdown, rewindPoints, forkPrefix } from '../packages/cli/bin/rust-acp-session-read.mjs'
 import { compactFailureText, parseCompactLine } from '../packages/cli/bin/rust-acp-compact.mjs'
 
 const require = createRequire(import.meta.url)
@@ -231,6 +231,174 @@ describe('dsh session log projection', () => {
     expect(compactFailureText({ code: 'summary', message: 'summarizer failed' })).toContain('useful summary')
     expect(compactFailureText({ code: 'summary' }).toLowerCase()).not.toContain('success')
   })
+})
+
+describe('conversation rewind points and fork prefixes', () => {
+  it('offers one rewind point per typed prompt through that turn end', () => {
+    const events = [
+      { seq: 0, type: 'session/seed', data: {} },
+      { seq: 1, type: 'turn/start', data: { turn: 1 } },
+      { seq: 2, type: 'user/message', data: { message: { content: [{ type: 'text', text: 'first request' }], source: { kind: 'user' } } } },
+      { seq: 3, type: 'assistant/message', data: { message: { content: [{ type: 'text', text: 'first answer' }] } } },
+      { seq: 4, type: 'turn/end', data: { turn: 1, reason: { kind: 'completed' } } },
+      { seq: 5, type: 'turn/start', data: { turn: 2 } },
+      { seq: 6, type: 'user/message', data: { message: { content: [{ type: 'text', text: 'second request' }], source: { kind: 'user' } } } },
+      { seq: 7, type: 'assistant/message', data: { message: { content: [{ type: 'text', text: 'second answer' }] } } },
+      { seq: 8, type: 'turn/end', data: { turn: 2, reason: { kind: 'completed' } } },
+      { seq: 9, type: 'turn/start', data: { turn: 3 } },
+      { seq: 10, type: 'user/message', data: { message: { content: [{ type: 'text', text: 'third request' }], source: { kind: 'user' } } } },
+      { seq: 11, type: 'assistant/message', data: { message: { content: [{ type: 'text', text: 'third answer' }] } } },
+      { seq: 12, type: 'turn/end', data: { turn: 3, reason: { kind: 'completed' } } },
+    ]
+    expect(rewindPoints(events)).toEqual([
+      { turn: 1, summary: 'first request', boundary: 4 },
+      { turn: 2, summary: 'second request', boundary: 8 },
+      { turn: 3, summary: 'third request', boundary: 12 },
+    ])
+    const kept = forkPrefix(events, 8)
+    expect(kept.map(event => event.seq)).toEqual([0, 1, 2, 3, 4, 5, 6, 7, 8])
+    expect(kept.some(event => event.seq === 10)).toBe(false)
+  })
+
+  it('skips injected context, refuses open turns, and does not split compaction or tools', () => {
+    const events = [
+      { seq: 0, type: 'turn/start', data: { turn: 1 } },
+      { seq: 1, type: 'user/message', data: { message: { content: [{ type: 'text', text: '<skill> injected' }], source: { kind: 'inject' } } } },
+      { seq: 2, type: 'user/message', data: { message: { content: [{ type: 'text', text: 'typed' }], source: { kind: 'user' } } } },
+      { seq: 3, type: 'tool/call', data: { callId: 't1' } },
+      { seq: 4, type: 'tool/result', data: { message: { toolCallId: 't1', content: [{ type: 'text', text: 'ok' }] } } },
+      { seq: 5, type: 'turn/end', data: { turn: 1, reason: { kind: 'completed' } } },
+      { seq: 6, type: 'compaction/start', data: {} },
+      { seq: 7, type: 'compaction/summary', data: {} },
+      { seq: 8, type: 'compaction/end', data: {} },
+      { seq: 9, type: 'turn/start', data: { turn: 2 } },
+      { seq: 10, type: 'user/message', data: { message: { content: [{ type: 'text', text: 'after compact' }], source: { kind: 'user' } } } },
+      { seq: 11, type: 'turn/end', data: { turn: 2, reason: { kind: 'completed' } } },
+      { seq: 12, type: 'turn/start', data: { turn: 3 } },
+      { seq: 13, type: 'user/message', data: { message: { content: [{ type: 'text', text: 'running' }], source: { kind: 'user' } } } },
+    ]
+    expect(rewindPoints(events)).toEqual([
+      { turn: 1, summary: 'typed', boundary: 5 },
+      { turn: 2, summary: 'after compact', boundary: 11 },
+    ])
+    expect(() => forkPrefix(events, 13)).toThrow(/open turn/i)
+    expect(() => forkPrefix(events, 7)).toThrow(/compaction|tool pairing/i)
+    expect(() => forkPrefix(events, 3)).toThrow(/open turn|tool pairing/i)
+    expect(() => forkPrefix(events, 99)).toThrow(/invalid boundary/i)
+    expect(forkPrefix(events, 8).at(-1).seq).toBe(8)
+  })
+})
+
+function runForkHelper(home, args) {
+  return spawnSync(process.execPath, [
+    resolve(fileURLToPath(new URL('../packages/cli/bin/rust-acp-session-fork.mjs', import.meta.url))),
+    ...args,
+  ], {
+    encoding: 'utf8',
+    env: { ...process.env, DSH_HOME: home, DSH_BIN: dshPath() },
+  })
+}
+
+function helperJson(result) {
+  return JSON.parse(result.stdout.trim().split('\n').at(-1) || '{}')
+}
+
+describe('dsh conversation fork/rewind persistence', () => {
+  it('seeds a child from a completed prefix without restoring files or the discarded turn', async () => {
+    const first = startAgent('echo')
+    writeFileSync(join(first.cwd, 'note.txt'), 'alpha\n')
+    let parentId
+    try {
+      const { session } = await handshake(first)
+      parentId = session.sessionId
+      for (const [id, text] of [[3, 'TOKEN_KEEP'], [4, 'TOKEN_MIDDLE'], [5, 'TOKEN_DROP']]) {
+        const result = await first.send(id, 'session/prompt', {
+          sessionId: parentId,
+          prompt: [{ type: 'text', text }],
+        })
+        expect(result.stopReason).toBe('end_turn')
+      }
+      writeFileSync(join(first.cwd, 'note.txt'), 'BETA independently edited\n')
+      await first.send(6, 'session/close', { sessionId: parentId })
+    } finally {
+      first.child.stdin.end()
+      first.child.kill('SIGTERM')
+      await new Promise(resolve => first.child.once('exit', resolve))
+    }
+    expect(readFileSync(join(first.cwd, 'note.txt'), 'utf8')).toBe('BETA independently edited\n')
+
+    const listed = runForkHelper(first.home, ['--session-id', parentId, '--list'])
+    expect(listed.status).toBe(0)
+    const points = helperJson(listed)
+    expect(points.rewindPoints.map(point => point.summary)).toEqual(['TOKEN_KEEP', 'TOKEN_MIDDLE', 'TOKEN_DROP'])
+    const keepBoundary = points.rewindPoints[1].boundary
+    const restored = runForkHelper(first.home, ['--session-id', parentId, '--boundary', String(keepBoundary), '--restore-code'])
+    expect(restored.status).not.toBe(0)
+    expect(helperJson(restored).error).toMatch(/does not restore files|--restore-code is unavailable/i)
+    const invalid = runForkHelper(first.home, ['--session-id', parentId, '--boundary', '999999'])
+    expect(invalid.status).not.toBe(0)
+    expect(helperJson(invalid).error).toMatch(/invalid boundary/i)
+
+    const forked = runForkHelper(first.home, ['--session-id', parentId, '--boundary', String(keepBoundary)])
+    expect(forked.status).toBe(0)
+    const child = helperJson(forked)
+    expect(child.ok).toBe(true)
+    expect(child.sessionId).not.toBe(parentId)
+    expect(child.parentSession).toBe(parentId)
+    expect(child.isSeeded).toBe(true)
+    expect(child.filesRestored).toBe(false)
+    expect(child.turns.some(turn => turn.user.includes('TOKEN_KEEP'))).toBe(true)
+    expect(child.turns.some(turn => turn.user.includes('TOKEN_MIDDLE'))).toBe(true)
+    expect(child.turns.some(turn => turn.user.includes('TOKEN_DROP'))).toBe(false)
+    expect(readFileSync(join(first.cwd, 'note.txt'), 'utf8')).toBe('BETA independently edited\n')
+
+    const second = startAgent('echo', {}, { root: first.root, home: first.home, cwd: first.cwd })
+    try {
+      const init = await second.send(1, 'initialize', {
+        protocolVersion: 1,
+        clientCapabilities: {},
+        clientInfo: { name: 'codsh-acp-protocol-test', version: '0.0.0' },
+      })
+      expect(init.agentCapabilities.sessionCapabilities).toMatchObject({ list: {}, resume: {} })
+      const listedSessions = await second.send(2, 'session/list', { cwd: second.cwd })
+      expect(listedSessions.sessions.some(entry => entry.sessionId === parentId)).toBe(true)
+      expect(listedSessions.sessions.some(entry => entry.sessionId === child.sessionId)).toBe(true)
+      await second.send(3, 'session/resume', { sessionId: child.sessionId, cwd: second.cwd, mcpServers: [] })
+      const follow = await second.send(4, 'session/prompt', {
+        sessionId: child.sessionId,
+        prompt: [{ type: 'text', text: 'TOKEN_AFTER_REWIND' }],
+      })
+      expect(follow.stopReason).toBe('end_turn')
+      const answer = second.updates.filter(update => update.update.sessionUpdate === 'agent_message_chunk').at(-1)
+      expect(answer.update.content.text).toContain('TOKEN_AFTER_REWIND')
+      expect(answer.update.content.text).toContain('TOKEN_KEEP')
+      expect(answer.update.content.text).toContain('TOKEN_MIDDLE')
+      expect(answer.update.content.text).not.toContain('TOKEN_DROP')
+      expect(readFileSync(join(second.cwd, 'note.txt'), 'utf8')).toBe('BETA independently edited\n')
+      const modelOption = (await second.send(5, 'session/set_config_option', {
+        sessionId: child.sessionId,
+        configId: 'model',
+        value: 'cli-mock-fork',
+      }).catch(error => error))
+      if (modelOption instanceof Error) {
+        const options = JSON.stringify(init.configOptions ?? [])
+        expect(options.includes('cli-mock-fork') || /unknown|invalid|not found/i.test(modelOption.message)).toBe(true)
+      } else {
+        const switched = await second.send(6, 'session/prompt', {
+          sessionId: child.sessionId,
+          prompt: [{ type: 'text', text: 'TOKEN_FORK_MODEL' }],
+        })
+        expect(switched.stopReason).toBe('end_turn')
+        const modeled = second.updates.filter(update => update.update.sessionUpdate === 'agent_message_chunk').at(-1)
+        expect(modeled.update.content.text).toContain('TOKEN_FORK_MODEL')
+        expect(modeled.update.content.text).toMatch(/model=cli-mock-fork|model=cli-mock/)
+      }
+      await second.send(7, 'session/close', { sessionId: child.sessionId }).catch(() => undefined)
+    } finally {
+      second.child.stdin.end()
+      second.child.kill('SIGTERM')
+    }
+  }, 60000)
 })
 
 describe('public ACP/JSON-RPC against real dsh', () => {

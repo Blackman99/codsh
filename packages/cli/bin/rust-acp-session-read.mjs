@@ -4,9 +4,20 @@
  * Opens persistence as an observer (never write ownership) and never executes
  * tools. Corruption and unsupported formats fail closed.
  */
+import { readFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
+
+export function readLineage(home, sessionId) {
+  try {
+    const value = JSON.parse(readFileSync(join(home, 'session-lineage', `${sessionId}.json`), 'utf8'))
+    if (value && typeof value === 'object') return value
+  } catch {
+    // Lineage is optional provenance beside the append-only dsh log.
+  }
+  return null
+}
 
 function fail(code, message) {
   process.stdout.write(`${JSON.stringify({ ok: false, error: message })}\n`)
@@ -25,6 +36,8 @@ function textBlocks(content) {
     .map(block => String(block.text ?? ''))
     .join('')
 }
+
+const SUMMARY_LIMIT = 60
 
 function eventSource(event) {
   const payload = event.data ?? {}
@@ -145,6 +158,89 @@ function isDirectUser(event) {
   if (text.startsWith('<') && !text.includes('<compacted-summary>')) return false
   if (/Current runtime context|This snapshot supersedes/i.test(text)) return false
   return true
+}
+
+function summarizePrompt(event) {
+  const message = event?.data?.message ?? event?.data ?? {}
+  const line = textBlocks(message.content)
+    .split('\n')
+    .map(part => part.trim())
+    .find(part => part !== '' && !part.startsWith('<pasted-image ')) ?? ''
+  if (line === '') return '(empty)'
+  return line.length > SUMMARY_LIMIT ? `${line.slice(0, SUMMARY_LIMIT - 1)}…` : line
+}
+
+export function rewindPoints(events) {
+  const points = []
+  let openTurn = false
+  let compaction = 0
+  let tools = 0
+  for (const event of events ?? []) {
+    const type = event?.type
+    if (type === 'compaction/start') compaction += 1
+    else if (type === 'compaction/end' && compaction > 0) compaction -= 1
+    else if (type === 'tool/call') tools += 1
+    else if (type === 'tool/result' && tools > 0) tools -= 1
+    if (type === 'turn/start') openTurn = true
+    else if (type === 'user/message' && isDirectUser(event)) {
+      points.push({
+        turn: points.length + 1,
+        summary: summarizePrompt(event),
+        boundary: undefined,
+      })
+    } else if (type === 'turn/end') {
+      const last = points.at(-1)
+      if (last !== undefined && last.boundary === undefined && compaction === 0 && tools === 0) {
+        last.boundary = event.seq
+      }
+      openTurn = false
+    }
+  }
+  const last = points.at(-1)
+  const tail = events?.at(-1)
+  if (
+    last !== undefined
+    && last.boundary === undefined
+    && !openTurn
+    && compaction === 0
+    && tools === 0
+    && tail?.seq !== undefined
+  ) {
+    last.boundary = tail.seq
+  }
+  return points.filter(point => point.boundary !== undefined)
+}
+
+export function forkPrefix(events, requestedBoundary) {
+  const list = Array.isArray(events) ? events : []
+  if (list.length === 0) {
+    if (requestedBoundary === undefined) return []
+    throw new Error('invalid boundary')
+  }
+  const boundary = requestedBoundary === undefined ? list.at(-1).seq : requestedBoundary
+  if (!Number.isSafeInteger(boundary) || boundary < 0) {
+    throw new Error('invalid boundary')
+  }
+  const prefix = list.filter(event => event.seq <= boundary)
+  if (prefix.length === 0 || prefix.at(-1)?.seq !== boundary) {
+    throw new Error(`invalid boundary ${boundary}`)
+  }
+  const lastTurn = [...prefix].reverse().find(event => event.type === 'turn/start' || event.type === 'turn/end')
+  if (lastTurn?.type === 'turn/start') {
+    throw new Error(`open turn at fork boundary ${boundary}`)
+  }
+  let compaction = 0
+  let tools = 0
+  for (const event of prefix) {
+    if (event.type === 'compaction/start') compaction += 1
+    else if (event.type === 'compaction/end' && compaction > 0) compaction -= 1
+    else if (event.type === 'tool/call') tools += 1
+    else if (event.type === 'tool/result' && tools > 0) tools -= 1
+  }
+  if (compaction > 0 || tools > 0) {
+    throw new Error(`fork boundary ${boundary} splits compaction or tool pairing`)
+  }
+  return prefix
 }
 
 export function shadowedSeqs(events) {
@@ -435,12 +531,18 @@ async function main() {
   }
   try {
     const snapshot = await persistence.stat(sessionId)
+    const header = snapshot?.header ?? handle.header ?? {}
+    const lineage = readLineage(home, sessionId)
     const { events } = await handle.read()
     const projected = projectSession(events)
     process.stdout.write(`${JSON.stringify({
       ok: true,
       sessionId,
-      cwd: snapshot?.header?.cwd ?? handle.header?.cwd ?? null,
+      cwd: header.cwd ?? null,
+      parentSession: header.parentSession ?? lineage?.parentSession ?? null,
+      isSeeded: header.isSeeded === true || lineage?.isSeeded === true,
+      inheritedEventCount: handle.inheritedEventCount ?? lineage?.inheritedEventCount ?? 0,
+      rewindPoints: rewindPoints(events),
       ...projected,
     })}\n`)
   } catch (error) {

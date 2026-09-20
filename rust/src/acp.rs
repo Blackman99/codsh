@@ -113,6 +113,17 @@ impl std::fmt::Display for AcpError {
 
 impl std::error::Error for AcpError {}
 
+pub fn resolve_fork_model_value(advertised: &[String], wanted: &str) -> Option<String> {
+    advertised
+        .iter()
+        .find(|value| {
+            *value == wanted
+                || value.contains(&format!("\"{wanted}\""))
+                || value.ends_with(&format!("/{wanted}"))
+        })
+        .cloned()
+}
+
 fn json_id_key(id: &Value) -> String {
     id.to_string()
 }
@@ -316,6 +327,7 @@ enum PendingKind {
     Prompt,
     SetConfig,
     Close,
+    Config,
     #[allow(dead_code)]
     Other,
 }
@@ -387,6 +399,7 @@ pub fn dsh_spawn_spec(
         "FAKE_ACP_OWNED",
         "FAKE_ACP_STALE_OWNER",
         "CODSH_SESSION_READ",
+        "CODSH_SESSION_FORK",
         "GROK_AUTO_COMPACT_THRESHOLD_PERCENT",
         "GROK_COMPACTION_WALL_CLOCK_SECS",
         "DSH_CODE_CLI_MOCK_CONTEXT_WINDOW",
@@ -639,6 +652,13 @@ impl AcpClient {
 
     pub fn config_option(&self, id: &str) -> Option<&SessionConfigOption> {
         self.config_options.iter().find(|option| option.id == id)
+    }
+
+    pub fn model_values(&self) -> Vec<String> {
+        self.config_option("model")
+            .into_iter()
+            .flat_map(|option| option.choices.iter().map(|choice| choice.value.clone()))
+            .collect()
     }
 
     pub fn answer_permission(
@@ -1211,6 +1231,32 @@ impl Drop for AcpClient {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn resolves_nested_fork_model_option_value() {
+        let options = json!([{
+            "id": "model",
+            "category": "model",
+            "options": [{
+                "group": "cli-mock",
+                "options": [
+                    { "value": "[\"cli-mock\",\"cli-mock\"]", "name": "CLI Mock" },
+                    { "value": "[\"cli-mock\",\"cli-mock-fork\"]", "name": "CLI Mock Fork" }
+                ]
+            }]
+        }]);
+        let values: Vec<String> = parse_config_options(&options)
+            .into_iter()
+            .find(|option| option.id == "model")
+            .into_iter()
+            .flat_map(|option| option.choices.into_iter().map(|choice| choice.value))
+            .collect();
+        assert_eq!(
+            resolve_fork_model_value(&values, "cli-mock-fork").as_deref(),
+            Some("[\"cli-mock\",\"cli-mock-fork\"]")
+        );
+        assert!(resolve_fork_model_value(&values, "missing").is_none());
+    }
 
     fn node_program() -> PathBuf {
         std::env::var_os("CODSH_NODE")

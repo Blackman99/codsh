@@ -63,7 +63,11 @@ turn or a pending approval — it dismisses selection and reminds you to use
 external results are shown as cancelled, not success. After cancel, the prompt
 accepts a new turn. Idle empty `Ctrl+C` still quits before any turn exists.
 `codsh --rust --continue` resumes the last dsh session in this directory;
-`--resume <id>` loads that session. The UI restores persisted turns from the
+`--resume <id>` loads that session. `--fork-session` with `--resume`/`--continue`
+copies that conversation into a new dsh session id. `/rewind` and `/undo` (or idle
+empty Esc Esc) fork conversation-only history through dsh; `/fork` copies the
+current history into a new session. Disk files are not restored; `--restore-code`
+is refused. The UI restores persisted turns from the
 dsh log (not a second store). Interrupted or never-finished tools show
 `[interrupted]` / unknown and are not replayed. A second client that cannot
 take write ownership is refused instead of forking a duplicate executor.
@@ -154,7 +158,8 @@ rather than guessing symlink traversal. Use a path without parent traversal.
 Default `~/.dsh` and `~/.grok` are protected even when overrides are set.
 `Ctrl+Q`/`Ctrl+D` quits; `Ctrl+C` clears a draft, cancels an empty running turn,
 or quits when idle before any turn. `--continue` and `--resume <id>` restore
-the same dsh session; a second writer is refused. `--minimal` and `--fullscreen`
+the same dsh session; `--fork-session` copies conversation into a new id;
+`/rewind` does not restore files. A second writer is refused. `--minimal` and `--fullscreen`
 select the session render mode. Unsupported
 arguments fail explicitly. `codsh --rust --help` describes this path. Mock-model
 tests inject the fixture at the dsh provider boundary (`CODSH_ACP_PATCH` /

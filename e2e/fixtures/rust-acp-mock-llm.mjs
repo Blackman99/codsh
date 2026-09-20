@@ -44,6 +44,7 @@ function userTexts(options) {
   return options.messages
     .filter(message => message.role === 'user')
     .flatMap(message => message.content.filter(block => block.type === 'text').map(block => block.text))
+    .filter(text => !text.startsWith('<') && !/Current runtime context|This snapshot supersedes/i.test(text))
 }
 
 function toolResults(options) {
@@ -151,6 +152,7 @@ class RustAcpMockAdapter extends LlmAdapter {
     }
     return Promise.resolve([
       { provider, id: 'cli-mock', name: 'CLI Mock', inputModalities: ['text'], contextWindow: CONTEXT_WINDOW },
+      { provider, id: 'cli-mock-fork', name: 'CLI Mock Fork', inputModalities: ['text'], contextWindow: CONTEXT_WINDOW },
     ])
   }
 
@@ -242,7 +244,8 @@ class RustAcpMockAdapter extends LlmAdapter {
     }
     const effort = options.reasoningEffort ?? 'none'
     const route = `${options.provider}/${options.model}`
-    const reply = `RUST_ACP_ANSWER turn=${turn} route=${route} effort=${effort} ${userTexts(options).join('\n')}`
+    const model = options.model?.id ?? options.model ?? 'unknown'
+    const reply = `RUST_ACP_ANSWER turn=${turn} route=${route} effort=${effort} model=${model} ${userTexts(options).join('\n')}`
     yield { type: 'block-start', index: 0, blockType: 'text' }
     yield { type: 'text-delta', index: 0, text: reply }
     yield { type: 'block-end', index: 0, block: { type: 'text', text: reply } }

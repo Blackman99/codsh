@@ -2,6 +2,7 @@ mod acp;
 mod config;
 mod models;
 mod screen_mode;
+mod session_fork;
 mod session_history;
 mod session_owner;
 mod theme;
@@ -20,15 +21,16 @@ use screen_mode::{
     GROK_SCREEN_MODE_ENV, MINIMAL_OVERLAY_HEIGHT, SCREEN_MODE_SWITCH_ENV, ScreenMode, SlashAction,
     SwitchPolicy,
 };
+use session_fork::{RewindPoint, UiPrefs};
 use session_history::{RestoredCompactionRecord, RestoredTurn};
 use session_owner::SessionOwner;
 use std::io::{self, IsTerminal, Write};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::{
     Arc,
     atomic::{AtomicBool, Ordering},
 };
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use xai_ratatui_inline::{
     Terminal, emit_to_scrollback, resize_purge_rerender, with_synchronized_output,
 };
@@ -190,6 +192,17 @@ struct Connection {
     resumed: bool,
 }
 
+enum Overlay {
+    None,
+    RewindPick {
+        points: Vec<RewindPoint>,
+        cursor: usize,
+    },
+    RewindConfirm {
+        point: RewindPoint,
+    },
+}
+
 #[derive(Debug)]
 struct Launch {
     mode: LaunchMode,
@@ -199,6 +212,8 @@ struct Launch {
     revoke_trust: bool,
     trust_folder: Option<PathBuf>,
     screen: Option<ScreenMode>,
+    fork_session: bool,
+    child_id: Option<String>,
 }
 
 fn take_flag_value(
@@ -226,6 +241,9 @@ fn take_flag_value(
 }
 
 fn parse_launch(args: &[String]) -> io::Result<Launch> {
+    if args.iter().any(|flag| flag == "--restore-code") {
+        return Err(io::Error::other(session_fork::restore_code_error()));
+    }
     let mut model = None;
     let mut effort = None;
     let mut trust = false;
@@ -233,6 +251,8 @@ fn parse_launch(args: &[String]) -> io::Result<Launch> {
     let mut trust_folder = None;
     let mut screen = None;
     let mut rest = Vec::new();
+    let mut fork_session = false;
+    let mut child_id = None;
     let mut index = 0;
     while index < args.len() {
         if let Some(value) = take_flag_value(
@@ -256,6 +276,20 @@ fn parse_launch(args: &[String]) -> io::Result<Launch> {
             "missing --reasoning-effort value; use codsh --rust --help",
         )? {
             effort = Some(value);
+        } else if let Some(value) = take_flag_value(
+            args,
+            &mut index,
+            "--session-id",
+            "missing session id; --session-id requires --fork-session",
+        )? {
+            child_id = Some(value);
+        } else if let Some(value) = take_flag_value(
+            args,
+            &mut index,
+            "-s",
+            "missing session id; --session-id requires --fork-session",
+        )? {
+            child_id = Some(value);
         } else {
             let arg = &args[index];
             if arg == "--trust" || arg == "--trust-folder" {
@@ -266,6 +300,7 @@ fn parse_launch(args: &[String]) -> io::Result<Launch> {
                     && value != "inspect"
                     && value != "--continue"
                     && value != "--resume"
+                    && value != "--fork-session"
                 {
                     index += 1;
                     trust_folder = Some(PathBuf::from(value));
@@ -291,11 +326,18 @@ fn parse_launch(args: &[String]) -> io::Result<Launch> {
                     ));
                 }
                 screen = Some(ScreenMode::Fullscreen);
+            } else if arg == "--fork-session" {
+                fork_session = true;
             } else {
                 rest.push(arg.clone());
             }
         }
         index += 1;
+    }
+    if child_id.is_some() && !fork_session {
+        return Err(io::Error::other(
+            "--session-id is only valid together with --fork-session",
+        ));
     }
     let rest_flags: Vec<&str> = rest.iter().map(String::as_str).collect();
     let mode = match rest_flags.as_slice() {
@@ -324,6 +366,20 @@ fn parse_launch(args: &[String]) -> io::Result<Launch> {
             ));
         }
     };
+    if fork_session
+        && !matches!(
+            mode,
+            LaunchMode::Resume(_) | LaunchMode::Continue | LaunchMode::Help | LaunchMode::Version
+        )
+    {
+        return Err(io::Error::other(
+            "--fork-session requires --resume or --continue",
+        ));
+    }
+    if matches!(mode, LaunchMode::Help | LaunchMode::Version) {
+        fork_session = false;
+        child_id = None;
+    }
     Ok(Launch {
         mode,
         model,
@@ -332,6 +388,8 @@ fn parse_launch(args: &[String]) -> io::Result<Launch> {
         revoke_trust,
         trust_folder,
         screen,
+        fork_session,
+        child_id,
     })
 }
 
@@ -463,6 +521,8 @@ fn connect(
     previous: Option<&str>,
     extra_env: &[(String, String)],
     patch: Option<&PathBuf>,
+    fork_session: bool,
+    child_id: Option<&str>,
 ) -> Result<(Connection, Vec<Turn>), String> {
     let cwd = std::env::current_dir().map_err(|error| error.to_string())?;
     let dsh_home = PathBuf::from(
@@ -475,6 +535,15 @@ fn connect(
         .initialize(Duration::from_secs(20))
         .map_err(|error| error.message)?;
     let resume_id = resolve_resume(&mut client, mode, &cwd, &dsh_home, previous)?;
+    let resume_id = if fork_session {
+        let source = resume_id
+            .ok_or_else(|| "--fork-session requires --resume or --continue".to_string())?;
+        let forked = session_fork::fork_conversation(&dsh_home, &source, None, child_id)
+            .map_err(|error| error.message)?;
+        Some(forked.session_id)
+    } else {
+        resume_id
+    };
     let (session_id, resumed, owner) = if let Some(session_id) = resume_id {
         let owner = SessionOwner::acquire(&dsh_home, &session_id).map_err(|error| error.message)?;
         match client.resume_session(&session_id, &cwd, Duration::from_secs(20)) {
@@ -512,6 +581,148 @@ fn connect(
         },
         turns,
     ))
+}
+
+fn apply_fork_model(client: &mut AcpClient, prefs: &UiPrefs) -> Result<(), String> {
+    let Some(model) = prefs.fork_secondary_model.as_deref() else {
+        return Ok(());
+    };
+    let values = client.model_values();
+    let selected = acp::resolve_fork_model_value(&values, model).ok_or_else(|| {
+        format!(
+            "unavailable fork model {model}; advertised models: {}",
+            values.join(", ")
+        )
+    })?;
+    client
+        .set_config_option("model", &selected, Duration::from_secs(10))
+        .map(|_| ())
+        .map_err(|error| format!("unavailable fork model {model}: {}", error.message))
+}
+
+fn switch_session(
+    client: &mut AcpClient,
+    owner: &mut Option<SessionOwner>,
+    dsh_home: &Path,
+    cwd: &Path,
+    session_id: &str,
+) -> Result<Vec<Turn>, String> {
+    let _ = client.close_session(Duration::from_secs(10));
+    *owner = None;
+    let next_owner = SessionOwner::acquire(dsh_home, session_id).map_err(|error| error.message)?;
+    client
+        .resume_session(session_id, cwd, Duration::from_secs(20))
+        .map_err(|error| error.message)?;
+    *owner = Some(next_owner);
+    let _ = session_owner::write_last_session(dsh_home, session_id, cwd);
+    match session_history::load_turns(dsh_home, session_id) {
+        Ok(restored) => Ok(restored.into_iter().map(turn_from_restored).collect()),
+        Err(error) => Err(error.message),
+    }
+}
+
+fn commit_rewind(
+    client: &mut AcpClient,
+    owner: &mut Option<SessionOwner>,
+    turns: &mut Vec<Turn>,
+    dsh_home: &Path,
+    cwd: &Path,
+    point: &RewindPoint,
+    resumed: &mut bool,
+    previous_session: &mut Option<String>,
+) -> Result<String, String> {
+    let source = client
+        .session_id
+        .clone()
+        .ok_or_else(|| "ACP session is not ready".to_string())?;
+    let forked = session_fork::fork_conversation(dsh_home, &source, Some(point.boundary), None)
+        .map_err(|error| error.message)?;
+    if forked.files_restored {
+        return Err("rewind restored files; conversation-only rewind required".into());
+    }
+    *turns = switch_session(client, owner, dsh_home, cwd, &forked.session_id)?;
+    *resumed = true;
+    *previous_session = Some(forked.session_id.clone());
+    Ok(format!(
+        "rewound to turn {} · now on {} · {} stays in /resume",
+        point.turn, forked.session_id, forked.parent_session
+    ))
+}
+
+fn commit_fork(
+    client: &mut AcpClient,
+    owner: &mut Option<SessionOwner>,
+    turns: &mut Vec<Turn>,
+    inflight: &mut bool,
+    dsh_home: &Path,
+    cwd: &Path,
+    prefs: &UiPrefs,
+    directive: Option<&str>,
+    resumed: &mut bool,
+    previous_session: &mut Option<String>,
+) -> Result<String, String> {
+    let source = client
+        .session_id
+        .clone()
+        .ok_or_else(|| "ACP session is not ready".to_string())?;
+    let forked = session_fork::fork_conversation(dsh_home, &source, None, None)
+        .map_err(|error| error.message)?;
+    if forked.files_restored {
+        return Err("fork restored files; conversation-only fork required".into());
+    }
+    *turns = switch_session(client, owner, dsh_home, cwd, &forked.session_id)?;
+    apply_fork_model(client, prefs)?;
+    *resumed = true;
+    *previous_session = Some(forked.session_id.clone());
+    let mut report = format!(
+        "forked · now on {} · {} stays in /resume",
+        forked.session_id, forked.parent_session
+    );
+    if let Some(text) = directive.filter(|value| !value.trim().is_empty()) {
+        client.submit_prompt(text).map_err(|error| error.message)?;
+        turns.push(Turn {
+            user: text.to_string(),
+            thought: String::new(),
+            answer: String::new(),
+            error: None,
+            message_id: None,
+            tools: Vec::new(),
+            permission: None,
+            done: false,
+            cancelling: false,
+            cancelled: false,
+            interrupted: false,
+            compacted: false,
+            compaction: None,
+        });
+        *inflight = true;
+        report.push_str(" · submitted fork directive");
+    }
+    Ok(report)
+}
+
+fn overlay_hint(overlay: &Overlay, prefs: &UiPrefs) -> String {
+    match overlay {
+        Overlay::None => String::new(),
+        Overlay::RewindPick { points, cursor } => {
+            let mut lines =
+                vec!["Rewind to turn (conversation only; files stay as they are):".into()];
+            for (index, point) in points.iter().enumerate() {
+                let mark = if index == *cursor { ">" } else { " " };
+                lines.push(format!("{mark} {}. {}", point.turn, point.summary));
+            }
+            if prefs.confirm_before_rewind {
+                lines.push("Enter selects · Esc cancels · then y confirms".into());
+            } else {
+                lines.push("Enter rewinds now · Esc cancels".into());
+            }
+            lines.join("\n")
+        }
+        Overlay::RewindConfirm { point } => format!(
+            "Confirm rewind to turn {} ({})? y=yes  a=yes, don't ask again  n=no",
+            point.turn, point.summary
+        ),
+    }
 }
 
 struct Meter {
@@ -1289,7 +1500,7 @@ fn run() -> io::Result<()> {
         }
         LaunchMode::Help => {
             println!(
-                "codsh --rust\n\nIsolated Rust client. Real dsh executes turns over ACP/JSON-RPC stdio.\nHome: ~/.codsh-rust/dsh; Profile: rust. Legacy codsh is unchanged.\nUser config: $GROK_HOME/config.toml (default ~/.codsh-rust/.grok/config.toml), mapped into isolated dsh settings.yaml.\nManaged defaults: $GROK_HOME/managed_config.toml. Locked requirements: $GROK_HOME/requirements.toml (cannot be bypassed by later CLI, environment, overlay, workspace, or user values).\n`codsh --rust inspect` / `inspect --json` shows effective values, origins, folder trust, and whether project assets are active. Invalid config.toml is left unchanged and reports its path. Unknown security fields and invalid policies are diagnosed with valid values, sources, and limits.\nWorkspace trust: untrusted folders prompt before applying project config, Hooks, plugins, or instructions; `--trust` / `--trust-folder [path]` saves a grant, `--revoke-trust` withdraws it. A read-only $GROK_HOME reports save failure without pretending the grant is durable. Untrusted Hooks/plugins/project capabilities do not execute.\nFirst-run missing credentials stay local: no grok.com login, no default official telemetry, no import of ~/.dsh or ~/.grok credentials.\nFile read/edit/write run through dsh tools; y allows once, n rejects with no write. Trust prompt: y=allow, n=deny.\nCtrl+Q/Ctrl+D: quit. Ctrl+C: clear a draft; empty draft cancels a running turn via dsh, or quits when idle before any turn.\nEsc never cancels a turn or a pending approval; it dismisses selection and reminds you to use Ctrl+C.\nEnter: submit prompt. /minimal and /fullscreen switch render mode in process without restarting dsh; --minimal/--fullscreen and GROK_SCREEN_MODE are session-scoped and do not rewrite [ui] screen_mode. /model (/m) and /effort select advertised catalog options; unsupported backends/efforts are refused, never treated as equivalent or silently swapped. /context shows dsh occupancy, advertised model limits, and heuristic buckets without fabricating zeros. /compact [instruction] runs dsh compaction (not a second history); optional instructions go only to the summarizer request (purpose=compaction). Automatic compaction uses session.auto_compact_threshold_percent / GROK_AUTO_COMPACT_THRESHOLD_PERCENT mapped to dsh thresholdRatio. GROK_COMPACTION_WALL_CLOCK_SECS bounds the operation; 0 disables that budget. Runtime changes apply to the next turn and persist under $GROK_HOME/model-selection.toml. --continue resumes the last session in this directory; --resume <id> loads that dsh session. A second client is refused while this process holds write ownership. Interrupted tools show [interrupted]/unknown and are not replayed.\nOptions: --help, --version, --continue, --resume <id>, --minimal, --fullscreen, --model <id>, --effort/--reasoning-effort <level>, --trust, --trust-folder [path], --revoke-trust, inspect."
+                "codsh --rust\n\nIsolated Rust client. Real dsh executes turns over ACP/JSON-RPC stdio.\nHome: ~/.codsh-rust/dsh; Profile: rust. Legacy codsh is unchanged.\nUser config: $GROK_HOME/config.toml (default ~/.codsh-rust/.grok/config.toml), mapped into isolated dsh settings.yaml.\nManaged defaults: $GROK_HOME/managed_config.toml. Locked requirements: $GROK_HOME/requirements.toml (cannot be bypassed by later CLI, environment, overlay, workspace, or user values).\n`codsh --rust inspect` / `inspect --json` shows effective values, origins, folder trust, and whether project assets are active. Invalid config.toml is left unchanged and reports its path. Unknown security fields and invalid policies are diagnosed with valid values, sources, and limits.\nWorkspace trust: untrusted folders prompt before applying project config, Hooks, plugins, or instructions; `--trust` / `--trust-folder [path]` saves a grant, `--revoke-trust` withdraws it. A read-only $GROK_HOME reports save failure without pretending the grant is durable. Untrusted Hooks/plugins/project capabilities do not execute.\nFirst-run missing credentials stay local: no grok.com login, no default official telemetry, no import of ~/.dsh or ~/.grok credentials.\nFile read/edit/write run through dsh tools; y allows once, n rejects with no write. Trust prompt: y=allow, n=deny.\nCtrl+Q/Ctrl+D: quit. Ctrl+C: clear a draft; empty draft cancels a running turn via dsh, or quits when idle before any turn.\nEsc never cancels a turn or a pending approval; it dismisses selection and reminds you to use Ctrl+C.\nEnter: submit prompt. /minimal and /fullscreen switch render mode in process without restarting dsh; --minimal/--fullscreen and GROK_SCREEN_MODE are session-scoped and do not rewrite [ui] screen_mode. /model (/m) and /effort select advertised catalog options; unsupported backends/efforts are refused, never treated as equivalent or silently swapped. /context shows dsh occupancy, advertised model limits, and heuristic buckets without fabricating zeros. /compact [instruction] runs dsh compaction (not a second history); optional instructions go only to the summarizer request (purpose=compaction). Automatic compaction uses session.auto_compact_threshold_percent / GROK_AUTO_COMPACT_THRESHOLD_PERCENT mapped to dsh thresholdRatio. GROK_COMPACTION_WALL_CLOCK_SECS bounds the operation; 0 disables that budget. Runtime changes apply to the next turn and persist under $GROK_HOME/model-selection.toml. --continue resumes the last session in this directory; --resume <id> loads that dsh session. --fork-session with --resume/--continue copies conversation into a new session id. /rewind and /undo fork conversation-only history through dsh; files are not restored. /fork copies the current history into a new session. Idle empty Esc Esc opens rewind. A second client is refused while this process holds write ownership. Interrupted tools show [interrupted]/unknown and are not replayed.\nOptions: --help, --version, --continue, --resume <id>, --fork-session, --session-id <id>, --minimal, --fullscreen, --model <id>, --effort/--reasoning-effort <level>, --trust, --trust-folder [path], --revoke-trust, inspect. --restore-code is refused."
             );
             return Ok(());
         }
@@ -1374,6 +1585,9 @@ fn run() -> io::Result<()> {
     let mut owner: Option<SessionOwner> = None;
     let mut resumed = false;
     let mut previous_session: Option<String> = None;
+    let mut overlay = Overlay::None;
+    let mut last_esc: Option<Instant> = None;
+    let mut prefs = session_fork::load_prefs(&home);
     let mut committed = 0usize;
     let mut history = String::new();
     let mut composer_stash = String::new();
@@ -1408,7 +1622,14 @@ fn run() -> io::Result<()> {
     };
     let mut selection_ready = config::is_test_execution_seam();
     let mut client = if can_execute {
-        match connect(&mode, None, &extra_env, patch.as_ref()) {
+        match connect(
+            &mode,
+            None,
+            &extra_env,
+            patch.as_ref(),
+            launch.fork_session,
+            launch.child_id.as_deref(),
+        ) {
             Ok((connection, restored)) => {
                 resumed = connection.resumed;
                 previous_session = connection.client.session_id.clone();
@@ -1432,6 +1653,12 @@ fn run() -> io::Result<()> {
     } else {
         None
     };
+    if launch.fork_session
+        && let Some(active) = client.as_mut()
+        && let Err(error) = apply_fork_model(active, &prefs)
+    {
+        last_error = error;
+    }
     while !stopping.load(Ordering::Relaxed) {
         let was_compacting = compacting;
         inspect_auto_compact = false;
@@ -1497,6 +1724,11 @@ fn run() -> io::Result<()> {
         }
         let awaiting = turns.last().is_some_and(|turn| turn.permission.is_some());
         let cancelling = turns.last().is_some_and(|turn| turn.cancelling);
+        let shown_hint = if matches!(overlay, Overlay::None) {
+            hint.clone()
+        } else {
+            overlay_hint(&overlay, &prefs)
+        };
         let routing = live_routing(client.as_ref(), &effective);
         if screen == ScreenMode::Minimal {
             commit_completed_turns(&mut terminal, &turns, &mut committed, &mut history, None)?;
@@ -1507,7 +1739,7 @@ fn run() -> io::Result<()> {
             last_error: &last_error,
             awaiting_approval: awaiting,
             cancelling,
-            hint: &hint,
+            hint: &shown_hint,
             resumed,
             routing: routing.as_ref(),
             meter: &meter,
@@ -1629,6 +1861,8 @@ fn run() -> io::Result<()> {
                             previous_session.as_deref(),
                             &extra_env,
                             patch.as_ref(),
+                            false,
+                            None,
                         ) {
                             Ok((connection, restored)) => {
                                 resumed = connection.resumed;
@@ -1661,6 +1895,124 @@ fn run() -> io::Result<()> {
                     continue;
                 }
 
+                if key.modifiers.is_empty() {
+                    match &overlay {
+                        Overlay::RewindPick { points, cursor } => match key.code {
+                            KeyCode::Up | KeyCode::Char('k') => {
+                                if *cursor > 0
+                                    && let Overlay::RewindPick { cursor, .. } = &mut overlay
+                                {
+                                    *cursor -= 1;
+                                }
+                                continue;
+                            }
+                            KeyCode::Down | KeyCode::Char('j') => {
+                                if *cursor + 1 < points.len()
+                                    && let Overlay::RewindPick { cursor, .. } = &mut overlay
+                                {
+                                    *cursor += 1;
+                                }
+                                continue;
+                            }
+                            KeyCode::Enter => {
+                                let Some(point) = points.get(*cursor).cloned() else {
+                                    overlay = Overlay::None;
+                                    continue;
+                                };
+                                if prefs.confirm_before_rewind {
+                                    overlay = Overlay::RewindConfirm { point };
+                                } else if let Some(active) = client.as_mut() {
+                                    match commit_rewind(
+                                        active,
+                                        &mut owner,
+                                        &mut turns,
+                                        &effective.dsh_home,
+                                        &effective.cwd,
+                                        &point,
+                                        &mut resumed,
+                                        &mut previous_session,
+                                    ) {
+                                        Ok(message) => {
+                                            overlay = Overlay::None;
+                                            hint = message;
+                                            last_error.clear();
+                                            draft.set_text("");
+                                        }
+                                        Err(error) => last_error = error,
+                                    }
+                                }
+                                continue;
+                            }
+                            KeyCode::Esc => {
+                                overlay = Overlay::None;
+                                hint.clear();
+                                last_esc = None;
+                                continue;
+                            }
+                            _ => {}
+                        },
+                        Overlay::RewindConfirm { point } => match key.code {
+                            KeyCode::Char('y') | KeyCode::Enter => {
+                                let point = point.clone();
+                                if let Some(active) = client.as_mut() {
+                                    match commit_rewind(
+                                        active,
+                                        &mut owner,
+                                        &mut turns,
+                                        &effective.dsh_home,
+                                        &effective.cwd,
+                                        &point,
+                                        &mut resumed,
+                                        &mut previous_session,
+                                    ) {
+                                        Ok(message) => {
+                                            overlay = Overlay::None;
+                                            hint = message;
+                                            last_error.clear();
+                                            draft.set_text("");
+                                        }
+                                        Err(error) => last_error = error,
+                                    }
+                                }
+                                continue;
+                            }
+                            KeyCode::Char('a') => {
+                                prefs.confirm_before_rewind = false;
+                                let _ = session_fork::save_confirm_before_rewind(&home, false);
+                                let point = point.clone();
+                                if let Some(active) = client.as_mut() {
+                                    match commit_rewind(
+                                        active,
+                                        &mut owner,
+                                        &mut turns,
+                                        &effective.dsh_home,
+                                        &effective.cwd,
+                                        &point,
+                                        &mut resumed,
+                                        &mut previous_session,
+                                    ) {
+                                        Ok(message) => {
+                                            overlay = Overlay::None;
+                                            hint = message;
+                                            last_error.clear();
+                                            draft.set_text("");
+                                        }
+                                        Err(error) => last_error = error,
+                                    }
+                                }
+                                continue;
+                            }
+                            KeyCode::Char('n') | KeyCode::Esc => {
+                                overlay = Overlay::None;
+                                hint = "nothing rewound".into();
+                                continue;
+                            }
+                            _ => {}
+                        },
+                        Overlay::None => {}
+                    }
+                }
+
                 if let (Some(turn), Some(active)) = (turns.last_mut(), client.as_mut())
                     && let Some(permission) = turn.permission.clone()
                     && key.modifiers.is_empty()
@@ -1687,6 +2039,30 @@ fn run() -> io::Result<()> {
                         selected = None;
                         if inflight && !turns.last().is_some_and(|turn| turn.cancelling) {
                             hint = "Press Ctrl+C to cancel the turn".into();
+                            last_esc = None;
+                        } else if !inflight
+                            && draft.is_empty()
+                            && !turns.is_empty()
+                            && last_esc.is_some_and(|at| at.elapsed() <= Duration::from_millis(800))
+                        {
+                            last_esc = None;
+                            if let Some(session_id) =
+                                client.as_ref().and_then(|active| active.session_id.clone())
+                            {
+                                match session_fork::list_points(&effective.dsh_home, &session_id) {
+                                    Ok(points) if points.is_empty() => {
+                                        hint = "no turns to rewind yet".into();
+                                    }
+                                    Ok(mut points) => {
+                                        points.reverse();
+                                        overlay = Overlay::RewindPick { points, cursor: 0 };
+                                        hint.clear();
+                                    }
+                                    Err(error) => last_error = error.message,
+                                }
+                            }
+                        } else {
+                            last_esc = Some(Instant::now());
                         }
                     }
                     KeyCode::Tab => selected = Some((selected.unwrap_or(2) + 1) % 3),
@@ -1753,7 +2129,123 @@ fn run() -> io::Result<()> {
                                 continue;
                             }
                             composer_stash.clear();
-                            let slash = models::parse_slash(text.trim());
+                            let trimmed = text.trim();
+                            if trimmed.starts_with("/rewind")
+                                || trimmed.starts_with("/undo")
+                                || trimmed.starts_with("/fork")
+                            {
+                                if inflight {
+                                    last_error =
+                                        "a turn is running — interrupt it before rewinding".into();
+                                    continue;
+                                }
+                                if trimmed.contains("--worktree") {
+                                    last_error = session_fork::worktree_error();
+                                    draft.set_text("");
+                                    continue;
+                                }
+                                if client.is_none() {
+                                    last_error = "not connected".into();
+                                    continue;
+                                }
+                                if trimmed.starts_with("/fork") {
+                                    let rest = trimmed
+                                        .trim_start_matches("/fork")
+                                        .replace("--no-worktree", "");
+                                    let directive = rest.trim();
+                                    if let Some(active) = client.as_mut() {
+                                        match commit_fork(
+                                            active,
+                                            &mut owner,
+                                            &mut turns,
+                                            &mut inflight,
+                                            &effective.dsh_home,
+                                            &effective.cwd,
+                                            &prefs,
+                                            if directive.is_empty() {
+                                                None
+                                            } else {
+                                                Some(directive)
+                                            },
+                                            &mut resumed,
+                                            &mut previous_session,
+                                        ) {
+                                            Ok(message) => {
+                                                hint = message;
+                                                last_error.clear();
+                                                draft.set_text("");
+                                            }
+                                            Err(error) => last_error = error,
+                                        }
+                                    }
+                                    continue;
+                                }
+                                let rest = trimmed
+                                    .trim_start_matches("/rewind")
+                                    .trim_start_matches("/undo")
+                                    .trim();
+                                let Some(session_id) =
+                                    client.as_ref().and_then(|active| active.session_id.clone())
+                                else {
+                                    last_error = "ACP session is not ready".into();
+                                    continue;
+                                };
+                                match session_fork::list_points(&effective.dsh_home, &session_id)
+                                {
+                                    Ok(points) if points.is_empty() => {
+                                        hint = "no turns to rewind yet".into();
+                                        draft.set_text("");
+                                    }
+                                    Ok(points) => {
+                                        if rest.is_empty() {
+                                            let mut newest = points;
+                                            newest.reverse();
+                                            overlay = Overlay::RewindPick {
+                                                points: newest,
+                                                cursor: 0,
+                                            };
+                                            draft.set_text("");
+                                            hint.clear();
+                                        } else if let Ok(turn) = rest.parse::<u32>() {
+                                            if let Some(point) = points
+                                                .into_iter()
+                                                .find(|point| point.turn == turn)
+                                            {
+                                                if prefs.confirm_before_rewind {
+                                                    overlay = Overlay::RewindConfirm { point };
+                                                    draft.set_text("");
+                                                } else if let Some(active) = client.as_mut() {
+                                                    match commit_rewind(
+                                                        active,
+                                                        &mut owner,
+                                                        &mut turns,
+                                                        &effective.dsh_home,
+                                                        &effective.cwd,
+                                                        &point,
+                                                        &mut resumed,
+                                                        &mut previous_session,
+                                                    ) {
+                                                        Ok(message) => {
+                                                            hint = message;
+                                                            last_error.clear();
+                                                            draft.set_text("");
+                                                        }
+                                                        Err(error) => last_error = error,
+                                                    }
+                                                }
+                                            } else {
+                                                last_error = "turn must be between 1 and the latest rewind point"
+                                                    .into();
+                                            }
+                                        } else {
+                                            last_error = "turn must be a positive integer".into();
+                                        }
+                                    }
+                                    Err(error) => last_error = error.message,
+                                }
+                                continue;
+                            }
+                            let slash = models::parse_slash(trimmed);
                             if inflight && slash.is_none() {
                                 continue;
                             }
@@ -1786,6 +2278,8 @@ fn run() -> io::Result<()> {
                                     previous_session.as_deref(),
                                     &extra_env,
                                     patch.as_ref(),
+                                    false,
+                                    None,
                                 ) {
                                     Ok((connection, restored)) => {
                                         resumed = connection.resumed;
@@ -2093,5 +2587,21 @@ mod tests {
             error.to_string().contains("unsupported preview arguments"),
             "{error}"
         );
+    }
+
+    #[test]
+    fn parse_fork_session_and_restore_code() {
+        let resume = parse_launch(&args(&[
+            "--resume",
+            "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+            "--fork-session",
+        ]))
+        .expect("launch");
+        assert!(resume.fork_session);
+        assert!(matches!(resume.mode, LaunchMode::Resume(_)));
+        let err = parse_launch(&args(&["--restore-code"])).expect_err("restore");
+        assert!(err.to_string().contains("does not restore files"));
+        let needs_resume = parse_launch(&args(&["--fork-session"])).expect_err("fork");
+        assert!(needs_resume.to_string().contains("--resume"));
     }
 }

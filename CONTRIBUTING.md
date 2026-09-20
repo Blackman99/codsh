@@ -331,23 +331,26 @@ tool results display as cancelled. After cancel, a new prompt still works.
 `scripts/rust-file-pty-test.py`, `scripts/rust-cancel-pty-test.py`,
 `scripts/rust-resume-pty-test.py`, `scripts/rust-config-pty-test.py`,
 `scripts/rust-model-pty-test.py`, `scripts/rust-compact-pty-test.py`,
-`scripts/rust-trust-pty-test.py`, and `scripts/rust-screen-pty-test.py`
-against the packed native candidate. `/context` and `/compact` are
-dsh-backed: occupancy and advertised model limits must not be fabricated,
-manual/automatic compaction uses the dsh session log, failed compact must
-keep the ACP session and original records, cancel must print
-`Compaction cancelled.` and accept a following prompt, and resume must
-hide replaced history while answering a new prompt. The config test covers `inspect` /
+`scripts/rust-trust-pty-test.py`, `scripts/rust-screen-pty-test.py`,
+and `scripts/rust-fork-pty-test.py` against the packed native candidate.
+`/context` and `/compact` are dsh-backed: occupancy and advertised model limits
+must not be fabricated, manual/automatic compaction uses the dsh session log,
+failed compact must keep the ACP session and original records, cancel must print
+`Compaction cancelled.` and accept a following prompt, and resume must hide
+replaced history while answering a new prompt. The config test covers `inspect` /
 `inspect --json`, CLI/env/overlay/file precedence, invalid TOML preservation,
 first-run missing credentials, generated dsh `settings.yaml` mapping, restart
 after a config change, unmanaged settings conflict, and refusal to import
-legacy `~/.dsh` / `~/.grok` credentials. Public
-ACP framing, including file-tool permission, `session/cancel`, `session/list`,
-and `session/resume`, is covered by `scripts/rust-acp-protocol.spec.mjs`.
+legacy `~/.dsh` / `~/.grok` credentials. Public ACP framing, including
+file-tool permission, `session/cancel`, `session/list`, `session/resume`, and
+dsh-backed conversation fork/rewind, is covered by
+`scripts/rust-acp-protocol.spec.mjs`.
 `--continue` / `--resume <id>` restore the same dsh session through ACP
-`session/resume` plus a read-only persistence projection; a second client is
-refused when it cannot take write ownership. Interrupted tools are displayed
-as unknown and are not replayed. `session/load` remains unsupported by dsh ACP.
+`session/resume` plus a read-only persistence projection; `--fork-session`,
+`/fork`, and `/rewind` seed a new append-only child without restoring files.
+A second client is refused when it cannot take write ownership. Interrupted
+tools are displayed as unknown and are not replayed. `session/load` remains
+unsupported by dsh ACP. `--restore-code` is refused.
 Fullscreen uses the alternate-screen lifecycle; minimal emits committed turns
 into native history through the official inline renderer. In-place `/minimal`
 and `/fullscreen` keep the dsh session, draft, running turn, and pending
