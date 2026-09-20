@@ -3,6 +3,7 @@ import { readFileSync, writeFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { acceptance } from './reference-scenarios.mjs'
+import { auditedControl, auditAcceptance, configAudit } from './reference-config-audit.mjs'
 
 const groups = entries => Object.fromEntries(Object.entries(entries).flatMap(([ticket, names]) => names.split(' ').map(name => [name, Number(ticket)])))
 const unique = values => [...new Set(values)]
@@ -113,6 +114,8 @@ const configOwners = {
   'workflows.catalog': 184, 'workflows.budget': 182,
 }
 function configOwner(name) {
+  const reviewed = auditedControl({ category: 'setting', name, key: `setting:${name}` })
+  if (reviewed) return reviewed.tickets[0]
   const compatible = name.match(/^compat\.[^.]+\.(hooks|mcps)(?:\.|$)/u)
   if (compatible) return compatible[1] === 'hooks' ? 164 : 167
   if (name.startsWith('features.')) return featureOwners[name.slice(9)] ?? 139
@@ -375,7 +378,7 @@ function environmentOwner(item, contexts) {
     .flatMap(o => o.excerpt.split('\n').filter(line => [...line.matchAll(/\bAlso\s+`?([A-Z][A-Z0-9_]+)/gu)].some(match => match[1] === item.name))
       .map(line => line.match(/^\|\s*`([a-z_][a-z0-9_.<>-]*)`\s*\|/u)?.[1]).filter(Boolean))]
     .map(configOwner))
-  if (linked.length === 1) return linked[0]
+  if (linked.length) return linked
   if (['GROK_GOAL', 'GROK_GOAL_CLASSIFIER', 'GROK_GOAL_PLANNER', 'GROK_GOAL_SUMMARY'].includes(item.name)) return 180
   const compatible = item.name.match(/^GROK_(CLAUDE|CURSOR|CODEX)_(AGENTS|RULES|SKILLS|HOOKS|MCPS)_ENABLED$/u)
   if (compatible) return configOwner(`compat.${compatible[1].toLowerCase()}.${compatible[2].toLowerCase()}`)
@@ -453,6 +456,20 @@ export function mapOwners(item, contexts = new Map()) {
   if (campaignControl(item, contexts)) owners = [139, 141]
   if (item.category === 'environment' && ['GROK_CONFIG', 'GROK_CONFIG_PATH'].includes(item.name)) owners = [139, 141, 142, 144]
   if (owners.includes(177)) owners.push(178)
+  const reviewed = auditedControl(item)
+  if (reviewed) {
+    const contextual = item.category === 'documented-setting' ? owners.filter(owner => ![139, configOwner(field)].includes(owner)) : []
+    owners = [...reviewed.tickets, ...contextual]
+  }
+  if (item.category === 'documented-setting') {
+    const canonical = { category: 'setting', name: field, key: `setting:${field}`, observations: [] }
+    const functional = mapOwners(canonical, contexts).filter(owner => owner !== 139)
+    owners = [...functional, ...owners]
+  }
+  if (item.category === 'environment') {
+    const fields = unique([...(contexts.get(`environment:${item.name}`) ?? []), ...(configAudit.aliases[item.name] ?? [])])
+    for (const name of fields) owners.push(...mapOwners({ category: 'setting', name, key: `setting:${name}`, observations: [] }, contexts))
+  }
   return unique(owners)
 }
 
@@ -482,7 +499,10 @@ export function mapAcceptance(item, owners, contexts = new Map()) {
   const headings = item.observations.flatMap(o => contexts.get(o.locator) ?? [])
   const text = item.observations.map(o => o.excerpt).join('\n')
   const memory = memorySubcontracts(item, contexts)
-  return owners.flatMap(ticket => {
+  const reviewed = auditedControl(item)
+  const tests = owners.flatMap(ticket => {
+    const planned = reviewed && auditAcceptance(reviewed, ticket)
+    if (planned?.length) return planned
     if (ticket === 155 && ['DISPLAY', 'WAYLAND_DISPLAY', 'SSH_CONNECTION', 'SSH_TTY', 'SSH_CLIENT'].includes(item.name)) return 'PARITY-155-clipboard-routing'
     if (ticket === 150 && ['EDITOR', 'VISUAL'].includes(item.name)) return 'PARITY-150-external-editor'
     if (ticket === 200 && item.name === 'GROK_VERSION') return 'PARITY-200-version-selection'
@@ -552,6 +572,14 @@ export function mapAcceptance(item, owners, contexts = new Map()) {
       || guide === '14' && item.category === 'guide-item' && /`-{1,2}(?:prompt-file|prompt-json|system-prompt(?:-override)?|append-system-prompt|rules|single|verbatim|p)(?:[ `])/u.test(item.name))) return 'PARITY-145-input'
     return `PARITY-${ticket}`
   })
+  const fields = item.category === 'documented-setting' ? [field] : item.category === 'environment'
+    ? unique([...(contexts.get(`environment:${item.name}`) ?? []), ...(configAudit.aliases[item.name] ?? [])]) : []
+  for (const name of fields) {
+    const canonical = { category: 'setting', name, key: `setting:${name}`, observations: [] }
+    const linked = mapOwners(canonical, contexts).filter(owner => owners.includes(owner) && owner !== 139)
+    tests.push(...mapAcceptance(canonical, linked, contexts))
+  }
+  return unique(tests)
 }
 
 export function buildRegister(discovery, tickets, evidence) {
@@ -562,9 +590,12 @@ export function buildRegister(discovery, tickets, evidence) {
     const sourceOnly = !item.observations.some(o => o.scope.startsWith('binary'))
     const provisional = ['announcements', 'cd', 'gboom'].includes(commandName(item))
     const dock = tests.includes('PARITY-152-dock')
+    const audit = auditedControl(item)
+    const discoveryOnly = audit && ['build-test', 'source-internal', 'not-control'].includes(audit.classification)
     return { key: item.key, stories: unique(owners.flatMap(n => tickets.find(ticket => ticket.number === n).stories)),
       tickets: owners, acceptance: tests, status: 'pending-parity', evidence: item.observations.map(o => o.locator),
-      blocker: dock ? 'Dock availability and enabled-mode behavior in frozen 1.0.34 remain unverified; source/config declarations are not runtime verification. Exercise pane interactions and state effects before claiming parity.'
+      blocker: discoveryOnly ? `Discovery-only ${audit.classification} (${audit.id}): ${audit.rationale} No frozen public configuration parity is established; source 1.0.35 is not a proven 1.0.34 match. Follow the scoped DISCOVERY scenario before any promotion.`
+        : dock ? 'Dock availability and enabled-mode behavior in frozen 1.0.34 remain unverified; source/config declarations are not runtime verification. Exercise pane interactions and state effects before claiming parity.'
         : provisional ? 'Frozen 1.0.34 availability and complete interactive behavior remain unverified; source export 1.0.35 is not a proven binary match. Source declarations and idle/no-session probes do not verify banner, new-agent cwd or active-session overlay effects.'
           : sourceOnly ? 'Source export is 1.0.35, not a proven 1.0.34 match; verify availability and semantics against the frozen binary before candidate implementation.'
             : 'Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence.' }

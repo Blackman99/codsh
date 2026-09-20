@@ -20,6 +20,13 @@ unproven. The preceding inspected export declares 1.0.32, not 1.0.34.
   Acceptance scenarios are parameterized by the exact discovery row and its
   quoted contract, not merely by a feature-family label. They are **planned**,
   not executable candidate tests or passing results.
+- `config-audit.json`: comprehensive review of all 254 generic-only config/env
+  rows at `2f9607357463f4f4894d61f4e352ff7eb900a627` (249 equivalent identities),
+  plus related canonical fields. Its 61 contextual groups record exact baseline
+  keys, rationale, source/guide locators, pinned consumer quotations, functional
+  owners and planned effect-based scenarios. Build/test/internal/false-positive
+  declarations have scoped `DISCOVERY-133-*` research scenarios, **not** generic
+  configuration parity. No discovery identity or original quotation is removed.
 - `small-command-observations.json`: two supplemental offline PTYs from the same
   frozen binary. They retain byte-exact announcement usage, GBOOM graphics refusal,
   dashboard/location-picker and minimal-mode outcomes. They are separate from the
@@ -114,6 +121,38 @@ an independent oracle for correct ownership: regression expectations are grounde
 in guide/source contracts. Merged documented settings retain their functional
 namespace owners alongside contextual enterprise requirements; generic appearance
 or configuration defaults cannot displace functional section owners.
+
+### Comprehensive configuration fallback audit
+
+The mapper reads the audit's reviewed identity groups and preserves guide-specific
+additional owners. The checker independently requires canonical owners/scenarios
+in equivalent documented fields and explicit environment aliases (including
+qualified/assignment forms). It rejects new unreviewed generic-only controls and
+missing, duplicate or unresolved audit coverage. Re-extraction validates the new
+consumer quotations against source bytes without modifying original evidence.
+Only five rows still have #139 alone: three representations of `GROK_HOME`,
+`GROK_SETTINGS_CACHE`, and `features.non_git_warning`. They have specific home-IO,
+cache-IO/fetch and blocking-onboarding scenarios, not `PARITY-139` display tests.
+
+The audit corrects session grouping/registry, relay/socket/storage, installer and
+registry routing, the complete numeric goal family and goal model inheritance,
+requirements fail-closed, trusted envrc evaluation, clipboard native-read/OSC52
+routing, idle/terminal notifications, bounded consent-aware exit drain, announcement
+replacement/refresh, fork/new worktree preferences and extra rule directories.
+Further groups cover runtime recovery, TLS, search backends, child environment,
+foreign sessions, diagnostic/remote routing and other contextual leftovers.
+All effects remain **planned**, with source-only availability explicitly unverified.
+
+Internal declarations are not discarded or declared working config: build-time
+Cargo/asset inputs, benchmark/failure hooks, injected child values, library resource
+knobs and private hub controls retain scoped discovery. `CODEX_CONFIG` is a guide
+analogy, `GROK_WRAP_IMG/NONE` are protocol magic strings, and the source chat-mode
+gate is hard-off; their names do not establish environment controls. Conversely,
+frozen `paths.extra_skill_dirs` remains in scope with its documented no-op (import
+records paths, skill discovery does not consult them), not invented discovery.
+The two enterprise model-guide examples now retain their real update/telemetry
+owners alongside model/policy/auth context. No application implementation or
+new raw runtime claim follows from these corrections.
 
 Important reconciliations:
 

@@ -3,7 +3,8 @@ import { execFileSync } from 'node:child_process'
 import { readFileSync, readdirSync, writeFileSync } from 'node:fs'
 import { resolve, join } from 'node:path'
 import { pathToFileURL } from 'node:url'
-import { buildRegister, guideLines } from './reference-mapping.mjs'
+import { buildRegister, guideContexts, guideLines } from './reference-mapping.mjs'
+import { checkConfigAudit, checkConfigAuditSources, checkConfigConsistency } from './reference-config-audit.mjs'
 
 export const SOURCE_COMMIT = 'a28ee2b2063426e8816e380ccea528b9de95e5da'
 export const BINARY_SHA256 = '9cd26b579840f0f5c9148a8059ad651904c08b41b7f2ef0b4ec04b9ba898844e'
@@ -432,6 +433,7 @@ export function checkInventory(register, discovery, evidence = loadEvidence()) {
     if (!test.given || !test.when || !test.then || !test.failure || test.status !== 'planned') errors.push(`incomplete acceptance ${test.id}`)
     if (!tickets.has(test.ticket)) errors.push(`acceptance ticket ${test.id}`)
   }
+  errors.push(...checkConfigAudit(discovery, source), ...checkConfigConsistency(register, discovery, guideContexts(evidence)))
   if (register.discoverySha256 !== sha256(JSON.stringify(discovery))) errors.push('discovery digest mismatch')
   try {
     const mapped = buildRegister(discovery, register.tickets, evidence)
@@ -454,6 +456,8 @@ if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1]
     const capture = JSON.parse(readFileSync(capturePath, 'utf8'))
     if (modelPath) capture.modelRequests = JSON.parse(readFileSync(modelPath, 'utf8')).requests
     const inputs = sourceInputs(sourceRoot)
+    const auditErrors = checkConfigAuditSources(inputs)
+    if (auditErrors.length) throw new Error(auditErrors.join('\n'))
     const discovery = { schemaVersion: 1, sourceCommit: SOURCE_COMMIT,
       reference: capture.reference, binarySha256: capture.binarySha256,
       inputs: inputs.map(({ path, text }) => ({ path, sha256: sha256(text) })),

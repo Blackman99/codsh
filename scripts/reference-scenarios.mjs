@@ -1,3 +1,5 @@
+import { auditScenarios } from './reference-config-audit.mjs'
+
 const scenarios={
   136:['a temporary repository with a known file and an approval boundary','request read then denied and approved edit','file bytes and diff agree with tool result; denial changes nothing','reject stale approval and malformed patch without partial writes'],
   137:['a delayed local model response and retained draft/queue','clear draft, cancel turn, then resume input','draft clearing and actual cancellation are distinct; unrelated queued input survives','interrupt before first activity and during a tool; teardown leaves no running child'],
@@ -333,7 +335,7 @@ const contextual = [
     then: 'only the bare command opens the session overlay; it remains hidden in completion; arguments pass through unchanged, dismissal restores session/draft/queue/focus without a spurious turn',
     failure: 'no-session, unsupported mode/graphics, invalid input and cancellation are explicit and leave an operable prompt; cleanup restores all terminal modes without orphan activity' },
 ]
-export const acceptance = contextual.map(scenario => ({ ...scenario, status: 'planned', boundary: 'installed-product/public-protocol and controlled effects; source declarations are not measured frozen-binary parity' }))
+export const acceptance = [...contextual, ...auditScenarios].map(scenario => ({ ...scenario, status: 'planned', boundary: scenario.id.startsWith('DISCOVERY-') ? 'source/build/public-reachability research only; not functional configuration or candidate parity' : 'installed-product/public-protocol and controlled effects; source declarations are not measured frozen-binary parity' }))
 for(const [number,values] of Object.entries(scenarios)){
  const [given,when,then,failure]=values
  acceptance.push({id:`PARITY-${number}`,ticket:Number(number),status:'planned',given,when,then,failure,boundary:'installed-product/public-protocol; exact discovery row is the parameter; reference observation required before candidate comparison'})

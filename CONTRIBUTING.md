@@ -148,6 +148,18 @@ aliases and background model/admission/login/goal/compaction controls need obser
 functional effects. Memory prose must retain capture, queue/lease diagnostics and
 telemetry privacy only where quoted; merged source/binary paragraph identities can
 carry different contracts without proving either runtime behavior.
+`config-audit.json` records the full generic-fallback review, not a hand-picked
+list of environment-name fixes. New generic-only config/env rows must receive a
+reviewed classification and effect-specific scenario; the checker rejects an
+unreviewed `PARITY-139` fallback. Source-only build/test/internal declarations use
+scoped `DISCOVERY-133-*` research and explicit blockers, never effective-config
+parity. Preserve frozen public contracts even when the newer source disagrees.
+Canonical/documented fields and explicit environment aliases must include the
+same core owners/scenarios, while retaining valid context-specific additions.
+`reference-config-audit.spec.mjs` tests these invariants on independent fixtures
+and samples every classified family; source extraction also checks audit consumer
+quotations byte-for-byte against the pinned checkout. Do not regenerate original
+captures or source provenance for an ownership-only correction.
 Alias ownership follows explicit “Also ENV”
 config-reference relationships before lexical namespaces; incidental mentions are
 not aliases. Local hook identity variables must not inherit remote-workspace
