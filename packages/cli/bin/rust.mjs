@@ -9,18 +9,21 @@ function canonicalPath(path) {
   const absolute = resolve(path)
   try {
     // Native realpath resolves filesystem case aliases; the JS fallback preserves spelling.
-    return realpathSync.native(absolute)
+    return { path: realpathSync.native(absolute), missing: false }
   } catch (error) {
     if (error.code !== 'ENOENT') throw error
     const parent = dirname(absolute)
     if (parent === absolute) throw error
-    return join(canonicalPath(parent), basename(absolute))
+    return { path: join(canonicalPath(parent).path, basename(absolute)), missing: true }
   }
 }
 
 function overlaps(a, b) {
   const within = (child, parent) => child === parent || child.startsWith(parent.endsWith(sep) ? parent : `${parent}${sep}`)
-  return within(a, b) || within(b, a)
+  const intersects = (left, right) => within(left, right) || within(right, left)
+  if (intersects(a.path, b.path)) return true
+  // Missing names cannot be resolved without writes; refuse case-only ambiguity.
+  return (a.missing || b.missing) && intersects(a.path.toLowerCase(), b.path.toLowerCase())
 }
 
 function privateDirectory(path) {

@@ -233,12 +233,17 @@ fail explicitly. The regular legacy `build` does not add native artifacts.
 the product in a temporary prefix, uses synthetic HOME/DSH_HOME/workspace canaries,
 operates the actual Rust UI through a PTY, and checks termios, screen/paste/cursor
 restoration after normal exit, cancellation, signals and malformed Profile startup.
-It also requires a case-insensitive test volume and checks ten installed-product
-PTY refusals for `DSH_HOME`/`GROK_HOME` aliases: root, dsh directory, nested Profile,
-reverse spelling, and a missing child under an existing alias. Each must fail
-before terminal entry or any directory/file mutation. The launcher uses native
-filesystem canonicalization (including existing ancestors of missing paths), not
-case-folding all paths or Node's case-preserving JavaScript realpath fallback.
+It also requires a case-insensitive test volume and checks twenty installed-product
+PTY refusals for `DSH_HOME`/`GROK_HOME` aliases: existing root/dsh/Profile, reverse
+spelling, a missing child, and genuinely absent root/dsh/Profile/mixed-case paths.
+Each must fail before terminal entry or any directory/file mutation. Four separate
+missing-Home controls (including a similar prefix) must still launch without
+creating the configured legacy Home. The launcher uses native canonicalization
+for existing paths. When either path has missing components, it conservatively
+refuses a case-folded potential overlap on every platform. It neither assumes
+case sensitivity for unresolvable suffixes nor creates files to probe the volume.
+Existing distinct paths keep their native identities. Node's JavaScript realpath
+fallback is insufficient because it preserves case spelling on the verified host.
 The network observer interposes socket/connect/connectx/sendto/sendmsg/DNS calls
 without replacing their results; a compiled loopback UDP positive control proves
 socket and outbound-send observation.

@@ -75,14 +75,24 @@ def main():
                 ('nested', ['.CODSH-RUST', 'DSH', 'profiles', 'rust'], ['.CODSH-RUST', 'DSH', 'profiles', 'rust']),
                 ('reverse', ['.codsh-rust', 'dsh'], ['.CODSH-RUST', 'DSH']),
                 ('missing-child', ['.CODSH-RUST'], ['.CODSH-RUST', 'not-created']),
+                ('absent-root', [], ['.CODSH-RUST']),
+                ('absent-dsh', [], ['.CODSH-RUST', 'DSH']),
+                ('absent-profile', [], ['.CODSH-RUST', 'DSH', 'profiles', 'rust']),
+                ('absent-mixed-case', [], ['.CoDsH-RuSt', 'DsH']),
+                ('absent-same-spelling', [], ['.codsh-rust', 'dsh']),
             ]:
                 alias_home = work / f'alias-{variable}-{kind}'
                 actual = alias_home.joinpath(*actual_parts)
                 actual.mkdir(parents=True)
                 (actual / 'canary').write_text('synthetic legacy data must remain unchanged\n')
                 candidate_root = alias_home / '.codsh-rust'
-                assert candidate_root.exists() and os.path.samefile(candidate_root, alias_home / actual_parts[0]), 'case-alias regressions require a case-insensitive filesystem'
                 configured = alias_home.joinpath(*configured_parts)
+                if actual_parts:
+                    assert candidate_root.exists() and os.path.samefile(candidate_root, alias_home / actual_parts[0]), 'case-alias regressions require a case-insensitive filesystem'
+                else:
+                    assert not candidate_root.exists() and not configured.exists(), 'first-run regression must start without either Home'
+                root_existed = candidate_root.exists()
+                configured_existed = configured.exists()
                 alias_before = snapshot_tree(alias_home)
                 master, slave = pty.openpty()
                 fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack('HHHH', 24, 80, 0, 0))
@@ -112,6 +122,8 @@ def main():
                     assert os.read(slave, 4096) == b'AFTER_ALIAS_REFUSAL\n'
                     alias_after = snapshot_tree(alias_home)
                     result = {'variable': variable, 'case': kind, 'exit': process.returncode,
+                              'candidateExistedBefore': root_existed, 'configuredExistedBefore': configured_existed,
+                              'candidateExistsAfter': candidate_root.exists(), 'configuredExistsAfter': configured.exists(),
                               'refused': b'overlaps a legacy Home' in data,
                               'enteredAlternateScreen': b'\x1b[?1049h' in data,
                               'treeUnchanged': alias_before == alias_after,
@@ -264,6 +276,18 @@ def main():
         exercise('paste', action='paste')
         exercise('menu-quit', action='menu')
         exercise('ctrl-d', action='eof')
+        missing_controls = []
+        for variable in ['DSH_HOME', 'GROK_HOME']:
+            for name in ['.codsh-rust-other', '.separate-legacy']:
+                control_home = work / f'control-{variable}-{name}'
+                control_home.mkdir()
+                old = control_home / name / 'DSH'
+                assert not old.exists() and not (control_home / '.codsh-rust').exists()
+                control_env = {'HOME': str(control_home), 'PATH': env['PATH'], 'TERM': env['TERM'], variable: str(old)}
+                exercise(f'missing-control-{variable}-{name}', child_env=control_env)
+                assert not (control_home / name).exists(), 'separate legacy Home must not be created'
+                assert (control_home / '.codsh-rust/dsh/profiles/rust/package.json').is_file()
+                missing_controls.append({'variable': variable, 'path': name, 'legacyRemainsAbsent': True})
         profile = home / '.codsh-rust/dsh/profiles/rust/package.json'
         assert json.loads(profile.read_text())['dsh']['profile']['bundles'] == []
         profile.write_text('{invalid JSON')
@@ -298,6 +322,7 @@ def main():
         (output / 'result.json').write_text(json.dumps({
             'scenarios': scenarios, 'networkEvents': lines, 'auditControlDetectedSocket': True,
             'caseAliasRefusals': len(alias_results), 'caseAliasEvidence': 'case-alias-results.json',
+            'distinctMissingHomeControls': missing_controls,
             'legacyCanariesUnchanged': True, 'symlinkRefused': True,
             'invalidArtifactRefused': True, 'homeOverlapRefused': True,
             'unsupportedArgumentsRefused': True, 'pipeRefused': True,

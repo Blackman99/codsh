@@ -32,6 +32,8 @@ wayfinder → grill → spec → tickets → landing → done.
 never imports old credentials or sessions, and starts no agent or network
 service. Filesystem-resolved overlap with `DSH_HOME`/`GROK_HOME`, including case
 aliases, is refused before writes; symlinked preview paths remain forbidden.
+If either Home is missing, case-only potential overlap is conservatively refused
+on every platform without creating probe paths.
 Enter explicitly refuses execution until the dsh adapter is available.
 `Ctrl+Q`/`Ctrl+D` quits; `Ctrl+C` clears a draft or quits when empty.
 

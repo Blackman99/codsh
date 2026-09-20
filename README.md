@@ -55,7 +55,8 @@ The preview uses `~/.codsh-rust/dsh` and Profile `rust`, ignores inherited
 `DSH_HOME`, provider credentials and Grok settings, and never migrates legacy
 sessions. A symlinked preview Home/Profile or overlap with `DSH_HOME`/`GROK_HOME`
 is refused before writes, including differently cased aliases on case-insensitive
-filesystems.
+filesystems. If either Home is missing, a case-only potential overlap is refused
+conservatively on every platform, without creating paths to test filesystem rules.
 `Ctrl+Q`/`Ctrl+D` quits; `Ctrl+C` clears a draft, or quits when empty. Unsupported
 arguments fail explicitly. `codsh --rust --help` describes this limited path.
 
