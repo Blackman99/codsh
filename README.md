@@ -59,7 +59,7 @@ errors, cancelled or duplicate approval replies are shown as failures, never as
 success. `Ctrl+C` clears a non-empty draft without cancelling work; an empty
 draft cancels the running turn through dsh `session/cancel`. Esc never cancels a
 turn or a pending approval — it dismisses selection and reminds you to use
-`Ctrl+C`. Cancelled tools cannot run from a late allow or reconnect; unknown
+`Ctrl+C`. Cancelled tools cannot run from a late allow or process teardown; unknown
 external results are shown as cancelled, not success. After cancel, the prompt
 accepts a new turn. Idle empty `Ctrl+C` still quits before any turn exists.
 

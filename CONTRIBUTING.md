@@ -314,7 +314,7 @@ tool-call id, shows the pending operation and dsh-supplied diff, allows once wit
 approvals, and duplicate replies are observable failures. `Ctrl+C` clears a
 draft without cancelling; an empty draft sends ACP `session/cancel` to dsh for a
 running turn, including pending approval and in-flight tools. Esc never cancels.
-Late allow replies and reconnects cannot execute a cancelled action; unknown
+Late allow replies and process teardown cannot execute a cancelled action; unknown
 tool results display as cancelled. After cancel, a new prompt still works.
 `test:rust:pty` now also runs `scripts/rust-turn-pty-test.py`,
 `scripts/rust-file-pty-test.py`, and `scripts/rust-cancel-pty-test.py` against

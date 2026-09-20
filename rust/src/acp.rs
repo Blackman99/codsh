@@ -1570,7 +1570,7 @@ mod tests {
     }
 
     #[test]
-    fn cancel_during_tool_does_not_write_and_reconnect_does_not_replay() {
+    fn cancel_during_tool_does_not_write_after_process_teardown() {
         let target = tempfile::NamedTempFile::new().unwrap();
         let path = target.path().to_string_lossy().into_owned();
         std::fs::write(&path, "original\n").unwrap();

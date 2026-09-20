@@ -713,7 +713,7 @@ def main():
         assert digest_tree(legacy) == before
         assert (home / '.grok/canary').read_text() == 'synthetic official home\n'
         assert not list((home / '.codsh-rust').rglob('*session*'))
-        for arguments, expected in [(['--rust', '--version'], 'codsh-rust'), (['--rust', '--help'], 'Isolated Rust client')]:
+        for arguments, expected in [(['--rust', '--version'], 'codsh-rust'), (['--rust', '--help'], 'quits when idle before any turn')]:
             result = run([NODE, str(launcher), *arguments], env=env, cwd=cwd)
             assert expected in result.stdout
         for arguments in [['--rust', '-p', 'must not execute'], ['--rust']]:
