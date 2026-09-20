@@ -27,10 +27,10 @@ wayfinder → grill → spec → tickets → landing → done.
 
 ## Local Rust candidates
 
-`codsh --rust` selects the isolated offline Rust welcome/input preview. Plain
-`codsh` is unchanged. The candidate uses `~/.codsh-rust/dsh`, Profile `rust`,
-never imports old credentials or sessions, and starts no agent or network
-service. Filesystem-resolved overlap with `DSH_HOME`/`GROK_HOME`, including case
+`codsh --rust` selects the isolated Rust client, which drives real dsh turns
+over ACP/JSON-RPC. Plain `codsh` is unchanged. The candidate uses
+`~/.codsh-rust/dsh`, Profile `rust`, never imports old credentials or sessions,
+and does not start the legacy Bundle or official agent core. Filesystem-resolved overlap with `DSH_HOME`/`GROK_HOME`, including case
 aliases, is refused before writes; symlinked preview paths remain forbidden.
 Device/inode ancestry checks include existing ancestors of missing paths, catching
 macOS firmlinks even when native realpath strings differ. Separate aliased Homes
@@ -49,8 +49,9 @@ lexically. Nonempty `GROK_HOME` stays literal, including tilde and whitespace.
 Any `..` component in `GROK_HOME` is intentionally refused, even for a separate
 existing Home; use a path without parent traversal instead of relying on guessed
 symlink semantics. Default `~/.dsh` and `~/.grok` remain protected with overrides.
-Enter explicitly refuses execution until the dsh adapter is available.
-`Ctrl+Q`/`Ctrl+D` quits; `Ctrl+C` clears a draft or quits when empty.
+Enter submits the draft through dsh when ACP is connected, and otherwise
+reports that execution is unavailable. `Ctrl+Q`/`Ctrl+D` quits; `Ctrl+C`
+clears a draft or quits when empty.
 
 Maintainers run `pnpm run build:rust` before locally packing this package. The
 candidate carries its native binary, dependency/license records, and digest;

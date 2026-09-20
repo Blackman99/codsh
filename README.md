@@ -42,14 +42,17 @@ Common flags:
 - `codsh --resume <id>` — Resume a specific session
 - `codsh update` — Update launcher and profile runtime
 
-## Isolated Rust launch preview (local candidates)
+## Isolated Rust client (local candidates)
 
 `codsh --rust` explicitly selects the parallel Rust client; plain `codsh` keeps
-using the existing version. This first slice is an **offline welcome/input and
-exit preview**, not a working replacement agent. It reuses licensed Grok Rust
-UI components, requires no official account, and starts no agent, model request,
-authentication, update check, telemetry, or feedback upload. Enter reports that
-the dsh adapter is unavailable without sending or saving the draft.
+using the existing version. The Rust UI submits prompts over ACP/JSON-RPC to a
+real `dsh --profile acp` process in the isolated Home. Streamed answers, provider
+thoughts, empty replies, and failures are shown as dsh reports them; a protocol
+mismatch or missing dsh is refused instead of faked as success. It reuses licensed
+Grok Rust UI components, requires no official account, and does not start the
+legacy Bundle, official agent core, update check, telemetry, or feedback upload.
+Enter submits the draft through dsh when connected, or reports that execution is
+unavailable without sending it.
 
 The preview uses `~/.codsh-rust/dsh` and Profile `rust`, ignores inherited
 `DSH_HOME`, provider credentials and Grok settings, and never migrates legacy
@@ -76,7 +79,9 @@ refuses **any `..` component in `GROK_HOME`**, even for a separate existing Home
 rather than guessing symlink traversal. Use a path without parent traversal.
 Default `~/.dsh` and `~/.grok` are protected even when overrides are set.
 `Ctrl+Q`/`Ctrl+D` quits; `Ctrl+C` clears a draft, or quits when empty. Unsupported
-arguments fail explicitly. `codsh --rust --help` describes this limited path.
+arguments fail explicitly. `codsh --rust --help` describes this path. Mock-model
+tests inject the fixture at the dsh provider boundary (`CODSH_ACP_PATCH` /
+`DSH_CODE_CLI_MOCK_TOOL`); the Rust client and dsh remain real products.
 
 Maintainers stage a native candidate with `pnpm run build:rust`, then locally
 pack/install `packages/cli`; the npm entry includes the prebuilt native artifact

@@ -23,24 +23,30 @@ pub fn render(frame: &mut Frame, draft: &TextArea, notice: &str, selected: Optio
     let [header, content] =
         Layout::vertical([Constraint::Length(1), Constraint::Min(0)]).areas(area);
     let heading = if area.width < 40 {
-        "codsh · offline Rust preview"
+        "codsh · Rust client"
     } else {
-        "codsh · Rust launch preview · offline"
+        "codsh · Rust client · dsh ACP"
     };
     frame.render_widget(Paragraph::new(heading), header);
     let input_height = draft
         .desired_height(content.width.saturating_sub(4))
         .clamp(1, 5)
         + 2;
+    let tip_height = notice.lines().count().clamp(2, 12) as u16;
     let layout = layout::WelcomeLayout::compute(layout::WelcomeLayoutInput {
         content_area: content,
         menu_height: 3,
-        tip_height: 2,
+        tip_height,
         prompt_height: Some(input_height),
         ..Default::default()
     });
+    let submit = if notice.contains("Connected to dsh ACP") {
+        "Submit prompt"
+    } else {
+        "Check availability"
+    };
     let items = [
-        ("enter", "Check availability"),
+        ("enter", submit),
         ("ctrl+c", "Clear draft"),
         ("ctrl+q", "Quit"),
     ];
@@ -50,8 +56,8 @@ pub fn render(frame: &mut Frame, draft: &TextArea, notice: &str, selected: Optio
             .border_type(BorderType::Rounded)
             .render(layout.hero_box, buf);
         logo::render_full_logo(layout.hero_logo, buf, &theme);
-        Paragraph::new("codsh · Rust preview").render(layout.hero_version, buf);
-        Paragraph::new("No account required. No uploads.").render(layout.hero_subtitle, buf);
+        Paragraph::new("codsh · Rust + dsh").render(layout.hero_version, buf);
+        Paragraph::new("No official account. Isolated Home.").render(layout.hero_subtitle, buf);
         menu::render_menu(layout.hero_menu, buf, &theme, &items, selected, None, 0);
     } else {
         logo::render_logo_tier(layout.logo, buf, &theme, layout.logo_tier);

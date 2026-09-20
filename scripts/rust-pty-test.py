@@ -113,7 +113,8 @@ def path_semantics_matrix(launcher, work, output, env):
         return base, home, cwd
 
     def environment(home, variable, value):
-        child_env = {'HOME': str(home), 'PATH': env['PATH'], 'TERM': env['TERM']}
+        child_env = {'HOME': str(home), 'PATH': env['PATH'], 'TERM': env['TERM'],
+                     'DSH_BIN': env.get('DSH_BIN', '/no/runtime/must/be/started')}
         if value is not None:
             child_env[variable] = value
         return child_env
@@ -134,7 +135,7 @@ def path_semantics_matrix(launcher, work, output, env):
                       ['overlaps a legacy Home', 'unresolved symlink', 'ELOOP',
                        'refusing GROK_HOME with ..', 'refusing unresolved non-ASCII Home component',
                        'cannot establish Home directory identity'])
-        welcome = observed['enteredAlternateScreen'] and all(word in observed['output'] for word in ['codsh', 'Draft', 'offline'])
+        welcome = observed['enteredAlternateScreen'] and all(word in observed['output'] for word in ['codsh', 'Draft'])
         identities_after = {'legacy': identity(legacy), 'candidate': identity(candidate)}
         passed = observed['terminalRestored'] and identities_before['legacy'] == identities_after['legacy'] and (
             observed['exit'] == 1 and refused and not observed['enteredAlternateScreen'] and before == after
@@ -497,7 +498,9 @@ def main():
             master, slave = pty.openpty()
             fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack('HHHH', rows, cols, 0, 0))
             original = termios.tcgetattr(slave)
-            process = subprocess.Popen([*(prefix_command or []), NODE, str(launcher), '--rust'], cwd=cwd, env=child_env or env,
+            launch_env = dict(child_env or env)
+            launch_env.setdefault('DSH_BIN', env.get('DSH_BIN', '/no/runtime/must/be/started'))
+            process = subprocess.Popen([*(prefix_command or []), NODE, str(launcher), '--rust'], cwd=cwd, env=launch_env,
                                        stdin=slave, stdout=slave, stderr=slave, start_new_session=True)
             data = bytearray()
 
@@ -710,7 +713,7 @@ def main():
         assert digest_tree(legacy) == before
         assert (home / '.grok/canary').read_text() == 'synthetic official home\n'
         assert not list((home / '.codsh-rust').rglob('*session*'))
-        for arguments, expected in [(['--rust', '--version'], 'codsh-rust'), (['--rust', '--help'], 'Offline Rust launch preview')]:
+        for arguments, expected in [(['--rust', '--version'], 'codsh-rust'), (['--rust', '--help'], 'Isolated Rust client')]:
             result = run([NODE, str(launcher), *arguments], env=env, cwd=cwd)
             assert expected in result.stdout
         for arguments in [['--rust', '-p', 'must not execute'], ['--rust']]:

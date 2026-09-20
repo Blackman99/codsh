@@ -1,9 +1,12 @@
 import { spawn } from 'node:child_process'
 import { existsSync, lstatSync, mkdirSync, readFileSync, realpathSync, statSync, writeFileSync } from 'node:fs'
+import { createRequire } from 'node:module'
 import { homedir } from 'node:os'
 import { basename, dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createHash } from 'node:crypto'
+
+const requireFromHere = createRequire(import.meta.url)
 
 function legacyHomes() {
   // Match released dsh-home-paths: blank is unset; only these tilde prefixes expand.
@@ -71,6 +74,18 @@ function overlaps(a, b) {
     && (prefix(x.suffix, y.suffix) || prefix(y.suffix, x.suffix))))
 }
 
+function findDsh() {
+  const pinned = process.env.DSH_BIN
+  if (pinned !== undefined && pinned !== '') return pinned
+  try {
+    const manifest = requireFromHere.resolve('@deepseek-ai/dsh/package.json')
+    const bin = JSON.parse(readFileSync(manifest, 'utf8')).bin
+    return join(dirname(manifest), typeof bin === 'string' ? bin : bin.dsh)
+  } catch {
+    return 'dsh'
+  }
+}
+
 function privateDirectory(path) {
   if (existsSync(path)) {
     const stat = lstatSync(path)
@@ -110,8 +125,18 @@ export async function launchRust(args) {
         name: 'dsh-profile-rust', private: true, dependencies: {}, dsh: { profile: { bundles: [] } },
       }, null, 2)}\n`, { flag: 'wx', mode: 0o600 })
     }
-    const env = { HOME: root, USERPROFILE: root, DSH_HOME: join(root, 'dsh'), DSH_PROFILE: 'rust' }
-    for (const key of ['PATH', 'TERM', 'TERM_PROGRAM', 'COLORTERM', 'LANG', 'LC_ALL', 'LC_CTYPE', 'NO_COLOR', 'SystemRoot', 'WINDIR']) {
+    const env = {
+      HOME: root,
+      USERPROFILE: root,
+      DSH_HOME: join(root, 'dsh'),
+      DSH_PROFILE: 'rust',
+      DSH_BIN: findDsh(),
+      CODSH_NODE: process.execPath,
+      DSH_TELEMETRY_DISABLED: '1',
+      DSH_TELEMETRY_MODE: 'OFF',
+      CODSH_UPDATE_CHECK: 'off',
+    }
+    for (const key of ['PATH', 'TERM', 'TERM_PROGRAM', 'COLORTERM', 'LANG', 'LC_ALL', 'LC_CTYPE', 'NO_COLOR', 'SystemRoot', 'WINDIR', 'CODSH_ACP_PATCH', 'DSH_CODE_CLI_MOCK_TOOL', 'FAKE_ACP_MODE', 'FAKE_ACP_VERSION']) {
       if (process.env[key] !== undefined) env[key] = process.env[key]
     }
     return await new Promise(resolveExit => {

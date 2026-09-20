@@ -195,7 +195,7 @@ rejects malformed structured output and missing terminal events.
 Freeze measured numeric performance thresholds before collecting candidate data.
 Run the ordinary typecheck and full unit suite for changes to these workflows.
 
-## Isolated Rust launch preview (#134)
+## Isolated Rust client (#134, #135)
 
 Rust 1.98.1 (verified toolchain, edition 2024), Cargo, Node 22.19+, and the ordinary pnpm workspace
 are required to build a local native candidate. `rust/Cargo.lock` pins the
@@ -204,9 +204,10 @@ built: it would initialize official execution/auth/services and also requires
 DotSlash/protoc. This slice imports the upstream text editor/inline terminal
 crates and extracts offline wide/stacked welcome layout; see
 `rust/upstream/import.json` and `rust/upstream/MODIFICATIONS` for provenance.
-Only the fullscreen welcome is composed now; retaining inline source is not a
-claim of minimal-mode or complete Grok parity. Frozen behavior remains 1.0.34,
-while the imported public source declares 1.0.35 (correspondence unproven).
+The fullscreen welcome now submits prompts to released dsh over ACP/JSON-RPC.
+Retaining inline source is not a claim of minimal-mode or complete Grok parity.
+Frozen behavior remains 1.0.34, while the imported public source declares 1.0.35
+(correspondence unproven).
 
 ```sh
 pnpm run build:rust
@@ -219,6 +220,7 @@ pnpm test
 pnpm run build
 pnpm exec vitest run --config vitest.e2e.config.ts e2e/wrapper.e2e.ts e2e/pty-input.e2e.ts e2e/pty-session.e2e.ts
 pnpm run test:rust:pty
+pnpm exec vitest run scripts/rust-acp-protocol.spec.mjs
 ```
 
 `build:rust` stages the host binary under ignored `packages/cli/native/<os>-<arch>`
@@ -297,11 +299,17 @@ No real credentials, session history, official account or paid service is used.
 Logs/screens/result JSON go to a new `.scratch/rust-pty-*` directory; `--output`
 can choose another new directory. Do not reuse personal data or a personal Home.
 
-The preview creates only `~/.codsh-rust/dsh/profiles/rust/package.json`, with an
-empty bundle composition; it starts no dsh or official agent. dsh remains the only
-permitted future executing core. Enter preserves the draft and explicitly reports
-that execution is unavailable. ACP/turn/tool/approval/session behavior belongs to
-the next integration tickets; do not mock success to expand this acceptance slice.
+The isolated Home still creates `~/.codsh-rust/dsh/profiles/rust/package.json`
+with an empty bundle composition. Interactive `codsh --rust` then starts released
+`dsh --profile acp` over ACP/JSON-RPC stdio in that Home; dsh owns execution and
+durable sessions. The mock model, when used, is a dsh provider-boundary fixture
+(`CODSH_ACP_PATCH`, `DSH_CODE_CLI_MOCK_TOOL`), not a stub of the Rust client or
+dsh core. Enter submits the draft through dsh when connected. Missing dsh, ACP
+protocol mismatch, empty answers, mid-stream failure, and disconnect are shown
+as failures or empty results, never as success. File-tool approval, cancellation,
+and resume remain later tickets. `test:rust:pty` now also runs
+`scripts/rust-turn-pty-test.py` against the packed native candidate. Public ACP
+framing is covered by `scripts/rust-acp-protocol.spec.mjs`.
 
 ## Documentation site
 

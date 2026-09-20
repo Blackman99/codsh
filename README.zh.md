@@ -42,13 +42,15 @@ codsh
 - `codsh --resume <id>` — 恢复指定会话
 - `codsh update` — 升级启动器与 profile runtime
 
-## 隔离的 Rust 启动预览（本地候选包）
+## 隔离的 Rust 客户端（本地候选包）
 
 `codsh --rust` 显式选择并行开发的 Rust 客户端；直接运行 `codsh` 仍使用旧版。
-本阶段仅为**离线欢迎界面、输入与退出预览**，不是可执行任务的新 Agent。
-它复用具有合法许可证的 Grok Rust 界面组件，无需官方账号，不启动 Agent、
-模型请求、认证、更新检查、遥测或反馈上传。按 Enter 会明确提示 dsh 适配器
-尚未连接，不发送、不保存输入草稿。
+Rust 界面通过 ACP/JSON-RPC 把提示提交给隔离 Home 中真实的 `dsh --profile acp`。
+流式回答、提供商给出的思考、空回答和失败都按 dsh 的实际结果显示；协议不匹配
+或找不到 dsh 会明确拒绝，不会伪造成功。它复用具有合法许可证的 Grok Rust
+界面组件，无需官方账号，不启动旧版 Bundle、官方 Agent 核心、更新检查、遥测
+或反馈上传。已连接时按 Enter 会把草稿交给 dsh；未连接时明确提示执行不可用，
+不发送草稿。
 
 预览使用 `~/.codsh-rust/dsh` 与 `rust` Profile，忽略继承的 `DSH_HOME`、
 提供商密钥及 Grok 设置，不迁移旧会话。如果预览 Home/Profile 是符号链接，
@@ -72,6 +74,8 @@ codsh
 即使设置了覆盖值，默认 `~/.dsh` 和 `~/.grok` 也始终受保护。
 `Ctrl+Q`/`Ctrl+D` 退出；`Ctrl+C` 清空
 草稿，草稿为空时退出。不支持的参数明确报错；`codsh --rust --help` 说明此路径。
+模拟模型测试只在 dsh 提供商边界注入夹具（`CODSH_ACP_PATCH` /
+`DSH_CODE_CLI_MOCK_TOOL`）；Rust 客户端与 dsh 执行核心都是真实产物。
 
 维护者通过 `pnpm run build:rust` 构建本机候选产物，再本地打包、安装
 `packages/cli`；npm 入口携带预编译二进制与许可证，候选包用户无需编译 Rust。
