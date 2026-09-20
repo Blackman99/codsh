@@ -5,7 +5,10 @@ const controls = new Map(configAudit.groups.flatMap(group => group.controls.map(
 export const auditScenarios = configAudit.groups.flatMap(group => group.scenarios)
 
 export function configIdentity(item) {
-  if (item.category === 'environment') return `environment:${item.name.match(/(?:^|:)`?([A-Za-z_][A-Za-z0-9_]*)(?:=[^`]+)?`?$/u)?.[1] ?? item.name}`
+  if (item.category === 'environment') {
+    const name = item.name.match(/(?:^|:)`([^`]+)`$/u)?.[1] ?? item.name
+    return `environment:${name.split('=', 1)[0]}`
+  }
   if (item.category === 'documented-setting') return `setting:${item.name.slice(item.name.indexOf(':') + 1)}`
   if (item.category === 'feature') return `setting:features.${item.name}`
   if (item.category === 'setting') return item.key

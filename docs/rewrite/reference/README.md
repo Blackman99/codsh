@@ -167,9 +167,14 @@ leading-underscore names. `npm_config_user_agent` gets #198 installer presence a
 precedence acceptance; lowercase `container` gets #155 display/OSC52 routing with
 cached detection and the disable override. Four newly exposed underscore markers
 remain classified test/injected/sandbox-handoff discovery rather than public
-config parity. These six additions bring discovery to 6,111 identities; original
-observations remain unchanged, and only derived source evidence/counts/digest were
-updated. No original discovered row or source quotation was removed.
+config parity. Literal keys are not restricted to shell identifiers:
+`PROGRAMFILES(X86)` additionally belongs to #170 native Windows shell selection,
+while `CARGO_BIN_EXE_xai-grok-pager` is harness-only discovery under #133.
+Punctuation and whitespace are preserved in extraction and qualified/assignment
+normalization; unrelated literals and invalid empty/equals/NUL keys are rejected.
+These eight additions bring discovery to 6,113 identities; original observations
+remain unchanged, and only derived source evidence/counts/digest were updated.
+No original discovered row or source quotation was removed.
 
 Important reconciliations:
 

@@ -3487,6 +3487,22 @@
               "sourceSha256": "a7dc5c7ba89b342b9e77b2dee7f0e898d7365eb5dde60f6cfc57e9dfacafde3f"
             }
           ]
+        },
+        {
+          "identity": "environment:PROGRAMFILES(X86)",
+          "rationale": "Native Windows Git Bash discovery checks PROGRAMFILES, PROGRAMFILES(X86), then LOCALAPPDATA install paths before Git-filtered where bash.exe; this input is source-provisional, not measured frozen availability.",
+          "baselineKeys": [],
+          "evidence": [
+            "source:crates/codegen/xai-grok-config/src/shell.rs#L108"
+          ],
+          "context": [
+            {
+              "path": "crates/codegen/xai-grok-config/src/shell.rs",
+              "startLine": 103,
+              "text": "fn find_git_bash() -> Option<String> {\n    let candidates = [\n        std::env::var(\"PROGRAMFILES\")\n            .map(|pf| format!(\"{pf}\\\\Git\\\\bin\\\\bash.exe\"))\n            .unwrap_or_default(),\n        std::env::var(\"PROGRAMFILES(X86)\")\n            .map(|pf| format!(\"{pf}\\\\Git\\\\bin\\\\bash.exe\"))\n            .unwrap_or_default(),\n        std::env::var(\"LOCALAPPDATA\")\n            .map(|la| format!(\"{la}\\\\Programs\\\\Git\\\\bin\\\\bash.exe\"))\n            .unwrap_or_default(),\n    ];\n    for candidate in &candidates {\n        if !candidate.is_empty() && std::path::Path::new(candidate).exists() {",
+              "sourceSha256": "bcdd1f4c80956ae8e65c7e891906437c43296017a246451538ea7dc48af91114"
+            }
+          ]
         }
       ],
       "scenarios": [
@@ -3499,7 +3515,14 @@
           "failure": "Missing shell, malformed selection, helper denial and child failure remain explicit and cleanup restores terminal state."
         }
       ],
-      "reviewContext": []
+      "reviewContext": [
+        {
+          "path": "crates/codegen/xai-grok-config/src/shell.rs",
+          "startLine": 101,
+          "text": "/// Checks common install paths, then falls back to `where bash.exe` (filtering for Git paths to avoid WSL bash).\n#[cfg(not(unix))]\nfn find_git_bash() -> Option<String> {\n    let candidates = [\n        std::env::var(\"PROGRAMFILES\")\n            .map(|pf| format!(\"{pf}\\\\Git\\\\bin\\\\bash.exe\"))\n            .unwrap_or_default(),\n        std::env::var(\"PROGRAMFILES(X86)\")\n            .map(|pf| format!(\"{pf}\\\\Git\\\\bin\\\\bash.exe\"))\n            .unwrap_or_default(),\n        std::env::var(\"LOCALAPPDATA\")\n            .map(|la| format!(\"{la}\\\\Programs\\\\Git\\\\bin\\\\bash.exe\"))\n            .unwrap_or_default(),\n    ];\n    for candidate in &candidates {\n        if !candidate.is_empty() && std::path::Path::new(candidate).exists() {\n            return Some(candidate.clone());\n        }\n    }\n    // Fall back to PATH; prefer Git Bash over WSL bash.\n    if let Ok(output) = {\n        let mut cmd = std::process::Command::new(\"where\");\n        xai_tty_utils::detach_std_command(&mut cmd);\n        cmd.arg(\"bash.exe\").stdin(std::process::Stdio::null());\n        cmd.output()\n    } {\n        if output.status.success() {\n            let stdout = String::from_utf8_lossy(&output.stdout);\n            for line in stdout.lines() {\n                let line = line.trim();\n                if line.to_ascii_lowercase().contains(\"git\") {\n                    return Some(line.to_string());\n                }\n            }\n        }\n    }",
+          "sourceSha256": "bcdd1f4c80956ae8e65c7e891906437c43296017a246451538ea7dc48af91114"
+        }
+      ]
     },
     {
       "id": "child-environment",
@@ -5654,6 +5677,29 @@
               "startLine": 437,
               "text": "/// True when the user marked Claude settings imported (`[claude_compat].imported` in config.toml, or the test override).\n/// Public so callers that mirror this gate elsewhere use the same check.\npub fn is_claude_import_marked() -> bool {\n    // Test escape hatch: shell tests call `refresh_marker_cache(true)`, which lives in xai-grok-shell (inaccessible from here at runtime)\n    // They also set this env var so the gate in this crate honours the override without a cross-crate dependency\n    if std::env::var(\"_GROK_CLAUDE_MARKER_OVERRIDE\").as_deref() == Ok(\"1\") {\n        return true;\n    }\n    let Some(config_path) = xai_grok_config::user_grok_home().map(|g| g.join(\"config.toml\")) else {\n        return false;\n    };\n    let Ok(contents) = std::fs::read_to_string(&config_path) else {\n        return false;\n    };",
               "sourceSha256": "e12d7737cde8fff08b013cd91cec9619be23421dae0f9db84c24432a1950f586"
+            }
+          ]
+        },
+        {
+          "identity": "environment:CARGO_BIN_EXE_xai-grok-pager",
+          "rationale": "Cargo harness binary-path input: follows PAGER_BINARY or GROK_BINARY, accepts an existing candidate and otherwise uses the local build fallback; not a public installed-client configuration claim.",
+          "baselineKeys": [],
+          "evidence": [
+            "source:crates/codegen/xai-grok-pager-pty-harness/src/env.rs#L77",
+            "source:crates/codegen/xai-grok-test-support/src/env.rs#L157"
+          ],
+          "context": [
+            {
+              "path": "crates/codegen/xai-grok-pager-pty-harness/src/env.rs",
+              "startLine": 72,
+              "text": "        // Bazel sets PAGER_BINARY to a runfiles-relative path; portable_pty resolves non-absolute paths via PATH lookup instead of the cwd\n        return std::path::absolute(&p)\n            .with_context(|| format!(\"failed to absolutize PAGER_BINARY: {}\", p.display()));\n    }\n\n    if let Ok(path) = std::env::var(\"CARGO_BIN_EXE_xai-grok-pager\") {\n        let p = PathBuf::from(path);\n        if p.exists() {\n            return Ok(p);\n        }\n    }\n\n    let binary = local_pager_binary_path()?;\n    ensure_local_pager_binary(&binary)?;",
+              "sourceSha256": "5dbfec0497b475d047b209c535abfbc4146f6542e94950808a201481c970ce8d"
+            },
+            {
+              "path": "crates/codegen/xai-grok-test-support/src/env.rs",
+              "startLine": 152,
+              "text": "        // Bazel's GROK_BINARY is runfiles-relative; the harness spawns the child with a different cwd\n        // Absolutize against the (runfiles-root) cwd now\n        return std::path::absolute(&p).unwrap_or(p);\n    }\n\n    if let Ok(path) = std::env::var(\"CARGO_BIN_EXE_xai-grok-pager\") {\n        let p = PathBuf::from(path);\n        if p.exists() {\n            return p;\n        }\n    }\n\n    ensure_cargo_bin(\"xai-grok-pager-bin\", \"xai-grok-pager\")\n}",
+              "sourceSha256": "1c8e0cfaab6faba4fdb9163445531569a748c88cdd44975061eafc93be3f71f0"
             }
           ]
         }

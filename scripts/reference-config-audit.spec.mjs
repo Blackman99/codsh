@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import { guideContexts, mapAcceptance, mapOwners } from './reference-mapping.mjs'
-import { checkConfigAudit, checkConfigAuditSources, checkConfigConsistency, configAudit } from './reference-config-audit.mjs'
+import { checkConfigAudit, checkConfigAuditSources, checkConfigConsistency, configAudit, configIdentity } from './reference-config-audit.mjs'
 import { extractSurfaces, loadEvidence } from './reference-inventory.mjs'
 
 const read = name => JSON.parse(readFileSync(new URL(`../docs/rewrite/reference/${name}`, import.meta.url), 'utf8'))
@@ -43,7 +43,7 @@ describe('independent fallback ownership contracts', () => {
       'for key in ["lower_loop", "Upper_Loop"] { env.get(key); }',
       'std::env::var("CONTAINER");',
       'const LABEL: &str = "unrelated_text";', 'other("lower_noise");',
-      'std::env::var("not=a_name");', 'std::env::var("two words");',
+      'std::env::var("not=a_name");', 'std::env::var("");',
     ].join('\n') }
     const items = extractSurfaces({ commands: [], guides: [] }, [source])
     expect(items.map(item => item.key).sort()).toEqual([
@@ -51,6 +51,45 @@ describe('independent fallback ownership contracts', () => {
       'lower_constant', 'lower_helper', 'lower_loop', 'lower_map', 'npm_config_user_agent', 'x',
     ].map(name => `environment:${name}`).sort())
     for (const item of items) expect(item.observations[0].scope).toBe('source-environment-provisional')
+  })
+
+  it('extracts non-shell literal names without stripping punctuation or whitespace', () => {
+    const source = { path: 'crates/literal_env.rs', text: [
+      'std::env::var("PROGRAMFILES(X86)");', 'std::env::var_os("CARGO_BIN_EXE_xai-grok-pager");',
+      'std::env::var("PROGRAMFILES");', 'const ENV_FLAG: &str = "constant.with-dot";',
+      'child.env("child-name", "value");', 'env.get("map(key)");',
+      'env_nonempty(env, "helper.name");', 'for key in ["loop:name", "two words"] { env.get(key); }',
+      'var("9prefix");', 'var(" spaced ");', 'other("not-a-control");',
+      'var("");', 'var("invalid=name");', 'var("invalid\\0name");',
+    ].join('\n') }
+    expect(extractSurfaces({ commands: [], guides: [] }, [source]).map(item => item.name).sort()).toEqual([
+      'PROGRAMFILES(X86)', 'CARGO_BIN_EXE_xai-grok-pager', 'PROGRAMFILES', 'constant.with-dot',
+      'child-name', 'map(key)', 'helper.name', 'loop:name', 'two words', '9prefix', ' spaced ',
+    ].sort())
+  })
+
+  it.each(['PROGRAMFILES(X86)', 'CARGO_BIN_EXE_xai-grok-pager', 'two words', ' spaced ', 'loop:name'])('preserves the entire environment identity %s', name => {
+    for (const representation of [name, `\`${name}\``, `05-configuration.md:Environment:\`${name}\``, `05-configuration.md:Environment:\`${name}=value\``]) {
+      expect(configIdentity(fixture('environment', representation))).toBe(`environment:${name}`)
+    }
+  })
+
+  it.each([
+    ['PROGRAMFILES(X86)', 170, 'PARITY-170-shell-controls'],
+    ['CARGO_BIN_EXE_xai-grok-pager', 133, 'DISCOVERY-133-test-benchmark'],
+  ])('retains punctuation-bearing source control %s in its actual scope', (name, owner, scenario) => {
+    for (const representation of [name, `05-configuration.md:Environment:\`${name}=value\``]) {
+      const item = fixture('environment', representation)
+      expect(mapOwners(item)).toEqual([owner])
+      expect(mapAcceptance(item, [owner])).toEqual([scenario])
+    }
+    const discovery = read('discovery.json').items.find(item => item.key === `environment:${name}`)
+    expect(discovery).toBeDefined()
+    expect(discovery.observations.every(o => o.scope === 'source-environment-provisional')).toBe(true)
+    const row = read('inventory.json').items.find(row => row.key === discovery.key)
+    expect(row.tickets).toEqual([owner])
+    expect(row.blocker).toContain('not a proven 1.0.34 match')
+    if (owner === 133) expect(row.blocker).toContain('Discovery-only')
   })
 
   it('records separate planned goal-role routes under conflicting pins', () => {

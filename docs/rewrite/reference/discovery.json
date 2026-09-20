@@ -18613,6 +18613,23 @@
       ]
     },
     {
+      "key": "environment:CARGO_BIN_EXE_xai-grok-pager",
+      "category": "environment",
+      "name": "CARGO_BIN_EXE_xai-grok-pager",
+      "observations": [
+        {
+          "locator": "source:crates/codegen/xai-grok-pager-pty-harness/src/env.rs#L77",
+          "scope": "source-environment-provisional",
+          "excerpt": "if let Ok(path) = std::env::var(\"CARGO_BIN_EXE_xai-grok-pager\") {"
+        },
+        {
+          "locator": "source:crates/codegen/xai-grok-test-support/src/env.rs#L157",
+          "scope": "source-environment-provisional",
+          "excerpt": "if let Ok(path) = std::env::var(\"CARGO_BIN_EXE_xai-grok-pager\") {"
+        }
+      ]
+    },
+    {
       "key": "environment:CARGO_CFG_TARGET_ARCH",
       "category": "environment",
       "name": "CARGO_CFG_TARGET_ARCH",
@@ -30411,6 +30428,18 @@
           "locator": "source:crates/codegen/xai-grok-config/src/shell.rs#L105",
           "scope": "source-environment-provisional",
           "excerpt": "std::env::var(\"PROGRAMFILES\")"
+        }
+      ]
+    },
+    {
+      "key": "environment:PROGRAMFILES(X86)",
+      "category": "environment",
+      "name": "PROGRAMFILES(X86)",
+      "observations": [
+        {
+          "locator": "source:crates/codegen/xai-grok-config/src/shell.rs#L108",
+          "scope": "source-environment-provisional",
+          "excerpt": "std::env::var(\"PROGRAMFILES(X86)\")"
         }
       ]
     },
