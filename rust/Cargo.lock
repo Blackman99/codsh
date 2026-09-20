@@ -271,6 +271,7 @@ dependencies = [
  "tempfile",
  "toml",
  "unicode-width 0.2.0",
+ "xai-ratatui-inline",
  "xai-ratatui-textarea",
 ]
 

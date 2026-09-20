@@ -61,6 +61,13 @@ dsh 给出的差异，`y` 允许该次调用，`n` 拒绝且不写入。文件�
 指定会话。界面从 dsh 日志恢复已持久化的回合（不是第二套会话库）。中断或
 未完成的工具显示为 `[interrupted]` / unknown，并且不会自动重放副作用。
 第二个客户端若不能取得写入权会被明确拒绝，而不会再开一个执行核心。
+默认 fullscreen 使用备用屏幕。`/minimal`（或 `--minimal`）按官方内联渲染
+把已提交内容写入终端原生历史；`/fullscreen`（别名 `/full`）切回全屏。
+切换在同一进程内完成，正在执行的 dsh 回合、草稿和待审批都会保留。
+`--minimal` / `--fullscreen` 与 `GROK_SCREEN_MODE` 只作用于当前会话，不会改写
+隔离目录里的 `[ui] screen_mode`。最小模式下的 `/dashboard` 等模式专用命令会
+拒绝并提示改用 `/fullscreen`。`GROK_SCREEN_MODE_SWITCH=exec` 会按同一会话
+重新启动，而不是原地切换，也不会保留未保存的草稿。
 
 预览的用户配置是 `$GROK_HOME/config.toml`（默认
 `~/.codsh-rust/.grok/config.toml`）。兼容的 `[model.<id>]` 字段
@@ -117,7 +124,8 @@ Home 会报告保存失败而不会假装授权已持久化。未信任的 Hooks
 即使设置了覆盖值，默认 `~/.dsh` 和 `~/.grok` 也始终受保护。
 `Ctrl+Q`/`Ctrl+D` 退出；`Ctrl+C` 清空
 草稿，空草稿取消正在执行的回合，尚未有回合时退出。`--continue` 与 `--resume <id>`
-恢复同一 dsh 会话；第二个写入者会被拒绝。不支持的参数明确报错；`codsh --rust --help` 说明此路径。
+恢复同一 dsh 会话；第二个写入者会被拒绝。`--minimal` 与 `--fullscreen` 选择
+当前会话的渲染模式。不支持的参数明确报错；`codsh --rust --help` 说明此路径。
 模拟模型测试只在 dsh 提供商边界注入夹具（`CODSH_ACP_PATCH` /
 `DSH_CODE_CLI_MOCK_TOOL`）；Rust 客户端与 dsh 执行核心都是真实产物。
 

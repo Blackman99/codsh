@@ -13,16 +13,22 @@ legacy Viewport, keybindings, data or tests. The itemized reference register
 lives under `docs/rewrite/reference/`; declarations are not parity evidence.
 
 `codsh --rust` is the explicit parallel Rust client. Its locally packed native
-client reuses licensed upstream Rust input and welcome layout, and submits
-prompts to released dsh over ACP/JSON-RPC (`dsh --profile acp`) in the isolated
-Home. dsh remains the only executing agent core and durable session owner; the
-Rust process does not link the official agent runtime or own tools. Protocol
-mismatch, empty answers, mid-stream failure, disconnect, and cancellation are
-reported truthfully. `Ctrl+C` clears a draft first; an empty draft cancels the
-running dsh turn. Esc does not cancel. `--continue` / `--resume <id>` restore
-the same dsh session; a second write owner is refused. The isolated Home is `~/.codsh-rust/dsh`, Profile `rust`; inherited
-legacy configuration/credential files are not imported. Configured `env_key`
-values are passed through. Telemetry stays off.
+client reuses licensed upstream Rust input, welcome layout, and the official
+fullscreen/minimal renderers, and submits prompts to released dsh over
+ACP/JSON-RPC (`dsh --profile acp`) in the isolated Home. dsh remains the only
+executing agent core and durable session owner; the Rust process does not link
+the official agent runtime or own tools. Protocol mismatch, empty answers,
+mid-stream failure, disconnect, and cancellation are reported truthfully.
+`Ctrl+C` clears a draft first; an empty draft cancels the running dsh turn. Esc
+does not cancel. `--continue` / `--resume <id>` restore the same dsh session; a
+second write owner is refused. `/minimal` and `/fullscreen` switch render mode
+in process: fullscreen uses the alternate screen, minimal writes committed
+history to the native terminal buffer, and the active session, draft, running
+turn, and pending approval survive. `--minimal` / `--fullscreen` and
+`GROK_SCREEN_MODE` are session-scoped and do not rewrite isolated
+`[ui] screen_mode`. The isolated Home is `~/.codsh-rust/dsh`, Profile `rust`;
+inherited legacy configuration/credential files are not imported. Configured
+`env_key` values are passed through. Telemetry stays off.
 User settings enter through `$GROK_HOME/config.toml` and `codsh --rust inspect`;
 applicable model/provider fields, including `api_backend` and reasoning
 effort, are translated into isolated dsh `settings.yaml` rather than competing
@@ -44,7 +50,7 @@ Unknown security fields fail closed with diagnostics. Workspace trust is stored
 in `$GROK_HOME/trusted_folders.toml`; untrusted project Hooks/plugins/instructions
 stay inactive until `--trust` or an interactive grant.
 Plain `codsh` still selects the legacy Launcher/Bundle; this is not the default
-cutover.
+cutover. The Viewport language below remains the legacy Surface contract.
 
 ## Language
 

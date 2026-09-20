@@ -16,9 +16,11 @@ examples and tests. Five textarea test files have mechanical Rust 1.98 lint fixe
 redundant imports/formatting borrows removed and single-Range slices spelled
 unambiguously; assertions and runtime semantics are unchanged. Modified files
 carry local notices. Their Cargo workspace dependencies resolve in rust/Cargo.toml.
-The inline crate is retained for the planned minimal renderer; it is not linked
-into the fullscreen launch preview. Cargo.lock began with the pinned export's
-lockfile and was pruned by Cargo to this workspace's actual dependencies.
+The inline crate is linked for official fullscreen/minimal rendering: fullscreen
+uses the alternate-screen lifecycle, and minimal emits committed turns through
+`emit_to_scrollback` into native history with an inline overlay. Cargo.lock began
+with the pinned export's lockfile and was pruned by Cargo to this workspace's
+actual dependencies.
 
 src/welcome/layout.rs is extracted from xai-grok-pager/src/views/welcome/mod.rs.
 src/welcome/hero_box.rs is extracted from the sibling hero_box.rs. Local changes

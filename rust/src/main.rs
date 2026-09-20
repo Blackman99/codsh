@@ -1,6 +1,7 @@
 mod acp;
 mod config;
 mod models;
+mod screen_mode;
 mod session_history;
 mod session_owner;
 mod theme;
@@ -14,7 +15,11 @@ use crossterm::event::{
 };
 use crossterm::execute;
 use crossterm::terminal::{self, EnterAlternateScreen, LeaveAlternateScreen};
-use ratatui::{Terminal, backend::CrosstermBackend};
+use ratatui::{TerminalOptions, Viewport, backend::CrosstermBackend};
+use screen_mode::{
+    GROK_SCREEN_MODE_ENV, MINIMAL_OVERLAY_HEIGHT, SCREEN_MODE_SWITCH_ENV, ScreenMode, SlashAction,
+    SwitchPolicy,
+};
 use session_history::{RestoredCompactionRecord, RestoredTurn};
 use session_owner::SessionOwner;
 use std::io::{self, IsTerminal, Write};
@@ -24,36 +29,89 @@ use std::sync::{
     atomic::{AtomicBool, Ordering},
 };
 use std::time::Duration;
+use xai_ratatui_inline::{
+    Terminal, emit_to_scrollback, resize_purge_rerender, with_synchronized_output,
+};
 use xai_ratatui_textarea::TextArea;
 
 const UNAVAILABLE: &str = "Execution unavailable: dsh\nNot connected. Draft kept.";
 
-struct TerminalGuard;
+struct TerminalGuard {
+    alt: bool,
+}
 
 impl TerminalGuard {
-    fn enter() -> io::Result<Self> {
+    fn enter(mode: ScreenMode) -> io::Result<Self> {
         terminal::enable_raw_mode()?;
-        let guard = Self;
-        execute!(
-            io::stdout(),
-            EnterAlternateScreen,
-            EnableBracketedPaste,
-            Hide
-        )?;
-        Ok(guard)
+        let alt = mode == ScreenMode::Fullscreen;
+        if alt {
+            execute!(
+                io::stdout(),
+                EnterAlternateScreen,
+                EnableBracketedPaste,
+                Hide
+            )?;
+        } else {
+            execute!(io::stdout(), EnableBracketedPaste, Show)?;
+        }
+        Ok(Self { alt })
+    }
+
+    fn apply(
+        &mut self,
+        terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
+        mode: ScreenMode,
+    ) -> io::Result<()> {
+        match mode {
+            ScreenMode::Minimal if self.alt => {
+                execute!(io::stdout(), LeaveAlternateScreen, Show)?;
+                self.alt = false;
+                terminal.set_viewport(Viewport::Inline(MINIMAL_OVERLAY_HEIGHT))?;
+            }
+            ScreenMode::Fullscreen if !self.alt => {
+                let _ = terminal.clear();
+                execute!(io::stdout(), EnterAlternateScreen, Hide)?;
+                self.alt = true;
+                terminal.set_viewport(Viewport::Fullscreen)?;
+            }
+            _ => {}
+        }
+        Ok(())
     }
 }
 
 impl Drop for TerminalGuard {
     fn drop(&mut self) {
-        let _ = execute!(
-            io::stdout(),
-            DisableBracketedPaste,
-            Show,
-            LeaveAlternateScreen
-        );
+        let _ = execute!(io::stdout(), DisableBracketedPaste, Show);
+        if self.alt {
+            let _ = execute!(io::stdout(), LeaveAlternateScreen);
+        }
         let _ = terminal::disable_raw_mode();
         let _ = io::stdout().flush();
+    }
+}
+
+fn restore_terminal() {
+    let _ = execute!(
+        io::stdout(),
+        DisableBracketedPaste,
+        Show,
+        LeaveAlternateScreen
+    );
+    let _ = terminal::disable_raw_mode();
+    let _ = io::stdout().flush();
+}
+
+fn open_terminal(mode: ScreenMode) -> io::Result<Terminal<CrosstermBackend<io::Stdout>>> {
+    let backend = CrosstermBackend::new(io::stdout());
+    match mode {
+        ScreenMode::Fullscreen => Terminal::new(backend),
+        ScreenMode::Minimal => Terminal::with_options(
+            backend,
+            TerminalOptions {
+                viewport: Viewport::Inline(MINIMAL_OVERLAY_HEIGHT),
+            },
+        ),
     }
 }
 
@@ -140,6 +198,7 @@ struct Launch {
     trust: bool,
     revoke_trust: bool,
     trust_folder: Option<PathBuf>,
+    screen: Option<ScreenMode>,
 }
 
 fn take_flag_value(
@@ -172,6 +231,7 @@ fn parse_launch(args: &[String]) -> io::Result<Launch> {
     let mut trust = false;
     let mut revoke_trust = false;
     let mut trust_folder = None;
+    let mut screen = None;
     let mut rest = Vec::new();
     let mut index = 0;
     while index < args.len() {
@@ -217,6 +277,20 @@ fn parse_launch(args: &[String]) -> io::Result<Launch> {
                 }
             } else if arg == "--revoke-trust" {
                 revoke_trust = true;
+            } else if arg == "--minimal" {
+                if screen == Some(ScreenMode::Fullscreen) {
+                    return Err(io::Error::other(
+                        "conflicting screen flags; use only one of --minimal or --fullscreen",
+                    ));
+                }
+                screen = Some(ScreenMode::Minimal);
+            } else if arg == "--fullscreen" || arg == "--full" {
+                if screen == Some(ScreenMode::Minimal) {
+                    return Err(io::Error::other(
+                        "conflicting screen flags; use only one of --minimal or --fullscreen",
+                    ));
+                }
+                screen = Some(ScreenMode::Fullscreen);
             } else {
                 rest.push(arg.clone());
             }
@@ -257,6 +331,7 @@ fn parse_launch(args: &[String]) -> io::Result<Launch> {
         trust,
         revoke_trust,
         trust_folder,
+        screen,
     })
 }
 
@@ -455,6 +530,7 @@ struct StatusView<'a> {
     resumed: bool,
     routing: Option<&'a models::Routing>,
     meter: &'a Meter,
+    screen: ScreenMode,
 }
 
 fn status_line(view: StatusView<'_>) -> String {
@@ -468,9 +544,11 @@ fn status_line(view: StatusView<'_>) -> String {
         resumed,
         routing,
         meter,
+        screen,
     } = view;
+    let header = format!("mode={}", screen.as_str());
     if !last_error.is_empty() && client.is_none() {
-        return format!("{UNAVAILABLE}\n{last_error}");
+        return format!("{header}\n{UNAVAILABLE}\n{last_error}");
     }
     let tag = if resumed { " (resumed)" } else { "" };
     let mut body = match client {
@@ -492,6 +570,7 @@ fn status_line(view: StatusView<'_>) -> String {
         ),
         None => UNAVAILABLE.to_string(),
     };
+    body = format!("{header}\n{body}");
     if let Some(routing) = routing {
         body.push('\n');
         body.push_str(&routing.line());
@@ -815,6 +894,98 @@ fn apply_events(
     disconnect
 }
 
+fn overlay_notice(view: StatusView<'_>, turns: &[Turn]) -> String {
+    let mut out = status_line(view);
+    if let Some(turn) = turns.last()
+        && (!turn.done || turn.permission.is_some())
+    {
+        out.push_str(&render_transcript("", std::slice::from_ref(turn)));
+    }
+    out
+}
+
+fn paint(
+    terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
+    screen: ScreenMode,
+    draft: &TextArea,
+    notice: &str,
+    selected: Option<usize>,
+) -> io::Result<()> {
+    terminal.draw(|frame| {
+        if screen == ScreenMode::Minimal {
+            welcome::render_minimal(frame, draft, notice, selected);
+        } else {
+            welcome::render(frame, draft, notice, selected);
+        }
+    })?;
+    Ok(())
+}
+
+fn commit_completed_turns(
+    terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
+    turns: &[Turn],
+    committed: &mut usize,
+    history: &mut String,
+    extra: Option<&str>,
+) -> io::Result<()> {
+    let mut block = String::new();
+    for (index, turn) in turns.iter().enumerate() {
+        if index < *committed {
+            continue;
+        }
+        if !turn.done {
+            break;
+        }
+        block.push_str(&render_transcript("", std::slice::from_ref(turn)));
+        block.push('\n');
+        *committed = index + 1;
+    }
+    if let Some(extra) = extra
+        && !extra.is_empty()
+    {
+        block.push_str(extra);
+        block.push('\n');
+    }
+    if block.is_empty() {
+        return Ok(());
+    }
+    history.push_str(&block);
+    with_synchronized_output(terminal, |terminal| emit_to_scrollback(terminal, &block))?;
+    Ok(())
+}
+
+fn relaunch_exec(session_id: &str, target: ScreenMode) -> io::Error {
+    let exe = match std::env::current_exe() {
+        Ok(path) => path,
+        Err(error) => {
+            return io::Error::other(screen_mode::exec_failure_message(
+                Some(session_id),
+                target,
+                &error.to_string(),
+            ));
+        }
+    };
+    let mut cmd = std::process::Command::new(exe);
+    cmd.args(screen_mode::exec_args(session_id, target));
+    cmd.env(GROK_SCREEN_MODE_ENV, target.as_str());
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::CommandExt;
+        let error = cmd.exec();
+        io::Error::other(screen_mode::exec_failure_message(
+            Some(session_id),
+            target,
+            &error.to_string(),
+        ))
+    }
+    #[cfg(not(unix))]
+    io::Error::other(screen_mode::exec_failure_message(
+        Some(session_id),
+        target,
+        "exec relaunch is Unix-only",
+    ))
+}
+
 fn inspect_help() -> &'static str {
     "Show the configuration this directory resolves\n\nUsage: codsh --rust inspect [OPTIONS]\n\nOptions:\n      --json                  Emit machine-readable JSON output\n      --debug                 Enable debug logging\n      --debug-file <FILE>     Write debug logs to FILE\n  -h, --help                  Print help\n\nReports CLI, environment, overlay, config.toml, workspace, managed, and requirements origins.\nLocked requirements cannot be bypassed. Folder trust and project-asset activity are included.\nLeader sockets are unused; dsh owns execution."
 }
@@ -1107,7 +1278,7 @@ fn run() -> io::Result<()> {
         }
         LaunchMode::Help => {
             println!(
-                "codsh --rust\n\nIsolated Rust client. Real dsh executes turns over ACP/JSON-RPC stdio.\nHome: ~/.codsh-rust/dsh; Profile: rust. Legacy codsh is unchanged.\nUser config: $GROK_HOME/config.toml (default ~/.codsh-rust/.grok/config.toml), mapped into isolated dsh settings.yaml.\nManaged defaults: $GROK_HOME/managed_config.toml. Locked requirements: $GROK_HOME/requirements.toml (cannot be bypassed by later CLI, environment, overlay, workspace, or user values).\n`codsh --rust inspect` / `inspect --json` shows effective values, origins, folder trust, and whether project assets are active. Invalid config.toml is left unchanged and reports its path. Unknown security fields and invalid policies are diagnosed with valid values, sources, and limits.\nWorkspace trust: untrusted folders prompt before applying project config, Hooks, plugins, or instructions; `--trust` / `--trust-folder [path]` saves a grant, `--revoke-trust` withdraws it. A read-only $GROK_HOME reports save failure without pretending the grant is durable. Untrusted Hooks/plugins/project capabilities do not execute.\nFirst-run missing credentials stay local: no grok.com login, no default official telemetry, no import of ~/.dsh or ~/.grok credentials.\nFile read/edit/write run through dsh tools; y allows once, n rejects with no write. Trust prompt: y=allow, n=deny.\nCtrl+Q/Ctrl+D: quit. Ctrl+C: clear a draft; empty draft cancels a running turn via dsh, or quits when idle before any turn.\nEsc never cancels a turn or a pending approval; it dismisses selection and reminds you to use Ctrl+C.\nEnter: submit prompt. /model (/m) and /effort select advertised catalog options; unsupported backends/efforts are refused, never treated as equivalent or silently swapped. /context shows dsh occupancy, advertised model limits, and heuristic buckets without fabricating zeros. /compact [instruction] runs dsh compaction (not a second history); optional instructions go only to the summarizer request (purpose=compaction). Automatic compaction uses session.auto_compact_threshold_percent / GROK_AUTO_COMPACT_THRESHOLD_PERCENT mapped to dsh thresholdRatio. GROK_COMPACTION_WALL_CLOCK_SECS bounds the operation; 0 disables that budget. Runtime changes apply to the next turn and persist under $GROK_HOME/model-selection.toml. --continue resumes the last session in this directory; --resume <id> loads that dsh session. A second client is refused while this process holds write ownership. Interrupted tools show [interrupted]/unknown and are not replayed.\nOptions: --help, --version, --continue, --resume <id>, --model <id>, --effort/--reasoning-effort <level>, --trust, --trust-folder [path], --revoke-trust, inspect."
+                "codsh --rust\n\nIsolated Rust client. Real dsh executes turns over ACP/JSON-RPC stdio.\nHome: ~/.codsh-rust/dsh; Profile: rust. Legacy codsh is unchanged.\nUser config: $GROK_HOME/config.toml (default ~/.codsh-rust/.grok/config.toml), mapped into isolated dsh settings.yaml.\nManaged defaults: $GROK_HOME/managed_config.toml. Locked requirements: $GROK_HOME/requirements.toml (cannot be bypassed by later CLI, environment, overlay, workspace, or user values).\n`codsh --rust inspect` / `inspect --json` shows effective values, origins, folder trust, and whether project assets are active. Invalid config.toml is left unchanged and reports its path. Unknown security fields and invalid policies are diagnosed with valid values, sources, and limits.\nWorkspace trust: untrusted folders prompt before applying project config, Hooks, plugins, or instructions; `--trust` / `--trust-folder [path]` saves a grant, `--revoke-trust` withdraws it. A read-only $GROK_HOME reports save failure without pretending the grant is durable. Untrusted Hooks/plugins/project capabilities do not execute.\nFirst-run missing credentials stay local: no grok.com login, no default official telemetry, no import of ~/.dsh or ~/.grok credentials.\nFile read/edit/write run through dsh tools; y allows once, n rejects with no write. Trust prompt: y=allow, n=deny.\nCtrl+Q/Ctrl+D: quit. Ctrl+C: clear a draft; empty draft cancels a running turn via dsh, or quits when idle before any turn.\nEsc never cancels a turn or a pending approval; it dismisses selection and reminds you to use Ctrl+C.\nEnter: submit prompt. /minimal and /fullscreen switch render mode in process without restarting dsh; --minimal/--fullscreen and GROK_SCREEN_MODE are session-scoped and do not rewrite [ui] screen_mode. /model (/m) and /effort select advertised catalog options; unsupported backends/efforts are refused, never treated as equivalent or silently swapped. /context shows dsh occupancy, advertised model limits, and heuristic buckets without fabricating zeros. /compact [instruction] runs dsh compaction (not a second history); optional instructions go only to the summarizer request (purpose=compaction). Automatic compaction uses session.auto_compact_threshold_percent / GROK_AUTO_COMPACT_THRESHOLD_PERCENT mapped to dsh thresholdRatio. GROK_COMPACTION_WALL_CLOCK_SECS bounds the operation; 0 disables that budget. Runtime changes apply to the next turn and persist under $GROK_HOME/model-selection.toml. --continue resumes the last session in this directory; --resume <id> loads that dsh session. A second client is refused while this process holds write ownership. Interrupted tools show [interrupted]/unknown and are not replayed.\nOptions: --help, --version, --continue, --resume <id>, --minimal, --fullscreen, --model <id>, --effort/--reasoning-effort <level>, --trust, --trust-folder [path], --revoke-trust, inspect."
             );
             return Ok(());
         }
@@ -1155,6 +1326,16 @@ fn run() -> io::Result<()> {
             "Rust preview requires an interactive terminal",
         ));
     }
+    let home = PathBuf::from(
+        std::env::var_os("HOME")
+            .ok_or_else(|| io::Error::other("missing isolated HOME; use codsh --rust"))?,
+    );
+    let persisted = screen_mode::read_persisted_mode(&home).map_err(io::Error::other)?;
+    let env_mode = std::env::var(GROK_SCREEN_MODE_ENV).ok();
+    let mut screen = screen_mode::resolve_mode(launch.screen, env_mode.as_deref(), persisted)
+        .map_err(io::Error::other)?;
+    let policy =
+        screen_mode::switch_policy_from_env(std::env::var(SCREEN_MODE_SWITCH_ENV).ok().as_deref());
     let stopping = Arc::new(AtomicBool::new(false));
     #[cfg(unix)]
     for signal in [
@@ -1164,13 +1345,12 @@ fn run() -> io::Result<()> {
     ] {
         signal_hook::flag::register(signal, Arc::clone(&stopping))?;
     }
-    let _guard = TerminalGuard::enter()?;
+    let mut guard = TerminalGuard::enter(screen)?;
     profile()?;
-    let mut terminal = Terminal::new(CrosstermBackend::new(io::stdout()))?;
+    let mut terminal = open_terminal(screen)?;
     let mut draft = TextArea::new();
-    terminal.draw(|frame| {
-        welcome::render(frame, &draft, "Connecting to dsh ACP…", None);
-    })?;
+    let connecting = format!("mode={}\nConnecting to dsh ACP…", screen.as_str());
+    paint(&mut terminal, screen, &draft, &connecting, None)?;
     let mut selected = None;
     let mut turns: Vec<Turn> = Vec::new();
     let mut inflight = false;
@@ -1183,6 +1363,9 @@ fn run() -> io::Result<()> {
     let mut owner: Option<SessionOwner> = None;
     let mut resumed = false;
     let mut previous_session: Option<String> = None;
+    let mut committed = 0usize;
+    let mut history = String::new();
+    let mut composer_stash = String::new();
     let mut effective = load_runtime_config(&launch);
     let mut extra_env = {
         let mut extra = config::credential_env(&effective, &std::env::vars().collect());
@@ -1293,23 +1476,27 @@ fn run() -> io::Result<()> {
         let awaiting = turns.last().is_some_and(|turn| turn.permission.is_some());
         let cancelling = turns.last().is_some_and(|turn| turn.cancelling);
         let routing = live_routing(client.as_ref(), &effective);
-        let notice = render_transcript(
-            &status_line(StatusView {
-                client: client.as_ref(),
-                inflight,
-                last_error: &last_error,
-                awaiting_approval: awaiting,
-                cancelling,
-                hint: &hint,
-                resumed,
-                routing: routing.as_ref(),
-                meter: &meter,
-            }),
-            &turns,
-        );
-        terminal.draw(|frame| {
-            welcome::render(frame, &draft, &notice, selected);
-        })?;
+        if screen == ScreenMode::Minimal {
+            commit_completed_turns(&mut terminal, &turns, &mut committed, &mut history, None)?;
+        }
+        let view = StatusView {
+            client: client.as_ref(),
+            inflight,
+            last_error: &last_error,
+            awaiting_approval: awaiting,
+            cancelling,
+            hint: &hint,
+            resumed,
+            routing: routing.as_ref(),
+            meter: &meter,
+            screen,
+        };
+        let notice = if screen == ScreenMode::Minimal {
+            overlay_notice(view, &turns)
+        } else {
+            render_transcript(&status_line(view), &turns)
+        };
+        paint(&mut terminal, screen, &draft, &notice, selected)?;
         if !event::poll(Duration::from_millis(80))? {
             continue;
         }
@@ -1326,8 +1513,9 @@ fn run() -> io::Result<()> {
                             break;
                         }
                         KeyCode::Char('c') => {
-                            if !draft.is_empty() {
+                            if !draft.is_empty() || !composer_stash.is_empty() {
                                 draft.set_text("");
+                                composer_stash.clear();
                                 selected = None;
                                 hint.clear();
                                 continue;
@@ -1454,6 +1642,7 @@ fn run() -> io::Result<()> {
                 if let (Some(turn), Some(active)) = (turns.last_mut(), client.as_mut())
                     && let Some(permission) = turn.permission.clone()
                     && key.modifiers.is_empty()
+                    && draft.is_empty()
                 {
                     let option = match key.code {
                         KeyCode::Char('y') | KeyCode::Enter => Some("allow-once"),
@@ -1484,6 +1673,60 @@ fn run() -> io::Result<()> {
                         Some(1) => draft.set_text(""),
                         _ => {
                             let text = draft.text();
+                            if let Some(action) = screen_mode::slash_action(text) {
+                                let restored = std::mem::take(&mut composer_stash);
+                                draft.set_text(&restored);
+                                selected = None;
+                                match action {
+                                    SlashAction::Switch(target) if target == screen => {
+                                        hint = format!("Already in {} mode.", screen.as_str());
+                                    }
+                                    SlashAction::Switch(target) => {
+                                        if policy == SwitchPolicy::Exec {
+                                            let session_id = client
+                                                .as_ref()
+                                                .and_then(|active| active.session_id.clone())
+                                                .or_else(|| previous_session.clone());
+                                            let Some(session_id) = session_id else {
+                                                hint = screen_mode::exec_failure_message(
+                                                    None,
+                                                    target,
+                                                    "no session",
+                                                );
+                                                continue;
+                                            };
+                                            drop_connection(&mut client, &mut owner);
+                                            drop(terminal);
+                                            drop(guard);
+                                            restore_terminal();
+                                            return Err(relaunch_exec(&session_id, target));
+                                        }
+                                        guard.apply(&mut terminal, target)?;
+                                        if target == ScreenMode::Minimal {
+                                            commit_completed_turns(
+                                                &mut terminal,
+                                                &turns,
+                                                &mut committed,
+                                                &mut history,
+                                                Some(target.switch_marker()),
+                                            )?;
+                                            hint.clear();
+                                        } else {
+                                            hint = target.switch_marker().into();
+                                        }
+                                        screen = target;
+                                        last_error.clear();
+                                    }
+                                    refuse @ SlashAction::Refuse(_) => {
+                                        if let Some(message) =
+                                            screen_mode::mode_command_message(screen, refuse)
+                                        {
+                                            hint = message;
+                                        }
+                                    }
+                                }
+                                continue;
+                            }
                             let slash = models::parse_slash(text.trim());
                             if inflight && slash.is_none() {
                                 continue;
@@ -1675,7 +1918,16 @@ fn run() -> io::Result<()> {
                     },
                     _ => {
                         selected = None;
-                        draft.input(key);
+                        if key.modifiers.is_empty()
+                            && key.code == KeyCode::Char('/')
+                            && !draft.is_empty()
+                            && !draft.text().starts_with('/')
+                        {
+                            composer_stash = draft.text().to_string();
+                            draft.set_text("/");
+                        } else {
+                            draft.input(key);
+                        }
                     }
                 }
             }
@@ -1683,7 +1935,12 @@ fn run() -> io::Result<()> {
                 selected = None;
                 draft.insert_str(&text);
             }
-            Event::Resize(_, _) => {}
+            Event::Resize(_, _) => {
+                terminal.autoresize()?;
+                if screen == ScreenMode::Minimal {
+                    resize_purge_rerender(&mut terminal, &history)?;
+                }
+            }
             _ => {}
         }
     }
@@ -1694,7 +1951,7 @@ fn run() -> io::Result<()> {
 fn main() {
     let old_hook = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {
-        drop(TerminalGuard);
+        restore_terminal();
         old_hook(info);
     }));
     if let Err(error) = run() {
@@ -1779,5 +2036,28 @@ mod tests {
             folder.mode,
             LaunchMode::Inspect { json: true, .. }
         ));
+    }
+
+    #[test]
+    fn parse_session_scoped_screen_flags() {
+        let launch = parse_launch(&args(&["--minimal", "--continue"])).unwrap();
+        assert!(matches!(launch.mode, LaunchMode::Continue));
+        assert_eq!(launch.screen, Some(ScreenMode::Minimal));
+        let launch = parse_launch(&args(&[
+            "--resume",
+            "abc",
+            "--fullscreen",
+            "--model",
+            "think",
+        ]))
+        .unwrap();
+        assert!(matches!(launch.mode, LaunchMode::Resume(_)));
+        assert_eq!(launch.screen, Some(ScreenMode::Fullscreen));
+        assert_eq!(launch.model.as_deref(), Some("think"));
+        let error = parse_launch(&args(&["--minimal", "--fullscreen"])).unwrap_err();
+        assert!(
+            error.to_string().contains("conflicting screen flags"),
+            "{error}"
+        );
     }
 }

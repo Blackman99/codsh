@@ -96,6 +96,45 @@ fn wrapped_rows(text: &str, width: u16) -> u16 {
     rows.clamp(2, 24) as u16
 }
 
+pub fn render_minimal(
+    frame: &mut Frame,
+    draft: &TextArea,
+    notice: &str,
+    _selected: Option<usize>,
+) -> Rect {
+    let area = frame.area();
+    if area.width < 8 || area.height < 3 {
+        frame.render_widget(Paragraph::new("codsh minimal · /fullscreen"), area);
+        return Rect::default();
+    }
+    let input_height = draft
+        .desired_height(area.width.saturating_sub(4))
+        .clamp(1, 4)
+        + 2;
+    let notice_height = notice
+        .lines()
+        .count()
+        .clamp(1, area.height.saturating_sub(input_height + 1) as usize)
+        as u16;
+    let [status, prompt] = Layout::vertical([
+        Constraint::Min(notice_height),
+        Constraint::Length(input_height),
+    ])
+    .areas(area);
+    Paragraph::new(notice)
+        .wrap(Wrap { trim: false })
+        .render(status, frame.buffer_mut());
+    let block = Block::new().borders(Borders::ALL).title("Draft (not sent)");
+    let input = block.inner(prompt);
+    block.render(prompt, frame.buffer_mut());
+    let mut state = TextAreaState::default();
+    draft.render_ref(input, frame.buffer_mut(), &mut state);
+    if let Some((x, y)) = draft.cursor_pos(input) {
+        frame.set_cursor_position((x, y));
+    }
+    input
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -144,5 +183,32 @@ mod tests {
         assert!(text.contains("base_url"));
         assert!(text.contains("env_key"));
         assert!(text.contains("inspect"));
+    }
+
+    #[test]
+    fn minimal_overlay_keeps_draft_and_native_mode_label() {
+        let mut terminal = Terminal::new(TestBackend::new(80, 12)).unwrap();
+        let mut draft = TextArea::new();
+        draft.set_text("keep-draft");
+        terminal
+            .draw(|frame| {
+                render_minimal(
+                    frame,
+                    &draft,
+                    "mode=minimal\nConnected to dsh ACP session demo.",
+                    None,
+                );
+            })
+            .unwrap();
+        let text: String = terminal
+            .backend()
+            .buffer()
+            .content
+            .iter()
+            .map(|cell| cell.symbol())
+            .collect();
+        assert!(text.contains("mode=minimal"), "{text}");
+        assert!(text.contains("keep-draft"), "{text}");
+        assert_eq!(draft.text(), "keep-draft");
     }
 }

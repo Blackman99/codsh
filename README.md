@@ -67,6 +67,15 @@ accepts a new turn. Idle empty `Ctrl+C` still quits before any turn exists.
 dsh log (not a second store). Interrupted or never-finished tools show
 `[interrupted]` / unknown and are not replayed. A second client that cannot
 take write ownership is refused instead of forking a duplicate executor.
+Default fullscreen uses the alternate screen. `/minimal` (or `--minimal`)
+switches to native terminal history through the official inline renderer;
+`/fullscreen` (alias `/full`) switches back. The switch stays in process, so a
+running dsh turn, draft, and pending approval survive. `--minimal` /
+`--fullscreen` and `GROK_SCREEN_MODE` are session-scoped and do not rewrite
+isolated `[ui] screen_mode`. Mode-only commands such as `/dashboard` in
+minimal refuse with the fullscreen remedy. `GROK_SCREEN_MODE_SWITCH=exec`
+relaunches onto the same session instead of switching in place and does not
+preserve an unsaved draft.
 
 User configuration for the preview is `$GROK_HOME/config.toml` (default
 `~/.codsh-rust/.grok/config.toml`). Compatible `[model.<id>]` fields
@@ -145,7 +154,8 @@ rather than guessing symlink traversal. Use a path without parent traversal.
 Default `~/.dsh` and `~/.grok` are protected even when overrides are set.
 `Ctrl+Q`/`Ctrl+D` quits; `Ctrl+C` clears a draft, cancels an empty running turn,
 or quits when idle before any turn. `--continue` and `--resume <id>` restore
-the same dsh session; a second writer is refused. Unsupported
+the same dsh session; a second writer is refused. `--minimal` and `--fullscreen`
+select the session render mode. Unsupported
 arguments fail explicitly. `codsh --rust --help` describes this path. Mock-model
 tests inject the fixture at the dsh provider boundary (`CODSH_ACP_PATCH` /
 `DSH_CODE_CLI_MOCK_TOOL`); the Rust client and dsh remain real products.

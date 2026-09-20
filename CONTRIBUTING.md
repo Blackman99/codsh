@@ -204,8 +204,10 @@ built: it would initialize official execution/auth/services and also requires
 DotSlash/protoc. This slice imports the upstream text editor/inline terminal
 crates and extracts offline wide/stacked welcome layout; see
 `rust/upstream/import.json` and `rust/upstream/MODIFICATIONS` for provenance.
-The fullscreen welcome now submits prompts to released dsh over ACP/JSON-RPC.
-Retaining inline source is not a claim of minimal-mode or complete Grok parity.
+The client reuses the official fullscreen alternate-screen renderer and the
+imported inline crate for minimal native-scrollback mode. `/minimal` and
+`/fullscreen` switch in process without restarting dsh; session-scoped CLI flags
+do not rewrite `[ui] screen_mode`. This is not a claim of complete Grok parity.
 Frozen behavior remains 1.0.34, while the imported public source declares 1.0.35
 (correspondence unproven).
 
@@ -227,6 +229,7 @@ python3 scripts/rust-config-pty-test.py
 python3 scripts/rust-model-pty-test.py
 python3 scripts/rust-compact-pty-test.py
 python3 scripts/rust-trust-pty-test.py
+python3 scripts/rust-screen-pty-test.py
 ```
 
 `build:rust` stages the host binary under ignored `packages/cli/native/<os>-<arch>`
@@ -328,7 +331,7 @@ tool results display as cancelled. After cancel, a new prompt still works.
 `scripts/rust-file-pty-test.py`, `scripts/rust-cancel-pty-test.py`,
 `scripts/rust-resume-pty-test.py`, `scripts/rust-config-pty-test.py`,
 `scripts/rust-model-pty-test.py`, `scripts/rust-compact-pty-test.py`,
-and `scripts/rust-trust-pty-test.py`
+`scripts/rust-trust-pty-test.py`, and `scripts/rust-screen-pty-test.py`
 against the packed native candidate. `/context` and `/compact` are
 dsh-backed: occupancy and advertised model limits must not be fabricated,
 manual/automatic compaction uses the dsh session log, failed compact must
@@ -345,6 +348,11 @@ and `session/resume`, is covered by `scripts/rust-acp-protocol.spec.mjs`.
 `session/resume` plus a read-only persistence projection; a second client is
 refused when it cannot take write ownership. Interrupted tools are displayed
 as unknown and are not replayed. `session/load` remains unsupported by dsh ACP.
+Fullscreen uses the alternate-screen lifecycle; minimal emits committed turns
+into native history through the official inline renderer. In-place `/minimal`
+and `/fullscreen` keep the dsh session, draft, running turn, and pending
+approval; `--minimal`/`--fullscreen` do not rewrite isolated `[ui] screen_mode`.
+Queue delivery across a switch remains a later ticket.
 
 ## Documentation site
 

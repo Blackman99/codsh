@@ -39,6 +39,9 @@ edition.workspace = true
 license = "MIT AND Apache-2.0"
 publish = false
 
+[lints]
+workspace = true
+
 [dependencies]
 crossterm = { workspace = true, features = ["bracketed-paste"] }
 ratatui = { workspace = true, features = ["unstable-widget-ref"] }
@@ -46,6 +49,7 @@ serde = { version = "1.0.229", features = ["derive"] }
 serde_json.workspace = true
 toml = "1.1.6"
 unicode-width.workspace = true
+xai-ratatui-inline = { path = "upstream/xai-ratatui-inline" }
 xai-ratatui-textarea = { path = "upstream/xai-ratatui-textarea" }
 
 [target.'cfg(unix)'.dependencies]
