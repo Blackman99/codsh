@@ -120,6 +120,19 @@ describe('dsh session log projection', () => {
     expect(turns[0].tools[0].status).toBe('unknown')
     expect(JSON.stringify(turns[0]).toLowerCase()).not.toContain('success')
   })
+
+  it('converts leftover pending tools to unknown when the turn never ended', () => {
+    const turns = projectTurns([
+      { type: 'turn/start', data: { turn: 1 } },
+      { type: 'user/message', data: { message: { content: [{ type: 'text', text: 'edit the note' }] } } },
+      { type: 'tool/call', data: { callId: 'read-1', name: 'read', arguments: '{"file_path":"note.txt"}' } },
+      { type: 'tool/call', data: { callId: 'edit-1', name: 'edit', arguments: '{"file_path":"note.txt"}' } },
+    ])
+    expect(turns).toHaveLength(1)
+    expect(turns[0].interrupted).toBe(true)
+    expect(turns[0].tools.map(tool => tool.status)).toEqual(['unknown', 'unknown'])
+    expect(turns[0].tools.every(tool => tool.status !== 'pending' && tool.status !== 'in_progress')).toBe(true)
+  })
 })
 
 describe('public ACP/JSON-RPC against real dsh', () => {
@@ -601,10 +614,13 @@ describe('public ACP/JSON-RPC against real dsh', () => {
       expect(helper.status).toBe(0)
       const projected = JSON.parse(helper.stdout)
       expect(projected.ok).toBe(true)
-      const interrupted = projected.turns.some(turn =>
-        turn.interrupted === true
-        || turn.tools.some(tool => tool.status === 'unknown' || tool.status === 'pending' || /unknown|interrupted/i.test(tool.result)))
-      expect(interrupted).toBe(true)
+      expect(projected.turns.some(turn => turn.interrupted === true || turn.tools.some(tool => tool.status === 'unknown'))).toBe(true)
+      for (const turn of projected.turns) {
+        for (const tool of turn.tools) {
+          expect(tool.status).not.toBe('pending')
+          expect(tool.status).not.toBe('in_progress')
+        }
+      }
       const follow = await second.send(3, 'session/prompt', {
         sessionId,
         prompt: [{ type: 'text', text: 'TOKEN_AFTER_INTERRUPT' }],
@@ -619,6 +635,55 @@ describe('public ACP/JSON-RPC against real dsh', () => {
       second.child.kill('SIGTERM')
     }
   }, 60000)
+
+  it('does not let a disconnected owner write after a successor resumes', async () => {
+    const first = startAgent('echo')
+    let sessionId
+    try {
+      const { session } = await handshake(first)
+      sessionId = session.sessionId
+      const before = await first.send(3, 'session/prompt', {
+        sessionId,
+        prompt: [{ type: 'text', text: 'TOKEN_BEFORE_DISCONNECT' }],
+      })
+      expect(before.stopReason).toBe('end_turn')
+      first.child.stdin.end()
+      expect(first.child.stdin.writableEnded).toBe(true)
+      expect(first.child.stdin.writable).toBe(false)
+      first.child.kill('SIGTERM')
+      await Promise.race([
+        new Promise(resolve => first.child.once('exit', resolve)),
+        new Promise((_, reject) => setTimeout(() => reject(new Error('owner did not exit')), 10000)),
+      ])
+    } finally {
+      if (first.child.exitCode === null && first.child.signalCode === null) {
+        first.child.kill('SIGKILL')
+      }
+    }
+
+    const second = startAgent('echo', {}, { root: first.root, home: first.home, cwd: first.cwd })
+    try {
+      await second.send(1, 'initialize', {
+        protocolVersion: 1,
+        clientCapabilities: {},
+        clientInfo: { name: 'codsh-acp-protocol-test', version: '0.0.0' },
+      })
+      await second.send(2, 'session/resume', { sessionId, cwd: second.cwd, mcpServers: [] })
+      const next = await second.send(3, 'session/prompt', {
+        sessionId,
+        prompt: [{ type: 'text', text: 'TOKEN_AFTER_DISCONNECT' }],
+      })
+      expect(next.stopReason).toBe('end_turn')
+      const answer = second.updates.filter(update => update.update.sessionUpdate === 'agent_message_chunk').at(-1)
+      expect(answer.update.content.text).toContain('TOKEN_AFTER_DISCONNECT')
+      expect(answer.update.content.text).toContain('TOKEN_BEFORE_DISCONNECT')
+      expect(answer.update.content.text).not.toContain('TOKEN_STALE_AFTER_DISCONNECT')
+      await second.send(4, 'session/close', { sessionId })
+    } finally {
+      second.child.stdin.end()
+      second.child.kill('SIGTERM')
+    }
+  }, 45000)
 
   it('returns ACP v1 when the client offers an unsupported version', async () => {
     const agent = startAgent('echo')

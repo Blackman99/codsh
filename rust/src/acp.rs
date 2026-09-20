@@ -1760,4 +1760,35 @@ mod tests {
         let follow = second.submit_prompt("TOKEN_TWO").unwrap();
         assert_eq!(wait_stop(&mut second, follow), "end_turn");
     }
+
+    #[test]
+    fn stale_owner_prompt_is_refused() {
+        let mut client = spawn_fake_env("echo", vec![("FAKE_ACP_STALE_OWNER".into(), "1".into())]);
+        client
+            .initialize(Duration::from_secs(2))
+            .expect("initialize");
+        client
+            .new_session(&std::env::temp_dir(), Duration::from_secs(2))
+            .expect("session");
+        let id = client.submit_prompt("TOKEN_STALE").unwrap();
+        let stop = wait_stop(&mut client, id);
+        assert!(
+            stop.contains("stale session owner") || stop.starts_with("error:"),
+            "{stop}"
+        );
+        assert_ne!(stop, "end_turn");
+    }
+
+    #[test]
+    fn shutdown_reaps_child_before_owner_release() {
+        let home = tempfile::tempdir().unwrap();
+        let mut client = ready("echo");
+        let session = client.session_id.clone().expect("session");
+        let owner =
+            crate::session_owner::SessionOwner::acquire(home.path(), &session).expect("owner");
+        client.shutdown();
+        drop(owner);
+        crate::session_owner::SessionOwner::acquire(home.path(), &session)
+            .expect("successor after shutdown");
+    }
 }

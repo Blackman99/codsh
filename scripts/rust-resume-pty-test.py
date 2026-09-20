@@ -195,12 +195,28 @@ def main():
                 **base_env, 'DSH_CODE_CLI_MOCK_TOOL': 'echo',
             }, output, extra=['--resume', session_id])
             try:
-                shown = rival.wait_visible('Write owner refused', 25)
+                shown = None
+                deadline = time.monotonic() + 25
+                while time.monotonic() < deadline:
+                    owner.pump(0.05)
+                    rival.pump(0.05)
+                    vis = rival.visible()
+                    if 'Write owner refused' in vis:
+                        shown = vis
+                        break
+                    if rival.process.poll() is not None:
+                        vis = rival.visible()
+                        break
+                if shown is None:
+                    raise AssertionError(
+                        f'rival: missing Write owner refused\n{rival.visible()}\nraw={bytes(rival.data)[-2500:]!r}')
                 assert session_id in shown
                 assert 'already running' in shown or 'already owned' in shown or 'already active' in shown
+                owner.pump(0.2)
                 results.append(rival.finish())
             finally:
                 rival.close()
+            owner.pump(0.2)
             results.append(owner.finish())
         finally:
             owner.close()
@@ -233,7 +249,10 @@ def main():
         try:
             shown = recovered.wait_visible('resumed', 25)
             assert crash_id in shown
-            assert '[interrupted]' in shown or 'unknown' in shown.lower()
+            assert '[interrupted]' in shown
+            assert 'unknown' in shown.lower()
+            assert ' pending]' not in shown
+            assert ' in_progress]' not in shown
             assert (cwd / 'note.txt').read_text() == 'alpha\n'
             recovered.write('TOKEN_AFTER_CRASH\r')
             recovered.wait_visible('TOKEN_AFTER_CRASH', 20)

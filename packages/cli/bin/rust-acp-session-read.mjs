@@ -126,10 +126,27 @@ export function projectTurns(events) {
       if (reason.kind === 'error') {
         current.error ??= reason.error?.message ?? 'turn failed'
       }
+      if (current.interrupted || current.cancelled) markUnknownOpenTools(current)
       current = null
     }
   }
+  if (current) {
+    current.interrupted = true
+    markUnknownOpenTools(current)
+  }
+  for (const turn of turns) {
+    if (turn.interrupted || turn.cancelled) markUnknownOpenTools(turn)
+  }
   return turns.filter(turn => turn.user !== '' || turn.answer !== '' || turn.tools.length > 0)
+}
+
+function markUnknownOpenTools(turn) {
+  for (const tool of turn.tools) {
+    if (tool.status === 'pending' || tool.status === 'in_progress') {
+      tool.status = 'unknown'
+      turn.interrupted = true
+    }
+  }
 }
 
 async function main() {

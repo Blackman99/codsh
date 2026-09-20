@@ -481,6 +481,7 @@ rl.on('line', line => {
   send({ jsonrpc: '2.0', id, error: { code: -32601, message: `Method not found: ${method}` } })
 })
 rl.on('close', () => {
+  if (liveSessionId) recordSession(liveSessionId, { closed: true, owned: false })
   pending.length = 0
   process.exit(0)
 })

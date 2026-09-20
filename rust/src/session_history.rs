@@ -194,6 +194,7 @@ mod tests {
         assert_eq!(turns[0].user, "edit the note");
         assert!(turns[0].interrupted);
         assert_eq!(turns[0].tools[0].status, "unknown");
+        assert_ne!(turns[0].tools[0].status, "pending");
         assert!(turns[0].tools[0].result.contains("interrupted"));
     }
 

@@ -139,7 +139,7 @@ fn parse_launch(args: &[String]) -> io::Result<LaunchMode> {
 }
 
 fn turn_from_restored(item: RestoredTurn) -> Turn {
-    Turn {
+    let mut turn = Turn {
         user: item.user,
         thought: item.thought,
         answer: item.answer,
@@ -161,7 +161,28 @@ fn turn_from_restored(item: RestoredTurn) -> Turn {
         cancelling: false,
         cancelled: item.cancelled,
         interrupted: item.interrupted,
+    };
+    if turn.interrupted || turn.cancelled {
+        mark_unknown_open_tools(&mut turn);
     }
+    turn
+}
+
+fn mark_unknown_open_tools(turn: &mut Turn) {
+    for tool in &mut turn.tools {
+        if tool.status == "pending" || tool.status == "in_progress" {
+            tool.status = "unknown".into();
+            turn.interrupted = true;
+        }
+    }
+}
+
+fn drop_connection(client: &mut Option<AcpClient>, owner: &mut Option<SessionOwner>) {
+    if let Some(active) = client.as_mut() {
+        active.shutdown();
+    }
+    *client = None;
+    *owner = None;
 }
 
 fn resolve_resume(
@@ -478,6 +499,8 @@ fn apply_events(turns: &mut [Turn], inflight: &mut bool, events: Vec<AcpEvent>) 
                     turn.error = Some(detail.clone());
                     turn.done = true;
                     turn.permission = None;
+                    turn.interrupted = true;
+                    mark_unknown_open_tools(turn);
                 }
                 disconnect = Some(detail);
                 *inflight = false;
@@ -574,8 +597,7 @@ fn run() -> io::Result<()> {
         });
         if let Some(detail) = disconnect {
             last_error = detail;
-            client = None;
-            owner = None;
+            drop_connection(&mut client, &mut owner);
         }
         let awaiting = turns.last().is_some_and(|turn| turn.permission.is_some());
         let cancelling = turns.last().is_some_and(|turn| turn.cancelling);
@@ -714,8 +736,7 @@ fn run() -> io::Result<()> {
                                         .map(|held| held.session_id.as_str())
                                         .unwrap_or("unknown")
                                 );
-                                client = None;
-                                owner = None;
+                                drop_connection(&mut client, &mut owner);
                                 continue;
                             }
                             if let Some(active) = client.as_mut() {
@@ -757,10 +778,7 @@ fn run() -> io::Result<()> {
             _ => {}
         }
     }
-    if let Some(active) = client.as_mut() {
-        active.shutdown();
-    }
-    drop(owner);
+    drop_connection(&mut client, &mut owner);
     Ok(())
 }
 
