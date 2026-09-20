@@ -921,6 +921,17 @@ fn paint(
     Ok(())
 }
 
+fn replace_session_turns(
+    turns: &mut Vec<Turn>,
+    committed: &mut usize,
+    history: &mut String,
+    restored: Vec<session_history::RestoredTurn>,
+) {
+    *turns = restored.into_iter().map(turn_from_restored).collect();
+    *committed = 0;
+    history.clear();
+}
+
 fn commit_completed_turns(
     terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
     turns: &[Turn],
@@ -1440,7 +1451,15 @@ fn run() -> io::Result<()> {
                 match session_history::load_session(&effective.dsh_home, &session_id) {
                     Ok(restored) => {
                         last_compaction_count = restored.compaction.len();
-                        turns = restored.turns.into_iter().map(turn_from_restored).collect();
+                        replace_session_turns(
+                            &mut turns,
+                            &mut committed,
+                            &mut history,
+                            restored.turns,
+                        );
+                        if screen == ScreenMode::Minimal {
+                            resize_purge_rerender(&mut terminal, "")?;
+                        }
                         hint = compact_reload_hint(&turns, &restored.compaction, compact_cancelled);
                         if hint.starts_with("Compaction failed") || hint == "Compaction cancelled."
                         {
@@ -1461,7 +1480,10 @@ fn run() -> io::Result<()> {
             match session_history::load_session(&effective.dsh_home, &session_id) {
                 Ok(restored) if restored.compaction.len() > last_compaction_count => {
                     last_compaction_count = restored.compaction.len();
-                    turns = restored.turns.into_iter().map(turn_from_restored).collect();
+                    replace_session_turns(&mut turns, &mut committed, &mut history, restored.turns);
+                    if screen == ScreenMode::Minimal {
+                        resize_purge_rerender(&mut terminal, "")?;
+                    }
                     hint = compact_reload_hint(&turns, &restored.compaction, false);
                     last_error.clear();
                 }
@@ -1670,7 +1692,10 @@ fn run() -> io::Result<()> {
                     KeyCode::Tab => selected = Some((selected.unwrap_or(2) + 1) % 3),
                     KeyCode::Enter if key.modifiers.is_empty() => match selected {
                         Some(2) => break,
-                        Some(1) => draft.set_text(""),
+                        Some(1) => {
+                            draft.set_text("");
+                            composer_stash.clear();
+                        }
                         _ => {
                             let text = draft.text();
                             if let Some(action) = screen_mode::slash_action(text) {
@@ -1727,6 +1752,7 @@ fn run() -> io::Result<()> {
                                 }
                                 continue;
                             }
+                            composer_stash.clear();
                             let slash = models::parse_slash(text.trim());
                             if inflight && slash.is_none() {
                                 continue;

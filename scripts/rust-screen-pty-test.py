@@ -377,6 +377,60 @@ def main():
         finally:
             approval.close()
 
+        stash = Session('aborted-slash-stash', launcher, cwd, {
+            **base_env, 'DSH_CODE_CLI_MOCK_TOOL': 'echo',
+        }, output, extra=['--fullscreen'])
+        try:
+            stash.wait_visible('Connected to dsh ACP', 25)
+            stash_id = stash.session_id()
+            stash.write('DRAFT_STALE')
+            stash.wait_visible('DRAFT_STALE')
+            stash.write('/')
+            stash.wait_visible('/', 10)
+            stash.write('\x7f')
+            stash.pump(0.3)
+            stash.write('TOKEN_AFTER_ABORT\r')
+            stash.wait_visible('RUST_ACP_ANSWER', 20)
+            shown = stash.visible()
+            assert 'DRAFT_STALE' not in shown.split('┌Draft')[0]
+            leaves_before = alt_leave_count(stash.data)
+            stash.write('/minimal\r')
+            shown = stash.wait_visible('mode=minimal', 25)
+            assert stash.session_id() == stash_id
+            assert 'DRAFT_STALE' not in shown
+            stash.assert_native_minimal('TOKEN_AFTER_ABORT', leaves_before=leaves_before)
+            results.append(stash.finish())
+            assert 'DRAFT_STALE' not in results[-1]['primary']
+            assert 'DRAFT_STALE' not in results[-1]['screen']
+        finally:
+            stash.close()
+
+        compact = Session('compact-minimal', launcher, cwd, {
+            **base_env, 'DSH_CODE_CLI_MOCK_TOOL': 'echo',
+        }, output, extra=['--minimal'])
+        try:
+            compact.wait_visible('Connected to dsh ACP', 25)
+            shown = compact.visible()
+            assert 'mode=minimal' in shown
+            compact_id = compact.session_id()
+            for token in ['TOKEN_OLD_ONE', 'TOKEN_OLD_TWO', 'TOKEN_OLD_THREE', 'TOKEN_OLD_FOUR']:
+                compact.write(token + '\r')
+                compact.wait_visible('RUST_ACP_ANSWER', 20)
+            snap = compact.snapshot()
+            assert not snap['onAlternate']
+            assert 'TOKEN_OLD_ONE' in snap['primary']
+            compact.write('/compact keep the auth plan\r')
+            shown = compact.wait_visible('purpose=compaction', 40)
+            assert compact.session_id() == compact_id
+            snap = compact.snapshot()
+            assert not snap['onAlternate']
+            assert 'purpose=compaction' in snap['primary'] or 'MOCK_COMPACTION_SUMMARY' in snap['primary'] or 'MOCK_COMPACTION_SUMMARY' in shown
+            assert 'MOCK_COMPACTION_SUMMARY' in shown or 'MOCK_COMPACTION_SUMMARY' in snap['primary']
+            results.append(compact.finish(expect_alt_leave=False))
+            assert 'purpose=compaction' in results[-1]['primary'] or 'MOCK_COMPACTION_SUMMARY' in results[-1]['primary']
+        finally:
+            compact.close()
+
         invalid = isolated / '.grok' / 'config.toml'
         invalid.write_text('[ui]\nscreen_mode = "banana"\n')
         bad = Session('invalid-default', launcher, cwd, base_env, output)
