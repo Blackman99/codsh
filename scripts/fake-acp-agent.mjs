@@ -3,7 +3,7 @@
  * Deterministic ACP stdio stand-in for protocol-mismatch and disconnect tests.
  * Extra CLI arguments are ignored so it can be pointed at by DSH_BIN.
  */
-import { writeFileSync } from 'node:fs'
+import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { createInterface } from 'node:readline'
 
 const mode = process.env.FAKE_ACP_MODE ?? 'echo'
@@ -15,6 +15,29 @@ let permissionSeq = 0
 let inflightPrompt = null
 let cancelled = false
 let writes = Number(process.env.FAKE_ACP_WRITES ?? '0')
+const storePath = process.env.FAKE_ACP_STORE
+let liveSessionId = 'fake-session'
+
+function loadStore() {
+  if (!storePath || !existsSync(storePath)) return { sessions: {} }
+  try {
+    return JSON.parse(readFileSync(storePath, 'utf8'))
+  } catch {
+    return { sessions: {} }
+  }
+}
+
+function saveStore(store) {
+  if (!storePath) return
+  writeFileSync(storePath, `${JSON.stringify(store)}\n`)
+}
+
+function recordSession(sessionId, patch) {
+  const store = loadStore()
+  store.sessions[sessionId] = { ...(store.sessions[sessionId] ?? { sessionId, prompts: [] }), ...patch }
+  saveStore(store)
+  return store.sessions[sessionId]
+}
 
 function send(obj) {
   process.stdout.write(`${JSON.stringify(obj)}\n`)
@@ -378,17 +401,70 @@ rl.on('line', line => {
       result: {
         protocolVersion: version,
         agentInfo: { name: 'fake-acp-agent', version: '0.0.0' },
-        agentCapabilities: { sessionCapabilities: {} },
+        agentCapabilities: { sessionCapabilities: { close: {}, list: {}, resume: {} } },
         authMethods: [],
       },
     })
     return
   }
   if (method === 'session/new') {
-    send({ jsonrpc: '2.0', id, result: { sessionId: 'fake-session', configOptions: [] } })
+    liveSessionId = params?.sessionId ?? 'fake-session'
+    recordSession(liveSessionId, {
+      sessionId: liveSessionId,
+      cwd: params?.cwd ?? process.cwd(),
+      closed: false,
+      owned: true,
+      prompts: [],
+    })
+    send({ jsonrpc: '2.0', id, result: { sessionId: liveSessionId, configOptions: [] } })
+    return
+  }
+  if (method === 'session/list') {
+    const store = loadStore()
+    const cwd = params?.cwd
+    const sessions = Object.values(store.sessions)
+      .filter(session => session.closed === true)
+      .filter(session => cwd == null || session.cwd === cwd)
+      .map(session => ({ sessionId: session.sessionId, cwd: session.cwd }))
+    send({ jsonrpc: '2.0', id, result: { sessions } })
+    return
+  }
+  if (method === 'session/resume') {
+    const sessionId = params?.sessionId
+    const store = loadStore()
+    const existing = store.sessions[sessionId]
+    if (existing === undefined) {
+      send({ jsonrpc: '2.0', id, error: { code: -32602, message: `session is not resumable: ${sessionId}` } })
+      return
+    }
+    if (existing.owned === true && existing.closed !== true) {
+      send({ jsonrpc: '2.0', id, error: { code: -32602, message: `session is already active: ${sessionId}` } })
+      return
+    }
+    if (process.env.FAKE_ACP_OWNED === '1') {
+      send({ jsonrpc: '2.0', id, error: { code: -32602, message: `session "${sessionId}" is already owned by an active write handle` } })
+      return
+    }
+    if (params?.cwd != null && existing.cwd != null && params.cwd !== existing.cwd) {
+      send({ jsonrpc: '2.0', id, error: { code: -32602, message: `session cwd does not match: ${params.cwd}` } })
+      return
+    }
+    liveSessionId = sessionId
+    recordSession(sessionId, { closed: false, owned: true })
+    send({ jsonrpc: '2.0', id, result: { configOptions: [] } })
     return
   }
   if (method === 'session/prompt') {
+    if (process.env.FAKE_ACP_STALE_OWNER === '1') {
+      send({ jsonrpc: '2.0', id, error: { code: -32602, message: 'stale session owner' } })
+      return
+    }
+    const sessionId = params?.sessionId ?? liveSessionId
+    const text = Array.isArray(params?.prompt)
+      ? params.prompt.filter(block => block?.type === 'text').map(block => block.text).join('')
+      : ''
+    const existing = loadStore().sessions[sessionId] ?? { sessionId, prompts: [] }
+    recordSession(sessionId, { prompts: [...(existing.prompts ?? []), text] })
     answerPrompt(id, params)
     return
   }
@@ -397,6 +473,8 @@ rl.on('line', line => {
     return
   }
   if (method === 'session/close') {
+    const sessionId = params?.sessionId ?? liveSessionId
+    recordSession(sessionId, { closed: true, owned: false })
     send({ jsonrpc: '2.0', id, result: {} })
     return
   }

@@ -1,10 +1,12 @@
-import { spawn } from 'node:child_process'
+import { spawn, spawnSync } from 'node:child_process'
 import { createInterface } from 'node:readline'
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, existsSync, readdirSync } from 'node:fs'
-import { join, dirname } from 'node:path'
+import { join, dirname, resolve } from 'node:path'
 import { createRequire } from 'node:module'
 import { afterEach, describe, expect, it } from 'vitest'
 import { rustAcpOverlay } from './rust-acp-overlay.mjs'
+import { fileURLToPath } from 'node:url'
+import { projectTurns } from '../packages/cli/bin/rust-acp-session-read.mjs'
 
 const require = createRequire(import.meta.url)
 const dshManifest = require.resolve('@deepseek-ai/dsh/package.json')
@@ -20,13 +22,15 @@ function dshPath() {
   return join(dirname(dshManifest), typeof bin === 'string' ? bin : bin.dsh)
 }
 
-function startAgent(mode, extraEnv = {}) {
-  const root = mkdtempSync(join('/tmp', 'codsh-acp-protocol-'))
-  homes.push(root)
-  const home = join(root, 'home')
-  const cwd = join(root, 'workspace')
-  mkdirSync(home)
-  mkdirSync(cwd)
+function startAgent(mode, extraEnv = {}, reuse = null) {
+  const root = reuse?.root ?? mkdtempSync(join('/tmp', 'codsh-acp-protocol-'))
+  if (reuse == null) homes.push(root)
+  const home = reuse?.home ?? join(root, 'home')
+  const cwd = reuse?.cwd ?? join(root, 'workspace')
+  if (reuse == null) {
+    mkdirSync(home)
+    mkdirSync(cwd)
+  }
   const overlay = join(root, 'overlay.yml')
   writeFileSync(overlay, rustAcpOverlay())
   const child = spawn(process.execPath, [dshPath(), '--profile', 'acp', '--patch', overlay], {
@@ -97,6 +101,26 @@ async function handshake(agent, cwd = agent.cwd) {
   const session = await agent.send(2, 'session/new', { cwd, mcpServers: [] })
   return { init, session }
 }
+
+describe('dsh session log projection', () => {
+  it('marks interrupted unknown tools without fabricating success', () => {
+    const turns = projectTurns([
+      { type: 'turn/start', data: { turn: 1 } },
+      { type: 'user/message', data: { message: { content: [{ type: 'text', text: 'edit the note' }] } } },
+      { type: 'tool/call', data: { callId: 't1', name: 'edit', arguments: '{"file_path":"note.txt"}' } },
+      { type: 'tool/result', data: {
+        error: { code: 'TOOL_OUTCOME_UNKNOWN' },
+        message: { toolCallId: 't1', isError: true, content: [{ type: 'text', text: 'The tool call was interrupted after it was recorded, but no result was durably recorded.' }] },
+      } },
+      { type: 'turn/end', data: { turn: 1, reason: { kind: 'interrupted' } } },
+    ])
+    expect(turns).toHaveLength(1)
+    expect(turns[0].user).toContain('edit the note')
+    expect(turns[0].interrupted).toBe(true)
+    expect(turns[0].tools[0].status).toBe('unknown')
+    expect(JSON.stringify(turns[0]).toLowerCase()).not.toContain('success')
+  })
+})
 
 describe('public ACP/JSON-RPC against real dsh', () => {
   it('negotiates v1, streams content blocks in order, and keeps identifiers stable', async () => {
@@ -439,6 +463,162 @@ describe('public ACP/JSON-RPC against real dsh', () => {
       race.child.kill('SIGTERM')
     }
   }, 45000)
+
+  it('lists and resumes a closed session without replaying tools', async () => {
+    const first = startAgent('echo')
+    let sessionId
+    try {
+      const { init, session } = await handshake(first)
+      expect(init.agentCapabilities.sessionCapabilities).toMatchObject({ list: {}, resume: {}, close: {} })
+      sessionId = session.sessionId
+      const result = await first.send(3, 'session/prompt', {
+        sessionId,
+        prompt: [{ type: 'text', text: 'TOKEN_RESUME_ONE' }],
+      })
+      expect(result.stopReason).toBe('end_turn')
+      await first.send(4, 'session/close', { sessionId })
+    } finally {
+      first.child.stdin.end()
+      first.child.kill('SIGTERM')
+      await new Promise(resolve => first.child.once('exit', resolve))
+    }
+
+    const second = startAgent('echo', {}, { root: first.root, home: first.home, cwd: first.cwd })
+    try {
+      await second.send(1, 'initialize', {
+        protocolVersion: 1,
+        clientCapabilities: {},
+        clientInfo: { name: 'codsh-acp-protocol-test', version: '0.0.0' },
+      })
+      const listed = await second.send(2, 'session/list', { cwd: second.cwd })
+      expect(listed.sessions.some(entry => entry.sessionId === sessionId)).toBe(true)
+      await second.send(3, 'session/resume', { sessionId, cwd: second.cwd, mcpServers: [] })
+      const next = await second.send(4, 'session/prompt', {
+        sessionId,
+        prompt: [{ type: 'text', text: 'TOKEN_RESUME_TWO' }],
+      })
+      expect(next.stopReason).toBe('end_turn')
+      const answer = second.updates.filter(update => update.update.sessionUpdate === 'agent_message_chunk').at(-1)
+      expect(answer.update.content.text).toContain('TOKEN_RESUME_TWO')
+      expect(answer.update.content.text).toContain('TOKEN_RESUME_ONE')
+      expect(answer.update.content.text).toMatch(/turn=\d+/)
+      const helper = spawnSync(process.execPath, [
+        resolve(fileURLToPath(new URL('../packages/cli/bin/rust-acp-session-read.mjs', import.meta.url))),
+        '--session-id', sessionId,
+      ], {
+        encoding: 'utf8',
+        env: { ...process.env, DSH_HOME: first.home, DSH_BIN: dshPath() },
+      })
+      expect(helper.status).toBe(0)
+      const projected = JSON.parse(helper.stdout)
+      expect(projected.ok).toBe(true)
+      expect(projected.sessionId).toBe(sessionId)
+      expect(projected.turns.some(turn => turn.user.includes('TOKEN_RESUME_ONE'))).toBe(true)
+      expect(projected.turns.some(turn => turn.user.includes('TOKEN_RESUME_TWO'))).toBe(true)
+      await second.send(5, 'session/close', { sessionId })
+    } finally {
+      second.child.stdin.end()
+      second.child.kill('SIGTERM')
+    }
+  }, 45000)
+
+  it('refuses a second writer while the session is active', async () => {
+    const owner = startAgent('echo')
+    try {
+      const { session } = await handshake(owner)
+      const rival = startAgent('echo', {}, { root: owner.root, home: owner.home, cwd: owner.cwd })
+      try {
+        await rival.send(1, 'initialize', {
+          protocolVersion: 1,
+          clientCapabilities: {},
+          clientInfo: { name: 'codsh-acp-protocol-test', version: '0.0.0' },
+        })
+        await expect(rival.send(2, 'session/resume', {
+          sessionId: session.sessionId,
+          cwd: rival.cwd,
+          mcpServers: [],
+        })).rejects.toThrow(/already active|already owned|not resumable|Internal error/i)
+        await expect(rival.send(3, 'session/prompt', {
+          sessionId: session.sessionId,
+          prompt: [{ type: 'text', text: 'TOKEN_STALE_WRITER' }],
+        })).rejects.toThrow()
+        await owner.send(4, 'session/prompt', {
+          sessionId: session.sessionId,
+          prompt: [{ type: 'text', text: 'TOKEN_OWNER_KEEPS' }],
+        })
+        const answer = owner.updates.filter(update => update.update.sessionUpdate === 'agent_message_chunk').at(-1)
+        expect(answer.update.content.text).toContain('TOKEN_OWNER_KEEPS')
+      } finally {
+        rival.child.stdin.end()
+        rival.child.kill('SIGTERM')
+      }
+      await owner.send(5, 'session/close', { sessionId: session.sessionId })
+    } finally {
+      owner.child.stdin.end()
+      owner.child.kill('SIGTERM')
+    }
+  }, 45000)
+
+  it('recovers an interrupted file tool without replaying the write', async () => {
+    const first = startAgent('file-edit', { DSH_CODE_CLI_TOOL_DELAY_MS: '8000' })
+    writeFileSync(join(first.cwd, 'note.txt'), 'alpha\n')
+    let sessionId
+    try {
+      const { session } = await handshake(first)
+      sessionId = session.sessionId
+      first.send(3, 'session/prompt', {
+        sessionId,
+        prompt: [{ type: 'text', text: 'edit the note' }],
+      }).catch(() => undefined)
+      await waitUntil(() => first.permissions.length > 0, 20000, 'permission before kill')
+      first.reply(first.permissions[0].id, { outcome: { outcome: 'selected', optionId: 'allow-once' } })
+      await new Promise(resolve => setTimeout(resolve, 150))
+      first.child.kill('SIGKILL')
+      await new Promise(resolve => first.child.once('exit', resolve))
+    } finally {
+      if (first.child.exitCode === null && first.child.signalCode === null) {
+        first.child.kill('SIGKILL')
+      }
+    }
+    expect(readFileSync(join(first.cwd, 'note.txt'), 'utf8')).toBe('alpha\n')
+
+    const second = startAgent('echo', {}, { root: first.root, home: first.home, cwd: first.cwd })
+    try {
+      await second.send(1, 'initialize', {
+        protocolVersion: 1,
+        clientCapabilities: {},
+        clientInfo: { name: 'codsh-acp-protocol-test', version: '0.0.0' },
+      })
+      await second.send(2, 'session/resume', { sessionId, cwd: second.cwd, mcpServers: [] })
+      expect(readFileSync(join(second.cwd, 'note.txt'), 'utf8')).toBe('alpha\n')
+      const helper = spawnSync(process.execPath, [
+        resolve(fileURLToPath(new URL('../packages/cli/bin/rust-acp-session-read.mjs', import.meta.url))),
+        '--session-id', sessionId,
+      ], {
+        encoding: 'utf8',
+        env: { ...process.env, DSH_HOME: first.home, DSH_BIN: dshPath() },
+      })
+      expect(helper.status).toBe(0)
+      const projected = JSON.parse(helper.stdout)
+      expect(projected.ok).toBe(true)
+      const interrupted = projected.turns.some(turn =>
+        turn.interrupted === true
+        || turn.tools.some(tool => tool.status === 'unknown' || tool.status === 'pending' || /unknown|interrupted/i.test(tool.result)))
+      expect(interrupted).toBe(true)
+      const follow = await second.send(3, 'session/prompt', {
+        sessionId,
+        prompt: [{ type: 'text', text: 'TOKEN_AFTER_INTERRUPT' }],
+      })
+      expect(follow.stopReason).toBe('end_turn')
+      expect(readFileSync(join(second.cwd, 'note.txt'), 'utf8')).toBe('alpha\n')
+      const answer = second.updates.filter(update => update.update.sessionUpdate === 'agent_message_chunk').at(-1)
+      expect(answer.update.content.text).toContain('TOKEN_AFTER_INTERRUPT')
+      await second.send(4, 'session/close', { sessionId }).catch(() => undefined)
+    } finally {
+      second.child.stdin.end()
+      second.child.kill('SIGTERM')
+    }
+  }, 60000)
 
   it('returns ACP v1 when the client offers an unsupported version', async () => {
     const agent = startAgent('echo')

@@ -19,7 +19,8 @@ Home. dsh remains the only executing agent core and durable session owner; the
 Rust process does not link the official agent runtime or own tools. Protocol
 mismatch, empty answers, mid-stream failure, disconnect, and cancellation are
 reported truthfully. `Ctrl+C` clears a draft first; an empty draft cancels the
-running dsh turn. Esc does not cancel. The isolated Home is `~/.codsh-rust/dsh`, Profile `rust`; inherited
+running dsh turn. Esc does not cancel. `--continue` / `--resume <id>` restore
+the same dsh session; a second write owner is refused. The isolated Home is `~/.codsh-rust/dsh`, Profile `rust`; inherited
 legacy configuration/credentials are not imported. Telemetry stays off.
 Plain `codsh` still selects the legacy Launcher/Bundle; this is not the default
 cutover.

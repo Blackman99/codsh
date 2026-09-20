@@ -212,6 +212,8 @@ pub struct AcpClient {
     pub pending_permission: Option<PendingPermission>,
     answered_permissions: HashSet<String>,
     prompt_cancelled: bool,
+    pub can_list: bool,
+    pub can_resume: bool,
 }
 
 enum Line {
@@ -222,6 +224,8 @@ enum Line {
 enum PendingKind {
     Initialize,
     SessionNew,
+    SessionResume,
+    SessionList,
     Prompt,
     Close,
     #[allow(dead_code)]
@@ -285,6 +289,10 @@ pub fn dsh_spawn_spec(cwd: PathBuf, dsh_home: &Path) -> Result<SpawnSpec, AcpErr
         "FAKE_ACP_DELAY_MS",
         "FAKE_ACP_TARGET",
         "FAKE_ACP_WRITES",
+        "FAKE_ACP_STORE",
+        "FAKE_ACP_OWNED",
+        "FAKE_ACP_STALE_OWNER",
+        "CODSH_SESSION_READ",
     ] {
         if let Some(value) = std::env::var_os(key) {
             env.push((key.to_string(), value.to_string_lossy().into_owned()));
@@ -366,6 +374,8 @@ impl AcpClient {
             pending_permission: None,
             answered_permissions: HashSet::new(),
             prompt_cancelled: false,
+            can_list: false,
+            can_resume: false,
         })
     }
 
@@ -392,6 +402,12 @@ impl AcpClient {
                 ),
             });
         }
+        let capabilities = result
+            .pointer("/agentCapabilities/sessionCapabilities")
+            .cloned()
+            .unwrap_or(Value::Null);
+        self.can_list = capabilities.get("list").is_some();
+        self.can_resume = capabilities.get("resume").is_some();
         Ok(result)
     }
 
@@ -416,6 +432,71 @@ impl AcpClient {
             .to_string();
         self.session_id = Some(session_id.clone());
         Ok(session_id)
+    }
+
+    pub fn list_sessions(
+        &mut self,
+        cwd: &Path,
+        timeout: Duration,
+    ) -> Result<Vec<(String, String)>, AcpError> {
+        if !self.can_list {
+            return Err(AcpError {
+                message: "ACP session/list is not available".into(),
+            });
+        }
+        let cwd = cwd
+            .canonicalize()
+            .unwrap_or_else(|_| cwd.to_path_buf())
+            .to_string_lossy()
+            .into_owned();
+        let id = self.request(
+            "session/list",
+            json!({ "cwd": cwd }),
+            PendingKind::SessionList,
+        )?;
+        let result = self.wait_result(id, timeout)?;
+        Ok(result
+            .get("sessions")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .filter_map(|entry| {
+                Some((
+                    entry.get("sessionId")?.as_str()?.to_string(),
+                    entry
+                        .get("cwd")
+                        .and_then(Value::as_str)
+                        .unwrap_or("")
+                        .to_string(),
+                ))
+            })
+            .collect())
+    }
+
+    pub fn resume_session(
+        &mut self,
+        session_id: &str,
+        cwd: &Path,
+        timeout: Duration,
+    ) -> Result<String, AcpError> {
+        if !self.can_resume {
+            return Err(AcpError {
+                message: "ACP session/resume is not available".into(),
+            });
+        }
+        let cwd = cwd
+            .canonicalize()
+            .unwrap_or_else(|_| cwd.to_path_buf())
+            .to_string_lossy()
+            .into_owned();
+        let id = self.request(
+            "session/resume",
+            json!({ "sessionId": session_id, "cwd": cwd, "mcpServers": [] }),
+            PendingKind::SessionResume,
+        )?;
+        self.wait_result(id, timeout)?;
+        self.session_id = Some(session_id.to_string());
+        Ok(session_id.to_string())
     }
 
     pub fn answer_permission(
@@ -878,13 +959,23 @@ impl AcpClient {
                     self.completed.insert(id, Err(AcpError { message }));
                     return vec![AcpEvent::ProtocolMismatch { version }];
                 }
+                let capabilities = result
+                    .pointer("/agentCapabilities/sessionCapabilities")
+                    .cloned()
+                    .unwrap_or(Value::Null);
+                self.can_list = capabilities.get("list").is_some();
+                self.can_resume = capabilities.get("resume").is_some();
                 self.completed.insert(id, Ok(result));
                 Vec::new()
             }
-            Some(PendingKind::SessionNew) => {
+            Some(PendingKind::SessionNew) | Some(PendingKind::SessionResume) => {
                 if let Some(session_id) = result.get("sessionId").and_then(Value::as_str) {
                     self.session_id = Some(session_id.to_string());
                 }
+                self.completed.insert(id, Ok(result));
+                Vec::new()
+            }
+            Some(PendingKind::SessionList) => {
                 self.completed.insert(id, Ok(result));
                 Vec::new()
             }
@@ -1617,5 +1708,56 @@ mod tests {
         client.cancel_prompt().expect("cancel after completion");
         let second = client.submit_prompt("TOKEN_NEXT").unwrap();
         assert_eq!(wait_stop(&mut client, second), "end_turn");
+    }
+
+    #[test]
+    fn resumes_closed_fake_session_and_refuses_an_active_owner() {
+        let store = tempfile::NamedTempFile::new().unwrap();
+        let store_path = store.path().to_string_lossy().into_owned();
+        let mut first = spawn_fake_env("echo", vec![("FAKE_ACP_STORE".into(), store_path.clone())]);
+        first
+            .initialize(Duration::from_secs(2))
+            .expect("initialize");
+        assert!(first.can_resume && first.can_list);
+        let session = first
+            .new_session(&std::env::temp_dir(), Duration::from_secs(2))
+            .expect("session");
+        let prompt = first.submit_prompt("TOKEN_ONE").unwrap();
+        assert_eq!(wait_stop(&mut first, prompt), "end_turn");
+        first.close_session(Duration::from_secs(2)).expect("close");
+        drop(first);
+
+        let mut owned = spawn_fake_env(
+            "echo",
+            vec![
+                ("FAKE_ACP_STORE".into(), store_path.clone()),
+                ("FAKE_ACP_OWNED".into(), "1".into()),
+            ],
+        );
+        owned
+            .initialize(Duration::from_secs(2))
+            .expect("initialize owned");
+        let refused = owned
+            .resume_session(&session, &std::env::temp_dir(), Duration::from_secs(2))
+            .expect_err("owned");
+        assert!(
+            refused.message.contains("already owned") || refused.message.contains("already active"),
+            "{refused}"
+        );
+        drop(owned);
+
+        let mut second = spawn_fake_env("echo", vec![("FAKE_ACP_STORE".into(), store_path)]);
+        second
+            .initialize(Duration::from_secs(2))
+            .expect("initialize second");
+        let listed = second
+            .list_sessions(&std::env::temp_dir(), Duration::from_secs(2))
+            .expect("list");
+        assert!(listed.iter().any(|(id, _)| id == &session), "{listed:?}");
+        second
+            .resume_session(&session, &std::env::temp_dir(), Duration::from_secs(2))
+            .expect("resume");
+        let follow = second.submit_prompt("TOKEN_TWO").unwrap();
+        assert_eq!(wait_stop(&mut second, follow), "end_turn");
     }
 }

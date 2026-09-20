@@ -1,4 +1,6 @@
 mod acp;
+mod session_history;
+mod session_owner;
 mod theme;
 mod welcome;
 
@@ -10,6 +12,8 @@ use crossterm::event::{
 use crossterm::execute;
 use crossterm::terminal::{self, EnterAlternateScreen, LeaveAlternateScreen};
 use ratatui::{Terminal, backend::CrosstermBackend};
+use session_history::RestoredTurn;
+use session_owner::SessionOwner;
 use std::io::{self, IsTerminal, Write};
 use std::path::PathBuf;
 use std::sync::{
@@ -99,9 +103,100 @@ struct Turn {
     done: bool,
     cancelling: bool,
     cancelled: bool,
+    interrupted: bool,
 }
 
-fn connect() -> Result<AcpClient, String> {
+enum LaunchMode {
+    Help,
+    Version,
+    New,
+    Continue,
+    Resume(String),
+}
+
+struct Connection {
+    client: AcpClient,
+    owner: SessionOwner,
+    resumed: bool,
+}
+
+fn parse_launch(args: &[String]) -> io::Result<LaunchMode> {
+    match args {
+        [] => Ok(LaunchMode::New),
+        [flag] if flag == "--help" || flag == "-h" => Ok(LaunchMode::Help),
+        [flag] if flag == "--version" || flag == "-V" => Ok(LaunchMode::Version),
+        [flag] if flag == "--continue" => Ok(LaunchMode::Continue),
+        [flag] if flag == "--resume" => Err(io::Error::other(
+            "missing session id; use codsh --rust --resume <id>",
+        )),
+        [flag, id] if flag == "--resume" && !id.is_empty() && !id.starts_with('-') => {
+            Ok(LaunchMode::Resume(id.clone()))
+        }
+        _ => Err(io::Error::other(
+            "unsupported preview arguments; use codsh --rust --help",
+        )),
+    }
+}
+
+fn turn_from_restored(item: RestoredTurn) -> Turn {
+    Turn {
+        user: item.user,
+        thought: item.thought,
+        answer: item.answer,
+        error: item.error,
+        message_id: None,
+        tools: item
+            .tools
+            .into_iter()
+            .map(|tool| ToolRow {
+                id: tool.id,
+                title: tool.title,
+                status: tool.status,
+                diff: tool.diff,
+                result: tool.result,
+            })
+            .collect(),
+        permission: None,
+        done: true,
+        cancelling: false,
+        cancelled: item.cancelled,
+        interrupted: item.interrupted,
+    }
+}
+
+fn resolve_resume(
+    client: &mut AcpClient,
+    mode: &LaunchMode,
+    cwd: &std::path::Path,
+    dsh_home: &std::path::Path,
+    previous: Option<&str>,
+) -> Result<Option<String>, String> {
+    match mode {
+        LaunchMode::Resume(id) => Ok(Some(id.clone())),
+        LaunchMode::Continue => {
+            if let Some((id, last_cwd)) = session_owner::read_last_session(dsh_home) {
+                let last = last_cwd.canonicalize().unwrap_or(last_cwd);
+                let now = cwd.canonicalize().unwrap_or_else(|_| cwd.to_path_buf());
+                if last == now {
+                    return Ok(Some(id));
+                }
+            }
+            let listed = client
+                .list_sessions(cwd, Duration::from_secs(20))
+                .map_err(|error| error.message)?;
+            listed
+                .into_iter()
+                .next()
+                .map(|(id, _)| id)
+                .ok_or_else(|| "no previous session in this directory".into())
+                .map(Some)
+        }
+        LaunchMode::New if previous.is_some() => Ok(previous.map(str::to_string)),
+        _ => Ok(None),
+    }
+}
+
+fn connect(mode: &LaunchMode, previous: Option<&str>) -> Result<(Connection, Vec<Turn>), String> {
     let cwd = std::env::current_dir().map_err(|error| error.to_string())?;
     let dsh_home = PathBuf::from(
         std::env::var_os("DSH_HOME").ok_or("missing isolated DSH_HOME; use codsh --rust")?,
@@ -111,10 +206,44 @@ fn connect() -> Result<AcpClient, String> {
     client
         .initialize(Duration::from_secs(20))
         .map_err(|error| error.message)?;
-    client
-        .new_session(&cwd, Duration::from_secs(20))
-        .map_err(|error| error.message)?;
-    Ok(client)
+    let resume_id = resolve_resume(&mut client, mode, &cwd, &dsh_home, previous)?;
+    let (session_id, resumed, owner) = if let Some(session_id) = resume_id {
+        let owner = SessionOwner::acquire(&dsh_home, &session_id).map_err(|error| error.message)?;
+        match client.resume_session(&session_id, &cwd, Duration::from_secs(20)) {
+            Ok(id) => (id, true, owner),
+            Err(error) => return Err(error.message),
+        }
+    } else {
+        let session_id = client
+            .new_session(&cwd, Duration::from_secs(20))
+            .map_err(|error| error.message)?;
+        let owner = SessionOwner::acquire(&dsh_home, &session_id).map_err(|error| error.message)?;
+        (session_id, false, owner)
+    };
+    let _ = session_owner::write_last_session(&dsh_home, &session_id, &cwd);
+    let mut turns = Vec::new();
+    if resumed {
+        match session_history::load_turns(&dsh_home, &session_id) {
+            Ok(restored) => {
+                turns = restored.into_iter().map(turn_from_restored).collect();
+            }
+            Err(error) => {
+                return Err(if error.damaged && !error.message.contains("damaged") {
+                    format!("source data is damaged: {}", error.message)
+                } else {
+                    error.message
+                });
+            }
+        }
+    }
+    Ok((
+        Connection {
+            client,
+            owner,
+            resumed,
+        },
+        turns,
+    ))
 }
 
 fn status_line(
@@ -124,25 +253,27 @@ fn status_line(
     awaiting_approval: bool,
     cancelling: bool,
     hint: &str,
+    resumed: bool,
 ) -> String {
     if !last_error.is_empty() && client.is_none() {
         return format!("{UNAVAILABLE}\n{last_error}");
     }
+    let tag = if resumed { " (resumed)" } else { "" };
     let mut body = match client {
         Some(client) if cancelling => format!(
-            "Connected to dsh ACP session {}.\nCancelling turn…",
+            "Connected to dsh ACP session {}{tag}.\nCancelling turn…",
             client.session_id.as_deref().unwrap_or("unknown")
         ),
         Some(client) if awaiting_approval => format!(
-            "Connected to dsh ACP session {}.\nAllow this dsh file tool? y=allow once  n=reject",
+            "Connected to dsh ACP session {}{tag}.\nAllow this dsh file tool? y=allow once  n=reject",
             client.session_id.as_deref().unwrap_or("unknown")
         ),
         Some(client) if inflight => format!(
-            "Connected to dsh ACP session {}.\nStreaming turn… Ctrl+C cancels (empty draft).",
+            "Connected to dsh ACP session {}{tag}.\nStreaming turn… Ctrl+C cancels (empty draft).",
             client.session_id.as_deref().unwrap_or("unknown")
         ),
         Some(client) => format!(
-            "Connected to dsh ACP session {}.\nEnter submits a prompt through dsh.",
+            "Connected to dsh ACP session {}{tag}.\nEnter submits a prompt through dsh.",
             client.session_id.as_deref().unwrap_or("unknown")
         ),
         None => UNAVAILABLE.to_string(),
@@ -212,7 +343,9 @@ fn render_transcript(status: &str, turns: &[Turn]) -> String {
             out.push_str(&permission.tool_call_id);
             out.push_str("? y=allow once  n=reject");
         }
-        if turn.cancelled {
+        if turn.interrupted {
+            out.push_str("\n[interrupted]");
+        } else if turn.cancelled {
             out.push_str("\n[cancelled]");
         } else if let Some(error) = &turn.error {
             out.push_str("\n[error] ");
@@ -376,26 +509,22 @@ fn apply_events(turns: &mut [Turn], inflight: &mut bool, events: Vec<AcpEvent>) 
 
 fn run() -> io::Result<()> {
     let args: Vec<String> = std::env::args().skip(1).collect();
-    match args.as_slice() {
-        [flag] if flag == "--version" || flag == "-V" => {
+    let mode = parse_launch(&args)?;
+    match &mode {
+        LaunchMode::Version => {
             println!(
                 "codsh-rust {} (dsh ACP; upstream a28ee2b; reference 1.0.34)",
                 env!("CARGO_PKG_VERSION")
             );
             return Ok(());
         }
-        [flag] if flag == "--help" || flag == "-h" => {
+        LaunchMode::Help => {
             println!(
-                "codsh --rust\n\nIsolated Rust client. Real dsh executes turns over ACP/JSON-RPC stdio.\nHome: ~/.codsh-rust/dsh; Profile: rust. Legacy codsh is unchanged.\nFile read/edit/write run through dsh tools; y allows once, n rejects with no write.\nCtrl+Q/Ctrl+D: quit. Ctrl+C: clear a draft; empty draft cancels a running turn via dsh, or quits when idle before any turn.\nEsc never cancels a turn or a pending approval; it dismisses selection and reminds you to use Ctrl+C.\nEnter: submit prompt. Options: --help, --version. Other options are not yet supported."
+                "codsh --rust\n\nIsolated Rust client. Real dsh executes turns over ACP/JSON-RPC stdio.\nHome: ~/.codsh-rust/dsh; Profile: rust. Legacy codsh is unchanged.\nFile read/edit/write run through dsh tools; y allows once, n rejects with no write.\nCtrl+Q/Ctrl+D: quit. Ctrl+C: clear a draft; empty draft cancels a running turn via dsh, or quits when idle before any turn.\nEsc never cancels a turn or a pending approval; it dismisses selection and reminds you to use Ctrl+C.\nEnter: submit prompt. --continue resumes the last session in this directory; --resume <id> loads that dsh session. A second client is refused while this process holds write ownership. Interrupted tools show [interrupted]/unknown and are not replayed.\nOptions: --help, --version, --continue, --resume <id>."
             );
             return Ok(());
         }
-        [] => {}
-        _ => {
-            return Err(io::Error::other(
-                "unsupported preview arguments; use codsh --rust --help",
-            ));
-        }
+        _ => {}
     }
     if !io::stdin().is_terminal() || !io::stdout().is_terminal() {
         return Err(io::Error::other(
@@ -423,8 +552,17 @@ fn run() -> io::Result<()> {
     let mut inflight = false;
     let mut last_error = String::new();
     let mut hint = String::new();
-    let mut client = match connect() {
-        Ok(client) => Some(client),
+    let mut owner: Option<SessionOwner> = None;
+    let mut resumed = false;
+    let mut previous_session: Option<String> = None;
+    let mut client = match connect(&mode, None) {
+        Ok((connection, restored)) => {
+            resumed = connection.resumed;
+            previous_session = connection.client.session_id.clone();
+            owner = Some(connection.owner);
+            turns = restored;
+            Some(connection.client)
+        }
         Err(error) => {
             last_error = error;
             None
@@ -437,6 +575,7 @@ fn run() -> io::Result<()> {
         if let Some(detail) = disconnect {
             last_error = detail;
             client = None;
+            owner = None;
         }
         let awaiting = turns.last().is_some_and(|turn| turn.permission.is_some());
         let cancelling = turns.last().is_some_and(|turn| turn.cancelling);
@@ -448,6 +587,7 @@ fn run() -> io::Result<()> {
                 awaiting,
                 cancelling,
                 &hint,
+                resumed,
             ),
             &turns,
         );
@@ -550,13 +690,33 @@ fn run() -> io::Result<()> {
                                 continue;
                             }
                             if client.is_none() {
-                                match connect() {
-                                    Ok(next) => client = Some(next),
+                                match connect(&mode, previous_session.as_deref()) {
+                                    Ok((connection, restored)) => {
+                                        resumed = connection.resumed;
+                                        previous_session = connection.client.session_id.clone();
+                                        owner = Some(connection.owner);
+                                        if turns.is_empty() {
+                                            turns = restored;
+                                        }
+                                        client = Some(connection.client);
+                                    }
                                     Err(error) => {
                                         last_error = error;
                                         continue;
                                     }
                                 }
+                            }
+                            if owner.as_ref().is_some_and(|held| !held.still_held()) {
+                                last_error = format!(
+                                    "Write owner refused: session {} is no longer owned by this client.",
+                                    owner
+                                        .as_ref()
+                                        .map(|held| held.session_id.as_str())
+                                        .unwrap_or("unknown")
+                                );
+                                client = None;
+                                owner = None;
+                                continue;
                             }
                             if let Some(active) = client.as_mut() {
                                 match active.submit_prompt(text) {
@@ -572,6 +732,7 @@ fn run() -> io::Result<()> {
                                             done: false,
                                             cancelling: false,
                                             cancelled: false,
+                                            interrupted: false,
                                         });
                                         draft.set_text("");
                                         inflight = true;
@@ -599,6 +760,7 @@ fn run() -> io::Result<()> {
     if let Some(active) = client.as_mut() {
         active.shutdown();
     }
+    drop(owner);
     Ok(())
 }
 

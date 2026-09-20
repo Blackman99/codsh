@@ -62,6 +62,11 @@ turn or a pending approval — it dismisses selection and reminds you to use
 `Ctrl+C`. Cancelled tools cannot run from a late allow or process teardown; unknown
 external results are shown as cancelled, not success. After cancel, the prompt
 accepts a new turn. Idle empty `Ctrl+C` still quits before any turn exists.
+`codsh --rust --continue` resumes the last dsh session in this directory;
+`--resume <id>` loads that session. The UI restores persisted turns from the
+dsh log (not a second store). Interrupted or never-finished tools show
+`[interrupted]` / unknown and are not replayed. A second client that cannot
+take write ownership is refused instead of forking a duplicate executor.
 
 The preview uses `~/.codsh-rust/dsh` and Profile `rust`, ignores inherited
 `DSH_HOME`, provider credentials and Grok settings, and never migrates legacy
@@ -88,7 +93,8 @@ refuses **any `..` component in `GROK_HOME`**, even for a separate existing Home
 rather than guessing symlink traversal. Use a path without parent traversal.
 Default `~/.dsh` and `~/.grok` are protected even when overrides are set.
 `Ctrl+Q`/`Ctrl+D` quits; `Ctrl+C` clears a draft, cancels an empty running turn,
-or quits when idle before any turn. Unsupported
+or quits when idle before any turn. `--continue` and `--resume <id>` restore
+the same dsh session; a second writer is refused. Unsupported
 arguments fail explicitly. `codsh --rust --help` describes this path. Mock-model
 tests inject the fixture at the dsh provider boundary (`CODSH_ACP_PATCH` /
 `DSH_CODE_CLI_MOCK_TOOL`); the Rust client and dsh remain real products.

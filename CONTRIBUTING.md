@@ -222,6 +222,7 @@ pnpm exec vitest run --config vitest.e2e.config.ts e2e/wrapper.e2e.ts e2e/pty-in
 pnpm run test:rust:pty
 pnpm exec vitest run scripts/rust-acp-protocol.spec.mjs
 python3 scripts/rust-cancel-pty-test.py
+python3 scripts/rust-resume-pty-test.py
 ```
 
 `build:rust` stages the host binary under ignored `packages/cli/native/<os>-<arch>`
@@ -317,10 +318,14 @@ running turn, including pending approval and in-flight tools. Esc never cancels.
 Late allow replies and process teardown cannot execute a cancelled action; unknown
 tool results display as cancelled. After cancel, a new prompt still works.
 `test:rust:pty` now also runs `scripts/rust-turn-pty-test.py`,
-`scripts/rust-file-pty-test.py`, and `scripts/rust-cancel-pty-test.py` against
-the packed native candidate. Public ACP framing, including file-tool permission
-and `session/cancel`, is covered by `scripts/rust-acp-protocol.spec.mjs`. Resume
-remains a later ticket.
+`scripts/rust-file-pty-test.py`, `scripts/rust-cancel-pty-test.py`, and
+`scripts/rust-resume-pty-test.py` against the packed native candidate. Public
+ACP framing, including file-tool permission, `session/cancel`, `session/list`,
+and `session/resume`, is covered by `scripts/rust-acp-protocol.spec.mjs`.
+`--continue` / `--resume <id>` restore the same dsh session through ACP
+`session/resume` plus a read-only persistence projection; a second client is
+refused when it cannot take write ownership. Interrupted tools are displayed
+as unknown and are not replayed. `session/load` remains unsupported by dsh ACP.
 
 ## Documentation site
 

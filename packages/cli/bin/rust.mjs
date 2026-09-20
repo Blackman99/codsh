@@ -136,7 +136,7 @@ export async function launchRust(args) {
       DSH_TELEMETRY_MODE: 'OFF',
       CODSH_UPDATE_CHECK: 'off',
     }
-    for (const key of ['PATH', 'TERM', 'TERM_PROGRAM', 'COLORTERM', 'LANG', 'LC_ALL', 'LC_CTYPE', 'NO_COLOR', 'SystemRoot', 'WINDIR', 'CODSH_ACP_PATCH', 'DSH_CODE_CLI_MOCK_TOOL', 'DSH_CODE_CLI_MOCK_DELAY_MS', 'DSH_CODE_CLI_TOOL_DELAY_MS', 'FAKE_ACP_MODE', 'FAKE_ACP_VERSION', 'FAKE_ACP_DELAY_MS', 'FAKE_ACP_TARGET', 'FAKE_ACP_WRITES']) {
+    for (const key of ['PATH', 'TERM', 'TERM_PROGRAM', 'COLORTERM', 'LANG', 'LC_ALL', 'LC_CTYPE', 'NO_COLOR', 'SystemRoot', 'WINDIR', 'CODSH_ACP_PATCH', 'CODSH_SESSION_READ', 'DSH_CODE_CLI_MOCK_TOOL', 'DSH_CODE_CLI_MOCK_DELAY_MS', 'DSH_CODE_CLI_TOOL_DELAY_MS', 'FAKE_ACP_MODE', 'FAKE_ACP_VERSION', 'FAKE_ACP_DELAY_MS', 'FAKE_ACP_TARGET', 'FAKE_ACP_WRITES', 'FAKE_ACP_STORE', 'FAKE_ACP_OWNED', 'FAKE_ACP_STALE_OWNER']) {
       if (process.env[key] !== undefined) env[key] = process.env[key]
     }
     if (!helpOnly && env.CODSH_ACP_PATCH === undefined) {
@@ -144,6 +144,9 @@ export async function launchRust(args) {
       const overlay = join(root, 'dsh', 'rust-file-approval.yml')
       writeFileSync(overlay, `- insert:\n    - id: rust-acp-file-approval\n      name: '${pathToFileURL(plugin).href}'\n`)
       env.CODSH_ACP_PATCH = overlay
+    }
+    if (env.CODSH_SESSION_READ === undefined) {
+      env.CODSH_SESSION_READ = fileURLToPath(new URL('./rust-acp-session-read.mjs', import.meta.url))
     }
     return await new Promise(resolveExit => {
       const child = spawn(binary, args, { env, stdio: 'inherit', shell: false })
