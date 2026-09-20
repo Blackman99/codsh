@@ -33,7 +33,13 @@ function startAgent(mode, extraEnv = {}, reuse = null) {
     mkdirSync(cwd)
   }
   const overlay = join(root, 'overlay.yml')
+  const previousThreshold = process.env.CODSH_TEST_COMPACT_THRESHOLD
+  if (extraEnv.CODSH_TEST_COMPACT_THRESHOLD !== undefined) {
+    process.env.CODSH_TEST_COMPACT_THRESHOLD = extraEnv.CODSH_TEST_COMPACT_THRESHOLD
+  }
   writeFileSync(overlay, rustAcpOverlay())
+  if (previousThreshold === undefined) delete process.env.CODSH_TEST_COMPACT_THRESHOLD
+  else process.env.CODSH_TEST_COMPACT_THRESHOLD = previousThreshold
   const child = spawn(process.execPath, [dshPath(), '--profile', 'acp', '--patch', overlay], {
     cwd,
     env: {
@@ -900,6 +906,65 @@ describe('public ACP/JSON-RPC against real dsh', () => {
     } finally {
       failing.child.stdin.end()
       failing.child.kill('SIGTERM')
+    }
+  }, 90000)
+
+  it('auto-compacts at the mapped dsh threshold and keeps a live todo result', async () => {
+    const agent = startAgent('echo', {
+      CODSH_TEST_COMPACT_THRESHOLD: '0.5',
+      DSH_CODE_CLI_MOCK_CONTEXT_WINDOW: '8000',
+    })
+    try {
+      const { session } = await handshake(agent)
+      const pad = ' PAD'.repeat(40)
+      for (const text of ['TOKEN_OLD_ONE', 'TOKEN_OLD_TWO', 'TOKEN_OLD_THREE', 'TOKEN_OLD_FOUR', 'TOKEN_OLD_FIVE', 'TOKEN_OLD_SIX']) {
+        const result = await agent.send(agent.updates.length + 10, 'session/prompt', {
+          sessionId: session.sessionId,
+          prompt: [{ type: 'text', text: `${text}${pad}` }],
+        })
+        expect(result.stopReason).toBe('end_turn')
+      }
+      const todoPrompt = agent.send(70, 'session/prompt', {
+        sessionId: session.sessionId,
+        prompt: [{ type: 'text', text: 'WRITE_TODO TOKEN_KEEP' }],
+      })
+      try {
+        await waitUntil(() => agent.permissions.length > 0, 4000, 'todo permission')
+        agent.reply(agent.permissions[0].id, { outcome: { outcome: 'selected', optionId: 'allow-once' } })
+      } catch {
+        // todo_write does not require file approval on this profile
+      }
+      const todo = await todoPrompt
+      expect(todo.stopReason).toBe('end_turn')
+      expect(agent.updates.some(update => JSON.stringify(update).includes('todo_write') || JSON.stringify(update).includes('TODO_KEEP'))).toBe(true)
+      const trigger = await agent.send(71, 'session/prompt', {
+        sessionId: session.sessionId,
+        prompt: [{ type: 'text', text: 'TOKEN_AUTO_TRIGGER' }],
+      })
+      expect(trigger.stopReason).toBe('end_turn')
+      const helper = spawnSync(process.execPath, [
+        resolve(fileURLToPath(new URL('../packages/cli/bin/rust-acp-session-read.mjs', import.meta.url))),
+        '--session-id', session.sessionId,
+      ], {
+        encoding: 'utf8',
+        env: { ...process.env, DSH_HOME: agent.home, DSH_BIN: dshPath() },
+      })
+      expect(helper.status).toBe(0)
+      const projected = JSON.parse(helper.stdout)
+      expect(projected.ok).toBe(true)
+      expect(projected.compaction.length).toBeGreaterThan(0)
+      expect(projected.compaction.some(record => record.purpose === 'compaction')).toBe(true)
+      expect(projected.turns.some(turn => turn.user.includes('TOKEN_OLD_ONE'))).toBe(false)
+      expect(JSON.stringify(projected.turns)).toContain('TODO_KEEP')
+      expect(
+        projected.turns.some(turn => turn.compacted)
+        || projected.turns.some(turn => (turn.answer || '').includes('compacted-summary'))
+        || projected.compaction.some(record => !record.error),
+      ).toBe(true)
+      await agent.send(72, 'session/close', { sessionId: session.sessionId }).catch(() => undefined)
+    } finally {
+      agent.child.stdin.end()
+      agent.child.kill('SIGTERM')
     }
   }, 90000)
 

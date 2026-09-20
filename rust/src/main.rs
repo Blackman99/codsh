@@ -608,6 +608,7 @@ fn apply_events(
     meter: &mut Meter,
     events: Vec<AcpEvent>,
     compacting: bool,
+    inspect_auto_compact: &mut bool,
 ) -> Option<String> {
     let mut disconnect = None;
     for event in events {
@@ -696,6 +697,7 @@ fn apply_events(
                             }
                         }
                     }
+                    *inspect_auto_compact = true;
                 }
                 *inflight = false;
             }
@@ -1122,6 +1124,8 @@ fn run() -> io::Result<()> {
     let mut inflight = false;
     let mut compacting = false;
     let mut compact_cancelled = false;
+    let mut last_compaction_count = 0usize;
+    let mut inspect_auto_compact;
     let mut last_error = String::new();
     let mut hint = String::new();
     let mut owner: Option<SessionOwner> = None;
@@ -1179,6 +1183,7 @@ fn run() -> io::Result<()> {
     };
     while !stopping.load(Ordering::Relaxed) {
         let was_compacting = compacting;
+        inspect_auto_compact = false;
         let disconnect = client.as_mut().and_then(|active| {
             apply_events(
                 &mut turns,
@@ -1186,6 +1191,7 @@ fn run() -> io::Result<()> {
                 &mut meter,
                 active.pump(Duration::ZERO),
                 compacting,
+                &mut inspect_auto_compact,
             )
         });
         if was_compacting && !inflight {
@@ -1193,6 +1199,7 @@ fn run() -> io::Result<()> {
             if let Some(session_id) = client.as_ref().and_then(|active| active.session_id.clone()) {
                 match session_history::load_session(&effective.dsh_home, &session_id) {
                     Ok(restored) => {
+                        last_compaction_count = restored.compaction.len();
                         turns = restored.turns.into_iter().map(turn_from_restored).collect();
                         hint = compact_reload_hint(&turns, &restored.compaction, compact_cancelled);
                         if hint.starts_with("Compaction failed") || hint == "Compaction cancelled."
@@ -1208,6 +1215,19 @@ fn run() -> io::Result<()> {
                 hint = "Compaction cancelled.".into();
             }
             compact_cancelled = false;
+        } else if inspect_auto_compact
+            && let Some(session_id) = client.as_ref().and_then(|active| active.session_id.clone())
+        {
+            match session_history::load_session(&effective.dsh_home, &session_id) {
+                Ok(restored) if restored.compaction.len() > last_compaction_count => {
+                    last_compaction_count = restored.compaction.len();
+                    turns = restored.turns.into_iter().map(turn_from_restored).collect();
+                    hint = compact_reload_hint(&turns, &restored.compaction, false);
+                    last_error.clear();
+                }
+                Ok(_) => {}
+                Err(error) => last_error = error.to_string(),
+            }
         }
         if let Some(detail) = disconnect {
             last_error = detail;

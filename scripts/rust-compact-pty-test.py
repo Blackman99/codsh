@@ -197,7 +197,73 @@ default = "chat"
         assert inspect.returncode == 0, inspect.stderr + inspect.stdout
         payload = json.loads(inspect.stdout)
         assert payload.get('compactThresholdPercent') == 80
+        assert payload.get('compactWallClockSecs') in (None, 'unset') or payload.get('compactWallClockSecs') is None
         results['inspect'] = payload.get('compactThresholdPercent')
+
+        for raw, expected in [('0', 0), ('1', 1)]:
+            wall = subprocess.run(
+                [NODE, str(launcher), '--rust', 'inspect', '--json'], cwd=cwd,
+                env={**base_env, 'GROK_COMPACTION_WALL_CLOCK_SECS': raw},
+                capture_output=True, text=True, timeout=20)
+            assert wall.returncode == 0, wall.stderr + wall.stdout
+            wall_payload = json.loads(wall.stdout)
+            assert wall_payload.get('compactWallClockSecs') == expected
+            if raw == '1':
+                warnings = json.dumps(wall_payload.get('warnings') or wall_payload)
+                assert 'low positive' in warnings.lower() or wall_payload.get('compactWallClockSecs') == 1
+        results['wallClock'] = [0, 1]
+
+        auto_inspect = subprocess.run(
+            [NODE, str(launcher), '--rust', 'inspect', '--json'], cwd=cwd,
+            env={**base_env, 'GROK_AUTO_COMPACT_THRESHOLD_PERCENT': '5'},
+            capture_output=True, text=True, timeout=20)
+        assert auto_inspect.returncode == 0, auto_inspect.stderr + auto_inspect.stdout
+        auto_payload = json.loads(auto_inspect.stdout)
+        assert auto_payload.get('compactThresholdPercent') == 5
+        results['autoThreshold'] = 5
+
+        auto = Session('auto-compact', launcher, cwd, {
+            **base_env,
+            'GROK_AUTO_COMPACT_THRESHOLD_PERCENT': '5',
+            'DSH_CODE_CLI_MOCK_CONTEXT_WINDOW': '8000',
+        }, output)
+        try:
+            auto.wait_visible('Connected to dsh ACP', 25)
+            effective = home / '.codsh-rust' / 'dsh' / 'rust-effective.yml'
+            for token in ['TOKEN_OLD_ONE', 'TOKEN_OLD_TWO', 'TOKEN_OLD_THREE', 'TOKEN_OLD_FOUR']:
+                auto.write(token + '\r')
+                auto.wait_visible('RUST_ACP_ANSWER', 20)
+                idle_deadline = time.monotonic() + 10
+                while time.monotonic() < idle_deadline:
+                    auto.pump()
+                    shown = auto.visible()
+                    if 'Enter submits a prompt' in shown and 'Streaming turn' not in shown:
+                        break
+                if 'purpose=compaction' in auto.visible() or 'Compaction failed' in auto.visible() or 'compaction summary' in auto.visible():
+                    break
+            shown = auto.visible()
+            if 'purpose=compaction' not in shown and 'Compaction failed' not in shown and 'compaction summary' not in shown:
+                shown = auto.wait_visible('Compaction', 20)
+            assert 'purpose=compaction' in shown or 'Compaction failed' in shown or 'compaction summary' in shown
+            patch_text = effective.read_text() if effective.exists() else ''
+            assert 'thresholdRatio: 0.05' in patch_text, patch_text
+            auto.write('WRITE_TODO TOKEN_KEEP\r')
+            shown = auto.wait_visible('WRITE_TODO', 25)
+            if 'Allow this dsh file tool' in shown:
+                auto.write('y')
+            auto.wait_visible('WRITE_TODO TOKEN_KEEP', 10)
+            helper = run([
+                NODE, str(ROOT / 'packages/cli/bin/rust-acp-session-read.mjs'),
+                '--session-id', auto.session_id(),
+            ], env={**os.environ, 'DSH_HOME': str(home / '.codsh-rust' / 'dsh'), 'DSH_BIN': dsh})
+            projected = json.loads(helper.stdout)
+            assert projected.get('ok') is True, helper.stdout
+            assert projected.get('compaction'), helper.stdout
+            assert any(record.get('purpose') == 'compaction' for record in projected['compaction'])
+            assert 'TODO_KEEP' in json.dumps(projected)
+            results['auto'] = auto.finish()
+        finally:
+            auto.close()
 
         session = Session('compact', launcher, cwd, base_env, output)
         try:

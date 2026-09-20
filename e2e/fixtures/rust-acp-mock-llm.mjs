@@ -191,27 +191,25 @@ class RustAcpMockAdapter extends LlmAdapter {
         '## Primary Request and Intent',
         '- MOCK_COMPACTION_SUMMARY',
         instruction ? `- instruction:${instruction}` : '- (none)',
-        '## Key Technical Concepts',
-        '- (none)',
-        '## Files and Code',
-        history.includes('todo') ? '- todo list retained' : '- (none)',
-        '## Errors and Fixes',
-        '- (none)',
-        '## Problem Solving',
-        '- (none)',
-        '## All User Messages',
-        `- ${userTurns(options)} user turns`,
         '## Pending Tasks',
         history.includes('TODO_KEEP') ? '- TODO_KEEP' : '- (none)',
-        '## Current Work',
-        '- continue from checkpoint',
-        '## Optional Next Step',
-        '- (none)',
       ].join('\n')
       yield* mockText(reply)
       return
     }
     const turn = String(userTurns(options))
+    const wantsTodo = MODE === 'todo' || userTexts(options).some(text => text.includes('WRITE_TODO'))
+    if (wantsTodo) {
+      const done = toolResults(options)
+      if (!done.some(result => /TODO_KEEP|Updated todo list/.test(resultText(result)))) {
+        yield* mockToolCall('rust-acp-todo', 'todo_write', {
+          todos: [{ content: 'TODO_KEEP', status: 'in_progress' }],
+        })
+        return
+      }
+      yield* mockText(`RUST_ACP_TODO_DONE TODO_KEEP turn=${turn} ${userTexts(options).join('\n')}`)
+      return
+    }
     if (MODE === 'file-edit' || MODE === 'file-write' || MODE === 'file-missing' || MODE === 'file-error') {
       yield* fileToolTurn(options)
       return

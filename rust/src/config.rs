@@ -1162,9 +1162,6 @@ pub fn apply_to_dsh(
             )?;
         }
     }
-    if is_test_execution_seam() {
-        return Ok(None);
-    }
     let patch_path = config.dsh_home.join("rust-effective.yml");
     let existing = std::env::var_os("CODSH_ACP_PATCH")
         .and_then(|path| fs::read_to_string(path).ok())
@@ -1178,14 +1175,20 @@ pub fn apply_to_dsh(
     } else {
         "- id: tool-result-pruner\n  disabled: true\n".into()
     };
-    let combined = format!(
-        "- id: acp\n  config:\n    provider: {}\n    model: {}\n- id: agent-default-model\n  config:\n    provider: {}\n    model: {}\n- id: llm-deepseek\n  disabled: true\n{}{pruner}{existing}",
-        yaml_plain(&model.provider),
-        yaml_plain(&model.model),
-        yaml_plain(&model.provider),
-        yaml_plain(&model.model),
-        compaction_basic_yaml(threshold),
-    );
+    let compact_yaml = compaction_basic_yaml(threshold);
+    // Mock/PTY overlays already declare acp + llm adapters. Prepend only the
+    // mapped compaction/pruner so the installed mock still loads dsh auto-compact.
+    let combined = if is_test_execution_seam() {
+        format!("{compact_yaml}{pruner}{existing}")
+    } else {
+        format!(
+            "- id: acp\n  config:\n    provider: {}\n    model: {}\n- id: agent-default-model\n  config:\n    provider: {}\n    model: {}\n- id: llm-deepseek\n  disabled: true\n{compact_yaml}{pruner}{existing}",
+            yaml_plain(&model.provider),
+            yaml_plain(&model.model),
+            yaml_plain(&model.provider),
+            yaml_plain(&model.model),
+        )
+    };
     fs::write(&patch_path, combined)?;
     Ok(Some(patch_path))
 }
