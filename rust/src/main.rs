@@ -844,6 +844,10 @@ fn apply_live_selection(
     Ok(())
 }
 
+fn turn_allowed(selection_ready: bool) -> bool {
+    selection_ready
+}
+
 fn persist_selection(effective: &config::EffectiveConfig) -> io::Result<()> {
     models::save_selection(
         &effective.grok_home,
@@ -1086,6 +1090,7 @@ fn run() -> io::Result<()> {
         size: None,
         cost: None,
     };
+    let mut selection_ready = config::is_test_execution_seam();
     let mut client = if can_execute {
         match connect(&mode, None, &extra_env, patch.as_ref()) {
             Ok((connection, restored)) => {
@@ -1094,8 +1099,12 @@ fn run() -> io::Result<()> {
                 owner = Some(connection.owner);
                 turns = restored;
                 let mut client = connection.client;
-                if let Err(error) = apply_live_selection(&mut client, &effective) {
-                    last_error = error;
+                match apply_live_selection(&mut client, &effective) {
+                    Ok(()) => selection_ready = true,
+                    Err(error) => {
+                        last_error = error;
+                        selection_ready = false;
+                    }
                 }
                 Some(client)
             }
@@ -1266,12 +1275,15 @@ fn run() -> io::Result<()> {
                                             turns = restored;
                                         }
                                         let mut connected = connection.client;
-                                        if let Err(error) =
-                                            apply_live_selection(&mut connected, &effective)
-                                        {
-                                            last_error = error;
-                                        } else {
-                                            last_error.clear();
+                                        match apply_live_selection(&mut connected, &effective) {
+                                            Ok(()) => {
+                                                selection_ready = true;
+                                                last_error.clear();
+                                            }
+                                            Err(error) => {
+                                                last_error = error;
+                                                selection_ready = false;
+                                            }
                                         }
                                         client = Some(connected);
                                     }
@@ -1292,15 +1304,24 @@ fn run() -> io::Result<()> {
                                     inflight,
                                 ) {
                                     Ok(message) => {
+                                        if message.starts_with("Selected ") {
+                                            selection_ready = true;
+                                        }
                                         hint = message;
                                         last_error.clear();
-                                        draft.set_text("");
                                     }
                                     Err(error) => last_error = error,
                                 }
+                                draft.set_text("");
                                 continue;
                             }
                             if inflight {
+                                continue;
+                            }
+                            if !turn_allowed(selection_ready) {
+                                if last_error.is_empty() {
+                                    last_error = "configured model was not applied; no silent provider fallback".into();
+                                }
                                 continue;
                             }
                             if owner.as_ref().is_some_and(|held| !held.still_held()) {
@@ -1421,5 +1442,11 @@ mod tests {
         let launch = parse_launch(&args(&["--model", "gateway", "--continue"])).unwrap();
         assert!(matches!(launch.mode, LaunchMode::Continue));
         assert_eq!(launch.model.as_deref(), Some("gateway"));
+    }
+
+    #[test]
+    fn refuses_turns_until_advertised_selection_applies() {
+        assert!(!turn_allowed(false));
+        assert!(turn_allowed(true));
     }
 }

@@ -75,6 +75,7 @@ Grok 的 `chat_completions`、`responses`、`messages`（对应 dsh 的
 不支持的后端或推理等级会明确拒绝或显示不可用，不会静默切换提供商。运行中
 变更作用于下一回合，并写入 `$GROK_HOME/model-selection.toml`。用量、费用和
 上下文限制在提供商或显式 `context_window` 给出之前保持未知，不会伪造为零。
+dsh 的上下文占用显示为 `occupancy=N (dsh estimate)`，不当作提供商用量。
 `codsh --rust inspect` 与 `inspect --json` 列出每项生效值及来源（命令行
 `--model`/`--effort`、环境变量、`GROK_CONFIG` 覆盖层、已保存选择、
 config.toml、默认值）。

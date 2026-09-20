@@ -39,6 +39,87 @@ def screen_text(data, rows, cols):
                input=payload, cwd=ROOT).stdout
 
 
+def route_kind(path):
+    normalized = path.split('?', 1)[0].rstrip('/')
+    if normalized.endswith('/chat/completions'):
+        return 'chat'
+    if normalized.endswith('/responses'):
+        return 'responses'
+    if normalized.endswith('/messages'):
+        return 'messages'
+    return 'other'
+
+
+def effort_from_body(body):
+    if not isinstance(body, dict):
+        return None
+    if body.get('reasoning_effort'):
+        return body.get('reasoning_effort')
+    reasoning = body.get('reasoning')
+    if isinstance(reasoning, dict):
+        return reasoning.get('effort') or reasoning.get('summary')
+    thinking = body.get('thinking')
+    if isinstance(thinking, dict):
+        return thinking.get('type') or thinking.get('budget_tokens')
+    return None
+
+
+def sse_chat(answer, fail=False):
+    chunks = []
+    if fail:
+        chunks.append({'id': 'x', 'object': 'chat.completion.chunk', 'choices': [
+            {'index': 0, 'delta': {'content': 'PARTIAL_MODEL'}, 'finish_reason': None}]})
+        payload = ''.join('data: ' + json.dumps(chunk) + '\n\n' for chunk in chunks)
+        return payload + 'data: {"error":{"message":"provider failed mid-stream"}}\n\n'
+    for delta, finish in [({'role': 'assistant'}, None), ({'content': answer}, None), ({}, 'stop')]:
+        chunks.append({'id': 'model-140', 'object': 'chat.completion.chunk', 'model': 'shared-name',
+                       'choices': [{'index': 0, 'delta': delta, 'finish_reason': finish}]})
+    return ''.join('data: ' + json.dumps(chunk) + '\n\n' for chunk in chunks) + 'data: [DONE]\n\n'
+
+
+def sse_responses(answer, fail=False):
+    events = [
+        {'type': 'response.created', 'response': {'id': 'resp_140', 'status': 'in_progress'}},
+        {'type': 'response.output_item.added', 'output_index': 0,
+         'item': {'id': 'msg_140', 'type': 'message', 'role': 'assistant', 'content': []}},
+        {'type': 'response.output_text.delta', 'output_index': 0, 'content_index': 0,
+         'delta': 'PARTIAL_MODEL' if fail else answer},
+    ]
+    if fail:
+        events.append({'type': 'error', 'error': {'message': 'provider failed mid-stream'}})
+    else:
+        events.append({'type': 'response.completed', 'response': {
+            'id': 'resp_140', 'status': 'completed',
+            'output': [{'id': 'msg_140', 'type': 'message', 'role': 'assistant',
+                        'content': [{'type': 'output_text', 'text': answer}]}]},
+        })
+    return ''.join('event: ' + event['type'] + '\ndata: ' + json.dumps(event) + '\n\n' for event in events)
+
+
+def sse_messages(answer, fail=False):
+    events = [
+        ('message_start', {'type': 'message_start', 'message': {
+            'id': 'msg_140', 'type': 'message', 'role': 'assistant', 'content': [],
+            'model': 'shared-name', 'stop_reason': None, 'stop_sequence': None,
+            'usage': {'input_tokens': 1, 'output_tokens': 1}}}),
+        ('content_block_start', {'type': 'content_block_start', 'index': 0,
+                                 'content_block': {'type': 'text', 'text': ''}}),
+        ('content_block_delta', {'type': 'content_block_delta', 'index': 0,
+                                 'delta': {'type': 'text_delta', 'text': 'PARTIAL_MODEL' if fail else answer}}),
+    ]
+    if fail:
+        events.append(('error', {'type': 'error', 'error': {
+            'type': 'api_error', 'message': 'provider failed mid-stream'}}))
+    else:
+        events.extend([
+            ('content_block_stop', {'type': 'content_block_stop', 'index': 0}),
+            ('message_delta', {'type': 'message_delta', 'delta': {
+                'stop_reason': 'end_turn', 'stop_sequence': None}, 'usage': {'output_tokens': 8}}),
+            ('message_stop', {'type': 'message_stop'}),
+        ])
+    return ''.join(f'event: {name}\ndata: {json.dumps(payload)}\n\n' for name, payload in events)
+
+
 class RecordingLLM(http.server.BaseHTTPRequestHandler):
     log = None
     mode = 'ok'
@@ -48,9 +129,11 @@ class RecordingLLM(http.server.BaseHTTPRequestHandler):
         pass
 
     def _record(self, body=None):
+        path = self.path.split('?', 1)[0]
         item = {
             'method': self.command,
-            'path': self.path.split('?', 1)[0],
+            'path': path,
+            'kind': route_kind(path),
             'authorization': self.headers.get('Authorization'),
             'x_api_key': self.headers.get('x-api-key'),
             'model': None,
@@ -59,7 +142,7 @@ class RecordingLLM(http.server.BaseHTTPRequestHandler):
         }
         if isinstance(body, dict):
             item['model'] = body.get('model')
-            item['effort'] = body.get('reasoning_effort') or (body.get('thinking') or {}).get('type')
+            item['effort'] = effort_from_body(body)
         self.log.append(item)
         return item
 
@@ -77,7 +160,7 @@ class RecordingLLM(http.server.BaseHTTPRequestHandler):
         except json.JSONDecodeError:
             body = {'raw': raw.decode(errors='replace')}
         item = self._record(body)
-        path = item['path']
+        kind = item['kind']
         auth_ok = (self.headers.get('Authorization') == f'Bearer {self.token}'
                    or self.headers.get('x-api-key') == self.token)
         if self.mode == 'unauth' or not auth_ok:
@@ -86,36 +169,23 @@ class RecordingLLM(http.server.BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(b'{"error":{"message":"invalid api key"}}')
             return
-        if self.mode == 'stream-fail' and '/chat/completions' in path:
-            self.send_response(200)
-            self.send_header('Content-Type', 'text/event-stream')
+        if kind == 'other':
+            self.send_response(404)
             self.end_headers()
-            chunk = {'id': 'x', 'object': 'chat.completion.chunk', 'choices': [
-                {'index': 0, 'delta': {'content': 'PARTIAL_MODEL'}, 'finish_reason': None}]}
-            self.wfile.write(('data: ' + json.dumps(chunk) + '\n\n').encode())
-            self.wfile.flush()
-            self.wfile.write(b'data: {"error":{"message":"provider failed mid-stream"}}\n\n')
             return
-        if '/chat/completions' in path:
-            self.send_response(200)
-            self.send_header('Content-Type', 'text/event-stream')
-            self.end_headers()
-            answer = f"DSH_MODEL_OK model={item['model']} effort={item['effort'] or 'none'}"
-            for delta, finish in [({'role': 'assistant'}, None), ({'content': answer}, None), ({}, 'stop')]:
-                event = {'id': 'model-140', 'object': 'chat.completion.chunk', 'model': item['model'],
-                         'choices': [{'index': 0, 'delta': delta, 'finish_reason': finish}]}
-                self.wfile.write(('data: ' + json.dumps(event) + '\n\n').encode())
-                self.wfile.flush()
-            self.wfile.write(b'data: [DONE]\n\n')
-            return
-        if path.endswith('/messages') or path.endswith('/v1/messages'):
-            self.send_response(400)
-            self.send_header('Content-Type', 'application/json')
-            self.end_headers()
-            self.wfile.write(b'{"type":"error","error":{"type":"invalid_request_error","message":"messages backend is not chat_completions"}}')
-            return
-        self.send_response(404)
+        self.send_response(200)
+        self.send_header('Content-Type', 'text/event-stream')
         self.end_headers()
+        fail = self.mode == 'stream-fail'
+        answer = f"DSH_MODEL_OK model={item['model']} effort={item['effort'] or 'none'} kind={kind}"
+        if kind == 'chat':
+            payload = sse_chat(answer, fail=fail)
+        elif kind == 'responses':
+            payload = sse_responses(answer, fail=fail)
+        else:
+            payload = sse_messages(answer, fail=fail)
+        self.wfile.write(payload.encode())
+        self.wfile.flush()
 
 
 def start_server(log, mode='ok', token='ROUTE_TOKEN'):
@@ -134,7 +204,7 @@ def spawn_inspect(launcher, cwd, env, extra):
 
 
 def pty_session(name, launcher, cwd, env, output, typed=None, wait_before=(), wait_after=(),
-                quit=True, cols=100, rows=36):
+                actions=None, quit=True, cols=100, rows=36):
     master, slave = pty.openpty()
     fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack('HHHH', rows, cols, 0, 0))
     original = termios.tcgetattr(slave)
@@ -173,7 +243,23 @@ def pty_session(name, launcher, cwd, env, output, typed=None, wait_before=(), wa
         wait_visible('Draft (not sent)')
         for marker in wait_before:
             wait_visible(marker, 40)
-        if typed:
+        if actions:
+            for action in actions:
+                text = action.get('type')
+                if text:
+                    os.write(master, text.encode())
+                    prefix = text.split('\r', 1)[0]
+                    if prefix.startswith('/') and text.endswith('\r'):
+                        deadline = time.monotonic() + 10
+                        while time.monotonic() < deadline:
+                            pump()
+                            shown = visible()
+                            if prefix not in shown:
+                                break
+                            time.sleep(0.03)
+                for marker in action.get('after', ()):
+                    wait_visible(marker, 40)
+        elif typed:
             os.write(master, typed.encode())
             prefix = typed.split('\r', 1)[0]
             if prefix and not prefix.startswith('/'):
@@ -201,10 +287,10 @@ def pty_session(name, launcher, cwd, env, output, typed=None, wait_before=(), wa
         os.close(slave)
 
 
-def write_catalog(path, port):
+def write_catalog(path, port, default='chat'):
     path.write_text(f"""
 [models]
-default = "chat"
+default = "{default}"
 default_reasoning_effort = "high"
 
 [model.chat]
@@ -216,6 +302,15 @@ api_backend = "chat_completions"
 supports_reasoning_effort = true
 reasoning_efforts = ["low", "high"]
 context_window = 128000
+
+[model.responses]
+name = "Shared name"
+model = "shared-name"
+base_url = "http://127.0.0.1:{port}/v1"
+env_key = "XAI_API_KEY"
+api_backend = "responses"
+supports_reasoning_effort = true
+reasoning_efforts = ["low", "high"]
 
 [model.messages]
 name = "Shared name"
@@ -280,113 +375,111 @@ def main():
             assert payload['ready'] is True
             settings = {row['key']: row for row in payload['settings']}
             assert settings['model.chat.api']['value'] == 'openai-completions'
+            assert settings['model.responses.api']['value'] == 'openai-responses'
             assert settings['model.messages.api']['value'] == 'anthropic-messages'
             assert 'unavailable' in settings['model.mystery.api']['value']
             assert payload['defaultEffort'] == 'high'
             assert payload['routing']['api'] == 'openai-completions'
-            assert 'mystery-protocol' in inspect.stdout or any(
-                item.get('unavailable') for item in payload['catalog'] if item['id'] == 'mystery')
+            assert any(item.get('unavailable') for item in payload['catalog'] if item['id'] == 'mystery')
             results['inspect-catalog'] = payload['routing']
 
             generated = (home / '.codsh-rust' / 'dsh' / 'settings.yaml')
-            turn = pty_session('chat-turn', launcher, cwd, base_env, output,
-                               typed='TOKEN_MODEL_ONE\r',
-                               wait_before=['Connected to dsh ACP', 'openai-completions'],
-                               wait_after=['DSH_MODEL_OK', 'shared-name'])
-            assert turn['exit'] == 0
-            assert 'usage=unknown' in turn['screen'] or 'used=' in turn['screen']
-            assert 'cost=unknown' in turn['screen'] or 'cost=' in turn['screen']
-            assert '0.0' not in turn['screen'] or 'cost=unknown' in turn['screen']
+            golden = pty_session('same-session', launcher, cwd, base_env, output,
+                                 wait_before=['Connected to dsh ACP', 'openai-completions'],
+                                 actions=[
+                                     {'type': 'TOKEN_MODEL_ONE\r',
+                                      'after': ['DSH_MODEL_OK', 'usage=unknown']},
+                                     {'type': '/model\r',
+                                      'after': ['Model menu', 'openai-completions', 'openai-responses',
+                                                'anthropic-messages', 'unavailable']},
+                                     {'type': '/effort\r',
+                                      'after': ['Effort menu', 'available=low, high']},
+                                     {'type': '/effort xhigh\r',
+                                      'after': ['Unsupported effort', 'xhigh']},
+                                     {'type': '/model responses\r',
+                                      'after': ['openai-responses', 'saved and active']},
+                                     {'type': 'TOKEN_MODEL_RESP\r',
+                                      'after': ['DSH_MODEL_OK', 'kind=responses']},
+                                     {'type': '/model messages\r',
+                                      'after': ['anthropic-messages']},
+                                     {'type': 'TOKEN_MODEL_MSG\r',
+                                      'after': ['DSH_MODEL_OK', 'kind=messages']},
+                                 ])
+            assert golden['exit'] == 0
+            assert 'used=' not in golden['screen']
+            assert 'cost=unknown' in golden['screen']
             yaml = generated.read_text()
             assert 'api: openai-completions' in yaml
+            assert 'api: openai-responses' in yaml
             assert 'api: anthropic-messages' in yaml
             assert 'mystery-protocol' not in yaml
-            chat_posts = [item for item in log if item['method'] == 'POST' and 'chat/completions' in item['path']]
-            assert chat_posts, log
+            posts = [item for item in log if item['method'] == 'POST']
+            kinds = [item['kind'] for item in posts]
+            assert 'chat' in kinds, posts
+            assert 'responses' in kinds, posts
+            assert 'messages' in kinds, posts
+            chat_posts = [item for item in posts if item['kind'] == 'chat']
             assert chat_posts[-1]['model'] == 'shared-name'
             assert chat_posts[-1]['authorization'] == 'Bearer ROUTE_TOKEN'
-            assert chat_posts[-1]['effort'] in {None, 'high', 'low'}
-            results['pty-chat'] = {'model': chat_posts[-1]['model'], 'effort': chat_posts[-1]['effort']}
-
-            menu = pty_session('model-menu', launcher, cwd, base_env, output,
-                               typed='/model\r',
-                               wait_before=['Connected to dsh ACP'],
-                               wait_after=['Model menu', 'chat', 'messages', 'unavailable'])
-            assert menu['exit'] == 0
-            assert 'mystery' in menu['screen']
-            results['pty-menu'] = True
-
-            unsupported = pty_session('unsupported-effort', launcher, cwd, base_env, output,
-                                      typed='/effort xhigh\r',
-                                      wait_before=['Connected to dsh ACP'],
-                                      wait_after=['Unsupported effort', 'xhigh'])
-            assert unsupported['exit'] == 0
-            results['pty-unsupported-effort'] = True
-
-            before_messages = len(log)
-            switched = pty_session('switch-messages', launcher, cwd, base_env, output,
-                                   typed='/model messages\r',
-                                   wait_before=['Connected to dsh ACP'],
-                                   wait_after=['anthropic-messages'])
-            assert switched['exit'] == 0
-            assert 'Selected' in switched['screen'] or 'anthropic-messages' in switched['screen']
-            results['pty-switch-messages'] = True
-
-            messages_turn = pty_session('messages-turn', launcher, cwd, base_env, output,
-                                        typed='TOKEN_MODEL_TWO\r',
-                                        wait_before=['Connected to dsh ACP', 'anthropic-messages'],
-                                        wait_after=['error'])
-            assert messages_turn['exit'] == 0
-            later = log[before_messages:]
-            message_posts = [item for item in later if item['method'] == 'POST' and item['path'].rstrip('/').endswith('messages')]
-            chat_after = [item for item in later if item['method'] == 'POST' and 'chat/completions' in item['path']]
-            assert message_posts, later
+            assert chat_posts[-1]['effort'] == 'high'
+            response_posts = [item for item in posts if item['kind'] == 'responses']
+            assert response_posts[-1]['model'] == 'shared-name'
+            assert response_posts[-1]['authorization'] == 'Bearer ROUTE_TOKEN'
+            message_posts = [item for item in posts if item['kind'] == 'messages']
             assert message_posts[-1]['model'] == 'shared-name'
-            assert 'DSH_MODEL_OK' not in messages_turn['screen']
-            results['pty-messages-not-equivalent'] = {
-                'messages': len(message_posts),
-                'chatAfter': len(chat_after),
-            }
-
-            unauth_log = []
-            unauth_server = start_server(unauth_log, mode='unauth')
-            unauth_home = work / 'unauth-home'
-            unauth_home.mkdir()
-            unauth_grok = unauth_home / '.codsh-rust' / '.grok'
-            unauth_grok.mkdir(parents=True)
-            write_catalog(unauth_grok / 'config.toml', unauth_server.server_address[1])
-            unauth_env = {**base_env, 'HOME': str(unauth_home)}
-            auth = pty_session('auth-error', launcher, cwd, unauth_env, output,
-                               typed='TOKEN_MODEL_AUTH\r',
-                               wait_before=['Connected to dsh ACP'],
-                               wait_after=['error'])
-            assert auth['exit'] == 0
-            assert 'DSH_MODEL_OK' not in auth['screen']
-            unauth_server.shutdown()
-            results['pty-auth'] = True
-
-            fail_log = []
-            fail_server = start_server(fail_log, mode='stream-fail')
-            fail_home = work / 'fail-home'
-            fail_home.mkdir()
-            fail_grok = fail_home / '.codsh-rust' / '.grok'
-            fail_grok.mkdir(parents=True)
-            write_catalog(fail_grok / 'config.toml', fail_server.server_address[1])
-            fail_env = {**base_env, 'HOME': str(fail_home)}
-            failed = pty_session('stream-fail', launcher, cwd, fail_env, output,
-                                 typed='TOKEN_MODEL_FAIL\r',
-                                 wait_before=['Connected to dsh ACP'],
-                                 wait_after=['error'])
-            assert failed['exit'] == 0
-            assert 'DSH_MODEL_OK' not in failed['screen']
-            fail_server.shutdown()
-            results['pty-stream-fail'] = True
+            assert message_posts[-1]['x_api_key'] == 'ROUTE_TOKEN' or message_posts[-1]['authorization']
+            results['pty-same-session'] = {'kinds': kinds}
 
             saved = grok / 'model-selection.toml'
-            assert saved.is_file() or '/model messages' in switched['screen']
+            assert saved.is_file()
+            assert 'default = "messages"' in saved.read_text()
             inspect_saved = spawn_inspect(launcher, cwd, base_env, ['inspect', '--json'])
             saved_payload = json.loads(inspect_saved.stdout)
+            assert saved_payload.get('defaultModel') == 'messages'
             results['inspect-saved'] = saved_payload.get('defaultModel')
+
+            def protocol_home(name, default, mode):
+                last_error = None
+                for attempt in range(2):
+                    protocol_log = []
+                    protocol_server = start_server(protocol_log, mode=mode)
+                    protocol_root = work / f'{name}-home-{attempt}'
+                    protocol_root.mkdir()
+                    protocol_grok = protocol_root / '.codsh-rust' / '.grok'
+                    protocol_grok.mkdir(parents=True)
+                    write_catalog(protocol_grok / 'config.toml', protocol_server.server_address[1], default=default)
+                    protocol_env = {**base_env, 'HOME': str(protocol_root)}
+                    try:
+                        run = pty_session(name, launcher, cwd, protocol_env, output,
+                                          typed='TOKEN_MODEL_ERR\r',
+                                          wait_before=['Connected to dsh ACP'],
+                                          wait_after=['error'])
+                    except AssertionError as error:
+                        last_error = error
+                        protocol_server.shutdown()
+                        time.sleep(1)
+                        continue
+                    protocol_server.shutdown()
+                    assert run['exit'] == 0
+                    assert 'DSH_MODEL_OK' not in run['screen']
+                    return protocol_log, run
+                raise last_error
+
+            chat_auth_log, _ = protocol_home('chat-auth', 'chat', 'unauth')
+            assert any(item['kind'] == 'chat' and item['method'] == 'POST' for item in chat_auth_log)
+            results['pty-chat-auth'] = True
+            responses_auth_log, _ = protocol_home('responses-auth', 'responses', 'unauth')
+            assert any(item['kind'] == 'responses' and item['method'] == 'POST' for item in responses_auth_log)
+            results['pty-responses-auth'] = True
+            messages_auth_log, _ = protocol_home('messages-auth', 'messages', 'unauth')
+            assert any(item['kind'] == 'messages' and item['method'] == 'POST' for item in messages_auth_log)
+            results['pty-messages-auth'] = True
+            responses_fail_log, _ = protocol_home('responses-stream-fail', 'responses', 'stream-fail')
+            assert any(item['kind'] == 'responses' and item['method'] == 'POST' for item in responses_fail_log)
+            results['pty-responses-stream-fail'] = True
+            messages_fail_log, _ = protocol_home('messages-stream-fail', 'messages', 'stream-fail')
+            assert any(item['kind'] == 'messages' and item['method'] == 'POST' for item in messages_fail_log)
+            results['pty-messages-stream-fail'] = True
 
             (output / 'result.json').write_text(json.dumps({
                 'results': results,

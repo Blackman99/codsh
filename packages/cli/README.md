@@ -37,7 +37,9 @@ effective values with `codsh --rust inspect` / `inspect --json`. Compatible
 `settings.yaml`; a hand-edited settings file that disagrees is not overwritten.
 `/model` and `/effort` only apply advertised catalog options; unsupported
 backends or efforts are refused, and same-named models on different protocols
-are not treated as equivalent. The model's configured `env_key` (`XAI_API_KEY` and other
+are not treated as equivalent. Provider usage stays unknown unless supplied;
+dsh occupancy is labeled as an estimate. Turns are refused until the advertised
+catalog selection is applied. The model's configured `env_key` (`XAI_API_KEY` and other
 `*_API_KEY` values) is passed through to dsh. Missing credentials stay local
 (no grok.com login or default telemetry). Empty Enter on first-run reloads
 config and connects when a provider is ready, without submitting a prompt. Filesystem-resolved overlap with `DSH_HOME`/`GROK_HOME`, including case

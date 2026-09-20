@@ -83,6 +83,8 @@ effort levels are refused or shown unavailable; there is no silent provider
 fallback. Runtime changes apply to the next turn and persist in
 `$GROK_HOME/model-selection.toml`. Usage, cost, and context limits stay
 unknown unless the provider or an explicit `context_window` supplies them.
+dsh context occupancy is labeled `occupancy=N (dsh estimate)` and is not
+treated as provider usage.
 `codsh --rust inspect` and `inspect --json` print each effective value and
 origin (CLI `--model`/`--effort`, environment, `GROK_CONFIG` overlay, saved
 selection, config.toml, default). Invalid `config.toml` is left unchanged and the error names the

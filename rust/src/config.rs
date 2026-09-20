@@ -1850,6 +1850,15 @@ env_key = "ANTHROPIC_API_KEY"
 api_backend = "messages"
 supports_reasoning_effort = false
 
+[model.responses]
+name = "Shared name"
+model = "shared-name"
+base_url = "http://127.0.0.1:9/v1"
+env_key = "XAI_API_KEY"
+api_backend = "responses"
+supports_reasoning_effort = true
+reasoning_efforts = ["low", "high"]
+
 [model.mystery]
 model = "shared-name"
 base_url = "http://127.0.0.1:9/v1"
@@ -1867,6 +1876,7 @@ env_key = "XAI_API_KEY"
         let _ = yaml;
         let generated = fs::read_to_string(&config.settings_yaml).unwrap();
         assert!(generated.contains("api: openai-completions"));
+        assert!(generated.contains("api: openai-responses"));
         assert!(generated.contains("api: anthropic-messages"));
         assert!(generated.contains("contextWindow: 128000"));
         assert!(generated.contains("reasoningEfforts:\n            low: low"));
@@ -1875,6 +1885,7 @@ env_key = "XAI_API_KEY"
         assert!(generated.matches("shared-name").count() >= 2);
         let inspect = inspect_json(&config);
         assert!(inspect.contains("openai-completions"));
+        assert!(inspect.contains("openai-responses"));
         assert!(inspect.contains("anthropic-messages"));
         assert!(inspect.contains("unavailable"));
         assert!(!inspect.contains("ant-key"));

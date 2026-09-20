@@ -169,15 +169,16 @@ pub fn usage_line(
     cost: Option<&str>,
     advertised: Option<u64>,
 ) -> String {
-    let mut parts = Vec::new();
-    match used {
-        Some(value) if value > 0 => parts.push(format!("used={value}")),
-        _ => parts.push("usage=unknown".into()),
+    let mut parts = vec!["usage=unknown".into()];
+    if let Some(value) = used.filter(|value| *value > 0) {
+        parts.push(format!("occupancy={value} (dsh estimate)"));
     }
     match (size, advertised) {
         (_, Some(advertised)) => parts.push(format!("advertised_context={advertised} (config)")),
         (Some(size), None) if size > 0 => {
-            parts.push(format!("reported_context={size} (unverified provider report; not treated as a configured limit)"));
+            parts.push(format!(
+                "reported_context={size} (unverified occupancy; not a configured limit)"
+            ));
         }
         _ => parts.push("advertised_context=unknown".into()),
     }
@@ -410,12 +411,42 @@ mod tests {
         assert!(unknown.contains("usage=unknown"));
         assert!(unknown.contains("advertised_context=unknown"));
         assert!(unknown.contains("cost=unknown"));
-        assert!(!unknown.contains("used=0"));
+        assert!(!unknown.contains("used="));
         assert!(!unknown.contains("cost=0"));
-        let configured = usage_line(Some(12), Some(999999), None, Some(128000));
-        assert!(configured.contains("used=12"));
-        assert!(configured.contains("advertised_context=128000 (config)"));
-        assert!(!configured.contains("999999"));
+        let occupancy = usage_line(Some(7487), Some(999999), None, Some(128000));
+        assert!(occupancy.contains("usage=unknown"));
+        assert!(occupancy.contains("occupancy=7487 (dsh estimate)"));
+        assert!(!occupancy.contains("used=7487"));
+        assert!(occupancy.contains("advertised_context=128000 (config)"));
+        assert!(!occupancy.contains("999999"));
+    }
+
+    #[test]
+    fn effort_menu_lists_advertised_levels() {
+        let choice = CatalogChoice {
+            id: "think".into(),
+            provider: "think".into(),
+            model: "shared-name".into(),
+            name: "Think".into(),
+            api: "openai-completions".into(),
+            backend: "chat_completions".into(),
+            acp_value: acp_model_value("think", "shared-name"),
+            efforts: vec!["low".into(), "high".into()],
+            reasoning: true,
+            advertised_context: Some(128000),
+            usable: true,
+            unavailable: None,
+        };
+        let text = effort_menu_text(Some(&choice), Some("high"));
+        assert!(text.contains("Effort menu for think"));
+        assert!(text.contains("current=high"));
+        assert!(text.contains("available=low, high"));
+        let plain = CatalogChoice {
+            reasoning: false,
+            efforts: Vec::new(),
+            ..choice
+        };
+        assert!(effort_menu_text(Some(&plain), None).contains("does not support"));
     }
 
     #[test]
@@ -433,6 +464,10 @@ mod tests {
                 query: None,
                 effort: None,
             })
+        );
+        assert_eq!(
+            parse_slash("/effort"),
+            Some(Command::Effort { query: None })
         );
         assert_eq!(
             parse_slash("/effort low"),
