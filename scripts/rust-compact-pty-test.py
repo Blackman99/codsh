@@ -277,7 +277,9 @@ default = "chat"
             assert 'occupancy=' in shown
             assert 'advertised_context=128000 (config' in shown
             assert 'occupancy=0' not in shown
-            assert 'breakdown=unknown' in shown
+            assert 'messages=' in shown and 'dsh heuristic' in shown
+            assert 'system=' in shown
+            assert 'breakdown=unknown' not in shown.split('Context (dsh facts only')[-1].split('┌Draft')[0]
             session.write('/model narrow\r')
             session.wait_visible('Selected narrow /', 15)
             session.write('/context\r')
@@ -288,6 +290,8 @@ default = "chat"
             assert 'narrow' in shown or 'cli-mock' in shown
             assert 'compacted' in shown.lower()
             assert '> TOKEN_OLD_ONE' not in shown
+            assert 'MOCK_COMPACTION_SUMMARY' in shown
+            assert 'keep the auth plan' in shown or 'instruction:' in shown
             results['compact'] = True
             results['session'] = session.session_id()
             results['screen'] = session.finish()

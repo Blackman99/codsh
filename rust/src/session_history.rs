@@ -31,9 +31,17 @@ pub struct RestoredCompactionRecord {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RestoredBreakdown {
+    pub system: Option<u64>,
+    pub tools: Option<u64>,
+    pub messages: Option<u64>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RestoredSession {
     pub turns: Vec<RestoredTurn>,
     pub compaction: Vec<RestoredCompactionRecord>,
+    pub breakdown: Option<RestoredBreakdown>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -96,6 +104,13 @@ fn compaction_record(value: &Value) -> RestoredCompactionRecord {
     }
 }
 
+fn breakdown_field(value: &Value, key: &str) -> Option<u64> {
+    match value.get(key) {
+        Some(Value::Null) | None => None,
+        Some(item) => item.as_u64(),
+    }
+}
+
 pub fn project_session(value: &Value) -> Result<RestoredSession, HistoryError> {
     let turns = project_turns(value)?;
     let compaction = value
@@ -105,7 +120,21 @@ pub fn project_session(value: &Value) -> Result<RestoredSession, HistoryError> {
         .flatten()
         .map(compaction_record)
         .collect();
-    Ok(RestoredSession { turns, compaction })
+    let breakdown = value.get("breakdown").and_then(|item| {
+        if item.is_null() {
+            return None;
+        }
+        Some(RestoredBreakdown {
+            system: breakdown_field(item, "system"),
+            tools: breakdown_field(item, "tools"),
+            messages: breakdown_field(item, "messages"),
+        })
+    });
+    Ok(RestoredSession {
+        turns,
+        compaction,
+        breakdown,
+    })
 }
 
 pub fn project_turns(value: &Value) -> Result<Vec<RestoredTurn>, HistoryError> {

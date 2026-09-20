@@ -42,6 +42,71 @@ function eventSurfaceOp(event) {
   return event?.surfaceOp ?? event?.data?.surfaceOp ?? event?.data?.message?.surfaceOp
 }
 
+const CHARS_PER_TOKEN = 4
+const BLOCK_OVERHEAD = 4
+
+function estimateContent(blocks) {
+  if (!Array.isArray(blocks)) return 0
+  let tokens = 0
+  for (const block of blocks) {
+    if (!block || typeof block !== 'object') continue
+    if (block.type === 'text' || block.type === 'reasoning') {
+      tokens += Math.ceil(String(block.text ?? '').length / CHARS_PER_TOKEN) + BLOCK_OVERHEAD
+    } else if (block.type === 'tool-call') {
+      tokens += Math.ceil(String(block.name ?? '').length / CHARS_PER_TOKEN)
+        + Math.ceil(String(block.arguments ?? '').length / CHARS_PER_TOKEN)
+        + BLOCK_OVERHEAD
+    } else if (block.type === 'tool-result') {
+      tokens += estimateContent(block.content) + BLOCK_OVERHEAD
+    } else {
+      tokens += BLOCK_OVERHEAD + Math.ceil(JSON.stringify(block).length / CHARS_PER_TOKEN)
+    }
+  }
+  return tokens
+}
+
+function estimateSystemContent(blocks) {
+  if (!Array.isArray(blocks) || blocks.length === 0) return 0
+  let characters = 0
+  for (const block of blocks) {
+    if (block?.type === 'text') characters += String(block.text ?? '').length
+    else if (block) characters += JSON.stringify(block).length
+  }
+  return Math.ceil(characters / CHARS_PER_TOKEN) + 4
+}
+
+export function projectBreakdown(events) {
+  if (!Array.isArray(events) || events.length === 0) return null
+  const live = liveSurfaceSeqs(events)
+  const bySeq = new Map(events.filter(event => typeof event?.seq === 'number').map(event => [event.seq, event]))
+  let toolsTokens
+  for (const event of events) {
+    if (event?.type !== 'request/header') continue
+    const tools = event.data?.header?.tools
+    toolsTokens = Array.isArray(tools) && tools.length > 0
+      ? Math.ceil(JSON.stringify(tools).length / CHARS_PER_TOKEN) + BLOCK_OVERHEAD
+      : 0
+  }
+  let systemTokens = 0
+  let totalSurface = 0
+  for (const seq of live) {
+    const event = bySeq.get(seq)
+    if (!event) continue
+    const message = event.data?.message ?? event.data ?? {}
+    const content = message.content
+    const tokens = event.type === 'system/message'
+      ? estimateSystemContent(content)
+      : estimateContent(content) + 4
+    totalSurface += tokens
+    if (event.type === 'system/message' && tokens > 0) systemTokens = tokens
+  }
+  return {
+    system: systemTokens,
+    tools: toolsTokens,
+    messages: Math.max(0, totalSurface - systemTokens),
+  }
+}
+
 export function liveSurfaceSeqs(events) {
   const nodes = []
   for (const event of events ?? []) {
@@ -313,6 +378,7 @@ export function projectSession(events) {
     compaction,
     retainedTools,
     retainedTodos,
+    breakdown: projectBreakdown(events),
   }
 }
 

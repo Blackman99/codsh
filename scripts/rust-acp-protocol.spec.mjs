@@ -6,7 +6,7 @@ import { createRequire } from 'node:module'
 import { afterEach, describe, expect, it } from 'vitest'
 import { rustAcpOverlay } from './rust-acp-overlay.mjs'
 import { fileURLToPath } from 'node:url'
-import { projectTurns, projectSession, liveSurfaceSeqs } from '../packages/cli/bin/rust-acp-session-read.mjs'
+import { projectTurns, projectSession, liveSurfaceSeqs, projectBreakdown } from '../packages/cli/bin/rust-acp-session-read.mjs'
 import { compactFailureText, parseCompactLine } from '../packages/cli/bin/rust-acp-compact.mjs'
 
 const require = createRequire(import.meta.url)
@@ -188,6 +188,20 @@ describe('dsh session log projection', () => {
     expect(live.compaction[0].provider).toBe('cli-mock')
     expect(live.compaction[0].purpose).toBe('compaction')
     expect(live.retainedTodos.some(tool => tool.result.includes('TODO_KEEP'))).toBe(true)
+  })
+
+  it('projects dsh context buckets from live surface without fabricating occupancy', () => {
+    expect(projectBreakdown([])).toBeNull()
+    const events = [
+      { seq: 1, type: 'system/message', surfaceOp: 'append', data: { message: { content: [{ type: 'text', text: 'You are the dsh system prompt.' }] } } },
+      { seq: 2, type: 'user/message', surfaceOp: 'append', data: { message: { content: [{ type: 'text', text: 'hello world from the user' }] } } },
+      { seq: 3, type: 'assistant/message', surfaceOp: 'append', data: { message: { content: [{ type: 'text', text: 'a short reply' }] } } },
+    ]
+    const breakdown = projectBreakdown(events)
+    expect(breakdown.system).toBeGreaterThan(0)
+    expect(breakdown.messages).toBeGreaterThan(0)
+    expect(breakdown.tools).toBeUndefined()
+    expect(projectSession(events).breakdown.messages).toBe(breakdown.messages)
   })
 
   it('projects only live post-replace surface turns and drops runtime-context orphans', () => {

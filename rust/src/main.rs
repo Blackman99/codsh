@@ -514,6 +514,20 @@ fn compact_reload_hint(
     "No compactable history yet. Original dsh records were not discarded.".into()
 }
 
+fn compact_summary_preview(text: &str) -> String {
+    let body = text
+        .split("<compacted-summary>")
+        .nth(1)
+        .and_then(|rest| rest.split("</compacted-summary>").next())
+        .unwrap_or(text);
+    body.lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .take(8)
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
 fn compact_tool_result(text: &str) -> String {
     if let Some(body) = text
         .split("<content>\n")
@@ -565,7 +579,13 @@ fn render_transcript(status: &str, turns: &[Turn]) -> String {
                 out.push_str(&compact_tool_result(&tool.result));
             }
         }
-        if !turn.answer.is_empty() && !turn.compacted {
+        if !turn.answer.is_empty() && turn.compacted {
+            let preview = compact_summary_preview(&turn.answer);
+            if !preview.is_empty() {
+                out.push('\n');
+                out.push_str(&preview);
+            }
+        } else if !turn.answer.is_empty() {
             out.push('\n');
             out.push_str(turn.answer.lines().next().unwrap_or(""));
         }
@@ -1413,13 +1433,29 @@ fn run() -> io::Result<()> {
                                 match command {
                                     models::Command::Context => {
                                         let routing = live_routing(client.as_ref(), &effective);
+                                        let breakdown = client
+                                            .as_ref()
+                                            .and_then(|active| active.session_id.as_ref())
+                                            .and_then(|session_id| {
+                                                session_history::load_session(
+                                                    &effective.dsh_home,
+                                                    session_id,
+                                                )
+                                                .ok()
+                                                .and_then(|session| session.breakdown)
+                                            })
+                                            .map(|item| models::ContextBreakdown {
+                                                system: item.system,
+                                                tools: item.tools,
+                                                messages: item.messages,
+                                            });
                                         hint = models::context_report(
                                             meter.used,
                                             routing
                                                 .as_ref()
                                                 .and_then(|item| item.advertised_context),
                                             meter.size,
-                                            None,
+                                            breakdown.as_ref(),
                                         );
                                         last_error.clear();
                                         draft.set_text("");
