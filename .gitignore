@@ -5,3 +5,5 @@ lib/
 .dev-home/
 .env
 .claude/
+rust/target/
+packages/cli/native/

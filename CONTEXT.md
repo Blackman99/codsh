@@ -12,6 +12,14 @@ allows minimal native scrollback alongside fullscreen. It does not change the
 legacy Viewport, keybindings, data or tests. The itemized reference register
 lives under `docs/rewrite/reference/`; declarations are not parity evidence.
 
+`codsh --rust` is the explicit parallel launch-preview path. Its locally packed
+native client reuses licensed upstream Rust input and welcome layout without
+linking the official agent core. It owns no canonical session store or tools and
+reports execution unavailable until the dsh adapter exists. The isolated Home is
+`~/.codsh-rust/dsh`, Profile `rust`; inherited legacy configuration/credentials
+are not imported. No network/service initialization runs. Plain `codsh` still
+selects the legacy Launcher/Bundle; this is not the default cutover.
+
 ## Language
 
 ### Product shape

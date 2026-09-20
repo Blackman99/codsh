@@ -25,4 +25,18 @@ wayfinder → grill → spec → tickets → landing → done.
 - `DSH_BIN=/path/to/dsh`: Pin a specific `dsh` executable.
 - `CODSH_BUNDLE_SPEC`: Point to an alternate bundle package or local tarball.
 
+## Local Rust candidates
+
+`codsh --rust` selects the isolated offline Rust welcome/input preview. Plain
+`codsh` is unchanged. The candidate uses `~/.codsh-rust/dsh`, Profile `rust`,
+never imports old credentials or sessions, and starts no agent or network
+service. Enter explicitly refuses execution until the dsh adapter is available.
+`Ctrl+Q`/`Ctrl+D` quits; `Ctrl+C` clears a draft or quits when empty.
+
+Maintainers run `pnpm run build:rust` before locally packing this package. The
+candidate carries its native binary, dependency/license records, and digest;
+users of that package need no Rust compiler. Missing/platform-mismatched or
+corrupted artifacts fail, without downloading or falling back. No official
+account or executable is required. This is not a published replacement release.
+
 Full documentation: [github.com/Blackman99/codsh](https://github.com/Blackman99/codsh)

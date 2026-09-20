@@ -1,0 +1,53 @@
+[workspace]
+resolver = "2"
+members = [".", "upstream/xai-ratatui-textarea", "upstream/xai-ratatui-inline"]
+
+[workspace.package]
+edition = "2024"
+
+[workspace.dependencies]
+anstyle-parse = "0.2"
+ansi-width = "0.1"
+anyhow = "1"
+arboard = "3.6"
+colored_json = "5"
+criterion = "0.6"
+crossterm = "0.28"
+fuzzy-matcher = "0.3.7"
+ignore = "0.4"
+itertools = "0.14"
+lipsum = "0.9"
+pretty_assertions = "1"
+rand = "0.9"
+ratatui = "0.29"
+ratatui-core = "0.1"
+serde_json = "1"
+termwiz = { version = "0.23", default-features = false }
+textwrap = "0.16"
+tracing = "0.1"
+tui-scrollbar = "0.2"
+unicode-segmentation = "1"
+unicode-width = "0.2"
+
+[workspace.lints.clippy]
+too_many_arguments = "allow"
+
+[package]
+name = "codsh-rust"
+version = "0.1.0"
+edition.workspace = true
+license = "MIT AND Apache-2.0"
+publish = false
+
+[dependencies]
+crossterm = { workspace = true, features = ["bracketed-paste"] }
+ratatui = { workspace = true, features = ["unstable-widget-ref"] }
+serde_json.workspace = true
+unicode-width.workspace = true
+xai-ratatui-textarea = { path = "upstream/xai-ratatui-textarea" }
+
+[target.'cfg(unix)'.dependencies]
+signal-hook = "0.3"
+
+[dev-dependencies]
+tempfile = "3"

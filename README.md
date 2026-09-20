@@ -42,6 +42,28 @@ Common flags:
 - `codsh --resume <id>` — Resume a specific session
 - `codsh update` — Update launcher and profile runtime
 
+## Isolated Rust launch preview (local candidates)
+
+`codsh --rust` explicitly selects the parallel Rust client; plain `codsh` keeps
+using the existing version. This first slice is an **offline welcome/input and
+exit preview**, not a working replacement agent. It reuses licensed Grok Rust
+UI components, requires no official account, and starts no agent, model request,
+authentication, update check, telemetry, or feedback upload. Enter reports that
+the dsh adapter is unavailable without sending or saving the draft.
+
+The preview uses `~/.codsh-rust/dsh` and Profile `rust`, ignores inherited
+`DSH_HOME`, provider credentials and Grok settings, and never migrates legacy
+sessions. A symlinked preview Home/Profile or overlap with `DSH_HOME` is refused.
+`Ctrl+Q`/`Ctrl+D` quits; `Ctrl+C` clears a draft, or quits when empty. Unsupported
+arguments fail explicitly. `codsh --rust --help` describes this limited path.
+
+Maintainers stage a native candidate with `pnpm run build:rust`, then locally
+pack/install `packages/cli`; the npm entry includes the prebuilt native artifact
+and notices, so candidate users do not compile Rust. A package without a native
+artifact reports an actionable error, never falls back silently. No published
+release or default cutover is implied. See [Contributing](CONTRIBUTING.md) for
+build, installed-product verification, and platform limitations.
+
 ## `/ship`: One Sentence to Verified Code
 
 ```sh

@@ -1,0 +1,219 @@
+{
+  "repository": "https://github.com/xai-org/grok-build",
+  "commit": "a28ee2b2063426e8816e380ccea528b9de95e5da",
+  "sourceRevision": "e8563f8f182296ebb53cadb3e1eab7615d76408e",
+  "behaviorReference": "1.0.34 / 3736acbc8658; source declares 1.0.35, exact mapping unproven",
+  "files": [
+    {
+      "path": "upstream/LICENSE",
+      "upstreamPath": "LICENSE",
+      "upstreamSha256": "116f7778b9802e569b7fa3a532b17bd80eb13c67837def01eed093d4ea472f28"
+    },
+    {
+      "path": "upstream/SOURCE_REV",
+      "upstreamPath": "SOURCE_REV",
+      "upstreamSha256": "c548cf3a5fa05d0e5494744945ef2085cb2448aab8dd01ac27789c3fe1569f7f"
+    },
+    {
+      "path": "upstream/THIRD-PARTY-NOTICES",
+      "upstreamPath": "THIRD-PARTY-NOTICES",
+      "upstreamSha256": "dcbdd42b8fe45aa28f67a7b9e82d9feadec2b958c050158aeaac460eba651d07"
+    },
+    {
+      "path": "upstream/xai-ratatui-inline/Cargo.toml",
+      "upstreamPath": "crates/codegen/xai-ratatui-inline/Cargo.toml",
+      "upstreamSha256": "7bc6a15a8810b56c10c2b07253e8194c1b11ee40c31a1c420696178d44d6f3d8"
+    },
+    {
+      "path": "upstream/xai-ratatui-inline/NOTICE",
+      "upstreamPath": "crates/codegen/xai-ratatui-inline/NOTICE",
+      "upstreamSha256": "0b2ba5c4dcc49e4e17be08fe2980968fc7bce31e41ad5af09bb80097f61483dd"
+    },
+    {
+      "path": "upstream/xai-ratatui-inline/README.md",
+      "upstreamPath": "crates/codegen/xai-ratatui-inline/README.md",
+      "upstreamSha256": "a9ec8894c7b478c89bb7c77b59d18cacc1abdc07497f2c0c7358bf1461d24580"
+    },
+    {
+      "path": "upstream/xai-ratatui-inline/benches/bench.rs",
+      "upstreamPath": "crates/codegen/xai-ratatui-inline/benches/bench.rs",
+      "upstreamSha256": "5a69764931a63936d2ca099a78639cb2607fddbb8adb73cf03ddfe99c8f2e1f4"
+    },
+    {
+      "path": "upstream/xai-ratatui-inline/examples/inline.rs",
+      "upstreamPath": "crates/codegen/xai-ratatui-inline/examples/inline.rs",
+      "upstreamSha256": "9448f7cc8239c8a8bb6896b01723bc6f06b37d8a9a445c52abaeb66d0dbc49f2"
+    },
+    {
+      "path": "upstream/xai-ratatui-inline/src/common.rs",
+      "upstreamPath": "crates/codegen/xai-ratatui-inline/src/common.rs",
+      "upstreamSha256": "f3d68afbae7dcd48a09f725385122f944358ed87a1804d278a733be9dee92383"
+    },
+    {
+      "path": "upstream/xai-ratatui-inline/src/lib.rs",
+      "upstreamPath": "crates/codegen/xai-ratatui-inline/src/lib.rs",
+      "upstreamSha256": "216b4218109b1b3542c5a223b31ca2bb5ea129374ab6a52c3ba15049e59fc4aa"
+    },
+    {
+      "path": "upstream/xai-ratatui-inline/src/resize.rs",
+      "upstreamPath": "crates/codegen/xai-ratatui-inline/src/resize.rs",
+      "upstreamSha256": "e1834d130df5e1cfc2dac15cd665cd4788f1d45072550841f0bcd4a9c5e0369c"
+    },
+    {
+      "path": "upstream/xai-ratatui-inline/src/scrollback.rs",
+      "upstreamPath": "crates/codegen/xai-ratatui-inline/src/scrollback.rs",
+      "upstreamSha256": "7336634b49f39248509ed40ff822a2f5683a17c8a29086821cd9ecbf62b56831"
+    },
+    {
+      "path": "upstream/xai-ratatui-inline/src/segment.rs",
+      "upstreamPath": "crates/codegen/xai-ratatui-inline/src/segment.rs",
+      "upstreamSha256": "75affdd7d0b7b5a0b4d9d79513d5375e726c7125e84f6800f4440edd0241bcbf"
+    },
+    {
+      "path": "upstream/xai-ratatui-inline/src/terminal.rs",
+      "upstreamPath": "crates/codegen/xai-ratatui-inline/src/terminal.rs",
+      "upstreamSha256": "004517712582988e21ad4ca877ad697048adacb3e476808324f1df718c910cbb"
+    },
+    {
+      "path": "upstream/xai-ratatui-inline/src/tests.rs",
+      "upstreamPath": "crates/codegen/xai-ratatui-inline/src/tests.rs",
+      "upstreamSha256": "980333436fc774c0dcf75de0ce02209658a32e92acf1fad1f6bcccf658f77e67"
+    },
+    {
+      "path": "upstream/xai-ratatui-inline/tests/segment_differential.rs",
+      "upstreamPath": "crates/codegen/xai-ratatui-inline/tests/segment_differential.rs",
+      "upstreamSha256": "17d6ff5ba85621a0e26886803c941c318d613794bc08138ec42bbd910751ccad"
+    },
+    {
+      "path": "upstream/xai-ratatui-textarea/.gitignore",
+      "upstreamPath": "crates/codegen/xai-ratatui-textarea/.gitignore",
+      "upstreamSha256": "a04520f1f9dc15b1e21a5f4e18340821560604292de962441a6ce1798b7c6eef"
+    },
+    {
+      "path": "upstream/xai-ratatui-textarea/Cargo.toml",
+      "upstreamPath": "crates/codegen/xai-ratatui-textarea/Cargo.toml",
+      "upstreamSha256": "319bf317227db34be63d59ba09b5505926e91d71828954ba1412ef45f5c9b7e3"
+    },
+    {
+      "path": "upstream/xai-ratatui-textarea/NOTICE",
+      "upstreamPath": "crates/codegen/xai-ratatui-textarea/NOTICE",
+      "upstreamSha256": "5d310dde613653911ea026b5cb66367600f5a704d299fa0afedbf1d3efd5d493"
+    },
+    {
+      "path": "upstream/xai-ratatui-textarea/examples/textarea_demo.rs",
+      "upstreamPath": "crates/codegen/xai-ratatui-textarea/examples/textarea_demo.rs",
+      "upstreamSha256": "3b60228c271264206721d8404f4d3c017f10b622c61fc5340252de12c75eaf44"
+    },
+    {
+      "path": "upstream/xai-ratatui-textarea/src/editor.rs",
+      "upstreamPath": "crates/codegen/xai-ratatui-textarea/src/editor.rs",
+      "upstreamSha256": "99fe2447ec8acc310e975544cac232df380a01dd8b4783ddf6a159afc94bd3fe"
+    },
+    {
+      "path": "upstream/xai-ratatui-textarea/src/editor_keys.rs",
+      "upstreamPath": "crates/codegen/xai-ratatui-textarea/src/editor_keys.rs",
+      "upstreamSha256": "0c427122046cc8106460311ede7e92644065abe8bbaa259bca7389605b0e0aee"
+    },
+    {
+      "path": "upstream/xai-ratatui-textarea/src/editor_tests/editing.rs",
+      "upstreamPath": "crates/codegen/xai-ratatui-textarea/src/editor_tests/editing.rs",
+      "upstreamSha256": "84a5c2ecfec31a9e1d2eb76002b3b5d665819dcd8ebc5698fb141004b521ecfa",
+      "modified": true
+    },
+    {
+      "path": "upstream/xai-ratatui-textarea/src/editor_tests/keys.rs",
+      "upstreamPath": "crates/codegen/xai-ratatui-textarea/src/editor_tests/keys.rs",
+      "upstreamSha256": "8daf00e6bf481dc8d54de621291b99cf56f3065a2d9c54a1d3807ba8bbbd30a1"
+    },
+    {
+      "path": "upstream/xai-ratatui-textarea/src/editor_tests/mod.rs",
+      "upstreamPath": "crates/codegen/xai-ratatui-textarea/src/editor_tests/mod.rs",
+      "upstreamSha256": "d36f5f756576e71f134b80c1ac134c7a1410b50f70c94d526a685fbadd664775"
+    },
+    {
+      "path": "upstream/xai-ratatui-textarea/src/editor_tests/planning.rs",
+      "upstreamPath": "crates/codegen/xai-ratatui-textarea/src/editor_tests/planning.rs",
+      "upstreamSha256": "f767f36a79a33b089c3f9fd69cf69b69bee9948adce9a04d3039645624f0f136",
+      "modified": true
+    },
+    {
+      "path": "upstream/xai-ratatui-textarea/src/editor_tests/viewport.rs",
+      "upstreamPath": "crates/codegen/xai-ratatui-textarea/src/editor_tests/viewport.rs",
+      "upstreamSha256": "1af274bafa39b0b15551778e9bd64515fbd135f4c4d2b4c841dceb6f4df2c776",
+      "modified": true
+    },
+    {
+      "path": "upstream/xai-ratatui-textarea/src/lib.rs",
+      "upstreamPath": "crates/codegen/xai-ratatui-textarea/src/lib.rs",
+      "upstreamSha256": "7014fbc17140ffc28761039f177a1473541c25afee7fc485a87e9552bc8cd089"
+    },
+    {
+      "path": "upstream/xai-ratatui-textarea/src/render/line_utils.rs",
+      "upstreamPath": "crates/codegen/xai-ratatui-textarea/src/render/line_utils.rs",
+      "upstreamSha256": "b4fbe4f6596e329f4733d1612cb9bfb7f7fdc48597fc56e2726022a9b606655e"
+    },
+    {
+      "path": "upstream/xai-ratatui-textarea/src/render/mod.rs",
+      "upstreamPath": "crates/codegen/xai-ratatui-textarea/src/render/mod.rs",
+      "upstreamSha256": "af08ce0a2e9921421ce1893e67f00ca6981af70ea261321139daa2c9141bfe22"
+    },
+    {
+      "path": "upstream/xai-ratatui-textarea/src/textarea.rs",
+      "upstreamPath": "crates/codegen/xai-ratatui-textarea/src/textarea.rs",
+      "upstreamSha256": "9d2ac0e7eb75686560166ace17c4edf14262e2f0af43ac833a2ac91eeab95578"
+    },
+    {
+      "path": "upstream/xai-ratatui-textarea/src/textarea_tests.rs",
+      "upstreamPath": "crates/codegen/xai-ratatui-textarea/src/textarea_tests.rs",
+      "upstreamSha256": "86d1c75b3e6b9d21cf97a9513019fb1a4f0dfa1d9e769153a33cba6cc6c5c808",
+      "modified": true
+    },
+    {
+      "path": "upstream/xai-ratatui-textarea/src/wrapping.rs",
+      "upstreamPath": "crates/codegen/xai-ratatui-textarea/src/wrapping.rs",
+      "upstreamSha256": "eb5b4142236b3a25f35092ad39212f32fe782d9e1127b9eba185537b925861ec",
+      "modified": true
+    },
+    {
+      "path": "src/welcome/logo.rs",
+      "upstreamPath": "crates/codegen/xai-grok-pager/src/views/welcome/logo.rs",
+      "upstreamSha256": "78b4096132833d428fdd8de67348021a14e05e00adb3fedd037cdd674d6f0f48",
+      "modified": true
+    },
+    {
+      "path": "src/welcome/menu.rs",
+      "upstreamPath": "crates/codegen/xai-grok-pager/src/views/welcome/menu.rs",
+      "upstreamSha256": "ee511117ccccbe960fb79501bf0fc7932f7bed3491ff9052fcae1ff0aab35a37",
+      "modified": true
+    },
+    {
+      "path": "src/welcome/layout.rs",
+      "upstreamPath": "crates/codegen/xai-grok-pager/src/views/welcome/mod.rs",
+      "upstreamSha256": "eebc0b4db1efff2f90c3f7b1097ebd570aeabfafe2463320760434d97ffe44bf",
+      "modified": true
+    },
+    {
+      "path": "src/welcome/hero_box.rs",
+      "upstreamPath": "crates/codegen/xai-grok-pager/src/views/welcome/hero_box.rs",
+      "upstreamSha256": "731d24c8746598b355a2c7c3ac8605879cbb139c9417eb4c9cef0c707631c05a",
+      "modified": true
+    }
+  ],
+  "supplementalLicenses": [
+    {
+      "path": "licenses/ratatui-core-0.1.0/LICENSE",
+      "url": "https://raw.githubusercontent.com/ratatui/ratatui/0a2a7c0363a4806b0cf05c1915bf7cdd438f756c/LICENSE",
+      "sha256": "50eb43e8d742c9c61a9391e42b2184fce54dbd1893a1bb1c85b8c9ee217ab1f5"
+    },
+    {
+      "path": "licenses/tui-scrollbar-0.2.2/LICENSE-MIT",
+      "url": "https://raw.githubusercontent.com/joshka/tui-widgets/5c7acc5d2c71e077dc5b098c04e3abe26eef6939/LICENSE-MIT",
+      "sha256": "5d39609e3416e78c9ada0a8ac1207dd6b93465a0c5398b1b5d6c8e73143abd4f"
+    },
+    {
+      "path": "licenses/tui-scrollbar-0.2.2/LICENSE-APACHE",
+      "url": "https://raw.githubusercontent.com/joshka/tui-widgets/5c7acc5d2c71e077dc5b098c04e3abe26eef6939/LICENSE-APACHE",
+      "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+    }
+  ]
+}

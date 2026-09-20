@@ -195,6 +195,61 @@ rejects malformed structured output and missing terminal events.
 Freeze measured numeric performance thresholds before collecting candidate data.
 Run the ordinary typecheck and full unit suite for changes to these workflows.
 
+## Isolated Rust launch preview (#134)
+
+Rust 1.98.1 (verified toolchain, edition 2024), Cargo, Node 22.19+, and the ordinary pnpm workspace
+are required to build a local native candidate. `rust/Cargo.lock` pins the
+selected UI dependency closure. The complete upstream agent closure is not
+built: it would initialize official execution/auth/services and also requires
+DotSlash/protoc. This slice imports the upstream text editor/inline terminal
+crates and extracts offline wide/stacked welcome layout; see
+`rust/upstream/import.json` and `rust/upstream/MODIFICATIONS` for provenance.
+Only the fullscreen welcome is composed now; retaining inline source is not a
+claim of minimal-mode or complete Grok parity. Frozen behavior remains 1.0.34,
+while the imported public source declares 1.0.35 (correspondence unproven).
+
+```sh
+pnpm run build:rust
+cargo check --manifest-path rust/Cargo.toml --locked --workspace
+pnpm run test:rust
+cargo clippy --manifest-path rust/Cargo.toml --locked --workspace --all-targets -- -D warnings
+cargo fmt --manifest-path rust/Cargo.toml --all -- --check
+pnpm run typecheck
+pnpm test
+pnpm run build
+pnpm exec vitest run --config vitest.e2e.config.ts e2e/wrapper.e2e.ts e2e/pty-input.e2e.ts e2e/pty-session.e2e.ts
+pnpm run test:rust:pty
+```
+
+`build:rust` stages the host binary under ignored `packages/cli/native/<os>-<arch>`
+with SHA-256, selected dependency metadata and license/notice files. `npm pack`
+from `packages/cli` includes it; install that tarball locally to try `codsh --rust`.
+No download-on-launch, release, global install, or default cutover occurs.
+Cross-target packaging/CI publication and native Linux/Windows verification are
+later tickets, not established by a macOS build. Packages lacking the artifact
+fail explicitly. The regular legacy `build` does not add native artifacts.
+
+`test:rust:pty` requires macOS, Python 3 and clang. It packs and locally installs
+the product in a temporary prefix, uses synthetic HOME/DSH_HOME/workspace canaries,
+operates the actual Rust UI through a PTY, and checks termios, screen/paste/cursor
+restoration after normal exit, cancellation, signals and malformed Profile startup.
+The network observer interposes socket/connect/connectx/sendto/sendmsg/DNS calls
+without replacing their results; a compiled loopback UDP positive control proves
+socket and outbound-send observation.
+A Node preload preserves only this audit injection across the launcher's sanitized
+child environment. A separate uninstrumented run denies network and synthetic
+legacy-home reads with `sandbox-exec`. This is socket-boundary evidence, not
+privileged packet capture.
+No real credentials, session history, official account or paid service is used.
+Logs/screens/result JSON go to a new `.scratch/rust-pty-*` directory; `--output`
+can choose another new directory. Do not reuse personal data or a personal Home.
+
+The preview creates only `~/.codsh-rust/dsh/profiles/rust/package.json`, with an
+empty bundle composition; it starts no dsh or official agent. dsh remains the only
+permitted future executing core. Enter preserves the draft and explicitly reports
+that execution is unavailable. ACP/turn/tool/approval/session behavior belongs to
+the next integration tickets; do not mock success to expand this acceptance slice.
+
 ## Documentation site
 
 `site/` is a static GitHub Pages site. `index.html` and `zh.html` are the short

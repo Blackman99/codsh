@@ -6,12 +6,13 @@
     "requiresDsh": "0.1.5-rc.2"
   },
   "type": "module",
-  "license": "MIT",
+  "license": "MIT AND Apache-2.0",
   "bin": {
     "codsh": "./bin/codsh.mjs"
   },
   "files": [
     "bin",
+    "native",
     "README.md"
   ],
   "engines": {

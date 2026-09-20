@@ -42,6 +42,24 @@ codsh
 - `codsh --resume <id>` — 恢复指定会话
 - `codsh update` — 升级启动器与 profile runtime
 
+## 隔离的 Rust 启动预览（本地候选包）
+
+`codsh --rust` 显式选择并行开发的 Rust 客户端；直接运行 `codsh` 仍使用旧版。
+本阶段仅为**离线欢迎界面、输入与退出预览**，不是可执行任务的新 Agent。
+它复用具有合法许可证的 Grok Rust 界面组件，无需官方账号，不启动 Agent、
+模型请求、认证、更新检查、遥测或反馈上传。按 Enter 会明确提示 dsh 适配器
+尚未连接，不发送、不保存输入草稿。
+
+预览使用 `~/.codsh-rust/dsh` 与 `rust` Profile，忽略继承的 `DSH_HOME`、
+提供商密钥及 Grok 设置，不迁移旧会话。如果预览 Home/Profile 是符号链接，
+或与 `DSH_HOME` 重叠，会拒绝启动。`Ctrl+Q`/`Ctrl+D` 退出；`Ctrl+C` 清空
+草稿，草稿为空时退出。不支持的参数明确报错；`codsh --rust --help` 说明此路径。
+
+维护者通过 `pnpm run build:rust` 构建本机候选产物，再本地打包、安装
+`packages/cli`；npm 入口携带预编译二进制与许可证，候选包用户无需编译 Rust。
+缺少对应平台产物时会提供明确错误，不会静默回退。这不代表正式发布或默认版本
+切换。构建、安装产物验证和平台限制见 [贡献指南](CONTRIBUTING.md)。
+
 ## `/ship`：一句话到已验证代码
 
 ```sh
