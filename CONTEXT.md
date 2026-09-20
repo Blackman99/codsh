@@ -24,8 +24,12 @@ the same dsh session; a second write owner is refused. The isolated Home is `~/.
 legacy configuration/credential files are not imported. Configured `env_key`
 values are passed through. Telemetry stays off.
 User settings enter through `$GROK_HOME/config.toml` and `codsh --rust inspect`;
-applicable model/provider fields are translated into isolated dsh
-`settings.yaml` rather than competing with it.
+applicable model/provider fields, including `api_backend` and reasoning
+effort, are translated into isolated dsh `settings.yaml` rather than competing
+with it. `/model` and `/effort` change only advertised catalog options; unknown
+backends and efforts are refused, never treated as equivalent or silently
+swapped. Usage and context stay unknown unless the provider or config actually
+supplies them.
 Plain `codsh` still selects the legacy Launcher/Bundle; this is not the default
 cutover.
 

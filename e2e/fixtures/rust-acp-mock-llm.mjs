@@ -191,7 +191,9 @@ class RustAcpMockAdapter extends LlmAdapter {
       yield { type: 'block-start', index: 0, blockType: 'reasoning' }
       yield { type: 'reasoning-delta', index: 0, text: thought }
       yield { type: 'block-end', index: 0, block: { type: 'reasoning', text: thought } }
-      const reply = `RUST_ACP_ANSWER turn=${turn}`
+      const effort = options.reasoningEffort ?? 'none'
+      const route = `${options.provider}/${options.model}`
+      const reply = `RUST_ACP_ANSWER turn=${turn} route=${route} effort=${effort}`
       yield { type: 'block-start', index: 1, blockType: 'text' }
       yield { type: 'text-delta', index: 1, text: reply }
       yield { type: 'block-end', index: 1, block: { type: 'text', text: reply } }
@@ -199,7 +201,9 @@ class RustAcpMockAdapter extends LlmAdapter {
       yield { type: 'finish', reason: { kind: 'stop' } }
       return
     }
-    const reply = `RUST_ACP_ANSWER turn=${turn} ${userTexts(options).join('\n')}`
+    const effort = options.reasoningEffort ?? 'none'
+    const route = `${options.provider}/${options.model}`
+    const reply = `RUST_ACP_ANSWER turn=${turn} route=${route} effort=${effort} ${userTexts(options).join('\n')}`
     yield { type: 'block-start', index: 0, blockType: 'text' }
     yield { type: 'text-delta', index: 0, text: reply }
     yield { type: 'block-end', index: 0, block: { type: 'text', text: reply } }

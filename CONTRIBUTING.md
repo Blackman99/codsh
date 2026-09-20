@@ -224,6 +224,7 @@ pnpm exec vitest run scripts/rust-acp-protocol.spec.mjs
 python3 scripts/rust-cancel-pty-test.py
 python3 scripts/rust-resume-pty-test.py
 python3 scripts/rust-config-pty-test.py
+python3 scripts/rust-model-pty-test.py
 ```
 
 `build:rust` stages the host binary under ignored `packages/cli/native/<os>-<arch>`
@@ -307,7 +308,10 @@ with an empty bundle composition. Interactive `codsh --rust` then starts release
 `dsh --profile acp` over ACP/JSON-RPC stdio in that Home; dsh owns execution and
 durable sessions. The mock model, when used, is a dsh provider-boundary fixture
 (`CODSH_ACP_PATCH`, `DSH_CODE_CLI_MOCK_TOOL`), not a stub of the Rust client or
-dsh core. Enter submits the draft through dsh when connected. Missing dsh, ACP
+dsh core. Model/protocol/effort checks (`python3 scripts/rust-model-pty-test.py`)
+drive a loopback OpenAI-compatible fixture at the provider boundary and assert
+the actual request path, model id, auth, and effort; same-named models on
+different backends are not treated as equivalent. Enter submits the draft through dsh when connected. Missing dsh, ACP
 protocol mismatch, empty answers, mid-stream failure, and disconnect are shown
 as failures or empty results, never as success. File read/write/edit run through
 released dsh tools. The Rust UI correlates `session/request_permission` with the

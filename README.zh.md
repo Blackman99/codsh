@@ -64,10 +64,20 @@ dsh 给出的差异，`y` 允许该次调用，`n` 拒绝且不写入。文件�
 
 预览的用户配置是 `$GROK_HOME/config.toml`（默认
 `~/.codsh-rust/.grok/config.toml`）。兼容的 `[model.<id>]` 字段
-（`base_url`、`env_key`、`api_key`、`model`、`name`）和 `models.default`
-会映射到隔离的 dsh `settings.yaml`，两份文件不会互相覆盖。
+（`base_url`、`env_key`、`api_key`、`model`、`name`、`api_backend`、
+`supports_reasoning_effort`、`reasoning_efforts`、`reasoning_effort`、
+`context_window`）以及 `models.default` / `models.default_reasoning_effort`
+会映射到隔离的 dsh `settings.yaml`，两份文件不会互相覆盖。支持的后端是
+Grok 的 `chat_completions`、`responses`、`messages`（对应 dsh 的
+`openai-completions`、`openai-responses`、`anthropic-messages`）。同名模型
+在不同后端上是两条目录项，不是同等能力。`/model`（别名 `/m`）与 `/effort`，
+以及 `--model`、`--effort` / `--reasoning-effort`，只选择已公布的选项。
+不支持的后端或推理等级会明确拒绝或显示不可用，不会静默切换提供商。运行中
+变更作用于下一回合，并写入 `$GROK_HOME/model-selection.toml`。用量、费用和
+上下文限制在提供商或显式 `context_window` 给出之前保持未知，不会伪造为零。
 `codsh --rust inspect` 与 `inspect --json` 列出每项生效值及来源（命令行
-`--model`、环境变量、`GROK_CONFIG` 覆盖层、config.toml、默认值）。
+`--model`/`--effort`、环境变量、`GROK_CONFIG` 覆盖层、已保存选择、
+config.toml、默认值）。
 无效的 `config.toml` 会保留原文，并报告路径和原因。首次运行缺少凭据时只给出
 可操作提示：不打开 grok.com 登录，不访问默认官方遥测/上传，也不自动导入
 `~/.dsh` 或 `~/.grok` 中的旧凭据。写好带 `base_url` 的提供商后，再设置对应的

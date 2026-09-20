@@ -1,5 +1,6 @@
 mod acp;
 mod config;
+mod models;
 mod session_history;
 mod session_owner;
 mod theme;
@@ -132,34 +133,62 @@ struct Connection {
 struct Launch {
     mode: LaunchMode,
     model: Option<String>,
+    effort: Option<String>,
+}
+
+fn take_flag_value(
+    args: &[String],
+    index: &mut usize,
+    flag: &str,
+    missing: &str,
+) -> io::Result<Option<String>> {
+    let arg = &args[*index];
+    if arg == flag {
+        *index += 1;
+        let value = args.get(*index).ok_or_else(|| io::Error::other(missing))?;
+        if value.starts_with('-') {
+            return Err(io::Error::other(missing));
+        }
+        return Ok(Some(value.clone()));
+    }
+    if let Some(value) = arg.strip_prefix(&format!("{flag}=")) {
+        if value.is_empty() {
+            return Err(io::Error::other(missing));
+        }
+        return Ok(Some(value.to_string()));
+    }
+    Ok(None)
 }
 
 fn parse_launch(args: &[String]) -> io::Result<Launch> {
     let mut model = None;
+    let mut effort = None;
     let mut rest = Vec::new();
     let mut index = 0;
     while index < args.len() {
-        let arg = &args[index];
-        if arg == "--model" {
-            index += 1;
-            let value = args.get(index).ok_or_else(|| {
-                io::Error::other("missing --model value; use codsh --rust --help")
-            })?;
-            if value.starts_with('-') {
-                return Err(io::Error::other(
-                    "missing --model value; use codsh --rust --help",
-                ));
-            }
-            model = Some(value.clone());
-        } else if let Some(value) = arg.strip_prefix("--model=") {
-            if value.is_empty() {
-                return Err(io::Error::other(
-                    "missing --model value; use codsh --rust --help",
-                ));
-            }
-            model = Some(value.to_string());
+        if let Some(value) = take_flag_value(
+            args,
+            &mut index,
+            "--model",
+            "missing --model value; use codsh --rust --help",
+        )? {
+            model = Some(value);
+        } else if let Some(value) = take_flag_value(
+            args,
+            &mut index,
+            "--effort",
+            "missing --effort value; use codsh --rust --help",
+        )? {
+            effort = Some(value);
+        } else if let Some(value) = take_flag_value(
+            args,
+            &mut index,
+            "--reasoning-effort",
+            "missing --reasoning-effort value; use codsh --rust --help",
+        )? {
+            effort = Some(value);
         } else {
-            rest.push(arg.clone());
+            rest.push(args[index].clone());
         }
         index += 1;
     }
@@ -190,7 +219,11 @@ fn parse_launch(args: &[String]) -> io::Result<Launch> {
             ));
         }
     };
-    Ok(Launch { mode, model })
+    Ok(Launch {
+        mode,
+        model,
+        effort,
+    })
 }
 
 fn parse_inspect(flags: &[&str]) -> io::Result<LaunchMode> {
@@ -370,15 +403,36 @@ fn connect(
     ))
 }
 
-fn status_line(
-    client: Option<&AcpClient>,
+struct Meter {
+    used: Option<u64>,
+    size: Option<u64>,
+    cost: Option<String>,
+}
+
+struct StatusView<'a> {
+    client: Option<&'a AcpClient>,
     inflight: bool,
-    last_error: &str,
+    last_error: &'a str,
     awaiting_approval: bool,
     cancelling: bool,
-    hint: &str,
+    hint: &'a str,
     resumed: bool,
-) -> String {
+    routing: Option<&'a models::Routing>,
+    meter: &'a Meter,
+}
+
+fn status_line(view: StatusView<'_>) -> String {
+    let StatusView {
+        client,
+        inflight,
+        last_error,
+        awaiting_approval,
+        cancelling,
+        hint,
+        resumed,
+        routing,
+        meter,
+    } = view;
     if !last_error.is_empty() && client.is_none() {
         return format!("{UNAVAILABLE}\n{last_error}");
     }
@@ -402,6 +456,17 @@ fn status_line(
         ),
         None => UNAVAILABLE.to_string(),
     };
+    if let Some(routing) = routing {
+        body.push('\n');
+        body.push_str(&routing.line());
+        body.push('\n');
+        body.push_str(&models::usage_line(
+            meter.used,
+            meter.size,
+            meter.cost.as_deref(),
+            routing.advertised_context,
+        ));
+    }
     if !hint.is_empty() {
         body.push('\n');
         body.push_str(hint);
@@ -487,7 +552,12 @@ fn render_transcript(status: &str, turns: &[Turn]) -> String {
     out
 }
 
-fn apply_events(turns: &mut [Turn], inflight: &mut bool, events: Vec<AcpEvent>) -> Option<String> {
+fn apply_events(
+    turns: &mut [Turn],
+    inflight: &mut bool,
+    meter: &mut Meter,
+    events: Vec<AcpEvent>,
+) -> Option<String> {
     let mut disconnect = None;
     for event in events {
         match event {
@@ -628,6 +698,12 @@ fn apply_events(turns: &mut [Turn], inflight: &mut bool, events: Vec<AcpEvent>) 
                     turn.permission = None;
                 }
             }
+            AcpEvent::Usage { used, size, cost } => {
+                meter.used = used;
+                meter.size = size;
+                meter.cost = cost;
+            }
+            AcpEvent::ConfigOptions { .. } => {}
         }
     }
     disconnect
@@ -637,23 +713,271 @@ fn inspect_help() -> &'static str {
     "Show the configuration this directory resolves\n\nUsage: codsh --rust inspect [OPTIONS]\n\nOptions:\n      --json                  Emit machine-readable JSON output\n      --debug                 Enable debug logging\n      --debug-file <FILE>     Write debug logs to FILE\n  -h, --help                  Print help\n\nLeader sockets are unused; dsh owns execution."
 }
 
-fn load_runtime_config(cli_model: Option<&str>) -> config::EffectiveConfig {
-    let mut loaded = config::load();
-    if let Some(model) = cli_model {
-        let mut input = config::LoadInput {
-            home: PathBuf::from(std::env::var_os("HOME").unwrap_or_default()),
-            dsh_home: PathBuf::from(std::env::var_os("DSH_HOME").unwrap_or_default()),
-            cwd: std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")),
-            grok_home: std::env::var_os("GROK_HOME").map(PathBuf::from),
-            env: std::env::vars().collect(),
-            cli_model: Some(model.to_string()),
-        };
-        if input.dsh_home.as_os_str().is_empty() {
-            input.dsh_home = input.home.join("dsh");
-        }
-        loaded = config::load_from(input);
+fn load_runtime_config(
+    cli_model: Option<&str>,
+    cli_effort: Option<&str>,
+) -> config::EffectiveConfig {
+    let mut input = config::LoadInput {
+        home: PathBuf::from(std::env::var_os("HOME").unwrap_or_default()),
+        dsh_home: PathBuf::from(std::env::var_os("DSH_HOME").unwrap_or_default()),
+        cwd: std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")),
+        grok_home: std::env::var_os("GROK_HOME").map(PathBuf::from),
+        env: std::env::vars().collect(),
+        cli_model: cli_model.map(str::to_string),
+        cli_effort: cli_effort.map(str::to_string),
+    };
+    if input.dsh_home.as_os_str().is_empty() {
+        input.dsh_home = input.home.join("dsh");
     }
-    loaded
+    if input.cli_model.is_none() && input.cli_effort.is_none() {
+        config::load()
+    } else {
+        config::load_from(input)
+    }
+}
+
+fn live_routing(
+    client: Option<&AcpClient>,
+    effective: &config::EffectiveConfig,
+) -> Option<models::Routing> {
+    let mut routing = effective.routing()?;
+    if let Some(option) = client.and_then(|client| client.config_option("model"))
+        && let Some(current) = option.current.as_deref()
+        && let Some((provider, model)) = models::parse_acp_model_value(current)
+    {
+        routing.provider = provider;
+        routing.model = model;
+        if let Some(choice) = effective
+            .catalog()
+            .into_iter()
+            .find(|choice| choice.acp_value == current)
+        {
+            routing.catalog_id = choice.id;
+            routing.api = choice.api;
+            routing.backend = choice.backend;
+            routing.advertised_context = choice.advertised_context;
+        }
+    }
+    if let Some(option) = client.and_then(|client| client.config_option("reasoning_effort")) {
+        routing.effort = option.current.clone().filter(|value| !value.is_empty());
+    }
+    Some(routing)
+}
+
+fn apply_live_selection(
+    client: &mut AcpClient,
+    effective: &config::EffectiveConfig,
+) -> Result<(), String> {
+    if config::is_test_execution_seam() {
+        return Ok(());
+    }
+    let Some(choice) = effective
+        .catalog()
+        .into_iter()
+        .find(|choice| Some(choice.id.as_str()) == effective.default_model.as_deref())
+    else {
+        return Ok(());
+    };
+    if !choice.usable {
+        return Err(choice
+            .unavailable
+            .clone()
+            .unwrap_or_else(|| format!("model {} is unavailable", choice.id)));
+    }
+    let model_option = client.config_option("model").cloned();
+    let Some(option) = model_option else {
+        return Err(format!(
+            "dsh did not advertise model options; configured {} was not applied. No silent provider fallback.",
+            choice.id
+        ));
+    };
+    if !option
+        .choices
+        .iter()
+        .any(|item| item.value == choice.acp_value)
+    {
+        return Err(format!(
+            "dsh did not advertise {} ({} / {}, api={}); no silent provider fallback.",
+            choice.id, choice.provider, choice.model, choice.api
+        ));
+    }
+    if option.current.as_deref() != Some(choice.acp_value.as_str()) {
+        client
+            .set_config_option("model", &choice.acp_value, Duration::from_secs(20))
+            .map_err(|error| error.message)?;
+    }
+    if let Some(effort) = &effective.default_effort {
+        let effort_option = client.config_option("reasoning_effort").cloned();
+        match effort_option {
+            Some(option)
+                if option.choices.iter().any(|item| {
+                    item.value == *effort || item.name.eq_ignore_ascii_case(effort)
+                }) =>
+            {
+                let value = option
+                    .choices
+                    .iter()
+                    .find(|item| item.value == *effort || item.name.eq_ignore_ascii_case(effort))
+                    .map(|item| item.value.clone())
+                    .unwrap_or_else(|| effort.clone());
+                if option.current.as_deref() != Some(value.as_str()) {
+                    client
+                        .set_config_option("reasoning_effort", &value, Duration::from_secs(20))
+                        .map_err(|error| error.message)?;
+                }
+            }
+            Some(_) => {
+                return Err(format!(
+                    "dsh did not advertise effort {effort} for {}; option unavailable.",
+                    choice.id
+                ));
+            }
+            None if choice.reasoning => {
+                return Err(format!(
+                    "dsh did not advertise reasoning effort for {}; option unavailable.",
+                    choice.id
+                ));
+            }
+            None => {}
+        }
+    }
+    Ok(())
+}
+
+fn persist_selection(effective: &config::EffectiveConfig) -> io::Result<()> {
+    models::save_selection(
+        &effective.grok_home,
+        effective.default_model.as_deref().unwrap_or(""),
+        effective.default_effort.as_deref(),
+    )
+}
+
+fn handle_slash_command(
+    command: models::Command,
+    effective: &mut config::EffectiveConfig,
+    client: Option<&mut AcpClient>,
+    inflight: bool,
+) -> Result<String, String> {
+    let catalog = effective.catalog();
+    let current = effective.default_model.clone();
+    match command {
+        models::Command::Model {
+            query: None,
+            effort: None,
+        } => Ok(models::menu_text(&catalog, current.as_deref())),
+        models::Command::Model { query, effort } => {
+            let query = query.ok_or_else(|| models::menu_text(&catalog, current.as_deref()))?;
+            let choice = models::resolve_model_query(&catalog, &query)?.clone();
+            let effort = match effort {
+                Some(value) => Some(models::resolve_effort(&choice, &value)?),
+                None => effective
+                    .default_effort
+                    .clone()
+                    .filter(|_| choice.reasoning),
+            };
+            apply_catalog_choice(effective, client, &choice, effort.as_deref(), inflight)
+        }
+        models::Command::Effort { query: None } => {
+            let current_choice = current
+                .as_ref()
+                .and_then(|id| catalog.iter().find(|choice| choice.id == *id));
+            Ok(models::effort_menu_text(
+                current_choice,
+                effective.default_effort.as_deref(),
+            ))
+        }
+        models::Command::Effort { query: Some(value) } => {
+            let choice = current
+                .as_ref()
+                .and_then(|id| catalog.iter().find(|choice| choice.id == *id))
+                .ok_or_else(|| "No active model. Use /model first.".to_string())?
+                .clone();
+            let effort = models::resolve_effort(&choice, &value)?;
+            apply_catalog_choice(effective, client, &choice, Some(&effort), inflight)
+        }
+    }
+}
+
+fn apply_catalog_choice(
+    effective: &mut config::EffectiveConfig,
+    client: Option<&mut AcpClient>,
+    choice: &models::CatalogChoice,
+    effort: Option<&str>,
+    inflight: bool,
+) -> Result<String, String> {
+    if let Some(reason) = &choice.unavailable {
+        return Err(format!("Model {} is unavailable: {reason}", choice.id));
+    }
+    effective.default_model = Some(choice.id.clone());
+    effective.default_effort = effort.map(str::to_string);
+    persist_selection(effective).map_err(|error| error.to_string())?;
+    if let Some(client) = client {
+        let model_option = client.config_option("model").cloned();
+        let Some(option) = model_option else {
+            return Err(format!(
+                "dsh did not advertise model options; {} was saved locally only. No silent provider fallback.",
+                choice.id
+            ));
+        };
+        if !option
+            .choices
+            .iter()
+            .any(|item| item.value == choice.acp_value)
+        {
+            return Err(format!(
+                "dsh did not advertise {} ({} / {}, api={}); no silent provider fallback.",
+                choice.id, choice.provider, choice.model, choice.api
+            ));
+        }
+        if option.current.as_deref() != Some(choice.acp_value.as_str()) {
+            client
+                .set_config_option("model", &choice.acp_value, Duration::from_secs(20))
+                .map_err(|error| error.message)?;
+        }
+        if let Some(effort) = effort {
+            let effort_option = client.config_option("reasoning_effort").cloned();
+            let Some(option) = effort_option else {
+                return Err(format!(
+                    "Model {} does not advertise reasoning effort; {effort} is unavailable.",
+                    choice.id
+                ));
+            };
+            let value = option
+                .choices
+                .iter()
+                .find(|item| item.value == effort || item.name.eq_ignore_ascii_case(effort))
+                .map(|item| item.value.clone())
+                .ok_or_else(|| {
+                    format!(
+                        "Unsupported effort {effort} for {}. Available: {}.",
+                        choice.id,
+                        option
+                            .choices
+                            .iter()
+                            .map(|item| item.value.as_str())
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    )
+                })?;
+            if option.current.as_deref() != Some(value.as_str()) {
+                client
+                    .set_config_option("reasoning_effort", &value, Duration::from_secs(20))
+                    .map_err(|error| error.message)?;
+            }
+        }
+    }
+    let when = if inflight {
+        "applies to the next turn"
+    } else {
+        "saved and active"
+    };
+    Ok(format!(
+        "Selected {} / {} api={} effort={} ({when}).",
+        choice.provider,
+        choice.model,
+        choice.api,
+        effort.unwrap_or("unavailable")
+    ))
 }
 
 fn run() -> io::Result<()> {
@@ -670,7 +994,7 @@ fn run() -> io::Result<()> {
         }
         LaunchMode::Help => {
             println!(
-                "codsh --rust\n\nIsolated Rust client. Real dsh executes turns over ACP/JSON-RPC stdio.\nHome: ~/.codsh-rust/dsh; Profile: rust. Legacy codsh is unchanged.\nUser config: $GROK_HOME/config.toml (default ~/.codsh-rust/.grok/config.toml), mapped into isolated dsh settings.yaml.\n`codsh --rust inspect` / `inspect --json` shows effective values and origins. Invalid config.toml is left unchanged and reports its path.\nFirst-run missing credentials stay local: no grok.com login, no default official telemetry, no import of ~/.dsh or ~/.grok credentials.\nFile read/edit/write run through dsh tools; y allows once, n rejects with no write.\nCtrl+Q/Ctrl+D: quit. Ctrl+C: clear a draft; empty draft cancels a running turn via dsh, or quits when idle before any turn.\nEsc never cancels a turn or a pending approval; it dismisses selection and reminds you to use Ctrl+C.\nEnter: submit prompt. --continue resumes the last session in this directory; --resume <id> loads that dsh session. A second client is refused while this process holds write ownership. Interrupted tools show [interrupted]/unknown and are not replayed.\nOptions: --help, --version, --continue, --resume <id>, --model <id>, inspect."
+                "codsh --rust\n\nIsolated Rust client. Real dsh executes turns over ACP/JSON-RPC stdio.\nHome: ~/.codsh-rust/dsh; Profile: rust. Legacy codsh is unchanged.\nUser config: $GROK_HOME/config.toml (default ~/.codsh-rust/.grok/config.toml), mapped into isolated dsh settings.yaml.\n`codsh --rust inspect` / `inspect --json` shows effective values and origins. Invalid config.toml is left unchanged and reports its path.\nFirst-run missing credentials stay local: no grok.com login, no default official telemetry, no import of ~/.dsh or ~/.grok credentials.\nFile read/edit/write run through dsh tools; y allows once, n rejects with no write.\nCtrl+Q/Ctrl+D: quit. Ctrl+C: clear a draft; empty draft cancels a running turn via dsh, or quits when idle before any turn.\nEsc never cancels a turn or a pending approval; it dismisses selection and reminds you to use Ctrl+C.\nEnter: submit prompt. /model (/m) and /effort select advertised catalog options; unsupported backends/efforts are refused, never treated as equivalent or silently swapped. Runtime changes apply to the next turn and persist under $GROK_HOME/model-selection.toml. --continue resumes the last session in this directory; --resume <id> loads that dsh session. A second client is refused while this process holds write ownership. Interrupted tools show [interrupted]/unknown and are not replayed.\nOptions: --help, --version, --continue, --resume <id>, --model <id>, --effort/--reasoning-effort <level>, inspect."
             );
             return Ok(());
         }
@@ -684,7 +1008,7 @@ fn run() -> io::Result<()> {
             debug_file,
             ..
         } => {
-            let loaded = load_runtime_config(launch.model.as_deref());
+            let loaded = load_runtime_config(launch.model.as_deref(), launch.effort.as_deref());
             if *debug || debug_file.is_some() {
                 let trace = format!(
                     "config.toml={} status={}\n",
@@ -742,7 +1066,7 @@ fn run() -> io::Result<()> {
     let mut owner: Option<SessionOwner> = None;
     let mut resumed = false;
     let mut previous_session: Option<String> = None;
-    let mut effective = load_runtime_config(launch.model.as_deref());
+    let mut effective = load_runtime_config(launch.model.as_deref(), launch.effort.as_deref());
     let mut extra_env = config::credential_env(&effective, &std::env::vars().collect());
     let mut apply_failed = false;
     let mut patch = match config::apply_to_dsh(&effective, &std::env::vars().collect()) {
@@ -757,6 +1081,11 @@ fn run() -> io::Result<()> {
     if !can_execute && last_error.is_empty() {
         last_error = effective.first_run_message();
     }
+    let mut meter = Meter {
+        used: None,
+        size: None,
+        cost: None,
+    };
     let mut client = if can_execute {
         match connect(&mode, None, &extra_env, patch.as_ref()) {
             Ok((connection, restored)) => {
@@ -764,7 +1093,11 @@ fn run() -> io::Result<()> {
                 previous_session = connection.client.session_id.clone();
                 owner = Some(connection.owner);
                 turns = restored;
-                Some(connection.client)
+                let mut client = connection.client;
+                if let Err(error) = apply_live_selection(&mut client, &effective) {
+                    last_error = error;
+                }
+                Some(client)
             }
             Err(error) => {
                 last_error = error;
@@ -776,7 +1109,12 @@ fn run() -> io::Result<()> {
     };
     while !stopping.load(Ordering::Relaxed) {
         let disconnect = client.as_mut().and_then(|active| {
-            apply_events(&mut turns, &mut inflight, active.pump(Duration::ZERO))
+            apply_events(
+                &mut turns,
+                &mut inflight,
+                &mut meter,
+                active.pump(Duration::ZERO),
+            )
         });
         if let Some(detail) = disconnect {
             last_error = detail;
@@ -784,16 +1122,19 @@ fn run() -> io::Result<()> {
         }
         let awaiting = turns.last().is_some_and(|turn| turn.permission.is_some());
         let cancelling = turns.last().is_some_and(|turn| turn.cancelling);
+        let routing = live_routing(client.as_ref(), &effective);
         let notice = render_transcript(
-            &status_line(
-                client.as_ref(),
+            &status_line(StatusView {
+                client: client.as_ref(),
                 inflight,
-                &last_error,
-                awaiting,
+                last_error: &last_error,
+                awaiting_approval: awaiting,
                 cancelling,
-                &hint,
+                hint: &hint,
                 resumed,
-            ),
+                routing: routing.as_ref(),
+                meter: &meter,
+            }),
             &turns,
         );
         terminal.draw(|frame| {
@@ -887,11 +1228,16 @@ fn run() -> io::Result<()> {
                         Some(2) => break,
                         Some(1) => draft.set_text(""),
                         _ => {
-                            if inflight {
+                            let text = draft.text();
+                            let slash = models::parse_slash(text.trim());
+                            if inflight && slash.is_none() {
                                 continue;
                             }
                             if client.is_none() {
-                                effective = load_runtime_config(launch.model.as_deref());
+                                effective = load_runtime_config(
+                                    launch.model.as_deref(),
+                                    launch.effort.as_deref(),
+                                );
                                 extra_env =
                                     config::credential_env(&effective, &std::env::vars().collect());
                                 match config::apply_to_dsh(&effective, &std::env::vars().collect())
@@ -919,8 +1265,15 @@ fn run() -> io::Result<()> {
                                         if turns.is_empty() {
                                             turns = restored;
                                         }
-                                        client = Some(connection.client);
-                                        last_error.clear();
+                                        let mut connected = connection.client;
+                                        if let Err(error) =
+                                            apply_live_selection(&mut connected, &effective)
+                                        {
+                                            last_error = error;
+                                        } else {
+                                            last_error.clear();
+                                        }
+                                        client = Some(connected);
                                     }
                                     Err(error) => {
                                         last_error = error;
@@ -928,8 +1281,26 @@ fn run() -> io::Result<()> {
                                     }
                                 }
                             }
-                            let text = draft.text();
                             if text.trim().is_empty() {
+                                continue;
+                            }
+                            if let Some(command) = slash {
+                                match handle_slash_command(
+                                    command,
+                                    &mut effective,
+                                    client.as_mut(),
+                                    inflight,
+                                ) {
+                                    Ok(message) => {
+                                        hint = message;
+                                        last_error.clear();
+                                        draft.set_text("");
+                                    }
+                                    Err(error) => last_error = error,
+                                }
+                                continue;
+                            }
+                            if inflight {
                                 continue;
                             }
                             if owner.as_ref().is_some_and(|held| !held.still_held()) {
@@ -1018,6 +1389,16 @@ mod tests {
             }
         ));
         assert_eq!(launch.model.as_deref(), Some("gateway"));
+        assert_eq!(launch.effort.as_deref(), None);
+    }
+
+    #[test]
+    fn parse_effort_flags() {
+        let launch = parse_launch(&args(&["--model", "think", "--effort", "high"])).unwrap();
+        assert_eq!(launch.model.as_deref(), Some("think"));
+        assert_eq!(launch.effort.as_deref(), Some("high"));
+        let alias = parse_launch(&args(&["--reasoning-effort=low"])).unwrap();
+        assert_eq!(alias.effort.as_deref(), Some("low"));
     }
 
     #[test]

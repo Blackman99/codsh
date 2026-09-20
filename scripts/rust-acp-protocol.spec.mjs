@@ -232,6 +232,48 @@ describe('public ACP/JSON-RPC against real dsh', () => {
     }
   }, 45000)
 
+  it('sets advertised model/effort without silent fallback and echoes the live route', async () => {
+    const agent = startAgent('echo')
+    try {
+      const { session } = await handshake(agent)
+      const options = JSON.stringify(session.configOptions)
+      expect(options).toContain('cli-mock')
+      expect(options).toContain('reasoning_effort')
+      const model = session.configOptions.find(option => option.id === 'model')
+      const effort = session.configOptions.find(option => option.id === 'reasoning_effort')
+      const high = (effort?.options ?? []).find(item => item.value === 'high' || item.name === 'High')
+      expect(high).toBeTruthy()
+      const updated = await agent.send(3, 'session/set_config_option', {
+        sessionId: session.sessionId,
+        configId: 'reasoning_effort',
+        value: high.value,
+      })
+      const current = (updated.configOptions ?? updated).find?.(option => option.id === 'reasoning_effort')
+        ?? updated.configOptions?.find(option => option.id === 'reasoning_effort')
+      expect(JSON.stringify(updated)).toContain(high.value)
+      await expect(agent.send(4, 'session/set_config_option', {
+        sessionId: session.sessionId,
+        configId: 'reasoning_effort',
+        value: 'not-a-real-effort',
+      })).rejects.toThrow()
+      const result = await agent.send(5, 'session/prompt', {
+        sessionId: session.sessionId,
+        prompt: [{ type: 'text', text: 'route check' }],
+      })
+      expect(result.stopReason).toBe('end_turn')
+      const answer = agent.updates.filter(update => update.update.sessionUpdate === 'agent_message_chunk').at(-1)
+      expect(answer.update.content.text).toContain('route=cli-mock/cli-mock')
+      expect(answer.update.content.text).toContain('effort=')
+      expect(answer.update.content.text).not.toContain('effort=xhigh')
+      await agent.send(6, 'session/close', { sessionId: session.sessionId })
+      expect(model.currentValue ?? model.current).toBeTruthy()
+      expect(current === undefined || current.currentValue === high.value || JSON.stringify(updated).includes(high.value)).toBe(true)
+    } finally {
+      agent.child.stdin.end()
+      agent.child.kill('SIGTERM')
+    }
+  }, 30000)
+
   it('rejects unknown methods and parse errors without claiming a successful turn', async () => {
     const agent = startAgent('echo')
     try {

@@ -1,3 +1,7 @@
+use crate::models::{
+    ApiBackend, CatalogChoice, GROK_EFFORTS, Routing, acp_model_value, effort_supported,
+    load_saved_selection, normalize_effort,
+};
 use serde_json::{Value as JsonValue, json};
 use std::collections::BTreeMap;
 use std::fs;
@@ -31,6 +35,14 @@ pub struct ModelSpec {
     pub env_key: String,
     pub api_key_set: bool,
     api_key: Option<String>,
+    pub api_backend: Option<ApiBackend>,
+    pub api_backend_raw: String,
+    pub context_window: Option<u64>,
+    pub supports_reasoning_effort: bool,
+    pub reasoning_efforts: Vec<String>,
+    pub reasoning_effort: Option<String>,
+    pub extra_headers: BTreeMap<String, String>,
+    pub unusable_reason: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -41,13 +53,13 @@ pub struct ConfigError {
 
 #[derive(Clone, Debug)]
 pub struct EffectiveConfig {
-    #[allow(dead_code)]
     pub grok_home: PathBuf,
     pub config_path: PathBuf,
     pub dsh_home: PathBuf,
     pub files: Vec<FileLayer>,
     pub settings: Vec<Setting>,
     pub default_model: Option<String>,
+    pub default_effort: Option<String>,
     pub models: BTreeMap<String, ModelSpec>,
     pub telemetry: bool,
     pub feedback: bool,
@@ -70,12 +82,61 @@ pub struct LoadInput {
     pub grok_home: Option<PathBuf>,
     pub env: BTreeMap<String, String>,
     pub cli_model: Option<String>,
+    pub cli_effort: Option<String>,
 }
 
 impl EffectiveConfig {
     pub fn active_model(&self) -> Option<&ModelSpec> {
         let id = self.default_model.as_ref()?;
         self.models.get(id)
+    }
+
+    pub fn catalog(&self) -> Vec<CatalogChoice> {
+        self.models
+            .values()
+            .map(|model| CatalogChoice {
+                id: model.id.clone(),
+                provider: model.provider.clone(),
+                model: model.model.clone(),
+                name: model.name.clone(),
+                api: model
+                    .api_backend
+                    .map(ApiBackend::dsh_api)
+                    .unwrap_or("unavailable")
+                    .to_string(),
+                backend: model.api_backend_raw.clone(),
+                acp_value: acp_model_value(&model.provider, &model.model),
+                efforts: model.reasoning_efforts.clone(),
+                reasoning: model.supports_reasoning_effort,
+                advertised_context: model.context_window,
+                usable: model.unusable_reason.is_none()
+                    && model.base_url.as_ref().is_some_and(|url| !url.is_empty()),
+                unavailable: model.unusable_reason.clone(),
+            })
+            .collect()
+    }
+
+    pub fn routing(&self) -> Option<Routing> {
+        let model = self.active_model()?;
+        Some(Routing {
+            catalog_id: model.id.clone(),
+            provider: model.provider.clone(),
+            model: model.model.clone(),
+            backend: model.api_backend_raw.clone(),
+            api: model
+                .api_backend
+                .map(ApiBackend::dsh_api)
+                .unwrap_or("unavailable")
+                .to_string(),
+            effort: self.default_effort.clone(),
+            advertised_context: model.context_window,
+            source: self
+                .settings
+                .iter()
+                .find(|setting| setting.key == "models.default")
+                .map(|setting| setting.source.clone())
+                .unwrap_or_else(|| "default".into()),
+        })
     }
 
     pub fn first_run_message(&self) -> String {
@@ -126,6 +187,7 @@ pub fn load() -> EffectiveConfig {
         cwd,
         env,
         cli_model: None,
+        cli_effort: None,
     })
 }
 
@@ -143,6 +205,7 @@ pub fn load_from(mut input: LoadInput) -> EffectiveConfig {
     let mut warnings = Vec::new();
     let mut models = BTreeMap::new();
     let mut default_model = None;
+    let mut default_effort = None;
     let mut sources: BTreeMap<String, String> = BTreeMap::new();
 
     let grok_home_source = if input
@@ -236,6 +299,26 @@ pub fn load_from(mut input: LoadInput) -> EffectiveConfig {
             .entry("models.default".into())
             .or_insert_with(|| "default".into());
     }
+    if let Some(value) = table
+        .get("models")
+        .and_then(|models| models.get("default_reasoning_effort"))
+        .and_then(TomlValue::as_str)
+    {
+        default_effort = normalize_effort(value);
+        sources
+            .entry("models.default_reasoning_effort".into())
+            .or_insert_with(|| "config.toml".into());
+    }
+    if let Some(saved) = load_saved_selection(&grok_home) {
+        if models.contains_key(&saved.model_id) {
+            default_model = Some(saved.model_id);
+            sources.insert("models.default".into(), "saved".into());
+        }
+        if let Some(effort) = saved.effort {
+            default_effort = Some(effort);
+            sources.insert("models.default_reasoning_effort".into(), "saved".into());
+        }
+    }
 
     let mut telemetry = bool_from_toml(
         table
@@ -295,6 +378,16 @@ pub fn load_from(mut input: LoadInput) -> EffectiveConfig {
     {
         default_model = Some(cli);
         sources.insert("models.default".into(), "cli".into());
+    }
+    if let Some(cli) = input.cli_effort.clone().or_else(|| {
+        input
+            .env
+            .get("CODSH_CLI_EFFORT")
+            .cloned()
+            .or_else(|| input.env.get("GROK_EFFORT").cloned())
+    }) {
+        default_effort = normalize_effort(&cli);
+        sources.insert("models.default_reasoning_effort".into(), "cli".into());
     }
 
     for model in models.values_mut() {
@@ -379,6 +472,83 @@ pub fn load_from(mut input: LoadInput) -> EffectiveConfig {
                 .map(String::as_str)
                 .unwrap_or("default"),
         );
+        push_setting(
+            &mut settings,
+            &format!("{prefix}.api_backend"),
+            &model.api_backend_raw,
+            sources
+                .get(&format!("{prefix}.api_backend"))
+                .map(String::as_str)
+                .unwrap_or("default"),
+        );
+        push_setting(
+            &mut settings,
+            &format!("{prefix}.api"),
+            model
+                .api_backend
+                .map(ApiBackend::dsh_api)
+                .unwrap_or("unavailable"),
+            sources
+                .get(&format!("{prefix}.api_backend"))
+                .map(String::as_str)
+                .unwrap_or("default"),
+        );
+        push_setting(
+            &mut settings,
+            &format!("{prefix}.context_window"),
+            &model
+                .context_window
+                .map(|value| value.to_string())
+                .unwrap_or_else(|| "unknown".into()),
+            sources
+                .get(&format!("{prefix}.context_window"))
+                .map(String::as_str)
+                .unwrap_or("default"),
+        );
+        push_setting(
+            &mut settings,
+            &format!("{prefix}.supports_reasoning_effort"),
+            if model.supports_reasoning_effort {
+                "true"
+            } else {
+                "false"
+            },
+            sources
+                .get(&format!("{prefix}.supports_reasoning_effort"))
+                .map(String::as_str)
+                .unwrap_or("default"),
+        );
+        push_setting(
+            &mut settings,
+            &format!("{prefix}.reasoning_efforts"),
+            &if model.reasoning_efforts.is_empty() {
+                "unavailable".into()
+            } else {
+                model.reasoning_efforts.join(",")
+            },
+            sources
+                .get(&format!("{prefix}.reasoning_efforts"))
+                .map(String::as_str)
+                .unwrap_or("default"),
+        );
+        push_setting(
+            &mut settings,
+            &format!("{prefix}.extra_headers"),
+            &if model.extra_headers.is_empty() {
+                "(unset)".into()
+            } else {
+                model
+                    .extra_headers
+                    .keys()
+                    .map(|key| format!("{key}=(set)"))
+                    .collect::<Vec<_>>()
+                    .join(",")
+            },
+            sources
+                .get(&format!("{prefix}.extra_headers"))
+                .map(String::as_str)
+                .unwrap_or("default"),
+        );
         let env_present = input
             .env
             .get(&model.env_key)
@@ -437,11 +607,83 @@ pub fn load_from(mut input: LoadInput) -> EffectiveConfig {
         trace_source,
     );
 
+    if let Some(id) = &default_model
+        && !models.contains_key(id)
+    {
+        errors.push(ConfigError {
+            path: Some(config_path.clone()),
+            reason: format!(
+                "selected model {id} is not in the configured catalog; no silent provider fallback"
+            ),
+        });
+    }
+    if let Some(id) = &default_model
+        && let Some(model) = models.get(id)
+        && let Some(reason) = &model.unusable_reason
+    {
+        errors.push(ConfigError {
+            path: Some(config_path.clone()),
+            reason: reason.clone(),
+        });
+    }
+    if let Some(id) = &default_model
+        && let Some(model) = models.get(id)
+    {
+        let effort_source = sources
+            .get("models.default_reasoning_effort")
+            .map(String::as_str);
+        if !model.supports_reasoning_effort {
+            if let Some(effort) = default_effort.as_deref()
+                && effort_source == Some("cli")
+            {
+                errors.push(ConfigError {
+                    path: Some(config_path.clone()),
+                    reason: format!(
+                        "model {} does not support reasoning effort; {effort} is unavailable",
+                        model.id
+                    ),
+                });
+            } else {
+                default_effort = None;
+            }
+        } else if let Some(effort) = default_effort.as_deref() {
+            if !effort_supported(&model.reasoning_efforts, effort) {
+                errors.push(ConfigError {
+                    path: Some(config_path.clone()),
+                    reason: format!(
+                        "unsupported effort {effort} for {} (api={}). Available: {}.",
+                        model.id,
+                        model
+                            .api_backend
+                            .map(ApiBackend::dsh_api)
+                            .unwrap_or("unavailable"),
+                        model.reasoning_efforts.join(", ")
+                    ),
+                });
+            }
+        } else if model.supports_reasoning_effort {
+            default_effort = model.reasoning_effort.clone();
+            sources
+                .entry("models.default_reasoning_effort".into())
+                .or_insert_with(|| "config.toml".into());
+        }
+    }
+    push_setting(
+        &mut settings,
+        "models.default_reasoning_effort",
+        default_effort.as_deref().unwrap_or("unavailable"),
+        sources
+            .get("models.default_reasoning_effort")
+            .map(String::as_str)
+            .unwrap_or("default"),
+    );
+
     let mut missing_credential = None;
     let mut ready = false;
     if errors.is_empty()
         && let Some(id) = &default_model
         && let Some(model) = models.get(id)
+        && model.unusable_reason.is_none()
         && model.base_url.as_ref().is_some_and(|url| !url.is_empty())
     {
         let env_present = input
@@ -483,6 +725,7 @@ pub fn load_from(mut input: LoadInput) -> EffectiveConfig {
         files,
         settings,
         default_model,
+        default_effort,
         models,
         telemetry,
         feedback,
@@ -563,6 +806,31 @@ pub fn inspect_json(config: &EffectiveConfig) -> String {
             "telemetry": config.telemetry,
             "feedback": config.feedback,
             "traceUpload": config.trace_upload,
+            "defaultModel": config.default_model,
+            "defaultEffort": config.default_effort,
+            "routing": config.routing().map(|routing| json!({
+                "catalogId": routing.catalog_id,
+                "provider": routing.provider,
+                "model": routing.model,
+                "backend": routing.backend,
+                "api": routing.api,
+                "effort": routing.effort,
+                "advertisedContext": routing.advertised_context,
+                "source": routing.source,
+                "line": routing.line(),
+            })),
+            "catalog": config.catalog().iter().map(|choice| json!({
+                "id": choice.id,
+                "provider": choice.provider,
+                "model": choice.model,
+                "api": choice.api,
+                "backend": choice.backend,
+                "reasoning": choice.reasoning,
+                "efforts": choice.efforts,
+                "advertisedContext": choice.advertised_context,
+                "usable": choice.usable,
+                "unavailable": choice.unavailable,
+            })).collect::<Vec<_>>(),
         }))
         .unwrap_or_else(|_| "{}".into())
     )
@@ -589,7 +857,7 @@ pub fn apply_to_dsh(
     let Some(model) = config.active_model() else {
         return Ok(None);
     };
-    let yaml = generated_settings_yaml(config, model);
+    let yaml = generated_settings_yaml(config);
     match fs::read_to_string(&config.settings_yaml) {
         Ok(existing)
             if !existing.trim_start().starts_with(GENERATED_MARKER)
@@ -608,16 +876,18 @@ pub fn apply_to_dsh(
             fs::write(&config.settings_yaml, yaml)?;
         }
     }
-    if !env
-        .get(&model.env_key)
-        .is_some_and(|value| !value.is_empty())
-        && let Some(key) = model.api_key.as_deref()
-    {
-        write_isolated_credential(
-            &config.dsh_home.join(".credentials.yaml"),
-            &model.env_key,
-            key,
-        )?;
+    for model in config.models.values() {
+        if !env
+            .get(&model.env_key)
+            .is_some_and(|value| !value.is_empty())
+            && let Some(key) = model.api_key.as_deref()
+        {
+            write_isolated_credential(
+                &config.dsh_home.join(".credentials.yaml"),
+                &model.env_key,
+                key,
+            )?;
+        }
     }
     if is_test_execution_seam() {
         return Ok(None);
@@ -642,7 +912,10 @@ pub fn credential_env(
     env: &BTreeMap<String, String>,
 ) -> Vec<(String, String)> {
     let mut extra = Vec::new();
-    if let Some(model) = config.active_model() {
+    for model in config.models.values() {
+        if extra.iter().any(|(key, _)| key == &model.env_key) {
+            continue;
+        }
         if let Some(value) = env.get(&model.env_key).filter(|value| !value.is_empty()) {
             extra.push((model.env_key.clone(), value.clone()));
         } else if let Some(key) = &model.api_key {
@@ -652,24 +925,76 @@ pub fn credential_env(
     extra
 }
 
-fn generated_settings_yaml(config: &EffectiveConfig, model: &ModelSpec) -> String {
-    let display = if model.name.is_empty() {
-        model.id.clone()
-    } else {
-        model.name.clone()
-    };
-    let base_url = model.base_url.clone().unwrap_or_default();
-    format!(
-        "{GENERATED_MARKER}\n# source: {}\nllm-pi-ai:\n  providers:\n    {}:\n      displayName: {}\n      apiKeyEnv: {}\n      api: openai-completions\n      baseURL: {}\n      models:\n        - id: {}\nagent-default-model:\n  provider: {}\n  model: {}\n",
-        config.config_path.display(),
-        yaml_plain(&model.provider),
-        yaml_quote(&display),
-        yaml_plain(&model.env_key),
-        yaml_quote(&base_url),
-        yaml_plain(&model.model),
-        yaml_plain(&model.provider),
-        yaml_plain(&model.model),
-    )
+fn generated_settings_yaml(config: &EffectiveConfig) -> String {
+    let mut body = format!(
+        "{GENERATED_MARKER}\n# source: {}\nllm-pi-ai:\n  providers:\n",
+        config.config_path.display()
+    );
+    for model in config.models.values() {
+        if model.unusable_reason.is_some() {
+            continue;
+        }
+        let Some(backend) = model.api_backend else {
+            continue;
+        };
+        let Some(base_url) = model.base_url.as_deref().filter(|url| !url.is_empty()) else {
+            continue;
+        };
+        let display = if model.name.is_empty() {
+            model.id.clone()
+        } else {
+            model.name.clone()
+        };
+        body.push_str(&format!(
+            "    {}:\n      displayName: {}\n      apiKeyEnv: {}\n      api: {}\n      baseURL: {}\n",
+            yaml_plain(&model.provider),
+            yaml_quote(&display),
+            yaml_plain(&model.env_key),
+            yaml_plain(backend.dsh_api()),
+            yaml_quote(base_url),
+        ));
+        if !model.extra_headers.is_empty() {
+            body.push_str("      headers:\n");
+            for (key, value) in &model.extra_headers {
+                body.push_str(&format!(
+                    "        {}: {}\n",
+                    yaml_plain(key),
+                    yaml_quote(value)
+                ));
+            }
+        }
+        if backend == ApiBackend::ChatCompletions && model.supports_reasoning_effort {
+            body.push_str("      compat:\n        supportsReasoningEffort: true\n");
+        }
+        body.push_str("      models:\n");
+        body.push_str(&format!("        - id: {}\n", yaml_plain(&model.model)));
+        if !model.name.is_empty() {
+            body.push_str(&format!("          name: {}\n", yaml_quote(&model.name)));
+        }
+        if let Some(window) = model.context_window {
+            body.push_str(&format!("          contextWindow: {window}\n"));
+        }
+        if model.supports_reasoning_effort {
+            body.push_str("          reasoningEfforts:\n");
+            for effort in &model.reasoning_efforts {
+                body.push_str(&format!(
+                    "            {}: {}\n",
+                    yaml_plain(effort),
+                    yaml_plain(effort)
+                ));
+            }
+        } else {
+            body.push_str("          reasoningEfforts: false\n");
+        }
+    }
+    if let Some(model) = config.active_model() {
+        body.push_str(&format!(
+            "agent-default-model:\n  provider: {}\n  model: {}\n",
+            yaml_plain(&model.provider),
+            yaml_plain(&model.model),
+        ));
+    }
+    body
 }
 
 fn write_isolated_credential(path: &Path, env_key: &str, value: &str) -> io::Result<()> {
@@ -874,7 +1199,19 @@ fn stamp_model_sources(table: &TomlValue, sources: &mut BTreeMap<String, String>
     if let Some(models) = table.get("model").and_then(TomlValue::as_table) {
         for (id, spec) in models {
             if let Some(spec) = spec.as_table() {
-                for field in ["name", "model", "base_url", "env_key", "api_key"] {
+                for field in [
+                    "name",
+                    "model",
+                    "base_url",
+                    "env_key",
+                    "api_key",
+                    "api_backend",
+                    "context_window",
+                    "supports_reasoning_effort",
+                    "reasoning_efforts",
+                    "reasoning_effort",
+                    "extra_headers",
+                ] {
                     if spec.contains_key(field) {
                         sources.insert(format!("model.{id}.{field}"), source.into());
                     }
@@ -907,6 +1244,13 @@ fn stamp_model_sources(table: &TomlValue, sources: &mut BTreeMap<String, String>
     {
         sources.insert("features.trace_upload".into(), source.into());
     }
+    if table
+        .get("models")
+        .and_then(|models| models.get("default_reasoning_effort"))
+        .is_some()
+    {
+        sources.insert("models.default_reasoning_effort".into(), source.into());
+    }
 }
 
 fn parse_model(id: &str, spec: &TomlValue) -> Option<ModelSpec> {
@@ -926,16 +1270,48 @@ fn parse_model(id: &str, spec: &TomlValue) -> Option<ModelSpec> {
         .and_then(TomlValue::as_str)
         .map(str::to_string)
         .filter(|value| !value.is_empty());
-    let env_key = table
-        .get("env_key")
-        .and_then(TomlValue::as_str)
-        .unwrap_or("XAI_API_KEY")
-        .to_string();
+    let env_key = parse_env_key(table.get("env_key")).unwrap_or_else(|| "XAI_API_KEY".into());
     let api_key = table
         .get("api_key")
         .and_then(TomlValue::as_str)
         .map(str::to_string)
         .filter(|value| !value.is_empty());
+    let api_backend_raw = table
+        .get("api_backend")
+        .and_then(TomlValue::as_str)
+        .unwrap_or("chat_completions")
+        .to_string();
+    let api_backend = ApiBackend::parse(Some(&api_backend_raw)).ok();
+    let unusable_reason = if api_backend.is_none() {
+        Some(format!(
+            "unsupported api_backend {api_backend_raw} for model {id}; not treated as chat_completions"
+        ))
+    } else {
+        None
+    };
+    let context_window = table.get("context_window").and_then(|value| match value {
+        TomlValue::Integer(number) if *number > 0 => Some(*number as u64),
+        TomlValue::String(text) => text.parse().ok(),
+        _ => None,
+    });
+    let supports_explicit = bool_from_toml(table.get("supports_reasoning_effort"));
+    let reasoning_efforts = parse_effort_list(table.get("reasoning_efforts"));
+    let supports_reasoning_effort = supports_explicit.unwrap_or(!reasoning_efforts.is_empty());
+    let reasoning_efforts = if supports_reasoning_effort && reasoning_efforts.is_empty() {
+        GROK_EFFORTS
+            .iter()
+            .map(|value| (*value).to_string())
+            .collect()
+    } else if supports_reasoning_effort {
+        reasoning_efforts
+    } else {
+        Vec::new()
+    };
+    let reasoning_effort = table
+        .get("reasoning_effort")
+        .and_then(TomlValue::as_str)
+        .and_then(normalize_effort);
+    let extra_headers = parse_string_map(table.get("extra_headers"));
     Some(ModelSpec {
         provider: provider_id(id),
         id: id.to_string(),
@@ -945,7 +1321,56 @@ fn parse_model(id: &str, spec: &TomlValue) -> Option<ModelSpec> {
         env_key,
         api_key_set: api_key.is_some(),
         api_key,
+        api_backend,
+        api_backend_raw,
+        context_window,
+        supports_reasoning_effort,
+        reasoning_efforts,
+        reasoning_effort,
+        extra_headers,
+        unusable_reason,
     })
+}
+
+fn parse_env_key(value: Option<&TomlValue>) -> Option<String> {
+    match value? {
+        TomlValue::String(text) if !text.is_empty() => Some(text.clone()),
+        TomlValue::Array(items) => items
+            .iter()
+            .filter_map(TomlValue::as_str)
+            .find(|text| !text.is_empty())
+            .map(str::to_string),
+        _ => None,
+    }
+}
+
+fn parse_effort_list(value: Option<&TomlValue>) -> Vec<String> {
+    match value {
+        Some(TomlValue::Array(items)) => items
+            .iter()
+            .filter_map(TomlValue::as_str)
+            .filter_map(normalize_effort)
+            .collect(),
+        Some(TomlValue::Table(table)) => table
+            .keys()
+            .filter_map(|key| normalize_effort(key))
+            .collect(),
+        Some(TomlValue::String(text)) => text.split(',').filter_map(normalize_effort).collect(),
+        Some(TomlValue::Boolean(false)) => Vec::new(),
+        _ => Vec::new(),
+    }
+}
+
+fn parse_string_map(value: Option<&TomlValue>) -> BTreeMap<String, String> {
+    let mut map = BTreeMap::new();
+    if let Some(table) = value.and_then(TomlValue::as_table) {
+        for (key, item) in table {
+            if let Some(text) = item.as_str() {
+                map.insert(key.clone(), text.to_string());
+            }
+        }
+    }
+    map
 }
 
 fn provider_id(name: &str) -> String {
@@ -1037,6 +1462,7 @@ mod tests {
             home,
             env: BTreeMap::new(),
             cli_model: None,
+            cli_effort: None,
         }
     }
 
@@ -1393,5 +1819,120 @@ trace_upload = true
             Some(("false", "applied"))
         );
         assert!(inspect_json(&config).contains("\"telemetry\": false"));
+    }
+
+    #[test]
+    fn distinct_backends_and_efforts_map_into_dsh_without_silent_fallback() {
+        let dir = TempDir::new().unwrap();
+        let mut load = input(&dir);
+        write_config(
+            &load,
+            r#"
+[models]
+default = "chat"
+default_reasoning_effort = "high"
+
+[model.chat]
+name = "Shared name"
+model = "shared-name"
+base_url = "http://127.0.0.1:9/v1"
+env_key = "XAI_API_KEY"
+api_backend = "chat_completions"
+supports_reasoning_effort = true
+reasoning_efforts = ["low", "high"]
+context_window = 128000
+
+[model.messages]
+name = "Shared name"
+model = "shared-name"
+base_url = "http://127.0.0.1:9/v1"
+env_key = "ANTHROPIC_API_KEY"
+api_backend = "messages"
+supports_reasoning_effort = false
+
+[model.mystery]
+model = "shared-name"
+base_url = "http://127.0.0.1:9/v1"
+api_backend = "mystery-protocol"
+env_key = "XAI_API_KEY"
+"#,
+        );
+        load.env.insert("XAI_API_KEY".into(), "test-key".into());
+        load.env
+            .insert("ANTHROPIC_API_KEY".into(), "ant-key".into());
+        let config = load_from(load.clone());
+        assert_eq!(config.default_model.as_deref(), Some("chat"));
+        assert_eq!(config.default_effort.as_deref(), Some("high"));
+        let yaml = apply_to_dsh(&config, &load.env).unwrap();
+        let _ = yaml;
+        let generated = fs::read_to_string(&config.settings_yaml).unwrap();
+        assert!(generated.contains("api: openai-completions"));
+        assert!(generated.contains("api: anthropic-messages"));
+        assert!(generated.contains("contextWindow: 128000"));
+        assert!(generated.contains("reasoningEfforts:\n            low: low"));
+        assert!(generated.contains("reasoningEfforts: false"));
+        assert!(!generated.contains("mystery-protocol"));
+        assert!(generated.matches("shared-name").count() >= 2);
+        let inspect = inspect_json(&config);
+        assert!(inspect.contains("openai-completions"));
+        assert!(inspect.contains("anthropic-messages"));
+        assert!(inspect.contains("unavailable"));
+        assert!(!inspect.contains("ant-key"));
+        load.cli_effort = Some("xhigh".into());
+        let rejected = load_from(load);
+        assert!(!rejected.ready);
+        assert!(
+            rejected
+                .errors
+                .iter()
+                .any(|error| error.reason.contains("unsupported effort"))
+        );
+    }
+
+    #[test]
+    fn saved_selection_restores_model_and_effort() {
+        let dir = TempDir::new().unwrap();
+        let load = input(&dir);
+        write_config(
+            &load,
+            r#"
+[models]
+default = "plain"
+default_reasoning_effort = "high"
+
+[model.plain]
+model = "plain-model"
+base_url = "http://127.0.0.1:9/v1"
+env_key = "XAI_API_KEY"
+supports_reasoning_effort = false
+
+[model.think]
+model = "think-model"
+base_url = "http://127.0.0.1:9/v1"
+env_key = "XAI_API_KEY"
+supports_reasoning_effort = true
+reasoning_efforts = ["low", "high"]
+"#,
+        );
+        crate::models::save_selection(&load.grok_home.clone().unwrap(), "think", Some("low"))
+            .unwrap();
+        let mut keyed = load;
+        keyed.env.insert("XAI_API_KEY".into(), "test-key".into());
+        let config = load_from(keyed.clone());
+        assert_eq!(config.default_model.as_deref(), Some("think"));
+        assert_eq!(config.default_effort.as_deref(), Some("low"));
+        crate::models::save_selection(&config.grok_home, "plain", None).unwrap();
+        let restored = load_from(keyed);
+        assert_eq!(restored.default_model.as_deref(), Some("plain"));
+        assert_eq!(restored.default_effort.as_deref(), None);
+        assert!(restored.ready);
+        assert_eq!(
+            config
+                .settings
+                .iter()
+                .find(|setting| setting.key == "models.default")
+                .map(|setting| setting.source.as_str()),
+            Some("saved")
+        );
     }
 }

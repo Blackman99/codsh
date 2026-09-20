@@ -70,11 +70,22 @@ take write ownership is refused instead of forking a duplicate executor.
 
 User configuration for the preview is `$GROK_HOME/config.toml` (default
 `~/.codsh-rust/.grok/config.toml`). Compatible `[model.<id>]` fields
-(`base_url`, `env_key`, `api_key`, `model`, `name`) and `models.default` map
-into isolated dsh `settings.yaml`; the two files are not competing sources.
+(`base_url`, `env_key`, `api_key`, `model`, `name`, `api_backend`,
+`supports_reasoning_effort`, `reasoning_efforts`, `reasoning_effort`,
+`context_window`) plus `models.default` / `models.default_reasoning_effort`
+map into isolated dsh `settings.yaml`; the two files are not competing sources.
+Supported backends are Grok `chat_completions`, `responses`, and `messages`
+(mapped to dsh `openai-completions`, `openai-responses`, `anthropic-messages`).
+The same model id on two backends is two catalog entries, not one capability.
+`/model` (alias `/m`) and `/effort`, plus `--model` and `--effort` /
+`--reasoning-effort`, select advertised options only. Unsupported backends or
+effort levels are refused or shown unavailable; there is no silent provider
+fallback. Runtime changes apply to the next turn and persist in
+`$GROK_HOME/model-selection.toml`. Usage, cost, and context limits stay
+unknown unless the provider or an explicit `context_window` supplies them.
 `codsh --rust inspect` and `inspect --json` print each effective value and
-origin (CLI `--model`, environment, `GROK_CONFIG` overlay, config.toml,
-default). Invalid `config.toml` is left unchanged and the error names the
+origin (CLI `--model`/`--effort`, environment, `GROK_CONFIG` overlay, saved
+selection, config.toml, default). Invalid `config.toml` is left unchanged and the error names the
 path. First-run missing credentials stay local: no grok.com login, no default
 official telemetry/upload, and no import of `~/.dsh` or `~/.grok` credentials.
 Set the model's `env_key` (for example `XAI_API_KEY`) after writing a provider

@@ -60,6 +60,14 @@ pub enum AcpEvent {
     PermissionCancelled {
         session_id: String,
     },
+    Usage {
+        used: Option<u64>,
+        size: Option<u64>,
+        cost: Option<String>,
+    },
+    ConfigOptions {
+        options: Vec<SessionConfigOption>,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -67,6 +75,21 @@ pub struct PermissionChoice {
     pub option_id: String,
     pub name: String,
     pub kind: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ConfigChoice {
+    pub value: String,
+    pub name: String,
+    pub group: Option<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SessionConfigOption {
+    pub id: String,
+    pub name: String,
+    pub current: Option<String>,
+    pub choices: Vec<ConfigChoice>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -92,6 +115,69 @@ impl std::error::Error for AcpError {}
 
 fn json_id_key(id: &Value) -> String {
     id.to_string()
+}
+
+pub fn parse_config_options(value: &Value) -> Vec<SessionConfigOption> {
+    value
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|option| {
+            let id = option.get("id")?.as_str()?.to_string();
+            let name = option
+                .get("name")
+                .and_then(Value::as_str)
+                .unwrap_or(&id)
+                .to_string();
+            let current = option
+                .get("currentValue")
+                .and_then(Value::as_str)
+                .map(str::to_string)
+                .filter(|value| !value.is_empty());
+            Some(SessionConfigOption {
+                id,
+                name,
+                current,
+                choices: flatten_config_choices(option.get("options").unwrap_or(&Value::Null)),
+            })
+        })
+        .collect()
+}
+
+fn flatten_config_choices(value: &Value) -> Vec<ConfigChoice> {
+    let Some(items) = value.as_array() else {
+        return Vec::new();
+    };
+    let mut choices = Vec::new();
+    for item in items {
+        if let Some(nested) = item.get("options").and_then(Value::as_array) {
+            let group = item
+                .get("group")
+                .or_else(|| item.get("name"))
+                .and_then(Value::as_str)
+                .map(str::to_string);
+            for nested in nested {
+                if let Some(choice) = config_choice(nested, group.clone()) {
+                    choices.push(choice);
+                }
+            }
+        } else if let Some(choice) = config_choice(item, None) {
+            choices.push(choice);
+        }
+    }
+    choices
+}
+
+fn config_choice(value: &Value, group: Option<String>) -> Option<ConfigChoice> {
+    Some(ConfigChoice {
+        value: value.get("value")?.as_str()?.to_string(),
+        name: value
+            .get("name")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_string(),
+        group,
+    })
 }
 
 fn permission_choices(value: &Value) -> Vec<PermissionChoice> {
@@ -214,6 +300,7 @@ pub struct AcpClient {
     prompt_cancelled: bool,
     pub can_list: bool,
     pub can_resume: bool,
+    pub config_options: Vec<SessionConfigOption>,
 }
 
 enum Line {
@@ -227,6 +314,7 @@ enum PendingKind {
     SessionResume,
     SessionList,
     Prompt,
+    SetConfig,
     Close,
     #[allow(dead_code)]
     Other,
@@ -386,6 +474,7 @@ impl AcpClient {
             prompt_cancelled: false,
             can_list: false,
             can_resume: false,
+            config_options: Vec::new(),
         })
     }
 
@@ -441,6 +530,8 @@ impl AcpClient {
             })?
             .to_string();
         self.session_id = Some(session_id.clone());
+        self.config_options =
+            parse_config_options(result.get("configOptions").unwrap_or(&Value::Null));
         Ok(session_id)
     }
 
@@ -504,9 +595,42 @@ impl AcpClient {
             json!({ "sessionId": session_id, "cwd": cwd, "mcpServers": [] }),
             PendingKind::SessionResume,
         )?;
-        self.wait_result(id, timeout)?;
+        let result = self.wait_result(id, timeout)?;
         self.session_id = Some(session_id.to_string());
+        self.config_options =
+            parse_config_options(result.get("configOptions").unwrap_or(&Value::Null));
         Ok(session_id.to_string())
+    }
+
+    pub fn set_config_option(
+        &mut self,
+        config_id: &str,
+        value: &str,
+        timeout: Duration,
+    ) -> Result<Vec<SessionConfigOption>, AcpError> {
+        let session_id = self.session_id.clone().ok_or_else(|| AcpError {
+            message: "ACP session is not ready".into(),
+        })?;
+        let id = self.request(
+            "session/set_config_option",
+            json!({
+                "sessionId": session_id,
+                "configId": config_id,
+                "value": value,
+            }),
+            PendingKind::SetConfig,
+        )?;
+        let result = self.wait_result(id, timeout)?;
+        self.config_options =
+            parse_config_options(result.get("configOptions").unwrap_or(&Value::Null));
+        if self.config_options.is_empty() {
+            self.config_options = parse_config_options(&result);
+        }
+        Ok(self.config_options.clone())
+    }
+
+    pub fn config_option(&self, id: &str) -> Option<&SessionConfigOption> {
+        self.config_options.iter().find(|option| option.id == id)
     }
 
     pub fn answer_permission(
@@ -911,6 +1035,37 @@ impl AcpClient {
                     diff,
                 }]
             }
+            "usage_update" => {
+                let used = update.get("used").and_then(Value::as_u64);
+                let size = update.get("size").and_then(Value::as_u64);
+                let cost = update
+                    .pointer("/cost/amount")
+                    .and_then(Value::as_str)
+                    .or_else(|| update.get("cost").and_then(Value::as_str))
+                    .map(str::to_string);
+                vec![AcpEvent::Usage { used, size, cost }]
+            }
+            "config_option_update" => {
+                if let Some(option) = update.get("configOptions") {
+                    self.config_options = parse_config_options(option);
+                } else if let Some(option) = update.get("configOption") {
+                    let parsed = parse_config_options(&json!([option]));
+                    for updated in parsed {
+                        if let Some(existing) = self
+                            .config_options
+                            .iter_mut()
+                            .find(|option| option.id == updated.id)
+                        {
+                            *existing = updated;
+                        } else {
+                            self.config_options.push(updated);
+                        }
+                    }
+                }
+                vec![AcpEvent::ConfigOptions {
+                    options: self.config_options.clone(),
+                }]
+            }
             "tool_call_update" => {
                 let tool_call_id = update
                     .get("toolCallId")
@@ -982,8 +1137,23 @@ impl AcpClient {
                 if let Some(session_id) = result.get("sessionId").and_then(Value::as_str) {
                     self.session_id = Some(session_id.to_string());
                 }
+                self.config_options =
+                    parse_config_options(result.get("configOptions").unwrap_or(&Value::Null));
                 self.completed.insert(id, Ok(result));
-                Vec::new()
+                vec![AcpEvent::ConfigOptions {
+                    options: self.config_options.clone(),
+                }]
+            }
+            Some(PendingKind::SetConfig) => {
+                self.config_options =
+                    parse_config_options(result.get("configOptions").unwrap_or(&Value::Null));
+                if self.config_options.is_empty() {
+                    self.config_options = parse_config_options(&result);
+                }
+                self.completed.insert(id, Ok(result));
+                vec![AcpEvent::ConfigOptions {
+                    options: self.config_options.clone(),
+                }]
             }
             Some(PendingKind::SessionList) => {
                 self.completed.insert(id, Ok(result));
@@ -1800,5 +1970,37 @@ mod tests {
         drop(owner);
         crate::session_owner::SessionOwner::acquire(home.path(), &session)
             .expect("successor after shutdown");
+    }
+
+    #[test]
+    fn set_config_option_rejects_unadvertised_values() {
+        let mut client = ready("echo");
+        assert!(
+            client.config_option("model").is_some_and(|option| option
+                .choices
+                .iter()
+                .any(|choice| choice.value.contains("chat"))),
+            "{:?}",
+            client.config_options
+        );
+        let switched = client
+            .set_config_option("model", r#"["chat","shared-name"]"#, Duration::from_secs(2))
+            .expect("switch");
+        assert!(
+            switched.iter().any(|option| option.id == "model"
+                && option.current.as_deref() == Some(r#"["chat","shared-name"]"#)),
+            "{switched:?}"
+        );
+        let error = client
+            .set_config_option("reasoning_effort", "xhigh", Duration::from_secs(2))
+            .expect_err("unadvertised");
+        assert!(error.message.contains("unsupported"), "{error}");
+        assert_eq!(
+            client
+                .config_option("reasoning_effort")
+                .and_then(|option| option.current.clone())
+                .as_deref(),
+            Some("high")
+        );
     }
 }

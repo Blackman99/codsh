@@ -17,6 +17,32 @@ let cancelled = false
 let writes = Number(process.env.FAKE_ACP_WRITES ?? '0')
 const storePath = process.env.FAKE_ACP_STORE
 let liveSessionId = 'fake-session'
+let configOptions = [
+  {
+    id: 'model',
+    name: 'Model',
+    type: 'select',
+    currentValue: '["cli-mock","cli-mock"]',
+    options: [
+      { group: 'cli-mock', name: 'cli-mock', options: [{ value: '["cli-mock","cli-mock"]', name: 'cli-mock' }] },
+      { group: 'chat', name: 'chat', options: [{ value: '["chat","shared-name"]', name: 'shared-name' }] },
+    ],
+  },
+  {
+    id: 'reasoning_effort',
+    name: 'Reasoning effort',
+    type: 'select',
+    currentValue: 'high',
+    options: [
+      { value: 'low', name: 'Low' },
+      { value: 'high', name: 'High' },
+    ],
+  },
+]
+
+function flattenChoices(option) {
+  return (option.options ?? []).flatMap(item => item.options ?? [item])
+}
 
 function loadStore() {
   if (!storePath || !existsSync(storePath)) return { sessions: {} }
@@ -416,7 +442,7 @@ rl.on('line', line => {
       owned: true,
       prompts: [],
     })
-    send({ jsonrpc: '2.0', id, result: { sessionId: liveSessionId, configOptions: [] } })
+    send({ jsonrpc: '2.0', id, result: { sessionId: liveSessionId, configOptions } })
     return
   }
   if (method === 'session/list') {
@@ -451,7 +477,20 @@ rl.on('line', line => {
     }
     liveSessionId = sessionId
     recordSession(sessionId, { closed: false, owned: true })
-    send({ jsonrpc: '2.0', id, result: { configOptions: [] } })
+    send({ jsonrpc: '2.0', id, result: { sessionId, configOptions } })
+    return
+  }
+  if (method === 'session/set_config_option') {
+    const configId = params?.configId
+    const value = params?.value
+    const option = configOptions.find(item => item.id === configId)
+    const allowed = option ? flattenChoices(option).some(choice => choice.value === value) : false
+    if (!allowed) {
+      send({ jsonrpc: '2.0', id, error: { code: -32602, message: `unsupported ${configId} value ${value}; not advertised` } })
+      return
+    }
+    option.currentValue = value
+    send({ jsonrpc: '2.0', id, result: { configOptions } })
     return
   }
   if (method === 'session/prompt') {

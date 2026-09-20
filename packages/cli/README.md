@@ -32,9 +32,12 @@ over ACP/JSON-RPC. Plain `codsh` is unchanged. The candidate uses
 `~/.codsh-rust/dsh`, Profile `rust`, never imports `~/.dsh` or `~/.grok`
 credential files or sessions, and does not start the legacy Bundle or official
 agent core. Configure a provider in `~/.codsh-rust/.grok/config.toml` and inspect
-effective values with `codsh --rust inspect` / `inspect --json`. That file maps
-into isolated dsh `settings.yaml`; a hand-edited settings file that disagrees is
-not overwritten. The model's configured `env_key` (`XAI_API_KEY` and other
+effective values with `codsh --rust inspect` / `inspect --json`. Compatible
+`api_backend` and reasoning-effort fields map into isolated dsh
+`settings.yaml`; a hand-edited settings file that disagrees is not overwritten.
+`/model` and `/effort` only apply advertised catalog options; unsupported
+backends or efforts are refused, and same-named models on different protocols
+are not treated as equivalent. The model's configured `env_key` (`XAI_API_KEY` and other
 `*_API_KEY` values) is passed through to dsh. Missing credentials stay local
 (no grok.com login or default telemetry). Empty Enter on first-run reloads
 config and connects when a provider is ready, without submitting a prompt. Filesystem-resolved overlap with `DSH_HOME`/`GROK_HOME`, including case
