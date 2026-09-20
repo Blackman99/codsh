@@ -348,6 +348,9 @@ dsh-backed conversation fork/rewind, is covered by
 `--continue` / `--resume <id>` restore the same dsh session through ACP
 `session/resume` plus a read-only persistence projection; `--fork-session`,
 `/fork`, and `/rewind` seed a new append-only child without restoring files.
+`/rewind` while a turn is streaming is refused; `/fork --no-worktree` copies
+conversation only; `--worktree` stays out of this slice. `ui.fork_secondary_model`
+applies to `/fork` and `--fork-session`, not rewind.
 A second client is refused when it cannot take write ownership. Interrupted
 tools are displayed as unknown and are not replayed. `session/load` remains
 unsupported by dsh ACP. `--restore-code` is refused.

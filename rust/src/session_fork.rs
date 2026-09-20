@@ -245,10 +245,77 @@ pub fn worktree_error() -> String {
     "Isolated directory / worktree fork is not part of this slice; omit --worktree.".into()
 }
 
+pub fn running_turn_error() -> String {
+    "a turn is running — interrupt it before rewinding".into()
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ForkSlash {
+    pub directive: Option<String>,
+}
+
+pub fn is_conversation_slash(trimmed: &str) -> bool {
+    trimmed == "/rewind"
+        || trimmed == "/undo"
+        || trimmed == "/fork"
+        || trimmed.starts_with("/rewind ")
+        || trimmed.starts_with("/undo ")
+        || trimmed.starts_with("/fork ")
+}
+
+pub fn parse_fork_slash(trimmed: &str) -> Result<ForkSlash, String> {
+    let rest = trimmed
+        .strip_prefix("/fork")
+        .ok_or_else(|| "not a /fork command".to_string())?
+        .trim();
+    let mut directive = Vec::new();
+    for token in rest.split_whitespace() {
+        if token == "--worktree" {
+            return Err(worktree_error());
+        }
+        if token == "--no-worktree" {
+            continue;
+        }
+        directive.push(token);
+    }
+    Ok(ForkSlash {
+        directive: if directive.is_empty() {
+            None
+        } else {
+            Some(directive.join(" "))
+        },
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn parse_fork_slash_treats_no_worktree_as_conversation_copy() {
+        assert_eq!(
+            parse_fork_slash("/fork").unwrap(),
+            ForkSlash { directive: None }
+        );
+        assert_eq!(
+            parse_fork_slash("/fork --no-worktree").unwrap(),
+            ForkSlash { directive: None }
+        );
+        assert_eq!(
+            parse_fork_slash("/fork --no-worktree keep going").unwrap(),
+            ForkSlash {
+                directive: Some("keep going".into())
+            }
+        );
+        let err = parse_fork_slash("/fork --worktree").unwrap_err();
+        assert!(err.contains("omit --worktree"));
+        let err = parse_fork_slash("/fork --no-worktree --worktree later").unwrap_err();
+        assert!(err.contains("omit --worktree"));
+        assert!(is_conversation_slash("/rewind 2"));
+        assert!(is_conversation_slash("/fork --no-worktree"));
+        assert!(!is_conversation_slash("/help"));
+    }
 
     #[test]
     fn parse_confirm_and_fork_model_prefs() {

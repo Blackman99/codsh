@@ -2130,17 +2130,9 @@ fn run() -> io::Result<()> {
                             }
                             composer_stash.clear();
                             let trimmed = text.trim();
-                            if trimmed.starts_with("/rewind")
-                                || trimmed.starts_with("/undo")
-                                || trimmed.starts_with("/fork")
-                            {
+                            if session_fork::is_conversation_slash(trimmed) {
                                 if inflight {
-                                    last_error =
-                                        "a turn is running — interrupt it before rewinding".into();
-                                    continue;
-                                }
-                                if trimmed.contains("--worktree") {
-                                    last_error = session_fork::worktree_error();
+                                    last_error = session_fork::running_turn_error();
                                     draft.set_text("");
                                     continue;
                                 }
@@ -2149,33 +2141,33 @@ fn run() -> io::Result<()> {
                                     continue;
                                 }
                                 if trimmed.starts_with("/fork") {
-                                    let rest = trimmed
-                                        .trim_start_matches("/fork")
-                                        .replace("--no-worktree", "");
-                                    let directive = rest.trim();
-                                    if let Some(active) = client.as_mut() {
-                                        match commit_fork(
-                                            active,
-                                            &mut owner,
-                                            &mut turns,
-                                            &mut inflight,
-                                            &effective.dsh_home,
-                                            &effective.cwd,
-                                            &prefs,
-                                            if directive.is_empty() {
-                                                None
-                                            } else {
-                                                Some(directive)
-                                            },
-                                            &mut resumed,
-                                            &mut previous_session,
-                                        ) {
-                                            Ok(message) => {
-                                                hint = message;
-                                                last_error.clear();
-                                                draft.set_text("");
+                                    match session_fork::parse_fork_slash(trimmed) {
+                                        Err(error) => {
+                                            last_error = error;
+                                            draft.set_text("");
+                                        }
+                                        Ok(fork) => {
+                                            if let Some(active) = client.as_mut() {
+                                                match commit_fork(
+                                                    active,
+                                                    &mut owner,
+                                                    &mut turns,
+                                                    &mut inflight,
+                                                    &effective.dsh_home,
+                                                    &effective.cwd,
+                                                    &prefs,
+                                                    fork.directive.as_deref(),
+                                                    &mut resumed,
+                                                    &mut previous_session,
+                                                ) {
+                                                    Ok(message) => {
+                                                        hint = message;
+                                                        last_error.clear();
+                                                        draft.set_text("");
+                                                    }
+                                                    Err(error) => last_error = error,
+                                                }
                                             }
-                                            Err(error) => last_error = error,
                                         }
                                     }
                                     continue;
@@ -2603,5 +2595,25 @@ mod tests {
         assert!(err.to_string().contains("does not restore files"));
         let needs_resume = parse_launch(&args(&["--fork-session"])).expect_err("fork");
         assert!(needs_resume.to_string().contains("--resume"));
+    }
+
+    #[test]
+    fn fork_slash_accepts_no_worktree_and_refuses_worktree() {
+        assert_eq!(
+            session_fork::parse_fork_slash("/fork --no-worktree")
+                .unwrap()
+                .directive,
+            None
+        );
+        assert!(
+            session_fork::parse_fork_slash("/fork --worktree")
+                .unwrap_err()
+                .contains("omit --worktree")
+        );
+        assert!(session_fork::is_conversation_slash("/rewind"));
+        assert_eq!(
+            session_fork::running_turn_error(),
+            "a turn is running — interrupt it before rewinding"
+        );
     }
 }

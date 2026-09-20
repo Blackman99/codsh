@@ -59,6 +59,10 @@ def main():
         launcher = prefix / 'node_modules/.bin/codsh'
         patch = work / 'overlay.yml'
         patch.write_text(overlay)
+        rust_home = home / '.codsh-rust'
+        rust_home.mkdir()
+        (rust_home / 'config.toml').write_text(
+            '[ui]\nconfirm_before_rewind = true\nfork_secondary_model = "cli-mock-fork"\n')
         base_env = {
             'HOME': str(home), 'PATH': os.environ['PATH'], 'TERM': 'xterm-256color',
             'DSH_BIN': dsh, 'CODSH_NODE': NODE, 'CODSH_ACP_PATCH': str(patch),
@@ -103,7 +107,7 @@ def main():
             first.wait_visible('/rewind 2', 10)
             first.write('\r')
             first.wait_visible('Confirm rewind to turn 2', 20)
-            first.write('y')
+            first.write('a')
             shown = wait_idle(first, 'rewound to turn 2', 25)
             assert 'now on' in shown
             assert 'stays in /resume' in shown
@@ -112,11 +116,21 @@ def main():
             assert 'TOKEN_KEEP' in shown
             assert 'TOKEN_MIDDLE' in shown
             assert (cwd / 'note.txt').read_text() == 'BETA independently edited\n'
-            first.write('TOKEN_AFTER_REWIND\r')
-            shown = first.wait_visible('TOKEN_AFTER_REWIND', 20)
+            assert 'confirm_before_rewind = false' in (rust_home / 'config.toml').read_text()
+            first.write('TOKEN_AFTER_REWIND')
+            first.wait_visible('TOKEN_AFTER_REWIND', 10)
+            first.write('\r')
+            shown = wait_idle(first, 'TOKEN_AFTER_REWIND')
             shown = first.wait_visible('RUST_ACP_ANSWER', 20)
             assert 'TOKEN_AFTER_REWIND' in shown
             assert 'TOKEN_DROP' not in shown
+            first.write('/rewind 1')
+            first.wait_visible('/rewind 1', 10)
+            first.write('\r')
+            shown = wait_idle(first, 'rewound to turn 1', 25)
+            assert 'Confirm rewind' not in shown
+            assert 'TOKEN_MIDDLE' not in shown
+            assert 'TOKEN_KEEP' in shown
             assert (cwd / 'note.txt').read_text() == 'BETA independently edited\n'
             result = first.finish()
         finally:
@@ -150,10 +164,97 @@ def main():
         finally:
             parent_resume.close()
 
+        streaming = Session('running-rewind', launcher, cwd, {
+            **base_env, 'DSH_CODE_CLI_MOCK_TOOL': 'echo',
+            'DSH_CODE_CLI_MOCK_DELAY_MS': '8000',
+        }, output, cols=120, rows=48)
+        try:
+            streaming.wait_visible('Connected to dsh ACP', 25)
+            streaming.write('TOKEN_SLOW')
+            streaming.wait_visible('TOKEN_SLOW', 10)
+            streaming.write('\r')
+            streaming.wait_visible('Streaming turn', 20)
+            streaming.write('/rewind')
+            streaming.wait_visible('/rewind', 10)
+            streaming.write('\r')
+            shown = streaming.wait_visible('a turn is running — interrupt it before rewinding', 20)
+            assert 'Streaming turn' in shown
+            assert 'rewound to turn' not in shown
+            (output / 'running-rewind-live.txt').write_text(shown)
+            streaming.write('\x03')
+            wait_idle(streaming, '[cancelled]', 20)
+            streaming.finish()
+        finally:
+            streaming.close()
+
+        forker = Session('in-session-fork', launcher, cwd, {
+            **base_env, 'DSH_CODE_CLI_MOCK_TOOL': 'echo',
+        }, output, extra=['--resume', parent], cols=120, rows=48)
+        try:
+            shown = forker.wait_visible('resumed', 25)
+            assert parent in shown
+            assert 'TOKEN_DROP' in shown
+            forker.write('/fork --worktree')
+            forker.wait_visible('/fork --worktree', 10)
+            forker.write('\r')
+            shown = forker.wait_visible('omit --worktree', 20)
+            assert forker.session_id() == parent
+            assert 'forked · now on' not in shown
+            forker.write('/fork --no-worktree')
+            forker.wait_visible('/fork --no-worktree', 10)
+            forker.write('\r')
+            shown = wait_idle(forker, 'forked · now on', 25)
+            fork_child = forker.session_id()
+            assert fork_child != parent
+            assert 'stays in /resume' in shown
+            assert 'TOKEN_KEEP' in shown
+            assert 'TOKEN_DROP' in shown
+            forker.write('TOKEN_FORK_CHILD')
+            forker.wait_visible('TOKEN_FORK_CHILD', 10)
+            forker.write('\r')
+            shown = wait_idle(forker, 'TOKEN_FORK_CHILD')
+            shown = forker.wait_visible('model=cli-mock-fork', 20)
+            assert 'TOKEN_DROP' in shown
+            forker.finish()
+        finally:
+            forker.close()
+
+        cli_fork = Session('cli-fork-session', launcher, cwd, {
+            **base_env, 'DSH_CODE_CLI_MOCK_TOOL': 'echo',
+        }, output, extra=['--fork-session', '--resume', parent], cols=120, rows=48)
+        try:
+            shown = cli_fork.wait_visible('resumed', 25)
+            cli_id = cli_fork.session_id()
+            assert cli_id != parent
+            assert 'TOKEN_KEEP' in shown
+            assert 'TOKEN_DROP' in shown
+            cli_fork.write('TOKEN_FORK_SESSION')
+            cli_fork.wait_visible('TOKEN_FORK_SESSION', 10)
+            cli_fork.write('\r')
+            shown = wait_idle(cli_fork, 'TOKEN_FORK_SESSION')
+            shown = cli_fork.wait_visible('model=cli-mock-fork', 20)
+            cli_fork.finish()
+        finally:
+            cli_fork.close()
+
+        still_parent = Session('parent-after-forks', launcher, cwd, {
+            **base_env, 'DSH_CODE_CLI_MOCK_TOOL': 'echo',
+        }, output, extra=['--resume', parent], cols=120, rows=48)
+        try:
+            shown = still_parent.wait_visible('resumed', 25)
+            assert still_parent.session_id() == parent
+            assert 'TOKEN_DROP' in shown
+            assert 'TOKEN_FORK_CHILD' not in shown
+            still_parent.finish()
+        finally:
+            still_parent.close()
+
         (output / 'result.json').write_text(json.dumps({
             'parent': parent, 'child': child,
+            'forkChild': fork_child, 'cliFork': cli_id,
             'note': (cwd / 'note.txt').read_text(),
             'exit': result['exit'],
+            'config': (rust_home / 'config.toml').read_text(),
         }, indent=2) + '\n')
         assert (cwd / 'note.txt').read_text() == 'BETA independently edited\n'
     print(f'PASS: rust dsh fork/rewind PTY; evidence: {output}')

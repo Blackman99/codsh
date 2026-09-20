@@ -375,25 +375,31 @@ describe('dsh conversation fork/rewind persistence', () => {
       expect(answer.update.content.text).toContain('TOKEN_MIDDLE')
       expect(answer.update.content.text).not.toContain('TOKEN_DROP')
       expect(readFileSync(join(second.cwd, 'note.txt'), 'utf8')).toBe('BETA independently edited\n')
-      const modelOption = (await second.send(5, 'session/set_config_option', {
-        sessionId: child.sessionId,
+      const copy = runForkHelper(first.home, ['--session-id', parentId])
+      expect(copy.status).toBe(0)
+      const peer = helperJson(copy)
+      expect(peer.sessionId).not.toBe(parentId)
+      expect(peer.sessionId).not.toBe(child.sessionId)
+      expect(peer.parentSession).toBe(parentId)
+      expect(peer.turns.some(turn => turn.user.includes('TOKEN_DROP'))).toBe(true)
+      await second.send(5, 'session/close', { sessionId: child.sessionId }).catch(() => undefined)
+      await second.send(6, 'session/resume', { sessionId: peer.sessionId, cwd: second.cwd, mcpServers: [] })
+      const switched = await second.send(7, 'session/set_config_option', {
+        sessionId: peer.sessionId,
         configId: 'model',
-        value: 'cli-mock-fork',
-      }).catch(error => error))
-      if (modelOption instanceof Error) {
-        const options = JSON.stringify(init.configOptions ?? [])
-        expect(options.includes('cli-mock-fork') || /unknown|invalid|not found/i.test(modelOption.message)).toBe(true)
-      } else {
-        const switched = await second.send(6, 'session/prompt', {
-          sessionId: child.sessionId,
-          prompt: [{ type: 'text', text: 'TOKEN_FORK_MODEL' }],
-        })
-        expect(switched.stopReason).toBe('end_turn')
-        const modeled = second.updates.filter(update => update.update.sessionUpdate === 'agent_message_chunk').at(-1)
-        expect(modeled.update.content.text).toContain('TOKEN_FORK_MODEL')
-        expect(modeled.update.content.text).toMatch(/model=cli-mock-fork|model=cli-mock/)
-      }
-      await second.send(7, 'session/close', { sessionId: child.sessionId }).catch(() => undefined)
+        value: '["cli-mock","cli-mock-fork"]',
+      })
+      expect(JSON.stringify(switched)).toMatch(/cli-mock-fork/)
+      const modeled = await second.send(8, 'session/prompt', {
+        sessionId: peer.sessionId,
+        prompt: [{ type: 'text', text: 'TOKEN_FORK_MODEL' }],
+      })
+      expect(modeled.stopReason).toBe('end_turn')
+      const forkAnswer = second.updates.filter(update => update.update.sessionUpdate === 'agent_message_chunk').at(-1)
+      expect(forkAnswer.update.content.text).toContain('TOKEN_FORK_MODEL')
+      expect(forkAnswer.update.content.text).toContain('model=cli-mock-fork')
+      expect(forkAnswer.update.content.text).toContain('TOKEN_DROP')
+      await second.send(9, 'session/close', { sessionId: peer.sessionId }).catch(() => undefined)
     } finally {
       second.child.stdin.end()
       second.child.kill('SIGTERM')
