@@ -809,6 +809,9 @@ pub fn load_from(mut input: LoadInput) -> EffectiveConfig {
                 .into(),
         );
     }
+    if let Some(percent) = compact_threshold_percent {
+        warnings.extend(compact_threshold_warnings(percent));
+    }
 
     EffectiveConfig {
         grok_home,
@@ -946,6 +949,39 @@ fn toml_u64(value: Option<&TomlValue>) -> Option<u64> {
         }
         _ => None,
     }
+}
+
+pub fn compact_retain_ratio(threshold_ratio: f64) -> f64 {
+    0.16_f64.min(threshold_ratio * 0.5)
+}
+
+pub fn compact_threshold_warnings(percent: u8) -> Vec<String> {
+    if percent == 0 {
+        return vec![
+            "session.auto_compact_threshold_percent=0 is not a valid dsh thresholdRatio; auto compaction is disabled"
+                .into(),
+        ];
+    }
+    let threshold = (percent as f64) / 100.0;
+    if compact_retain_ratio(threshold) < 0.16 {
+        vec![format!(
+            "session.auto_compact_threshold_percent={percent} is below dsh default retainRatio 0.16; emitting retainRatio {} so plugin load does not fail",
+            compact_retain_ratio(threshold)
+        )]
+    } else {
+        Vec::new()
+    }
+}
+
+pub fn compaction_basic_yaml(percent: u8) -> String {
+    if percent == 0 {
+        return "- id: compaction-basic\n  config:\n    auto: false\n".into();
+    }
+    let threshold = (percent as f64) / 100.0;
+    let retain = compact_retain_ratio(threshold);
+    format!(
+        "- id: compaction-basic\n  config:\n    thresholdRatio: {threshold}\n    retainRatio: {retain}\n    auto: true\n"
+    )
 }
 
 fn parse_threshold_percent(raw: &str) -> Option<u8> {
@@ -1134,7 +1170,6 @@ pub fn apply_to_dsh(
         .and_then(|path| fs::read_to_string(path).ok())
         .unwrap_or_default();
     let threshold = config.compact_threshold_percent.unwrap_or(80);
-    let ratio = (threshold as f64) / 100.0;
     let pruner = if config.prune_enabled {
         format!(
             "- id: tool-result-pruner\n  config:\n    thresholdChars: {}\n    headChars: {}\n    tailChars: {}\n",
@@ -1144,11 +1179,12 @@ pub fn apply_to_dsh(
         "- id: tool-result-pruner\n  disabled: true\n".into()
     };
     let combined = format!(
-        "- id: acp\n  config:\n    provider: {}\n    model: {}\n- id: agent-default-model\n  config:\n    provider: {}\n    model: {}\n- id: llm-deepseek\n  disabled: true\n- id: compaction-basic\n  config:\n    thresholdRatio: {ratio}\n    auto: true\n{pruner}{existing}",
+        "- id: acp\n  config:\n    provider: {}\n    model: {}\n- id: agent-default-model\n  config:\n    provider: {}\n    model: {}\n- id: llm-deepseek\n  disabled: true\n{}{pruner}{existing}",
         yaml_plain(&model.provider),
         yaml_plain(&model.model),
         yaml_plain(&model.provider),
         yaml_plain(&model.model),
+        compaction_basic_yaml(threshold),
     );
     fs::write(&patch_path, combined)?;
     Ok(Some(patch_path))
@@ -2260,12 +2296,35 @@ hard_clear_age_turns = 9
         apply_to_dsh(&config, &load.env).unwrap();
         let patch = fs::read_to_string(config.dsh_home.join("rust-effective.yml")).unwrap();
         assert!(patch.contains("thresholdRatio: 0.4"));
+        assert!(patch.contains("retainRatio: 0.16"));
         assert!(patch.contains("thresholdChars: 64"));
         assert!(patch.contains("headChars: 16"));
         assert!(patch.contains("tailChars: 8"));
         load.env
             .insert("GROK_AUTO_COMPACT_THRESHOLD_PERCENT".into(), "140".into());
-        let ignored = load_from(load);
+        let ignored = load_from(load.clone());
         assert_eq!(ignored.compact_threshold_percent, Some(50));
+        load.env
+            .insert("GROK_AUTO_COMPACT_THRESHOLD_PERCENT".into(), "10".into());
+        let low = load_from(load.clone());
+        assert_eq!(low.compact_threshold_percent, Some(10));
+        assert!(
+            low.warnings
+                .iter()
+                .any(|warning| warning.contains("retainRatio"))
+        );
+        apply_to_dsh(&low, &load.env).unwrap();
+        let low_patch = fs::read_to_string(low.dsh_home.join("rust-effective.yml")).unwrap();
+        assert!(low_patch.contains("thresholdRatio: 0.1"));
+        assert!(low_patch.contains("retainRatio: 0.05"));
+        load.env
+            .insert("GROK_AUTO_COMPACT_THRESHOLD_PERCENT".into(), "0".into());
+        let disabled = load_from(load.clone());
+        assert_eq!(disabled.compact_threshold_percent, Some(0));
+        apply_to_dsh(&disabled, &load.env).unwrap();
+        let disabled_patch =
+            fs::read_to_string(disabled.dsh_home.join("rust-effective.yml")).unwrap();
+        assert!(disabled_patch.contains("auto: false"));
+        assert!(!disabled_patch.contains("thresholdRatio: 0\n"));
     }
 }

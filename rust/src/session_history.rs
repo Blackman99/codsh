@@ -21,6 +21,22 @@ pub struct RestoredCompaction {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RestoredCompactionRecord {
+    pub items: Option<u64>,
+    pub tokens: Option<u64>,
+    pub provider: String,
+    pub model: String,
+    pub summary: String,
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RestoredSession {
+    pub turns: Vec<RestoredTurn>,
+    pub compaction: Vec<RestoredCompactionRecord>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RestoredTurn {
     pub user: String,
     pub thought: String,
@@ -52,6 +68,44 @@ pub fn helper_path() -> PathBuf {
         return PathBuf::from(path);
     }
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../packages/cli/bin/rust-acp-session-read.mjs")
+}
+
+fn compaction_record(value: &Value) -> RestoredCompactionRecord {
+    RestoredCompactionRecord {
+        items: value.get("items").and_then(Value::as_u64),
+        tokens: value.get("tokens").and_then(Value::as_u64),
+        provider: value
+            .get("provider")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_string(),
+        model: value
+            .get("model")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_string(),
+        summary: value
+            .get("summary")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_string(),
+        error: value
+            .get("error")
+            .and_then(Value::as_str)
+            .map(str::to_string),
+    }
+}
+
+pub fn project_session(value: &Value) -> Result<RestoredSession, HistoryError> {
+    let turns = project_turns(value)?;
+    let compaction = value
+        .get("compaction")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .map(compaction_record)
+        .collect();
+    Ok(RestoredSession { turns, compaction })
 }
 
 pub fn project_turns(value: &Value) -> Result<Vec<RestoredTurn>, HistoryError> {
@@ -169,7 +223,7 @@ pub fn project_turns(value: &Value) -> Result<Vec<RestoredTurn>, HistoryError> {
     Ok(turns)
 }
 
-pub fn load_turns(dsh_home: &Path, session_id: &str) -> Result<Vec<RestoredTurn>, HistoryError> {
+pub fn load_session(dsh_home: &Path, session_id: &str) -> Result<RestoredSession, HistoryError> {
     let node = std::env::var_os("CODSH_NODE").unwrap_or_else(|| "node".into());
     let helper = helper_path();
     let output = Command::new(node)
@@ -200,7 +254,11 @@ pub fn load_turns(dsh_home: &Path, session_id: &str) -> Result<Vec<RestoredTurn>
             },
         });
     }
-    project_turns(&value)
+    project_session(&value)
+}
+
+pub fn load_turns(dsh_home: &Path, session_id: &str) -> Result<Vec<RestoredTurn>, HistoryError> {
+    Ok(load_session(dsh_home, session_id)?.turns)
 }
 
 #[cfg(test)]
@@ -298,6 +356,35 @@ mod tests {
                 .as_deref()
                 .unwrap()
                 .contains("summarizer failed")
+        );
+        let failed_log = json!({
+            "ok": true,
+            "turns": [{
+                "user": "still here",
+                "thought": "",
+                "answer": "original",
+                "tools": [],
+                "error": null,
+                "cancelled": false,
+                "interrupted": false,
+                "compacted": false,
+                "compaction": null
+            }],
+            "compaction": [{
+                "items": null,
+                "tokens": null,
+                "provider": "",
+                "model": "",
+                "summary": "",
+                "error": "manual compaction was cancelled"
+            }]
+        });
+        let session = project_session(&failed_log).expect("failed compact session");
+        assert_eq!(session.turns[0].user, "still here");
+        assert!(session.turns[0].compaction.is_none());
+        assert_eq!(
+            session.compaction[0].error.as_deref(),
+            Some("manual compaction was cancelled")
         );
     }
 

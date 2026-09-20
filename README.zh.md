@@ -76,7 +76,7 @@ Grok 的 `chat_completions`、`responses`、`messages`（对应 dsh 的
 变更作用于下一回合，并写入 `$GROK_HOME/model-selection.toml`。用量、费用和
 上下文限制在提供商或显式 `context_window` 给出之前保持未知，不会伪造为零。
 dsh 的上下文占用显示为 `occupancy=N (dsh estimate)`，不当作提供商用量。
-`/context` 显示这些 dsh 事实以及可得的 system/tools/messages 启发式分类；缺失值保持未知，不会显示为 0。`/model` 切换后使用该模型公布的 `context_window`。`/compact [指示]` 由 dsh 执行压缩（进度、摘要、失败与取消），不另造一套历史；可选指示只进入 summarizer 请求（`purpose=compaction`），并记录目的地提供商/模型。自动压缩把 `session.auto_compact_threshold_percent` / `GROK_AUTO_COMPACT_THRESHOLD_PERCENT` 映射为 dsh `thresholdRatio`（0–100 以外的值会被忽略）。`GROK_COMPACTION_WALL_CLOCK_SECS` 限制压缩耗时，`0` 关闭该预算。压缩后恢复会话会投影 dsh 检查点及保留的工具/待办；失败时原记录仍在日志中。
+`/context` 显示这些 dsh 事实以及可得的 system/tools/messages 启发式分类；缺失值保持未知，不会显示为 0。`/model` 切换后使用该模型公布的 `context_window`。`/compact [指示]` 由 dsh 执行压缩（进度、摘要、失败与取消），不另造一套历史；可选指示只进入 summarizer 请求（`purpose=compaction`），并记录目的地提供商/模型。自动压缩把 `session.auto_compact_threshold_percent` / `GROK_AUTO_COMPACT_THRESHOLD_PERCENT` 映射为 dsh `thresholdRatio` 以及兼容的 `retainRatio`（0–100 以外的值会被忽略；`0` 会关闭自动压缩，而不会写入会导致插件加载失败的非法比例）。`GROK_COMPACTION_WALL_CLOCK_SECS` 限制压缩耗时，`0` 关闭该预算。压缩后恢复会话会投影 dsh 检查点及保留的工具/待办；失败时原记录仍在日志中。
 `codsh --rust inspect` 与 `inspect --json` 列出每项生效值及来源（命令行
 `--model`/`--effort`、环境变量、`GROK_CONFIG` 覆盖层、已保存选择、
 config.toml、默认值）。

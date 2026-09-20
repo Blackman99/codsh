@@ -29,7 +29,12 @@ export function rustAcpOverlay(mockUrl = rustAcpMockUrl(), approvalUrl = rustAcp
   ]
   if (threshold) {
     const ratio = Number(threshold)
-    lines.push('- id: compaction-basic', '  config:', `    thresholdRatio: ${ratio}`, '    auto: true')
+    if (!Number.isFinite(ratio) || ratio <= 0) {
+      lines.push('- id: compaction-basic', '  config:', '    auto: false')
+    } else {
+      const retain = Math.min(0.16, ratio * 0.5)
+      lines.push('- id: compaction-basic', '  config:', `    thresholdRatio: ${ratio}`, `    retainRatio: ${retain}`, '    auto: true')
+    }
   }
   if (process.env.CODSH_TEST_PRUNE_DISABLED === '1') {
     lines.push('- id: tool-result-pruner', '  disabled: true')

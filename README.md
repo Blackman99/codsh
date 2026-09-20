@@ -92,7 +92,9 @@ summary, failure, and cancel) instead of a second history store; optional
 instructions are sent only on the summarizer request (`purpose=compaction`)
 and the destination provider/model is recorded. Automatic compaction maps
 `session.auto_compact_threshold_percent` / `GROK_AUTO_COMPACT_THRESHOLD_PERCENT`
-into dsh `thresholdRatio` (values outside 0–100 are ignored).
+into dsh `thresholdRatio` plus a compatible `retainRatio` (values outside
+0–100 are ignored; `0` disables auto-compact rather than writing an invalid
+ratio that would fail plugin load).
 `GROK_COMPACTION_WALL_CLOCK_SECS` bounds the operation; `0` disables that
 budget. After compact, resume projects the dsh checkpoint plus retained
 tools/todos; a failed compact leaves the original records in the log.

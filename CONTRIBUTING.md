@@ -329,8 +329,10 @@ tool results display as cancelled. After cancel, a new prompt still works.
 `scripts/rust-model-pty-test.py`, and `scripts/rust-compact-pty-test.py`
 against the packed native candidate. `/context` and `/compact` are
 dsh-backed: occupancy and advertised model limits must not be fabricated,
-manual/automatic compaction uses the dsh session log, and failed compact
-must keep original records. The config test covers `inspect` /
+manual/automatic compaction uses the dsh session log, failed compact must
+keep the ACP session and original records, cancel must print
+`Compaction cancelled.` and accept a following prompt, and resume must
+hide replaced history while answering a new prompt. The config test covers `inspect` /
 `inspect --json`, CLI/env/overlay/file precedence, invalid TOML preservation,
 first-run missing credentials, generated dsh `settings.yaml` mapping, restart
 after a config change, unmanaged settings conflict, and refusal to import

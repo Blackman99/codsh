@@ -222,6 +222,11 @@ pub fn context_report(
     lines.join("\n")
 }
 
+pub fn compaction_error_is_cancelled(error: &str) -> bool {
+    let lower = error.to_ascii_lowercase();
+    lower.contains("cancelled") || lower.contains("canceled") || lower.contains("abort")
+}
+
 pub fn compaction_line(
     items: Option<u64>,
     tokens: Option<u64>,
@@ -230,6 +235,9 @@ pub fn compaction_line(
     error: Option<&str>,
 ) -> String {
     if let Some(error) = error.filter(|value| !value.is_empty()) {
+        if compaction_error_is_cancelled(error) {
+            return "Compaction cancelled.".into();
+        }
         return format!("Compaction failed: {error}. Original dsh records were not discarded.");
     }
     let route = match (
@@ -624,5 +632,13 @@ mod tests {
         let failed = compaction_line(None, None, None, None, Some("provider failed"));
         assert!(failed.contains("Original dsh records were not discarded"));
         assert!(!failed.to_lowercase().contains("success"));
+        let cancelled = compaction_line(
+            None,
+            None,
+            None,
+            None,
+            Some("manual compaction was cancelled"),
+        );
+        assert_eq!(cancelled, "Compaction cancelled.");
     }
 }

@@ -14,7 +14,7 @@ use crossterm::event::{
 use crossterm::execute;
 use crossterm::terminal::{self, EnterAlternateScreen, LeaveAlternateScreen};
 use ratatui::{Terminal, backend::CrosstermBackend};
-use session_history::RestoredTurn;
+use session_history::{RestoredCompactionRecord, RestoredTurn};
 use session_owner::SessionOwner;
 use std::io::{self, IsTerminal, Write};
 use std::path::PathBuf;
@@ -482,6 +482,38 @@ fn status_line(view: StatusView<'_>) -> String {
     body
 }
 
+fn compact_reload_hint(
+    turns: &[Turn],
+    records: &[RestoredCompactionRecord],
+    cancelled: bool,
+) -> String {
+    if cancelled {
+        return "Compaction cancelled.".into();
+    }
+    if let Some(record) = records.last() {
+        return models::compaction_line(
+            record.items,
+            record.tokens,
+            Some(&record.provider),
+            Some(&record.model),
+            record.error.as_deref(),
+        );
+    }
+    if let Some(info) = turns.iter().rev().find_map(|turn| turn.compaction.as_ref()) {
+        return models::compaction_line(
+            info.items,
+            info.tokens,
+            Some(&info.provider),
+            Some(&info.model),
+            info.error.as_deref(),
+        );
+    }
+    if cancelled {
+        return "Compaction cancelled.".into();
+    }
+    "No compactable history yet. Original dsh records were not discarded.".into()
+}
+
 fn compact_tool_result(text: &str) -> String {
     if let Some(body) = text
         .split("<content>\n")
@@ -533,9 +565,9 @@ fn render_transcript(status: &str, turns: &[Turn]) -> String {
                 out.push_str(&compact_tool_result(&tool.result));
             }
         }
-        if !turn.answer.is_empty() {
+        if !turn.answer.is_empty() && !turn.compacted {
             out.push('\n');
-            out.push_str(&turn.answer);
+            out.push_str(turn.answer.lines().next().unwrap_or(""));
         }
         if let Some(permission) = &turn.permission {
             out.push_str("\nAllow ");
@@ -1089,6 +1121,7 @@ fn run() -> io::Result<()> {
     let mut turns: Vec<Turn> = Vec::new();
     let mut inflight = false;
     let mut compacting = false;
+    let mut compact_cancelled = false;
     let mut last_error = String::new();
     let mut hint = String::new();
     let mut owner: Option<SessionOwner> = None;
@@ -1158,29 +1191,23 @@ fn run() -> io::Result<()> {
         if was_compacting && !inflight {
             compacting = false;
             if let Some(session_id) = client.as_ref().and_then(|active| active.session_id.clone()) {
-                match session_history::load_turns(&effective.dsh_home, &session_id) {
+                match session_history::load_session(&effective.dsh_home, &session_id) {
                     Ok(restored) => {
-                        let compact_hint = restored.iter().rev().find_map(|turn| {
-                            turn.compaction.as_ref().map(|info| {
-                                models::compaction_line(
-                                    info.items,
-                                    info.tokens,
-                                    Some(&info.provider),
-                                    Some(&info.model),
-                                    info.error.as_deref(),
-                                )
-                            })
-                        });
-                        turns = restored.into_iter().map(turn_from_restored).collect();
-                        hint = compact_hint.unwrap_or_else(|| {
-                            "No compactable history yet. Original dsh records were not discarded."
-                                .into()
-                        });
-                        last_error.clear();
+                        turns = restored.turns.into_iter().map(turn_from_restored).collect();
+                        hint = compact_reload_hint(&turns, &restored.compaction, compact_cancelled);
+                        if hint.starts_with("Compaction failed") || hint == "Compaction cancelled."
+                        {
+                            last_error = hint.clone();
+                        } else {
+                            last_error.clear();
+                        }
                     }
                     Err(error) => last_error = error.to_string(),
                 }
+            } else if compact_cancelled {
+                hint = "Compaction cancelled.".into();
             }
+            compact_cancelled = false;
         }
         if let Some(detail) = disconnect {
             last_error = detail;
@@ -1235,6 +1262,9 @@ fn run() -> io::Result<()> {
                                 if let Some(active) = client.as_mut() {
                                     match active.cancel_prompt() {
                                         Ok(()) => {
+                                            if compacting {
+                                                compact_cancelled = true;
+                                            }
                                             if let Some(turn) = turns.last_mut() {
                                                 turn.permission = None;
                                                 turn.cancelling = true;

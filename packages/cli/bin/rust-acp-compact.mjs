@@ -27,6 +27,30 @@ export function parseCompactLine(text) {
   return null
 }
 
+export function compactFailureText(error) {
+  const code = error?.code
+  if (code === 'busy') {
+    return 'Compaction is unavailable because this process has an active compaction, or the agent is not idle.'
+  }
+  if (code === 'cancelled' || error?.name === 'AbortError' || error?.code === 'ABORT_ERR') {
+    return 'Compaction cancelled.'
+  }
+  if (code === 'changed') {
+    return 'The history selected for compaction changed before it could be replaced. The conversation is unchanged; the attempt is recorded in the session log.'
+  }
+  if (code === 'summary') {
+    return 'Compaction could not produce a useful summary. The conversation is unchanged; the attempt is recorded in the session log.'
+  }
+  if (code === 'commit') {
+    return 'Compaction did not finish cleanly; some session history may have changed. Inspect the current session state before retrying.'
+  }
+  if (code === 'persistence') {
+    return 'Compaction finished, but the session could not be saved.'
+  }
+  const message = error?.message ?? String(error ?? 'compaction failed')
+  return message
+}
+
 function parseWallClockSecs(raw) {
   if (raw === undefined || raw === null || String(raw).trim() === '') {
     return { secs: null, warning: null }
@@ -89,13 +113,20 @@ export function apply(ctx) {
       const wall = parseWallClockSecs(process.env.GROK_COMPACTION_WALL_CLOCK_SECS)
       if (wall.warning) ctx.logger.warn(wall.warning)
       const timeoutSecs = wall.secs && wall.secs > 0 ? wall.secs : null
+      const clear = () => {
+        pendingInstruction.delete(sessionId)
+        pendingInstruction.delete('latest')
+      }
+      // Never return the compactNow promise: dsh-acp calls followup without
+      // awaiting, and an unhandled rejection tears the ACP child down.
       try {
-        return ctx.compaction.compactNow(agent, compactSignal(timeoutSecs))
-      } finally {
-        queueMicrotask(() => {
-          pendingInstruction.delete(sessionId)
-          pendingInstruction.delete('latest')
-        })
+        const operation = ctx.compaction.compactNow(agent, compactSignal(timeoutSecs))
+        Promise.resolve(operation).catch(error => {
+          ctx.logger.warn(`rust-acp-compact: ${compactFailureText(error)}`)
+        }).finally(clear)
+      } catch (error) {
+        clear()
+        ctx.logger.warn(`rust-acp-compact: ${compactFailureText(error)}`)
       }
     }
   })

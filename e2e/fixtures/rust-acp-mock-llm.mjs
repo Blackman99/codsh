@@ -144,19 +144,25 @@ function* fileToolTurn(options) {
 
 class RustAcpMockAdapter extends LlmAdapter {
   listModels(provider) {
+    if (provider === 'narrow') {
+      return Promise.resolve([
+        { provider, id: 'narrow', name: 'Narrow Mock', inputModalities: ['text'], contextWindow: 64000 },
+      ])
+    }
     return Promise.resolve([
       { provider, id: 'cli-mock', name: 'CLI Mock', inputModalities: ['text'], contextWindow: CONTEXT_WINDOW },
     ])
   }
 
   resolveModel(provider, model) {
+    const window = model === 'narrow' || provider === 'narrow' ? 64000 : CONTEXT_WINDOW
     return Promise.resolve({
       provider,
       id: model,
       name: model,
       inputModalities: ['text'],
-      context: Number.isFinite(CONTEXT_WINDOW) && CONTEXT_WINDOW > 0
-        ? { contextWindow: CONTEXT_WINDOW }
+      context: Number.isFinite(window) && window > 0
+        ? { contextWindow: window }
         : undefined,
       reasoning: {
         efforts: [{ id: OFF, name: 'Off' }, { id: HIGH, name: 'High' }],
@@ -251,5 +257,5 @@ export const name = 'rust-acp-mock-llm'
 export const inject = ['llm']
 
 export function apply(ctx) {
-  ctx.llm.registerAdapter(['cli-mock'], new RustAcpMockAdapter())
+  ctx.llm.registerAdapter(['cli-mock', 'narrow'], new RustAcpMockAdapter())
 }

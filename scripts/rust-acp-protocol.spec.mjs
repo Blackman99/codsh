@@ -6,7 +6,8 @@ import { createRequire } from 'node:module'
 import { afterEach, describe, expect, it } from 'vitest'
 import { rustAcpOverlay } from './rust-acp-overlay.mjs'
 import { fileURLToPath } from 'node:url'
-import { projectTurns, projectSession } from '../packages/cli/bin/rust-acp-session-read.mjs'
+import { projectTurns, projectSession, liveSurfaceSeqs } from '../packages/cli/bin/rust-acp-session-read.mjs'
+import { compactFailureText, parseCompactLine } from '../packages/cli/bin/rust-acp-compact.mjs'
 
 const require = createRequire(import.meta.url)
 const dshManifest = require.resolve('@deepseek-ai/dsh/package.json')
@@ -181,6 +182,34 @@ describe('dsh session log projection', () => {
     expect(live.compaction[0].provider).toBe('cli-mock')
     expect(live.compaction[0].purpose).toBe('compaction')
     expect(live.retainedTodos.some(tool => tool.result.includes('TODO_KEEP'))).toBe(true)
+  })
+
+  it('projects only live post-replace surface turns and drops runtime-context orphans', () => {
+    const events = [
+      { seq: 1, type: 'turn/start', data: { turn: 1 } },
+      { seq: 2, type: 'user/message', surfaceOp: 'append', data: { message: { content: [{ type: 'text', text: 'TOKEN_OLD_ONE' }] } } },
+      { seq: 3, type: 'assistant/message', surfaceOp: 'append', data: { message: { content: [{ type: 'text', text: 'RUST_ACP_ANSWER TOKEN_OLD_ONE' }] } } },
+      { seq: 4, type: 'user/message', surfaceOp: 'append', data: { message: { content: [{ type: 'text', text: 'Current runtime context. This snapshot supersedes earlier runtime-context snapshots.' }] } } },
+      { seq: 5, type: 'assistant/message', surfaceOp: 'append', data: { message: { content: [{ type: 'text', text: 'RUST_ACP_ANSWER turn=5 TOKEN_OLD_ONE leftover' }] } } },
+      { seq: 6, type: 'user/message', surfaceOp: { op: 'replace', startSeq: 2, endSeq: 3 }, data: {
+        message: {
+          content: [{ type: 'text', text: '<compacted-summary>\nMOCK_COMPACTION_SUMMARY instruction:keep the auth plan\n</compacted-summary>' }],
+          source: { kind: 'plugin', plugin: 'compact' },
+        },
+      } },
+    ]
+    expect([...liveSurfaceSeqs(events)].sort()).toEqual([4, 5, 6])
+    const live = projectSession(events)
+    expect(JSON.stringify(live.turns)).not.toContain('TOKEN_OLD_ONE leftover')
+    expect(live.turns.some(turn => turn.user.includes('TOKEN_OLD_ONE'))).toBe(false)
+    expect(live.turns.some(turn => turn.compacted && turn.answer.includes('keep the auth plan'))).toBe(true)
+  })
+
+  it('maps manual compaction errors without treating cancel as success', () => {
+    expect(parseCompactLine('/compact keep the auth plan')).toEqual({ instruction: 'keep the auth plan' })
+    expect(compactFailureText({ code: 'cancelled' })).toBe('Compaction cancelled.')
+    expect(compactFailureText({ code: 'summary', message: 'summarizer failed' })).toContain('useful summary')
+    expect(compactFailureText({ code: 'summary' }).toLowerCase()).not.toContain('success')
   })
 })
 
@@ -792,7 +821,7 @@ describe('public ACP/JSON-RPC against real dsh', () => {
         sessionId: session.sessionId,
         prompt: [{ type: 'text', text: '/compact keep the auth plan' }],
       })
-      expect(['cancelled', 'end_turn']).toContain(compact.stopReason)
+      expect(compact.stopReason).toBe('cancelled')
       const compactAnswers = agent.updates.filter(update => update.update.sessionUpdate === 'agent_message_chunk')
         .map(update => update.update.content.text)
       expect(compactAnswers.filter(text => text.includes('/compact keep the auth plan') && text.includes('RUST_ACP_ANSWER'))).toEqual([])
@@ -810,7 +839,11 @@ describe('public ACP/JSON-RPC against real dsh', () => {
       expect(projected.compaction.at(-1).purpose).toBe('compaction')
       expect(projected.compaction.at(-1).provider).toBe('cli-mock')
       expect(projected.compaction.at(-1).model).toBe('cli-mock')
-      expect(projected.originalTurnCount).toBeGreaterThanOrEqual(projected.turns.length)
+      expect(projected.compaction.at(-1).summary).toContain('keep the auth plan')
+      expect(projected.compaction.at(-1).summary).toContain('instruction:')
+      expect(projected.turns.some(turn => turn.user.includes('keep the auth plan'))).toBe(false)
+      expect(JSON.stringify(projected.turns)).not.toContain('TOKEN_OLD_ONE')
+      expect(projected.originalTurnCount).toBeGreaterThan(projected.turns.length)
       const follow = await agent.send(81, 'session/prompt', {
         sessionId: session.sessionId,
         prompt: [{ type: 'text', text: 'TOKEN_AFTER_COMPACT' }],
@@ -840,9 +873,8 @@ describe('public ACP/JSON-RPC against real dsh', () => {
       const failed = await failing.send(5, 'session/prompt', {
         sessionId: session.sessionId,
         prompt: [{ type: 'text', text: '/compact' }],
-      }).catch(error => error)
-      if (failed?.stopReason) expect(['cancelled', 'end_turn']).toContain(failed.stopReason)
-      else expect(String(failed?.message ?? failed)).toMatch(/compact|summar|fail|Internal error/i)
+      })
+      expect(failed.stopReason).toBe('cancelled')
       const helper = spawnSync(process.execPath, [
         resolve(fileURLToPath(new URL('../packages/cli/bin/rust-acp-session-read.mjs', import.meta.url))),
         '--session-id', session.sessionId,
@@ -854,10 +886,65 @@ describe('public ACP/JSON-RPC against real dsh', () => {
       const projected = JSON.parse(helper.stdout)
       expect(JSON.stringify(projected.turns)).toContain('TOKEN_KEEP_ORIGINAL')
       expect(JSON.stringify(projected.turns)).toContain('TOKEN_KEEP_SECOND')
-      expect(JSON.stringify(projected).toLowerCase()).not.toContain('"success"')
+      expect(projected.compaction.at(-1)?.error).toBeTruthy()
+      expect(JSON.stringify(projected.compaction).toLowerCase()).not.toContain('success')
+      const stillLive = await failing.send(6, 'session/prompt', {
+        sessionId: session.sessionId,
+        prompt: [{ type: 'text', text: 'TOKEN_AFTER_FAIL' }],
+      })
+      expect(stillLive.stopReason).toBe('end_turn')
+      const afterFail = failing.updates.filter(update => update.update.sessionUpdate === 'agent_message_chunk').at(-1)
+      expect(afterFail.update.content.text).toContain('TOKEN_AFTER_FAIL')
+      expect(afterFail.update.content.text).toContain('TOKEN_KEEP_ORIGINAL')
+      await failing.send(7, 'session/close', { sessionId: session.sessionId }).catch(() => undefined)
     } finally {
       failing.child.stdin.end()
       failing.child.kill('SIGTERM')
+    }
+  }, 90000)
+
+  it('cancels compaction through dsh, keeps originals, and accepts a following prompt', async () => {
+    const agent = startAgent('echo', { DSH_CODE_CLI_MOCK_DELAY_MS: '4000' })
+    try {
+      const { session } = await handshake(agent)
+      await agent.send(3, 'session/prompt', {
+        sessionId: session.sessionId,
+        prompt: [{ type: 'text', text: 'TOKEN_CANCEL_ONE' }],
+      })
+      await agent.send(4, 'session/prompt', {
+        sessionId: session.sessionId,
+        prompt: [{ type: 'text', text: 'TOKEN_CANCEL_TWO' }],
+      })
+      const compact = agent.send(5, 'session/prompt', {
+        sessionId: session.sessionId,
+        prompt: [{ type: 'text', text: '/compact' }],
+      })
+      await new Promise(resolve => setTimeout(resolve, 400))
+      agent.cancel(session.sessionId)
+      const result = await compact
+      expect(result.stopReason).toBe('cancelled')
+      const helper = spawnSync(process.execPath, [
+        resolve(fileURLToPath(new URL('../packages/cli/bin/rust-acp-session-read.mjs', import.meta.url))),
+        '--session-id', session.sessionId,
+      ], {
+        encoding: 'utf8',
+        env: { ...process.env, DSH_HOME: agent.home, DSH_BIN: dshPath() },
+      })
+      expect(helper.status).toBe(0)
+      const projected = JSON.parse(helper.stdout)
+      expect(JSON.stringify(projected.turns)).toContain('TOKEN_CANCEL_ONE')
+      expect(JSON.stringify(projected.turns)).toContain('TOKEN_CANCEL_TWO')
+      const follow = await agent.send(6, 'session/prompt', {
+        sessionId: session.sessionId,
+        prompt: [{ type: 'text', text: 'TOKEN_AFTER_CANCEL' }],
+      })
+      expect(follow.stopReason).toBe('end_turn')
+      const after = agent.updates.filter(update => update.update.sessionUpdate === 'agent_message_chunk').at(-1)
+      expect(after.update.content.text).toContain('TOKEN_AFTER_CANCEL')
+      await agent.send(7, 'session/close', { sessionId: session.sessionId }).catch(() => undefined)
+    } finally {
+      agent.child.stdin.end()
+      agent.child.kill('SIGTERM')
     }
   }, 90000)
 

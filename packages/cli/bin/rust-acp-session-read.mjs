@@ -31,9 +31,43 @@ function eventSource(event) {
   return payload.source ?? payload.message?.source
 }
 
+const SURFACE_TYPES = new Set(['system/message', 'user/message', 'assistant/message', 'tool/result'])
+
 function isCompactCheckpoint(event) {
   const source = eventSource(event)
   return source?.kind === 'plugin' && source?.plugin === 'compact'
+}
+
+function eventSurfaceOp(event) {
+  return event?.surfaceOp ?? event?.data?.surfaceOp ?? event?.data?.message?.surfaceOp
+}
+
+export function liveSurfaceSeqs(events) {
+  const nodes = []
+  for (const event of events ?? []) {
+    if (!SURFACE_TYPES.has(event?.type) || typeof event.seq !== 'number') continue
+    const op = eventSurfaceOp(event)
+    if (op && op !== 'append' && op.op === 'replace') {
+      const startIdx = nodes.indexOf(op.startSeq)
+      const endIdx = nodes.indexOf(op.endSeq)
+      if (startIdx >= 0 && endIdx >= 0 && startIdx <= endIdx) {
+        nodes.splice(startIdx, endIdx - startIdx + 1, event.seq)
+        continue
+      }
+    }
+    nodes.push(event.seq)
+  }
+  return new Set(nodes)
+}
+
+function liveToolResultIds(events, live) {
+  const ids = new Set()
+  for (const event of events ?? []) {
+    if (event?.type !== 'tool/result' || typeof event.seq !== 'number' || !live.has(event.seq)) continue
+    const message = event.data?.message ?? {}
+    ids.add(String(message.toolCallId ?? message.callId ?? event.data?.callId ?? ''))
+  }
+  return ids
 }
 
 function isDirectUser(event) {
@@ -50,12 +84,13 @@ function isDirectUser(event) {
 
 export function shadowedSeqs(events) {
   const shadowed = new Set()
+  const live = liveSurfaceSeqs(events)
   for (const event of events ?? []) {
     const data = event?.data ?? {}
     if (event?.type === 'compaction/summary' && Array.isArray(data.shadowedSeqs)) {
       for (const seq of data.shadowedSeqs) shadowed.add(seq)
     }
-    const op = data.surfaceOp ?? data.message?.surfaceOp
+    const op = eventSurfaceOp(event)
     if (op?.op === 'replace') {
       const start = op.startSeq
       const end = op.endSeq
@@ -64,6 +99,9 @@ export function shadowedSeqs(events) {
           shadowed.add(item.seq)
         }
       }
+    }
+    if (SURFACE_TYPES.has(event?.type) && typeof event.seq === 'number' && !live.has(event.seq)) {
+      shadowed.add(event.seq)
     }
   }
   return shadowed
@@ -127,7 +165,9 @@ export function projectCompaction(events) {
 
 export function projectTurns(events, options = {}) {
   const skipShadowed = options.skipShadowed !== false
+  const live = skipShadowed ? liveSurfaceSeqs(events) : null
   const shadowed = skipShadowed ? shadowedSeqs(events) : new Set()
+  const liveTools = live ? liveToolResultIds(events, live) : null
   const compaction = projectCompaction(events)
   const latest = compaction.at(-1)
   const turns = []
@@ -150,10 +190,16 @@ export function projectTurns(events, options = {}) {
   }
 
   for (const event of events ?? []) {
-    if (skipShadowed && event?.seq !== undefined && shadowed.has(event.seq)) continue
     const type = event?.type
     const data = event?.data ?? {}
-    if (type === 'turn/start' || (type === 'user/message' && current === null)) {
+    if (skipShadowed && SURFACE_TYPES.has(type) && typeof event.seq === 'number' && (!live.has(event.seq) || shadowed.has(event.seq))) {
+      continue
+    }
+    if (skipShadowed && type === 'tool/call' && live.size > 0) {
+      const id = String(data.callId ?? data.toolCallId ?? '')
+      if (!liveTools.has(id)) continue
+    }
+    if (type === 'turn/start' || (type === 'user/message' && current === null && isDirectUser(event))) {
       openTurn()
     }
     if (current === null) continue
@@ -239,13 +285,18 @@ export function projectTurns(events, options = {}) {
     }
   }
   if (current) {
-    current.interrupted = true
-    markUnknownOpenTools(current)
+    if (!current.compacted) {
+      current.interrupted = true
+      markUnknownOpenTools(current)
+    }
   }
   for (const turn of turns) {
     if (turn.interrupted || turn.cancelled) markUnknownOpenTools(turn)
   }
-  return turns.filter(turn => turn.user !== '' || turn.answer !== '' || turn.tools.length > 0 || turn.compacted)
+  const keep = skipShadowed
+    ? turn => turn.compacted || turn.tools.length > 0 || turn.user !== ''
+    : turn => turn.user !== '' || turn.answer !== '' || turn.tools.length > 0 || turn.compacted
+  return turns.filter(keep)
 }
 
 export function projectSession(events) {

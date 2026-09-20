@@ -34,8 +34,10 @@ estimate, advertised limits follow the selected model's `context_window`, and
 compaction mutates the dsh session log rather than a second history. Optional
 `/compact` instructions travel only on the summarizer call (`purpose=compaction`)
 with a recorded destination. Automatic thresholds and pruning map into dsh
-`thresholdRatio` / tool-result pruner settings; unsupported Grok-only prune
-ages stay warnings, not silent no-ops.
+`thresholdRatio` with a compatible `retainRatio` / tool-result pruner
+settings; percents that would fail dsh plugin load (`retainRatio >=
+thresholdRatio`, including `0`) are warned and remapped; unsupported
+Grok-only prune ages stay warnings, not silent no-ops.
 Plain `codsh` still selects the legacy Launcher/Bundle; this is not the default
 cutover.
 
