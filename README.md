@@ -57,6 +57,9 @@ sessions. A symlinked preview Home/Profile or overlap with `DSH_HOME`/`GROK_HOME
 is refused before writes, including differently cased aliases on case-insensitive
 filesystems. If either Home is missing, a case-only potential overlap is refused
 conservatively on every platform, without creating paths to test filesystem rules.
+Unresolved symlinks in explicit or default legacy Home paths are also refused
+before writes; repair dangling links or symlink cycles before launching the preview.
+Resolvable links to separate legacy Homes remain supported.
 `Ctrl+Q`/`Ctrl+D` quits; `Ctrl+C` clears a draft, or quits when empty. Unsupported
 arguments fail explicitly. `codsh --rust --help` describes this limited path.
 

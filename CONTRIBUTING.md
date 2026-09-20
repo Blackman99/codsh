@@ -244,6 +244,14 @@ refuses a case-folded potential overlap on every platform. It neither assumes
 case sensitivity for unresolvable suffixes nor creates files to probe the volume.
 Existing distinct paths keep their native identities. Node's JavaScript realpath
 fallback is insufficient because it preserves case spelling on the verified host.
+Eighteen further PTY checks cover dangling explicit/default legacy links, root/child
+targets, dangling ancestors, chains, absolute targets, separate missing targets and
+cycles for both Home variables. `ENOENT` must be distinguished from a dangling
+symlink with `lstat` before reconstructing missing path components; unresolved
+symlink ambiguity fails before writes. Native cycle errors fail closed. Six actual
+UI controls retain resolvable links to separate legacy Homes (including missing
+children under valid links). Snapshot assertions record link text without following
+links, along with directories and content hashes. No test uses personal Home data.
 The network observer interposes socket/connect/connectx/sendto/sendmsg/DNS calls
 without replacing their results; a compiled loopback UDP positive control proves
 socket and outbound-send observation.

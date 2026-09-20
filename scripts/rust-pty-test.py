@@ -31,8 +31,47 @@ def digest_tree(root):
 
 
 def snapshot_tree(root):
-    return {str(path.relative_to(root)): 'directory' if path.is_dir() else hashlib.sha256(path.read_bytes()).hexdigest()
+    return {str(path.relative_to(root)): {'symlink': os.readlink(path)} if path.is_symlink()
+            else 'directory' if path.is_dir() else hashlib.sha256(path.read_bytes()).hexdigest()
             for path in root.rglob('*')}
+
+
+def refusal_probe(launcher, cwd, env, capture):
+    master, slave = pty.openpty()
+    fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack('HHHH', 24, 80, 0, 0))
+    original = termios.tcgetattr(slave)
+    process = subprocess.Popen([NODE, str(launcher), '--rust'], cwd=cwd, env=env,
+                               stdin=slave, stdout=slave, stderr=slave, start_new_session=True)
+    data = bytearray()
+    quit_sent = False
+    try:
+        deadline = time.monotonic() + 5
+        while time.monotonic() < deadline:
+            if select.select([master], [], [], 0.05)[0]:
+                data.extend(os.read(master, 65536))
+            if b'\x1b[?1049h' in data and not quit_sent:
+                os.write(master, b'\x11')
+                quit_sent = True
+            if process.poll() is not None:
+                while select.select([master], [], [], 0.05)[0]:
+                    data.extend(os.read(master, 65536))
+                break
+        if process.poll() is None:
+            process.kill()
+        process.wait(timeout=5)
+        os.write(master, b'AFTER_ALIAS_REFUSAL\n')
+        assert select.select([slave], [], [], 2)[0]
+        assert os.read(slave, 4096) == b'AFTER_ALIAS_REFUSAL\n'
+        capture.write_bytes(data)
+        return {'exit': process.returncode, 'output': data.decode(errors='replace'),
+                'enteredAlternateScreen': b'\x1b[?1049h' in data,
+                'terminalRestored': termios.tcgetattr(slave) == original}
+    finally:
+        if process.poll() is None:
+            process.kill()
+            process.wait()
+        os.close(master)
+        os.close(slave)
 
 
 def main():
@@ -94,52 +133,56 @@ def main():
                 root_existed = candidate_root.exists()
                 configured_existed = configured.exists()
                 alias_before = snapshot_tree(alias_home)
-                master, slave = pty.openpty()
-                fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack('HHHH', 24, 80, 0, 0))
-                original = termios.tcgetattr(slave)
                 alias_env = {'HOME': str(alias_home), 'PATH': env['PATH'], 'TERM': env['TERM'], variable: str(configured)}
-                process = subprocess.Popen([NODE, str(launcher), '--rust'], cwd=cwd, env=alias_env,
-                                           stdin=slave, stdout=slave, stderr=slave, start_new_session=True)
-                data = bytearray()
-                quit_sent = False
-                try:
-                    deadline = time.monotonic() + 3
-                    while time.monotonic() < deadline:
-                        if select.select([master], [], [], 0.05)[0]:
-                            data.extend(os.read(master, 65536))
-                        if b'\x1b[?1049h' in data and not quit_sent:
-                            os.write(master, b'\x11')
-                            quit_sent = True
-                        if process.poll() is not None:
-                            while select.select([master], [], [], 0.05)[0]:
-                                data.extend(os.read(master, 65536))
-                            break
-                    if process.poll() is None:
-                        process.kill()
-                    process.wait(timeout=5)
-                    os.write(master, b'AFTER_ALIAS_REFUSAL\n')
-                    assert select.select([slave], [], [], 2)[0]
-                    assert os.read(slave, 4096) == b'AFTER_ALIAS_REFUSAL\n'
-                    alias_after = snapshot_tree(alias_home)
-                    result = {'variable': variable, 'case': kind, 'exit': process.returncode,
-                              'candidateExistedBefore': root_existed, 'configuredExistedBefore': configured_existed,
-                              'candidateExistsAfter': candidate_root.exists(), 'configuredExistsAfter': configured.exists(),
-                              'refused': b'overlaps a legacy Home' in data,
-                              'enteredAlternateScreen': b'\x1b[?1049h' in data,
-                              'treeUnchanged': alias_before == alias_after,
-                              'before': alias_before, 'after': alias_after,
-                              'terminalRestored': termios.tcgetattr(slave) == original}
-                    alias_results.append(result)
-                    (output / f'alias-{variable}-{kind}.ansi').write_bytes(data)
-                finally:
-                    if process.poll() is None:
-                        process.kill()
-                        process.wait()
-                    os.close(master)
-                    os.close(slave)
+                observed = refusal_probe(launcher, cwd, alias_env, output / f'alias-{variable}-{kind}.ansi')
+                alias_after = snapshot_tree(alias_home)
+                result = {**observed, 'variable': variable, 'case': kind,
+                          'candidateExistedBefore': root_existed, 'configuredExistedBefore': configured_existed,
+                          'candidateExistsAfter': candidate_root.exists(), 'configuredExistsAfter': configured.exists(),
+                          'refused': 'overlaps a legacy Home' in observed['output'],
+                          'treeUnchanged': alias_before == alias_after,
+                          'before': alias_before, 'after': alias_after}
+                alias_results.append(result)
         (output / 'case-alias-results.json').write_text(json.dumps(alias_results, indent=2) + '\n')
         assert all(result['exit'] == 1 and result['refused'] and not result['enteredAlternateScreen']
                    and result['treeUnchanged'] and result['terminalRestored'] for result in alias_results), 'case-alias launch mutated a legacy tree or failed to refuse; see case-alias-results.json'
+        dangling_results = []
+        for variable, default_name in [('DSH_HOME', '.dsh'), ('GROK_HOME', '.grok')]:
+            for kind in ['explicit-root', 'explicit-child', 'default-root', 'default-child',
+                         'ancestor', 'chain', 'absolute-target', 'separate-target', 'cycle']:
+                link_home = work / f'dangling-{variable}-{kind}'
+                link_home.mkdir()
+                (link_home / 'canary').write_text('unrelated synthetic Home data\n')
+                candidate = link_home / '.codsh-rust'
+                alias = link_home / (default_name if kind.startswith('default') else 'legacy-alias')
+                target = '.codsh-rust/dsh' if kind.endswith('child') else '.codsh-rust'
+                if kind == 'absolute-target':
+                    target = str(candidate / 'dsh')
+                elif kind == 'separate-target':
+                    target = 'missing-separate-home'
+                elif kind in ['chain', 'cycle']:
+                    target = 'link-hop'
+                    (link_home / target).symlink_to('legacy-alias' if kind == 'cycle' else '.codsh-rust')
+                alias.symlink_to(target)
+                configured = alias / 'dsh' if kind == 'ancestor' else alias
+                assert not candidate.exists() and not configured.exists() and alias.is_symlink()
+                link_env = {'HOME': str(link_home), 'PATH': env['PATH'], 'TERM': env['TERM']}
+                if not kind.startswith('default'):
+                    link_env[variable] = str(configured)
+                before_links = snapshot_tree(link_home)
+                observed = refusal_probe(launcher, cwd, link_env, output / f'dangling-{variable}-{kind}.ansi')
+                after_links = snapshot_tree(link_home)
+                result = {**observed, 'variable': variable, 'case': kind,
+                          'candidateExistedBefore': False, 'configuredExistedBefore': False,
+                          'candidateExistsAfter': candidate.exists(),
+                          'refused': 'unresolved symlink' in observed['output'] or 'ELOOP' in observed['output'],
+                          'treeUnchanged': before_links == after_links,
+                          'before': before_links, 'after': after_links}
+                dangling_results.append(result)
+        (output / 'dangling-alias-results.json').write_text(json.dumps(dangling_results, indent=2) + '\n')
+        assert all(result['exit'] == 1 and result['refused'] and not result['enteredAlternateScreen']
+                   and not result['candidateExistsAfter'] and result['treeUnchanged'] and result['terminalRestored']
+                   for result in dangling_results), 'unresolved legacy symlink was not refused before writes; see dangling-alias-results.json'
         audit = output / 'network.log'
         dylib = output / 'network-audit.dylib'
         run(['clang', '-dynamiclib', '-Wall', '-Wextra', '-Werror', str(ROOT / 'scripts/rust-network-audit.c'), '-o', str(dylib)])
@@ -288,6 +331,24 @@ def main():
                 assert not (control_home / name).exists(), 'separate legacy Home must not be created'
                 assert (control_home / '.codsh-rust/dsh/profiles/rust/package.json').is_file()
                 missing_controls.append({'variable': variable, 'path': name, 'legacyRemainsAbsent': True})
+        resolved_link_controls = []
+        for variable, default_name in [('DSH_HOME', '.dsh'), ('GROK_HOME', '.grok')]:
+            for kind in ['explicit', 'default', 'missing-child']:
+                control_home = work / f'resolved-{variable}-{kind}'
+                target = control_home / 'separate-legacy'
+                target.mkdir(parents=True)
+                (target / 'canary').write_text('synthetic legacy content\n')
+                alias = control_home / (default_name if kind == 'default' else 'legacy-alias')
+                alias.symlink_to('separate-legacy')
+                configured = alias / 'missing-child' if kind == 'missing-child' else alias
+                original_legacy = snapshot_tree(target)
+                control_env = {'HOME': str(control_home), 'PATH': env['PATH'], 'TERM': env['TERM']}
+                if kind != 'default':
+                    control_env[variable] = str(configured)
+                exercise(f'resolved-link-{variable}-{kind}', child_env=control_env)
+                assert snapshot_tree(target) == original_legacy
+                assert alias.is_symlink() and os.readlink(alias) == 'separate-legacy'
+                resolved_link_controls.append({'variable': variable, 'case': kind, 'legacyUnchanged': True})
         profile = home / '.codsh-rust/dsh/profiles/rust/package.json'
         assert json.loads(profile.read_text())['dsh']['profile']['bundles'] == []
         profile.write_text('{invalid JSON')
@@ -323,6 +384,8 @@ def main():
             'scenarios': scenarios, 'networkEvents': lines, 'auditControlDetectedSocket': True,
             'caseAliasRefusals': len(alias_results), 'caseAliasEvidence': 'case-alias-results.json',
             'distinctMissingHomeControls': missing_controls,
+            'unresolvedSymlinkRefusals': len(dangling_results), 'unresolvedSymlinkEvidence': 'dangling-alias-results.json',
+            'resolvedLegacySymlinkControls': resolved_link_controls,
             'legacyCanariesUnchanged': True, 'symlinkRefused': True,
             'invalidArtifactRefused': True, 'homeOverlapRefused': True,
             'unsupportedArgumentsRefused': True, 'pipeRefused': True,

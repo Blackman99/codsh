@@ -33,7 +33,9 @@ never imports old credentials or sessions, and starts no agent or network
 service. Filesystem-resolved overlap with `DSH_HOME`/`GROK_HOME`, including case
 aliases, is refused before writes; symlinked preview paths remain forbidden.
 If either Home is missing, case-only potential overlap is conservatively refused
-on every platform without creating probe paths.
+on every platform without creating probe paths. Unresolved symlinks in explicit
+or default legacy Homes are refused before writes; fix dangling links/cycles first.
+Resolvable links to separate legacy Homes remain supported.
 Enter explicitly refuses execution until the dsh adapter is available.
 `Ctrl+Q`/`Ctrl+D` quits; `Ctrl+C` clears a draft or quits when empty.
 

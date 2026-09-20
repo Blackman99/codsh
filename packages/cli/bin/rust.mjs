@@ -12,6 +12,10 @@ function canonicalPath(path) {
     return { path: realpathSync.native(absolute), missing: false }
   } catch (error) {
     if (error.code !== 'ENOENT') throw error
+    // ENOENT can hide a dangling link; do not reconstruct it as a missing directory.
+    if (lstatSync(absolute, { throwIfNoEntry: false })?.isSymbolicLink()) {
+      throw new Error(`refusing unresolved symlink in Home path: ${absolute}`)
+    }
     const parent = dirname(absolute)
     if (parent === absolute) throw error
     return { path: join(canonicalPath(parent).path, basename(absolute)), missing: true }
