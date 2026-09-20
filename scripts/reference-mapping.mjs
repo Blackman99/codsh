@@ -3,7 +3,7 @@ import { readFileSync, writeFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { acceptance } from './reference-scenarios.mjs'
-import { auditedControl, auditAcceptance, configAudit } from './reference-config-audit.mjs'
+import { auditedControl, auditAcceptance, configAudit, configIdentity } from './reference-config-audit.mjs'
 
 const groups = entries => Object.fromEntries(Object.entries(entries).flatMap(([ticket, names]) => names.split(' ').map(name => [name, Number(ticket)])))
 const unique = values => [...new Set(values)]
@@ -371,7 +371,7 @@ const envNamespaces = {
   GROK_AUTO_COMPACT_THRESHOLD_PERCENT: 161, GROK_COMPACTION_WALL_CLOCK_SECS: 161, GROK_HOOKS_LOG: 192,
 }
 function environmentIdentity(item) {
-  return item.category === 'environment' ? item.name.match(/(?:^|:)`?([A-Z][A-Z0-9_]+)(?:=[^`]+)?`?$/u)?.[1] ?? item.name : item.name
+  return item.category === 'environment' ? configIdentity(item).slice('environment:'.length) : item.name
 }
 function environmentOwner(item, contexts) {
   const linked = unique([...(contexts.get(`environment:${item.name}`) ?? []), ...item.observations.filter(o => /^(?:binary|source)-guide:26-config-reference\.md#/u.test(o.locator))

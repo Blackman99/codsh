@@ -22,7 +22,7 @@ unproven. The preceding inspected export declares 1.0.32, not 1.0.34.
   not executable candidate tests or passing results.
 - `config-audit.json`: comprehensive review of all 254 generic-only config/env
   rows at `2f9607357463f4f4894d61f4e352ff7eb900a627` (249 equivalent identities),
-  plus related canonical fields. Its 61 contextual groups record exact baseline
+  plus related canonical fields and subsequent extraction additions. Its 63 contextual groups record exact baseline
   keys, rationale, source/guide locators, pinned consumer quotations, functional
   owners and planned effect-based scenarios. Build/test/internal/false-positive
   declarations have scoped `DISCOVERY-133-*` research scenarios, **not** generic
@@ -153,6 +153,23 @@ records paths, skill discovery does not consult them), not invented discovery.
 The two enterprise model-guide examples now retain their real update/telemetry
 owners alongside model/policy/auth context. No application implementation or
 new raw runtime claim follows from these corrections.
+
+Subsequent consumer review corrected goal routing: `InheritCurrent` removes the
+explicit role override, but non-fork strategist/skeptic and summary children still
+honor the general-purpose subagent pin, then agent-definition model, before the
+parent. The planner's verbatim fork instead forces the parent regardless of its
+configured role pair or subagent pin. The planned routing matrix tests each role
+with conflicting pins, explicit pairs, fallback and cancellation; frozen 1.0.34
+routing remains unverified. Resolver comments are not provider-wire evidence.
+
+Literal source extraction now retains case-sensitive lowercase/mixed-case and
+leading-underscore names. `npm_config_user_agent` gets #198 installer presence and
+precedence acceptance; lowercase `container` gets #155 display/OSC52 routing with
+cached detection and the disable override. Four newly exposed underscore markers
+remain classified test/injected/sandbox-handoff discovery rather than public
+config parity. These six additions bring discovery to 6,111 identities; original
+observations remain unchanged, and only derived source evidence/counts/digest were
+updated. No original discovered row or source quotation was removed.
 
 Important reconciliations:
 

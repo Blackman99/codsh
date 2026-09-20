@@ -2,11 +2,13 @@ import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import { guideContexts, mapAcceptance, mapOwners } from './reference-mapping.mjs'
 import { checkConfigAudit, checkConfigAuditSources, checkConfigConsistency, configAudit } from './reference-config-audit.mjs'
-import { loadEvidence } from './reference-inventory.mjs'
+import { extractSurfaces, loadEvidence } from './reference-inventory.mjs'
 
 const read = name => JSON.parse(readFileSync(new URL(`../docs/rewrite/reference/${name}`, import.meta.url), 'utf8'))
 const fixture = (category, name) => ({ key: `${category}:${name}`, category, name, observations: [] })
 const cases = [
+  ['npm_config_user_agent', [198], 'PARITY-198-installer'],
+  ['container', [155], 'PARITY-155-container-clipboard'],
   ['GROK_SESSION_PICKER_GROUPED', [159], 'PARITY-159-grouping', 'cli.session_picker_grouped'],
   ['GROK_SESSION_REGISTRY', [138], 'PARITY-138-registry', 'cli.session_registry'],
   ['GROK_RELAY_SYNC_ENABLED', [148], 'PARITY-148-relay', 'relay.enabled'],
@@ -32,6 +34,79 @@ const cases = [
 ]
 
 describe('independent fallback ownership contracts', () => {
+  it('extracts case-sensitive literal environment names across supported source forms', () => {
+    const source = { path: 'crates/consumer.rs', text: [
+      'std::env::var_os("npm_config_user_agent");', 'std::env::var_os("container");',
+      'env::var("Mixed_Case");', 'var_os("_private");', 'var("x");',
+      'const ENV_PATH: &str = "lower_constant";', 'child.env("lower_child", "value");',
+      'env.get("lower_map");', 'env_nonempty(env, "lower_helper");',
+      'for key in ["lower_loop", "Upper_Loop"] { env.get(key); }',
+      'std::env::var("CONTAINER");',
+      'const LABEL: &str = "unrelated_text";', 'other("lower_noise");',
+      'std::env::var("not=a_name");', 'std::env::var("two words");',
+    ].join('\n') }
+    const items = extractSurfaces({ commands: [], guides: [] }, [source])
+    expect(items.map(item => item.key).sort()).toEqual([
+      'CONTAINER', 'Mixed_Case', 'Upper_Loop', '_private', 'container', 'lower_child',
+      'lower_constant', 'lower_helper', 'lower_loop', 'lower_map', 'npm_config_user_agent', 'x',
+    ].map(name => `environment:${name}`).sort())
+    for (const item of items) expect(item.observations[0].scope).toBe('source-environment-provisional')
+  })
+
+  it('records separate planned goal-role routes under conflicting pins', () => {
+    const scenario = read('inventory.json').acceptance.find(item => item.id === 'PARITY-140-goal-routing')
+    const routes = scenario.routingCases.map(row => [row.role, row.currentModelOnly, row.rolePair, row.subagentPin, row.definitionModel, row.expected])
+    expect(routes).toEqual([
+      ['planner', false, 'configured', true, true, 'parent'],
+      ['planner', true, 'configured', true, true, 'parent'],
+      ['strategist', false, 'configured', true, true, 'configured-role'],
+      ['strategist', false, 'remote', true, true, 'remote-role'],
+      ['strategist', true, 'configured', true, true, 'subagent-pin'],
+      ['skeptic', false, 'configured', true, true, 'configured-role'],
+      ['skeptic', true, 'configured', true, true, 'subagent-pin'],
+      ['skeptic', true, 'configured', false, true, 'agent-definition'],
+      ['strategist', true, 'configured', false, false, 'parent'],
+      ['summary', false, null, true, true, 'subagent-pin'],
+      ['summary', true, null, false, true, 'agent-definition'],
+      ['summary', true, null, false, false, 'parent'],
+    ])
+    expect(scenario.status).toBe('planned')
+    expect(scenario.then).not.toContain('Every role request uses current model')
+    expect(scenario.failure).toMatch(/one retry without the role override.*cancellation must not retry/)
+  })
+
+  it.each([
+    ['_RJEM_MALLOC_CONF', 'DISCOVERY-133-injected-git-render'],
+    ['_GROK_CLAUDE_MARKER_OVERRIDE', 'DISCOVERY-133-test-benchmark'],
+    ['__GROK_INSIDE_BWRAP', 'DISCOVERY-133-sandbox-handoff'],
+    ['__GROK_BWRAP_RUNTIME_SOCKET_DENY', 'DISCOVERY-133-sandbox-handoff'],
+  ])('retains newly extracted internal %s without claiming config parity', (name, scenario) => {
+    const item = fixture('environment', name)
+    expect(mapOwners(item)).toEqual([133])
+    expect(mapAcceptance(item, [133])).toEqual([scenario])
+    expect(mapOwners(fixture('environment', `05-configuration.md:Environment:\`${name}=1\``))).toEqual([133])
+    const row = read('inventory.json').items.find(row => row.key === item.key)
+    expect(row.acceptance).toEqual([scenario])
+    expect(row.blocker).toContain('Discovery-only')
+  })
+
+  it('does not uppercase lowercase environment controls into unrelated identities', () => {
+    expect(mapOwners(fixture('environment', 'CONTAINER'))).toEqual([139])
+    expect(mapOwners(fixture('environment', 'NPM_CONFIG_USER_AGENT'))).toEqual([139])
+  })
+
+  it('retains actual lowercase controls with functional ownership and source-only blockers', () => {
+    const discovery = read('discovery.json'), inventory = read('inventory.json')
+    for (const [name, owner] of [['npm_config_user_agent', 198], ['container', 155]]) {
+      const item = discovery.items.find(item => item.key === `environment:${name}`)
+      expect(item, name).toBeDefined()
+      expect(item.observations.every(observation => observation.scope === 'source-environment-provisional')).toBe(true)
+      const row = inventory.items.find(row => row.key === item.key)
+      expect(row.tickets).toEqual([owner])
+      expect(row.blocker).toContain('not a proven 1.0.34 match')
+    }
+  })
+
   it.each(cases)('%s retains functional effects across representations', (name, owners, scenario, field) => {
     const items = [fixture('environment', name), fixture('environment', `05-configuration.md:Environment variables:\`${name}=1\``)]
     if (field) items.push(fixture('setting', field), fixture('documented-setting', `05-configuration.md:${field}`))
@@ -198,14 +273,15 @@ describe('independent fallback ownership contracts', () => {
     const scenarios = new Map(read('inventory.json').acceptance.map(scenario => [scenario.id, scenario]))
     for (const [id, checks] of [
       ['PARITY-180-verification', [/skeptic calls clamp 1–5/, /classifier cap floors at 1/, /reverify threshold floors at 1/, /no remote layer/]],
-      ['PARITY-140-goal-routing', [/Every role request uses current model/, /wire/, /hidden substitution/]],
+      ['PARITY-140-goal-routing', [/planner fork uses the parent model/, /ignoring configured planner pairs/, /per-subagent pin.*agent-definition model.*parent/s, /current-model-only removes explicit role overrides/, /summary.*general-purpose/s, /frozen 1\.0\.34.*unverified/s]],
       ['PARITY-141-fail-closed', [/env can tighten, never weaken/, /refusal/, /provider\/tool/]],
       ['PARITY-144-envrc', [/default is 10s/, /maximum 3600s/, /zero disables/, /partial values never leak/]],
       ['PARITY-192-exit-drain', [/defaults 5s/, /min 1 max 7/, /min\(config timeout, cap\)/, /500ms/, /Disabled consent sends nothing/]],
       ['PARITY-154-announcement-controls', [/\[\] suppresses all/, /malformed falls back/, /defaults 300s/, /minimum 1s/, /dev\/test\/source-only/]],
       ['PARITY-155-osc52-sink', [/Either presence/, /host sink/, /no duplicate delivery/]],
       ['PARITY-157-native-read', [/provider bytes/, /0 still disables/, /canceled paste/]],
-      ['PARITY-198-installer', [/actual installer process/, /npm registry env beats config/, /preserve the working installation/]],
+      ['PARITY-198-installer', [/actual installer process/, /npm registry env beats config/, /even an empty user-agent is present/, /present invalid GROK_INSTALLER bypasses the remaining env hints/, /preserve the working installation/]],
+      ['PARITY-155-container-clipboard', [/uppercase CONTAINER is distinct/, /native remains attempted/, /OSC52 disable override still wins/, /Restart between cached-env variants/, /Frozen 1\.0\.34 behavior remains unverified/]],
       ['PARITY-174-session-preference', [/Ask offers the popup/, /always creates/, /never skips/, /actual git directories/]],
       ['PARITY-163-extra-rules', [/after home rules/, /provider context/, /Invalid\/unreadable paths/]],
     ]) {

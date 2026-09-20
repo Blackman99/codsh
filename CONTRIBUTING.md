@@ -131,6 +131,10 @@ Environment extraction recognizes literal reads/setters, named constants, env-ma
 lookups and key loops, enclosing environment-variable tables, assignment-form hints
 such as `COLORTERM=truecolor`, and documented process reads, credential inputs and
 launcher-resolution controls without vendor-prefix or underscore requirements.
+Literal source names preserve case and allow lowercase, mixed-case, leading
+underscores and single letters across reads, child injection, env maps and loops;
+`container` is not `CONTAINER`. New source identities require contextual mapping
+and source-evidence/count digest updates, not new runtime availability claims.
 Guide-qualified variables and assignment forms resolve to canonical functional
 owners; a path mentioning a variable is not itself an environment identity.
 Workflow budget/lifecycle subcontracts keep #182/#183 even under a slash owner;

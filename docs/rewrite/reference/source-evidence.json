@@ -3720,6 +3720,54 @@
       ]
     },
     {
+      "key": "environment:__GROK_BWRAP_RUNTIME_SOCKET_DENY",
+      "category": "environment",
+      "name": "__GROK_BWRAP_RUNTIME_SOCKET_DENY",
+      "observations": [
+        {
+          "locator": "source:crates/codegen/xai-grok-sandbox/src/runtime_sockets.rs#L13",
+          "scope": "source-environment-provisional",
+          "excerpt": "pub(crate) const BWRAP_RUNTIME_SOCKET_DENY_ENV_VAR: &str = \"__GROK_BWRAP_RUNTIME_SOCKET_DENY\";"
+        }
+      ]
+    },
+    {
+      "key": "environment:__GROK_INSIDE_BWRAP",
+      "category": "environment",
+      "name": "__GROK_INSIDE_BWRAP",
+      "observations": [
+        {
+          "locator": "source:crates/codegen/xai-grok-sandbox/src/lib.rs#L76",
+          "scope": "source-environment-provisional",
+          "excerpt": "const BWRAP_ENV_VAR: &str = \"__GROK_INSIDE_BWRAP\";"
+        }
+      ]
+    },
+    {
+      "key": "environment:_GROK_CLAUDE_MARKER_OVERRIDE",
+      "category": "environment",
+      "name": "_GROK_CLAUDE_MARKER_OVERRIDE",
+      "observations": [
+        {
+          "locator": "source:crates/codegen/xai-grok-workspace/src/permission/claude_settings.rs#L442",
+          "scope": "source-environment-provisional",
+          "excerpt": "if std::env::var(\"_GROK_CLAUDE_MARKER_OVERRIDE\").as_deref() == Ok(\"1\") {"
+        }
+      ]
+    },
+    {
+      "key": "environment:_RJEM_MALLOC_CONF",
+      "category": "environment",
+      "name": "_RJEM_MALLOC_CONF",
+      "observations": [
+        {
+          "locator": "source:crates/codegen/xai-grok-pager/src/app/mermaid_worker.rs#L305",
+          "scope": "source-environment-provisional",
+          "excerpt": "cmd.env(\"_RJEM_MALLOC_CONF\", \"narenas:1\")"
+        }
+      ]
+    },
+    {
       "key": "environment:ALACRITTY_SOCKET",
       "category": "environment",
       "name": "ALACRITTY_SOCKET",
@@ -4142,6 +4190,18 @@
           "locator": "source:crates/codegen/xai-sqlite-journal/src/lib.rs#L287",
           "scope": "source-environment-provisional",
           "excerpt": "std::env::var(\"COMPUTERNAME\").ok()"
+        }
+      ]
+    },
+    {
+      "key": "environment:container",
+      "category": "environment",
+      "name": "container",
+      "observations": [
+        {
+          "locator": "source:crates/codegen/xai-grok-shared/src/clipboard.rs#L396",
+          "scope": "source-environment-provisional",
+          "excerpt": "if std::env::var_os(\"container\").is_some() {"
         }
       ]
     },
@@ -12313,6 +12373,18 @@
           "locator": "source:crates/codegen/xai-grok-shell/src/extensions/pr.rs#L141",
           "scope": "source-environment-provisional",
           "excerpt": "cmd.env(\"NO_COLOR\", \"1\");"
+        }
+      ]
+    },
+    {
+      "key": "environment:npm_config_user_agent",
+      "category": "environment",
+      "name": "npm_config_user_agent",
+      "observations": [
+        {
+          "locator": "source:crates/codegen/xai-grok-update/src/auto_update.rs#L466",
+          "scope": "source-environment-provisional",
+          "excerpt": "if std::env::var_os(\"npm_config_user_agent\").is_some() {"
         }
       ]
     },
@@ -22706,9 +22778,19 @@
       "lineCount": 184
     },
     {
+      "path": "crates/codegen/xai-grok-sandbox/src/lib.rs",
+      "sha256": "24dc7690a6cd9fe3199042a47d1acb2da9e1027fa885459c1acae6f094052426",
+      "lineCount": 1160
+    },
+    {
       "path": "crates/codegen/xai-grok-sandbox/src/paths.rs",
       "sha256": "f11f8764e685a018ad7930edb52d9f8dc6559269974037a40905ac60cbcd0b7e",
       "lineCount": 95
+    },
+    {
+      "path": "crates/codegen/xai-grok-sandbox/src/runtime_sockets.rs",
+      "sha256": "0e6eb8050229925448e16dbc76ed1cb4d73761336928a17d0223cb3f5d076431",
+      "lineCount": 298
     },
     {
       "path": "crates/codegen/xai-grok-secrets/src/sanitizer.rs",
@@ -23954,6 +24036,11 @@
       "path": "crates/codegen/xai-grok-workspace/src/image_capabilities.rs",
       "sha256": "c36c8192e8dfbeea6e0851aeec5e1c7871a5e633080a39a4d02b01924ce76fdb",
       "lineCount": 398
+    },
+    {
+      "path": "crates/codegen/xai-grok-workspace/src/permission/claude_settings.rs",
+      "sha256": "e12d7737cde8fff08b013cd91cec9619be23421dae0f9db84c24432a1950f586",
+      "lineCount": 477
     },
     {
       "path": "crates/codegen/xai-grok-workspace/src/permission/hub_permission.rs",
@@ -25951,6 +26038,26 @@
       "startLine": 841,
       "text": "        .is_some_and(|m| m == \"x.ai/yolo_mode_changed\");"
     },
+    "source:crates/codegen/xai-grok-sandbox/src/runtime_sockets.rs#L13": {
+      "path": "crates/codegen/xai-grok-sandbox/src/runtime_sockets.rs",
+      "startLine": 13,
+      "text": "pub(crate) const BWRAP_RUNTIME_SOCKET_DENY_ENV_VAR: &str = \"__GROK_BWRAP_RUNTIME_SOCKET_DENY\";"
+    },
+    "source:crates/codegen/xai-grok-sandbox/src/lib.rs#L76": {
+      "path": "crates/codegen/xai-grok-sandbox/src/lib.rs",
+      "startLine": 76,
+      "text": "const BWRAP_ENV_VAR: &str = \"__GROK_INSIDE_BWRAP\";"
+    },
+    "source:crates/codegen/xai-grok-workspace/src/permission/claude_settings.rs#L442": {
+      "path": "crates/codegen/xai-grok-workspace/src/permission/claude_settings.rs",
+      "startLine": 442,
+      "text": "    if std::env::var(\"_GROK_CLAUDE_MARKER_OVERRIDE\").as_deref() == Ok(\"1\") {"
+    },
+    "source:crates/codegen/xai-grok-pager/src/app/mermaid_worker.rs#L305": {
+      "path": "crates/codegen/xai-grok-pager/src/app/mermaid_worker.rs",
+      "startLine": 305,
+      "text": "        cmd.env(\"_RJEM_MALLOC_CONF\", \"narenas:1\")"
+    },
     "source:crates/codegen/xai-grok-markdown/src/colors.rs#L117": {
       "path": "crates/codegen/xai-grok-markdown/src/colors.rs",
       "startLine": 117,
@@ -26160,6 +26267,11 @@
       "path": "crates/codegen/xai-sqlite-journal/src/lib.rs",
       "startLine": 287,
       "text": "    std::env::var(\"COMPUTERNAME\").ok()"
+    },
+    "source:crates/codegen/xai-grok-shared/src/clipboard.rs#L396": {
+      "path": "crates/codegen/xai-grok-shared/src/clipboard.rs",
+      "startLine": 396,
+      "text": "    if std::env::var_os(\"container\").is_some() {"
     },
     "source:crates/codegen/xai-grok-shell/src/agent/config.rs#L2434": {
       "path": "crates/codegen/xai-grok-shell/src/agent/config.rs",
@@ -29510,6 +29622,11 @@
       "path": "crates/codegen/xai-grok-shell/src/extensions/pr.rs",
       "startLine": 141,
       "text": "    cmd.env(\"NO_COLOR\", \"1\");"
+    },
+    "source:crates/codegen/xai-grok-update/src/auto_update.rs#L466": {
+      "path": "crates/codegen/xai-grok-update/src/auto_update.rs",
+      "startLine": 466,
+      "text": "    if std::env::var_os(\"npm_config_user_agent\").is_some() {"
     },
     "source:crates/codegen/xai-grok-update/src/auto_update.rs#L2290": {
       "path": "crates/codegen/xai-grok-update/src/auto_update.rs",

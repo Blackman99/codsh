@@ -24,14 +24,14 @@ function environmentControls(text) {
   const controls = new Map()
   const add = (name, offset) => controls.set(`${offset}:${name}`, { name, offset })
   for (const match of text.matchAll(/"((?:GROK_|XAI_|OTEL_|DO_NOT_TRACK)[A-Z0-9_]*)"/gu)) add(match[1], match.index)
-  for (const match of text.matchAll(/(?:\b(?:std::)?env::(?:var|var_os)|\b(?:var|var_os))\s*\(\s*"([A-Z][A-Z0-9_]+)"/gu)) add(match[1], match.index + match[0].indexOf('"'))
-  for (const match of text.matchAll(/\bconst\s+(?:ENV_[A-Z0-9_]+|[A-Z0-9_]+_ENV(?:_VAR)?)\s*:\s*&str\s*=\s*"([A-Z][A-Z0-9_]+)"/gu)) add(match[1], match.index + match[0].indexOf('"'))
-  for (const match of text.matchAll(/\.env\(\s*"([A-Z][A-Z0-9_]+)"\s*,/gu)) add(match[1], match.index + match[0].indexOf('"'))
-  for (const match of text.matchAll(/\benv\.get\(\s*"([A-Z][A-Z0-9_]+)"|\benv_nonempty\(\s*\w+\s*,\s*"([A-Z][A-Z0-9_]+)"/gu)) add(match[1] ?? match[2], match.index + match[0].indexOf('"'))
+  for (const match of text.matchAll(/(?:\b(?:std::)?env::(?:var|var_os)|\b(?:var|var_os))\s*\(\s*"([A-Za-z_][A-Za-z0-9_]*)"/gu)) add(match[1], match.index + match[0].indexOf('"'))
+  for (const match of text.matchAll(/\bconst\s+(?:ENV_[A-Z0-9_]+|[A-Z0-9_]+_ENV(?:_VAR)?)\s*:\s*&str\s*=\s*"([A-Za-z_][A-Za-z0-9_]*)"/gu)) add(match[1], match.index + match[0].indexOf('"'))
+  for (const match of text.matchAll(/\.env\(\s*"([A-Za-z_][A-Za-z0-9_]*)"\s*,/gu)) add(match[1], match.index + match[0].indexOf('"'))
+  for (const match of text.matchAll(/\benv\.get\(\s*"([A-Za-z_][A-Za-z0-9_]*)"|\benv_nonempty\(\s*\w+\s*,\s*"([A-Za-z_][A-Za-z0-9_]*)"/gu)) add(match[1] ?? match[2], match.index + match[0].indexOf('"'))
   for (const loop of text.matchAll(/\bfor\s+(\w+)\s+in\s+\[([^\]]+)\]\s*\{([^}]+)\}/gu)) {
     if (!new RegExp(`\\benv\\s*\\.get\\(\\s*${loop[1]}\\s*\\)`, 'u').test(loop[3])) continue
     const offset = loop.index + loop[0].indexOf('[') + 1
-    for (const match of loop[2].matchAll(/"([A-Z][A-Z0-9_]+)"/gu)) add(match[1], offset + match.index)
+    for (const match of loop[2].matchAll(/"([A-Za-z_][A-Za-z0-9_]*)"/gu)) add(match[1], offset + match.index)
   }
   return [...controls.values()]
 }

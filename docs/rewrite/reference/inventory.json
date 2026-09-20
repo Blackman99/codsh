@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "discoverySha256": "b116feb83bc104cd28888b236152c3d4a541724deb6eee2a213feb789874565c",
+  "discoverySha256": "58ad3025a6188ed9799e56bd38f04e8c4d42dbd7bfbdf7a236d18f004b5ceb9e",
   "tickets": [
     {
       "number": 133,
@@ -1454,8 +1454,8 @@
       "id": "PARITY-198-installer",
       "ticket": 198,
       "given": "Isolated npm/internal/gh-release installations and local release/registry fixtures with synthetic credentials.",
-      "when": "Select installer by CLI, config, GROK_INSTALLER aliases and managed hints; set registry env/config and update/restart.",
-      "then": "The actual installer process/download destination follows source precedence (CLI override, env selection, configured installer, detection); npm registry env beats config; only intended registry receives NPM_TOKEN and automatic-restart sentinel is removed from the child.",
+      "when": "Select installer by CLI, config, GROK_INSTALLER aliases and managed hints; set registry env/config and update/restart. Exercise npm_config_user_agent absent, empty and nonempty, with competing managed hints and invalid/blank GROK_INSTALLER.",
+      "then": "The actual installer process/download destination follows source precedence (CLI override, env selection, configured installer, detection); npm registry env beats config; only intended registry receives NPM_TOKEN and automatic-restart sentinel is removed from the child. Within env detection, an absent GROK_INSTALLER allows managed npm, managed internal, then presence of npm_config_user_agent to select npm; even an empty user-agent is present. A present invalid GROK_INSTALLER bypasses the remaining env hints and falls through to configured installer/path detection, not the lowercase hint.",
       "failure": "Unknown/blank selector and registry, conflicting hints, failed download, invalid artifact and nonzero installer preserve the working installation and report failure without credential leakage.",
       "status": "planned",
       "boundary": "installed-product/public-protocol and controlled effects; source declarations are not measured frozen-binary parity"
@@ -1483,10 +1483,108 @@
     {
       "id": "PARITY-140-goal-routing",
       "ticket": 140,
-      "given": "Distinct current, classifier, planner, summary and skeptic routes on recording providers.",
-      "when": "Toggle current-model-only via env/config, change current model and trigger every enabled goal role.",
-      "then": "Every role request uses current model when forced; otherwise configured pair wins over remote pair then current fallback. The selected provider/model is visible on the wire.",
-      "failure": "Invalid model or authentication cannot produce hidden substitution or completed verification; source-only availability remains unverified.",
+      "given": "Recording providers with distinct parent, configured/remote role, [subagents.models].general-purpose pin and agent-definition models; fresh goal attempts and isolated config for each routing case.",
+      "when": "Toggle current-model-only via env/config, change the parent model and trigger planner, strategist, skeptic and summary independently, including conflicting pins, valid explicit pairs and missing/invalid routes.",
+      "then": "The pinned-source planner fork uses the parent model with either switch state, ignoring configured planner pairs and general-purpose pins for verbatim history reuse. For non-fork strategist/skeptic requests, current-model-only removes explicit role overrides; the per-subagent pin then agent-definition model then parent determines the actual wire model. With the switch off, a valid configured role pair (or remote pair if absent) supplies an explicit override ahead of those pins. The summary has no per-role model key and uses the same general-purpose pin/definition/parent chain in either switch state. Assert each role separately against routingCases; InheritCurrent is not proof of unconditional parent routing.",
+      "failure": "Unavailable explicit pairs produce the source-described fail-open event and fall through to normal child selection; an invalid per-subagent pin warns before definition/parent fallback. A retryable explicit-pair spawn failure permits one retry without the role override, still subject to non-fork pin precedence; cancellation must not retry. Failed verification stays incomplete. These are pinned-source expectations only; frozen 1.0.34 routing remains unverified until measured, and any difference must be retained rather than hidden.",
+      "routingCases": [
+        {
+          "role": "planner",
+          "currentModelOnly": false,
+          "rolePair": "configured",
+          "subagentPin": true,
+          "definitionModel": true,
+          "expected": "parent"
+        },
+        {
+          "role": "planner",
+          "currentModelOnly": true,
+          "rolePair": "configured",
+          "subagentPin": true,
+          "definitionModel": true,
+          "expected": "parent"
+        },
+        {
+          "role": "strategist",
+          "currentModelOnly": false,
+          "rolePair": "configured",
+          "subagentPin": true,
+          "definitionModel": true,
+          "expected": "configured-role"
+        },
+        {
+          "role": "strategist",
+          "currentModelOnly": false,
+          "rolePair": "remote",
+          "subagentPin": true,
+          "definitionModel": true,
+          "expected": "remote-role"
+        },
+        {
+          "role": "strategist",
+          "currentModelOnly": true,
+          "rolePair": "configured",
+          "subagentPin": true,
+          "definitionModel": true,
+          "expected": "subagent-pin"
+        },
+        {
+          "role": "skeptic",
+          "currentModelOnly": false,
+          "rolePair": "configured",
+          "subagentPin": true,
+          "definitionModel": true,
+          "expected": "configured-role"
+        },
+        {
+          "role": "skeptic",
+          "currentModelOnly": true,
+          "rolePair": "configured",
+          "subagentPin": true,
+          "definitionModel": true,
+          "expected": "subagent-pin"
+        },
+        {
+          "role": "skeptic",
+          "currentModelOnly": true,
+          "rolePair": "configured",
+          "subagentPin": false,
+          "definitionModel": true,
+          "expected": "agent-definition"
+        },
+        {
+          "role": "strategist",
+          "currentModelOnly": true,
+          "rolePair": "configured",
+          "subagentPin": false,
+          "definitionModel": false,
+          "expected": "parent"
+        },
+        {
+          "role": "summary",
+          "currentModelOnly": false,
+          "rolePair": null,
+          "subagentPin": true,
+          "definitionModel": true,
+          "expected": "subagent-pin"
+        },
+        {
+          "role": "summary",
+          "currentModelOnly": true,
+          "rolePair": null,
+          "subagentPin": false,
+          "definitionModel": true,
+          "expected": "agent-definition"
+        },
+        {
+          "role": "summary",
+          "currentModelOnly": true,
+          "rolePair": null,
+          "subagentPin": false,
+          "definitionModel": false,
+          "expected": "parent"
+        }
+      ],
       "status": "planned",
       "boundary": "installed-product/public-protocol and controlled effects; source declarations are not measured frozen-binary parity"
     },
@@ -2159,6 +2257,26 @@
       "failure": "Corrupt/unreadable cache and failed refresh cannot invent fresh settings or bypass policy.",
       "status": "planned",
       "boundary": "installed-product/public-protocol and controlled effects; source declarations are not measured frozen-binary parity"
+    },
+    {
+      "id": "PARITY-155-container-clipboard",
+      "ticket": 155,
+      "given": "Fresh local/SSH/tmux terminal processes with controlled native and OSC52 clipboard helpers, no container sentinel files for env-isolation cases, and separate display markers.",
+      "when": "Vary lowercase container absent/empty/nonempty and uppercase CONTAINER independently, with DISPLAY/WAYLAND_DISPLAY absent or present (including empty); copy and inspect actual terminal bytes and clipboard delivery.",
+      "then": "Lowercase presence identifies a displayless container only when display markers and earlier sentinel conditions allow it; uppercase CONTAINER is distinct. Cached route enables OSC52 in the applicable non-Linux container case, while Linux already emits it; native remains attempted. The OSC52 disable override still wins over container/SSH/wrap routes.",
+      "failure": "Restart between cached-env variants; unavailable display/native clipboard, disabled OSC52 and failed delivery must not claim copy success. Frozen 1.0.34 behavior remains unverified until an isolated probe measures the route.",
+      "status": "planned",
+      "boundary": "installed-product/public-protocol and controlled effects; source declarations are not measured frozen-binary parity"
+    },
+    {
+      "id": "DISCOVERY-133-sandbox-handoff",
+      "ticket": 133,
+      "given": "Pinned sandbox re-exec and socket-deny consumers with isolated Linux filesystem/network canaries.",
+      "when": "Trace marker setting/consumption and encoded deny validation, then establish frozen availability before a controlled confinement probe.",
+      "then": "Record whether these are internal handoff only or an exposed frozen control; public behavior must get security-effect owners and real denial assertions rather than a config-display test.",
+      "failure": "Forged/malformed marker values cannot count as verified security or legitimate public config; unknown reachability stays discovery-only and existing sandbox requirements cannot be weakened.",
+      "status": "planned",
+      "boundary": "source/build/public-reachability research only; not functional configuration or candidate parity"
     },
     {
       "id": "PARITY-136",
@@ -20322,6 +20440,94 @@
       "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
     },
     {
+      "key": "environment:__GROK_BWRAP_RUNTIME_SOCKET_DENY",
+      "stories": [
+        1,
+        3,
+        4,
+        5,
+        71,
+        74
+      ],
+      "tickets": [
+        133
+      ],
+      "acceptance": [
+        "DISCOVERY-133-sandbox-handoff"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "source:crates/codegen/xai-grok-sandbox/src/runtime_sockets.rs#L13"
+      ],
+      "blocker": "Discovery-only source-internal (sandbox-handoff): Leading-underscore bwrap markers carry re-exec state and an encoded launch-time runtime-socket deny list between sandbox processes. They are not proven public frozen settings or a user-authorized bypass; trace marker validation and real confinement before any public parity claim. Existing sandbox effect contracts remain mandatory. No frozen public configuration parity is established; source 1.0.35 is not a proven 1.0.34 match. Follow the scoped DISCOVERY scenario before any promotion."
+    },
+    {
+      "key": "environment:__GROK_INSIDE_BWRAP",
+      "stories": [
+        1,
+        3,
+        4,
+        5,
+        71,
+        74
+      ],
+      "tickets": [
+        133
+      ],
+      "acceptance": [
+        "DISCOVERY-133-sandbox-handoff"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "source:crates/codegen/xai-grok-sandbox/src/lib.rs#L76"
+      ],
+      "blocker": "Discovery-only source-internal (sandbox-handoff): Leading-underscore bwrap markers carry re-exec state and an encoded launch-time runtime-socket deny list between sandbox processes. They are not proven public frozen settings or a user-authorized bypass; trace marker validation and real confinement before any public parity claim. Existing sandbox effect contracts remain mandatory. No frozen public configuration parity is established; source 1.0.35 is not a proven 1.0.34 match. Follow the scoped DISCOVERY scenario before any promotion."
+    },
+    {
+      "key": "environment:_GROK_CLAUDE_MARKER_OVERRIDE",
+      "stories": [
+        1,
+        3,
+        4,
+        5,
+        71,
+        74
+      ],
+      "tickets": [
+        133
+      ],
+      "acceptance": [
+        "DISCOVERY-133-test-benchmark"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "source:crates/codegen/xai-grok-workspace/src/permission/claude_settings.rs#L442"
+      ],
+      "blocker": "Discovery-only build-test (test-benchmark): Retained consumers are fixture roots, harness binary selection, benchmark inputs, failure/timing injection, test purge guards or debug-only tips. Some hooks are present in runtime source but explicitly test-oriented; public 1.0.34 configurability is unproven. GROVE/XDG rows only show fixture isolation, not a production resolver. No frozen public configuration parity is established; source 1.0.35 is not a proven 1.0.34 match. Follow the scoped DISCOVERY scenario before any promotion."
+    },
+    {
+      "key": "environment:_RJEM_MALLOC_CONF",
+      "stories": [
+        1,
+        3,
+        4,
+        5,
+        71,
+        74
+      ],
+      "tickets": [
+        133
+      ],
+      "acceptance": [
+        "DISCOVERY-133-injected-git-render"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "source:crates/codegen/xai-grok-pager/src/app/mermaid_worker.rs#L305"
+      ],
+      "blocker": "Discovery-only source-internal (injected-git-render): Retained occurrences force child Git author/auth/safety/color or Mermaid allocator values, or name an env exclusion (GROK_ASKPASS); they do not establish a user-overridable client setting. Preserve defensive behavior and trace exact consumers before promoting public parity. No frozen public configuration parity is established; source 1.0.35 is not a proven 1.0.34 match. Follow the scoped DISCOVERY scenario before any promotion."
+    },
+    {
       "key": "environment:02-authentication.md:External Auth Provider > Environment Variables:`GROK_AUTH_EARLY_INVALIDATION_SECS`",
       "stories": [
         8,
@@ -22282,6 +22488,25 @@
         "source:crates/codegen/xai-sqlite-journal/src/lib.rs#L287"
       ],
       "blocker": "Discovery-only source-internal (internal-resources): Source library resource/watch/thread/journal and hermetic Git controls are real implementation knobs, but no retained frozen public declaration proves them exposed in 1.0.34. Trace consuming build/runtime reachability and targeted observable resource effects, not an effective-config assertion or arbitrary all-owner assignment. No frozen public configuration parity is established; source 1.0.35 is not a proven 1.0.34 match. Follow the scoped DISCOVERY scenario before any promotion."
+    },
+    {
+      "key": "environment:container",
+      "stories": [
+        15,
+        18,
+        70
+      ],
+      "tickets": [
+        155
+      ],
+      "acceptance": [
+        "PARITY-155-container-clipboard"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "source:crates/codegen/xai-grok-shared/src/clipboard.rs#L396"
+      ],
+      "blocker": "Source export is 1.0.35, not a proven 1.0.34 match; verify availability and semantics against the frozen binary before candidate implementation."
     },
     {
       "key": "environment:DISABLE_TELEMETRY",
@@ -32343,6 +32568,27 @@
         "source:crates/codegen/xai-grok-shell/src/extensions/pr.rs#L141"
       ],
       "blocker": "Reference declaration/documentation is recorded; this exact behavior and its error/mode/platform variants still require downstream installed-product parity evidence."
+    },
+    {
+      "key": "environment:npm_config_user_agent",
+      "stories": [
+        6,
+        7,
+        69,
+        70,
+        73
+      ],
+      "tickets": [
+        198
+      ],
+      "acceptance": [
+        "PARITY-198-installer"
+      ],
+      "status": "pending-parity",
+      "evidence": [
+        "source:crates/codegen/xai-grok-update/src/auto_update.rs#L466"
+      ],
+      "blocker": "Source export is 1.0.35, not a proven 1.0.34 match; verify availability and semantics against the frozen binary before candidate implementation."
     },
     {
       "key": "environment:NPM_TOKEN",

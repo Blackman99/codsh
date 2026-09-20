@@ -533,7 +533,7 @@
     {
       "id": "installer",
       "classification": "functional",
-      "rationale": "Updater reads installer selectors/presence hints; main resolves npm registry env over disk config; npm token, version endpoint and restart sentinel have distinct updater effects.",
+      "rationale": "Updater reads installer selectors/presence hints; main resolves npm registry env over disk config; npm token, version endpoint and restart sentinel have distinct updater effects. The lowercase npm_config_user_agent is a presence-based final environment hint after GROK_MANAGED_BY_NPM/INTERNAL; a present but invalid GROK_INSTALLER returns no env choice and skips those hints before config/path detection.",
       "tickets": [
         198
       ],
@@ -681,6 +681,21 @@
             "source-guide:26-config-reference.md#L106"
           ],
           "context": []
+        },
+        {
+          "identity": "environment:npm_config_user_agent",
+          "baselineKeys": [],
+          "evidence": [
+            "source:crates/codegen/xai-grok-update/src/auto_update.rs#L466"
+          ],
+          "context": [
+            {
+              "path": "crates/codegen/xai-grok-update/src/auto_update.rs",
+              "startLine": 461,
+              "text": "        return Some(\"npm\");\n    }\n    if std::env::var_os(\"GROK_MANAGED_BY_INTERNAL\").is_some() {\n        return Some(\"internal\");\n    }\n    if std::env::var_os(\"npm_config_user_agent\").is_some() {\n        return Some(\"npm\");\n    }\n    None\n}\n\npub async fn get_installer() -> Option<&'static str> {\n    if let Some(i) = env_installer() {\n        return Some(i);",
+              "sourceSha256": "39dab79cff54b7f300b8b697e6658afcf24cee8fe95f27c3f2c44e26ded853a2"
+            }
+          ]
         }
       ],
       "scenarios": [
@@ -688,8 +703,8 @@
           "id": "PARITY-198-installer",
           "ticket": 198,
           "given": "Isolated npm/internal/gh-release installations and local release/registry fixtures with synthetic credentials.",
-          "when": "Select installer by CLI, config, GROK_INSTALLER aliases and managed hints; set registry env/config and update/restart.",
-          "then": "The actual installer process/download destination follows source precedence (CLI override, env selection, configured installer, detection); npm registry env beats config; only intended registry receives NPM_TOKEN and automatic-restart sentinel is removed from the child.",
+          "when": "Select installer by CLI, config, GROK_INSTALLER aliases and managed hints; set registry env/config and update/restart. Exercise npm_config_user_agent absent, empty and nonempty, with competing managed hints and invalid/blank GROK_INSTALLER.",
+          "then": "The actual installer process/download destination follows source precedence (CLI override, env selection, configured installer, detection); npm registry env beats config; only intended registry receives NPM_TOKEN and automatic-restart sentinel is removed from the child. Within env detection, an absent GROK_INSTALLER allows managed npm, managed internal, then presence of npm_config_user_agent to select npm; even an empty user-agent is present. A present invalid GROK_INSTALLER bypasses the remaining env hints and falls through to configured installer/path detection, not the lowercase hint.",
           "failure": "Unknown/blank selector and registry, conflicting hints, failed download, invalid artifact and nonzero installer preserve the working installation and report failure without credential leakage."
         }
       ],
@@ -877,7 +892,7 @@
     {
       "id": "goal-models",
       "classification": "functional",
-      "rationale": "The goal-only model kill switch forces all role pairs to inherit current, overriding configured/remote role assignments; it does not disable goal execution.",
+      "rationale": "The goal switch removes explicit role-model overrides, not all downstream model selection. The planner verbatim fork pins the parent regardless of configured planner pair; non-fork strategist/skeptic/summary requests still resolve per-subagent pins and agent-definition models before parent inheritance. Resolver comments alone do not establish provider routing; frozen 1.0.34 behavior remains unverified.",
       "tickets": [
         180,
         140
@@ -929,10 +944,108 @@
         {
           "id": "PARITY-140-goal-routing",
           "ticket": 140,
-          "given": "Distinct current, classifier, planner, summary and skeptic routes on recording providers.",
-          "when": "Toggle current-model-only via env/config, change current model and trigger every enabled goal role.",
-          "then": "Every role request uses current model when forced; otherwise configured pair wins over remote pair then current fallback. The selected provider/model is visible on the wire.",
-          "failure": "Invalid model or authentication cannot produce hidden substitution or completed verification; source-only availability remains unverified."
+          "given": "Recording providers with distinct parent, configured/remote role, [subagents.models].general-purpose pin and agent-definition models; fresh goal attempts and isolated config for each routing case.",
+          "when": "Toggle current-model-only via env/config, change the parent model and trigger planner, strategist, skeptic and summary independently, including conflicting pins, valid explicit pairs and missing/invalid routes.",
+          "then": "The pinned-source planner fork uses the parent model with either switch state, ignoring configured planner pairs and general-purpose pins for verbatim history reuse. For non-fork strategist/skeptic requests, current-model-only removes explicit role overrides; the per-subagent pin then agent-definition model then parent determines the actual wire model. With the switch off, a valid configured role pair (or remote pair if absent) supplies an explicit override ahead of those pins. The summary has no per-role model key and uses the same general-purpose pin/definition/parent chain in either switch state. Assert each role separately against routingCases; InheritCurrent is not proof of unconditional parent routing.",
+          "failure": "Unavailable explicit pairs produce the source-described fail-open event and fall through to normal child selection; an invalid per-subagent pin warns before definition/parent fallback. A retryable explicit-pair spawn failure permits one retry without the role override, still subject to non-fork pin precedence; cancellation must not retry. Failed verification stays incomplete. These are pinned-source expectations only; frozen 1.0.34 routing remains unverified until measured, and any difference must be retained rather than hidden.",
+          "routingCases": [
+            {
+              "role": "planner",
+              "currentModelOnly": false,
+              "rolePair": "configured",
+              "subagentPin": true,
+              "definitionModel": true,
+              "expected": "parent"
+            },
+            {
+              "role": "planner",
+              "currentModelOnly": true,
+              "rolePair": "configured",
+              "subagentPin": true,
+              "definitionModel": true,
+              "expected": "parent"
+            },
+            {
+              "role": "strategist",
+              "currentModelOnly": false,
+              "rolePair": "configured",
+              "subagentPin": true,
+              "definitionModel": true,
+              "expected": "configured-role"
+            },
+            {
+              "role": "strategist",
+              "currentModelOnly": false,
+              "rolePair": "remote",
+              "subagentPin": true,
+              "definitionModel": true,
+              "expected": "remote-role"
+            },
+            {
+              "role": "strategist",
+              "currentModelOnly": true,
+              "rolePair": "configured",
+              "subagentPin": true,
+              "definitionModel": true,
+              "expected": "subagent-pin"
+            },
+            {
+              "role": "skeptic",
+              "currentModelOnly": false,
+              "rolePair": "configured",
+              "subagentPin": true,
+              "definitionModel": true,
+              "expected": "configured-role"
+            },
+            {
+              "role": "skeptic",
+              "currentModelOnly": true,
+              "rolePair": "configured",
+              "subagentPin": true,
+              "definitionModel": true,
+              "expected": "subagent-pin"
+            },
+            {
+              "role": "skeptic",
+              "currentModelOnly": true,
+              "rolePair": "configured",
+              "subagentPin": false,
+              "definitionModel": true,
+              "expected": "agent-definition"
+            },
+            {
+              "role": "strategist",
+              "currentModelOnly": true,
+              "rolePair": "configured",
+              "subagentPin": false,
+              "definitionModel": false,
+              "expected": "parent"
+            },
+            {
+              "role": "summary",
+              "currentModelOnly": false,
+              "rolePair": null,
+              "subagentPin": true,
+              "definitionModel": true,
+              "expected": "subagent-pin"
+            },
+            {
+              "role": "summary",
+              "currentModelOnly": true,
+              "rolePair": null,
+              "subagentPin": false,
+              "definitionModel": true,
+              "expected": "agent-definition"
+            },
+            {
+              "role": "summary",
+              "currentModelOnly": true,
+              "rolePair": null,
+              "subagentPin": false,
+              "definitionModel": false,
+              "expected": "parent"
+            }
+          ]
         }
       ],
       "reviewContext": [
@@ -941,6 +1054,72 @@
           "startLine": 2766,
           "text": "            self.goal.reverify_after,\n            None,\n            crate::session::acp_session::GOAL_REVERIFY_AFTER_DEFAULT,\n            |v| v.max(1),\n        )\n    }\n    /// When `true`, every `/goal` role inherits the current model regardless of configured pairs.\n    pub(crate) fn resolve_goal_use_current_model_only(&self) -> Resolved<bool> {\n        BoolFlag::env(\"GROK_GOAL_USE_CURRENT_MODEL_ONLY\")\n            .config(self.goal.use_current_model_only)\n            .default(false)\n            .resolve()\n    }\n    /// Shared single-pair resolution. Precedence: the kill-switch yields `InheritCurrent`/`Config`, then `config_pair` yields `Explicit`/`Config`.\n    /// After those, `remote_pair` yields `Explicit`/`Remote`, else `InheritCurrent`/`Default`. The chosen pair is cloned only on its branch.\n    fn resolve_single_role_model(\n        use_current_only: bool,\n        config_pair: Option<&crate::util::config::GoalRoleModel>,\n        remote_pair: Option<&crate::util::config::GoalRoleModel>,\n    ) -> Resolved<GoalRoleModelChoice> {\n        if use_current_only {\n            return Resolved::new(GoalRoleModelChoice::InheritCurrent, ConfigSource::Config);\n        }\n        if let Some(pair) = config_pair {\n            return Resolved::new(\n                GoalRoleModelChoice::Explicit(pair.clone()),\n                ConfigSource::Config,\n            );\n        }\n        match remote_pair {\n            Some(pair) => Resolved::new(\n                GoalRoleModelChoice::Explicit(pair.clone()),\n                ConfigSource::Remote,\n            ),\n            None => Resolved::new(GoalRoleModelChoice::InheritCurrent, ConfigSource::Default),\n        }\n    }\n    /// Planner role model: `[goal]` config then remote. No env layer (only the kill-switch reads env). An `Explicit` pair is applied as `runtime_overrides.model`, resolved before `resolve_subagent_sampling_config`.\n    /// It therefore wins over a user `[subagents.models]` pin. `InheritCurrent` hands precedence back to that pin.\n    pub(crate) fn resolve_goal_planner_model(\n        &self,\n        use_current_only: bool,\n    ) -> Resolved<GoalRoleModelChoice> {\n        Self::resolve_single_role_model(\n            use_current_only,\n            self.goal.planner_model.as_ref(),\n            self.remote_settings\n                .as_ref()\n                .and_then(|s| s.goal_planner_model.as_ref()),\n        )",
           "sourceSha256": "cdeb58b5c10439613b69520814cbdf224929a4ba4ca2324d5213cf35f79d5c02"
+        },
+        {
+          "path": "crates/codegen/xai-grok-shell/src/session/acp_session_impl/goal_support.rs",
+          "startLine": 1443,
+          "text": "        // A mirror-child fork copies the parent conversation verbatim, so it must use the parent model to reuse the parent's cached prefix\n        let role_override = crate::session::goal_planner::RoleSpawnOverride::default();\n        if !matches!(\n            self.goal_role_models.planner,\n            crate::agent::config::GoalRoleModelChoice::InheritCurrent\n        ) {\n            tracing::info!(\n                \"goal planner: configured role model ignored — forced to parent model for verbatim-fork cache reuse\"\n            );\n        }\n        let tool_names = self.resolve_inherit_role_tool_names().await;\n        let inherit_tool_names = tool_names.clone();\n        let spawner: std::sync::Arc<dyn crate::session::goal_planner::GoalPlannerSpawner> =\n            std::sync::Arc::new(crate::session::goal_planner::ChannelSpawner {\n                event_tx,\n                foreground_wait: Some(crate::tools::tool_context::subagent_foreground_wait(\n                    self.tool_context.blocking_wait_depth.clone(),\n                )),\n                parent_session_id: self.session_id_string(),\n                parent_prompt_id,\n                cwd: Some(self.tool_context.cwd.as_str().to_owned()),\n                trace_sink: Some((self.chat_state_handle.clone(), task_tool_name)),\n                role_override,\n                cancel_token,",
+          "sourceSha256": "5dd7a346d45935ce1718dedf8f71bd8b3a30c761ba8a4de2b1324e5a9d091e12"
+        },
+        {
+          "path": "crates/codegen/xai-grok-shell/src/agent/subagent/handle_request.rs",
+          "startLine": 767,
+          "text": "    if request.fork_context {\n        effective_runtime.model = Some(ctx.model_id.0.to_string());\n    }\n    let (mut effective_sampling_config, mut effective_model_id) = resolve_effective_model_config(\n        effective_runtime.model.as_deref(),\n        &request.subagent_type,\n        &definition.model,\n        &ctx,\n    )\n    .await;",
+          "sourceSha256": "c0f43a3856a6f4fcedbd823964c8f422ccefd6b937cb3ab16c954cb6aa1a05ad"
+        },
+        {
+          "path": "crates/codegen/xai-grok-shell/src/session/acp_session_impl/goal.rs",
+          "startLine": 519,
+          "text": "        let n = self.goal_verifier_skeptic_count.clamp(\n            crate::session::goal_classifier::GOAL_VERIFIER_SKEPTIC_MIN,\n            crate::session::goal_classifier::GOAL_VERIFIER_SKEPTIC_MAX,\n        );\n        let inherit_tool_names = self.resolve_inherit_role_tool_names().await;\n        let (skeptic_overrides, skeptic_tool_names): (\n            Vec<crate::session::goal_planner::RoleSpawnOverride>,\n            Vec<crate::session::goal_role_tools::RoleToolNames>,\n        ) = if self.goal_use_current_model_only {\n            (\n                vec![crate::session::goal_planner::RoleSpawnOverride::default(); n as usize],\n                vec![inherit_tool_names.clone(); n as usize],\n            )\n        } else {",
+          "sourceSha256": "c12809fee4f87e97a868d07ca7e109574fc64b9164aa43fff7133f6820941af0"
+        },
+        {
+          "path": "crates/codegen/xai-grok-shell/src/session/acp_session_impl/goal.rs",
+          "startLine": 640,
+          "text": "        let inherit = self.resolve_inherit_role_tool_names().await;\n        let crate::agent::config::GoalRoleModelChoice::Explicit(pair) = choice else {\n            return (\n                crate::session::goal_planner::RoleSpawnOverride::default(),\n                inherit.clone(),\n                inherit,\n            );\n        };\n        let available_models = self.models_manager.models();\n        let mut cache = PanelResolveCache::default();\n        let override_ = self\n            .resolve_goal_role_override(\n                role,\n                None,\n                pair,\n                capability,\n                event_tx,\n                &available_models,\n                &mut cache,\n            )",
+          "sourceSha256": "c12809fee4f87e97a868d07ca7e109574fc64b9164aa43fff7133f6820941af0"
+        },
+        {
+          "path": "crates/codegen/xai-grok-shell/src/session/goal_strategist.rs",
+          "startLine": 161,
+          "text": "    ) -> Result<String, SpawnError> {\n        let request = SubagentRequest {\n            id: id.to_string(),\n            prompt,\n            description: GOAL_STRATEGIST_SUBAGENT_DESCRIPTION.to_string(),\n            subagent_type: GOAL_STRATEGIST_SUBAGENT_TYPE.to_string(),\n            parent_session_id: self.parent_session_id.clone(),\n            parent_prompt_id: self.parent_prompt_id.clone(),\n            resume_from: None,\n            cwd: self.cwd.clone(),\n            runtime_overrides: SubagentRuntimeOverrides {\n                model,\n                harness_agent_type,\n                ..Default::default()\n            },\n            run_in_background: false,\n            // Harness-internal: never surface to the model's idle reminder.\n            surface_completion: false,\n            // Goal roles are never auto-backgrounded: the child runs until it finishes.\n            await_to_completion: true,\n            fork_context: false,\n            owner: SubagentOwner::Task,\n            cancel_token: tokio_util::sync::CancellationToken::new(),",
+          "sourceSha256": "4072d7b304886fcccea169280f9e7766645194deac7a07aefd7460cd7842618d"
+        },
+        {
+          "path": "crates/codegen/xai-grok-shell/src/session/goal_classifier.rs",
+          "startLine": 489,
+          "text": "        let request = SubagentRequest {\n            id: id.to_string(),\n            prompt,\n            description: GOAL_CLASSIFIER_SUBAGENT_DESCRIPTION.to_string(),\n            subagent_type: GOAL_CLASSIFIER_SUBAGENT_TYPE.to_string(),\n            parent_session_id: self.parent_session_id.clone(),\n            parent_prompt_id: self.parent_prompt_id.clone(),\n            resume_from: resume_from.map(str::to_string),\n            cwd: self.cwd.clone(),\n            runtime_overrides: SubagentRuntimeOverrides {\n                model,\n                harness_agent_type,\n                ..Default::default()\n            },\n            run_in_background: false,\n            // Harness-internal: never surface to the model's idle reminder.\n            surface_completion: false,\n            // Goal roles are never auto-backgrounded: the child runs until it finishes.\n            await_to_completion: true,\n            fork_context: false,\n            owner: SubagentOwner::Task,\n            cancel_token: tokio_util::sync::CancellationToken::new(),",
+          "sourceSha256": "2e025a53d22225feecc83d8341e27e00f7ce2b6bc9cd757f72f439a572f27e95"
+        },
+        {
+          "path": "crates/codegen/xai-grok-shell/src/session/goal_summarizer.rs",
+          "startLine": 92,
+          "text": "impl GoalSummarizerSpawner for ChannelSpawner {\n    async fn spawn_summarizer(\n        &self,\n        id: &str,\n        prompt: RoleRenderedPrompt,\n    ) -> Result<String, SpawnError> {\n        let trace_prompt = self.trace_sink.as_ref().map(|_| prompt.primary.clone());\n        // The summarizer always inherits the current model and general-purpose toolset (no per-role model key), so the wrapper runs a single attempt\n        let override_ = RoleSpawnOverride::default();\n        let outcome = spawn_with_fail_open_retry(\n            \"summarizer\",\n            None,\n            &override_,\n            self.events.as_ref(),\n            prompt,\n            |model, harness, prompt| self.send_one(id, prompt, model, harness),\n        )\n        .await;",
+          "sourceSha256": "42090c56f6e433556bbceb5a58275d0afc5171b1332d9786823eb30bf0803891"
+        },
+        {
+          "path": "crates/codegen/xai-grok-shell/src/session/goal_summarizer.rs",
+          "startLine": 147,
+          "text": "        let request = SubagentRequest {\n            id: id.to_string(),\n            prompt,\n            description: GOAL_SUMMARIZER_SUBAGENT_DESCRIPTION.to_string(),\n            subagent_type: GOAL_SUMMARIZER_SUBAGENT_TYPE.to_string(),\n            parent_session_id: self.parent_session_id.clone(),\n            parent_prompt_id: self.parent_prompt_id.clone(),\n            resume_from: None,\n            cwd: self.cwd.clone(),\n            runtime_overrides: SubagentRuntimeOverrides {\n                model,\n                harness_agent_type,\n                capability_mode: Some(SubagentCapabilityMode::ReadOnly),\n                ..Default::default()\n            },\n            run_in_background: false,\n            // Harness-internal: never surface to the model's idle reminder.\n            surface_completion: false,\n            // Goal roles are never auto-backgrounded: the child runs until it finishes.\n            await_to_completion: true,\n            fork_context: false,\n            owner: SubagentOwner::Task,\n            cancel_token: tokio_util::sync::CancellationToken::new(),",
+          "sourceSha256": "42090c56f6e433556bbceb5a58275d0afc5171b1332d9786823eb30bf0803891"
+        },
+        {
+          "path": "crates/codegen/xai-grok-shell/src/agent/subagent/mod.rs",
+          "startLine": 621,
+          "text": "    };\n    if let Some(model_id) = ctx.subagent_model_overrides.get(agent_name)\n        && let Some(resolved) = try_pin(\n            model_id,\n            \"config_override\",\n            \"Subagent model override references unknown model, falling through to inherit\",\n        )\n    {\n        return resolved;\n    }\n    if let ModelOverride::Override(model_id) = agent_model\n        && let Some(resolved) = try_pin(\n            model_id,\n            \"agent_definition\",\n            \"Agent definition model references unknown model, falling through to inherit\",\n        )\n    {\n        return resolved;\n    }\n    log_subagent_model_resolution(\n        agent_name,\n        \"inherit_parent\",\n        &parent_config,\n        &parent_mid,\n        &parent_config,\n    );\n    (parent_config, parent_mid)\n}\n/// Resolve a subagent's effective sampling config and model id, honoring the model-resolution precedence.\n/// An explicit `runtime_override_model` is the goal role model or a persona override carried on `effective_runtime.model`.\n/// It is resolved HERE, BEFORE [`resolve_subagent_sampling_config`], where the user `[subagents.models]` pin and `AgentDefinition.model` apply. So a goal/persona override WINS over a user per-agent pin. An override that does not resolve to a known model warns and falls through to the pin path. Extracted from `run_shell_child` so the precedence is unit-testable without spawning a child session.\n#[tracing::instrument(level = \"debug\", skip_all)]\nasync fn resolve_effective_model_config(\n    runtime_override_model: Option<&str>,\n    subagent_type: &str,\n    definition_model: &xai_grok_agent::config::ModelOverride,\n    ctx: &SubagentSpawnContext,\n) -> (xai_grok_sampler::SamplerConfig, acp::ModelId) {\n    if let Some(model_id) = runtime_override_model {\n        if let Some(resolved) = resolve_model_override_to_config(model_id, ctx) {\n            return resolved;\n        }\n        tracing::warn!(\n            model_id,\n            \"Runtime model override references unknown model, falling through\"\n        );\n    }\n    resolve_subagent_sampling_config(subagent_type, definition_model, ctx).await\n}\n/// Truncate an API key to a safe prefix for logging.\n/// Counts characters, not bytes: a configured key with a multi-byte character would panic a byte slice, and this only ever runs to build a log line.\nfn key_prefix(key: &Option<String>) -> String {\n    match key {\n        Some(k) => k.chars().take(8).collect(),",
+          "sourceSha256": "a30fd091a9c31d5a40af88d08a54045f0f2ed4249819a138fb2dfc673946c666"
+        },
+        {
+          "path": "crates/codegen/xai-grok-shell/src/session/goal_planner.rs",
+          "startLine": 20,
+          "text": "/// The subagent_type stays fixed so the role keeps a capable toolset on whichever harness is chosen.\n/// The three role spawners and the parent-side `describe_subagent_type` probe all read it, so the gated/probed toolset matches the spawned one.\npub(crate) const GOAL_ROLE_SUBAGENT_TYPE: &str = \"general-purpose\";",
+          "sourceSha256": "9ed96afa6f1a575d7ce4cd4740fc87615d3a90f121ece7e544874495586c7502"
+        },
+        {
+          "path": "crates/codegen/xai-grok-shell/src/session/goal_planner.rs",
+          "startLine": 84,
+          "text": "\n/// If that returns a retryable `Err`, the wrapper emits `GoalRoleModelFailOpen { reason: spawn_failed }`.\n/// A cancellation propagates as-is (no retry), so a bad configured pair can never change the failure behavior.\n/// The second arg is the harness override (`None` inherits the session harness), NOT a subagent type.\npub(crate) async fn spawn_with_fail_open_retry<E, F, Fut>(\n    role: &'static str,\n    skeptic_idx: Option<u32>,\n    override_: &RoleSpawnOverride,\n    events: Option<&EventWriter>,\n    prompt: RoleRenderedPrompt,\n    mut spawn: F,\n) -> Result<String, E>\nwhere\n    E: RetryableSpawnError,\n    F: FnMut(Option<String>, Option<String>, String) -> Fut,\n    Fut: std::future::Future<Output = Result<String, E>>,\n{\n    // Inherit path: single attempt on the current model and session harness; move the prompt\n    if !override_.is_explicit() {\n        return spawn(None, None, prompt.primary).await;\n    }\n    let first = spawn(\n        override_.model.clone(),\n        override_.agent_type.clone(),\n        prompt.primary,\n    )\n    .await;\n    let should_retry = match &first {\n        Ok(_) => false,\n        Err(e) => e.is_retryable(),\n    };\n    if !should_retry {\n        return first;\n    }\n    if let Some(ev) = events {\n        ev.emit(Event::GoalRoleModelFailOpen {\n            role,\n            skeptic_idx,\n            reason: GoalRoleModelFailOpenReason::SpawnFailed.as_const_str(),\n        });\n    }\n    // Retry on the session harness, using the matching `fallback` render so the prompt names the toolset the retry actually runs on\n    spawn(None, None, prompt.fallback).await\n}\n\n// Constants",
+          "sourceSha256": "9ed96afa6f1a575d7ce4cd4740fc87615d3a90f121ece7e544874495586c7502"
         }
       ]
     },
@@ -5461,6 +5640,22 @@
               "sourceSha256": "b217b552be685291b5f5b971d635297557a95e250bb5a806e9c9d9f7c59304e3"
             }
           ]
+        },
+        {
+          "identity": "environment:_GROK_CLAUDE_MARKER_OVERRIDE",
+          "rationale": "Documented cross-crate test escape hatch for the Claude import-marker gate, not proven public config.",
+          "baselineKeys": [],
+          "evidence": [
+            "source:crates/codegen/xai-grok-workspace/src/permission/claude_settings.rs#L442"
+          ],
+          "context": [
+            {
+              "path": "crates/codegen/xai-grok-workspace/src/permission/claude_settings.rs",
+              "startLine": 437,
+              "text": "/// True when the user marked Claude settings imported (`[claude_compat].imported` in config.toml, or the test override).\n/// Public so callers that mirror this gate elsewhere use the same check.\npub fn is_claude_import_marked() -> bool {\n    // Test escape hatch: shell tests call `refresh_marker_cache(true)`, which lives in xai-grok-shell (inaccessible from here at runtime)\n    // They also set this env var so the gate in this crate honours the override without a cross-crate dependency\n    if std::env::var(\"_GROK_CLAUDE_MARKER_OVERRIDE\").as_deref() == Ok(\"1\") {\n        return true;\n    }\n    let Some(config_path) = xai_grok_config::user_grok_home().map(|g| g.join(\"config.toml\")) else {\n        return false;\n    };\n    let Ok(contents) = std::fs::read_to_string(&config_path) else {\n        return false;\n    };",
+              "sourceSha256": "e12d7737cde8fff08b013cd91cec9619be23421dae0f9db84c24432a1950f586"
+            }
+          ]
         }
       ],
       "scenarios": [
@@ -5733,6 +5928,22 @@
               "startLine": 3090,
               "text": "            | \"SHLVL\"\n            | \"_\"\n            | \"TERM\"\n            | \"GROK_AGENT\"\n            | \"SUDO_ASKPASS\"\n            | \"GROK_ASKPASS\"\n            | \"ELECTRON_RUN_AS_NODE\"\n            | \"SSH_AUTH_SOCK\"\n            | \"DBUS_SESSION_BUS_ADDRESS\"\n            | \"XDG_RUNTIME_DIR\"\n            | \"WAYLAND_DISPLAY\"\n            | \"GPG_TTY\"\n    ) || key.to_ascii_lowercase().ends_with(\"_proxy\")\n        || key.starts_with(\"GROK_SANDBOX\")",
               "sourceSha256": "c61a7e2276e17bd0a1577a4ac0ac617923dc64f53cfe4c4563d92b4190ae31b8"
+            }
+          ]
+        },
+        {
+          "identity": "environment:_RJEM_MALLOC_CONF",
+          "rationale": "Companion forced Mermaid child allocator value, not a user configuration setting.",
+          "baselineKeys": [],
+          "evidence": [
+            "source:crates/codegen/xai-grok-pager/src/app/mermaid_worker.rs#L305"
+          ],
+          "context": [
+            {
+              "path": "crates/codegen/xai-grok-pager/src/app/mermaid_worker.rs",
+              "startLine": 300,
+              "text": "    // The child runs under an `RLIMIT_AS` cap (see `cap_child_address_space`)\n    // On a many-core box that reservation can approach the cap at startup and abort every render\n    // Pinning it to a single arena thus keeps the reservation well under the cap regardless of host core count\n    #[cfg(target_os = \"linux\")]\n    {\n        cmd.env(\"_RJEM_MALLOC_CONF\", \"narenas:1\")\n            .env(\"MALLOC_CONF\", \"narenas:1\");\n    }\n    // setsid/console detach via the sanctioned helper (never a raw pre_exec).\n    xai_tty_utils::detach_std_command(&mut cmd);\n\n    run_render_command(cmd, source.as_bytes(), out_path, timeout)\n}\n",
+              "sourceSha256": "8200e773e580a1860cce90c65fb770771ca4fc231f9ecb8a837eaf67f733448f"
             }
           ]
         }
@@ -6998,6 +7209,125 @@
         }
       ],
       "reviewContext": []
+    },
+    {
+      "id": "container-clipboard",
+      "classification": "functional",
+      "rationale": "Literal lowercase container is a presence marker in the shared clipboard detector, suppressed by presence of DISPLAY/WAYLAND_DISPLAY. Pager caches this detector for OSC52 routing; native remains an attempted leg and Linux already emits OSC52 unless disabled. Source-only availability is not frozen runtime evidence.",
+      "tickets": [
+        155
+      ],
+      "controls": [
+        {
+          "identity": "environment:container",
+          "baselineKeys": [],
+          "evidence": [
+            "source:crates/codegen/xai-grok-shared/src/clipboard.rs#L396"
+          ],
+          "context": [
+            {
+              "path": "crates/codegen/xai-grok-shared/src/clipboard.rs",
+              "startLine": 391,
+              "text": "    if std::path::Path::new(\"/run/.containerenv\").exists() {\n        return true;\n    }\n\n    // Many container runtimes set this env var (podman, systemd-nspawn, etc.).\n    if std::env::var_os(\"container\").is_some() {\n        return true;\n    }\n\n    false\n}\n\n// Compiled on every platform so the Linux presubmit covers the pure parts.\n#[cfg(any(target_os = \"macos\", test))]",
+              "sourceSha256": "02baf3d8c64f8e0c36cdd020826e895213e15734d086efaee87bdd22b9b1b708"
+            }
+          ]
+        }
+      ],
+      "scenarios": [
+        {
+          "id": "PARITY-155-container-clipboard",
+          "ticket": 155,
+          "given": "Fresh local/SSH/tmux terminal processes with controlled native and OSC52 clipboard helpers, no container sentinel files for env-isolation cases, and separate display markers.",
+          "when": "Vary lowercase container absent/empty/nonempty and uppercase CONTAINER independently, with DISPLAY/WAYLAND_DISPLAY absent or present (including empty); copy and inspect actual terminal bytes and clipboard delivery.",
+          "then": "Lowercase presence identifies a displayless container only when display markers and earlier sentinel conditions allow it; uppercase CONTAINER is distinct. Cached route enables OSC52 in the applicable non-Linux container case, while Linux already emits it; native remains attempted. The OSC52 disable override still wins over container/SSH/wrap routes.",
+          "failure": "Restart between cached-env variants; unavailable display/native clipboard, disabled OSC52 and failed delivery must not claim copy success. Frozen 1.0.34 behavior remains unverified until an isolated probe measures the route."
+        }
+      ],
+      "reviewContext": [
+        {
+          "path": "crates/codegen/xai-grok-shared/src/clipboard.rs",
+          "startLine": 376,
+          "text": "/// Returns `true` when the process appears to be running inside a container (Docker, Podman, Kubernetes, etc.) without a\n/// display server. In this environment the native system clipboard (`arboard`) will fail because there is no X11/Wayland\n/// compositor. OSC 52 terminal escapes are the only viable clipboard path. Windows Terminal, iTerm2).\npub fn is_containerized_without_display() -> bool {\n    // If a display server is available, native clipboard should work.\n    if std::env::var_os(\"DISPLAY\").is_some() || std::env::var_os(\"WAYLAND_DISPLAY\").is_some() {\n        return false;\n    }\n\n    // Docker creates this sentinel file in every container.\n    if std::path::Path::new(\"/.dockerenv\").exists() {\n        return true;\n    }\n\n    // Podman creates this file.\n    if std::path::Path::new(\"/run/.containerenv\").exists() {\n        return true;\n    }\n\n    // Many container runtimes set this env var (podman, systemd-nspawn, etc.).\n    if std::env::var_os(\"container\").is_some() {\n        return true;\n    }\n\n    false\n}",
+          "sourceSha256": "02baf3d8c64f8e0c36cdd020826e895213e15734d086efaee87bdd22b9b1b708"
+        },
+        {
+          "path": "crates/codegen/xai-grok-pager-render/src/clipboard/mod.rs",
+          "startLine": 110,
+          "text": "\n/// `osc52` reads cached ambient markers. Tmux is normally true regardless of SSH; `GROK_CLIPBOARD_NO_OSC52` forces it off everywhere.\npub fn resolve_clipboard_route(ctx: &TerminalContext) -> ClipboardRoute {\n    resolve_clipboard_route_with(\n        ctx,\n        ClipboardRouteOpts {\n            no_osc52: osc52_disabled(),\n            wrap_sink: osc52_sink_active(),\n        },\n    )\n}\n\n/// Test/production overrides for pure clipboard-route resolution.\n#[derive(Clone, Copy)]\nstruct ClipboardRouteOpts {\n    no_osc52: bool,\n    wrap_sink: bool,\n}\n\n/// Pure clipboard-route resolution (kill-switch / wrap-sink injected for tests).\nfn resolve_clipboard_route_with(ctx: &TerminalContext, opts: ClipboardRouteOpts) -> ClipboardRoute {\n    let is_tmux = ctx.multiplexer == MultiplexerKind::Tmux;\n    // Linux always emits OSC 52. macOS/Windows only in tmux/SSH/container or when a wrap sink captures it.\n    // `GROK_CLIPBOARD_NO_OSC52` wins over every automatic path.\n    let osc52 = !opts.no_osc52\n        && (cfg!(target_os = \"linux\")\n            || is_tmux\n            || is_remote()\n            || is_container_no_display()\n            || opts.wrap_sink);\n    ClipboardRoute {\n        native: true,\n        tmux_buffer: is_tmux,\n        osc52,\n        // Editor :terminal's immediate emulator is libvterm, not tmux, so don't wrap there\n        // No point in tmux passthrough when OSC 52 itself is disabled.\n        osc52_tmux_passthrough: osc52 && is_tmux && ctx.embedded_editor.is_none(),\n    }",
+          "sourceSha256": "f3ea638e3896b33a22a49378f6c6c79a28ef86038e9d6c0f252d7ee2577e6f23"
+        }
+      ]
+    },
+    {
+      "id": "sandbox-handoff",
+      "classification": "source-internal",
+      "rationale": "Leading-underscore bwrap markers carry re-exec state and an encoded launch-time runtime-socket deny list between sandbox processes. They are not proven public frozen settings or a user-authorized bypass; trace marker validation and real confinement before any public parity claim. Existing sandbox effect contracts remain mandatory.",
+      "tickets": [
+        133
+      ],
+      "controls": [
+        {
+          "identity": "environment:__GROK_INSIDE_BWRAP",
+          "baselineKeys": [],
+          "evidence": [
+            "source:crates/codegen/xai-grok-sandbox/src/lib.rs#L76"
+          ],
+          "context": [
+            {
+              "path": "crates/codegen/xai-grok-sandbox/src/lib.rs",
+              "startLine": 71,
+              "text": "use std::sync::OnceLock;\nuse std::sync::atomic::{AtomicBool, Ordering};\nstatic SANDBOX: OnceLock<GlobalSandboxState> = OnceLock::new();\nstatic CONFIGURED_PROFILE: OnceLock<String> = OnceLock::new();\nstatic AUTO_ALLOW_BASH: AtomicBool = AtomicBool::new(false);\nconst BWRAP_ENV_VAR: &str = \"__GROK_INSIDE_BWRAP\";\npub fn is_inside_bwrap() -> bool {\n    std::env::var(BWRAP_ENV_VAR).is_ok()\n}\npub fn trust_bwrap_marker_for_devbox() -> bool {\n    false\n}\nstruct GlobalSandboxState {\n    profile: String,",
+              "sourceSha256": "24dc7690a6cd9fe3199042a47d1acb2da9e1027fa885459c1acae6f094052426"
+            }
+          ]
+        },
+        {
+          "identity": "environment:__GROK_BWRAP_RUNTIME_SOCKET_DENY",
+          "baselineKeys": [],
+          "evidence": [
+            "source:crates/codegen/xai-grok-sandbox/src/runtime_sockets.rs#L13"
+          ],
+          "context": [
+            {
+              "path": "crates/codegen/xai-grok-sandbox/src/runtime_sockets.rs",
+              "startLine": 8,
+              "text": "//! ([`crate::child_net::restrict_child_network`]). D-Bus/systemd masks block out-of-tree unit spawn via those buses.\n\nuse std::io;\nuse std::path::{Path, PathBuf};\n\npub(crate) const BWRAP_RUNTIME_SOCKET_DENY_ENV_VAR: &str = \"__GROK_BWRAP_RUNTIME_SOCKET_DENY\";\n\n/// Well-known system-wide container-runtime API sockets.\nconst SYSTEM_SOCKETS: &[&str] = &[\n    \"/run/docker.sock\",\n    \"/var/run/docker.sock\",\n    \"/run/podman/podman.sock\",\n    \"/var/run/podman/podman.sock\",\n    \"/run/containerd/containerd.sock\",",
+              "sourceSha256": "0e6eb8050229925448e16dbc76ed1cb4d73761336928a17d0223cb3f5d076431"
+            }
+          ]
+        }
+      ],
+      "scenarios": [
+        {
+          "id": "DISCOVERY-133-sandbox-handoff",
+          "ticket": 133,
+          "given": "Pinned sandbox re-exec and socket-deny consumers with isolated Linux filesystem/network canaries.",
+          "when": "Trace marker setting/consumption and encoded deny validation, then establish frozen availability before a controlled confinement probe.",
+          "then": "Record whether these are internal handoff only or an exposed frozen control; public behavior must get security-effect owners and real denial assertions rather than a config-display test.",
+          "failure": "Forged/malformed marker values cannot count as verified security or legitimate public config; unknown reachability stays discovery-only and existing sandbox requirements cannot be weakened."
+        }
+      ],
+      "reviewContext": [
+        {
+          "path": "crates/codegen/xai-grok-sandbox/src/lib.rs",
+          "startLine": 73,
+          "text": "static SANDBOX: OnceLock<GlobalSandboxState> = OnceLock::new();\nstatic CONFIGURED_PROFILE: OnceLock<String> = OnceLock::new();\nstatic AUTO_ALLOW_BASH: AtomicBool = AtomicBool::new(false);\nconst BWRAP_ENV_VAR: &str = \"__GROK_INSIDE_BWRAP\";\npub fn is_inside_bwrap() -> bool {\n    std::env::var(BWRAP_ENV_VAR).is_ok()\n}\npub fn trust_bwrap_marker_for_devbox() -> bool {\n    false\n}\nstruct GlobalSandboxState {",
+          "sourceSha256": "24dc7690a6cd9fe3199042a47d1acb2da9e1027fa885459c1acae6f094052426"
+        },
+        {
+          "path": "crates/codegen/xai-grok-sandbox/src/lib.rs",
+          "startLine": 351,
+          "text": "    cmd.arg(\"--dev-bind\").arg(\"/dev\").arg(\"/dev\");\n    cmd.arg(\"--proc\").arg(\"/proc\");\n    let encoded_runtime_socket_denies =\n        match runtime_sockets::encode_bwrap_runtime_socket_denies(runtime_socket_denies) {\n            Ok(encoded) => encoded,\n            Err(error) => {\n                eprintln!(\"error: runtime-socket deny handoff encoding failed: {error}\");\n                return None;\n            }\n        };\n    cmd.env(BWRAP_ENV_VAR, \"1\");\n    cmd.env(\n        runtime_sockets::BWRAP_RUNTIME_SOCKET_DENY_ENV_VAR,\n        encoded_runtime_socket_denies,\n    );\n    cmd.arg(\"--\").arg(self_exe).args(args);\n    Some(cmd)\n}\n/// Choose file vs directory placeholder for a deny path (existing dirs need a dir bind).",
+          "sourceSha256": "24dc7690a6cd9fe3199042a47d1acb2da9e1027fa885459c1acae6f094052426"
+        },
+        {
+          "path": "crates/codegen/xai-grok-sandbox/src/runtime_sockets.rs",
+          "startLine": 75,
+          "text": "/// Materialize `policy` outside bwrap; inside bwrap, recover only handed paths in that policy.\nfn socket_deny_paths_for_resolution(policy: &[PathBuf]) -> io::Result<Vec<PathBuf>> {\n    if !(cfg!(target_os = \"linux\") && crate::is_inside_bwrap()) {\n        return materialize_runtime_socket_deny_paths_from(policy.iter().cloned());\n    }\n    runtime_socket_deny_paths_for_context_with_policy(\n        std::env::var(BWRAP_RUNTIME_SOCKET_DENY_ENV_VAR),\n        policy.to_vec(),\n    )\n}\n\nfn runtime_socket_deny_paths_for_context_with_policy(\n    handed: Result<String, std::env::VarError>,\n    allowed: Vec<PathBuf>,\n) -> io::Result<Vec<PathBuf>> {\n    match handed {\n        Ok(encoded) => decode_bwrap_runtime_socket_denies_with_policy(&encoded, allowed),\n        Err(std::env::VarError::NotPresent) => Ok(Vec::new()),\n        Err(error) => Err(io::Error::new(\n            io::ErrorKind::InvalidData,\n            format!(\"invalid bwrap runtime-socket deny handoff: {error}\"),\n        )),\n    }",
+          "sourceSha256": "0e6eb8050229925448e16dbc76ed1cb4d73761336928a17d0223cb3f5d076431"
+        }
+      ]
     }
   ],
   "aliases": {
