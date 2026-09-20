@@ -88,7 +88,10 @@ def path_semantics_matrix(launcher, work, output, env):
     def identity(path):
         try:
             stat = os.stat(path)
-            return {'realpath': os.path.realpath(path), 'device': stat.st_dev, 'inode': stat.st_ino}
+            native = run([NODE, '--input-type=module', '-e',
+                          'import { realpathSync } from "node:fs"; console.log(JSON.stringify(realpathSync.native(process.argv[1])))',
+                          str(path)]).stdout
+            return {'realpath': json.loads(native), 'device': stat.st_dev, 'inode': stat.st_ino}
         except OSError as error:
             return {'errno': error.errno}
 
@@ -118,7 +121,8 @@ def path_semantics_matrix(launcher, work, output, env):
         outside_candidate = lambda tree: {key: val for key, val in tree.items()
                                           if key != 'home/.codsh-rust' and not key.startswith('home/.codsh-rust/')}
         refused = any(message in observed['output'] for message in
-                      ['overlaps a legacy Home', 'unresolved symlink', 'ELOOP', 'refusing GROK_HOME with ..'])
+                      ['overlaps a legacy Home', 'unresolved symlink', 'ELOOP',
+                       'refusing GROK_HOME with ..', 'refusing unresolved non-ASCII Home component'])
         welcome = observed['enteredAlternateScreen'] and all(word in observed['output'] for word in ['codsh', 'Draft', 'offline'])
         identities_after = {'legacy': identity(legacy), 'candidate': identity(candidate)}
         passed = observed['terminalRestored'] and identities_before['legacy'] == identities_after['legacy'] and (
@@ -126,7 +130,11 @@ def path_semantics_matrix(launcher, work, output, env):
             if refuse else observed['exit'] == 0 and welcome and outside_candidate(before) == outside_candidate(after)
             and all(after.get(key) == value for key, value in before.items())
             and (candidate / 'dsh/profiles/rust/package.json').is_file())
+        legacy_profile = Path(legacy) / ('profiles/rust/package.json' if Path(legacy).name == 'dsh' else 'dsh/profiles/rust/package.json')
+        profile = candidate / 'dsh/profiles/rust/package.json'
+        same_profile = profile.is_file() and legacy_profile.is_file() and os.path.samefile(profile, legacy_profile)
         results.append({**observed, 'name': name, 'variable': variable, 'configured': value,
+                        'profileVisibleThroughLegacy': same_profile,
                         'resolvedLegacyHome': resolved, 'expectedRefusal': refuse, 'passed': passed,
                         'identitiesBefore': identities_before,
                         'identitiesAfter': identities_after,
@@ -150,7 +158,8 @@ def path_semantics_matrix(launcher, work, output, env):
                         (actual / 'canary').write_text('synthetic legacy contents\n')
                     overlap = target.startswith('.codsh-rust') and (variable == 'DSH_HOME' or spelling in ['absolute', 'relative', 'cwd-relative'])
                     # Relative GROK_HOME retains ..; no lexical traversal guess is permitted.
-                    check(name, variable, value, paths, overlap or (variable == 'GROK_HOME' and spelling == 'relative'))
+                    check(name, variable, value, paths, overlap or (variable == 'GROK_HOME' and spelling == 'relative')
+                          or (not existing and not target.isascii()))
             for value in ['~', '~other', '  legacy 空间  ']:
                 name = f'paths-{variable}-{existing}-literal-{value}'
                 paths = base, home, cwd = fixture(name)
@@ -159,7 +168,8 @@ def path_semantics_matrix(launcher, work, output, env):
                 if existing:
                     actual.mkdir(parents=True, exist_ok=True)
                     (actual / 'canary').write_text('synthetic literal name\n')
-                check(name, variable, value, paths, variable == 'DSH_HOME' and value == '~')
+                check(name, variable, value, paths, (variable == 'DSH_HOME' and value == '~')
+                      or (not existing and not value.isascii()))
             for entry in ['directory', 'symlink', 'dangling', 'missing']:
                 for target in ['.codsh-rust', '独立 legacy home']:
                     name = f'paths-{variable}-{existing}-dotdot-{entry}-{target}'
@@ -177,7 +187,8 @@ def path_semantics_matrix(launcher, work, output, env):
                             location.mkdir(parents=True)
                             (location / 'canary').write_text('synthetic traversal contents\n')
                     value = str(jump) + '/../' + target
-                    check(name, variable, value, paths, variable == 'GROK_HOME')
+                    check(name, variable, value, paths, variable == 'GROK_HOME'
+                          or (not existing and not target.isascii()))
             for target in ['.codsh-rust', '独立 legacy home']:
                 name = f'paths-{variable}-{existing}-blank-link-{target}'
                 paths = base, home, cwd = fixture(name)
@@ -225,6 +236,52 @@ def path_semantics_matrix(launcher, work, output, env):
                 if existing:
                     (home / '.codsh-rust').mkdir()
                 check(name, variable, '~/.codsh-rust', paths, True)
+    for variable, default_name in [('DSH_HOME', '.dsh'), ('GROK_HOME', '.grok')]:
+        for existing in [False, True]:
+            for index, spelling in enumerate(['.codſh-rust', '.codsh-ruſt', '.codsh-ruﬅ']):
+                for suffix in ['', '/dsh']:
+                    for mode in ['absolute', 'relative', 'default-link']:
+                        name = f'unicode-{variable}-{existing}-{index}-{bool(suffix)}-{mode}'
+                        paths = base, home, cwd = fixture(name)
+                        old = home / (spelling + suffix)
+                        if existing:
+                            old.mkdir(parents=True)
+                            (old / 'canary').write_text('synthetic Unicode alias\n')
+                            assert os.path.samefile(home / spelling, home / '.codsh-rust'), 'Unicode alias cases require the verified macOS filesystem equivalence'
+                        else:
+                            assert not old.exists() and not (home / '.codsh-rust').exists()
+                        value = str(old)
+                        if mode == 'relative':
+                            (cwd / 'home-link').symlink_to(home)
+                            value = './home-link/' + spelling + suffix
+                        elif mode == 'default-link':
+                            (home / default_name).symlink_to(spelling + suffix)
+                            value = None
+                        check(name, variable, value, paths, True)
+            for index, spelling in enumerate(['.codsh-rust-other', '独立 legacy home', 'café', 'cafe\u0301', '😀', 'separate-\u200b-home']):
+                name = f'unicode-control-{variable}-{existing}-{index}'
+                paths = base, home, cwd = fixture(name)
+                old = home / spelling
+                if existing:
+                    old.mkdir()
+                    (old / 'canary').write_text('synthetic separate Unicode Home\n')
+                check(name, variable, str(old), paths, not existing and not spelling.isascii())
+        for mode in ['absolute', 'relative', 'default-link']:
+            for suffix in ['', 'missing-ascii/child', 'missing-ſ/child']:
+                name = f'unicode-ancestor-{variable}-{mode}-{suffix.replace("/", "-")}'
+                paths = base, home, cwd = fixture(name)
+                old = home / '独立 legacy home'
+                old.mkdir()
+                (old / 'canary').write_text('synthetic resolved Unicode ancestor\n')
+                configured = old / suffix
+                value = str(configured)
+                if mode == 'relative':
+                    (cwd / 'legacy-link').symlink_to(old)
+                    value = './legacy-link/' + suffix
+                elif mode == 'default-link':
+                    (home / default_name).symlink_to(configured)
+                    value = None
+                check(name, variable, value, paths, bool(suffix) and (not suffix.isascii() or mode == 'default-link'))
     (output / 'path-semantics-results.json').write_text(json.dumps(results, indent=2) + '\n')
     failed = [result['name'] for result in results if not result['passed']]
     assert not failed, f'path semantics failed: {failed}; see path-semantics-results.json'
@@ -540,6 +597,18 @@ def main():
             exercise(f'semantics-{variable}-{kind}', child_env=child_env)
             assert snapshot_tree(old) == original_legacy
             assert (control_home / '.codsh-rust/dsh/profiles/rust/package.json').is_file()
+        for variable in ['DSH_HOME', 'GROK_HOME']:
+            for kind in ['existing', 'missing-ascii']:
+                control_home = work / f'unicode-ui-{variable}-{kind}' / '用户 Home'
+                old = control_home / '独立旧目录'
+                old.mkdir(parents=True)
+                (old / 'canary').write_text('synthetic Unicode legacy contents\n')
+                before_unicode = snapshot_tree(old)
+                configured = old if kind == 'existing' else old / 'missing-ascii/child'
+                child_env = {'HOME': str(control_home), 'PATH': env['PATH'], 'TERM': env['TERM'], variable: str(configured)}
+                exercise(f'unicode-{variable}-{kind}', child_env=child_env)
+                assert snapshot_tree(old) == before_unicode
+                assert (control_home / '.codsh-rust/dsh/profiles/rust/package.json').is_file()
         profile = home / '.codsh-rust/dsh/profiles/rust/package.json'
         assert json.loads(profile.read_text())['dsh']['profile']['bundles'] == []
         profile.write_text('{invalid JSON')

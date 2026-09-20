@@ -242,6 +242,15 @@ creating the configured legacy Home. The launcher uses native canonicalization
 for existing paths. When either path has missing components, it conservatively
 refuses a case-folded potential overlap on every platform. It neither assumes
 case sensitivity for unresolvable suffixes nor creates files to probe the volume.
+Every unresolved non-ASCII component is refused before suffix reconstruction,
+including separate names; no Unicode folding table or normalization heuristic is
+used as a filesystem oracle. Existing Unicode directories keep native identities,
+and missing ASCII children beneath resolved separate Unicode ancestors still work.
+The installed matrix covers long-s and ligature aliases at root/child paths for both
+variables and default links, with genuinely absent/existing roots. Separate ASCII,
+Unicode, composed/decomposed, emoji and invisible-character controls distinguish
+intentional missing-name refusal from existing-path support. Native realpath,
+device/inode and Profile samefile evidence accompany complete tree snapshots.
 Existing distinct paths keep their native identities. Node's JavaScript realpath
 fallback is insufficient because it preserves case spelling on the verified host.
 Eighteen further PTY checks cover dangling explicit/default legacy links, root/child

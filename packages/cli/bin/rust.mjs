@@ -32,7 +32,10 @@ function canonicalPath(path) {
     }
     const parent = dirname(absolute)
     if (parent === absolute) throw error
-    return { path: join(canonicalPath(parent).path, basename(absolute)), missing: true }
+    // Unicode folding cannot establish the filesystem identity of a missing name.
+    const name = basename(absolute)
+    if (/[^\x00-\x7f]/u.test(name)) throw new Error('refusing unresolved non-ASCII Home component; use an existing separate directory or ASCII missing components')
+    return { path: join(canonicalPath(parent).path, name), missing: true }
   }
 }
 

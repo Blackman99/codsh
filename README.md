@@ -57,6 +57,11 @@ sessions. A symlinked preview Home/Profile or overlap with `DSH_HOME`/`GROK_HOME
 is refused before writes, including differently cased aliases on case-insensitive
 filesystems. If either Home is missing, a case-only potential overlap is refused
 conservatively on every platform, without creating paths to test filesystem rules.
+Any missing path component containing non-ASCII characters is also refused before
+writes, even for a separate Home: Unicode lowercase/normalization is not a reliable
+filesystem-identity test. Use an existing separate Unicode directory or a path with
+only ASCII missing components. Existing Unicode ancestors and separate Homes still
+use native filesystem resolution; missing ASCII children beneath them are supported.
 Unresolved symlinks in explicit or default legacy Home paths are also refused
 before writes; repair dangling links or symlink cycles before launching the preview.
 Resolvable links to separate legacy Homes remain supported. Isolation checks follow
