@@ -42,13 +42,23 @@ def emulate(data, rows, cols):
                "let input=''; for await (const chunk of process.stdin) input+=chunk; "
                "const spec=JSON.parse(input); const t=new Terminal(spec.rows,spec.cols); "
                "t.feed(Buffer.from(spec.bytes,'base64').toString()); "
-               "console.log(JSON.stringify({text:t.text, alternate:t.alternate.join('\\n')}));"],
+               "console.log(JSON.stringify({"
+               "text:t.text, primary:t.primary.join('\\n'), alternate:t.alternate.join('\\n'), "
+               "onAlternate:t.onAlternate}));"],
               input=payload, cwd=ROOT).stdout
     return json.loads(raw)
 
 
 def screen_text(data, rows, cols):
     return emulate(data, rows, cols)['text']
+
+
+def alt_enter_count(data):
+    return bytes(data).count(b'\x1b[?1049h')
+
+
+def alt_leave_count(data):
+    return bytes(data).count(b'\x1b[?1049l')
 
 
 class Session:
@@ -109,6 +119,27 @@ class Session:
             raise AssertionError(f'{self.name}: missing session id\n{self.visible()}')
         return match.group(1)
 
+    def snapshot(self):
+        emu = emulate(bytes(self.data), self.rows, self.cols)
+        emu['entered'] = alt_enter_count(self.data)
+        emu['left'] = alt_leave_count(self.data)
+        return emu
+
+    def assert_native_minimal(self, *history, leaves_before=0):
+        snap = self.snapshot()
+        assert snap['left'] > leaves_before, (
+            f'{self.name}: missing CSI ?1049l at switch (before={leaves_before} after={snap["left"]})'
+        )
+        assert not snap['onAlternate'], (
+            f'{self.name}: still on alternate screen after /minimal\n'
+            f'primary={snap["primary"]!r}\nalternate={snap["alternate"]!r}'
+        )
+        for marker in history:
+            assert marker in snap['primary'], (
+                f'{self.name}: missing native history {marker!r} in primary\n{snap["primary"]}'
+            )
+        return snap
+
     def resize(self, rows, cols):
         self.rows = rows
         self.cols = cols
@@ -127,20 +158,26 @@ class Session:
         (self.output / f'{self.name}.ansi').write_bytes(self.data)
         (self.output / f'{self.name}.txt').write_text(shown)
         assert self.original == after, f'{self.name}: terminal modes were not restored'
-        entered = b'\x1b[?1049h' in self.data
-        left = b'\x1b[?1049l' in self.data
+        snap = emulate(bytes(self.data), self.rows, self.cols)
+        entered = alt_enter_count(self.data)
+        left = alt_leave_count(self.data)
         if expect_alt_leave is True:
             assert left, f'{self.name}: missing leave-alternate-screen'
+            assert not snap['onAlternate'], f'{self.name}: still on alternate screen after exit'
         if expect_alt_leave is False:
             assert not entered, f'{self.name}: minimal must not enter alternate screen: {bytes(self.data)[:200]!r}'
-        primary = emulate(bytes(self.data), self.rows, self.cols)['text']
+            assert not snap['onAlternate'], f'{self.name}: minimal painted the alternate screen'
         return {
             'name': self.name,
             'exit': self.process.returncode,
             'screen': shown,
-            'primary': primary,
-            'enteredAlternateScreen': entered,
-            'leftAlternateScreen': left,
+            'primary': snap['primary'],
+            'alternate': snap['alternate'],
+            'onAlternate': snap['onAlternate'],
+            'enteredAlternateScreen': bool(entered),
+            'leftAlternateScreen': bool(left),
+            'altEnterCount': entered,
+            'altLeaveCount': left,
             'pid': self.process.pid,
         }
 
@@ -194,9 +231,12 @@ def main():
         try:
             shown = default.wait_visible('Connected to dsh ACP', 25)
             assert 'mode=fullscreen' in shown
-            session_id = default.session_id()
+            live = default.snapshot()
+            assert live['onAlternate'], f'default-fullscreen must use alternate screen\n{live["text"]}'
             results.append(default.finish(expect_alt_leave=True))
             assert results[-1]['enteredAlternateScreen']
+            assert results[-1]['altLeaveCount'] >= 1
+            assert 'mode=fullscreen' not in results[-1]['primary']
         finally:
             default.close()
 
@@ -211,6 +251,10 @@ def main():
         try:
             shown = persisted.wait_visible('Connected to dsh ACP', 25)
             assert 'mode=minimal' in shown
+            live = persisted.snapshot()
+            assert not live['onAlternate'], f'persisted-minimal used alternate screen\n{live["alternate"]}'
+            assert live['entered'] == 0
+            assert 'mode=minimal' in live['primary']
             results.append(persisted.finish(expect_alt_leave=False))
             assert not results[-1]['enteredAlternateScreen']
             assert persisted_config.read_text() == original_config
@@ -223,13 +267,16 @@ def main():
         try:
             shown = override.wait_visible('Connected to dsh ACP', 25)
             assert 'mode=fullscreen' in shown
+            assert override.snapshot()['onAlternate']
+            override_id = override.session_id()
             override.write('DRAFT_KEEP')
             override.wait_visible('DRAFT_KEEP')
+            leaves_before = alt_leave_count(override.data)
             override.write('/minimal\r')
             shown = override.wait_visible('mode=minimal', 25)
             assert 'DRAFT_KEEP' in shown
-            assert session_id == override.session_id() or override.session_id()
-            assert 'Switched to minimal' in shown or 'Switched to minimal' in results[-1].get('primary', '') or 'Switched to minimal' in emulate(bytes(override.data), override.rows, override.cols)['text']
+            assert override.session_id() == override_id
+            override.assert_native_minimal('Switched to minimal', leaves_before=leaves_before)
             override.write('/dashboard\r')
             shown = override.wait_visible("isn't available in minimal mode", 10)
             assert 'Run /fullscreen' in shown
@@ -239,16 +286,22 @@ def main():
             shown = override.visible()
             assert 'mode=minimal' in shown
             assert 'DRAFT_KEEP' in shown
+            assert not override.snapshot()['onAlternate']
             override.write('/fullscreen\r')
             shown = override.wait_visible('mode=fullscreen', 25)
             assert 'DRAFT_KEEP' in shown
             assert 'Switched to fullscreen' in shown
+            assert override.snapshot()['onAlternate']
+            assert override.session_id() == override_id
             override.write('/minimal\r')
             override.wait_visible('mode=minimal', 25)
+            override.assert_native_minimal('Switched to minimal')
             override.write('/fullscreen\r')
             shown = override.wait_visible('mode=fullscreen', 25)
             assert 'DRAFT_KEEP' in shown
+            assert override.session_id() == override_id
             results.append(override.finish(expect_alt_leave=True))
+            assert 'Switched to minimal' in results[-1]['primary']
             assert persisted_config.read_text() == original_config
         finally:
             override.close()
@@ -259,13 +312,15 @@ def main():
         try:
             empty.wait_visible('Connected to dsh ACP', 25)
             empty_id = empty.session_id()
+            leaves_before = alt_leave_count(empty.data)
             empty.write('/minimal\r')
             shown = empty.wait_visible('mode=minimal', 25)
             assert empty_id == empty.session_id()
+            empty.assert_native_minimal('Switched to minimal', leaves_before=leaves_before)
             empty.write('/expand\r')
-            empty.pump(0.4)
-            shown = empty.visible()
-            assert 'already available in minimal' in shown or 'mode=minimal' in shown
+            shown = empty.wait_visible('already available in minimal', 10)
+            assert '/expand is already available in minimal' in shown
+            assert empty_id == empty.session_id()
             results.append(empty.finish())
         finally:
             empty.close()
@@ -278,14 +333,20 @@ def main():
             live_id = streaming.session_id()
             streaming.write('TOKEN_SCREEN_STREAM\r')
             streaming.wait_visible('Streaming turn', 10)
+            leaves_before = alt_leave_count(streaming.data)
             streaming.write('/minimal\r')
             shown = streaming.wait_visible('mode=minimal', 10)
             assert live_id == streaming.session_id()
             assert 'TOKEN_SCREEN_STREAM' in shown
             assert 'Connecting to dsh ACP' not in shown
+            streaming.assert_native_minimal('Switched to minimal', leaves_before=leaves_before)
             streaming.wait_visible('RUST_ACP_ANSWER', 20)
             shown = streaming.visible()
             assert live_id == streaming.session_id()
+            snap = streaming.snapshot()
+            assert not snap['onAlternate']
+            assert 'TOKEN_SCREEN_STREAM' in snap['primary']
+            assert 'RUST_ACP_ANSWER' in snap['primary']
             results.append(streaming.finish())
         finally:
             streaming.close()
@@ -296,17 +357,22 @@ def main():
         }, output, extra=['--fullscreen'])
         try:
             approval.wait_visible('Connected to dsh ACP', 25)
+            approval_id = approval.session_id()
             approval.write('TOKEN_SCREEN_APPROVAL\r')
             approval.wait_visible('Allow ', 30)
             assert (cwd / 'note.txt').read_text() == 'alpha\n'
+            leaves_before = alt_leave_count(approval.data)
             approval.write('/minimal\r')
             shown = approval.wait_visible('mode=minimal', 10)
+            assert approval.session_id() == approval_id
             assert 'Allow ' in shown
             assert 'y=allow once' in shown
             assert (cwd / 'note.txt').read_text() == 'alpha\n'
+            approval.assert_native_minimal(leaves_before=leaves_before)
             approval.write('y')
             approval.wait_visible('RUST_ACP_FILE_DONE', 20)
             assert (cwd / 'note.txt').read_text() == 'ALPHA\n'
+            assert approval.session_id() == approval_id
             results.append(approval.finish())
         finally:
             approval.close()

@@ -2054,9 +2054,17 @@ mod tests {
         assert!(matches!(launch.mode, LaunchMode::Resume(_)));
         assert_eq!(launch.screen, Some(ScreenMode::Fullscreen));
         assert_eq!(launch.model.as_deref(), Some("think"));
+        let alias = parse_launch(&args(&["--full", "inspect", "--json"])).unwrap();
+        assert_eq!(alias.screen, Some(ScreenMode::Fullscreen));
+        assert!(matches!(alias.mode, LaunchMode::Inspect { json: true, .. }));
         let error = parse_launch(&args(&["--minimal", "--fullscreen"])).unwrap_err();
         assert!(
             error.to_string().contains("conflicting screen flags"),
+            "{error}"
+        );
+        let error = parse_launch(&args(&["--no-alt-screen"])).unwrap_err();
+        assert!(
+            error.to_string().contains("unsupported preview arguments"),
             "{error}"
         );
     }

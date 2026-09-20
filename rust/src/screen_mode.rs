@@ -1,5 +1,4 @@
 use std::fs;
-use std::io;
 use std::path::{Path, PathBuf};
 
 pub const GROK_SCREEN_MODE_ENV: &str = "GROK_SCREEN_MODE";
@@ -45,23 +44,6 @@ impl ScreenMode {
     }
 }
 
-#[allow(dead_code)]
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum SessionLaunch {
-    Help,
-    Version,
-    New,
-    Continue,
-    Resume(String),
-}
-
-#[allow(dead_code)]
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Launch {
-    pub session: SessionLaunch,
-    pub screen: Option<ScreenMode>,
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SwitchPolicy {
     InPlace,
@@ -72,80 +54,6 @@ pub enum SwitchPolicy {
 pub enum SlashAction {
     Switch(ScreenMode),
     Refuse(&'static str),
-}
-
-#[cfg_attr(not(test), allow(dead_code))]
-pub fn parse_launch(args: &[String]) -> io::Result<Launch> {
-    let mut session = SessionLaunch::New;
-    let mut screen = None;
-    let mut resume_id: Option<String> = None;
-    let mut i = 0;
-    while i < args.len() {
-        let arg = &args[i];
-        match arg.as_str() {
-            "--help" | "-h" => {
-                return Ok(Launch {
-                    session: SessionLaunch::Help,
-                    screen,
-                });
-            }
-            "--version" | "-V" => {
-                return Ok(Launch {
-                    session: SessionLaunch::Version,
-                    screen,
-                });
-            }
-            "--continue" => {
-                if matches!(session, SessionLaunch::Resume(_)) || resume_id.is_some() {
-                    return Err(io::Error::other(
-                        "--continue and --resume are mutually exclusive; use codsh --rust --help",
-                    ));
-                }
-                session = SessionLaunch::Continue;
-            }
-            "--resume" => {
-                if matches!(session, SessionLaunch::Continue) {
-                    return Err(io::Error::other(
-                        "--continue and --resume are mutually exclusive; use codsh --rust --help",
-                    ));
-                }
-                i += 1;
-                let id = args
-                    .get(i)
-                    .filter(|id| !id.is_empty() && !id.starts_with('-'));
-                let Some(id) = id else {
-                    return Err(io::Error::other(
-                        "missing session id; use codsh --rust --resume <id>",
-                    ));
-                };
-                resume_id = Some(id.clone());
-                session = SessionLaunch::Resume(id.clone());
-            }
-            "--minimal" => {
-                if screen == Some(ScreenMode::Fullscreen) {
-                    return Err(io::Error::other(
-                        "conflicting screen flags; use only one of --minimal or --fullscreen",
-                    ));
-                }
-                screen = Some(ScreenMode::Minimal);
-            }
-            "--fullscreen" | "--full" => {
-                if screen == Some(ScreenMode::Minimal) {
-                    return Err(io::Error::other(
-                        "conflicting screen flags; use only one of --minimal or --fullscreen",
-                    ));
-                }
-                screen = Some(ScreenMode::Fullscreen);
-            }
-            _ => {
-                return Err(io::Error::other(
-                    "unsupported preview arguments; use codsh --rust --help",
-                ));
-            }
-        }
-        i += 1;
-    }
-    Ok(Launch { session, screen })
 }
 
 pub fn switch_policy_from_env(value: Option<&str>) -> SwitchPolicy {
@@ -364,36 +272,6 @@ mod tests {
             std::env::temp_dir().join(format!("codsh-screen-{stamp}-{}", std::process::id()));
         fs::create_dir_all(path.join(".grok")).unwrap();
         path
-    }
-
-    fn args(items: &[&str]) -> Vec<String> {
-        items.iter().map(|item| (*item).to_string()).collect()
-    }
-
-    #[test]
-    fn parse_launch_accepts_session_scoped_screen_flags() {
-        let launch = parse_launch(&args(&["--minimal", "--continue"])).unwrap();
-        assert_eq!(launch.session, SessionLaunch::Continue);
-        assert_eq!(launch.screen, Some(ScreenMode::Minimal));
-        let launch = parse_launch(&args(&["--resume", "abc", "--fullscreen"])).unwrap();
-        assert_eq!(launch.session, SessionLaunch::Resume("abc".into()));
-        assert_eq!(launch.screen, Some(ScreenMode::Fullscreen));
-        let launch = parse_launch(&args(&["--full"])).unwrap();
-        assert_eq!(launch.screen, Some(ScreenMode::Fullscreen));
-    }
-
-    #[test]
-    fn parse_launch_rejects_conflicting_and_unknown_flags() {
-        let error = parse_launch(&args(&["--minimal", "--fullscreen"])).unwrap_err();
-        assert!(
-            error.to_string().contains("conflicting screen flags"),
-            "{error}"
-        );
-        let error = parse_launch(&args(&["--no-alt-screen"])).unwrap_err();
-        assert!(
-            error.to_string().contains("unsupported preview arguments"),
-            "{error}"
-        );
     }
 
     #[test]
