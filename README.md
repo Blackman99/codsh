@@ -56,7 +56,12 @@ unavailable without sending it. File read, write, and edit run through real dsh
 tools. The UI shows the pending operation and the dsh-supplied diff, then `y`
 allows that call once and `n` rejects it with no write. Missing files, tool
 errors, cancelled or duplicate approval replies are shown as failures, never as
-success.
+success. `Ctrl+C` clears a non-empty draft without cancelling work; an empty
+draft cancels the running turn through dsh `session/cancel`. Esc never cancels a
+turn or a pending approval — it dismisses selection and reminds you to use
+`Ctrl+C`. Cancelled tools cannot run from a late allow or reconnect; unknown
+external results are shown as cancelled, not success. After cancel, the prompt
+accepts a new turn. Idle empty `Ctrl+C` still quits before any turn exists.
 
 The preview uses `~/.codsh-rust/dsh` and Profile `rust`, ignores inherited
 `DSH_HOME`, provider credentials and Grok settings, and never migrates legacy
@@ -82,7 +87,8 @@ is literal (no tilde expansion or whitespace trimming). The preview conservative
 refuses **any `..` component in `GROK_HOME`**, even for a separate existing Home,
 rather than guessing symlink traversal. Use a path without parent traversal.
 Default `~/.dsh` and `~/.grok` are protected even when overrides are set.
-`Ctrl+Q`/`Ctrl+D` quits; `Ctrl+C` clears a draft, or quits when empty. Unsupported
+`Ctrl+Q`/`Ctrl+D` quits; `Ctrl+C` clears a draft, cancels an empty running turn,
+or quits when idle before any turn. Unsupported
 arguments fail explicitly. `codsh --rust --help` describes this path. Mock-model
 tests inject the fixture at the dsh provider boundary (`CODSH_ACP_PATCH` /
 `DSH_CODE_CLI_MOCK_TOOL`); the Rust client and dsh remain real products.

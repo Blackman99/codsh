@@ -17,8 +17,9 @@ client reuses licensed upstream Rust input and welcome layout, and submits
 prompts to released dsh over ACP/JSON-RPC (`dsh --profile acp`) in the isolated
 Home. dsh remains the only executing agent core and durable session owner; the
 Rust process does not link the official agent runtime or own tools. Protocol
-mismatch, empty answers, mid-stream failure, and disconnect are reported
-truthfully. The isolated Home is `~/.codsh-rust/dsh`, Profile `rust`; inherited
+mismatch, empty answers, mid-stream failure, disconnect, and cancellation are
+reported truthfully. `Ctrl+C` clears a draft first; an empty draft cancels the
+running dsh turn. Esc does not cancel. The isolated Home is `~/.codsh-rust/dsh`, Profile `rust`; inherited
 legacy configuration/credentials are not imported. Telemetry stays off.
 Plain `codsh` still selects the legacy Launcher/Bundle; this is not the default
 cutover.

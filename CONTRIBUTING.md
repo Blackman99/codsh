@@ -221,6 +221,7 @@ pnpm run build
 pnpm exec vitest run --config vitest.e2e.config.ts e2e/wrapper.e2e.ts e2e/pty-input.e2e.ts e2e/pty-session.e2e.ts
 pnpm run test:rust:pty
 pnpm exec vitest run scripts/rust-acp-protocol.spec.mjs
+python3 scripts/rust-cancel-pty-test.py
 ```
 
 `build:rust` stages the host binary under ignored `packages/cli/native/<os>-<arch>`
@@ -310,11 +311,16 @@ as failures or empty results, never as success. File read/write/edit run through
 released dsh tools. The Rust UI correlates `session/request_permission` with the
 tool-call id, shows the pending operation and dsh-supplied diff, allows once with
 `y`, and rejects with `n` without writing. Missing files, tool errors, cancelled
-approvals, and duplicate replies are observable failures. Cancellation and resume
-remain later tickets. `test:rust:pty` now also runs
-`scripts/rust-turn-pty-test.py` and `scripts/rust-file-pty-test.py` against the
-packed native candidate. Public ACP framing, including file-tool permission, is
-covered by `scripts/rust-acp-protocol.spec.mjs`.
+approvals, and duplicate replies are observable failures. `Ctrl+C` clears a
+draft without cancelling; an empty draft sends ACP `session/cancel` to dsh for a
+running turn, including pending approval and in-flight tools. Esc never cancels.
+Late allow replies and reconnects cannot execute a cancelled action; unknown
+tool results display as cancelled. After cancel, a new prompt still works.
+`test:rust:pty` now also runs `scripts/rust-turn-pty-test.py`,
+`scripts/rust-file-pty-test.py`, and `scripts/rust-cancel-pty-test.py` against
+the packed native candidate. Public ACP framing, including file-tool permission
+and `session/cancel`, is covered by `scripts/rust-acp-protocol.spec.mjs`. Resume
+remains a later ticket.
 
 ## Documentation site
 

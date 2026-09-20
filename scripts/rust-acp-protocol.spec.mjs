@@ -20,7 +20,7 @@ function dshPath() {
   return join(dirname(dshManifest), typeof bin === 'string' ? bin : bin.dsh)
 }
 
-function startAgent(mode) {
+function startAgent(mode, extraEnv = {}) {
   const root = mkdtempSync(join('/tmp', 'codsh-acp-protocol-'))
   homes.push(root)
   const home = join(root, 'home')
@@ -40,6 +40,7 @@ function startAgent(mode) {
       DSH_TELEMETRY_MODE: 'OFF',
       DEEPSEEK_API_KEY: '',
       CODSH_UPDATE_CHECK: 'off',
+      ...extraEnv,
     },
     stdio: ['pipe', 'pipe', 'pipe'],
   })
@@ -72,7 +73,10 @@ function startAgent(mode) {
   function reply(id, result) {
     child.stdin.write(`${JSON.stringify({ jsonrpc: '2.0', id, result })}\n`)
   }
-  return { root, home, cwd, child, send, reply, updates, permissions, frames, stderr }
+  function cancel(sessionId) {
+    child.stdin.write(`${JSON.stringify({ jsonrpc: '2.0', method: 'session/cancel', params: { sessionId } })}\n`)
+  }
+  return { root, home, cwd, child, send, reply, cancel, updates, permissions, frames, stderr }
 }
 
 async function waitUntil(predicate, timeout = 15000, detail = 'condition') {
@@ -324,6 +328,115 @@ describe('public ACP/JSON-RPC against real dsh', () => {
     } finally {
       failing.child.stdin.end()
       failing.child.kill('SIGTERM')
+    }
+  }, 45000)
+
+  it('cancels a delayed stream, ignores a late permission reply, and continues with a new turn', async () => {
+    const delayed = startAgent('echo', { DSH_CODE_CLI_MOCK_DELAY_MS: '4000' })
+    try {
+      const { session } = await handshake(delayed)
+      const prompt = delayed.send(3, 'session/prompt', {
+        sessionId: session.sessionId,
+        prompt: [{ type: 'text', text: 'TOKEN_CANCEL_STREAM' }],
+      })
+      await new Promise(resolve => setTimeout(resolve, 200))
+      delayed.cancel(session.sessionId)
+      const result = await prompt
+      expect(result.stopReason).toBe('cancelled')
+      const answers = delayed.updates.filter(update => update.update.sessionUpdate === 'agent_message_chunk')
+      for (const answer of answers) {
+        expect(answer.update.content.text).not.toMatch(/success/i)
+      }
+      expect(answers.some(answer => String(answer.update.content.text).includes('TOKEN_CANCEL_STREAM'))).toBe(false)
+      const next = await delayed.send(4, 'session/prompt', {
+        sessionId: session.sessionId,
+        prompt: [{ type: 'text', text: 'TOKEN_AFTER_CANCEL' }],
+      })
+      expect(next.stopReason).toBe('end_turn')
+      const recovered = delayed.updates.filter(update => update.update.sessionUpdate === 'agent_message_chunk').at(-1)
+      expect(recovered.update.content.text).toContain('TOKEN_AFTER_CANCEL')
+      expect(recovered.update.content.text).toContain('RUST_ACP_ANSWER')
+      await delayed.send(5, 'session/close', { sessionId: session.sessionId })
+    } finally {
+      delayed.child.stdin.end()
+      delayed.child.kill('SIGTERM')
+    }
+
+    const pending = startAgent('file-edit')
+    try {
+      writeFileSync(join(pending.cwd, 'note.txt'), 'alpha\n')
+      const { session } = await handshake(pending)
+      const prompt = pending.send(3, 'session/prompt', {
+        sessionId: session.sessionId,
+        prompt: [{ type: 'text', text: 'edit then cancel' }],
+      })
+      await waitUntil(() => pending.permissions.length > 0, 20000, 'permission before cancel')
+      const permission = pending.permissions[0]
+      pending.cancel(session.sessionId)
+      const result = await prompt
+      expect(result.stopReason).toBe('cancelled')
+      pending.reply(permission.id, { outcome: { outcome: 'selected', optionId: 'allow-once' } })
+      await new Promise(resolve => setTimeout(resolve, 400))
+      expect(readFileSync(join(pending.cwd, 'note.txt'), 'utf8')).toBe('alpha\n')
+      await pending.send(4, 'session/close', { sessionId: session.sessionId }).catch(() => undefined)
+    } finally {
+      pending.child.stdin.end()
+      pending.child.kill('SIGTERM')
+    }
+  }, 45000)
+
+  it('cancels during a running file tool and at completion without extra writes', async () => {
+    const running = startAgent('file-edit', { DSH_CODE_CLI_TOOL_DELAY_MS: '4000' })
+    try {
+      writeFileSync(join(running.cwd, 'note.txt'), 'alpha\n')
+      const { session } = await handshake(running)
+      const prompt = running.send(3, 'session/prompt', {
+        sessionId: session.sessionId,
+        prompt: [{ type: 'text', text: 'edit slowly' }],
+      })
+      await waitUntil(() => running.permissions.length > 0, 20000, 'permission before in-tool cancel')
+      running.reply(running.permissions[0].id, { outcome: { outcome: 'selected', optionId: 'allow-once' } })
+      await new Promise(resolve => setTimeout(resolve, 200))
+      running.cancel(session.sessionId)
+      const result = await prompt
+      expect(result.stopReason).toBe('cancelled')
+      expect(readFileSync(join(running.cwd, 'note.txt'), 'utf8')).toBe('alpha\n')
+      await running.send(4, 'session/close', { sessionId: session.sessionId })
+    } finally {
+      running.child.stdin.end()
+      running.child.kill('SIGTERM')
+    }
+
+    const race = startAgent('echo')
+    try {
+      const { session } = await handshake(race)
+      const prompt = race.send(3, 'session/prompt', {
+        sessionId: session.sessionId,
+        prompt: [{ type: 'text', text: 'TOKEN_COMPLETE_RACE' }],
+      })
+      race.cancel(session.sessionId)
+      const result = await prompt
+      expect(['cancelled', 'end_turn']).toContain(result.stopReason)
+      if (result.stopReason === 'end_turn') {
+        const answer = race.updates.find(update => update.update.sessionUpdate === 'agent_message_chunk')
+        expect(answer.update.content.text).toContain('TOKEN_COMPLETE_RACE')
+      } else {
+        const answers = race.updates.filter(update => update.update.sessionUpdate === 'agent_message_chunk')
+        for (const answer of answers) {
+          expect(answer.update.content.text).not.toMatch(/success/i)
+        }
+      }
+      const next = await race.send(4, 'session/prompt', {
+        sessionId: session.sessionId,
+        prompt: [{ type: 'text', text: 'TOKEN_AFTER_RACE' }],
+      })
+      expect(next.stopReason).toBe('end_turn')
+      const recovered = race.updates.filter(update => update.update.sessionUpdate === 'agent_message_chunk').at(-1)
+      expect(recovered.update.content.text).toContain('TOKEN_AFTER_RACE')
+      await race.send(5, 'session/close', { sessionId: session.sessionId })
+    } finally {
+      race.child.stdin.end()
+      race.child.kill('SIGTERM')
     }
   }, 45000)
 

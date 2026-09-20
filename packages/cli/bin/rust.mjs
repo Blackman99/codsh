@@ -136,7 +136,7 @@ export async function launchRust(args) {
       DSH_TELEMETRY_MODE: 'OFF',
       CODSH_UPDATE_CHECK: 'off',
     }
-    for (const key of ['PATH', 'TERM', 'TERM_PROGRAM', 'COLORTERM', 'LANG', 'LC_ALL', 'LC_CTYPE', 'NO_COLOR', 'SystemRoot', 'WINDIR', 'CODSH_ACP_PATCH', 'DSH_CODE_CLI_MOCK_TOOL', 'FAKE_ACP_MODE', 'FAKE_ACP_VERSION']) {
+    for (const key of ['PATH', 'TERM', 'TERM_PROGRAM', 'COLORTERM', 'LANG', 'LC_ALL', 'LC_CTYPE', 'NO_COLOR', 'SystemRoot', 'WINDIR', 'CODSH_ACP_PATCH', 'DSH_CODE_CLI_MOCK_TOOL', 'DSH_CODE_CLI_MOCK_DELAY_MS', 'DSH_CODE_CLI_TOOL_DELAY_MS', 'FAKE_ACP_MODE', 'FAKE_ACP_VERSION', 'FAKE_ACP_DELAY_MS', 'FAKE_ACP_TARGET', 'FAKE_ACP_WRITES']) {
       if (process.env[key] !== undefined) env[key] = process.env[key]
     }
     if (!helpOnly && env.CODSH_ACP_PATCH === undefined) {

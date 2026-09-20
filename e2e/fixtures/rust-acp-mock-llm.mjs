@@ -1,13 +1,37 @@
 /**
  * Keyless LLM adapter at the dsh provider boundary for Rust ACP turn tests.
  * Modes: echo (default), reasoning, empty, fail-stream, file-edit, file-write,
- * file-missing, file-error.
+ * file-missing, file-error. Optional DSH_CODE_CLI_MOCK_DELAY_MS delays the
+ * first chunk so session/cancel can win before activity.
  */
 import { LlmAdapter, ReasoningEffortId, ToolCallId } from '@deepseek-ai/dsh-llm'
 
 const OFF = ReasoningEffortId('off')
 const HIGH = ReasoningEffortId('high')
 const MODE = process.env.DSH_CODE_CLI_MOCK_TOOL ?? 'echo'
+const DELAY_MS = Number(process.env.DSH_CODE_CLI_MOCK_DELAY_MS ?? '0')
+
+function sleep(ms, signal) {
+  return new Promise((resolve, reject) => {
+    if (!Number.isFinite(ms) || ms <= 0) {
+      resolve()
+      return
+    }
+    if (signal?.aborted) {
+      reject(Object.assign(new Error('aborted'), { name: 'AbortError' }))
+      return
+    }
+    const timer = setTimeout(() => {
+      signal?.removeEventListener('abort', onAbort)
+      resolve()
+    }, ms)
+    const onAbort = () => {
+      clearTimeout(timer)
+      reject(Object.assign(new Error('aborted'), { name: 'AbortError' }))
+    }
+    signal?.addEventListener('abort', onAbort, { once: true })
+  })
+}
 
 function userTurns(options) {
   return options.messages.filter(message =>
@@ -138,6 +162,14 @@ class RustAcpMockAdapter extends LlmAdapter {
   }
 
   async * stream(options) {
+    if (DELAY_MS > 0) {
+      try {
+        await sleep(DELAY_MS, options.signal)
+      } catch {
+        return
+      }
+      if (options.signal?.aborted) return
+    }
     const turn = String(userTurns(options))
     if (MODE === 'file-edit' || MODE === 'file-write' || MODE === 'file-missing' || MODE === 'file-error') {
       yield* fileToolTurn(options)

@@ -8,9 +8,13 @@ import { createInterface } from 'node:readline'
 
 const mode = process.env.FAKE_ACP_MODE ?? 'echo'
 const version = Number(process.env.FAKE_ACP_VERSION ?? (mode === 'mismatch' ? 99 : 1))
+const delayMs = Number(process.env.FAKE_ACP_DELAY_MS ?? (mode.startsWith('slow') ? '1500' : '0'))
 const pending = []
 let permissionPrompt = null
 let permissionSeq = 0
+let inflightPrompt = null
+let cancelled = false
+let writes = Number(process.env.FAKE_ACP_WRITES ?? '0')
 
 function send(obj) {
   process.stdout.write(`${JSON.stringify(obj)}\n`)
@@ -50,17 +54,21 @@ function requestPermission(sessionId, toolCallId, rawInput, title, promptId) {
   permissionPrompt = { permissionId, promptId, sessionId, toolCallId, rawInput, title }
 }
 
+function writeTarget() {
+  const target = process.env.FAKE_ACP_TARGET
+  if (!target) return
+  writes += 1
+  process.env.FAKE_ACP_WRITES = String(writes)
+  writeFileSync(target, `FAKE_ACP_WROTE count=${writes}\n`)
+}
+
 function finishPermission(outcome) {
   const current = permissionPrompt
   permissionPrompt = null
   if (current === null) return
   const allowed = outcome?.outcome === 'selected' && outcome.optionId === 'allow-once'
-  const target = process.env.FAKE_ACP_TARGET
-  if (allowed && target) {
-    const before = Number(process.env.FAKE_ACP_WRITES ?? '0')
-    process.env.FAKE_ACP_WRITES = String(before + 1)
-    writeFileSync(target, `FAKE_ACP_WROTE count=${before + 1}\n`)
-  }
+  const permissionCancelled = outcome?.outcome === 'cancelled' || cancelled
+  if (allowed && !permissionCancelled) writeTarget()
   send({
     jsonrpc: '2.0',
     method: 'session/update',
@@ -80,16 +88,126 @@ function finishPermission(outcome) {
       },
     },
   })
-  if (current.promptId != null) {
-    send({ jsonrpc: '2.0', id: current.promptId, result: { stopReason: 'end_turn' } })
+  if (current.promptId != null && inflightPrompt?.id === current.promptId) {
+    finishPrompt(current.promptId, allowed && !permissionCancelled ? 'end_turn' : (permissionCancelled ? 'cancelled' : 'end_turn'))
+  }
+}
+
+function finishPrompt(id, stopReason) {
+  if (inflightPrompt?.id !== id) return
+  inflightPrompt = null
+  send({ jsonrpc: '2.0', id, result: { stopReason } })
+}
+
+function cancelSession() {
+  cancelled = true
+  if (inflightPrompt?.timer) clearTimeout(inflightPrompt.timer)
+  if (permissionPrompt) {
+    const current = permissionPrompt
+    permissionPrompt = null
+    send({
+      jsonrpc: '2.0',
+      method: 'session/update',
+      params: {
+        sessionId: current.sessionId,
+        update: {
+          sessionUpdate: 'tool_call_update',
+          toolCallId: current.toolCallId,
+          status: 'cancelled',
+          content: [{
+            type: 'content',
+            content: { type: 'text', text: 'tool cancelled' },
+          }],
+        },
+      },
+    })
+  }
+  if (inflightPrompt) {
+    const id = inflightPrompt.id
+    const sessionId = inflightPrompt.sessionId
+    if (mode === 'late-after-cancel') {
+      send({
+        jsonrpc: '2.0',
+        method: 'session/update',
+        params: {
+          sessionId,
+          update: {
+            sessionUpdate: 'agent_message_chunk',
+            messageId: 'fake-msg-late',
+            content: { type: 'text', text: 'FAKE_ACP_LATE_AFTER_CANCEL' },
+          },
+        },
+      })
+    }
+    finishPrompt(id, 'cancelled')
   }
 }
 
 function answerPrompt(id, params) {
+  cancelled = false
   const sessionId = params?.sessionId ?? 'fake-session'
   const text = Array.isArray(params?.prompt)
     ? params.prompt.filter(block => block?.type === 'text').map(block => block.text).join('')
     : ''
+  inflightPrompt = { id, sessionId, text, timer: null }
+  if (mode === 'slow-stream' || mode === 'late-after-cancel') {
+    inflightPrompt.timer = setTimeout(() => {
+      if (cancelled || inflightPrompt?.id !== id) return
+      send({
+        jsonrpc: '2.0',
+        method: 'session/update',
+        params: {
+          sessionId,
+          update: {
+            sessionUpdate: 'agent_message_chunk',
+            messageId: 'fake-msg-slow',
+            content: { type: 'text', text: `FAKE_ACP_ANSWER ${text}` },
+          },
+        },
+      })
+      finishPrompt(id, 'end_turn')
+    }, Number.isFinite(delayMs) ? delayMs : 1500)
+    return
+  }
+  if (mode === 'slow-tool') {
+    send({
+      jsonrpc: '2.0',
+      method: 'session/update',
+      params: {
+        sessionId,
+        update: {
+          sessionUpdate: 'tool_call',
+          toolCallId: 'fake-slow-write',
+          title: 'write',
+          kind: 'edit',
+          status: 'in_progress',
+          rawInput: { file_path: 'note.txt', content: 'FAKE_ACP_WROTE\n' },
+        },
+      },
+    })
+    inflightPrompt.timer = setTimeout(() => {
+      if (cancelled || inflightPrompt?.id !== id) return
+      writeTarget()
+      send({
+        jsonrpc: '2.0',
+        method: 'session/update',
+        params: {
+          sessionId,
+          update: {
+            sessionUpdate: 'tool_call_update',
+            toolCallId: 'fake-slow-write',
+            status: 'completed',
+            content: [{
+              type: 'content',
+              content: { type: 'text', text: 'Created file' },
+            }],
+          },
+        },
+      })
+      finishPrompt(id, 'end_turn')
+    }, Number.isFinite(delayMs) ? delayMs : 1500)
+    return
+  }
   if (mode === 'permission' || mode === 'permission-stale') {
     requestPermission(sessionId, 'fake-write-1', {
       file_path: 'note.txt',
@@ -135,7 +253,7 @@ function answerPrompt(id, params) {
         },
       },
     })
-    send({ jsonrpc: '2.0', id, result: { stopReason: 'end_turn' } })
+    finishPrompt(id, 'end_turn')
     return
   }
   if (mode === 'file-error') {
@@ -170,11 +288,11 @@ function answerPrompt(id, params) {
         },
       },
     })
-    send({ jsonrpc: '2.0', id, result: { stopReason: 'end_turn' } })
+    finishPrompt(id, 'end_turn')
     return
   }
   if (mode === 'empty') {
-    send({ jsonrpc: '2.0', id, result: { stopReason: 'end_turn' } })
+    finishPrompt(id, 'end_turn')
     return
   }
   if (mode === 'fail') {
@@ -190,6 +308,7 @@ function answerPrompt(id, params) {
         },
       },
     })
+    inflightPrompt = null
     send({ jsonrpc: '2.0', id, error: { code: -32000, message: 'fake agent failed mid-stream' } })
     return
   }
@@ -235,7 +354,7 @@ function answerPrompt(id, params) {
       },
     },
   })
-  send({ jsonrpc: '2.0', id, result: { stopReason: 'end_turn' } })
+  finishPrompt(id, 'end_turn')
 }
 
 const rl = createInterface({ input: process.stdin })
@@ -271,6 +390,10 @@ rl.on('line', line => {
   }
   if (method === 'session/prompt') {
     answerPrompt(id, params)
+    return
+  }
+  if (method === 'session/cancel') {
+    cancelSession()
     return
   }
   if (method === 'session/close') {

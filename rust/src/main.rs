@@ -97,6 +97,8 @@ struct Turn {
     tools: Vec<ToolRow>,
     permission: Option<PendingPermission>,
     done: bool,
+    cancelling: bool,
+    cancelled: bool,
 }
 
 fn connect() -> Result<AcpClient, String> {
@@ -120,17 +122,23 @@ fn status_line(
     inflight: bool,
     last_error: &str,
     awaiting_approval: bool,
+    cancelling: bool,
+    hint: &str,
 ) -> String {
     if !last_error.is_empty() && client.is_none() {
         return format!("{UNAVAILABLE}\n{last_error}");
     }
-    match client {
+    let mut body = match client {
+        Some(client) if cancelling => format!(
+            "Connected to dsh ACP session {}.\nCancelling turn…",
+            client.session_id.as_deref().unwrap_or("unknown")
+        ),
         Some(client) if awaiting_approval => format!(
             "Connected to dsh ACP session {}.\nAllow this dsh file tool? y=allow once  n=reject",
             client.session_id.as_deref().unwrap_or("unknown")
         ),
         Some(client) if inflight => format!(
-            "Connected to dsh ACP session {}.\nStreaming turn…",
+            "Connected to dsh ACP session {}.\nStreaming turn… Ctrl+C cancels (empty draft).",
             client.session_id.as_deref().unwrap_or("unknown")
         ),
         Some(client) => format!(
@@ -138,7 +146,16 @@ fn status_line(
             client.session_id.as_deref().unwrap_or("unknown")
         ),
         None => UNAVAILABLE.to_string(),
+    };
+    if !hint.is_empty() {
+        body.push('\n');
+        body.push_str(hint);
     }
+    if !last_error.is_empty() && client.is_some() {
+        body.push('\n');
+        body.push_str(last_error);
+    }
+    body
 }
 
 fn compact_tool_result(text: &str) -> String {
@@ -195,7 +212,9 @@ fn render_transcript(status: &str, turns: &[Turn]) -> String {
             out.push_str(&permission.tool_call_id);
             out.push_str("? y=allow once  n=reject");
         }
-        if let Some(error) = &turn.error {
+        if turn.cancelled {
+            out.push_str("\n[cancelled]");
+        } else if let Some(error) = &turn.error {
             out.push_str("\n[error] ");
             out.push_str(error);
         } else if turn.done
@@ -286,10 +305,19 @@ fn apply_events(turns: &mut [Turn], inflight: &mut bool, events: Vec<AcpEvent>) 
                     }
                 }
             }
-            AcpEvent::PromptFinished { .. } => {
+            AcpEvent::PromptFinished { stop_reason, .. } => {
                 if let Some(turn) = turns.last_mut() {
                     turn.done = true;
                     turn.permission = None;
+                    turn.cancelling = false;
+                    if stop_reason == "cancelled" {
+                        turn.cancelled = true;
+                        for tool in &mut turn.tools {
+                            if tool.status == "pending" || tool.status == "in_progress" {
+                                tool.status = "cancelled".into();
+                            }
+                        }
+                    }
                 }
                 *inflight = false;
             }
@@ -358,7 +386,7 @@ fn run() -> io::Result<()> {
         }
         [flag] if flag == "--help" || flag == "-h" => {
             println!(
-                "codsh --rust\n\nIsolated Rust client. Real dsh executes turns over ACP/JSON-RPC stdio.\nHome: ~/.codsh-rust/dsh; Profile: rust. Legacy codsh is unchanged.\nFile read/edit/write run through dsh tools; y allows once, n rejects with no write.\nCtrl+Q/Ctrl+D: quit; Ctrl+C: clear draft, then quit; Enter: submit prompt.\nOptions: --help, --version. Other options are not yet supported."
+                "codsh --rust\n\nIsolated Rust client. Real dsh executes turns over ACP/JSON-RPC stdio.\nHome: ~/.codsh-rust/dsh; Profile: rust. Legacy codsh is unchanged.\nFile read/edit/write run through dsh tools; y allows once, n rejects with no write.\nCtrl+Q/Ctrl+D: quit. Ctrl+C: clear a draft; empty draft cancels a running turn via dsh, or quits when idle.\nEsc never cancels a turn or a pending approval; it dismisses selection and reminds you to use Ctrl+C.\nEnter: submit prompt. Options: --help, --version. Other options are not yet supported."
             );
             return Ok(());
         }
@@ -394,6 +422,7 @@ fn run() -> io::Result<()> {
     let mut turns: Vec<Turn> = Vec::new();
     let mut inflight = false;
     let mut last_error = String::new();
+    let mut hint = String::new();
     let mut client = match connect() {
         Ok(client) => Some(client),
         Err(error) => {
@@ -410,8 +439,16 @@ fn run() -> io::Result<()> {
             client = None;
         }
         let awaiting = turns.last().is_some_and(|turn| turn.permission.is_some());
+        let cancelling = turns.last().is_some_and(|turn| turn.cancelling);
         let notice = render_transcript(
-            &status_line(client.as_ref(), inflight, &last_error, awaiting),
+            &status_line(
+                client.as_ref(),
+                inflight,
+                &last_error,
+                awaiting,
+                cancelling,
+                &hint,
+            ),
             &turns,
         );
         terminal.draw(|frame| {
@@ -433,23 +470,41 @@ fn run() -> io::Result<()> {
                             break;
                         }
                         KeyCode::Char('c') => {
-                            if let (Some(turn), Some(active)) = (turns.last_mut(), client.as_mut())
-                                && let Some(permission) = turn.permission.take()
-                            {
-                                match active.cancel_permission(&permission.request_id) {
-                                    Ok(()) => {
-                                        turn.error = Some("permission request cancelled".into());
-                                        last_error.clear();
+                            if !draft.is_empty() {
+                                draft.set_text("");
+                                selected = None;
+                                hint.clear();
+                                continue;
+                            }
+                            if turns.last().is_some_and(|turn| turn.cancelling) {
+                                break;
+                            }
+                            if inflight {
+                                if let Some(active) = client.as_mut() {
+                                    match active.cancel_prompt() {
+                                        Ok(()) => {
+                                            if let Some(turn) = turns.last_mut() {
+                                                turn.permission = None;
+                                                turn.cancelling = true;
+                                                for tool in &mut turn.tools {
+                                                    if tool.status == "pending"
+                                                        || tool.status == "in_progress"
+                                                    {
+                                                        tool.status = "cancelled".into();
+                                                    }
+                                                }
+                                            }
+                                            last_error.clear();
+                                            hint.clear();
+                                        }
+                                        Err(error) => last_error = error.message,
                                     }
-                                    Err(error) => last_error = error.message,
                                 }
                                 continue;
                             }
-                            if draft.is_empty() {
+                            if turns.is_empty() {
                                 break;
                             }
-                            draft.set_text("");
-                            selected = None;
                             continue;
                         }
                         _ => {}
@@ -476,7 +531,12 @@ fn run() -> io::Result<()> {
                     }
                 }
                 match key.code {
-                    KeyCode::Esc => selected = None,
+                    KeyCode::Esc => {
+                        selected = None;
+                        if inflight && !turns.last().is_some_and(|turn| turn.cancelling) {
+                            hint = "Press Ctrl+C to cancel the turn".into();
+                        }
+                    }
                     KeyCode::Tab => selected = Some((selected.unwrap_or(2) + 1) % 3),
                     KeyCode::Enter if key.modifiers.is_empty() => match selected {
                         Some(2) => break,
@@ -510,6 +570,8 @@ fn run() -> io::Result<()> {
                                             tools: Vec::new(),
                                             permission: None,
                                             done: false,
+                                            cancelling: false,
+                                            cancelled: false,
                                         });
                                         draft.set_text("");
                                         inflight = true;

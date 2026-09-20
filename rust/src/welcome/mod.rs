@@ -47,7 +47,7 @@ pub fn render(frame: &mut Frame, draft: &TextArea, notice: &str, selected: Optio
     };
     let items = [
         ("enter", submit),
-        ("ctrl+c", "Clear draft"),
+        ("ctrl+c", "Clear / cancel"),
         ("ctrl+q", "Quit"),
     ];
     let buf = frame.buffer_mut();

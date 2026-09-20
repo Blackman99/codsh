@@ -211,6 +211,7 @@ pub struct AcpClient {
     disconnected: Option<String>,
     pub pending_permission: Option<PendingPermission>,
     answered_permissions: HashSet<String>,
+    prompt_cancelled: bool,
 }
 
 enum Line {
@@ -277,8 +278,13 @@ pub fn dsh_spawn_spec(cwd: PathBuf, dsh_home: &Path) -> Result<SpawnSpec, AcpErr
         "SystemRoot",
         "WINDIR",
         "DSH_CODE_CLI_MOCK_TOOL",
+        "DSH_CODE_CLI_MOCK_DELAY_MS",
+        "DSH_CODE_CLI_TOOL_DELAY_MS",
         "FAKE_ACP_MODE",
         "FAKE_ACP_VERSION",
+        "FAKE_ACP_DELAY_MS",
+        "FAKE_ACP_TARGET",
+        "FAKE_ACP_WRITES",
     ] {
         if let Some(value) = std::env::var_os(key) {
             env.push((key.to_string(), value.to_string_lossy().into_owned()));
@@ -359,6 +365,7 @@ impl AcpClient {
             disconnected: None,
             pending_permission: None,
             answered_permissions: HashSet::new(),
+            prompt_cancelled: false,
         })
     }
 
@@ -416,6 +423,11 @@ impl AcpClient {
         request_id: &Value,
         option_id: &str,
     ) -> Result<(), AcpError> {
+        if self.prompt_cancelled {
+            return Err(AcpError {
+                message: "stale permission reply".into(),
+            });
+        }
         let key = json_id_key(request_id);
         if self.answered_permissions.contains(&key) {
             return Err(AcpError {
@@ -474,10 +486,35 @@ impl AcpClient {
         Ok(())
     }
 
+    pub fn cancel_prompt(&mut self) -> Result<(), AcpError> {
+        let session_id = self.session_id.clone().ok_or_else(|| AcpError {
+            message: "ACP session is not ready".into(),
+        })?;
+        self.prompt_cancelled = true;
+        if let Some(pending) = self.pending_permission.clone() {
+            let _ = self.cancel_permission(&pending.request_id);
+        }
+        self.write_raw(json!({
+            "jsonrpc": "2.0",
+            "method": "session/cancel",
+            "params": { "sessionId": session_id },
+        }))
+    }
+
     pub fn submit_prompt(&mut self, text: &str) -> Result<u64, AcpError> {
         let session_id = self.session_id.clone().ok_or_else(|| AcpError {
             message: "ACP session is not ready".into(),
         })?;
+        if self
+            .pending
+            .values()
+            .any(|kind| matches!(kind, PendingKind::Prompt))
+        {
+            return Err(AcpError {
+                message: "a prompt is already in flight".into(),
+            });
+        }
+        self.prompt_cancelled = false;
         self.request(
             "session/prompt",
             json!({
@@ -653,6 +690,20 @@ impl AcpClient {
                     message: "permission request omitted id".into(),
                 }];
             };
+            let session_id = params
+                .get("sessionId")
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .to_string();
+            if self.prompt_cancelled {
+                let _ = self.write_raw(json!({
+                    "jsonrpc": "2.0",
+                    "id": request_id,
+                    "result": { "outcome": { "outcome": "cancelled" } },
+                }));
+                self.answered_permissions.insert(json_id_key(&request_id));
+                return vec![AcpEvent::PermissionCancelled { session_id }];
+            }
             let mut replaced = Vec::new();
             if let Some(previous) = self.pending_permission.take() {
                 let _ = self.write_raw(json!({
@@ -666,11 +717,6 @@ impl AcpClient {
                     session_id: previous.session_id,
                 });
             }
-            let session_id = params
-                .get("sessionId")
-                .and_then(Value::as_str)
-                .unwrap_or("")
-                .to_string();
             let tool_call_id = params
                 .pointer("/toolCall/toolCallId")
                 .and_then(Value::as_str)
@@ -848,6 +894,9 @@ impl AcpClient {
                     .and_then(Value::as_str)
                     .unwrap_or("end_turn")
                     .to_string();
+                if stop_reason != "cancelled" {
+                    self.prompt_cancelled = false;
+                }
                 self.completed.insert(id, Ok(result.clone()));
                 vec![AcpEvent::PromptFinished {
                     request_id: id,
@@ -1417,5 +1466,156 @@ mod tests {
             "{content}"
         );
         assert!(!content.to_lowercase().contains("success"), "{content}");
+    }
+
+    fn wait_stop(client: &mut AcpClient, id: u64) -> String {
+        let from_completed = |client: &AcpClient| {
+            client.completed.get(&id).map(|result| match result {
+                Ok(value) => value
+                    .get("stopReason")
+                    .and_then(Value::as_str)
+                    .unwrap_or("end_turn")
+                    .to_string(),
+                Err(error) => format!("error:{}", error.message),
+            })
+        };
+        if let Some(stop) = from_completed(client) {
+            return stop;
+        }
+        let deadline = Instant::now() + Duration::from_secs(3);
+        while Instant::now() < deadline {
+            for event in client.pump(Duration::from_millis(50)) {
+                match event {
+                    AcpEvent::PromptFinished {
+                        request_id,
+                        stop_reason,
+                    } if request_id == id => return stop_reason,
+                    AcpEvent::RpcError {
+                        request_id: Some(request_id),
+                        message,
+                        ..
+                    } if request_id == id => return format!("error:{message}"),
+                    _ => {}
+                }
+            }
+            if let Some(stop) = from_completed(client) {
+                return stop;
+            }
+        }
+        panic!("missing prompt settlement for {id}")
+    }
+
+    #[test]
+    fn cancel_slow_stream_is_cancelled_and_next_prompt_works() {
+        let mut client = spawn_fake_env(
+            "slow-stream",
+            vec![("FAKE_ACP_DELAY_MS".into(), "1500".into())],
+        );
+        client
+            .initialize(Duration::from_secs(2))
+            .expect("initialize");
+        client
+            .new_session(&std::env::temp_dir(), Duration::from_secs(2))
+            .expect("session");
+        let first = client.submit_prompt("TOKEN_SLOW").unwrap();
+        client.cancel_prompt().expect("cancel");
+        assert_eq!(wait_stop(&mut client, first), "cancelled");
+        let late_allow = client.answer_permission(&json!(1), "allow-once");
+        assert!(late_allow.is_err(), "{late_allow:?}");
+        let second = client.submit_prompt("TOKEN_AFTER").unwrap();
+        let mut answer = None;
+        let deadline = Instant::now() + Duration::from_secs(3);
+        while Instant::now() < deadline {
+            for event in client.pump(Duration::from_millis(50)) {
+                if let AcpEvent::Answer { text, .. } = event {
+                    answer = Some(text);
+                }
+            }
+            if answer
+                .as_deref()
+                .is_some_and(|text| text.contains("TOKEN_AFTER"))
+            {
+                break;
+            }
+        }
+        assert_eq!(wait_stop(&mut client, second), "end_turn");
+        assert!(
+            answer
+                .as_deref()
+                .is_some_and(|text| text.contains("TOKEN_AFTER")),
+            "{answer:?}"
+        );
+    }
+
+    #[test]
+    fn cancel_pending_permission_and_late_allow_do_not_write() {
+        let target = tempfile::NamedTempFile::new().unwrap();
+        let path = target.path().to_string_lossy().into_owned();
+        std::fs::write(&path, "original\n").unwrap();
+        let mut client =
+            spawn_fake_env("permission", vec![("FAKE_ACP_TARGET".into(), path.clone())]);
+        client
+            .initialize(Duration::from_secs(2))
+            .expect("initialize");
+        client
+            .new_session(&std::env::temp_dir(), Duration::from_secs(2))
+            .expect("session");
+        let id = client.submit_prompt("edit").unwrap();
+        let permission = wait_permission(&mut client);
+        client.cancel_prompt().expect("cancel");
+        let stale = client.answer_permission(&permission.request_id, "allow-once");
+        assert!(stale.is_err(), "{stale:?}");
+        assert_eq!(wait_stop(&mut client, id), "cancelled");
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "original\n");
+    }
+
+    #[test]
+    fn cancel_during_tool_does_not_write_and_reconnect_does_not_replay() {
+        let target = tempfile::NamedTempFile::new().unwrap();
+        let path = target.path().to_string_lossy().into_owned();
+        std::fs::write(&path, "original\n").unwrap();
+        let mut client = spawn_fake_env(
+            "slow-tool",
+            vec![
+                ("FAKE_ACP_TARGET".into(), path.clone()),
+                ("FAKE_ACP_DELAY_MS".into(), "1500".into()),
+            ],
+        );
+        client
+            .initialize(Duration::from_secs(2))
+            .expect("initialize");
+        client
+            .new_session(&std::env::temp_dir(), Duration::from_secs(2))
+            .expect("session");
+        let id = client.submit_prompt("write slowly").unwrap();
+        let deadline = Instant::now() + Duration::from_secs(2);
+        let mut saw_tool = false;
+        while Instant::now() < deadline {
+            for event in client.pump(Duration::from_millis(50)) {
+                if let AcpEvent::ToolCall { .. } = event {
+                    saw_tool = true;
+                }
+            }
+            if saw_tool {
+                break;
+            }
+        }
+        assert!(saw_tool, "tool must start before cancel");
+        client.cancel_prompt().expect("cancel");
+        assert_eq!(wait_stop(&mut client, id), "cancelled");
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "original\n");
+        client.shutdown();
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "original\n");
+    }
+
+    #[test]
+    fn cancel_at_completion_is_truthful_and_does_not_duplicate() {
+        let mut client = ready("echo");
+        let id = client.submit_prompt("TOKEN_RACE").unwrap();
+        let stop = wait_stop(&mut client, id);
+        assert_eq!(stop, "end_turn");
+        client.cancel_prompt().expect("cancel after completion");
+        let second = client.submit_prompt("TOKEN_NEXT").unwrap();
+        assert_eq!(wait_stop(&mut client, second), "end_turn");
     }
 }
