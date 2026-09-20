@@ -68,6 +68,19 @@ dsh log (not a second store). Interrupted or never-finished tools show
 `[interrupted]` / unknown and are not replayed. A second client that cannot
 take write ownership is refused instead of forking a duplicate executor.
 
+User configuration for the preview is `$GROK_HOME/config.toml` (default
+`~/.codsh-rust/.grok/config.toml`). Compatible `[model.<id>]` fields
+(`base_url`, `env_key`, `api_key`, `model`, `name`) and `models.default` map
+into isolated dsh `settings.yaml`; the two files are not competing sources.
+`codsh --rust inspect` and `inspect --json` print each effective value and
+origin (CLI `--model`, environment, `GROK_CONFIG` overlay, config.toml,
+default). Invalid `config.toml` is left unchanged and the error names the
+path. First-run missing credentials stay local: no grok.com login, no default
+official telemetry/upload, and no import of `~/.dsh` or `~/.grok` credentials.
+Set the model's `env_key` (for example `XAI_API_KEY`) after writing a provider
+with a `base_url`. Inherited parent `GROK_HOME` is ignored; the preview pins
+`GROK_HOME` to `~/.codsh-rust/.grok`.
+
 The preview uses `~/.codsh-rust/dsh` and Profile `rust`, ignores inherited
 `DSH_HOME`, provider credentials and Grok settings, and never migrates legacy
 sessions. A symlinked preview Home/Profile or overlap with `DSH_HOME`/`GROK_HOME`

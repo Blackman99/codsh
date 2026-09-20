@@ -113,7 +113,8 @@ export async function launchRust(args) {
       if (!oldHome) continue
       if (overlaps(canonicalRoot, canonicalPath(oldHome))) throw new Error('Rust Home overlaps a legacy Home; refusing to access legacy data')
     }
-    const helpOnly = args.length === 1 && ['--help', '-h', '--version', '-V'].includes(args[0])
+    const helpOnly = (args.length === 1 && ['--help', '-h', '--version', '-V'].includes(args[0]))
+      || (args[0] === 'inspect' && args.length > 1 && args.slice(1).every(flag => flag === '--help' || flag === '-h'))
     if (!helpOnly) {
       privateDirectory(root)
       privateDirectory(join(root, 'dsh'))
@@ -136,9 +137,13 @@ export async function launchRust(args) {
       DSH_TELEMETRY_MODE: 'OFF',
       CODSH_UPDATE_CHECK: 'off',
     }
-    for (const key of ['PATH', 'TERM', 'TERM_PROGRAM', 'COLORTERM', 'LANG', 'LC_ALL', 'LC_CTYPE', 'NO_COLOR', 'SystemRoot', 'WINDIR', 'CODSH_ACP_PATCH', 'CODSH_SESSION_READ', 'DSH_CODE_CLI_MOCK_TOOL', 'DSH_CODE_CLI_MOCK_DELAY_MS', 'DSH_CODE_CLI_TOOL_DELAY_MS', 'FAKE_ACP_MODE', 'FAKE_ACP_VERSION', 'FAKE_ACP_DELAY_MS', 'FAKE_ACP_TARGET', 'FAKE_ACP_WRITES', 'FAKE_ACP_STORE', 'FAKE_ACP_OWNED', 'FAKE_ACP_STALE_OWNER']) {
+    for (const key of ['PATH', 'TERM', 'TERM_PROGRAM', 'COLORTERM', 'LANG', 'LC_ALL', 'LC_CTYPE', 'NO_COLOR', 'SystemRoot', 'WINDIR', 'CODSH_ACP_PATCH', 'CODSH_SESSION_READ', 'DSH_CODE_CLI_MOCK_TOOL', 'DSH_CODE_CLI_MOCK_DELAY_MS', 'DSH_CODE_CLI_TOOL_DELAY_MS', 'FAKE_ACP_MODE', 'FAKE_ACP_VERSION', 'FAKE_ACP_DELAY_MS', 'FAKE_ACP_TARGET', 'FAKE_ACP_WRITES', 'FAKE_ACP_STORE', 'FAKE_ACP_OWNED', 'FAKE_ACP_STALE_OWNER', 'GROK_CONFIG', 'GROK_CONFIG_PATH', 'GROK_TELEMETRY_ENABLED', 'GROK_FEEDBACK_ENABLED', 'GROK_TRACE_UPLOAD', 'GROK_TELEMETRY_TRACE_UPLOAD', 'GROK_SETTINGS_CACHE']) {
       if (process.env[key] !== undefined) env[key] = process.env[key]
     }
+    for (const [key, value] of Object.entries(process.env)) {
+      if (value !== undefined && (key === 'XAI_API_KEY' || key.endsWith('_API_KEY'))) env[key] = value
+    }
+    env.GROK_HOME = join(root, '.grok')
     if (!helpOnly && env.CODSH_ACP_PATCH === undefined) {
       const plugin = fileURLToPath(new URL('./rust-acp-file-approval.mjs', import.meta.url))
       const overlay = join(root, 'dsh', 'rust-file-approval.yml')

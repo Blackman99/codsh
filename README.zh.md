@@ -62,6 +62,18 @@ dsh 给出的差异，`y` 允许该次调用，`n` 拒绝且不写入。文件�
 未完成的工具显示为 `[interrupted]` / unknown，并且不会自动重放副作用。
 第二个客户端若不能取得写入权会被明确拒绝，而不会再开一个执行核心。
 
+预览的用户配置是 `$GROK_HOME/config.toml`（默认
+`~/.codsh-rust/.grok/config.toml`）。兼容的 `[model.<id>]` 字段
+（`base_url`、`env_key`、`api_key`、`model`、`name`）和 `models.default`
+会映射到隔离的 dsh `settings.yaml`，两份文件不会互相覆盖。
+`codsh --rust inspect` 与 `inspect --json` 列出每项生效值及来源（命令行
+`--model`、环境变量、`GROK_CONFIG` 覆盖层、config.toml、默认值）。
+无效的 `config.toml` 会保留原文，并报告路径和原因。首次运行缺少凭据时只给出
+可操作提示：不打开 grok.com 登录，不访问默认官方遥测/上传，也不自动导入
+`~/.dsh` 或 `~/.grok` 中的旧凭据。写好带 `base_url` 的提供商后，再设置对应的
+`env_key`（例如 `XAI_API_KEY`）。父进程的 `GROK_HOME` 会被忽略；预览把
+`GROK_HOME` 固定为 `~/.codsh-rust/.grok`。
+
 预览使用 `~/.codsh-rust/dsh` 与 `rust` Profile，忽略继承的 `DSH_HOME`、
 提供商密钥及 Grok 设置，不迁移旧会话。如果预览 Home/Profile 是符号链接，
 或与 `DSH_HOME`/`GROK_HOME` 重叠（包括大小写不敏感文件系统上的大小写别名），

@@ -30,7 +30,11 @@ wayfinder → grill → spec → tickets → landing → done.
 `codsh --rust` selects the isolated Rust client, which drives real dsh turns
 over ACP/JSON-RPC. Plain `codsh` is unchanged. The candidate uses
 `~/.codsh-rust/dsh`, Profile `rust`, never imports old credentials or sessions,
-and does not start the legacy Bundle or official agent core. Filesystem-resolved overlap with `DSH_HOME`/`GROK_HOME`, including case
+and does not start the legacy Bundle or official agent core. Configure a
+provider in `~/.codsh-rust/.grok/config.toml` and inspect effective values with
+`codsh --rust inspect` / `inspect --json`. That file maps into isolated dsh
+`settings.yaml`; a hand-edited settings file that disagrees is not overwritten.
+Missing credentials stay local (no grok.com login or default telemetry). Filesystem-resolved overlap with `DSH_HOME`/`GROK_HOME`, including case
 aliases, is refused before writes; symlinked preview paths remain forbidden.
 Device/inode ancestry checks include existing ancestors of missing paths, catching
 macOS firmlinks even when native realpath strings differ. Separate aliased Homes

@@ -195,7 +195,7 @@ rejects malformed structured output and missing terminal events.
 Freeze measured numeric performance thresholds before collecting candidate data.
 Run the ordinary typecheck and full unit suite for changes to these workflows.
 
-## Isolated Rust client (#134, #135)
+## Isolated Rust client (#134–#139)
 
 Rust 1.98.1 (verified toolchain, edition 2024), Cargo, Node 22.19+, and the ordinary pnpm workspace
 are required to build a local native candidate. `rust/Cargo.lock` pins the
@@ -223,6 +223,7 @@ pnpm run test:rust:pty
 pnpm exec vitest run scripts/rust-acp-protocol.spec.mjs
 python3 scripts/rust-cancel-pty-test.py
 python3 scripts/rust-resume-pty-test.py
+python3 scripts/rust-config-pty-test.py
 ```
 
 `build:rust` stages the host binary under ignored `packages/cli/native/<os>-<arch>`
@@ -318,8 +319,13 @@ running turn, including pending approval and in-flight tools. Esc never cancels.
 Late allow replies and process teardown cannot execute a cancelled action; unknown
 tool results display as cancelled. After cancel, a new prompt still works.
 `test:rust:pty` now also runs `scripts/rust-turn-pty-test.py`,
-`scripts/rust-file-pty-test.py`, `scripts/rust-cancel-pty-test.py`, and
-`scripts/rust-resume-pty-test.py` against the packed native candidate. Public
+`scripts/rust-file-pty-test.py`, `scripts/rust-cancel-pty-test.py`,
+`scripts/rust-resume-pty-test.py`, and `scripts/rust-config-pty-test.py`
+against the packed native candidate. The config test covers `inspect` /
+`inspect --json`, CLI/env/overlay/file precedence, invalid TOML preservation,
+first-run missing credentials, generated dsh `settings.yaml` mapping, restart
+after a config change, unmanaged settings conflict, and refusal to import
+legacy `~/.dsh` / `~/.grok` credentials. Public
 ACP framing, including file-tool permission, `session/cancel`, `session/list`,
 and `session/resume`, is covered by `scripts/rust-acp-protocol.spec.mjs`.
 `--continue` / `--resume <id>` restore the same dsh session through ACP

@@ -1,4 +1,5 @@
 mod acp;
+mod config;
 mod session_history;
 mod session_owner;
 mod theme;
@@ -106,9 +107,16 @@ struct Turn {
     interrupted: bool,
 }
 
+#[derive(Debug)]
 enum LaunchMode {
     Help,
     Version,
+    Inspect {
+        json: bool,
+        help: bool,
+        debug: bool,
+        debug_file: Option<PathBuf>,
+    },
     New,
     Continue,
     Resume(String),
@@ -120,22 +128,111 @@ struct Connection {
     resumed: bool,
 }
 
-fn parse_launch(args: &[String]) -> io::Result<LaunchMode> {
-    match args {
-        [] => Ok(LaunchMode::New),
-        [flag] if flag == "--help" || flag == "-h" => Ok(LaunchMode::Help),
-        [flag] if flag == "--version" || flag == "-V" => Ok(LaunchMode::Version),
-        [flag] if flag == "--continue" => Ok(LaunchMode::Continue),
-        [flag] if flag == "--resume" => Err(io::Error::other(
-            "missing session id; use codsh --rust --resume <id>",
-        )),
-        [flag, id] if flag == "--resume" && !id.is_empty() && !id.starts_with('-') => {
-            Ok(LaunchMode::Resume(id.clone()))
+#[derive(Debug)]
+struct Launch {
+    mode: LaunchMode,
+    model: Option<String>,
+}
+
+fn parse_launch(args: &[String]) -> io::Result<Launch> {
+    let mut model = None;
+    let mut rest = Vec::new();
+    let mut index = 0;
+    while index < args.len() {
+        let arg = &args[index];
+        if arg == "--model" {
+            index += 1;
+            let value = args.get(index).ok_or_else(|| {
+                io::Error::other("missing --model value; use codsh --rust --help")
+            })?;
+            if value.starts_with('-') {
+                return Err(io::Error::other(
+                    "missing --model value; use codsh --rust --help",
+                ));
+            }
+            model = Some(value.clone());
+        } else if let Some(value) = arg.strip_prefix("--model=") {
+            if value.is_empty() {
+                return Err(io::Error::other(
+                    "missing --model value; use codsh --rust --help",
+                ));
+            }
+            model = Some(value.to_string());
+        } else {
+            rest.push(arg.clone());
         }
-        _ => Err(io::Error::other(
-            "unsupported preview arguments; use codsh --rust --help",
-        )),
+        index += 1;
     }
+    let rest_flags: Vec<&str> = rest.iter().map(String::as_str).collect();
+    let mode = match rest_flags.as_slice() {
+        [] => LaunchMode::New,
+        ["--help" | "-h"] => LaunchMode::Help,
+        ["--version" | "-V"] => LaunchMode::Version,
+        ["--continue"] => LaunchMode::Continue,
+        ["--resume"] => {
+            return Err(io::Error::other(
+                "missing session id; use codsh --rust --resume <id>",
+            ));
+        }
+        ["--resume", id] if !id.is_empty() && !id.starts_with('-') => {
+            LaunchMode::Resume((*id).to_string())
+        }
+        ["inspect"] => LaunchMode::Inspect {
+            json: false,
+            help: false,
+            debug: false,
+            debug_file: None,
+        },
+        ["inspect", flags @ ..] => parse_inspect(flags)?,
+        _ => {
+            return Err(io::Error::other(
+                "unsupported preview arguments; use codsh --rust --help",
+            ));
+        }
+    };
+    Ok(Launch { mode, model })
+}
+
+fn parse_inspect(flags: &[&str]) -> io::Result<LaunchMode> {
+    let mut json = false;
+    let mut help = false;
+    let mut debug = false;
+    let mut debug_file = None;
+    let mut index = 0;
+    while index < flags.len() {
+        match flags[index] {
+            "--json" => json = true,
+            "--help" | "-h" => help = true,
+            "--debug" => debug = true,
+            "--debug-file" => {
+                index += 1;
+                let path = flags.get(index).ok_or_else(|| {
+                    io::Error::other("missing --debug-file path; use codsh --rust inspect --help")
+                })?;
+                debug_file = Some(PathBuf::from(path));
+            }
+            "--leader-socket" => {
+                return Err(io::Error::other(
+                    "inspect --leader-socket is unused; dsh owns execution. Omit the flag.",
+                ));
+            }
+            other if other.starts_with("--debug-file=") => {
+                debug_file = Some(PathBuf::from(&other[13..]));
+            }
+            other => {
+                return Err(io::Error::other(format!(
+                    "unsupported inspect option {other}; use codsh --rust inspect --help"
+                )));
+            }
+        }
+        index += 1;
+    }
+    Ok(LaunchMode::Inspect {
+        json,
+        help,
+        debug,
+        debug_file,
+    })
 }
 
 fn turn_from_restored(item: RestoredTurn) -> Turn {
@@ -217,12 +314,18 @@ fn resolve_resume(
     }
 }
 
-fn connect(mode: &LaunchMode, previous: Option<&str>) -> Result<(Connection, Vec<Turn>), String> {
+fn connect(
+    mode: &LaunchMode,
+    previous: Option<&str>,
+    extra_env: &[(String, String)],
+    patch: Option<&PathBuf>,
+) -> Result<(Connection, Vec<Turn>), String> {
     let cwd = std::env::current_dir().map_err(|error| error.to_string())?;
     let dsh_home = PathBuf::from(
         std::env::var_os("DSH_HOME").ok_or("missing isolated DSH_HOME; use codsh --rust")?,
     );
-    let spec = acp::dsh_spawn_spec(cwd.clone(), &dsh_home).map_err(|error| error.message)?;
+    let spec = acp::dsh_spawn_spec(cwd.clone(), &dsh_home, extra_env, patch.cloned())
+        .map_err(|error| error.message)?;
     let mut client = AcpClient::spawn(spec).map_err(|error| error.to_string())?;
     client
         .initialize(Duration::from_secs(20))
@@ -530,9 +633,33 @@ fn apply_events(turns: &mut [Turn], inflight: &mut bool, events: Vec<AcpEvent>) 
     disconnect
 }
 
+fn inspect_help() -> &'static str {
+    "Show the configuration this directory resolves\n\nUsage: codsh --rust inspect [OPTIONS]\n\nOptions:\n      --json                  Emit machine-readable JSON output\n      --debug                 Enable debug logging\n      --debug-file <FILE>     Write debug logs to FILE\n  -h, --help                  Print help\n\nLeader sockets are unused; dsh owns execution."
+}
+
+fn load_runtime_config(cli_model: Option<&str>) -> config::EffectiveConfig {
+    let mut loaded = config::load();
+    if let Some(model) = cli_model {
+        let mut input = config::LoadInput {
+            home: PathBuf::from(std::env::var_os("HOME").unwrap_or_default()),
+            dsh_home: PathBuf::from(std::env::var_os("DSH_HOME").unwrap_or_default()),
+            cwd: std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")),
+            grok_home: std::env::var_os("GROK_HOME").map(PathBuf::from),
+            env: std::env::vars().collect(),
+            cli_model: Some(model.to_string()),
+        };
+        if input.dsh_home.as_os_str().is_empty() {
+            input.dsh_home = input.home.join("dsh");
+        }
+        loaded = config::load_from(input);
+    }
+    loaded
+}
+
 fn run() -> io::Result<()> {
     let args: Vec<String> = std::env::args().skip(1).collect();
-    let mode = parse_launch(&args)?;
+    let launch = parse_launch(&args)?;
+    let mode = launch.mode;
     match &mode {
         LaunchMode::Version => {
             println!(
@@ -543,8 +670,45 @@ fn run() -> io::Result<()> {
         }
         LaunchMode::Help => {
             println!(
-                "codsh --rust\n\nIsolated Rust client. Real dsh executes turns over ACP/JSON-RPC stdio.\nHome: ~/.codsh-rust/dsh; Profile: rust. Legacy codsh is unchanged.\nFile read/edit/write run through dsh tools; y allows once, n rejects with no write.\nCtrl+Q/Ctrl+D: quit. Ctrl+C: clear a draft; empty draft cancels a running turn via dsh, or quits when idle before any turn.\nEsc never cancels a turn or a pending approval; it dismisses selection and reminds you to use Ctrl+C.\nEnter: submit prompt. --continue resumes the last session in this directory; --resume <id> loads that dsh session. A second client is refused while this process holds write ownership. Interrupted tools show [interrupted]/unknown and are not replayed.\nOptions: --help, --version, --continue, --resume <id>."
+                "codsh --rust\n\nIsolated Rust client. Real dsh executes turns over ACP/JSON-RPC stdio.\nHome: ~/.codsh-rust/dsh; Profile: rust. Legacy codsh is unchanged.\nUser config: $GROK_HOME/config.toml (default ~/.codsh-rust/.grok/config.toml), mapped into isolated dsh settings.yaml.\n`codsh --rust inspect` / `inspect --json` shows effective values and origins. Invalid config.toml is left unchanged and reports its path.\nFirst-run missing credentials stay local: no grok.com login, no default official telemetry, no import of ~/.dsh or ~/.grok credentials.\nFile read/edit/write run through dsh tools; y allows once, n rejects with no write.\nCtrl+Q/Ctrl+D: quit. Ctrl+C: clear a draft; empty draft cancels a running turn via dsh, or quits when idle before any turn.\nEsc never cancels a turn or a pending approval; it dismisses selection and reminds you to use Ctrl+C.\nEnter: submit prompt. --continue resumes the last session in this directory; --resume <id> loads that dsh session. A second client is refused while this process holds write ownership. Interrupted tools show [interrupted]/unknown and are not replayed.\nOptions: --help, --version, --continue, --resume <id>, --model <id>, inspect."
             );
+            return Ok(());
+        }
+        LaunchMode::Inspect { help: true, .. } => {
+            println!("{}", inspect_help());
+            return Ok(());
+        }
+        LaunchMode::Inspect {
+            json,
+            debug,
+            debug_file,
+            ..
+        } => {
+            let loaded = load_runtime_config(launch.model.as_deref());
+            if *debug || debug_file.is_some() {
+                let trace = format!(
+                    "config.toml={} status={}\n",
+                    loaded.config_path.display(),
+                    loaded
+                        .files
+                        .iter()
+                        .find(|file| file.role == "config.toml")
+                        .map(|file| file.status.as_str())
+                        .unwrap_or("unknown")
+                );
+                eprint!("{trace}");
+                if let Some(path) = debug_file {
+                    std::fs::write(path, trace)?;
+                }
+            }
+            if *json {
+                print!("{}", config::inspect_json(&loaded));
+            } else {
+                println!("{}", config::inspect_text(&loaded));
+            }
+            if !loaded.errors.is_empty() {
+                return Err(io::Error::other(loaded.first_run_message()));
+            }
             return Ok(());
         }
         _ => {}
@@ -578,18 +742,37 @@ fn run() -> io::Result<()> {
     let mut owner: Option<SessionOwner> = None;
     let mut resumed = false;
     let mut previous_session: Option<String> = None;
-    let mut client = match connect(&mode, None) {
-        Ok((connection, restored)) => {
-            resumed = connection.resumed;
-            previous_session = connection.client.session_id.clone();
-            owner = Some(connection.owner);
-            turns = restored;
-            Some(connection.client)
-        }
+    let mut effective = load_runtime_config(launch.model.as_deref());
+    let mut extra_env = config::credential_env(&effective, &std::env::vars().collect());
+    let mut apply_failed = false;
+    let mut patch = match config::apply_to_dsh(&effective, &std::env::vars().collect()) {
+        Ok(path) => path,
         Err(error) => {
-            last_error = error;
+            last_error = error.to_string();
+            apply_failed = true;
             None
         }
+    };
+    let can_execute = !apply_failed && (effective.ready || config::is_test_execution_seam());
+    if !can_execute && last_error.is_empty() {
+        last_error = effective.first_run_message();
+    }
+    let mut client = if can_execute {
+        match connect(&mode, None, &extra_env, patch.as_ref()) {
+            Ok((connection, restored)) => {
+                resumed = connection.resumed;
+                previous_session = connection.client.session_id.clone();
+                owner = Some(connection.owner);
+                turns = restored;
+                Some(connection.client)
+            }
+            Err(error) => {
+                last_error = error;
+                None
+            }
+        }
+    } else {
+        None
     };
     while !stopping.load(Ordering::Relaxed) {
         let disconnect = client.as_mut().and_then(|active| {
@@ -712,7 +895,27 @@ fn run() -> io::Result<()> {
                                 continue;
                             }
                             if client.is_none() {
-                                match connect(&mode, previous_session.as_deref()) {
+                                effective = load_runtime_config(launch.model.as_deref());
+                                extra_env =
+                                    config::credential_env(&effective, &std::env::vars().collect());
+                                match config::apply_to_dsh(&effective, &std::env::vars().collect())
+                                {
+                                    Ok(path) => patch = path,
+                                    Err(error) => {
+                                        last_error = error.to_string();
+                                        continue;
+                                    }
+                                }
+                                if !effective.ready && !config::is_test_execution_seam() {
+                                    last_error = effective.first_run_message();
+                                    continue;
+                                }
+                                match connect(
+                                    &mode,
+                                    previous_session.as_deref(),
+                                    &extra_env,
+                                    patch.as_ref(),
+                                ) {
                                     Ok((connection, restored)) => {
                                         resumed = connection.resumed;
                                         previous_session = connection.client.session_id.clone();
@@ -791,5 +994,50 @@ fn main() {
     if let Err(error) = run() {
         eprintln!("codsh: Rust startup failed: {error}");
         std::process::exit(1);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn args(values: &[&str]) -> Vec<String> {
+        values.iter().map(|value| (*value).to_string()).collect()
+    }
+
+    #[test]
+    fn parse_inspect_json_and_model() {
+        let launch = parse_launch(&args(&["inspect", "--json", "--model", "gateway"])).unwrap();
+        assert!(matches!(
+            launch.mode,
+            LaunchMode::Inspect {
+                json: true,
+                help: false,
+                ..
+            }
+        ));
+        assert_eq!(launch.model.as_deref(), Some("gateway"));
+    }
+
+    #[test]
+    fn parse_inspect_help() {
+        let launch = parse_launch(&args(&["inspect", "--help"])).unwrap();
+        assert!(matches!(
+            launch.mode,
+            LaunchMode::Inspect { help: true, .. }
+        ));
+    }
+
+    #[test]
+    fn parse_leader_socket_is_refused() {
+        let error = parse_launch(&args(&["inspect", "--leader-socket", "x"])).unwrap_err();
+        assert!(error.to_string().contains("dsh owns execution"));
+    }
+
+    #[test]
+    fn parse_continue_with_model() {
+        let launch = parse_launch(&args(&["--model", "gateway", "--continue"])).unwrap();
+        assert!(matches!(launch.mode, LaunchMode::Continue));
+        assert_eq!(launch.model.as_deref(), Some("gateway"));
     }
 }

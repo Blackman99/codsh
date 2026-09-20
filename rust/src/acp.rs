@@ -240,7 +240,12 @@ pub struct SpawnSpec {
     pub stderr_log: Option<PathBuf>,
 }
 
-pub fn dsh_spawn_spec(cwd: PathBuf, dsh_home: &Path) -> Result<SpawnSpec, AcpError> {
+pub fn dsh_spawn_spec(
+    cwd: PathBuf,
+    dsh_home: &Path,
+    extra_env: &[(String, String)],
+    patch: Option<PathBuf>,
+) -> Result<SpawnSpec, AcpError> {
     let dsh = std::env::var_os("DSH_BIN").ok_or_else(|| AcpError {
         message: "missing DSH_BIN; use codsh --rust".into(),
     })?;
@@ -262,9 +267,10 @@ pub fn dsh_spawn_spec(cwd: PathBuf, dsh_home: &Path) -> Result<SpawnSpec, AcpErr
     } else {
         (dsh, vec!["--profile".into(), "acp".into()])
     };
-    if let Some(patch) = std::env::var_os("CODSH_ACP_PATCH") {
+    let patch = patch.or_else(|| std::env::var_os("CODSH_ACP_PATCH").map(PathBuf::from));
+    if let Some(patch) = patch {
         args.push("--patch".into());
-        args.push(PathBuf::from(patch).to_string_lossy().into_owned());
+        args.push(patch.to_string_lossy().into_owned());
     }
     let mut env = Vec::new();
     for key in [
@@ -302,6 +308,10 @@ pub fn dsh_spawn_spec(cwd: PathBuf, dsh_home: &Path) -> Result<SpawnSpec, AcpErr
     env.push(("DSH_TELEMETRY_MODE".into(), "OFF".into()));
     env.push(("CODSH_UPDATE_CHECK".into(), "off".into()));
     env.push(("DEEPSEEK_API_KEY".into(), String::new()));
+    for (key, value) in extra_env {
+        env.retain(|(existing, _)| existing != key);
+        env.push((key.clone(), value.clone()));
+    }
     Ok(SpawnSpec {
         program,
         args,
