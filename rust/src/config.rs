@@ -2,6 +2,9 @@ use crate::models::{
     ApiBackend, CatalogChoice, GROK_EFFORTS, Routing, acp_model_value, effort_supported,
     load_saved_selection, normalize_effort,
 };
+use crate::trust::{
+    self, DecideInputs, GrantOutcome, PersistStatus, TRUST_FILE_NAME, TrustOutcome, TrustStore,
+};
 use serde_json::{Value as JsonValue, json};
 use std::collections::BTreeMap;
 use std::fs;
@@ -10,6 +13,17 @@ use std::path::{Path, PathBuf};
 use toml::Value as TomlValue;
 
 pub const GENERATED_MARKER: &str = "# generated-by: codsh-rust-config";
+
+pub const UNTRUSTED_DSH_PLUGIN_PATCH: &str = "\
+- id: agent-instructions
+  disabled: true
+- id: skill
+  disabled: true
+- id: skill-filesystem
+  disabled: true
+- id: tool-skill
+  disabled: true
+";
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Setting {
@@ -56,6 +70,7 @@ pub struct EffectiveConfig {
     pub grok_home: PathBuf,
     pub config_path: PathBuf,
     pub dsh_home: PathBuf,
+    pub cwd: PathBuf,
     pub files: Vec<FileLayer>,
     pub settings: Vec<Setting>,
     pub default_model: Option<String>,
@@ -64,6 +79,7 @@ pub struct EffectiveConfig {
     pub telemetry: bool,
     pub feedback: bool,
     pub trace_upload: bool,
+    pub remote_fetch: bool,
     pub ready: bool,
     pub missing_credential: Option<String>,
     pub errors: Vec<ConfigError>,
@@ -77,18 +93,25 @@ pub struct EffectiveConfig {
     pub prune_threshold_chars: u64,
     pub prune_head_chars: u64,
     pub prune_tail_chars: u64,
+    pub workspace_trusted: bool,
+    pub project_assets_active: bool,
+    pub trust_prompt: bool,
+    pub trust_message: String,
 }
 
 #[derive(Clone, Debug, Default)]
 pub struct LoadInput {
     pub home: PathBuf,
     pub dsh_home: PathBuf,
-    #[allow(dead_code)]
     pub cwd: PathBuf,
     pub grok_home: Option<PathBuf>,
     pub env: BTreeMap<String, String>,
     pub cli_model: Option<String>,
     pub cli_effort: Option<String>,
+    pub cli_trust: bool,
+    pub cli_revoke_trust: bool,
+    pub cli_trust_path: Option<PathBuf>,
+    pub interactive: bool,
 }
 
 impl EffectiveConfig {
@@ -152,16 +175,27 @@ impl EffectiveConfig {
                 .as_ref()
                 .map(|path| path.display().to_string())
                 .unwrap_or_else(|| "config".into());
+            let extra = if self.trust_message.is_empty() {
+                String::new()
+            } else {
+                format!("\n{}", self.trust_message)
+            };
             return format!(
-                "Invalid configuration: {location}: {}\nOriginal file was not changed.",
+                "Invalid configuration: {location}: {}\nOriginal file was not changed.{extra}",
                 error.reason
             );
         }
         if let Some(missing) = &self.missing_credential {
+            if self.trust_prompt {
+                return format!("{missing}\n{}", self.trust_message);
+            }
             return missing.clone();
         }
-        if !self.ready {
+        if !self.ready && !self.trust_prompt {
             return "First-run: no usable provider. Official grok.com login/telemetry unused.\nWrite ~/.codsh-rust/.grok/config.toml ([model.<id>] base_url, env_key). Export the key. inspect shows origins.".into();
+        }
+        if self.trust_prompt {
+            return self.trust_message.clone();
         }
         String::new()
     }
@@ -174,6 +208,7 @@ pub fn grok_home_from(home: &Path, env_home: Option<&str>) -> PathBuf {
     }
 }
 
+#[allow(dead_code)]
 pub fn load() -> EffectiveConfig {
     let home = PathBuf::from(std::env::var_os("HOME").unwrap_or_default());
     let dsh_home =
@@ -194,6 +229,10 @@ pub fn load() -> EffectiveConfig {
         env,
         cli_model: None,
         cli_effort: None,
+        cli_trust: false,
+        cli_revoke_trust: false,
+        cli_trust_path: None,
+        interactive: true,
     })
 }
 
@@ -229,53 +268,208 @@ pub fn load_from(mut input: LoadInput) -> EffectiveConfig {
         source: grok_home_source.into(),
     });
 
-    let mut table = TomlValue::Table(toml::map::Map::new());
-    match fs::read(&config_path) {
-        Ok(bytes) => match toml::from_str::<TomlValue>(&String::from_utf8_lossy(&bytes)) {
-            Ok(parsed) => {
-                files.push(FileLayer {
-                    path: config_path.clone(),
-                    role: "config.toml".into(),
-                    status: "ok".into(),
-                });
-                table = parsed;
+    let managed_path = grok_home.join("managed_config.toml");
+    let requirements_path = grok_home.join("requirements.toml");
+    let managed = read_layer(
+        &managed_path,
+        "managed_config.toml",
+        false,
+        &mut files,
+        &mut errors,
+    );
+    let user = read_layer(&config_path, "config.toml", true, &mut files, &mut errors);
+    let requirements = read_layer(
+        &requirements_path,
+        "requirements.toml",
+        false,
+        &mut files,
+        &mut errors,
+    );
+    let admin_fail_closed = bool_from_toml(
+        requirements
+            .as_ref()
+            .and_then(|value| value.get("fail_closed")),
+    )
+    .unwrap_or(false);
+    let env_fail_closed = env_bool(input.env.get("GROK_MANAGED_CONFIG_FAIL_CLOSED")) == Some(true);
+    let fail_closed = admin_fail_closed || env_fail_closed;
+    diagnose_unknown_security(
+        managed.as_ref(),
+        Some(&managed_path),
+        "managed",
+        fail_closed,
+        &mut errors,
+        &mut warnings,
+    );
+    diagnose_unknown_security(
+        requirements.as_ref(),
+        Some(&requirements_path),
+        "requirements",
+        true,
+        &mut errors,
+        &mut warnings,
+    );
+    diagnose_invalid_policy(
+        requirements.as_ref(),
+        Some(&requirements_path),
+        "requirements",
+        &mut errors,
+    );
+    diagnose_invalid_policy(
+        managed.as_ref(),
+        Some(&managed_path),
+        "managed",
+        &mut errors,
+    );
+
+    let requirement_folder_trust = bool_from_toml(
+        requirements
+            .as_ref()
+            .and_then(|value| value.get("folder_trust"))
+            .and_then(|value| value.get("enabled")),
+    );
+    let user_folder_trust = bool_from_toml(
+        user.as_ref()
+            .and_then(|value| value.get("folder_trust"))
+            .and_then(|value| value.get("enabled")),
+    );
+    let managed_folder_trust = bool_from_toml(
+        managed
+            .as_ref()
+            .and_then(|value| value.get("folder_trust"))
+            .and_then(|value| value.get("enabled")),
+    );
+    let (folder_trust_on, folder_trust_source) = trust::folder_trust_enabled(
+        input.env.get("GROK_FOLDER_TRUST").map(String::as_str),
+        user_folder_trust,
+        managed_folder_trust,
+        requirement_folder_trust,
+    );
+    let workspace_key = input
+        .cli_trust_path
+        .as_ref()
+        .map(|path| trust::workspace_key(path, &input.home))
+        .unwrap_or_else(|| trust::workspace_key(&input.cwd, &input.home));
+    let workspace_path = workspace_key.join(".grok").join("config.toml");
+    let mut store = TrustStore::load_from(grok_home.join(TRUST_FILE_NAME), input.home.clone());
+    if !store.disk_readable() {
+        errors.push(ConfigError {
+            path: Some(grok_home.join(TRUST_FILE_NAME)),
+            reason: "trusted_folders.toml could not be read; folder trust fails closed. Fix or delete the file."
+                .into(),
+        });
+    }
+    if input.cli_revoke_trust {
+        let _ = trust::revoke_folder_trust(&mut store, &workspace_key);
+        store = TrustStore::load_from(grok_home.join(TRUST_FILE_NAME), input.home.clone());
+    }
+    let mut trust_message = String::new();
+    if input.cli_trust {
+        match trust::grant_folder_trust_key(Some(&grok_home), &input.home, &workspace_key) {
+            GrantOutcome::Granted {
+                persist: PersistStatus::ProcessLocalOnly { .. },
+                ..
+            } => {
+                trust_message = "Couldn't save folder trust. Check that $GROK_HOME is writable, then run `codsh --rust --trust` in this folder.".into();
             }
-            Err(error) => {
-                files.push(FileLayer {
-                    path: config_path.clone(),
-                    role: "config.toml".into(),
-                    status: "invalid".into(),
-                });
+            GrantOutcome::Refused { reason } => {
                 errors.push(ConfigError {
-                    path: Some(config_path.clone()),
-                    reason: error.to_string(),
+                    path: Some(workspace_key.clone()),
+                    reason: reason.to_string(),
                 });
             }
-        },
-        Err(error) if error.kind() == ErrorKind::NotFound => {
-            files.push(FileLayer {
-                path: config_path.clone(),
-                role: "config.toml".into(),
-                status: "missing".into(),
-            });
+            _ => {}
         }
-        Err(error) => {
-            errors.push(ConfigError {
-                path: Some(config_path.clone()),
-                reason: error.to_string(),
-            });
+        store = TrustStore::load_from(grok_home.join(TRUST_FILE_NAME), input.home.clone());
+    }
+    let kinds = trust::repo_config_kinds(&input.cwd);
+    let outcome = if let Some(trusted) = trust::process_decision(&workspace_key) {
+        if trusted {
+            TrustOutcome::Trusted
+        } else {
+            TrustOutcome::Untrusted
         }
+    } else {
+        trust::decide(
+            folder_trust_on,
+            &DecideInputs {
+                store_trusted: trust::is_trusted_this_process(&workspace_key, &store),
+                repo_configs_present: !kinds.is_empty(),
+                is_interactive: input.interactive,
+                key_recordable: !trust::is_unsafe_trust_root(&workspace_key, &input.home),
+            },
+        )
+    };
+    let trust_prompt = outcome == TrustOutcome::Prompt;
+    let workspace_trusted = matches!(outcome, TrustOutcome::Trusted);
+    let store_trusted = trust::is_trusted_this_process(&workspace_key, &store);
+    if trust_prompt {
+        trust_message = format!(
+            "This folder contains repo-local config ({}) that would otherwise apply automatically.\nFolder: {}\nTrust this workspace? y=allow  n=deny (untrusted Hooks/plugins/project capabilities will not run)",
+            if kinds.is_empty() {
+                "project assets".into()
+            } else {
+                kinds.join(", ")
+            },
+            workspace_key.display()
+        );
+    } else if !workspace_trusted && !kinds.is_empty() {
+        trust_message = format!(
+            "Workspace untrusted; inactive project assets: {}. Use --trust or press y when prompted.",
+            kinds.join(", ")
+        );
+    }
+    let skipped_untrusted_assets =
+        trust::skip_untrusted_project_hooks(&input.cwd, workspace_trusted).unwrap_or(false);
+    if skipped_untrusted_assets {
+        files.push(FileLayer {
+            path: workspace_key.clone(),
+            role: "project-assets".into(),
+            status: "skipped-untrusted".into(),
+        });
     }
 
-    stamp_model_sources(&table, &mut sources, "config.toml");
-    if let Some(overlay) = overlay_table(&input.env, &mut warnings) {
-        merge_toml(&mut table, &overlay);
+    let mut table = TomlValue::Table(toml::map::Map::new());
+    if let Some(value) = &managed {
+        merge_toml(&mut table, value);
+        stamp_model_sources(value, &mut sources, "managed");
+    }
+    if let Some(value) = &user {
+        merge_toml(&mut table, value);
+        stamp_model_sources(value, &mut sources, "config.toml");
+    }
+    if workspace_trusted {
+        if let Some(value) =
+            read_layer(&workspace_path, "workspace", false, &mut files, &mut errors)
+        {
+            diagnose_unknown_security(
+                Some(&value),
+                Some(&workspace_path),
+                "workspace",
+                fail_closed,
+                &mut errors,
+                &mut warnings,
+            );
+            merge_toml(&mut table, &value);
+            stamp_model_sources(&value, &mut sources, "workspace");
+        }
+    } else if workspace_path.exists() {
+        files.push(FileLayer {
+            path: workspace_path.clone(),
+            role: "workspace".into(),
+            status: "skipped-untrusted".into(),
+        });
+    }
+    if let Some(overlay) = overlay_table(&input.env, &mut warnings)
+        && let Some(confined) = confine_overlay(overlay, fail_closed, &mut warnings, &mut errors)
+    {
+        merge_toml(&mut table, &confined);
         files.push(FileLayer {
             path: PathBuf::from("GROK_CONFIG"),
             role: "overlay".into(),
             status: "ok".into(),
         });
-        stamp_model_sources(&overlay, &mut sources, "overlay");
+        stamp_model_sources(&confined, &mut sources, "overlay");
     }
 
     if let Some(model_table) = table.get("model").and_then(TomlValue::as_table) {
@@ -315,6 +509,16 @@ pub fn load_from(mut input: LoadInput) -> EffectiveConfig {
             .entry("models.default_reasoning_effort".into())
             .or_insert_with(|| "config.toml".into());
     }
+    let mut remote_fetch = bool_from_toml(
+        table
+            .get("features")
+            .and_then(|features| features.get("remote_fetch")),
+    )
+    .unwrap_or(false);
+    sources
+        .entry("features.remote_fetch".into())
+        .or_insert_with(|| "default".into());
+
     if let Some(saved) = load_saved_selection(&grok_home) {
         if models.contains_key(&saved.model_id) {
             default_model = Some(saved.model_id);
@@ -394,6 +598,42 @@ pub fn load_from(mut input: LoadInput) -> EffectiveConfig {
     }) {
         default_effort = normalize_effort(&cli);
         sources.insert("models.default_reasoning_effort".into(), "cli".into());
+    }
+
+    if let Some(req) = &requirements {
+        if let Some(model_table) = req.get("model").and_then(TomlValue::as_table) {
+            for (id, spec) in model_table {
+                if let Some(model) = parse_model(id, spec) {
+                    models.insert(id.clone(), model);
+                }
+            }
+            stamp_model_sources(req, &mut sources, "requirements");
+        }
+        if let Some(value) = req
+            .get("models")
+            .and_then(|models| models.get("default"))
+            .and_then(TomlValue::as_str)
+        {
+            default_model = Some(value.to_string());
+            sources.insert("models.default".into(), "requirements".into());
+        }
+        if let Some(value) = bool_from_toml(
+            req.get("features")
+                .and_then(|features| features.get("remote_fetch")),
+        ) {
+            remote_fetch = value;
+            sources.insert("features.remote_fetch".into(), "requirements".into());
+        }
+        if let Some(url) = req
+            .get("endpoints")
+            .and_then(|endpoints| endpoints.get("managed_config_url"))
+            .and_then(TomlValue::as_str)
+            && !url.is_empty()
+        {
+            warnings.push(format!(
+                "managed_config_url is locked at {url}; malformed or stale remote policy cannot weaken requirements.toml"
+            ));
+        }
     }
 
     for model in models.values_mut() {
@@ -612,6 +852,70 @@ pub fn load_from(mut input: LoadInput) -> EffectiveConfig {
         trace_value,
         trace_source,
     );
+    push_setting(
+        &mut settings,
+        "features.remote_fetch",
+        if remote_fetch { "true" } else { "false" },
+        sources
+            .get("features.remote_fetch")
+            .map(String::as_str)
+            .unwrap_or("default"),
+    );
+    push_setting(
+        &mut settings,
+        "folder_trust.enabled",
+        if folder_trust_on { "true" } else { "false" },
+        folder_trust_source,
+    );
+    push_setting(
+        &mut settings,
+        "workspace.trust",
+        match outcome {
+            TrustOutcome::Trusted => "trusted",
+            TrustOutcome::Untrusted => "untrusted",
+            TrustOutcome::Prompt => "prompt",
+        },
+        if store_trusted {
+            "store"
+        } else if input.cli_trust {
+            "cli"
+        } else {
+            folder_trust_source
+        },
+    );
+    push_setting(
+        &mut settings,
+        "workspace.key",
+        &workspace_key.display().to_string(),
+        "workspace",
+    );
+    let project_assets_active = workspace_trusted;
+    push_setting(
+        &mut settings,
+        "workspace.project_assets",
+        if project_assets_active {
+            "active"
+        } else {
+            "inactive"
+        },
+        if project_assets_active {
+            "trusted"
+        } else {
+            "untrusted"
+        },
+    );
+    push_setting(
+        &mut settings,
+        "fail_closed",
+        if fail_closed { "true" } else { "false" },
+        if admin_fail_closed {
+            "requirements"
+        } else if env_fail_closed {
+            "environment"
+        } else {
+            "default"
+        },
+    );
 
     if let Some(id) = &default_model
         && !models.contains_key(id)
@@ -686,7 +990,16 @@ pub fn load_from(mut input: LoadInput) -> EffectiveConfig {
 
     let mut missing_credential = None;
     let mut ready = false;
+    let policy_blocked = errors.iter().any(|error| {
+        error
+            .path
+            .as_ref()
+            .is_some_and(|path| path.ends_with("requirements.toml"))
+            && fail_closed
+    });
     if errors.is_empty()
+        && !policy_blocked
+        && !trust_prompt
         && let Some(id) = &default_model
         && let Some(model) = models.get(id)
         && model.unusable_reason.is_none()
@@ -817,6 +1130,7 @@ pub fn load_from(mut input: LoadInput) -> EffectiveConfig {
         grok_home,
         config_path,
         dsh_home: input.dsh_home,
+        cwd: input.cwd,
         files,
         settings,
         default_model,
@@ -825,6 +1139,7 @@ pub fn load_from(mut input: LoadInput) -> EffectiveConfig {
         telemetry,
         feedback,
         trace_upload,
+        remote_fetch,
         ready,
         missing_credential,
         errors,
@@ -838,6 +1153,10 @@ pub fn load_from(mut input: LoadInput) -> EffectiveConfig {
         prune_threshold_chars,
         prune_head_chars,
         prune_tail_chars,
+        workspace_trusted,
+        project_assets_active,
+        trust_prompt,
+        trust_message,
     }
 }
 
@@ -909,6 +1228,10 @@ pub fn inspect_json(config: &EffectiveConfig) -> String {
             "traceUpload": config.trace_upload,
             "defaultModel": config.default_model,
             "defaultEffort": config.default_effort,
+            "remoteFetch": config.remote_fetch,
+            "workspaceTrusted": config.workspace_trusted,
+            "projectAssetsActive": config.project_assets_active,
+            "trustPrompt": config.trust_prompt,
             "compactThresholdPercent": config.compact_threshold_percent.unwrap_or(80),
             "compactWallClockSecs": config.compact_wall_clock_secs,
             "pruneEnabled": config.prune_enabled,
@@ -1110,12 +1433,14 @@ fn resolve_pruning(
 }
 
 pub fn is_test_execution_seam() -> bool {
-    if std::env::var_os("FAKE_ACP_MODE").is_some()
-        || std::env::var_os("DSH_CODE_CLI_MOCK_TOOL").is_some()
-    {
+    is_test_execution_seam_env(&std::env::vars().collect::<BTreeMap<String, String>>())
+}
+
+fn is_test_execution_seam_env(env: &BTreeMap<String, String>) -> bool {
+    if env.contains_key("FAKE_ACP_MODE") || env.contains_key("DSH_CODE_CLI_MOCK_TOOL") {
         return true;
     }
-    std::env::var_os("CODSH_ACP_PATCH")
+    env.get("CODSH_ACP_PATCH")
         .and_then(|path| fs::read_to_string(path).ok())
         .is_some_and(|text| text.contains("cli-mock") || text.contains("rust-acp-mock-llm"))
 }
@@ -1162,8 +1487,10 @@ pub fn apply_to_dsh(
             )?;
         }
     }
-    let patch_path = config.dsh_home.join("rust-effective.yml");
-    let existing = std::env::var_os("CODSH_ACP_PATCH")
+    let existing = env
+        .get("CODSH_ACP_PATCH")
+        .cloned()
+        .or_else(|| std::env::var("CODSH_ACP_PATCH").ok())
         .and_then(|path| fs::read_to_string(path).ok())
         .unwrap_or_default();
     let threshold = config.compact_threshold_percent.unwrap_or(80);
@@ -1176,13 +1503,20 @@ pub fn apply_to_dsh(
         "- id: tool-result-pruner\n  disabled: true\n".into()
     };
     let compact_yaml = compaction_basic_yaml(threshold);
+    let gate = if config.project_assets_active {
+        String::new()
+    } else {
+        UNTRUSTED_DSH_PLUGIN_PATCH.to_string()
+    };
+    let patch_path = config.dsh_home.join("rust-effective.yml");
     // Mock/PTY overlays already declare acp + llm adapters. Prepend only the
     // mapped compaction/pruner so the installed mock still loads dsh auto-compact.
-    let combined = if is_test_execution_seam() {
-        format!("{compact_yaml}{pruner}{existing}")
+    // Untrusted workspaces still append the instruction/skill gate.
+    let combined = if is_test_execution_seam_env(env) {
+        format!("{compact_yaml}{pruner}{existing}{gate}")
     } else {
         format!(
-            "- id: acp\n  config:\n    provider: {}\n    model: {}\n- id: agent-default-model\n  config:\n    provider: {}\n    model: {}\n- id: llm-deepseek\n  disabled: true\n{compact_yaml}{pruner}{existing}",
+            "- id: acp\n  config:\n    provider: {}\n    model: {}\n- id: agent-default-model\n  config:\n    provider: {}\n    model: {}\n- id: llm-deepseek\n  disabled: true\n{compact_yaml}{pruner}{existing}{gate}",
             yaml_plain(&model.provider),
             yaml_plain(&model.model),
             yaml_plain(&model.provider),
@@ -1402,6 +1736,203 @@ fn top_level_key_offset(text: &str, key: &str) -> Option<usize> {
     None
 }
 
+const KNOWN_POLICY_KEYS: &[&str] = &[
+    "models",
+    "model",
+    "features",
+    "folder_trust",
+    "fail_closed",
+    "cli",
+    "endpoints",
+    "permission",
+    "ui",
+    "session",
+    "compaction",
+    "tools",
+    "telemetry",
+    "mcp_servers",
+    "plugins",
+    "hooks",
+    "campaigns",
+    "memory",
+    "auth",
+    "grok_com_config",
+];
+
+const OVERLAY_ALLOWED: &[&str] = &["models", "model", "features"];
+const OVERLAY_FORBIDDEN: &[&str] = &[
+    "folder_trust",
+    "permission",
+    "hooks",
+    "plugins",
+    "mcp_servers",
+    "fail_closed",
+    "endpoints",
+    "cli",
+    "trusted_folders",
+];
+
+fn read_layer(
+    path: &Path,
+    role: &str,
+    record_missing: bool,
+    files: &mut Vec<FileLayer>,
+    errors: &mut Vec<ConfigError>,
+) -> Option<TomlValue> {
+    match fs::read(path) {
+        Ok(bytes) => match toml::from_str::<TomlValue>(&String::from_utf8_lossy(&bytes)) {
+            Ok(parsed) => {
+                files.push(FileLayer {
+                    path: path.to_path_buf(),
+                    role: role.into(),
+                    status: "ok".into(),
+                });
+                Some(parsed)
+            }
+            Err(error) => {
+                files.push(FileLayer {
+                    path: path.to_path_buf(),
+                    role: role.into(),
+                    status: "invalid".into(),
+                });
+                errors.push(ConfigError {
+                    path: Some(path.to_path_buf()),
+                    reason: error.to_string(),
+                });
+                None
+            }
+        },
+        Err(error) if error.kind() == ErrorKind::NotFound => {
+            if record_missing {
+                files.push(FileLayer {
+                    path: path.to_path_buf(),
+                    role: role.into(),
+                    status: "missing".into(),
+                });
+            }
+            None
+        }
+        Err(error) => {
+            errors.push(ConfigError {
+                path: Some(path.to_path_buf()),
+                reason: error.to_string(),
+            });
+            None
+        }
+    }
+}
+
+fn diagnose_unknown_security(
+    table: Option<&TomlValue>,
+    path: Option<&Path>,
+    source: &str,
+    fail_closed: bool,
+    errors: &mut Vec<ConfigError>,
+    warnings: &mut Vec<String>,
+) {
+    let Some(root) = table.and_then(TomlValue::as_table) else {
+        return;
+    };
+    for key in root.keys() {
+        if KNOWN_POLICY_KEYS.contains(&key.as_str()) {
+            continue;
+        }
+        let valid = KNOWN_POLICY_KEYS.join(", ");
+        let reason = format!(
+            "unknown security/policy field `{key}` in {source} is not silently ignored. Valid top-level keys: {valid}. Locked requirements still win over CLI, environment, overlay, workspace, and user config."
+        );
+        if fail_closed || source == "requirements" {
+            errors.push(ConfigError {
+                path: path.map(Path::to_path_buf),
+                reason,
+            });
+        } else {
+            warnings.push(reason);
+        }
+    }
+}
+
+fn diagnose_invalid_policy(
+    table: Option<&TomlValue>,
+    path: Option<&Path>,
+    source: &str,
+    errors: &mut Vec<ConfigError>,
+) {
+    let Some(root) = table else {
+        return;
+    };
+    if let Some(value) = root.get("fail_closed")
+        && bool_from_toml(Some(value)).is_none()
+    {
+        errors.push(ConfigError {
+            path: path.map(Path::to_path_buf),
+            reason: format!(
+                "invalid fail_closed in {source}: expected boolean true/false. Environment GROK_MANAGED_CONFIG_FAIL_CLOSED can only tighten an admin true, never weaken it."
+            ),
+        });
+    }
+    if let Some(value) = root
+        .get("folder_trust")
+        .and_then(|folder| folder.get("enabled"))
+        && bool_from_toml(Some(value)).is_none()
+    {
+        errors.push(ConfigError {
+            path: path.map(Path::to_path_buf),
+            reason: format!(
+                "invalid folder_trust.enabled in {source}: expected boolean. Valid sources: requirements (lock), GROK_FOLDER_TRUST, config.toml, managed_config.toml, default true."
+            ),
+        });
+    }
+    if let Some(value) = root
+        .get("features")
+        .and_then(|features| features.get("remote_fetch"))
+        && bool_from_toml(Some(value)).is_none()
+    {
+        errors.push(ConfigError {
+            path: path.map(Path::to_path_buf),
+            reason: format!(
+                "invalid features.remote_fetch in {source}: expected boolean. A locked false cannot be enabled by later CLI, environment, overlay, or workspace values."
+            ),
+        });
+    }
+}
+
+fn confine_overlay(
+    value: TomlValue,
+    fail_closed: bool,
+    warnings: &mut Vec<String>,
+    errors: &mut Vec<ConfigError>,
+) -> Option<TomlValue> {
+    let TomlValue::Table(table) = value else {
+        return Some(value);
+    };
+    let mut confined = toml::map::Map::new();
+    for (key, item) in table {
+        if OVERLAY_FORBIDDEN.contains(&key.as_str()) {
+            let reason = format!(
+                "GROK_CONFIG cannot set `{key}`; overlay allowlist is {}. Trust, permission, hooks, plugins, and endpoints stay on disk requirements/managed layers.",
+                OVERLAY_ALLOWED.join(", ")
+            );
+            if fail_closed {
+                errors.push(ConfigError {
+                    path: Some(PathBuf::from("GROK_CONFIG")),
+                    reason,
+                });
+            } else {
+                warnings.push(reason);
+            }
+        } else if OVERLAY_ALLOWED.contains(&key.as_str()) {
+            confined.insert(key, item);
+        } else {
+            warnings.push(format!(
+                "GROK_CONFIG ignored `{key}`; valid overlay keys: {}.",
+                OVERLAY_ALLOWED.join(", ")
+            ));
+        }
+    }
+    Some(TomlValue::Table(confined))
+}
+
 fn overlay_table(env: &BTreeMap<String, String>, warnings: &mut Vec<String>) -> Option<TomlValue> {
     if let Some(raw) = env
         .get("GROK_CONFIG")
@@ -1544,6 +2075,20 @@ fn stamp_model_sources(table: &TomlValue, sources: &mut BTreeMap<String, String>
         .is_some()
     {
         sources.insert("models.default_reasoning_effort".into(), source.into());
+    }
+    if table
+        .get("features")
+        .and_then(|features| features.get("remote_fetch"))
+        .is_some()
+    {
+        sources.insert("features.remote_fetch".into(), source.into());
+    }
+    if table
+        .get("folder_trust")
+        .and_then(|folder| folder.get("enabled"))
+        .is_some()
+    {
+        sources.insert("folder_trust.enabled".into(), source.into());
     }
 }
 
@@ -1757,6 +2302,10 @@ mod tests {
             env: BTreeMap::new(),
             cli_model: None,
             cli_effort: None,
+            cli_trust: false,
+            cli_revoke_trust: false,
+            cli_trust_path: None,
+            interactive: true,
         }
     }
 
@@ -2329,5 +2878,260 @@ hard_clear_age_turns = 9
             fs::read_to_string(disabled.dsh_home.join("rust-effective.yml")).unwrap();
         assert!(disabled_patch.contains("auto: false"));
         assert!(!disabled_patch.contains("thresholdRatio: 0\n"));
+    }
+
+    #[test]
+    fn locked_requirements_beat_cli_env_overlay_and_workspace() {
+        let dir = TempDir::new().unwrap();
+        let mut load = input(&dir);
+        write_config(
+            &load,
+            r#"
+[models]
+default = "user-model"
+
+[model.user-model]
+model = "user"
+base_url = "http://user.example/v1"
+env_key = "USER_API_KEY"
+
+[model.managed-model]
+model = "managed"
+base_url = "http://managed.example/v1"
+env_key = "MANAGED_API_KEY"
+
+[model.locked-model]
+model = "locked"
+base_url = "http://locked.example/v1"
+env_key = "LOCKED_API_KEY"
+
+[features]
+remote_fetch = true
+"#,
+        );
+        let grok = load.grok_home.clone().unwrap();
+        fs::write(
+            grok.join("managed_config.toml"),
+            r#"
+[models]
+default = "managed-model"
+
+[features]
+remote_fetch = true
+"#,
+        )
+        .unwrap();
+        fs::write(
+            grok.join("requirements.toml"),
+            r#"
+fail_closed = true
+
+[models]
+default = "locked-model"
+
+[features]
+remote_fetch = false
+"#,
+        )
+        .unwrap();
+        let workspace = load.cwd.join(".grok");
+        fs::create_dir_all(&workspace).unwrap();
+        fs::write(
+            workspace.join("config.toml"),
+            r#"
+[models]
+default = "user-model"
+"#,
+        )
+        .unwrap();
+        load.env.insert(
+            "GROK_CONFIG".into(),
+            r#"{"models":{"default":"user-model"}}"#.into(),
+        );
+        load.env
+            .insert("LOCKED_API_KEY".into(), "locked-secret".into());
+        load.cli_model = Some("user-model".into());
+        load.cli_trust = true;
+        let config = load_from(load);
+        assert_eq!(config.default_model.as_deref(), Some("locked-model"));
+        let default = config
+            .settings
+            .iter()
+            .find(|setting| setting.key == "models.default")
+            .unwrap();
+        assert_eq!(default.source, "requirements");
+        let fetch = config
+            .settings
+            .iter()
+            .find(|setting| setting.key == "features.remote_fetch")
+            .unwrap();
+        assert_eq!(fetch.value, "false");
+        assert_eq!(fetch.source, "requirements");
+        assert!(!config.remote_fetch);
+    }
+
+    #[test]
+    fn untrusted_workspace_does_not_apply_project_config_or_run_hooks() {
+        let dir = TempDir::new().unwrap();
+        let mut load = input(&dir);
+        fs::create_dir_all(load.cwd.join(".git")).unwrap();
+        write_config(
+            &load,
+            r#"
+[models]
+default = "user-model"
+
+[model.user-model]
+model = "user"
+base_url = "http://user.example/v1"
+env_key = "USER_API_KEY"
+
+[model.project-model]
+model = "project"
+base_url = "http://project.example/v1"
+env_key = "PROJECT_API_KEY"
+"#,
+        );
+        let workspace = load.cwd.join(".grok");
+        fs::create_dir_all(workspace.join("hooks")).unwrap();
+        fs::write(
+            workspace.join("config.toml"),
+            r#"
+[models]
+default = "project-model"
+"#,
+        )
+        .unwrap();
+        fs::write(
+            workspace.join("hooks").join("sessionstart.sh"),
+            "#!/bin/sh\necho ran > canary\n",
+        )
+        .unwrap();
+        load.env.insert("USER_API_KEY".into(), "user-secret".into());
+        load.env
+            .insert("PROJECT_API_KEY".into(), "project-secret".into());
+        load.interactive = false;
+        let config = load_from(load);
+        assert_eq!(config.default_model.as_deref(), Some("user-model"));
+        assert!(!config.workspace_trusted);
+        assert!(!config.project_assets_active);
+        assert!(!load_cwd_canary(&config));
+        assert_eq!(
+            config
+                .settings
+                .iter()
+                .find(|setting| setting.key == "workspace.project_assets")
+                .map(|setting| setting.value.as_str()),
+            Some("inactive")
+        );
+        let mut env = BTreeMap::new();
+        env.insert("USER_API_KEY".into(), "user-secret".into());
+        env.insert("DSH_CODE_CLI_MOCK_TOOL".into(), "echo".into());
+        let patch = apply_to_dsh(&config, &env)
+            .unwrap()
+            .expect("untrusted seam still writes a gate patch");
+        let body = fs::read_to_string(&patch).unwrap();
+        assert!(body.contains("id: agent-instructions"));
+        assert!(body.contains("disabled: true"));
+        assert!(
+            config
+                .files
+                .iter()
+                .any(|file| file.role == "project-assets" && file.status == "skipped-untrusted")
+        );
+    }
+
+    #[test]
+    fn git_root_workspace_config_is_the_trust_layer_from_a_subdir() {
+        let dir = TempDir::new().unwrap();
+        let mut load = input(&dir);
+        fs::create_dir_all(load.cwd.join(".git")).unwrap();
+        let subdir = load.cwd.join("crates").join("inner");
+        fs::create_dir_all(&subdir).unwrap();
+        write_config(
+            &load,
+            r#"
+[models]
+default = "user-model"
+
+[model.user-model]
+model = "user"
+base_url = "http://user.example/v1"
+env_key = "USER_API_KEY"
+
+[model.project-model]
+model = "project"
+base_url = "http://project.example/v1"
+env_key = "PROJECT_API_KEY"
+"#,
+        );
+        let workspace = load.cwd.join(".grok");
+        fs::create_dir_all(&workspace).unwrap();
+        fs::write(
+            workspace.join("config.toml"),
+            r#"
+[models]
+default = "project-model"
+"#,
+        )
+        .unwrap();
+        fs::write(
+            load.cwd.join("AGENTS.md"),
+            "# MARKER_UNTRUSTED_INSTRUCTIONS\n",
+        )
+        .unwrap();
+        load.env.insert("USER_API_KEY".into(), "user-secret".into());
+        load.env
+            .insert("PROJECT_API_KEY".into(), "project-secret".into());
+        load.cwd = subdir.clone();
+        load.interactive = false;
+        let denied = load_from(load.clone());
+        assert!(!denied.workspace_trusted);
+        assert_eq!(denied.default_model.as_deref(), Some("user-model"));
+        assert!(
+            denied
+                .files
+                .iter()
+                .any(|file| file.role == "workspace" && file.status == "skipped-untrusted")
+        );
+        load.cli_trust = true;
+        let trusted = load_from(load);
+        assert!(trusted.workspace_trusted);
+        assert_eq!(trusted.default_model.as_deref(), Some("project-model"));
+        assert_eq!(
+            trusted
+                .settings
+                .iter()
+                .find(|setting| setting.key == "models.default")
+                .map(|setting| setting.source.as_str()),
+            Some("workspace")
+        );
+    }
+
+    fn load_cwd_canary(config: &EffectiveConfig) -> bool {
+        config
+            .files
+            .iter()
+            .any(|file| file.role == "workspace-canary" && file.status == "executed")
+            || config.cwd.join("canary").exists()
+    }
+
+    #[test]
+    fn unknown_security_fields_are_diagnosed() {
+        let dir = TempDir::new().unwrap();
+        let load = input(&dir);
+        write_config(&load, "[model.x]\nmodel=\"x\"\nbase_url=\"http://x/v1\"\n");
+        let grok = load.grok_home.clone().unwrap();
+        fs::write(
+            grok.join("requirements.toml"),
+            "fail_closed = true\nunknown_security_gate = true\n",
+        )
+        .unwrap();
+        let config = load_from(load);
+        assert!(!config.errors.is_empty());
+        let message = config.first_run_message();
+        assert!(message.contains("unknown_security_gate"));
+        assert!(message.contains("fail_closed") || message.contains("folder_trust"));
+        assert!(message.contains("requirements"));
     }
 }

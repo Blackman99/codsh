@@ -78,9 +78,16 @@ Grok 的 `chat_completions`、`responses`、`messages`（对应 dsh 的
 dsh 的上下文占用显示为 `occupancy=N (dsh estimate)`，不当作提供商用量。
 `/context` 显示这些 dsh 事实以及可得的 system/tools/messages 启发式分类；缺失值保持未知，不会显示为 0。`/model` 切换后使用该模型公布的 `context_window`。`/compact [指示]` 由 dsh 执行压缩（进度、摘要、失败与取消），不另造一套历史；可选指示只进入 summarizer 请求（`purpose=compaction`），并记录目的地提供商/模型。自动压缩把 `session.auto_compact_threshold_percent` / `GROK_AUTO_COMPACT_THRESHOLD_PERCENT` 映射为 dsh `thresholdRatio` 以及兼容的 `retainRatio`（0–100 以外的值会被忽略；`0` 会关闭自动压缩，而不会写入会导致插件加载失败的非法比例）。`GROK_COMPACTION_WALL_CLOCK_SECS` 限制压缩耗时，`0` 关闭该预算。压缩后恢复会话会投影 dsh 检查点及保留的工具/待办；失败时原记录仍在日志中。
 `codsh --rust inspect` 与 `inspect --json` 列出每项生效值及来源（命令行
-`--model`/`--effort`、环境变量、`GROK_CONFIG` 覆盖层、已保存选择、
-config.toml、默认值）。
-无效的 `config.toml` 会保留原文，并报告路径和原因。首次运行缺少凭据时只给出
+`--model`/`--effort`、环境变量、`GROK_CONFIG` 覆盖层、工作区
+`.grok/config.toml`、已保存选择、用户 `config.toml`、`managed_config.toml`、
+锁定的 `requirements.toml`、默认值）。
+无效的 `config.toml` 会保留原文，并报告路径和原因。被锁定的要求不能被后置的
+命令行、环境、覆盖层、工作区或用户配置绕过。不认识的安全字段或无效策略会
+诊断有效键、来源与限制，而不会被静默忽略。未信任工作区会先出现信任提示，
+不会自动应用项目配置、Hooks、插件或项目说明；`--trust` / `--trust-folder [path]`
+把授权写入 `$GROK_HOME/trusted_folders.toml`，`--revoke-trust` 撤回授权，只读
+Home 会报告保存失败而不会假装授权已持久化。未信任的 Hooks、插件和项目能力
+不会执行。首次运行缺少凭据时只给出
 可操作提示：不打开 grok.com 登录，不访问默认官方遥测/上传，也不自动导入
 `~/.dsh` 或 `~/.grok` 中的旧凭据。写好带 `base_url` 的提供商后，再设置对应的
 `env_key`（例如 `XAI_API_KEY`）。首次运行时空回车会重新加载该文件，

@@ -37,7 +37,12 @@ with a recorded destination. Automatic thresholds and pruning map into dsh
 `thresholdRatio` with a compatible `retainRatio` / tool-result pruner
 settings; percents that would fail dsh plugin load (`retainRatio >=
 thresholdRatio`, including `0`) are warned and remapped; unsupported
-Grok-only prune ages stay warnings, not silent no-ops.
+Grok-only prune ages stay warnings, not silent no-ops. Managed defaults live in
+`$GROK_HOME/managed_config.toml`; `$GROK_HOME/requirements.toml` locks values so
+later CLI, environment, overlay, workspace, or user layers cannot bypass them.
+Unknown security fields fail closed with diagnostics. Workspace trust is stored
+in `$GROK_HOME/trusted_folders.toml`; untrusted project Hooks/plugins/instructions
+stay inactive until `--trust` or an interactive grant.
 Plain `codsh` still selects the legacy Launcher/Bundle; this is not the default
 cutover.
 

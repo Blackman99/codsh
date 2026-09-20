@@ -226,6 +226,7 @@ python3 scripts/rust-resume-pty-test.py
 python3 scripts/rust-config-pty-test.py
 python3 scripts/rust-model-pty-test.py
 python3 scripts/rust-compact-pty-test.py
+python3 scripts/rust-trust-pty-test.py
 ```
 
 `build:rust` stages the host binary under ignored `packages/cli/native/<os>-<arch>`
@@ -326,7 +327,8 @@ tool results display as cancelled. After cancel, a new prompt still works.
 `test:rust:pty` now also runs `scripts/rust-turn-pty-test.py`,
 `scripts/rust-file-pty-test.py`, `scripts/rust-cancel-pty-test.py`,
 `scripts/rust-resume-pty-test.py`, `scripts/rust-config-pty-test.py`,
-`scripts/rust-model-pty-test.py`, and `scripts/rust-compact-pty-test.py`
+`scripts/rust-model-pty-test.py`, `scripts/rust-compact-pty-test.py`,
+and `scripts/rust-trust-pty-test.py`
 against the packed native candidate. `/context` and `/compact` are
 dsh-backed: occupancy and advertised model limits must not be fabricated,
 manual/automatic compaction uses the dsh session log, failed compact must

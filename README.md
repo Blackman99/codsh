@@ -99,9 +99,18 @@ ratio that would fail plugin load).
 budget. After compact, resume projects the dsh checkpoint plus retained
 tools/todos; a failed compact leaves the original records in the log.
 `codsh --rust inspect` and `inspect --json` print each effective value and
-origin (CLI `--model`/`--effort`, environment, `GROK_CONFIG` overlay, saved
-selection, config.toml, default). Invalid `config.toml` is left unchanged and the error names the
-path. First-run missing credentials stay local: no grok.com login, no default
+origin (CLI `--model`/`--effort`, environment, `GROK_CONFIG` overlay, workspace
+`.grok/config.toml`, saved selection, user `config.toml`, `managed_config.toml`,
+locked `requirements.toml`, default). Invalid `config.toml` is left unchanged
+and the error names the path. Locked requirements cannot be bypassed by later
+CLI, environment, overlay, workspace, or user values. Unknown security fields
+and invalid policies are diagnosed with valid keys, sources, and limits rather
+than ignored. Untrusted workspaces prompt before applying project config, Hooks,
+plugins, or instructions; `--trust` / `--trust-folder [path]` saves a grant to
+`$GROK_HOME/trusted_folders.toml`, `--revoke-trust` withdraws it, and a
+read-only Home reports save failure without claiming a durable grant. Untrusted
+Hooks, plugins, and project capabilities do not execute. First-run missing
+credentials stay local: no grok.com login, no default
 official telemetry/upload, and no import of `~/.dsh` or `~/.grok` credentials.
 Set the model's `env_key` (for example `XAI_API_KEY`) after writing a provider
 with a `base_url`. An empty Enter on first-run reloads that file and connects

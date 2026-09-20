@@ -4,6 +4,7 @@ mod models;
 mod session_history;
 mod session_owner;
 mod theme;
+mod trust;
 mod welcome;
 
 use acp::{AcpClient, AcpEvent, PendingPermission};
@@ -110,7 +111,7 @@ struct Turn {
     compaction: Option<session_history::RestoredCompaction>,
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 enum LaunchMode {
     Help,
     Version,
@@ -136,6 +137,9 @@ struct Launch {
     mode: LaunchMode,
     model: Option<String>,
     effort: Option<String>,
+    trust: bool,
+    revoke_trust: bool,
+    trust_folder: Option<PathBuf>,
 }
 
 fn take_flag_value(
@@ -165,6 +169,9 @@ fn take_flag_value(
 fn parse_launch(args: &[String]) -> io::Result<Launch> {
     let mut model = None;
     let mut effort = None;
+    let mut trust = false;
+    let mut revoke_trust = false;
+    let mut trust_folder = None;
     let mut rest = Vec::new();
     let mut index = 0;
     while index < args.len() {
@@ -190,7 +197,29 @@ fn parse_launch(args: &[String]) -> io::Result<Launch> {
         )? {
             effort = Some(value);
         } else {
-            rest.push(args[index].clone());
+            let arg = &args[index];
+            if arg == "--trust" || arg == "--trust-folder" {
+                trust = true;
+                if arg == "--trust-folder"
+                    && let Some(value) = args.get(index + 1)
+                    && !value.starts_with('-')
+                    && value != "inspect"
+                    && value != "--continue"
+                    && value != "--resume"
+                {
+                    index += 1;
+                    trust_folder = Some(PathBuf::from(value));
+                }
+            } else if let Some(value) = arg.strip_prefix("--trust-folder=") {
+                trust = true;
+                if !value.is_empty() {
+                    trust_folder = Some(PathBuf::from(value));
+                }
+            } else if arg == "--revoke-trust" {
+                revoke_trust = true;
+            } else {
+                rest.push(arg.clone());
+            }
         }
         index += 1;
     }
@@ -225,6 +254,9 @@ fn parse_launch(args: &[String]) -> io::Result<Launch> {
         mode,
         model,
         effort,
+        trust,
+        revoke_trust,
+        trust_folder,
     })
 }
 
@@ -784,30 +816,30 @@ fn apply_events(
 }
 
 fn inspect_help() -> &'static str {
-    "Show the configuration this directory resolves\n\nUsage: codsh --rust inspect [OPTIONS]\n\nOptions:\n      --json                  Emit machine-readable JSON output\n      --debug                 Enable debug logging\n      --debug-file <FILE>     Write debug logs to FILE\n  -h, --help                  Print help\n\nLeader sockets are unused; dsh owns execution."
+    "Show the configuration this directory resolves\n\nUsage: codsh --rust inspect [OPTIONS]\n\nOptions:\n      --json                  Emit machine-readable JSON output\n      --debug                 Enable debug logging\n      --debug-file <FILE>     Write debug logs to FILE\n  -h, --help                  Print help\n\nReports CLI, environment, overlay, config.toml, workspace, managed, and requirements origins.\nLocked requirements cannot be bypassed. Folder trust and project-asset activity are included.\nLeader sockets are unused; dsh owns execution."
 }
 
-fn load_runtime_config(
-    cli_model: Option<&str>,
-    cli_effort: Option<&str>,
-) -> config::EffectiveConfig {
+fn load_runtime_config(launch: &Launch) -> config::EffectiveConfig {
+    let home = PathBuf::from(std::env::var_os("HOME").unwrap_or_default());
     let mut input = config::LoadInput {
-        home: PathBuf::from(std::env::var_os("HOME").unwrap_or_default()),
-        dsh_home: PathBuf::from(std::env::var_os("DSH_HOME").unwrap_or_default()),
+        home: home.clone(),
+        dsh_home: PathBuf::from(
+            std::env::var_os("DSH_HOME").unwrap_or_else(|| home.join("dsh").into()),
+        ),
         cwd: std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")),
         grok_home: std::env::var_os("GROK_HOME").map(PathBuf::from),
         env: std::env::vars().collect(),
-        cli_model: cli_model.map(str::to_string),
-        cli_effort: cli_effort.map(str::to_string),
+        cli_model: launch.model.clone(),
+        cli_effort: launch.effort.clone(),
+        cli_trust: launch.trust,
+        cli_revoke_trust: launch.revoke_trust,
+        cli_trust_path: launch.trust_folder.clone(),
+        interactive: io::stdin().is_terminal(),
     };
     if input.dsh_home.as_os_str().is_empty() {
         input.dsh_home = input.home.join("dsh");
     }
-    if input.cli_model.is_none() && input.cli_effort.is_none() {
-        config::load()
-    } else {
-        config::load_from(input)
-    }
+    config::load_from(input)
 }
 
 fn live_routing(
@@ -1064,7 +1096,7 @@ fn apply_catalog_choice(
 fn run() -> io::Result<()> {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let launch = parse_launch(&args)?;
-    let mode = launch.mode;
+    let mode = launch.mode.clone();
     match &mode {
         LaunchMode::Version => {
             println!(
@@ -1075,7 +1107,7 @@ fn run() -> io::Result<()> {
         }
         LaunchMode::Help => {
             println!(
-                "codsh --rust\n\nIsolated Rust client. Real dsh executes turns over ACP/JSON-RPC stdio.\nHome: ~/.codsh-rust/dsh; Profile: rust. Legacy codsh is unchanged.\nUser config: $GROK_HOME/config.toml (default ~/.codsh-rust/.grok/config.toml), mapped into isolated dsh settings.yaml.\n`codsh --rust inspect` / `inspect --json` shows effective values and origins. Invalid config.toml is left unchanged and reports its path.\nFirst-run missing credentials stay local: no grok.com login, no default official telemetry, no import of ~/.dsh or ~/.grok credentials.\nFile read/edit/write run through dsh tools; y allows once, n rejects with no write.\nCtrl+Q/Ctrl+D: quit. Ctrl+C: clear a draft; empty draft cancels a running turn via dsh, or quits when idle before any turn.\nEsc never cancels a turn or a pending approval; it dismisses selection and reminds you to use Ctrl+C.\nEnter: submit prompt. /model (/m) and /effort select advertised catalog options; unsupported backends/efforts are refused, never treated as equivalent or silently swapped. /context shows dsh occupancy, advertised model limits, and heuristic buckets without fabricating zeros. /compact [instruction] runs dsh compaction (not a second history); optional instructions go only to the summarizer request (purpose=compaction). Automatic compaction uses session.auto_compact_threshold_percent / GROK_AUTO_COMPACT_THRESHOLD_PERCENT mapped to dsh thresholdRatio. GROK_COMPACTION_WALL_CLOCK_SECS bounds the operation; 0 disables that budget. Runtime changes apply to the next turn and persist under $GROK_HOME/model-selection.toml. --continue resumes the last session in this directory; --resume <id> loads that dsh session. A second client is refused while this process holds write ownership. Interrupted tools show [interrupted]/unknown and are not replayed.\nOptions: --help, --version, --continue, --resume <id>, --model <id>, --effort/--reasoning-effort <level>, inspect."
+                "codsh --rust\n\nIsolated Rust client. Real dsh executes turns over ACP/JSON-RPC stdio.\nHome: ~/.codsh-rust/dsh; Profile: rust. Legacy codsh is unchanged.\nUser config: $GROK_HOME/config.toml (default ~/.codsh-rust/.grok/config.toml), mapped into isolated dsh settings.yaml.\nManaged defaults: $GROK_HOME/managed_config.toml. Locked requirements: $GROK_HOME/requirements.toml (cannot be bypassed by later CLI, environment, overlay, workspace, or user values).\n`codsh --rust inspect` / `inspect --json` shows effective values, origins, folder trust, and whether project assets are active. Invalid config.toml is left unchanged and reports its path. Unknown security fields and invalid policies are diagnosed with valid values, sources, and limits.\nWorkspace trust: untrusted folders prompt before applying project config, Hooks, plugins, or instructions; `--trust` / `--trust-folder [path]` saves a grant, `--revoke-trust` withdraws it. A read-only $GROK_HOME reports save failure without pretending the grant is durable. Untrusted Hooks/plugins/project capabilities do not execute.\nFirst-run missing credentials stay local: no grok.com login, no default official telemetry, no import of ~/.dsh or ~/.grok credentials.\nFile read/edit/write run through dsh tools; y allows once, n rejects with no write. Trust prompt: y=allow, n=deny.\nCtrl+Q/Ctrl+D: quit. Ctrl+C: clear a draft; empty draft cancels a running turn via dsh, or quits when idle before any turn.\nEsc never cancels a turn or a pending approval; it dismisses selection and reminds you to use Ctrl+C.\nEnter: submit prompt. /model (/m) and /effort select advertised catalog options; unsupported backends/efforts are refused, never treated as equivalent or silently swapped. /context shows dsh occupancy, advertised model limits, and heuristic buckets without fabricating zeros. /compact [instruction] runs dsh compaction (not a second history); optional instructions go only to the summarizer request (purpose=compaction). Automatic compaction uses session.auto_compact_threshold_percent / GROK_AUTO_COMPACT_THRESHOLD_PERCENT mapped to dsh thresholdRatio. GROK_COMPACTION_WALL_CLOCK_SECS bounds the operation; 0 disables that budget. Runtime changes apply to the next turn and persist under $GROK_HOME/model-selection.toml. --continue resumes the last session in this directory; --resume <id> loads that dsh session. A second client is refused while this process holds write ownership. Interrupted tools show [interrupted]/unknown and are not replayed.\nOptions: --help, --version, --continue, --resume <id>, --model <id>, --effort/--reasoning-effort <level>, --trust, --trust-folder [path], --revoke-trust, inspect."
             );
             return Ok(());
         }
@@ -1089,7 +1121,7 @@ fn run() -> io::Result<()> {
             debug_file,
             ..
         } => {
-            let loaded = load_runtime_config(launch.model.as_deref(), launch.effort.as_deref());
+            let loaded = load_runtime_config(&launch);
             if *debug || debug_file.is_some() {
                 let trace = format!(
                     "config.toml={} status={}\n",
@@ -1151,7 +1183,7 @@ fn run() -> io::Result<()> {
     let mut owner: Option<SessionOwner> = None;
     let mut resumed = false;
     let mut previous_session: Option<String> = None;
-    let mut effective = load_runtime_config(launch.model.as_deref(), launch.effort.as_deref());
+    let mut effective = load_runtime_config(&launch);
     let mut extra_env = {
         let mut extra = config::credential_env(&effective, &std::env::vars().collect());
         extra.extend(config::compact_env(&effective));
@@ -1166,9 +1198,14 @@ fn run() -> io::Result<()> {
             None
         }
     };
-    let can_execute = !apply_failed && (effective.ready || config::is_test_execution_seam());
+    let can_execute = !apply_failed
+        && !effective.trust_prompt
+        && (effective.ready || config::is_test_execution_seam());
     if !can_execute && last_error.is_empty() {
         last_error = effective.first_run_message();
+    }
+    if last_error.is_empty() && !effective.trust_message.is_empty() {
+        last_error = effective.trust_message.clone();
     }
     let mut meter = Meter {
         used: None,
@@ -1332,6 +1369,88 @@ fn run() -> io::Result<()> {
                         _ => {}
                     }
                 }
+
+                if effective.trust_prompt
+                    && client.is_none()
+                    && key.modifiers.is_empty()
+                    && matches!(key.code, KeyCode::Char('y') | KeyCode::Char('n'))
+                {
+                    let home = PathBuf::from(std::env::var_os("HOME").unwrap_or_default());
+                    let grok_home = effective.grok_home.clone();
+                    let key_path = trust::workspace_key(&effective.cwd, &home);
+                    if key.code == KeyCode::Char('y') {
+                        let outcome =
+                            trust::grant_folder_trust_key(Some(&grok_home), &home, &key_path);
+                        if matches!(
+                            outcome,
+                            trust::GrantOutcome::Granted {
+                                persist: trust::PersistStatus::ProcessLocalOnly { .. },
+                                ..
+                            }
+                        ) {
+                            last_error = outcome.to_string();
+                        }
+                    } else {
+                        trust::remember_process_decision(&key_path, false);
+                    }
+                    effective = load_runtime_config(&launch);
+                    extra_env = {
+                        let mut extra =
+                            config::credential_env(&effective, &std::env::vars().collect());
+                        extra.extend(config::compact_env(&effective));
+                        extra
+                    };
+                    match config::apply_to_dsh(&effective, &std::env::vars().collect()) {
+                        Ok(path) => {
+                            patch = path;
+                            apply_failed = false;
+                        }
+                        Err(error) => {
+                            last_error = error.to_string();
+                            apply_failed = true;
+                        }
+                    }
+                    if !apply_failed
+                        && !effective.trust_prompt
+                        && (effective.ready || config::is_test_execution_seam())
+                    {
+                        match connect(
+                            &mode,
+                            previous_session.as_deref(),
+                            &extra_env,
+                            patch.as_ref(),
+                        ) {
+                            Ok((connection, restored)) => {
+                                resumed = connection.resumed;
+                                previous_session = connection.client.session_id.clone();
+                                owner = Some(connection.owner);
+                                if turns.is_empty() {
+                                    turns = restored;
+                                }
+                                let mut connected = connection.client;
+                                match apply_live_selection(&mut connected, &effective) {
+                                    Ok(()) => {
+                                        selection_ready = true;
+                                        last_error.clear();
+                                    }
+                                    Err(error) => {
+                                        last_error = error;
+                                        selection_ready = false;
+                                    }
+                                }
+                                client = Some(connected);
+                            }
+                            Err(error) => last_error = error,
+                        }
+                    } else if last_error.is_empty() {
+                        last_error = effective.first_run_message();
+                        if last_error.is_empty() {
+                            last_error = effective.trust_message.clone();
+                        }
+                    }
+                    continue;
+                }
+
                 if let (Some(turn), Some(active)) = (turns.last_mut(), client.as_mut())
                     && let Some(permission) = turn.permission.clone()
                     && key.modifiers.is_empty()
@@ -1370,10 +1489,7 @@ fn run() -> io::Result<()> {
                                 continue;
                             }
                             if client.is_none() {
-                                effective = load_runtime_config(
-                                    launch.model.as_deref(),
-                                    launch.effort.as_deref(),
-                                );
+                                effective = load_runtime_config(&launch);
                                 extra_env = {
                                     let mut extra = config::credential_env(
                                         &effective,
@@ -1390,7 +1506,9 @@ fn run() -> io::Result<()> {
                                         continue;
                                     }
                                 }
-                                if !effective.ready && !config::is_test_execution_seam() {
+                                if effective.trust_prompt
+                                    || (!effective.ready && !config::is_test_execution_seam())
+                                {
                                     last_error = effective.first_run_message();
                                     continue;
                                 }
@@ -1643,5 +1761,23 @@ mod tests {
     fn refuses_turns_until_advertised_selection_applies() {
         assert!(!turn_allowed(false));
         assert!(turn_allowed(true));
+    }
+
+    #[test]
+    fn parse_trust_and_revoke_flags() {
+        let launch = parse_launch(&args(&["--trust", "--revoke-trust"])).unwrap();
+        assert!(launch.trust);
+        assert!(launch.revoke_trust);
+        let folder =
+            parse_launch(&args(&["--trust-folder", "/tmp/repo", "inspect", "--json"])).unwrap();
+        assert!(folder.trust);
+        assert_eq!(
+            folder.trust_folder.as_deref(),
+            Some(std::path::Path::new("/tmp/repo"))
+        );
+        assert!(matches!(
+            folder.mode,
+            LaunchMode::Inspect { json: true, .. }
+        ));
     }
 }
