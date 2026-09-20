@@ -252,6 +252,19 @@ symlink ambiguity fails before writes. Native cycle errors fail closed. Six actu
 UI controls retain resolvable links to separate legacy Homes (including missing
 children under valid links). Snapshot assertions record link text without following
 links, along with directories and content hashes. No test uses personal Home data.
+The path matrix runs both variables with existing/missing absolute, relative,
+literal tilde, Unicode/space paths, directory/symlink/dangling/missing `..`
+traversals, and unset/empty/blank/overridden default Homes. It calls the released
+`dsh-home-paths` resolver as its dsh oracle; Grok's pinned `xai-dirs/src/lib.rs`
+keeps nonempty overrides verbatim. The launcher matches dsh's blank/tilde/lexical
+rules but refuses all `GROK_HOME` parent-traversal components before writes,
+even when they might be separate: no custom symlink traversal is attempted.
+Default Homes stay protected when overridden. Evidence records native filesystem
+identities, full synthetic tree snapshots and raw PTY output, not just path strings.
+Packing/installing is offline with isolated npm configuration; product fixtures
+live temporarily under the output directory. Keep `TMPDIR` at a valid system
+temporary directory **outside the repository** when running the existing unit/e2e
+suites: their outside-repository fixtures must not discover this worktree's Git root.
 The network observer interposes socket/connect/connectx/sendto/sendmsg/DNS calls
 without replacing their results; a compiled loopback UDP positive control proves
 socket and outbound-send observation.

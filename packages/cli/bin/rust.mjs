@@ -5,6 +5,20 @@ import { basename, dirname, join, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createHash } from 'node:crypto'
 
+function legacyHomes() {
+  // Match released dsh-home-paths: blank is unset; only these tilde prefixes expand.
+  const value = process.env.DSH_HOME
+  let dsh = value !== undefined && value.trim().length > 0 ? value : join(homedir(), '.dsh')
+  if (dsh === '~') dsh = homedir()
+  else if (dsh.startsWith('~/') || dsh.startsWith('~\\')) dsh = join(homedir(), dsh.slice(2))
+  // Grok keeps nonempty overrides verbatim; lexical .. collapse can hide symlinks.
+  const grok = process.env.GROK_HOME
+  if (grok?.split(process.platform === 'win32' ? /[\\/]/u : '/').includes('..')) {
+    throw new Error('refusing GROK_HOME with .. components; use an unambiguous path without parent traversal')
+  }
+  return [resolve(dsh), join(homedir(), '.dsh'), grok, join(realpathSync.native(homedir()), '.grok')]
+}
+
 function canonicalPath(path) {
   const absolute = resolve(path)
   try {
@@ -53,7 +67,7 @@ export async function launchRust(args) {
     const root = join(parent, '.codsh-rust')
     if (lstatSync(root, { throwIfNoEntry: false })?.isSymbolicLink()) throw new Error(`refusing symlink: ${root}`)
     const canonicalRoot = canonicalPath(root)
-    for (const oldHome of [process.env.DSH_HOME, join(parent, '.dsh'), process.env.GROK_HOME, join(parent, '.grok')]) {
+    for (const oldHome of legacyHomes()) {
       if (!oldHome) continue
       if (overlaps(canonicalRoot, canonicalPath(oldHome))) throw new Error('Rust Home overlaps a legacy Home; refusing to access legacy data')
     }

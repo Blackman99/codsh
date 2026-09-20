@@ -59,7 +59,13 @@ filesystems. If either Home is missing, a case-only potential overlap is refused
 conservatively on every platform, without creating paths to test filesystem rules.
 Unresolved symlinks in explicit or default legacy Home paths are also refused
 before writes; repair dangling links or symlink cycles before launching the preview.
-Resolvable links to separate legacy Homes remain supported.
+Resolvable links to separate legacy Homes remain supported. Isolation checks follow
+released dsh rules for `DSH_HOME`: blank means unset; `~`, `~/` and `~\` expand to
+the OS Home, then relative paths and `..` normalize lexically. Nonempty `GROK_HOME`
+is literal (no tilde expansion or whitespace trimming). The preview conservatively
+refuses **any `..` component in `GROK_HOME`**, even for a separate existing Home,
+rather than guessing symlink traversal. Use a path without parent traversal.
+Default `~/.dsh` and `~/.grok` are protected even when overrides are set.
 `Ctrl+Q`/`Ctrl+D` quits; `Ctrl+C` clears a draft, or quits when empty. Unsupported
 arguments fail explicitly. `codsh --rust --help` describes this limited path.
 

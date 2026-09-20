@@ -74,6 +74,163 @@ def refusal_probe(launcher, cwd, env, capture):
         os.close(slave)
 
 
+def path_semantics_matrix(launcher, work, output, env):
+    results = []
+    resolver = (ROOT / 'node_modules/@deepseek-ai/dsh-home-paths/lib/index.js').as_uri()
+
+    def effective_home(variable, child_env, cwd):
+        if variable == 'DSH_HOME':
+            script = f'import {{ resolveDshHome }} from {json.dumps(resolver)}; console.log(JSON.stringify(resolveDshHome()))'
+            return json.loads(run([NODE, '--input-type=module', '-e', script], env=child_env, cwd=cwd).stdout)
+        # Official dirs.rs uses nonempty GROK_HOME verbatim, including whitespace and tilde.
+        return child_env.get(variable) or str(Path(child_env['HOME']) / '.grok')
+
+    def identity(path):
+        try:
+            stat = os.stat(path)
+            return {'realpath': os.path.realpath(path), 'device': stat.st_dev, 'inode': stat.st_ino}
+        except OSError as error:
+            return {'errno': error.errno}
+
+    def fixture(name):
+        base = work / name
+        home, cwd = base / 'home', base / 'workspace'
+        home.mkdir(parents=True)
+        cwd.mkdir()
+        return base, home, cwd
+
+    def environment(home, variable, value):
+        child_env = {'HOME': str(home), 'PATH': env['PATH'], 'TERM': env['TERM']}
+        if value is not None:
+            child_env[variable] = value
+        return child_env
+
+    def check(name, variable, value, paths, refuse):
+        base, home, cwd = paths
+        child_env = environment(home, variable, value)
+        resolved = effective_home(variable, child_env, cwd)
+        legacy = resolved if os.path.isabs(resolved) else str(cwd) + '/' + resolved
+        candidate = home / '.codsh-rust'
+        before = snapshot_tree(base)
+        identities_before = {'legacy': identity(legacy), 'candidate': identity(candidate)}
+        observed = refusal_probe(launcher, cwd, child_env, output / f'{name}.ansi')
+        after = snapshot_tree(base)
+        outside_candidate = lambda tree: {key: val for key, val in tree.items()
+                                          if key != 'home/.codsh-rust' and not key.startswith('home/.codsh-rust/')}
+        refused = any(message in observed['output'] for message in
+                      ['overlaps a legacy Home', 'unresolved symlink', 'ELOOP', 'refusing GROK_HOME with ..'])
+        welcome = observed['enteredAlternateScreen'] and all(word in observed['output'] for word in ['codsh', 'Draft', 'offline'])
+        identities_after = {'legacy': identity(legacy), 'candidate': identity(candidate)}
+        passed = observed['terminalRestored'] and identities_before['legacy'] == identities_after['legacy'] and (
+            observed['exit'] == 1 and refused and not observed['enteredAlternateScreen'] and before == after
+            if refuse else observed['exit'] == 0 and welcome and outside_candidate(before) == outside_candidate(after)
+            and all(after.get(key) == value for key, value in before.items())
+            and (candidate / 'dsh/profiles/rust/package.json').is_file())
+        results.append({**observed, 'name': name, 'variable': variable, 'configured': value,
+                        'resolvedLegacyHome': resolved, 'expectedRefusal': refuse, 'passed': passed,
+                        'identitiesBefore': identities_before,
+                        'identitiesAfter': identities_after,
+                        'treeUnchanged': before == after, 'before': before, 'after': after})
+
+    for variable, default_name in [('DSH_HOME', '.dsh'), ('GROK_HOME', '.grok')]:
+        for existing in [False, True]:
+            for target in ['.codsh-rust', '.codsh-rust/dsh', '独立 legacy home']:
+                for spelling in ['absolute', 'relative', 'cwd-relative', 'tilde', 'backslash-tilde']:
+                    name = f'paths-{variable}-{existing}-{target.replace("/", "-")}-{spelling}'
+                    paths = base, home, cwd = fixture(name)
+                    if spelling == 'cwd-relative':
+                        (cwd / 'home-link').symlink_to(home)
+                    value = {'absolute': str(home / target), 'relative': '../home/' + target,
+                             'cwd-relative': './home-link/' + target,
+                             'tilde': '~/' + target, 'backslash-tilde': '~\\' + target}[spelling]
+                    resolved = effective_home(variable, environment(home, variable, value), cwd)
+                    actual = Path(resolved) if os.path.isabs(resolved) else cwd / resolved
+                    if existing:
+                        actual.mkdir(parents=True)
+                        (actual / 'canary').write_text('synthetic legacy contents\n')
+                    overlap = target.startswith('.codsh-rust') and (variable == 'DSH_HOME' or spelling in ['absolute', 'relative', 'cwd-relative'])
+                    # Relative GROK_HOME retains ..; no lexical traversal guess is permitted.
+                    check(name, variable, value, paths, overlap or (variable == 'GROK_HOME' and spelling == 'relative'))
+            for value in ['~', '~other', '  legacy 空间  ']:
+                name = f'paths-{variable}-{existing}-literal-{value}'
+                paths = base, home, cwd = fixture(name)
+                resolved = effective_home(variable, environment(home, variable, value), cwd)
+                actual = Path(resolved) if os.path.isabs(resolved) else cwd / resolved
+                if existing:
+                    actual.mkdir(parents=True, exist_ok=True)
+                    (actual / 'canary').write_text('synthetic literal name\n')
+                check(name, variable, value, paths, variable == 'DSH_HOME' and value == '~')
+            for entry in ['directory', 'symlink', 'dangling', 'missing']:
+                for target in ['.codsh-rust', '独立 legacy home']:
+                    name = f'paths-{variable}-{existing}-dotdot-{entry}-{target}'
+                    paths = base, home, cwd = fixture(name)
+                    (home / 'separate').mkdir()
+                    jump = home / 'separate/jump'
+                    if entry == 'directory':
+                        jump.mkdir()
+                    elif entry in ['symlink', 'dangling']:
+                        jump.symlink_to('../real-child')
+                        if entry == 'symlink':
+                            (home / 'real-child').mkdir()
+                    if existing:
+                        for location in [home / target, home / 'separate' / target]:
+                            location.mkdir(parents=True)
+                            (location / 'canary').write_text('synthetic traversal contents\n')
+                    value = str(jump) + '/../' + target
+                    check(name, variable, value, paths, variable == 'GROK_HOME')
+            for target in ['.codsh-rust', '独立 legacy home']:
+                name = f'paths-{variable}-{existing}-blank-link-{target}'
+                paths = base, home, cwd = fixture(name)
+                (cwd / ' \t ').symlink_to(home / target)
+                if existing:
+                    (home / target).mkdir()
+                    (home / target / 'canary').write_text('synthetic whitespace Home\n')
+                check(name, variable, ' \t ', paths, variable == 'GROK_HOME' and (not existing or target == '.codsh-rust'))
+            name = f'paths-{variable}-{existing}-lexical-dotdot-overlap'
+            paths = base, home, cwd = fixture(name)
+            (home / 'jump').symlink_to('separate/child')
+            (home / 'separate/child').mkdir(parents=True)
+            if existing:
+                (home / '.codsh-rust').mkdir()
+            check(name, variable, str(home / 'jump') + '/../.codsh-rust', paths, True)
+            for mode in ['explicit', 'default']:
+                for target in ['.codsh-rust', '独立 legacy home']:
+                    name = f'paths-{variable}-{existing}-link-target-dotdot-{mode}-{target}'
+                    paths = base, home, cwd = fixture(name)
+                    (home / 'real-child').mkdir()
+                    (home / 'separate').mkdir()
+                    (home / 'separate/jump').symlink_to('../real-child')
+                    alias = home / (default_name if mode == 'default' else 'legacy-link')
+                    alias.symlink_to('separate/jump/../' + target)
+                    if existing:
+                        (home / target).mkdir()
+                        (home / target / 'canary').write_text('synthetic link target traversal\n')
+                    check(name, variable, None if mode == 'default' else str(alias), paths,
+                          not existing or target == '.codsh-rust')
+            for value_name, value in [('unset', None), ('empty', ''), ('blank', ' \t '), ('override', 'separate')]:
+                for target in ['.codsh-rust', '独立 legacy home']:
+                    name = f'paths-{variable}-{existing}-default-{value_name}-{target}'
+                    paths = base, home, cwd = fixture(name)
+                    (home / default_name).symlink_to(target)
+                    if existing:
+                        (home / target).mkdir()
+                        (home / target / 'canary').write_text('synthetic default Home\n')
+                    check(name, variable, value, paths, not existing or target == '.codsh-rust')
+        # A literal Grok tilde can itself be a filesystem link, not home expansion.
+        if variable == 'GROK_HOME':
+            for existing in [False, True]:
+                name = f'paths-GROK_HOME-{existing}-literal-tilde-link'
+                paths = base, home, cwd = fixture(name)
+                (cwd / '~').symlink_to(home)
+                if existing:
+                    (home / '.codsh-rust').mkdir()
+                check(name, variable, '~/.codsh-rust', paths, True)
+    (output / 'path-semantics-results.json').write_text(json.dumps(results, indent=2) + '\n')
+    failed = [result['name'] for result in results if not result['passed']]
+    assert not failed, f'path semantics failed: {failed}; see path-semantics-results.json'
+    return results
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--output', type=Path)
@@ -82,7 +239,7 @@ def main():
         raise SystemExit('macOS network audit required; other platform evidence remains unverified')
     output = (args.output or ROOT / '.scratch' / f'rust-pty-{time.time_ns()}').resolve()
     output.mkdir(parents=True, exist_ok=False)
-    with tempfile.TemporaryDirectory(prefix='codsh-rust-product-') as temporary:
+    with tempfile.TemporaryDirectory(prefix='codsh-rust-product-', dir=output) as temporary:
         work = Path(temporary)
         home = work / 'home'
         home.mkdir()
@@ -98,14 +255,21 @@ def main():
         env = {'HOME': str(home), 'PATH': os.environ['PATH'], 'TERM': 'xterm-256color',
                'DSH_HOME': str(legacy), 'DSH_BIN': '/no/runtime/must/be/started',
                'GROK_HOME': str(home / '.grok'), 'XAI_API_KEY': 'synthetic-do-not-use'}
-        pack = json.loads(run(['npm', 'pack', '--json', '--ignore-scripts', '--pack-destination', str(work)],
-                             cwd=ROOT / 'packages/cli', env=env).stdout)[0]['filename']
+        pack_env = {**env, 'npm_config_cache': str(work / 'npm-cache'),
+                    'npm_config_userconfig': str(work / 'empty-user.npmrc'),
+                    'npm_config_globalconfig': str(work / 'empty-global.npmrc'),
+                    'npm_config_update_notifier': 'false'}
+        pack = json.loads(run(['npm', 'pack', '--json', '--ignore-scripts', '--offline', '--pack-destination', str(work)],
+                             cwd=ROOT / 'packages/cli', env=pack_env).stdout)[0]['filename']
         prefix = work / 'installed'
-        run(['npm', 'install', '--prefix', str(prefix), '--ignore-scripts', '--no-audit', '--no-fund', str(work / pack)], env=env)
+        run(['npm', 'install', '--prefix', str(prefix), '--ignore-scripts', '--offline', '--no-audit', '--no-fund', str(work / pack)], env=pack_env)
         launcher = prefix / 'node_modules/.bin/codsh'
         package = prefix / 'node_modules/codsh-cli'
         binary = package / 'native' / ('darwin-arm64' if os.uname().machine == 'arm64' else 'darwin-x64') / 'codsh-rust'
         assert binary.exists(), 'candidate must contain the real native artifact'
+        for relative in ['bin/codsh.mjs', 'bin/rust.mjs']:
+            assert (package / relative).read_bytes() == (ROOT / 'packages/cli' / relative).read_bytes()
+        semantics_results = path_semantics_matrix(launcher, work, output, env)
         alias_results = []
         for variable in ['DSH_HOME', 'GROK_HOME']:
             for kind, actual_parts, configured_parts in [
@@ -349,6 +513,33 @@ def main():
                 assert snapshot_tree(target) == original_legacy
                 assert alias.is_symlink() and os.readlink(alias) == 'separate-legacy'
                 resolved_link_controls.append({'variable': variable, 'case': kind, 'legacyUnchanged': True})
+        for variable, kind in [('DSH_HOME', 'tilde'), ('DSH_HOME', 'dotdot'),
+                               ('DSH_HOME', 'blank'), ('GROK_HOME', 'tilde'),
+                               ('GROK_HOME', 'relative'), ('GROK_HOME', 'blank')]:
+            control_home = work / f'ui-{variable}-{kind}'
+            control_home.mkdir()
+            child_env = {'HOME': str(control_home), 'PATH': env['PATH'], 'TERM': env['TERM']}
+            if kind == 'dotdot':
+                (control_home / 'real-child').mkdir()
+                (control_home / 'separate').mkdir()
+                (control_home / 'separate/jump').symlink_to('../real-child')
+                old = control_home / 'separate/独立 legacy home'
+                child_env[variable] = str(control_home / 'separate/jump') + '/../独立 legacy home'
+            elif kind == 'blank':
+                child_env[variable] = '  '
+                old = control_home / '.dsh' if variable == 'DSH_HOME' else cwd / '  '
+            elif kind == 'relative':
+                child_env[variable] = './独立 legacy home'
+                old = cwd / '独立 legacy home'
+            else:
+                child_env[variable] = '~/独立 legacy home'
+                old = control_home / '独立 legacy home' if variable == 'DSH_HOME' else cwd / '~/独立 legacy home'
+            old.mkdir(parents=True)
+            (old / 'canary').write_text('synthetic semantic control\n')
+            original_legacy = snapshot_tree(old)
+            exercise(f'semantics-{variable}-{kind}', child_env=child_env)
+            assert snapshot_tree(old) == original_legacy
+            assert (control_home / '.codsh-rust/dsh/profiles/rust/package.json').is_file()
         profile = home / '.codsh-rust/dsh/profiles/rust/package.json'
         assert json.loads(profile.read_text())['dsh']['profile']['bundles'] == []
         profile.write_text('{invalid JSON')
@@ -382,6 +573,7 @@ def main():
         assert digest_tree(legacy) == before
         (output / 'result.json').write_text(json.dumps({
             'scenarios': scenarios, 'networkEvents': lines, 'auditControlDetectedSocket': True,
+            'pathSemanticsCases': len(semantics_results), 'pathSemanticsEvidence': 'path-semantics-results.json',
             'caseAliasRefusals': len(alias_results), 'caseAliasEvidence': 'case-alias-results.json',
             'distinctMissingHomeControls': missing_controls,
             'unresolvedSymlinkRefusals': len(dangling_results), 'unresolvedSymlinkEvidence': 'dangling-alias-results.json',

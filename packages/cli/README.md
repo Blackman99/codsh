@@ -35,7 +35,12 @@ aliases, is refused before writes; symlinked preview paths remain forbidden.
 If either Home is missing, case-only potential overlap is conservatively refused
 on every platform without creating probe paths. Unresolved symlinks in explicit
 or default legacy Homes are refused before writes; fix dangling links/cycles first.
-Resolvable links to separate legacy Homes remain supported.
+Resolvable links to separate legacy Homes remain supported. `DSH_HOME` follows
+released dsh: blank is unset, `~`/`~/`/`~\` expand, and relative paths/`..` normalize
+lexically. Nonempty `GROK_HOME` stays literal, including tilde and whitespace.
+Any `..` component in `GROK_HOME` is intentionally refused, even for a separate
+existing Home; use a path without parent traversal instead of relying on guessed
+symlink semantics. Default `~/.dsh` and `~/.grok` remain protected with overrides.
 Enter explicitly refuses execution until the dsh adapter is available.
 `Ctrl+Q`/`Ctrl+D` quits; `Ctrl+C` clears a draft or quits when empty.
 
