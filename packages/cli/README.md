@@ -32,6 +32,9 @@ wayfinder → grill → spec → tickets → landing → done.
 never imports old credentials or sessions, and starts no agent or network
 service. Filesystem-resolved overlap with `DSH_HOME`/`GROK_HOME`, including case
 aliases, is refused before writes; symlinked preview paths remain forbidden.
+Device/inode ancestry checks include existing ancestors of missing paths, catching
+macOS firmlinks even when native realpath strings differ. Separate aliased Homes
+remain supported; unavailable directory identity fails closed before writes.
 If either Home is missing, case-only potential overlap is conservatively refused
 on every platform without creating probe paths. Any missing non-ASCII path component
 is also refused before writes, even for a separate Home; lowercase/normalization

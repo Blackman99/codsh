@@ -1,7 +1,7 @@
 import { spawn } from 'node:child_process'
-import { existsSync, lstatSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
+import { existsSync, lstatSync, mkdirSync, readFileSync, realpathSync, statSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
-import { basename, dirname, join, resolve, sep } from 'node:path'
+import { basename, dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createHash } from 'node:crypto'
 
@@ -23,7 +23,7 @@ function canonicalPath(path) {
   const absolute = resolve(path)
   try {
     // Native realpath resolves filesystem case aliases; the JS fallback preserves spelling.
-    return { path: realpathSync.native(absolute), missing: false }
+    return { path: realpathSync.native(absolute), suffix: [] }
   } catch (error) {
     if (error.code !== 'ENOENT') throw error
     // ENOENT can hide a dangling link; do not reconstruct it as a missing directory.
@@ -35,16 +35,40 @@ function canonicalPath(path) {
     // Unicode folding cannot establish the filesystem identity of a missing name.
     const name = basename(absolute)
     if (/[^\x00-\x7f]/u.test(name)) throw new Error('refusing unresolved non-ASCII Home component; use an existing separate directory or ASCII missing components')
-    return { path: join(canonicalPath(parent).path, name), missing: true }
+    const ancestor = canonicalPath(parent)
+    return { path: ancestor.path, suffix: [...ancestor.suffix, name] }
+  }
+}
+
+function directoryAncestry(home) {
+  const ancestors = []
+  let path = home.path
+  let suffix = home.suffix
+  while (true) {
+    let stat
+    try {
+      stat = statSync(path, { bigint: true })
+    } catch {
+      throw new Error('cannot establish Home directory identity; refusing to write')
+    }
+    if (!stat.isDirectory() || stat.ino === 0n) throw new Error('cannot establish Home directory identity; refusing to write')
+    ancestors.push({ device: stat.dev, inode: stat.ino, suffix })
+    const parent = dirname(path)
+    if (parent === path) return ancestors
+    suffix = [basename(path), ...suffix]
+    path = parent
   }
 }
 
 function overlaps(a, b) {
-  const within = (child, parent) => child === parent || child.startsWith(parent.endsWith(sep) ? parent : `${parent}${sep}`)
-  const intersects = (left, right) => within(left, right) || within(right, left)
-  if (intersects(a.path, b.path)) return true
-  // Missing names cannot be resolved without writes; refuse case-only ambiguity.
-  return (a.missing || b.missing) && intersects(a.path.toLowerCase(), b.path.toLowerCase())
+  const left = directoryAncestry(a)
+  const right = directoryAncestry(b)
+  const missing = a.suffix.length > 0 || b.suffix.length > 0
+  const prefix = (parent, child) => parent.length <= child.length && parent.every((name, index) =>
+    name === child[index] || (missing && name.toLowerCase() === child[index].toLowerCase()))
+  // Firmlinks can retain different realpath strings for the same directory identity.
+  return left.some(x => right.some(y => x.device === y.device && x.inode === y.inode
+    && (prefix(x.suffix, y.suffix) || prefix(y.suffix, x.suffix))))
 }
 
 function privateDirectory(path) {

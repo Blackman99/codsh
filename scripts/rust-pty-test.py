@@ -19,10 +19,30 @@ import time
 
 ROOT = Path(__file__).resolve().parent.parent
 NODE = shutil.which('node')
+DATA_VOLUME_PREFIX = '/System/Volumes/Data'
+
+
+def data_volume_alias(path):
+    resolved = Path(path).resolve()
+    text = str(resolved)
+    if text == DATA_VOLUME_PREFIX or text.startswith(DATA_VOLUME_PREFIX + os.sep):
+        return Path(text[len(DATA_VOLUME_PREFIX):] or os.sep)
+    return Path(DATA_VOLUME_PREFIX + text)
 
 
 def run(argv, **kwargs):
     return subprocess.run(argv, check=True, capture_output=True, text=True, **kwargs)
+
+
+def identity(path):
+    try:
+        stat = os.stat(path)
+        native = run([NODE, '--input-type=module', '-e',
+                      'import { realpathSync } from "node:fs"; console.log(JSON.stringify(realpathSync.native(process.argv[1])))',
+                      str(path)]).stdout
+        return {'realpath': json.loads(native), 'device': stat.st_dev, 'inode': stat.st_ino}
+    except OSError as error:
+        return {'errno': error.errno}
 
 
 def digest_tree(root):
@@ -85,18 +105,8 @@ def path_semantics_matrix(launcher, work, output, env):
         # Official dirs.rs uses nonempty GROK_HOME verbatim, including whitespace and tilde.
         return child_env.get(variable) or str(Path(child_env['HOME']) / '.grok')
 
-    def identity(path):
-        try:
-            stat = os.stat(path)
-            native = run([NODE, '--input-type=module', '-e',
-                          'import { realpathSync } from "node:fs"; console.log(JSON.stringify(realpathSync.native(process.argv[1])))',
-                          str(path)]).stdout
-            return {'realpath': json.loads(native), 'device': stat.st_dev, 'inode': stat.st_ino}
-        except OSError as error:
-            return {'errno': error.errno}
-
-    def fixture(name):
-        base = work / name
+    def fixture(name, root=work):
+        base = root / name
         home, cwd = base / 'home', base / 'workspace'
         home.mkdir(parents=True)
         cwd.mkdir()
@@ -122,7 +132,8 @@ def path_semantics_matrix(launcher, work, output, env):
                                           if key != 'home/.codsh-rust' and not key.startswith('home/.codsh-rust/')}
         refused = any(message in observed['output'] for message in
                       ['overlaps a legacy Home', 'unresolved symlink', 'ELOOP',
-                       'refusing GROK_HOME with ..', 'refusing unresolved non-ASCII Home component'])
+                       'refusing GROK_HOME with ..', 'refusing unresolved non-ASCII Home component',
+                       'cannot establish Home directory identity'])
         welcome = observed['enteredAlternateScreen'] and all(word in observed['output'] for word in ['codsh', 'Draft', 'offline'])
         identities_after = {'legacy': identity(legacy), 'candidate': identity(candidate)}
         passed = observed['terminalRestored'] and identities_before['legacy'] == identities_after['legacy'] and (
@@ -282,6 +293,62 @@ def path_semantics_matrix(launcher, work, output, env):
                     (home / default_name).symlink_to(configured)
                     value = None
                 check(name, variable, value, paths, bool(suffix) and (not suffix.isascii() or mode == 'default-link'))
+    for variable in ['DSH_HOME', 'GROK_HOME']:
+        name = f'identity-file-{variable}'
+        paths = base, home, cwd = fixture(name)
+        target = home / 'legacy-file'
+        target.write_text('synthetic non-directory Home\n')
+        check(name, variable, str(target), paths, True)
+    firmlink_root = Path(tempfile.mkdtemp(prefix='codsh-firmlink-', dir='/tmp'))
+    try:
+        for variable, default_name in [('DSH_HOME', '.dsh'), ('GROK_HOME', '.grok')]:
+            for reverse in [False, True]:
+                for state in ['absent', 'root-only', 'existing']:
+                    for index, target in enumerate(['.codsh-rust', '.codsh-rust/dsh', '.codsh-rust/dsh/profiles/rust',
+                                                    '.CODSH-RUST/DSH', '.codsh-rust-other', 'separate/nested']):
+                        name = f'firmlink-{variable}-{reverse}-{state}-{index}'
+                        base, home, cwd = fixture(name, firmlink_root)
+                        alias = data_volume_alias(home)
+                        assert os.path.samefile(home, alias), 'firmlink regressions require a Data-volume alias'
+                        home_id, alias_id = identity(home), identity(alias)
+                        assert home_id['realpath'] != alias_id['realpath']
+                        assert (home_id['device'], home_id['inode']) == (alias_id['device'], alias_id['inode'])
+                        if state == 'root-only':
+                            (home / '.codsh-rust').mkdir()
+                        elif state == 'existing':
+                            (home / target).mkdir(parents=True)
+                            (home / target / 'canary').write_text('synthetic firmlink Home\n')
+                        selected_home, legacy_home = (alias, home) if reverse else (home, alias)
+                        check(name, variable, str(legacy_home / target), (base, selected_home, cwd),
+                              target.lower().split('/')[0] == '.codsh-rust')
+                        results[-1]['homeAliasIdentities'] = [home_id, alias_id]
+                for existing in [False, True]:
+                    for target in ['.codsh-rust/dsh', 'separate/nested']:
+                        name = f'firmlink-default-{variable}-{reverse}-{existing}-{target.replace("/", "-")}'
+                        base, home, cwd = fixture(name, firmlink_root)
+                        alias = data_volume_alias(home)
+                        home_id, alias_id = identity(home), identity(alias)
+                        assert os.path.samefile(home, alias) and home_id['realpath'] != alias_id['realpath']
+                        assert (home_id['device'], home_id['inode']) == (alias_id['device'], alias_id['inode'])
+                        if existing:
+                            (home / target).mkdir(parents=True)
+                            (home / target / 'canary').write_text('synthetic default firmlink Home\n')
+                        selected_home, legacy_home = (alias, home) if reverse else (home, alias)
+                        (home / default_name).symlink_to(legacy_home / target)
+                        check(name, variable, None, (base, selected_home, cwd),
+                              not existing or target.startswith('.codsh-rust/'))
+                        results[-1]['homeAliasIdentities'] = [home_id, alias_id]
+                name = f'firmlink-parent-{variable}-{reverse}'
+                base, home, cwd = fixture(name, firmlink_root)
+                alias = data_volume_alias(home)
+                home_id, alias_id = identity(home), identity(alias)
+                assert os.path.samefile(home, alias) and home_id['realpath'] != alias_id['realpath']
+                assert (home_id['device'], home_id['inode']) == (alias_id['device'], alias_id['inode'])
+                selected_home, legacy_home = (alias, home) if reverse else (home, alias)
+                check(name, variable, str(legacy_home), (base, selected_home, cwd), True)
+                results[-1]['homeAliasIdentities'] = [home_id, alias_id]
+    finally:
+        shutil.rmtree(firmlink_root, ignore_errors=True)
     (output / 'path-semantics-results.json').write_text(json.dumps(results, indent=2) + '\n')
     failed = [result['name'] for result in results if not result['passed']]
     assert not failed, f'path semantics failed: {failed}; see path-semantics-results.json'
@@ -609,6 +676,33 @@ def main():
                 exercise(f'unicode-{variable}-{kind}', child_env=child_env)
                 assert snapshot_tree(old) == before_unicode
                 assert (control_home / '.codsh-rust/dsh/profiles/rust/package.json').is_file()
+        with tempfile.TemporaryDirectory(prefix='codsh-firmlink-ui-', dir='/tmp') as firmlink_ui:
+            firmlink_ui_root = Path(firmlink_ui)
+            for variable in ['DSH_HOME', 'GROK_HOME']:
+                for reverse in [False, True]:
+                    for existing in [False, True]:
+                        name = f'firmlink-ui-{variable}-{reverse}-{existing}'
+                        control_home = firmlink_ui_root / name
+                        control_home.mkdir()
+                        alias = data_volume_alias(control_home)
+                        assert os.path.samefile(control_home, alias)
+                        home_id, alias_id = identity(control_home), identity(alias)
+                        assert home_id['realpath'] != alias_id['realpath']
+                        assert (home_id['device'], home_id['inode']) == (alias_id['device'], alias_id['inode'])
+                        old = control_home / '.codsh-rust-other/nested'
+                        if existing:
+                            old.mkdir(parents=True)
+                            (old / 'canary').write_text('synthetic separate firmlink data\n')
+                        before_control = snapshot_tree(control_home)
+                        selected_home, legacy_home = (alias, control_home) if reverse else (control_home, alias)
+                        child_env = {'HOME': str(selected_home), 'PATH': env['PATH'], 'TERM': env['TERM'],
+                                     variable: str(legacy_home / '.codsh-rust-other/nested')}
+                        exercise(name, child_env=child_env)
+                        after_control = snapshot_tree(control_home)
+                        without_preview = lambda tree: {key: value for key, value in tree.items()
+                                                         if key != '.codsh-rust' and not key.startswith('.codsh-rust/')}
+                        assert without_preview(after_control) == before_control
+                        assert (control_home / '.codsh-rust/dsh/profiles/rust/package.json').is_file()
         profile = home / '.codsh-rust/dsh/profiles/rust/package.json'
         assert json.loads(profile.read_text())['dsh']['profile']['bundles'] == []
         profile.write_text('{invalid JSON')

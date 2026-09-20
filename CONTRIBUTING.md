@@ -239,7 +239,19 @@ spelling, a missing child, and genuinely absent root/dsh/Profile/mixed-case path
 Each must fail before terminal entry or any directory/file mutation. Four separate
 missing-Home controls (including a similar prefix) must still launch without
 creating the configured legacy Home. The launcher uses native canonicalization
-for existing paths. When either path has missing components, it conservatively
+for existing paths and compares device/inode ancestry, not realpath strings alone.
+Each missing suffix stays anchored to its nearest existing directory. Suffixes are
+compared relative to shared directory identities; merely sharing an ancestor does
+not make separate siblings overlap. Metadata errors, non-directories and unavailable
+inode identity fail closed. No platform mount-prefix rewrite is used.
+The macOS installed matrix requires a real Data-volume firmlink alias. Firmlink
+fixtures live under `/tmp` so `/private/tmp` and `/System/Volumes/Data/private/tmp`
+have different native realpath strings and the same device/inode. The matrix
+exercises both alias directions, absent/partly-existing/existing roots, root/dsh/Profile
+and case variants, legacy ancestors, default links and separate prefix-neighbor/nested
+controls. Full UI controls verify separate aliased Homes without touching legacy data.
+A non-directory Home path is refused because directory identity cannot be established.
+When either path has missing components, it conservatively
 refuses a case-folded potential overlap on every platform. It neither assumes
 case sensitivity for unresolvable suffixes nor creates files to probe the volume.
 Every unresolved non-ASCII component is refused before suffix reconstruction,

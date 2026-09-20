@@ -55,7 +55,11 @@ The preview uses `~/.codsh-rust/dsh` and Profile `rust`, ignores inherited
 `DSH_HOME`, provider credentials and Grok settings, and never migrates legacy
 sessions. A symlinked preview Home/Profile or overlap with `DSH_HOME`/`GROK_HOME`
 is refused before writes, including differently cased aliases on case-insensitive
-filesystems. If either Home is missing, a case-only potential overlap is refused
+filesystems. Overlap checks compare device/inode ancestry, including existing
+ancestors of missing paths, so macOS firmlink aliases cannot hide behind different
+realpath strings. Separate Homes reached through those aliases remain supported.
+Unavailable directory identity fails closed before writes.
+If either Home is missing, a case-only potential overlap is refused
 conservatively on every platform, without creating paths to test filesystem rules.
 Any missing path component containing non-ASCII characters is also refused before
 writes, even for a separate Home: Unicode lowercase/normalization is not a reliable
