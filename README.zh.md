@@ -52,7 +52,8 @@ codsh
 
 预览使用 `~/.codsh-rust/dsh` 与 `rust` Profile，忽略继承的 `DSH_HOME`、
 提供商密钥及 Grok 设置，不迁移旧会话。如果预览 Home/Profile 是符号链接，
-或与 `DSH_HOME` 重叠，会拒绝启动。`Ctrl+Q`/`Ctrl+D` 退出；`Ctrl+C` 清空
+或与 `DSH_HOME`/`GROK_HOME` 重叠（包括大小写不敏感文件系统上的大小写别名），
+会在写入前拒绝启动。`Ctrl+Q`/`Ctrl+D` 退出；`Ctrl+C` 清空
 草稿，草稿为空时退出。不支持的参数明确报错；`codsh --rust --help` 说明此路径。
 
 维护者通过 `pnpm run build:rust` 构建本机候选产物，再本地打包、安装

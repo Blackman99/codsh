@@ -30,6 +30,11 @@ def digest_tree(root):
             for p in root.rglob('*') if p.is_file()}
 
 
+def snapshot_tree(root):
+    return {str(path.relative_to(root)): 'directory' if path.is_dir() else hashlib.sha256(path.read_bytes()).hexdigest()
+            for path in root.rglob('*')}
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--output', type=Path)
@@ -62,6 +67,67 @@ def main():
         package = prefix / 'node_modules/codsh-cli'
         binary = package / 'native' / ('darwin-arm64' if os.uname().machine == 'arm64' else 'darwin-x64') / 'codsh-rust'
         assert binary.exists(), 'candidate must contain the real native artifact'
+        alias_results = []
+        for variable in ['DSH_HOME', 'GROK_HOME']:
+            for kind, actual_parts, configured_parts in [
+                ('root', ['.CODSH-RUST'], ['.CODSH-RUST']),
+                ('dsh', ['.CODSH-RUST', 'DSH'], ['.CODSH-RUST', 'DSH']),
+                ('nested', ['.CODSH-RUST', 'DSH', 'profiles', 'rust'], ['.CODSH-RUST', 'DSH', 'profiles', 'rust']),
+                ('reverse', ['.codsh-rust', 'dsh'], ['.CODSH-RUST', 'DSH']),
+                ('missing-child', ['.CODSH-RUST'], ['.CODSH-RUST', 'not-created']),
+            ]:
+                alias_home = work / f'alias-{variable}-{kind}'
+                actual = alias_home.joinpath(*actual_parts)
+                actual.mkdir(parents=True)
+                (actual / 'canary').write_text('synthetic legacy data must remain unchanged\n')
+                candidate_root = alias_home / '.codsh-rust'
+                assert candidate_root.exists() and os.path.samefile(candidate_root, alias_home / actual_parts[0]), 'case-alias regressions require a case-insensitive filesystem'
+                configured = alias_home.joinpath(*configured_parts)
+                alias_before = snapshot_tree(alias_home)
+                master, slave = pty.openpty()
+                fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack('HHHH', 24, 80, 0, 0))
+                original = termios.tcgetattr(slave)
+                alias_env = {'HOME': str(alias_home), 'PATH': env['PATH'], 'TERM': env['TERM'], variable: str(configured)}
+                process = subprocess.Popen([NODE, str(launcher), '--rust'], cwd=cwd, env=alias_env,
+                                           stdin=slave, stdout=slave, stderr=slave, start_new_session=True)
+                data = bytearray()
+                quit_sent = False
+                try:
+                    deadline = time.monotonic() + 3
+                    while time.monotonic() < deadline:
+                        if select.select([master], [], [], 0.05)[0]:
+                            data.extend(os.read(master, 65536))
+                        if b'\x1b[?1049h' in data and not quit_sent:
+                            os.write(master, b'\x11')
+                            quit_sent = True
+                        if process.poll() is not None:
+                            while select.select([master], [], [], 0.05)[0]:
+                                data.extend(os.read(master, 65536))
+                            break
+                    if process.poll() is None:
+                        process.kill()
+                    process.wait(timeout=5)
+                    os.write(master, b'AFTER_ALIAS_REFUSAL\n')
+                    assert select.select([slave], [], [], 2)[0]
+                    assert os.read(slave, 4096) == b'AFTER_ALIAS_REFUSAL\n'
+                    alias_after = snapshot_tree(alias_home)
+                    result = {'variable': variable, 'case': kind, 'exit': process.returncode,
+                              'refused': b'overlaps a legacy Home' in data,
+                              'enteredAlternateScreen': b'\x1b[?1049h' in data,
+                              'treeUnchanged': alias_before == alias_after,
+                              'before': alias_before, 'after': alias_after,
+                              'terminalRestored': termios.tcgetattr(slave) == original}
+                    alias_results.append(result)
+                    (output / f'alias-{variable}-{kind}.ansi').write_bytes(data)
+                finally:
+                    if process.poll() is None:
+                        process.kill()
+                        process.wait()
+                    os.close(master)
+                    os.close(slave)
+        (output / 'case-alias-results.json').write_text(json.dumps(alias_results, indent=2) + '\n')
+        assert all(result['exit'] == 1 and result['refused'] and not result['enteredAlternateScreen']
+                   and result['treeUnchanged'] and result['terminalRestored'] for result in alias_results), 'case-alias launch mutated a legacy tree or failed to refuse; see case-alias-results.json'
         audit = output / 'network.log'
         dylib = output / 'network-audit.dylib'
         run(['clang', '-dynamiclib', '-Wall', '-Wextra', '-Werror', str(ROOT / 'scripts/rust-network-audit.c'), '-o', str(dylib)])
@@ -231,6 +297,7 @@ def main():
         assert digest_tree(legacy) == before
         (output / 'result.json').write_text(json.dumps({
             'scenarios': scenarios, 'networkEvents': lines, 'auditControlDetectedSocket': True,
+            'caseAliasRefusals': len(alias_results), 'caseAliasEvidence': 'case-alias-results.json',
             'legacyCanariesUnchanged': True, 'symlinkRefused': True,
             'invalidArtifactRefused': True, 'homeOverlapRefused': True,
             'unsupportedArgumentsRefused': True, 'pipeRefused': True,

@@ -233,6 +233,12 @@ fail explicitly. The regular legacy `build` does not add native artifacts.
 the product in a temporary prefix, uses synthetic HOME/DSH_HOME/workspace canaries,
 operates the actual Rust UI through a PTY, and checks termios, screen/paste/cursor
 restoration after normal exit, cancellation, signals and malformed Profile startup.
+It also requires a case-insensitive test volume and checks ten installed-product
+PTY refusals for `DSH_HOME`/`GROK_HOME` aliases: root, dsh directory, nested Profile,
+reverse spelling, and a missing child under an existing alias. Each must fail
+before terminal entry or any directory/file mutation. The launcher uses native
+filesystem canonicalization (including existing ancestors of missing paths), not
+case-folding all paths or Node's case-preserving JavaScript realpath fallback.
 The network observer interposes socket/connect/connectx/sendto/sendmsg/DNS calls
 without replacing their results; a compiled loopback UDP positive control proves
 socket and outbound-send observation.

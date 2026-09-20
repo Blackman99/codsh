@@ -30,7 +30,9 @@ wayfinder → grill → spec → tickets → landing → done.
 `codsh --rust` selects the isolated offline Rust welcome/input preview. Plain
 `codsh` is unchanged. The candidate uses `~/.codsh-rust/dsh`, Profile `rust`,
 never imports old credentials or sessions, and starts no agent or network
-service. Enter explicitly refuses execution until the dsh adapter is available.
+service. Filesystem-resolved overlap with `DSH_HOME`/`GROK_HOME`, including case
+aliases, is refused before writes; symlinked preview paths remain forbidden.
+Enter explicitly refuses execution until the dsh adapter is available.
 `Ctrl+Q`/`Ctrl+D` quits; `Ctrl+C` clears a draft or quits when empty.
 
 Maintainers run `pnpm run build:rust` before locally packing this package. The

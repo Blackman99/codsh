@@ -1,12 +1,26 @@
 import { spawn } from 'node:child_process'
 import { existsSync, lstatSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
-import { join, resolve, sep } from 'node:path'
+import { basename, dirname, join, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createHash } from 'node:crypto'
 
+function canonicalPath(path) {
+  const absolute = resolve(path)
+  try {
+    // Native realpath resolves filesystem case aliases; the JS fallback preserves spelling.
+    return realpathSync.native(absolute)
+  } catch (error) {
+    if (error.code !== 'ENOENT') throw error
+    const parent = dirname(absolute)
+    if (parent === absolute) throw error
+    return join(canonicalPath(parent), basename(absolute))
+  }
+}
+
 function overlaps(a, b) {
-  return a === b || a.startsWith(`${b}${sep}`) || b.startsWith(`${a}${sep}`)
+  const within = (child, parent) => child === parent || child.startsWith(parent.endsWith(sep) ? parent : `${parent}${sep}`)
+  return within(a, b) || within(b, a)
 }
 
 function privateDirectory(path) {
@@ -30,10 +44,11 @@ export async function launchRust(args) {
     }
     const parent = realpathSync(homedir())
     const root = join(parent, '.codsh-rust')
+    if (lstatSync(root, { throwIfNoEntry: false })?.isSymbolicLink()) throw new Error(`refusing symlink: ${root}`)
+    const canonicalRoot = canonicalPath(root)
     for (const oldHome of [process.env.DSH_HOME, join(parent, '.dsh'), process.env.GROK_HOME, join(parent, '.grok')]) {
       if (!oldHome) continue
-      const old = existsSync(oldHome) ? realpathSync(oldHome) : resolve(oldHome)
-      if (overlaps(root, old)) throw new Error('Rust Home overlaps a legacy Home; refusing to access legacy data')
+      if (overlaps(canonicalRoot, canonicalPath(oldHome))) throw new Error('Rust Home overlaps a legacy Home; refusing to access legacy data')
     }
     const helpOnly = args.length === 1 && ['--help', '-h', '--version', '-V'].includes(args[0])
     if (!helpOnly) {

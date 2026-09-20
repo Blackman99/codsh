@@ -53,7 +53,9 @@ the dsh adapter is unavailable without sending or saving the draft.
 
 The preview uses `~/.codsh-rust/dsh` and Profile `rust`, ignores inherited
 `DSH_HOME`, provider credentials and Grok settings, and never migrates legacy
-sessions. A symlinked preview Home/Profile or overlap with `DSH_HOME` is refused.
+sessions. A symlinked preview Home/Profile or overlap with `DSH_HOME`/`GROK_HOME`
+is refused before writes, including differently cased aliases on case-insensitive
+filesystems.
 `Ctrl+Q`/`Ctrl+D` quits; `Ctrl+C` clears a draft, or quits when empty. Unsupported
 arguments fail explicitly. `codsh --rust --help` describes this limited path.
 
