@@ -82,8 +82,10 @@ with a `base_url`. Inherited parent `GROK_HOME` is ignored; the preview pins
 `GROK_HOME` to `~/.codsh-rust/.grok`.
 
 The preview uses `~/.codsh-rust/dsh` and Profile `rust`, ignores inherited
-`DSH_HOME`, provider credentials and Grok settings, and never migrates legacy
-sessions. A symlinked preview Home/Profile or overlap with `DSH_HOME`/`GROK_HOME`
+`DSH_HOME` and Grok settings files, and never migrates legacy sessions.
+Configured `env_key` values such as `XAI_API_KEY` (and other `*_API_KEY`
+variables) are passed through to dsh; `~/.dsh` and `~/.grok` credential files
+are not imported. A symlinked preview Home/Profile or overlap with `DSH_HOME`/`GROK_HOME`
 is refused before writes, including differently cased aliases on case-insensitive
 filesystems. Overlap checks compare device/inode ancestry, including existing
 ancestors of missing paths, so macOS firmlink aliases cannot hide behind different

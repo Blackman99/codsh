@@ -21,7 +21,8 @@ mismatch, empty answers, mid-stream failure, disconnect, and cancellation are
 reported truthfully. `Ctrl+C` clears a draft first; an empty draft cancels the
 running dsh turn. Esc does not cancel. `--continue` / `--resume <id>` restore
 the same dsh session; a second write owner is refused. The isolated Home is `~/.codsh-rust/dsh`, Profile `rust`; inherited
-legacy configuration/credentials are not imported. Telemetry stays off.
+legacy configuration/credential files are not imported. Configured `env_key`
+values are passed through. Telemetry stays off.
 User settings enter through `$GROK_HOME/config.toml` and `codsh --rust inspect`;
 applicable model/provider fields are translated into isolated dsh
 `settings.yaml` rather than competing with it.

@@ -74,8 +74,9 @@ dsh 给出的差异，`y` 允许该次调用，`n` 拒绝且不写入。文件�
 `env_key`（例如 `XAI_API_KEY`）。父进程的 `GROK_HOME` 会被忽略；预览把
 `GROK_HOME` 固定为 `~/.codsh-rust/.grok`。
 
-预览使用 `~/.codsh-rust/dsh` 与 `rust` Profile，忽略继承的 `DSH_HOME`、
-提供商密钥及 Grok 设置，不迁移旧会话。如果预览 Home/Profile 是符号链接，
+预览使用 `~/.codsh-rust/dsh` 与 `rust` Profile，忽略继承的 `DSH_HOME`
+和 Grok 设置文件，不迁移旧会话。已配置的 `env_key`（例如 `XAI_API_KEY`
+以及其他 `*_API_KEY`）会传给 dsh；不会导入 `~/.dsh` 或 `~/.grok` 中的凭据文件。如果预览 Home/Profile 是符号链接，
 或与 `DSH_HOME`/`GROK_HOME` 重叠（包括大小写不敏感文件系统上的大小写别名），
 会在写入前拒绝启动。重叠检查比较目录及其祖先的设备号/inode 身份，包括
 尚不存在路径的已有祖先，避免 macOS firmlink 别名通过不同 realpath 字符串绕过。

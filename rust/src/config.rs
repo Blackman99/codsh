@@ -1,7 +1,7 @@
 use serde_json::{Value as JsonValue, json};
 use std::collections::BTreeMap;
 use std::fs;
-use std::io::{self, ErrorKind};
+use std::io::{self, ErrorKind, Write};
 use std::path::{Path, PathBuf};
 use toml::Value as TomlValue;
 
@@ -30,6 +30,7 @@ pub struct ModelSpec {
     pub base_url: Option<String>,
     pub env_key: String,
     pub api_key_set: bool,
+    api_key: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -93,10 +94,7 @@ impl EffectiveConfig {
             return missing.clone();
         }
         if !self.ready {
-            return format!(
-                "First-run: no usable provider. Official grok.com login/telemetry unused.\nWrite {} ([model.<id>] base_url, env_key). Export the key. inspect shows origins.",
-                self.config_path.display()
-            );
+            return "First-run: no usable provider. Official grok.com login/telemetry unused.\nWrite ~/.codsh-rust/.grok/config.toml ([model.<id>] base_url, env_key). Export the key. inspect shows origins.".into();
         }
         String::new()
     }
@@ -310,7 +308,9 @@ pub fn load_from(mut input: LoadInput) -> EffectiveConfig {
             );
         }
         if model.api_key_set {
-            sources.insert(format!("model.{}.api_key", model.id), "config.toml".into());
+            sources
+                .entry(format!("model.{}.api_key", model.id))
+                .or_insert_with(|| "config.toml".into());
         }
     }
 
@@ -394,32 +394,47 @@ pub fn load_from(mut input: LoadInput) -> EffectiveConfig {
             },
         );
     }
-    push_setting(
-        &mut settings,
-        "features.telemetry",
-        if telemetry { "true" } else { "false" },
+    let (telemetry_value, telemetry_source) = applied_privacy(
+        telemetry,
         sources
             .get("features.telemetry")
             .map(String::as_str)
             .unwrap_or("default"),
     );
-    push_setting(
-        &mut settings,
-        "features.feedback",
-        if feedback { "true" } else { "false" },
+    let (feedback_value, feedback_source) = applied_privacy(
+        feedback,
         sources
             .get("features.feedback")
             .map(String::as_str)
             .unwrap_or("default"),
     );
-    push_setting(
-        &mut settings,
-        "features.trace_upload",
-        if trace_upload { "true" } else { "false" },
+    let (trace_value, trace_source) = applied_privacy(
+        trace_upload,
         sources
             .get("features.trace_upload")
             .map(String::as_str)
             .unwrap_or("default"),
+    );
+    telemetry = telemetry_value == "true";
+    feedback = feedback_value == "true";
+    trace_upload = trace_value == "true";
+    push_setting(
+        &mut settings,
+        "features.telemetry",
+        telemetry_value,
+        telemetry_source,
+    );
+    push_setting(
+        &mut settings,
+        "features.feedback",
+        feedback_value,
+        feedback_source,
+    );
+    push_setting(
+        &mut settings,
+        "features.trace_upload",
+        trace_value,
+        trace_source,
     );
 
     let mut missing_credential = None;
@@ -593,16 +608,15 @@ pub fn apply_to_dsh(
             fs::write(&config.settings_yaml, yaml)?;
         }
     }
-    if model.api_key_set
-        && !env
-            .get(&model.env_key)
-            .is_some_and(|value| !value.is_empty())
-        && let Some(key) = model_api_key_from_config(config)
+    if !env
+        .get(&model.env_key)
+        .is_some_and(|value| !value.is_empty())
+        && let Some(key) = model.api_key.as_deref()
     {
         write_isolated_credential(
             &config.dsh_home.join(".credentials.yaml"),
             &model.env_key,
-            &key,
+            key,
         )?;
     }
     if is_test_execution_seam() {
@@ -628,11 +642,12 @@ pub fn credential_env(
     env: &BTreeMap<String, String>,
 ) -> Vec<(String, String)> {
     let mut extra = Vec::new();
-    if let Some(model) = config.active_model()
-        && let Some(value) = env.get(&model.env_key)
-        && !value.is_empty()
-    {
-        extra.push((model.env_key.clone(), value.clone()));
+    if let Some(model) = config.active_model() {
+        if let Some(value) = env.get(&model.env_key).filter(|value| !value.is_empty()) {
+            extra.push((model.env_key.clone(), value.clone()));
+        } else if let Some(key) = &model.api_key {
+            extra.push((model.env_key.clone(), key.clone()));
+        }
     }
     extra
 }
@@ -686,20 +701,24 @@ fn write_isolated_credential(path: &Path, env_key: &str, value: &str) -> io::Res
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)?;
     }
-    fs::write(path, body)
-}
-
-fn model_api_key_from_config(config: &EffectiveConfig) -> Option<String> {
-    let text = fs::read_to_string(&config.config_path).ok()?;
-    let parsed: TomlValue = toml::from_str(&text).ok()?;
-    let id = config.default_model.as_ref()?;
-    parsed
-        .get("model")?
-        .get(id)?
-        .get("api_key")?
-        .as_str()
-        .filter(|value| !value.is_empty())
-        .map(str::to_string)
+    let mut options = fs::OpenOptions::new();
+    options.write(true).create(true).truncate(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    let mut file = options.open(path)?;
+    file.write_all(body.as_bytes())?;
+    file.flush()?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mut permissions = file.metadata()?.permissions();
+        permissions.set_mode(0o600);
+        fs::set_permissions(path, permissions)?;
+    }
+    Ok(())
 }
 
 fn overlay_table(env: &BTreeMap<String, String>, warnings: &mut Vec<String>) -> Option<TomlValue> {
@@ -815,6 +834,17 @@ fn stamp_model_sources(table: &TomlValue, sources: &mut BTreeMap<String, String>
     {
         sources.insert("features.feedback".into(), source.into());
     }
+    if table
+        .get("features")
+        .and_then(|features| features.get("trace_upload"))
+        .is_some()
+        || table
+            .get("telemetry")
+            .and_then(|telemetry| telemetry.get("trace_upload"))
+            .is_some()
+    {
+        sources.insert("features.trace_upload".into(), source.into());
+    }
 }
 
 fn parse_model(id: &str, spec: &TomlValue) -> Option<ModelSpec> {
@@ -839,10 +869,11 @@ fn parse_model(id: &str, spec: &TomlValue) -> Option<ModelSpec> {
         .and_then(TomlValue::as_str)
         .unwrap_or("XAI_API_KEY")
         .to_string();
-    let api_key_set = table
+    let api_key = table
         .get("api_key")
         .and_then(TomlValue::as_str)
-        .is_some_and(|value| !value.is_empty());
+        .map(str::to_string)
+        .filter(|value| !value.is_empty());
     Some(ModelSpec {
         provider: provider_id(id),
         id: id.to_string(),
@@ -850,7 +881,8 @@ fn parse_model(id: &str, spec: &TomlValue) -> Option<ModelSpec> {
         model,
         base_url,
         env_key,
-        api_key_set,
+        api_key_set: api_key.is_some(),
+        api_key,
     })
 }
 
@@ -886,6 +918,14 @@ fn env_bool(value: Option<&String>) -> Option<bool> {
         "1" | "true" | "yes" | "on" | "enabled" => Some(true),
         "0" | "false" | "no" | "off" | "disabled" => Some(false),
         _ => None,
+    }
+}
+
+fn applied_privacy(requested: bool, source: &str) -> (&'static str, &str) {
+    if requested {
+        ("false", "applied")
+    } else {
+        ("false", source)
     }
 }
 
@@ -1160,5 +1200,105 @@ env_key = "XAI_API_KEY"
         let message = config.first_run_message();
         assert!(message.contains("XAI_API_KEY"));
         assert!(message.contains("No hidden default key"));
+    }
+
+    #[test]
+    fn writes_api_key_credentials_owner_only_without_env() {
+        let dir = TempDir::new().unwrap();
+        let load = input(&dir);
+        write_config(
+            &load,
+            r#"
+[model.gateway]
+model = "mock-model"
+base_url = "http://127.0.0.1:9/v1"
+env_key = "XAI_API_KEY"
+api_key = "file-secret"
+"#,
+        );
+        let config = load_from(load.clone());
+        assert!(config.ready);
+        apply_to_dsh(&config, &load.env).unwrap();
+        let path = config.dsh_home.join(".credentials.yaml");
+        let body = fs::read_to_string(&path).unwrap();
+        assert!(body.contains("XAI_API_KEY:"));
+        assert!(!inspect_json(&config).contains("file-secret"));
+        let extra = credential_env(&config, &load.env);
+        assert_eq!(extra, vec![("XAI_API_KEY".into(), "file-secret".into())]);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            assert_eq!(
+                fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+                0o600
+            );
+        }
+    }
+
+    #[test]
+    fn overlay_api_key_is_applied_without_rereading_config_file() {
+        let dir = TempDir::new().unwrap();
+        let mut load = input(&dir);
+        write_config(
+            &load,
+            r#"
+[model.gateway]
+model = "mock-model"
+base_url = "http://127.0.0.1:9/v1"
+env_key = "XAI_API_KEY"
+"#,
+        );
+        load.env.insert(
+            "GROK_CONFIG".into(),
+            r#"{"model":{"gateway":{"api_key":"overlay-secret"}}}"#.into(),
+        );
+        let config = load_from(load.clone());
+        assert!(config.ready);
+        assert_eq!(
+            config
+                .settings
+                .iter()
+                .find(|setting| setting.key == "model.gateway.api_key")
+                .map(|setting| (setting.value.as_str(), setting.source.as_str())),
+            Some(("(set)", "overlay"))
+        );
+        apply_to_dsh(&config, &load.env).unwrap();
+        let body = fs::read_to_string(config.dsh_home.join(".credentials.yaml")).unwrap();
+        assert!(body.contains("overlay-secret"));
+        assert!(!inspect_json(&config).contains("overlay-secret"));
+    }
+
+    #[test]
+    fn inspect_reports_privacy_values_applied_to_dsh() {
+        let dir = TempDir::new().unwrap();
+        let load = input(&dir);
+        write_config(
+            &load,
+            r#"
+[features]
+telemetry = true
+trace_upload = true
+"#,
+        );
+        let config = load_from(load);
+        assert!(!config.telemetry);
+        assert!(!config.trace_upload);
+        assert_eq!(
+            config
+                .settings
+                .iter()
+                .find(|setting| setting.key == "features.telemetry")
+                .map(|setting| (setting.value.as_str(), setting.source.as_str())),
+            Some(("false", "applied"))
+        );
+        assert_eq!(
+            config
+                .settings
+                .iter()
+                .find(|setting| setting.key == "features.trace_upload")
+                .map(|setting| (setting.value.as_str(), setting.source.as_str())),
+            Some(("false", "applied"))
+        );
+        assert!(inspect_json(&config).contains("\"telemetry\": false"));
     }
 }

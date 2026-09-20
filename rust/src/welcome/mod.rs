@@ -32,7 +32,7 @@ pub fn render(frame: &mut Frame, draft: &TextArea, notice: &str, selected: Optio
         .desired_height(content.width.saturating_sub(4))
         .clamp(1, 5)
         + 2;
-    let tip_height = notice.lines().count().clamp(2, 24) as u16;
+    let tip_height = wrapped_rows(notice, content.width);
     let layout = layout::WelcomeLayout::compute(layout::WelcomeLayoutInput {
         content_area: content,
         menu_height: 3,
@@ -83,6 +83,19 @@ pub fn render(frame: &mut Frame, draft: &TextArea, notice: &str, selected: Optio
     input
 }
 
+fn wrapped_rows(text: &str, width: u16) -> u16 {
+    let width = width.max(1) as usize;
+    let rows = text
+        .lines()
+        .map(|line| {
+            unicode_width::UnicodeWidthStr::width(line)
+                .max(1)
+                .div_ceil(width)
+        })
+        .sum::<usize>();
+    rows.clamp(2, 24) as u16
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -109,5 +122,27 @@ mod tests {
             assert!(text.contains('c'));
             assert_eq!(draft.text(), "你好 👩‍💻\nDraft survives resize");
         }
+    }
+
+    #[test]
+    fn first_run_tip_keeps_config_fields_visible() {
+        let mut terminal = Terminal::new(TestBackend::new(100, 30)).unwrap();
+        let draft = TextArea::new();
+        let notice = "Execution unavailable: dsh\nNot connected. Draft kept.\nFirst-run: no usable provider. Official grok.com login/telemetry unused.\nWrite ~/.codsh-rust/.grok/config.toml ([model.<id>] base_url, env_key). Export the key. inspect shows origins.";
+        terminal
+            .draw(|frame| {
+                render(frame, &draft, notice, None);
+            })
+            .unwrap();
+        let text: String = terminal
+            .backend()
+            .buffer()
+            .content
+            .iter()
+            .map(|cell| cell.symbol())
+            .collect();
+        assert!(text.contains("base_url"));
+        assert!(text.contains("env_key"));
+        assert!(text.contains("inspect"));
     }
 }

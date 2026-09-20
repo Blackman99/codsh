@@ -184,7 +184,8 @@ def main():
         results['inspect-empty'] = payload
 
         first = pty_session('first-run', launcher, cwd, base_env, output,
-                            wait_before=['First-run', 'Official grok.com login/telemetry unused'])
+                            wait_before=['First-run', 'Official grok.com login/telemetry unused',
+                                         'base_url', 'env_key', 'inspect'])
         assert 'Connected to dsh ACP' not in first['screen']
         assert first['exit'] == 0
         results['pty-first-run'] = {'exit': first['exit']}
@@ -211,6 +212,7 @@ env_key = "XAI_API_KEY"
 
 [features]
 telemetry = true
+trace_upload = true
 """
         (grok_home / 'config.toml').write_text(config_text)
         missing = spawn_inspect(launcher, cwd, base_env, ['inspect', '--json'])
@@ -231,8 +233,15 @@ telemetry = true
         assert settings['model.gateway.base_url']['value'] == 'http://127.0.0.1:9/v1'
         assert settings['XAI_API_KEY']['source'] == 'environment'
         assert settings['XAI_API_KEY']['value'] == '(set)'
+        assert ready_payload['telemetry'] is False
+        assert settings['features.telemetry']['value'] == 'false'
+        assert settings['features.telemetry']['source'] == 'applied'
+        assert settings['features.trace_upload']['value'] == 'false'
+        assert settings['features.trace_upload']['source'] == 'applied'
         assert 'test-key-not-a-secret-for-logs' not in ready.stdout
-        results['inspect-ready'] = {key: settings[key] for key in ('models.default', 'model.gateway.base_url', 'XAI_API_KEY')}
+        results['inspect-ready'] = {key: settings[key] for key in (
+            'models.default', 'model.gateway.base_url', 'XAI_API_KEY',
+            'features.telemetry', 'features.trace_upload')}
 
         cli = spawn_inspect(launcher, cwd, keyed_env, ['inspect', '--json', '--model', 'gateway'])
         cli_payload = json.loads(cli.stdout)
@@ -316,6 +325,38 @@ env_key = "XAI_API_KEY"
                                   wait_before=['Missing credential', 'XAI_API_KEY'])
         assert 'No hidden default key' in missing_pty['screen']
         results['pty-missing'] = {'exit': missing_pty['exit']}
+
+        api_home = work / 'api-key-home'
+        api_home.mkdir()
+        api_grok = api_home / '.codsh-rust' / '.grok'
+        api_grok.mkdir(parents=True)
+        (api_grok / 'config.toml').write_text("""
+[model.gateway]
+name = "Local gateway"
+model = "mock-model"
+base_url = "http://127.0.0.1:9/v1"
+env_key = "XAI_API_KEY"
+api_key = "file-only-secret"
+""")
+        api_env = {
+            **base_env, 'HOME': str(api_home), 'XAI_API_KEY': '',
+            'CODSH_ACP_PATCH': str(patch), 'DSH_CODE_CLI_MOCK_TOOL': 'echo',
+        }
+        api_turn = pty_session('api-key-turn', launcher, cwd, api_env, output,
+                               typed='TOKEN_API_KEY\r',
+                               wait_before=['Connected to dsh ACP'],
+                               wait_after=['RUST_ACP_ANSWER', 'TOKEN_API_KEY'])
+        assert api_turn['exit'] == 0
+        cred = api_home / '.codsh-rust' / 'dsh' / '.credentials.yaml'
+        assert cred.is_file()
+        assert (cred.stat().st_mode & 0o777) == 0o600
+        run([NODE, '--input-type=module', '-e',
+             "import { statSync } from 'node:fs'; const mode=statSync(process.argv[1]).mode; if ((mode & 63) !== 0) throw new Error((mode & 511).toString(8))",
+             str(cred)])
+        api_inspect = spawn_inspect(launcher, cwd, {**base_env, 'HOME': str(api_home), 'XAI_API_KEY': ''}, ['inspect', '--json'])
+        assert api_inspect.returncode == 0, api_inspect.stderr
+        assert 'file-only-secret' not in api_inspect.stdout
+        results['pty-api-key'] = {'exit': api_turn['exit'], 'mode': cred.stat().st_mode & 0o777}
 
         (output / 'result.json').write_text(json.dumps({
             'results': {key: ('ok' if value is not None else value) for key, value in results.items()},
