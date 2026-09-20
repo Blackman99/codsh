@@ -6,7 +6,7 @@ import { createRequire } from 'node:module'
 import { afterEach, describe, expect, it } from 'vitest'
 import { rustAcpOverlay } from './rust-acp-overlay.mjs'
 import { fileURLToPath } from 'node:url'
-import { projectTurns } from '../packages/cli/bin/rust-acp-session-read.mjs'
+import { projectTurns, projectSession } from '../packages/cli/bin/rust-acp-session-read.mjs'
 
 const require = createRequire(import.meta.url)
 const dshManifest = require.resolve('@deepseek-ai/dsh/package.json')
@@ -67,10 +67,24 @@ function startAgent(mode, extraEnv = {}, reuse = null) {
     }
   })
   child.stderr.on('data', chunk => { stderr.push(String(chunk)) })
+  child.stdin.on('error', error => {
+    if (error?.code !== 'EPIPE') stderr.push(String(error))
+  })
   function send(id, method, params) {
-    child.stdin.write(`${JSON.stringify({ jsonrpc: '2.0', id, method, params })}\n`)
     return new Promise((resolve, reject) => {
       pending.set(id, { resolve, reject })
+      try {
+        if (child.killed || child.exitCode !== null || child.stdin.destroyed || !child.stdin.writable) {
+          pending.delete(id)
+          reject(new Error('ACP stdin is closed'))
+          return
+        }
+        child.stdin.write(`${JSON.stringify({ jsonrpc: '2.0', id, method, params })}\n`)
+      } catch (error) {
+        pending.delete(id)
+        reject(error)
+        return
+      }
       setTimeout(() => reject(new Error(`timeout waiting for ${method}: ${stderr.join('')}`)), 20000)
     })
   }
@@ -132,6 +146,41 @@ describe('dsh session log projection', () => {
     expect(turns[0].interrupted).toBe(true)
     expect(turns[0].tools.map(tool => tool.status)).toEqual(['unknown', 'unknown'])
     expect(turns[0].tools.every(tool => tool.status !== 'pending' && tool.status !== 'in_progress')).toBe(true)
+  })
+
+  it('hides shadowed history after compaction while keeping original records', () => {
+    const events = [
+      { seq: 1, type: 'turn/start', data: { turn: 1 } },
+      { seq: 2, type: 'user/message', data: { message: { content: [{ type: 'text', text: 'OLD_TOKEN' }] } } },
+      { seq: 3, type: 'assistant/message', data: { message: { content: [{ type: 'text', text: 'old answer' }] } } },
+      { seq: 4, type: 'tool/call', data: { callId: 'todo-1', name: 'todo_write', arguments: '{"text":"TODO_KEEP"}' } },
+      { seq: 5, type: 'tool/result', data: { message: { toolCallId: 'todo-1', content: [{ type: 'text', text: 'TODO_KEEP' }] } } },
+      { seq: 6, type: 'turn/end', data: { turn: 1, reason: { kind: 'stop' } } },
+      { seq: 7, type: 'compaction/start', data: { compactionId: 'c1', turn: null } },
+      { seq: 8, type: 'compaction/summary', data: {
+        compactionId: 'c1',
+        summary: [{ type: 'text', text: 'MOCK_COMPACTION_SUMMARY' }],
+        shadowedSeqs: [2, 3],
+        shadowedTokenCount: 40,
+        provider: 'cli-mock',
+        model: 'cli-mock',
+      } },
+      { seq: 9, type: 'user/message', data: {
+        message: {
+          content: [{ type: 'text', text: '<compacted-summary>\nMOCK_COMPACTION_SUMMARY\n</compacted-summary>' }],
+          source: { kind: 'plugin', plugin: 'compact', compactionId: 'c1' },
+          surfaceOp: { op: 'replace', startSeq: 2, endSeq: 3 },
+        },
+      } },
+      { seq: 10, type: 'compaction/end', data: { compactionId: 'c1', turn: null } },
+    ]
+    const live = projectSession(events)
+    expect(live.turns.some(turn => turn.user.includes('OLD_TOKEN'))).toBe(false)
+    expect(live.turns.some(turn => turn.compacted && turn.answer.includes('MOCK_COMPACTION_SUMMARY'))).toBe(true)
+    expect(JSON.stringify(projectTurns(events, { skipShadowed: false }))).toContain('OLD_TOKEN')
+    expect(live.compaction[0].provider).toBe('cli-mock')
+    expect(live.compaction[0].purpose).toBe('compaction')
+    expect(live.retainedTodos.some(tool => tool.result.includes('TODO_KEEP'))).toBe(true)
   })
 })
 
@@ -302,6 +351,7 @@ describe('public ACP/JSON-RPC against real dsh', () => {
     const agent = startAgent('file-edit')
     try {
       expect(rustAcpOverlay()).toContain('rust-acp-file-approval')
+      expect(rustAcpOverlay()).toContain('rust-acp-compact')
       writeFileSync(join(agent.cwd, 'note.txt'), 'alpha\n')
       const { session } = await handshake(agent)
       const prompt = agent.send(3, 'session/prompt', {
@@ -726,6 +776,90 @@ describe('public ACP/JSON-RPC against real dsh', () => {
       second.child.kill('SIGTERM')
     }
   }, 45000)
+
+  it('compacts through dsh, retains later tools, and does not invent lost context on failure', async () => {
+    const agent = startAgent('echo')
+    try {
+      const { session } = await handshake(agent)
+      for (const text of ['TOKEN_OLD_ONE TODO_KEEP', 'TOKEN_OLD_TWO', 'TOKEN_OLD_THREE', 'TOKEN_OLD_FOUR']) {
+        const result = await agent.send(agent.updates.length + 10, 'session/prompt', {
+          sessionId: session.sessionId,
+          prompt: [{ type: 'text', text }],
+        })
+        expect(result.stopReason).toBe('end_turn')
+      }
+      const compact = await agent.send(80, 'session/prompt', {
+        sessionId: session.sessionId,
+        prompt: [{ type: 'text', text: '/compact keep the auth plan' }],
+      })
+      expect(['cancelled', 'end_turn']).toContain(compact.stopReason)
+      const compactAnswers = agent.updates.filter(update => update.update.sessionUpdate === 'agent_message_chunk')
+        .map(update => update.update.content.text)
+      expect(compactAnswers.filter(text => text.includes('/compact keep the auth plan') && text.includes('RUST_ACP_ANSWER'))).toEqual([])
+      const helper = spawnSync(process.execPath, [
+        resolve(fileURLToPath(new URL('../packages/cli/bin/rust-acp-session-read.mjs', import.meta.url))),
+        '--session-id', session.sessionId,
+      ], {
+        encoding: 'utf8',
+        env: { ...process.env, DSH_HOME: agent.home, DSH_BIN: dshPath() },
+      })
+      expect(helper.status).toBe(0)
+      const projected = JSON.parse(helper.stdout)
+      expect(projected.ok).toBe(true)
+      expect(projected.compaction.length).toBeGreaterThan(0)
+      expect(projected.compaction.at(-1).purpose).toBe('compaction')
+      expect(projected.compaction.at(-1).provider).toBe('cli-mock')
+      expect(projected.compaction.at(-1).model).toBe('cli-mock')
+      expect(projected.originalTurnCount).toBeGreaterThanOrEqual(projected.turns.length)
+      const follow = await agent.send(81, 'session/prompt', {
+        sessionId: session.sessionId,
+        prompt: [{ type: 'text', text: 'TOKEN_AFTER_COMPACT' }],
+      })
+      expect(follow.stopReason).toBe('end_turn')
+      const after = agent.updates.filter(update => update.update.sessionUpdate === 'agent_message_chunk').at(-1)
+      expect(after.update.content.text).toContain('TOKEN_AFTER_COMPACT')
+      expect(after.update.content.text).toContain('compacted-summary')
+      expect(after.update.content.text).not.toContain('TOKEN_OLD_ONE')
+      await agent.send(82, 'session/close', { sessionId: session.sessionId })
+    } finally {
+      agent.child.stdin.end()
+      agent.child.kill('SIGTERM')
+    }
+
+    const failing = startAgent('compact-fail')
+    try {
+      const { session } = await handshake(failing)
+      await failing.send(3, 'session/prompt', {
+        sessionId: session.sessionId,
+        prompt: [{ type: 'text', text: 'TOKEN_KEEP_ORIGINAL' }],
+      })
+      await failing.send(4, 'session/prompt', {
+        sessionId: session.sessionId,
+        prompt: [{ type: 'text', text: 'TOKEN_KEEP_SECOND' }],
+      })
+      const failed = await failing.send(5, 'session/prompt', {
+        sessionId: session.sessionId,
+        prompt: [{ type: 'text', text: '/compact' }],
+      }).catch(error => error)
+      if (failed?.stopReason) expect(['cancelled', 'end_turn']).toContain(failed.stopReason)
+      else expect(String(failed?.message ?? failed)).toMatch(/compact|summar|fail|Internal error/i)
+      const helper = spawnSync(process.execPath, [
+        resolve(fileURLToPath(new URL('../packages/cli/bin/rust-acp-session-read.mjs', import.meta.url))),
+        '--session-id', session.sessionId,
+      ], {
+        encoding: 'utf8',
+        env: { ...process.env, DSH_HOME: failing.home, DSH_BIN: dshPath() },
+      })
+      expect(helper.status).toBe(0)
+      const projected = JSON.parse(helper.stdout)
+      expect(JSON.stringify(projected.turns)).toContain('TOKEN_KEEP_ORIGINAL')
+      expect(JSON.stringify(projected.turns)).toContain('TOKEN_KEEP_SECOND')
+      expect(JSON.stringify(projected).toLowerCase()).not.toContain('"success"')
+    } finally {
+      failing.child.stdin.end()
+      failing.child.kill('SIGTERM')
+    }
+  }, 90000)
 
   it('returns ACP v1 when the client offers an unsupported version', async () => {
     const agent = startAgent('echo')

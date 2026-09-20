@@ -387,6 +387,14 @@ pub fn dsh_spawn_spec(
         "FAKE_ACP_OWNED",
         "FAKE_ACP_STALE_OWNER",
         "CODSH_SESSION_READ",
+        "GROK_AUTO_COMPACT_THRESHOLD_PERCENT",
+        "GROK_COMPACTION_WALL_CLOCK_SECS",
+        "DSH_CODE_CLI_MOCK_CONTEXT_WINDOW",
+        "CODSH_TEST_COMPACT_THRESHOLD",
+        "CODSH_TEST_PRUNE_DISABLED",
+        "CODSH_TEST_PRUNE_HEAD",
+        "CODSH_TEST_PRUNE_TAIL",
+        "CODSH_TEST_PRUNE_THRESHOLD",
     ] {
         if let Some(value) = std::env::var_os(key) {
             env.push((key.to_string(), value.to_string_lossy().into_owned()));

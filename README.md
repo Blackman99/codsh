@@ -84,7 +84,18 @@ fallback. Runtime changes apply to the next turn and persist in
 `$GROK_HOME/model-selection.toml`. Usage, cost, and context limits stay
 unknown unless the provider or an explicit `context_window` supplies them.
 dsh context occupancy is labeled `occupancy=N (dsh estimate)` and is not
-treated as provider usage.
+treated as provider usage. `/context` shows those dsh facts plus heuristic
+system/tools/messages buckets when available; missing values stay unknown and
+are never printed as zero. Switching `/model` uses that model's advertised
+`context_window`. `/compact [instruction]` runs dsh compaction (progress,
+summary, failure, and cancel) instead of a second history store; optional
+instructions are sent only on the summarizer request (`purpose=compaction`)
+and the destination provider/model is recorded. Automatic compaction maps
+`session.auto_compact_threshold_percent` / `GROK_AUTO_COMPACT_THRESHOLD_PERCENT`
+into dsh `thresholdRatio` (values outside 0–100 are ignored).
+`GROK_COMPACTION_WALL_CLOCK_SECS` bounds the operation; `0` disables that
+budget. After compact, resume projects the dsh checkpoint plus retained
+tools/todos; a failed compact leaves the original records in the log.
 `codsh --rust inspect` and `inspect --json` print each effective value and
 origin (CLI `--model`/`--effort`, environment, `GROK_CONFIG` overlay, saved
 selection, config.toml, default). Invalid `config.toml` is left unchanged and the error names the

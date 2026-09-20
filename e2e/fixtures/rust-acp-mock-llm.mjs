@@ -10,6 +10,7 @@ const OFF = ReasoningEffortId('off')
 const HIGH = ReasoningEffortId('high')
 const MODE = process.env.DSH_CODE_CLI_MOCK_TOOL ?? 'echo'
 const DELAY_MS = Number(process.env.DSH_CODE_CLI_MOCK_DELAY_MS ?? '0')
+const CONTEXT_WINDOW = Number(process.env.DSH_CODE_CLI_MOCK_CONTEXT_WINDOW ?? '128000')
 
 function sleep(ms, signal) {
   return new Promise((resolve, reject) => {
@@ -144,7 +145,7 @@ function* fileToolTurn(options) {
 class RustAcpMockAdapter extends LlmAdapter {
   listModels(provider) {
     return Promise.resolve([
-      { provider, id: 'cli-mock', name: 'CLI Mock', inputModalities: ['text'] },
+      { provider, id: 'cli-mock', name: 'CLI Mock', inputModalities: ['text'], contextWindow: CONTEXT_WINDOW },
     ])
   }
 
@@ -154,6 +155,9 @@ class RustAcpMockAdapter extends LlmAdapter {
       id: model,
       name: model,
       inputModalities: ['text'],
+      context: Number.isFinite(CONTEXT_WINDOW) && CONTEXT_WINDOW > 0
+        ? { contextWindow: CONTEXT_WINDOW }
+        : undefined,
       reasoning: {
         efforts: [{ id: OFF, name: 'Off' }, { id: HIGH, name: 'High' }],
         defaultEffort: HIGH,
@@ -169,6 +173,37 @@ class RustAcpMockAdapter extends LlmAdapter {
         return
       }
       if (options.signal?.aborted) return
+    }
+    if (options.purpose === 'compaction') {
+      if (MODE === 'compact-fail') {
+        yield { type: 'finish', reason: { kind: 'error', failure: { code: 'MOCK_COMPACT_FAIL', message: 'summarizer failed' } } }
+        return
+      }
+      const instruction = userTexts(options).filter(text => text.includes('Additional compaction instruction')).join('\n')
+      const history = userTexts(options).join('\n')
+      const reply = [
+        '## Primary Request and Intent',
+        '- MOCK_COMPACTION_SUMMARY',
+        instruction ? `- instruction:${instruction}` : '- (none)',
+        '## Key Technical Concepts',
+        '- (none)',
+        '## Files and Code',
+        history.includes('todo') ? '- todo list retained' : '- (none)',
+        '## Errors and Fixes',
+        '- (none)',
+        '## Problem Solving',
+        '- (none)',
+        '## All User Messages',
+        `- ${userTurns(options)} user turns`,
+        '## Pending Tasks',
+        history.includes('TODO_KEEP') ? '- TODO_KEEP' : '- (none)',
+        '## Current Work',
+        '- continue from checkpoint',
+        '## Optional Next Step',
+        '- (none)',
+      ].join('\n')
+      yield* mockText(reply)
+      return
     }
     const turn = String(userTurns(options))
     if (MODE === 'file-edit' || MODE === 'file-write' || MODE === 'file-missing' || MODE === 'file-error') {

@@ -163,6 +163,93 @@ impl Routing {
     }
 }
 
+#[derive(Clone, Debug, PartialEq, Eq, Default)]
+pub struct ContextBreakdown {
+    pub system: Option<u64>,
+    pub tools: Option<u64>,
+    pub messages: Option<u64>,
+}
+
+pub fn context_report(
+    occupancy: Option<u64>,
+    advertised: Option<u64>,
+    reported: Option<u64>,
+    breakdown: Option<&ContextBreakdown>,
+) -> String {
+    let mut lines = vec!["Context (dsh facts only; missing values stay unknown)".into()];
+    match occupancy.filter(|value| *value > 0) {
+        Some(value) => lines.push(format!("occupancy={value} (dsh estimate)")),
+        None => lines.push("occupancy=unknown".into()),
+    }
+    match advertised {
+        Some(value) => lines.push(format!(
+            "advertised_context={value} (config; model switch uses this limit)"
+        )),
+        None => lines.push("advertised_context=unknown".into()),
+    }
+    match reported.filter(|value| advertised.is_none() && *value > 0) {
+        Some(value) => lines.push(format!(
+            "reported_context={value} (unverified occupancy; not a configured limit)"
+        )),
+        None if advertised.is_none() => {}
+        _ => {}
+    }
+    let Some(breakdown) = breakdown else {
+        lines.push("breakdown=unknown (dsh heuristic unavailable)".into());
+        return lines.join("\n");
+    };
+    lines.push(format!(
+        "system={} (dsh heuristic)",
+        breakdown
+            .system
+            .map(|value| value.to_string())
+            .unwrap_or_else(|| "unknown".into())
+    ));
+    lines.push(format!(
+        "tools={} (dsh heuristic)",
+        breakdown
+            .tools
+            .map(|value| value.to_string())
+            .unwrap_or_else(|| "unknown".into())
+    ));
+    lines.push(format!(
+        "messages={} (dsh heuristic)",
+        breakdown
+            .messages
+            .map(|value| value.to_string())
+            .unwrap_or_else(|| "unknown".into())
+    ));
+    lines.join("\n")
+}
+
+pub fn compaction_line(
+    items: Option<u64>,
+    tokens: Option<u64>,
+    provider: Option<&str>,
+    model: Option<&str>,
+    error: Option<&str>,
+) -> String {
+    if let Some(error) = error.filter(|value| !value.is_empty()) {
+        return format!("Compaction failed: {error}. Original dsh records were not discarded.");
+    }
+    let route = match (
+        provider.filter(|value| !value.is_empty()),
+        model.filter(|value| !value.is_empty()),
+    ) {
+        (Some(provider), Some(model)) => format!("{provider}/{model}"),
+        _ => "unknown".into(),
+    };
+    let items = items
+        .map(|value| value.to_string())
+        .unwrap_or_else(|| "unknown".into());
+    let tokens = tokens
+        .map(|value| value.to_string())
+        .unwrap_or_else(|| "unknown".into());
+    format!(
+        "✂ compacted {items} history items (~{tokens} tokens) into a summary · {route} purpose=compaction"
+    )
+}
+
 pub fn usage_line(
     used: Option<u64>,
     size: Option<u64>,
@@ -249,6 +336,10 @@ pub enum Command {
     Effort {
         query: Option<String>,
     },
+    Context,
+    Compact {
+        instruction: Option<String>,
+    },
 }
 
 fn slash_rest<'a>(text: &'a str, name: &str) -> Option<&'a str> {
@@ -265,16 +356,25 @@ pub fn parse_slash(text: &str) -> Option<Command> {
     let (name, rest) = slash_rest(trimmed, "/model")
         .map(|rest| ("model", rest))
         .or_else(|| slash_rest(trimmed, "/m").map(|rest| ("model", rest)))
-        .or_else(|| slash_rest(trimmed, "/effort").map(|rest| ("effort", rest)))?;
+        .or_else(|| slash_rest(trimmed, "/effort").map(|rest| ("effort", rest)))
+        .or_else(|| slash_rest(trimmed, "/context").map(|rest| ("context", rest)))
+        .or_else(|| slash_rest(trimmed, "/compact").map(|rest| ("compact", rest)))?;
     let mut parts = rest.split_whitespace();
     match name {
         "model" => Some(Command::Model {
             query: parts.next().map(str::to_string),
             effort: parts.next().map(str::to_string),
         }),
-        _ => Some(Command::Effort {
+        "effort" => Some(Command::Effort {
             query: parts.next().map(str::to_string),
         }),
+        "context" => Some(Command::Context),
+        _ => {
+            let instruction = rest.trim();
+            Some(Command::Compact {
+                instruction: (!instruction.is_empty()).then(|| instruction.to_string()),
+            })
+        }
     }
 }
 
@@ -476,10 +576,53 @@ mod tests {
             })
         );
         assert!(parse_slash("hello").is_none());
+        assert_eq!(parse_slash("/context"), Some(Command::Context));
+        assert_eq!(
+            parse_slash("/compact"),
+            Some(Command::Compact { instruction: None })
+        );
+        assert_eq!(
+            parse_slash("/compact keep the auth plan"),
+            Some(Command::Compact {
+                instruction: Some("keep the auth plan".into()),
+            })
+        );
         let dir = TempDir::new().unwrap();
         save_selection(dir.path(), "think", Some("high")).unwrap();
         let saved = load_saved_selection(dir.path()).unwrap();
         assert_eq!(saved.model_id, "think");
         assert_eq!(saved.effort.as_deref(), Some("high"));
+    }
+
+    #[test]
+    fn context_report_does_not_fabricate_zero_buckets_or_limits() {
+        let unknown = context_report(None, None, None, None);
+        assert!(unknown.contains("occupancy=unknown"));
+        assert!(unknown.contains("advertised_context=unknown"));
+        assert!(unknown.contains("breakdown=unknown"));
+        assert!(!unknown.contains("occupancy=0"));
+        assert!(!unknown.contains("advertised_context=0"));
+        let switched = context_report(
+            Some(1200),
+            Some(64000),
+            Some(999999),
+            Some(&ContextBreakdown {
+                system: Some(80),
+                tools: Some(200),
+                messages: Some(900),
+            }),
+        );
+        assert!(switched.contains("occupancy=1200 (dsh estimate)"));
+        assert!(
+            switched.contains("advertised_context=64000 (config; model switch uses this limit)")
+        );
+        assert!(switched.contains("system=80 (dsh heuristic)"));
+        assert!(!switched.contains("999999"));
+        let compact = compaction_line(Some(4), Some(210), Some("cli-mock"), Some("cli-mock"), None);
+        assert!(compact.contains("purpose=compaction"));
+        assert!(compact.contains("cli-mock/cli-mock"));
+        let failed = compaction_line(None, None, None, None, Some("provider failed"));
+        assert!(failed.contains("Original dsh records were not discarded"));
+        assert!(!failed.to_lowercase().contains("success"));
     }
 }

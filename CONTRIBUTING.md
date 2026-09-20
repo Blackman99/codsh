@@ -225,6 +225,7 @@ python3 scripts/rust-cancel-pty-test.py
 python3 scripts/rust-resume-pty-test.py
 python3 scripts/rust-config-pty-test.py
 python3 scripts/rust-model-pty-test.py
+python3 scripts/rust-compact-pty-test.py
 ```
 
 `build:rust` stages the host binary under ignored `packages/cli/native/<os>-<arch>`
@@ -324,8 +325,12 @@ Late allow replies and process teardown cannot execute a cancelled action; unkno
 tool results display as cancelled. After cancel, a new prompt still works.
 `test:rust:pty` now also runs `scripts/rust-turn-pty-test.py`,
 `scripts/rust-file-pty-test.py`, `scripts/rust-cancel-pty-test.py`,
-`scripts/rust-resume-pty-test.py`, and `scripts/rust-config-pty-test.py`
-against the packed native candidate. The config test covers `inspect` /
+`scripts/rust-resume-pty-test.py`, `scripts/rust-config-pty-test.py`,
+`scripts/rust-model-pty-test.py`, and `scripts/rust-compact-pty-test.py`
+against the packed native candidate. `/context` and `/compact` are
+dsh-backed: occupancy and advertised model limits must not be fabricated,
+manual/automatic compaction uses the dsh session log, and failed compact
+must keep original records. The config test covers `inspect` /
 `inspect --json`, CLI/env/overlay/file precedence, invalid TOML preservation,
 first-run missing credentials, generated dsh `settings.yaml` mapping, restart
 after a config change, unmanaged settings conflict, and refusal to import

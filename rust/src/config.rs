@@ -71,6 +71,12 @@ pub struct EffectiveConfig {
     pub imported_legacy_credentials: bool,
     pub official_login_disabled: bool,
     pub settings_yaml: PathBuf,
+    pub compact_threshold_percent: Option<u8>,
+    pub compact_wall_clock_secs: Option<u64>,
+    pub prune_enabled: bool,
+    pub prune_threshold_chars: u64,
+    pub prune_head_chars: u64,
+    pub prune_tail_chars: u64,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -718,6 +724,92 @@ pub fn load_from(mut input: LoadInput) -> EffectiveConfig {
     );
     push_setting(&mut settings, "official.login", "disabled", "default");
 
+    let compact_threshold_percent = resolve_compact_threshold(&table, &input.env, &mut sources);
+    let compact_wall_clock_secs =
+        resolve_wall_clock(&table, &input.env, &mut sources, &mut warnings);
+    let (prune_enabled, prune_threshold_chars, prune_head_chars, prune_tail_chars) =
+        resolve_pruning(&table, &mut sources, &mut warnings);
+    push_setting(
+        &mut settings,
+        "session.auto_compact_threshold_percent",
+        &compact_threshold_percent
+            .map(|value| value.to_string())
+            .unwrap_or_else(|| "80".into()),
+        sources
+            .get("session.auto_compact_threshold_percent")
+            .map(String::as_str)
+            .unwrap_or("default"),
+    );
+    push_setting(
+        &mut settings,
+        "compaction.wall_clock_secs",
+        &compact_wall_clock_secs
+            .map(|value| value.to_string())
+            .unwrap_or_else(|| "unset".into()),
+        sources
+            .get("compaction.wall_clock_secs")
+            .map(String::as_str)
+            .unwrap_or("default"),
+    );
+    push_setting(
+        &mut settings,
+        "compaction.pruning.enabled",
+        if prune_enabled { "true" } else { "false" },
+        sources
+            .get("compaction.pruning.enabled")
+            .map(String::as_str)
+            .unwrap_or("default"),
+    );
+    push_setting(
+        &mut settings,
+        "compaction.pruning.soft_trim_threshold",
+        &prune_threshold_chars.to_string(),
+        sources
+            .get("compaction.pruning.soft_trim_threshold")
+            .map(String::as_str)
+            .unwrap_or("default"),
+    );
+    push_setting(
+        &mut settings,
+        "compaction.pruning.soft_trim_head",
+        &prune_head_chars.to_string(),
+        sources
+            .get("compaction.pruning.soft_trim_head")
+            .map(String::as_str)
+            .unwrap_or("default"),
+    );
+    push_setting(
+        &mut settings,
+        "compaction.pruning.soft_trim_tail",
+        &prune_tail_chars.to_string(),
+        sources
+            .get("compaction.pruning.soft_trim_tail")
+            .map(String::as_str)
+            .unwrap_or("default"),
+    );
+    if table
+        .get("compaction")
+        .and_then(|value| value.get("pruning"))
+        .and_then(|value| value.get("keep_last_n_turns"))
+        .is_some()
+    {
+        warnings.push(
+            "compaction.pruning.keep_last_n_turns is not a dsh token budget; dsh retains a recent ratio/tail instead"
+                .into(),
+        );
+    }
+    if table
+        .get("compaction")
+        .and_then(|value| value.get("pruning"))
+        .and_then(|value| value.get("hard_clear_age_turns"))
+        .is_some()
+    {
+        warnings.push(
+            "compaction.pruning.hard_clear_age_turns is unavailable on dsh and was not applied"
+                .into(),
+        );
+    }
+
     EffectiveConfig {
         grok_home,
         config_path,
@@ -737,6 +829,12 @@ pub fn load_from(mut input: LoadInput) -> EffectiveConfig {
         imported_legacy_credentials: false,
         official_login_disabled: true,
         settings_yaml,
+        compact_threshold_percent,
+        compact_wall_clock_secs,
+        prune_enabled,
+        prune_threshold_chars,
+        prune_head_chars,
+        prune_tail_chars,
     }
 }
 
@@ -808,6 +906,9 @@ pub fn inspect_json(config: &EffectiveConfig) -> String {
             "traceUpload": config.trace_upload,
             "defaultModel": config.default_model,
             "defaultEffort": config.default_effort,
+            "compactThresholdPercent": config.compact_threshold_percent.unwrap_or(80),
+            "compactWallClockSecs": config.compact_wall_clock_secs,
+            "pruneEnabled": config.prune_enabled,
             "routing": config.routing().map(|routing| json!({
                 "catalogId": routing.catalog_id,
                 "provider": routing.provider,
@@ -834,6 +935,142 @@ pub fn inspect_json(config: &EffectiveConfig) -> String {
         }))
         .unwrap_or_else(|_| "{}".into())
     )
+}
+
+fn toml_u64(value: Option<&TomlValue>) -> Option<u64> {
+    match value {
+        Some(TomlValue::Integer(number)) if *number >= 0 => Some(*number as u64),
+        Some(TomlValue::String(text)) => text.parse().ok(),
+        Some(TomlValue::Float(number)) if *number >= 0.0 && number.fract() == 0.0 => {
+            Some(*number as u64)
+        }
+        _ => None,
+    }
+}
+
+fn parse_threshold_percent(raw: &str) -> Option<u8> {
+    let value = raw.trim().parse::<i64>().ok()?;
+    if (0..=100).contains(&value) {
+        Some(value as u8)
+    } else {
+        None
+    }
+}
+
+fn resolve_compact_threshold(
+    table: &TomlValue,
+    env: &BTreeMap<String, String>,
+    sources: &mut BTreeMap<String, String>,
+) -> Option<u8> {
+    let mut value = table
+        .get("session")
+        .and_then(|session| session.get("auto_compact_threshold_percent"))
+        .and_then(|item| match item {
+            TomlValue::Integer(number) => parse_threshold_percent(&number.to_string()),
+            TomlValue::String(text) => parse_threshold_percent(text),
+            _ => None,
+        });
+    if table
+        .get("session")
+        .and_then(|session| session.get("auto_compact_threshold_percent"))
+        .is_some()
+    {
+        sources.insert(
+            "session.auto_compact_threshold_percent".into(),
+            "config.toml".into(),
+        );
+    }
+    if let Some(raw) = env.get("GROK_AUTO_COMPACT_THRESHOLD_PERCENT")
+        && let Some(parsed) = parse_threshold_percent(raw)
+    {
+        value = Some(parsed);
+        sources.insert(
+            "session.auto_compact_threshold_percent".into(),
+            "environment".into(),
+        );
+    }
+    value
+}
+
+fn resolve_wall_clock(
+    table: &TomlValue,
+    env: &BTreeMap<String, String>,
+    sources: &mut BTreeMap<String, String>,
+    warnings: &mut Vec<String>,
+) -> Option<u64> {
+    let mut value = toml_u64(
+        table
+            .get("compaction")
+            .and_then(|compaction| compaction.get("wall_clock_secs")),
+    );
+    if table
+        .get("compaction")
+        .and_then(|compaction| compaction.get("wall_clock_secs"))
+        .is_some()
+    {
+        sources.insert("compaction.wall_clock_secs".into(), "config.toml".into());
+    }
+    if let Some(raw) = env.get("GROK_COMPACTION_WALL_CLOCK_SECS")
+        && raw.trim().parse::<u64>().is_ok()
+    {
+        value = raw.trim().parse().ok();
+        sources.insert("compaction.wall_clock_secs".into(), "environment".into());
+    }
+    if let Some(secs) = value
+        && secs > 0
+        && secs < 5
+    {
+        warnings.push(format!(
+            "GROK_COMPACTION_WALL_CLOCK_SECS={secs} is a low positive budget and is used as-is rather than clamped"
+        ));
+    }
+    value
+}
+
+fn resolve_pruning(
+    table: &TomlValue,
+    sources: &mut BTreeMap<String, String>,
+    _warnings: &mut [String],
+) -> (bool, u64, u64, u64) {
+    let pruning = table
+        .get("compaction")
+        .and_then(|compaction| compaction.get("pruning"));
+    let enabled = bool_from_toml(pruning.and_then(|value| value.get("enabled"))).unwrap_or(true);
+    if pruning.and_then(|value| value.get("enabled")).is_some() {
+        sources.insert("compaction.pruning.enabled".into(), "config.toml".into());
+    }
+    let threshold =
+        toml_u64(pruning.and_then(|value| value.get("soft_trim_threshold"))).unwrap_or(8192);
+    if pruning
+        .and_then(|value| value.get("soft_trim_threshold"))
+        .is_some()
+    {
+        sources.insert(
+            "compaction.pruning.soft_trim_threshold".into(),
+            "config.toml".into(),
+        );
+    }
+    let head = toml_u64(pruning.and_then(|value| value.get("soft_trim_head"))).unwrap_or(4096);
+    if pruning
+        .and_then(|value| value.get("soft_trim_head"))
+        .is_some()
+    {
+        sources.insert(
+            "compaction.pruning.soft_trim_head".into(),
+            "config.toml".into(),
+        );
+    }
+    let tail = toml_u64(pruning.and_then(|value| value.get("soft_trim_tail"))).unwrap_or(1024);
+    if pruning
+        .and_then(|value| value.get("soft_trim_tail"))
+        .is_some()
+    {
+        sources.insert(
+            "compaction.pruning.soft_trim_tail".into(),
+            "config.toml".into(),
+        );
+    }
+    (enabled, threshold, head, tail)
 }
 
 pub fn is_test_execution_seam() -> bool {
@@ -896,8 +1133,18 @@ pub fn apply_to_dsh(
     let existing = std::env::var_os("CODSH_ACP_PATCH")
         .and_then(|path| fs::read_to_string(path).ok())
         .unwrap_or_default();
+    let threshold = config.compact_threshold_percent.unwrap_or(80);
+    let ratio = (threshold as f64) / 100.0;
+    let pruner = if config.prune_enabled {
+        format!(
+            "- id: tool-result-pruner\n  config:\n    thresholdChars: {}\n    headChars: {}\n    tailChars: {}\n",
+            config.prune_threshold_chars, config.prune_head_chars, config.prune_tail_chars
+        )
+    } else {
+        "- id: tool-result-pruner\n  disabled: true\n".into()
+    };
     let combined = format!(
-        "- id: acp\n  config:\n    provider: {}\n    model: {}\n- id: agent-default-model\n  config:\n    provider: {}\n    model: {}\n- id: llm-deepseek\n  disabled: true\n{existing}",
+        "- id: acp\n  config:\n    provider: {}\n    model: {}\n- id: agent-default-model\n  config:\n    provider: {}\n    model: {}\n- id: llm-deepseek\n  disabled: true\n- id: compaction-basic\n  config:\n    thresholdRatio: {ratio}\n    auto: true\n{pruner}{existing}",
         yaml_plain(&model.provider),
         yaml_plain(&model.model),
         yaml_plain(&model.provider),
@@ -921,6 +1168,14 @@ pub fn credential_env(
         } else if let Some(key) = &model.api_key {
             extra.push((model.env_key.clone(), key.clone()));
         }
+    }
+    extra
+}
+
+pub fn compact_env(config: &EffectiveConfig) -> Vec<(String, String)> {
+    let mut extra = Vec::new();
+    if let Some(secs) = config.compact_wall_clock_secs {
+        extra.push(("GROK_COMPACTION_WALL_CLOCK_SECS".into(), secs.to_string()));
     }
     extra
 }
@@ -1945,5 +2200,72 @@ reasoning_efforts = ["low", "high"]
                 .map(|setting| setting.source.as_str()),
             Some("saved")
         );
+    }
+
+    #[test]
+    fn compact_threshold_and_pruning_map_into_dsh_without_fabricating_invalid_values() {
+        let dir = TempDir::new().unwrap();
+        let mut load = input(&dir);
+        write_config(
+            &load,
+            r#"
+[model.chat]
+model = "shared-name"
+base_url = "http://127.0.0.1:9/v1"
+env_key = "XAI_API_KEY"
+context_window = 64000
+
+[session]
+auto_compact_threshold_percent = 50
+
+[compaction.pruning]
+enabled = true
+soft_trim_threshold = 64
+soft_trim_head = 16
+soft_trim_tail = 8
+keep_last_n_turns = 2
+hard_clear_age_turns = 9
+"#,
+        );
+        load.env.insert("XAI_API_KEY".into(), "test-key".into());
+        load.env
+            .insert("GROK_AUTO_COMPACT_THRESHOLD_PERCENT".into(), "40".into());
+        load.env
+            .insert("GROK_COMPACTION_WALL_CLOCK_SECS".into(), "1".into());
+        let config = load_from(load.clone());
+        assert_eq!(config.compact_threshold_percent, Some(40));
+        assert_eq!(config.compact_wall_clock_secs, Some(1));
+        assert!(config.prune_enabled);
+        assert_eq!(config.prune_threshold_chars, 64);
+        assert_eq!(config.prune_head_chars, 16);
+        assert_eq!(config.prune_tail_chars, 8);
+        assert!(
+            config
+                .warnings
+                .iter()
+                .any(|warning| warning.contains("keep_last_n_turns"))
+        );
+        assert!(
+            config
+                .warnings
+                .iter()
+                .any(|warning| warning.contains("hard_clear_age_turns"))
+        );
+        assert!(
+            config
+                .warnings
+                .iter()
+                .any(|warning| warning.contains("low positive budget"))
+        );
+        apply_to_dsh(&config, &load.env).unwrap();
+        let patch = fs::read_to_string(config.dsh_home.join("rust-effective.yml")).unwrap();
+        assert!(patch.contains("thresholdRatio: 0.4"));
+        assert!(patch.contains("thresholdChars: 64"));
+        assert!(patch.contains("headChars: 16"));
+        assert!(patch.contains("tailChars: 8"));
+        load.env
+            .insert("GROK_AUTO_COMPACT_THRESHOLD_PERCENT".into(), "140".into());
+        let ignored = load_from(load);
+        assert_eq!(ignored.compact_threshold_percent, Some(50));
     }
 }

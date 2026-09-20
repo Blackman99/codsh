@@ -12,6 +12,15 @@ pub struct RestoredTool {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RestoredCompaction {
+    pub items: Option<u64>,
+    pub tokens: Option<u64>,
+    pub provider: String,
+    pub model: String,
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RestoredTurn {
     pub user: String,
     pub thought: String,
@@ -20,6 +29,8 @@ pub struct RestoredTurn {
     pub error: Option<String>,
     pub cancelled: bool,
     pub interrupted: bool,
+    pub compacted: bool,
+    pub compaction: Option<RestoredCompaction>,
 }
 
 #[derive(Debug)]
@@ -125,6 +136,34 @@ pub fn project_turns(value: &Value) -> Result<Vec<RestoredTurn>, HistoryError> {
                 .get("interrupted")
                 .and_then(Value::as_bool)
                 .unwrap_or(false),
+            compacted: item
+                .get("compacted")
+                .and_then(Value::as_bool)
+                .unwrap_or(false),
+            compaction: item.get("compaction").and_then(|value| {
+                if value.is_null() {
+                    None
+                } else {
+                    Some(RestoredCompaction {
+                        items: value.get("items").and_then(Value::as_u64),
+                        tokens: value.get("tokens").and_then(Value::as_u64),
+                        provider: value
+                            .get("provider")
+                            .and_then(Value::as_str)
+                            .unwrap_or("")
+                            .to_string(),
+                        model: value
+                            .get("model")
+                            .and_then(Value::as_str)
+                            .unwrap_or("")
+                            .to_string(),
+                        error: value
+                            .get("error")
+                            .and_then(Value::as_str)
+                            .map(str::to_string),
+                    })
+                }
+            }),
         });
     }
     Ok(turns)
@@ -187,15 +226,79 @@ mod tests {
                 }],
                 "error": null,
                 "cancelled": false,
-                "interrupted": true
+                "interrupted": true,
+                "compacted": false,
+                "compaction": null
             }]
         });
         let turns = project_turns(&value).expect("turns");
         assert_eq!(turns[0].user, "edit the note");
+        assert!(!turns[0].compacted);
         assert!(turns[0].interrupted);
         assert_eq!(turns[0].tools[0].status, "unknown");
         assert_ne!(turns[0].tools[0].status, "pending");
         assert!(turns[0].tools[0].result.contains("interrupted"));
+    }
+
+    #[test]
+    fn projects_compaction_checkpoint_without_claiming_success_on_failure() {
+        let value = json!({
+            "ok": true,
+            "sessionId": "s1",
+            "turns": [{
+                "user": "compaction summary",
+                "thought": "",
+                "answer": "MOCK_COMPACTION_SUMMARY",
+                "tools": [],
+                "error": null,
+                "cancelled": false,
+                "interrupted": false,
+                "compacted": true,
+                "compaction": {
+                    "items": 4,
+                    "tokens": 210,
+                    "provider": "cli-mock",
+                    "model": "cli-mock",
+                    "error": null
+                }
+            }]
+        });
+        let turns = project_turns(&value).expect("turns");
+        assert!(turns[0].compacted);
+        assert_eq!(turns[0].compaction.as_ref().unwrap().provider, "cli-mock");
+        let failed = json!({
+            "ok": true,
+            "turns": [{
+                "user": "still here",
+                "thought": "",
+                "answer": "original",
+                "tools": [{
+                    "id": "todo-1",
+                    "title": "todo_write",
+                    "status": "completed",
+                    "diff": "todo",
+                    "result": "TODO_KEEP"
+                }],
+                "error": null,
+                "cancelled": false,
+                "interrupted": false,
+                "compacted": false,
+                "compaction": { "error": "summarizer failed" }
+            }]
+        });
+        let restored = project_turns(&failed).expect("failed compact");
+        assert_eq!(restored[0].user, "still here");
+        assert_eq!(restored[0].tools[0].result, "TODO_KEEP");
+        assert!(
+            restored[0]
+                .compaction
+                .as_ref()
+                .unwrap()
+                .error
+                .as_deref()
+                .unwrap()
+                .contains("summarizer failed")
+        );
     }
 
     #[test]

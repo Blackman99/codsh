@@ -9,8 +9,13 @@ export function rustAcpFileApprovalUrl() {
   return pathToFileURL(resolve(fileURLToPath(new URL('../packages/cli/bin/rust-acp-file-approval.mjs', import.meta.url)))).href
 }
 
-export function rustAcpOverlay(mockUrl = rustAcpMockUrl(), approvalUrl = rustAcpFileApprovalUrl()) {
-  return [
+export function rustAcpCompactUrl() {
+  return pathToFileURL(resolve(fileURLToPath(new URL('../packages/cli/bin/rust-acp-compact.mjs', import.meta.url)))).href
+}
+
+export function rustAcpOverlay(mockUrl = rustAcpMockUrl(), approvalUrl = rustAcpFileApprovalUrl(), compactUrl = rustAcpCompactUrl()) {
+  const threshold = process.env.CODSH_TEST_COMPACT_THRESHOLD
+  const lines = [
     '- id: acp',
     '  config:',
     '    provider: cli-mock',
@@ -21,11 +26,31 @@ export function rustAcpOverlay(mockUrl = rustAcpMockUrl(), approvalUrl = rustAcp
     '    model: cli-mock',
     '- id: llm-deepseek',
     '  disabled: true',
+  ]
+  if (threshold) {
+    const ratio = Number(threshold)
+    lines.push('- id: compaction-basic', '  config:', `    thresholdRatio: ${ratio}`, '    auto: true')
+  }
+  if (process.env.CODSH_TEST_PRUNE_DISABLED === '1') {
+    lines.push('- id: tool-result-pruner', '  disabled: true')
+  } else if (process.env.CODSH_TEST_PRUNE_HEAD || process.env.CODSH_TEST_PRUNE_TAIL || process.env.CODSH_TEST_PRUNE_THRESHOLD) {
+    lines.push(
+      '- id: tool-result-pruner',
+      '  config:',
+      `    thresholdChars: ${process.env.CODSH_TEST_PRUNE_THRESHOLD || 32}`,
+      `    headChars: ${process.env.CODSH_TEST_PRUNE_HEAD || 8}`,
+      `    tailChars: ${process.env.CODSH_TEST_PRUNE_TAIL || 8}`,
+    )
+  }
+  lines.push(
     '- insert:',
     '    - id: rust-acp-mock-llm',
     `      name: '${mockUrl}'`,
     '    - id: rust-acp-file-approval',
     `      name: '${approvalUrl}'`,
+    '    - id: rust-acp-compact',
+    `      name: '${compactUrl}'`,
     '',
-  ].join('\n')
+  )
+  return lines.join('\n')
 }

@@ -106,6 +106,8 @@ struct Turn {
     cancelling: bool,
     cancelled: bool,
     interrupted: bool,
+    compacted: bool,
+    compaction: Option<session_history::RestoredCompaction>,
 }
 
 #[derive(Debug)]
@@ -291,6 +293,8 @@ fn turn_from_restored(item: RestoredTurn) -> Turn {
         cancelling: false,
         cancelled: item.cancelled,
         interrupted: item.interrupted,
+        compacted: item.compacted,
+        compaction: item.compaction,
     };
     if turn.interrupted || turn.cancelled {
         mark_unknown_open_tools(&mut turn);
@@ -494,6 +498,20 @@ fn render_transcript(status: &str, turns: &[Turn]) -> String {
     for turn in turns {
         out.push_str("\n\n> ");
         out.push_str(&turn.user.replace('\n', " "));
+        if turn.compacted {
+            if let Some(info) = &turn.compaction {
+                out.push('\n');
+                out.push_str(&models::compaction_line(
+                    info.items,
+                    info.tokens,
+                    Some(&info.provider),
+                    Some(&info.model),
+                    info.error.as_deref(),
+                ));
+            } else {
+                out.push_str("\n✂ compacted history into a summary · purpose=compaction");
+            }
+        }
         if !turn.thought.is_empty() {
             out.push_str("\n[thought] ");
             out.push_str(&turn.thought);
@@ -557,6 +575,7 @@ fn apply_events(
     inflight: &mut bool,
     meter: &mut Meter,
     events: Vec<AcpEvent>,
+    compacting: bool,
 ) -> Option<String> {
     let mut disconnect = None;
     for event in events {
@@ -633,7 +652,7 @@ fn apply_events(
                 }
             }
             AcpEvent::PromptFinished { stop_reason, .. } => {
-                if let Some(turn) = turns.last_mut() {
+                if !compacting && let Some(turn) = turns.last_mut() {
                     turn.done = true;
                     turn.permission = None;
                     turn.cancelling = false;
@@ -649,7 +668,8 @@ fn apply_events(
                 *inflight = false;
             }
             AcpEvent::RpcError { message, .. } => {
-                if let Some(turn) = turns.last_mut()
+                if !compacting
+                    && let Some(turn) = turns.last_mut()
                     && *inflight
                 {
                     turn.error = Some(message);
@@ -899,6 +919,9 @@ fn handle_slash_command(
             let effort = models::resolve_effort(&choice, &value)?;
             apply_catalog_choice(effective, client, &choice, Some(&effort), inflight)
         }
+        models::Command::Context | models::Command::Compact { .. } => Err(
+            "internal slash routing: /context and /compact are handled by the live session".into(),
+        ),
     }
 }
 
@@ -998,7 +1021,7 @@ fn run() -> io::Result<()> {
         }
         LaunchMode::Help => {
             println!(
-                "codsh --rust\n\nIsolated Rust client. Real dsh executes turns over ACP/JSON-RPC stdio.\nHome: ~/.codsh-rust/dsh; Profile: rust. Legacy codsh is unchanged.\nUser config: $GROK_HOME/config.toml (default ~/.codsh-rust/.grok/config.toml), mapped into isolated dsh settings.yaml.\n`codsh --rust inspect` / `inspect --json` shows effective values and origins. Invalid config.toml is left unchanged and reports its path.\nFirst-run missing credentials stay local: no grok.com login, no default official telemetry, no import of ~/.dsh or ~/.grok credentials.\nFile read/edit/write run through dsh tools; y allows once, n rejects with no write.\nCtrl+Q/Ctrl+D: quit. Ctrl+C: clear a draft; empty draft cancels a running turn via dsh, or quits when idle before any turn.\nEsc never cancels a turn or a pending approval; it dismisses selection and reminds you to use Ctrl+C.\nEnter: submit prompt. /model (/m) and /effort select advertised catalog options; unsupported backends/efforts are refused, never treated as equivalent or silently swapped. Runtime changes apply to the next turn and persist under $GROK_HOME/model-selection.toml. --continue resumes the last session in this directory; --resume <id> loads that dsh session. A second client is refused while this process holds write ownership. Interrupted tools show [interrupted]/unknown and are not replayed.\nOptions: --help, --version, --continue, --resume <id>, --model <id>, --effort/--reasoning-effort <level>, inspect."
+                "codsh --rust\n\nIsolated Rust client. Real dsh executes turns over ACP/JSON-RPC stdio.\nHome: ~/.codsh-rust/dsh; Profile: rust. Legacy codsh is unchanged.\nUser config: $GROK_HOME/config.toml (default ~/.codsh-rust/.grok/config.toml), mapped into isolated dsh settings.yaml.\n`codsh --rust inspect` / `inspect --json` shows effective values and origins. Invalid config.toml is left unchanged and reports its path.\nFirst-run missing credentials stay local: no grok.com login, no default official telemetry, no import of ~/.dsh or ~/.grok credentials.\nFile read/edit/write run through dsh tools; y allows once, n rejects with no write.\nCtrl+Q/Ctrl+D: quit. Ctrl+C: clear a draft; empty draft cancels a running turn via dsh, or quits when idle before any turn.\nEsc never cancels a turn or a pending approval; it dismisses selection and reminds you to use Ctrl+C.\nEnter: submit prompt. /model (/m) and /effort select advertised catalog options; unsupported backends/efforts are refused, never treated as equivalent or silently swapped. /context shows dsh occupancy, advertised model limits, and heuristic buckets without fabricating zeros. /compact [instruction] runs dsh compaction (not a second history); optional instructions go only to the summarizer request (purpose=compaction). Automatic compaction uses session.auto_compact_threshold_percent / GROK_AUTO_COMPACT_THRESHOLD_PERCENT mapped to dsh thresholdRatio. GROK_COMPACTION_WALL_CLOCK_SECS bounds the operation; 0 disables that budget. Runtime changes apply to the next turn and persist under $GROK_HOME/model-selection.toml. --continue resumes the last session in this directory; --resume <id> loads that dsh session. A second client is refused while this process holds write ownership. Interrupted tools show [interrupted]/unknown and are not replayed.\nOptions: --help, --version, --continue, --resume <id>, --model <id>, --effort/--reasoning-effort <level>, inspect."
             );
             return Ok(());
         }
@@ -1065,13 +1088,18 @@ fn run() -> io::Result<()> {
     let mut selected = None;
     let mut turns: Vec<Turn> = Vec::new();
     let mut inflight = false;
+    let mut compacting = false;
     let mut last_error = String::new();
     let mut hint = String::new();
     let mut owner: Option<SessionOwner> = None;
     let mut resumed = false;
     let mut previous_session: Option<String> = None;
     let mut effective = load_runtime_config(launch.model.as_deref(), launch.effort.as_deref());
-    let mut extra_env = config::credential_env(&effective, &std::env::vars().collect());
+    let mut extra_env = {
+        let mut extra = config::credential_env(&effective, &std::env::vars().collect());
+        extra.extend(config::compact_env(&effective));
+        extra
+    };
     let mut apply_failed = false;
     let mut patch = match config::apply_to_dsh(&effective, &std::env::vars().collect()) {
         Ok(path) => path,
@@ -1117,14 +1145,43 @@ fn run() -> io::Result<()> {
         None
     };
     while !stopping.load(Ordering::Relaxed) {
+        let was_compacting = compacting;
         let disconnect = client.as_mut().and_then(|active| {
             apply_events(
                 &mut turns,
                 &mut inflight,
                 &mut meter,
                 active.pump(Duration::ZERO),
+                compacting,
             )
         });
+        if was_compacting && !inflight {
+            compacting = false;
+            if let Some(session_id) = client.as_ref().and_then(|active| active.session_id.clone()) {
+                match session_history::load_turns(&effective.dsh_home, &session_id) {
+                    Ok(restored) => {
+                        let compact_hint = restored.iter().rev().find_map(|turn| {
+                            turn.compaction.as_ref().map(|info| {
+                                models::compaction_line(
+                                    info.items,
+                                    info.tokens,
+                                    Some(&info.provider),
+                                    Some(&info.model),
+                                    info.error.as_deref(),
+                                )
+                            })
+                        });
+                        turns = restored.into_iter().map(turn_from_restored).collect();
+                        hint = compact_hint.unwrap_or_else(|| {
+                            "No compactable history yet. Original dsh records were not discarded."
+                                .into()
+                        });
+                        last_error.clear();
+                    }
+                    Err(error) => last_error = error.to_string(),
+                }
+            }
+        }
         if let Some(detail) = disconnect {
             last_error = detail;
             drop_connection(&mut client, &mut owner);
@@ -1247,8 +1304,14 @@ fn run() -> io::Result<()> {
                                     launch.model.as_deref(),
                                     launch.effort.as_deref(),
                                 );
-                                extra_env =
-                                    config::credential_env(&effective, &std::env::vars().collect());
+                                extra_env = {
+                                    let mut extra = config::credential_env(
+                                        &effective,
+                                        &std::env::vars().collect(),
+                                    );
+                                    extra.extend(config::compact_env(&effective));
+                                    extra
+                                };
                                 match config::apply_to_dsh(&effective, &std::env::vars().collect())
                                 {
                                     Ok(path) => patch = path,
@@ -1297,23 +1360,67 @@ fn run() -> io::Result<()> {
                                 continue;
                             }
                             if let Some(command) = slash {
-                                match handle_slash_command(
-                                    command,
-                                    &mut effective,
-                                    client.as_mut(),
-                                    inflight,
-                                ) {
-                                    Ok(message) => {
-                                        if message.starts_with("Selected ") {
-                                            selection_ready = true;
-                                        }
-                                        hint = message;
+                                match command {
+                                    models::Command::Context => {
+                                        let routing = live_routing(client.as_ref(), &effective);
+                                        hint = models::context_report(
+                                            meter.used,
+                                            routing
+                                                .as_ref()
+                                                .and_then(|item| item.advertised_context),
+                                            meter.size,
+                                            None,
+                                        );
                                         last_error.clear();
+                                        draft.set_text("");
+                                        continue;
                                     }
-                                    Err(error) => last_error = error,
+                                    models::Command::Compact { instruction } => {
+                                        if inflight {
+                                            last_error = "Compaction is unavailable because this process has an active compaction, or the agent is not idle.".into();
+                                            draft.set_text("");
+                                            continue;
+                                        }
+                                        let prompt = match instruction {
+                                            Some(text) => format!("/compact {text}"),
+                                            None => "/compact".into(),
+                                        };
+                                        if let Some(active) = client.as_mut() {
+                                            match active.submit_prompt(&prompt) {
+                                                Ok(_) => {
+                                                    hint = "✂ compacting history…".into();
+                                                    inflight = true;
+                                                    compacting = true;
+                                                    last_error.clear();
+                                                }
+                                                Err(error) => last_error = error.message,
+                                            }
+                                        } else {
+                                            last_error = UNAVAILABLE.trim().to_string();
+                                        }
+                                        draft.set_text("");
+                                        continue;
+                                    }
+                                    other => {
+                                        match handle_slash_command(
+                                            other,
+                                            &mut effective,
+                                            client.as_mut(),
+                                            inflight,
+                                        ) {
+                                            Ok(message) => {
+                                                if message.starts_with("Selected ") {
+                                                    selection_ready = true;
+                                                }
+                                                hint = message;
+                                                last_error.clear();
+                                            }
+                                            Err(error) => last_error = error,
+                                        }
+                                        draft.set_text("");
+                                        continue;
+                                    }
                                 }
-                                draft.set_text("");
-                                continue;
                             }
                             if inflight {
                                 continue;
@@ -1350,6 +1457,8 @@ fn run() -> io::Result<()> {
                                             cancelling: false,
                                             cancelled: false,
                                             interrupted: false,
+                                            compacted: false,
+                                            compaction: None,
                                         });
                                         draft.set_text("");
                                         inflight = true;

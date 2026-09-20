@@ -26,19 +26,110 @@ function textBlocks(content) {
     .join('')
 }
 
-function isDirectUser(event) {
+function eventSource(event) {
   const payload = event.data ?? {}
-  const source = payload.source ?? payload.message?.source
+  return payload.source ?? payload.message?.source
+}
+
+function isCompactCheckpoint(event) {
+  const source = eventSource(event)
+  return source?.kind === 'plugin' && source?.plugin === 'compact'
+}
+
+function isDirectUser(event) {
+  if (isCompactCheckpoint(event)) return true
+  const source = eventSource(event)
   const kind = typeof source === 'string' ? source : source?.kind ?? source?.type ?? ''
-  if (kind === 'inject' || kind === 'tool' || kind === 'system') return false
-  const message = payload.message ?? payload
+  if (kind === 'inject' || kind === 'tool' || kind === 'system' || kind === 'plugin') return false
+  const message = event.data?.message ?? event.data ?? {}
   const text = textBlocks(message.content)
-  if (text.startsWith('<')) return false
+  if (text.startsWith('<') && !text.includes('<compacted-summary>')) return false
   if (/Current runtime context|This snapshot supersedes/i.test(text)) return false
   return true
 }
 
-export function projectTurns(events) {
+export function shadowedSeqs(events) {
+  const shadowed = new Set()
+  for (const event of events ?? []) {
+    const data = event?.data ?? {}
+    if (event?.type === 'compaction/summary' && Array.isArray(data.shadowedSeqs)) {
+      for (const seq of data.shadowedSeqs) shadowed.add(seq)
+    }
+    const op = data.surfaceOp ?? data.message?.surfaceOp
+    if (op?.op === 'replace') {
+      const start = op.startSeq
+      const end = op.endSeq
+      for (const item of events) {
+        if (typeof item?.seq === 'number' && item.seq >= start && item.seq <= end && item !== event) {
+          shadowed.add(item.seq)
+        }
+      }
+    }
+  }
+  return shadowed
+}
+
+export function projectCompaction(events) {
+  const records = []
+  let current = null
+  for (const event of events ?? []) {
+    const data = event?.data ?? {}
+    if (event?.type === 'compaction/start') {
+      current = {
+        id: data.compactionId ?? null,
+        items: null,
+        tokens: null,
+        provider: '',
+        model: '',
+        summary: '',
+        purpose: 'compaction',
+        usage: null,
+        error: null,
+        shadowedSeqs: [],
+      }
+    } else if (event?.type === 'compaction/summary') {
+      current = {
+        ...(current ?? {}),
+        id: data.compactionId ?? current?.id ?? null,
+        items: Array.isArray(data.shadowedSeqs) ? data.shadowedSeqs.length : null,
+        tokens: typeof data.shadowedTokenCount === 'number' ? data.shadowedTokenCount : null,
+        provider: data.provider ?? '',
+        model: data.model ?? '',
+        summary: textBlocks(data.summary),
+        purpose: 'compaction',
+        usage: data.usage ?? null,
+        error: null,
+        shadowedSeqs: Array.isArray(data.shadowedSeqs) ? data.shadowedSeqs : [],
+      }
+    } else if (event?.type === 'compaction/end') {
+      if (current) {
+        current.error = data.error ?? null
+        records.push(current)
+        current = null
+      } else {
+        records.push({
+          id: data.compactionId ?? null,
+          items: null,
+          tokens: null,
+          provider: '',
+          model: '',
+          summary: '',
+          purpose: 'compaction',
+          usage: null,
+          error: data.error ?? null,
+          shadowedSeqs: [],
+        })
+      }
+    }
+  }
+  return records
+}
+
+export function projectTurns(events, options = {}) {
+  const skipShadowed = options.skipShadowed !== false
+  const shadowed = skipShadowed ? shadowedSeqs(events) : new Set()
+  const compaction = projectCompaction(events)
+  const latest = compaction.at(-1)
   const turns = []
   let current = null
   const tools = new Map()
@@ -52,11 +143,14 @@ export function projectTurns(events) {
       error: null,
       cancelled: false,
       interrupted: false,
+      compacted: false,
+      compaction: null,
     }
     turns.push(current)
   }
 
-  for (const event of events) {
+  for (const event of events ?? []) {
+    if (skipShadowed && event?.seq !== undefined && shadowed.has(event.seq)) continue
     const type = event?.type
     const data = event?.data ?? {}
     if (type === 'turn/start' || (type === 'user/message' && current === null)) {
@@ -66,7 +160,21 @@ export function projectTurns(events) {
     if (type === 'user/message' && isDirectUser(event)) {
       const message = data.message ?? data
       const text = textBlocks(message.content).trim()
-      if (text !== '' && current.user === '') {
+      if (isCompactCheckpoint(event) || text.includes('<compacted-summary>')) {
+        current.compacted = true
+        current.user = current.user || 'compaction summary'
+        current.answer = text
+        if (latest) {
+          current.compaction = {
+            items: latest.items,
+            tokens: latest.tokens,
+            provider: latest.provider,
+            model: latest.model,
+            purpose: 'compaction',
+            error: latest.error,
+          }
+        }
+      } else if (text !== '' && current.user === '') {
         current.user = text
       }
     } else if (type === 'assistant/message') {
@@ -137,7 +245,24 @@ export function projectTurns(events) {
   for (const turn of turns) {
     if (turn.interrupted || turn.cancelled) markUnknownOpenTools(turn)
   }
-  return turns.filter(turn => turn.user !== '' || turn.answer !== '' || turn.tools.length > 0)
+  return turns.filter(turn => turn.user !== '' || turn.answer !== '' || turn.tools.length > 0 || turn.compacted)
+}
+
+export function projectSession(events) {
+  const live = projectTurns(events, { skipShadowed: true })
+  const original = projectTurns(events, { skipShadowed: false })
+  const compaction = projectCompaction(events)
+  const retainedTools = live.flatMap(turn => turn.tools)
+  const retainedTodos = retainedTools.filter(tool =>
+    /todo/i.test(`${tool.title} ${tool.diff} ${tool.result}`))
+  return {
+    turns: live,
+    originalTurnCount: original.length,
+    originalToolCount: original.flatMap(turn => turn.tools).length,
+    compaction,
+    retainedTools,
+    retainedTodos,
+  }
 }
 
 function markUnknownOpenTools(turn) {
@@ -194,11 +319,12 @@ async function main() {
   try {
     const snapshot = await persistence.stat(sessionId)
     const { events } = await handle.read()
+    const projected = projectSession(events)
     process.stdout.write(`${JSON.stringify({
       ok: true,
       sessionId,
       cwd: snapshot?.header?.cwd ?? handle.header?.cwd ?? null,
-      turns: projectTurns(events),
+      ...projected,
     })}\n`)
   } catch (error) {
     const message = error?.message ?? String(error)

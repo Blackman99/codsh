@@ -137,7 +137,7 @@ export async function launchRust(args) {
       DSH_TELEMETRY_MODE: 'OFF',
       CODSH_UPDATE_CHECK: 'off',
     }
-    for (const key of ['PATH', 'TERM', 'TERM_PROGRAM', 'COLORTERM', 'LANG', 'LC_ALL', 'LC_CTYPE', 'NO_COLOR', 'SystemRoot', 'WINDIR', 'CODSH_ACP_PATCH', 'CODSH_SESSION_READ', 'DSH_CODE_CLI_MOCK_TOOL', 'DSH_CODE_CLI_MOCK_DELAY_MS', 'DSH_CODE_CLI_TOOL_DELAY_MS', 'FAKE_ACP_MODE', 'FAKE_ACP_VERSION', 'FAKE_ACP_DELAY_MS', 'FAKE_ACP_TARGET', 'FAKE_ACP_WRITES', 'FAKE_ACP_STORE', 'FAKE_ACP_OWNED', 'FAKE_ACP_STALE_OWNER', 'GROK_CONFIG', 'GROK_CONFIG_PATH', 'GROK_TELEMETRY_ENABLED', 'GROK_FEEDBACK_ENABLED', 'GROK_TRACE_UPLOAD', 'GROK_TELEMETRY_TRACE_UPLOAD', 'GROK_SETTINGS_CACHE']) {
+    for (const key of ['PATH', 'TERM', 'TERM_PROGRAM', 'COLORTERM', 'LANG', 'LC_ALL', 'LC_CTYPE', 'NO_COLOR', 'SystemRoot', 'WINDIR', 'CODSH_ACP_PATCH', 'CODSH_SESSION_READ', 'DSH_CODE_CLI_MOCK_TOOL', 'DSH_CODE_CLI_MOCK_DELAY_MS', 'DSH_CODE_CLI_MOCK_CONTEXT_WINDOW', 'DSH_CODE_CLI_TOOL_DELAY_MS', 'FAKE_ACP_MODE', 'FAKE_ACP_VERSION', 'FAKE_ACP_DELAY_MS', 'FAKE_ACP_TARGET', 'FAKE_ACP_WRITES', 'FAKE_ACP_STORE', 'FAKE_ACP_OWNED', 'FAKE_ACP_STALE_OWNER', 'GROK_CONFIG', 'GROK_CONFIG_PATH', 'GROK_TELEMETRY_ENABLED', 'GROK_FEEDBACK_ENABLED', 'GROK_TRACE_UPLOAD', 'GROK_TELEMETRY_TRACE_UPLOAD', 'GROK_SETTINGS_CACHE', 'GROK_AUTO_COMPACT_THRESHOLD_PERCENT', 'GROK_COMPACTION_WALL_CLOCK_SECS', 'CODSH_TEST_COMPACT_THRESHOLD', 'CODSH_TEST_PRUNE_DISABLED', 'CODSH_TEST_PRUNE_HEAD', 'CODSH_TEST_PRUNE_TAIL', 'CODSH_TEST_PRUNE_THRESHOLD']) {
       if (process.env[key] !== undefined) env[key] = process.env[key]
     }
     for (const [key, value] of Object.entries(process.env)) {
@@ -145,9 +145,17 @@ export async function launchRust(args) {
     }
     env.GROK_HOME = join(root, '.grok')
     if (!helpOnly && env.CODSH_ACP_PATCH === undefined) {
-      const plugin = fileURLToPath(new URL('./rust-acp-file-approval.mjs', import.meta.url))
+      const approval = fileURLToPath(new URL('./rust-acp-file-approval.mjs', import.meta.url))
+      const compact = fileURLToPath(new URL('./rust-acp-compact.mjs', import.meta.url))
       const overlay = join(root, 'dsh', 'rust-file-approval.yml')
-      writeFileSync(overlay, `- insert:\n    - id: rust-acp-file-approval\n      name: '${pathToFileURL(plugin).href}'\n`)
+      writeFileSync(overlay, [
+        '- insert:',
+        `    - id: rust-acp-file-approval`,
+        `      name: '${pathToFileURL(approval).href}'`,
+        `    - id: rust-acp-compact`,
+        `      name: '${pathToFileURL(compact).href}'`,
+        '',
+      ].join('\n'))
       env.CODSH_ACP_PATCH = overlay
     }
     if (env.CODSH_SESSION_READ === undefined) {

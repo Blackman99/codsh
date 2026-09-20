@@ -29,7 +29,13 @@ effort, are translated into isolated dsh `settings.yaml` rather than competing
 with it. `/model` and `/effort` change only advertised catalog options; unknown
 backends and efforts are refused, never treated as equivalent or silently
 swapped. Usage and context stay unknown unless the provider or config actually
-supplies them.
+supplies them. `/context` and `/compact` are dsh-backed: occupancy is a dsh
+estimate, advertised limits follow the selected model's `context_window`, and
+compaction mutates the dsh session log rather than a second history. Optional
+`/compact` instructions travel only on the summarizer call (`purpose=compaction`)
+with a recorded destination. Automatic thresholds and pruning map into dsh
+`thresholdRatio` / tool-result pruner settings; unsupported Grok-only prune
+ages stay warnings, not silent no-ops.
 Plain `codsh` still selects the legacy Launcher/Bundle; this is not the default
 cutover.
 
