@@ -78,8 +78,9 @@ default). Invalid `config.toml` is left unchanged and the error names the
 path. First-run missing credentials stay local: no grok.com login, no default
 official telemetry/upload, and no import of `~/.dsh` or `~/.grok` credentials.
 Set the model's `env_key` (for example `XAI_API_KEY`) after writing a provider
-with a `base_url`. Inherited parent `GROK_HOME` is ignored; the preview pins
-`GROK_HOME` to `~/.codsh-rust/.grok`.
+with a `base_url`. An empty Enter on first-run reloads that file and connects
+when a provider is ready, without submitting a prompt. Inherited parent
+`GROK_HOME` is ignored; the preview pins `GROK_HOME` to `~/.codsh-rust/.grok`.
 
 The preview uses `~/.codsh-rust/dsh` and Profile `rust`, ignores inherited
 `DSH_HOME` and Grok settings files, and never migrates legacy sessions.

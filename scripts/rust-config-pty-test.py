@@ -48,7 +48,7 @@ def spawn_inspect(launcher, cwd, env, extra):
                           capture_output=True, text=True, timeout=20)
 
 
-def pty_session(name, launcher, cwd, env, output, typed=None, wait_before=(), wait_after=(), quit=True, cols=100, rows=30):
+def pty_session(name, launcher, cwd, env, output, typed=None, wait_before=(), wait_after=(), after_visible=None, quit=True, cols=100, rows=30):
     master, slave = pty.openpty()
     fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack('HHHH', rows, cols, 0, 0))
     original = termios.tcgetattr(slave)
@@ -87,9 +87,13 @@ def pty_session(name, launcher, cwd, env, output, typed=None, wait_before=(), wa
         wait_visible('Draft (not sent)')
         for marker in wait_before:
             wait_visible(marker, 25)
+        if after_visible:
+            after_visible()
         if typed:
             os.write(master, typed.encode())
-            wait_visible(typed.split('\r', 1)[0] or typed)
+            prefix = typed.split('\r', 1)[0]
+            if prefix:
+                wait_visible(prefix)
         for marker in wait_after:
             wait_visible(marker, 25)
         shown = visible()
@@ -189,6 +193,32 @@ def main():
         assert 'Connected to dsh ACP' not in first['screen']
         assert first['exit'] == 0
         results['pty-first-run'] = {'exit': first['exit']}
+
+        reload_home = work / 'reload-home'
+        reload_home.mkdir()
+        reload_grok = reload_home / '.codsh-rust' / '.grok'
+        reload_env = {**base_env, 'HOME': str(reload_home)}
+
+        def write_ready_config():
+            reload_grok.mkdir(parents=True, exist_ok=True)
+            (reload_grok / 'config.toml').write_text("""
+[model.gateway]
+name = "Local gateway"
+model = "mock-model"
+base_url = "http://127.0.0.1:9/v1"
+env_key = "XAI_API_KEY"
+api_key = "reload-secret"
+""")
+
+        reloaded = pty_session('empty-enter-reload', launcher, cwd, reload_env, output,
+                               wait_before=['First-run', 'Check availability'],
+                               after_visible=write_ready_config,
+                               typed='\r',
+                               wait_after=['Connected to dsh ACP'])
+        assert reloaded['exit'] == 0
+        assert 'First-run' not in reloaded['screen']
+        assert 'reload-secret' not in reloaded['screen']
+        results['pty-empty-enter-reload'] = {'exit': reloaded['exit']}
 
         grok_home.mkdir(parents=True, exist_ok=True)
         invalid_body = 'this is : not = toml [['

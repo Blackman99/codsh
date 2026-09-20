@@ -36,7 +36,8 @@ effective values with `codsh --rust inspect` / `inspect --json`. That file maps
 into isolated dsh `settings.yaml`; a hand-edited settings file that disagrees is
 not overwritten. The model's configured `env_key` (`XAI_API_KEY` and other
 `*_API_KEY` values) is passed through to dsh. Missing credentials stay local
-(no grok.com login or default telemetry). Filesystem-resolved overlap with `DSH_HOME`/`GROK_HOME`, including case
+(no grok.com login or default telemetry). Empty Enter on first-run reloads
+config and connects when a provider is ready, without submitting a prompt. Filesystem-resolved overlap with `DSH_HOME`/`GROK_HOME`, including case
 aliases, is refused before writes; symlinked preview paths remain forbidden.
 Device/inode ancestry checks include existing ancestors of missing paths, catching
 macOS firmlinks even when native realpath strings differ. Separate aliased Homes

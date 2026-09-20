@@ -673,31 +673,22 @@ fn generated_settings_yaml(config: &EffectiveConfig, model: &ModelSpec) -> Strin
 }
 
 fn write_isolated_credential(path: &Path, env_key: &str, value: &str) -> io::Result<()> {
-    let mut refs = BTreeMap::new();
-    if let Ok(existing) = fs::read_to_string(path) {
-        if !existing.trim_start().starts_with("version:") && !existing.trim().is_empty() {
-            return Err(io::Error::other(format!(
+    let quoted = yaml_quote(value);
+    let body = match fs::read_to_string(path) {
+        Ok(existing) if existing.trim().is_empty() => {
+            format!("version: 1\n\nrefs:\n  {env_key}: {quoted}\n")
+        }
+        Ok(existing) => patch_credential_ref(&existing, env_key, &quoted).map_err(|_| {
+            io::Error::other(format!(
                 "refusing to overwrite unmanaged credentials file {}",
                 path.display()
-            )));
+            ))
+        })?,
+        Err(error) if error.kind() == ErrorKind::NotFound => {
+            format!("version: 1\n\nrefs:\n  {env_key}: {quoted}\n")
         }
-        if let Some(block) = existing.split("refs:\n").nth(1) {
-            for line in block.lines() {
-                let line = line.trim();
-                if line.is_empty() || line.starts_with("records:") {
-                    break;
-                }
-                if let Some((key, val)) = line.split_once(':') {
-                    refs.insert(key.trim().to_string(), val.trim().to_string());
-                }
-            }
-        }
-    }
-    refs.insert(env_key.to_string(), yaml_quote(value));
-    let mut body = String::from("version: 1\n\nrefs:\n");
-    for (key, val) in refs {
-        body.push_str(&format!("  {key}: {val}\n"));
-    }
+        Err(error) => return Err(error),
+    };
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)?;
     }
@@ -719,6 +710,77 @@ fn write_isolated_credential(path: &Path, env_key: &str, value: &str) -> io::Res
         fs::set_permissions(path, permissions)?;
     }
     Ok(())
+}
+
+fn patch_credential_ref(existing: &str, env_key: &str, quoted: &str) -> io::Result<String> {
+    if !existing.trim_start().starts_with("version:") {
+        return Err(io::Error::other(
+            "refusing to overwrite unmanaged credentials file",
+        ));
+    }
+    let records_at = top_level_key_offset(existing, "records:");
+    let (head, records) = match records_at {
+        Some(index) => (&existing[..index], &existing[index..]),
+        None => (existing, ""),
+    };
+    let prefix = format!("{env_key}:");
+    let mut lines: Vec<String> = Vec::new();
+    let mut in_refs = false;
+    let mut replaced = false;
+    if !head.contains("refs:") {
+        let mut body = head.trim_end().to_string();
+        body.push_str("\n\nrefs:\n");
+        body.push_str(&format!("  {env_key}: {quoted}\n"));
+        if !records.is_empty() {
+            if !body.ends_with('\n') {
+                body.push('\n');
+            }
+            body.push_str(records);
+        }
+        return Ok(body);
+    }
+    for line in head.lines() {
+        let trimmed = line.trim_start();
+        if trimmed.starts_with("refs:") {
+            in_refs = true;
+            lines.push(line.to_string());
+            continue;
+        }
+        if in_refs && trimmed.starts_with(&prefix) {
+            let indent_len = line.len() - trimmed.len();
+            lines.push(format!("{}{env_key}: {quoted}", &line[..indent_len]));
+            replaced = true;
+            continue;
+        }
+        lines.push(line.to_string());
+    }
+    if !replaced {
+        let mut with_insert = Vec::new();
+        for line in lines {
+            with_insert.push(line.clone());
+            if line.trim_start().starts_with("refs:") {
+                with_insert.push(format!("  {env_key}: {quoted}"));
+            }
+        }
+        lines = with_insert;
+    }
+    let mut body = lines.join("\n");
+    if !body.ends_with('\n') {
+        body.push('\n');
+    }
+    body.push_str(records);
+    Ok(body)
+}
+
+fn top_level_key_offset(text: &str, key: &str) -> Option<usize> {
+    let mut offset = 0;
+    for line in text.split_inclusive('\n') {
+        if line.starts_with(key) {
+            return Some(offset);
+        }
+        offset += line.len();
+    }
+    None
 }
 
 fn overlay_table(env: &BTreeMap<String, String>, warnings: &mut Vec<String>) -> Option<TomlValue> {
@@ -1233,6 +1295,37 @@ api_key = "file-secret"
                 0o600
             );
         }
+    }
+
+    #[test]
+    fn credential_write_patches_one_ref_and_keeps_records() {
+        let dir = TempDir::new().unwrap();
+        let load = input(&dir);
+        let path = load.dsh_home.join(".credentials.yaml");
+        fs::write(
+            &path,
+            "version: 1\n\nrefs:\n  OPENAI_API_KEY: keep-me\n\nrecords:\n  llm-pi-ai/openai-codex:\n    kind: grant\n    payload:\n      type: oauth\n      access: keep-this\n",
+        )
+        .unwrap();
+        write_config(
+            &load,
+            r#"
+[model.gateway]
+model = "mock-model"
+base_url = "http://127.0.0.1:9/v1"
+env_key = "XAI_API_KEY"
+api_key = "file-secret"
+"#,
+        );
+        let config = load_from(load.clone());
+        apply_to_dsh(&config, &load.env).unwrap();
+        let body = fs::read_to_string(&path).unwrap();
+        assert!(body.contains("OPENAI_API_KEY: keep-me"));
+        assert!(body.contains("XAI_API_KEY:"));
+        assert!(body.contains("records:"));
+        assert!(body.contains("llm-pi-ai/openai-codex:"));
+        assert!(body.contains("access: keep-this"));
+        assert!(body.contains("kind: grant"));
     }
 
     #[test]

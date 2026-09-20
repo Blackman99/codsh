@@ -890,10 +890,6 @@ fn run() -> io::Result<()> {
                             if inflight {
                                 continue;
                             }
-                            let text = draft.text();
-                            if text.trim().is_empty() {
-                                continue;
-                            }
                             if client.is_none() {
                                 effective = load_runtime_config(launch.model.as_deref());
                                 extra_env =
@@ -924,12 +920,17 @@ fn run() -> io::Result<()> {
                                             turns = restored;
                                         }
                                         client = Some(connection.client);
+                                        last_error.clear();
                                     }
                                     Err(error) => {
                                         last_error = error;
                                         continue;
                                     }
                                 }
+                            }
+                            let text = draft.text();
+                            if text.trim().is_empty() {
+                                continue;
                             }
                             if owner.as_ref().is_some_and(|held| !held.still_held()) {
                                 last_error = format!(

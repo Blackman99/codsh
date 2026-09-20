@@ -71,7 +71,8 @@ dsh 给出的差异，`y` 允许该次调用，`n` 拒绝且不写入。文件�
 无效的 `config.toml` 会保留原文，并报告路径和原因。首次运行缺少凭据时只给出
 可操作提示：不打开 grok.com 登录，不访问默认官方遥测/上传，也不自动导入
 `~/.dsh` 或 `~/.grok` 中的旧凭据。写好带 `base_url` 的提供商后，再设置对应的
-`env_key`（例如 `XAI_API_KEY`）。父进程的 `GROK_HOME` 会被忽略；预览把
+`env_key`（例如 `XAI_API_KEY`）。首次运行时空回车会重新加载该文件，
+提供商就绪后连接且不提交提示。父进程的 `GROK_HOME` 会被忽略；预览把
 `GROK_HOME` 固定为 `~/.codsh-rust/.grok`。
 
 预览使用 `~/.codsh-rust/dsh` 与 `rust` Profile，忽略继承的 `DSH_HOME`
