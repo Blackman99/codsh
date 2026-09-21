@@ -113,11 +113,31 @@ class Session:
     def write(self, data):
         os.write(self.master, data if isinstance(data, bytes) else data.encode())
 
+    def current_text(self):
+        snap = self.snapshot()
+        return '\n'.join([snap['text'], snap['primary']])
+
     def session_id(self):
-        match = SESSION_RE.search(self.visible())
+        blob = self.current_text()
+        match = SESSION_RE.search(blob)
         if match is None:
-            raise AssertionError(f'{self.name}: missing session id\n{self.visible()}')
+            raise AssertionError(f'{self.name}: missing session id\n{blob}')
         return match.group(1)
+
+    def wait_session(self, session_id, seconds=10):
+        needle = f'session {session_id}'
+        deadline = time.monotonic() + seconds
+        while time.monotonic() < deadline:
+            self.pump()
+            blob = self.current_text()
+            if needle in blob:
+                return blob
+            if self.process.poll() is not None:
+                break
+        raise AssertionError(
+            f'{self.name}: missing live session {session_id}\n{self.current_text()}\n'
+            f'raw={bytes(self.data)[-2500:]!r}'
+        )
 
     def snapshot(self):
         emu = emulate(bytes(self.data), self.rows, self.cols)
@@ -149,8 +169,16 @@ class Session:
     def finish(self, expect_alt_leave=None):
         shown = self.visible()
         self.write(b'\x11')
-        self.process.wait(timeout=12)
-        self.pump()
+        deadline = time.monotonic() + 12
+        while self.process.poll() is None:
+            if time.monotonic() > deadline:
+                self.kill_group()
+                raise TimeoutError(
+                    f'{self.name}: quit hung after Ctrl+Q; unanswered CSI 6n queries='
+                    f'{bytes(self.data).count(b"\x1b[6n") - self.cursor_replies}'
+                )
+            self.pump(0.15)
+        self.pump(0.2)
         os.write(self.master, b'AFTER_EXIT_CANONICAL\n')
         assert select.select([self.slave], [], [], 2)[0]
         assert os.read(self.slave, 4096) == b'AFTER_EXIT_CANONICAL\n'
@@ -181,12 +209,29 @@ class Session:
             'pid': self.process.pid,
         }
 
+    def kill_group(self):
+        if self.process.poll() is not None:
+            return
+        try:
+            os.killpg(self.process.pid, signal.SIGTERM)
+        except ProcessLookupError:
+            self.process.terminate()
+        try:
+            self.process.wait(timeout=2)
+        except subprocess.TimeoutExpired:
+            try:
+                os.killpg(self.process.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                self.process.kill()
+            self.process.wait(timeout=2)
+
     def close(self):
-        if self.process.poll() is None:
-            self.process.kill()
-            self.process.wait()
-        os.close(self.master)
-        os.close(self.slave)
+        self.kill_group()
+        for fd in (self.master, self.slave):
+            try:
+                os.close(fd)
+            except OSError:
+                pass
 
 
 def main():
@@ -340,13 +385,17 @@ def main():
             assert 'TOKEN_SCREEN_STREAM' in shown
             assert 'Connecting to dsh ACP' not in shown
             streaming.assert_native_minimal('Switched to minimal', leaves_before=leaves_before)
+            live_pid = streaming.process.pid
             streaming.wait_visible('RUST_ACP_ANSWER', 20)
-            shown = streaming.visible()
+            shown = streaming.wait_session(live_id, 10)
+            assert streaming.process.poll() is None
+            assert streaming.process.pid == live_pid
             assert live_id == streaming.session_id()
             snap = streaming.snapshot()
             assert not snap['onAlternate']
             assert 'TOKEN_SCREEN_STREAM' in snap['primary']
             assert 'RUST_ACP_ANSWER' in snap['primary']
+            assert f'session {live_id}' in shown or f'session {live_id}' in snap['primary']
             results.append(streaming.finish())
         finally:
             streaming.close()
