@@ -2182,8 +2182,7 @@ fn run() -> io::Result<()> {
                                     last_error = "ACP session is not ready".into();
                                     continue;
                                 };
-                                match session_fork::list_points(&effective.dsh_home, &session_id)
-                                {
+                                match session_fork::list_points(&effective.dsh_home, &session_id) {
                                     Ok(points) if points.is_empty() => {
                                         hint = "no turns to rewind yet".into();
                                         draft.set_text("");
@@ -2199,9 +2198,8 @@ fn run() -> io::Result<()> {
                                             draft.set_text("");
                                             hint.clear();
                                         } else if let Ok(turn) = rest.parse::<u32>() {
-                                            if let Some(point) = points
-                                                .into_iter()
-                                                .find(|point| point.turn == turn)
+                                            if let Some(point) =
+                                                points.into_iter().find(|point| point.turn == turn)
                                             {
                                                 if prefs.confirm_before_rewind {
                                                     overlay = Overlay::RewindConfirm { point };

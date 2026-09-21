@@ -327,7 +327,6 @@ enum PendingKind {
     Prompt,
     SetConfig,
     Close,
-    Config,
     #[allow(dead_code)]
     Other,
 }
