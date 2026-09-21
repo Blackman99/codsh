@@ -357,9 +357,11 @@ A second client is refused when it cannot take write ownership. Interrupted
 tools are displayed as unknown and are not replayed. `session/load` remains
 unsupported by dsh ACP. `--restore-code` is refused.
 Fullscreen uses the alternate-screen lifecycle; minimal emits committed turns
-into native history through the official inline renderer. In-place `/minimal`
-and `/fullscreen` keep the dsh session, draft, running turn, and pending
-approval; `--minimal`/`--fullscreen` do not rewrite isolated `[ui] screen_mode`.
+into native history through the official inline renderer. `/rewind` and `/fork`
+in minimal reset that native buffer the same way compact does, so discarded
+turns are not left in scrollback. In-place `/minimal` and `/fullscreen` keep
+the dsh session, draft, running turn, and pending approval;
+`--minimal`/`--fullscreen` do not rewrite isolated `[ui] screen_mode`.
 Queue delivery across a switch remains a later ticket.
 
 ## Documentation site

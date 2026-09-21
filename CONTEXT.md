@@ -25,8 +25,9 @@ does not cancel. `--continue` / `--resume <id>` restore the same dsh session;
 seed/projection without restoring files or replaying tools. A second write
 owner is refused. `/minimal` and `/fullscreen` switch render mode
 in process: fullscreen uses the alternate screen, minimal writes committed
-history to the native terminal buffer, and the active session, draft, running
-turn, and pending approval survive. `--minimal` / `--fullscreen` and
+history to the native terminal buffer, `/rewind` and `/fork` replace that
+native buffer instead of appending discarded turns, and the active session,
+draft, running turn, and pending approval survive. `--minimal` / `--fullscreen` and
 `GROK_SCREEN_MODE` are session-scoped and do not rewrite isolated
 `[ui] screen_mode`. The isolated Home is `~/.codsh-rust/dsh`, Profile `rust`;
 inherited legacy configuration/credential files are not imported. Configured

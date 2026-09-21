@@ -73,7 +73,8 @@ dsh log (not a second store). Interrupted or never-finished tools show
 take write ownership is refused instead of forking a duplicate executor.
 Default fullscreen uses the alternate screen. `/minimal` (or `--minimal`)
 switches to native terminal history through the official inline renderer;
-`/fullscreen` (alias `/full`) switches back. The switch stays in process, so a
+`/fullscreen` (alias `/full`) switches back. `/rewind` and `/fork` in minimal
+replace that native buffer instead of appending discarded turns. The switch stays in process, so a
 running dsh turn, draft, and pending approval survive. `--minimal` /
 `--fullscreen` and `GROK_SCREEN_MODE` are session-scoped and do not rewrite
 isolated `[ui] screen_mode`. Mode-only commands such as `/dashboard` in

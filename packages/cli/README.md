@@ -79,8 +79,9 @@ Interrupted tools are shown as unknown and not replayed.
 A second client is refused while this process holds write ownership.
 `--minimal` / `--fullscreen` and `/minimal` / `/fullscreen` switch the official
 alternate-screen and native-history renderers in the current process without
-rewriting isolated `[ui] screen_mode`. Draft, running turn, and pending
-approval survive an in-place switch.
+rewriting isolated `[ui] screen_mode`. `/rewind` and `/fork` in minimal replace
+that native buffer. Draft, running turn, and pending approval survive an
+in-place switch.
 
 Maintainers run `pnpm run build:rust` before locally packing this package. The
 candidate carries its native binary, dependency/license records, and digest;

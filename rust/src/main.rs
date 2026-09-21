@@ -1143,6 +1143,20 @@ fn replace_session_turns(
     history.clear();
 }
 
+fn reset_native_history_after_switch(
+    terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
+    screen: ScreenMode,
+    committed: &mut usize,
+    history: &mut String,
+) -> io::Result<()> {
+    *committed = 0;
+    history.clear();
+    if screen == ScreenMode::Minimal {
+        resize_purge_rerender(terminal, "")?;
+    }
+    Ok(())
+}
+
 fn commit_completed_turns(
     terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
     turns: &[Turn],
@@ -1937,6 +1951,14 @@ fn run() -> io::Result<()> {
                                             hint = message;
                                             last_error.clear();
                                             draft.set_text("");
+                                            if let Err(error) = reset_native_history_after_switch(
+                                                &mut terminal,
+                                                screen,
+                                                &mut committed,
+                                                &mut history,
+                                            ) {
+                                                last_error = error.to_string();
+                                            }
                                         }
                                         Err(error) => last_error = error,
                                     }
@@ -1970,6 +1992,14 @@ fn run() -> io::Result<()> {
                                             hint = message;
                                             last_error.clear();
                                             draft.set_text("");
+                                            if let Err(error) = reset_native_history_after_switch(
+                                                &mut terminal,
+                                                screen,
+                                                &mut committed,
+                                                &mut history,
+                                            ) {
+                                                last_error = error.to_string();
+                                            }
                                         }
                                         Err(error) => last_error = error,
                                     }
@@ -1999,6 +2029,14 @@ fn run() -> io::Result<()> {
                                             hint = message;
                                             last_error.clear();
                                             draft.set_text("");
+                                            if let Err(error) = reset_native_history_after_switch(
+                                                &mut terminal,
+                                                screen,
+                                                &mut committed,
+                                                &mut history,
+                                            ) {
+                                                last_error = error.to_string();
+                                            }
                                         }
                                         Err(error) => last_error = error,
                                     }
@@ -2167,6 +2205,16 @@ fn run() -> io::Result<()> {
                                                         hint = message;
                                                         last_error.clear();
                                                         draft.set_text("");
+                                                        if let Err(error) =
+                                                            reset_native_history_after_switch(
+                                                                &mut terminal,
+                                                                screen,
+                                                                &mut committed,
+                                                                &mut history,
+                                                            )
+                                                        {
+                                                            last_error = error.to_string();
+                                                        }
                                                     }
                                                     Err(error) => last_error = error,
                                                 }
@@ -2222,6 +2270,16 @@ fn run() -> io::Result<()> {
                                                             hint = message;
                                                             last_error.clear();
                                                             draft.set_text("");
+                                                            if let Err(error) =
+                                                                reset_native_history_after_switch(
+                                                                    &mut terminal,
+                                                                    screen,
+                                                                    &mut committed,
+                                                                    &mut history,
+                                                                )
+                                                            {
+                                                                last_error = error.to_string();
+                                                            }
                                                         }
                                                         Err(error) => last_error = error,
                                                     }

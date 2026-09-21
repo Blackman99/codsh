@@ -14,8 +14,13 @@ spec = importlib.util.spec_from_file_location(
     'rust_resume_pty_test', ROOT / 'scripts' / 'rust-resume-pty-test.py')
 resume = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(resume)
+screen_spec = importlib.util.spec_from_file_location(
+    'rust_screen_pty_test', ROOT / 'scripts' / 'rust-screen-pty-test.py')
+screen = importlib.util.module_from_spec(screen_spec)
+screen_spec.loader.exec_module(screen)
 NODE = resume.NODE
 Session = resume.Session
+ScreenSession = screen.Session
 dsh_bin = resume.dsh_bin
 overlay_text = resume.overlay_text
 run = resume.run
@@ -251,9 +256,44 @@ def main():
         finally:
             still_parent.close()
 
+        (grok_home / 'config.toml').write_text(
+            '[ui]\nconfirm_before_rewind = false\nfork_secondary_model = "cli-mock-fork"\n')
+        minimal = ScreenSession('rewind-minimal', launcher, cwd, {
+            **base_env, 'DSH_CODE_CLI_MOCK_TOOL': 'echo',
+        }, output, extra=['--minimal', '--resume', parent], cols=120, rows=48)
+        try:
+            minimal.wait_visible('mode=minimal', 25)
+            shown = minimal.wait_session(parent, 20)
+            snap = minimal.snapshot()
+            assert not snap['onAlternate']
+            blob = '\n'.join([shown, snap['primary'], snap['text']])
+            assert 'TOKEN_KEEP' in blob
+            assert 'TOKEN_DROP' in blob
+            minimal.write('/rewind 2')
+            minimal.wait_visible('/rewind 2', 10)
+            minimal.write('\r')
+            shown = wait_idle(minimal, 'rewound to turn 2', 25)
+            child_minimal = minimal.session_id()
+            assert child_minimal != parent
+            shown = minimal.wait_session(child_minimal, 10)
+            snap = minimal.snapshot()
+            assert not snap['onAlternate']
+            native = snap['primary']
+            assert 'TOKEN_KEEP' in native
+            assert 'TOKEN_MIDDLE' in native
+            assert 'TOKEN_DROP' not in native
+            visible_history = shown.split('┌Draft')[0]
+            assert 'TOKEN_DROP' not in visible_history
+            (output / 'rewind-minimal-primary.txt').write_text(native)
+            result_minimal = minimal.finish(expect_alt_leave=False)
+            assert 'TOKEN_DROP' not in result_minimal['primary']
+            assert 'TOKEN_KEEP' in result_minimal['primary']
+        finally:
+            minimal.close()
+
         (output / 'result.json').write_text(json.dumps({
             'parent': parent, 'child': child,
-            'forkChild': fork_child, 'cliFork': cli_id,
+            'forkChild': fork_child, 'cliFork': cli_id, 'minimalChild': child_minimal,
             'note': (cwd / 'note.txt').read_text(),
             'exit': result['exit'],
             'config': (grok_home / 'config.toml').read_text(),

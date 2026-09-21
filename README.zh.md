@@ -66,6 +66,7 @@ dsh 会话 id。`/rewind` 与 `/undo`（或空闲时空草稿上的 Esc Esc）�
 第二个客户端若不能取得写入权会被明确拒绝，而不会再开一个执行核心。
 默认 fullscreen 使用备用屏幕。`/minimal`（或 `--minimal`）按官方内联渲染
 把已提交内容写入终端原生历史；`/fullscreen`（别名 `/full`）切回全屏。
+最小模式下 `/rewind` 与 `/fork` 会重置该原生缓冲，而不是把已丢弃回合追加进去。
 切换在同一进程内完成，正在执行的 dsh 回合、草稿和待审批都会保留。
 `--minimal` / `--fullscreen` 与 `GROK_SCREEN_MODE` 只作用于当前会话，不会改写
 隔离目录里的 `[ui] screen_mode`。最小模式下的 `/dashboard` 等模式专用命令会
