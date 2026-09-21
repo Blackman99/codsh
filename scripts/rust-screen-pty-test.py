@@ -470,6 +470,7 @@ def main():
             assert 'TOKEN_OLD_ONE' in snap['primary']
             compact.write('/compact keep the auth plan\r')
             shown = compact.wait_visible('purpose=compaction', 40)
+            shown = compact.wait_session(compact_id, 10)
             assert compact.session_id() == compact_id
             snap = compact.snapshot()
             assert not snap['onAlternate']
