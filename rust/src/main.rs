@@ -1587,11 +1587,11 @@ fn run() -> io::Result<()> {
     let mut previous_session: Option<String> = None;
     let mut overlay = Overlay::None;
     let mut last_esc: Option<Instant> = None;
-    let mut prefs = session_fork::load_prefs(&home);
     let mut committed = 0usize;
     let mut history = String::new();
     let mut composer_stash = String::new();
     let mut effective = load_runtime_config(&launch);
+    let mut prefs = session_fork::load_prefs(&effective.grok_home);
     let mut extra_env = {
         let mut extra = config::credential_env(&effective, &std::env::vars().collect());
         extra.extend(config::compact_env(&effective));
@@ -1978,7 +1978,10 @@ fn run() -> io::Result<()> {
                             }
                             KeyCode::Char('a') => {
                                 prefs.confirm_before_rewind = false;
-                                let _ = session_fork::save_confirm_before_rewind(&home, false);
+                                let _ = session_fork::save_confirm_before_rewind(
+                                    &effective.grok_home,
+                                    false,
+                                );
                                 let point = point.clone();
                                 if let Some(active) = client.as_mut() {
                                     match commit_rewind(

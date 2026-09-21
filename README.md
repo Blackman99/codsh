@@ -82,7 +82,8 @@ relaunches onto the same session instead of switching in place and does not
 preserve an unsaved draft.
 
 User configuration for the preview is `$GROK_HOME/config.toml` (default
-`~/.codsh-rust/.grok/config.toml`). Compatible `[model.<id>]` fields
+`~/.codsh-rust/.grok/config.toml`). `[ui] confirm_before_rewind` and
+`ui.fork_secondary_model` are stored in that same file. Compatible `[model.<id>]` fields
 (`base_url`, `env_key`, `api_key`, `model`, `name`, `api_backend`,
 `supports_reasoning_effort`, `reasoning_efforts`, `reasoning_effort`,
 `context_window`) plus `models.default` / `models.default_reasoning_effort`

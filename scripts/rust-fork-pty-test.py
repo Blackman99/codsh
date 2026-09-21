@@ -60,8 +60,9 @@ def main():
         patch = work / 'overlay.yml'
         patch.write_text(overlay)
         rust_home = home / '.codsh-rust'
-        rust_home.mkdir()
-        (rust_home / 'config.toml').write_text(
+        grok_home = rust_home / '.grok'
+        grok_home.mkdir(parents=True)
+        (grok_home / 'config.toml').write_text(
             '[ui]\nconfirm_before_rewind = true\nfork_secondary_model = "cli-mock-fork"\n')
         base_env = {
             'HOME': str(home), 'PATH': os.environ['PATH'], 'TERM': 'xterm-256color',
@@ -116,7 +117,8 @@ def main():
             assert 'TOKEN_KEEP' in shown
             assert 'TOKEN_MIDDLE' in shown
             assert (cwd / 'note.txt').read_text() == 'BETA independently edited\n'
-            assert 'confirm_before_rewind = false' in (rust_home / 'config.toml').read_text()
+            assert 'confirm_before_rewind = false' in (grok_home / 'config.toml').read_text()
+            assert not (rust_home / 'config.toml').exists()
             first.write('TOKEN_AFTER_REWIND')
             first.wait_visible('TOKEN_AFTER_REWIND', 10)
             first.write('\r')
@@ -254,7 +256,7 @@ def main():
             'forkChild': fork_child, 'cliFork': cli_id,
             'note': (cwd / 'note.txt').read_text(),
             'exit': result['exit'],
-            'config': (rust_home / 'config.toml').read_text(),
+            'config': (grok_home / 'config.toml').read_text(),
         }, indent=2) + '\n')
         assert (cwd / 'note.txt').read_text() == 'BETA independently edited\n'
     print(f'PASS: rust dsh fork/rewind PTY; evidence: {output}')

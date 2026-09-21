@@ -31,8 +31,10 @@ wayfinder → grill → spec → tickets → landing → done.
 over ACP/JSON-RPC. Plain `codsh` is unchanged. The candidate uses
 `~/.codsh-rust/dsh`, Profile `rust`, never imports `~/.dsh` or `~/.grok`
 credential files or sessions, and does not start the legacy Bundle or official
-agent core. Configure a provider in `~/.codsh-rust/.grok/config.toml` and inspect
-effective values with `codsh --rust inspect` / `inspect --json`. Compatible
+agent core. Configure a provider in `~/.codsh-rust/.grok/config.toml` (`$GROK_HOME/config.toml`)
+and inspect effective values with `codsh --rust inspect` / `inspect --json`.
+`[ui] confirm_before_rewind` and `ui.fork_secondary_model` use that same file.
+Compatible
 `api_backend` and reasoning-effort fields map into isolated dsh
 `settings.yaml`; a hand-edited settings file that disagrees is not overwritten.
 `/model` and `/effort` only apply advertised catalog options; unsupported

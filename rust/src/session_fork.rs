@@ -328,6 +328,42 @@ mod tests {
     }
 
     #[test]
+    fn grok_home_config_toml_is_the_user_pref_file() {
+        let root = std::env::temp_dir().join(format!(
+            "codsh-fork-prefs-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let home = root.join("home");
+        let grok = home.join(".grok");
+        std::fs::create_dir_all(&grok).unwrap();
+        std::fs::write(
+            home.join("config.toml"),
+            "[ui]\nconfirm_before_rewind = true\nfork_secondary_model = \"wrong-home\"\n",
+        )
+        .unwrap();
+        std::fs::write(
+            grok.join("config.toml"),
+            "[ui]\nscreen_mode = \"fullscreen\"\nconfirm_before_rewind = false\nfork_secondary_model = \"cli-mock-fork\"\n",
+        )
+        .unwrap();
+        let prefs = load_prefs(&grok);
+        assert!(!prefs.confirm_before_rewind);
+        assert_eq!(prefs.fork_secondary_model.as_deref(), Some("cli-mock-fork"));
+        save_confirm_before_rewind(&grok, false).unwrap();
+        let grok_body = std::fs::read_to_string(grok.join("config.toml")).unwrap();
+        assert!(grok_body.contains("confirm_before_rewind = false"));
+        assert!(grok_body.contains("screen_mode = \"fullscreen\""));
+        assert!(grok_body.contains("fork_secondary_model = \"cli-mock-fork\""));
+        let home_body = std::fs::read_to_string(home.join("config.toml")).unwrap();
+        assert!(home_body.contains("confirm_before_rewind = true"));
+        assert!(home_body.contains("wrong-home"));
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
     fn projects_rewind_points_and_fork_result() {
         let value = json!({
             "ok": true,

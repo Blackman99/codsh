@@ -73,7 +73,8 @@ dsh 会话 id。`/rewind` 与 `/undo`（或空闲时空草稿上的 Esc Esc）�
 重新启动，而不是原地切换，也不会保留未保存的草稿。
 
 预览的用户配置是 `$GROK_HOME/config.toml`（默认
-`~/.codsh-rust/.grok/config.toml`）。兼容的 `[model.<id>]` 字段
+`~/.codsh-rust/.grok/config.toml`）。`[ui] confirm_before_rewind` 与
+`ui.fork_secondary_model` 也写在这份文件里。兼容的 `[model.<id>]` 字段
 （`base_url`、`env_key`、`api_key`、`model`、`name`、`api_backend`、
 `supports_reasoning_effort`、`reasoning_efforts`、`reasoning_effort`、
 `context_window`）以及 `models.default` / `models.default_reasoning_effort`

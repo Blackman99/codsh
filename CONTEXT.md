@@ -32,6 +32,7 @@ turn, and pending approval survive. `--minimal` / `--fullscreen` and
 inherited legacy configuration/credential files are not imported. Configured
 `env_key` values are passed through. Telemetry stays off.
 User settings enter through `$GROK_HOME/config.toml` and `codsh --rust inspect`;
+`[ui] confirm_before_rewind` and `ui.fork_secondary_model` use that same file;
 applicable model/provider fields, including `api_backend` and reasoning
 effort, are translated into isolated dsh `settings.yaml` rather than competing
 with it. `/model` and `/effort` change only advertised catalog options; unknown
