@@ -110,6 +110,13 @@ providers or other services. Official grok.com entitlements are not reproduced.
 Unsigned or unverifiable managed policy is refused, including a signature for
 another principal, a deployment-key caller with no team, an on-disk sidecar
 that does not name this caller, and fail-closed files with no pubkey and no sidecar.
+Permission modes, allow/ask/deny rules, and remembered project grants are compiled
+into isolated `$DSH_HOME/permission-policy.json` and enforced in the dsh
+`tools/pre-execute` plugin before a real tool body runs. Deny and hook blocks have
+no side effects; unsplittable shell and Read/Edit path rules on operands cannot be
+glob-allowed or auto-approved as read-only. Missing or corrupt
+`permission-policy.json` refuses mutating tools. `y` is once, `a` remembers this
+project only, and `/revoke-approvals` forgets those grants.
 Plain `codsh` still selects the legacy Launcher/Bundle; this is not the default
 cutover. The Viewport language below remains the legacy Surface contract.
 

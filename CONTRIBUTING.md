@@ -337,7 +337,9 @@ tool-call id, shows the pending operation and dsh-supplied diff, allows once wit
 `y`, remembers this project only with `a`, and rejects with `n` without writing.
 `/revoke-approvals` forgets this project's remembered grants. Allow/ask/deny rules,
 remembered project grants, locked always-approve, and hook deny are enforced before the
-dsh tool body. Missing files, tool errors, cancelled
+dsh tool body. Unsplittable shell and Read/Edit path rules on operands cannot
+bypass deny; always-approve skips grants and non-shell ask; a corrupt policy
+file refuses mutating tools. Missing files, tool errors, cancelled
 approvals, and duplicate replies are observable failures. `Ctrl+C` clears a
 draft without cancelling; an empty draft sends ACP `session/cancel` to dsh for a
 running turn, including pending approval and in-flight tools. Esc never cancels.

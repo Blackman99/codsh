@@ -53,8 +53,18 @@ Grok Rust UI components, requires no official account, and does not start the
 legacy Bundle, official agent core, update check, telemetry, or feedback upload.
 Enter submits the draft through dsh when connected, or reports that execution is
 unavailable without sending it. File read, write, and edit run through real dsh
-tools. The UI shows the pending operation and the dsh-supplied diff, then `y`
-allows that call once and `n` rejects it with no write. Missing files, tool
+tools. Allow/ask/deny rules, remembered project grants, and permission modes
+(`ask`, `auto`, `always-approve`/`--yolo`, `dontAsk`, `acceptEdits`) are
+enforced before a dsh tool runs. Explicit deny, hook blocks, and locked
+always-approve survive `--always-approve` and old grants. Unsplittable shell
+(`$(...)`, control flow) is not glob-allowed as a unit; Read/Edit deny also
+covers shell operands; always-approve skips remembered grants and non-shell
+`ask`. A missing or corrupt policy file refuses mutating tools instead of
+dropping deny. The UI shows the pending operation and the dsh-supplied diff,
+then `y` allows that call once, `a` remembers it for this project only, and `n`
+rejects it with no write. `/revoke-approvals` forgets this project's remembered
+grants. Remembered grants are never described as a permanent global rule; a
+failed save still allows once. Missing files, tool
 errors, cancelled or duplicate approval replies are shown as failures, never as
 success. `Ctrl+C` clears a non-empty draft without cancelling work; an empty
 draft cancels the running turn through dsh `session/cancel`. Esc never cancels a

@@ -2,6 +2,7 @@
 
 use crate::trust;
 use serde_json::{Value as JsonValue, json};
+use std::collections::HashSet;
 use std::fs;
 use std::io::{self, ErrorKind, Write};
 use std::path::{Component, Path, PathBuf};
@@ -192,6 +193,7 @@ pub fn compile_policy_json(policy: &PermissionPolicy) -> JsonValue {
         "interactive": policy.interactive,
         "cwd": policy.cwd,
         "grantsPath": policy.grants_path,
+        "loadError": "",
         "skipped": policy.skipped,
         "rules": policy.rules.iter().map(|rule| json!({
             "action": rule.action.as_str(),
@@ -654,10 +656,19 @@ pub fn evaluate(
             reason: format!("Denied by hook: {reason}"),
         };
     }
+    let always_approve = policy.mode == PermissionMode::AlwaysApprove;
     if let Some(decision) = evaluate_rules(policy, access) {
         match decision {
             Decision::Deny { .. } => return decision,
             Decision::Ask { .. } => {
+                if always_approve && !matches!(access, AccessKind::Bash(_)) {
+                    return Decision::Allow {
+                        reason: "always-approve".into(),
+                    };
+                }
+                if always_approve {
+                    return decision;
+                }
                 if let Some(grant) = evaluate_grants(policy, access) {
                     return grant;
                 }
@@ -666,9 +677,7 @@ pub fn evaluate(
             Decision::Allow { .. } => return decision,
         }
     }
-    if policy.mode != PermissionMode::AlwaysApprove
-        && let Some(grant) = evaluate_grants(policy, access)
-    {
+    if !always_approve && let Some(grant) = evaluate_grants(policy, access) {
         return grant;
     }
     if is_readonly_access(access) {
@@ -677,6 +686,7 @@ pub fn evaluate(
         };
     }
     if let AccessKind::Bash(command) = access
+        && !is_unsplittable(command)
         && bash_segments(command)
             .iter()
             .all(|segment| is_readonly_command(&segment.split_whitespace().collect::<Vec<_>>()))
@@ -710,7 +720,7 @@ pub fn evaluate(
 fn evaluate_rules(policy: &PermissionPolicy, access: &AccessKind) -> Option<Decision> {
     if let AccessKind::Bash(command) = access {
         let mut ask = None;
-        for segment in bash_policy_subjects(command) {
+        for segment in bash_inspect_subjects(command) {
             match evaluate_rules_for(policy, &AccessKind::Bash(segment)) {
                 Some(Decision::Deny { reason }) => {
                     return Some(Decision::Deny { reason });
@@ -719,14 +729,22 @@ fn evaluate_rules(policy: &PermissionPolicy, access: &AccessKind) -> Option<Deci
                 _ => {}
             }
         }
+        match evaluate_shell_path_rules(policy, command) {
+            Some(Decision::Deny { reason }) => {
+                return Some(Decision::Deny { reason });
+            }
+            Some(Decision::Ask { reason }) => ask = Some(Decision::Ask { reason }),
+            _ => {}
+        }
         if let Some(ask) = ask {
             return Some(ask);
         }
-        if policy.rules.iter().any(|rule| {
-            rule.action == RuleAction::Allow
-                && matches!(rule.tool, ToolFilter::Bash | ToolFilter::Any)
-        }) && bash_chain_allowed(policy, command)
-        {
+        if is_unsplittable(command) && bash_restrictions_configured(policy) {
+            return Some(Decision::Ask {
+                reason: "unsplittable command".into(),
+            });
+        }
+        if bash_chain_allowed(policy, command) {
             return Some(Decision::Allow {
                 reason: "allow rule".into(),
             });
@@ -771,24 +789,87 @@ fn evaluate_rules_for(policy: &PermissionPolicy, access: &AccessKind) -> Option<
 }
 
 fn bash_chain_allowed(policy: &PermissionPolicy, command: &str) -> bool {
+    let scripts = extract_dash_c_scripts(command);
+    if !scripts.is_empty() {
+        return scripts
+            .iter()
+            .all(|script| bash_chain_allowed(policy, script));
+    }
+    if is_unsplittable(command) {
+        return false;
+    }
     let segments = bash_segments(command);
     if segments.is_empty() {
         return false;
     }
-    segments.iter().all(|segment| {
-        let trimmed = segment.trim_start();
-        policy.rules.iter().any(|rule| {
-            rule.action == RuleAction::Allow
-                && matches!(rule.tool, ToolFilter::Bash | ToolFilter::Any)
-                && bash_allow_matches(trimmed, rule)
+    let allow_rules = policy.rules.iter().any(|rule| {
+        rule.action == RuleAction::Allow && matches!(rule.tool, ToolFilter::Bash | ToolFilter::Any)
+    });
+    allow_rules
+        && segments.iter().all(|segment| {
+            let trimmed = segment.trim_start();
+            policy.rules.iter().any(|rule| {
+                rule.action == RuleAction::Allow
+                    && matches!(rule.tool, ToolFilter::Bash | ToolFilter::Any)
+                    && bash_allow_matches(trimmed, rule)
+            })
         })
-    })
 }
 
 fn bash_policy_subjects(command: &str) -> Vec<String> {
-    let mut subjects = vec![command.trim_start().to_string()];
-    subjects.extend(bash_segments(command));
-    subjects
+    bash_inspect_subjects(command)
+}
+
+fn bash_restrictions_configured(policy: &PermissionPolicy) -> bool {
+    policy
+        .rules
+        .iter()
+        .any(|rule| matches!(rule.tool, ToolFilter::Bash | ToolFilter::Any))
+}
+
+fn evaluate_shell_path_rules(policy: &PermissionPolicy, command: &str) -> Option<Decision> {
+    let mut ask = None;
+    for path in shell_operands(command) {
+        let read = evaluate_rules_for(policy, &AccessKind::Read(Some(path.clone())));
+        if let Some(Decision::Deny { reason }) = read {
+            return Some(Decision::Deny { reason });
+        }
+        let edit = evaluate_rules_for(policy, &AccessKind::Edit(path));
+        if let Some(Decision::Deny { reason }) = edit {
+            return Some(Decision::Deny { reason });
+        }
+        if matches!(read, Some(Decision::Ask { .. })) {
+            ask = read;
+        } else if matches!(edit, Some(Decision::Ask { .. })) {
+            ask = edit;
+        }
+    }
+    ask
+}
+
+fn shell_operands(command: &str) -> Vec<String> {
+    let mut operands = Vec::new();
+    for subject in bash_inspect_subjects(command) {
+        let words: Vec<&str> = subject.split_whitespace().collect();
+        for word in words.iter().skip(1) {
+            let unquoted = unquote_word(word);
+            if unquoted.is_empty() || unquoted.starts_with('-') {
+                continue;
+            }
+            operands.push(unquoted);
+        }
+    }
+    operands
+}
+
+fn unquote_word(word: &str) -> String {
+    if (word.starts_with('"') && word.ends_with('"') && word.len() >= 2)
+        || (word.starts_with('\'') && word.ends_with('\'') && word.len() >= 2)
+    {
+        word[1..word.len() - 1].to_string()
+    } else {
+        word.to_string()
+    }
 }
 
 fn evaluate_grants(policy: &PermissionPolicy, access: &AccessKind) -> Option<Decision> {
@@ -1090,14 +1171,48 @@ fn class_match(pattern: &[u8], candidate: Option<u8>) -> Option<(usize, bool)> {
     Some((index + 1, if negate { !matched } else { matched }))
 }
 
-pub fn bash_segments(command: &str) -> Vec<String> {
-    if command.contains("$(")
-        || command.contains('`')
-        || command.contains("$(")
-        || has_unquoted(&['(', ')'], command)
-    {
-        return vec![command.trim().to_string()];
+const CONTROL_FLOW: &[&str] = &[
+    "if", "then", "else", "elif", "fi", "for", "while", "until", "do", "done", "case", "esac",
+];
+
+fn is_control_flow(command: &str) -> bool {
+    command
+        .split_whitespace()
+        .any(|word| CONTROL_FLOW.contains(&word))
+}
+
+fn has_background_amp(command: &str) -> bool {
+    let mut quote = None;
+    let chars: Vec<char> = command.chars().collect();
+    for (index, ch) in chars.iter().enumerate() {
+        if quote == Some(*ch) {
+            quote = None;
+            continue;
+        }
+        if quote.is_none() && (*ch == '\'' || *ch == '"') {
+            quote = Some(*ch);
+            continue;
+        }
+        if quote.is_none()
+            && *ch == '&'
+            && chars.get(index + 1) != Some(&'&')
+            && (index == 0 || chars.get(index - 1) != Some(&'&'))
+        {
+            return true;
+        }
     }
+    false
+}
+
+fn is_unsplittable(command: &str) -> bool {
+    command.contains("$(")
+        || command.contains('`')
+        || has_unquoted(&['(', ')'], command)
+        || has_background_amp(command)
+        || is_control_flow(command)
+}
+
+fn split_simple(command: &str) -> Vec<String> {
     let mut segments = Vec::new();
     let mut current = String::new();
     let mut chars = command.chars().peekable();
@@ -1133,6 +1248,198 @@ pub fn bash_segments(command: &str) -> Vec<String> {
     }
     push_segment(&mut segments, &mut current);
     segments
+}
+
+pub fn bash_segments(command: &str) -> Vec<String> {
+    if is_unsplittable(command) {
+        let stripped = strip_env_and_wrappers(command.trim());
+        return if stripped.is_empty() {
+            Vec::new()
+        } else {
+            vec![stripped]
+        };
+    }
+    split_simple(command)
+}
+
+fn extract_substitutions(command: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    let chars: Vec<char> = command.chars().collect();
+    let mut index = 0;
+    while index < chars.len() {
+        if chars[index] == '$' && chars.get(index + 1) == Some(&'(') {
+            let (inner, next) = take_balanced(&chars, index + 2, '(', ')');
+            if !inner.trim().is_empty() {
+                out.push(inner.trim().to_string());
+            }
+            index = next;
+            continue;
+        }
+        if chars[index] == '`'
+            && let Some(end) = chars[index + 1..].iter().position(|ch| *ch == '`')
+        {
+            let inner: String = chars[index + 1..index + 1 + end].iter().collect();
+            if !inner.trim().is_empty() {
+                out.push(inner.trim().to_string());
+            }
+            index += end + 2;
+            continue;
+        }
+        index += 1;
+    }
+    out
+}
+
+fn take_balanced(chars: &[char], start: usize, open: char, close: char) -> (String, usize) {
+    let mut depth = 1usize;
+    let mut quote = None;
+    let mut index = start;
+    while index < chars.len() {
+        let ch = chars[index];
+        if quote == Some(ch) {
+            quote = None;
+        } else if quote.is_none() && (ch == '\'' || ch == '"') {
+            quote = Some(ch);
+        } else if quote.is_none() {
+            if ch == open {
+                depth += 1;
+            } else if ch == close {
+                depth -= 1;
+                if depth == 0 {
+                    return (chars[start..index].iter().collect(), index + 1);
+                }
+            }
+        }
+        index += 1;
+    }
+    (chars[start..].iter().collect(), chars.len())
+}
+
+fn extract_dash_c_scripts(command: &str) -> Vec<String> {
+    let mut scripts = Vec::new();
+    let chars: Vec<char> = command.chars().collect();
+    let mut index = 0;
+    while index < chars.len() {
+        while index < chars.len() && chars[index].is_whitespace() {
+            index += 1;
+        }
+        if index >= chars.len() {
+            break;
+        }
+        let (word, next) = next_shell_word(&chars, index);
+        index = next;
+        let base = Path::new(&word)
+            .file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or(&word);
+        if !matches!(base, "bash" | "sh" | "dash" | "zsh" | "ksh") {
+            continue;
+        }
+        loop {
+            while index < chars.len() && chars[index].is_whitespace() {
+                index += 1;
+            }
+            if index >= chars.len() {
+                break;
+            }
+            let (flag, after) = next_shell_word(&chars, index);
+            if flag == "-c" {
+                index = after;
+                while index < chars.len() && chars[index].is_whitespace() {
+                    index += 1;
+                }
+                if index < chars.len() {
+                    let (script, done) = next_shell_word(&chars, index);
+                    let inner = unquote_word(&script);
+                    if !inner.is_empty() {
+                        scripts.push(inner);
+                    }
+                    index = done;
+                }
+                break;
+            }
+            if flag.starts_with('-') {
+                index = after;
+                continue;
+            }
+            break;
+        }
+    }
+    scripts
+}
+
+fn next_shell_word(chars: &[char], start: usize) -> (String, usize) {
+    let mut index = start;
+    if index >= chars.len() {
+        return (String::new(), index);
+    }
+    let quote = if chars[index] == '\'' || chars[index] == '"' {
+        Some(chars[index])
+    } else {
+        None
+    };
+    if let Some(mark) = quote {
+        index += 1;
+        let begin = index;
+        while index < chars.len() && chars[index] != mark {
+            index += 1;
+        }
+        let word: String = chars[begin..index].iter().collect();
+        if index < chars.len() {
+            index += 1;
+        }
+        return (word, index);
+    }
+    let begin = index;
+    while index < chars.len() && !chars[index].is_whitespace() {
+        index += 1;
+    }
+    (chars[begin..index].iter().collect(), index)
+}
+
+fn control_flow_bodies(command: &str) -> Vec<String> {
+    if !is_control_flow(command) {
+        return Vec::new();
+    }
+    let padded = command.replace(';', " ; ");
+    let stripped = padded
+        .split_whitespace()
+        .map(|token| {
+            if CONTROL_FLOW.contains(&token) {
+                ";"
+            } else {
+                token
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(" ");
+    split_simple(&stripped)
+}
+
+fn bash_inspect_subjects(command: &str) -> Vec<String> {
+    let mut seen = HashSet::new();
+    let mut out = Vec::new();
+    fn walk(command: &str, seen: &mut HashSet<String>, out: &mut Vec<String>) {
+        let trimmed = command.trim_start().to_string();
+        if trimmed.is_empty() || !seen.insert(trimmed.clone()) {
+            return;
+        }
+        out.push(trimmed.clone());
+        for segment in bash_segments(&trimmed) {
+            if seen.insert(segment.clone()) {
+                out.push(segment);
+            }
+        }
+        for inner in extract_substitutions(&trimmed)
+            .into_iter()
+            .chain(extract_dash_c_scripts(&trimmed))
+            .chain(control_flow_bodies(&trimmed))
+        {
+            walk(&inner, seen, out);
+        }
+    }
+    walk(command, &mut seen, &mut out);
+    out
 }
 
 fn has_unquoted(needles: &[char], text: &str) -> bool {
@@ -1806,6 +2113,100 @@ mod tests {
         ));
         assert!(matches!(
             evaluate(&policy, &AccessKind::Read(Some("src/main.rs".into())), None),
+            Decision::Ask { .. }
+        ));
+    }
+
+    #[test]
+    fn always_approve_skips_non_shell_ask_path_rule() {
+        let always_ask = policy(
+            vec![rule(RuleAction::Ask, "Read(src/**)")],
+            PermissionMode::AlwaysApprove,
+        );
+        assert!(matches!(
+            evaluate(&always_ask, &AccessKind::Read(Some("src/main.rs".into())), None),
+            Decision::Allow { reason } if reason == "always-approve"
+        ));
+    }
+
+    #[test]
+    fn unsplittable_and_control_flow_cannot_bypass_deny_or_conjunctive_allow() {
+        let mixed = policy(
+            vec![
+                rule(RuleAction::Allow, "Bash(git *)"),
+                rule(RuleAction::Deny, "Bash(rm -rf *)"),
+            ],
+            PermissionMode::AlwaysApprove,
+        );
+        assert!(matches!(
+            evaluate(
+                &mixed,
+                &AccessKind::Bash("git status && $(rm -rf /)".into()),
+                None
+            ),
+            Decision::Deny { .. }
+        ));
+        let control_flow = policy(
+            vec![rule(RuleAction::Deny, "Bash(rm -rf *)")],
+            PermissionMode::AlwaysApprove,
+        );
+        assert!(matches!(
+            evaluate(
+                &control_flow,
+                &AccessKind::Bash("if true; then rm -rf /; fi".into()),
+                None
+            ),
+            Decision::Deny { .. }
+        ));
+        let allow_only = policy(
+            vec![rule(RuleAction::Allow, "Bash(git *)")],
+            PermissionMode::Ask,
+        );
+        assert!(matches!(
+            evaluate(
+                &allow_only,
+                &AccessKind::Bash("bash -c \"git status && git diff\"".into()),
+                None
+            ),
+            Decision::Allow { .. }
+        ));
+        let mixed = evaluate(
+            &allow_only,
+            &AccessKind::Bash("bash -c \"git status && rm -rf /\"".into()),
+            None,
+        );
+        assert!(!matches!(mixed, Decision::Allow { .. }), "{mixed:?}");
+    }
+
+    #[test]
+    fn read_deny_applies_to_shell_operands_before_readonly_auto_allow() {
+        let policy = policy(
+            vec![rule(RuleAction::Deny, "Read(secret/**)")],
+            PermissionMode::Ask,
+        );
+        assert!(matches!(
+            evaluate(&policy, &AccessKind::Bash("cat secret/key".into()), None),
+            Decision::Deny { .. }
+        ));
+    }
+
+    #[test]
+    fn always_approve_skips_grants_and_non_shell_ask() {
+        let mut granted = policy(
+            vec![rule(RuleAction::Ask, "Edit(note.txt)")],
+            PermissionMode::AlwaysApprove,
+        );
+        granted.grants.allowed_edits = true;
+        assert!(matches!(
+            evaluate(&granted, &AccessKind::Edit("note.txt".into()), None),
+            Decision::Allow { reason } if reason == "always-approve"
+        ));
+        let shell_ask = policy(
+            vec![rule(RuleAction::Ask, "Bash(git *)")],
+            PermissionMode::AlwaysApprove,
+        );
+        assert!(matches!(
+            evaluate(&shell_ask, &AccessKind::Bash("git status".into()), None),
             Decision::Ask { .. }
         ));
     }

@@ -28,9 +28,16 @@ function loadPolicy() {
   const path = process.env.CODSH_PERMISSION_POLICY
   if (!path) return defaultPolicy()
   try {
-    return { ...defaultPolicy(), ...JSON.parse(readFileSync(path, 'utf8')) }
-  } catch {
-    return defaultPolicy()
+    const parsed = JSON.parse(readFileSync(path, 'utf8'))
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      throw new Error('policy is not an object')
+    }
+    return { ...defaultPolicy(), ...parsed, loadError: '' }
+  } catch (error) {
+    return {
+      ...defaultPolicy(),
+      loadError: `Permission policy unreadable or invalid (${error.message}); refusing mutating tools.`,
+    }
   }
 }
 
@@ -42,6 +49,7 @@ function defaultPolicy() {
     interactive: true,
     cwd: process.cwd(),
     grantsPath: '',
+    loadError: '',
     rules: [],
     grants: {
       allowedBash: [],
@@ -140,12 +148,190 @@ function toolFilter(name) {
   }
 }
 
+const CONTROL_FLOW = new Set([
+  'if', 'then', 'else', 'elif', 'fi', 'for', 'while', 'until', 'do', 'done', 'case', 'esac',
+])
+
+function isControlFlow(command) {
+  return command.split(/\s+/u).some(word => CONTROL_FLOW.has(word))
+}
+
+function hasBackgroundAmp(command) {
+  let quote = ''
+  for (let i = 0; i < command.length; i += 1) {
+    const ch = command[i]
+    if (quote) {
+      if (ch === quote) quote = ''
+      continue
+    }
+    if (ch === "'" || ch === '"') {
+      quote = ch
+      continue
+    }
+    if (ch === '&' && command[i + 1] !== '&' && command[i - 1] !== '&') return true
+  }
+  return false
+}
+
+function isUnsplittable(command) {
+  return /\$\(/.test(command)
+    || command.includes('`')
+    || /(?<![\\])[()]/.test(command)
+    || hasBackgroundAmp(command)
+    || isControlFlow(command)
+}
+
+function splitSimple(command) {
+  const segments = []
+  let current = ''
+  let quote = ''
+  for (let i = 0; i < command.length; i += 1) {
+    const ch = command[i]
+    if (quote) {
+      current += ch
+      if (ch === quote) quote = ''
+      continue
+    }
+    if (ch === "'" || ch === '"') {
+      quote = ch
+      current += ch
+      continue
+    }
+    if (ch === '&' && command[i + 1] === '&') {
+      segments.push(stripWrappers(current.trim()))
+      current = ''
+      i += 1
+      continue
+    }
+    if (ch === '|' && command[i + 1] === '|') {
+      segments.push(stripWrappers(current.trim()))
+      current = ''
+      i += 1
+      continue
+    }
+    if (ch === '|' || ch === ';' || ch === '\n') {
+      segments.push(stripWrappers(current.trim()))
+      current = ''
+      continue
+    }
+    current += ch
+  }
+  segments.push(stripWrappers(current.trim()))
+  return segments.filter(Boolean)
+}
+
 function bashSegments(command) {
-  if (/\$\(|`/.test(command) || /(?<![\\])[()]/.test(command)) return [command.trim()]
-  return command
-    .split(/\s*(?:&&|\|\||[;|\n])\s*/u)
-    .map(part => stripWrappers(part.trim()))
-    .filter(Boolean)
+  if (isUnsplittable(command)) return [stripWrappers(command.trim())].filter(Boolean)
+  return splitSimple(command)
+}
+
+function unquote(text) {
+  if ((text.startsWith('"') && text.endsWith('"')) || (text.startsWith("'") && text.endsWith("'"))) {
+    return text.slice(1, -1)
+  }
+  return text
+}
+
+function takeBalanced(text, start, open, close) {
+  let depth = 1
+  let quote = ''
+  for (let i = start; i < text.length; i += 1) {
+    const ch = text[i]
+    if (quote) {
+      if (ch === quote) quote = ''
+      continue
+    }
+    if (ch === "'" || ch === '"') {
+      quote = ch
+      continue
+    }
+    if (ch === open) depth += 1
+    else if (ch === close) {
+      depth -= 1
+      if (depth === 0) return [text.slice(start, i), i + 1]
+    }
+  }
+  return [text.slice(start), text.length]
+}
+
+function extractSubstitutions(command) {
+  const out = []
+  let i = 0
+  while (i < command.length) {
+    if (command.startsWith('$(', i)) {
+      const [inner, next] = takeBalanced(command, i + 2, '(', ')')
+      out.push(inner)
+      i = next
+      continue
+    }
+    if (command[i] === '`') {
+      const end = command.indexOf('`', i + 1)
+      if (end < 0) break
+      out.push(command.slice(i + 1, end))
+      i = end + 1
+      continue
+    }
+    i += 1
+  }
+  return out.map(part => part.trim()).filter(Boolean)
+}
+
+function extractDashCScripts(command) {
+  const scripts = []
+  const re = /\b(?:bash|sh|dash|zsh|ksh)\b(?:\s+-[a-zA-Z0-9]*)*\s+-c\s+(?:"([^"]*)"|'([^']*)'|(\S+))/gu
+  let match
+  while ((match = re.exec(command))) {
+    scripts.push(match[1] ?? match[2] ?? match[3] ?? '')
+  }
+  return scripts.map(part => part.trim()).filter(Boolean)
+}
+
+function controlFlowBodies(command) {
+  if (!isControlFlow(command)) return []
+  const stripped = command.replaceAll(/\b(?:if|then|else|elif|fi|for|while|until|do|done|case|esac)\b/gu, ';')
+  return splitSimple(stripped)
+}
+
+function bashInspectSubjects(command, seen = new Set()) {
+  const trimmed = command.trimStart()
+  if (!trimmed || seen.has(trimmed)) return []
+  seen.add(trimmed)
+  const subjects = [trimmed, ...bashSegments(command)]
+  for (const inner of [
+    ...extractSubstitutions(command),
+    ...extractDashCScripts(command),
+    ...controlFlowBodies(command),
+  ]) {
+    subjects.push(...bashInspectSubjects(inner, seen))
+  }
+  return [...new Set(subjects.filter(Boolean))]
+}
+
+function bashRestrictionsConfigured(policy) {
+  return (policy.rules ?? []).some(rule => rule.tool === 'bash' || rule.tool === 'any')
+}
+
+function bashChainAllowed(policy, command) {
+  const scripts = extractDashCScripts(command)
+  if (scripts.length > 0) return scripts.every(script => bashChainAllowed(policy, script))
+  if (isUnsplittable(command)) return false
+  const allowRules = (policy.rules ?? []).filter(rule => rule.action === 'allow' && (rule.tool === 'bash' || rule.tool === 'any'))
+  const segments = bashSegments(command)
+  return allowRules.length > 0 && segments.length > 0
+    && segments.every(segment => allowRules.some(rule => bashAllowMatches(segment, rule)))
+}
+
+function shellOperands(command) {
+  const operands = []
+  for (const subject of bashInspectSubjects(command)) {
+    const words = subject.split(/\s+/u).filter(Boolean)
+    for (let i = 1; i < words.length; i += 1) {
+      const word = unquote(words[i])
+      if (!word || word.startsWith('-')) continue
+      operands.push(word)
+    }
+  }
+  return operands
 }
 
 function stripWrappers(command) {
@@ -295,19 +481,44 @@ function readonlyAccess(access) {
   return access.kind === 'read' || access.kind === 'grep' || access.kind === 'websearch'
 }
 
+function pathRuleDecision(policy, path, cwd) {
+  const read = evaluateRulesFor(policy, { kind: 'read', path }, cwd)
+  if (read?.kind === 'deny') return read
+  const edit = evaluateRulesFor(policy, { kind: 'edit', path }, cwd)
+  if (edit?.kind === 'deny') return edit
+  if (read?.kind === 'ask') return read
+  if (edit?.kind === 'ask') return edit
+  return null
+}
+
+function evaluateShellPathRules(policy, command, cwd) {
+  let ask = null
+  for (const path of shellOperands(command)) {
+    const decision = pathRuleDecision(policy, path, cwd)
+    if (decision?.kind === 'deny') return decision
+    if (decision?.kind === 'ask') ask = decision
+  }
+  return ask
+}
+
 function evaluateRules(policy, access) {
   const cwd = policy.cwd || process.cwd()
   if (access.kind === 'bash') {
-    const subjects = [access.command.trimStart(), ...bashSegments(access.command)]
+    const subjects = bashInspectSubjects(access.command)
     let ask = null
     for (const subject of subjects) {
       const decision = evaluateRulesFor(policy, { kind: 'bash', command: subject }, cwd)
       if (decision?.kind === 'deny') return decision
       if (decision?.kind === 'ask') ask = decision
     }
+    const pathDecision = evaluateShellPathRules(policy, access.command, cwd)
+    if (pathDecision?.kind === 'deny') return pathDecision
+    if (pathDecision?.kind === 'ask') ask = pathDecision
     if (ask) return ask
-    const allowRules = (policy.rules ?? []).filter(rule => rule.action === 'allow' && (rule.tool === 'bash' || rule.tool === 'any'))
-    if (allowRules.length > 0 && bashSegments(access.command).every(segment => allowRules.some(rule => bashAllowMatches(segment, rule)))) {
+    if (isUnsplittable(access.command) && bashRestrictionsConfigured(policy)) {
+      return { kind: 'ask', reason: 'unsplittable command' }
+    }
+    if (bashChainAllowed(policy, access.command)) {
       return { kind: 'allow', reason: 'allow rule' }
     }
     return null
@@ -369,25 +580,39 @@ function evaluateGrants(policy, access) {
   return null
 }
 
+function mutatingAccess(access) {
+  return access.kind === 'edit' || access.kind === 'bash' || access.kind === 'mcp' || access.kind === 'webfetch'
+}
+
 export function evaluatePermission(policy, access, hookDeny) {
   if (hookDeny) return { kind: 'deny', reason: `Denied by hook: ${hookDeny}` }
+  if (policy.loadError && mutatingAccess(access)) {
+    return { kind: 'deny', reason: policy.loadError }
+  }
+  const alwaysApprove = policy.mode === 'always-approve'
   const rules = evaluateRules(policy, access)
   if (rules?.kind === 'deny') return rules
   if (rules?.kind === 'ask') {
+    if (alwaysApprove && access.kind !== 'bash') {
+      return { kind: 'allow', reason: 'always-approve' }
+    }
+    if (alwaysApprove) return rules
     return evaluateGrants(policy, access) ?? rules
   }
   if (rules?.kind === 'allow') {
     return rules
   }
-  if (policy.mode !== 'always-approve') {
+  if (!alwaysApprove) {
     const grant = evaluateGrants(policy, access)
     if (grant) return grant
   }
   if (readonlyAccess(access)) return { kind: 'allow', reason: 'read-only tool' }
-  if (access.kind === 'bash' && bashSegments(access.command).every(segment => readonlyCommand(segment) && !dangerous(segment))) {
+  if (access.kind === 'bash'
+    && !isUnsplittable(access.command)
+    && bashSegments(access.command).every(segment => readonlyCommand(segment) && !dangerous(segment))) {
     return { kind: 'allow', reason: 'read-only shell command' }
   }
-  if (policy.mode === 'always-approve') return { kind: 'allow', reason: 'always-approve' }
+  if (alwaysApprove) return { kind: 'allow', reason: 'always-approve' }
   if (policy.mode === 'acceptEdits' && access.kind === 'edit') return { kind: 'allow', reason: 'acceptEdits' }
   if (policy.mode === 'dontAsk') {
     return { kind: 'deny', reason: 'dontAsk blocked this action; it is not on the allow list' }
@@ -487,6 +712,9 @@ export function apply(ctx) {
     const policy = loadPolicy()
     const access = accessFromTool(exec.name, exec.arguments ?? {})
     const hookDeny = process.env.CODSH_HOOK_DENY
+    if (policy.loadError && mutatingAccess(access)) {
+      return { kind: 'deny', reason: policy.loadError }
+    }
     const decision = evaluatePermission(policy, access, hookDeny)
     if (decision.kind === 'deny') return { kind: 'deny', reason: decision.reason }
     if (decision.kind === 'allow') return next()

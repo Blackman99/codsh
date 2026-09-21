@@ -67,7 +67,11 @@ trailing `.git`. The repository path stays case-sensitive.
 Unpinned remote updates are
 refused when `GROK_MARKETPLACE_REQUIRE_SHA` is set. Each marketplace plugin has its
 own dest. `/plugins` and `/marketplace`
-open the directory. The model's configured `env_key` (`XAI_API_KEY` and other
+open the directory. `--always-approve`/`--yolo`, `--permission-mode`, and
+`--allow`/`--deny` control permission modes and persistent rules; explicit deny
+still wins. Unsplittable shell and Read/Edit path rules on operands cannot
+bypass deny; a corrupt policy file refuses mutating tools. The model's
+configured `env_key` (`XAI_API_KEY` and other
 `*_API_KEY` values) is passed through to dsh. Missing credentials stay local
 (no grok.com login or default telemetry). `codsh --rust feedback` stores local
 drafts until an explicit submit or `/feedback <text>` send. Content sharing

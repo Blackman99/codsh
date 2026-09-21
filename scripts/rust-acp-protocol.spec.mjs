@@ -1246,7 +1246,7 @@ describe('public ACP/JSON-RPC against real dsh', () => {
     }
   }, 45000)
 
-  it('keeps explicit ask on a path even when always-approve is requested for a shell rule', async () => {
+  it('skips non-shell ask under always-approve and still reads the path', async () => {
     const policy = join('/tmp', `codsh-perm-ask-${Date.now()}.json`)
     writeFileSync(policy, `${JSON.stringify({
       mode: 'always-approve',
@@ -1262,16 +1262,37 @@ describe('public ACP/JSON-RPC against real dsh', () => {
       mkdirSync(join(agent.cwd, 'secret'))
       writeFileSync(join(agent.cwd, 'secret/key.txt'), 'SECRET\n')
       const { session } = await handshake(agent)
-      const prompt = agent.send(3, 'session/prompt', {
+      const result = await agent.send(3, 'session/prompt', {
         sessionId: session.sessionId,
         prompt: [{ type: 'text', text: 'read the secret' }],
       })
-      await waitUntil(() => agent.permissions.length > 0, 20000, 'ask-rule permission')
-      agent.reply(agent.permissions[0].id, { outcome: { outcome: 'selected', optionId: 'reject-once' } })
-      const result = await prompt
       expect(result.stopReason).toBe('end_turn')
+      expect(agent.permissions).toEqual([])
       const failed = agent.updates.find(update => update.update.sessionUpdate === 'tool_call_update' && update.update.status === 'failed')
-      expect(failed).toBeTruthy()
+      expect(failed).toBeUndefined()
+    } finally {
+      agent.child.stdin.end()
+      agent.child.kill('SIGTERM')
+      rmSync(policy, { force: true })
+    }
+  }, 45000)
+
+  it('fail-closed denies a mutating tool when permission-policy.json is corrupt', async () => {
+    const policy = join('/tmp', `codsh-perm-corrupt-${Date.now()}.json`)
+    writeFileSync(policy, '{not-json')
+    const agent = startAgent('file-edit', { CODSH_PERMISSION_POLICY: policy })
+    try {
+      writeFileSync(join(agent.cwd, 'note.txt'), 'alpha\n')
+      const { session } = await handshake(agent)
+      const result = await agent.send(3, 'session/prompt', {
+        sessionId: session.sessionId,
+        prompt: [{ type: 'text', text: 'edit the note' }],
+      })
+      expect(result.stopReason).toBe('end_turn')
+      expect(agent.permissions).toEqual([])
+      const failed = agent.updates.find(update => update.update.sessionUpdate === 'tool_call_update' && update.update.status === 'failed')
+      expect(JSON.stringify(failed.update.content)).toMatch(/unreadable|invalid|refusing/i)
+      expect(readFileSync(join(agent.cwd, 'note.txt'), 'utf8')).toBe('alpha\n')
     } finally {
       agent.child.stdin.end()
       agent.child.kill('SIGTERM')
