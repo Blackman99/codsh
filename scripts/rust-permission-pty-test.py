@@ -180,6 +180,14 @@ allow = ["Bash(git *)"]
         assert 'successfully.' not in denied['screen']
         results['deny'] = {'exit': denied['exit']}
 
+        wrapped = exercise('deny-timeout-wrapper', launcher, cwd,
+                           {**base_env, 'DSH_CODE_CLI_MOCK_TOOL': 'bash-timeout-rm'},
+                           output, typed='TOKEN_PERM_TIMEOUT', wait_for=['Denied by permission policy', 'RUST_ACP_BASH_DENIED'],
+                           extra=['--always-approve', '--deny', 'Bash(rm -rf *)'], action='none')
+        assert wrapped['exit'] == 0
+        assert 'successfully.' not in wrapped['screen']
+        results['deny_timeout'] = {'exit': wrapped['exit']}
+
         inspect = spawn_inspect(launcher, cwd, base_env, ['inspect', '--json'])
         assert inspect.returncode == 0, inspect.stderr + inspect.stdout
         payload = json.loads(inspect.stdout)
@@ -221,7 +229,9 @@ allow = ["Bash(git *)"]
         assert 'Remembered for this project only' in remembered['screen']
         grants = list((grok_home / 'sessions').rglob('permission.toml'))
         assert grants, remembered['screen']
-        assert 'allow_edits_for_session = true' in grants[0].read_text()
+        grant_text = grants[0].read_text()
+        assert 'note.txt' in grant_text
+        assert 'allow_edits_for_session = true' not in grant_text
         results['remember'] = {'exit': remembered['exit'], 'grants': str(grants[0])}
 
         (cwd / 'note.txt').write_text('alpha\n')
@@ -240,7 +250,7 @@ allow = ["Bash(git *)"]
                                action='none')
         assert revoked_cmd['exit'] == 0
         remaining = list((grok_home / 'sessions').rglob('permission.toml'))
-        assert not remaining or 'allow_edits_for_session = true' not in remaining[0].read_text()
+        assert not remaining or 'note.txt' not in remaining[0].read_text()
         results['revoked_cmd'] = {'exit': revoked_cmd['exit']}
 
         (cwd / 'note.txt').write_text('alpha\n')

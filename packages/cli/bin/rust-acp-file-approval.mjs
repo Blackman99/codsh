@@ -32,7 +32,13 @@ function loadPolicy() {
     if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
       throw new Error('policy is not an object')
     }
-    return { ...defaultPolicy(), ...parsed, loadError: '' }
+    const defaults = defaultPolicy()
+    return {
+      ...defaults,
+      ...parsed,
+      grants: { ...defaults.grants, ...(parsed.grants ?? {}) },
+      loadError: '',
+    }
   } catch (error) {
     return {
       ...defaultPolicy(),
@@ -59,6 +65,7 @@ function defaultPolicy() {
       allowedDomains: [],
       deniedDomains: [],
       allowedEdits: false,
+      allowedEditPaths: [],
     },
   }
 }
@@ -151,6 +158,7 @@ function toolFilter(name) {
 const CONTROL_FLOW = new Set([
   'if', 'then', 'else', 'elif', 'fi', 'for', 'while', 'until', 'do', 'done', 'case', 'esac',
 ])
+const SHELLS = new Set(['bash', 'sh', 'dash', 'zsh', 'ksh'])
 
 function isControlFlow(command) {
   return command.split(/\s+/u).some(word => CONTROL_FLOW.has(word))
@@ -179,6 +187,7 @@ function isUnsplittable(command) {
     || /(?<![\\])[()]/.test(command)
     || hasBackgroundAmp(command)
     || isControlFlow(command)
+    || isUnpeelable(command)
 }
 
 function splitSimple(command) {
@@ -221,6 +230,7 @@ function splitSimple(command) {
 }
 
 function bashSegments(command) {
+  if (isUnpeelable(command)) return []
   if (isUnsplittable(command)) return [stripWrappers(command.trim())].filter(Boolean)
   return splitSimple(command)
 }
@@ -276,12 +286,70 @@ function extractSubstitutions(command) {
   return out.map(part => part.trim()).filter(Boolean)
 }
 
+function shellWords(command) {
+  const words = []
+  let i = 0
+  while (i < command.length) {
+    while (command[i] === ' ' || command[i] === '\t') i += 1
+    if (i >= command.length) break
+    if (command[i] === '"' || command[i] === "'") {
+      const quote = command[i]
+      i += 1
+      const start = i
+      while (i < command.length && command[i] !== quote) i += 1
+      words.push(command.slice(start, i))
+      if (command[i] === quote) i += 1
+      continue
+    }
+    const start = i
+    while (i < command.length && command[i] !== ' ' && command[i] !== '\t') i += 1
+    words.push(command.slice(start, i))
+  }
+  return words
+}
+
 function extractDashCScripts(command) {
   const scripts = []
-  const re = /\b(?:bash|sh|dash|zsh|ksh)\b(?:\s+-[a-zA-Z0-9]*)*\s+-c\s+(?:"([^"]*)"|'([^']*)'|(\S+))/gu
-  let match
-  while ((match = re.exec(command))) {
-    scripts.push(match[1] ?? match[2] ?? match[3] ?? '')
+  const words = shellWords(command)
+  for (let i = 0; i < words.length; i += 1) {
+    const base = words[i].split(/[\\/]/u).at(-1).replace(/\.exe$/iu, '')
+    if (!SHELLS.has(base)) continue
+    let wantScript = false
+    i += 1
+    while (i < words.length) {
+      const word = words[i]
+      if (word === '--') {
+        i += 1
+        if (wantScript && words[i]) {
+          scripts.push(words[i])
+          break
+        }
+        continue
+      }
+      if (word === '-c' || word === '--command' || word.startsWith('--command=')) {
+        if (word.startsWith('--command=')) {
+          scripts.push(word.slice('--command='.length))
+          break
+        }
+        wantScript = true
+        i += 1
+        continue
+      }
+      if (word.startsWith('--')) {
+        i += 1
+        continue
+      }
+      if (word.startsWith('-') && word.length > 1) {
+        if (word.slice(1).includes('c')) wantScript = true
+        i += 1
+        continue
+      }
+      if (wantScript) {
+        scripts.push(word)
+        break
+      }
+      break
+    }
   }
   return scripts.map(part => part.trim()).filter(Boolean)
 }
@@ -334,48 +402,119 @@ function shellOperands(command) {
   return operands
 }
 
+function isUnpeelable(command) {
+  const words = command.split(/\s+/u).filter(Boolean)
+  return words.some((word, index) => {
+    const base = word.split(/[\\/]/u).at(-1)
+    return base === 'env' && words[index + 1] === '-S'
+  })
+}
+
+function stripAssignments(words) {
+  while (words[0]?.includes('=') && !words[0].startsWith('-')) words.shift()
+}
+
+function takesPositional(wrapper, flag) {
+  if (wrapper === 'timeout' && (flag === '-s' || flag === '--signal' || flag === '-k' || flag === '--kill-after')) return true
+  if (wrapper === 'nice' && (flag === '-n' || flag === '--adjustment')) return true
+  if (wrapper === 'ionice' && (flag === '-c' || flag === '-n' || flag === '-p' || flag === '--class' || flag === '--classdata' || flag === '--pid')) return true
+  if (wrapper === 'chrt' && (flag === '-p' || flag === '--pid')) return true
+  if (wrapper === 'stdbuf' && (flag === '-i' || flag === '-o' || flag === '-e' || flag === '--input' || flag === '--output' || flag === '--error')) return true
+  if (wrapper === 'env' && (flag === '-u' || flag === '--unset' || flag === '-C' || flag === '--chdir')) return true
+  return false
+}
+
 function stripWrappers(command) {
   const words = command.split(/\s+/u).filter(Boolean)
-  while (words[0]?.includes('=') && !words[0].startsWith('-')) words.shift()
+  stripAssignments(words)
   const wrappers = new Set(['timeout', 'nice', 'ionice', 'chrt', 'stdbuf', 'env', 'command'])
   while (words[0] && wrappers.has(words[0].split(/[\\/]/u).at(-1))) {
-    words.shift()
-    while (words[0]?.startsWith('-')) {
-      const flag = words.shift()
-      if (flag && !flag.includes('=') && words[0] && !words[0].startsWith('-')) words.shift()
+    const wrapper = words.shift().split(/[\\/]/u).at(-1)
+    if (wrapper === 'env' && words[0] === '-S') return ''
+    while (words[0]) {
+      const flag = words[0]
+      if (flag === '--') {
+        words.shift()
+        break
+      }
+      if (wrapper === 'env' && flag.includes('=') && !flag.startsWith('-')) {
+        words.shift()
+        continue
+      }
+      if (!flag.startsWith('-')) {
+        if (wrapper === 'timeout' || wrapper === 'nice' || wrapper === 'ionice' || wrapper === 'chrt') {
+          words.shift()
+        }
+        break
+      }
+      words.shift()
+      if (flag.includes('=')) continue
+      if (takesPositional(wrapper, flag) && words[0] && !words[0].startsWith('-')) words.shift()
     }
+    stripAssignments(words)
   }
+  stripAssignments(words)
   return words.join(' ')
 }
 
 function globMatch(pattern, text, pathMode) {
-  const toRegExp = (glob) => {
-    let out = '^'
-    for (let i = 0; i < glob.length; i += 1) {
-      const ch = glob[i]
-      if (ch === '*' && glob[i + 1] === '*') {
-        out += '.*'
-        i += glob[i + 2] === '/' ? 2 : 1
+  const matchClass = (glob, start, candidate) => {
+    let i = start + 1
+    const negate = glob[i] === '!' || glob[i] === '^'
+    if (negate) i += 1
+    let matched = false
+    while (i < glob.length && glob[i] !== ']') {
+      if (i + 2 < glob.length && glob[i + 1] === '-' && glob[i + 2] !== ']') {
+        if (candidate >= glob.charCodeAt(i) && candidate <= glob.charCodeAt(i + 2)) matched = true
+        i += 3
         continue
+      }
+      if (glob.charCodeAt(i) === candidate) matched = true
+      i += 1
+    }
+    if (i >= glob.length || glob[i] !== ']') return null
+    return { next: i + 1, ok: negate ? !matched : matched }
+  }
+  const walk = (pi, ti) => {
+    while (pi < pattern.length) {
+      const ch = pattern[pi]
+      if (ch === '*' && pattern[pi + 1] === '*') {
+        const rest = pattern[pi + 2] === '/' ? pi + 3 : pi + 2
+        if (walk(rest, ti)) return true
+        if (ti < text.length) {
+          ti += 1
+          continue
+        }
+        return false
       }
       if (ch === '*') {
-        out += pathMode ? '[^/]*' : '.*'
-        continue
+        if (walk(pi + 1, ti)) return true
+        if (ti < text.length && !(pathMode && text[ti] === '/')) {
+          ti += 1
+          continue
+        }
+        return false
       }
       if (ch === '?') {
-        out += pathMode ? '[^/]' : '.'
+        if (ti >= text.length || (pathMode && text[ti] === '/')) return false
+        pi += 1
+        ti += 1
         continue
       }
-      if ('\\^$+()[]{}|.'.includes(ch)) out += `\\${ch}`
-      else out += ch
+      if (ch === '[') {
+        const cls = matchClass(pattern, pi, text.charCodeAt(ti))
+        if (!cls || !cls.ok || ti >= text.length) return false
+        pi = cls.next
+        ti += 1
+        continue
+      }
+      if (ti >= text.length || text[ti] !== ch) return false
+      pi += 1
+      ti += 1
     }
-    return new RegExp(`${out}$`)
+    return ti === text.length
   }
-  try {
-    return toRegExp(pattern).test(text)
-  } catch {
-    return false
-  }
+  return walk(0, 0)
 }
 
 function normalizePath(path, cwd) {
@@ -423,7 +562,7 @@ function domainCovers(pattern, host) {
 function ruleReaches(access, rule) {
   if (rule.tool === 'any') return true
   if (rule.tool === 'bash') return access.kind === 'bash'
-  if (rule.tool === 'edit') return access.kind === 'edit' || access.kind === 'tool'
+  if (rule.tool === 'edit') return access.kind === 'edit'
   if (rule.tool === 'read') return access.kind === 'read' || access.kind === 'grep'
   if (rule.tool === 'grep') return access.kind === 'grep'
   if (rule.tool === 'mcp') return access.kind === 'mcp'
@@ -468,6 +607,8 @@ function dangerous(command) {
 function readonlyCommand(command) {
   const words = command.split(/\s+/u)
   const head = words[0]
+  if (head === 'rg' && words.some(word => word === '--pre' || word.startsWith('--pre='))) return false
+  if (head === 'sort' && words.some(word => word.startsWith('--compress-program'))) return false
   if (['ls', 'cat', 'pwd', 'date', 'whoami', 'hostname', 'uptime', 'ps', 'head', 'tail', 'wc', 'sort', 'uniq', 'tr', 'cut', 'grep', 'rg'].includes(head)) {
     return true
   }
@@ -548,12 +689,15 @@ function evaluateRulesFor(policy, access, cwd) {
 function evaluateGrants(policy, access) {
   const grants = policy.grants ?? defaultPolicy().grants
   if (access.kind === 'bash') {
-    const subjects = [access.command.trimStart(), ...bashSegments(access.command)]
+    if (isUnpeelable(access.command)) return null
+    const segments = bashSegments(access.command)
+    if (segments.length === 0) return null
+    const subjects = [access.command.trimStart(), ...segments]
     const denied = (grants.deniedBash ?? []).find(prefix => subjects.some(subject => commandPrefix(subject, prefix)))
     if (denied) return { kind: 'deny', reason: `User previously rejected \`${denied}\` in this project` }
     if (!policy.rememberToolApprovals) return null
     if (subjects.some(subject => dangerous(subject) && !(grants.allowedBash ?? []).includes(subject))) return null
-    if (bashSegments(access.command).every(segment => (grants.allowedBash ?? []).some(grant => commandPrefix(segment, grant) || segment === grant))) {
+    if (segments.every(segment => (grants.allowedBash ?? []).some(grant => commandPrefix(segment, grant) || segment === grant))) {
       return { kind: 'allow', reason: 'remembered project grant' }
     }
     return null
@@ -574,8 +718,11 @@ function evaluateGrants(policy, access) {
       return { kind: 'allow', reason: 'remembered project grant' }
     }
   }
-  if (access.kind === 'edit' && grants.allowedEdits) {
-    return { kind: 'allow', reason: 'allow all edits this session' }
+  if (access.kind === 'edit') {
+    if (grants.allowedEdits) return { kind: 'allow', reason: 'allow all edits this session' }
+    if (policy.rememberToolApprovals && (grants.allowedEditPaths ?? []).includes(access.path)) {
+      return { kind: 'allow', reason: 'remembered project grant' }
+    }
   }
   return null
 }
@@ -607,10 +754,13 @@ export function evaluatePermission(policy, access, hookDeny) {
     if (grant) return grant
   }
   if (readonlyAccess(access)) return { kind: 'allow', reason: 'read-only tool' }
-  if (access.kind === 'bash'
-    && !isUnsplittable(access.command)
-    && bashSegments(access.command).every(segment => readonlyCommand(segment) && !dangerous(segment))) {
-    return { kind: 'allow', reason: 'read-only shell command' }
+  if (access.kind === 'bash') {
+    const segments = bashSegments(access.command)
+    if (!isUnsplittable(access.command)
+      && segments.length > 0
+      && segments.every(segment => readonlyCommand(segment) && !dangerous(segment))) {
+      return { kind: 'allow', reason: 'read-only shell command' }
+    }
   }
   if (alwaysApprove) return { kind: 'allow', reason: 'always-approve' }
   if (policy.mode === 'acceptEdits' && access.kind === 'edit') return { kind: 'allow', reason: 'acceptEdits' }
@@ -643,6 +793,7 @@ function persistGrant(policy, access, allow) {
     allowedDomains: [...policy.grants?.allowedDomains ?? []],
     deniedDomains: [...policy.grants?.deniedDomains ?? []],
     allowedEdits: Boolean(policy.grants?.allowedEdits),
+    allowedEditPaths: [...policy.grants?.allowedEditPaths ?? []],
   }
   if (access.kind === 'bash') {
     const prefix = rememberPrefix(access.command)
@@ -656,7 +807,7 @@ function persistGrant(policy, access, allow) {
     const list = allow ? grants.allowedDomains : grants.deniedDomains
     if (host && !list.includes(host)) list.push(host)
   } else if (access.kind === 'edit' && allow) {
-    grants.allowedEdits = true
+    if (access.path && !grants.allowedEditPaths.includes(access.path)) grants.allowedEditPaths.push(access.path)
   }
   try {
     mkdirSync(dirname(policy.grantsPath), { recursive: true })
@@ -668,7 +819,8 @@ function persistGrant(policy, access, allow) {
       `disallowed_mcp_tools = ${JSON.stringify(grants.deniedMcp)}`,
       `allowed_web_fetch_domains = ${JSON.stringify(grants.allowedDomains)}`,
       `disallowed_web_fetch_domains = ${JSON.stringify(grants.deniedDomains)}`,
-      `allow_edits_for_session = ${grants.allowedEdits}`,
+      `allow_edits_for_session = false`,
+      `allowed_edit_paths = ${JSON.stringify(grants.allowedEditPaths)}`,
       '',
     ].join('\n')
     writeFileSync(policy.grantsPath, body)

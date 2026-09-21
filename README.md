@@ -58,13 +58,15 @@ tools. Allow/ask/deny rules, remembered project grants, and permission modes
 enforced before a dsh tool runs. Explicit deny, hook blocks, and locked
 always-approve survive `--always-approve` and old grants. Unsplittable shell
 (`$(...)`, control flow) is not glob-allowed as a unit; Read/Edit deny also
-covers shell operands; always-approve skips remembered grants and non-shell
-`ask`. A missing or corrupt policy file refuses mutating tools instead of
-dropping deny. The UI shows the pending operation and the dsh-supplied diff,
-then `y` allows that call once, `a` remembers it for this project only, and `n`
-rejects it with no write. `/revoke-approvals` forgets this project's remembered
-grants. Remembered grants are never described as a permanent global rule; a
-failed save still allows once. Missing files, tool
+covers shell operands; wrappers such as `timeout 30` and `env FOO=1` are peeled
+so deny still sees the inner command, while `env -S` prompts. Always-approve
+skips remembered grants and non-shell `ask`. A missing or corrupt policy file
+refuses mutating tools instead of dropping deny. Remembered file grants are
+path-scoped; `a` is not all-edits-forever. The UI shows the pending operation
+and the dsh-supplied diff, then `y` allows that call once, `a` remembers it for
+this project only, and `n` rejects it with no write. `/revoke-approvals` forgets
+this project's remembered grants. Remembered grants are never described as a
+permanent global rule; a failed save still allows once. Missing files, tool
 errors, cancelled or duplicate approval replies are shown as failures, never as
 success. `Ctrl+C` clears a non-empty draft without cancelling work; an empty
 draft cancels the running turn through dsh `session/cancel`. Esc never cancels a

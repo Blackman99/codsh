@@ -164,6 +164,7 @@ pub struct GrantStore {
     pub allowed_domains: Vec<String>,
     pub denied_domains: Vec<String>,
     pub allowed_edits: bool,
+    pub allowed_edit_paths: Vec<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -213,6 +214,7 @@ pub fn compile_policy_json(policy: &PermissionPolicy) -> JsonValue {
             "allowedDomains": policy.grants.allowed_domains,
             "deniedDomains": policy.grants.denied_domains,
             "allowedEdits": policy.grants.allowed_edits,
+            "allowedEditPaths": policy.grants.allowed_edit_paths,
         }
     })
 }
@@ -263,6 +265,7 @@ pub fn load_grants(path: &Path) -> GrantStore {
             .get("allow_edits_for_session")
             .and_then(TomlValue::as_bool)
             .unwrap_or(false),
+        allowed_edit_paths: string_array(&value, "allowed_edit_paths"),
     }
 }
 
@@ -311,10 +314,8 @@ pub fn persist_grants(path: &Path, grants: &GrantStore) -> io::Result<()> {
         "disallowed_web_fetch_domains",
         &grants.denied_domains,
     );
-    body.push_str(&format!(
-        "allow_edits_for_session = {}\n",
-        grants.allowed_edits
-    ));
+    body.push_str("allow_edits_for_session = false\n");
+    write_list(&mut body, "allowed_edit_paths", &grants.allowed_edit_paths);
     let temp = parent.join(format!(".{GRANTS_FILE_NAME}.tmp"));
     {
         let mut options = fs::OpenOptions::new();
@@ -687,12 +688,16 @@ pub fn evaluate(
     }
     if let AccessKind::Bash(command) = access
         && !is_unsplittable(command)
-        && bash_segments(command)
-            .iter()
-            .all(|segment| is_readonly_command(&segment.split_whitespace().collect::<Vec<_>>()))
-        && bash_segments(command)
-            .iter()
-            .all(|segment| !is_dangerous_command(&segment.split_whitespace().collect::<Vec<_>>()))
+        && {
+            let segments = bash_segments(command);
+            !segments.is_empty()
+                && segments.iter().all(|segment| {
+                    is_readonly_command(&segment.split_whitespace().collect::<Vec<_>>())
+                })
+                && segments.iter().all(|segment| {
+                    !is_dangerous_command(&segment.split_whitespace().collect::<Vec<_>>())
+                })
+        }
     {
         return Decision::Allow {
             reason: "read-only shell command".into(),
@@ -899,7 +904,11 @@ fn evaluate_grants(policy: &PermissionPolicy, access: &AccessKind) -> Option<Dec
             }) {
                 return None;
             }
-            if bash_segments(command).iter().all(|segment| {
+            let segments = bash_segments(command);
+            if segments.is_empty() || is_unpeelable(command) {
+                return None;
+            }
+            if segments.iter().all(|segment| {
                 let trimmed = segment.trim_start();
                 policy
                     .grants
@@ -961,6 +970,18 @@ fn evaluate_grants(policy: &PermissionPolicy, access: &AccessKind) -> Option<Dec
         AccessKind::Edit(_) if policy.grants.allowed_edits => Some(Decision::Allow {
             reason: "allow all edits this session".into(),
         }),
+        AccessKind::Edit(path)
+            if policy.remember_tool_approvals
+                && policy
+                    .grants
+                    .allowed_edit_paths
+                    .iter()
+                    .any(|allowed| allowed == path) =>
+        {
+            Some(Decision::Allow {
+                reason: "remembered project grant".into(),
+            })
+        }
         _ => None,
     }
 }
@@ -969,7 +990,7 @@ fn rule_reaches(access: &AccessKind, rule: &PermissionRule) -> bool {
     match rule.tool {
         ToolFilter::Any => true,
         ToolFilter::Bash => matches!(access, AccessKind::Bash(_)),
-        ToolFilter::Edit => matches!(access, AccessKind::Edit(_) | AccessKind::Tool(_)),
+        ToolFilter::Edit => matches!(access, AccessKind::Edit(_)),
         ToolFilter::Read => matches!(access, AccessKind::Read(_) | AccessKind::Grep { .. }),
         ToolFilter::Grep => matches!(access, AccessKind::Grep { .. }),
         ToolFilter::Mcp => matches!(access, AccessKind::Mcp { .. }),
@@ -1204,12 +1225,25 @@ fn has_background_amp(command: &str) -> bool {
     false
 }
 
+fn is_unpeelable(command: &str) -> bool {
+    let words: Vec<&str> = command.split_whitespace().collect();
+    words.windows(2).any(|pair| {
+        Path::new(pair[0])
+            .file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or(pair[0])
+            == "env"
+            && pair[1] == "-S"
+    })
+}
+
 fn is_unsplittable(command: &str) -> bool {
     command.contains("$(")
         || command.contains('`')
         || has_unquoted(&['(', ')'], command)
         || has_background_amp(command)
         || is_control_flow(command)
+        || is_unpeelable(command)
 }
 
 fn split_simple(command: &str) -> Vec<String> {
@@ -1251,6 +1285,9 @@ fn split_simple(command: &str) -> Vec<String> {
 }
 
 pub fn bash_segments(command: &str) -> Vec<String> {
+    if is_unpeelable(command) {
+        return Vec::new();
+    }
     if is_unsplittable(command) {
         let stripped = strip_env_and_wrappers(command.trim());
         return if stripped.is_empty() {
@@ -1335,6 +1372,7 @@ fn extract_dash_c_scripts(command: &str) -> Vec<String> {
         if !matches!(base, "bash" | "sh" | "dash" | "zsh" | "ksh") {
             continue;
         }
+        let mut want_script = false;
         loop {
             while index < chars.len() && chars[index].is_whitespace() {
                 index += 1;
@@ -1343,24 +1381,45 @@ fn extract_dash_c_scripts(command: &str) -> Vec<String> {
                 break;
             }
             let (flag, after) = next_shell_word(&chars, index);
-            if flag == "-c" {
+            if flag == "--" {
                 index = after;
-                while index < chars.len() && chars[index].is_whitespace() {
-                    index += 1;
-                }
-                if index < chars.len() {
+                if want_script && index < chars.len() {
+                    while index < chars.len() && chars[index].is_whitespace() {
+                        index += 1;
+                    }
                     let (script, done) = next_shell_word(&chars, index);
-                    let inner = unquote_word(&script);
-                    if !inner.is_empty() {
-                        scripts.push(inner);
+                    if !script.is_empty() {
+                        scripts.push(unquote_word(&script));
                     }
                     index = done;
                 }
                 break;
             }
-            if flag.starts_with('-') {
+            if flag == "-c" || flag == "--command" || flag.starts_with("--command=") {
+                if let Some(value) = flag.strip_prefix("--command=") {
+                    scripts.push(value.to_string());
+                    index = after;
+                    break;
+                }
+                want_script = true;
                 index = after;
                 continue;
+            }
+            if flag.starts_with("--") {
+                index = after;
+                continue;
+            }
+            if flag.starts_with('-') && flag.len() > 1 {
+                if flag[1..].contains('c') {
+                    want_script = true;
+                }
+                index = after;
+                continue;
+            }
+            if want_script {
+                scripts.push(unquote_word(&flag));
+                index = after;
+                break;
             }
             break;
         }
@@ -1468,14 +1527,36 @@ fn push_segment(segments: &mut Vec<String>, current: &mut String) {
     current.clear();
 }
 
-fn strip_env_and_wrappers(command: &str) -> String {
-    let mut words: Vec<String> = command.split_whitespace().map(str::to_string).collect();
+fn strip_assignments(words: &mut Vec<String>) {
     while words
         .first()
         .is_some_and(|word| word.contains('=') && !word.starts_with('-'))
     {
         words.remove(0);
     }
+}
+
+fn wrapper_takes_positional(wrapper: &str, flag: &str) -> bool {
+    matches!(
+        (wrapper, flag),
+        ("timeout", "-s" | "--signal" | "-k" | "--kill-after")
+            | ("nice", "-n" | "--adjustment")
+            | (
+                "ionice",
+                "-c" | "-n" | "-p" | "--class" | "--classdata" | "--pid"
+            )
+            | ("chrt", "-p" | "--pid")
+            | (
+                "stdbuf",
+                "-i" | "-o" | "-e" | "--input" | "--output" | "--error"
+            )
+            | ("env", "-u" | "--unset" | "-C" | "--chdir")
+    )
+}
+
+fn strip_env_and_wrappers(command: &str) -> String {
+    let mut words: Vec<String> = command.split_whitespace().map(str::to_string).collect();
+    strip_assignments(&mut words);
     const WRAPPERS: &[&str] = &[
         "timeout", "nice", "ionice", "chrt", "stdbuf", "env", "command",
     ];
@@ -1489,21 +1570,38 @@ fn strip_env_and_wrappers(command: &str) -> String {
             break;
         }
         words.remove(0);
-        while words.first().is_some_and(|word| word.starts_with('-')) {
-            let flag = words.remove(0);
-            if !flag.contains('=')
-                && words.first().is_some_and(|word| {
-                    !word.starts_with('-') && !WRAPPERS.contains(&word.as_str())
-                })
-                && matches!(
-                    base.as_str(),
-                    "timeout" | "nice" | "ionice" | "chrt" | "stdbuf"
-                )
+        if base == "env" && words.first().is_some_and(|word| word == "-S") {
+            return String::new();
+        }
+        while !words.is_empty() {
+            let flag = words[0].clone();
+            if flag == "--" {
+                words.remove(0);
+                break;
+            }
+            if base == "env" && flag.contains('=') && !flag.starts_with('-') {
+                words.remove(0);
+                continue;
+            }
+            if !flag.starts_with('-') {
+                if matches!(base.as_str(), "timeout" | "nice" | "ionice" | "chrt") {
+                    words.remove(0);
+                }
+                break;
+            }
+            words.remove(0);
+            if flag.contains('=') {
+                continue;
+            }
+            if wrapper_takes_positional(&base, &flag)
+                && words.first().is_some_and(|word| !word.starts_with('-'))
             {
                 words.remove(0);
             }
         }
+        strip_assignments(&mut words);
     }
+    strip_assignments(&mut words);
     words.join(" ")
 }
 
@@ -1524,6 +1622,20 @@ fn is_readonly_command(words: &[&str]) -> bool {
         return false;
     }
     let head = words[0];
+    if head == "rg"
+        && words
+            .iter()
+            .any(|word| *word == "--pre" || word.starts_with("--pre="))
+    {
+        return false;
+    }
+    if head == "sort"
+        && words
+            .iter()
+            .any(|word| word.starts_with("--compress-program"))
+    {
+        return false;
+    }
     if matches!(
         head,
         "ls" | "cat"
@@ -1845,9 +1957,12 @@ pub fn record_grant(path: &Path, access: &AccessKind, allow: bool) -> io::Result
                 }
             }
         }
-        AccessKind::Edit(_) => {
-            if allow {
-                grants.allowed_edits = true;
+        AccessKind::Edit(path) => {
+            if allow
+                && !path.is_empty()
+                && !grants.allowed_edit_paths.iter().any(|item| item == path)
+            {
+                grants.allowed_edit_paths.push(path.clone());
             }
         }
         AccessKind::Read(_)
@@ -2207,6 +2322,74 @@ mod tests {
         );
         assert!(matches!(
             evaluate(&shell_ask, &AccessKind::Bash("git status".into()), None),
+            Decision::Ask { .. }
+        ));
+    }
+
+    #[test]
+    fn wrapper_peel_and_env_s_cannot_bypass_deny() {
+        let deny = policy(
+            vec![rule(RuleAction::Deny, "Bash(rm -rf *)")],
+            PermissionMode::AlwaysApprove,
+        );
+        for command in [
+            "timeout 30 rm -rf /",
+            "env FOO=1 rm -rf /",
+            "stdbuf -oL rm -rf /",
+            "bash -lc \"rm -rf /\"",
+            "bash --login -c \"rm -rf /\"",
+            "bash -ec \"rm -rf /\"",
+            "bash -c -- \"rm -rf /\"",
+        ] {
+            assert!(
+                matches!(
+                    evaluate(&deny, &AccessKind::Bash(command.into()), None),
+                    Decision::Deny { .. }
+                ),
+                "{command}"
+            );
+        }
+        assert!(matches!(
+            evaluate(&deny, &AccessKind::Bash("env -S rm -rf /".into()), None),
+            Decision::Ask { .. }
+        ));
+    }
+
+    #[test]
+    fn glob_classes_and_readonly_floors() {
+        let deny = policy(
+            vec![rule(RuleAction::Deny, "Bash(rm -[rf]*)")],
+            PermissionMode::AlwaysApprove,
+        );
+        assert!(matches!(
+            evaluate(&deny, &AccessKind::Bash("rm -rf /".into()), None),
+            Decision::Deny { .. }
+        ));
+        let ask = policy(Vec::new(), PermissionMode::Ask);
+        assert!(matches!(
+            evaluate(&ask, &AccessKind::Bash("rg --pre cat foo".into()), None),
+            Decision::Ask { .. }
+        ));
+        assert!(matches!(
+            evaluate(
+                &ask,
+                &AccessKind::Bash("sort --compress-program=gzip file".into()),
+                None
+            ),
+            Decision::Ask { .. }
+        ));
+    }
+
+    #[test]
+    fn remembered_edit_grant_is_path_scoped() {
+        let mut granted = policy(Vec::new(), PermissionMode::Ask);
+        granted.grants.allowed_edit_paths.push("note.txt".into());
+        assert!(matches!(
+            evaluate(&granted, &AccessKind::Edit("note.txt".into()), None),
+            Decision::Allow { .. }
+        ));
+        assert!(matches!(
+            evaluate(&granted, &AccessKind::Edit("other.txt".into()), None),
             Decision::Ask { .. }
         ));
     }

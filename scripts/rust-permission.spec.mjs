@@ -17,6 +17,7 @@ function policy(overrides = {}) {
       allowedDomains: [],
       deniedDomains: [],
       allowedEdits: false,
+      allowedEditPaths: [],
     },
     ...overrides,
   }
@@ -134,5 +135,74 @@ describe('rust permission evaluator', () => {
     expect(edit.reason).toMatch(/unreadable|refusing/)
     const read = evaluatePermission(broken, { kind: 'read', path: 'note.txt' })
     expect(read.kind).toBe('allow')
+  })
+
+  it('peels timeout duration and env assignments so deny still sees rm', () => {
+    const denyRm = policy({
+      mode: 'always-approve',
+      rules: [{ action: 'deny', tool: 'bash', pattern: 'rm -rf *', patternMode: 'glob' }],
+    })
+    expect(evaluatePermission(denyRm, { kind: 'bash', command: 'timeout 30 rm -rf /' }).kind).toBe('deny')
+    expect(evaluatePermission(denyRm, { kind: 'bash', command: 'env FOO=1 rm -rf /' }).kind).toBe('deny')
+    expect(evaluatePermission(denyRm, { kind: 'bash', command: 'stdbuf -oL rm -rf /' }).kind).toBe('deny')
+  })
+
+  it('prompts on env -S instead of empty-segment grant or readonly auto-allow', () => {
+    const denyRm = [{ action: 'deny', tool: 'bash', pattern: 'rm -rf *', patternMode: 'glob' }]
+    const asked = evaluatePermission(policy({ rules: denyRm }), { kind: 'bash', command: 'env -S rm -rf /' })
+    expect(asked.kind).toBe('ask')
+    expect(asked.reason).not.toMatch(/remembered|read-only/)
+    const always = evaluatePermission(policy({
+      mode: 'always-approve',
+      rules: denyRm,
+    }), { kind: 'bash', command: 'env -S rm -rf /' })
+    expect(always.kind).toBe('ask')
+  })
+
+  it('applies deny inside clustered and long-option bash -c scripts', () => {
+    const denyRm = policy({
+      mode: 'always-approve',
+      rules: [{ action: 'deny', tool: 'bash', pattern: 'rm -rf *', patternMode: 'glob' }],
+    })
+    for (const command of [
+      'bash -lc "rm -rf /"',
+      'bash --login -c "rm -rf /"',
+      'bash -ec "rm -rf /"',
+      'bash -c -- "rm -rf /"',
+    ]) {
+      expect(evaluatePermission(denyRm, { kind: 'bash', command }).kind, command).toBe('deny')
+    }
+  })
+
+  it('does not auto-allow rg --pre or sort --compress-program as read-only', () => {
+    expect(evaluatePermission(policy(), { kind: 'bash', command: 'rg --pre cat foo' }).kind).toBe('ask')
+    expect(evaluatePermission(policy(), { kind: 'bash', command: 'sort --compress-program=gzip file' }).kind).toBe('ask')
+  })
+
+  it('matches glob character classes on deny', () => {
+    const decision = evaluatePermission(policy({
+      mode: 'always-approve',
+      rules: [{ action: 'deny', tool: 'bash', pattern: 'rm -[rf]*', patternMode: 'glob' }],
+    }), { kind: 'bash', command: 'rm -rf /' })
+    expect(decision.kind).toBe('deny')
+  })
+
+  it('persists path-scoped edit grants rather than all edits', () => {
+    const granted = evaluatePermission(policy({
+      grants: { ...policy().grants, allowedEditPaths: ['note.txt'] },
+    }), { kind: 'edit', path: 'note.txt' })
+    expect(granted.kind).toBe('allow')
+    const other = evaluatePermission(policy({
+      grants: { ...policy().grants, allowedEditPaths: ['note.txt'] },
+    }), { kind: 'edit', path: 'other.txt' })
+    expect(other.kind).toBe('ask')
+  })
+
+  it('does not let a bare Edit allow approve an unknown tool', () => {
+    const decision = evaluatePermission(policy({
+      mode: 'dontAsk',
+      rules: [{ action: 'allow', tool: 'edit', pattern: null, patternMode: 'glob' }],
+    }), { kind: 'tool', name: 'scheduler_create' })
+    expect(decision.kind).toBe('deny')
   })
 })
