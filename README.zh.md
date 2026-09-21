@@ -55,7 +55,7 @@ Rust 界面通过 ACP/JSON-RPC 把提示提交给隔离 Home 中真实的 `dsh -
 `acceptEdits`）在 dsh 工具执行前生效。显式 deny、hook 拦截和被锁定的
 always-approve 不能被 `--always-approve` 或旧授权绕过。无法拆分的
 shell（`$(...)`、控制流）不会被当成一条 glob allow；Read/Edit 的 deny 也
-作用于 shell 操作数；`timeout 30`、`env FOO=1` 这类包装会被剥掉，deny 仍看内层命令，`env -S` 会询问。always-approve 会跳过记住的授权和非 shell 的 `ask`。
+作用于 shell 操作数；`timeout`、`nice`、`ionice`、`env FOO=1` 这类包装会被剥掉（只消耗真正的时长/优先级参数），deny 仍看内层命令，`env -S` 会询问。路径中的符号链接按目标适用 Read/Edit 的 deny 与 ask；无法解析的链接会询问。always-approve 会跳过记住的授权和非 shell 的 `ask`。
 策略文件缺失或损坏时拒绝变更类工具，而不是丢掉 deny。记住的文件授权按路径生效，`a` 不是永久允许所有编辑。界面显示将执行的操作及
 dsh 给出的差异，`y` 允许该次调用，`a` 只记住当前项目，`n` 拒绝且不写入。
 `/revoke-approvals` 撤销当前项目已记住的授权。记住的授权不会被说成永久全局规则；

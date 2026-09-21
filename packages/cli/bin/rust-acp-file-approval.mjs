@@ -7,7 +7,7 @@
  */
 export const name = 'rust-acp-file-approval'
 
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, lstatSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
 import { dirname } from 'node:path'
 
 function wait(ms, signal) {
@@ -418,9 +418,23 @@ function takesPositional(wrapper, flag) {
   if (wrapper === 'timeout' && (flag === '-s' || flag === '--signal' || flag === '-k' || flag === '--kill-after')) return true
   if (wrapper === 'nice' && (flag === '-n' || flag === '--adjustment')) return true
   if (wrapper === 'ionice' && (flag === '-c' || flag === '-n' || flag === '-p' || flag === '--class' || flag === '--classdata' || flag === '--pid')) return true
-  if (wrapper === 'chrt' && (flag === '-p' || flag === '--pid')) return true
+  if (wrapper === 'chrt' && (flag === '-p' || flag === '--pid' || flag === '-o' || flag === '--other' || flag === '-f' || flag === '--fifo' || flag === '-r' || flag === '--rr')) return true
   if (wrapper === 'stdbuf' && (flag === '-i' || flag === '-o' || flag === '-e' || flag === '--input' || flag === '--output' || flag === '--error')) return true
   if (wrapper === 'env' && (flag === '-u' || flag === '--unset' || flag === '-C' || flag === '--chdir')) return true
+  return false
+}
+
+function isDurationToken(word) {
+  return /^(?:\d+(?:\.\d+)?|\.\d+)(?:s|m|h|d)?$/u.test(word)
+}
+
+function isPriorityToken(word) {
+  return /^-?\d+$/u.test(word)
+}
+
+function consumeBarePositional(wrapper, word) {
+  if (wrapper === 'timeout') return isDurationToken(word)
+  if (wrapper === 'nice' || wrapper === 'ionice' || wrapper === 'chrt') return isPriorityToken(word)
   return false
 }
 
@@ -431,6 +445,7 @@ function stripWrappers(command) {
   while (words[0] && wrappers.has(words[0].split(/[\\/]/u).at(-1))) {
     const wrapper = words.shift().split(/[\\/]/u).at(-1)
     if (wrapper === 'env' && words[0] === '-S') return ''
+    let consumedBare = false
     while (words[0]) {
       const flag = words[0]
       if (flag === '--') {
@@ -442,8 +457,10 @@ function stripWrappers(command) {
         continue
       }
       if (!flag.startsWith('-')) {
-        if (wrapper === 'timeout' || wrapper === 'nice' || wrapper === 'ionice' || wrapper === 'chrt') {
+        if (!consumedBare && consumeBarePositional(wrapper, flag)) {
           words.shift()
+          consumedBare = true
+          continue
         }
         break
       }
@@ -529,17 +546,51 @@ function normalizePath(path, cwd) {
   return `/${parts.join('/')}`
 }
 
+function cwdRoots(cwd) {
+  const roots = [normalizePath('.', cwd)]
+  try {
+    const real = realpathSync(cwd).replaceAll('\\', '/')
+    if (!roots.includes(real)) roots.push(real)
+  } catch { /* cwd may not exist in unit tests */ }
+  return roots
+}
+
 function pathForms(path, cwd) {
   if (!path) return []
   if (path.startsWith('~')) return [path.replaceAll('\\', '/')]
   const abs = normalizePath(path, cwd)
   const forms = [abs]
-  const root = normalizePath('.', cwd)
-  if (abs === root || abs.startsWith(`${root}/`)) {
-    const rel = abs === root ? '.' : abs.slice(root.length + 1)
-    forms.push(rel === '.' ? '.' : `./${rel}`, rel)
+  for (const root of cwdRoots(cwd)) {
+    if (abs === root || abs.startsWith(`${root}/`)) {
+      const rel = abs === root ? '.' : abs.slice(root.length + 1)
+      forms.push(rel === '.' ? '.' : `./${rel}`, rel)
+    }
   }
-  return forms
+  return [...new Set(forms)]
+}
+
+function inspectPath(path, cwd) {
+  if (!path || path.startsWith('~')) {
+    return { forms: pathForms(path, cwd), unresolved: false }
+  }
+  const abs = normalizePath(path, cwd)
+  try {
+    const stat = lstatSync(abs)
+    if (stat.isSymbolicLink()) {
+      try {
+        const resolved = realpathSync(abs).replaceAll('\\', '/')
+        return {
+          forms: [...new Set([...pathForms(path, cwd), resolved, ...pathForms(resolved, cwd)])],
+          unresolved: false,
+        }
+      } catch {
+        return { forms: pathForms(path, cwd), unresolved: true }
+      }
+    }
+  } catch {
+    return { forms: pathForms(path, cwd), unresolved: false }
+  }
+  return { forms: pathForms(path, cwd), unresolved: false }
 }
 
 function commandPrefix(command, pattern) {
@@ -571,6 +622,12 @@ function ruleReaches(access, rule) {
   return false
 }
 
+function fileRuleApplies(policy, tool) {
+  return (policy.rules ?? []).some(rule =>
+    (rule.action === 'deny' || rule.action === 'ask')
+    && (rule.tool === tool || rule.tool === 'any'))
+}
+
 function patternMatches(access, rule, cwd) {
   if (!rule.pattern || rule.pattern === '*') return true
   if (access.kind === 'bash') {
@@ -578,7 +635,11 @@ function patternMatches(access, rule, cwd) {
     return command.startsWith(rule.pattern) || globMatch(rule.pattern, command, false)
   }
   if (access.kind === 'edit' || access.kind === 'read' || access.kind === 'grep') {
-    return pathForms(access.path ?? '', cwd).some(form => globMatch(rule.pattern, form, true))
+    const inspected = inspectPath(access.path ?? '', cwd)
+    const forms = (rule.action === 'deny' || rule.action === 'ask')
+      ? inspected.forms
+      : pathForms(access.path ?? '', cwd)
+    return forms.some(form => globMatch(rule.pattern, form, true))
   }
   if (access.kind === 'mcp') return globMatch(rule.pattern, access.name, false)
   if (access.kind === 'webfetch') {
@@ -623,12 +684,16 @@ function readonlyAccess(access) {
 }
 
 function pathRuleDecision(policy, path, cwd) {
+  const inspected = inspectPath(path, cwd)
   const read = evaluateRulesFor(policy, { kind: 'read', path }, cwd)
   if (read?.kind === 'deny') return read
   const edit = evaluateRulesFor(policy, { kind: 'edit', path }, cwd)
   if (edit?.kind === 'deny') return edit
   if (read?.kind === 'ask') return read
   if (edit?.kind === 'ask') return edit
+  if (inspected.unresolved && (fileRuleApplies(policy, 'read') || fileRuleApplies(policy, 'edit'))) {
+    return { kind: 'ask', reason: 'unresolved symlink' }
+  }
   return null
 }
 
@@ -670,6 +735,11 @@ function evaluateRules(policy, access) {
 function evaluateRulesFor(policy, access, cwd) {
   let matchedAsk = false
   let matchedAllow = false
+  if ((access.kind === 'read' || access.kind === 'edit' || access.kind === 'grep')
+    && inspectPath(access.path ?? '', cwd).unresolved
+    && fileRuleApplies(policy, access.kind === 'edit' ? 'edit' : 'read')) {
+    return { kind: 'ask', reason: 'unresolved symlink' }
+  }
   for (const rule of policy.rules ?? []) {
     if (!ruleReaches(access, rule) || !patternMatches(access, rule, cwd)) continue
     if (rule.action === 'deny') {

@@ -114,9 +114,10 @@ Permission modes, allow/ask/deny rules, and remembered project grants are compil
 into isolated `$DSH_HOME/permission-policy.json` and enforced in the dsh
 `tools/pre-execute` plugin before a real tool body runs. Deny and hook blocks have
 no side effects; unsplittable shell and Read/Edit path rules on operands cannot be
-glob-allowed or auto-approved as read-only. Wrappers peel to the inner command;
-`env -S` prompts. Missing or corrupt `permission-policy.json` refuses mutating
-tools. `y` is once, `a` remembers a path-scoped project grant, and
+glob-allowed or auto-approved as read-only. Wrappers peel to the inner command
+without eating the command name; `env -S` prompts. Read/Edit deny/ask follow
+in-path symlink targets. Missing or corrupt `permission-policy.json` refuses
+mutating tools. `y` is once, `a` remembers a path-scoped project grant, and
 `/revoke-approvals` forgets those grants.
 Plain `codsh` still selects the legacy Launcher/Bundle; this is not the default
 cutover. The Viewport language below remains the legacy Surface contract.

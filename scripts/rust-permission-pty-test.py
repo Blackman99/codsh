@@ -188,6 +188,14 @@ allow = ["Bash(git *)"]
         assert 'successfully.' not in wrapped['screen']
         results['deny_timeout'] = {'exit': wrapped['exit']}
 
+        nice = exercise('deny-nice-wrapper', launcher, cwd,
+                        {**base_env, 'DSH_CODE_CLI_MOCK_TOOL': 'bash-nice-rm'},
+                        output, typed='TOKEN_PERM_NICE', wait_for=['Denied by permission policy', 'RUST_ACP_BASH_DENIED'],
+                        extra=['--always-approve', '--deny', 'Bash(rm -rf *)'], action='none')
+        assert nice['exit'] == 0
+        assert 'successfully.' not in nice['screen']
+        results['deny_nice'] = {'exit': nice['exit']}
+
         inspect = spawn_inspect(launcher, cwd, base_env, ['inspect', '--json'])
         assert inspect.returncode == 0, inspect.stderr + inspect.stdout
         payload = json.loads(inspect.stdout)

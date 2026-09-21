@@ -760,6 +760,23 @@ fn evaluate_rules(policy: &PermissionPolicy, access: &AccessKind) -> Option<Deci
 }
 
 fn evaluate_rules_for(policy: &PermissionPolicy, access: &AccessKind) -> Option<Decision> {
+    if let Some(path) = match access {
+        AccessKind::Read(path) => path.as_deref(),
+        AccessKind::Edit(path) => Some(path.as_str()),
+        AccessKind::Grep { path } => path.as_deref(),
+        _ => None,
+    } {
+        let inspected = inspect_path(path, &policy.cwd);
+        let tool = match access {
+            AccessKind::Edit(_) => ToolFilter::Edit,
+            _ => ToolFilter::Read,
+        };
+        if inspected.unresolved && file_rule_applies(policy, tool) {
+            return Some(Decision::Ask {
+                reason: "unresolved symlink".into(),
+            });
+        }
+    }
     let mut matched_ask = false;
     let mut matched_allow = false;
     for rule in &policy.rules {
@@ -1011,8 +1028,10 @@ fn pattern_matches(access: &AccessKind, rule: &PermissionRule, cwd: &Path) -> bo
             let command = command.trim_start();
             command.starts_with(pattern) || glob_match(pattern, command, false)
         }
-        AccessKind::Edit(path) | AccessKind::Read(Some(path)) => path_matches(pattern, path, cwd),
-        AccessKind::Grep { path: Some(path) } => path_matches(pattern, path, cwd),
+        AccessKind::Edit(path) | AccessKind::Read(Some(path)) => {
+            path_matches(pattern, path, cwd, rule.action)
+        }
+        AccessKind::Grep { path: Some(path) } => path_matches(pattern, path, cwd, rule.action),
         AccessKind::Read(None) | AccessKind::Grep { path: None } => false,
         AccessKind::Mcp { name } => glob_match(pattern, name, false),
         AccessKind::WebFetch(url) => match rule.pattern_mode {
@@ -1040,10 +1059,80 @@ fn bash_allow_matches(command: &str, rule: &PermissionRule) -> bool {
     }
 }
 
-fn path_matches(pattern: &str, path: &str, cwd: &Path) -> bool {
-    path_forms(path, cwd)
-        .iter()
-        .any(|form| glob_match(pattern, form, true))
+fn path_matches(pattern: &str, path: &str, cwd: &Path, action: RuleAction) -> bool {
+    let inspected = inspect_path(path, cwd);
+    let forms = if matches!(action, RuleAction::Deny | RuleAction::Ask) {
+        inspected.forms
+    } else {
+        path_forms(path, cwd)
+    };
+    forms.iter().any(|form| glob_match(pattern, form, true))
+}
+
+struct InspectedPath {
+    forms: Vec<String>,
+    unresolved: bool,
+}
+
+fn inspect_path(path: &str, cwd: &Path) -> InspectedPath {
+    let lexical = path_forms(path, cwd);
+    if path.is_empty() || is_tilde_path(Path::new(path)) {
+        return InspectedPath {
+            forms: lexical,
+            unresolved: false,
+        };
+    }
+    let abs = if Path::new(path).is_absolute() {
+        PathBuf::from(path)
+    } else {
+        cwd.join(path)
+    };
+    match abs.symlink_metadata() {
+        Ok(meta) if meta.file_type().is_symlink() => match abs.canonicalize() {
+            Ok(resolved) => {
+                let mut forms = lexical;
+                let resolved_text = path_text(&resolved);
+                if !forms.contains(&resolved_text) {
+                    forms.push(resolved_text.clone());
+                }
+                for extra in path_forms(&resolved_text, cwd) {
+                    if !forms.contains(&extra) {
+                        forms.push(extra);
+                    }
+                }
+                InspectedPath {
+                    forms,
+                    unresolved: false,
+                }
+            }
+            Err(_) => InspectedPath {
+                forms: lexical,
+                unresolved: true,
+            },
+        },
+        _ => InspectedPath {
+            forms: lexical,
+            unresolved: false,
+        },
+    }
+}
+
+fn file_rule_applies(policy: &PermissionPolicy, tool: ToolFilter) -> bool {
+    policy.rules.iter().any(|rule| {
+        matches!(rule.action, RuleAction::Deny | RuleAction::Ask)
+            && (rule.tool == tool || rule.tool == ToolFilter::Any)
+    })
+}
+
+fn cwd_roots(cwd: &Path) -> Vec<PathBuf> {
+    let mut roots = vec![normalize_lexically(cwd)];
+    if let Ok(real) = cwd.canonicalize() {
+        let real = normalize_lexically(&real);
+        if !roots.contains(&real) {
+            roots.push(real);
+        }
+    }
+    roots
 }
 
 fn path_forms(path: &str, cwd: &Path) -> Vec<String> {
@@ -1058,15 +1147,19 @@ fn path_forms(path: &str, cwd: &Path) -> Vec<String> {
     };
     let abs = normalize_lexically(&joined);
     let mut forms = vec![path_text(&abs)];
-    if let Ok(rel) = abs.strip_prefix(normalize_lexically(cwd)) {
-        let rel_text = path_text(rel);
-        if rel_text.is_empty() || rel_text == "." {
-            forms.extend([".".into(), "./".into()]);
-        } else {
-            forms.push(format!("./{rel_text}"));
-            forms.push(rel_text);
+    for root in cwd_roots(cwd) {
+        if let Ok(rel) = abs.strip_prefix(&root) {
+            let rel_text = path_text(rel);
+            if rel_text.is_empty() || rel_text == "." {
+                forms.extend([".".into(), "./".into()]);
+            } else {
+                forms.push(format!("./{rel_text}"));
+                forms.push(rel_text);
+            }
         }
     }
+    forms.sort();
+    forms.dedup();
     forms
 }
 
@@ -1536,6 +1629,23 @@ fn strip_assignments(words: &mut Vec<String>) {
     }
 }
 
+fn is_duration_token(word: &str) -> bool {
+    let trimmed = word.trim_end_matches(['s', 'm', 'h', 'd']);
+    !trimmed.is_empty() && trimmed.parse::<f64>().is_ok()
+}
+
+fn is_priority_token(word: &str) -> bool {
+    word.parse::<i32>().is_ok()
+}
+
+fn consume_bare_positional(wrapper: &str, word: &str) -> bool {
+    match wrapper {
+        "timeout" => is_duration_token(word),
+        "nice" | "ionice" | "chrt" => is_priority_token(word),
+        _ => false,
+    }
+}
+
 fn wrapper_takes_positional(wrapper: &str, flag: &str) -> bool {
     matches!(
         (wrapper, flag),
@@ -1545,7 +1655,10 @@ fn wrapper_takes_positional(wrapper: &str, flag: &str) -> bool {
                 "ionice",
                 "-c" | "-n" | "-p" | "--class" | "--classdata" | "--pid"
             )
-            | ("chrt", "-p" | "--pid")
+            | (
+                "chrt",
+                "-p" | "--pid" | "-o" | "--other" | "-f" | "--fifo" | "-r" | "--rr"
+            )
             | (
                 "stdbuf",
                 "-i" | "-o" | "-e" | "--input" | "--output" | "--error"
@@ -1573,6 +1686,7 @@ fn strip_env_and_wrappers(command: &str) -> String {
         if base == "env" && words.first().is_some_and(|word| word == "-S") {
             return String::new();
         }
+        let mut consumed_bare = false;
         while !words.is_empty() {
             let flag = words[0].clone();
             if flag == "--" {
@@ -1584,8 +1698,10 @@ fn strip_env_and_wrappers(command: &str) -> String {
                 continue;
             }
             if !flag.starts_with('-') {
-                if matches!(base.as_str(), "timeout" | "nice" | "ionice" | "chrt") {
+                if !consumed_bare && consume_bare_positional(&base, &flag) {
                     words.remove(0);
+                    consumed_bare = true;
+                    continue;
                 }
                 break;
             }
@@ -2336,6 +2452,14 @@ mod tests {
             "timeout 30 rm -rf /",
             "env FOO=1 rm -rf /",
             "stdbuf -oL rm -rf /",
+            "nice rm -rf /",
+            "timeout rm -rf /",
+            "ionice rm -rf /",
+            "chrt rm -rf /",
+            "timeout --verbose rm -rf /",
+            "nice -n 10 rm -rf /",
+            "timeout 30 nice -n 10 rm -rf /",
+            "ionice -c 3 rm -rf /",
             "bash -lc \"rm -rf /\"",
             "bash --login -c \"rm -rf /\"",
             "bash -ec \"rm -rf /\"",
@@ -2390,6 +2514,36 @@ mod tests {
         ));
         assert!(matches!(
             evaluate(&granted, &AccessKind::Edit("other.txt".into()), None),
+            Decision::Ask { .. }
+        ));
+    }
+
+    #[test]
+    fn read_deny_follows_in_path_symlink_and_unresolved_prompts() {
+        let dir = tempfile::TempDir::new().unwrap();
+        fs::create_dir_all(dir.path().join("secret")).unwrap();
+        fs::write(dir.path().join("secret/key"), "SECRET").unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::symlink;
+            symlink(dir.path().join("secret/key"), dir.path().join("visible")).unwrap();
+            symlink(dir.path().join("missing-target"), dir.path().join("broken")).unwrap();
+        }
+        let mut deny = policy(
+            vec![rule(RuleAction::Deny, "Read(secret/**)")],
+            PermissionMode::Ask,
+        );
+        deny.cwd = dir.path().to_path_buf();
+        assert!(matches!(
+            evaluate(&deny, &AccessKind::Read(Some("visible".into())), None),
+            Decision::Deny { .. }
+        ));
+        assert!(matches!(
+            evaluate(&deny, &AccessKind::Bash("cat visible".into()), None),
+            Decision::Deny { .. }
+        ));
+        assert!(matches!(
+            evaluate(&deny, &AccessKind::Read(Some("broken".into())), None),
             Decision::Ask { .. }
         ));
     }

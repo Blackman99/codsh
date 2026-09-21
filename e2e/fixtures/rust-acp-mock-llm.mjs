@@ -1,7 +1,7 @@
 /**
  * Keyless LLM adapter at the dsh provider boundary for Rust ACP turn tests.
  * Modes: echo (default), reasoning, empty, fail-stream, file-edit, file-write,
- * file-missing, file-error, bash-rm, bash-timeout-rm, bash-git, file-secret. Optional
+ * file-missing, file-error, bash-rm, bash-timeout-rm, bash-nice-rm, bash-git, file-secret. Optional
  * DSH_CODE_CLI_MOCK_DELAY_MS delays the first chunk so session/cancel can win
  * before activity.
  */
@@ -88,11 +88,14 @@ function* fileToolTurn(options) {
     yield* mockText(`RUST_ACP_FILE_ERROR ${resultText(last)}`)
     return
   }
-  if (MODE === 'bash-rm' || MODE === 'bash-timeout-rm') {
+  if (MODE === 'bash-rm' || MODE === 'bash-timeout-rm' || MODE === 'bash-nice-rm') {
     if (done.length === 0) {
-      yield* mockToolCall('rust-acp-bash-rm', 'bash', {
-        command: MODE === 'bash-timeout-rm' ? 'timeout 30 rm -rf denied-target' : 'rm -rf denied-target',
-      })
+      const command = MODE === 'bash-timeout-rm'
+        ? 'timeout 30 rm -rf denied-target'
+        : MODE === 'bash-nice-rm'
+          ? 'nice rm -rf denied-target'
+          : 'rm -rf denied-target'
+      yield* mockToolCall('rust-acp-bash-rm', 'bash', { command })
       return
     }
     const last = done.at(-1)
@@ -254,7 +257,7 @@ class RustAcpMockAdapter extends LlmAdapter {
       yield* mockText(`RUST_ACP_TODO_DONE TODO_KEEP turn=${turn} ${userTexts(options).join('\n')}`)
       return
     }
-    if (MODE === 'file-edit' || MODE === 'file-write' || MODE === 'file-missing' || MODE === 'file-error' || MODE === 'bash-rm' || MODE === 'bash-timeout-rm' || MODE === 'bash-git' || MODE === 'file-secret') {
+    if (MODE === 'file-edit' || MODE === 'file-write' || MODE === 'file-missing' || MODE === 'file-error' || MODE === 'bash-rm' || MODE === 'bash-timeout-rm' || MODE === 'bash-nice-rm' || MODE === 'bash-git' || MODE === 'file-secret') {
       yield* fileToolTurn(options)
       return
     }

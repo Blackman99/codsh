@@ -70,9 +70,10 @@ own dest. `/plugins` and `/marketplace`
 open the directory. `--always-approve`/`--yolo`, `--permission-mode`, and
 `--allow`/`--deny` control permission modes and persistent rules; explicit deny
 still wins. Unsplittable shell and Read/Edit path rules on operands cannot
-bypass deny; wrappers peel to the inner command while `env -S` prompts;
-remembered file grants are path-scoped; a corrupt policy file refuses mutating
-tools. The model's configured `env_key` (`XAI_API_KEY` and other
+bypass deny; wrappers peel to the inner command without eating the command name
+while `env -S` prompts; Read/Edit deny follows in-path symlinks; remembered file
+grants are path-scoped; a corrupt policy file refuses mutating tools. The
+model's configured `env_key` (`XAI_API_KEY` and other
 `*_API_KEY` values) is passed through to dsh. Missing credentials stay local
 (no grok.com login or default telemetry). `codsh --rust feedback` stores local
 drafts until an explicit submit or `/feedback <text>` send. Content sharing

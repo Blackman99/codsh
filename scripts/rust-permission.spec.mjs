@@ -1,3 +1,6 @@
+import { mkdirSync, mkdtempSync, symlinkSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { evaluatePermission } from '../packages/cli/bin/rust-acp-file-approval.mjs'
 
@@ -145,6 +148,18 @@ describe('rust permission evaluator', () => {
     expect(evaluatePermission(denyRm, { kind: 'bash', command: 'timeout 30 rm -rf /' }).kind).toBe('deny')
     expect(evaluatePermission(denyRm, { kind: 'bash', command: 'env FOO=1 rm -rf /' }).kind).toBe('deny')
     expect(evaluatePermission(denyRm, { kind: 'bash', command: 'stdbuf -oL rm -rf /' }).kind).toBe('deny')
+    for (const command of [
+      'nice rm -rf /',
+      'timeout rm -rf /',
+      'ionice rm -rf /',
+      'chrt rm -rf /',
+      'timeout --verbose rm -rf /',
+      'nice -n 10 rm -rf /',
+      'timeout 30 nice -n 10 rm -rf /',
+      'ionice -c 3 rm -rf /',
+    ]) {
+      expect(evaluatePermission(denyRm, { kind: 'bash', command }).kind, command).toBe('deny')
+    }
   })
 
   it('prompts on env -S instead of empty-segment grant or readonly auto-allow', () => {
@@ -204,5 +219,20 @@ describe('rust permission evaluator', () => {
       rules: [{ action: 'allow', tool: 'edit', pattern: null, patternMode: 'glob' }],
     }), { kind: 'tool', name: 'scheduler_create' })
     expect(decision.kind).toBe('deny')
+  })
+
+  it('follows in-path symlinks for Read deny and unresolved links prompt', () => {
+    const cwd = mkdtempSync(join(tmpdir(), 'codsh-perm-link-'))
+    mkdirSync(join(cwd, 'secret'))
+    writeFileSync(join(cwd, 'secret/key'), 'SECRET')
+    symlinkSync(join(cwd, 'secret/key'), join(cwd, 'visible'))
+    symlinkSync(join(cwd, 'missing-target'), join(cwd, 'broken'))
+    const denyRead = policy({
+      cwd,
+      rules: [{ action: 'deny', tool: 'read', pattern: 'secret/**', patternMode: 'glob' }],
+    })
+    expect(evaluatePermission(denyRead, { kind: 'read', path: 'visible' }).kind).toBe('deny')
+    expect(evaluatePermission(denyRead, { kind: 'bash', command: 'cat visible' }).kind).toBe('deny')
+    expect(evaluatePermission(denyRead, { kind: 'read', path: 'broken' }).kind).toBe('ask')
   })
 })

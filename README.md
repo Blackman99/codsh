@@ -58,8 +58,10 @@ tools. Allow/ask/deny rules, remembered project grants, and permission modes
 enforced before a dsh tool runs. Explicit deny, hook blocks, and locked
 always-approve survive `--always-approve` and old grants. Unsplittable shell
 (`$(...)`, control flow) is not glob-allowed as a unit; Read/Edit deny also
-covers shell operands; wrappers such as `timeout 30` and `env FOO=1` are peeled
-so deny still sees the inner command, while `env -S` prompts. Always-approve
+covers shell operands; wrappers such as `timeout`, `nice`, `ionice`, and
+`env FOO=1` peel to the inner command (only real duration/priority tokens are
+consumed), while `env -S` prompts. Read/Edit deny and ask follow in-path
+symlink targets; an unresolved link prompts. Always-approve
 skips remembered grants and non-shell `ask`. A missing or corrupt policy file
 refuses mutating tools instead of dropping deny. Remembered file grants are
 path-scoped; `a` is not all-edits-forever. The UI shows the pending operation

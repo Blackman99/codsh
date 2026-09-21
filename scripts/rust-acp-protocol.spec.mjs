@@ -1278,6 +1278,38 @@ describe('public ACP/JSON-RPC against real dsh', () => {
     }
   }, 45000)
 
+  it('denies nice-wrapped rm under always-approve without executing', async () => {
+    const policy = join('/tmp', `codsh-perm-nice-${Date.now()}.json`)
+    writeFileSync(policy, `${JSON.stringify({
+      mode: 'always-approve',
+      rememberToolApprovals: true,
+      interactive: false,
+      cwd: '/tmp',
+      grantsPath: '',
+      rules: [{ action: 'deny', tool: 'bash', pattern: 'rm -rf *', patternMode: 'glob', source: 'cli' }],
+      grants: { allowedBash: [], deniedBash: [], allowedMcp: [], deniedMcp: [], allowedDomains: [], deniedDomains: [], allowedEdits: false, allowedEditPaths: [] },
+    })}\n`)
+    const agent = startAgent('bash-nice-rm', { CODSH_PERMISSION_POLICY: policy })
+    try {
+      const { session } = await handshake(agent)
+      const result = await agent.send(3, 'session/prompt', {
+        sessionId: session.sessionId,
+        prompt: [{ type: 'text', text: 'remove the target' }],
+      })
+      expect(result.stopReason).toBe('end_turn')
+      expect(agent.permissions).toEqual([])
+      const failed = agent.updates.find(update => update.update.sessionUpdate === 'tool_call_update')
+      expect(failed.update.status).toBe('failed')
+      expect(JSON.stringify(failed.update.content)).toMatch(/Denied by permission policy|rm -rf/i)
+      const answer = agent.updates.filter(update => update.update.sessionUpdate === 'agent_message_chunk').at(-1)
+      expect(answer.update.content.text).toContain('RUST_ACP_BASH_DENIED')
+    } finally {
+      agent.child.stdin.end()
+      agent.child.kill('SIGTERM')
+      rmSync(policy, { force: true })
+    }
+  }, 45000)
+
   it('skips non-shell ask under always-approve and still reads the path', async () => {
     const policy = join('/tmp', `codsh-perm-ask-${Date.now()}.json`)
     writeFileSync(policy, `${JSON.stringify({
