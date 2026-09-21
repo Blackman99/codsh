@@ -16,6 +16,11 @@ import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { createRequire } from 'node:module'
 
+if (process.argv[2] === '--rust') {
+  const { launchRust } = await import('./rust.mjs')
+  process.exit(await launchRust(process.argv.slice(3)))
+}
+
 const requireFromHere = createRequire(import.meta.url)
 const own = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'))
 

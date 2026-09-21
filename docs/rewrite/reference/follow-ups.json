@@ -1,0 +1,57 @@
+{
+  "schemaVersion": 1,
+  "publication": "Local scoped task proposals only; no GitHub mutation is authorized by #133.",
+  "tasks": [
+    {
+      "id": "reference-133-source-correspondence",
+      "title": "Resolve the 1.0.34 binary-to-public-source correspondence before import claims",
+      "owners": [134],
+      "stories": [4, 5, 74],
+      "status": "open",
+      "evidence": ["provenance.json#/source", "provenance.json#/guideReconciliation"],
+      "acceptance": [
+        "Record a verifiable source revision/build manifest for 3736acbc8658, or preserve the unproven mapping with an explicit source-delta register.",
+        "Do not relabel the 1.0.35 export as the 1.0.34 reference or redistribute the installed binary without applicable permission."
+      ]
+    },
+    {
+      "id": "reference-133-private-worker",
+      "title": "Validate Cursor private-worker registration as a distinct remote-service flow",
+      "owners": [190, 207],
+      "stories": [60, 61, 74],
+      "status": "open",
+      "inventoryKeys": ["cli:cursor-worker", "cli:cursor-worker start", "cli:cursor-worker status", "cli:cursor-worker stop"],
+      "acceptance": [
+        "Drive start/status/stop against an explicitly configured substitute hub and verify remote execution identity and actual task routing.",
+        "Test expired credentials, rejected repository, worker-directory restrictions, max-agent limits and disconnect cleanup.",
+        "If #190/#207 cannot contain this distinct flow, publish a dedicated child ticket under the owner's separate authorization; final audit is not an implementation owner."
+      ]
+    },
+    {
+      "id": "reference-133-deployment-tools",
+      "title": "Determine whether source-declared application deployment tools belong to the frozen reference",
+      "owners": [190],
+      "stories": [3, 60, 61, 74],
+      "status": "open-source-only",
+      "inventoryKeys": ["tool:deploy_app", "tool:init_or_update_app"],
+      "acceptance": [
+        "Establish whether either tool is publicly exposed in 1.0.34 under a supported feature/account configuration; absence from the default fixture catalog is not proof of exclusion.",
+        "If present, add a dedicated service-backed implementation ticket with local artifact/build/deploy outcomes, permission boundaries, cancellation and failure cleanup.",
+        "If not present, record explicit version/build evidence before classifying it as a 1.0.35-only implementation input."
+      ]
+    },
+    {
+      "id": "reference-133-performance-expansion",
+      "title": "Freeze representative numeric limits before measuring any candidate",
+      "owners": [202, 209],
+      "stories": [71, 72, 74],
+      "status": "open",
+      "evidence": ["baseline.json#/thresholdPolicy", "baseline.json#/pending"],
+      "acceptance": [
+        "Run at least 30 reference samples per agreed hardware/platform/mode with identical fixture timing and cache/power policy.",
+        "Add deterministic stream throughput, long transcript scrolling/reflow and process-tree resource-growth workloads.",
+        "Commit raw results and numeric ceilings/floors using the frozen method before collecting candidate results."
+      ]
+    }
+  ]
+}

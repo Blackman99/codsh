@@ -3,6 +3,59 @@
 A terminal coding agent composed on the dsh plugin runtime, whose interaction
 design deliberately aligns with the best of today's agent CLIs.
 
+## Parallel rewrite boundary
+
+The language and interaction rules below describe the legacy Launcher/Bundle.
+For the separately developed Rust/dsh path, [ADR-0002](docs/adr/0002-frozen-grok-rewrite-reference.md)
+selects frozen Grok 1.0.34 behavior instead of Claude-first arbitration and
+allows minimal native scrollback alongside fullscreen. It does not change the
+legacy Viewport, keybindings, data or tests. The itemized reference register
+lives under `docs/rewrite/reference/`; declarations are not parity evidence.
+
+`codsh --rust` is the explicit parallel Rust client. Its locally packed native
+client reuses licensed upstream Rust input, welcome layout, and the official
+fullscreen/minimal renderers, and submits prompts to released dsh over
+ACP/JSON-RPC (`dsh --profile acp`) in the isolated Home. dsh remains the only
+executing agent core and durable session owner; the Rust process does not link
+the official agent runtime or own tools. Protocol mismatch, empty answers,
+mid-stream failure, disconnect, and cancellation are reported truthfully.
+`Ctrl+C` clears a draft first; an empty draft cancels the running dsh turn. Esc
+does not cancel. `--continue` / `--resume <id>` restore the same dsh session;
+`--fork-session`, `/fork`, and `/rewind` copy conversation through dsh
+seed/projection without restoring files or replaying tools. A second write
+owner is refused. `/minimal` and `/fullscreen` switch render mode
+in process: fullscreen uses the alternate screen, minimal writes committed
+history to the native terminal buffer, `/rewind` and `/fork` replace that
+native buffer instead of appending discarded turns, and the active session,
+draft, running turn, and pending approval survive. `--minimal` / `--fullscreen` and
+`GROK_SCREEN_MODE` are session-scoped and do not rewrite isolated
+`[ui] screen_mode`. The isolated Home is `~/.codsh-rust/dsh`, Profile `rust`;
+inherited legacy configuration/credential files are not imported. Configured
+`env_key` values are passed through. Telemetry stays off.
+User settings enter through `$GROK_HOME/config.toml` and `codsh --rust inspect`;
+`[ui] confirm_before_rewind` and `ui.fork_secondary_model` use that same file;
+applicable model/provider fields, including `api_backend` and reasoning
+effort, are translated into isolated dsh `settings.yaml` rather than competing
+with it. `/model` and `/effort` change only advertised catalog options; unknown
+backends and efforts are refused, never treated as equivalent or silently
+swapped. Usage and context stay unknown unless the provider or config actually
+supplies them. `/context` and `/compact` are dsh-backed: occupancy is a dsh
+estimate, advertised limits follow the selected model's `context_window`, and
+compaction mutates the dsh session log rather than a second history. Optional
+`/compact` instructions travel only on the summarizer call (`purpose=compaction`)
+with a recorded destination. Automatic thresholds and pruning map into dsh
+`thresholdRatio` with a compatible `retainRatio` / tool-result pruner
+settings; percents that would fail dsh plugin load (`retainRatio >=
+thresholdRatio`, including `0`) are warned and remapped; unsupported
+Grok-only prune ages stay warnings, not silent no-ops. Managed defaults live in
+`$GROK_HOME/managed_config.toml`; `$GROK_HOME/requirements.toml` locks values so
+later CLI, environment, overlay, workspace, or user layers cannot bypass them.
+Unknown security fields fail closed with diagnostics. Workspace trust is stored
+in `$GROK_HOME/trusted_folders.toml`; untrusted project Hooks/plugins/instructions
+stay inactive until `--trust` or an interactive grant.
+Plain `codsh` still selects the legacy Launcher/Bundle; this is not the default
+cutover. The Viewport language below remains the legacy Surface contract.
+
 ## Language
 
 ### Product shape

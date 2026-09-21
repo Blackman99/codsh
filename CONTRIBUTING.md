@@ -60,6 +60,310 @@ live updates, and reconnect behavior on desktop and mobile; test both `/` and
 `/index.html`. Check English interface labels without translating user source
 text, and answer persistence across graph-cache rebuilds and resumed runs.
 
+## Frozen Grok rewrite reference (#133)
+
+The parallel rewrite's research register is in
+[`docs/rewrite/reference/`](docs/rewrite/reference/README.md). It does not alter
+legacy behavior or import the new Rust client. Run its portable checks with:
+
+```sh
+node scripts/reference-inventory.mjs check
+node scripts/reference-mapping.mjs docs/rewrite/reference .scratch/reference-inventory.json
+diff -u docs/rewrite/reference/inventory.json .scratch/reference-inventory.json
+pnpm exec vitest run scripts/reference-inventory.spec.mjs scripts/reference-evidence.spec.mjs
+```
+
+To reproduce reference observations on macOS, use Python 3.10+ and the exact
+installed Grok 1.0.34/build 3736acbc8658 binary. The driver creates a temporary
+HOME/GROK_HOME/workspace, denies personal-home reads and nonessential networking,
+and never reads real auth or sessions. Output directories must be new.
+
+```sh
+python3 scripts/reference-probe-test.py
+python3 scripts/reference-probe.py --binary /absolute/path/to/grok-1.0.34 --output .scratch/reference-run --samples 5
+python3 scripts/reference-model-probe.py --binary /absolute/path/to/grok-1.0.34 --output .scratch/reference-model.json
+node scripts/reference-baseline.mjs .scratch/reference-run/observations.json .scratch/reference-baseline.json
+```
+
+The model probe serves deterministic SSE on one loopback port, with a synthetic
+key and no paid calls. The main probe denies all network access. Both require
+`sandbox-exec`; do not remove confinement to make a probe run on another platform.
+Native Linux/Windows drivers and full performance workloads remain downstream.
+
+Reconcile discovery using a clean public source checkout pinned at the recorded
+commit (this is research, not an application import):
+
+```sh
+git clone https://github.com/xai-org/grok-build.git .scratch/reference-source
+git -C .scratch/reference-source checkout --detach a28ee2b2063426e8816e380ccea528b9de95e5da
+node scripts/reference-inventory.mjs extract docs/rewrite/reference/observations.json .scratch/reference-source .scratch/reference-discovery.json docs/rewrite/reference/model-observations.json .scratch/reference-source-evidence.json
+diff -u docs/rewrite/reference/discovery.json .scratch/reference-discovery.json
+diff -u docs/rewrite/reference/source-evidence.json .scratch/reference-source-evidence.json
+```
+
+Every discovered item needs a story, owning ticket, observable acceptance scenario
+and evidence or explicit blocker. A source declaration or guide is not runtime
+verification; planned acceptance scenarios are not passing tests. Add newly
+found behavior instead of weakening the extraction or shrinking the register.
+The validator resolves capture/guide/schema/source-fragment evidence and enforces
+the binary pin; changing a locator and recomputing the inventory digest is not
+verification. Audit semantic ownership: terminal gestures need their actual
+UI/session behavior, and headless input options need provider-wire assertions.
+`reference-mapping.mjs` and `reference-scenarios.mjs` are the committed mapping
+source. Regeneration uses captured ticket metadata, exact guide heading ancestry,
+namespace defaults and narrow contextual overrides; it needs no scratch generator
+or GitHub access. The checker rejects owner/scenario drift even when IDs and stories
+are internally consistent; regeneration alone is not an independent semantic oracle.
+Expected-owner regressions must be grounded in the quoted contract. Repeated TOML
+settings retain their functional namespace owner as well as contextual enterprise
+owners; broad `ui`, `toolset` and `compat` groups do not imply appearance or file
+search behavior. Classify by context, not isolated words: hook prompt
+blocks and sandbox write protection need real effects, MCP headers/stdio belong to
+MCP, model headers to providers, ACP updates to protocol/session replay, and plan
+feedback to plan review rather than telemetry. ACP `x.ai/review/comment` instead
+records cloud code-review events and requires consent/destination acceptance.
+Section extraction and owner context share a fence-aware Markdown scan, including
+nested blockquote containers: normalize syntax for TOML fields while preserving
+original quotation bytes and line locators. Code comments cannot hide subsequent
+prose, and fenced examples remain section evidence, not behavior paragraphs. Audit extraction deltas for actual
+prose preservation rather than preserving misclassified code-fragment identities.
+Environment extraction recognizes literal reads/setters, named constants, env-map
+lookups and key loops, enclosing environment-variable tables, assignment-form hints
+such as `COLORTERM=truecolor`, and documented process reads, credential inputs and
+launcher-resolution controls without vendor-prefix or underscore requirements.
+Literal source names are not shell identifiers: preserve case, punctuation,
+whitespace, leading underscores and single letters across reads, child injection,
+env maps and loops. `container` is not `CONTAINER`; `PROGRAMFILES(X86)` and
+`CARGO_BIN_EXE_xai-grok-pager` retain their full names in qualified/assignment forms.
+Empty names, equals signs and NUL are not valid literal keys. New source identities require contextual mapping
+and source-evidence/count digest updates, not new runtime availability claims.
+Guide-qualified variables and assignment forms resolve to canonical functional
+owners; a path mentioning a variable is not itself an environment identity.
+Workflow budget/lifecycle subcontracts keep #182/#183 even under a slash owner;
+actual memory-v2 capture/Dream controls use #186 and campaign patches use #139/#141.
+Keep documented gates separate from newer source-only overrides in acceptance.
+Audit control effects across canonical/config/example/alias representations: scrolling
+and mouse capture are input behavior, ghost text differs from its model routing,
+legacy metadata saves differ from model-backed capture, and pruning is compaction.
+Diagnostics require real file/filter/destination checks and status-line environment
+sanitization requires rc-file canaries. Fetch proxy/domain/enablement tests must not
+be replaced by search-policy acceptance; mixed rows may require both scenarios.
+Keep shell completion separate from next-prompt suggestions, diagnostic logging from
+hook authority, and sandbox auto-approval from confinement. Terminal/editor/platform
+aliases and background model/admission/login/goal/compaction controls need observable
+functional effects. Memory prose must retain capture, queue/lease diagnostics and
+telemetry privacy only where quoted; merged source/binary paragraph identities can
+carry different contracts without proving either runtime behavior.
+`config-audit.json` records the full generic-fallback review, not a hand-picked
+list of environment-name fixes. New generic-only config/env rows must receive a
+reviewed classification and effect-specific scenario; the checker rejects an
+unreviewed `PARITY-139` fallback. Source-only build/test/internal declarations use
+scoped `DISCOVERY-133-*` research and explicit blockers, never effective-config
+parity. Preserve frozen public contracts even when the newer source disagrees.
+Canonical/documented fields and explicit environment aliases must include the
+same core owners/scenarios, while retaining valid context-specific additions.
+`reference-config-audit.spec.mjs` tests these invariants on independent fixtures
+and samples every classified family; source extraction also checks audit consumer
+quotations byte-for-byte against the pinned checkout. Do not regenerate original
+captures or source provenance for an ownership-only correction.
+Alias ownership follows explicit “Also ENV”
+config-reference relationships before lexical namespaces; incidental mentions are
+not aliases. Local hook identity variables must not inherit remote-workspace
+ownership. `/vim-mode` is scrollback navigation, not prompt Vim editing, and
+`/import-claude` imports configuration rather than session histories. Overlay
+allowlists require effect-based security acceptance. Source/build controls remain
+provisional, not released capabilities. Interactive help/docs/diagnostics require real terminal acceptance;
+feature-gated panes retain explicit availability blockers until exercised.
+The portable checker requires independent source-only coverage as well as captured
+behavior; paired deletion from discovery and inventory must fail. Source evidence
+contains command enum/argument relationships that seed hidden-command help probes.
+The driver defaults to the checked-in `source-evidence.json`; use
+`--source-evidence <path>` for a freshly regenerated artifact. All command-tree probes append
+`--help`, never execute the underlying operation, and retain rejected source-only
+paths as unverified. The offline probe also covers compatibility options, paired
+FPS runs, fullscreen/minimal tutorial navigation, and help/docs palette/reader
+filtering, scrolling, aliases, dismissal, debug FPS toggling and error recovery.
+It does not open the personal browser or verify live dock resources. For only the
+supplemental small-command observations, run `reference-probe.py` with
+`--small-commands-only --binary /absolute/path/to/grok-1.0.34 --output .scratch/reference-small`.
+This avoids regenerating valid performance/headless captures. Its two PTYs record
+announcement usage, unsupported-graphics GBOOM refusal, dashboard location picker
+opening/dismissal via Ctrl+L, the `/cd` autocomplete placeholder and invalid path,
+minimal dashboard refusal, typing and clean quit. It does not establish populated
+banners, new-agent cwd, overlay rendering or argument passthrough. The model probe
+rejects malformed structured output and missing terminal events.
+Freeze measured numeric performance thresholds before collecting candidate data.
+Run the ordinary typecheck and full unit suite for changes to these workflows.
+
+## Isolated Rust client (#134–#139)
+
+Rust 1.98.1 (verified toolchain, edition 2024), Cargo, Node 22.19+, and the ordinary pnpm workspace
+are required to build a local native candidate. `rust/Cargo.lock` pins the
+selected UI dependency closure. The complete upstream agent closure is not
+built: it would initialize official execution/auth/services and also requires
+DotSlash/protoc. This slice imports the upstream text editor/inline terminal
+crates and extracts offline wide/stacked welcome layout; see
+`rust/upstream/import.json` and `rust/upstream/MODIFICATIONS` for provenance.
+The client reuses the official fullscreen alternate-screen renderer and the
+imported inline crate for minimal native-scrollback mode. `/minimal` and
+`/fullscreen` switch in process without restarting dsh; session-scoped CLI flags
+do not rewrite `[ui] screen_mode`. This is not a claim of complete Grok parity.
+Frozen behavior remains 1.0.34, while the imported public source declares 1.0.35
+(correspondence unproven).
+
+```sh
+pnpm run build:rust
+cargo check --manifest-path rust/Cargo.toml --locked --workspace
+pnpm run test:rust
+cargo clippy --manifest-path rust/Cargo.toml --locked --workspace --all-targets -- -D warnings
+cargo fmt --manifest-path rust/Cargo.toml --all -- --check
+pnpm run typecheck
+pnpm test
+pnpm run build
+pnpm exec vitest run --config vitest.e2e.config.ts e2e/wrapper.e2e.ts e2e/pty-input.e2e.ts e2e/pty-session.e2e.ts
+pnpm run test:rust:pty
+pnpm exec vitest run scripts/rust-acp-protocol.spec.mjs
+python3 scripts/rust-cancel-pty-test.py
+python3 scripts/rust-resume-pty-test.py
+python3 scripts/rust-config-pty-test.py
+python3 scripts/rust-model-pty-test.py
+python3 scripts/rust-compact-pty-test.py
+python3 scripts/rust-trust-pty-test.py
+python3 scripts/rust-screen-pty-test.py
+```
+
+`build:rust` stages the host binary under ignored `packages/cli/native/<os>-<arch>`
+with SHA-256, selected dependency metadata and license/notice files. `npm pack`
+from `packages/cli` includes it; install that tarball locally to try `codsh --rust`.
+No download-on-launch, release, global install, or default cutover occurs.
+Cross-target packaging/CI publication and native Linux/Windows verification are
+later tickets, not established by a macOS build. Packages lacking the artifact
+fail explicitly. The regular legacy `build` does not add native artifacts.
+
+`test:rust:pty` requires macOS, Python 3 and clang. It packs and locally installs
+the product in a temporary prefix, uses synthetic HOME/DSH_HOME/workspace canaries,
+operates the actual Rust UI through a PTY, and checks termios, screen/paste/cursor
+restoration after normal exit, cancellation, signals and malformed Profile startup.
+It also requires a case-insensitive test volume and checks twenty installed-product
+PTY refusals for `DSH_HOME`/`GROK_HOME` aliases: existing root/dsh/Profile, reverse
+spelling, a missing child, and genuinely absent root/dsh/Profile/mixed-case paths.
+Each must fail before terminal entry or any directory/file mutation. Four separate
+missing-Home controls (including a similar prefix) must still launch without
+creating the configured legacy Home. The launcher uses native canonicalization
+for existing paths and compares device/inode ancestry, not realpath strings alone.
+Each missing suffix stays anchored to its nearest existing directory. Suffixes are
+compared relative to shared directory identities; merely sharing an ancestor does
+not make separate siblings overlap. Metadata errors, non-directories and unavailable
+inode identity fail closed. No platform mount-prefix rewrite is used.
+The macOS installed matrix requires a real Data-volume firmlink alias. Firmlink
+fixtures live under `/tmp` so `/private/tmp` and `/System/Volumes/Data/private/tmp`
+have different native realpath strings and the same device/inode. The matrix
+exercises both alias directions, absent/partly-existing/existing roots, root/dsh/Profile
+and case variants, legacy ancestors, default links and separate prefix-neighbor/nested
+controls. Full UI controls verify separate aliased Homes without touching legacy data.
+A non-directory Home path is refused because directory identity cannot be established.
+When either path has missing components, it conservatively
+refuses a case-folded potential overlap on every platform. It neither assumes
+case sensitivity for unresolvable suffixes nor creates files to probe the volume.
+Every unresolved non-ASCII component is refused before suffix reconstruction,
+including separate names; no Unicode folding table or normalization heuristic is
+used as a filesystem oracle. Existing Unicode directories keep native identities,
+and missing ASCII children beneath resolved separate Unicode ancestors still work.
+The installed matrix covers long-s and ligature aliases at root/child paths for both
+variables and default links, with genuinely absent/existing roots. Separate ASCII,
+Unicode, composed/decomposed, emoji and invisible-character controls distinguish
+intentional missing-name refusal from existing-path support. Native realpath,
+device/inode and Profile samefile evidence accompany complete tree snapshots.
+Existing distinct paths keep their native identities. Node's JavaScript realpath
+fallback is insufficient because it preserves case spelling on the verified host.
+Eighteen further PTY checks cover dangling explicit/default legacy links, root/child
+targets, dangling ancestors, chains, absolute targets, separate missing targets and
+cycles for both Home variables. `ENOENT` must be distinguished from a dangling
+symlink with `lstat` before reconstructing missing path components; unresolved
+symlink ambiguity fails before writes. Native cycle errors fail closed. Six actual
+UI controls retain resolvable links to separate legacy Homes (including missing
+children under valid links). Snapshot assertions record link text without following
+links, along with directories and content hashes. No test uses personal Home data.
+The path matrix runs both variables with existing/missing absolute, relative,
+literal tilde, Unicode/space paths, directory/symlink/dangling/missing `..`
+traversals, and unset/empty/blank/overridden default Homes. It calls the released
+`dsh-home-paths` resolver as its dsh oracle; Grok's pinned `xai-dirs/src/lib.rs`
+keeps nonempty overrides verbatim. The launcher matches dsh's blank/tilde/lexical
+rules but refuses all `GROK_HOME` parent-traversal components before writes,
+even when they might be separate: no custom symlink traversal is attempted.
+Default Homes stay protected when overridden. Evidence records native filesystem
+identities, full synthetic tree snapshots and raw PTY output, not just path strings.
+Packing/installing is offline with isolated npm configuration; product fixtures
+live temporarily under the output directory. Keep `TMPDIR` at a valid system
+temporary directory **outside the repository** when running the existing unit/e2e
+suites: their outside-repository fixtures must not discover this worktree's Git root.
+The network observer interposes socket/connect/connectx/sendto/sendmsg/DNS calls
+without replacing their results; a compiled loopback UDP positive control proves
+socket and outbound-send observation.
+A Node preload preserves only this audit injection across the launcher's sanitized
+child environment. A separate uninstrumented run denies network and synthetic
+legacy-home reads with `sandbox-exec`. This is socket-boundary evidence, not
+privileged packet capture.
+No real credentials, session history, official account or paid service is used.
+Logs/screens/result JSON go to a new `.scratch/rust-pty-*` directory; `--output`
+can choose another new directory. Do not reuse personal data or a personal Home.
+
+The isolated Home still creates `~/.codsh-rust/dsh/profiles/rust/package.json`
+with an empty bundle composition. Interactive `codsh --rust` then starts released
+`dsh --profile acp` over ACP/JSON-RPC stdio in that Home; dsh owns execution and
+durable sessions. The mock model, when used, is a dsh provider-boundary fixture
+(`CODSH_ACP_PATCH`, `DSH_CODE_CLI_MOCK_TOOL`), not a stub of the Rust client or
+dsh core. Model/protocol/effort checks (`python3 scripts/rust-model-pty-test.py`)
+drive a loopback OpenAI-compatible fixture at the provider boundary and assert
+the actual request path, model id, auth, and effort; same-named models on
+different backends are not treated as equivalent. Enter submits the draft through dsh when connected. Missing dsh, ACP
+protocol mismatch, empty answers, mid-stream failure, and disconnect are shown
+as failures or empty results, never as success. File read/write/edit run through
+released dsh tools. The Rust UI correlates `session/request_permission` with the
+tool-call id, shows the pending operation and dsh-supplied diff, allows once with
+`y`, and rejects with `n` without writing. Missing files, tool errors, cancelled
+approvals, and duplicate replies are observable failures. `Ctrl+C` clears a
+draft without cancelling; an empty draft sends ACP `session/cancel` to dsh for a
+running turn, including pending approval and in-flight tools. Esc never cancels.
+Late allow replies and process teardown cannot execute a cancelled action; unknown
+tool results display as cancelled. After cancel, a new prompt still works.
+`test:rust:pty` now also runs `scripts/rust-turn-pty-test.py`,
+`scripts/rust-file-pty-test.py`, `scripts/rust-cancel-pty-test.py`,
+`scripts/rust-resume-pty-test.py`, `scripts/rust-config-pty-test.py`,
+`scripts/rust-model-pty-test.py`, `scripts/rust-compact-pty-test.py`,
+`scripts/rust-trust-pty-test.py`, `scripts/rust-screen-pty-test.py`,
+and `scripts/rust-fork-pty-test.py` against the packed native candidate.
+`/context` and `/compact` are dsh-backed: occupancy and advertised model limits
+must not be fabricated, manual/automatic compaction uses the dsh session log,
+failed compact must keep the ACP session and original records, cancel must print
+`Compaction cancelled.` and accept a following prompt, and resume must hide
+replaced history while answering a new prompt. The config test covers `inspect` /
+`inspect --json`, CLI/env/overlay/file precedence, invalid TOML preservation,
+first-run missing credentials, generated dsh `settings.yaml` mapping, restart
+after a config change, unmanaged settings conflict, and refusal to import
+legacy `~/.dsh` / `~/.grok` credentials. Public ACP framing, including
+file-tool permission, `session/cancel`, `session/list`, `session/resume`, and
+dsh-backed conversation fork/rewind, is covered by
+`scripts/rust-acp-protocol.spec.mjs`.
+`--continue` / `--resume <id>` restore the same dsh session through ACP
+`session/resume` plus a read-only persistence projection; `--fork-session`,
+`/fork`, and `/rewind` seed a new append-only child without restoring files.
+`/rewind` while a turn is streaming is refused; `/fork --no-worktree` copies
+conversation only; `--worktree` stays out of this slice. `[ui] confirm_before_rewind`
+and `ui.fork_secondary_model` live in `$GROK_HOME/config.toml` (default
+`~/.codsh-rust/.grok/config.toml`), the same user file as screen mode.
+`ui.fork_secondary_model` applies to `/fork` and `--fork-session`, not rewind.
+A second client is refused when it cannot take write ownership. Interrupted
+tools are displayed as unknown and are not replayed. `session/load` remains
+unsupported by dsh ACP. `--restore-code` is refused.
+Fullscreen uses the alternate-screen lifecycle; minimal emits committed turns
+into native history through the official inline renderer. `/rewind` and `/fork`
+in minimal reset that native buffer the same way compact does, so discarded
+turns are not left in scrollback. In-place `/minimal` and `/fullscreen` keep
+the dsh session, draft, running turn, and pending approval;
+`--minimal`/`--fullscreen` do not rewrite isolated `[ui] screen_mode`.
+Queue delivery across a switch remains a later ticket.
+
 ## Documentation site
 
 `site/` is a static GitHub Pages site. `index.html` and `zh.html` are the short

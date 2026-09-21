@@ -1,5 +1,8 @@
 # Reference agents, and Claude Code wins ties
 
+Scope: this rule remains active for the legacy client. The parallel Grok/dsh
+rewrite uses the scoped supersession in [ADR-0002](0002-frozen-grok-rewrite-reference.md).
+
 codsh aligns its interaction design against four reference agents — Claude
 Code, opencode, Codex CLI, and gemini-cli — and when they disagree on a
 behavior, Claude Code's behavior is copied; where Claude Code lacks the

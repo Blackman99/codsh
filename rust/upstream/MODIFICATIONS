@@ -1,0 +1,45 @@
+codsh Rust launch preview — local modifications, 2026-09-20
+
+Upstream: https://github.com/xai-org/grok-build
+Public commit: a28ee2b2063426e8816e380ccea528b9de95e5da
+Original monorepo revision: e8563f8f182296ebb53cadb3e1eab7615d76408e
+Declared source version: 1.0.35
+Behavior reference: Grok 1.0.34 / 3736acbc8658. Exact source mapping is unproven.
+
+Copyright 2023-2026 xAI. Imported first-party sources are Apache-2.0.
+The retained LICENSE and THIRD-PARTY-NOTICES apply to upstream source; the latter
+records the full upstream product, not this candidate's dependency closure.
+No official trademark endorsement, account, or released executable is included.
+
+xai-ratatui-textarea and xai-ratatui-inline retain upstream implementation,
+examples and tests. Five textarea test files have mechanical Rust 1.98 lint fixes:
+redundant imports/formatting borrows removed and single-Range slices spelled
+unambiguously; assertions and runtime semantics are unchanged. Modified files
+carry local notices. Their Cargo workspace dependencies resolve in rust/Cargo.toml.
+The inline crate is linked for official fullscreen/minimal rendering: fullscreen
+uses the alternate-screen lifecycle, and minimal emits committed turns through
+`emit_to_scrollback` into native history with an inline overlay. Cargo.lock began
+with the pinned export's lockfile and was pruned by Cargo to this workspace's
+actual dependencies.
+
+src/welcome/layout.rs is extracted from xai-grok-pager/src/views/welcome/mod.rs.
+src/welcome/hero_box.rs is extracted from the sibling hero_box.rs. Local changes
+remove remote announcements, auth, session pickers, changelogs, and unused result
+fields. The wide/stacked sizing and draft layout algorithms are retained.
+src/welcome/logo.rs retains the upstream logo sizing and shimmer machinery with
+codsh ASCII art, an offline palette, and removal of unused entry points.
+src/welcome/menu.rs retains the menu rendering and selection machinery with
+narrow-window clipping and the offline palette. Modified files carry notices.
+
+The new main, terminal guard, palette, and welcome composition are codsh code.
+They do not import upstream agent, tool, login, update, telemetry, feedback,
+network, or canonical session crates. Prompt submission refuses execution and
+preserves the draft; it does not fabricate an answer or a connected runtime.
+This ticket does not claim full UI parity, minimal-mode parity, or a dsh turn.
+
+upstream/import.json records original source paths and SHA-256 digests.
+scripts/build-rust.mjs records the native artifact's normal/build dependency
+closure and carries dependency license/notice files into npm packing, refusing
+missing license texts. Supplemental texts for ratatui-core/tui-scrollbar come
+from the crates.io VCS revisions recorded in import.json.
+No binary is committed or automatically published.

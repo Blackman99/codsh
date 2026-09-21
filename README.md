@@ -42,6 +42,138 @@ Common flags:
 - `codsh --resume <id>` — Resume a specific session
 - `codsh update` — Update launcher and profile runtime
 
+## Isolated Rust client (local candidates)
+
+`codsh --rust` explicitly selects the parallel Rust client; plain `codsh` keeps
+using the existing version. The Rust UI submits prompts over ACP/JSON-RPC to a
+real `dsh --profile acp` process in the isolated Home. Streamed answers, provider
+thoughts, empty replies, and failures are shown as dsh reports them; a protocol
+mismatch or missing dsh is refused instead of faked as success. It reuses licensed
+Grok Rust UI components, requires no official account, and does not start the
+legacy Bundle, official agent core, update check, telemetry, or feedback upload.
+Enter submits the draft through dsh when connected, or reports that execution is
+unavailable without sending it. File read, write, and edit run through real dsh
+tools. The UI shows the pending operation and the dsh-supplied diff, then `y`
+allows that call once and `n` rejects it with no write. Missing files, tool
+errors, cancelled or duplicate approval replies are shown as failures, never as
+success. `Ctrl+C` clears a non-empty draft without cancelling work; an empty
+draft cancels the running turn through dsh `session/cancel`. Esc never cancels a
+turn or a pending approval — it dismisses selection and reminds you to use
+`Ctrl+C`. Cancelled tools cannot run from a late allow or process teardown; unknown
+external results are shown as cancelled, not success. After cancel, the prompt
+accepts a new turn. Idle empty `Ctrl+C` still quits before any turn exists.
+`codsh --rust --continue` resumes the last dsh session in this directory;
+`--resume <id>` loads that session. `--fork-session` with `--resume`/`--continue`
+copies that conversation into a new dsh session id. `/rewind` and `/undo` (or idle
+empty Esc Esc) fork conversation-only history through dsh; `/fork` copies the
+current history into a new session. Disk files are not restored; `--restore-code`
+is refused. The UI restores persisted turns from the
+dsh log (not a second store). Interrupted or never-finished tools show
+`[interrupted]` / unknown and are not replayed. A second client that cannot
+take write ownership is refused instead of forking a duplicate executor.
+Default fullscreen uses the alternate screen. `/minimal` (or `--minimal`)
+switches to native terminal history through the official inline renderer;
+`/fullscreen` (alias `/full`) switches back. `/rewind` and `/fork` in minimal
+replace that native buffer instead of appending discarded turns. The switch stays in process, so a
+running dsh turn, draft, and pending approval survive. `--minimal` /
+`--fullscreen` and `GROK_SCREEN_MODE` are session-scoped and do not rewrite
+isolated `[ui] screen_mode`. Mode-only commands such as `/dashboard` in
+minimal refuse with the fullscreen remedy. `GROK_SCREEN_MODE_SWITCH=exec`
+relaunches onto the same session instead of switching in place and does not
+preserve an unsaved draft.
+
+User configuration for the preview is `$GROK_HOME/config.toml` (default
+`~/.codsh-rust/.grok/config.toml`). `[ui] confirm_before_rewind` and
+`ui.fork_secondary_model` are stored in that same file. Compatible `[model.<id>]` fields
+(`base_url`, `env_key`, `api_key`, `model`, `name`, `api_backend`,
+`supports_reasoning_effort`, `reasoning_efforts`, `reasoning_effort`,
+`context_window`) plus `models.default` / `models.default_reasoning_effort`
+map into isolated dsh `settings.yaml`; the two files are not competing sources.
+Supported backends are Grok `chat_completions`, `responses`, and `messages`
+(mapped to dsh `openai-completions`, `openai-responses`, `anthropic-messages`).
+The same model id on two backends is two catalog entries, not one capability.
+`/model` (alias `/m`) and `/effort`, plus `--model` and `--effort` /
+`--reasoning-effort`, select advertised options only. Unsupported backends or
+effort levels are refused or shown unavailable; there is no silent provider
+fallback. Runtime changes apply to the next turn and persist in
+`$GROK_HOME/model-selection.toml`. Usage, cost, and context limits stay
+unknown unless the provider or an explicit `context_window` supplies them.
+dsh context occupancy is labeled `occupancy=N (dsh estimate)` and is not
+treated as provider usage. `/context` shows those dsh facts plus heuristic
+system/tools/messages buckets when available; missing values stay unknown and
+are never printed as zero. Switching `/model` uses that model's advertised
+`context_window`. `/compact [instruction]` runs dsh compaction (progress,
+summary, failure, and cancel) instead of a second history store; optional
+instructions are sent only on the summarizer request (`purpose=compaction`)
+and the destination provider/model is recorded. Automatic compaction maps
+`session.auto_compact_threshold_percent` / `GROK_AUTO_COMPACT_THRESHOLD_PERCENT`
+into dsh `thresholdRatio` plus a compatible `retainRatio` (values outside
+0–100 are ignored; `0` disables auto-compact rather than writing an invalid
+ratio that would fail plugin load).
+`GROK_COMPACTION_WALL_CLOCK_SECS` bounds the operation; `0` disables that
+budget. After compact, resume projects the dsh checkpoint plus retained
+tools/todos; a failed compact leaves the original records in the log.
+`codsh --rust inspect` and `inspect --json` print each effective value and
+origin (CLI `--model`/`--effort`, environment, `GROK_CONFIG` overlay, workspace
+`.grok/config.toml`, saved selection, user `config.toml`, `managed_config.toml`,
+locked `requirements.toml`, default). Invalid `config.toml` is left unchanged
+and the error names the path. Locked requirements cannot be bypassed by later
+CLI, environment, overlay, workspace, or user values. Unknown security fields
+and invalid policies are diagnosed with valid keys, sources, and limits rather
+than ignored. Untrusted workspaces prompt before applying project config, Hooks,
+plugins, or instructions; `--trust` / `--trust-folder [path]` saves a grant to
+`$GROK_HOME/trusted_folders.toml`, `--revoke-trust` withdraws it, and a
+read-only Home reports save failure without claiming a durable grant. Untrusted
+Hooks, plugins, and project capabilities do not execute. First-run missing
+credentials stay local: no grok.com login, no default
+official telemetry/upload, and no import of `~/.dsh` or `~/.grok` credentials.
+Set the model's `env_key` (for example `XAI_API_KEY`) after writing a provider
+with a `base_url`. An empty Enter on first-run reloads that file and connects
+when a provider is ready, without submitting a prompt. Inherited parent
+`GROK_HOME` is ignored; the preview pins `GROK_HOME` to `~/.codsh-rust/.grok`.
+
+The preview uses `~/.codsh-rust/dsh` and Profile `rust`, ignores inherited
+`DSH_HOME` and Grok settings files, and never migrates legacy sessions.
+Configured `env_key` values such as `XAI_API_KEY` (and other `*_API_KEY`
+variables) are passed through to dsh; `~/.dsh` and `~/.grok` credential files
+are not imported. A symlinked preview Home/Profile or overlap with `DSH_HOME`/`GROK_HOME`
+is refused before writes, including differently cased aliases on case-insensitive
+filesystems. Overlap checks compare device/inode ancestry, including existing
+ancestors of missing paths, so macOS firmlink aliases cannot hide behind different
+realpath strings. Separate Homes reached through those aliases remain supported.
+Unavailable directory identity fails closed before writes.
+If either Home is missing, a case-only potential overlap is refused
+conservatively on every platform, without creating paths to test filesystem rules.
+Any missing path component containing non-ASCII characters is also refused before
+writes, even for a separate Home: Unicode lowercase/normalization is not a reliable
+filesystem-identity test. Use an existing separate Unicode directory or a path with
+only ASCII missing components. Existing Unicode ancestors and separate Homes still
+use native filesystem resolution; missing ASCII children beneath them are supported.
+Unresolved symlinks in explicit or default legacy Home paths are also refused
+before writes; repair dangling links or symlink cycles before launching the preview.
+Resolvable links to separate legacy Homes remain supported. Isolation checks follow
+released dsh rules for `DSH_HOME`: blank means unset; `~`, `~/` and `~\` expand to
+the OS Home, then relative paths and `..` normalize lexically. Nonempty `GROK_HOME`
+is literal (no tilde expansion or whitespace trimming). The preview conservatively
+refuses **any `..` component in `GROK_HOME`**, even for a separate existing Home,
+rather than guessing symlink traversal. Use a path without parent traversal.
+Default `~/.dsh` and `~/.grok` are protected even when overrides are set.
+`Ctrl+Q`/`Ctrl+D` quits; `Ctrl+C` clears a draft, cancels an empty running turn,
+or quits when idle before any turn. `--continue` and `--resume <id>` restore
+the same dsh session; `--fork-session` copies conversation into a new id;
+`/rewind` does not restore files. A second writer is refused. `--minimal` and `--fullscreen`
+select the session render mode. Unsupported
+arguments fail explicitly. `codsh --rust --help` describes this path. Mock-model
+tests inject the fixture at the dsh provider boundary (`CODSH_ACP_PATCH` /
+`DSH_CODE_CLI_MOCK_TOOL`); the Rust client and dsh remain real products.
+
+Maintainers stage a native candidate with `pnpm run build:rust`, then locally
+pack/install `packages/cli`; the npm entry includes the prebuilt native artifact
+and notices, so candidate users do not compile Rust. A package without a native
+artifact reports an actionable error, never falls back silently. No published
+release or default cutover is implied. See [Contributing](CONTRIBUTING.md) for
+build, installed-product verification, and platform limitations.
+
 ## `/ship`: One Sentence to Verified Code
 
 ```sh

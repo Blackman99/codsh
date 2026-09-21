@@ -1,0 +1,267 @@
+{
+  "schemaVersion": 1,
+  "reference": "1.0.34 (3736acbc8658)",
+  "machine": {
+    "system": "Darwin",
+    "release": "25.5.0",
+    "architecture": "arm64",
+    "cpu": "Apple M4 Pro"
+  },
+  "capturedAt": "2026-09-19T17:14:32Z",
+  "groups": [
+    {
+      "name": "version-process",
+      "unit": "ms",
+      "samples": [
+        21.335417,
+        23.04925,
+        21.323875,
+        21.706,
+        21.958417
+      ],
+      "median": 21.706,
+      "p95": 23.04925,
+      "limitation": "Includes sandbox-exec and process startup; not first-interactive-frame latency."
+    },
+    {
+      "name": "fullscreen:first-frame",
+      "unit": "ms",
+      "samples": [
+        329.767166,
+        292.054083,
+        274.277416,
+        296.781917,
+        287.231625
+      ],
+      "median": 292.054083,
+      "p95": 329.767166,
+      "limitation": "Warm filesystem cache, synthetic configured model; first complete fullscreen frame / minimal model label, not model response."
+    },
+    {
+      "name": "fullscreen:draft",
+      "unit": "ms",
+      "samples": [
+        43.70154199999996,
+        41.19987499999996,
+        40.081957999999986,
+        43.370375000000024,
+        42.051458000000025
+      ],
+      "median": 42.051458000000025,
+      "p95": 43.70154199999996,
+      "limitation": "Observation upper bound includes 30ms settle and PTY polling; scroll/resize marker is next frame, not proof of completed reflow."
+    },
+    {
+      "name": "fullscreen:settings-open",
+      "unit": "ms",
+      "samples": [
+        42.05137500000001,
+        47.21049999999991,
+        41.43266700000004,
+        42.06245799999988,
+        43.57049999999981
+      ],
+      "median": 42.06245799999988,
+      "p95": 47.21049999999991,
+      "limitation": "Observation upper bound includes 30ms settle and PTY polling; scroll/resize marker is next frame, not proof of completed reflow."
+    },
+    {
+      "name": "fullscreen:settings-scroll",
+      "unit": "ms",
+      "samples": [
+        36.557832999999846,
+        39.07933300000013,
+        36.365166000000045,
+        44.17862500000001,
+        42.29362500000002
+      ],
+      "median": 39.07933300000013,
+      "p95": 44.17862500000001,
+      "limitation": "Observation upper bound includes 30ms settle and PTY polling; scroll/resize marker is next frame, not proof of completed reflow."
+    },
+    {
+      "name": "fullscreen:resize-narrow",
+      "unit": "ms",
+      "samples": [
+        56.47195899999997,
+        57.06574999999998,
+        54.169124999999894,
+        59.427584000000024,
+        61.047250000000076
+      ],
+      "median": 57.06574999999998,
+      "p95": 61.047250000000076,
+      "limitation": "Observation upper bound includes 30ms settle and PTY polling; scroll/resize marker is next frame, not proof of completed reflow."
+    },
+    {
+      "name": "fullscreen:sampled-peak-rss",
+      "unit": "KiB",
+      "samples": [
+        100272,
+        100080,
+        100064,
+        99472,
+        100192
+      ],
+      "median": 100080,
+      "p95": 100272,
+      "limitation": "Sampled parent RSS only, not process-tree peak or long-session growth."
+    },
+    {
+      "name": "fullscreen:terminal-bytes",
+      "unit": "bytes",
+      "samples": [
+        21198,
+        21198,
+        21198,
+        21198,
+        21198
+      ],
+      "median": 21198,
+      "p95": 21198,
+      "limitation": "Bytes emitted during the fixed scenario; not model-token throughput."
+    },
+    {
+      "name": "minimal:first-frame",
+      "unit": "ms",
+      "samples": [
+        286.451292,
+        282.274333,
+        284.105417,
+        301.516916,
+        288.4195
+      ],
+      "median": 286.451292,
+      "p95": 301.516916,
+      "limitation": "Warm filesystem cache, synthetic configured model; first complete fullscreen frame / minimal model label, not model response."
+    },
+    {
+      "name": "minimal:draft",
+      "unit": "ms",
+      "samples": [
+        38.593500000000006,
+        42.45429100000001,
+        39.0025,
+        42.843834000000015,
+        43.232916999999986
+      ],
+      "median": 42.45429100000001,
+      "p95": 43.232916999999986,
+      "limitation": "Observation upper bound includes 30ms settle and PTY polling; scroll/resize marker is next frame, not proof of completed reflow."
+    },
+    {
+      "name": "minimal:settings-open",
+      "unit": "ms",
+      "samples": [
+        43.89170800000011,
+        45.53270799999996,
+        40.937333999999964,
+        43.772833999999875,
+        41.06854199999998
+      ],
+      "median": 43.772833999999875,
+      "p95": 45.53270799999996,
+      "limitation": "Observation upper bound includes 30ms settle and PTY polling; scroll/resize marker is next frame, not proof of completed reflow."
+    },
+    {
+      "name": "minimal:settings-scroll",
+      "unit": "ms",
+      "samples": [
+        36.52937500000007,
+        38.85041699999988,
+        40.900707999999895,
+        37.70854200000008,
+        37.900125000000116
+      ],
+      "median": 37.900125000000116,
+      "p95": 40.900707999999895,
+      "limitation": "Observation upper bound includes 30ms settle and PTY polling; scroll/resize marker is next frame, not proof of completed reflow."
+    },
+    {
+      "name": "minimal:resize-narrow",
+      "unit": "ms",
+      "samples": [
+        59.36429099999987,
+        60.313458999999966,
+        54.26079200000004,
+        55.5267080000001,
+        61.23245800000018
+      ],
+      "median": 59.36429099999987,
+      "p95": 61.23245800000018,
+      "limitation": "Observation upper bound includes 30ms settle and PTY polling; scroll/resize marker is next frame, not proof of completed reflow."
+    },
+    {
+      "name": "minimal:sampled-peak-rss",
+      "unit": "KiB",
+      "samples": [
+        94288,
+        94144,
+        94480,
+        94464,
+        94528
+      ],
+      "median": 94464,
+      "p95": 94528,
+      "limitation": "Sampled parent RSS only, not process-tree peak or long-session growth."
+    },
+    {
+      "name": "minimal:terminal-bytes",
+      "unit": "bytes",
+      "samples": [
+        7136,
+        7136,
+        7136,
+        7136,
+        7136
+      ],
+      "median": 7136,
+      "p95": 7136,
+      "limitation": "Bytes emitted during the fixed scenario; not model-token throughput."
+    }
+  ],
+  "thresholdPolicy": {
+    "status": "method-frozen; no candidate measured; pilot is not a release threshold",
+    "latency": "After at least 30 valid reference runs per scenario/machine/mode, ceiling = max(reference p95 * 1.20, reference p95 + 16.7ms). Freeze numeric values and raw capture SHA before the first candidate measurement.",
+    "throughput": "Use identical deterministic 1000-chunk fixture timing and payload; floor = reference median * 0.90. Freeze bytes/s and wall-time limits before candidate measurement.",
+    "resources": "Run 1000 turns plus background-task cleanup; ceiling = reference p95 process-tree RSS * 1.20. Growth above post-warmup baseline must not exceed max(reference growth * 1.20, 16MiB). Freeze per platform.",
+    "comparison": "Same installed-product hardware/OS/PTY dimensions, fixture, environment, power state and cache policy; alternate reference/candidate run order. Invalid runs remain recorded, not silently discarded.",
+    "invalidation": "Any fixture, terminal-driver, hardware or reference change requires new reference measurements and reviewed numeric thresholds before candidate runs."
+  },
+  "pending": [
+    {
+      "metric": "model-stream throughput",
+      "tickets": [
+        202,
+        209
+      ],
+      "reason": "Four-format local fixture proves output but is not a throughput workload."
+    },
+    {
+      "metric": "long-session process-tree resource growth",
+      "tickets": [
+        202,
+        209
+      ],
+      "reason": "Pilot captures only short-session parent RSS."
+    },
+    {
+      "metric": "Linux and Windows performance",
+      "tickets": [
+        199,
+        200,
+        209
+      ],
+      "reason": "No native host was available in this macOS worktree."
+    },
+    {
+      "metric": "release numeric ceilings",
+      "tickets": [
+        202,
+        209
+      ],
+      "reason": "Five-run pilot is insufficient for a stable p95; freeze 30-run thresholds before candidate measurement."
+    }
+  ],
+  "captureSha256": "76b758c1da67b577a22a3514cde409a8c75aedd1760e5d60dacdd8346fa22584"
+}
