@@ -2133,6 +2133,11 @@ env_key = "EXISTING_KEY"
             cli_revoke_trust: false,
             cli_trust_path: None,
             interactive: false,
+            cli_permission_mode: None,
+            cli_always_approve: false,
+            cli_auto: false,
+            cli_allow: Vec::new(),
+            cli_deny: Vec::new(),
         });
         assert_eq!(loaded.default_model.as_deref(), Some("acme-gateway"));
         assert!(!loaded.imported_legacy_credentials);
@@ -2278,6 +2283,11 @@ agent-default-model:
             cli_revoke_trust: false,
             cli_trust_path: None,
             interactive: false,
+            cli_permission_mode: None,
+            cli_always_approve: false,
+            cli_auto: false,
+            cli_allow: Vec::new(),
+            cli_deny: Vec::new(),
         });
         let active = loaded.active_model().expect("imported route is usable");
         assert_eq!(active.model, "acme-large");

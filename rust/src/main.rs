@@ -6,6 +6,7 @@ mod extra_ca;
 mod feedback_ui;
 mod import;
 mod models;
+mod permission;
 mod plugin;
 mod privacy;
 mod privacy_cmd;
@@ -256,6 +257,11 @@ struct Launch {
     screen: Option<ScreenMode>,
     fork_session: bool,
     child_id: Option<String>,
+    permission_mode: Option<String>,
+    always_approve: bool,
+    auto: bool,
+    allow: Vec<String>,
+    deny: Vec<String>,
 }
 
 fn take_flag_value(
@@ -295,6 +301,11 @@ fn parse_launch(args: &[String]) -> io::Result<Launch> {
     let mut rest = Vec::new();
     let mut fork_session = false;
     let mut child_id = None;
+    let mut permission_mode = None;
+    let mut always_approve = false;
+    let mut auto = false;
+    let mut allow = Vec::new();
+    let mut deny = Vec::new();
     let mut index = 0;
     while index < args.len() {
         if let Some(value) = take_flag_value(
@@ -332,6 +343,49 @@ fn parse_launch(args: &[String]) -> io::Result<Launch> {
             "missing session id; --session-id requires --fork-session",
         )? {
             child_id = Some(value);
+        } else if let Some(value) = take_flag_value(
+            args,
+            &mut index,
+            "--permission-mode",
+            "missing --permission-mode value; use ask, auto, always-approve, dontAsk, or acceptEdits",
+        )? {
+            permission::PermissionMode::parse(&value).map_err(io::Error::other)?;
+            permission_mode = Some(value);
+        } else if let Some(value) = take_flag_value(
+            args,
+            &mut index,
+            "--allow",
+            "missing --allow rule; example: --allow 'Bash(git *)'",
+        )? {
+            allow.push(value);
+        } else if let Some(value) = take_flag_value(
+            args,
+            &mut index,
+            "--allowedTools",
+            "missing --allowedTools rule; example: --allowedTools 'Read'",
+        )? {
+            allow.push(value);
+        } else if let Some(value) = take_flag_value(
+            args,
+            &mut index,
+            "--deny",
+            "missing --deny rule; example: --deny 'Bash(rm -rf *)'",
+        )? {
+            deny.push(value);
+        } else if let Some(value) = take_flag_value(
+            args,
+            &mut index,
+            "--disallowedTools",
+            "missing --disallowedTools rule",
+        )? {
+            deny.push(value);
+        } else if let Some(value) = take_flag_value(
+            args,
+            &mut index,
+            "--disallowed-tools",
+            "missing --disallowed-tools rule",
+        )? {
+            deny.push(value);
         } else {
             let arg = &args[index];
             if arg == "--trust" && args.iter().any(|item| item == "plugin") {
@@ -373,6 +427,13 @@ fn parse_launch(args: &[String]) -> io::Result<Launch> {
                 screen = Some(ScreenMode::Fullscreen);
             } else if arg == "--fork-session" {
                 fork_session = true;
+            } else if arg == "--always-approve"
+                || arg == "--yolo"
+                || arg == "--dangerously-skip-permissions"
+            {
+                always_approve = true;
+            } else if arg == "--auto" {
+                auto = true;
             } else {
                 rest.push(arg.clone());
             }
@@ -484,6 +545,11 @@ fn parse_launch(args: &[String]) -> io::Result<Launch> {
         screen,
         fork_session,
         child_id,
+        permission_mode,
+        always_approve,
+        auto,
+        allow,
+        deny,
     })
 }
 
@@ -717,6 +783,7 @@ fn runtime_apply(effective: &config::EffectiveConfig) -> RuntimeApply {
     let env = std::env::vars().collect();
     let mut extra_env = config::credential_env(effective, &env);
     extra_env.extend(config::compact_env(effective));
+    extra_env.extend(config::permission_env(effective));
     match config::apply_to_dsh(effective, &env) {
         Ok(patch) => RuntimeApply {
             extra_env,
@@ -1763,6 +1830,114 @@ fn write_debug_file(debug: bool, path: Option<&PathBuf>, command: &str) -> io::R
     Ok(())
 }
 
+fn permission_slash(text: &str) -> Option<permission::PermissionMode> {
+    match text.trim() {
+        "/always-approve" | "/yolo" => Some(permission::PermissionMode::AlwaysApprove),
+        "/auto" => Some(permission::PermissionMode::Auto),
+        "/ask" => Some(permission::PermissionMode::Ask),
+        _ => None,
+    }
+}
+
+fn tool_access(tool: &ToolRow) -> permission::AccessKind {
+    for name in [tool.title.as_str(), tool.kind.as_str()] {
+        if name.is_empty() {
+            continue;
+        }
+        let access = permission::access_from_tool(name, &tool.raw_input);
+        if !matches!(access, permission::AccessKind::Tool(_)) {
+            return access;
+        }
+    }
+    permission::access_from_tool(
+        if tool.title.is_empty() {
+            tool.kind.as_str()
+        } else {
+            tool.title.as_str()
+        },
+        &tool.raw_input,
+    )
+}
+
+fn persistable_grant(access: &permission::AccessKind) -> bool {
+    matches!(
+        access,
+        permission::AccessKind::Bash(_)
+            | permission::AccessKind::Mcp { .. }
+            | permission::AccessKind::WebFetch(_)
+            | permission::AccessKind::Edit(_)
+    )
+}
+
+fn persist_remembered_grant(
+    effective: &mut config::EffectiveConfig,
+    turn: &Turn,
+    tool_call_id: &str,
+) -> Result<String, String> {
+    if !effective.permission.remember_tool_approvals {
+        return Ok("Allowed once; remembering is disabled.".into());
+    }
+    let Some(tool) = turn.tools.iter().find(|tool| tool.id == tool_call_id) else {
+        return Ok("Allowed once; not saved as a permanent rule.".into());
+    };
+    let access = tool_access(tool);
+    if !persistable_grant(&access) {
+        return Ok("Allowed once; not saved as a permanent rule.".into());
+    }
+    match permission::record_grant(&effective.permission.grants_path, &access, true) {
+        Ok(grants) => {
+            effective.permission.grants = grants;
+            let _ = permission::write_policy_file(&effective.dsh_home, &effective.permission);
+            Ok("Remembered for this project only; y would have been once.".into())
+        }
+        Err(_) => Ok("Couldn't save a permanent rule; this allow is once.".into()),
+    }
+}
+
+fn revoke_remembered_grants(effective: &mut config::EffectiveConfig) -> Result<String, String> {
+    permission::clear_grants(&effective.permission.grants_path)
+        .map_err(|error| error.to_string())?;
+    effective.permission.grants = permission::GrantStore::default();
+    permission::write_policy_file(&effective.dsh_home, &effective.permission)
+        .map_err(|error| error.to_string())?;
+    Ok("Revoked remembered grants for this project. y remains once.".into())
+}
+
+fn apply_session_permission_mode(
+    effective: &mut config::EffectiveConfig,
+    mode: permission::PermissionMode,
+) -> Result<String, String> {
+    if mode == permission::PermissionMode::AlwaysApprove
+        && effective.permission.always_approve_locked
+    {
+        return Err(effective
+            .permission
+            .lock_source
+            .clone()
+            .unwrap_or_else(|| {
+                "always-approve disabled by managed policy ([ui] disable_bypass_permissions_mode = true in requirements.toml)".into()
+            }));
+    }
+    if effective.permission.mode == mode {
+        return Ok(format!("Already in {} mode.", mode.as_str()));
+    }
+    effective.permission.mode = mode;
+    effective.permission.mode_source = "session".into();
+    if let Some(setting) = effective
+        .settings
+        .iter_mut()
+        .find(|setting| setting.key == "ui.permission_mode")
+    {
+        setting.value = mode.as_str().into();
+        setting.source = "session".into();
+    }
+    let _ = permission::write_policy_file(&effective.dsh_home, &effective.permission);
+    Ok(format!(
+        "Permission mode {} for this session. Deny rules and hooks still apply.",
+        mode.as_str()
+    ))
+}
+
 fn inspect_help() -> &'static str {
     "Show the configuration this directory resolves\n\nUsage: codsh --rust inspect [OPTIONS]\n\nOptions:\n      --json                  Emit machine-readable JSON output\n      --debug                 Enable debug logging\n      --debug-file <FILE>     Write debug logs to FILE\n  -h, --help                  Print help\n\nReports CLI, environment, overlay, config.toml, workspace, managed, and requirements origins.\nLocked requirements cannot be bypassed. Folder trust, project-asset activity, marketplace sources, and installed plugin provenance are included.\nLeader sockets are unused; dsh owns execution."
 }
@@ -1838,6 +2013,11 @@ fn load_runtime_config(launch: &Launch) -> config::EffectiveConfig {
         cli_revoke_trust: launch.revoke_trust,
         cli_trust_path: launch.trust_folder.clone(),
         interactive: io::stdin().is_terminal(),
+        cli_permission_mode: launch.permission_mode.clone(),
+        cli_always_approve: launch.always_approve,
+        cli_auto: launch.auto,
+        cli_allow: launch.allow.clone(),
+        cli_deny: launch.deny.clone(),
     };
     if input.dsh_home.as_os_str().is_empty() {
         input.dsh_home = input.home.join("dsh");
@@ -2146,7 +2326,7 @@ fn run() -> io::Result<()> {
         }
         LaunchMode::Help => {
             println!(
-                "codsh --rust\n\nIsolated Rust client. Real dsh executes turns over ACP/JSON-RPC stdio.\nHome: ~/.codsh-rust/dsh; Profile: rust. Legacy codsh is unchanged.\nUser config: $GROK_HOME/config.toml (default ~/.codsh-rust/.grok/config.toml), mapped into isolated dsh settings.yaml.\nManaged defaults: $GROK_HOME/managed_config.toml. Locked requirements: $GROK_HOME/requirements.toml (cannot be bypassed by later CLI, environment, overlay, workspace, or user values).\n`codsh --rust inspect` / `inspect --json` shows effective values, origins, folder trust, appearance/theme/status-line, marketplace sources, installed plugin provenance, and whether project assets are active. Invalid config.toml is left unchanged and reports its path. Unknown security fields and invalid policies are diagnosed with valid values, sources, and limits.\n`codsh --rust import --preview` lists conversions, conflicts, and unsupported items from current dsh `$DSH_HOME/settings.yaml`, `code-cli-thinking.json`, and `code-cli-ui.json`. It does not treat outdated `code-cli-settings.json` as a provider source. `--apply` copies selected providers/preferences into the isolated Home. Official tokens, `.credentials.yaml`, `.env`, and original trust/execution grants are never copied. Preview, cancel, and failed apply leave source files and existing isolated settings unchanged. Model credentials stay in the host environment (`--authorize-env`) or must be exported after import.\nWorkspace trust: untrusted folders prompt before applying project config, Hooks, plugins, or instructions; `--trust` / `--trust-folder [path]` saves a grant, `--revoke-trust` withdraws it. A read-only $GROK_HOME reports save failure without pretending the grant is durable. Untrusted Hooks/plugins/project capabilities do not execute.\nPlugin lifecycle: `codsh --rust plugin marketplace add|list|update|remove` and `plugin install|update|uninstall|list` record sources, versions, licenses, and files under the isolated Home. Install does not grant execution. Failed download/checksum/conflict/offline/cancel leave no success record. Official marketplace auto-register is off unless GROK_OFFICIAL_MARKETPLACE_AUTO_REGISTER is enabled. `/plugins` and `/marketplace` open the plugins directory. Uninstall does not delete unrelated user files.\nFirst-run missing credentials stay local: no grok.com login, no default official telemetry, no automatic import of ~/.dsh or ~/.grok credentials. `login` / `logout` / `setup` use configured substitute identity or management services; official grok.com / auth.x.ai login, subscription billing, auto-topup, and team entitlements are not reproduced. Session tokens stay in $GROK_HOME/auth.json (0600) and are not transferred to model providers, MCP, Grove, or other services. Independent API-key use does not require login unless GROK_DISABLE_API_KEY_AUTH or a team pin (GROK_FORCE_LOGIN_TEAM_ID / requirements force_login_team_uuid) requires a matching identity session. Unsigned or unverifiable managed policy is refused.  /login and /logout reuse that contract.\nFile read/edit/write run through dsh tools; y allows once, n rejects with no write. Trust prompt: y=allow, n=deny.\nCtrl+Q/Ctrl+D: quit. Ctrl+C: clear a draft; empty draft cancels a running turn via dsh, or quits when idle before any turn.\nEsc never cancels a turn or a pending approval; it dismisses selection and reminds you to use Ctrl+C.\nEnter: submit prompt. /feedback opens Write and Drafts; Enter on Write sends, Ctrl+S saves locally, and /feedback <text> sends immediately. Draft text is posted only when privacy.share_content is on. /settings (/config) edits appearance, default screen mode, timestamps, compact mode, and status line. /theme (/t) previews fullscreen themes; Escape restores the previous theme without saving. /compact-mode and /timestamps toggle persisted [ui] keys. Minimal mode uses the terminal palette and refuses /theme. Status-line scripts run with a 10s timeout, cleared BASH_ENV/ENV, and process-group cleanup on exit. Locked requirements show their source and cannot be edited.\n/minimal and /fullscreen switch render mode in process without restarting dsh; --minimal/--fullscreen and GROK_SCREEN_MODE are session-scoped and do not rewrite [ui] screen_mode. /model (/m) and /effort select advertised catalog options; unsupported backends/efforts are refused, never treated as equivalent or silently swapped. /context shows dsh occupancy, advertised model limits, and heuristic buckets without fabricating zeros. /compact [instruction] runs dsh compaction (not a second history); optional instructions go only to the summarizer request (purpose=compaction). Automatic compaction uses session.auto_compact_threshold_percent / GROK_AUTO_COMPACT_THRESHOLD_PERCENT mapped to dsh thresholdRatio. GROK_COMPACTION_WALL_CLOCK_SECS bounds the operation; 0 disables that budget. Runtime changes apply to the next turn and persist under $GROK_HOME/model-selection.toml. --continue resumes the last session in this directory; --resume <id> loads that dsh session. --fork-session with --resume/--continue copies conversation into a new session id. /rewind and /undo fork conversation-only history through dsh; files are not restored. /fork copies the current history into a new session. Idle empty Esc Esc opens rewind. A second client is refused while this process holds write ownership. Interrupted tools show [interrupted]/unknown and are not replayed.\nOptions: --help, --version, --continue, --resume <id>, --fork-session, --session-id <id>, --minimal, --fullscreen, --model <id>, --effort/--reasoning-effort <level>, --trust, --trust-folder [path], --revoke-trust, inspect, import, plugin, feedback, login, logout, setup. --restore-code is refused.\nNonessential telemetry, trace upload, session tracking, and content sharing default off. Opt-in requires a substitute endpoints.telemetry_url / feedback_base_url / trace_upload_url; official grok.com, api.x.ai, and sentry hosts are refused. Diagnostic previews list kind/ok/count only and never prompts or keys. Model calls stay on the configured provider and are not telemetry. Locked requirements can force these switches off."
+                "codsh --rust\n\nIsolated Rust client. Real dsh executes turns over ACP/JSON-RPC stdio.\nHome: ~/.codsh-rust/dsh; Profile: rust. Legacy codsh is unchanged.\nUser config: $GROK_HOME/config.toml (default ~/.codsh-rust/.grok/config.toml), mapped into isolated dsh settings.yaml.\nManaged defaults: $GROK_HOME/managed_config.toml. Locked requirements: $GROK_HOME/requirements.toml (cannot be bypassed by later CLI, environment, overlay, workspace, or user values).\n`codsh --rust inspect` / `inspect --json` shows effective values, origins, folder trust, appearance/theme/status-line, marketplace sources, installed plugin provenance, and whether project assets are active. Invalid config.toml is left unchanged and reports its path. Unknown security fields and invalid policies are diagnosed with valid values, sources, and limits.\n`codsh --rust import --preview` lists conversions, conflicts, and unsupported items from current dsh `$DSH_HOME/settings.yaml`, `code-cli-thinking.json`, and `code-cli-ui.json`. It does not treat outdated `code-cli-settings.json` as a provider source. `--apply` copies selected providers/preferences into the isolated Home. Official tokens, `.credentials.yaml`, `.env`, and original trust/execution grants are never copied. Preview, cancel, and failed apply leave source files and existing isolated settings unchanged. Model credentials stay in the host environment (`--authorize-env`) or must be exported after import.\nWorkspace trust: untrusted folders prompt before applying project config, Hooks, plugins, or instructions; `--trust` / `--trust-folder [path]` saves a grant, `--revoke-trust` withdraws it. A read-only $GROK_HOME reports save failure without pretending the grant is durable. Untrusted Hooks/plugins/project capabilities do not execute.\nPlugin lifecycle: `codsh --rust plugin marketplace add|list|update|remove` and `plugin install|update|uninstall|list` record sources, versions, licenses, and files under the isolated Home. Install does not grant execution. Failed download/checksum/conflict/offline/cancel leave no success record. Official marketplace auto-register is off unless GROK_OFFICIAL_MARKETPLACE_AUTO_REGISTER is enabled. `/plugins` and `/marketplace` open the plugins directory. Uninstall does not delete unrelated user files.\nFirst-run missing credentials stay local: no grok.com login, no default official telemetry, no automatic import of ~/.dsh or ~/.grok credentials. `login` / `logout` / `setup` use configured substitute identity or management services; official grok.com / auth.x.ai login, subscription billing, auto-topup, and team entitlements are not reproduced. Session tokens stay in $GROK_HOME/auth.json (0600) and are not transferred to model providers, MCP, Grove, or other services. Independent API-key use does not require login unless GROK_DISABLE_API_KEY_AUTH or a team pin (GROK_FORCE_LOGIN_TEAM_ID / requirements force_login_team_uuid) requires a matching identity session. Unsigned or unverifiable managed policy is refused.  /login and /logout reuse that contract.\nFile read/edit/write and other dsh tools honour allow/ask/deny rules, remembered project grants, and permission modes. y allows once; a remembers this project only and is not a permanent global rule; n rejects with no write. /revoke-approvals forgets this project's remembered grants. Deny, hooks, and locked always-approve survive --always-approve/--yolo. Trust prompt: y=allow, n=deny.\nCtrl+Q/Ctrl+D: quit. Ctrl+C: clear a draft; empty draft cancels a running turn via dsh, or quits when idle before any turn.\nEsc never cancels a turn or a pending approval; it dismisses selection and reminds you to use Ctrl+C.\nEnter: submit prompt. /always-approve, /auto, and /ask set the session mode unless requirements.toml locks always-approve off. /feedback opens Write and Drafts; Enter on Write sends, Ctrl+S saves locally, and /feedback <text> sends immediately. Draft text is posted only when privacy.share_content is on. /settings (/config) edits appearance, default screen mode, timestamps, compact mode, and status line. /theme (/t) previews fullscreen themes; Escape restores the previous theme without saving. /compact-mode and /timestamps toggle persisted [ui] keys. Minimal mode uses the terminal palette and refuses /theme. Status-line scripts run with a 10s timeout, cleared BASH_ENV/ENV, and process-group cleanup on exit. Locked requirements show their source and cannot be edited.\n/minimal and /fullscreen switch render mode in process without restarting dsh; --minimal/--fullscreen and GROK_SCREEN_MODE are session-scoped and do not rewrite [ui] screen_mode. /model (/m) and /effort select advertised catalog options; unsupported backends/efforts are refused, never treated as equivalent or silently swapped. /context shows dsh occupancy, advertised model limits, and heuristic buckets without fabricating zeros. /compact [instruction] runs dsh compaction (not a second history); optional instructions go only to the summarizer request (purpose=compaction). Automatic compaction uses session.auto_compact_threshold_percent / GROK_AUTO_COMPACT_THRESHOLD_PERCENT mapped to dsh thresholdRatio. GROK_COMPACTION_WALL_CLOCK_SECS bounds the operation; 0 disables that budget. Runtime changes apply to the next turn and persist under $GROK_HOME/model-selection.toml. --continue resumes the last session in this directory; --resume <id> loads that dsh session. --fork-session with --resume/--continue copies conversation into a new session id. /rewind and /undo fork conversation-only history through dsh; files are not restored. /fork copies the current history into a new session. Idle empty Esc Esc opens rewind. A second client is refused while this process holds write ownership. Interrupted tools show [interrupted]/unknown and are not replayed.\nOptions: --help, --version, --continue, --resume <id>, --fork-session, --session-id <id>, --minimal, --fullscreen, --model <id>, --effort/--reasoning-effort <level>, --trust, --trust-folder [path], --revoke-trust, --always-approve/--yolo, --auto, --permission-mode <mode>, --allow/--deny <RULE>, inspect, import, plugin, feedback, login, logout, setup. --restore-code is refused.\nNonessential telemetry, trace upload, session tracking, and content sharing default off. Opt-in requires a substitute endpoints.telemetry_url / feedback_base_url / trace_upload_url; official grok.com, api.x.ai, and sentry hosts are refused. Diagnostic previews list kind/ok/count only and never prompts or keys. Model calls stay on the configured provider and are not telemetry. Locked requirements can force these switches off."
             );
             return Ok(());
         }
@@ -2961,15 +3141,26 @@ fn run() -> io::Result<()> {
                     && draft.is_empty()
                 {
                     let option = match key.code {
-                        KeyCode::Char('y') | KeyCode::Enter => Some("allow-once"),
-                        KeyCode::Char('n') => Some("reject-once"),
+                        KeyCode::Char('y') | KeyCode::Enter => Some(("allow-once", false)),
+                        KeyCode::Char('a') => Some(("allow-once", true)),
+                        KeyCode::Char('n') => Some(("reject-once", false)),
                         _ => None,
                     };
-                    if let Some(option_id) = option {
+                    if let Some((option_id, remember)) = option {
                         match active.answer_permission(&permission.request_id, option_id) {
                             Ok(()) => {
-                                turn.permission = None;
                                 last_error.clear();
+                                if option_id == "allow-once" && remember {
+                                    hint = persist_remembered_grant(
+                                        &mut effective,
+                                        turn,
+                                        &permission.tool_call_id,
+                                    )
+                                    .unwrap_or_else(|error| error);
+                                } else if option_id == "allow-once" {
+                                    hint = "Allowed once; not saved as a permanent rule.".into();
+                                }
+                                turn.permission = None;
                             }
                             Err(error) => last_error = error.message,
                         }
@@ -3016,6 +3207,39 @@ fn run() -> io::Result<()> {
                         }
                         _ => {
                             let text = draft.text();
+                            if text.trim() == "/revoke-approvals" {
+                                let restored = std::mem::take(&mut composer_stash);
+                                draft.set_text(&restored);
+                                selected = None;
+                                match revoke_remembered_grants(&mut effective) {
+                                    Ok(message) => {
+                                        hint = message;
+                                        last_error.clear();
+                                    }
+                                    Err(error) => last_error = error,
+                                }
+                                continue;
+                            }
+                            if let Some(mode_command) = permission_slash(text.trim()) {
+                                let restored = std::mem::take(&mut composer_stash);
+                                draft.set_text(&restored);
+                                selected = None;
+                                match apply_session_permission_mode(&mut effective, mode_command) {
+                                    Ok(message) => {
+                                        let applied = runtime_apply(&effective);
+                                        if applied.apply_failed {
+                                            last_error = applied.error;
+                                        } else {
+                                            extra_env = applied.extra_env;
+                                            patch = applied.patch;
+                                            hint = message;
+                                            last_error.clear();
+                                        }
+                                    }
+                                    Err(error) => last_error = error,
+                                }
+                                continue;
+                            }
                             if let Some(command) = appearance::slash(text) {
                                 let restored = std::mem::take(&mut composer_stash);
                                 draft.set_text(&restored);
@@ -3972,5 +4196,26 @@ mod tests {
             session_fork::running_turn_error(),
             "a turn is running — interrupt it before rewinding"
         );
+    }
+
+    #[test]
+    fn parse_permission_flags() {
+        let launch = parse_launch(&args(&[
+            "--always-approve",
+            "--deny",
+            "Bash(rm -rf *)",
+            "--allow",
+            "Bash(git *)",
+        ]))
+        .unwrap();
+        assert!(launch.always_approve);
+        assert_eq!(launch.deny, vec!["Bash(rm -rf *)"]);
+        assert_eq!(launch.allow, vec!["Bash(git *)"]);
+        let auto = parse_launch(&args(&["--permission-mode", "auto"])).unwrap();
+        assert_eq!(auto.permission_mode.as_deref(), Some("auto"));
+        let yolo = parse_launch(&args(&["--yolo"])).unwrap();
+        assert!(yolo.always_approve);
+        let invalid = parse_launch(&args(&["--permission-mode", "explode"])).unwrap_err();
+        assert!(invalid.to_string().contains("invalid permission mode"));
     }
 }

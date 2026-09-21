@@ -1,8 +1,9 @@
 /**
  * Keyless LLM adapter at the dsh provider boundary for Rust ACP turn tests.
  * Modes: echo (default), reasoning, empty, fail-stream, file-edit, file-write,
- * file-missing, file-error. Optional DSH_CODE_CLI_MOCK_DELAY_MS delays the
- * first chunk so session/cancel can win before activity.
+ * file-missing, file-error, bash-rm, bash-git, file-secret. Optional
+ * DSH_CODE_CLI_MOCK_DELAY_MS delays the first chunk so session/cancel can win
+ * before activity.
  */
 import { LlmAdapter, ReasoningEffortId, ToolCallId } from '@deepseek-ai/dsh-llm'
 
@@ -85,6 +86,45 @@ function* fileToolTurn(options) {
     }
     const last = done.at(-1)
     yield* mockText(`RUST_ACP_FILE_ERROR ${resultText(last)}`)
+    return
+  }
+  if (MODE === 'bash-rm') {
+    if (done.length === 0) {
+      yield* mockToolCall('rust-acp-bash-rm', 'bash', { command: 'rm -rf denied-target' })
+      return
+    }
+    const last = done.at(-1)
+    if (last?.isError === true) {
+      yield* mockText(`RUST_ACP_BASH_DENIED ${resultText(last)}`)
+      return
+    }
+    yield* mockText(`RUST_ACP_BASH_DONE ${resultText(last)}`)
+    return
+  }
+  if (MODE === 'bash-git') {
+    if (done.length === 0) {
+      yield* mockToolCall('rust-acp-bash-git', 'bash', { command: 'git status' })
+      return
+    }
+    const last = done.at(-1)
+    if (last?.isError === true) {
+      yield* mockText(`RUST_ACP_BASH_DENIED ${resultText(last)}`)
+      return
+    }
+    yield* mockText(`RUST_ACP_BASH_DONE ${resultText(last)}`)
+    return
+  }
+  if (MODE === 'file-secret') {
+    if (done.length === 0) {
+      yield* mockToolCall('rust-acp-read-secret', 'read', { file_path: 'secret/key.txt' })
+      return
+    }
+    const last = done.at(-1)
+    if (last?.isError === true) {
+      yield* mockText(`RUST_ACP_FILE_ERROR ${resultText(last)}`)
+      return
+    }
+    yield* mockText(`RUST_ACP_FILE_DONE ${resultText(last)}`)
     return
   }
   if (MODE === 'file-write') {
@@ -212,7 +252,7 @@ class RustAcpMockAdapter extends LlmAdapter {
       yield* mockText(`RUST_ACP_TODO_DONE TODO_KEEP turn=${turn} ${userTexts(options).join('\n')}`)
       return
     }
-    if (MODE === 'file-edit' || MODE === 'file-write' || MODE === 'file-missing' || MODE === 'file-error') {
+    if (MODE === 'file-edit' || MODE === 'file-write' || MODE === 'file-missing' || MODE === 'file-error' || MODE === 'bash-rm' || MODE === 'bash-git' || MODE === 'file-secret') {
       yield* fileToolTurn(options)
       return
     }

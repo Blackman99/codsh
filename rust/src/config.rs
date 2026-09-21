@@ -4,6 +4,7 @@ use crate::models::{
     ApiBackend, CatalogChoice, GROK_EFFORTS, Routing, acp_model_value, effort_supported,
     load_saved_selection, normalize_effort,
 };
+use crate::permission::{self, PermissionMode, PermissionPolicy};
 use crate::screen_mode::ScreenMode;
 use crate::trust::{
     self, DecideInputs, GrantOutcome, PersistStatus, TRUST_FILE_NAME, TrustOutcome, TrustStore,
@@ -111,6 +112,7 @@ pub struct EffectiveConfig {
     pub auth_session: Option<auth::AuthRecord>,
     pub fail_closed: bool,
     pub merged_table: TomlValue,
+    pub permission: PermissionPolicy,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -126,6 +128,11 @@ pub struct LoadInput {
     pub cli_revoke_trust: bool,
     pub cli_trust_path: Option<PathBuf>,
     pub interactive: bool,
+    pub cli_permission_mode: Option<String>,
+    pub cli_always_approve: bool,
+    pub cli_auto: bool,
+    pub cli_allow: Vec<String>,
+    pub cli_deny: Vec<String>,
 }
 
 impl EffectiveConfig {
@@ -282,6 +289,11 @@ pub fn load() -> EffectiveConfig {
         cli_revoke_trust: false,
         cli_trust_path: None,
         interactive: true,
+        cli_permission_mode: None,
+        cli_always_approve: false,
+        cli_auto: false,
+        cli_allow: Vec::new(),
+        cli_deny: Vec::new(),
     })
 }
 
@@ -1521,6 +1533,111 @@ pub fn load_from(mut input: LoadInput) -> EffectiveConfig {
         },
     );
 
+    let workspace_tables = permission::collect_workspace_tables(&input.cwd, workspace_trusted);
+    let claude = permission::load_claude_settings(&input.cwd, workspace_trusted);
+    let permission = match permission::build_policy(
+        input.cwd.clone(),
+        &grok_home,
+        &input.home,
+        input.interactive,
+        workspace_trusted,
+        user.as_ref(),
+        managed.as_ref(),
+        requirements.as_ref(),
+        &workspace_tables,
+        claude.as_ref(),
+        input.cli_permission_mode.as_deref(),
+        input.cli_always_approve,
+        input.cli_auto,
+        input.env.get("GROK_PERMISSION_MODE").map(String::as_str),
+        input
+            .env
+            .get("GROK_REMEMBER_TOOL_APPROVALS")
+            .map(String::as_str),
+        &input.cli_allow,
+        &input.cli_deny,
+    ) {
+        Ok(policy) => {
+            warnings.extend(policy.skipped.iter().cloned());
+            policy
+        }
+        Err(reason) => {
+            errors.push(ConfigError {
+                path: Some(requirements_path.clone()),
+                reason,
+            });
+            permission::build_policy(
+                input.cwd.clone(),
+                &grok_home,
+                &input.home,
+                input.interactive,
+                workspace_trusted,
+                user.as_ref(),
+                managed.as_ref(),
+                requirements.as_ref(),
+                &workspace_tables,
+                claude.as_ref(),
+                None,
+                false,
+                false,
+                None,
+                input
+                    .env
+                    .get("GROK_REMEMBER_TOOL_APPROVALS")
+                    .map(String::as_str),
+                &[],
+                &input.cli_deny,
+            )
+            .unwrap_or_else(|_| PermissionPolicy {
+                mode: PermissionMode::Ask,
+                mode_source: "default".into(),
+                always_approve_locked: true,
+                lock_source: Some(
+                    "always-approve disabled by managed policy ([ui] disable_bypass_permissions_mode = true in requirements.toml)"
+                        .into(),
+                ),
+                remember_tool_approvals: true,
+                remember_source: "default".into(),
+                interactive: input.interactive,
+                cwd: input.cwd.clone(),
+                rules: Vec::new(),
+                skipped: Vec::new(),
+                grants_path: permission::workspace_grants_path(&grok_home, &input.cwd, &input.home),
+                grants: permission::GrantStore::default(),
+            })
+        }
+    };
+    push_setting(
+        &mut settings,
+        "ui.permission_mode",
+        permission.mode.as_str(),
+        &permission.mode_source,
+    );
+    push_setting(
+        &mut settings,
+        "ui.remember_tool_approvals",
+        if permission.remember_tool_approvals {
+            "true"
+        } else {
+            "false"
+        },
+        &permission.remember_source,
+    );
+    if permission.always_approve_locked {
+        push_setting(
+            &mut settings,
+            "ui.disable_bypass_permissions_mode",
+            "true",
+            "requirements",
+        );
+    }
+    push_setting(
+        &mut settings,
+        "permission.rules",
+        &permission.rules.len().to_string(),
+        "merged",
+    );
+
     EffectiveConfig {
         grok_home,
         config_path,
@@ -1563,6 +1680,7 @@ pub fn load_from(mut input: LoadInput) -> EffectiveConfig {
         auth_session: session,
         fail_closed,
         merged_table: table,
+        permission,
     }
 }
 
@@ -1660,6 +1778,12 @@ pub fn inspect_json(config: &EffectiveConfig) -> String {
         "compactThresholdPercent": config.compact_threshold_percent.unwrap_or(80),
         "compactWallClockSecs": config.compact_wall_clock_secs,
         "pruneEnabled": config.prune_enabled,
+        "permissionMode": config.permission.mode.as_str(),
+        "permissionModeSource": config.permission.mode_source,
+        "alwaysApproveLocked": config.permission.always_approve_locked,
+        "rememberToolApprovals": config.permission.remember_tool_approvals,
+        "permissionRules": config.permission.rules.len(),
+        "permissionGrantsPath": config.permission.grants_path,
         "appearance": appearance::inspect_json_fragment(&config.appearance, ScreenMode::Fullscreen),
         "routing": config.routing().map(|routing| json!({
             "catalogId": routing.catalog_id,
@@ -1894,6 +2018,12 @@ pub fn apply_to_dsh(
     config: &EffectiveConfig,
     env: &BTreeMap<String, String>,
 ) -> io::Result<Option<PathBuf>> {
+    permission::write_policy_file(&config.dsh_home, &config.permission).map_err(|error| {
+        io::Error::other(format!(
+            "couldn't write permission policy to {}: {error}; refusing rather than dropping deny rules",
+            config.dsh_home.join(permission::POLICY_FILE_NAME).display()
+        ))
+    })?;
     if !config.errors.is_empty() || !config.ready {
         return Ok(None);
     }
@@ -2019,6 +2149,17 @@ pub fn compact_env(config: &EffectiveConfig) -> Vec<(String, String)> {
         extra.push(("GROK_COMPACTION_WALL_CLOCK_SECS".into(), secs.to_string()));
     }
     extra
+}
+
+pub fn permission_env(config: &EffectiveConfig) -> Vec<(String, String)> {
+    vec![(
+        "CODSH_PERMISSION_POLICY".into(),
+        config
+            .dsh_home
+            .join(permission::POLICY_FILE_NAME)
+            .display()
+            .to_string(),
+    )]
 }
 
 fn generated_settings_yaml(config: &EffectiveConfig) -> String {
@@ -2828,6 +2969,11 @@ mod tests {
             cli_revoke_trust: false,
             cli_trust_path: None,
             interactive: true,
+            cli_permission_mode: None,
+            cli_always_approve: false,
+            cli_auto: false,
+            cli_allow: Vec::new(),
+            cli_deny: Vec::new(),
         }
     }
 

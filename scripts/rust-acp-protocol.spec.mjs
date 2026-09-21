@@ -1212,4 +1212,120 @@ describe('public ACP/JSON-RPC against real dsh', () => {
       agent.child.kill('SIGTERM')
     }
   }, 20000)
+
+  it('denies a matching bash rule under always-approve without executing', async () => {
+    const policy = join('/tmp', `codsh-perm-deny-${Date.now()}.json`)
+    writeFileSync(policy, `${JSON.stringify({
+      mode: 'always-approve',
+      rememberToolApprovals: true,
+      interactive: false,
+      cwd: '/tmp',
+      grantsPath: '',
+      rules: [{ action: 'deny', tool: 'bash', pattern: 'rm -rf *', patternMode: 'glob', source: 'cli' }],
+      grants: { allowedBash: ['rm -rf denied-target'], deniedBash: [], allowedMcp: [], deniedMcp: [], allowedDomains: [], deniedDomains: [], allowedEdits: false },
+    })}\n`)
+    const agent = startAgent('bash-rm', { CODSH_PERMISSION_POLICY: policy })
+    try {
+      const { session } = await handshake(agent)
+      const result = await agent.send(3, 'session/prompt', {
+        sessionId: session.sessionId,
+        prompt: [{ type: 'text', text: 'remove the target' }],
+      })
+      expect(result.stopReason).toBe('end_turn')
+      expect(agent.permissions).toEqual([])
+      const failed = agent.updates.find(update => update.update.sessionUpdate === 'tool_call_update')
+      expect(failed.update.status).toBe('failed')
+      expect(JSON.stringify(failed.update.content)).toMatch(/Denied by permission policy|rm -rf/i)
+      expect(JSON.stringify(failed.update.content).toLowerCase()).not.toContain('success')
+      const answer = agent.updates.filter(update => update.update.sessionUpdate === 'agent_message_chunk').at(-1)
+      expect(answer.update.content.text).toContain('RUST_ACP_BASH_DENIED')
+    } finally {
+      agent.child.stdin.end()
+      agent.child.kill('SIGTERM')
+      rmSync(policy, { force: true })
+    }
+  }, 45000)
+
+  it('keeps explicit ask on a path even when always-approve is requested for a shell rule', async () => {
+    const policy = join('/tmp', `codsh-perm-ask-${Date.now()}.json`)
+    writeFileSync(policy, `${JSON.stringify({
+      mode: 'always-approve',
+      rememberToolApprovals: true,
+      interactive: true,
+      cwd: '/tmp',
+      grantsPath: '',
+      rules: [{ action: 'ask', tool: 'read', pattern: 'secret/**', patternMode: 'glob', source: 'config.toml' }],
+      grants: { allowedBash: [], deniedBash: [], allowedMcp: [], deniedMcp: [], allowedDomains: [], deniedDomains: [], allowedEdits: false },
+    })}\n`)
+    const agent = startAgent('file-secret', { CODSH_PERMISSION_POLICY: policy })
+    try {
+      mkdirSync(join(agent.cwd, 'secret'))
+      writeFileSync(join(agent.cwd, 'secret/key.txt'), 'SECRET\n')
+      const { session } = await handshake(agent)
+      const prompt = agent.send(3, 'session/prompt', {
+        sessionId: session.sessionId,
+        prompt: [{ type: 'text', text: 'read the secret' }],
+      })
+      await waitUntil(() => agent.permissions.length > 0, 20000, 'ask-rule permission')
+      agent.reply(agent.permissions[0].id, { outcome: { outcome: 'selected', optionId: 'reject-once' } })
+      const result = await prompt
+      expect(result.stopReason).toBe('end_turn')
+      const failed = agent.updates.find(update => update.update.sessionUpdate === 'tool_call_update' && update.update.status === 'failed')
+      expect(failed).toBeTruthy()
+    } finally {
+      agent.child.stdin.end()
+      agent.child.kill('SIGTERM')
+      rmSync(policy, { force: true })
+    }
+  }, 45000)
+
+  it('keeps allow-once from persisting a grant, then hook deny still wins over a later prompt', async () => {
+    const root = mkdtempSync(join('/tmp', 'codsh-perm-grant-'))
+    homes.push(root)
+    const grantsPath = join(root, 'permission.toml')
+    const policy = join(root, 'policy.json')
+    writeFileSync(policy, `${JSON.stringify({
+      mode: 'ask',
+      rememberToolApprovals: true,
+      interactive: true,
+      cwd: root,
+      grantsPath,
+      rules: [],
+      grants: { allowedBash: [], deniedBash: [], allowedMcp: [], deniedMcp: [], allowedDomains: [], deniedDomains: [], allowedEdits: false },
+    })}\n`)
+    const first = startAgent('file-edit', { CODSH_PERMISSION_POLICY: policy })
+    try {
+      writeFileSync(join(first.cwd, 'note.txt'), 'alpha\n')
+      const { session } = await handshake(first)
+      const prompt = first.send(3, 'session/prompt', {
+        sessionId: session.sessionId,
+        prompt: [{ type: 'text', text: 'edit the note' }],
+      })
+      await waitUntil(() => first.permissions.length > 0, 20000, 'first once-only permission')
+      expect(first.permissions[0].params.options.map(option => option.optionId)).toEqual(['allow-once', 'reject-once'])
+      first.reply(first.permissions[0].id, { outcome: { outcome: 'selected', optionId: 'allow-once' } })
+      await prompt
+      expect(readFileSync(join(first.cwd, 'note.txt'), 'utf8')).toBe('ALPHA\n')
+      expect(existsSync(grantsPath)).toBe(false)
+    } finally {
+      first.child.stdin.end()
+      first.child.kill('SIGTERM')
+    }
+    const hooked = startAgent('file-edit', { CODSH_PERMISSION_POLICY: policy, CODSH_HOOK_DENY: 'blocked by test hook' })
+    try {
+      writeFileSync(join(hooked.cwd, 'note.txt'), 'alpha\n')
+      const { session } = await handshake(hooked)
+      const result = await hooked.send(3, 'session/prompt', {
+        sessionId: session.sessionId,
+        prompt: [{ type: 'text', text: 'edit despite grant' }],
+      })
+      expect(result.stopReason).toBe('end_turn')
+      const failed = hooked.updates.find(update => update.update.sessionUpdate === 'tool_call_update' && update.update.status === 'failed')
+      expect(JSON.stringify(failed.update.content)).toMatch(/Denied by hook/)
+      expect(readFileSync(join(hooked.cwd, 'note.txt'), 'utf8')).toBe('alpha\n')
+    } finally {
+      hooked.child.stdin.end()
+      hooked.child.kill('SIGTERM')
+    }
+  }, 60000)
 })

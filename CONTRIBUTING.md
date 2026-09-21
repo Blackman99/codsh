@@ -239,6 +239,7 @@ python3 scripts/rust-model-pty-test.py
 python3 scripts/rust-compact-pty-test.py
 python3 scripts/rust-trust-pty-test.py
 python3 scripts/rust-auth-pty-test.py
+python3 scripts/rust-permission-pty-test.py
 python3 scripts/rust-screen-pty-test.py
 python3 scripts/rust-fork-pty-test.py
 python3 scripts/rust-plugin-pty-test.py
@@ -333,7 +334,10 @@ protocol mismatch, empty answers, mid-stream failure, and disconnect are shown
 as failures or empty results, never as success. File read/write/edit run through
 released dsh tools. The Rust UI correlates `session/request_permission` with the
 tool-call id, shows the pending operation and dsh-supplied diff, allows once with
-`y`, and rejects with `n` without writing. Missing files, tool errors, cancelled
+`y`, remembers this project only with `a`, and rejects with `n` without writing.
+`/revoke-approvals` forgets this project's remembered grants. Allow/ask/deny rules,
+remembered project grants, locked always-approve, and hook deny are enforced before the
+dsh tool body. Missing files, tool errors, cancelled
 approvals, and duplicate replies are observable failures. `Ctrl+C` clears a
 draft without cancelling; an empty draft sends ACP `session/cancel` to dsh for a
 running turn, including pending approval and in-flight tools. Esc never cancels.
@@ -346,7 +350,7 @@ tool results display as cancelled. After cancel, a new prompt still works.
 `scripts/rust-trust-pty-test.py`, `scripts/rust-screen-pty-test.py`,
 `scripts/rust-fork-pty-test.py`, `scripts/rust-settings-pty-test.py`,
 `scripts/rust-import-pty-test.py`, `scripts/rust-plugin-pty-test.py`,
-and `scripts/rust-auth-pty-test.py`
+`scripts/rust-auth-pty-test.py`, and `scripts/rust-permission-pty-test.py`
 against the packed native candidate.
 `/context` and `/compact` are dsh-backed: occupancy and advertised model limits
 must not be fabricated, manual/automatic compaction uses the dsh session log,

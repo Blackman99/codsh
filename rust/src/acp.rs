@@ -413,6 +413,9 @@ pub fn dsh_spawn_spec(
         "CODSH_TEST_PRUNE_HEAD",
         "CODSH_TEST_PRUNE_TAIL",
         "CODSH_TEST_PRUNE_THRESHOLD",
+        "CODSH_PERMISSION_POLICY",
+        "CODSH_HOOK_DENY",
+        "CODSH_PERMISSION_REMEMBER",
     ] {
         if let Some(value) = std::env::var_os(key) {
             env.push((key.to_string(), value.to_string_lossy().into_owned()));
@@ -2078,7 +2081,7 @@ mod tests {
     fn shutdown_reaps_child_before_owner_release() {
         let home = tempfile::tempdir().unwrap();
         let mut client = ready("echo");
-        let session = client.session_id.clone().expect("session");
+        let session = format!("shutdown-reap-{}", std::process::id());
         let owner =
             crate::session_owner::SessionOwner::acquire(home.path(), &session).expect("owner");
         client.shutdown();
