@@ -6,6 +6,8 @@ mod extra_ca;
 mod import;
 mod models;
 mod plugin;
+mod privacy;
+mod privacy_cmd;
 mod screen_mode;
 mod session_fork;
 mod session_history;
@@ -204,6 +206,7 @@ enum LaunchMode {
         flags: import::ImportFlags,
     },
     Plugin(plugin::PluginCommand),
+    Feedback(privacy_cmd::FeedbackCommand),
     Login {
         flags: auth::LoginFlags,
         help: bool,
@@ -406,6 +409,16 @@ fn parse_launch(args: &[String]) -> io::Result<Launch> {
         ["import", flags @ ..] => LaunchMode::Import {
             flags: import::parse_flags(flags)?,
         },
+        ["feedback"] => LaunchMode::Feedback(privacy_cmd::FeedbackCommand::Help),
+        ["feedback", flags @ ..] => LaunchMode::Feedback(
+            privacy_cmd::parse_feedback(
+                &flags
+                    .iter()
+                    .map(|flag| (*flag).to_string())
+                    .collect::<Vec<_>>(),
+            )
+            .map_err(|error| io::Error::other(error.to_string()))?,
+        ),
         ["plugin"] => LaunchMode::Plugin(plugin::PluginCommand::Help),
         ["plugin", flags @ ..] => LaunchMode::Plugin(
             plugin::parse_command(
@@ -1956,6 +1969,9 @@ fn handle_slash_command(
         models::Command::Context | models::Command::Compact { .. } => Err(
             "internal slash routing: /context and /compact are handled by the live session".into(),
         ),
+        models::Command::Feedback { .. } => {
+            Err("internal slash routing: /feedback is handled by the live session".into())
+        }
     }
 }
 
@@ -2053,9 +2069,27 @@ fn run() -> io::Result<()> {
             );
             return Ok(());
         }
+        LaunchMode::Feedback(command) => {
+            if matches!(command, privacy_cmd::FeedbackCommand::Help) {
+                println!("{}", privacy_cmd::help_text());
+                return Ok(());
+            }
+            let loaded = load_runtime_config(&launch);
+            let policy = privacy::PrivacyPolicy::from_config(&loaded);
+            let log_path = privacy_cmd::debug_log_path(&loaded.dsh_home);
+            match privacy_cmd::run(command, &loaded.dsh_home, &policy, log_path.as_deref()) {
+                Ok(message) => {
+                    println!("{message}");
+                    return Ok(());
+                }
+                Err(error) => {
+                    return Err(io::Error::other(error.to_string()));
+                }
+            }
+        }
         LaunchMode::Help => {
             println!(
-                "codsh --rust\n\nIsolated Rust client. Real dsh executes turns over ACP/JSON-RPC stdio.\nHome: ~/.codsh-rust/dsh; Profile: rust. Legacy codsh is unchanged.\nUser config: $GROK_HOME/config.toml (default ~/.codsh-rust/.grok/config.toml), mapped into isolated dsh settings.yaml.\nManaged defaults: $GROK_HOME/managed_config.toml. Locked requirements: $GROK_HOME/requirements.toml (cannot be bypassed by later CLI, environment, overlay, workspace, or user values).\n`codsh --rust inspect` / `inspect --json` shows effective values, origins, folder trust, appearance/theme/status-line, marketplace sources, installed plugin provenance, and whether project assets are active. Invalid config.toml is left unchanged and reports its path. Unknown security fields and invalid policies are diagnosed with valid values, sources, and limits.\n`codsh --rust import --preview` lists conversions, conflicts, and unsupported items from current dsh `$DSH_HOME/settings.yaml`, `code-cli-thinking.json`, and `code-cli-ui.json`. It does not treat outdated `code-cli-settings.json` as a provider source. `--apply` copies selected providers/preferences into the isolated Home. Official tokens, `.credentials.yaml`, `.env`, and original trust/execution grants are never copied. Preview, cancel, and failed apply leave source files and existing isolated settings unchanged. Model credentials stay in the host environment (`--authorize-env`) or must be exported after import.\nWorkspace trust: untrusted folders prompt before applying project config, Hooks, plugins, or instructions; `--trust` / `--trust-folder [path]` saves a grant, `--revoke-trust` withdraws it. A read-only $GROK_HOME reports save failure without pretending the grant is durable. Untrusted Hooks/plugins/project capabilities do not execute.\nPlugin lifecycle: `codsh --rust plugin marketplace add|list|update|remove` and `plugin install|update|uninstall|list` record sources, versions, licenses, and files under the isolated Home. Install does not grant execution. Failed download/checksum/conflict/offline/cancel leave no success record. Official marketplace auto-register is off unless GROK_OFFICIAL_MARKETPLACE_AUTO_REGISTER is enabled. `/plugins` and `/marketplace` open the plugins directory. Uninstall does not delete unrelated user files.\nFirst-run missing credentials stay local: no grok.com login, no default official telemetry, no automatic import of ~/.dsh or ~/.grok credentials. `login` / `logout` / `setup` use configured substitute identity or management services; official grok.com / auth.x.ai login, subscription billing, auto-topup, and team entitlements are not reproduced. Session tokens stay in $GROK_HOME/auth.json (0600) and are not transferred to model providers, MCP, Grove, or other services. Independent API-key use does not require login unless GROK_DISABLE_API_KEY_AUTH or a team pin (GROK_FORCE_LOGIN_TEAM_ID / requirements force_login_team_uuid) requires a matching identity session. Unsigned or unverifiable managed policy is refused.  /login and /logout reuse that contract.\nFile read/edit/write run through dsh tools; y allows once, n rejects with no write. Trust prompt: y=allow, n=deny.\nCtrl+Q/Ctrl+D: quit. Ctrl+C: clear a draft; empty draft cancels a running turn via dsh, or quits when idle before any turn.\nEsc never cancels a turn or a pending approval; it dismisses selection and reminds you to use Ctrl+C.\nEnter: submit prompt. /settings (/config) edits appearance, default screen mode, timestamps, compact mode, and status line. /theme (/t) previews fullscreen themes; Escape restores the previous theme without saving. /compact-mode and /timestamps toggle persisted [ui] keys. Minimal mode uses the terminal palette and refuses /theme. Status-line scripts run with a 10s timeout, cleared BASH_ENV/ENV, and process-group cleanup on exit. Locked requirements show their source and cannot be edited.\n/minimal and /fullscreen switch render mode in process without restarting dsh; --minimal/--fullscreen and GROK_SCREEN_MODE are session-scoped and do not rewrite [ui] screen_mode. /model (/m) and /effort select advertised catalog options; unsupported backends/efforts are refused, never treated as equivalent or silently swapped. /context shows dsh occupancy, advertised model limits, and heuristic buckets without fabricating zeros. /compact [instruction] runs dsh compaction (not a second history); optional instructions go only to the summarizer request (purpose=compaction). Automatic compaction uses session.auto_compact_threshold_percent / GROK_AUTO_COMPACT_THRESHOLD_PERCENT mapped to dsh thresholdRatio. GROK_COMPACTION_WALL_CLOCK_SECS bounds the operation; 0 disables that budget. Runtime changes apply to the next turn and persist under $GROK_HOME/model-selection.toml. --continue resumes the last session in this directory; --resume <id> loads that dsh session. --fork-session with --resume/--continue copies conversation into a new session id. /rewind and /undo fork conversation-only history through dsh; files are not restored. /fork copies the current history into a new session. Idle empty Esc Esc opens rewind. A second client is refused while this process holds write ownership. Interrupted tools show [interrupted]/unknown and are not replayed.\nOptions: --help, --version, --continue, --resume <id>, --fork-session, --session-id <id>, --minimal, --fullscreen, --model <id>, --effort/--reasoning-effort <level>, --trust, --trust-folder [path], --revoke-trust, inspect, import, plugin, login, logout, setup. --restore-code is refused."
+                "codsh --rust\n\nIsolated Rust client. Real dsh executes turns over ACP/JSON-RPC stdio.\nHome: ~/.codsh-rust/dsh; Profile: rust. Legacy codsh is unchanged.\nUser config: $GROK_HOME/config.toml (default ~/.codsh-rust/.grok/config.toml), mapped into isolated dsh settings.yaml.\nManaged defaults: $GROK_HOME/managed_config.toml. Locked requirements: $GROK_HOME/requirements.toml (cannot be bypassed by later CLI, environment, overlay, workspace, or user values).\n`codsh --rust inspect` / `inspect --json` shows effective values, origins, folder trust, appearance/theme/status-line, marketplace sources, installed plugin provenance, and whether project assets are active. Invalid config.toml is left unchanged and reports its path. Unknown security fields and invalid policies are diagnosed with valid values, sources, and limits.\n`codsh --rust import --preview` lists conversions, conflicts, and unsupported items from current dsh `$DSH_HOME/settings.yaml`, `code-cli-thinking.json`, and `code-cli-ui.json`. It does not treat outdated `code-cli-settings.json` as a provider source. `--apply` copies selected providers/preferences into the isolated Home. Official tokens, `.credentials.yaml`, `.env`, and original trust/execution grants are never copied. Preview, cancel, and failed apply leave source files and existing isolated settings unchanged. Model credentials stay in the host environment (`--authorize-env`) or must be exported after import.\nWorkspace trust: untrusted folders prompt before applying project config, Hooks, plugins, or instructions; `--trust` / `--trust-folder [path]` saves a grant, `--revoke-trust` withdraws it. A read-only $GROK_HOME reports save failure without pretending the grant is durable. Untrusted Hooks/plugins/project capabilities do not execute.\nPlugin lifecycle: `codsh --rust plugin marketplace add|list|update|remove` and `plugin install|update|uninstall|list` record sources, versions, licenses, and files under the isolated Home. Install does not grant execution. Failed download/checksum/conflict/offline/cancel leave no success record. Official marketplace auto-register is off unless GROK_OFFICIAL_MARKETPLACE_AUTO_REGISTER is enabled. `/plugins` and `/marketplace` open the plugins directory. Uninstall does not delete unrelated user files.\nFirst-run missing credentials stay local: no grok.com login, no default official telemetry, no automatic import of ~/.dsh or ~/.grok credentials. `login` / `logout` / `setup` use configured substitute identity or management services; official grok.com / auth.x.ai login, subscription billing, auto-topup, and team entitlements are not reproduced. Session tokens stay in $GROK_HOME/auth.json (0600) and are not transferred to model providers, MCP, Grove, or other services. Independent API-key use does not require login unless GROK_DISABLE_API_KEY_AUTH or a team pin (GROK_FORCE_LOGIN_TEAM_ID / requirements force_login_team_uuid) requires a matching identity session. Unsigned or unverifiable managed policy is refused.  /login and /logout reuse that contract.\nFile read/edit/write run through dsh tools; y allows once, n rejects with no write. Trust prompt: y=allow, n=deny.\nCtrl+Q/Ctrl+D: quit. Ctrl+C: clear a draft; empty draft cancels a running turn via dsh, or quits when idle before any turn.\nEsc never cancels a turn or a pending approval; it dismisses selection and reminds you to use Ctrl+C.\nEnter: submit prompt. /feedback saves a local draft and submits only with an explicit submit. /settings (/config) edits appearance, default screen mode, timestamps, compact mode, and status line. /theme (/t) previews fullscreen themes; Escape restores the previous theme without saving. /compact-mode and /timestamps toggle persisted [ui] keys. Minimal mode uses the terminal palette and refuses /theme. Status-line scripts run with a 10s timeout, cleared BASH_ENV/ENV, and process-group cleanup on exit. Locked requirements show their source and cannot be edited.\n/minimal and /fullscreen switch render mode in process without restarting dsh; --minimal/--fullscreen and GROK_SCREEN_MODE are session-scoped and do not rewrite [ui] screen_mode. /model (/m) and /effort select advertised catalog options; unsupported backends/efforts are refused, never treated as equivalent or silently swapped. /context shows dsh occupancy, advertised model limits, and heuristic buckets without fabricating zeros. /compact [instruction] runs dsh compaction (not a second history); optional instructions go only to the summarizer request (purpose=compaction). Automatic compaction uses session.auto_compact_threshold_percent / GROK_AUTO_COMPACT_THRESHOLD_PERCENT mapped to dsh thresholdRatio. GROK_COMPACTION_WALL_CLOCK_SECS bounds the operation; 0 disables that budget. Runtime changes apply to the next turn and persist under $GROK_HOME/model-selection.toml. --continue resumes the last session in this directory; --resume <id> loads that dsh session. --fork-session with --resume/--continue copies conversation into a new session id. /rewind and /undo fork conversation-only history through dsh; files are not restored. /fork copies the current history into a new session. Idle empty Esc Esc opens rewind. A second client is refused while this process holds write ownership. Interrupted tools show [interrupted]/unknown and are not replayed.\nOptions: --help, --version, --continue, --resume <id>, --fork-session, --session-id <id>, --minimal, --fullscreen, --model <id>, --effort/--reasoning-effort <level>, --trust, --trust-folder [path], --revoke-trust, inspect, import, plugin, feedback, login, logout, setup. --restore-code is refused.\nNonessential telemetry, trace upload, session tracking, and content sharing default off. Opt-in requires a substitute endpoints.telemetry_url / feedback_base_url / trace_upload_url; official grok.com, api.x.ai, and sentry hosts are refused. Diagnostic previews list kind/ok/count only and never prompts or keys. Model calls stay on the configured provider and are not telemetry. Locked requirements can force these switches off."
             );
             return Ok(());
         }
@@ -3203,6 +3237,45 @@ fn run() -> io::Result<()> {
                             if inflight && slash.is_none() {
                                 continue;
                             }
+                            if let Some(models::Command::Feedback { rest }) = slash.clone() {
+                                let session_id = client
+                                    .as_ref()
+                                    .and_then(|active| active.session_id.clone())
+                                    .unwrap_or_else(|| "local".into());
+                                let mut argv = vec!["feedback".into()];
+                                if rest.trim().is_empty() {
+                                    argv.push("list".into());
+                                } else {
+                                    argv.extend(rest.split_whitespace().map(str::to_string));
+                                }
+                                if !argv.iter().any(|arg| arg == "--session") {
+                                    argv.push("--session".into());
+                                    argv.push(session_id);
+                                }
+                                match privacy_cmd::parse_feedback(&argv[1..]) {
+                                    Ok(command) => {
+                                        let policy =
+                                            privacy::PrivacyPolicy::from_config(&effective);
+                                        let slash_log =
+                                            privacy_cmd::debug_log_path(&effective.dsh_home);
+                                        match privacy_cmd::run(
+                                            &command,
+                                            &effective.dsh_home,
+                                            &policy,
+                                            slash_log.as_deref(),
+                                        ) {
+                                            Ok(message) => {
+                                                hint = message;
+                                                last_error.clear();
+                                            }
+                                            Err(error) => last_error = error.to_string(),
+                                        }
+                                    }
+                                    Err(error) => last_error = error.to_string(),
+                                }
+                                draft.set_text("");
+                                continue;
+                            }
                             if matches!(
                                 slash,
                                 Some(models::Command::Login | models::Command::Logout)
@@ -3548,6 +3621,13 @@ mod tests {
         assert_eq!(launch.effort.as_deref(), Some("high"));
         let alias = parse_launch(&args(&["--reasoning-effort=low"])).unwrap();
         assert_eq!(alias.effort.as_deref(), Some("low"));
+    }
+
+    #[test]
+    fn feedback_slash_is_not_a_model_turn() {
+        let command = models::parse_slash("/feedback save --title Fold --details Lost").unwrap();
+        assert!(matches!(command, models::Command::Feedback { .. }));
+        assert!(models::parse_slash("/feedbacks").is_none());
     }
 
     #[test]

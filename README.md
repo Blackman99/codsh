@@ -114,11 +114,23 @@ ratio that would fail plugin load).
 `GROK_COMPACTION_WALL_CLOCK_SECS` bounds the operation; `0` disables that
 budget. After compact, resume projects the dsh checkpoint plus retained
 tools/todos; a failed compact leaves the original records in the log.
+Nonessential telemetry, trace upload, session tracking, and content sharing
+default off. Turning `[features] telemetry`, `feedback`, or `trace_upload` on
+does nothing until `endpoints.telemetry_url`, `endpoints.feedback_base_url`, or
+`endpoints.trace_upload_url` names a substitute. Official `grok.com`,
+`api.x.ai`, and Sentry hosts are refused. `codsh --rust feedback` and
+`/feedback` keep drafts under the isolated dsh Home (`feedback_drafts.json`)
+until `feedback submit --id <id>`. A failed submit keeps the draft for edit or
+`feedback delete`. `feedback preview` states the redaction boundary: diagnostics
+carry kind, ok, and count only, never prompts, answers, keys, or paths. Model
+calls stay on the configured provider `base_url` and are not telemetry. Locked
+`requirements.toml` can force these switches off. `GROK_DEBUG_LOG=1` appends
+the same counters to `$DSH_HOME/privacy.log` and does not upload them.
 `codsh --rust inspect` and `inspect --json` print each effective value and
 origin (CLI `--model`/`--effort`, environment, `GROK_CONFIG` overlay, workspace
 `.grok/config.toml`, saved selection, user `config.toml`, `managed_config.toml`,
 locked `requirements.toml`, default), including `ui.theme`, compact mode,
-timestamps, and `[ui.status_line]`. `/settings` (`/config`) edits those live
+timestamps, `[ui.status_line]`, and the privacy switches above. `/settings` (`/config`) edits those live
 controls; `/theme` (`/t`) previews fullscreen themes and Escape restores without
 saving. Minimal mode uses the terminal palette and refuses `/theme`. A
 status-line command times out at 10s, clears `BASH_ENV`/`ENV`, and kills leftover

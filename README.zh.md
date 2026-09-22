@@ -89,6 +89,16 @@ Grok 的 `chat_completions`、`responses`、`messages`（对应 dsh 的
 上下文限制在提供商或显式 `context_window` 给出之前保持未知，不会伪造为零。
 dsh 的上下文占用显示为 `occupancy=N (dsh estimate)`，不当作提供商用量。
 `/context` 显示这些 dsh 事实以及可得的 system/tools/messages 启发式分类；缺失值保持未知，不会显示为 0。`/model` 切换后使用该模型公布的 `context_window`。`/compact [指示]` 由 dsh 执行压缩（进度、摘要、失败与取消），不另造一套历史；可选指示只进入 summarizer 请求（`purpose=compaction`），并记录目的地提供商/模型。自动压缩把 `session.auto_compact_threshold_percent` / `GROK_AUTO_COMPACT_THRESHOLD_PERCENT` 映射为 dsh `thresholdRatio` 以及兼容的 `retainRatio`（0–100 以外的值会被忽略；`0` 会关闭自动压缩，而不会写入会导致插件加载失败的非法比例）。`GROK_COMPACTION_WALL_CLOCK_SECS` 限制压缩耗时，`0` 关闭该预算。压缩后恢复会话会投影 dsh 检查点及保留的工具/待办；失败时原记录仍在日志中。
+非必要遥测、会话跟踪、内容分享和 trace 上传默认关闭。`[features] telemetry`、
+`feedback`、`trace_upload` 只有在 `endpoints.telemetry_url`、
+`endpoints.feedback_base_url` 或 `endpoints.trace_upload_url` 指向替代目的地时
+才会生效。官方 `grok.com`、`api.x.ai` 和 Sentry 地址会被拒绝。
+`codsh --rust feedback` 与 `/feedback` 把草稿留在隔离 dsh Home 的
+`feedback_drafts.json`，直到显式 `feedback submit --id <id>`。提交失败会保留
+草稿，可以再编辑或 `feedback delete`。`feedback preview` 说明脱敏边界：诊断只
+含 kind、ok 和 count，不含提示、回答、密钥或路径。模型调用只走已配置提供商的
+`base_url`，不是遥测。锁定的 `requirements.toml` 可以强制关闭这些开关。
+`GROK_DEBUG_LOG=1` 只把同样的计数追加到 `$DSH_HOME/privacy.log`，不会上传。
 `codsh --rust inspect` 与 `inspect --json` 列出每项生效值及来源（命令行
 `--model`/`--effort`、环境变量、`GROK_CONFIG` 覆盖层、工作区
 `.grok/config.toml`、已保存选择、用户 `config.toml`、`managed_config.toml`、

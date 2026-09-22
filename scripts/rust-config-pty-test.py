@@ -265,9 +265,9 @@ trace_upload = true
         assert settings['XAI_API_KEY']['value'] == '(set)'
         assert ready_payload['telemetry'] is False
         assert settings['features.telemetry']['value'] == 'false'
-        assert settings['features.telemetry']['source'] == 'applied'
+        assert settings['features.telemetry']['source'] == 'disabled-no-destination'
         assert settings['features.trace_upload']['value'] == 'false'
-        assert settings['features.trace_upload']['source'] == 'applied'
+        assert settings['features.trace_upload']['source'] == 'disabled-no-destination'
         assert 'test-key-not-a-secret-for-logs' not in ready.stdout
         results['inspect-ready'] = {key: settings[key] for key in (
             'models.default', 'model.gateway.base_url', 'XAI_API_KEY',

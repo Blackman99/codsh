@@ -148,6 +148,12 @@ legacy metadata saves differ from model-backed capture, and pruning is compactio
 Diagnostics require real file/filter/destination checks and status-line environment
 sanitization requires rc-file canaries. Fetch proxy/domain/enablement tests must not
 be replaced by search-policy acceptance; mixed rows may require both scenarios.
+Privacy and feedback acceptance (`scripts/rust-privacy-pty-test.py`) drives the
+packed `codsh --rust feedback` command: local draft save/edit/delete, failed
+submit retention, explicit submit to a loopback substitute, refused official
+endpoints, and a network audit that must not contact an unconfigured host.
+Diagnostic payloads are kind/ok/count. Do not treat model `base_url` traffic as
+telemetry.
 Keep shell completion separate from next-prompt suggestions, diagnostic logging from
 hook authority, and sandbox auto-approval from confinement. Terminal/editor/platform
 aliases and background model/admission/login/goal/compaction controls need observable

@@ -350,6 +350,9 @@ pub enum Command {
     },
     Login,
     Logout,
+    Feedback {
+        rest: String,
+    },
 }
 
 fn slash_rest<'a>(text: &'a str, name: &str) -> Option<&'a str> {
@@ -370,7 +373,8 @@ pub fn parse_slash(text: &str) -> Option<Command> {
         .or_else(|| slash_rest(trimmed, "/context").map(|rest| ("context", rest)))
         .or_else(|| slash_rest(trimmed, "/compact").map(|rest| ("compact", rest)))
         .or_else(|| slash_rest(trimmed, "/login").map(|rest| ("login", rest)))
-        .or_else(|| slash_rest(trimmed, "/logout").map(|rest| ("logout", rest)))?;
+        .or_else(|| slash_rest(trimmed, "/logout").map(|rest| ("logout", rest)))
+        .or_else(|| slash_rest(trimmed, "/feedback").map(|rest| ("feedback", rest)))?;
     let mut parts = rest.split_whitespace();
     match name {
         "model" => Some(Command::Model {
@@ -383,6 +387,9 @@ pub fn parse_slash(text: &str) -> Option<Command> {
         "context" => Some(Command::Context),
         "login" => Some(Command::Login),
         "logout" => Some(Command::Logout),
+        "feedback" => Some(Command::Feedback {
+            rest: rest.trim().to_string(),
+        }),
         _ => {
             let instruction = rest.trim();
             Some(Command::Compact {

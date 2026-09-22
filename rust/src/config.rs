@@ -82,6 +82,11 @@ pub struct EffectiveConfig {
     pub telemetry: bool,
     pub feedback: bool,
     pub trace_upload: bool,
+    pub share_content: bool,
+    pub share_session: bool,
+    pub telemetry_url: Option<String>,
+    pub feedback_url: Option<String>,
+    pub trace_url: Option<String>,
     pub remote_fetch: bool,
     pub ready: bool,
     pub missing_credential: Option<String>,
@@ -626,6 +631,56 @@ pub fn load_from(mut input: LoadInput) -> EffectiveConfig {
         trace_upload = value;
         sources.insert("features.trace_upload".into(), "environment".into());
     }
+    let mut share_content = bool_from_toml(
+        table
+            .get("privacy")
+            .and_then(|privacy| privacy.get("share_content")),
+    )
+    .unwrap_or(false);
+    sources
+        .entry("privacy.share_content".into())
+        .or_insert_with(|| "default".into());
+    let mut share_session = bool_from_toml(
+        table
+            .get("privacy")
+            .and_then(|privacy| privacy.get("share_session")),
+    )
+    .unwrap_or(false);
+    sources
+        .entry("privacy.share_session".into())
+        .or_insert_with(|| "default".into());
+    if let Some(value) = env_bool(input.env.get("GROK_SHARE_CONTENT")) {
+        share_content = value;
+        sources.insert("privacy.share_content".into(), "environment".into());
+    }
+    if let Some(value) = env_bool(input.env.get("GROK_SHARE_SESSION")) {
+        share_session = value;
+        sources.insert("privacy.share_session".into(), "environment".into());
+    }
+    let telemetry_url = optional_url(
+        table
+            .get("endpoints")
+            .and_then(|endpoints| endpoints.get("telemetry_url"))
+            .and_then(TomlValue::as_str),
+    );
+    let feedback_url = optional_url(
+        table
+            .get("endpoints")
+            .and_then(|endpoints| endpoints.get("feedback_base_url"))
+            .and_then(TomlValue::as_str)
+            .or_else(|| {
+                table
+                    .get("endpoints")
+                    .and_then(|endpoints| endpoints.get("feedback_url"))
+                    .and_then(TomlValue::as_str)
+            }),
+    );
+    let trace_url = optional_url(
+        table
+            .get("endpoints")
+            .and_then(|endpoints| endpoints.get("trace_upload_url"))
+            .and_then(TomlValue::as_str),
+    );
 
     if let Some(cli) = input
         .cli_model
@@ -669,6 +724,45 @@ pub fn load_from(mut input: LoadInput) -> EffectiveConfig {
         ) {
             remote_fetch = value;
             sources.insert("features.remote_fetch".into(), "requirements".into());
+        }
+        if let Some(value) = bool_from_toml(
+            req.get("features")
+                .and_then(|features| features.get("telemetry")),
+        ) {
+            telemetry = value;
+            sources.insert("features.telemetry".into(), "requirements".into());
+        }
+        if let Some(value) = bool_from_toml(
+            req.get("features")
+                .and_then(|features| features.get("feedback")),
+        ) {
+            feedback = value;
+            sources.insert("features.feedback".into(), "requirements".into());
+        }
+        if let Some(value) = bool_from_toml(
+            req.get("features")
+                .and_then(|features| features.get("trace_upload"))
+                .or_else(|| {
+                    req.get("telemetry")
+                        .and_then(|telemetry| telemetry.get("trace_upload"))
+                }),
+        ) {
+            trace_upload = value;
+            sources.insert("features.trace_upload".into(), "requirements".into());
+        }
+        if let Some(value) = bool_from_toml(
+            req.get("privacy")
+                .and_then(|privacy| privacy.get("share_content")),
+        ) {
+            share_content = value;
+            sources.insert("privacy.share_content".into(), "requirements".into());
+        }
+        if let Some(value) = bool_from_toml(
+            req.get("privacy")
+                .and_then(|privacy| privacy.get("share_session")),
+        ) {
+            share_session = value;
+            sources.insert("privacy.share_session".into(), "requirements".into());
         }
         if let Some(url) = req
             .get("endpoints")
@@ -856,48 +950,154 @@ pub fn load_from(mut input: LoadInput) -> EffectiveConfig {
             },
         );
     }
-    let (telemetry_value, telemetry_source) = applied_privacy(
+    let telemetry_source_name = sources
+        .get("features.telemetry")
+        .map(String::as_str)
+        .unwrap_or("default");
+    let feedback_source_name = sources
+        .get("features.feedback")
+        .map(String::as_str)
+        .unwrap_or("default");
+    let trace_source_name = sources
+        .get("features.trace_upload")
+        .map(String::as_str)
+        .unwrap_or("default");
+    let content_source_name = sources
+        .get("privacy.share_content")
+        .map(String::as_str)
+        .unwrap_or("default");
+    let session_source_name = sources
+        .get("privacy.share_session")
+        .map(String::as_str)
+        .unwrap_or("default");
+    let (telemetry, telemetry_source) = resolve_privacy(
         telemetry,
-        sources
-            .get("features.telemetry")
-            .map(String::as_str)
-            .unwrap_or("default"),
+        telemetry_source_name,
+        telemetry_url.as_deref(),
+        telemetry_source_name == "requirements" && !telemetry,
     );
-    let (feedback_value, feedback_source) = applied_privacy(
+    let (feedback, feedback_source) = resolve_privacy(
         feedback,
-        sources
-            .get("features.feedback")
-            .map(String::as_str)
-            .unwrap_or("default"),
+        feedback_source_name,
+        feedback_url.as_deref(),
+        feedback_source_name == "requirements" && !feedback,
     );
-    let (trace_value, trace_source) = applied_privacy(
+    let (trace_upload, trace_source) = resolve_privacy(
         trace_upload,
-        sources
-            .get("features.trace_upload")
-            .map(String::as_str)
-            .unwrap_or("default"),
+        trace_source_name,
+        trace_url.as_deref(),
+        trace_source_name == "requirements" && !trace_upload,
     );
-    telemetry = telemetry_value == "true";
-    feedback = feedback_value == "true";
-    trace_upload = trace_value == "true";
+    let (share_content, content_source) = resolve_privacy(
+        share_content,
+        content_source_name,
+        if share_content {
+            feedback_url.as_deref().or(telemetry_url.as_deref())
+        } else {
+            None
+        },
+        content_source_name == "requirements" && !share_content,
+    );
+    // Session tracking is a boolean gate, not an upload by itself.
+    let share_session_source = if session_source_name == "requirements" && !share_session {
+        "requirements".to_string()
+    } else if session_source_name == "default" {
+        "default".to_string()
+    } else {
+        session_source_name.to_string()
+    };
     push_setting(
         &mut settings,
         "features.telemetry",
-        telemetry_value,
-        telemetry_source,
+        if telemetry { "true" } else { "false" },
+        &telemetry_source,
     );
+    if telemetry_source == "requirements" {
+        push_setting(
+            &mut settings,
+            "features.telemetry.lock",
+            "requirements",
+            "locked",
+        );
+    }
     push_setting(
         &mut settings,
         "features.feedback",
-        feedback_value,
-        feedback_source,
+        if feedback { "true" } else { "false" },
+        &feedback_source,
     );
+    if feedback_source == "requirements" {
+        push_setting(
+            &mut settings,
+            "features.feedback.lock",
+            "requirements",
+            "locked",
+        );
+    }
     push_setting(
         &mut settings,
         "features.trace_upload",
-        trace_value,
-        trace_source,
+        if trace_upload { "true" } else { "false" },
+        &trace_source,
     );
+    if trace_source == "requirements" {
+        push_setting(
+            &mut settings,
+            "features.trace_upload.lock",
+            "requirements",
+            "locked",
+        );
+    }
+    push_setting(
+        &mut settings,
+        "privacy.share_content",
+        if share_content { "true" } else { "false" },
+        &content_source,
+    );
+    if content_source == "requirements" {
+        push_setting(
+            &mut settings,
+            "privacy.share_content.lock",
+            "requirements",
+            "locked",
+        );
+    }
+    push_setting(
+        &mut settings,
+        "privacy.share_session",
+        if share_session { "true" } else { "false" },
+        &share_session_source,
+    );
+    push_endpoint(
+        &mut settings,
+        "endpoints.telemetry_url",
+        telemetry_url.as_deref(),
+    );
+    push_endpoint(
+        &mut settings,
+        "endpoints.feedback_base_url",
+        feedback_url.as_deref(),
+    );
+    push_endpoint(
+        &mut settings,
+        "endpoints.trace_upload_url",
+        trace_url.as_deref(),
+    );
+    if telemetry_url
+        .as_deref()
+        .is_some_and(crate::privacy::is_official_endpoint)
+        || feedback_url
+            .as_deref()
+            .is_some_and(crate::privacy::is_official_endpoint)
+        || trace_url
+            .as_deref()
+            .is_some_and(crate::privacy::is_official_endpoint)
+    {
+        warnings.push(
+            "an official telemetry or feedback host was refused; configure a substitute endpoint"
+                .into(),
+        );
+    }
     push_setting(
         &mut settings,
         "features.remote_fetch",
@@ -1334,6 +1534,11 @@ pub fn load_from(mut input: LoadInput) -> EffectiveConfig {
         telemetry,
         feedback,
         trace_upload,
+        share_content,
+        share_session,
+        telemetry_url,
+        feedback_url,
+        trace_url,
         remote_fetch,
         ready,
         missing_credential,
@@ -1381,6 +1586,14 @@ pub fn inspect_text(config: &EffectiveConfig) -> String {
         "  {:<28} {}  ({})",
         "auth.official_entitlements", "unavailable", "default"
     ));
+    lines.push(
+        "Privacy: nonessential telemetry, trace upload, session tracking, and content sharing default off."
+            .into(),
+    );
+    lines.push(
+        "Model calls use the configured provider base_url and are not telemetry. Diagnostics never include prompts, keys, or paths."
+            .into(),
+    );
     if !config.warnings.is_empty() {
         lines.push("Warnings:".into());
         lines.extend(config.warnings.iter().map(|warning| format!("  {warning}")));
@@ -1415,48 +1628,56 @@ pub fn inspect_json(config: &EffectiveConfig) -> String {
             })
         })
         .collect();
-    format!(
-        "{}\n",
-        serde_json::to_string_pretty(&json!({
-            "files": files,
-            "settings": settings,
-            "ready": config.ready,
-            "missingCredential": config.missing_credential,
-            "errors": config.errors.iter().map(|error| json!({
-                "path": error.path,
-                "reason": error.reason,
-            })).collect::<Vec<_>>(),
-            "warnings": config.warnings,
-            "importedLegacyCredentials": config.imported_legacy_credentials,
-            "officialLoginDisabled": config.official_login_disabled,
-            "telemetry": config.telemetry,
-            "feedback": config.feedback,
-            "traceUpload": config.trace_upload,
-            "defaultModel": config.default_model,
-            "defaultEffort": config.default_effort,
-            "remoteFetch": config.remote_fetch,
-            "workspaceTrusted": config.workspace_trusted,
-            "projectAssetsActive": config.project_assets_active,
-            "trustPrompt": config.trust_prompt,
-            "plugins": crate::plugin::inspect_json_value(&config.plugins),
-            "auth": auth::inspect_auth_json(&config.auth, config.auth_session.as_ref()),
-            "officialEntitlementsUnavailable": config.auth.official_entitlements,
-            "compactThresholdPercent": config.compact_threshold_percent.unwrap_or(80),
-            "compactWallClockSecs": config.compact_wall_clock_secs,
-            "pruneEnabled": config.prune_enabled,
-            "appearance": appearance::inspect_json_fragment(&config.appearance, ScreenMode::Fullscreen),
-            "routing": config.routing().map(|routing| json!({
-                "catalogId": routing.catalog_id,
-                "provider": routing.provider,
-                "model": routing.model,
-                "backend": routing.backend,
-                "api": routing.api,
-                "effort": routing.effort,
-                "advertisedContext": routing.advertised_context,
-                "source": routing.source,
-                "line": routing.line(),
-            })),
-            "catalog": config.catalog().iter().map(|choice| json!({
+    let mut value = json!({
+        "files": files,
+        "settings": settings,
+        "ready": config.ready,
+        "missingCredential": config.missing_credential,
+        "errors": config.errors.iter().map(|error| json!({
+            "path": error.path,
+            "reason": error.reason,
+        })).collect::<Vec<_>>(),
+        "warnings": config.warnings,
+        "importedLegacyCredentials": config.imported_legacy_credentials,
+        "officialLoginDisabled": config.official_login_disabled,
+        "telemetry": config.telemetry,
+        "feedback": config.feedback,
+        "traceUpload": config.trace_upload,
+        "shareContent": config.share_content,
+        "shareSession": config.share_session,
+        "telemetryUrl": public_endpoint(config.telemetry_url.as_deref()),
+        "feedbackUrl": public_endpoint(config.feedback_url.as_deref()),
+        "traceUrl": public_endpoint(config.trace_url.as_deref()),
+        "defaultModel": config.default_model,
+        "defaultEffort": config.default_effort,
+        "remoteFetch": config.remote_fetch,
+        "workspaceTrusted": config.workspace_trusted,
+        "projectAssetsActive": config.project_assets_active,
+        "trustPrompt": config.trust_prompt,
+        "plugins": crate::plugin::inspect_json_value(&config.plugins),
+        "auth": auth::inspect_auth_json(&config.auth, config.auth_session.as_ref()),
+        "officialEntitlementsUnavailable": config.auth.official_entitlements,
+        "compactThresholdPercent": config.compact_threshold_percent.unwrap_or(80),
+        "compactWallClockSecs": config.compact_wall_clock_secs,
+        "pruneEnabled": config.prune_enabled,
+        "appearance": appearance::inspect_json_fragment(&config.appearance, ScreenMode::Fullscreen),
+        "routing": config.routing().map(|routing| json!({
+            "catalogId": routing.catalog_id,
+            "provider": routing.provider,
+            "model": routing.model,
+            "backend": routing.backend,
+            "api": routing.api,
+            "effort": routing.effort,
+            "advertisedContext": routing.advertised_context,
+            "source": routing.source,
+            "line": routing.line(),
+        })),
+    });
+    let catalog: Vec<JsonValue> = config
+        .catalog()
+        .iter()
+        .map(|choice| {
+            json!({
                 "id": choice.id,
                 "provider": choice.provider,
                 "model": choice.model,
@@ -1467,9 +1688,23 @@ pub fn inspect_json(config: &EffectiveConfig) -> String {
                 "advertisedContext": choice.advertised_context,
                 "usable": choice.usable,
                 "unavailable": choice.unavailable,
-            })).collect::<Vec<_>>(),
-        }))
-        .unwrap_or_else(|_| "{}".into())
+            })
+        })
+        .collect();
+    if let Some(object) = value.as_object_mut() {
+        object.insert("catalog".into(), JsonValue::Array(catalog));
+    }
+    if let Some(object) = value.as_object_mut() {
+        object.insert(
+            "privacyBoundary".into(),
+            JsonValue::String(
+                "Model calls use the configured provider. Telemetry, feedback, and trace upload use only their own configured substitute endpoints and stay off without one. Diagnostic payloads contain kind/ok/count only.".into(),
+            ),
+        );
+    }
+    format!(
+        "{}\n",
+        serde_json::to_string_pretty(&value).unwrap_or_else(|_| "{}".into())
     )
 }
 
@@ -2477,6 +2712,33 @@ fn bool_from_toml(value: Option<&TomlValue>) -> Option<bool> {
     }
 }
 
+fn public_endpoint(url: Option<&str>) -> Option<String> {
+    match url {
+        Some(value) if crate::privacy::is_official_endpoint(value) => {
+            Some("(refused official endpoint)".into())
+        }
+        Some(value) => Some(value.to_string()),
+        None => None,
+    }
+}
+
+fn push_endpoint(settings: &mut Vec<Setting>, key: &str, url: Option<&str>) {
+    match url {
+        Some(value) if crate::privacy::is_official_endpoint(value) => {
+            push_setting(settings, key, "(refused official endpoint)", "refused");
+        }
+        Some(value) => push_setting(settings, key, value, "config.toml"),
+        None => push_setting(settings, key, "(unset)", "default"),
+    }
+}
+
+fn optional_url(value: Option<&str>) -> Option<String> {
+    value
+        .map(str::trim)
+        .filter(|text| !text.is_empty())
+        .map(str::to_string)
+}
+
 fn env_bool(value: Option<&String>) -> Option<bool> {
     match value?.trim().to_ascii_lowercase().as_str() {
         "1" | "true" | "yes" | "on" | "enabled" => Some(true),
@@ -2485,11 +2747,32 @@ fn env_bool(value: Option<&String>) -> Option<bool> {
     }
 }
 
-fn applied_privacy(requested: bool, source: &str) -> (&'static str, &str) {
-    if requested {
-        ("false", "applied")
-    } else {
-        ("false", source)
+/// Opt-in privacy switch. A requested upload stays off until a non-official
+/// substitute destination exists. Locked requirements can force the switch off
+/// but cannot force an upload to an unconfigured or official host.
+fn resolve_privacy(
+    requested: bool,
+    source: &str,
+    destination: Option<&str>,
+    locked_off: bool,
+) -> (bool, String) {
+    if locked_off {
+        return (false, "requirements".into());
+    }
+    if !requested {
+        let label = if source == "default" {
+            "default".into()
+        } else {
+            source.to_string()
+        };
+        return (false, label);
+    }
+    match destination.map(str::trim).filter(|value| !value.is_empty()) {
+        Some(url) if crate::privacy::is_official_endpoint(url) => {
+            (false, "refused-official-endpoint".into())
+        }
+        Some(_) => (true, "opt-in".into()),
+        None => (false, "disabled-no-destination".into()),
     }
 }
 
@@ -3270,7 +3553,10 @@ trace_upload = true
 "#,
         );
         let config = load_from(load);
-        assert!(!config.telemetry);
+        assert!(
+            !config.telemetry,
+            "opt-in telemetry without a configured destination must stay off"
+        );
         assert!(!config.trace_upload);
         assert_eq!(
             config
@@ -3278,7 +3564,7 @@ trace_upload = true
                 .iter()
                 .find(|setting| setting.key == "features.telemetry")
                 .map(|setting| (setting.value.as_str(), setting.source.as_str())),
-            Some(("false", "applied"))
+            Some(("false", "disabled-no-destination"))
         );
         assert_eq!(
             config
@@ -3286,9 +3572,81 @@ trace_upload = true
                 .iter()
                 .find(|setting| setting.key == "features.trace_upload")
                 .map(|setting| (setting.value.as_str(), setting.source.as_str())),
-            Some(("false", "applied"))
+            Some(("false", "disabled-no-destination"))
         );
         assert!(inspect_json(&config).contains("\"telemetry\": false"));
+        assert!(inspect_text(&config).contains("Model calls use the configured provider"));
+    }
+
+    #[test]
+    fn opt_in_telemetry_requires_a_substitute_destination_and_respects_locks() {
+        let dir = TempDir::new().unwrap();
+        let load = input(&dir);
+        write_config(
+            &load,
+            r#"
+[features]
+telemetry = true
+feedback = true
+trace_upload = true
+
+[privacy]
+share_content = true
+share_session = true
+
+[endpoints]
+telemetry_url = "http://127.0.0.1:9/telemetry"
+feedback_base_url = "http://127.0.0.1:9/feedback"
+trace_upload_url = "https://api.x.ai/traces"
+"#,
+        );
+        let config = load_from(load.clone());
+        assert!(config.telemetry);
+        assert!(config.feedback);
+        assert!(!config.trace_upload);
+        assert!(config.share_content);
+        assert!(config.share_session);
+        let row = |key: &str| {
+            config
+                .settings
+                .iter()
+                .find(|setting| setting.key == key)
+                .map(|setting| (setting.value.as_str(), setting.source.as_str()))
+        };
+        assert_eq!(row("features.telemetry"), Some(("true", "opt-in")));
+        assert_eq!(
+            row("features.trace_upload"),
+            Some(("false", "refused-official-endpoint"))
+        );
+        assert!(
+            config
+                .warnings
+                .iter()
+                .any(|warning| warning.contains("official"))
+        );
+
+        fs::write(
+            load.grok_home.clone().unwrap().join("requirements.toml"),
+            "[features]\ntelemetry = false\nfeedback = false\n",
+        )
+        .unwrap();
+        let locked = load_from(load);
+        assert!(!locked.telemetry);
+        assert!(!locked.feedback);
+        assert_eq!(
+            locked
+                .settings
+                .iter()
+                .find(|setting| setting.key == "features.telemetry")
+                .map(|setting| setting.source.as_str()),
+            Some("requirements")
+        );
+        assert!(
+            locked
+                .settings
+                .iter()
+                .any(|setting| setting.key == "features.telemetry.lock")
+        );
     }
 
     #[test]
