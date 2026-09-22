@@ -48,7 +48,7 @@ what the surface emitted and what the terminal did with it, and the emitted
 half is gone by the time anyone looks; replaying the file through a terminal
 emulator reproduces the screen it drew. Off unless the variable is set.
 
-`pnpm run sync:dsh` tracks published `@deepseek-ai/dsh-*` releases. This repo never forks the harness.
+`pnpm run sync:dsh` tracks published `@deepseek-ai/dsh-*` releases and skips a release whose `@deepseek-ai/*` dependency closure is not fully published. This repo never forks the harness.
 
 `pnpm run build` also bundles the React Flow Web panorama from `ship-web-app.tsx`
 with `scripts/build-ship-web.mjs`. Its JavaScript and CSS are published under

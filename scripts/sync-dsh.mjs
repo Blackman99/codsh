@@ -96,7 +96,7 @@ if (dshRange === undefined) throw new Error('no @deepseek-ai/dsh range found in 
 // also track the highest version a lockfile-free install would resolve: the
 // harness has published same-core RCs without moving its tags. An unrelated
 // alpha tag is neither signal and must not silently move codsh onto that line.
-const dshLatest = selectDshTarget(dshMeta, dshRange)
+const dshLatest = await selectDshTarget(dshMeta, dshRange, registry)
 if (dshLatest !== dshMeta['dist-tags'].latest) {
   console.log(`note: @deepseek-ai/dsh publishes ${dshLatest}, but its latest tag still reads ${dshMeta['dist-tags'].latest}\n`)
 }
