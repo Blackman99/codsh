@@ -107,8 +107,8 @@ Home 会报告保存失败而不会假装授权已持久化。未信任的 Hooks
 `plugin install|update|uninstall|list` 把插件文件复制到隔离 Home，并记录版本、
 来源和许可。安装需要 `--trust`，仍不会授予执行权限；启停由后续任务处理。
 下载、校验、冲突、离线或取消失败不会留下成功安装。官方 marketplace 默认不
-自动注册，除非设置 `GROK_OFFICIAL_MARKETPLACE_AUTO_REGISTER`。`/plugins`、
-`/marketplace` 与 Ctrl+L 打开插件目录。卸载不会删除用户无关文件。个人与项目
+自动注册，除非设置 `GROK_OFFICIAL_MARKETPLACE_AUTO_REGISTER`。`/plugins`
+与 `/marketplace` 打开插件目录。卸载不会删除用户无关文件。个人与项目
 作用域互不污染。首次运行缺少凭据时只给出
 可操作提示：不打开 grok.com 登录，不访问默认官方遥测/上传，也不自动导入
 `~/.dsh` 或 `~/.grok` 中的旧凭据。`codsh --rust import --preview`（以及 `import --json`）

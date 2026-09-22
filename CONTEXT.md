@@ -72,7 +72,9 @@ stay inactive until `--trust` or an interactive grant. Isolated plugin
 marketplace add/list/update/remove and plugin install/update/uninstall copy
 files into `$GROK_HOME/installed-plugins` with inspectable provenance.
 Installation does not enable execution. Official marketplace auto-register is
-off unless `GROK_OFFICIAL_MARKETPLACE_AUTO_REGISTER` is set.
+off unless `GROK_OFFICIAL_MARKETPLACE_AUTO_REGISTER` is set. Git marketplace
+catalogs are read from `$GROK_HOME/marketplace-cache` after add/update.
+`/plugins` and `/marketplace` open the directory; Ctrl+L is not bound here.
 Plain `codsh` still selects the legacy Launcher/Bundle; this is not the default
 cutover. The Viewport language below remains the legacy Surface contract.
 

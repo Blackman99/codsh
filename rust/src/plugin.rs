@@ -577,7 +577,11 @@ pub fn new_overlay(tab: PluginTab) -> PluginOverlay {
     }
 }
 
-pub fn overlay_text(overlay: &PluginOverlay, snapshot: &PluginInspect) -> String {
+pub fn overlay_text(
+    overlay: &PluginOverlay,
+    snapshot: &PluginInspect,
+    grok_home: Option<&Path>,
+) -> String {
     if let Some(confirm) = &overlay.confirm {
         let verb = match confirm.action {
             ConfirmAction::UninstallPlugin => "Uninstall plugin",
@@ -640,7 +644,7 @@ pub fn overlay_text(overlay: &PluginOverlay, snapshot: &PluginInspect) -> String
                         source.kind_label()
                     ));
                     if overlay.expanded && index == overlay.cursor {
-                        for plugin in catalog_plugins(source) {
+                        for plugin in catalog_plugins_from_home(grok_home, source) {
                             lines.push(format!(
                                 "    {}  v{}  {}",
                                 plugin.name,
@@ -656,9 +660,10 @@ pub fn overlay_text(overlay: &PluginOverlay, snapshot: &PluginInspect) -> String
     }
 }
 
-pub fn handle_overlay_key(
+pub fn handle_overlay_key_with_home(
     overlay: &mut PluginOverlay,
     snapshot: &PluginInspect,
+    grok_home: Option<&Path>,
     key: char,
     enter: bool,
     tab: bool,
@@ -743,10 +748,10 @@ pub fn handle_overlay_key(
         (PluginTab::Plugins, 'r') | (PluginTab::Marketplace, 'r') => OverlayAction::Continue,
         (PluginTab::Marketplace, 'i') => {
             if let Some(source) = snapshot.marketplaces.get(overlay.cursor) {
-                let plugins = catalog_plugins(source);
+                let plugins = catalog_plugins_from_home(grok_home, source);
                 if let Some(plugin) = plugins.first() {
                     OverlayAction::Run(PluginCommand::Install {
-                        source: plugin.name.clone(),
+                        source: format!("{}@{}", plugin.name, source.name),
                         trust: false,
                     })
                 } else {
@@ -849,7 +854,7 @@ fn cmd_list(ctx: &Context, json: bool, available: bool) -> Result<String, Plugin
             .collect();
         if available {
             for source in load_marketplace_sources(ctx) {
-                for plugin in catalog_plugins(&source) {
+                for plugin in catalog_plugins(ctx, &source) {
                     if installed.iter().any(|row| row.name == plugin.name) {
                         continue;
                     }
@@ -915,7 +920,7 @@ fn cmd_marketplace_list(ctx: &Context, json: bool) -> Result<String, PluginError
     let mut lines = Vec::new();
     for source in sources {
         lines.push(format!("  {}: {}", source.name, source.identity()));
-        for plugin in catalog_plugins(&source) {
+        for plugin in catalog_plugins(ctx, &source) {
             lines.push(format!(
                 "    {}  v{}",
                 plugin.name,
@@ -968,6 +973,10 @@ fn cmd_marketplace_add(ctx: &Context, url: &str, force: bool) -> Result<String, 
         name_from_identity(&kind)
     };
     append_marketplace_source(ctx, &name, &kind)?;
+    if let SourceKind::Git { url, branch } = &kind {
+        let cache = git_cache_dir(ctx, url);
+        let _ = sync_git(url, branch.as_deref(), &cache, true);
+    }
     Ok(format!("Added marketplace source: {name} ({identity})"))
 }
 
@@ -1050,8 +1059,8 @@ fn cmd_marketplace_update(ctx: &Context, name: Option<&str>) -> Result<String, P
 }
 
 fn cmd_install(ctx: &Context, source: &str, trust: bool) -> Result<String, PluginError> {
-    if let Some(name) = parse_marketplace_plugin_ref(source) {
-        return install_from_marketplace(ctx, &name, trust);
+    if let Some(plugin_ref) = parse_marketplace_plugin_ref(source) {
+        return install_from_marketplace(ctx, &plugin_ref, trust);
     }
     let parsed = parse_install_source(source, &ctx.cwd)?;
     if !trust {
@@ -1080,27 +1089,50 @@ fn cmd_install(ctx: &Context, source: &str, trust: bool) -> Result<String, Plugi
     ))
 }
 
-fn install_from_marketplace(ctx: &Context, name: &str, trust: bool) -> Result<String, PluginError> {
+fn install_from_marketplace(
+    ctx: &Context,
+    plugin_ref: &MarketplacePluginRef,
+    trust: bool,
+) -> Result<String, PluginError> {
+    let name = plugin_ref.name.as_str();
     let sources = load_marketplace_sources(ctx);
     let mut matches = Vec::new();
     for source in &sources {
-        for plugin in catalog_plugins(source) {
+        if let Some(qualifier) = &plugin_ref.qualifier
+            && !source_matches_qualifier(source, qualifier)
+        {
+            continue;
+        }
+        for plugin in catalog_plugins(ctx, source) {
             if plugin.name.eq_ignore_ascii_case(name) {
                 matches.push((source.clone(), plugin));
             }
         }
     }
     match matches.as_slice() {
-        [] => Err(PluginError::fail(format!(
-            "Plugin \"{name}\" was not found in configured marketplace sources."
-        ))),
+        [] => {
+            if let Some(qualifier) = &plugin_ref.qualifier {
+                Err(PluginError::fail(format!(
+                    "Plugin \"{name}\" was not found in marketplace \"{qualifier}\"."
+                )))
+            } else {
+                Err(PluginError::fail(format!(
+                    "Plugin \"{name}\" was not found in configured marketplace sources."
+                )))
+            }
+        }
         [(source, plugin)] => {
+            let source_arg = if plugin_ref.qualifier.is_some() {
+                format!("{}@{}", plugin.name, source.name)
+            } else {
+                plugin.name.clone()
+            };
             if !trust {
                 return Err(PluginError {
                     code: 1,
                     message: trust_prompt(
                         &format!("\"{}\" from marketplace \"{}\"", plugin.name, source.name),
-                        name,
+                        &source_arg,
                     ),
                 });
             }
@@ -1140,11 +1172,12 @@ fn install_from_marketplace(ctx: &Context, name: &str, trust: bool) -> Result<St
             ))
         }
         many => Err(PluginError::fail(format!(
-            "Plugin \"{name}\" is provided by multiple marketplaces: {}. Qualify the source.",
+            "Plugin \"{name}\" is provided by multiple marketplaces: {}. Qualify the source, for example `codsh --rust plugin install {name}@{}`.",
             many.iter()
                 .map(|(source, _)| source.name.as_str())
                 .collect::<Vec<_>>()
-                .join(", ")
+                .join(", "),
+            many[0].0.name
         ))),
     }
 }
@@ -1296,7 +1329,13 @@ struct InstallOutcome {
     names: Vec<String>,
 }
 
-fn parse_marketplace_plugin_ref(source: &str) -> Option<String> {
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct MarketplacePluginRef {
+    name: String,
+    qualifier: Option<String>,
+}
+
+fn parse_marketplace_plugin_ref(source: &str) -> Option<MarketplacePluginRef> {
     if source.contains("://") || source.starts_with("git@") {
         return None;
     }
@@ -1315,13 +1354,45 @@ fn parse_marketplace_plugin_ref(source: &str) -> Option<String> {
     if name.is_empty() || name.contains('/') {
         return None;
     }
-    if qualifier.is_some_and(str::is_empty) {
+    if qualifier.is_some_and(|value| value.trim().is_empty()) {
         return None;
     }
-    if qualifier.is_none() && !name.contains('/') {
-        return Some(name.to_string());
+    Some(MarketplacePluginRef {
+        name: name.to_string(),
+        qualifier: qualifier.map(str::to_string),
+    })
+}
+
+fn source_matches_qualifier(source: &MarketplaceSource, qualifier: &str) -> bool {
+    let want = qualifier.trim();
+    if want.is_empty() {
+        return false;
     }
-    Some(name.to_string())
+    if source.name == want
+        || slugify(&source.name) == slugify(want)
+        || source.identity() == want
+        || canonicalize_git(&source.identity()) == canonicalize_git(want)
+        || canonicalize_git(&source.identity()) == canonicalize_git(&expand_github(want))
+    {
+        return true;
+    }
+    match &source.kind {
+        SourceKind::Local { path } => {
+            path.display().to_string() == want
+                || slugify(&source.name) == want.trim_start_matches("local/")
+        }
+        SourceKind::Git { url, .. } => {
+            canonical_github_owner_repo(url).as_deref() == Some(want)
+                || slugify(&source.name) == want.trim_start_matches("git/")
+        }
+    }
+}
+
+fn slugify(name: &str) -> String {
+    name.to_ascii_lowercase()
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join("-")
 }
 
 fn parse_install_source(source: &str, cwd: &Path) -> Result<ParsedSource, PluginError> {
@@ -1826,10 +1897,40 @@ fn list_installed_views(ctx: &Context) -> Vec<InstalledView> {
     views
 }
 
-fn catalog_plugins(source: &MarketplaceSource) -> Vec<CatalogPlugin> {
+fn catalog_plugins(ctx: &Context, source: &MarketplaceSource) -> Vec<CatalogPlugin> {
     let root = match &source.kind {
         SourceKind::Local { path } => path.clone(),
-        SourceKind::Git { .. } => return Vec::new(),
+        SourceKind::Git { url, branch } => {
+            let cache = git_cache_dir(ctx, url);
+            if cache.is_dir() {
+                cache
+            } else {
+                match sync_git(url, branch.as_deref(), &cache, false) {
+                    Ok(path) => path,
+                    Err(_) => return Vec::new(),
+                }
+            }
+        }
+    };
+    load_index(&root).unwrap_or_default()
+}
+
+fn catalog_plugins_from_home(
+    grok_home: Option<&Path>,
+    source: &MarketplaceSource,
+) -> Vec<CatalogPlugin> {
+    let root = match &source.kind {
+        SourceKind::Local { path } => path.clone(),
+        SourceKind::Git { url, .. } => {
+            let Some(home) = grok_home else {
+                return Vec::new();
+            };
+            let cache = home.join("marketplace-cache").join(repo_key(url));
+            if !cache.is_dir() {
+                return Vec::new();
+            }
+            cache
+        }
     };
     load_index(&root).unwrap_or_default()
 }
@@ -2016,48 +2117,33 @@ fn append_marketplace_source(
 ) -> Result<(), PluginError> {
     fs::create_dir_all(&ctx.grok_home).map_err(io_fail)?;
     let path = ctx.config_path();
-    let mut value = if path.exists() {
-        let text = fs::read_to_string(&path).map_err(io_fail)?;
-        toml::from_str::<TomlValue>(&text)
-            .unwrap_or_else(|_| TomlValue::Table(toml::map::Map::new()))
+    let existing = if path.exists() {
+        fs::read_to_string(&path).map_err(io_fail)?
     } else {
-        TomlValue::Table(toml::map::Map::new())
+        String::new()
     };
-    let root = value
-        .as_table_mut()
-        .ok_or_else(|| PluginError::fail("config.toml is not a table"))?;
-    let marketplace = root
-        .entry("marketplace")
-        .or_insert_with(|| TomlValue::Table(toml::map::Map::new()));
-    let marketplace = marketplace
-        .as_table_mut()
-        .ok_or_else(|| PluginError::fail("[marketplace] is not a table"))?;
-    let sources = marketplace
-        .entry("sources")
-        .or_insert_with(|| TomlValue::Array(Vec::new()));
-    let sources = sources
-        .as_array_mut()
-        .ok_or_else(|| PluginError::fail("marketplace.sources is not an array"))?;
-    let mut entry = toml::map::Map::new();
-    entry.insert("name".into(), TomlValue::String(name.to_string()));
+    let mut text = existing;
+    if !text.is_empty() && !text.ends_with('\n') {
+        text.push('\n');
+    }
+    text.push('\n');
+    text.push_str("[[marketplace.sources]]\n");
+    text.push_str(&format!("name = \"{}\"\n", escape_toml(name)));
     match kind {
         SourceKind::Git { url, branch } => {
-            entry.insert("git".into(), TomlValue::String(url.clone()));
+            text.push_str(&format!("git = \"{}\"\n", escape_toml(url)));
             if let Some(branch) = branch {
-                entry.insert("branch".into(), TomlValue::String(branch.clone()));
+                text.push_str(&format!("branch = \"{}\"\n", escape_toml(branch)));
             }
         }
         SourceKind::Local { path: local } => {
-            entry.insert(
-                "path".into(),
-                TomlValue::String(local.display().to_string()),
-            );
+            text.push_str(&format!(
+                "path = \"{}\"\n",
+                escape_toml(&local.display().to_string())
+            ));
         }
     }
-    sources.push(TomlValue::Table(entry));
-    let rendered =
-        toml::to_string_pretty(&value).map_err(|error| PluginError::fail(error.to_string()))?;
-    atomic_write(&path, rendered.as_bytes())
+    atomic_write(&path, text.as_bytes())
 }
 
 fn remove_marketplace_source(ctx: &Context, identity: &str) -> Result<(), PluginError> {
@@ -2065,33 +2151,69 @@ fn remove_marketplace_source(ctx: &Context, identity: &str) -> Result<(), Plugin
     let Ok(text) = fs::read_to_string(&path) else {
         return Ok(());
     };
-    let Ok(mut value) = toml::from_str::<TomlValue>(&text) else {
-        return Err(PluginError::fail(
-            "config.toml could not be parsed while removing a marketplace",
-        ));
+    let mut kept = String::new();
+    let mut block = String::new();
+    let mut in_source = false;
+    let flush = |out: &mut String, block: &mut String| {
+        if block.is_empty() {
+            return;
+        }
+        let drop_block = source_block_matches(block, identity);
+        if !drop_block {
+            out.push_str(block);
+        }
+        block.clear();
     };
-    let Some(marketplace) = value
-        .get_mut("marketplace")
-        .and_then(TomlValue::as_table_mut)
-    else {
-        return Ok(());
-    };
-    let Some(sources) = marketplace
-        .get_mut("sources")
-        .and_then(TomlValue::as_array_mut)
-    else {
-        return Ok(());
-    };
-    sources.retain(|entry| {
-        let git = entry.get("git").and_then(TomlValue::as_str).unwrap_or("");
-        let path = entry.get("path").and_then(TomlValue::as_str).unwrap_or("");
-        canonicalize_git(git) != canonicalize_git(identity)
-            && expand_home(path).display().to_string() != identity
-            && path != identity
-    });
-    let rendered =
-        toml::to_string_pretty(&value).map_err(|error| PluginError::fail(error.to_string()))?;
-    atomic_write(&path, rendered.as_bytes())
+    for line in text.split_inclusive('\n') {
+        if line.trim_start().starts_with("[[marketplace.sources]]") {
+            flush(&mut kept, &mut block);
+            in_source = true;
+            block.push_str(line);
+            continue;
+        }
+        if in_source {
+            if line.starts_with('[') && !line.trim_start().starts_with("[[marketplace.sources]]") {
+                flush(&mut kept, &mut block);
+                in_source = false;
+                kept.push_str(line);
+            } else {
+                block.push_str(line);
+            }
+        } else {
+            kept.push_str(line);
+        }
+    }
+    flush(&mut kept, &mut block);
+    atomic_write(&path, kept.as_bytes())
+}
+
+fn source_block_matches(block: &str, identity: &str) -> bool {
+    for line in block.lines() {
+        let trimmed = line.trim();
+        if let Some(value) = toml_quoted_assignment(trimmed, "git")
+            && canonicalize_git(&value) == canonicalize_git(identity)
+        {
+            return true;
+        }
+        if let Some(value) = toml_quoted_assignment(trimmed, "path")
+            && (expand_home(&value).display().to_string() == identity || value == identity)
+        {
+            return true;
+        }
+        if let Some(value) = toml_quoted_assignment(trimmed, "name")
+            && value == identity
+        {
+            return true;
+        }
+    }
+    false
+}
+
+fn toml_quoted_assignment(line: &str, key: &str) -> Option<String> {
+    let prefix = format!("{key} =");
+    let rest = line.strip_prefix(&prefix)?.trim();
+    let rest = rest.strip_prefix('"')?.strip_suffix('"')?;
+    Some(rest.replace("\\\"", "\"").replace("\\\\", "\\"))
 }
 
 fn find_marketplace<'a>(
@@ -2302,33 +2424,52 @@ fn write_enabled_lists(
 ) -> Result<(), PluginError> {
     fs::create_dir_all(&ctx.grok_home).map_err(io_fail)?;
     let path = ctx.config_path();
-    let mut value = if path.exists() {
-        let text = fs::read_to_string(&path).map_err(io_fail)?;
-        toml::from_str::<TomlValue>(&text)
-            .unwrap_or_else(|_| TomlValue::Table(toml::map::Map::new()))
+    let existing = if path.exists() {
+        fs::read_to_string(&path).map_err(io_fail)?
     } else {
-        TomlValue::Table(toml::map::Map::new())
+        String::new()
     };
-    let table = value
-        .as_table_mut()
-        .ok_or_else(|| PluginError::fail("config.toml is not a table"))?;
-    let plugins = table
-        .entry("plugins")
-        .or_insert_with(|| TomlValue::Table(toml::map::Map::new()));
-    let plugins = plugins
-        .as_table_mut()
-        .ok_or_else(|| PluginError::fail("[plugins] is not a table"))?;
-    plugins.insert(
-        "enabled".into(),
-        TomlValue::Array(enabled.iter().cloned().map(TomlValue::String).collect()),
-    );
-    plugins.insert(
-        "disabled".into(),
-        TomlValue::Array(disabled.iter().cloned().map(TomlValue::String).collect()),
-    );
-    let rendered =
-        toml::to_string_pretty(&value).map_err(|error| PluginError::fail(error.to_string()))?;
-    atomic_write(&path, rendered.as_bytes())
+    let without_lists = strip_plugin_list_keys(&existing);
+    let mut text = without_lists;
+    if !text.is_empty() && !text.ends_with('\n') {
+        text.push('\n');
+    }
+    if !text.contains("[plugins]") {
+        text.push_str("\n[plugins]\n");
+    }
+    text.push_str(&format!(
+        "enabled = [{}]\n",
+        enabled
+            .iter()
+            .map(|name| format!("\"{}\"", escape_toml(name)))
+            .collect::<Vec<_>>()
+            .join(", ")
+    ));
+    text.push_str(&format!(
+        "disabled = [{}]\n",
+        disabled
+            .iter()
+            .map(|name| format!("\"{}\"", escape_toml(name)))
+            .collect::<Vec<_>>()
+            .join(", ")
+    ));
+    atomic_write(&path, text.as_bytes())
+}
+
+fn strip_plugin_list_keys(text: &str) -> String {
+    let mut out = String::new();
+    let mut in_plugins = false;
+    for line in text.split_inclusive('\n') {
+        let trimmed = line.trim_start();
+        if trimmed.starts_with('[') {
+            in_plugins = trimmed.starts_with("[plugins]");
+        }
+        if in_plugins && (trimmed.starts_with("enabled") || trimmed.starts_with("disabled")) {
+            continue;
+        }
+        out.push_str(line);
+    }
+    out
 }
 
 fn copy_tree(src: &Path, dst: &Path) -> Result<(), PluginError> {
@@ -2509,11 +2650,16 @@ fn repo_key(source: &str) -> String {
         })
         .collect();
     let trimmed = sanitized.trim_matches('-');
-    use std::hash::{Hash, Hasher};
-    let mut hasher = std::collections::hash_map::DefaultHasher::new();
-    source.hash(&mut hasher);
-    let hash8 = format!("{:08x}", hasher.finish() & 0xFFFF_FFFF);
-    format!("{trimmed}-{hash8}")
+    format!("{trimmed}-{:08x}", fnv1a32(source.as_bytes()))
+}
+
+fn fnv1a32(bytes: &[u8]) -> u32 {
+    let mut hash: u32 = 0x811c9dc5;
+    for byte in bytes {
+        hash ^= u32::from(*byte);
+        hash = hash.wrapping_mul(0x01000193);
+    }
+    hash
 }
 
 fn contained_join(root: &Path, rel: &str) -> Result<PathBuf, PluginError> {
@@ -3018,9 +3164,9 @@ mod tests {
         .unwrap();
         let snapshot = inspect(&env.grok_home, &env.cwd, &env.env, true);
         let mut overlay = new_overlay(PluginTab::Plugins);
-        handle_overlay_key(&mut overlay, &snapshot, 'x', false, false, false);
+        handle_overlay_key_with_home(&mut overlay, &snapshot, None, 'x', false, false, false);
         assert!(overlay.confirm.is_some());
-        handle_overlay_key(&mut overlay, &snapshot, 'n', false, false, false);
+        handle_overlay_key_with_home(&mut overlay, &snapshot, None, 'n', false, false, false);
         assert!(overlay.confirm.is_none());
         assert_eq!(
             inspect(&env.grok_home, &env.cwd, &env.env, true)
@@ -3028,7 +3174,7 @@ mod tests {
                 .len(),
             1
         );
-        let text = overlay_text(&new_overlay(PluginTab::Plugins), &snapshot);
+        let text = overlay_text(&new_overlay(PluginTab::Plugins), &snapshot, None);
         assert!(text.contains("overlay-tools"));
         assert!(text.contains("1.0.0"));
         assert!(text.contains("MIT"));
@@ -3046,5 +3192,210 @@ mod tests {
         assert!(msg.starts_with("Installing \"sentry\""));
         assert!(!msg.contains("Error"));
         assert!(msg.contains("codsh --rust plugin install sentry --trust"));
+    }
+
+    fn git_available() -> bool {
+        Command::new("git")
+            .arg("--version")
+            .stdin(std::process::Stdio::null())
+            .output()
+            .is_ok_and(|output| output.status.success())
+    }
+
+    fn init_git_marketplace(path: &Path, plugin_name: &str, version: &str) {
+        write_marketplace(path, plugin_name);
+        write_plugin(
+            &path.join("plugins").join(plugin_name),
+            plugin_name,
+            version,
+            "MIT",
+        );
+        run_git(path, &["init", "--initial-branch", "main"]);
+        run_git(path, &["config", "user.email", "test@example.com"]);
+        run_git(path, &["config", "user.name", "Test"]);
+        run_git(path, &["add", "."]);
+        run_git(path, &["commit", "-m", "init"]);
+    }
+
+    fn run_git(dir: &Path, args: &[&str]) {
+        let output = Command::new("git")
+            .current_dir(dir)
+            .args(args)
+            .env("GIT_TERMINAL_PROMPT", "0")
+            .stdin(std::process::Stdio::null())
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "git {:?} failed: {}",
+            args,
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+
+    #[test]
+    fn git_marketplace_list_and_install_from_cache() {
+        if !git_available() {
+            return;
+        }
+        let dir = TempDir::new().unwrap();
+        let env = ctx(&dir);
+        let market = dir.path().join("git-market");
+        init_git_marketplace(&market, "git-tools", "2.0.0");
+        let url = format!("file://{}", market.display());
+        run(
+            &env.grok_home,
+            &env.cwd,
+            &env.env,
+            true,
+            &PluginCommand::MarketplaceAdd {
+                url: url.clone(),
+                force: true,
+            },
+        )
+        .unwrap();
+        let listed = run(
+            &env.grok_home,
+            &env.cwd,
+            &env.env,
+            true,
+            &PluginCommand::MarketplaceList { json: false },
+        )
+        .unwrap();
+        assert!(listed.contains("git-tools"), "{listed}");
+        let installed = run(
+            &env.grok_home,
+            &env.cwd,
+            &env.env,
+            true,
+            &PluginCommand::Install {
+                source: "git-tools".into(),
+                trust: true,
+            },
+        )
+        .unwrap();
+        assert!(installed.contains("Installed"));
+        let snapshot = inspect(&env.grok_home, &env.cwd, &env.env, true);
+        assert_eq!(snapshot.installed[0].name, "git-tools");
+        assert_eq!(snapshot.installed[0].version.as_deref(), Some("2.0.0"));
+        assert!(!snapshot.installed[0].execution_granted);
+    }
+
+    #[test]
+    fn qualified_install_selects_duplicate_marketplace() {
+        let dir = TempDir::new().unwrap();
+        let env = ctx(&dir);
+        let m1 = dir.path().join("m1");
+        let m2 = dir.path().join("m2");
+        write_marketplace(&m1, "dup-tools");
+        write_marketplace(&m2, "dup-tools");
+        write_plugin(&m1.join("plugins/dup-tools"), "dup-tools", "1.0.0", "MIT");
+        write_plugin(
+            &m2.join("plugins/dup-tools"),
+            "dup-tools",
+            "9.0.0",
+            "Apache-2.0",
+        );
+        run(
+            &env.grok_home,
+            &env.cwd,
+            &env.env,
+            true,
+            &PluginCommand::MarketplaceAdd {
+                url: m1.display().to_string(),
+                force: false,
+            },
+        )
+        .unwrap();
+        run(
+            &env.grok_home,
+            &env.cwd,
+            &env.env,
+            true,
+            &PluginCommand::MarketplaceAdd {
+                url: m2.display().to_string(),
+                force: false,
+            },
+        )
+        .unwrap();
+        let bare = run(
+            &env.grok_home,
+            &env.cwd,
+            &env.env,
+            true,
+            &PluginCommand::Install {
+                source: "dup-tools".into(),
+                trust: true,
+            },
+        )
+        .unwrap_err();
+        assert!(
+            bare.message.contains("Qualify the source"),
+            "{}",
+            bare.message
+        );
+        let sources = load_marketplace_sources(&env);
+        let first = &sources[0].name;
+        let installed = run(
+            &env.grok_home,
+            &env.cwd,
+            &env.env,
+            true,
+            &PluginCommand::Install {
+                source: format!("dup-tools@{first}"),
+                trust: true,
+            },
+        )
+        .unwrap();
+        assert!(installed.contains("Installed"));
+        let snapshot = inspect(&env.grok_home, &env.cwd, &env.env, true);
+        assert_eq!(snapshot.installed.len(), 1);
+        assert_eq!(
+            snapshot.installed[0].marketplace.as_deref(),
+            Some(first.as_str())
+        );
+    }
+
+    #[test]
+    fn marketplace_add_preserves_config_comments() {
+        let dir = TempDir::new().unwrap();
+        let env = ctx(&dir);
+        fs::write(
+            env.config_path(),
+            "# keep-this-comment\n[models]\ndefault = \"user-model\"\n",
+        )
+        .unwrap();
+        let market = dir.path().join("market");
+        write_marketplace(&market, "sample-tools");
+        run(
+            &env.grok_home,
+            &env.cwd,
+            &env.env,
+            true,
+            &PluginCommand::MarketplaceAdd {
+                url: market.display().to_string(),
+                force: false,
+            },
+        )
+        .unwrap();
+        let text = fs::read_to_string(env.config_path()).unwrap();
+        assert!(text.contains("# keep-this-comment"), "{text}");
+        assert!(text.contains("[models]"), "{text}");
+        assert!(text.find("[models]").unwrap() < text.find("[[marketplace.sources]]").unwrap());
+    }
+
+    #[test]
+    fn repo_key_is_stable_fnv1a() {
+        assert_eq!(
+            repo_key("https://example.com/git-market.git"),
+            format!(
+                "git-market-{:08x}",
+                fnv1a32(b"https://example.com/git-market.git")
+            )
+        );
+        assert_ne!(
+            repo_key("https://example.com/a.git"),
+            repo_key("https://example.com/b.git")
+        );
     }
 }

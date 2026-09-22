@@ -1801,6 +1801,9 @@ const KNOWN_POLICY_KEYS: &[&str] = &[
     "tools",
     "telemetry",
     "mcp_servers",
+    "marketplace",
+    "strict_known_marketplaces",
+    "extra_known_marketplaces",
     "plugins",
     "hooks",
     "campaigns",
@@ -3213,5 +3216,53 @@ default = "project-model"
         assert!(message.contains("unknown_security_gate"));
         assert!(message.contains("fail_closed") || message.contains("folder_trust"));
         assert!(message.contains("requirements"));
+    }
+
+    #[test]
+    fn marketplace_policy_keys_are_known() {
+        let dir = TempDir::new().unwrap();
+        let load = input(&dir);
+        write_config(
+            &load,
+            "[model.x]\nmodel=\"x\"\nbase_url=\"http://x/v1\"\nenv_key=\"XAI_API_KEY\"\n",
+        );
+        let grok = load.grok_home.clone().unwrap();
+        fs::write(
+            grok.join("managed_config.toml"),
+            "fail_closed = true\n\n[[marketplace.sources]]\nname = \"Org\"\npath = \"/tmp/org-plugins\"\n",
+        )
+        .unwrap();
+        fs::create_dir_all(load.cwd.join(".grok")).unwrap();
+        fs::write(
+            load.cwd.join(".grok").join("config.toml"),
+            "[[marketplace.sources]]\nname = \"Workspace\"\npath = \"/tmp/ws-plugins\"\n",
+        )
+        .unwrap();
+        let mut trusted = load.clone();
+        trusted.cli_trust = true;
+        trusted.env.insert("XAI_API_KEY".into(), "k".into());
+        let config = load_from(trusted);
+        assert!(
+            !config.errors.iter().any(|error| error
+                .reason
+                .contains("unknown security/policy field `marketplace`")),
+            "{:?}",
+            config.errors
+        );
+        assert!(
+            !config
+                .warnings
+                .iter()
+                .any(|warning| warning.contains("unknown security/policy field `marketplace`")),
+            "{:?}",
+            config.warnings
+        );
+        assert!(
+            config
+                .plugins
+                .marketplaces
+                .iter()
+                .any(|source| source.name == "Org")
+        );
     }
 }

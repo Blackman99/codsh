@@ -266,6 +266,29 @@ env_key = "XAI_API_KEY"
         assert 'unpinned' in (offline.stderr + offline.stdout)
         results['require-sha'] = {'exit': offline.returncode}
 
+        git_market = work / 'git-market'
+        write_marketplace(git_market, 'git-tools', '2.0.0')
+        run(['git', 'init', '--initial-branch', 'main'], cwd=git_market)
+        run(['git', 'config', 'user.email', 'test@example.com'], cwd=git_market)
+        run(['git', 'config', 'user.name', 'Test'], cwd=git_market)
+        run(['git', 'add', '.'], cwd=git_market)
+        run(['git', 'commit', '-m', 'init'], cwd=git_market, env={**os.environ, 'GIT_TERMINAL_PROMPT': '0'})
+        git_url = f'file://{git_market}'
+        added_git = spawn_rust(launcher, cwd, base_env, ['plugin', 'marketplace', 'add', git_url, '--force'])
+        assert added_git.returncode == 0, added_git.stderr + added_git.stdout
+        listed_git = spawn_rust(launcher, cwd, base_env, ['plugin', 'marketplace', 'list'])
+        assert listed_git.returncode == 0, listed_git.stderr + listed_git.stdout
+        assert 'git-tools' in listed_git.stdout, listed_git.stdout
+        installed_git = spawn_rust(launcher, cwd, base_env, ['plugin', 'install', 'git-tools', '--trust'])
+        assert installed_git.returncode == 0, installed_git.stderr + installed_git.stdout
+        inspect_git = json.loads(spawn_rust(launcher, cwd, base_env, ['inspect', '--json']).stdout)
+        names = [row['name'] for row in inspect_git['plugins']['installed']]
+        assert 'git-tools' in names
+        git_row = next(row for row in inspect_git['plugins']['installed'] if row['name'] == 'git-tools')
+        assert git_row['version'] == '2.0.0'
+        assert git_row['executionGranted'] is False
+        results['git-marketplace'] = {'version': git_row['version']}
+
         (output / 'result.json').write_text(json.dumps(results, indent=2) + '\n')
         print(output)
         print(json.dumps(results, indent=2))
