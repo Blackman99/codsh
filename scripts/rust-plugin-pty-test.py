@@ -68,6 +68,10 @@ def write_marketplace(root, name='sample-tools', version='1.0.0'):
 
 
 def pty_session(name, launcher, cwd, env, output, typed, wait_after, cols=100, rows=30):
+    return pty_steps(name, launcher, cwd, env, output, [(typed, wait_after)], cols, rows)
+
+
+def pty_steps(name, launcher, cwd, env, output, steps, cols=100, rows=30):
     import fcntl
     import pty
     import select
@@ -110,12 +114,24 @@ def pty_session(name, launcher, cwd, env, output, typed, wait_after, cols=100, r
     try:
         wait_visible('codsh')
         wait_visible('Draft (not sent)')
-        os.write(master, typed.encode())
-        for marker in wait_after:
-            wait_visible(marker, 25)
+        for typed, wait_after in steps:
+            if typed:
+                os.write(master, typed.encode())
+            for marker in wait_after:
+                wait_visible(marker, 25)
         shown = visible()
         os.write(master, b'\x11')
-        process.wait(timeout=12)
+        deadline = time.monotonic() + 12
+        while process.poll() is None and time.monotonic() < deadline:
+            pump(0.2)
+        if process.poll() is None:
+            os.write(master, b'\x11')
+            try:
+                process.wait(timeout=8)
+            except subprocess.TimeoutExpired:
+                process.terminate()
+                process.wait(timeout=5)
+                raise AssertionError(f'{name}: Ctrl+Q did not quit\n{visible()}')
         pump()
         os.write(master, b'AFTER_EXIT_CANONICAL\n')
         assert select.select([slave], [], [], 2)[0]
@@ -124,6 +140,7 @@ def pty_session(name, launcher, cwd, env, output, typed, wait_after, cols=100, r
         assert b'\x1b[?1049l' in data
         (output / f'{name}.ansi').write_bytes(data)
         (output / f'{name}.txt').write_text(shown)
+        time.sleep(0.4)
         return {'name': name, 'exit': process.returncode, 'screen': shown}
     finally:
         if process.poll() is None:
@@ -261,6 +278,25 @@ env_key = "XAI_API_KEY"
         assert 'Marketplace  (Tab' not in ctrl_l['screen'], ctrl_l['screen']
         results['pty-ctrl-l'] = {'openedPlugins': False}
 
+        market_ui = pty_session('marketplace-ui', launcher, cwd, base_env, output,
+                                typed='/marketplace\r',
+                                wait_after=['Marketplace', 'market'])
+        assert market_ui['exit'] == 0
+        assert 'Marketplace  (Tab' in market_ui['screen'], market_ui['screen']
+        results['pty-marketplace'] = {'exit': market_ui['exit']}
+
+        cancel = pty_steps('overlay-cancel', launcher, cwd, base_env, output, [
+            ('/plugins\r', ['Plugins', 'sample-tools', 'exec=false']),
+            ('x', ['Uninstall plugin']),
+            ('n', ['Plugins  (Tab']),
+        ])
+        assert cancel['exit'] == 0
+        assert 'Uninstall plugin' not in cancel['screen'], cancel['screen']
+        assert 'sample-tools' in cancel['screen']
+        still_installed = json.loads(spawn_rust(launcher, cwd, base_env, ['inspect', '--json']).stdout)
+        assert any(row['name'] == 'sample-tools' for row in still_installed['plugins']['installed'])
+        results['pty-overlay-cancel'] = {'stillInstalled': True}
+
         removed = spawn_rust(launcher, cwd, base_env, ['plugin', 'uninstall', 'sample-tools'])
         assert removed.returncode == 0, removed.stderr + removed.stdout
         after_remove = json.loads(spawn_rust(launcher, cwd, base_env, ['inspect', '--json']).stdout)
@@ -297,6 +333,20 @@ env_key = "XAI_API_KEY"
         assert git_row['executionGranted'] is False
         results['git-marketplace'] = {'version': git_row['version']}
 
+        write_plugin(git_market / 'plugins' / 'git-tools', 'git-tools', '2.1.0')
+        run(['git', 'add', '.'], cwd=git_market)
+        run(['git', 'commit', '-m', 'bump'], cwd=git_market,
+            env={**os.environ, 'GIT_TERMINAL_PROMPT': '0'})
+        locked_update = spawn_rust(launcher, cwd, {**base_env, 'GROK_MARKETPLACE_REQUIRE_SHA': '1'},
+                                   ['plugin', 'update', 'git-tools'])
+        assert locked_update.returncode != 0, locked_update.stdout + locked_update.stderr
+        assert 'unpinned' in (locked_update.stderr + locked_update.stdout)
+        after_locked = json.loads(spawn_rust(launcher, cwd, base_env, ['inspect', '--json']).stdout)
+        locked_row = next(row for row in after_locked['plugins']['installed'] if row['name'] == 'git-tools')
+        assert locked_row['version'] == '2.0.0'
+        assert locked_row['commit'] == git_row['commit']
+        results['require-sha-update'] = {'exit': locked_update.returncode, 'version': locked_row['version']}
+
         two_market = work / 'two-market'
         write_marketplace(two_market, 'alpha-tools', '1.0.0')
         write_plugin(two_market / 'plugins' / 'beta-tools', 'beta-tools', '1.0.0')
@@ -326,6 +376,32 @@ env_key = "XAI_API_KEY"
                      if row['name'] in ('alpha-tools', 'beta-tools')}
         assert two_paths['alpha-tools'] != two_paths['beta-tools']
         results['two-plugin-marketplace'] = {'installed': sorted(two_names)}
+
+        conflict_a = work / 'conflict-a'
+        conflict_b = work / 'conflict-b'
+        write_plugin(conflict_a, 'same-name', '1.0.0', 'MIT')
+        write_plugin(conflict_b, 'same-name', '2.0.0', 'Apache-2.0')
+        first_conflict = spawn_rust(launcher, cwd, base_env, ['plugin', 'install', str(conflict_a), '--trust'])
+        assert first_conflict.returncode == 0, first_conflict.stderr + first_conflict.stdout
+        second_conflict = spawn_rust(launcher, cwd, base_env, ['plugin', 'install', str(conflict_b), '--trust'])
+        assert second_conflict.returncode != 0
+        assert 'already installed' in (second_conflict.stderr + second_conflict.stdout)
+        after_conflict = json.loads(spawn_rust(launcher, cwd, base_env, ['inspect', '--json']).stdout)
+        same_rows = [row for row in after_conflict['plugins']['installed'] if row['name'] == 'same-name']
+        assert len(same_rows) == 1
+        assert same_rows[0]['license'] == 'MIT'
+        results['install-conflict'] = {'license': same_rows[0]['license']}
+
+        project_plugin = cwd / '.grok' / 'plugins' / 'project-tools'
+        write_plugin(project_plugin, 'project-tools', '0.2.0')
+        inspect_project = json.loads(spawn_rust(launcher, cwd, base_env, ['inspect', '--json']).stdout)
+        project_row = next(row for row in inspect_project['plugins']['installed'] if row['name'] == 'project-tools')
+        assert project_row['scope'] == 'project'
+        assert project_row['trusted'] is False
+        assert project_row['enabled'] is False
+        assert project_row['executionGranted'] is False
+        assert inspect_project.get('workspaceTrusted') is False
+        results['project-scope'] = {'scope': project_row['scope'], 'trusted': project_row['trusted']}
 
         (output / 'result.json').write_text(json.dumps(results, indent=2) + '\n')
         print(output)

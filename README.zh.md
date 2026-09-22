@@ -106,7 +106,9 @@ Home 会报告保存失败而不会假装授权已持久化。未信任的 Hooks
 `codsh --rust plugin marketplace add|list|update|remove` 管理本地 git/路径目录。
 `plugin install|update|uninstall|list` 把插件文件复制到隔离 Home，并记录版本、
 来源和许可。安装需要 `--trust`，仍不会授予执行权限；启停由后续任务处理。
-下载、校验、冲突、离线或取消失败不会留下成功安装。官方 marketplace 默认不
+下载、校验、冲突、离线或取消失败不会留下成功安装。
+`GROK_MARKETPLACE_REQUIRE_SHA` / `[marketplace] require_sha` 也会拒绝未钉死
+的远程更新并保留原安装。官方 marketplace 默认不
 自动注册，除非设置 `GROK_OFFICIAL_MARKETPLACE_AUTO_REGISTER`。同一目录中的
 多个插件各自安装；git 更新会记录 clone HEAD。托管层
 `extra_known_marketplaces` 以先写入的 pin 为准。`/plugins`

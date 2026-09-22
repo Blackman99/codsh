@@ -136,7 +136,8 @@ catalogs. `plugin install|update|uninstall|list` copies plugin files into the
 isolated Home with version, source, and license provenance. Install requires
 `--trust` and still does not grant execution; enablement is a later ticket.
 Failed download, checksum, conflict, offline, or cancel leaves no success
-record. Official marketplace auto-register stays off unless
+record. `GROK_MARKETPLACE_REQUIRE_SHA` / `[marketplace] require_sha` also
+refuse unpinned remote updates and leave the previous install. Official marketplace auto-register stays off unless
 `GROK_OFFICIAL_MARKETPLACE_AUTO_REGISTER` is enabled. Each marketplace plugin
 installs into its own directory; git updates record the clone HEAD. Managed
 `extra_known_marketplaces` pins are first-pin-wins sources.

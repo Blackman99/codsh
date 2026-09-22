@@ -75,7 +75,9 @@ Installation does not enable execution. Official marketplace auto-register is
 off unless `GROK_OFFICIAL_MARKETPLACE_AUTO_REGISTER` is set. Git marketplace
 catalogs are read from `$GROK_HOME/marketplace-cache` after add/update.
 Each marketplace plugin installs into its own dest under `installed-plugins`.
-Git updates persist the clone HEAD in inspect provenance. `marketplace remove`
+Git updates persist the clone HEAD in inspect provenance. `marketplace.require_sha` /
+`GROK_MARKETPLACE_REQUIRE_SHA` refuse unpinned remote install and update.
+`marketplace remove`
 clears trust and enable lists for those plugins. `extra_known_marketplaces`
 pins sources with first-pin-wins.
 `/plugins` and `/marketplace` open the directory; Ctrl+L is not bound here.

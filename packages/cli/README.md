@@ -59,7 +59,8 @@ beside the user file as `managed_config.toml` and `requirements.toml`. Untrusted
 workspaces prompt before project Hooks/plugins/instructions run; `--trust`
 saves a grant and `--revoke-trust` withdraws it. `codsh --rust plugin`
 marketplace/install/update/uninstall records isolated plugin files and
-provenance; install does not grant execution. Each marketplace plugin has its
+provenance; install does not grant execution. Unpinned remote updates are
+refused when `GROK_MARKETPLACE_REQUIRE_SHA` is set. Each marketplace plugin has its
 own dest. `/plugins` and `/marketplace`
 open the directory. The model's configured `env_key` (`XAI_API_KEY` and other
 `*_API_KEY` values) is passed through to dsh. Missing credentials stay local

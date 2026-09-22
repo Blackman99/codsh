@@ -1082,10 +1082,10 @@ fn cmd_install(ctx: &Context, source: &str, trust: bool) -> Result<String, Plugi
         )));
     }
     if require_sha(ctx) && !parsed.local && !is_full_sha(parsed.git_ref.as_deref().unwrap_or("")) {
-        return Err(PluginError::fail(format!(
-            "refusing unpinned remote plugin code for '{source}' from {}: marketplace.require_sha / GROK_MARKETPLACE_REQUIRE_SHA is enabled and no full commit sha (40/64 hex) is pinned",
-            parsed.identity
-        )));
+        return Err(unpinned_remote_error(
+            &format!("'{source}'"),
+            &parsed.identity,
+        ));
     }
     let outcome = install_from_parsed(ctx, &parsed, None)?;
     record_trust(ctx, &outcome.names, true)?;
@@ -1159,10 +1159,10 @@ fn install_from_marketplace(
                 && !parsed.local
                 && !is_full_sha(parsed.git_ref.as_deref().unwrap_or(""))
             {
-                return Err(PluginError::fail(format!(
-                    "refusing unpinned remote plugin code for '{}' from {}",
-                    plugin.name, parsed.identity
-                )));
+                return Err(unpinned_remote_error(
+                    &format!("'{}'", plugin.name),
+                    &parsed.identity,
+                ));
             }
             let provenance = MarketplaceProvenance {
                 source_url_or_path: source.identity(),
@@ -1593,6 +1593,12 @@ fn install_from_parsed(
 }
 
 fn update_repo(ctx: &Context, repo_key: &str, repo: &InstalledRepo) -> Result<String, PluginError> {
+    if let InstallKind::Git { url, git_ref, .. } = &repo.kind
+        && require_sha(ctx)
+        && !is_full_sha(git_ref.as_deref().unwrap_or(""))
+    {
+        return Err(unpinned_remote_error(&format!("update '{repo_key}'"), url));
+    }
     let backup = ctx.install_dir().join(format!(".backup-{repo_key}"));
     if backup.exists() {
         let _ = fs::remove_dir_all(&backup);
@@ -2986,6 +2992,12 @@ fn is_full_sha(value: &str) -> bool {
     matches!(value.len(), 40 | 64) && value.bytes().all(|byte| byte.is_ascii_hexdigit())
 }
 
+fn unpinned_remote_error(subject: &str, identity: &str) -> PluginError {
+    PluginError::fail(format!(
+        "refusing unpinned remote plugin code for {subject} from {identity}: marketplace.require_sha / GROK_MARKETPLACE_REQUIRE_SHA is enabled and no full commit sha (40/64 hex) is pinned"
+    ))
+}
+
 fn trust_prompt(subject: &str, source_arg: &str) -> String {
     format!(
         "Installing {subject} requires confirmation.\n\
@@ -3749,6 +3761,78 @@ mod tests {
             InstallKind::Local { .. } => None,
         });
         assert_eq!(commit, Some(expected.as_str()));
+    }
+
+    #[test]
+    fn require_sha_refuses_unpinned_git_update_without_mutating() {
+        if !git_available() {
+            return;
+        }
+        let dir = TempDir::new().unwrap();
+        let env = ctx(&dir);
+        let market = dir.path().join("git-market");
+        init_git_marketplace(&market, "git-tools", "1.0.0");
+        let url = format!("file://{}", market.display());
+        run(
+            &env.grok_home,
+            &env.cwd,
+            &env.env,
+            true,
+            &PluginCommand::MarketplaceAdd { url, force: true },
+        )
+        .unwrap();
+        run(
+            &env.grok_home,
+            &env.cwd,
+            &env.env,
+            true,
+            &PluginCommand::Install {
+                source: "git-tools".into(),
+                trust: true,
+            },
+        )
+        .unwrap();
+        let before = inspect(&env.grok_home, &env.cwd, &env.env, true)
+            .installed
+            .into_iter()
+            .find(|plugin| plugin.name == "git-tools")
+            .unwrap();
+        write_plugin(
+            &market.join("plugins").join("git-tools"),
+            "git-tools",
+            "1.1.0",
+            "MIT",
+        );
+        run_git(&market, &["add", "."]);
+        run_git(&market, &["commit", "-m", "bump"]);
+        let mut locked = env.env.clone();
+        locked.insert("GROK_MARKETPLACE_REQUIRE_SHA".into(), "1".into());
+        let err = run(
+            &env.grok_home,
+            &env.cwd,
+            &locked,
+            true,
+            &PluginCommand::Update {
+                name: Some("git-tools".into()),
+            },
+        )
+        .unwrap_err();
+        assert!(err.message.contains("unpinned"), "{}", err.message);
+        let after = inspect(&env.grok_home, &env.cwd, &env.env, true)
+            .installed
+            .into_iter()
+            .find(|plugin| plugin.name == "git-tools")
+            .unwrap();
+        assert_eq!(after.version, before.version);
+        assert_eq!(after.commit, before.commit);
+        assert!(after.path.exists());
+        let registry: InstallRegistry =
+            serde_json::from_str(&fs::read_to_string(env.registry_path()).unwrap()).unwrap();
+        let commit = registry.repos.values().find_map(|repo| match &repo.kind {
+            InstallKind::Git { commit, .. } => Some(commit.clone()),
+            InstallKind::Local { .. } => None,
+        });
+        assert_eq!(commit, before.commit);
     }
 
     #[test]
