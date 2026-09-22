@@ -68,7 +68,11 @@ Grok-only prune ages stay warnings, not silent no-ops. Managed defaults live in
 later CLI, environment, overlay, workspace, or user layers cannot bypass them.
 Unknown security fields fail closed with diagnostics. Workspace trust is stored
 in `$GROK_HOME/trusted_folders.toml`; untrusted project Hooks/plugins/instructions
-stay inactive until `--trust` or an interactive grant.
+stay inactive until `--trust` or an interactive grant. Isolated plugin
+marketplace add/list/update/remove and plugin install/update/uninstall copy
+files into `$GROK_HOME/installed-plugins` with inspectable provenance.
+Installation does not enable execution. Official marketplace auto-register is
+off unless `GROK_OFFICIAL_MARKETPLACE_AUTO_REGISTER` is set.
 Plain `codsh` still selects the legacy Launcher/Bundle; this is not the default
 cutover. The Viewport language below remains the legacy Surface contract.
 

@@ -3,6 +3,7 @@ mod appearance;
 mod config;
 mod import;
 mod models;
+mod plugin;
 mod screen_mode;
 mod session_fork;
 mod session_history;
@@ -200,6 +201,7 @@ enum LaunchMode {
     Import {
         flags: import::ImportFlags,
     },
+    Plugin(plugin::PluginCommand),
     New,
     Continue,
     Resume(String),
@@ -220,6 +222,7 @@ enum Overlay {
     RewindConfirm {
         point: RewindPoint,
     },
+    Plugins(plugin::PluginOverlay),
 }
 
 #[derive(Debug)]
@@ -311,7 +314,9 @@ fn parse_launch(args: &[String]) -> io::Result<Launch> {
             child_id = Some(value);
         } else {
             let arg = &args[index];
-            if arg == "--trust" || arg == "--trust-folder" {
+            if arg == "--trust" && args.iter().any(|item| item == "plugin") {
+                rest.push(arg.clone());
+            } else if arg == "--trust" || arg == "--trust-folder" {
                 trust = true;
                 if arg == "--trust-folder"
                     && let Some(value) = args.get(index + 1)
@@ -320,6 +325,7 @@ fn parse_launch(args: &[String]) -> io::Result<Launch> {
                     && value != "--continue"
                     && value != "--resume"
                     && value != "--fork-session"
+                    && value != "plugin"
                 {
                     index += 1;
                     trust_folder = Some(PathBuf::from(value));
@@ -385,6 +391,16 @@ fn parse_launch(args: &[String]) -> io::Result<Launch> {
         ["import", flags @ ..] => LaunchMode::Import {
             flags: import::parse_flags(flags)?,
         },
+        ["plugin"] => LaunchMode::Plugin(plugin::PluginCommand::Help),
+        ["plugin", flags @ ..] => LaunchMode::Plugin(
+            plugin::parse_command(
+                &flags
+                    .iter()
+                    .map(|flag| (*flag).to_string())
+                    .collect::<Vec<_>>(),
+            )
+            .map_err(|error| io::Error::other(error.message))?,
+        ),
         _ => {
             return Err(io::Error::other(
                 "unsupported preview arguments; use codsh --rust --help",
@@ -749,6 +765,7 @@ fn overlay_hint(overlay: &Overlay, prefs: &UiPrefs) -> String {
             "Confirm rewind to turn {} ({})? y=yes  a=yes, don't ask again  n=no",
             point.turn, point.summary
         ),
+        Overlay::Plugins(_) => String::new(),
     }
 }
 
@@ -1382,7 +1399,7 @@ fn apply_overlay_action(
 }
 
 fn inspect_help() -> &'static str {
-    "Show the configuration this directory resolves\n\nUsage: codsh --rust inspect [OPTIONS]\n\nOptions:\n      --json                  Emit machine-readable JSON output\n      --debug                 Enable debug logging\n      --debug-file <FILE>     Write debug logs to FILE\n  -h, --help                  Print help\n\nReports CLI, environment, overlay, config.toml, workspace, managed, and requirements origins.\nLocked requirements cannot be bypassed. Folder trust and project-asset activity are included.\nLeader sockets are unused; dsh owns execution."
+    "Show the configuration this directory resolves\n\nUsage: codsh --rust inspect [OPTIONS]\n\nOptions:\n      --json                  Emit machine-readable JSON output\n      --debug                 Enable debug logging\n      --debug-file <FILE>     Write debug logs to FILE\n  -h, --help                  Print help\n\nReports CLI, environment, overlay, config.toml, workspace, managed, and requirements origins.\nLocked requirements cannot be bypassed. Folder trust, project-asset activity, marketplace sources, and installed plugin provenance are included.\nLeader sockets are unused; dsh owns execution."
 }
 
 fn run_import(flags: import::ImportFlags) -> io::Result<()> {
@@ -1728,7 +1745,7 @@ fn run() -> io::Result<()> {
         }
         LaunchMode::Help => {
             println!(
-                "codsh --rust\n\nIsolated Rust client. Real dsh executes turns over ACP/JSON-RPC stdio.\nHome: ~/.codsh-rust/dsh; Profile: rust. Legacy codsh is unchanged.\nUser config: $GROK_HOME/config.toml (default ~/.codsh-rust/.grok/config.toml), mapped into isolated dsh settings.yaml.\nManaged defaults: $GROK_HOME/managed_config.toml. Locked requirements: $GROK_HOME/requirements.toml (cannot be bypassed by later CLI, environment, overlay, workspace, or user values).\n`codsh --rust inspect` / `inspect --json` shows effective values, origins, folder trust, appearance/theme/status-line, and whether project assets are active. Invalid config.toml is left unchanged and reports its path. Unknown security fields and invalid policies are diagnosed with valid values, sources, and limits.\n`codsh --rust import --preview` lists conversions, conflicts, and unsupported items from current dsh `$DSH_HOME/settings.yaml`, `code-cli-thinking.json`, and `code-cli-ui.json`. It does not treat outdated `code-cli-settings.json` as a provider source. `--apply` copies selected providers/preferences into the isolated Home. Official tokens, `.credentials.yaml`, `.env`, and original trust/execution grants are never copied. Preview, cancel, and failed apply leave source files and existing isolated settings unchanged. Model credentials stay in the host environment (`--authorize-env`) or must be exported after import.\nWorkspace trust: untrusted folders prompt before applying project config, Hooks, plugins, or instructions; `--trust` / `--trust-folder [path]` saves a grant, `--revoke-trust` withdraws it. A read-only $GROK_HOME reports save failure without pretending the grant is durable. Untrusted Hooks/plugins/project capabilities do not execute.\nFirst-run missing credentials stay local: no grok.com login, no default official telemetry, no automatic import of ~/.dsh or ~/.grok credentials.\nFile read/edit/write run through dsh tools; y allows once, n rejects with no write. Trust prompt: y=allow, n=deny.\nCtrl+Q/Ctrl+D: quit. Ctrl+C: clear a draft; empty draft cancels a running turn via dsh, or quits when idle before any turn.\nEsc never cancels a turn or a pending approval; it dismisses selection and reminds you to use Ctrl+C.\nEnter: submit prompt. /settings (/config) edits appearance, default screen mode, timestamps, compact mode, and status line. /theme (/t) previews fullscreen themes; Escape restores the previous theme without saving. /compact-mode and /timestamps toggle persisted [ui] keys. Minimal mode uses the terminal palette and refuses /theme. Status-line scripts run with a 10s timeout, cleared BASH_ENV/ENV, and process-group cleanup on exit. Locked requirements show their source and cannot be edited.\n/minimal and /fullscreen switch render mode in process without restarting dsh; --minimal/--fullscreen and GROK_SCREEN_MODE are session-scoped and do not rewrite [ui] screen_mode. /model (/m) and /effort select advertised catalog options; unsupported backends/efforts are refused, never treated as equivalent or silently swapped. /context shows dsh occupancy, advertised model limits, and heuristic buckets without fabricating zeros. /compact [instruction] runs dsh compaction (not a second history); optional instructions go only to the summarizer request (purpose=compaction). Automatic compaction uses session.auto_compact_threshold_percent / GROK_AUTO_COMPACT_THRESHOLD_PERCENT mapped to dsh thresholdRatio. GROK_COMPACTION_WALL_CLOCK_SECS bounds the operation; 0 disables that budget. Runtime changes apply to the next turn and persist under $GROK_HOME/model-selection.toml. --continue resumes the last session in this directory; --resume <id> loads that dsh session. --fork-session with --resume/--continue copies conversation into a new session id. /rewind and /undo fork conversation-only history through dsh; files are not restored. /fork copies the current history into a new session. Idle empty Esc Esc opens rewind. A second client is refused while this process holds write ownership. Interrupted tools show [interrupted]/unknown and are not replayed.\nOptions: --help, --version, --continue, --resume <id>, --fork-session, --session-id <id>, --minimal, --fullscreen, --model <id>, --effort/--reasoning-effort <level>, --trust, --trust-folder [path], --revoke-trust, inspect, import. --restore-code is refused."
+                "codsh --rust\n\nIsolated Rust client. Real dsh executes turns over ACP/JSON-RPC stdio.\nHome: ~/.codsh-rust/dsh; Profile: rust. Legacy codsh is unchanged.\nUser config: $GROK_HOME/config.toml (default ~/.codsh-rust/.grok/config.toml), mapped into isolated dsh settings.yaml.\nManaged defaults: $GROK_HOME/managed_config.toml. Locked requirements: $GROK_HOME/requirements.toml (cannot be bypassed by later CLI, environment, overlay, workspace, or user values).\n`codsh --rust inspect` / `inspect --json` shows effective values, origins, folder trust, appearance/theme/status-line, and whether project assets are active. Invalid config.toml is left unchanged and reports its path. Unknown security fields and invalid policies are diagnosed with valid values, sources, and limits.\n`codsh --rust import --preview` lists conversions, conflicts, and unsupported items from current dsh `$DSH_HOME/settings.yaml`, `code-cli-thinking.json`, and `code-cli-ui.json`. It does not treat outdated `code-cli-settings.json` as a provider source. `--apply` copies selected providers/preferences into the isolated Home. Official tokens, `.credentials.yaml`, `.env`, and original trust/execution grants are never copied. Preview, cancel, and failed apply leave source files and existing isolated settings unchanged. Model credentials stay in the host environment (`--authorize-env`) or must be exported after import.\nWorkspace trust: untrusted folders prompt before applying project config, Hooks, plugins, or instructions; `--trust` / `--trust-folder [path]` saves a grant, `--revoke-trust` withdraws it. A read-only $GROK_HOME reports save failure without pretending the grant is durable. Untrusted Hooks/plugins/project capabilities do not execute.\nPlugin lifecycle: `codsh --rust plugin marketplace add|list|update|remove` and `plugin install|update|uninstall|list` record sources, versions, licenses, and files under the isolated Home. Install does not grant execution. Failed download/checksum/conflict/offline/cancel leave no success record. Official marketplace auto-register is off unless GROK_OFFICIAL_MARKETPLACE_AUTO_REGISTER is enabled. `/plugins` and `/marketplace` open the plugins directory. Uninstall does not delete unrelated user files.\nFirst-run missing credentials stay local: no grok.com login, no default official telemetry, no automatic import of ~/.dsh or ~/.grok credentials.\nFile read/edit/write run through dsh tools; y allows once, n rejects with no write. Trust prompt: y=allow, n=deny.\nCtrl+Q/Ctrl+D: quit. Ctrl+C: clear a draft; empty draft cancels a running turn via dsh, or quits when idle before any turn.\nEsc never cancels a turn or a pending approval; it dismisses selection and reminds you to use Ctrl+C.\nEnter: submit prompt. /settings (/config) edits appearance, default screen mode, timestamps, compact mode, and status line. /theme (/t) previews fullscreen themes; Escape restores the previous theme without saving. /compact-mode and /timestamps toggle persisted [ui] keys. Minimal mode uses the terminal palette and refuses /theme. Status-line scripts run with a 10s timeout, cleared BASH_ENV/ENV, and process-group cleanup on exit. Locked requirements show their source and cannot be edited.\n/minimal and /fullscreen switch render mode in process without restarting dsh; --minimal/--fullscreen and GROK_SCREEN_MODE are session-scoped and do not rewrite [ui] screen_mode. /model (/m) and /effort select advertised catalog options; unsupported backends/efforts are refused, never treated as equivalent or silently swapped. /context shows dsh occupancy, advertised model limits, and heuristic buckets without fabricating zeros. /compact [instruction] runs dsh compaction (not a second history); optional instructions go only to the summarizer request (purpose=compaction). Automatic compaction uses session.auto_compact_threshold_percent / GROK_AUTO_COMPACT_THRESHOLD_PERCENT mapped to dsh thresholdRatio. GROK_COMPACTION_WALL_CLOCK_SECS bounds the operation; 0 disables that budget. Runtime changes apply to the next turn and persist under $GROK_HOME/model-selection.toml. --continue resumes the last session in this directory; --resume <id> loads that dsh session. --fork-session with --resume/--continue copies conversation into a new session id. /rewind and /undo fork conversation-only history through dsh; files are not restored. /fork copies the current history into a new session. Idle empty Esc Esc opens rewind. A second client is refused while this process holds write ownership. Interrupted tools show [interrupted]/unknown and are not replayed.\nOptions: --help, --version, --continue, --resume <id>, --fork-session, --session-id <id>, --minimal, --fullscreen, --model <id>, --effort/--reasoning-effort <level>, --trust, --trust-folder [path], --revoke-trust, inspect, import, plugin. --restore-code is refused."
             );
             return Ok(());
         }
@@ -1775,6 +1792,26 @@ fn run() -> io::Result<()> {
                 return Ok(());
             }
             return run_import(flags.clone());
+        }
+        LaunchMode::Plugin(command) => {
+            let loaded = load_runtime_config(&launch);
+            let env = std::env::vars().collect();
+            match plugin::run(
+                &loaded.grok_home,
+                &loaded.cwd,
+                &env,
+                loaded.workspace_trusted,
+                command,
+            ) {
+                Ok(output) => {
+                    println!("{output}");
+                    return Ok(());
+                }
+                Err(error) => {
+                    eprintln!("{}", error.message);
+                    std::process::exit(error.code);
+                }
+            }
         }
         _ => {}
     }
@@ -1976,10 +2013,19 @@ fn run() -> io::Result<()> {
         }
         let awaiting = turns.last().is_some_and(|turn| turn.permission.is_some());
         let cancelling = turns.last().is_some_and(|turn| turn.cancelling);
-        let shown_hint = if matches!(overlay, Overlay::None) {
-            hint.clone()
-        } else {
-            overlay_hint(&overlay, &prefs)
+        let shown_hint = match &overlay {
+            Overlay::None => hint.clone(),
+            Overlay::Plugins(plugin_overlay) => {
+                let env = std::env::vars().collect();
+                let snapshot = plugin::inspect(
+                    &effective.grok_home,
+                    &effective.cwd,
+                    &env,
+                    effective.workspace_trusted,
+                );
+                plugin::overlay_text(plugin_overlay, &snapshot)
+            }
+            _ => overlay_hint(&overlay, &prefs),
         };
         let routing = live_routing(client.as_ref(), &effective);
         if inflight {
@@ -2216,6 +2262,55 @@ fn run() -> io::Result<()> {
                 }
 
                 if key.modifiers.is_empty() {
+                    if let Overlay::Plugins(plugin_overlay) = &mut overlay {
+                        let env = std::env::vars().collect();
+                        let snapshot = plugin::inspect(
+                            &effective.grok_home,
+                            &effective.cwd,
+                            &env,
+                            effective.workspace_trusted,
+                        );
+                        let tab = key.code == KeyCode::Tab;
+                        let enter = key.code == KeyCode::Enter;
+                        let esc = key.code == KeyCode::Esc;
+                        let ch = match key.code {
+                            KeyCode::Char(value) => value,
+                            KeyCode::Down => 'j',
+                            KeyCode::Up => 'k',
+                            _ => '\0',
+                        };
+                        let action = plugin::handle_overlay_key(
+                            plugin_overlay,
+                            &snapshot,
+                            ch,
+                            enter,
+                            tab,
+                            esc,
+                        );
+                        match action {
+                            plugin::OverlayAction::Close => {
+                                overlay = Overlay::None;
+                                hint.clear();
+                            }
+                            plugin::OverlayAction::Continue => {}
+                            plugin::OverlayAction::Run(command) => {
+                                match plugin::run(
+                                    &effective.grok_home,
+                                    &effective.cwd,
+                                    &env,
+                                    effective.workspace_trusted,
+                                    &command,
+                                ) {
+                                    Ok(message) => {
+                                        hint = message;
+                                        last_error.clear();
+                                    }
+                                    Err(error) => last_error = error.message,
+                                }
+                            }
+                        }
+                        continue;
+                    }
                     match &overlay {
                         Overlay::RewindPick { points, cursor } => match key.code {
                             KeyCode::Up | KeyCode::Char('k') => {
@@ -2357,7 +2452,7 @@ fn run() -> io::Result<()> {
                             }
                             _ => {}
                         },
-                        Overlay::None => {}
+                        Overlay::None | Overlay::Plugins(_) => {}
                     }
                 }
 
@@ -2615,6 +2710,19 @@ fn run() -> io::Result<()> {
                             }
                             composer_stash.clear();
                             let trimmed = text.trim();
+                            if trimmed == "/plugins" || trimmed == "/marketplace" {
+                                overlay = Overlay::Plugins(plugin::new_overlay(
+                                    if trimmed == "/marketplace" {
+                                        plugin::PluginTab::Marketplace
+                                    } else {
+                                        plugin::PluginTab::Plugins
+                                    },
+                                ));
+                                draft.set_text("");
+                                last_error.clear();
+                                hint.clear();
+                                continue;
+                            }
                             if session_fork::is_conversation_slash(trimmed) {
                                 if inflight {
                                     last_error = session_fork::running_turn_error();
@@ -3116,6 +3224,27 @@ mod tests {
             error.to_string().contains("unsupported preview arguments"),
             "{error}"
         );
+    }
+
+    #[test]
+    fn parse_plugin_help_is_a_supported_public_command() {
+        let launch = parse_launch(&args(&["plugin", "--help"])).expect("plugin help");
+        assert!(matches!(
+            launch.mode,
+            LaunchMode::Plugin(plugin::PluginCommand::Help)
+        ));
+        let install =
+            parse_launch(&args(&["plugin", "install", "./p", "--trust"])).expect("install");
+        assert!(matches!(
+            install.mode,
+            LaunchMode::Plugin(plugin::PluginCommand::Install { trust: true, .. })
+        ));
+        assert!(!install.trust);
+        let mp = parse_launch(&args(&["plugin", "marketplace", "--help"])).expect("mp help");
+        assert!(matches!(
+            mp.mode,
+            LaunchMode::Plugin(plugin::PluginCommand::MarketplaceHelp)
+        ));
     }
 
     #[test]

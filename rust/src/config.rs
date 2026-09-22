@@ -100,6 +100,7 @@ pub struct EffectiveConfig {
     pub trust_prompt: bool,
     pub trust_message: String,
     pub appearance: AppearanceConfig,
+    pub plugins: crate::plugin::PluginInspect,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -1143,6 +1144,32 @@ pub fn load_from(mut input: LoadInput) -> EffectiveConfig {
     for (key, value, source) in appearance::inspect_rows(&appearance, ScreenMode::Fullscreen) {
         push_setting(&mut settings, &key, &value, &source);
     }
+    let plugins = crate::plugin::inspect(&grok_home, &input.cwd, &input.env, workspace_trusted);
+    warnings.extend(plugins.warnings.iter().cloned());
+    push_setting(
+        &mut settings,
+        "marketplace.auto_register",
+        if plugins.auto_register_official {
+            "true"
+        } else {
+            "false"
+        },
+        if plugins.auto_register_official {
+            "environment"
+        } else {
+            "default"
+        },
+    );
+    push_setting(
+        &mut settings,
+        "marketplace.require_sha",
+        if plugins.require_sha { "true" } else { "false" },
+        if plugins.require_sha {
+            "policy"
+        } else {
+            "default"
+        },
+    );
 
     EffectiveConfig {
         grok_home,
@@ -1176,6 +1203,7 @@ pub fn load_from(mut input: LoadInput) -> EffectiveConfig {
         trust_prompt,
         trust_message,
         appearance,
+        plugins,
     }
 }
 
@@ -1202,6 +1230,7 @@ pub fn inspect_text(config: &EffectiveConfig) -> String {
     if !config.errors.is_empty() || !config.ready {
         lines.push(config.first_run_message());
     }
+    lines.push(crate::plugin::inspect_text(&config.plugins));
     lines.join("\n")
 }
 
@@ -1251,6 +1280,7 @@ pub fn inspect_json(config: &EffectiveConfig) -> String {
             "workspaceTrusted": config.workspace_trusted,
             "projectAssetsActive": config.project_assets_active,
             "trustPrompt": config.trust_prompt,
+            "plugins": crate::plugin::inspect_json_value(&config.plugins),
             "compactThresholdPercent": config.compact_threshold_percent.unwrap_or(80),
             "compactWallClockSecs": config.compact_wall_clock_secs,
             "pruneEnabled": config.prune_enabled,

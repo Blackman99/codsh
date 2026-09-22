@@ -130,7 +130,16 @@ than ignored. Untrusted workspaces prompt before applying project config, Hooks,
 plugins, or instructions; `--trust` / `--trust-folder [path]` saves a grant to
 `$GROK_HOME/trusted_folders.toml`, `--revoke-trust` withdraws it, and a
 read-only Home reports save failure without claiming a durable grant. Untrusted
-Hooks, plugins, and project capabilities do not execute. First-run missing
+Hooks, plugins, and project capabilities do not execute.
+`codsh --rust plugin marketplace add|list|update|remove` manages local git/path
+catalogs. `plugin install|update|uninstall|list` copies plugin files into the
+isolated Home with version, source, and license provenance. Install requires
+`--trust` and still does not grant execution; enablement is a later ticket.
+Failed download, checksum, conflict, offline, or cancel leaves no success
+record. Official marketplace auto-register stays off unless
+`GROK_OFFICIAL_MARKETPLACE_AUTO_REGISTER` is enabled. `/plugins`,
+`/marketplace`, and Ctrl+L open the plugins directory. Uninstall does not
+delete unrelated user files. User and project plugin scopes stay separate. First-run missing
 credentials stay local: no grok.com login, no default
 official telemetry/upload, and no automatic import of `~/.dsh` or `~/.grok` credentials.
 `codsh --rust import --preview` (and `import --json`) lists conversions, conflicts,

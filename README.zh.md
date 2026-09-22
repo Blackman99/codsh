@@ -102,7 +102,14 @@ dsh 的上下文占用显示为 `occupancy=N (dsh estimate)`，不当作提供�
 不会自动应用项目配置、Hooks、插件或项目说明；`--trust` / `--trust-folder [path]`
 把授权写入 `$GROK_HOME/trusted_folders.toml`，`--revoke-trust` 撤回授权，只读
 Home 会报告保存失败而不会假装授权已持久化。未信任的 Hooks、插件和项目能力
-不会执行。首次运行缺少凭据时只给出
+不会执行。
+`codsh --rust plugin marketplace add|list|update|remove` 管理本地 git/路径目录。
+`plugin install|update|uninstall|list` 把插件文件复制到隔离 Home，并记录版本、
+来源和许可。安装需要 `--trust`，仍不会授予执行权限；启停由后续任务处理。
+下载、校验、冲突、离线或取消失败不会留下成功安装。官方 marketplace 默认不
+自动注册，除非设置 `GROK_OFFICIAL_MARKETPLACE_AUTO_REGISTER`。`/plugins`、
+`/marketplace` 与 Ctrl+L 打开插件目录。卸载不会删除用户无关文件。个人与项目
+作用域互不污染。首次运行缺少凭据时只给出
 可操作提示：不打开 grok.com 登录，不访问默认官方遥测/上传，也不自动导入
 `~/.dsh` 或 `~/.grok` 中的旧凭据。`codsh --rust import --preview`（以及 `import --json`）
 会根据当前 dsh 的 `$DSH_HOME/settings.yaml`（`llm-pi-ai` 提供商、`llm-deepseek`、

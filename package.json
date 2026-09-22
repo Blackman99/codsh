@@ -7,7 +7,7 @@
     "build": "pnpm --filter codsh-bundle run build",
     "build:rust": "node scripts/build-rust.mjs",
     "test:rust": "cargo test --manifest-path rust/Cargo.toml --locked --workspace",
-    "test:rust:pty": "python3 scripts/rust-pty-test.py && python3 scripts/rust-turn-pty-test.py && python3 scripts/rust-file-pty-test.py && python3 scripts/rust-cancel-pty-test.py && python3 scripts/rust-resume-pty-test.py && python3 scripts/rust-config-pty-test.py && python3 scripts/rust-model-pty-test.py && python3 scripts/rust-compact-pty-test.py && python3 scripts/rust-trust-pty-test.py && python3 scripts/rust-screen-pty-test.py && python3 scripts/rust-fork-pty-test.py && python3 scripts/rust-settings-pty-test.py && python3 scripts/rust-import-pty-test.py",
+    "test:rust:pty": "python3 scripts/rust-pty-test.py && python3 scripts/rust-turn-pty-test.py && python3 scripts/rust-file-pty-test.py && python3 scripts/rust-cancel-pty-test.py && python3 scripts/rust-resume-pty-test.py && python3 scripts/rust-config-pty-test.py && python3 scripts/rust-model-pty-test.py && python3 scripts/rust-compact-pty-test.py && python3 scripts/rust-trust-pty-test.py && python3 scripts/rust-screen-pty-test.py && python3 scripts/rust-fork-pty-test.py && python3 scripts/rust-settings-pty-test.py && python3 scripts/rust-import-pty-test.py && python3 scripts/rust-plugin-pty-test.py",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:e2e": "pnpm run build && vitest run --config vitest.e2e.config.ts",
