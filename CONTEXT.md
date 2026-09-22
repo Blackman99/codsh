@@ -30,7 +30,12 @@ native buffer instead of appending discarded turns, and the active session,
 draft, running turn, and pending approval survive. `--minimal` / `--fullscreen` and
 `GROK_SCREEN_MODE` are session-scoped and do not rewrite isolated
 `[ui] screen_mode`. The isolated Home is `~/.codsh-rust/dsh`, Profile `rust`;
-inherited legacy configuration/credential files are not imported. Configured
+inherited legacy configuration/credential files are not imported automatically.
+`codsh --rust import --preview` / `--apply` copies selected current dsh
+providers and preferences from `$DSH_HOME/settings.yaml`,
+`code-cli-thinking.json`, and `code-cli-ui.json` into the isolated Home; it
+does not treat outdated `code-cli-settings.json` as a provider source and never
+copies tokens, credential files, or original trust/execution grants. Configured
 `env_key` values are passed through. Telemetry stays off.
 User settings enter through `$GROK_HOME/config.toml` and `codsh --rust inspect`;
 `[ui] theme`, `auto_dark_theme`, `auto_light_theme`, `compact_mode`,

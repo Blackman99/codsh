@@ -104,14 +104,23 @@ dsh 的上下文占用显示为 `occupancy=N (dsh estimate)`，不当作提供�
 Home 会报告保存失败而不会假装授权已持久化。未信任的 Hooks、插件和项目能力
 不会执行。首次运行缺少凭据时只给出
 可操作提示：不打开 grok.com 登录，不访问默认官方遥测/上传，也不自动导入
-`~/.dsh` 或 `~/.grok` 中的旧凭据。写好带 `base_url` 的提供商后，再设置对应的
+`~/.dsh` 或 `~/.grok` 中的旧凭据。`codsh --rust import --preview`（以及 `import --json`）
+会根据当前 dsh 的 `$DSH_HOME/settings.yaml`（`llm-pi-ai` 提供商、`llm-deepseek`、
+`agent-default-model`）、`$DSH_HOME/code-cli-thinking.json` 与
+`$DSH_HOME/code-cli-ui.json` 列出转换、冲突和不支持项，不会把过时的
+`code-cli-settings.json` 当作提供商来源。`import --apply` 把所选提供商和偏好
+写入 `~/.codsh-rust/.grok/config.toml`。官方令牌、`.credentials.yaml`、`.env`
+以及原信任/执行权限都不会被复制。预览、取消和失败中断不会改动源文件或已有
+新设置。模型必要凭据须已导出（`--authorize-env`）或在导入后自行设置。普通
+`codsh` 仍读取原来的 Home。写好带 `base_url` 的提供商后，再设置对应的
 `env_key`（例如 `XAI_API_KEY`）。首次运行时空回车会重新加载该文件，
 提供商就绪后连接且不提交提示。父进程的 `GROK_HOME` 会被忽略；预览把
 `GROK_HOME` 固定为 `~/.codsh-rust/.grok`。
 
 预览使用 `~/.codsh-rust/dsh` 与 `rust` Profile，忽略继承的 `DSH_HOME`
 和 Grok 设置文件，不迁移旧会话。已配置的 `env_key`（例如 `XAI_API_KEY`
-以及其他 `*_API_KEY`）会传给 dsh；不会导入 `~/.dsh` 或 `~/.grok` 中的凭据文件。如果预览 Home/Profile 是符号链接，
+以及其他 `*_API_KEY`）会传给 dsh；不会自动导入 `~/.dsh` 或 `~/.grok` 中的凭据文件。
+显式、可逆的复制请使用 `codsh --rust import`。如果预览 Home/Profile 是符号链接，
 或与 `DSH_HOME`/`GROK_HOME` 重叠（包括大小写不敏感文件系统上的大小写别名），
 会在写入前拒绝启动。重叠检查比较目录及其祖先的设备号/inode 身份，包括
 尚不存在路径的已有祖先，避免 macOS firmlink 别名通过不同 realpath 字符串绕过。

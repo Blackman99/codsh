@@ -8,18 +8,30 @@ import { createHash } from 'node:crypto'
 
 const requireFromHere = createRequire(import.meta.url)
 
-function legacyHomes() {
+function hostDshHome() {
   // Match released dsh-home-paths: blank is unset; only these tilde prefixes expand.
   const value = process.env.DSH_HOME
   let dsh = value !== undefined && value.trim().length > 0 ? value : join(homedir(), '.dsh')
   if (dsh === '~') dsh = homedir()
   else if (dsh.startsWith('~/') || dsh.startsWith('~\\')) dsh = join(homedir(), dsh.slice(2))
+  return resolve(dsh)
+}
+
+function hostGrokHome() {
+  const grok = process.env.GROK_HOME
+  if (grok?.split(process.platform === 'win32' ? /[\\/]/u : '/').includes('..')) {
+    throw new Error('refusing GROK_HOME with .. components; use an unambiguous path without parent traversal')
+  }
+  return grok && grok.length > 0 ? grok : join(realpathSync.native(homedir()), '.grok')
+}
+
+function legacyHomes() {
   // Grok keeps nonempty overrides verbatim; lexical .. collapse can hide symlinks.
   const grok = process.env.GROK_HOME
   if (grok?.split(process.platform === 'win32' ? /[\\/]/u : '/').includes('..')) {
     throw new Error('refusing GROK_HOME with .. components; use an unambiguous path without parent traversal')
   }
-  return [resolve(dsh), join(homedir(), '.dsh'), grok, join(realpathSync.native(homedir()), '.grok')]
+  return [hostDshHome(), join(homedir(), '.dsh'), grok, join(realpathSync.native(homedir()), '.grok')]
 }
 
 function canonicalPath(path) {
@@ -114,7 +126,7 @@ export async function launchRust(args) {
       if (overlaps(canonicalRoot, canonicalPath(oldHome))) throw new Error('Rust Home overlaps a legacy Home; refusing to access legacy data')
     }
     const helpOnly = (args.length === 1 && ['--help', '-h', '--version', '-V'].includes(args[0]))
-      || (args[0] === 'inspect' && args.length > 1 && args.slice(1).every(flag => flag === '--help' || flag === '-h'))
+      || (['inspect', 'import'].includes(args[0]) && args.length > 1 && args.slice(1).every(flag => flag === '--help' || flag === '-h'))
     if (!helpOnly) {
       privateDirectory(root)
       privateDirectory(join(root, 'dsh'))
@@ -126,6 +138,7 @@ export async function launchRust(args) {
         name: 'dsh-profile-rust', private: true, dependencies: {}, dsh: { profile: { bundles: [] } },
       }, null, 2)}\n`, { flag: 'wx', mode: 0o600 })
     }
+    const hostHome = realpathSync(homedir())
     const env = {
       HOME: root,
       USERPROFILE: root,
@@ -136,8 +149,11 @@ export async function launchRust(args) {
       DSH_TELEMETRY_DISABLED: '1',
       DSH_TELEMETRY_MODE: 'OFF',
       CODSH_UPDATE_CHECK: 'off',
+      CODSH_HOST_HOME: hostHome,
+      CODSH_HOST_DSH_HOME: hostDshHome(),
+      CODSH_HOST_GROK_HOME: hostGrokHome(),
     }
-    for (const key of ['PATH', 'TERM', 'TERM_PROGRAM', 'COLORTERM', 'LANG', 'LC_ALL', 'LC_CTYPE', 'NO_COLOR', 'SystemRoot', 'WINDIR', 'CODSH_ACP_PATCH', 'CODSH_SESSION_READ', 'CODSH_SESSION_FORK', 'DSH_CODE_CLI_MOCK_TOOL', 'DSH_CODE_CLI_MOCK_DELAY_MS', 'DSH_CODE_CLI_MOCK_CONTEXT_WINDOW', 'DSH_CODE_CLI_TOOL_DELAY_MS', 'FAKE_ACP_MODE', 'FAKE_ACP_VERSION', 'FAKE_ACP_DELAY_MS', 'FAKE_ACP_TARGET', 'FAKE_ACP_WRITES', 'FAKE_ACP_STORE', 'FAKE_ACP_OWNED', 'FAKE_ACP_STALE_OWNER', 'GROK_CONFIG', 'GROK_CONFIG_PATH', 'GROK_TELEMETRY_ENABLED', 'GROK_FEEDBACK_ENABLED', 'GROK_TRACE_UPLOAD', 'GROK_TELEMETRY_TRACE_UPLOAD', 'GROK_SETTINGS_CACHE', 'GROK_AUTO_COMPACT_THRESHOLD_PERCENT', 'GROK_COMPACTION_WALL_CLOCK_SECS', 'CODSH_TEST_COMPACT_THRESHOLD', 'CODSH_TEST_PRUNE_DISABLED', 'CODSH_TEST_PRUNE_HEAD', 'CODSH_TEST_PRUNE_TAIL', 'CODSH_TEST_PRUNE_THRESHOLD', 'GROK_FOLDER_TRUST', 'GROK_MANAGED_CONFIG', 'GROK_MANAGED_CONFIG_FAIL_CLOSED', 'GROK_MANAGED_CONFIG_URL', 'GROK_REQUIRED_MINIMUM_VERSION', 'GROK_REQUIRED_MAXIMUM_VERSION', 'GROK_SCREEN_MODE', 'GROK_SCREEN_MODE_SWITCH']) {
+    for (const key of ['PATH', 'TERM', 'TERM_PROGRAM', 'COLORTERM', 'LANG', 'LC_ALL', 'LC_CTYPE', 'NO_COLOR', 'SystemRoot', 'WINDIR', 'CODSH_ACP_PATCH', 'CODSH_SESSION_READ', 'CODSH_SESSION_FORK', 'DSH_CODE_CLI_MOCK_TOOL', 'DSH_CODE_CLI_MOCK_DELAY_MS', 'DSH_CODE_CLI_MOCK_CONTEXT_WINDOW', 'DSH_CODE_CLI_TOOL_DELAY_MS', 'FAKE_ACP_MODE', 'FAKE_ACP_VERSION', 'FAKE_ACP_DELAY_MS', 'FAKE_ACP_TARGET', 'FAKE_ACP_WRITES', 'FAKE_ACP_STORE', 'FAKE_ACP_OWNED', 'FAKE_ACP_STALE_OWNER', 'GROK_CONFIG', 'GROK_CONFIG_PATH', 'GROK_TELEMETRY_ENABLED', 'GROK_FEEDBACK_ENABLED', 'GROK_TRACE_UPLOAD', 'GROK_TELEMETRY_TRACE_UPLOAD', 'GROK_SETTINGS_CACHE', 'GROK_AUTO_COMPACT_THRESHOLD_PERCENT', 'GROK_COMPACTION_WALL_CLOCK_SECS', 'CODSH_TEST_COMPACT_THRESHOLD', 'CODSH_TEST_PRUNE_DISABLED', 'CODSH_TEST_PRUNE_HEAD', 'CODSH_TEST_PRUNE_TAIL', 'CODSH_TEST_PRUNE_THRESHOLD', 'GROK_FOLDER_TRUST', 'GROK_MANAGED_CONFIG', 'GROK_MANAGED_CONFIG_FAIL_CLOSED', 'GROK_MANAGED_CONFIG_URL', 'GROK_REQUIRED_MINIMUM_VERSION', 'GROK_REQUIRED_MAXIMUM_VERSION', 'GROK_SCREEN_MODE', 'GROK_SCREEN_MODE_SWITCH', 'CODSH_HOST_HOME', 'CODSH_HOST_DSH_HOME', 'CODSH_HOST_GROK_HOME']) {
       if (process.env[key] !== undefined) env[key] = process.env[key]
     }
     for (const [key, value] of Object.entries(process.env)) {

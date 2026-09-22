@@ -29,13 +29,20 @@ wayfinder → grill → spec → tickets → landing → done.
 
 `codsh --rust` selects the isolated Rust client, which drives real dsh turns
 over ACP/JSON-RPC. Plain `codsh` is unchanged. The candidate uses
-`~/.codsh-rust/dsh`, Profile `rust`, never imports `~/.dsh` or `~/.grok`
+`~/.codsh-rust/dsh`, Profile `rust`, never automatically imports `~/.dsh` or `~/.grok`
 credential files or sessions, and does not start the legacy Bundle or official
 agent core. Configure a provider in `~/.codsh-rust/.grok/config.toml` (`$GROK_HOME/config.toml`)
 and inspect effective values with `codsh --rust inspect` / `inspect --json`.
 `[ui] theme`, compact mode, timestamps, status line, `confirm_before_rewind`,
 and `ui.fork_secondary_model` use that same file. `/settings` and `/theme`
 edit or preview those live controls; minimal mode keeps the terminal palette.
+`codsh --rust import --preview` lists conversions, conflicts, and unsupported items
+from current dsh `$DSH_HOME/settings.yaml`, `code-cli-thinking.json`, and
+`code-cli-ui.json` (not outdated `code-cli-settings.json`). `import --apply` copies
+selected providers/preferences into the isolated Home without tokens, credential
+files, or original trust/execution grants. Preview, cancel, and failed apply leave
+source files and existing isolated settings unchanged. Model credentials stay in
+the host environment (`--authorize-env`) or must be exported after import.
 Compatible
 `api_backend` and reasoning-effort fields map into isolated dsh
 `settings.yaml`; a hand-edited settings file that disagrees is not overwritten.

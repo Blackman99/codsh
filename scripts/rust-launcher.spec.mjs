@@ -1,5 +1,5 @@
 import { execFileSync, spawnSync } from 'node:child_process'
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
@@ -30,6 +30,35 @@ describe('packed Rust launch selection', () => {
       expect(result.status).toBe(1)
       expect(result.stderr).toContain('Rust client artifact is not installed')
       expect(readFileSync(join(legacy, 'canary'), 'utf8')).toBe('unchanged')
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+})
+
+describe('Rust import command wiring', () => {
+  it('exposes host Homes for explicit import without writing on --help', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'codsh-rust-import-help-'))
+    try {
+      const hostDsh = join(dir, '.dsh')
+      mkdirSync(hostDsh)
+      writeFileSync(join(hostDsh, 'settings.yaml'), 'agent-default-model:\n  provider: leftover\n  model: leftover\n')
+      const result = spawnSync(process.execPath, [join(root, 'packages/cli/bin/codsh.mjs'), '--rust', 'import', '--help'], {
+        encoding: 'utf8', timeout: 10000,
+        env: { PATH: process.env.PATH, HOME: dir, DSH_HOME: hostDsh },
+      })
+      expect(result.error).toBeUndefined()
+      expect(existsSync(join(dir, '.codsh-rust'))).toBe(false)
+      expect(readFileSync(join(hostDsh, 'settings.yaml'), 'utf8')).toContain('leftover')
+      if (result.status === 1) {
+        expect(result.stderr).toContain('Rust client artifact is not installed')
+      } else {
+        expect(result.status).toBe(0)
+        expect(result.stdout).toContain('import')
+        expect(result.stdout).toContain('settings.yaml')
+        expect(result.stdout).not.toContain('leftover')
+      }
+      expect(resolve(hostDsh)).toBe(resolve(dir, '.dsh'))
     } finally {
       rmSync(dir, { recursive: true, force: true })
     }

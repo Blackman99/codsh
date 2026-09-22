@@ -332,8 +332,8 @@ tool results display as cancelled. After cancel, a new prompt still works.
 `scripts/rust-resume-pty-test.py`, `scripts/rust-config-pty-test.py`,
 `scripts/rust-model-pty-test.py`, `scripts/rust-compact-pty-test.py`,
 `scripts/rust-trust-pty-test.py`, `scripts/rust-screen-pty-test.py`,
-`scripts/rust-fork-pty-test.py`, and `scripts/rust-settings-pty-test.py`
-against the packed native candidate.
+`scripts/rust-fork-pty-test.py`, `scripts/rust-settings-pty-test.py`, and
+`scripts/rust-import-pty-test.py` against the packed native candidate.
 `/context` and `/compact` are dsh-backed: occupancy and advertised model limits
 must not be fabricated, manual/automatic compaction uses the dsh session log,
 failed compact must keep the ACP session and original records, cancel must print
@@ -341,8 +341,13 @@ failed compact must keep the ACP session and original records, cancel must print
 replaced history while answering a new prompt. The config test covers `inspect` /
 `inspect --json`, CLI/env/overlay/file precedence, invalid TOML preservation,
 first-run missing credentials, generated dsh `settings.yaml` mapping, restart
-after a config change, unmanaged settings conflict, and refusal to import
-legacy `~/.dsh` / `~/.grok` credentials. Public ACP framing, including
+after a config change, unmanaged settings conflict, and refusal to automatically
+import legacy `~/.dsh` / `~/.grok` credentials. Explicit `codsh --rust import`
+(`scripts/rust-import-pty-test.py`) previews current dsh `settings.yaml` /
+`code-cli-thinking.json` / `code-cli-ui.json` sources, lists conversions,
+conflicts and unsupported items, copies selected providers without tokens or
+trust grants, and leaves source files unchanged on preview, cancel, failure, and
+repeat apply. Public ACP framing, including
 file-tool permission, `session/cancel`, `session/list`, `session/resume`, and
 dsh-backed conversation fork/rewind, is covered by
 `scripts/rust-acp-protocol.spec.mjs`.

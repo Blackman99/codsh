@@ -1,6 +1,7 @@
 mod acp;
 mod appearance;
 mod config;
+mod import;
 mod models;
 mod screen_mode;
 mod session_fork;
@@ -196,6 +197,9 @@ enum LaunchMode {
         debug: bool,
         debug_file: Option<PathBuf>,
     },
+    Import {
+        flags: import::ImportFlags,
+    },
     New,
     Continue,
     Resume(String),
@@ -375,6 +379,12 @@ fn parse_launch(args: &[String]) -> io::Result<Launch> {
             debug_file: None,
         },
         ["inspect", flags @ ..] => parse_inspect(flags)?,
+        ["import"] => LaunchMode::Import {
+            flags: import::ImportFlags::default(),
+        },
+        ["import", flags @ ..] => LaunchMode::Import {
+            flags: import::parse_flags(flags)?,
+        },
         _ => {
             return Err(io::Error::other(
                 "unsupported preview arguments; use codsh --rust --help",
@@ -1375,6 +1385,61 @@ fn inspect_help() -> &'static str {
     "Show the configuration this directory resolves\n\nUsage: codsh --rust inspect [OPTIONS]\n\nOptions:\n      --json                  Emit machine-readable JSON output\n      --debug                 Enable debug logging\n      --debug-file <FILE>     Write debug logs to FILE\n  -h, --help                  Print help\n\nReports CLI, environment, overlay, config.toml, workspace, managed, and requirements origins.\nLocked requirements cannot be bypassed. Folder trust and project-asset activity are included.\nLeader sockets are unused; dsh owns execution."
 }
 
+fn run_import(flags: import::ImportFlags) -> io::Result<()> {
+    let isolated_home = PathBuf::from(std::env::var_os("HOME").unwrap_or_default());
+    let isolated_dsh = PathBuf::from(
+        std::env::var_os("DSH_HOME").unwrap_or_else(|| isolated_home.join("dsh").into()),
+    );
+    let grok_home = PathBuf::from(
+        std::env::var_os("GROK_HOME").unwrap_or_else(|| isolated_home.join(".grok").into()),
+    );
+    let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+    let env: std::collections::BTreeMap<String, String> = std::env::vars().collect();
+    let mut request =
+        import::host_request_from_env(&env, isolated_home, isolated_dsh, grok_home, cwd)
+            .map_err(io::Error::other)?;
+    request.providers = flags.providers.clone();
+    request.include_preferences = flags.include_preferences;
+    request.authorize_env = flags.authorize_env;
+    request.apply = flags.apply && !flags.preview;
+    let plan = import::discover(&request);
+    if flags.json {
+        print!("{}", import::render_preview_json(&plan));
+    } else {
+        println!("{}", import::render_preview(&plan));
+    }
+    if flags.preview || !flags.apply {
+        if !flags.json {
+            println!("No files written. Pass --apply to copy selected providers and preferences.");
+        }
+        return Ok(());
+    }
+    match import::apply(&request, &plan) {
+        Ok(result) if result.applied => {
+            if !flags.json {
+                println!(
+                    "Imported {} provider(s) into {}. Source files were not changed. Export each model's env_key; secrets and trust grants were not copied.",
+                    plan.selected
+                        .iter()
+                        .filter(|item| {
+                            !plan
+                                .conflicts
+                                .iter()
+                                .any(|conflict| conflict.id == item.catalog_id)
+                        })
+                        .count(),
+                    request.grok_home.join("config.toml").display()
+                );
+            }
+            Ok(())
+        }
+        Ok(_) => Ok(()),
+        Err(error) => Err(io::Error::other(format!(
+            "import failed: {error}. Source files and existing isolated settings were left unchanged."
+        ))),
+    }
+}
+
 fn load_runtime_config(launch: &Launch) -> config::EffectiveConfig {
     let home = PathBuf::from(std::env::var_os("HOME").unwrap_or_default());
     let mut input = config::LoadInput {
@@ -1663,7 +1728,7 @@ fn run() -> io::Result<()> {
         }
         LaunchMode::Help => {
             println!(
-                "codsh --rust\n\nIsolated Rust client. Real dsh executes turns over ACP/JSON-RPC stdio.\nHome: ~/.codsh-rust/dsh; Profile: rust. Legacy codsh is unchanged.\nUser config: $GROK_HOME/config.toml (default ~/.codsh-rust/.grok/config.toml), mapped into isolated dsh settings.yaml.\nManaged defaults: $GROK_HOME/managed_config.toml. Locked requirements: $GROK_HOME/requirements.toml (cannot be bypassed by later CLI, environment, overlay, workspace, or user values).\n`codsh --rust inspect` / `inspect --json` shows effective values, origins, folder trust, appearance/theme/status-line, and whether project assets are active. Invalid config.toml is left unchanged and reports its path. Unknown security fields and invalid policies are diagnosed with valid values, sources, and limits.\nWorkspace trust: untrusted folders prompt before applying project config, Hooks, plugins, or instructions; `--trust` / `--trust-folder [path]` saves a grant, `--revoke-trust` withdraws it. A read-only $GROK_HOME reports save failure without pretending the grant is durable. Untrusted Hooks/plugins/project capabilities do not execute.\nFirst-run missing credentials stay local: no grok.com login, no default official telemetry, no import of ~/.dsh or ~/.grok credentials.\nFile read/edit/write run through dsh tools; y allows once, n rejects with no write. Trust prompt: y=allow, n=deny.\nCtrl+Q/Ctrl+D: quit. Ctrl+C: clear a draft; empty draft cancels a running turn via dsh, or quits when idle before any turn.\nEsc never cancels a turn or a pending approval; it dismisses selection and reminds you to use Ctrl+C.\nEnter: submit prompt. /settings (/config) edits appearance, default screen mode, timestamps, compact mode, and status line. /theme (/t) previews fullscreen themes; Escape restores the previous theme without saving. /compact-mode and /timestamps toggle persisted [ui] keys. Minimal mode uses the terminal palette and refuses /theme. Status-line scripts run with a 10s timeout, cleared BASH_ENV/ENV, and process-group cleanup on exit. Locked requirements show their source and cannot be edited.\n/minimal and /fullscreen switch render mode in process without restarting dsh; --minimal/--fullscreen and GROK_SCREEN_MODE are session-scoped and do not rewrite [ui] screen_mode. /model (/m) and /effort select advertised catalog options; unsupported backends/efforts are refused, never treated as equivalent or silently swapped. /context shows dsh occupancy, advertised model limits, and heuristic buckets without fabricating zeros. /compact [instruction] runs dsh compaction (not a second history); optional instructions go only to the summarizer request (purpose=compaction). Automatic compaction uses session.auto_compact_threshold_percent / GROK_AUTO_COMPACT_THRESHOLD_PERCENT mapped to dsh thresholdRatio. GROK_COMPACTION_WALL_CLOCK_SECS bounds the operation; 0 disables that budget. Runtime changes apply to the next turn and persist under $GROK_HOME/model-selection.toml. --continue resumes the last session in this directory; --resume <id> loads that dsh session. --fork-session with --resume/--continue copies conversation into a new session id. /rewind and /undo fork conversation-only history through dsh; files are not restored. /fork copies the current history into a new session. Idle empty Esc Esc opens rewind. A second client is refused while this process holds write ownership. Interrupted tools show [interrupted]/unknown and are not replayed.\nOptions: --help, --version, --continue, --resume <id>, --fork-session, --session-id <id>, --minimal, --fullscreen, --model <id>, --effort/--reasoning-effort <level>, --trust, --trust-folder [path], --revoke-trust, inspect. --restore-code is refused."
+"codsh --rust\n\nIsolated Rust client. Real dsh executes turns over ACP/JSON-RPC stdio.\nHome: ~/.codsh-rust/dsh; Profile: rust. Legacy codsh is unchanged.\nUser config: $GROK_HOME/config.toml (default ~/.codsh-rust/.grok/config.toml), mapped into isolated dsh settings.yaml.\nManaged defaults: $GROK_HOME/managed_config.toml. Locked requirements: $GROK_HOME/requirements.toml (cannot be bypassed by later CLI, environment, overlay, workspace, or user values).\n`codsh --rust inspect` / `inspect --json` shows effective values, origins, folder trust, appearance/theme/status-line, and whether project assets are active. Invalid config.toml is left unchanged and reports its path. Unknown security fields and invalid policies are diagnosed with valid values, sources, and limits.\n`codsh --rust import --preview` lists conversions, conflicts, and unsupported items from current dsh `$DSH_HOME/settings.yaml`, `code-cli-thinking.json`, and `code-cli-ui.json`. It does not treat outdated `code-cli-settings.json` as a provider source. `--apply` copies selected providers/preferences into the isolated Home. Official tokens, `.credentials.yaml`, `.env`, and original trust/execution grants are never copied. Preview, cancel, and failed apply leave source files and existing isolated settings unchanged. Model credentials stay in the host environment (`--authorize-env`) or must be exported after import.\n\nWorkspace trust: untrusted folders prompt before applying project config, Hooks, plugins, or instructions; `--trust` / `--trust-folder [path]` saves a grant, `--revoke-trust` withdraws it. A read-only $GROK_HOME reports save failure without pretending the grant is durable. Untrusted Hooks/plugins/project capabilities do not execute.\nFirst-run missing credentials stay local: no grok.com login, no default official telemetry, no automatic import of ~/.dsh or ~/.grok credentials.\nFile read/edit/write run through dsh tools; y allows once, n rejects with no write. Trust prompt: y=allow, n=deny.\nCtrl+Q/Ctrl+D: quit. Ctrl+C: clear a draft; empty draft cancels a running turn via dsh, or quits when idle before any turn.\nEsc never cancels a turn or a pending approval; it dismisses selection and reminds you to use Ctrl+C.\nEnter: submit prompt. /settings (/config) edits appearance, default screen mode, timestamps, compact mode, and status line. /theme (/t) previews fullscreen themes; Escape restores the previous theme without saving. /compact-mode and /timestamps toggle persisted [ui] keys. Minimal mode uses the terminal palette and refuses /theme. Status-line scripts run with a 10s timeout, cleared BASH_ENV/ENV, and process-group cleanup on exit. Locked requirements show their source and cannot be edited.\n/minimal and /fullscreen switch render mode in process without restarting dsh; --minimal/--fullscreen and GROK_SCREEN_MODE are session-scoped and do not rewrite [ui] screen_mode. /model (/m) and /effort select advertised catalog options; unsupported backends/efforts are refused, never treated as equivalent or silently swapped. /context shows dsh occupancy, advertised model limits, and heuristic buckets without fabricating zeros. /compact [instruction] runs dsh compaction (not a second history); optional instructions go only to the summarizer request (purpose=compaction). Automatic compaction uses session.auto_compact_threshold_percent / GROK_AUTO_COMPACT_THRESHOLD_PERCENT mapped to dsh thresholdRatio. GROK_COMPACTION_WALL_CLOCK_SECS bounds the operation; 0 disables that budget. Runtime changes apply to the next turn and persist under $GROK_HOME/model-selection.toml. --continue resumes the last session in this directory; --resume <id> loads that dsh session. --fork-session with --resume/--continue copies conversation into a new session id. /rewind and /undo fork conversation-only history through dsh; files are not restored. /fork copies the current history into a new session. Idle empty Esc Esc opens rewind. A second client is refused while this process holds write ownership. Interrupted tools show [interrupted]/unknown and are not replayed.\nOptions: --help, --version, --continue, --resume <id>, --fork-session, --session-id <id>, --minimal, --fullscreen, --model <id>, --effort/--reasoning-effort <level>, --trust, --trust-folder [path], --revoke-trust, inspect, import. --restore-code is refused."
             );
             return Ok(());
         }
@@ -1703,6 +1768,13 @@ fn run() -> io::Result<()> {
                 return Err(io::Error::other(loaded.first_run_message()));
             }
             return Ok(());
+        }
+        LaunchMode::Import { flags } => {
+            if flags.help {
+                println!("{}", import::import_help());
+                return Ok(());
+            }
+            return run_import(flags.clone());
         }
         _ => {}
     }

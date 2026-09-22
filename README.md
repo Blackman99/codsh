@@ -132,8 +132,17 @@ plugins, or instructions; `--trust` / `--trust-folder [path]` saves a grant to
 read-only Home reports save failure without claiming a durable grant. Untrusted
 Hooks, plugins, and project capabilities do not execute. First-run missing
 credentials stay local: no grok.com login, no default
-official telemetry/upload, and no import of `~/.dsh` or `~/.grok` credentials.
-Set the model's `env_key` (for example `XAI_API_KEY`) after writing a provider
+official telemetry/upload, and no automatic import of `~/.dsh` or `~/.grok` credentials.
+`codsh --rust import --preview` (and `import --json`) lists conversions, conflicts,
+and unsupported items from current dsh `$DSH_HOME/settings.yaml` (`llm-pi-ai`
+providers, `llm-deepseek`, `agent-default-model`), `$DSH_HOME/code-cli-thinking.json`,
+and `$DSH_HOME/code-cli-ui.json`. It does not treat outdated `code-cli-settings.json`
+as a provider source. `import --apply` copies selected providers and preferences
+into `~/.codsh-rust/.grok/config.toml`. Official tokens, `.credentials.yaml`, `.env`,
+and original trust/execution grants are never copied. Preview, cancel, and a failed
+apply leave source files and existing isolated settings unchanged. Model credentials
+must already be exported (`--authorize-env`) or set after import. Plain `codsh` still
+reads the original Home. Set the model's `env_key` (for example `XAI_API_KEY`) after writing a provider
 with a `base_url`. An empty Enter on first-run reloads that file and connects
 when a provider is ready, without submitting a prompt. Inherited parent
 `GROK_HOME` is ignored; the preview pins `GROK_HOME` to `~/.codsh-rust/.grok`.
@@ -142,7 +151,7 @@ The preview uses `~/.codsh-rust/dsh` and Profile `rust`, ignores inherited
 `DSH_HOME` and Grok settings files, and never migrates legacy sessions.
 Configured `env_key` values such as `XAI_API_KEY` (and other `*_API_KEY`
 variables) are passed through to dsh; `~/.dsh` and `~/.grok` credential files
-are not imported. A symlinked preview Home/Profile or overlap with `DSH_HOME`/`GROK_HOME`
+are not imported automatically. Use `codsh --rust import` for an explicit, reversible copy. A symlinked preview Home/Profile or overlap with `DSH_HOME`/`GROK_HOME`
 is refused before writes, including differently cased aliases on case-insensitive
 filesystems. Overlap checks compare device/inode ancestry, including existing
 ancestors of missing paths, so macOS firmlink aliases cannot hide behind different
