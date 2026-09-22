@@ -419,6 +419,26 @@ env_key = "XAI_API_KEY"
             stop_signed.set()
         results['setup-signed'] = True
 
+        pin_pty_home = work / 'pin-pty-home'
+        pin_pty_grok = pin_pty_home / '.codsh-rust' / '.grok'
+        pin_pty_grok.mkdir(parents=True)
+        (pin_pty_grok / 'config.toml').write_text((grok_home / 'config.toml').read_text())
+        pinned = pty_session(
+            'slash-login-under-pin', launcher, cwd,
+            {**base_env, 'HOME': str(pin_pty_home), 'GROK_DISABLE_API_KEY_AUTH': '1', 'GROK_AUTH_PROVIDER_COMMAND': provider},
+            output,
+            typed='/login\r',
+            wait_before=['disables API-key authentication'],
+            wait_after=['external provider', 'not transferred', 'Connected to dsh ACP'],
+        )
+        assert pinned['exit'] == 0
+        screen = pinned['screen']
+        assert 'external provider' in screen
+        assert 'Connected to dsh ACP' in screen
+        assert 'disables API-key authentication' not in screen
+        assert 'Execution unavailable' not in screen
+        results['pty-slash-under-pin'] = {'exit': pinned['exit']}
+
         slash = pty_session(
             'slash-login-logout', launcher, cwd,
             {**base_env, 'GROK_AUTH_PROVIDER_COMMAND': provider},

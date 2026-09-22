@@ -360,6 +360,7 @@ empty team list, locked `requirements.toml` `[auth]` or top-level
 `force_login_team_uuid`), external-provider login with owner-only `auth.json`, logout that does not
 revoke model/MCP credentials, unsigned managed-policy refusal, a local
 signed substitute management service, and `/login` `/logout` in a real PTY.
+Under an organization pin the PTY starts unready, `/login` must show `Connected to dsh ACP` before the next prompt, and `/logout` must drop that connection.
 Public ACP framing, including
 file-tool permission, `session/cancel`, `session/list`, `session/resume`, and
 dsh-backed conversation fork/rewind, is covered by

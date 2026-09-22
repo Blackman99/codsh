@@ -689,6 +689,93 @@ fn drop_connection(client: &mut Option<AcpClient>, owner: &mut Option<SessionOwn
     *owner = None;
 }
 
+/// Live connection inputs after config reload. The spawned dsh process keeps
+/// the env it was given, so a readiness or credential change must replace it.
+struct RuntimeApply {
+    extra_env: Vec<(String, String)>,
+    patch: Option<PathBuf>,
+    apply_failed: bool,
+    error: String,
+}
+
+fn runtime_apply(effective: &config::EffectiveConfig) -> RuntimeApply {
+    let env = std::env::vars().collect();
+    let mut extra_env = config::credential_env(effective, &env);
+    extra_env.extend(config::compact_env(effective));
+    match config::apply_to_dsh(effective, &env) {
+        Ok(patch) => RuntimeApply {
+            extra_env,
+            patch,
+            apply_failed: false,
+            error: String::new(),
+        },
+        Err(error) => RuntimeApply {
+            extra_env,
+            patch: None,
+            apply_failed: true,
+            error: error.to_string(),
+        },
+    }
+}
+
+fn can_execute(effective: &config::EffectiveConfig, apply_failed: bool) -> bool {
+    if apply_failed || effective.trust_prompt {
+        return false;
+    }
+    // The ACP mock seam may execute without a provider, but it must not bypass
+    // an organization pin that still lacks a matching identity session.
+    if auth::usable_identity_session(&effective.auth, effective.auth_session.as_ref()).is_err() {
+        return false;
+    }
+    effective.ready || config::is_test_execution_seam()
+}
+
+struct LiveSession<'a> {
+    client: &'a mut Option<AcpClient>,
+    owner: &'a mut Option<SessionOwner>,
+    turns: &'a mut Vec<Turn>,
+    resumed: &'a mut bool,
+    previous_session: &'a mut Option<String>,
+    selection_ready: &'a mut bool,
+    last_error: &'a mut String,
+}
+
+fn open_live_session(
+    mode: &LaunchMode,
+    extra_env: &[(String, String)],
+    patch: Option<&PathBuf>,
+    effective: &config::EffectiveConfig,
+    live: &mut LiveSession<'_>,
+) -> Result<(), String> {
+    let (connection, restored) = connect(
+        mode,
+        live.previous_session.as_deref(),
+        extra_env,
+        patch,
+        false,
+        None,
+    )?;
+    *live.resumed = connection.resumed;
+    *live.previous_session = connection.client.session_id.clone();
+    *live.owner = Some(connection.owner);
+    if live.turns.is_empty() {
+        *live.turns = restored;
+    }
+    let mut connected = connection.client;
+    match apply_live_selection(&mut connected, effective) {
+        Ok(()) => {
+            *live.selection_ready = true;
+            live.last_error.clear();
+        }
+        Err(error) => {
+            *live.last_error = error;
+            *live.selection_ready = false;
+        }
+    }
+    *live.client = Some(connected);
+    Ok(())
+}
+
 fn resolve_resume(
     client: &mut AcpClient,
     mode: &LaunchMode,
@@ -2133,11 +2220,9 @@ fn run() -> io::Result<()> {
     let mut composer_stash = String::new();
     let mut effective = load_runtime_config(&launch);
     let mut prefs = session_fork::load_prefs(&effective.grok_home);
-    let mut extra_env = {
-        let mut extra = config::credential_env(&effective, &std::env::vars().collect());
-        extra.extend(config::compact_env(&effective));
-        extra
-    };
+    let mut previous_ready = effective.ready;
+    let startup = runtime_apply(&effective);
+    let mut extra_env = startup.extra_env;
     let mut live_theme_kind = effective.appearance.resolved_kind(screen);
     let mut live_theme = effective.appearance.resolved_theme(screen);
     apply_cursor_color(&live_theme);
@@ -2145,19 +2230,13 @@ fn run() -> io::Result<()> {
         status_line::StatusLineRuntime::new(effective.appearance.status_line.clone());
     let mut turn_started: Option<Instant> = None;
     let mut last_status_key = String::new();
-    let mut apply_failed = false;
-    let mut patch = match config::apply_to_dsh(&effective, &std::env::vars().collect()) {
-        Ok(path) => path,
-        Err(error) => {
-            last_error = error.to_string();
-            apply_failed = true;
-            None
-        }
-    };
-    let can_execute = !apply_failed
-        && !effective.trust_prompt
-        && (effective.ready || config::is_test_execution_seam());
-    if !can_execute && last_error.is_empty() {
+    let mut apply_failed = startup.apply_failed;
+    let mut patch = startup.patch;
+    if apply_failed {
+        last_error = startup.error;
+    }
+    let startup_can_execute = can_execute(&effective, apply_failed);
+    if !startup_can_execute && last_error.is_empty() {
         last_error = effective.first_run_message();
     }
     if last_error.is_empty() && !effective.trust_message.is_empty() {
@@ -2169,7 +2248,7 @@ fn run() -> io::Result<()> {
         cost: None,
     };
     let mut selection_ready = config::is_test_execution_seam();
-    let mut client = if can_execute {
+    let mut client = if startup_can_execute {
         match connect(
             &mode,
             None,
@@ -2461,55 +2540,34 @@ fn run() -> io::Result<()> {
                         trust::remember_process_decision(&key_path, false);
                     }
                     effective = load_runtime_config(&launch);
-                    extra_env = {
-                        let mut extra =
-                            config::credential_env(&effective, &std::env::vars().collect());
-                        extra.extend(config::compact_env(&effective));
-                        extra
-                    };
-                    match config::apply_to_dsh(&effective, &std::env::vars().collect()) {
-                        Ok(path) => {
-                            patch = path;
-                            apply_failed = false;
-                        }
-                        Err(error) => {
-                            last_error = error.to_string();
-                            apply_failed = true;
-                        }
+                    let applied = runtime_apply(&effective);
+                    extra_env = applied.extra_env;
+                    if applied.apply_failed {
+                        last_error = applied.error;
+                        apply_failed = true;
+                    } else {
+                        patch = applied.patch;
+                        apply_failed = false;
                     }
-                    if !apply_failed
-                        && !effective.trust_prompt
-                        && (effective.ready || config::is_test_execution_seam())
-                    {
-                        match connect(
+                    previous_ready = effective.ready;
+                    if can_execute(&effective, apply_failed) {
+                        let mut live = LiveSession {
+                            client: &mut client,
+                            owner: &mut owner,
+                            turns: &mut turns,
+                            resumed: &mut resumed,
+                            previous_session: &mut previous_session,
+                            selection_ready: &mut selection_ready,
+                            last_error: &mut last_error,
+                        };
+                        if let Err(error) = open_live_session(
                             &mode,
-                            previous_session.as_deref(),
                             &extra_env,
                             patch.as_ref(),
-                            false,
-                            None,
+                            &effective,
+                            &mut live,
                         ) {
-                            Ok((connection, restored)) => {
-                                resumed = connection.resumed;
-                                previous_session = connection.client.session_id.clone();
-                                owner = Some(connection.owner);
-                                if turns.is_empty() {
-                                    turns = restored;
-                                }
-                                let mut connected = connection.client;
-                                match apply_live_selection(&mut connected, &effective) {
-                                    Ok(()) => {
-                                        selection_ready = true;
-                                        last_error.clear();
-                                    }
-                                    Err(error) => {
-                                        last_error = error;
-                                        selection_ready = false;
-                                    }
-                                }
-                                client = Some(connected);
-                            }
-                            Err(error) => last_error = error,
+                            last_error = error;
                         }
                     } else if last_error.is_empty() {
                         last_error = effective.first_run_message();
@@ -3125,7 +3183,52 @@ fn run() -> io::Result<()> {
                                     Ok(message) => {
                                         hint = message;
                                         last_error.clear();
+                                        let was_ready = previous_ready;
+                                        let previous_env = extra_env.clone();
                                         effective = load_runtime_config(&launch);
+                                        let applied = runtime_apply(&effective);
+                                        let credentials_changed = previous_env != applied.extra_env
+                                            || was_ready != effective.ready;
+                                        extra_env = applied.extra_env;
+                                        if applied.apply_failed {
+                                            last_error = applied.error;
+                                            apply_failed = true;
+                                        } else {
+                                            patch = applied.patch;
+                                            apply_failed = false;
+                                            if credentials_changed {
+                                                drop_connection(&mut client, &mut owner);
+                                            }
+                                        }
+                                        previous_ready = effective.ready;
+                                        if client.is_none()
+                                            && !can_execute(&effective, apply_failed)
+                                        {
+                                            if last_error.is_empty() {
+                                                last_error = effective.first_run_message();
+                                            }
+                                        } else if client.is_none()
+                                            && can_execute(&effective, apply_failed)
+                                        {
+                                            let mut live = LiveSession {
+                                                client: &mut client,
+                                                owner: &mut owner,
+                                                turns: &mut turns,
+                                                resumed: &mut resumed,
+                                                previous_session: &mut previous_session,
+                                                selection_ready: &mut selection_ready,
+                                                last_error: &mut last_error,
+                                            };
+                                            if let Err(error) = open_live_session(
+                                                &mode,
+                                                &extra_env,
+                                                patch.as_ref(),
+                                                &effective,
+                                                &mut live,
+                                            ) {
+                                                last_error = error;
+                                            }
+                                        }
                                     }
                                     Err(error) => last_error = error,
                                 }
@@ -3134,60 +3237,37 @@ fn run() -> io::Result<()> {
                             }
                             if client.is_none() {
                                 effective = load_runtime_config(&launch);
-                                extra_env = {
-                                    let mut extra = config::credential_env(
-                                        &effective,
-                                        &std::env::vars().collect(),
-                                    );
-                                    extra.extend(config::compact_env(&effective));
-                                    extra
-                                };
-                                match config::apply_to_dsh(&effective, &std::env::vars().collect())
-                                {
-                                    Ok(path) => patch = path,
-                                    Err(error) => {
-                                        last_error = error.to_string();
-                                        continue;
-                                    }
+                                let applied = runtime_apply(&effective);
+                                extra_env = applied.extra_env;
+                                previous_ready = effective.ready;
+                                if applied.apply_failed {
+                                    last_error = applied.error;
+                                    continue;
                                 }
-                                if effective.trust_prompt
-                                    || (!effective.ready && !config::is_test_execution_seam())
-                                {
+                                patch = applied.patch;
+                                apply_failed = false;
+                                if !can_execute(&effective, apply_failed) {
                                     last_error = effective.first_run_message();
                                     continue;
                                 }
-                                match connect(
+                                let mut live = LiveSession {
+                                    client: &mut client,
+                                    owner: &mut owner,
+                                    turns: &mut turns,
+                                    resumed: &mut resumed,
+                                    previous_session: &mut previous_session,
+                                    selection_ready: &mut selection_ready,
+                                    last_error: &mut last_error,
+                                };
+                                if let Err(error) = open_live_session(
                                     &mode,
-                                    previous_session.as_deref(),
                                     &extra_env,
                                     patch.as_ref(),
-                                    false,
-                                    None,
+                                    &effective,
+                                    &mut live,
                                 ) {
-                                    Ok((connection, restored)) => {
-                                        resumed = connection.resumed;
-                                        previous_session = connection.client.session_id.clone();
-                                        owner = Some(connection.owner);
-                                        if turns.is_empty() {
-                                            turns = restored;
-                                        }
-                                        let mut connected = connection.client;
-                                        match apply_live_selection(&mut connected, &effective) {
-                                            Ok(()) => {
-                                                selection_ready = true;
-                                                last_error.clear();
-                                            }
-                                            Err(error) => {
-                                                last_error = error;
-                                                selection_ready = false;
-                                            }
-                                        }
-                                        client = Some(connected);
-                                    }
-                                    Err(error) => {
-                                        last_error = error;
-                                        continue;
-                                    }
+                                    last_error = error;
+                                    continue;
                                 }
                             }
                             if text.trim().is_empty() {

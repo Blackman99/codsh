@@ -196,6 +196,20 @@ impl SessionOwner {
     }
 }
 
+impl Drop for SessionOwner {
+    fn drop(&mut self) {
+        // flock releases when the descriptor closes. Unlink only this holder's
+        // file so a replacement owner is not erased and a parallel test does
+        // not inherit a stale pid from a leftover lock.
+        let Ok(body) = fs::read_to_string(&self.path) else {
+            return;
+        };
+        if parse_owner(&body).is_some_and(|(pid, token)| pid == self.pid && token == self.token) {
+            let _ = fs::remove_file(&self.path);
+        }
+    }
+}
+
 pub fn last_session_path(dsh_home: &Path) -> PathBuf {
     dsh_home.join("rust-last-session.json")
 }
@@ -222,14 +236,18 @@ pub fn read_last_session(dsh_home: &Path) -> Option<(String, PathBuf)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::atomic::{AtomicU64, Ordering};
     use std::time::{SystemTime, UNIX_EPOCH};
 
     fn temp_home() -> PathBuf {
+        static NEXT: AtomicU64 = AtomicU64::new(0);
         let stamp = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap()
             .as_nanos();
-        let path = std::env::temp_dir().join(format!("codsh-owner-{stamp}-{}", std::process::id()));
+        let seq = NEXT.fetch_add(1, Ordering::Relaxed);
+        let path =
+            std::env::temp_dir().join(format!("codsh-owner-{stamp}-{seq}-{}", std::process::id()));
         fs::create_dir_all(&path).unwrap();
         path
     }
@@ -250,8 +268,13 @@ mod tests {
             "{}",
             error.message
         );
+        let path = first.path.clone();
         drop(first);
-        SessionOwner::acquire(&home, "session-a").expect("reacquire after release");
+        assert!(!path.exists(), "released owner must unlink its lock file");
+        let again = SessionOwner::acquire(&home, "session-a").expect("reacquire after release");
+        let kept = again.path.clone();
+        drop(again);
+        assert!(!kept.exists(), "reacquired owner must unlink its lock file");
         let _ = fs::remove_dir_all(home);
     }
 

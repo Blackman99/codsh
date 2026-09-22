@@ -92,6 +92,7 @@ and strips one trailing `.git`. The repository path stays case-sensitive.
 or management services. Independent API-key use does not require login unless
 `GROK_DISABLE_API_KEY_AUTH` or a team pin (`auth.force_login_team_uuid` or
 top-level `force_login_team_uuid` in locked `requirements.toml`) requires a matching identity session.
+`/login` reloads that session and connects dsh with the refreshed settings; `/logout` drops that connection.
 Session tokens stay in `$GROK_HOME/auth.json` and are not transferred to model
 providers or other services. Official grok.com entitlements are not reproduced.
 Unsigned or unverifiable managed policy is refused.
