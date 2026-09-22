@@ -692,10 +692,14 @@ pub fn evaluate(
             let segments = bash_segments(command);
             !segments.is_empty()
                 && segments.iter().all(|segment| {
-                    is_readonly_command(&segment.split_whitespace().collect::<Vec<_>>())
+                    let words = shell_words(segment);
+                    let refs: Vec<&str> = words.iter().map(String::as_str).collect();
+                    is_readonly_command(&refs)
                 })
                 && segments.iter().all(|segment| {
-                    !is_dangerous_command(&segment.split_whitespace().collect::<Vec<_>>())
+                    let words = shell_words(segment);
+                    let refs: Vec<&str> = words.iter().map(String::as_str).collect();
+                    !is_dangerous_command(&refs)
                 })
         }
     {
@@ -1028,7 +1032,11 @@ fn pattern_matches(access: &AccessKind, rule: &PermissionRule, cwd: &Path) -> bo
     match access {
         AccessKind::Bash(command) => {
             let command = command.trim_start();
-            command.starts_with(pattern) || glob_match(pattern, command, false)
+            let parsed = parsed_command(command);
+            command.starts_with(pattern)
+                || glob_match(pattern, command, false)
+                || parsed.starts_with(pattern)
+                || glob_match(pattern, &parsed, false)
         }
         AccessKind::Edit(path) | AccessKind::Read(Some(path)) => {
             path_matches(pattern, path, cwd, rule.action)
@@ -1552,6 +1560,10 @@ fn decode_ansi_c(body: &str) -> String {
             index += 2;
             continue;
         }
+        if next == '\n' {
+            index += 2;
+            continue;
+        }
         if next == 'x' {
             let hex: String = chars[index + 2..]
                 .iter()
@@ -1585,6 +1597,80 @@ fn decode_ansi_c(body: &str) -> String {
         index += 2;
     }
     out
+}
+
+fn shell_words(command: &str) -> Vec<String> {
+    let chars: Vec<char> = command.chars().collect();
+    let mut words = Vec::new();
+    let mut index = 0;
+    let mut current = String::new();
+    let mut open = false;
+    let push = |words: &mut Vec<String>, current: &mut String, open: &mut bool| {
+        if *open {
+            words.push(std::mem::take(current));
+        }
+        *open = false;
+    };
+    while index < chars.len() {
+        let ch = chars[index];
+        if !open && ch.is_whitespace() {
+            index += 1;
+            continue;
+        }
+        if open && ch.is_whitespace() {
+            push(&mut words, &mut current, &mut open);
+            continue;
+        }
+        open = true;
+        if ch == '$' && chars.get(index + 1) == Some(&'\'') {
+            index += 2;
+            let begin = index;
+            while index < chars.len() && chars[index] != '\'' {
+                index += 1;
+            }
+            let body: String = chars[begin..index].iter().collect();
+            current.push_str(&decode_ansi_c(&body));
+            if index < chars.len() {
+                index += 1;
+            }
+            continue;
+        }
+        if ch == '\'' || ch == '"' {
+            let mark = ch;
+            index += 1;
+            let begin = index;
+            while index < chars.len() && chars[index] != mark {
+                index += 1;
+            }
+            current.extend(chars[begin..index].iter());
+            if index < chars.len() {
+                index += 1;
+            }
+            continue;
+        }
+        if ch == '\\' {
+            match chars.get(index + 1).copied() {
+                Some('\n') => index += 2,
+                Some(next) => {
+                    current.push(next);
+                    index += 2;
+                }
+                None => {
+                    current.push('\\');
+                    index += 1;
+                }
+            }
+            continue;
+        }
+        current.push(ch);
+        index += 1;
+    }
+    push(&mut words, &mut current, &mut open);
+    words
+}
+
+fn parsed_command(command: &str) -> String {
+    shell_words(command).join(" ")
 }
 
 fn next_shell_word(chars: &[char], start: usize) -> (String, usize) {
@@ -1625,7 +1711,33 @@ fn next_shell_word(chars: &[char], start: usize) -> (String, usize) {
     while index < chars.len() && !chars[index].is_whitespace() {
         index += 1;
     }
-    (chars[begin..index].iter().collect(), index)
+    let raw: String = chars[begin..index].iter().collect();
+    (unescape_word(&raw), index)
+}
+
+fn unescape_word(word: &str) -> String {
+    let chars: Vec<char> = word.chars().collect();
+    let mut out = String::new();
+    let mut index = 0;
+    while index < chars.len() {
+        if chars[index] == '\\' {
+            match chars.get(index + 1).copied() {
+                Some('\n') => index += 2,
+                Some(next) => {
+                    out.push(next);
+                    index += 2;
+                }
+                None => {
+                    out.push('\\');
+                    break;
+                }
+            }
+            continue;
+        }
+        out.push(chars[index]);
+        index += 1;
+    }
+    out
 }
 
 fn brace_bodies(command: &str) -> Vec<String> {
@@ -1677,6 +1789,25 @@ fn control_flow_bodies(command: &str) -> Vec<String> {
     split_simple(&stripped)
 }
 
+fn inner_shell_scripts(command: &str) -> Vec<String> {
+    let mut scripts = extract_dash_c_scripts(command);
+    let words = shell_words(command);
+    for (index, word) in words.iter().enumerate() {
+        let base = Path::new(word)
+            .file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or(word)
+            .trim_end_matches(".exe");
+        if base == "eval" && index + 1 < words.len() {
+            let joined = words[index + 1..].join(" ");
+            if !joined.trim().is_empty() {
+                scripts.push(joined);
+            }
+        }
+    }
+    scripts
+}
+
 fn bash_inspect_subjects(command: &str) -> Vec<String> {
     let mut seen = HashSet::new();
     let mut out = Vec::new();
@@ -1686,6 +1817,10 @@ fn bash_inspect_subjects(command: &str) -> Vec<String> {
             return;
         }
         out.push(trimmed.clone());
+        let parsed = parsed_command(&trimmed);
+        if !parsed.is_empty() && seen.insert(parsed.clone()) {
+            out.push(parsed);
+        }
         for segment in bash_segments(&trimmed) {
             if seen.insert(segment.clone()) {
                 out.push(segment);
@@ -1693,7 +1828,7 @@ fn bash_inspect_subjects(command: &str) -> Vec<String> {
         }
         for inner in extract_substitutions(&trimmed)
             .into_iter()
-            .chain(extract_dash_c_scripts(&trimmed))
+            .chain(inner_shell_scripts(&trimmed))
             .chain(control_flow_bodies(&trimmed))
             .chain(brace_bodies(&trimmed))
         {
@@ -1854,6 +1989,32 @@ fn unique_long_option(word: &str, canonical: &str) -> bool {
     !name.is_empty() && name.len() <= canonical.len() && canonical.starts_with(name)
 }
 
+fn unique_among(name: &str, candidates: &[&str]) -> bool {
+    candidates
+        .iter()
+        .filter(|candidate| candidate.starts_with(name))
+        .count()
+        == 1
+}
+
+fn git_write_option(subcommand: &str, word: &str) -> bool {
+    if subcommand == "branch" && matches!(word, "-d" | "-D" | "--delete") {
+        return true;
+    }
+    let Some(name) = word.strip_prefix("--") else {
+        return false;
+    };
+    if name.starts_with('-') {
+        return false;
+    }
+    let name = name.split('=').next().unwrap_or(name);
+    match subcommand {
+        "show" => unique_among(name, &["output"]),
+        "cat-file" => unique_among(name, &["filters", "filter", "textconv"]),
+        _ => false,
+    }
+}
+
 fn raises_readonly_floor(words: &[&str]) -> bool {
     let Some(head) = words.first() else {
         return false;
@@ -1872,10 +2033,18 @@ fn raises_readonly_floor(words: &[&str]) -> bool {
     {
         return true;
     }
+    if *head == "eval" {
+        return true;
+    }
     *head == "git"
-        && words
+        && (words
             .iter()
             .any(|word| *word == "-c" || word.starts_with("--config-env"))
+            || words.get(1).is_some_and(|subcommand| {
+                words[2..]
+                    .iter()
+                    .any(|word| git_write_option(subcommand, word))
+            }))
 }
 
 fn is_readonly_command(words: &[&str]) -> bool {
@@ -2706,6 +2875,7 @@ mod tests {
             "function x { rm -rf /; }",
             "bash -c \"{ rm -rf /; }\"",
             "bash -c $'rm -rf /'",
+            "bash -c $'rm \\\\\n-rf /'",
         ] {
             assert!(
                 matches!(
@@ -2743,6 +2913,55 @@ mod tests {
             evaluate(&quiet, &AccessKind::Bash("git commit -m x".into()), None),
             Decision::Deny { .. }
         ));
+        for command in [
+            "git branch -D topic",
+            "git branch -d topic",
+            "git show --output=/tmp/out HEAD",
+            "git cat-file --filters HEAD:path",
+        ] {
+            assert!(
+                matches!(
+                    evaluate(&quiet, &AccessKind::Bash(command.into()), None),
+                    Decision::Deny { .. }
+                ),
+                "{command}"
+            );
+        }
+        for command in ["git branch", "git show HEAD", "git cat-file -t HEAD"] {
+            assert!(
+                matches!(
+                    evaluate(&quiet, &AccessKind::Bash(command.into()), None),
+                    Decision::Allow { .. }
+                ),
+                "{command}"
+            );
+        }
+    }
+
+    #[test]
+    fn quoted_and_eval_spellings_cannot_bypass_deny() {
+        let deny = policy(
+            vec![rule(RuleAction::Deny, "Bash(rm -rf *)")],
+            PermissionMode::AlwaysApprove,
+        );
+        for command in [
+            "'rm' -rf /",
+            "\"rm\" -rf /",
+            "$'rm' -rf /",
+            "\\rm -rf /",
+            "bash -c \"'rm' -rf /\"",
+            "bash -c \"\\\\rm -rf /\"",
+            "eval \"rm -rf /\"",
+            "eval $'rm -rf /'",
+        ] {
+            assert!(
+                matches!(
+                    evaluate(&deny, &AccessKind::Bash(command.into()), None),
+                    Decision::Deny { .. }
+                ),
+                "{command}"
+            );
+        }
     }
 
     #[test]

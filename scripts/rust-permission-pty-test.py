@@ -227,6 +227,22 @@ allow = ["Bash(git *)"]
         assert 'successfully.' not in ansi['screen']
         results['deny_ansi_c'] = {'exit': ansi['exit']}
 
+        quoted = exercise('deny-quoted-rm', launcher, cwd,
+                          {**base_env, 'DSH_CODE_CLI_MOCK_TOOL': 'bash-quoted-rm'},
+                          output, typed='TOKEN_PERM_QUOTED', wait_for=['Denied by permission policy', 'RUST_ACP_BASH_DENIED'],
+                          extra=['--always-approve', '--deny', 'Bash(rm -rf *)'], action='none')
+        assert quoted['exit'] == 0
+        assert 'successfully.' not in quoted['screen']
+        results['deny_quoted'] = {'exit': quoted['exit']}
+
+        evaluated = exercise('deny-eval-rm', launcher, cwd,
+                             {**base_env, 'DSH_CODE_CLI_MOCK_TOOL': 'bash-eval-rm'},
+                             output, typed='TOKEN_PERM_EVAL', wait_for=['Denied by permission policy', 'RUST_ACP_BASH_DENIED'],
+                             extra=['--always-approve', '--deny', 'Bash(rm -rf *)'], action='none')
+        assert evaluated['exit'] == 0
+        assert 'successfully.' not in evaluated['screen']
+        results['deny_eval'] = {'exit': evaluated['exit']}
+
         sort_prefix = exercise('sort-prefix-not-readonly', launcher, cwd,
                                {**base_env, 'DSH_CODE_CLI_MOCK_TOOL': 'bash-sort-prefix'},
                                output, typed='TOKEN_PERM_SORT', wait_for=['dontAsk blocked', 'RUST_ACP_BASH_DENIED'],

@@ -208,6 +208,26 @@ describe('rust permission evaluator', () => {
       'function x { rm -rf /; }',
       'bash -c "{ rm -rf /; }"',
       "bash -c $'rm -rf /'",
+      "bash -c $'rm \\\\\n-rf /'",
+    ]) {
+      expect(evaluatePermission(denyRm, { kind: 'bash', command }).kind, command).toBe('deny')
+    }
+  })
+
+  it('matches deny after quotes and backslashes are removed from parsed words', () => {
+    const denyRm = policy({
+      mode: 'always-approve',
+      rules: [{ action: 'deny', tool: 'bash', pattern: 'rm -rf *', patternMode: 'glob' }],
+    })
+    for (const command of [
+      "'rm' -rf /",
+      '"rm" -rf /',
+      "$'rm' -rf /",
+      '\\rm -rf /',
+      'bash -c "\'rm\' -rf /"',
+      'bash -c "\\\\rm -rf /"',
+      'eval "rm -rf /"',
+      "eval $'rm -rf /'",
     ]) {
       expect(evaluatePermission(denyRm, { kind: 'bash', command }).kind, command).toBe('deny')
     }
@@ -229,6 +249,13 @@ describe('rust permission evaluator', () => {
       expect(evaluatePermission(quiet, { kind: 'bash', command }).kind, command).toBe('allow')
     }
     expect(evaluatePermission(quiet, { kind: 'bash', command: 'git commit -m x' }).kind).toBe('deny')
+    expect(evaluatePermission(quiet, { kind: 'bash', command: 'git branch -D topic' }).kind).toBe('deny')
+    expect(evaluatePermission(quiet, { kind: 'bash', command: 'git branch -d topic' }).kind).toBe('deny')
+    expect(evaluatePermission(quiet, { kind: 'bash', command: 'git show --output=/tmp/out HEAD' }).kind).toBe('deny')
+    expect(evaluatePermission(quiet, { kind: 'bash', command: 'git cat-file --filters HEAD:path' }).kind).toBe('deny')
+    expect(evaluatePermission(quiet, { kind: 'bash', command: 'git branch' }).kind).toBe('allow')
+    expect(evaluatePermission(quiet, { kind: 'bash', command: 'git show HEAD' }).kind).toBe('allow')
+    expect(evaluatePermission(quiet, { kind: 'bash', command: 'git cat-file -t HEAD' }).kind).toBe('allow')
   })
 
   it('matches glob character classes on deny', () => {

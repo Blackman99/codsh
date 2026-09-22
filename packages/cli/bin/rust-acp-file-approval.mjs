@@ -298,6 +298,10 @@ function decodeAnsiC(body) {
       out += '\\'
       break
     }
+    if (next === '\n') {
+      i += 1
+      continue
+    }
     const simple = { n: '\n', t: '\t', r: '\r', a: '\u0007', b: '\b', f: '\f', v: '\v', '\\': '\\', "'": "'", '"': '"' }
     if (simple[next] !== undefined) {
       out += simple[next]
@@ -325,40 +329,75 @@ function decodeAnsiC(body) {
 function shellWords(command) {
   const words = []
   let i = 0
+  let current = ''
+  let open = false
+  const push = () => {
+    if (open) words.push(current)
+    current = ''
+    open = false
+  }
   while (i < command.length) {
-    while (command[i] === ' ' || command[i] === '\t') i += 1
-    if (i >= command.length) break
+    const ch = command[i]
+    if (!open && (ch === ' ' || ch === '\t' || ch === '\n')) {
+      i += 1
+      continue
+    }
+    if (open && (ch === ' ' || ch === '\t' || ch === '\n')) {
+      push()
+      continue
+    }
+    open = true
     if (command.startsWith("$'", i)) {
       const end = command.indexOf("'", i + 2)
       if (end < 0) {
-        words.push(decodeAnsiC(command.slice(i + 2)))
-        break
+        current += decodeAnsiC(command.slice(i + 2))
+        i = command.length
+        continue
       }
-      words.push(decodeAnsiC(command.slice(i + 2, end)))
+      current += decodeAnsiC(command.slice(i + 2, end))
       i = end + 1
       continue
     }
-    if (command[i] === '"' || command[i] === "'") {
-      const quote = command[i]
+    if (ch === '"' || ch === "'") {
+      const quote = ch
       i += 1
       const start = i
       while (i < command.length && command[i] !== quote) i += 1
-      words.push(command.slice(start, i))
+      current += command.slice(start, i)
       if (command[i] === quote) i += 1
       continue
     }
-    const start = i
-    while (i < command.length && command[i] !== ' ' && command[i] !== '\t') i += 1
-    words.push(command.slice(start, i))
+    if (ch === '\\') {
+      const next = command[i + 1]
+      if (next === undefined) {
+        current += '\\'
+        i += 1
+        continue
+      }
+      if (next === '\n') {
+        i += 2
+        continue
+      }
+      current += next
+      i += 2
+      continue
+    }
+    current += ch
+    i += 1
   }
+  push()
   return words
 }
 
-function extractDashCScripts(command) {
+function innerShellScripts(command) {
   const scripts = []
   const words = shellWords(command)
   for (let i = 0; i < words.length; i += 1) {
     const base = words[i].split(/[\\/]/u).at(-1).replace(/\.exe$/iu, '')
+    if (base === 'eval') {
+      if (words[i + 1]) scripts.push(words.slice(i + 1).join(' '))
+      continue
+    }
     if (!SHELLS.has(base)) continue
     let wantScript = false
     i += 1
@@ -400,6 +439,10 @@ function extractDashCScripts(command) {
   return scripts.map(part => part.trim()).filter(Boolean)
 }
 
+function extractDashCScripts(command) {
+  return innerShellScripts(command)
+}
+
 function controlFlowBodies(command) {
   if (!isControlFlow(command)) return []
   const stripped = command.replaceAll(/\b(?:if|then|else|elif|fi|for|while|until|do|done|case|esac)\b/gu, ';')
@@ -433,14 +476,18 @@ function braceBodies(command) {
   return out
 }
 
+function parsedCommand(command) {
+  return shellWords(command).join(' ')
+}
+
 function bashInspectSubjects(command, seen = new Set()) {
   const trimmed = command.trimStart()
   if (!trimmed || seen.has(trimmed)) return []
   seen.add(trimmed)
-  const subjects = [trimmed, ...bashSegments(command)]
+  const subjects = [trimmed, parsedCommand(trimmed), ...bashSegments(command)]
   for (const inner of [
     ...extractSubstitutions(command),
-    ...extractDashCScripts(command),
+    ...innerShellScripts(command),
     ...controlFlowBodies(command),
     ...braceBodies(command),
   ]) {
@@ -706,7 +753,11 @@ function patternMatches(access, rule, cwd) {
   if (!rule.pattern || rule.pattern === '*') return true
   if (access.kind === 'bash') {
     const command = access.command.trimStart()
-    return command.startsWith(rule.pattern) || globMatch(rule.pattern, command, false)
+    const parsed = parsedCommand(command)
+    return command.startsWith(rule.pattern)
+      || globMatch(rule.pattern, command, false)
+      || parsed.startsWith(rule.pattern)
+      || globMatch(rule.pattern, parsed, false)
   }
   if (access.kind === 'edit' || access.kind === 'read' || access.kind === 'grep') {
     const inspected = inspectPath(access.path ?? '', cwd)
@@ -745,11 +796,32 @@ function uniqueLongOption(word, canonical) {
   return name.length > 0 && name.length <= canonical.length && canonical.startsWith(name)
 }
 
+function optionName(word) {
+  if (word.startsWith('--')) return word.slice(2).split('=')[0]
+  return ''
+}
+
+function uniqueAmong(name, candidates) {
+  const hits = candidates.filter(candidate => candidate.startsWith(name))
+  return hits.length === 1
+}
+
+function gitWriteOption(subcommand, word) {
+  if (subcommand === 'branch' && (word === '-d' || word === '-D' || word === '--delete')) return true
+  const name = optionName(word)
+  if (!name) return false
+  if (subcommand === 'show' && uniqueAmong(name, ['output'])) return true
+  if (subcommand === 'cat-file' && uniqueAmong(name, ['filters', 'filter', 'textconv'])) return true
+  return false
+}
+
 function raisesReadonlyFloor(words) {
   const head = words[0]
   if (head === 'rg' && words.some(word => word === '--pre' || word.startsWith('--pre='))) return true
   if (head === 'sort' && words.some(word => uniqueLongOption(word, 'compress-program'))) return true
   if (head === 'git' && words.some(word => word === '-c' || word.startsWith('--config-env'))) return true
+  if (head === 'git' && words.slice(2).some(word => gitWriteOption(words[1], word))) return true
+  if (head === 'eval') return true
   return false
 }
 
@@ -919,7 +991,10 @@ export function evaluatePermission(policy, access, hookDeny) {
     const segments = bashSegments(access.command)
     if (!isUnsplittable(access.command)
       && segments.length > 0
-      && segments.every(segment => readonlyCommand(segment) && !dangerous(segment))) {
+      && segments.every(segment => {
+        const parsed = parsedCommand(segment)
+        return readonlyCommand(parsed) && !dangerous(parsed)
+      })) {
       return { kind: 'allow', reason: 'read-only shell command' }
     }
   }

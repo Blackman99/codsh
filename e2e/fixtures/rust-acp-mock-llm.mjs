@@ -2,7 +2,8 @@
  * Keyless LLM adapter at the dsh provider boundary for Rust ACP turn tests.
  * Modes: echo (default), reasoning, empty, fail-stream, file-edit, file-write,
  * file-missing, file-error, bash-rm, bash-timeout-rm, bash-nice-rm, bash-brace-rm,
- * bash-ansi-c-rm, bash-sort-prefix, bash-git-cat, bash-git, file-secret. Optional
+ * bash-ansi-c-rm, bash-quoted-rm, bash-eval-rm, bash-sort-prefix, bash-git-cat,
+ * bash-git, file-secret. Optional
  * DSH_CODE_CLI_MOCK_DELAY_MS delays the first chunk so session/cancel can win
  * before activity.
  */
@@ -89,7 +90,7 @@ function* fileToolTurn(options) {
     yield* mockText(`RUST_ACP_FILE_ERROR ${resultText(last)}`)
     return
   }
-  if (MODE === 'bash-rm' || MODE === 'bash-timeout-rm' || MODE === 'bash-nice-rm' || MODE === 'bash-brace-rm' || MODE === 'bash-ansi-c-rm' || MODE === 'bash-sort-prefix' || MODE === 'bash-git-cat') {
+  if (MODE === 'bash-rm' || MODE === 'bash-timeout-rm' || MODE === 'bash-nice-rm' || MODE === 'bash-brace-rm' || MODE === 'bash-ansi-c-rm' || MODE === 'bash-quoted-rm' || MODE === 'bash-eval-rm' || MODE === 'bash-sort-prefix' || MODE === 'bash-git-cat') {
     if (done.length === 0) {
       const command = MODE === 'bash-timeout-rm'
         ? 'timeout 30 rm -rf denied-target'
@@ -99,11 +100,15 @@ function* fileToolTurn(options) {
             ? '{ rm -rf denied-target; }'
             : MODE === 'bash-ansi-c-rm'
               ? "bash -c $'rm -rf denied-target'"
-              : MODE === 'bash-sort-prefix'
-                ? 'sort --compress-pro=gzip note.txt'
-                : MODE === 'bash-git-cat'
-                  ? 'git cat-file -t HEAD'
-                  : 'rm -rf denied-target'
+              : MODE === 'bash-quoted-rm'
+                ? "'rm' -rf denied-target"
+                : MODE === 'bash-eval-rm'
+                  ? 'eval "rm -rf denied-target"'
+                  : MODE === 'bash-sort-prefix'
+                    ? 'sort --compress-pro=gzip note.txt'
+                    : MODE === 'bash-git-cat'
+                      ? 'git cat-file -t HEAD'
+                      : 'rm -rf denied-target'
       yield* mockToolCall('rust-acp-bash-rm', 'bash', { command, description: 'permission probe' })
       return
     }
@@ -266,7 +271,7 @@ class RustAcpMockAdapter extends LlmAdapter {
       yield* mockText(`RUST_ACP_TODO_DONE TODO_KEEP turn=${turn} ${userTexts(options).join('\n')}`)
       return
     }
-    if (MODE === 'file-edit' || MODE === 'file-write' || MODE === 'file-missing' || MODE === 'file-error' || MODE === 'bash-rm' || MODE === 'bash-timeout-rm' || MODE === 'bash-nice-rm' || MODE === 'bash-brace-rm' || MODE === 'bash-ansi-c-rm' || MODE === 'bash-sort-prefix' || MODE === 'bash-git-cat' || MODE === 'bash-git' || MODE === 'file-secret') {
+    if (MODE === 'file-edit' || MODE === 'file-write' || MODE === 'file-missing' || MODE === 'file-error' || MODE === 'bash-rm' || MODE === 'bash-timeout-rm' || MODE === 'bash-nice-rm' || MODE === 'bash-brace-rm' || MODE === 'bash-ansi-c-rm' || MODE === 'bash-quoted-rm' || MODE === 'bash-eval-rm' || MODE === 'bash-sort-prefix' || MODE === 'bash-git-cat' || MODE === 'bash-git' || MODE === 'file-secret') {
       yield* fileToolTurn(options)
       return
     }

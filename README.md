@@ -61,11 +61,13 @@ always-approve survive `--always-approve` and old grants. Unsplittable shell
 covers shell operands; wrappers such as `timeout`, `nice`, `ionice`, and
 `env FOO=1` peel to the inner command (only real duration/priority tokens are
 consumed), while `env -S` prompts. Read/Edit deny and ask follow in-path
-symlink targets; an unresolved link prompts. Brace groups and ANSI-C
-`bash -c $'…'` scripts cannot hide a denied command. A unique prefix of
-`sort --compress-program` is not read-only. Frozen git inspection commands
+symlink targets; an unresolved link prompts. Brace groups, quoted or
+backslash-escaped command words, `eval`, and ANSI-C `bash -c $'…'` scripts
+(including a backslash-newline) cannot hide a denied command. A unique prefix
+of `sort --compress-program` is not read-only. Frozen git inspection commands
 (`cat-file`, `ls-tree`, `check-ignore`, `show-ref`, `for-each-ref`, `rev-list`,
-`name-rev`, `count-objects`, `check-attr`) auto-allow; git writes do not.
+`name-rev`, `count-objects`, `check-attr`) auto-allow; git writes do not,
+including `git branch -d`/`-D`, `git show --output`, and `git cat-file --filters`.
 Claude rules load from `~/.claude` and walk up to the repo root. Always-approve
 skips remembered grants and non-shell `ask`. A missing or corrupt policy file
 refuses mutating tools instead of dropping deny. Remembered file grants are
