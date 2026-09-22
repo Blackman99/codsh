@@ -19,14 +19,15 @@ describe.skipIf(process.platform === 'win32')('ship wayfinder (real PTY)', () =>
       ['Welcome to codsh', `/ship SMALL_WAYFINDER${ENTER}`, 200],
       ['Is the route clear?', ENTER, 300],
       ['Confirm the grill handoff?', ENTER, 400],
-      ['GRILL_CONTRACT_OK', ESCAPE, 300],
+      ['GRILL_CONTRACT_OK', '', 0],
+      ['Confirm the grill handoff?', ESCAPE, 0],
       ['', `/exit${ENTER}`, 500],
     ], { columns })
     expect(beforeStep(run, 1, columns).join('\n')).toContain('ship · wayfinder')
     expect(beforeStep(run, 2, columns).join('\n')).toContain('ship · grill')
     expect(run.output.indexOf('Is the route clear?')).toBeLessThan(run.output.indexOf('Confirm the grill handoff?'))
     expect(run.output).not.toContain('SHIP_FIXTURE_ERROR')
-    for (const row of beforeStep(run, 3, columns)) expect(row.length).toBeLessThanOrEqual(columns)
+    for (const row of beforeStep(run, 4, columns)) expect(row.length).toBeLessThanOrEqual(columns)
   }, E2E_TEST_TIMEOUT_MS)
 
   it('stops with an unresolved map and resumes wayfinder on bare /ship', async () => {
@@ -60,7 +61,8 @@ describe.skipIf(process.platform === 'win32')('ship wayfinder (real PTY)', () =>
         ['Welcome to codsh', `/ship SMALL_WAYFINDER${ENTER}`, 200],
         ['Is the route clear?', ENTER, 300],
         ['Confirm the grill handoff?', ENTER, 400],
-        ['GRILL_CONTRACT_OK original=SMALL_WAYFINDER policy=yes', ESCAPE, 300],
+        ['GRILL_CONTRACT_OK original=SMALL_WAYFINDER policy=yes', '', 0],
+        ['Confirm the grill handoff?', ESCAPE, 0],
         ['', `/exit${ENTER}`, 700],
       ], { cwd })
       expect(run.output).toContain('original=SMALL_WAYFINDER')
