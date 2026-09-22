@@ -1989,16 +1989,110 @@ fn unique_long_option(word: &str, canonical: &str) -> bool {
     !name.is_empty() && name.len() <= canonical.len() && canonical.starts_with(name)
 }
 
-fn unique_among(name: &str, candidates: &[&str]) -> bool {
-    candidates
+fn resolve_unique<'a>(name: &str, candidates: &[&'a str]) -> Option<&'a str> {
+    if name.is_empty() {
+        return None;
+    }
+    if let Some(exact) = candidates
         .iter()
-        .filter(|candidate| candidate.starts_with(name))
-        .count()
-        == 1
+        .copied()
+        .find(|candidate| *candidate == name)
+    {
+        return Some(exact);
+    }
+    let mut matched = None;
+    for candidate in candidates {
+        if candidate.starts_with(name) {
+            if matched.is_some() {
+                return None;
+            }
+            matched = Some(*candidate);
+        }
+    }
+    matched
+}
+
+/// Long options git accepts on the frozen read-only subcommands, grouped by
+/// the subcommand's own man page. A prefix raises the floor only when it is
+/// unique among that group, matching git's abbreviation rules.
+fn git_long_options(subcommand: &str) -> &'static [&'static str] {
+    match subcommand {
+        "branch" => &[
+            "abbrev",
+            "all",
+            "color",
+            "column",
+            "contains",
+            "copy",
+            "create-reflog",
+            "delete",
+            "edit-description",
+            "force",
+            "format",
+            "ignore-case",
+            "list",
+            "merged",
+            "move",
+            "no-abbrev",
+            "no-color",
+            "no-column",
+            "no-contains",
+            "no-merged",
+            "no-track",
+            "points-at",
+            "quiet",
+            "recurse-submodules",
+            "remotes",
+            "set-upstream",
+            "set-upstream-to",
+            "show-current",
+            "sort",
+            "track",
+            "unset-upstream",
+            "verbose",
+        ],
+        "diff" | "log" | "show" => &[
+            "output",
+            "output-indicator-context",
+            "output-indicator-new",
+            "output-indicator-old",
+        ],
+        "blame" => &["output"],
+        "rev-list" => &["output"],
+        "cat-file" => &["filters", "follow-symlinks", "textconv"],
+        _ => &[],
+    }
+}
+
+fn git_write_name(subcommand: &str, name: &str) -> bool {
+    if name.is_empty() {
+        return false;
+    }
+    let Some(canonical) = resolve_unique(name, git_long_options(subcommand)) else {
+        return false;
+    };
+    match subcommand {
+        "branch" => matches!(
+            canonical,
+            "delete"
+                | "move"
+                | "copy"
+                | "force"
+                | "edit-description"
+                | "create-reflog"
+                | "set-upstream"
+                | "set-upstream-to"
+                | "unset-upstream"
+                | "recurse-submodules"
+        ),
+        "diff" | "log" | "show" | "blame" | "rev-list" => canonical == "output",
+        "cat-file" => matches!(canonical, "filters" | "textconv"),
+        _ => false,
+    }
 }
 
 fn git_write_option(subcommand: &str, word: &str) -> bool {
-    if subcommand == "branch" && matches!(word, "-d" | "-D" | "--delete") {
+    if subcommand == "branch" && matches!(word, "-d" | "-D" | "-m" | "-M" | "-c" | "-C") {
         return true;
     }
     let Some(name) = word.strip_prefix("--") else {
@@ -2008,11 +2102,7 @@ fn git_write_option(subcommand: &str, word: &str) -> bool {
         return false;
     }
     let name = name.split('=').next().unwrap_or(name);
-    match subcommand {
-        "show" => unique_among(name, &["output"]),
-        "cat-file" => unique_among(name, &["filters", "filter", "textconv"]),
-        _ => false,
-    }
+    git_write_name(subcommand, name)
 }
 
 fn raises_readonly_floor(words: &[&str]) -> bool {
@@ -2916,8 +3006,27 @@ mod tests {
         for command in [
             "git branch -D topic",
             "git branch -d topic",
+            "git branch --delete topic",
+            "git branch --del topic",
+            "git branch --dele topic",
+            "git branch --mo topic renamed",
+            "git branch -m topic renamed",
+            "git branch -M topic renamed",
+            "git branch --cop topic copied",
+            "git branch -c topic copied",
+            "git branch -C topic copied",
+            "git branch --forc extra",
+            "git branch --cr extra",
+            "git branch --ed topic",
+            "git branch --set-upstream-to HEAD topic",
+            "git branch --un topic",
             "git show --output=/tmp/out HEAD",
+            "git diff --output=/tmp/out",
+            "git log --output=/tmp/out",
+            "git blame --output=/tmp/out file",
+            "git rev-list --output=/tmp/out HEAD",
             "git cat-file --filters HEAD:path",
+            "git cat-file --fi HEAD:path",
         ] {
             assert!(
                 matches!(

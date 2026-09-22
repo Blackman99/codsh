@@ -67,7 +67,8 @@ backslash-escaped command words, `eval`, and ANSI-C `bash -c $'…'` scripts
 of `sort --compress-program` is not read-only. Frozen git inspection commands
 (`cat-file`, `ls-tree`, `check-ignore`, `show-ref`, `for-each-ref`, `rev-list`,
 `name-rev`, `count-objects`, `check-attr`) auto-allow; git writes do not,
-including `git branch -d`/`-D`, `git show --output`, and `git cat-file --filters`.
+including unique prefixes of `git branch --delete`/`--move`/`--copy`/`--force`,
+`git diff`/`log`/`show`/`blame`/`rev-list --output`, and `git cat-file --filters`.
 Claude rules load from `~/.claude` and walk up to the repo root. Always-approve
 skips remembered grants and non-shell `ask`. A missing or corrupt policy file
 refuses mutating tools instead of dropping deny. Remembered file grants are

@@ -784,7 +784,7 @@ function bashAllowMatches(command, rule) {
 }
 
 function dangerous(command) {
-  const words = command.split(/\s+/u)
+  const words = shellWords(command)
   const head = (words[0] ?? '').split(/[\\/]/u).at(-1).replace(/\.exe$/iu, '').toLowerCase()
   return ['rm', 'chmod', 'chown', 'chgrp', 'chattr', 'pkill', 'kill', 'killall'].includes(head)
     || (head === 'git' && words[1] === 'push')
@@ -801,18 +801,56 @@ function optionName(word) {
   return ''
 }
 
-function uniqueAmong(name, candidates) {
+function resolveUnique(name, candidates) {
+  if (!name) return null
+  const exact = candidates.find(candidate => candidate === name)
+  if (exact) return exact
   const hits = candidates.filter(candidate => candidate.startsWith(name))
-  return hits.length === 1
+  return hits.length === 1 ? hits[0] : null
+}
+
+const GIT_LONG_OPTIONS = {
+  branch: [
+    'abbrev', 'all', 'color', 'column', 'contains', 'copy', 'create-reflog', 'delete',
+    'edit-description', 'force', 'format', 'ignore-case', 'list', 'merged', 'move',
+    'no-abbrev', 'no-color', 'no-column', 'no-contains', 'no-merged', 'no-track',
+    'points-at', 'quiet', 'recurse-submodules', 'remotes', 'set-upstream', 'set-upstream-to',
+    'show-current', 'sort', 'track', 'unset-upstream', 'verbose',
+  ],
+  diff: ['output', 'output-indicator-context', 'output-indicator-new', 'output-indicator-old'],
+  log: ['output', 'output-indicator-context', 'output-indicator-new', 'output-indicator-old'],
+  show: ['output', 'output-indicator-context', 'output-indicator-new', 'output-indicator-old'],
+  blame: ['output'],
+  'rev-list': ['output'],
+  'cat-file': ['filters', 'follow-symlinks', 'textconv'],
+}
+
+const GIT_WRITE_NAMES = {
+  branch: new Set([
+    'delete', 'move', 'copy', 'force', 'edit-description', 'create-reflog',
+    'set-upstream', 'set-upstream-to', 'unset-upstream', 'recurse-submodules',
+  ]),
+  diff: new Set(['output']),
+  log: new Set(['output']),
+  show: new Set(['output']),
+  blame: new Set(['output']),
+  'rev-list': new Set(['output']),
+  'cat-file': new Set(['filters', 'textconv']),
+}
+
+function gitWriteName(subcommand, name) {
+  const options = GIT_LONG_OPTIONS[subcommand]
+  const writes = GIT_WRITE_NAMES[subcommand]
+  if (!options || !writes) return false
+  const canonical = resolveUnique(name, options)
+  return canonical !== null && writes.has(canonical)
 }
 
 function gitWriteOption(subcommand, word) {
-  if (subcommand === 'branch' && (word === '-d' || word === '-D' || word === '--delete')) return true
+  if (subcommand === 'branch' && ['-d', '-D', '-m', '-M', '-c', '-C'].includes(word)) return true
   const name = optionName(word)
-  if (!name) return false
-  if (subcommand === 'show' && uniqueAmong(name, ['output'])) return true
-  if (subcommand === 'cat-file' && uniqueAmong(name, ['filters', 'filter', 'textconv'])) return true
-  return false
+  if (!name || word.startsWith('---')) return false
+  return gitWriteName(subcommand, name)
 }
 
 function raisesReadonlyFloor(words) {
@@ -832,7 +870,7 @@ const GIT_READONLY = new Set([
 ])
 
 function readonlyCommand(command) {
-  const words = command.split(/\s+/u)
+  const words = shellWords(command)
   const head = words[0]
   if (raisesReadonlyFloor(words)) return false
   if (['ls', 'cat', 'pwd', 'date', 'whoami', 'hostname', 'uptime', 'ps', 'head', 'tail', 'wc', 'sort', 'uniq', 'tr', 'cut', 'grep', 'rg'].includes(head)) {
@@ -991,10 +1029,7 @@ export function evaluatePermission(policy, access, hookDeny) {
     const segments = bashSegments(access.command)
     if (!isUnsplittable(access.command)
       && segments.length > 0
-      && segments.every(segment => {
-        const parsed = parsedCommand(segment)
-        return readonlyCommand(parsed) && !dangerous(parsed)
-      })) {
+      && segments.every(segment => readonlyCommand(segment) && !dangerous(segment))) {
       return { kind: 'allow', reason: 'read-only shell command' }
     }
   }
@@ -1010,8 +1045,8 @@ export function evaluatePermission(policy, access, hookDeny) {
 }
 
 function rememberPrefix(command) {
-  const words = command.trim().split(/\s+/u)
-  if (words.length === 0) return command
+  const words = shellWords(command)
+  if (words.length === 0) return command.trim()
   if (dangerous(command) || ['sh', 'bash', 'python', 'python3', 'node', 'sudo', 'ssh', 'docker', 'npx'].includes(words[0])) {
     return words.join(' ')
   }
