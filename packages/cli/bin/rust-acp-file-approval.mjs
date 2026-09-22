@@ -235,6 +235,17 @@ function bashSegments(command) {
   return splitSimple(command)
 }
 
+function ruleSubjects(command) {
+  const trimmed = command.trimStart()
+  const parsed = parsedCommand(trimmed)
+  const peeled = bashSegments(trimmed)
+  const heads = [trimmed, parsed, ...peeled]
+  return [...new Set(heads.flatMap(subject => {
+    const named = basenameCommand(subject)
+    return named && named !== subject ? [subject, named] : [subject]
+  }).filter(Boolean))]
+}
+
 function unquote(text) {
   if ((text.startsWith('"') && text.endsWith('"')) || (text.startsWith("'") && text.endsWith("'"))) {
     return text.slice(1, -1)
@@ -480,11 +491,22 @@ function parsedCommand(command) {
   return shellWords(command).join(' ')
 }
 
+function commandBasename(word) {
+  const name = word.split(/[\\/]/u).at(-1) ?? word
+  return name.replace(/\.exe$/iu, '')
+}
+
+function basenameCommand(command) {
+  const words = shellWords(command)
+  if (words.length === 0) return ''
+  words[0] = commandBasename(words[0])
+  return words.join(' ')
+}
+
 function bashInspectSubjects(command, seen = new Set()) {
   const trimmed = command.trimStart()
   if (!trimmed || seen.has(trimmed)) return []
-  seen.add(trimmed)
-  const subjects = [trimmed, parsedCommand(trimmed), ...bashSegments(command)]
+  const subjects = ruleSubjects(trimmed)
   for (const inner of [
     ...extractSubstitutions(command),
     ...innerShellScripts(command),
@@ -846,18 +868,33 @@ function gitWriteName(subcommand, name) {
   return canonical !== null && writes.has(canonical)
 }
 
+function gitBranchWrites(words) {
+  return words.slice(2).some(word => gitWriteOption('branch', word) || word === '-f' || word === '-u' || word === '-t' || !word.startsWith('-'))
+}
+
 function gitWriteOption(subcommand, word) {
-  if (subcommand === 'branch' && ['-d', '-D', '-m', '-M', '-c', '-C'].includes(word)) return true
+  if (subcommand === 'branch' && ['-d', '-D', '-m', '-M', '-c', '-C', '-f', '-u', '-t'].includes(word)) return true
   const name = optionName(word)
   if (!name || word.startsWith('---')) return false
   return gitWriteName(subcommand, name)
 }
 
+function sortWrites(words) {
+  return words.some((word, index) => {
+    if (uniqueLongOption(word, 'compress-program')) return true
+    const name = optionName(word)
+    if (name && resolveUnique(name, ['output', 'compress-program']) === 'output') return true
+    if (name && name.length > 'output'.length && name.startsWith('output')) return true
+    return word === '-o' || (index > 0 && words[index - 1] === '-o')
+  })
+}
+
 function raisesReadonlyFloor(words) {
   const head = words[0]
   if (head === 'rg' && words.some(word => word === '--pre' || word.startsWith('--pre='))) return true
-  if (head === 'sort' && words.some(word => uniqueLongOption(word, 'compress-program'))) return true
+  if (head === 'sort' && sortWrites(words)) return true
   if (head === 'git' && words.some(word => word === '-c' || word.startsWith('--config-env'))) return true
+  if (head === 'git' && words[1] === 'branch' && gitBranchWrites(words)) return true
   if (head === 'git' && words.slice(2).some(word => gitWriteOption(words[1], word))) return true
   if (head === 'eval') return true
   return false

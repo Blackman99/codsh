@@ -194,6 +194,10 @@ describe('rust permission evaluator', () => {
     expect(evaluatePermission(policy(), { kind: 'bash', command: 'sort --compress-program=gzip file' }).kind).toBe('ask')
     expect(evaluatePermission(policy({ mode: 'dontAsk' }), { kind: 'bash', command: 'sort --compress-pro=gzip file' }).kind).toBe('deny')
     expect(evaluatePermission(policy({ mode: 'dontAsk' }), { kind: 'bash', command: 'sort --compress-p=gzip file' }).kind).toBe('deny')
+    expect(evaluatePermission(policy({ mode: 'dontAsk' }), { kind: 'bash', command: 'sort -o out.txt file' }).kind).toBe('deny')
+    expect(evaluatePermission(policy({ mode: 'dontAsk' }), { kind: 'bash', command: 'sort --output=out.txt file' }).kind).toBe('deny')
+    expect(evaluatePermission(policy({ mode: 'dontAsk' }), { kind: 'bash', command: 'sort --output-file out.txt file' }).kind).toBe('deny')
+    expect(evaluatePermission(policy(), { kind: 'bash', command: 'sort file' }).kind).toBe('allow')
   })
 
   it('does not let brace groups or ANSI-C bash -c bypass deny', () => {
@@ -233,6 +237,22 @@ describe('rust permission evaluator', () => {
     }
   })
 
+  it('applies Bash(rm -rf *) to a path-qualified rm under always-approve', () => {
+    const denyRm = policy({
+      mode: 'always-approve',
+      rules: [{ action: 'deny', tool: 'bash', pattern: 'rm -rf *', patternMode: 'glob' }],
+    })
+    for (const command of [
+      '/bin/rm -rf /',
+      './rm -rf /',
+      '/usr/local/bin/rm.exe -rf /',
+      'timeout 30 /bin/rm -rf /',
+      "bash -c '/bin/rm -rf /'",
+    ]) {
+      expect(evaluatePermission(denyRm, { kind: 'bash', command }).kind, command).toBe('deny')
+    }
+  })
+
   it('auto-allows the frozen git read-only subcommands and not writes', () => {
     const quiet = policy({ mode: 'dontAsk' })
     for (const command of [
@@ -265,6 +285,11 @@ describe('rust permission evaluator', () => {
     expect(evaluatePermission(quiet, { kind: 'bash', command: 'git branch --ed topic' }).kind).toBe('deny')
     expect(evaluatePermission(quiet, { kind: 'bash', command: 'git branch --set-upstream-to HEAD topic' }).kind).toBe('deny')
     expect(evaluatePermission(quiet, { kind: 'bash', command: 'git branch --un topic' }).kind).toBe('deny')
+    expect(evaluatePermission(quiet, { kind: 'bash', command: 'git branch newtopic' }).kind).toBe('deny')
+    expect(evaluatePermission(quiet, { kind: 'bash', command: 'git branch -f topic HEAD' }).kind).toBe('deny')
+    expect(evaluatePermission(quiet, { kind: 'bash', command: 'git branch --force topic HEAD' }).kind).toBe('deny')
+    expect(evaluatePermission(quiet, { kind: 'bash', command: 'git branch -u origin/main' }).kind).toBe('deny')
+    expect(evaluatePermission(quiet, { kind: 'bash', command: 'git branch -t topic' }).kind).toBe('deny')
     expect(evaluatePermission(quiet, { kind: 'bash', command: 'git show --output=/tmp/out HEAD' }).kind).toBe('deny')
     expect(evaluatePermission(quiet, { kind: 'bash', command: 'git diff --output=/tmp/out' }).kind).toBe('deny')
     expect(evaluatePermission(quiet, { kind: 'bash', command: 'git log --output=/tmp/out' }).kind).toBe('deny')

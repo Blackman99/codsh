@@ -243,6 +243,14 @@ allow = ["Bash(git *)"]
         assert 'successfully.' not in evaluated['screen']
         results['deny_eval'] = {'exit': evaluated['exit']}
 
+        path_rm = exercise('deny-path-rm', launcher, cwd,
+                           {**base_env, 'DSH_CODE_CLI_MOCK_TOOL': 'bash-path-rm'},
+                           output, typed='TOKEN_PERM_PATH', wait_for=['Denied by permission policy', 'RUST_ACP_BASH_DENIED'],
+                           extra=['--always-approve', '--deny', 'Bash(rm -rf *)'], action='none')
+        assert path_rm['exit'] == 0
+        assert 'successfully.' not in path_rm['screen']
+        results['deny_path_rm'] = {'exit': path_rm['exit']}
+
         sort_prefix = exercise('sort-prefix-not-readonly', launcher, cwd,
                                {**base_env, 'DSH_CODE_CLI_MOCK_TOOL': 'bash-sort-prefix'},
                                output, typed='TOKEN_PERM_SORT', wait_for=['dontAsk blocked', 'RUST_ACP_BASH_DENIED'],
@@ -250,6 +258,26 @@ allow = ["Bash(git *)"]
         assert sort_prefix['exit'] == 0
         assert 'read-only shell command' not in sort_prefix['screen']
         results['sort_prefix'] = {'exit': sort_prefix['exit']}
+
+        sort_output = exercise('sort-output-not-readonly', launcher, cwd,
+                               {**base_env, 'DSH_CODE_CLI_MOCK_TOOL': 'bash-sort-output'},
+                               output, typed='TOKEN_PERM_SORTO', wait_for=['dontAsk blocked', 'RUST_ACP_BASH_DENIED'],
+                               extra=['--permission-mode', 'dontAsk'], action='none')
+        assert sort_output['exit'] == 0
+        assert 'read-only shell command' not in sort_output['screen']
+        results['sort_output'] = {'exit': sort_output['exit']}
+
+        quiet_config = grok_home / 'config.toml'
+        quiet_saved = quiet_config.read_text()
+        quiet_config.write_text(quiet_saved.replace('allow = ["Bash(git *)"]\n', ''))
+        git_branch = exercise('git-branch-create-not-readonly', launcher, cwd,
+                              {**base_env, 'DSH_CODE_CLI_MOCK_TOOL': 'bash-git-branch'},
+                              output, typed='TOKEN_PERM_BRANCH', wait_for=['dontAsk blocked', 'RUST_ACP_BASH_DENIED'],
+                              extra=['--permission-mode', 'dontAsk'], action='none')
+        assert git_branch['exit'] == 0
+        assert 'read-only shell command' not in git_branch['screen']
+        results['git_branch_create'] = {'exit': git_branch['exit']}
+        quiet_config.write_text(quiet_saved)
 
         git_cat = exercise('git-cat-file-readonly', launcher, cwd,
                            {**base_env, 'DSH_CODE_CLI_MOCK_TOOL': 'bash-git-cat'},
@@ -308,7 +336,7 @@ allow = ["Bash(git *)"]
         (cwd / 'note.txt').write_text('alpha\n')
         restored = exercise('remember-restored', launcher, cwd,
                             {**base_env, 'DSH_CODE_CLI_MOCK_TOOL': 'file-edit'},
-                            output, typed='TOKEN_PERM_RESTORED', wait_for=['successfully.'], action='none')
+                            output, typed='TOKEN_PERM_RESTORED', wait_for=['successfully.', 'RUST_ACP_FILE_DONE'], action='none')
         assert restored['exit'] == 0
         assert (cwd / 'note.txt').read_text() == 'ALPHA\n'
         results['restored'] = {'exit': restored['exit']}

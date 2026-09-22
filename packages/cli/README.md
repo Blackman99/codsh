@@ -72,8 +72,10 @@ open the directory. `--always-approve`/`--yolo`, `--permission-mode`, and
 still wins. Unsplittable shell and Read/Edit path rules on operands cannot
 bypass deny; wrappers peel to the inner command without eating the command name
 while `env -S` prompts; brace groups and ANSI-C `bash -c` cannot hide a denied
-command; unique `sort --compress-program` prefixes and git writes are not
-read-only, including unique `git branch --delete`/`--move`/`--copy` prefixes
+command; a path-qualified executable such as `/bin/rm` or `rm.exe` matches by
+basename; `sort -o`/`--output` and unique `sort --compress-program` prefixes
+are not read-only, nor are git writes, including `git branch <name>`,
+`-f`/`--force`, `-u`, unique `git branch --delete`/`--move`/`--copy` prefixes,
 and `--output` on `diff`/`log`/`show`/`blame`/`rev-list`; Claude settings load
 from `~/.claude` and walk to the repo root;
 Read/Edit deny follows in-path symlinks; remembered file

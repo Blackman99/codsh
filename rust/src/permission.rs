@@ -1673,6 +1673,22 @@ fn parsed_command(command: &str) -> String {
     shell_words(command).join(" ")
 }
 
+fn command_basename(word: &str) -> String {
+    let name = Path::new(word)
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or(word);
+    name.trim_end_matches(".exe").to_string()
+}
+
+fn basename_command(command: &str) -> String {
+    let mut words = shell_words(command);
+    if let Some(head) = words.first_mut() {
+        *head = command_basename(head);
+    }
+    words.join(" ")
+}
+
 fn next_shell_word(chars: &[char], start: usize) -> (String, usize) {
     let mut index = start;
     if index >= chars.len() {
@@ -1808,22 +1824,38 @@ fn inner_shell_scripts(command: &str) -> Vec<String> {
     scripts
 }
 
+fn rule_subjects(command: &str) -> Vec<String> {
+    let trimmed = command.trim_start();
+    let parsed = parsed_command(trimmed);
+    let mut heads = vec![trimmed.to_string()];
+    if !parsed.is_empty() {
+        heads.push(parsed);
+    }
+    heads.extend(bash_segments(trimmed));
+    let mut out = Vec::new();
+    let mut seen = HashSet::new();
+    for subject in heads {
+        let named = basename_command(&subject);
+        for candidate in [subject, named] {
+            if !candidate.is_empty() && seen.insert(candidate.clone()) {
+                out.push(candidate);
+            }
+        }
+    }
+    out
+}
+
 fn bash_inspect_subjects(command: &str) -> Vec<String> {
     let mut seen = HashSet::new();
     let mut out = Vec::new();
     fn walk(command: &str, seen: &mut HashSet<String>, out: &mut Vec<String>) {
         let trimmed = command.trim_start().to_string();
-        if trimmed.is_empty() || !seen.insert(trimmed.clone()) {
+        if trimmed.is_empty() || seen.contains(&trimmed) {
             return;
         }
-        out.push(trimmed.clone());
-        let parsed = parsed_command(&trimmed);
-        if !parsed.is_empty() && seen.insert(parsed.clone()) {
-            out.push(parsed);
-        }
-        for segment in bash_segments(&trimmed) {
-            if seen.insert(segment.clone()) {
-                out.push(segment);
+        for subject in rule_subjects(&trimmed) {
+            if seen.insert(subject.clone()) {
+                out.push(subject);
             }
         }
         for inner in extract_substitutions(&trimmed)
@@ -2091,8 +2123,21 @@ fn git_write_name(subcommand: &str, name: &str) -> bool {
     }
 }
 
+fn git_branch_writes(words: &[&str]) -> bool {
+    words.iter().skip(2).any(|word| {
+        git_write_option("branch", word)
+            || matches!(*word, "-f" | "-u" | "-t")
+            || !word.starts_with('-')
+    })
+}
+
 fn git_write_option(subcommand: &str, word: &str) -> bool {
-    if subcommand == "branch" && matches!(word, "-d" | "-D" | "-m" | "-M" | "-c" | "-C") {
+    if subcommand == "branch"
+        && matches!(
+            word,
+            "-d" | "-D" | "-m" | "-M" | "-c" | "-C" | "-f" | "-u" | "-t"
+        )
+    {
         return true;
     }
     let Some(name) = word.strip_prefix("--") else {
@@ -2103,6 +2148,25 @@ fn git_write_option(subcommand: &str, word: &str) -> bool {
     }
     let name = name.split('=').next().unwrap_or(name);
     git_write_name(subcommand, name)
+}
+
+fn sort_writes(words: &[&str]) -> bool {
+    words.iter().enumerate().any(|(index, word)| {
+        if unique_long_option(word, "compress-program") {
+            return true;
+        }
+        let name = word.strip_prefix("--").unwrap_or("");
+        let name = name.split('=').next().unwrap_or(name);
+        if resolve_unique(name, &["output", "compress-program"]) == Some("output")
+            || (name.len() > "output".len() && name.starts_with("output"))
+        {
+            return true;
+        }
+        if *word == "-o" {
+            return true;
+        }
+        index > 0 && words[index - 1] == "-o"
+    })
 }
 
 fn raises_readonly_floor(words: &[&str]) -> bool {
@@ -2116,11 +2180,7 @@ fn raises_readonly_floor(words: &[&str]) -> bool {
     {
         return true;
     }
-    if *head == "sort"
-        && words
-            .iter()
-            .any(|word| unique_long_option(word, "compress-program"))
-    {
+    if *head == "sort" && sort_writes(words) {
         return true;
     }
     if *head == "eval" {
@@ -2131,9 +2191,13 @@ fn raises_readonly_floor(words: &[&str]) -> bool {
             .iter()
             .any(|word| *word == "-c" || word.starts_with("--config-env"))
             || words.get(1).is_some_and(|subcommand| {
-                words[2..]
-                    .iter()
-                    .any(|word| git_write_option(subcommand, word))
+                if *subcommand == "branch" {
+                    git_branch_writes(words)
+                } else {
+                    words[2..]
+                        .iter()
+                        .any(|word| git_write_option(subcommand, word))
+                }
             }))
 }
 
@@ -2950,6 +3014,23 @@ mod tests {
             ),
             Decision::Deny { .. }
         ));
+        for command in [
+            "sort -o out.txt file",
+            "sort --output=out.txt file",
+            "sort --output-file out.txt file",
+        ] {
+            assert!(
+                matches!(
+                    evaluate(&quiet, &AccessKind::Bash(command.into()), None),
+                    Decision::Deny { .. }
+                ),
+                "{command}"
+            );
+        }
+        assert!(matches!(
+            evaluate(&ask, &AccessKind::Bash("sort file".into()), None),
+            Decision::Allow { .. }
+        ));
     }
 
     #[test]
@@ -3020,6 +3101,11 @@ mod tests {
             "git branch --ed topic",
             "git branch --set-upstream-to HEAD topic",
             "git branch --un topic",
+            "git branch newtopic",
+            "git branch -f topic HEAD",
+            "git branch --force topic HEAD",
+            "git branch -u origin/main",
+            "git branch -t topic",
             "git show --output=/tmp/out HEAD",
             "git diff --output=/tmp/out",
             "git log --output=/tmp/out",
@@ -3062,6 +3148,29 @@ mod tests {
             "bash -c \"\\\\rm -rf /\"",
             "eval \"rm -rf /\"",
             "eval $'rm -rf /'",
+        ] {
+            assert!(
+                matches!(
+                    evaluate(&deny, &AccessKind::Bash(command.into()), None),
+                    Decision::Deny { .. }
+                ),
+                "{command}"
+            );
+        }
+    }
+
+    #[test]
+    fn path_qualified_rm_cannot_bypass_deny() {
+        let deny = policy(
+            vec![rule(RuleAction::Deny, "Bash(rm -rf *)")],
+            PermissionMode::AlwaysApprove,
+        );
+        for command in [
+            "/bin/rm -rf /",
+            "./rm -rf /",
+            "/usr/local/bin/rm.exe -rf /",
+            "timeout 30 /bin/rm -rf /",
+            "bash -c '/bin/rm -rf /'",
         ] {
             assert!(
                 matches!(
