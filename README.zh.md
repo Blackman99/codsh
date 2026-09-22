@@ -138,7 +138,7 @@ Home 会报告保存失败而不会假装授权已持久化。未信任的 Hooks
 （以及 `/login` `/logout`）只对接已配置的替代身份或管理服务。仅使用模型 API
 key 时不必登录，除非 `GROK_DISABLE_API_KEY_AUTH` 或团队限制
 （`GROK_FORCE_LOGIN_TEAM_ID` / `auth.force_login_team_uuid` / 锁定
-`requirements.toml` 顶层 `force_login_team_uuid`）要求匹配的身份会话。成功的 `/login` 会在同一步重新加载该会话、重新应用设置并连接 dsh；`/logout` 会断开正在使用该会话的连接。会话令牌写入 `$GROK_HOME/auth.json`（Unix 上为 0600），不会
+`requirements.toml` 顶层 `force_login_team_uuid`）要求匹配的身份会话。启动和 `inspect` 会刷新已过期的 `auth.json`；无法刷新时清除它，因此仅有团队限制不会让过期会话保持就绪。成功的 `/login` 会重新加载该会话并重新应用设置。凭据环境、就绪状态或设置补丁发生变化时替换 dsh，且在没有活动客户端时于同一步连接。设置写入失败时保留现有连接并报告错误。`/logout` 会断开正在使用该会话的连接。会话令牌写入 `$GROK_HOME/auth.json`（Unix 上为 0600），不会
 转授给模型提供商、MCP、Grove 或其他外部服务。不复制 grok.com / auth.x.ai
 登录、订阅计费、自动充值或官方团队权益。`GROK_MANAGED_CONFIG_URL` 仅在替代
 公钥能验证时安装组织策略；无法验证签名或锁定要求时拒绝相关配置。写好带 `base_url` 的提供商后，再设置对应的

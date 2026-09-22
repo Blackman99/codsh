@@ -174,7 +174,7 @@ reads the original Home. `codsh --rust login` / `logout` / `setup` (and `/login`
 configured substitute identity or management services. Independent API-key use
 does not require login unless `GROK_DISABLE_API_KEY_AUTH` or a team pin
 (`GROK_FORCE_LOGIN_TEAM_ID` / `auth.force_login_team_uuid` / top-level
-`force_login_team_uuid` in locked `requirements.toml`) requires a matching identity session. A successful `/login` reloads that session, reapplies settings, and connects dsh in the same step; `/logout` drops the connection that was using it. Session tokens live in `$GROK_HOME/auth.json` with
+`force_login_team_uuid` in locked `requirements.toml`) requires a matching identity session. Startup and inspect refresh an expired `auth.json` or clear it when refresh fails, so a team pin alone does not keep a stale session ready. A successful `/login` reloads that session and reapplies settings. It replaces dsh when the credential env, readiness, or settings patch changed, and connects in the same step when no live client remains. A settings write error keeps the existing connection and reports the failure. `/logout` drops the connection that was using the session. Session tokens live in `$GROK_HOME/auth.json` with
 owner-only permissions and are not transferred to model providers, MCP, Grove,
 or other services. Official grok.com / auth.x.ai login, subscription billing,
 auto-topup, and team entitlements are not reproduced. `GROK_MANAGED_CONFIG_URL`

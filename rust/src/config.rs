@@ -1081,9 +1081,22 @@ pub fn load_from(mut input: LoadInput) -> EffectiveConfig {
         });
     }
     warnings.extend(auth.extra_ca_warnings.iter().cloned());
-    let session = auth::read_auth_json(&auth::auth_json_path(&grok_home, &input.env))
-        .ok()
-        .flatten();
+    // Startup, inspect, and slash reload all come through here. An expired
+    // auth.json must be refreshed or cleared before the team pin is treated
+    // as a usable identity session.
+    let session = match auth::refresh_session(&grok_home, &input.env, &auth) {
+        Ok(record) => record,
+        Err(error) => {
+            if missing_credential.is_none() {
+                missing_credential = Some(error.clone());
+            }
+            errors.push(ConfigError {
+                path: Some(auth::auth_json_path(&grok_home, &input.env)),
+                reason: error,
+            });
+            None
+        }
+    };
     if let Err(error) = auth::usable_identity_session(&auth, session.as_ref()) {
         if missing_credential.is_none() {
             missing_credential = Some(error.clone());
@@ -2708,6 +2721,78 @@ force_login_team_uuid = "team-good"
                 .as_ref()
                 .and_then(|record| record.team_id.as_deref()),
             Some("team-good")
+        );
+    }
+
+    #[test]
+    fn expired_pinned_session_is_refreshed_or_cleared_on_load() {
+        let dir = TempDir::new().unwrap();
+        let mut load = input(&dir);
+        write_config(
+            &load,
+            r#"
+[model.gateway]
+model = "mock-model"
+base_url = "http://127.0.0.1:9/v1"
+env_key = "XAI_API_KEY"
+"#,
+        );
+        load.env.insert("XAI_API_KEY".into(), "present".into());
+        load.env
+            .insert("GROK_FORCE_LOGIN_TEAM_ID".into(), "team-good".into());
+        load.env
+            .insert("GROK_AUTH_EARLY_INVALIDATION_SECS".into(), "0".into());
+        let grok = load.grok_home.clone().unwrap();
+        fs::create_dir_all(&grok).unwrap();
+        let expired = json!({
+            "access_token": "expired-token",
+            "method": "oidc",
+            "team_id": "team-good",
+            "expires_at": 1,
+        });
+        fs::write(grok.join("auth.json"), expired.to_string()).unwrap();
+        let stale = load_from(load.clone());
+        assert!(!stale.ready, "expired auth.json must not stay ready");
+        assert!(stale.auth_session.is_none());
+        assert!(
+            !grok.join("auth.json").exists(),
+            "unrefreshable expiry is cleared"
+        );
+        assert!(
+            stale
+                .first_run_message()
+                .to_ascii_lowercase()
+                .contains("expired")
+        );
+
+        // parse_token_output reads team only from the access token, not a
+        // sibling JSON field. This payload is {"team_id":"team-good"}.
+        let team_jwt = "e30.eyJ0ZWFtX2lkIjoidGVhbS1nb29kIn0";
+        let refresh =
+            format!("printf '%s' '{{\"access_token\":\"{team_jwt}\",\"expires_in\":3600}}'");
+        fs::write(grok.join("auth.json"), expired.to_string()).unwrap();
+        load.env
+            .insert("GROK_AUTH_PROVIDER_COMMAND".into(), refresh);
+        let renewed = load_from(load);
+        assert!(renewed.ready);
+        assert_eq!(
+            renewed
+                .auth_session
+                .as_ref()
+                .map(|record| record.access_token.as_str()),
+            Some(team_jwt)
+        );
+        assert_eq!(
+            renewed
+                .auth_session
+                .as_ref()
+                .and_then(|record| record.team_id.as_deref()),
+            Some("team-good")
+        );
+        assert!(
+            fs::read_to_string(grok.join("auth.json"))
+                .unwrap()
+                .contains(team_jwt)
         );
     }
 

@@ -718,6 +718,30 @@ fn runtime_apply(effective: &config::EffectiveConfig) -> RuntimeApply {
     }
 }
 
+/// Whether a live dsh process must be replaced after slash login/logout.
+/// A settings write error is not a reason to drop a process that still has
+/// the previous patch: the caller keeps that client and reports the error.
+/// Credential env, readiness, and the applied settings patch are delivered to
+/// the spawned process only, so any of those changing replaces it.
+fn slash_reload_replaces_client(
+    previous_env: &[(String, String)],
+    previous_ready: bool,
+    previous_patch: Option<&str>,
+    applied: &RuntimeApply,
+    next_ready: bool,
+) -> bool {
+    if applied.apply_failed {
+        return false;
+    }
+    let next_patch = applied
+        .patch
+        .as_deref()
+        .and_then(|path| std::fs::read_to_string(path).ok());
+    previous_env != applied.extra_env.as_slice()
+        || previous_ready != next_ready
+        || previous_patch != next_patch.as_deref()
+}
+
 fn can_execute(effective: &config::EffectiveConfig, apply_failed: bool) -> bool {
     if apply_failed || effective.trust_prompt {
         return false;
@@ -3185,10 +3209,18 @@ fn run() -> io::Result<()> {
                                         last_error.clear();
                                         let was_ready = previous_ready;
                                         let previous_env = extra_env.clone();
+                                        let previous_patch_body = patch
+                                            .as_deref()
+                                            .and_then(|path| std::fs::read_to_string(path).ok());
                                         effective = load_runtime_config(&launch);
                                         let applied = runtime_apply(&effective);
-                                        let credentials_changed = previous_env != applied.extra_env
-                                            || was_ready != effective.ready;
+                                        let replace = slash_reload_replaces_client(
+                                            &previous_env,
+                                            was_ready,
+                                            previous_patch_body.as_deref(),
+                                            &applied,
+                                            effective.ready,
+                                        );
                                         extra_env = applied.extra_env;
                                         if applied.apply_failed {
                                             last_error = applied.error;
@@ -3196,7 +3228,7 @@ fn run() -> io::Result<()> {
                                         } else {
                                             patch = applied.patch;
                                             apply_failed = false;
-                                            if credentials_changed {
+                                            if replace {
                                                 drop_connection(&mut client, &mut owner);
                                             }
                                         }
@@ -3560,6 +3592,52 @@ mod tests {
     fn refuses_turns_until_advertised_selection_applies() {
         assert!(!turn_allowed(false));
         assert!(turn_allowed(true));
+    }
+
+    #[test]
+    fn slash_reload_keeps_client_on_apply_failure_and_replaces_on_patch_change() {
+        let failed = RuntimeApply {
+            extra_env: vec![("XAI_API_KEY".into(), "same".into())],
+            patch: None,
+            apply_failed: true,
+            error: "refusing to overwrite".into(),
+        };
+        assert!(
+            !slash_reload_replaces_client(
+                &[("XAI_API_KEY".into(), "same".into())],
+                true,
+                Some("old-patch"),
+                &failed,
+                true,
+            ),
+            "a settings write error must not drop the live client"
+        );
+        let dir = tempfile::TempDir::new().unwrap();
+        let patch = dir.path().join("rust-effective.yml");
+        std::fs::write(&patch, "new-patch\n").unwrap();
+        let changed = RuntimeApply {
+            extra_env: vec![("XAI_API_KEY".into(), "same".into())],
+            patch: Some(patch),
+            apply_failed: false,
+            error: String::new(),
+        };
+        assert!(
+            slash_reload_replaces_client(
+                &[("XAI_API_KEY".into(), "same".into())],
+                true,
+                Some("old-patch"),
+                &changed,
+                true,
+            ),
+            "an unchanged credential env still replaces dsh when the settings patch changes"
+        );
+        assert!(!slash_reload_replaces_client(
+            &[("XAI_API_KEY".into(), "same".into())],
+            true,
+            Some("new-patch\n"),
+            &changed,
+            true,
+        ));
     }
 
     #[test]

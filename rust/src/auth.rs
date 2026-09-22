@@ -2011,6 +2011,43 @@ client_id = "official"
         assert!(err.to_ascii_lowercase().contains("expired"));
     }
 
+    #[test]
+    fn device_code_pending_then_token_completes_login() {
+        let polls = std::sync::atomic::AtomicUsize::new(0);
+        let issuer_url = serve(move |line| {
+            if line.contains("/oauth2/device/code") {
+                (
+                    200,
+                    r#"{"device_code":"d","user_code":"ABCD-EFGH","verification_uri":"http://127.0.0.1/device","expires_in":30,"interval":1}"#.into(),
+                    "application/json",
+                )
+            } else if polls.fetch_add(1, std::sync::atomic::Ordering::SeqCst) == 0 {
+                (
+                    400,
+                    r#"{"error":"authorization_pending"}"#.into(),
+                    "application/json",
+                )
+            } else {
+                (
+                    200,
+                    r#"{"access_token":"device-token","refresh_token":"rt","expires_in":3600}"#
+                        .into(),
+                    "application/json",
+                )
+            }
+        });
+        let issuer = OidcIssuer {
+            issuer: issuer_url,
+            client_id: "client".into(),
+            scopes: vec!["openid".into()],
+            audience: None,
+        };
+        let record = run_device_login(&issuer, None).unwrap();
+        assert_eq!(record.access_token, "device-token");
+        assert_eq!(record.method, "device");
+        assert_eq!(record.refresh_token.as_deref(), Some("rt"));
+    }
+
     fn sign_policy(managed: &str, requirements: &str) -> (String, JsonValue) {
         let secret = [7u8; 32];
         let signing = SigningKey::from_bytes(&secret);

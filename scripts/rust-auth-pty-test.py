@@ -419,6 +419,48 @@ env_key = "XAI_API_KEY"
             stop_signed.set()
         results['setup-signed'] = True
 
+        device_polls = {'n': 0}
+
+        def device_handler(line):
+            if '/oauth2/device/code' in line:
+                body = json.dumps({
+                    'device_code': 'device-1',
+                    'user_code': 'ABCD-EFGH',
+                    'verification_uri': 'http://127.0.0.1/device',
+                    'expires_in': 30,
+                    'interval': 1,
+                })
+                return 200, body, 'application/json'
+            device_polls['n'] += 1
+            if device_polls['n'] == 1:
+                return 400, '{"error":"authorization_pending"}', 'application/json'
+            return 200, '{"access_token":"device-token","refresh_token":"rt","expires_in":3600}', 'application/json'
+
+        device_url, stop_device = serve(device_handler)
+        device_home = work / 'device-home'
+        device_home.mkdir()
+        device_grok = device_home / '.codsh-rust' / '.grok'
+        device_grok.mkdir(parents=True)
+        (device_grok / 'config.toml').write_text(
+            (grok_home / 'config.toml').read_text()
+            + f'\n[auth.oauth2]\nissuer = "{device_url}"\nclient_id = "device-client"\n'
+        )
+        try:
+            device_login = spawn_inspect(
+                launcher, cwd, {**base_env, 'HOME': str(device_home)},
+                ['login', '--device-auth'], timeout=40,
+            )
+        finally:
+            stop_device.set()
+        device_text = device_login.stdout + device_login.stderr
+        assert device_login.returncode == 0, device_text
+        assert 'device-code' in device_text
+        assert device_polls['n'] >= 2
+        stored_device = json.loads((device_grok / 'auth.json').read_text())
+        assert stored_device['access_token'] == 'device-token'
+        assert stored_device['method'] == 'device'
+        results['login-device-auth'] = {'polls': device_polls['n']}
+
         pin_pty_home = work / 'pin-pty-home'
         pin_pty_grok = pin_pty_home / '.codsh-rust' / '.grok'
         pin_pty_grok.mkdir(parents=True)
