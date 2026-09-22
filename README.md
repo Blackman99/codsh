@@ -141,10 +141,12 @@ refuse unpinned remote updates and leave the previous install. Official marketpl
 `GROK_OFFICIAL_MARKETPLACE_AUTO_REGISTER` is enabled. Each marketplace plugin
 installs into its own directory; git updates record the clone HEAD. Managed
 `extra_known_marketplaces` pins are first-pin-wins sources. A present
-`strict_known_marketplaces` list binds catalog load and named marketplace
-install: unlisted git sources are dropped, local paths are refused unless an
-admin pin names that path, and an empty or malformed list refuses every add
-and install.
+`strict_known_marketplaces` list binds catalog load, named install, the
+catalog entry's clone URL, and later git update: unlisted git sources are
+dropped, local paths are refused unless an admin pin names that path, and an
+empty or malformed list refuses every add and install. A later user or
+workspace list cannot widen an earlier lockdown. URL comparison folds scheme
+and host only and strips one trailing `.git`.
 `/plugins` and
 `/marketplace` open the plugins directory. Uninstall does not
 delete unrelated user files. User and project plugin scopes stay separate. First-run missing

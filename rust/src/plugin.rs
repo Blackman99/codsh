@@ -1081,6 +1081,11 @@ fn cmd_install(ctx: &Context, source: &str, trust: bool) -> Result<String, Plugi
             "Plugin source blocked: {reason}"
         )));
     }
+    if let Some(reason) = clone_url_block(ctx, &parsed) {
+        return Err(PluginError::fail(format!(
+            "Plugin source blocked: {reason}"
+        )));
+    }
     if require_sha(ctx) && !parsed.local && !is_full_sha(parsed.git_ref.as_deref().unwrap_or("")) {
         return Err(unpinned_remote_error(
             &format!("'{source}'"),
@@ -1157,6 +1162,11 @@ fn install_from_marketplace(
             let parsed = parsed_from_catalog(source, plugin)?;
             if let Some(reason) = allowlist_block(ctx, &source.identity(), source_is_local(source))
             {
+                return Err(PluginError::fail(format!(
+                    "Plugin source blocked: {reason}"
+                )));
+            }
+            if let Some(reason) = clone_url_block(ctx, &parsed) {
                 return Err(PluginError::fail(format!(
                     "Plugin source blocked: {reason}"
                 )));
@@ -1599,11 +1609,15 @@ fn install_from_parsed(
 }
 
 fn update_repo(ctx: &Context, repo_key: &str, repo: &InstalledRepo) -> Result<String, PluginError> {
-    if let InstallKind::Git { url, git_ref, .. } = &repo.kind
-        && require_sha(ctx)
-        && !is_full_sha(git_ref.as_deref().unwrap_or(""))
-    {
-        return Err(unpinned_remote_error(&format!("update '{repo_key}'"), url));
+    if let InstallKind::Git { url, git_ref, .. } = &repo.kind {
+        if let Some(reason) = allowlist_block(ctx, url, false) {
+            return Err(PluginError::fail(format!(
+                "Plugin source blocked: {reason}"
+            )));
+        }
+        if require_sha(ctx) && !is_full_sha(git_ref.as_deref().unwrap_or("")) {
+            return Err(unpinned_remote_error(&format!("update '{repo_key}'"), url));
+        }
     }
     let backup = ctx.install_dir().join(format!(".backup-{repo_key}"));
     if backup.exists() {
@@ -2513,7 +2527,8 @@ struct AllowEntry {
 struct MarketplaceAllowlist {
     present: bool,
     locked_down: bool,
-    entries: Vec<AllowEntry>,
+    /// Every present list must allow the source (strictest-wins). Empty when locked down.
+    layers: Vec<Vec<AllowEntry>>,
     /// Admin (requirements/managed) local pins that may pass a binding strict list.
     admin_local_paths: BTreeSet<String>,
 }
@@ -2522,7 +2537,7 @@ fn marketplace_allowlist(ctx: &Context) -> (MarketplaceAllowlist, Vec<String>) {
     let mut policy = MarketplaceAllowlist {
         present: false,
         locked_down: false,
-        entries: Vec::new(),
+        layers: Vec::new(),
         admin_local_paths: BTreeSet::new(),
     };
     let mut warnings = Vec::new();
@@ -2542,7 +2557,7 @@ fn marketplace_allowlist(ctx: &Context) -> (MarketplaceAllowlist, Vec<String>) {
         };
         policy.present = true;
         let Some(entries) = list.as_array() else {
-            policy.entries.clear();
+            policy.layers.clear();
             policy.locked_down = true;
             warnings.push(format!(
                 "strict_known_marketplaces from {origin} is not a list; marketplace adds are locked down"
@@ -2552,9 +2567,10 @@ fn marketplace_allowlist(ctx: &Context) -> (MarketplaceAllowlist, Vec<String>) {
         if policy.locked_down {
             continue;
         }
+        let mut layer = Vec::new();
         for entry in entries {
             match parse_allow_entry(entry) {
-                AllowParse::Git(url) => policy.entries.push(AllowEntry { git: Some(url) }),
+                AllowParse::Git(url) => layer.push(AllowEntry { git: Some(url) }),
                 AllowParse::DroppedLocal => warnings.push(format!(
                     "strict_known_marketplaces local entry from {origin} was ignored; local paths never match the allowlist"
                 )),
@@ -2563,9 +2579,12 @@ fn marketplace_allowlist(ctx: &Context) -> (MarketplaceAllowlist, Vec<String>) {
                 )),
             }
         }
+        // A later layer cannot widen or clear an earlier lockdown.
+        policy.layers.push(layer);
     }
-    if policy.locked_down {
-        policy.entries.clear();
+    if policy.locked_down || policy.layers.iter().any(|layer| layer.is_empty()) {
+        policy.locked_down = policy.present;
+        policy.layers.clear();
     }
     (policy, warnings)
 }
@@ -2639,21 +2658,7 @@ fn catalog_allowlist_block(
             "local-path sources are refused while a strict marketplace allowlist is present".into(),
         );
     }
-    if policy.locked_down || policy.entries.iter().all(|entry| entry.git.is_none()) {
-        return Some(
-            "strict_known_marketplaces is present but empty or unsupported; source refused".into(),
-        );
-    }
-    let canon = canonicalize_git(&identity);
-    if policy
-        .entries
-        .iter()
-        .any(|entry| entry.git.as_deref() == Some(canon.as_str()))
-    {
-        None
-    } else {
-        Some("source not in strict_known_marketplaces".into())
-    }
+    git_allowlist_miss(policy, &identity)
 }
 
 fn allowlist_block(ctx: &Context, identity: &str, is_local: bool) -> Option<String> {
@@ -2670,22 +2675,34 @@ fn allowlist_block(ctx: &Context, identity: &str, is_local: bool) -> Option<Stri
             "local-path adds are refused while a strict marketplace allowlist is present".into(),
         );
     }
-    if policy.locked_down || policy.entries.iter().all(|entry| entry.git.is_none()) {
+    git_allowlist_miss(&policy, identity)
+}
+
+/// Every present strict list must allow `identity`. A later user or workspace
+/// list cannot widen an earlier empty or narrower list.
+fn git_allowlist_miss(policy: &MarketplaceAllowlist, identity: &str) -> Option<String> {
+    if policy.locked_down || policy.layers.is_empty() {
         return Some(
-            "strict_known_marketplaces is present but empty or unsupported; all adds are refused"
-                .into(),
+            "strict_known_marketplaces is present but empty or unsupported; source refused".into(),
         );
     }
     let canon = canonicalize_git(identity);
-    if policy
-        .entries
-        .iter()
-        .any(|entry| entry.git.as_deref() == Some(canon.as_str()))
-    {
-        None
-    } else {
-        Some("source not in strict_known_marketplaces".into())
+    for layer in &policy.layers {
+        if !layer
+            .iter()
+            .any(|entry| entry.git.as_deref() == Some(canon.as_str()))
+        {
+            return Some("source not in strict_known_marketplaces".into());
+        }
     }
+    None
+}
+
+/// The URL that `clone_git` will fetch. Marketplace parent identity is not enough:
+/// a catalog entry can name a different remote.
+fn clone_url_block(ctx: &Context, parsed: &ParsedSource) -> Option<String> {
+    let url = parsed.git_url.as_deref()?;
+    allowlist_block(ctx, url, false)
 }
 
 fn normalize_local_identity(identity: &str) -> String {
@@ -3128,8 +3145,37 @@ fn canonicalize_git(url: &str) -> String {
     }
     let text = url.trim();
     let text = text.strip_suffix('/').unwrap_or(text);
+    // One trailing `.git` only. `repo.git.git` is a different repository.
     let text = text.strip_suffix(".git").unwrap_or(text);
-    text.to_ascii_lowercase()
+    fold_scheme_and_host(text)
+}
+
+/// Fold case on the scheme and host only. Path, user, and query stay literal.
+fn fold_scheme_and_host(url: &str) -> String {
+    let Some(scheme_end) = url.find("://") else {
+        return url.to_string();
+    };
+    let scheme = url[..scheme_end].to_ascii_lowercase();
+    let rest = &url[scheme_end + 3..];
+    let (authority, tail) = match rest.find('/') {
+        Some(index) => (&rest[..index], &rest[index..]),
+        None => (rest, ""),
+    };
+    let host_start = authority.rfind('@').map(|index| index + 1).unwrap_or(0);
+    let host_end = authority.rfind(':').unwrap_or(authority.len());
+    let host_end = if host_end < host_start {
+        authority.len()
+    } else {
+        host_end
+    };
+    let mut folded = String::new();
+    folded.push_str(&scheme);
+    folded.push_str("://");
+    folded.push_str(&authority[..host_start]);
+    folded.push_str(&authority[host_start..host_end].to_ascii_lowercase());
+    folded.push_str(&authority[host_end..]);
+    folded.push_str(tail);
+    folded
 }
 
 fn expand_github(input: &str) -> String {
@@ -4385,6 +4431,258 @@ mod tests {
             added.message.contains("local-path") || added.message.contains("allowlist"),
             "{}",
             added.message
+        );
+    }
+
+    fn write_remote_marketplace(root: &Path, plugin_name: &str, remote_url: &str) {
+        let plugin_dir = root.join("plugins").join(plugin_name);
+        write_plugin(&plugin_dir, plugin_name, "1.0.0", "MIT");
+        fs::create_dir_all(root.join(".grok-plugin")).unwrap();
+        fs::write(
+            root.join(".grok-plugin/marketplace.json"),
+            format!(
+                r#"{{"name":"Fixtures","plugins":[{{"name":"{plugin_name}","version":"1.0.0","license":"MIT","source":{{"url":"{remote_url}"}}}}]}}"#
+            ),
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn strict_allowlist_binds_catalog_remote_clone_url_and_update() {
+        if !git_available() {
+            return;
+        }
+        let dir = TempDir::new().unwrap();
+        let env = ctx(&dir);
+        let allowed = dir.path().join("allowed");
+        let evil = dir.path().join("evil");
+        init_git_marketplace(&allowed, "listed-tools", "1.0.0");
+        write_plugin(&evil, "evil-tools", "1.0.0", "MIT");
+        run_git(&evil, &["init", "--initial-branch", "main"]);
+        run_git(&evil, &["config", "user.email", "test@example.com"]);
+        run_git(&evil, &["config", "user.name", "Test"]);
+        run_git(&evil, &["add", "."]);
+        run_git(&evil, &["commit", "-m", "init"]);
+        let allowed_url = format!("file://{}", allowed.display());
+        let evil_url = format!("file://{}", evil.display());
+        write_remote_marketplace(&allowed, "evil-tools", &evil_url);
+        run_git(&allowed, &["add", "."]);
+        run_git(&allowed, &["commit", "-m", "point at unlisted repo"]);
+        fs::write(
+            env.grok_home.join("requirements.toml"),
+            format!("[[strict_known_marketplaces]]\nsource = \"git\"\nurl = \"{allowed_url}\"\n"),
+        )
+        .unwrap();
+        run(
+            &env.grok_home,
+            &env.cwd,
+            &env.env,
+            true,
+            &PluginCommand::MarketplaceAdd {
+                url: allowed_url.clone(),
+                force: true,
+            },
+        )
+        .unwrap();
+        let direct = run(
+            &env.grok_home,
+            &env.cwd,
+            &env.env,
+            true,
+            &PluginCommand::Install {
+                source: evil_url.clone(),
+                trust: true,
+            },
+        )
+        .unwrap_err();
+        assert!(
+            direct.message.contains("strict_known_marketplaces"),
+            "{}",
+            direct.message
+        );
+        let nested = run(
+            &env.grok_home,
+            &env.cwd,
+            &env.env,
+            true,
+            &PluginCommand::Install {
+                source: "evil-tools".into(),
+                trust: true,
+            },
+        )
+        .unwrap_err();
+        assert!(
+            nested.message.contains("strict_known_marketplaces")
+                || nested.message.contains("not in"),
+            "{}",
+            nested.message
+        );
+        assert!(
+            inspect(&env.grok_home, &env.cwd, &env.env, true)
+                .installed
+                .iter()
+                .all(|plugin| plugin.name != "evil-tools")
+        );
+        fs::write(env.grok_home.join("requirements.toml"), "").unwrap();
+        run(
+            &env.grok_home,
+            &env.cwd,
+            &env.env,
+            true,
+            &PluginCommand::Install {
+                source: evil_url,
+                trust: true,
+            },
+        )
+        .unwrap();
+        fs::write(
+            env.grok_home.join("requirements.toml"),
+            format!("[[strict_known_marketplaces]]\nsource = \"git\"\nurl = \"{allowed_url}\"\n"),
+        )
+        .unwrap();
+        write_plugin(&evil, "evil-tools", "9.1.0", "MIT");
+        run_git(&evil, &["add", "."]);
+        run_git(&evil, &["commit", "-m", "bump"]);
+        let updated = run(
+            &env.grok_home,
+            &env.cwd,
+            &env.env,
+            true,
+            &PluginCommand::Update {
+                name: Some("evil-tools".into()),
+            },
+        )
+        .unwrap_err();
+        assert!(
+            updated.message.contains("strict_known_marketplaces"),
+            "{}",
+            updated.message
+        );
+        let row = inspect(&env.grok_home, &env.cwd, &env.env, true)
+            .installed
+            .into_iter()
+            .find(|plugin| plugin.name == "evil-tools")
+            .unwrap();
+        assert_eq!(row.version.as_deref(), Some("1.0.0"));
+    }
+
+    #[test]
+    fn strict_allowlist_is_strictest_wins_across_layers() {
+        let dir = TempDir::new().unwrap();
+        let env = ctx(&dir);
+        fs::write(
+            env.grok_home.join("requirements.toml"),
+            "strict_known_marketplaces = []\n",
+        )
+        .unwrap();
+        fs::write(
+            env.config_path(),
+            "[[strict_known_marketplaces]]\nsource = \"github\"\nrepo = \"evil/unlock\"\n",
+        )
+        .unwrap();
+        let added = run(
+            &env.grok_home,
+            &env.cwd,
+            &env.env,
+            true,
+            &PluginCommand::MarketplaceAdd {
+                url: "evil/unlock".into(),
+                force: true,
+            },
+        )
+        .unwrap_err();
+        assert!(
+            added.message.contains("strict_known_marketplaces") || added.message.contains("empty"),
+            "{}",
+            added.message
+        );
+        assert!(
+            !fs::read_to_string(env.config_path())
+                .unwrap_or_default()
+                .contains("marketplace.sources"),
+            "a later user allow entry must not widen an empty requirements list"
+        );
+        let workspace = env.cwd.join(".grok");
+        fs::create_dir_all(&workspace).unwrap();
+        fs::write(
+            workspace.join("config.toml"),
+            "[[strict_known_marketplaces]]\nsource = \"github\"\nrepo = \"evil/unlock\"\n",
+        )
+        .unwrap();
+        let workspace_add = run(
+            &env.grok_home,
+            &env.cwd,
+            &env.env,
+            true,
+            &PluginCommand::MarketplaceAdd {
+                url: "evil/unlock".into(),
+                force: true,
+            },
+        )
+        .unwrap_err();
+        assert!(
+            workspace_add.message.contains("strict_known_marketplaces")
+                || workspace_add.message.contains("empty"),
+            "{}",
+            workspace_add.message
+        );
+    }
+
+    #[test]
+    fn git_allowlist_folds_scheme_and_host_only() {
+        let dir = TempDir::new().unwrap();
+        let env = ctx(&dir);
+        fs::write(
+            env.grok_home.join("requirements.toml"),
+            "[[strict_known_marketplaces]]\nsource = \"git\"\nurl = \"https://gitlab.com/ACME/Plugins.git\"\n",
+        )
+        .unwrap();
+        let folded_path = run(
+            &env.grok_home,
+            &env.cwd,
+            &env.env,
+            true,
+            &PluginCommand::MarketplaceAdd {
+                url: "https://gitlab.com/acme/plugins.git".into(),
+                force: true,
+            },
+        )
+        .unwrap_err();
+        assert!(
+            folded_path.message.contains("strict_known_marketplaces"),
+            "{}",
+            folded_path.message
+        );
+        let extra_git = run(
+            &env.grok_home,
+            &env.cwd,
+            &env.env,
+            true,
+            &PluginCommand::MarketplaceAdd {
+                url: "https://gitlab.com/ACME/Plugins.git.git".into(),
+                force: true,
+            },
+        )
+        .unwrap_err();
+        assert!(
+            extra_git.message.contains("strict_known_marketplaces"),
+            "{}",
+            extra_git.message
+        );
+        let folded_host = run(
+            &env.grok_home,
+            &env.cwd,
+            &env.env,
+            true,
+            &PluginCommand::MarketplaceAdd {
+                url: "HTTPS://GitLab.com/ACME/Plugins.git".into(),
+                force: true,
+            },
+        )
+        .unwrap();
+        assert!(
+            folded_host.contains("Added marketplace source"),
+            "{folded_host}"
         );
     }
 

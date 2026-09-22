@@ -60,7 +60,9 @@ workspaces prompt before project Hooks/plugins/instructions run; `--trust`
 saves a grant and `--revoke-trust` withdraws it. `codsh --rust plugin`
 marketplace/install/update/uninstall records isolated plugin files and
 provenance; install does not grant execution. A present
-`strict_known_marketplaces` list binds catalog load and named install.
+`strict_known_marketplaces` list binds catalog load, named install, the
+catalog clone URL, and later git update. Layers are strictest-wins. URL
+comparison folds scheme and host only and strips one trailing `.git`.
 Unpinned remote updates are
 refused when `GROK_MARKETPLACE_REQUIRE_SHA` is set. Each marketplace plugin has its
 own dest. `/plugins` and `/marketplace`
