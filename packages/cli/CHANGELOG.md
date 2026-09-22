@@ -1,5 +1,11 @@
 # codsh
 
+## 0.24.2
+
+### Patch Changes
+
+- 252f5d4: `pnpm run sync:dsh` stays on the newest `@deepseek-ai/dsh` release whose dependency closure is fully published, so a harness release that names a missing package no longer fails the nightly sync.
+
 ## 0.24.1
 
 ### Patch Changes
