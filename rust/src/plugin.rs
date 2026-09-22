@@ -3118,25 +3118,51 @@ fn name_from_identity(kind: &SourceKind) -> String {
 }
 
 fn is_official_source_url(url: &str) -> bool {
-    canonical_github_owner_repo(url).as_deref() == Some("xai-org/plugin-marketplace")
+    canonical_github_owner_repo(url)
+        .as_deref()
+        .is_some_and(|owner_repo| owner_repo.eq_ignore_ascii_case("xai-org/plugin-marketplace"))
 }
 
+/// GitHub owner/repo with host forms folded and the path left in original case.
+/// `None` when the URL is not a GitHub repository location.
 fn canonical_github_owner_repo(url: &str) -> Option<String> {
-    let text = url.trim();
-    let text = text.strip_suffix('/').unwrap_or(text);
+    let text = url.trim().strip_suffix('/').unwrap_or(url.trim());
     let text = text.strip_suffix(".git").unwrap_or(text);
+    if let Some(path) = scp_github_owner_repo(text) {
+        return Some(path);
+    }
     let lower = text.to_ascii_lowercase();
     let rest = lower
         .strip_prefix("https://")
         .or_else(|| lower.strip_prefix("http://"))
-        .or_else(|| lower.strip_prefix("ssh://"))
-        .unwrap_or(&lower);
+        .or_else(|| lower.strip_prefix("ssh://"))?;
     let rest = rest.strip_prefix("git@").unwrap_or(rest);
     let rest = rest.strip_prefix("www.").unwrap_or(rest);
-    let owner_repo = rest
+    let folded_path = rest
         .strip_prefix("github.com/")
         .or_else(|| rest.strip_prefix("github.com:"))?;
-    (!owner_repo.is_empty()).then(|| owner_repo.to_string())
+    github_path_preserving_case(text, folded_path)
+}
+
+fn scp_github_owner_repo(text: &str) -> Option<String> {
+    let lower = text.to_ascii_lowercase();
+    let rest = lower.strip_prefix("git@")?;
+    let folded_path = rest.strip_prefix("github.com:")?;
+    github_path_preserving_case(text, folded_path)
+}
+
+fn github_path_preserving_case(original: &str, folded_path: &str) -> Option<String> {
+    if folded_path.is_empty()
+        || folded_path.contains('?')
+        || folded_path.contains('#')
+        || folded_path.contains('@')
+    {
+        return None;
+    }
+    let start = original.len().checked_sub(folded_path.len())?;
+    let path = &original[start..];
+    path.eq_ignore_ascii_case(folded_path)
+        .then(|| path.to_string())
 }
 
 fn canonicalize_git(url: &str) -> String {
@@ -4625,6 +4651,131 @@ mod tests {
                 || workspace_add.message.contains("empty"),
             "{}",
             workspace_add.message
+        );
+    }
+
+    #[test]
+    fn git_allowlist_keeps_github_path_case_distinct() {
+        let dir = TempDir::new().unwrap();
+        let env = ctx(&dir);
+        fs::write(
+            env.grok_home.join("requirements.toml"),
+            "[[strict_known_marketplaces]]\nsource = \"git\"\nurl = \"https://github.com/ACME/Plugins.git\"\n",
+        )
+        .unwrap();
+        let folded_path = run(
+            &env.grok_home,
+            &env.cwd,
+            &env.env,
+            true,
+            &PluginCommand::MarketplaceAdd {
+                url: "https://github.com/acme/plugins.git".into(),
+                force: true,
+            },
+        )
+        .unwrap_err();
+        assert!(
+            folded_path.message.contains("strict_known_marketplaces"),
+            "{}",
+            folded_path.message
+        );
+        assert!(
+            !fs::read_to_string(env.config_path())
+                .unwrap_or_default()
+                .contains("acme/plugins"),
+            "a case-different GitHub path must not be added"
+        );
+        let ssh_form = run(
+            &env.grok_home,
+            &env.cwd,
+            &env.env,
+            true,
+            &PluginCommand::MarketplaceAdd {
+                url: "git@github.com:acme/plugins.git".into(),
+                force: true,
+            },
+        )
+        .unwrap_err();
+        assert!(
+            ssh_form.message.contains("strict_known_marketplaces"),
+            "{}",
+            ssh_form.message
+        );
+        let catalog_clone = run(
+            &env.grok_home,
+            &env.cwd,
+            &env.env,
+            true,
+            &PluginCommand::Install {
+                source: "https://github.com/acme/plugins.git".into(),
+                trust: true,
+            },
+        )
+        .unwrap_err();
+        assert!(
+            catalog_clone.message.contains("strict_known_marketplaces"),
+            "{}",
+            catalog_clone.message
+        );
+        let same_path = run(
+            &env.grok_home,
+            &env.cwd,
+            &env.env,
+            true,
+            &PluginCommand::MarketplaceAdd {
+                url: "HTTPS://GitHub.com/ACME/Plugins.git".into(),
+                force: true,
+            },
+        )
+        .unwrap();
+        assert!(
+            same_path.contains("Added marketplace source"),
+            "{same_path}"
+        );
+        let mut registry = serde_json::json!({
+            "version": 1,
+            "repos": {
+                "github-com-acme-plugins": {
+                    "kind": {
+                        "type": "Git",
+                        "url": "https://github.com/acme/plugins.git",
+                        "commit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+                    },
+                    "installed_at": "1",
+                    "updated_at": "1",
+                    "path": env.grok_home.join("installed-plugins/github-com-acme-plugins"),
+                    "plugins": {
+                        "case-tools": { "version": "1.0.0" }
+                    }
+                }
+            }
+        });
+        let install_path = env
+            .grok_home
+            .join("installed-plugins/github-com-acme-plugins");
+        registry["repos"]["github-com-acme-plugins"]["path"] =
+            serde_json::Value::String(install_path.display().to_string());
+        fs::create_dir_all(&install_path).unwrap();
+        fs::create_dir_all(env.grok_home.join("installed-plugins")).unwrap();
+        fs::write(
+            env.grok_home.join("installed-plugins/registry.json"),
+            serde_json::to_string_pretty(&registry).unwrap(),
+        )
+        .unwrap();
+        let updated = run(
+            &env.grok_home,
+            &env.cwd,
+            &env.env,
+            true,
+            &PluginCommand::Update {
+                name: Some("case-tools".into()),
+            },
+        )
+        .unwrap_err();
+        assert!(
+            updated.message.contains("strict_known_marketplaces"),
+            "{}",
+            updated.message
         );
     }
 

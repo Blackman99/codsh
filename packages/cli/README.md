@@ -62,7 +62,8 @@ marketplace/install/update/uninstall records isolated plugin files and
 provenance; install does not grant execution. A present
 `strict_known_marketplaces` list binds catalog load, named install, the
 catalog clone URL, and later git update. Layers are strictest-wins. URL
-comparison folds scheme and host only and strips one trailing `.git`.
+comparison folds scheme and host only, including GitHub, and strips one
+trailing `.git`. The repository path stays case-sensitive.
 Unpinned remote updates are
 refused when `GROK_MARKETPLACE_REQUIRE_SHA` is set. Each marketplace plugin has its
 own dest. `/plugins` and `/marketplace`

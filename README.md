@@ -146,7 +146,9 @@ catalog entry's clone URL, and later git update: unlisted git sources are
 dropped, local paths are refused unless an admin pin names that path, and an
 empty or malformed list refuses every add and install. A later user or
 workspace list cannot widen an earlier lockdown. URL comparison folds scheme
-and host only and strips one trailing `.git`.
+and host only, including GitHub, and strips one trailing `.git`. The repository
+path stays case-sensitive, so `ACME/Plugins` and `acme/plugins` are different
+sources.
 `/plugins` and
 `/marketplace` open the plugins directory. Uninstall does not
 delete unrelated user files. User and project plugin scopes stay separate. First-run missing

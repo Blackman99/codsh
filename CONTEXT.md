@@ -85,8 +85,8 @@ git update: unlisted git sources are dropped with a warning, local paths are
 refused unless an admin `extra_known_marketplaces` pin names that path, and an
 empty or malformed list refuses every add and install. Layers are
 strictest-wins, so a later user or workspace list cannot widen an earlier
-lockdown. Git URL comparison folds scheme and host only and strips one
-trailing `.git`.
+lockdown. Git URL comparison folds scheme and host only, including GitHub,
+and strips one trailing `.git`. The repository path stays case-sensitive.
 `/plugins` and `/marketplace` open the directory; Ctrl+L is not bound here.
 Plain `codsh` still selects the legacy Launcher/Bundle; this is not the default
 cutover. The Viewport language below remains the legacy Surface contract.
