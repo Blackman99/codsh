@@ -137,7 +137,10 @@ isolated Home with version, source, and license provenance. Install requires
 `--trust` and still does not grant execution; enablement is a later ticket.
 Failed download, checksum, conflict, offline, or cancel leaves no success
 record. Official marketplace auto-register stays off unless
-`GROK_OFFICIAL_MARKETPLACE_AUTO_REGISTER` is enabled. `/plugins` and
+`GROK_OFFICIAL_MARKETPLACE_AUTO_REGISTER` is enabled. Each marketplace plugin
+installs into its own directory; git updates record the clone HEAD. Managed
+`extra_known_marketplaces` pins are first-pin-wins sources.
+`/plugins` and
 `/marketplace` open the plugins directory. Uninstall does not
 delete unrelated user files. User and project plugin scopes stay separate. First-run missing
 credentials stay local: no grok.com login, no default

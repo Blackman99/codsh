@@ -297,6 +297,36 @@ env_key = "XAI_API_KEY"
         assert git_row['executionGranted'] is False
         results['git-marketplace'] = {'version': git_row['version']}
 
+        two_market = work / 'two-market'
+        write_marketplace(two_market, 'alpha-tools', '1.0.0')
+        write_plugin(two_market / 'plugins' / 'beta-tools', 'beta-tools', '1.0.0')
+        grok = two_market / '.grok-plugin'
+        grok.mkdir(parents=True, exist_ok=True)
+        (grok / 'marketplace.json').write_text(json.dumps({
+            'name': 'Two',
+            'plugins': [
+                {'name': 'alpha-tools', 'version': '1.0.0', 'license': 'MIT',
+                 'source': {'type': 'local', 'path': './plugins/alpha-tools'}},
+                {'name': 'beta-tools', 'version': '1.0.0', 'license': 'MIT',
+                 'source': {'type': 'local', 'path': './plugins/beta-tools'}},
+            ],
+        }))
+        added_two = spawn_rust(launcher, cwd, base_env, ['plugin', 'marketplace', 'add', str(two_market)])
+        assert added_two.returncode == 0, added_two.stderr + added_two.stdout
+        listed_two = spawn_rust(launcher, cwd, base_env, ['plugin', 'marketplace', 'list'])
+        assert 'alpha-tools' in listed_two.stdout and 'beta-tools' in listed_two.stdout, listed_two.stdout
+        inst_alpha = spawn_rust(launcher, cwd, base_env, ['plugin', 'install', 'alpha-tools', '--trust'])
+        assert inst_alpha.returncode == 0, inst_alpha.stderr + inst_alpha.stdout
+        inst_beta = spawn_rust(launcher, cwd, base_env, ['plugin', 'install', 'beta-tools', '--trust'])
+        assert inst_beta.returncode == 0, inst_beta.stderr + inst_beta.stdout
+        inspect_two = json.loads(spawn_rust(launcher, cwd, base_env, ['inspect', '--json']).stdout)
+        two_names = {row['name'] for row in inspect_two['plugins']['installed']}
+        assert {'alpha-tools', 'beta-tools'} <= two_names, two_names
+        two_paths = {row['name']: row['path'] for row in inspect_two['plugins']['installed']
+                     if row['name'] in ('alpha-tools', 'beta-tools')}
+        assert two_paths['alpha-tools'] != two_paths['beta-tools']
+        results['two-plugin-marketplace'] = {'installed': sorted(two_names)}
+
         (output / 'result.json').write_text(json.dumps(results, indent=2) + '\n')
         print(output)
         print(json.dumps(results, indent=2))
