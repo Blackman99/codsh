@@ -16,6 +16,11 @@ use toml::Value as TomlValue;
 
 pub const AUTH_FILE_NAME: &str = "auth.json";
 pub const SIGNATURE_SIDECAR: &str = "managed_config.sig.json";
+/// Setup and load have no stable deployment id of their own. A configured
+/// deployment key still counts as a caller principal so an omitted response
+/// field cannot skip the signature binding. The marker is not a deployment
+/// id: it matches only a payload that itself names no deployment.
+pub const DEPLOYMENT_KEY_PRINCIPAL: &str = "\u{0}";
 pub const OFFICIAL_LOGIN_NOTICE: &str = "Official grok.com / auth.x.ai login, subscription billing, auto-topup, and team entitlements are not reproduced and are not substitutes.";
 const DEVICE_GRANT: &str = "urn:ietf:params:oauth:grant-type:device_code";
 const DEFAULT_OIDC_SCOPES: &[&str] =
@@ -1561,6 +1566,17 @@ pub fn run_setup(
         );
     }
     let sidecar = sidecar.unwrap();
+    // The response deployment_id is not the caller. A deployment key is its
+    // own principal even when auth.json has no team, and an omitted response
+    // field must not become "no principal" after empty-string stripping.
+    let caller_deployment = if config.deployment_key.is_some() {
+        body.get("deployment_id")
+            .and_then(JsonValue::as_str)
+            .filter(|text| !text.trim().is_empty())
+            .or(Some(DEPLOYMENT_KEY_PRINCIPAL))
+    } else {
+        body.get("deployment_id").and_then(JsonValue::as_str)
+    };
     verify_signed_policy(
         &sidecar,
         managed,
@@ -1569,11 +1585,7 @@ pub fn run_setup(
         session
             .as_ref()
             .and_then(|record| record.team_id.as_deref()),
-        // Missing deployment_id is not "no caller principal". Pass "" so a
-        // signed payload cannot skip the check by omitting the field.
-        body.get("deployment_id")
-            .and_then(JsonValue::as_str)
-            .or(Some("")),
+        caller_deployment,
         fail_closed,
     )?;
     fs::create_dir_all(grok_home).map_err(|error| error.to_string())?;
@@ -1671,28 +1683,41 @@ fn verify_signed_policy(
     }
     let signed_deployment = nonempty_str(payload.get("deployment_id"));
     let signed_team = nonempty_str(payload.get("team_id"));
-    let expected_deployment = nonempty_str_opt(deployment_id);
     let expected_team = nonempty_str_opt(team_id);
-    // A signature is only for the caller that already has a principal.
-    // Omitting deployment_id from the response, or both ids from the payload,
-    // must not verify: that signature could belong to another principal.
-    if expected_deployment.is_some() || expected_team.is_some() {
-        let deployment_matches = match (signed_deployment, expected_deployment) {
-            (Some(signed), Some(expected)) => signed == expected,
-            _ => false,
-        };
-        let team_matches = match (signed_team, expected_team) {
-            (Some(signed), Some(expected)) => signed == expected,
-            _ => false,
-        };
-        if !deployment_matches && !team_matches {
-            let signed_any = signed_deployment.or(signed_team);
-            return Err(if signed_any.is_none() {
-                "signed policy omits its principal".into()
-            } else {
-                "signed policy is bound to a different principal".into()
-            });
-        }
+    let deployment_key_caller = deployment_id == Some(DEPLOYMENT_KEY_PRINCIPAL);
+    let expected_deployment = if deployment_key_caller {
+        None
+    } else {
+        nonempty_str_opt(deployment_id)
+    };
+    // Every authentic signature names a principal. A deployment-key caller
+    // with no response deployment_id accepts only a payload that names no
+    // deployment and matches the caller's team, when a team is present.
+    if signed_deployment.is_none() && signed_team.is_none() {
+        return Err("signed policy omits its principal".into());
+    }
+    let deployment_matches = match (signed_deployment, expected_deployment) {
+        (Some(signed), Some(expected)) => signed == expected,
+        (None, None) if deployment_key_caller => true,
+        _ => false,
+    };
+    let team_matches = match (signed_team, expected_team) {
+        (Some(signed), Some(expected)) => signed == expected,
+        _ => false,
+    };
+    // A response deployment id or a session team binds the signature; either
+    // match is enough. A deployment-key caller whose response omitted the id
+    // is stricter: the payload may not name some other deployment and then
+    // rely on the team alone.
+    let bound = if deployment_key_caller {
+        deployment_matches && (expected_team.is_none() || team_matches)
+    } else if expected_deployment.is_some() || expected_team.is_some() {
+        deployment_matches || team_matches
+    } else {
+        true
+    };
+    if !bound {
+        return Err("signed policy is bound to a different principal".into());
     }
     let _ = fail_closed;
     Ok(())
@@ -1713,6 +1738,8 @@ pub fn verify_on_disk_signature(
     grok_home: &Path,
     pubkey: Option<&[u8]>,
     fail_closed: bool,
+    team_id: Option<&str>,
+    deployment_id: Option<&str>,
 ) -> Result<(), String> {
     let sidecar_path = grok_home.join(SIGNATURE_SIDECAR);
     let locked_files = grok_home.join("managed_config.toml").exists()
@@ -1740,8 +1767,8 @@ pub fn verify_on_disk_signature(
         &managed,
         &requirements,
         pubkey,
-        None,
-        None,
+        team_id,
+        deployment_id,
         fail_closed,
     )
 }
@@ -2339,13 +2366,131 @@ client_id = "official"
     }
 
     #[test]
+    fn deployment_key_without_team_still_binds_the_signature() {
+        // No auth.json team. A deployment-key caller is still a principal:
+        // omitting deployment_id from the response must not skip the check.
+        let dir = tempfile::TempDir::new().unwrap();
+        let grok = dir.path().join("grok");
+        fs::create_dir_all(&grok).unwrap();
+        let mut env = env();
+        env.insert("GROK_DEPLOYMENT_KEY".into(), "dep-key".into());
+
+        let (pubkey, other) = sign_policy_for(
+            "remote_fetch = false\n",
+            "fail_closed = true\n",
+            Some("dep-other"),
+            None,
+        );
+        let body = json!({
+            "managed_config": "remote_fetch = false\n",
+            "requirements": "fail_closed = true\n",
+            "signatures": [other],
+        })
+        .to_string();
+        let err = setup_against(&grok, &mut env, &body, &pubkey).unwrap_err();
+        assert!(
+            err.contains("different principal") || err.contains("omits its principal"),
+            "{err}"
+        );
+        assert!(!grok.join("managed_config.toml").exists());
+
+        let (pubkey, omitted) =
+            sign_policy_for("remote_fetch = false\n", "fail_closed = true\n", None, None);
+        let body = json!({
+            "managed_config": "remote_fetch = false\n",
+            "requirements": "fail_closed = true\n",
+            "signatures": [omitted],
+        })
+        .to_string();
+        let err = setup_against(&grok, &mut env, &body, &pubkey).unwrap_err();
+        assert!(err.contains("omits its principal"), "{err}");
+        assert!(!grok.join("managed_config.toml").exists());
+
+        let (pubkey, named) = sign_policy_for(
+            "remote_fetch = false\n",
+            "fail_closed = true\n",
+            Some("dep-caller"),
+            None,
+        );
+        let body = json!({
+            "deployment_id": "dep-caller",
+            "managed_config": "remote_fetch = false\n",
+            "requirements": "fail_closed = true\n",
+            "signatures": [named],
+        })
+        .to_string();
+        let result = setup_against(&grok, &mut env, &body, &pubkey).unwrap();
+        assert!(result.wrote);
+        assert!(grok.join("managed_config.toml").exists());
+    }
+
+    #[test]
+    fn on_disk_signature_for_another_principal_is_refused() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let grok = dir.path().join("grok");
+        fs::create_dir_all(&grok).unwrap();
+        let managed = "remote_fetch = false\n";
+        let requirements = "fail_closed = true\n";
+        fs::write(grok.join("managed_config.toml"), managed).unwrap();
+        fs::write(grok.join("requirements.toml"), requirements).unwrap();
+        let record = AuthRecord {
+            method: "external".into(),
+            access_token: "sess".into(),
+            refresh_token: None,
+            expires_at: Some(now_unix() + 3600),
+            issuer: Some("https://idp.example".into()),
+            client_id: None,
+            team_id: Some("team-caller".into()),
+            label: None,
+        };
+        write_auth_json(&grok.join("auth.json"), &record).unwrap();
+        let (pubkey, other) = sign_policy_for(managed, requirements, Some("dep-other"), None);
+        fs::write(
+            grok.join(SIGNATURE_SIDECAR),
+            serde_json::to_vec_pretty(&other).unwrap(),
+        )
+        .unwrap();
+        let key = base64::engine::general_purpose::STANDARD
+            .decode(pubkey)
+            .unwrap();
+        let err = verify_on_disk_signature(
+            &grok,
+            Some(&key),
+            true,
+            Some("team-caller"),
+            Some(DEPLOYMENT_KEY_PRINCIPAL),
+        )
+        .unwrap_err();
+        assert!(
+            err.contains("different principal") || err.contains("omits its principal"),
+            "{err}"
+        );
+
+        let (_pubkey, omitted) = sign_policy_for(managed, requirements, None, None);
+        fs::write(
+            grok.join(SIGNATURE_SIDECAR),
+            serde_json::to_vec_pretty(&omitted).unwrap(),
+        )
+        .unwrap();
+        let err = verify_on_disk_signature(
+            &grok,
+            Some(&key),
+            true,
+            Some("team-caller"),
+            Some(DEPLOYMENT_KEY_PRINCIPAL),
+        )
+        .unwrap_err();
+        assert!(err.contains("omits its principal"), "{err}");
+    }
+
+    #[test]
     fn unverifiable_locked_policy_without_pubkey_or_sidecar_is_refused() {
         let dir = tempfile::TempDir::new().unwrap();
         let grok = dir.path().join("grok");
         fs::create_dir_all(&grok).unwrap();
         fs::write(grok.join("managed_config.toml"), "remote_fetch = false\n").unwrap();
         fs::write(grok.join("requirements.toml"), "fail_closed = true\n").unwrap();
-        let err = verify_on_disk_signature(&grok, None, true).unwrap_err();
+        let err = verify_on_disk_signature(&grok, None, true, None, None).unwrap_err();
         assert!(
             err.to_ascii_lowercase().contains("cannot be verified")
                 || err.to_ascii_lowercase().contains("unverifiable"),

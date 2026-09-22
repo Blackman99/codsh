@@ -242,7 +242,7 @@ fn is_identity_session_gate(error: &ConfigError) -> bool {
     // must remain available so a session can be minted and setup can install
     // a verifiable sidecar.
     (name == "requirements.toml" || name == auth::SIGNATURE_SIDECAR)
-        && error.reason.contains("cannot be verified")
+        && (error.reason.contains("cannot be verified") || error.reason.contains("principal"))
 }
 
 pub fn grok_home_from(home: &Path, env_home: Option<&str>) -> PathBuf {
@@ -1082,20 +1082,14 @@ pub fn load_from(mut input: LoadInput) -> EffectiveConfig {
         "isolated-home",
     );
     let auth = auth::load_auth_config_layers(&table, requirements.as_ref(), &input.env);
-    if let Err(error) =
-        auth::verify_on_disk_signature(&grok_home, auth.managed_pubkey.as_deref(), fail_closed)
-    {
-        errors.push(ConfigError {
-            path: Some(grok_home.join(auth::SIGNATURE_SIDECAR)),
-            reason: error,
-        });
-    }
     warnings.extend(auth.extra_ca_warnings.iter().cloned());
     // Startup, inspect, and slash reload all come through here. An expired
     // auth.json must be refreshed or cleared before the team pin is treated
     // as a usable identity session. A cleared unrefreshable token is not a
     // config error: login still has to run, and an independent API key stays
     // usable. The file is already removed, so the message is a warning.
+    // The signature check needs this session: a sidecar signed for another
+    // team, or one that names no principal, is not authentic for this caller.
     let session = match auth::refresh_session(&grok_home, &input.env, &auth) {
         Ok(record) => record,
         Err(error) => {
@@ -1103,6 +1097,25 @@ pub fn load_from(mut input: LoadInput) -> EffectiveConfig {
             None
         }
     };
+    let caller_deployment = if auth.deployment_key.is_some() {
+        Some(auth::DEPLOYMENT_KEY_PRINCIPAL)
+    } else {
+        None
+    };
+    if let Err(error) = auth::verify_on_disk_signature(
+        &grok_home,
+        auth.managed_pubkey.as_deref(),
+        fail_closed,
+        session
+            .as_ref()
+            .and_then(|record| record.team_id.as_deref()),
+        caller_deployment,
+    ) {
+        errors.push(ConfigError {
+            path: Some(grok_home.join(auth::SIGNATURE_SIDECAR)),
+            reason: error,
+        });
+    }
     if let Err(error) = auth::usable_identity_session(&auth, session.as_ref()) {
         if missing_credential.is_none() {
             missing_credential = Some(error.clone());
@@ -2747,7 +2760,7 @@ force_login_team_uuid = \"team-good\"
         let payload = json!({
             "typ": "managed-policy",
             "expires_at": crate::auth::now_unix() + 3600,
-            "deployment_id": "dep-1",
+            "team_id": "team-good",
             "managed_config": "",
             "requirements": top_requirements,
         })

@@ -218,7 +218,7 @@ def install_verifiable_requirements(grok, requirements):
     payload = json.dumps({
         'typ': 'managed-policy',
         'expires_at': int(time.time()) + 3600,
-        'deployment_id': 'dep-1',
+        'team_id': 'team-good',
         'managed_config': '',
         'requirements': requirements,
     }, separators=(',', ':'))
@@ -499,6 +499,125 @@ env_key = "XAI_API_KEY"
         finally:
             stop_omitted.set()
         results['setup-omitted-principal'] = True
+
+        noteam_payload = json.dumps({
+            'typ': 'managed-policy',
+            'key_id': 'v1',
+            'expires_at': int(time.time()) + 3600,
+            'deployment_id': 'dep-other',
+            'managed_config': other_managed,
+            'requirements': other_requirements,
+            'fail_closed': True,
+        }, separators=(',', ':'))
+        noteam_pub, noteam_sig = sign_payload(noteam_payload)
+        noteam_body = json.dumps({
+            'managed_config': other_managed,
+            'requirements': other_requirements,
+            'signatures': [{
+                'signed_payload': noteam_payload,
+                'signature': noteam_sig,
+                'key_id': 'v1',
+            }],
+        })
+        noteam_url, stop_noteam = serve(lambda line: (200, noteam_body, 'application/json') if 'GET ' in line else (404, 'no', 'text/plain'))
+        noteam_home = work / 'noteam-other-home'
+        noteam_home.mkdir()
+        noteam_grok = noteam_home / '.codsh-rust' / '.grok'
+        noteam_grok.mkdir(parents=True)
+        (noteam_grok / 'config.toml').write_text((grok_home / 'config.toml').read_text())
+        try:
+            noteam = spawn_inspect(launcher, cwd, {
+                **base_env,
+                'HOME': str(noteam_home),
+                'GROK_MANAGED_CONFIG_URL': noteam_url + '/deployment/config',
+                'GROK_DEPLOYMENT_KEY': 'dep',
+                'GROK_MANAGED_CONFIG_PUBKEY': noteam_pub,
+            }, ['setup'])
+            noteam_text = noteam.stdout + noteam.stderr
+            assert noteam.returncode != 0, noteam_text
+            assert 'different principal' in noteam_text or 'omits its principal' in noteam_text
+            assert not (noteam_grok / 'managed_config.toml').exists()
+        finally:
+            stop_noteam.set()
+        blank_payload = json.dumps({
+            'typ': 'managed-policy',
+            'key_id': 'v1',
+            'expires_at': int(time.time()) + 3600,
+            'managed_config': other_managed,
+            'requirements': other_requirements,
+            'fail_closed': True,
+        }, separators=(',', ':'))
+        blank_pub, blank_sig = sign_payload(blank_payload)
+        blank_body = json.dumps({
+            'managed_config': other_managed,
+            'requirements': other_requirements,
+            'signatures': [{
+                'signed_payload': blank_payload,
+                'signature': blank_sig,
+                'key_id': 'v1',
+            }],
+        })
+        blank_url, stop_blank = serve(lambda line: (200, blank_body, 'application/json') if 'GET ' in line else (404, 'no', 'text/plain'))
+        try:
+            blank = spawn_inspect(launcher, cwd, {
+                **base_env,
+                'HOME': str(noteam_home),
+                'GROK_MANAGED_CONFIG_URL': blank_url + '/deployment/config',
+                'GROK_DEPLOYMENT_KEY': 'dep',
+                'GROK_MANAGED_CONFIG_PUBKEY': blank_pub,
+            }, ['setup'])
+            blank_text = blank.stdout + blank.stderr
+            assert blank.returncode != 0, blank_text
+            assert 'omits its principal' in blank_text or 'different principal' in blank_text
+            assert not (noteam_grok / 'managed_config.toml').exists()
+        finally:
+            stop_blank.set()
+        results['setup-noteam-deployment-key'] = True
+
+        disk_home = work / 'disk-other-home'
+        disk_home.mkdir()
+        disk_grok = disk_home / '.codsh-rust' / '.grok'
+        disk_grok.mkdir(parents=True)
+        (disk_grok / 'config.toml').write_text((grok_home / 'config.toml').read_text())
+        (disk_grok / 'managed_config.toml').write_text(other_managed)
+        (disk_grok / 'requirements.toml').write_text(other_requirements)
+        (disk_grok / 'auth.json').write_text(json.dumps({
+            'access_token': 'caller-token',
+            'method': 'external',
+            'team_id': 'team-caller',
+            'expires_at': int(time.time()) + 3600,
+        }))
+        (disk_grok / 'managed_config.sig.json').write_text(json.dumps({
+            'signed_payload': other_payload,
+            'signature': other_sig,
+            'key_id': 'v1',
+        }))
+        disk = spawn_inspect(launcher, cwd, {
+            **base_env,
+            'HOME': str(disk_home),
+            'GROK_MANAGED_CONFIG_PUBKEY': other_pub,
+            'GROK_DEPLOYMENT_KEY': 'dep',
+        }, ['inspect', '--json'])
+        disk_text = disk.stdout + disk.stderr
+        assert disk.returncode != 0, disk_text
+        assert 'different principal' in disk_text or 'omits its principal' in disk_text
+        disk_payload = inspect_json(disk)
+        assert disk_payload is not None, disk_text
+        assert disk_payload['ready'] is False
+        (disk_grok / 'managed_config.sig.json').write_text(json.dumps({
+            'signed_payload': omitted_payload,
+            'signature': omitted_sig,
+            'key_id': 'v1',
+        }))
+        disk_blank = spawn_inspect(launcher, cwd, {
+            **base_env,
+            'HOME': str(disk_home),
+            'GROK_MANAGED_CONFIG_PUBKEY': omitted_pub,
+        }, ['inspect', '--json'])
+        disk_blank_text = disk_blank.stdout + disk_blank.stderr
+        assert disk_blank.returncode != 0, disk_blank_text
+        assert 'omits its principal' in disk_blank_text or 'different principal' in disk_blank_text
+        results['inspect-other-principal'] = True
 
         locked_home = work / 'locked-unverifiable-home'
         locked_home.mkdir()

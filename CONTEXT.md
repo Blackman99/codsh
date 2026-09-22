@@ -96,7 +96,8 @@ Startup and inspect refresh an expired `auth.json`, or clear it when refresh fai
 Session tokens stay in `$GROK_HOME/auth.json` and are not transferred to model
 providers or other services. Official grok.com entitlements are not reproduced.
 Unsigned or unverifiable managed policy is refused, including a signature for
-another principal and fail-closed files with no pubkey and no sidecar.
+another principal, a deployment-key caller with no team, an on-disk sidecar
+that does not name this caller, and fail-closed files with no pubkey and no sidecar.
 Plain `codsh` still selects the legacy Launcher/Bundle; this is not the default
 cutover. The Viewport language below remains the legacy Surface contract.
 

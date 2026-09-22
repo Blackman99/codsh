@@ -179,8 +179,10 @@ owner-only permissions and are not transferred to model providers, MCP, Grove,
 or other services. Official grok.com / auth.x.ai login, subscription billing,
 auto-topup, and team entitlements are not reproduced. `GROK_MANAGED_CONFIG_URL`
 fetches organization policy only when a substitute pubkey can verify it and
-the signature names this caller. A signature for another principal, a signed
-payload that omits both deployment and team, and fail-closed policy with no
+the signature names this caller. A deployment key is itself a caller principal,
+including when the response omits `deployment_id` and the session has no team.
+A signature for another principal, a signed payload that omits both deployment
+and team, the same mismatch already on disk, and fail-closed policy with no
 pubkey and no sidecar are refused.
 Set the model's `env_key` (for example `XAI_API_KEY`) after writing a provider
 with a `base_url`. An empty Enter on first-run reloads that file and connects

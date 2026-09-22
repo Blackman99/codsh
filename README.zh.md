@@ -141,7 +141,7 @@ key 时不必登录，除非 `GROK_DISABLE_API_KEY_AUTH` 或团队限制
 `requirements.toml` 顶层 `force_login_team_uuid`）要求匹配的身份会话。启动和 `inspect` 会刷新已过期的 `auth.json`；无法刷新时清除它，因此仅有团队限制不会让过期会话保持就绪。清除后不阻止 `login`，也不阻止原本可用的 API key。成功的 `/login` 会重新加载该会话并重新应用设置。凭据环境、就绪状态或设置补丁发生变化时替换 dsh，且在没有活动客户端时于同一步连接。设置写入失败时保留现有连接并报告错误。替换后的 dsh 进程会收到身份会话（`GROK_AUTH_PATH`、`GROK_AUTH_ACCESS_TOKEN`，以及已配置时的 `GROK_AUTH_PROVIDER_COMMAND`）。其他父进程 `GROK_AUTH_*` 变量不会转发。`/logout` 会先在 `GROK_AUTH_REVOKE_URL` 或发行方的 `revocation_endpoint` 撤销该会话，再清除 `auth.json`；撤销失败时保留本地文件以便重新登录，并断开正在使用该会话的连接。会话令牌写入 `$GROK_HOME/auth.json`（Unix 上为 0600），不会
 转授给模型提供商、MCP、Grove 或其他外部服务。不复制 grok.com / auth.x.ai
 登录、订阅计费、自动充值或官方团队权益。`GROK_MANAGED_CONFIG_URL` 仅在替代
-公钥能验证且签名指向当前调用方时安装组织策略。签给其他主体、签名负载同时省略 deployment 与 team、以及 fail-closed 但没有公钥也没有 sidecar 的策略都会被拒绝。写好带 `base_url` 的提供商后，再设置对应的
+公钥能验证且签名指向当前调用方时安装组织策略。部署密钥本身就是调用方主体，即使响应省略 `deployment_id` 且会话没有 team 也一样。签给其他主体、签名负载同时省略 deployment 与 team、磁盘上已有的同类不匹配，以及 fail-closed 但没有公钥也没有 sidecar 的策略都会被拒绝。写好带 `base_url` 的提供商后，再设置对应的
 `env_key`（例如 `XAI_API_KEY`）。首次运行时空回车会重新加载该文件，
 提供商就绪后连接且不提交提示。父进程的 `GROK_HOME` 会被忽略；预览把
 `GROK_HOME` 固定为 `~/.codsh-rust/.grok`。
