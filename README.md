@@ -139,7 +139,11 @@ providers, `llm-deepseek`, `agent-default-model`), `$DSH_HOME/code-cli-thinking.
 and `$DSH_HOME/code-cli-ui.json`. `density` `compact`/`comfortable` maps to
 isolated `[ui] compact_mode`; `bell`, `notify`, and bang limits from
 `coding-cli-runner` are listed as unsupported because the new client has no
-equivalent control. It does not treat outdated `code-cli-settings.json`
+equivalent control. A route with several models imports the model named by
+`agent-default-model`; other models stay in the preview. An inline `apiKey` is
+never copied, a missing `apiKeyEnv` is unsupported rather than replaced with
+`XAI_API_KEY`, and `headers` / `compat` are listed as unsupported. Existing
+nested settings such as `[ui.status_line]` are kept. It does not treat outdated `code-cli-settings.json`
 as a provider source. `import --apply` copies selected providers and preferences
 into `~/.codsh-rust/.grok/config.toml`. Official tokens, `.credentials.yaml`, `.env`,
 and original trust/execution grants are never copied. Preview, cancel, and a failed

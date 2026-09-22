@@ -40,6 +40,9 @@ edit or preview those live controls; minimal mode keeps the terminal palette.
 from current dsh `$DSH_HOME/settings.yaml`, `code-cli-thinking.json`, and
 `code-cli-ui.json` (not outdated `code-cli-settings.json`). UI density maps to
 `[ui] compact_mode`; legacy bell/notify/bang preferences stay unsupported.
+The imported model follows `agent-default-model`. Inline keys are not copied,
+a missing `apiKeyEnv` is not invented, and nested settings such as the status
+line are kept.
 `import --apply` copies selected providers/preferences into the isolated Home without tokens, credential
 files, or original trust/execution grants. Preview, cancel, and failed apply leave
 source files and existing isolated settings unchanged. Model credentials stay in

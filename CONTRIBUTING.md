@@ -346,8 +346,9 @@ import legacy `~/.dsh` / `~/.grok` credentials. Explicit `codsh --rust import`
 (`scripts/rust-import-pty-test.py`) previews current dsh `settings.yaml` /
 `code-cli-thinking.json` / `code-cli-ui.json` sources, lists conversions,
 conflicts and unsupported items, maps UI density onto `[ui] compact_mode`,
-copies selected providers without tokens or trust grants, and leaves source
-files unchanged on preview, cancel, failure, and repeat apply. Public ACP framing, including
+copies selected providers without tokens or trust grants, keeps the model named
+by `agent-default-model`, and leaves source files and nested isolated settings
+unchanged on preview, cancel, failure, and repeat apply. Public ACP framing, including
 file-tool permission, `session/cancel`, `session/list`, `session/resume`, and
 dsh-backed conversation fork/rewind, is covered by
 `scripts/rust-acp-protocol.spec.mjs`.

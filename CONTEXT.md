@@ -36,7 +36,9 @@ providers and preferences from `$DSH_HOME/settings.yaml`,
 `code-cli-thinking.json`, and `code-cli-ui.json` into the isolated Home; it
 maps `code-cli-ui.json` density `compact`/`comfortable` to `[ui] compact_mode`
 and lists `coding-cli-runner` bell/notify/bang preferences as unsupported.
-It does not treat outdated `code-cli-settings.json` as a provider source and never
+A multi-model route imports the `agent-default-model` selection; inline `apiKey`
+values, missing `apiKeyEnv`, and `headers`/`compat` stay out of the isolated
+file. Existing nested settings are preserved. It does not treat outdated `code-cli-settings.json` as a provider source and never
 copies tokens, credential files, or original trust/execution grants. Configured
 `env_key` values are passed through. Telemetry stays off.
 User settings enter through `$GROK_HOME/config.toml` and `codsh --rust inspect`;

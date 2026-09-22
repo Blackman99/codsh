@@ -48,6 +48,8 @@ pub struct PlanItem {
     pub message: String,
 }
 
+type ImportedModel = (String, String, Option<u64>, Vec<String>, Option<String>);
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SelectedProvider {
     pub catalog_id: String,
@@ -56,11 +58,12 @@ pub struct SelectedProvider {
     pub name: String,
     pub api: String,
     pub backend: String,
-    pub env_key: String,
+    pub env_key: Option<String>,
     pub base_url: Option<String>,
     pub context_window: Option<u64>,
     pub reasoning_efforts: Vec<String>,
     pub reasoning_effort: Option<String>,
+    pub candidates: Vec<ImportedModel>,
     pub source: String,
 }
 
@@ -119,7 +122,7 @@ impl Default for ImportFlags {
 }
 
 pub fn import_help() -> &'static str {
-    "Preview and copy selected legacy dsh providers and preferences into the isolated Rust client.\n\nUsage: codsh --rust import [OPTIONS]\n\nOptions:\n      --preview               Show conversions, conflicts, and unsupported items without writing\n      --apply                 Write selected providers/preferences into the isolated Home\n      --json                  Emit machine-readable JSON\n      --providers <IDS>       Comma-separated dsh provider route ids (default: all convertible)\n      --no-preferences        Skip UI/thinking/default-model preference mapping\n      --authorize-env         Use already-exported env_key values; never copy credential files\n  -h, --help                  Print help\n\nReads current dsh `$DSH_HOME/settings.yaml` (llm-pi-ai providers, llm-deepseek, agent-default-model),\n`code-cli-thinking.json`, and `code-cli-ui.json`. Does not read outdated\n`code-cli-settings.json` as a provider source. Never copies `.credentials.yaml`,\n`.env`, `~/.grok/auth.json`, tokens, or permission/trust grants. Source files and\nexisting isolated settings stay unchanged on preview, cancel, or failure."
+    "Preview and copy selected legacy dsh providers and preferences into the isolated Rust client.\n\nUsage: codsh --rust import [OPTIONS]\n\nOptions:\n      --preview               Show conversions, conflicts, and unsupported items without writing\n      --apply                 Write selected providers/preferences into the isolated Home\n      --json                  Emit machine-readable JSON\n      --providers <IDS>       Comma-separated dsh provider route ids (default: all convertible)\n      --no-preferences        Skip UI/thinking/default-model preference mapping\n      --authorize-env         Use already-exported env_key values; never copy credential files\n  -h, --help                  Print help\n\nReads current dsh `$DSH_HOME/settings.yaml` (llm-pi-ai providers, llm-deepseek, agent-default-model),\n`code-cli-thinking.json`, and `code-cli-ui.json`. Does not read outdated\n`code-cli-settings.json` as a provider source. Never copies `.credentials.yaml`,\n`.env`, `~/.grok/auth.json`, inline apiKey values, tokens, or permission/trust grants.\nA missing apiKeyEnv is unsupported and is not replaced with XAI_API_KEY. When a\nroute lists several models, agent-default-model selects the imported model.\nSource files and existing isolated settings, including nested tables, stay\nunchanged on preview, cancel, or failure."
 }
 
 pub fn parse_flags(args: &[&str]) -> io::Result<ImportFlags> {
@@ -383,7 +386,12 @@ pub fn render_preview(plan: &ImportPlan) -> String {
         for item in &plan.selected {
             lines.push(format!(
                 "  {}  {}/{}  api={} env_key={} source={}",
-                item.catalog_id, item.provider, item.model, item.api, item.env_key, item.source
+                item.catalog_id,
+                item.provider,
+                item.model,
+                item.api,
+                item.env_key.as_deref().unwrap_or("(none)"),
+                item.source
             ));
         }
     }
@@ -519,7 +527,7 @@ fn render_config(
     let mut model_tables: BTreeMap<String, TomlValue> = BTreeMap::new();
     let mut models_default = None;
     let mut models_effort = None;
-    let mut ui: BTreeMap<String, TomlValue> = BTreeMap::new();
+    let mut ui = toml::map::Map::new();
     let mut extras: BTreeMap<String, TomlValue> = BTreeMap::new();
 
     if let Some(TomlValue::Table(root)) = existing.as_ref() {
@@ -539,9 +547,7 @@ fn render_config(
             }
         }
         if let Some(TomlValue::Table(existing_ui)) = root.get("ui") {
-            for (key, value) in existing_ui {
-                ui.insert(key.clone(), value.clone());
-            }
+            ui = existing_ui.clone();
         }
         for (key, value) in root {
             if !matches!(key.as_str(), "models" | "model" | "ui") {
@@ -568,6 +574,11 @@ fn render_config(
     if request.include_preferences {
         for pref in &plan.preferences {
             let key = pref.key.strip_prefix("ui.").unwrap_or(&pref.key);
+            if key.contains('.') {
+                return Err(io::Error::other(format!(
+                    "preference {key} is not a flat [ui] field; refusing to flatten nested settings"
+                )));
+            }
             ui.insert(key.to_string(), preference_toml(&pref.value));
         }
     }
@@ -599,11 +610,7 @@ fn render_config(
         out.push('\n');
     }
     if !ui.is_empty() {
-        out.push_str("[ui]\n");
-        for (key, value) in &ui {
-            out.push_str(&format!("{key} = {}\n", emit_value(value)));
-        }
-        out.push('\n');
+        emit_preserved_table(&mut out, "ui", &TomlValue::Table(ui));
     }
     for (key, value) in extras {
         match value {
@@ -635,7 +642,9 @@ fn provider_table(item: &SelectedProvider) -> TomlValue {
     if let Some(url) = &item.base_url {
         table.insert("base_url".into(), TomlValue::String(url.clone()));
     }
-    table.insert("env_key".into(), TomlValue::String(item.env_key.clone()));
+    if let Some(env_key) = &item.env_key {
+        table.insert("env_key".into(), TomlValue::String(env_key.clone()));
+    }
     table.insert(
         "api_backend".into(),
         TomlValue::String(item.backend.clone()),
@@ -661,6 +670,31 @@ fn provider_table(item: &SelectedProvider) -> TomlValue {
     TomlValue::Table(table)
 }
 
+fn emit_preserved_table(out: &mut String, prefix: &str, value: &TomlValue) {
+    let Some(table) = value.as_table() else {
+        return;
+    };
+    let mut scalars = Vec::new();
+    let mut nested = Vec::new();
+    for (key, item) in table {
+        if item.as_table().is_some() {
+            nested.push((key, item));
+        } else {
+            scalars.push((key, item));
+        }
+    }
+    if !scalars.is_empty() {
+        out.push_str(&format!("[{prefix}]\n"));
+        for (key, item) in scalars {
+            out.push_str(&format!("{} = {}\n", toml_key(key), emit_value(item)));
+        }
+        out.push('\n');
+    }
+    for (key, item) in nested {
+        emit_preserved_table(out, &format!("{prefix}.{}", toml_key(key)), item);
+    }
+}
+
 fn emit_table(value: &TomlValue) -> String {
     let mut out = String::new();
     let Some(table) = value.as_table() else {
@@ -682,8 +716,30 @@ fn emit_value(value: &TomlValue) -> String {
             let body = items.iter().map(emit_value).collect::<Vec<_>>().join(", ");
             format!("[{body}]")
         }
-        TomlValue::Table(_) => toml_quote(&value.to_string()),
+        TomlValue::Table(table) => {
+            let body = table
+                .iter()
+                .map(|(key, item)| format!("{} = {}", toml_key(key), emit_value(item)))
+                .collect::<Vec<_>>()
+                .join(", ");
+            format!("{{ {body} }}")
+        }
         TomlValue::Datetime(value) => value.to_string(),
+    }
+}
+
+fn toml_key(key: &str) -> String {
+    if key
+        .chars()
+        .all(|ch| ch.is_ascii_alphanumeric() || ch == '_' || ch == '-')
+        && key
+            .chars()
+            .next()
+            .is_some_and(|ch| ch.is_ascii_alphabetic() || ch == '_')
+    {
+        key.to_string()
+    } else {
+        toml_quote(key)
     }
 }
 
@@ -792,6 +848,9 @@ fn fill_from_settings(
             .and_then(YamlValue::as_str)
             .and_then(normalize_effort);
         if let Some(provider) = provider {
+            if let Some(expected) = model.as_deref() {
+                align_default_model(plan, &provider, expected, &source);
+            }
             let catalog_id = plan
                 .selected
                 .iter()
@@ -802,16 +861,41 @@ fn fill_from_settings(
                             .is_none_or(|expected| item.model == expected)
                 })
                 .map(|item| item.catalog_id.clone())
-                .unwrap_or(provider);
-            plan.default_model = Some(catalog_id);
-            plan.default_effort = effort;
-            plan.default_source = Some(format!("{source}:agent-default-model"));
-            plan.conversions.push(PlanItem {
-                id: "agent-default-model".into(),
-                kind: "default".into(),
-                source: format!("{source}:agent-default-model"),
-                message: "default provider/model/effort taken from current dsh settings.yaml agent-default-model, not from outdated code-cli-settings.json".into(),
-            });
+                .unwrap_or_else(|| provider.clone());
+            if plan
+                .selected
+                .iter()
+                .any(|item| item.catalog_id == catalog_id || item.provider == provider)
+            {
+                note_extra_models(plan, &provider, &source);
+                plan.default_model = Some(catalog_id);
+                plan.default_effort = effort;
+                plan.default_source = Some(format!("{source}:agent-default-model"));
+                plan.conversions.push(PlanItem {
+                    id: "agent-default-model".into(),
+                    kind: "default".into(),
+                    source: format!("{source}:agent-default-model"),
+                    message: "default provider/model/effort taken from current dsh settings.yaml agent-default-model, not from outdated code-cli-settings.json".into(),
+                });
+            } else {
+                plan.unsupported.push(PlanItem {
+                    id: "agent-default-model".into(),
+                    kind: "default".into(),
+                    source: format!("{source}:agent-default-model"),
+                    message: format!(
+                        "agent-default-model names {provider}, which was not imported; no substitute default is written"
+                    ),
+                });
+            }
+        }
+    } else {
+        let providers: Vec<String> = plan
+            .selected
+            .iter()
+            .map(|item| item.provider.clone())
+            .collect();
+        for provider in providers {
+            note_extra_models(plan, &provider, source.as_str());
         }
     }
     if request.include_preferences
@@ -897,11 +981,32 @@ fn convert_pi_provider(
             ),
         });
     }
+    if spec.get("apiKey").is_some() {
+        plan.skipped_secrets.push(PlanItem {
+            id: route.into(),
+            kind: "secret".into(),
+            source: origin.clone(),
+            message: format!(
+                "provider {route} inline apiKey is not copied; use apiKeyEnv and export it yourself"
+            ),
+        });
+    }
     let env_key = spec
         .get("apiKeyEnv")
         .and_then(YamlValue::as_str)
-        .unwrap_or("XAI_API_KEY")
-        .to_string();
+        .filter(|value| !value.is_empty())
+        .map(str::to_string);
+    let Some(env_key) = env_key else {
+        plan.unsupported.push(PlanItem {
+            id: route.into(),
+            kind: "credential".into(),
+            source: origin,
+            message: format!(
+                "provider {route} has no apiKeyEnv; omitted keys are not replaced with XAI_API_KEY"
+            ),
+        });
+        return;
+    };
     note_credential(plan, request, route, &env_key, &origin);
     let name = spec
         .get("displayName")
@@ -926,7 +1031,7 @@ fn convert_pi_provider(
             kind: "models".into(),
             source: origin.clone(),
             message: format!(
-                "provider {route} has {} models; import uses the first listed model and records extras as conversions",
+                "provider {route} has {} models; import uses agent-default-model when it names one, otherwise the first listed model, and records extras as conversions",
                 models.len()
             ),
         });
@@ -936,17 +1041,6 @@ fn convert_pi_provider(
         thinking_effort(thinking, route, model_id).or_else(|| effort.clone());
     if reasoning_effort.is_none() && !efforts.is_empty() {
         reasoning_effort = None;
-    }
-    for extra in models.iter().skip(1) {
-        plan.conversions.push(PlanItem {
-            id: format!("{route}/{}", extra.0),
-            kind: "extra-model".into(),
-            source: origin.clone(),
-            message: format!(
-                "extra model {} on {route} was not turned into a separate catalog entry",
-                extra.0
-            ),
-        });
     }
     plan.selected.push(SelectedProvider {
         catalog_id: route.to_string(),
@@ -959,13 +1053,105 @@ fn convert_pi_provider(
         },
         api: api.clone(),
         backend: backend.grok_name().to_string(),
-        env_key,
+        env_key: Some(env_key),
         base_url,
         context_window: *context,
         reasoning_efforts: efforts.clone(),
         reasoning_effort,
-        source: origin,
+        candidates: models,
+        source: origin.clone(),
     });
+    note_dropped_route_fields(plan, route, spec, &origin);
+}
+
+fn note_extra_models(plan: &mut ImportPlan, provider: &str, source: &str) {
+    let Some(item) = plan
+        .selected
+        .iter()
+        .find(|item| item.provider == provider || item.catalog_id == provider)
+    else {
+        return;
+    };
+    let kept = item.model.clone();
+    let origin = item.source.clone();
+    let extras: Vec<String> = item
+        .candidates
+        .iter()
+        .map(|candidate| candidate.0.clone())
+        .filter(|id| id != &kept)
+        .collect();
+    for extra in extras {
+        plan.conversions.push(PlanItem {
+            id: format!("{provider}/{extra}"),
+            kind: "extra-model".into(),
+            source: format!("{source}:agent-default-model"),
+            message: format!(
+                "extra model {extra} on {provider} was not turned into a separate catalog entry ({origin})"
+            ),
+        });
+    }
+}
+
+fn align_default_model(plan: &mut ImportPlan, provider: &str, model: &str, source: &str) {
+    let Some(item) = plan
+        .selected
+        .iter_mut()
+        .find(|item| item.provider == provider || item.catalog_id == provider)
+    else {
+        return;
+    };
+    if item.model == model {
+        return;
+    }
+    let Some(chosen) = item
+        .candidates
+        .iter()
+        .find(|candidate| candidate.0 == model)
+    else {
+        plan.unsupported.push(PlanItem {
+            id: format!("{provider}/{model}"),
+            kind: "default-model".into(),
+            source: format!("{source}:agent-default-model"),
+            message: format!(
+                "agent-default-model names {provider}/{model}, which is not in the imported model list; the listed model stays {provider}/{}",
+                item.model
+            ),
+        });
+        return;
+    };
+    let previous = item.model.clone();
+    item.model = chosen.0.clone();
+    item.name = if chosen.1.is_empty() {
+        chosen.0.clone()
+    } else {
+        chosen.1.clone()
+    };
+    item.context_window = chosen.2;
+    item.reasoning_efforts = chosen.3.clone();
+    item.reasoning_effort = chosen.4.clone();
+    plan.conversions.push(PlanItem {
+        id: format!("{provider}/{model}"),
+        kind: "default-model".into(),
+        source: format!("{source}:agent-default-model"),
+        message: format!(
+            "agent-default-model selects {provider}/{model}; first-listed {previous} is not the imported route"
+        ),
+    });
+}
+
+fn note_dropped_route_fields(plan: &mut ImportPlan, route: &str, spec: &YamlValue, origin: &str) {
+    for field in ["headers", "compat"] {
+        if spec.get(field).is_some() {
+            plan.unsupported.push(PlanItem {
+                id: route.into(),
+                kind: field.into(),
+                source: origin.into(),
+                message: format!(
+                    "provider {route} {field} is not copied; the isolated client has no equivalent field, so it is not silently dropped"
+                ),
+            });
+        }
+    }
 }
 
 fn convert_deepseek(
@@ -976,11 +1162,32 @@ fn convert_deepseek(
     thinking: &BTreeMap<String, String>,
 ) {
     let origin = format!("{source}:llm-deepseek");
+    if spec.get("apiKey").is_some() {
+        plan.skipped_secrets.push(PlanItem {
+            id: "deepseek-official".into(),
+            kind: "secret".into(),
+            source: origin.clone(),
+            message:
+                "llm-deepseek inline apiKey is not copied; use apiKeyEnv and export it yourself"
+                    .into(),
+        });
+    }
     let env_key = spec
         .get("apiKeyEnv")
         .and_then(YamlValue::as_str)
-        .unwrap_or("DEEPSEEK_API_KEY")
-        .to_string();
+        .filter(|value| !value.is_empty())
+        .map(str::to_string);
+    let Some(env_key) = env_key else {
+        plan.unsupported.push(PlanItem {
+            id: "deepseek-official".into(),
+            kind: "credential".into(),
+            source: origin,
+            message:
+                "llm-deepseek has no apiKeyEnv; omitted keys are not replaced with DEEPSEEK_API_KEY"
+                    .into(),
+        });
+        return;
+    };
     note_credential(plan, request, "deepseek-official", &env_key, &origin);
     let base_url = spec
         .get("baseURL")
@@ -1034,24 +1241,23 @@ fn convert_deepseek(
     plan.selected.push(SelectedProvider {
         catalog_id: "deepseek-official".into(),
         provider: "deepseek-official".into(),
-        model: model_id,
+        model: model_id.clone(),
         name: if model_name.is_empty() {
             "deepseek-official".into()
         } else {
-            model_name
+            model_name.clone()
         },
         api: "openai-completions".into(),
         backend: "chat_completions".into(),
-        env_key,
+        env_key: Some(env_key),
         base_url,
         context_window: context,
-        reasoning_efforts: efforts,
-        reasoning_effort,
+        reasoning_efforts: efforts.clone(),
+        reasoning_effort: reasoning_effort.clone(),
+        candidates: vec![(model_id, model_name, context, efforts, reasoning_effort)],
         source: origin,
     });
 }
-
-type ImportedModel = (String, String, Option<u64>, Vec<String>, Option<String>);
 
 fn collect_models(spec: &YamlValue) -> Vec<ImportedModel> {
     let mut out = Vec::new();
@@ -1789,7 +1995,8 @@ coding-cli-runner:
                 && item.api == "openai-completions"
         }));
         assert!(plan.selected.iter().any(|item| {
-            item.provider == "deepseek-official" && item.env_key == "DEEPSEEK_API_KEY"
+            item.provider == "deepseek-official"
+                && item.env_key.as_deref() == Some("DEEPSEEK_API_KEY")
         }));
         assert!(plan.unsupported.iter().any(|item| {
             item.id.contains("broken-gateway") && item.message.contains("carrier-pigeon")
@@ -1959,6 +2166,125 @@ env_key = "EXISTING_KEY"
             fs::read_to_string(request.host_dsh_home.join(".credentials.yaml"))
                 .unwrap()
                 .contains("legacy-secret-must-not-copy")
+        );
+    }
+
+    #[test]
+    fn imports_the_legacy_default_model_and_keeps_nested_settings() {
+        let dir = TempDir::new().unwrap();
+        let mut request = fixture(&dir);
+        write(
+            &request.host_dsh_home.join("settings.yaml"),
+            r#"
+llm-pi-ai:
+  providers:
+    acme-gateway:
+      displayName: Acme Gateway
+      apiKeyEnv: ACME_GATEWAY_API_KEY
+      apiKey: inline-secret-must-not-copy
+      api: openai-completions
+      baseURL: https://gateway.acme.example/v1
+      headers:
+        X-Tenant: tenant-marker
+      compat:
+        thinkingFormat: deepseek
+      models:
+        - id: acme-small
+          name: Acme Small
+        - id: acme-large
+          name: Acme Large
+          contextWindow: 65536
+          reasoningEfforts:
+            high: high
+    keyless-gateway:
+      displayName: Keyless
+      api: openai-completions
+      baseURL: https://keyless.example/v1
+      models:
+        - id: keyless-model
+agent-default-model:
+  provider: acme-gateway
+  model: acme-large
+  reasoningEffort: high
+"#,
+        );
+        write(
+            &request.grok_home.join("config.toml"),
+            "[ui.status_line]\ntype = \"command\"\ncommand = \"printf status-ok\"\n",
+        );
+        request.apply = true;
+        let plan = discover(&request);
+        let preview = render_preview(&plan);
+        let json = render_preview_json(&plan);
+        let selected = plan
+            .selected
+            .iter()
+            .find(|item| item.catalog_id == "acme-gateway")
+            .expect("acme route selected");
+        assert_eq!(selected.model, "acme-large");
+        assert!(
+            plan.conversions
+                .iter()
+                .any(|item| { item.id.contains("acme-small") && item.kind == "extra-model" })
+        );
+        assert!(
+            plan.unsupported
+                .iter()
+                .any(|item| item.id == "keyless-gateway" && item.message.contains("XAI_API_KEY"))
+        );
+        assert!(
+            plan.skipped_secrets
+                .iter()
+                .any(|item| item.id == "acme-gateway" && item.message.contains("apiKey"))
+        );
+        assert!(
+            plan.unsupported
+                .iter()
+                .any(|item| { item.id == "acme-gateway" && item.message.contains("headers") })
+        );
+        assert!(!preview.contains("inline-secret-must-not-copy"));
+        assert!(!json.contains("inline-secret-must-not-copy"));
+        assert!(
+            !plan
+                .selected
+                .iter()
+                .any(|item| item.catalog_id == "keyless-gateway")
+        );
+        apply(&request, &plan).unwrap();
+        let config = fs::read_to_string(request.grok_home.join("config.toml")).unwrap();
+        assert!(config.contains("model = \"acme-large\""));
+        assert!(!config.contains("acme-small"));
+        assert!(!config.contains("inline-secret-must-not-copy"));
+        assert!(!config.contains("XAI_API_KEY"));
+        assert!(!config.contains("tenant-marker"));
+        let parsed: TomlValue = toml::from_str(&config).unwrap();
+        assert_eq!(
+            parsed
+                .get("ui")
+                .and_then(|ui| ui.get("status_line"))
+                .and_then(|status| status.get("command"))
+                .and_then(TomlValue::as_str),
+            Some("printf status-ok")
+        );
+        let loaded = load_from(LoadInput {
+            home: request.isolated_home.clone(),
+            dsh_home: request.isolated_dsh_home.clone(),
+            cwd: request.cwd.clone(),
+            grok_home: Some(request.grok_home.clone()),
+            env: BTreeMap::from([("ACME_GATEWAY_API_KEY".into(), "present".into())]),
+            cli_model: None,
+            cli_effort: None,
+            cli_trust: false,
+            cli_revoke_trust: false,
+            cli_trust_path: None,
+            interactive: false,
+        });
+        let active = loaded.active_model().expect("imported route is usable");
+        assert_eq!(active.model, "acme-large");
+        assert_eq!(active.provider, "acme-gateway");
+        assert_eq!(
+            loaded.appearance.status_line.command.as_deref(),
+            Some("printf status-ok")
         );
     }
 }

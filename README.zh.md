@@ -110,6 +110,9 @@ Home 会报告保存失败而不会假装授权已持久化。未信任的 Hooks
 `$DSH_HOME/code-cli-ui.json` 列出转换、冲突和不支持项。`density` 的
 `compact`/`comfortable` 会映射为隔离配置里的 `[ui] compact_mode`；
 `coding-cli-runner` 的 `bell`、`notify` 和 bang 限制没有对应控件，会列为不支持项。
+一条路由列出多个模型时，导入 `agent-default-model` 点名的模型，其余模型留在预览里。
+内联 `apiKey` 不会被复制；缺少 `apiKeyEnv` 记为不支持项，而不会替补成 `XAI_API_KEY`。
+`headers` 与 `compat` 也列为不支持项。已有的嵌套设置（例如 `[ui.status_line]`）会保留。
 不会把过时的
 `code-cli-settings.json` 当作提供商来源。`import --apply` 把所选提供商和偏好
 写入 `~/.codsh-rust/.grok/config.toml`。官方令牌、`.credentials.yaml`、`.env`
