@@ -5,3 +5,4 @@ lib/
 .dev-home/
 .env
 .claude/
+.scratch/
