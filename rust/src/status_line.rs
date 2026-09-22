@@ -4,7 +4,11 @@ use serde_json::{Value as JsonValue, json};
 use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
-use std::sync::mpsc::{self, Receiver};
+use std::sync::{
+    Arc,
+    atomic::{AtomicBool, AtomicU32, Ordering},
+    mpsc::{self, Receiver},
+};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -319,6 +323,7 @@ pub enum CommandOutcome {
     Failed { text: String, refresh: bool },
 }
 
+#[cfg_attr(not(test), allow(dead_code))]
 pub fn run_command(
     command: &str,
     payload: &JsonValue,
@@ -327,7 +332,31 @@ pub fn run_command(
     lines: u16,
     timeout: Duration,
 ) -> CommandOutcome {
-    match run_command_inner(command, payload, cwd, cols, lines, timeout) {
+    run_command_tracked(
+        command,
+        payload,
+        cwd,
+        cols,
+        lines,
+        timeout,
+        &AtomicBool::new(false),
+        &AtomicU32::new(0),
+    )
+}
+
+fn run_command_tracked(
+    command: &str,
+    payload: &JsonValue,
+    cwd: &Path,
+    cols: u16,
+    lines: u16,
+    timeout: Duration,
+    cancel: &AtomicBool,
+    child_pid: &AtomicU32,
+) -> CommandOutcome {
+    match run_command_inner(
+        command, payload, cwd, cols, lines, timeout, cancel, child_pid,
+    ) {
         Ok(text) => CommandOutcome::Output(sanitize_output(&text, MAX_STATUS_LINE_LINES)),
         Err(error) => CommandOutcome::Failed {
             text: format!("[status line: {error}]"),
@@ -343,6 +372,8 @@ fn run_command_inner(
     cols: u16,
     lines: u16,
     timeout: Duration,
+    cancel: &AtomicBool,
+    child_pid: &AtomicU32,
 ) -> Result<String, String> {
     let mut json = serde_json::to_string(payload)
         .map_err(|error| format!("could not encode Grok's payload: {error}"))?;
@@ -355,6 +386,12 @@ fn run_command_inner(
     };
     let mut child = spawn(&expanded, &workdir, cols, lines)
         .map_err(|error| format!("could not start the script: {error}"))?;
+    child_pid.store(child.id(), Ordering::SeqCst);
+    if cancel.load(Ordering::SeqCst) {
+        kill_tree(&mut child);
+        child_pid.store(0, Ordering::SeqCst);
+        return Err("killed by signal".into());
+    }
     if let Some(mut stdin) = child.stdin.take() {
         let _ = stdin.write_all(json.as_bytes());
         drop(stdin);
@@ -409,11 +446,17 @@ fn run_command_inner(
                         .map(|code| format!("exit {code}"))
                         .unwrap_or_else(|| "killed by signal".into()));
                 }
+                child_pid.store(0, Ordering::SeqCst);
                 return Ok(String::from_utf8_lossy(&buf).into_owned());
             }
-            Ok(None) if started.elapsed() >= timeout => {
+            Ok(None) if cancel.load(Ordering::SeqCst) || started.elapsed() >= timeout => {
                 kill_tree(&mut child);
-                return Err("timed out".into());
+                child_pid.store(0, Ordering::SeqCst);
+                return Err(if cancel.load(Ordering::SeqCst) {
+                    "killed by signal".into()
+                } else {
+                    "timed out".into()
+                });
             }
             Ok(None) => thread::sleep(Duration::from_millis(20)),
             Err(error) => return Err(format!("could not wait for the script: {error}")),
@@ -469,15 +512,23 @@ fn is_shell_script(error: &std::io::Error) -> bool {
 }
 
 fn kill_tree(child: &mut std::process::Child) {
-    #[cfg(unix)]
-    {
-        let pid = child.id() as i32;
-        unsafe {
-            libc::kill(-pid, libc::SIGKILL);
-        }
-    }
+    kill_pgid(child.id());
     let _ = child.kill();
     let _ = child.wait();
+}
+
+fn kill_pgid(pid: u32) {
+    #[cfg(unix)]
+    {
+        let pgid = pid as i32;
+        unsafe {
+            libc::kill(-pgid, libc::SIGKILL);
+        }
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = pid;
+    }
 }
 
 fn expand_home(command: &str) -> String {
@@ -498,6 +549,8 @@ pub struct StatusLineRuntime {
     rx: Option<Receiver<CommandOutcome>>,
     in_flight: bool,
     last_started: Option<Instant>,
+    cancel: Arc<AtomicBool>,
+    child_pid: Arc<AtomicU32>,
 }
 
 impl StatusLineRuntime {
@@ -511,6 +564,8 @@ impl StatusLineRuntime {
             rx: None,
             in_flight: false,
             last_started: None,
+            cancel: Arc::new(AtomicBool::new(false)),
+            child_pid: Arc::new(AtomicU32::new(0)),
         }
     }
 
@@ -590,8 +645,18 @@ impl StatusLineRuntime {
     }
 
     pub fn shutdown(&mut self) {
+        self.cancel.store(true, Ordering::SeqCst);
+        let pid = self.child_pid.swap(0, Ordering::SeqCst);
+        if pid != 0 {
+            kill_pgid(pid);
+        }
         self.rx = None;
         self.in_flight = false;
+    }
+
+    #[cfg(test)]
+    fn spawned_pid(&self) -> u32 {
+        self.child_pid.load(Ordering::SeqCst)
     }
 
     fn spawn(&mut self, payload: JsonValue, cwd: PathBuf, cols: u16, lines: u16, refresh: bool) {
@@ -607,10 +672,16 @@ impl StatusLineRuntime {
         };
         self.last_payload = Some(payload.clone());
         self.last_started = Some(Instant::now());
+        self.cancel.store(false, Ordering::SeqCst);
+        self.child_pid.store(0, Ordering::SeqCst);
         let (tx, rx) = mpsc::channel();
         let timeout = COMMAND_TIMEOUT;
+        let cancel = Arc::clone(&self.cancel);
+        let child_pid = Arc::clone(&self.child_pid);
         thread::spawn(move || {
-            let mut outcome = run_command(&command, &payload, &cwd, cols, lines, timeout);
+            let mut outcome = run_command_tracked(
+                &command, &payload, &cwd, cols, lines, timeout, &cancel, &child_pid,
+            );
             if refresh && let CommandOutcome::Failed { refresh: flag, .. } = &mut outcome {
                 *flag = true;
             }
@@ -773,6 +844,49 @@ mod tests {
         }
         thread::sleep(Duration::from_millis(200));
         assert!(!canary.exists(), "BASH_ENV must not run");
+    }
+
+    #[test]
+    fn shutdown_kills_inflight_process_group_before_timeout() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let leaked = dir.path().join("quit-leaked");
+        let script = dir.path().join("slow.sh");
+        std::fs::write(
+            &script,
+            format!(
+                "#!/bin/sh\necho started\n(sleep 1; echo leaked > {}) &\nexec sleep 30\n",
+                leaked.display()
+            ),
+        )
+        .unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mut perms = std::fs::metadata(&script).unwrap().permissions();
+            perms.set_mode(0o755);
+            std::fs::set_permissions(&script, perms).unwrap();
+        }
+        let mut runtime = StatusLineRuntime::new(StatusLineConfig {
+            kind: StatusLineKind::Command,
+            command: Some(script.display().to_string()),
+            ..StatusLineConfig::default()
+        });
+        let snap = StatusSnapshot {
+            cwd: dir.path().to_path_buf(),
+            ..snap()
+        };
+        runtime.request_state(&snap, 40, 1);
+        let spawned = Instant::now();
+        while runtime.spawned_pid() == 0 && spawned.elapsed() < Duration::from_secs(2) {
+            thread::sleep(Duration::from_millis(10));
+        }
+        assert_ne!(runtime.spawned_pid(), 0, "status-line command must start");
+        thread::sleep(Duration::from_millis(80));
+        let started = Instant::now();
+        runtime.shutdown();
+        assert!(started.elapsed() < Duration::from_secs(2));
+        thread::sleep(Duration::from_millis(1500));
+        assert!(!leaked.exists(), "quit must kill leftover descendants");
     }
 
     #[test]

@@ -161,10 +161,9 @@ def main():
         try:
             locked.wait_visible('Connected to dsh ACP', 25)
             locked.write('/settings\r')
-            shown = locked.wait_visible('Settings', 10)
-            assert 'Theme' in shown or 'theme' in shown.lower()
-            if 'locked' in shown:
-                assert 'requirements' in shown
+            shown = locked.wait_visible('locked (requirements)', 10)
+            assert 'Theme' in shown
+            (output / 'locked-theme-open.txt').write_text(shown)
             locked.write('\x1b')
             locked.pump(0.3)
             locked.write('/theme grokday\r')
@@ -238,6 +237,34 @@ command = "{slow}"
         finally:
             timeout.close()
 
+        quit_canary = work / 'quit-leaked'
+        quit_started = work / 'quit-started'
+        quit_slow = grok / 'quit-slow.sh'
+        quit_slow.write_text(f'''#!/bin/sh
+echo started > "{quit_started}"
+(sleep 1; echo leaked > "{quit_canary}") &
+exec sleep 30
+''')
+        quit_slow.chmod(quit_slow.stat().st_mode | stat.S_IEXEC)
+        write_ready(grok, f'''
+[ui.status_line]
+type = "command"
+command = "{quit_slow}"
+''')
+        quit_before = Session('status-quit-before-timeout', launcher, cwd, base_env, output)
+        try:
+            quit_before.wait_visible('Connected to dsh ACP', 8)
+            deadline = time.monotonic() + 5
+            while time.monotonic() < deadline and not quit_started.exists():
+                time.sleep(0.05)
+            assert quit_started.exists(), 'status-line command never started before quit'
+            time.sleep(0.15)
+            results['pty-status-quit'] = quit_before.finish(expect_alt_leave=True)
+            time.sleep(1.6)
+            assert not quit_canary.exists(), f'quit must kill leftover descendants: {quit_canary.read_text() if quit_canary.exists() else ""}'
+        finally:
+            quit_before.close()
+
         write_ready(grok, '''
 [ui]
 theme = "tokyonight"
@@ -263,18 +290,28 @@ items = ["cwd", "model", "context"]
         finally:
             builtin.close()
 
+        write_ready(grok, '[ui]\ncompact_mode = false\n')
         mouse = Session('settings-mouse', launcher, cwd, base_env, output, rows=36, cols=100)
         try:
             mouse.wait_visible('Connected to dsh ACP', 25)
             mouse.write('/settings\r')
-            mouse.wait_visible('Compact mode', 8)
-            mouse.write(mouse_click(8, 8))
-            mouse.pump(0.5)
-            shown = mouse.visible()
-            assert 'Compact mode' in shown
+            shown = mouse.wait_visible('Compact mode', 8)
+            assert 'Compact mode  off' in shown or 'Compact mode off' in shown.replace('\n', ' ')
+            click_row = None
+            for idx, line in enumerate(shown.splitlines(), start=1):
+                if 'Compact mode' in line:
+                    click_row = idx
+                    break
+            assert click_row is not None, shown
+            mouse.write(mouse_click(click_row, 20))
+            shown = mouse.wait_visible('ui.compact_mode on', 8)
+            assert 'Compact mode  on' in shown or 'Compact mode on' in shown.replace('\n', ' ')
+            (output / 'settings-mouse-open.txt').write_text(shown)
             mouse.write('\x1b')
             mouse.pump(0.3)
             results['pty-mouse'] = mouse.finish(expect_alt_leave=True)
+            body = (grok / 'config.toml').read_text()
+            assert 'compact_mode = true' in body, body
         finally:
             mouse.close()
 

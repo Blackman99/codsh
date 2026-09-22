@@ -1,12 +1,14 @@
 use crate::appearance::{AppearanceConfig, SettingKind, SettingRow, settings_rows};
 use crate::screen_mode::ScreenMode;
 use crate::theme::{Theme, ThemeKind};
-use crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
+use crossterm::event::{
+    KeyCode, KeyEvent, KeyEventKind, KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
+};
 use ratatui::Frame;
 use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, Clear, Paragraph, Wrap};
+use ratatui::widgets::{Block, Borders, Clear, Paragraph};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Overlay {
@@ -28,8 +30,16 @@ pub struct SettingsState {
     pub filter: String,
     pub filter_focused: bool,
     pub picking: Option<PickerState>,
+    pub editing: Option<StringEdit>,
     pub original_theme: ThemeKind,
     pub preview_theme: Option<ThemeKind>,
+    pub list_area: Rect,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct StringEdit {
+    pub key: String,
+    pub buffer: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -48,6 +58,7 @@ pub struct ThemeState {
     pub original: ThemeKind,
     pub auto_mode: bool,
     pub filter: String,
+    pub list_area: Rect,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -67,8 +78,27 @@ impl SettingsState {
             filter: String::new(),
             filter_focused: false,
             picking: None,
+            editing: None,
             original_theme: config.theme,
             preview_theme: None,
+            list_area: Rect::default(),
+        }
+    }
+
+    pub fn refresh(&mut self, config: &AppearanceConfig, screen: ScreenMode) {
+        let key = self.focused().map(|row| row.key.clone());
+        let selected = self.selected;
+        self.rows = settings_rows(config, screen);
+        self.picking = None;
+        self.editing = None;
+        if let Some(key) = key
+            && let Some(index) = self.rows.iter().position(|row| row.key == key)
+        {
+            self.selected = index;
+        } else if !self.rows.is_empty() {
+            self.selected = selected.min(self.rows.len() - 1);
+        } else {
+            self.selected = 0;
         }
     }
 
@@ -111,6 +141,7 @@ impl ThemeState {
             original: config.theme,
             auto_mode: config.theme.is_auto(),
             filter: String::new(),
+            list_area: Rect::default(),
         }
     }
 
@@ -148,6 +179,9 @@ pub fn handle_key(
     config: &AppearanceConfig,
     screen: ScreenMode,
 ) -> OverlayAction {
+    if key.kind != KeyEventKind::Press {
+        return OverlayAction::None;
+    }
     match overlay {
         Overlay::None => OverlayAction::None,
         Overlay::Settings(_) => handle_settings_key(overlay, key, config, screen),
@@ -166,6 +200,9 @@ fn handle_settings_key(
     };
     if let Some(picker) = state.picking.clone() {
         return handle_picker(overlay, picker, key, config, screen);
+    }
+    if let Some(edit) = state.editing.clone() {
+        return handle_string_edit(state, edit, key);
     }
     if state.filter_focused {
         match key.code {
@@ -193,9 +230,12 @@ fn handle_settings_key(
     } else {
         match key.code {
             KeyCode::Esc | KeyCode::F(2) => {
-                let restore = state.original_theme;
+                let restore = state.preview_theme.map(|_| state.original_theme);
                 *overlay = Overlay::None;
-                OverlayAction::RestoreTheme(restore)
+                match restore {
+                    Some(kind) => OverlayAction::RestoreTheme(kind),
+                    None => OverlayAction::None,
+                }
             }
             KeyCode::Char('/') => {
                 state.filter_focused = true;
@@ -243,6 +283,9 @@ fn handle_picker(
                 picker.cursor -= 1;
             }
             let action = preview_picker(&picker, config);
+            if let OverlayAction::PreviewTheme(kind) = action {
+                state.preview_theme = Some(kind);
+            }
             state.picking = Some(picker);
             action
         }
@@ -251,6 +294,9 @@ fn handle_picker(
                 picker.cursor += 1;
             }
             let action = preview_picker(&picker, config);
+            if let OverlayAction::PreviewTheme(kind) = action {
+                state.preview_theme = Some(kind);
+            }
             state.picking = Some(picker);
             action
         }
@@ -262,6 +308,11 @@ fn handle_picker(
                 .unwrap_or_default();
             let key = picker.key.clone();
             state.picking = None;
+            if key == "ui.theme" {
+                state.preview_theme = None;
+                state.original_theme = ThemeKind::from_name_gated(&value, config.terminal_theme)
+                    .unwrap_or(state.original_theme);
+            }
             OverlayAction::Persist { key, value }
         }
         _ => {
@@ -311,7 +362,47 @@ fn activate_row(
             });
             OverlayAction::None
         }
-        SettingKind::String(_) => OverlayAction::None,
+        SettingKind::String(value) => {
+            state.editing = Some(StringEdit {
+                key: row.key,
+                buffer: value,
+            });
+            OverlayAction::None
+        }
+    }
+}
+
+fn handle_string_edit(
+    state: &mut SettingsState,
+    mut edit: StringEdit,
+    key: KeyEvent,
+) -> OverlayAction {
+    match key.code {
+        KeyCode::Esc => {
+            state.editing = None;
+            OverlayAction::None
+        }
+        KeyCode::Enter => {
+            state.editing = None;
+            OverlayAction::Persist {
+                key: edit.key,
+                value: edit.buffer,
+            }
+        }
+        KeyCode::Backspace => {
+            edit.buffer.pop();
+            state.editing = Some(edit);
+            OverlayAction::None
+        }
+        KeyCode::Char(ch) if key.modifiers.is_empty() || key.modifiers == KeyModifiers::SHIFT => {
+            edit.buffer.push(ch);
+            state.editing = Some(edit);
+            OverlayAction::None
+        }
+        _ => {
+            state.editing = Some(edit);
+            OverlayAction::None
+        }
     }
 }
 
@@ -382,35 +473,53 @@ fn handle_theme_key(
 pub fn handle_mouse(
     overlay: &mut Overlay,
     mouse: MouseEvent,
-    area: Rect,
+    _area: Rect,
     config: &AppearanceConfig,
 ) -> OverlayAction {
-    let Overlay::Settings(state) = overlay else {
-        if let Overlay::Theme(state) = overlay
-            && mouse.kind == MouseEventKind::Down(MouseButton::Left)
-        {
+    if mouse.kind != MouseEventKind::Down(MouseButton::Left) {
+        return OverlayAction::None;
+    }
+    match overlay {
+        Overlay::Theme(state) => {
+            let list = state.list_area;
+            if list.height == 0 || !point_in(list, mouse.column, mouse.row) {
+                return OverlayAction::None;
+            }
             let filtered = state.filtered();
-            let index = mouse.row.saturating_sub(area.y.saturating_add(2)) as usize;
+            let index = mouse.row.saturating_sub(list.y) as usize;
             if let Some((choice_index, _)) = filtered.get(index) {
                 state.cursor = *choice_index;
                 return OverlayAction::PreviewTheme(state.current());
             }
+            OverlayAction::None
         }
-        return OverlayAction::None;
-    };
-    if mouse.kind != MouseEventKind::Down(MouseButton::Left) {
-        return OverlayAction::None;
+        Overlay::Settings(state) => {
+            let list = state.list_area;
+            if list.height == 0 || !point_in(list, mouse.column, mouse.row) {
+                return OverlayAction::None;
+            }
+            let visible = state.visible();
+            let banner = usize::from(state.rows.iter().all(|row| row.key != "ui.theme"));
+            let index = mouse.row.saturating_sub(list.y) as usize;
+            let index = index.saturating_sub(banner);
+            if let Some(row_index) = visible.get(index).copied() {
+                state.selected = row_index;
+                return activate_row(state, config, ScreenMode::Fullscreen);
+            }
+            OverlayAction::None
+        }
+        Overlay::None => OverlayAction::None,
     }
-    let visible = state.visible();
-    let index = mouse.row.saturating_sub(area.y.saturating_add(2)) as usize;
-    if let Some(row_index) = visible.get(index).copied() {
-        state.selected = row_index;
-        return activate_row(state, config, ScreenMode::Fullscreen);
-    }
-    OverlayAction::None
 }
 
-pub fn render(frame: &mut Frame, overlay: &Overlay, theme: &Theme, screen: ScreenMode) {
+fn point_in(area: Rect, x: u16, y: u16) -> bool {
+    x >= area.x
+        && x < area.x.saturating_add(area.width)
+        && y >= area.y
+        && y < area.y.saturating_add(area.height)
+}
+
+pub fn render(frame: &mut Frame, overlay: &mut Overlay, theme: &Theme, screen: ScreenMode) {
     match overlay {
         Overlay::None => {}
         Overlay::Settings(state) => render_settings(frame, state, theme, screen),
@@ -430,7 +539,12 @@ fn modal_area(frame: &Frame, width: u16, height: u16) -> Rect {
     }
 }
 
-fn render_settings(frame: &mut Frame, state: &SettingsState, theme: &Theme, screen: ScreenMode) {
+fn render_settings(
+    frame: &mut Frame,
+    state: &mut SettingsState,
+    theme: &Theme,
+    screen: ScreenMode,
+) {
     let area = modal_area(frame, 78, (6 + state.rows.len() as u16).min(22));
     frame.render_widget(Clear, area);
     let block = Block::bordered()
@@ -439,6 +553,7 @@ fn render_settings(frame: &mut Frame, state: &SettingsState, theme: &Theme, scre
     let inner = block.inner(area);
     frame.render_widget(block, area);
     let [list, footer] = Layout::vertical([Constraint::Min(3), Constraint::Length(2)]).areas(inner);
+    state.list_area = list;
     let visible = state.visible();
     let mut lines = Vec::new();
     if screen == ScreenMode::Minimal {
@@ -485,15 +600,27 @@ fn render_settings(frame: &mut Frame, state: &SettingsState, theme: &Theme, scre
             lines.push(Line::from(format!("{mark} {choice}")));
         }
     }
-    frame.render_widget(Paragraph::new(lines).wrap(Wrap { trim: false }), list);
+    if let Some(edit) = &state.editing {
+        lines.push(Line::from(""));
+        lines.push(Line::from(format!("Edit {}: {}_", edit.key, edit.buffer)));
+    }
+    // One SettingRow per terminal row so mouse hit-testing matches the painted list.
+    frame.render_widget(Paragraph::new(lines), list);
     let footer_text = if state.filter_focused {
         format!("filter: {}  Esc cancel", state.filter)
+    } else if state.editing.is_some() {
+        "type value  Enter save  Esc cancel".to_string()
     } else if state
         .focused()
         .and_then(|row| row.locked.as_ref())
         .is_some()
     {
         "↑/↓ nav  → expand  / search  Esc close".to_string()
+    } else if matches!(
+        state.focused().map(|row| &row.kind),
+        Some(SettingKind::String(_))
+    ) {
+        "↑/↓ nav  Enter edit  / search  Esc close".to_string()
     } else {
         "↑/↓ nav  Enter edit  Space toggle  / search  Esc close".to_string()
     };
@@ -503,7 +630,7 @@ fn render_settings(frame: &mut Frame, state: &SettingsState, theme: &Theme, scre
     );
 }
 
-fn render_theme(frame: &mut Frame, state: &ThemeState, theme: &Theme) {
+fn render_theme(frame: &mut Frame, state: &mut ThemeState, theme: &Theme) {
     let area = modal_area(frame, 48, 14);
     frame.render_widget(Clear, area);
     let block = Block::bordered()
@@ -512,6 +639,7 @@ fn render_theme(frame: &mut Frame, state: &ThemeState, theme: &Theme) {
         .style(Style::default().fg(theme.text_primary).bg(theme.bg_base));
     let inner = block.inner(area);
     frame.render_widget(block, area);
+    state.list_area = inner;
     let filtered = state.filtered();
     let lines: Vec<Line> = filtered
         .iter()
@@ -536,7 +664,6 @@ pub fn help_text() -> &'static str {
 mod tests {
     use super::*;
     use crate::appearance::AppearanceConfig;
-    use crossterm::event::KeyEventKind;
 
     fn key(code: KeyCode) -> KeyEvent {
         KeyEvent::new(code, KeyModifiers::NONE)
@@ -615,6 +742,30 @@ mod tests {
     }
 
     #[test]
+    fn refresh_rebuilds_rows_after_bool_change() {
+        let mut config = AppearanceConfig::default();
+        let mut overlay = Overlay::Settings(SettingsState::open(&config, ScreenMode::Fullscreen));
+        if let Overlay::Settings(state) = &overlay {
+            let compact = state
+                .rows
+                .iter()
+                .find(|row| row.key == "ui.compact_mode")
+                .unwrap();
+            assert_eq!(compact.value, "off");
+        }
+        config.compact_mode = true;
+        if let Overlay::Settings(state) = &mut overlay {
+            state.refresh(&config, ScreenMode::Fullscreen);
+            let compact = state
+                .rows
+                .iter()
+                .find(|row| row.key == "ui.compact_mode")
+                .unwrap();
+            assert_eq!(compact.value, "on");
+        }
+    }
+
+    #[test]
     fn settings_bool_toggle_dispatches_persistable_action() {
         let config = AppearanceConfig::default();
         let mut overlay = Overlay::Settings(SettingsState::open(&config, ScreenMode::Fullscreen));
@@ -641,35 +792,156 @@ mod tests {
     }
 
     #[test]
-    fn mouse_click_selects_settings_row() {
+    fn mouse_click_toggles_compact_mode_on_list_rect() {
         let config = AppearanceConfig::default();
         let mut overlay = Overlay::Settings(SettingsState::open(&config, ScreenMode::Fullscreen));
-        let area = Rect::new(0, 0, 80, 24);
+        if let Overlay::Settings(state) = &mut overlay {
+            state.list_area = Rect::new(10, 4, 60, 12);
+            state.selected = 0;
+        }
         let action = handle_mouse(
             &mut overlay,
             MouseEvent {
                 kind: MouseEventKind::Down(MouseButton::Left),
-                column: 4,
-                row: 3,
+                column: 12,
+                row: 4,
                 modifiers: KeyModifiers::NONE,
             },
-            area,
+            Rect::new(0, 0, 80, 24),
             &config,
         );
-        assert!(matches!(
+        assert_eq!(
             action,
-            OverlayAction::ToggleBool { .. } | OverlayAction::None
-        ));
+            OverlayAction::ToggleBool {
+                key: "ui.compact_mode".into(),
+                value: true
+            }
+        );
+        let miss = handle_mouse(
+            &mut overlay,
+            MouseEvent {
+                kind: MouseEventKind::Down(MouseButton::Left),
+                column: 1,
+                row: 1,
+                modifiers: KeyModifiers::NONE,
+            },
+            Rect::new(0, 0, 80, 24),
+            &config,
+        );
+        assert_eq!(miss, OverlayAction::None);
     }
 
     #[test]
-    fn keyeventkind_repeat_is_ignored_by_caller_contract() {
-        let event = KeyEvent {
-            code: KeyCode::Enter,
-            modifiers: KeyModifiers::NONE,
-            kind: KeyEventKind::Repeat,
-            state: crossterm::event::KeyEventState::NONE,
-        };
-        assert_ne!(event.kind, KeyEventKind::Release);
+    fn string_row_enter_edits_and_enter_persists() {
+        let mut config = AppearanceConfig::default();
+        config.status_line.kind = crate::appearance::StatusLineKind::Command;
+        config.status_line.command = Some("/tmp/status.sh".into());
+        let mut overlay = Overlay::Settings(SettingsState::open(&config, ScreenMode::Fullscreen));
+        if let Overlay::Settings(state) = &mut overlay {
+            state.selected = state
+                .rows
+                .iter()
+                .position(|row| row.key == "ui.status_line.command")
+                .unwrap();
+        }
+        let action = handle_key(
+            &mut overlay,
+            key(KeyCode::Enter),
+            &config,
+            ScreenMode::Fullscreen,
+        );
+        assert_eq!(action, OverlayAction::None);
+        let persist = handle_key(
+            &mut overlay,
+            key(KeyCode::Enter),
+            &config,
+            ScreenMode::Fullscreen,
+        );
+        assert_eq!(
+            persist,
+            OverlayAction::Persist {
+                key: "ui.status_line.command".into(),
+                value: "/tmp/status.sh".into()
+            }
+        );
+    }
+
+    #[test]
+    fn settings_escape_after_theme_persist_does_not_restore() {
+        let mut config = AppearanceConfig::default();
+        let mut overlay = Overlay::Settings(SettingsState::open(&config, ScreenMode::Fullscreen));
+        if let Overlay::Settings(state) = &mut overlay {
+            state.selected = state
+                .rows
+                .iter()
+                .position(|row| row.key == "ui.theme")
+                .unwrap();
+        }
+        handle_key(
+            &mut overlay,
+            key(KeyCode::Enter),
+            &config,
+            ScreenMode::Fullscreen,
+        );
+        handle_key(
+            &mut overlay,
+            key(KeyCode::Down),
+            &config,
+            ScreenMode::Fullscreen,
+        );
+        let persist = handle_key(
+            &mut overlay,
+            key(KeyCode::Enter),
+            &config,
+            ScreenMode::Fullscreen,
+        );
+        assert!(matches!(
+            persist,
+            OverlayAction::Persist { ref key, .. } if key == "ui.theme"
+        ));
+        config.theme = ThemeKind::GrokDay;
+        if let Overlay::Settings(state) = &mut overlay {
+            state.refresh(&config, ScreenMode::Fullscreen);
+        }
+        let close = handle_key(
+            &mut overlay,
+            key(KeyCode::Esc),
+            &config,
+            ScreenMode::Fullscreen,
+        );
+        assert_eq!(close, OverlayAction::None);
+        assert!(overlay.is_none());
+    }
+
+    #[test]
+    fn handle_key_ignores_repeat_and_toggles_on_press() {
+        let config = AppearanceConfig::default();
+        let mut overlay = Overlay::Settings(SettingsState::open(&config, ScreenMode::Fullscreen));
+        if let Overlay::Settings(state) = &mut overlay {
+            state.selected = state
+                .rows
+                .iter()
+                .position(|row| row.key == "ui.compact_mode")
+                .unwrap();
+        }
+        let mut repeat = key(KeyCode::Enter);
+        repeat.kind = KeyEventKind::Repeat;
+        assert_eq!(
+            handle_key(&mut overlay, repeat, &config, ScreenMode::Fullscreen),
+            OverlayAction::None
+        );
+        let press = handle_key(
+            &mut overlay,
+            key(KeyCode::Enter),
+            &config,
+            ScreenMode::Fullscreen,
+        );
+        assert_eq!(
+            press,
+            OverlayAction::ToggleBool {
+                key: "ui.compact_mode".into(),
+                value: true
+            }
+        );
     }
 }

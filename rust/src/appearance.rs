@@ -1149,6 +1149,21 @@ mod tests {
     }
 
     #[test]
+    fn toggling_confirm_before_rewind_updates_live_appearance() {
+        let mut config = AppearanceConfig::default();
+        assert!(config.confirm_before_rewind);
+        let encoded = apply_setting(&mut config, "ui.confirm_before_rewind", "false").unwrap();
+        assert_eq!(encoded, "false");
+        assert!(!config.confirm_before_rewind);
+        let rows = settings_rows(&config, ScreenMode::Fullscreen);
+        let row = rows
+            .iter()
+            .find(|row| row.key == "ui.confirm_before_rewind")
+            .unwrap();
+        assert_eq!(row.value, "off");
+    }
+
+    #[test]
     fn disabled_status_line_is_default_and_aliases_parse() {
         assert_eq!(StatusLineKind::parse("off"), Some(StatusLineKind::Disabled));
         assert_eq!(

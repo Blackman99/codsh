@@ -1166,7 +1166,7 @@ fn paint(
     selected: Option<usize>,
     theme: &theme::Theme,
     compact: bool,
-    ui_overlay: &UiOverlay,
+    ui_overlay: &mut UiOverlay,
 ) -> io::Result<()> {
     terminal.draw(|frame| {
         if screen == ScreenMode::Minimal {
@@ -1298,6 +1298,8 @@ fn apply_overlay_action(
     hint: &mut String,
     last_error: &mut String,
     status_runtime: &mut status_line::StatusLineRuntime,
+    prefs: &mut UiPrefs,
+    ui_overlay: &mut UiOverlay,
 ) {
     match action {
         OverlayAction::None => {}
@@ -1328,6 +1330,12 @@ fn apply_overlay_action(
             ) {
                 Ok(encoded) => match persist_appearance(effective, &key, &encoded) {
                     Ok(()) => {
+                        if key == "ui.confirm_before_rewind" {
+                            prefs.confirm_before_rewind = value;
+                        }
+                        if let UiOverlay::Settings(state) = ui_overlay {
+                            state.refresh(&effective.appearance, screen);
+                        }
                         *hint = format!("{} {}", key, if value { "on" } else { "off" });
                         last_error.clear();
                     }
@@ -1344,9 +1352,13 @@ fn apply_overlay_action(
                         *live_theme = effective.appearance.resolved_theme(screen);
                         apply_cursor_color(live_theme);
                         if key.starts_with("ui.status_line") {
+                            status_runtime.shutdown();
                             *status_runtime = status_line::StatusLineRuntime::new(
                                 effective.appearance.status_line.clone(),
                             );
+                        }
+                        if let UiOverlay::Settings(state) = ui_overlay {
+                            state.refresh(&effective.appearance, screen);
                         }
                         *hint = format!("{key} = {value}");
                         last_error.clear();
@@ -1731,7 +1743,7 @@ fn run() -> io::Result<()> {
         None,
         &theme::Theme::offline(),
         false,
-        &UiOverlay::None,
+        &mut UiOverlay::None,
     )?;
     let mut selected = None;
     let mut turns: Vec<Turn> = Vec::new();
@@ -1965,13 +1977,13 @@ fn run() -> io::Result<()> {
             selected,
             &live_theme,
             effective.appearance.compact_mode,
-            &ui_overlay,
+            &mut ui_overlay,
         )?;
         if !event::poll(Duration::from_millis(80))? {
             continue;
         }
         match event::read()? {
-            Event::Key(key) if key.kind != KeyEventKind::Release => {
+            Event::Key(key) if key.kind == KeyEventKind::Press => {
                 if key.modifiers.contains(KeyModifiers::CONTROL)
                     && matches!(key.code, KeyCode::Char('q' | 'd'))
                 {
@@ -1998,6 +2010,8 @@ fn run() -> io::Result<()> {
                         &mut hint,
                         &mut last_error,
                         &mut status_runtime,
+                        &mut prefs,
+                        &mut ui_overlay,
                     );
                     continue;
                 }
@@ -2228,6 +2242,7 @@ fn run() -> io::Result<()> {
                             }
                             KeyCode::Char('a') => {
                                 prefs.confirm_before_rewind = false;
+                                effective.appearance.confirm_before_rewind = false;
                                 let _ = session_fork::save_confirm_before_rewind(
                                     &effective.grok_home,
                                     false,
@@ -2370,6 +2385,8 @@ fn run() -> io::Result<()> {
                                                 &mut hint,
                                                 &mut last_error,
                                                 &mut status_runtime,
+                                                &mut prefs,
+                                                &mut ui_overlay,
                                             );
                                         } else {
                                             match appearance::apply_setting(
@@ -2888,6 +2905,8 @@ fn run() -> io::Result<()> {
                         &mut hint,
                         &mut last_error,
                         &mut status_runtime,
+                        &mut prefs,
+                        &mut ui_overlay,
                     );
                 }
                 let _ = MouseEventKind::Moved;
