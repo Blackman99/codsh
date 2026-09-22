@@ -253,6 +253,14 @@ env_key = "XAI_API_KEY"
         assert 'exec=false' in ui['screen']
         results['pty-plugins'] = {'exit': ui['exit']}
 
+        ctrl_l = pty_session('ctrl-l', launcher, cwd, base_env, output,
+                             typed='\x0c',
+                             wait_after=['Draft (not sent)'])
+        assert ctrl_l['exit'] == 0
+        assert 'Plugins  (Tab' not in ctrl_l['screen'], ctrl_l['screen']
+        assert 'Marketplace  (Tab' not in ctrl_l['screen'], ctrl_l['screen']
+        results['pty-ctrl-l'] = {'openedPlugins': False}
+
         removed = spawn_rust(launcher, cwd, base_env, ['plugin', 'uninstall', 'sample-tools'])
         assert removed.returncode == 0, removed.stderr + removed.stdout
         after_remove = json.loads(spawn_rust(launcher, cwd, base_env, ['inspect', '--json']).stdout)
