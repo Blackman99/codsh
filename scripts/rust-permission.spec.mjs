@@ -192,6 +192,43 @@ describe('rust permission evaluator', () => {
   it('does not auto-allow rg --pre or sort --compress-program as read-only', () => {
     expect(evaluatePermission(policy(), { kind: 'bash', command: 'rg --pre cat foo' }).kind).toBe('ask')
     expect(evaluatePermission(policy(), { kind: 'bash', command: 'sort --compress-program=gzip file' }).kind).toBe('ask')
+    expect(evaluatePermission(policy({ mode: 'dontAsk' }), { kind: 'bash', command: 'sort --compress-pro=gzip file' }).kind).toBe('deny')
+    expect(evaluatePermission(policy({ mode: 'dontAsk' }), { kind: 'bash', command: 'sort --compress-p=gzip file' }).kind).toBe('deny')
+  })
+
+  it('does not let brace groups or ANSI-C bash -c bypass deny', () => {
+    const denyRm = policy({
+      mode: 'always-approve',
+      rules: [{ action: 'deny', tool: 'bash', pattern: 'rm -rf *', patternMode: 'glob' }],
+    })
+    for (const command of [
+      '{ rm -rf /; }',
+      '{rm -rf /}',
+      'true && { rm -rf /; }',
+      'function x { rm -rf /; }',
+      'bash -c "{ rm -rf /; }"',
+      "bash -c $'rm -rf /'",
+    ]) {
+      expect(evaluatePermission(denyRm, { kind: 'bash', command }).kind, command).toBe('deny')
+    }
+  })
+
+  it('auto-allows the frozen git read-only subcommands and not writes', () => {
+    const quiet = policy({ mode: 'dontAsk' })
+    for (const command of [
+      'git cat-file -t HEAD',
+      'git ls-tree HEAD',
+      'git check-ignore path',
+      'git show-ref',
+      'git for-each-ref',
+      'git rev-list HEAD',
+      'git name-rev HEAD',
+      'git count-objects',
+      'git check-attr -a path',
+    ]) {
+      expect(evaluatePermission(quiet, { kind: 'bash', command }).kind, command).toBe('allow')
+    }
+    expect(evaluatePermission(quiet, { kind: 'bash', command: 'git commit -m x' }).kind).toBe('deny')
   })
 
   it('matches glob character classes on deny', () => {

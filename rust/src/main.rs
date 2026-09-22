@@ -33,6 +33,7 @@ use screen_mode::{
     GROK_SCREEN_MODE_ENV, MINIMAL_OVERLAY_HEIGHT, SCREEN_MODE_SWITCH_ENV, ScreenMode, SlashAction,
     SwitchPolicy,
 };
+use serde_json::Value;
 use session_fork::{RewindPoint, UiPrefs};
 use session_history::{RestoredCompactionRecord, RestoredTurn};
 use session_owner::SessionOwner;
@@ -172,9 +173,11 @@ fn profile() -> io::Result<()> {
 struct ToolRow {
     id: String,
     title: String,
+    kind: String,
     status: String,
     diff: String,
     result: String,
+    raw_input: Value,
 }
 
 struct Turn {
@@ -264,6 +267,13 @@ struct Launch {
     deny: Vec<String>,
 }
 
+fn is_subcommand(arg: &str) -> bool {
+    matches!(
+        arg,
+        "inspect" | "import" | "feedback" | "plugin" | "login" | "logout" | "setup"
+    )
+}
+
 fn take_flag_value(
     args: &[String],
     index: &mut usize,
@@ -343,49 +353,6 @@ fn parse_launch(args: &[String]) -> io::Result<Launch> {
             "missing session id; --session-id requires --fork-session",
         )? {
             child_id = Some(value);
-        } else if let Some(value) = take_flag_value(
-            args,
-            &mut index,
-            "--permission-mode",
-            "missing --permission-mode value; use ask, auto, always-approve, dontAsk, or acceptEdits",
-        )? {
-            permission::PermissionMode::parse(&value).map_err(io::Error::other)?;
-            permission_mode = Some(value);
-        } else if let Some(value) = take_flag_value(
-            args,
-            &mut index,
-            "--allow",
-            "missing --allow rule; example: --allow 'Bash(git *)'",
-        )? {
-            allow.push(value);
-        } else if let Some(value) = take_flag_value(
-            args,
-            &mut index,
-            "--allowedTools",
-            "missing --allowedTools rule; example: --allowedTools 'Read'",
-        )? {
-            allow.push(value);
-        } else if let Some(value) = take_flag_value(
-            args,
-            &mut index,
-            "--deny",
-            "missing --deny rule; example: --deny 'Bash(rm -rf *)'",
-        )? {
-            deny.push(value);
-        } else if let Some(value) = take_flag_value(
-            args,
-            &mut index,
-            "--disallowedTools",
-            "missing --disallowedTools rule",
-        )? {
-            deny.push(value);
-        } else if let Some(value) = take_flag_value(
-            args,
-            &mut index,
-            "--disallowed-tools",
-            "missing --disallowed-tools rule",
-        )? {
-            deny.push(value);
         } else {
             let arg = &args[index];
             if arg == "--trust" && args.iter().any(|item| item == "plugin") {
@@ -434,6 +401,63 @@ fn parse_launch(args: &[String]) -> io::Result<Launch> {
                 always_approve = true;
             } else if arg == "--auto" {
                 auto = true;
+            } else if matches!(
+                arg.as_str(),
+                "--permission-mode"
+                    | "--allow"
+                    | "--allowedTools"
+                    | "--deny"
+                    | "--disallowedTools"
+                    | "--disallowed-tools"
+            ) || arg.starts_with("--permission-mode=")
+                || arg.starts_with("--allow=")
+                || arg.starts_with("--allowedTools=")
+                || arg.starts_with("--deny=")
+                || arg.starts_with("--disallowedTools=")
+                || arg.starts_with("--disallowed-tools=")
+            {
+                if rest.iter().any(|item| is_subcommand(item)) {
+                    rest.push(arg.clone());
+                } else if arg == "--permission-mode" || arg.starts_with("--permission-mode=") {
+                    let value = if let Some(inline) = arg.strip_prefix("--permission-mode=") {
+                        inline.to_string()
+                    } else {
+                        index += 1;
+                        args.get(index)
+                            .filter(|value| !value.starts_with('-') && !is_subcommand(value))
+                            .cloned()
+                            .ok_or_else(|| {
+                                io::Error::other(
+                                    "missing --permission-mode value; use ask, auto, always-approve, dontAsk, or acceptEdits",
+                                )
+                            })?
+                    };
+                    permission::PermissionMode::parse(&value).map_err(io::Error::other)?;
+                    permission_mode = Some(value);
+                } else {
+                    let (flag, inline) = arg
+                        .split_once('=')
+                        .map(|(flag, value)| (flag, Some(value.to_string())))
+                        .unwrap_or((arg.as_str(), None));
+                    let value = if let Some(value) = inline {
+                        value
+                    } else {
+                        index += 1;
+                        args.get(index)
+                            .filter(|value| !value.starts_with('-') && !is_subcommand(value))
+                            .cloned()
+                            .ok_or_else(|| {
+                                io::Error::other(format!(
+                                    "missing {flag} rule; example: {flag} 'Bash(git *)'"
+                                ))
+                            })?
+                    };
+                    if flag == "--allow" || flag == "--allowedTools" {
+                        allow.push(value);
+                    } else {
+                        deny.push(value);
+                    }
+                }
             } else {
                 rest.push(arg.clone());
             }
@@ -733,9 +757,11 @@ fn turn_from_restored(item: RestoredTurn) -> Turn {
             .map(|tool| ToolRow {
                 id: tool.id,
                 title: tool.title,
+                kind: String::new(),
                 status: tool.status,
                 diff: tool.diff,
                 result: tool.result,
+                raw_input: Value::Null,
             })
             .collect(),
         permission: None,
@@ -1454,14 +1480,20 @@ fn apply_events(
             AcpEvent::ToolCall {
                 tool_call_id,
                 title,
+                kind,
                 status,
+                raw_input,
                 diff,
                 ..
             } => {
                 if let Some(turn) = turns.last_mut() {
                     if let Some(tool) = turn.tools.iter_mut().find(|tool| tool.id == tool_call_id) {
                         tool.title = title;
+                        tool.kind = kind;
                         tool.status = status;
+                        if raw_input != Value::Null {
+                            tool.raw_input = raw_input;
+                        }
                         if !diff.is_empty() {
                             tool.diff = diff;
                         }
@@ -1469,9 +1501,11 @@ fn apply_events(
                         turn.tools.push(ToolRow {
                             id: tool_call_id,
                             title,
+                            kind,
                             status,
                             diff,
                             result: String::new(),
+                            raw_input,
                         });
                     }
                 }
@@ -1492,9 +1526,11 @@ fn apply_events(
                         turn.tools.push(ToolRow {
                             id: tool_call_id.clone(),
                             title: "tool".into(),
+                            kind: String::new(),
                             status: status.clone(),
                             diff: String::new(),
                             result: content,
+                            raw_input: Value::Null,
                         });
                     }
                     if status == "failed" && turn.error.is_none() {
@@ -1840,7 +1876,9 @@ fn permission_slash(text: &str) -> Option<permission::PermissionMode> {
 }
 
 fn tool_access(tool: &ToolRow) -> permission::AccessKind {
-    for name in [tool.title.as_str(), tool.kind.as_str()] {
+    // Kind is the tool name (`edit`, `bash`). Title is display text and must
+    // not win, or a remembered edit is stored as an unmatchable tool grant.
+    for name in [tool.kind.as_str(), tool.title.as_str()] {
         if name.is_empty() {
             continue;
         }
@@ -1850,10 +1888,10 @@ fn tool_access(tool: &ToolRow) -> permission::AccessKind {
         }
     }
     permission::access_from_tool(
-        if tool.title.is_empty() {
-            tool.kind.as_str()
-        } else {
+        if tool.kind.is_empty() {
             tool.title.as_str()
+        } else {
+            tool.kind.as_str()
         },
         &tool.raw_input,
     )

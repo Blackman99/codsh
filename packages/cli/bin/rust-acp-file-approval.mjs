@@ -184,7 +184,7 @@ function hasBackgroundAmp(command) {
 function isUnsplittable(command) {
   return /\$\(/.test(command)
     || command.includes('`')
-    || /(?<![\\])[()]/.test(command)
+    || /(?<![\\])[(){}]/.test(command)
     || hasBackgroundAmp(command)
     || isControlFlow(command)
     || isUnpeelable(command)
@@ -286,12 +286,58 @@ function extractSubstitutions(command) {
   return out.map(part => part.trim()).filter(Boolean)
 }
 
+function decodeAnsiC(body) {
+  let out = ''
+  for (let i = 0; i < body.length; i += 1) {
+    if (body[i] !== '\\') {
+      out += body[i]
+      continue
+    }
+    const next = body[i + 1]
+    if (next === undefined) {
+      out += '\\'
+      break
+    }
+    const simple = { n: '\n', t: '\t', r: '\r', a: '\u0007', b: '\b', f: '\f', v: '\v', '\\': '\\', "'": "'", '"': '"' }
+    if (simple[next] !== undefined) {
+      out += simple[next]
+      i += 1
+      continue
+    }
+    if (next === 'x' && /^[0-9a-fA-F]{1,2}/u.test(body.slice(i + 2, i + 4))) {
+      const hex = body.slice(i + 2, i + 4).match(/^[0-9a-fA-F]{1,2}/u)[0]
+      out += String.fromCharCode(Number.parseInt(hex, 16))
+      i += 1 + hex.length
+      continue
+    }
+    if (/[0-7]/u.test(next)) {
+      const oct = body.slice(i + 1, i + 4).match(/^[0-7]{1,3}/u)[0]
+      out += String.fromCharCode(Number.parseInt(oct, 8))
+      i += oct.length
+      continue
+    }
+    out += next
+    i += 1
+  }
+  return out
+}
+
 function shellWords(command) {
   const words = []
   let i = 0
   while (i < command.length) {
     while (command[i] === ' ' || command[i] === '\t') i += 1
     if (i >= command.length) break
+    if (command.startsWith("$'", i)) {
+      const end = command.indexOf("'", i + 2)
+      if (end < 0) {
+        words.push(decodeAnsiC(command.slice(i + 2)))
+        break
+      }
+      words.push(decodeAnsiC(command.slice(i + 2, end)))
+      i = end + 1
+      continue
+    }
     if (command[i] === '"' || command[i] === "'") {
       const quote = command[i]
       i += 1
@@ -360,6 +406,33 @@ function controlFlowBodies(command) {
   return splitSimple(stripped)
 }
 
+function braceBodies(command) {
+  const out = []
+  let i = 0
+  let quote = ''
+  while (i < command.length) {
+    const ch = command[i]
+    if (quote) {
+      if (ch === quote) quote = ''
+      i += 1
+      continue
+    }
+    if (ch === "'" || ch === '"') {
+      quote = ch
+      i += 1
+      continue
+    }
+    if (ch === '{') {
+      const [inner, next] = takeBalanced(command, i + 1, '{', '}')
+      if (inner.trim()) out.push(inner.trim())
+      i = next
+      continue
+    }
+    i += 1
+  }
+  return out
+}
+
 function bashInspectSubjects(command, seen = new Set()) {
   const trimmed = command.trimStart()
   if (!trimmed || seen.has(trimmed)) return []
@@ -369,6 +442,7 @@ function bashInspectSubjects(command, seen = new Set()) {
     ...extractSubstitutions(command),
     ...extractDashCScripts(command),
     ...controlFlowBodies(command),
+    ...braceBodies(command),
   ]) {
     subjects.push(...bashInspectSubjects(inner, seen))
   }
@@ -665,17 +739,34 @@ function dangerous(command) {
     || (head === 'git' && words[1] === 'push')
 }
 
+function uniqueLongOption(word, canonical) {
+  if (!word.startsWith('--') || word.startsWith('---')) return false
+  const name = word.slice(2).split('=', 1)[0]
+  return name.length > 0 && name.length <= canonical.length && canonical.startsWith(name)
+}
+
+function raisesReadonlyFloor(words) {
+  const head = words[0]
+  if (head === 'rg' && words.some(word => word === '--pre' || word.startsWith('--pre='))) return true
+  if (head === 'sort' && words.some(word => uniqueLongOption(word, 'compress-program'))) return true
+  if (head === 'git' && words.some(word => word === '-c' || word.startsWith('--config-env'))) return true
+  return false
+}
+
+const GIT_READONLY = new Set([
+  'status', 'branch', 'log', 'diff', 'ls-files', 'show', 'rev-parse', 'blame', 'describe',
+  'merge-base', 'shortlog', 'check-ignore', 'check-attr', 'cat-file', 'ls-tree', 'show-ref',
+  'for-each-ref', 'rev-list', 'name-rev', 'count-objects',
+])
+
 function readonlyCommand(command) {
   const words = command.split(/\s+/u)
   const head = words[0]
-  if (head === 'rg' && words.some(word => word === '--pre' || word.startsWith('--pre='))) return false
-  if (head === 'sort' && words.some(word => word.startsWith('--compress-program'))) return false
+  if (raisesReadonlyFloor(words)) return false
   if (['ls', 'cat', 'pwd', 'date', 'whoami', 'hostname', 'uptime', 'ps', 'head', 'tail', 'wc', 'sort', 'uniq', 'tr', 'cut', 'grep', 'rg'].includes(head)) {
     return true
   }
-  if (head === 'git') {
-    return ['status', 'branch', 'log', 'diff', 'ls-files', 'show', 'rev-parse', 'blame', 'describe', 'merge-base', 'shortlog'].includes(words[1])
-  }
+  if (head === 'git') return GIT_READONLY.has(words[1])
   return head === 'kubectl' && ['get', 'logs', 'describe'].includes(words[1])
 }
 
@@ -790,7 +881,7 @@ function evaluateGrants(policy, access) {
   }
   if (access.kind === 'edit') {
     if (grants.allowedEdits) return { kind: 'allow', reason: 'allow all edits this session' }
-    if (policy.rememberToolApprovals && (grants.allowedEditPaths ?? []).includes(access.path)) {
+    if (policy.rememberToolApprovals && pathForms(access.path ?? '', policy.cwd || process.cwd()).some(form => (grants.allowedEditPaths ?? []).includes(form))) {
       return { kind: 'allow', reason: 'remembered project grant' }
     }
   }
@@ -876,8 +967,10 @@ function persistGrant(policy, access, allow) {
     const host = urlHost(access.url)
     const list = allow ? grants.allowedDomains : grants.deniedDomains
     if (host && !list.includes(host)) list.push(host)
-  } else if (access.kind === 'edit' && allow) {
-    if (access.path && !grants.allowedEditPaths.includes(access.path)) grants.allowedEditPaths.push(access.path)
+  } else if (access.kind === 'edit' && allow && access.path) {
+    for (const form of pathForms(access.path, policy.cwd || process.cwd())) {
+      if (!grants.allowedEditPaths.includes(form)) grants.allowedEditPaths.push(form)
+    }
   }
   try {
     mkdirSync(dirname(policy.grantsPath), { recursive: true })

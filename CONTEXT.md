@@ -115,8 +115,13 @@ into isolated `$DSH_HOME/permission-policy.json` and enforced in the dsh
 `tools/pre-execute` plugin before a real tool body runs. Deny and hook blocks have
 no side effects; unsplittable shell and Read/Edit path rules on operands cannot be
 glob-allowed or auto-approved as read-only. Wrappers peel to the inner command
-without eating the command name; `env -S` prompts. Read/Edit deny/ask follow
-in-path symlink targets. Missing or corrupt `permission-policy.json` refuses
+without eating the command name; `env -S` prompts. Brace groups and ANSI-C
+`bash -c` scripts are inspected, so deny still matches the inner command.
+Unique long-option prefixes such as `sort --compress-pro` are not read-only.
+Frozen git read-only subcommands auto-allow; git writes do not. Claude settings
+load from `~/.claude` and every `.claude` from the repo root to the working
+directory. Read/Edit deny/ask follow in-path symlink targets. Missing or corrupt
+`permission-policy.json` refuses
 mutating tools. `y` is once, `a` remembers a path-scoped project grant, and
 `/revoke-approvals` forgets those grants.
 Plain `codsh` still selects the legacy Launcher/Bundle; this is not the default

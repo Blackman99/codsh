@@ -71,7 +71,10 @@ open the directory. `--always-approve`/`--yolo`, `--permission-mode`, and
 `--allow`/`--deny` control permission modes and persistent rules; explicit deny
 still wins. Unsplittable shell and Read/Edit path rules on operands cannot
 bypass deny; wrappers peel to the inner command without eating the command name
-while `env -S` prompts; Read/Edit deny follows in-path symlinks; remembered file
+while `env -S` prompts; brace groups and ANSI-C `bash -c` cannot hide a denied
+command; unique `sort --compress-program` prefixes and git writes are not
+read-only; Claude settings load from `~/.claude` and walk to the repo root;
+Read/Edit deny follows in-path symlinks; remembered file
 grants are path-scoped; a corrupt policy file refuses mutating tools. The
 model's configured `env_key` (`XAI_API_KEY` and other
 `*_API_KEY` values) is passed through to dsh. Missing credentials stay local

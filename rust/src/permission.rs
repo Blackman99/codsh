@@ -989,11 +989,13 @@ fn evaluate_grants(policy: &PermissionPolicy, access: &AccessKind) -> Option<Dec
         }),
         AccessKind::Edit(path)
             if policy.remember_tool_approvals
-                && policy
-                    .grants
-                    .allowed_edit_paths
-                    .iter()
-                    .any(|allowed| allowed == path) =>
+                && path_forms(path, &policy.cwd).iter().any(|form| {
+                    policy
+                        .grants
+                        .allowed_edit_paths
+                        .iter()
+                        .any(|allowed| allowed == form)
+                }) =>
         {
             Some(Decision::Allow {
                 reason: "remembered project grant".into(),
@@ -1333,7 +1335,7 @@ fn is_unpeelable(command: &str) -> bool {
 fn is_unsplittable(command: &str) -> bool {
     command.contains("$(")
         || command.contains('`')
-        || has_unquoted(&['(', ')'], command)
+        || has_unquoted(&['(', ')', '{', '}'], command)
         || has_background_amp(command)
         || is_control_flow(command)
         || is_unpeelable(command)
@@ -1520,10 +1522,87 @@ fn extract_dash_c_scripts(command: &str) -> Vec<String> {
     scripts
 }
 
+fn decode_ansi_c(body: &str) -> String {
+    let chars: Vec<char> = body.chars().collect();
+    let mut out = String::new();
+    let mut index = 0;
+    while index < chars.len() {
+        if chars[index] != '\\' {
+            out.push(chars[index]);
+            index += 1;
+            continue;
+        }
+        let Some(next) = chars.get(index + 1).copied() else {
+            out.push('\\');
+            break;
+        };
+        let simple = match next {
+            'n' => Some('\n'),
+            't' => Some('\t'),
+            'r' => Some('\r'),
+            'a' => Some('\u{0007}'),
+            'b' => Some('\u{0008}'),
+            'f' => Some('\u{000c}'),
+            'v' => Some('\u{000b}'),
+            '\\' | '\'' | '"' => Some(next),
+            _ => None,
+        };
+        if let Some(ch) = simple {
+            out.push(ch);
+            index += 2;
+            continue;
+        }
+        if next == 'x' {
+            let hex: String = chars[index + 2..]
+                .iter()
+                .take(2)
+                .take_while(|ch| ch.is_ascii_hexdigit())
+                .collect();
+            if !hex.is_empty()
+                && let Ok(value) = u32::from_str_radix(&hex, 16)
+                && let Some(ch) = char::from_u32(value)
+            {
+                out.push(ch);
+                index += 2 + hex.len();
+                continue;
+            }
+        }
+        if next.is_digit(8) {
+            let oct: String = chars[index + 1..]
+                .iter()
+                .take(3)
+                .take_while(|ch| ch.is_digit(8))
+                .collect();
+            if let Ok(value) = u32::from_str_radix(&oct, 8)
+                && let Some(ch) = char::from_u32(value)
+            {
+                out.push(ch);
+                index += 1 + oct.len();
+                continue;
+            }
+        }
+        out.push(next);
+        index += 2;
+    }
+    out
+}
+
 fn next_shell_word(chars: &[char], start: usize) -> (String, usize) {
     let mut index = start;
     if index >= chars.len() {
         return (String::new(), index);
+    }
+    if chars[index] == '$' && chars.get(index + 1) == Some(&'\'') {
+        index += 2;
+        let begin = index;
+        while index < chars.len() && chars[index] != '\'' {
+            index += 1;
+        }
+        let body: String = chars[begin..index].iter().collect();
+        if index < chars.len() {
+            index += 1;
+        }
+        return (decode_ansi_c(&body), index);
     }
     let quote = if chars[index] == '\'' || chars[index] == '"' {
         Some(chars[index])
@@ -1547,6 +1626,36 @@ fn next_shell_word(chars: &[char], start: usize) -> (String, usize) {
         index += 1;
     }
     (chars[begin..index].iter().collect(), index)
+}
+
+fn brace_bodies(command: &str) -> Vec<String> {
+    let chars: Vec<char> = command.chars().collect();
+    let mut out = Vec::new();
+    let mut index = 0;
+    let mut quote = None;
+    while index < chars.len() {
+        let ch = chars[index];
+        if quote == Some(ch) {
+            quote = None;
+            index += 1;
+            continue;
+        }
+        if quote.is_none() && (ch == '\'' || ch == '"') {
+            quote = Some(ch);
+            index += 1;
+            continue;
+        }
+        if quote.is_none() && ch == '{' {
+            let (inner, next) = take_balanced(&chars, index + 1, '{', '}');
+            if !inner.trim().is_empty() {
+                out.push(inner.trim().to_string());
+            }
+            index = next;
+            continue;
+        }
+        index += 1;
+    }
+    out
 }
 
 fn control_flow_bodies(command: &str) -> Vec<String> {
@@ -1586,6 +1695,7 @@ fn bash_inspect_subjects(command: &str) -> Vec<String> {
             .into_iter()
             .chain(extract_dash_c_scripts(&trimmed))
             .chain(control_flow_bodies(&trimmed))
+            .chain(brace_bodies(&trimmed))
         {
             walk(&inner, seen, out);
         }
@@ -1733,25 +1843,46 @@ fn is_readonly_access(access: &AccessKind) -> bool {
     )
 }
 
-fn is_readonly_command(words: &[&str]) -> bool {
-    if words.is_empty() {
+fn unique_long_option(word: &str, canonical: &str) -> bool {
+    let Some(name) = word.strip_prefix("--") else {
+        return false;
+    };
+    if name.starts_with('-') {
         return false;
     }
-    let head = words[0];
-    if head == "rg"
+    let name = name.split('=').next().unwrap_or(name);
+    !name.is_empty() && name.len() <= canonical.len() && canonical.starts_with(name)
+}
+
+fn raises_readonly_floor(words: &[&str]) -> bool {
+    let Some(head) = words.first() else {
+        return false;
+    };
+    if *head == "rg"
         && words
             .iter()
             .any(|word| *word == "--pre" || word.starts_with("--pre="))
     {
-        return false;
+        return true;
     }
-    if head == "sort"
+    if *head == "sort"
         && words
             .iter()
-            .any(|word| word.starts_with("--compress-program"))
+            .any(|word| unique_long_option(word, "compress-program"))
     {
+        return true;
+    }
+    *head == "git"
+        && words
+            .iter()
+            .any(|word| *word == "-c" || word.starts_with("--config-env"))
+}
+
+fn is_readonly_command(words: &[&str]) -> bool {
+    if words.is_empty() || raises_readonly_floor(words) {
         return false;
     }
+    let head = words[0];
     if matches!(
         head,
         "ls" | "cat"
@@ -1787,6 +1918,15 @@ fn is_readonly_command(words: &[&str]) -> bool {
                 | "describe"
                 | "merge-base"
                 | "shortlog"
+                | "check-ignore"
+                | "check-attr"
+                | "cat-file"
+                | "ls-tree"
+                | "show-ref"
+                | "for-each-ref"
+                | "rev-list"
+                | "name-rev"
+                | "count-objects"
         );
     }
     if head == "kubectl" && words.len() >= 2 {
@@ -2074,11 +2214,13 @@ pub fn record_grant(path: &Path, access: &AccessKind, allow: bool) -> io::Result
             }
         }
         AccessKind::Edit(path) => {
-            if allow
-                && !path.is_empty()
-                && !grants.allowed_edit_paths.iter().any(|item| item == path)
-            {
-                grants.allowed_edit_paths.push(path.clone());
+            if allow && !path.is_empty() {
+                let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+                for form in path_forms(path, &cwd) {
+                    if !grants.allowed_edit_paths.iter().any(|item| item == &form) {
+                        grants.allowed_edit_paths.push(form);
+                    }
+                }
             }
         }
         AccessKind::Read(_)
@@ -2152,7 +2294,7 @@ pub fn build_policy(
     managed: Option<&TomlValue>,
     requirements: Option<&TomlValue>,
     workspace_tables: &[(PathBuf, TomlValue)],
-    claude: Option<&JsonValue>,
+    claude: &[JsonValue],
     cli_mode: Option<&str>,
     cli_always_approve: bool,
     cli_auto: bool,
@@ -2183,10 +2325,12 @@ pub fn build_policy(
         }
     }
     let mut claude_mode = None;
-    if let Some(value) = claude {
+    for value in claude {
         let (claude_rules, mode) = extract_claude_rules(value, "claude", &mut skipped);
         rules.extend(claude_rules);
-        claude_mode = mode;
+        if mode.is_some() {
+            claude_mode = mode;
+        }
     }
     for rule in cli_deny {
         match parse_permission_rule(rule, RuleAction::Deny, "cli") {
@@ -2247,19 +2391,47 @@ pub fn collect_workspace_tables(cwd: &Path, trusted: bool) -> Vec<(PathBuf, Toml
         .collect()
 }
 
-pub fn load_claude_settings(cwd: &Path, trusted: bool) -> Option<JsonValue> {
-    if !trusted {
-        return None;
-    }
-    for name in [".claude/settings.local.json", ".claude/settings.json"] {
-        let path = cwd.join(name);
-        if let Ok(text) = fs::read_to_string(&path)
-            && let Ok(value) = serde_json::from_str::<JsonValue>(&text)
-        {
-            return Some(value);
+fn read_json_file(path: &Path) -> Option<JsonValue> {
+    let text = fs::read_to_string(path).ok()?;
+    serde_json::from_str::<JsonValue>(&text).ok()
+}
+
+fn claude_project_dirs(cwd: &Path) -> Vec<PathBuf> {
+    let mut dirs = Vec::new();
+    let mut current = cwd.to_path_buf();
+    loop {
+        dirs.push(current.clone());
+        if current.join(".git").exists() {
+            break;
+        }
+        if !current.pop() {
+            break;
         }
     }
-    None
+    dirs.reverse();
+    dirs
+}
+
+/// User `~/.claude` plus every `.claude` from the repo root down to `cwd`.
+/// Later files are returned last so a closer deny still wins by action, not order.
+pub fn load_claude_settings(cwd: &Path, home: &Path, trusted: bool) -> Vec<JsonValue> {
+    if !trusted {
+        return Vec::new();
+    }
+    let mut files = Vec::new();
+    let user = home.join(".claude");
+    for name in ["settings.json", "settings.local.json"] {
+        files.push(user.join(name));
+    }
+    for dir in claude_project_dirs(cwd) {
+        let claude = dir.join(".claude");
+        files.push(claude.join("settings.json"));
+        files.push(claude.join("settings.local.json"));
+    }
+    files
+        .into_iter()
+        .filter_map(|path| read_json_file(&path))
+        .collect()
 }
 
 #[cfg(test)]
@@ -2502,6 +2674,75 @@ mod tests {
             ),
             Decision::Ask { .. }
         ));
+        let quiet = policy(Vec::new(), PermissionMode::DontAsk);
+        assert!(matches!(
+            evaluate(
+                &quiet,
+                &AccessKind::Bash("sort --compress-pro=gzip file".into()),
+                None
+            ),
+            Decision::Deny { .. }
+        ));
+        assert!(matches!(
+            evaluate(
+                &quiet,
+                &AccessKind::Bash("sort --compress-p=gzip file".into()),
+                None
+            ),
+            Decision::Deny { .. }
+        ));
+    }
+
+    #[test]
+    fn brace_groups_and_ansi_c_bash_c_cannot_bypass_deny() {
+        let deny = policy(
+            vec![rule(RuleAction::Deny, "Bash(rm -rf *)")],
+            PermissionMode::AlwaysApprove,
+        );
+        for command in [
+            "{ rm -rf /; }",
+            "{rm -rf /}",
+            "true && { rm -rf /; }",
+            "function x { rm -rf /; }",
+            "bash -c \"{ rm -rf /; }\"",
+            "bash -c $'rm -rf /'",
+        ] {
+            assert!(
+                matches!(
+                    evaluate(&deny, &AccessKind::Bash(command.into()), None),
+                    Decision::Deny { .. }
+                ),
+                "{command}"
+            );
+        }
+    }
+
+    #[test]
+    fn frozen_git_readonly_subcommands_allow_and_writes_do_not() {
+        let quiet = policy(Vec::new(), PermissionMode::DontAsk);
+        for command in [
+            "git cat-file -t HEAD",
+            "git ls-tree HEAD",
+            "git check-ignore path",
+            "git show-ref",
+            "git for-each-ref",
+            "git rev-list HEAD",
+            "git name-rev HEAD",
+            "git count-objects",
+            "git check-attr -a path",
+        ] {
+            assert!(
+                matches!(
+                    evaluate(&quiet, &AccessKind::Bash(command.into()), None),
+                    Decision::Allow { .. }
+                ),
+                "{command}"
+            );
+        }
+        assert!(matches!(
+            evaluate(&quiet, &AccessKind::Bash("git commit -m x".into()), None),
+            Decision::Deny { .. }
+        ));
     }
 
     #[test]
@@ -2549,6 +2790,76 @@ mod tests {
     }
 
     #[test]
+    fn claude_settings_walk_home_and_parents_to_repo_root() {
+        let dir = TempDir::new().unwrap();
+        let home = dir.path().join("home");
+        let repo = dir.path().join("repo");
+        let nested = repo.join("pkg");
+        fs::create_dir_all(home.join(".claude")).unwrap();
+        fs::create_dir_all(repo.join(".claude")).unwrap();
+        fs::create_dir_all(nested.join(".claude")).unwrap();
+        fs::write(repo.join(".git"), "gitdir: unused\n").unwrap();
+        fs::write(
+            home.join(".claude/settings.json"),
+            r#"{"permissions":{"deny":["Bash(rm -rf *)"]}}"#,
+        )
+        .unwrap();
+        fs::write(
+            repo.join(".claude/settings.json"),
+            r#"{"permissions":{"allow":["Bash(git *)"]}}"#,
+        )
+        .unwrap();
+        fs::write(
+            nested.join(".claude/settings.local.json"),
+            r#"{"permissions":{"deny":["Read(secret/**)"]}}"#,
+        )
+        .unwrap();
+        let loaded = load_claude_settings(&nested, &home, true);
+        assert_eq!(loaded.len(), 3, "home, repo, and nested claude files");
+        let policy = build_policy(
+            nested.clone(),
+            dir.path(),
+            &home,
+            true,
+            true,
+            None,
+            None,
+            None,
+            &[],
+            &loaded,
+            None,
+            false,
+            false,
+            None,
+            None,
+            &[],
+            &[],
+        )
+        .unwrap();
+        assert!(matches!(
+            evaluate(&policy, &AccessKind::Bash("rm -rf /tmp/x".into()), None),
+            Decision::Deny { .. }
+        ));
+        assert!(matches!(
+            evaluate(&policy, &AccessKind::Bash("git status".into()), None),
+            Decision::Allow { .. }
+        ));
+        let mut read_policy = policy.clone();
+        read_policy.cwd = nested.clone();
+        assert!(matches!(
+            evaluate(
+                &read_policy,
+                &AccessKind::Read(Some("secret/key".into())),
+                None
+            ),
+            Decision::Deny { .. }
+        ));
+        assert!(
+            load_claude_settings(&nested, &home, false).is_empty(),
+            "untrusted workspaces do not load claude rules"
+        );
+    }
+
     fn hook_deny_wins_over_always_approve() {
         let policy = policy(Vec::new(), PermissionMode::AlwaysApprove);
         assert!(matches!(

@@ -86,10 +86,25 @@ def exercise(name, launcher, cwd, env, output, typed, wait_for, extra=(), action
         if not typed.endswith('\r'):
             os.write(master, b'\r')
         if action in {'allow', 'remember', 'reject'}:
-            wait_visible('Allow ', 30)
-            wait_visible('y=allow once', 10)
             key = {'allow': b'y', 'remember': b'a', 'reject': b'n'}[action]
-            os.write(master, key)
+            answered = 0
+            deadline = time.monotonic() + 30
+            while time.monotonic() < deadline and answered < (2 if action == 'remember' else 1):
+                pump(0.05)
+                shown = visible()
+                if 'Allow ' in shown and 'y=allow once' in shown:
+                    os.write(master, key)
+                    answered += 1
+                    cleared = time.monotonic() + 8
+                    while time.monotonic() < cleared:
+                        pump(0.05)
+                        if 'Allow ' not in visible():
+                            break
+                    continue
+                if action == 'remember' and answered and 'successfully.' in shown:
+                    break
+            if answered == 0:
+                raise AssertionError(f'{name}: missing permission card\n{visible()}')
         for marker in wait_for:
             wait_visible(marker, 30)
         shown = visible()
@@ -195,6 +210,38 @@ allow = ["Bash(git *)"]
         assert nice['exit'] == 0
         assert 'successfully.' not in nice['screen']
         results['deny_nice'] = {'exit': nice['exit']}
+
+        brace = exercise('deny-brace-group', launcher, cwd,
+                         {**base_env, 'DSH_CODE_CLI_MOCK_TOOL': 'bash-brace-rm'},
+                         output, typed='TOKEN_PERM_BRACE', wait_for=['Denied by permission policy', 'RUST_ACP_BASH_DENIED'],
+                         extra=['--always-approve', '--deny', 'Bash(rm -rf *)'], action='none')
+        assert brace['exit'] == 0
+        assert 'successfully.' not in brace['screen']
+        results['deny_brace'] = {'exit': brace['exit']}
+
+        ansi = exercise('deny-ansi-c', launcher, cwd,
+                        {**base_env, 'DSH_CODE_CLI_MOCK_TOOL': 'bash-ansi-c-rm'},
+                        output, typed='TOKEN_PERM_ANSI', wait_for=['Denied by permission policy', 'RUST_ACP_BASH_DENIED'],
+                        extra=['--always-approve', '--deny', 'Bash(rm -rf *)'], action='none')
+        assert ansi['exit'] == 0
+        assert 'successfully.' not in ansi['screen']
+        results['deny_ansi_c'] = {'exit': ansi['exit']}
+
+        sort_prefix = exercise('sort-prefix-not-readonly', launcher, cwd,
+                               {**base_env, 'DSH_CODE_CLI_MOCK_TOOL': 'bash-sort-prefix'},
+                               output, typed='TOKEN_PERM_SORT', wait_for=['dontAsk blocked', 'RUST_ACP_BASH_DENIED'],
+                               extra=['--permission-mode', 'dontAsk'], action='none')
+        assert sort_prefix['exit'] == 0
+        assert 'read-only shell command' not in sort_prefix['screen']
+        results['sort_prefix'] = {'exit': sort_prefix['exit']}
+
+        git_cat = exercise('git-cat-file-readonly', launcher, cwd,
+                           {**base_env, 'DSH_CODE_CLI_MOCK_TOOL': 'bash-git-cat'},
+                           output, typed='TOKEN_PERM_GITCAT', wait_for=['RUST_ACP_BASH_DONE'],
+                           extra=['--permission-mode', 'dontAsk'], action='none')
+        assert git_cat['exit'] == 0
+        assert 'Denied by permission policy' not in git_cat['screen']
+        results['git_cat_file'] = {'exit': git_cat['exit']}
 
         inspect = spawn_inspect(launcher, cwd, base_env, ['inspect', '--json'])
         assert inspect.returncode == 0, inspect.stderr + inspect.stdout

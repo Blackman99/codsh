@@ -1534,7 +1534,7 @@ pub fn load_from(mut input: LoadInput) -> EffectiveConfig {
     );
 
     let workspace_tables = permission::collect_workspace_tables(&input.cwd, workspace_trusted);
-    let claude = permission::load_claude_settings(&input.cwd, workspace_trusted);
+    let claude = permission::load_claude_settings(&input.cwd, &input.home, workspace_trusted);
     let permission = match permission::build_policy(
         input.cwd.clone(),
         &grok_home,
@@ -1545,7 +1545,7 @@ pub fn load_from(mut input: LoadInput) -> EffectiveConfig {
         managed.as_ref(),
         requirements.as_ref(),
         &workspace_tables,
-        claude.as_ref(),
+        &claude,
         input.cli_permission_mode.as_deref(),
         input.cli_always_approve,
         input.cli_auto,
@@ -1576,7 +1576,7 @@ pub fn load_from(mut input: LoadInput) -> EffectiveConfig {
                 managed.as_ref(),
                 requirements.as_ref(),
                 &workspace_tables,
-                claude.as_ref(),
+                &claude,
                 None,
                 false,
                 false,
@@ -1778,25 +1778,50 @@ pub fn inspect_json(config: &EffectiveConfig) -> String {
         "compactThresholdPercent": config.compact_threshold_percent.unwrap_or(80),
         "compactWallClockSecs": config.compact_wall_clock_secs,
         "pruneEnabled": config.prune_enabled,
-        "permissionMode": config.permission.mode.as_str(),
-        "permissionModeSource": config.permission.mode_source,
-        "alwaysApproveLocked": config.permission.always_approve_locked,
-        "rememberToolApprovals": config.permission.remember_tool_approvals,
-        "permissionRules": config.permission.rules.len(),
-        "permissionGrantsPath": config.permission.grants_path,
         "appearance": appearance::inspect_json_fragment(&config.appearance, ScreenMode::Fullscreen),
-        "routing": config.routing().map(|routing| json!({
-            "catalogId": routing.catalog_id,
-            "provider": routing.provider,
-            "model": routing.model,
-            "backend": routing.backend,
-            "api": routing.api,
-            "effort": routing.effort,
-            "advertisedContext": routing.advertised_context,
-            "source": routing.source,
-            "line": routing.line(),
-        })),
     });
+    if let Some(object) = value.as_object_mut() {
+        object.insert(
+            "permissionMode".into(),
+            JsonValue::String(config.permission.mode.as_str().into()),
+        );
+        object.insert(
+            "permissionModeSource".into(),
+            JsonValue::String(config.permission.mode_source.clone()),
+        );
+        object.insert(
+            "alwaysApproveLocked".into(),
+            JsonValue::Bool(config.permission.always_approve_locked),
+        );
+        object.insert(
+            "rememberToolApprovals".into(),
+            JsonValue::Bool(config.permission.remember_tool_approvals),
+        );
+        object.insert(
+            "permissionRules".into(),
+            JsonValue::from(config.permission.rules.len()),
+        );
+        object.insert(
+            "permissionGrantsPath".into(),
+            JsonValue::String(config.permission.grants_path.display().to_string()),
+        );
+        object.insert(
+            "routing".into(),
+            config.routing().map_or(JsonValue::Null, |routing| {
+                json!({
+                    "catalogId": routing.catalog_id,
+                    "provider": routing.provider,
+                    "model": routing.model,
+                    "backend": routing.backend,
+                    "api": routing.api,
+                    "effort": routing.effort,
+                    "advertisedContext": routing.advertised_context,
+                    "source": routing.source,
+                    "line": routing.line(),
+                })
+            }),
+        );
+    }
     let catalog: Vec<JsonValue> = config
         .catalog()
         .iter()
