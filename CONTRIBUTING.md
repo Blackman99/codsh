@@ -357,9 +357,13 @@ unchanged on preview, cancel, failure, and repeat apply. The auth test covers `l
 `logout` / `setup` help without creating Home, independent API-key use,
 organization pins that refuse API-key-only ready (`GROK_DISABLE_API_KEY_AUTH`,
 empty team list, locked `requirements.toml` `[auth]` or top-level
-`force_login_team_uuid`), external-provider login with owner-only `auth.json`, logout that does not
-revoke model/MCP credentials, unsigned managed-policy refusal, a local
-signed substitute management service, and `/login` `/logout` in a real PTY.
+`force_login_team_uuid`), external-provider login with owner-only `auth.json`, logout that revokes the
+identity session and does not revoke model/MCP credentials, unsigned
+managed-policy refusal, a signature bound to another principal, fail-closed
+policy with no pubkey and no sidecar, a local signed substitute management
+service, and `/login` `/logout` in a real PTY. The packed test also records
+that a ready identity session is handed to the dsh child and that an
+undocumented `GROK_AUTH_*` parent variable is not.
 Under an organization pin the PTY starts unready, `/login` must show `Connected to dsh ACP` before the next prompt, and `/logout` must drop that connection.
 Public ACP framing, including
 file-tool permission, `session/cancel`, `session/list`, `session/resume`, and

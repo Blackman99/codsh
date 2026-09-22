@@ -339,6 +339,12 @@ pub struct SpawnSpec {
     pub stderr_log: Option<PathBuf>,
 }
 
+const IDENTITY_CHILD_KEYS: &[&str] = &[
+    "GROK_AUTH_PATH",
+    "GROK_AUTH_ACCESS_TOKEN",
+    "GROK_AUTH_PROVIDER_COMMAND",
+];
+
 pub fn dsh_spawn_spec(
     cwd: PathBuf,
     dsh_home: &Path,
@@ -418,6 +424,11 @@ pub fn dsh_spawn_spec(
     env.push(("DEEPSEEK_API_KEY".into(), String::new()));
     for (key, value) in extra_env {
         env.retain(|(existing, _)| existing != key);
+        // Only the identity session the agent core uses. Parent GROK_AUTH_*
+        // noise and undocumented extra keys stay out of the dsh process.
+        if key.starts_with("GROK_AUTH_") && !IDENTITY_CHILD_KEYS.contains(&key.as_str()) {
+            continue;
+        }
         env.push((key.clone(), value.clone()));
     }
     Ok(SpawnSpec {
@@ -1297,6 +1308,57 @@ mod tests {
             .new_session(&std::env::temp_dir(), Duration::from_secs(2))
             .expect("session");
         client
+    }
+
+    #[test]
+    fn spawn_spec_forwards_handed_identity_not_parent_auth_env() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let dsh = dir.path().join("dsh-bin");
+        std::fs::write(&dsh, "#!/bin/sh\n").unwrap();
+        let previous_bin = std::env::var_os("DSH_BIN");
+        unsafe {
+            std::env::set_var("DSH_BIN", &dsh);
+        }
+        let spec = dsh_spawn_spec(
+            dir.path().to_path_buf(),
+            dir.path(),
+            &[
+                ("GROK_AUTH_PATH".into(), "/tmp/auth.json".into()),
+                ("GROK_AUTH_ACCESS_TOKEN".into(), "handed-token".into()),
+                ("GROK_AUTH_PROVIDER_COMMAND".into(), "printf token".into()),
+                ("GROK_AUTH_NOISE".into(), "dropped".into()),
+                ("XAI_API_KEY".into(), "model-key".into()),
+            ],
+            None,
+        );
+        unsafe {
+            match previous_bin {
+                Some(value) => std::env::set_var("DSH_BIN", value),
+                None => std::env::remove_var("DSH_BIN"),
+            }
+        }
+        let spec = spec.unwrap();
+        let env: std::collections::BTreeMap<_, _> = spec.env.into_iter().collect();
+        assert!(
+            !env.contains_key("GROK_AUTH_NOISE"),
+            "undocumented GROK_AUTH_* must not reach dsh"
+        );
+        assert_eq!(
+            env.get("GROK_AUTH_ACCESS_TOKEN").map(String::as_str),
+            Some("handed-token")
+        );
+        assert_eq!(
+            env.get("GROK_AUTH_PATH").map(String::as_str),
+            Some("/tmp/auth.json")
+        );
+        assert_eq!(
+            env.get("GROK_AUTH_PROVIDER_COMMAND").map(String::as_str),
+            Some("printf token")
+        );
+        assert_eq!(
+            env.get("XAI_API_KEY").map(String::as_str),
+            Some("model-key")
+        );
     }
 
     #[test]

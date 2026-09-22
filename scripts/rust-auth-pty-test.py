@@ -181,6 +181,19 @@ def serve(handler):
     return f'http://127.0.0.1:{port}', stop
 
 
+def sign_payload(payload):
+    script = """
+import { generateKeyPairSync, sign } from 'node:crypto';
+const payload = process.argv[1];
+const { publicKey, privateKey } = generateKeyPairSync('ed25519');
+const pub = publicKey.export({ type: 'spki', format: 'der' }).subarray(-32).toString('base64');
+const signature = sign(null, Buffer.from(payload), privateKey).toString('base64');
+process.stdout.write(JSON.stringify({ pub, signature }));
+"""
+    signed = json.loads(run([NODE, '--input-type=module', '-e', script, payload]).stdout)
+    return signed['pub'], signed['signature']
+
+
 def sign_policy(_work, managed, requirements):
     payload = json.dumps({
         'typ': 'managed-policy',
@@ -191,21 +204,31 @@ def sign_policy(_work, managed, requirements):
         'requirements': requirements,
         'fail_closed': True,
     }, separators=(',', ':'))
-    script = """
-import { generateKeyPairSync, sign } from 'node:crypto';
-const payload = process.argv[1];
-const { publicKey, privateKey } = generateKeyPairSync('ed25519');
-const pub = publicKey.export({ type: 'spki', format: 'der' }).subarray(-32).toString('base64');
-const signature = sign(null, Buffer.from(payload), privateKey).toString('base64');
-process.stdout.write(JSON.stringify({ pub, signature }));
-"""
-    signed = json.loads(run([NODE, '--input-type=module', '-e', script, payload]).stdout)
+    pub, signature = sign_payload(payload)
     sidecar = {
         'signed_payload': payload,
-        'signature': signed['signature'],
+        'signature': signature,
         'key_id': 'v1',
     }
-    return signed['pub'], sidecar
+    return pub, sidecar
+
+
+def install_verifiable_requirements(grok, requirements):
+    """Sign fail-closed requirements so the team pin, not a missing sidecar, is the gate."""
+    payload = json.dumps({
+        'typ': 'managed-policy',
+        'expires_at': int(time.time()) + 3600,
+        'deployment_id': 'dep-1',
+        'managed_config': '',
+        'requirements': requirements,
+    }, separators=(',', ':'))
+    pub, signature = sign_payload(payload)
+    (grok / 'managed_config.sig.json').write_text(json.dumps({
+        'signed_payload': payload,
+        'signature': signature,
+        'key_id': 'v1',
+    }))
+    return pub
 
 
 def main():
@@ -348,8 +371,10 @@ env_key = "XAI_API_KEY"
         top_grok = top_home / '.codsh-rust' / '.grok'
         top_grok.mkdir(parents=True)
         (top_grok / 'config.toml').write_text((grok_home / 'config.toml').read_text())
-        (top_grok / 'requirements.toml').write_text('fail_closed = true\nforce_login_team_uuid = "team-good"\n')
-        top_env = {**base_env, 'HOME': str(top_home)}
+        top_body = 'fail_closed = true\nforce_login_team_uuid = "team-good"\n'
+        (top_grok / 'requirements.toml').write_text(top_body)
+        top_pub = install_verifiable_requirements(top_grok, top_body)
+        top_env = {**base_env, 'HOME': str(top_home), 'GROK_MANAGED_CONFIG_PUBKEY': top_pub}
         top = spawn_inspect(launcher, cwd, top_env, ['inspect', '--json'])
         top_text = top.stdout + top.stderr
         assert top.returncode != 0
@@ -384,6 +409,179 @@ env_key = "XAI_API_KEY"
         assert 'not revoked' in logged_out.stdout
         results['logout'] = True
 
+        other_managed = 'remote_fetch = false\n'
+        other_requirements = 'fail_closed = true\n'
+        other_payload = json.dumps({
+            'typ': 'managed-policy',
+            'key_id': 'v1',
+            'expires_at': int(time.time()) + 3600,
+            'deployment_id': 'dep-other',
+            'managed_config': other_managed,
+            'requirements': other_requirements,
+            'fail_closed': True,
+        }, separators=(',', ':'))
+        other_pub, other_sig = sign_payload(other_payload)
+        other_body = json.dumps({
+            'deployment_id': 'dep-1',
+            'managed_config': other_managed,
+            'requirements': other_requirements,
+            'signatures': [{
+                'signed_payload': other_payload,
+                'signature': other_sig,
+                'key_id': 'v1',
+            }],
+        })
+        other_url, stop_other = serve(lambda line: (200, other_body, 'application/json') if 'GET ' in line else (404, 'no', 'text/plain'))
+        other_home = work / 'other-principal-home'
+        other_home.mkdir()
+        other_grok = other_home / '.codsh-rust' / '.grok'
+        other_grok.mkdir(parents=True)
+        (other_grok / 'config.toml').write_text((grok_home / 'config.toml').read_text())
+        (other_grok / 'auth.json').write_text(json.dumps({
+            'access_token': 'caller-token',
+            'method': 'external',
+            'team_id': 'team-caller',
+            'expires_at': int(time.time()) + 3600,
+        }))
+        try:
+            other = spawn_inspect(launcher, cwd, {
+                **base_env,
+                'HOME': str(other_home),
+                'GROK_MANAGED_CONFIG_URL': other_url + '/deployment/config',
+                'GROK_DEPLOYMENT_KEY': 'dep',
+                'GROK_MANAGED_CONFIG_PUBKEY': other_pub,
+            }, ['setup'])
+            other_text = other.stdout + other.stderr
+            assert other.returncode != 0, other_text
+            assert 'different principal' in other_text
+            assert not (other_grok / 'managed_config.toml').exists()
+        finally:
+            stop_other.set()
+        results['setup-other-principal'] = True
+
+        omitted_payload = json.dumps({
+            'typ': 'managed-policy',
+            'key_id': 'v1',
+            'expires_at': int(time.time()) + 3600,
+            'managed_config': other_managed,
+            'requirements': other_requirements,
+            'fail_closed': True,
+        }, separators=(',', ':'))
+        omitted_pub, omitted_sig = sign_payload(omitted_payload)
+        omitted_body = json.dumps({
+            'managed_config': other_managed,
+            'requirements': other_requirements,
+            'signatures': [{
+                'signed_payload': omitted_payload,
+                'signature': omitted_sig,
+                'key_id': 'v1',
+            }],
+        })
+        omitted_url, stop_omitted = serve(lambda line: (200, omitted_body, 'application/json') if 'GET ' in line else (404, 'no', 'text/plain'))
+        omitted_home = work / 'omitted-principal-home'
+        omitted_home.mkdir()
+        omitted_grok = omitted_home / '.codsh-rust' / '.grok'
+        omitted_grok.mkdir(parents=True)
+        (omitted_grok / 'config.toml').write_text((grok_home / 'config.toml').read_text())
+        (omitted_grok / 'auth.json').write_text((other_grok / 'auth.json').read_text())
+        try:
+            omitted = spawn_inspect(launcher, cwd, {
+                **base_env,
+                'HOME': str(omitted_home),
+                'GROK_MANAGED_CONFIG_URL': omitted_url + '/deployment/config',
+                'GROK_DEPLOYMENT_KEY': 'dep',
+                'GROK_MANAGED_CONFIG_PUBKEY': omitted_pub,
+            }, ['setup'])
+            omitted_text = omitted.stdout + omitted.stderr
+            assert omitted.returncode != 0, omitted_text
+            assert 'omits its principal' in omitted_text or 'different principal' in omitted_text
+            assert not (omitted_grok / 'managed_config.toml').exists()
+        finally:
+            stop_omitted.set()
+        results['setup-omitted-principal'] = True
+
+        locked_home = work / 'locked-unverifiable-home'
+        locked_home.mkdir()
+        locked_grok = locked_home / '.codsh-rust' / '.grok'
+        locked_grok.mkdir(parents=True)
+        (locked_grok / 'config.toml').write_text((grok_home / 'config.toml').read_text())
+        (locked_grok / 'managed_config.toml').write_text('remote_fetch = false\n')
+        (locked_grok / 'requirements.toml').write_text('fail_closed = true\n')
+        locked = spawn_inspect(launcher, cwd, {**base_env, 'HOME': str(locked_home)}, ['inspect', '--json'])
+        locked_text = locked.stdout + locked.stderr
+        assert locked.returncode != 0, locked_text
+        assert 'cannot be verified' in locked_text
+        locked_payload = inspect_json(locked)
+        assert locked_payload is not None, locked_text
+        assert locked_payload['ready'] is False
+        results['inspect-unverifiable-lock'] = True
+
+        revoke_seen = {'n': 0}
+
+        def revoke_handler(line):
+            if line.startswith('POST /revoke'):
+                revoke_seen['n'] += 1
+                return 200, '{"revoked":true}', 'application/json'
+            return 404, 'no', 'text/plain'
+
+        revoke_url, stop_revoke = serve(revoke_handler)
+        revoke_home = work / 'revoke-home'
+        revoke_home.mkdir()
+        revoke_grok = revoke_home / '.codsh-rust' / '.grok'
+        revoke_grok.mkdir(parents=True)
+        (revoke_grok / 'config.toml').write_text((grok_home / 'config.toml').read_text())
+        (revoke_grok / 'auth.json').write_text(json.dumps({
+            'access_token': 'revoke-me',
+            'method': 'external',
+            'expires_at': int(time.time()) + 3600,
+        }))
+        try:
+            revoked = spawn_inspect(launcher, cwd, {
+                **base_env,
+                'HOME': str(revoke_home),
+                'GROK_AUTH_REVOKE_URL': revoke_url + '/revoke',
+            }, ['logout'])
+        finally:
+            stop_revoke.set()
+        revoke_text = revoked.stdout + revoked.stderr
+        assert revoked.returncode == 0, revoke_text
+        assert revoke_seen['n'] == 1
+        assert not (revoke_grok / 'auth.json').exists()
+        assert 'revoked' in revoke_text.lower()
+        results['logout-revokes'] = True
+
+        def revoke_down(_line):
+            return 500, 'down', 'text/plain'
+
+        down_url, stop_down = serve(revoke_down)
+        down_home = work / 'revoke-down-home'
+        down_home.mkdir()
+        down_grok = down_home / '.codsh-rust' / '.grok'
+        down_grok.mkdir(parents=True)
+        (down_grok / 'config.toml').write_text((grok_home / 'config.toml').read_text())
+        (down_grok / 'auth.json').write_text((revoke_grok / 'auth.json').read_text() if (revoke_grok / 'auth.json').exists() else json.dumps({
+            'access_token': 'keep-me',
+            'method': 'external',
+        }))
+        (down_grok / 'auth.json').write_text(json.dumps({
+            'access_token': 'keep-me',
+            'method': 'external',
+            'expires_at': int(time.time()) + 3600,
+        }))
+        try:
+            down = spawn_inspect(launcher, cwd, {
+                **base_env,
+                'HOME': str(down_home),
+                'GROK_AUTH_REVOKE_URL': down_url + '/revoke',
+            }, ['logout'])
+        finally:
+            stop_down.set()
+        down_text = down.stdout + down.stderr
+        assert down.returncode != 0, down_text
+        assert 'revocation failed' in down_text.lower() or 'revocation' in down_text.lower()
+        assert json.loads((down_grok / 'auth.json').read_text())['access_token'] == 'keep-me'
+        results['logout-revoke-keeps-session'] = True
+
         unsigned_url, stop_unsigned = serve(lambda line: (200, '{"deployment_id":"dep-1","managed_config":"x=1\\n"}', 'application/json'))
         try:
             unsigned = spawn_inspect(launcher, cwd, {**base_env, 'GROK_MANAGED_CONFIG_URL': unsigned_url + '/deployment/config', 'GROK_DEPLOYMENT_KEY': 'dep'}, ['setup'])
@@ -394,7 +592,7 @@ env_key = "XAI_API_KEY"
             stop_unsigned.set()
         results['setup-unsigned'] = True
 
-        managed = 'remote_fetch = false\n'
+        managed = '[features]\nremote_fetch = false\n'
         requirements = 'fail_closed = true\n'
         pubkey, sidecar = sign_policy(work, managed, requirements)
         body = json.dumps({
@@ -481,9 +679,77 @@ env_key = "XAI_API_KEY"
         assert 'Execution unavailable' not in screen
         results['pty-slash-under-pin'] = {'exit': pinned['exit']}
 
+        capture_path = work / 'dsh-child-env.json'
+        capture_agent = work / 'capture-dsh.mjs'
+        capture_agent.write_text(
+            "import { appendFileSync } from 'node:fs';\n"
+            f"const out = {json.dumps(str(capture_path))};\n"
+            "appendFileSync(out, JSON.stringify({\n"
+            "  GROK_AUTH_PATH: process.env.GROK_AUTH_PATH ?? null,\n"
+            "  GROK_AUTH_ACCESS_TOKEN: process.env.GROK_AUTH_ACCESS_TOKEN ?? null,\n"
+            "  GROK_AUTH_PROVIDER_COMMAND: process.env.GROK_AUTH_PROVIDER_COMMAND ?? null,\n"
+            "  GROK_AUTH_NOISE: process.env.GROK_AUTH_NOISE ?? null,\n"
+            "}) + '\\n');\n"
+            "let buffer = '';\n"
+            "process.stdin.setEncoding('utf8');\n"
+            "process.stdin.on('data', chunk => {\n"
+            "  buffer += chunk;\n"
+            "  let newline;\n"
+            "  while ((newline = buffer.indexOf('\\n')) >= 0) {\n"
+            "    const line = buffer.slice(0, newline);\n"
+            "    buffer = buffer.slice(newline + 1);\n"
+            "    let message;\n"
+            "    try { message = JSON.parse(line); } catch { continue; }\n"
+            "    const id = message.id;\n"
+            "    const method = message.method;\n"
+            "    const reply = payload => process.stdout.write(JSON.stringify({ jsonrpc: '2.0', id, result: payload }) + '\\n');\n"
+            "    if (method === 'initialize') reply({ protocolVersion: 1, agentCapabilities: { loadSession: true } });\n"
+            "    else if (method === 'session/new') reply({ sessionId: 'handed-session' });\n"
+            "    else if (method === 'session/set_config' || method === 'session/set_config_option') reply({});\n"
+            "    else if (id !== undefined) reply({});\n"
+            "  }\n"
+            "});\n"
+        )
+        handoff_home = work / 'handoff-home'
+        handoff_home.mkdir()
+        handoff_grok = handoff_home / '.codsh-rust' / '.grok'
+        handoff_grok.mkdir(parents=True)
+        (handoff_grok / 'config.toml').write_text((grok_home / 'config.toml').read_text())
+        (handoff_grok / 'auth.json').write_text(json.dumps({
+            'access_token': 'handed-to-dsh',
+            'method': 'external',
+            'expires_at': int(time.time()) + 3600,
+        }))
+        handoff = pty_session(
+            'identity-handed-to-dsh', launcher, cwd,
+            {
+                **base_env,
+                'HOME': str(handoff_home),
+                'GROK_DISABLE_API_KEY_AUTH': '1',
+                'GROK_AUTH_PROVIDER_COMMAND': provider,
+                'GROK_AUTH_NOISE': 'must-not-reach-child',
+                'DSH_BIN': str(capture_agent),
+            },
+            output,
+            wait_after=['Connected to dsh ACP'],
+        )
+        assert handoff['exit'] == 0, handoff['screen']
+        assert capture_path.is_file(), 'ready identity session did not spawn dsh'
+        child_env = json.loads(capture_path.read_text().splitlines()[-1])
+        assert child_env['GROK_AUTH_ACCESS_TOKEN'] == 'handed-to-dsh', child_env
+        assert child_env['GROK_AUTH_PATH']
+        assert 'printf' in (child_env['GROK_AUTH_PROVIDER_COMMAND'] or ''), child_env
+        assert child_env['GROK_AUTH_NOISE'] is None, child_env
+        results['identity-handed-to-dsh'] = True
+
+        slash_home = work / 'slash-home'
+        slash_home.mkdir()
+        slash_grok = slash_home / '.codsh-rust' / '.grok'
+        slash_grok.mkdir(parents=True)
+        (slash_grok / 'config.toml').write_text((grok_home / 'config.toml').read_text())
         slash = pty_session(
             'slash-login-logout', launcher, cwd,
-            {**base_env, 'GROK_AUTH_PROVIDER_COMMAND': provider},
+            {**base_env, 'HOME': str(slash_home), 'GROK_AUTH_PROVIDER_COMMAND': provider},
             output,
             typed='/login\r',
             wait_before=['Connected to dsh ACP'],

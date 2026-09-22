@@ -751,6 +751,15 @@ fn can_execute(effective: &config::EffectiveConfig, apply_failed: bool) -> bool 
     if auth::usable_identity_session(&effective.auth, effective.auth_session.as_ref()).is_err() {
         return false;
     }
+    // Login stays available when locked policy is unverifiable, but that
+    // error must not become a reason to execute.
+    if effective.errors.iter().any(|error| {
+        error
+            .reason
+            .contains("Signature/locking requirements cannot be verified")
+    }) {
+        return false;
+    }
     effective.ready || config::is_test_execution_seam()
 }
 

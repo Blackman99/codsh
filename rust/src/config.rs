@@ -225,14 +225,24 @@ impl EffectiveConfig {
 }
 
 fn is_identity_session_gate(error: &ConfigError) -> bool {
-    error
+    let name = error
         .path
         .as_ref()
         .and_then(|path| path.file_name())
-        .is_some_and(|name| name == "auth.json")
+        .and_then(|name| name.to_str())
+        .unwrap_or("");
+    if name == "auth.json"
         && (error.reason.contains("Organization policy")
             || error.reason.contains("identity session")
             || error.reason.contains("requires logging into"))
+    {
+        return true;
+    }
+    // Unsigned fail-closed requirements still refuse execution, but login
+    // must remain available so a session can be minted and setup can install
+    // a verifiable sidecar.
+    (name == "requirements.toml" || name == auth::SIGNATURE_SIDECAR)
+        && error.reason.contains("cannot be verified")
 }
 
 pub fn grok_home_from(home: &Path, env_home: Option<&str>) -> PathBuf {
@@ -1732,6 +1742,26 @@ pub fn credential_env(
             extra.push((model.env_key.clone(), key.clone()));
         }
     }
+    // A usable identity session is part of execution, not only local auth.json.
+    // The spawned dsh process does not inherit GROK_AUTH_*; hand it the token
+    // and the provider command the agent core can refresh with.
+    if let Some(record) = config
+        .auth_session
+        .as_ref()
+        .filter(|record| auth::usable_identity_session(&config.auth, Some(record)).is_ok())
+    {
+        let path = auth::auth_json_path(&config.grok_home, env);
+        extra.push(("GROK_AUTH_PATH".into(), path.display().to_string()));
+        extra.push(("GROK_AUTH_ACCESS_TOKEN".into(), record.access_token.clone()));
+        if let Some(command) = env
+            .get("GROK_AUTH_PROVIDER_COMMAND")
+            .filter(|value| !value.is_empty())
+            .cloned()
+            .or_else(|| config.auth.provider_command.clone())
+        {
+            extra.push(("GROK_AUTH_PROVIDER_COMMAND".into(), command));
+        }
+    }
     extra
 }
 
@@ -2483,6 +2513,7 @@ fn yaml_plain(value: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use base64::Engine;
     use std::fs;
     use tempfile::TempDir;
 
@@ -2597,7 +2628,16 @@ env_key = "XAI_API_KEY"
                 .map(|record| record.access_token.as_str()),
             Some("identity-session")
         );
-        assert!(credential_env(&config, &load.env).is_empty());
+        let extra = credential_env(&config, &load.env);
+        assert!(
+            extra.iter().all(|(key, _)| key.starts_with("GROK_AUTH_")),
+            "identity token must not become a model credential: {extra:?}"
+        );
+        assert!(
+            !extra
+                .iter()
+                .any(|(key, value)| key == "XAI_API_KEY" && value == "identity-session")
+        );
         assert!(!config.ready);
         assert!(!inspect_json(&config).contains("identity-session"));
     }
@@ -2649,16 +2689,13 @@ env_key = "XAI_API_KEY"
 
         let grok = load.grok_home.clone().unwrap();
         fs::create_dir_all(&grok).unwrap();
-        fs::write(
-            grok.join("requirements.toml"),
-            r#"
+        let locked_requirements = "\
 fail_closed = true
 [auth]
 disable_api_key_auth = true
-force_login_team_uuid = "team-good"
-"#,
-        )
-        .unwrap();
+force_login_team_uuid = \"team-good\"
+";
+        fs::write(grok.join("requirements.toml"), locked_requirements).unwrap();
         load.env.remove("GROK_DISABLE_API_KEY_AUTH");
         load.env.remove("GROK_FORCE_LOGIN_TEAM_ID");
         let locked = load_from(load.clone());
@@ -2680,14 +2717,11 @@ force_login_team_uuid = "team-good"
                 .any(|error| error.reason.contains("unknown security/policy field"))
         );
 
-        fs::write(
-            grok.join("requirements.toml"),
-            r#"
+        let top_requirements = "\
 fail_closed = true
-force_login_team_uuid = "team-good"
-"#,
-        )
-        .unwrap();
+force_login_team_uuid = \"team-good\"
+";
+        fs::write(grok.join("requirements.toml"), top_requirements).unwrap();
         let top_level = load_from(load.clone());
         assert!(top_level.auth.disable_api_key_auth);
         assert_eq!(
@@ -2707,6 +2741,31 @@ force_login_team_uuid = "team-good"
             r#"{"access_token":"sess","method":"oidc","team_id":"team-good"}"#,
         )
         .unwrap();
+        // The same fail-closed file is now verifiable, so the matching
+        // session is what makes the pin ready rather than an absent sidecar.
+        let signing = ed25519_dalek::SigningKey::from_bytes(&[9u8; 32]);
+        let payload = json!({
+            "typ": "managed-policy",
+            "expires_at": crate::auth::now_unix() + 3600,
+            "deployment_id": "dep-1",
+            "managed_config": "",
+            "requirements": top_requirements,
+        })
+        .to_string();
+        let signature = ed25519_dalek::Signer::sign(&signing, payload.as_bytes());
+        fs::write(
+            grok.join(crate::auth::SIGNATURE_SIDECAR),
+            json!({
+                "signed_payload": payload,
+                "signature": base64::engine::general_purpose::STANDARD.encode(signature.to_bytes()),
+            })
+            .to_string(),
+        )
+        .unwrap();
+        load.env.insert(
+            "GROK_MANAGED_CONFIG_PUBKEY".into(),
+            base64::engine::general_purpose::STANDARD.encode(signing.verifying_key().to_bytes()),
+        );
         let allowed_env = load.env.clone();
         let allowed = load_from(load);
         assert!(allowed.ready);
@@ -2717,6 +2776,51 @@ force_login_team_uuid = "team-good"
                 .as_ref()
                 .and_then(|record| record.team_id.as_deref()),
             Some("team-good")
+        );
+    }
+
+    #[test]
+    fn identity_session_is_handed_to_the_executing_core() {
+        let dir = TempDir::new().unwrap();
+        let mut load = input(&dir);
+        write_config(
+            &load,
+            r#"
+[model.gateway]
+model = "mock-model"
+base_url = "http://127.0.0.1:9/v1"
+env_key = "XAI_API_KEY"
+"#,
+        );
+        load.env.insert("XAI_API_KEY".into(), "test-key".into());
+        load.env
+            .insert("GROK_DISABLE_API_KEY_AUTH".into(), "1".into());
+        load.env.insert(
+            "GROK_AUTH_PROVIDER_COMMAND".into(),
+            "printf '%s' '{\"access_token\":\"handed\"}'".into(),
+        );
+        let grok = load.grok_home.clone().unwrap();
+        fs::create_dir_all(&grok).unwrap();
+        fs::write(
+            grok.join("auth.json"),
+            r#"{"access_token":"handed-token","method":"external","issuer":"https://idp.example"}"#,
+        )
+        .unwrap();
+        let config = load_from(load.clone());
+        assert!(config.ready, "{:?}", config.errors);
+        let extra = credential_env(&config, &load.env);
+        let keys: Vec<&str> = extra.iter().map(|(key, _)| key.as_str()).collect();
+        assert!(
+            keys.iter().any(|key| {
+                *key == "GROK_AUTH_PATH"
+                    || *key == "GROK_AUTH_ACCESS_TOKEN"
+                    || *key == "GROK_AUTH_PROVIDER_COMMAND"
+            }),
+            "dsh child must receive the identity session, got {keys:?}"
+        );
+        assert!(
+            extra.iter().any(|(_, value)| value.contains("handed")),
+            "identity token must be present for the agent core, got {extra:?}"
         );
     }
 

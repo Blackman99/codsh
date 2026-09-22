@@ -896,7 +896,7 @@ pub fn login_help() -> &'static str {
 }
 
 pub fn logout_help() -> &'static str {
-    "Sign out and clear cached identity credentials\n\nUsage: codsh --rust logout [OPTIONS]\n\nOptions:\n      --debug                 Enable debug logging\n      --debug-file <FILE>     Write debug logs to FILE\n  -h, --help                  Print help\n      --leader-socket <PATH>  unused; dsh owns execution. Omit the flag.\n\nClears $GROK_HOME/auth.json only. Model env_key/api_key values, MCP tokens, and Grove git credentials are not revoked."
+    "Sign out and clear cached identity credentials\n\nUsage: codsh --rust logout [OPTIONS]\n\nOptions:\n      --debug                 Enable debug logging\n      --debug-file <FILE>     Write debug logs to FILE\n  -h, --help                  Print help\n      --leader-socket <PATH>  unused; dsh owns execution. Omit the flag.\n\nRevokes the identity session at the configured provider before clearing $GROK_HOME/auth.json. A revocation failure keeps the local session so login can recover. Model env_key/api_key values, MCP tokens, and Grove git credentials are not revoked."
 }
 
 pub fn setup_help() -> &'static str {
@@ -973,24 +973,102 @@ pub fn run_logout(
     dsh_home: &Path,
 ) -> Result<String, String> {
     let path = auth_json_path(grok_home, env);
-    let had = path.exists();
+    let record = read_auth_json(&path).map_err(|error| error.to_string())?;
+    let had = record.is_some();
+    let identity_revoked = if let Some(record) = record.as_ref() {
+        match revoke_identity_session(env, record) {
+            Ok(true) => true,
+            Ok(false) => false,
+            Err(error) => {
+                return Err(format!(
+                    "Identity provider revocation failed: {error}. Cached session was kept so login can recover."
+                ));
+            }
+        }
+    } else {
+        false
+    };
     clear_auth_json(&path).map_err(|error| error.to_string())?;
     let mcp = grok_home.join("mcp_credentials.json");
     let grove = grok_home.join("grove");
     let dsh_creds = dsh_home.join(".credentials.yaml");
+    let identity = if !had {
+        "No cached identity session to clear. Independent API-key use is unchanged."
+    } else if identity_revoked {
+        "Signed out. Identity provider revoked the session and the cached token was cleared."
+    } else {
+        "Signed out. Cached identity token cleared. No identity-provider revocation endpoint was configured."
+    };
     Ok(format!(
-        "{}\nModel API keys, {} MCP credentials, and Grove git credentials were not revoked.\n{OFFICIAL_LOGIN_NOTICE}",
-        if had {
-            "Signed out. Cached identity token cleared."
-        } else {
-            "No cached identity session to clear. Independent API-key use is unchanged."
-        },
+        "{identity}\nModel API keys, {} MCP credentials, and Grove git credentials were not revoked.\n{OFFICIAL_LOGIN_NOTICE}",
         if mcp.exists() || grove.exists() || dsh_creds.exists() {
             "existing"
         } else {
             "absent"
         }
     ))
+}
+
+/// Revoke at the substitute identity provider before deleting auth.json.
+/// `Ok(false)` means no endpoint was configured. `Err` keeps the local file.
+fn revoke_identity_session(
+    env: &BTreeMap<String, String>,
+    record: &AuthRecord,
+) -> Result<bool, String> {
+    let explicit = env
+        .get("GROK_AUTH_REVOKE_URL")
+        .map(String::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+    let discovered = if explicit.is_none() {
+        record
+            .issuer
+            .as_deref()
+            .filter(|issuer| !looks_official_issuer(issuer))
+            .and_then(|issuer| {
+                discover(issuer, None).ok().and_then(|doc| {
+                    doc.get("revocation_endpoint")
+                        .and_then(JsonValue::as_str)
+                        .map(str::to_string)
+                })
+            })
+    } else {
+        None
+    };
+    let Some(url) = explicit.map(str::to_string).or(discovered) else {
+        return Ok(false);
+    };
+    if looks_official_issuer(&url) || url.contains("grok.com") || url.contains("x.ai") {
+        return Err("refusing official grok.com/x.ai revocation endpoint".into());
+    }
+    let token = record
+        .refresh_token
+        .as_deref()
+        .filter(|value| !value.is_empty())
+        .unwrap_or(record.access_token.as_str());
+    let hint = if record
+        .refresh_token
+        .as_deref()
+        .is_some_and(|value| !value.is_empty())
+    {
+        "refresh_token"
+    } else {
+        "access_token"
+    };
+    let client_id = record.client_id.as_deref().unwrap_or("");
+    extra_ca::http_post_form(
+        &url,
+        None,
+        Duration::from_secs(15),
+        &[],
+        &[
+            ("token", token),
+            ("token_type_hint", hint),
+            ("client_id", client_id),
+        ],
+    )
+    .map_err(http_err)?;
+    Ok(true)
 }
 
 pub fn refresh_session(
@@ -1491,7 +1569,11 @@ pub fn run_setup(
         session
             .as_ref()
             .and_then(|record| record.team_id.as_deref()),
-        body.get("deployment_id").and_then(JsonValue::as_str),
+        // Missing deployment_id is not "no caller principal". Pass "" so a
+        // signed payload cannot skip the check by omitting the field.
+        body.get("deployment_id")
+            .and_then(JsonValue::as_str)
+            .or(Some("")),
         fail_closed,
     )?;
     fs::create_dir_all(grok_home).map_err(|error| error.to_string())?;
@@ -1587,18 +1669,44 @@ fn verify_signed_policy(
     {
         return Err("served policy does not match the signed payload".into());
     }
-    let signed_principal = payload
-        .get("deployment_id")
-        .and_then(JsonValue::as_str)
-        .or_else(|| payload.get("team_id").and_then(JsonValue::as_str));
-    let expected = deployment_id.or(team_id);
-    if let (Some(signed), Some(expected)) = (signed_principal, expected)
-        && signed != expected
-    {
-        return Err("signed policy is bound to a different principal".into());
+    let signed_deployment = nonempty_str(payload.get("deployment_id"));
+    let signed_team = nonempty_str(payload.get("team_id"));
+    let expected_deployment = nonempty_str_opt(deployment_id);
+    let expected_team = nonempty_str_opt(team_id);
+    // A signature is only for the caller that already has a principal.
+    // Omitting deployment_id from the response, or both ids from the payload,
+    // must not verify: that signature could belong to another principal.
+    if expected_deployment.is_some() || expected_team.is_some() {
+        let deployment_matches = match (signed_deployment, expected_deployment) {
+            (Some(signed), Some(expected)) => signed == expected,
+            _ => false,
+        };
+        let team_matches = match (signed_team, expected_team) {
+            (Some(signed), Some(expected)) => signed == expected,
+            _ => false,
+        };
+        if !deployment_matches && !team_matches {
+            let signed_any = signed_deployment.or(signed_team);
+            return Err(if signed_any.is_none() {
+                "signed policy omits its principal".into()
+            } else {
+                "signed policy is bound to a different principal".into()
+            });
+        }
     }
     let _ = fail_closed;
     Ok(())
+}
+
+fn nonempty_str(value: Option<&JsonValue>) -> Option<&str> {
+    value
+        .and_then(JsonValue::as_str)
+        .map(str::trim)
+        .filter(|text| !text.is_empty())
+}
+
+fn nonempty_str_opt(value: Option<&str>) -> Option<&str> {
+    value.map(str::trim).filter(|text| !text.is_empty())
 }
 
 pub fn verify_on_disk_signature(
@@ -1607,16 +1715,17 @@ pub fn verify_on_disk_signature(
     fail_closed: bool,
 ) -> Result<(), String> {
     let sidecar_path = grok_home.join(SIGNATURE_SIDECAR);
+    let locked_files = grok_home.join("managed_config.toml").exists()
+        || grok_home.join("requirements.toml").exists();
     if !sidecar_path.exists() {
-        if fail_closed
-            && (grok_home.join("managed_config.toml").exists()
-                || grok_home.join("requirements.toml").exists())
-            && pubkey.is_some()
-        {
-            return Err(
+        if fail_closed && locked_files {
+            return Err(if pubkey.is_none() {
+                "Signature/locking requirements cannot be verified: fail-closed policy has no pubkey and no authentic sidecar. Refusing related configuration."
+                    .into()
+            } else {
                 "Signature/locking requirements cannot be verified: managed policy has no authentic sidecar. Refusing related configuration."
-                    .into(),
-            );
+                    .into()
+            });
         }
         return Ok(());
     }
@@ -2063,20 +2172,34 @@ client_id = "official"
     }
 
     fn sign_policy(managed: &str, requirements: &str) -> (String, JsonValue) {
+        sign_policy_for(managed, requirements, Some("dep-1"), None)
+    }
+
+    fn sign_policy_for(
+        managed: &str,
+        requirements: &str,
+        deployment_id: Option<&str>,
+        team_id: Option<&str>,
+    ) -> (String, JsonValue) {
         let secret = [7u8; 32];
         let signing = SigningKey::from_bytes(&secret);
         let pubkey =
             base64::engine::general_purpose::STANDARD.encode(signing.verifying_key().to_bytes());
-        let payload = json!({
+        let mut payload = json!({
             "typ": "managed-policy",
             "key_id": "v1",
             "expires_at": now_unix() + 3600,
-            "deployment_id": "dep-1",
             "managed_config": managed,
             "requirements": requirements,
             "fail_closed": true,
-        })
-        .to_string();
+        });
+        if let Some(deployment_id) = deployment_id {
+            payload["deployment_id"] = json!(deployment_id);
+        }
+        if let Some(team_id) = team_id {
+            payload["team_id"] = json!(team_id);
+        }
+        let payload = payload.to_string();
         let signature = signing.sign(payload.as_bytes());
         (
             pubkey,
@@ -2137,6 +2260,152 @@ client_id = "official"
         let config = load_auth_config_layers(&table, None, &env);
         let err = run_setup(&grok, &env, &config, &SetupFlags::default(), true).unwrap_err();
         assert!(err.to_ascii_lowercase().contains("verif") || err.contains("unsigned"));
+    }
+
+    fn setup_against(
+        grok: &Path,
+        env: &mut BTreeMap<String, String>,
+        body: &str,
+        pubkey: &str,
+    ) -> Result<SetupResult, String> {
+        let body = body.to_string();
+        let url = serve(move |line| {
+            if line.starts_with("GET /deployment/config") {
+                (200, body.clone(), "application/json")
+            } else {
+                (404, "no".into(), "text/plain")
+            }
+        });
+        env.insert(
+            "GROK_MANAGED_CONFIG_URL".into(),
+            format!("{url}/deployment/config"),
+        );
+        env.insert("GROK_MANAGED_CONFIG_PUBKEY".into(), pubkey.to_string());
+        let table = TomlValue::Table(toml::map::Map::new());
+        let config = load_auth_config_layers(&table, None, env);
+        run_setup(grok, env, &config, &SetupFlags::default(), true)
+    }
+
+    #[test]
+    fn signed_policy_for_another_principal_is_refused() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let grok = dir.path().join("grok");
+        fs::create_dir_all(&grok).unwrap();
+        let mut env = env();
+        env.insert("GROK_DEPLOYMENT_KEY".into(), "dep-key".into());
+        let record = AuthRecord {
+            method: "external".into(),
+            access_token: "sess".into(),
+            refresh_token: None,
+            expires_at: Some(now_unix() + 3600),
+            issuer: Some("https://idp.example".into()),
+            client_id: None,
+            team_id: Some("team-caller".into()),
+            label: None,
+        };
+        write_auth_json(&grok.join("auth.json"), &record).unwrap();
+
+        let (pubkey, other) = sign_policy_for(
+            "remote_fetch = false\n",
+            "fail_closed = true\n",
+            Some("dep-other"),
+            None,
+        );
+        let body = json!({
+            "deployment_id": "dep-1",
+            "managed_config": "remote_fetch = false\n",
+            "requirements": "fail_closed = true\n",
+            "signatures": [other],
+        })
+        .to_string();
+        let err = setup_against(&grok, &mut env, &body, &pubkey).unwrap_err();
+        assert!(err.contains("different principal"), "{err}");
+        assert!(!grok.join("managed_config.toml").exists());
+
+        let (pubkey, omitted) =
+            sign_policy_for("remote_fetch = false\n", "fail_closed = true\n", None, None);
+        let body = json!({
+            "managed_config": "remote_fetch = false\n",
+            "requirements": "fail_closed = true\n",
+            "signatures": [omitted],
+        })
+        .to_string();
+        let err = setup_against(&grok, &mut env, &body, &pubkey).unwrap_err();
+        assert!(
+            err.contains("omits its principal") || err.contains("different principal"),
+            "{err}"
+        );
+        assert!(!grok.join("managed_config.toml").exists());
+    }
+
+    #[test]
+    fn unverifiable_locked_policy_without_pubkey_or_sidecar_is_refused() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let grok = dir.path().join("grok");
+        fs::create_dir_all(&grok).unwrap();
+        fs::write(grok.join("managed_config.toml"), "remote_fetch = false\n").unwrap();
+        fs::write(grok.join("requirements.toml"), "fail_closed = true\n").unwrap();
+        let err = verify_on_disk_signature(&grok, None, true).unwrap_err();
+        assert!(
+            err.to_ascii_lowercase().contains("cannot be verified")
+                || err.to_ascii_lowercase().contains("unverifiable"),
+            "{err}"
+        );
+    }
+
+    #[test]
+    fn logout_calls_identity_provider_revocation_and_recovers() {
+        let revoked = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let seen = std::sync::Arc::clone(&revoked);
+        let url = serve(move |line| {
+            if line.starts_with("POST /revoke") {
+                seen.store(true, std::sync::atomic::Ordering::SeqCst);
+                (200, r#"{"revoked":true}"#.into(), "application/json")
+            } else {
+                (404, "no".into(), "text/plain")
+            }
+        });
+        let dir = tempfile::TempDir::new().unwrap();
+        let grok = dir.path().join("grok");
+        let dsh = dir.path().join("dsh");
+        fs::create_dir_all(&grok).unwrap();
+        fs::create_dir_all(&dsh).unwrap();
+        let record = AuthRecord {
+            method: "oidc".into(),
+            access_token: "sess".into(),
+            refresh_token: Some("refresh".into()),
+            expires_at: Some(now_unix() + 3600),
+            issuer: Some(url.clone()),
+            client_id: Some("client".into()),
+            team_id: None,
+            label: None,
+        };
+        write_auth_json(&grok.join("auth.json"), &record).unwrap();
+        let mut env = env();
+        env.insert("GROK_AUTH_REVOKE_URL".into(), format!("{url}/revoke"));
+        let message = run_logout(&grok, &env, &dsh).unwrap();
+        assert!(!grok.join("auth.json").exists());
+        assert!(
+            revoked.load(std::sync::atomic::Ordering::SeqCst),
+            "logout must call the identity provider"
+        );
+        assert!(message.to_ascii_lowercase().contains("revok"), "{message}");
+
+        write_auth_json(&grok.join("auth.json"), &record).unwrap();
+        let down = serve(|line| {
+            let _ = line;
+            (500, "down".into(), "text/plain")
+        });
+        env.insert("GROK_AUTH_REVOKE_URL".into(), format!("{down}/revoke"));
+        let err = run_logout(&grok, &env, &dsh).unwrap_err();
+        assert!(
+            err.to_ascii_lowercase().contains("revok") || err.to_ascii_lowercase().contains("fail"),
+            "{err}"
+        );
+        assert!(
+            grok.join("auth.json").exists(),
+            "failed revocation must keep the local session for recovery"
+        );
     }
 
     #[test]

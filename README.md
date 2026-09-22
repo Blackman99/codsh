@@ -174,12 +174,14 @@ reads the original Home. `codsh --rust login` / `logout` / `setup` (and `/login`
 configured substitute identity or management services. Independent API-key use
 does not require login unless `GROK_DISABLE_API_KEY_AUTH` or a team pin
 (`GROK_FORCE_LOGIN_TEAM_ID` / `auth.force_login_team_uuid` / top-level
-`force_login_team_uuid` in locked `requirements.toml`) requires a matching identity session. Startup and inspect refresh an expired `auth.json` or clear it when refresh fails, so a team pin alone does not keep a stale session ready. A cleared unrefreshable token does not block `login` or an otherwise valid API key. A successful `/login` reloads that session and reapplies settings. It replaces dsh when the credential env, readiness, or settings patch changed, and connects in the same step when no live client remains. A settings write error keeps the existing connection and reports the failure. `/logout` drops the connection that was using the session. Session tokens live in `$GROK_HOME/auth.json` with
+`force_login_team_uuid` in locked `requirements.toml`) requires a matching identity session. Startup and inspect refresh an expired `auth.json` or clear it when refresh fails, so a team pin alone does not keep a stale session ready. A cleared unrefreshable token does not block `login` or an otherwise valid API key. A successful `/login` reloads that session and reapplies settings. It replaces dsh when the credential env, readiness, or settings patch changed, and connects in the same step when no live client remains. A settings write error keeps the existing connection and reports the failure. The replacement dsh process receives the identity session (`GROK_AUTH_PATH`, `GROK_AUTH_ACCESS_TOKEN`, and `GROK_AUTH_PROVIDER_COMMAND` when configured). Other parent `GROK_AUTH_*` variables are not forwarded. `/logout` revokes that session at `GROK_AUTH_REVOKE_URL` or the issuer `revocation_endpoint` before clearing `auth.json`; a revocation failure keeps the file so login can recover, and drops the connection that was using the session. Session tokens live in `$GROK_HOME/auth.json` with
 owner-only permissions and are not transferred to model providers, MCP, Grove,
 or other services. Official grok.com / auth.x.ai login, subscription billing,
 auto-topup, and team entitlements are not reproduced. `GROK_MANAGED_CONFIG_URL`
-fetches organization policy only when a substitute pubkey can verify it;
-unsigned or unverifiable locked requirements are refused.
+fetches organization policy only when a substitute pubkey can verify it and
+the signature names this caller. A signature for another principal, a signed
+payload that omits both deployment and team, and fail-closed policy with no
+pubkey and no sidecar are refused.
 Set the model's `env_key` (for example `XAI_API_KEY`) after writing a provider
 with a `base_url`. An empty Enter on first-run reloads that file and connects
 when a provider is ready, without submitting a prompt. Inherited parent
