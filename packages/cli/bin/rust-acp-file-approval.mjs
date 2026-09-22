@@ -404,7 +404,7 @@ function innerShellScripts(command) {
   const scripts = []
   const words = shellWords(command)
   for (let i = 0; i < words.length; i += 1) {
-    const base = words[i].split(/[\\/]/u).at(-1).replace(/\.exe$/iu, '')
+    const base = commandBasename(words[i])
     if (base === 'eval') {
       if (words[i + 1]) scripts.push(words.slice(i + 1).join(' '))
       continue
@@ -493,7 +493,7 @@ function parsedCommand(command) {
 
 function commandBasename(word) {
   const name = word.split(/[\\/]/u).at(-1) ?? word
-  return name.replace(/\.exe$/iu, '')
+  return name.replace(/\.exe$/iu, '').toLowerCase()
 }
 
 function basenameCommand(command) {
@@ -548,7 +548,7 @@ function shellOperands(command) {
 function isUnpeelable(command) {
   const words = command.split(/\s+/u).filter(Boolean)
   return words.some((word, index) => {
-    const base = word.split(/[\\/]/u).at(-1)
+    const base = commandBasename(word)
     return base === 'env' && words[index + 1] === '-S'
   })
 }
@@ -585,8 +585,8 @@ function stripWrappers(command) {
   const words = command.split(/\s+/u).filter(Boolean)
   stripAssignments(words)
   const wrappers = new Set(['timeout', 'nice', 'ionice', 'chrt', 'stdbuf', 'env', 'command'])
-  while (words[0] && wrappers.has(words[0].split(/[\\/]/u).at(-1))) {
-    const wrapper = words.shift().split(/[\\/]/u).at(-1)
+  while (words[0] && wrappers.has(commandBasename(words[0]))) {
+    const wrapper = commandBasename(words.shift())
     if (wrapper === 'env' && words[0] === '-S') return ''
     let consumedBare = false
     while (words[0]) {
@@ -807,7 +807,7 @@ function bashAllowMatches(command, rule) {
 
 function dangerous(command) {
   const words = shellWords(command)
-  const head = (words[0] ?? '').split(/[\\/]/u).at(-1).replace(/\.exe$/iu, '').toLowerCase()
+  const head = commandBasename(words[0] ?? '')
   return ['rm', 'chmod', 'chown', 'chgrp', 'chattr', 'pkill', 'kill', 'killall'].includes(head)
     || (head === 'git' && words[1] === 'push')
 }
@@ -885,7 +885,8 @@ function sortWrites(words) {
     const name = optionName(word)
     if (name && resolveUnique(name, ['output', 'compress-program']) === 'output') return true
     if (name && name.length > 'output'.length && name.startsWith('output')) return true
-    return word === '-o' || (index > 0 && words[index - 1] === '-o')
+    if (word === '-o' || (index > 0 && words[index - 1] === '-o')) return true
+    return word.length > 1 && word.startsWith('-') && !word.startsWith('--') && word.includes('o')
   })
 }
 

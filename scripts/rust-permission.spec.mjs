@@ -195,6 +195,10 @@ describe('rust permission evaluator', () => {
     expect(evaluatePermission(policy({ mode: 'dontAsk' }), { kind: 'bash', command: 'sort --compress-pro=gzip file' }).kind).toBe('deny')
     expect(evaluatePermission(policy({ mode: 'dontAsk' }), { kind: 'bash', command: 'sort --compress-p=gzip file' }).kind).toBe('deny')
     expect(evaluatePermission(policy({ mode: 'dontAsk' }), { kind: 'bash', command: 'sort -o out.txt file' }).kind).toBe('deny')
+    expect(evaluatePermission(policy({ mode: 'dontAsk' }), { kind: 'bash', command: 'sort -oout.txt file' }).kind).toBe('deny')
+    expect(evaluatePermission(policy({ mode: 'dontAsk' }), { kind: 'bash', command: 'sort -oFILE file' }).kind).toBe('deny')
+    expect(evaluatePermission(policy({ mode: 'dontAsk' }), { kind: 'bash', command: 'sort -uoFILE file' }).kind).toBe('deny')
+    expect(evaluatePermission(policy({ mode: 'dontAsk' }), { kind: 'bash', command: 'sort -k1 file' }).kind).toBe('allow')
     expect(evaluatePermission(policy({ mode: 'dontAsk' }), { kind: 'bash', command: 'sort --output=out.txt file' }).kind).toBe('deny')
     expect(evaluatePermission(policy({ mode: 'dontAsk' }), { kind: 'bash', command: 'sort --output-file out.txt file' }).kind).toBe('deny')
     expect(evaluatePermission(policy(), { kind: 'bash', command: 'sort file' }).kind).toBe('allow')
@@ -248,6 +252,11 @@ describe('rust permission evaluator', () => {
       '/usr/local/bin/rm.exe -rf /',
       'timeout 30 /bin/rm -rf /',
       "bash -c '/bin/rm -rf /'",
+      'RM.EXE -rf /',
+      '/Bin/RM -rf /',
+      '/usr/local/bin/RM.EXE -rf /',
+      'timeout 30 /Bin/RM -rf /',
+      'TIMEOUT 30 /Bin/RM -rf /',
     ]) {
       expect(evaluatePermission(denyRm, { kind: 'bash', command }).kind, command).toBe('deny')
     }

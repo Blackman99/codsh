@@ -64,9 +64,11 @@ consumed), while `env -S` prompts. Read/Edit deny and ask follow in-path
 symlink targets; an unresolved link prompts. Brace groups, quoted or
 backslash-escaped command words, `eval`, and ANSI-C `bash -c $'…'` scripts
 (including a backslash-newline) cannot hide a denied command. A path-qualified
-executable such as `/bin/rm`, `./rm`, or `rm.exe` is matched by its command
-basename, so `Bash(rm -rf *)` still denies it under always-approve. `sort -o`
-and `--output`, and a unique prefix of `sort --compress-program`, are not
+executable such as `/bin/rm`, `./rm`, or `RM.EXE` is matched by its command
+basename without regard to case, so `Bash(rm -rf *)` still denies it under
+always-approve. `sort -o`, including attached `sort -oFILE` and a cluster
+such as `sort -uoFILE`,
+`--output`, and a unique prefix of `sort --compress-program`, are not
 read-only. Frozen git inspection commands
 (`cat-file`, `ls-tree`, `check-ignore`, `show-ref`, `for-each-ref`, `rev-list`,
 `name-rev`, `count-objects`, `check-attr`) auto-allow; git writes do not,

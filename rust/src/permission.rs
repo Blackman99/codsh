@@ -1330,14 +1330,9 @@ fn has_background_amp(command: &str) -> bool {
 
 fn is_unpeelable(command: &str) -> bool {
     let words: Vec<&str> = command.split_whitespace().collect();
-    words.windows(2).any(|pair| {
-        Path::new(pair[0])
-            .file_name()
-            .and_then(|name| name.to_str())
-            .unwrap_or(pair[0])
-            == "env"
-            && pair[1] == "-S"
-    })
+    words
+        .windows(2)
+        .any(|pair| command_basename(pair[0]) == "env" && pair[1] == "-S")
 }
 
 fn is_unsplittable(command: &str) -> bool {
@@ -1678,7 +1673,11 @@ fn command_basename(word: &str) -> String {
         .file_name()
         .and_then(|name| name.to_str())
         .unwrap_or(word);
-    name.trim_end_matches(".exe").to_string()
+    let lower = name.to_ascii_lowercase();
+    lower
+        .strip_suffix(".exe")
+        .unwrap_or(lower.as_str())
+        .to_string()
 }
 
 fn basename_command(command: &str) -> String {
@@ -1809,11 +1808,7 @@ fn inner_shell_scripts(command: &str) -> Vec<String> {
     let mut scripts = extract_dash_c_scripts(command);
     let words = shell_words(command);
     for (index, word) in words.iter().enumerate() {
-        let base = Path::new(word)
-            .file_name()
-            .and_then(|name| name.to_str())
-            .unwrap_or(word)
-            .trim_end_matches(".exe");
+        let base = command_basename(word);
         if base == "eval" && index + 1 < words.len() {
             let joined = words[index + 1..].join(" ");
             if !joined.trim().is_empty() {
@@ -1951,11 +1946,7 @@ fn strip_env_and_wrappers(command: &str) -> String {
         "timeout", "nice", "ionice", "chrt", "stdbuf", "env", "command",
     ];
     while let Some(head) = words.first().cloned() {
-        let base = Path::new(&head)
-            .file_name()
-            .and_then(|name| name.to_str())
-            .unwrap_or(head.as_str())
-            .to_string();
+        let base = command_basename(&head);
         if !WRAPPERS.contains(&base.as_str()) {
             break;
         }
@@ -2162,10 +2153,10 @@ fn sort_writes(words: &[&str]) -> bool {
         {
             return true;
         }
-        if *word == "-o" {
+        if *word == "-o" || (index > 0 && words[index - 1] == "-o") {
             return true;
         }
-        index > 0 && words[index - 1] == "-o"
+        word.len() > 1 && word.starts_with('-') && !word.starts_with("--") && word.contains('o')
     })
 }
 
@@ -2262,12 +2253,7 @@ fn is_dangerous_command(words: &[&str]) -> bool {
     let Some(head) = words.first() else {
         return false;
     };
-    let base = Path::new(head)
-        .file_name()
-        .and_then(|name| name.to_str())
-        .unwrap_or(head)
-        .trim_end_matches(".exe")
-        .to_ascii_lowercase();
+    let base = command_basename(head);
     if matches!(
         base.as_str(),
         "rm" | "chmod" | "chown" | "chgrp" | "chattr" | "pkill" | "kill" | "killall"
@@ -2278,12 +2264,7 @@ fn is_dangerous_command(words: &[&str]) -> bool {
 }
 
 fn is_exec_vehicle(head: &str) -> bool {
-    let base = Path::new(head)
-        .file_name()
-        .and_then(|name| name.to_str())
-        .unwrap_or(head)
-        .trim_end_matches(".exe")
-        .to_ascii_lowercase();
+    let base = command_basename(head);
     matches!(
         base.as_str(),
         "sh" | "bash" | "zsh" | "python" | "python3" | "node" | "sudo" | "ssh" | "docker" | "npx"
@@ -3016,6 +2997,9 @@ mod tests {
         ));
         for command in [
             "sort -o out.txt file",
+            "sort -oout.txt file",
+            "sort -oFILE file",
+            "sort -uoFILE file",
             "sort --output=out.txt file",
             "sort --output-file out.txt file",
         ] {
@@ -3171,6 +3155,11 @@ mod tests {
             "/usr/local/bin/rm.exe -rf /",
             "timeout 30 /bin/rm -rf /",
             "bash -c '/bin/rm -rf /'",
+            "RM.EXE -rf /",
+            "/Bin/RM -rf /",
+            "/usr/local/bin/RM.EXE -rf /",
+            "timeout 30 /Bin/RM -rf /",
+            "TIMEOUT 30 /Bin/RM -rf /",
         ] {
             assert!(
                 matches!(

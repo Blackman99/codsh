@@ -117,7 +117,10 @@ no side effects; unsplittable shell and Read/Edit path rules on operands cannot 
 glob-allowed or auto-approved as read-only. Wrappers peel to the inner command
 without eating the command name; `env -S` prompts. Brace groups and ANSI-C
 `bash -c` scripts are inspected, so deny still matches the inner command.
-Unique long-option prefixes such as `sort --compress-pro` are not read-only.
+Command basenames match without regard to case, so `RM.EXE` is still `rm`.
+Attached or clustered `sort -o` (`sort -oFILE`, `sort -uoFILE`) and unique
+long-option prefixes such as
+`sort --compress-pro` are not read-only.
 Frozen git read-only subcommands auto-allow; git writes do not. Claude settings
 load from `~/.claude` and every `.claude` from the repo root to the working
 directory. Read/Edit deny/ask follow in-path symlink targets. Missing or corrupt
