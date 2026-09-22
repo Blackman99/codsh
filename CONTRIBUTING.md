@@ -355,7 +355,9 @@ copies selected providers without tokens or trust grants, keeps the model named
 by `agent-default-model`, and leaves source files and nested isolated settings
 unchanged on preview, cancel, failure, and repeat apply. The auth test covers `login` /
 `logout` / `setup` help without creating Home, independent API-key use,
-external-provider login with owner-only `auth.json`, logout that does not
+organization pins that refuse API-key-only ready (`GROK_DISABLE_API_KEY_AUTH`,
+empty team list, locked `requirements.toml` `[auth]` or top-level
+`force_login_team_uuid`), external-provider login with owner-only `auth.json`, logout that does not
 revoke model/MCP credentials, unsigned managed-policy refusal, a local
 signed substitute management service, and `/login` `/logout` in a real PTY.
 Public ACP framing, including

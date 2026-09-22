@@ -200,6 +200,11 @@ impl EffectiveConfig {
             }
             return missing.clone();
         }
+        if self.auth.disable_api_key_auth
+            && auth::usable_identity_session(&self.auth, self.auth_session.as_ref()).is_err()
+        {
+            return auth::identity_required_message(&self.auth);
+        }
         if !self.ready && !self.trust_prompt {
             return "First-run: no usable provider. Official grok.com login/telemetry unused.\nWrite ~/.codsh-rust/.grok/config.toml ([model.<id>] base_url, env_key). Export the key. inspect shows origins.".into();
         }
@@ -208,6 +213,26 @@ impl EffectiveConfig {
         }
         String::new()
     }
+
+    /// Inspect/connect stay fail-closed without a matching identity session.
+    /// `login` and `setup` still run so that session can be minted. Other
+    /// config errors keep blocking those commands.
+    pub fn blocks_auth_command(&self) -> bool {
+        self.errors
+            .iter()
+            .any(|error| !is_identity_session_gate(error))
+    }
+}
+
+fn is_identity_session_gate(error: &ConfigError) -> bool {
+    error
+        .path
+        .as_ref()
+        .and_then(|path| path.file_name())
+        .is_some_and(|name| name == "auth.json")
+        && (error.reason.contains("Organization policy")
+            || error.reason.contains("identity session")
+            || error.reason.contains("requires logging into"))
 }
 
 pub fn grok_home_from(home: &Path, env_home: Option<&str>) -> PathBuf {
@@ -1046,7 +1071,7 @@ pub fn load_from(mut input: LoadInput) -> EffectiveConfig {
         "false",
         "isolated-home",
     );
-    let auth = auth::load_auth_config(&table, &input.env);
+    let auth = auth::load_auth_config_layers(&table, requirements.as_ref(), &input.env);
     if let Err(error) =
         auth::verify_on_disk_signature(&grok_home, auth.managed_pubkey.as_deref(), fail_closed)
     {
@@ -1059,13 +1084,15 @@ pub fn load_from(mut input: LoadInput) -> EffectiveConfig {
     let session = auth::read_auth_json(&auth::auth_json_path(&grok_home, &input.env))
         .ok()
         .flatten();
-    if let Some(record) = &session
-        && let Err(error) = auth::enforce_team(&auth, record)
-    {
+    if let Err(error) = auth::usable_identity_session(&auth, session.as_ref()) {
+        if missing_credential.is_none() {
+            missing_credential = Some(error.clone());
+        }
         errors.push(ConfigError {
             path: Some(auth::auth_json_path(&grok_home, &input.env)),
             reason: error,
         });
+        ready = false;
     }
     if !errors.is_empty() {
         ready = false;
@@ -1682,6 +1709,9 @@ pub fn credential_env(
     config: &EffectiveConfig,
     env: &BTreeMap<String, String>,
 ) -> Vec<(String, String)> {
+    if auth::usable_identity_session(&config.auth, config.auth_session.as_ref()).is_err() {
+        return Vec::new();
+    }
     let mut extra = Vec::new();
     for model in config.models.values() {
         if extra.iter().any(|(key, _)| key == &model.env_key) {
@@ -1910,6 +1940,7 @@ const KNOWN_POLICY_KEYS: &[&str] = &[
     "campaigns",
     "memory",
     "auth",
+    "force_login_team_uuid",
     "grok_com_config",
 ];
 
@@ -2560,7 +2591,124 @@ env_key = "XAI_API_KEY"
         assert!(credential_env(&config, &load.env).is_empty());
         assert!(!config.ready);
         assert!(!inspect_json(&config).contains("identity-session"));
+    }
 
+    #[test]
+    fn organization_pin_refuses_api_key_ready_until_matching_session() {
+        let dir = TempDir::new().unwrap();
+        let mut load = input(&dir);
+        write_config(
+            &load,
+            r#"
+[model.gateway]
+model = "mock-model"
+base_url = "http://127.0.0.1:9/v1"
+env_key = "XAI_API_KEY"
+"#,
+        );
+        load.env.insert(
+            "XAI_API_KEY".into(),
+            "test-key-not-a-secret-for-logs".into(),
+        );
+        load.env
+            .insert("GROK_DISABLE_API_KEY_AUTH".into(), "1".into());
+        let blocked = load_from(load.clone());
+        assert!(!blocked.ready);
+        assert!(blocked.auth.disable_api_key_auth);
+        assert!(inspect_json(&blocked).contains("\"disableApiKeyAuth\": true"));
+        assert!(credential_env(&blocked, &load.env).is_empty());
+        assert!(
+            blocked
+                .first_run_message()
+                .contains("disables API-key authentication")
+        );
+        assert!(!blocked.blocks_auth_command());
+
+        load.env
+            .insert("GROK_FORCE_LOGIN_TEAM_ID".into(), "[]".into());
+        let empty = load_from(load.clone());
+        assert!(!empty.ready);
+        assert!(credential_env(&empty, &load.env).is_empty());
+        assert_eq!(
+            empty
+                .auth
+                .force_login_team
+                .as_ref()
+                .map(|team| team.teams.clone()),
+            Some(Vec::new())
+        );
+
+        let grok = load.grok_home.clone().unwrap();
+        fs::create_dir_all(&grok).unwrap();
+        fs::write(
+            grok.join("requirements.toml"),
+            r#"
+fail_closed = true
+[auth]
+disable_api_key_auth = true
+force_login_team_uuid = "team-good"
+"#,
+        )
+        .unwrap();
+        load.env.remove("GROK_DISABLE_API_KEY_AUTH");
+        load.env.remove("GROK_FORCE_LOGIN_TEAM_ID");
+        let locked = load_from(load.clone());
+        assert!(locked.auth.disable_api_key_auth);
+        assert_eq!(
+            locked
+                .auth
+                .force_login_team
+                .as_ref()
+                .map(|team| team.teams.clone()),
+            Some(vec!["team-good".into()])
+        );
+        assert!(!locked.ready);
+        assert!(credential_env(&locked, &load.env).is_empty());
+        assert!(
+            !locked
+                .errors
+                .iter()
+                .any(|error| error.reason.contains("unknown security/policy field"))
+        );
+
+        fs::write(
+            grok.join("requirements.toml"),
+            r#"
+fail_closed = true
+force_login_team_uuid = "team-good"
+"#,
+        )
+        .unwrap();
+        let top_level = load_from(load.clone());
+        assert!(top_level.auth.disable_api_key_auth);
+        assert_eq!(
+            top_level
+                .auth
+                .force_login_team
+                .as_ref()
+                .map(|team| team.teams.clone()),
+            Some(vec!["team-good".into()])
+        );
+        assert!(!top_level.ready);
+        assert!(credential_env(&top_level, &load.env).is_empty());
+        assert!(!top_level.blocks_auth_command());
+
+        fs::write(
+            grok.join("auth.json"),
+            r#"{"access_token":"sess","method":"oidc","team_id":"team-good"}"#,
+        )
+        .unwrap();
+        let allowed_env = load.env.clone();
+        let allowed = load_from(load);
+        assert!(allowed.ready);
+        assert!(!credential_env(&allowed, &allowed_env).is_empty());
+        assert_eq!(
+            allowed
+                .auth_session
+                .as_ref()
+                .and_then(|record| record.team_id.as_deref()),
+            Some("team-good")
+        );
     }
 
     #[test]

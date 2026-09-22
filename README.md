@@ -172,7 +172,9 @@ apply leave source files and existing isolated settings unchanged. Model credent
 must already be exported (`--authorize-env`) or set after import. Plain `codsh` still
 reads the original Home. `codsh --rust login` / `logout` / `setup` (and `/login` `/logout`) talk only to
 configured substitute identity or management services. Independent API-key use
-does not require login. Session tokens live in `$GROK_HOME/auth.json` with
+does not require login unless `GROK_DISABLE_API_KEY_AUTH` or a team pin
+(`GROK_FORCE_LOGIN_TEAM_ID` / `auth.force_login_team_uuid` / top-level
+`force_login_team_uuid` in locked `requirements.toml`) requires a matching identity session. Session tokens live in `$GROK_HOME/auth.json` with
 owner-only permissions and are not transferred to model providers, MCP, Grove,
 or other services. Official grok.com / auth.x.ai login, subscription billing,
 auto-topup, and team entitlements are not reproduced. `GROK_MANAGED_CONFIG_URL`

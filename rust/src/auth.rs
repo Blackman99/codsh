@@ -504,8 +504,16 @@ fn hex_decode(raw: &str) -> Result<Vec<u8>, ()> {
         .collect()
 }
 
-pub fn load_auth_config(table: &TomlValue, env: &BTreeMap<String, String>) -> AuthConfig {
+/// `requirements` is the locked layer. Its `disable_api_key_auth` and
+/// `force_login_team_uuid` win over environment and user config, including a
+/// top-level team pin. A team pin always disables API-key-only auth.
+pub fn load_auth_config_layers(
+    table: &TomlValue,
+    requirements: Option<&TomlValue>,
+    env: &BTreeMap<String, String>,
+) -> AuthConfig {
     let auth = section(table, "auth");
+    let req_auth = requirements.and_then(|value| section(value, "auth"));
     let endpoints = table.get("endpoints");
     let provider_command = env
         .get("GROK_AUTH_PROVIDER_COMMAND")
@@ -547,21 +555,28 @@ pub fn load_auth_config(table: &TomlValue, env: &BTreeMap<String, String>) -> Au
             auth.and_then(|value| value.get("oauth2")),
         )
     };
-    let disable_api_key_auth = env_flag(env.get("GROK_DISABLE_API_KEY_AUTH")).unwrap_or(false)
-        || toml_bool(auth.and_then(|value| value.get("disable_api_key_auth"))).unwrap_or(false);
-    let req_team = table
+    let req_disable = toml_bool(req_auth.and_then(|value| value.get("disable_api_key_auth")));
+    let env_disable = env_flag(env.get("GROK_DISABLE_API_KEY_AUTH"));
+    let cfg_disable = toml_bool(auth.and_then(|value| value.get("disable_api_key_auth")));
+    let disable_api_key_auth = req_disable.or(env_disable).or(cfg_disable).unwrap_or(false);
+    let req_team = requirements
+        .and_then(|value| value.get("force_login_team_uuid"))
+        .and_then(force_team_from_toml)
+        .or_else(|| {
+            req_auth
+                .and_then(|value| value.get("force_login_team_uuid"))
+                .and_then(force_team_from_toml)
+        });
+    let env_team = env
+        .get("GROK_FORCE_LOGIN_TEAM_ID")
+        .and_then(|value| parse_force_login_team(value));
+    let cfg_team = table
         .get("force_login_team_uuid")
         .and_then(force_team_from_toml)
         .or_else(|| {
             auth.and_then(|value| value.get("force_login_team_uuid"))
                 .and_then(force_team_from_toml)
         });
-    let env_team = env
-        .get("GROK_FORCE_LOGIN_TEAM_ID")
-        .and_then(|value| parse_force_login_team(value));
-    let cfg_team = auth
-        .and_then(|value| value.get("force_login_team_uuid"))
-        .and_then(force_team_from_toml);
     let force_login_team = req_team.or(env_team).or(cfg_team);
     let preferred =
         match toml_string(auth.and_then(|value| value.get("preferred_method"))).as_deref() {
@@ -827,6 +842,34 @@ pub fn run_external_provider(
     Ok(record)
 }
 
+pub fn identity_required_message(config: &AuthConfig) -> String {
+    if let Some(policy) = &config.force_login_team {
+        format!(
+            "Organization policy requires a matching identity session for teams: {}. Independent API-key use cannot bypass this pin. Run `codsh --rust login` with a substitute identity provider.\n{OFFICIAL_LOGIN_NOTICE}",
+            policy.display()
+        )
+    } else {
+        format!(
+            "Organization policy disables API-key authentication. Independent model keys cannot bypass the required identity session. Run `codsh --rust login` with a substitute identity provider.\n{OFFICIAL_LOGIN_NOTICE}"
+        )
+    }
+}
+
+/// API-key auth is allowed only when no org pin is set. A pin without a
+/// session, or a session whose team is not on the pin, is an error.
+pub fn usable_identity_session(
+    config: &AuthConfig,
+    record: Option<&AuthRecord>,
+) -> Result<(), String> {
+    if !config.disable_api_key_auth && config.force_login_team.is_none() {
+        return Ok(());
+    }
+    let Some(record) = record else {
+        return Err(identity_required_message(config));
+    };
+    enforce_team(config, record)
+}
+
 pub fn enforce_team(config: &AuthConfig, record: &AuthRecord) -> Result<(), String> {
     if let Some(policy) = &config.force_login_team
         && !policy.allows(record.team_id.as_deref())
@@ -849,7 +892,7 @@ fn persist(
 }
 
 pub fn login_help() -> &'static str {
-    "Sign in to a configured identity provider\n\nUsage: codsh --rust login [OPTIONS]\n\nOptions:\n      --oauth                 Use loopback OAuth/OIDC for a configured substitute issuer\n      --device-auth           Use device-code authentication for headless/remote environments [aliases: --device-code]\n      --debug                 Enable debug logging\n      --debug-file <FILE>     Write debug logs to FILE\n  -h, --help                  Print help\n      --leader-socket <PATH>  unused; dsh owns execution. Omit the flag.\n\nIndependent API-key use does not require login. Official grok.com login is unused. Session tokens stay in $GROK_HOME/auth.json and are not transferred to model providers, MCP, Grove, or other services."
+    "Sign in to a configured identity provider\n\nUsage: codsh --rust login [OPTIONS]\n\nOptions:\n      --oauth                 Use loopback OAuth/OIDC for a configured substitute issuer\n      --device-auth           Use device-code authentication for headless/remote environments [aliases: --device-code]\n      --debug                 Enable debug logging\n      --debug-file <FILE>     Write debug logs to FILE\n  -h, --help                  Print help\n      --leader-socket <PATH>  unused; dsh owns execution. Omit the flag.\n\nIndependent API-key use does not require login unless GROK_DISABLE_API_KEY_AUTH or a team pin requires an identity session. Official grok.com login is unused. Session tokens stay in $GROK_HOME/auth.json and are not transferred to model providers, MCP, Grove, or other services."
 }
 
 pub fn logout_help() -> &'static str {
@@ -884,9 +927,15 @@ pub fn run_login(
     }
     let (transport, source) = selected_transport(config, flags, None)?;
     match transport {
-        Transport::None => Ok(format!(
-            "Independent API-key use does not require login. Configure a substitute identity provider for OIDC/OAuth/device flows.\n{OFFICIAL_LOGIN_NOTICE}"
-        )),
+        Transport::None => {
+            if config.disable_api_key_auth || config.force_login_team.is_some() {
+                Err(identity_required_message(config))
+            } else {
+                Ok(format!(
+                    "Independent API-key use does not require login. Configure a substitute identity provider for OIDC/OAuth/device flows.\n{OFFICIAL_LOGIN_NOTICE}"
+                ))
+            }
+        }
         Transport::Command => unreachable!(),
         Transport::Loopback => {
             let issuer = config
@@ -1749,7 +1798,7 @@ client_id = "client"
 "#,
         )
         .unwrap();
-        let config = load_auth_config(&table, &env());
+        let config = load_auth_config_layers(&table, None, &env());
         let err = selected_transport(
             &config,
             &LoginFlags {
@@ -1805,7 +1854,7 @@ client_id = "client"
         .unwrap();
         let mut env = env();
         env.insert("GROK_AUTH_EARLY_INVALIDATION_SECS".into(), "0".into());
-        let mut config = load_auth_config(&table, &env);
+        let mut config = load_auth_config_layers(&table, None, &env);
         config.provider_command = Some(login.into());
         let message = run_login(&grok, &env, &config, &LoginFlags::default(), &table).unwrap();
         assert!(message.contains("external provider"));
@@ -1826,7 +1875,7 @@ client_id = "official"
 "#,
         )
         .unwrap();
-        let config = load_auth_config(&table, &env());
+        let config = load_auth_config_layers(&table, None, &env());
         assert_eq!(config.method, AuthMethod::ApiKey);
         let err = run_login(
             Path::new("/tmp"),
@@ -2016,7 +2065,7 @@ client_id = "official"
         env.insert("GROK_DEPLOYMENT_KEY".into(), "dep-key".into());
         env.insert("GROK_MANAGED_CONFIG_PUBKEY".into(), pubkey);
         let table = TomlValue::Table(toml::map::Map::new());
-        let config = load_auth_config(&table, &env);
+        let config = load_auth_config_layers(&table, None, &env);
         let result = run_setup(&grok, &env, &config, &SetupFlags::default(), true).unwrap();
         assert!(result.wrote);
         assert!(grok.join("managed_config.toml").exists());
@@ -2034,7 +2083,7 @@ client_id = "official"
             "GROK_MANAGED_CONFIG_URL".into(),
             format!("{unsigned}/deployment/config"),
         );
-        let config = load_auth_config(&table, &env);
+        let config = load_auth_config_layers(&table, None, &env);
         let err = run_setup(&grok, &env, &config, &SetupFlags::default(), true).unwrap_err();
         assert!(err.to_ascii_lowercase().contains("verif") || err.contains("unsigned"));
     }
@@ -2047,7 +2096,8 @@ client_id = "official"
                 .unwrap()
                 .allows(Some("team-a"))
         );
-        let mut config = load_auth_config(&TomlValue::Table(toml::map::Map::new()), &env());
+        let mut config =
+            load_auth_config_layers(&TomlValue::Table(toml::map::Map::new()), None, &env());
         config.force_login_team = parse_force_login_team("team-good");
         let record = AuthRecord {
             method: "oidc".into(),
@@ -2060,13 +2110,55 @@ client_id = "official"
             label: None,
         };
         assert!(enforce_team(&config, &record).is_err());
+        let mut record = record;
+        assert!(usable_identity_session(&config, None).is_err());
+        config.force_login_team = parse_force_login_team("[]");
+        config.disable_api_key_auth = true;
+        assert!(usable_identity_session(&config, None).is_err());
+        let locked: TomlValue = toml::from_str(
+            r#"
+[auth]
+disable_api_key_auth = true
+force_login_team_uuid = "team-good"
+"#,
+        )
+        .unwrap();
+        let user = TomlValue::Table(toml::map::Map::new());
+        let merged = load_auth_config_layers(&user, Some(&locked), &env());
+        assert!(merged.disable_api_key_auth);
+        assert_eq!(
+            merged
+                .force_login_team
+                .as_ref()
+                .map(|team| team.teams.clone()),
+            Some(vec!["team-good".into()])
+        );
+        let top_level: TomlValue =
+            toml::from_str(r#"force_login_team_uuid = "team-good""#).unwrap();
+        let merged_top = load_auth_config_layers(&user, Some(&top_level), &env());
+        assert!(merged_top.disable_api_key_auth);
+        assert_eq!(
+            merged_top
+                .force_login_team
+                .as_ref()
+                .map(|team| team.teams.clone()),
+            Some(vec!["team-good".into()])
+        );
+        let mut env_locked = env();
+        env_locked.insert("GROK_DISABLE_API_KEY_AUTH".into(), "1".into());
+        let from_env = load_auth_config_layers(&user, None, &env_locked);
+        assert!(from_env.disable_api_key_auth);
+        assert!(usable_identity_session(&from_env, None).is_err());
+        record.team_id = Some("team-good".into());
+        config.force_login_team = parse_force_login_team("team-good");
+        assert!(usable_identity_session(&config, Some(&record)).is_ok());
     }
 
     #[test]
     fn subscription_zero_disables_and_entitlements_are_listed() {
         let mut env = env();
         env.insert("GROK_SUBSCRIPTION_WATCH_INTERVAL_SECS".into(), "0".into());
-        let config = load_auth_config(&TomlValue::Table(toml::map::Map::new()), &env);
+        let config = load_auth_config_layers(&TomlValue::Table(toml::map::Map::new()), None, &env);
         assert_eq!(config.subscription_watch_secs, None);
         assert!(
             config

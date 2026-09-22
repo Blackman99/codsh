@@ -52,6 +52,18 @@ def spawn_inspect(launcher, cwd, env, extra, timeout=20):
                           capture_output=True, text=True, timeout=timeout)
 
 
+def inspect_json(result):
+    text = result.stdout + result.stderr
+    start = text.find('{')
+    end = text.rfind('}')
+    if start < 0 or end <= start:
+        return None
+    try:
+        return json.loads(text[start:end + 1])
+    except json.JSONDecodeError:
+        return None
+
+
 def pty_session(name, launcher, cwd, env, output, extra=(), typed=None, wait_before=(), wait_after=(),
                 then_typed=None, then_wait=(), after_visible=None, quit=True, cols=100, rows=30):
     master, slave = pty.openpty()
@@ -269,6 +281,84 @@ env_key = "XAI_API_KEY"
         assert payload['auth']['method'] == 'api_key'
         assert payload['auth']['sessionTransferredToExternalServices'] is False
         results['inspect-api-key'] = payload['auth']
+
+        blocked = spawn_inspect(launcher, cwd, {**base_env, 'GROK_DISABLE_API_KEY_AUTH': '1'}, ['inspect', '--json'])
+        blocked_text = blocked.stdout + blocked.stderr
+        assert blocked.returncode != 0
+        blocked_payload = inspect_json(blocked)
+        assert blocked_payload is not None, blocked_text
+        assert blocked_payload['ready'] is False
+        assert blocked_payload['auth']['disableApiKeyAuth'] is True
+        assert 'disables API-key authentication' in blocked_text or 'identity session' in blocked_text
+        results['inspect-disable-api-key'] = True
+
+        pin_home = work / 'pin-home'
+        pin_home.mkdir()
+        pin_grok = pin_home / '.codsh-rust' / '.grok'
+        pin_grok.mkdir(parents=True)
+        (pin_grok / 'config.toml').write_text((grok_home / 'config.toml').read_text())
+        pin_provider = 'printf \'%s\' \'{"access_token":"pin-token","expires_in":3600,"issuer":"http://127.0.0.1/idp"}\''
+        pin_env = {
+            **base_env,
+            'HOME': str(pin_home),
+            'GROK_DISABLE_API_KEY_AUTH': '1',
+            'GROK_AUTH_PROVIDER_COMMAND': pin_provider,
+        }
+        pin_login = spawn_inspect(launcher, cwd, pin_env, ['login'])
+        assert pin_login.returncode == 0, pin_login.stderr + pin_login.stdout
+        stored_pin = json.loads((pin_grok / 'auth.json').read_text())
+        assert stored_pin['access_token'] == 'pin-token'
+        pin_inspect = spawn_inspect(launcher, cwd, pin_env, ['inspect', '--json'])
+        assert pin_inspect.returncode == 0, pin_inspect.stderr + pin_inspect.stdout
+        pin_payload = inspect_json(pin_inspect)
+        assert pin_payload is not None, pin_inspect.stdout + pin_inspect.stderr
+        assert pin_payload['ready'] is True
+        assert pin_payload['auth']['sessionPresent'] is True
+        assert pin_payload['auth']['disableApiKeyAuth'] is True
+        results['login-under-org-pin'] = True
+
+        empty_team = spawn_inspect(launcher, cwd, {**base_env, 'GROK_FORCE_LOGIN_TEAM_ID': '[]'}, ['inspect', '--json'])
+        empty_text = empty_team.stdout + empty_team.stderr
+        assert empty_team.returncode != 0
+        empty_payload = inspect_json(empty_team)
+        assert empty_payload is not None, empty_text
+        assert empty_payload['ready'] is False
+        assert empty_payload['auth']['forceLoginTeam'] == []
+        results['inspect-empty-team'] = True
+
+        req_home = work / 'req-home'
+        req_home.mkdir()
+        req_grok = req_home / '.codsh-rust' / '.grok'
+        req_grok.mkdir(parents=True)
+        (req_grok / 'config.toml').write_text((grok_home / 'config.toml').read_text())
+        (req_grok / 'requirements.toml').write_text('[auth]\ndisable_api_key_auth = true\nforce_login_team_uuid = "team-good"\n')
+        req_env = {**base_env, 'HOME': str(req_home)}
+        locked = spawn_inspect(launcher, cwd, req_env, ['inspect', '--json'])
+        locked_text = locked.stdout + locked.stderr
+        assert locked.returncode != 0
+        locked_payload = inspect_json(locked)
+        assert locked_payload is not None, locked_text
+        assert locked_payload['ready'] is False
+        assert locked_payload['auth']['disableApiKeyAuth'] is True
+        assert locked_payload['auth']['forceLoginTeam'] == ['team-good']
+        results['inspect-locked-auth'] = True
+
+        top_home = work / 'top-home'
+        top_home.mkdir()
+        top_grok = top_home / '.codsh-rust' / '.grok'
+        top_grok.mkdir(parents=True)
+        (top_grok / 'config.toml').write_text((grok_home / 'config.toml').read_text())
+        (top_grok / 'requirements.toml').write_text('fail_closed = true\nforce_login_team_uuid = "team-good"\n')
+        top_env = {**base_env, 'HOME': str(top_home)}
+        top = spawn_inspect(launcher, cwd, top_env, ['inspect', '--json'])
+        top_text = top.stdout + top.stderr
+        assert top.returncode != 0
+        top_payload = inspect_json(top)
+        assert top_payload is not None, top_text
+        assert top_payload['ready'] is False
+        assert top_payload['auth']['forceLoginTeam'] == ['team-good']
+        assert 'unknown security' not in top_text.lower()
+        results['inspect-top-level-team'] = True
 
         provider = 'printf \'%s\' \'{"access_token":"sess-token","expires_in":3600,"issuer":"http://127.0.0.1/idp"}\''
         keyed = {**base_env, 'GROK_AUTH_PROVIDER_COMMAND': provider, 'GROK_AUTH_PROVIDER_LABEL': 'Acme'}

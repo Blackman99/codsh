@@ -72,7 +72,9 @@ open the directory. The model's configured `env_key` (`XAI_API_KEY` and other
 (no grok.com login or default telemetry). `login` / `logout` / `setup` use
 configured substitute identity or management services; session tokens in
 `$GROK_HOME/auth.json` are not transferred to model keys or other services,
-and unsigned managed policy is refused. Empty Enter on first-run reloads
+and unsigned managed policy is refused. Independent API keys cannot bypass
+`GROK_DISABLE_API_KEY_AUTH` or a locked team pin (`auth.force_login_team_uuid`
+or top-level `force_login_team_uuid` in `requirements.toml`). Empty Enter on first-run reloads
 config and connects when a provider is ready, without submitting a prompt. Filesystem-resolved overlap with `DSH_HOME`/`GROK_HOME`, including case
 aliases, is refused before writes; symlinked preview paths remain forbidden.
 Device/inode ancestry checks include existing ancestors of missing paths, catching

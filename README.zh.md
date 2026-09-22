@@ -136,7 +136,9 @@ Home 会报告保存失败而不会假装授权已持久化。未信任的 Hooks
 新设置。模型必要凭据须已导出（`--authorize-env`）或在导入后自行设置。普通
 `codsh` 仍读取原来的 Home。`codsh --rust login` / `logout` / `setup`
 （以及 `/login` `/logout`）只对接已配置的替代身份或管理服务。仅使用模型 API
-key 时不必登录。会话令牌写入 `$GROK_HOME/auth.json`（Unix 上为 0600），不会
+key 时不必登录，除非 `GROK_DISABLE_API_KEY_AUTH` 或团队限制
+（`GROK_FORCE_LOGIN_TEAM_ID` / `auth.force_login_team_uuid` / 锁定
+`requirements.toml` 顶层 `force_login_team_uuid`）要求匹配的身份会话。会话令牌写入 `$GROK_HOME/auth.json`（Unix 上为 0600），不会
 转授给模型提供商、MCP、Grove 或其他外部服务。不复制 grok.com / auth.x.ai
 登录、订阅计费、自动充值或官方团队权益。`GROK_MANAGED_CONFIG_URL` 仅在替代
 公钥能验证时安装组织策略；无法验证签名或锁定要求时拒绝相关配置。写好带 `base_url` 的提供商后，再设置对应的
