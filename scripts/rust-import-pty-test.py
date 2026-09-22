@@ -254,7 +254,7 @@ def main():
             cred_path.chmod(0o600)
             (host_dsh / '.env').write_text('ACME_GATEWAY_API_KEY=dotenv-secret\n')
             (host_dsh / 'code-cli-thinking.json').write_text('{"acme-gateway/acme-large":"high"}')
-            (host_dsh / 'code-cli-ui.json').write_text('{"density":"comfortable"}')
+            (host_dsh / 'code-cli-ui.json').write_text('{"density":"compact"}')
             (host_dsh / 'code-cli-settings.json').write_text('{"bell":false}')
             (host_dsh / 'permissions.json').write_text('{"allow":["bash(git *)"]}')
             host_grok = home / '.grok'
@@ -316,6 +316,8 @@ def main():
             config_text = config_path.read_text()
             assert 'acme-gateway' in config_text
             assert f'http://127.0.0.1:{port}/v1' in config_text
+            assert 'compact_mode = true' in config_text
+            assert 'density' not in config_text
             assert 'legacy-secret-must-not-copy' not in config_text
             assert 'IMPORT_TOKEN' not in config_text
             assert not (isolated / 'dsh' / '.credentials.yaml').exists()
@@ -326,6 +328,8 @@ def main():
             settings = {row['key']: row for row in inspect_payload['settings']}
             assert settings['models.default']['value'] == 'acme-gateway'
             assert settings['model.acme-gateway.base_url']['value'] == f'http://127.0.0.1:{port}/v1'
+            assert settings['ui.compact_mode']['value'] == 'true'
+            assert settings['ui.compact_mode']['source'] == 'config.toml'
             assert inspect_payload['importedLegacyCredentials'] is False
             assert 'legacy-secret-must-not-copy' not in inspect.stdout
 

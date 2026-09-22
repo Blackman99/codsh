@@ -34,7 +34,9 @@ inherited legacy configuration/credential files are not imported automatically.
 `codsh --rust import --preview` / `--apply` copies selected current dsh
 providers and preferences from `$DSH_HOME/settings.yaml`,
 `code-cli-thinking.json`, and `code-cli-ui.json` into the isolated Home; it
-does not treat outdated `code-cli-settings.json` as a provider source and never
+maps `code-cli-ui.json` density `compact`/`comfortable` to `[ui] compact_mode`
+and lists `coding-cli-runner` bell/notify/bang preferences as unsupported.
+It does not treat outdated `code-cli-settings.json` as a provider source and never
 copies tokens, credential files, or original trust/execution grants. Configured
 `env_key` values are passed through. Telemetry stays off.
 User settings enter through `$GROK_HOME/config.toml` and `codsh --rust inspect`;

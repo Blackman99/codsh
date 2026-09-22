@@ -38,8 +38,9 @@ and `ui.fork_secondary_model` use that same file. `/settings` and `/theme`
 edit or preview those live controls; minimal mode keeps the terminal palette.
 `codsh --rust import --preview` lists conversions, conflicts, and unsupported items
 from current dsh `$DSH_HOME/settings.yaml`, `code-cli-thinking.json`, and
-`code-cli-ui.json` (not outdated `code-cli-settings.json`). `import --apply` copies
-selected providers/preferences into the isolated Home without tokens, credential
+`code-cli-ui.json` (not outdated `code-cli-settings.json`). UI density maps to
+`[ui] compact_mode`; legacy bell/notify/bang preferences stay unsupported.
+`import --apply` copies selected providers/preferences into the isolated Home without tokens, credential
 files, or original trust/execution grants. Preview, cancel, and failed apply leave
 source files and existing isolated settings unchanged. Model credentials stay in
 the host environment (`--authorize-env`) or must be exported after import.

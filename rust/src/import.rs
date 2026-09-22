@@ -568,7 +568,7 @@ fn render_config(
     if request.include_preferences {
         for pref in &plan.preferences {
             let key = pref.key.strip_prefix("ui.").unwrap_or(&pref.key);
-            ui.insert(key.to_string(), TomlValue::String(pref.value.clone()));
+            ui.insert(key.to_string(), preference_toml(&pref.value));
         }
     }
 
@@ -618,6 +618,14 @@ fn render_config(
         }
     }
     Ok(out)
+}
+
+fn preference_toml(value: &str) -> TomlValue {
+    match value {
+        "true" => TomlValue::Boolean(true),
+        "false" => TomlValue::Boolean(false),
+        other => TomlValue::String(other.to_string()),
+    }
 }
 
 fn provider_table(item: &SelectedProvider) -> TomlValue {
@@ -811,18 +819,13 @@ fn fill_from_settings(
         && let Some(map) = runner.as_map()
     {
         for key in ["bell", "notify", "bangTimeoutMs", "bangOutputLines"] {
-            if let Some(value) = map.get(key) {
-                plan.preferences.push(SelectedPreference {
-                    key: format!("ui.{key}"),
-                    value: yaml_display(value),
-                    source: format!("{source}:coding-cli-runner"),
-                });
-                plan.conversions.push(PlanItem {
+            if map.get(key).is_some() {
+                plan.unsupported.push(PlanItem {
                     id: key.into(),
                     kind: "preference".into(),
                     source: format!("{source}:coding-cli-runner"),
                     message: format!(
-                        "{key} taken from current dsh settings.yaml coding-cli-runner, not from outdated code-cli-settings.json"
+                        "{key} is a legacy coding-cli-runner preference; the isolated client has no equivalent control, so it is not written as a silent no-op"
                     ),
                 });
             }
@@ -1157,18 +1160,42 @@ fn fill_ui_preferences(plan: &mut ImportPlan, path: &Path) {
     };
     match serde_json::from_str::<JsonValue>(&text) {
         Ok(JsonValue::Object(map)) => {
-            if let Some(density) = map.get("density").and_then(JsonValue::as_str) {
-                plan.preferences.push(SelectedPreference {
-                    key: "ui.density".into(),
-                    value: density.to_string(),
-                    source: path.display().to_string(),
-                });
-                plan.conversions.push(PlanItem {
+            match map.get("density").and_then(JsonValue::as_str) {
+                Some("compact") => {
+                    plan.preferences.push(SelectedPreference {
+                        key: "ui.compact_mode".into(),
+                        value: "true".into(),
+                        source: path.display().to_string(),
+                    });
+                    plan.conversions.push(PlanItem {
+                        id: "density".into(),
+                        kind: "preference".into(),
+                        source: path.display().to_string(),
+                        message: "code-cli-ui.json density=compact maps to isolated [ui] compact_mode = true".into(),
+                    });
+                }
+                Some("comfortable") => {
+                    plan.preferences.push(SelectedPreference {
+                        key: "ui.compact_mode".into(),
+                        value: "false".into(),
+                        source: path.display().to_string(),
+                    });
+                    plan.conversions.push(PlanItem {
+                        id: "density".into(),
+                        kind: "preference".into(),
+                        source: path.display().to_string(),
+                        message: "code-cli-ui.json density=comfortable maps to isolated [ui] compact_mode = false".into(),
+                    });
+                }
+                Some(other) => plan.unsupported.push(PlanItem {
                     id: "density".into(),
                     kind: "preference".into(),
                     source: path.display().to_string(),
-                    message: "density taken from $DSH_HOME/code-cli-ui.json".into(),
-                });
+                    message: format!(
+                        "code-cli-ui.json density {other:?} is not compact or comfortable; left unchanged"
+                    ),
+                }),
+                None => {}
             }
         }
         Ok(_) => plan.unsupported.push(PlanItem {
@@ -1301,16 +1328,6 @@ fn push_section(lines: &mut Vec<String>, title: &str, items: &[PlanItem]) {
             "  {}  {}  ({})",
             item.id, item.message, item.source
         ));
-    }
-}
-
-fn yaml_display(value: &YamlValue) -> String {
-    match value {
-        YamlValue::Bool(flag) => flag.to_string(),
-        YamlValue::Integer(number) => number.to_string(),
-        YamlValue::String(text) => text.clone(),
-        YamlValue::Null => "null".into(),
-        other => format!("{other:?}"),
     }
 }
 
@@ -1838,7 +1855,7 @@ env_key = "EXISTING_KEY"
         let mut request = fixture(&dir);
         write(
             &request.grok_home.join("config.toml"),
-            "[ui]\ndensity = \"compact\"\n",
+            "[ui]\nshow_timestamps = false\n",
         );
         let host_before = hash_tree(&request.host_home);
         let isolated_before = hash_tree(&request.isolated_home);
@@ -1865,7 +1882,7 @@ env_key = "EXISTING_KEY"
         assert_eq!(hash_tree(&request.host_home), host_before);
         assert_eq!(
             fs::read_to_string(request.grok_home.join("config.toml")).unwrap(),
-            "[ui]\ndensity = \"compact\"\n"
+            "[ui]\nshow_timestamps = false\n"
         );
 
         request.apply = true;
@@ -1885,8 +1902,17 @@ env_key = "EXISTING_KEY"
         assert!(after_first.contains("acme-gateway"));
         assert!(after_first.contains("https://gateway.acme.example/v1"));
         assert!(
-            after_first.contains("density = \"comfortable\"")
-                || after_first.contains("density = 'comfortable'")
+            after_first.contains("compact_mode = false")
+                || after_first.contains("compact_mode = \"false\"")
+        );
+        assert!(!after_first.contains("density"));
+        assert!(!after_first.contains("bangTimeoutMs"));
+        assert!(
+            plan.unsupported
+                .iter()
+                .any(|item| item.id == "bell" && item.source.contains("coding-cli-runner")),
+            "{:?}",
+            plan.unsupported
         );
         let loaded = load_from(LoadInput {
             home: request.isolated_home.clone(),

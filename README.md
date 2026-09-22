@@ -136,7 +136,10 @@ official telemetry/upload, and no automatic import of `~/.dsh` or `~/.grok` cred
 `codsh --rust import --preview` (and `import --json`) lists conversions, conflicts,
 and unsupported items from current dsh `$DSH_HOME/settings.yaml` (`llm-pi-ai`
 providers, `llm-deepseek`, `agent-default-model`), `$DSH_HOME/code-cli-thinking.json`,
-and `$DSH_HOME/code-cli-ui.json`. It does not treat outdated `code-cli-settings.json`
+and `$DSH_HOME/code-cli-ui.json`. `density` `compact`/`comfortable` maps to
+isolated `[ui] compact_mode`; `bell`, `notify`, and bang limits from
+`coding-cli-runner` are listed as unsupported because the new client has no
+equivalent control. It does not treat outdated `code-cli-settings.json`
 as a provider source. `import --apply` copies selected providers and preferences
 into `~/.codsh-rust/.grok/config.toml`. Official tokens, `.credentials.yaml`, `.env`,
 and original trust/execution grants are never copied. Preview, cancel, and a failed
