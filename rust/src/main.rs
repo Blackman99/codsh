@@ -1,10 +1,13 @@
 mod acp;
+mod appearance;
 mod config;
 mod models;
 mod screen_mode;
 mod session_fork;
 mod session_history;
 mod session_owner;
+mod settings_ui;
+mod status_line;
 mod theme;
 mod trust;
 mod welcome;
@@ -12,7 +15,8 @@ mod welcome;
 use acp::{AcpClient, AcpEvent, PendingPermission};
 use crossterm::cursor::{Hide, Show};
 use crossterm::event::{
-    self, DisableBracketedPaste, EnableBracketedPaste, Event, KeyCode, KeyEventKind, KeyModifiers,
+    self, DisableBracketedPaste, DisableMouseCapture, EnableBracketedPaste, EnableMouseCapture,
+    Event, KeyCode, KeyEventKind, KeyModifiers, MouseEventKind,
 };
 use crossterm::execute;
 use crossterm::terminal::{self, EnterAlternateScreen, LeaveAlternateScreen};
@@ -24,6 +28,7 @@ use screen_mode::{
 use session_fork::{RewindPoint, UiPrefs};
 use session_history::{RestoredCompactionRecord, RestoredTurn};
 use session_owner::SessionOwner;
+use settings_ui::{Overlay as UiOverlay, OverlayAction, SettingsState, ThemeState};
 use std::io::{self, IsTerminal, Write};
 use std::path::{Path, PathBuf};
 use std::sync::{
@@ -51,10 +56,11 @@ impl TerminalGuard {
                 io::stdout(),
                 EnterAlternateScreen,
                 EnableBracketedPaste,
+                EnableMouseCapture,
                 Hide
             )?;
         } else {
-            execute!(io::stdout(), EnableBracketedPaste, Show)?;
+            execute!(io::stdout(), EnableBracketedPaste, EnableMouseCapture, Show)?;
         }
         Ok(Self { alt })
     }
@@ -84,7 +90,13 @@ impl TerminalGuard {
 
 impl Drop for TerminalGuard {
     fn drop(&mut self) {
-        let _ = execute!(io::stdout(), DisableBracketedPaste, Show);
+        let _ = execute!(
+            io::stdout(),
+            DisableMouseCapture,
+            DisableBracketedPaste,
+            Show
+        );
+        let _ = io::stdout().write_all(theme::CURSOR_RESET.as_bytes());
         if self.alt {
             let _ = execute!(io::stdout(), LeaveAlternateScreen);
         }
@@ -96,10 +108,12 @@ impl Drop for TerminalGuard {
 fn restore_terminal() {
     let _ = execute!(
         io::stdout(),
+        DisableMouseCapture,
         DisableBracketedPaste,
         Show,
         LeaveAlternateScreen
     );
+    let _ = io::stdout().write_all(theme::CURSOR_RESET.as_bytes());
     let _ = terminal::disable_raw_mode();
     let _ = io::stdout().flush();
 }
@@ -169,6 +183,7 @@ struct Turn {
     interrupted: bool,
     compacted: bool,
     compaction: Option<session_history::RestoredCompaction>,
+    timestamp: Option<String>,
 }
 
 #[derive(Clone, Debug)]
@@ -460,6 +475,7 @@ fn turn_from_restored(item: RestoredTurn) -> Turn {
         interrupted: item.interrupted,
         compacted: item.compacted,
         compaction: item.compaction,
+        timestamp: None,
     };
     if turn.interrupted || turn.cancelled {
         mark_unknown_open_tools(&mut turn);
@@ -694,6 +710,7 @@ fn commit_fork(
             interrupted: false,
             compacted: false,
             compaction: None,
+            timestamp: Some(clock_stamp()),
         });
         *inflight = true;
         report.push_str(" · submitted fork directive");
@@ -742,6 +759,8 @@ struct StatusView<'a> {
     routing: Option<&'a models::Routing>,
     meter: &'a Meter,
     screen: ScreenMode,
+    status_row: &'a str,
+    show_timestamps: bool,
 }
 
 fn status_line(view: StatusView<'_>) -> String {
@@ -756,6 +775,8 @@ fn status_line(view: StatusView<'_>) -> String {
         routing,
         meter,
         screen,
+        status_row,
+        show_timestamps: _,
     } = view;
     let header = format!("mode={}", screen.as_str());
     if !last_error.is_empty() && client.is_none() {
@@ -796,6 +817,10 @@ fn status_line(view: StatusView<'_>) -> String {
     if !hint.is_empty() {
         body.push('\n');
         body.push_str(hint);
+    }
+    if !status_row.is_empty() {
+        body.push('\n');
+        body.push_str(status_row);
     }
     if !last_error.is_empty() && client.is_some() {
         body.push('\n');
@@ -861,10 +886,23 @@ fn compact_tool_result(text: &str) -> String {
     text.lines().take(12).collect::<Vec<_>>().join("\n")
 }
 
-fn render_transcript(status: &str, turns: &[Turn]) -> String {
+fn clock_stamp() -> String {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    let secs = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|value| value.as_secs())
+        .unwrap_or(0);
+    format!("{:02}:{:02}", (secs / 3600) % 24, (secs / 60) % 60)
+}
+
+fn render_transcript(status: &str, turns: &[Turn], show_timestamps: bool) -> String {
     let mut out = status.to_string();
     for turn in turns {
         out.push_str("\n\n> ");
+        if show_timestamps && let Some(stamp) = &turn.timestamp {
+            out.push_str(stamp);
+            out.push(' ');
+        }
         out.push_str(&turn.user.replace('\n', " "));
         if turn.compacted {
             if let Some(info) = &turn.compaction {
@@ -1106,11 +1144,16 @@ fn apply_events(
 }
 
 fn overlay_notice(view: StatusView<'_>, turns: &[Turn]) -> String {
+    let show_timestamps = view.show_timestamps;
     let mut out = status_line(view);
     if let Some(turn) = turns.last()
         && (!turn.done || turn.permission.is_some())
     {
-        out.push_str(&render_transcript("", std::slice::from_ref(turn)));
+        out.push_str(&render_transcript(
+            "",
+            std::slice::from_ref(turn),
+            show_timestamps,
+        ));
     }
     out
 }
@@ -1121,13 +1164,17 @@ fn paint(
     draft: &TextArea,
     notice: &str,
     selected: Option<usize>,
+    theme: &theme::Theme,
+    compact: bool,
+    ui_overlay: &UiOverlay,
 ) -> io::Result<()> {
     terminal.draw(|frame| {
         if screen == ScreenMode::Minimal {
-            welcome::render_minimal(frame, draft, notice, selected);
+            welcome::render_minimal(frame, draft, notice, selected, theme);
         } else {
-            welcome::render(frame, draft, notice, selected);
+            welcome::render(frame, draft, notice, selected, theme, compact);
         }
+        settings_ui::render(frame, ui_overlay, theme, screen);
     })?;
     Ok(())
 }
@@ -1172,7 +1219,7 @@ fn commit_completed_turns(
         if !turn.done {
             break;
         }
-        block.push_str(&render_transcript("", std::slice::from_ref(turn)));
+        block.push_str(&render_transcript("", std::slice::from_ref(turn), false));
         block.push('\n');
         *committed = index + 1;
     }
@@ -1220,6 +1267,96 @@ fn relaunch_exec(session_id: &str, target: ScreenMode) -> io::Error {
         target,
         "exec relaunch is Unix-only",
     ))
+}
+
+fn apply_cursor_color(theme: &theme::Theme) {
+    if let Some(osc) = theme.cursor_osc() {
+        let _ = io::stdout().write_all(osc.as_bytes());
+        let _ = io::stdout().flush();
+    } else {
+        let _ = io::stdout().write_all(theme::CURSOR_RESET.as_bytes());
+        let _ = io::stdout().flush();
+    }
+}
+
+fn persist_appearance(
+    effective: &config::EffectiveConfig,
+    key: &str,
+    encoded: &str,
+) -> Result<(), String> {
+    appearance::persist(&effective.config_path, &[(key, encoded.to_string())]).map_err(|error| {
+        format!("Couldn't save {key}: {error}. Check that $GROK_HOME is writable.")
+    })
+}
+
+fn apply_overlay_action(
+    action: OverlayAction,
+    effective: &mut config::EffectiveConfig,
+    live_theme_kind: &mut theme::ThemeKind,
+    live_theme: &mut theme::Theme,
+    screen: ScreenMode,
+    hint: &mut String,
+    last_error: &mut String,
+    status_runtime: &mut status_line::StatusLineRuntime,
+) {
+    match action {
+        OverlayAction::None => {}
+        OverlayAction::PreviewTheme(kind) => {
+            *live_theme_kind = if kind.is_auto() {
+                effective.appearance.resolved_kind(screen)
+            } else {
+                kind
+            };
+            *live_theme = if screen == ScreenMode::Minimal {
+                theme::Theme::terminal_default()
+            } else {
+                theme::Theme::for_kind(*live_theme_kind).quantized(effective.appearance.color_level)
+            };
+            apply_cursor_color(live_theme);
+        }
+        OverlayAction::RestoreTheme(kind) => {
+            effective.appearance.theme = kind;
+            *live_theme_kind = effective.appearance.resolved_kind(screen);
+            *live_theme = effective.appearance.resolved_theme(screen);
+            apply_cursor_color(live_theme);
+        }
+        OverlayAction::ToggleBool { key, value } => {
+            match appearance::apply_setting(
+                &mut effective.appearance,
+                &key,
+                if value { "true" } else { "false" },
+            ) {
+                Ok(encoded) => match persist_appearance(effective, &key, &encoded) {
+                    Ok(()) => {
+                        *hint = format!("{} {}", key, if value { "on" } else { "off" });
+                        last_error.clear();
+                    }
+                    Err(error) => *last_error = error,
+                },
+                Err(error) => *last_error = error,
+            }
+        }
+        OverlayAction::Persist { key, value } => {
+            match appearance::apply_setting(&mut effective.appearance, &key, &value) {
+                Ok(encoded) => match persist_appearance(effective, &key, &encoded) {
+                    Ok(()) => {
+                        *live_theme_kind = effective.appearance.resolved_kind(screen);
+                        *live_theme = effective.appearance.resolved_theme(screen);
+                        apply_cursor_color(live_theme);
+                        if key.starts_with("ui.status_line") {
+                            *status_runtime = status_line::StatusLineRuntime::new(
+                                effective.appearance.status_line.clone(),
+                            );
+                        }
+                        *hint = format!("{key} = {value}");
+                        last_error.clear();
+                    }
+                    Err(error) => *last_error = error,
+                },
+                Err(error) => *last_error = error,
+            }
+        }
+    }
 }
 
 fn inspect_help() -> &'static str {
@@ -1514,7 +1651,7 @@ fn run() -> io::Result<()> {
         }
         LaunchMode::Help => {
             println!(
-                "codsh --rust\n\nIsolated Rust client. Real dsh executes turns over ACP/JSON-RPC stdio.\nHome: ~/.codsh-rust/dsh; Profile: rust. Legacy codsh is unchanged.\nUser config: $GROK_HOME/config.toml (default ~/.codsh-rust/.grok/config.toml), mapped into isolated dsh settings.yaml.\nManaged defaults: $GROK_HOME/managed_config.toml. Locked requirements: $GROK_HOME/requirements.toml (cannot be bypassed by later CLI, environment, overlay, workspace, or user values).\n`codsh --rust inspect` / `inspect --json` shows effective values, origins, folder trust, and whether project assets are active. Invalid config.toml is left unchanged and reports its path. Unknown security fields and invalid policies are diagnosed with valid values, sources, and limits.\nWorkspace trust: untrusted folders prompt before applying project config, Hooks, plugins, or instructions; `--trust` / `--trust-folder [path]` saves a grant, `--revoke-trust` withdraws it. A read-only $GROK_HOME reports save failure without pretending the grant is durable. Untrusted Hooks/plugins/project capabilities do not execute.\nFirst-run missing credentials stay local: no grok.com login, no default official telemetry, no import of ~/.dsh or ~/.grok credentials.\nFile read/edit/write run through dsh tools; y allows once, n rejects with no write. Trust prompt: y=allow, n=deny.\nCtrl+Q/Ctrl+D: quit. Ctrl+C: clear a draft; empty draft cancels a running turn via dsh, or quits when idle before any turn.\nEsc never cancels a turn or a pending approval; it dismisses selection and reminds you to use Ctrl+C.\nEnter: submit prompt. /minimal and /fullscreen switch render mode in process without restarting dsh; --minimal/--fullscreen and GROK_SCREEN_MODE are session-scoped and do not rewrite [ui] screen_mode. /model (/m) and /effort select advertised catalog options; unsupported backends/efforts are refused, never treated as equivalent or silently swapped. /context shows dsh occupancy, advertised model limits, and heuristic buckets without fabricating zeros. /compact [instruction] runs dsh compaction (not a second history); optional instructions go only to the summarizer request (purpose=compaction). Automatic compaction uses session.auto_compact_threshold_percent / GROK_AUTO_COMPACT_THRESHOLD_PERCENT mapped to dsh thresholdRatio. GROK_COMPACTION_WALL_CLOCK_SECS bounds the operation; 0 disables that budget. Runtime changes apply to the next turn and persist under $GROK_HOME/model-selection.toml. --continue resumes the last session in this directory; --resume <id> loads that dsh session. --fork-session with --resume/--continue copies conversation into a new session id. /rewind and /undo fork conversation-only history through dsh; files are not restored. /fork copies the current history into a new session. Idle empty Esc Esc opens rewind. A second client is refused while this process holds write ownership. Interrupted tools show [interrupted]/unknown and are not replayed.\nOptions: --help, --version, --continue, --resume <id>, --fork-session, --session-id <id>, --minimal, --fullscreen, --model <id>, --effort/--reasoning-effort <level>, --trust, --trust-folder [path], --revoke-trust, inspect. --restore-code is refused."
+                "codsh --rust\n\nIsolated Rust client. Real dsh executes turns over ACP/JSON-RPC stdio.\nHome: ~/.codsh-rust/dsh; Profile: rust. Legacy codsh is unchanged.\nUser config: $GROK_HOME/config.toml (default ~/.codsh-rust/.grok/config.toml), mapped into isolated dsh settings.yaml.\nManaged defaults: $GROK_HOME/managed_config.toml. Locked requirements: $GROK_HOME/requirements.toml (cannot be bypassed by later CLI, environment, overlay, workspace, or user values).\n`codsh --rust inspect` / `inspect --json` shows effective values, origins, folder trust, appearance/theme/status-line, and whether project assets are active. Invalid config.toml is left unchanged and reports its path. Unknown security fields and invalid policies are diagnosed with valid values, sources, and limits.\nWorkspace trust: untrusted folders prompt before applying project config, Hooks, plugins, or instructions; `--trust` / `--trust-folder [path]` saves a grant, `--revoke-trust` withdraws it. A read-only $GROK_HOME reports save failure without pretending the grant is durable. Untrusted Hooks/plugins/project capabilities do not execute.\nFirst-run missing credentials stay local: no grok.com login, no default official telemetry, no import of ~/.dsh or ~/.grok credentials.\nFile read/edit/write run through dsh tools; y allows once, n rejects with no write. Trust prompt: y=allow, n=deny.\nCtrl+Q/Ctrl+D: quit. Ctrl+C: clear a draft; empty draft cancels a running turn via dsh, or quits when idle before any turn.\nEsc never cancels a turn or a pending approval; it dismisses selection and reminds you to use Ctrl+C.\nEnter: submit prompt. /settings (/config) edits appearance, default screen mode, timestamps, compact mode, and status line. /theme (/t) previews fullscreen themes; Escape restores the previous theme without saving. /compact-mode and /timestamps toggle persisted [ui] keys. Minimal mode uses the terminal palette and refuses /theme. Status-line scripts run with a 10s timeout, cleared BASH_ENV/ENV, and process-group cleanup on exit. Locked requirements show their source and cannot be edited.\n/minimal and /fullscreen switch render mode in process without restarting dsh; --minimal/--fullscreen and GROK_SCREEN_MODE are session-scoped and do not rewrite [ui] screen_mode. /model (/m) and /effort select advertised catalog options; unsupported backends/efforts are refused, never treated as equivalent or silently swapped. /context shows dsh occupancy, advertised model limits, and heuristic buckets without fabricating zeros. /compact [instruction] runs dsh compaction (not a second history); optional instructions go only to the summarizer request (purpose=compaction). Automatic compaction uses session.auto_compact_threshold_percent / GROK_AUTO_COMPACT_THRESHOLD_PERCENT mapped to dsh thresholdRatio. GROK_COMPACTION_WALL_CLOCK_SECS bounds the operation; 0 disables that budget. Runtime changes apply to the next turn and persist under $GROK_HOME/model-selection.toml. --continue resumes the last session in this directory; --resume <id> loads that dsh session. --fork-session with --resume/--continue copies conversation into a new session id. /rewind and /undo fork conversation-only history through dsh; files are not restored. /fork copies the current history into a new session. Idle empty Esc Esc opens rewind. A second client is refused while this process holds write ownership. Interrupted tools show [interrupted]/unknown and are not replayed.\nOptions: --help, --version, --continue, --resume <id>, --fork-session, --session-id <id>, --minimal, --fullscreen, --model <id>, --effort/--reasoning-effort <level>, --trust, --trust-folder [path], --revoke-trust, inspect. --restore-code is refused."
             );
             return Ok(());
         }
@@ -1586,7 +1723,16 @@ fn run() -> io::Result<()> {
     let mut terminal = open_terminal(screen)?;
     let mut draft = TextArea::new();
     let connecting = format!("mode={}\nConnecting to dsh ACP…", screen.as_str());
-    paint(&mut terminal, screen, &draft, &connecting, None)?;
+    paint(
+        &mut terminal,
+        screen,
+        &draft,
+        &connecting,
+        None,
+        &theme::Theme::offline(),
+        false,
+        &UiOverlay::None,
+    )?;
     let mut selected = None;
     let mut turns: Vec<Turn> = Vec::new();
     let mut inflight = false;
@@ -1600,6 +1746,7 @@ fn run() -> io::Result<()> {
     let mut resumed = false;
     let mut previous_session: Option<String> = None;
     let mut overlay = Overlay::None;
+    let mut ui_overlay = UiOverlay::None;
     let mut last_esc: Option<Instant> = None;
     let mut committed = 0usize;
     let mut history = String::new();
@@ -1611,6 +1758,13 @@ fn run() -> io::Result<()> {
         extra.extend(config::compact_env(&effective));
         extra
     };
+    let mut live_theme_kind = effective.appearance.resolved_kind(screen);
+    let mut live_theme = effective.appearance.resolved_theme(screen);
+    apply_cursor_color(&live_theme);
+    let mut status_runtime =
+        status_line::StatusLineRuntime::new(effective.appearance.status_line.clone());
+    let mut turn_started: Option<Instant> = None;
+    let mut last_status_key = String::new();
     let mut apply_failed = false;
     let mut patch = match config::apply_to_dsh(&effective, &std::env::vars().collect()) {
         Ok(path) => path,
@@ -1744,6 +1898,42 @@ fn run() -> io::Result<()> {
             overlay_hint(&overlay, &prefs)
         };
         let routing = live_routing(client.as_ref(), &effective);
+        if inflight {
+            if turn_started.is_none() {
+                turn_started = Some(Instant::now());
+            }
+        } else {
+            turn_started = None;
+        }
+        let status_snap = status_line::StatusSnapshot::from_session(
+            &effective.cwd,
+            client
+                .as_ref()
+                .and_then(|active| active.session_id.as_deref()),
+            routing.as_ref(),
+            meter.used,
+            meter.size,
+            meter.cost.as_deref(),
+            effective.compact_threshold_percent,
+            turn_started,
+        );
+        let status_key = format!(
+            "{:?}|{:?}|{:?}|{}|{}",
+            status_snap.session_id,
+            status_snap.model_id,
+            status_snap.used_percentage,
+            inflight,
+            screen.as_str()
+        );
+        let changed = status_runtime.poll();
+        if status_key != last_status_key {
+            last_status_key = status_key;
+            status_runtime.request_state(&status_snap, 80, 1);
+        } else if status_runtime.due_refresh(Instant::now()) {
+            status_runtime.request_refresh(&status_snap, 80, 1);
+        }
+        let _ = changed;
+        let status_row = status_runtime.current();
         if screen == ScreenMode::Minimal {
             commit_completed_turns(&mut terminal, &turns, &mut committed, &mut history, None)?;
         }
@@ -1758,72 +1948,102 @@ fn run() -> io::Result<()> {
             routing: routing.as_ref(),
             meter: &meter,
             screen,
+            status_row: &status_row.text,
+            show_timestamps: effective.appearance.show_timestamps,
         };
+        let show_timestamps = view.show_timestamps;
         let notice = if screen == ScreenMode::Minimal {
             overlay_notice(view, &turns)
         } else {
-            render_transcript(&status_line(view), &turns)
+            render_transcript(&status_line(view), &turns, show_timestamps)
         };
-        paint(&mut terminal, screen, &draft, &notice, selected)?;
+        paint(
+            &mut terminal,
+            screen,
+            &draft,
+            &notice,
+            selected,
+            &live_theme,
+            effective.appearance.compact_mode,
+            &ui_overlay,
+        )?;
         if !event::poll(Duration::from_millis(80))? {
             continue;
         }
         match event::read()? {
             Event::Key(key) if key.kind != KeyEventKind::Release => {
-                if key.modifiers.contains(KeyModifiers::CONTROL) {
-                    match key.code {
-                        KeyCode::Char('q' | 'd') => {
-                            if let (Some(turn), Some(active)) = (turns.last_mut(), client.as_mut())
-                                && let Some(permission) = turn.permission.take()
-                            {
-                                let _ = active.cancel_permission(&permission.request_id);
-                            }
-                            break;
-                        }
-                        KeyCode::Char('c') => {
-                            if !draft.is_empty() || !composer_stash.is_empty() {
-                                draft.set_text("");
-                                composer_stash.clear();
-                                selected = None;
-                                hint.clear();
-                                continue;
-                            }
-                            if turns.last().is_some_and(|turn| turn.cancelling) {
-                                break;
-                            }
-                            if inflight {
-                                if let Some(active) = client.as_mut() {
-                                    match active.cancel_prompt() {
-                                        Ok(()) => {
-                                            if compacting {
-                                                compact_cancelled = true;
-                                            }
-                                            if let Some(turn) = turns.last_mut() {
-                                                turn.permission = None;
-                                                turn.cancelling = true;
-                                                for tool in &mut turn.tools {
-                                                    if tool.status == "pending"
-                                                        || tool.status == "in_progress"
-                                                    {
-                                                        tool.status = "cancelled".into();
-                                                    }
-                                                }
-                                            }
-                                            last_error.clear();
-                                            hint.clear();
-                                        }
-                                        Err(error) => last_error = error.message,
-                                    }
-                                }
-                                continue;
-                            }
-                            if turns.is_empty() {
-                                break;
-                            }
-                            continue;
-                        }
-                        _ => {}
+                if key.modifiers.contains(KeyModifiers::CONTROL)
+                    && matches!(key.code, KeyCode::Char('q' | 'd'))
+                {
+                    if let (Some(turn), Some(active)) = (turns.last_mut(), client.as_mut())
+                        && let Some(permission) = turn.permission.take()
+                    {
+                        let _ = active.cancel_permission(&permission.request_id);
                     }
+                    break;
+                }
+                if !ui_overlay.is_none() {
+                    let action = settings_ui::handle_key(
+                        &mut ui_overlay,
+                        key,
+                        &effective.appearance,
+                        screen,
+                    );
+                    apply_overlay_action(
+                        action,
+                        &mut effective,
+                        &mut live_theme_kind,
+                        &mut live_theme,
+                        screen,
+                        &mut hint,
+                        &mut last_error,
+                        &mut status_runtime,
+                    );
+                    continue;
+                }
+                if key.modifiers.contains(KeyModifiers::CONTROL)
+                    && matches!(key.code, KeyCode::Char('c'))
+                {
+                    if !draft.is_empty() || !composer_stash.is_empty() {
+                        draft.set_text("");
+                        composer_stash.clear();
+                        selected = None;
+                        hint.clear();
+                        continue;
+                    }
+                    if turns.last().is_some_and(|turn| turn.cancelling) {
+                        break;
+                    }
+                    if inflight {
+                        if let Some(active) = client.as_mut() {
+                            match active.cancel_prompt() {
+                                Ok(()) => {
+                                    if compacting {
+                                        compact_cancelled = true;
+                                    }
+                                    if let Some(turn) = turns.last_mut() {
+                                        turn.permission = None;
+                                        turn.cancelling = true;
+                                        for tool in &mut turn.tools {
+                                            if tool.status == "pending"
+                                                || tool.status == "in_progress"
+                                            {
+                                                tool.status = "cancelled".into();
+                                            }
+                                        }
+                                    }
+                                    last_error.clear();
+                                    hint.clear();
+                                }
+                                Err(error) => last_error = error.message,
+                            }
+                        }
+                        continue;
+                    }
+                    if turns.is_empty() {
+                        break;
+                    }
+                    continue;
                 }
 
                 if effective.trust_prompt
@@ -2115,6 +2335,137 @@ fn run() -> io::Result<()> {
                         }
                         _ => {
                             let text = draft.text();
+                            if let Some(command) = appearance::slash(text) {
+                                let restored = std::mem::take(&mut composer_stash);
+                                draft.set_text(&restored);
+                                selected = None;
+                                match command {
+                                    appearance::AppearanceSlash::Settings => {
+                                        ui_overlay = UiOverlay::Settings(SettingsState::open(
+                                            &effective.appearance,
+                                            screen,
+                                        ));
+                                        hint.clear();
+                                    }
+                                    appearance::AppearanceSlash::Theme(args) => {
+                                        if screen == ScreenMode::Minimal {
+                                            hint = appearance::minimal_theme_refuse().into();
+                                        } else if args.is_empty() {
+                                            ui_overlay = UiOverlay::Theme(ThemeState::open(
+                                                &effective.appearance,
+                                            ));
+                                            hint.clear();
+                                            apply_overlay_action(
+                                                OverlayAction::PreviewTheme(
+                                                    if let UiOverlay::Theme(state) = &ui_overlay {
+                                                        state.current()
+                                                    } else {
+                                                        live_theme_kind
+                                                    },
+                                                ),
+                                                &mut effective,
+                                                &mut live_theme_kind,
+                                                &mut live_theme,
+                                                screen,
+                                                &mut hint,
+                                                &mut last_error,
+                                                &mut status_runtime,
+                                            );
+                                        } else {
+                                            match appearance::apply_setting(
+                                                &mut effective.appearance,
+                                                "ui.theme",
+                                                &args,
+                                            ) {
+                                                Ok(encoded) => {
+                                                    match persist_appearance(
+                                                        &effective, "ui.theme", &encoded,
+                                                    ) {
+                                                        Ok(()) => {
+                                                            live_theme_kind = effective
+                                                                .appearance
+                                                                .resolved_kind(screen);
+                                                            live_theme = effective
+                                                                .appearance
+                                                                .resolved_theme(screen);
+                                                            apply_cursor_color(&live_theme);
+                                                            hint = format!(
+                                                                "theme = {}",
+                                                                effective
+                                                                    .appearance
+                                                                    .theme
+                                                                    .display_name()
+                                                            );
+                                                            last_error.clear();
+                                                        }
+                                                        Err(error) => last_error = error,
+                                                    }
+                                                }
+                                                Err(error) => last_error = error,
+                                            }
+                                        }
+                                    }
+                                    appearance::AppearanceSlash::ToggleCompact => {
+                                        let next = !effective.appearance.compact_mode;
+                                        match appearance::apply_setting(
+                                            &mut effective.appearance,
+                                            "ui.compact_mode",
+                                            if next { "true" } else { "false" },
+                                        ) {
+                                            Ok(encoded) => {
+                                                match persist_appearance(
+                                                    &effective,
+                                                    "ui.compact_mode",
+                                                    &encoded,
+                                                ) {
+                                                    Ok(()) => {
+                                                        hint = format!(
+                                                            "compact_mode {}",
+                                                            if next { "on" } else { "off" }
+                                                        );
+                                                        last_error.clear();
+                                                    }
+                                                    Err(error) => last_error = error,
+                                                }
+                                            }
+                                            Err(error) => last_error = error,
+                                        }
+                                    }
+                                    appearance::AppearanceSlash::ToggleTimestamps => {
+                                        let next = !effective.appearance.show_timestamps;
+                                        match appearance::apply_setting(
+                                            &mut effective.appearance,
+                                            "ui.show_timestamps",
+                                            if next { "true" } else { "false" },
+                                        ) {
+                                            Ok(encoded) => {
+                                                match persist_appearance(
+                                                    &effective,
+                                                    "ui.show_timestamps",
+                                                    &encoded,
+                                                ) {
+                                                    Ok(()) => {
+                                                        hint = format!(
+                                                            "timestamps {}",
+                                                            if next { "on" } else { "off" }
+                                                        );
+                                                        last_error.clear();
+                                                    }
+                                                    Err(error) => last_error = error,
+                                                }
+                                            }
+                                            Err(error) => last_error = error,
+                                        }
+                                    }
+                                    appearance::AppearanceSlash::Help => {
+                                        hint = settings_ui::help_text().into();
+                                    }
+                                    appearance::AppearanceSlash::Unavailable(message) => {
+                                        hint = message;
+                                    }
+                                }
+                                continue;
+                            }
                             if let Some(action) = screen_mode::slash_action(text) {
                                 let restored = std::mem::take(&mut composer_stash);
                                 draft.set_text(&restored);
@@ -2157,6 +2508,10 @@ fn run() -> io::Result<()> {
                                             hint = target.switch_marker().into();
                                         }
                                         screen = target;
+                                        live_theme_kind =
+                                            effective.appearance.resolved_kind(screen);
+                                        live_theme = effective.appearance.resolved_theme(screen);
+                                        apply_cursor_color(&live_theme);
                                         last_error.clear();
                                     }
                                     refuse @ SlashAction::Refuse(_) => {
@@ -2477,6 +2832,7 @@ fn run() -> io::Result<()> {
                                             interrupted: false,
                                             compacted: false,
                                             compaction: None,
+                                            timestamp: Some(clock_stamp()),
                                         });
                                         draft.set_text("");
                                         inflight = true;
@@ -2506,6 +2862,36 @@ fn run() -> io::Result<()> {
                 selected = None;
                 draft.insert_str(&text);
             }
+            Event::Mouse(mouse) => {
+                if !ui_overlay.is_none() {
+                    let area = terminal
+                        .size()
+                        .map(|size| ratatui::layout::Rect {
+                            x: 0,
+                            y: 0,
+                            width: size.width,
+                            height: size.height,
+                        })
+                        .unwrap_or_default();
+                    let action = settings_ui::handle_mouse(
+                        &mut ui_overlay,
+                        mouse,
+                        area,
+                        &effective.appearance,
+                    );
+                    apply_overlay_action(
+                        action,
+                        &mut effective,
+                        &mut live_theme_kind,
+                        &mut live_theme,
+                        screen,
+                        &mut hint,
+                        &mut last_error,
+                        &mut status_runtime,
+                    );
+                }
+                let _ = MouseEventKind::Moved;
+            }
             Event::Resize(_, _) => {
                 terminal.autoresize()?;
                 if screen == ScreenMode::Minimal {
@@ -2515,6 +2901,7 @@ fn run() -> io::Result<()> {
             _ => {}
         }
     }
+    status_runtime.shutdown();
     drop_connection(&mut client, &mut owner);
     Ok(())
 }

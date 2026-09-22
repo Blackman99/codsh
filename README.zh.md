@@ -74,8 +74,8 @@ dsh 会话 id。`/rewind` 与 `/undo`（或空闲时空草稿上的 Esc Esc）�
 重新启动，而不是原地切换，也不会保留未保存的草稿。
 
 预览的用户配置是 `$GROK_HOME/config.toml`（默认
-`~/.codsh-rust/.grok/config.toml`）。`[ui] confirm_before_rewind` 与
-`ui.fork_secondary_model` 也写在这份文件里。兼容的 `[model.<id>]` 字段
+`~/.codsh-rust/.grok/config.toml`）。`[ui] theme`、紧凑模式、时间戳、状态行、
+`confirm_before_rewind` 与 `ui.fork_secondary_model` 也写在这份文件里。兼容的 `[model.<id>]` 字段
 （`base_url`、`env_key`、`api_key`、`model`、`name`、`api_backend`、
 `supports_reasoning_effort`、`reasoning_efforts`、`reasoning_effort`、
 `context_window`）以及 `models.default` / `models.default_reasoning_effort`
@@ -92,7 +92,10 @@ dsh 的上下文占用显示为 `occupancy=N (dsh estimate)`，不当作提供�
 `codsh --rust inspect` 与 `inspect --json` 列出每项生效值及来源（命令行
 `--model`/`--effort`、环境变量、`GROK_CONFIG` 覆盖层、工作区
 `.grok/config.toml`、已保存选择、用户 `config.toml`、`managed_config.toml`、
-锁定的 `requirements.toml`、默认值）。
+锁定的 `requirements.toml`、默认值），包括 `ui.theme`、紧凑模式、时间戳和
+`[ui.status_line]`。`/settings`（`/config`）编辑这些生效控件；`/theme`（`/t`）
+在全屏下预览主题，Escape 取消且不保存。最小模式使用终端自身调色板并拒绝
+`/theme`。状态行脚本 10 秒超时、清空 `BASH_ENV`/`ENV`，退出时清理进程组。
 无效的 `config.toml` 会保留原文，并报告路径和原因。被锁定的要求不能被后置的
 命令行、环境、覆盖层、工作区或用户配置绕过。不认识的安全字段或无效策略会
 诊断有效键、来源与限制，而不会被静默忽略。未信任工作区会先出现信任提示，

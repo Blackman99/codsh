@@ -33,7 +33,14 @@ draft, running turn, and pending approval survive. `--minimal` / `--fullscreen` 
 inherited legacy configuration/credential files are not imported. Configured
 `env_key` values are passed through. Telemetry stays off.
 User settings enter through `$GROK_HOME/config.toml` and `codsh --rust inspect`;
-`[ui] confirm_before_rewind` and `ui.fork_secondary_model` use that same file;
+`[ui] theme`, `auto_dark_theme`, `auto_light_theme`, `compact_mode`,
+`show_timestamps`, `screen_mode`, `confirm_before_rewind`,
+`ui.fork_secondary_model`, and `[ui.status_line]` use that same file.
+`/settings` (`/config`) edits those live appearance and status-line controls;
+`/theme` (`/t`) previews fullscreen themes and Escape restores without saving.
+Minimal mode uses the terminal palette and refuses `/theme`. Status-line
+scripts time out at 10s, clear `BASH_ENV`/`ENV`, and kill leftover process
+groups on exit. Locked requirements show their source and cannot be edited.
 applicable model/provider fields, including `api_backend` and reasoning
 effort, are translated into isolated dsh `settings.yaml` rather than competing
 with it. `/model` and `/effort` change only advertised catalog options; unknown

@@ -31,6 +31,13 @@ codsh ASCII art, an offline palette, and removal of unused entry points.
 src/welcome/menu.rs retains the menu rendering and selection machinery with
 narrow-window clipping and the offline palette. Modified files carry notices.
 
+src/theme.rs now owns the isolated theme catalog, quantization, and
+minimal/terminal-native palette contract. src/appearance.rs, src/settings_ui.rs,
+and src/status_line.rs are codsh-owned adapters: they persist `/settings` and
+`/theme` into `$GROK_HOME/config.toml`, preview without writing, refuse
+repository status-line commands, time out status-line scripts, and kill leftover
+process groups. They do not import upstream agent, tool, login, or telemetry crates.
+
 The new main, terminal guard, palette, and welcome composition are codsh code.
 They do not import upstream agent, tool, login, update, telemetry, feedback,
 network, or canonical session crates. Prompt submission refuses execution and

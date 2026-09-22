@@ -83,8 +83,9 @@ relaunches onto the same session instead of switching in place and does not
 preserve an unsaved draft.
 
 User configuration for the preview is `$GROK_HOME/config.toml` (default
-`~/.codsh-rust/.grok/config.toml`). `[ui] confirm_before_rewind` and
-`ui.fork_secondary_model` are stored in that same file. Compatible `[model.<id>]` fields
+`~/.codsh-rust/.grok/config.toml`). `[ui] theme`, compact mode, timestamps,
+status line, `confirm_before_rewind`, and `ui.fork_secondary_model` are stored
+in that same file. Compatible `[model.<id>]` fields
 (`base_url`, `env_key`, `api_key`, `model`, `name`, `api_backend`,
 `supports_reasoning_effort`, `reasoning_efforts`, `reasoning_effort`,
 `context_window`) plus `models.default` / `models.default_reasoning_effort`
@@ -116,7 +117,12 @@ tools/todos; a failed compact leaves the original records in the log.
 `codsh --rust inspect` and `inspect --json` print each effective value and
 origin (CLI `--model`/`--effort`, environment, `GROK_CONFIG` overlay, workspace
 `.grok/config.toml`, saved selection, user `config.toml`, `managed_config.toml`,
-locked `requirements.toml`, default). Invalid `config.toml` is left unchanged
+locked `requirements.toml`, default), including `ui.theme`, compact mode,
+timestamps, and `[ui.status_line]`. `/settings` (`/config`) edits those live
+controls; `/theme` (`/t`) previews fullscreen themes and Escape restores without
+saving. Minimal mode uses the terminal palette and refuses `/theme`. A
+status-line command times out at 10s, clears `BASH_ENV`/`ENV`, and kills leftover
+process groups on exit. Invalid `config.toml` is left unchanged
 and the error names the path. Locked requirements cannot be bypassed by later
 CLI, environment, overlay, workspace, or user values. Unknown security fields
 and invalid policies are diagnosed with valid keys, sources, and limits rather

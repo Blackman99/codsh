@@ -1,7 +1,9 @@
+use crate::appearance::{self, AppearanceConfig};
 use crate::models::{
     ApiBackend, CatalogChoice, GROK_EFFORTS, Routing, acp_model_value, effort_supported,
     load_saved_selection, normalize_effort,
 };
+use crate::screen_mode::ScreenMode;
 use crate::trust::{
     self, DecideInputs, GrantOutcome, PersistStatus, TRUST_FILE_NAME, TrustOutcome, TrustStore,
 };
@@ -97,6 +99,7 @@ pub struct EffectiveConfig {
     pub project_assets_active: bool,
     pub trust_prompt: bool,
     pub trust_message: String,
+    pub appearance: AppearanceConfig,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -438,6 +441,7 @@ pub fn load_from(mut input: LoadInput) -> EffectiveConfig {
         merge_toml(&mut table, value);
         stamp_model_sources(value, &mut sources, "config.toml");
     }
+    let mut workspace_ui = None;
     if workspace_trusted {
         if let Some(value) =
             read_layer(&workspace_path, "workspace", false, &mut files, &mut errors)
@@ -450,6 +454,7 @@ pub fn load_from(mut input: LoadInput) -> EffectiveConfig {
                 &mut errors,
                 &mut warnings,
             );
+            workspace_ui = Some(value.clone());
             merge_toml(&mut table, &value);
             stamp_model_sources(&value, &mut sources, "workspace");
         }
@@ -1126,6 +1131,19 @@ pub fn load_from(mut input: LoadInput) -> EffectiveConfig {
         warnings.extend(compact_threshold_warnings(percent));
     }
 
+    let appearance = appearance::load(
+        managed.as_ref(),
+        user.as_ref(),
+        requirements.as_ref(),
+        &input.env,
+        workspace_ui.as_ref(),
+        &mut sources,
+        &mut warnings,
+    );
+    for (key, value, source) in appearance::inspect_rows(&appearance, ScreenMode::Fullscreen) {
+        push_setting(&mut settings, &key, &value, &source);
+    }
+
     EffectiveConfig {
         grok_home,
         config_path,
@@ -1157,6 +1175,7 @@ pub fn load_from(mut input: LoadInput) -> EffectiveConfig {
         project_assets_active,
         trust_prompt,
         trust_message,
+        appearance,
     }
 }
 
@@ -1235,6 +1254,7 @@ pub fn inspect_json(config: &EffectiveConfig) -> String {
             "compactThresholdPercent": config.compact_threshold_percent.unwrap_or(80),
             "compactWallClockSecs": config.compact_wall_clock_secs,
             "pruneEnabled": config.prune_enabled,
+            "appearance": appearance::inspect_json_fragment(&config.appearance, ScreenMode::Fullscreen),
             "routing": config.routing().map(|routing| json!({
                 "catalogId": routing.catalog_id,
                 "provider": routing.provider,
@@ -2340,6 +2360,36 @@ mod tests {
         let inspect = inspect_json(&config);
         assert!(inspect.contains("\"importedLegacyCredentials\": false"));
         assert!(!inspect.contains("secret-must-not-import"));
+        assert!(inspect.contains("\"theme\": \"groknight\""));
+        assert!(inspect.contains("\"statusLine\": \"disabled\""));
+    }
+
+    #[test]
+    fn appearance_inspect_reports_locked_theme() {
+        let dir = TempDir::new().unwrap();
+        let load = input(&dir);
+        write_config(
+            &load,
+            "[ui]\ntheme = \"grokday\"\n[ui.status_line]\ntype = \"builtin\"\n",
+        );
+        fs::write(
+            load.grok_home.clone().unwrap().join("requirements.toml"),
+            "[ui]\ntheme = \"groknight\"\n",
+        )
+        .unwrap();
+        let config = load_from(load);
+        let settings: BTreeMap<_, _> = config
+            .settings
+            .iter()
+            .map(|row| (row.key.clone(), row.clone()))
+            .collect();
+        assert_eq!(settings["ui.theme"].value, "groknight");
+        assert_eq!(settings["ui.theme"].source, "requirements");
+        assert_eq!(settings["ui.theme.lock"].value, "requirements");
+        assert_eq!(settings["ui.status_line.type"].value, "builtin");
+        let err = appearance::apply_setting(&mut config.appearance.clone(), "ui.theme", "grokday")
+            .unwrap_err();
+        assert!(err.contains("locked"), "{err}");
     }
 
     #[test]

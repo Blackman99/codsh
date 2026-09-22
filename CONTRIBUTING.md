@@ -332,7 +332,8 @@ tool results display as cancelled. After cancel, a new prompt still works.
 `scripts/rust-resume-pty-test.py`, `scripts/rust-config-pty-test.py`,
 `scripts/rust-model-pty-test.py`, `scripts/rust-compact-pty-test.py`,
 `scripts/rust-trust-pty-test.py`, `scripts/rust-screen-pty-test.py`,
-and `scripts/rust-fork-pty-test.py` against the packed native candidate.
+`scripts/rust-fork-pty-test.py`, and `scripts/rust-settings-pty-test.py`
+against the packed native candidate.
 `/context` and `/compact` are dsh-backed: occupancy and advertised model limits
 must not be fabricated, manual/automatic compaction uses the dsh session log,
 failed compact must keep the ACP session and original records, cancel must print
@@ -362,6 +363,9 @@ in minimal reset that native buffer the same way compact does, so discarded
 turns are not left in scrollback. In-place `/minimal` and `/fullscreen` keep
 the dsh session, draft, running turn, and pending approval;
 `--minimal`/`--fullscreen` do not rewrite isolated `[ui] screen_mode`.
+`/settings` and `/theme` persist appearance and status-line choices into the
+same user `config.toml`; preview/Escape must not write; locked requirements
+show their source; status-line scripts must time out and clean process groups.
 Queue delivery across a switch remains a later ticket.
 
 ## Documentation site

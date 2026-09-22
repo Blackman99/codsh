@@ -134,9 +134,6 @@ pub fn slash_action(text: &str) -> Option<SlashAction> {
         "timeline" => Some(SlashAction::Refuse(
             "/timeline isn't available in minimal mode (the timeline sidebar needs fullscreen). Run /fullscreen to switch this session.",
         )),
-        "theme" => Some(SlashAction::Refuse(
-            "/theme isn't available in minimal mode (minimal renders with your terminal's own palette). Run /fullscreen to switch this session.",
-        )),
         "tutorial" => Some(SlashAction::Refuse(
             "/tutorial isn't available in minimal mode (the tutorial overlay needs fullscreen). Run /fullscreen to switch this session.",
         )),
@@ -323,13 +320,7 @@ mod tests {
             slash_action("  /full  "),
             Some(SlashAction::Switch(ScreenMode::Fullscreen))
         );
-        let theme = slash_action("/theme").unwrap();
-        assert_eq!(
-            mode_command_message(ScreenMode::Minimal, theme.clone()).as_deref(),
-            Some(
-                "/theme isn't available in minimal mode (minimal renders with your terminal's own palette). Run /fullscreen to switch this session."
-            )
-        );
+        assert_eq!(slash_action("/theme"), None);
         let dashboard = slash_action("/dashboard").unwrap();
         assert!(
             mode_command_message(ScreenMode::Minimal, dashboard)

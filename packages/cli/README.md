@@ -33,7 +33,9 @@ over ACP/JSON-RPC. Plain `codsh` is unchanged. The candidate uses
 credential files or sessions, and does not start the legacy Bundle or official
 agent core. Configure a provider in `~/.codsh-rust/.grok/config.toml` (`$GROK_HOME/config.toml`)
 and inspect effective values with `codsh --rust inspect` / `inspect --json`.
-`[ui] confirm_before_rewind` and `ui.fork_secondary_model` use that same file.
+`[ui] theme`, compact mode, timestamps, status line, `confirm_before_rewind`,
+and `ui.fork_secondary_model` use that same file. `/settings` and `/theme`
+edit or preview those live controls; minimal mode keeps the terminal palette.
 Compatible
 `api_backend` and reasoning-effort fields map into isolated dsh
 `settings.yaml`; a hand-edited settings file that disagrees is not overwritten.
@@ -81,7 +83,8 @@ A second client is refused while this process holds write ownership.
 alternate-screen and native-history renderers in the current process without
 rewriting isolated `[ui] screen_mode`. `/rewind` and `/fork` in minimal replace
 that native buffer. Draft, running turn, and pending approval survive an
-in-place switch.
+in-place switch. `/settings` and `/theme` persist or preview appearance and
+status-line choices; Escape cancels a theme preview without writing.
 
 Maintainers run `pnpm run build:rust` before locally packing this package. The
 candidate carries its native binary, dependency/license records, and digest;
