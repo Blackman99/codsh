@@ -111,7 +111,10 @@ Home 会报告保存失败而不会假装授权已持久化。未信任的 Hooks
 的远程更新并保留原安装。官方 marketplace 默认不
 自动注册，除非设置 `GROK_OFFICIAL_MARKETPLACE_AUTO_REGISTER`。同一目录中的
 多个插件各自安装；git 更新会记录 clone HEAD。托管层
-`extra_known_marketplaces` 以先写入的 pin 为准。`/plugins`
+`extra_known_marketplaces` 以先写入的 pin 为准。一旦存在
+`strict_known_marketplaces`，目录加载和按名安装都会受其约束：未列入的 git
+来源会被丢弃，本地路径会被拒绝，除非管理员 pin 指明该路径；空列表或格式错误
+会拒绝一切添加与安装。`/plugins`
 与 `/marketplace` 打开插件目录。卸载不会删除用户无关文件。个人与项目
 作用域互不污染。首次运行缺少凭据时只给出
 可操作提示：不打开 grok.com 登录，不访问默认官方遥测/上传，也不自动导入

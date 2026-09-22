@@ -403,6 +403,45 @@ env_key = "XAI_API_KEY"
         assert inspect_project.get('workspaceTrusted') is False
         results['project-scope'] = {'scope': project_row['scope'], 'trusted': project_row['trusted']}
 
+        allowed_market = work / 'allowed-market'
+        blocked_market = work / 'blocked-market'
+        write_marketplace(allowed_market, 'allowed-tools', '3.0.0')
+        write_marketplace(blocked_market, 'blocked-tools', '3.0.0')
+        (grok_home / 'requirements.toml').write_text(
+            'strict_known_marketplaces = []\n\n'
+            '[extra_known_marketplaces.allowed]\n'
+            f'source = {{ source = "local", path = "{allowed_market}" }}\n'
+        )
+        config_text = (grok_home / 'config.toml').read_text()
+        (grok_home / 'config.toml').write_text(
+            config_text
+            + '\n[[marketplace.sources]]\n'
+            + 'name = "blocked"\n'
+            + f'path = "{blocked_market}"\n'
+        )
+        inspect_strict = json.loads(spawn_rust(launcher, cwd, base_env, ['inspect', '--json']).stdout)
+        strict_names = [row['name'] for row in inspect_strict['plugins']['marketplaces']]
+        assert 'allowed' in strict_names, strict_names
+        assert 'blocked' not in strict_names, inspect_strict['plugins']
+        assert any('blocked by allowlist' in warning and 'blocked' in warning
+                   for warning in inspect_strict['plugins']['warnings']), inspect_strict['plugins']['warnings']
+        listed_strict = spawn_rust(launcher, cwd, base_env, ['plugin', 'marketplace', 'list'])
+        assert listed_strict.returncode == 0, listed_strict.stderr + listed_strict.stdout
+        assert 'allowed-tools' in listed_strict.stdout, listed_strict.stdout
+        assert 'blocked-tools' not in listed_strict.stdout, listed_strict.stdout
+        installed_allowed = spawn_rust(launcher, cwd, base_env, ['plugin', 'install', 'allowed-tools', '--trust'])
+        assert installed_allowed.returncode == 0, installed_allowed.stderr + installed_allowed.stdout
+        refused_blocked = spawn_rust(launcher, cwd, base_env, ['plugin', 'install', 'blocked-tools', '--trust'])
+        assert refused_blocked.returncode != 0
+        after_strict = json.loads(spawn_rust(launcher, cwd, base_env, ['inspect', '--json']).stdout)
+        assert any(row['name'] == 'allowed-tools' and row['executionGranted'] is False
+                   for row in after_strict['plugins']['installed'])
+        assert all(row['name'] != 'blocked-tools' for row in after_strict['plugins']['installed'])
+        removed_blocked = spawn_rust(launcher, cwd, base_env, ['plugin', 'marketplace', 'remove', 'blocked'])
+        assert removed_blocked.returncode == 0, removed_blocked.stderr + removed_blocked.stdout
+        assert str(blocked_market) not in (grok_home / 'config.toml').read_text()
+        results['strict-allowlist'] = {'catalog': strict_names, 'installed': 'allowed-tools'}
+
         (output / 'result.json').write_text(json.dumps(results, indent=2) + '\n')
         print(output)
         print(json.dumps(results, indent=2))

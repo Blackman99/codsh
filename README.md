@@ -140,7 +140,11 @@ record. `GROK_MARKETPLACE_REQUIRE_SHA` / `[marketplace] require_sha` also
 refuse unpinned remote updates and leave the previous install. Official marketplace auto-register stays off unless
 `GROK_OFFICIAL_MARKETPLACE_AUTO_REGISTER` is enabled. Each marketplace plugin
 installs into its own directory; git updates record the clone HEAD. Managed
-`extra_known_marketplaces` pins are first-pin-wins sources.
+`extra_known_marketplaces` pins are first-pin-wins sources. A present
+`strict_known_marketplaces` list binds catalog load and named marketplace
+install: unlisted git sources are dropped, local paths are refused unless an
+admin pin names that path, and an empty or malformed list refuses every add
+and install.
 `/plugins` and
 `/marketplace` open the plugins directory. Uninstall does not
 delete unrelated user files. User and project plugin scopes stay separate. First-run missing

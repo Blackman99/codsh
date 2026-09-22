@@ -79,7 +79,11 @@ Git updates persist the clone HEAD in inspect provenance. `marketplace.require_s
 `GROK_MARKETPLACE_REQUIRE_SHA` refuse unpinned remote install and update.
 `marketplace remove`
 clears trust and enable lists for those plugins. `extra_known_marketplaces`
-pins sources with first-pin-wins.
+pins sources with first-pin-wins. A present `strict_known_marketplaces` list
+binds catalog load and named marketplace install, not only `marketplace add`:
+unlisted git sources are dropped with a warning, local paths are refused unless
+an admin `extra_known_marketplaces` pin names that path, and an empty or
+malformed list refuses every add and install.
 `/plugins` and `/marketplace` open the directory; Ctrl+L is not bound here.
 Plain `codsh` still selects the legacy Launcher/Bundle; this is not the default
 cutover. The Viewport language below remains the legacy Surface contract.

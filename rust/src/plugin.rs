@@ -994,7 +994,7 @@ fn cmd_marketplace_remove(ctx: &Context, input: &str) -> Result<String, PluginEr
             "Provide the source name, git URL, or local path to remove.",
         ));
     }
-    let sources = load_marketplace_sources(ctx);
+    let sources = load_configured_marketplace_sources(ctx);
     let source = find_marketplace(&sources, input, &ctx.cwd)?;
     let identity = source.identity();
     let name = source.name.clone();
@@ -1155,6 +1155,12 @@ fn install_from_marketplace(
                 ));
             }
             let parsed = parsed_from_catalog(source, plugin)?;
+            if let Some(reason) = allowlist_block(ctx, &source.identity(), source_is_local(source))
+            {
+                return Err(PluginError::fail(format!(
+                    "Plugin source blocked: {reason}"
+                )));
+            }
             if require_sha(ctx)
                 && !parsed.local
                 && !is_full_sha(parsed.git_ref.as_deref().unwrap_or(""))
@@ -2071,7 +2077,30 @@ fn load_marketplace_sources(ctx: &Context) -> Vec<MarketplaceSource> {
     load_marketplace_catalog(ctx).0
 }
 
+fn load_configured_marketplace_sources(ctx: &Context) -> Vec<MarketplaceSource> {
+    collect_marketplace_sources(ctx).0
+}
+
 fn load_marketplace_catalog(ctx: &Context) -> (Vec<MarketplaceSource>, Vec<String>) {
+    let (sources, mut warnings) = collect_marketplace_sources(ctx);
+    let (policy, policy_warnings) = marketplace_allowlist(ctx);
+    warnings.extend(policy_warnings);
+    let mut kept = Vec::new();
+    for source in sources {
+        if let Some(reason) = catalog_allowlist_block(&policy, &source) {
+            warnings.push(format!(
+                "Marketplace source blocked by allowlist: {} ({}) — {reason}",
+                source.name,
+                source.identity()
+            ));
+            continue;
+        }
+        kept.push(source);
+    }
+    (kept, warnings)
+}
+
+fn collect_marketplace_sources(ctx: &Context) -> (Vec<MarketplaceSource>, Vec<String>) {
     let mut sources = Vec::new();
     let mut warnings = Vec::new();
     let mut seen_identity = BTreeSet::new();
@@ -2477,46 +2506,190 @@ fn classify_marketplace_input(input: &str, cwd: &Path) -> Result<SourceKind, Plu
     Ok(SourceKind::Local { path: expanded })
 }
 
-fn allowlist_block(ctx: &Context, identity: &str, is_local: bool) -> Option<String> {
-    let mut present = false;
-    let mut allowed = Vec::new();
-    for (_, value) in load_toml_layers(ctx) {
-        if let Some(list) = value.get("strict_known_marketplaces") {
-            present = true;
-            if let Some(entries) = list.as_array() {
-                for entry in entries {
-                    if let Some(url) = entry.get("url").and_then(TomlValue::as_str) {
-                        allowed.push(canonicalize_git(url));
-                    }
-                    if let Some(repo) = entry.get("repo").and_then(TomlValue::as_str) {
-                        allowed.push(canonicalize_git(&format!("https://github.com/{repo}.git")));
-                    }
+struct AllowEntry {
+    git: Option<String>,
+}
+
+struct MarketplaceAllowlist {
+    present: bool,
+    locked_down: bool,
+    entries: Vec<AllowEntry>,
+    /// Admin (requirements/managed) local pins that may pass a binding strict list.
+    admin_local_paths: BTreeSet<String>,
+}
+
+fn marketplace_allowlist(ctx: &Context) -> (MarketplaceAllowlist, Vec<String>) {
+    let mut policy = MarketplaceAllowlist {
+        present: false,
+        locked_down: false,
+        entries: Vec::new(),
+        admin_local_paths: BTreeSet::new(),
+    };
+    let mut warnings = Vec::new();
+    for (origin, value) in load_toml_layers(ctx) {
+        if is_admin_origin(origin) {
+            let mut ignored = Vec::new();
+            for source in extra_known_sources_from_toml(&value, origin, &mut ignored) {
+                if let SourceKind::Local { path } = &source.kind {
+                    policy
+                        .admin_local_paths
+                        .insert(normalize_local_identity(&path.display().to_string()));
                 }
-            } else {
-                allowed.clear();
+            }
+        }
+        let Some(list) = value.get("strict_known_marketplaces") else {
+            continue;
+        };
+        policy.present = true;
+        let Some(entries) = list.as_array() else {
+            policy.entries.clear();
+            policy.locked_down = true;
+            warnings.push(format!(
+                "strict_known_marketplaces from {origin} is not a list; marketplace adds are locked down"
+            ));
+            continue;
+        };
+        if policy.locked_down {
+            continue;
+        }
+        for entry in entries {
+            match parse_allow_entry(entry) {
+                AllowParse::Git(url) => policy.entries.push(AllowEntry { git: Some(url) }),
+                AllowParse::DroppedLocal => warnings.push(format!(
+                    "strict_known_marketplaces local entry from {origin} was ignored; local paths never match the allowlist"
+                )),
+                AllowParse::Unsupported => warnings.push(format!(
+                    "strict_known_marketplaces entry from {origin} was ignored: expected git url or github repo"
+                )),
             }
         }
     }
-    if !present {
+    if policy.locked_down {
+        policy.entries.clear();
+    }
+    (policy, warnings)
+}
+
+fn is_admin_origin(origin: &str) -> bool {
+    matches!(origin, "requirements" | "managed")
+}
+
+enum AllowParse {
+    Git(String),
+    DroppedLocal,
+    Unsupported,
+}
+
+fn parse_allow_entry(entry: &TomlValue) -> AllowParse {
+    let nested = entry
+        .get("source")
+        .filter(|value| value.is_table())
+        .unwrap_or(entry);
+    let kind = nested
+        .get("source")
+        .and_then(TomlValue::as_str)
+        .or_else(|| entry.get("source").and_then(TomlValue::as_str));
+    if kind == Some("local") || nested.get("path").is_some() || entry.get("path").is_some() {
+        return AllowParse::DroppedLocal;
+    }
+    if let Some(url) = nested
+        .get("url")
+        .and_then(TomlValue::as_str)
+        .or_else(|| nested.get("git").and_then(TomlValue::as_str))
+        .or_else(|| entry.get("url").and_then(TomlValue::as_str))
+        .or_else(|| entry.get("git").and_then(TomlValue::as_str))
+    {
+        if kind == Some("github") {
+            return AllowParse::Unsupported;
+        }
+        return AllowParse::Git(canonicalize_git(url));
+    }
+    if let Some(repo) = nested
+        .get("repo")
+        .and_then(TomlValue::as_str)
+        .or_else(|| entry.get("repo").and_then(TomlValue::as_str))
+    {
+        return AllowParse::Git(canonicalize_git(&format!("https://github.com/{repo}.git")));
+    }
+    AllowParse::Unsupported
+}
+
+fn source_is_local(source: &MarketplaceSource) -> bool {
+    matches!(source.kind, SourceKind::Local { .. })
+}
+
+fn catalog_allowlist_block(
+    policy: &MarketplaceAllowlist,
+    source: &MarketplaceSource,
+) -> Option<String> {
+    if !policy.present {
+        return None;
+    }
+    let local = source_is_local(source);
+    let identity = source.identity();
+    if local
+        && policy
+            .admin_local_paths
+            .contains(&normalize_local_identity(&identity))
+    {
+        return None;
+    }
+    if local {
+        return Some(
+            "local-path sources are refused while a strict marketplace allowlist is present".into(),
+        );
+    }
+    if policy.locked_down || policy.entries.iter().all(|entry| entry.git.is_none()) {
+        return Some(
+            "strict_known_marketplaces is present but empty or unsupported; source refused".into(),
+        );
+    }
+    let canon = canonicalize_git(&identity);
+    if policy
+        .entries
+        .iter()
+        .any(|entry| entry.git.as_deref() == Some(canon.as_str()))
+    {
+        None
+    } else {
+        Some("source not in strict_known_marketplaces".into())
+    }
+}
+
+fn allowlist_block(ctx: &Context, identity: &str, is_local: bool) -> Option<String> {
+    let (policy, _) = marketplace_allowlist(ctx);
+    if !policy.present {
         return None;
     }
     if is_local {
+        let normalized = normalize_local_identity(identity);
+        if policy.admin_local_paths.contains(&normalized) {
+            return None;
+        }
         return Some(
             "local-path adds are refused while a strict marketplace allowlist is present".into(),
         );
     }
-    if allowed.is_empty() {
+    if policy.locked_down || policy.entries.iter().all(|entry| entry.git.is_none()) {
         return Some(
             "strict_known_marketplaces is present but empty or unsupported; all adds are refused"
                 .into(),
         );
     }
     let canon = canonicalize_git(identity);
-    if allowed.iter().any(|item| item == &canon) {
+    if policy
+        .entries
+        .iter()
+        .any(|entry| entry.git.as_deref() == Some(canon.as_str()))
+    {
         None
     } else {
         Some("source not in strict_known_marketplaces".into())
     }
+}
+
+fn normalize_local_identity(identity: &str) -> String {
+    expand_home(identity).display().to_string()
 }
 
 fn load_registry(ctx: &Context) -> Result<InstallRegistry, PluginError> {
@@ -3985,6 +4158,233 @@ mod tests {
                 .and_then(|table| table.get("default"))
                 .and_then(TomlValue::as_str),
             Some("user-model")
+        );
+    }
+
+    #[test]
+    fn strict_known_marketplaces_drop_unlisted_catalogs_and_block_named_install() {
+        let dir = TempDir::new().unwrap();
+        let env = ctx(&dir);
+        let allowed = dir.path().join("allowed");
+        let blocked = dir.path().join("blocked");
+        write_marketplace(&allowed, "allowed-tools");
+        write_marketplace(&blocked, "blocked-tools");
+        fs::write(
+            env.grok_home.join("requirements.toml"),
+            format!(
+                "strict_known_marketplaces = []\n\n[extra_known_marketplaces.ok]\nsource = {{ source = \"local\", path = \"{}\" }}\n",
+                allowed.display()
+            ),
+        )
+        .unwrap();
+        fs::write(
+            env.config_path(),
+            format!(
+                "[[marketplace.sources]]\nname = \"nope\"\npath = \"{}\"\n",
+                blocked.display()
+            ),
+        )
+        .unwrap();
+        let snapshot = inspect(&env.grok_home, &env.cwd, &env.env, true);
+        let names: Vec<_> = snapshot
+            .marketplaces
+            .iter()
+            .map(|source| source.name.as_str())
+            .collect();
+        assert_eq!(names, ["ok"], "{:?} {:?}", names, snapshot.warnings);
+        assert!(
+            snapshot
+                .warnings
+                .iter()
+                .any(|warning| warning.contains("blocked by allowlist") && warning.contains("nope")),
+            "{:?}",
+            snapshot.warnings
+        );
+        let listed = run(
+            &env.grok_home,
+            &env.cwd,
+            &env.env,
+            true,
+            &PluginCommand::MarketplaceList { json: false },
+        )
+        .unwrap();
+        assert!(listed.contains("allowed-tools"), "{listed}");
+        assert!(!listed.contains("blocked-tools"), "{listed}");
+        let installed = run(
+            &env.grok_home,
+            &env.cwd,
+            &env.env,
+            true,
+            &PluginCommand::Install {
+                source: "allowed-tools".into(),
+                trust: true,
+            },
+        )
+        .unwrap();
+        assert!(installed.contains("Installed"), "{installed}");
+        let refused = run(
+            &env.grok_home,
+            &env.cwd,
+            &env.env,
+            true,
+            &PluginCommand::Install {
+                source: "blocked-tools".into(),
+                trust: true,
+            },
+        )
+        .unwrap_err();
+        assert!(
+            refused.message.contains("not found") || refused.message.contains("blocked"),
+            "{}",
+            refused.message
+        );
+        assert!(
+            inspect(&env.grok_home, &env.cwd, &env.env, true)
+                .installed
+                .iter()
+                .all(|plugin| plugin.name != "blocked-tools")
+        );
+        let removed = run(
+            &env.grok_home,
+            &env.cwd,
+            &env.env,
+            true,
+            &PluginCommand::MarketplaceRemove {
+                source: "nope".into(),
+            },
+        )
+        .unwrap();
+        assert!(removed.contains("Removed marketplace source"), "{removed}");
+        assert!(
+            !fs::read_to_string(env.config_path())
+                .unwrap_or_default()
+                .contains(&blocked.display().to_string()),
+            "blocked source must still be removable"
+        );
+    }
+
+    #[test]
+    fn strict_allowlist_refuses_unlisted_git_add_and_accepts_github_repo_entry() {
+        let dir = TempDir::new().unwrap();
+        let env = ctx(&dir);
+        fs::write(
+            env.grok_home.join("requirements.toml"),
+            "[[strict_known_marketplaces]]\nsource = \"github\"\nrepo = \"ACME/more-plugins\"\n",
+        )
+        .unwrap();
+        let refused = run(
+            &env.grok_home,
+            &env.cwd,
+            &env.env,
+            true,
+            &PluginCommand::MarketplaceAdd {
+                url: "https://github.com/other/plugins.git".into(),
+                force: true,
+            },
+        )
+        .unwrap_err();
+        assert!(
+            refused.message.contains("strict_known_marketplaces"),
+            "{}",
+            refused.message
+        );
+        assert!(
+            !fs::read_to_string(env.config_path())
+                .unwrap_or_default()
+                .contains("other/plugins"),
+            "refused add must not persist"
+        );
+        let allowed = run(
+            &env.grok_home,
+            &env.cwd,
+            &env.env,
+            true,
+            &PluginCommand::MarketplaceAdd {
+                url: "ACME/more-plugins".into(),
+                force: true,
+            },
+        )
+        .unwrap();
+        assert!(allowed.contains("Added marketplace source"), "{allowed}");
+    }
+
+    #[test]
+    fn strict_allowlist_admin_pin_is_the_only_local_path_exception() {
+        let dir = TempDir::new().unwrap();
+        let env = ctx(&dir);
+        let pinned = dir.path().join("pinned");
+        let user_pinned = dir.path().join("user-pinned");
+        let other = dir.path().join("other");
+        write_marketplace(&pinned, "pinned-tools");
+        write_marketplace(&user_pinned, "user-tools");
+        write_marketplace(&other, "other-tools");
+        fs::write(
+            env.grok_home.join("requirements.toml"),
+            format!(
+                "strict_known_marketplaces = []\n\n[extra_known_marketplaces.admin]\nsource = {{ source = \"local\", path = \"{}\" }}\n",
+                pinned.display()
+            ),
+        )
+        .unwrap();
+        fs::write(
+            env.config_path(),
+            format!(
+                "[extra_known_marketplaces.user]\nsource = {{ source = \"local\", path = \"{}\" }}\n\n[[marketplace.sources]]\nname = \"loose\"\npath = \"{}\"\n",
+                user_pinned.display(),
+                other.display()
+            ),
+        )
+        .unwrap();
+        let snapshot = inspect(&env.grok_home, &env.cwd, &env.env, true);
+        let names: Vec<_> = snapshot
+            .marketplaces
+            .iter()
+            .map(|source| source.name.as_str())
+            .collect();
+        assert_eq!(names, ["admin"], "{:?} {:?}", names, snapshot.warnings);
+        let installed = run(
+            &env.grok_home,
+            &env.cwd,
+            &env.env,
+            true,
+            &PluginCommand::Install {
+                source: "pinned-tools".into(),
+                trust: true,
+            },
+        )
+        .unwrap();
+        assert!(installed.contains("Installed"), "{installed}");
+        let user_install = run(
+            &env.grok_home,
+            &env.cwd,
+            &env.env,
+            true,
+            &PluginCommand::Install {
+                source: "user-tools".into(),
+                trust: true,
+            },
+        )
+        .unwrap_err();
+        assert!(
+            user_install.message.contains("not found") || user_install.message.contains("blocked"),
+            "{}",
+            user_install.message
+        );
+        let added = run(
+            &env.grok_home,
+            &env.cwd,
+            &env.env,
+            true,
+            &PluginCommand::MarketplaceAdd {
+                url: other.display().to_string(),
+                force: false,
+            },
+        )
+        .unwrap_err();
+        assert!(
+            added.message.contains("local-path") || added.message.contains("allowlist"),
+            "{}",
+            added.message
         );
     }
 
