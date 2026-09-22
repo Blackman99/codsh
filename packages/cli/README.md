@@ -74,7 +74,7 @@ configured substitute identity or management services; session tokens in
 `$GROK_HOME/auth.json` are not transferred to model keys or other services,
 and unsigned managed policy is refused. Independent API keys cannot bypass
 `GROK_DISABLE_API_KEY_AUTH` or a locked team pin (`auth.force_login_team_uuid`
-or top-level `force_login_team_uuid` in `requirements.toml`). Startup and inspect refresh an expired session or clear it. `/login` reloads the session, replaces dsh when credentials, readiness, or the settings patch changed, and keeps the live client when the settings write fails; `/logout` drops that connection. Empty Enter on first-run reloads
+or top-level `force_login_team_uuid` in `requirements.toml`). Startup and inspect refresh an expired session or clear it. Clearing an unrefreshable token does not block `login` or an otherwise valid API key. `/login` reloads the session, replaces dsh when credentials, readiness, or the settings patch changed, and keeps the live client when the settings write fails; `/logout` drops that connection. Empty Enter on first-run reloads
 config and connects when a provider is ready, without submitting a prompt. Filesystem-resolved overlap with `DSH_HOME`/`GROK_HOME`, including case
 aliases, is refused before writes; symlinked preview paths remain forbidden.
 Device/inode ancestry checks include existing ancestors of missing paths, catching

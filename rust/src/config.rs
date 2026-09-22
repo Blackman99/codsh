@@ -1083,17 +1083,13 @@ pub fn load_from(mut input: LoadInput) -> EffectiveConfig {
     warnings.extend(auth.extra_ca_warnings.iter().cloned());
     // Startup, inspect, and slash reload all come through here. An expired
     // auth.json must be refreshed or cleared before the team pin is treated
-    // as a usable identity session.
+    // as a usable identity session. A cleared unrefreshable token is not a
+    // config error: login still has to run, and an independent API key stays
+    // usable. The file is already removed, so the message is a warning.
     let session = match auth::refresh_session(&grok_home, &input.env, &auth) {
         Ok(record) => record,
         Err(error) => {
-            if missing_credential.is_none() {
-                missing_credential = Some(error.clone());
-            }
-            errors.push(ConfigError {
-                path: Some(auth::auth_json_path(&grok_home, &input.env)),
-                reason: error,
-            });
+            warnings.push(error);
             None
         }
     };
@@ -2759,10 +2755,20 @@ env_key = "XAI_API_KEY"
             "unrefreshable expiry is cleared"
         );
         assert!(
+            !stale.blocks_auth_command(),
+            "a cleared expiry must not stop `codsh --rust login`"
+        );
+        assert!(
             stale
-                .first_run_message()
-                .to_ascii_lowercase()
-                .contains("expired")
+                .warnings
+                .iter()
+                .any(|warning| warning.to_ascii_lowercase().contains("expired"))
+        );
+        assert!(
+            !stale
+                .errors
+                .iter()
+                .any(|error| error.reason.to_ascii_lowercase().contains("expired"))
         );
 
         // parse_token_output reads team only from the access token, not a
@@ -2793,6 +2799,56 @@ env_key = "XAI_API_KEY"
             fs::read_to_string(grok.join("auth.json"))
                 .unwrap()
                 .contains(team_jwt)
+        );
+    }
+
+    #[test]
+    fn expired_unrefreshable_auth_does_not_block_login_or_api_key() {
+        let dir = TempDir::new().unwrap();
+        let mut load = input(&dir);
+        write_config(
+            &load,
+            r#"
+[model.gateway]
+model = "mock-model"
+base_url = "http://127.0.0.1:9/v1"
+env_key = "XAI_API_KEY"
+"#,
+        );
+        load.env.insert("XAI_API_KEY".into(), "present".into());
+        load.env
+            .insert("GROK_AUTH_EARLY_INVALIDATION_SECS".into(), "0".into());
+        let grok = load.grok_home.clone().unwrap();
+        fs::create_dir_all(&grok).unwrap();
+        fs::write(
+            grok.join("auth.json"),
+            json!({
+                "access_token": "expired-token",
+                "method": "oidc",
+                "expires_at": 1,
+            })
+            .to_string(),
+        )
+        .unwrap();
+        let recovered = load_from(load);
+        assert!(
+            recovered.ready,
+            "a cleared expired session must not block an independent API key"
+        );
+        assert!(recovered.auth_session.is_none());
+        assert!(!grok.join("auth.json").exists());
+        assert!(
+            !recovered.blocks_auth_command(),
+            "login must still run after an unrefreshable expiry: {}",
+            recovered.first_run_message()
+        );
+        assert!(
+            !recovered
+                .errors
+                .iter()
+                .any(|error| error.reason.to_ascii_lowercase().contains("expired")),
+            "cleared expiry is a warning, not a fatal config error: {:?}",
+            recovered.errors
         );
     }
 

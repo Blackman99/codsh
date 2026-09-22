@@ -1671,14 +1671,26 @@ pub mod tests {
     }
 
     fn serve(script: impl Fn(String) -> (u16, String, &'static str) + Send + 'static) -> String {
-        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
-        let addr = listener.local_addr().unwrap();
+        // ureq 2 pools by scheme/host/port. Alternate loopback names so
+        // parallel fixtures never share a key, and close each response.
+        static FIXTURE_HOSTS: std::sync::atomic::AtomicUsize =
+            std::sync::atomic::AtomicUsize::new(0);
+        let host = if FIXTURE_HOSTS
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+            .is_multiple_of(2)
+        {
+            "127.0.0.1"
+        } else {
+            "localhost"
+        };
+        let listener = TcpListener::bind(format!("{host}:0")).unwrap();
+        let port = listener.local_addr().unwrap().port();
         thread::spawn(move || {
             for stream in listener.incoming().flatten() {
                 let _ = handle_http(stream, &script);
             }
         });
-        format!("http://127.0.0.1:{}", addr.port())
+        format!("http://{host}:{port}")
     }
 
     fn handle_http(
@@ -1696,7 +1708,9 @@ pub mod tests {
             "HTTP/1.1 {status} {reason}\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
             body.len()
         );
-        stream.write_all(response.as_bytes())
+        stream.write_all(response.as_bytes())?;
+        let _ = stream.shutdown(std::net::Shutdown::Both);
+        Ok(())
     }
 
     #[test]
