@@ -53,6 +53,7 @@ serde_json.workspace = true
 sha2 = "0.10"
 toml = "1.1.6"
 unicode-width.workspace = true
+url = "=2.5.8"
 ureq = { version = "2.12", default-features = false, features = ["native-tls", "json"] }
 xai-ratatui-inline = { path = "upstream/xai-ratatui-inline" }
 xai-ratatui-textarea = { path = "upstream/xai-ratatui-textarea" }

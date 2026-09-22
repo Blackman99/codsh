@@ -44,11 +44,15 @@ copies tokens, credential files, or original trust/execution grants. Configured
 session tracking, and content sharing default off. Opt-in uploads require a
 substitute `endpoints.telemetry_url`, `endpoints.feedback_base_url`, or
 `endpoints.trace_upload_url`; official grok.com, api.x.ai, and Sentry hosts are
-refused. `/feedback` and `codsh --rust feedback` keep local drafts until an
-explicit submit, retain them after a failed submit, and delete them only on
-success or an explicit delete. Diagnostic previews and `GROK_DEBUG_LOG` contain
-kind/ok/count only. Model provider traffic is not telemetry. Locked requirements
-can force the switches off.
+refused by parsed hostname. `/feedback` opens the same Write/Drafts form in
+every screen mode; Enter sends, `/feedback <text>` sends immediately, and a
+failed submit keeps the draft for edit or delete. Draft text is included only
+when `privacy.share_content` is on. `privacy.share_session` attaches the session
+id to an enabled trace upload and nothing else. Diagnostic previews and
+`GROK_DEBUG_LOG` contain kind/ok/count only. `GROK_LOG_FILE` and
+`GROK_HOOKS_LOG` are unwired: the launcher does not pass them, and no Rust
+path reads them. Model provider traffic is not
+telemetry. Locked requirements can force the switches off.
 User settings enter through `$GROK_HOME/config.toml` and `codsh --rust inspect`;
 `[ui] theme`, `auto_dark_theme`, `auto_light_theme`, `compact_mode`,
 `show_timestamps`, `screen_mode`, `confirm_before_rewind`,

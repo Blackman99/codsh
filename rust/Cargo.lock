@@ -292,6 +292,7 @@ dependencies = [
  "toml",
  "unicode-width 0.2.0",
  "ureq",
+ "url",
  "xai-ratatui-inline",
  "xai-ratatui-textarea",
 ]

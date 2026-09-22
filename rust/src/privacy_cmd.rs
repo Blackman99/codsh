@@ -1,8 +1,8 @@
 //! Headless `codsh --rust feedback` commands. Drafts stay local until submit.
 
 use crate::privacy::{
-    DiagnosticEvent, DraftStore, FeedbackType, PrivacyError, PrivacyPolicy, diagnostic_preview,
-    emit_diagnostic, local_log_line, session_dir, submit_draft,
+    DiagnosticEvent, DraftInput, DraftStore, FeedbackType, PrivacyError, PrivacyPolicy,
+    diagnostic_preview, emit_diagnostic, emit_trace, local_log_line, session_dir, submit_draft,
 };
 use std::path::Path;
 
@@ -15,6 +15,10 @@ pub enum FeedbackCommand {
         details: String,
         area: Option<String>,
         kind: FeedbackType,
+        task_category: Option<String>,
+        failure_mode: Option<String>,
+        /// `/feedback <text>` sends immediately. `save` and the Write tab stay local.
+        send: bool,
     },
     List {
         session: String,
@@ -30,6 +34,8 @@ pub enum FeedbackCommand {
         details: String,
         area: Option<String>,
         kind: FeedbackType,
+        task_category: Option<String>,
+        failure_mode: Option<String>,
     },
     Delete {
         session: String,
@@ -48,13 +54,8 @@ pub fn parse_feedback(args: &[String]) -> Result<FeedbackCommand, PrivacyError> 
     }
     let session = flag(args, "--session").unwrap_or_else(|| "local".into());
     match args[0].as_str() {
-        "save" => Ok(FeedbackCommand::Save {
-            session,
-            title: required(args, "--title")?,
-            details: required(args, "--details")?,
-            area: flag(args, "--area"),
-            kind: kind_of(args)?,
-        }),
+        "save" => Ok(save_command(args, session, false)?),
+        "send" => Ok(save_command(args, session, true)?),
         "list" => Ok(FeedbackCommand::List { session }),
         "show" => Ok(FeedbackCommand::Show {
             session,
@@ -67,6 +68,8 @@ pub fn parse_feedback(args: &[String]) -> Result<FeedbackCommand, PrivacyError> 
             details: required(args, "--details")?,
             area: flag(args, "--area"),
             kind: kind_of(args)?,
+            task_category: flag(args, "--task-category"),
+            failure_mode: flag(args, "--failure-mode"),
         }),
         "delete" => Ok(FeedbackCommand::Delete {
             session,
@@ -83,6 +86,23 @@ pub fn parse_feedback(args: &[String]) -> Result<FeedbackCommand, PrivacyError> 
     }
 }
 
+fn save_command(
+    args: &[String],
+    session: String,
+    send: bool,
+) -> Result<FeedbackCommand, PrivacyError> {
+    Ok(FeedbackCommand::Save {
+        session,
+        title: required(args, "--title")?,
+        details: required(args, "--details")?,
+        area: flag(args, "--area"),
+        kind: kind_of(args)?,
+        task_category: flag(args, "--task-category"),
+        failure_mode: flag(args, "--failure-mode"),
+        send,
+    })
+}
+
 pub fn debug_log_path(dsh_home: &Path) -> Option<std::path::PathBuf> {
     std::env::var_os("GROK_DEBUG_LOG")
         .filter(|value| !value.is_empty() && value != "0" && value != "false")
@@ -97,11 +117,11 @@ pub fn debug_log_path(dsh_home: &Path) -> Option<std::path::PathBuf> {
 
 pub fn help_text() -> &'static str {
     "Local feedback drafts and opt-in diagnostics.\n\n\
-Usage: codsh --rust feedback <save|list|show|edit|delete|submit|preview>\n\n\
-save/edit: --session <id> --title <text> --details <text> [--area <text>] [--type bug|idea|missing_capability]\n\
+Usage: codsh --rust feedback <save|send|list|show|edit|delete|submit|preview>\n\n\
+save/edit/send: --session <id> --title <text> --details <text> [--area <text>] [--type bug|idea|missing_capability] [--task-category <enum>] [--failure-mode <enum>]\n\
 list/show/delete/submit: --session <id> [--id <draft>]\n\
 preview: print the redaction boundary. Nothing is uploaded.\n\n\
-Drafts stay in the isolated dsh Home until submit. Submit requires features.feedback and endpoints.feedback_base_url. Failed submit keeps the draft. Official grok.com / api.x.ai endpoints are refused."
+save stays local. send and submit post to endpoints.feedback_base_url. Draft text is included only when privacy.share_content is on; otherwise the body is a redacted envelope. Failed submit keeps the draft. Official grok.com / api.x.ai / sentry hosts are refused by hostname. In the TTY, /feedback opens Write and Drafts; Enter sends from Write, and /feedback <text> sends immediately."
 }
 
 pub fn run(
@@ -124,11 +144,25 @@ pub fn run(
             details,
             area,
             kind,
+            task_category,
+            failure_mode,
+            send,
         } => {
             let store = store_for(dsh_home, session)?;
-            let draft = store.append(title, details, area.as_deref(), kind.clone())?;
+            let draft = store.append(DraftInput {
+                title,
+                details,
+                area: area.as_deref(),
+                kind: kind.clone(),
+                task_category: task_category.as_deref(),
+                failure_mode: failure_mode.as_deref(),
+            })?;
             note(log_path, "feedback_draft_save", true, 1)?;
             let _ = maybe_telemetry(policy, "feedback_draft_op", true, 1);
+            let _ = maybe_trace(policy, Some(session), "feedback_draft_op", 1);
+            if *send {
+                return submit_saved(&store, &draft.id, policy, log_path, session);
+            }
             Ok(format!(
                 "saved local draft {} revision {}. Not sent.",
                 draft.id, draft.revision
@@ -159,13 +193,15 @@ pub fn run(
                 return Err(PrivacyError::NotFound);
             };
             Ok(format!(
-                "id={}\nrevision={}\ntype={}\ntitle={}\ndetails={}\narea={}\nstatus=local",
+                "id={}\nrevision={}\ntype={}\ntitle={}\ndetails={}\narea={}\ntask_category={}\nfailure_mode={}\nstatus=local",
                 draft.id,
                 draft.revision,
                 draft.r#type.as_str(),
                 draft.title,
                 draft.details,
-                draft.area.as_deref().unwrap_or("(unset)")
+                draft.area.as_deref().unwrap_or("(unset)"),
+                draft.task_category.as_deref().unwrap_or("(unset)"),
+                draft.failure_mode.as_deref().unwrap_or("(unset)")
             ))
         }
         FeedbackCommand::Edit {
@@ -175,9 +211,21 @@ pub fn run(
             details,
             area,
             kind,
+            task_category,
+            failure_mode,
         } => {
             let store = store_for(dsh_home, session)?;
-            let draft = store.update(id, title, details, area.as_deref(), kind.clone())?;
+            let draft = store.update(
+                id,
+                DraftInput {
+                    title,
+                    details,
+                    area: area.as_deref(),
+                    kind: kind.clone(),
+                    task_category: task_category.as_deref(),
+                    failure_mode: failure_mode.as_deref(),
+                },
+            )?;
             note(log_path, "feedback_draft_edit", true, 1)?;
             Ok(format!(
                 "updated local draft {} revision {}. Not sent.",
@@ -194,21 +242,37 @@ pub fn run(
         }
         FeedbackCommand::Submit { session, id } => {
             let store = store_for(dsh_home, session)?;
-            match submit_draft(&store, id, policy) {
-                Ok(result) => {
-                    note(log_path, "feedback_submit", true, 1)?;
-                    let _ = maybe_telemetry(policy, "feedback_submit", true, 1);
-                    Ok(format!(
-                        "submitted draft {id} to the configured feedback destination (HTTP {}). Local copy {}.",
-                        result.status,
-                        if result.deleted { "deleted" } else { "kept" }
-                    ))
-                }
-                Err(error) => {
-                    note(log_path, "feedback_submit", false, 1)?;
-                    Err(error)
-                }
-            }
+            submit_saved(&store, id, policy, log_path, session)
+        }
+    }
+}
+
+fn submit_saved(
+    store: &DraftStore,
+    id: &str,
+    policy: &PrivacyPolicy,
+    log_path: Option<&Path>,
+    session: &str,
+) -> Result<String, PrivacyError> {
+    match submit_draft(store, id, policy) {
+        Ok(result) => {
+            note(log_path, "feedback_submit", true, 1)?;
+            let _ = maybe_telemetry(policy, "feedback_submit", true, 1);
+            let _ = maybe_trace(policy, Some(session), "feedback_submit", 1);
+            let content = if policy.share_content && !policy.content_locked {
+                "draft text included"
+            } else {
+                "draft text redacted"
+            };
+            Ok(format!(
+                "submitted draft {id} to the configured feedback destination (HTTP {}). Local copy {}. {content}.",
+                result.status,
+                if result.deleted { "deleted" } else { "kept" }
+            ))
+        }
+        Err(error) => {
+            note(log_path, "feedback_submit", false, 1)?;
+            Err(error)
         }
     }
 }
@@ -216,6 +280,15 @@ pub fn run(
 fn store_for(dsh_home: &Path, session: &str) -> Result<DraftStore, PrivacyError> {
     let dir = session_dir(dsh_home, session)?;
     Ok(DraftStore::new(&dir))
+}
+
+fn maybe_trace(
+    policy: &PrivacyPolicy,
+    session_id: Option<&str>,
+    kind: &'static str,
+    count: u32,
+) -> Result<(), PrivacyError> {
+    emit_trace(policy, session_id, kind, count).map(|_| ())
 }
 
 fn maybe_telemetry(

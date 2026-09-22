@@ -149,11 +149,14 @@ Diagnostics require real file/filter/destination checks and status-line environm
 sanitization requires rc-file canaries. Fetch proxy/domain/enablement tests must not
 be replaced by search-policy acceptance; mixed rows may require both scenarios.
 Privacy and feedback acceptance (`scripts/rust-privacy-pty-test.py`) drives the
-packed `codsh --rust feedback` command: local draft save/edit/delete, failed
-submit retention, explicit submit to a loopback substitute, refused official
-endpoints, and a network audit that must not contact an unconfigured host.
-Diagnostic payloads are kind/ok/count. Do not treat model `base_url` traffic as
-telemetry.
+packed `codsh --rust feedback` command and the live `/feedback` form: local
+draft save/edit/delete, failed submit retention, explicit submit to a loopback
+substitute, redaction when `privacy.share_content` is off, a trace-upload POST
+only when that switch is on, refused official hosts, and a network audit that
+must not contact an unconfigured host. Diagnostic payloads are kind/ok/count.
+`GROK_LOG_FILE` and `GROK_HOOKS_LOG` stay unwired: the launcher allowlist does
+not forward them, and the Rust client does not read them.
+Do not treat model `base_url` traffic as telemetry.
 Keep shell completion separate from next-prompt suggestions, diagnostic logging from
 hook authority, and sandbox auto-approval from confinement. Terminal/editor/platform
 aliases and background model/admission/login/goal/compaction controls need observable

@@ -196,8 +196,19 @@ impl WelcomeLayout {
                     + fixed_below,
             ))
         };
-        let [_, logo, _, _, _, menu, _, _, _, tip, _, prompt, _, version] = Layout::vertical([
-            Constraint::Length(top_pad),
+        // The notice takes only the rows above the prompt. A wrapped status must
+        // not push the draft box below the terminal.
+        let reserved = prompt_height.saturating_add(VERSION_GAP).saturating_add(1);
+        let notice_room = content_area.height.saturating_sub(reserved);
+        let [body, prompt, _, version] = Layout::vertical([
+            Constraint::Length(notice_room),
+            Constraint::Length(prompt_height),
+            Constraint::Length(VERSION_GAP),
+            Constraint::Length(1),
+        ])
+        .areas(content_area);
+        let [_, logo, _, _, _, menu, _, _, _, tip, _] = Layout::vertical([
+            Constraint::Length(top_pad.min(notice_room)),
             Constraint::Length(logo_tier.rows()),
             Constraint::Length(logo_gap), // gap after logo
             Constraint::Length(gap_after_logo),
@@ -205,14 +216,11 @@ impl WelcomeLayout {
             Constraint::Length(menu_height),
             Constraint::Length(eff_changelog_gap),
             Constraint::Length(eff_changelog_height),
-            Constraint::Min(flex_gap),
-            Constraint::Length(tip_height),
+            Constraint::Min(0),
+            Constraint::Length(tip_height.min(notice_room)),
             Constraint::Length(tip_gap),
-            Constraint::Length(prompt_height),
-            Constraint::Length(VERSION_GAP),
-            Constraint::Length(1), // version
         ])
-        .areas(content_area);
+        .areas(body);
         Self {
             logo,
             menu,

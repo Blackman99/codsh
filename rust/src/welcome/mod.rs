@@ -17,6 +17,7 @@ pub fn render(
     selected: Option<usize>,
     theme: &Theme,
     compact: bool,
+    feedback_open: bool,
 ) -> Rect {
     let area = frame.area();
     if area.width < 18 || area.height < 8 {
@@ -38,7 +39,11 @@ pub fn render(
         .desired_height(content.width.saturating_sub(4))
         .clamp(1, 5)
         + 2;
-    let tip_height = wrapped_rows(notice, content.width);
+    let tip_height = if feedback_open {
+        content.height.saturating_sub(input_height + 4)
+    } else {
+        wrapped_rows(notice, content.width)
+    };
     let layout = layout::WelcomeLayout::compute(layout::WelcomeLayoutInput {
         content_area: content,
         menu_height: 3,
@@ -58,6 +63,23 @@ pub fn render(
         ("ctrl+q", "Quit"),
     ];
     let buf = frame.buffer_mut();
+    if feedback_open {
+        let footer = input_height.saturating_add(1);
+        let [body, prompt] = Layout::vertical([
+            Constraint::Min(0),
+            Constraint::Length(footer.min(content.height)),
+        ])
+        .areas(content);
+        Paragraph::new(notice)
+            .wrap(Wrap { trim: false })
+            .render(body, buf);
+        let block = Block::new().borders(Borders::ALL).title("Draft (not sent)");
+        let input = block.inner(prompt);
+        block.render(prompt, buf);
+        let mut state = TextAreaState::default();
+        draft.render_ref(input, buf, &mut state);
+        return input;
+    }
     if layout.has_hero_box() {
         Block::bordered()
             .border_type(BorderType::Rounded)
@@ -70,9 +92,7 @@ pub fn render(
         logo::render_logo_tier(layout.logo, buf, theme, layout.logo_tier);
         menu::render_menu(layout.menu, buf, theme, &items, selected, None, 0);
     }
-    Paragraph::new(notice)
-        .wrap(Wrap { trim: false })
-        .render(layout.tip, buf);
+    render_notice(notice, layout.tip, buf);
     let block = Block::new().borders(Borders::ALL).title("Draft (not sent)");
     let input = block.inner(layout.prompt);
     block.render(layout.prompt, buf);
@@ -84,23 +104,35 @@ pub fn render(
         "dsh Home: ~/.codsh-rust/dsh · Profile: rust"
     };
     Paragraph::new(Line::from(footer)).render(layout.version, buf);
-    if let Some((x, y)) = draft.cursor_pos(input) {
+    if !feedback_open && let Some((x, y)) = draft.cursor_pos(input) {
         frame.set_cursor_position((x, y));
     }
     input
 }
 
-fn wrapped_rows(text: &str, width: u16) -> u16 {
+/// A notice taller than its slot keeps the latest lines, including an error.
+fn render_notice(notice: &str, area: Rect, buf: &mut ratatui::buffer::Buffer) {
+    let rows = wrapped_line_count(notice, area.width);
+    let scroll = rows.saturating_sub(area.height as usize) as u16;
+    Paragraph::new(notice)
+        .wrap(Wrap { trim: false })
+        .scroll((scroll, 0))
+        .render(area, buf);
+}
+
+fn wrapped_line_count(text: &str, width: u16) -> usize {
     let width = width.max(1) as usize;
-    let rows = text
-        .lines()
+    text.lines()
         .map(|line| {
             unicode_width::UnicodeWidthStr::width(line)
                 .max(1)
                 .div_ceil(width)
         })
-        .sum::<usize>();
-    rows.clamp(2, 24) as u16
+        .sum()
+}
+
+fn wrapped_rows(text: &str, width: u16) -> u16 {
+    wrapped_line_count(text, width).clamp(2, 40) as u16
 }
 
 pub fn render_minimal(
@@ -109,6 +141,7 @@ pub fn render_minimal(
     notice: &str,
     _selected: Option<usize>,
     _theme: &Theme,
+    feedback_open: bool,
 ) -> Rect {
     let area = frame.area();
     if area.width < 8 || area.height < 3 {
@@ -119,11 +152,14 @@ pub fn render_minimal(
         .desired_height(area.width.saturating_sub(4))
         .clamp(1, 4)
         + 2;
-    let notice_height = notice
-        .lines()
-        .count()
-        .clamp(1, area.height.saturating_sub(input_height + 1) as usize)
-        as u16;
+    let notice_height = if feedback_open {
+        area.height.saturating_sub(1)
+    } else {
+        notice
+            .lines()
+            .count()
+            .clamp(1, area.height.saturating_sub(input_height + 1) as usize) as u16
+    };
     let [status, prompt] = Layout::vertical([
         Constraint::Min(notice_height),
         Constraint::Length(input_height),
@@ -137,7 +173,7 @@ pub fn render_minimal(
     block.render(prompt, frame.buffer_mut());
     let mut state = TextAreaState::default();
     draft.render_ref(input, frame.buffer_mut(), &mut state);
-    if let Some((x, y)) = draft.cursor_pos(input) {
+    if !feedback_open && let Some((x, y)) = draft.cursor_pos(input) {
         frame.set_cursor_position((x, y));
     }
     input
@@ -163,6 +199,7 @@ mod tests {
                         None,
                         &Theme::offline(),
                         false,
+                        false,
                     );
                 })
                 .unwrap();
@@ -185,7 +222,7 @@ mod tests {
         let notice = "Execution unavailable: dsh\nNot connected. Draft kept.\nFirst-run: no usable provider. Official grok.com login/telemetry unused.\nWrite ~/.codsh-rust/.grok/config.toml ([model.<id>] base_url, env_key). Export the key. inspect shows origins.";
         terminal
             .draw(|frame| {
-                render(frame, &draft, notice, None, &Theme::offline(), false);
+                render(frame, &draft, notice, None, &Theme::offline(), false, false);
             })
             .unwrap();
         let text: String = terminal
@@ -201,6 +238,50 @@ mod tests {
     }
 
     #[test]
+    fn long_error_notice_keeps_the_draft_box_on_a_short_screen() {
+        let mut terminal = Terminal::new(TestBackend::new(80, 24)).unwrap();
+        let draft = TextArea::new();
+        let notice = "mode=fullscreen\nConnected to dsh ACP session demo.\nEnter submits a prompt through dsh.\nRoute: cli-mock/cli-mock id=gateway api=openai-completions\nbackend=chat_completions effort=high advertised_context=unknown (no silent\nprovider fallback)\nusage=unknown advertised_context=unknown cost=unknown\ndestination rejected the submission (HTTP 500); the local draft was kept";
+        terminal
+            .draw(|frame| {
+                render(frame, &draft, notice, None, &Theme::offline(), false, false);
+            })
+            .unwrap();
+        let text: String = terminal
+            .backend()
+            .buffer()
+            .content
+            .iter()
+            .map(|cell| cell.symbol())
+            .collect();
+        assert!(
+            text.contains("Draft (not sent)"),
+            "prompt box must stay visible when the notice wraps"
+        );
+        let mut wide = Terminal::new(TestBackend::new(100, 24)).unwrap();
+        wide.draw(|frame| {
+            render(frame, &draft, notice, None, &Theme::offline(), false, false);
+        })
+        .unwrap();
+        let wide_text: String = wide
+            .backend()
+            .buffer()
+            .content
+            .iter()
+            .map(|cell| cell.symbol())
+            .collect();
+        assert!(
+            wide_text.contains("Draft (not sent)"),
+            "hero layout must keep the prompt when the notice wraps"
+        );
+        assert!(
+            wide_text.contains("HTTP 500"),
+            "the latest error stays visible above the prompt"
+        );
+        assert!(text.contains("HTTP 500"));
+    }
+
+    #[test]
     fn minimal_overlay_keeps_draft_and_native_mode_label() {
         let mut terminal = Terminal::new(TestBackend::new(80, 12)).unwrap();
         let mut draft = TextArea::new();
@@ -213,6 +294,7 @@ mod tests {
                     "mode=minimal\nConnected to dsh ACP session demo.",
                     None,
                     &Theme::offline(),
+                    false,
                 );
             })
             .unwrap();

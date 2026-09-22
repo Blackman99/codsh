@@ -86,6 +86,15 @@ pub(super) fn compute_hero_box(input: &WelcomeLayoutInput) -> Option<WelcomeLayo
     if content_area.height < min_content_height(input, info_height, prompt_height) {
         return None;
     }
+    // A notice taller than the rows left beside the hero uses the stacked layout,
+    // which scrolls to the latest line and keeps the draft box.
+    let reserved = prompt_height.saturating_add(VERSION_GAP).saturating_add(1);
+    let beside_hero = content_area.height.saturating_sub(reserved).saturating_sub(
+        min_content_height(input, info_height, prompt_height).saturating_sub(reserved),
+    );
+    if tip_height > beside_hero {
+        return None;
+    }
 
     let logo_rows = super::logo::full_logo_line_count();
     let info_gap = if info_height > 0 { 1u16 } else { 0 };
@@ -112,19 +121,26 @@ pub(super) fn compute_hero_box(input: &WelcomeLayoutInput) -> Option<WelcomeLayo
             .saturating_sub(fixed_above + hero_box_height + 1 + fixed_below),
     );
 
-    let [_, _, _, hero_box_slot, _, tip, _, prompt, _, version_slot] = Layout::vertical([
-        Constraint::Length(top_pad),
-        Constraint::Length(gap_after_error),
-        Constraint::Length(error_height),
-        Constraint::Length(hero_box_height),
-        Constraint::Min(1), // flex gap
-        Constraint::Length(tip_height),
-        Constraint::Length(tip_gap),
+    // Pin the prompt. A wrapped notice must not push the draft box off screen.
+    let reserved = prompt_height.saturating_add(VERSION_GAP).saturating_add(1);
+    let notice_room = content_area.height.saturating_sub(reserved);
+    let [body, prompt, _, version_slot] = Layout::vertical([
+        Constraint::Length(notice_room),
         Constraint::Length(prompt_height),
         Constraint::Length(VERSION_GAP),
         Constraint::Length(1),
     ])
     .areas(content_area);
+    let [_, _, _, hero_box_slot, _, tip, _] = Layout::vertical([
+        Constraint::Length(top_pad.min(notice_room)),
+        Constraint::Length(gap_after_error),
+        Constraint::Length(error_height),
+        Constraint::Length(hero_box_height),
+        Constraint::Min(0),
+        Constraint::Length(tip_height.min(notice_room)),
+        Constraint::Length(tip_gap),
+    ])
+    .areas(body);
 
     // Horizontally center the hero box (`box_width` derived above).
     let [_, hero_box, _] = Layout::horizontal([

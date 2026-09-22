@@ -92,13 +92,21 @@ dsh 的上下文占用显示为 `occupancy=N (dsh estimate)`，不当作提供�
 非必要遥测、会话跟踪、内容分享和 trace 上传默认关闭。`[features] telemetry`、
 `feedback`、`trace_upload` 只有在 `endpoints.telemetry_url`、
 `endpoints.feedback_base_url` 或 `endpoints.trace_upload_url` 指向替代目的地时
-才会生效。官方 `grok.com`、`api.x.ai` 和 Sentry 地址会被拒绝。
+才会生效。官方 `grok.com`、`api.x.ai` 和 Sentry 按解析后的主机名拒绝，
+路径或查询里的同名文本不会误拒；只接受 `http` 与 `https`。
+`privacy.share_content` 默认关闭，提交时会脱敏标题、详情和 area。
+`privacy.share_session` 只在已开启的 trace 上传里附上会话 id。
 `codsh --rust feedback` 与 `/feedback` 把草稿留在隔离 dsh Home 的
-`feedback_drafts.json`，直到显式 `feedback submit --id <id>`。提交失败会保留
-草稿，可以再编辑或 `feedback delete`。`feedback preview` 说明脱敏边界：诊断只
+`feedback_drafts.json`，直到显式发送。`/feedback` 打开 Write 与 Drafts
+（Enter 发送，Ctrl+S 仅保存，Escape 关闭，Drafts 可编辑、重试和删除）。
+`/feedback <文本>` 立即发送。提交失败会保留草稿。请求体使用 schema 1 的
+`structured_feedback`（`type`，以及可选的 `task_category` 与 `failure_mode`）；
+`GROK_USER_METADATA` 不能覆盖该字段。`feedback preview` 说明脱敏边界：诊断只
 含 kind、ok 和 count，不含提示、回答、密钥或路径。模型调用只走已配置提供商的
 `base_url`，不是遥测。锁定的 `requirements.toml` 可以强制关闭这些开关。
 `GROK_DEBUG_LOG=1` 只把同样的计数追加到 `$DSH_HOME/privacy.log`，不会上传。
+`GROK_LOG_FILE` 与 `GROK_HOOKS_LOG` 未接线：启动器不转发，Rust 端也不读取，
+不会创建日志，也不会改变上传内容。
 `codsh --rust inspect` 与 `inspect --json` 列出每项生效值及来源（命令行
 `--model`/`--effort`、环境变量、`GROK_CONFIG` 覆盖层、工作区
 `.grok/config.toml`、已保存选择、用户 `config.toml`、`managed_config.toml`、

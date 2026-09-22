@@ -118,14 +118,24 @@ Nonessential telemetry, trace upload, session tracking, and content sharing
 default off. Turning `[features] telemetry`, `feedback`, or `trace_upload` on
 does nothing until `endpoints.telemetry_url`, `endpoints.feedback_base_url`, or
 `endpoints.trace_upload_url` names a substitute. Official `grok.com`,
-`api.x.ai`, and Sentry hosts are refused. `codsh --rust feedback` and
-`/feedback` keep drafts under the isolated dsh Home (`feedback_drafts.json`)
-until `feedback submit --id <id>`. A failed submit keeps the draft for edit or
-`feedback delete`. `feedback preview` states the redaction boundary: diagnostics
+`api.x.ai`, and Sentry hosts are refused by parsed hostname, not by a substring
+in the path or query; only `http` and `https` are accepted. `privacy.share_content`
+defaults off and redacts feedback title, details, and area on submit.
+`privacy.share_session` adds only the session id to an enabled trace upload.
+`codsh --rust feedback` and `/feedback` keep drafts under the isolated dsh Home
+(`feedback_drafts.json`) until an explicit send. `/feedback` opens Write and
+Drafts (Enter sends, Ctrl+S saves, Escape closes, Drafts can edit, retry, and
+delete). `/feedback <text>` sends immediately. A failed submit keeps the draft.
+The posted body uses schema 1 `structured_feedback` (`type`, optional
+`task_category` and `failure_mode`); `GROK_USER_METADATA` cannot replace that
+key. `feedback preview` states the redaction boundary: diagnostics
 carry kind, ok, and count only, never prompts, answers, keys, or paths. Model
 calls stay on the configured provider `base_url` and are not telemetry. Locked
 `requirements.toml` can force these switches off. `GROK_DEBUG_LOG=1` appends
 the same counters to `$DSH_HOME/privacy.log` and does not upload them.
+`GROK_LOG_FILE` and `GROK_HOOKS_LOG` are not wired: the launcher does not pass
+them through, and no Rust path reads them. They do not create a log or change
+what is uploaded.
 `codsh --rust inspect` and `inspect --json` print each effective value and
 origin (CLI `--model`/`--effort`, environment, `GROK_CONFIG` overlay, workspace
 `.grok/config.toml`, saved selection, user `config.toml`, `managed_config.toml`,
