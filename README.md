@@ -170,7 +170,15 @@ into `~/.codsh-rust/.grok/config.toml`. Official tokens, `.credentials.yaml`, `.
 and original trust/execution grants are never copied. Preview, cancel, and a failed
 apply leave source files and existing isolated settings unchanged. Model credentials
 must already be exported (`--authorize-env`) or set after import. Plain `codsh` still
-reads the original Home. Set the model's `env_key` (for example `XAI_API_KEY`) after writing a provider
+reads the original Home. `codsh --rust login` / `logout` / `setup` (and `/login` `/logout`) talk only to
+configured substitute identity or management services. Independent API-key use
+does not require login. Session tokens live in `$GROK_HOME/auth.json` with
+owner-only permissions and are not transferred to model providers, MCP, Grove,
+or other services. Official grok.com / auth.x.ai login, subscription billing,
+auto-topup, and team entitlements are not reproduced. `GROK_MANAGED_CONFIG_URL`
+fetches organization policy only when a substitute pubkey can verify it;
+unsigned or unverifiable locked requirements are refused.
+Set the model's `env_key` (for example `XAI_API_KEY`) after writing a provider
 with a `base_url`. An empty Enter on first-run reloads that file and connects
 when a provider is ready, without submitting a prompt. Inherited parent
 `GROK_HOME` is ignored; the preview pins `GROK_HOME` to `~/.codsh-rust/.grok`.

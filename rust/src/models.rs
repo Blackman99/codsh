@@ -348,6 +348,8 @@ pub enum Command {
     Compact {
         instruction: Option<String>,
     },
+    Login,
+    Logout,
 }
 
 fn slash_rest<'a>(text: &'a str, name: &str) -> Option<&'a str> {
@@ -366,7 +368,9 @@ pub fn parse_slash(text: &str) -> Option<Command> {
         .or_else(|| slash_rest(trimmed, "/m").map(|rest| ("model", rest)))
         .or_else(|| slash_rest(trimmed, "/effort").map(|rest| ("effort", rest)))
         .or_else(|| slash_rest(trimmed, "/context").map(|rest| ("context", rest)))
-        .or_else(|| slash_rest(trimmed, "/compact").map(|rest| ("compact", rest)))?;
+        .or_else(|| slash_rest(trimmed, "/compact").map(|rest| ("compact", rest)))
+        .or_else(|| slash_rest(trimmed, "/login").map(|rest| ("login", rest)))
+        .or_else(|| slash_rest(trimmed, "/logout").map(|rest| ("logout", rest)))?;
     let mut parts = rest.split_whitespace();
     match name {
         "model" => Some(Command::Model {
@@ -377,6 +381,8 @@ pub fn parse_slash(text: &str) -> Option<Command> {
             query: parts.next().map(str::to_string),
         }),
         "context" => Some(Command::Context),
+        "login" => Some(Command::Login),
+        "logout" => Some(Command::Logout),
         _ => {
             let instruction = rest.trim();
             Some(Command::Compact {
@@ -595,6 +601,8 @@ mod tests {
                 instruction: Some("keep the auth plan".into()),
             })
         );
+        assert_eq!(parse_slash("/login"), Some(Command::Login));
+        assert_eq!(parse_slash("/logout"), Some(Command::Logout));
         let dir = TempDir::new().unwrap();
         save_selection(dir.path(), "think", Some("high")).unwrap();
         let saved = load_saved_selection(dir.path()).unwrap();

@@ -229,6 +229,7 @@ python3 scripts/rust-config-pty-test.py
 python3 scripts/rust-model-pty-test.py
 python3 scripts/rust-compact-pty-test.py
 python3 scripts/rust-trust-pty-test.py
+python3 scripts/rust-auth-pty-test.py
 python3 scripts/rust-screen-pty-test.py
 python3 scripts/rust-fork-pty-test.py
 python3 scripts/rust-plugin-pty-test.py
@@ -335,7 +336,8 @@ tool results display as cancelled. After cancel, a new prompt still works.
 `scripts/rust-model-pty-test.py`, `scripts/rust-compact-pty-test.py`,
 `scripts/rust-trust-pty-test.py`, `scripts/rust-screen-pty-test.py`,
 `scripts/rust-fork-pty-test.py`, `scripts/rust-settings-pty-test.py`,
-`scripts/rust-import-pty-test.py`, and `scripts/rust-plugin-pty-test.py`
+`scripts/rust-import-pty-test.py`, `scripts/rust-plugin-pty-test.py`,
+and `scripts/rust-auth-pty-test.py`
 against the packed native candidate.
 `/context` and `/compact` are dsh-backed: occupancy and advertised model limits
 must not be fabricated, manual/automatic compaction uses the dsh session log,
@@ -351,7 +353,12 @@ import legacy `~/.dsh` / `~/.grok` credentials. Explicit `codsh --rust import`
 conflicts and unsupported items, maps UI density onto `[ui] compact_mode`,
 copies selected providers without tokens or trust grants, keeps the model named
 by `agent-default-model`, and leaves source files and nested isolated settings
-unchanged on preview, cancel, failure, and repeat apply. Public ACP framing, including
+unchanged on preview, cancel, failure, and repeat apply. The auth test covers `login` /
+`logout` / `setup` help without creating Home, independent API-key use,
+external-provider login with owner-only `auth.json`, logout that does not
+revoke model/MCP credentials, unsigned managed-policy refusal, a local
+signed substitute management service, and `/login` `/logout` in a real PTY.
+Public ACP framing, including
 file-tool permission, `session/cancel`, `session/list`, `session/resume`, and
 dsh-backed conversation fork/rewind, is covered by
 `scripts/rust-acp-protocol.spec.mjs`.

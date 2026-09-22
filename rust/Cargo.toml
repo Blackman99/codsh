@@ -43,12 +43,17 @@ publish = false
 workspace = true
 
 [dependencies]
+base64 = "0.22"
 crossterm = { workspace = true, features = ["bracketed-paste"] }
+ed25519-dalek = "2"
+native-tls = "0.2"
 ratatui = { workspace = true, features = ["unstable-widget-ref"] }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json.workspace = true
+sha2 = "0.10"
 toml = "1.1.6"
 unicode-width.workspace = true
+ureq = { version = "2.12", default-features = false, features = ["native-tls", "json"] }
 xai-ratatui-inline = { path = "upstream/xai-ratatui-inline" }
 xai-ratatui-textarea = { path = "upstream/xai-ratatui-textarea" }
 

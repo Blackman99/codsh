@@ -69,7 +69,10 @@ refused when `GROK_MARKETPLACE_REQUIRE_SHA` is set. Each marketplace plugin has 
 own dest. `/plugins` and `/marketplace`
 open the directory. The model's configured `env_key` (`XAI_API_KEY` and other
 `*_API_KEY` values) is passed through to dsh. Missing credentials stay local
-(no grok.com login or default telemetry). Empty Enter on first-run reloads
+(no grok.com login or default telemetry). `login` / `logout` / `setup` use
+configured substitute identity or management services; session tokens in
+`$GROK_HOME/auth.json` are not transferred to model keys or other services,
+and unsigned managed policy is refused. Empty Enter on first-run reloads
 config and connects when a provider is ready, without submitting a prompt. Filesystem-resolved overlap with `DSH_HOME`/`GROK_HOME`, including case
 aliases, is refused before writes; symlinked preview paths remain forbidden.
 Device/inode ancestry checks include existing ancestors of missing paths, catching

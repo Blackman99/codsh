@@ -44,6 +44,10 @@ network, or canonical session crates. Prompt submission refuses execution and
 preserves the draft; it does not fabricate an answer or a connected runtime.
 This ticket does not claim full UI parity, minimal-mode parity, or a dsh turn.
 
+Ticket 57 (#189) adds local `src/auth.rs` and `src/extra_ca.rs` for substitute
+login/logout/setup, extra CA trust, and signed managed-config fetch. Those
+modules do not import upstream xai-grok-login or official entitlements.
+
 upstream/import.json records original source paths and SHA-256 digests.
 scripts/build-rust.mjs records the native artifact's normal/build dependency
 closure and carries dependency license/notice files into npm packing, refusing

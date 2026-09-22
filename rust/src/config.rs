@@ -1,4 +1,5 @@
 use crate::appearance::{self, AppearanceConfig};
+use crate::auth::{self, AuthConfig};
 use crate::models::{
     ApiBackend, CatalogChoice, GROK_EFFORTS, Routing, acp_model_value, effort_supported,
     load_saved_selection, normalize_effort,
@@ -101,6 +102,10 @@ pub struct EffectiveConfig {
     pub trust_message: String,
     pub appearance: AppearanceConfig,
     pub plugins: crate::plugin::PluginInspect,
+    pub auth: AuthConfig,
+    pub auth_session: Option<auth::AuthRecord>,
+    pub fail_closed: bool,
+    pub merged_table: TomlValue,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -1041,7 +1046,93 @@ pub fn load_from(mut input: LoadInput) -> EffectiveConfig {
         "false",
         "isolated-home",
     );
+    let auth = auth::load_auth_config(&table, &input.env);
+    if let Err(error) =
+        auth::verify_on_disk_signature(&grok_home, auth.managed_pubkey.as_deref(), fail_closed)
+    {
+        errors.push(ConfigError {
+            path: Some(grok_home.join(auth::SIGNATURE_SIDECAR)),
+            reason: error,
+        });
+    }
+    warnings.extend(auth.extra_ca_warnings.iter().cloned());
+    let session = auth::read_auth_json(&auth::auth_json_path(&grok_home, &input.env))
+        .ok()
+        .flatten();
+    if let Some(record) = &session
+        && let Err(error) = auth::enforce_team(&auth, record)
+    {
+        errors.push(ConfigError {
+            path: Some(auth::auth_json_path(&grok_home, &input.env)),
+            reason: error,
+        });
+    }
+    if !errors.is_empty() {
+        ready = false;
+    }
+    push_setting(
+        &mut settings,
+        "auth.method",
+        auth.method.as_str(),
+        "resolved",
+    );
+    push_setting(
+        &mut settings,
+        "auth.transport",
+        auth.transport.as_str(),
+        &auth.transport_source,
+    );
+    push_setting(
+        &mut settings,
+        "auth.session",
+        if session.is_some() {
+            "present"
+        } else {
+            "absent"
+        },
+        "auth.json",
+    );
+    push_setting(
+        &mut settings,
+        "auth.transferred_to_external_services",
+        "false",
+        "isolated-home",
+    );
     push_setting(&mut settings, "official.login", "disabled", "default");
+    if let Some(url) = &auth.managed_config_url {
+        push_setting(
+            &mut settings,
+            "endpoints.managed_config_url",
+            url,
+            if input.env.contains_key("GROK_MANAGED_CONFIG_URL") {
+                "environment"
+            } else {
+                "config.toml"
+            },
+        );
+    }
+    if let Some(source) = &auth.extra_ca_source {
+        push_setting(&mut settings, "tls.extra_ca", source, source);
+    }
+    push_setting(
+        &mut settings,
+        "auth.uncharged_401_park",
+        if auth.uncharged_401_park {
+            "true"
+        } else {
+            "false"
+        },
+        "resolved",
+    );
+    push_setting(
+        &mut settings,
+        "auth.subscription_watch_secs",
+        &auth
+            .subscription_watch_secs
+            .map(|secs| secs.to_string())
+            .unwrap_or_else(|| "disabled".into()),
+        "environment",
+    );
 
     let compact_threshold_percent = resolve_compact_threshold(&table, &input.env, &mut sources);
     let compact_wall_clock_secs =
@@ -1204,6 +1295,10 @@ pub fn load_from(mut input: LoadInput) -> EffectiveConfig {
         trust_message,
         appearance,
         plugins,
+        auth,
+        auth_session: session,
+        fail_closed,
+        merged_table: table,
     }
 }
 
@@ -1223,6 +1318,10 @@ pub fn inspect_text(config: &EffectiveConfig) -> String {
             setting.key, setting.value, setting.source
         ));
     }
+    lines.push(format!(
+        "  {:<28} {}  ({})",
+        "auth.official_entitlements", "unavailable", "default"
+    ));
     if !config.warnings.is_empty() {
         lines.push("Warnings:".into());
         lines.extend(config.warnings.iter().map(|warning| format!("  {warning}")));
@@ -1281,6 +1380,8 @@ pub fn inspect_json(config: &EffectiveConfig) -> String {
             "projectAssetsActive": config.project_assets_active,
             "trustPrompt": config.trust_prompt,
             "plugins": crate::plugin::inspect_json_value(&config.plugins),
+            "auth": auth::inspect_auth_json(&config.auth, config.auth_session.as_ref()),
+            "officialEntitlementsUnavailable": config.auth.official_entitlements,
             "compactThresholdPercent": config.compact_threshold_percent.unwrap_or(80),
             "compactWallClockSecs": config.compact_wall_clock_secs,
             "pruneEnabled": config.prune_enabled,
@@ -1812,7 +1913,7 @@ const KNOWN_POLICY_KEYS: &[&str] = &[
     "grok_com_config",
 ];
 
-const OVERLAY_ALLOWED: &[&str] = &["models", "model", "features"];
+const OVERLAY_ALLOWED: &[&str] = &["models", "model", "features", "auth", "endpoints"];
 const OVERLAY_FORBIDDEN: &[&str] = &[
     "folder_trust",
     "permission",
@@ -1823,6 +1924,7 @@ const OVERLAY_FORBIDDEN: &[&str] = &[
     "endpoints",
     "cli",
     "trusted_folders",
+    "grok_com_config",
 ];
 
 fn read_layer(
@@ -2395,6 +2497,8 @@ mod tests {
         assert!(!inspect.contains("secret-must-not-import"));
         assert!(inspect.contains("\"theme\": \"groknight\""));
         assert!(inspect.contains("\"statusLine\": \"disabled\""));
+        assert!(inspect.contains("\"sessionTransferredToExternalServices\": false"));
+        assert_eq!(config.auth.method, crate::auth::AuthMethod::ApiKey);
     }
 
     #[test]
@@ -2423,6 +2527,40 @@ mod tests {
         let err = appearance::apply_setting(&mut config.appearance.clone(), "ui.theme", "grokday")
             .unwrap_err();
         assert!(err.contains("locked"), "{err}");
+    }
+
+    #[test]
+    fn session_token_is_not_injected_as_model_credential() {
+        let dir = TempDir::new().unwrap();
+        let load = input(&dir);
+        write_config(
+            &load,
+            r#"
+[model.gateway]
+model = "mock-model"
+base_url = "http://127.0.0.1:9/v1"
+env_key = "XAI_API_KEY"
+"#,
+        );
+        let grok = load.grok_home.clone().unwrap();
+        fs::create_dir_all(&grok).unwrap();
+        fs::write(
+            grok.join("auth.json"),
+            r#"{"access_token":"identity-session","method":"external"}"#,
+        )
+        .unwrap();
+        let config = load_from(load.clone());
+        assert_eq!(
+            config
+                .auth_session
+                .as_ref()
+                .map(|record| record.access_token.as_str()),
+            Some("identity-session")
+        );
+        assert!(credential_env(&config, &load.env).is_empty());
+        assert!(!config.ready);
+        assert!(!inspect_json(&config).contains("identity-session"));
+
     }
 
     #[test]

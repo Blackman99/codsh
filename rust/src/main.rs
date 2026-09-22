@@ -1,6 +1,8 @@
 mod acp;
 mod appearance;
+mod auth;
 mod config;
+mod extra_ca;
 mod import;
 mod models;
 mod plugin;
@@ -202,6 +204,19 @@ enum LaunchMode {
         flags: import::ImportFlags,
     },
     Plugin(plugin::PluginCommand),
+    Login {
+        flags: auth::LoginFlags,
+        help: bool,
+    },
+    Logout {
+        debug: bool,
+        debug_file: Option<PathBuf>,
+        help: bool,
+    },
+    Setup {
+        flags: auth::SetupFlags,
+        help: bool,
+    },
     New,
     Continue,
     Resume(String),
@@ -401,6 +416,22 @@ fn parse_launch(args: &[String]) -> io::Result<Launch> {
             )
             .map_err(|error| io::Error::other(error.message))?,
         ),
+        ["login"] => LaunchMode::Login {
+            flags: auth::LoginFlags::default(),
+            help: false,
+        },
+        ["login", flags @ ..] => parse_login(flags)?,
+        ["logout"] => LaunchMode::Logout {
+            debug: false,
+            debug_file: None,
+            help: false,
+        },
+        ["logout", flags @ ..] => parse_logout(flags)?,
+        ["setup"] => LaunchMode::Setup {
+            flags: auth::SetupFlags::default(),
+            help: false,
+        },
+        ["setup", flags @ ..] => parse_setup(flags)?,
         _ => {
             return Err(io::Error::other(
                 "unsupported preview arguments; use codsh --rust --help",
@@ -417,7 +448,14 @@ fn parse_launch(args: &[String]) -> io::Result<Launch> {
             "--fork-session requires --resume or --continue",
         ));
     }
-    if matches!(mode, LaunchMode::Help | LaunchMode::Version) {
+    if matches!(
+        mode,
+        LaunchMode::Help
+            | LaunchMode::Version
+            | LaunchMode::Login { .. }
+            | LaunchMode::Logout { .. }
+            | LaunchMode::Setup { .. }
+    ) {
         fork_session = false;
         child_id = None;
     }
@@ -473,6 +511,131 @@ fn parse_inspect(flags: &[&str]) -> io::Result<LaunchMode> {
         help,
         debug,
         debug_file,
+    })
+}
+
+fn take_debug_file(flags: &[&str], index: &mut usize, command: &str) -> io::Result<PathBuf> {
+    *index += 1;
+    flags.get(*index).map(PathBuf::from).ok_or_else(|| {
+        io::Error::other(format!(
+            "missing --debug-file path; use codsh --rust {command} --help"
+        ))
+    })
+}
+
+fn parse_login(flags: &[&str]) -> io::Result<LaunchMode> {
+    let mut parsed = auth::LoginFlags::default();
+    let mut help = false;
+    let mut index = 0;
+    while index < flags.len() {
+        match flags[index] {
+            "--help" | "-h" => help = true,
+            "--oauth" | "--oidc" => {
+                if parsed.device_auth {
+                    return Err(io::Error::other(
+                        "--oauth conflicts with --device-auth; use only one login transport",
+                    ));
+                }
+                parsed.oauth = true;
+            }
+            "--device-auth" | "--device-code" => {
+                if parsed.oauth {
+                    return Err(io::Error::other(
+                        "--device-auth conflicts with --oauth; use only one login transport",
+                    ));
+                }
+                parsed.device_auth = true;
+            }
+            "--debug" => parsed.debug = true,
+            "--debug-file" => {
+                parsed.debug_file = Some(take_debug_file(flags, &mut index, "login")?)
+            }
+            other if other.starts_with("--debug-file=") => {
+                parsed.debug_file = Some(PathBuf::from(&other[13..]));
+            }
+            "--leader-socket" => {
+                return Err(io::Error::other(
+                    "login --leader-socket is unused; dsh owns execution. Omit the flag.",
+                ));
+            }
+            other => {
+                return Err(io::Error::other(format!(
+                    "unsupported login option {other}; use codsh --rust login --help"
+                )));
+            }
+        }
+        index += 1;
+    }
+    Ok(LaunchMode::Login {
+        flags: parsed,
+        help,
+    })
+}
+
+fn parse_logout(flags: &[&str]) -> io::Result<LaunchMode> {
+    let mut debug = false;
+    let mut debug_file = None;
+    let mut help = false;
+    let mut index = 0;
+    while index < flags.len() {
+        match flags[index] {
+            "--help" | "-h" => help = true,
+            "--debug" => debug = true,
+            "--debug-file" => debug_file = Some(take_debug_file(flags, &mut index, "logout")?),
+            other if other.starts_with("--debug-file=") => {
+                debug_file = Some(PathBuf::from(&other[13..]));
+            }
+            "--leader-socket" => {
+                return Err(io::Error::other(
+                    "logout --leader-socket is unused; dsh owns execution. Omit the flag.",
+                ));
+            }
+            other => {
+                return Err(io::Error::other(format!(
+                    "unsupported logout option {other}; use codsh --rust logout --help"
+                )));
+            }
+        }
+        index += 1;
+    }
+    Ok(LaunchMode::Logout {
+        debug,
+        debug_file,
+        help,
+    })
+}
+
+fn parse_setup(flags: &[&str]) -> io::Result<LaunchMode> {
+    let mut parsed = auth::SetupFlags::default();
+    let mut help = false;
+    let mut index = 0;
+    while index < flags.len() {
+        match flags[index] {
+            "--help" | "-h" => help = true,
+            "--json" => parsed.json = true,
+            "--debug" => parsed.debug = true,
+            "--debug-file" => {
+                parsed.debug_file = Some(take_debug_file(flags, &mut index, "setup")?)
+            }
+            other if other.starts_with("--debug-file=") => {
+                parsed.debug_file = Some(PathBuf::from(&other[13..]));
+            }
+            "--leader-socket" => {
+                return Err(io::Error::other(
+                    "setup --leader-socket is unused; dsh owns execution. Omit the flag.",
+                ));
+            }
+            other => {
+                return Err(io::Error::other(format!(
+                    "unsupported setup option {other}; use codsh --rust setup --help"
+                )));
+            }
+        }
+        index += 1;
+    }
+    Ok(LaunchMode::Setup {
+        flags: parsed,
+        help,
     })
 }
 
@@ -1396,6 +1559,18 @@ fn apply_overlay_action(
             }
         }
     }
+
+fn write_debug_file(debug: bool, path: Option<&PathBuf>, command: &str) -> io::Result<()> {
+    if !debug && path.is_none() {
+        return Ok(());
+    }
+    let trace = format!("{command} debug log; dsh owns execution. No leader socket.\n");
+    eprint!("{trace}");
+    if let Some(path) = path {
+        std::fs::write(path, trace)?;
+    }
+    Ok(())
+
 }
 
 fn inspect_help() -> &'static str {
@@ -1643,6 +1818,21 @@ fn handle_slash_command(
             let effort = models::resolve_effort(&choice, &value)?;
             apply_catalog_choice(effective, client, &choice, Some(&effort), inflight)
         }
+        models::Command::Login => {
+            let flags = auth::LoginFlags::default();
+            auth::run_login(
+                &effective.grok_home,
+                &std::env::vars().collect(),
+                &effective.auth,
+                &flags,
+                &effective.merged_table,
+            )
+        }
+        models::Command::Logout => auth::run_logout(
+            &effective.grok_home,
+            &std::env::vars().collect(),
+            &effective.dsh_home,
+        ),
         models::Command::Context | models::Command::Compact { .. } => Err(
             "internal slash routing: /context and /compact are handled by the live session".into(),
         ),
@@ -1745,7 +1935,7 @@ fn run() -> io::Result<()> {
         }
         LaunchMode::Help => {
             println!(
-                "codsh --rust\n\nIsolated Rust client. Real dsh executes turns over ACP/JSON-RPC stdio.\nHome: ~/.codsh-rust/dsh; Profile: rust. Legacy codsh is unchanged.\nUser config: $GROK_HOME/config.toml (default ~/.codsh-rust/.grok/config.toml), mapped into isolated dsh settings.yaml.\nManaged defaults: $GROK_HOME/managed_config.toml. Locked requirements: $GROK_HOME/requirements.toml (cannot be bypassed by later CLI, environment, overlay, workspace, or user values).\n`codsh --rust inspect` / `inspect --json` shows effective values, origins, folder trust, appearance/theme/status-line, marketplace sources, installed plugin provenance, and whether project assets are active. Invalid config.toml is left unchanged and reports its path. Unknown security fields and invalid policies are diagnosed with valid values, sources, and limits.\n`codsh --rust import --preview` lists conversions, conflicts, and unsupported items from current dsh `$DSH_HOME/settings.yaml`, `code-cli-thinking.json`, and `code-cli-ui.json`. It does not treat outdated `code-cli-settings.json` as a provider source. `--apply` copies selected providers/preferences into the isolated Home. Official tokens, `.credentials.yaml`, `.env`, and original trust/execution grants are never copied. Preview, cancel, and failed apply leave source files and existing isolated settings unchanged. Model credentials stay in the host environment (`--authorize-env`) or must be exported after import.\nWorkspace trust: untrusted folders prompt before applying project config, Hooks, plugins, or instructions; `--trust` / `--trust-folder [path]` saves a grant, `--revoke-trust` withdraws it. A read-only $GROK_HOME reports save failure without pretending the grant is durable. Untrusted Hooks/plugins/project capabilities do not execute.\nPlugin lifecycle: `codsh --rust plugin marketplace add|list|update|remove` and `plugin install|update|uninstall|list` record sources, versions, licenses, and files under the isolated Home. Install does not grant execution. Failed download/checksum/conflict/offline/cancel leave no success record. Official marketplace auto-register is off unless GROK_OFFICIAL_MARKETPLACE_AUTO_REGISTER is enabled. `/plugins` and `/marketplace` open the plugins directory. Uninstall does not delete unrelated user files.\nFirst-run missing credentials stay local: no grok.com login, no default official telemetry, no automatic import of ~/.dsh or ~/.grok credentials.\nFile read/edit/write run through dsh tools; y allows once, n rejects with no write. Trust prompt: y=allow, n=deny.\nCtrl+Q/Ctrl+D: quit. Ctrl+C: clear a draft; empty draft cancels a running turn via dsh, or quits when idle before any turn.\nEsc never cancels a turn or a pending approval; it dismisses selection and reminds you to use Ctrl+C.\nEnter: submit prompt. /settings (/config) edits appearance, default screen mode, timestamps, compact mode, and status line. /theme (/t) previews fullscreen themes; Escape restores the previous theme without saving. /compact-mode and /timestamps toggle persisted [ui] keys. Minimal mode uses the terminal palette and refuses /theme. Status-line scripts run with a 10s timeout, cleared BASH_ENV/ENV, and process-group cleanup on exit. Locked requirements show their source and cannot be edited.\n/minimal and /fullscreen switch render mode in process without restarting dsh; --minimal/--fullscreen and GROK_SCREEN_MODE are session-scoped and do not rewrite [ui] screen_mode. /model (/m) and /effort select advertised catalog options; unsupported backends/efforts are refused, never treated as equivalent or silently swapped. /context shows dsh occupancy, advertised model limits, and heuristic buckets without fabricating zeros. /compact [instruction] runs dsh compaction (not a second history); optional instructions go only to the summarizer request (purpose=compaction). Automatic compaction uses session.auto_compact_threshold_percent / GROK_AUTO_COMPACT_THRESHOLD_PERCENT mapped to dsh thresholdRatio. GROK_COMPACTION_WALL_CLOCK_SECS bounds the operation; 0 disables that budget. Runtime changes apply to the next turn and persist under $GROK_HOME/model-selection.toml. --continue resumes the last session in this directory; --resume <id> loads that dsh session. --fork-session with --resume/--continue copies conversation into a new session id. /rewind and /undo fork conversation-only history through dsh; files are not restored. /fork copies the current history into a new session. Idle empty Esc Esc opens rewind. A second client is refused while this process holds write ownership. Interrupted tools show [interrupted]/unknown and are not replayed.\nOptions: --help, --version, --continue, --resume <id>, --fork-session, --session-id <id>, --minimal, --fullscreen, --model <id>, --effort/--reasoning-effort <level>, --trust, --trust-folder [path], --revoke-trust, inspect, import, plugin. --restore-code is refused."
+                "codsh --rust\n\nIsolated Rust client. Real dsh executes turns over ACP/JSON-RPC stdio.\nHome: ~/.codsh-rust/dsh; Profile: rust. Legacy codsh is unchanged.\nUser config: $GROK_HOME/config.toml (default ~/.codsh-rust/.grok/config.toml), mapped into isolated dsh settings.yaml.\nManaged defaults: $GROK_HOME/managed_config.toml. Locked requirements: $GROK_HOME/requirements.toml (cannot be bypassed by later CLI, environment, overlay, workspace, or user values).\n`codsh --rust inspect` / `inspect --json` shows effective values, origins, folder trust, appearance/theme/status-line, marketplace sources, installed plugin provenance, and whether project assets are active. Invalid config.toml is left unchanged and reports its path. Unknown security fields and invalid policies are diagnosed with valid values, sources, and limits.\n`codsh --rust import --preview` lists conversions, conflicts, and unsupported items from current dsh `$DSH_HOME/settings.yaml`, `code-cli-thinking.json`, and `code-cli-ui.json`. It does not treat outdated `code-cli-settings.json` as a provider source. `--apply` copies selected providers/preferences into the isolated Home. Official tokens, `.credentials.yaml`, `.env`, and original trust/execution grants are never copied. Preview, cancel, and failed apply leave source files and existing isolated settings unchanged. Model credentials stay in the host environment (`--authorize-env`) or must be exported after import.\nWorkspace trust: untrusted folders prompt before applying project config, Hooks, plugins, or instructions; `--trust` / `--trust-folder [path]` saves a grant, `--revoke-trust` withdraws it. A read-only $GROK_HOME reports save failure without pretending the grant is durable. Untrusted Hooks/plugins/project capabilities do not execute.\nPlugin lifecycle: `codsh --rust plugin marketplace add|list|update|remove` and `plugin install|update|uninstall|list` record sources, versions, licenses, and files under the isolated Home. Install does not grant execution. Failed download/checksum/conflict/offline/cancel leave no success record. Official marketplace auto-register is off unless GROK_OFFICIAL_MARKETPLACE_AUTO_REGISTER is enabled. `/plugins` and `/marketplace` open the plugins directory. Uninstall does not delete unrelated user files.\nFirst-run missing credentials stay local: no grok.com login, no default official telemetry, no automatic import of ~/.dsh or ~/.grok credentials. `login` / `logout` / `setup` use configured substitute identity or management services; official grok.com / auth.x.ai login, subscription billing, auto-topup, and team entitlements are not reproduced. Session tokens stay in $GROK_HOME/auth.json (0600) and are not transferred to model providers, MCP, Grove, or other services. Independent API-key use does not require login. Unsigned or unverifiable managed policy is refused. /login and /logout reuse that contract.\nFile read/edit/write run through dsh tools; y allows once, n rejects with no write. Trust prompt: y=allow, n=deny.\nCtrl+Q/Ctrl+D: quit. Ctrl+C: clear a draft; empty draft cancels a running turn via dsh, or quits when idle before any turn.\nEsc never cancels a turn or a pending approval; it dismisses selection and reminds you to use Ctrl+C.\nEnter: submit prompt. /settings (/config) edits appearance, default screen mode, timestamps, compact mode, and status line. /theme (/t) previews fullscreen themes; Escape restores the previous theme without saving. /compact-mode and /timestamps toggle persisted [ui] keys. Minimal mode uses the terminal palette and refuses /theme. Status-line scripts run with a 10s timeout, cleared BASH_ENV/ENV, and process-group cleanup on exit. Locked requirements show their source and cannot be edited.\n/minimal and /fullscreen switch render mode in process without restarting dsh; --minimal/--fullscreen and GROK_SCREEN_MODE are session-scoped and do not rewrite [ui] screen_mode. /model (/m) and /effort select advertised catalog options; unsupported backends/efforts are refused, never treated as equivalent or silently swapped. /context shows dsh occupancy, advertised model limits, and heuristic buckets without fabricating zeros. /compact [instruction] runs dsh compaction (not a second history); optional instructions go only to the summarizer request (purpose=compaction). Automatic compaction uses session.auto_compact_threshold_percent / GROK_AUTO_COMPACT_THRESHOLD_PERCENT mapped to dsh thresholdRatio. GROK_COMPACTION_WALL_CLOCK_SECS bounds the operation; 0 disables that budget. Runtime changes apply to the next turn and persist under $GROK_HOME/model-selection.toml. --continue resumes the last session in this directory; --resume <id> loads that dsh session. --fork-session with --resume/--continue copies conversation into a new session id. /rewind and /undo fork conversation-only history through dsh; files are not restored. /fork copies the current history into a new session. Idle empty Esc Esc opens rewind. A second client is refused while this process holds write ownership. Interrupted tools show [interrupted]/unknown and are not replayed.\nOptions: --help, --version, --continue, --resume <id>, --fork-session, --session-id <id>, --minimal, --fullscreen, --model <id>, --effort/--reasoning-effort <level>, --trust, --trust-folder [path], --revoke-trust, inspect, import, plugin, login, logout, setup. --restore-code is refused."
             );
             return Ok(());
         }
@@ -1811,6 +2001,75 @@ fn run() -> io::Result<()> {
                     eprintln!("{}", error.message);
                     std::process::exit(error.code);
                 }
+            }
+        }
+        LaunchMode::Login { help: true, .. } => {
+            println!("{}", auth::login_help());
+            return Ok(());
+        }
+        LaunchMode::Login { flags, .. } => {
+            let loaded = load_runtime_config(&launch);
+            write_debug_file(flags.debug, flags.debug_file.as_ref(), "login")?;
+            if !loaded.errors.is_empty() {
+                return Err(io::Error::other(loaded.first_run_message()));
+            }
+            match auth::run_login(
+                &loaded.grok_home,
+                &std::env::vars().collect(),
+                &loaded.auth,
+                flags,
+                &loaded.merged_table,
+            ) {
+                Ok(message) => {
+                    println!("{message}");
+                    return Ok(());
+                }
+                Err(error) => return Err(io::Error::other(error)),
+            }
+        }
+        LaunchMode::Logout { help: true, .. } => {
+            println!("{}", auth::logout_help());
+            return Ok(());
+        }
+        LaunchMode::Logout {
+            debug, debug_file, ..
+        } => {
+            let loaded = load_runtime_config(&launch);
+            write_debug_file(*debug, debug_file.as_ref(), "logout")?;
+            match auth::run_logout(
+                &loaded.grok_home,
+                &std::env::vars().collect(),
+                &loaded.dsh_home,
+            ) {
+                Ok(message) => {
+                    println!("{message}");
+                    return Ok(());
+                }
+                Err(error) => return Err(io::Error::other(error)),
+            }
+        }
+        LaunchMode::Setup { help: true, .. } => {
+            println!("{}", auth::setup_help());
+            return Ok(());
+        }
+        LaunchMode::Setup { flags, .. } => {
+            let loaded = load_runtime_config(&launch);
+            write_debug_file(flags.debug, flags.debug_file.as_ref(), "setup")?;
+            if !loaded.errors.is_empty() {
+                return Err(io::Error::other(loaded.first_run_message()));
+            }
+            match auth::run_setup(
+                &loaded.grok_home,
+                &std::env::vars().collect(),
+                &loaded.auth,
+                flags,
+                loaded.fail_closed,
+            ) {
+                Ok(result) => {
+                    println!("{}", result.message);
+                    return Ok(());
+                }
+                Err(error) => return Err(io::Error::other(error)),
             }
         }
         _ => {}
@@ -2853,6 +3112,26 @@ fn run() -> io::Result<()> {
                             if inflight && slash.is_none() {
                                 continue;
                             }
+                            if matches!(
+                                slash,
+                                Some(models::Command::Login | models::Command::Logout)
+                            ) {
+                                match handle_slash_command(
+                                    slash.clone().unwrap(),
+                                    &mut effective,
+                                    client.as_mut(),
+                                    inflight,
+                                ) {
+                                    Ok(message) => {
+                                        hint = message;
+                                        last_error.clear();
+                                        effective = load_runtime_config(&launch);
+                                    }
+                                    Err(error) => last_error = error,
+                                }
+                                draft.set_text("");
+                                continue;
+                            }
                             if client.is_none() {
                                 effective = load_runtime_config(&launch);
                                 extra_env = {
@@ -3157,6 +3436,31 @@ mod tests {
             launch.mode,
             LaunchMode::Inspect { help: true, .. }
         ));
+    }
+
+    #[test]
+    fn parse_login_logout_setup_flags() {
+        let login = parse_launch(&args(&["login", "--help"])).unwrap();
+        assert!(matches!(login.mode, LaunchMode::Login { help: true, .. }));
+        let device = parse_launch(&args(&["login", "--device-code"])).unwrap();
+        match device.mode {
+            LaunchMode::Login { flags, .. } => assert!(flags.device_auth && !flags.oauth),
+            other => panic!("{other:?}"),
+        }
+        let conflict = parse_launch(&args(&["login", "--oauth", "--device-auth"])).unwrap_err();
+        assert!(conflict.to_string().contains("conflicts"));
+        let logout = parse_launch(&args(&["logout", "--help"])).unwrap();
+        assert!(matches!(logout.mode, LaunchMode::Logout { help: true, .. }));
+        let setup = parse_launch(&args(&["setup", "--json"])).unwrap();
+        match setup.mode {
+            LaunchMode::Setup { flags, help } => {
+                assert!(flags.json);
+                assert!(!help);
+            }
+            other => panic!("{other:?}"),
+        }
+        let leader = parse_launch(&args(&["login", "--leader-socket", "x"])).unwrap_err();
+        assert!(leader.to_string().contains("dsh owns execution"));
     }
 
     #[test]

@@ -88,6 +88,11 @@ strictest-wins, so a later user or workspace list cannot widen an earlier
 lockdown. Git URL comparison folds scheme and host only, including GitHub,
 and strips one trailing `.git`. The repository path stays case-sensitive.
 `/plugins` and `/marketplace` open the directory; Ctrl+L is not bound here.
+`codsh --rust login` / `logout` / `setup` use configured substitute identity
+or management services. Independent API-key use does not require login.
+Session tokens stay in `$GROK_HOME/auth.json` and are not transferred to model
+providers or other services. Official grok.com entitlements are not reproduced.
+Unsigned or unverifiable managed policy is refused.
 Plain `codsh` still selects the legacy Launcher/Bundle; this is not the default
 cutover. The Viewport language below remains the legacy Surface contract.
 
