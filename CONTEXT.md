@@ -121,7 +121,8 @@ Command basenames match without regard to case, so `RM.EXE` is still `rm`.
 Attached or clustered `sort -o` (`sort -oFILE`, `sort -uoFILE`) and unique
 long-option prefixes such as
 `sort --compress-pro` are not read-only.
-Frozen git read-only subcommands auto-allow; git writes do not. Claude settings
+Frozen git read-only subcommands auto-allow; git writes do not, including an
+attached upstream such as `git branch -uorigin/main`. Claude settings
 load from `~/.claude` and every `.claude` from the repo root to the working
 directory. Read/Edit deny/ask follow in-path symlink targets. Missing or corrupt
 `permission-policy.json` refuses

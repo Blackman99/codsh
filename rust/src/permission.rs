@@ -2114,20 +2114,46 @@ fn git_write_name(subcommand: &str, name: &str) -> bool {
     }
 }
 
+fn git_branch_cluster_writes(word: &str) -> bool {
+    let Some(body) = word.strip_prefix('-') else {
+        return false;
+    };
+    if body.is_empty() || body.starts_with('-') {
+        return false;
+    }
+    let letters_len = body
+        .chars()
+        .take_while(|letter| letter.is_ascii_alphabetic())
+        .count();
+    if letters_len == 0 {
+        return false;
+    }
+    let letters = &body[..letters_len];
+    let rest = &body[letters_len..];
+    if letters.chars().any(|letter| letter == 'f') {
+        return true;
+    }
+    let Some(last_valued) = letters.chars().rfind(|letter| matches!(letter, 'u' | 't')) else {
+        return false;
+    };
+    if !rest.is_empty() {
+        return true;
+    }
+    last_valued != letters.chars().next_back().unwrap_or(last_valued)
+}
+
 fn git_branch_writes(words: &[&str]) -> bool {
     words.iter().skip(2).any(|word| {
         git_write_option("branch", word)
-            || matches!(*word, "-f" | "-u" | "-t")
+            || git_branch_cluster_writes(word)
             || !word.starts_with('-')
     })
 }
 
 fn git_write_option(subcommand: &str, word: &str) -> bool {
     if subcommand == "branch"
-        && matches!(
-            word,
-            "-d" | "-D" | "-m" | "-M" | "-c" | "-C" | "-f" | "-u" | "-t"
-        )
+        && (matches!(word, "-d" | "-D" | "-m" | "-M" | "-c" | "-C")
+            || git_branch_cluster_writes(word))
     {
         return true;
     }
@@ -3089,6 +3115,11 @@ mod tests {
             "git branch -f topic HEAD",
             "git branch --force topic HEAD",
             "git branch -u origin/main",
+            "git branch -uorigin/main",
+            "git branch -uupstream",
+            "git branch -uf",
+            "git branch -u=origin/main",
+            "git branch -vu origin/main",
             "git branch -t topic",
             "git show --output=/tmp/out HEAD",
             "git diff --output=/tmp/out",
@@ -3106,7 +3137,13 @@ mod tests {
                 "{command}"
             );
         }
-        for command in ["git branch", "git show HEAD", "git cat-file -t HEAD"] {
+        for command in [
+            "git branch",
+            "git branch -vv",
+            "git branch -ar",
+            "git show HEAD",
+            "git cat-file -t HEAD",
+        ] {
             assert!(
                 matches!(
                     evaluate(&quiet, &AccessKind::Bash(command.into()), None),

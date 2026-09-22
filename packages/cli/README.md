@@ -77,7 +77,7 @@ basename without regard to case; `sort -o` (including attached `sort -oFILE`
 and clustered `sort -uoFILE`)
 /`--output` and unique `sort --compress-program` prefixes
 are not read-only, nor are git writes, including `git branch <name>`,
-`-f`/`--force`, `-u`, unique `git branch --delete`/`--move`/`--copy` prefixes,
+`-f`/`--force`, `-u` (including attached `git branch -uorigin/main`), unique `git branch --delete`/`--move`/`--copy` prefixes,
 and `--output` on `diff`/`log`/`show`/`blame`/`rev-list`; Claude settings load
 from `~/.claude` and walk to the repo root;
 Read/Edit deny follows in-path symlinks; remembered file

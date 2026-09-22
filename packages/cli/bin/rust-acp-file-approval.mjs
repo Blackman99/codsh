@@ -868,12 +868,28 @@ function gitWriteName(subcommand, name) {
   return canonical !== null && writes.has(canonical)
 }
 
+const GIT_BRANCH_VALUE_SHORT = new Set(['u', 't'])
+const GIT_BRANCH_SWITCH_SHORT = new Set(['f'])
+
+function gitBranchClusterWrites(word) {
+  if (!word.startsWith('-') || word.startsWith('--') || word.length < 2) return false
+  const match = /^([A-Za-z]+)(.*)$/u.exec(word.slice(1))
+  if (!match) return false
+  const letters = match[1]
+  const rest = match[2]
+  if ([...letters].some(letter => GIT_BRANCH_SWITCH_SHORT.has(letter))) return true
+  const valued = [...letters].filter(letter => GIT_BRANCH_VALUE_SHORT.has(letter))
+  if (valued.length === 0) return false
+  if (rest.length > 0) return true
+  return valued.at(-1) !== letters.at(-1)
+}
+
 function gitBranchWrites(words) {
-  return words.slice(2).some(word => gitWriteOption('branch', word) || word === '-f' || word === '-u' || word === '-t' || !word.startsWith('-'))
+  return words.slice(2).some(word => gitWriteOption('branch', word) || gitBranchClusterWrites(word) || !word.startsWith('-'))
 }
 
 function gitWriteOption(subcommand, word) {
-  if (subcommand === 'branch' && ['-d', '-D', '-m', '-M', '-c', '-C', '-f', '-u', '-t'].includes(word)) return true
+  if (subcommand === 'branch' && (['-d', '-D', '-m', '-M', '-c', '-C'].includes(word) || gitBranchClusterWrites(word))) return true
   const name = optionName(word)
   if (!name || word.startsWith('---')) return false
   return gitWriteName(subcommand, name)

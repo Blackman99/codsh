@@ -72,7 +72,8 @@ such as `sort -uoFILE`,
 read-only. Frozen git inspection commands
 (`cat-file`, `ls-tree`, `check-ignore`, `show-ref`, `for-each-ref`, `rev-list`,
 `name-rev`, `count-objects`, `check-attr`) auto-allow; git writes do not,
-including `git branch <name>`, `-f`/`--force`, `-u`/`--set-upstream-to`, unique
+including `git branch <name>`, `-f`/`--force`, `-u`/`--set-upstream-to`
+(including the attached form `git branch -uorigin/main`), unique
 prefixes of `git branch --delete`/`--move`/`--copy`/`--force`,
 `git diff`/`log`/`show`/`blame`/`rev-list --output`, and `git cat-file --filters`.
 Claude rules load from `~/.claude` and walk up to the repo root. Always-approve

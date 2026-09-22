@@ -277,6 +277,14 @@ allow = ["Bash(git *)"]
         assert git_branch['exit'] == 0
         assert 'read-only shell command' not in git_branch['screen']
         results['git_branch_create'] = {'exit': git_branch['exit']}
+
+        git_upstream = exercise('git-branch-attached-upstream-not-readonly', launcher, cwd,
+                                {**base_env, 'DSH_CODE_CLI_MOCK_TOOL': 'bash-git-upstream'},
+                                output, typed='TOKEN_PERM_UPSTREAM', wait_for=['dontAsk blocked', 'RUST_ACP_BASH_DENIED'],
+                                extra=['--permission-mode', 'dontAsk'], action='none')
+        assert git_upstream['exit'] == 0
+        assert 'read-only shell command' not in git_upstream['screen']
+        results['git_branch_attached_upstream'] = {'exit': git_upstream['exit']}
         quiet_config.write_text(quiet_saved)
 
         git_cat = exercise('git-cat-file-readonly', launcher, cwd,
