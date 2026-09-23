@@ -115,6 +115,7 @@ pub struct EffectiveConfig {
     pub fail_closed: bool,
     pub merged_table: TomlValue,
     pub permission: PermissionPolicy,
+    pub voice: crate::voice::VoiceConfig,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -1721,6 +1722,11 @@ pub fn load_from(mut input: LoadInput) -> EffectiveConfig {
         "merged",
     );
 
+    let voice = crate::voice::load_config(&table, &input.env);
+    for (key, value, source) in crate::voice::inspect_rows(&voice) {
+        push_setting(&mut settings, key, &value, &source);
+    }
+
     EffectiveConfig {
         grok_home,
         config_path,
@@ -1766,6 +1772,7 @@ pub fn load_from(mut input: LoadInput) -> EffectiveConfig {
         fail_closed,
         merged_table: table,
         permission,
+        voice,
     }
 }
 
@@ -1866,6 +1873,19 @@ pub fn inspect_json(config: &EffectiveConfig) -> String {
         "simpleMode": config.simple_mode,
         "promptSuggestions": config.prompt_suggestions,
         "appearance": appearance::inspect_json_fragment(&config.appearance, ScreenMode::Fullscreen),
+        "voice": {
+            "enabled": config.voice.enabled,
+            "captureMode": if config.voice.capture_mode == crate::voice::CaptureMode::Toggle {
+                "toggle"
+            } else {
+                "hold"
+            },
+            "keybindEnabled": config.voice.keybind_enabled,
+            "requestLanguage": config.voice.request_language(),
+            "apiBase": public_endpoint(config.voice.api_base.as_deref()),
+            "sampleRate": config.voice.sample_rate,
+            "disclosure": config.voice.disclosure(),
+        },
     });
     if let Some(object) = value.as_object_mut() {
         object.insert(

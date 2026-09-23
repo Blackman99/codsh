@@ -21,6 +21,7 @@ mod settings_ui;
 mod status_line;
 mod theme;
 mod trust;
+mod voice;
 mod welcome;
 
 use acp::{AcpClient, AcpEvent, PendingPermission};
@@ -33,7 +34,7 @@ use crossterm::event::{
 use crossterm::execute;
 use crossterm::terminal::{self, EnterAlternateScreen, LeaveAlternateScreen};
 use navigation::{Focus, FrameLayout, NavCommand, NavEntry, NavOverlay, NavState};
-use prompt_edit::{Action as PromptAction, HostContext, PromptComposer};
+use prompt_edit::{Action as PromptAction, HostContext, PromptComposer, VoiceGesture};
 use ratatui::{TerminalOptions, Viewport, backend::CrosstermBackend};
 use screen_mode::{
     GROK_SCREEN_MODE_ENV, MINIMAL_OVERLAY_HEIGHT, NavSlash, SCREEN_MODE_SWITCH_ENV, ScreenMode,
@@ -72,7 +73,10 @@ impl TerminalGuard {
                 EnterAlternateScreen,
                 EnableBracketedPaste,
                 EnableMouseCapture,
-                PushKeyboardEnhancementFlags(KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES),
+                PushKeyboardEnhancementFlags(
+                    KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES
+                        | KeyboardEnhancementFlags::REPORT_EVENT_TYPES,
+                ),
                 Hide
             )?;
         } else {
@@ -80,7 +84,10 @@ impl TerminalGuard {
                 io::stdout(),
                 EnableBracketedPaste,
                 EnableMouseCapture,
-                PushKeyboardEnhancementFlags(KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES),
+                PushKeyboardEnhancementFlags(
+                    KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES
+                        | KeyboardEnhancementFlags::REPORT_EVENT_TYPES,
+                ),
                 Show
             )?;
         }
@@ -309,6 +316,10 @@ enum LaunchMode {
         flags: auth::SetupFlags,
         help: bool,
     },
+    Voice {
+        json: bool,
+        help: bool,
+    },
     New,
     Continue,
     Resume(String),
@@ -354,7 +365,7 @@ struct Launch {
 fn is_subcommand(arg: &str) -> bool {
     matches!(
         arg,
-        "inspect" | "import" | "feedback" | "plugin" | "login" | "logout" | "setup"
+        "inspect" | "import" | "feedback" | "plugin" | "login" | "logout" | "setup" | "voice"
     )
 }
 
@@ -616,6 +627,11 @@ fn parse_launch(args: &[String]) -> io::Result<Launch> {
             help: false,
         },
         ["setup", flags @ ..] => parse_setup(flags)?,
+        ["voice"] => LaunchMode::Voice {
+            json: false,
+            help: true,
+        },
+        ["voice", flags @ ..] => parse_voice(flags)?,
         _ => {
             return Err(io::Error::other(
                 "unsupported preview arguments; use codsh --rust --help",
@@ -659,6 +675,122 @@ fn parse_launch(args: &[String]) -> io::Result<Launch> {
         allow,
         deny,
     })
+}
+
+fn parse_voice(flags: &[&str]) -> io::Result<LaunchMode> {
+    let mut json = false;
+    let mut help = false;
+    for flag in flags {
+        match *flag {
+            "--json" => json = true,
+            "--help" | "-h" => help = true,
+            "doctor" => {}
+            other => {
+                return Err(io::Error::other(format!(
+                    "unsupported voice option {other}; use codsh --rust voice doctor"
+                )));
+            }
+        }
+    }
+    Ok(LaunchMode::Voice { json, help })
+}
+
+fn voice_help() -> &'static str {
+    "List microphones without recording\n\nUsage: codsh --rust voice doctor [--json]\n\nRecording starts only from /voice or an enabled Ctrl+Space / F8 press inside a session.\nDoctor never opens the microphone. A missing device is voice.no-input-device.\nmacOS permission denials that arrive as silence are not detected here.\nLinux and Windows capture stay unverified until exercised on those hosts."
+}
+
+fn apply_voice_command(
+    text: &str,
+    voice: &mut voice::VoiceSession,
+    composer: &mut PromptComposer,
+    hint: &mut String,
+    last_error: &mut String,
+) {
+    let args = text.trim().trim_start_matches("/voice").trim();
+    if args == "doctor" || args == "status" {
+        let report = voice.device_report();
+        *hint = voice::doctor_text(&voice.config, &report);
+        last_error.clear();
+        return;
+    }
+    if !args.is_empty() && args != "start" && args != "stop" && args != "cancel" {
+        *last_error = format!(
+            "unknown /voice argument {args}; use /voice, /voice stop, /voice cancel, or /voice doctor"
+        );
+        return;
+    }
+    if args == "cancel" {
+        *hint = voice.cancel();
+        last_error.clear();
+        return;
+    }
+    if args == "stop" || voice.phase == voice::VoicePhase::Recording {
+        match voice.stop() {
+            Ok(()) => {
+                *hint = voice.status.clone();
+                last_error.clear();
+            }
+            Err(error) => {
+                *last_error = error.to_string();
+                *hint = last_error.clone();
+            }
+        }
+        return;
+    }
+    let mode = if args == "start" {
+        voice.config.capture_mode
+    } else {
+        // `/voice` is press-to-toggle even when the key chord is hold-to-talk.
+        voice::CaptureMode::Toggle
+    };
+    match voice.start(&composer.voice_draft(), mode) {
+        Ok(message) => {
+            *hint = message;
+            last_error.clear();
+        }
+        Err(error) => {
+            *last_error = error.to_string();
+            *hint = last_error.clone();
+        }
+    }
+}
+
+fn apply_voice_gesture(
+    gesture: VoiceGesture,
+    voice: &mut voice::VoiceSession,
+    composer: &mut PromptComposer,
+    hint: &mut String,
+    last_error: &mut String,
+) {
+    if !voice.config.keybind_enabled {
+        *hint = "/voice still starts dictation; Ctrl+Space and F8 are disabled".into();
+        return;
+    }
+    match gesture {
+        VoiceGesture::UnsupportedRelease => {
+            *last_error = voice::VoiceError::UnsupportedKeyRelease.to_string();
+            *hint = last_error.clone();
+        }
+        VoiceGesture::Press if voice.config.capture_mode == voice::CaptureMode::Toggle => {
+            if voice.phase == voice::VoicePhase::Recording {
+                apply_voice_command("/voice stop", voice, composer, hint, last_error);
+            } else if voice.phase == voice::VoicePhase::Idle {
+                apply_voice_command("/voice", voice, composer, hint, last_error);
+            }
+        }
+        VoiceGesture::Press => {
+            if voice.phase == voice::VoicePhase::Idle {
+                apply_voice_command("/voice start", voice, composer, hint, last_error);
+            }
+        }
+        VoiceGesture::Release => {
+            if voice.config.capture_mode == voice::CaptureMode::Hold
+                && voice.phase == voice::VoicePhase::Recording
+            {
+                apply_voice_command("/voice stop", voice, composer, hint, last_error);
+            }
+        }
+    }
 }
 
 fn parse_inspect(flags: &[&str]) -> io::Result<LaunchMode> {
@@ -2534,9 +2666,27 @@ fn run() -> io::Result<()> {
                 }
             }
         }
+        LaunchMode::Voice { help: true, .. } => {
+            println!("{}", voice_help());
+            return Ok(());
+        }
+        LaunchMode::Voice { json, .. } => {
+            let loaded = load_runtime_config(&launch);
+            let report = voice::diagnose(&std::env::vars().collect());
+            if *json {
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&report.json_value())
+                        .unwrap_or_else(|_| "{}".into())
+                );
+            } else {
+                println!("{}", voice::doctor_text(&loaded.voice, &report));
+            }
+            return Ok(());
+        }
         LaunchMode::Help => {
             println!(
-                "codsh --rust\n\nIsolated Rust client. Real dsh executes turns over ACP/JSON-RPC stdio.\nHome: ~/.codsh-rust/dsh; Profile: rust. Legacy codsh is unchanged.\nUser config: $GROK_HOME/config.toml (default ~/.codsh-rust/.grok/config.toml), mapped into isolated dsh settings.yaml.\nManaged defaults: $GROK_HOME/managed_config.toml. Locked requirements: $GROK_HOME/requirements.toml (cannot be bypassed by later CLI, environment, overlay, workspace, or user values).\n`codsh --rust inspect` / `inspect --json` shows effective values, origins, folder trust, appearance/theme/status-line, marketplace sources, installed plugin provenance, and whether project assets are active. Invalid config.toml is left unchanged and reports its path. Unknown security fields and invalid policies are diagnosed with valid values, sources, and limits.\n`codsh --rust import --preview` lists conversions, conflicts, and unsupported items from current dsh `$DSH_HOME/settings.yaml`, `code-cli-thinking.json`, and `code-cli-ui.json`. It does not treat outdated `code-cli-settings.json` as a provider source. `--apply` copies selected providers/preferences into the isolated Home. Official tokens, `.credentials.yaml`, `.env`, and original trust/execution grants are never copied. Preview, cancel, and failed apply leave source files and existing isolated settings unchanged. Model credentials stay in the host environment (`--authorize-env`) or must be exported after import.\nWorkspace trust: untrusted folders prompt before applying project config, Hooks, plugins, or instructions; `--trust` / `--trust-folder [path]` saves a grant, `--revoke-trust` withdraws it. A read-only $GROK_HOME reports save failure without pretending the grant is durable. Untrusted Hooks/plugins/project capabilities do not execute.\nPlugin lifecycle: `codsh --rust plugin marketplace add|list|update|remove` and `plugin install|update|uninstall|list` record sources, versions, licenses, and files under the isolated Home. Install does not grant execution. Failed download/checksum/conflict/offline/cancel leave no success record. Official marketplace auto-register is off unless GROK_OFFICIAL_MARKETPLACE_AUTO_REGISTER is enabled. `/plugins` and `/marketplace` open the plugins directory. Uninstall does not delete unrelated user files.\nFirst-run missing credentials stay local: no grok.com login, no default official telemetry, no automatic import of ~/.dsh or ~/.grok credentials. `login` / `logout` / `setup` use configured substitute identity or management services; official grok.com / auth.x.ai login, subscription billing, auto-topup, and team entitlements are not reproduced. Session tokens stay in $GROK_HOME/auth.json (0600) and are not transferred to model providers, MCP, Grove, or other services. Independent API-key use does not require login unless GROK_DISABLE_API_KEY_AUTH or a team pin (GROK_FORCE_LOGIN_TEAM_ID / requirements force_login_team_uuid) requires a matching identity session. Unsigned or unverifiable managed policy is refused.  /login and /logout reuse that contract.\nFile read/edit/write and other dsh tools honour allow/ask/deny rules, remembered project grants, and permission modes. y allows once; a remembers this project only and is not a permanent global rule; n rejects with no write. /revoke-approvals forgets this project's remembered grants. Deny, hooks, and locked always-approve survive --always-approve/--yolo. Trust prompt: y=allow, n=deny.\nCtrl+Q: quit. Ctrl+D quits except in fullscreen scrollback, where it half-pages. Ctrl+C: clear a draft; empty draft cancels a running turn via dsh, or quits when idle before any turn.\nEsc never cancels a turn or a pending approval; it dismisses selection and reminds you to use Ctrl+C.\nEnter: submit prompt. Tab focuses scrollback in fullscreen when turns exist. /find searches the transcript, /jump lists turns, /vim-mode toggles scrollback Vim keys, and /toggle-mouse-reporting flips mouse capture when `[ui] mouse_reporting_toggle` is on in $GROK_HOME/config.toml. Esc closes search/jump/viewer and restores the prior reading position. Click selects or folds; drag copies and does not fold. Fullscreen-only /find and /jump refuse in minimal with the /fullscreen remedy. Shift+Enter or Alt+Enter inserts a newline; /multiline (alias /ml) or Ctrl+M swaps those chords. /history searches submitted prompts; empty ↑ browses them. Tab/Esc drive slash and HISTFILE completion. Typing / in a nonempty draft stashes that draft, runs the slash command, and restores it. /edit-prompt opens $VISUAL then $EDITOR then vi for an empty draft; Ctrl+G in minimal preserves the current draft. Saving an empty file clears without submitting. [ui] simple_mode=false enables prompt Vim (i/Esc/h/l/x). Next-prompt ghost text is not wired: the host does not call a suggestion provider, so Tab/Right do not accept ghost text. Suggestion rows stay blocked (PARITY-150-suggestions). chips=false does not mean an attachment was refused. /always-approve, /auto, and /ask set the session mode unless requirements.toml locks always-approve off. /feedback opens Write and Drafts; Enter on Write sends, Ctrl+S saves locally, and /feedback <text> sends immediately. Draft text is posted only when privacy.share_content is on. /settings (/config) edits appearance, default screen mode, timestamps, compact mode, and status line. /theme (/t) previews fullscreen themes; Escape restores the previous theme without saving. /compact-mode and /timestamps toggle persisted [ui] keys. Minimal mode uses the terminal palette and refuses /theme. Status-line scripts run with a 10s timeout, cleared BASH_ENV/ENV, and process-group cleanup on exit. Locked requirements show their source and cannot be edited.\n/minimal and /fullscreen switch render mode in process without restarting dsh; --minimal/--fullscreen and GROK_SCREEN_MODE are session-scoped and do not rewrite [ui] screen_mode. /model (/m) and /effort select advertised catalog options; unsupported backends/efforts are refused, never treated as equivalent or silently swapped. /context shows dsh occupancy, advertised model limits, and heuristic buckets without fabricating zeros. /compact [instruction] runs dsh compaction (not a second history); optional instructions go only to the summarizer request (purpose=compaction). Automatic compaction uses session.auto_compact_threshold_percent / GROK_AUTO_COMPACT_THRESHOLD_PERCENT mapped to dsh thresholdRatio. GROK_COMPACTION_WALL_CLOCK_SECS bounds the operation; 0 disables that budget. Runtime changes apply to the next turn and persist under $GROK_HOME/model-selection.toml. --continue resumes the last session in this directory; --resume <id> loads that dsh session. --fork-session with --resume/--continue copies conversation into a new session id. /rewind and /undo fork conversation-only history through dsh; files are not restored. /fork copies the current history into a new session. Idle empty Esc Esc opens rewind. A second client is refused while this process holds write ownership. Interrupted tools show [interrupted]/unknown and are not replayed.\nOptions: --help, --version, --continue, --resume <id>, --fork-session, --session-id <id>, --minimal, --fullscreen, --model <id>, --effort/--reasoning-effort <level>, --trust, --trust-folder [path], --revoke-trust, --always-approve/--yolo, --auto, --permission-mode <mode>, --allow/--deny <RULE>, inspect, import, plugin, feedback, login, logout, setup. --restore-code is refused.\nNonessential telemetry, trace upload, session tracking, and content sharing default off. Opt-in requires a substitute endpoints.telemetry_url / feedback_base_url / trace_upload_url; official grok.com, api.x.ai, and sentry hosts are refused. Diagnostic previews list kind/ok/count only and never prompts or keys. Model calls stay on the configured provider and are not telemetry. Locked requirements can force these switches off."
+                "codsh --rust\n\nIsolated Rust client. Real dsh executes turns over ACP/JSON-RPC stdio.\nHome: ~/.codsh-rust/dsh; Profile: rust. Legacy codsh is unchanged.\nUser config: $GROK_HOME/config.toml (default ~/.codsh-rust/.grok/config.toml), mapped into isolated dsh settings.yaml.\nManaged defaults: $GROK_HOME/managed_config.toml. Locked requirements: $GROK_HOME/requirements.toml (cannot be bypassed by later CLI, environment, overlay, workspace, or user values).\n`codsh --rust inspect` / `inspect --json` shows effective values, origins, folder trust, appearance/theme/status-line, marketplace sources, installed plugin provenance, and whether project assets are active. Invalid config.toml is left unchanged and reports its path. Unknown security fields and invalid policies are diagnosed with valid values, sources, and limits.\n`codsh --rust import --preview` lists conversions, conflicts, and unsupported items from current dsh `$DSH_HOME/settings.yaml`, `code-cli-thinking.json`, and `code-cli-ui.json`. It does not treat outdated `code-cli-settings.json` as a provider source. `--apply` copies selected providers/preferences into the isolated Home. Official tokens, `.credentials.yaml`, `.env`, and original trust/execution grants are never copied. Preview, cancel, and failed apply leave source files and existing isolated settings unchanged. Model credentials stay in the host environment (`--authorize-env`) or must be exported after import.\nWorkspace trust: untrusted folders prompt before applying project config, Hooks, plugins, or instructions; `--trust` / `--trust-folder [path]` saves a grant, `--revoke-trust` withdraws it. A read-only $GROK_HOME reports save failure without pretending the grant is durable. Untrusted Hooks/plugins/project capabilities do not execute.\nPlugin lifecycle: `codsh --rust plugin marketplace add|list|update|remove` and `plugin install|update|uninstall|list` record sources, versions, licenses, and files under the isolated Home. Install does not grant execution. Failed download/checksum/conflict/offline/cancel leave no success record. Official marketplace auto-register is off unless GROK_OFFICIAL_MARKETPLACE_AUTO_REGISTER is enabled. `/plugins` and `/marketplace` open the plugins directory. Uninstall does not delete unrelated user files.\nFirst-run missing credentials stay local: no grok.com login, no default official telemetry, no automatic import of ~/.dsh or ~/.grok credentials. `login` / `logout` / `setup` use configured substitute identity or management services; official grok.com / auth.x.ai login, subscription billing, auto-topup, and team entitlements are not reproduced. Session tokens stay in $GROK_HOME/auth.json (0600) and are not transferred to model providers, MCP, Grove, or other services. Independent API-key use does not require login unless GROK_DISABLE_API_KEY_AUTH or a team pin (GROK_FORCE_LOGIN_TEAM_ID / requirements force_login_team_uuid) requires a matching identity session. Unsigned or unverifiable managed policy is refused.  /login and /logout reuse that contract.\nFile read/edit/write and other dsh tools honour allow/ask/deny rules, remembered project grants, and permission modes. y allows once; a remembers this project only and is not a permanent global rule; n rejects with no write. /revoke-approvals forgets this project's remembered grants. Deny, hooks, and locked always-approve survive --always-approve/--yolo. Trust prompt: y=allow, n=deny.\nCtrl+Q: quit. Ctrl+D quits except in fullscreen scrollback, where it half-pages. Ctrl+C: clear a draft; empty draft cancels a running turn via dsh, or quits when idle before any turn.\nEsc never cancels a turn or a pending approval; it dismisses selection and reminds you to use Ctrl+C.\nEnter: submit prompt. Tab focuses scrollback in fullscreen when turns exist. /find searches the transcript, /jump lists turns, /vim-mode toggles scrollback Vim keys, and /toggle-mouse-reporting flips mouse capture when `[ui] mouse_reporting_toggle` is on in $GROK_HOME/config.toml. Esc closes search/jump/viewer and restores the prior reading position. Click selects or folds; drag copies and does not fold. Fullscreen-only /find and /jump refuse in minimal with the /fullscreen remedy. Shift+Enter or Alt+Enter inserts a newline; /multiline (alias /ml) or Ctrl+M swaps those chords. /history searches submitted prompts; empty ↑ browses them. Tab/Esc drive slash and HISTFILE completion. Typing / in a nonempty draft stashes that draft, runs the slash command, and restores it. /edit-prompt opens $VISUAL then $EDITOR then vi for an empty draft; Ctrl+G in minimal preserves the current draft. Saving an empty file clears without submitting. [ui] simple_mode=false enables prompt Vim (i/Esc/h/l/x). Next-prompt ghost text is not wired: the host does not call a suggestion provider, so Tab/Right do not accept ghost text. Suggestion rows stay blocked (PARITY-150-suggestions). chips=false does not mean an attachment was refused. /voice starts dictation into the current draft and never submits it; /voice again, /voice stop, or Esc cancels or stops. Ctrl+Space and F8 follow [ui] voice_capture_mode (hold or toggle) when [ui] voice_keybind_enabled is true; /voice still works when that is false. Hold needs a key-release report. Audio goes only to [voice] api_base (or endpoints.xai_api_base_url) /audio/transcriptions. Official hosts are refused. [ui] voice_stt_language overrides [voice] language. /voice doctor and `codsh --rust voice doctor` list devices without recording. Missing devices report voice.no-input-device. Live microphone open is unverified on this host; CODSH_VOICE_FIXTURE supplies bytes for a real substitute route. Linux and Windows capture are unverified. /always-approve, /auto, and /ask set the session mode unless requirements.toml locks always-approve off. /feedback opens Write and Drafts; Enter on Write sends, Ctrl+S saves locally, and /feedback <text> sends immediately. Draft text is posted only when privacy.share_content is on. /settings (/config) edits appearance, default screen mode, timestamps, compact mode, and status line. /theme (/t) previews fullscreen themes; Escape restores the previous theme without saving. /compact-mode and /timestamps toggle persisted [ui] keys. Minimal mode uses the terminal palette and refuses /theme. Status-line scripts run with a 10s timeout, cleared BASH_ENV/ENV, and process-group cleanup on exit. Locked requirements show their source and cannot be edited.\n/minimal and /fullscreen switch render mode in process without restarting dsh; --minimal/--fullscreen and GROK_SCREEN_MODE are session-scoped and do not rewrite [ui] screen_mode. /model (/m) and /effort select advertised catalog options; unsupported backends/efforts are refused, never treated as equivalent or silently swapped. /context shows dsh occupancy, advertised model limits, and heuristic buckets without fabricating zeros. /compact [instruction] runs dsh compaction (not a second history); optional instructions go only to the summarizer request (purpose=compaction). Automatic compaction uses session.auto_compact_threshold_percent / GROK_AUTO_COMPACT_THRESHOLD_PERCENT mapped to dsh thresholdRatio. GROK_COMPACTION_WALL_CLOCK_SECS bounds the operation; 0 disables that budget. Runtime changes apply to the next turn and persist under $GROK_HOME/model-selection.toml. --continue resumes the last session in this directory; --resume <id> loads that dsh session. --fork-session with --resume/--continue copies conversation into a new session id. /rewind and /undo fork conversation-only history through dsh; files are not restored. /fork copies the current history into a new session. Idle empty Esc Esc opens rewind. A second client is refused while this process holds write ownership. Interrupted tools show [interrupted]/unknown and are not replayed.\nOptions: --help, --version, --continue, --resume <id>, --fork-session, --session-id <id>, --minimal, --fullscreen, --model <id>, --effort/--reasoning-effort <level>, --trust, --trust-folder [path], --revoke-trust, --always-approve/--yolo, --auto, --permission-mode <mode>, --allow/--deny <RULE>, inspect, import, plugin, feedback, voice doctor, login, logout, setup. --restore-code is refused.\nNonessential telemetry, trace upload, session tracking, and content sharing default off. Opt-in requires a substitute endpoints.telemetry_url / feedback_base_url / trace_upload_url; official grok.com, api.x.ai, and sentry hosts are refused. Diagnostic previews list kind/ok/count only and never prompts or keys. Model calls stay on the configured provider and are not telemetry. Locked requirements can force these switches off."
             );
             return Ok(());
         }
@@ -2705,6 +2855,10 @@ fn run() -> io::Result<()> {
     let mut effective = load_runtime_config(&launch);
     let env_pairs: Vec<(String, String)> = std::env::vars().collect();
     let mut composer = PromptComposer::load(&effective.grok_home, &env_pairs);
+    let mut voice = voice::VoiceSession::new(effective.voice.clone());
+    // Kitty event types are requested. A terminal that never emits a release
+    // still cannot stop hold-to-talk; the first release flips this on.
+    let mut voice_release_supported = false;
     composer.simple_mode = effective.simple_mode;
     composer.prompt_suggestions = effective.prompt_suggestions;
     composer.vim = if composer.simple_mode {
@@ -2829,6 +2983,29 @@ fn run() -> io::Result<()> {
                 &mut inspect_auto_compact,
             )
         });
+        match voice.poll() {
+            Ok(Some(insert)) => {
+                let current = composer.voice_draft();
+                if voice.accepts_late(insert.generation, &current, &insert.draft_at_start) {
+                    if let Some(next) =
+                        voice::apply_insert(&current, &insert.draft_at_start, &insert.text)
+                    {
+                        composer.set_text(&next);
+                        hint = voice.status.clone();
+                        last_error.clear();
+                    } else {
+                        hint = "late voice result ignored; draft changed".into();
+                    }
+                } else {
+                    hint = "late voice result ignored; draft changed".into();
+                }
+            }
+            Ok(None) => {}
+            Err(error) => {
+                last_error = error.to_string();
+                hint = last_error.clone();
+            }
+        }
         if was_inflight && !inflight && !compacting {
             // No suggestion provider is connected. Passing Some here would
             // paint ghost text that Tab/Right could accept without a real row.
@@ -3001,6 +3178,31 @@ fn run() -> io::Result<()> {
             continue;
         }
         match event::read()? {
+            Event::Key(key) if key.kind == KeyEventKind::Release => {
+                voice_release_supported = true;
+                if matches!(overlay, Overlay::None)
+                    && ui_overlay.is_none()
+                    && matches!(nav.overlay, NavOverlay::None)
+                {
+                    let host = HostContext {
+                        inflight,
+                        minimal: screen == ScreenMode::Minimal,
+                        voice_release: true,
+                    };
+                    if let PromptAction::Voice(VoiceGesture::Release) =
+                        composer.handle_key(key, host)
+                    {
+                        apply_voice_gesture(
+                            VoiceGesture::Release,
+                            &mut voice,
+                            &mut composer,
+                            &mut hint,
+                            &mut last_error,
+                        );
+                    }
+                }
+                continue;
+            }
             Event::Key(key) if key.kind == KeyEventKind::Press => {
                 if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('q') {
                     if let (Some(turn), Some(active)) = (turns.last_mut(), client.as_mut())
@@ -3508,9 +3710,15 @@ fn run() -> io::Result<()> {
                 }
                 match key.code {
                     KeyCode::Esc => {
+                        if voice.recording() {
+                            hint = voice.cancel();
+                            last_error.clear();
+                            continue;
+                        }
                         let host = HostContext {
                             inflight,
                             minimal: screen == ScreenMode::Minimal,
+                            voice_release: voice_release_supported,
                         };
                         if !matches!(composer.handle_key(key, host), PromptAction::Unhandled) {
                             if !composer.footer_notice.is_empty() {
@@ -3556,6 +3764,7 @@ fn run() -> io::Result<()> {
                         let host = HostContext {
                             inflight,
                             minimal: screen == ScreenMode::Minimal,
+                            voice_release: voice_release_supported,
                         };
                         match composer.handle_key(key, host) {
                             PromptAction::Unhandled => {
@@ -3577,6 +3786,7 @@ fn run() -> io::Result<()> {
                             let host = HostContext {
                                 inflight,
                                 minimal: screen == ScreenMode::Minimal,
+                                voice_release: voice_release_supported,
                             };
                             match composer.handle_key(key, host) {
                                 PromptAction::None => {
@@ -3585,6 +3795,7 @@ fn run() -> io::Result<()> {
                                     }
                                     continue;
                                 }
+                                PromptAction::Voice(_) => continue,
                                 PromptAction::Slash(command) => {
                                     selected = None;
                                     let dispatch_result = dispatch_composer_command(
@@ -3621,6 +3832,7 @@ fn run() -> io::Result<()> {
                                         &mut live_theme,
                                         &mut status_runtime,
                                         &mut composer,
+                                        &mut voice,
                                     );
                                     if let Err(error) = dispatch_result {
                                         if let Some(rest) =
@@ -3717,12 +3929,22 @@ fn run() -> io::Result<()> {
                         let host = HostContext {
                             inflight,
                             minimal: screen == ScreenMode::Minimal,
+                            voice_release: voice_release_supported,
                         };
                         match composer.handle_key(key, host) {
                             PromptAction::None => {
                                 if !composer.footer_notice.is_empty() {
                                     hint = std::mem::take(&mut composer.footer_notice);
                                 }
+                            }
+                            PromptAction::Voice(gesture) => {
+                                apply_voice_gesture(
+                                    gesture,
+                                    &mut voice,
+                                    &mut composer,
+                                    &mut hint,
+                                    &mut last_error,
+                                );
                             }
                             PromptAction::Unhandled => {
                                 selected = None;
@@ -3796,6 +4018,7 @@ fn run() -> io::Result<()> {
                                     &mut live_theme,
                                     &mut status_runtime,
                                     &mut composer,
+                                    &mut voice,
                                 );
                                 if let Err(error) = dispatch_result {
                                     if let Some(rest) =
@@ -4004,11 +4227,16 @@ fn dispatch_composer_command(
     live_theme: &mut theme::Theme,
     status_runtime: &mut status_line::StatusLineRuntime,
     composer: &mut PromptComposer,
+    voice: &mut voice::VoiceSession,
 ) -> io::Result<()> {
     let _ = guard;
+    if text.trim() == "/voice" || text.trim().starts_with("/voice ") {
+        composer.restore_slash_draft();
+        apply_voice_command(text.trim(), voice, composer, hint, last_error);
+        return Ok(());
+    }
     if text.trim() == "/revoke-approvals" {
-        let restored = std::mem::take(&mut composer.slash_stash);
-        composer.set_text(&restored);
+        composer.restore_slash_draft();
         match revoke_remembered_grants(effective) {
             Ok(message) => {
                 *hint = message;
@@ -4019,8 +4247,7 @@ fn dispatch_composer_command(
         return Ok(());
     }
     if let Some(mode_command) = permission_slash(text.trim()) {
-        let restored = std::mem::take(&mut composer.slash_stash);
-        composer.set_text(&restored);
+        composer.restore_slash_draft();
         match apply_session_permission_mode(effective, mode_command) {
             Ok(message) => {
                 let applied = runtime_apply(effective);
@@ -4038,8 +4265,7 @@ fn dispatch_composer_command(
         return Ok(());
     }
     if let Some(command) = appearance::slash(text) {
-        let restored = std::mem::take(&mut composer.slash_stash);
-        composer.set_text(&restored);
+        composer.restore_slash_draft();
         match command {
             appearance::AppearanceSlash::Settings => {
                 *ui_overlay =
@@ -4135,12 +4361,7 @@ fn dispatch_composer_command(
         return Ok(());
     }
     if let Some(action) = screen_mode::slash_action(text) {
-        // accept_slash already restored a stashed draft. Only put the stash
-        // back when it is still holding text; an empty take must not wipe it.
-        if !composer.slash_stash.is_empty() {
-            let restored = std::mem::take(&mut composer.slash_stash);
-            composer.set_text(&restored);
-        }
+        composer.restore_slash_draft();
         match action {
             SlashAction::Switch(target) if target == screen => {
                 *hint = format!("Already in {} mode.", screen.as_str());
@@ -4278,6 +4499,7 @@ fn dispatch_composer_command(
         }
         return Ok(());
     }
+    let parked_draft = composer.voice_draft();
     composer.slash_stash.clear();
     let trimmed = text.trim();
     if trimmed == "/plugins" || trimmed == "/marketplace" {
@@ -4286,7 +4508,7 @@ fn dispatch_composer_command(
         } else {
             plugin::PluginTab::Plugins
         }));
-        composer.set_text("");
+        composer.clear_slash_line(&parked_draft);
         last_error.clear();
         hint.clear();
         return Ok(());
@@ -4294,7 +4516,7 @@ fn dispatch_composer_command(
     if session_fork::is_conversation_slash(trimmed) {
         if *inflight {
             *last_error = session_fork::running_turn_error();
-            composer.set_text("");
+            composer.clear_slash_line(&parked_draft);
             return Ok(());
         }
         if (*client).is_none() {
@@ -4305,7 +4527,7 @@ fn dispatch_composer_command(
             match session_fork::parse_fork_slash(trimmed) {
                 Err(error) => {
                     *last_error = error;
-                    composer.set_text("");
+                    composer.clear_slash_line(&parked_draft);
                 }
                 Ok(fork) => {
                     if let Some(active) = (*client).as_mut() {
@@ -4324,7 +4546,7 @@ fn dispatch_composer_command(
                             Ok(message) => {
                                 *hint = message;
                                 last_error.clear();
-                                composer.set_text("");
+                                composer.clear_slash_line(&parked_draft);
                                 if let Err(error) = reset_native_history_after_switch(
                                     terminal, screen, committed, history,
                                 ) {
@@ -4352,7 +4574,7 @@ fn dispatch_composer_command(
         match session_fork::list_points(&effective.dsh_home, &session_id) {
             Ok(points) if points.is_empty() => {
                 *hint = "no turns to rewind yet".into();
-                composer.set_text("");
+                composer.clear_slash_line(&parked_draft);
             }
             Ok(points) => {
                 if rest.is_empty() {
@@ -4362,13 +4584,13 @@ fn dispatch_composer_command(
                         points: newest,
                         cursor: 0,
                     };
-                    composer.set_text("");
+                    composer.clear_slash_line(&parked_draft);
                     hint.clear();
                 } else if let Ok(turn) = rest.parse::<u32>() {
                     if let Some(point) = points.into_iter().find(|point| point.turn == turn) {
                         if prefs.confirm_before_rewind {
                             *overlay = Overlay::RewindConfirm { point };
-                            composer.set_text("");
+                            composer.clear_slash_line(&parked_draft);
                         } else if let Some(active) = (*client).as_mut() {
                             match commit_rewind(
                                 active,
@@ -4383,7 +4605,7 @@ fn dispatch_composer_command(
                                 Ok(message) => {
                                     *hint = message;
                                     last_error.clear();
-                                    composer.set_text("");
+                                    composer.clear_slash_line(&parked_draft);
                                     if let Err(error) = reset_native_history_after_switch(
                                         terminal, screen, committed, history,
                                     ) {
@@ -4461,7 +4683,7 @@ fn dispatch_composer_command(
                 Err(error) => *last_error = error.to_string(),
             }
         }
-        composer.set_text("");
+        composer.clear_slash_line(&parked_draft);
         return Ok(());
     }
     if matches!(
@@ -4526,7 +4748,7 @@ fn dispatch_composer_command(
             }
             Err(error) => *last_error = error,
         }
-        composer.set_text("");
+        composer.clear_slash_line(&parked_draft);
         return Ok(());
     }
     if (*client).is_none() {
@@ -4587,13 +4809,13 @@ fn dispatch_composer_command(
                     breakdown.as_ref(),
                 );
                 last_error.clear();
-                composer.set_text("");
+                composer.clear_slash_line(&parked_draft);
                 return Ok(());
             }
             models::Command::Compact { instruction } => {
                 if *inflight {
                     *last_error = "Compaction is unavailable because this process has an active compaction, or the agent is not idle.".into();
-                    composer.set_text("");
+                    composer.clear_slash_line(&parked_draft);
                     return Ok(());
                 }
                 let prompt = match instruction {
@@ -4613,7 +4835,7 @@ fn dispatch_composer_command(
                 } else {
                     *last_error = UNAVAILABLE.trim().to_string();
                 }
-                composer.set_text("");
+                composer.clear_slash_line(&parked_draft);
                 return Ok(());
             }
             other => {
@@ -4627,7 +4849,7 @@ fn dispatch_composer_command(
                     }
                     Err(error) => *last_error = error,
                 }
-                composer.set_text("");
+                composer.clear_slash_line(&parked_draft);
                 return Ok(());
             }
         }
@@ -4671,7 +4893,7 @@ fn dispatch_composer_command(
                     compaction: None,
                     timestamp: Some(clock_stamp()),
                 });
-                composer.set_text("");
+                composer.clear_slash_line(&parked_draft);
                 *inflight = true;
                 last_error.clear();
             }

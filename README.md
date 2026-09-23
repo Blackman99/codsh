@@ -149,6 +149,29 @@ minimal preserves the current draft. HISTFILE Tab completes with
 `GROK_SUGGESTIONS` off; as-you-type completion requires `GROK_SUGGESTIONS=true`.
 `GROK_SUGGESTIONS_AI` is not a live AI gate here.
 
+`/voice` starts dictation into the current draft. It does not record at startup
+and it does not submit the transcript; Enter still sends. A second `/voice`,
+`/voice stop`, or Esc stops or cancels. A slash command typed while recording
+parks the draft and puts that same text back when the command finishes or Esc
+cancels completion; it does not replace the draft with `/`. A late transcript
+is dropped only when the draft text itself changed. Ctrl+Space and F8 follow `[ui] voice_capture_mode` (`hold` or
+`toggle`) only when `[ui] voice_keybind_enabled` is true. `/voice` still works
+when the chords are off. Hold-to-talk needs a terminal that reports key
+release; otherwise the client refuses the chord and tells you to use `/voice`
+or toggle. `[ui] voice_stt_language` overrides `[voice] language` on the
+substitute request (`auto` omits the language field). Audio is posted only to
+`[voice] api_base`, or `[endpoints] xai_api_base_url` when that is unset, at
+`/audio/transcriptions`. Official `api.x.ai` / `grok.com` hosts are refused.
+The bearer token is the named `[voice] env_key` (default `XAI_API_KEY`) and is
+not an official-account login. `/voice doctor` and `codsh --rust voice doctor`
+(`--json`) list input devices and do not open the microphone. No device is
+`voice.no-input-device`. A macOS permission denial that arrives as silence is
+not detected by that listing. Opening the live microphone from this process is
+unverified; `CODSH_VOICE_FIXTURE` is the supported recording path into a
+substitute service. Linux and Windows capture are unverified and are not
+reported as working. `GROK_VOICE_MODE` turns the feature off. `GROK_VOICE_CAPTURE`
+selects `inprocess` (default) or `helper`; helper without a fixture is refused.
+
 User configuration for the preview is `$GROK_HOME/config.toml` (default
 `~/.codsh-rust/.grok/config.toml`). `[ui] theme`, compact mode, timestamps,
 status line, `confirm_before_rewind`, and `ui.fork_secondary_model` are stored

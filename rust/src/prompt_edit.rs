@@ -41,6 +41,12 @@ pub const SLASH_COMMANDS: &[SlashCommand] = &[
     SlashCommand::new("tour", &[], "Open the tutorial", true),
     SlashCommand::new("tutorial", &[], "Open the tutorial", true),
     SlashCommand::new("vim-mode", &[], "Toggle vim-style scrollback keys", true),
+    SlashCommand::new(
+        "voice",
+        &[],
+        "Dictate into the draft; nothing is sent until Enter",
+        true,
+    ),
 ];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -119,13 +125,29 @@ pub enum Action {
     Unhandled,
     Submit(String),
     Slash(String),
-    External { preserve: bool },
+    External {
+        preserve: bool,
+    },
+    /// Explicit dictation. The host inserts text and never submits it.
+    Voice(VoiceGesture),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum VoiceGesture {
+    /// Ctrl+Space or F8 pressed. Hold mode starts; toggle mode flips.
+    Press,
+    /// Key released. Only hold mode stops and transcribes.
+    Release,
+    /// The terminal cannot report release, so hold-to-talk must not start.
+    UnsupportedRelease,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct HostContext {
     pub inflight: bool,
     pub minimal: bool,
+    /// Hold-to-talk needs a key-release event. Terminals that omit it cannot stop a hold.
+    pub voice_release: bool,
 }
 
 #[derive(Debug)]
@@ -220,6 +242,41 @@ impl PromptComposer {
 
     pub fn text(&self) -> &str {
         self.draft.text()
+    }
+
+    /// Text a late transcript may append to. A slash overlay hides the draft
+    /// in `slash_stash`; that parked text is still the user's draft.
+    pub fn voice_draft(&self) -> String {
+        if matches!(self.overlay, Overlay::Slash | Overlay::HistorySearch)
+            && !self.slash_stash.is_empty()
+        {
+            return self.slash_stash.clone();
+        }
+        self.draft.text().to_string()
+    }
+
+    /// Put a parked slash draft back after the host finishes a command.
+    /// An empty stash must not wipe a draft the composer already restored.
+    pub fn restore_slash_draft(&mut self) {
+        if self.slash_stash.is_empty() {
+            return;
+        }
+        let restored = std::mem::take(&mut self.slash_stash);
+        self.set_text(&restored);
+    }
+
+    /// Clear a slash command line without dropping a draft that was parked
+    /// behind the overlay. `parked` is the draft captured before the host
+    /// discarded `slash_stash`.
+    pub fn clear_slash_line(&mut self, parked: &str) {
+        self.slash_stash.clear();
+        self.overlay = Overlay::None;
+        self.matches.clear();
+        if parked.is_empty() {
+            self.set_text("");
+        } else {
+            self.set_text(parked);
+        }
     }
 
     pub fn set_text(&mut self, text: &str) {
@@ -385,6 +442,10 @@ impl PromptComposer {
     }
 
     pub fn handle_key(&mut self, key: KeyEvent, ctx: HostContext) -> Action {
+        if is_voice_chord(&key) {
+            self.footer_notice.clear();
+            return Action::Voice(voice_gesture(&key, ctx.voice_release));
+        }
         if key.modifiers.contains(KeyModifiers::CONTROL)
             && matches!(key.code, KeyCode::Char('m'))
             && !key.modifiers.contains(KeyModifiers::SHIFT)
@@ -845,6 +906,13 @@ impl PromptComposer {
                         Action::None
                     }
                 }
+                PromptSlash::Voice => {
+                    self.replace_draft("");
+                    if !restored.is_empty() {
+                        self.replace_draft(&restored);
+                    }
+                    Action::Slash(text.trim().to_string())
+                }
                 PromptSlash::Passthrough(value) => {
                     self.replace_draft("");
                     if !restored.is_empty() {
@@ -921,6 +989,9 @@ impl PromptComposer {
                     "/edit-prompt opens an empty prompt; use Ctrl+G in minimal to preserve a draft"
                         .into();
                 return Action::None;
+            }
+            if item == "/voice" {
+                return Action::Slash("/voice".into());
             }
             if item == "/compact" {
                 return Action::Slash(if typed.trim().starts_with("/compact") {
@@ -1096,6 +1167,7 @@ pub enum PromptSlash {
     History,
     Multiline,
     EditPrompt,
+    Voice,
     #[allow(dead_code)]
     Passthrough(String),
 }
@@ -1120,7 +1192,27 @@ pub fn slash_action(text: &str) -> Option<PromptSlash> {
         "history" => Some(PromptSlash::History),
         "multiline" | "ml" => Some(PromptSlash::Multiline),
         "edit-prompt" => Some(PromptSlash::EditPrompt),
+        "voice" => Some(PromptSlash::Voice),
         _ => None,
+    }
+}
+
+fn is_voice_chord(key: &KeyEvent) -> bool {
+    let ctrl_space = key.modifiers.contains(KeyModifiers::CONTROL)
+        && matches!(key.code, KeyCode::Char(' '))
+        && !key.modifiers.contains(KeyModifiers::ALT)
+        && !key.modifiers.contains(KeyModifiers::SHIFT);
+    let f8 = matches!(key.code, KeyCode::F(8)) && key.modifiers.is_empty();
+    ctrl_space || f8
+}
+
+fn voice_gesture(key: &KeyEvent, release_supported: bool) -> VoiceGesture {
+    if matches!(key.kind, crossterm::event::KeyEventKind::Release) {
+        VoiceGesture::Release
+    } else if release_supported {
+        VoiceGesture::Press
+    } else {
+        VoiceGesture::UnsupportedRelease
     }
 }
 
@@ -1377,6 +1469,7 @@ mod tests {
         HostContext {
             inflight: false,
             minimal: false,
+            voice_release: true,
         }
     }
 
@@ -1707,7 +1800,32 @@ mod tests {
             slash_action("/edit-prompt"),
             Some(PromptSlash::EditPrompt)
         ));
+        assert!(matches!(slash_action("/voice"), Some(PromptSlash::Voice)));
         assert!(slash_action("/model").is_none());
+    }
+
+    #[test]
+    fn voice_chord_does_not_insert_or_submit() {
+        let home = temp_home();
+        let mut composer = PromptComposer::load(&home, &[]);
+        composer.set_text("keep");
+        let press = KeyEvent::new(KeyCode::Char(' '), KeyModifiers::CONTROL);
+        assert_eq!(
+            composer.handle_key(press, ctx()),
+            Action::Voice(VoiceGesture::Press)
+        );
+        assert_eq!(composer.text(), "keep");
+        let mut no_release = ctx();
+        no_release.voice_release = false;
+        assert_eq!(
+            composer.handle_key(
+                KeyEvent::new(KeyCode::F(8), KeyModifiers::empty()),
+                no_release
+            ),
+            Action::Voice(VoiceGesture::UnsupportedRelease)
+        );
+        assert_eq!(composer.text(), "keep");
+        let _ = fs::remove_dir_all(home);
     }
 
     #[test]
@@ -1736,6 +1854,33 @@ mod tests {
             Action::Slash("/compact keep the auth plan".into())
         );
         assert_eq!(composer.text(), "");
+        let _ = fs::remove_dir_all(home);
+    }
+
+    #[test]
+    fn slash_while_dictating_keeps_the_parked_draft_after_compact() {
+        let home = temp_home();
+        let mut composer = PromptComposer::load(&home, &[]);
+        composer.set_text("KEEP");
+        composer.handle_key(key(KeyCode::Char('/')), ctx());
+        assert_eq!(composer.text(), "/");
+        assert_eq!(composer.slash_stash, "KEEP");
+        assert_eq!(composer.voice_draft(), "KEEP");
+        for ch in "compact".chars() {
+            composer.handle_key(key(KeyCode::Char(ch)), ctx());
+        }
+        assert_eq!(
+            composer.handle_key(key(KeyCode::Enter), ctx()),
+            Action::Slash("/compact".into())
+        );
+        // The host captures the draft, drops the stash, then clears the command line.
+        let parked = composer.voice_draft();
+        composer.slash_stash.clear();
+        composer.clear_slash_line(&parked);
+        assert_eq!(composer.text(), "KEEP");
+        assert_ne!(composer.text(), "/");
+        assert!(composer.slash_stash.is_empty());
+        assert_eq!(composer.overlay, Overlay::None);
         let _ = fs::remove_dir_all(home);
     }
 

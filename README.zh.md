@@ -102,6 +102,24 @@ textarea：Enter 提交，Shift+Enter 或 Alt+Enter 插入换行，`/multiline`�
 边补全需 `GROK_SUGGESTIONS=true`。`GROK_SUGGESTIONS_AI` 此处不是已接线的 AI
 门控。
 
+`/voice` 把听写插入当前草稿。启动时不会录音，转写也不会自动提交，仍由
+Enter 发送。再次 `/voice`、`/voice stop` 或 Esc 会停止或取消。录音时输入
+`/` 会暂存草稿；斜杠命令结束或 Esc 取消补全后放回同一草稿，不会把草稿换成
+`/`。只有草稿文本本身变了，迟到的转写才会被丢弃。仅当 `[ui] voice_keybind_enabled` 为真时，Ctrl+Space 与
+F8 才按 `[ui] voice_capture_mode`（`hold` 或 `toggle`）工作；关闭快捷键后
+`/voice` 仍然可用。按住说话需要终端上报按键释放，否则客户端拒绝该快捷键并
+提示改用 `/voice` 或切换模式。`[ui] voice_stt_language` 覆盖 `[voice] language`
+（`auto` 不发送 language 字段）。音频只发往 `[voice] api_base`，未设置时才
+继承 `[endpoints] xai_api_base_url`，路径为 `/audio/transcriptions`。官方
+`api.x.ai` / `grok.com` 会被拒绝。Bearer 令牌来自 `[voice] env_key`（默认
+`XAI_API_KEY`），不是官方账号登录。`/voice doctor` 与
+`codsh --rust voice doctor`（`--json`）只列出输入设备，不会打开麦克风。
+没有设备时报告 `voice.no-input-device`。macOS 上以静音形式出现的权限拒绝
+无法被这次列举发现。本进程打开真实麦克风尚未验证；`CODSH_VOICE_FIXTURE`
+是通向替代转写服务的已支持录音路径。Linux 与 Windows 的采集未验证，不会被
+说成可用。`GROK_VOICE_MODE` 可关闭该功能。`GROK_VOICE_CAPTURE` 选择
+`inprocess`（默认）或 `helper`；没有夹具时 helper 会被拒绝。
+
 预览的用户配置是 `$GROK_HOME/config.toml`（默认
 `~/.codsh-rust/.grok/config.toml`）。`[ui] theme`、紧凑模式、时间戳、状态行、
 `confirm_before_rewind` 与 `ui.fork_secondary_model` 也写在这份文件里。兼容的 `[model.<id>]` 字段
