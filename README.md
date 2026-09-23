@@ -117,7 +117,15 @@ replace that native buffer instead of appending discarded turns. The switch stay
 running dsh turn, draft, and pending approval survive. `--minimal` /
 `--fullscreen` and `GROK_SCREEN_MODE` are session-scoped and do not rewrite
 isolated `[ui] screen_mode`. Mode-only commands such as `/dashboard` in
-minimal refuse with the fullscreen remedy. `GROK_SCREEN_MODE_SWITCH=exec`
+minimal refuse with the fullscreen remedy. Fullscreen `Tab` focuses the
+scrollback when a turn exists; `/find [text]` searches it, `/jump` previews turns, and Esc on
+those overlays restores the prior reading position without editing the draft.
+A click folds or selects; a drag copies and does not fold. Selection survives
+streaming and resize by turn identity. `/vim-mode` toggles
+scrollback Vim keys and writes `[ui] vim_mode` without changing `ui.simple_mode`.
+With `[ui] mouse_reporting_toggle` (or `GROK_MOUSE_REPORTING_TOGGLE`) enabled,
+scrollback `Ctrl+R` or `/toggle-mouse-reporting` flips mouse capture; quit
+always disables reporting. `GROK_SCREEN_MODE_SWITCH=exec`
 relaunches onto the same session instead of switching in place and does not
 preserve an unsaved draft. Typing `/` in a nonempty draft stashes that draft so
 the slash command can run, then restores it. Prompt editing reuses the official textarea: Enter
@@ -296,7 +304,8 @@ is literal (no tilde expansion or whitespace trimming). The preview conservative
 refuses **any `..` component in `GROK_HOME`**, even for a separate existing Home,
 rather than guessing symlink traversal. Use a path without parent traversal.
 Default `~/.dsh` and `~/.grok` are protected even when overrides are set.
-`Ctrl+Q`/`Ctrl+D` quits; `Ctrl+C` clears a draft, cancels an empty running turn,
+`Ctrl+Q` quits. `Ctrl+D` quits except in fullscreen scrollback, where it
+half-pages. `Ctrl+C` clears a draft, cancels an empty running turn,
 or quits when idle before any turn. `--continue` and `--resume <id>` restore
 the same dsh session; `--fork-session` copies conversation into a new id;
 `/rewind` does not restore files. A second writer is refused. `--minimal` and `--fullscreen`

@@ -3,6 +3,7 @@ mod layout;
 mod logo;
 mod menu;
 
+use crate::navigation::{Focus, FrameLayout, NavOverlay, NavState};
 use crate::theme::Theme;
 use ratatui::Frame;
 use ratatui::layout::{Constraint, Layout, Rect};
@@ -109,6 +110,107 @@ pub fn render(
         frame.set_cursor_position((x, y));
     }
     input
+}
+
+pub fn session_chrome_height(nav: &NavState) -> u16 {
+    let overlay = nav.overlay_text();
+    let rows = if overlay.is_empty() {
+        1
+    } else {
+        1 + overlay.lines().count()
+    };
+    rows.clamp(1, 8) as u16
+}
+
+pub fn session_notice_height(notice: &str) -> u16 {
+    notice.lines().count().clamp(1, 6) as u16
+}
+
+pub fn session_input_height(draft: &TextArea, width: u16) -> u16 {
+    draft.desired_height(width.saturating_sub(4)).clamp(1, 5) + 2
+}
+
+pub fn session_transcript_height(
+    area_height: u16,
+    chrome_height: u16,
+    notice_height: u16,
+    input_height: u16,
+) -> u16 {
+    area_height
+        .saturating_sub(2 + chrome_height + notice_height + input_height)
+        .max(3)
+}
+
+/// Fullscreen session: transcript occupies its own rect so mouse hits match
+/// the painted rows. The gutter is part of each line, not an extra glyph.
+pub fn render_session(
+    frame: &mut Frame,
+    draft: &TextArea,
+    notice: &str,
+    nav: &NavState,
+    theme: &Theme,
+    title: &str,
+) -> FrameLayout {
+    let area = frame.area();
+    if area.width < 18 || area.height < 8 {
+        frame.render_widget(
+            Paragraph::new("codsh\nResize to continue\nCtrl+Q quit"),
+            area,
+        );
+        return FrameLayout {
+            prompt: Rect::default(),
+            transcript: Rect::default(),
+            chrome: Rect::default(),
+        };
+    }
+    let overlay = nav.overlay_text();
+    let chrome_text = if overlay.is_empty() {
+        nav.status_bits()
+    } else {
+        format!("{}\n{overlay}", nav.status_bits())
+    };
+    let chrome_height = session_chrome_height(nav);
+    let notice_height = session_notice_height(notice);
+    let input_height = session_input_height(draft, area.width);
+    let transcript_height = nav.viewport_height.max(3).min(session_transcript_height(
+        area.height,
+        chrome_height,
+        notice_height,
+        input_height,
+    ));
+    let [header, chrome, transcript, status, prompt, footer] = Layout::vertical([
+        Constraint::Length(1),
+        Constraint::Length(chrome_height),
+        Constraint::Length(transcript_height),
+        Constraint::Length(notice_height),
+        Constraint::Length(input_height),
+        Constraint::Length(1),
+    ])
+    .areas(area);
+    let _ = theme;
+    frame.render_widget(Paragraph::new("codsh · Rust client · dsh ACP"), header);
+    Paragraph::new(chrome_text).render(chrome, frame.buffer_mut());
+    Paragraph::new(nav.painted_transcript_lines().join("\n"))
+        .render(transcript, frame.buffer_mut());
+    render_notice(notice, status, frame.buffer_mut());
+    let block = Block::new().borders(Borders::ALL).title(title);
+    let input = block.inner(prompt);
+    block.render(prompt, frame.buffer_mut());
+    let mut state = TextAreaState::default();
+    draft.render_ref(input, frame.buffer_mut(), &mut state);
+    Paragraph::new("dsh Home: ~/.codsh-rust/dsh · Profile: rust")
+        .render(footer, frame.buffer_mut());
+    if nav.focus == Focus::Prompt
+        && matches!(nav.overlay, NavOverlay::None)
+        && let Some((x, y)) = draft.cursor_pos(input)
+    {
+        frame.set_cursor_position((x, y));
+    }
+    FrameLayout {
+        prompt: input,
+        transcript,
+        chrome,
+    }
 }
 
 /// A notice taller than its slot keeps the latest lines, including an error.

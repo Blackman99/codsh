@@ -244,6 +244,7 @@ python3 scripts/rust-screen-pty-test.py
 python3 scripts/rust-fork-pty-test.py
 python3 scripts/rust-plugin-pty-test.py
 python3 scripts/rust-prompt-pty-test.py
+python3 scripts/rust-nav-pty-test.py
 ```
 
 `build:rust` stages the host binary under ignored `packages/cli/native/<os>-<arch>`
@@ -407,6 +408,27 @@ in minimal reset that native buffer the same way compact does, so discarded
 turns are not left in scrollback. In-place `/minimal` and `/fullscreen` keep
 the dsh session, draft, running turn, and pending approval;
 `--minimal`/`--fullscreen` do not rewrite isolated `[ui] screen_mode`.
+Fullscreen `/find` searches the transcript overlay, `/jump` previews turns and
+restores the prior reading position on Esc, and click-to-fold does not fire on
+a drag that copies. Fullscreen paints only the visible transcript rows on a
+dedicated Rect that mouse hit-testing uses; the gutter is the painted `>`/` `
+prefix, not an inserted bar. Rebuild remaps a selection by turn identity and
+drops it when that anchor is gone. Folds persist across rebuild by turn identity.
+`/vim-mode` persists `[ui] vim_mode` without changing `ui.simple_mode`.
+`ui.mouse_reporting_toggle` / `GROK_MOUSE_REPORTING_TOGGLE` lets Ctrl+R
+(scrollback focused) or `/toggle-mouse-reporting` flip capture; teardown always
+disables mouse reporting. The hint names `$GROK_HOME/config.toml`. Frozen View
+`Ctrl+F` remains the content viewer (ticket 153); transcript search is `/find`.
+Vim `y` copies the selected block and `Y` copies block metadata. `inspect`
+labels nav prefs as `config` or `env`, including `inspect --json`.
+`scripts/rust-nav-pty-test.py` clicks a thought fold, copies a dragged span
+(OSC 52), restores `read=` on Esc, scrolls while a turn is still streaming,
+and requires wheel input to change `read=`. Scrollback Ctrl+D half-pages
+instead of quitting; `Ctrl+Q` still quits. Empty-session Tab still cycles the
+welcome menu. `/find [text]` opens browse mode so `n`/`N` step matches. Ctrl+P
+refuses the command palette (ticket 154) rather than a silent no-op. Minimal
+`/find` and `/jump` refuse with the `/fullscreen` remedy. Dock
+(`features.dock` / `GROK_DOCK`) is an explicit unsupported gate, not a fake pane.
 `/settings` and `/theme` persist appearance and status-line choices into the
 same user `config.toml`; preview/Escape must not write; locked requirements
 show their source; status-line scripts must time out and clean process groups.

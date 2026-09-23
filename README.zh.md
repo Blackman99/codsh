@@ -78,7 +78,13 @@ dsh 会话 id。`/rewind` 与 `/undo`（或空闲时空草稿上的 Esc Esc）�
 切换在同一进程内完成，正在执行的 dsh 回合、草稿和待审批都会保留。
 `--minimal` / `--fullscreen` 与 `GROK_SCREEN_MODE` 只作用于当前会话，不会改写
 隔离目录里的 `[ui] screen_mode`。最小模式下的 `/dashboard` 等模式专用命令会
-拒绝并提示改用 `/fullscreen`。`GROK_SCREEN_MODE_SWITCH=exec` 会按同一会话
+拒绝并提示改用 `/fullscreen`。全屏下有回合时 `Tab` 把焦点交给回看区；`/find [text]`
+搜索对话，`/jump` 预览回合，关闭这些弹窗会回到原先的阅读位置且不改草稿。
+点击折叠或选中；拖拽复制且不会误触折叠。选区在流式更新和缩放后按回合身份保留。`/vim-mode` 切换回看区 Vim 键并把
+`[ui] vim_mode` 写入配置，不改 `ui.simple_mode`。开启
+`[ui] mouse_reporting_toggle`（或 `GROK_MOUSE_REPORTING_TOGGLE`）后，回看区
+`Ctrl+R` 或 `/toggle-mouse-reporting` 切换鼠标捕获；退出时总会关闭上报。
+`GROK_SCREEN_MODE_SWITCH=exec` 会按同一会话
 重新启动，而不是原地切换，也不会保留未保存的草稿。非空草稿里输入 `/`
 会暂存草稿并执行斜杠命令，结束后恢复同一草稿。提示编辑继续使用官方
 textarea：Enter 提交，Shift+Enter 或 Alt+Enter 插入换行，`/multiline`（别名
@@ -209,7 +215,7 @@ key 时不必登录，除非 `GROK_DISABLE_API_KEY_AUTH` 或团队限制
 **`GROK_HOME` 中的任何 `..` 路径分量**，即使指向已存在的独立 Home，
 也不猜测符号链接的遍历结果；请改用不含父级遍历的路径。
 即使设置了覆盖值，默认 `~/.dsh` 和 `~/.grok` 也始终受保护。
-`Ctrl+Q`/`Ctrl+D` 退出；`Ctrl+C` 清空
+`Ctrl+Q` 退出。`Ctrl+D` 退出，但全屏回看区里它改为半页滚动。`Ctrl+C` 清空
 草稿，空草稿取消正在执行的回合，尚未有回合时退出。`--continue` 与 `--resume <id>`
 恢复同一 dsh 会话；`--fork-session` 把对话复制到新 id；`/rewind` 不恢复文件。
 第二个写入者会被拒绝。`--minimal` 与 `--fullscreen` 选择

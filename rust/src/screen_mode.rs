@@ -51,9 +51,18 @@ pub enum SwitchPolicy {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub enum NavSlash {
+    Find(Option<String>),
+    Jump,
+    VimMode,
+    ToggleMouse,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SlashAction {
     Switch(ScreenMode),
     Refuse(&'static str),
+    Navigate(NavSlash),
 }
 
 pub fn switch_policy_from_env(value: Option<&str>) -> SwitchPolicy {
@@ -125,12 +134,18 @@ pub fn slash_action(text: &str) -> Option<SlashAction> {
     match command {
         "minimal" => Some(SlashAction::Switch(ScreenMode::Minimal)),
         "fullscreen" | "full" => Some(SlashAction::Switch(ScreenMode::Fullscreen)),
-        "find" => Some(SlashAction::Refuse(
-            "/find isn't available in minimal mode (search overlay needs fullscreen). Run /fullscreen to switch this session.",
-        )),
-        "jump" => Some(SlashAction::Refuse(
-            "/jump isn't available in minimal mode (turn navigation needs fullscreen). Run /fullscreen to switch this session.",
-        )),
+        "find" => {
+            let rest = trimmed
+                .trim_start_matches('/')
+                .trim_start_matches("find")
+                .trim();
+            Some(SlashAction::Navigate(NavSlash::Find(
+                (!rest.is_empty()).then(|| rest.to_string()),
+            )))
+        }
+        "jump" => Some(SlashAction::Navigate(NavSlash::Jump)),
+        "vim-mode" => Some(SlashAction::Navigate(NavSlash::VimMode)),
+        "toggle-mouse-reporting" => Some(SlashAction::Navigate(NavSlash::ToggleMouse)),
         "timeline" => Some(SlashAction::Refuse(
             "/timeline isn't available in minimal mode (the timeline sidebar needs fullscreen). Run /fullscreen to switch this session.",
         )),
@@ -158,7 +173,7 @@ pub fn mode_command_message(mode: ScreenMode, action: SlashAction) -> Option<Str
         SlashAction::Switch(target) if target == mode => {
             Some(format!("Already in {} mode.", mode.as_str()))
         }
-        SlashAction::Switch(_) => None,
+        SlashAction::Switch(_) | SlashAction::Navigate(_) => None,
         SlashAction::Refuse(message) => {
             let fullscreen_only = message.contains("Run /fullscreen");
             let minimal_only = message.contains("fullscreen mode:");
@@ -319,6 +334,18 @@ mod tests {
         assert_eq!(
             slash_action("  /full  "),
             Some(SlashAction::Switch(ScreenMode::Fullscreen))
+        );
+        assert_eq!(
+            slash_action("/find ALPHA"),
+            Some(SlashAction::Navigate(NavSlash::Find(Some("ALPHA".into()))))
+        );
+        assert_eq!(
+            slash_action("/jump"),
+            Some(SlashAction::Navigate(NavSlash::Jump))
+        );
+        assert_eq!(
+            slash_action("/vim-mode"),
+            Some(SlashAction::Navigate(NavSlash::VimMode))
         );
         assert_eq!(slash_action("/theme"), None);
         let dashboard = slash_action("/dashboard").unwrap();

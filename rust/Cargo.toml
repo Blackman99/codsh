@@ -48,6 +48,7 @@ crossterm = { workspace = true, features = ["bracketed-paste"] }
 ed25519-dalek = "2"
 native-tls = "0.2"
 ratatui = { workspace = true, features = ["unstable-widget-ref"] }
+regex = "1.12.4"
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json.workspace = true
 sha2 = "0.10"

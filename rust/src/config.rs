@@ -1585,6 +1585,10 @@ pub fn load_from(mut input: LoadInput) -> EffectiveConfig {
     for (key, value, source) in appearance::inspect_rows(&appearance, ScreenMode::Fullscreen) {
         push_setting(&mut settings, &key, &value, &source);
     }
+    let nav_prefs = crate::navigation::load_prefs(&grok_home, &input.env);
+    for (key, value, source) in crate::navigation::inspect_rows(&nav_prefs) {
+        push_setting(&mut settings, key, &value, source);
+    }
     let plugins = crate::plugin::inspect(&grok_home, &input.cwd, &input.env, workspace_trusted);
     warnings.extend(plugins.warnings.iter().cloned());
     push_setting(

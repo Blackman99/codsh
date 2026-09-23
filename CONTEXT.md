@@ -29,7 +29,10 @@ history to the native terminal buffer, `/rewind` and `/fork` replace that
 native buffer instead of appending discarded turns, and the active session,
 draft, running turn, and pending approval survive. `--minimal` / `--fullscreen` and
 `GROK_SCREEN_MODE` are session-scoped and do not rewrite isolated
-`[ui] screen_mode`. Prompt editing stays on the official textarea rather than a
+`[ui] screen_mode`. Fullscreen `/find`, `/jump`, click-vs-drag selection, Vim
+scrollback keys, and mouse-capture toggle follow the frozen Grok contracts;
+minimal refuses overlays that do not exist there. `Ctrl+Q` quits. `Ctrl+D`
+quits except in fullscreen scrollback, where it half-pages. Prompt editing stays on the official textarea rather than a
 second input model: typing `/` in a nonempty draft stashes that draft so the
 slash command can run, then restores it. Slash completion starts
 from an empty `/`, multiline chords, history search, slash/HISTFILE completion,

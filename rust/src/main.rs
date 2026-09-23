@@ -6,6 +6,7 @@ mod extra_ca;
 mod feedback_ui;
 mod import;
 mod models;
+mod navigation;
 mod permission;
 mod plugin;
 mod privacy;
@@ -30,11 +31,12 @@ use crossterm::event::{
 };
 use crossterm::execute;
 use crossterm::terminal::{self, EnterAlternateScreen, LeaveAlternateScreen};
+use navigation::{Focus, FrameLayout, NavCommand, NavEntry, NavOverlay, NavState};
 use prompt_edit::{Action as PromptAction, HostContext, PromptComposer};
 use ratatui::{TerminalOptions, Viewport, backend::CrosstermBackend};
 use screen_mode::{
-    GROK_SCREEN_MODE_ENV, MINIMAL_OVERLAY_HEIGHT, SCREEN_MODE_SWITCH_ENV, ScreenMode, SlashAction,
-    SwitchPolicy,
+    GROK_SCREEN_MODE_ENV, MINIMAL_OVERLAY_HEIGHT, NavSlash, SCREEN_MODE_SWITCH_ENV, ScreenMode,
+    SlashAction, SwitchPolicy,
 };
 use serde_json::Value;
 use session_fork::{RewindPoint, UiPrefs};
@@ -56,6 +58,7 @@ const UNAVAILABLE: &str = "Execution unavailable: dsh\nNot connected. Draft kept
 
 struct TerminalGuard {
     alt: bool,
+    mouse: bool,
 }
 
 impl TerminalGuard {
@@ -80,7 +83,20 @@ impl TerminalGuard {
                 Show
             )?;
         }
-        Ok(Self { alt })
+        Ok(Self { alt, mouse: false })
+    }
+
+    fn set_mouse(&mut self, capture: bool) -> io::Result<()> {
+        if capture == self.mouse {
+            return Ok(());
+        }
+        if capture {
+            execute!(io::stdout(), EnableMouseCapture)?;
+        } else {
+            execute!(io::stdout(), DisableMouseCapture)?;
+        }
+        self.mouse = capture;
+        Ok(())
     }
 
     fn apply(
@@ -1711,33 +1727,81 @@ fn paint(
     compact: bool,
     ui_overlay: &mut UiOverlay,
     feedback_open: bool,
-) -> io::Result<()> {
+    nav: Option<&NavState>,
+) -> io::Result<FrameLayout> {
     let title = composer.footer();
+    let mut layout = FrameLayout {
+        prompt: ratatui::layout::Rect::default(),
+        transcript: ratatui::layout::Rect::default(),
+        chrome: ratatui::layout::Rect::default(),
+    };
     terminal.draw(|frame| {
-        if screen == ScreenMode::Minimal {
-            welcome::render_minimal(
-                frame,
-                &composer.draft,
-                notice,
-                selected,
-                theme,
-                feedback_open,
-                &title,
-            );
-        } else {
-            welcome::render(
-                frame,
-                &composer.draft,
-                notice,
-                selected,
-                theme,
-                compact,
-                feedback_open,
-                &title,
-            );
+        if screen == ScreenMode::Minimal || feedback_open || nav.is_none() {
+            layout.prompt = if screen == ScreenMode::Minimal {
+                welcome::render_minimal(
+                    frame,
+                    &composer.draft,
+                    notice,
+                    selected,
+                    theme,
+                    feedback_open,
+                    &title,
+                )
+            } else {
+                welcome::render(
+                    frame,
+                    &composer.draft,
+                    notice,
+                    selected,
+                    theme,
+                    compact,
+                    feedback_open,
+                    &title,
+                )
+            };
+        } else if let Some(nav) = nav {
+            layout = welcome::render_session(frame, &composer.draft, notice, nav, theme, &title);
         }
         settings_ui::render(frame, ui_overlay, theme, screen);
     })?;
+    Ok(layout)
+}
+
+fn nav_entries(turns: &[Turn]) -> Vec<NavEntry> {
+    turns
+        .iter()
+        .map(|turn| {
+            NavEntry::from_parts(
+                turn.user.clone(),
+                turn.thought.clone(),
+                turn.answer.clone(),
+                turn.tools
+                    .iter()
+                    .map(|tool| (tool.title.clone(), tool.result.clone()))
+                    .collect(),
+            )
+        })
+        .collect()
+}
+
+fn sync_nav_viewport(
+    nav: &mut NavState,
+    turns: &[Turn],
+    terminal: &Terminal<CrosstermBackend<io::Stdout>>,
+    composer: &PromptComposer,
+    notice: &str,
+) -> io::Result<()> {
+    let size = terminal.size()?;
+    let chrome_height = welcome::session_chrome_height(nav);
+    let notice_height = welcome::session_notice_height(notice);
+    let input_height = welcome::session_input_height(&composer.draft, size.width);
+    nav.sync_entries(
+        nav_entries(turns),
+        size.width
+            .saturating_sub(navigation::TRANSCRIPT_GUTTER)
+            .max(20),
+        welcome::session_transcript_height(size.height, chrome_height, notice_height, input_height),
+    );
     Ok(())
 }
 
@@ -2443,7 +2507,7 @@ fn run() -> io::Result<()> {
         }
         LaunchMode::Help => {
             println!(
-                "codsh --rust\n\nIsolated Rust client. Real dsh executes turns over ACP/JSON-RPC stdio.\nHome: ~/.codsh-rust/dsh; Profile: rust. Legacy codsh is unchanged.\nUser config: $GROK_HOME/config.toml (default ~/.codsh-rust/.grok/config.toml), mapped into isolated dsh settings.yaml.\nManaged defaults: $GROK_HOME/managed_config.toml. Locked requirements: $GROK_HOME/requirements.toml (cannot be bypassed by later CLI, environment, overlay, workspace, or user values).\n`codsh --rust inspect` / `inspect --json` shows effective values, origins, folder trust, appearance/theme/status-line, marketplace sources, installed plugin provenance, and whether project assets are active. Invalid config.toml is left unchanged and reports its path. Unknown security fields and invalid policies are diagnosed with valid values, sources, and limits.\n`codsh --rust import --preview` lists conversions, conflicts, and unsupported items from current dsh `$DSH_HOME/settings.yaml`, `code-cli-thinking.json`, and `code-cli-ui.json`. It does not treat outdated `code-cli-settings.json` as a provider source. `--apply` copies selected providers/preferences into the isolated Home. Official tokens, `.credentials.yaml`, `.env`, and original trust/execution grants are never copied. Preview, cancel, and failed apply leave source files and existing isolated settings unchanged. Model credentials stay in the host environment (`--authorize-env`) or must be exported after import.\nWorkspace trust: untrusted folders prompt before applying project config, Hooks, plugins, or instructions; `--trust` / `--trust-folder [path]` saves a grant, `--revoke-trust` withdraws it. A read-only $GROK_HOME reports save failure without pretending the grant is durable. Untrusted Hooks/plugins/project capabilities do not execute.\nPlugin lifecycle: `codsh --rust plugin marketplace add|list|update|remove` and `plugin install|update|uninstall|list` record sources, versions, licenses, and files under the isolated Home. Install does not grant execution. Failed download/checksum/conflict/offline/cancel leave no success record. Official marketplace auto-register is off unless GROK_OFFICIAL_MARKETPLACE_AUTO_REGISTER is enabled. `/plugins` and `/marketplace` open the plugins directory. Uninstall does not delete unrelated user files.\nFirst-run missing credentials stay local: no grok.com login, no default official telemetry, no automatic import of ~/.dsh or ~/.grok credentials. `login` / `logout` / `setup` use configured substitute identity or management services; official grok.com / auth.x.ai login, subscription billing, auto-topup, and team entitlements are not reproduced. Session tokens stay in $GROK_HOME/auth.json (0600) and are not transferred to model providers, MCP, Grove, or other services. Independent API-key use does not require login unless GROK_DISABLE_API_KEY_AUTH or a team pin (GROK_FORCE_LOGIN_TEAM_ID / requirements force_login_team_uuid) requires a matching identity session. Unsigned or unverifiable managed policy is refused.  /login and /logout reuse that contract.\nFile read/edit/write and other dsh tools honour allow/ask/deny rules, remembered project grants, and permission modes. y allows once; a remembers this project only and is not a permanent global rule; n rejects with no write. /revoke-approvals forgets this project's remembered grants. Deny, hooks, and locked always-approve survive --always-approve/--yolo. Trust prompt: y=allow, n=deny.\nCtrl+Q/Ctrl+D: quit. Ctrl+C: clear a draft; empty draft cancels a running turn via dsh, or quits when idle before any turn.\nEsc never cancels a turn or a pending approval; it dismisses selection and reminds you to use Ctrl+C.\nEnter: submit prompt. Shift+Enter or Alt+Enter inserts a newline; /multiline (alias /ml) or Ctrl+M swaps those chords. /history searches submitted prompts; empty ↑ browses them. Tab/Esc drive slash and HISTFILE completion. Typing / in a nonempty draft stashes that draft, runs the slash command, and restores it. /edit-prompt opens $VISUAL then $EDITOR then vi for an empty draft; Ctrl+G in minimal preserves the current draft. Saving an empty file clears without submitting. [ui] simple_mode=false enables prompt Vim (i/Esc/h/l/x). Next-prompt ghost text is not wired: the host does not call a suggestion provider, so Tab/Right do not accept ghost text. Suggestion rows stay blocked (PARITY-150-suggestions). chips=false does not mean an attachment was refused. /always-approve, /auto, and /ask set the session mode unless requirements.toml locks always-approve off. /feedback opens Write and Drafts; Enter on Write sends, Ctrl+S saves locally, and /feedback <text> sends immediately. Draft text is posted only when privacy.share_content is on. /settings (/config) edits appearance, default screen mode, timestamps, compact mode, and status line. /theme (/t) previews fullscreen themes; Escape restores the previous theme without saving. /compact-mode and /timestamps toggle persisted [ui] keys. Minimal mode uses the terminal palette and refuses /theme. Status-line scripts run with a 10s timeout, cleared BASH_ENV/ENV, and process-group cleanup on exit. Locked requirements show their source and cannot be edited.\n/minimal and /fullscreen switch render mode in process without restarting dsh; --minimal/--fullscreen and GROK_SCREEN_MODE are session-scoped and do not rewrite [ui] screen_mode. /model (/m) and /effort select advertised catalog options; unsupported backends/efforts are refused, never treated as equivalent or silently swapped. /context shows dsh occupancy, advertised model limits, and heuristic buckets without fabricating zeros. /compact [instruction] runs dsh compaction (not a second history); optional instructions go only to the summarizer request (purpose=compaction). Automatic compaction uses session.auto_compact_threshold_percent / GROK_AUTO_COMPACT_THRESHOLD_PERCENT mapped to dsh thresholdRatio. GROK_COMPACTION_WALL_CLOCK_SECS bounds the operation; 0 disables that budget. Runtime changes apply to the next turn and persist under $GROK_HOME/model-selection.toml. --continue resumes the last session in this directory; --resume <id> loads that dsh session. --fork-session with --resume/--continue copies conversation into a new session id. /rewind and /undo fork conversation-only history through dsh; files are not restored. /fork copies the current history into a new session. Idle empty Esc Esc opens rewind. A second client is refused while this process holds write ownership. Interrupted tools show [interrupted]/unknown and are not replayed.\nOptions: --help, --version, --continue, --resume <id>, --fork-session, --session-id <id>, --minimal, --fullscreen, --model <id>, --effort/--reasoning-effort <level>, --trust, --trust-folder [path], --revoke-trust, --always-approve/--yolo, --auto, --permission-mode <mode>, --allow/--deny <RULE>, inspect, import, plugin, feedback, login, logout, setup. --restore-code is refused.\nNonessential telemetry, trace upload, session tracking, and content sharing default off. Opt-in requires a substitute endpoints.telemetry_url / feedback_base_url / trace_upload_url; official grok.com, api.x.ai, and sentry hosts are refused. Diagnostic previews list kind/ok/count only and never prompts or keys. Model calls stay on the configured provider and are not telemetry. Locked requirements can force these switches off."
+                "codsh --rust\n\nIsolated Rust client. Real dsh executes turns over ACP/JSON-RPC stdio.\nHome: ~/.codsh-rust/dsh; Profile: rust. Legacy codsh is unchanged.\nUser config: $GROK_HOME/config.toml (default ~/.codsh-rust/.grok/config.toml), mapped into isolated dsh settings.yaml.\nManaged defaults: $GROK_HOME/managed_config.toml. Locked requirements: $GROK_HOME/requirements.toml (cannot be bypassed by later CLI, environment, overlay, workspace, or user values).\n`codsh --rust inspect` / `inspect --json` shows effective values, origins, folder trust, appearance/theme/status-line, marketplace sources, installed plugin provenance, and whether project assets are active. Invalid config.toml is left unchanged and reports its path. Unknown security fields and invalid policies are diagnosed with valid values, sources, and limits.\n`codsh --rust import --preview` lists conversions, conflicts, and unsupported items from current dsh `$DSH_HOME/settings.yaml`, `code-cli-thinking.json`, and `code-cli-ui.json`. It does not treat outdated `code-cli-settings.json` as a provider source. `--apply` copies selected providers/preferences into the isolated Home. Official tokens, `.credentials.yaml`, `.env`, and original trust/execution grants are never copied. Preview, cancel, and failed apply leave source files and existing isolated settings unchanged. Model credentials stay in the host environment (`--authorize-env`) or must be exported after import.\nWorkspace trust: untrusted folders prompt before applying project config, Hooks, plugins, or instructions; `--trust` / `--trust-folder [path]` saves a grant, `--revoke-trust` withdraws it. A read-only $GROK_HOME reports save failure without pretending the grant is durable. Untrusted Hooks/plugins/project capabilities do not execute.\nPlugin lifecycle: `codsh --rust plugin marketplace add|list|update|remove` and `plugin install|update|uninstall|list` record sources, versions, licenses, and files under the isolated Home. Install does not grant execution. Failed download/checksum/conflict/offline/cancel leave no success record. Official marketplace auto-register is off unless GROK_OFFICIAL_MARKETPLACE_AUTO_REGISTER is enabled. `/plugins` and `/marketplace` open the plugins directory. Uninstall does not delete unrelated user files.\nFirst-run missing credentials stay local: no grok.com login, no default official telemetry, no automatic import of ~/.dsh or ~/.grok credentials. `login` / `logout` / `setup` use configured substitute identity or management services; official grok.com / auth.x.ai login, subscription billing, auto-topup, and team entitlements are not reproduced. Session tokens stay in $GROK_HOME/auth.json (0600) and are not transferred to model providers, MCP, Grove, or other services. Independent API-key use does not require login unless GROK_DISABLE_API_KEY_AUTH or a team pin (GROK_FORCE_LOGIN_TEAM_ID / requirements force_login_team_uuid) requires a matching identity session. Unsigned or unverifiable managed policy is refused.  /login and /logout reuse that contract.\nFile read/edit/write and other dsh tools honour allow/ask/deny rules, remembered project grants, and permission modes. y allows once; a remembers this project only and is not a permanent global rule; n rejects with no write. /revoke-approvals forgets this project's remembered grants. Deny, hooks, and locked always-approve survive --always-approve/--yolo. Trust prompt: y=allow, n=deny.\nCtrl+Q: quit. Ctrl+D quits except in fullscreen scrollback, where it half-pages. Ctrl+C: clear a draft; empty draft cancels a running turn via dsh, or quits when idle before any turn.\nEsc never cancels a turn or a pending approval; it dismisses selection and reminds you to use Ctrl+C.\nEnter: submit prompt. Tab focuses scrollback in fullscreen when turns exist. /find searches the transcript, /jump lists turns, /vim-mode toggles scrollback Vim keys, and /toggle-mouse-reporting flips mouse capture when `[ui] mouse_reporting_toggle` is on in $GROK_HOME/config.toml. Esc closes search/jump/viewer and restores the prior reading position. Click selects or folds; drag copies and does not fold. Fullscreen-only /find and /jump refuse in minimal with the /fullscreen remedy. Shift+Enter or Alt+Enter inserts a newline; /multiline (alias /ml) or Ctrl+M swaps those chords. /history searches submitted prompts; empty ↑ browses them. Tab/Esc drive slash and HISTFILE completion. Typing / in a nonempty draft stashes that draft, runs the slash command, and restores it. /edit-prompt opens $VISUAL then $EDITOR then vi for an empty draft; Ctrl+G in minimal preserves the current draft. Saving an empty file clears without submitting. [ui] simple_mode=false enables prompt Vim (i/Esc/h/l/x). Next-prompt ghost text is not wired: the host does not call a suggestion provider, so Tab/Right do not accept ghost text. Suggestion rows stay blocked (PARITY-150-suggestions). chips=false does not mean an attachment was refused. /always-approve, /auto, and /ask set the session mode unless requirements.toml locks always-approve off. /feedback opens Write and Drafts; Enter on Write sends, Ctrl+S saves locally, and /feedback <text> sends immediately. Draft text is posted only when privacy.share_content is on. /settings (/config) edits appearance, default screen mode, timestamps, compact mode, and status line. /theme (/t) previews fullscreen themes; Escape restores the previous theme without saving. /compact-mode and /timestamps toggle persisted [ui] keys. Minimal mode uses the terminal palette and refuses /theme. Status-line scripts run with a 10s timeout, cleared BASH_ENV/ENV, and process-group cleanup on exit. Locked requirements show their source and cannot be edited.\n/minimal and /fullscreen switch render mode in process without restarting dsh; --minimal/--fullscreen and GROK_SCREEN_MODE are session-scoped and do not rewrite [ui] screen_mode. /model (/m) and /effort select advertised catalog options; unsupported backends/efforts are refused, never treated as equivalent or silently swapped. /context shows dsh occupancy, advertised model limits, and heuristic buckets without fabricating zeros. /compact [instruction] runs dsh compaction (not a second history); optional instructions go only to the summarizer request (purpose=compaction). Automatic compaction uses session.auto_compact_threshold_percent / GROK_AUTO_COMPACT_THRESHOLD_PERCENT mapped to dsh thresholdRatio. GROK_COMPACTION_WALL_CLOCK_SECS bounds the operation; 0 disables that budget. Runtime changes apply to the next turn and persist under $GROK_HOME/model-selection.toml. --continue resumes the last session in this directory; --resume <id> loads that dsh session. --fork-session with --resume/--continue copies conversation into a new session id. /rewind and /undo fork conversation-only history through dsh; files are not restored. /fork copies the current history into a new session. Idle empty Esc Esc opens rewind. A second client is refused while this process holds write ownership. Interrupted tools show [interrupted]/unknown and are not replayed.\nOptions: --help, --version, --continue, --resume <id>, --fork-session, --session-id <id>, --minimal, --fullscreen, --model <id>, --effort/--reasoning-effort <level>, --trust, --trust-folder [path], --revoke-trust, --always-approve/--yolo, --auto, --permission-mode <mode>, --allow/--deny <RULE>, inspect, import, plugin, feedback, login, logout, setup. --restore-code is refused.\nNonessential telemetry, trace upload, session tracking, and content sharing default off. Opt-in requires a substitute endpoints.telemetry_url / feedback_base_url / trace_upload_url; official grok.com, api.x.ai, and sentry hosts are refused. Diagnostic previews list kind/ok/count only and never prompts or keys. Model calls stay on the configured provider and are not telemetry. Locked requirements can force these switches off."
             );
             return Ok(());
         }
@@ -2620,7 +2684,13 @@ fn run() -> io::Result<()> {
         prompt_edit::VimPrompt::Normal
     };
     let connecting = format!("mode={}\nConnecting to dsh ACP…", screen.as_str());
-    paint(
+    let env_map: std::collections::BTreeMap<String, String> = std::env::vars().collect();
+    let mut nav = NavState::new(
+        navigation::load_prefs(&effective.grok_home, &env_map),
+        screen == ScreenMode::Fullscreen,
+    );
+    #[allow(unused_assignments)]
+    let mut nav_layout = paint(
         &mut terminal,
         screen,
         &composer,
@@ -2630,6 +2700,7 @@ fn run() -> io::Result<()> {
         false,
         &mut UiOverlay::None,
         false,
+        None,
     )?;
     let mut selected = None;
     let mut turns: Vec<Turn> = Vec::new();
@@ -2857,11 +2928,10 @@ fn run() -> io::Result<()> {
             status_row: &status_row.text,
             show_timestamps: effective.appearance.show_timestamps,
         };
-        let show_timestamps = view.show_timestamps;
         let mut notice = if screen == ScreenMode::Minimal {
             overlay_notice(view, &turns)
         } else {
-            render_transcript(&status_line(view), &turns, show_timestamps)
+            status_line(view)
         };
         if let Overlay::Feedback(form) = &overlay {
             notice = feedback_overlay_text(&effective.dsh_home, client.as_ref(), form);
@@ -2875,7 +2945,17 @@ fn run() -> io::Result<()> {
             notice.push('\n');
             notice.push_str(&shown_hint);
         }
-        paint(
+        if screen == ScreenMode::Fullscreen && !matches!(overlay, Overlay::Feedback(_)) {
+            sync_nav_viewport(&mut nav, &turns, &terminal, &composer, &notice)?;
+            if nav.prefs.dock_enabled
+                && matches!(nav.overlay, NavOverlay::None)
+                && hint != navigation::dock_message(true)
+            {
+                hint = navigation::dock_message(true).into();
+            }
+        }
+        let _ = guard.set_mouse(screen == ScreenMode::Fullscreen && nav.mouse_captured);
+        nav_layout = paint(
             &mut terminal,
             screen,
             &composer,
@@ -2885,14 +2965,27 @@ fn run() -> io::Result<()> {
             effective.appearance.compact_mode,
             &mut ui_overlay,
             matches!(overlay, Overlay::Feedback(_)),
+            (screen == ScreenMode::Fullscreen && !matches!(overlay, Overlay::Feedback(_)))
+                .then_some(&nav),
         )?;
         if !event::poll(Duration::from_millis(80))? {
             continue;
         }
         match event::read()? {
             Event::Key(key) if key.kind == KeyEventKind::Press => {
+                if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('q') {
+                    if let (Some(turn), Some(active)) = (turns.last_mut(), client.as_mut())
+                        && let Some(permission) = turn.permission.take()
+                    {
+                        let _ = active.cancel_permission(&permission.request_id);
+                    }
+                    break;
+                }
                 if key.modifiers.contains(KeyModifiers::CONTROL)
-                    && matches!(key.code, KeyCode::Char('q' | 'd'))
+                    && key.code == KeyCode::Char('d')
+                    && !(screen == ScreenMode::Fullscreen
+                        && matches!(overlay, Overlay::None)
+                        && nav.focus == Focus::Scrollback)
                 {
                     if let (Some(turn), Some(active)) = (turns.last_mut(), client.as_mut())
                         && let Some(permission) = turn.permission.take()
@@ -2900,6 +2993,14 @@ fn run() -> io::Result<()> {
                         let _ = active.cancel_permission(&permission.request_id);
                     }
                     break;
+                }
+                if key.modifiers.contains(KeyModifiers::CONTROL)
+                    && key.code == KeyCode::Char('p')
+                    && matches!(overlay, Overlay::None)
+                    && matches!(nav.overlay, NavOverlay::None)
+                {
+                    hint = navigation::PALETTE_UNSUPPORTED.into();
+                    continue;
                 }
                 if !ui_overlay.is_none() {
                     let action = settings_ui::handle_key(
@@ -3020,6 +3121,45 @@ fn run() -> io::Result<()> {
                 }
                 if matches!(overlay, Overlay::Feedback(_)) {
                     continue;
+                }
+
+                if matches!(overlay, Overlay::None) && ui_overlay.is_none() {
+                    let tab_for_composer = composer.overlay != prompt_edit::Overlay::None
+                        || composer.text().starts_with('/')
+                        || composer.text().starts_with('!');
+                    match nav.handle_key_with_prompt(
+                        key,
+                        screen == ScreenMode::Fullscreen,
+                        composer.is_empty() || !tab_for_composer,
+                    ) {
+                        NavCommand::Consume | NavCommand::ToggleMouse => {
+                            match &nav.overlay {
+                                NavOverlay::Search(_)
+                                | NavOverlay::Jump(_)
+                                | NavOverlay::Viewer(_) => {
+                                    hint = nav.overlay_text();
+                                }
+                                NavOverlay::None
+                                    if hint.starts_with("Find:")
+                                        || hint.contains("Jump to which turn")
+                                        || hint.starts_with("Viewer") =>
+                                {
+                                    hint.clear();
+                                }
+                                NavOverlay::None => {}
+                            }
+                            continue;
+                        }
+                        NavCommand::CopyBlock => {
+                            if let Some(text) = nav.copy_target() {
+                                hint = format!("Copied {} bytes.", text.len());
+                                let _ = write!(io::stdout(), "{}", navigation::osc52(&text));
+                                let _ = io::stdout().flush();
+                            }
+                            continue;
+                        }
+                        NavCommand::TypePrompt | NavCommand::None => {}
+                    }
                 }
 
                 if effective.trust_prompt
@@ -3325,6 +3465,11 @@ fn run() -> io::Result<()> {
                             continue;
                         }
                         selected = None;
+                        if !matches!(nav.overlay, NavOverlay::None) {
+                            nav.dismiss_overlay();
+                            hint.clear();
+                            continue;
+                        }
                         if inflight && !turns.last().is_some_and(|turn| turn.cancelling) {
                             hint = "Press Ctrl+C to cancel the turn".into();
                             last_esc = None;
@@ -3417,6 +3562,7 @@ fn run() -> io::Result<()> {
                                         &mut prefs,
                                         &meter,
                                         policy,
+                                        &mut nav,
                                         &mut live_theme_kind,
                                         &mut live_theme,
                                         &mut status_runtime,
@@ -3444,6 +3590,10 @@ fn run() -> io::Result<()> {
                                     } else {
                                         ScreenMode::Minimal
                                     };
+                                    nav.mouse_captured = screen == ScreenMode::Fullscreen;
+                                    if screen != ScreenMode::Fullscreen {
+                                        nav.focus = Focus::Prompt;
+                                    }
                                     live_theme_kind = effective.appearance.resolved_kind(screen);
                                     live_theme = effective.appearance.resolved_theme(screen);
                                     continue;
@@ -3587,6 +3737,7 @@ fn run() -> io::Result<()> {
                                     &mut prefs,
                                     &meter,
                                     policy,
+                                    &mut nav,
                                     &mut live_theme_kind,
                                     &mut live_theme,
                                     &mut status_runtime,
@@ -3679,7 +3830,15 @@ fn run() -> io::Result<()> {
             }
             Event::Paste(text) => {
                 selected = None;
-                composer.paste(&text);
+                if let NavOverlay::Search(search) = &mut nav.overlay
+                    && search.composing
+                {
+                    search.query.push_str(&text.replace(['\n', '\r'], ""));
+                    nav.refresh_search();
+                    hint = nav.overlay_text();
+                } else {
+                    composer.paste(&text);
+                }
             }
             Event::Mouse(mouse) => {
                 if !ui_overlay.is_none() {
@@ -3710,13 +3869,42 @@ fn run() -> io::Result<()> {
                         &mut prefs,
                         &mut ui_overlay,
                     );
+                } else if screen == ScreenMode::Fullscreen && matches!(overlay, Overlay::None) {
+                    match nav.handle_mouse(mouse, nav_layout, true) {
+                        NavCommand::CopyBlock => {
+                            if let Some(text) = nav.copy_target() {
+                                hint = format!("Copied {} bytes.", text.len());
+                                let _ = write!(io::stdout(), "{}", navigation::osc52(&text));
+                                let _ = io::stdout().flush();
+                            }
+                        }
+                        NavCommand::Consume | NavCommand::ToggleMouse => {}
+                        NavCommand::TypePrompt => {
+                            nav.focus = Focus::Prompt;
+                        }
+                        NavCommand::None => {}
+                    }
                 }
                 let _ = MouseEventKind::Moved;
             }
-            Event::Resize(_, _) => {
+            Event::Resize(width, height) => {
                 terminal.autoresize()?;
                 if screen == ScreenMode::Minimal {
                     resize_purge_rerender(&mut terminal, &history)?;
+                } else {
+                    let chrome_height = welcome::session_chrome_height(&nav);
+                    let notice_height = welcome::session_notice_height(&notice);
+                    let input_height = welcome::session_input_height(&composer.draft, width);
+                    nav.sync_entries(
+                        nav_entries(&turns),
+                        width.saturating_sub(navigation::TRANSCRIPT_GUTTER).max(20),
+                        welcome::session_transcript_height(
+                            height,
+                            chrome_height,
+                            notice_height,
+                            input_height,
+                        ),
+                    );
                 }
             }
             _ => {}
@@ -3756,6 +3944,7 @@ fn dispatch_composer_command(
     prefs: &mut session_fork::UiPrefs,
     meter: &Meter,
     policy: SwitchPolicy,
+    nav: &mut NavState,
     live_theme_kind: &mut theme::ThemeKind,
     live_theme: &mut theme::Theme,
     status_runtime: &mut status_line::StatusLineRuntime,
@@ -3931,11 +4120,61 @@ fn dispatch_composer_command(
                     *hint = target.switch_marker().into();
                 }
                 screen = target;
+                nav.mouse_captured = target == ScreenMode::Fullscreen;
+                if target != ScreenMode::Fullscreen {
+                    nav.overlay = NavOverlay::None;
+                    nav.focus = Focus::Prompt;
+                }
                 *live_theme_kind = effective.appearance.resolved_kind(screen);
                 *live_theme = effective.appearance.resolved_theme(screen);
                 apply_cursor_color(live_theme);
                 last_error.clear();
             }
+            SlashAction::Navigate(command) => match command {
+                NavSlash::Find(query) => {
+                    if screen != ScreenMode::Fullscreen {
+                        *hint = navigation::FIND_MINIMAL.into();
+                    } else {
+                        nav.open_search(query);
+                        *hint = nav.overlay_text();
+                    }
+                }
+                NavSlash::Jump => {
+                    if screen != ScreenMode::Fullscreen {
+                        *hint = navigation::JUMP_MINIMAL.into();
+                    } else {
+                        nav.open_jump();
+                        *hint = nav.overlay_text();
+                    }
+                }
+                NavSlash::VimMode => {
+                    nav.toggle_vim();
+                    if let Err(error) =
+                        navigation::save_vim_mode(&effective.grok_home, nav.prefs.vim_mode)
+                    {
+                        *last_error = error.to_string();
+                    }
+                    *hint = format!(
+                        "Vim scrollback navigation {} (ui.simple_mode unchanged).",
+                        if nav.prefs.vim_mode { "on" } else { "off" }
+                    );
+                }
+                NavSlash::ToggleMouse => {
+                    if !nav.prefs.mouse_reporting_toggle {
+                        *hint = navigation::MOUSE_TOGGLE_HINT.into();
+                    } else {
+                        nav.toggle_mouse();
+                        *hint = format!(
+                            "Mouse capture {}.",
+                            if nav.mouse_captured {
+                                "on"
+                            } else {
+                                "off (native selection)"
+                            }
+                        );
+                    }
+                }
+            },
             refuse @ SlashAction::Refuse(_) => {
                 if let Some(message) = screen_mode::mode_command_message(screen, refuse) {
                     *hint = message;

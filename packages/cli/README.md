@@ -122,7 +122,8 @@ symlink semantics. Default `~/.dsh` and `~/.grok` remain protected with override
 Enter submits the draft through dsh when ACP is connected, and otherwise
 reports that execution is unavailable. File read/write/edit run through dsh
 tools; `y` allows one pending file mutation and `n` rejects it with no write.
-`Ctrl+Q`/`Ctrl+D` quits. `Ctrl+C` clears a non-empty draft without cancelling
+`Ctrl+Q` quits. `Ctrl+D` quits except in fullscreen scrollback, where it
+half-pages. `Ctrl+C` clears a non-empty draft without cancelling
 work; an empty draft cancels a running turn through dsh, or quits when idle
 before any turn. Esc never cancels a turn or pending approval.
 `--continue` resumes the last dsh session in this directory; `--resume <id>`
@@ -134,7 +135,11 @@ A second client is refused while this process holds write ownership.
 alternate-screen and native-history renderers in the current process without
 rewriting isolated `[ui] screen_mode`. `/rewind` and `/fork` in minimal replace
 that native buffer. Draft, running turn, and pending approval survive an
-in-place switch. `/settings` and `/theme` persist or preview appearance and
+in-place switch. Fullscreen `/find` and `/jump` search or preview turns and
+restore the prior reading position on Esc; `/find` and `/jump` in minimal
+refuse with `/fullscreen`. `/vim-mode` and `/toggle-mouse-reporting` follow
+the isolated `$GROK_HOME/config.toml` keys `ui.vim_mode` and
+`ui.mouse_reporting_toggle`. `/settings` and `/theme` persist or preview appearance and
 status-line choices; Escape cancels a theme preview without writing.
 Prompt editing reuses the official textarea: Enter submits,
 Shift+Enter/Alt+Enter inserts a newline, `/multiline` (`/ml`) swaps those
