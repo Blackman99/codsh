@@ -114,7 +114,8 @@ Permission modes, allow/ask/deny rules, and remembered project grants are compil
 into isolated `$DSH_HOME/permission-policy.json` and enforced in the dsh
 `tools/pre-execute` plugin before a real tool body runs. Deny and hook blocks have
 no side effects; unsplittable shell and Read/Edit path rules on operands cannot be
-glob-allowed or auto-approved as read-only. Wrappers peel to the inner command
+glob-allowed or auto-approved as read-only. Wrappers, including `sudo`, `nohup`,
+and `xargs`, peel to the inner command
 without eating the command name; `env -S` prompts. Brace groups and ANSI-C
 `bash -c` scripts are inspected, so deny still matches the inner command.
 Command basenames match without regard to case, so `RM.EXE` is still `rm`.

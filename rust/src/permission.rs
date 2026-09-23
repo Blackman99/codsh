@@ -1936,6 +1936,52 @@ fn wrapper_takes_positional(wrapper: &str, flag: &str) -> bool {
                 "-i" | "-o" | "-e" | "--input" | "--output" | "--error"
             )
             | ("env", "-u" | "--unset" | "-C" | "--chdir")
+            | (
+                "sudo",
+                "-u" | "--user"
+                    | "-g"
+                    | "--group"
+                    | "-h"
+                    | "--host"
+                    | "-C"
+                    | "--close-from"
+                    | "-D"
+                    | "--chdir"
+                    | "-R"
+                    | "--chroot"
+                    | "-T"
+                    | "--command-timeout"
+                    | "-p"
+                    | "--prompt"
+                    | "-r"
+                    | "--role"
+                    | "-t"
+                    | "--type"
+                    | "-U"
+                    | "--other-user"
+            )
+            | (
+                "xargs",
+                "-a" | "--arg-file"
+                    | "-E"
+                    | "--eof"
+                    | "-e"
+                    | "-I"
+                    | "--replace"
+                    | "-i"
+                    | "-L"
+                    | "--max-lines"
+                    | "-l"
+                    | "-n"
+                    | "--max-args"
+                    | "-P"
+                    | "--max-procs"
+                    | "-s"
+                    | "--max-chars"
+                    | "-d"
+                    | "--delimiter"
+                    | "-J"
+            )
     )
 }
 
@@ -1943,7 +1989,7 @@ fn strip_env_and_wrappers(command: &str) -> String {
     let mut words: Vec<String> = command.split_whitespace().map(str::to_string).collect();
     strip_assignments(&mut words);
     const WRAPPERS: &[&str] = &[
-        "timeout", "nice", "ionice", "chrt", "stdbuf", "env", "command",
+        "timeout", "nice", "ionice", "chrt", "stdbuf", "env", "command", "sudo", "nohup", "xargs",
     ];
     while let Some(head) = words.first().cloned() {
         let base = command_basename(&head);
@@ -3197,6 +3243,34 @@ mod tests {
             "/usr/local/bin/RM.EXE -rf /",
             "timeout 30 /Bin/RM -rf /",
             "TIMEOUT 30 /Bin/RM -rf /",
+        ] {
+            assert!(
+                matches!(
+                    evaluate(&deny, &AccessKind::Bash(command.into()), None),
+                    Decision::Deny { .. }
+                ),
+                "{command}"
+            );
+        }
+    }
+
+    #[test]
+    fn exec_vehicles_cannot_hide_a_denied_command() {
+        let deny = policy(
+            vec![rule(RuleAction::Deny, "Bash(rm -rf *)")],
+            PermissionMode::AlwaysApprove,
+        );
+        for command in [
+            "sudo rm -rf /",
+            "sudo /bin/rm -rf /",
+            "sudo -u root rm -rf /",
+            "nohup rm -rf /",
+            "nohup /bin/rm -rf /",
+            "xargs rm -rf /",
+            "xargs -n 1 rm -rf /",
+            "/usr/bin/sudo rm -rf /",
+            "timeout 30 sudo rm -rf /",
+            "bash -c 'sudo rm -rf /'",
         ] {
             assert!(
                 matches!(

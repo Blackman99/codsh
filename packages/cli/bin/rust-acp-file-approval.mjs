@@ -564,6 +564,8 @@ function takesPositional(wrapper, flag) {
   if (wrapper === 'chrt' && (flag === '-p' || flag === '--pid' || flag === '-o' || flag === '--other' || flag === '-f' || flag === '--fifo' || flag === '-r' || flag === '--rr')) return true
   if (wrapper === 'stdbuf' && (flag === '-i' || flag === '-o' || flag === '-e' || flag === '--input' || flag === '--output' || flag === '--error')) return true
   if (wrapper === 'env' && (flag === '-u' || flag === '--unset' || flag === '-C' || flag === '--chdir')) return true
+  if (wrapper === 'sudo' && (flag === '-u' || flag === '--user' || flag === '-g' || flag === '--group' || flag === '-h' || flag === '--host' || flag === '-C' || flag === '--close-from' || flag === '-D' || flag === '--chdir' || flag === '-R' || flag === '--chroot' || flag === '-T' || flag === '--command-timeout' || flag === '-p' || flag === '--prompt' || flag === '-r' || flag === '--role' || flag === '-t' || flag === '--type' || flag === '-U' || flag === '--other-user')) return true
+  if (wrapper === 'xargs' && (flag === '-a' || flag === '--arg-file' || flag === '-E' || flag === '--eof' || flag === '-e' || flag === '-I' || flag === '--replace' || flag === '-i' || flag === '-L' || flag === '--max-lines' || flag === '-l' || flag === '-n' || flag === '--max-args' || flag === '-P' || flag === '--max-procs' || flag === '-s' || flag === '--max-chars' || flag === '-d' || flag === '--delimiter' || flag === '-J')) return true
   return false
 }
 
@@ -584,7 +586,7 @@ function consumeBarePositional(wrapper, word) {
 function stripWrappers(command) {
   const words = command.split(/\s+/u).filter(Boolean)
   stripAssignments(words)
-  const wrappers = new Set(['timeout', 'nice', 'ionice', 'chrt', 'stdbuf', 'env', 'command'])
+  const wrappers = new Set(['timeout', 'nice', 'ionice', 'chrt', 'stdbuf', 'env', 'command', 'sudo', 'nohup', 'xargs'])
   while (words[0] && wrappers.has(commandBasename(words[0]))) {
     const wrapper = commandBasename(words.shift())
     if (wrapper === 'env' && words[0] === '-S') return ''

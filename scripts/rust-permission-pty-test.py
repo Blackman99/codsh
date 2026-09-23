@@ -251,6 +251,30 @@ allow = ["Bash(git *)"]
         assert 'successfully.' not in path_rm['screen']
         results['deny_path_rm'] = {'exit': path_rm['exit']}
 
+        sudo = exercise('deny-sudo-wrapper', launcher, cwd,
+                        {**base_env, 'DSH_CODE_CLI_MOCK_TOOL': 'bash-sudo-rm'},
+                        output, typed='TOKEN_PERM_SUDO', wait_for=['Denied by permission policy', 'RUST_ACP_BASH_DENIED'],
+                        extra=['--always-approve', '--deny', 'Bash(rm -rf *)'], action='none')
+        assert sudo['exit'] == 0
+        assert 'successfully.' not in sudo['screen']
+        results['deny_sudo'] = {'exit': sudo['exit']}
+
+        nohup = exercise('deny-nohup-wrapper', launcher, cwd,
+                         {**base_env, 'DSH_CODE_CLI_MOCK_TOOL': 'bash-nohup-rm'},
+                         output, typed='TOKEN_PERM_NOHUP', wait_for=['Denied by permission policy', 'RUST_ACP_BASH_DENIED'],
+                         extra=['--always-approve', '--deny', 'Bash(rm -rf *)'], action='none')
+        assert nohup['exit'] == 0
+        assert 'successfully.' not in nohup['screen']
+        results['deny_nohup'] = {'exit': nohup['exit']}
+
+        xargs = exercise('deny-xargs-wrapper', launcher, cwd,
+                         {**base_env, 'DSH_CODE_CLI_MOCK_TOOL': 'bash-xargs-rm'},
+                         output, typed='TOKEN_PERM_XARGS', wait_for=['Denied by permission policy', 'RUST_ACP_BASH_DENIED'],
+                         extra=['--always-approve', '--deny', 'Bash(rm -rf *)'], action='none')
+        assert xargs['exit'] == 0
+        assert 'successfully.' not in xargs['screen']
+        results['deny_xargs'] = {'exit': xargs['exit']}
+
         sort_prefix = exercise('sort-prefix-not-readonly', launcher, cwd,
                                {**base_env, 'DSH_CODE_CLI_MOCK_TOOL': 'bash-sort-prefix'},
                                output, typed='TOKEN_PERM_SORT', wait_for=['dontAsk blocked', 'RUST_ACP_BASH_DENIED'],

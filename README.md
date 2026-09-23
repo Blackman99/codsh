@@ -58,9 +58,10 @@ tools. Allow/ask/deny rules, remembered project grants, and permission modes
 enforced before a dsh tool runs. Explicit deny, hook blocks, and locked
 always-approve survive `--always-approve` and old grants. Unsplittable shell
 (`$(...)`, control flow) is not glob-allowed as a unit; Read/Edit deny also
-covers shell operands; wrappers such as `timeout`, `nice`, `ionice`, and
+covers shell operands; wrappers such as `timeout`, `nice`, `ionice`,
+`sudo`, `nohup`, `xargs`, and
 `env FOO=1` peel to the inner command (only real duration/priority tokens are
-consumed), while `env -S` prompts. Read/Edit deny and ask follow in-path
+consumed; `sudo -u` and `xargs -n` keep their option values), while `env -S` prompts. Read/Edit deny and ask follow in-path
 symlink targets; an unresolved link prompts. Brace groups, quoted or
 backslash-escaped command words, `eval`, and ANSI-C `bash -c $'…'` scripts
 (including a backslash-newline) cannot hide a denied command. A path-qualified

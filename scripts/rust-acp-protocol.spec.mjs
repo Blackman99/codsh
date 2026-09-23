@@ -1289,7 +1289,7 @@ describe('public ACP/JSON-RPC against real dsh', () => {
       rules: [{ action: 'deny', tool: 'bash', pattern: 'rm -rf *', patternMode: 'glob', source: 'cli' }],
       grants: { allowedBash: [], deniedBash: [], allowedMcp: [], deniedMcp: [], allowedDomains: [], deniedDomains: [], allowedEdits: false, allowedEditPaths: [] },
     })}\n`)
-    for (const mode of ['bash-quoted-rm', 'bash-eval-rm', 'bash-path-rm']) {
+    for (const mode of ['bash-quoted-rm', 'bash-eval-rm', 'bash-path-rm', 'bash-sudo-rm', 'bash-nohup-rm', 'bash-xargs-rm']) {
       const agent = startAgent(mode, { CODSH_PERMISSION_POLICY: policy })
       try {
         const { session } = await handshake(agent)

@@ -2,7 +2,8 @@
  * Keyless LLM adapter at the dsh provider boundary for Rust ACP turn tests.
  * Modes: echo (default), reasoning, empty, fail-stream, file-edit, file-write,
  * file-missing, file-error, bash-rm, bash-timeout-rm, bash-nice-rm, bash-brace-rm,
- * bash-ansi-c-rm, bash-quoted-rm, bash-eval-rm, bash-path-rm, bash-sort-prefix,
+ * bash-ansi-c-rm, bash-quoted-rm, bash-eval-rm, bash-path-rm, bash-sudo-rm,
+ * bash-nohup-rm, bash-xargs-rm, bash-sort-prefix,
  * bash-sort-output, bash-git-branch, bash-git-upstream, bash-git-cat,
  * bash-git, file-secret. Optional
  * DSH_CODE_CLI_MOCK_DELAY_MS delays the first chunk so session/cancel can win
@@ -91,7 +92,7 @@ function* fileToolTurn(options) {
     yield* mockText(`RUST_ACP_FILE_ERROR ${resultText(last)}`)
     return
   }
-  if (MODE === 'bash-rm' || MODE === 'bash-timeout-rm' || MODE === 'bash-nice-rm' || MODE === 'bash-brace-rm' || MODE === 'bash-ansi-c-rm' || MODE === 'bash-quoted-rm' || MODE === 'bash-eval-rm' || MODE === 'bash-path-rm' || MODE === 'bash-sort-prefix' || MODE === 'bash-sort-output' || MODE === 'bash-git-branch' || MODE === 'bash-git-upstream' || MODE === 'bash-git-cat') {
+  if (MODE === 'bash-rm' || MODE === 'bash-timeout-rm' || MODE === 'bash-nice-rm' || MODE === 'bash-brace-rm' || MODE === 'bash-ansi-c-rm' || MODE === 'bash-quoted-rm' || MODE === 'bash-eval-rm' || MODE === 'bash-path-rm' || MODE === 'bash-sudo-rm' || MODE === 'bash-nohup-rm' || MODE === 'bash-xargs-rm' || MODE === 'bash-sort-prefix' || MODE === 'bash-sort-output' || MODE === 'bash-git-branch' || MODE === 'bash-git-upstream' || MODE === 'bash-git-cat') {
     if (done.length === 0) {
       const command = MODE === 'bash-timeout-rm'
         ? 'timeout 30 rm -rf denied-target'
@@ -107,8 +108,14 @@ function* fileToolTurn(options) {
                   ? 'eval "rm -rf denied-target"'
                   : MODE === 'bash-path-rm'
                     ? '/Bin/RM.EXE -rf denied-target'
-                    : MODE === 'bash-sort-prefix'
-                      ? 'sort --compress-pro=gzip note.txt'
+                    : MODE === 'bash-sudo-rm'
+                      ? 'sudo rm -rf denied-target'
+                      : MODE === 'bash-nohup-rm'
+                        ? 'nohup rm -rf denied-target'
+                        : MODE === 'bash-xargs-rm'
+                          ? 'xargs rm -rf denied-target'
+                          : MODE === 'bash-sort-prefix'
+                            ? 'sort --compress-pro=gzip note.txt'
                       : MODE === 'bash-sort-output'
                         ? 'sort -oFILE note.txt'
                         : MODE === 'bash-git-branch'
@@ -280,7 +287,7 @@ class RustAcpMockAdapter extends LlmAdapter {
       yield* mockText(`RUST_ACP_TODO_DONE TODO_KEEP turn=${turn} ${userTexts(options).join('\n')}`)
       return
     }
-    if (MODE === 'file-edit' || MODE === 'file-write' || MODE === 'file-missing' || MODE === 'file-error' || MODE === 'bash-rm' || MODE === 'bash-timeout-rm' || MODE === 'bash-nice-rm' || MODE === 'bash-brace-rm' || MODE === 'bash-ansi-c-rm' || MODE === 'bash-quoted-rm' || MODE === 'bash-eval-rm' || MODE === 'bash-path-rm' || MODE === 'bash-sort-prefix' || MODE === 'bash-sort-output' || MODE === 'bash-git-branch' || MODE === 'bash-git-upstream' || MODE === 'bash-git-cat' || MODE === 'bash-git' || MODE === 'file-secret') {
+    if (MODE === 'file-edit' || MODE === 'file-write' || MODE === 'file-missing' || MODE === 'file-error' || MODE === 'bash-rm' || MODE === 'bash-timeout-rm' || MODE === 'bash-nice-rm' || MODE === 'bash-brace-rm' || MODE === 'bash-ansi-c-rm' || MODE === 'bash-quoted-rm' || MODE === 'bash-eval-rm' || MODE === 'bash-path-rm' || MODE === 'bash-sudo-rm' || MODE === 'bash-nohup-rm' || MODE === 'bash-xargs-rm' || MODE === 'bash-sort-prefix' || MODE === 'bash-sort-output' || MODE === 'bash-git-branch' || MODE === 'bash-git-upstream' || MODE === 'bash-git-cat' || MODE === 'bash-git' || MODE === 'file-secret') {
       yield* fileToolTurn(options)
       return
     }

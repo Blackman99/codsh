@@ -262,6 +262,27 @@ describe('rust permission evaluator', () => {
     }
   })
 
+  it('does not let sudo, nohup, or xargs hide a denied command under always-approve', () => {
+    const denyRm = policy({
+      mode: 'always-approve',
+      rules: [{ action: 'deny', tool: 'bash', pattern: 'rm -rf *', patternMode: 'glob' }],
+    })
+    for (const command of [
+      'sudo rm -rf /',
+      'sudo /bin/rm -rf /',
+      'sudo -u root rm -rf /',
+      'nohup rm -rf /',
+      'nohup /bin/rm -rf /',
+      'xargs rm -rf /',
+      'xargs -n 1 rm -rf /',
+      '/usr/bin/sudo rm -rf /',
+      'timeout 30 sudo rm -rf /',
+      "bash -c 'sudo rm -rf /'",
+    ]) {
+      expect(evaluatePermission(denyRm, { kind: 'bash', command }).kind, command).toBe('deny')
+    }
+  })
+
   it('auto-allows the frozen git read-only subcommands and not writes', () => {
     const quiet = policy({ mode: 'dontAsk' })
     for (const command of [
