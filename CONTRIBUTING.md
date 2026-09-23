@@ -243,6 +243,7 @@ python3 scripts/rust-permission-pty-test.py
 python3 scripts/rust-screen-pty-test.py
 python3 scripts/rust-fork-pty-test.py
 python3 scripts/rust-plugin-pty-test.py
+python3 scripts/rust-prompt-pty-test.py
 ```
 
 `build:rust` stages the host binary under ignored `packages/cli/native/<os>-<arch>`
@@ -354,8 +355,11 @@ tool results display as cancelled. After cancel, a new prompt still works.
 `scripts/rust-trust-pty-test.py`, `scripts/rust-screen-pty-test.py`,
 `scripts/rust-fork-pty-test.py`, `scripts/rust-settings-pty-test.py`,
 `scripts/rust-import-pty-test.py`, `scripts/rust-plugin-pty-test.py`,
-`scripts/rust-auth-pty-test.py`, and `scripts/rust-permission-pty-test.py`
-against the packed native candidate.
+`scripts/rust-auth-pty-test.py`, `scripts/rust-permission-pty-test.py`, and
+`scripts/rust-prompt-pty-test.py` against the packed native candidate.
+Prompt editing must keep the official textarea, prove Unicode/paste/resize,
+history selection, slash/HISTFILE completion cancel, both simple and prompt-Vim
+modes, and an actual `$VISUAL` round-trip that does not submit on save or failure.
 `/context` and `/compact` are dsh-backed: occupancy and advertised model limits
 must not be fabricated, manual/automatic compaction uses the dsh session log,
 failed compact must keep the ACP session and original records, cancel must print

@@ -13,6 +13,9 @@ acceptance records and tests remain unchanged.
 The new path supports both the reference's fullscreen alternate-screen lifecycle
 and its minimal native-scrollback mode. In-place switches preserve the session,
 draft, queue and permission state according to measured reference behavior.
+Prompt editing reuses the official textarea; host-level history, completion,
+multiline, prompt Vim, and external-editor round-trips must not invent a second
+input state model.
 Legacy choices cannot silently override those contracts.
 
 ## Source and execution ownership

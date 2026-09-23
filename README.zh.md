@@ -79,7 +79,22 @@ dsh 会话 id。`/rewind` 与 `/undo`（或空闲时空草稿上的 Esc Esc）�
 `--minimal` / `--fullscreen` 与 `GROK_SCREEN_MODE` 只作用于当前会话，不会改写
 隔离目录里的 `[ui] screen_mode`。最小模式下的 `/dashboard` 等模式专用命令会
 拒绝并提示改用 `/fullscreen`。`GROK_SCREEN_MODE_SWITCH=exec` 会按同一会话
-重新启动，而不是原地切换，也不会保留未保存的草稿。
+重新启动，而不是原地切换，也不会保留未保存的草稿。非空草稿里输入 `/`
+会暂存草稿并执行斜杠命令，结束后恢复同一草稿。提示编辑继续使用官方
+textarea：Enter 提交，Shift+Enter 或 Alt+Enter 插入换行，`/multiline`（别名
+`/ml`，终端能区分时也可用 Ctrl+M）对调这两个键。`/history` 模糊搜索已提交
+提示；空草稿上的 ↑/↓ 浏览历史且不发送。Tab 补全 `/` 命令，在 `!` shell 模式下
+补全 HISTFILE；Esc 取消补全并恢复原草稿。`/edit-prompt` 按 `$VISUAL`、
+`$EDITOR`、`vi` 打开空草稿；最小模式下 Ctrl+G 保留当前文本。保存只替换草稿，
+空文件会清空且不提交。`[ui] simple_mode = false` 启用提示 Vim（`i`/`Esc`/`h`/`l`/`x`），
+与 `/vim-mode` 的滚动区键位无关。下一提示幽灵文本（付费 suggestPrompt）本票
+未接线：回合结束后宿主不传入建议，因此 Tab 与 Right 不会接受幽灵文本。
+建议行保持阻塞，`PARITY-150-suggestions` 仍为未验证。`chips=false` 表示附件
+尚未载入，不是拒绝。中文/组合字符、大段粘贴、缩放
+和编辑器失败都会保留草稿。`/edit-prompt` 只打开空草稿；最小模式下 Ctrl+G
+保留当前文本。HISTFILE 的 Tab 补全在 `GROK_SUGGESTIONS` 关闭时仍可用；边输入
+边补全需 `GROK_SUGGESTIONS=true`。`GROK_SUGGESTIONS_AI` 此处不是已接线的 AI
+门控。
 
 预览的用户配置是 `$GROK_HOME/config.toml`（默认
 `~/.codsh-rust/.grok/config.toml`）。`[ui] theme`、紧凑模式、时间戳、状态行、

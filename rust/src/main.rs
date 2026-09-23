@@ -10,6 +10,7 @@ mod permission;
 mod plugin;
 mod privacy;
 mod privacy_cmd;
+mod prompt_edit;
 mod screen_mode;
 mod session_fork;
 mod session_history;
@@ -24,10 +25,12 @@ use acp::{AcpClient, AcpEvent, PendingPermission};
 use crossterm::cursor::{Hide, Show};
 use crossterm::event::{
     self, DisableBracketedPaste, DisableMouseCapture, EnableBracketedPaste, EnableMouseCapture,
-    Event, KeyCode, KeyEventKind, KeyModifiers, MouseEventKind,
+    Event, KeyCode, KeyEventKind, KeyModifiers, KeyboardEnhancementFlags, MouseEventKind,
+    PopKeyboardEnhancementFlags, PushKeyboardEnhancementFlags,
 };
 use crossterm::execute;
 use crossterm::terminal::{self, EnterAlternateScreen, LeaveAlternateScreen};
+use prompt_edit::{Action as PromptAction, HostContext, PromptComposer};
 use ratatui::{TerminalOptions, Viewport, backend::CrosstermBackend};
 use screen_mode::{
     GROK_SCREEN_MODE_ENV, MINIMAL_OVERLAY_HEIGHT, SCREEN_MODE_SWITCH_ENV, ScreenMode, SlashAction,
@@ -48,7 +51,6 @@ use std::time::{Duration, Instant};
 use xai_ratatui_inline::{
     Terminal, emit_to_scrollback, resize_purge_rerender, with_synchronized_output,
 };
-use xai_ratatui_textarea::TextArea;
 
 const UNAVAILABLE: &str = "Execution unavailable: dsh\nNot connected. Draft kept.";
 
@@ -66,10 +68,17 @@ impl TerminalGuard {
                 EnterAlternateScreen,
                 EnableBracketedPaste,
                 EnableMouseCapture,
+                PushKeyboardEnhancementFlags(KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES),
                 Hide
             )?;
         } else {
-            execute!(io::stdout(), EnableBracketedPaste, EnableMouseCapture, Show)?;
+            execute!(
+                io::stdout(),
+                EnableBracketedPaste,
+                EnableMouseCapture,
+                PushKeyboardEnhancementFlags(KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES),
+                Show
+            )?;
         }
         Ok(Self { alt })
     }
@@ -95,12 +104,69 @@ impl TerminalGuard {
         }
         Ok(())
     }
+
+    fn suspend(&mut self) -> io::Result<()> {
+        let _ = execute!(
+            io::stdout(),
+            PopKeyboardEnhancementFlags,
+            DisableMouseCapture,
+            DisableBracketedPaste,
+            Show
+        );
+        if self.alt {
+            let _ = execute!(io::stdout(), LeaveAlternateScreen);
+            self.alt = false;
+        }
+        terminal::disable_raw_mode()?;
+        io::stdout().flush()?;
+        Ok(())
+    }
+
+    fn resume(
+        &mut self,
+        terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
+        mode: ScreenMode,
+    ) -> io::Result<()> {
+        terminal::enable_raw_mode()?;
+        match mode {
+            ScreenMode::Fullscreen => {
+                execute!(
+                    io::stdout(),
+                    EnterAlternateScreen,
+                    EnableBracketedPaste,
+                    EnableMouseCapture,
+                    PushKeyboardEnhancementFlags(
+                        KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES,
+                    ),
+                    Hide
+                )?;
+                self.alt = true;
+                terminal.set_viewport(Viewport::Fullscreen)?;
+            }
+            ScreenMode::Minimal => {
+                execute!(
+                    io::stdout(),
+                    EnableBracketedPaste,
+                    EnableMouseCapture,
+                    PushKeyboardEnhancementFlags(
+                        KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES,
+                    ),
+                    Show
+                )?;
+                self.alt = false;
+                terminal.set_viewport(Viewport::Inline(MINIMAL_OVERLAY_HEIGHT))?;
+            }
+        }
+        terminal.clear()?;
+        Ok(())
+    }
 }
 
 impl Drop for TerminalGuard {
     fn drop(&mut self) {
         let _ = execute!(
             io::stdout(),
+            PopKeyboardEnhancementFlags,
             DisableMouseCapture,
             DisableBracketedPaste,
             Show
@@ -117,6 +183,7 @@ impl Drop for TerminalGuard {
 fn restore_terminal() {
     let _ = execute!(
         io::stdout(),
+        PopKeyboardEnhancementFlags,
         DisableMouseCapture,
         DisableBracketedPaste,
         Show,
@@ -1635,7 +1702,7 @@ fn overlay_notice(view: StatusView<'_>, turns: &[Turn]) -> String {
 fn paint(
     terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
     screen: ScreenMode,
-    draft: &TextArea,
+    composer: &PromptComposer,
     notice: &str,
     selected: Option<usize>,
     theme: &theme::Theme,
@@ -1643,18 +1710,28 @@ fn paint(
     ui_overlay: &mut UiOverlay,
     feedback_open: bool,
 ) -> io::Result<()> {
+    let title = composer.footer();
     terminal.draw(|frame| {
         if screen == ScreenMode::Minimal {
-            welcome::render_minimal(frame, draft, notice, selected, theme, feedback_open);
+            welcome::render_minimal(
+                frame,
+                &composer.draft,
+                notice,
+                selected,
+                theme,
+                feedback_open,
+                &title,
+            );
         } else {
             welcome::render(
                 frame,
-                draft,
+                &composer.draft,
                 notice,
                 selected,
                 theme,
                 compact,
                 feedback_open,
+                &title,
             );
         }
         settings_ui::render(frame, ui_overlay, theme, screen);
@@ -2364,7 +2441,7 @@ fn run() -> io::Result<()> {
         }
         LaunchMode::Help => {
             println!(
-                "codsh --rust\n\nIsolated Rust client. Real dsh executes turns over ACP/JSON-RPC stdio.\nHome: ~/.codsh-rust/dsh; Profile: rust. Legacy codsh is unchanged.\nUser config: $GROK_HOME/config.toml (default ~/.codsh-rust/.grok/config.toml), mapped into isolated dsh settings.yaml.\nManaged defaults: $GROK_HOME/managed_config.toml. Locked requirements: $GROK_HOME/requirements.toml (cannot be bypassed by later CLI, environment, overlay, workspace, or user values).\n`codsh --rust inspect` / `inspect --json` shows effective values, origins, folder trust, appearance/theme/status-line, marketplace sources, installed plugin provenance, and whether project assets are active. Invalid config.toml is left unchanged and reports its path. Unknown security fields and invalid policies are diagnosed with valid values, sources, and limits.\n`codsh --rust import --preview` lists conversions, conflicts, and unsupported items from current dsh `$DSH_HOME/settings.yaml`, `code-cli-thinking.json`, and `code-cli-ui.json`. It does not treat outdated `code-cli-settings.json` as a provider source. `--apply` copies selected providers/preferences into the isolated Home. Official tokens, `.credentials.yaml`, `.env`, and original trust/execution grants are never copied. Preview, cancel, and failed apply leave source files and existing isolated settings unchanged. Model credentials stay in the host environment (`--authorize-env`) or must be exported after import.\nWorkspace trust: untrusted folders prompt before applying project config, Hooks, plugins, or instructions; `--trust` / `--trust-folder [path]` saves a grant, `--revoke-trust` withdraws it. A read-only $GROK_HOME reports save failure without pretending the grant is durable. Untrusted Hooks/plugins/project capabilities do not execute.\nPlugin lifecycle: `codsh --rust plugin marketplace add|list|update|remove` and `plugin install|update|uninstall|list` record sources, versions, licenses, and files under the isolated Home. Install does not grant execution. Failed download/checksum/conflict/offline/cancel leave no success record. Official marketplace auto-register is off unless GROK_OFFICIAL_MARKETPLACE_AUTO_REGISTER is enabled. `/plugins` and `/marketplace` open the plugins directory. Uninstall does not delete unrelated user files.\nFirst-run missing credentials stay local: no grok.com login, no default official telemetry, no automatic import of ~/.dsh or ~/.grok credentials. `login` / `logout` / `setup` use configured substitute identity or management services; official grok.com / auth.x.ai login, subscription billing, auto-topup, and team entitlements are not reproduced. Session tokens stay in $GROK_HOME/auth.json (0600) and are not transferred to model providers, MCP, Grove, or other services. Independent API-key use does not require login unless GROK_DISABLE_API_KEY_AUTH or a team pin (GROK_FORCE_LOGIN_TEAM_ID / requirements force_login_team_uuid) requires a matching identity session. Unsigned or unverifiable managed policy is refused.  /login and /logout reuse that contract.\nFile read/edit/write and other dsh tools honour allow/ask/deny rules, remembered project grants, and permission modes. y allows once; a remembers this project only and is not a permanent global rule; n rejects with no write. /revoke-approvals forgets this project's remembered grants. Deny, hooks, and locked always-approve survive --always-approve/--yolo. Trust prompt: y=allow, n=deny.\nCtrl+Q/Ctrl+D: quit. Ctrl+C: clear a draft; empty draft cancels a running turn via dsh, or quits when idle before any turn.\nEsc never cancels a turn or a pending approval; it dismisses selection and reminds you to use Ctrl+C.\nEnter: submit prompt. /always-approve, /auto, and /ask set the session mode unless requirements.toml locks always-approve off. /feedback opens Write and Drafts; Enter on Write sends, Ctrl+S saves locally, and /feedback <text> sends immediately. Draft text is posted only when privacy.share_content is on. /settings (/config) edits appearance, default screen mode, timestamps, compact mode, and status line. /theme (/t) previews fullscreen themes; Escape restores the previous theme without saving. /compact-mode and /timestamps toggle persisted [ui] keys. Minimal mode uses the terminal palette and refuses /theme. Status-line scripts run with a 10s timeout, cleared BASH_ENV/ENV, and process-group cleanup on exit. Locked requirements show their source and cannot be edited.\n/minimal and /fullscreen switch render mode in process without restarting dsh; --minimal/--fullscreen and GROK_SCREEN_MODE are session-scoped and do not rewrite [ui] screen_mode. /model (/m) and /effort select advertised catalog options; unsupported backends/efforts are refused, never treated as equivalent or silently swapped. /context shows dsh occupancy, advertised model limits, and heuristic buckets without fabricating zeros. /compact [instruction] runs dsh compaction (not a second history); optional instructions go only to the summarizer request (purpose=compaction). Automatic compaction uses session.auto_compact_threshold_percent / GROK_AUTO_COMPACT_THRESHOLD_PERCENT mapped to dsh thresholdRatio. GROK_COMPACTION_WALL_CLOCK_SECS bounds the operation; 0 disables that budget. Runtime changes apply to the next turn and persist under $GROK_HOME/model-selection.toml. --continue resumes the last session in this directory; --resume <id> loads that dsh session. --fork-session with --resume/--continue copies conversation into a new session id. /rewind and /undo fork conversation-only history through dsh; files are not restored. /fork copies the current history into a new session. Idle empty Esc Esc opens rewind. A second client is refused while this process holds write ownership. Interrupted tools show [interrupted]/unknown and are not replayed.\nOptions: --help, --version, --continue, --resume <id>, --fork-session, --session-id <id>, --minimal, --fullscreen, --model <id>, --effort/--reasoning-effort <level>, --trust, --trust-folder [path], --revoke-trust, --always-approve/--yolo, --auto, --permission-mode <mode>, --allow/--deny <RULE>, inspect, import, plugin, feedback, login, logout, setup. --restore-code is refused.\nNonessential telemetry, trace upload, session tracking, and content sharing default off. Opt-in requires a substitute endpoints.telemetry_url / feedback_base_url / trace_upload_url; official grok.com, api.x.ai, and sentry hosts are refused. Diagnostic previews list kind/ok/count only and never prompts or keys. Model calls stay on the configured provider and are not telemetry. Locked requirements can force these switches off."
+                "codsh --rust\n\nIsolated Rust client. Real dsh executes turns over ACP/JSON-RPC stdio.\nHome: ~/.codsh-rust/dsh; Profile: rust. Legacy codsh is unchanged.\nUser config: $GROK_HOME/config.toml (default ~/.codsh-rust/.grok/config.toml), mapped into isolated dsh settings.yaml.\nManaged defaults: $GROK_HOME/managed_config.toml. Locked requirements: $GROK_HOME/requirements.toml (cannot be bypassed by later CLI, environment, overlay, workspace, or user values).\n`codsh --rust inspect` / `inspect --json` shows effective values, origins, folder trust, appearance/theme/status-line, marketplace sources, installed plugin provenance, and whether project assets are active. Invalid config.toml is left unchanged and reports its path. Unknown security fields and invalid policies are diagnosed with valid values, sources, and limits.\n`codsh --rust import --preview` lists conversions, conflicts, and unsupported items from current dsh `$DSH_HOME/settings.yaml`, `code-cli-thinking.json`, and `code-cli-ui.json`. It does not treat outdated `code-cli-settings.json` as a provider source. `--apply` copies selected providers/preferences into the isolated Home. Official tokens, `.credentials.yaml`, `.env`, and original trust/execution grants are never copied. Preview, cancel, and failed apply leave source files and existing isolated settings unchanged. Model credentials stay in the host environment (`--authorize-env`) or must be exported after import.\nWorkspace trust: untrusted folders prompt before applying project config, Hooks, plugins, or instructions; `--trust` / `--trust-folder [path]` saves a grant, `--revoke-trust` withdraws it. A read-only $GROK_HOME reports save failure without pretending the grant is durable. Untrusted Hooks/plugins/project capabilities do not execute.\nPlugin lifecycle: `codsh --rust plugin marketplace add|list|update|remove` and `plugin install|update|uninstall|list` record sources, versions, licenses, and files under the isolated Home. Install does not grant execution. Failed download/checksum/conflict/offline/cancel leave no success record. Official marketplace auto-register is off unless GROK_OFFICIAL_MARKETPLACE_AUTO_REGISTER is enabled. `/plugins` and `/marketplace` open the plugins directory. Uninstall does not delete unrelated user files.\nFirst-run missing credentials stay local: no grok.com login, no default official telemetry, no automatic import of ~/.dsh or ~/.grok credentials. `login` / `logout` / `setup` use configured substitute identity or management services; official grok.com / auth.x.ai login, subscription billing, auto-topup, and team entitlements are not reproduced. Session tokens stay in $GROK_HOME/auth.json (0600) and are not transferred to model providers, MCP, Grove, or other services. Independent API-key use does not require login unless GROK_DISABLE_API_KEY_AUTH or a team pin (GROK_FORCE_LOGIN_TEAM_ID / requirements force_login_team_uuid) requires a matching identity session. Unsigned or unverifiable managed policy is refused.  /login and /logout reuse that contract.\nFile read/edit/write and other dsh tools honour allow/ask/deny rules, remembered project grants, and permission modes. y allows once; a remembers this project only and is not a permanent global rule; n rejects with no write. /revoke-approvals forgets this project's remembered grants. Deny, hooks, and locked always-approve survive --always-approve/--yolo. Trust prompt: y=allow, n=deny.\nCtrl+Q/Ctrl+D: quit. Ctrl+C: clear a draft; empty draft cancels a running turn via dsh, or quits when idle before any turn.\nEsc never cancels a turn or a pending approval; it dismisses selection and reminds you to use Ctrl+C.\nEnter: submit prompt. Shift+Enter or Alt+Enter inserts a newline; /multiline (alias /ml) or Ctrl+M swaps those chords. /history searches submitted prompts; empty ↑ browses them. Tab/Esc drive slash and HISTFILE completion. Typing / in a nonempty draft inserts the character. /edit-prompt opens $VISUAL then $EDITOR then vi for an empty draft; Ctrl+G in minimal preserves the current draft. Saving an empty file clears without submitting. [ui] simple_mode=false enables prompt Vim (i/Esc/h/l/x). Next-prompt ghost text is not wired: the host does not call a suggestion provider, so Tab/Right do not accept ghost text. Suggestion rows stay blocked (PARITY-150-suggestions). chips=false does not mean an attachment was refused. /always-approve, /auto, and /ask set the session mode unless requirements.toml locks always-approve off. /feedback opens Write and Drafts; Enter on Write sends, Ctrl+S saves locally, and /feedback <text> sends immediately. Draft text is posted only when privacy.share_content is on. /settings (/config) edits appearance, default screen mode, timestamps, compact mode, and status line. /theme (/t) previews fullscreen themes; Escape restores the previous theme without saving. /compact-mode and /timestamps toggle persisted [ui] keys. Minimal mode uses the terminal palette and refuses /theme. Status-line scripts run with a 10s timeout, cleared BASH_ENV/ENV, and process-group cleanup on exit. Locked requirements show their source and cannot be edited.\n/minimal and /fullscreen switch render mode in process without restarting dsh; --minimal/--fullscreen and GROK_SCREEN_MODE are session-scoped and do not rewrite [ui] screen_mode. /model (/m) and /effort select advertised catalog options; unsupported backends/efforts are refused, never treated as equivalent or silently swapped. /context shows dsh occupancy, advertised model limits, and heuristic buckets without fabricating zeros. /compact [instruction] runs dsh compaction (not a second history); optional instructions go only to the summarizer request (purpose=compaction). Automatic compaction uses session.auto_compact_threshold_percent / GROK_AUTO_COMPACT_THRESHOLD_PERCENT mapped to dsh thresholdRatio. GROK_COMPACTION_WALL_CLOCK_SECS bounds the operation; 0 disables that budget. Runtime changes apply to the next turn and persist under $GROK_HOME/model-selection.toml. --continue resumes the last session in this directory; --resume <id> loads that dsh session. --fork-session with --resume/--continue copies conversation into a new session id. /rewind and /undo fork conversation-only history through dsh; files are not restored. /fork copies the current history into a new session. Idle empty Esc Esc opens rewind. A second client is refused while this process holds write ownership. Interrupted tools show [interrupted]/unknown and are not replayed.\nOptions: --help, --version, --continue, --resume <id>, --fork-session, --session-id <id>, --minimal, --fullscreen, --model <id>, --effort/--reasoning-effort <level>, --trust, --trust-folder [path], --revoke-trust, --always-approve/--yolo, --auto, --permission-mode <mode>, --allow/--deny <RULE>, inspect, import, plugin, feedback, login, logout, setup. --restore-code is refused.\nNonessential telemetry, trace upload, session tracking, and content sharing default off. Opt-in requires a substitute endpoints.telemetry_url / feedback_base_url / trace_upload_url; official grok.com, api.x.ai, and sentry hosts are refused. Diagnostic previews list kind/ok/count only and never prompts or keys. Model calls stay on the configured provider and are not telemetry. Locked requirements can force these switches off."
             );
             return Ok(());
         }
@@ -2530,12 +2607,21 @@ fn run() -> io::Result<()> {
     let mut guard = TerminalGuard::enter(screen)?;
     profile()?;
     let mut terminal = open_terminal(screen)?;
-    let mut draft = TextArea::new();
+    let mut effective = load_runtime_config(&launch);
+    let env_pairs: Vec<(String, String)> = std::env::vars().collect();
+    let mut composer = PromptComposer::load(&effective.grok_home, &env_pairs);
+    composer.simple_mode = effective.simple_mode;
+    composer.prompt_suggestions = effective.prompt_suggestions;
+    composer.vim = if composer.simple_mode {
+        prompt_edit::VimPrompt::Insert
+    } else {
+        prompt_edit::VimPrompt::Normal
+    };
     let connecting = format!("mode={}\nConnecting to dsh ACP…", screen.as_str());
     paint(
         &mut terminal,
         screen,
-        &draft,
+        &composer,
         &connecting,
         None,
         &theme::Theme::offline(),
@@ -2560,8 +2646,6 @@ fn run() -> io::Result<()> {
     let mut last_esc: Option<Instant> = None;
     let mut committed = 0usize;
     let mut history = String::new();
-    let mut composer_stash = String::new();
-    let mut effective = load_runtime_config(&launch);
     let mut prefs = session_fork::load_prefs(&effective.grok_home);
     let mut previous_ready = effective.ready;
     let startup = runtime_apply(&effective);
@@ -2631,6 +2715,7 @@ fn run() -> io::Result<()> {
     }
     while !stopping.load(Ordering::Relaxed) {
         let was_compacting = compacting;
+        let was_inflight = inflight;
         inspect_auto_compact = false;
         let disconnect = client.as_mut().and_then(|active| {
             apply_events(
@@ -2642,6 +2727,11 @@ fn run() -> io::Result<()> {
                 &mut inspect_auto_compact,
             )
         });
+        if was_inflight && !inflight && !compacting {
+            // No suggestion provider is connected. Passing Some here would
+            // paint ghost text that Tab/Right could accept without a real row.
+            composer.on_turn_finished(None);
+        }
         if was_compacting && !inflight {
             compacting = false;
             if let Some(session_id) = client.as_ref().and_then(|active| active.session_id.clone()) {
@@ -2774,10 +2864,19 @@ fn run() -> io::Result<()> {
         if let Overlay::Feedback(form) = &overlay {
             notice = feedback_overlay_text(&effective.dsh_home, client.as_ref(), form);
         }
+        if composer.overlay != prompt_edit::Overlay::None {
+            let rows = composer.overlay_text();
+            notice.push('\n');
+            notice.push_str(&rows.lines().take(3).collect::<Vec<_>>().join("\n"));
+        }
+        if screen == ScreenMode::Minimal && !shown_hint.is_empty() {
+            notice.push('\n');
+            notice.push_str(&shown_hint);
+        }
         paint(
             &mut terminal,
             screen,
-            &draft,
+            &composer,
             &notice,
             selected,
             &live_theme,
@@ -2824,9 +2923,15 @@ fn run() -> io::Result<()> {
                 if key.modifiers.contains(KeyModifiers::CONTROL)
                     && matches!(key.code, KeyCode::Char('c'))
                 {
-                    if !draft.is_empty() || !composer_stash.is_empty() {
-                        draft.set_text("");
-                        composer_stash.clear();
+                    if !composer.is_empty() {
+                        if !composer.text().is_empty() {
+                            let discarded = composer.text().to_string();
+                            composer.record_history(&discarded);
+                        }
+                        composer.set_text("");
+                        composer.slash_stash.clear();
+                        composer.stash.clear();
+                        composer.overlay = prompt_edit::Overlay::None;
                         selected = None;
                         hint.clear();
                         continue;
@@ -3068,7 +3173,7 @@ fn run() -> io::Result<()> {
                                             overlay = Overlay::None;
                                             hint = message;
                                             last_error.clear();
-                                            draft.set_text("");
+                                            composer.set_text("");
                                             if let Err(error) = reset_native_history_after_switch(
                                                 &mut terminal,
                                                 screen,
@@ -3109,7 +3214,7 @@ fn run() -> io::Result<()> {
                                             overlay = Overlay::None;
                                             hint = message;
                                             last_error.clear();
-                                            draft.set_text("");
+                                            composer.set_text("");
                                             if let Err(error) = reset_native_history_after_switch(
                                                 &mut terminal,
                                                 screen,
@@ -3147,7 +3252,7 @@ fn run() -> io::Result<()> {
                                             overlay = Overlay::None;
                                             hint = message;
                                             last_error.clear();
-                                            draft.set_text("");
+                                            composer.set_text("");
                                             if let Err(error) = reset_native_history_after_switch(
                                                 &mut terminal,
                                                 screen,
@@ -3176,7 +3281,7 @@ fn run() -> io::Result<()> {
                 if let (Some(turn), Some(active)) = (turns.last_mut(), client.as_mut())
                     && let Some(permission) = turn.permission.clone()
                     && key.modifiers.is_empty()
-                    && draft.is_empty()
+                    && composer.is_empty()
                 {
                     let option = match key.code {
                         KeyCode::Char('y') | KeyCode::Enter => Some(("allow-once", false)),
@@ -3207,12 +3312,22 @@ fn run() -> io::Result<()> {
                 }
                 match key.code {
                     KeyCode::Esc => {
+                        let host = HostContext {
+                            inflight,
+                            minimal: screen == ScreenMode::Minimal,
+                        };
+                        if !matches!(composer.handle_key(key, host), PromptAction::Unhandled) {
+                            if !composer.footer_notice.is_empty() {
+                                hint = std::mem::take(&mut composer.footer_notice);
+                            }
+                            continue;
+                        }
                         selected = None;
                         if inflight && !turns.last().is_some_and(|turn| turn.cancelling) {
                             hint = "Press Ctrl+C to cancel the turn".into();
                             last_esc = None;
                         } else if !inflight
-                            && draft.is_empty()
+                            && composer.is_empty()
                             && !turns.is_empty()
                             && last_esc.is_some_and(|at| at.elapsed() <= Duration::from_millis(800))
                         {
@@ -3236,703 +3351,319 @@ fn run() -> io::Result<()> {
                             last_esc = Some(Instant::now());
                         }
                     }
-                    KeyCode::Tab => selected = Some((selected.unwrap_or(2) + 1) % 3),
+                    KeyCode::Tab => {
+                        let host = HostContext {
+                            inflight,
+                            minimal: screen == ScreenMode::Minimal,
+                        };
+                        if matches!(composer.handle_key(key, host), PromptAction::None)
+                            && !composer.footer_notice.is_empty()
+                        {
+                            hint = std::mem::take(&mut composer.footer_notice);
+                        }
+                    }
                     KeyCode::Enter if key.modifiers.is_empty() => match selected {
                         Some(2) => break,
                         Some(1) => {
-                            draft.set_text("");
-                            composer_stash.clear();
+                            composer.set_text("");
+                            composer.slash_stash.clear();
                         }
                         _ => {
-                            let text = draft.text();
-                            if text.trim() == "/revoke-approvals" {
-                                let restored = std::mem::take(&mut composer_stash);
-                                draft.set_text(&restored);
-                                selected = None;
-                                match revoke_remembered_grants(&mut effective) {
-                                    Ok(message) => {
-                                        hint = message;
-                                        last_error.clear();
+                            let host = HostContext {
+                                inflight,
+                                minimal: screen == ScreenMode::Minimal,
+                            };
+                            match composer.handle_key(key, host) {
+                                PromptAction::None => {
+                                    if !composer.footer_notice.is_empty() {
+                                        hint = std::mem::take(&mut composer.footer_notice);
                                     }
-                                    Err(error) => last_error = error,
+                                    continue;
                                 }
-                                continue;
-                            }
-                            if let Some(mode_command) = permission_slash(text.trim()) {
-                                let restored = std::mem::take(&mut composer_stash);
-                                draft.set_text(&restored);
-                                selected = None;
-                                match apply_session_permission_mode(&mut effective, mode_command) {
-                                    Ok(message) => {
-                                        let applied = runtime_apply(&effective);
-                                        if applied.apply_failed {
-                                            last_error = applied.error;
-                                        } else {
-                                            extra_env = applied.extra_env;
-                                            patch = applied.patch;
-                                            hint = message;
-                                            last_error.clear();
-                                        }
-                                    }
-                                    Err(error) => last_error = error,
-                                }
-                                continue;
-                            }
-                            if let Some(command) = appearance::slash(text) {
-                                let restored = std::mem::take(&mut composer_stash);
-                                draft.set_text(&restored);
-                                selected = None;
-                                match command {
-                                    appearance::AppearanceSlash::Settings => {
-                                        ui_overlay = UiOverlay::Settings(SettingsState::open(
-                                            &effective.appearance,
-                                            screen,
-                                        ));
-                                        hint.clear();
-                                    }
-                                    appearance::AppearanceSlash::Theme(args) => {
-                                        if screen == ScreenMode::Minimal {
-                                            hint = appearance::minimal_theme_refuse().into();
-                                        } else if args.is_empty() {
-                                            ui_overlay = UiOverlay::Theme(ThemeState::open(
-                                                &effective.appearance,
-                                            ));
-                                            hint.clear();
-                                            apply_overlay_action(
-                                                OverlayAction::PreviewTheme(
-                                                    if let UiOverlay::Theme(state) = &ui_overlay {
-                                                        state.current()
-                                                    } else {
-                                                        live_theme_kind
-                                                    },
-                                                ),
-                                                &mut effective,
-                                                &mut live_theme_kind,
-                                                &mut live_theme,
-                                                screen,
-                                                &mut hint,
-                                                &mut last_error,
-                                                &mut status_runtime,
-                                                &mut prefs,
-                                                &mut ui_overlay,
-                                            );
-                                        } else {
-                                            match appearance::apply_setting(
-                                                &mut effective.appearance,
-                                                "ui.theme",
-                                                &args,
-                                            ) {
-                                                Ok(encoded) => {
-                                                    match persist_appearance(
-                                                        &effective, "ui.theme", &encoded,
-                                                    ) {
-                                                        Ok(()) => {
-                                                            live_theme_kind = effective
-                                                                .appearance
-                                                                .resolved_kind(screen);
-                                                            live_theme = effective
-                                                                .appearance
-                                                                .resolved_theme(screen);
-                                                            apply_cursor_color(&live_theme);
-                                                            hint = format!(
-                                                                "theme = {}",
-                                                                effective
-                                                                    .appearance
-                                                                    .theme
-                                                                    .display_name()
-                                                            );
-                                                            last_error.clear();
-                                                        }
-                                                        Err(error) => last_error = error,
-                                                    }
-                                                }
-                                                Err(error) => last_error = error,
-                                            }
-                                        }
-                                    }
-                                    appearance::AppearanceSlash::ToggleCompact => {
-                                        let next = !effective.appearance.compact_mode;
-                                        match appearance::apply_setting(
-                                            &mut effective.appearance,
-                                            "ui.compact_mode",
-                                            if next { "true" } else { "false" },
-                                        ) {
-                                            Ok(encoded) => {
-                                                match persist_appearance(
-                                                    &effective,
-                                                    "ui.compact_mode",
-                                                    &encoded,
-                                                ) {
-                                                    Ok(()) => {
-                                                        hint = format!(
-                                                            "compact_mode {}",
-                                                            if next { "on" } else { "off" }
-                                                        );
-                                                        last_error.clear();
-                                                    }
-                                                    Err(error) => last_error = error,
-                                                }
-                                            }
-                                            Err(error) => last_error = error,
-                                        }
-                                    }
-                                    appearance::AppearanceSlash::ToggleTimestamps => {
-                                        let next = !effective.appearance.show_timestamps;
-                                        match appearance::apply_setting(
-                                            &mut effective.appearance,
-                                            "ui.show_timestamps",
-                                            if next { "true" } else { "false" },
-                                        ) {
-                                            Ok(encoded) => {
-                                                match persist_appearance(
-                                                    &effective,
-                                                    "ui.show_timestamps",
-                                                    &encoded,
-                                                ) {
-                                                    Ok(()) => {
-                                                        hint = format!(
-                                                            "timestamps {}",
-                                                            if next { "on" } else { "off" }
-                                                        );
-                                                        last_error.clear();
-                                                    }
-                                                    Err(error) => last_error = error,
-                                                }
-                                            }
-                                            Err(error) => last_error = error,
-                                        }
-                                    }
-                                    appearance::AppearanceSlash::Help => {
-                                        hint = settings_ui::help_text().into();
-                                    }
-                                    appearance::AppearanceSlash::Unavailable(message) => {
-                                        hint = message;
-                                    }
-                                }
-                                continue;
-                            }
-                            if let Some(action) = screen_mode::slash_action(text) {
-                                let restored = std::mem::take(&mut composer_stash);
-                                draft.set_text(&restored);
-                                selected = None;
-                                match action {
-                                    SlashAction::Switch(target) if target == screen => {
-                                        hint = format!("Already in {} mode.", screen.as_str());
-                                    }
-                                    SlashAction::Switch(target) => {
-                                        if policy == SwitchPolicy::Exec {
-                                            let session_id = client
-                                                .as_ref()
-                                                .and_then(|active| active.session_id.clone())
-                                                .or_else(|| previous_session.clone());
-                                            let Some(session_id) = session_id else {
-                                                hint = screen_mode::exec_failure_message(
-                                                    None,
-                                                    target,
-                                                    "no session",
-                                                );
-                                                continue;
-                                            };
-                                            drop_connection(&mut client, &mut owner);
+                                PromptAction::Slash(command) => {
+                                    selected = None;
+                                    let dispatch_result = dispatch_composer_command(
+                                        &command,
+                                        &mut client,
+                                        &mut owner,
+                                        &mut turns,
+                                        &mut inflight,
+                                        &mut compacting,
+                                        &mut overlay,
+                                        &mut ui_overlay,
+                                        &mut hint,
+                                        &mut last_error,
+                                        &mut effective,
+                                        &mut extra_env,
+                                        &mut patch,
+                                        &mut apply_failed,
+                                        &mut previous_ready,
+                                        &mut selection_ready,
+                                        &mut resumed,
+                                        &mut previous_session,
+                                        &mut terminal,
+                                        &mut guard,
+                                        screen,
+                                        &mut committed,
+                                        &mut history,
+                                        &launch,
+                                        &mode,
+                                        &mut prefs,
+                                        &meter,
+                                        policy,
+                                        &mut live_theme_kind,
+                                        &mut live_theme,
+                                        &mut status_runtime,
+                                        &mut composer,
+                                    );
+                                    if let Err(error) = dispatch_result {
+                                        if let Some(rest) =
+                                            error.to_string().strip_prefix("CODSH_SCREEN_RELAUNCH:")
+                                        {
+                                            let mut parts = rest.splitn(2, ':');
+                                            let session_id = parts.next().unwrap_or("");
+                                            let target = screen_mode::ScreenMode::parse(
+                                                parts.next().unwrap_or("minimal"),
+                                            )
+                                            .unwrap_or(screen_mode::ScreenMode::Minimal);
                                             drop(terminal);
                                             drop(guard);
                                             restore_terminal();
-                                            return Err(relaunch_exec(&session_id, target));
+                                            return Err(relaunch_exec(session_id, target));
                                         }
-                                        guard.apply(&mut terminal, target)?;
-                                        if target == ScreenMode::Minimal {
-                                            commit_completed_turns(
-                                                &mut terminal,
-                                                &turns,
-                                                &mut committed,
-                                                &mut history,
-                                                Some(target.switch_marker()),
-                                            )?;
-                                            hint.clear();
-                                        } else {
-                                            hint = target.switch_marker().into();
-                                        }
-                                        screen = target;
-                                        live_theme_kind =
-                                            effective.appearance.resolved_kind(screen);
-                                        live_theme = effective.appearance.resolved_theme(screen);
-                                        apply_cursor_color(&live_theme);
-                                        last_error.clear();
+                                        return Err(error);
                                     }
-                                    refuse @ SlashAction::Refuse(_) => {
-                                        if let Some(message) =
-                                            screen_mode::mode_command_message(screen, refuse)
-                                        {
-                                            hint = message;
-                                        }
-                                    }
-                                }
-                                continue;
-                            }
-                            composer_stash.clear();
-                            let trimmed = text.trim();
-                            if trimmed == "/plugins" || trimmed == "/marketplace" {
-                                overlay = Overlay::Plugins(plugin::new_overlay(
-                                    if trimmed == "/marketplace" {
-                                        plugin::PluginTab::Marketplace
+                                    screen = if guard.alt {
+                                        ScreenMode::Fullscreen
                                     } else {
-                                        plugin::PluginTab::Plugins
-                                    },
-                                ));
-                                draft.set_text("");
-                                last_error.clear();
-                                hint.clear();
-                                continue;
-                            }
-                            if session_fork::is_conversation_slash(trimmed) {
-                                if inflight {
-                                    last_error = session_fork::running_turn_error();
-                                    draft.set_text("");
-                                    continue;
-                                }
-                                if client.is_none() {
-                                    last_error = "not connected".into();
-                                    continue;
-                                }
-                                if trimmed.starts_with("/fork") {
-                                    match session_fork::parse_fork_slash(trimmed) {
-                                        Err(error) => {
-                                            last_error = error;
-                                            draft.set_text("");
-                                        }
-                                        Ok(fork) => {
-                                            if let Some(active) = client.as_mut() {
-                                                match commit_fork(
-                                                    active,
-                                                    &mut owner,
-                                                    &mut turns,
-                                                    &mut inflight,
-                                                    &effective.dsh_home,
-                                                    &effective.cwd,
-                                                    &prefs,
-                                                    fork.directive.as_deref(),
-                                                    &mut resumed,
-                                                    &mut previous_session,
-                                                ) {
-                                                    Ok(message) => {
-                                                        hint = message;
-                                                        last_error.clear();
-                                                        draft.set_text("");
-                                                        if let Err(error) =
-                                                            reset_native_history_after_switch(
-                                                                &mut terminal,
-                                                                screen,
-                                                                &mut committed,
-                                                                &mut history,
-                                                            )
-                                                        {
-                                                            last_error = error.to_string();
-                                                        }
-                                                    }
-                                                    Err(error) => last_error = error,
-                                                }
-                                            }
-                                        }
-                                    }
-                                    continue;
-                                }
-                                let rest = trimmed
-                                    .trim_start_matches("/rewind")
-                                    .trim_start_matches("/undo")
-                                    .trim();
-                                let Some(session_id) =
-                                    client.as_ref().and_then(|active| active.session_id.clone())
-                                else {
-                                    last_error = "ACP session is not ready".into();
-                                    continue;
-                                };
-                                match session_fork::list_points(&effective.dsh_home, &session_id) {
-                                    Ok(points) if points.is_empty() => {
-                                        hint = "no turns to rewind yet".into();
-                                        draft.set_text("");
-                                    }
-                                    Ok(points) => {
-                                        if rest.is_empty() {
-                                            let mut newest = points;
-                                            newest.reverse();
-                                            overlay = Overlay::RewindPick {
-                                                points: newest,
-                                                cursor: 0,
-                                            };
-                                            draft.set_text("");
-                                            hint.clear();
-                                        } else if let Ok(turn) = rest.parse::<u32>() {
-                                            if let Some(point) =
-                                                points.into_iter().find(|point| point.turn == turn)
-                                            {
-                                                if prefs.confirm_before_rewind {
-                                                    overlay = Overlay::RewindConfirm { point };
-                                                    draft.set_text("");
-                                                } else if let Some(active) = client.as_mut() {
-                                                    match commit_rewind(
-                                                        active,
-                                                        &mut owner,
-                                                        &mut turns,
-                                                        &effective.dsh_home,
-                                                        &effective.cwd,
-                                                        &point,
-                                                        &mut resumed,
-                                                        &mut previous_session,
-                                                    ) {
-                                                        Ok(message) => {
-                                                            hint = message;
-                                                            last_error.clear();
-                                                            draft.set_text("");
-                                                            if let Err(error) =
-                                                                reset_native_history_after_switch(
-                                                                    &mut terminal,
-                                                                    screen,
-                                                                    &mut committed,
-                                                                    &mut history,
-                                                                )
-                                                            {
-                                                                last_error = error.to_string();
-                                                            }
-                                                        }
-                                                        Err(error) => last_error = error,
-                                                    }
-                                                }
-                                            } else {
-                                                last_error = "turn must be between 1 and the latest rewind point"
-                                                    .into();
-                                            }
-                                        } else {
-                                            last_error = "turn must be a positive integer".into();
-                                        }
-                                    }
-                                    Err(error) => last_error = error.message,
-                                }
-                                continue;
-                            }
-                            let slash = models::parse_slash(trimmed);
-                            if inflight && slash.is_none() {
-                                continue;
-                            }
-                            if let Some(models::Command::Feedback { rest }) = slash.clone() {
-                                let session_id = feedback_session_id(client.as_ref());
-                                if let Some(message) = feedback_ui::immediate_message(&rest) {
-                                    let policy = privacy::PrivacyPolicy::from_config(&effective);
-                                    let slash_log =
-                                        privacy_cmd::debug_log_path(&effective.dsh_home);
-                                    let command = privacy_cmd::FeedbackCommand::Save {
-                                        session: session_id,
-                                        title: message.chars().take(80).collect(),
-                                        details: message,
-                                        area: None,
-                                        kind: privacy::FeedbackType::Bug,
-                                        task_category: None,
-                                        failure_mode: None,
-                                        send: true,
+                                        ScreenMode::Minimal
                                     };
-                                    match privacy_cmd::run(
-                                        &command,
-                                        &effective.dsh_home,
-                                        &policy,
-                                        slash_log.as_deref(),
+                                    live_theme_kind = effective.appearance.resolved_kind(screen);
+                                    live_theme = effective.appearance.resolved_theme(screen);
+                                    continue;
+                                }
+                                PromptAction::Submit(text) => {
+                                    selected = None;
+                                    if !text.trim().is_empty() {
+                                        submit_composer_prompt(
+                                            &text,
+                                            &mut client,
+                                            &mut owner,
+                                            &mut turns,
+                                            &mut inflight,
+                                            &mut last_error,
+                                            &mut effective,
+                                            &mut extra_env,
+                                            &mut patch,
+                                            &mut apply_failed,
+                                            &mut previous_ready,
+                                            &mut selection_ready,
+                                            &mut resumed,
+                                            &mut previous_session,
+                                            &launch,
+                                            &mode,
+                                            &mut composer,
+                                        );
+                                    }
+                                    continue;
+                                }
+                                PromptAction::External { preserve } => {
+                                    selected = None;
+                                    let kept = composer.text().to_string();
+                                    match run_external_prompt_edit(
+                                        &mut terminal,
+                                        &mut guard,
+                                        screen,
+                                        &composer,
+                                        preserve,
                                     ) {
-                                        Ok(message) => {
-                                            hint = message;
+                                        Ok(Some(saved)) => {
+                                            composer.set_text(&saved);
+                                            hint = if saved.is_empty() {
+                                                "external editor cleared the draft".into()
+                                            } else {
+                                                "external editor updated the draft".into()
+                                            };
                                             last_error.clear();
                                         }
-                                        Err(error) => last_error = error.to_string(),
-                                    }
-                                } else if rest.trim().is_empty() {
-                                    overlay = Overlay::Feedback(feedback_ui::FeedbackForm::open());
-                                    hint.clear();
-                                    last_error.clear();
-                                } else {
-                                    let mut argv = vec!["feedback".into()];
-                                    argv.extend(rest.split_whitespace().map(str::to_string));
-                                    if !argv.iter().any(|arg| arg == "--session") {
-                                        argv.push("--session".into());
-                                        argv.push(session_id);
-                                    }
-                                    match privacy_cmd::parse_feedback(&argv[1..]) {
-                                        Ok(command) => {
-                                            let policy =
-                                                privacy::PrivacyPolicy::from_config(&effective);
-                                            let slash_log =
-                                                privacy_cmd::debug_log_path(&effective.dsh_home);
-                                            match privacy_cmd::run(
-                                                &command,
-                                                &effective.dsh_home,
-                                                &policy,
-                                                slash_log.as_deref(),
-                                            ) {
-                                                Ok(message) => {
-                                                    hint = message;
-                                                    last_error.clear();
-                                                }
-                                                Err(error) => last_error = error.to_string(),
-                                            }
-                                        }
-                                        Err(error) => last_error = error.to_string(),
-                                    }
-                                }
-                                draft.set_text("");
-                                continue;
-                            }
-                            if matches!(
-                                slash,
-                                Some(models::Command::Login | models::Command::Logout)
-                            ) {
-                                match handle_slash_command(
-                                    slash.clone().unwrap(),
-                                    &mut effective,
-                                    client.as_mut(),
-                                    inflight,
-                                ) {
-                                    Ok(message) => {
-                                        hint = message;
-                                        last_error.clear();
-                                        let was_ready = previous_ready;
-                                        let previous_env = extra_env.clone();
-                                        let previous_patch_body = patch
-                                            .as_deref()
-                                            .and_then(|path| std::fs::read_to_string(path).ok());
-                                        effective = load_runtime_config(&launch);
-                                        let applied = runtime_apply(&effective);
-                                        let replace = slash_reload_replaces_client(
-                                            &previous_env,
-                                            was_ready,
-                                            previous_patch_body.as_deref(),
-                                            &applied,
-                                            effective.ready,
-                                        );
-                                        extra_env = applied.extra_env;
-                                        if applied.apply_failed {
-                                            last_error = applied.error;
-                                            apply_failed = true;
-                                        } else {
-                                            patch = applied.patch;
-                                            apply_failed = false;
-                                            if replace {
-                                                drop_connection(&mut client, &mut owner);
-                                            }
-                                        }
-                                        previous_ready = effective.ready;
-                                        if client.is_none()
-                                            && !can_execute(&effective, apply_failed)
-                                        {
-                                            if last_error.is_empty() {
-                                                last_error = effective.first_run_message();
-                                            }
-                                        } else if client.is_none()
-                                            && can_execute(&effective, apply_failed)
-                                        {
-                                            let mut live = LiveSession {
-                                                client: &mut client,
-                                                owner: &mut owner,
-                                                turns: &mut turns,
-                                                resumed: &mut resumed,
-                                                previous_session: &mut previous_session,
-                                                selection_ready: &mut selection_ready,
-                                                last_error: &mut last_error,
-                                            };
-                                            if let Err(error) = open_live_session(
-                                                &mode,
-                                                &extra_env,
-                                                patch.as_ref(),
-                                                &effective,
-                                                &mut live,
-                                            ) {
-                                                last_error = error;
-                                            }
+                                        Ok(None) => {}
+                                        Err(error) => {
+                                            composer.set_text(&kept);
+                                            last_error = error;
                                         }
                                     }
-                                    Err(error) => last_error = error,
-                                }
-                                draft.set_text("");
-                                continue;
-                            }
-                            if client.is_none() {
-                                effective = load_runtime_config(&launch);
-                                let applied = runtime_apply(&effective);
-                                extra_env = applied.extra_env;
-                                previous_ready = effective.ready;
-                                if applied.apply_failed {
-                                    last_error = applied.error;
                                     continue;
                                 }
-                                patch = applied.patch;
-                                apply_failed = false;
-                                if !can_execute(&effective, apply_failed) {
-                                    last_error = effective.first_run_message();
-                                    continue;
-                                }
-                                let mut live = LiveSession {
-                                    client: &mut client,
-                                    owner: &mut owner,
-                                    turns: &mut turns,
-                                    resumed: &mut resumed,
-                                    previous_session: &mut previous_session,
-                                    selection_ready: &mut selection_ready,
-                                    last_error: &mut last_error,
-                                };
-                                if let Err(error) = open_live_session(
-                                    &mode,
-                                    &extra_env,
-                                    patch.as_ref(),
-                                    &effective,
-                                    &mut live,
-                                ) {
-                                    last_error = error;
-                                    continue;
-                                }
-                            }
-                            if text.trim().is_empty() {
-                                continue;
-                            }
-                            if let Some(command) = slash {
-                                match command {
-                                    models::Command::Context => {
-                                        let routing = live_routing(client.as_ref(), &effective);
-                                        let breakdown = client
-                                            .as_ref()
-                                            .and_then(|active| active.session_id.as_ref())
-                                            .and_then(|session_id| {
-                                                session_history::load_session(
-                                                    &effective.dsh_home,
-                                                    session_id,
-                                                )
-                                                .ok()
-                                                .and_then(|session| session.breakdown)
-                                            })
-                                            .map(|item| models::ContextBreakdown {
-                                                system: item.system,
-                                                tools: item.tools,
-                                                messages: item.messages,
-                                            });
-                                        hint = models::context_report(
-                                            meter.used,
-                                            routing
-                                                .as_ref()
-                                                .and_then(|item| item.advertised_context),
-                                            meter.size,
-                                            breakdown.as_ref(),
-                                        );
-                                        last_error.clear();
-                                        draft.set_text("");
-                                        continue;
-                                    }
-                                    models::Command::Compact { instruction } => {
-                                        if inflight {
-                                            last_error = "Compaction is unavailable because this process has an active compaction, or the agent is not idle.".into();
-                                            draft.set_text("");
-                                            continue;
-                                        }
-                                        let prompt = match instruction {
-                                            Some(text) => format!("/compact {text}"),
-                                            None => "/compact".into(),
-                                        };
-                                        if let Some(active) = client.as_mut() {
-                                            match active.submit_prompt(&prompt) {
-                                                Ok(_) => {
-                                                    hint = "✂ compacting history…".into();
-                                                    inflight = true;
-                                                    compacting = true;
-                                                    last_error.clear();
-                                                }
-                                                Err(error) => last_error = error.message,
-                                            }
-                                        } else {
-                                            last_error = UNAVAILABLE.trim().to_string();
-                                        }
-                                        draft.set_text("");
-                                        continue;
-                                    }
-                                    other => {
-                                        match handle_slash_command(
-                                            other,
-                                            &mut effective,
-                                            client.as_mut(),
-                                            inflight,
-                                        ) {
-                                            Ok(message) => {
-                                                if message.starts_with("Selected ") {
-                                                    selection_ready = true;
-                                                }
-                                                hint = message;
-                                                last_error.clear();
-                                            }
-                                            Err(error) => last_error = error,
-                                        }
-                                        draft.set_text("");
-                                        continue;
-                                    }
-                                }
-                            }
-                            if inflight {
-                                continue;
-                            }
-                            if !turn_allowed(selection_ready) {
-                                if last_error.is_empty() {
-                                    last_error = "configured model was not applied; no silent provider fallback".into();
-                                }
-                                continue;
-                            }
-                            if owner.as_ref().is_some_and(|held| !held.still_held()) {
-                                last_error = format!(
-                                    "Write owner refused: session {} is no longer owned by this client.",
-                                    owner
-                                        .as_ref()
-                                        .map(|held| held.session_id.as_str())
-                                        .unwrap_or("unknown")
-                                );
-                                drop_connection(&mut client, &mut owner);
-                                continue;
-                            }
-                            if let Some(active) = client.as_mut() {
-                                match active.submit_prompt(text) {
-                                    Ok(_) => {
-                                        turns.push(Turn {
-                                            user: text.to_string(),
-                                            thought: String::new(),
-                                            answer: String::new(),
-                                            error: None,
-                                            message_id: None,
-                                            tools: Vec::new(),
-                                            permission: None,
-                                            done: false,
-                                            cancelling: false,
-                                            cancelled: false,
-                                            interrupted: false,
-                                            compacted: false,
-                                            compaction: None,
-                                            timestamp: Some(clock_stamp()),
-                                        });
-                                        draft.set_text("");
-                                        inflight = true;
-                                        last_error.clear();
-                                    }
-                                    Err(error) => last_error = error.message,
-                                }
+                                PromptAction::Unhandled => continue,
                             }
                         }
                     },
                     _ => {
-                        selected = None;
-                        if key.modifiers.is_empty()
-                            && key.code == KeyCode::Char('/')
-                            && !draft.is_empty()
-                            && !draft.text().starts_with('/')
-                        {
-                            composer_stash = draft.text().to_string();
-                            draft.set_text("/");
-                        } else {
-                            draft.input(key);
+                        let host = HostContext {
+                            inflight,
+                            minimal: screen == ScreenMode::Minimal,
+                        };
+                        match composer.handle_key(key, host) {
+                            PromptAction::None => {
+                                if !composer.footer_notice.is_empty() {
+                                    hint = std::mem::take(&mut composer.footer_notice);
+                                }
+                            }
+                            PromptAction::Unhandled => {
+                                selected = None;
+                                if inflight && !turns.last().is_some_and(|turn| turn.cancelling) {
+                                    hint = "Press Ctrl+C to cancel the turn".into();
+                                    last_esc = None;
+                                } else if !inflight
+                                    && composer.is_empty()
+                                    && !turns.is_empty()
+                                    && last_esc.is_some_and(|at| {
+                                        at.elapsed() <= Duration::from_millis(800)
+                                    })
+                                {
+                                    last_esc = None;
+                                    if let Some(session_id) =
+                                        client.as_ref().and_then(|active| active.session_id.clone())
+                                    {
+                                        match session_fork::list_points(
+                                            &effective.dsh_home,
+                                            &session_id,
+                                        ) {
+                                            Ok(points) if points.is_empty() => {
+                                                hint = "no turns to rewind yet".into();
+                                            }
+                                            Ok(mut points) => {
+                                                points.reverse();
+                                                overlay = Overlay::RewindPick { points, cursor: 0 };
+                                                hint.clear();
+                                            }
+                                            Err(error) => last_error = error.message,
+                                        }
+                                    }
+                                } else {
+                                    last_esc = Some(Instant::now());
+                                }
+                            }
+                            PromptAction::Slash(command) => {
+                                selected = None;
+
+                                let dispatch_result = dispatch_composer_command(
+                                    &command,
+                                    &mut client,
+                                    &mut owner,
+                                    &mut turns,
+                                    &mut inflight,
+                                    &mut compacting,
+                                    &mut overlay,
+                                    &mut ui_overlay,
+                                    &mut hint,
+                                    &mut last_error,
+                                    &mut effective,
+                                    &mut extra_env,
+                                    &mut patch,
+                                    &mut apply_failed,
+                                    &mut previous_ready,
+                                    &mut selection_ready,
+                                    &mut resumed,
+                                    &mut previous_session,
+                                    &mut terminal,
+                                    &mut guard,
+                                    screen,
+                                    &mut committed,
+                                    &mut history,
+                                    &launch,
+                                    &mode,
+                                    &mut prefs,
+                                    &meter,
+                                    policy,
+                                    &mut live_theme_kind,
+                                    &mut live_theme,
+                                    &mut status_runtime,
+                                    &mut composer,
+                                );
+                                if let Err(error) = dispatch_result {
+                                    if let Some(rest) =
+                                        error.to_string().strip_prefix("CODSH_SCREEN_RELAUNCH:")
+                                    {
+                                        let mut parts = rest.splitn(2, ':');
+                                        let session_id = parts.next().unwrap_or("");
+                                        let target = screen_mode::ScreenMode::parse(
+                                            parts.next().unwrap_or("minimal"),
+                                        )
+                                        .unwrap_or(screen_mode::ScreenMode::Minimal);
+                                        drop(terminal);
+                                        drop(guard);
+                                        restore_terminal();
+                                        return Err(relaunch_exec(session_id, target));
+                                    }
+                                    return Err(error);
+                                }
+                                screen = if guard.alt {
+                                    ScreenMode::Fullscreen
+                                } else {
+                                    ScreenMode::Minimal
+                                };
+                                live_theme_kind = effective.appearance.resolved_kind(screen);
+                                live_theme = effective.appearance.resolved_theme(screen);
+                            }
+                            PromptAction::Submit(text) => {
+                                selected = None;
+                                if text.trim().is_empty() {
+                                    continue;
+                                }
+                                submit_composer_prompt(
+                                    &text,
+                                    &mut client,
+                                    &mut owner,
+                                    &mut turns,
+                                    &mut inflight,
+                                    &mut last_error,
+                                    &mut effective,
+                                    &mut extra_env,
+                                    &mut patch,
+                                    &mut apply_failed,
+                                    &mut previous_ready,
+                                    &mut selection_ready,
+                                    &mut resumed,
+                                    &mut previous_session,
+                                    &launch,
+                                    &mode,
+                                    &mut composer,
+                                );
+                            }
+                            PromptAction::External { preserve } => {
+                                selected = None;
+                                let kept = composer.text().to_string();
+                                match run_external_prompt_edit(
+                                    &mut terminal,
+                                    &mut guard,
+                                    screen,
+                                    &composer,
+                                    preserve,
+                                ) {
+                                    Ok(Some(saved)) => {
+                                        composer.set_text(&saved);
+                                        hint = if saved.is_empty() {
+                                            "external editor cleared the draft".into()
+                                        } else {
+                                            "external editor updated the draft".into()
+                                        };
+                                        last_error.clear();
+                                    }
+                                    Ok(None) => {}
+                                    Err(error) => {
+                                        composer.set_text(&kept);
+                                        last_error = error;
+                                    }
+                                }
+                            }
                         }
                     }
                 }
             }
             Event::Paste(text) => {
                 selected = None;
-                draft.insert_str(&text);
+                composer.paste(&text);
             }
             Event::Mouse(mouse) => {
                 if !ui_overlay.is_none() {
@@ -3978,6 +3709,765 @@ fn run() -> io::Result<()> {
     status_runtime.shutdown();
     drop_connection(&mut client, &mut owner);
     Ok(())
+}
+
+fn dispatch_composer_command(
+    text: &str,
+    client: &mut Option<AcpClient>,
+    owner: &mut Option<SessionOwner>,
+    turns: &mut Vec<Turn>,
+    inflight: &mut bool,
+    compacting: &mut bool,
+    overlay: &mut Overlay,
+    ui_overlay: &mut UiOverlay,
+    hint: &mut String,
+    last_error: &mut String,
+    effective: &mut config::EffectiveConfig,
+    extra_env: &mut Vec<(String, String)>,
+    patch: &mut Option<PathBuf>,
+    apply_failed: &mut bool,
+    previous_ready: &mut bool,
+    selection_ready: &mut bool,
+    resumed: &mut bool,
+    previous_session: &mut Option<String>,
+    terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
+    guard: &mut TerminalGuard,
+    mut screen: ScreenMode,
+    committed: &mut usize,
+    history: &mut String,
+    launch: &Launch,
+    mode: &LaunchMode,
+    prefs: &mut session_fork::UiPrefs,
+    meter: &Meter,
+    policy: SwitchPolicy,
+    live_theme_kind: &mut theme::ThemeKind,
+    live_theme: &mut theme::Theme,
+    status_runtime: &mut status_line::StatusLineRuntime,
+    composer: &mut PromptComposer,
+) -> io::Result<()> {
+    let _ = guard;
+    if text.trim() == "/revoke-approvals" {
+        let restored = std::mem::take(&mut composer.slash_stash);
+        composer.set_text(&restored);
+        match revoke_remembered_grants(effective) {
+            Ok(message) => {
+                *hint = message;
+                last_error.clear();
+            }
+            Err(error) => *last_error = error,
+        }
+        return Ok(());
+    }
+    if let Some(mode_command) = permission_slash(text.trim()) {
+        let restored = std::mem::take(&mut composer.slash_stash);
+        composer.set_text(&restored);
+        match apply_session_permission_mode(effective, mode_command) {
+            Ok(message) => {
+                let applied = runtime_apply(effective);
+                if applied.apply_failed {
+                    *last_error = applied.error;
+                } else {
+                    *extra_env = applied.extra_env;
+                    *patch = applied.patch;
+                    *hint = message;
+                    last_error.clear();
+                }
+            }
+            Err(error) => *last_error = error,
+        }
+        return Ok(());
+    }
+    if let Some(command) = appearance::slash(text) {
+        let restored = std::mem::take(&mut composer.slash_stash);
+        composer.set_text(&restored);
+        match command {
+            appearance::AppearanceSlash::Settings => {
+                *ui_overlay =
+                    UiOverlay::Settings(SettingsState::open(&effective.appearance, screen));
+                hint.clear();
+            }
+            appearance::AppearanceSlash::Theme(args) => {
+                if screen == ScreenMode::Minimal {
+                    *hint = appearance::minimal_theme_refuse().into();
+                } else if args.is_empty() {
+                    *ui_overlay = UiOverlay::Theme(ThemeState::open(&effective.appearance));
+                    hint.clear();
+                    apply_overlay_action(
+                        OverlayAction::PreviewTheme(if let UiOverlay::Theme(state) = &ui_overlay {
+                            state.current()
+                        } else {
+                            *live_theme_kind
+                        }),
+                        effective,
+                        live_theme_kind,
+                        live_theme,
+                        screen,
+                        hint,
+                        last_error,
+                        status_runtime,
+                        prefs,
+                        ui_overlay,
+                    );
+                } else {
+                    match appearance::apply_setting(&mut effective.appearance, "ui.theme", &args) {
+                        Ok(encoded) => match persist_appearance(effective, "ui.theme", &encoded) {
+                            Ok(()) => {
+                                *live_theme_kind = effective.appearance.resolved_kind(screen);
+                                *live_theme = effective.appearance.resolved_theme(screen);
+                                apply_cursor_color(live_theme);
+                                *hint = format!(
+                                    "theme = {}",
+                                    effective.appearance.theme.display_name()
+                                );
+                                last_error.clear();
+                            }
+                            Err(error) => *last_error = error,
+                        },
+                        Err(error) => *last_error = error,
+                    }
+                }
+            }
+            appearance::AppearanceSlash::ToggleCompact => {
+                let next = !effective.appearance.compact_mode;
+                match appearance::apply_setting(
+                    &mut effective.appearance,
+                    "ui.compact_mode",
+                    if next { "true" } else { "false" },
+                ) {
+                    Ok(encoded) => {
+                        match persist_appearance(effective, "ui.compact_mode", &encoded) {
+                            Ok(()) => {
+                                *hint = format!("compact_mode {}", if next { "on" } else { "off" });
+                                last_error.clear();
+                            }
+                            Err(error) => *last_error = error,
+                        }
+                    }
+                    Err(error) => *last_error = error,
+                }
+            }
+            appearance::AppearanceSlash::ToggleTimestamps => {
+                let next = !effective.appearance.show_timestamps;
+                match appearance::apply_setting(
+                    &mut effective.appearance,
+                    "ui.show_timestamps",
+                    if next { "true" } else { "false" },
+                ) {
+                    Ok(encoded) => {
+                        match persist_appearance(effective, "ui.show_timestamps", &encoded) {
+                            Ok(()) => {
+                                *hint = format!("timestamps {}", if next { "on" } else { "off" });
+                                last_error.clear();
+                            }
+                            Err(error) => *last_error = error,
+                        }
+                    }
+                    Err(error) => *last_error = error,
+                }
+            }
+            appearance::AppearanceSlash::Help => {
+                *hint = settings_ui::help_text().into();
+            }
+            appearance::AppearanceSlash::Unavailable(message) => {
+                *hint = message;
+            }
+        }
+        return Ok(());
+    }
+    if let Some(action) = screen_mode::slash_action(text) {
+        // accept_slash already restored a stashed draft. Only put the stash
+        // back when it is still holding text; an empty take must not wipe it.
+        if !composer.slash_stash.is_empty() {
+            let restored = std::mem::take(&mut composer.slash_stash);
+            composer.set_text(&restored);
+        }
+        match action {
+            SlashAction::Switch(target) if target == screen => {
+                *hint = format!("Already in {} mode.", screen.as_str());
+            }
+            SlashAction::Switch(target) => {
+                if policy == SwitchPolicy::Exec {
+                    let session_id = client
+                        .as_ref()
+                        .and_then(|active| active.session_id.clone())
+                        .or_else(|| previous_session.clone());
+                    let Some(session_id) = session_id else {
+                        *hint = screen_mode::exec_failure_message(None, target, "no session");
+                        return Ok(());
+                    };
+                    drop_connection(client, owner);
+                    return Err(io::Error::other(format!(
+                        "CODSH_SCREEN_RELAUNCH:{session_id}:{target}",
+                        target = target.as_str()
+                    )));
+                }
+                guard.apply(terminal, target)?;
+                if target == ScreenMode::Minimal {
+                    commit_completed_turns(
+                        terminal,
+                        turns,
+                        committed,
+                        history,
+                        Some(target.switch_marker()),
+                    )?;
+                    hint.clear();
+                } else {
+                    *hint = target.switch_marker().into();
+                }
+                screen = target;
+                *live_theme_kind = effective.appearance.resolved_kind(screen);
+                *live_theme = effective.appearance.resolved_theme(screen);
+                apply_cursor_color(live_theme);
+                last_error.clear();
+            }
+            refuse @ SlashAction::Refuse(_) => {
+                if let Some(message) = screen_mode::mode_command_message(screen, refuse) {
+                    *hint = message;
+                }
+            }
+        }
+        return Ok(());
+    }
+    composer.slash_stash.clear();
+    let trimmed = text.trim();
+    if trimmed == "/plugins" || trimmed == "/marketplace" {
+        *overlay = Overlay::Plugins(plugin::new_overlay(if trimmed == "/marketplace" {
+            plugin::PluginTab::Marketplace
+        } else {
+            plugin::PluginTab::Plugins
+        }));
+        composer.set_text("");
+        last_error.clear();
+        hint.clear();
+        return Ok(());
+    }
+    if session_fork::is_conversation_slash(trimmed) {
+        if *inflight {
+            *last_error = session_fork::running_turn_error();
+            composer.set_text("");
+            return Ok(());
+        }
+        if (*client).is_none() {
+            *last_error = "not connected".into();
+            return Ok(());
+        }
+        if trimmed.starts_with("/fork") {
+            match session_fork::parse_fork_slash(trimmed) {
+                Err(error) => {
+                    *last_error = error;
+                    composer.set_text("");
+                }
+                Ok(fork) => {
+                    if let Some(active) = (*client).as_mut() {
+                        match commit_fork(
+                            active,
+                            owner,
+                            turns,
+                            inflight,
+                            &effective.dsh_home,
+                            &effective.cwd,
+                            prefs,
+                            fork.directive.as_deref(),
+                            resumed,
+                            previous_session,
+                        ) {
+                            Ok(message) => {
+                                *hint = message;
+                                last_error.clear();
+                                composer.set_text("");
+                                if let Err(error) = reset_native_history_after_switch(
+                                    terminal, screen, committed, history,
+                                ) {
+                                    *last_error = error.to_string();
+                                }
+                            }
+                            Err(error) => *last_error = error,
+                        }
+                    }
+                }
+            }
+            return Ok(());
+        }
+        let rest = trimmed
+            .trim_start_matches("/rewind")
+            .trim_start_matches("/undo")
+            .trim();
+        let Some(session_id) = (*client)
+            .as_ref()
+            .and_then(|active| active.session_id.clone())
+        else {
+            *last_error = "ACP session is not ready".into();
+            return Ok(());
+        };
+        match session_fork::list_points(&effective.dsh_home, &session_id) {
+            Ok(points) if points.is_empty() => {
+                *hint = "no turns to rewind yet".into();
+                composer.set_text("");
+            }
+            Ok(points) => {
+                if rest.is_empty() {
+                    let mut newest = points;
+                    newest.reverse();
+                    *overlay = Overlay::RewindPick {
+                        points: newest,
+                        cursor: 0,
+                    };
+                    composer.set_text("");
+                    hint.clear();
+                } else if let Ok(turn) = rest.parse::<u32>() {
+                    if let Some(point) = points.into_iter().find(|point| point.turn == turn) {
+                        if prefs.confirm_before_rewind {
+                            *overlay = Overlay::RewindConfirm { point };
+                            composer.set_text("");
+                        } else if let Some(active) = (*client).as_mut() {
+                            match commit_rewind(
+                                active,
+                                owner,
+                                turns,
+                                &effective.dsh_home,
+                                &effective.cwd,
+                                &point,
+                                resumed,
+                                previous_session,
+                            ) {
+                                Ok(message) => {
+                                    *hint = message;
+                                    last_error.clear();
+                                    composer.set_text("");
+                                    if let Err(error) = reset_native_history_after_switch(
+                                        terminal, screen, committed, history,
+                                    ) {
+                                        *last_error = error.to_string();
+                                    }
+                                }
+                                Err(error) => *last_error = error,
+                            }
+                        }
+                    } else {
+                        *last_error = "turn must be between 1 and the latest rewind point".into();
+                    }
+                } else {
+                    *last_error = "turn must be a positive integer".into();
+                }
+            }
+            Err(error) => *last_error = error.message,
+        }
+        return Ok(());
+    }
+    let slash = models::parse_slash(trimmed);
+    if *inflight && slash.is_none() {
+        return Ok(());
+    }
+    if let Some(models::Command::Feedback { rest }) = slash.clone() {
+        let session_id = feedback_session_id((*client).as_ref());
+        if let Some(message) = feedback_ui::immediate_message(&rest) {
+            let policy = privacy::PrivacyPolicy::from_config(effective);
+            let slash_log = privacy_cmd::debug_log_path(&effective.dsh_home);
+            let command = privacy_cmd::FeedbackCommand::Save {
+                session: session_id,
+                title: message.chars().take(80).collect(),
+                details: message,
+                area: None,
+                kind: privacy::FeedbackType::Bug,
+                task_category: None,
+                failure_mode: None,
+                send: true,
+            };
+            match privacy_cmd::run(&command, &effective.dsh_home, &policy, slash_log.as_deref()) {
+                Ok(message) => {
+                    *hint = message;
+                    last_error.clear();
+                }
+                Err(error) => *last_error = error.to_string(),
+            }
+        } else if rest.trim().is_empty() {
+            *overlay = Overlay::Feedback(feedback_ui::FeedbackForm::open());
+            hint.clear();
+            last_error.clear();
+        } else {
+            let mut argv = vec!["feedback".into()];
+            argv.extend(rest.split_whitespace().map(str::to_string));
+            if !argv.iter().any(|arg| arg == "--session") {
+                argv.push("--session".into());
+                argv.push(session_id);
+            }
+            match privacy_cmd::parse_feedback(&argv[1..]) {
+                Ok(command) => {
+                    let policy = privacy::PrivacyPolicy::from_config(effective);
+                    let slash_log = privacy_cmd::debug_log_path(&effective.dsh_home);
+                    match privacy_cmd::run(
+                        &command,
+                        &effective.dsh_home,
+                        &policy,
+                        slash_log.as_deref(),
+                    ) {
+                        Ok(message) => {
+                            *hint = message;
+                            last_error.clear();
+                        }
+                        Err(error) => *last_error = error.to_string(),
+                    }
+                }
+                Err(error) => *last_error = error.to_string(),
+            }
+        }
+        composer.set_text("");
+        return Ok(());
+    }
+    if matches!(
+        slash,
+        Some(models::Command::Login | models::Command::Logout)
+    ) {
+        match handle_slash_command(
+            slash.clone().unwrap(),
+            effective,
+            (*client).as_mut(),
+            *inflight,
+        ) {
+            Ok(message) => {
+                *hint = message;
+                last_error.clear();
+                let was_ready = *previous_ready;
+                let previous_env = extra_env.clone();
+                let previous_patch_body = patch
+                    .as_deref()
+                    .and_then(|path| std::fs::read_to_string(path).ok());
+                *effective = load_runtime_config(launch);
+                let applied = runtime_apply(effective);
+                let replace = slash_reload_replaces_client(
+                    &previous_env,
+                    was_ready,
+                    previous_patch_body.as_deref(),
+                    &applied,
+                    effective.ready,
+                );
+                *extra_env = applied.extra_env;
+                if applied.apply_failed {
+                    *last_error = applied.error;
+                    *apply_failed = true;
+                } else {
+                    *patch = applied.patch;
+                    *apply_failed = false;
+                    if replace {
+                        drop_connection(client, owner);
+                    }
+                }
+                *previous_ready = effective.ready;
+                if (*client).is_none() && !can_execute(effective, *apply_failed) {
+                    if last_error.is_empty() {
+                        *last_error = effective.first_run_message();
+                    }
+                } else if (*client).is_none() && can_execute(effective, *apply_failed) {
+                    let mut live = LiveSession {
+                        client,
+                        owner,
+                        turns,
+                        resumed,
+                        previous_session,
+                        selection_ready,
+                        last_error,
+                    };
+                    if let Err(error) =
+                        open_live_session(mode, extra_env, (*patch).as_ref(), effective, &mut live)
+                    {
+                        *last_error = error;
+                    }
+                }
+            }
+            Err(error) => *last_error = error,
+        }
+        composer.set_text("");
+        return Ok(());
+    }
+    if (*client).is_none() {
+        *effective = load_runtime_config(launch);
+        let applied = runtime_apply(effective);
+        *extra_env = applied.extra_env;
+        *previous_ready = effective.ready;
+        if applied.apply_failed {
+            *last_error = applied.error;
+            return Ok(());
+        }
+        *patch = applied.patch;
+        *apply_failed = false;
+        if !can_execute(effective, *apply_failed) {
+            *last_error = effective.first_run_message();
+            return Ok(());
+        }
+        let mut live = LiveSession {
+            client,
+            owner,
+            turns,
+            resumed,
+            previous_session,
+            selection_ready,
+            last_error,
+        };
+        if let Err(error) =
+            open_live_session(mode, extra_env, (*patch).as_ref(), effective, &mut live)
+        {
+            *last_error = error;
+            return Ok(());
+        }
+    }
+    if text.trim().is_empty() {
+        return Ok(());
+    }
+    if let Some(command) = slash {
+        match command {
+            models::Command::Context => {
+                let routing = live_routing((*client).as_ref(), effective);
+                let breakdown = client
+                    .as_ref()
+                    .and_then(|active| active.session_id.as_ref())
+                    .and_then(|session_id| {
+                        session_history::load_session(&effective.dsh_home, session_id)
+                            .ok()
+                            .and_then(|session| session.breakdown)
+                    })
+                    .map(|item| models::ContextBreakdown {
+                        system: item.system,
+                        tools: item.tools,
+                        messages: item.messages,
+                    });
+                *hint = models::context_report(
+                    meter.used,
+                    routing.as_ref().and_then(|item| item.advertised_context),
+                    meter.size,
+                    breakdown.as_ref(),
+                );
+                last_error.clear();
+                composer.set_text("");
+                return Ok(());
+            }
+            models::Command::Compact { instruction } => {
+                if *inflight {
+                    *last_error = "Compaction is unavailable because this process has an active compaction, or the agent is not idle.".into();
+                    composer.set_text("");
+                    return Ok(());
+                }
+                let prompt = match instruction {
+                    Some(text) => format!("/compact {text}"),
+                    None => "/compact".into(),
+                };
+                if let Some(active) = (*client).as_mut() {
+                    match active.submit_prompt(&prompt) {
+                        Ok(_) => {
+                            *hint = "✂ compacting history…".into();
+                            *inflight = true;
+                            *compacting = true;
+                            last_error.clear();
+                        }
+                        Err(error) => *last_error = error.message,
+                    }
+                } else {
+                    *last_error = UNAVAILABLE.trim().to_string();
+                }
+                composer.set_text("");
+                return Ok(());
+            }
+            other => {
+                match handle_slash_command(other, effective, (*client).as_mut(), *inflight) {
+                    Ok(message) => {
+                        if message.starts_with("Selected ") {
+                            *selection_ready = true;
+                        }
+                        *hint = message;
+                        last_error.clear();
+                    }
+                    Err(error) => *last_error = error,
+                }
+                composer.set_text("");
+                return Ok(());
+            }
+        }
+    }
+    if *inflight {
+        return Ok(());
+    }
+    if !turn_allowed(*selection_ready) {
+        if last_error.is_empty() {
+            *last_error = "configured model was not applied; no silent provider fallback".into();
+        }
+        return Ok(());
+    }
+    if (*owner).as_ref().is_some_and(|held| !held.still_held()) {
+        *last_error = format!(
+            "Write owner refused: session {} is no longer owned by this client.",
+            owner
+                .as_ref()
+                .map(|held| held.session_id.as_str())
+                .unwrap_or("unknown")
+        );
+        drop_connection(client, owner);
+        return Ok(());
+    }
+    if let Some(active) = (*client).as_mut() {
+        match active.submit_prompt(text) {
+            Ok(_) => {
+                turns.push(Turn {
+                    user: text.to_string(),
+                    thought: String::new(),
+                    answer: String::new(),
+                    error: None,
+                    message_id: None,
+                    tools: Vec::new(),
+                    permission: None,
+                    done: false,
+                    cancelling: false,
+                    cancelled: false,
+                    interrupted: false,
+                    compacted: false,
+                    compaction: None,
+                    timestamp: Some(clock_stamp()),
+                });
+                composer.set_text("");
+                *inflight = true;
+                last_error.clear();
+            }
+            Err(error) => *last_error = error.message,
+        }
+    }
+    Ok(())
+}
+
+fn submit_composer_prompt(
+    text: &str,
+    client: &mut Option<AcpClient>,
+    owner: &mut Option<SessionOwner>,
+    turns: &mut Vec<Turn>,
+    inflight: &mut bool,
+    last_error: &mut String,
+    effective: &mut config::EffectiveConfig,
+    extra_env: &mut Vec<(String, String)>,
+    patch: &mut Option<PathBuf>,
+    apply_failed: &mut bool,
+    previous_ready: &mut bool,
+    selection_ready: &mut bool,
+    resumed: &mut bool,
+    previous_session: &mut Option<String>,
+    launch: &Launch,
+    mode: &LaunchMode,
+    composer: &mut PromptComposer,
+) {
+    if *inflight {
+        return;
+    }
+    if client.is_none() {
+        *effective = load_runtime_config(launch);
+        let applied = runtime_apply(effective);
+        *extra_env = applied.extra_env;
+        *previous_ready = effective.ready;
+        if applied.apply_failed {
+            *last_error = applied.error;
+            return;
+        }
+        *patch = applied.patch;
+        *apply_failed = false;
+        if !can_execute(effective, *apply_failed) {
+            *last_error = effective.first_run_message();
+            return;
+        }
+        let mut live = LiveSession {
+            client,
+            owner,
+            turns,
+            resumed,
+            previous_session,
+            selection_ready,
+            last_error,
+        };
+        if let Err(error) = open_live_session(mode, extra_env, patch.as_ref(), effective, &mut live)
+        {
+            *last_error = error;
+            return;
+        }
+    }
+    if !turn_allowed(*selection_ready) {
+        if last_error.is_empty() {
+            *last_error = "configured model was not applied; no silent provider fallback".into();
+        }
+        return;
+    }
+    if owner.as_ref().is_some_and(|held| !held.still_held()) {
+        *last_error = format!(
+            "Write owner refused: session {} is no longer owned by this client.",
+            owner
+                .as_ref()
+                .map(|held| held.session_id.as_str())
+                .unwrap_or("unknown")
+        );
+        drop_connection(client, owner);
+        return;
+    }
+    if let Some(active) = client.as_mut() {
+        match active.submit_prompt(text) {
+            Ok(_) => {
+                turns.push(Turn {
+                    user: text.to_string(),
+                    thought: String::new(),
+                    answer: String::new(),
+                    error: None,
+                    message_id: None,
+                    tools: Vec::new(),
+                    permission: None,
+                    done: false,
+                    cancelling: false,
+                    cancelled: false,
+                    interrupted: false,
+                    compacted: false,
+                    compaction: None,
+                    timestamp: Some(clock_stamp()),
+                });
+                composer.record_history(text);
+                *inflight = true;
+                last_error.clear();
+            }
+            Err(error) => *last_error = error.message,
+        }
+    }
+}
+
+fn run_external_prompt_edit(
+    terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
+    guard: &mut TerminalGuard,
+    screen: ScreenMode,
+    composer: &PromptComposer,
+    preserve: bool,
+) -> Result<Option<String>, String> {
+    // chips stays false until file/image attachments exist. false is not a refusal.
+    if composer.chips && preserve {
+        return Err(
+            "external editor refused: pasted, file-reference, or image chips must stay in the composer"
+                .into(),
+        );
+    }
+    let visual = std::env::var("VISUAL").ok();
+    let editor = std::env::var("EDITOR").ok();
+    let argv = prompt_edit::resolve_editor(visual.as_deref(), editor.as_deref())?;
+    let grok_home =
+        PathBuf::from(std::env::var_os("GROK_HOME").unwrap_or_else(|| PathBuf::from(".").into()));
+    let draft = if preserve {
+        composer.text().to_string()
+    } else {
+        String::new()
+    };
+    let path =
+        prompt_edit::write_editor_temp(&grok_home, &draft).map_err(|error| error.to_string())?;
+    guard.suspend().map_err(|error| error.to_string())?;
+    let mut extra = Vec::new();
+    for key in ["PATH", "HOME", "TERM", "TMPDIR"] {
+        if let Some(value) = std::env::var_os(key) {
+            extra.push((key.to_string(), value.to_string_lossy().into_owned()));
+        }
+    }
+    let result = prompt_edit::run_external_editor(&argv, &path, &extra);
+    let resume = guard.resume(terminal, screen);
+    resume.map_err(|error| error.to_string())?;
+    match result {
+        Ok(text) => Ok(Some(text)),
+        Err(error) => Err(format!("{error}; original draft kept")),
+    }
 }
 
 fn main() {

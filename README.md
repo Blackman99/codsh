@@ -119,7 +119,25 @@ running dsh turn, draft, and pending approval survive. `--minimal` /
 isolated `[ui] screen_mode`. Mode-only commands such as `/dashboard` in
 minimal refuse with the fullscreen remedy. `GROK_SCREEN_MODE_SWITCH=exec`
 relaunches onto the same session instead of switching in place and does not
-preserve an unsaved draft.
+preserve an unsaved draft. Typing `/` in a nonempty draft stashes that draft so
+the slash command can run, then restores it. Prompt editing reuses the official textarea: Enter
+submits, Shift+Enter or Alt+Enter inserts a newline, and `/multiline` (alias
+`/ml`, or Ctrl+M when the terminal distinguishes it from Enter) swaps those
+chords. `/history` fuzzy-searches submitted prompts; empty ↑/↓ browses them
+without sending. Tab completes `/` commands and, in `!` shell mode, HISTFILE
+entries; Esc cancels completion and restores the previous draft. `/edit-prompt`
+opens `$VISUAL`, then `$EDITOR`, then `vi` for an empty draft; Ctrl+G in
+minimal preserves the current text. Saving replaces only the composer; an empty
+file clears it and does not submit. `[ui] simple_mode = false` enables prompt
+Vim (`i`/`Esc`/`h`/`l`/`x`) independently of `/vim-mode` scrollback keys.
+Next-prompt ghost text is not wired: the host passes no suggestion after a
+turn, so Tab and Right do not accept ghost text. Suggestion rows stay blocked
+(`PARITY-150-suggestions` remains unverified). `chips=false` means attachments
+are not loaded; it is not a refusal. Unicode, large paste, resize, and
+failed editors keep the draft. `/edit-prompt` opens an empty composer; Ctrl+G in
+minimal preserves the current draft. HISTFILE Tab completes with
+`GROK_SUGGESTIONS` off; as-you-type completion requires `GROK_SUGGESTIONS=true`.
+`GROK_SUGGESTIONS_AI` is not a live AI gate here.
 
 User configuration for the preview is `$GROK_HOME/config.toml` (default
 `~/.codsh-rust/.grok/config.toml`). `[ui] theme`, compact mode, timestamps,

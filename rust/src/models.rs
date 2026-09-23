@@ -610,6 +610,9 @@ mod tests {
         );
         assert_eq!(parse_slash("/login"), Some(Command::Login));
         assert_eq!(parse_slash("/logout"), Some(Command::Logout));
+        assert!(parse_slash("/history").is_none());
+        assert!(parse_slash("/multiline").is_none());
+        assert!(parse_slash("/edit-prompt").is_none());
         let dir = TempDir::new().unwrap();
         save_selection(dir.path(), "think", Some("high")).unwrap();
         let saved = load_saved_selection(dir.path()).unwrap();

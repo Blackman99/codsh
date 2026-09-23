@@ -55,6 +55,14 @@ function userTexts(options) {
     .filter(text => !text.startsWith('<') && !/Current runtime context|This snapshot supersedes/i.test(text))
 }
 
+function latestUserText(options) {
+  return userTexts(options).at(-1) ?? ''
+}
+
+function echoUserText(text) {
+  return text.replaceAll('\n', '⏎')
+}
+
 function toolResults(options) {
   return options.messages.flatMap(message => message.content.filter(block => block.type === 'tool-result'))
 }
@@ -341,7 +349,9 @@ class RustAcpMockAdapter extends LlmAdapter {
     const effort = options.reasoningEffort ?? 'none'
     const route = `${options.provider}/${options.model}`
     const model = options.model?.id ?? options.model ?? 'unknown'
-    const reply = `RUST_ACP_ANSWER turn=${turn} route=${route} effort=${effort} model=${model} ${userTexts(options).join('\n')}`
+    const history = echoUserText(userTexts(options).join('\n'))
+    const latest = echoUserText(latestUserText(options))
+    const reply = `RUST_ACP_ANSWER turn=${turn} route=${route} effort=${effort} model=${model} latest=${latest} ${history}`
     yield { type: 'block-start', index: 0, blockType: 'text' }
     yield { type: 'text-delta', index: 0, text: reply }
     yield { type: 'block-end', index: 0, block: { type: 'text', text: reply } }

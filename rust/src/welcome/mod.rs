@@ -18,6 +18,7 @@ pub fn render(
     theme: &Theme,
     compact: bool,
     feedback_open: bool,
+    title: &str,
 ) -> Rect {
     let area = frame.area();
     if area.width < 18 || area.height < 8 {
@@ -73,7 +74,7 @@ pub fn render(
         Paragraph::new(notice)
             .wrap(Wrap { trim: false })
             .render(body, buf);
-        let block = Block::new().borders(Borders::ALL).title("Draft (not sent)");
+        let block = Block::new().borders(Borders::ALL).title(title);
         let input = block.inner(prompt);
         block.render(prompt, buf);
         let mut state = TextAreaState::default();
@@ -93,7 +94,7 @@ pub fn render(
         menu::render_menu(layout.menu, buf, theme, &items, selected, None, 0);
     }
     render_notice(notice, layout.tip, buf);
-    let block = Block::new().borders(Borders::ALL).title("Draft (not sent)");
+    let block = Block::new().borders(Borders::ALL).title(title);
     let input = block.inner(layout.prompt);
     block.render(layout.prompt, buf);
     let mut state = TextAreaState::default();
@@ -142,6 +143,7 @@ pub fn render_minimal(
     _selected: Option<usize>,
     _theme: &Theme,
     feedback_open: bool,
+    title: &str,
 ) -> Rect {
     let area = frame.area();
     if area.width < 8 || area.height < 3 {
@@ -152,23 +154,17 @@ pub fn render_minimal(
         .desired_height(area.width.saturating_sub(4))
         .clamp(1, 4)
         + 2;
-    let notice_height = if feedback_open {
-        area.height.saturating_sub(1)
-    } else {
-        notice
-            .lines()
-            .count()
-            .clamp(1, area.height.saturating_sub(input_height + 1) as usize) as u16
-    };
+    let prompt_height = input_height.min(area.height.saturating_sub(1));
     let [status, prompt] = Layout::vertical([
-        Constraint::Min(notice_height),
-        Constraint::Length(input_height),
+        Constraint::Length(area.height.saturating_sub(prompt_height)),
+        Constraint::Length(prompt_height),
     ])
     .areas(area);
+    let _ = feedback_open;
     Paragraph::new(notice)
         .wrap(Wrap { trim: false })
         .render(status, frame.buffer_mut());
-    let block = Block::new().borders(Borders::ALL).title("Draft (not sent)");
+    let block = Block::new().borders(Borders::ALL).title(title);
     let input = block.inner(prompt);
     block.render(prompt, frame.buffer_mut());
     let mut state = TextAreaState::default();
@@ -200,6 +196,7 @@ mod tests {
                         &Theme::offline(),
                         false,
                         false,
+                        "Draft (not sent)",
                     );
                 })
                 .unwrap();
@@ -222,7 +219,16 @@ mod tests {
         let notice = "Execution unavailable: dsh\nNot connected. Draft kept.\nFirst-run: no usable provider. Official grok.com login/telemetry unused.\nWrite ~/.codsh-rust/.grok/config.toml ([model.<id>] base_url, env_key). Export the key. inspect shows origins.";
         terminal
             .draw(|frame| {
-                render(frame, &draft, notice, None, &Theme::offline(), false, false);
+                render(
+                    frame,
+                    &draft,
+                    notice,
+                    None,
+                    &Theme::offline(),
+                    false,
+                    false,
+                    "Draft (not sent)",
+                );
             })
             .unwrap();
         let text: String = terminal
@@ -244,7 +250,16 @@ mod tests {
         let notice = "mode=fullscreen\nConnected to dsh ACP session demo.\nEnter submits a prompt through dsh.\nRoute: cli-mock/cli-mock id=gateway api=openai-completions\nbackend=chat_completions effort=high advertised_context=unknown (no silent\nprovider fallback)\nusage=unknown advertised_context=unknown cost=unknown\ndestination rejected the submission (HTTP 500); the local draft was kept";
         terminal
             .draw(|frame| {
-                render(frame, &draft, notice, None, &Theme::offline(), false, false);
+                render(
+                    frame,
+                    &draft,
+                    notice,
+                    None,
+                    &Theme::offline(),
+                    false,
+                    false,
+                    "Draft (not sent)",
+                );
             })
             .unwrap();
         let text: String = terminal
@@ -260,7 +275,16 @@ mod tests {
         );
         let mut wide = Terminal::new(TestBackend::new(100, 24)).unwrap();
         wide.draw(|frame| {
-            render(frame, &draft, notice, None, &Theme::offline(), false, false);
+            render(
+                frame,
+                &draft,
+                notice,
+                None,
+                &Theme::offline(),
+                false,
+                false,
+                "Draft (not sent)",
+            );
         })
         .unwrap();
         let wide_text: String = wide
@@ -295,6 +319,7 @@ mod tests {
                     None,
                     &Theme::offline(),
                     false,
+                    "Draft (not sent)",
                 );
             })
             .unwrap();

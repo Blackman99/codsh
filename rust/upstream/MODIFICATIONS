@@ -39,6 +39,11 @@ repository status-line commands, time out status-line scripts, and kill leftover
 process groups. They do not import upstream agent, tool, login, or telemetry crates.
 
 The new main, terminal guard, palette, and welcome composition are codsh code.
+src/prompt_edit.rs is a host around xai-ratatui-textarea: it keeps that editor's
+key classification, undo, paste, and Unicode handling, and adds history search,
+slash/HISTFILE completion, multiline chord swap, prompt Vim via
+`[ui] simple_mode`, ghost-text acceptance, and $VISUAL/$EDITOR/vi round-trips.
+It does not replace the textarea input state machine.
 They do not import upstream agent, tool, login, update, telemetry, feedback,
 network, or canonical session crates. Prompt submission refuses execution and
 preserves the draft; it does not fabricate an answer or a connected runtime.

@@ -98,6 +98,8 @@ pub struct EffectiveConfig {
     pub settings_yaml: PathBuf,
     pub compact_threshold_percent: Option<u8>,
     pub compact_wall_clock_secs: Option<u64>,
+    pub simple_mode: bool,
+    pub prompt_suggestions: bool,
     pub prune_enabled: bool,
     pub prune_threshold_chars: u64,
     pub prune_head_chars: u64,
@@ -1162,6 +1164,83 @@ pub fn load_from(mut input: LoadInput) -> EffectiveConfig {
             "untrusted"
         },
     );
+    let mut simple_mode = true;
+    let mut prompt_suggestions = true;
+    let mut ui_sources: BTreeMap<&str, &str> = BTreeMap::new();
+    if let Some(value) = bool_from_toml(
+        managed
+            .as_ref()
+            .and_then(|value| value.get("ui"))
+            .and_then(|ui| ui.get("simple_mode")),
+    ) {
+        simple_mode = value;
+        ui_sources.insert("ui.simple_mode", "managed");
+    }
+    if let Some(value) = bool_from_toml(
+        user.as_ref()
+            .and_then(|value| value.get("ui"))
+            .and_then(|ui| ui.get("simple_mode")),
+    ) {
+        simple_mode = value;
+        ui_sources.insert("ui.simple_mode", "config.toml");
+    }
+    if let Some(value) = bool_from_toml(
+        requirements
+            .as_ref()
+            .and_then(|value| value.get("ui"))
+            .and_then(|ui| ui.get("simple_mode")),
+    ) {
+        simple_mode = value;
+        ui_sources.insert("ui.simple_mode", "requirements");
+    }
+    if let Some(value) = bool_from_toml(
+        managed
+            .as_ref()
+            .and_then(|value| value.get("ui"))
+            .and_then(|ui| ui.get("prompt_suggestions")),
+    ) {
+        prompt_suggestions = value;
+        ui_sources.insert("ui.prompt_suggestions", "managed");
+    }
+    if let Some(value) = bool_from_toml(
+        user.as_ref()
+            .and_then(|value| value.get("ui"))
+            .and_then(|ui| ui.get("prompt_suggestions")),
+    ) {
+        prompt_suggestions = value;
+        ui_sources.insert("ui.prompt_suggestions", "config.toml");
+    }
+    if let Some(value) = env_bool(input.env.get("GROK_PROMPT_SUGGESTIONS")) {
+        prompt_suggestions = value;
+        ui_sources.insert("ui.prompt_suggestions", "environment");
+    }
+    if let Some(value) = bool_from_toml(
+        requirements
+            .as_ref()
+            .and_then(|value| value.get("ui"))
+            .and_then(|ui| ui.get("prompt_suggestions")),
+    ) {
+        prompt_suggestions = value;
+        ui_sources.insert("ui.prompt_suggestions", "requirements");
+    }
+    push_setting(
+        &mut settings,
+        "ui.simple_mode",
+        if simple_mode { "true" } else { "false" },
+        ui_sources
+            .get("ui.simple_mode")
+            .copied()
+            .unwrap_or("default"),
+    );
+    push_setting(
+        &mut settings,
+        "ui.prompt_suggestions",
+        if prompt_suggestions { "true" } else { "false" },
+        ui_sources
+            .get("ui.prompt_suggestions")
+            .copied()
+            .unwrap_or("default"),
+    );
     push_setting(
         &mut settings,
         "fail_closed",
@@ -1666,6 +1745,8 @@ pub fn load_from(mut input: LoadInput) -> EffectiveConfig {
         settings_yaml,
         compact_threshold_percent,
         compact_wall_clock_secs,
+        simple_mode,
+        prompt_suggestions,
         prune_enabled,
         prune_threshold_chars,
         prune_head_chars,
@@ -1778,6 +1859,8 @@ pub fn inspect_json(config: &EffectiveConfig) -> String {
         "compactThresholdPercent": config.compact_threshold_percent.unwrap_or(80),
         "compactWallClockSecs": config.compact_wall_clock_secs,
         "pruneEnabled": config.prune_enabled,
+        "simpleMode": config.simple_mode,
+        "promptSuggestions": config.prompt_suggestions,
         "appearance": appearance::inspect_json_fragment(&config.appearance, ScreenMode::Fullscreen),
     });
     if let Some(object) = value.as_object_mut() {
@@ -3421,6 +3504,53 @@ env_key = "XAI_API_KEY"
             "cleared expiry is a warning, not a fatal config error: {:?}",
             recovered.errors
         );
+    }
+
+    #[test]
+    fn requirements_lock_simple_mode_and_prompt_suggestions() {
+        let dir = TempDir::new().unwrap();
+        let mut load = input(&dir);
+        let grok = load.grok_home.clone().unwrap();
+        fs::create_dir_all(&grok).unwrap();
+        fs::write(
+            grok.join("config.toml"),
+            "[ui]\nsimple_mode = true\nprompt_suggestions = true\n",
+        )
+        .unwrap();
+        fs::write(
+            grok.join("managed_config.toml"),
+            "[ui]\nsimple_mode = true\nprompt_suggestions = true\n",
+        )
+        .unwrap();
+        fs::write(
+            grok.join("requirements.toml"),
+            "[ui]\nsimple_mode = false\nprompt_suggestions = false\n",
+        )
+        .unwrap();
+        load.env
+            .insert("GROK_PROMPT_SUGGESTIONS".into(), "true".into());
+        let config = load_from(load);
+        assert!(!config.simple_mode);
+        assert!(!config.prompt_suggestions);
+        assert_eq!(
+            config
+                .settings
+                .iter()
+                .find(|setting| setting.key == "ui.simple_mode")
+                .map(|setting| (setting.value.as_str(), setting.source.as_str())),
+            Some(("false", "requirements"))
+        );
+        assert_eq!(
+            config
+                .settings
+                .iter()
+                .find(|setting| setting.key == "ui.prompt_suggestions")
+                .map(|setting| (setting.value.as_str(), setting.source.as_str())),
+            Some(("false", "requirements"))
+        );
+        let inspect = inspect_json(&config);
+        assert!(inspect.contains("\"simpleMode\": false"));
+        assert!(inspect.contains("\"promptSuggestions\": false"));
     }
 
     #[test]

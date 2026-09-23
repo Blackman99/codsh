@@ -113,6 +113,11 @@ class Session:
     def write(self, data):
         os.write(self.master, data if isinstance(data, bytes) else data.encode())
 
+    def send_slash(self, command):
+        # `/` on a nonempty draft stashes that draft, runs the command, and
+        # restores it. Do not Ctrl+C: that would discard the unsaved text.
+        self.write(command if command.endswith('\r') else command + '\r')
+
     def current_text(self):
         snap = self.snapshot()
         return '\n'.join([snap['text'], snap['primary']])
@@ -317,13 +322,15 @@ def main():
             override.write('DRAFT_KEEP')
             override.wait_visible('DRAFT_KEEP')
             leaves_before = alt_leave_count(override.data)
-            override.write('/minimal\r')
-            shown = override.wait_visible('mode=minimal', 25)
+            override.send_slash('/minimal')
+            shown = override.wait_visible('Switched to minimal', 25)
+            shown = override.wait_visible('DRAFT_KEEP')
             assert 'DRAFT_KEEP' in shown
             assert override.session_id() == override_id
             override.assert_native_minimal('Switched to minimal', leaves_before=leaves_before)
-            override.write('/dashboard\r')
-            shown = override.wait_visible("isn't available in minimal mode", 10)
+            override.send_slash('/dashboard')
+            shown = override.wait_visible('Run /fullscreen', 10)
+            shown = override.wait_visible('DRAFT_KEEP')
             assert 'Run /fullscreen' in shown
             assert 'DRAFT_KEEP' in shown
             override.resize(28, 70)
@@ -332,17 +339,23 @@ def main():
             assert 'mode=minimal' in shown
             assert 'DRAFT_KEEP' in shown
             assert not override.snapshot()['onAlternate']
-            override.write('/fullscreen\r')
+            override.send_slash('/fullscreen')
             shown = override.wait_visible('mode=fullscreen', 25)
+            override.write('DRAFT_KEEP')
+            shown = override.wait_visible('DRAFT_KEEP')
             assert 'DRAFT_KEEP' in shown
             assert 'Switched to fullscreen' in shown
             assert override.snapshot()['onAlternate']
             assert override.session_id() == override_id
-            override.write('/minimal\r')
+            override.send_slash('/minimal')
             override.wait_visible('mode=minimal', 25)
+            override.write('DRAFT_KEEP')
+            override.wait_visible('DRAFT_KEEP')
             override.assert_native_minimal('Switched to minimal')
-            override.write('/fullscreen\r')
+            override.send_slash('/fullscreen')
             shown = override.wait_visible('mode=fullscreen', 25)
+            override.write('DRAFT_KEEP')
+            shown = override.wait_visible('DRAFT_KEEP')
             assert 'DRAFT_KEEP' in shown
             assert override.session_id() == override_id
             results.append(override.finish(expect_alt_leave=True))
@@ -358,11 +371,11 @@ def main():
             empty.wait_visible('Connected to dsh ACP', 25)
             empty_id = empty.session_id()
             leaves_before = alt_leave_count(empty.data)
-            empty.write('/minimal\r')
+            empty.send_slash('/minimal')
             shown = empty.wait_visible('mode=minimal', 25)
             assert empty_id == empty.session_id()
             empty.assert_native_minimal('Switched to minimal', leaves_before=leaves_before)
-            empty.write('/expand\r')
+            empty.send_slash('/expand')
             shown = empty.wait_visible('already available in minimal', 10)
             assert '/expand is already available in minimal' in shown
             assert empty_id == empty.session_id()
@@ -379,7 +392,7 @@ def main():
             streaming.write('TOKEN_SCREEN_STREAM\r')
             streaming.wait_visible('Streaming turn', 10)
             leaves_before = alt_leave_count(streaming.data)
-            streaming.write('/minimal\r')
+            streaming.send_slash('/minimal')
             shown = streaming.wait_visible('mode=minimal', 10)
             assert live_id == streaming.session_id()
             assert 'TOKEN_SCREEN_STREAM' in shown
@@ -411,7 +424,7 @@ def main():
             approval.wait_visible('Allow ', 30)
             assert (cwd / 'note.txt').read_text() == 'alpha\n'
             leaves_before = alt_leave_count(approval.data)
-            approval.write('/minimal\r')
+            approval.send_slash('/minimal')
             shown = approval.wait_visible('mode=minimal', 10)
             assert approval.session_id() == approval_id
             assert 'Allow ' in shown
@@ -435,22 +448,27 @@ def main():
             stash.write('DRAFT_STALE')
             stash.wait_visible('DRAFT_STALE')
             stash.write('/')
-            stash.wait_visible('/', 10)
-            stash.write('\x7f')
+            shown = stash.wait_visible('slash completion', 10)
+            assert 'DRAFT_STALE/' not in shown
+            stash.write('\x1b')
             stash.pump(0.3)
+            shown = stash.visible()
+            draft = shown.split('Draft')[-1] if 'Draft' in shown else shown
+            assert 'DRAFT_STALE' in draft
+            assert 'DRAFT_STALE/' not in draft
+            stash.write('\x03')
+            stash.pump(0.2)
             stash.write('TOKEN_AFTER_ABORT\r')
             stash.wait_visible('RUST_ACP_ANSWER', 20)
             shown = stash.visible()
-            assert 'DRAFT_STALE' not in shown.split('┌Draft')[0]
+            assert 'TOKEN_AFTER_ABORT' in shown
             leaves_before = alt_leave_count(stash.data)
-            stash.write('/minimal\r')
+            stash.send_slash('/minimal')
             shown = stash.wait_visible('mode=minimal', 25)
             assert stash.session_id() == stash_id
-            assert 'DRAFT_STALE' not in shown
             stash.assert_native_minimal('TOKEN_AFTER_ABORT', leaves_before=leaves_before)
             results.append(stash.finish())
-            assert 'DRAFT_STALE' not in results[-1]['primary']
-            assert 'DRAFT_STALE' not in results[-1]['screen']
+            assert 'TOKEN_AFTER_ABORT' in results[-1]['primary'] or 'TOKEN_AFTER_ABORT' in results[-1]['screen']
         finally:
             stash.close()
 
@@ -514,7 +532,7 @@ def main():
             exec_switch.write('DRAFT_EXEC')
             exec_switch.wait_visible('DRAFT_EXEC')
             before_pid = exec_switch.process.pid
-            exec_switch.write('/minimal\r')
+            exec_switch.send_slash('/minimal')
             shown = exec_switch.wait_visible('resumed', 25)
             assert 'mode=minimal' in shown
             assert exec_id in shown

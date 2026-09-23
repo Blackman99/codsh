@@ -136,6 +136,15 @@ rewriting isolated `[ui] screen_mode`. `/rewind` and `/fork` in minimal replace
 that native buffer. Draft, running turn, and pending approval survive an
 in-place switch. `/settings` and `/theme` persist or preview appearance and
 status-line choices; Escape cancels a theme preview without writing.
+Prompt editing reuses the official textarea: Enter submits,
+Shift+Enter/Alt+Enter inserts a newline, `/multiline` (`/ml`) swaps those
+chords, `/history` and empty ↑ browse submitted prompts, Tab completes slash
+commands and HISTFILE in `!` mode. `/edit-prompt` requires an empty composer;
+Ctrl+G in minimal preserves the current draft. Both open `$VISUAL` then `$EDITOR`
+then `vi` without submitting. `[ui] simple_mode=false` is prompt Vim;
+`/vim-mode` remains scrollback navigation. Next-prompt ghost text is not wired,
+so Tab and Right do not accept it. Suggestion rows stay blocked. `chips=false`
+is not an attachment refusal.
 
 Maintainers run `pnpm run build:rust` before locally packing this package. The
 candidate carries its native binary, dependency/license records, and digest;

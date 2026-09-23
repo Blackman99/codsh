@@ -29,7 +29,15 @@ history to the native terminal buffer, `/rewind` and `/fork` replace that
 native buffer instead of appending discarded turns, and the active session,
 draft, running turn, and pending approval survive. `--minimal` / `--fullscreen` and
 `GROK_SCREEN_MODE` are session-scoped and do not rewrite isolated
-`[ui] screen_mode`. The isolated Home is `~/.codsh-rust/dsh`, Profile `rust`;
+`[ui] screen_mode`. Prompt editing stays on the official textarea rather than a
+second input model: typing `/` in a nonempty draft stashes that draft so the
+slash command can run, then restores it. Slash completion starts
+from an empty `/`, multiline chords, history search, slash/HISTFILE completion,
+prompt Vim (`[ui] simple_mode=false`), paste, and `$VISUAL`/`$EDITOR`/`vi`
+round-trips submit the resulting text through dsh. `/edit-prompt` requires an
+empty composer. Next-prompt AI ghost text is not wired: the host passes no
+suggestion, so Tab and Right do not accept ghost text. Suggestion rows stay
+blocked. `chips=false` is not an attachment refusal. The isolated Home is `~/.codsh-rust/dsh`, Profile `rust`;
 inherited legacy configuration/credential files are not imported automatically.
 `codsh --rust import --preview` / `--apply` copies selected current dsh
 providers and preferences from `$DSH_HOME/settings.yaml`,
