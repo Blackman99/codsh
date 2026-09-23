@@ -78,6 +78,7 @@ toml = "1.1.6"
 unicode-segmentation.workspace = true
 unicode-width.workspace = true
 url = "=2.5.8"
+zstd = "0.13"
 ureq = { version = "2.12", default-features = false, features = ["native-tls", "json"] }
 xai-grok-markdown.workspace = true
 xai-grok-markdown-core.workspace = true

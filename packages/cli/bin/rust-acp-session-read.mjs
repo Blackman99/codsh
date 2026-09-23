@@ -523,6 +523,15 @@ function titleOf(events) {
   return title
 }
 
+function openTurnOf(events) {
+  let open = false
+  for (const event of events ?? []) {
+    if (event?.type === 'turn/start') open = true
+    else if (event?.type === 'turn/end') open = false
+  }
+  return open
+}
+
 function promptLines(events) {
   const lines = []
   for (const event of events ?? []) {
@@ -580,6 +589,7 @@ async function listCatalog(home, dshBin) {
         provider: folded?.provider ?? '',
         model: folded?.model ?? '',
         damaged: false,
+        openTurn: openTurnOf(events),
       })
     } catch (error) {
       warnings.push(`malformed session ${sessionId}: ${error.message}`)

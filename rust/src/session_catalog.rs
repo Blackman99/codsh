@@ -387,7 +387,12 @@ fn session_from_projection(
             .unwrap_or("")
             .to_string();
     }
-    let (activity_kind, unread, owner_pid) = activity_from_value(activity.get(&id));
+    let (mut activity_kind, unread, owner_pid) = live_activity(&id, activity.get(&id));
+    if row.get("openTurn").and_then(Value::as_bool) == Some(true)
+        && activity_kind != Activity::NeedsInput
+    {
+        activity_kind = Activity::Working;
+    }
     Some(SessionRecord {
         id,
         cwd: row
@@ -425,20 +430,33 @@ fn read_plaintext_sessions(
         if !project_path.is_dir() {
             continue;
         }
-        let sessions_dir = fs::read_dir(&project_path).into_iter().flatten();
-        for entry in sessions_dir.flatten() {
-            let dir = entry.path();
-            if !dir.is_dir() {
-                continue;
-            }
-            match read_session_dir(&dir, titles, activity) {
-                Ok(Some(record)) => sessions.push(record),
-                Ok(None) => {}
-                Err(message) => warnings.push(message),
-            }
-        }
+        collect_session_dirs(&project_path, titles, activity, &mut sessions, warnings);
     }
     sessions
+}
+
+fn collect_session_dirs(
+    dir: &Path,
+    titles: &BTreeMap<String, Value>,
+    activity: &BTreeMap<String, Value>,
+    sessions: &mut Vec<SessionRecord>,
+    warnings: &mut Vec<String>,
+) {
+    if newest_session_log(dir).is_some() {
+        match read_session_dir(dir, titles, activity) {
+            Ok(Some(record)) => sessions.push(record),
+            Ok(None) => {}
+            Err(message) => warnings.push(message),
+        }
+        return;
+    }
+    let entries = fs::read_dir(dir).into_iter().flatten();
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            collect_session_dirs(&path, titles, activity, sessions, warnings);
+        }
+    }
 }
 
 fn read_session_dir(
@@ -446,11 +464,10 @@ fn read_session_dir(
     titles: &BTreeMap<String, Value>,
     activity: &BTreeMap<String, Value>,
 ) -> Result<Option<SessionRecord>, String> {
-    let log = dir.join("session.jsonl");
-    if !log.is_file() {
+    let Some(log) = newest_session_log(dir) else {
         return Ok(None);
-    }
-    let text = match fs::read_to_string(&log) {
+    };
+    let text = match read_session_log(&log) {
         Ok(text) => text,
         Err(error) => {
             return Err(format!("unreadable session log {}: {error}", log.display()));
@@ -503,7 +520,7 @@ fn read_session_dir(
         updated_at = updated_at.max(duration.as_secs());
     }
     let title = title_from_value(titles.get(&id), &prompts);
-    let (activity_kind, unread, owner_pid) = activity_from_value(activity.get(&id));
+    let (activity_kind, unread, owner_pid) = live_activity(&id, activity.get(&id));
     Ok(Some(SessionRecord {
         id,
         cwd,
@@ -518,6 +535,98 @@ fn read_session_dir(
         foreign: None,
         damaged,
     }))
+}
+
+#[cfg_attr(not(test), allow(dead_code))]
+fn project_key(cwd: &str) -> String {
+    if cwd.is_empty() {
+        return "_no-cwd".into();
+    }
+    let mut readable = String::new();
+    let mut separator = false;
+    for ch in cwd.chars() {
+        if ch == '/' || ch == '\\' || ch == ':' {
+            if !separator {
+                readable.push('-');
+            }
+            separator = true;
+        } else if ch != '~'
+            && ch.is_ascii()
+            && (ch.is_ascii_alphanumeric() || matches!(ch, '.' | '_' | '-'))
+        {
+            readable.push(ch);
+            separator = false;
+        } else {
+            readable.push('~');
+            readable.push_str(&format!("{:04X}", ch as u32));
+            separator = false;
+        }
+    }
+    let trimmed = readable.trim_start_matches('-');
+    let body = if trimmed.is_empty() { "root" } else { trimmed };
+    format!("--{}--", body.chars().take(251).collect::<String>())
+}
+
+#[cfg_attr(not(test), allow(dead_code))]
+fn encode_segment(raw: &str) -> String {
+    if raw == "." {
+        return "~002E".into();
+    }
+    if raw == ".." {
+        return "~002E~002E".into();
+    }
+    let mut out = String::new();
+    for ch in raw.chars() {
+        if ch != '~'
+            && ch.is_ascii()
+            && (ch.is_ascii_alphanumeric() || matches!(ch, '.' | '_' | '-'))
+        {
+            out.push(ch);
+        } else {
+            out.push('~');
+            out.push_str(&format!("{:04X}", ch as u32));
+        }
+    }
+    out
+}
+
+fn newest_session_log(dir: &Path) -> Option<PathBuf> {
+    let mut best: Option<(u64, PathBuf)> = None;
+    let entries = fs::read_dir(dir).ok()?;
+    for entry in entries.flatten() {
+        let name = entry.file_name();
+        let name = name.to_string_lossy();
+        let Some(version) = generation_version(&name) else {
+            continue;
+        };
+        if best.as_ref().is_none_or(|(current, _)| version >= *current) {
+            best = Some((version, entry.path()));
+        }
+    }
+    best.map(|(_, path)| path)
+}
+
+fn generation_version(name: &str) -> Option<u64> {
+    let stem = name.strip_suffix(".zstd").unwrap_or(name);
+    let stem = stem.strip_suffix(".jsonl")?;
+    if stem == "session" {
+        return Some(0);
+    }
+    let version = stem.strip_prefix("session.v")?;
+    if version.starts_with('0') || version.is_empty() {
+        return None;
+    }
+    version.parse().ok()
+}
+
+fn read_session_log(path: &Path) -> io::Result<String> {
+    let bytes = fs::read(path)?;
+    let plain = if path.extension().and_then(|ext| ext.to_str()) == Some("zstd") {
+        zstd::decode_all(bytes.as_slice()).map_err(|error| io::Error::other(error.to_string()))?
+    } else {
+        bytes
+    };
+    String::from_utf8(plain).map_err(io::Error::other)
 }
 
 fn user_prompt(event: &Value) -> Option<String> {
@@ -584,6 +693,20 @@ fn title_from_value(value: Option<&Value>, prompts: &[String]) -> TitleRecord {
             .unwrap_or("")
             .to_string(),
     }
+}
+
+fn live_activity(session_id: &str, value: Option<&Value>) -> (Activity, bool, Option<u32>) {
+    let (mut kind, unread, mut owner_pid) = activity_from_value(value);
+    let home = std::env::var_os("DSH_HOME").map(PathBuf::from);
+    if let Some(home) = home
+        && let Some(pid) = session_owner::occupied_holder(&home, session_id)
+    {
+        owner_pid = (pid != 0).then_some(pid).or(owner_pid);
+        if kind == Activity::Idle || kind == Activity::Inactive {
+            kind = Activity::Working;
+        }
+    }
+    (kind, unread, owner_pid)
 }
 
 fn activity_from_value(value: Option<&Value>) -> (Activity, bool, Option<u32>) {
@@ -716,6 +839,7 @@ fn session_exists(dsh_home: &Path, session_id: &str) -> bool {
     session_owner::read_last_session(dsh_home).is_some_and(|(id, _)| id == session_id)
 }
 
+#[cfg_attr(not(test), allow(dead_code))]
 pub fn set_activity(
     dsh_home: &Path,
     session_id: &str,
@@ -763,12 +887,26 @@ pub fn search(catalog: &Catalog, query: &str, cwd: Option<&Path>) -> Vec<SearchH
         {
             continue;
         }
-        let title = session.display_title().to_ascii_lowercase();
-        if title.contains(&needle) || session.id.to_ascii_lowercase().contains(&needle) {
+        let manual =
+            session.title.manual && session.title.title.to_ascii_lowercase().contains(&needle);
+        if manual || session.id.to_ascii_lowercase().contains(&needle) {
             hits.push(SearchHit {
                 session: session.clone(),
                 extended: false,
-                snippet: session.display_title().to_string(),
+                snippet: if manual {
+                    session.title.title.clone()
+                } else {
+                    session.id.clone()
+                },
+            });
+            continue;
+        }
+        let generated = session.title.generated.to_ascii_lowercase();
+        if !session.title.manual && generated.contains(&needle) {
+            hits.push(SearchHit {
+                session: session.clone(),
+                extended: true,
+                snippet: session.title.generated.clone(),
             });
             continue;
         }
@@ -812,12 +950,23 @@ pub fn resolve_resume(
             }),
         };
     }
-    let matches: Vec<_> = sessions
+    let here: Vec<_> = sessions
         .iter()
+        .filter(|session| session.foreign.is_none())
         .filter(|session| same_dir(&session.cwd, cwd))
         .filter(|session| session.display_title().eq_ignore_ascii_case(token))
         .cloned()
         .collect();
+    let matches = if here.is_empty() {
+        sessions
+            .iter()
+            .filter(|session| session.foreign.is_none())
+            .filter(|session| session.display_title().eq_ignore_ascii_case(token))
+            .cloned()
+            .collect()
+    } else {
+        here
+    };
     match matches.len() {
         0 => Err(CatalogError {
             message: format!("no session titled {token:?} in {}", cwd.display()),
@@ -850,6 +999,10 @@ pub fn resolve_resume(
     }
 }
 
+pub fn same_directory(left: &str, right: &Path) -> bool {
+    same_dir(left, right)
+}
+
 fn same_dir(left: &str, right: &Path) -> bool {
     if left.is_empty() {
         return false;
@@ -857,8 +1010,31 @@ fn same_dir(left: &str, right: &Path) -> bool {
     let left_path = Path::new(left);
     left_path == right
         || fs::canonicalize(left_path).ok().as_deref() == fs::canonicalize(right).ok().as_deref()
-        || left_path.file_name() == right.file_name()
-            && left_path.ends_with(right.file_name().unwrap_or_default())
+}
+
+/// Record that this client started or finished a turn. A finished turn stays
+/// unread until the session is opened again; activity is not forced to idle
+/// by merely listing the catalog.
+pub fn note_turn(dsh_home: &Path, session_id: &str, working: bool) -> io::Result<()> {
+    let mut map = load_map(&activity_path(dsh_home));
+    let previous = map.get(session_id).cloned().unwrap_or(Value::Null);
+    let unread = if working {
+        previous
+            .get("unread")
+            .and_then(Value::as_bool)
+            .unwrap_or(false)
+    } else {
+        true
+    };
+    map.insert(
+        session_id.to_string(),
+        json!({
+            "activity": if working { Activity::Working.as_str() } else { Activity::Idle.as_str() },
+            "unread": unread,
+            "ownerPid": if working { Some(std::process::id()) } else { None::<u32> },
+        }),
+    );
+    save_map(&activity_path(dsh_home), &map)
 }
 
 pub fn group_rows(
@@ -969,12 +1145,29 @@ fn dashboard_query_matches(session: &SessionRecord, query: &str) -> bool {
             .to_ascii_lowercase()
             .contains(&needle);
     }
+    let manual = if session.title.manual {
+        session.title.title.to_ascii_lowercase()
+    } else {
+        String::new()
+    };
     let haystack = format!(
-        "{} {}",
-        session.display_title().to_ascii_lowercase(),
+        "{manual} {} {}",
+        session.id.to_ascii_lowercase(),
         session.cwd.to_ascii_lowercase()
     );
-    haystack.contains(&lower)
+    if haystack.contains(&lower) {
+        return true;
+    }
+    session
+        .prompts
+        .iter()
+        .any(|prompt| prompt.to_ascii_lowercase().contains(&lower))
+        || (!session.title.manual
+            && session
+                .title
+                .generated
+                .to_ascii_lowercase()
+                .contains(&lower))
 }
 
 pub fn read_dashboard_prefs(dsh_home: &Path) -> DashboardPrefs {
@@ -1301,12 +1494,15 @@ pub fn handle_dashboard_key(
             None
         }
         (DashboardFocus::Search, DashKey::Enter) => {
-            view.focus = DashboardFocus::Dispatch;
-            view.notice = if view.query.is_empty() {
-                "filter cleared".into()
-            } else {
-                format!("filter kept: {}", view.query)
-            };
+            let rows = dashboard_rows(sessions, view);
+            if let Some(session) = rows.first() {
+                view.selected = Some(session.id.clone());
+                view.open_session = Some(session.id.clone());
+                view.focus = DashboardFocus::List;
+                return Some(format!("open {}", session.id));
+            }
+            view.focus = DashboardFocus::List;
+            view.notice = "No sessions match.".into();
             None
         }
         (DashboardFocus::Search, DashKey::Char(ch)) => {
@@ -1473,8 +1669,9 @@ pub fn render_dashboard(catalog: &Catalog, view: &DashboardView, cwd: &Path) -> 
             .map(|name| format!(" [{name}]"))
             .unwrap_or_default();
         lines.push(format!(
-            "{mark} {} {} · {}{}{}{}{}",
+            "{mark} {} {} · {} · {}{}{}{}{}",
             session.activity.glyph(),
+            session.id,
             session.display_title(),
             session.activity.as_str(),
             unread,
@@ -1618,29 +1815,21 @@ fn read_foreign(dsh_home: &Path, warnings: &mut Vec<String>) -> Vec<SessionRecor
 }
 
 pub fn list_text(catalog: &Catalog, cwd: &Path, limit: usize) -> String {
-    let mut rows: Vec<_> = catalog
-        .sessions
-        .iter()
-        .filter(|session| same_dir(&session.cwd, cwd) || session.cwd == cwd.display().to_string())
-        .take(limit)
-        .collect();
-    if rows.is_empty() {
-        rows = catalog.sessions.iter().take(limit).collect();
-    }
-    let groups = group_rows(
-        &rows.into_iter().cloned().collect::<Vec<_>>(),
-        catalog.prefs.grouping,
-    );
+    let _ = cwd;
+    let rows: Vec<_> = catalog.sessions.iter().take(limit).cloned().collect();
+    let groups = group_rows(&rows, catalog.prefs.grouping);
     let mut lines = Vec::new();
     for (label, sessions) in groups {
         lines.push(format!("# {label}"));
         for session in sessions {
+            let unread = if session.unread { " unread" } else { "" };
             lines.push(format!(
-                "{}\t{}\t{}\t{}\t{}",
+                "{}\t{}\t{}\t{}{}\t{}",
                 session.id,
                 session.created_at,
                 session.updated_at,
                 session.activity.as_str(),
+                unread,
                 session.display_title()
             ));
         }
@@ -2018,6 +2207,202 @@ mod tests {
                     .iter()
                     .any(|prompt| prompt.contains("alpha"))
             })
+    }
+
+    #[test]
+    fn manual_title_outranks_a_generated_display_title_and_search_says_so() {
+        let home = temp_home();
+        let here = home.join("here");
+        let there = home.join("there");
+        fs::create_dir_all(&here).unwrap();
+        fs::create_dir_all(&there).unwrap();
+        let manual = "99999999-9999-4999-8999-999999999999";
+        let generated = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+        write_session(
+            &home,
+            manual,
+            here.to_str().unwrap(),
+            &["plan the parser"],
+            10,
+        );
+        write_session(
+            &home,
+            generated,
+            there.to_str().unwrap(),
+            &["plan the parser"],
+            20,
+        );
+        rename_session(&home, manual, "Ship parser").unwrap();
+        store_generated_title(&home, generated, "Ship parser", "configured", "mock").unwrap();
+        let catalog = load_catalog(&home, &here);
+        let hits = search(&catalog, "ship parser", None);
+        assert_eq!(hits.len(), 2, "title search is not directory-scoped");
+        assert!(!hits[0].extended, "manual title is a title hit");
+        assert_eq!(hits[0].session.id, manual);
+        assert!(
+            hits[1].extended,
+            "a generated title is not a title hit: {}",
+            hits[1].snippet
+        );
+        let resolved = resolve_resume(&catalog.sessions, "Ship parser", &here).unwrap();
+        assert_eq!(resolved.session.id, manual);
+        let elsewhere = resolve_resume(&catalog.sessions, "Ship parser", &there).unwrap();
+        assert_eq!(
+            elsewhere.session.id, generated,
+            "title resume follows the same catalog as search"
+        );
+        let _ = fs::remove_dir_all(home);
+    }
+
+    #[test]
+    fn list_keeps_every_workspace_until_the_limit_and_shows_unread() {
+        let home = temp_home();
+        let here = home.join("here");
+        let there = home.join("there");
+        fs::create_dir_all(&here).unwrap();
+        fs::create_dir_all(&there).unwrap();
+        let first = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+        let second = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
+        write_session(&home, first, here.to_str().unwrap(), &["alpha"], 1);
+        write_session(&home, second, there.to_str().unwrap(), &["beta"], 2);
+        set_activity(&home, second, Activity::Working, true, Some(7)).unwrap();
+        let catalog = load_catalog(&home, &here);
+        let listed = list_text(&catalog, &here, 20);
+        assert!(listed.contains(first), "{listed}");
+        assert!(listed.contains(second), "{listed}");
+        assert!(listed.contains("unread"), "{listed}");
+        assert!(listed.contains("working"), "{listed}");
+        let picker = render_picker(
+            &catalog
+                .sessions
+                .iter()
+                .map(|session| SearchHit {
+                    session: session.clone(),
+                    extended: false,
+                    snippet: session.display_title().to_string(),
+                })
+                .collect::<Vec<_>>(),
+            0,
+            "",
+        );
+        let view = DashboardView::open(&catalog.sessions);
+        let dashboard = render_dashboard(&catalog, &view, &here);
+        for surface in [&listed, &picker, &dashboard] {
+            assert!(surface.contains(first), "{surface}");
+            assert!(surface.contains(second), "{surface}");
+            assert!(surface.contains("unread"), "{surface}");
+        }
+        let _ = fs::remove_dir_all(home);
+    }
+
+    #[test]
+    fn filtered_dashboard_enter_opens_that_row() {
+        let home = temp_home();
+        let cwd = home.join("work");
+        fs::create_dir_all(&cwd).unwrap();
+        let first = "dddddddd-dddd-4ddd-8ddd-dddddddddddd";
+        let second = "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee";
+        write_session(&home, first, cwd.to_str().unwrap(), &["alpha history"], 1);
+        write_session(&home, second, cwd.to_str().unwrap(), &["beta history"], 2);
+        let catalog = load_catalog(&home, &cwd);
+        let mut view = DashboardView::open(&catalog.sessions);
+        handle_dashboard_key(&mut view, &catalog.sessions, DashKey::Ctrl('/'));
+        for ch in ['a', 'l', 'p', 'h', 'a'] {
+            handle_dashboard_key(&mut view, &catalog.sessions, DashKey::Char(ch));
+        }
+        let shown = render_dashboard(&catalog, &view, &cwd);
+        let rows: Vec<_> = shown
+            .lines()
+            .filter(|line| line.starts_with('>') || line.starts_with(' '))
+            .filter(|line| line.contains('-'))
+            .collect();
+        assert!(rows.iter().any(|line| line.contains(first)), "{shown}");
+        assert!(rows.iter().all(|line| !line.contains(second)), "{shown}");
+        let open = handle_dashboard_key(&mut view, &catalog.sessions, DashKey::Enter);
+        assert_eq!(open.as_deref(), Some(format!("open {first}").as_str()));
+        let _ = fs::remove_dir_all(home);
+    }
+
+    #[test]
+    fn plaintext_fallback_reads_encoded_versioned_and_zstd_logs() {
+        let home = temp_home();
+        let cwd = home.join("work");
+        fs::create_dir_all(&cwd).unwrap();
+        let id = "ffffffff-ffff-4fff-8fff-ffffffffffff";
+        write_encoded_session(
+            &home,
+            id,
+            cwd.to_str().unwrap(),
+            &["ENCODED_ONLY_TOKEN"],
+            40,
+            true,
+        );
+        let catalog = load_catalog(&home, &cwd);
+        let session = catalog
+            .sessions
+            .iter()
+            .find(|session| session.id == id)
+            .unwrap_or_else(|| panic!("encoded log missing: {:?}", catalog.warnings));
+        assert!(
+            session
+                .prompts
+                .iter()
+                .any(|prompt| prompt.contains("ENCODED_ONLY_TOKEN")),
+            "{session:?}"
+        );
+        assert!(same_dir(&session.cwd, &cwd), "{}", session.cwd);
+        let _ = fs::remove_dir_all(home);
+    }
+
+    fn write_encoded_session(
+        home: &Path,
+        id: &str,
+        cwd: &str,
+        prompts: &[&str],
+        created: u64,
+        compress: bool,
+    ) {
+        let dir = home
+            .join("sessions")
+            .join(super::project_key(cwd))
+            .join(super::encode_segment(id));
+        fs::create_dir_all(&dir).unwrap();
+        let mut body = format!(
+            "{}\n",
+            json!({
+                "type": "session",
+                "version": 1,
+                "id": id,
+                "createdAt": created,
+                "isSeeded": false,
+                "delegationDepth": 0,
+                "cwd": cwd,
+            })
+        );
+        for (index, prompt) in prompts.iter().enumerate() {
+            body.push_str(&format!(
+                "{}\n",
+                json!({
+                    "type": "user/message",
+                    "seq": index as u64 + 1,
+                    "data": {"message": {"content": [{"type": "text", "text": prompt}]}}
+                })
+            ));
+        }
+        let name = if compress {
+            "session.v1.jsonl.zstd"
+        } else {
+            "session.v1.jsonl"
+        };
+        if compress {
+            fs::write(dir.join(name), zstd_frame(body.as_bytes())).unwrap();
+        } else {
+            fs::write(dir.join(name), body).unwrap();
+        }
+    }
+
+    fn zstd_frame(bytes: &[u8]) -> Vec<u8> {
+        zstd::encode_all(bytes, 0).unwrap()
     }
 
     #[test]

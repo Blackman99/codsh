@@ -196,6 +196,34 @@ impl SessionOwner {
     }
 }
 
+/// Another process holds this session's write lock. A missing or unlocked
+/// file is not occupied: this client may still acquire it.
+pub fn occupied_holder(dsh_home: &Path, session_id: &str) -> Option<u32> {
+    if session_id.is_empty()
+        || session_id.contains('/')
+        || session_id.contains('\\')
+        || session_id.contains("..")
+    {
+        return None;
+    }
+    let path = lock_path(dsh_home, session_id);
+    let mut file = OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(false)
+        .truncate(false)
+        .open(&path)
+        .ok()?;
+    let locked = try_lock(&file).ok()?;
+    if locked {
+        // The probe lock is released when this descriptor closes.
+        return None;
+    }
+    let mut body = String::new();
+    let _ = file.read_to_string(&mut body);
+    parse_owner(&body).map(|(pid, _)| pid).or(Some(0))
+}
+
 impl Drop for SessionOwner {
     fn drop(&mut self) {
         // flock releases when the descriptor closes. Unlink only this holder's

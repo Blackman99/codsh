@@ -195,7 +195,7 @@ def main():
             first.write('/dashboard\r')
             shown = first.wait_visible('Agent Dashboard', 15)
             assert 'Manual Alpha' in shown
-            assert alpha in shown or 'Manual Alpha' in shown
+            assert alpha in shown, shown
             first.write(b'\x1b')
             first.wait_visible('left dashboard', 10)
             results.append(first.finish())
@@ -219,14 +219,18 @@ def main():
         listed = cli(launcher, cwd, base_env, 'sessions', 'list')
         assert listed.returncode == 0, listed.stderr
         assert alpha in listed.stdout
+        assert beta in listed.stdout, listed.stdout
         assert 'Manual Alpha' in listed.stdout
+        assert 'unread' in listed.stdout, listed.stdout
         searched = cli(launcher, cwd, base_env, 'sessions', 'search', 'TOKEN_ALPHA_BODY')
         assert searched.returncode == 0, searched.stderr
         assert alpha in searched.stdout
         assert 'content' in searched.stdout
         title_hit = cli(launcher, cwd, base_env, 'sessions', 'search', 'Manual Alpha')
         assert alpha in title_hit.stdout
-        assert 'title' in title_hit.stdout
+        assert beta in title_hit.stdout, title_hit.stdout
+        title_lines = [line for line in title_hit.stdout.splitlines() if 'Manual' in line or alpha in line or beta in line]
+        assert any(line.startswith(alpha) and '\ttitle\t' in line for line in title_lines), title_hit.stdout
 
         resumed = Session('resume-title', launcher, cwd, {
             **base_env, 'DSH_CODE_CLI_MOCK_TOOL': 'echo',
@@ -239,10 +243,31 @@ def main():
             resumed.write('/resume\r')
             picker = resumed.wait_visible('Resume session', 15)
             assert 'Manual Alpha' in picker
-            resumed.write(b'\x1b')
+            assert alpha in picker and beta in picker, picker
+            selected = next(line for line in picker.splitlines() if line.startswith('> ○') or line.startswith('> ·'))
+            assert beta in selected, picker
+            resumed.write(b'\r')
+            refused = resumed.wait_visible('occupied', 20)
+            assert f'session {alpha}' in refused, refused
+            assert 'Connected to dsh ACP session' in refused
             results.append(resumed.finish())
         finally:
             resumed.close()
+
+        startup = Session('dashboard-startup', launcher, cwd, {
+            **base_env,
+            'DSH_CODE_CLI_MOCK_TOOL': 'echo',
+            'GROK_OPEN_DASHBOARD_AT_STARTUP': '1',
+            'GROK_SESSION_PICKER_GROUPED': '1',
+        }, output, extra=['dashboard'])
+        try:
+            shown = startup.wait_visible('Agent Dashboard', 25)
+            assert alpha in shown, shown
+            assert 'grouping=directory' in shown, shown
+            startup.write(b'\x1b')
+            results.append(startup.finish())
+        finally:
+            startup.close()
 
         minimal = Session('minimal-dashboard', launcher, cwd, {
             **base_env, 'DSH_CODE_CLI_MOCK_TOOL': 'echo',

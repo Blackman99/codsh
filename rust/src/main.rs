@@ -1341,12 +1341,81 @@ fn switch_session(
     cwd: &Path,
     session_id: &str,
 ) -> Result<Vec<Turn>, String> {
-    let _ = client.close_session(Duration::from_secs(10));
-    *owner = None;
-    let next_owner = SessionOwner::acquire(dsh_home, session_id).map_err(|error| error.message)?;
-    client
-        .resume_session(session_id, cwd, Duration::from_secs(20))
-        .map_err(|error| error.message)?;
+    let current = client.session_id.clone();
+    if current.as_deref() == Some(session_id) {
+        return match session_history::load_turns(dsh_home, session_id) {
+            Ok(restored) => Ok(restored.into_iter().map(turn_from_restored).collect()),
+            Err(error) => Err(error.message),
+        };
+    }
+    let catalog = session_catalog::load_catalog(dsh_home, cwd);
+    let target = catalog
+        .sessions
+        .iter()
+        .find(|session| session.id == session_id && session.foreign.is_none());
+    let Some(target) = target else {
+        return Err(format!("session is not resumable: {session_id}"));
+    };
+    if !session_catalog::same_directory(&target.cwd, cwd) {
+        return Err(format!(
+            "occupied: session cwd does not match: {} stays on {}",
+            target.cwd,
+            cwd.display()
+        ));
+    }
+    if session_owner::occupied_holder(dsh_home, session_id).is_some() {
+        let pid = session_owner::occupied_holder(dsh_home, session_id);
+        return Err(match pid {
+            Some(pid) if pid != 0 => format!(
+                "Write owner refused: session {session_id} is already running (pid {pid}). occupied: {session_id} stays on its current owner"
+            ),
+            _ => format!(
+                "Write owner refused: session {session_id} is already running. occupied: {session_id} stays on its current owner"
+            ),
+        });
+    }
+    // Take the next lock before releasing the live one. A refused or missing
+    // target must leave this client writing the session it already owns.
+    let next_owner = SessionOwner::acquire(dsh_home, session_id).map_err(|error| {
+        format!(
+            "{} occupied: {session_id} stays on its current owner",
+            error.message
+        )
+    })?;
+    let previous_cwd = current.as_ref().and_then(|id| {
+        catalog
+            .sessions
+            .iter()
+            .find(|session| &session.id == id)
+            .map(|session| PathBuf::from(&session.cwd))
+    });
+    let reopen_cwd = previous_cwd
+        .filter(|path| path.is_dir())
+        .unwrap_or_else(|| cwd.to_path_buf());
+    if client.session_id.is_some() {
+        let _ = client.close_session(Duration::from_secs(10));
+    }
+    if let Err(error) = client.resume_session(session_id, cwd, Duration::from_secs(20)) {
+        let message = error.message;
+        if let Some(previous) = current.clone() {
+            *owner = None;
+            match client.reopen_session(&previous, &reopen_cwd, Duration::from_secs(20)) {
+                Ok(()) => {
+                    if let Ok(restored) = SessionOwner::acquire(dsh_home, &previous) {
+                        *owner = Some(restored);
+                    }
+                }
+                Err(reopen) => {
+                    *owner = None;
+                    return Err(format!(
+                        "{message}; restoring {previous} also failed: {}",
+                        reopen.message
+                    ));
+                }
+            }
+        }
+        return Err(message);
+    }
     *owner = Some(next_owner);
     let _ = session_owner::write_last_session(dsh_home, session_id, cwd);
     match session_history::load_turns(dsh_home, session_id) {
@@ -1414,6 +1483,9 @@ fn commit_fork(
     );
     if let Some(text) = directive.filter(|value| !value.trim().is_empty()) {
         client.submit_prompt(text).map_err(|error| error.message)?;
+        if let Some(session_id) = client.session_id.clone() {
+            let _ = session_catalog::note_turn(dsh_home, &session_id, true);
+        }
         turns.push(Turn {
             user: text.to_string(),
             thought: String::new(),
@@ -1719,12 +1791,17 @@ fn handle_catalog_overlay_key(
                             }
                             Err(error) => {
                                 *last_error = error.clone();
-                                if error.contains("Write owner") || error.contains("already") {
-                                    *hint = format!(
+                                *hint = if error.contains("Write owner")
+                                    || error.contains("occupied")
+                                    || error.contains("cwd does not match")
+                                {
+                                    format!(
                                         "occupied: {} stays on its current owner",
                                         hit.session.id
-                                    );
-                                }
+                                    )
+                                } else {
+                                    error
+                                };
                             }
                         }
                     }
@@ -1854,7 +1931,17 @@ fn apply_dashboard_action(
                     *overlay = Overlay::None;
                     let _ = reset_native_history_after_switch(terminal, screen, committed, history);
                 }
-                Err(error) => *last_error = error,
+                Err(error) => {
+                    *last_error = error.clone();
+                    *hint = if error.contains("Write owner")
+                        || error.contains("occupied")
+                        || error.contains("cwd does not match")
+                    {
+                        format!("occupied: {id} stays on its current owner")
+                    } else {
+                        error
+                    };
+                }
             }
         }
         return Ok(());
@@ -2038,13 +2125,6 @@ fn switch_to_catalog_session(
         restored,
     );
     let _ = session_catalog::mark_read(dsh_home, session_id);
-    let _ = session_catalog::set_activity(
-        dsh_home,
-        session_id,
-        session_catalog::Activity::Idle,
-        false,
-        None,
-    );
     let kept = previous.unwrap_or_default();
     Ok(format!(
         "resumed {session_id}; previous output stayed on {kept}"
@@ -3827,6 +3907,9 @@ fn run() -> io::Result<()> {
             // No suggestion provider is connected. Passing Some here would
             // paint ghost text that Tab/Right could accept without a real row.
             composer.on_turn_finished(None);
+            if let Some(session_id) = client.as_ref().and_then(|active| active.session_id.clone()) {
+                let _ = session_catalog::note_turn(&effective.dsh_home, &session_id, false);
+            }
         }
         if was_compacting && !inflight {
             compacting = false;
@@ -3991,6 +4074,17 @@ fn run() -> io::Result<()> {
             (screen == ScreenMode::Fullscreen && !matches!(overlay, Overlay::Feedback(_)))
                 .then_some(&nav),
         )?;
+        if open_dashboard_at_start && matches!(overlay, Overlay::None) && client.is_some() {
+            open_dashboard_at_start = false;
+            if screen == ScreenMode::Minimal {
+                hint = session_catalog::minimal_dashboard_refusal().into();
+            } else if let Err(error) =
+                open_dashboard_overlay(&mut overlay, &effective, client.as_ref())
+            {
+                last_error = error;
+            }
+            continue;
+        }
         if !event::poll(Duration::from_millis(80))? {
             continue;
         }
@@ -4070,16 +4164,6 @@ fn run() -> io::Result<()> {
                         &mut ui_overlay,
                     );
                     continue;
-                }
-                if open_dashboard_at_start && matches!(overlay, Overlay::None) && client.is_some() {
-                    open_dashboard_at_start = false;
-                    if screen == ScreenMode::Minimal {
-                        hint = session_catalog::minimal_dashboard_refusal().into();
-                    } else if let Err(error) =
-                        open_dashboard_overlay(&mut overlay, &effective, client.as_ref())
-                    {
-                        last_error = error;
-                    }
                 }
                 if key.modifiers.contains(KeyModifiers::CONTROL)
                     && matches!(key.code, KeyCode::Char('c'))
@@ -4178,6 +4262,27 @@ fn run() -> io::Result<()> {
                     continue;
                 }
                 if matches!(overlay, Overlay::Feedback(_)) {
+                    continue;
+                }
+                if matches!(
+                    overlay,
+                    Overlay::SessionPick { .. } | Overlay::Dashboard(_) | Overlay::Location { .. }
+                ) && handle_catalog_overlay_key(
+                    key,
+                    &mut overlay,
+                    &mut client,
+                    &mut owner,
+                    &mut turns,
+                    &mut committed,
+                    &mut history,
+                    &mut resumed,
+                    &mut previous_session,
+                    &effective,
+                    &mut hint,
+                    &mut last_error,
+                    &mut terminal,
+                    screen,
+                )? {
                     continue;
                 }
 
@@ -4489,29 +4594,6 @@ fn run() -> io::Result<()> {
                         Overlay::SessionPick { .. }
                         | Overlay::Dashboard(_)
                         | Overlay::Location { .. } => {}
-                    }
-                    if matches!(
-                        overlay,
-                        Overlay::SessionPick { .. }
-                            | Overlay::Dashboard(_)
-                            | Overlay::Location { .. }
-                    ) && handle_catalog_overlay_key(
-                        key,
-                        &mut overlay,
-                        &mut client,
-                        &mut owner,
-                        &mut turns,
-                        &mut committed,
-                        &mut history,
-                        &mut resumed,
-                        &mut previous_session,
-                        &effective,
-                        &mut hint,
-                        &mut last_error,
-                        &mut terminal,
-                        screen,
-                    )? {
-                        continue;
                     }
                 }
 
@@ -5790,6 +5872,9 @@ fn dispatch_composer_command(
                 composer.clear_slash_line(&parked_draft);
                 *inflight = true;
                 last_error.clear();
+                if let Some(session_id) = active.session_id.clone() {
+                    let _ = session_catalog::note_turn(&effective.dsh_home, &session_id, true);
+                }
             }
             Err(error) => *last_error = error.message,
         }
@@ -5888,6 +5973,9 @@ fn submit_composer_prompt(
                 composer.record_history(text);
                 *inflight = true;
                 last_error.clear();
+                if let Some(session_id) = active.session_id.clone() {
+                    let _ = session_catalog::note_turn(&effective.dsh_home, &session_id, true);
+                }
             }
             Err(error) => *last_error = error.message,
         }

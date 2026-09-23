@@ -199,7 +199,7 @@ This avoids regenerating valid performance/headless captures. Its two PTYs recor
 announcement usage, unsupported-graphics GBOOM refusal, dashboard location picker
 opening/dismissal via Ctrl+L, the `/cd` autocomplete placeholder and invalid path,
 minimal dashboard refusal, typing and clean quit. Ticket 27 adds the installed
-`sessions list`/`sessions search` contract, `/resume` title-or-content filtering,
+`sessions list`/`sessions search` contract, `/resume` title-or-content filtering across workspaces,
 manual `/rename` priority, configured-model titles, and the fullscreen dashboard.
 Foreign Claude/Codex/Cursor session roots stay gated and are not native dsh history. It does not establish populated
 banners, new-agent cwd, overlay rendering or argument passthrough. The model probe

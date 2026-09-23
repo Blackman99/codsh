@@ -803,6 +803,18 @@ impl AcpClient {
         }
     }
 
+    /// Restore the ACP session this client already owns. A failed resume must
+    /// not leave the connection with no session after the previous one closed.
+    pub fn reopen_session(
+        &mut self,
+        session_id: &str,
+        cwd: &Path,
+        timeout: Duration,
+    ) -> Result<(), AcpError> {
+        self.session_id = None;
+        self.resume_session(session_id, cwd, timeout).map(|_| ())
+    }
+
     pub fn pump(&mut self, timeout: Duration) -> Vec<AcpEvent> {
         let mut events = Vec::new();
         let deadline = Instant::now() + timeout;

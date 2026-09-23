@@ -66,7 +66,7 @@ dsh 给出的差异，`y` 允许该次调用，`a` 只记住当前项目，`n` �
 允许或进程退出再次执行；未知的外部结果显示为已取消，而不是成功。取消后可以继续
 提交新回合。尚未有任何回合时，空草稿上的 `Ctrl+C` 仍会退出。
 `codsh --rust --continue` 会恢复此目录上次的 dsh 会话；`--resume <id-or-title>` 加载
-指定会话。UUID 一律当作 id。标题只匹配当前目录并忽略大小写；唯一的手动 `/rename` 优先于自动标题，其余重名会列出 id。`codsh --rust sessions list` 与 `sessions search <query>` 读取隔离的 dsh Home。搜索先匹配标题，对话正文标为 content。空结果不会编造会话。`--fork-session` 配合 `--resume`/`--continue` 会把该对话复制到新的
+指定会话。UUID 一律当作 id。标题匹配所有工作区并忽略大小写；唯一的手动 `/rename` 优先于自动标题，其余重名会列出 id。`codsh --rust sessions list` 与 `sessions search <query>` 读取隔离 dsh Home 的全部工作区，再套用 `--limit`。手动标题标为 title，自动标题和对话正文标为 content。空结果不会编造会话。`--fork-session` 配合 `--resume`/`--continue` 会把该对话复制到新的
 dsh 会话 id。`/rewind` 与 `/undo`（或空闲时空草稿上的 Esc Esc）通过 dsh 分叉
 仅对话历史；`/fork` 复制当前历史。磁盘文件不会被回滚；`--restore-code` 会被拒绝。
 界面从 dsh 日志恢复已持久化的回合（不是第二套会话库）。中断或
@@ -77,7 +77,7 @@ dsh 会话 id。`/rewind` 与 `/undo`（或空闲时空草稿上的 Esc Esc）�
 最小模式下 `/rewind` 与 `/fork` 会重置该原生缓冲，而不是把已丢弃回合追加进去。官方 `xai-grok-markdown` 渲染流式 Markdown、表格、代码、mermaid 节点、思考以及 dsh 工具卡/差异，会话会保留标题、代码、表格和差异的颜色。美化模式与官方 markdown 一致，因此 `Vec<T>`、比较运算符、围栏里的 Rust 以及行内 HTML 标签都会保留，并把 ZWJ 表情保持在同一个单元格；失败的工具用失败色显示 `failed` 和 `[error]`，而不是成功。Esc 关闭完整内容并恢复折叠后的记录。长结果会折叠；Tab 后按 `l`/`→` 展开，`r` 切换原文，Enter 打开完整内容，`y` 复制原文。最小模式下 `/expand` 会重印上一个折叠块；`/transcript`（`/log`）用 `$PAGER` 打开完整原文。
 切换在同一进程内完成，正在执行的 dsh 回合、草稿和待审批都会保留。
 `--minimal` / `--fullscreen` 与 `GROK_SCREEN_MODE` 只作用于当前会话，不会改写
-隔离目录里的 `[ui] screen_mode`。`/dashboard`（别名 `/agents-dashboard`、`/sessions`）以及设置了 `GROK_OPEN_DASHBOARD_AT_STARTUP=1` 的 `codsh --rust dashboard` 在全屏打开代理仪表盘。它与 `/resume`、`sessions list` 显示同一会话 id、标题、活动和未读标记。`Ctrl+/` 过滤，`Ctrl+R` 重命名选中行，`Ctrl+T` 固定，`Ctrl+G` 在状态分组与目录分组之间切换。最小模式会拒绝仪表盘并提示运行 `/fullscreen`。`/resume` 打开会话选择器；输入先按标题过滤，再在 `Extended search results` 下匹配对话正文。选中后恢复该 dsh id，不会把上一会话的输出写进新会话。`/rename <title>`（别名 `/title <title>`）保存手动标题，自动生成不会覆盖它。`/rename --auto` 与单独的 `/title` 把标题交回已配置模型（`base_url`、模型 id 和凭证）。提示只发给该提供商，不会写入提示行、URL 或调试日志。缺少模型或凭证是错误，不会改用备用标题。`/new` 开始新的 dsh 会话。`/clear` 只清空可见记录。`/session-info`（别名 `/info`）显示标题、id、目录、模型和活动。`/cd [path]` 只改变下一个新代理的目录，当前会话历史保持不动。路径不存在、按 Esc 或取消都会保留原目录。拿不到写入锁的第二个客户端会显示为占用，并且不会改动另一份历史。最小模式下的 `/dashboard` 等模式专用命令会
+隔离目录里的 `[ui] screen_mode`。`/dashboard`（别名 `/agents-dashboard`、`/sessions`）以及设置了 `GROK_OPEN_DASHBOARD_AT_STARTUP=1` 的 `codsh --rust dashboard` 在全屏打开代理仪表盘。它与 `/resume`、`sessions list` 显示同一会话 id、标题、活动和未读标记。`Ctrl+/` 过滤，`Ctrl+R` 重命名选中行，`Ctrl+T` 固定，`Ctrl+G` 在状态分组与目录分组之间切换。最小模式会拒绝仪表盘并提示运行 `/fullscreen`。`/resume` 打开会话选择器；输入先按标题过滤，再在 `Extended search results` 下匹配对话正文。选中后恢复该 dsh id，不会把上一会话的输出写进新会话。目录不匹配或写入锁已被占用时，仍留在当前会话并显示 `occupied`。`/rename <title>`（别名 `/title <title>`）保存手动标题，自动生成不会覆盖它。`/rename --auto` 与单独的 `/title` 把标题交回已配置模型（`base_url`、模型 id 和凭证）。提示只发给该提供商，不会写入提示行、URL 或调试日志。缺少模型或凭证是错误，不会改用备用标题。`/new` 开始新的 dsh 会话。`/clear` 只清空可见记录。`/session-info`（别名 `/info`）显示标题、id、目录、模型和活动。`/cd [path]` 只改变下一个新代理的目录，当前会话历史保持不动。路径不存在、按 Esc 或取消都会保留原目录。拿不到写入锁的第二个客户端会显示为占用，并且不会改动另一份历史。最小模式下的 `/dashboard` 等模式专用命令会
 拒绝并提示改用 `/fullscreen`。全屏下有回合时 `Tab` 把焦点交给回看区；`/find [text]`
 搜索对话，`/jump` 预览回合，关闭这些弹窗会回到原先的阅读位置且不改草稿。
 点击折叠或选中；拖拽复制且不会误触折叠。选区在流式更新和缩放后按回合身份保留。`/vim-mode` 切换回看区 Vim 键并把

@@ -267,6 +267,27 @@ fn render_notice(notice: &str, area: Rect, buf: &mut ratatui::buffer::Buffer) {
             visible[slot] = status;
         }
     }
+    // A session picker or dashboard is the whole notice. Keeping its tail
+    // drops the rows and leaves only the connection line.
+    if let Some(start) = rows
+        .iter()
+        .rposition(|row| row.starts_with("Agent Dashboard") || row.starts_with("Resume session"))
+    {
+        let end = (start + height).min(rows.len());
+        visible = rows[start..end].to_vec();
+        if let Some(connected) = rows
+            .iter()
+            .find(|row| row.starts_with("Connected to dsh ACP session "))
+            .cloned()
+            && !visible
+                .iter()
+                .any(|row| row.starts_with("Connected to dsh"))
+            && height > 1
+        {
+            visible.pop();
+            visible.insert(0, connected);
+        }
+    }
     Paragraph::new(visible.join("\n"))
         .wrap(Wrap { trim: false })
         .render(area, buf);
