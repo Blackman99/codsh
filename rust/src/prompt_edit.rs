@@ -297,8 +297,10 @@ impl PromptComposer {
             return false;
         }
         let item = self.queue.remove(index);
+        // `set_text` already puts the mention in the draft. Re-inserting a
+        // chip would append a second copy of the same file.
         self.set_text(&item.text);
-        self.restore_file_chips_from_mentions(&item.mentions);
+        self.rebind_file_chips(&item.mentions);
         true
     }
 
@@ -1703,16 +1705,50 @@ impl PromptComposer {
         Ok(fresh)
     }
 
-    fn restore_file_chips_from_mentions(&mut self, mentions: &[String]) {
+    fn rebind_file_chips(&mut self, mentions: &[String]) {
         let Some(index) = self.workspace.clone() else {
             return;
         };
+        let text = self.draft.text().to_string();
+        let mut cursor = 0;
+        let mut elements = Vec::new();
+        let mut restored = Vec::new();
         for mention in mentions {
             let Some(reference) = index.resolve_typed(mention) else {
                 continue;
             };
-            self.insert_file_chip(reference);
+            let Some(offset) = text[cursor..].find(mention.as_str()) else {
+                continue;
+            };
+            let start = cursor + offset;
+            let end = start + mention.len();
+            cursor = end;
+            let display = ratatui::text::Line::from(format!("[{}]", reference.display()));
+            elements.push((start..end, FILE_CHIP, Some(display)));
+            let prepared = index.prepare(&reference, None);
+            restored.push(AttachedFile {
+                id: ElementId::from_raw(0),
+                reference,
+                prepared: Some(prepared),
+            });
         }
+        self.files = restored;
+        if elements.is_empty() {
+            self.refresh_file_state();
+            return;
+        }
+        self.draft.restore_elements(elements);
+        let ids: Vec<ElementId> = self
+            .draft
+            .elements()
+            .iter()
+            .filter(|element| element.kind == FILE_CHIP)
+            .map(|element| element.id)
+            .collect();
+        for (file, id) in self.files.iter_mut().zip(ids) {
+            file.id = id;
+        }
+        self.refresh_file_state();
     }
 
     fn restore_file_chips(&mut self, files: &[AttachedFile]) {
@@ -2517,10 +2553,18 @@ mod tests {
         assert!(composer.text().is_empty());
         composer.handle_key(chord(KeyCode::Up, KeyModifiers::ALT), busy);
         assert!(composer.chips, "editing a queued prompt restores its chip");
-        assert!(
-            composer.text().contains("@src/main.rs"),
-            "{}",
-            composer.text()
+        let restored = composer.text().to_string();
+        let chip_count = composer
+            .draft
+            .elements()
+            .iter()
+            .filter(|element| element.kind == FILE_CHIP)
+            .count();
+        let mention_count = restored.matches("@src/main.rs").count();
+        assert_eq!(
+            (chip_count, mention_count, restored.as_str()),
+            (1, 1, "@src/main.rs"),
+            "set_text already contains the mention, so restore must not append a second chip"
         );
         composer.handle_key(key(KeyCode::Backspace), busy);
         assert!(!composer.chips, "removed queued chip");

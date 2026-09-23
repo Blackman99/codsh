@@ -2,6 +2,8 @@
 //!
 //! Search follows the frozen Grok `@` contract: `.gitignore` files, including
 //! nested ones, and dotfiles stay hidden unless the query starts with `!`.
+//! Patterns use gitignore rules, so `**/*.log` hides nested logs rather than
+//! looking for a directory named `**`.
 //! `@path:2` keeps that line and `@path:10-50` keeps that range. A selected
 //! file is a chip, not
 //! flattened text. Submit reads the file then, so a removed chip is not sent
@@ -116,10 +118,9 @@ pub struct PreparedAttachment {
     pub detail: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 struct IgnoreRule {
-    negated: bool,
-    pattern: String,
+    matcher: ignore::gitignore::Gitignore,
 }
 
 /// Workspace file search and admission. Reads happen only for an explicit ref.
@@ -480,10 +481,29 @@ impl WorkspaceIndex {
     }
 
     fn is_ignored(&self, relative: &str) -> bool {
+        let path = relative.trim_end_matches('/');
+        if path.is_empty() {
+            return false;
+        }
+        let is_dir = relative.ends_with('/') || self.root.join(path).is_dir();
         let mut ignored = false;
+        let mut ancestors = Vec::new();
+        let mut prefix = String::new();
+        for part in path.split('/') {
+            if !prefix.is_empty() {
+                prefix.push('/');
+            }
+            prefix.push_str(part);
+            ancestors.push(prefix.clone());
+        }
         for rule in &self.rules {
-            if rule.matches(relative) {
-                ignored = !rule.negated;
+            for (index, ancestor) in ancestors.iter().enumerate() {
+                let directory = index + 1 < ancestors.len() || is_dir;
+                match rule.matched(&self.root, ancestor, directory) {
+                    Some(true) => ignored = true,
+                    Some(false) => ignored = false,
+                    None => {}
+                }
             }
         }
         ignored
@@ -491,36 +511,23 @@ impl WorkspaceIndex {
 }
 
 impl IgnoreRule {
-    fn matches(&self, relative: &str) -> bool {
-        let path = relative.trim_end_matches('/');
-        let pattern = self.pattern.trim_end_matches('/');
-        if pattern.is_empty() {
-            return false;
-        }
-        // Rules are stored rooted at the `.gitignore` that declared them.
-        // A pattern with no slash still matches that name in any descendant.
-        let (root, name) = match pattern.rsplit_once('/') {
-            Some((root, name)) => (root, name),
-            None => ("", pattern),
-        };
-        let candidate = if root.is_empty() {
-            path
+    /// `Some(true)` ignores, `Some(false)` re-includes, `None` does not apply.
+    fn matched(&self, workspace: &Path, relative: &str, is_dir: bool) -> Option<bool> {
+        let root = self.matcher.path();
+        let rooted = if root.as_os_str().is_empty() {
+            PathBuf::from(relative)
         } else {
-            let Some(rest) = path
-                .strip_prefix(root)
-                .and_then(|rest| rest.strip_prefix('/'))
-            else {
-                return false;
-            };
-            rest
+            match Path::new(relative).strip_prefix(root) {
+                Ok(rest) => rest.to_path_buf(),
+                Err(_) => return None,
+            }
         };
-        if name.is_empty() {
-            return false;
+        let candidate = workspace.join(root).join(rooted);
+        match self.matcher.matched(&candidate, is_dir) {
+            ignore::Match::Ignore(_) => Some(true),
+            ignore::Match::Whitelist(_) => Some(false),
+            ignore::Match::None => None,
         }
-        candidate == name
-            || candidate.starts_with(&format!("{name}/"))
-            || candidate.split('/').any(|part| glob_match(name, part))
-            || glob_match(name, candidate)
     }
 }
 
@@ -715,38 +722,6 @@ fn subsequence(haystack: &str, needle: &str) -> bool {
         .all(|wanted| chars.any(|have| have == wanted))
 }
 
-fn glob_match(pattern: &str, text: &str) -> bool {
-    let pattern: Vec<char> = pattern.chars().collect();
-    let text: Vec<char> = text.chars().collect();
-    fn rec(pattern: &[char], text: &[char]) -> bool {
-        let mut pi = 0;
-        let mut ti = 0;
-        let mut star = None;
-        let mut mark = 0;
-        while ti < text.len() {
-            if pi < pattern.len() && (pattern[pi] == text[ti] || pattern[pi] == '?') {
-                pi += 1;
-                ti += 1;
-            } else if pi < pattern.len() && pattern[pi] == '*' {
-                star = Some(pi);
-                mark = ti;
-                pi += 1;
-            } else if let Some(saved) = star {
-                pi = saved + 1;
-                mark += 1;
-                ti = mark;
-            } else {
-                return false;
-            }
-        }
-        while pi < pattern.len() && pattern[pi] == '*' {
-            pi += 1;
-        }
-        pi == pattern.len()
-    }
-    rec(&pattern, &text)
-}
-
 #[cfg(test)]
 fn joined_text(blocks: &[Value]) -> String {
     blocks
@@ -785,28 +760,24 @@ fn collect_gitignore(root: &Path, dir: &Path, rules: &mut Vec<IgnoreRule>) {
 }
 
 fn parse_gitignore(text: &str, base: &str) -> Vec<IgnoreRule> {
-    text.lines()
-        .filter_map(|line| {
-            let line = line.trim();
-            if line.is_empty() || line.starts_with('#') {
-                return None;
-            }
-            let negated = line.starts_with('!');
-            let body = line.trim_start_matches('!').trim();
-            if body.is_empty() {
-                return None;
-            }
-            let pattern = body.trim_matches('/').to_string();
-            let pattern = if base.is_empty() {
-                pattern
-            } else if pattern.is_empty() {
-                base.to_string()
-            } else {
-                format!("{base}/{pattern}")
-            };
-            Some(IgnoreRule { negated, pattern })
-        })
-        .collect()
+    // `base` is the directory that owned this `.gitignore`, relative to the
+    // workspace. The `ignore` crate applies the file from that directory, so
+    // `**/*.log` reaches nested logs instead of a literal `**` segment.
+    let root = PathBuf::from(base);
+    let mut builder = ignore::gitignore::GitignoreBuilder::new(&root);
+    let mut kept = false;
+    for line in text.lines() {
+        if builder.add_line(None, line).is_ok() {
+            kept = true;
+        }
+    }
+    if !kept {
+        return Vec::new();
+    }
+    match builder.build() {
+        Ok(matcher) => vec![IgnoreRule { matcher }],
+        Err(_) => Vec::new(),
+    }
 }
 
 #[cfg(test)]
@@ -861,6 +832,11 @@ mod tests {
         assert!(ignored.is_empty(), "{ignored:?}");
         let logs = index.search("notes");
         assert!(logs.is_empty(), "{logs:?}");
+        assert!(
+            index.resolve_typed("@build/out.txt").is_none(),
+            "a build/ rule hides files inside that directory"
+        );
+        assert!(index.resolve_typed("@notes.log").is_none());
         let _ = fs::remove_dir_all(root);
     }
 
@@ -897,6 +873,51 @@ mod tests {
         assert_eq!(
             index.prepare(&admitted, None).text.as_deref(),
             Some("NESTED_SECRET\n")
+        );
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn double_star_log_pattern_hides_nested_logs() {
+        let root = fixture();
+        fs::create_dir_all(root.join("src/logs")).unwrap();
+        fs::write(root.join(".gitignore"), "**/*.log\n").unwrap();
+        fs::write(root.join("src/logs/debug.log"), "NESTED_LOG\n").unwrap();
+        fs::write(root.join("src/logs/keep.txt"), "KEEP_LOG_DIR\n").unwrap();
+        let index = WorkspaceIndex::new(&root);
+        let packed = index.search("");
+        let names: Vec<_> = packed.iter().map(|item| item.relative.as_str()).collect();
+        assert!(
+            !names.iter().any(|name| name.ends_with(".log")),
+            "a **/*.log rule must not list nested logs: {names:?}"
+        );
+        assert!(
+            names.iter().any(|name| *name == "src/logs/keep.txt"),
+            "non-log files under the same directory stay visible: {names:?}"
+        );
+        assert!(index.resolve_typed("@src/logs/debug.log").is_none());
+        fs::write(root.join("src/logs/.gitignore"), "!keep.log\n").unwrap();
+        fs::write(root.join("src/logs/keep.log"), "REINCLUDED\n").unwrap();
+        let reincluded = WorkspaceIndex::new(&root);
+        let visible = reincluded.search("");
+        assert!(
+            visible
+                .iter()
+                .any(|item| item.relative == "src/logs/keep.log"),
+            "a nested ! pattern re-includes that file: {visible:?}"
+        );
+        assert!(
+            visible
+                .iter()
+                .all(|item| item.relative != "src/logs/debug.log"),
+            "{visible:?}"
+        );
+        let forced = index.search("!debug.log");
+        assert!(
+            forced
+                .iter()
+                .any(|item| item.relative == "src/logs/debug.log"),
+            "{forced:?}"
         );
         let _ = fs::remove_dir_all(root);
     }

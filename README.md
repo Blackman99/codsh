@@ -142,7 +142,8 @@ Next-prompt ghost text is not wired: the host passes no suggestion after a
 turn, so Tab and Right do not accept ghost text. Suggestion rows stay blocked
 (`PARITY-150-suggestions` remains unverified). `@` opens a workspace file
 picker. It hides dotfiles and `.gitignore` matches, including nested
-`.gitignore` files, until the query starts with `!`. Enter or Tab attaches
+`.gitignore` files and `**` patterns such as `**/*.log`, until the query
+starts with `!`. Enter or Tab attaches
 the selected file as a chip. `:10-50` keeps that line range, `:2` keeps that
 single line, and a path with spaces uses `@"my file.rs"`. Pasting a workspace
 path drops it in; pasted prose that merely names a path stays text. Backspace

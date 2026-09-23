@@ -44,7 +44,8 @@ provider, puts the cleared draft back. A narrow screen still shows
 empty composer. Next-prompt AI ghost text is not wired: the host passes no
 suggestion, so Tab and Right do not accept ghost text. Suggestion rows stay
 blocked. `@` attaches a workspace file. Dotfiles and `.gitignore` matches,
-including nested `.gitignore` files, stay hidden until the query starts with
+including nested `.gitignore` files and `**` patterns such as `**/*.log`,
+stay hidden until the query starts with
 `!`. A chip can name one line, a line range, or a quoted path with spaces.
 Pasting a workspace path is a drop; pasted prose that names a path stays text.
 Backspace removes that chip and Ctrl+Z puts it back. Enter during a turn

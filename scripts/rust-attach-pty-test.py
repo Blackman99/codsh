@@ -59,9 +59,11 @@ def latest_value(echo):
 
     The mock prints `latest=<last user text> <all user text>`. The last user
     text can itself contain `@`, so only a later duplicate is removed.
+    `plain` is that submission only when the whole last text is that word.
+    A file body that continues after the word stays in the value.
     """
     value = echo.split('latest=', 1)[1]
-    if value.startswith('plain ') or value == 'plain':
+    if _submission_is(value, 'plain'):
         return 'plain'
     marker = value.find(' @src/main.rs:2 look')
     if marker > 0:
@@ -69,7 +71,28 @@ def latest_value(echo):
     return value
 
 
+def _submission_is(value, word):
+    if value == word:
+        return True
+    prefix = f'{word} '
+    if not value.startswith(prefix):
+        return False
+    history = value[len(prefix):]
+    return history == word or history.endswith(f'⏎{word}')
+
+
+def check_latest_value():
+    assert latest_value('latest=plain') == 'plain'
+    assert latest_value('latest=plain plain') == 'plain'
+    assert latest_value('latest=plain earlier⏎plain') == 'plain'
+    leaked = latest_value('latest=plain SECRET_BODY plain SECRET_BODY')
+    assert leaked != 'plain' and 'SECRET_BODY' in leaked, leaked
+    leaked = latest_value('latest=plain SECRET_BODY older⏎plain SECRET_BODY')
+    assert 'SECRET_BODY' in leaked, leaked
+
+
 def main():
+    check_latest_value()
     if sys.platform != 'darwin':
         raise SystemExit('macOS PTY evidence required')
     output = Path(tempfile.mkdtemp(prefix='codsh-rust-attach-', dir='/tmp'))
@@ -82,7 +105,9 @@ def main():
         cwd = work / 'workspace'
         (cwd / 'src').mkdir(parents=True)
         (cwd / '.hidden').mkdir()
-        (cwd / '.gitignore').write_text('secret.log\n')
+        (cwd / '.gitignore').write_text('**/*.log\n')
+        (cwd / 'logs').mkdir()
+        (cwd / 'logs' / 'nested.log').write_text('NESTED_PACKED_LOG\n')
         (cwd / 'src' / '.gitignore').write_text('secret.rs\n')
         (cwd / 'src' / 'gen').mkdir()
         (cwd / 'src' / 'gen' / '.gitignore').write_text('*\n')
@@ -106,9 +131,10 @@ def main():
         session = Session('file-attach', launcher, cwd, env, output, extra=['--fullscreen'])
         try:
             session.wait_visible('Connected to dsh ACP', 25)
-            session.write('@secret')
+            session.write('@')
             shown = session.wait_visible('file picker', 10)
-            assert 'secret.log' not in shown, shown
+            assert 'secret.log' not in shown and 'nested.log' not in shown, shown
+            assert 'NESTED_PACKED_LOG' not in shown, shown
             session.write('\x1b')
             session.write('\x7f' * 8)
             session.write('@!.hidden/note')

@@ -319,6 +319,7 @@ dependencies = [
  "base64 0.22.1",
  "crossterm",
  "ed25519-dalek",
+ "ignore",
  "libc",
  "native-tls",
  "ratatui",
