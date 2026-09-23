@@ -699,6 +699,57 @@ fn voice_help() -> &'static str {
     "List microphones without recording\n\nUsage: codsh --rust voice doctor [--json]\n\nRecording starts only from /voice or an enabled Ctrl+Space / F8 press inside a session.\nDoctor never opens the microphone. A missing device is voice.no-input-device.\nmacOS permission denials that arrive as silence are not detected here.\nLinux and Windows capture stay unverified until exercised on those hosts."
 }
 
+/// What one Esc does while a recording is active.
+///
+/// The composer always sees the key. Cancelling first, and returning before
+/// the composer, left slash completion open with the draft box as "/".
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum RecordingEsc {
+    /// Composer closed an overlay or edited the draft; also stop recording.
+    ComposerThenCancel,
+    /// Composer did not use the key; cancel recording and do not continue.
+    CancelOnly,
+}
+
+fn recording_esc(composer_handled: bool) -> RecordingEsc {
+    if composer_handled {
+        RecordingEsc::ComposerThenCancel
+    } else {
+        RecordingEsc::CancelOnly
+    }
+}
+
+/// Esc while recording. The composer handles the key first so slash completion
+/// can restore a parked draft. Only then is the recording cancelled.
+fn handle_recording_esc(
+    key: crossterm::event::KeyEvent,
+    host: HostContext,
+    voice: &mut voice::VoiceSession,
+    composer: &mut PromptComposer,
+    hint: &mut String,
+    last_error: &mut String,
+) -> bool {
+    let action = composer.handle_key(key, host);
+    let composer_handled = !matches!(action, PromptAction::Unhandled);
+    if !voice.recording() {
+        return composer_handled;
+    }
+    match recording_esc(composer_handled) {
+        RecordingEsc::ComposerThenCancel => {
+            *hint = voice.cancel();
+            last_error.clear();
+            if !composer.footer_notice.is_empty() {
+                *hint = std::mem::take(&mut composer.footer_notice);
+            }
+        }
+        RecordingEsc::CancelOnly => {
+            *hint = voice.cancel();
+            last_error.clear();
+        }
+    }
+    true
+}
+
 fn apply_voice_command(
     text: &str,
     voice: &mut voice::VoiceSession,
@@ -3710,17 +3761,25 @@ fn run() -> io::Result<()> {
                 }
                 match key.code {
                     KeyCode::Esc => {
-                        if voice.recording() {
-                            hint = voice.cancel();
-                            last_error.clear();
-                            continue;
-                        }
                         let host = HostContext {
                             inflight,
                             minimal: screen == ScreenMode::Minimal,
                             voice_release: voice_release_supported,
                         };
-                        if !matches!(composer.handle_key(key, host), PromptAction::Unhandled) {
+                        if voice.recording() {
+                            handle_recording_esc(
+                                key,
+                                host,
+                                &mut voice,
+                                &mut composer,
+                                &mut hint,
+                                &mut last_error,
+                            );
+                            continue;
+                        }
+                        let action = composer.handle_key(key, host);
+                        let composer_handled = !matches!(action, PromptAction::Unhandled);
+                        if composer_handled {
                             if !composer.footer_notice.is_empty() {
                                 hint = std::mem::take(&mut composer.footer_notice);
                             }
@@ -5276,6 +5335,59 @@ mod tests {
         assert!(err.to_string().contains("does not restore files"));
         let needs_resume = parse_launch(&args(&["--fork-session"])).expect_err("fork");
         assert!(needs_resume.to_string().contains("--resume"));
+    }
+
+    #[test]
+    fn esc_while_recording_reaches_the_composer_before_cancel() {
+        let home = tempfile::TempDir::new().unwrap();
+        let mut composer = PromptComposer::load(home.path(), &[]);
+        composer.set_text("KEEP");
+        let host = HostContext {
+            inflight: false,
+            minimal: false,
+            voice_release: true,
+        };
+        composer.handle_key(
+            crossterm::event::KeyEvent::new(KeyCode::Char('/'), KeyModifiers::NONE),
+            host,
+        );
+        assert_eq!(composer.text(), "/");
+        assert_eq!(composer.slash_stash, "KEEP");
+        assert_eq!(composer.overlay, prompt_edit::Overlay::Slash);
+        let mut config = voice::VoiceConfig::disabled();
+        config.enabled = true;
+        config.api_base = Some("http://127.0.0.1:9/v1".into());
+        let fixture = home.path().join("clip.bin");
+        std::fs::write(&fixture, b"RIFFnot-sent").unwrap();
+        let mut voice =
+            voice::VoiceSession::new(config).with_fixture(fixture, "Mic|0\npermission=granted\n");
+        voice
+            .start(&composer.voice_draft(), voice::CaptureMode::Toggle)
+            .unwrap();
+        assert!(voice.recording());
+        let mut hint = String::new();
+        let mut last_error = String::new();
+        // The packed PTY order: recording is active, "/" opened slash
+        // completion, and one Esc must both leave the recording and restore KEEP.
+        handle_recording_esc(
+            crossterm::event::KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE),
+            host,
+            &mut voice,
+            &mut composer,
+            &mut hint,
+            &mut last_error,
+        );
+        assert!(!voice.recording(), "Esc must leave the recording");
+        assert_eq!(composer.text(), "KEEP");
+        assert_eq!(composer.overlay, prompt_edit::Overlay::None);
+        assert!(composer.slash_stash.is_empty());
+        assert!(composer.voice_draft() == "KEEP");
+        assert!(hint.contains("completion cancelled") || hint.contains("voice cancelled"));
+        let late = voice.poll().unwrap();
+        assert!(
+            late.is_none(),
+            "a cancelled recording must not insert audio"
+        );
     }
 
     #[test]

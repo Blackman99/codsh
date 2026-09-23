@@ -104,7 +104,8 @@ textarea：Enter 提交，Shift+Enter 或 Alt+Enter 插入换行，`/multiline`�
 
 `/voice` 把听写插入当前草稿。启动时不会录音，转写也不会自动提交，仍由
 Enter 发送。再次 `/voice`、`/voice stop` 或 Esc 会停止或取消。录音时输入
-`/` 会暂存草稿；斜杠命令结束或 Esc 取消补全后放回同一草稿，不会把草稿换成
+`/` 会暂存草稿；斜杠命令结束或 Esc 取消补全后放回同一草稿。录音中补全仍打开时，一次
+Esc 会离开录音并放回暂存草稿，不会让补全层继续开着，也不会把草稿换成
 `/`。只有草稿文本本身变了，迟到的转写才会被丢弃。仅当 `[ui] voice_keybind_enabled` 为真时，Ctrl+Space 与
 F8 才按 `[ui] voice_capture_mode`（`hold` 或 `toggle`）工作；关闭快捷键后
 `/voice` 仍然可用。按住说话需要终端上报按键释放，否则客户端拒绝该快捷键并

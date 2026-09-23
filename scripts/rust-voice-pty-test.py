@@ -192,6 +192,38 @@ def main():
                 slash.finish(expect_alt_leave=True)
                 slash.close()
 
+            esc = Session('voice-esc', launcher, cwd, env, output, extra=['--fullscreen'])
+            try:
+                # One Esc while recording, after "/" opened slash completion,
+                # must leave the recording and put KEEP back. It must not leave
+                # the overlay open with the draft box as "/".
+                Stt.body = b'{"text":"esc words"}'
+                seen = len(Stt.seen)
+                esc.wait_visible('Connected to dsh ACP', 25)
+                esc.write('KEEP')
+                esc.wait_visible('KEEP')
+                esc.write('/voice\r')
+                shown = esc.wait_visible('recording', 10)
+                assert 'KEEP' in shown, shown
+                esc.write('/')
+                esc.pump(0.3)
+                parked = esc.visible()
+                assert 'slash completion' in parked, parked
+                esc.write('\x1b')
+                esc.pump(0.6)
+                shown = esc.visible()
+                assert 'slash completion' not in shown, shown
+                assert 'KEEP' in shown, shown
+                assert 'esc words' not in shown, shown
+                draft = shown.split('Draft')[-1] if 'Draft' in shown else shown
+                assert 'KEEP' in draft, shown
+                assert '/' not in draft.split('KEEP')[-1].split('\n')[0], shown
+                assert 'voice cancelled' in shown or 'completion cancelled' in shown, shown
+                assert len(Stt.seen) == seen, Stt.seen
+            finally:
+                esc.finish(expect_alt_leave=True)
+                esc.close()
+
             disabled = dict(env)
             disabled['GROK_VOICE_MODE'] = 'false'
             quiet = Session('voice-disabled', launcher, cwd, disabled, output, extra=['--fullscreen'])

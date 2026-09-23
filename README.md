@@ -153,7 +153,9 @@ minimal preserves the current draft. HISTFILE Tab completes with
 and it does not submit the transcript; Enter still sends. A second `/voice`,
 `/voice stop`, or Esc stops or cancels. A slash command typed while recording
 parks the draft and puts that same text back when the command finishes or Esc
-cancels completion; it does not replace the draft with `/`. A late transcript
+cancels completion. One Esc while that completion is open leaves the recording
+and restores the parked draft; it does not leave the overlay open or replace
+the draft with `/`. A late transcript
 is dropped only when the draft text itself changed. Ctrl+Space and F8 follow `[ui] voice_capture_mode` (`hold` or
 `toggle`) only when `[ui] voice_keybind_enabled` is true. `/voice` still works
 when the chords are off. Hold-to-talk needs a terminal that reports key
