@@ -506,7 +506,117 @@ function markUnknownOpenTools(turn) {
   }
 }
 
+function titleOf(events) {
+  let title = null
+  for (const event of events ?? []) {
+    if (event?.type !== 'session/title') continue
+    const data = event.data ?? {}
+    const source = data.source?.kind ?? ''
+    title = {
+      title: String(data.title ?? ''),
+      manual: source === 'user',
+      source,
+      provider: String(data.source?.provider ?? ''),
+      model: String(data.source?.model?.model ?? data.source?.model ?? ''),
+    }
+  }
+  return title
+}
+
+function promptLines(events) {
+  const lines = []
+  for (const event of events ?? []) {
+    if (event?.type !== 'user/message') continue
+    const message = event.data?.message ?? event.data ?? {}
+    const content = Array.isArray(message.content) ? message.content : Array.isArray(event.data?.content) ? event.data.content : []
+    const text = content.filter(block => block?.type === 'text').map(block => String(block.text ?? '')).join('\n')
+    const line = text.split('\n').map(part => part.trim()).find(part => part !== '' && !part.startsWith('<pasted-image '))
+    if (line) lines.push(line.slice(0, 160))
+  }
+  return lines
+}
+
+async function listCatalog(home, dshBin) {
+  const requireFromDsh = createRequire(dshBin)
+  const Context = (await import(pathToFileURL(requireFromDsh.resolve('@deepseek-ai/cordis')).href)).Context
+  const JsonlSessionPersistence = (await import(pathToFileURL(requireFromDsh.resolve('@deepseek-ai/dsh-session-persistence-jsonl')).href)).default
+  const root = join(home, 'sessions')
+  const ctx = new Context()
+  await ctx.plugin(JsonlSessionPersistence, { root })
+  const persistence = ctx.sessionPersistence
+  if (persistence === undefined) fail(1, 'dsh session persistence is not mounted')
+  const warnings = []
+  const sessions = []
+  let listed
+  try {
+    listed = await persistence.list()
+  } catch (error) {
+    fail(1, `cannot list dsh sessions: ${error.message}`)
+  }
+  for (const snapshot of listed ?? []) {
+    const header = snapshot.header ?? {}
+    const sessionId = header.id
+    if (typeof sessionId !== 'string' || sessionId === '') continue
+    if (header.origin === 'subagent') continue
+    let handle
+    try {
+      handle = await persistence.open(sessionId, 'read')
+    } catch (error) {
+      warnings.push(`unreadable session ${sessionId}: ${error.message}`)
+      continue
+    }
+    try {
+      const { events } = await handle.read()
+      const folded = titleOf(events)
+      sessions.push({
+        id: sessionId,
+        cwd: header.cwd ?? '',
+        createdAt: header.createdAt ?? 0,
+        updatedAt: header.updatedAt ?? header.createdAt ?? 0,
+        prompts: promptLines(events),
+        title: folded?.title ?? '',
+        manual: folded?.manual === true,
+        source: folded?.source ?? '',
+        provider: folded?.provider ?? '',
+        model: folded?.model ?? '',
+        damaged: false,
+      })
+    } catch (error) {
+      warnings.push(`malformed session ${sessionId}: ${error.message}`)
+      sessions.push({
+        id: sessionId,
+        cwd: header.cwd ?? '',
+        createdAt: header.createdAt ?? 0,
+        updatedAt: header.createdAt ?? 0,
+        prompts: [],
+        title: '',
+        manual: false,
+        source: '',
+        provider: '',
+        model: '',
+        damaged: true,
+      })
+    } finally {
+      await handle.close().catch(() => undefined)
+    }
+  }
+  await ctx.fiber?.dispose?.().catch(() => undefined)
+  process.stdout.write(`${JSON.stringify({ ok: true, sessions, warnings })}\n`)
+}
+
 async function main() {
+  if (process.argv.includes('--list')) {
+    const home = process.env.DSH_HOME
+    const dshBin = process.env.DSH_BIN
+    if (typeof home !== 'string' || home === '') fail(1, 'missing DSH_HOME')
+    if (typeof dshBin !== 'string' || dshBin === '') fail(1, 'missing DSH_BIN')
+    try {
+      await listCatalog(home, dshBin)
+    } catch (error) {
+      fail(1, error.message)
+    }
+    return
+  }
   const sessionId = argValue('--session-id') ?? process.env.CODSH_SESSION_ID
   const home = process.env.DSH_HOME
   const dshBin = process.env.DSH_BIN

@@ -198,7 +198,10 @@ supplemental small-command observations, run `reference-probe.py` with
 This avoids regenerating valid performance/headless captures. Its two PTYs record
 announcement usage, unsupported-graphics GBOOM refusal, dashboard location picker
 opening/dismissal via Ctrl+L, the `/cd` autocomplete placeholder and invalid path,
-minimal dashboard refusal, typing and clean quit. It does not establish populated
+minimal dashboard refusal, typing and clean quit. Ticket 27 adds the installed
+`sessions list`/`sessions search` contract, `/resume` title-or-content filtering,
+manual `/rename` priority, configured-model titles, and the fullscreen dashboard.
+Foreign Claude/Codex/Cursor session roots stay gated and are not native dsh history. It does not establish populated
 banners, new-agent cwd, overlay rendering or argument passthrough. The model probe
 rejects malformed structured output and missing terminal events.
 Freeze measured numeric performance thresholds before collecting candidate data.

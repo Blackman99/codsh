@@ -10,6 +10,8 @@ pub const MAX_HISTORY: usize = 500;
 const ESC_CLEAR_MS: u128 = 800;
 
 pub const SLASH_COMMANDS: &[SlashCommand] = &[
+    SlashCommand::new("cd", &[], "Choose the next new-agent directory", false),
+    SlashCommand::new("clear", &[], "Clear the visible transcript", true),
     SlashCommand::new("compact", &[], "Compact conversation context", true),
     SlashCommand::new("context", &[], "Show context occupancy", true),
     SlashCommand::new(
@@ -34,6 +36,10 @@ pub const SLASH_COMMANDS: &[SlashCommand] = &[
     SlashCommand::new("minimal", &[], "Switch to minimal native history", true),
     SlashCommand::new("model", &["m"], "Select a model", false),
     SlashCommand::new("multiline", &["ml"], "Toggle multiline input", true),
+    SlashCommand::new("new", &[], "Start a new dsh session", true),
+    SlashCommand::new("rename", &["title"], "Rename the current session", false),
+    SlashCommand::new("resume", &[], "Resume a previous session", true),
+    SlashCommand::new("session-info", &["info"], "Show the current session", true),
     SlashCommand::new("onboarding", &[], "Open onboarding", true),
     SlashCommand::new("rewind", &["undo"], "Rewind conversation", false),
     SlashCommand::new("theme", &[], "Open themes", true),

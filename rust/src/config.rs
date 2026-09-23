@@ -144,6 +144,16 @@ impl EffectiveConfig {
         self.models.get(id)
     }
 
+    /// Credential for a background title call. Empty when the configured model
+    /// has neither an environment key nor a file key.
+    pub fn model_api_key(&self, model: &ModelSpec, env: &BTreeMap<String, String>) -> String {
+        env.get(&model.env_key)
+            .filter(|value| !value.is_empty())
+            .cloned()
+            .or_else(|| model.api_key.clone())
+            .unwrap_or_default()
+    }
+
     pub fn catalog(&self) -> Vec<CatalogChoice> {
         self.models
             .values()

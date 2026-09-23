@@ -14,6 +14,7 @@ mod privacy;
 mod privacy_cmd;
 mod prompt_edit;
 mod screen_mode;
+mod session_catalog;
 mod session_fork;
 mod session_history;
 mod session_owner;
@@ -323,6 +324,8 @@ enum LaunchMode {
     New,
     Continue,
     Resume(String),
+    Sessions(session_catalog::SessionsCommand),
+    Dashboard,
 }
 
 struct Connection {
@@ -342,6 +345,16 @@ enum Overlay {
     },
     Plugins(plugin::PluginOverlay),
     Feedback(feedback_ui::FeedbackForm),
+    SessionPick {
+        hits: Vec<session_catalog::SearchHit>,
+        cursor: usize,
+        query: String,
+    },
+    Dashboard(session_catalog::DashboardView),
+    Location {
+        draft: String,
+        previous: PathBuf,
+    },
 }
 
 #[derive(Debug)]
@@ -365,7 +378,16 @@ struct Launch {
 fn is_subcommand(arg: &str) -> bool {
     matches!(
         arg,
-        "inspect" | "import" | "feedback" | "plugin" | "login" | "logout" | "setup" | "voice"
+        "inspect"
+            | "import"
+            | "feedback"
+            | "plugin"
+            | "login"
+            | "logout"
+            | "setup"
+            | "voice"
+            | "sessions"
+            | "dashboard"
     )
 }
 
@@ -632,6 +654,9 @@ fn parse_launch(args: &[String]) -> io::Result<Launch> {
             help: true,
         },
         ["voice", flags @ ..] => parse_voice(flags)?,
+        ["sessions"] => LaunchMode::Sessions(session_catalog::SessionsCommand::Help),
+        ["sessions", flags @ ..] => LaunchMode::Sessions(session_catalog::parse_sessions(flags)?),
+        ["dashboard"] | ["dashboard", "--help" | "-h"] => LaunchMode::Dashboard,
         _ => {
             return Err(io::Error::other(
                 "unsupported preview arguments; use codsh --rust --help",
@@ -1192,7 +1217,16 @@ fn resolve_resume(
     previous: Option<&str>,
 ) -> Result<Option<String>, String> {
     match mode {
-        LaunchMode::Resume(id) => Ok(Some(id.clone())),
+        LaunchMode::Resume(id) => {
+            if session_catalog::is_uuid(id) {
+                return Ok(Some(id.clone()));
+            }
+            let catalog = session_catalog::load_catalog(dsh_home, cwd);
+            match session_catalog::resolve_resume(&catalog.sessions, id, cwd) {
+                Ok(found) => Ok(Some(found.session.id)),
+                Err(error) => Err(error.message),
+            }
+        }
         LaunchMode::Continue => {
             if let Some((id, last_cwd)) = session_owner::read_last_session(dsh_home) {
                 let last = last_cwd.canonicalize().unwrap_or(last_cwd);
@@ -1402,6 +1436,681 @@ fn commit_fork(
     Ok(report)
 }
 
+enum CatalogSlash {
+    Resume,
+    Rename(String),
+    RenameAuto,
+    New,
+    Clear,
+    Info,
+    Cd(Option<String>),
+}
+
+fn session_catalog_slash(text: &str) -> Option<CatalogSlash> {
+    let command = text.trim().trim_start_matches('/');
+    let (name, rest) = command
+        .split_once(char::is_whitespace)
+        .unwrap_or((command, ""));
+    let rest = rest.trim();
+    match name {
+        "resume" => Some(CatalogSlash::Resume),
+        "rename" | "title" if rest == "--auto" || (name == "title" && rest.is_empty()) => {
+            Some(CatalogSlash::RenameAuto)
+        }
+        "rename" | "title" => {
+            if rest.is_empty() {
+                Some(CatalogSlash::Rename(String::new()))
+            } else {
+                Some(CatalogSlash::Rename(rest.to_string()))
+            }
+        }
+        "new" | "clear" if name == "new" => Some(CatalogSlash::New),
+        "clear" => Some(CatalogSlash::Clear),
+        "session-info" | "info" => Some(CatalogSlash::Info),
+        "cd" => Some(CatalogSlash::Cd(
+            (!rest.is_empty()).then(|| rest.to_string()),
+        )),
+        _ => None,
+    }
+}
+
+fn apply_session_catalog_slash(
+    action: CatalogSlash,
+    client: &mut Option<AcpClient>,
+    owner: &mut Option<SessionOwner>,
+    turns: &mut Vec<Turn>,
+    inflight: &mut bool,
+    overlay: &mut Overlay,
+    hint: &mut String,
+    last_error: &mut String,
+    effective: &config::EffectiveConfig,
+    resumed: &mut bool,
+    previous_session: &mut Option<String>,
+    terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
+    screen: ScreenMode,
+    committed: &mut usize,
+    history: &mut String,
+    composer: &mut PromptComposer,
+) -> io::Result<()> {
+    if *inflight && !matches!(action, CatalogSlash::Info) {
+        *last_error = "finish or cancel the running turn before switching sessions".into();
+        composer.set_text("");
+        return Ok(());
+    }
+    match action {
+        CatalogSlash::Resume => {
+            open_session_picker(overlay, effective);
+            hint.clear();
+            last_error.clear();
+            composer.set_text("");
+        }
+        CatalogSlash::Rename(title) => {
+            let Some(session_id) = client.as_ref().and_then(|active| active.session_id.clone())
+            else {
+                *last_error = "ACP session is not ready".into();
+                return Ok(());
+            };
+            if title.trim().is_empty() {
+                *last_error = "rename needs a title; /rename --auto returns the title to the configured model".into();
+                composer.set_text("");
+                return Ok(());
+            }
+            match session_catalog::rename_session(&effective.dsh_home, &session_id, &title) {
+                Ok(saved) => {
+                    *hint = format!("renamed to {saved}");
+                    last_error.clear();
+                }
+                Err(error) => *last_error = error.message,
+            }
+            composer.set_text("");
+        }
+        CatalogSlash::RenameAuto => {
+            let Some(session_id) = client.as_ref().and_then(|active| active.session_id.clone())
+            else {
+                *last_error = "ACP session is not ready".into();
+                return Ok(());
+            };
+            let _ = session_catalog::clear_manual_title(&effective.dsh_home, &session_id);
+            let prompts: Vec<String> = turns.iter().map(|turn| turn.user.clone()).collect();
+            match maybe_title_session(effective, &session_id, &prompts) {
+                Ok(message) => {
+                    *hint = message;
+                    last_error.clear();
+                }
+                Err(error) => *last_error = error,
+            }
+            composer.set_text("");
+        }
+        CatalogSlash::New => {
+            let previous = client.as_ref().and_then(|active| active.session_id.clone());
+            drop_connection(client, owner);
+            *turns = Vec::new();
+            *committed = 0;
+            history.clear();
+            *resumed = false;
+            match connect(&LaunchMode::New, None, &[], None, false, None) {
+                Ok((connection, _)) => {
+                    *previous_session = connection.client.session_id.clone();
+                    *owner = Some(connection.owner);
+                    *client = Some(connection.client);
+                    *hint = format!(
+                        "new session {}; previous output stayed on {}",
+                        previous_session.as_deref().unwrap_or("unknown"),
+                        previous.as_deref().unwrap_or("none")
+                    );
+                    last_error.clear();
+                    let _ = reset_native_history_after_switch(terminal, screen, committed, history);
+                }
+                Err(error) => *last_error = error,
+            }
+            composer.set_text("");
+        }
+        CatalogSlash::Clear => {
+            *turns = Vec::new();
+            *committed = 0;
+            history.clear();
+            *hint = "cleared the visible transcript; the dsh session was not deleted".into();
+            last_error.clear();
+            composer.set_text("");
+            let _ = reset_native_history_after_switch(terminal, screen, committed, history);
+        }
+        CatalogSlash::Info => {
+            let Some(session_id) = client.as_ref().and_then(|active| active.session_id.clone())
+            else {
+                *last_error = "ACP session is not ready".into();
+                return Ok(());
+            };
+            let catalog = session_catalog::load_catalog(&effective.dsh_home, &effective.cwd);
+            let model = effective
+                .routing()
+                .map(|route| format!("{}/{}", route.provider, route.model))
+                .unwrap_or_else(|| "unconfigured".into());
+            if let Some(session) = catalog
+                .sessions
+                .iter()
+                .find(|session| session.id == session_id)
+            {
+                *hint = session_catalog::render_session_info(session, &model);
+            } else {
+                *hint = format!("Session ID: {session_id}\nModel: {model}");
+            }
+            last_error.clear();
+            composer.set_text("");
+        }
+        CatalogSlash::Cd(path) => {
+            if screen == ScreenMode::Minimal {
+                *hint = "/cd isn't available in minimal mode (the location picker needs fullscreen). Run /fullscreen to switch this session.".into();
+                composer.set_text("");
+                return Ok(());
+            }
+            match path {
+                Some(raw) => match apply_next_cwd(effective, &raw) {
+                    Ok(message) => {
+                        *hint = message;
+                        last_error.clear();
+                    }
+                    Err(error) => *last_error = error,
+                },
+                None => {
+                    *overlay = Overlay::Location {
+                        draft: String::new(),
+                        previous: effective.cwd.clone(),
+                    };
+                    hint.clear();
+                }
+            }
+            composer.set_text("");
+        }
+    }
+    Ok(())
+}
+
+fn dash_key(key: crossterm::event::KeyEvent) -> Option<session_catalog::DashKey> {
+    if key.modifiers.contains(KeyModifiers::CONTROL) {
+        return match key.code {
+            KeyCode::Char(ch) => Some(session_catalog::DashKey::Ctrl(ch)),
+            _ => None,
+        };
+    }
+    if !key.modifiers.is_empty() {
+        return None;
+    }
+    match key.code {
+        KeyCode::Up | KeyCode::Char('k') => Some(session_catalog::DashKey::Up),
+        KeyCode::Down | KeyCode::Char('j') => Some(session_catalog::DashKey::Down),
+        KeyCode::Enter => Some(session_catalog::DashKey::Enter),
+        KeyCode::Esc => Some(session_catalog::DashKey::Esc),
+        KeyCode::Tab => Some(session_catalog::DashKey::Tab),
+        KeyCode::Backspace => Some(session_catalog::DashKey::Backspace),
+        KeyCode::Char(ch) => Some(session_catalog::DashKey::Char(ch)),
+        _ => None,
+    }
+}
+
+fn handle_catalog_overlay_key(
+    key: crossterm::event::KeyEvent,
+    overlay: &mut Overlay,
+    client: &mut Option<AcpClient>,
+    owner: &mut Option<SessionOwner>,
+    turns: &mut Vec<Turn>,
+    committed: &mut usize,
+    history: &mut String,
+    resumed: &mut bool,
+    previous_session: &mut Option<String>,
+    effective: &config::EffectiveConfig,
+    hint: &mut String,
+    last_error: &mut String,
+    terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
+    screen: ScreenMode,
+) -> io::Result<bool> {
+    match overlay {
+        Overlay::SessionPick {
+            hits,
+            cursor,
+            query,
+        } => {
+            match key.code {
+                KeyCode::Esc => {
+                    *overlay = Overlay::None;
+                    hint.clear();
+                }
+                KeyCode::Up | KeyCode::Char('k') if key.modifiers.is_empty() && *cursor > 0 => {
+                    *cursor -= 1;
+                }
+                KeyCode::Down | KeyCode::Char('j')
+                    if key.modifiers.is_empty() && *cursor + 1 < hits.len() =>
+                {
+                    *cursor += 1;
+                }
+                KeyCode::Backspace => {
+                    query.pop();
+                    refresh_picker(hits, cursor, query, effective);
+                }
+                KeyCode::Char(ch) if key.modifiers.is_empty() => {
+                    query.push(ch);
+                    refresh_picker(hits, cursor, query, effective);
+                }
+                KeyCode::Enter => {
+                    let Some(hit) = hits.get(*cursor).cloned() else {
+                        *hint = "No sessions match.".into();
+                        *overlay = Overlay::None;
+                        return Ok(true);
+                    };
+                    if let Some(active) = client.as_mut() {
+                        match switch_to_catalog_session(
+                            active,
+                            owner,
+                            turns,
+                            committed,
+                            history,
+                            &effective.dsh_home,
+                            &effective.cwd,
+                            &hit.session.id,
+                            resumed,
+                            previous_session,
+                        ) {
+                            Ok(message) => {
+                                *hint = message;
+                                last_error.clear();
+                                *overlay = Overlay::None;
+                                let _ = reset_native_history_after_switch(
+                                    terminal, screen, committed, history,
+                                );
+                            }
+                            Err(error) => {
+                                *last_error = error.clone();
+                                if error.contains("Write owner") || error.contains("already") {
+                                    *hint = format!(
+                                        "occupied: {} stays on its current owner",
+                                        hit.session.id
+                                    );
+                                }
+                            }
+                        }
+                    }
+                }
+                _ => {}
+            }
+            Ok(true)
+        }
+        Overlay::Dashboard(view) => {
+            let Some(key) = dash_key(key) else {
+                return Ok(true);
+            };
+            let catalog = session_catalog::load_catalog(&effective.dsh_home, &effective.cwd);
+            let action = session_catalog::handle_dashboard_key(view, &catalog.sessions, key);
+            if !view.entered {
+                *overlay = Overlay::None;
+                *hint = "left dashboard; draft kept".into();
+                return Ok(true);
+            }
+            if let Some(action) = action {
+                apply_dashboard_action(
+                    &action,
+                    overlay,
+                    client,
+                    owner,
+                    turns,
+                    committed,
+                    history,
+                    resumed,
+                    previous_session,
+                    effective,
+                    hint,
+                    last_error,
+                    terminal,
+                    screen,
+                )?;
+            }
+            Ok(true)
+        }
+        Overlay::Location { draft, previous } => {
+            match key.code {
+                KeyCode::Esc => {
+                    *hint = format!("location unchanged: {}", previous.display());
+                    *overlay = Overlay::None;
+                }
+                KeyCode::Char(ch) if key.modifiers.is_empty() => draft.push(ch),
+                KeyCode::Backspace => {
+                    draft.pop();
+                }
+                KeyCode::Enter => {
+                    let raw = draft.clone();
+                    match apply_next_cwd(effective, &raw) {
+                        Ok(message) => {
+                            *hint = message;
+                            last_error.clear();
+                            *overlay = Overlay::None;
+                        }
+                        Err(error) => *last_error = error,
+                    }
+                }
+                _ => {}
+            }
+            Ok(true)
+        }
+        _ => Ok(false),
+    }
+}
+
+fn refresh_picker(
+    hits: &mut Vec<session_catalog::SearchHit>,
+    cursor: &mut usize,
+    query: &str,
+    effective: &config::EffectiveConfig,
+) {
+    let catalog = session_catalog::load_catalog(&effective.dsh_home, &effective.cwd);
+    *hits = if query.trim().is_empty() {
+        catalog
+            .sessions
+            .iter()
+            .map(|session| session_catalog::SearchHit {
+                session: session.clone(),
+                extended: false,
+                snippet: session.display_title().to_string(),
+            })
+            .collect()
+    } else {
+        session_catalog::search(&catalog, query, None)
+    };
+    if *cursor >= hits.len() {
+        *cursor = 0;
+    }
+}
+
+fn apply_dashboard_action(
+    action: &str,
+    overlay: &mut Overlay,
+    client: &mut Option<AcpClient>,
+    owner: &mut Option<SessionOwner>,
+    turns: &mut Vec<Turn>,
+    committed: &mut usize,
+    history: &mut String,
+    resumed: &mut bool,
+    previous_session: &mut Option<String>,
+    effective: &config::EffectiveConfig,
+    hint: &mut String,
+    last_error: &mut String,
+    terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
+    screen: ScreenMode,
+) -> io::Result<()> {
+    if let Some(id) = action.strip_prefix("open ") {
+        if let Some(active) = client.as_mut() {
+            match switch_to_catalog_session(
+                active,
+                owner,
+                turns,
+                committed,
+                history,
+                &effective.dsh_home,
+                &effective.cwd,
+                id,
+                resumed,
+                previous_session,
+            ) {
+                Ok(message) => {
+                    *hint = message;
+                    last_error.clear();
+                    *overlay = Overlay::None;
+                    let _ = reset_native_history_after_switch(terminal, screen, committed, history);
+                }
+                Err(error) => *last_error = error,
+            }
+        }
+        return Ok(());
+    }
+    if let Some(rest) = action.strip_prefix("rename ") {
+        let mut parts = rest.splitn(2, ' ');
+        let id = parts.next().unwrap_or("");
+        let title = parts.next().unwrap_or("");
+        match session_catalog::rename_session(&effective.dsh_home, id, title) {
+            Ok(saved) => {
+                *hint = format!("renamed {id} to {saved}");
+                last_error.clear();
+            }
+            Err(error) => *last_error = error.message,
+        }
+        return Ok(());
+    }
+    if let Some(id) = action.strip_prefix("pin ") {
+        let catalog = session_catalog::load_catalog(&effective.dsh_home, &effective.cwd);
+        let pinned = catalog
+            .sessions
+            .iter()
+            .find(|session| session.id == id)
+            .is_some_and(|session| !session.pinned);
+        if let Err(error) = session_catalog::toggle_pin(&effective.grok_home, id, pinned) {
+            *last_error = error.to_string();
+        } else {
+            *hint = format!("{} {id}", if pinned { "pinned" } else { "unpinned" });
+            last_error.clear();
+        }
+        return Ok(());
+    }
+    if action == "group" {
+        let prefs = session_catalog::read_dashboard_prefs(&effective.dsh_home);
+        let next = match prefs.grouping {
+            session_catalog::Grouping::State => session_catalog::Grouping::Directory,
+            session_catalog::Grouping::Directory => session_catalog::Grouping::State,
+        };
+        if let Err(error) = session_catalog::save_grouping(&effective.grok_home, next) {
+            *last_error = error.to_string();
+        } else {
+            *hint = format!("grouping {}", next.as_str());
+            last_error.clear();
+        }
+        return Ok(());
+    }
+    if let Some(text) = action.strip_prefix("dispatch ") {
+        *hint = format!("dispatched a new session; current history was not copied: {text}");
+        *overlay = Overlay::None;
+        let previous = client.as_ref().and_then(|active| active.session_id.clone());
+        drop_connection(client, owner);
+        *turns = Vec::new();
+        *committed = 0;
+        history.clear();
+        *resumed = false;
+        match connect(&LaunchMode::New, None, &[], None, false, None) {
+            Ok((connection, _)) => {
+                *previous_session = connection.client.session_id.clone();
+                *owner = Some(connection.owner);
+                *client = Some(connection.client);
+                *hint = format!(
+                    "dispatched {}; previous output stayed on {}",
+                    previous_session.as_deref().unwrap_or("unknown"),
+                    previous.as_deref().unwrap_or("none")
+                );
+                last_error.clear();
+                let _ = reset_native_history_after_switch(terminal, screen, committed, history);
+            }
+            Err(error) => *last_error = error,
+        }
+        return Ok(());
+    }
+    if action == "new" {
+        *hint = "new agent; previous session history was not copied".into();
+        return Ok(());
+    }
+    if let Some(id) = action.strip_prefix("stop ") {
+        *hint = format!("stop requested for {id}; other sessions were not changed");
+        return Ok(());
+    }
+    Ok(())
+}
+
+fn apply_next_cwd(effective: &config::EffectiveConfig, raw: &str) -> Result<String, String> {
+    let path = PathBuf::from(raw);
+    if !path.is_dir() {
+        return Err(format!(
+            "location not applied: {} is missing or unreadable; still {}",
+            path.display(),
+            effective.cwd.display()
+        ));
+    }
+    let canonical = path.canonicalize().unwrap_or(path);
+    std::env::set_current_dir(&canonical).map_err(|error| error.to_string())?;
+    Ok(format!(
+        "next new agent cwd: {} (existing session stays {})",
+        canonical.display(),
+        effective.cwd.display()
+    ))
+}
+
+fn open_dashboard_overlay(
+    overlay: &mut Overlay,
+    effective: &config::EffectiveConfig,
+    client: Option<&AcpClient>,
+) -> Result<(), String> {
+    let prefs = session_catalog::read_dashboard_prefs(&effective.dsh_home);
+    if !prefs.enabled {
+        return Err(format!(
+            "Agent dashboard is disabled ({}).",
+            prefs
+                .disabled_reason
+                .unwrap_or_else(|| "dashboard.enabled = false".into())
+        ));
+    }
+    let catalog = session_catalog::load_catalog(&effective.dsh_home, &effective.cwd);
+    let mut view = session_catalog::DashboardView::open(&catalog.sessions);
+    if let Some(id) = client.and_then(|active| active.session_id.clone()) {
+        view.selected = Some(id);
+    }
+    *overlay = Overlay::Dashboard(view);
+    Ok(())
+}
+
+fn open_session_picker(overlay: &mut Overlay, effective: &config::EffectiveConfig) {
+    let catalog = session_catalog::load_catalog(&effective.dsh_home, &effective.cwd);
+    let hits = catalog
+        .sessions
+        .iter()
+        .filter(|session| session.foreign.is_none())
+        .map(|session| session_catalog::SearchHit {
+            session: session.clone(),
+            extended: false,
+            snippet: session.display_title().to_string(),
+        })
+        .collect();
+    *overlay = Overlay::SessionPick {
+        hits,
+        cursor: 0,
+        query: String::new(),
+    };
+}
+
+fn adopt_switched_session(
+    turns: &mut Vec<Turn>,
+    committed: &mut usize,
+    history: &mut String,
+    resumed: &mut bool,
+    previous_session: &mut Option<String>,
+    session_id: &str,
+    restored: Vec<Turn>,
+) {
+    *turns = restored;
+    *committed = 0;
+    history.clear();
+    *resumed = true;
+    *previous_session = Some(session_id.to_string());
+}
+
+fn switch_to_catalog_session(
+    client: &mut AcpClient,
+    owner: &mut Option<SessionOwner>,
+    turns: &mut Vec<Turn>,
+    committed: &mut usize,
+    history: &mut String,
+    dsh_home: &Path,
+    cwd: &Path,
+    session_id: &str,
+    resumed: &mut bool,
+    previous_session: &mut Option<String>,
+) -> Result<String, String> {
+    let previous = client.session_id.clone();
+    let restored = switch_session(client, owner, dsh_home, cwd, session_id)?;
+    adopt_switched_session(
+        turns,
+        committed,
+        history,
+        resumed,
+        previous_session,
+        session_id,
+        restored,
+    );
+    let _ = session_catalog::mark_read(dsh_home, session_id);
+    let _ = session_catalog::set_activity(
+        dsh_home,
+        session_id,
+        session_catalog::Activity::Idle,
+        false,
+        None,
+    );
+    let kept = previous.unwrap_or_default();
+    Ok(format!(
+        "resumed {session_id}; previous output stayed on {kept}"
+    ))
+}
+
+fn maybe_title_session(
+    effective: &config::EffectiveConfig,
+    session_id: &str,
+    prompts: &[String],
+) -> Result<String, String> {
+    let Some(model) = effective.active_model() else {
+        return Err("title generation needs a configured model; no provider fallback".into());
+    };
+    let Some(base_url) = model.base_url.clone().filter(|url| !url.is_empty()) else {
+        return Err("title generation needs a configured model base_url".into());
+    };
+    if model.unusable_reason.is_some() {
+        return Err("configured model is unavailable; title was not generated".into());
+    }
+    let env = std::env::vars().collect();
+    let route = session_catalog::TitleRoute {
+        base_url,
+        model: model.model.clone(),
+        provider: model.provider.clone(),
+        api_key: effective.model_api_key(model, &env),
+        backend: model.api_backend_raw.clone(),
+    };
+    let exchange =
+        session_catalog::title_request(&route, prompts).map_err(|error| error.message)?;
+    // The prompt stays in the provider body. It is not written to the notice,
+    // the debug log, or the URL.
+    let title = if route.api_key.is_empty() {
+        return Err(format!(
+            "title generation needs {} for {}; the conversation was not sent",
+            model.env_key, model.id
+        ));
+    } else {
+        let response = ureq::post(&exchange.url)
+            .set("Authorization", &format!("Bearer {}", route.api_key))
+            .set("Content-Type", "application/json")
+            .send_string(&exchange.body)
+            .map_err(|error| format!("title generation failed: {error}"))?;
+        let body = response
+            .into_string()
+            .map_err(|error| format!("title generation failed: {error}"))?;
+        session_catalog::parse_title_response(&body).map_err(|error| error.message)?
+    };
+    let stored = session_catalog::store_generated_title(
+        &effective.dsh_home,
+        session_id,
+        &title,
+        &route.provider,
+        &route.model,
+    )
+    .map_err(|error| error.message)?;
+    if stored {
+        Ok(format!(
+            "title generated by {}/{} (manual /rename still wins)",
+            route.provider, route.model
+        ))
+    } else {
+        Ok("manual title kept; automatic generation did not override it".into())
+    }
+}
+
 fn feedback_session_id(client: Option<&AcpClient>) -> String {
     client
         .and_then(|active| active.session_id.clone())
@@ -1464,6 +2173,23 @@ fn overlay_hint(overlay: &Overlay, prefs: &UiPrefs) -> String {
         ),
         Overlay::Plugins(_) => String::new(),
         Overlay::Feedback(_) => String::new(),
+        Overlay::SessionPick {
+            hits,
+            cursor,
+            query,
+        } => session_catalog::render_picker(hits, *cursor, query),
+        Overlay::Dashboard(view) => {
+            let home = std::env::var_os("DSH_HOME")
+                .map(PathBuf::from)
+                .unwrap_or_default();
+            let cwd = std::env::current_dir().unwrap_or_default();
+            let catalog = session_catalog::load_catalog(&home, &cwd);
+            session_catalog::render_dashboard(&catalog, view, &cwd)
+        }
+        Overlay::Location { draft, previous } => format!(
+            "Choose directory for the next new agent\ncurrent: {}\ndraft: {draft}\nEnter applies · Esc keeps the previous location",
+            previous.display()
+        ),
     }
 }
 
@@ -2854,6 +3580,27 @@ fn run() -> io::Result<()> {
             println!("{}", auth::setup_help());
             return Ok(());
         }
+        LaunchMode::Sessions(command) => {
+            let loaded = load_runtime_config(&launch);
+            match session_catalog::run_sessions(command, &loaded.dsh_home, &loaded.cwd) {
+                Ok(message) => {
+                    println!("{message}");
+                    return Ok(());
+                }
+                Err(error) => return Err(io::Error::other(error.message)),
+            }
+        }
+        LaunchMode::Dashboard => {
+            // Interactive dashboard is the TUI. The subcommand only opens it
+            // when the marker says so; other values stay a normal session.
+            let marker = std::env::var("GROK_OPEN_DASHBOARD_AT_STARTUP").unwrap_or_default();
+            if marker != "1" {
+                println!(
+                    "codsh --rust dashboard opens the agent dashboard inside fullscreen.\nSet GROK_OPEN_DASHBOARD_AT_STARTUP=1 or run /dashboard from a session.\nMinimal mode refuses the dashboard; use /fullscreen first."
+                );
+                return Ok(());
+            }
+        }
         LaunchMode::Setup { flags, .. } => {
             let loaded = load_runtime_config(&launch);
             write_debug_file(flags.debug, flags.debug_file.as_ref(), "setup")?;
@@ -2875,6 +3622,20 @@ fn run() -> io::Result<()> {
             }
         }
         _ => {}
+    }
+    if let LaunchMode::Resume(id) = &mode {
+        let loaded = load_runtime_config(&launch);
+        if !session_catalog::is_uuid(id) {
+            let catalog = session_catalog::load_catalog(&loaded.dsh_home, &loaded.cwd);
+            session_catalog::resolve_resume(&catalog.sessions, id, &loaded.cwd)
+                .map_err(|error| io::Error::other(error.message))?;
+        } else if session_catalog::load_catalog(&loaded.dsh_home, &loaded.cwd)
+            .sessions
+            .iter()
+            .all(|session| !session.id.eq_ignore_ascii_case(id))
+        {
+            return Err(io::Error::other(format!("session is not resumable: {id}")));
+        }
     }
     if !io::stdin().is_terminal() || !io::stdout().is_terminal() {
         return Err(io::Error::other(
@@ -2954,6 +3715,11 @@ fn run() -> io::Result<()> {
     let mut committed = 0usize;
     let mut history = String::new();
     let mut prefs = session_fork::load_prefs(&effective.grok_home);
+    let mut open_dashboard_at_start = matches!(mode, LaunchMode::Dashboard)
+        && std::env::var("GROK_OPEN_DASHBOARD_AT_STARTUP")
+            .ok()
+            .as_deref()
+            == Some("1");
     let mut previous_ready = effective.ready;
     let startup = runtime_apply(&effective);
     let mut extra_env = startup.extra_env;
@@ -3304,6 +4070,16 @@ fn run() -> io::Result<()> {
                         &mut ui_overlay,
                     );
                     continue;
+                }
+                if open_dashboard_at_start && matches!(overlay, Overlay::None) && client.is_some() {
+                    open_dashboard_at_start = false;
+                    if screen == ScreenMode::Minimal {
+                        hint = session_catalog::minimal_dashboard_refusal().into();
+                    } else if let Err(error) =
+                        open_dashboard_overlay(&mut overlay, &effective, client.as_ref())
+                    {
+                        last_error = error;
+                    }
                 }
                 if key.modifiers.contains(KeyModifiers::CONTROL)
                     && matches!(key.code, KeyCode::Char('c'))
@@ -3710,6 +4486,32 @@ fn run() -> io::Result<()> {
                             _ => {}
                         },
                         Overlay::None | Overlay::Plugins(_) | Overlay::Feedback(_) => {}
+                        Overlay::SessionPick { .. }
+                        | Overlay::Dashboard(_)
+                        | Overlay::Location { .. } => {}
+                    }
+                    if matches!(
+                        overlay,
+                        Overlay::SessionPick { .. }
+                            | Overlay::Dashboard(_)
+                            | Overlay::Location { .. }
+                    ) && handle_catalog_overlay_key(
+                        key,
+                        &mut overlay,
+                        &mut client,
+                        &mut owner,
+                        &mut turns,
+                        &mut committed,
+                        &mut history,
+                        &mut resumed,
+                        &mut previous_session,
+                        &effective,
+                        &mut hint,
+                        &mut last_error,
+                        &mut terminal,
+                        screen,
+                    )? {
+                        continue;
                     }
                 }
 
@@ -4536,6 +5338,19 @@ fn dispatch_composer_command(
                     }
                 }
             }
+            SlashAction::Dashboard(refusal) => {
+                if screen == ScreenMode::Minimal {
+                    *hint = refusal.into();
+                } else {
+                    match open_dashboard_overlay(overlay, effective, client.as_ref()) {
+                        Ok(()) => {
+                            hint.clear();
+                            last_error.clear();
+                        }
+                        Err(error) => *last_error = error,
+                    }
+                }
+            }
             SlashAction::Transcript => {
                 let views = turn_views(turns);
                 if views.is_empty() {
@@ -4561,6 +5376,26 @@ fn dispatch_composer_command(
     let parked_draft = composer.voice_draft();
     composer.slash_stash.clear();
     let trimmed = text.trim();
+    if let Some(action) = session_catalog_slash(trimmed) {
+        return apply_session_catalog_slash(
+            action,
+            client,
+            owner,
+            turns,
+            inflight,
+            overlay,
+            hint,
+            last_error,
+            effective,
+            resumed,
+            previous_session,
+            terminal,
+            screen,
+            committed,
+            history,
+            composer,
+        );
+    }
     if trimmed == "/plugins" || trimmed == "/marketplace" {
         *overlay = Overlay::Plugins(plugin::new_overlay(if trimmed == "/marketplace" {
             plugin::PluginTab::Marketplace
@@ -5190,6 +6025,34 @@ mod tests {
     fn parse_leader_socket_is_refused() {
         let error = parse_launch(&args(&["inspect", "--leader-socket", "x"])).unwrap_err();
         assert!(error.to_string().contains("dsh owns execution"));
+    }
+
+    #[test]
+    fn parse_sessions_and_resume_title() {
+        let help = parse_launch(&args(&["sessions"])).unwrap();
+        assert!(matches!(
+            help.mode,
+            LaunchMode::Sessions(session_catalog::SessionsCommand::Help)
+        ));
+        let list = parse_launch(&args(&["sessions", "list", "--limit", "5"])).unwrap();
+        match list.mode {
+            LaunchMode::Sessions(session_catalog::SessionsCommand::List { limit }) => {
+                assert_eq!(limit, 5);
+            }
+            other => panic!("{other:?}"),
+        }
+        let search = parse_launch(&args(&["sessions", "search", "rate", "limit"])).unwrap();
+        match search.mode {
+            LaunchMode::Sessions(session_catalog::SessionsCommand::Search { query, limit }) => {
+                assert_eq!(query, "rate limit");
+                assert_eq!(limit, 20);
+            }
+            other => panic!("{other:?}"),
+        }
+        let missing = parse_launch(&args(&["sessions", "search"])).unwrap_err();
+        assert!(missing.to_string().contains("missing search query"));
+        let dashboard = parse_launch(&args(&["dashboard"])).unwrap();
+        assert!(matches!(dashboard.mode, LaunchMode::Dashboard));
     }
 
     #[test]

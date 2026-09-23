@@ -65,6 +65,7 @@ pub enum SlashAction {
     Navigate(NavSlash),
     Expand,
     Transcript,
+    Dashboard(&'static str),
 }
 
 pub fn switch_policy_from_env(value: Option<&str>) -> SwitchPolicy {
@@ -161,7 +162,7 @@ pub fn slash_action(text: &str) -> Option<SlashAction> {
             "/onboarding isn't available in minimal mode (the tutorial overlay needs fullscreen). Run /fullscreen to switch this session.",
         )),
         "dashboard" | "agents-dashboard" | "sessions" => {
-            Some(SlashAction::Refuse(dashboard_refusal(command)))
+            Some(SlashAction::Dashboard(dashboard_refusal(command)))
         }
         "expand" => Some(SlashAction::Expand),
         "transcript" | "log" => Some(SlashAction::Transcript),
@@ -180,6 +181,13 @@ pub fn mode_command_message(mode: ScreenMode, action: SlashAction) -> Option<Str
                 .into(),
         ),
         SlashAction::Expand | SlashAction::Transcript => None,
+        SlashAction::Dashboard(message) => {
+            if mode == ScreenMode::Minimal {
+                Some(message.to_string())
+            } else {
+                None
+            }
+        }
         SlashAction::Refuse(message) => {
             let fullscreen_only = message.contains("Run /fullscreen");
             let minimal_only = message.contains("fullscreen mode:");
