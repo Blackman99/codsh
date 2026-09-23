@@ -211,9 +211,9 @@ function hasParameterExpansion(command) {
       i += 1
       continue
     }
-    if (ch !== '$' || i + 1 >= command.length) continue
-    const next = command[i + 1]
-    if (/[A-Za-z_]/.test(next) || next === '{') return true
+    // Any `$` outside single quotes is an expansion. Named letters and
+    // `${...}` are not the only shapes: `$1`, `$@`, `$*`, `$$` expand too.
+    if (ch === '$') return true
   }
   return false
 }

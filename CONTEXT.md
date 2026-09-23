@@ -113,7 +113,7 @@ that does not name this caller, and fail-closed files with no pubkey and no side
 Permission modes, allow/ask/deny rules, and remembered project grants are compiled
 into isolated `$DSH_HOME/permission-policy.json` and enforced in the dsh
 `tools/pre-execute` plugin before a real tool body runs. Deny and hook blocks have
-no side effects; unsplittable shell, including a plain parameter expansion such as `$x` or `${x}`, and Read/Edit path rules on operands cannot be
+no side effects; unsplittable shell, including a parameter expansion such as `$x`, `${x}`, `$1`, `"$1"`, `$@`, or `$*`, and Read/Edit path rules on operands cannot be
 glob-allowed or auto-approved as read-only. Wrappers, including `sudo`, `nohup`,
 and `xargs`, peel to the inner command
 without eating the command name; `env -S` prompts. Brace groups and ANSI-C

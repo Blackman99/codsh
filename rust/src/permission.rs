@@ -1396,11 +1396,9 @@ fn has_parameter_expansion(command: &str) -> bool {
             index += 2;
             continue;
         }
-        if ch == '$'
-            && chars
-                .get(index + 1)
-                .is_some_and(|next| next.is_ascii_alphabetic() || *next == '_' || *next == '{')
-        {
+        // Any `$` outside single quotes is an expansion: `$1`, `$@`, `$*`,
+        // `$$`, `$!`, and `$#` expand just like `$x`. Listing shapes misses one.
+        if ch == '$' {
             return true;
         }
         index += 1;
@@ -3440,6 +3438,12 @@ mod tests {
             "x=/bin/rm; \"$x\" -rf /",
             "x=/bin/rm; ${x} -rf /",
             "x=/bin/rm; ${x:-rm} -rf /",
+            "set -- /bin/rm; \"$1\" -rf /",
+            "set -- /bin/rm; $1 -rf /",
+            "set -- /bin/rm; $@",
+            "set -- /bin/rm; $*",
+            "set -- /bin/rm; ${1} -rf /",
+            "set -- /bin/rm; $x -rf /",
         ] {
             let decision = evaluate(&deny, &AccessKind::Bash(command.into()), None);
             assert!(

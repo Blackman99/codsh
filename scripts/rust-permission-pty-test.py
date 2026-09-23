@@ -308,6 +308,15 @@ allow = ["Bash(git *)"]
         assert 'Allow bash' not in expand['screen']
         results['deny_expand'] = {'exit': expand['exit']}
 
+        positional = exercise('deny-positional-expansion', launcher, cwd,
+                              {**base_env, 'DSH_CODE_CLI_MOCK_TOOL': 'bash-positional-rm'},
+                              output, typed='TOKEN_PERM_POSITIONAL', wait_for=['the user rejected', 'RUST_ACP_BASH_DENIED'],
+                              extra=['--always-approve', '--deny', 'Bash(rm -rf *)'], action='reject')
+        assert positional['exit'] == 0
+        assert 'successfully.' not in positional['screen']
+        assert 'Allow bash' not in positional['screen']
+        results['deny_positional'] = {'exit': positional['exit']}
+
         shell_option = exercise('deny-shell-option-script', launcher, cwd,
                                 {**base_env, 'DSH_CODE_CLI_MOCK_TOOL': 'bash-shell-option-rm'},
                                 output, typed='TOKEN_PERM_SHELLOPT', wait_for=['Denied by permission policy', 'RUST_ACP_BASH_DENIED'],

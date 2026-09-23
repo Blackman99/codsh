@@ -273,6 +273,12 @@ describe('rust permission evaluator', () => {
       'x=/bin/rm; "$x" -rf /',
       'x=/bin/rm; ${x} -rf /',
       'x=/bin/rm; ${x:-rm} -rf /',
+      'set -- /bin/rm; "$1" -rf /',
+      'set -- /bin/rm; $1 -rf /',
+      'set -- /bin/rm; $@',
+      'set -- /bin/rm; $*',
+      'set -- /bin/rm; ${1} -rf /',
+      'set -- /bin/rm; $x -rf /',
     ]) {
       const decision = evaluatePermission(denyRm, { kind: 'bash', command })
       expect(decision.kind, command).toBe('ask')
