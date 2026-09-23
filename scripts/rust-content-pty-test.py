@@ -53,6 +53,19 @@ def screen_text(data, rows, cols):
     return emulate(data, rows, cols)['text']
 
 
+def unwrapped(shown):
+    """Join rows the viewport wrapped. The transcript marks each row with `>`,
+    so `Vec<T>` paints as `Vec<` then `> T>`."""
+    rows = []
+    for row in shown.split('\n'):
+        if row.startswith('> '):
+            row = row[2:]
+        elif row == '>':
+            row = ''
+        rows.append(row)
+    return ''.join(rows)
+
+
 def sgr_codes(data):
     import re
     return sorted({
@@ -273,8 +286,11 @@ def main():
             assert '&amp;' not in shown, shown
             assert '你好' in shown and 'café' in shown, shown
             assert '👩\u200d💻' in shown, shown
-            assert '<font' not in shown and '<b>' not in shown, shown
-            assert 'RUST_MD_GAIN' in shown and 'held' in shown, shown
+            painted = unwrapped(shown)
+            assert '<font' in painted and '<b>' in painted and 'RUST_MD_GAIN' in painted, shown
+            assert 'Vec<T>' in painted, shown
+            assert 'a < b && c > d' in painted, shown
+            assert 'held' in painted, shown
             assert '维度' in shown, shown
             assert 'codsh' in shown, shown
             fullscreen.write('\t')
@@ -288,6 +304,9 @@ def main():
                 fullscreen.pump(0.15)
             shown = fullscreen.wait_visible('Decision', 10)
             assert 'RUST_MD_STREAM_DONE' in shown, shown
+            painted = unwrapped(shown)
+            assert 'fn f<T>(v: Vec<T>)' in painted, shown
+            assert 'a < b && c > d' in painted, shown
             assert 'unclosed' in shown.lower() or 'const unclosed' in shown, shown
             fullscreen.write('\x1b')
             fullscreen.pump(0.4)
@@ -297,7 +316,7 @@ def main():
             assert 'full content ·' not in closed, closed
             assert 'const unclosed' not in closed, closed
             assert 'RUST_MD_STREAM_DONE' not in closed, closed
-            assert '26 more lines' in closed, closed
+            assert '29 more lines' in closed, closed
             codes = sgr_codes(fullscreen.data)
             (output / 'fullscreen-markdown-sgr.txt').write_text('\n'.join(codes) + '\n')
             assert any(code not in {'', '0', '1', '22', '39', '49', '59'} for code in codes), codes
@@ -333,8 +352,11 @@ def main():
             blob = shown + bytes(resume.data).decode('utf-8', 'replace')
             assert '你好' in shown and 'café' in shown, shown
             assert '👩\u200d💻' in shown, shown
-            assert '<font' not in shown and '<b>' not in shown, shown
-            assert 'RUST_MD_GAIN' in shown and 'held' in shown, shown
+            painted = unwrapped(shown)
+            assert '<font' in painted and '<b>' in painted, shown
+            assert 'Vec<T>' in painted, shown
+            assert 'a < b && c > d' in painted, shown
+            assert 'RUST_MD_GAIN' in painted and 'held' in painted, shown
             resume.write('\t')
             resume.pump(0.3)
             resume.write('\r')

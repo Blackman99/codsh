@@ -358,7 +358,7 @@ tool results display as cancelled. After cancel, a new prompt still works.
 `scripts/rust-fork-pty-test.py`, `scripts/rust-settings-pty-test.py`,
 `scripts/rust-import-pty-test.py`, `scripts/rust-plugin-pty-test.py`,
 `scripts/rust-auth-pty-test.py`, `scripts/rust-permission-pty-test.py`, and
-`scripts/rust-prompt-pty-test.py`, and `scripts/rust-content-pty-test.py` against the packed native candidate. Official `xai-grok-markdown` tests run with `cargo test --manifest-path rust/Cargo.toml --workspace`. Packed content PTY covers markdown, tables, mermaid, thoughts, fold, raw, full content, copy-original, `$PAGER`, resume, diffs, and failed tools. The visible fullscreen frame must hide inline HTML tags, keep a ZWJ emoji together, and paint `failed` plus `[error]` for a missing or rejected tool.
+`scripts/rust-prompt-pty-test.py`, and `scripts/rust-content-pty-test.py` against the packed native candidate. Official `xai-grok-markdown` tests run with `cargo test --manifest-path rust/Cargo.toml --workspace`. Packed content PTY covers markdown, tables, mermaid, thoughts, fold, raw, full content, copy-original, `$PAGER`, resume, diffs, and failed tools. The visible fullscreen frame must match official markdown: keep `Vec<T>`, comparisons, fenced Rust, and inline HTML tags, keep a ZWJ emoji together, and paint `failed` plus `[error]` for a missing or rejected tool.
 Prompt editing must keep the official textarea, prove Unicode/paste/resize,
 history selection, slash/HISTFILE completion cancel, both simple and prompt-Vim
 modes, and an actual `$VISUAL` round-trip that does not submit on save or failure.

@@ -141,44 +141,6 @@ pub fn status_span(text: &str) -> Span<'static> {
     Span::styled(text.to_string(), style)
 }
 
-/// Official pretty mode leaves InlineHtml tags (`<font>`, `<b>`) visible,
-/// sometimes split across spans and lines. Drop a tag wherever it starts and
-/// keep the text it wraps. Not applied to raw mode.
-fn hide_inline_html_tags(lines: &mut [Line<'static>]) {
-    let mut dropping = false;
-    for line in lines.iter_mut() {
-        for span in &mut line.spans {
-            let text = span.content.as_ref();
-            if !dropping && !text.contains('<') {
-                continue;
-            }
-            let mut out = String::new();
-            for ch in text.chars() {
-                if dropping {
-                    if ch == '>' {
-                        dropping = false;
-                    } else if ch == '\n' {
-                        dropping = false;
-                        out.push(ch);
-                    }
-                    continue;
-                }
-                if ch == '<' {
-                    dropping = true;
-                    continue;
-                }
-                out.push(ch);
-            }
-            if out != text {
-                span.content = std::borrow::Cow::Owned(out);
-            }
-        }
-        if dropping {
-            dropping = false;
-        }
-    }
-}
-
 /// Ratatui wraps on grapheme boundaries and then skips a zero-width joiner, so
 /// 👩‍💻 becomes woman, a hole, then laptop when the cluster crosses a cell.
 /// Keep the whole cluster in the span that starts it.
@@ -251,7 +213,6 @@ pub fn render_markdown_lines(text: &str) -> Vec<Line<'static>> {
         Some(syntect()),
     );
     let mut out = owned_lines(lines);
-    hide_inline_html_tags(&mut out);
     glue_zwj_clusters(&mut out);
     if xai_grok_markdown_core::analyze(&sanitized)
         .issues
@@ -748,8 +709,13 @@ mod tests {
                 .contains(&xai_grok_markdown_core::StructuralIssue::UnterminatedCodeBlock)
         );
         assert!(
-            !rendered.contains('<'),
-            "pretty markdown must not paint raw html tags: {rendered}"
+            rendered.contains("<font color=\"green\">")
+                && rendered.contains("GAIN")
+                && rendered.contains("</font>")
+                && rendered.contains("<b>")
+                && rendered.contains("held")
+                && rendered.contains("</b>"),
+            "official pretty mode keeps inline tags and the text they wrap: {rendered}"
         );
         let lines = render_markdown_lines(
             "Unicode: 你好 👩‍💻 café\nGain: <font color=\"green\">GAIN</font> <b>held</b>\n",
@@ -777,6 +743,66 @@ mod tests {
         assert!(
             symbols.iter().all(|symbol| symbol != "\u{200d}"),
             "ZWJ must not be its own cell: {symbols:?}"
+        );
+    }
+
+    /// Official pretty mode keeps generic and comparison brackets. A pass that
+    /// deletes every `<`…`>` pair turns `Vec<T>` into `Vec` and `a < b && c > d`
+    /// into `a  d`, including inside a fence.
+    #[test]
+    fn pretty_keeps_generics_and_comparisons_like_official_markdown() {
+        let prose = "Use Vec<T> when a < b && c > d.\n";
+        let fence = "```rust\nfn f<T>(v: Vec<T>) -> bool { a < b && c > d }\n```\n";
+        let official = |source: &str| {
+            let (lines, _) = xai_grok_markdown::render_markdown_ratatui(
+                source,
+                pretty_markdown_style(),
+                true,
+                Some(syntect()),
+            );
+            flatten_lines(&lines)
+        };
+        for source in [prose, fence] {
+            let rendered = render_markdown(source);
+            let expected = official(source);
+            assert!(
+                rendered.contains("Vec<T>"),
+                "generic brackets must survive pretty mode:\n{rendered}"
+            );
+            assert!(
+                rendered.contains("a < b && c > d"),
+                "comparison brackets must survive pretty mode:\n{rendered}"
+            );
+            assert_eq!(
+                rendered, expected,
+                "pretty output must match official markdown for {source:?}"
+            );
+        }
+        let lines = render_markdown_lines(fence);
+        let width = 80;
+        let height = (lines.len() + 2) as u16;
+        let area = ratatui::layout::Rect::new(0, 0, width, height);
+        let mut buffer = ratatui::buffer::Buffer::empty(area);
+        ratatui::widgets::Widget::render(
+            ratatui::widgets::Paragraph::new(lines).wrap(ratatui::widgets::Wrap { trim: false }),
+            area,
+            &mut buffer,
+        );
+        let painted = (0..area.height)
+            .map(|row| {
+                (0..area.width)
+                    .map(|column| buffer[(column, row)].symbol())
+                    .collect::<String>()
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(
+            painted.contains("Vec<T>"),
+            "painted cells must keep generic brackets:\n{painted}"
+        );
+        assert!(
+            painted.contains("a < b && c > d"),
+            "painted cells must keep comparison brackets:\n{painted}"
         );
     }
 
