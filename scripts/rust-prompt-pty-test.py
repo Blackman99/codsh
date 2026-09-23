@@ -483,6 +483,33 @@ printf '%s KEEP\\n' "$(tr -d '\\n' < "$file")" > "$file"
             results.append(modes.finish(expect_alt_leave=True))
             modes.close()
 
+        once = Session('prompt-history-once', launcher, cwd, {
+            **base_env, 'DSH_CODE_CLI_MOCK_TOOL': 'echo',
+        }, output, extra=['--fullscreen'])
+        try:
+            once.wait_visible('Connected to dsh ACP', 25)
+            once.write('HIST_ONCE_TOKEN\r')
+            shown = wait_answer(once, 'latest=HIST_ONCE_TOKEN', count=1)
+            echo = latest_answer(shown)
+            assert 'latest=HIST_ONCE_TOKEN' in echo, echo
+            history_file = home / '.codsh-rust' / '.grok' / 'prompt-history.json'
+            deadline = time.monotonic() + 5
+            stored = []
+            while time.monotonic() < deadline:
+                once.pump(0.1)
+                if history_file.exists():
+                    stored = json.loads(history_file.read_text())
+                    if stored.count('HIST_ONCE_TOKEN') == 1:
+                        break
+            assert stored.count('HIST_ONCE_TOKEN') == 1, stored
+            once.write('\x1b[A')
+            shown = once.wait_visible('history browse', 10)
+            assert '1/1' in shown, shown
+            assert '2/2' not in shown, shown
+        finally:
+            results.append(once.finish(expect_alt_leave=True))
+            once.close()
+
         (output / 'result.json').write_text(json.dumps({
             'results': [{'name': item['name'], 'exit': item['exit']} for item in results],
         }, indent=2) + '\n')

@@ -842,7 +842,7 @@ impl PromptComposer {
         if text.trim().is_empty() {
             return Action::Submit(String::new());
         }
-        self.record_history(&text);
+        // History is recorded by the host only after dsh accepts the prompt.
         self.replace_draft("");
         self.overlay = Overlay::None;
         self.slash_stash.clear();
@@ -1443,6 +1443,21 @@ mod tests {
         );
         assert!(composer.footer_notice.contains("empty prompt"));
         assert_eq!(composer.text(), "KEEP");
+        let _ = fs::remove_dir_all(home);
+    }
+
+    #[test]
+    fn submit_does_not_record_history_until_host_accepts() {
+        let home = temp_home();
+        let mut composer = PromptComposer::load(&home, &[]);
+        composer.set_text("TOKEN_ONCE");
+        let action = composer.handle_key(key(KeyCode::Enter), ctx());
+        assert_eq!(action, Action::Submit("TOKEN_ONCE".into()));
+        assert!(composer.history.is_empty());
+        assert!(load_history(&home).is_empty());
+        composer.record_history("TOKEN_ONCE");
+        assert_eq!(composer.history, vec!["TOKEN_ONCE".to_string()]);
+        assert_eq!(load_history(&home), vec!["TOKEN_ONCE".to_string()]);
         let _ = fs::remove_dir_all(home);
     }
 
