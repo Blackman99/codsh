@@ -50,6 +50,13 @@ argument-hint: message
 ---
 COMMIT_BODY
 """)
+    write(src / '.grok' / 'skills' / 'hidden' / 'SKILL.md', """---
+name: hidden
+description: Model only.
+user-invocable: false
+---
+HIDDEN_BODY
+""")
     write(src / '.grok' / 'commands' / 'ship-note.md', """---
 description: Write a ship note
 argument-hint: ticket
@@ -115,6 +122,8 @@ def main():
         assert 'home.md' in rule_text
         assert 'AGENTS.md' not in rule_text
         assert denied_json['assets']['commands'] == []
+        assert all(agent['source'] == 'user' for agent in denied_json['assets']['agents'])
+        assert all(skill['source'] != 'project' for skill in denied_json['assets']['skills'])
         assert any(item['kind'] == 'rule-path' for item in denied_json['assets']['diagnostics'])
 
         trusted = Session('assets-trusted', launcher, cwd, base_env, output, extra=['--trust', '--minimal'])
@@ -134,10 +143,13 @@ def main():
             trusted.write('/commit')
             shown = trusted.wait_visible('skill ·', 10)
             assert '/commit' in shown
+            assert '/hidden' not in shown.replace('\n', '')
             trusted.write('\x03')
             trusted.write('/ship-note')
-            shown = trusted.wait_visible('/ship-note', 10)
-            assert 'skill ·' in shown
+            shown = trusted.wait_visible('command ·', 10)
+            flat = shown.replace('\n', '')
+            assert '/ship-note' in flat
+            assert 'command ·' in flat
             trusted.write('\x03')
             trusted.write('/commit fix the build\r')
             shown = trusted.wait_visible('COMMIT_BODY', 30)
@@ -146,6 +158,7 @@ def main():
             trusted.write('/ship-note 163\r')
             shown = trusted.wait_visible('SHIP_NOTE_BODY', 30)
             assert '163' in shown.replace('\n', '')
+            assert 'Run the custom command' in shown.replace('\n', '')
             added = cwd / '.grok' / 'skills' / 'added' / 'SKILL.md'
             write(added, """---
 name: added
@@ -155,7 +168,8 @@ SKILL_ADDED
 """)
             trusted.write('\x03')
             trusted.write('/reload-assets\r')
-            trusted.wait_visible('Rescanned assets', 10)
+            rescanned = trusted.wait_visible('Rescanned assets', 10)
+            assert '3 skills' in rescanned.replace('\n', '') or 'skills' in rescanned
             trusted.write('/added')
             shown = trusted.wait_visible('/added', 10)
             trusted.write('\x03')
@@ -164,16 +178,43 @@ SKILL_ADDED
             added.unlink()
             trusted.write('\x03')
             trusted.write('/reload-assets\r')
-            trusted.wait_visible('Rescanned assets', 10)
+            trusted.wait_visible('2 skills', 10)
             trusted.write('/added gone\r')
-            trusted.pump(1.2)
-            shown = trusted.visible()
+            shown = trusted.wait_visible('/added gone', 30)
+            deadline = time.monotonic() + 20
+            while time.monotonic() < deadline:
+                trusted.pump()
+                shown = trusted.visible()
+                flat = shown.replace('\n', '')
+                if '/added gone' in flat and 'Streaming turn' not in flat:
+                    break
             flat = shown.replace('\n', '')
-            assert 'SKILL_ADDED' not in flat.split('Rescanned assets')[-1]
-            assert '/added' in shown or 'not invocable' in shown.lower() or 'unknown' in shown.lower()
+            assert 'SKILL_ADDED' not in flat.split('2 skills')[-1], flat
+            assert '/added gone' in flat
+            assert 'Follow the `local:added` skill' not in flat
+            assert 'Follow the `added` skill' not in flat
         finally:
             results.append(trusted.finish(expect_alt_leave=False))
             trusted.close()
+
+        ruled = Session(
+            'assets-session-rules', launcher, cwd, base_env, output,
+            extra=['--trust', '--minimal', '--rules', 'SESSION_RULE_SENTINEL'])
+        try:
+            ruled.wait_visible('Connected to dsh ACP', 30)
+            ruled.write('ASK_SESSION\r')
+            shown = ruled.wait_visible('SESSION_RULE_SENTINEL', 30)
+            assert 'ASK_SESSION' in shown.replace('\n', '')
+            ruled.write('\x03')
+            ruled.write('/compact keep\r')
+            shown = ruled.wait_visible('MOCK_COMPACTION_SUMMARY', 20)
+            flat = shown.replace('\n', '')
+            assert 'instruction:Additional compaction instruction' in flat or 'keep' in flat
+            assert 'Follow the `local:compact` skill' not in flat
+            assert 'COMMIT_BODY' not in flat.split('MOCK_COMPACTION_SUMMARY')[-1]
+        finally:
+            results.append(ruled.finish(expect_alt_leave=False))
+            ruled.close()
 
         empty = work / 'empty-repo' / 'src'
         (work / 'empty-repo' / '.git').mkdir(parents=True)

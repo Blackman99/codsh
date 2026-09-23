@@ -369,9 +369,11 @@ server and `CODSH_VOICE_FIXTURE`; it does not open the microphone. `/voice docto
 must not record. A slash command typed while recording parks the draft and
 restores it; it must not leave `/` or drop that text. A changed draft drops a
 late transcript. Linux and Windows capture stay unverified. The assets test
-trusts a fixture repo, checks that ordered rules, a skill, and a custom command
-change the dsh request, rescans an added and removed skill, and checks an empty
-directory. Untrusted inspect must omit project files. Official `xai-grok-markdown` tests run with `cargo test --manifest-path rust/Cargo.toml --workspace`. Packed content PTY covers markdown, tables, mermaid, thoughts, fold, raw, full content, copy-original, `$PAGER`, resume, diffs, and failed tools. The visible fullscreen frame must match official markdown: keep `Vec<T>`, comparisons, fenced Rust, and inline HTML tags, keep a ZWJ emoji together, and paint `failed` plus `[error]` for a missing or rejected tool. A settled full-content page shows the fenced function and the unclosed-fence marker once; the notice under the transcript is not a second copy of that body.
+trusts a fixture repo, checks that ordered rules, a skill, and a flat custom
+command change the dsh request, rescans an added skill, requires the deleted
+skill to be absent from the next dsh reply, checks `--rules`, and checks an
+empty directory. Untrusted inspect must omit project files. A non-user-invocable
+skill must stay out of the menu. Official `xai-grok-markdown` tests run with `cargo test --manifest-path rust/Cargo.toml --workspace`. Packed content PTY covers markdown, tables, mermaid, thoughts, fold, raw, full content, copy-original, `$PAGER`, resume, diffs, and failed tools. The visible fullscreen frame must match official markdown: keep `Vec<T>`, comparisons, fenced Rust, and inline HTML tags, keep a ZWJ emoji together, and paint `failed` plus `[error]` for a missing or rejected tool. A settled full-content page shows the fenced function and the unclosed-fence marker once; the notice under the transcript is not a second copy of that body.
 Prompt editing must keep the official textarea, prove Unicode/paste/resize,
 history selection, slash/HISTFILE completion cancel, both simple and prompt-Vim
 modes, and an actual `$VISUAL` round-trip that does not submit on save or failure.

@@ -110,7 +110,10 @@ Unknown security fields fail closed with diagnostics. Workspace trust is stored
 in `$GROK_HOME/trusted_folders.toml`; untrusted project Hooks/plugins/instructions
 stay inactive until `--trust` or an interactive grant. After trust, compatible
 rules, skills, agent definitions, and custom commands are discovered in the
-frozen order and included in the dsh prompt. `/reload-assets` rescans them.
+frozen order (closer skill directories outrank broader ones; flat
+`commands/*.md` files are slash commands) and included in the dsh prompt.
+`--rules` appends a session `<human_rules>` block; `--system-prompt-override`
+replaces file rules and `--rules` while the typed prompt is still sent. `/reload-assets` rescans them.
 Global rules still load when the project is untrusted. `paths.extra_skill_dirs`
 is not a skill discovery root. Isolated plugin
 marketplace add/list/update/remove and plugin install/update/uninstall copy

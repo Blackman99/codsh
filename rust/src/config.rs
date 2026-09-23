@@ -1823,6 +1823,14 @@ fn discover_assets(
     let skill_paths = string_list(table.get("skills").and_then(|value| value.get("paths")));
     let skill_ignore = string_list(table.get("skills").and_then(|value| value.get("ignore")));
     let skill_disabled = string_list(table.get("skills").and_then(|value| value.get("disabled")));
+    let claude_skills = compat_surface(
+        bool_from_toml(claude.and_then(|value| value.get("skills"))),
+        std::env::var("GROK_CLAUDE_SKILLS_ENABLED").ok().as_ref(),
+    );
+    let cursor_skills = compat_surface(
+        bool_from_toml(cursor.and_then(|value| value.get("skills"))),
+        std::env::var("GROK_CURSOR_SKILLS_ENABLED").ok().as_ref(),
+    );
     crate::assets::discover(&crate::assets::DiscoverInput {
         cwd,
         grok_home,
@@ -1831,8 +1839,8 @@ fn discover_assets(
         claude_rules: bool_from_toml(claude.and_then(|value| value.get("rules"))).unwrap_or(true),
         cursor_rules: bool_from_toml(cursor.and_then(|value| value.get("rules"))).unwrap_or(true),
         claude_agents: bool_from_toml(claude.and_then(|value| value.get("agents"))).unwrap_or(true),
-        claude_skills: bool_from_toml(claude.and_then(|value| value.get("skills"))).unwrap_or(true),
-        cursor_skills: bool_from_toml(cursor.and_then(|value| value.get("skills"))).unwrap_or(true),
+        claude_skills,
+        cursor_skills,
         extra_rule_dirs: &extra_rule_dirs,
         skill_paths: &skill_paths,
         skill_ignore: &skill_ignore,
@@ -3057,6 +3065,11 @@ fn provider_id(name: &str) -> String {
     } else {
         trimmed.to_string()
     }
+}
+
+/// A vendor skill cell defaults on. The matching environment variable wins.
+fn compat_surface(cell: Option<bool>, env: Option<&String>) -> bool {
+    env_bool(env).or(cell).unwrap_or(true)
 }
 
 fn bool_from_toml(value: Option<&TomlValue>) -> Option<bool> {

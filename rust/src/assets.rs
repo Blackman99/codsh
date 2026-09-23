@@ -3,6 +3,7 @@
 //! dsh still executes the turn. This module discovers compatible assets,
 //! diagnoses conflicts and truncation, and hands trusted content to dsh.
 
+use ignore::gitignore::{Gitignore, GitignoreBuilder};
 use std::collections::BTreeSet;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -17,7 +18,7 @@ const RULE_CANDIDATES: &[&str] = &[
     "AGENT.md",
     "AGENTS.md",
 ];
-const VENDOR_SKILLS: &[&str] = &["shell", "canvas", "statusline"];
+const VENDOR_DENY: &[&str] = &["shell", "canvas", "statusline"];
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct AssetDiagnostic {
@@ -49,6 +50,8 @@ pub struct SkillAsset {
     pub truncated: bool,
     pub disabled: bool,
     pub collides_with: Option<String>,
+    /// Directory-distance rank. Lower is closer to the working directory.
+    pub rank: u16,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -72,6 +75,7 @@ pub struct CommandAsset {
     pub argument_hint: String,
     pub body: String,
     pub collides_with: Option<String>,
+    pub rank: u16,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -158,13 +162,41 @@ pub fn command_invocation<'a>(catalog: &'a AssetCatalog, token: &str) -> Option<
 }
 
 pub fn prompt_for_model(catalog: &AssetCatalog, text: &str) -> String {
+    prompt_with_session(catalog, text, "", false)
+}
+
+/// Session rules from `--rules` are wrapped in `<human_rules>`.
+/// `--system-prompt-override` replaces file rules, agents, and the user text.
+pub fn prompt_with_session(
+    catalog: &AssetCatalog,
+    text: &str,
+    session_rules: &str,
+    system_prompt_override: bool,
+) -> String {
+    if system_prompt_override {
+        let invocation = invocation_prompt(catalog, text).unwrap_or_default();
+        let preamble = session_rules.trim();
+        if preamble.is_empty() {
+            return format!("{invocation}{text}");
+        }
+        return format!("{preamble}\n{invocation}{text}");
+    }
     let rules = rule_context(catalog);
     let agents = agent_context(catalog);
     let invocation = invocation_prompt(catalog, text).unwrap_or_default();
-    if rules.is_empty() && agents.is_empty() && invocation.is_empty() {
+    let session = session_rule_block(session_rules);
+    if rules.is_empty() && agents.is_empty() && invocation.is_empty() && session.is_empty() {
         return text.to_string();
     }
-    format!("{rules}{agents}{invocation}{text}")
+    format!("{rules}{session}{agents}{invocation}{text}")
+}
+
+fn session_rule_block(session_rules: &str) -> String {
+    let trimmed = session_rules.trim();
+    if trimmed.is_empty() {
+        return String::new();
+    }
+    format!("<human_rules>\n{trimmed}\n</human_rules>\n")
 }
 
 fn agent_context(catalog: &AssetCatalog) -> String {
@@ -240,7 +272,7 @@ pub fn inspect_text(catalog: &AssetCatalog) -> String {
     }
     for skill in &catalog.skills {
         let state = if skill.disabled {
-            "disabled"
+            "[disabled]"
         } else if !skill.user_invocable {
             "model-only"
         } else {
@@ -370,6 +402,7 @@ fn discover_rules(
         &input.grok_home.join("rules"),
         "global",
         true,
+        false,
     );
     if input.claude_rules {
         push_named(
@@ -379,6 +412,7 @@ fn discover_rules(
             &input.home.join(".claude"),
             RULE_CANDIDATES,
             "global",
+            false,
         );
         push_rule_dir(
             &mut rules,
@@ -387,6 +421,7 @@ fn discover_rules(
             &input.home.join(".claude").join("rules"),
             "global",
             true,
+            false,
         );
     }
     if input.cursor_rules {
@@ -397,6 +432,7 @@ fn discover_rules(
             &input.home.join(".cursor"),
             RULE_CANDIDATES,
             "global",
+            false,
         );
         push_rule_dir(
             &mut rules,
@@ -405,11 +441,20 @@ fn discover_rules(
             &input.home.join(".cursor").join("rules"),
             "global",
             true,
+            false,
         );
     }
     for raw in input.extra_rule_dirs {
         match expand_absolute(raw, input.home) {
-            Ok(path) => push_rule_dir(&mut rules, &mut seen, diagnostics, &path, "global", true),
+            Ok(path) => push_rule_dir(
+                &mut rules,
+                &mut seen,
+                diagnostics,
+                &path,
+                "global",
+                true,
+                false,
+            ),
             Err(detail) => diagnostics.push(AssetDiagnostic {
                 kind: "rule-path".into(),
                 path: raw.clone(),
@@ -428,6 +473,7 @@ fn discover_rules(
             &directory,
             RULE_CANDIDATES,
             "project",
+            true,
         );
         if input.claude_agents {
             for name in ["CLAUDE.md", "CLAUDE.local.md"] {
@@ -437,6 +483,7 @@ fn discover_rules(
                     diagnostics,
                     &directory.join(".claude").join(name),
                     "project",
+                    true,
                 );
             }
         }
@@ -447,6 +494,7 @@ fn discover_rules(
             &directory.join(".grok").join("rules"),
             "project",
             true,
+            true,
         );
         if input.claude_rules {
             push_rule_dir(
@@ -455,6 +503,7 @@ fn discover_rules(
                 diagnostics,
                 &directory.join(".claude").join("rules"),
                 "project",
+                true,
                 true,
             );
         }
@@ -465,6 +514,7 @@ fn discover_rules(
                 diagnostics,
                 &directory.join(".cursor").join("rules"),
                 "project",
+                true,
                 true,
             );
         }
@@ -495,29 +545,33 @@ fn discover_skills_and_commands(
 ) {
     let mut raw = Vec::new();
     let mut command_raw = Vec::new();
-    // Lower rank wins. Project locations outrank user locations.
+    // Higher rank is closer to the working directory and wins a name.
+    // Each directory between the repo root and cwd is its own tier.
     if input.project_active {
         if let Some(repo) = git_root(input.cwd) {
-            for directory in ancestor_dirs(&repo, input.cwd) {
+            let chain = ancestor_dirs(&repo, input.cwd);
+            let last = chain.len().saturating_sub(1);
+            for (index, directory) in chain.iter().enumerate() {
+                let scope = skill_scope(index, last);
+                let rank = 100u16.saturating_add(index as u16);
                 scan_skill_tier(
                     input,
-                    &directory,
+                    directory,
                     "project",
-                    "repo",
-                    20,
+                    scope,
+                    rank,
                     &mut raw,
                     &mut command_raw,
                     diagnostics,
                 );
             }
-        }
-        if git_root(input.cwd).as_deref() != Some(input.cwd) {
+        } else {
             scan_skill_tier(
                 input,
                 input.cwd,
                 "project",
                 "local",
-                10,
+                100,
                 &mut raw,
                 &mut command_raw,
                 diagnostics,
@@ -535,14 +589,31 @@ fn discover_skills_and_commands(
             }),
         }
     }
+    // Higher rank is closer to the working directory. Same rank keeps both.
     raw.sort_by(|left, right| {
         left.name
             .cmp(&right.name)
-            .then(left.rank.cmp(&right.rank))
+            .then(right.rank.cmp(&left.rank))
             .then(left.path.cmp(&right.path))
     });
     let mut winners: Vec<RawSkill> = Vec::new();
     for skill in raw {
+        if let Some(existing) = winners
+            .iter()
+            .find(|item| item.name == skill.name && item.rank == skill.rank)
+        {
+            diagnostics.push(AssetDiagnostic {
+                kind: "skill-collision".into(),
+                path: skill.path.display().to_string(),
+                detail: format!(
+                    "{} stays invocable beside {} at the same scope",
+                    skill.path.display(),
+                    existing.path.display()
+                ),
+            });
+            winners.push(skill);
+            continue;
+        }
         if let Some(existing) = winners.iter().find(|item| item.name == skill.name) {
             diagnostics.push(AssetDiagnostic {
                 kind: "skill-collision".into(),
@@ -572,21 +643,51 @@ fn discover_skills_and_commands(
             truncated: skill.truncated,
             disabled: skill.disabled,
             collides_with: None,
+            rank: skill.rank,
         });
     }
-    command_raw.sort_by(|left, right| left.name.cmp(&right.name));
-    let mut seen_commands = BTreeSet::new();
+    // Same-scope command names both stay invocable. A closer directory
+    // (higher rank) outranks a broader one and records the loser as shadowed.
+    command_raw.sort_by(|left, right| {
+        left.name
+            .cmp(&right.name)
+            .then(right.rank.cmp(&left.rank))
+            .then(left.path.cmp(&right.path))
+    });
+    let mut winners: Vec<CommandAsset> = Vec::new();
     for command in command_raw {
-        if !seen_commands.insert(command.name.clone()) {
+        if let Some(existing) = winners
+            .iter()
+            .find(|item| item.name == command.name && item.rank == command.rank)
+        {
             diagnostics.push(AssetDiagnostic {
                 kind: "command-collision".into(),
                 path: command.path.display().to_string(),
-                detail: format!("{} is shadowed by a higher-priority command", command.name),
+                detail: format!(
+                    "{} stays invocable beside {} at the same scope",
+                    command.path.display(),
+                    existing.path.display()
+                ),
+            });
+            commands.push(command);
+            continue;
+        }
+        if let Some(existing) = winners.iter().find(|item| item.name == command.name) {
+            diagnostics.push(AssetDiagnostic {
+                kind: "command-collision".into(),
+                path: command.path.display().to_string(),
+                detail: format!(
+                    "{} is shadowed by {} ({})",
+                    command.path.display(),
+                    existing.path.display(),
+                    existing.source
+                ),
             });
             continue;
         }
-        commands.push(command);
+        winners.push(command);
     }
+    commands.extend(winners);
 }
 
 fn scan_skill_tier(
@@ -610,15 +711,7 @@ fn scan_skill_tier(
             skills,
             diagnostics,
         );
-        scan_flat_skills(
-            input,
-            &root.join("commands"),
-            source,
-            scope,
-            rank,
-            skills,
-            diagnostics,
-        );
+        scan_command_root(input, &root.join("commands"), source, scope, rank, commands);
     }
     if input.claude_skills {
         let root = directory.join(".claude");
@@ -639,15 +732,6 @@ fn scan_skill_tier(
             rank,
             commands,
         );
-        scan_flat_skills(
-            input,
-            &root.join("commands"),
-            "project",
-            scope,
-            rank,
-            skills,
-            diagnostics,
-        );
     }
     if input.cursor_skills {
         scan_skill_root(
@@ -662,13 +746,23 @@ fn scan_skill_tier(
     }
 }
 
+fn skill_scope(index: usize, last: usize) -> &'static str {
+    if index == last {
+        "local"
+    } else if index == 0 {
+        "repo"
+    } else {
+        "ancestor"
+    }
+}
+
 fn scan_user_skills(
     input: &DiscoverInput<'_>,
     skills: &mut Vec<RawSkill>,
     commands: &mut Vec<CommandAsset>,
     diagnostics: &mut Vec<AssetDiagnostic>,
 ) {
-    let rank = 40;
+    let rank = 10;
     scan_skill_root(
         input,
         &input.grok_home.join("skills"),
@@ -678,14 +772,13 @@ fn scan_user_skills(
         skills,
         diagnostics,
     );
-    scan_flat_skills(
+    scan_command_root(
         input,
         &input.grok_home.join("commands"),
         "user",
         "user",
         rank,
-        skills,
-        diagnostics,
+        commands,
     );
     if input.claude_skills {
         scan_skill_root(
@@ -829,46 +922,64 @@ fn scan_skill_root(
     };
     names.sort();
     for directory in names {
-        let file = directory.join("SKILL.md");
-        if !file.is_file() || ignored_skill(input, &file) {
-            continue;
-        }
-        if let Some(skill) = parse_skill(input, &file, source, scope, rank, diagnostics) {
-            skills.push(skill);
-        }
+        walk_named_skills(
+            input,
+            &directory,
+            source,
+            scope,
+            rank,
+            skills,
+            diagnostics,
+            0,
+        );
     }
 }
 
-fn scan_flat_skills(
+const SKILL_WALK_DEPTH: u8 = 5;
+
+fn walk_named_skills(
     input: &DiscoverInput<'_>,
-    root: &Path,
+    directory: &Path,
     source: &str,
     scope: &str,
     rank: u16,
     skills: &mut Vec<RawSkill>,
     diagnostics: &mut Vec<AssetDiagnostic>,
+    depth: u8,
 ) {
-    if !root.is_dir() {
+    if depth > SKILL_WALK_DEPTH {
         return;
     }
-    let mut files = match fs::read_dir(root) {
-        Ok(entries) => entries
-            .flatten()
-            .map(|entry| entry.path())
-            .filter(|path| {
-                path.is_file() && path.extension().and_then(|ext| ext.to_str()) == Some("md")
-            })
-            .collect::<Vec<_>>(),
-        Err(_) => return,
-    };
-    files.sort();
-    for file in files {
-        if ignored_skill(input, &file) {
-            continue;
-        }
+    let file = directory.join("SKILL.md");
+    if file.is_file() && !ignored_skill(input, &file) {
         if let Some(skill) = parse_skill(input, &file, source, scope, rank, diagnostics) {
             skills.push(skill);
         }
+        return;
+    }
+    if !directory.is_dir() {
+        return;
+    }
+    let mut children = match fs::read_dir(directory) {
+        Ok(entries) => entries
+            .flatten()
+            .map(|entry| entry.path())
+            .filter(|path| path.is_dir())
+            .collect::<Vec<_>>(),
+        Err(_) => return,
+    };
+    children.sort();
+    for child in children {
+        walk_named_skills(
+            input,
+            &child,
+            source,
+            scope,
+            rank,
+            skills,
+            diagnostics,
+            depth + 1,
+        );
     }
 }
 
@@ -877,7 +988,7 @@ fn scan_command_root(
     root: &Path,
     source: &str,
     scope: &str,
-    _rank: u16,
+    rank: u16,
     commands: &mut Vec<CommandAsset>,
 ) {
     if !root.is_dir() {
@@ -921,6 +1032,7 @@ fn scan_command_root(
             argument_hint: meta.get("argument-hint").cloned().unwrap_or_default(),
             body,
             collides_with: None,
+            rank,
         });
     }
 }
@@ -946,16 +1058,19 @@ fn parse_skill(
             .unwrap_or("skill")
     };
     let name = normalize_name(meta.get("name").map(String::as_str).unwrap_or(fallback));
-    if name.is_empty() || name.len() > 64 || VENDOR_SKILLS.contains(&name.as_str()) {
+    let vendor_root = file.ancestors().any(|parent| {
+        parent
+            .file_name()
+            .and_then(|name| name.to_str())
+            .is_some_and(|name| name == ".cursor" || name == ".claude")
+    });
+    if name.is_empty() || name.len() > 64 || (vendor_root && VENDOR_DENY.contains(&name.as_str())) {
         diagnostics.push(AssetDiagnostic {
             kind: "skill-name".into(),
             path: file.display().to_string(),
             detail: format!("rejected skill name {name}"),
         });
         return None;
-    }
-    if input.skill_disabled.iter().any(|item| item == &name) {
-        return Some(disabled_skill(file, source, scope, rank, name));
     }
     let description = meta
         .get("description")
@@ -970,37 +1085,21 @@ fn parse_skill(
             detail: format!("{name} body truncated at {SKILL_BODY_TOKEN_CAP} tokens"),
         });
     }
+    let disabled = input.skill_disabled.iter().any(|item| item == &name);
     Some(RawSkill {
         name,
         description,
         source: source.into(),
         scope: scope.into(),
         path: file.to_path_buf(),
-        user_invocable: !flag_false(meta.get("user-invocable").map(String::as_str)),
+        user_invocable: flag_true_default(meta.get("user-invocable").map(String::as_str)),
         model_invocable: !flag_true(meta.get("disable-model-invocation").map(String::as_str)),
         argument_hint: meta.get("argument-hint").cloned().unwrap_or_default(),
         body,
         truncated,
-        disabled: false,
+        disabled,
         rank,
     })
-}
-
-fn disabled_skill(file: &Path, source: &str, scope: &str, rank: u16, name: String) -> RawSkill {
-    RawSkill {
-        name,
-        description: String::new(),
-        source: source.into(),
-        scope: scope.into(),
-        path: file.to_path_buf(),
-        user_invocable: false,
-        model_invocable: false,
-        argument_hint: String::new(),
-        body: String::new(),
-        truncated: false,
-        disabled: true,
-        rank,
-    }
 }
 
 fn discover_agents(
@@ -1133,9 +1232,17 @@ fn push_named(
     directory: &Path,
     names: &[&str],
     scope: &str,
+    respect_gitignore: bool,
 ) {
     for name in names {
-        push_file(rules, seen, diagnostics, &directory.join(name), scope);
+        push_file(
+            rules,
+            seen,
+            diagnostics,
+            &directory.join(name),
+            scope,
+            respect_gitignore,
+        );
     }
 }
 
@@ -1146,6 +1253,7 @@ fn push_rule_dir(
     directory: &Path,
     scope: &str,
     direct_only: bool,
+    respect_gitignore: bool,
 ) {
     if !directory.exists() {
         return;
@@ -1178,7 +1286,7 @@ fn push_rule_dir(
             continue;
         }
         if path.extension().and_then(|ext| ext.to_str()) == Some("md") {
-            push_file(rules, seen, diagnostics, &path, scope);
+            push_file(rules, seen, diagnostics, &path, scope, respect_gitignore);
         }
     }
 }
@@ -1189,8 +1297,9 @@ fn push_file(
     diagnostics: &mut Vec<AssetDiagnostic>,
     path: &Path,
     scope: &str,
+    respect_gitignore: bool,
 ) {
-    if !path.is_file() || gitignored_file(path) {
+    if !path.is_file() || (respect_gitignore && gitignored_file(path)) {
         return;
     }
     let key = fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
@@ -1250,24 +1359,29 @@ fn git_root(start: &Path) -> Option<PathBuf> {
 }
 
 fn gitignored_file(path: &Path) -> bool {
+    let mut matcher = GitignoreBuilder::new(path.ancestors().last().unwrap_or(path));
     let mut cursor = path.parent().map(Path::to_path_buf);
+    let mut files = Vec::new();
     while let Some(directory) = cursor {
         let ignore = directory.join(".gitignore");
-        if ignore.is_file()
-            && let Ok(text) = fs::read_to_string(&ignore)
-            && let Some(name) = path.file_name().and_then(|name| name.to_str())
-            && text.lines().any(|line| {
-                let line = line.trim();
-                !line.is_empty()
-                    && !line.starts_with('#')
-                    && (line == name || line == format!("/{name}"))
-            })
-        {
-            return true;
+        if ignore.is_file() {
+            files.push(ignore);
         }
         cursor = directory.parent().map(Path::to_path_buf);
     }
-    false
+    // Parent gitignores apply first; a closer file can un-ignore.
+    for ignore in files.into_iter().rev() {
+        let _ = matcher.add(ignore);
+    }
+    match matcher.build() {
+        Ok(set) => gitignore_matches(&set, path),
+        Err(_) => false,
+    }
+}
+
+fn gitignore_matches(set: &Gitignore, path: &Path) -> bool {
+    let matched = set.matched_path_or_any_parents(path, path.is_dir());
+    matched.is_ignore()
 }
 
 fn ignored_skill(input: &DiscoverInput<'_>, path: &Path) -> bool {
@@ -1399,13 +1513,16 @@ fn flag_true(value: Option<&str>) -> bool {
     )
 }
 
-fn flag_false(value: Option<&str>) -> bool {
-    matches!(
-        value
-            .map(|item| item.trim().to_ascii_lowercase())
-            .as_deref(),
-        Some("false" | "no" | "off" | "0")
-    )
+/// `user-invocable` defaults to true. Only an explicit false-like value hides it.
+fn flag_true_default(value: Option<&str>) -> bool {
+    match value
+        .map(|item| item.trim().to_ascii_lowercase())
+        .as_deref()
+    {
+        None | Some("") => true,
+        Some("false" | "no" | "off" | "0") => false,
+        Some(_) => true,
+    }
 }
 
 fn cap_body(body: &str) -> (String, bool) {
@@ -1546,12 +1663,13 @@ mod tests {
                 .iter()
                 .any(|skill| skill.name == "commit" && skill.user_invocable)
         );
-        assert!(
-            catalog
-                .skills
-                .iter()
-                .any(|skill| skill.name == "ship-note" && skill.user_invocable)
-        );
+        let ship = catalog
+            .commands
+            .iter()
+            .find(|command| command.name == "ship-note")
+            .expect("flat commands/*.md is a slash command, not a skill");
+        assert!(ship.body.contains("SHIP_NOTE_BODY"));
+        assert!(!catalog.skills.iter().any(|skill| skill.name == "ship-note"));
         assert!(
             catalog
                 .agents
@@ -1576,6 +1694,15 @@ mod tests {
         let prompt = invocation_prompt(&catalog, "/commit fix the build").unwrap();
         assert!(prompt.contains("COMMIT_BODY"));
         assert!(prompt.contains("fix the build"));
+        let session = prompt_with_session(&catalog, "ASK", "SESSION_RULE_SENTINEL", false);
+        assert!(session.contains("<human_rules>"));
+        assert!(session.contains("SESSION_RULE_SENTINEL"));
+        assert!(session.contains("HOME_RULE"));
+        assert!(session.ends_with("ASK"));
+        let replaced = prompt_with_session(&catalog, "ASK", "ONLY_THIS", true);
+        assert!(!replaced.contains("HOME_RULE"));
+        assert!(replaced.contains("ONLY_THIS"));
+        assert!(replaced.ends_with("ASK"));
     }
 
     #[test]
@@ -1594,19 +1721,222 @@ mod tests {
         assert!(!joined.contains("DEEP_RULE"));
         assert!(catalog.skills.iter().all(|skill| skill.source != "project"));
         assert!(
-            catalog.commands.is_empty()
-                || catalog
-                    .commands
-                    .iter()
-                    .all(|command| command.source != "project")
+            catalog
+                .commands
+                .iter()
+                .all(|command| command.source != "project")
+        );
+        assert!(catalog.agents.iter().all(|agent| agent.source == "user"));
+        assert!(!catalog.agents.iter().any(|agent| agent.name == "reviewer"));
+    }
+
+    #[test]
+    fn closer_skill_outranks_repo_root_and_same_scope_collisions_stay() {
+        let root = tempfile::tempdir().unwrap();
+        fixture(root.path());
+        let cwd = root.path().join("repo").join("src");
+        write(
+            &root
+                .path()
+                .join("repo")
+                .join(".grok")
+                .join("skills")
+                .join("commit")
+                .join("SKILL.md"),
+            "---\nname: commit\ndescription: repo root\n---\nREPO_COMMIT\n",
+        );
+        write(
+            &cwd.join(".grok")
+                .join("skills")
+                .join("twins")
+                .join("SKILL.md"),
+            "---\nname: twins\ndescription: first\n---\nTWIN_A\n",
+        );
+        write(
+            &cwd.join(".agents")
+                .join("skills")
+                .join("twins-b")
+                .join("SKILL.md"),
+            "---\nname: twins\ndescription: second\n---\nTWIN_B\n",
+        );
+        write(
+            &cwd.join(".grok")
+                .join("skills")
+                .join("nested")
+                .join("deep")
+                .join("SKILL.md"),
+            "---\nname: nested-deep\ndescription: walked\n---\nNESTED_SKILL\n",
+        );
+        write(
+            &cwd.join(".grok")
+                .join("skills")
+                .join("hidden")
+                .join("SKILL.md"),
+            "---\nname: hidden\nuser-invocable: false\ndescription: model only\n---\nHIDDEN_BODY\n",
+        );
+        write(
+            &cwd.join(".grok")
+                .join("skills")
+                .join("yes-skill")
+                .join("SKILL.md"),
+            "---\nname: yes-skill\nuser-invocable: yes\ndescription: still invocable\n---\nYES_BODY\n",
+        );
+        let catalog = catalog_for(root.path(), true, &[], &[]);
+        let commit = catalog
+            .skills
+            .iter()
+            .find(|skill| skill.name == "commit" && !skill.disabled)
+            .unwrap();
+        assert!(
+            commit.body.contains("COMMIT_BODY"),
+            "cwd skill must outrank the repo-root body: {}",
+            commit.body
         );
         assert!(
             catalog
-                .agents
+                .skills
                 .iter()
-                .all(|agent| agent.source != "user" || agent.source == "user")
+                .any(|skill| skill.name == "nested-deep")
         );
-        assert!(!catalog.agents.iter().any(|agent| agent.name == "reviewer"));
+        let twins: Vec<_> = catalog
+            .skills
+            .iter()
+            .filter(|skill| skill.name == "twins")
+            .collect();
+        assert_eq!(twins.len(), 2, "same-scope names both stay invocable");
+        assert!(twins.iter().all(|skill| skill.collides_with.is_some()));
+        let hidden = catalog
+            .skills
+            .iter()
+            .find(|skill| skill.name == "hidden")
+            .unwrap();
+        assert!(!hidden.user_invocable);
+        assert!(hidden.body.contains("HIDDEN_BODY"));
+        let yes = catalog
+            .skills
+            .iter()
+            .find(|skill| skill.name == "yes-skill")
+            .unwrap();
+        assert!(yes.user_invocable);
+        assert!(skill_invocation(&catalog, "/yes-skill").is_some());
+    }
+
+    #[test]
+    fn gitignore_patterns_skip_rules_but_not_skill_roots() {
+        let root = tempfile::tempdir().unwrap();
+        fixture(root.path());
+        let cwd = root.path().join("repo").join("src");
+        write(&cwd.join(".gitignore"), "*.local.md\nnotes/\n.claude/\n");
+        write(&cwd.join("CLAUDE.local.md"), "GLOB_LOCAL\n");
+        fs::create_dir_all(cwd.join("notes")).unwrap();
+        write(&cwd.join("notes").join("AGENTS.md"), "DIR_IGNORED\n");
+        write(
+            &cwd.join(".claude").join("commands").join("frontend.md"),
+            "---\ndescription: frontend command\n---\nFRONTEND_BODY\n",
+        );
+        write(
+            &cwd.join(".cursor")
+                .join("skills")
+                .join("shell")
+                .join("SKILL.md"),
+            "---\nname: shell\ndescription: vendor default\n---\nVENDOR_SHELL\n",
+        );
+        write(
+            &cwd.join(".grok")
+                .join("skills")
+                .join("shell")
+                .join("SKILL.md"),
+            "---\nname: shell\ndescription: user shell skill\n---\nUSER_SHELL\n",
+        );
+        let catalog = catalog_for(root.path(), true, &[], &[]);
+        let joined = catalog
+            .rules
+            .iter()
+            .map(|rule| rule.content.as_str())
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(!joined.contains("GLOB_LOCAL"), "{joined}");
+        assert!(!joined.contains("DIR_IGNORED"), "{joined}");
+        assert!(
+            catalog
+                .commands
+                .iter()
+                .any(|command| command.name == "frontend" && command.body.contains("FRONTEND_BODY")),
+            "skill roots ignore .gitignore"
+        );
+        assert!(
+            catalog
+                .skills
+                .iter()
+                .any(|skill| skill.name == "shell" && skill.body.contains("USER_SHELL"))
+        );
+        assert!(
+            !catalog
+                .skills
+                .iter()
+                .any(|skill| skill.body.contains("VENDOR_SHELL"))
+        );
+    }
+
+    #[test]
+    fn disabled_skill_stays_listed_and_ancestor_tiers_keep_distinct_scope() {
+        let root = tempfile::tempdir().unwrap();
+        fixture(root.path());
+        let repo = root.path().join("repo");
+        let mid = repo.join("pkg");
+        let cwd = mid.join("src");
+        write(
+            &mid.join(".grok")
+                .join("skills")
+                .join("mid-skill")
+                .join("SKILL.md"),
+            "---\nname: mid-skill\ndescription: ancestor\n---\nMID_BODY\n",
+        );
+        write(
+            &cwd.join(".grok")
+                .join("skills")
+                .join("commit")
+                .join("SKILL.md"),
+            "---\nname: commit\ndescription: Create commits. Use when asked to commit.\n---\nCOMMIT_BODY\n",
+        );
+        let catalog = discover(&DiscoverInput {
+            cwd: &cwd,
+            grok_home: &root.path().join("grok"),
+            home: &root.path().join("home"),
+            project_active: true,
+            claude_rules: true,
+            cursor_rules: true,
+            claude_agents: true,
+            claude_skills: true,
+            cursor_skills: true,
+            extra_rule_dirs: &[],
+            skill_paths: &[],
+            skill_ignore: &[],
+            skill_disabled: &["commit".into()],
+            builtin_commands: &["compact"],
+        });
+        let mid_skill = catalog
+            .skills
+            .iter()
+            .find(|skill| skill.name == "mid-skill")
+            .expect("intermediate ancestor is its own tier");
+        assert!(
+            !mid_skill.qualified.starts_with("local:") && !mid_skill.qualified.starts_with("repo:"),
+            "intermediate ancestor keeps its own scope: {}",
+            mid_skill.qualified
+        );
+        let commit = catalog
+            .skills
+            .iter()
+            .find(|skill| skill.name == "commit")
+            .unwrap();
+        assert!(commit.disabled);
+        assert!(
+            commit.body.contains("COMMIT_BODY"),
+            "disabled skills stay listed with their body"
+        );
+        assert!(skill_invocation(&catalog, "/commit").is_none());
+        assert!(inspect_text(&catalog).contains("[disabled]"));
     }
 
     #[test]

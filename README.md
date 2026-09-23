@@ -271,14 +271,28 @@ the working directory: `Agents.md`, `Claude.md`, `CLAUDE.md`,
 `.grok/rules/` (and enabled `.claude/rules/` and `.cursor/rules/`). Deeper
 files are later in the prompt. Gitignored instruction names such as
 `CLAUDE.local.md` are skipped; there is no per-file character cap. Skills come
-from `.grok/skills/`, `.grok/commands/`, `.agents/`, enabled Claude/Cursor
-skill roots, user roots, and `[skills] paths`. `paths.extra_skill_dirs` is not
-a discovery root. `[skills] ignore` hides a path and `[skills] disabled` keeps
-the name listed but not invocable. A skill body sent to dsh is capped at
-25,000 tokens and the truncation is diagnosed. Flat `commands/*.md` files are
-slash commands. A name that collides with a built-in keeps the built-in on the
-bare name and offers the asset as `/local:name`, `/repo:name`, or
-`/user:name`. Disabled or non-user-invocable skills do not appear in the menu.
+from `.grok/skills/` and `.agents/skills/` at the working directory, then each
+ancestor up to the git root, then the user roots, plus enabled Claude/Cursor
+skill roots and `[skills] paths`. A closer directory outranks a broader one;
+two skills with the same name in one directory both stay invocable under a
+qualified name. Nested `SKILL.md` files are walked up to five directories.
+`paths.extra_skill_dirs` is not a discovery root. `[skills] ignore` hides a
+path. `[skills] disabled` keeps the skill listed, including its body, but not
+invocable. `user-invocable` defaults to true; only `false`, `no`, `off`, or
+`0` hides it from the menu. A skill body sent to dsh is capped at 25,000
+tokens and the truncation is diagnosed. Flat `commands/*.md` files under
+`.grok/commands/`, `.agents/commands/`, and enabled `.claude/commands/` are
+slash commands, not skills. Skill roots are not filtered by `.gitignore`.
+`GROK_CLAUDE_SKILLS_ENABLED` and `GROK_CURSOR_SKILLS_ENABLED` turn those vendor
+scans off. Vendor default names `shell`, `canvas`, and `statusline` are
+dropped only under `.claude/` and `.cursor/`. A name that collides with a
+built-in keeps the built-in on the bare name (`/compact`, `/login`) and offers
+the asset as `/local:name`, `/ancestor:name`, `/repo:name`, or `/user:name`.
+`--rules` (alias `--append-system-prompt`) appends a `<human_rules>` block for
+this session. `--system-prompt-override` (alias `--system-prompt`) replaces
+file rules and `--rules` in the text sent to dsh; the typed prompt is still sent. Gitignored project
+instruction files, including `*.local.md` and ignored directories, are skipped.
+Disabled or non-user-invocable skills do not appear in the menu.
 `/reload-assets` rescans after files are added or removed; an empty project
 directory adds no project commands. `inspect` lists each asset's source,
 enabled state, collision, and truncation. Untrusted projects still show global

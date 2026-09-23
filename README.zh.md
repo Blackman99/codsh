@@ -187,12 +187,22 @@ extra_rule_dirs`）对每个项目生效。相对路径或缺失目录不会加�
 `CLAUDE.md`、`CLAUDE.local.md`、`AGENT.md`、`AGENTS.md`，以及 `.grok/rules/`
 （和已启用的 `.claude/rules/`、`.cursor/rules/`）里直接存放的 `*.md`。更深的
 文件在提示里更靠后。被 gitignore 的说明文件名（例如 `CLAUDE.local.md`）会跳过；
-单个规则文件没有字符上限。Skills 来自 `.grok/skills/`、`.grok/commands/`、
-`.agents/`、已启用的 Claude/Cursor 根目录、用户目录和 `[skills] paths`。
-`paths.extra_skill_dirs` 不是发现根。`[skills] ignore` 隐藏路径，`[skills]
-disabled` 保留名称但不可调用。发给 dsh 的 Skill 正文最多 25,000 token，截断会
-被诊断。`commands/` 下的扁平 `*.md` 是斜杠命令。与内置命令同名时，内置命令保留
-短名称，资产以 `/local:name`、`/repo:name` 或 `/user:name` 出现。已禁用或
+单个规则文件没有字符上限。Skills 来自当前目录、再到 git 根的每一层祖先里的 `.grok/skills/` 与
+`.agents/skills/`，然后是用户目录、已启用的 Claude/Cursor 根和 `[skills] paths`。
+更靠近当前目录的定义优先；同一目录里同名的两项都保持可调用，并使用限定名。
+嵌套的 `SKILL.md` 最多向下走五层。`paths.extra_skill_dirs` 不是发现根。
+`[skills] ignore` 隐藏路径。`[skills] disabled` 仍列出 Skill（含正文）但不可调用。
+`user-invocable` 默认开启，只有 `false`、`no`、`off` 或 `0` 会把它从菜单隐藏。
+发给 dsh 的 Skill 正文最多 25,000 token，截断会被诊断。`.grok/commands/`、
+`.agents/commands/` 和已启用的 `.claude/commands/` 下的扁平 `*.md` 是斜杠命令，
+不是 Skill。Skill 根目录不按 `.gitignore` 过滤。`GROK_CLAUDE_SKILLS_ENABLED`
+与 `GROK_CURSOR_SKILLS_ENABLED` 可关闭对应厂商扫描。`shell`、`canvas`、
+`statusline` 只在 `.claude/` 与 `.cursor/` 下被丢弃。与内置命令同名时，内置命令
+保留短名称（`/compact`、`/login`），资产以 `/local:name`、`/ancestor:name`、
+`/repo:name` 或 `/user:name` 出现。`--rules`（别名 `--append-system-prompt`）
+为本会话追加一段 `<human_rules>`。`--system-prompt-override`（别名
+`--system-prompt`）替换发给 dsh 的文件规则和 `--rules`；键入的提示仍会发送。被
+gitignore 的项目说明（含 `*.local.md` 和被忽略的目录）会跳过。已禁用或
 不可由用户调用的 Skill 不会出现在菜单里。`/reload-assets` 在新增或删除文件后
 重新扫描；空项目目录不会增加项目命令。`inspect` 列出每项资产的来源、启用状态、
 冲突和截断。未信任的项目仍显示全局规则，但不会注入项目规则、Skills、命令或
