@@ -140,8 +140,16 @@ file clears it and does not submit. `[ui] simple_mode = false` enables prompt
 Vim (`i`/`Esc`/`h`/`l`/`x`) independently of `/vim-mode` scrollback keys.
 Next-prompt ghost text is not wired: the host passes no suggestion after a
 turn, so Tab and Right do not accept ghost text. Suggestion rows stay blocked
-(`PARITY-150-suggestions` remains unverified). `chips=false` means attachments
-are not loaded; it is not a refusal. Unicode, large paste, and resize keep an unsent draft. A refused
+(`PARITY-150-suggestions` remains unverified). `@` opens a workspace file
+picker. It hides dotfiles and `.gitignore` matches until the query starts with
+`!`. Enter or Tab attaches the selected file as a chip; `:10-50` keeps that
+line range, and a path with spaces uses `@"my file.rs"`. Paste a workspace
+path to drop it in. Backspace on the chip removes it, and Ctrl+Z restores it.
+Submit reads the file then: a removed chip is not sent, and a missing file,
+a file over 256 KiB, a permission failure, or a change since preview stays in
+the composer with an explicit notice and no file bytes. The admitted text is
+what dsh and the model receive. Resume shows the same `@path` mention.
+`chips=false` only means the current draft has no attachment. Unicode, large paste, and resize keep an unsent draft. A refused
 submit, including first-run with no provider, puts that draft back and still
 shows `Execution unavailable` on a narrow screen. Failed
 editors keep the draft. `/edit-prompt` opens an empty composer; Ctrl+G in

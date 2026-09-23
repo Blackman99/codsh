@@ -1,5 +1,6 @@
 mod acp;
 mod appearance;
+mod attachments;
 mod auth;
 mod config;
 mod content;
@@ -3768,6 +3769,7 @@ fn run() -> io::Result<()> {
     // Kitty event types are requested. A terminal that never emits a release
     // still cannot stop hold-to-talk; the first release flips this on.
     let mut voice_release_supported = false;
+    composer.set_workspace(&effective.cwd);
     composer.simple_mode = effective.simple_mode;
     composer.prompt_suggestions = effective.prompt_suggestions;
     composer.vim = if composer.simple_mode {
@@ -4061,8 +4063,18 @@ fn run() -> io::Result<()> {
         }
         if composer.overlay != prompt_edit::Overlay::None {
             let rows = composer.overlay_text();
+            let mut lines: Vec<&str> = rows.lines().collect();
+            // The notice keeps three rows. A file picker uses the last of
+            // them for the selected file's preview instead of a fourth match.
+            if composer.overlay == prompt_edit::Overlay::FilePick && lines.len() > 3 {
+                let preview = lines[lines.len() - 1];
+                lines.truncate(2);
+                lines.push(preview);
+            } else {
+                lines.truncate(3);
+            }
             notice.push('\n');
-            notice.push_str(&rows.lines().take(3).collect::<Vec<_>>().join("\n"));
+            notice.push_str(&lines.join("\n"));
         }
         if screen == ScreenMode::Minimal && !shown_hint.is_empty() {
             notice.push('\n');
@@ -4306,7 +4318,8 @@ fn run() -> io::Result<()> {
                 if matches!(overlay, Overlay::None) && ui_overlay.is_none() {
                     let tab_for_composer = composer.overlay != prompt_edit::Overlay::None
                         || composer.text().starts_with('/')
-                        || composer.text().starts_with('!');
+                        || composer.text().starts_with('!')
+                        || composer.text().contains('@');
                     match nav.handle_key_with_prompt(
                         key,
                         screen == ScreenMode::Fullscreen,
@@ -5969,10 +5982,19 @@ fn submit_composer_prompt(
         return;
     }
     if let Some(active) = client.as_mut() {
-        match active.submit_prompt(text) {
+        let prepared = composer.take_prepared_submit();
+        let blocks = prepared
+            .as_ref()
+            .map(|item| item.blocks.clone())
+            .unwrap_or_else(|| vec![serde_json::json!({ "type": "text", "text": text })]);
+        let transcript = prepared
+            .as_ref()
+            .map(|item| item.text.clone())
+            .unwrap_or_else(|| text.to_string());
+        match active.submit_prompt_blocks(&blocks) {
             Ok(_) => {
                 turns.push(Turn {
-                    user: text.to_string(),
+                    user: transcript.clone(),
                     thought: String::new(),
                     answer: String::new(),
                     error: None,
@@ -5987,7 +6009,7 @@ fn submit_composer_prompt(
                     compaction: None,
                     timestamp: Some(clock_stamp()),
                 });
-                composer.record_history(text);
+                composer.record_history(&transcript);
                 *inflight = true;
                 last_error.clear();
                 if let Some(session_id) = active.session_id.clone() {
@@ -6006,7 +6028,8 @@ fn run_external_prompt_edit(
     composer: &PromptComposer,
     preserve: bool,
 ) -> Result<Option<String>, String> {
-    // chips stays false until file/image attachments exist. false is not a refusal.
+    // A file or image chip must stay atomic. Flattening it into the editor
+    // would send a path instead of the admitted bytes.
     if composer.chips && preserve {
         return Err(
             "external editor refused: pasted, file-reference, or image chips must stay in the composer"

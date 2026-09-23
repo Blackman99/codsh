@@ -43,7 +43,14 @@ provider, puts the cleared draft back. A narrow screen still shows
 `Execution unavailable` beside that draft. `/edit-prompt` requires an
 empty composer. Next-prompt AI ghost text is not wired: the host passes no
 suggestion, so Tab and Right do not accept ghost text. Suggestion rows stay
-blocked. `chips=false` is not an attachment refusal. The isolated Home is `~/.codsh-rust/dsh`, Profile `rust`;
+blocked. `@` attaches a workspace file. Dotfiles and `.gitignore` matches stay
+hidden until the query starts with `!`. A chip can name a line range or a
+quoted path with spaces, and a pasted workspace path is a drop. Backspace
+removes that chip and Ctrl+Z puts it back. Submit reads the file at that
+moment. A removed chip is not sent. A missing file, a file over 256 KiB, a
+permission failure, or a change since preview stays in the composer and does
+not send bytes. dsh receives the admitted text, and resume shows the same
+`@path` mention. `chips=false` means this draft has no attachment. The isolated Home is `~/.codsh-rust/dsh`, Profile `rust`;
 inherited legacy configuration/credential files are not imported automatically.
 `codsh --rust import --preview` / `--apply` copies selected current dsh
 providers and preferences from `$DSH_HOME/settings.yaml`,

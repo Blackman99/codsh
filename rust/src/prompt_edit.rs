@@ -1,9 +1,15 @@
+use crate::attachments::{
+    AttachStatus, FileRef, PreparedAttachment, WorkspaceIndex, prompt_blocks,
+};
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::Instant;
-use xai_ratatui_textarea::TextArea;
+use xai_ratatui_textarea::{ElementId, ElementKind, TextArea};
+
+/// Host tag for a file-reference chip. Paste and image chips use other tags.
+pub const FILE_CHIP: ElementKind = ElementKind(2);
 
 pub const HISTORY_FILE: &str = "prompt-history.json";
 pub const MAX_HISTORY: usize = 500;
@@ -117,6 +123,7 @@ pub enum Overlay {
     HistorySearch,
     HistoryBrowse,
     ShellComplete,
+    FilePick,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -146,6 +153,14 @@ pub enum VoiceGesture {
     Release,
     /// The terminal cannot report release, so hold-to-talk must not start.
     UnsupportedRelease,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SubmittedPrompt {
+    pub text: String,
+    pub blocks: Vec<serde_json::Value>,
+    /// Mentions that were attached when the turn started.
+    pub mentions: Vec<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -182,7 +197,11 @@ pub struct PromptComposer {
     browse_origin: Option<String>,
     /// Prompt text cleared for a submit the host has not accepted yet.
     pending_submit: Option<String>,
+    pending_files: Vec<AttachedFile>,
+    prepared_submit: Option<SubmittedPrompt>,
     grok_home: PathBuf,
+    workspace: Option<WorkspaceIndex>,
+    files: Vec<AttachedFile>,
 }
 
 impl PromptComposer {
@@ -225,25 +244,40 @@ impl PromptComposer {
             last_esc: None,
             browse_origin: None,
             pending_submit: None,
+            pending_files: Vec::new(),
+            prepared_submit: None,
             grok_home: grok_home.to_path_buf(),
+            workspace: None,
+            files: Vec::new(),
         }
+    }
+
+    pub fn set_workspace(&mut self, root: &Path) {
+        self.workspace = Some(WorkspaceIndex::new(root));
     }
 
     /// Put back a prompt whose submit did not start a turn. Returns whether
     /// the composer was already showing that text.
     pub fn restore_pending_submit(&mut self) -> bool {
+        let files = std::mem::take(&mut self.pending_files);
         let Some(text) = self.pending_submit.take() else {
             return true;
         };
-        if self.draft.text() == text {
+        if self.draft.text() == text && self.files == files {
             return true;
         }
         self.set_text(&text);
+        self.restore_file_chips(&files);
         false
     }
 
     pub fn accept_pending_submit(&mut self) {
         self.pending_submit = None;
+        self.pending_files.clear();
+    }
+
+    pub fn take_prepared_submit(&mut self) -> Option<SubmittedPrompt> {
+        self.prepared_submit.take()
     }
 
     pub fn text(&self) -> &str {
@@ -328,6 +362,7 @@ impl PromptComposer {
                 Overlay::HistorySearch => "prompt history search",
                 Overlay::HistoryBrowse => "history browse",
                 Overlay::ShellComplete => "shell completion",
+                Overlay::FilePick => "file picker",
                 Overlay::None => "",
             };
             return format!("{mode}  Draft (not sent)  {label}{ghost}");
@@ -383,6 +418,22 @@ impl PromptComposer {
                 }
                 lines.join("\n")
             }
+            Overlay::FilePick => {
+                let mut lines = vec![
+                    "file picker  Tab/Enter attach  Esc cancel  ! searches hidden files".into(),
+                ];
+                for (index, item) in self.matches.iter().enumerate() {
+                    let mark = if index == self.cursor { ">" } else { " " };
+                    lines.push(format!("{mark} {item}"));
+                }
+                if self.matches.is_empty() {
+                    lines.push("  (no files)".into());
+                }
+                if let Some(preview) = self.selected_file_preview() {
+                    lines.push(preview);
+                }
+                lines.join("\n")
+            }
         }
     }
 
@@ -391,9 +442,64 @@ impl PromptComposer {
             self.vim = VimPrompt::Insert;
         }
         self.close_transient_overlays(false);
+        if self.try_drop_paths(text) {
+            self.refresh_file_state();
+            return;
+        }
         self.draft.insert_str(text);
         self.refresh_slash_from_draft();
         self.footer_notice.clear();
+    }
+
+    /// Backspace or delete that lands on a file chip removes that attachment.
+    /// The cursor sits on the chip's end boundary after insert, so backspace
+    /// there still belongs to that chip.
+    pub fn delete_file_chip(&mut self, forward: bool) -> bool {
+        let cursor = self.draft.cursor();
+        let element = self
+            .draft
+            .elements()
+            .iter()
+            .find(|element| {
+                element.kind == FILE_CHIP
+                    && if forward {
+                        cursor >= element.range.start && cursor < element.range.end
+                    } else {
+                        cursor > element.range.start && cursor <= element.range.end
+                    }
+            })
+            .cloned();
+        let Some(element) = element else {
+            return false;
+        };
+        let id = element.id;
+        self.files.retain(|file| file.id != id);
+        self.draft.set_cursor(element.range.end);
+        // One atomic grapheme removes the whole chip and its undo entry.
+        self.draft.delete_backward(1);
+        self.refresh_file_state();
+        self.footer_notice = "attachment removed".into();
+        true
+    }
+
+    pub fn prepare_submit(&mut self) -> Result<SubmittedPrompt, String> {
+        self.sync_file_chips();
+        let text = self.draft.text().to_string();
+        let attachments: Vec<PreparedAttachment> = self
+            .files
+            .iter()
+            .filter_map(|file| file.prepared.clone())
+            .collect();
+        if attachments.is_empty() && text.trim().is_empty() {
+            return Err("empty prompt".into());
+        }
+        let fresh = self.refresh_attached_bytes()?;
+        let blocks = prompt_blocks(&text, &fresh)?;
+        Ok(SubmittedPrompt {
+            text,
+            blocks,
+            mentions: fresh.iter().map(|item| item.mention.clone()).collect(),
+        })
     }
 
     pub fn record_history(&mut self, text: &str) {
@@ -486,6 +592,7 @@ impl PromptComposer {
             Overlay::HistorySearch => return self.handle_history_search(key),
             Overlay::HistoryBrowse => return self.handle_history_browse(key),
             Overlay::ShellComplete => return self.handle_shell_complete(key),
+            Overlay::FilePick => return self.handle_file_pick(key),
             Overlay::None => {}
         }
 
@@ -547,11 +654,23 @@ impl PromptComposer {
             self.open_slash();
             return Action::None;
         }
+        if matches!(key.code, KeyCode::Backspace) {
+            let deleted = self.delete_file_chip(false);
+            if deleted {
+                return Action::None;
+            }
+        }
+        if matches!(key.code, KeyCode::Delete) && self.delete_file_chip(true) {
+            return Action::None;
+        }
         self.draft.input(key);
+        self.sync_file_chips();
         if self.draft.text().starts_with('/') {
             self.open_slash();
         } else if (self.shell_mode || self.draft.text().starts_with('!')) && self.suggestions {
             self.open_shell_complete(false);
+        } else if self.file_query_active() {
+            self.open_file_pick(false);
         } else {
             self.overlay = Overlay::None;
         }
@@ -750,6 +869,49 @@ impl PromptComposer {
         Action::None
     }
 
+    fn handle_file_pick(&mut self, key: KeyEvent) -> Action {
+        if matches!(key.code, KeyCode::Esc) {
+            self.cancel_file_pick();
+            return Action::None;
+        }
+        if matches!(key.code, KeyCode::Up) {
+            if self.cursor > 0 {
+                self.cursor -= 1;
+            }
+            self.footer_notice = self.selected_file_preview().unwrap_or_default();
+            return Action::None;
+        }
+        if matches!(key.code, KeyCode::Down) {
+            if self.cursor + 1 < self.matches.len() {
+                self.cursor += 1;
+            }
+            self.footer_notice = self.selected_file_preview().unwrap_or_default();
+            return Action::None;
+        }
+        if matches!(key.code, KeyCode::Tab | KeyCode::Enter) {
+            return self.accept_file_pick();
+        }
+        if matches!(key.code, KeyCode::Backspace) {
+            self.draft.input(key);
+            self.sync_file_chips();
+            if !self.file_query_active() {
+                self.overlay = Overlay::None;
+                self.matches.clear();
+                return Action::None;
+            }
+            self.open_file_pick(false);
+            return Action::None;
+        }
+        self.draft.input(key);
+        if !self.file_query_active() {
+            self.overlay = Overlay::None;
+            self.matches.clear();
+        } else {
+            self.open_file_pick(false);
+        }
+        Action::None
+    }
+
     fn leave_insert(&mut self) {
         self.vim = VimPrompt::Normal;
         if !self.draft.is_empty() && self.draft.cursor() == self.draft.text().len() {
@@ -801,6 +963,13 @@ impl PromptComposer {
             self.open_slash();
             if self.matches.len() == 1 {
                 return self.accept_slash();
+            }
+            return Action::None;
+        }
+        if self.file_query_active() {
+            self.open_file_pick(true);
+            if self.matches.len() == 1 && !self.matches[0].ends_with('/') {
+                return self.accept_file_pick();
             }
             return Action::None;
         }
@@ -937,18 +1106,32 @@ impl PromptComposer {
             }
             return Action::Slash(text.trim().to_string());
         }
-        if text.trim().is_empty() {
+        if text.trim().is_empty() && !self.chips {
             return Action::Submit(String::new());
         }
+        let prepared = match self.prepare_submit() {
+            Ok(prepared) => prepared,
+            Err(error) => {
+                // Admission failed before the draft moved, so the chip and
+                // its unread bytes stay in the composer.
+                self.footer_notice = error;
+                return Action::None;
+            }
+        };
         // History is recorded by the host only after dsh accepts the prompt.
-        // Keep the cleared text until that accept; a refused submit puts it back.
-        self.pending_submit = Some(text.clone());
+        // Keep the cleared text and chips until that accept; a refused
+        // submit puts both back. Removed chips are already gone.
+        self.pending_submit = Some(prepared.text.clone());
+        self.pending_files = self.files.clone();
+        self.prepared_submit = Some(prepared.clone());
+        self.files.clear();
         self.replace_draft("");
         self.overlay = Overlay::None;
         self.slash_stash.clear();
         self.shell_mode = false;
         self.ghost_dismissed = false;
-        Action::Submit(text)
+        self.chips = false;
+        Action::Submit(prepared.text)
     }
 
     fn open_slash(&mut self) {
@@ -1166,6 +1349,331 @@ impl PromptComposer {
             self.matches.clear();
         }
     }
+
+    fn replace_file_query(&mut self, replacement: &str) {
+        let Some((start, token)) = self.file_query() else {
+            self.draft.insert_str(replacement);
+            return;
+        };
+        let end = start + token.len();
+        if end > start {
+            self.draft.set_cursor(end);
+            let mut remaining = end - start;
+            while remaining > 0 {
+                let before = self.draft.cursor();
+                self.draft.delete_backward(1);
+                let after = self.draft.cursor();
+                if after == before {
+                    break;
+                }
+                remaining = remaining.saturating_sub(before - after);
+            }
+        }
+        if !replacement.is_empty() {
+            self.draft.insert_str(replacement);
+        }
+    }
+
+    fn file_query(&self) -> Option<(usize, String)> {
+        let text = self.draft.text();
+        let cursor = self.draft.cursor().min(text.len());
+        if self.draft.elements().iter().any(|element| {
+            element.kind == FILE_CHIP && cursor > element.range.start && cursor <= element.range.end
+        }) {
+            return None;
+        }
+        let head = &text[..cursor];
+        let start = head
+            .rfind([' ', '\n', '\t'])
+            .map(|index| index + 1)
+            .unwrap_or(0);
+        let token = &head[start..];
+        if token.starts_with('@') && !token.contains(' ') {
+            Some((start, token.to_string()))
+        } else {
+            None
+        }
+    }
+
+    fn file_query_active(&self) -> bool {
+        self.workspace.is_some()
+            && self
+                .file_query()
+                .is_some_and(|(_, token)| WorkspaceIndex::parse_query(&token).is_ok())
+    }
+
+    fn open_file_pick(&mut self, force: bool) {
+        let Some(index) = self.workspace.as_ref() else {
+            return;
+        };
+        let Some((_, token)) = self.file_query() else {
+            self.overlay = Overlay::None;
+            return;
+        };
+        let Ok((hidden, path, _range)) = WorkspaceIndex::parse_query(&token) else {
+            self.overlay = Overlay::None;
+            return;
+        };
+        let _ = force;
+        let query = if hidden {
+            format!("!{path}")
+        } else {
+            path.clone()
+        };
+        let matches = index.search(&query);
+        self.matches = matches
+            .into_iter()
+            .map(|item| item.relative)
+            .filter(|relative| {
+                path.is_empty()
+                    || relative
+                        .to_ascii_lowercase()
+                        .contains(&path.to_ascii_lowercase())
+                    || relative
+                        .trim_end_matches('/')
+                        .ends_with(path.trim_end_matches('/'))
+            })
+            .take(8)
+            .collect();
+        if self.cursor >= self.matches.len() {
+            self.cursor = 0;
+        }
+        if self.matches.is_empty() && !force && path.is_empty() {
+            self.overlay = Overlay::FilePick;
+            return;
+        }
+        self.overlay = Overlay::FilePick;
+        self.footer_notice = self.selected_file_preview().unwrap_or_default();
+    }
+
+    fn selected_file_preview(&self) -> Option<String> {
+        let relative = self.matches.get(self.cursor)?;
+        if relative.ends_with('/') {
+            return Some(format!("directory {relative}"));
+        }
+        let index = self.workspace.as_ref()?;
+        let reference = FileRef {
+            relative: relative.trim_end_matches('/').to_string(),
+            range: self.file_query().and_then(|(_, token)| {
+                WorkspaceIndex::parse_query(&token)
+                    .ok()
+                    .and_then(|(_, _, range)| range)
+            }),
+            dropped: false,
+        };
+        let prepared = index.prepare(&reference, None);
+        if prepared.status != AttachStatus::Ready {
+            return Some(format!("{}: {}", prepared.status.label(), prepared.detail));
+        }
+        let body = prepared.preview.replace('\n', " ");
+        Some(format!("preview {body}"))
+    }
+
+    fn accept_file_pick(&mut self) -> Action {
+        let Some(relative) = self.matches.get(self.cursor).cloned() else {
+            self.footer_notice = "no file matches".into();
+            return Action::None;
+        };
+        if relative.ends_with('/') {
+            self.replace_file_query(&format!("@{relative}"));
+            self.open_file_pick(true);
+            return Action::None;
+        }
+        let range = self
+            .file_query()
+            .and_then(|(_, token)| WorkspaceIndex::parse_query(&token).ok())
+            .and_then(|(_, _, range)| range);
+        let reference = FileRef {
+            relative: relative.trim_end_matches('/').to_string(),
+            range,
+            dropped: false,
+        };
+        self.insert_file_chip(reference);
+        Action::None
+    }
+
+    fn cancel_file_pick(&mut self) {
+        self.overlay = Overlay::None;
+        self.matches.clear();
+        self.footer_notice = "file picker cancelled".into();
+    }
+
+    fn insert_file_chip(&mut self, reference: FileRef) {
+        let Some(index) = self.workspace.clone() else {
+            self.footer_notice = "no workspace for file attachments".into();
+            return;
+        };
+        let prepared = index.prepare(&reference, None);
+        if prepared.status != AttachStatus::Ready {
+            self.footer_notice = format!(
+                "{}: {}",
+                prepared.status.label(),
+                if prepared.detail.is_empty() {
+                    "not attached".to_string()
+                } else {
+                    prepared.detail.clone()
+                }
+            );
+            self.overlay = Overlay::None;
+            return;
+        }
+        let mention = reference.mention();
+        self.replace_file_query("");
+        let display = ratatui::text::Line::from(format!("[{}]", reference.display()));
+        let id = self.draft.replace_range_with_element(
+            self.draft.cursor()..self.draft.cursor(),
+            &mention,
+            FILE_CHIP,
+            Some(display),
+        );
+        self.files.push(AttachedFile {
+            id,
+            reference,
+            prepared: Some(prepared),
+        });
+        self.overlay = Overlay::None;
+        self.matches.clear();
+        self.refresh_file_state();
+        self.footer_notice = format!("attached {mention}");
+    }
+
+    fn try_drop_paths(&mut self, text: &str) -> bool {
+        let Some(index) = self.workspace.clone() else {
+            return false;
+        };
+        let lines: Vec<&str> = text
+            .lines()
+            .map(str::trim)
+            .filter(|line| !line.is_empty())
+            .collect();
+        if lines.is_empty() {
+            return false;
+        }
+        let paths: Vec<std::result::Result<FileRef, crate::attachments::AttachRefusal>> = lines
+            .iter()
+            .copied()
+            .map(|line| index.resolve_drop(line))
+            .collect();
+        let looks_like_paths = paths.iter().any(Result::is_ok)
+            || lines.iter().all(|line| {
+                line.starts_with('/')
+                    || line.starts_with("file://")
+                    || line.contains(std::path::MAIN_SEPARATOR)
+            });
+        if !looks_like_paths {
+            return false;
+        }
+        for item in paths {
+            match item {
+                Ok(reference) => self.insert_file_chip(reference),
+                Err(rejected) => {
+                    self.footer_notice =
+                        format!("{}: {}", rejected.status.label(), rejected.detail);
+                }
+            }
+        }
+        true
+    }
+
+    fn sync_file_chips(&mut self) {
+        let live: Vec<(ElementId, String)> = self
+            .draft
+            .elements()
+            .iter()
+            .filter(|element| element.kind == FILE_CHIP)
+            .filter_map(|element| {
+                self.draft
+                    .element_text(element.id)
+                    .map(|text| (element.id, text.to_string()))
+            })
+            .collect();
+        self.files
+            .retain(|file| live.iter().any(|(id, _)| *id == file.id));
+        let index = self.workspace.clone();
+        for (id, text) in live {
+            if self.files.iter().any(|file| file.id == id) {
+                continue;
+            }
+            let Some(reference) = index.as_ref().and_then(|index| index.resolve_typed(&text))
+            else {
+                continue;
+            };
+            let prepared = index.as_ref().map(|index| index.prepare(&reference, None));
+            self.files.push(AttachedFile {
+                id,
+                reference,
+                prepared,
+            });
+        }
+        self.refresh_file_state();
+    }
+
+    fn refresh_file_state(&mut self) {
+        self.chips = self
+            .draft
+            .elements()
+            .iter()
+            .any(|element| element.kind == FILE_CHIP);
+    }
+
+    fn refresh_attached_bytes(&mut self) -> Result<Vec<PreparedAttachment>, String> {
+        let Some(index) = self.workspace.clone() else {
+            if self.files.is_empty() {
+                return Ok(Vec::new());
+            }
+            return Err("no workspace for file attachments".into());
+        };
+        let mut fresh = Vec::new();
+        for file in &mut self.files {
+            let prepared = index.prepare(&file.reference, file.prepared.as_ref());
+            if prepared.status != AttachStatus::Ready {
+                let detail = if prepared.detail.is_empty() {
+                    prepared.status.label().to_string()
+                } else {
+                    prepared.detail.clone()
+                };
+                file.prepared = Some(prepared);
+                return Err(format!("{}: {detail}", file.reference.mention()));
+            }
+            file.prepared = Some(prepared.clone());
+            fresh.push(prepared);
+        }
+        Ok(fresh)
+    }
+
+    fn restore_file_chips(&mut self, files: &[AttachedFile]) {
+        self.files.clear();
+        for file in files {
+            let display = ratatui::text::Line::from(format!("[{}]", file.reference.display()));
+            let mention = file.reference.mention();
+            if let Some(range) = self
+                .draft
+                .text()
+                .find(&mention)
+                .map(|start| start..start + mention.len())
+            {
+                let id = self.draft.replace_range_with_element(
+                    range,
+                    &mention,
+                    FILE_CHIP,
+                    Some(display),
+                );
+                self.files.push(AttachedFile {
+                    id,
+                    reference: file.reference.clone(),
+                    prepared: file.prepared.clone(),
+                });
+            }
+        }
+        self.refresh_file_state();
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct AttachedFile {
+    id: ElementId,
+    reference: FileRef,
+    prepared: Option<PreparedAttachment>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1776,6 +2284,123 @@ mod tests {
         assert!(composer.visible_ghost().is_none());
         assert_eq!(composer.handle_key(key(KeyCode::Tab), ctx()), Action::None);
         assert_eq!(composer.text(), "TOKEN_MODE_DRAFT");
+        let _ = fs::remove_dir_all(home);
+    }
+
+    #[test]
+    fn file_picker_attaches_a_line_range_and_a_removed_chip_is_not_sent() {
+        let root = temp_home();
+        fs::create_dir_all(root.join("src")).unwrap();
+        fs::write(root.join(".gitignore"), "secret.log\n").unwrap();
+        fs::write(root.join("src/main.rs"), "one\ntwo\nthree\n").unwrap();
+        fs::write(root.join("secret.log"), "HIDDEN_LOG\n").unwrap();
+        let home = temp_home();
+        let mut composer = PromptComposer::load(&home, &[]);
+        composer.set_workspace(&root);
+        for ch in "@src/main.rs:2-3".chars() {
+            composer.handle_key(key(KeyCode::Char(ch)), ctx());
+        }
+        assert_eq!(composer.overlay, Overlay::FilePick);
+        assert!(
+            composer.overlay_text().contains("src/main.rs"),
+            "{}",
+            composer.overlay_text()
+        );
+        assert!(
+            !composer.overlay_text().contains("secret.log"),
+            "{}",
+            composer.overlay_text()
+        );
+        assert_eq!(
+            composer.handle_key(key(KeyCode::Enter), ctx()),
+            Action::None
+        );
+        assert!(composer.chips);
+        assert!(
+            composer.text().contains("@src/main.rs:2-3"),
+            "{}",
+            composer.text()
+        );
+        for ch in " look".chars() {
+            composer.handle_key(key(KeyCode::Char(ch)), ctx());
+        }
+        let submitted = composer.prepare_submit().expect("ready attachment");
+        let encoded = submitted
+            .blocks
+            .iter()
+            .filter_map(|block| block.get("text").and_then(|value| value.as_str()))
+            .collect::<String>();
+        assert!(encoded.contains("two\nthree\n"), "{encoded}");
+        assert!(!encoded.contains("HIDDEN_LOG"), "{encoded}");
+        for _ in 0.." look".chars().count() {
+            composer.handle_key(key(KeyCode::Backspace), ctx());
+        }
+        assert!(
+            composer.chips,
+            "text remains before chip delete: {}",
+            composer.text()
+        );
+        composer.handle_key(key(KeyCode::Backspace), ctx());
+        assert!(
+            !composer.chips && composer.text().is_empty(),
+            "chips={} text={:?} notice={} elements={}",
+            composer.chips,
+            composer.text(),
+            composer.footer_notice,
+            composer.draft.elements().len()
+        );
+        let after = composer.prepare_submit();
+        assert!(after.is_err(), "removed chip must not submit: {after:?}");
+        let message = after.unwrap_err();
+        assert!(!message.contains("two"), "{message}");
+        let _ = fs::remove_dir_all(root);
+        let _ = fs::remove_dir_all(home);
+    }
+
+    #[test]
+    fn undo_restores_a_file_chip_and_changed_bytes_are_refused() {
+        let root = temp_home();
+        fs::create_dir_all(root.join("src")).unwrap();
+        fs::write(root.join("src/main.rs"), "alpha\n").unwrap();
+        let home = temp_home();
+        let mut composer = PromptComposer::load(&home, &[]);
+        composer.set_workspace(&root);
+        for ch in "@src/main.rs".chars() {
+            composer.handle_key(key(KeyCode::Char(ch)), ctx());
+        }
+        composer.handle_key(key(KeyCode::Tab), ctx());
+        assert!(composer.chips, "{}", composer.text());
+        composer.handle_key(chord(KeyCode::Char('z'), KeyModifiers::CONTROL), ctx());
+        assert!(
+            !composer.chips,
+            "undo removes the chip: {}",
+            composer.text()
+        );
+        let undone = composer.prepare_submit();
+        if let Ok(prompt) = &undone {
+            let encoded = serde_json::to_string(&prompt.blocks).unwrap();
+            assert!(!encoded.contains("alpha"), "{encoded}");
+        }
+        composer.handle_key(
+            chord(
+                KeyCode::Char('z'),
+                KeyModifiers::CONTROL | KeyModifiers::SHIFT,
+            ),
+            ctx(),
+        );
+        if !composer.chips {
+            composer.handle_key(key(KeyCode::Char('y')), ctx());
+        }
+        fs::write(root.join("src/main.rs"), "beta\n").unwrap();
+        let refused = composer.prepare_submit();
+        assert!(
+            refused.is_err(),
+            "changed file must not be sent: {refused:?}"
+        );
+        let message = refused.unwrap_err();
+        assert!(!message.contains("beta"), "{message}");
+        assert!(!message.contains("alpha"), "{message}");
+        let _ = fs::remove_dir_all(root);
         let _ = fs::remove_dir_all(home);
     }
 

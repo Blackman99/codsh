@@ -844,6 +844,12 @@ impl AcpClient {
     }
 
     pub fn submit_prompt(&mut self, text: &str) -> Result<u64, AcpError> {
+        self.submit_prompt_blocks(&[json!({ "type": "text", "text": text })])
+    }
+
+    /// Submit ordered ACP content. File attachments travel as a resource link
+    /// plus the admitted text. The caller must not include unread file bytes.
+    pub fn submit_prompt_blocks(&mut self, blocks: &[Value]) -> Result<u64, AcpError> {
         let session_id = self.session_id.clone().ok_or_else(|| AcpError {
             message: "ACP session is not ready".into(),
         })?;
@@ -856,12 +862,17 @@ impl AcpClient {
                 message: "a prompt is already in flight".into(),
             });
         }
+        if blocks.is_empty() {
+            return Err(AcpError {
+                message: "empty prompt".into(),
+            });
+        }
         self.prompt_cancelled = false;
         self.request(
             "session/prompt",
             json!({
                 "sessionId": session_id,
-                "prompt": [{ "type": "text", "text": text }],
+                "prompt": blocks,
             }),
             PendingKind::Prompt,
         )
