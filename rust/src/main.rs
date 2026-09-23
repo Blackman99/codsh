@@ -1305,7 +1305,9 @@ fn status_line(view: StatusView<'_>) -> String {
     } = view;
     let header = format!("mode={}", screen.as_str());
     if !last_error.is_empty() && client.is_none() {
-        return format!("{header}\n{UNAVAILABLE}\n{last_error}");
+        // A short screen scrolls to the latest notice lines. The unavailable
+        // status has to stay among those lines, after the first-run tip.
+        return format!("{header}\n{last_error}\n{UNAVAILABLE}");
     }
     let tag = if resumed { " (resumed)" } else { "" };
     let mut body = match client {
@@ -3356,10 +3358,14 @@ fn run() -> io::Result<()> {
                             inflight,
                             minimal: screen == ScreenMode::Minimal,
                         };
-                        if matches!(composer.handle_key(key, host), PromptAction::None)
-                            && !composer.footer_notice.is_empty()
-                        {
-                            hint = std::mem::take(&mut composer.footer_notice);
+                        match composer.handle_key(key, host) {
+                            PromptAction::Unhandled => {
+                                selected = Some((selected.unwrap_or(2) + 1) % 3);
+                            }
+                            PromptAction::None if !composer.footer_notice.is_empty() => {
+                                hint = std::mem::take(&mut composer.footer_notice);
+                            }
+                            _ => {}
                         }
                     }
                     KeyCode::Enter if key.modifiers.is_empty() => match selected {
@@ -3464,6 +3470,11 @@ fn run() -> io::Result<()> {
                                             &mode,
                                             &mut composer,
                                         );
+                                    }
+                                    if inflight {
+                                        composer.accept_pending_submit();
+                                    } else {
+                                        composer.restore_pending_submit();
                                     }
                                     continue;
                                 }
@@ -3630,6 +3641,11 @@ fn run() -> io::Result<()> {
                                     &mode,
                                     &mut composer,
                                 );
+                                if inflight {
+                                    composer.accept_pending_submit();
+                                } else {
+                                    composer.restore_pending_submit();
+                                }
                             }
                             PromptAction::External { preserve } => {
                                 selected = None;

@@ -152,6 +152,8 @@ pub struct PromptComposer {
     pub footer_notice: String,
     pub last_esc: Option<Instant>,
     browse_origin: Option<String>,
+    /// Prompt text cleared for a submit the host has not accepted yet.
+    pending_submit: Option<String>,
     grok_home: PathBuf,
 }
 
@@ -194,8 +196,26 @@ impl PromptComposer {
             footer_notice: String::new(),
             last_esc: None,
             browse_origin: None,
+            pending_submit: None,
             grok_home: grok_home.to_path_buf(),
         }
+    }
+
+    /// Put back a prompt whose submit did not start a turn. Returns whether
+    /// the composer was already showing that text.
+    pub fn restore_pending_submit(&mut self) -> bool {
+        let Some(text) = self.pending_submit.take() else {
+            return true;
+        };
+        if self.draft.text() == text {
+            return true;
+        }
+        self.set_text(&text);
+        false
+    }
+
+    pub fn accept_pending_submit(&mut self) {
+        self.pending_submit = None;
     }
 
     pub fn text(&self) -> &str {
@@ -733,6 +753,10 @@ impl PromptComposer {
             }
             return Action::None;
         }
+        // An empty draft has no completion. Leave Tab for the welcome menu.
+        if self.draft.is_empty() {
+            return Action::Unhandled;
+        }
         Action::None
     }
 
@@ -843,6 +867,8 @@ impl PromptComposer {
             return Action::Submit(String::new());
         }
         // History is recorded by the host only after dsh accepts the prompt.
+        // Keep the cleared text until that accept; a refused submit puts it back.
+        self.pending_submit = Some(text.clone());
         self.replace_draft("");
         self.overlay = Overlay::None;
         self.slash_stash.clear();
@@ -1462,6 +1488,19 @@ mod tests {
     }
 
     #[test]
+    fn failed_submit_restores_the_cleared_draft() {
+        let home = temp_home();
+        let mut composer = PromptComposer::load(&home, &[]);
+        composer.set_text("draft survives resize");
+        let action = composer.handle_key(key(KeyCode::Enter), ctx());
+        assert_eq!(action, Action::Submit("draft survives resize".into()));
+        assert_eq!(composer.text(), "");
+        assert!(!composer.restore_pending_submit());
+        assert_eq!(composer.text(), "draft survives resize");
+        let _ = fs::remove_dir_all(home);
+    }
+
+    #[test]
     fn history_search_and_browse_select_without_submitting() {
         let home = temp_home();
         let mut composer = PromptComposer::load(&home, &[]);
@@ -1669,6 +1708,20 @@ mod tests {
             Some(PromptSlash::EditPrompt)
         ));
         assert!(slash_action("/model").is_none());
+    }
+
+    #[test]
+    fn empty_draft_tab_is_unhandled_for_the_welcome_menu() {
+        let home = temp_home();
+        let mut composer = PromptComposer::load(&home, &[]);
+        assert_eq!(
+            composer.handle_key(key(KeyCode::Tab), ctx()),
+            Action::Unhandled
+        );
+        composer.set_text("keep");
+        assert_eq!(composer.handle_key(key(KeyCode::Tab), ctx()), Action::None);
+        assert_eq!(composer.text(), "keep");
+        let _ = fs::remove_dir_all(home);
     }
 
     #[test]

@@ -34,7 +34,9 @@ second input model: typing `/` in a nonempty draft stashes that draft so the
 slash command can run, then restores it. Slash completion starts
 from an empty `/`, multiline chords, history search, slash/HISTFILE completion,
 prompt Vim (`[ui] simple_mode=false`), paste, and `$VISUAL`/`$EDITOR`/`vi`
-round-trips submit the resulting text through dsh. `/edit-prompt` requires an
+round-trips submit the resulting text through dsh. An unsent draft survives
+resize. A submit that does not start a turn, including first-run with no
+provider, puts the cleared draft back. `/edit-prompt` requires an
 empty composer. Next-prompt AI ghost text is not wired: the host passes no
 suggestion, so Tab and Right do not accept ghost text. Suggestion rows stay
 blocked. `chips=false` is not an attachment refusal. The isolated Home is `~/.codsh-rust/dsh`, Profile `rust`;

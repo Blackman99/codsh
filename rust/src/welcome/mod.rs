@@ -216,7 +216,7 @@ mod tests {
     fn first_run_tip_keeps_config_fields_visible() {
         let mut terminal = Terminal::new(TestBackend::new(100, 30)).unwrap();
         let draft = TextArea::new();
-        let notice = "Execution unavailable: dsh\nNot connected. Draft kept.\nFirst-run: no usable provider. Official grok.com login/telemetry unused.\nWrite ~/.codsh-rust/.grok/config.toml ([model.<id>] base_url, env_key). Export the key. inspect shows origins.";
+        let notice = "mode=fullscreen\nFirst-run: no usable provider. Official grok.com login/telemetry unused.\nWrite ~/.codsh-rust/.grok/config.toml ([model.<id>] base_url, env_key). Export the key. inspect shows origins.\nExecution unavailable: dsh\nNot connected. Draft kept.";
         terminal
             .draw(|frame| {
                 render(
@@ -241,6 +241,33 @@ mod tests {
         assert!(text.contains("base_url"));
         assert!(text.contains("env_key"));
         assert!(text.contains("inspect"));
+        assert!(text.contains("Execution unavailable"));
+        let mut narrow = Terminal::new(TestBackend::new(32, 14)).unwrap();
+        narrow
+            .draw(|frame| {
+                render(
+                    frame,
+                    &draft,
+                    notice,
+                    None,
+                    &Theme::offline(),
+                    false,
+                    false,
+                    "Draft (not sent)",
+                );
+            })
+            .unwrap();
+        let narrow_text: String = narrow
+            .backend()
+            .buffer()
+            .content
+            .iter()
+            .map(|cell| cell.symbol())
+            .collect();
+        assert!(
+            narrow_text.contains("Execution unavailable"),
+            "a 32-column screen still shows the unavailable status: {narrow_text}"
+        );
     }
 
     #[test]
