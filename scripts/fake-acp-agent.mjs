@@ -17,6 +17,7 @@ let cancelled = false
 let writes = Number(process.env.FAKE_ACP_WRITES ?? '0')
 const storePath = process.env.FAKE_ACP_STORE
 let liveSessionId = 'fake-session'
+let sessionSeq = 0
 let configOptions = [
   {
     id: 'model',
@@ -434,7 +435,8 @@ rl.on('line', line => {
     return
   }
   if (method === 'session/new') {
-    liveSessionId = params?.sessionId ?? 'fake-session'
+    sessionSeq += 1
+    liveSessionId = params?.sessionId ?? `fake-session-${sessionSeq}`
     recordSession(liveSessionId, {
       sessionId: liveSessionId,
       cwd: params?.cwd ?? process.cwd(),
@@ -467,6 +469,20 @@ rl.on('line', line => {
       send({ jsonrpc: '2.0', id, error: { code: -32602, message: `session is already active: ${sessionId}` } })
       return
     }
+    if (process.env.FAKE_ACP_HELD_SESSION && process.env.FAKE_ACP_HELD_SESSION === sessionId) {
+      send({ jsonrpc: '2.0', id, error: { code: -32602, message: `session is already active: ${sessionId}` } })
+      return
+    }
+    if (process.env.FAKE_ACP_REFUSE_WHILE_LIVE === '1' && liveSessionId && liveSessionId !== sessionId) {
+      recordSession(sessionId, {
+        resumeAttempts: (existing.resumeAttempts ?? 0) + 1,
+        closedBeforeResume: false,
+        closed: existing.closed === true,
+        owned: existing.owned === true,
+      })
+      send({ jsonrpc: '2.0', id, error: { code: -32602, message: `session is already active: ${sessionId}` } })
+      return
+    }
     if (process.env.FAKE_ACP_OWNED === '1') {
       send({ jsonrpc: '2.0', id, error: { code: -32602, message: `session "${sessionId}" is already owned by an active write handle` } })
       return
@@ -476,7 +492,7 @@ rl.on('line', line => {
       return
     }
     liveSessionId = sessionId
-    recordSession(sessionId, { closed: false, owned: true })
+    recordSession(sessionId, { closed: false, owned: true, resumedWhileLive: false })
     send({ jsonrpc: '2.0', id, result: { sessionId, configOptions } })
     return
   }
@@ -514,6 +530,7 @@ rl.on('line', line => {
   if (method === 'session/close') {
     const sessionId = params?.sessionId ?? liveSessionId
     recordSession(sessionId, { closed: true, owned: false })
+    if (liveSessionId === sessionId) liveSessionId = null
     send({ jsonrpc: '2.0', id, result: {} })
     return
   }

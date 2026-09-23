@@ -349,6 +349,8 @@ enum Overlay {
         hits: Vec<session_catalog::SearchHit>,
         cursor: usize,
         query: String,
+        /// A refused resume stays on this picker. Empty while the list is clean.
+        refusal: String,
     },
     Dashboard(session_catalog::DashboardView),
     Location {
@@ -1363,6 +1365,8 @@ fn switch_session(
             cwd.display()
         ));
     }
+    // A stale activity ownerPid is not a lock. Only a held lock file refuses
+    // before session/resume; an agent "already active" answer is separate.
     if session_owner::occupied_holder(dsh_home, session_id).is_some() {
         let pid = session_owner::occupied_holder(dsh_home, session_id);
         return Err(match pid {
@@ -1374,32 +1378,43 @@ fn switch_session(
             ),
         });
     }
-    // Take the next lock before releasing the live one. A refused or missing
-    // target must leave this client writing the session it already owns.
+    // Take the next lock before touching the live ACP session. A refused or
+    // missing target must leave this client writing the session it already owns.
     let next_owner = SessionOwner::acquire(dsh_home, session_id).map_err(|error| {
         format!(
             "{} occupied: {session_id} stays on its current owner",
             error.message
         )
     })?;
-    let previous_cwd = current.as_ref().and_then(|id| {
-        catalog
-            .sessions
-            .iter()
-            .find(|session| &session.id == id)
-            .map(|session| PathBuf::from(&session.cwd))
-    });
-    let reopen_cwd = previous_cwd
-        .filter(|path| path.is_dir())
-        .unwrap_or_else(|| cwd.to_path_buf());
-    if client.session_id.is_some() {
-        let _ = client.close_session(Duration::from_secs(10));
+    // Ask to resume before closing. The live session stays open until that
+    // reply succeeds. A same-directory refusal (`already active` / `already
+    // owned`) never reaches session/close.
+    match client.prepare_resume(session_id, cwd, Duration::from_secs(20)) {
+        Ok(()) => {}
+        Err(error) => {
+            drop(next_owner);
+            let message = if error.message.contains("already active")
+                || error.message.contains("already owned")
+            {
+                format!("already active: session {session_id} stays on its current owner")
+            } else {
+                error.message
+            };
+            return Err(message);
+        }
     }
-    if let Err(error) = client.resume_session(session_id, cwd, Duration::from_secs(20)) {
-        let message = error.message;
-        if let Some(previous) = current.clone() {
+    if let Some(previous) = current.clone() {
+        if let Err(error) = client.close_session(Duration::from_secs(10)) {
+            client.abandon_resume();
+            return Err(format!(
+                "session switch stopped before close finished: {}",
+                error.message
+            ));
+        }
+        if let Err(error) = client.finish_resume(&previous, cwd, Duration::from_secs(20)) {
+            let message = error.message;
             *owner = None;
-            match client.reopen_session(&previous, &reopen_cwd, Duration::from_secs(20)) {
+            match client.reopen_session(&previous, cwd, Duration::from_secs(20)) {
                 Ok(()) => {
                     if let Ok(restored) = SessionOwner::acquire(dsh_home, &previous) {
                         *owner = Some(restored);
@@ -1413,8 +1428,11 @@ fn switch_session(
                     ));
                 }
             }
+            return Err(message);
         }
-        return Err(message);
+    } else if let Err(error) = client.finish_resume("", cwd, Duration::from_secs(20)) {
+        drop(next_owner);
+        return Err(error.message);
     }
     *owner = Some(next_owner);
     let _ = session_owner::write_last_session(dsh_home, session_id, cwd);
@@ -1740,6 +1758,7 @@ fn handle_catalog_overlay_key(
             hits,
             cursor,
             query,
+            refusal,
         } => {
             match key.code {
                 KeyCode::Esc => {
@@ -1748,18 +1767,22 @@ fn handle_catalog_overlay_key(
                 }
                 KeyCode::Up | KeyCode::Char('k') if key.modifiers.is_empty() && *cursor > 0 => {
                     *cursor -= 1;
+                    refusal.clear();
                 }
                 KeyCode::Down | KeyCode::Char('j')
                     if key.modifiers.is_empty() && *cursor + 1 < hits.len() =>
                 {
                     *cursor += 1;
+                    refusal.clear();
                 }
                 KeyCode::Backspace => {
                     query.pop();
+                    refusal.clear();
                     refresh_picker(hits, cursor, query, effective);
                 }
                 KeyCode::Char(ch) if key.modifiers.is_empty() => {
                     query.push(ch);
+                    refusal.clear();
                     refresh_picker(hits, cursor, query, effective);
                 }
                 KeyCode::Enter => {
@@ -1790,18 +1813,12 @@ fn handle_catalog_overlay_key(
                                 );
                             }
                             Err(error) => {
-                                *last_error = error.clone();
-                                *hint = if error.contains("Write owner")
-                                    || error.contains("occupied")
-                                    || error.contains("cwd does not match")
-                                {
-                                    format!(
-                                        "occupied: {} stays on its current owner",
-                                        hit.session.id
-                                    )
-                                } else {
-                                    error
-                                };
+                                let shown = catalog_switch_refusal(&hit.session.id, &error);
+                                *last_error = error;
+                                *hint = shown.clone();
+                                // The picker replaces the status line, so the
+                                // refusal has to stay on the open surface.
+                                *refusal = shown;
                             }
                         }
                     }
@@ -1932,15 +1949,12 @@ fn apply_dashboard_action(
                     let _ = reset_native_history_after_switch(terminal, screen, committed, history);
                 }
                 Err(error) => {
-                    *last_error = error.clone();
-                    *hint = if error.contains("Write owner")
-                        || error.contains("occupied")
-                        || error.contains("cwd does not match")
-                    {
-                        format!("occupied: {id} stays on its current owner")
-                    } else {
-                        error
-                    };
+                    let shown = catalog_switch_refusal(id, &error);
+                    *last_error = error;
+                    *hint = shown.clone();
+                    if let Overlay::Dashboard(view) = overlay {
+                        view.notice = shown;
+                    }
                 }
             }
         }
@@ -2082,7 +2096,21 @@ fn open_session_picker(overlay: &mut Overlay, effective: &config::EffectiveConfi
         hits,
         cursor: 0,
         query: String::new(),
+        refusal: String::new(),
     };
+}
+
+fn catalog_switch_refusal(session_id: &str, error: &str) -> String {
+    if error.contains("already active") || error.contains("already owned") {
+        format!("already active: session {session_id} stays on its current owner")
+    } else if error.contains("Write owner")
+        || error.contains("occupied")
+        || error.contains("cwd does not match")
+    {
+        format!("occupied: {session_id} stays on its current owner")
+    } else {
+        error.to_string()
+    }
 }
 
 fn adopt_switched_session(
@@ -2257,7 +2285,11 @@ fn overlay_hint(overlay: &Overlay, prefs: &UiPrefs) -> String {
             hits,
             cursor,
             query,
-        } => session_catalog::render_picker(hits, *cursor, query),
+            refusal,
+        } => session_catalog::with_refusal(
+            &session_catalog::render_picker(hits, *cursor, query),
+            refusal,
+        ),
         Overlay::Dashboard(view) => {
             let home = std::env::var_os("DSH_HOME")
                 .map(PathBuf::from)

@@ -1693,6 +1693,16 @@ pub fn render_dashboard(catalog: &Catalog, view: &DashboardView, cwd: &Path) -> 
     lines.join("\n")
 }
 
+/// A refused switch stays on this surface. The picker and dashboard must show
+/// `already active` themselves; the status line is not visible underneath.
+/// The notice slot keeps only the latest lines, so the refusal is last.
+pub fn with_refusal(surface: &str, refusal: &str) -> String {
+    if refusal.trim().is_empty() {
+        return surface.to_string();
+    }
+    format!("{surface}\n{refusal}")
+}
+
 pub fn render_picker(hits: &[SearchHit], cursor: usize, query: &str) -> String {
     let mut lines = vec![format!("Resume session · filter: {query}")];
     if hits.is_empty() {
@@ -2292,6 +2302,37 @@ mod tests {
             assert!(surface.contains(second), "{surface}");
             assert!(surface.contains("unread"), "{surface}");
         }
+        let _ = fs::remove_dir_all(home);
+    }
+
+    #[test]
+    fn refused_resume_stays_visible_on_the_open_picker_and_dashboard() {
+        let home = temp_home();
+        let cwd = home.join("work");
+        fs::create_dir_all(&cwd).unwrap();
+        let current = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+        let held = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+        write_session(&home, current, cwd.to_str().unwrap(), &["stay"], 1);
+        write_session(&home, held, cwd.to_str().unwrap(), &["other"], 2);
+        let catalog = load_catalog(&home, &cwd);
+        let hits: Vec<_> = catalog
+            .sessions
+            .iter()
+            .map(|session| SearchHit {
+                session: session.clone(),
+                extended: false,
+                snippet: session.display_title().to_string(),
+            })
+            .collect();
+        let refusal = format!("already active: session {held} stays on its current owner");
+        let picker = with_refusal(&render_picker(&hits, 0, ""), &refusal);
+        assert!(picker.contains("Resume session"), "{picker}");
+        assert!(picker.contains(&refusal), "{picker}");
+        let mut view = DashboardView::open(&catalog.sessions);
+        view.notice = refusal.clone();
+        let dashboard = render_dashboard(&catalog, &view, &cwd);
+        assert!(dashboard.contains("Agent Dashboard"), "{dashboard}");
+        assert!(dashboard.contains(&refusal), "{dashboard}");
         let _ = fs::remove_dir_all(home);
     }
 

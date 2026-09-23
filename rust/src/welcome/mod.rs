@@ -287,6 +287,31 @@ fn render_notice(notice: &str, area: Rect, buf: &mut ratatui::buffer::Buffer) {
             visible.pop();
             visible.insert(0, connected);
         }
+        // A wrapped filter can push the selected row out of this short slot.
+        // Keep that row, and a refusal, ahead of the filter line.
+        let selected = rows.iter().find(|row| {
+            let trimmed = row.trim_start();
+            trimmed.starts_with('>') && (trimmed.contains('·') || trimmed.contains("No sessions"))
+        });
+        let refusal = rows
+            .iter()
+            .rev()
+            .find(|row| row.contains("already active") || row.contains("occupied:"));
+        for pinned in [selected, refusal].into_iter().flatten() {
+            if visible.iter().any(|row| row == pinned) || height < 2 {
+                continue;
+            }
+            let slot = visible
+                .iter()
+                .rposition(|row| row.starts_with("Resume session") || row.starts_with("Search:"))
+                .map(|index| index.max(1))
+                .unwrap_or(visible.len().saturating_sub(1));
+            if slot < visible.len() {
+                visible[slot] = pinned.clone();
+            } else {
+                visible.push(pinned.clone());
+            }
+        }
     }
     Paragraph::new(visible.join("\n"))
         .wrap(Wrap { trim: false })

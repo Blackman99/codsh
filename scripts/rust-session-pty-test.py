@@ -16,7 +16,7 @@ import time
 
 ROOT = Path(__file__).resolve().parent.parent
 NODE = subprocess.check_output(['node', '-p', 'process.execPath'], text=True).strip()
-SESSION_RE = re.compile(r'session ([0-9a-f-]{36})', re.I)
+SESSION_RE = re.compile(r'session ([0-9a-f-]{36}|fake-session-\d+)', re.I)
 
 
 def run(argv, **kwargs):
@@ -96,6 +96,22 @@ class Session:
 
     def write(self, data):
         os.write(self.master, data if isinstance(data, bytes) else data.encode())
+
+    def rows_with(self, marker, seconds=20):
+        deadline = time.monotonic() + seconds
+        while time.monotonic() < deadline:
+            self.pump()
+            shown = self.visible()
+            rows = [
+                line for line in shown.splitlines()
+                if line.startswith('> ○') or line.startswith('> ·') or line.startswith('> ●')
+                or line.startswith('  ○') or line.startswith('  ·') or line.startswith('  ●')
+            ]
+            if any(marker in line for line in rows):
+                return shown, rows
+            if self.process.poll() is not None:
+                break
+        raise AssertionError(f'{self.name}: no row with {marker!r}\n{self.visible()}')
 
     def session_id(self):
         shown = self.visible()
@@ -248,6 +264,7 @@ def main():
             assert beta in selected, picker
             resumed.write(b'\r')
             refused = resumed.wait_visible('occupied', 20)
+            assert 'Resume session' in refused, refused
             assert f'session {alpha}' in refused, refused
             assert 'Connected to dsh ACP session' in refused
             results.append(resumed.finish())
@@ -280,6 +297,67 @@ def main():
             results.append(minimal.finish())
         finally:
             minimal.close()
+
+        peer = Session('same-directory-peer', launcher, cwd, {
+            **base_env, 'DSH_CODE_CLI_MOCK_TOOL': 'echo',
+        }, output)
+        try:
+            peer.wait_visible('Connected to dsh ACP', 25)
+            gamma = peer.session_id()
+            peer.write('TOKEN_GAMMA_BODY\r')
+            peer.wait_visible('TOKEN_GAMMA_BODY', 20)
+            peer.write('/rename gammapeer\r')
+            peer.wait_visible('renamed to gammapeer', 15)
+            results.append(peer.finish())
+        finally:
+            peer.close()
+
+        store = work / 'active-store.json'
+        store.write_text(json.dumps({'sessions': {
+            alpha: {'sessionId': alpha, 'cwd': str(cwd), 'closed': True, 'owned': False, 'prompts': []},
+            gamma: {'sessionId': gamma, 'cwd': str(cwd), 'closed': True, 'owned': False, 'prompts': []},
+        }}))
+        same = Session('same-directory-active', launcher, cwd, {
+            **base_env,
+            'DSH_BIN': str(ROOT / 'scripts/fake-acp-agent.mjs'),
+            'FAKE_ACP_MODE': 'echo',
+            'FAKE_ACP_STORE': str(store),
+            # gamma is closed in the catalog and unlocked. The agent still
+            # answers session/resume with already active, which must not close
+            # the session this client just opened.
+            'FAKE_ACP_HELD_SESSION': gamma,
+        }, output)
+        try:
+            connected = same.wait_visible('Connected to dsh ACP', 25)
+            live = same.session_id()
+            same.write('/resume\r')
+            picker = same.wait_visible('Resume session', 15)
+            assert 'gammapeer' in picker and gamma in picker, picker
+            # A short lowercase title fits the notice slot. Shift is not a filter key.
+            for ch in 'gammapeer':
+                same.write(ch.encode())
+                same.pump(0.2)
+            picker, rows = same.rows_with('gammapeer', 20)
+            assert rows and all(alpha not in line for line in rows), (rows, picker)
+            same.write(b'\r')
+            refused = same.wait_visible('already active', 20)
+            assert 'gammapeer' in refused or 'Resume session' in refused, refused
+            assert gamma in refused and f'session {live}' in refused, refused
+            same.write(b'\x1b')
+            left = same.wait_visible('Connected to dsh ACP', 10)
+            assert f'session {live}' in left, left
+            same.write('/dashboard\r')
+            board = same.wait_visible('Agent Dashboard', 15)
+            assert 'gammapeer' in board and gamma in board, board
+            selected = next(line for line in board.splitlines() if line.startswith('> '))
+            assert 'gammapeer' in selected, board
+            same.write(b'\r')
+            board = same.wait_visible('already active', 20)
+            assert 'Agent Dashboard' in board or 'gammapeer' in board, board
+            assert gamma in board and f'session {live}' in board, board
+            results.append(same.finish())
+        finally:
+            same.close()
 
         marker = cli(launcher, cwd, {**base_env, 'GROK_OPEN_DASHBOARD_AT_STARTUP': '0'}, 'dashboard')
         assert marker.returncode == 0, marker.stderr

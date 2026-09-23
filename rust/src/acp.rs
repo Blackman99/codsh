@@ -317,6 +317,8 @@ pub struct AcpClient {
     pub can_list: bool,
     pub can_resume: bool,
     pub config_options: Vec<SessionConfigOption>,
+    /// Target accepted locally, not yet sent. A refusal never closes the live id.
+    prepared_resume: Option<String>,
 }
 
 enum Line {
@@ -408,6 +410,8 @@ pub fn dsh_spawn_spec(
         "FAKE_ACP_STORE",
         "FAKE_ACP_OWNED",
         "FAKE_ACP_STALE_OWNER",
+        "FAKE_ACP_REFUSE_WHILE_LIVE",
+        "FAKE_ACP_HELD_SESSION",
         "CODSH_SESSION_READ",
         "CODSH_SESSION_FORK",
         "GROK_AUTO_COMPACT_THRESHOLD_PERCENT",
@@ -514,6 +518,7 @@ impl AcpClient {
             can_list: false,
             can_resume: false,
             config_options: Vec::new(),
+            prepared_resume: None,
         })
     }
 
@@ -613,6 +618,65 @@ impl AcpClient {
             .collect())
     }
 
+    /// Accept a same-client resume without sending it. dsh answers
+    /// `session is already active` for any resume while this connection still
+    /// holds a session, including the target. The live id stays until
+    /// [`finish_resume`] succeeds.
+    pub fn prepare_resume(
+        &mut self,
+        session_id: &str,
+        _cwd: &Path,
+        _timeout: Duration,
+    ) -> Result<(), AcpError> {
+        if !self.can_resume {
+            return Err(AcpError {
+                message: "ACP session/resume is not available".into(),
+            });
+        }
+        if session_id.is_empty() {
+            return Err(AcpError {
+                message: "session is not resumable".into(),
+            });
+        }
+        if self.session_id.as_deref() == Some(session_id) {
+            return Err(AcpError {
+                message: format!("session is already active: {session_id}"),
+            });
+        }
+        self.prepared_resume = Some(session_id.to_string());
+        Ok(())
+    }
+
+    /// Send the resume that [`prepare_resume`] accepted. Call this only after
+    /// the previous session has closed. On failure the previous id is restored
+    /// so the caller can reopen it.
+    pub fn finish_resume(
+        &mut self,
+        previous_id: &str,
+        cwd: &Path,
+        timeout: Duration,
+    ) -> Result<(), AcpError> {
+        let Some(session_id) = self.prepared_resume.clone() else {
+            return Err(AcpError {
+                message: "session/resume was not accepted".into(),
+            });
+        };
+        match self.resume_session(&session_id, cwd, timeout) {
+            Ok(_) => Ok(()),
+            Err(error) => {
+                self.prepared_resume = Some(session_id);
+                if !previous_id.is_empty() {
+                    self.session_id = Some(previous_id.to_string());
+                }
+                Err(error)
+            }
+        }
+    }
+
+    pub fn abandon_resume(&mut self) {
+        self.prepared_resume = None;
+    }
+
     pub fn resume_session(
         &mut self,
         session_id: &str,
@@ -636,6 +700,7 @@ impl AcpClient {
         )?;
         let result = self.wait_result(id, timeout)?;
         self.session_id = Some(session_id.to_string());
+        self.prepared_resume = None;
         self.config_options =
             parse_config_options(result.get("configOptions").unwrap_or(&Value::Null));
         Ok(session_id.to_string())
@@ -2023,6 +2088,104 @@ mod tests {
         client.cancel_prompt().expect("cancel after completion");
         let second = client.submit_prompt("TOKEN_NEXT").unwrap();
         assert_eq!(wait_stop(&mut client, second), "end_turn");
+    }
+
+    #[test]
+    fn same_directory_resume_waits_until_the_current_session_closes() {
+        let store = tempfile::NamedTempFile::new().unwrap();
+        let store_path = store.path().to_string_lossy().into_owned();
+        let mut client = spawn_fake_env(
+            "echo",
+            vec![
+                ("FAKE_ACP_STORE".into(), store_path.clone()),
+                ("FAKE_ACP_REFUSE_WHILE_LIVE".into(), "1".into()),
+            ],
+        );
+        client
+            .initialize(Duration::from_secs(2))
+            .expect("initialize");
+        let current = client
+            .new_session(&std::env::temp_dir(), Duration::from_secs(2))
+            .expect("current");
+        let target = "closed-same-directory-target";
+        let cwd = std::env::temp_dir()
+            .canonicalize()
+            .unwrap_or_else(|_| std::env::temp_dir());
+        let mut shared: serde_json::Value = serde_json::from_str(
+            &std::fs::read_to_string(&store_path).unwrap_or_else(|_| "{\"sessions\":{}}".into()),
+        )
+        .unwrap_or_else(|_| json!({"sessions": {}}));
+        shared["sessions"][target] = json!({
+            "sessionId": target,
+            "cwd": cwd,
+            "closed": true,
+            "owned": false,
+            "prompts": []
+        });
+        std::fs::write(&store_path, format!("{shared}\n")).unwrap();
+        client
+            .prepare_resume(target, &std::env::temp_dir(), Duration::from_secs(2))
+            .expect("prepare does not close");
+        assert_eq!(client.session_id.as_deref(), Some(current.as_str()));
+        let early = client.resume_session(target, &std::env::temp_dir(), Duration::from_secs(2));
+        assert!(
+            early
+                .as_ref()
+                .err()
+                .is_some_and(|error| error.message.contains("already active")),
+            "{early:?}"
+        );
+        assert_eq!(
+            client.session_id.as_deref(),
+            Some(current.as_str()),
+            "a refused resume must not replace the live session"
+        );
+        client
+            .close_session(Duration::from_secs(2))
+            .expect("close current only after refusal is known");
+        client
+            .finish_resume(&current, &std::env::temp_dir(), Duration::from_secs(2))
+            .expect("resume after close");
+        assert_eq!(client.session_id.as_deref(), Some(target));
+    }
+
+    #[test]
+    fn refused_resume_while_another_session_is_live_keeps_the_current_session() {
+        let store = tempfile::NamedTempFile::new().unwrap();
+        let store_path = store.path().to_string_lossy().into_owned();
+        let mut holder =
+            spawn_fake_env("echo", vec![("FAKE_ACP_STORE".into(), store_path.clone())]);
+        holder
+            .initialize(Duration::from_secs(2))
+            .expect("initialize holder");
+        let held = holder
+            .new_session(&std::env::temp_dir(), Duration::from_secs(2))
+            .expect("held session");
+
+        let mut live = spawn_fake_env("echo", vec![("FAKE_ACP_STORE".into(), store_path)]);
+        live.initialize(Duration::from_secs(2))
+            .expect("initialize live");
+        let current = live
+            .new_session(&std::env::temp_dir(), Duration::from_secs(2))
+            .expect("current session");
+        let prompt = live.submit_prompt("TOKEN_STAY").unwrap();
+        assert_eq!(wait_stop(&mut live, prompt), "end_turn");
+
+        let refused = live
+            .resume_session(&held, &std::env::temp_dir(), Duration::from_secs(2))
+            .expect_err("same-directory resume of a live session");
+        assert!(
+            refused.message.contains("already active") || refused.message.contains("already owned"),
+            "{refused}"
+        );
+        assert_eq!(
+            live.session_id.as_deref(),
+            Some(current.as_str()),
+            "a refused resume must not close the session this client already owns"
+        );
+        let follow = live.submit_prompt("TOKEN_STILL_HERE").unwrap();
+        assert_eq!(wait_stop(&mut live, follow), "end_turn");
+        drop(holder);
     }
 
     #[test]
