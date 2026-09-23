@@ -63,6 +63,8 @@ pub enum SlashAction {
     Switch(ScreenMode),
     Refuse(&'static str),
     Navigate(NavSlash),
+    Expand,
+    Transcript,
 }
 
 pub fn switch_policy_from_env(value: Option<&str>) -> SwitchPolicy {
@@ -161,9 +163,8 @@ pub fn slash_action(text: &str) -> Option<SlashAction> {
         "dashboard" | "agents-dashboard" | "sessions" => {
             Some(SlashAction::Refuse(dashboard_refusal(command)))
         }
-        "expand" => Some(SlashAction::Refuse(
-            "/expand isn't available in fullscreen mode: press Tab to focus the scrollback, then → on the block.",
-        )),
+        "expand" => Some(SlashAction::Expand),
+        "transcript" | "log" => Some(SlashAction::Transcript),
         _ => None,
     }
 }
@@ -174,6 +175,11 @@ pub fn mode_command_message(mode: ScreenMode, action: SlashAction) -> Option<Str
             Some(format!("Already in {} mode.", mode.as_str()))
         }
         SlashAction::Switch(_) | SlashAction::Navigate(_) => None,
+        SlashAction::Expand if mode == ScreenMode::Fullscreen => Some(
+            "/expand isn't available in fullscreen mode: press Tab to focus the scrollback, then → on the block."
+                .into(),
+        ),
+        SlashAction::Expand | SlashAction::Transcript => None,
         SlashAction::Refuse(message) => {
             let fullscreen_only = message.contains("Run /fullscreen");
             let minimal_only = message.contains("fullscreen mode:");
@@ -356,11 +362,14 @@ mod tests {
         );
         let expand = slash_action("/expand").unwrap();
         assert_eq!(
-            mode_command_message(ScreenMode::Fullscreen, expand).as_deref(),
+            mode_command_message(ScreenMode::Fullscreen, expand.clone()).as_deref(),
             Some(
                 "/expand isn't available in fullscreen mode: press Tab to focus the scrollback, then → on the block."
             )
         );
+        assert_eq!(mode_command_message(ScreenMode::Minimal, expand), None);
+        assert_eq!(slash_action("/transcript"), Some(SlashAction::Transcript));
+        assert_eq!(slash_action("/log"), Some(SlashAction::Transcript));
         assert_eq!(
             mode_command_message(
                 ScreenMode::Minimal,

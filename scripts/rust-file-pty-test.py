@@ -167,12 +167,13 @@ def main():
         assert '-alpha' in allow['screen'] and '+ALPHA' in allow['screen']
         assert (cwd / 'note.txt').read_text() == 'ALPHA\n'
         assert 'successfully.' in allow['screen']
+        assert 'RUST_ACP_FILE_DONE' in allow['screen']
 
         (cwd / 'note.txt').write_text('alpha\n')
         reject = exercise('reject-edit', launcher, cwd, {**base_env, 'DSH_CODE_CLI_MOCK_TOOL': 'file-edit'}, output,
-                          typed='TOKEN_FILE_REJECT', wait_for=['failed'], action='reject')
+                          typed='TOKEN_FILE_REJECT', wait_for=['rejected', 'the user'], action='reject')
         assert (cwd / 'note.txt').read_text() == 'alpha\n'
-        assert 'failed' in reject['screen'] or 'rejected' in reject['screen'].lower()
+        assert 'rejected' in reject['screen'].lower() or 'the user' in reject['screen'].lower()
         assert 'successfully.' not in reject['screen']
 
         (cwd / 'note.txt').write_text('alpha\n')
@@ -182,17 +183,21 @@ def main():
         assert cancelled['exit'] == 0
 
         missing = exercise('missing-file', launcher, cwd, {**base_env, 'DSH_CODE_CLI_MOCK_TOOL': 'file-missing'}, output,
-                           typed='TOKEN_FILE_MISSING', wait_for=['cannot read', 'failed'], action='none')
+                           typed='TOKEN_FILE_MISSING', wait_for=['cannot read', 'not found'], action='none')
         assert not (cwd / 'missing-note.txt').exists()
         assert 'successfully.' not in missing['screen']
-        assert 'failed' in missing['screen']
+        assert 'not found' in missing['screen'] or 'cannot read' in missing['screen']
         assert 'cannot read' in missing['screen']
+        assert 'failed' in missing['screen'].lower(), missing['screen']
+        assert '[error]' in missing['screen'], missing['screen']
 
         (cwd / 'note.txt').write_text('alpha\n')
         error = exercise('tool-error', launcher, cwd, {**base_env, 'DSH_CODE_CLI_MOCK_TOOL': 'file-error'}, output,
-                         typed='TOKEN_FILE_ERROR', wait_for=['failed'], action='allow')
+                         typed='TOKEN_FILE_ERROR', wait_for=['old_string was not found'], action='allow')
         assert (cwd / 'note.txt').read_text() == 'alpha\n'
         assert 'successfully.' not in error['screen']
+        assert 'failed' in error['screen'].lower(), error['screen']
+        assert '[error]' in error['screen'], error['screen']
 
         (output / 'result.json').write_text(json.dumps({
             'results': [

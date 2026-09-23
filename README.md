@@ -113,7 +113,7 @@ take write ownership is refused instead of forking a duplicate executor.
 Default fullscreen uses the alternate screen. `/minimal` (or `--minimal`)
 switches to native terminal history through the official inline renderer;
 `/fullscreen` (alias `/full`) switches back. `/rewind` and `/fork` in minimal
-replace that native buffer instead of appending discarded turns. The switch stays in process, so a
+replace that native buffer instead of appending discarded turns. Official `xai-grok-markdown` renders streamed Markdown, tables, code, mermaid labels, thoughts, and dsh tool cards/diffs. Pretty mode hides inline HTML tags and keeps ZWJ emoji in one cell; a failed tool paints `failed` and `[error]` instead of success. Long bodies fold; Tab then `l`/`→` expands, `r` toggles raw markdown, Enter opens full content, and `y` copies original bytes. `/expand` reprints the last folded block in minimal; `/transcript` (`/log`) opens the exact transcript in `$PAGER`. The switch stays in process, so a
 running dsh turn, draft, and pending approval survive. `--minimal` /
 `--fullscreen` and `GROK_SCREEN_MODE` are session-scoped and do not rewrite
 isolated `[ui] screen_mode`. Mode-only commands such as `/dashboard` in

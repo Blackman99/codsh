@@ -239,6 +239,11 @@ fn tool_update_text(update: &Value) -> String {
                 out.push('\n');
             }
             out.push_str(text);
+        } else if let Some(text) = item.get("text").and_then(Value::as_str) {
+            if !out.is_empty() {
+                out.push('\n');
+            }
+            out.push_str(text);
         }
     }
     out

@@ -11,6 +11,12 @@ The retained LICENSE and THIRD-PARTY-NOTICES apply to upstream source; the latte
 records the full upstream product, not this candidate's dependency closure.
 No official trademark endorsement, account, or released executable is included.
 
+xai-grok-markdown and xai-grok-markdown-core retain upstream implementation,
+tests, mermaid/table playgrounds, and the tokyo-night/Swift syntax assets.
+Cargo.toml files only add `publish = false` and resolve workspace dependencies
+in rust/Cargo.toml. Local NOTICE files exist so packed native licenses can copy
+an Apache-2.0 notice beside LICENSE. Fuzz targets were not imported.
+
 xai-ratatui-textarea and xai-ratatui-inline retain upstream implementation,
 examples and tests. Five textarea test files have mechanical Rust 1.98 lint fixes:
 redundant imports/formatting borrows removed and single-Range slices spelled

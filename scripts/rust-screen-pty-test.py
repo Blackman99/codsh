@@ -372,9 +372,9 @@ def main():
             shown = empty.wait_visible('mode=minimal', 25)
             assert empty_id == empty.session_id()
             empty.assert_native_minimal('Switched to minimal', leaves_before=leaves_before)
-            empty.send_slash('/expand')
-            shown = empty.wait_visible('already available in minimal', 10)
-            assert '/expand is already available in minimal' in shown
+            empty.write('/expand\r')
+            shown = empty.wait_visible('no folded block to expand', 10)
+            assert 'no folded block to expand' in shown
             assert empty_id == empty.session_id()
             results.append(empty.finish())
         finally:

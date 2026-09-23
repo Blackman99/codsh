@@ -37,6 +37,27 @@ function textBlocks(content) {
     .join('')
 }
 
+function proposedDiff(name, args) {
+  const path = String(args?.file_path ?? '')
+  if (name === 'write') {
+    const content = String(args?.content ?? '')
+    const lines = [`write ${path}`, '--- /dev/null', `+++ b/${path}`]
+    for (const line of content.split('\n')) lines.push(`+${line.replace(/\r$/u, '')}`)
+    if (content === '') lines.push('+')
+    return lines.join('\n')
+  }
+  if (name === 'edit') {
+    const oldText = String(args?.old_string ?? '')
+    const newText = String(args?.new_string ?? '')
+    const lines = [`edit ${path}`, `--- a/${path}`, `+++ b/${path}`]
+    for (const line of oldText.split('\n')) lines.push(`-${line.replace(/\r$/u, '')}`)
+    for (const line of newText.split('\n')) lines.push(`+${line.replace(/\r$/u, '')}`)
+    return lines.join('\n')
+  }
+  if (name === 'read') return `read ${path}`
+  return path ? `${name} ${path}` : name
+}
+
 const SUMMARY_LIMIT = 60
 
 function eventSource(event) {
@@ -404,9 +425,7 @@ export function projectTurns(events, options = {}) {
         id,
         title: name,
         status: 'pending',
-        diff: name === 'edit' || name === 'write' || name === 'read'
-          ? `${name} ${args.file_path ?? ''}`
-          : name,
+        diff: proposedDiff(name, args),
         result: '',
       }
       tools.set(id, tool)

@@ -26,6 +26,21 @@ function width(character: string): number {
   return wide ? 2 : 1
 }
 
+/**
+ * One grapheme the terminal paints in a cell, including a ZWJ sequence.
+ *
+ * A joiner is not its own column. Reading it as a separate character splits
+ * 👩‍💻 into woman, ZWJ, and laptop even when the bytes wrote one cluster.
+ */
+function nextGrapheme(text: string): string {
+  if (typeof Intl !== 'undefined' && 'Segmenter' in Intl) {
+    const segment = new Intl.Segmenter(undefined, { granularity: 'grapheme' })
+      .segment(text)[Symbol.iterator]().next().value
+    if (segment?.segment) return segment.segment
+  }
+  return text[0] ?? ''
+}
+
 /** A run of cells sharing one pen, which is how a styled row is read back. */
 export interface Run {
   /** The characters. */
@@ -145,9 +160,9 @@ class Buffer {
     this.pens.push(Array.from({ length: this.columns }, () => ''))
   }
 
-  /** Put one character at the cursor, wrapping and scrolling as a terminal does. */
+  /** Put one grapheme at the cursor, wrapping and scrolling as a terminal does. */
   put(character: string, pen = ''): void {
-    const cost = width(character)
+    const cost = Math.max(width(character), 1)
     if (this.column + cost > this.columns) {
       this.column = 0
       this.newline()
@@ -157,7 +172,9 @@ class Buffer {
     if (row === undefined || penRow === undefined) return
     row[this.column] = character
     penRow[this.column] = pen
-    if (cost === 2 && this.column + 1 < this.columns) row[this.column + 1] = ''
+    for (let extra = 1; extra < cost && this.column + extra < this.columns; extra += 1) {
+      row[this.column + extra] = ''
+    }
     this.column += cost
   }
 
@@ -330,12 +347,16 @@ export class Terminal {
         rest = rest.slice(2)
         continue
       }
-      rest = rest.slice(character.length)
-      if (character === '\r') this.buffer.column = 0
-      else if (character === '\n') this.buffer.newline()
-      else if (character === '\b') this.buffer.column = Math.max(0, this.buffer.column - 1)
-      else if (character === '\u0007') continue
-      else this.buffer.put(character, this.penKey())
+      if (character === '\r' || character === '\n' || character === '\b' || character === '\u0007') {
+        rest = rest.slice(character.length)
+        if (character === '\r') this.buffer.column = 0
+        else if (character === '\n') this.buffer.newline()
+        else if (character === '\b') this.buffer.column = Math.max(0, this.buffer.column - 1)
+        continue
+      }
+      const grapheme = nextGrapheme(rest)
+      rest = rest.slice(grapheme.length)
+      this.buffer.put(grapheme, this.penKey())
     }
   }
 

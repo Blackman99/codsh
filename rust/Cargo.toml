@@ -1,12 +1,21 @@
 [workspace]
 resolver = "2"
-members = [".", "upstream/xai-ratatui-textarea", "upstream/xai-ratatui-inline"]
+members = [
+    ".",
+    "upstream/xai-ratatui-textarea",
+    "upstream/xai-ratatui-inline",
+    "upstream/xai-grok-markdown-core",
+    "upstream/xai-grok-markdown",
+]
 
 [workspace.package]
 edition = "2024"
 
 [workspace.dependencies]
+anstyle = "1.0"
+anstyle-lossy = "1.1.4"
 anstyle-parse = "0.2"
+anstyle-syntect = "1.0.4"
 ansi-width = "0.1"
 anyhow = "1"
 arboard = "3.6"
@@ -14,20 +23,32 @@ colored_json = "5"
 criterion = "0.6"
 crossterm = "0.28"
 fuzzy-matcher = "0.3.7"
+html-escape = "0.2"
 ignore = "0.4"
 itertools = "0.14"
+linkify = "0.10"
 lipsum = "0.9"
 pretty_assertions = "1"
+pulldown-cmark = "0.13"
 rand = "0.9"
 ratatui = "0.29"
 ratatui-core = "0.1"
 serde_json = "1"
+strum = { version = "0.27", features = ["derive"] }
+supports-color = "3.0"
+syntect = { version = "5.3", default-features = false, features = ["default-onig"] }
 termwiz = { version = "0.23", default-features = false }
 textwrap = "0.16"
 tracing = "0.1"
 tui-scrollbar = "0.2"
+two-face = { version = "0.4", default-features = false, features = ["syntect-onig"] }
 unicode-segmentation = "1"
 unicode-width = "0.2"
+url = "2"
+xai-grok-markdown = { path = "upstream/xai-grok-markdown" }
+xai-grok-markdown-core = { path = "upstream/xai-grok-markdown-core" }
+xai-ratatui-inline = { path = "upstream/xai-ratatui-inline" }
+xai-ratatui-textarea = { path = "upstream/xai-ratatui-textarea" }
 
 [workspace.lints.clippy]
 too_many_arguments = "allow"
@@ -43,6 +64,7 @@ publish = false
 workspace = true
 
 [dependencies]
+anstyle.workspace = true
 base64 = "0.22"
 crossterm = { workspace = true, features = ["bracketed-paste"] }
 ed25519-dalek = "2"
@@ -53,11 +75,14 @@ serde = { version = "1.0.229", features = ["derive"] }
 serde_json.workspace = true
 sha2 = "0.10"
 toml = "1.1.6"
+unicode-segmentation.workspace = true
 unicode-width.workspace = true
 url = "=2.5.8"
 ureq = { version = "2.12", default-features = false, features = ["native-tls", "json"] }
-xai-ratatui-inline = { path = "upstream/xai-ratatui-inline" }
-xai-ratatui-textarea = { path = "upstream/xai-ratatui-textarea" }
+xai-grok-markdown.workspace = true
+xai-grok-markdown-core.workspace = true
+xai-ratatui-inline.workspace = true
+xai-ratatui-textarea.workspace = true
 
 [target.'cfg(unix)'.dependencies]
 signal-hook = "0.3"

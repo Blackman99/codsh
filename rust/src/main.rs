@@ -2,6 +2,7 @@ mod acp;
 mod appearance;
 mod auth;
 mod config;
+mod content;
 mod extra_ca;
 mod feedback_ui;
 mod import;
@@ -1410,31 +1411,6 @@ fn compact_reload_hint(
     "No compactable history yet. Original dsh records were not discarded.".into()
 }
 
-fn compact_summary_preview(text: &str) -> String {
-    let body = text
-        .split("<compacted-summary>")
-        .nth(1)
-        .and_then(|rest| rest.split("</compacted-summary>").next())
-        .unwrap_or(text);
-    body.lines()
-        .map(str::trim)
-        .filter(|line| !line.is_empty())
-        .take(8)
-        .collect::<Vec<_>>()
-        .join("\n")
-}
-
-fn compact_tool_result(text: &str) -> String {
-    if let Some(body) = text
-        .split("<content>\n")
-        .nth(1)
-        .and_then(|rest| rest.split("\n</content>").next())
-    {
-        return body.lines().take(12).collect::<Vec<_>>().join("\n");
-    }
-    text.lines().take(12).collect::<Vec<_>>().join("\n")
-}
-
 fn clock_stamp() -> String {
     use std::time::{SystemTime, UNIX_EPOCH};
     let secs = SystemTime::now()
@@ -1445,90 +1421,21 @@ fn clock_stamp() -> String {
 }
 
 fn render_transcript(status: &str, turns: &[Turn], show_timestamps: bool) -> String {
-    let mut out = status.to_string();
-    for turn in turns {
-        out.push_str("\n\n> ");
-        if show_timestamps && let Some(stamp) = &turn.timestamp {
-            out.push_str(stamp);
-            out.push(' ');
-        }
-        out.push_str(&turn.user.replace('\n', " "));
-        if turn.compacted {
-            if let Some(info) = &turn.compaction {
-                out.push('\n');
-                out.push_str(&models::compaction_line(
-                    info.items,
-                    info.tokens,
-                    Some(&info.provider),
-                    Some(&info.model),
-                    info.error.as_deref(),
-                ));
-            } else {
-                out.push_str("\n✂ compacted history into a summary · purpose=compaction");
+    let views = turn_views(turns);
+    let mut rendered =
+        content::render_transcript(status, &views, &content::DisplayState::default());
+    if show_timestamps {
+        for turn in turns {
+            if let Some(stamp) = &turn.timestamp {
+                let plain = format!("> {}", turn.user.replace('\n', " "));
+                let stamped = format!("> {stamp} {}", turn.user.replace('\n', " "));
+                if let Some(found) = rendered.find(&plain) {
+                    rendered.replace_range(found..found + plain.len(), &stamped);
+                }
             }
-        }
-        if !turn.thought.is_empty() {
-            out.push_str("\n[thought] ");
-            out.push_str(&turn.thought);
-        }
-        for tool in &turn.tools {
-            out.push_str("\n[tool ");
-            out.push_str(&tool.title);
-            out.push(' ');
-            out.push_str(&tool.id);
-            out.push(' ');
-            out.push_str(&tool.status);
-            out.push(']');
-            if !tool.diff.is_empty() {
-                out.push('\n');
-                out.push_str(&tool.diff);
-            }
-            if !tool.result.is_empty() {
-                out.push('\n');
-                out.push_str(&compact_tool_result(&tool.result));
-            }
-        }
-        if !turn.answer.is_empty() && turn.compacted {
-            let preview = compact_summary_preview(&turn.answer);
-            if !preview.is_empty() {
-                out.push('\n');
-                out.push_str(&preview);
-            }
-        } else if !turn.answer.is_empty() {
-            out.push('\n');
-            out.push_str(turn.answer.lines().next().unwrap_or(""));
-        }
-        if let Some(permission) = &turn.permission {
-            out.push_str("\nAllow ");
-            let name = turn
-                .tools
-                .iter()
-                .find(|tool| tool.id == permission.tool_call_id)
-                .map(|tool| tool.title.as_str())
-                .unwrap_or("tool");
-            out.push_str(name);
-            out.push(' ');
-            out.push_str(&permission.tool_call_id);
-            out.push_str("? y=allow once  n=reject");
-        }
-        if turn.interrupted {
-            out.push_str("\n[interrupted]");
-        } else if turn.cancelled {
-            out.push_str("\n[cancelled]");
-        } else if let Some(error) = &turn.error {
-            out.push_str("\n[error] ");
-            out.push_str(error);
-        } else if turn.done
-            && turn.answer.is_empty()
-            && turn.thought.is_empty()
-            && turn.tools.is_empty()
-        {
-            out.push_str("\n[empty answer]");
-        } else if !turn.done {
-            out.push('…');
         }
     }
-    out
+    rendered
 }
 
 fn apply_events(
@@ -1767,11 +1674,56 @@ fn paint(
     Ok(layout)
 }
 
+fn copy_selected_original(turns: &[Turn], nav: &NavState, home: &Path, hint: &mut String) {
+    let Some(index) = nav.selected else {
+        *hint = "no block to copy".into();
+        return;
+    };
+    let Some(turn) = turns.get(index) else {
+        *hint = "no block to copy".into();
+        return;
+    };
+    let views = turn_views(std::slice::from_ref(turn));
+    let Some(view) = views.first() else {
+        *hint = "no block to copy".into();
+        return;
+    };
+    let key = nav.selected_content_key().unwrap_or_default();
+    let first = nav.lines.iter().find(|line| line.entry == index);
+    let answer_focused = !turn.answer.is_empty()
+        && match first {
+            None => true,
+            Some(line) => {
+                line.kind == navigation::LineKind::Answer || line.kind == navigation::LineKind::User
+            }
+        };
+    let (kind, tool) = if answer_focused || (!turn.answer.is_empty() && turn.tools.is_empty()) {
+        (content::BlockKind::Answer, 0)
+    } else if key.ends_with(":thought") {
+        (content::BlockKind::Thought, 0)
+    } else if key.contains(":tool:") {
+        let title = key.rsplit(':').next().unwrap_or("");
+        let tool = view
+            .tools
+            .iter()
+            .position(|tool| tool.title == title)
+            .unwrap_or(0);
+        (content::BlockKind::Tool, tool)
+    } else {
+        (content::BlockKind::Answer, 0)
+    };
+    let original = content::original_block(view, kind, tool);
+    match content::copy_original(&original, home) {
+        Ok(message) => *hint = message,
+        Err(error) => *hint = error,
+    }
+}
+
 fn nav_entries(turns: &[Turn]) -> Vec<NavEntry> {
     turns
         .iter()
         .map(|turn| {
-            NavEntry::from_parts(
+            let mut entry = NavEntry::from_parts(
                 turn.user.clone(),
                 turn.thought.clone(),
                 turn.answer.clone(),
@@ -1779,7 +1731,83 @@ fn nav_entries(turns: &[Turn]) -> Vec<NavEntry> {
                     .iter()
                     .map(|tool| (tool.title.clone(), tool.result.clone()))
                     .collect(),
-            )
+            );
+            entry.tool_meta = turn
+                .tools
+                .iter()
+                .map(|tool| (tool.id.clone(), tool.status.clone()))
+                .collect();
+            if let Some(error) = &turn.error {
+                entry.errors.push(error.clone());
+            }
+            entry.diffs = turn
+                .tools
+                .iter()
+                .filter(|tool| !tool.diff.is_empty())
+                .map(|tool| tool.diff.clone())
+                .collect();
+            entry.folded_tools = turn
+                .tools
+                .iter()
+                .any(|tool| tool.result.lines().count() > content::TOOL_PREVIEW_LINES);
+            entry.folded_thought = turn.thought.lines().count() > content::TOOL_PREVIEW_LINES;
+            entry.folded_answer = turn.answer.lines().count() > content::TOOL_PREVIEW_LINES;
+            entry
+        })
+        .collect()
+}
+
+fn turn_views(turns: &[Turn]) -> Vec<content::TurnView> {
+    turns
+        .iter()
+        .map(|turn| content::TurnView {
+            user: turn.user.clone(),
+            thought: turn.thought.clone(),
+            answer: turn.answer.clone(),
+            error: turn.error.clone(),
+            tools: turn
+                .tools
+                .iter()
+                .map(|tool| content::ToolView {
+                    id: tool.id.clone(),
+                    title: tool.title.clone(),
+                    status: tool.status.clone(),
+                    diff: tool.diff.clone(),
+                    result: tool.result.clone(),
+                })
+                .collect(),
+            permission: turn.permission.as_ref().map(|permission| {
+                let name = turn
+                    .tools
+                    .iter()
+                    .find(|tool| tool.id == permission.tool_call_id)
+                    .map(|tool| tool.title.as_str())
+                    .unwrap_or("tool");
+                format!(
+                    "Allow {name} {}? y=allow once  n=reject",
+                    permission.tool_call_id
+                )
+            }),
+            done: turn.done,
+            cancelled: turn.cancelled,
+            interrupted: turn.interrupted,
+            compacted: turn.compacted,
+            compaction: if turn.compacted {
+                Some(turn.compaction.as_ref().map_or_else(
+                    || "✂ compacted history into a summary · purpose=compaction".into(),
+                    |info| {
+                        models::compaction_line(
+                            info.items,
+                            info.tokens,
+                            Some(&info.provider),
+                            Some(&info.model),
+                            info.error.as_deref(),
+                        )
+                    },
+                ))
+            } else {
+                None
+            },
         })
         .collect()
 }
@@ -1800,7 +1828,8 @@ fn sync_nav_viewport(
         size.width
             .saturating_sub(navigation::TRANSCRIPT_GUTTER)
             .max(20),
-        welcome::session_transcript_height(size.height, chrome_height, notice_height, input_height),
+        welcome::session_transcript_height(size.height, chrome_height, notice_height, input_height)
+            .max(3),
     );
     Ok(())
 }
@@ -3151,7 +3180,14 @@ fn run() -> io::Result<()> {
                             continue;
                         }
                         NavCommand::CopyBlock => {
-                            if let Some(text) = nav.copy_target() {
+                            if nav.focus == Focus::Scrollback && nav.copy_target().is_none() {
+                                copy_selected_original(
+                                    &turns,
+                                    &nav,
+                                    &effective.grok_home,
+                                    &mut hint,
+                                );
+                            } else if let Some(text) = nav.copy_target() {
                                 hint = format!("Copied {} bytes.", text.len());
                                 let _ = write!(io::stdout(), "{}", navigation::osc52(&text));
                                 let _ = io::stdout().flush();
@@ -3420,6 +3456,20 @@ fn run() -> io::Result<()> {
                     }
                 }
 
+                if key.modifiers.is_empty()
+                    && key.code == KeyCode::Char('y')
+                    && composer.is_empty()
+                    && !turns.last().is_some_and(|turn| turn.permission.is_some())
+                    && screen == ScreenMode::Minimal
+                {
+                    if let Some(index) = turns.len().checked_sub(1) {
+                        nav.selected = Some(index);
+                        nav.focus = Focus::Scrollback;
+                        copy_selected_original(&turns, &nav, &effective.grok_home, &mut hint);
+                        nav.focus = Focus::Prompt;
+                    }
+                    continue;
+                }
                 if let (Some(turn), Some(active)) = (turns.last_mut(), client.as_mut())
                     && let Some(permission) = turn.permission.clone()
                     && key.modifiers.is_empty()
@@ -3903,7 +3953,8 @@ fn run() -> io::Result<()> {
                             chrome_height,
                             notice_height,
                             input_height,
-                        ),
+                        )
+                        .max(3),
                     );
                 }
             }
@@ -4178,6 +4229,46 @@ fn dispatch_composer_command(
             refuse @ SlashAction::Refuse(_) => {
                 if let Some(message) = screen_mode::mode_command_message(screen, refuse) {
                     *hint = message;
+                }
+            }
+            SlashAction::Expand => {
+                if let Some(message) =
+                    screen_mode::mode_command_message(screen, SlashAction::Expand)
+                {
+                    *hint = message;
+                } else {
+                    let views = turn_views(turns);
+                    match content::expand_last_folded(&mut nav.display, &views) {
+                        Ok(body) => {
+                            last_error.clear();
+                            hint.clear();
+                            history.push_str(&body);
+                            history.push('\n');
+                            let _ = with_synchronized_output(terminal, |terminal| {
+                                emit_to_scrollback(terminal, &format!("{body}\n"))
+                            });
+                        }
+                        Err(error) => *hint = error,
+                    }
+                }
+            }
+            SlashAction::Transcript => {
+                let views = turn_views(turns);
+                if views.is_empty() {
+                    *hint = "No active session to view".into();
+                } else {
+                    let _ = terminal.clear();
+                    guard.suspend()?;
+                    let result = content::open_transcript_pager(&views, &effective.grok_home);
+                    guard.resume(terminal, screen)?;
+                    let _ = terminal.clear();
+                    match result {
+                        Ok(message) => {
+                            *hint = message;
+                            last_error.clear();
+                        }
+                        Err(error) => *last_error = error,
+                    }
                 }
             }
         }

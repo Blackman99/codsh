@@ -74,7 +74,7 @@ dsh 会话 id。`/rewind` 与 `/undo`（或空闲时空草稿上的 Esc Esc）�
 第二个客户端若不能取得写入权会被明确拒绝，而不会再开一个执行核心。
 默认 fullscreen 使用备用屏幕。`/minimal`（或 `--minimal`）按官方内联渲染
 把已提交内容写入终端原生历史；`/fullscreen`（别名 `/full`）切回全屏。
-最小模式下 `/rewind` 与 `/fork` 会重置该原生缓冲，而不是把已丢弃回合追加进去。
+最小模式下 `/rewind` 与 `/fork` 会重置该原生缓冲，而不是把已丢弃回合追加进去。官方 `xai-grok-markdown` 渲染流式 Markdown、表格、代码、mermaid 节点、思考以及 dsh 工具卡/差异。美化模式会隐藏行内 HTML 标签，并把 ZWJ 表情保持在同一个单元格；失败的工具显示 `failed` 和 `[error]`，而不是成功。长结果会折叠；Tab 后按 `l`/`→` 展开，`r` 切换原文，Enter 打开完整内容，`y` 复制原文。最小模式下 `/expand` 会重印上一个折叠块；`/transcript`（`/log`）用 `$PAGER` 打开完整原文。
 切换在同一进程内完成，正在执行的 dsh 回合、草稿和待审批都会保留。
 `--minimal` / `--fullscreen` 与 `GROK_SCREEN_MODE` 只作用于当前会话，不会改写
 隔离目录里的 `[ui] screen_mode`。最小模式下的 `/dashboard` 等模式专用命令会

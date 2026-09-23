@@ -1,7 +1,7 @@
 /**
  * Keyless LLM adapter at the dsh provider boundary for Rust ACP turn tests.
  * Modes: echo (default), reasoning, empty, fail-stream, file-edit, file-write,
- * file-missing, file-error, bash-rm, bash-timeout-rm, bash-nice-rm, bash-brace-rm,
+ * file-missing, file-error, markdown, huge-read, control-output, bash-rm, bash-timeout-rm, bash-nice-rm, bash-brace-rm,
  * bash-ansi-c-rm, bash-quoted-rm, bash-eval-rm, bash-path-rm, bash-sudo-rm,
  * bash-nohup-rm, bash-xargs-rm, bash-sort-prefix,
  * bash-sort-output, bash-git-branch, bash-git-upstream, bash-git-track,
@@ -82,6 +82,46 @@ function* mockToolCall(id, name, args) {
   yield { type: 'block-end', index: 0, block: { type: 'tool-call', id: toolId, name, arguments: encoded } }
   yield { type: 'usage', usage: { inputTokens: 2, outputTokens: 2 } }
   yield { type: 'finish', reason: { kind: 'tool-calls' } }
+}
+
+const MARKDOWN = [
+  '# RUST_MD_HEADING',
+  '',
+  'Prose with **bold**, *em*, `inline_code`, and a [link](https://example.com).',
+  'Unicode: 你好 👩‍💻 café',
+  'Gain: <font color="green">RUST_MD_GAIN</font> &amp; <b>held</b>',
+  '',
+  '| 维度 | 内容 |',
+  '|---|---|',
+  '| 一句话 | 一个很长的中文单元格 |',
+  '| 命令 | `codsh` |',
+  '',
+  '> a quoted line',
+  '',
+  '```ts',
+  'const answer = "text" // a comment',
+  '```',
+  '',
+  '```mermaid',
+  'graph TD',
+  'A[Start] --> B{Decision}',
+  'B -->|yes| C[Done]',
+  '```',
+  '',
+  '```ts',
+  'const unclosed = true',
+  '',
+  'RUST_MD_STREAM_DONE',
+].join('\n')
+
+function* mockMarkdown() {
+  yield { type: 'block-start', index: 0, blockType: 'text' }
+  for (let at = 0; at < MARKDOWN.length; at += 11) {
+    yield { type: 'text-delta', index: 0, text: MARKDOWN.slice(at, at + 11) }
+  }
+  yield { type: 'block-end', index: 0, block: { type: 'text', text: MARKDOWN } }
+  yield { type: 'usage', usage: { inputTokens: 4, outputTokens: 9 } }
+  yield { type: 'finish', reason: { kind: 'stop' } }
 }
 
 function* mockText(reply) {
@@ -318,6 +358,26 @@ class RustAcpMockAdapter extends LlmAdapter {
     }
     if (MODE === 'file-edit' || MODE === 'file-write' || MODE === 'file-missing' || MODE === 'file-error' || MODE === 'bash-rm' || MODE === 'bash-timeout-rm' || MODE === 'bash-nice-rm' || MODE === 'bash-brace-rm' || MODE === 'bash-ansi-c-rm' || MODE === 'bash-quoted-rm' || MODE === 'bash-eval-rm' || MODE === 'bash-path-rm' || MODE === 'bash-sudo-rm' || MODE === 'bash-nohup-rm' || MODE === 'bash-xargs-rm' || MODE === 'bash-sort-prefix' || MODE === 'bash-sort-output' || MODE === 'bash-git-branch' || MODE === 'bash-git-upstream' || MODE === 'bash-git-track' || MODE === 'bash-time-rm' || MODE === 'bash-exec-rm' || MODE === 'bash-builtin-rm' || MODE === 'bash-shell-option-rm' || MODE === 'bash-expand-rm' || MODE === 'bash-positional-rm' || MODE === 'bash-glob-rm' || MODE === 'bash-git-long-track' || MODE === 'bash-git-cat' || MODE === 'bash-git' || MODE === 'file-secret') {
       yield* fileToolTurn(options)
+      return
+    }
+    if (MODE === 'markdown') {
+      yield* mockMarkdown()
+      return
+    }
+    if (MODE === 'huge-read' || MODE === 'control-output') {
+      const done = toolResults(options)
+      const path = MODE === 'huge-read' ? 'huge.txt' : 'ctrl.txt'
+      const id = MODE === 'huge-read' ? 'rust-acp-huge' : 'rust-acp-ctrl'
+      if (done.length === 0) {
+        yield* mockToolCall(id, 'read', { file_path: path })
+        return
+      }
+      const last = done.at(-1)
+      if (last?.isError === true) {
+        yield* mockText(`RUST_ACP_FILE_ERROR ${resultText(last)}`)
+        return
+      }
+      yield* mockText(MODE === 'huge-read' ? 'RUST_ACP_HUGE_DONE' : 'RUST_ACP_CTRL_DONE')
       return
     }
     if (MODE === 'empty') {

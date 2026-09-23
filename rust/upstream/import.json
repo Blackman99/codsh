@@ -197,6 +197,202 @@
       "upstreamPath": "crates/codegen/xai-grok-pager/src/views/welcome/hero_box.rs",
       "upstreamSha256": "731d24c8746598b355a2c7c3ac8605879cbb139c9417eb4c9cef0c707631c05a",
       "modified": true
+    },
+    {
+      "path": "upstream/xai-grok-markdown-core/Cargo.toml",
+      "upstreamPath": "crates/codegen/xai-grok-markdown-core/Cargo.toml",
+      "upstreamSha256": "db1cd9f9bf8384bff6dbe9b9a295d9222c1f08b3ce96fe46f11ae1bdd0fe486f",
+      "modified": true
+    },
+    {
+      "path": "upstream/xai-grok-markdown-core/LICENSE",
+      "upstreamPath": "LICENSE",
+      "upstreamSha256": "116f7778b9802e569b7fa3a532b17bd80eb13c67837def01eed093d4ea472f28"
+    },
+    {
+      "path": "upstream/xai-grok-markdown-core/NOTICE",
+      "upstreamPath": null,
+      "upstreamSha256": "a8ed31a7bc9034a78513809a4f74a8f52f9650abb344ee8e7d866d81c08b2c1d",
+      "modified": true,
+      "note": "local Apache-2.0 notice for packed native licenses"
+    },
+    {
+      "path": "upstream/xai-grok-markdown-core/src/lib.rs",
+      "upstreamPath": "crates/codegen/xai-grok-markdown-core/src/lib.rs",
+      "upstreamSha256": "b5b5d05b5db14a4b2c55e583c7ec913e0ee57addddd3fe95424303d0af3314ff"
+    },
+    {
+      "path": "upstream/xai-grok-markdown/Cargo.toml",
+      "upstreamPath": "crates/codegen/xai-grok-markdown/Cargo.toml",
+      "upstreamSha256": "44bb79ab9efbbc3b230c17ed1518d3175fb3dd2b5c27dae38d9adab92ba8ba3c",
+      "modified": true
+    },
+    {
+      "path": "upstream/xai-grok-markdown/LICENSE",
+      "upstreamPath": "LICENSE",
+      "upstreamSha256": "116f7778b9802e569b7fa3a532b17bd80eb13c67837def01eed093d4ea472f28"
+    },
+    {
+      "path": "upstream/xai-grok-markdown/NOTICE",
+      "upstreamPath": null,
+      "upstreamSha256": "a8ed31a7bc9034a78513809a4f74a8f52f9650abb344ee8e7d866d81c08b2c1d",
+      "modified": true,
+      "note": "local Apache-2.0 notice for packed native licenses"
+    },
+    {
+      "path": "upstream/xai-grok-markdown/assets/Swift.sublime-syntax",
+      "upstreamPath": "crates/codegen/xai-grok-markdown/assets/Swift.sublime-syntax",
+      "upstreamSha256": "0211343b4952cf0d806b79ca5d8972edb835e35e74048a8f0001d7a126e3add0"
+    },
+    {
+      "path": "upstream/xai-grok-markdown/assets/tokyo-night.tmTheme",
+      "upstreamPath": "crates/codegen/xai-grok-markdown/assets/tokyo-night.tmTheme",
+      "upstreamSha256": "345b9efee0df9735acb6eede0e24025aa87496777526619f20f7b901e4da527c"
+    },
+    {
+      "path": "upstream/xai-grok-markdown/benches/bench.rs",
+      "upstreamPath": "crates/codegen/xai-grok-markdown/benches/bench.rs",
+      "upstreamSha256": "3867d12584e815b4a0325278c8d57daa4d932aa4334b84f6b713a7b5258d6c0c"
+    },
+    {
+      "path": "upstream/xai-grok-markdown/bin/md_mermaid_test.rs",
+      "upstreamPath": "crates/codegen/xai-grok-markdown/bin/md_mermaid_test.rs",
+      "upstreamSha256": "b7463743139569077b608c26194d507c9bf7b769fde92af2aac364ad2655a6ab"
+    },
+    {
+      "path": "upstream/xai-grok-markdown/bin/md_table_test.rs",
+      "upstreamPath": "crates/codegen/xai-grok-markdown/bin/md_table_test.rs",
+      "upstreamSha256": "0414ba80b82754efeab7367212a062af2816dd4fdbc331286526d39d3f601130"
+    },
+    {
+      "path": "upstream/xai-grok-markdown/bin/playground_common.rs",
+      "upstreamPath": "crates/codegen/xai-grok-markdown/bin/playground_common.rs",
+      "upstreamSha256": "474f96272cc04cb0c396273e34bda6fd1cc4e559687c484aecc8d487ad17297b"
+    },
+    {
+      "path": "upstream/xai-grok-markdown/build.rs",
+      "upstreamPath": "crates/codegen/xai-grok-markdown/build.rs",
+      "upstreamSha256": "7a3611eba57fb2451011a7ac877ebbbff34af41f1d1b51a3588801089a2dc50d"
+    },
+    {
+      "path": "upstream/xai-grok-markdown/src/buffers.rs",
+      "upstreamPath": "crates/codegen/xai-grok-markdown/src/buffers.rs",
+      "upstreamSha256": "feace3a1ecf2eb77e91e8efeb68d9ef07f7354498151598dfeef8b3b1635463b"
+    },
+    {
+      "path": "upstream/xai-grok-markdown/src/checkpoint.rs",
+      "upstreamPath": "crates/codegen/xai-grok-markdown/src/checkpoint.rs",
+      "upstreamSha256": "74e6b25cc4cb556e3a003c63461a529d6a303ca382631f957d10fec5d44cc786"
+    },
+    {
+      "path": "upstream/xai-grok-markdown/src/colors.rs",
+      "upstreamPath": "crates/codegen/xai-grok-markdown/src/colors.rs",
+      "upstreamSha256": "380d6c2a9a17075d34aed165ddfe4199e1f817310c851d1bb4f0b998593b897e"
+    },
+    {
+      "path": "upstream/xai-grok-markdown/src/hyperlinks.rs",
+      "upstreamPath": "crates/codegen/xai-grok-markdown/src/hyperlinks.rs",
+      "upstreamSha256": "14da6add25e9f23193ebbc6d325bb227b52643842c52af683abc42cae4f37059"
+    },
+    {
+      "path": "upstream/xai-grok-markdown/src/latex/commands.rs",
+      "upstreamPath": "crates/codegen/xai-grok-markdown/src/latex/commands.rs",
+      "upstreamSha256": "91bc3c533ce67bf173323ec61192b0cfc4a34d90b24e32934c052782055ab9d0"
+    },
+    {
+      "path": "upstream/xai-grok-markdown/src/latex/cursor.rs",
+      "upstreamPath": "crates/codegen/xai-grok-markdown/src/latex/cursor.rs",
+      "upstreamSha256": "5c64a10694aa680dab27a28374c7d3fb8186abc96038ef9dc99490db9b768457"
+    },
+    {
+      "path": "upstream/xai-grok-markdown/src/latex/environments.rs",
+      "upstreamPath": "crates/codegen/xai-grok-markdown/src/latex/environments.rs",
+      "upstreamSha256": "4663cc866609f41b6b1917a8642fc7f111fd99b715bf09d25ce289c7bb6fbf75"
+    },
+    {
+      "path": "upstream/xai-grok-markdown/src/latex/math_box.rs",
+      "upstreamPath": "crates/codegen/xai-grok-markdown/src/latex/math_box.rs",
+      "upstreamSha256": "5716f57a8fbc1f0f17b7be337c659466e85ca4f8c0acba0dd681a746d821c9c2"
+    },
+    {
+      "path": "upstream/xai-grok-markdown/src/latex/mod.rs",
+      "upstreamPath": "crates/codegen/xai-grok-markdown/src/latex/mod.rs",
+      "upstreamSha256": "9fbda305aba7dc372d2c88425aaf0227703edb5c3aa4f2033dd96e233b4a4e37"
+    },
+    {
+      "path": "upstream/xai-grok-markdown/src/latex/symbols.rs",
+      "upstreamPath": "crates/codegen/xai-grok-markdown/src/latex/symbols.rs",
+      "upstreamSha256": "4bd41b7184d0af850f3c9b7968cfe73d997e873a2eba4d2cee1364f37f2706bf"
+    },
+    {
+      "path": "upstream/xai-grok-markdown/src/latex/tests.rs",
+      "upstreamPath": "crates/codegen/xai-grok-markdown/src/latex/tests.rs",
+      "upstreamSha256": "93b97ff016d7bc57b739892541ea43314042218f03027ef5852ca3e6360ebd9d"
+    },
+    {
+      "path": "upstream/xai-grok-markdown/src/latex_delimiters.rs",
+      "upstreamPath": "crates/codegen/xai-grok-markdown/src/latex_delimiters.rs",
+      "upstreamSha256": "6a767f6892d466ced4c87ea64f89767630ab0035d44caaa5005c7a1ef3828026"
+    },
+    {
+      "path": "upstream/xai-grok-markdown/src/lib.rs",
+      "upstreamPath": "crates/codegen/xai-grok-markdown/src/lib.rs",
+      "upstreamSha256": "046db4866bc5ead9009479409651cb028c468cc755e173e946895f8143d55bd2"
+    },
+    {
+      "path": "upstream/xai-grok-markdown/src/mermaid.rs",
+      "upstreamPath": "crates/codegen/xai-grok-markdown/src/mermaid.rs",
+      "upstreamSha256": "e53c81fc02cddc78a3f7f3729237f83acd7c2678535a830210d2b1320f60529f"
+    },
+    {
+      "path": "upstream/xai-grok-markdown/src/open_code_highlighter.rs",
+      "upstreamPath": "crates/codegen/xai-grok-markdown/src/open_code_highlighter.rs",
+      "upstreamSha256": "005dd81476a8b82e8f357245f9b7a8485e4c9ea6c502dcdd34ee250876474642"
+    },
+    {
+      "path": "upstream/xai-grok-markdown/src/output.rs",
+      "upstreamPath": "crates/codegen/xai-grok-markdown/src/output.rs",
+      "upstreamSha256": "649b56883a306598889a72afc595d341789229333d0a45c2a19578b1e3151e5c"
+    },
+    {
+      "path": "upstream/xai-grok-markdown/src/parse.rs",
+      "upstreamPath": "crates/codegen/xai-grok-markdown/src/parse.rs",
+      "upstreamSha256": "608930f0224a33a3917527b30934cee5e1a31275d294d180c87661e620885a90"
+    },
+    {
+      "path": "upstream/xai-grok-markdown/src/render.rs",
+      "upstreamPath": "crates/codegen/xai-grok-markdown/src/render.rs",
+      "upstreamSha256": "bf6a5507f5c4229414029fc784dd1792e61b209cf349f247dc94e0684292af94"
+    },
+    {
+      "path": "upstream/xai-grok-markdown/src/source_map.rs",
+      "upstreamPath": "crates/codegen/xai-grok-markdown/src/source_map.rs",
+      "upstreamSha256": "26205ce47140870d968fe91d3b19897515528fd5c11479f24ac189761c94960b"
+    },
+    {
+      "path": "upstream/xai-grok-markdown/src/streaming.rs",
+      "upstreamPath": "crates/codegen/xai-grok-markdown/src/streaming.rs",
+      "upstreamSha256": "51f24b4399cb11aaf0f55c23384b769917939aeb4acda26845116998b040dbc5"
+    },
+    {
+      "path": "upstream/xai-grok-markdown/src/style.rs",
+      "upstreamPath": "crates/codegen/xai-grok-markdown/src/style.rs",
+      "upstreamSha256": "36123c8bb569ec5da5a8f5aec22a49fa2ab69350606041c27b24b0f52dafe336"
+    },
+    {
+      "path": "upstream/xai-grok-markdown/src/syntax.rs",
+      "upstreamPath": "crates/codegen/xai-grok-markdown/src/syntax.rs",
+      "upstreamSha256": "35e3c9b7748ae31e621d449b3c2fc06d2787ea8e41af52a69efbd18c85c756eb"
+    },
+    {
+      "path": "upstream/xai-grok-markdown/src/syntax_backend_tests.rs",
+      "upstreamPath": "crates/codegen/xai-grok-markdown/src/syntax_backend_tests.rs",
+      "upstreamSha256": "8160f697bcd67888eaecb97d4dedf839f0970a68395c3b73c67d9fbc84f333c4"
+    },
+    {
+      "path": "upstream/xai-grok-markdown/src/url_scan.rs",
+      "upstreamPath": "crates/codegen/xai-grok-markdown/src/url_scan.rs",
+      "upstreamSha256": "fc8617a31d3539e3f00ea729b48c193d01a880a775b8b9e4f172d7c0f52988a5"
     }
   ],
   "supplementalLicenses": [

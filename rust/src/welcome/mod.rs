@@ -164,20 +164,18 @@ pub fn render_session(
         };
     }
     let overlay = nav.overlay_text();
-    let chrome_text = if overlay.is_empty() {
+    let viewer = matches!(nav.overlay, crate::navigation::NavOverlay::Viewer(_));
+    let full_chrome = session_chrome_height(nav);
+    let chrome_text = if overlay.is_empty() || viewer {
         nav.status_bits()
     } else {
         format!("{}\n{overlay}", nav.status_bits())
     };
-    let chrome_height = session_chrome_height(nav);
+    let chrome_height = if viewer { 1 } else { full_chrome };
     let notice_height = session_notice_height(notice);
     let input_height = session_input_height(draft, area.width);
-    let transcript_height = nav.viewport_height.max(3).min(session_transcript_height(
-        area.height,
-        chrome_height,
-        notice_height,
-        input_height,
-    ));
+    let transcript_height =
+        session_transcript_height(area.height, chrome_height, notice_height, input_height);
     let [header, chrome, transcript, status, prompt, footer] = Layout::vertical([
         Constraint::Length(1),
         Constraint::Length(chrome_height),
@@ -190,7 +188,29 @@ pub fn render_session(
     let _ = theme;
     frame.render_widget(Paragraph::new("codsh · Rust client · dsh ACP"), header);
     Paragraph::new(chrome_text).render(chrome, frame.buffer_mut());
-    Paragraph::new(nav.painted_transcript_lines().join("\n"))
+    let viewer_rows = transcript.height as usize + full_chrome.saturating_sub(1) as usize;
+    let painted = if viewer {
+        nav.overlay_text_for(viewer_rows)
+            .lines()
+            .map(str::to_string)
+            .collect::<Vec<_>>()
+    } else {
+        nav.painted_transcript_lines()
+    };
+    let width = transcript.width.max(1) as usize;
+    let wrapped = painted.len() + extra_wraps(&painted, width);
+    let height = transcript.height as usize;
+    // Follow sticks to the tail inside the real slot. A manual offset already
+    // windowed `painted`, so do not scroll that window again.
+    let scroll = if nav.follow && !viewer {
+        wrapped.saturating_sub(height) as u16
+    } else {
+        0
+    };
+    ratatui::widgets::Clear.render(transcript, frame.buffer_mut());
+    Paragraph::new(painted.join("\n"))
+        .wrap(Wrap { trim: false })
+        .scroll((scroll, 0))
         .render(transcript, frame.buffer_mut());
     render_notice(notice, status, frame.buffer_mut());
     let block = Block::new().borders(Borders::ALL).title(title);
@@ -254,6 +274,16 @@ fn render_notice(notice: &str, area: Rect, buf: &mut ratatui::buffer::Buffer) {
     Paragraph::new(visible.join("\n"))
         .wrap(Wrap { trim: false })
         .render(area, buf);
+}
+
+fn extra_wraps(lines: &[String], width: usize) -> usize {
+    lines
+        .iter()
+        .map(|line| {
+            let cols = unicode_width::UnicodeWidthStr::width(line.as_str());
+            cols.saturating_sub(1) / width
+        })
+        .sum()
 }
 
 fn wrap_line(line: &str, width: usize) -> Vec<String> {

@@ -683,6 +683,51 @@ describe('public ACP/JSON-RPC against real dsh', () => {
     }
   }, 45000)
 
+  it('streams markdown content blocks and long tool results from real dsh', async () => {
+    const markdown = startAgent('markdown')
+    try {
+      const { session } = await handshake(markdown)
+      const result = await markdown.send(3, 'session/prompt', {
+        sessionId: session.sessionId,
+        prompt: [{ type: 'text', text: 'TOKEN_CONTENT_MD' }],
+      })
+      expect(result.stopReason).toBe('end_turn')
+      const answer = markdown.updates
+        .filter(update => update.update.sessionUpdate === 'agent_message_chunk')
+        .map(update => update.update.content.text)
+        .join('')
+      expect(answer).toContain('# RUST_MD_HEADING')
+      expect(answer).toContain('**bold**')
+      expect(answer).toContain('```mermaid')
+      expect(answer).toContain('RUST_MD_STREAM_DONE')
+      await markdown.send(4, 'session/close', { sessionId: session.sessionId })
+    } finally {
+      markdown.child.stdin.end()
+      markdown.child.kill('SIGTERM')
+    }
+
+    const huge = startAgent('huge-read')
+    try {
+      writeFileSync(join(huge.cwd, 'huge.txt'), Array.from({ length: 80 }, (_, i) => `HUGE_LINE_${String(i + 1).padStart(3, '0')}_MARKER`).join('\n') + '\n')
+      const { session } = await handshake(huge)
+      const result = await huge.send(3, 'session/prompt', {
+        sessionId: session.sessionId,
+        prompt: [{ type: 'text', text: 'TOKEN_CONTENT_HUGE' }],
+      })
+      expect(result.stopReason).toBe('end_turn')
+      const tool = huge.updates.find(update => update.update.sessionUpdate === 'tool_call' && update.update.title === 'read')
+      expect(tool.update.rawInput).toEqual({ file_path: 'huge.txt' })
+      const content = JSON.stringify(huge.updates.filter(update => update.update.sessionUpdate === 'tool_call_update'))
+      expect(content).toContain('HUGE_LINE_001_MARKER')
+      expect(content).toContain('HUGE_LINE_080_MARKER')
+      expect(content.toLowerCase()).not.toContain('success')
+      await huge.send(4, 'session/close', { sessionId: session.sessionId })
+    } finally {
+      huge.child.stdin.end()
+      huge.child.kill('SIGTERM')
+    }
+  }, 45000)
+
   it('cancels a delayed stream, ignores a late permission reply, and continues with a new turn', async () => {
     const delayed = startAgent('echo', { DSH_CODE_CLI_MOCK_DELAY_MS: '4000' })
     try {

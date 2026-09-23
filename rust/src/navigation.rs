@@ -134,6 +134,11 @@ pub struct NavEntry {
     pub thought: String,
     pub answer: String,
     pub tools: Vec<(String, String)>,
+    /// Tool call id and status, parallel to `tools`. Paint-only; not model history.
+    pub tool_meta: Vec<(String, String)>,
+    /// Turn errors such as a failed tool. Paint-only; not model history.
+    pub errors: Vec<String>,
+    pub diffs: Vec<String>,
     pub folded_thought: bool,
     pub folded_answer: bool,
     pub folded_tools: bool,
@@ -151,6 +156,9 @@ impl NavEntry {
             thought: thought.into(),
             answer: answer.into(),
             tools,
+            tool_meta: Vec::new(),
+            errors: Vec::new(),
+            diffs: Vec::new(),
             folded_thought: false,
             folded_answer: false,
             folded_tools: false,
@@ -312,6 +320,7 @@ pub struct NavState {
     selection_anchor: Option<SelectionAnchor>,
     pub mouse_captured: bool,
     pub follow: bool,
+    pub display: crate::content::DisplayState,
     pub prefs: NavigationPrefs,
     pointer_origin: Option<PointerOrigin>,
     pointer_anchor: Option<(u16, u16)>,
@@ -335,6 +344,7 @@ impl NavState {
             selection_anchor: None,
             mouse_captured: fullscreen,
             follow: true,
+            display: crate::content::DisplayState::default(),
             prefs,
             pointer_origin: None,
             pointer_anchor: None,
@@ -450,7 +460,7 @@ impl NavState {
         self.entries = merge_fold_state(&self.entries, entries);
         self.width = width.max(1);
         self.viewport_height = viewport_height.max(1);
-        self.lines = layout_lines(&self.entries, self.width);
+        self.relayout();
         if following {
             self.goto_bottom();
             self.follow = true;
@@ -508,6 +518,10 @@ impl NavState {
     }
 
     pub fn overlay_text(&self) -> String {
+        self.overlay_text_for(self.viewport_height.max(1) as usize)
+    }
+
+    pub fn overlay_text_for(&self, rows: usize) -> String {
         match &self.overlay {
             NavOverlay::None => String::new(),
             NavOverlay::Search(search) => {
@@ -541,11 +555,23 @@ impl NavState {
                 lines.join("\n")
             }
             NavOverlay::Viewer(viewer) => {
-                let body = viewer_body(self.entries.get(viewer.entry));
-                let start = viewer.offset.min(body.len().saturating_sub(1));
-                let window = body.get(start..).unwrap_or(&[]);
+                let body = if viewer.entry == self.selected.unwrap_or(viewer.entry) {
+                    let full = self.selected_full_lines();
+                    if full.is_empty() {
+                        viewer_body(self.entries.get(viewer.entry))
+                    } else {
+                        full
+                    }
+                } else {
+                    viewer_body(self.entries.get(viewer.entry))
+                };
+                let height = rows.max(1);
+                let max = body.len().saturating_sub(height);
+                let start = viewer.offset.min(max);
+                let end = (start + height).min(body.len());
+                let window = body.get(start..end).unwrap_or(&[]);
                 format!(
-                    "Viewer · Esc restores reading position\n{}",
+                    "full content · Esc closes full content · Esc restores reading position\n{}",
                     window.join("\n")
                 )
             }
@@ -751,8 +777,96 @@ impl NavState {
             LineKind::User => {}
         }
         let bookmark = self.bookmark();
-        self.lines = layout_lines(&self.entries, self.width);
+        self.relayout();
         self.restore(bookmark);
+    }
+
+    pub fn relayout(&mut self) {
+        self.lines = layout_lines(&self.entries, self.width, &self.display);
+    }
+
+    /// Toggle raw markdown for the selected block. Display only: the entry
+    /// text and model history stay the original bytes.
+    pub fn toggle_raw_selected(&mut self) -> bool {
+        let Some(key) = self.selected_content_key() else {
+            return false;
+        };
+        crate::content::toggle_raw(&mut self.display, &key);
+        let bookmark = self.bookmark();
+        self.relayout();
+        self.restore(bookmark);
+        true
+    }
+
+    pub fn selected_content_key(&self) -> Option<String> {
+        let entry = self.selected?;
+        let kind = self
+            .lines
+            .iter()
+            .find(|line| line.entry == entry && line.kind != LineKind::User)
+            .map(|line| line.kind)
+            .unwrap_or(LineKind::Answer);
+        let tool = self
+            .entries
+            .get(entry)
+            .and_then(|item| item.tools.first())
+            .map(|(title, _)| title.as_str())
+            .unwrap_or("");
+        let block = match kind {
+            LineKind::Thought | LineKind::Folded
+                if self
+                    .entries
+                    .get(entry)
+                    .is_some_and(|item| item.folded_thought) =>
+            {
+                crate::content::BlockKind::Thought
+            }
+            LineKind::Tool | LineKind::Folded => crate::content::BlockKind::Tool,
+            _ => crate::content::BlockKind::Answer,
+        };
+        if block == crate::content::BlockKind::Tool && tool.is_empty() {
+            if self
+                .entries
+                .get(entry)
+                .is_some_and(|item| !item.answer.is_empty())
+            {
+                return Some(crate::content::block_key(
+                    entry,
+                    crate::content::BlockKind::Answer,
+                    "",
+                ));
+            }
+            if self
+                .entries
+                .get(entry)
+                .is_some_and(|item| !item.thought.is_empty())
+            {
+                return Some(crate::content::block_key(
+                    entry,
+                    crate::content::BlockKind::Thought,
+                    "",
+                ));
+            }
+        }
+        Some(crate::content::block_key(entry, block, tool))
+    }
+
+    /// Full rendered (or raw) lines of the selected turn, not the folded preview.
+    pub fn selected_full_lines(&self) -> Vec<String> {
+        let Some(entry_index) = self.selected else {
+            return Vec::new();
+        };
+        let Some(entry) = self.entries.get(entry_index) else {
+            return Vec::new();
+        };
+        let mut opened = entry.clone();
+        opened.folded_thought = false;
+        opened.folded_answer = false;
+        opened.folded_tools = false;
+        crate::content::entry_lines(entry_index, &opened, &self.display)
+            .into_iter()
+            .map(|(_, text)| text)
+            .collect()
     }
 
     #[cfg(test)]
@@ -884,33 +998,36 @@ impl NavState {
                 }
                 _ => NavCommand::Consume,
             },
-            NavOverlay::Viewer(viewer) => match key.code {
+            NavOverlay::Viewer(_) => match key.code {
                 KeyCode::Esc => {
                     self.dismiss_overlay();
                     NavCommand::Consume
                 }
                 KeyCode::Up | KeyCode::Char('k') => {
-                    viewer.offset = viewer.offset.saturating_sub(1);
+                    if let NavOverlay::Viewer(viewer) = &mut self.overlay {
+                        viewer.offset = viewer.offset.saturating_sub(1);
+                    }
                     NavCommand::Consume
                 }
-                KeyCode::Down | KeyCode::Char('j') => {
-                    let max = viewer_body(self.entries.get(viewer.entry))
-                        .len()
-                        .saturating_sub(1);
-                    viewer.offset = (viewer.offset + 1).min(max);
+                KeyCode::Down | KeyCode::Char('j') | KeyCode::End | KeyCode::PageDown => {
+                    let lines = self.selected_full_lines().len();
+                    let page = self.viewport_height.max(1) as usize;
+                    if let NavOverlay::Viewer(viewer) = &mut self.overlay {
+                        let max = lines.saturating_sub(1);
+                        let step = match key.code {
+                            KeyCode::End => max,
+                            KeyCode::PageDown => page,
+                            _ => 1,
+                        };
+                        viewer.offset = (viewer.offset + step).min(max);
+                    }
                     NavCommand::Consume
                 }
                 KeyCode::PageUp => {
-                    viewer.offset = viewer
-                        .offset
-                        .saturating_sub(self.viewport_height.max(1) as usize);
-                    NavCommand::Consume
-                }
-                KeyCode::PageDown => {
-                    let max = viewer_body(self.entries.get(viewer.entry))
-                        .len()
-                        .saturating_sub(1);
-                    viewer.offset = (viewer.offset + self.viewport_height.max(1) as usize).min(max);
+                    let page = self.viewport_height.max(1) as usize;
+                    if let NavOverlay::Viewer(viewer) = &mut self.overlay {
+                        viewer.offset = viewer.offset.saturating_sub(page);
+                    }
                     NavCommand::Consume
                 }
                 _ => NavCommand::Consume,
@@ -939,7 +1056,7 @@ impl NavState {
                 }
                 self.focus = Focus::Scrollback;
                 if self.selected.is_none() {
-                    self.selected = self.lines.get(self.offset).map(|line| line.entry);
+                    self.selected = self.entries.len().checked_sub(1);
                 }
                 return NavCommand::Consume;
             }
@@ -1015,7 +1132,7 @@ impl NavState {
                 }
                 NavCommand::Consume
             }
-            KeyCode::Char('l') if self.prefs.vim_mode => {
+            KeyCode::Char('l') if self.prefs.vim_mode || self.focus == Focus::Scrollback => {
                 if let Some(index) = self.selected {
                     self.fold_kind(index, false);
                 }
@@ -1041,9 +1158,15 @@ impl NavState {
                 self.toggle_fold_selected();
                 NavCommand::Consume
             }
-            KeyCode::Char('y') if self.prefs.vim_mode && key.modifiers.is_empty() => {
-                self.select_block_span();
+            KeyCode::Char('y') if key.modifiers.is_empty() && self.focus == Focus::Scrollback => {
+                if self.prefs.vim_mode {
+                    self.select_block_span();
+                }
                 NavCommand::CopyBlock
+            }
+            KeyCode::Char('r') if key.modifiers.is_empty() && self.focus == Focus::Scrollback => {
+                self.toggle_raw_selected();
+                NavCommand::Consume
             }
             KeyCode::Char('Y') if self.prefs.vim_mode => {
                 self.select_block_metadata();
@@ -1192,7 +1315,7 @@ impl NavState {
             item.folded_tools = collapse;
         }
         let bookmark = self.bookmark();
-        self.lines = layout_lines(&self.entries, self.width);
+        self.relayout();
         self.restore(bookmark);
     }
 
@@ -1522,75 +1645,64 @@ fn merge_fold_state(previous: &[NavEntry], mut next: Vec<NavEntry>) -> Vec<NavEn
             continue;
         };
         if prior.user == entry.user {
-            entry.folded_thought = prior.folded_thought;
-            entry.folded_answer = prior.folded_answer;
-            entry.folded_tools = prior.folded_tools;
+            let thought_grew = prior.thought.lines().count() <= crate::content::TOOL_PREVIEW_LINES
+                && entry.thought.lines().count() > crate::content::TOOL_PREVIEW_LINES;
+            let answer_grew = prior.answer.lines().count() <= crate::content::TOOL_PREVIEW_LINES
+                && entry.answer.lines().count() > crate::content::TOOL_PREVIEW_LINES;
+            let tools_grew =
+                prior.tools.iter().all(|(_, result)| {
+                    result.lines().count() <= crate::content::TOOL_PREVIEW_LINES
+                }) && entry
+                    .tools
+                    .iter()
+                    .any(|(_, result)| result.lines().count() > crate::content::TOOL_PREVIEW_LINES);
+            entry.folded_thought = if thought_grew {
+                true
+            } else {
+                prior.folded_thought
+            };
+            entry.folded_answer = if answer_grew {
+                true
+            } else {
+                prior.folded_answer
+            };
+            entry.folded_tools = if tools_grew { true } else { prior.folded_tools };
         }
     }
     next
 }
 
-fn layout_lines(entries: &[NavEntry], width: u16) -> Vec<TranscriptLine> {
+fn layout_lines(
+    entries: &[NavEntry],
+    width: u16,
+    display: &crate::content::DisplayState,
+) -> Vec<TranscriptLine> {
     let mut lines = Vec::new();
     let width = width.max(1) as usize;
     for (index, entry) in entries.iter().enumerate() {
-        push_wrapped(
-            &mut lines,
-            index,
-            LineKind::User,
-            &entry.user.replace('\n', " "),
-            width,
-        );
-        if !entry.thought.is_empty() {
-            if entry.folded_thought {
-                push_wrapped(
-                    &mut lines,
-                    index,
-                    LineKind::Folded,
-                    "[thought] folded · click to expand",
-                    width,
-                );
+        for (kind, text) in crate::content::entry_lines(index, entry, display) {
+            let kind = if matches!(
+                (
+                    kind,
+                    entry.folded_thought,
+                    entry.folded_answer,
+                    entry.folded_tools
+                ),
+                (LineKind::Thought, true, _, _)
+                    | (LineKind::Answer, _, true, _)
+                    | (LineKind::Tool, _, _, true)
+            ) {
+                LineKind::Folded
             } else {
-                push_wrapped(
-                    &mut lines,
-                    index,
-                    LineKind::Thought,
-                    &format!("[thought] {}", entry.thought),
-                    width,
-                );
-            }
+                kind
+            };
+            push_wrapped(&mut lines, index, kind, &text, width);
         }
-        for (title, result) in &entry.tools {
-            if entry.folded_tools {
-                push_wrapped(
-                    &mut lines,
-                    index,
-                    LineKind::Folded,
-                    &format!("[tool {title}] folded · click to expand"),
-                    width,
-                );
-            } else {
-                push_wrapped(
-                    &mut lines,
-                    index,
-                    LineKind::Tool,
-                    &format!("[tool {title}] {result}"),
-                    width,
-                );
+        for diff in &entry.diffs {
+            if diff.is_empty() {
+                continue;
             }
-        }
-        if !entry.answer.is_empty() {
-            if entry.folded_answer {
-                push_wrapped(
-                    &mut lines,
-                    index,
-                    LineKind::Folded,
-                    "[answer] folded · click to expand",
-                    width,
-                );
-            } else {
-                push_wrapped(&mut lines, index, LineKind::Answer, &entry.answer, width);
-            }
+            push_wrapped(&mut lines, index, LineKind::Tool, diff, width);
         }
     }
     lines
@@ -1635,14 +1747,25 @@ fn wrap_text(text: &str, width: usize) -> Vec<String> {
     let mut out = Vec::new();
     let mut current = String::new();
     let mut current_width = 0usize;
-    for ch in text.chars() {
-        let w = unicode_width::UnicodeWidthChar::width(ch).unwrap_or(1);
-        if current_width + w > width && !current.is_empty() {
+    for grapheme in unicode_segmentation::UnicodeSegmentation::graphemes(text, true) {
+        let w = unicode_width::UnicodeWidthStr::width(grapheme).max(if grapheme.is_empty() {
+            0
+        } else {
+            1
+        });
+        let crosses = current_width + w > width && !current.is_empty();
+        // Graphemes, including a ZWJ cluster, move intact instead of splitting
+        // woman, joiner, and laptop into separate cells.
+        if crosses {
             out.push(std::mem::take(&mut current));
             current_width = 0;
         }
-        current.push(ch);
+        current.push_str(grapheme);
         current_width += w;
+        if current_width >= width {
+            out.push(std::mem::take(&mut current));
+            current_width = 0;
+        }
     }
     if !current.is_empty() {
         out.push(current);
@@ -2032,7 +2155,7 @@ mod tests {
         let mut state = sample();
         state.goto_top();
         state.entries[0].folded_thought = true;
-        state.lines = layout_lines(&state.entries, state.width);
+        state.relayout();
         let mut next = state.entries.clone();
         for entry in &mut next {
             entry.folded_thought = false;
@@ -2438,7 +2561,10 @@ mod tests {
         };
         assert!(after.offset >= 1);
         let overlay = state.overlay_text();
-        assert!(overlay.starts_with("Viewer · Esc restores reading position"));
+        assert!(
+            overlay.contains("Esc restores reading position"),
+            "{overlay}"
+        );
         let body = overlay.split_once('\n').map(|(_, rest)| rest).unwrap_or("");
         assert!(
             after.offset == 0 || !body.starts_with("TOKEN_ALPHA prompt"),
@@ -2605,6 +2731,53 @@ mod tests {
         state.rebuild(Vec::new(), 8, 4);
         assert!(state.selection.is_none());
         assert!(state.copy_target().is_none());
+    }
+
+    #[test]
+    fn fullscreen_layout_paints_failed_tool_status_and_keeps_zwj_together() {
+        let mut state = NavState::new(NavigationPrefs::default(), true);
+        let mut entry = NavEntry::from_parts(
+            "TOKEN_CONTENT_MISS",
+            "",
+            "Unicode: 你好 👩‍💻 café",
+            vec![(
+                "read".into(),
+                "Error: cannot read missing-note.txt: not found".into(),
+            )],
+        );
+        entry.tool_meta = vec![("t1".into(), "failed".into())];
+        entry.errors = vec!["tool t1 failed".into()];
+        state.rebuild(vec![entry], 80, 12);
+        let painted = state
+            .lines
+            .iter()
+            .map(|line| line.text.as_str())
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(painted.contains("failed"), "{painted}");
+        assert!(painted.contains("[error] tool t1 failed"), "{painted}");
+        assert!(painted.contains("cannot read"), "{painted}");
+        assert!(
+            !painted.to_ascii_lowercase().contains("successfully"),
+            "{painted}"
+        );
+        state.rebuild(state.entries.clone(), 10, 8);
+        for line in &state.lines {
+            let text = &line.text;
+            if text.contains('👩') || text.contains('💻') || text.contains('\u{200d}') {
+                assert!(
+                    text.contains("👩\u{200d}💻"),
+                    "ZWJ cluster split across a wrapped cell: {text:?}"
+                );
+            }
+        }
+        let joined = state
+            .lines
+            .iter()
+            .map(|line| line.text.as_str())
+            .collect::<Vec<_>>()
+            .join("");
+        assert!(joined.contains("👩\u{200d}💻"), "{joined}");
     }
 
     #[test]

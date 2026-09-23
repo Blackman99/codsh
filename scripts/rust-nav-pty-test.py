@@ -309,7 +309,7 @@ def main():
             while time.monotonic() < deadline:
                 session.pump(0.1)
                 shown = session.visible()
-                if 'folded · click to expand' in shown.split('┌Draft')[0]:
+                if 'click to expand' in shown.split('┌readline')[0] or 'click to expand' in shown.split('┌Draft')[0]:
                     folded = True
                     break
             if not folded:

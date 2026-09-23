@@ -133,7 +133,7 @@ Interrupted tools are shown as unknown and not replayed.
 A second client is refused while this process holds write ownership.
 `--minimal` / `--fullscreen` and `/minimal` / `/fullscreen` switch the official
 alternate-screen and native-history renderers in the current process without
-rewriting isolated `[ui] screen_mode`. `/rewind` and `/fork` in minimal replace
+rewriting isolated `[ui] screen_mode`. Official `xai-grok-markdown` renders Markdown, tables, code, mermaid labels, thoughts, and dsh tool cards/diffs; Tab then `l`/`r`/Enter/`y` fold, expand, show raw markdown, open full content, or copy original bytes. `/expand` reprints the last folded block in minimal; `/transcript` opens the exact transcript in `$PAGER`. `/rewind` and `/fork` in minimal replace
 that native buffer. Draft, running turn, and pending approval survive an
 in-place switch. Fullscreen `/find` and `/jump` search or preview turns and
 restore the prior reading position on Esc; `/find` and `/jump` in minimal
