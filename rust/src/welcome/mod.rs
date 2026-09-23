@@ -112,13 +112,76 @@ pub fn render(
 }
 
 /// A notice taller than its slot keeps the latest lines, including an error.
+/// The unavailable status is pinned inside that window: a wrapped first-run
+/// tip must not scroll it off a short screen.
 fn render_notice(notice: &str, area: Rect, buf: &mut ratatui::buffer::Buffer) {
-    let rows = wrapped_line_count(notice, area.width);
-    let scroll = rows.saturating_sub(area.height as usize) as u16;
-    Paragraph::new(notice)
+    if area.height == 0 || area.width == 0 {
+        return;
+    }
+    let width = area.width.max(1) as usize;
+    let mut rows: Vec<String> = Vec::new();
+    for line in notice.lines() {
+        let wrapped = wrap_line(line, width);
+        if wrapped.is_empty() {
+            rows.push(String::new());
+        } else {
+            rows.extend(wrapped);
+        }
+    }
+    let height = area.height as usize;
+    let mut visible: Vec<String> = if rows.len() > height {
+        rows[rows.len() - height..].to_vec()
+    } else {
+        rows.clone()
+    };
+    if let Some(status) = rows
+        .iter()
+        .find(|row| row.contains("Execution unavailable"))
+        .cloned()
+        && !visible
+            .iter()
+            .any(|row| row.contains("Execution unavailable"))
+    {
+        if visible.is_empty() {
+            visible.push(status);
+        } else {
+            let slot = visible.len() - 1;
+            visible[slot] = status;
+        }
+    }
+    Paragraph::new(visible.join("\n"))
         .wrap(Wrap { trim: false })
-        .scroll((scroll, 0))
         .render(area, buf);
+}
+
+fn wrap_line(line: &str, width: usize) -> Vec<String> {
+    if line.is_empty() {
+        return vec![String::new()];
+    }
+    let mut rows = Vec::new();
+    let mut current = String::new();
+    let mut current_width = 0usize;
+    for ch in line.chars() {
+        let ch_width = unicode_width::UnicodeWidthChar::width(ch).unwrap_or(0);
+        if ch_width > width {
+            if !current.is_empty() {
+                rows.push(std::mem::take(&mut current));
+                current_width = 0;
+            }
+            rows.push(ch.to_string());
+            continue;
+        }
+        if current_width + ch_width > width && !current.is_empty() {
+            rows.push(std::mem::take(&mut current));
+            current_width = 0;
+        }
+        current.push(ch);
+        current_width += ch_width;
+    }
+    if !current.is_empty() {
+        rows.push(current);
+    }
+    rows
 }
 
 fn wrapped_line_count(text: &str, width: u16) -> usize {
@@ -267,6 +330,74 @@ mod tests {
         assert!(
             narrow_text.contains("Execution unavailable"),
             "a 32-column screen still shows the unavailable status: {narrow_text}"
+        );
+        // The packed PTY types a draft before Enter. That box is taller than
+        // an empty prompt, so the notice slot must still show the status.
+        let mut typed = TextArea::new();
+        typed.set_text("draft survives resize");
+        let mut typed_narrow = Terminal::new(TestBackend::new(32, 14)).unwrap();
+        typed_narrow
+            .draw(|frame| {
+                render(
+                    frame,
+                    &typed,
+                    notice,
+                    None,
+                    &Theme::offline(),
+                    false,
+                    false,
+                    "Draft (not sent)",
+                );
+            })
+            .unwrap();
+        let typed_text: String = typed_narrow
+            .backend()
+            .buffer()
+            .content
+            .iter()
+            .map(|cell| cell.symbol())
+            .collect();
+        assert!(
+            typed_text.contains("draft survives resize"),
+            "the typed draft stays in the box: {typed_text}"
+        );
+        assert!(
+            typed_text.contains("Execution unavailable"),
+            "a typed draft on a 32-column screen still shows the unavailable status: {typed_text}"
+        );
+        // A draft that wraps inside the 32-column box grows the prompt and
+        // shrinks the notice. The status still has to be on screen.
+        let mut wrapped = TextArea::new();
+        wrapped.set_text("draft survives resize and still reports the disconnect");
+        let mut wrapped_narrow = Terminal::new(TestBackend::new(32, 14)).unwrap();
+        wrapped_narrow
+            .draw(|frame| {
+                render(
+                    frame,
+                    &wrapped,
+                    notice,
+                    None,
+                    &Theme::offline(),
+                    false,
+                    false,
+                    "Draft (not sent)",
+                );
+            })
+            .unwrap();
+        let wrapped_text: String = wrapped_narrow
+            .backend()
+            .buffer()
+            .content
+            .iter()
+            .map(|cell| cell.symbol())
+            .collect();
+        assert!(
+            wrapped_text.contains("draft survives resize"),
+            "the wrapped draft stays in the box: {wrapped_text}"
+        );
+        assert!(
+            wrapped_text.contains("Execution unavailable"),
+            "a wrapped draft on a 32-column screen still shows the unavailable status: {wrapped_text}"
         );
     }
 

@@ -134,7 +134,8 @@ Next-prompt ghost text is not wired: the host passes no suggestion after a
 turn, so Tab and Right do not accept ghost text. Suggestion rows stay blocked
 (`PARITY-150-suggestions` remains unverified). `chips=false` means attachments
 are not loaded; it is not a refusal. Unicode, large paste, and resize keep an unsent draft. A refused
-submit, including first-run with no provider, puts that draft back. Failed
+submit, including first-run with no provider, puts that draft back and still
+shows `Execution unavailable` on a narrow screen. Failed
 editors keep the draft. `/edit-prompt` opens an empty composer; Ctrl+G in
 minimal preserves the current draft. HISTFILE Tab completes with
 `GROK_SUGGESTIONS` off; as-you-type completion requires `GROK_SUGGESTIONS=true`.

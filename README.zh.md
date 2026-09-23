@@ -91,7 +91,7 @@ textarea：Enter 提交，Shift+Enter 或 Alt+Enter 插入换行，`/multiline`�
 未接线：回合结束后宿主不传入建议，因此 Tab 与 Right 不会接受幽灵文本。
 建议行保持阻塞，`PARITY-150-suggestions` 仍为未验证。`chips=false` 表示附件
 尚未载入，不是拒绝。中文/组合字符、大段粘贴、缩放
-都会保留未发送草稿。提交被拒绝（包括尚无可用 provider 的首次运行）会把该草稿放回输入框。编辑器失败也会保留草稿。`/edit-prompt` 只打开空草稿；最小模式下 Ctrl+G
+都会保留未发送草稿。提交被拒绝（包括尚无可用 provider 的首次运行）会把该草稿放回输入框，窄屏仍显示 `Execution unavailable`。编辑器失败也会保留草稿。`/edit-prompt` 只打开空草稿；最小模式下 Ctrl+G
 保留当前文本。HISTFILE 的 Tab 补全在 `GROK_SUGGESTIONS` 关闭时仍可用；边输入
 边补全需 `GROK_SUGGESTIONS=true`。`GROK_SUGGESTIONS_AI` 此处不是已接线的 AI
 门控。
