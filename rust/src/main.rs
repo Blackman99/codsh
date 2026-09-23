@@ -1,5 +1,6 @@
 mod acp;
 mod appearance;
+mod assets;
 mod attachments;
 mod auth;
 mod config;
@@ -3765,6 +3766,7 @@ fn run() -> io::Result<()> {
     let mut effective = load_runtime_config(&launch);
     let env_pairs: Vec<(String, String)> = std::env::vars().collect();
     let mut composer = PromptComposer::load(&effective.grok_home, &env_pairs);
+    composer.asset_commands = assets::menu_entries(&effective.assets);
     let mut voice = voice::VoiceSession::new(effective.voice.clone());
     // Kitty event types are requested. A terminal that never emits a release
     // still cannot stop hold-to-talk; the first release flips this on.
@@ -5240,6 +5242,29 @@ fn dispatch_composer_command(
         apply_voice_command(text.trim(), voice, composer, hint, last_error);
         return Ok(());
     }
+    if text.trim() == "/reload-assets" {
+        let restored = std::mem::take(&mut composer.slash_stash);
+        composer.set_text(&restored);
+        let home = std::env::var_os("HOME")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| effective.grok_home.clone());
+        config::refresh_assets(effective, &home);
+        composer.asset_commands = assets::menu_entries(&effective.assets);
+        *hint = format!(
+            "Rescanned assets: {} rules, {} skills, {} commands, {} agents. {}",
+            effective.assets.rules.len(),
+            effective.assets.skills.len(),
+            effective.assets.commands.len(),
+            effective.assets.agents.len(),
+            if effective.assets.project_active {
+                "Project assets active."
+            } else {
+                "Project assets inactive until this folder is trusted."
+            }
+        );
+        last_error.clear();
+        return Ok(());
+    }
     if text.trim() == "/revoke-approvals" {
         composer.restore_slash_draft();
         match revoke_remembered_grants(effective) {
@@ -5823,6 +5848,13 @@ fn dispatch_composer_command(
     if text.trim().is_empty() {
         return Ok(());
     }
+    config::refresh_assets(
+        effective,
+        &std::env::var_os("HOME")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| effective.grok_home.clone()),
+    );
+    composer.asset_commands = assets::menu_entries(&effective.assets);
     if let Some(command) = slash {
         match command {
             models::Command::Context => {
@@ -5913,7 +5945,7 @@ fn dispatch_composer_command(
         return Ok(());
     }
     if let Some(active) = (*client).as_mut() {
-        match active.submit_prompt(text) {
+        match active.submit_prompt(&assets::prompt_for_model(&effective.assets, text)) {
             Ok(_) => {
                 turns.push(Turn {
                     user: text.to_string(),
@@ -5942,6 +5974,30 @@ fn dispatch_composer_command(
         }
     }
     Ok(())
+}
+
+/// Rules, agents, and an explicit skill body wrap the user's text. Attachment
+/// resource links stay as admitted by #156; only text blocks are rewritten.
+fn blocks_with_model_prompt(
+    catalog: &assets::AssetCatalog,
+    blocks: Vec<serde_json::Value>,
+) -> Vec<serde_json::Value> {
+    blocks
+        .into_iter()
+        .map(|mut block| {
+            let Some(text) = block.get("text").and_then(|value| value.as_str()) else {
+                return block;
+            };
+            if block.get("type").and_then(|value| value.as_str()) != Some("text") {
+                return block;
+            }
+            let wrapped = assets::prompt_for_model(catalog, text);
+            if wrapped != text {
+                block["text"] = serde_json::Value::String(wrapped);
+            }
+            block
+        })
+        .collect()
 }
 
 fn submit_composer_prompt(
@@ -6013,16 +6069,23 @@ fn submit_composer_prompt(
         drop_connection(client, owner);
         return;
     }
+    config::refresh_assets(
+        effective,
+        &std::env::var_os("HOME")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| effective.grok_home.clone()),
+    );
+    composer.asset_commands = assets::menu_entries(&effective.assets);
     if let Some(active) = client.as_mut() {
         let prepared = composer.take_prepared_submit();
-        let blocks = prepared
-            .as_ref()
-            .map(|item| item.blocks.clone())
-            .unwrap_or_else(|| vec![serde_json::json!({ "type": "text", "text": text })]);
         let transcript = prepared
             .as_ref()
             .map(|item| item.text.clone())
             .unwrap_or_else(|| text.to_string());
+        let blocks = prepared.map(|item| item.blocks).unwrap_or_else(|| {
+            vec![serde_json::json!({ "type": "text", "text": text })]
+        });
+        let blocks = blocks_with_model_prompt(&effective.assets, blocks);
         match active.submit_prompt_blocks(&blocks) {
             Ok(_) => {
                 turns.push(Turn {

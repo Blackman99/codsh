@@ -260,7 +260,29 @@ than ignored. Untrusted workspaces prompt before applying project config, Hooks,
 plugins, or instructions; `--trust` / `--trust-folder [path]` saves a grant to
 `$GROK_HOME/trusted_folders.toml`, `--revoke-trust` withdraws it, and a
 read-only Home reports save failure without claiming a durable grant. Untrusted
-Hooks, plugins, and project capabilities do not execute.
+Hooks, plugins, and project capabilities do not execute. Trusted folders load
+compatible project rules, skills, agent definitions, and custom commands and
+send that context to dsh. Home rules (`$GROK_HOME/rules/*.md`, enabled
+`~/.claude` and `~/.cursor` rules, and absolute or `~/` `[paths]
+extra_rule_dirs`) load in every project. Relative or missing extra directories
+load nothing and are diagnosed. Project files load from the git root down to
+the working directory: `Agents.md`, `Claude.md`, `CLAUDE.md`,
+`CLAUDE.local.md`, `AGENT.md`, and `AGENTS.md`, plus direct `*.md` files in
+`.grok/rules/` (and enabled `.claude/rules/` and `.cursor/rules/`). Deeper
+files are later in the prompt. Gitignored instruction names such as
+`CLAUDE.local.md` are skipped; there is no per-file character cap. Skills come
+from `.grok/skills/`, `.grok/commands/`, `.agents/`, enabled Claude/Cursor
+skill roots, user roots, and `[skills] paths`. `paths.extra_skill_dirs` is not
+a discovery root. `[skills] ignore` hides a path and `[skills] disabled` keeps
+the name listed but not invocable. A skill body sent to dsh is capped at
+25,000 tokens and the truncation is diagnosed. Flat `commands/*.md` files are
+slash commands. A name that collides with a built-in keeps the built-in on the
+bare name and offers the asset as `/local:name`, `/repo:name`, or
+`/user:name`. Disabled or non-user-invocable skills do not appear in the menu.
+`/reload-assets` rescans after files are added or removed; an empty project
+directory adds no project commands. `inspect` lists each asset's source,
+enabled state, collision, and truncation. Untrusted projects still show global
+rules but do not inject project rules, skills, commands, or agent definitions.
 `codsh --rust plugin marketplace add|list|update|remove` manages local git/path
 catalogs. `plugin install|update|uninstall|list` copies plugin files into the
 isolated Home with version, source, and license provenance. Install requires

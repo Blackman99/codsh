@@ -52,7 +52,8 @@ function userTexts(options) {
   return options.messages
     .filter(message => message.role === 'user')
     .flatMap(message => message.content.filter(block => block.type === 'text').map(block => block.text))
-    .filter(text => !text.startsWith('<') && !/Current runtime context|This snapshot supersedes/i.test(text))
+    .filter(text => !/Current runtime context|This snapshot supersedes/i.test(text))
+    .filter(text => !text.startsWith('<') || text.includes('<human_rules>') || text.includes('<agent-definitions>') || text.includes('Follow the `') || text.includes('Run the custom command'))
 }
 
 function latestUserText(options) {
@@ -416,7 +417,11 @@ class RustAcpMockAdapter extends LlmAdapter {
     const model = options.model?.id ?? options.model ?? 'unknown'
     const history = echoUserText(userTexts(options).join('\n'))
     const latest = echoUserText(latestUserText(options))
-    const reply = `RUST_ACP_ANSWER turn=${turn} route=${route} effort=${effort} model=${model} latest=${latest} ${history}`
+    const corpus = userTexts(options).join('\n')
+    const markers = ['HOME_RULE', 'ROOT_RULE', 'DEEP_RULE', 'DIR_RULE_A', 'EXTRA_RULE', 'NESTED_RULE', 'IGNORED_LOCAL', 'UNTRUSTED_PROJECT', 'COMMIT_BODY', 'SHIP_NOTE_BODY', 'REVIEWER_BODY', 'SKILL_ADDED', 'SKILL_REMOVED']
+      .filter(marker => corpus.includes(marker))
+    const markerText = markers.length ? ` markers=${markers.join(',')}` : ''
+    const reply = `RUST_ACP_ANSWER turn=${turn} route=${route} effort=${effort} model=${model} latest=${latest}${markerText} ${history}`
     yield { type: 'block-start', index: 0, blockType: 'text' }
     yield { type: 'text-delta', index: 0, text: reply }
     yield { type: 'block-end', index: 0, block: { type: 'text', text: reply } }

@@ -116,6 +116,7 @@ pub struct EffectiveConfig {
     pub merged_table: TomlValue,
     pub permission: PermissionPolicy,
     pub voice: crate::voice::VoiceConfig,
+    pub assets: crate::assets::AssetCatalog,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -1731,6 +1732,13 @@ pub fn load_from(mut input: LoadInput) -> EffectiveConfig {
         &permission.rules.len().to_string(),
         "merged",
     );
+    let assets = discover_assets(
+        &input.cwd,
+        &grok_home,
+        &input.home,
+        project_assets_active,
+        &table,
+    );
 
     let voice = crate::voice::load_config(&table, &input.env);
     for (key, value, source) in crate::voice::inspect_rows(&voice) {
@@ -1783,7 +1791,69 @@ pub fn load_from(mut input: LoadInput) -> EffectiveConfig {
         merged_table: table,
         permission,
         voice,
+        assets,
     }
+}
+
+pub fn refresh_assets(config: &mut EffectiveConfig, home: &Path) {
+    config.assets = discover_assets(
+        &config.cwd,
+        &config.grok_home,
+        home,
+        config.project_assets_active,
+        &config.merged_table,
+    );
+}
+
+fn discover_assets(
+    cwd: &Path,
+    grok_home: &Path,
+    home: &Path,
+    project_active: bool,
+    table: &TomlValue,
+) -> crate::assets::AssetCatalog {
+    let compat = table.get("compat");
+    let claude = compat.and_then(|value| value.get("claude"));
+    let cursor = compat.and_then(|value| value.get("cursor"));
+    let extra_rule_dirs = string_list(
+        table
+            .get("paths")
+            .and_then(|value| value.get("extra_rule_dirs")),
+    );
+    let skill_paths = string_list(table.get("skills").and_then(|value| value.get("paths")));
+    let skill_ignore = string_list(table.get("skills").and_then(|value| value.get("ignore")));
+    let skill_disabled = string_list(table.get("skills").and_then(|value| value.get("disabled")));
+    crate::assets::discover(&crate::assets::DiscoverInput {
+        cwd,
+        grok_home,
+        home,
+        project_active,
+        claude_rules: bool_from_toml(claude.and_then(|value| value.get("rules"))).unwrap_or(true),
+        cursor_rules: bool_from_toml(cursor.and_then(|value| value.get("rules"))).unwrap_or(true),
+        claude_agents: bool_from_toml(claude.and_then(|value| value.get("agents"))).unwrap_or(true),
+        claude_skills: bool_from_toml(claude.and_then(|value| value.get("skills"))).unwrap_or(true),
+        cursor_skills: bool_from_toml(cursor.and_then(|value| value.get("skills"))).unwrap_or(true),
+        extra_rule_dirs: &extra_rule_dirs,
+        skill_paths: &skill_paths,
+        skill_ignore: &skill_ignore,
+        skill_disabled: &skill_disabled,
+        builtin_commands: crate::prompt_edit::builtin_command_names(),
+    })
+}
+
+fn string_list(value: Option<&TomlValue>) -> Vec<String> {
+    value
+        .and_then(TomlValue::as_array)
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(TomlValue::as_str)
+                .map(str::trim)
+                .filter(|item| !item.is_empty())
+                .map(str::to_string)
+                .collect()
+        })
+        .unwrap_or_default()
 }
 
 pub fn inspect_text(config: &EffectiveConfig) -> String {
@@ -1822,6 +1892,7 @@ pub fn inspect_text(config: &EffectiveConfig) -> String {
         lines.push(config.first_run_message());
     }
     lines.push(crate::plugin::inspect_text(&config.plugins));
+    lines.push(crate::assets::inspect_text(&config.assets));
     lines.join("\n")
 }
 
@@ -1873,6 +1944,7 @@ pub fn inspect_json(config: &EffectiveConfig) -> String {
         "remoteFetch": config.remote_fetch,
         "workspaceTrusted": config.workspace_trusted,
         "projectAssetsActive": config.project_assets_active,
+        "assets": crate::assets::inspect_json(&config.assets),
         "trustPrompt": config.trust_prompt,
         "plugins": crate::plugin::inspect_json_value(&config.plugins),
         "auth": auth::inspect_auth_json(&config.auth, config.auth_session.as_ref()),

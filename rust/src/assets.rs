@@ -1,0 +1,1680 @@
+//! Frozen Grok project rules, skills, agent definitions, and custom commands.
+//!
+//! dsh still executes the turn. This module discovers compatible assets,
+//! diagnoses conflicts and truncation, and hands trusted content to dsh.
+
+use std::collections::BTreeSet;
+use std::fs;
+use std::path::{Path, PathBuf};
+
+pub const SKILL_BODY_TOKEN_CAP: usize = 25_000;
+const CHARS_PER_TOKEN: usize = 4;
+const RULE_CANDIDATES: &[&str] = &[
+    "Agents.md",
+    "Claude.md",
+    "CLAUDE.md",
+    "CLAUDE.local.md",
+    "AGENT.md",
+    "AGENTS.md",
+];
+const VENDOR_SKILLS: &[&str] = &["shell", "canvas", "statusline"];
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct AssetDiagnostic {
+    pub kind: String,
+    pub path: String,
+    pub detail: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RuleFile {
+    pub path: PathBuf,
+    pub display: String,
+    pub scope: String,
+    pub content: String,
+    pub bytes: usize,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SkillAsset {
+    pub name: String,
+    pub qualified: String,
+    pub description: String,
+    pub source: String,
+    pub path: PathBuf,
+    pub user_invocable: bool,
+    pub model_invocable: bool,
+    pub argument_hint: String,
+    pub body: String,
+    pub truncated: bool,
+    pub disabled: bool,
+    pub collides_with: Option<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct AgentAsset {
+    pub name: String,
+    pub description: String,
+    pub source: String,
+    pub path: PathBuf,
+    pub body: String,
+    pub model: Option<String>,
+    pub tools: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CommandAsset {
+    pub name: String,
+    pub qualified: String,
+    pub description: String,
+    pub source: String,
+    pub path: PathBuf,
+    pub argument_hint: String,
+    pub body: String,
+    pub collides_with: Option<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct AssetCatalog {
+    pub rules: Vec<RuleFile>,
+    pub skills: Vec<SkillAsset>,
+    pub agents: Vec<AgentAsset>,
+    pub commands: Vec<CommandAsset>,
+    pub diagnostics: Vec<AssetDiagnostic>,
+    pub project_active: bool,
+}
+
+#[derive(Clone, Debug)]
+pub struct DiscoverInput<'a> {
+    pub cwd: &'a Path,
+    pub grok_home: &'a Path,
+    pub home: &'a Path,
+    pub project_active: bool,
+    pub claude_rules: bool,
+    pub cursor_rules: bool,
+    pub claude_agents: bool,
+    pub claude_skills: bool,
+    pub cursor_skills: bool,
+    pub extra_rule_dirs: &'a [String],
+    pub skill_paths: &'a [String],
+    pub skill_ignore: &'a [String],
+    pub skill_disabled: &'a [String],
+    pub builtin_commands: &'a [&'a str],
+}
+
+pub fn discover(input: &DiscoverInput<'_>) -> AssetCatalog {
+    let mut diagnostics = Vec::new();
+    let rules = discover_rules(input, &mut diagnostics);
+    let mut skills = Vec::new();
+    let mut commands = Vec::new();
+    discover_skills_and_commands(input, &mut skills, &mut commands, &mut diagnostics);
+    mark_collisions(&mut skills, &mut commands, input.builtin_commands);
+    let agents = discover_agents(input, &mut diagnostics);
+    AssetCatalog {
+        rules,
+        skills,
+        agents,
+        commands,
+        diagnostics,
+        project_active: input.project_active,
+    }
+}
+
+pub fn rule_context(catalog: &AssetCatalog) -> String {
+    if catalog.rules.is_empty() {
+        return String::new();
+    }
+    let mut body = String::from(
+        "<human_rules>\nProject and user rules. Deeper files take precedence over broader ones.\n",
+    );
+    for rule in &catalog.rules {
+        body.push_str(&format!(
+            "\nInstructions from: {} ({}, {} bytes)\n{}\n",
+            rule.display,
+            rule.scope,
+            rule.bytes,
+            rule.content.trim_end()
+        ));
+    }
+    body.push_str("</human_rules>\n");
+    body
+}
+
+pub fn skill_invocation<'a>(catalog: &'a AssetCatalog, token: &str) -> Option<&'a SkillAsset> {
+    let name = token.trim().trim_start_matches('/').trim();
+    let (name, _) = name.split_once(char::is_whitespace).unwrap_or((name, ""));
+    catalog.skills.iter().find(|skill| {
+        !skill.disabled && skill.user_invocable && (skill.name == name || skill.qualified == name)
+    })
+}
+
+pub fn command_invocation<'a>(catalog: &'a AssetCatalog, token: &str) -> Option<&'a CommandAsset> {
+    let name = token.trim().trim_start_matches('/').trim();
+    let (name, _) = name.split_once(char::is_whitespace).unwrap_or((name, ""));
+    catalog
+        .commands
+        .iter()
+        .find(|command| command.name == name || command.qualified == name)
+}
+
+pub fn prompt_for_model(catalog: &AssetCatalog, text: &str) -> String {
+    let rules = rule_context(catalog);
+    let agents = agent_context(catalog);
+    let invocation = invocation_prompt(catalog, text).unwrap_or_default();
+    if rules.is_empty() && agents.is_empty() && invocation.is_empty() {
+        return text.to_string();
+    }
+    format!("{rules}{agents}{invocation}{text}")
+}
+
+fn agent_context(catalog: &AssetCatalog) -> String {
+    if catalog.agents.is_empty() {
+        return String::new();
+    }
+    let mut body = String::from("<agent-definitions>\n");
+    for agent in &catalog.agents {
+        body.push_str(&format!(
+            "Agent {name} ({source}) from {path}: {description}\n{content}\n",
+            name = agent.name,
+            source = agent.source,
+            path = agent.path.display(),
+            description = agent.description,
+            content = agent.body.trim_end()
+        ));
+    }
+    body.push_str("</agent-definitions>\n");
+    body
+}
+
+pub fn invocation_prompt(catalog: &AssetCatalog, text: &str) -> Option<String> {
+    let trimmed = text.trim();
+    if !trimmed.starts_with('/') {
+        return None;
+    }
+    let args = trimmed
+        .split_once(char::is_whitespace)
+        .map(|(_, rest)| rest.trim())
+        .unwrap_or("");
+    if let Some(skill) = skill_invocation(catalog, trimmed) {
+        let mut prompt = format!(
+            "Follow the `{name}` skill from {path}. Arguments: {args}\n\n{body}\n",
+            name = skill.qualified,
+            path = skill.path.display(),
+            body = skill.body.trim_end()
+        );
+        if skill.truncated {
+            prompt.push_str(
+                "\nThe skill body was truncated at 25000 tokens. Read sibling files for the rest.\n",
+            );
+        }
+        return Some(prompt);
+    }
+    command_invocation(catalog, trimmed).map(|command| {
+        format!(
+            "Run the custom command `{name}` from {path}. Arguments: {args}\n\n{body}\n",
+            name = command.qualified,
+            path = command.path.display(),
+            body = command.body.trim_end()
+        )
+    })
+}
+
+pub fn inspect_text(catalog: &AssetCatalog) -> String {
+    let mut lines = vec![format!(
+        "Assets: project {} · {} rules · {} skills · {} commands · {} agents",
+        if catalog.project_active {
+            "active"
+        } else {
+            "inactive"
+        },
+        catalog.rules.len(),
+        catalog.skills.len(),
+        catalog.commands.len(),
+        catalog.agents.len()
+    )];
+    for rule in &catalog.rules {
+        lines.push(format!(
+            "  rule {:<8} {}  ({} bytes)",
+            rule.scope, rule.display, rule.bytes
+        ));
+    }
+    for skill in &catalog.skills {
+        let state = if skill.disabled {
+            "disabled"
+        } else if !skill.user_invocable {
+            "model-only"
+        } else {
+            "enabled"
+        };
+        let collision = skill
+            .collides_with
+            .as_deref()
+            .map(|name| format!(" [collides with {name} → /{}]", skill.qualified))
+            .unwrap_or_default();
+        let truncated = if skill.truncated { " [truncated]" } else { "" };
+        lines.push(format!(
+            "  skill {:<8} /{}  {}{collision}{truncated}",
+            skill.source, skill.name, state
+        ));
+    }
+    for command in &catalog.commands {
+        let collision = command
+            .collides_with
+            .as_deref()
+            .map(|name| format!(" [collides with {name} → /{}]", command.qualified))
+            .unwrap_or_default();
+        lines.push(format!(
+            "  command {:<8} /{}{collision}",
+            command.source, command.name
+        ));
+    }
+    for agent in &catalog.agents {
+        lines.push(format!(
+            "  agent {:<8} {}  {}",
+            agent.source, agent.name, agent.description
+        ));
+    }
+    for diagnostic in &catalog.diagnostics {
+        lines.push(format!(
+            "  diagnostic {:<16} {}  {}",
+            diagnostic.kind, diagnostic.path, diagnostic.detail
+        ));
+    }
+    lines.join("\n")
+}
+
+pub fn inspect_json(catalog: &AssetCatalog) -> serde_json::Value {
+    serde_json::json!({
+        "projectActive": catalog.project_active,
+        "rules": catalog.rules.iter().map(|rule| serde_json::json!({
+            "path": rule.display,
+            "scope": rule.scope,
+            "bytes": rule.bytes,
+        })).collect::<Vec<_>>(),
+        "skills": catalog.skills.iter().map(|skill| serde_json::json!({
+            "name": skill.name,
+            "description": skill.description,
+            "source": skill.source,
+            "path": skill.path,
+            "userInvocable": skill.user_invocable,
+            "modelInvocable": skill.model_invocable,
+            "disabled": skill.disabled,
+            "truncated": skill.truncated,
+            "collidesWith": skill.collides_with,
+            "invocableAs": format!("/{}", if skill.collides_with.is_some() { &skill.qualified } else { &skill.name }),
+        })).collect::<Vec<_>>(),
+        "commands": catalog.commands.iter().map(|command| serde_json::json!({
+            "name": command.name,
+            "description": command.description,
+            "source": command.source,
+            "path": command.path,
+            "collidesWith": command.collides_with,
+            "invocableAs": format!("/{}", if command.collides_with.is_some() { &command.qualified } else { &command.name }),
+        })).collect::<Vec<_>>(),
+        "agents": catalog.agents.iter().map(|agent| serde_json::json!({
+            "name": agent.name,
+            "description": agent.description,
+            "source": agent.source,
+            "path": agent.path,
+            "model": agent.model,
+        })).collect::<Vec<_>>(),
+        "diagnostics": catalog.diagnostics.iter().map(|item| serde_json::json!({
+            "kind": item.kind,
+            "path": item.path,
+            "detail": item.detail,
+        })).collect::<Vec<_>>(),
+    })
+}
+
+pub fn menu_entries(catalog: &AssetCatalog) -> Vec<(String, String)> {
+    let mut entries = Vec::new();
+    for skill in &catalog.skills {
+        if skill.disabled || !skill.user_invocable {
+            continue;
+        }
+        let label = if skill.collides_with.is_some() {
+            format!("/{}", skill.qualified)
+        } else {
+            format!("/{}", skill.name)
+        };
+        entries.push((
+            label,
+            format!("skill · {}  {}", skill.source, skill.description),
+        ));
+    }
+    for command in &catalog.commands {
+        let label = if command.collides_with.is_some() {
+            format!("/{}", command.qualified)
+        } else {
+            format!("/{}", command.name)
+        };
+        entries.push((
+            label,
+            format!("command · {}  {}", command.source, command.description),
+        ));
+    }
+    entries.sort_by(|left, right| left.0.cmp(&right.0));
+    entries
+}
+
+fn discover_rules(
+    input: &DiscoverInput<'_>,
+    diagnostics: &mut Vec<AssetDiagnostic>,
+) -> Vec<RuleFile> {
+    let mut rules = Vec::new();
+    let mut seen = BTreeSet::new();
+    push_rule_dir(
+        &mut rules,
+        &mut seen,
+        diagnostics,
+        &input.grok_home.join("rules"),
+        "global",
+        true,
+    );
+    if input.claude_rules {
+        push_named(
+            &mut rules,
+            &mut seen,
+            diagnostics,
+            &input.home.join(".claude"),
+            RULE_CANDIDATES,
+            "global",
+        );
+        push_rule_dir(
+            &mut rules,
+            &mut seen,
+            diagnostics,
+            &input.home.join(".claude").join("rules"),
+            "global",
+            true,
+        );
+    }
+    if input.cursor_rules {
+        push_named(
+            &mut rules,
+            &mut seen,
+            diagnostics,
+            &input.home.join(".cursor"),
+            RULE_CANDIDATES,
+            "global",
+        );
+        push_rule_dir(
+            &mut rules,
+            &mut seen,
+            diagnostics,
+            &input.home.join(".cursor").join("rules"),
+            "global",
+            true,
+        );
+    }
+    for raw in input.extra_rule_dirs {
+        match expand_absolute(raw, input.home) {
+            Ok(path) => push_rule_dir(&mut rules, &mut seen, diagnostics, &path, "global", true),
+            Err(detail) => diagnostics.push(AssetDiagnostic {
+                kind: "rule-path".into(),
+                path: raw.clone(),
+                detail,
+            }),
+        }
+    }
+    if !input.project_active {
+        return rules;
+    }
+    for directory in project_chain(input.cwd) {
+        push_named(
+            &mut rules,
+            &mut seen,
+            diagnostics,
+            &directory,
+            RULE_CANDIDATES,
+            "project",
+        );
+        if input.claude_agents {
+            for name in ["CLAUDE.md", "CLAUDE.local.md"] {
+                push_file(
+                    &mut rules,
+                    &mut seen,
+                    diagnostics,
+                    &directory.join(".claude").join(name),
+                    "project",
+                );
+            }
+        }
+        push_rule_dir(
+            &mut rules,
+            &mut seen,
+            diagnostics,
+            &directory.join(".grok").join("rules"),
+            "project",
+            true,
+        );
+        if input.claude_rules {
+            push_rule_dir(
+                &mut rules,
+                &mut seen,
+                diagnostics,
+                &directory.join(".claude").join("rules"),
+                "project",
+                true,
+            );
+        }
+        if input.cursor_rules {
+            push_rule_dir(
+                &mut rules,
+                &mut seen,
+                diagnostics,
+                &directory.join(".cursor").join("rules"),
+                "project",
+                true,
+            );
+        }
+    }
+    rules
+}
+
+struct RawSkill {
+    name: String,
+    description: String,
+    source: String,
+    scope: String,
+    path: PathBuf,
+    user_invocable: bool,
+    model_invocable: bool,
+    argument_hint: String,
+    body: String,
+    truncated: bool,
+    disabled: bool,
+    rank: u16,
+}
+
+fn discover_skills_and_commands(
+    input: &DiscoverInput<'_>,
+    skills: &mut Vec<SkillAsset>,
+    commands: &mut Vec<CommandAsset>,
+    diagnostics: &mut Vec<AssetDiagnostic>,
+) {
+    let mut raw = Vec::new();
+    let mut command_raw = Vec::new();
+    // Lower rank wins. Project locations outrank user locations.
+    if input.project_active {
+        if let Some(repo) = git_root(input.cwd) {
+            for directory in ancestor_dirs(&repo, input.cwd) {
+                scan_skill_tier(
+                    input,
+                    &directory,
+                    "project",
+                    "repo",
+                    20,
+                    &mut raw,
+                    &mut command_raw,
+                    diagnostics,
+                );
+            }
+        }
+        if git_root(input.cwd).as_deref() != Some(input.cwd) {
+            scan_skill_tier(
+                input,
+                input.cwd,
+                "project",
+                "local",
+                10,
+                &mut raw,
+                &mut command_raw,
+                diagnostics,
+            );
+        }
+    }
+    scan_user_skills(input, &mut raw, &mut command_raw, diagnostics);
+    for raw_path in input.skill_paths {
+        match expand_user(raw_path, input.home) {
+            Ok(path) => scan_configured_skill(input, &path, &mut raw, diagnostics),
+            Err(detail) => diagnostics.push(AssetDiagnostic {
+                kind: "skill-path".into(),
+                path: raw_path.clone(),
+                detail,
+            }),
+        }
+    }
+    raw.sort_by(|left, right| {
+        left.name
+            .cmp(&right.name)
+            .then(left.rank.cmp(&right.rank))
+            .then(left.path.cmp(&right.path))
+    });
+    let mut winners: Vec<RawSkill> = Vec::new();
+    for skill in raw {
+        if let Some(existing) = winners.iter().find(|item| item.name == skill.name) {
+            diagnostics.push(AssetDiagnostic {
+                kind: "skill-collision".into(),
+                path: skill.path.display().to_string(),
+                detail: format!(
+                    "{} is shadowed by {} ({})",
+                    skill.path.display(),
+                    existing.path.display(),
+                    existing.source
+                ),
+            });
+            continue;
+        }
+        winners.push(skill);
+    }
+    for skill in winners {
+        skills.push(SkillAsset {
+            qualified: format!("{}:{}", skill.scope, skill.name),
+            name: skill.name,
+            description: skill.description,
+            source: skill.source,
+            path: skill.path,
+            user_invocable: skill.user_invocable,
+            model_invocable: skill.model_invocable,
+            argument_hint: skill.argument_hint,
+            body: skill.body,
+            truncated: skill.truncated,
+            disabled: skill.disabled,
+            collides_with: None,
+        });
+    }
+    command_raw.sort_by(|left, right| left.name.cmp(&right.name));
+    let mut seen_commands = BTreeSet::new();
+    for command in command_raw {
+        if !seen_commands.insert(command.name.clone()) {
+            diagnostics.push(AssetDiagnostic {
+                kind: "command-collision".into(),
+                path: command.path.display().to_string(),
+                detail: format!("{} is shadowed by a higher-priority command", command.name),
+            });
+            continue;
+        }
+        commands.push(command);
+    }
+}
+
+fn scan_skill_tier(
+    input: &DiscoverInput<'_>,
+    directory: &Path,
+    source: &str,
+    scope: &str,
+    rank: u16,
+    skills: &mut Vec<RawSkill>,
+    commands: &mut Vec<CommandAsset>,
+    diagnostics: &mut Vec<AssetDiagnostic>,
+) {
+    for root_name in [".grok", ".agents"] {
+        let root = directory.join(root_name);
+        scan_skill_root(
+            input,
+            &root.join("skills"),
+            source,
+            scope,
+            rank,
+            skills,
+            diagnostics,
+        );
+        scan_flat_skills(
+            input,
+            &root.join("commands"),
+            source,
+            scope,
+            rank,
+            skills,
+            diagnostics,
+        );
+    }
+    if input.claude_skills {
+        let root = directory.join(".claude");
+        scan_skill_root(
+            input,
+            &root.join("skills"),
+            "project",
+            scope,
+            rank,
+            skills,
+            diagnostics,
+        );
+        scan_command_root(
+            input,
+            &root.join("commands"),
+            "project",
+            scope,
+            rank,
+            commands,
+        );
+        scan_flat_skills(
+            input,
+            &root.join("commands"),
+            "project",
+            scope,
+            rank,
+            skills,
+            diagnostics,
+        );
+    }
+    if input.cursor_skills {
+        scan_skill_root(
+            input,
+            &directory.join(".cursor").join("skills"),
+            "project",
+            scope,
+            rank,
+            skills,
+            diagnostics,
+        );
+    }
+}
+
+fn scan_user_skills(
+    input: &DiscoverInput<'_>,
+    skills: &mut Vec<RawSkill>,
+    commands: &mut Vec<CommandAsset>,
+    diagnostics: &mut Vec<AssetDiagnostic>,
+) {
+    let rank = 40;
+    scan_skill_root(
+        input,
+        &input.grok_home.join("skills"),
+        "user",
+        "user",
+        rank,
+        skills,
+        diagnostics,
+    );
+    scan_flat_skills(
+        input,
+        &input.grok_home.join("commands"),
+        "user",
+        "user",
+        rank,
+        skills,
+        diagnostics,
+    );
+    if input.claude_skills {
+        scan_skill_root(
+            input,
+            &input.home.join(".claude").join("skills"),
+            "user",
+            "user",
+            rank,
+            skills,
+            diagnostics,
+        );
+        scan_command_root(
+            input,
+            &input.home.join(".claude").join("commands"),
+            "user",
+            "user",
+            rank,
+            commands,
+        );
+    }
+    if input.cursor_skills {
+        scan_skill_root(
+            input,
+            &input.home.join(".cursor").join("skills"),
+            "user",
+            "user",
+            rank,
+            skills,
+            diagnostics,
+        );
+    }
+}
+
+fn scan_configured_skill(
+    input: &DiscoverInput<'_>,
+    path: &Path,
+    skills: &mut Vec<RawSkill>,
+    diagnostics: &mut Vec<AssetDiagnostic>,
+) {
+    if ignored_skill(input, path) {
+        return;
+    }
+    if path.is_file() && path.file_name().and_then(|name| name.to_str()) == Some("SKILL.md") {
+        if let Some(skill) = parse_skill(input, path, "config", "config", 30, diagnostics) {
+            skills.push(skill);
+        }
+        return;
+    }
+    if !path.is_dir() {
+        diagnostics.push(AssetDiagnostic {
+            kind: "skill-path".into(),
+            path: path.display().to_string(),
+            detail: "configured skill path is missing".into(),
+        });
+        return;
+    }
+    if path.join("SKILL.md").is_file() {
+        if let Some(skill) = parse_skill(
+            input,
+            &path.join("SKILL.md"),
+            "config",
+            "config",
+            30,
+            diagnostics,
+        ) {
+            skills.push(skill);
+        }
+        return;
+    }
+    let entries = match fs::read_dir(path) {
+        Ok(entries) => entries,
+        Err(error) => {
+            diagnostics.push(AssetDiagnostic {
+                kind: "skill-path".into(),
+                path: path.display().to_string(),
+                detail: error.to_string(),
+            });
+            return;
+        }
+    };
+    for entry in entries.flatten() {
+        let child = entry.path();
+        if !child.is_dir() || ignored_skill(input, &child.join("SKILL.md")) {
+            continue;
+        }
+        walk_skill_dirs(input, &child, skills, diagnostics);
+    }
+}
+
+fn walk_skill_dirs(
+    input: &DiscoverInput<'_>,
+    directory: &Path,
+    skills: &mut Vec<RawSkill>,
+    diagnostics: &mut Vec<AssetDiagnostic>,
+) {
+    let file = directory.join("SKILL.md");
+    if file.is_file()
+        && !ignored_skill(input, &file)
+        && let Some(skill) = parse_skill(input, &file, "config", "config", 30, diagnostics)
+    {
+        skills.push(skill);
+    }
+    let entries = match fs::read_dir(directory) {
+        Ok(entries) => entries,
+        Err(_) => return,
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            walk_skill_dirs(input, &path, skills, diagnostics);
+        }
+    }
+}
+
+fn scan_skill_root(
+    input: &DiscoverInput<'_>,
+    root: &Path,
+    source: &str,
+    scope: &str,
+    rank: u16,
+    skills: &mut Vec<RawSkill>,
+    diagnostics: &mut Vec<AssetDiagnostic>,
+) {
+    if !root.is_dir() {
+        return;
+    }
+    let mut names = match fs::read_dir(root) {
+        Ok(entries) => entries
+            .flatten()
+            .map(|entry| entry.path())
+            .filter(|path| path.is_dir())
+            .collect::<Vec<_>>(),
+        Err(error) => {
+            diagnostics.push(AssetDiagnostic {
+                kind: "skill-root".into(),
+                path: root.display().to_string(),
+                detail: error.to_string(),
+            });
+            return;
+        }
+    };
+    names.sort();
+    for directory in names {
+        let file = directory.join("SKILL.md");
+        if !file.is_file() || ignored_skill(input, &file) {
+            continue;
+        }
+        if let Some(skill) = parse_skill(input, &file, source, scope, rank, diagnostics) {
+            skills.push(skill);
+        }
+    }
+}
+
+fn scan_flat_skills(
+    input: &DiscoverInput<'_>,
+    root: &Path,
+    source: &str,
+    scope: &str,
+    rank: u16,
+    skills: &mut Vec<RawSkill>,
+    diagnostics: &mut Vec<AssetDiagnostic>,
+) {
+    if !root.is_dir() {
+        return;
+    }
+    let mut files = match fs::read_dir(root) {
+        Ok(entries) => entries
+            .flatten()
+            .map(|entry| entry.path())
+            .filter(|path| {
+                path.is_file() && path.extension().and_then(|ext| ext.to_str()) == Some("md")
+            })
+            .collect::<Vec<_>>(),
+        Err(_) => return,
+    };
+    files.sort();
+    for file in files {
+        if ignored_skill(input, &file) {
+            continue;
+        }
+        if let Some(skill) = parse_skill(input, &file, source, scope, rank, diagnostics) {
+            skills.push(skill);
+        }
+    }
+}
+
+fn scan_command_root(
+    input: &DiscoverInput<'_>,
+    root: &Path,
+    source: &str,
+    scope: &str,
+    _rank: u16,
+    commands: &mut Vec<CommandAsset>,
+) {
+    if !root.is_dir() {
+        return;
+    }
+    let mut files = match fs::read_dir(root) {
+        Ok(entries) => entries
+            .flatten()
+            .map(|entry| entry.path())
+            .filter(|path| {
+                path.is_file() && path.extension().and_then(|ext| ext.to_str()) == Some("md")
+            })
+            .collect::<Vec<_>>(),
+        Err(_) => return,
+    };
+    files.sort();
+    for file in files {
+        if ignored_skill(input, &file) {
+            continue;
+        }
+        let stem = file
+            .file_stem()
+            .and_then(|name| name.to_str())
+            .unwrap_or("command");
+        let name = normalize_name(stem);
+        if name.is_empty() {
+            continue;
+        }
+        let (meta, body) = split_frontmatter(&read_text(&file).unwrap_or_default());
+        let description = meta
+            .get("description")
+            .cloned()
+            .filter(|value| !value.is_empty())
+            .unwrap_or_else(|| first_paragraph(&body));
+        commands.push(CommandAsset {
+            qualified: format!("{scope}:{name}"),
+            name,
+            description,
+            source: source.into(),
+            path: file,
+            argument_hint: meta.get("argument-hint").cloned().unwrap_or_default(),
+            body,
+            collides_with: None,
+        });
+    }
+}
+
+fn parse_skill(
+    input: &DiscoverInput<'_>,
+    file: &Path,
+    source: &str,
+    scope: &str,
+    rank: u16,
+    diagnostics: &mut Vec<AssetDiagnostic>,
+) -> Option<RawSkill> {
+    let text = read_text(file)?;
+    let (meta, body) = split_frontmatter(&text);
+    let fallback = if file.file_name().and_then(|name| name.to_str()) == Some("SKILL.md") {
+        file.parent()
+            .and_then(|parent| parent.file_name())
+            .and_then(|name| name.to_str())
+            .unwrap_or("skill")
+    } else {
+        file.file_stem()
+            .and_then(|name| name.to_str())
+            .unwrap_or("skill")
+    };
+    let name = normalize_name(meta.get("name").map(String::as_str).unwrap_or(fallback));
+    if name.is_empty() || name.len() > 64 || VENDOR_SKILLS.contains(&name.as_str()) {
+        diagnostics.push(AssetDiagnostic {
+            kind: "skill-name".into(),
+            path: file.display().to_string(),
+            detail: format!("rejected skill name {name}"),
+        });
+        return None;
+    }
+    if input.skill_disabled.iter().any(|item| item == &name) {
+        return Some(disabled_skill(file, source, scope, rank, name));
+    }
+    let description = meta
+        .get("description")
+        .cloned()
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| first_paragraph(&body));
+    let (body, truncated) = cap_body(&body);
+    if truncated {
+        diagnostics.push(AssetDiagnostic {
+            kind: "skill-truncation".into(),
+            path: file.display().to_string(),
+            detail: format!("{name} body truncated at {SKILL_BODY_TOKEN_CAP} tokens"),
+        });
+    }
+    Some(RawSkill {
+        name,
+        description,
+        source: source.into(),
+        scope: scope.into(),
+        path: file.to_path_buf(),
+        user_invocable: !flag_false(meta.get("user-invocable").map(String::as_str)),
+        model_invocable: !flag_true(meta.get("disable-model-invocation").map(String::as_str)),
+        argument_hint: meta.get("argument-hint").cloned().unwrap_or_default(),
+        body,
+        truncated,
+        disabled: false,
+        rank,
+    })
+}
+
+fn disabled_skill(file: &Path, source: &str, scope: &str, rank: u16, name: String) -> RawSkill {
+    RawSkill {
+        name,
+        description: String::new(),
+        source: source.into(),
+        scope: scope.into(),
+        path: file.to_path_buf(),
+        user_invocable: false,
+        model_invocable: false,
+        argument_hint: String::new(),
+        body: String::new(),
+        truncated: false,
+        disabled: true,
+        rank,
+    }
+}
+
+fn discover_agents(
+    input: &DiscoverInput<'_>,
+    diagnostics: &mut Vec<AssetDiagnostic>,
+) -> Vec<AgentAsset> {
+    let mut agents = Vec::new();
+    let mut seen = BTreeSet::new();
+    if input.project_active {
+        for directory in project_chain(input.cwd) {
+            push_agents(
+                &mut agents,
+                &mut seen,
+                diagnostics,
+                &directory.join(".grok").join("agents"),
+                "project",
+            );
+        }
+    }
+    push_agents(
+        &mut agents,
+        &mut seen,
+        diagnostics,
+        &input.grok_home.join("agents"),
+        "user",
+    );
+    agents
+}
+
+fn push_agents(
+    agents: &mut Vec<AgentAsset>,
+    seen: &mut BTreeSet<String>,
+    diagnostics: &mut Vec<AssetDiagnostic>,
+    directory: &Path,
+    source: &str,
+) {
+    if !directory.is_dir() {
+        return;
+    }
+    let mut files = match fs::read_dir(directory) {
+        Ok(entries) => entries
+            .flatten()
+            .map(|entry| entry.path())
+            .collect::<Vec<_>>(),
+        Err(error) => {
+            diagnostics.push(AssetDiagnostic {
+                kind: "agent-root".into(),
+                path: directory.display().to_string(),
+                detail: error.to_string(),
+            });
+            return;
+        }
+    };
+    files.sort();
+    for file in files {
+        if file.extension().and_then(|ext| ext.to_str()) != Some("md") {
+            continue;
+        }
+        let Some(text) = read_text(&file) else {
+            continue;
+        };
+        let (meta, body) = split_frontmatter(&text);
+        let fallback = file
+            .file_stem()
+            .and_then(|name| name.to_str())
+            .unwrap_or("agent");
+        let name = normalize_name(meta.get("name").map(String::as_str).unwrap_or(fallback));
+        if name.is_empty() || !seen.insert(name.clone()) {
+            diagnostics.push(AssetDiagnostic {
+                kind: "agent-collision".into(),
+                path: file.display().to_string(),
+                detail: format!("{name} is shadowed by a higher-priority agent"),
+            });
+            continue;
+        }
+        agents.push(AgentAsset {
+            name,
+            description: meta
+                .get("description")
+                .cloned()
+                .unwrap_or_else(|| first_paragraph(&body)),
+            source: source.into(),
+            path: file,
+            body,
+            model: meta.get("model").cloned(),
+            tools: meta.get("tools").cloned().unwrap_or_default(),
+        });
+    }
+}
+
+fn mark_collisions(skills: &mut [SkillAsset], commands: &mut [CommandAsset], builtins: &[&str]) {
+    let mut names = BTreeSet::new();
+    for name in builtins {
+        names.insert((*name).to_string());
+    }
+    let skill_names: Vec<String> = skills.iter().map(|skill| skill.name.clone()).collect();
+    let command_names: Vec<String> = commands
+        .iter()
+        .map(|command| command.name.clone())
+        .collect();
+    for skill in skills.iter_mut() {
+        let contested = builtins.contains(&skill.name.as_str())
+            || command_names
+                .iter()
+                .filter(|name| *name == &skill.name)
+                .count()
+                > 0
+            || skill_names
+                .iter()
+                .filter(|name| *name == &skill.name)
+                .count()
+                > 1;
+        if contested || names.contains(&skill.name) {
+            skill.collides_with = Some(format!("/{}", skill.name));
+        }
+        names.insert(skill.name.clone());
+    }
+    for command in commands.iter_mut() {
+        if builtins.contains(&command.name.as_str()) || names.contains(&command.name) {
+            command.collides_with = Some(format!("/{}", command.name));
+        }
+        names.insert(command.name.clone());
+    }
+}
+
+fn push_named(
+    rules: &mut Vec<RuleFile>,
+    seen: &mut BTreeSet<PathBuf>,
+    diagnostics: &mut Vec<AssetDiagnostic>,
+    directory: &Path,
+    names: &[&str],
+    scope: &str,
+) {
+    for name in names {
+        push_file(rules, seen, diagnostics, &directory.join(name), scope);
+    }
+}
+
+fn push_rule_dir(
+    rules: &mut Vec<RuleFile>,
+    seen: &mut BTreeSet<PathBuf>,
+    diagnostics: &mut Vec<AssetDiagnostic>,
+    directory: &Path,
+    scope: &str,
+    direct_only: bool,
+) {
+    if !directory.exists() {
+        return;
+    }
+    if !directory.is_dir() {
+        diagnostics.push(AssetDiagnostic {
+            kind: "rule-path".into(),
+            path: directory.display().to_string(),
+            detail: "rules path is not a directory".into(),
+        });
+        return;
+    }
+    let mut files = match fs::read_dir(directory) {
+        Ok(entries) => entries
+            .flatten()
+            .map(|entry| entry.path())
+            .collect::<Vec<_>>(),
+        Err(error) => {
+            diagnostics.push(AssetDiagnostic {
+                kind: "rule-path".into(),
+                path: directory.display().to_string(),
+                detail: error.to_string(),
+            });
+            return;
+        }
+    };
+    files.sort();
+    for path in files {
+        if direct_only && !path.is_file() {
+            continue;
+        }
+        if path.extension().and_then(|ext| ext.to_str()) == Some("md") {
+            push_file(rules, seen, diagnostics, &path, scope);
+        }
+    }
+}
+
+fn push_file(
+    rules: &mut Vec<RuleFile>,
+    seen: &mut BTreeSet<PathBuf>,
+    diagnostics: &mut Vec<AssetDiagnostic>,
+    path: &Path,
+    scope: &str,
+) {
+    if !path.is_file() || gitignored_file(path) {
+        return;
+    }
+    let key = fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+    if !seen.insert(key) {
+        return;
+    }
+    match read_text(path) {
+        Some(content) => rules.push(RuleFile {
+            display: path.display().to_string(),
+            path: path.to_path_buf(),
+            scope: scope.into(),
+            bytes: content.len(),
+            content,
+        }),
+        None => diagnostics.push(AssetDiagnostic {
+            kind: "rule-read".into(),
+            path: path.display().to_string(),
+            detail: "instruction file is unreadable".into(),
+        }),
+    }
+}
+
+fn project_chain(cwd: &Path) -> Vec<PathBuf> {
+    if let Some(root) = git_root(cwd) {
+        ancestor_dirs(&root, cwd)
+    } else {
+        vec![cwd.to_path_buf()]
+    }
+}
+
+fn ancestor_dirs(root: &Path, cwd: &Path) -> Vec<PathBuf> {
+    let mut chain = vec![root.to_path_buf()];
+    if let Ok(relative) = cwd.strip_prefix(root) {
+        let mut cursor = root.to_path_buf();
+        for component in relative.components() {
+            cursor.push(component);
+            chain.push(cursor.clone());
+        }
+    }
+    chain
+}
+
+fn git_root(start: &Path) -> Option<PathBuf> {
+    let mut cursor = if start.is_dir() {
+        start.to_path_buf()
+    } else {
+        start.parent()?.to_path_buf()
+    };
+    loop {
+        if cursor.join(".git").exists() {
+            return Some(cursor);
+        }
+        if !cursor.pop() {
+            return None;
+        }
+    }
+}
+
+fn gitignored_file(path: &Path) -> bool {
+    let mut cursor = path.parent().map(Path::to_path_buf);
+    while let Some(directory) = cursor {
+        let ignore = directory.join(".gitignore");
+        if ignore.is_file()
+            && let Ok(text) = fs::read_to_string(&ignore)
+            && let Some(name) = path.file_name().and_then(|name| name.to_str())
+            && text.lines().any(|line| {
+                let line = line.trim();
+                !line.is_empty()
+                    && !line.starts_with('#')
+                    && (line == name || line == format!("/{name}"))
+            })
+        {
+            return true;
+        }
+        cursor = directory.parent().map(Path::to_path_buf);
+    }
+    false
+}
+
+fn ignored_skill(input: &DiscoverInput<'_>, path: &Path) -> bool {
+    input.skill_ignore.iter().any(|raw| {
+        expand_user(raw, input.home)
+            .ok()
+            .is_some_and(|prefix| path.starts_with(&prefix) || path == prefix)
+    })
+}
+
+fn expand_absolute(raw: &str, home: &Path) -> Result<PathBuf, String> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return Err("empty extra_rule_dirs entry loads nothing".into());
+    }
+    if let Some(rest) = trimmed.strip_prefix("~/") {
+        return Ok(home.join(rest));
+    }
+    if trimmed == "~" {
+        return Ok(home.to_path_buf());
+    }
+    let path = PathBuf::from(trimmed);
+    if path.is_absolute() {
+        if path.is_dir() {
+            Ok(path)
+        } else {
+            Err("extra rule directory is missing".into())
+        }
+    } else {
+        Err("relative extra_rule_dirs entry loads nothing".into())
+    }
+}
+
+fn expand_user(raw: &str, home: &Path) -> Result<PathBuf, String> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return Err("empty skill path".into());
+    }
+    if let Some(rest) = trimmed.strip_prefix("~/") {
+        return Ok(home.join(rest));
+    }
+    if trimmed == "~" {
+        return Ok(home.to_path_buf());
+    }
+    let path = PathBuf::from(trimmed);
+    if path.is_absolute() {
+        Ok(path)
+    } else {
+        Err("relative skill path is not scanned".into())
+    }
+}
+
+fn read_text(path: &Path) -> Option<String> {
+    let bytes = fs::read(path).ok()?;
+    if bytes.contains(&0) {
+        return None;
+    }
+    String::from_utf8(bytes).ok()
+}
+
+fn split_frontmatter(text: &str) -> (std::collections::BTreeMap<String, String>, String) {
+    let mut meta = std::collections::BTreeMap::new();
+    let rest = text.trim_start_matches('\u{feff}');
+    let Some(body) = rest
+        .strip_prefix("---\n")
+        .or_else(|| rest.strip_prefix("---\r\n"))
+    else {
+        return (meta, text.to_string());
+    };
+    let Some((front, markdown)) = body.split_once("\n---") else {
+        return (meta, text.to_string());
+    };
+    for line in front.lines() {
+        let Some((key, value)) = line.split_once(':') else {
+            continue;
+        };
+        meta.insert(key.trim().to_string(), unquote(value.trim()));
+    }
+    let markdown = markdown.trim_start_matches(['\r', '\n']);
+    (meta, markdown.to_string())
+}
+
+fn unquote(value: &str) -> String {
+    value
+        .trim()
+        .trim_matches('"')
+        .trim_matches('\'')
+        .to_string()
+}
+
+fn first_paragraph(body: &str) -> String {
+    body.lines()
+        .map(str::trim)
+        .find(|line| !line.is_empty() && !line.starts_with('#'))
+        .unwrap_or("custom asset")
+        .to_string()
+}
+
+fn normalize_name(raw: &str) -> String {
+    let mut name = String::new();
+    let mut dash = false;
+    for ch in raw.trim().chars() {
+        let mapped = if ch.is_ascii_alphanumeric() {
+            dash = false;
+            ch.to_ascii_lowercase()
+        } else if ch == ' ' || ch == '_' || ch == '-' {
+            if dash || name.is_empty() {
+                continue;
+            }
+            dash = true;
+            '-'
+        } else {
+            continue;
+        };
+        name.push(mapped);
+        if name.len() >= 64 {
+            break;
+        }
+    }
+    name.trim_matches('-').to_string()
+}
+
+fn flag_true(value: Option<&str>) -> bool {
+    matches!(
+        value
+            .map(|item| item.trim().to_ascii_lowercase())
+            .as_deref(),
+        Some("true" | "yes" | "on" | "1")
+    )
+}
+
+fn flag_false(value: Option<&str>) -> bool {
+    matches!(
+        value
+            .map(|item| item.trim().to_ascii_lowercase())
+            .as_deref(),
+        Some("false" | "no" | "off" | "0")
+    )
+}
+
+fn cap_body(body: &str) -> (String, bool) {
+    let cap = SKILL_BODY_TOKEN_CAP.saturating_mul(CHARS_PER_TOKEN);
+    let mut end = 0;
+    for (index, ch) in body.char_indices() {
+        if index + ch.len_utf8() > cap {
+            return (body[..end].to_string(), true);
+        }
+        end = index + ch.len_utf8();
+    }
+    (body.to_string(), false)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn write(path: &Path, body: &str) {
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent).unwrap();
+        }
+        fs::write(path, body).unwrap();
+    }
+
+    fn catalog_for(
+        root: &Path,
+        project_active: bool,
+        extra: &[String],
+        disabled: &[String],
+    ) -> AssetCatalog {
+        let cwd = root.join("repo").join("src");
+        discover(&DiscoverInput {
+            cwd: &cwd,
+            grok_home: &root.join("grok"),
+            home: &root.join("home"),
+            project_active,
+            claude_rules: true,
+            cursor_rules: true,
+            claude_agents: true,
+            claude_skills: true,
+            cursor_skills: true,
+            extra_rule_dirs: extra,
+            skill_paths: &[],
+            skill_ignore: &[],
+            skill_disabled: disabled,
+            builtin_commands: &["compact"],
+        })
+    }
+
+    fn fixture(root: &Path) {
+        let cwd = root.join("repo").join("src");
+        fs::create_dir_all(root.join("repo").join(".git")).unwrap();
+        write(
+            &root.join("grok").join("rules").join("home.md"),
+            "HOME_RULE\n",
+        );
+        write(&root.join("extra").join("extra.md"), "EXTRA_RULE\n");
+        write(
+            &root.join("extra").join("nested").join("skip.md"),
+            "NESTED_RULE\n",
+        );
+        write(
+            &root.join("repo").join("AGENTS.md"),
+            "ROOT_RULE styled-components\n",
+        );
+        write(&cwd.join("AGENTS.md"), "DEEP_RULE css-modules\n");
+        write(&cwd.join(".gitignore"), "CLAUDE.local.md\n");
+        write(&cwd.join("CLAUDE.local.md"), "IGNORED_LOCAL\n");
+        write(
+            &cwd.join(".grok").join("rules").join("b.md"),
+            "DIR_RULE_B\n",
+        );
+        write(
+            &cwd.join(".grok").join("rules").join("a.md"),
+            "DIR_RULE_A\n",
+        );
+        write(
+            &cwd.join(".grok")
+                .join("skills")
+                .join("commit")
+                .join("SKILL.md"),
+            "---\nname: commit\ndescription: Create commits. Use when asked to commit.\nargument-hint: message\n---\nCOMMIT_BODY\n",
+        );
+        write(
+            &cwd.join(".grok")
+                .join("skills")
+                .join("compact")
+                .join("SKILL.md"),
+            "---\nname: compact\ndescription: Not the builtin.\n---\nSKILL_COMPACT\n",
+        );
+        write(
+            &cwd.join(".grok").join("commands").join("ship-note.md"),
+            "---\ndescription: Write a ship note\nargument-hint: ticket\n---\nSHIP_NOTE_BODY\n",
+        );
+        write(
+            &cwd.join(".grok").join("agents").join("reviewer.md"),
+            "---\nname: reviewer\ndescription: Reviews diffs\ntools: read\n---\nREVIEWER_BODY\n",
+        );
+        write(
+            &root
+                .join("grok")
+                .join("skills")
+                .join("only-extra")
+                .join("SKILL.md"),
+            "---\nname: only-extra\ndescription: user skill\n---\nUSER_SKILL\n",
+        );
+    }
+
+    #[test]
+    fn trusted_discovery_orders_rules_and_exposes_commands() {
+        let root = tempfile::tempdir().unwrap();
+        fixture(root.path());
+        let extra = root.path().join("extra").display().to_string();
+        let catalog = catalog_for(root.path(), true, &[extra, "relative/nope".into()], &[]);
+        let joined = catalog
+            .rules
+            .iter()
+            .map(|rule| rule.content.as_str())
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(joined.contains("HOME_RULE"), "{joined}");
+        assert!(joined.contains("EXTRA_RULE"), "{joined}");
+        assert!(!joined.contains("NESTED_RULE"), "{joined}");
+        assert!(!joined.contains("IGNORED_LOCAL"), "{joined}");
+        assert!(joined.find("ROOT_RULE").unwrap() < joined.find("DEEP_RULE").unwrap());
+        assert!(joined.find("DIR_RULE_A").unwrap() < joined.find("DIR_RULE_B").unwrap());
+        assert!(joined.find("DEEP_RULE").unwrap() < joined.find("DIR_RULE_A").unwrap());
+        assert!(
+            catalog
+                .diagnostics
+                .iter()
+                .any(|item| item.detail.contains("relative"))
+        );
+        assert!(
+            catalog
+                .skills
+                .iter()
+                .any(|skill| skill.name == "commit" && skill.user_invocable)
+        );
+        assert!(
+            catalog
+                .skills
+                .iter()
+                .any(|skill| skill.name == "ship-note" && skill.user_invocable)
+        );
+        assert!(
+            catalog
+                .agents
+                .iter()
+                .any(|agent| agent.name == "reviewer" && agent.tools == "read")
+        );
+        assert!(
+            catalog
+                .skills
+                .iter()
+                .any(|skill| skill.name == "only-extra")
+        );
+        let compact = catalog
+            .skills
+            .iter()
+            .find(|skill| skill.name == "compact")
+            .unwrap();
+        assert_eq!(compact.collides_with.as_deref(), Some("/compact"));
+        let menu = menu_entries(&catalog);
+        assert!(menu.iter().any(|(name, _)| name == "/local:compact"));
+        assert!(!menu.iter().any(|(name, _)| name == "/compact"));
+        let prompt = invocation_prompt(&catalog, "/commit fix the build").unwrap();
+        assert!(prompt.contains("COMMIT_BODY"));
+        assert!(prompt.contains("fix the build"));
+    }
+
+    #[test]
+    fn untrusted_project_assets_do_not_load_but_user_rules_do() {
+        let root = tempfile::tempdir().unwrap();
+        fixture(root.path());
+        let catalog = catalog_for(root.path(), false, &[], &[]);
+        let joined = catalog
+            .rules
+            .iter()
+            .map(|rule| rule.content.as_str())
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(joined.contains("HOME_RULE"));
+        assert!(!joined.contains("ROOT_RULE"));
+        assert!(!joined.contains("DEEP_RULE"));
+        assert!(catalog.skills.iter().all(|skill| skill.source != "project"));
+        assert!(
+            catalog.commands.is_empty()
+                || catalog
+                    .commands
+                    .iter()
+                    .all(|command| command.source != "project")
+        );
+        assert!(
+            catalog
+                .agents
+                .iter()
+                .all(|agent| agent.source != "user" || agent.source == "user")
+        );
+        assert!(!catalog.agents.iter().any(|agent| agent.name == "reviewer"));
+    }
+
+    #[test]
+    fn disabled_skill_is_not_invocable_and_long_body_truncates() {
+        let root = tempfile::tempdir().unwrap();
+        fixture(root.path());
+        let cwd = root.path().join("repo").join("src");
+        write(
+            &cwd.join(".grok")
+                .join("skills")
+                .join("huge")
+                .join("SKILL.md"),
+            &format!(
+                "---\nname: huge\ndescription: big\n---\n{}\n",
+                "Z".repeat(120_000)
+            ),
+        );
+        let catalog = catalog_for(root.path(), true, &[], &["commit".into()]);
+        let commit = catalog
+            .skills
+            .iter()
+            .find(|skill| skill.name == "commit")
+            .unwrap();
+        assert!(commit.disabled);
+        assert!(skill_invocation(&catalog, "/commit").is_none());
+        let huge = catalog
+            .skills
+            .iter()
+            .find(|skill| skill.name == "huge")
+            .unwrap();
+        assert!(huge.truncated);
+        assert!(huge.body.chars().count() <= SKILL_BODY_TOKEN_CAP * CHARS_PER_TOKEN);
+        assert!(
+            catalog
+                .diagnostics
+                .iter()
+                .any(|item| item.kind == "skill-truncation")
+        );
+    }
+
+    #[test]
+    fn extra_skill_dirs_are_not_discovery_roots() {
+        let root = tempfile::tempdir().unwrap();
+        fixture(root.path());
+        write(
+            &root
+                .path()
+                .join("only-extra-dir")
+                .join("smuggled")
+                .join("SKILL.md"),
+            "---\nname: smuggled\ndescription: no\n---\nSMUGGLED\n",
+        );
+        let catalog = discover(&DiscoverInput {
+            cwd: &root.path().join("repo").join("src"),
+            grok_home: &root.path().join("grok"),
+            home: &root.path().join("home"),
+            project_active: true,
+            claude_rules: true,
+            cursor_rules: false,
+            claude_agents: true,
+            claude_skills: true,
+            cursor_skills: false,
+            extra_rule_dirs: &[],
+            skill_paths: &[],
+            skill_ignore: &[],
+            skill_disabled: &[],
+            builtin_commands: &[],
+        });
+        assert!(!catalog.skills.iter().any(|skill| skill.name == "smuggled"));
+    }
+}

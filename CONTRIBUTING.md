@@ -362,12 +362,16 @@ tool results display as cancelled. After cancel, a new prompt still works.
 `scripts/rust-fork-pty-test.py`, `scripts/rust-settings-pty-test.py`,
 `scripts/rust-import-pty-test.py`, `scripts/rust-plugin-pty-test.py`,
 `scripts/rust-auth-pty-test.py`, `scripts/rust-permission-pty-test.py`,
-`scripts/rust-prompt-pty-test.py`, `scripts/rust-content-pty-test.py`, and
-`scripts/rust-voice-pty-test.py` against the packed native candidate. Voice PTY
-uses a local substitute speech-to-text server and `CODSH_VOICE_FIXTURE`; it
-does not open the microphone. `/voice doctor` must not record. A slash command
-typed while recording parks the draft and restores it; it must not leave `/`
-or drop that text. A changed draft drops a late transcript. Linux and Windows capture stay unverified. Official `xai-grok-markdown` tests run with `cargo test --manifest-path rust/Cargo.toml --workspace`. Packed content PTY covers markdown, tables, mermaid, thoughts, fold, raw, full content, copy-original, `$PAGER`, resume, diffs, and failed tools. The visible fullscreen frame must match official markdown: keep `Vec<T>`, comparisons, fenced Rust, and inline HTML tags, keep a ZWJ emoji together, and paint `failed` plus `[error]` for a missing or rejected tool. A settled full-content page shows the fenced function and the unclosed-fence marker once; the notice under the transcript is not a second copy of that body.
+`scripts/rust-prompt-pty-test.py`, `scripts/rust-content-pty-test.py`,
+`scripts/rust-voice-pty-test.py`, and `scripts/rust-assets-pty-test.py` against
+the packed native candidate. Voice PTY uses a local substitute speech-to-text
+server and `CODSH_VOICE_FIXTURE`; it does not open the microphone. `/voice doctor`
+must not record. A slash command typed while recording parks the draft and
+restores it; it must not leave `/` or drop that text. A changed draft drops a
+late transcript. Linux and Windows capture stay unverified. The assets test
+trusts a fixture repo, checks that ordered rules, a skill, and a custom command
+change the dsh request, rescans an added and removed skill, and checks an empty
+directory. Untrusted inspect must omit project files. Official `xai-grok-markdown` tests run with `cargo test --manifest-path rust/Cargo.toml --workspace`. Packed content PTY covers markdown, tables, mermaid, thoughts, fold, raw, full content, copy-original, `$PAGER`, resume, diffs, and failed tools. The visible fullscreen frame must match official markdown: keep `Vec<T>`, comparisons, fenced Rust, and inline HTML tags, keep a ZWJ emoji together, and paint `failed` plus `[error]` for a missing or rejected tool. A settled full-content page shows the fenced function and the unclosed-fence marker once; the notice under the transcript is not a second copy of that body.
 Prompt editing must keep the official textarea, prove Unicode/paste/resize,
 history selection, slash/HISTFILE completion cancel, both simple and prompt-Vim
 modes, and an actual `$VISUAL` round-trip that does not submit on save or failure.

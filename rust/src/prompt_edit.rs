@@ -15,6 +15,33 @@ pub const HISTORY_FILE: &str = "prompt-history.json";
 pub const MAX_HISTORY: usize = 500;
 const ESC_CLEAR_MS: u128 = 800;
 
+pub fn builtin_command_names() -> &'static [&'static str] {
+    &[
+        "compact",
+        "context",
+        "dashboard",
+        "edit-prompt",
+        "effort",
+        "expand",
+        "find",
+        "fork",
+        "fullscreen",
+        "history",
+        "jump",
+        "minimal",
+        "model",
+        "multiline",
+        "onboarding",
+        "rewind",
+        "theme",
+        "timeline",
+        "tour",
+        "tutorial",
+        "vim-mode",
+        "reload-assets",
+    ]
+}
+
 pub const SLASH_COMMANDS: &[SlashCommand] = &[
     SlashCommand::new("cd", &[], "Choose the next new-agent directory", false),
     SlashCommand::new("clear", &[], "Clear the visible transcript", true),
@@ -47,6 +74,12 @@ pub const SLASH_COMMANDS: &[SlashCommand] = &[
     SlashCommand::new("resume", &[], "Resume a previous session", true),
     SlashCommand::new("session-info", &["info"], "Show the current session", true),
     SlashCommand::new("onboarding", &[], "Open onboarding", true),
+    SlashCommand::new(
+        "reload-assets",
+        &[],
+        "Rescan rules, skills, and commands",
+        true,
+    ),
     SlashCommand::new("rewind", &["undo"], "Rewind conversation", false),
     SlashCommand::new("theme", &[], "Open themes", true),
     SlashCommand::new("timeline", &[], "Open the timeline", true),
@@ -193,6 +226,7 @@ pub struct PromptComposer {
     pub shell_mode: bool,
     pub chips: bool,
     pub footer_notice: String,
+    pub asset_commands: Vec<(String, String)>,
     pub last_esc: Option<Instant>,
     browse_origin: Option<String>,
     /// Prompt text cleared for a submit the host has not accepted yet.
@@ -243,6 +277,7 @@ impl PromptComposer {
             shell_mode: false,
             chips: false,
             footer_notice: String::new(),
+            asset_commands: Vec::new(),
             last_esc: None,
             browse_origin: None,
             pending_submit: None,
@@ -442,6 +477,12 @@ impl PromptComposer {
                                 || command.names().any(|name| format!("/{name}") == *item)
                         })
                         .map(|command| command.hint)
+                        .or_else(|| {
+                            self.asset_commands
+                                .iter()
+                                .find(|(name, _)| name == item)
+                                .map(|(_, hint)| hint.as_str())
+                        })
                         .unwrap_or("");
                     lines.push(format!("{mark} {item}  {hint}"));
                 }
@@ -1137,6 +1178,13 @@ impl PromptComposer {
                     self.footer_notice = self.toggle_multiline();
                     Action::None
                 }
+                PromptSlash::ReloadAssets => {
+                    self.replace_draft("");
+                    if !restored.is_empty() {
+                        self.replace_draft(&restored);
+                    }
+                    Action::Slash("/reload-assets".into())
+                }
                 PromptSlash::EditPrompt => {
                     if restored.is_empty() {
                         self.replace_draft("");
@@ -1205,6 +1253,9 @@ impl PromptComposer {
         let mut ranked: Vec<(u8, String)> = SLASH_COMMANDS
             .iter()
             .filter_map(|command| command.rank(query).map(|rank| (rank, command.primary())))
+            .chain(self.asset_commands.iter().filter_map(|(name, _)| {
+                rank_slash_name(name, query).map(|rank| (rank, name.clone()))
+            }))
             .collect();
         ranked.sort_by(|left, right| left.0.cmp(&right.0).then(left.1.cmp(&right.1)));
         self.matches = ranked.into_iter().map(|(_, name)| name).collect();
@@ -1221,7 +1272,8 @@ impl PromptComposer {
             .iter()
             .find(|candidate| candidate.primary() == item);
         self.overlay = Overlay::None;
-        if command.is_some_and(|candidate| candidate.run_immediate) {
+        let asset = self.asset_commands.iter().any(|(name, _)| name == &item);
+        if asset || command.is_some_and(|candidate| candidate.run_immediate) {
             let typed = self.draft.text().to_string();
             self.replace_draft("");
             let restored = std::mem::take(&mut self.slash_stash);
@@ -1235,6 +1287,9 @@ impl PromptComposer {
             if item == "/multiline" || item == "/ml" {
                 self.footer_notice = self.toggle_multiline();
                 return Action::None;
+            }
+            if item == "/reload-assets" {
+                return Action::Slash(item);
             }
             if item == "/edit-prompt" {
                 if self.draft.is_empty() {
@@ -1792,8 +1847,28 @@ pub enum PromptSlash {
     Multiline,
     EditPrompt,
     Voice,
+    ReloadAssets,
     #[allow(dead_code)]
     Passthrough(String),
+}
+
+fn rank_slash_name(name: &str, query: &str) -> Option<u8> {
+    let q = query.trim_start_matches('/').to_ascii_lowercase();
+    let name = name.trim_start_matches('/').to_ascii_lowercase();
+    if q.is_empty() {
+        return Some(3);
+    }
+    if name == q {
+        Some(0)
+    } else if name.starts_with(&q) {
+        Some(1)
+    } else if name.contains(&q) {
+        Some(2)
+    } else if subsequence(&name, &q) {
+        Some(3)
+    } else {
+        None
+    }
 }
 
 fn slash_has_arguments(text: &str) -> bool {
@@ -1817,6 +1892,7 @@ pub fn slash_action(text: &str) -> Option<PromptSlash> {
         "multiline" | "ml" => Some(PromptSlash::Multiline),
         "edit-prompt" => Some(PromptSlash::EditPrompt),
         "voice" => Some(PromptSlash::Voice),
+        "reload-assets" => Some(PromptSlash::ReloadAssets),
         _ => None,
     }
 }

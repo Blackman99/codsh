@@ -179,7 +179,24 @@ dsh 的上下文占用显示为 `occupancy=N (dsh estimate)`，不当作提供�
 不会自动应用项目配置、Hooks、插件或项目说明；`--trust` / `--trust-folder [path]`
 把授权写入 `$GROK_HOME/trusted_folders.toml`，`--revoke-trust` 撤回授权，只读
 Home 会报告保存失败而不会假装授权已持久化。未信任的 Hooks、插件和项目能力
-不会执行。
+不会执行。已信任的目录会加载兼容的项目规则、Skills、agent 定义和自定义
+命令，并把这些上下文交给 dsh。主目录规则（`$GROK_HOME/rules/*.md`、已启用的
+`~/.claude` 与 `~/.cursor` 规则，以及绝对路径或 `~/` 开头的 `[paths]
+extra_rule_dirs`）对每个项目生效。相对路径或缺失目录不会加载，并会给出诊断。
+项目文件从 git 根目录到当前工作目录依次加载：`Agents.md`、`Claude.md`、
+`CLAUDE.md`、`CLAUDE.local.md`、`AGENT.md`、`AGENTS.md`，以及 `.grok/rules/`
+（和已启用的 `.claude/rules/`、`.cursor/rules/`）里直接存放的 `*.md`。更深的
+文件在提示里更靠后。被 gitignore 的说明文件名（例如 `CLAUDE.local.md`）会跳过；
+单个规则文件没有字符上限。Skills 来自 `.grok/skills/`、`.grok/commands/`、
+`.agents/`、已启用的 Claude/Cursor 根目录、用户目录和 `[skills] paths`。
+`paths.extra_skill_dirs` 不是发现根。`[skills] ignore` 隐藏路径，`[skills]
+disabled` 保留名称但不可调用。发给 dsh 的 Skill 正文最多 25,000 token，截断会
+被诊断。`commands/` 下的扁平 `*.md` 是斜杠命令。与内置命令同名时，内置命令保留
+短名称，资产以 `/local:name`、`/repo:name` 或 `/user:name` 出现。已禁用或
+不可由用户调用的 Skill 不会出现在菜单里。`/reload-assets` 在新增或删除文件后
+重新扫描；空项目目录不会增加项目命令。`inspect` 列出每项资产的来源、启用状态、
+冲突和截断。未信任的项目仍显示全局规则，但不会注入项目规则、Skills、命令或
+agent 定义。
 `codsh --rust plugin marketplace add|list|update|remove` 管理本地 git/路径目录。
 `plugin install|update|uninstall|list` 把插件文件复制到隔离 Home，并记录版本、
 来源和许可。安装需要 `--trust`，仍不会授予执行权限；启停由后续任务处理。

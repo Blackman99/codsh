@@ -108,7 +108,11 @@ Grok-only prune ages stay warnings, not silent no-ops. Managed defaults live in
 later CLI, environment, overlay, workspace, or user layers cannot bypass them.
 Unknown security fields fail closed with diagnostics. Workspace trust is stored
 in `$GROK_HOME/trusted_folders.toml`; untrusted project Hooks/plugins/instructions
-stay inactive until `--trust` or an interactive grant. Isolated plugin
+stay inactive until `--trust` or an interactive grant. After trust, compatible
+rules, skills, agent definitions, and custom commands are discovered in the
+frozen order and included in the dsh prompt. `/reload-assets` rescans them.
+Global rules still load when the project is untrusted. `paths.extra_skill_dirs`
+is not a skill discovery root. Isolated plugin
 marketplace add/list/update/remove and plugin install/update/uninstall copy
 files into `$GROK_HOME/installed-plugins` with inspectable provenance.
 Installation does not enable execution. Official marketplace auto-register is
