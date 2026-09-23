@@ -748,7 +748,9 @@ fn evaluate_rules(policy: &PermissionPolicy, access: &AccessKind) -> Option<Deci
         if let Some(ask) = ask {
             return Some(ask);
         }
-        if is_unsplittable(command) && bash_restrictions_configured(policy) {
+        if is_unsplittable(command)
+            && (bash_restrictions_configured(policy) || has_parameter_expansion(command))
+        {
             return Some(Decision::Ask {
                 reason: "unsplittable command".into(),
             });
@@ -1354,9 +1356,62 @@ fn is_unpeelable(command: &str) -> bool {
         .any(|pair| command_basename(pair[0]) == "env" && pair[1] == "-S")
 }
 
+fn has_parameter_expansion(command: &str) -> bool {
+    let chars: Vec<char> = command.chars().collect();
+    let mut quote = None;
+    let mut ansi = false;
+    let mut index = 0;
+    while index < chars.len() {
+        let ch = chars[index];
+        if ansi {
+            if ch == '\'' {
+                ansi = false;
+            }
+            index += 1;
+            continue;
+        }
+        if quote == Some('\'') {
+            if ch == '\'' {
+                quote = None;
+            }
+            index += 1;
+            continue;
+        }
+        if quote.is_none() && ch == '$' && chars.get(index + 1) == Some(&'\'') {
+            ansi = true;
+            index += 2;
+            continue;
+        }
+        if quote.is_none() && (ch == '\'' || ch == '"') {
+            quote = Some(ch);
+            index += 1;
+            continue;
+        }
+        if quote == Some('"') && ch == '"' {
+            quote = None;
+            index += 1;
+            continue;
+        }
+        if ch == '\\' {
+            index += 2;
+            continue;
+        }
+        if ch == '$'
+            && chars
+                .get(index + 1)
+                .is_some_and(|next| next.is_ascii_alphabetic() || *next == '_' || *next == '{')
+        {
+            return true;
+        }
+        index += 1;
+    }
+    false
+}
+
 fn is_unsplittable(command: &str) -> bool {
     command.contains("$(")
         || command.contains('`')
+        || has_parameter_expansion(command)
         || has_unquoted(&['(', ')', '{', '}'], command)
         || has_background_amp(command)
         || is_control_flow(command)
@@ -3371,6 +3426,36 @@ mod tests {
                 "{command}"
             );
         }
+    }
+
+    #[test]
+    fn plain_parameter_expansion_cannot_hide_a_denied_command() {
+        let deny = policy(
+            vec![rule(RuleAction::Deny, "Bash(rm -rf *)")],
+            PermissionMode::AlwaysApprove,
+        );
+        for command in [
+            "x=/bin/rm; $x -rf /",
+            "x=/bin/rm; exec $x -rf /",
+            "x=/bin/rm; \"$x\" -rf /",
+            "x=/bin/rm; ${x} -rf /",
+            "x=/bin/rm; ${x:-rm} -rf /",
+        ] {
+            let decision = evaluate(&deny, &AccessKind::Bash(command.into()), None);
+            assert!(
+                matches!(decision, Decision::Ask { .. }),
+                "{command}: {decision:?}"
+            );
+        }
+        let echo = evaluate(
+            &policy(Vec::new(), PermissionMode::AlwaysApprove),
+            &AccessKind::Bash("x=/bin/echo; $x".into()),
+            None,
+        );
+        assert!(
+            !matches!(echo, Decision::Allow { .. }),
+            "x=/bin/echo; $x: {echo:?}"
+        );
     }
 
     #[test]

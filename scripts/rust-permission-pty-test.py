@@ -299,6 +299,15 @@ allow = ["Bash(git *)"]
         assert 'successfully.' not in builtin_rm['screen']
         results['deny_builtin'] = {'exit': builtin_rm['exit']}
 
+        expand = exercise('deny-parameter-expansion', launcher, cwd,
+                          {**base_env, 'DSH_CODE_CLI_MOCK_TOOL': 'bash-expand-rm'},
+                          output, typed='TOKEN_PERM_EXPAND', wait_for=['the user rejected', 'RUST_ACP_BASH_DENIED'],
+                          extra=['--always-approve', '--deny', 'Bash(rm -rf *)'], action='reject')
+        assert expand['exit'] == 0
+        assert 'successfully.' not in expand['screen']
+        assert 'Allow bash' not in expand['screen']
+        results['deny_expand'] = {'exit': expand['exit']}
+
         shell_option = exercise('deny-shell-option-script', launcher, cwd,
                                 {**base_env, 'DSH_CODE_CLI_MOCK_TOOL': 'bash-shell-option-rm'},
                                 output, typed='TOKEN_PERM_SHELLOPT', wait_for=['Denied by permission policy', 'RUST_ACP_BASH_DENIED'],

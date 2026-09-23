@@ -181,9 +181,47 @@ function hasBackgroundAmp(command) {
   return false
 }
 
+function hasParameterExpansion(command) {
+  let quote = ''
+  let ansi = false
+  for (let i = 0; i < command.length; i += 1) {
+    const ch = command[i]
+    if (ansi) {
+      if (ch === "'") ansi = false
+      continue
+    }
+    if (quote === "'") {
+      if (ch === "'") quote = ''
+      continue
+    }
+    if (!quote && command.startsWith("$'", i)) {
+      ansi = true
+      i += 1
+      continue
+    }
+    if (!quote && (ch === "'" || ch === '"')) {
+      quote = ch
+      continue
+    }
+    if (quote === '"' && ch === '"') {
+      quote = ''
+      continue
+    }
+    if (ch === '\\') {
+      i += 1
+      continue
+    }
+    if (ch !== '$' || i + 1 >= command.length) continue
+    const next = command[i + 1]
+    if (/[A-Za-z_]/.test(next) || next === '{') return true
+  }
+  return false
+}
+
 function isUnsplittable(command) {
   return /\$\(/.test(command)
     || command.includes('`')
+    || hasParameterExpansion(command)
     || /(?<![\\])[(){}]/.test(command)
     || hasBackgroundAmp(command)
     || isControlFlow(command)
@@ -1044,7 +1082,7 @@ function evaluateRules(policy, access) {
     if (pathDecision?.kind === 'deny') return pathDecision
     if (pathDecision?.kind === 'ask') ask = pathDecision
     if (ask) return ask
-    if (isUnsplittable(access.command) && bashRestrictionsConfigured(policy)) {
+    if (isUnsplittable(access.command) && (bashRestrictionsConfigured(policy) || hasParameterExpansion(access.command))) {
       return { kind: 'ask', reason: 'unsplittable command' }
     }
     if (bashChainAllowed(policy, access.command)) {

@@ -57,7 +57,7 @@ tools. Allow/ask/deny rules, remembered project grants, and permission modes
 (`ask`, `auto`, `always-approve`/`--yolo`, `dontAsk`, `acceptEdits`) are
 enforced before a dsh tool runs. Explicit deny, hook blocks, and locked
 always-approve survive `--always-approve` and old grants. Unsplittable shell
-(`$(...)`, control flow) is not glob-allowed as a unit; Read/Edit deny also
+(`$(...)`, a plain parameter expansion such as `$x` or `${x}`, control flow) is not glob-allowed as a unit; Read/Edit deny also
 covers shell operands; wrappers such as `timeout`, `nice`, `ionice`,
 `sudo`, `nohup`, `xargs`, and
 `env FOO=1` peel to the inner command (only real duration/priority tokens are

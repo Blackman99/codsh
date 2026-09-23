@@ -262,6 +262,29 @@ describe('rust permission evaluator', () => {
     }
   })
 
+  it('does not treat a plain parameter expansion as a literal command under always-approve', () => {
+    const denyRm = policy({
+      mode: 'always-approve',
+      rules: [{ action: 'deny', tool: 'bash', pattern: 'rm -rf *', patternMode: 'glob' }],
+    })
+    for (const command of [
+      'x=/bin/rm; $x -rf /',
+      'x=/bin/rm; exec $x -rf /',
+      'x=/bin/rm; "$x" -rf /',
+      'x=/bin/rm; ${x} -rf /',
+      'x=/bin/rm; ${x:-rm} -rf /',
+    ]) {
+      const decision = evaluatePermission(denyRm, { kind: 'bash', command })
+      expect(decision.kind, command).toBe('ask')
+      expect(decision.reason, command).toMatch(/unsplittable/)
+    }
+    const echo = evaluatePermission(policy({ mode: 'always-approve' }), {
+      kind: 'bash',
+      command: 'x=/bin/echo; $x',
+    })
+    expect(echo.kind).not.toBe('allow')
+  })
+
   it('does not let an unlisted shell prefix hide a denied command under always-approve', () => {
     const denyRm = policy({
       mode: 'always-approve',
