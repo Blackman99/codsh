@@ -97,7 +97,8 @@ textarea：Enter 提交，Shift+Enter 或 Alt+Enter 插入换行，`/multiline`�
 未接线：回合结束后宿主不传入建议，因此 Tab 与 Right 不会接受幽灵文本。
 建议行保持阻塞，`PARITY-150-suggestions` 仍为未验证。`@` 打开工作区文件
 选择器。查询以 `!` 开头之前，点文件和 `.gitignore` 匹配项保持隐藏，包括
-嵌套目录里的 `.gitignore`，以及 `**/*.log` 这类 `**` 模式。Enter 或 Tab
+嵌套目录里的 `.gitignore`、`**/*.log` 这类 `**` 模式，以及含 `/` 的模式
+（`logs/*.log`、`/secret.rs`，锚定在拥有该 `.gitignore` 的目录）。Enter 或 Tab
 把所选文件附成芯片；`:10-50`
 保留该行范围，`:2` 只保留这一行，带空格的路径写成 `@"my file.rs"`。粘贴
 工作区路径等于拖入；只是在句子里提到路径的粘贴仍作为文本插入。芯片上按

@@ -5,6 +5,7 @@ import os
 from pathlib import Path
 import sys
 import tempfile
+import time
 
 ROOT = Path(__file__).resolve().parent.parent
 spec = importlib.util.spec_from_file_location(
@@ -105,14 +106,18 @@ def main():
         cwd = work / 'workspace'
         (cwd / 'src').mkdir(parents=True)
         (cwd / '.hidden').mkdir()
-        (cwd / '.gitignore').write_text('**/*.log\n')
+        (cwd / '.gitignore').write_text('**/*.log\nlogs/*.log\n/secret.rs\n')
         (cwd / 'logs').mkdir()
         (cwd / 'logs' / 'nested.log').write_text('NESTED_PACKED_LOG\n')
-        (cwd / 'src' / '.gitignore').write_text('secret.rs\n')
+        (cwd / 'secret.rs').write_text('ROOT_SECRET\n')
+        (cwd / 'src' / '.gitignore').write_text('secret.rs\n/anchored.rs\n')
         (cwd / 'src' / 'gen').mkdir()
         (cwd / 'src' / 'gen' / '.gitignore').write_text('*\n')
         (cwd / 'src' / 'main.rs').write_text('ALPHA_LINE\nBETA_LINE\nGAMMA_LINE\n')
         (cwd / 'src' / 'secret.rs').write_text('NESTED_SECRET\n')
+        (cwd / 'src' / 'anchored.rs').write_text('HIDDEN_ANCHORED\n')
+        (cwd / 'src' / 'sub').mkdir()
+        (cwd / 'src' / 'sub' / 'anchored.rs').write_text('SUB_VISIBLE\n')
         (cwd / 'src' / 'gen' / 'out.rs').write_text('GENERATED_OUT\n')
         (cwd / 'secret.log').write_text('HIDDEN_LOG\n')
         (cwd / '.hidden' / 'note.txt').write_text('DOT_SECRET\n')
@@ -134,9 +139,19 @@ def main():
             session.write('@')
             shown = session.wait_visible('file picker', 10)
             assert 'secret.log' not in shown and 'nested.log' not in shown, shown
-            assert 'NESTED_PACKED_LOG' not in shown, shown
+            assert 'NESTED_PACKED_LOG' not in shown and 'ROOT_SECRET' not in shown, shown
+            session.write('logs/')
+            session.pump(0.4)
+            shown = session.visible()
+            assert 'nested.log' not in shown and 'NESTED_PACKED_LOG' not in shown, shown
             session.write('\x1b')
-            session.write('\x7f' * 8)
+            session.write('\x7f' * 16)
+            session.write('@anchored')
+            shown = session.wait_visible('src/sub/anchored.rs', 10)
+            assert 'SUB_VISIBLE' in shown, shown
+            assert 'HIDDEN_ANCHORED' not in shown and 'src/anchored.rs' not in shown, shown
+            session.write('\x1b')
+            session.write('\x7f' * 16)
             session.write('@!.hidden/note')
             shown = session.wait_visible('.hidden/note.txt', 10)
             assert 'file picker' in shown
@@ -198,7 +213,11 @@ def main():
             assert 'see src/main.rs in the note' not in echo, echo
             session_id = session.session_id()
             session.write('\x11')
-            session.process.wait(timeout=12)
+            deadline = time.monotonic() + 12
+            while session.process.poll() is None:
+                if time.monotonic() > deadline:
+                    raise TimeoutError('file-attach: quit hung after Ctrl+Q')
+                session.pump(0.15)
         finally:
             session.close()
 

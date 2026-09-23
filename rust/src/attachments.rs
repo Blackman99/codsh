@@ -3,7 +3,8 @@
 //! Search follows the frozen Grok `@` contract: `.gitignore` files, including
 //! nested ones, and dotfiles stay hidden unless the query starts with `!`.
 //! Patterns use gitignore rules, so `**/*.log` hides nested logs rather than
-//! looking for a directory named `**`.
+//! looking for a directory named `**`, and a pattern that contains `/`
+//! (`logs/*.log`, `/secret.rs`) is anchored at the `.gitignore` directory.
 //! `@path:2` keeps that line and `@path:10-50` keeps that range. A selected
 //! file is a chip, not
 //! flattened text. Submit reads the file then, so a removed chip is not sent
@@ -499,7 +500,7 @@ impl WorkspaceIndex {
         for rule in &self.rules {
             for (index, ancestor) in ancestors.iter().enumerate() {
                 let directory = index + 1 < ancestors.len() || is_dir;
-                match rule.matched(&self.root, ancestor, directory) {
+                match rule.matched(ancestor, directory) {
                     Some(true) => ignored = true,
                     Some(false) => ignored = false,
                     None => {}
@@ -512,17 +513,22 @@ impl WorkspaceIndex {
 
 impl IgnoreRule {
     /// `Some(true)` ignores, `Some(false)` re-includes, `None` does not apply.
-    fn matched(&self, workspace: &Path, relative: &str, is_dir: bool) -> Option<bool> {
+    ///
+    /// `ignore` 0.4.24 strips the gitignore directory only from the front of
+    /// the candidate. A relative directory such as `src` is not a prefix of
+    /// `<workspace>/src/file`, so a pattern that contains `/` never matches
+    /// when the workspace is joined in front. The candidate here is already
+    /// relative to that `.gitignore` directory.
+    fn matched(&self, relative: &str, is_dir: bool) -> Option<bool> {
         let root = self.matcher.path();
-        let rooted = if root.as_os_str().is_empty() {
+        let candidate = if root.as_os_str().is_empty() {
             PathBuf::from(relative)
         } else {
             match Path::new(relative).strip_prefix(root) {
-                Ok(rest) => rest.to_path_buf(),
-                Err(_) => return None,
+                Ok(rest) if !rest.as_os_str().is_empty() => rest.to_path_buf(),
+                _ => return None,
             }
         };
-        let candidate = workspace.join(root).join(rooted);
         match self.matcher.matched(&candidate, is_dir) {
             ignore::Match::Ignore(_) => Some(true),
             ignore::Match::Whitelist(_) => Some(false),
@@ -761,8 +767,8 @@ fn collect_gitignore(root: &Path, dir: &Path, rules: &mut Vec<IgnoreRule>) {
 
 fn parse_gitignore(text: &str, base: &str) -> Vec<IgnoreRule> {
     // `base` is the directory that owned this `.gitignore`, relative to the
-    // workspace. The `ignore` crate applies the file from that directory, so
-    // `**/*.log` reaches nested logs instead of a literal `**` segment.
+    // workspace. Matching later uses a path relative to that directory, so
+    // `**/*.log` reaches nested logs and `logs/*.log` stays anchored there.
     let root = PathBuf::from(base);
     let mut builder = ignore::gitignore::GitignoreBuilder::new(&root);
     let mut kept = false;
@@ -918,6 +924,108 @@ mod tests {
                 .iter()
                 .any(|item| item.relative == "src/logs/debug.log"),
             "{forced:?}"
+        );
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn slash_gitignore_patterns_hide_anchored_paths() {
+        let root = fixture();
+        fs::create_dir_all(root.join("logs")).unwrap();
+        fs::create_dir_all(root.join("foo/nested")).unwrap();
+        fs::create_dir_all(root.join("docs/api/sub")).unwrap();
+        fs::create_dir_all(root.join("src/sub")).unwrap();
+        fs::create_dir_all(root.join("src/other")).unwrap();
+        fs::write(
+            root.join(".gitignore"),
+            "logs/*.log\n/secret.rs\nfoo/**\ndocs/api/*.md\n!docs/api/keep.md\n",
+        )
+        .unwrap();
+        fs::write(root.join("src/.gitignore"), "/anchored.rs\n").unwrap();
+        fs::write(root.join("src/other/.gitignore"), "local.rs\n").unwrap();
+        fs::write(root.join("logs/nested.log"), "SLASH_LOG\n").unwrap();
+        fs::write(root.join("src/outside.log"), "OTHER_LOG\n").unwrap();
+        fs::write(root.join("secret.rs"), "ROOT_SECRET\n").unwrap();
+        fs::write(root.join("src/secret.rs"), "NESTED_SECRET_FILE\n").unwrap();
+        fs::write(root.join("foo/nested/bar.txt"), "FOO_BAR\n").unwrap();
+        fs::write(root.join("docs/api/guide.md"), "SLASH_DOC\n").unwrap();
+        fs::write(root.join("docs/api/keep.md"), "REINCLUDED_DOC\n").unwrap();
+        fs::write(root.join("docs/api/sub/deep.md"), "DEEP_DOC\n").unwrap();
+        fs::write(root.join("docs/keep.md"), "KEEP_DOC\n").unwrap();
+        fs::write(root.join("src/anchored.rs"), "ANCHORED\n").unwrap();
+        fs::write(root.join("src/sub/anchored.rs"), "SUB_ANCHORED\n").unwrap();
+        fs::write(root.join("src/other/local.rs"), "LOCAL_RS\n").unwrap();
+        let index = WorkspaceIndex::new(&root);
+
+        assert!(
+            index.search("nested.log").is_empty(),
+            "logs/*.log must hide logs/nested.log"
+        );
+        assert!(index.resolve_typed("@logs/nested.log").is_none());
+        assert!(
+            index
+                .search("outside.log")
+                .iter()
+                .any(|item| item.relative == "src/outside.log"),
+            "logs/*.log must not hide a log outside logs/"
+        );
+        let secrets = index.search("secret.rs");
+        assert!(
+            secrets.iter().all(|item| item.relative != "secret.rs"),
+            "/secret.rs must hide the workspace-root file: {secrets:?}"
+        );
+        assert!(
+            secrets.iter().any(|item| item.relative == "src/secret.rs"),
+            "/secret.rs must not hide src/secret.rs: {secrets:?}"
+        );
+        assert!(index.resolve_typed("@secret.rs").is_none());
+        assert!(index.resolve_typed("@foo/nested/bar.txt").is_none());
+        assert!(
+            index.search("bar.txt").is_empty(),
+            "foo/** must hide files inside foo/"
+        );
+        assert!(index.resolve_typed("@docs/api/guide.md").is_none());
+        assert!(
+            index.search("guide.md").is_empty(),
+            "docs/api/*.md must hide guide.md"
+        );
+        let kept = index.resolve_typed("@docs/api/keep.md").unwrap();
+        assert_eq!(
+            index.prepare(&kept, None).text.as_deref(),
+            Some("REINCLUDED_DOC\n")
+        );
+        let deep = index.resolve_typed("@docs/api/sub/deep.md").unwrap();
+        assert_eq!(
+            index.prepare(&deep, None).text.as_deref(),
+            Some("DEEP_DOC\n"),
+            "docs/api/*.md does not match a deeper path"
+        );
+        assert_eq!(
+            index
+                .prepare(&index.resolve_typed("@docs/keep.md").unwrap(), None)
+                .text
+                .as_deref(),
+            Some("KEEP_DOC\n")
+        );
+        assert!(
+            index.resolve_typed("@src/anchored.rs").is_none(),
+            "a nested /anchored.rs rule hides that file"
+        );
+        assert!(
+            index
+                .search("anchored")
+                .iter()
+                .all(|item| item.relative != "src/anchored.rs")
+        );
+        let sub = index.resolve_typed("@src/sub/anchored.rs").unwrap();
+        assert_eq!(
+            index.prepare(&sub, None).text.as_deref(),
+            Some("SUB_ANCHORED\n"),
+            "a leading slash does not hide a descendant with the same name"
+        );
+        assert!(
+            index.resolve_typed("@src/other/local.rs").is_none(),
+            "a nested pattern without a slash still hides that file"
         );
         let _ = fs::remove_dir_all(root);
     }
