@@ -112,6 +112,8 @@ stay inactive until `--trust` or an interactive grant. After trust, compatible
 rules, skills, agent definitions, and custom commands are discovered in the
 frozen order (closer skill directories outrank broader ones; flat
 `commands/*.md` files are slash commands) and included in the dsh prompt.
+The launcher forwards `GROK_CLAUDE_SKILLS_ENABLED` and
+`GROK_CURSOR_SKILLS_ENABLED`; either set off stops that vendor scan.
 `--rules` appends a session `<human_rules>` block; `--system-prompt-override`
 replaces file rules and `--rules` while the typed prompt is still sent. `/reload-assets` rescans them.
 Global rules still load when the project is untrusted. `paths.extra_skill_dirs`

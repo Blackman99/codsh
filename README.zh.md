@@ -195,8 +195,8 @@ extra_rule_dirs`）对每个项目生效。相对路径或缺失目录不会加�
 `user-invocable` 默认开启，只有 `false`、`no`、`off` 或 `0` 会把它从菜单隐藏。
 发给 dsh 的 Skill 正文最多 25,000 token，截断会被诊断。`.grok/commands/`、
 `.agents/commands/` 和已启用的 `.claude/commands/` 下的扁平 `*.md` 是斜杠命令，
-不是 Skill。Skill 根目录不按 `.gitignore` 过滤。`GROK_CLAUDE_SKILLS_ENABLED`
-与 `GROK_CURSOR_SKILLS_ENABLED` 可关闭对应厂商扫描。`shell`、`canvas`、
+不是 Skill。Skill 根目录不按 `.gitignore` 过滤。`codsh --rust` 会转发 `GROK_CLAUDE_SKILLS_ENABLED` 与
+`GROK_CURSOR_SKILLS_ENABLED`，用来关闭对应厂商扫描。`shell`、`canvas`、
 `statusline` 只在 `.claude/` 与 `.cursor/` 下被丢弃。与内置命令同名时，内置命令
 保留短名称（`/compact`、`/login`），资产以 `/local:name`、`/ancestor:name`、
 `/repo:name` 或 `/user:name` 出现。`--rules`（别名 `--append-system-prompt`）

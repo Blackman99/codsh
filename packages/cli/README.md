@@ -94,6 +94,8 @@ session tracking post only a counter (plus the session id when
 api.x.ai, and Sentry destinations are refused by hostname. Diagnostics contain
 kind, ok, and count only and are separate from model `base_url` traffic.
 `GROK_LOG_FILE` and `GROK_HOOKS_LOG` are unwired and are not forwarded.
+`GROK_CLAUDE_SKILLS_ENABLED` and `GROK_CURSOR_SKILLS_ENABLED` are forwarded;
+setting either to `false` stops that vendor's skill and command scan.
 `login` / `logout` / `setup` use
 configured substitute identity or management services; session tokens in
 `$GROK_HOME/auth.json` are not transferred to model keys or other services,

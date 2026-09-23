@@ -4,6 +4,19 @@ import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 
+const SKILL = `---
+name: NAME
+description: Vendor skill that must stay undiscovered when its scan is off.
+---
+BODY
+`
+
+function writeSkill(root, vendor, name) {
+  const file = join(root, `.${vendor}`, 'skills', name, 'SKILL.md')
+  mkdirSync(join(root, `.${vendor}`, 'skills', name), { recursive: true })
+  writeFileSync(file, SKILL.replaceAll('NAME', name).replaceAll('BODY', `${vendor.toUpperCase()}_${name.toUpperCase()}_BODY`))
+}
+
 const root = resolve(import.meta.dirname, '..')
 
 describe('packed Rust launch selection', () => {
@@ -63,4 +76,59 @@ describe('Rust import command wiring', () => {
       rmSync(dir, { recursive: true, force: true })
     }
   })
+})
+
+describe('packed vendor skill overrides', () => {
+  it('forwards GROK_CLAUDE_SKILLS_ENABLED and GROK_CURSOR_SKILLS_ENABLED so off skips vendor scans', () => {
+    const binary = join(root, 'packages/cli/native/darwin-arm64/codsh-rust')
+    if (process.platform !== 'darwin' || process.arch !== 'arm64' || !existsSync(binary)) return
+    const dir = mkdtempSync(join(tmpdir(), 'codsh-rust-vendor-skills-'))
+    try {
+      const pack = JSON.parse(execFileSync('npm', ['pack', '--json', '--ignore-scripts', '--offline', '--pack-destination', dir], {
+        cwd: join(root, 'packages/cli'), encoding: 'utf8',
+        env: {
+          ...process.env,
+          HOME: dir,
+          npm_config_cache: join(dir, 'cache'),
+          npm_config_update_notifier: 'false',
+        },
+      }))[0].filename
+      execFileSync('tar', ['-xzf', join(dir, pack), '-C', dir])
+      const launcher = join(dir, 'package/bin/codsh.mjs')
+      const home = join(dir, 'home')
+      const isolated = join(home, '.codsh-rust')
+      const project = join(dir, 'project')
+      mkdirSync(join(project, '.git'), { recursive: true })
+      writeSkill(project, 'claude', 'claude-project')
+      writeSkill(project, 'cursor', 'cursor-project')
+      writeSkill(isolated, 'claude', 'claude-user')
+      writeSkill(isolated, 'cursor', 'cursor-user')
+      mkdirSync(join(project, '.grok', 'skills', 'keep'), { recursive: true })
+      writeFileSync(join(project, '.grok', 'skills', 'keep', 'SKILL.md'), SKILL.replaceAll('NAME', 'keep').replaceAll('BODY', 'GROK_KEEP_BODY'))
+      const env = {
+        PATH: process.env.PATH,
+        HOME: home,
+        TERM: 'xterm-256color',
+        GROK_FOLDER_TRUST: '0',
+        GROK_CLAUDE_SKILLS_ENABLED: 'false',
+        GROK_CURSOR_SKILLS_ENABLED: '0',
+      }
+      const result = spawnSync(process.execPath, [launcher, '--rust', 'inspect', '--json'], {
+        cwd: project, encoding: 'utf8', timeout: 20000, env,
+      })
+      expect(result.error).toBeUndefined()
+      expect(result.status, result.stderr).toBe(0)
+      const assets = JSON.parse(result.stdout).assets
+      const names = assets.skills.map(skill => skill.name)
+      const commands = assets.commands.map(command => command.name)
+      expect(names).toContain('keep')
+      expect(names).not.toEqual(expect.arrayContaining(['claude-project', 'cursor-project', 'claude-user', 'cursor-user']))
+      expect(commands).not.toEqual(expect.arrayContaining(['claude-project', 'cursor-project', 'claude-user', 'cursor-user']))
+      const paths = [...assets.skills, ...assets.commands].map(item => item.path).join('\n')
+      expect(paths).not.toContain('.claude')
+      expect(paths).not.toContain('.cursor')
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  }, 20000)
 })

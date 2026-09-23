@@ -283,8 +283,8 @@ invocable. `user-invocable` defaults to true; only `false`, `no`, `off`, or
 tokens and the truncation is diagnosed. Flat `commands/*.md` files under
 `.grok/commands/`, `.agents/commands/`, and enabled `.claude/commands/` are
 slash commands, not skills. Skill roots are not filtered by `.gitignore`.
-`GROK_CLAUDE_SKILLS_ENABLED` and `GROK_CURSOR_SKILLS_ENABLED` turn those vendor
-scans off. Vendor default names `shell`, `canvas`, and `statusline` are
+`GROK_CLAUDE_SKILLS_ENABLED` and `GROK_CURSOR_SKILLS_ENABLED` are forwarded by
+`codsh --rust` and turn those vendor scans off. Vendor default names `shell`, `canvas`, and `statusline` are
 dropped only under `.claude/` and `.cursor/`. A name that collides with a
 built-in keeps the built-in on the bare name (`/compact`, `/login`) and offers
 the asset as `/local:name`, `/ancestor:name`, `/repo:name`, or `/user:name`.
