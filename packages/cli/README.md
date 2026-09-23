@@ -139,7 +139,8 @@ status-line choices; Escape cancels a theme preview without writing.
 Prompt editing reuses the official textarea: Enter submits,
 Shift+Enter/Alt+Enter inserts a newline, `/multiline` (`/ml`) swaps those
 chords, `/history` and empty ↑ browse submitted prompts, Tab completes slash
-commands and HISTFILE in `!` mode. `/edit-prompt` requires an empty composer;
+commands and HISTFILE in `!` mode. Typing `/` in a nonempty draft stashes that
+draft, runs the slash command, and restores it. `/edit-prompt` requires an empty composer;
 Ctrl+G in minimal preserves the current draft. Both open `$VISUAL` then `$EDITOR`
 then `vi` without submitting. `[ui] simple_mode=false` is prompt Vim;
 `/vim-mode` remains scrollback navigation. Next-prompt ghost text is not wired,

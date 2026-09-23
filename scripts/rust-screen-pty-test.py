@@ -341,7 +341,6 @@ def main():
             assert not override.snapshot()['onAlternate']
             override.send_slash('/fullscreen')
             shown = override.wait_visible('mode=fullscreen', 25)
-            override.write('DRAFT_KEEP')
             shown = override.wait_visible('DRAFT_KEEP')
             assert 'DRAFT_KEEP' in shown
             assert 'Switched to fullscreen' in shown
@@ -349,12 +348,10 @@ def main():
             assert override.session_id() == override_id
             override.send_slash('/minimal')
             override.wait_visible('mode=minimal', 25)
-            override.write('DRAFT_KEEP')
             override.wait_visible('DRAFT_KEEP')
             override.assert_native_minimal('Switched to minimal')
             override.send_slash('/fullscreen')
             shown = override.wait_visible('mode=fullscreen', 25)
-            override.write('DRAFT_KEEP')
             shown = override.wait_visible('DRAFT_KEEP')
             assert 'DRAFT_KEEP' in shown
             assert override.session_id() == override_id
