@@ -1,5 +1,6 @@
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
 use ratatui::layout::Rect;
+use ratatui::text::{Line, Span};
 use std::collections::BTreeMap;
 use std::path::Path;
 
@@ -180,6 +181,7 @@ pub struct TranscriptLine {
     pub entry: usize,
     pub kind: LineKind,
     pub text: String,
+    pub spans: Vec<Span<'static>>,
     pub line_in_entry: usize,
 }
 
@@ -554,27 +556,17 @@ impl NavState {
                 }
                 lines.join("\n")
             }
-            NavOverlay::Viewer(viewer) => {
-                let body = if viewer.entry == self.selected.unwrap_or(viewer.entry) {
-                    let full = self.selected_full_lines();
-                    if full.is_empty() {
-                        viewer_body(self.entries.get(viewer.entry))
-                    } else {
-                        full
-                    }
-                } else {
-                    viewer_body(self.entries.get(viewer.entry))
-                };
-                let height = rows.max(1);
-                let max = body.len().saturating_sub(height);
-                let start = viewer.offset.min(max);
-                let end = (start + height).min(body.len());
-                let window = body.get(start..end).unwrap_or(&[]);
-                format!(
-                    "full content · Esc closes full content · Esc restores reading position\n{}",
-                    window.join("\n")
-                )
-            }
+            NavOverlay::Viewer(_) => self
+                .viewer_lines(rows)
+                .into_iter()
+                .map(|line| {
+                    line.spans
+                        .into_iter()
+                        .map(|span| span.content.into_owned())
+                        .collect::<String>()
+                })
+                .collect::<Vec<_>>()
+                .join("\n"),
         }
     }
 
@@ -587,6 +579,7 @@ impl NavState {
         (!text.is_empty()).then_some(text)
     }
 
+    #[cfg(test)]
     pub fn painted_transcript_lines(&self) -> Vec<String> {
         self.visible_lines()
             .iter()
@@ -596,12 +589,51 @@ impl NavState {
                 let prefix = if marked { "> " } else { "  " };
                 let mut text = format!("{prefix}{}", line.text);
                 if let Some(span) = self.selection {
-                    let abs = self.offset + index;
-                    text = paint_selection(&text, span, abs);
+                    text = paint_selection_text(&text, span, self.offset + index);
                 }
                 text
             })
             .collect()
+    }
+
+    /// Visible transcript rows with official styles still attached.
+    pub fn painted_transcript(&self) -> Vec<Line<'static>> {
+        self.visible_lines()
+            .iter()
+            .enumerate()
+            .map(|(index, line)| {
+                let marked = self.selected == Some(line.entry);
+                let prefix = if marked { "> " } else { "  " };
+                let abs = self.offset + index;
+                paint_line(prefix, line, self.selection, abs)
+            })
+            .collect()
+    }
+
+    /// Full content of the selected turn, unfolded, with styles kept.
+    pub fn viewer_lines(&self, rows: usize) -> Vec<Line<'static>> {
+        let NavOverlay::Viewer(viewer) = &self.overlay else {
+            return Vec::new();
+        };
+        let body = if viewer.entry == self.selected.unwrap_or(viewer.entry) {
+            let full = self.selected_full_styled();
+            if full.is_empty() {
+                viewer_styled(self.entries.get(viewer.entry))
+            } else {
+                full
+            }
+        } else {
+            viewer_styled(self.entries.get(viewer.entry))
+        };
+        let height = rows.max(1);
+        let max = body.len().saturating_sub(height);
+        let start = viewer.offset.min(max);
+        let end = (start + height).min(body.len());
+        let mut window = vec![Line::from(
+            "full content · Esc closes full content · Esc restores reading position",
+        )];
+        window.extend(body.into_iter().skip(start).take(end.saturating_sub(start)));
+        window
     }
 
     /// Column inside the painted gutter that maps to transcript column 0.
@@ -865,8 +897,37 @@ impl NavState {
         opened.folded_tools = false;
         crate::content::entry_lines(entry_index, &opened, &self.display)
             .into_iter()
-            .map(|(_, text)| text)
+            .map(|(_, line)| {
+                line.spans
+                    .iter()
+                    .map(|span| span.content.as_ref())
+                    .collect()
+            })
             .collect()
+    }
+
+    fn selected_full_styled(&self) -> Vec<Line<'static>> {
+        let Some(entry_index) = self.selected else {
+            return Vec::new();
+        };
+        let Some(entry) = self.entries.get(entry_index) else {
+            return Vec::new();
+        };
+        let mut opened = entry.clone();
+        opened.folded_thought = false;
+        opened.folded_answer = false;
+        opened.folded_tools = false;
+        let mut lines = crate::content::entry_lines(entry_index, &opened, &self.display)
+            .into_iter()
+            .map(|(_, line)| line)
+            .collect::<Vec<_>>();
+        for diff in &opened.diffs {
+            if diff.is_empty() {
+                continue;
+            }
+            lines.extend(diff_lines(diff));
+        }
+        lines
     }
 
     #[cfg(test)]
@@ -1680,7 +1741,7 @@ fn layout_lines(
     let mut lines = Vec::new();
     let width = width.max(1) as usize;
     for (index, entry) in entries.iter().enumerate() {
-        for (kind, text) in crate::content::entry_lines(index, entry, display) {
+        for (kind, line) in crate::content::entry_lines(index, entry, display) {
             let kind = if matches!(
                 (
                     kind,
@@ -1696,81 +1757,138 @@ fn layout_lines(
             } else {
                 kind
             };
-            push_wrapped(&mut lines, index, kind, &text, width);
+            push_wrapped_line(&mut lines, index, kind, &line, width);
         }
         for diff in &entry.diffs {
             if diff.is_empty() {
                 continue;
             }
-            push_wrapped(&mut lines, index, LineKind::Tool, diff, width);
+            for line in diff_lines(diff) {
+                push_wrapped_line(&mut lines, index, LineKind::Tool, &line, width);
+            }
         }
     }
     lines
 }
 
-fn push_wrapped(
+fn diff_lines(diff: &str) -> Vec<Line<'static>> {
+    diff.lines()
+        .map(|raw| {
+            let style = if raw.starts_with('+') && !raw.starts_with("+++") {
+                ratatui::style::Style::default().fg(ratatui::style::Color::Rgb(158, 206, 106))
+            } else if raw.starts_with('-') && !raw.starts_with("---") {
+                ratatui::style::Style::default().fg(ratatui::style::Color::Rgb(247, 118, 142))
+            } else if raw.starts_with("@@") {
+                ratatui::style::Style::default().fg(ratatui::style::Color::Rgb(122, 162, 247))
+            } else {
+                ratatui::style::Style::default()
+            };
+            Line::from(Span::styled(raw.to_string(), style))
+        })
+        .collect()
+}
+
+fn push_wrapped_line(
     lines: &mut Vec<TranscriptLine>,
     entry: usize,
     kind: LineKind,
-    text: &str,
+    source: &Line<'static>,
     width: usize,
 ) {
-    let mut line_in_entry = lines.iter().filter(|line| line.entry == entry).count();
-    for raw in text.split('\n') {
-        let wrapped = wrap_text(raw, width);
-        if wrapped.is_empty() {
-            lines.push(TranscriptLine {
-                entry,
-                kind,
-                text: String::new(),
-                line_in_entry,
-            });
-            line_in_entry += 1;
-            continue;
-        }
-        for piece in wrapped {
-            lines.push(TranscriptLine {
-                entry,
-                kind,
-                text: piece,
-                line_in_entry,
-            });
-            line_in_entry += 1;
-        }
+    let start = lines.iter().filter(|line| line.entry == entry).count();
+    let pieces = wrap_styled(source, width);
+    if pieces.is_empty() {
+        lines.push(TranscriptLine {
+            entry,
+            kind,
+            text: String::new(),
+            spans: Vec::new(),
+            line_in_entry: start,
+        });
+        return;
+    }
+    for (offset, (text, spans)) in pieces.into_iter().enumerate() {
+        lines.push(TranscriptLine {
+            entry,
+            kind,
+            text,
+            spans,
+            line_in_entry: start + offset,
+        });
     }
 }
 
-fn wrap_text(text: &str, width: usize) -> Vec<String> {
-    if text.is_empty() {
-        return vec![String::new()];
+/// Wrap a styled line on grapheme width without dropping span colors.
+fn wrap_styled(source: &Line<'static>, width: usize) -> Vec<(String, Vec<Span<'static>>)> {
+    if source.spans.is_empty() {
+        return vec![(String::new(), Vec::new())];
     }
-    let mut out = Vec::new();
+    let mut rows: Vec<(String, Vec<Span<'static>>)> = Vec::new();
     let mut current = String::new();
+    let mut current_spans: Vec<Span<'static>> = Vec::new();
     let mut current_width = 0usize;
-    for grapheme in unicode_segmentation::UnicodeSegmentation::graphemes(text, true) {
-        let w = unicode_width::UnicodeWidthStr::width(grapheme).max(if grapheme.is_empty() {
-            0
-        } else {
-            1
-        });
-        let crosses = current_width + w > width && !current.is_empty();
-        // Graphemes, including a ZWJ cluster, move intact instead of splitting
-        // woman, joiner, and laptop into separate cells.
-        if crosses {
-            out.push(std::mem::take(&mut current));
-            current_width = 0;
+    let flush = |current: &mut String,
+                 current_spans: &mut Vec<Span<'static>>,
+                 current_width: &mut usize,
+                 rows: &mut Vec<(String, Vec<Span<'static>>)>| {
+        if current.is_empty() && current_spans.is_empty() {
+            return;
         }
-        current.push_str(grapheme);
-        current_width += w;
-        if current_width >= width {
-            out.push(std::mem::take(&mut current));
-            current_width = 0;
+        rows.push((std::mem::take(current), std::mem::take(current_spans)));
+        *current_width = 0;
+    };
+    for span in &source.spans {
+        let style = span.style;
+        let mut rest = span.content.as_ref();
+        while !rest.is_empty() {
+            let grapheme = unicode_segmentation::UnicodeSegmentation::graphemes(rest, true)
+                .next()
+                .unwrap_or(rest);
+            let w = unicode_width::UnicodeWidthStr::width(grapheme).max(if grapheme.is_empty() {
+                0
+            } else {
+                1
+            });
+            let crosses = current_width + w > width && !current.is_empty();
+            if crosses {
+                flush(
+                    &mut current,
+                    &mut current_spans,
+                    &mut current_width,
+                    &mut rows,
+                );
+            }
+            current.push_str(grapheme);
+            match current_spans.last_mut() {
+                Some(last) if last.style == style => {
+                    let mut owned = last.content.to_string();
+                    owned.push_str(grapheme);
+                    last.content = std::borrow::Cow::Owned(owned);
+                }
+                _ => current_spans.push(Span::styled(grapheme.to_string(), style)),
+            }
+            current_width += w;
+            if current_width >= width {
+                flush(
+                    &mut current,
+                    &mut current_spans,
+                    &mut current_width,
+                    &mut rows,
+                );
+            }
+            rest = &rest[grapheme.len()..];
         }
     }
-    if !current.is_empty() {
-        out.push(current);
+    flush(
+        &mut current,
+        &mut current_spans,
+        &mut current_width,
+        &mut rows,
+    );
+    if rows.is_empty() {
+        rows.push((String::new(), Vec::new()));
     }
-    out
+    rows
 }
 
 fn apply_search(lines: &[TranscriptLine], search: &mut SearchSession) {
@@ -1863,7 +1981,71 @@ fn find_anchored_line(
     })
 }
 
-fn paint_selection(painted: &str, span: SelectionSpan, abs: usize) -> String {
+fn paint_line(
+    prefix: &str,
+    line: &TranscriptLine,
+    selection: Option<SelectionSpan>,
+    abs: usize,
+) -> Line<'static> {
+    let mut spans = vec![Span::raw(prefix.to_string())];
+    spans.extend(line.spans.clone());
+    if spans.len() == 1 {
+        spans.push(Span::raw(line.text.clone()));
+    }
+    let Some(span) = selection else {
+        return Line::from(spans);
+    };
+    let (start_line, start_col, end_line, end_col) = span.ordered();
+    if abs < start_line || abs > end_line {
+        return Line::from(spans);
+    }
+    let lo = if abs == start_line {
+        slice_at_width(&line.text, start_col as usize)
+    } else {
+        0
+    };
+    let hi = if abs == end_line {
+        slice_at_width(&line.text, end_col as usize)
+    } else {
+        line.text.len()
+    };
+    if lo >= hi {
+        return Line::from(spans);
+    }
+    let mark = ratatui::style::Style::default()
+        .fg(ratatui::style::Color::Black)
+        .bg(ratatui::style::Color::Rgb(224, 175, 104));
+    let mut out = vec![Span::raw(prefix.to_string())];
+    let mut seen = 0usize;
+    for piece in &line.spans {
+        let text = piece.content.as_ref();
+        let start = seen;
+        let end = seen + text.len();
+        if end <= lo || start >= hi {
+            out.push(piece.clone());
+        } else {
+            let cut_lo = lo.saturating_sub(start).min(text.len());
+            let cut_hi = hi.saturating_sub(start).min(text.len());
+            if cut_lo > 0 {
+                out.push(Span::styled(text[..cut_lo].to_string(), piece.style));
+            }
+            if cut_hi > cut_lo {
+                out.push(Span::styled(text[cut_lo..cut_hi].to_string(), mark));
+            }
+            if cut_hi < text.len() {
+                out.push(Span::styled(text[cut_hi..].to_string(), piece.style));
+            }
+        }
+        seen = end;
+    }
+    if line.spans.is_empty() && !line.text.is_empty() {
+        out.push(Span::styled(line.text[lo..hi].to_string(), mark));
+    }
+    Line::from(out)
+}
+
+#[cfg(test)]
+fn paint_selection_text(painted: &str, span: SelectionSpan, abs: usize) -> String {
     let (start_line, start_col, end_line, end_col) = span.ordered();
     if abs < start_line || abs > end_line {
         return painted.to_string();
@@ -1937,19 +2119,24 @@ fn display_width(text: &str) -> usize {
     unicode_width::UnicodeWidthStr::width(text)
 }
 
-fn viewer_body(entry: Option<&NavEntry>) -> Vec<String> {
+fn viewer_styled(entry: Option<&NavEntry>) -> Vec<Line<'static>> {
     let Some(entry) = entry else {
         return Vec::new();
     };
-    let mut lines = vec![entry.user.clone()];
+    let mut lines = vec![Line::from(entry.user.clone())];
     if !entry.thought.is_empty() {
-        lines.push(format!("[thought] {}", entry.thought));
+        lines.push(Line::from(format!("[thought] {}", entry.thought)));
     }
     for (title, result) in &entry.tools {
-        lines.push(format!("[tool {title}] {result}"));
+        lines.push(Line::from(format!("[tool {title}] {result}")));
     }
     if !entry.answer.is_empty() {
-        lines.extend(entry.answer.lines().map(str::to_string));
+        lines.extend(
+            entry
+                .answer
+                .lines()
+                .map(|line| Line::from(line.to_string())),
+        );
     }
     lines
 }
@@ -2761,6 +2948,20 @@ mod tests {
             !painted.to_ascii_lowercase().contains("successfully"),
             "{painted}"
         );
+        assert!(
+            state.lines.iter().any(|line| line
+                .spans
+                .iter()
+                .any(|span| span.style.fg.is_some() && span.content.contains("failed"))),
+            "failed tool status keeps a color: {painted}"
+        );
+        assert!(
+            state.lines.iter().any(|line| line
+                .spans
+                .iter()
+                .any(|span| span.style.fg.is_some() && span.content.contains("[error]"))),
+            "error lines keep a color: {painted}"
+        );
         state.rebuild(state.entries.clone(), 10, 8);
         for line in &state.lines {
             let text = &line.text;
@@ -2778,6 +2979,35 @@ mod tests {
             .collect::<Vec<_>>()
             .join("");
         assert!(joined.contains("👩\u{200d}💻"), "{joined}");
+        let mut styled = NavState::new(NavigationPrefs::default(), true);
+        styled.rebuild(
+            vec![NavEntry::from_parts(
+                "prompt",
+                "",
+                "# Heading\n\n`code`",
+                vec![],
+            )],
+            80,
+            12,
+        );
+        let session = styled.painted_transcript();
+        let dump = session
+            .iter()
+            .map(|line| {
+                line.spans
+                    .iter()
+                    .map(|span| span.content.as_ref())
+                    .collect::<String>()
+            })
+            .collect::<Vec<_>>()
+            .join("|");
+        assert!(
+            session.iter().any(|line| line
+                .spans
+                .iter()
+                .any(|span| { span.style.fg.is_some() && span.content.contains("Heading") })),
+            "heading color reaches the session painter: {dump}"
+        );
     }
 
     #[test]
@@ -2833,5 +3063,36 @@ mod tests {
         let painted = state.painted_transcript_lines().join("\n");
         assert!(painted.contains('\u{2588}'));
         assert!(!painted.lines().any(|line| line.starts_with('|')));
+    }
+
+    #[test]
+    fn viewer_escape_drops_full_content_and_keeps_the_fold() {
+        let huge = (1..=20)
+            .map(|index| format!("HUGE_LINE_{index:03}_MARKER"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        let mut state = NavState::new(NavigationPrefs::default(), true);
+        let mut entry = NavEntry::from_parts("prompt", "", "", vec![("read".into(), huge)]);
+        entry.folded_tools = true;
+        state.rebuild(vec![entry], 80, 8);
+        state.focus = Focus::Scrollback;
+        state.selected = Some(0);
+        state.open_viewer();
+        let open = state.overlay_text_for(6);
+        assert!(open.starts_with("full content"), "{open}");
+        assert!(open.contains("HUGE_LINE_001_MARKER"), "{open}");
+        state.handle_key(key(KeyCode::Esc), true);
+        assert!(matches!(state.overlay, NavOverlay::None));
+        let closed = state.overlay_text();
+        assert!(
+            !closed.contains("full content"),
+            "closing the viewer clears its overlay: {closed}"
+        );
+        let painted = state.painted_transcript_lines().join("\n");
+        assert!(painted.contains("folded"), "{painted}");
+        assert!(
+            !painted.contains("HUGE_LINE_020_MARKER"),
+            "the folded transcript does not keep the expanded tail: {painted}"
+        );
     }
 }

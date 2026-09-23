@@ -53,6 +53,14 @@ def screen_text(data, rows, cols):
     return emulate(data, rows, cols)['text']
 
 
+def sgr_codes(data):
+    import re
+    return sorted({
+        match.group(1).decode()
+        for match in re.finditer(rb'\x1b\[([0-9;]*)m', bytes(data))
+    })
+
+
 def alt_enter_count(data):
     return bytes(data).count(b'\x1b[?1049h')
 
@@ -283,6 +291,16 @@ def main():
             assert 'unclosed' in shown.lower() or 'const unclosed' in shown, shown
             fullscreen.write('\x1b')
             fullscreen.pump(0.4)
+            closed = fullscreen.visible()
+            (output / 'fullscreen-markdown-closed.txt').write_text(closed)
+            assert 'Esc closes full content' not in closed, closed
+            assert 'full content ·' not in closed, closed
+            assert 'const unclosed' not in closed, closed
+            assert 'RUST_MD_STREAM_DONE' not in closed, closed
+            assert '26 more lines' in closed, closed
+            codes = sgr_codes(fullscreen.data)
+            (output / 'fullscreen-markdown-sgr.txt').write_text('\n'.join(codes) + '\n')
+            assert any(code not in {'', '0', '1', '22', '39', '49', '59'} for code in codes), codes
             fullscreen.write('r')
             shown = fullscreen.wait_visible('graph TD', 10)
             assert 'graph TD' in shown

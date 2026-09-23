@@ -188,27 +188,23 @@ pub fn render_session(
     let _ = theme;
     frame.render_widget(Paragraph::new("codsh · Rust client · dsh ACP"), header);
     Paragraph::new(chrome_text).render(chrome, frame.buffer_mut());
-    let viewer_rows = transcript.height as usize + full_chrome.saturating_sub(1) as usize;
-    let painted = if viewer {
-        nav.overlay_text_for(viewer_rows)
-            .lines()
-            .map(str::to_string)
-            .collect::<Vec<_>>()
-    } else {
-        nav.painted_transcript_lines()
-    };
     let width = transcript.width.max(1) as usize;
-    let wrapped = painted.len() + extra_wraps(&painted, width);
     let height = transcript.height as usize;
+    ratatui::widgets::Clear.render(transcript, frame.buffer_mut());
+    let styled: Vec<ratatui::text::Line<'static>> = if viewer {
+        nav.viewer_lines(height)
+    } else {
+        nav.painted_transcript()
+    };
     // Follow sticks to the tail inside the real slot. A manual offset already
-    // windowed `painted`, so do not scroll that window again.
+    // windowed the viewer, so do not scroll that window again.
+    let painted_rows = styled.len() + extra_styled_wraps(&styled, width);
     let scroll = if nav.follow && !viewer {
-        wrapped.saturating_sub(height) as u16
+        painted_rows.saturating_sub(height) as u16
     } else {
         0
     };
-    ratatui::widgets::Clear.render(transcript, frame.buffer_mut());
-    Paragraph::new(painted.join("\n"))
+    Paragraph::new(styled)
         .wrap(Wrap { trim: false })
         .scroll((scroll, 0))
         .render(transcript, frame.buffer_mut());
@@ -276,11 +272,16 @@ fn render_notice(notice: &str, area: Rect, buf: &mut ratatui::buffer::Buffer) {
         .render(area, buf);
 }
 
-fn extra_wraps(lines: &[String], width: usize) -> usize {
+fn extra_styled_wraps(lines: &[ratatui::text::Line<'_>], width: usize) -> usize {
     lines
         .iter()
         .map(|line| {
-            let cols = unicode_width::UnicodeWidthStr::width(line.as_str());
+            let text: String = line
+                .spans
+                .iter()
+                .map(|span| span.content.as_ref())
+                .collect();
+            let cols = unicode_width::UnicodeWidthStr::width(text.as_str());
             cols.saturating_sub(1) / width
         })
         .sum()
@@ -530,6 +531,97 @@ mod tests {
         assert!(
             wrapped_text.contains("Execution unavailable"),
             "a wrapped draft on a 32-column screen still shows the unavailable status: {wrapped_text}"
+        );
+    }
+
+    #[test]
+    fn session_paints_markdown_color_and_clears_the_viewer() {
+        use crate::navigation::{NavEntry, NavState, NavigationPrefs};
+        let mut state = NavState::new(NavigationPrefs::default(), true);
+        state.rebuild(
+            vec![NavEntry::from_parts(
+                "prompt",
+                "",
+                "# Heading\n\n`code`",
+                vec![],
+            )],
+            60,
+            8,
+        );
+        let mut terminal = Terminal::new(TestBackend::new(80, 24)).unwrap();
+        let draft = TextArea::new();
+        terminal
+            .draw(|frame| {
+                render_session(
+                    frame,
+                    &draft,
+                    "mode=fullscreen\nConnected.",
+                    &state,
+                    &Theme::offline(),
+                    "Draft (not sent)",
+                );
+            })
+            .unwrap();
+        let colored = terminal
+            .backend()
+            .buffer()
+            .content
+            .iter()
+            .any(|cell| cell.symbol().contains('H') && cell.fg != ratatui::style::Color::Reset);
+        assert!(colored, "session buffer keeps a heading foreground");
+        state.focus = crate::navigation::Focus::Scrollback;
+        state.selected = Some(0);
+        state.open_viewer();
+        terminal
+            .draw(|frame| {
+                render_session(
+                    frame,
+                    &draft,
+                    "mode=fullscreen\nfull content · Esc closes full content",
+                    &state,
+                    &Theme::offline(),
+                    "Draft (not sent)",
+                );
+            })
+            .unwrap();
+        let open: String = terminal
+            .backend()
+            .buffer()
+            .content
+            .iter()
+            .map(|cell| cell.symbol())
+            .collect();
+        assert!(open.contains("full content"), "{open}");
+        state.handle_key(
+            crossterm::event::KeyEvent::new(
+                crossterm::event::KeyCode::Esc,
+                crossterm::event::KeyModifiers::NONE,
+            ),
+            true,
+        );
+        let notice = "mode=fullscreen\nConnected.";
+        terminal
+            .draw(|frame| {
+                render_session(
+                    frame,
+                    &draft,
+                    notice,
+                    &state,
+                    &Theme::offline(),
+                    "Draft (not sent)",
+                );
+            })
+            .unwrap();
+        let closed: String = terminal
+            .backend()
+            .buffer()
+            .content
+            .iter()
+            .map(|cell| cell.symbol())
+            .collect();
+        assert!(
+            !closed.contains("full content"),
+            "escape clears the viewer from the session: {closed}"
         );
     }
 

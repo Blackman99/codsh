@@ -3171,7 +3171,8 @@ fn run() -> io::Result<()> {
                                 NavOverlay::None
                                     if hint.starts_with("Find:")
                                         || hint.contains("Jump to which turn")
-                                        || hint.starts_with("Viewer") =>
+                                        || hint.starts_with("Viewer")
+                                        || hint.starts_with("full content") =>
                                 {
                                     hint.clear();
                                 }

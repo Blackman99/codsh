@@ -92,17 +92,53 @@ pub fn pretty_markdown_style() -> MarkdownStyle {
     }
 }
 
-fn flatten_lines(lines: &[Line<'_>]) -> String {
-    lines
+fn line_text(line: &Line<'_>) -> String {
+    line.spans
         .iter()
-        .map(|line| {
-            line.spans
-                .iter()
-                .map(|span| span.content.as_ref())
-                .collect::<String>()
-        })
-        .collect::<Vec<_>>()
-        .join("\n")
+        .map(|span| span.content.as_ref())
+        .collect()
+}
+
+fn flatten_lines(lines: &[Line<'_>]) -> String {
+    lines.iter().map(line_text).collect::<Vec<_>>().join("\n")
+}
+
+/// Failed and error labels stay distinct from a completed tool. Success is
+/// not a color; these two are, so a green status cannot hide a failure.
+fn color_status_label(lines: &mut [Line<'static>], label: &str) {
+    let painted = status_span(label);
+    for line in lines {
+        let mut next = Vec::with_capacity(line.spans.len());
+        for span in line.spans.drain(..) {
+            let text = span.content.as_ref();
+            if let Some(at) = text.find(label) {
+                if at > 0 {
+                    next.push(Span::styled(text[..at].to_string(), span.style));
+                }
+                next.push(Span::styled(label.to_string(), painted.style));
+                let after = at + label.len();
+                if after < text.len() {
+                    next.push(Span::styled(text[after..].to_string(), span.style));
+                }
+            } else {
+                next.push(span);
+            }
+        }
+        line.spans = next;
+    }
+}
+
+pub fn status_span(text: &str) -> Span<'static> {
+    let lower = text.to_ascii_lowercase();
+    let style = if lower.contains("failed") || lower.contains("[error]") || lower.contains("error")
+    {
+        ratatui::style::Style::default().fg(ratatui::style::Color::Rgb(247, 118, 142))
+    } else if lower.contains("successfully") || lower.contains("completed") {
+        ratatui::style::Style::default().fg(ratatui::style::Color::Rgb(158, 206, 106))
+    } else {
+        ratatui::style::Style::default()
+    };
+    Span::styled(text.to_string(), style)
 }
 
 /// Official pretty mode leaves InlineHtml tags (`<font>`, `<b>`) visible,
@@ -356,15 +392,16 @@ fn prefix_first(mut lines: Vec<Line<'static>>, prefix: &str) -> Vec<Line<'static
 
 /// Pretty (or raw) lines for one navigation entry. Folded blocks keep a real
 /// prefix of the rendered body plus the fold hint; they do not invent text.
+/// Styles stay on the spans so the session painter can emit them.
 pub fn entry_lines(
     turn: usize,
     entry: &NavEntry,
     display: &DisplayState,
-) -> Vec<(LineKind, String)> {
+) -> Vec<(LineKind, Line<'static>)> {
     let mut out = Vec::new();
     out.push((
         LineKind::User,
-        format!("> {}", entry.user.replace('\n', " ")),
+        Line::from(format!("> {}", entry.user.replace('\n', " "))),
     ));
     if !entry.thought.is_empty() {
         let key = block_key(turn, BlockKind::Thought, "");
@@ -380,10 +417,7 @@ pub fn entry_lines(
             )
         };
         for line in lines {
-            out.push((
-                LineKind::Thought,
-                flatten_lines(std::slice::from_ref(&line)),
-            ));
+            out.push((LineKind::Thought, line));
         }
     }
     for (index, (title, result)) in entry.tools.iter().enumerate() {
@@ -411,18 +445,21 @@ pub fn entry_lines(
         } else if status_line.is_empty() {
             result.clone()
         } else if result.is_empty() {
-            status_line
+            status_line.clone()
         } else {
             format!("{status_line}\n{result}")
         };
         let foldable = foldable_source(result);
         let folded = entry.folded_tools && foldable;
-        let lines = prefix_first(
+        let mut lines = prefix_first(
             body_lines(&source, raw, folded, foldable),
             &format!("[tool {title}] "),
         );
+        if !status.is_empty() && !status_line.is_empty() {
+            color_status_label(&mut lines, &status_line);
+        }
         for line in lines {
-            out.push((LineKind::Tool, flatten_lines(std::slice::from_ref(&line))));
+            out.push((LineKind::Tool, line));
         }
     }
     if !entry.answer.is_empty() {
@@ -431,14 +468,17 @@ pub fn entry_lines(
         let foldable = foldable_source(&entry.answer);
         let folded = entry.folded_answer && foldable && !raw;
         for line in body_lines(&entry.answer, raw, folded, foldable) {
-            out.push((LineKind::Answer, flatten_lines(std::slice::from_ref(&line))));
+            out.push((LineKind::Answer, line));
         }
     }
     for error in &entry.errors {
         if error.is_empty() {
             continue;
         }
-        out.push((LineKind::Tool, format!("[error] {error}")));
+        out.push((
+            LineKind::Tool,
+            Line::from(status_span(&format!("[error] {error}"))),
+        ));
     }
     out
 }
@@ -462,7 +502,7 @@ pub fn render_turn_text(turn: &TurnView, display: &DisplayState) -> String {
     };
     let mut lines: Vec<String> = entry_lines(0, &entry, display)
         .into_iter()
-        .map(|(_, text)| text)
+        .map(|(_, line)| line_text(&line))
         .collect();
     if turn.compacted {
         if let Some(info) = &turn.compaction {
@@ -811,6 +851,29 @@ mod tests {
     }
 
     #[test]
+    fn pretty_lines_keep_heading_code_and_failure_colors() {
+        let lines = render_markdown_lines(
+            "# Heading\n\n`code` and a table\n\n| a | b |\n|---|---|\n| 1 | 2 |\n",
+        );
+        let colored = lines
+            .iter()
+            .any(|line| line.spans.iter().any(|span| span.style.fg.is_some()));
+        assert!(colored, "official styles must survive as span colors");
+        let failed = status_span("failed");
+        assert!(
+            failed.style.fg.is_some(),
+            "a failed tool status is not plain text"
+        );
+        let error = status_span("[error] tool t1 failed");
+        assert!(error.style.fg.is_some(), "an error line is not plain text");
+        let ok = status_span("successfully.");
+        assert_ne!(
+            failed.style.fg, ok.style.fg,
+            "failure must not reuse the success color"
+        );
+    }
+
+    #[test]
     fn fold_and_raw_do_not_rewrite_original_bytes() {
         let huge = (1..=20)
             .map(|index| format!("HUGE_LINE_{index:03}_MARKER"))
@@ -850,7 +913,7 @@ mod tests {
         let folded = entry_lines(0, &entry, &DisplayState::default());
         let painted = folded
             .iter()
-            .map(|(_, text)| text.as_str())
+            .map(|(_, line)| line_text(line))
             .collect::<Vec<_>>()
             .join("\n");
         assert!(painted.contains("HUGE_LINE_001_MARKER"), "{painted}");
