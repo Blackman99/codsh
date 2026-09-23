@@ -199,6 +199,8 @@ pub struct PromptComposer {
     pending_submit: Option<String>,
     pending_files: Vec<AttachedFile>,
     prepared_submit: Option<SubmittedPrompt>,
+    /// Prompts typed while a turn is running. Each keeps its own chips.
+    queue: Vec<SubmittedPrompt>,
     grok_home: PathBuf,
     workspace: Option<WorkspaceIndex>,
     files: Vec<AttachedFile>,
@@ -246,6 +248,7 @@ impl PromptComposer {
             pending_submit: None,
             pending_files: Vec::new(),
             prepared_submit: None,
+            queue: Vec::new(),
             grok_home: grok_home.to_path_buf(),
             workspace: None,
             files: Vec::new(),
@@ -278,6 +281,53 @@ impl PromptComposer {
 
     pub fn take_prepared_submit(&mut self) -> Option<SubmittedPrompt> {
         self.prepared_submit.take()
+    }
+
+    pub fn stage_prepared_submit(&mut self, prepared: SubmittedPrompt) {
+        self.prepared_submit = Some(prepared);
+    }
+
+    pub fn queue_count(&self) -> usize {
+        self.queue.len()
+    }
+
+    /// Put a queued prompt back in the composer. Refused while the box holds text.
+    pub fn edit_queued(&mut self, index: usize) -> bool {
+        if !self.draft.is_empty() || index >= self.queue.len() {
+            return false;
+        }
+        let item = self.queue.remove(index);
+        self.set_text(&item.text);
+        self.restore_file_chips_from_mentions(&item.mentions);
+        true
+    }
+
+    /// Prompts waiting for the current turn to finish.
+    pub fn take_ready_queue(&mut self) -> Vec<SubmittedPrompt> {
+        std::mem::take(&mut self.queue)
+    }
+
+    pub fn requeue(&mut self, items: Vec<SubmittedPrompt>) {
+        let mut kept = items;
+        kept.append(&mut self.queue);
+        self.queue = kept;
+    }
+
+    fn enqueue_current(&mut self) -> bool {
+        let prepared = match self.prepare_submit() {
+            Ok(prepared) => prepared,
+            Err(error) => {
+                self.footer_notice = error;
+                return false;
+            }
+        };
+        self.files.clear();
+        self.replace_draft("");
+        self.overlay = Overlay::None;
+        self.matches.clear();
+        self.queue.push(prepared);
+        self.footer_notice = format!("queued {}", self.queue.len());
+        true
     }
 
     pub fn text(&self) -> &str {
@@ -330,6 +380,7 @@ impl PromptComposer {
     fn replace_draft(&mut self, text: &str) {
         self.draft.set_text(text);
         self.draft.set_cursor(self.draft.text().len());
+        self.refresh_file_state();
     }
 
     pub fn is_empty(&self) -> bool {
@@ -367,7 +418,12 @@ impl PromptComposer {
             };
             return format!("{mode}  Draft (not sent)  {label}{ghost}");
         }
-        format!("{mode}  Draft (not sent)  {send}{ghost}")
+        let queued = if self.queue_count() == 0 {
+            String::new()
+        } else {
+            format!("  queued:{}", self.queue_count())
+        };
+        format!("{mode}  Draft (not sent)  {send}{queued}{ghost}")
     }
 
     pub fn overlay_text(&self) -> String {
@@ -603,8 +659,16 @@ impl PromptComposer {
         if matches!(key.code, KeyCode::Esc) {
             return self.handle_esc(ctx);
         }
+        if key.modifiers.contains(KeyModifiers::ALT)
+            && matches!(key.code, KeyCode::Up)
+            && self.edit_queued(0)
+        {
+            self.footer_notice = "queued prompt restored".into();
+            return Action::None;
+        }
         if self.is_send(&key) {
             if ctx.inflight && !self.draft.text().trim().starts_with('/') {
+                self.enqueue_current();
                 return Action::None;
             }
             return self.submit_or_slash();
@@ -1554,12 +1618,10 @@ impl PromptComposer {
             .copied()
             .map(|line| index.resolve_drop(line))
             .collect();
-        let looks_like_paths = paths.iter().any(Result::is_ok)
-            || lines.iter().all(|line| {
-                line.starts_with('/')
-                    || line.starts_with("file://")
-                    || line.contains(std::path::MAIN_SEPARATOR)
-            });
+        // Every line has to be a workspace file. A sentence that only mentions
+        // a path does not resolve, so it stays in the draft. Names may contain
+        // spaces; the whole line is the path.
+        let looks_like_paths = !paths.is_empty() && paths.iter().all(Result::is_ok);
         if !looks_like_paths {
             return false;
         }
@@ -1639,6 +1701,18 @@ impl PromptComposer {
             fresh.push(prepared);
         }
         Ok(fresh)
+    }
+
+    fn restore_file_chips_from_mentions(&mut self, mentions: &[String]) {
+        let Some(index) = self.workspace.clone() else {
+            return;
+        };
+        for mention in mentions {
+            let Some(reference) = index.resolve_typed(mention) else {
+                continue;
+            };
+            self.insert_file_chip(reference);
+        }
     }
 
     fn restore_file_chips(&mut self, files: &[AttachedFile]) {
@@ -1961,12 +2035,18 @@ mod tests {
     }
 
     fn temp_home() -> PathBuf {
+        use std::sync::atomic::{AtomicU64, Ordering};
+        static HOMES: AtomicU64 = AtomicU64::new(0);
         let stamp = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap()
             .as_nanos();
-        let path =
-            std::env::temp_dir().join(format!("codsh-prompt-{}-{}", std::process::id(), stamp));
+        let path = std::env::temp_dir().join(format!(
+            "codsh-prompt-{}-{}-{}",
+            std::process::id(),
+            stamp,
+            HOMES.fetch_add(1, Ordering::Relaxed)
+        ));
         fs::create_dir_all(&path).unwrap();
         path
     }
@@ -2353,6 +2433,106 @@ mod tests {
         assert!(after.is_err(), "removed chip must not submit: {after:?}");
         let message = after.unwrap_err();
         assert!(!message.contains("two"), "{message}");
+        let _ = fs::remove_dir_all(root);
+        let _ = fs::remove_dir_all(home);
+    }
+
+    #[test]
+    fn single_line_chip_and_prose_paste_do_not_drop_the_draft() {
+        let root = temp_home();
+        fs::create_dir_all(root.join("src")).unwrap();
+        fs::write(
+            root.join("src/main.rs"),
+            "ALPHA_LINE\nBETA_LINE\nGAMMA_LINE\n",
+        )
+        .unwrap();
+        let home = temp_home();
+        let mut composer = PromptComposer::load(&home, &[]);
+        composer.set_workspace(&root);
+        for ch in "@src/main.rs:2".chars() {
+            composer.handle_key(key(KeyCode::Char(ch)), ctx());
+        }
+        composer.handle_key(key(KeyCode::Enter), ctx());
+        let submitted = composer.prepare_submit().expect("single line attaches");
+        let encoded = submitted
+            .blocks
+            .iter()
+            .filter_map(|block| block.get("text").and_then(|value| value.as_str()))
+            .collect::<String>();
+        assert!(encoded.contains("BETA_LINE"), "{encoded}");
+        assert!(!encoded.contains("ALPHA_LINE"), "{encoded}");
+        assert!(!encoded.contains("GAMMA_LINE"), "{encoded}");
+        assert!(
+            submitted
+                .mentions
+                .iter()
+                .any(|mention| mention == "@src/main.rs:2")
+        );
+
+        composer.accept_pending_submit();
+        composer.set_text("");
+        composer.paste("see src/main.rs before editing");
+        assert!(
+            composer.text() == "see src/main.rs before editing" && !composer.chips,
+            "chips={} notice={} text={:?} elements={:?}",
+            composer.chips,
+            composer.footer_notice,
+            composer.text(),
+            composer.draft.elements()
+        );
+        composer.set_text("");
+        composer.paste(&format!("{}/src/main.rs", root.display()));
+        assert!(composer.chips, "a pasted workspace path attaches");
+        let _ = fs::remove_dir_all(root);
+        let _ = fs::remove_dir_all(home);
+    }
+
+    #[test]
+    fn queued_attachment_can_be_edited_and_a_removed_chip_is_not_sent() {
+        let root = temp_home();
+        fs::create_dir_all(root.join("src")).unwrap();
+        fs::write(root.join("src/main.rs"), "QUEUE_BODY\n").unwrap();
+        let home = temp_home();
+        let mut composer = PromptComposer::load(&home, &[]);
+        composer.set_workspace(&root);
+        let busy = HostContext {
+            inflight: true,
+            minimal: false,
+        };
+        for ch in "@src/main.rs".chars() {
+            composer.handle_key(key(KeyCode::Char(ch)), busy);
+        }
+        composer.handle_key(key(KeyCode::Enter), busy);
+        assert!(composer.chips);
+        assert_eq!(
+            composer.handle_key(key(KeyCode::Enter), busy),
+            Action::None,
+            "a busy turn queues instead of sending"
+        );
+        assert!(
+            composer.queue_count() == 1,
+            "queued {}",
+            composer.queue_count()
+        );
+        assert!(composer.text().is_empty());
+        composer.handle_key(chord(KeyCode::Up, KeyModifiers::ALT), busy);
+        assert!(composer.chips, "editing a queued prompt restores its chip");
+        assert!(
+            composer.text().contains("@src/main.rs"),
+            "{}",
+            composer.text()
+        );
+        composer.handle_key(key(KeyCode::Backspace), busy);
+        assert!(!composer.chips, "removed queued chip");
+        for ch in "plain".chars() {
+            composer.handle_key(key(KeyCode::Char(ch)), busy);
+        }
+        composer.handle_key(key(KeyCode::Enter), busy);
+        let released = composer.take_ready_queue();
+        assert_eq!(released.len(), 1);
+        let encoded = serde_json::to_string(&released[0].blocks).unwrap();
+        assert!(encoded.contains("plain"), "{encoded}");
+        assert!(!encoded.contains("QUEUE_BODY"), "{encoded}");
         let _ = fs::remove_dir_all(root);
         let _ = fs::remove_dir_all(home);
     }

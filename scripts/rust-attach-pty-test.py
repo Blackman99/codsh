@@ -28,15 +28,45 @@ PASTE_OPEN = prompt.PASTE_OPEN
 PASTE_CLOSE = prompt.PASTE_CLOSE
 
 
-def screen_answer(shown):
-    """Join wrapped transcript rows so a file body can be checked as one string."""
+def model_echo(shown):
+    """Join the latest mock answer, including rows wrapped under a new '>'.
+
+    Picker preview and composer chrome are not part of the model echo.
+    The returned string starts at `latest=`.
+    """
     rows = []
+    started = False
     for raw in shown.splitlines():
         line = raw.strip()
-        if line.startswith('>'):
-            line = line[1:].strip()
-        rows.append(line)
-    return ''.join(rows)
+        if 'RUST_ACP_ANSWER' in line:
+            rows = [line]
+            started = True
+            continue
+        if not started:
+            continue
+        if not line or line.startswith(('┌', 'mode=', 'Draft', 'file picker', 'preview ')):
+            break
+        rows.append(line[1:].strip() if line.startswith('>') else line)
+    echo = ''.join(rows)
+    marker = echo.rfind('latest=')
+    if marker < 0:
+        raise AssertionError(f'model echo has no latest= field\n{echo}\n{shown}')
+    return echo[marker:]
+
+
+def latest_value(echo):
+    """The `latest=` field. A following history copy is not this submission.
+
+    The mock prints `latest=<last user text> <all user text>`. The last user
+    text can itself contain `@`, so only a later duplicate is removed.
+    """
+    value = echo.split('latest=', 1)[1]
+    if value.startswith('plain ') or value == 'plain':
+        return 'plain'
+    marker = value.find(' @src/main.rs:2 look')
+    if marker > 0:
+        return value[:marker]
+    return value
 
 
 def main():
@@ -53,7 +83,12 @@ def main():
         (cwd / 'src').mkdir(parents=True)
         (cwd / '.hidden').mkdir()
         (cwd / '.gitignore').write_text('secret.log\n')
-        (cwd / 'src' / 'main.rs').write_text('one\ntwo\nthree\n')
+        (cwd / 'src' / '.gitignore').write_text('secret.rs\n')
+        (cwd / 'src' / 'gen').mkdir()
+        (cwd / 'src' / 'gen' / '.gitignore').write_text('*\n')
+        (cwd / 'src' / 'main.rs').write_text('ALPHA_LINE\nBETA_LINE\nGAMMA_LINE\n')
+        (cwd / 'src' / 'secret.rs').write_text('NESTED_SECRET\n')
+        (cwd / 'src' / 'gen' / 'out.rs').write_text('GENERATED_OUT\n')
         (cwd / 'secret.log').write_text('HIDDEN_LOG\n')
         (cwd / '.hidden' / 'note.txt').write_text('DOT_SECRET\n')
         (cwd / 'my file.rs').write_text('spaced line\n')
@@ -81,17 +116,31 @@ def main():
             assert 'file picker' in shown
             session.write('\x1b')
             session.write('\x7f' * 20)
-            session.write('@src/main.rs:2-3')
+            session.write('@src/secret')
+            shown = session.wait_visible('file picker', 10)
+            assert 'secret.rs' not in shown and 'NESTED_SECRET' not in shown, shown
+            session.write('\x1b')
+            session.write('\x7f' * 16)
+            session.write('@gen/out')
+            session.pump(0.3)
+            shown = session.visible()
+            assert 'out.rs' not in shown and 'GENERATED_OUT' not in shown, shown
+            session.write('\x1b')
+            session.write('\x7f' * 24)
+            session.write('@src/main.rs:2')
             shown = session.wait_visible('src/main.rs', 10)
-            assert 'preview' in shown and 'two' in shown, shown
+            assert 'preview' in shown and 'BETA_LINE' in shown, shown
+            assert 'ALPHA_LINE' not in shown and 'GAMMA_LINE' not in shown, shown
             session.write('\r')
             session.pump(0.3)
             session.write(' look\r')
             shown = wait_answer(session, 'latest=', seconds=25)
-            echo = screen_answer(shown)
-            assert 'two' in echo and 'three' in echo, echo
+            echo = latest_value(model_echo(shown))
+            assert 'BETA_LINE' in echo, echo
+            assert 'ALPHA_LINE' not in echo and 'GAMMA_LINE' not in echo, echo
             assert 'HIDDEN_LOG' not in echo and 'DOT_SECRET' not in echo, echo
-            assert '@src/main.rs:2-3' in echo, echo
+            assert 'NESTED_SECRET' not in echo and 'GENERATED_OUT' not in echo, echo
+            assert '@src/main.rs:2' in echo, echo
             session.write('@src/main.rs')
             session.wait_visible('src/main.rs', 10)
             session.write('\r')
@@ -103,17 +152,24 @@ def main():
             before = len(prompt.answer_lines(shown))
             session.write('plain\r')
             shown = wait_answer(session, 'latest=plain', seconds=25)
-            echo = latest_answer(shown)
-            assert 'latest=plain' in echo, echo
-            assert 'one' not in echo and 'two' not in echo and 'Attached file' not in echo, echo
+            echo = latest_value(model_echo(shown))
+            assert echo == 'plain', echo
+            assert 'BETA_LINE' not in echo and 'Attached file' not in echo, echo
             assert len(prompt.answer_lines(shown)) == before + 1
+            session.write('\x03')
+            session.write(PASTE_OPEN + b'see src/main.rs in the note' + PASTE_CLOSE)
+            session.pump(0.4)
+            shown = session.visible()
+            assert 'see src/main.rs in the note' in shown, shown
+            assert 'attached @' not in shown.split('Draft')[-1], shown
             session.write('\x03')
             session.write(PASTE_OPEN + str(cwd / 'my file.rs').encode() + PASTE_CLOSE)
             shown = session.wait_visible('my file.rs', 10)
             session.write('\r')
             shown = wait_answer(session, 'turn=4', seconds=25)
-            echo = screen_answer(shown)
+            echo = latest_value(model_echo(shown))
             assert 'spaced line' in echo, echo
+            assert 'see src/main.rs in the note' not in echo, echo
             session_id = session.session_id()
             session.write('\x11')
             session.process.wait(timeout=12)
@@ -123,9 +179,10 @@ def main():
         resumed = Session('file-attach-resume', launcher, cwd, env, output,
                           extra=['--fullscreen', '--resume', session_id])
         try:
-            shown = resumed.wait_visible('@src/main.rs:2-3', 25)
+            shown = resumed.wait_visible('@src/main.rs:2', 25)
             assert 'look' in shown, shown
-            assert 'spaced line' not in shown or 'my file.rs' in shown
+            assert 'my file.rs' in shown, shown
+            assert '@src/main.rs:2' in shown, shown
         finally:
             resumed.finish(expect_alt_leave=True)
             resumed.close()

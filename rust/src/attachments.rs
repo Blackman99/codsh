@@ -1,7 +1,9 @@
 //! File references attached from the composer and submitted through ACP.
 //!
-//! Search follows the frozen Grok `@` contract: `.gitignore` and dotfiles stay
-//! hidden unless the query starts with `!`. A selected file is a chip, not
+//! Search follows the frozen Grok `@` contract: `.gitignore` files, including
+//! nested ones, and dotfiles stay hidden unless the query starts with `!`.
+//! `@path:2` keeps that line and `@path:10-50` keeps that range. A selected
+//! file is a chip, not
 //! flattened text. Submit reads the file then, so a removed chip is not sent
 //! and a later edit or permission failure is reported instead of leaked bytes.
 
@@ -62,7 +64,13 @@ impl FileRef {
         let range = self
             .range
             .as_ref()
-            .map(|span| format!(":{}-{}", span.start, span.end))
+            .map(|span| {
+                if span.start == span.end {
+                    format!(":{}", span.start)
+                } else {
+                    format!(":{}-{}", span.start, span.end)
+                }
+            })
             .unwrap_or_default();
         if needs_quotes(&self.relative) {
             format!("@\"{}{}\"", self.relative, range)
@@ -111,8 +119,6 @@ pub struct PreparedAttachment {
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct IgnoreRule {
     negated: bool,
-    directory_only: bool,
-    anchored: bool,
     pattern: String,
 }
 
@@ -120,6 +126,8 @@ struct IgnoreRule {
 #[derive(Debug, Clone)]
 pub struct WorkspaceIndex {
     root: PathBuf,
+    /// Rules from every `.gitignore`, each already rooted at the directory that
+    /// contained the file. Nested files apply to their descendants.
     rules: Vec<IgnoreRule>,
 }
 
@@ -127,9 +135,7 @@ impl WorkspaceIndex {
     pub fn new(root: &Path) -> Self {
         let root = fs::canonicalize(root).unwrap_or_else(|_| root.to_path_buf());
         let mut rules = Vec::new();
-        if let Ok(text) = fs::read_to_string(root.join(".gitignore")) {
-            rules.extend(parse_gitignore(&text));
-        }
+        collect_gitignore(&root, &root, &mut rules);
         Self { root, rules }
     }
 
@@ -491,15 +497,30 @@ impl IgnoreRule {
         if pattern.is_empty() {
             return false;
         }
-        if self.directory_only && !relative.ends_with('/') && !path.contains('/') && !self.anchored
-        {
-            // A directory-only rule still excludes descendants named below.
-        }
-        if self.anchored || pattern.contains('/') {
-            glob_match(pattern, path)
+        // Rules are stored rooted at the `.gitignore` that declared them.
+        // A pattern with no slash still matches that name in any descendant.
+        let (root, name) = match pattern.rsplit_once('/') {
+            Some((root, name)) => (root, name),
+            None => ("", pattern),
+        };
+        let candidate = if root.is_empty() {
+            path
         } else {
-            path.split('/').any(|part| glob_match(pattern, part)) || glob_match(pattern, path)
+            let Some(rest) = path
+                .strip_prefix(root)
+                .and_then(|rest| rest.strip_prefix('/'))
+            else {
+                return false;
+            };
+            rest
+        };
+        if name.is_empty() {
+            return false;
         }
+        candidate == name
+            || candidate.starts_with(&format!("{name}/"))
+            || candidate.split('/').any(|part| glob_match(name, part))
+            || glob_match(name, candidate)
     }
 }
 
@@ -599,9 +620,25 @@ fn split_range(body: &str) -> (String, Option<LineRange>) {
 }
 
 fn parse_range(value: &str) -> Option<LineRange> {
-    let (start, end) = value.split_once('-')?;
-    let start: usize = start.trim().parse().ok()?;
-    let end: usize = end.trim().parse().ok()?;
+    let value = value.trim();
+    if value.is_empty() || value.contains(':') {
+        return None;
+    }
+    let (start, end) = if let Some((start, end)) = value.split_once('-') {
+        (start.trim(), end.trim())
+    } else {
+        (value, value)
+    };
+    if start.is_empty() || end.is_empty() {
+        return None;
+    }
+    if !start.bytes().all(|byte| byte.is_ascii_digit())
+        || !end.bytes().all(|byte| byte.is_ascii_digit())
+    {
+        return None;
+    }
+    let start: usize = start.parse().ok()?;
+    let end: usize = end.parse().ok()?;
     if start == 0 || end == 0 || end < start {
         return None;
     }
@@ -718,7 +755,36 @@ fn joined_text(blocks: &[Value]) -> String {
         .collect()
 }
 
-fn parse_gitignore(text: &str) -> Vec<IgnoreRule> {
+fn collect_gitignore(root: &Path, dir: &Path, rules: &mut Vec<IgnoreRule>) {
+    let relative = dir
+        .strip_prefix(root)
+        .unwrap_or(Path::new(""))
+        .components()
+        .map(|part| part.as_os_str().to_string_lossy())
+        .collect::<Vec<_>>()
+        .join("/");
+    if let Ok(text) = fs::read_to_string(dir.join(".gitignore")) {
+        rules.extend(parse_gitignore(&text, &relative));
+    }
+    let Ok(entries) = fs::read_dir(dir) else {
+        return;
+    };
+    for entry in entries.filter_map(Result::ok) {
+        let Ok(file_type) = entry.file_type() else {
+            continue;
+        };
+        if !file_type.is_dir() || file_type.is_symlink() {
+            continue;
+        }
+        let name = entry.file_name().to_string_lossy().to_string();
+        if name == ".git" {
+            continue;
+        }
+        collect_gitignore(root, &entry.path(), rules);
+    }
+}
+
+fn parse_gitignore(text: &str, base: &str) -> Vec<IgnoreRule> {
     text.lines()
         .filter_map(|line| {
             let line = line.trim();
@@ -730,14 +796,15 @@ fn parse_gitignore(text: &str) -> Vec<IgnoreRule> {
             if body.is_empty() {
                 return None;
             }
-            let directory_only = body.ends_with('/');
-            let anchored = body.starts_with('/');
-            Some(IgnoreRule {
-                negated,
-                directory_only,
-                anchored,
-                pattern: body.trim_start_matches('/').to_string(),
-            })
+            let pattern = body.trim_matches('/').to_string();
+            let pattern = if base.is_empty() {
+                pattern
+            } else if pattern.is_empty() {
+                base.to_string()
+            } else {
+                format!("{base}/{pattern}")
+            };
+            Some(IgnoreRule { negated, pattern })
         })
         .collect()
 }
@@ -748,13 +815,16 @@ mod tests {
     use std::os::unix::fs::PermissionsExt;
 
     fn fixture() -> PathBuf {
+        use std::sync::atomic::{AtomicU64, Ordering};
+        static FIXTURES: AtomicU64 = AtomicU64::new(0);
         let path = std::env::temp_dir().join(format!(
-            "codsh-attach-{}-{}",
+            "codsh-attach-{}-{}-{}",
             std::process::id(),
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap()
-                .as_nanos()
+                .as_nanos(),
+            FIXTURES.fetch_add(1, Ordering::Relaxed)
         ));
         fs::create_dir_all(path.join("src")).unwrap();
         fs::create_dir_all(path.join(".hidden")).unwrap();
@@ -791,6 +861,67 @@ mod tests {
         assert!(ignored.is_empty(), "{ignored:?}");
         let logs = index.search("notes");
         assert!(logs.is_empty(), "{logs:?}");
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn nested_gitignore_hides_descendants_until_bang() {
+        let root = fixture();
+        fs::create_dir_all(root.join("src/gen")).unwrap();
+        fs::write(root.join("src/.gitignore"), "secret.rs\n").unwrap();
+        fs::write(root.join("src/gen/.gitignore"), "*\n").unwrap();
+        fs::write(root.join("src/secret.rs"), "NESTED_SECRET\n").unwrap();
+        fs::write(root.join("src/gen/out.rs"), "GENERATED\n").unwrap();
+        let index = WorkspaceIndex::new(&root);
+        let visible = index.search("");
+        let names: Vec<_> = visible.iter().map(|item| item.relative.as_str()).collect();
+        assert!(
+            !names.iter().any(|name| name.contains("secret.rs")),
+            "{names:?}"
+        );
+        assert!(
+            !names.iter().any(|name| name.contains("gen/out.rs")),
+            "{names:?}"
+        );
+        assert!(
+            index.resolve_typed("@src/secret.rs").is_none(),
+            "a nested ignore must not admit the file without !"
+        );
+        assert!(index.resolve_typed("@src/gen/out.rs").is_none());
+        let forced = index.search("!secret.rs");
+        assert!(
+            forced.iter().any(|item| item.relative == "src/secret.rs"),
+            "{forced:?}"
+        );
+        let admitted = index.resolve_typed("@!src/secret.rs").unwrap();
+        assert_eq!(
+            index.prepare(&admitted, None).text.as_deref(),
+            Some("NESTED_SECRET\n")
+        );
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn single_line_reference_keeps_only_that_line() {
+        let root = fixture();
+        fs::write(
+            root.join("src/main.rs"),
+            "ALPHA_LINE\nBETA_LINE\nGAMMA_LINE\n",
+        )
+        .unwrap();
+        let index = WorkspaceIndex::new(&root);
+        let line = index.resolve_typed("@src/main.rs:2").unwrap();
+        assert_eq!(line.range, Some(LineRange { start: 2, end: 2 }));
+        assert_eq!(line.mention(), "@src/main.rs:2");
+        let prepared = index.prepare(&line, None);
+        assert_eq!(prepared.text.as_deref(), Some("BETA_LINE\n"));
+        assert!(!prepared.text.as_deref().unwrap().contains("ALPHA_LINE"));
+        assert!(!prepared.text.as_deref().unwrap().contains("GAMMA_LINE"));
+        let ranged = index.resolve_typed("@src/main.rs:2-3").unwrap();
+        assert_eq!(
+            index.prepare(&ranged, None).text.as_deref(),
+            Some("BETA_LINE\nGAMMA_LINE\n")
+        );
         let _ = fs::remove_dir_all(root);
     }
 

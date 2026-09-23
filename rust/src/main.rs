@@ -3929,6 +3929,38 @@ fn run() -> io::Result<()> {
             if let Some(session_id) = client.as_ref().and_then(|active| active.session_id.clone()) {
                 let _ = session_catalog::note_turn(&effective.dsh_home, &session_id, false);
             }
+            let queued = composer.take_ready_queue();
+            let mut deferred = Vec::new();
+            for prepared in queued {
+                if inflight {
+                    deferred.push(prepared);
+                    continue;
+                }
+                let text = prepared.text.clone();
+                composer.stage_prepared_submit(prepared);
+                submit_composer_prompt(
+                    &text,
+                    &mut client,
+                    &mut owner,
+                    &mut turns,
+                    &mut inflight,
+                    &mut last_error,
+                    &mut effective,
+                    &mut extra_env,
+                    &mut patch,
+                    &mut apply_failed,
+                    &mut previous_ready,
+                    &mut selection_ready,
+                    &mut resumed,
+                    &mut previous_session,
+                    &launch,
+                    &mode,
+                    &mut composer,
+                );
+            }
+            if !deferred.is_empty() {
+                composer.requeue(deferred);
+            }
         }
         if was_compacting && !inflight {
             compacting = false;
