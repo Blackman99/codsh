@@ -360,6 +360,15 @@ allow = ["Bash(git *)"]
         assert 'read-only shell command' not in git_upstream['screen']
         results['git_branch_attached_upstream'] = {'exit': git_upstream['exit']}
 
+        glob_rm = exercise('deny-pathname-glob', launcher, cwd,
+                           {**base_env, 'DSH_CODE_CLI_MOCK_TOOL': 'bash-glob-rm'},
+                           output, typed='TOKEN_PERM_GLOB', wait_for=['the user rejected', 'RUST_ACP_BASH_DENIED'],
+                           extra=['--always-approve', '--deny', 'Bash(rm -rf *)'], action='reject')
+        assert glob_rm['exit'] == 0
+        assert 'successfully.' not in glob_rm['screen']
+        assert 'Allow bash' not in glob_rm['screen']
+        results['deny_pathname_glob'] = {'exit': glob_rm['exit']}
+
         git_track = exercise('git-branch-bare-upstream-not-readonly', launcher, cwd,
                              {**base_env, 'DSH_CODE_CLI_MOCK_TOOL': 'bash-git-track'},
                              output, typed='TOKEN_PERM_TRACK', wait_for=['dontAsk blocked', 'RUST_ACP_BASH_DENIED'],
@@ -367,6 +376,14 @@ allow = ["Bash(git *)"]
         assert git_track['exit'] == 0
         assert 'read-only shell command' not in git_track['screen']
         results['git_branch_bare_upstream'] = {'exit': git_track['exit']}
+
+        git_long_track = exercise('git-branch-long-track-not-readonly', launcher, cwd,
+                                  {**base_env, 'DSH_CODE_CLI_MOCK_TOOL': 'bash-git-long-track'},
+                                  output, typed='TOKEN_PERM_LONGTRACK', wait_for=['dontAsk blocked', 'RUST_ACP_BASH_DENIED'],
+                                  extra=['--permission-mode', 'dontAsk'], action='none')
+        assert git_long_track['exit'] == 0
+        assert 'read-only shell command' not in git_long_track['screen']
+        results['git_branch_long_track'] = {'exit': git_long_track['exit']}
         quiet_config.write_text(quiet_saved)
 
         git_cat = exercise('git-cat-file-readonly', launcher, cwd,

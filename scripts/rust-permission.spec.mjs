@@ -319,6 +319,47 @@ describe('rust permission evaluator', () => {
     expect(evaluatePermission(quiet, { kind: 'bash', command: 'git branch -t' }).kind).toBe('deny')
   })
 
+  it('does not expand an unquoted pathname glob into a denied command under always-approve', () => {
+    const denyRm = policy({
+      mode: 'always-approve',
+      rules: [{ action: 'deny', tool: 'bash', pattern: 'rm -rf *', patternMode: 'glob' }],
+    })
+    for (const command of [
+      './r* -rf /',
+      './*m -rf /',
+      './r? -rf /',
+      'time ./r* -rf /',
+      'exec ./*m -rf /',
+      'builtin ./r? -rf /',
+      'command ./r* -rf /',
+      'sudo ./r* -rf /',
+      "bash -o errexit -c './r* -rf /'",
+      'time ./rm -rf /',
+      'exec /bin/rm -rf /',
+      'builtin rm -rf /',
+    ]) {
+      const decision = evaluatePermission(denyRm, { kind: 'bash', command })
+      expect(decision.kind, command).not.toBe('allow')
+    }
+    const echo = evaluatePermission(policy({ mode: 'always-approve' }), {
+      kind: 'bash',
+      command: './e* hello',
+    })
+    expect(echo.kind).not.toBe('allow')
+    expect(evaluatePermission(policy({ mode: 'always-approve' }), {
+      kind: 'bash',
+      command: "echo 'a*'",
+    }).kind).toBe('allow')
+  })
+
+  it('does not auto-allow git branch --track or its unique prefix under dontAsk', () => {
+    const quiet = policy({ mode: 'dontAsk' })
+    expect(evaluatePermission(quiet, { kind: 'bash', command: 'git branch --track' }).kind).toBe('deny')
+    expect(evaluatePermission(quiet, { kind: 'bash', command: 'git branch --tr' }).kind).toBe('deny')
+    expect(evaluatePermission(quiet, { kind: 'bash', command: 'git branch' }).kind).toBe('allow')
+    expect(evaluatePermission(quiet, { kind: 'bash', command: 'sort file' }).kind).toBe('allow')
+  })
+
   it('does not let sudo, nohup, or xargs hide a denied command under always-approve', () => {
     const denyRm = policy({
       mode: 'always-approve',

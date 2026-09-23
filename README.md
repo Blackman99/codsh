@@ -68,7 +68,10 @@ backslash-escaped command words, `eval`, and ANSI-C `bash -c $'…'` scripts
 that is not itself the denied command, such as `time /bin/rm`, `exec /bin/rm`,
 or `builtin rm`, does not hide it either. A shell option that takes the next
 word, such as `bash -o errexit -c`, is consumed before the script is read, so
-the inner command is still denied. A path-qualified
+the inner command is still denied. An unquoted `*`, `?`, or `[` in a command
+word is not expanded: a pathname glob such as `./r*`, `./*m`, or `./r?` can
+become `rm`, including behind `time`, `exec`, `builtin`, `command`, `sudo`, or
+`bash -o errexit -c`, so always-approve does not run it. A path-qualified
 executable such as `/bin/rm`, `./rm`, or `RM.EXE` is matched by its command
 basename without regard to case, so `Bash(rm -rf *)` still denies it under
 always-approve. `sort -o`, including attached `sort -oFILE` and a cluster
@@ -79,7 +82,8 @@ read-only. Frozen git inspection commands
 `name-rev`, `count-objects`, `check-attr`) auto-allow; git writes do not,
 including `git branch <name>`, `-f`/`--force`, `-u`/`--set-upstream-to`
 (including the attached form `git branch -uorigin/main` and a bare `-u` or
-`-t` with no operand), unique
+`-t` with no operand), `git branch --track` and a unique prefix such as
+`--tr` (a write even with no operand), unique
 prefixes of `git branch --delete`/`--move`/`--copy`/`--force`,
 `git diff`/`log`/`show`/`blame`/`rev-list --output`, and `git cat-file --filters`.
 Claude rules load from `~/.claude` and walk up to the repo root. Always-approve

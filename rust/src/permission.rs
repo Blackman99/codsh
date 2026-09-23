@@ -749,7 +749,7 @@ fn evaluate_rules(policy: &PermissionPolicy, access: &AccessKind) -> Option<Deci
             return Some(ask);
         }
         if is_unsplittable(command)
-            && (bash_restrictions_configured(policy) || has_parameter_expansion(command))
+            && (bash_restrictions_configured(policy) || command_word_expands(command))
         {
             return Some(Decision::Ask {
                 reason: "unsplittable command".into(),
@@ -821,7 +821,7 @@ fn bash_chain_allowed(policy: &PermissionPolicy, command: &str) -> bool {
     if !scripts.is_empty() {
         return scripts
             .iter()
-            .all(|script| bash_chain_allowed(policy, script));
+            .all(|script| bash_chain_allowed(policy, &script_body(script)));
     }
     if is_unsplittable(command) {
         return false;
@@ -1409,7 +1409,7 @@ fn has_parameter_expansion(command: &str) -> bool {
 fn is_unsplittable(command: &str) -> bool {
     command.contains("$(")
         || command.contains('`')
-        || has_parameter_expansion(command)
+        || command_word_expands(command)
         || has_unquoted(&['(', ')', '{', '}'], command)
         || has_background_amp(command)
         || is_control_flow(command)
@@ -1557,9 +1557,9 @@ fn extract_dash_c_scripts(command: &str) -> Vec<String> {
                     while index < chars.len() && chars[index].is_whitespace() {
                         index += 1;
                     }
-                    let (script, done) = next_shell_word(&chars, index);
+                    let (script, done) = raw_shell_word(&chars, index);
                     if !script.is_empty() {
-                        scripts.push(unquote_word(&script));
+                        scripts.push(script);
                     }
                     index = done;
                 }
@@ -1571,6 +1571,8 @@ fn extract_dash_c_scripts(command: &str) -> Vec<String> {
                     index = after;
                     break;
                 }
+                // The next word is the script. Keep its quotes: `shell_words`
+                // would turn `'./r*'` into `./r*` and hide that the glob is quoted.
                 want_script = true;
                 index = after;
                 continue;
@@ -1626,8 +1628,11 @@ fn extract_dash_c_scripts(command: &str) -> Vec<String> {
                 continue;
             }
             if want_script {
-                scripts.push(unquote_word(&flag));
-                index = after;
+                let (script, done) = raw_shell_word(&chars, index);
+                if !script.is_empty() {
+                    scripts.push(script);
+                }
+                index = done;
                 break;
             }
             break;
@@ -1799,6 +1804,48 @@ fn basename_command(command: &str) -> String {
     words.join(" ")
 }
 
+/// The word the shell actually expands. A quoted script such as `'./r*'` is
+/// returned with its quotes so a later unsplittable check does not treat the
+/// quote-stripped text as an unquoted glob.
+fn raw_shell_word(chars: &[char], start: usize) -> (String, usize) {
+    let mut index = start;
+    if index >= chars.len() {
+        return (String::new(), index);
+    }
+    if chars[index] == '$' && chars.get(index + 1) == Some(&'\'') {
+        let begin = index;
+        index += 2;
+        while index < chars.len() && chars[index] != '\'' {
+            index += 1;
+        }
+        if index < chars.len() {
+            index += 1;
+        }
+        return (chars[begin..index].iter().collect(), index);
+    }
+    if chars[index] == '\'' || chars[index] == '"' {
+        let mark = chars[index];
+        let begin = index;
+        index += 1;
+        while index < chars.len() && chars[index] != mark {
+            index += 1;
+        }
+        if index < chars.len() {
+            index += 1;
+        }
+        return (chars[begin..index].iter().collect(), index);
+    }
+    let begin = index;
+    while index < chars.len() && !chars[index].is_whitespace() {
+        if chars[index] == '\\' && index + 1 < chars.len() {
+            index += 2;
+            continue;
+        }
+        index += 1;
+    }
+    (chars[begin..index].iter().collect(), index)
+}
+
 fn next_shell_word(chars: &[char], start: usize) -> (String, usize) {
     let mut index = start;
     if index >= chars.len() {
@@ -1930,6 +1977,41 @@ fn inner_shell_scripts(command: &str) -> Vec<String> {
     scripts
 }
 
+/// `*`, `?`, and `[` expand in an unquoted command word. Do not expand them:
+/// a pathname glob such as `./r*` can become `./rm`.
+fn has_unquoted_glob(command: &str) -> bool {
+    has_unquoted(&['*', '?', '['], command)
+}
+
+/// One layer of shell quoting around a `-c` script. The quotes belong to the
+/// outer command; the inner shell sees the body and expands its globs.
+fn script_body(raw: &str) -> String {
+    if let Some(body) = raw
+        .strip_prefix("$'")
+        .and_then(|rest| rest.strip_suffix('\''))
+    {
+        return decode_ansi_c(body);
+    }
+    if raw.len() >= 2
+        && ((raw.starts_with('\'') && raw.ends_with('\''))
+            || (raw.starts_with('"') && raw.ends_with('"')))
+    {
+        return raw[1..raw.len() - 1].to_string();
+    }
+    raw.to_string()
+}
+
+/// A `$` or an unquoted glob can change which program runs, including inside
+/// a `bash -c` script whose quotes were only syntax for the outer command.
+fn command_word_expands(command: &str) -> bool {
+    if has_parameter_expansion(command) || has_unquoted_glob(command) {
+        return true;
+    }
+    inner_shell_scripts(command)
+        .iter()
+        .any(|script| command_word_expands(&script_body(script)))
+}
+
 fn rule_subjects(command: &str) -> Vec<String> {
     let trimmed = command.trim_start();
     let parsed = parsed_command(trimmed);
@@ -1966,7 +2048,11 @@ fn bash_inspect_subjects(command: &str) -> Vec<String> {
         }
         for inner in extract_substitutions(&trimmed)
             .into_iter()
-            .chain(inner_shell_scripts(&trimmed))
+            .chain(
+                inner_shell_scripts(&trimmed)
+                    .into_iter()
+                    .map(|script| script_body(&script)),
+            )
             .chain(control_flow_bodies(&trimmed))
             .chain(brace_bodies(&trimmed))
         {
@@ -2304,6 +2390,7 @@ fn git_write_name(subcommand: &str, name: &str) -> bool {
                 | "set-upstream-to"
                 | "unset-upstream"
                 | "recurse-submodules"
+                | "track"
         ),
         "diff" | "log" | "show" | "blame" | "rev-list" => canonical == "output",
         "cat-file" => matches!(canonical, "filters" | "textconv"),
@@ -3507,6 +3594,74 @@ mod tests {
                 matches!(
                     evaluate(&quiet, &AccessKind::Bash(command.into()), None),
                     Decision::Deny { .. }
+                ),
+                "{command}"
+            );
+        }
+    }
+
+    #[test]
+    fn pathname_globs_cannot_hide_a_denied_command() {
+        let deny = policy(
+            vec![rule(RuleAction::Deny, "Bash(rm -rf *)")],
+            PermissionMode::AlwaysApprove,
+        );
+        for command in [
+            "./r* -rf /",
+            "./*m -rf /",
+            "./r? -rf /",
+            "time ./r* -rf /",
+            "exec ./*m -rf /",
+            "builtin ./r? -rf /",
+            "command ./r* -rf /",
+            "sudo ./r* -rf /",
+            "bash -o errexit -c './r* -rf /'",
+            "time ./rm -rf /",
+            "exec /bin/rm -rf /",
+            "builtin rm -rf /",
+        ] {
+            let decision = evaluate(&deny, &AccessKind::Bash(command.into()), None);
+            assert!(
+                !matches!(decision, Decision::Allow { .. }),
+                "{command}: {decision:?}"
+            );
+        }
+        let echo = evaluate(
+            &policy(Vec::new(), PermissionMode::AlwaysApprove),
+            &AccessKind::Bash("./e* hello".into()),
+            None,
+        );
+        assert!(
+            !matches!(echo, Decision::Allow { .. }),
+            "./e* hello: {echo:?}"
+        );
+        assert!(matches!(
+            evaluate(
+                &policy(Vec::new(), PermissionMode::AlwaysApprove),
+                &AccessKind::Bash("echo 'a*'".into()),
+                None
+            ),
+            Decision::Allow { .. }
+        ));
+    }
+
+    #[test]
+    fn git_branch_track_is_not_readonly() {
+        let quiet = policy(Vec::new(), PermissionMode::DontAsk);
+        for command in ["git branch --track", "git branch --tr"] {
+            assert!(
+                matches!(
+                    evaluate(&quiet, &AccessKind::Bash(command.into()), None),
+                    Decision::Deny { .. }
+                ),
+                "{command}"
+            );
+        }
+        for command in ["git branch", "sort file"] {
+            assert!(
+                matches!(
+                    evaluate(&quiet, &AccessKind::Bash(command.into()), None),
+                    Decision::Allow { .. }
                 ),
                 "{command}"
             );

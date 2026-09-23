@@ -218,10 +218,48 @@ function hasParameterExpansion(command) {
   return false
 }
 
+function hasUnquotedGlob(command) {
+  let quote = ''
+  for (let i = 0; i < command.length; i += 1) {
+    const ch = command[i]
+    if (quote) {
+      if (ch === quote) quote = ''
+      continue
+    }
+    if (ch === "'" || ch === '"') {
+      quote = ch
+      continue
+    }
+    if (ch === '\\') {
+      i += 1
+      continue
+    }
+    // `*`, `?`, and `[` expand in an unquoted command word. Do not expand
+    // them: a pathname glob such as `./r*` can become `./rm`.
+    if (ch === '*' || ch === '?' || ch === '[') return true
+  }
+  return false
+}
+
+function scriptBody(raw) {
+  if (raw.startsWith("$'") && raw.endsWith("'") && raw.length >= 3) {
+    return decodeAnsiC(raw.slice(2, -1))
+  }
+  if ((raw.startsWith("'") && raw.endsWith("'")) || (raw.startsWith('"') && raw.endsWith('"'))) {
+    if (raw.length >= 2) return raw.slice(1, -1)
+  }
+  return raw
+}
+
+function commandWordExpands(command) {
+  if (hasParameterExpansion(command) || hasUnquotedGlob(command)) return true
+  return innerShellScripts(command).some(script => commandWordExpands(scriptBody(script)))
+}
+
 function isUnsplittable(command) {
   return /\$\(/.test(command)
     || command.includes('`')
-    || hasParameterExpansion(command)
+    || commandWordExpands(command)
     || /(?<![\\])[(){}]/.test(command)
     || hasBackgroundAmp(command)
     || isControlFlow(command)
@@ -375,6 +413,32 @@ function decodeAnsiC(body) {
   return out
 }
 
+function rawShellWord(command, start) {
+  let i = start
+  while (i < command.length && /\s/u.test(command[i])) i += 1
+  if (i >= command.length) return ['', i]
+  if (command.startsWith("$'", i)) {
+    const end = command.indexOf("'", i + 2)
+    if (end < 0) return [command.slice(i), command.length]
+    return [command.slice(i, end + 1), end + 1]
+  }
+  const quote = command[i]
+  if (quote === "'" || quote === '"') {
+    const end = command.indexOf(quote, i + 1)
+    if (end < 0) return [command.slice(i), command.length]
+    return [command.slice(i, end + 1), end + 1]
+  }
+  const begin = i
+  while (i < command.length && !/\s/u.test(command[i])) {
+    if (command[i] === '\\' && i + 1 < command.length) {
+      i += 2
+      continue
+    }
+    i += 1
+  }
+  return [command.slice(begin, i), i]
+}
+
 function shellWords(command) {
   const words = []
   let i = 0
@@ -463,44 +527,67 @@ function shellShortTakesValue(letter) {
 
 function innerShellScripts(command) {
   const scripts = []
-  const words = shellWords(command)
-  for (let i = 0; i < words.length; i += 1) {
-    const base = commandBasename(words[i])
+  let cursor = 0
+  const skipSpace = () => {
+    while (cursor < command.length && /\s/u.test(command[cursor])) cursor += 1
+  }
+  while (cursor < command.length) {
+    skipSpace()
+    if (cursor >= command.length) break
+    const [word, afterWord] = rawShellWord(command, cursor)
+    const parsed = shellWords(word)[0] ?? ''
+    const base = commandBasename(parsed)
     if (base === 'eval') {
-      if (words[i + 1]) scripts.push(words.slice(i + 1).join(' '))
+      cursor = afterWord
+      skipSpace()
+      if (cursor < command.length) scripts.push(command.slice(cursor).trim())
+      break
+    }
+    if (!SHELLS.has(base)) {
+      cursor = afterWord
       continue
     }
-    if (!SHELLS.has(base)) continue
+    cursor = afterWord
     let wantScript = false
-    i += 1
-    while (i < words.length) {
-      const word = words[i]
-      if (word === '--') {
-        i += 1
-        if (wantScript && words[i]) {
-          scripts.push(words[i])
-          break
+    while (cursor < command.length) {
+      skipSpace()
+      if (cursor >= command.length) break
+      const [flag, afterFlag] = rawShellWord(command, cursor)
+      const token = shellWords(flag)[0] ?? flag
+      if (token === '--') {
+        cursor = afterFlag
+        if (wantScript) {
+          skipSpace()
+          if (cursor < command.length) {
+            const [script, done] = rawShellWord(command, cursor)
+            if (script) scripts.push(script)
+            cursor = done
+          }
         }
-        continue
+        break
       }
-      if (word === '-c' || word === '--command' || word.startsWith('--command=')) {
-        if (word.startsWith('--command=')) {
-          scripts.push(word.slice('--command='.length))
+      if (token === '-c' || token === '--command' || token.startsWith('--command=')) {
+        if (token.startsWith('--command=')) {
+          scripts.push(token.slice('--command='.length))
+          cursor = afterFlag
           break
         }
         wantScript = true
-        i += 1
+        cursor = afterFlag
         continue
       }
-      if (word.startsWith('--')) {
-        const takes = shellOptionValue(word)
+      if (token.startsWith('--')) {
+        const takes = shellOptionValue(token)
         if (takes === null) break
-        i += 1
-        if (takes) i += 1
+        cursor = afterFlag
+        if (takes) {
+          skipSpace()
+          if (cursor < command.length) cursor = rawShellWord(command, cursor)[1]
+        }
         continue
       }
-      if (word.startsWith('-') && word.length > 1) {
-        const letters = [...word.slice(1)]
+      if (token.startsWith('-') && token.length > 1) {
+        const letters = [...token.slice(1)]
         let stop = false
         for (let offset = 0; offset < letters.length; offset += 1) {
           const letter = letters[offset]
@@ -510,18 +597,22 @@ function innerShellScripts(command) {
           }
           if (shellShortTakesValue(letter)) {
             const rest = letters.slice(offset + 1).join('')
-            i += 1
-            if (!rest) i += 1
+            cursor = afterFlag
+            if (!rest) {
+              skipSpace()
+              if (cursor < command.length) cursor = rawShellWord(command, cursor)[1]
+            }
             stop = true
             break
           }
         }
         if (stop) continue
-        i += 1
+        cursor = afterFlag
         continue
       }
       if (wantScript) {
-        scripts.push(word)
+        scripts.push(flag)
+        cursor = afterFlag
         break
       }
       break
@@ -589,7 +680,7 @@ function bashInspectSubjects(command, seen = new Set()) {
   const subjects = ruleSubjects(trimmed)
   for (const inner of [
     ...extractSubstitutions(command),
-    ...innerShellScripts(command),
+    ...innerShellScripts(command).map(scriptBody),
     ...controlFlowBodies(command),
     ...braceBodies(command),
   ]) {
@@ -604,7 +695,7 @@ function bashRestrictionsConfigured(policy) {
 
 function bashChainAllowed(policy, command) {
   const scripts = extractDashCScripts(command)
-  if (scripts.length > 0) return scripts.every(script => bashChainAllowed(policy, script))
+  if (scripts.length > 0) return scripts.every(script => bashChainAllowed(policy, scriptBody(script)))
   if (isUnsplittable(command)) return false
   const allowRules = (policy.rules ?? []).filter(rule => rule.action === 'allow' && (rule.tool === 'bash' || rule.tool === 'any'))
   const segments = bashSegments(command)
@@ -944,6 +1035,7 @@ const GIT_WRITE_NAMES = {
   branch: new Set([
     'delete', 'move', 'copy', 'force', 'edit-description', 'create-reflog',
     'set-upstream', 'set-upstream-to', 'unset-upstream', 'recurse-submodules',
+    'track',
   ]),
   diff: new Set(['output']),
   log: new Set(['output']),
@@ -1082,7 +1174,7 @@ function evaluateRules(policy, access) {
     if (pathDecision?.kind === 'deny') return pathDecision
     if (pathDecision?.kind === 'ask') ask = pathDecision
     if (ask) return ask
-    if (isUnsplittable(access.command) && (bashRestrictionsConfigured(policy) || hasParameterExpansion(access.command))) {
+    if (isUnsplittable(access.command) && (bashRestrictionsConfigured(policy) || commandWordExpands(access.command))) {
       return { kind: 'ask', reason: 'unsplittable command' }
     }
     if (bashChainAllowed(policy, access.command)) {
