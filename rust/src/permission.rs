@@ -1033,10 +1033,8 @@ fn pattern_matches(access: &AccessKind, rule: &PermissionRule, cwd: &Path) -> bo
         AccessKind::Bash(command) => {
             let command = command.trim_start();
             let parsed = parsed_command(command);
-            command.starts_with(pattern)
-                || glob_match(pattern, command, false)
-                || parsed.starts_with(pattern)
-                || glob_match(pattern, &parsed, false)
+            bash_text_matches(pattern, command, matches!(rule.action, RuleAction::Deny))
+                || bash_text_matches(pattern, &parsed, matches!(rule.action, RuleAction::Deny))
         }
         AccessKind::Edit(path) | AccessKind::Read(Some(path)) => {
             path_matches(pattern, path, cwd, rule.action)
@@ -1058,6 +1056,27 @@ fn pattern_matches(access: &AccessKind, rule: &PermissionRule, cwd: &Path) -> bo
             glob_match(pattern, name, false) || name.starts_with(pattern)
         }
     }
+}
+
+fn bash_text_matches(pattern: &str, command: &str, deny: bool) -> bool {
+    if command.starts_with(pattern) || glob_match(pattern, command, false) {
+        return true;
+    }
+    if !deny || is_unsplittable(command) {
+        return false;
+    }
+    let words = shell_words(command);
+    words.iter().enumerate().skip(1).any(|(index, word)| {
+        if word.starts_with('-') {
+            return false;
+        }
+        let mut tail = words[index..].to_vec();
+        if let Some(head) = tail.first_mut() {
+            *head = command_basename(head);
+        }
+        let tail = tail.join(" ");
+        tail.starts_with(pattern) || glob_match(pattern, &tail, false)
+    })
 }
 
 fn bash_allow_matches(command: &str, rule: &PermissionRule) -> bool {
@@ -1504,12 +1523,51 @@ fn extract_dash_c_scripts(command: &str) -> Vec<String> {
                 continue;
             }
             if flag.starts_with("--") {
-                index = after;
-                continue;
+                match shell_option_value(&flag) {
+                    Some(true) => {
+                        index = after;
+                        while index < chars.len() && chars[index].is_whitespace() {
+                            index += 1;
+                        }
+                        if index < chars.len() {
+                            let (_, done) = next_shell_word(&chars, index);
+                            index = done;
+                        }
+                        continue;
+                    }
+                    Some(false) => {
+                        index = after;
+                        continue;
+                    }
+                    None => break,
+                }
             }
             if flag.starts_with('-') && flag.len() > 1 {
-                if flag[1..].contains('c') {
-                    want_script = true;
+                let letters: Vec<char> = flag[1..].chars().collect();
+                let mut stop = false;
+                for (offset, letter) in letters.iter().copied().enumerate() {
+                    if letter == 'c' {
+                        want_script = true;
+                        continue;
+                    }
+                    if shell_short_takes_value(letter) {
+                        let rest: String = letters[offset + 1..].iter().collect();
+                        index = after;
+                        if rest.is_empty() {
+                            while index < chars.len() && chars[index].is_whitespace() {
+                                index += 1;
+                            }
+                            if index < chars.len() {
+                                let (_, done) = next_shell_word(&chars, index);
+                                index = done;
+                            }
+                        }
+                        stop = true;
+                        break;
+                    }
+                }
+                if stop {
+                    continue;
                 }
                 index = after;
                 continue;
@@ -2081,6 +2139,46 @@ fn resolve_unique<'a>(name: &str, candidates: &[&'a str]) -> Option<&'a str> {
     matched
 }
 
+/// `Some(true)` consumes the next word. `Some(false)` is a known switch.
+/// `None` is an option this parser does not understand, so the shell invocation
+/// cannot be treated as a known script or a peeled command.
+fn shell_option_value(flag: &str) -> Option<bool> {
+    let name = flag.strip_prefix("--")?.split('=').next().unwrap_or("");
+    if name.is_empty() || name.starts_with('-') {
+        return None;
+    }
+    const TAKES: &[&str] = &["rcfile", "init-file"];
+    const SWITCHES: &[&str] = &[
+        "login",
+        "noprofile",
+        "norc",
+        "posix",
+        "restricted",
+        "verbose",
+        "version",
+        "help",
+        "debugger",
+        "dump-po-strings",
+        "dump-strings",
+        "pretty-print",
+        "noediting",
+        "command",
+    ];
+    if resolve_unique(name, TAKES).is_some() {
+        return Some(!flag.contains('='));
+    }
+    if resolve_unique(name, SWITCHES).is_some() {
+        return Some(false);
+    }
+    None
+}
+
+/// Short shell options that take the rest of a cluster, or the next word.
+/// `c` is the script option and is handled by the caller.
+fn shell_short_takes_value(letter: char) -> bool {
+    matches!(letter, 'o' | 'O')
+}
+
 /// Long options git accepts on the frozen read-only subcommands, grouped by
 /// the subcommand's own man page. A prefix raises the floor only when it is
 /// unique among that group, matching git's abbreviation rules.
@@ -2188,10 +2286,28 @@ fn git_branch_cluster_writes(word: &str) -> bool {
     last_valued != letters.chars().next_back().unwrap_or(last_valued)
 }
 
+fn git_branch_bare_upstream(word: &str) -> bool {
+    let Some(body) = word.strip_prefix('-') else {
+        return false;
+    };
+    if body.is_empty() || body.starts_with('-') {
+        return false;
+    }
+    let letters: Vec<char> = body
+        .chars()
+        .take_while(|letter| letter.is_ascii_alphabetic())
+        .collect();
+    if letters.is_empty() || letters.len() != body.chars().count() {
+        return false;
+    }
+    matches!(letters.last().copied(), Some('u' | 't'))
+}
+
 fn git_branch_writes(words: &[&str]) -> bool {
     words.iter().skip(2).any(|word| {
         git_write_option("branch", word)
             || git_branch_cluster_writes(word)
+            || git_branch_bare_upstream(word)
             || !word.starts_with('-')
     })
 }
@@ -2269,6 +2385,9 @@ fn is_readonly_command(words: &[&str]) -> bool {
         return false;
     }
     let head = words[0];
+    if command_basename(head) != head {
+        return false;
+    }
     if matches!(
         head,
         "ls" | "cat"
@@ -3247,6 +3366,57 @@ mod tests {
             assert!(
                 matches!(
                     evaluate(&deny, &AccessKind::Bash(command.into()), None),
+                    Decision::Deny { .. }
+                ),
+                "{command}"
+            );
+        }
+    }
+
+    #[test]
+    fn shell_prefixes_cannot_hide_a_denied_command() {
+        let deny = policy(
+            vec![rule(RuleAction::Deny, "Bash(rm -rf *)")],
+            PermissionMode::AlwaysApprove,
+        );
+        for command in [
+            "time /bin/rm -rf /",
+            "exec /bin/rm -rf /",
+            "builtin rm -rf /",
+        ] {
+            assert!(
+                matches!(
+                    evaluate(&deny, &AccessKind::Bash(command.into()), None),
+                    Decision::Deny { .. }
+                ),
+                "{command}"
+            );
+        }
+    }
+
+    #[test]
+    fn shell_option_value_cannot_hide_a_dash_c_script() {
+        let deny = policy(
+            vec![rule(RuleAction::Deny, "Bash(rm -rf *)")],
+            PermissionMode::AlwaysApprove,
+        );
+        assert!(matches!(
+            evaluate(
+                &deny,
+                &AccessKind::Bash("bash -o errexit -c \"/bin/rm -rf /\"".into()),
+                None
+            ),
+            Decision::Deny { .. }
+        ));
+    }
+
+    #[test]
+    fn bare_git_branch_upstream_flags_are_not_readonly() {
+        let quiet = policy(Vec::new(), PermissionMode::DontAsk);
+        for command in ["git branch -u", "git branch -t"] {
+            assert!(
+                matches!(
+                    evaluate(&quiet, &AccessKind::Bash(command.into()), None),
                     Decision::Deny { .. }
                 ),
                 "{command}"

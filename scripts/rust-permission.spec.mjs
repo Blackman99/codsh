@@ -262,6 +262,34 @@ describe('rust permission evaluator', () => {
     }
   })
 
+  it('does not let an unlisted shell prefix hide a denied command under always-approve', () => {
+    const denyRm = policy({
+      mode: 'always-approve',
+      rules: [{ action: 'deny', tool: 'bash', pattern: 'rm -rf *', patternMode: 'glob' }],
+    })
+    for (const command of [
+      'time /bin/rm -rf /',
+      'exec /bin/rm -rf /',
+      'builtin rm -rf /',
+    ]) {
+      expect(evaluatePermission(denyRm, { kind: 'bash', command }).kind, command).toBe('deny')
+    }
+  })
+
+  it('does not skip a shell option that takes the next word before -c', () => {
+    const denyRm = policy({
+      mode: 'always-approve',
+      rules: [{ action: 'deny', tool: 'bash', pattern: 'rm -rf *', patternMode: 'glob' }],
+    })
+    expect(evaluatePermission(denyRm, { kind: 'bash', command: 'bash -o errexit -c "/bin/rm -rf /"' }).kind).toBe('deny')
+  })
+
+  it('does not auto-allow bare git branch upstream flags under dontAsk', () => {
+    const quiet = policy({ mode: 'dontAsk' })
+    expect(evaluatePermission(quiet, { kind: 'bash', command: 'git branch -u' }).kind).toBe('deny')
+    expect(evaluatePermission(quiet, { kind: 'bash', command: 'git branch -t' }).kind).toBe('deny')
+  })
+
   it('does not let sudo, nohup, or xargs hide a denied command under always-approve', () => {
     const denyRm = policy({
       mode: 'always-approve',

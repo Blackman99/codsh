@@ -400,6 +400,29 @@ function shellWords(command) {
   return words
 }
 
+const SHELL_OPTION_TAKES = ['rcfile', 'init-file']
+const SHELL_OPTION_SWITCHES = [
+  'login', 'noprofile', 'norc', 'posix', 'restricted', 'verbose', 'version', 'help',
+  'debugger', 'dump-po-strings', 'dump-strings', 'pretty-print', 'noediting', 'command',
+]
+
+function shellOptionValue(flag) {
+  if (!flag.startsWith('--') || flag.startsWith('---')) return null
+  const name = flag.slice(2).split('=')[0]
+  if (!name) return null
+  const exactTakes = SHELL_OPTION_TAKES.find(candidate => candidate === name)
+  const prefixTakes = SHELL_OPTION_TAKES.filter(candidate => candidate.startsWith(name))
+  if (exactTakes || prefixTakes.length === 1) return !flag.includes('=')
+  const exactSwitch = SHELL_OPTION_SWITCHES.find(candidate => candidate === name)
+  const prefixSwitch = SHELL_OPTION_SWITCHES.filter(candidate => candidate.startsWith(name))
+  if (exactSwitch || prefixSwitch.length === 1) return false
+  return null
+}
+
+function shellShortTakesValue(letter) {
+  return letter === 'o' || letter === 'O'
+}
+
 function innerShellScripts(command) {
   const scripts = []
   const words = shellWords(command)
@@ -432,11 +455,30 @@ function innerShellScripts(command) {
         continue
       }
       if (word.startsWith('--')) {
+        const takes = shellOptionValue(word)
+        if (takes === null) break
         i += 1
+        if (takes) i += 1
         continue
       }
       if (word.startsWith('-') && word.length > 1) {
-        if (word.slice(1).includes('c')) wantScript = true
+        const letters = [...word.slice(1)]
+        let stop = false
+        for (let offset = 0; offset < letters.length; offset += 1) {
+          const letter = letters[offset]
+          if (letter === 'c') {
+            wantScript = true
+            continue
+          }
+          if (shellShortTakesValue(letter)) {
+            const rest = letters.slice(offset + 1).join('')
+            i += 1
+            if (!rest) i += 1
+            stop = true
+            break
+          }
+        }
+        if (stop) continue
         i += 1
         continue
       }
@@ -778,10 +820,8 @@ function patternMatches(access, rule, cwd) {
   if (access.kind === 'bash') {
     const command = access.command.trimStart()
     const parsed = parsedCommand(command)
-    return command.startsWith(rule.pattern)
-      || globMatch(rule.pattern, command, false)
-      || parsed.startsWith(rule.pattern)
-      || globMatch(rule.pattern, parsed, false)
+    const deny = rule.action === 'deny'
+    return bashTextMatches(rule.pattern, command, deny) || bashTextMatches(rule.pattern, parsed, deny)
   }
   if (access.kind === 'edit' || access.kind === 'read' || access.kind === 'grep') {
     const inspected = inspectPath(access.path ?? '', cwd)
@@ -800,6 +840,19 @@ function patternMatches(access, rule, cwd) {
     return globMatch(rule.pattern, access.query, false) || access.query.startsWith(rule.pattern)
   }
   return globMatch(rule.pattern, access.name ?? '', false)
+}
+
+function bashTextMatches(pattern, command, deny) {
+  if (command.startsWith(pattern) || globMatch(pattern, command, false)) return true
+  if (!deny || isUnsplittable(command)) return false
+  const words = shellWords(command)
+  return words.slice(1).some((word, offset) => {
+    if (word.startsWith('-')) return false
+    const tail = words.slice(offset + 1)
+    tail[0] = commandBasename(tail[0])
+    const text = tail.join(' ')
+    return text.startsWith(pattern) || globMatch(pattern, text, false)
+  })
 }
 
 function bashAllowMatches(command, rule) {
@@ -886,8 +939,20 @@ function gitBranchClusterWrites(word) {
   return valued.at(-1) !== letters.at(-1)
 }
 
+function gitBranchBareUpstream(word) {
+  if (!word.startsWith('-') || word.startsWith('--') || word.length < 2) return false
+  const match = /^([A-Za-z]+)$/u.exec(word.slice(1))
+  if (!match) return false
+  const last = match[1].at(-1)
+  return last === 'u' || last === 't'
+}
+
 function gitBranchWrites(words) {
-  return words.slice(2).some(word => gitWriteOption('branch', word) || gitBranchClusterWrites(word) || !word.startsWith('-'))
+  return words.slice(2).some(word =>
+    gitWriteOption('branch', word)
+    || gitBranchClusterWrites(word)
+    || gitBranchBareUpstream(word)
+    || !word.startsWith('-'))
 }
 
 function gitWriteOption(subcommand, word) {
@@ -928,6 +993,7 @@ const GIT_READONLY = new Set([
 function readonlyCommand(command) {
   const words = shellWords(command)
   const head = words[0]
+  if (!head || commandBasename(head) !== head) return false
   if (raisesReadonlyFloor(words)) return false
   if (['ls', 'cat', 'pwd', 'date', 'whoami', 'hostname', 'uptime', 'ps', 'head', 'tail', 'wc', 'sort', 'uniq', 'tr', 'cut', 'grep', 'rg'].includes(head)) {
     return true

@@ -275,6 +275,38 @@ allow = ["Bash(git *)"]
         assert 'successfully.' not in xargs['screen']
         results['deny_xargs'] = {'exit': xargs['exit']}
 
+        time_rm = exercise('deny-time-prefix', launcher, cwd,
+                           {**base_env, 'DSH_CODE_CLI_MOCK_TOOL': 'bash-time-rm'},
+                           output, typed='TOKEN_PERM_TIME', wait_for=['Denied by permission policy', 'RUST_ACP_BASH_DENIED'],
+                           extra=['--always-approve', '--deny', 'Bash(rm -rf *)'], action='none')
+        assert time_rm['exit'] == 0
+        assert 'successfully.' not in time_rm['screen']
+        results['deny_time'] = {'exit': time_rm['exit']}
+
+        exec_rm = exercise('deny-exec-prefix', launcher, cwd,
+                           {**base_env, 'DSH_CODE_CLI_MOCK_TOOL': 'bash-exec-rm'},
+                           output, typed='TOKEN_PERM_EXEC', wait_for=['Denied by permission policy', 'RUST_ACP_BASH_DENIED'],
+                           extra=['--always-approve', '--deny', 'Bash(rm -rf *)'], action='none')
+        assert exec_rm['exit'] == 0
+        assert 'successfully.' not in exec_rm['screen']
+        results['deny_exec'] = {'exit': exec_rm['exit']}
+
+        builtin_rm = exercise('deny-builtin-prefix', launcher, cwd,
+                              {**base_env, 'DSH_CODE_CLI_MOCK_TOOL': 'bash-builtin-rm'},
+                              output, typed='TOKEN_PERM_BUILTIN', wait_for=['Denied by permission policy', 'RUST_ACP_BASH_DENIED'],
+                              extra=['--always-approve', '--deny', 'Bash(rm -rf *)'], action='none')
+        assert builtin_rm['exit'] == 0
+        assert 'successfully.' not in builtin_rm['screen']
+        results['deny_builtin'] = {'exit': builtin_rm['exit']}
+
+        shell_option = exercise('deny-shell-option-script', launcher, cwd,
+                                {**base_env, 'DSH_CODE_CLI_MOCK_TOOL': 'bash-shell-option-rm'},
+                                output, typed='TOKEN_PERM_SHELLOPT', wait_for=['Denied by permission policy', 'RUST_ACP_BASH_DENIED'],
+                                extra=['--always-approve', '--deny', 'Bash(rm -rf *)'], action='none')
+        assert shell_option['exit'] == 0
+        assert 'successfully.' not in shell_option['screen']
+        results['deny_shell_option'] = {'exit': shell_option['exit']}
+
         sort_prefix = exercise('sort-prefix-not-readonly', launcher, cwd,
                                {**base_env, 'DSH_CODE_CLI_MOCK_TOOL': 'bash-sort-prefix'},
                                output, typed='TOKEN_PERM_SORT', wait_for=['dontAsk blocked', 'RUST_ACP_BASH_DENIED'],
@@ -309,6 +341,14 @@ allow = ["Bash(git *)"]
         assert git_upstream['exit'] == 0
         assert 'read-only shell command' not in git_upstream['screen']
         results['git_branch_attached_upstream'] = {'exit': git_upstream['exit']}
+
+        git_track = exercise('git-branch-bare-upstream-not-readonly', launcher, cwd,
+                             {**base_env, 'DSH_CODE_CLI_MOCK_TOOL': 'bash-git-track'},
+                             output, typed='TOKEN_PERM_TRACK', wait_for=['dontAsk blocked', 'RUST_ACP_BASH_DENIED'],
+                             extra=['--permission-mode', 'dontAsk'], action='none')
+        assert git_track['exit'] == 0
+        assert 'read-only shell command' not in git_track['screen']
+        results['git_branch_bare_upstream'] = {'exit': git_track['exit']}
         quiet_config.write_text(quiet_saved)
 
         git_cat = exercise('git-cat-file-readonly', launcher, cwd,

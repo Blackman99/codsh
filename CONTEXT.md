@@ -123,7 +123,10 @@ Attached or clustered `sort -o` (`sort -oFILE`, `sort -uoFILE`) and unique
 long-option prefixes such as
 `sort --compress-pro` are not read-only.
 Frozen git read-only subcommands auto-allow; git writes do not, including an
-attached upstream such as `git branch -uorigin/main`. Claude settings
+attached upstream such as `git branch -uorigin/main`, and a bare `git branch -u`
+or `-t` with no operand. A leading word such as `time`, `exec`, or `builtin`
+cannot hide a denied command. A shell option that takes the next word, such as
+`bash -o errexit -c`, is consumed before the script is read. Claude settings
 load from `~/.claude` and every `.claude` from the repo root to the working
 directory. Read/Edit deny/ask follow in-path symlink targets. Missing or corrupt
 `permission-policy.json` refuses

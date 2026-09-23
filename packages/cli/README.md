@@ -72,12 +72,14 @@ open the directory. `--always-approve`/`--yolo`, `--permission-mode`, and
 still wins. Unsplittable shell and Read/Edit path rules on operands cannot
 bypass deny; wrappers peel to the inner command without eating the command name
 while `env -S` prompts; brace groups and ANSI-C `bash -c` cannot hide a denied
-command; a path-qualified executable such as `/bin/rm` or `RM.EXE` matches by
+command; a leading word such as `time`, `exec`, or `builtin` cannot hide a
+denied command, and a shell option that takes the next word (`bash -o errexit -c`)
+is consumed before the script; a path-qualified executable such as `/bin/rm` or `RM.EXE` matches by
 basename without regard to case; `sort -o` (including attached `sort -oFILE`
 and clustered `sort -uoFILE`)
 /`--output` and unique `sort --compress-program` prefixes
 are not read-only, nor are git writes, including `git branch <name>`,
-`-f`/`--force`, `-u` (including attached `git branch -uorigin/main`), unique `git branch --delete`/`--move`/`--copy` prefixes,
+`-f`/`--force`, `-u` (including attached `git branch -uorigin/main` and a bare `-u` or `-t`), unique `git branch --delete`/`--move`/`--copy` prefixes,
 and `--output` on `diff`/`log`/`show`/`blame`/`rev-list`; Claude settings load
 from `~/.claude` and walk to the repo root;
 Read/Edit deny follows in-path symlinks; remembered file
