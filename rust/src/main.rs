@@ -3163,10 +3163,13 @@ fn run() -> io::Result<()> {
                     ) {
                         NavCommand::Consume | NavCommand::ToggleMouse => {
                             match &nav.overlay {
-                                NavOverlay::Search(_)
-                                | NavOverlay::Jump(_)
-                                | NavOverlay::Viewer(_) => {
+                                NavOverlay::Search(_) | NavOverlay::Jump(_) => {
                                     hint = nav.overlay_text();
+                                }
+                                // The viewer body is the transcript. Putting it in the
+                                // notice paints the tail a second time under the slot.
+                                NavOverlay::Viewer(_) => {
+                                    hint.clear();
                                 }
                                 NavOverlay::None
                                     if hint.starts_with("Find:")

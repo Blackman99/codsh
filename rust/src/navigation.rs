@@ -556,17 +556,13 @@ impl NavState {
                 }
                 lines.join("\n")
             }
-            NavOverlay::Viewer(_) => self
-                .viewer_lines(rows)
-                .into_iter()
-                .map(|line| {
-                    line.spans
-                        .into_iter()
-                        .map(|span| span.content.into_owned())
-                        .collect::<String>()
-                })
-                .collect::<Vec<_>>()
-                .join("\n"),
+            // The body is painted in the transcript slot. The status hint is one
+            // line: returning the body here prints the tail a second time in the
+            // notice under the transcript.
+            NavOverlay::Viewer(_) => {
+                let _ = rows;
+                "full content · Esc closes full content · Esc restores reading position".to_string()
+            }
         }
     }
 
@@ -625,14 +621,16 @@ impl NavState {
         } else {
             viewer_styled(self.entries.get(viewer.entry))
         };
-        let height = rows.max(1);
-        let max = body.len().saturating_sub(height);
+        // The header occupies the first row of the slot. Asking for `rows` body
+        // lines makes the paragraph one row too tall, so it stops before the
+        // last row and that row keeps whatever the previous frame drew.
+        let body_rows = rows.max(1).saturating_sub(1);
+        let max = body.len().saturating_sub(body_rows);
         let start = viewer.offset.min(max);
-        let end = (start + height).min(body.len());
         let mut window = vec![Line::from(
             "full content · Esc closes full content · Esc restores reading position",
         )];
-        window.extend(body.into_iter().skip(start).take(end.saturating_sub(start)));
+        window.extend(body.into_iter().skip(start).take(body_rows));
         window
     }
 
@@ -1072,9 +1070,14 @@ impl NavState {
                 }
                 KeyCode::Down | KeyCode::Char('j') | KeyCode::End | KeyCode::PageDown => {
                     let lines = self.selected_full_lines().len();
-                    let page = self.viewport_height.max(1) as usize;
+                    // One row of the slot is the viewer header. Paging by the
+                    // whole slot overlaps the previous page, so the tail is
+                    // painted twice.
+                    let page = (self.viewport_height.max(1) as usize)
+                        .saturating_sub(1)
+                        .max(1);
                     if let NavOverlay::Viewer(viewer) = &mut self.overlay {
-                        let max = lines.saturating_sub(1);
+                        let max = lines.saturating_sub(page);
                         let step = match key.code {
                             KeyCode::End => max,
                             KeyCode::PageDown => page,
@@ -1085,7 +1088,9 @@ impl NavState {
                     NavCommand::Consume
                 }
                 KeyCode::PageUp => {
-                    let page = self.viewport_height.max(1) as usize;
+                    let page = (self.viewport_height.max(1) as usize)
+                        .saturating_sub(1)
+                        .max(1);
                     if let NavOverlay::Viewer(viewer) = &mut self.overlay {
                         viewer.offset = viewer.offset.saturating_sub(page);
                     }
@@ -2730,7 +2735,16 @@ mod tests {
 
     #[test]
     fn viewer_page_keys_move_offset() {
-        let mut state = sample();
+        let mut state = NavState::new(NavigationPrefs::default(), true);
+        let body = (1..=40)
+            .map(|index| format!("VIEWER_LINE_{index:02}"))
+            .collect::<Vec<_>>()
+            .join("\n\n");
+        state.rebuild(
+            vec![NavEntry::from_parts("prompt", "", body, vec![])],
+            40,
+            8,
+        );
         state.selected = Some(0);
         state.open_viewer();
         let NavOverlay::Viewer(viewer) = &state.overlay else {
@@ -2746,16 +2760,29 @@ mod tests {
         let NavOverlay::Viewer(after) = &state.overlay else {
             panic!("expected viewer");
         };
-        assert!(after.offset >= 1);
-        let overlay = state.overlay_text();
+        assert!(after.offset > 1, "page down moves by a body page");
+        let shown = state
+            .viewer_lines(8)
+            .into_iter()
+            .map(|line| {
+                line.spans
+                    .iter()
+                    .map(|span| span.content.as_ref())
+                    .collect::<String>()
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
         assert!(
-            overlay.contains("Esc restores reading position"),
-            "{overlay}"
+            !shown.contains("VIEWER_LINE_01"),
+            "a page must not keep the previous page's first line: {shown}"
         );
-        let body = overlay.split_once('\n').map(|(_, rest)| rest).unwrap_or("");
-        assert!(
-            after.offset == 0 || !body.starts_with("TOKEN_ALPHA prompt"),
-            "{overlay}"
+        assert_eq!(
+            shown.matches("VIEWER_LINE_").count(),
+            shown
+                .lines()
+                .filter(|line| line.contains("VIEWER_LINE_"))
+                .count(),
+            "one body line is painted once: {shown}"
         );
     }
 
@@ -3080,7 +3107,25 @@ mod tests {
         state.open_viewer();
         let open = state.overlay_text_for(6);
         assert!(open.starts_with("full content"), "{open}");
-        assert!(open.contains("HUGE_LINE_001_MARKER"), "{open}");
+        assert!(
+            !open.contains("HUGE_LINE_001_MARKER"),
+            "the status hint is not a second copy of the viewer body: {open}"
+        );
+        let body = state
+            .viewer_lines(6)
+            .into_iter()
+            .map(|line| {
+                line.spans
+                    .iter()
+                    .map(|span| span.content.as_ref())
+                    .collect::<String>()
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(
+            body.contains("HUGE_LINE_001_MARKER"),
+            "the viewer body still shows the content: {body}"
+        );
         state.handle_key(key(KeyCode::Esc), true);
         assert!(matches!(state.overlay, NavOverlay::None));
         let closed = state.overlay_text();

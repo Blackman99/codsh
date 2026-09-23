@@ -307,6 +307,8 @@ def main():
             painted = unwrapped(shown)
             assert 'fn f<T>(v: Vec<T>)' in painted, shown
             assert 'a < b && c > d' in painted, shown
+            assert painted.count('fn f<T>(v: Vec<T>)') == 1, shown
+            assert shown.count('[unclosed code fence]') == 1, shown
             assert 'unclosed' in shown.lower() or 'const unclosed' in shown, shown
             fullscreen.write('\x1b')
             fullscreen.pump(0.4)

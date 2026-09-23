@@ -13,16 +13,35 @@
  * @module codsh/e2e/vt
  */
 
-/** East Asian Wide and Fullwidth code points occupy two columns. */
+/**
+ * Columns one grapheme occupies.
+ *
+ * East Asian Wide and Fullwidth code points take two. Box drawing, arrows,
+ * and geometric shapes are narrow: treating `┌` as wide leaves its second
+ * cell behind, so a later line looks appended to the line it replaced.
+ * Emoji presentation (U+FE0F) does not add a column of its own.
+ */
 function width(character: string): number {
-  const code = character.codePointAt(0) ?? 0
-  const wide = (code >= 0x1100 && code <= 0x115F)
-    || (code >= 0x2E80 && code <= 0xA4CF)
-    || (code >= 0xAC00 && code <= 0xD7A3)
-    || (code >= 0xF900 && code <= 0xFAFF)
-    || (code >= 0xFF00 && code <= 0xFF60)
-    || (code >= 0xFFE0 && code <= 0xFFE6)
-    || (code >= 0x1F300 && code <= 0x1FAFF)
+  let wide = false
+  for (const code of character) {
+    const point = code.codePointAt(0) ?? 0
+    if (point === 0xFE0F || point === 0x200D || point === 0x20E3) continue
+    if ((point >= 0x1100 && point <= 0x115F)
+      || (point >= 0x2329 && point <= 0x232A)
+      || (point >= 0x2E80 && point <= 0xA4CF)
+      || (point >= 0xAC00 && point <= 0xD7A3)
+      || (point >= 0xF900 && point <= 0xFAFF)
+      || (point >= 0xFE10 && point <= 0xFE19)
+      || (point >= 0xFE30 && point <= 0xFE6F)
+      || (point >= 0xFF00 && point <= 0xFF60)
+      || (point >= 0xFFE0 && point <= 0xFFE6)
+      || (point >= 0x1F200 && point <= 0x1F251)
+      || (point >= 0x1F300 && point <= 0x1F64F)
+      || (point >= 0x1F680 && point <= 0x1F6FF)
+      || (point >= 0x1F900 && point <= 0x1FAFF)) {
+      wide = true
+    }
+  }
   return wide ? 2 : 1
 }
 
