@@ -427,6 +427,11 @@ pub fn dsh_spawn_spec(
         "CODSH_PERMISSION_POLICY",
         "CODSH_HOOK_DENY",
         "CODSH_PERMISSION_REMEMBER",
+        "CODSH_WEB_SEARCH",
+        "CODSH_WEB_FETCH",
+        "CODSH_WEB_SEARCH_KEY_ENV",
+        "CODSH_RUST_BIN",
+        "GROK_HOME",
     ] {
         if let Some(value) = std::env::var_os(key) {
             env.push((key.to_string(), value.to_string_lossy().into_owned()));
@@ -444,6 +449,17 @@ pub fn dsh_spawn_spec(
             continue;
         }
         env.push((key.clone(), value.clone()));
+    }
+    // The search substitute's credential, named by config. Other parent keys stay out.
+    if let Some(name) = env
+        .iter()
+        .find(|(key, _)| key == "CODSH_WEB_SEARCH_KEY_ENV")
+        .map(|(_, value)| value.clone())
+        && !name.is_empty()
+        && !env.iter().any(|(key, _)| key == &name)
+        && let Some(value) = std::env::var_os(&name)
+    {
+        env.push((name, value.to_string_lossy().into_owned()));
     }
     Ok(SpawnSpec {
         program,

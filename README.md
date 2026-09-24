@@ -262,6 +262,52 @@ substitute service. Linux and Windows capture are unverified and are not
 reported as working. `GROK_VOICE_MODE` turns the feature off. `GROK_VOICE_CAPTURE`
 selects `inprocess` (default) or `helper`; helper without a fixture is refused.
 
+`codsh --rust web search <query>` and `codsh --rust web fetch <url>` (`--json`)
+call the configured substitutes. In a session, dsh's `web_search` and
+`web_fetch` call that same command. Search and fetch are enabled separately.
+A side that is off is not registered, so the model is not offered it. Search
+uses `[models] web_search` or `GROK_WEB_SEARCH_MODEL`, and that model's
+`base_url` / `env_key`, for one Responses request. `supports_backend_search`
+records that the substitute does the retrieval. The credential is that env
+var when it is non-empty, otherwise the model's inline `api_key`. An empty
+inline key is not configured. `[toolset.web_search] allowed_domains` and
+`excluded_domains` are mutually exclusive; if both are set, the allowlist wins
+and the blocklist is dropped with a warning. An empty or absent search list is
+unbounded. The shipped dsh `web_search` tool has no domain argument; a
+configured list is what the substitute receives. Fetch turns on with
+`[features] web_fetch` or `GROK_WEB_FETCH=1`. `GROK_DISABLE_WEB_FETCH` and
+`disable_web_search` turn the matching tool off. Guide 26 marks
+`features.web_fetch` and `models.web_search` as requirements pins: a
+requirements value beats the user file, env, and managed config. The domain
+lists and `proxy_endpoint` are requirements `yes` and managed `user`, so the
+user file overrides a fleet default and a requirements value. Managed config
+is not a lock.
+`[toolset.web_fetch] allowed_domains` overrides the built-in public-doc list.
+An entry may be `host`, `host:port`, `host/path`, or `host:port/path`. An
+explicit empty list blocks every fetch. Every redirect is checked again,
+including the path prefix, port, and private-address rule. `proxy_endpoint` /
+`GROK_WEB_FETCH_PROXY` is the only egress route when set: proxy failure does
+not fall back to a direct connection. The supported proxy is an `http`
+CONNECT proxy; an `https` origin is tunneled and then checked with the same
+native TLS roots as other HTTPS calls. `allow_local` / `GROK_WEB_FETCH_ALLOW_LOCAL` adds only
+explicit loopback hosts. Private, link-local, and cloud-metadata addresses
+stay blocked. A name is refused when any resolved address is private, and the
+connection uses an address from that check. Cross-host redirects are reported
+and not followed. Authentication, rate limits, cancellation, and network
+failures return an error and no response body. `--json` carries search
+`citations` and fetch `url`, `status`, `contentType`, `content`, and
+`truncated` beside the human-readable `text`. `content` is the page itself;
+the session uses that field and does not split it out of `text`. A chunked
+body is read by chunk size, so a payload that contains the chunk terminator
+is not cut off. The message ends at the blank line after the zero-size
+chunk, including when that chunk is followed by trailer fields. Cancelling
+closes the socket and does not return a late body.
+`codsh --rust inspect` names the file that set a web value: a managed-only
+list is `managed`, not `config.toml`. Policy is read at startup and does not
+change mid-session. Official
+hosts are refused. Search cost is that one model request; fetch has no account
+charge. A real public search vendor is not part of this check.
+
 User configuration for the preview is `$GROK_HOME/config.toml` (default
 `~/.codsh-rust/.grok/config.toml`). `[ui] theme`, compact mode, timestamps,
 status line, `confirm_before_rewind`, and `ui.fork_secondary_model` are stored

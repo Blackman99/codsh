@@ -391,7 +391,10 @@ in place. A redirect from the selected share URL must not be followed. Voice PTY
 server and `CODSH_VOICE_FIXTURE`; it does not open the microphone. `/voice doctor`
 must not record. A slash command typed while recording parks the draft and
 restores it; it must not leave `/` or drop that text. A changed draft drops a
-late transcript. Linux and Windows capture stay unverified. The assets test
+late transcript. Linux and Windows capture stay unverified.
+`python3 scripts/rust-web-pty-test.py` drives search and fetch through the
+packed client and one real dsh session. Search uses a local substitute;
+one fetch uses the public `http://example.com/` page. The assets test
 trusts a fixture repo, checks that ordered rules, a skill, and a flat custom
 command change the dsh request, rescans an added skill, requires the deleted
 skill to be absent from the next dsh reply, checks `--rules`, and checks an

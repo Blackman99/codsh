@@ -30,6 +30,7 @@ mod status_line;
 mod theme;
 mod trust;
 mod voice;
+mod web;
 mod welcome;
 
 use acp::{AcpClient, AcpEvent, PendingPermission};
@@ -329,6 +330,11 @@ enum LaunchMode {
         json: bool,
         help: bool,
     },
+    Web {
+        kind: WebCommand,
+        json: bool,
+        help: bool,
+    },
     New,
     Continue,
     Resume(String),
@@ -433,6 +439,7 @@ fn is_subcommand(arg: &str) -> bool {
             | "logout"
             | "setup"
             | "voice"
+            | "web"
             | "sessions"
             | "dashboard"
             | "export"
@@ -763,6 +770,12 @@ fn parse_launch(args: &[String]) -> io::Result<Launch> {
             help: true,
         },
         ["voice", flags @ ..] => parse_voice(flags)?,
+        ["web"] => LaunchMode::Web {
+            kind: WebCommand::Help,
+            json: false,
+            help: true,
+        },
+        ["web", flags @ ..] => parse_web(flags)?,
         ["sessions"] => LaunchMode::Sessions(session_catalog::SessionsCommand::Help),
         ["sessions", "delete"] => {
             return Err(io::Error::other(
@@ -897,6 +910,180 @@ fn parse_voice(flags: &[&str]) -> io::Result<LaunchMode> {
         }
     }
     Ok(LaunchMode::Voice { json, help })
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum WebCommand {
+    Help,
+    Search { query: String },
+    Fetch { url: String },
+}
+
+fn parse_web(flags: &[&str]) -> io::Result<LaunchMode> {
+    let mut json = false;
+    let mut help = false;
+    let mut kind = None;
+    let mut index = 0;
+    while index < flags.len() {
+        match flags[index] {
+            "--json" => json = true,
+            "--help" | "-h" => help = true,
+            "search" => {
+                index += 1;
+                let query = flags
+                    .get(index)
+                    .copied()
+                    .filter(|value| !value.starts_with('-'));
+                let Some(query) = query else {
+                    return Err(io::Error::other(
+                        "missing search query; use codsh --rust web search <query>",
+                    ));
+                };
+                kind = Some(WebCommand::Search {
+                    query: query.to_string(),
+                });
+            }
+            "fetch" => {
+                index += 1;
+                let url = flags
+                    .get(index)
+                    .copied()
+                    .filter(|value| !value.starts_with('-'));
+                let Some(url) = url else {
+                    return Err(io::Error::other(
+                        "missing fetch URL; use codsh --rust web fetch <url>",
+                    ));
+                };
+                kind = Some(WebCommand::Fetch {
+                    url: url.to_string(),
+                });
+            }
+            other => {
+                return Err(io::Error::other(format!(
+                    "unsupported web option {other}; use codsh --rust web --help"
+                )));
+            }
+        }
+        index += 1;
+    }
+    if help || kind.is_none() {
+        return Ok(LaunchMode::Web {
+            kind: WebCommand::Help,
+            json,
+            help: true,
+        });
+    }
+    Ok(LaunchMode::Web {
+        kind: kind.unwrap_or(WebCommand::Help),
+        json,
+        help: false,
+    })
+}
+
+fn web_help() -> &'static str {
+    "Search or fetch through the configured substitute\n\nUsage: codsh --rust web search <query> [--json]\n       codsh --rust web fetch <url> [--json]\n\nSearch uses [models] web_search and that model's base_url. Fetch uses features.web_fetch.\nBoth default off. Official hosts are refused. Domain policy loads at startup and a model argument cannot widen it.\nDisabled, blocked, authentication, rate-limit, redirect, and network failures return an error and no page text.\nSearch cost is one Responses request. Fetch has no account charge."
+}
+
+fn run_web(kind: &WebCommand, json: bool, loaded: &config::EffectiveConfig) -> io::Result<()> {
+    let flag = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    #[cfg(unix)]
+    {
+        let hooked = flag.clone();
+        // SIGINT and SIGTERM both mark the flag. The request loop closes the
+        // socket and joins the worker before it returns, so the body is dropped.
+        let _ = unsafe {
+            signal_hook::low_level::register(signal_hook::consts::SIGINT, {
+                let hooked = hooked.clone();
+                move || {
+                    hooked.store(true, std::sync::atomic::Ordering::Relaxed);
+                }
+            })
+        };
+        let _ = unsafe {
+            signal_hook::low_level::register(signal_hook::consts::SIGTERM, move || {
+                hooked.store(true, std::sync::atomic::Ordering::Relaxed);
+            })
+        };
+    }
+    let cancelled = &*flag;
+    let env: std::collections::BTreeMap<String, String> = std::env::vars().collect();
+    let result = match kind {
+        WebCommand::Help => {
+            println!("{}", web_help());
+            return Ok(());
+        }
+        WebCommand::Search { query } => web::search(
+            &loaded.web,
+            query,
+            env.get(&loaded.web.search.env_key)
+                .map(String::as_str)
+                .unwrap_or(""),
+            cancelled,
+        )
+        .map(|outcome| {
+            (
+                web::format_search(&outcome),
+                serde_json::json!({
+                    "citations": outcome.citations.iter().map(|citation| serde_json::json!({
+                        "url": citation.url,
+                        "title": citation.title,
+                    })).collect::<Vec<_>>(),
+                    "truncated": false,
+                }),
+            )
+        }),
+        WebCommand::Fetch { url } => web::fetch_url(&loaded.web, url, cancelled).map(|outcome| {
+            (
+                web::format_fetch(&outcome),
+                serde_json::json!({
+                    "url": outcome.url,
+                    "status": outcome.status_code,
+                    "contentType": outcome.content_type,
+                    "content": outcome.content,
+                    "truncated": outcome.truncated,
+                }),
+            )
+        }),
+    };
+    match result {
+        Ok((text, meta)) => {
+            if json {
+                let mut value = serde_json::json!({
+                    "ok": true,
+                    "text": text,
+                    "disclosure": web::disclosure(&loaded.web),
+                });
+                // `use serde_json::Value` is shadowed by the local `Value` enum,
+                // so Map::as_object would not see these fields.
+                if let Some(object) = value.as_object_mut()
+                    && let serde_json::Value::Object(extra) = meta
+                {
+                    object.extend(extra);
+                }
+                println!("{value}");
+            } else {
+                println!("{text}");
+            }
+            Ok(())
+        }
+        Err(error) => {
+            let message = error.to_string();
+            if json {
+                println!(
+                    "{}",
+                    serde_json::json!({
+                        "ok": false,
+                        "error": message,
+                        "text": "",
+                        "disclosure": web::disclosure(&loaded.web),
+                    })
+                );
+            } else {
+                eprintln!("{message}");
+            }
+            Err(io::Error::other(message))
+        }
+    }
 }
 
 fn voice_help() -> &'static str {
@@ -1281,6 +1468,7 @@ fn runtime_apply(effective: &config::EffectiveConfig) -> RuntimeApply {
     let mut extra_env = config::credential_env(effective, &env);
     extra_env.extend(config::compact_env(effective));
     extra_env.extend(config::permission_env(effective));
+    extra_env.extend(config::web_env(effective));
     match config::apply_to_dsh(effective, &env) {
         Ok(patch) => RuntimeApply {
             extra_env,
@@ -1331,11 +1519,17 @@ fn can_execute(effective: &config::EffectiveConfig, apply_failed: bool) -> bool 
         return false;
     }
     // Login stays available when locked policy is unverifiable, but that
-    // error must not become a reason to execute.
+    // error must not become a reason to execute. An invalid requirements
+    // file, including an unknown top-level key, is the same kind of stop.
     if effective.errors.iter().any(|error| {
         error
             .reason
             .contains("Signature/locking requirements cannot be verified")
+            || error.reason.contains("unknown security/policy field")
+            || error
+                .path
+                .as_ref()
+                .is_some_and(|path| path.ends_with("requirements.toml"))
     }) {
         return false;
     }
@@ -4483,6 +4677,14 @@ fn run() -> io::Result<()> {
                 println!("{}", voice::doctor_text(&loaded.voice, &report));
             }
             return Ok(());
+        }
+        LaunchMode::Web { help: true, .. } => {
+            println!("{}", web_help());
+            return Ok(());
+        }
+        LaunchMode::Web { kind, json, .. } => {
+            let loaded = load_runtime_config(&launch);
+            return run_web(kind, *json, &loaded);
         }
         LaunchMode::Help => {
             println!(

@@ -416,6 +416,31 @@ class RustAcpMockAdapter extends LlmAdapter {
       yield* mockText(MODE === 'huge-read' ? 'RUST_ACP_HUGE_DONE' : 'RUST_ACP_CTRL_DONE')
       return
     }
+    if (MODE === 'web-search' || MODE === 'web-search-hang' || MODE === 'web-fetch' || MODE === 'web-missing') {
+      const done = toolResults(options)
+      if (done.length === 0) {
+        if (MODE === 'web-fetch') {
+          const url = process.env.CODSH_WEB_FIXTURE_URL || 'http://127.0.0.1/page'
+          yield* mockToolCall('rust-acp-web-fetch', 'web_fetch', { url })
+        } else if (MODE === 'web-missing') {
+          yield* mockToolCall('rust-acp-web-missing', 'web_search', { query: 'should not run' })
+        } else {
+          yield* mockToolCall('rust-acp-web-search', 'web_search', {
+            queries: [MODE === 'web-search-hang' ? 'hang' : 'rust web policy'],
+            allowed_domains: ['evil.example'],
+          })
+        }
+        return
+      }
+      const last = done.at(-1)
+      const text = resultText(last)
+      if (last?.isError === true) {
+        yield* mockText(`RUST_ACP_WEB_ERROR ${text}`)
+        return
+      }
+      yield* mockText(`RUST_ACP_WEB_DONE ${text}`)
+      return
+    }
     if (MODE === 'empty') {
       yield { type: 'finish', reason: { kind: 'stop' } }
       return

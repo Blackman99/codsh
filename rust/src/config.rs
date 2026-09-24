@@ -118,6 +118,7 @@ pub struct EffectiveConfig {
     pub merged_table: TomlValue,
     pub permission: PermissionPolicy,
     pub voice: crate::voice::VoiceConfig,
+    pub web: crate::web::WebServices,
     pub assets: crate::assets::AssetCatalog,
     /// Process and config gate. A `/memory` `t` toggle does not change this.
     pub memory: crate::memory::Enablement,
@@ -1811,6 +1812,24 @@ pub fn load_from(mut input: LoadInput) -> EffectiveConfig {
         },
     );
     push_setting(&mut settings, "memory.uploads", "false", "default");
+    let web = crate::web::load_services_layered(
+        &table,
+        user.as_ref()
+            .unwrap_or(&TomlValue::Table(toml::map::Map::new())),
+        &input.env,
+        requirements.as_ref(),
+        managed.as_ref(),
+    );
+    warnings.extend(web.warnings.iter().cloned());
+    for reason in &web.errors {
+        errors.push(ConfigError {
+            path: Some(config_path.clone()),
+            reason: reason.clone(),
+        });
+    }
+    for (key, value, source) in crate::web::inspect_rows(&web) {
+        push_setting(&mut settings, key, &value, &source);
+    }
 
     EffectiveConfig {
         grok_home,
@@ -1858,6 +1877,7 @@ pub fn load_from(mut input: LoadInput) -> EffectiveConfig {
         merged_table: table.clone(),
         permission,
         voice,
+        web,
         assets,
         memory,
         sandbox_profile: sandbox.0,
@@ -2127,6 +2147,23 @@ pub fn inspect_json(config: &EffectiveConfig) -> String {
         },
     });
     if let Some(object) = value.as_object_mut() {
+        object.insert(
+            "web".into(),
+            json!({
+                "webSearchEnabled": config.web.search.enabled,
+                "searchModel": config.web.search.model,
+                "searchBase": public_endpoint(config.web.search.base_url.as_deref()),
+                "searchAllowedDomains": config.web.search.allowed_domains,
+                "searchExcludedDomains": config.web.search.excluded_domains,
+                "searchCost": config.web.search.cost,
+                "webFetchEnabled": config.web.fetch.enabled,
+                "fetchAllowedDomains": config.web.fetch.allowed_domains,
+                "fetchProxy": public_endpoint(config.web.fetch.proxy_endpoint.as_deref()),
+                "fetchAllowLocal": config.web.fetch.allow_local,
+                "fetchCost": config.web.fetch.cost,
+                "disclosure": crate::web::disclosure(&config.web),
+            }),
+        );
         object.insert(
             "permissionMode".into(),
             JsonValue::String(config.permission.mode.as_str().into()),
@@ -2514,6 +2551,44 @@ pub fn credential_env(
     extra
 }
 
+pub fn web_env(config: &EffectiveConfig) -> Vec<(String, String)> {
+    let mut extra = vec![
+        (
+            "CODSH_WEB_SEARCH".into(),
+            if config.web.search.enabled {
+                "1".into()
+            } else {
+                "0".into()
+            },
+        ),
+        (
+            "CODSH_WEB_FETCH".into(),
+            if config.web.fetch.enabled {
+                "1".into()
+            } else {
+                "0".into()
+            },
+        ),
+        (
+            "CODSH_RUST_BIN".into(),
+            std::env::current_exe()
+                .map(|path| path.display().to_string())
+                .unwrap_or_default(),
+        ),
+        ("GROK_HOME".into(), config.grok_home.display().to_string()),
+    ];
+    // The plugin only needs the two enablement flags. Policy, domains, and the
+    // proxy stay in the `web` command, which reloads config.toml. The credential
+    // name is forwarded so the child can copy that one env value.
+    if config.web.search.enabled {
+        extra.push((
+            "CODSH_WEB_SEARCH_KEY_ENV".into(),
+            config.web.search.env_key.clone(),
+        ));
+    }
+    extra
+}
+
 pub fn compact_env(config: &EffectiveConfig) -> Vec<(String, String)> {
     let mut extra = Vec::new();
     if let Some(secs) = config.compact_wall_clock_secs {
@@ -2776,6 +2851,8 @@ const KNOWN_POLICY_KEYS: &[&str] = &[
     "auth",
     "force_login_team_uuid",
     "grok_com_config",
+    "toolset",
+    "disable_web_search",
 ];
 
 const OVERLAY_ALLOWED: &[&str] = &["models", "model", "features", "auth", "endpoints"];
@@ -3438,6 +3515,156 @@ mod tests {
     fn write_config(input: &LoadInput, body: &str) {
         fs::create_dir_all(input.grok_home.clone().unwrap()).unwrap();
         fs::write(input.grok_home.clone().unwrap().join("config.toml"), body).unwrap();
+    }
+
+    fn setting<'a>(config: &'a EffectiveConfig, key: &str) -> Option<(&'a str, &'a str)> {
+        config
+            .settings
+            .iter()
+            .find(|setting| setting.key == key)
+            .map(|setting| (setting.value.as_str(), setting.source.as_str()))
+    }
+
+    #[test]
+    fn web_search_and_fetch_policy_is_explicit_and_session_scoped() {
+        let dir = TempDir::new().unwrap();
+        let mut load = input(&dir);
+        write_config(
+            &load,
+            r#"
+[models]
+default = "gateway"
+web_search = "search-model"
+
+[model.gateway]
+model = "mock-model"
+base_url = "http://127.0.0.1:9/v1"
+env_key = "XAI_API_KEY"
+
+[model.search-model]
+model = "search-model"
+base_url = "http://search.example/v1"
+env_key = "SEARCH_API_KEY"
+supports_backend_search = true
+
+[features]
+web_fetch = true
+
+[toolset.web_search]
+allowed_domains = ["docs.example"]
+excluded_domains = ["blocked.example"]
+
+[toolset.web_fetch]
+proxy_endpoint = "http://proxy.example:8080"
+allowed_domains = ["docs.example"]
+allow_local = false
+"#,
+        );
+        load.env.insert("XAI_API_KEY".into(), "present".into());
+        load.env.insert("SEARCH_API_KEY".into(), "present".into());
+        let config = load_from(load);
+        assert!(config.ready, "{}", config.first_run_message());
+        assert_eq!(
+            setting(&config, "features.web_fetch"),
+            Some(("true", "config.toml"))
+        );
+        assert_eq!(
+            setting(&config, "models.web_search"),
+            Some(("search-model", "config.toml"))
+        );
+        assert_eq!(
+            setting(&config, "toolset.web_search.allowed_domains"),
+            Some(("docs.example", "config.toml"))
+        );
+        assert_eq!(
+            setting(&config, "toolset.web_search.excluded_domains"),
+            Some(("(dropped; allowlist wins)", "config.toml"))
+        );
+        assert!(
+            config
+                .warnings
+                .iter()
+                .any(|warning| warning.contains("allowlist wins"))
+        );
+        assert_eq!(
+            setting(&config, "toolset.web_fetch.allowed_domains"),
+            Some(("docs.example", "config.toml"))
+        );
+        assert_eq!(
+            setting(&config, "toolset.web_fetch.proxy_endpoint"),
+            Some(("http://proxy.example:8080", "config.toml"))
+        );
+        assert_eq!(
+            setting(&config, "toolset.web_fetch.allow_local"),
+            Some(("false", "config.toml"))
+        );
+        let inspect = inspect_json(&config);
+        assert!(inspect.contains("\"webSearchEnabled\": true"));
+        assert!(inspect.contains("\"webFetchEnabled\": true"));
+        assert!(inspect.contains("search-model"));
+        assert!(inspect.contains("http://proxy.example:8080"));
+        assert!(!inspect.contains("present"));
+        assert!(config.web.search.allowed_domains == vec!["docs.example"]);
+        assert!(config.web.search.excluded_domains.is_empty());
+        assert!(!config.web.fetch.allow_local);
+        assert_eq!(
+            config.web.fetch.proxy_endpoint.as_deref(),
+            Some("http://proxy.example:8080")
+        );
+    }
+
+    #[test]
+    fn managed_only_web_settings_are_not_labeled_config_toml() {
+        let dir = TempDir::new().unwrap();
+        let mut load = input(&dir);
+        let grok = load.grok_home.clone().unwrap();
+        fs::create_dir_all(&grok).unwrap();
+        fs::write(
+            grok.join("managed_config.toml"),
+            r#"
+[models]
+web_search = "managed-search"
+
+[model.managed-search]
+model = "managed-search"
+base_url = "http://search.example/v1"
+env_key = "SEARCH_API_KEY"
+supports_backend_search = true
+
+[features]
+web_fetch = true
+
+[toolset.web_search]
+allowed_domains = ["docs.example"]
+
+[toolset.web_fetch]
+allowed_domains = ["docs.example"]
+"#,
+        )
+        .unwrap();
+        load.env.insert("SEARCH_API_KEY".into(), "present".into());
+        let config = load_from(load);
+        assert_eq!(
+            setting(&config, "models.web_search"),
+            Some(("managed-search", "managed"))
+        );
+        assert_eq!(
+            setting(&config, "toolset.web_search.allowed_domains"),
+            Some(("docs.example", "managed"))
+        );
+        assert_eq!(
+            setting(&config, "features.web_fetch"),
+            Some(("true", "managed"))
+        );
+        assert_eq!(
+            setting(&config, "toolset.web_fetch.allowed_domains"),
+            Some(("docs.example", "managed"))
+        );
+        assert!(config.web.search.enabled);
+        assert_eq!(
+            config.web.fetch.allowed_domains.as_deref(),
+            Some(["docs.example".to_string()].as_slice())
+        );
     }
 
     #[test]

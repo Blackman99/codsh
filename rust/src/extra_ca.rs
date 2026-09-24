@@ -188,6 +188,27 @@ fn classify_tls(error: &ureq::Error) -> HttpError {
 /// are added; invalid certificates and hostnames stay rejected. Redirects stay
 /// off and the overall deadline stays 15s.
 pub fn agent(extra_bundle: Option<&Path>) -> Result<(ureq::Agent, Vec<String>), HttpError> {
+    let (connector, warnings) = native_connector(extra_bundle)?;
+    let agent = ureq::AgentBuilder::new()
+        .tls_connector(connector)
+        .redirects(0)
+        .timeout(Duration::from_secs(15))
+        .build();
+    Ok((agent, warnings))
+}
+
+/// native-tls connector shared with web search and fetch. HTTPS does not add a second TLS stack.
+pub(crate) fn native_connector(
+    extra_bundle: Option<&Path>,
+) -> Result<(std::sync::Arc<native_tls::TlsConnector>, Vec<String>), HttpError> {
+    let (tls, warnings) = native_tls_connector(extra_bundle)?;
+    Ok((std::sync::Arc::new(tls), warnings))
+}
+
+/// Same roots as `native_connector`, as the concrete connector a pinned socket can handshake.
+pub(crate) fn native_tls_connector(
+    extra_bundle: Option<&Path>,
+) -> Result<(native_tls::TlsConnector, Vec<String>), HttpError> {
     let mut warnings = Vec::new();
     let mut builder = native_tls::TlsConnector::builder();
     builder.danger_accept_invalid_certs(false);
@@ -202,12 +223,7 @@ pub fn agent(extra_bundle: Option<&Path>) -> Result<(ureq::Agent, Vec<String>), 
     let tls = builder
         .build()
         .map_err(|error| HttpError::Other(error.to_string()))?;
-    let agent = ureq::AgentBuilder::new()
-        .tls_connector(std::sync::Arc::new(tls))
-        .redirects(0)
-        .timeout(Duration::from_secs(15))
-        .build();
-    Ok((agent, warnings))
+    Ok((tls, warnings))
 }
 
 fn agent_for(extra_bundle: Option<&Path>) -> Result<(ureq::Agent, Vec<String>), HttpError> {

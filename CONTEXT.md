@@ -94,8 +94,20 @@ delete is blocked. `du` reports isolated-home sizes
 and deletes nothing. Diagnostic previews and
 `GROK_DEBUG_LOG` contain kind/ok/count only. `GROK_LOG_FILE` and
 `GROK_HOOKS_LOG` are unwired: the launcher does not pass them, and no Rust
-path reads them. Model provider traffic is not
-telemetry. Locked requirements can force the switches off.
+path reads them. Web search and fetch stay off until `$GROK_HOME/config.toml`
+names a substitute. Search and fetch are separate. Search is one Responses
+call to `[models] web_search`; fetch is a public HTTP read, optionally through
+an `http` CONNECT `toolset.web_fetch.proxy_endpoint`. Official hosts are refused.
+Domain policy, including an empty fetch allowlist and a path or port on an
+allow entry, loads at startup and is checked again on every redirect. A name
+with any private address is refused, and the connection uses an approved
+address. A disabled side is not registered. Enabled `web_search` and
+`web_fetch` are dsh tools and call the configured substitute. Failures do
+not invent page text. Cancellation closes the request and drops a late body.
+Search citations and fetch status, content type, the page, and truncation
+travel as fields. The page is not scraped back out of the CLI text. Model provider traffic is not
+telemetry. Requirements pins can force `web_fetch` and `models.web_search`
+off. Managed values for those keys are user-overridable, not locks.
 User settings enter through `$GROK_HOME/config.toml` and `codsh --rust inspect`;
 `[ui] theme`, `auto_dark_theme`, `auto_light_theme`, `compact_mode`,
 `show_timestamps`, `screen_mode`, `confirm_before_rewind`,

@@ -1,5 +1,6 @@
 import { resolve } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
+import { enabled } from '../packages/cli/bin/rust-acp-web.mjs'
 
 export function rustAcpMockUrl() {
   return pathToFileURL(resolve(fileURLToPath(new URL('../e2e/fixtures/rust-acp-mock-llm.mjs', import.meta.url)))).href
@@ -13,7 +14,11 @@ export function rustAcpCompactUrl() {
   return pathToFileURL(resolve(fileURLToPath(new URL('../packages/cli/bin/rust-acp-compact.mjs', import.meta.url)))).href
 }
 
-export function rustAcpOverlay(mockUrl = rustAcpMockUrl(), approvalUrl = rustAcpFileApprovalUrl(), compactUrl = rustAcpCompactUrl()) {
+export function rustAcpWebUrl() {
+  return pathToFileURL(resolve(fileURLToPath(new URL('../packages/cli/bin/rust-acp-web.mjs', import.meta.url)))).href
+}
+
+export function rustAcpOverlay(mockUrl = rustAcpMockUrl(), approvalUrl = rustAcpFileApprovalUrl(), compactUrl = rustAcpCompactUrl(), webUrl = rustAcpWebUrl()) {
   const threshold = process.env.CODSH_TEST_COMPACT_THRESHOLD
   const lines = [
     '- id: acp',
@@ -26,6 +31,20 @@ export function rustAcpOverlay(mockUrl = rustAcpMockUrl(), approvalUrl = rustAcp
     '    model: cli-mock',
     '- id: llm-deepseek',
     '  disabled: true',
+    // Shipped DeepSeek search and public HTTP fetch are not the configured
+    // substitute. tool-web stays on and fails closed until the substitute is usable.
+    '- id: web-search-deepseek',
+    '  disabled: true',
+    '- id: web-fetch-http',
+    '  disabled: true',
+    '- id: web',
+    '  config:',
+    '    searchProvider: codsh-substitute',
+    '    fetchProvider: codsh-substitute',
+    '- id: tool-web',
+    '  config:',
+    `    search: ${enabled('CODSH_WEB_SEARCH') ? 'true' : 'false'}`,
+    `    fetch: ${enabled('CODSH_WEB_FETCH') ? 'true' : 'false'}`,
   ]
   if (threshold) {
     const ratio = Number(threshold)
@@ -55,6 +74,8 @@ export function rustAcpOverlay(mockUrl = rustAcpMockUrl(), approvalUrl = rustAcp
     `      name: '${approvalUrl}'`,
     '    - id: rust-acp-compact',
     `      name: '${compactUrl}'`,
+    '    - id: rust-acp-web',
+    `      name: '${webUrl}'`,
     '',
   )
   return lines.join('\n')

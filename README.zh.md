@@ -134,6 +134,37 @@ F8 才按 `[ui] voice_capture_mode`（`hold` 或 `toggle`）工作；关闭快�
 说成可用。`GROK_VOICE_MODE` 可关闭该功能。`GROK_VOICE_CAPTURE` 选择
 `inprocess`（默认）或 `helper`；没有夹具时 helper 会被拒绝。
 
+`codsh --rust web search <query>` 与 `codsh --rust web fetch <url>`（`--json`）
+调用已配置的替代服务。会话里 dsh 的 `web_search` 与 `web_fetch` 调用同一命令。
+搜索和获取分别启用。未启用的一侧不会注册，模型看不到它。搜索使用
+`[models] web_search` 或 `GROK_WEB_SEARCH_MODEL`，以及该模型的 `base_url` /
+`env_key`，只发一次 Responses 请求。`supports_backend_search` 表示检索由该替代
+服务完成。凭据优先使用非空的环境变量，否则使用模型里的 `api_key`。空的内联
+密钥不算已配置。`[toolset.web_search] allowed_domains` 与 `excluded_domains` 互斥；
+两者同时设置时允许名单生效，阻止名单被丢弃并给出警告。搜索名单为空或未设置时
+不限域名。随附的 dsh `web_search` 工具没有域名参数；替代服务收到的是已配置名单。
+获取由 `[features] web_fetch` 或 `GROK_WEB_FETCH=1` 打开。`GROK_DISABLE_WEB_FETCH` 与
+`disable_web_search` 分别关闭对应工具。指南 26 将 `features.web_fetch` 与
+`models.web_search` 标为 requirements `pin`：requirements 的值优先于用户文件、
+环境变量和托管配置。域名名单与 `proxy_endpoint` 是 requirements `yes`、managed
+`user`，用户文件可以覆盖舰队默认值和 requirements 的值。托管配置不是锁。
+`[toolset.web_fetch] allowed_domains` 覆盖内置公共文档名单。条目可以是 `host`、
+`host:port`、`host/path` 或 `host:port/path`。显式空名单会阻止每一次获取。每一次
+重定向都会重新检查路径前缀、端口和私网规则。设置了 `proxy_endpoint` /
+`GROK_WEB_FETCH_PROXY` 时，流量只走该代理，失败不会改走直连。支持的代理是
+`http` CONNECT 代理；`https` 源站先建隧道，再用与其他 HTTPS 相同的 native TLS
+根证书校验。`allow_local` / `GROK_WEB_FETCH_ALLOW_LOCAL` 只增加显式
+回环主机。私网、链路本地和云元数据地址始终拒绝。任一解析地址为私网时拒绝该名称，
+连接只使用这次检查得到的地址。跨主机重定向只报告、不跟随。认证、限流、取消和
+网络失败返回错误，不返回响应正文。`--json` 在可读 `text` 之外带有搜索 `citations`，
+以及获取的 `url`、`status`、`contentType`、`content` 和 `truncated`。`content`
+是页面本身；会话使用这个字段，不会从 `text` 里拆出来。分块正文按块大小读取，
+载荷里出现块结束标记也不会被截断。零长度块之后的 trailer 字段以空行结束，
+报文到此为止。取消会关闭套接字，不会返回迟到的正文。
+`codsh --rust inspect` 标出设置该值的文件：只来自托管配置的名单是 `managed`，
+不是 `config.toml`。策略在启动时读取，会话中途修改不会生效。官方主机会被拒绝。
+搜索费用是这一次模型请求；获取不产生账号费用。真实公共搜索厂商不在本次检查内。
+
 预览的用户配置是 `$GROK_HOME/config.toml`（默认
 `~/.codsh-rust/.grok/config.toml`）。`[ui] theme`、紧凑模式、时间戳、状态行、
 `confirm_before_rewind` 与 `ui.fork_secondary_model` 也写在这份文件里。兼容的 `[model.<id>]` 字段
