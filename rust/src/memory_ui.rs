@@ -32,10 +32,14 @@ pub struct Browser {
     /// Session gate. Independent of the process/config enablement.
     pub session_enabled: bool,
     pub force_off: bool,
-    /// True once this session already sent a turn (its first-turn injection
-    /// window is closed). A fresh `t` toggle to on then only takes effect
-    /// starting the next new session, not the rest of this one.
-    pub turn_sent: bool,
+    /// Mirrors the host's `memory_injected` gate: true once this session's
+    /// first-turn injection chance is gone (a turn already went out, or the
+    /// session resumed with history). Deriving this from `turns.is_empty()`
+    /// instead is wrong: `/clear` empties the visible transcript without
+    /// reopening the injection window. A fresh `t` toggle to on after this
+    /// is true has no effect on any prompt in this session, and `/new`
+    /// drops the toggle and follows config.toml again, not it.
+    pub memory_injected: bool,
     pub pending_note: String,
     pub pending_scope: Scope,
     pub fullscreen: bool,
@@ -70,7 +74,7 @@ impl Default for Browser {
             notice: String::new(),
             session_enabled: false,
             force_off: false,
-            turn_sent: false,
+            memory_injected: false,
             pending_note: String::new(),
             pending_scope: Scope::Workspace,
             fullscreen: false,
@@ -81,7 +85,12 @@ impl Default for Browser {
 }
 
 impl Browser {
-    pub fn open(store: &Store, session_enabled: bool, force_off: bool, turn_sent: bool) -> Self {
+    pub fn open(
+        store: &Store,
+        session_enabled: bool,
+        force_off: bool,
+        memory_injected: bool,
+    ) -> Self {
         let notes = memory::list_notes(store).unwrap_or_default();
         Self {
             cursor: 0,
@@ -96,7 +105,7 @@ impl Browser {
             notes,
             session_enabled,
             force_off,
-            turn_sent,
+            memory_injected,
             pending_note: String::new(),
             pending_scope: Scope::Workspace,
             fullscreen: false,
@@ -168,9 +177,27 @@ fn notes_empty(notes: &[NoteRef]) -> bool {
     notes.iter().all(|note| note.generated_index || note.empty)
 }
 
-pub fn handle_key(browser: &mut Browser, store: &Store, key: Key) -> Option<String> {
+/// What a key press did, for the host to act on. Replaces matching on
+/// `browser.notice`'s display text, which is fragile (wording changes would
+/// silently change control flow) and was wrong once: a `Copy` path could
+/// collide with other notices that happened to start the same way.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Action {
+    /// Memory is hidden for this process; nothing else changed.
+    ForceOff,
+    /// Copy this path to the clipboard.
+    Copy(String),
+    /// Esc from the list: close the modal.
+    Close,
+    /// `t` flipped the session gate. The modal stays open.
+    Toggled,
+    /// A note save or cancel resolved. Close the modal.
+    Confirmed,
+}
+
+pub fn handle_key(browser: &mut Browser, store: &Store, key: Key) -> Option<Action> {
     if browser.force_off {
-        return Some("memory is force-disabled for this process".into());
+        return Some(Action::ForceOff);
     }
     match browser.pane {
         Pane::ConfirmSave => return confirm_save(browser, store, key),
@@ -200,8 +227,9 @@ pub fn handle_key(browser: &mut Browser, store: &Store, key: Key) -> Option<Stri
                 Key::Home => browser.scroll = 0,
                 Key::Char('y') => {
                     if let Some(note) = browser.selected() {
-                        browser.notice = format!("copied {}", note.path.display());
-                        return Some(format!("copy {}", note.path.display()));
+                        let path = note.path.display().to_string();
+                        browser.notice = format!("copied {path}");
+                        return Some(Action::Copy(path));
                     }
                 }
                 _ => {}
@@ -245,15 +273,18 @@ pub fn handle_key(browser: &mut Browser, store: &Store, key: Key) -> Option<Stri
                 browser.scroll = 0;
             }
         }
-        Key::Esc => return Some("close".into()),
+        Key::Esc => return Some(Action::Close),
         Key::Char('t') => {
             browser.session_enabled = !browser.session_enabled;
             browser.notice = if browser.session_enabled {
-                if browser.turn_sent {
-                    // First-turn injection already ran or was skipped for
-                    // this session; turning memory on now cannot reach an
-                    // already-sent prompt, only the next new session.
-                    "memory on from the next new session; config.toml was not changed".into()
+                if browser.memory_injected {
+                    // This session's only injection chance (its first turn)
+                    // already happened or was skipped; a fresh `t` on now
+                    // cannot reach any prompt here. `/new` also drops this
+                    // toggle and follows config.toml again, so it does not
+                    // carry forward either — this is display-only.
+                    "memory on, but too late for this session; /new still follows config.toml"
+                        .into()
                 } else {
                     "memory on for this session; config.toml was not changed".into()
                 }
@@ -264,12 +295,13 @@ pub fn handle_key(browser: &mut Browser, store: &Store, key: Key) -> Option<Stri
                 format!("memory off for this session; {kept} files were kept")
             };
             browser.keep_cursor_visible(browser.list_rows());
-            return Some(browser.notice.clone());
+            return Some(Action::Toggled);
         }
         Key::Char('y') => {
             if let Some(note) = browser.selected() {
-                browser.notice = format!("copied {}", note.path.display());
-                return Some(format!("copy {}", note.path.display()));
+                let path = note.path.display().to_string();
+                browser.notice = format!("copied {path}");
+                return Some(Action::Copy(path));
             }
         }
         Key::Char('x') => {
@@ -306,7 +338,7 @@ pub fn toggle_fullscreen(browser: &mut Browser) {
     };
 }
 
-fn confirm_delete(browser: &mut Browser, store: &Store, key: Key) -> Option<String> {
+fn confirm_delete(browser: &mut Browser, store: &Store, key: Key) -> Option<Action> {
     match key {
         Key::Char('x') => {
             if let Some(note) = browser.selected() {
@@ -329,7 +361,7 @@ fn confirm_delete(browser: &mut Browser, store: &Store, key: Key) -> Option<Stri
     None
 }
 
-fn confirm_save(browser: &mut Browser, store: &Store, key: Key) -> Option<String> {
+fn confirm_save(browser: &mut Browser, store: &Store, key: Key) -> Option<Action> {
     match key {
         Key::Char('y') | Key::Enter => {
             match memory::save_note(store, browser.pending_scope, &browser.pending_note) {
@@ -337,7 +369,7 @@ fn confirm_save(browser: &mut Browser, store: &Store, key: Key) -> Option<String
                     browser.notice = memory::saved_message(&saved.path);
                     browser.reload(store);
                     browser.pane = Pane::List;
-                    return Some(browser.notice.clone());
+                    return Some(Action::Confirmed);
                 }
                 Err(error) => {
                     browser.notice = error.message;
@@ -349,7 +381,7 @@ fn confirm_save(browser: &mut Browser, store: &Store, key: Key) -> Option<String
             browser.notice = "memory note cancelled; nothing was written".into();
             browser.pane = Pane::List;
             browser.pending_note.clear();
-            return Some(browser.notice.clone());
+            return Some(Action::Confirmed);
         }
         Key::Tab => {
             browser.notice = "keeping the typed note; no rewrite".into();
@@ -767,7 +799,8 @@ mod tests {
         assert!(!store.root.join("MEMORY.md").exists());
         begin_remember(&mut browser, &store, "always open PR links", Scope::Global);
         let saved = handle_key(&mut browser, &store, Key::Char('y')).unwrap();
-        assert!(saved.contains("Memory saved to"));
+        assert_eq!(saved, Action::Confirmed);
+        assert!(browser.notice.contains("Memory saved to"));
         assert!(store.root.join("MEMORY.md").is_file());
         handle_key(&mut browser, &store, Key::Char('t'));
         assert!(browser.session_enabled);
@@ -785,34 +818,45 @@ mod tests {
     }
 
     #[test]
-    fn toggle_notice_says_next_new_session_once_a_turn_already_ran() {
+    fn toggle_notice_is_honest_about_an_already_injected_session() {
         let (_dir, store) = store();
-        // Fresh session, no turn sent yet: `t` still reaches this session.
+        // Fresh session, first-turn injection still available: `t` on
+        // reaches the very next prompt.
         let mut fresh = Browser::open(&store, false, false, false);
-        handle_key(&mut fresh, &store, Key::Char('t'));
+        let action = handle_key(&mut fresh, &store, Key::Char('t'));
+        assert_eq!(action, Some(Action::Toggled));
         assert!(fresh.session_enabled);
         assert!(
             fresh.notice.contains("memory on for this session"),
             "{}",
             fresh.notice
         );
-        assert!(
-            !fresh.notice.contains("next new session"),
-            "{}",
-            fresh.notice
-        );
+        assert!(!fresh.notice.contains("too late"), "{}", fresh.notice);
 
-        // A turn already ran this session: turning memory on now cannot
-        // reach an already-sent prompt, only the next new session.
+        // This session already had its first turn (memory_injected=true,
+        // regardless of what `turns.is_empty()` says post-/clear): turning
+        // memory on now reaches nothing here, and must not claim it carries
+        // to `/new` either, since `/new` drops the toggle and follows
+        // config.toml again (main.rs resets memory_session_on to None).
         let mut mid = Browser::open(&store, false, false, true);
-        handle_key(&mut mid, &store, Key::Char('t'));
+        let action = handle_key(&mut mid, &store, Key::Char('t'));
+        assert_eq!(action, Some(Action::Toggled));
         assert!(mid.session_enabled);
         assert!(
-            mid.notice.contains("memory on from the next new session"),
+            mid.notice.contains("too late for this session"),
             "{}",
             mid.notice
         );
-        assert!(mid.notice.contains("config.toml was not changed"));
+        assert!(
+            mid.notice.contains("/new") && mid.notice.contains("config.toml"),
+            "must say /new still follows config.toml, not this toggle: {}",
+            mid.notice
+        );
+        assert!(
+            !mid.notice.to_lowercase().contains("next new session"),
+            "must not claim the toggle carries to the next new session: {}",
+            mid.notice
+        );
     }
 
     #[test]

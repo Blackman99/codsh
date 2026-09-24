@@ -1122,7 +1122,7 @@ pub fn clear_help() -> &'static str {
 }
 
 pub fn memory_help() -> &'static str {
-    "Local memory\n\nUsage: codsh --rust memory clear [--workspace|--global|--all] [--yes|-y]\n       codsh --rust memory help\n\nBrowse notes with /memory. [memory] enabled = false leaves the browser open and keeps notes out of a session's first prompt until t turns the session on. Notes are only sent on a session's first prompt; toggling t after that prompt was already sent takes effect starting the next new session, not the rest of this one.\n/remember saves a confirmed note. GROK_MEMORY=0 and --no-memory hide /memory for the process and do not delete files."
+    "Local memory\n\nUsage: codsh --rust memory clear [--workspace|--global|--all] [--yes|-y]\n       codsh --rust memory help\n\nBrowse notes with /memory. [memory] enabled = false leaves the browser open and keeps notes out of a session's first prompt until t turns the session on. Notes are only sent on a session's first prompt; once that prompt is already sent, toggling t no longer reaches any prompt in this session, and /new drops the toggle and follows config.toml again instead of carrying it forward.\n/remember saves a confirmed note. GROK_MEMORY=0 and --no-memory hide /memory for the process and do not delete files."
 }
 
 /// Delete the selected scope's `MEMORY.md`, and for a workspace also

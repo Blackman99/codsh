@@ -233,6 +233,18 @@ enabled = true
             assert 'MEMORY_ECHO_TOKEN_MAIN' in shown, shown
             assert 'MEMORY_ECHO_TOKEN_OTHER' not in shown, shown
 
+            # Close-hint honesty: this session's first turn is already sent
+            # and memory was on the whole time (config, never toggled).
+            # Browsing /memory and leaving with a plain Esc (no `t`) must
+            # not claim anything "reaches" or "carries to" a next session;
+            # it just reports the current, unchanged state.
+            session.write('/memory\r')
+            session.wait_visible('session=on', 5)
+            session.write('\x1b')
+            shown = session.wait_visible('memory on for this session', 5)
+            assert 'too late' not in shown, shown
+            assert 'next new session' not in shown, shown
+
             hidden = dict(base_env)
             hidden['GROK_MEMORY'] = '0'
             blocked = screen.Session('memory-force-off', launcher, cwd, hidden, output)
@@ -263,20 +275,37 @@ enabled = true
                 quiet.write('\x1b')
                 quiet.wait_visible('memory off for this session', 5)
                 quiet.write('memory-off-token\r')
-                shown = quiet.wait_visible('RUST_ACP_ANSWER', 15)
+                shown = quiet.wait_visible('turn=2', 15)
                 assert 'synthetic PR links' not in shown, shown
                 assert 'MEMORY_ECHO_TOKEN_MAIN' not in shown, shown
+
+                # /clear only empties the visible transcript; dsh's session
+                # (and this host's memory_injected gate) is unaffected. The
+                # injection window must still read as closed afterward, so
+                # the notice below must not be fooled by turns.is_empty()
+                # becoming true again (ticket 53 / issue 185, issue 2).
+                quiet.write('/clear\r')
+                quiet.wait_visible('cleared the visible transcript', 5)
+
                 quiet.write('/memory\r')
                 quiet.wait_visible('session=off', 5)
                 quiet.write('t')
                 # Honesty fix for ticket 53 / issue 185: this session already
                 # sent its first turn (memory-off-token, above), so `t` on
-                # cannot reach it; the notice must say so, not "for this
-                # session" as if the very next prompt were still eligible.
-                quiet.wait_visible('memory on from the next new session', 5)
-                assert 'config.toml was not changed' in quiet.visible()
+                # reaches no prompt here. `/new` also drops this toggle and
+                # follows config.toml again (main.rs resets
+                # memory_session_on to None), so the notice must not claim
+                # it carries to a next new session either.
+                quiet.wait_visible('too late for this session', 5)
+                shown = quiet.visible()
+                assert '/new' in shown and 'config.toml' in shown, shown
+                assert 'next new session' not in shown, shown
                 quiet.write('\x1b')
-                quiet.wait_visible('memory on from the next new session', 5)
+                # Closing must not repeat that caveat as though it still
+                # applied; it just reports the (unaffected) session state,
+                # exactly like a plain close with no toggle at all.
+                shown = quiet.wait_visible('memory on for this session', 5)
+                assert 'too late' not in shown, shown
 
                 # Regression for ticket 53 / issue 185, symmetric case: an
                 # empty `/remember` must not silently reset this session's
@@ -296,9 +325,12 @@ enabled = true
 
                 # And the mechanism itself: turning memory on this late does
                 # not retroactively inject it into a later prompt either
-                # (notes are only sent on a session's first turn).
+                # (notes are only sent on a session's first turn). The mock
+                # counts the first user prompt as turn=2 (a leading runtime
+                # context message is also role=user). Waiting for RUST_ACP_ANSWER
+                # or the typed text would match the reply already on screen.
                 quiet.write('memory-still-unaffected\r')
-                shown = quiet.wait_visible('RUST_ACP_ANSWER', 15)
+                shown = quiet.wait_visible('turn=3', 15)
                 assert 'memory-still-unaffected' in shown, shown
                 assert 'MEMORY_ECHO_TOKEN_MAIN' not in shown, shown
             finally:

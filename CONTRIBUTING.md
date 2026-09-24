@@ -421,9 +421,11 @@ echoed reply, not just UI state): the first turn's request contains a saved
 note's text when memory is on, omits it when memory is off, and after `/cd` to
 another project plus `/new` contains only that project's own note, never the
 previous project's. Turning memory on with `t` after a session's first turn
-already ran must say it takes effect "from the next new session", not "for
-this session", and a later prompt in that same session must still omit the
-note. `index.sqlite` is a
+already ran (`memory_injected`, not a bare `turns.is_empty()` check that
+`/clear` would fool) reaches no prompt here and must say so, instead of "for
+this session"; `/new` drops the toggle and follows `config.toml` again, so
+the notice must not claim it carries to the next new session either. A later
+prompt in that same session must still omit the note. `index.sqlite` is a
 SQLite FTS5 database rebuilt from the notes. A damaged file is reported and
 replaced only after the new database is complete. A foreign SQLite file is
 left unchanged. The bundled SQLite amalgamation comes from `rusqlite` 0.37 /
