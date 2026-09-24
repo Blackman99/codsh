@@ -847,18 +847,17 @@ fn scan_configured_skill(
         });
         return;
     }
-    if path.join("SKILL.md").is_file() {
-        if let Some(skill) = parse_skill(
+    if path.join("SKILL.md").is_file()
+        && let Some(skill) = parse_skill(
             input,
             &path.join("SKILL.md"),
             "config",
             "config",
             30,
             diagnostics,
-        ) {
-            skills.push(skill);
-        }
-        return;
+        )
+    {
+        skills.push(skill);
     }
     let entries = match fs::read_dir(path) {
         Ok(entries) => entries,
@@ -959,17 +958,19 @@ fn walk_named_skills(
     diagnostics: &mut Vec<AssetDiagnostic>,
     depth: u8,
 ) {
-    // Depth 0 is the first directory under the skill root. Five includes
-    // `.grok/skills/a/b/c/d/e/SKILL.md` and excludes the sixth directory.
-    if depth >= SKILL_WALK_DEPTH {
+    // Depth 0 is the first directory under the skill root. The frozen walk
+    // returns only when depth is greater than five, so six directories load
+    // and the seventh does not. A directory that already has SKILL.md is still
+    // entered, so its child is recorded.
+    if depth > SKILL_WALK_DEPTH {
         return;
     }
     let file = directory.join("SKILL.md");
-    if file.is_file() && !ignored_skill(input, &file) {
-        if let Some(skill) = parse_skill(input, &file, source, scope, rank, diagnostics) {
-            skills.push(skill);
-        }
-        return;
+    if file.is_file()
+        && !ignored_skill(input, &file)
+        && let Some(skill) = parse_skill(input, &file, source, scope, rank, diagnostics)
+    {
+        skills.push(skill);
     }
     if !directory.is_dir() {
         return;
@@ -1784,6 +1785,15 @@ mod tests {
         write(
             &cwd.join(".grok")
                 .join("skills")
+                .join("nested")
+                .join("deep")
+                .join("child")
+                .join("SKILL.md"),
+            "---\nname: nested-child\ndescription: child of a skill directory\n---\nCHILD_SKILL\n",
+        );
+        write(
+            &cwd.join(".grok")
+                .join("skills")
                 .join("hidden")
                 .join("SKILL.md"),
             "---\nname: hidden\nuser-invocable: false\ndescription: model only\n---\nHIDDEN_BODY\n",
@@ -1812,6 +1822,13 @@ mod tests {
                 .iter()
                 .any(|skill| skill.name == "nested-deep")
         );
+        assert!(
+            catalog
+                .skills
+                .iter()
+                .any(|skill| skill.name == "nested-child" && skill.body.contains("CHILD_SKILL")),
+            "a child of a directory that already has SKILL.md is still recorded"
+        );
         let twins: Vec<_> = catalog
             .skills
             .iter()
@@ -1834,29 +1851,29 @@ mod tests {
         assert!(yes.user_invocable);
         assert!(skill_invocation(&catalog, "/yes-skill").is_some());
         let mut too_deep = cwd.join(".grok").join("skills");
-        for part in ["n", "a", "b", "c", "d", "e"] {
+        for part in ["n", "a", "b", "c", "d", "e", "f"] {
             too_deep.push(part);
         }
         write(
             &too_deep.join("SKILL.md"),
-            "---\nname: deep6\ndescription: past five directories\n---\nDEEP6_BODY\n",
+            "---\nname: deep7\ndescription: past depth five\n---\nDEEP7_BODY\n",
         );
         let mut at_limit = cwd.join(".grok").join("skills");
-        for part in ["n", "a", "b", "c", "d"] {
+        for part in ["n", "a", "b", "c", "d", "e"] {
             at_limit.push(part);
         }
         write(
             &at_limit.join("SKILL.md"),
-            "---\nname: deep5\ndescription: fifth directory\n---\nDEEP5_BODY\n",
+            "---\nname: deep6\ndescription: depth equals five\n---\nDEEP6_BODY\n",
         );
         let bounded = catalog_for(root.path(), true, &[], &[]);
         assert!(
-            bounded.skills.iter().any(|skill| skill.name == "deep5"),
-            "five directories under the skill root still load"
+            bounded.skills.iter().any(|skill| skill.name == "deep6"),
+            "depth 5 is still inside the walk"
         );
         assert!(
-            !bounded.skills.iter().any(|skill| skill.name == "deep6"),
-            "the walk stops at five directories under the skill root"
+            !bounded.skills.iter().any(|skill| skill.name == "deep7"),
+            "the walk returns when depth is greater than five"
         );
     }
 

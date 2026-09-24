@@ -63,8 +63,17 @@ description: Not the sign-in command.
 ---
 LOGIN_SKILL_BODY
 """)
+    deep7 = src / '.grok' / 'skills'
+    for part in ('n', 'a', 'b', 'c', 'd', 'e', 'f'):
+        deep7 = deep7 / part
+    write(deep7 / 'SKILL.md', """---
+name: deep7
+description: Seventh directory under the skill root.
+---
+DEEP7_BODY
+""")
     deep6 = src / '.grok' / 'skills'
-    for part in ('n', 'a', 'b', 'c', 'd', 'e'):
+    for part in ('p', 'a', 'b', 'c', 'd', 'e'):
         deep6 = deep6 / part
     write(deep6 / 'SKILL.md', """---
 name: deep6
@@ -72,14 +81,18 @@ description: Sixth directory under the skill root.
 ---
 DEEP6_BODY
 """)
-    deep5 = src / '.grok' / 'skills'
-    for part in ('p', 'a', 'b', 'c', 'd'):
-        deep5 = deep5 / part
-    write(deep5 / 'SKILL.md', """---
-name: deep5
-description: Fifth directory under the skill root.
+    parent = src / '.grok' / 'skills' / 'parent'
+    write(parent / 'SKILL.md', """---
+name: parent
+description: Directory that already has a skill.
 ---
-DEEP5_BODY
+PARENT_BODY
+""")
+    write(parent / 'child' / 'SKILL.md', """---
+name: child
+description: Child of a skill directory.
+---
+CHILD_BODY
 """)
     write(src / '.grok' / 'commands' / 'ship-note.md', """---
 description: Write a ship note
@@ -189,22 +202,25 @@ def main():
             raw = bytes(trusted.data).decode('utf-8', 'replace')
             assert 'Follow the local:login skill' in raw
             trusted.write('\x03')
-            trusted.write('/deep5 now\r')
-            shown = trusted.wait_visible('DEEP5_BODY', 30)
+            trusted.write('/deep6 now\r')
+            shown = trusted.wait_visible('DEEP6_BODY', 30)
             trusted.write('\x03')
-            trusted.write('/deep6 gone\r')
-            shown = trusted.wait_visible('/deep6 gone', 30)
+            trusted.write('/child now\r')
+            shown = trusted.wait_visible('CHILD_BODY', 30)
+            trusted.write('\x03')
+            trusted.write('/deep7 gone\r')
+            shown = trusted.wait_visible('/deep7 gone', 30)
             deadline = time.monotonic() + 20
             while time.monotonic() < deadline:
                 trusted.pump()
                 shown = trusted.visible()
                 flat = shown.replace('\n', '')
-                if '/deep6 gone' in flat and 'Streaming turn' not in flat:
+                if '/deep7 gone' in flat and 'Streaming turn' not in flat:
                     break
             flat = shown.replace('\n', '')
-            assert 'DEEP6_BODY' not in flat
-            assert 'Follow the local:deep6 skill' not in flat
-            assert 'Follow the deep6 skill' not in flat
+            assert 'DEEP7_BODY' not in flat
+            assert 'Follow the local:deep7 skill' not in flat
+            assert 'Follow the deep7 skill' not in flat
             trusted.write('\x03')
             trusted.write('/ship-note')
             shown = trusted.wait_visible('/ship-note', 10)
@@ -228,9 +244,9 @@ SKILL_ADDED
             trusted.write('\x03')
             trusted.write('/reload-assets\r')
             rescanned = trusted.wait_visible('Rescanned assets', 10)
-            # commit, hidden, login, deep5, plus the skill added in this session.
-            # deep6 is past the five-directory walk and must not be counted.
-            assert '5 skills' in rescanned.replace('\n', '')
+            # commit, hidden, login, parent, child, deep6, plus the skill added
+            # in this session. deep7 is past depth > 5 and must not be counted.
+            assert '7 skills' in rescanned.replace('\n', '')
             trusted.write('/added')
             shown = trusted.wait_visible('/added', 10)
             trusted.write('\x03')
@@ -239,7 +255,7 @@ SKILL_ADDED
             added.unlink()
             trusted.write('\x03')
             trusted.write('/reload-assets\r')
-            trusted.wait_visible('4 skills', 10)
+            trusted.wait_visible('6 skills', 10)
             trusted.write('/added gone\r')
             shown = trusted.wait_visible('/added gone', 30)
             deadline = time.monotonic() + 20

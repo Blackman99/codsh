@@ -275,9 +275,11 @@ from `.grok/skills/` and `.agents/skills/` at the working directory, then each
 ancestor up to the git root, then the user roots, plus enabled Claude/Cursor
 skill roots and `[skills] paths`. A closer directory outranks a broader one;
 two skills with the same name in one directory both stay invocable under a
-qualified name. Nested `SKILL.md` files are walked up to five directories
-under the skill root (`.grok/skills/a/b/c/d/e/SKILL.md` loads; a sixth
-directory does not).
+qualified name. Nested `SKILL.md` files use the frozen walk: depth starts
+at the first directory under the skill root and returns only when depth is
+greater than five, so `.grok/skills/a/b/c/d/e/f/SKILL.md` loads and a seventh
+directory does not. A directory that already has `SKILL.md` is still entered,
+so its child is recorded.
 `paths.extra_skill_dirs` is not a discovery root. `[skills] ignore` hides a
 path. `[skills] disabled` keeps the skill listed, including its body, but not
 invocable. `user-invocable` defaults to true; only `false`, `no`, `off`, or
