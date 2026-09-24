@@ -24,6 +24,8 @@ pub enum AcpEvent {
     PromptFinished {
         request_id: u64,
         stop_reason: String,
+        /// The prompt response object, including `_meta` when dsh sent it.
+        result: Value,
     },
     RpcError {
         request_id: Option<u64>,
@@ -43,13 +45,24 @@ pub enum AcpEvent {
         kind: String,
         status: String,
         raw_input: Value,
+        /// ACP `content` array as sent. Empty when dsh omitted it.
+        content: Value,
+        /// ACP `locations` array as sent. Empty when dsh omitted it.
+        locations: Value,
         diff: String,
     },
     ToolCallUpdate {
         session_id: String,
         tool_call_id: String,
+        /// Empty when the update omitted `status`. Not rewritten to pending.
         status: String,
         content: String,
+        /// ACP `content` array as sent. Empty when dsh omitted it.
+        content_items: Value,
+        /// ACP `rawOutput` as sent. Null when dsh omitted it.
+        raw_output: Value,
+        /// ACP `locations` array as sent. Empty when dsh omitted it.
+        locations: Value,
     },
     PermissionRequest {
         request_id: Value,
@@ -1219,6 +1232,11 @@ impl AcpClient {
                     .unwrap_or("pending")
                     .to_string();
                 let raw_input = update.get("rawInput").cloned().unwrap_or(Value::Null);
+                let content = update.get("content").cloned().unwrap_or_else(|| json!([]));
+                let locations = update
+                    .get("locations")
+                    .cloned()
+                    .unwrap_or_else(|| json!([]));
                 let diff = proposed_diff(&title, &raw_input);
                 vec![AcpEvent::ToolCall {
                     session_id,
@@ -1227,6 +1245,8 @@ impl AcpClient {
                     kind: tool_kind,
                     status,
                     raw_input,
+                    content,
+                    locations,
                     diff,
                 }]
             }
@@ -1277,6 +1297,12 @@ impl AcpClient {
                     tool_call_id,
                     status,
                     content: tool_update_text(&update),
+                    content_items: update.get("content").cloned().unwrap_or_else(|| json!([])),
+                    raw_output: update.get("rawOutput").cloned().unwrap_or(Value::Null),
+                    locations: update
+                        .get("locations")
+                        .cloned()
+                        .unwrap_or_else(|| json!([])),
                 }]
             }
             _ => Vec::new(),
@@ -1367,6 +1393,7 @@ impl AcpClient {
                 vec![AcpEvent::PromptFinished {
                     request_id: id,
                     stop_reason,
+                    result,
                 }]
             }
             _ => {
@@ -1563,6 +1590,7 @@ mod tests {
                     AcpEvent::PromptFinished {
                         request_id,
                         stop_reason,
+                        ..
                     } if request_id == id => {
                         finished = Some(stop_reason);
                     }
@@ -2048,6 +2076,7 @@ mod tests {
                     AcpEvent::PromptFinished {
                         request_id,
                         stop_reason,
+                        ..
                     } if request_id == id => return stop_reason,
                     AcpEvent::RpcError {
                         request_id: Some(request_id),

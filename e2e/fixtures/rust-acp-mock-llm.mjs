@@ -1,6 +1,6 @@
 /**
  * Keyless LLM adapter at the dsh provider boundary for Rust ACP turn tests.
- * Modes: echo (default), reasoning, empty, fail-stream, file-edit, file-write,
+ * Modes: echo (default), reasoning, empty, fail-stream, max-tokens, file-edit, file-write,
  * file-missing, file-error, markdown, huge-read, control-output, plain-steps, bash-rm, bash-timeout-rm, bash-nice-rm, bash-brace-rm,
  * bash-ansi-c-rm, bash-quoted-rm, bash-eval-rm, bash-path-rm, bash-sudo-rm,
  * bash-nohup-rm, bash-xargs-rm, bash-sort-prefix,
@@ -567,6 +567,14 @@ class RustAcpMockAdapter extends LlmAdapter {
       yield { type: 'text-delta', index: 0, text: 'RUST_ACP_PARTIAL' }
       yield { type: 'block-end', index: 0, block: { type: 'text', text: 'RUST_ACP_PARTIAL' } }
       yield { type: 'finish', reason: { kind: 'error', failure: { code: 'MOCK_STREAM_FAIL', message: 'provider failed mid-stream' } } }
+      return
+    }
+    if (MODE === 'max-tokens') {
+      yield { type: 'block-start', index: 0, blockType: 'text' }
+      yield { type: 'text-delta', index: 0, text: 'RUST_ACP_TRUNCATED' }
+      yield { type: 'block-end', index: 0, block: { type: 'text', text: 'RUST_ACP_TRUNCATED' } }
+      yield { type: 'usage', usage: { inputTokens: 8, outputTokens: 8 } }
+      yield { type: 'finish', reason: { kind: 'max-tokens' } }
       return
     }
     if (MODE === 'reasoning') {

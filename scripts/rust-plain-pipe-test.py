@@ -307,11 +307,13 @@ def main():
         assert bad_format.returncode == 2
         assert "invalid value 'not-a-format'" in bad_format.stderr
 
-        later = plain(launcher, project, env('echo'), ['-p', 'hello', '--output-format', 'json'])
-        assert later.returncode == 1
-        assert later.stdout == ''
-        assert '--output-format' in later.stderr
-        assert 'later ticket' in later.stderr
+        later = plain(launcher, project, env('echo'), ['-p', 'FORMAT_TOKEN', '--output-format', 'json'])
+        assert later.returncode == 0, later.stderr
+        formatted = json.loads(later.stdout)
+        assert 'FORMAT_TOKEN' in formatted['text']
+        assert formatted['stopReason'] == 'end_turn'
+        assert formatted.get('usage_absent') is True
+        assert 'usage' not in formatted and 'total_cost_usd' not in formatted
         verbatim = plain(launcher, project, env('echo'), ['-p', 'VERBATIM_TOKEN', '--verbatim'])
         assert verbatim.returncode == 0, verbatim.stderr
         assert 'VERBATIM_TOKEN' in verbatim.stdout
