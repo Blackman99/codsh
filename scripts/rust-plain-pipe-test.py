@@ -93,7 +93,30 @@ def main():
         assert help_run.returncode == 0, help_run.stderr
         assert '-p/--single' in help_run.stdout
         assert '--max-turns' in help_run.stdout
+        assert 'completions' in help_run.stdout
         assert 'later ticket' in help_run.stdout
+        short = plain(launcher, project, env('echo'), ['-h'])
+        assert short.returncode == 0, short.stderr
+        assert 'bash, elvish, fish, powershell, zsh' in short.stdout
+        assert len(short.stdout) < len(help_run.stdout)
+        bare_help = plain(launcher, project, env('echo'), ['help'])
+        assert bare_help.returncode == 0 and 'Plain:' in bare_help.stdout
+        for shell, marker in (
+            ('bash', '_codsh_rust_complete'),
+            ('zsh', '#compdef codsh'),
+            ('fish', 'complete -c codsh'),
+            ('powershell', 'Register-ArgumentCompleter'),
+            ('elvish', 'edit:completion:arg-completer'),
+        ):
+            script = plain(launcher, project, env('echo'), ['completions', shell])
+            assert script.returncode == 0, (shell, script.stderr)
+            assert marker in script.stdout, shell
+            assert 'help' not in script.stderr.lower() or marker in script.stdout
+        missing_shell = plain(launcher, project, env('echo'), ['completions'])
+        assert missing_shell.returncode == 2
+        assert 'completions <SHELL>' in missing_shell.stderr
+        bad_shell = plain(launcher, project, env('echo'), ['completions', 'tcsh'])
+        assert bad_shell.returncode == 2 and 'invalid value' in bad_shell.stderr
 
         normal = plain(launcher, project, env('echo'), ['-p', 'PLAIN_TOKEN'])
         assert normal.returncode == 0, normal.stderr
@@ -113,24 +136,47 @@ def main():
                       ['-p', 'read other', '--cwd', str(other)])
         assert moved.returncode == 0, moved.stderr
         assert 'RUST_ACP_HUGE_DONE' in moved.stdout
+        session_cwd = ''
+        seen = []
+        for path in (home / '.codsh-rust' / 'dsh').rglob('*'):
+            if not path.is_file() or path.stat().st_size > 2_000_000:
+                continue
+            text = path.read_text(errors='replace')
+            seen.append(f'{path.relative_to(home)}:{path.stat().st_size}')
+            if str(other) in text or 'read other' in text:
+                session_cwd = text
+                break
+        assert str(other) in session_cwd, f'cwd session did not record the other directory; files={seen[:40]}'
 
         first = plain(launcher, project, env('echo'), ['-p', 'FIRST_PLAIN'])
         assert first.returncode == 0, first.stderr
         resumed = plain(launcher, project, env('echo'), ['-p', 'SECOND_PLAIN', '--continue'])
         assert resumed.returncode == 0, resumed.stderr
         assert 'FIRST_PLAIN' in resumed.stdout and 'SECOND_PLAIN' in resumed.stdout
+        titled = plain(launcher, project, env('echo'), ['-p', 'TITLE_RESUME_TOKEN', '--resume', 'FIRST_PLAIN'])
+        assert titled.returncode == 0, titled.stderr
+        assert 'FIRST_PLAIN' in titled.stdout and 'TITLE_RESUME_TOKEN' in titled.stdout
 
         denied = plain(launcher, project, env('file-edit'),
-                       ['-p', 'edit it', '--deny', 'Edit'])
+                       ['-p', 'edit it', '--deny', 'Edit', '--always-approve'])
         assert denied.returncode == 0, denied.stderr
-        assert 'RUST_ACP_FILE_ERROR' in denied.stdout
+        assert 'Denied by permission policy' in denied.stdout or 'RUST_ACP_FILE_ERROR' in denied.stdout
         assert (project / 'note.txt').read_text() == 'PLAIN_NOTE\n'
 
-        filtered = plain(launcher, project, env('file-edit'),
-                         ['-p', 'edit it', '--disallowed-tools', 'edit'])
+        trace = work / 'tool-trace.jsonl'
+        masked_env = {**env('file-edit'), 'CODSH_REVIEW_TRACE': str(trace)}
+        filtered = plain(launcher, project, masked_env,
+                         ['-p', 'edit it', '--tools', 'read_file', '--disallowed-tools', 'edit'])
         assert filtered.returncode == 0, filtered.stderr
-        assert 'plain tool filter removed edit' in filtered.stdout
+        assert 'plain tool filter removed edit' in filtered.stdout, (
+            f'stdout={filtered.stdout!r}\nstderr={filtered.stderr!r}\n'
+            f'trace={trace.read_text() if trace.exists() else ""}'
+        )
         assert (project / 'note.txt').read_text() == 'PLAIN_NOTE\n'
+        traced = [json.loads(line) for line in trace.read_text().splitlines() if line.strip()]
+        assert traced, 'first model request was not traced'
+        assert traced[0]['tools'] == ['read'], traced[0]
+        trace.unlink()
         unknown_tool = plain(launcher, project, env('echo'),
                              ['-p', 'hello', '--disallowed-tools', 'not_a_dsh_tool'])
         assert unknown_tool.returncode != 0, unknown_tool.stdout
@@ -138,26 +184,52 @@ def main():
 
         bounded = plain(launcher, project, env('plain-steps'),
                         ['-p', 'keep reading', '--max-turns', '2'])
-        assert bounded.returncode != 0, bounded.stdout
+        assert bounded.returncode == 1, bounded.stdout
         assert 'RUST_ACP_STEPS_DONE' not in bounded.stdout
-        assert 'max-turns' in bounded.stderr or 'cancelled' in bounded.stderr
+        assert '--max-turns 2' in bounded.stderr
+        assert 'step 3' in bounded.stderr
+
+        duplicate = plain(launcher, project, env('echo'), ['-p', 'FIRST_DUP', '-p', 'SECOND_DUP'])
+        assert duplicate.returncode == 1 and duplicate.stdout == ''
+        assert 'conflicting prompt' in duplicate.stderr
+        assert 'SECOND_DUP' not in duplicate.stdout
 
         unknown = plain(launcher, project, env('echo'), ['--not-a-real-option'])
-        assert unknown.returncode == 1
+        assert unknown.returncode == 2
         assert unknown.stdout == ''
-        assert 'unsupported' in unknown.stderr or 'not-a-real-option' in unknown.stderr
+        assert "unexpected argument '--not-a-real-option'" in unknown.stderr
+        assert 'Rust startup failed' not in unknown.stderr
 
         missing_flag = plain(launcher, project, env('echo'), ['--allowedTools'])
-        assert missing_flag.returncode == 1
-        assert 'missing --allowedTools' in missing_flag.stderr
+        assert missing_flag.returncode == 2
+        assert "a value is required for '--allow <RULE>'" in missing_flag.stderr
+        missing_deny = plain(launcher, project, env('echo'), ['--disallowedTools'])
+        assert missing_deny.returncode == 2
+        assert "a value is required for '--deny <RULE>'" in missing_deny.stderr
+        missing_system = plain(launcher, project, env('echo'), ['--system-prompt'])
+        assert missing_system.returncode == 2
+        assert '--system-prompt-override <PROMPT>' in missing_system.stderr
+        missing_rules = plain(launcher, project, env('echo'), ['--append-system-prompt'])
+        assert missing_rules.returncode == 2
+        assert '--rules <RULES>' in missing_rules.stderr
+        missing_compact = plain(launcher, project, env('echo'), ['--compaction-mode'])
+        assert missing_compact.returncode == 2
+        assert '--compaction-mode <MODE>' in missing_compact.stderr
         missing_prompt = plain(launcher, project, env('echo'), ['--prompt-file'])
-        assert missing_prompt.returncode == 1
+        assert missing_prompt.returncode == 2
         assert 'a value is required' in missing_prompt.stderr
+        bad_format = plain(launcher, project, env('echo'), ['--output-format', 'not-a-format'])
+        assert bad_format.returncode == 2
+        assert "invalid value 'not-a-format'" in bad_format.stderr
 
         later = plain(launcher, project, env('echo'), ['-p', 'hello', '--output-format', 'json'])
         assert later.returncode == 1
         assert later.stdout == ''
+        assert '--output-format' in later.stderr
         assert 'later ticket' in later.stderr
+        verbatim = plain(launcher, project, env('echo'), ['-p', 'VERBATIM_TOKEN', '--verbatim'])
+        assert verbatim.returncode == 0, verbatim.stderr
+        assert 'VERBATIM_TOKEN' in verbatim.stdout
 
         positional = plain(launcher, project, env('echo'), ['just words'])
         assert positional.returncode == 1
@@ -185,6 +257,34 @@ def main():
                 raise
             assert child.returncode == code, (sig, child.returncode, out, err)
             assert 'RUST_ACP_ANSWER' not in out
+
+        grok = home / '.codsh-rust' / '.grok'
+        grok.mkdir(parents=True, exist_ok=True)
+        (grok / 'config.toml').write_text(
+            '[models]\ndefault = "local"\n'
+            '[model.local]\nmodel = "fixture-model"\n'
+            'base_url = "http://127.0.0.1:9/v1"\n'
+            'env_key = "CODSH_REVIEW_API_KEY"\n'
+            'supports_reasoning_effort = true\n'
+            'reasoning_efforts = ["high"]\n'
+        )
+        provider_env = {
+            key: value for key, value in env('echo').items() if key != 'DSH_CODE_CLI_MOCK_TOOL'
+        }
+        provider_env.pop('CODSH_ACP_PATCH', None)
+        provider_env['CODSH_REVIEW_API_KEY'] = 'synthetic'
+        provider = plain(launcher, project, provider_env,
+                         ['-p', 'ping', '--model', 'local', '--effort', 'high'], timeout=60)
+        assert provider.returncode == 1, provider.stdout
+        assert provider.stdout == '' or 'RUST_ACP_ANSWER' not in provider.stdout
+        header = ''
+        for path in (home / '.codsh-rust' / 'dsh').rglob('*'):
+            if path.is_file() and path.stat().st_size < 2_000_000:
+                chunk = path.read_text(errors='replace')
+                if 'fixture-model' in chunk and 'reasoningEffort' in chunk:
+                    header = chunk
+                    break
+        assert 'fixture-model' in header and 'high' in header, 'non-mock provider request was not recorded'
 
         (output / 'result.txt').write_text('plain pipe checks passed\n')
         print(output / 'result.txt')

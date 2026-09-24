@@ -1,24 +1,70 @@
 /**
- * Apply one plain-automation tool mask and step bound inside the released
- * dsh agent loop. CODSH_PLAIN_TOOLS is "allow:read,grep" or "deny:bash".
- * CODSH_PLAIN_MAX_TURNS is a positive step bound. dsh calls one model step
- * `step`; the listener cancels before that step's model request. This is not
- * a second agent loop and does not count printed lines.
+ * Apply one plain-automation tool mask before the first model request, and
+ * one step bound inside the released dsh agent loop.
+ * CODSH_PLAIN_TOOLS is "allow:read,grep", "deny:edit", or both joined by ";".
+ * When both are set, deny wins. Public ids (read_file, Bash, Agent) map to
+ * the dsh tool name. CODSH_PLAIN_MAX_TURNS is a positive step bound. dsh
+ * calls one model step `step`; the listener cancels before step N+1. This
+ * is not a second agent loop and does not count printed lines.
  */
 export const name = 'rust-acp-plain'
 export const inject = ['tools']
 
+/** Public headless ids and permission prefixes, mapped onto registered dsh tools. */
+const TOOL_ALIASES = new Map([
+  ['read', 'read'],
+  ['read_file', 'read'],
+  ['write', 'write'],
+  ['edit', 'edit'],
+  ['search_replace', 'edit'],
+  ['strreplace', 'edit'],
+  ['str_replace_editor', 'str_replace_editor'],
+  ['bash', 'bash'],
+  ['run_terminal_cmd', 'bash'],
+  ['grep', 'grep'],
+  ['glob', 'glob'],
+  ['list_dir', 'glob'],
+  ['web_search', 'web_search'],
+  ['websearch', 'web_search'],
+  ['web_fetch', 'web_fetch'],
+  ['webfetch', 'web_fetch'],
+  ['agent', 'subagent'],
+  ['task', 'subagent'],
+])
+
+function canonicalTool(name) {
+  const text = String(name ?? '').trim()
+  if (!text || text.startsWith('Agent(')) return text
+  const mapped = TOOL_ALIASES.get(text.toLowerCase())
+  return mapped ?? text
+}
+
 function parseTools(raw) {
   const text = String(raw ?? '').trim()
   if (!text) return null
-  const split = text.indexOf(':')
-  if (split <= 0) throw new Error('CODSH_PLAIN_TOOLS must be allow:<names> or deny:<names>')
-  const mode = text.slice(0, split)
-  const names = text.slice(split + 1).split(',').map(name => name.trim()).filter(Boolean)
-  if ((mode !== 'allow' && mode !== 'deny') || names.length === 0) {
-    throw new Error('CODSH_PLAIN_TOOLS must be allow:<names> or deny:<names>')
+  const allow = []
+  const deny = []
+  const agentTypes = []
+  for (const clause of text.split(';').map(part => part.trim()).filter(Boolean)) {
+    const split = clause.indexOf(':')
+    if (split <= 0) throw new Error('CODSH_PLAIN_TOOLS must be allow:<names> and/or deny:<names>')
+    const mode = clause.slice(0, split)
+    const names = clause.slice(split + 1).split(',').map(name => name.trim()).filter(Boolean)
+    if ((mode !== 'allow' && mode !== 'deny') || names.length === 0) {
+      throw new Error('CODSH_PLAIN_TOOLS must be allow:<names> and/or deny:<names>')
+    }
+    const target = mode === 'allow' ? allow : deny
+    for (const name of names) {
+      if (name.startsWith('Agent(')) {
+        if (mode !== 'deny') throw new Error(`plain tool filter cannot allow ${name}`)
+        agentTypes.push(name)
+        continue
+      }
+      target.push(canonicalTool(name))
+    }
   }
-  return { mode, names }
+  if (allow.length === 0 && deny.length === 0 && agentTypes.length === 0) return null
+  return { allow, deny, agentTypes }
 }
 
 function parseMaxTurns(raw) {
@@ -29,56 +75,63 @@ function parseMaxTurns(raw) {
   return Number(String(raw).trim())
 }
 
+function removedReason(filter, name) {
+  const canonical = canonicalTool(name)
+  if (filter.deny.includes(canonical) || filter.deny.includes(name)) {
+    return `plain tool filter removed ${name}`
+  }
+  if (filter.allow.length > 0 && !filter.allow.includes(canonical) && !filter.allow.includes(name)) {
+    return `plain tool filter removed ${name}`
+  }
+  return ''
+}
+
+function failClosed(agent, ctx, reason) {
+  agent.cancel({ kind: 'hook', reason })
+  ctx.logger.error(reason)
+  process.stderr.write(`${reason}\n`)
+}
+
 export function apply(ctx) {
   const filter = parseTools(process.env.CODSH_PLAIN_TOOLS)
   const maxTurns = parseMaxTurns(process.env.CODSH_PLAIN_MAX_TURNS)
   if (!filter && maxTurns === null) return
   if (filter) {
-    const hidden = new Set(filter.names)
+    // One deny, prepended so it runs before the permission listener. restrict()
+    // hides the tool from the schema; this stops a call that still arrives.
     ctx.on('tools/pre-execute', async (exec, next) => {
-      if (filter.mode === 'deny' && hidden.has(exec.name)) {
-        return { kind: 'deny', reason: `plain tool filter removed ${exec.name}` }
-      }
-      if (filter.mode === 'allow' && !hidden.has(exec.name)) {
-        return { kind: 'deny', reason: `plain tool filter did not allow ${exec.name}` }
-      }
+      const reason = removedReason(filter, exec.name)
+      if (reason) return { kind: 'deny', reason }
       return next()
-    })
+    }, true)
   }
   ctx.on('agent/created', ({ agent }) => {
-    let applied = false
-    agent.ctx.on('agent/pre-step', (payload, next) => {
-      if (!applied && filter) {
-        applied = true
-        const mask = filter.mode === 'allow' ? { allow: filter.names } : { deny: filter.names }
-        try {
-          // Tools register while the agent starts. The first proposed step is
-          // the public point where the global names are known.
-          agent.ctx.tools.restrict(mask)
-        } catch (error) {
-          const message = error instanceof Error ? error.message : String(error)
-          const reason = `plain tool filter refused: ${message}`
-          agent.cancel({ kind: 'hook', reason })
-          ctx.logger.error(reason)
-          process.stderr.write(`${reason}\n`)
-          return { kind: 'reject' }
+    let refused = ''
+    if (filter) {
+      try {
+        // Registered names exist once the agent is announced. assemble() reads
+        // this view, so the first request must not wait for agent/pre-step.
+        if (filter.allow.length > 0) agent.ctx.tools.restrict({ allow: filter.allow })
+        if (filter.deny.length > 0) agent.ctx.tools.restrict({ deny: filter.deny })
+        if (filter.allow.length === 0 && filter.deny.length === 0 && filter.agentTypes.length > 0) {
+          agent.ctx.tools.restrict({ deny: ['subagent'] })
         }
-        const hidden = new Set(filter.names)
-        agent.ctx.tools.guard(exec => {
-          if (filter.mode === 'deny' && hidden.has(exec.name)) {
-            return `plain tool filter removed ${exec.name}`
-          }
-          if (filter.mode === 'allow' && !hidden.has(exec.name)) {
-            return `plain tool filter did not allow ${exec.name}`
-          }
-          return undefined
-        })
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error)
+        refused = `plain tool filter refused: ${message}`
+        failClosed(agent, ctx, refused)
       }
+    }
+    if (maxTurns === null && !filter) return
+    agent.ctx.on('agent/pre-step', (payload, next) => {
+      if (refused) {
+        failClosed(agent, ctx, refused)
+        return { kind: 'reject' }
+      }
+      // dsh step is the model step. N allows steps 1..N and stops before N+1.
       if (maxTurns !== null && payload.step > maxTurns) {
-        agent.cancel({
-          kind: 'hook',
-          reason: `stopped: agent step ${payload.step} exceeds --max-turns ${maxTurns}`,
-        })
+        const reason = `stopped: agent step ${payload.step} exceeds --max-turns ${maxTurns}`
+        failClosed(agent, ctx, reason)
         return { kind: 'reject' }
       }
       return next()

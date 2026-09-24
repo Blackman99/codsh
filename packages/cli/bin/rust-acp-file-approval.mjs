@@ -1393,15 +1393,6 @@ export function apply(ctx) {
       return { kind: 'deny', reason: policy.loadError }
     }
     const decision = evaluatePermission(policy, access, hookDeny)
-    if (process.env.CODSH_PLAIN_TOOLS) {
-      const [mode, listed = ''] = process.env.CODSH_PLAIN_TOOLS.split(':')
-      const names = new Set(listed.split(',').map(name => name.trim()).filter(Boolean))
-      const removed = (mode === 'deny' && names.has(exec.name))
-        || (mode === 'allow' && !names.has(exec.name))
-      if (removed) {
-        return { kind: 'deny', reason: `plain tool filter removed ${exec.name}` }
-      }
-    }
     if (decision.kind === 'deny') return { kind: 'deny', reason: decision.reason }
     if (decision.kind === 'allow') return next()
     const persistable = policy.rememberToolApprovals !== false && Boolean(policy.grantsPath)

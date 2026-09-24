@@ -336,6 +336,12 @@ enum LaunchMode {
         json: bool,
         help: bool,
     },
+    Completions {
+        shell: Option<String>,
+        help: bool,
+        debug: bool,
+        debug_file: Option<PathBuf>,
+    },
     New,
     Continue,
     Resume(String),
@@ -372,12 +378,14 @@ enum PlainPrompt {
     Json(String),
 }
 
-/// `--tools` keeps named dsh tools. `--disallowed-tools` removes them.
-/// A name dsh does not register is an error, not a silent no-op.
+/// `--tools` keeps named tools. `--disallowed-tools` removes them.
+/// Both may be set; deny wins. A name dsh does not register is an error.
 #[derive(Clone, Debug, PartialEq, Eq)]
 enum PlainTools {
-    Allow(Vec<String>),
-    Deny(Vec<String>),
+    Filter {
+        allow: Option<Vec<String>>,
+        deny: Option<Vec<String>>,
+    },
 }
 
 struct Connection {
@@ -459,32 +467,36 @@ struct Launch {
     sandbox_probe: Option<PathBuf>,
 }
 
+const PLAIN_OUTPUT_FORMATS: &[&str] =
+    &["plain", "json", "streaming-json", "streaming-messages-json"];
+
 /// Flags the frozen client accepts, but a later ticket owns their behavior.
-fn deferred_plain_flag(arg: &str) -> Option<&'static str> {
+fn deferred_plain_flag(arg: &str) -> Option<String> {
     let name = arg.split('=').next().unwrap_or(arg);
+    let named = |message: &str| Some(format!("{name}: {message}"));
     match name {
-        "--output-format" | "--json-schema" | "--include-partial-messages" => Some(
+        "--json-schema" | "--include-partial-messages" => named(
             "JSON and streaming output formats belong to a later ticket; this command prints plain text only",
         ),
         "--agent" | "--agents" | "--agent-profile" => {
-            Some("agent selection is not available in this plain command; a later ticket owns it")
+            named("agent selection is not available in this plain command; a later ticket owns it")
         }
-        "--fs-read" | "--fs-write" => Some(
+        "--fs-read" | "--fs-write" => named(
             "sandbox profiles are not available in this plain command; a later ticket owns them",
         ),
-        "--no-subagents" => Some(
+        "--no-subagents" => named(
             "subagent controls are not available in this plain command; a later ticket owns them",
         ),
         "--no-plan" | "--no-ask-user" | "--todo-gate" => {
-            Some("plan controls are not available in this plain command; a later ticket owns them")
+            named("plan controls are not available in this plain command; a later ticket owns them")
         }
-        "--disable-web-search" => Some(
+        "--disable-web-search" => named(
             "web-search controls are not available in this plain command; a later ticket owns them",
         ),
         "--worktree" | "-w" | "--worktree-ref" | "--ref" => {
-            Some("worktrees are not available in this plain command; a later ticket owns them")
+            named("worktrees are not available in this plain command; a later ticket owns them")
         }
-        "--experimental-memory" | "--memory-flush" => Some(
+        "--experimental-memory" | "--memory-flush" => named(
             "memory controls are not available in this plain command; a later ticket owns them",
         ),
         "--leader"
@@ -493,16 +505,35 @@ fn deferred_plain_flag(arg: &str) -> Option<&'static str> {
         | "--bind"
         | "--no-exit-on-disconnect"
         | "--relay-on-demand" => {
-            Some("shared leader controls are not available; dsh owns execution")
+            named("shared leader controls are not available; dsh owns execution")
         }
-        "--verbatim" => Some(
-            "verbatim prompt delivery is not a separate dsh mode; the prompt text is sent as given",
+        "--no-auto-update" => named(
+            "update checks are already off for this plain command; a later ticket owns the flag",
         ),
-        "--no-auto-update" | "--no-alt-screen" => Some(
-            "that flag has no effect on this plain command; update checks and the alternate screen are already off",
+        "--no-alt-screen" => named(
+            "that flag has no effect on this plain command; the alternate screen is already off",
         ),
+        "--compaction-mode" | "--compaction-detail" => {
+            named("compaction controls are recognized and not applied; a later ticket owns them")
+        }
         _ => None,
     }
+}
+
+fn usage_error(message: impl Into<String>) -> io::Error {
+    io::Error::other(format!("usage: {}", message.into()))
+}
+
+fn missing_flag_value(flag: &str) -> io::Error {
+    usage_error(format!(
+        "a value is required for '{flag}' but none was supplied\n\nFor more information, try '--help'."
+    ))
+}
+
+fn unexpected_argument(arg: &str) -> io::Error {
+    usage_error(format!(
+        "unexpected argument '{arg}' found\n\n  tip: to pass '{arg}' as a value, use '-- {arg}'\n\nUsage: codsh --rust [OPTIONS] [COMMAND]\n\nFor more information, try '--help'."
+    ))
 }
 
 fn is_subcommand(arg: &str) -> bool {
@@ -524,6 +555,8 @@ fn is_subcommand(arg: &str) -> bool {
             | "du"
             | "disk-usage"
             | "memory"
+            | "help"
+            | "completions"
     )
 }
 
@@ -531,20 +564,22 @@ fn take_flag_value(
     args: &[String],
     index: &mut usize,
     flag: &str,
-    missing: &str,
+    missing: impl Fn() -> io::Error,
 ) -> io::Result<Option<String>> {
     let arg = &args[*index];
     if arg == flag {
         *index += 1;
-        let value = args.get(*index).ok_or_else(|| io::Error::other(missing))?;
+        let Some(value) = args.get(*index) else {
+            return Err(missing());
+        };
         if value.starts_with('-') {
-            return Err(io::Error::other(missing));
+            return Err(missing());
         }
         return Ok(Some(value.clone()));
     }
     if let Some(value) = arg.strip_prefix(&format!("{flag}=")) {
         if value.is_empty() {
-            return Err(io::Error::other(missing));
+            return Err(missing());
         }
         return Ok(Some(value.to_string()));
     }
@@ -552,12 +587,17 @@ fn take_flag_value(
 }
 
 fn plain_flag_value(args: &[String], index: &mut usize, flag: &str) -> io::Result<Option<String>> {
-    take_flag_value(
-        args,
-        index,
-        flag,
-        &format!("error: a value is required for '{flag}' but none was supplied"),
-    )
+    let canonical = match flag {
+        "--allowedTools" => "--allow <RULE>",
+        "--disallowedTools" => "--deny <RULE>",
+        "--system-prompt" => "--system-prompt-override <PROMPT>",
+        "--append-system-prompt" => "--rules <RULES>",
+        "--output-format" => "--output-format <OUTPUT_FORMAT>",
+        "--compaction-mode" => "--compaction-mode <MODE>",
+        "--compaction-detail" => "--compaction-detail <DETAIL>",
+        other => other,
+    };
+    take_flag_value(args, index, flag, || missing_flag_value(canonical))
 }
 
 fn split_tool_list(value: &str) -> Vec<String> {
@@ -596,129 +636,122 @@ fn parse_launch(args: &[String]) -> io::Result<Launch> {
     let mut plain_prompt: Option<PlainPrompt> = None;
     let mut plain_cwd = None;
     let mut max_turns = None;
-    let mut plain_tools: Option<PlainTools> = None;
+    let mut plain_allow: Option<Vec<String>> = None;
+    let mut plain_deny: Option<Vec<String>> = None;
+    let mut verbatim = false;
+    let mut output_format = None;
     let mut index = 0;
+    let note_prompt = |current: &mut Option<PlainPrompt>, next: PlainPrompt| -> io::Result<()> {
+        if current.is_some() {
+            return Err(io::Error::other(
+                "conflicting prompt sources; pass only one of -p/--single, --prompt-file, or --prompt-json",
+            ));
+        }
+        *current = Some(next);
+        Ok(())
+    };
     while index < args.len() {
-        if let Some(value) = take_flag_value(
-            args,
-            &mut index,
-            "--model",
-            "missing --model value; use codsh --rust --help",
-        )? {
+        if let Some(value) = take_flag_value(args, &mut index, "--model", || {
+            io::Error::other("missing --model value; use codsh --rust --help")
+        })? {
             model = Some(value);
-        } else if let Some(value) = take_flag_value(
-            args,
-            &mut index,
-            "--effort",
-            "missing --effort value; use codsh --rust --help",
-        )? {
+        } else if let Some(value) = take_flag_value(args, &mut index, "--effort", || {
+            io::Error::other("missing --effort value; use codsh --rust --help")
+        })? {
             effort = Some(value);
-        } else if let Some(value) = take_flag_value(
-            args,
-            &mut index,
-            "--reasoning-effort",
-            "missing --reasoning-effort value; use codsh --rust --help",
-        )? {
+        } else if let Some(value) = take_flag_value(args, &mut index, "--reasoning-effort", || {
+            io::Error::other("missing --reasoning-effort value; use codsh --rust --help")
+        })? {
             effort = Some(value);
-        } else if let Some(value) = take_flag_value(
-            args,
-            &mut index,
-            "--sandbox",
-            "missing --sandbox profile; use off, workspace, read-only, strict, devbox, or a sandbox.toml profile",
-        )? {
+        } else if let Some(value) = take_flag_value(args, &mut index, "--sandbox", || {
+            io::Error::other(
+                "missing --sandbox profile; use off, workspace, read-only, strict, devbox, or a sandbox.toml profile",
+            )
+        })? {
             sandbox = Some(value);
-        } else if let Some(value) = take_flag_value(
-            args,
-            &mut index,
-            "--sandbox-report",
-            "missing --sandbox-report path",
-        )? {
+        } else if let Some(value) = take_flag_value(args, &mut index, "--sandbox-report", || {
+            io::Error::other("missing --sandbox-report path")
+        })? {
             sandbox_report = Some(PathBuf::from(value));
-        } else if let Some(value) = take_flag_value(
-            args,
-            &mut index,
-            "--sandbox-probe",
-            "missing --sandbox-probe script",
-        )? {
+        } else if let Some(value) = take_flag_value(args, &mut index, "--sandbox-probe", || {
+            io::Error::other("missing --sandbox-probe script")
+        })? {
             sandbox_probe = Some(PathBuf::from(value));
-        } else if let Some(value) = take_flag_value(
-            args,
-            &mut index,
-            "--session-id",
-            "missing session id; --session-id requires --fork-session",
-        )? {
+        } else if let Some(value) = take_flag_value(args, &mut index, "--session-id", || {
+            io::Error::other("missing session id; --session-id requires --fork-session")
+        })? {
             child_id = Some(value);
-        } else if let Some(value) = take_flag_value(
-            args,
-            &mut index,
-            "-s",
-            "missing session id; --session-id requires --fork-session",
-        )? {
+        } else if let Some(value) = take_flag_value(args, &mut index, "-s", || {
+            io::Error::other("missing session id; --session-id requires --fork-session")
+        })? {
             child_id = Some(value);
-        } else if let Some(value) = take_flag_value(
-            args,
-            &mut index,
-            "--rules",
-            "missing --rules text; use codsh --rust --help",
-        )? {
+        } else if let Some(value) = plain_flag_value(args, &mut index, "--rules")? {
             session_rules = Some(value);
-        } else if let Some(value) = take_flag_value(
-            args,
-            &mut index,
-            "--append-system-prompt",
-            "missing --append-system-prompt text; use codsh --rust --help",
-        )? {
+        } else if let Some(value) = plain_flag_value(args, &mut index, "--append-system-prompt")? {
             session_rules = Some(value);
-        } else if let Some(value) = take_flag_value(
-            args,
-            &mut index,
-            "--system-prompt-override",
-            "missing --system-prompt-override text; use codsh --rust --help",
-        )? {
+        } else if let Some(value) = plain_flag_value(args, &mut index, "--system-prompt-override")?
+        {
             system_prompt_override = Some(value);
-        } else if let Some(value) = take_flag_value(
-            args,
-            &mut index,
-            "--system-prompt",
-            "missing --system-prompt text; use codsh --rust --help",
-        )? {
+        } else if let Some(value) = plain_flag_value(args, &mut index, "--system-prompt")? {
             system_prompt_override = Some(value);
         } else if let Some(value) = plain_flag_value(args, &mut index, "--single")? {
-            plain_prompt = Some(PlainPrompt::Text(value));
+            note_prompt(&mut plain_prompt, PlainPrompt::Text(value))?;
         } else if let Some(value) = plain_flag_value(args, &mut index, "-p")? {
-            plain_prompt = Some(PlainPrompt::Text(value));
+            note_prompt(&mut plain_prompt, PlainPrompt::Text(value))?;
         } else if let Some(value) = plain_flag_value(args, &mut index, "--prompt-file")? {
-            plain_prompt = Some(PlainPrompt::File(PathBuf::from(value)));
+            note_prompt(&mut plain_prompt, PlainPrompt::File(PathBuf::from(value)))?;
         } else if let Some(value) = plain_flag_value(args, &mut index, "--prompt-json")? {
-            plain_prompt = Some(PlainPrompt::Json(value));
+            note_prompt(&mut plain_prompt, PlainPrompt::Json(value))?;
         } else if let Some(value) = plain_flag_value(args, &mut index, "--cwd")? {
             plain_cwd = Some(PathBuf::from(value));
         } else if let Some(value) = plain_flag_value(args, &mut index, "--max-turns")? {
-            let parsed = value
-                .parse::<u64>()
-                .map_err(|_| io::Error::other("error: --max-turns requires a positive integer"))?;
-            if parsed == 0 {
+            if max_turns.is_some() {
                 return Err(io::Error::other(
-                    "error: --max-turns requires a positive integer",
+                    "conflicting --max-turns values; pass the bound once",
+                ));
+            }
+            let parsed = value.parse::<u64>().map_err(|_| {
+                usage_error("invalid value for '--max-turns <N>': expected a positive integer")
+            })?;
+            if parsed == 0 {
+                return Err(usage_error(
+                    "invalid value for '--max-turns <N>': expected a positive integer",
                 ));
             }
             max_turns = Some(parsed);
         } else if let Some(value) = plain_flag_value(args, &mut index, "--tools")? {
             let names = split_tool_list(&value);
             if names.is_empty() {
-                return Err(io::Error::other(
-                    "error: --tools requires at least one dsh tool name",
-                ));
+                return Err(usage_error("--tools requires at least one tool name"));
             }
-            plain_tools = Some(PlainTools::Allow(names));
+            plain_allow.get_or_insert_with(Vec::new).extend(names);
         } else if let Some(value) = plain_flag_value(args, &mut index, "--disallowed-tools")? {
             let names = split_tool_list(&value);
             if names.is_empty() {
-                return Err(io::Error::other(
-                    "error: --disallowed-tools requires at least one dsh tool name",
+                return Err(usage_error(
+                    "--disallowed-tools requires at least one tool name",
                 ));
             }
-            plain_tools = Some(PlainTools::Deny(names));
+            plain_deny.get_or_insert_with(Vec::new).extend(names);
+        } else if args[index] == "--verbatim" {
+            verbatim = true;
+        } else if let Some(value) = plain_flag_value(args, &mut index, "--output-format")? {
+            if !PLAIN_OUTPUT_FORMATS.contains(&value.as_str()) {
+                return Err(usage_error(format!(
+                    "invalid value '{value}' for '--output-format <OUTPUT_FORMAT>'\n  [possible values: plain, json, streaming-json, streaming-messages-json]\n\nFor more information, try '--help'."
+                )));
+            }
+            output_format = Some(value);
+        } else if let Some(value) = plain_flag_value(args, &mut index, "--compaction-mode")? {
+            let _ = value;
+            return Err(io::Error::other(
+                "--compaction-mode: compaction controls are recognized and not applied; a later ticket owns them",
+            ));
+        } else if let Some(value) = plain_flag_value(args, &mut index, "--compaction-detail")? {
+            let _ = value;
+            return Err(io::Error::other(
+                "--compaction-detail: compaction controls are recognized and not applied; a later ticket owns them",
+            ));
         } else {
             let arg = &args[index];
             if let Some(message) = deferred_plain_flag(arg) {
@@ -804,6 +837,11 @@ fn parse_launch(args: &[String]) -> io::Result<Launch> {
                         .split_once('=')
                         .map(|(flag, value)| (flag, Some(value.to_string())))
                         .unwrap_or((arg.as_str(), None));
+                    let canonical = if flag == "--allow" || flag == "--allowedTools" {
+                        "--allow <RULE>"
+                    } else {
+                        "--deny <RULE>"
+                    };
                     let value = if let Some(value) = inline {
                         value
                     } else {
@@ -811,11 +849,7 @@ fn parse_launch(args: &[String]) -> io::Result<Launch> {
                         args.get(index)
                             .filter(|value| !value.starts_with('-') && !is_subcommand(value))
                             .cloned()
-                            .ok_or_else(|| {
-                                io::Error::other(format!(
-                                    "missing {flag} rule; example: {flag} 'Bash(git *)'"
-                                ))
-                            })?
+                            .ok_or_else(|| missing_flag_value(canonical))?
                     };
                     if flag == "--allow" || flag == "--allowedTools" {
                         allow.push(value);
@@ -823,12 +857,32 @@ fn parse_launch(args: &[String]) -> io::Result<Launch> {
                         deny.push(value);
                     }
                 }
+            } else if arg.starts_with('-')
+                && !matches!(
+                    arg.as_str(),
+                    "--continue" | "--resume" | "--help" | "-h" | "--version" | "-V"
+                )
+                && !args.iter().any(|item| is_subcommand(item))
+            {
+                return Err(unexpected_argument(arg));
             } else {
                 rest.push(arg.clone());
             }
         }
         index += 1;
     }
+    if let Some(format) = output_format.as_deref()
+        && format != "plain"
+    {
+        return Err(io::Error::other(
+            "--output-format: JSON and streaming output formats belong to a later ticket; this command prints plain text only",
+        ));
+    }
+    let plain_tools = match (plain_allow, plain_deny) {
+        (None, None) => None,
+        (allow, deny) => Some(PlainTools::Filter { allow, deny }),
+    };
+    let _ = verbatim;
     if child_id.is_some() && !fork_session {
         return Err(io::Error::other(
             "--session-id is only valid together with --fork-session",
@@ -934,11 +988,26 @@ fn parse_launch(args: &[String]) -> io::Result<Launch> {
         ["memory", flags @ ..] => {
             LaunchMode::Memory(flags.iter().map(|flag| (*flag).to_string()).collect())
         }
+        ["help"] | ["help", "--help" | "-h"] => LaunchMode::Help,
+        ["help", "completions"] | ["completions", "--help" | "-h"] => LaunchMode::Completions {
+            shell: None,
+            help: true,
+            debug: false,
+            debug_file: None,
+        },
+        ["completions"] => {
+            return Err(missing_flag_value("completions <SHELL>"));
+        }
+        ["completions", flags @ ..] => parse_completions(flags)?,
+        ["help", command] => {
+            return Err(unexpected_argument(command));
+        }
         [prompt] if plain_prompt.is_none() && !prompt.starts_with('-') => {
             return Err(io::Error::other(
                 "a positional prompt does not start plain mode; use -p/--single, --prompt-file, or --prompt-json",
             ));
         }
+        [unknown, ..] if unknown.starts_with('-') => return Err(unexpected_argument(unknown)),
         _ => {
             return Err(io::Error::other(
                 "unsupported preview arguments; use codsh --rust --help",
@@ -1065,6 +1134,80 @@ fn share_destination(config: &config::EffectiveConfig, explicit: Option<&str>) -
         .map(str::trim)
         .filter(|url| !url.is_empty())
         .map(str::to_string)
+}
+
+const COMPLETION_SHELLS: &[&str] = &["bash", "elvish", "fish", "powershell", "zsh"];
+
+fn parse_completions(flags: &[&str]) -> io::Result<LaunchMode> {
+    let mut shell = None;
+    let mut help = false;
+    let mut debug = false;
+    let mut debug_file = None;
+    let mut index = 0;
+    while index < flags.len() {
+        match flags[index] {
+            "--help" | "-h" => help = true,
+            "--debug" => debug = true,
+            "--debug-file" => {
+                index += 1;
+                let path = flags
+                    .get(index)
+                    .ok_or_else(|| missing_flag_value("--debug-file <FILE>"))?;
+                debug_file = Some(PathBuf::from(path));
+            }
+            "--leader-socket" => {
+                return Err(io::Error::other(
+                    "--leader-socket: shared leader controls are not available; dsh owns execution",
+                ));
+            }
+            other if other.starts_with("--debug-file=") => {
+                let path = &other["--debug-file=".len()..];
+                if path.is_empty() {
+                    return Err(missing_flag_value("--debug-file <FILE>"));
+                }
+                debug_file = Some(PathBuf::from(path));
+            }
+            other if other.starts_with('-') => return Err(unexpected_argument(other)),
+            other if COMPLETION_SHELLS.contains(&other) => {
+                if shell.is_some() {
+                    return Err(io::Error::other(
+                        "completions accepts one shell; possible values: bash, elvish, fish, powershell, zsh",
+                    ));
+                }
+                shell = Some((*other).to_string());
+            }
+            other => {
+                return Err(usage_error(format!(
+                    "invalid value '{other}' for 'completions <SHELL>'\n  [possible values: bash, elvish, fish, powershell, zsh]\n\nFor more information, try '--help'."
+                )));
+            }
+        }
+        index += 1;
+    }
+    if shell.is_none() && !help {
+        return Err(missing_flag_value("completions <SHELL>"));
+    }
+    Ok(LaunchMode::Completions {
+        shell,
+        help,
+        debug,
+        debug_file,
+    })
+}
+
+fn completions_help() -> &'static str {
+    "Generate shell completion scripts (bash, zsh, fish, powershell, elvish)\n\nUsage: codsh --rust completions [OPTIONS] <SHELL>\n\nArguments:\n  <SHELL>  Target shell [possible values: bash, elvish, fish, powershell, zsh]\n\nOptions:\n      --debug                 Enable debug logging\n      --debug-file <FILE>     Write debug logs to FILE\n  -h, --help                  Print help\n\nThe script completes this command's flags and subcommands. It is not a help page."
+}
+
+fn completion_script(shell: &str) -> &'static str {
+    match shell {
+        "bash" => include_str!("completions/bash.sh"),
+        "zsh" => include_str!("completions/zsh.sh"),
+        "fish" => include_str!("completions/fish.fish"),
+        "powershell" => include_str!("completions/powershell.ps1"),
+        "elvish" => include_str!("completions/elvish.elv"),
+        _ => "",
+    }
 }
 
 fn parse_voice(flags: &[&str]) -> io::Result<LaunchMode> {
@@ -1257,6 +1400,10 @@ fn run_web(kind: &WebCommand, json: bool, loaded: &config::EffectiveConfig) -> i
             Err(io::Error::other(message))
         }
     }
+}
+
+fn short_help() -> &'static str {
+    "codsh --rust\n\nUsage: codsh --rust [OPTIONS] [COMMAND]\n\nPlain: -p/--single, --prompt-file, --prompt-json. --verbatim sends the prompt as given.\n--cwd, --continue, --resume <id-or-title>, --fork-session, --max-turns <N>, --tools, --disallowed-tools.\nShells: bash, elvish, fish, powershell, zsh via `completions <SHELL>`.\nCommands: help, completions, inspect, import, feedback, plugin, login, logout, setup, voice, sessions, dashboard.\n-h is this summary. --help prints the full text. Unknown options and missing values exit 2."
 }
 
 fn voice_help() -> &'static str {
@@ -4897,17 +5044,20 @@ fn plain_blocks(prompt: &PlainPrompt) -> io::Result<Vec<Value>> {
 }
 
 fn plain_tool_env(tools: &Option<PlainTools>) -> Option<(String, String)> {
-    let Some(tools) = tools else {
+    let Some(PlainTools::Filter { allow, deny }) = tools else {
         return None;
     };
-    let (mode, names) = match tools {
-        PlainTools::Allow(names) => ("allow", names),
-        PlainTools::Deny(names) => ("deny", names),
-    };
-    Some((
-        "CODSH_PLAIN_TOOLS".into(),
-        format!("{mode}:{}", names.join(",")),
-    ))
+    let mut clauses = Vec::new();
+    if let Some(names) = allow.as_ref().filter(|names| !names.is_empty()) {
+        clauses.push(format!("allow:{}", names.join(",")));
+    }
+    if let Some(names) = deny.as_ref().filter(|names| !names.is_empty()) {
+        clauses.push(format!("deny:{}", names.join(",")));
+    }
+    if clauses.is_empty() {
+        return None;
+    }
+    Some(("CODSH_PLAIN_TOOLS".into(), clauses.join(";")))
 }
 
 struct PlainStop {
@@ -4921,7 +5071,11 @@ fn plain_failure_message(dsh_home: &Path) -> String {
     let detail = text
         .lines()
         .rev()
-        .find(|line| line.contains("plain tool filter") || line.contains("tools.restrict"))
+        .find(|line| {
+            line.contains("plain tool filter")
+                || line.contains("tools.restrict")
+                || line.contains("--max-turns")
+        })
         .unwrap_or("dsh cancelled the plain turn before producing an answer");
     detail.to_string()
 }
@@ -5195,6 +5349,47 @@ fn run() -> io::Result<()> {
             println!("{}", voice_help());
             return Ok(());
         }
+        LaunchMode::Completions {
+            help: true,
+            debug,
+            debug_file,
+            ..
+        } => {
+            let text = completions_help();
+            if *debug || debug_file.is_some() {
+                eprintln!("completions help");
+                if let Some(path) = debug_file {
+                    std::fs::write(path, "completions help\n")?;
+                }
+            }
+            println!("{text}");
+            return Ok(());
+        }
+        LaunchMode::Completions {
+            shell: Some(shell),
+            debug,
+            debug_file,
+            ..
+        } => {
+            let script = completion_script(shell);
+            if script.is_empty() {
+                return Err(usage_error(format!(
+                    "invalid value '{shell}' for 'completions <SHELL>'\n  [possible values: bash, elvish, fish, powershell, zsh]"
+                )));
+            }
+            if *debug || debug_file.is_some() {
+                let note = format!("completions shell={shell}\n");
+                eprint!("{note}");
+                if let Some(path) = debug_file {
+                    std::fs::write(path, note)?;
+                }
+            }
+            print!("{script}");
+            if !script.ends_with('\n') {
+                println!();
+            }
+            return Ok(());
+        }
         LaunchMode::Voice { json, .. } => {
             let loaded = load_runtime_config(&launch);
             let report = voice::diagnose(&std::env::vars().collect());
@@ -5218,6 +5413,11 @@ fn run() -> io::Result<()> {
             return run_web(kind, *json, &loaded);
         }
         LaunchMode::Help => {
+            let summary = args.iter().any(|arg| arg == "-h");
+            if summary {
+                println!("{}", short_help());
+                return Ok(());
+            }
             println!(
                 "codsh --rust\n\nIsolated Rust client. Real dsh executes turns over ACP/JSON-RPC stdio.\nHome: ~/.codsh-rust/dsh; Profile: rust. Legacy codsh is unchanged.\nUser config: $GROK_HOME/config.toml (default ~/.codsh-rust/.grok/config.toml), mapped into isolated dsh settings.yaml.\nManaged defaults: $GROK_HOME/managed_config.toml. Locked requirements: $GROK_HOME/requirements.toml (cannot be bypassed by later CLI, environment, overlay, workspace, or user values).\n`codsh --rust inspect` / `inspect --json` shows effective values, origins, folder trust, appearance/theme/status-line, marketplace sources, installed plugin provenance, and whether project assets are active. Invalid config.toml is left unchanged and reports its path. Unknown security fields and invalid policies are diagnosed with valid values, sources, and limits.\n`codsh --rust import --preview` lists conversions, conflicts, and unsupported items from current dsh `$DSH_HOME/settings.yaml`, `code-cli-thinking.json`, and `code-cli-ui.json`. It does not treat outdated `code-cli-settings.json` as a provider source. `--apply` copies selected providers/preferences into the isolated Home. Official tokens, `.credentials.yaml`, `.env`, and original trust/execution grants are never copied. Preview, cancel, and failed apply leave source files and existing isolated settings unchanged. Model credentials stay in the host environment (`--authorize-env`) or must be exported after import.\nWorkspace trust: untrusted folders prompt before applying project config, Hooks, plugins, or instructions; `--trust` / `--trust-folder [path]` saves a grant, `--revoke-trust` withdraws it. A read-only $GROK_HOME reports save failure without pretending the grant is durable. Untrusted Hooks/plugins/project capabilities do not execute.\nPlugin lifecycle: `codsh --rust plugin marketplace add|list|update|remove` and `plugin install|update|uninstall|list` record sources, versions, licenses, and files under the isolated Home. Install does not grant execution. Failed download/checksum/conflict/offline/cancel leave no success record. Official marketplace auto-register is off unless GROK_OFFICIAL_MARKETPLACE_AUTO_REGISTER is enabled. `/plugins` and `/marketplace` open the plugins directory. Uninstall does not delete unrelated user files.\nFirst-run missing credentials stay local: no grok.com login, no default official telemetry, no automatic import of ~/.dsh or ~/.grok credentials. `login` / `logout` / `setup` use configured substitute identity or management services; official grok.com / auth.x.ai login, subscription billing, auto-topup, and team entitlements are not reproduced. Session tokens stay in $GROK_HOME/auth.json (0600) and are not transferred to model providers, MCP, Grove, or other services. Independent API-key use does not require login unless GROK_DISABLE_API_KEY_AUTH or a team pin (GROK_FORCE_LOGIN_TEAM_ID / requirements force_login_team_uuid) requires a matching identity session. Unsigned or unverifiable managed policy is refused.  /login and /logout reuse that contract.\nFile read/edit/write and other dsh tools honour allow/ask/deny rules, remembered project grants, and permission modes. y allows once; a remembers this project only and is not a permanent global rule; n rejects with no write. /revoke-approvals forgets this project's remembered grants. Deny, hooks, and locked always-approve survive --always-approve/--yolo. Trust prompt: y=allow, n=deny.\nCtrl+Q: quit. Ctrl+D quits except in fullscreen scrollback, where it half-pages. Ctrl+C: clear a draft; empty draft cancels a running turn via dsh, or quits when idle before any turn.\nEsc never cancels a turn or a pending approval; it dismisses selection and reminds you to use Ctrl+C.\nEnter: submit prompt. Tab focuses scrollback in fullscreen when turns exist. /find searches the transcript, /jump lists turns, /vim-mode toggles scrollback Vim keys, and /toggle-mouse-reporting flips mouse capture when `[ui] mouse_reporting_toggle` is on in $GROK_HOME/config.toml. Esc closes search/jump/viewer and restores the prior reading position. Click selects or folds; drag copies and does not fold. Fullscreen-only /find and /jump refuse in minimal with the /fullscreen remedy. Shift+Enter or Alt+Enter inserts a newline; /multiline (alias /ml) or Ctrl+M swaps those chords. /history searches submitted prompts; empty ↑ browses them. Tab/Esc drive slash and HISTFILE completion. Typing / in a nonempty draft stashes that draft, runs the slash command, and restores it. /edit-prompt opens $VISUAL then $EDITOR then vi for an empty draft; Ctrl+G in minimal preserves the current draft. Saving an empty file clears without submitting. [ui] simple_mode=false enables prompt Vim (i/Esc/h/l/x). Next-prompt ghost text is not wired: the host does not call a suggestion provider, so Tab/Right do not accept ghost text. Suggestion rows stay blocked (PARITY-150-suggestions). chips=false does not mean an attachment was refused. /memory (alias /mem) browses local notes under $GROK_HOME/memory. Global notes apply to every project; workspace notes follow the Git origin (org/repo), so clones and worktrees of that repository share one directory and a different origin does not. The list is separate from the generated index. Enter previews a note read-only, / filters names and contents, y copies the path, x then x deletes only a session file, and t toggles memory for this session without rewriting config.toml; once this session's first prompt is already sent, toggling on reaches no prompt here, and /new drops the toggle and follows config.toml again rather than carrying it forward. MEMORY.md cannot be deleted, including a human note and a generated index. /new and a dashboard dispatch keep the configured provider, model, effort, permissions, and settings patch; they do not fall back to another provider. /remember [text] asks for confirmation before appending a note; n or Esc writes nothing. Empty /remember takes the next line as the note. Enabled memory injects those human notes into a session's first dsh prompt only. Memory stays off until [memory] enabled = true or GROK_MEMORY=1. --no-memory and GROK_MEMORY=0 hide /memory for the process and do not delete files. `codsh --rust memory clear` (--workspace default, --global, --all) deletes only the selected scope after --yes. Disabling memory never uploads notes. A damaged index is rebuilt from the notes and does not overwrite them. /voice starts dictation into the current draft and never submits it; /voice again, /voice stop, or Esc cancels or stops. Ctrl+Space and F8 follow [ui] voice_capture_mode (hold or toggle) when [ui] voice_keybind_enabled is true; /voice still works when that is false. Hold needs a key-release report. Audio goes only to [voice] api_base (or endpoints.xai_api_base_url) /audio/transcriptions. Official hosts are refused. [ui] voice_stt_language overrides [voice] language. /voice doctor and `codsh --rust voice doctor` list devices without recording. Missing devices report voice.no-input-device. Live microphone open is unverified on this host; CODSH_VOICE_FIXTURE supplies bytes for a real substitute route. Linux and Windows capture are unverified. /always-approve, /auto, and /ask set the session mode unless requirements.toml locks always-approve off. /feedback opens Write and Drafts; Enter on Write sends, Ctrl+S saves locally, and /feedback <text> sends immediately. Draft text is posted only when privacy.share_content is on. /settings (/config) edits appearance, default screen mode, timestamps, compact mode, and status line. /theme (/t) previews fullscreen themes; Escape restores the previous theme without saving. /compact-mode and /timestamps toggle persisted [ui] keys. Minimal mode uses the terminal palette and refuses /theme. Status-line scripts run with a 10s timeout, cleared BASH_ENV/ENV, and process-group cleanup on exit. Locked requirements show their source and cannot be edited.\n/minimal and /fullscreen switch render mode in process without restarting dsh; --minimal/--fullscreen and GROK_SCREEN_MODE are session-scoped and do not rewrite [ui] screen_mode. /model (/m) and /effort select advertised catalog options; unsupported backends/efforts are refused, never treated as equivalent or silently swapped. /context shows dsh occupancy, advertised model limits, and heuristic buckets without fabricating zeros. /compact [instruction] runs dsh compaction (not a second history); optional instructions go only to the summarizer request (purpose=compaction). Automatic compaction uses session.auto_compact_threshold_percent / GROK_AUTO_COMPACT_THRESHOLD_PERCENT mapped to dsh thresholdRatio. GROK_COMPACTION_WALL_CLOCK_SECS bounds the operation; 0 disables that budget. Runtime changes apply to the next turn and persist under $GROK_HOME/model-selection.toml. export <id> [file] writes that session as Markdown and keeps stored messages, tool calls, and attachment paths; it does not claim secrets were removed. -c copies the same transcript. /export [file] does this for the current session. Extra arguments are rejected before any file is written. share <id> and /share post only to the selected endpoints.share_url, CODSH_SHARE_URL, or --url. A missing service, a redirect, a timeout, or an official grok.com, api.x.ai, or sentry host is an error and uploads nothing. Redirects are not followed. sessions delete <id> --yes, /delete, the resume picker, and dashboard Ctrl+X are blocked: released dsh persistence has no deletion operation, so nothing is removed. du and disk-usage report isolated-home sizes, largest first, with --json. They do not delete files. --continue resumes the last session in this directory; --resume <id> loads that dsh session. --fork-session with --resume/--continue copies conversation into a new session id. /rewind and /undo fork conversation-only history through dsh; files are not restored. /fork copies the current history into a new session. Idle empty Esc Esc opens rewind. A second client is refused while this process holds write ownership. Interrupted tools show [interrupted]/unknown and are not replayed.\nOptions: --help, --version, --continue, --resume <id>, --fork-session, --session-id <id>, --minimal, --fullscreen, --model <id>, --effort/--reasoning-effort <level>, --no-memory, --trust, --trust-folder [path], --revoke-trust, --always-approve/--yolo, --auto, --permission-mode <mode>, --allow/--deny <RULE>, --sandbox <profile>, --rules/--append-system-prompt <text>, --system-prompt-override/--system-prompt <text>, inspect, import, plugin, feedback, memory clear, voice doctor, login, logout, setup, export, share, sessions delete, du, disk-usage. --rules appends a <human_rules> block for this session. --system-prompt-override replaces file rules and --rules for the text sent to dsh; the typed prompt is still sent. GROK_CLAUDE_SKILLS_ENABLED and GROK_CURSOR_SKILLS_ENABLED turn those vendor skill scans off. --restore-code is refused.\nFilesystem sandbox: off by default. --sandbox or GROK_SANDBOX or [sandbox] profile selects workspace, read-only, strict, devbox, or a sandbox.toml profile. Naming a custom profile does not trust an untrusted workspace's .grok/sandbox.toml; a definition that exists only there refuses startup, and a user $GROK_HOME/sandbox.toml definition still wins. A non-off profile is applied to this process with Seatbelt (macOS) or Landlock (Linux) before dsh starts, and children inherit it. If that kernel policy cannot be applied, startup is refused. The status line names the active profile and write roots. Linux and Windows are not claimed from a macOS run. Child network blocking is not this control.\nPlain: -p/--single <prompt>, --prompt-file <path>, or --prompt-json <blocks> runs one dsh turn and prints the final answer on stdout. Diagnostics stay on stderr. --cwd <path> is the dsh workspace. --continue and --resume <id> with a plain prompt resume that session; --fork-session copies it. --max-turns <N> stops inside the dsh agent loop before the next model step. --tools and --disallowed-tools filter registered dsh tool names; an unknown name is an error. A positional prompt is not plain mode. Piped stdin is not the prompt. JSON output formats, agent selection, sandbox, subagents, plan, web search, worktrees, and memory flags error and stay owned by later tickets. SIGINT exits 130 and SIGTERM exits 143. A missing credential, bad flag, or dsh error exits 1.\nNonessential telemetry, trace upload, session tracking, and content sharing default off. Opt-in requires a substitute endpoints.telemetry_url / feedback_base_url / trace_upload_url; official grok.com, api.x.ai, and sentry hosts are refused. Diagnostic previews list kind/ok/count only and never prompts or keys. Model calls stay on the configured provider and are not telemetry. Locked requirements can force these switches off."
             );
@@ -8233,6 +8433,11 @@ fn main() {
         old_hook(info);
     }));
     if let Err(error) = run() {
+        let message = error.to_string();
+        if let Some(usage) = message.strip_prefix("usage: ") {
+            eprintln!("error: {usage}");
+            std::process::exit(2);
+        }
         eprintln!("codsh: Rust startup failed: {error}");
         std::process::exit(1);
     }
@@ -8427,23 +8632,69 @@ mod tests {
         let file = parse_launch(&args(&[
             "--prompt-file",
             "prompt.txt",
+            "--tools",
+            "read_file,Bash",
             "--disallowed-tools",
-            "bash,web_search",
+            "edit",
             "--continue",
         ]))
         .unwrap();
         match file.mode {
             LaunchMode::Plain {
                 prompt: PlainPrompt::File(path),
-                tools: Some(PlainTools::Deny(names)),
+                tools: Some(PlainTools::Filter { allow, deny }),
                 resume: Some(PlainResume::Continue),
                 ..
             } => {
                 assert_eq!(path, std::path::PathBuf::from("prompt.txt"));
-                assert_eq!(names, ["bash", "web_search"]);
+                assert_eq!(
+                    allow
+                        .as_deref()
+                        .map(|names| { names.iter().map(String::as_str).collect::<Vec<_>>() }),
+                    Some(vec!["read_file", "Bash"])
+                );
+                assert_eq!(
+                    deny.as_deref()
+                        .map(|names| names.iter().map(String::as_str).collect::<Vec<_>>()),
+                    Some(vec!["edit"])
+                );
             }
             other => panic!("{other:?}"),
         }
+        let verbatim = parse_launch(&args(&["-p", "keep  spaces", "--verbatim"])).unwrap();
+        assert!(matches!(
+            verbatim.mode,
+            LaunchMode::Plain {
+                prompt: PlainPrompt::Text(_),
+                ..
+            }
+        ));
+        let duplicate = parse_launch(&args(&["-p", "one", "-p", "two"])).unwrap_err();
+        assert!(duplicate.to_string().contains("conflicting prompt"));
+        let unknown = parse_launch(&args(&["--not-a-real-option"])).unwrap_err();
+        assert!(unknown.to_string().starts_with("usage: "));
+        assert!(unknown.to_string().contains("unexpected argument"));
+        let missing_allow = parse_launch(&args(&["--allowedTools"])).unwrap_err();
+        assert!(missing_allow.to_string().contains("'--allow <RULE>'"));
+        let bad_format = parse_launch(&args(&["--output-format", "not-a-format"])).unwrap_err();
+        assert!(bad_format.to_string().contains("invalid value"));
+        let plain_format =
+            parse_launch(&args(&["-p", "hello", "--output-format", "plain"])).unwrap();
+        assert!(matches!(plain_format.mode, LaunchMode::Plain { .. }));
+        let json_format =
+            parse_launch(&args(&["-p", "hello", "--output-format", "json"])).unwrap_err();
+        assert!(json_format.to_string().contains("--output-format"));
+        assert!(!json_format.to_string().starts_with("usage: "));
+        let shells = parse_launch(&args(&["completions", "zsh"])).unwrap();
+        assert!(matches!(
+            shells.mode,
+            LaunchMode::Completions { help: false, .. }
+        ));
+        let shell_help = parse_launch(&args(&["completions", "--help"])).unwrap();
+        assert!(matches!(
+            shell_help.mode,
+            LaunchMode::Completions { help: true, .. }
+        ));
         let json = parse_launch(&args(&[
             "--prompt-json",
             "{\"type\":\"text\",\"text\":\"hi\"}",
@@ -8885,9 +9136,10 @@ enabled = {enabled}
         );
         let error = parse_launch(&args(&["--no-alt-screen"])).unwrap_err();
         assert!(
-            error
-                .to_string()
-                .contains("that flag has no effect on this plain command"),
+            error.to_string().contains("--no-alt-screen")
+                && error
+                    .to_string()
+                    .contains("that flag has no effect on this plain command"),
             "{error}"
         );
         let rules =
@@ -8910,7 +9162,11 @@ enabled = {enabled}
             Some("verbatim")
         );
         let missing = parse_launch(&args(&["--rules"])).unwrap_err();
-        assert!(missing.to_string().contains("missing --rules"));
+        assert!(
+            missing
+                .to_string()
+                .contains("a value is required for '--rules")
+        );
     }
 
     #[test]

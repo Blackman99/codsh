@@ -12,6 +12,7 @@
  * DSH_CODE_CLI_MOCK_DELAY_MS delays the first chunk so session/cancel can win
  * before activity.
  */
+import { appendFileSync } from 'node:fs'
 import { LlmAdapter, ReasoningEffortId, ToolCallId } from '@deepseek-ai/dsh-llm'
 
 const OFF = ReasoningEffortId('off')
@@ -354,6 +355,16 @@ class RustAcpMockAdapter extends LlmAdapter {
   }
 
   async * stream(options) {
+    const trace = process.env.CODSH_REVIEW_TRACE
+    if (trace && options.purpose !== 'compaction') {
+      const names = Array.isArray(options.tools) ? options.tools.map(tool => tool.name) : []
+      appendFileSync(trace, `${JSON.stringify({
+        purpose: options.purpose ?? 'turn',
+        provider: options.provider,
+        model: options.model?.id ?? options.model ?? '',
+        tools: names,
+      })}\n`)
+    }
     if (DELAY_MS > 0) {
       try {
         await sleep(DELAY_MS, options.signal)
